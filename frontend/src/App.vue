@@ -1,0 +1,34 @@
+<template>
+  <nav>
+    <router-link to="/">库</router-link>
+    <router-link to="/settings">设置</router-link>
+  </nav>
+  <router-view />
+</template>
+<style>
+body { font-family: system-ui, sans-serif; margin: 0; background: #141414; color: #eee; }
+nav { padding: 12px; background: #1f1f1f; display: flex; gap: 16px; }
+nav a { color: #eee; text-decoration: none; }
+nav a.router-link-active { color: #e50914; font-weight: bold; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; padding: 12px; }
+.card { background: #222; border-radius: 8px; overflow: hidden; cursor: pointer; }
+.card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
+.card .t { padding: 8px; font-size: 14px; }
+.bar { padding: 12px; display: flex; gap: 8px; }
+input, button, textarea { font-size: 14px; padding: 6px 10px; border-radius: 6px; border: 1px solid #444; background: #222; color: #eee; }
+button { cursor: pointer; }
+.page { padding: 12px; max-width: 900px; }
+.actor { cursor: pointer; color: #6ab0ff; }
+.poster-wrap { position: relative; }
+.poster-wrap img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
+.card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
+.score-badge { position: absolute; top: 6px; right: 6px; font-size: 12px; font-weight: bold; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #ffc107; white-space: nowrap; }
+.score-badge.douban { color: #7ed321; }
+.score-badge.custom { color: #ff6b6b; }
+.stars { color: #ffc107; letter-spacing: 1px; }
+.rate-chip { display: inline-block; font-size: 15px; padding: 4px 14px; border-radius: 999px; border: 1px solid #444; margin-right: 6px; }
+.rate-chip.tmdb { color: #ffc107; border-color: #6b5518; }
+.rate-chip.douban { color: #7ed321; border-color: #3a5a1e; }
+.rate-chip.custom { color: #ff6b6b; border-color: #6e2b2b; }
+.rating-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+</style>

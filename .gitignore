@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+data/*.db*
+data/posters/
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+sample_media/*
+!sample_media/.gitkeep

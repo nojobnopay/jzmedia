@@ -1,0 +1,12 @@
+# WSL开发专用：docker compose 自动加载此文件（NAS上不要放此文件）
+services:
+  mymedia:
+    # 以宿主用户运行，避免容器root创建的文件宿主删不掉
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./app:/app/app
+      - ./frontend/dist:/app/frontend/dist
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+    restart: "no"
+    environment:
+      ENV: dev
