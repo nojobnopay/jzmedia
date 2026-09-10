@@ -34,3 +34,7 @@
 ## Deploy
 - `docker-compose.override.yml` is WSL-only (dev user + bind mounts + `--reload`). Delete / exclude it on NAS; set NAS `.env` to `MEDIA_HOST_PATH=/volume1/video`, `DATA_HOST_PATH=/volume1/docker/jzmedia/data`, correct `UID/GID`.
 - WSL Docker Desktop proxy breakage is documented in README §7 (use `crane pull … && docker load`, or `BUILD_HTTP_PROXY=http://nas:7890`).
+
+## Versioning
+- Git (`main` branch, local-only, no remote): commit per feature, annotated tag per release (`v0.4.0` = filters/ratings/avatar-wall/person page). Code versions unified at `0.4.0` (`main.py` + `package.json`).
+- Images: `image: jzmedia:${APP_VERSION:-latest}` in compose (local `.env` pins e.g. `v0.4.0`); release = `GIT_SHA=$(git rev-parse --short HEAD) docker compose build` then `docker tag jzmedia:vX.Y.Z jzmedia:latest`. Version/commit baked via Dockerfile OCI labels (`APP_VERSION`/`GIT_SHA` args). `docker image prune` clears dangling rebuilds.
