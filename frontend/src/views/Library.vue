@@ -4,7 +4,6 @@
     <button @click="applyAndLoad">搜索</button>
     <button @click="clearAll">全部</button>
     <button @click="doScan" :disabled="scanning">{{ scanning ? '刮削中…' : '扫描刮削' }}</button>
-    <button @click="doBackfill" :disabled="backfilling" title="给存量影片补产地/类型信息">{{ backfilling ? '补数据中…' : '补产地信息' }}</button>
   </div>
   <div v-if="msg" class="bar">{{ msg }}</div>
 
@@ -89,7 +88,6 @@ const q = ref('')
 const items = ref([])
 const msg = ref('')
 const scanning = ref(false)
-const backfilling = ref(false)
 const facets = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], ratings: { tmdb: [], douban: [], custom: [] } })
 const sel = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], rating: null, ratingSource: 'tmdb' })
 const yearPick = ref('')
@@ -209,20 +207,6 @@ async function doScan() {
     scanning.value = false
   }
 }
-async function doBackfill() {
-  backfilling.value = true
-  msg.value = ''
-  try {
-    const d = await api('/api/jobs/backfill-meta', { method: 'POST', body: JSON.stringify({}) })
-    msg.value = `回填完成：${d.ok}/${d.total}，失败 ${d.failed.length}`
-    await loadFacets()
-    await load()
-  } catch (e) {
-    msg.value = '回填失败：' + e.message
-  } finally {
-    backfilling.value = false
-  }
-}
 onMounted(async () => {
   readUrl()
   await loadFacets()
@@ -233,12 +217,12 @@ watch(() => route.query, () => { readUrl(); load() })
 <style scoped>
 .filters { padding: 0 12px; display: flex; flex-direction: column; gap: 6px; }
 .frow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.flabel { color: #888; font-size: 13px; min-width: 56px; }
-.chip { font-size: 13px; padding: 4px 10px; border: 1px solid #444; border-radius: 999px; cursor: pointer; background: #1c1c1c; }
+.flabel { color: #888; font-size: 0.8125rem; min-width: 56px; }
+.chip { font-size: 0.8125rem; padding: 4px 10px; border: 1px solid #444; border-radius: 999px; cursor: pointer; background: #1c1c1c; }
 .chip.on { border-color: #e50914; color: #ff8a8a; }
 .chip.tag { border-style: dashed; }
 .chip.off { opacity: .45; }
-.fhint { color: #777; font-size: 12px; }
-.meta { color: #888; font-size: 12px; }
-.custom-mini { color: #ff6b6b; font-size: 12px; }
+.fhint { color: #777; font-size: 0.75rem; }
+.meta { color: #888; font-size: 0.75rem; }
+.custom-mini { color: #ff6b6b; font-size: 0.75rem; }
 </style>

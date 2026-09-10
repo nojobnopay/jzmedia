@@ -29,6 +29,41 @@ def preview():
     return {"plans": plans}
 
 
+@router.get("/missing")
+def missing():
+    """预览失效条目：库中有记录但文件已不存在的行（软件外删片/移动后产生）。"""
+    out = []
+    for m in store.list_movies(grouped=False, limit=100000):
+        if not os.path.exists(os.path.join(settings.media_root, m["file_path"])):
+            out.append({"id": m["id"], "title": m.get("title", ""),
+                        "year": m.get("year"), "file_path": m["file_path"],
+                        "tmdb_id": m.get("tmdb_id")})
+    return {"total": len(out), "items": out}
+
+
+@router.post("/clean")
+def clean(body: dict | None = None):
+    """清理失效条目：彻底删除DB行+演职员关联+FTS（海报与tmdb_cache保留供重扫复用）。
+    body.ids 不传则清理全部缺失行；建议先 GET /missing 预览勾选。"""
+    body = body or {}
+    only = body.get("ids")
+    only_set = set(only) if only else None
+    cands = [m for m in store.list_movies(grouped=False, limit=100000)
+             if (only_set is None or m["id"] in only_set)
+             and not os.path.exists(os.path.join(settings.media_root, m["file_path"]))]
+    done, failed = [], []
+    for m in cands:
+        try:
+            ok = store.delete_movie(m["id"])
+            done.append({"id": m["id"], "file_path": m["file_path"],
+                         "status": "deleted" if ok else "already_gone"})
+        except Exception as e:
+            failed.append({"id": m["id"], "file_path": m["file_path"],
+                           "error": str(e)})
+    return {"total": len(cands), "deleted": len(done), "failed": failed,
+            "results": done}
+
+
 @router.post("/rename")
 def rename(body: dict | None = None):
     body = body or {}

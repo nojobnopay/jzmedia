@@ -244,40 +244,40 @@ onMounted(load)
 .hero-inner { position: relative; padding: 12px; max-width: 1080px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; }
 .top-right { display: flex; gap: 8px; align-items: center; }
-.saved-flash { color: #7ed321; font-size: 14px; }
+.saved-flash { color: #7ed321; font-size: 0.875rem; }
 .hero-main { display: flex; gap: 20px; margin-top: 12px; align-items: flex-start; }
 .poster { width: 220px; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.55); }
 .hero-info { min-width: 0; }
-.hero-info h2 { margin: 0 0 8px; font-size: 30px; }
-.hero-info .year { color: #aaa; font-weight: normal; font-size: 21px; }
-.needs-review { color: #ff6b6b; font-size: 14px; border: 1px solid #6e2b2b; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }
-.meta-line { color: #aaa; font-size: 16px; margin: 8px 0; }
+.hero-info h2 { margin: 0 0 8px; font-size: 1.875rem; }
+.hero-info .year { color: #aaa; font-weight: normal; font-size: 1.3125rem; }
+.needs-review { color: #ff6b6b; font-size: 0.875rem; border: 1px solid #6e2b2b; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }
+.meta-line { color: #aaa; font-size: 1rem; margin: 8px 0; }
 .src { color: #888; font-weight: normal; }
 .tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
-.tag-chip { font-size: 13px; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }
+.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }
 .sections { padding: 0 12px; max-width: 1080px; display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 .body-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; align-items: start; }
 .main-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .side-col { min-width: 0; }
 @media (max-width: 860px) { .body-grid { grid-template-columns: 1fr; } }
 .card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; }
-.card-block h3 { margin: 0 0 10px; font-size: 17px; color: #ddd; }
-.overview { margin: 0; line-height: 1.8; color: #e6e6e6; font-size: 16px; }
-.empty { margin: 0; color: #777; font-size: 15px; }
-.crew { margin: 8px 0; font-size: 15px; }
-.role { color: #888; margin-right: 8px; font-size: 14px; }
-.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: #262626; border: 1px solid #3a3a3a; cursor: pointer; font-size: 15px; }
+.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.overview { margin: 0; line-height: 1.8; color: #e6e6e6; font-size: 1rem; }
+.empty { margin: 0; color: #777; font-size: 0.9375rem; }
+.crew { margin: 8px 0; font-size: 0.9375rem; }
+.role { color: #888; margin-right: 8px; font-size: 0.875rem; }
+.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: #262626; border: 1px solid #3a3a3a; cursor: pointer; font-size: 0.9375rem; }
 .actor-chip:hover { border-color: #6ab0ff; color: #6ab0ff; }
 .cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }
 .cast-card { cursor: pointer; min-width: 0; }
 .cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: #262626; }
-.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 32px; color: #666; border: 1px solid #3a3a3a; }
-.cast-name { font-size: 14px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cast-char { font-size: 12px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.facts .fact { display: flex; gap: 10px; font-size: 14px; margin: 8px 0; }
+.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #666; border: 1px solid #3a3a3a; }
+.cast-name { font-size: 0.875rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cast-char { font-size: 0.75rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; }
 .facts .fact span:first-child { color: #888; min-width: 48px; flex-shrink: 0; }
 .facts a { color: #6ab0ff; margin-right: 10px; }
-.files summary { cursor: pointer; color: #ccc; font-size: 15px; }
-.files ul { color: #888; font-size: 14px; }
+.files summary { cursor: pointer; color: #ccc; font-size: 0.9375rem; }
+.files ul { color: #888; font-size: 0.875rem; }
 .edit-panel .bar { padding: 6px 0; }
 </style>

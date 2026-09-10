@@ -1,11 +1,12 @@
 """SQLite存储层（标准库sqlite3 + FTS5全文检索：片名/原名/简介/演员/标签/类型）"""
 import json
+import os
 import sqlite3
 import threading
 import time
 
 from .config import settings
-from .db import DB_PATH, ensure_dirs
+from .db import DB_PATH, POSTER_DIR, ensure_dirs
 
 _lock = threading.RLock()
 
@@ -512,6 +513,54 @@ def find_sibling_with_persons(tmdb_id: int, exclude_movie_id: int) -> int | None
             " AND EXISTS(SELECT 1 FROM movie_person mp WHERE mp.movie_id=m.id)"
             " ORDER BY m.updated_at DESC LIMIT 1", (tmdb_id, exclude_movie_id)).fetchone()
         return int(row["id"]) if row else None
+
+
+def delete_movie(movie_id: int) -> bool:
+    """彻底删除单行（软件外删片后的清理口）：删关联+主行+FTS行。
+    海报与 tmdb_cache 保留（多版本/重扫复用）。返回行是否存在。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT id FROM movies WHERE id=?", (movie_id,)).fetchone()
+        if not row:
+            return False
+        c.execute("DELETE FROM movie_person WHERE movie_id=?", (movie_id,))
+        c.execute("DELETE FROM movies WHERE id=?", (movie_id,))
+        c.execute("DELETE FROM movies_fts WHERE rowid=?", (movie_id,))
+        return True
+
+
+def _dir_size(path: str) -> int:
+    total = 0
+    try:
+        for root, _, files in os.walk(path):
+            for f in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+
+def library_stats() -> dict:
+    """库状态一览（设置页展示用，纯本地聚合）。"""
+    with _lock, _conn() as c:
+        movies = c.execute("SELECT COUNT(*) AS n FROM movies").fetchone()["n"]
+        versions = movies
+        grouped = c.execute("SELECT COUNT(*) AS n FROM "
+                            "(SELECT 1 FROM movies GROUP BY COALESCE(tmdb_id, -id))").fetchone()["n"]
+        needs_review = c.execute("SELECT COUNT(*) AS n FROM movies WHERE needs_review=1").fetchone()["n"]
+        no_match = c.execute("SELECT COUNT(*) AS n FROM movies WHERE tmdb_id IS NULL").fetchone()["n"]
+        cache = c.execute("SELECT COUNT(*) AS n FROM tmdb_cache").fetchone()["n"]
+        persons = c.execute("SELECT COUNT(*) AS n FROM persons").fetchone()["n"]
+    try:
+        db_bytes = os.path.getsize(DB_PATH)
+    except OSError:
+        db_bytes = 0
+    return {"movies": movies, "versions": versions, "grouped": grouped,
+            "needs_review": int(needs_review), "no_match": int(no_match),
+            "tmdb_cache": cache, "persons": persons,
+            "db_bytes": db_bytes, "posters_bytes": _dir_size(POSTER_DIR)}
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:

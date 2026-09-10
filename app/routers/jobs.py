@@ -1,7 +1,11 @@
+import os
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import scanner, store
+from ..config import settings
+from ..nfo import write_movie_nfo
 
 router = APIRouter(prefix="/api/jobs")
 
@@ -92,7 +96,13 @@ def tmdb_refresh(body: RefreshBody | None = None):
             seen.add(tid)
             tmdb_ids.append(tid)
     if not tmdb_ids:
-        raise HTTPException(422, "ids or tmdb_ids required")
+        # 空 body = 刷新全部（设置页“一键刷新”用，需二次确认；cap by limit）
+        for m in store.list_movies(grouped=False, limit=100000):
+            if m.get("tmdb_id") and int(m["tmdb_id"]) not in seen:
+                seen.add(int(m["tmdb_id"]))
+                tmdb_ids.append(int(m["tmdb_id"]))
+    if not tmdb_ids:
+        raise HTTPException(422, "library has no tmdb_id yet, scan first")
     tmdb_ids = tmdb_ids[:limit]
     done, failed = [], []
     for tid in tmdb_ids:
@@ -104,3 +114,45 @@ def tmdb_refresh(body: RefreshBody | None = None):
     return {"total": len(tmdb_ids),
             "ok": len(done), "failed": failed,
             "results": done, "facets": store.get_facets()}
+
+
+class NfoBody(BaseModel):
+    limit: int = 2000
+
+
+@router.post("/rebuild-nfo")
+def rebuild_nfo(body: NfoBody | None = None):
+    """重建 NFO：为文件仍存在的影片重写同目录 movie.nfo（换机器/丢 NFO 后修复用）。"""
+    limit = max(1, min((body.limit if body else 2000) or 2000, 10000))
+    movies = store.list_movies(grouped=False, limit=100000)[:limit]
+    done, skipped, failed = 0, 0, []
+    for m in movies:
+        abs_path = os.path.join(settings.media_root, m["file_path"])
+        if not os.path.exists(abs_path):
+            skipped += 1
+            continue
+        try:
+            full = store.get_movie(m["id"])
+            write_movie_nfo(full, os.path.join(os.path.dirname(abs_path), "movie.nfo"))
+            done += 1
+        except Exception as e:
+            failed.append({"id": m["id"], "file_path": m["file_path"], "error": str(e)})
+    return {"total": len(movies), "ok": done, "skipped_missing": skipped,
+            "failed": failed}
+
+
+@router.post("/rebuild-fts")
+def rebuild_fts():
+    """重建全文索引（搜索异常时的修复口）。"""
+    n = store.rebuild_fts()
+    return {"ok": True, "rows": n}
+
+
+@router.get("/stats")
+def stats():
+    """库状态一览（设置页展示用，纯本地聚合）。"""
+    missing = 0
+    for m in store.list_movies(grouped=False, limit=100000):
+        if not os.path.exists(os.path.join(settings.media_root, m["file_path"])):
+            missing += 1
+    return {**store.library_stats(), "missing_files": missing}
