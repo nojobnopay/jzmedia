@@ -19,8 +19,9 @@
 
     <div class="sections">
       <section class="card-block">
-        <h3>简介</h3>
+        <h3>简介 <button @click="refreshBio" style="margin-left:8px">{{ bioMsg || '刷新简介' }}</button></h3>
         <p v-if="(p.biography || '').trim()" class="overview">{{ p.biography }}</p>
+        <p v-else-if="bioLoading" class="empty">简介加载中…</p>
         <p v-else class="empty">暂无简介</p>
       </section>
 
@@ -63,6 +64,8 @@ import ScoreBadge from '../components/ScoreBadge.vue'
 const route = useRoute()
 const p = ref(null)
 const err = ref('')
+const bioMsg = ref('')
+const bioLoading = ref(false)
 
 const countsLine = computed(() => {
   if (!p.value) return ''
@@ -78,11 +81,36 @@ function showChar(w) {
 async function load() {
   p.value = null
   err.value = ''
+  bioLoading.value = false
+  const tid = route.params.tmdb_id
   try {
-    p.value = await api('/api/persons/' + route.params.tmdb_id)
+    // 本地数据先秒开（后端纯本地查询，不等 TMDB）
+    p.value = await api('/api/persons/' + tid)
+    // 简介从未抓过才后台补齐，头像/参演/执导已随首屏展示
+    if (!(p.value.biography || '').trim() && !(p.value.bio_fetched_at || 0)) {
+      bioLoading.value = true
+      try {
+        const full = await api('/api/persons/' + tid + '/refresh', { method: 'POST' })
+        // 路由已切走则丢弃过期回包
+        if (route.params.tmdb_id === tid) p.value = full
+      } catch (e) { console.warn('bio auto-fill failed:', e); /* 保持“暂无简介”，用户可点刷新简介重试 */ }
+      finally {
+        if (route.params.tmdb_id === tid) bioLoading.value = false
+      }
+    }
   } catch (e) {
     err.value = '人物不存在：' + e.message
   }
+}
+async function refreshBio() {
+  bioMsg.value = '刷新中…'
+  try {
+    p.value = await api('/api/persons/' + route.params.tmdb_id + '/refresh', { method: 'POST' })
+    bioMsg.value = (p.value.biography || '').trim() ? '已更新' : '远端暂无简介'
+  } catch (e) {
+    bioMsg.value = '刷新失败'
+  }
+  setTimeout(() => { bioMsg.value = '' }, 3000)
 }
 onMounted(load)
 watch(() => route.params.tmdb_id, load)

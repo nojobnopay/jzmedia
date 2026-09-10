@@ -9,7 +9,7 @@ from .config import settings
 from .db import POSTER_DIR, ensure_dirs
 from .routers import files, health, jobs, movies, persons
 
-app = FastAPI(title="jzmedia", version="0.4.0")
+app = FastAPI(title="jzmedia", version="0.5.0")
 
 ensure_dirs()
 store.init_db()

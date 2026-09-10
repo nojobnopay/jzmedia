@@ -80,7 +80,8 @@ def patch_movie(movie_id: int, body: dict):
         raise HTTPException(422, "tags must be a list")
     if "tags" in data and isinstance(data["tags"], list):
         data["tags"] = normalize_tags(data["tags"])
-    store.update_movie_meta(movie_id, **data)
+    # 本地写专用：TMDB 镜像列会被静默丢弃，保证标签/评分小改动不污染镜像
+    store.update_movie_local(movie_id, **data)
     store.resync_fts(movie_id)
     return store.get_movie(movie_id)
 
@@ -104,7 +105,7 @@ def tmdb_search(q: str, year: int | None = None):
 
 @router.post("/movies/{movie_id}/match")
 def manual_match(movie_id: int, body: dict):
-    """手动匹配第二步：用TMDB ID强制绑定。"""
+    """手动匹配第二步：用TMDB ID强制绑定（显式换绑，覆盖标题并重建人物关联）。"""
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
@@ -116,6 +117,22 @@ def manual_match(movie_id: int, body: dict):
     except Exception as e:
         raise HTTPException(502, f"tmdb fetch failed: {e}")
     abs_path = os.path.join(settings.media_root, m["file_path"])
-    out = scanner.apply_tmdb_detail(movie_id, detail, abs_path)
-    store.update_movie_meta(movie_id, needs_review=0)
+    out = scanner.apply_tmdb_detail(movie_id, detail, abs_path, force_title=True)
+    store.update_movie_local(movie_id, needs_review=0)
+    return {"id": movie_id, **out}
+
+
+@router.post("/movies/{movie_id}/refresh")
+def refresh_movie(movie_id: int):
+    """手动刷新：按本片 tmdb_id 抓远端 → 写镜像 → 有变化才扇出到同 tmdb_id 全版本。
+    无变化时不碰任何 movies 行（含 updated_at）。"""
+    m = store.get_movie(movie_id)
+    if not m:
+        raise HTTPException(404, "movie not found")
+    if not m.get("tmdb_id"):
+        raise HTTPException(422, "movie has no tmdb_id, use /match first")
+    try:
+        out = scanner.refresh_tmdb_id(int(m["tmdb_id"]))
+    except Exception as e:
+        raise HTTPException(502, f"tmdb fetch failed: {e}")
     return {"id": movie_id, **out}

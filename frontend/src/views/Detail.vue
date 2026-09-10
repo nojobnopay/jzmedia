@@ -82,6 +82,10 @@
         <div class="bar"><button @click="save">保存</button><button @click="cancelEdit">取消</button><span>{{ msg }}</span></div>
         <h3>手动匹配 <span v-if="m.tmdb_id">(当前TMDB {{ m.tmdb_id }})</span></h3>
         <div class="bar">
+          <button @click="refreshTmdb">刷新TMDB（有变化才更新）</button>
+          <span>{{ refreshMsg }}</span>
+        </div>
+        <div class="bar">
           <input v-model="mq" placeholder="TMDB搜关键词" style="flex:1" />
           <button @click="tmdbSearch">搜TMDB</button>
         </div>
@@ -133,6 +137,7 @@ const metaLine = computed(() => {
 const allTags = ref([])
 const mq = ref('')
 const cands = ref([])
+const refreshMsg = ref('')
 
 function syncForm() {
   f.value = {
@@ -210,6 +215,17 @@ async function bindMatch(tmdb_id) {
     flashSaved()
   } catch (e) {
     msg.value = '绑定失败：' + e.message
+  }
+}
+async function refreshTmdb() {
+  refreshMsg.value = '刷新中…'
+  try {
+    const r = await api('/api/movies/' + route.params.id + '/refresh', { method: 'POST' })
+    refreshMsg.value = r.changed ? `已更新（${(r.affected_ids || []).length}个版本）` : '远端无变化'
+    await load()
+    if (r.changed) flashSaved()
+  } catch (e) {
+    refreshMsg.value = '刷新失败：' + e.message
   }
 }
 onMounted(load)

@@ -48,7 +48,8 @@ def rename(body: dict | None = None):
         try:
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             os.rename(src, dst)
-            store.update_movie_meta(p["id"], file_path=p["to"])
+            # 本地写：只改 file_path，不碰 TMDB 镜像列
+            store.update_movie_local(p["id"], file_path=p["to"])
             movie = store.get_movie(p["id"])
             write_movie_nfo(movie, os.path.join(os.path.dirname(dst), "movie.nfo"))
             # 旧目录无视频文件时清掉残留movie.nfo

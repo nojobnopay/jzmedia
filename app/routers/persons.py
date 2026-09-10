@@ -5,22 +5,37 @@ from .. import store, tmdb
 router = APIRouter(prefix="/api/persons")
 
 
+def _fetch_and_cache_bio(tmdb_id: int) -> None:
+    """抓人物详情并写入镜像（含空结果的负缓存，只供首次访问/手动刷新调用）。"""
+    detail = tmdb.person_detail(int(tmdb_id))
+    lang = "zh-CN"
+    if not (detail.get("biography") or "").strip():
+        detail = tmdb.person_detail(int(tmdb_id), language="en-US")
+        lang = "en-US"
+    store.update_person_bio(
+        tmdb_id, detail.get("biography", "") or "",
+        detail.get("birthday", "") or "",
+        detail.get("place_of_birth", "") or "", lang=lang)
+
+
 @router.get("/{tmdb_id}")
 def get_person(tmdb_id: int):
-    """人物详情＋库内作品。简介为空时现调 TMDB 回填并永久缓存（懒加载，不做全量回填）。"""
+    """人物详情＋库内作品（纯本地，瞬时返回，不阻塞等 TMDB）。
+    简介首次访问由前端在后台调 POST /refresh 补齐（渐进加载）；空简介有负缓存，
+    不再每次访问重试（与电影镜像策略一致）。"""
     p = store.get_person(tmdb_id)
     if not p:
         raise HTTPException(404, "person not found")
-    if not (p.get("biography") or "").strip():
-        try:
-            detail = tmdb.person_detail(int(tmdb_id))
-            if not (detail.get("biography") or "").strip():
-                detail = tmdb.person_detail(int(tmdb_id), language="en-US")
-            store.update_person_bio(
-                tmdb_id, detail.get("biography", ""),
-                detail.get("birthday", "") or "",
-                detail.get("place_of_birth", "") or "")
-            p = store.get_person(tmdb_id)
-        except Exception:
-            pass  # TMDB 不可达时返回本地数据，简介保持为空
     return p
+
+
+@router.post("/{tmdb_id}/refresh")
+def refresh_person(tmdb_id: int):
+    """手动刷新人物简介/生日/出生地（唯一的远端写入口）。"""
+    if not store.get_person_raw(int(tmdb_id)):
+        raise HTTPException(404, "person not found")
+    try:
+        _fetch_and_cache_bio(int(tmdb_id))
+    except Exception as e:
+        raise HTTPException(502, f"tmdb fetch failed: {e}")
+    return store.get_person(int(tmdb_id))

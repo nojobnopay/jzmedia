@@ -1,6 +1,11 @@
-"""扫描器：遍历MEDIA_ROOT → guessit解析 → TMDB匹配 → 入库+NFO+海报。V1只做电影。"""
+"""扫描器：遍历MEDIA_ROOT → guessit解析 → TMDB匹配 → 入库+NFO+海报。V1只做电影。
+
+TMDB数据经 tmdb_cache 镜像：新文件同 tmdb_id 直接复用缓存零请求；
+默认永不自动刷新，只经手动匹配/手动刷新入口写入远端数据。
+"""
 import os
 import re
+import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 
@@ -82,7 +87,7 @@ def search_with_fallback(title: str, year: int | None) -> tuple[dict | None, str
 
 
 def meta_from_detail(detail: dict) -> dict:
-    """TMDB详情 → 可直接 update_movie_meta 的字典（产地/类型/语言，不含海报/NFO）。"""
+    """TMDB详情 → 可写入 tmdb_cache 的字典（产地/类型/语言，不含海报/NFO）。"""
     year = None
     if detail.get("release_date", "")[:4].isdigit():
         year = int(detail["release_date"][:4])
@@ -107,6 +112,39 @@ def meta_from_detail(detail: dict) -> dict:
     }
 
 
+def extract_credits(detail: dict) -> dict:
+    """从 movie_detail.credits 提取最小可用集（导演+前10演员），存入 tmdb_cache 供复用。"""
+    cast = []
+    for i, c in enumerate((detail.get("credits") or {}).get("cast", [])[:10]):
+        if not c.get("id"):
+            continue
+        cast.append({"id": c["id"], "name": c.get("name", ""),
+                     "profile_path": c.get("profile_path"),
+                     "character": c.get("character", ""), "order": i})
+    crew = []
+    for d in (detail.get("credits") or {}).get("crew", []):
+        if d.get("job") == "Director" and d.get("id"):
+            crew.append({"id": d["id"], "name": d.get("name", ""),
+                         "profile_path": d.get("profile_path")})
+    return {"cast": cast, "crew": crew}
+
+
+def jobs_from_credits(credits: dict) -> list[tuple]:
+    """credits(原始detail或cache) → jobs[(tmdb_id, name, profile_path, role, character, order)]。"""
+    credits = credits or {}
+    jobs: list[tuple] = []
+    for d in credits.get("crew", []):
+        if d.get("id"):
+            jobs.append((d["id"], d.get("name", ""), d.get("profile_path"),
+                         "director", "", 99))
+    for c in (credits.get("cast", []) or [])[:10]:
+        if not c.get("id"):
+            continue
+        jobs.append((c["id"], c.get("name", ""), c.get("profile_path"),
+                     "actor", c.get("character", ""), c.get("order", 99)))
+    return jobs
+
+
 def save_person_avatar(person_tmdb_id: int, profile_path: str | None) -> str:
     """人物头像落盘（w185），文件已存在则跳过。返回相对 DATA_DIR 的路径，失败返回 ''。"""
     if not profile_path:
@@ -119,69 +157,210 @@ def save_person_avatar(person_tmdb_id: int, profile_path: str | None) -> str:
     return ""
 
 
-def sync_persons(mid: int, detail: dict, max_workers: int = 8) -> int:
-    """按TMDB credits 落库导演+前10演员（含头像），返回新下载头像数。供扫描/手动匹配/回填共用。
-
-    无照片的记 avatar='-'（确认无，避免回填反复重试）；已有文件不重下。
-    头像下载并行（I/O密集），落库串行；同一人多角色去重下载但保留全部关联。
-    """
-    jobs: list[tuple] = []  # (tmdb_id, name, profile_path, role, character, order)
-    for d in (detail.get("credits") or {}).get("crew", []):
-        if d.get("job") == "Director" and d.get("id"):
-            jobs.append((d["id"], d.get("name", ""), d.get("profile_path"),
-                         "director", "", 99))
-    for i, c in enumerate((detail.get("credits") or {}).get("cast", [])[:10]):
-        if not c.get("id"):
-            continue
-        jobs.append((c["id"], c.get("name", ""), c.get("profile_path"),
-                     "actor", c.get("character", ""), i))
+def _sync_jobs(mid: int, jobs: list[tuple], max_workers: int = 8) -> int:
+    """jobs 落库（幂等）：头像按 profile 变化判断重下，关联一致则跳过 link。返回新下载头像数。"""
+    now = int(time.time())
+    existing = {(l["person_tmdb_id"], l["role"], l["character_name"] or "", l["cast_order"])
+                for l in store.get_movie_person_links(mid)}
+    uniq: dict = {}
+    for job in jobs:
+        uniq.setdefault(job[0], job)
 
     def _fetch(item: tuple) -> tuple:
         pid_tmdb, _, profile_path, _, _, _ = item
         if not profile_path:
-            return pid_tmdb, "-", False
+            return pid_tmdb, "-", False, ""
+        raw = store.get_person_raw(pid_tmdb)
+        stored_profile = (raw or {}).get("profile_tmdb_path") or ""
         dest = os.path.join(POSTER_DIR, f"person_{pid_tmdb}.jpg")
-        existed = os.path.exists(dest)
+        if raw and stored_profile == (profile_path or "") and os.path.exists(dest) and (raw.get("avatar") or "") not in ("", None):
+            return pid_tmdb, raw.get("avatar") or "", False, profile_path or ""
+        if stored_profile != (profile_path or "") and os.path.exists(dest):
+            try:
+                os.remove(dest)
+            except Exception:
+                pass
+            existed = False
+        else:
+            existed = os.path.exists(dest)
         avatar = save_person_avatar(pid_tmdb, profile_path)
-        return pid_tmdb, avatar, bool(avatar and not existed)
+        if not avatar and raw and os.path.exists(dest):
+            avatar = os.path.relpath(dest, settings.data_dir)
+        return pid_tmdb, avatar, bool(avatar and avatar != "-" and not existed), profile_path or ""
 
-    uniq: dict = {}
-    for job in jobs:
-        uniq.setdefault(job[0], job)
     avatars: dict = {}
+    profiles: dict = {}
     downloaded = 0
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        for pid_tmdb, avatar, is_new in ex.map(_fetch, uniq.values()):
-            avatars[pid_tmdb] = avatar
-            downloaded += 1 if is_new else 0
+    if uniq:
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            for pid_tmdb, avatar, is_new, profile in ex.map(_fetch, uniq.values()):
+                avatars[pid_tmdb] = avatar
+                profiles[pid_tmdb] = profile
+                downloaded += 1 if is_new else 0
     for pid_tmdb, name, _, role, character, order in jobs:
-        pid = store.upsert_person(pid_tmdb, name, avatars.get(pid_tmdb))
+        key = (pid_tmdb, role, character or "", order)
+        if key in existing:
+            # 关联已一致，仍需确保人物基础行存在（首建时可能缺行）
+            if not store.get_person_raw(pid_tmdb):
+                store.upsert_person(pid_tmdb, name, avatars.get(pid_tmdb),
+                                    profiles.get(pid_tmdb, ""), now)
+            continue
+        pid = store.upsert_person(pid_tmdb, name, avatars.get(pid_tmdb),
+                                  profiles.get(pid_tmdb, ""), now)
         store.link_person(mid, pid, role, character, order)
     return downloaded
 
 
-def apply_tmdb_detail(mid: int, detail: dict, abs_path: str) -> dict:
-    """把TMDB详情落库（人物/海报/NFO/FTS），供自动扫描与手动匹配共用。"""
-    poster_local = ""
-    if detail.get("poster_path"):
-        poster_local = os.path.join(POSTER_DIR, f"{detail['id']}.jpg")
-        if tmdb.download_poster(detail["poster_path"], poster_local):
-            poster_local = os.path.relpath(poster_local, settings.data_dir)
-        else:
-            poster_local = ""
+def sync_persons(mid: int, detail: dict, max_workers: int = 8) -> int:
+    """按TMDB credits 落库导演+前10演员（含头像），返回新下载头像数。供扫描/手动匹配/刷新共用。
+
+    无照片的记 avatar='-'（确认无，避免反复重试）；远端换头像（profile_path 变化）才重下；
+    关联一致跳过 link。落库串行；同一人多角色去重下载但保留全部关联。
+    """
+    jobs = jobs_from_credits((detail.get("credits") or {}))
+    # 兼容 cache 形态（cast/crew 已为最小集）与原始 detail 形态
+    if not jobs and isinstance(detail.get("credits"), dict):
+        jobs = jobs_from_credits(detail["credits"])
+    return _sync_jobs(mid, jobs, max_workers)
+
+
+def sync_persons_from_cache(mid: int, tmdb_id: int) -> int:
+    """免网络复用人物：cache.credits 有则直接落库；种子行 credits 为空时从兄弟版本复制关联。"""
+    cached = store.get_tmdb_cached(tmdb_id)
+    credits = (cached or {}).get("credits") or {}
+    jobs = jobs_from_credits(credits)
+    if jobs:
+        return _sync_jobs(mid, jobs)
+    sib = store.find_sibling_with_persons(tmdb_id, mid)
+    if sib:
+        n = store.copy_person_links(sib, mid)
+        if n:
+            store.resync_fts(mid)
+        return 0
+    return 0
+
+
+def ensure_movie_poster(tmdb_id: int, poster_tmdb_path: str | None,
+                        old_poster_tmdb_path: str | None = None) -> str:
+    """海报本地路径保障：远端 path 未变且文件存在则复用，否则下载（覆盖）。
+    返回相对 DATA_DIR 的路径，失败时有文件则复用旧文件，否则 ''。"""
+    dest = os.path.join(POSTER_DIR, f"{tmdb_id}.jpg")
+    remote = poster_tmdb_path or ""
+    if not remote:
+        return os.path.relpath(dest, settings.data_dir) if os.path.exists(dest) else ""
+    if os.path.exists(dest) and (old_poster_tmdb_path or "") == remote:
+        return os.path.relpath(dest, settings.data_dir)
+    if tmdb.download_poster(remote, dest):
+        return os.path.relpath(dest, settings.data_dir)
+    return os.path.relpath(dest, settings.data_dir) if os.path.exists(dest) else ""
+
+
+def _write_nfo_for(mid: int, abs_path: str) -> bool:
+    try:
+        movie = store.get_movie(mid)
+        write_movie_nfo(movie, os.path.join(os.path.dirname(abs_path), "movie.nfo"))
+        return True
+    except Exception:
+        return False
+
+
+def apply_tmdb_detail(mid: int, detail: dict, abs_path: str,
+                      force_title: bool = False) -> dict:
+    """把TMDB详情写入镜像并复制到本片（人物/海报/NFO/FTS）。
+    force_title=True（手动换绑）时无条件覆盖标题；否则保留手工改过的标题。"""
+    tmdb_id = detail["id"]
+    cur = store.get_movie(mid)
+    cur_tmdb = (cur or {}).get("tmdb_id")
+    cur_title = (cur or {}).get("title") or ""
+    if cur_tmdb and cur_tmdb != tmdb_id:
+        store.clear_movie_persons(mid)
+    if not cur_tmdb or cur_tmdb != tmdb_id:
+        store.update_movie_meta(mid, tmdb_id=tmdb_id)
+    old_cache = store.get_tmdb_cached(tmdb_id)
+    old_title = (old_cache or {}).get("title") or ""
+    old_poster_tmdb = (old_cache or {}).get("poster_tmdb_path") or ""
     meta = meta_from_detail(detail)
-    meta["poster_path"] = poster_local
-    store.update_movie_meta(mid, **meta)
+    poster_tmdb = detail.get("poster_path") or ""
+    credits = extract_credits(detail)
+    store.upsert_tmdb_cache(tmdb_id, meta, credits, poster_tmdb)
+    if force_title:
+        store.update_movie_meta(mid, tmdb_id=tmdb_id)
+        store.copy_tmdb_to_movie(mid, old_title=cur_title)
+        # copy 在 current==old_title 时才会跟随标题；换绑需强制对齐远端标题
+        if (store.get_movie(mid) or {}).get("title") != (meta.get("title") or ""):
+            store.update_movie_meta(mid, title=meta.get("title") or "")
+        # 其余 TMDB 列经 copy 已同步（copy 内含除 poster 外全量）
+    else:
+        store.copy_tmdb_to_movie(mid, old_title=old_title if old_cache else None)
+    poster_local = ensure_movie_poster(tmdb_id, poster_tmdb, old_poster_tmdb)
+    store.update_movie_meta(mid, poster_path=poster_local)
     sync_persons(mid, detail)
     store.resync_fts(mid)
     movie = store.get_movie(mid)
-    try:
-        write_movie_nfo(movie, os.path.join(os.path.dirname(abs_path), "movie.nfo"))
-        nfo = True
-    except Exception:
-        nfo = False
+    nfo = _write_nfo_for(mid, abs_path)
     return {"title": movie["title"], "year": movie["year"],
-            "tmdb_id": detail["id"], "nfo": nfo}
+            "tmdb_id": tmdb_id, "nfo": nfo}
+
+
+def apply_cached_to_movie(mid: int, tmdb_id: int, abs_path: str) -> dict:
+    """零网络复用：从 tmdb_cache 向新行复制元数据+海报复用+人物复用，供同 tmdb_id 多版本使用。"""
+    cur = store.get_movie(mid)
+    cur_tmdb = (cur or {}).get("tmdb_id")
+    if cur_tmdb and cur_tmdb != tmdb_id:
+        store.clear_movie_persons(mid)
+    if not cur_tmdb or cur_tmdb != tmdb_id:
+        store.update_movie_meta(mid, tmdb_id=tmdb_id)
+    store.copy_tmdb_to_movie(mid, old_title=None)
+    cached = store.get_tmdb_cached(tmdb_id) or {}
+    poster_local = ensure_movie_poster(tmdb_id, cached.get("poster_tmdb_path") or "",
+                                       cached.get("poster_tmdb_path") or "")
+    store.update_movie_meta(mid, poster_path=poster_local)
+    sync_persons_from_cache(mid, tmdb_id)
+    store.resync_fts(mid)
+    movie = store.get_movie(mid) or {}
+    nfo = _write_nfo_for(mid, abs_path)
+    return {"title": movie.get("title", ""), "year": movie.get("year"),
+            "tmdb_id": tmdb_id, "nfo": nfo}
+
+
+def refresh_tmdb_id(tmdb_id: int) -> dict:
+    """手动刷新唯一入口：抓远端 → 写镜像 → 有变化才扇出到所有同 tmdb_id 版本。
+    返回 {changed, affected_ids, title, year}。无变化时不碰任何 movies 行。"""
+    detail = tmdb.movie_detail(int(tmdb_id))
+    new_meta = meta_from_detail(detail)
+    new_poster_tmdb = detail.get("poster_path") or ""
+    new_credits = extract_credits(detail)
+    old_cache = store.get_tmdb_cached(int(tmdb_id))
+    old_title = (old_cache or {}).get("title") or ""
+    old_poster_tmdb = (old_cache or {}).get("poster_tmdb_path") or ""
+    changed = store.upsert_tmdb_cache(int(tmdb_id), new_meta, new_credits, new_poster_tmdb)
+    if not changed:
+        mids = store.list_movie_ids_by_tmdb(int(tmdb_id))
+        # 仍需补齐人物缺失（如头像缺失）：只做本地修复，不改 updated_at 语义之外的字段
+        for mid in mids:
+            if store.persons_missing_avatar(mid):
+                sync_persons(mid, detail)
+                store.resync_fts(mid)
+        cur = store.get_tmdb_cached(int(tmdb_id)) or {}
+        return {"changed": False, "affected_ids": [],
+                "title": cur.get("title", ""), "year": cur.get("year"),
+                "tmdb_id": int(tmdb_id)}
+    affected: list[int] = []
+    for mid in store.list_movie_ids_by_tmdb(int(tmdb_id)):
+        m = store.get_movie(mid)
+        if not m:
+            continue
+        store.copy_tmdb_to_movie(mid, old_title=old_title if old_cache else None)
+        poster_local = ensure_movie_poster(int(tmdb_id), new_poster_tmdb, old_poster_tmdb)
+        store.update_movie_meta(mid, poster_path=poster_local)
+        sync_persons(mid, detail)
+        store.resync_fts(mid)
+        abs_path = os.path.join(settings.media_root, m["file_path"])
+        _write_nfo_for(mid, abs_path)
+        affected.append(mid)
+    return {"changed": True, "affected_ids": affected,
+            "title": new_meta.get("title", ""), "year": new_meta.get("year"),
+            "tmdb_id": int(tmdb_id)}
 
 
 def scan_one(abs_path: str) -> dict:
@@ -200,11 +379,15 @@ def scan_one(abs_path: str) -> dict:
         mid = store.upsert_movie_by_path(rel)
         store.update_movie_meta(mid, title=parsed["title"], year=parsed["year"])
         return {"file": rel, "status": "no_match", "parsed": parsed}
-    detail = tmdb.movie_detail(m["id"])
+    tmdb_id = int(m["id"])
     mid = store.upsert_movie_by_path(rel)
-    out = apply_tmdb_detail(mid, detail, abs_path)
+    if store.get_tmdb_cached(tmdb_id):
+        out = apply_cached_to_movie(mid, tmdb_id, abs_path)
+    else:
+        detail = tmdb.movie_detail(tmdb_id)
+        out = apply_tmdb_detail(mid, detail, abs_path)
     needs_review = 1 if used_q != parsed["title"] else 0
-    store.update_movie_meta(mid, needs_review=needs_review)
+    store.update_movie_local(mid, needs_review=needs_review)
     status = "ok" if not needs_review else "ok_needs_review"
     return {"file": rel, "status": status, "query": used_q, **out}
 

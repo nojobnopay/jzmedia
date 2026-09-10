@@ -53,6 +53,27 @@ CREATE TABLE IF NOT EXISTS movie_person (
   cast_order INTEGER DEFAULT 99,
   PRIMARY KEY (movie_id, person_id, role)
 );
+-- TMDB远端镜像：以 tmdb_id 为键的稳定缓存，不受 file_path/tags/评分等本地改动影响。
+-- movies 表的 TMDB 列只是它的物化副本，只经 copy_tmdb_to_movie() 复制。
+CREATE TABLE IF NOT EXISTS tmdb_cache (
+  tmdb_id INTEGER PRIMARY KEY,
+  title TEXT DEFAULT '',
+  original_title TEXT DEFAULT '',
+  year INTEGER,
+  overview TEXT DEFAULT '',
+  imdb_id TEXT DEFAULT '',
+  tmdb_rating REAL,
+  genres TEXT DEFAULT '[]',
+  genre_ids TEXT DEFAULT '[]',
+  origin_country TEXT DEFAULT '',
+  origin_countries TEXT DEFAULT '[]',
+  original_language TEXT DEFAULT '',
+  region TEXT DEFAULT '',
+  media_type TEXT DEFAULT 'movie',
+  poster_tmdb_path TEXT DEFAULT '',
+  credits TEXT DEFAULT '{"cast":[],"crew":[]}',
+  fetched_at INTEGER DEFAULT 0
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS movies_fts USING fts5(
   title, original_title, overview, person_names, tags, genres,
   tokenize='unicode61'
@@ -68,6 +89,17 @@ def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(DB_PATH, check_same_thread=False)
     c.row_factory = sqlite3.Row
     return c
+
+
+# TMDB镜像列（movies 中的物化副本，只能经 copy_tmdb_to_movie() 从 tmdb_cache 复制）
+TMDB_FIELDS = {"title", "original_title", "year", "overview",
+               "tmdb_id", "imdb_id", "tmdb_rating",
+               "genres", "genre_ids",
+               "origin_country", "origin_countries", "original_language",
+               "region", "media_type"}
+# 本地自有列（PATCH/rename/tags/评分等，只能经本地写路径修改，不碰 cache）
+LOCAL_FIELDS = {"file_path", "title", "overview_override",
+                "douban_rating", "custom_rating", "tags", "needs_review"}
 
 
 def init_db() -> None:
@@ -93,6 +125,10 @@ def init_db() -> None:
             ("biography", "ALTER TABLE persons ADD COLUMN biography TEXT DEFAULT ''"),
             ("birthday", "ALTER TABLE persons ADD COLUMN birthday TEXT DEFAULT ''"),
             ("place_of_birth", "ALTER TABLE persons ADD COLUMN place_of_birth TEXT DEFAULT ''"),
+            ("profile_tmdb_path", "ALTER TABLE persons ADD COLUMN profile_tmdb_path TEXT DEFAULT ''"),
+            ("fetched_at", "ALTER TABLE persons ADD COLUMN fetched_at INTEGER DEFAULT 0"),
+            ("bio_fetched_at", "ALTER TABLE persons ADD COLUMN bio_fetched_at INTEGER DEFAULT 0"),
+            ("bio_lang", "ALTER TABLE persons ADD COLUMN bio_lang TEXT DEFAULT ''"),
         ):
             if col not in pcols:
                 c.execute(ddl)
@@ -100,11 +136,183 @@ def init_db() -> None:
         c.execute("CREATE INDEX IF NOT EXISTS idx_movies_region ON movies(region)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_movies_origin ON movies(origin_country)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_movies_tmdb ON movies(tmdb_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_cache_fetched ON tmdb_cache(fetched_at)")
         sql = (c.execute("SELECT sql FROM sqlite_master WHERE name='movies_fts'").fetchone() or [""])[0]
         if "content=" in sql:
             c.execute("DROP TABLE movies_fts")
             c.executescript(SCHEMA)
+    seed_tmdb_cache_from_movies()
     rebuild_fts()
+
+
+def _dump_list(v) -> str:
+    try:
+        return json.dumps(v or [], ensure_ascii=False)
+    except Exception:
+        return "[]"
+
+
+def seed_tmdb_cache_from_movies() -> int:
+    """离线种子：用 movies 现有行补 tmdb_cache 缺失项，不调网。
+    credits 为空（人物链接已在 movie_person 中，新版本复用时走 sibling 复制），fetched_at=0 标记“本地种子”。"""
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT *, MAX(updated_at) AS _u FROM movies WHERE tmdb_id IS NOT NULL "
+            "GROUP BY tmdb_id").fetchall()
+        inserted = 0
+        for r in rows:
+            tid = r["tmdb_id"]
+            if tid is None:
+                continue
+            exists = c.execute("SELECT 1 FROM tmdb_cache WHERE tmdb_id=?", (tid,)).fetchone()
+            if exists:
+                continue
+            c.execute(
+                "INSERT INTO tmdb_cache(tmdb_id, title, original_title, year, overview,"
+                " imdb_id, tmdb_rating, genres, genre_ids, origin_country, origin_countries,"
+                " original_language, region, media_type, poster_tmdb_path, credits, fetched_at)"
+                " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (tid, r["title"] or "", r["original_title"] or "", r["year"],
+                 r["overview"] or "", r["imdb_id"] or "", r["tmdb_rating"],
+                 r["genres"] or "[]", r["genre_ids"] or "[]",
+                 r["origin_country"] or "", r["origin_countries"] or "[]",
+                 r["original_language"] or "", r["region"] or "",
+                 r["media_type"] or "movie", "", '{"cast":[],"crew":[]}', 0))
+            inserted += 1
+        return inserted
+
+
+def get_tmdb_cached(tmdb_id: int) -> dict | None:
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM tmdb_cache WHERE tmdb_id=?", (tmdb_id,)).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        for k in ("genres", "genre_ids", "origin_countries"):
+            try:
+                v = json.loads(d.get(k) or "[]")
+                d[k] = v if isinstance(v, list) else []
+            except Exception:
+                d[k] = []
+        try:
+            cr = json.loads(d.get("credits") or '{"cast":[],"crew":[]}')
+            d["credits"] = cr if isinstance(cr, dict) else {"cast": [], "crew": []}
+        except Exception:
+            d["credits"] = {"cast": [], "crew": []}
+        return d
+
+
+def upsert_tmdb_cache(tmdb_id: int, meta: dict,
+                      credits: dict | None = None,
+                      poster_tmdb_path: str = "") -> bool:
+    """写入镜像。无变化时仅刷新 fetched_at 并返回 False（调用方应跳过 movies 传播）。
+    meta 为 meta_from_detail() 产出的 TMDB 列字典。返回 True=内容变化。"""
+    now = int(time.time())
+    genres_s = _dump_list(meta.get("genres"))
+    genre_ids_s = _dump_list(meta.get("genre_ids"))
+    origin_countries_s = _dump_list(meta.get("origin_countries"))
+    credits_s = json.dumps(credits or {"cast": [], "crew": []}, ensure_ascii=False, sort_keys=True)
+    poster_tmdb_path = poster_tmdb_path or ""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM tmdb_cache WHERE tmdb_id=?", (tmdb_id,)).fetchone()
+        if not row:
+            c.execute(
+                "INSERT INTO tmdb_cache(tmdb_id, title, original_title, year, overview,"
+                " imdb_id, tmdb_rating, genres, genre_ids, origin_country, origin_countries,"
+                " original_language, region, media_type, poster_tmdb_path, credits, fetched_at)"
+                " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (tmdb_id, meta.get("title", "") or "", meta.get("original_title", "") or "",
+                 meta.get("year"), meta.get("overview", "") or "",
+                 meta.get("imdb_id", "") or "", meta.get("tmdb_rating"),
+                 genres_s, genre_ids_s,
+                 meta.get("origin_country", "") or "", origin_countries_s,
+                 meta.get("original_language", "") or "", meta.get("region", "") or "",
+                 meta.get("media_type", "") or "movie",
+                 poster_tmdb_path, credits_s, now))
+            return True
+        same = (
+            (row["title"] or "") == (meta.get("title", "") or "")
+            and (row["original_title"] or "") == (meta.get("original_title", "") or "")
+            and row["year"] == meta.get("year")
+            and (row["overview"] or "") == (meta.get("overview", "") or "")
+            and (row["imdb_id"] or "") == (meta.get("imdb_id", "") or "")
+            and (row["tmdb_rating"] == meta.get("tmdb_rating"))
+            and (row["genres"] or "[]") == genres_s
+            and (row["genre_ids"] or "[]") == genre_ids_s
+            and (row["origin_country"] or "") == (meta.get("origin_country", "") or "")
+            and (row["origin_countries"] or "[]") == origin_countries_s
+            and (row["original_language"] or "") == (meta.get("original_language", "") or "")
+            and (row["region"] or "") == (meta.get("region", "") or "")
+            and (row["media_type"] or "movie") == (meta.get("media_type", "") or "movie")
+            and (row["poster_tmdb_path"] or "") == poster_tmdb_path
+            and (row["credits"] or '{"cast":[],"crew":[]}') == credits_s
+        )
+        if same:
+            c.execute("UPDATE tmdb_cache SET fetched_at=? WHERE tmdb_id=?", (now, tmdb_id))
+            return False
+        c.execute(
+            "UPDATE tmdb_cache SET title=?, original_title=?, year=?, overview=?,"
+            " imdb_id=?, tmdb_rating=?, genres=?, genre_ids=?, origin_country=?,"
+            " origin_countries=?, original_language=?, region=?, media_type=?,"
+            " poster_tmdb_path=?, credits=?, fetched_at=? WHERE tmdb_id=?",
+            (meta.get("title", "") or "", meta.get("original_title", "") or "",
+             meta.get("year"), meta.get("overview", "") or "",
+             meta.get("imdb_id", "") or "", meta.get("tmdb_rating"),
+             genres_s, genre_ids_s,
+             meta.get("origin_country", "") or "", origin_countries_s,
+             meta.get("original_language", "") or "", meta.get("region", "") or "",
+             meta.get("media_type", "") or "movie",
+             poster_tmdb_path, credits_s, now, tmdb_id))
+        return True
+
+
+def list_movie_ids_by_tmdb(tmdb_id: int) -> list[int]:
+    with _lock, _conn() as c:
+        return [int(r["id"]) for r in
+                c.execute("SELECT id FROM movies WHERE tmdb_id=? ORDER BY id", (tmdb_id,))]
+
+
+def copy_tmdb_to_movie(movie_id: int, old_title: str | None = None) -> bool:
+    """从 tmdb_cache 向单行 movies 复制 TMDB 列（不含 poster_path，海报由 scanner 按文件存在性处理）。
+    标题保护：old_title=None（新建/离线补齐）时空标题才写入；old_title!=None（刷新路径）时
+    仅当当前标题==old_title 或为空才跟随新标题，否则视为手工改过予以保留。返回是否实际写入。"""
+    with _lock, _conn() as c:
+        mrow = c.execute("SELECT * FROM movies WHERE id=?", (movie_id,)).fetchone()
+        if not mrow or not mrow["tmdb_id"]:
+            return False
+        crow = c.execute("SELECT * FROM tmdb_cache WHERE tmdb_id=?",
+                         (mrow["tmdb_id"],)).fetchone()
+        if not crow:
+            return False
+        cur_title = (mrow["title"] or "")
+        new_title = (crow["title"] or "")
+        if old_title is None:
+            want_title = not cur_title
+        else:
+            want_title = (not cur_title) or (cur_title == (old_title or ""))
+        fields: dict = {
+            "original_title": crow["original_title"] or "",
+            "year": crow["year"],
+            "overview": crow["overview"] or "",
+            "tmdb_id": crow["tmdb_id"],
+            "imdb_id": crow["imdb_id"] or "",
+            "tmdb_rating": crow["tmdb_rating"],
+            "genres": crow["genres"] or "[]",
+            "genre_ids": crow["genre_ids"] or "[]",
+            "origin_country": crow["origin_country"] or "",
+            "origin_countries": crow["origin_countries"] or "[]",
+            "original_language": crow["original_language"] or "",
+            "region": crow["region"] or "",
+            "media_type": crow["media_type"] or "movie",
+        }
+        if want_title:
+            fields["title"] = new_title
+    if not fields:
+        return False
+    # 走 update_movie_meta 以复用 updated_at+FTS 逻辑（调用方已判定确需写入）
+    update_movie_meta(movie_id, **{k: (json.loads(v) if k in ("genres", "genre_ids", "origin_countries") and isinstance(v, str) else v)
+                                   for k, v in fields.items()})
+    return True
 
 
 def rebuild_fts() -> int:
@@ -145,6 +353,14 @@ def upsert_movie_by_path(file_path: str) -> int:
         return int(row["id"])
 
 
+def update_movie_local(movie_id: int, **fields) -> None:
+    """本地写专用：只允许 LOCAL_FIELDS（file_path/手工标题/覆盖简介/评分/tags/待确认），
+    传入 TMDB 镜像列会被静默丢弃，从机制上保证路径/标签小改动不污染镜像。"""
+    safe = {k: v for k, v in fields.items() if k in LOCAL_FIELDS}
+    if safe:
+        update_movie_meta(movie_id, **safe)
+
+
 def update_movie_meta(movie_id: int, **fields) -> None:
     allowed = {"file_path", "title", "original_title", "year", "overview", "overview_override",
                "tmdb_id", "imdb_id", "tmdb_rating", "douban_rating", "custom_rating",
@@ -162,15 +378,34 @@ def update_movie_meta(movie_id: int, **fields) -> None:
     resync_fts(movie_id)
 
 
-def upsert_person(tmdb_id: int, name: str, avatar: str | None = None) -> int:
-    """avatar 非 None 时更新（含 '-' 标记“确认无照片”，避免回填反复重试）。"""
+def upsert_person(tmdb_id: int, name: str, avatar: str | None = None,
+                  profile_tmdb_path: str | None = None,
+                  fetched_at: int | None = None) -> int:
+    """人物镜像 upsert（以 tmdb_id 为键）。
+    avatar 非 None 时更新（含 '-' 标记“确认无照片”，避免回填反复重试）；
+    profile_tmdb_path 非 None 时更新（远端原图路径，用于感知远端换头像）；
+    fetched_at 非 None 时更新（credits 来源时间）。"""
+    now = int(time.time())
     with _lock, _conn() as c:
         c.execute("INSERT OR IGNORE INTO persons(tmdb_id, name) VALUES(?, ?)", (tmdb_id, name))
         c.execute("UPDATE persons SET name=? WHERE tmdb_id=?", (name, tmdb_id))
         if avatar is not None:
             c.execute("UPDATE persons SET avatar=? WHERE tmdb_id=?", (avatar, tmdb_id))
+        if profile_tmdb_path is not None:
+            c.execute("UPDATE persons SET profile_tmdb_path=? WHERE tmdb_id=?",
+                      (profile_tmdb_path or "", tmdb_id))
+        if fetched_at is not None:
+            c.execute("UPDATE persons SET fetched_at=? WHERE tmdb_id=?",
+                      (int(fetched_at) if fetched_at else now, tmdb_id))
         row = c.execute("SELECT id FROM persons WHERE tmdb_id=?", (tmdb_id,)).fetchone()
         return int(row["id"])
+
+
+def get_person_raw(tmdb_id: int) -> dict | None:
+    """人物镜像原始行（含 fetched_at/bio_fetched_at 水位，不含作品列表）。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM persons WHERE tmdb_id=?", (tmdb_id,)).fetchone()
+        return dict(row) if row else None
 
 
 def persons_missing_avatar(movie_id: int) -> bool:
@@ -184,11 +419,16 @@ def persons_missing_avatar(movie_id: int) -> bool:
 
 
 def update_person_bio(tmdb_id: int, biography: str = "",
-                      birthday: str = "", place_of_birth: str = "") -> None:
+                      birthday: str = "", place_of_birth: str = "",
+                      lang: str = "") -> None:
+    """人物详情缓存写入（简介/生日/出生地）。无论有无结果都刷新 bio_fetched_at，
+    空简介不再每次访问重试，只经手动刷新入口更新。"""
+    now = int(time.time())
     with _lock, _conn() as c:
-        c.execute("UPDATE persons SET biography=?, birthday=?, place_of_birth=? "
-                  "WHERE tmdb_id=?", (biography or "", birthday or "",
-                                      place_of_birth or "", tmdb_id))
+        c.execute("UPDATE persons SET biography=?, birthday=?, place_of_birth=?,"
+                  " bio_fetched_at=?, bio_lang=? WHERE tmdb_id=?",
+                  (biography or "", birthday or "", place_of_birth or "",
+                   now, lang or "", tmdb_id))
 
 
 def get_person(tmdb_id: int) -> dict | None:
@@ -230,6 +470,48 @@ def link_person(movie_id: int, person_id: int, role: str,
         c.execute("INSERT OR REPLACE INTO movie_person(movie_id, person_id, role,"
                   " character_name, cast_order) VALUES(?, ?, ?, ?, ?)",
                   (movie_id, person_id, role, character_name, cast_order))
+
+
+def clear_movie_persons(movie_id: int) -> None:
+    """清空单片演职员关联（手动换绑到不同 tmdb_id 时调用，避免旧阵容残留）。"""
+    with _lock, _conn() as c:
+        c.execute("DELETE FROM movie_person WHERE movie_id=?", (movie_id,))
+
+
+def get_movie_person_links(movie_id: int) -> list[dict]:
+    """单片现有演职员关联（含 person.tmdb_id），供 sync 幂等比对。"""
+    with _lock, _conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT p.tmdb_id AS person_tmdb_id, mp.role, mp.character_name, mp.cast_order"
+            " FROM movie_person mp JOIN persons p ON p.id=mp.person_id"
+            " WHERE mp.movie_id=?", (movie_id,))]
+
+
+def copy_person_links(src_movie_id: int, dst_movie_id: int) -> int:
+    """同 tmdb_id 多版本复用：把源行的 movie_person 原样复制到目标行（人物已存在，无需调网）。
+    返回复制条数。"""
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT person_id, role, character_name, cast_order FROM movie_person"
+            " WHERE movie_id=?", (src_movie_id,)).fetchall()
+        n = 0
+        for r in rows:
+            c.execute("INSERT OR IGNORE INTO movie_person(movie_id, person_id, role,"
+                      " character_name, cast_order) VALUES(?, ?, ?, ?, ?)",
+                      (dst_movie_id, r["person_id"], r["role"],
+                       r["character_name"] or "", r["cast_order"]))
+            n += 1
+        return n
+
+
+def find_sibling_with_persons(tmdb_id: int, exclude_movie_id: int) -> int | None:
+    """找同 tmdb_id 下已有演职员关联的兄弟行，供新版本免网络复用人物。"""
+    with _lock, _conn() as c:
+        row = c.execute(
+            "SELECT m.id FROM movies m WHERE m.tmdb_id=? AND m.id!=?"
+            " AND EXISTS(SELECT 1 FROM movie_person mp WHERE mp.movie_id=m.id)"
+            " ORDER BY m.updated_at DESC LIMIT 1", (tmdb_id, exclude_movie_id)).fetchone()
+        return int(row["id"]) if row else None
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
