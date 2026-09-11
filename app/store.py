@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS movies (
   original_language TEXT DEFAULT '',
   region TEXT DEFAULT '',
   media_type TEXT DEFAULT 'movie',
+  edition TEXT DEFAULT '',
+  spec TEXT DEFAULT '',
   needs_review INTEGER DEFAULT 0,
   updated_at INTEGER DEFAULT 0
 );
@@ -53,6 +55,14 @@ CREATE TABLE IF NOT EXISTS movie_person (
   character_name TEXT DEFAULT '',
   cast_order INTEGER DEFAULT 99,
   PRIMARY KEY (movie_id, person_id, role)
+);
+-- 花絮归属：file_path 唯一；movie_id 为 NULL 表示未归属（orphan）；kind 见 scanner.extra_kind
+CREATE TABLE IF NOT EXISTS extras (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_path TEXT UNIQUE NOT NULL,
+  movie_id INTEGER,
+  kind TEXT DEFAULT 'extra',
+  updated_at INTEGER DEFAULT 0
 );
 -- TMDB远端镜像：以 tmdb_id 为键的稳定缓存，不受 file_path/tags/评分等本地改动影响。
 -- movies 表的 TMDB 列只是它的物化副本，只经 copy_tmdb_to_movie() 复制。
@@ -100,7 +110,8 @@ TMDB_FIELDS = {"title", "original_title", "year", "overview",
                "region", "media_type"}
 # 本地自有列（PATCH/rename/tags/评分等，只能经本地写路径修改，不碰 cache）
 LOCAL_FIELDS = {"file_path", "title", "overview_override",
-                "douban_rating", "custom_rating", "tags", "needs_review"}
+                "douban_rating", "custom_rating", "tags", "needs_review",
+                "edition", "spec"}
 
 
 def init_db() -> None:
@@ -116,6 +127,8 @@ def init_db() -> None:
             ("region", "ALTER TABLE movies ADD COLUMN region TEXT DEFAULT ''"),
             ("genre_ids", "ALTER TABLE movies ADD COLUMN genre_ids TEXT DEFAULT '[]'"),
             ("media_type", "ALTER TABLE movies ADD COLUMN media_type TEXT DEFAULT 'movie'"),
+            ("edition", "ALTER TABLE movies ADD COLUMN edition TEXT DEFAULT ''"),
+            ("spec", "ALTER TABLE movies ADD COLUMN spec TEXT DEFAULT ''"),
         ):
             if col not in cols:
                 c.execute(ddl)
@@ -367,7 +380,7 @@ def update_movie_meta(movie_id: int, **fields) -> None:
                "tmdb_id", "imdb_id", "tmdb_rating", "douban_rating", "custom_rating",
                "poster_path", "genres", "genre_ids", "tags", "needs_review",
                "origin_country", "origin_countries", "original_language",
-               "region", "media_type"}
+               "region", "media_type", "edition", "spec"}
     data = {k: (json.dumps(v, ensure_ascii=False) if k in ("genres", "genre_ids", "tags", "origin_countries") else v)
             for k, v in fields.items() if k in allowed}
     if not data:
@@ -515,8 +528,121 @@ def find_sibling_with_persons(tmdb_id: int, exclude_movie_id: int) -> int | None
         return int(row["id"]) if row else None
 
 
+def upsert_extra(file_path: str, movie_id: int | None,
+                 kind: str = "extra") -> int:
+    """花絮归属记录（按 file_path 幂等）。movie_id 为 None = 未归属。"""
+    with _lock, _conn() as c:
+        c.execute("INSERT OR IGNORE INTO extras(file_path, updated_at) VALUES(?, ?)",
+                  (file_path, int(time.time())))
+        c.execute("UPDATE extras SET movie_id=?, kind=?, updated_at=? WHERE file_path=?",
+                  (movie_id, kind or "extra", int(time.time()), file_path))
+        row = c.execute("SELECT id FROM extras WHERE file_path=?", (file_path,)).fetchone()
+        return int(row["id"])
+
+
+def list_extras_by_movie(movie_id: int) -> list[dict]:
+    with _lock, _conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM extras WHERE movie_id=? ORDER BY file_path", (movie_id,))]
+
+
+def list_orphan_extras() -> list[dict]:
+    with _lock, _conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM extras WHERE movie_id IS NULL ORDER BY file_path")]
+
+
+def list_all_extras() -> list[dict]:
+    with _lock, _conn() as c:
+        return [dict(r) for r in c.execute("SELECT * FROM extras ORDER BY file_path")]
+
+
+def update_extra_movie(extra_id: int, movie_id: int) -> bool:
+    """手工认领：orphan 花絮归到指定影片。返回行是否存在。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT id FROM extras WHERE id=?", (extra_id,)).fetchone()
+        if not row:
+            return False
+        c.execute("UPDATE extras SET movie_id=?, updated_at=? WHERE id=?",
+                  (movie_id, int(time.time()), extra_id))
+        return True
+
+
+def delete_extra_by_path(file_path: str) -> bool:
+    with _lock, _conn() as c:
+        row = c.execute("SELECT id FROM extras WHERE file_path=?", (file_path,)).fetchone()
+        if not row:
+            return False
+        c.execute("DELETE FROM extras WHERE file_path=?", (file_path,))
+        return True
+
+
+def repath_extra_by_basename(basename: str, new_path: str,
+                             movie_id: int | None, kind: str) -> dict | None:
+    """已入库花絮被搬迁改路径后按 basename 认领：仅认领原文件已消失的行
+    （同名不同文件不误认），更新路径+归属/kind，避免删建抖动。
+    返回更新后的行，无可认领返回 None。"""
+    import os as _os
+    from .config import settings as _settings
+    with _lock, _conn() as c:
+        rows = [dict(r) for r in c.execute("SELECT * FROM extras").fetchall()]
+    same = [r for r in rows if _os.path.basename(r["file_path"]) == basename]
+    if not same:
+        return None
+    if any(r["file_path"] == new_path for r in same):
+        return next(r for r in same if r["file_path"] == new_path)
+    gone = [r for r in same if not _os.path.exists(
+        _os.path.join(_settings.media_root, r["file_path"]))]
+    if not gone:
+        return None
+    keep = sorted(gone, key=lambda r: r["id"])[0]
+    with _lock, _conn() as c:
+        try:
+            c.execute("UPDATE extras SET file_path=?, movie_id=?, kind=?,"
+                      " updated_at=? WHERE id=?",
+                      (new_path, movie_id, kind or "extra",
+                       int(time.time()), keep["id"]))
+        except Exception:
+            return keep
+        for r in same:
+            if r["id"] != keep["id"] and r["file_path"] != new_path:
+                try:
+                    c.execute("DELETE FROM extras WHERE id=?", (r["id"],))
+                except Exception:
+                    pass
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM extras WHERE id=?", (keep["id"],)).fetchone()
+        return dict(row) if row else None
+
+
+def find_movie_for_extra(title: str, year: int | None) -> dict | None:
+    """花絮归属：归一标题对 movies.title/original_title，年份±1（年份缺失则只比标题）。
+    命中多行取最早入库（id 最小，多版本同 tmdb 归代表无妨，跟随搬迁以行为准逐个比对）。
+    返回 movie 行 dict 或 None。"""
+    from .scanner import normalize_title
+    norm = normalize_title(title or "")
+    if not norm:
+        return None
+    with _lock, _conn() as c:
+        rows = c.execute("SELECT * FROM movies ORDER BY id").fetchall()
+    cands = []
+    for r in rows:
+        d = _row_to_dict(r)
+        if year is not None and d.get("year") is not None:
+            try:
+                if abs(int(d["year"]) - int(year)) > 1:
+                    continue
+            except (TypeError, ValueError):
+                pass
+        for key in (d.get("title") or "", d.get("original_title") or ""):
+            if key and normalize_title(key) == norm:
+                cands.append(d)
+                break
+    return cands[0] if cands else None
+
+
 def delete_movie(movie_id: int) -> bool:
-    """彻底删除单行（软件外删片后的清理口）：删关联+主行+FTS行。
+    """彻底删除单行（软件外删片/移动后产生）：删关联+主行+FTS行。
     海报与 tmdb_cache 保留（多版本/重扫复用）。返回行是否存在。"""
     with _lock, _conn() as c:
         row = c.execute("SELECT id FROM movies WHERE id=?", (movie_id,)).fetchone()
@@ -583,10 +709,14 @@ def get_by_path(file_path: str) -> dict | None:
 def _attach_versions(c: sqlite3.Connection, d: dict) -> dict:
     key = d.get("tmdb_id")
     if key:
-        vers = [{"id": r["id"], "file_path": r["file_path"]} for r in c.execute(
-            "SELECT id, file_path FROM movies WHERE tmdb_id=? ORDER BY file_path", (key,))]
+        vers = [{"id": r["id"], "file_path": r["file_path"],
+                 "edition": r["edition"] or "",
+                 "spec": r["spec"] or ""} for r in c.execute(
+            "SELECT id, file_path, edition, spec FROM movies WHERE tmdb_id=? ORDER BY file_path", (key,))]
     else:
-        vers = [{"id": d["id"], "file_path": d["file_path"]}]
+        vers = [{"id": d["id"], "file_path": d["file_path"],
+                 "edition": d.get("edition") or "",
+                 "spec": d.get("spec") or ""}]
     d["version_count"] = len(vers)
     d["versions"] = vers
     return d

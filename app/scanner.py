@@ -18,6 +18,117 @@ from .nfo import write_movie_nfo
 from .regions import resolve as resolve_region
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv", ".webm"}
+SUBTITLE_EXTS = {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup"}
+
+# 样片：*.Sample.mkv / *(Sample).mkv / Sample-xxx / Inception.1080p.sample.mkv
+_SAMPLE_RE = re.compile(r"(?i)(?:^|[.\-_ \([])sample(?:[.\-_ \)}\]]|$)")
+# 花絮：预告/幕后/删减/特辑/采访/片花/making of + 中文 花絮/预告/特辑/彩蛋
+# （short/scene 只认 Plex 式末尾后缀，避免吞掉片名含 Short 的正片）
+_EXTRAS_RE = re.compile(
+    r"(?i)(behind[ ._\-]*the[ ._\-]*scenes|featurette|deleted[ ._\-]*scenes?|"
+    r"bloopers?|interviews?|trailers?|teasers?|"
+    r"making[\s.\-_]*of|メイキング|"
+    r"[ ._\-]+shorts?$|[ ._\-]+scene$|"
+    r"花絮|预告|特辑|彩蛋|幕后)")
+# 花絮子目录名（全段匹配，大小写不敏感；Plex 全集 + 中文 + samples）
+EXTRAS_DIR_NAMES = {"extras", "extra", "featurettes", "featurette",
+                    "behind the scenes", "deleted scenes", "trailers", "trailer",
+                    "interviews", "interview", "samples", "sample",
+                    "花絮", "预告", "特辑"}
+# 太通用的目录名：仅当父目录含正片（即“某部片的子目录”）时才算花絮目录，
+# 避免顶层的 Shorts/Other 合集目录被吞掉
+_GENERIC_DIR_NAMES = {"scenes", "other", "shorts"}
+# 目录名 → kind（归属记录用）
+KIND_BY_DIR = {"trailers": "trailer", "trailer": "trailer", "预告": "trailer",
+               "behind the scenes": "behindthescenes", "花絮": "behindthescenes",
+               "幕后": "behindthescenes", "deleted scenes": "deleted",
+               "featurettes": "featurette", "featurette": "featurette",
+               "特辑": "featurette", "彩蛋": "featurette",
+               "interviews": "interview", "interview": "interview",
+               "scenes": "scene", "shorts": "short", "short": "short",
+               "other": "other", "samples": "sample", "sample": "sample",
+               "extras": "extra", "extra": "extra"}
+# 文件名关键词 → kind（按优先级）
+_KIND_WORDS: list[tuple] = [
+    (re.compile(r"(?i)trailers?|teasers?|预告"), "trailer"),
+    (re.compile(r"(?i)behind[ ._\-]*the[ ._\-]*scenes|making[\s.\-_]*of|メイキング|花絮|幕后"), "behindthescenes"),
+    (re.compile(r"(?i)deleted[ ._\-]*scenes?|bloopers?"), "deleted"),
+    (re.compile(r"(?i)featurette|特辑|彩蛋"), "featurette"),
+    (re.compile(r"(?i)interviews?"), "interview"),
+    (re.compile(r"(?i)interviews?"), "interview"),
+    (re.compile(r"(?i)[ ._\-]+scene$"), "scene"),
+    (re.compile(r"(?i)[ ._\-]+shorts?$"), "short"),
+]
+
+
+def extra_kind(rel_path: str) -> str:
+    """花絮归属类型：先看所处花絮子目录（由内向外），再看文件名关键词，默认 extra。"""
+    parts = (rel_path or "").replace("\\", "/").split("/")
+    for p in reversed(parts[:-1]):
+        k = KIND_BY_DIR.get((p or "").strip().lower())
+        if k:
+            return k
+    if is_sample(os.path.basename(rel_path or "")):
+        return "sample"
+    stem = os.path.splitext(parts[-1] if parts else "")[0]
+    for pat, k in _KIND_WORDS:
+        if pat.search(stem):
+            return k
+    return "extra"
+
+
+def is_sample(basename: str) -> bool:
+    return bool(_SAMPLE_RE.search(os.path.splitext(basename)[0]))
+
+
+def _parent_has_feature(abs_dir: str) -> bool:
+    """父目录是否含正片文件（二级规则：scenes/other/shorts 类通用名目录的判定用）。
+    只看文件名级特征（不递归调 is_extra，避免循环）。"""
+    try:
+        names = os.listdir(abs_dir)
+    except OSError:
+        return False
+    for n in names:
+        full = os.path.join(abs_dir, n)
+        if not os.path.isfile(full):
+            continue
+        if os.path.splitext(n)[1].lower() not in VIDEO_EXTS:
+            continue
+        if is_sample(n):
+            continue
+        stem = os.path.splitext(n)[0]
+        if _EXTRAS_RE.search(stem):
+            continue
+        return True
+    return False
+
+
+def is_extra(rel_path: str) -> bool:
+    """rel_path 为 MEDIA_ROOT 下相对路径：文件名命中花絮词，或所处花絮子目录。
+    scenes/other/shorts 类通用目录名仅当其父目录含正片文件（即“某部片的子目录”
+    语义，如 Movie/Shorts/）时生效；顶层 Shorts/ 合集目录不受影响。"""
+    parts = (rel_path or "").replace("\\", "/").split("/")
+    for i, p in enumerate(parts[:-1]):
+        low = (p or "").strip().lower()
+        if low in _GENERIC_DIR_NAMES:
+            above = os.path.join(settings.media_root, *parts[:i]) \
+                if i else settings.media_root
+            if _parent_has_feature(above):
+                return True
+        elif low in EXTRAS_DIR_NAMES:
+            return True
+    return bool(_EXTRAS_RE.search(os.path.splitext(parts[-1] if parts else "")[0]))
+
+
+def is_sidecar(rel_path: str) -> bool:
+    """扫描应跳过的非正片：花絮或样片。"""
+    base = os.path.basename(rel_path or "")
+    return is_sample(base) or is_extra(rel_path)
+
+
+def is_feature_video(rel_path: str) -> bool:
+    return (os.path.splitext(rel_path)[1].lower() in VIDEO_EXTS
+            and not is_sidecar(rel_path))
 
 
 _ROMAN = {"II": "2", "III": "3", "IV": "4", "VI": "6",
@@ -57,12 +168,18 @@ def parse_filename(name: str) -> dict:
     try:
         g = guessit(name)
     except Exception:
-        return {"title": os.path.splitext(name)[0], "year": None, "type": "movie"}
+        g = {}
     title = g.get("title") or os.path.splitext(name)[0]
     if isinstance(title, list):
         title = title[0]
+    from .editions import detect_edition, detect_spec, split_stack
+    stem = os.path.splitext(name)[0]
+    _, stack = split_stack(stem)
     return {"title": str(title), "year": g.get("year"),
-            "type": g.get("type", "movie")}
+            "type": g.get("type", "movie"),
+            "edition": detect_edition(name, g.get("edition")),
+            "spec": detect_spec(name),
+            "stack": stack}
 
 
 def pick_match(results: list[dict], year: int | None) -> dict | None:
@@ -258,16 +375,69 @@ def ensure_movie_poster(tmdb_id: int, poster_tmdb_path: str | None,
 def _write_nfo_for(mid: int, abs_path: str) -> bool:
     try:
         movie = store.get_movie(mid)
-        write_movie_nfo(movie, os.path.join(os.path.dirname(abs_path), "movie.nfo"))
+        movie_dir = os.path.dirname(abs_path)
+        write_movie_nfo(movie, os.path.join(movie_dir, "movie.nfo"))
+        # 多版本同目录：每个视频配同名 .nfo（Kodi/Jellyfin 兼容），避免共用 movie.nfo 被覆盖
+        stem = os.path.splitext(os.path.basename(abs_path))[0]
+        if stem and stem != "movie":
+            write_movie_nfo(movie, os.path.join(movie_dir, stem + ".nfo"))
         return True
     except Exception:
         return False
 
 
+def _media_needs(tmdb_id: int, mid: int, poster_tmdb: str,
+                 old_poster_tmdb: str, detail: dict) -> dict:
+    """后台重活是否真有事做（供回包 flags，前端展示“补齐中”）。纯本地判断，不调网。"""
+    dest = os.path.join(POSTER_DIR, f"{tmdb_id}.jpg")
+    poster = bool(poster_tmdb) and not (
+        os.path.exists(dest) and (old_poster_tmdb or "") == poster_tmdb)
+    try:
+        avatars = store.persons_missing_avatar(mid)
+    except Exception:
+        avatars = False
+    if not avatars:
+        try:
+            jobs = jobs_from_credits(extract_credits(detail))
+            avatars = bool(jobs and store.get_movie_person_links(mid) == [])
+        except Exception:
+            avatars = False
+    return {"poster": bool(poster), "avatars": bool(avatars)}
+
+
+def finish_tmdb_media(mid: int, detail: dict, abs_path: str,
+                      poster_tmdb: str, old_poster_tmdb: str) -> dict:
+    """后台重活：海报下载 + 头像同步 + FTS + NFO。幂等，失败自吞（下次刷新/重绑自愈）。"""
+    tmdb_id = detail["id"]
+    try:
+        poster_local = ensure_movie_poster(tmdb_id, poster_tmdb, old_poster_tmdb)
+        store.update_movie_meta(mid, poster_path=poster_local)
+        sync_persons(mid, detail)
+        store.resync_fts(mid)
+        nfo = _write_nfo_for(mid, abs_path)
+        return {"poster_path": poster_local, "nfo": nfo}
+    except Exception:
+        return {"poster_path": "", "nfo": False}
+
+
 def apply_tmdb_detail(mid: int, detail: dict, abs_path: str,
                       force_title: bool = False) -> dict:
-    """把TMDB详情写入镜像并复制到本片（人物/海报/NFO/FTS）。
+    """把TMDB详情写入镜像并复制到本片（人物/海报/NFO/FTS，全同步版；扫描链路用）。
     force_title=True（手动换绑）时无条件覆盖标题；否则保留手工改过的标题。"""
+    out, media = apply_tmdb_detail_fast(mid, detail, abs_path, force_title)
+    finish_tmdb_media(mid, detail, abs_path, media["poster_tmdb"],
+                      media["old_poster_tmdb"])
+    movie = store.get_movie(mid)
+    out["nfo"] = _write_nfo_for(mid, abs_path)
+    if movie:
+        out["title"], out["year"] = movie["title"], movie["year"]
+    return out
+
+
+def apply_tmdb_detail_fast(mid: int, detail: dict, abs_path: str,
+                           force_title: bool = False) -> tuple[dict, dict]:
+    """快路径（绑定/刷新接口用）：只落镜像 + 复制文字元数据，立即回包；
+    海报/头像/NFO 由调用方经 finish_tmdb_media() 放后台。返回 (result, media_args)。"""
     tmdb_id = detail["id"]
     cur = store.get_movie(mid)
     cur_tmdb = (cur or {}).get("tmdb_id")
@@ -292,14 +462,14 @@ def apply_tmdb_detail(mid: int, detail: dict, abs_path: str,
         # 其余 TMDB 列经 copy 已同步（copy 内含除 poster 外全量）
     else:
         store.copy_tmdb_to_movie(mid, old_title=old_title if old_cache else None)
-    poster_local = ensure_movie_poster(tmdb_id, poster_tmdb, old_poster_tmdb)
-    store.update_movie_meta(mid, poster_path=poster_local)
-    sync_persons(mid, detail)
+    # 快路径也刷一次 FTS（文字已就绪，海报/头像不进索引）
     store.resync_fts(mid)
-    movie = store.get_movie(mid)
-    nfo = _write_nfo_for(mid, abs_path)
-    return {"title": movie["title"], "year": movie["year"],
-            "tmdb_id": tmdb_id, "nfo": nfo}
+    movie = store.get_movie(mid) or {}
+    needs = _media_needs(tmdb_id, mid, poster_tmdb, old_poster_tmdb, detail)
+    out = {"title": movie.get("title", ""), "year": movie.get("year"),
+           "tmdb_id": tmdb_id, "nfo": False, "background": needs}
+    media = {"poster_tmdb": poster_tmdb, "old_poster_tmdb": old_poster_tmdb}
+    return out, media
 
 
 def apply_cached_to_movie(mid: int, tmdb_id: int, abs_path: str) -> dict:
@@ -323,48 +493,135 @@ def apply_cached_to_movie(mid: int, tmdb_id: int, abs_path: str) -> dict:
             "tmdb_id": tmdb_id, "nfo": nfo}
 
 
+def finish_refresh_media(jobs: list[dict]) -> int:
+    """后台重活：各版本的海报/头像/NFO。幂等，失败自吞。返回处理数。"""
+    n = 0
+    for j in jobs:
+        try:
+            mid = j["mid"]
+            if not store.get_movie(mid):
+                continue
+            poster_local = ensure_movie_poster(j["tmdb_id"], j["poster_tmdb"],
+                                               j["old_poster_tmdb"])
+            store.update_movie_meta(mid, poster_path=poster_local)
+            sync_persons(mid, j["detail"])
+            store.resync_fts(mid)
+            _write_nfo_for(mid, j["abs_path"])
+            n += 1
+        except Exception:
+            continue
+    return n
+
+
 def refresh_tmdb_id(tmdb_id: int) -> dict:
     """手动刷新唯一入口：抓远端 → 写镜像 → 有变化才扇出到所有同 tmdb_id 版本。
     返回 {changed, affected_ids, title, year}。无变化时不碰任何 movies 行。"""
-    detail = tmdb.movie_detail(int(tmdb_id))
+    out, jobs = refresh_tmdb_id_fast(int(tmdb_id))
+    if jobs:
+        finish_refresh_media(jobs)
+    return out
+
+
+def refresh_tmdb_id_fast(tmdb_id: int) -> tuple[dict, list[dict]]:
+    """快路径（刷新接口用）：抓远端 + 写镜像 + 文字扇出，立即回包；
+    海报/头像/NFO 由调用方经 finish_refresh_media() 放后台。返回 (result, jobs)。"""
+    tmdb_id = int(tmdb_id)
+    detail = tmdb.movie_detail(tmdb_id)
     new_meta = meta_from_detail(detail)
     new_poster_tmdb = detail.get("poster_path") or ""
     new_credits = extract_credits(detail)
-    old_cache = store.get_tmdb_cached(int(tmdb_id))
+    old_cache = store.get_tmdb_cached(tmdb_id)
     old_title = (old_cache or {}).get("title") or ""
     old_poster_tmdb = (old_cache or {}).get("poster_tmdb_path") or ""
-    changed = store.upsert_tmdb_cache(int(tmdb_id), new_meta, new_credits, new_poster_tmdb)
+    changed = store.upsert_tmdb_cache(tmdb_id, new_meta, new_credits, new_poster_tmdb)
     if not changed:
-        mids = store.list_movie_ids_by_tmdb(int(tmdb_id))
-        # 仍需补齐人物缺失（如头像缺失）：只做本地修复，不改 updated_at 语义之外的字段
-        for mid in mids:
-            if store.persons_missing_avatar(mid):
-                sync_persons(mid, detail)
-                store.resync_fts(mid)
-        cur = store.get_tmdb_cached(int(tmdb_id)) or {}
-        return {"changed": False, "affected_ids": [],
-                "title": cur.get("title", ""), "year": cur.get("year"),
-                "tmdb_id": int(tmdb_id)}
+        jobs = []
+        for mid in store.list_movie_ids_by_tmdb(tmdb_id):
+            # 缺头像补齐放后台；回包 flags 诚实告知
+            try:
+                if store.persons_missing_avatar(mid):
+                    m = store.get_movie(mid)
+                    if m:
+                        jobs.append({"mid": mid, "tmdb_id": tmdb_id,
+                                     "detail": detail, "poster_tmdb": new_poster_tmdb,
+                                     "old_poster_tmdb": old_poster_tmdb,
+                                     "abs_path": os.path.join(
+                                         settings.media_root, m["file_path"])})
+            except Exception:
+                continue
+        cur = store.get_tmdb_cached(tmdb_id) or {}
+        return ({"changed": False, "affected_ids": [],
+                 "title": cur.get("title", ""), "year": cur.get("year"),
+                 "tmdb_id": tmdb_id,
+                 "background": {"poster": False, "avatars": bool(jobs)}}, jobs)
     affected: list[int] = []
-    for mid in store.list_movie_ids_by_tmdb(int(tmdb_id)):
+    jobs = []
+    for mid in store.list_movie_ids_by_tmdb(tmdb_id):
         m = store.get_movie(mid)
         if not m:
             continue
         store.copy_tmdb_to_movie(mid, old_title=old_title if old_cache else None)
-        poster_local = ensure_movie_poster(int(tmdb_id), new_poster_tmdb, old_poster_tmdb)
-        store.update_movie_meta(mid, poster_path=poster_local)
-        sync_persons(mid, detail)
         store.resync_fts(mid)
         abs_path = os.path.join(settings.media_root, m["file_path"])
-        _write_nfo_for(mid, abs_path)
         affected.append(mid)
-    return {"changed": True, "affected_ids": affected,
-            "title": new_meta.get("title", ""), "year": new_meta.get("year"),
-            "tmdb_id": int(tmdb_id)}
+        jobs.append({"mid": mid, "tmdb_id": tmdb_id, "detail": detail,
+                     "poster_tmdb": new_poster_tmdb,
+                     "old_poster_tmdb": old_poster_tmdb, "abs_path": abs_path})
+    return ({"changed": True, "affected_ids": affected,
+             "title": new_meta.get("title", ""), "year": new_meta.get("year"),
+             "tmdb_id": tmdb_id,
+             "background": {"poster": bool(new_poster_tmdb),
+                            "avatars": bool(jobs)}}, jobs)
+
+
+def attribute_extra(abs_path: str) -> dict:
+    """花絮归属：解析标题/年份 → 库内标题/原标题匹配（年份±1）→ extras 表幂等记录。
+    样片永不归属（仅返回 skipped_sample）。返回 {file, status, movie_id?, kind}。"""
+    rel = os.path.relpath(abs_path, settings.media_root)
+    base = os.path.basename(abs_path)
+    if is_sample(base):
+        return {"file": rel, "status": "skipped_sample"}
+    kind = extra_kind(rel)
+    if kind == "sample":
+        # 样片片段：只认不收（永不归属、不入库、不搬迁）
+        return {"file": rel, "status": "skipped_sample"}
+    parsed = parse_filename(base)
+    title = normalize_title(parsed.get("title") or "")
+    # 花絮文件名常带原标题（如 Making of おもひでぽろぽろ）：归一后直比；
+    # 文件名无意义时（clip/etc）逐级退回祖先目录名（如 Plex 树的 Movie/Other/etc.mkv）
+    cands = [(title, parsed.get("year"))]
+    parts = rel.replace("\\", "/").split("/")[:-1]
+    for anc in reversed(parts):
+        if not anc or anc in (".",):
+            continue
+        try:
+            pp = parse_filename(anc)
+            t = normalize_title(pp.get("title") or "")
+            if t:
+                cands.append((t, pp.get("year")))
+        except Exception:
+            continue
+    hit, mid = None, None
+    for t, y in cands:
+        if t and (hit := store.find_movie_for_extra(t, y)):
+            mid = hit["id"]
+            break
+    # 已入库（搬迁改路径）先按 basename 认领，避免删建抖动
+    claimed = store.repath_extra_by_basename(base, rel, mid, kind)
+    if claimed is None:
+        store.upsert_extra(rel, mid, kind)
+    if mid:
+        return {"file": rel, "status": "extra_attached", "movie_id": mid,
+                "kind": kind, "title": hit.get("title", "")}
+    return {"file": rel, "status": "extra_orphan", "kind": kind}
 
 
 def scan_one(abs_path: str) -> dict:
     rel = os.path.relpath(abs_path, settings.media_root)
+    if is_sidecar(rel):
+        if is_sample(os.path.basename(abs_path)):
+            return {"file": rel, "status": "skipped_sample"}
+        return attribute_extra(abs_path)
     cached = store.get_by_path(rel)
     if cached and cached.get("tmdb_id"):
         return {"file": rel, "status": "skipped_cached", "title": cached.get("title")}
@@ -378,9 +635,35 @@ def scan_one(abs_path: str) -> dict:
     if not m:
         mid = store.upsert_movie_by_path(rel)
         store.update_movie_meta(mid, title=parsed["title"], year=parsed["year"])
+        try:
+            cur = store.get_movie(mid) or {}
+        except Exception:
+            cur = {}
+        local = {}
+        if parsed.get("edition") and not cur.get("edition"):
+            local["edition"] = parsed["edition"]
+        if parsed.get("spec") and not cur.get("spec"):
+            local["spec"] = parsed["spec"]
+        if local:
+            try:
+                store.update_movie_local(mid, **local)
+            except Exception:
+                pass
         return {"file": rel, "status": "no_match", "parsed": parsed}
     tmdb_id = int(m["id"])
     mid = store.upsert_movie_by_path(rel)
+    # 版本/规格后缀持久化：重扫不覆盖手工改过的值（非空保留）
+    try:
+        cur = store.get_movie(mid) or {}
+    except Exception:
+        cur = {}
+    local: dict = {}
+    if not cur.get("edition") and parsed.get("edition"):
+        local["edition"] = parsed["edition"]
+    if not cur.get("spec") and parsed.get("spec"):
+        local["spec"] = parsed["spec"]
+    if local:
+        store.update_movie_local(mid, **local)
     if store.get_tmdb_cached(tmdb_id):
         out = apply_cached_to_movie(mid, tmdb_id, abs_path)
     else:
@@ -396,13 +679,25 @@ def scan_all() -> list[dict]:
     ensure_dirs()
     store.init_db()
     out = []
+    seen_extras: set[str] = set()
     for root, _, files in os.walk(settings.media_root):
         for f in sorted(files):
             if os.path.splitext(f)[1].lower() in VIDEO_EXTS:
                 try:
-                    out.append(scan_one(os.path.join(root, f)))
+                    r = scan_one(os.path.join(root, f))
+                    out.append(r)
+                    if r.get("status") in ("extra_attached", "extra_orphan"):
+                        seen_extras.add(r["file"])
                 except Exception as e:
                     out.append({"file": os.path.relpath(os.path.join(root, f),
                                                         settings.media_root),
                                 "status": f"error: {e}"})
+    # 花絮行 GC：文件已不存在的归属记录清掉（正片走 missing/clean 流程）
+    try:
+        for row in store.list_all_extras():
+            if row["file_path"] not in seen_extras and not os.path.exists(
+                    os.path.join(settings.media_root, row["file_path"])):
+                store.delete_extra_by_path(row["file_path"])
+    except Exception:
+        pass
     return out

@@ -1,119 +1,230 @@
 <template>
-  <div class="page">
-    <h2>设置</h2>
+  <div class="settings-layout">
+    <aside class="side-nav">
+      <button v-for="n in navs" :key="n.id" :class="{ on: active === n.id }" @click="go(n.id)">
+        {{ n.label }}<span v-if="n.badge" class="nav-badge">{{ n.badge }}</span>
+      </button>
+    </aside>
+    <div class="page settings-main">
+      <h2>设置</h2>
 
-    <section class="card-block">
-      <h3>库状态</h3>
-      <p v-if="s" class="meta-line">媒体目录：{{ s.media_root }} · 语言：{{ s.tmdb_language }} · TMDB Token：{{ s.tmdb_configured ? '已配' : '未配' }} · 图片源：{{ s.tmdb_image_base }}</p>
-      <div v-if="stats" class="stat-grid">
-        <div class="stat"><b>{{ stats.grouped }}</b><span>影片</span></div>
-        <div class="stat"><b>{{ stats.versions }}</b><span>文件版本</span></div>
-        <div class="stat"><b>{{ stats.needs_review }}</b><span>待确认</span></div>
-        <div class="stat"><b>{{ stats.no_match }}</b><span>未匹配</span></div>
-        <div class="stat warn"><b>{{ stats.missing_files }}</b><span>失效文件</span></div>
-        <div class="stat"><b>{{ stats.tmdb_cache }}</b><span>镜像缓存</span></div>
-        <div class="stat"><b>{{ stats.persons }}</b><span>人物</span></div>
-        <div class="stat"><b>{{ fmtBytes(stats.db_bytes) }}</b><span>数据库</span></div>
-        <div class="stat"><b>{{ fmtBytes(stats.posters_bytes) }}</b><span>海报</span></div>
-      </div>
-      <div class="bar">
-        <button @click="testTmdb" :disabled="!!busy">测试TMDB连接</button>
-        <span>{{ tmdbMsg }}</span>
-      </div>
-    </section>
+      <section id="sec-status" class="card-block">
+        <h3>库状态</h3>
+        <p v-if="s" class="meta-line">媒体目录：{{ s.media_root }} · 语言：{{ s.tmdb_language }} · TMDB Token：{{ s.tmdb_configured ? '已配' : '未配' }} · 图片源：{{ s.tmdb_image_base }}</p>
+        <div v-if="stats" class="stat-grid">
+          <div class="stat"><b>{{ stats.grouped }}</b><span>影片</span></div>
+          <div class="stat"><b>{{ stats.versions }}</b><span>文件版本</span></div>
+          <div class="stat"><b>{{ stats.needs_review }}</b><span>待确认</span></div>
+          <div class="stat"><b>{{ stats.no_match }}</b><span>未匹配</span></div>
+          <div class="stat warn"><b>{{ stats.missing_files }}</b><span>失效文件</span></div>
+          <div class="stat"><b>{{ stats.tmdb_cache }}</b><span>镜像缓存</span></div>
+          <div class="stat"><b>{{ stats.persons }}</b><span>人物</span></div>
+          <div class="stat"><b>{{ fmtBytes(stats.db_bytes) }}</b><span>数据库</span></div>
+          <div class="stat"><b>{{ fmtBytes(stats.posters_bytes) }}</b><span>海报</span></div>
+        </div>
+        <div class="bar">
+          <button @click="testTmdb" :disabled="!!busy">测试TMDB连接</button>
+          <span>{{ tmdbMsg }}</span>
+        </div>
+      </section>
 
-    <section class="card-block">
-      <h3>媒体库同步</h3>
-      <p class="hint">在软件之外增删视频后用这里同步：先扫描新增入库，再检查并清理失效条目。</p>
-      <div class="bar">
-        <button @click="doScan" :disabled="!!busy">{{ busy === 'scan' ? '扫描中…' : '扫描新文件' }}</button>
-        <span>{{ scanMsg }}</span>
-      </div>
-      <div class="bar">
-        <button @click="loadMissing" :disabled="!!busy">检查失效条目</button>
-        <button v-if="missing.length" @click="toggleAllMissing">{{ allChecked ? '全不选' : '全选' }}</button>
-        <span v-if="missing.length">共 {{ missing.length }} 条失效</span>
-      </div>
-      <ul v-if="missing.length" class="miss-list">
-        <li v-for="m in missing" :key="m.id" class="miss-row">
-          <input type="checkbox" :value="m.id" v-model="checkedMissing" />
-          <span class="miss-title">{{ m.title || '(未命名)' }}<span v-if="m.year"> ({{ m.year }})</span></span>
-          <span class="miss-path">{{ m.file_path }}</span>
-        </li>
-      </ul>
-      <div v-if="missing.length" class="bar">
-        <button @click="doClean" :disabled="!!busy || !checkedMissing.length">
-          {{ busy === 'clean' ? '清理中…' : `删除选中 (${checkedMissing.length})` }}
-        </button>
-        <span>{{ cleanMsg }}</span>
-      </div>
-    </section>
+      <section id="sec-sync" class="card-block">
+        <h3>媒体库同步</h3>
+        <p class="hint">在软件之外增删视频后用这里同步：先扫描新增入库，再检查并清理失效条目。</p>
+        <div class="bar">
+          <button @click="doScan" :disabled="!!busy">{{ busy === 'scan' ? '扫描中…' : '扫描新文件' }}</button>
+          <span>{{ scanMsg }}</span>
+        </div>
+        <div class="bar">
+          <button @click="loadMissing" :disabled="!!busy">检查失效条目</button>
+          <button v-if="missing.length" @click="toggleAllMissing">{{ allChecked ? '全不选' : '全选' }}</button>
+          <span v-if="missing.length">共 {{ missing.length }} 条失效</span>
+          <button v-if="missing.length > COLLAPSE_N" @click="showAllMissing = !showAllMissing">{{ showAllMissing ? '收起' : `展开全部 (${missing.length})` }}</button>
+        </div>
+        <ul v-if="missing.length" class="miss-list">
+          <li v-for="m in visibleMissing" :key="m.id" class="miss-row">
+            <input type="checkbox" :value="m.id" v-model="checkedMissing" />
+            <span class="miss-title">{{ m.title || '(未命名)' }}<span v-if="m.year"> ({{ m.year }})</span></span>
+            <span class="miss-path">{{ m.file_path }}</span>
+          </li>
+        </ul>
+        <div v-if="missing.length" class="bar">
+          <button @click="doClean" :disabled="!!busy || !checkedMissing.length">
+            {{ busy === 'clean' ? '清理中…' : `删除选中 (${checkedMissing.length})` }}
+          </button>
+          <span>{{ cleanMsg }}</span>
+        </div>
+      </section>
 
-    <section class="card-block">
-      <h3>元数据维护</h3>
-      <div class="bar">
-        <button @click="doBackfill" :disabled="!!busy">{{ busy === 'backfill' ? '补数据中…' : '补产地信息' }}</button>
-        <span>{{ backfillMsg }}</span>
-      </div>
-      <div class="bar">
-        <button @click="doRefreshAll" :disabled="!!busy">
-          {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? `确认刷新全部（约${stats ? stats.grouped : '?'}部）` : '刷新全部TMDB数据') }}
-        </button>
-        <span>{{ refreshMsg }}</span>
-      </div>
-      <p v-if="armRefresh" class="hint warn-text">将逐部请求 TMDB（以 limit 截断），无变化的不动，手工标题不受影响。再点一次执行。</p>
-      <div class="bar">
-        <button @click="doRebuildNfo" :disabled="!!busy">{{ busy === 'nfo' ? '重建中…' : '重建全部NFO' }}</button>
-        <span>{{ nfoMsg }}</span>
-      </div>
-      <div class="bar">
-        <button @click="doRebuildFts" :disabled="!!busy">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</button>
-        <span>{{ ftsMsg }}</span>
-      </div>
-    </section>
+      <section id="sec-pending" class="card-block">
+        <h3>待处理影片</h3>
+        <p class="hint">未匹配：TMDB 没找到数据；待确认：模糊命中需人工核对；疑似英文标题：非英语片却显示英文（错配或缺翻译）；未归属花絮：对不上任何影片。点「去处理」到详情页手动绑定。</p>
+        <div class="bar">
+          <button @click="loadUnmatched" :disabled="!!busy">刷新</button>
+          <span v-if="pendingTotal">未匹配 {{ unmatched.length }} · 待确认 {{ needsReview.length }} · 疑似英文 {{ suspectHigh.length + suspectInfo.length }} · 未归属花絮 {{ orphans.length }}</span>
+          <span v-else>全部已匹配</span>
+        </div>
+        <h4 v-if="unmatched.length" class="sub-h">未匹配（{{ unmatched.length }}）<button v-if="unmatched.length > COLLAPSE_N" @click="showAllUnmatched = !showAllUnmatched">{{ showAllUnmatched ? '收起' : '展开全部' }}</button></h4>
+        <ul v-if="unmatched.length" class="miss-list">
+          <li v-for="m in visibleUnmatched" :key="'u' + m.id" class="miss-row">
+            <span class="miss-title">{{ m.title || '(未命名)' }}<span v-if="m.year"> ({{ m.year }})</span></span>
+            <span class="miss-path">{{ m.file_path }}</span>
+            <button @click="$router.push('/m/' + m.id)">去处理</button>
+          </li>
+        </ul>
+        <h4 v-if="needsReview.length" class="sub-h">待确认（{{ needsReview.length }}）<button v-if="needsReview.length > COLLAPSE_N" @click="showAllNeedsReview = !showAllNeedsReview">{{ showAllNeedsReview ? '收起' : '展开全部' }}</button></h4>
+        <ul v-if="needsReview.length" class="miss-list">
+          <li v-for="m in visibleNeedsReview" :key="'n' + m.id" class="miss-row">
+            <span class="miss-title">{{ m.title || '(未命名)' }}<span v-if="m.year"> ({{ m.year }})</span></span>
+            <span class="miss-path">{{ m.file_path }}</span>
+            <button @click="$router.push('/m/' + m.id)">去处理</button>
+          </li>
+        </ul>
+        <h4 v-if="suspectHigh.length" class="sub-h">疑似英文标题·重点看（{{ suspectHigh.length }}）<button v-if="suspectHigh.length > COLLAPSE_N" @click="showAllSuspectHigh = !showAllSuspectHigh">{{ showAllSuspectHigh ? '收起' : '展开全部' }}</button></h4>
+        <ul v-if="suspectHigh.length" class="miss-list">
+          <li v-for="m in visibleSuspectHigh" :key="'sh' + m.id" class="miss-row">
+            <span class="miss-title">{{ m.title || '(未命名)' }}<span v-if="m.year"> ({{ m.year }})</span></span>
+            <span class="miss-path">{{ m.file_path }}</span>
+            <button @click="$router.push('/m/' + m.id)">去处理</button>
+          </li>
+        </ul>
+        <h4 v-if="suspectInfo.length" class="sub-h">英文标题·信息（{{ suspectInfo.length }}，英语片多为正常，刷新后复看）<button v-if="suspectInfo.length > COLLAPSE_N" @click="showAllSuspectInfo = !showAllSuspectInfo">{{ showAllSuspectInfo ? '收起' : '展开全部' }}</button></h4>
+        <ul v-if="suspectInfo.length" class="miss-list">
+          <li v-for="m in visibleSuspectInfo" :key="'si' + m.id" class="miss-row">
+            <span class="miss-title">{{ m.title || '(未命名)' }}<span v-if="m.year"> ({{ m.year }})</span></span>
+            <span class="miss-path">{{ m.file_path }}</span>
+            <button @click="$router.push('/m/' + m.id)">去处理</button>
+          </li>
+        </ul>
+        <h4 v-if="orphans.length" class="sub-h">未归属花絮（{{ orphans.length }}，文件原地保留，填影片ID认领）<button v-if="orphans.length > COLLAPSE_N" @click="showAllOrphans = !showAllOrphans">{{ showAllOrphans ? '收起' : '展开全部' }}</button></h4>
+        <ul v-if="orphans.length" class="miss-list">
+          <li v-for="e in visibleOrphans" :key="'o' + e.id" class="miss-row">
+            <span class="miss-title">{{ e.kind }}</span>
+            <span class="miss-path">{{ e.file_path }}</span>
+            <input v-model="orphanMovie[e.id]" placeholder="影片ID" style="width:80px" />
+            <button @click="attachOrphan(e.id)" :disabled="!!busy">认领</button>
+          </li>
+        </ul>
+        <div class="bar">
+          <button @click="doCleanSidecars" :disabled="!!busy">{{ busy === 'sidecars' ? '清理中…' : (armSidecars ? '确认清理脏行' : '清理历史花絮脏行（只删库，文件保留）') }}</button>
+          <span>{{ sidecarsMsg }}</span>
+        </div>
+        <div class="bar">
+          <button @click="doCollectExtras" :disabled="!!busy">{{ busy === 'collect' ? '归位中…' : (armCollect ? '确认归位花絮' : '归位已归属花絮到各片 extras/') }}</button>
+          <span>{{ collectMsg }}</span>
+        </div>
+      </section>
 
-    <section class="card-block">
-      <h3>显示</h3>
-      <div class="slider-row">
-        <label>字体大小 <b>{{ prefs.fontSize }}px</b></label>
-        <input type="range" min="13" max="20" step="1" v-model.number="prefs.fontSize" @input="saveDisplay" />
-      </div>
-      <div class="slider-row">
-        <label>海报墙密度 <b>{{ prefs.posterMin }}px</b></label>
-        <input type="range" min="120" max="200" step="10" v-model.number="prefs.posterMin" @input="saveDisplay" />
-      </div>
-      <div class="bar">
-        <button @click="resetDisplay">恢复默认</button>
-      </div>
-    </section>
+      <section id="sec-meta" class="card-block">
+        <h3>元数据维护</h3>
+        <div class="bar">
+          <button @click="doBackfill" :disabled="!!busy">{{ busy === 'backfill' ? '补数据中…' : '补产地信息' }}</button>
+          <span>{{ backfillMsg }}</span>
+        </div>
+        <div class="bar">
+          <button @click="doRefreshAll" :disabled="!!busy">
+            {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? `确认刷新全部（约${stats ? stats.grouped : '?'}部）` : '刷新全部TMDB数据') }}
+          </button>
+          <span>{{ refreshMsg }}</span>
+        </div>
+        <p v-if="armRefresh" class="hint warn-text">将逐部请求 TMDB（以 limit 截断），无变化的不动，手工标题不受影响。再点一次执行。</p>
+        <div class="bar">
+          <button @click="doRebuildNfo" :disabled="!!busy">{{ busy === 'nfo' ? '重建中…' : '重建全部NFO' }}</button>
+          <span>{{ nfoMsg }}</span>
+        </div>
+        <div class="bar">
+          <button @click="doRebuildFts" :disabled="!!busy">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</button>
+          <span>{{ ftsMsg }}</span>
+        </div>
+      </section>
 
-    <section class="card-block">
-      <h3>文件整理</h3>
-      <p class="hint">按“电影名 (年份)/电影名 (年份).ext”归档，先预览再执行。</p>
-      <div class="bar">
-        <button @click="loadPreview" :disabled="!!busy">预览</button>
-        <button @click="doRename" :disabled="!!busy || !plans.length">{{ busy === 'rename' ? '执行中…' : '执行整理' }}</button>
-        <span>{{ renameMsg }}</span>
-      </div>
-      <ul v-if="plans.length" class="plan-list">
-        <li v-for="p in plans" :key="p.id" class="plan-row">
-          <span class="plan-from">{{ p.from }}</span>
-          <span class="plan-arrow">→</span>
-          <span class="plan-to">{{ p.to }}</span>
-          <span v-if="p.status" :class="['plan-status', p.status === 'moved' ? 'ok' : 'fail']">{{ p.status }}</span>
-        </li>
-      </ul>
-    </section>
+      <section id="sec-display" class="card-block">
+        <h3>显示</h3>
+        <div class="slider-row">
+          <label>字体大小 <b>{{ prefs.fontSize }}px</b></label>
+          <input type="range" min="13" max="20" step="1" v-model.number="prefs.fontSize" @input="saveDisplay" />
+        </div>
+        <div class="slider-row">
+          <label>海报墙密度 <b>{{ prefs.posterMin }}px</b></label>
+          <input type="range" min="120" max="200" step="10" v-model.number="prefs.posterMin" @input="saveDisplay" />
+        </div>
+        <div class="bar">
+          <button @click="resetDisplay">恢复默认</button>
+        </div>
+      </section>
+
+      <section id="sec-organize" class="card-block">
+        <h3>文件整理与搬迁</h3>
+        <p class="hint">就地归档：保留原父目录，只建“标题 (年份)/”子目录；搬到顶层：如 batch → 电影，按“电影/大区/标题 (年份)/文件”归类。命名均为“标题 (年份)[-版本][-规格][-分卷][-版本N].ext”，先预览再执行。</p>
+        <div class="bar">
+          <label><input type="radio" value="inplace" v-model="orgMode" /> 就地归档</label>
+          <label><input type="radio" value="relocate" v-model="orgMode" /> 搬到顶层</label>
+        </div>
+        <div v-if="orgMode === 'relocate'" class="bar">
+          <label>源 <input v-model="relocateFrom" placeholder="batch" style="width:120px" /></label>
+          <label>目标 <input v-model="relocateTo" placeholder="电影" style="width:120px" /></label>
+          <label><input type="checkbox" v-model="groupByRegion" /> 按大区分二级目录</label>
+        </div>
+        <div class="bar">
+          <button @click="loadOrgPreview" :disabled="!!busy">预览</button>
+          <button @click="doOrganize" :disabled="!!busy || !orgPlans.length">{{ busy === 'organize' ? '执行中…' : '执行' }}</button>
+          <span>{{ orgMsg }}</span>
+          <button v-if="orgPlans.length > COLLAPSE_N" @click="showAllPlans = !showAllPlans">{{ showAllPlans ? '收起' : `展开全部 (${orgPlans.length})` }}</button>
+        </div>
+        <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（全库）' : `搬到顶层（${relocateFrom || 'batch'} → ${relocateTo || '电影'}${groupByRegion ? '，按大区' : ''}，含目标下分区过期/未分区）` }} · 列表随参数自动刷新</p>
+        <ul v-if="orgPlans.length" class="plan-list">
+          <li v-for="p in visiblePlans" :key="p.id" class="plan-row">
+            <span class="plan-from">{{ p.from }}</span>
+            <span class="plan-arrow">→</span>
+            <span class="plan-to">{{ p.to }}</span>
+            <span v-if="p.numbered" class="plan-status warn">编号{{ p.numbered }}·可改备注</span>
+            <span v-if="p.region_stale" class="plan-status warn">原分区过期</span>
+            <span v-if="p.status" :class="['plan-status', p.status === 'moved' ? 'ok' : 'fail']">{{ p.status }}</span>
+          </li>
+        </ul>
+        <p v-if="orgConflicts.length" class="hint warn-text">冲突 {{ orgConflicts.length }} 项：
+          <span v-if="mismatchCount">疑似错配 {{ mismatchCount }}（需重匹配，不自动加后缀）</span>
+          <span v-if="diskCount">磁盘占用 {{ diskCount }}</span>
+          <button @click="loadOrgPreview" :disabled="!!busy">重新预览</button>
+          <button v-if="conflictGroups.length > COLLAPSE_N" @click="showAllConflicts = !showAllConflicts">{{ showAllConflicts ? '收起' : '展开全部' }}</button>
+        </p>
+        <div v-if="orgConflicts.length" class="conflict-groups">
+          <div v-for="g in visibleConflictGroups" :key="g.to" class="conflict-card">
+            <div class="conflict-target">→ {{ g.to }}
+              <span v-if="g.kind === 'suspect_mismatch'" class="kind-badge bad">疑似错配·请重匹配</span>
+              <span v-else class="kind-badge">磁盘占用</span>
+            </div>
+            <div v-for="p in g.items" :key="'c' + p.id" class="conflict-row">
+              <div class="conflict-file">
+                <span class="conflict-title">{{ p.title || '(未命名)' }}<span v-if="p.tmdb_id"> · TMDB {{ p.tmdb_id }}</span></span>
+                <span class="miss-path">{{ p.from }}</span>
+              </div>
+              <div class="conflict-actions">
+                <button @click="$router.push('/m/' + p.id)">去详情匹配</button>
+              </div>
+              <div class="conflict-note">
+                <input v-model="noteEdits[p.id].edition" placeholder="版本" style="width:90px" />
+                <input v-model="noteEdits[p.id].spec" placeholder="规格/备注" style="width:90px" />
+                <button @click="saveNote(p.id)" :disabled="!!busy">改备注</button>
+                <span>{{ noteMsg[p.id] }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { api } from '../api.js'
 import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
 
+const COLLAPSE_N = 20
+
 const s = ref(null)
 const stats = ref(null)
-const busy = ref(null) // scan|clean|backfill|refresh|nfo|fts|rename
+const busy = ref(null) // scan|clean|backfill|refresh|nfo|fts|organize
 
 const tmdbMsg = ref('')
 const scanMsg = ref('')
@@ -122,15 +233,95 @@ const backfillMsg = ref('')
 const refreshMsg = ref('')
 const nfoMsg = ref('')
 const ftsMsg = ref('')
-const renameMsg = ref('')
+const orgMsg = ref('')
 
 const missing = ref([])
 const checkedMissing = ref([])
 const allChecked = computed(() => missing.value.length > 0 && checkedMissing.value.length === missing.value.length)
+const showAllMissing = ref(false)
+const visibleMissing = computed(() => showAllMissing.value ? missing.value : missing.value.slice(0, COLLAPSE_N))
 
-const plans = ref([])
+const unmatched = ref([])
+const needsReview = ref([])
+const suspectHigh = ref([])
+const suspectInfo = ref([])
+const orphans = ref([])
+const orphanMovie = ref({})
+const sidecarsMsg = ref('')
+const collectMsg = ref('')
+const showAllUnmatched = ref(false)
+const showAllNeedsReview = ref(false)
+const showAllSuspectHigh = ref(false)
+const showAllSuspectInfo = ref(false)
+const showAllOrphans = ref(false)
+const visibleUnmatched = computed(() => showAllUnmatched.value ? unmatched.value : unmatched.value.slice(0, COLLAPSE_N))
+const visibleNeedsReview = computed(() => showAllNeedsReview.value ? needsReview.value : needsReview.value.slice(0, COLLAPSE_N))
+const visibleSuspectHigh = computed(() => showAllSuspectHigh.value ? suspectHigh.value : suspectHigh.value.slice(0, COLLAPSE_N))
+const visibleSuspectInfo = computed(() => showAllSuspectInfo.value ? suspectInfo.value : suspectInfo.value.slice(0, COLLAPSE_N))
+const visibleOrphans = computed(() => showAllOrphans.value ? orphans.value : orphans.value.slice(0, COLLAPSE_N))
+const pendingTotal = computed(() => unmatched.value.length + needsReview.value.length + suspectHigh.value.length + orphans.value.length)
+
+// 文件整理与搬迁（统一口 /api/files/organize）
+const orgMode = ref('inplace')
+const relocateFrom = ref('batch')
+const relocateTo = ref('电影')
+const groupByRegion = ref(true)
+const orgPlans = ref([])
+const orgConflicts = ref([])
+const showAllPlans = ref(false)
+const showAllConflicts = ref(false)
+const visiblePlans = computed(() => showAllPlans.value ? orgPlans.value : orgPlans.value.slice(0, COLLAPSE_N))
+// 冲突按目标分组（一张卡放一起：保留方 + 冲突方）
+const conflictGroups = computed(() => {
+  const map = new Map()
+  for (const p of orgConflicts.value) {
+    if (!map.has(p.to)) map.set(p.to, { to: p.to, kind: p.kind || '', items: [] })
+    map.get(p.to).items.push(p)
+  }
+  return [...map.values()]
+})
+const visibleConflictGroups = computed(() => showAllConflicts.value ? conflictGroups.value : conflictGroups.value.slice(0, COLLAPSE_N))
+const mismatchCount = computed(() => orgConflicts.value.filter(p => p.kind === 'suspect_mismatch').length)
+const diskCount = computed(() => orgConflicts.value.filter(p => p.status === 'conflict_disk_exists').length)
+// 行内改备注（版本/规格）编辑态
+const noteEdits = ref({})
+const noteMsg = ref({})
+function ensureNote(id) {
+  if (!noteEdits.value[id]) noteEdits.value[id] = { edition: '', spec: '' }
+  return noteEdits.value[id]
+}
+async function saveNote(id) {
+  const n = ensureNote(id)
+  noteMsg.value[id] = ''
+  try {
+    await api('/api/movies/' + id, {
+      method: 'PATCH',
+      body: JSON.stringify({ edition: (n.edition || '').trim(), spec: (n.spec || '').trim() })
+    })
+    noteMsg.value[id] = '已保存，请重新预览'
+  } catch (e) {
+    noteMsg.value[id] = '保存失败：' + e.message
+  }
+}
 
 const prefs = ref(loadPrefs())
+
+// 左侧悬浮导航
+const pendingCount = computed(() => pendingTotal.value)
+const navs = computed(() => [
+  { id: 'sec-status', label: '库状态' },
+  { id: 'sec-sync', label: '媒体库同步' },
+  { id: 'sec-pending', label: '待处理影片', badge: pendingCount.value || '' },
+  { id: 'sec-meta', label: '元数据维护' },
+  { id: 'sec-display', label: '显示' },
+  { id: 'sec-organize', label: '文件整理与搬迁' },
+])
+const active = ref('sec-status')
+let observer = null
+function go(id) {
+  active.value = id
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 function fmtBytes(n) {
   n = Number(n) || 0
@@ -166,6 +357,7 @@ async function doScan() {
     scanMsg.value = `完成：新增/更新 ${ok}，已同步跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
     await loadStats()
     await loadMissing(true)
+    await loadUnmatched(true)
   } catch (e) {
     scanMsg.value = '扫描失败：' + e.message
   } finally {
@@ -201,6 +393,86 @@ async function doClean() {
     await loadStats()
   } catch (e) {
     cleanMsg.value = '清理失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+async function loadUnmatched(silent) {
+  try {
+    const d = await api('/api/files/unmatched')
+    unmatched.value = d.unmatched || []
+    needsReview.value = d.needs_review || []
+    suspectHigh.value = d.suspect_title_high || []
+    suspectInfo.value = d.suspect_title_info || []
+    orphans.value = d.orphan_extras || []
+  } catch (e) {
+    if (!silent) scanMsg.value = '待处理加载失败：' + e.message
+  }
+}
+
+async function attachOrphan(id) {
+  const mid = Number((orphanMovie.value[id] || '').toString().trim())
+  if (!mid) return
+  busy.value = 'attach'
+  try {
+    await api('/api/extras/' + id + '/attach', { method: 'POST', body: JSON.stringify({ movie_id: mid }) })
+    orphans.value = orphans.value.filter(e => e.id !== id)
+  } catch (e) {
+    scanMsg.value = '认领失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+const armSidecars = ref(false)
+const armCollect = ref(false)
+async function doCleanSidecars() {
+  if (!armSidecars.value) {
+    armSidecars.value = true
+    sidecarsMsg.value = '只删除库中花絮/样片行，视频文件保留。再点一次确认执行'
+    return
+  }
+  armSidecars.value = false
+  busy.value = 'sidecars'
+  sidecarsMsg.value = ''
+  try {
+    const prev = await api('/api/files/clean-sidecars', { method: 'POST', body: JSON.stringify({ dry_run: true }) })
+    if (!prev.total) {
+      sidecarsMsg.value = '没有花絮脏行'
+      return
+    }
+    const d = await api('/api/files/clean-sidecars', { method: 'POST', body: JSON.stringify({ dry_run: false }) })
+    sidecarsMsg.value = `已删除 ${d.deleted}/${d.total}` + (d.failed.length ? `，失败 ${d.failed.length}` : '')
+    await loadStats()
+    await loadUnmatched(true)
+  } catch (e) {
+    sidecarsMsg.value = '清理失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+async function doCollectExtras() {
+  if (!armCollect.value) {
+    armCollect.value = true
+    collectMsg.value = '把已归属但散落在外的花絮搬进各片 extras/。再点一次确认执行'
+    return
+  }
+  armCollect.value = false
+  busy.value = 'collect'
+  collectMsg.value = ''
+  try {
+    const prev = await api('/api/extras/collect', { method: 'POST', body: JSON.stringify({ dry_run: true }) })
+    if (!prev.total) {
+      collectMsg.value = '没有待归位花絮'
+      return
+    }
+    const d = await api('/api/extras/collect', { method: 'POST', body: JSON.stringify({ dry_run: false }) })
+    collectMsg.value = `已归位 ${d.moved} 个文件（${d.total} 部片）`
+    await loadUnmatched(true)
+  } catch (e) {
+    collectMsg.value = '归位失败：' + e.message
   } finally {
     busy.value = null
   }
@@ -275,27 +547,56 @@ function resetDisplay() {
   savePrefs({ ...prefs.value })
 }
 
-async function loadPreview() {
-  renameMsg.value = ''
+function orgBody(dry_run) {
+  const b = { mode: orgMode.value, dry_run }
+  if (orgMode.value === 'relocate') {
+    b.from_prefix = relocateFrom.value.trim()
+    b.to_dir = relocateTo.value.trim()
+    b.group_by_region = !!groupByRegion.value
+  }
+  return JSON.stringify(b)
+}
+
+function syncNotes() {
+  for (const p of orgConflicts.value) ensureNote(p.id)
+}
+
+async function loadOrgPreview() {
+  orgMsg.value = ''
   try {
-    const d = await api('/api/files/preview')
-    plans.value = d.plans
-    if (!d.plans.length) renameMsg.value = '没有需要整理的'
+    const d = await api('/api/files/organize', { method: 'POST', body: orgBody(true) })
+    orgPlans.value = d.plans
+    orgConflicts.value = d.conflicts || []
+    syncNotes()
+    if (!d.plans.length) orgMsg.value = orgConflicts.value.length ? `无可整理，冲突 ${orgConflicts.value.length} 项` : '没有需要整理的'
   } catch (e) {
-    renameMsg.value = '预览失败：' + e.message
+    orgMsg.value = '预览失败：' + e.message
   }
 }
 
-async function doRename() {
-  busy.value = 'rename'
-  renameMsg.value = ''
+// 模式/参数一变自动重跑预览（防“列表与模式不符”），防抖 300ms，忙时跳过
+let orgPreviewTimer = null
+watch([orgMode, relocateFrom, relocateTo, groupByRegion], () => {
+  if (orgPreviewTimer) clearTimeout(orgPreviewTimer)
+  orgPreviewTimer = setTimeout(() => {
+    if (!busy.value) loadOrgPreview()
+  }, 300)
+})
+
+async function doOrganize() {
+  busy.value = 'organize'
+  orgMsg.value = ''
   try {
-    const d = await api('/api/files/rename', { method: 'POST', body: JSON.stringify({ dry_run: false }) })
-    plans.value = d.results
+    const d = await api('/api/files/organize', { method: 'POST', body: orgBody(false) })
+    orgPlans.value = d.results
+    orgConflicts.value = d.conflicts || []
+    syncNotes()
     const ok = d.results.filter(r => r.status === 'moved').length
-    renameMsg.value = `执行完毕：移动 ${ok}/${d.results.length}`
+    orgMsg.value = `执行完毕：移动 ${ok}/${d.results.length}`
+    await loadStats()
+    await loadMissing(true)
   } catch (e) {
-    renameMsg.value = '执行失败：' + e.message
+    orgMsg.value = '执行失败：' + e.message
   } finally {
     busy.value = null
   }
@@ -304,13 +605,41 @@ async function doRename() {
 onMounted(async () => {
   s.value = await api('/api/settings')
   await loadStats()
-  await loadPreview()
+  await loadOrgPreview()
   await loadMissing(true)
+  await loadUnmatched(true)
+  observer = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) active.value = e.target.id
+    }
+  }, { rootMargin: '-20% 0px -70% 0px' })
+  for (const n of navs.value) {
+    const el = document.getElementById(n.id)
+    if (el) observer.observe(el)
+  }
+})
+
+onUnmounted(() => {
+  if (observer) observer.disconnect()
+  if (orgPreviewTimer) clearTimeout(orgPreviewTimer)
 })
 </script>
 <style scoped>
+.settings-layout { display: flex; gap: 12px; align-items: flex-start; }
+.side-nav { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 6px; min-width: 140px; padding-top: 44px; }
+.side-nav button { text-align: left; white-space: nowrap; }
+.side-nav button.on { border-color: #e50914; color: #ff8a8a; }
+.nav-badge { margin-left: 6px; font-size: 0.75rem; color: #e0a63c; }
+.settings-main { flex: 1; min-width: 0; }
+.settings-main section { scroll-margin-top: 12px; }
+@media (max-width: 860px) {
+  .settings-layout { flex-direction: column; }
+  .side-nav { position: static; flex-direction: row; overflow-x: auto; padding-top: 0; min-width: 0; }
+  .side-nav button { flex-shrink: 0; }
+}
 .card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
 .card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.sub-h { margin: 10px 0 4px; font-size: 0.9375rem; color: #ccc; display: flex; gap: 8px; align-items: center; }
 .meta-line { color: #aaa; font-size: 0.875rem; margin: 8px 0; }
 .hint { color: #777; font-size: 0.8125rem; margin: 0 0 4px; }
 .warn-text { color: #e0a63c; }
@@ -331,4 +660,15 @@ onMounted(async () => {
 .plan-status { font-size: 0.75rem; }
 .plan-status.ok { color: #7ed321; }
 .plan-status.fail { color: #ff8a8a; }
+.plan-status.warn { color: #e0a63c; }
+.conflict-groups { display: flex; flex-direction: column; gap: 8px; margin: 4px 0; }
+.conflict-card { background: #262626; border: 1px solid #6e2b2b; border-radius: 8px; padding: 8px 10px; }
+.conflict-target { font-size: 0.8125rem; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kind-badge { font-size: 0.75rem; border: 1px solid #444; border-radius: 999px; padding: 1px 10px; margin-left: 8px; color: #aaa; }
+.kind-badge.bad { color: #ff8a8a; border-color: #6e2b2b; }
+.conflict-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-top: 1px dashed #3a3a3a; font-size: 0.8125rem; }
+.conflict-file { flex: 1; min-width: 200px; }
+.conflict-title { display: block; }
+.conflict-actions { display: flex; gap: 6px; }
+.conflict-note { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 </style>
