@@ -212,19 +212,42 @@
           </div>
         </div>
       </section>
+      <section id="sec-restore" class="card-block">
+        <h3>恢复到原始位置</h3>
+        <p class="hint">整理/搬迁后偏离首次入库位置的影片可搬回原处。先预览再执行，目标被占用或源文件缺失会跳过上报、绝不覆盖。</p>
+        <div class="bar">
+          <button @click="loadRestorePreview()" :disabled="!!busy">预览</button>
+          <button @click="doRestore" :disabled="!!busy || !checkedRestore.length">{{ busy === 'restore' ? '恢复中…' : (armRestore ? `确认恢复 (${checkedRestore.length})` : '恢复选中') }}</button>
+          <button v-if="restorePlans.length" @click="toggleAllRestore">{{ allRestoreChecked ? '全不选' : '全选' }}</button>
+          <span>{{ restoreMsg }}</span>
+          <button v-if="restorePlans.length > COLLAPSE_N" @click="showAllRestore = !showAllRestore">{{ showAllRestore ? '收起' : `展开全部 (${restorePlans.length})` }}</button>
+        </div>
+        <p v-if="armRestore" class="hint warn-text">再点一次执行恢复，无二次弹窗。目标被占用/源缺失的项会自动跳过。</p>
+        <ul v-if="restorePlans.length" class="plan-list">
+          <li v-for="p in visibleRestorePlans" :key="'r' + p.id" class="plan-row">
+            <input type="checkbox" :value="p.id" v-model="checkedRestore" />
+            <span class="conflict-title">{{ p.title || '(未命名)' }}<span v-if="p.year"> ({{ p.year }})</span></span>
+            <span class="miss-path">{{ p.from }} → {{ p.to }}</span>
+            <span v-if="p.status" :class="['plan-status', p.status === 'restored' ? 'ok' : 'fail']">{{ restoreStatusText(p.status) }}</span>
+          </li>
+        </ul>
+      </section>
     </div>
   </div>
 </template>
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { api } from '../api.js'
 import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
+
+const route = useRoute()
 
 const COLLAPSE_N = 20
 
 const s = ref(null)
 const stats = ref(null)
-const busy = ref(null) // scan|clean|backfill|refresh|nfo|fts|organize
+const busy = ref(null) // scan|clean|backfill|refresh|nfo|fts|organize|restore
 
 const tmdbMsg = ref('')
 const scanMsg = ref('')
@@ -315,6 +338,7 @@ const navs = computed(() => [
   { id: 'sec-meta', label: '元数据维护' },
   { id: 'sec-display', label: '显示' },
   { id: 'sec-organize', label: '文件整理与搬迁' },
+  { id: 'sec-restore', label: '恢复原始位置', badge: restoreCount.value || '' },
 ])
 const active = ref('sec-status')
 let observer = null
@@ -602,12 +626,93 @@ async function doOrganize() {
   }
 }
 
+// 恢复到原始位置（读 original_file_path，两段确认防误操作）
+const restorePlans = ref([])
+const checkedRestore = ref([])
+const restoreMsg = ref('')
+const armRestore = ref(false)
+const showAllRestore = ref(false)
+const visibleRestorePlans = computed(() => showAllRestore.value ? restorePlans.value : restorePlans.value.slice(0, COLLAPSE_N))
+const allRestoreChecked = computed(() => restorePlans.value.length > 0 && checkedRestore.value.length === restorePlans.value.length)
+const restoreCount = computed(() => restorePlans.value.length)
+function toggleAllRestore() {
+  checkedRestore.value = allRestoreChecked.value ? [] : restorePlans.value.map(p => p.id)
+}
+const restoreStatusMap = {
+  restored: '已恢复',
+  planned: '待恢复',
+  conflict_disk_exists: '目标被占跳过',
+  skipped_missing_src: '源缺失跳过'
+}
+function restoreStatusText(s) {
+  if (!s) return ''
+  return restoreStatusMap[s] || (/^error/.test(s) ? '失败' : s)
+}
+async function loadRestorePreview(preselect) {
+  restoreMsg.value = ''
+  armRestore.value = false
+  if (!Array.isArray(preselect)) preselect = []
+  try {
+    const d = await api('/api/files/restore-candidates')
+    // 预览接口字段是 file_path/original_file_path，统一映射成 from/to（含标题供展示）
+    restorePlans.value = (Array.isArray(d.items) ? d.items : []).map(e => ({
+      id: e.id, title: e.title || '', year: e.year || '',
+      from: e.file_path || '', to: e.original_file_path || ''
+    }))
+    const ids = (preselect || []).map(Number).filter(Number.isFinite)
+    checkedRestore.value = ids.length
+      ? restorePlans.value.filter(p => ids.includes(p.id)).map(p => p.id)
+      : restorePlans.value.map(p => p.id)
+    if (!restorePlans.value.length) restoreMsg.value = '没有偏离原始位置的影片'
+    else if (checkedRestore.value.length !== restorePlans.value.length) restoreMsg.value = `共 ${restorePlans.value.length} 项，已预选 ${checkedRestore.value.length} 项`
+  } catch (e) {
+    restoreMsg.value = '预览失败：' + e.message
+  }
+}
+async function doRestore() {
+  if (!armRestore.value) {
+    armRestore.value = true
+    restoreMsg.value = `再点一次确认恢复 ${checkedRestore.value.length} 项`
+    return
+  }
+  busy.value = 'restore'
+  restoreMsg.value = ''
+  try {
+    const d = await api('/api/files/restore-original', {
+      method: 'POST',
+      body: JSON.stringify({ ids: checkedRestore.value, dry_run: false })
+    })
+    const ok = (d.results || []).filter(r => r.status === 'restored').length
+    restoreMsg.value = `执行完毕：恢复 ${ok}/${d.results.length}`
+    armRestore.value = false
+    restorePlans.value = (d.results || []).map(r => ({ id: r.id, title: r.title, from: r.from, to: r.to, status: r.status }))
+    checkedRestore.value = (d.results || []).filter(r => r.status !== 'restored').map(r => r.id)
+    await loadStats()
+    await loadMissing(true)
+  } catch (e) {
+    restoreMsg.value = '恢复失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
 onMounted(async () => {
   s.value = await api('/api/settings')
   await loadStats()
   await loadOrgPreview()
   await loadMissing(true)
   await loadUnmatched(true)
+  // 详情页“去恢复”跳转承接：?sec=sec-restore&ids=1,2 → 预选并滚动定位
+  try {
+    const q = route.query || {}
+    const ids = (Array.isArray(q.ids) ? q.ids : String(q.ids || '').split(','))
+      .map(Number).filter(Number.isFinite)
+    if (q.sec || ids.length) await loadRestorePreview(ids)
+    if (q.sec && document.getElementById(String(q.sec))) {
+      active.value = String(q.sec)
+      document.getElementById(String(q.sec))?.scrollIntoView({ block: 'start' })
+    }
+  } catch (e) { /* 忽略 */ }
   observer = new IntersectionObserver((entries) => {
     for (const e of entries) {
       if (e.isIntersecting) active.value = e.target.id

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS movies (
   media_type TEXT DEFAULT 'movie',
   edition TEXT DEFAULT '',
   spec TEXT DEFAULT '',
+  original_file_path TEXT DEFAULT '',
   needs_review INTEGER DEFAULT 0,
   updated_at INTEGER DEFAULT 0
 );
@@ -111,7 +112,7 @@ TMDB_FIELDS = {"title", "original_title", "year", "overview",
 # 本地自有列（PATCH/rename/tags/评分等，只能经本地写路径修改，不碰 cache）
 LOCAL_FIELDS = {"file_path", "title", "overview_override",
                 "douban_rating", "custom_rating", "tags", "needs_review",
-                "edition", "spec"}
+                "edition", "spec", "original_file_path"}
 
 
 def init_db() -> None:
@@ -129,6 +130,7 @@ def init_db() -> None:
             ("media_type", "ALTER TABLE movies ADD COLUMN media_type TEXT DEFAULT 'movie'"),
             ("edition", "ALTER TABLE movies ADD COLUMN edition TEXT DEFAULT ''"),
             ("spec", "ALTER TABLE movies ADD COLUMN spec TEXT DEFAULT ''"),
+            ("original_file_path", "ALTER TABLE movies ADD COLUMN original_file_path TEXT DEFAULT ''"),
         ):
             if col not in cols:
                 c.execute(ddl)
@@ -151,6 +153,9 @@ def init_db() -> None:
         c.execute("CREATE INDEX IF NOT EXISTS idx_movies_origin ON movies(origin_country)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_movies_tmdb ON movies(tmdb_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cache_fetched ON tmdb_cache(fetched_at)")
+        # 存量自愈：尚无原始路径的行用当前路径种子（老行=最早已知路径，新行由 upsert 写入真值）
+        c.execute("UPDATE movies SET original_file_path=file_path "
+                  "WHERE original_file_path IS NULL OR original_file_path=''")
         sql = (c.execute("SELECT sql FROM sqlite_master WHERE name='movies_fts'").fetchone() or [""])[0]
         if "content=" in sql:
             c.execute("DROP TABLE movies_fts")
@@ -364,7 +369,12 @@ def upsert_movie_by_path(file_path: str) -> int:
         c.execute("INSERT OR IGNORE INTO movies(file_path, updated_at) VALUES(?, ?)",
                   (file_path, int(time.time())))
         row = c.execute("SELECT id FROM movies WHERE file_path=?", (file_path,)).fetchone()
-        return int(row["id"])
+        mid = int(row["id"])
+        # 原始路径审计：仅首次入库（空值）时写入，之后搬迁改 file_path 也不碰它
+        c.execute("UPDATE movies SET original_file_path=? WHERE id=? "
+                  "AND (original_file_path IS NULL OR original_file_path='')",
+                  (file_path, mid))
+        return mid
 
 
 def update_movie_local(movie_id: int, **fields) -> None:
@@ -380,7 +390,7 @@ def update_movie_meta(movie_id: int, **fields) -> None:
                "tmdb_id", "imdb_id", "tmdb_rating", "douban_rating", "custom_rating",
                "poster_path", "genres", "genre_ids", "tags", "needs_review",
                "origin_country", "origin_countries", "original_language",
-               "region", "media_type", "edition", "spec"}
+               "region", "media_type", "edition", "spec", "original_file_path"}
     data = {k: (json.dumps(v, ensure_ascii=False) if k in ("genres", "genre_ids", "tags", "origin_countries") else v)
             for k, v in fields.items() if k in allowed}
     if not data:
@@ -704,6 +714,28 @@ def get_by_path(file_path: str) -> dict | None:
     with _lock, _conn() as c:
         row = c.execute("SELECT * FROM movies WHERE file_path=?", (file_path,)).fetchone()
         return _row_to_dict(row) if row else None
+
+
+def list_movies_in_dir(rel_dir: str) -> list[dict]:
+    """同目录顶层 movies 行（不递归子目录），供 NFO 独占/共享判定用。
+    只返回轻量列；调用方再按需 get_movie() 取全量（含人物）。"""
+    norm = os.path.normpath((rel_dir or "").strip().strip("/"))
+    with _lock, _conn() as c:
+        if norm in ("", "."):
+            rows = c.execute(
+                "SELECT id, file_path, tmdb_id, title, year FROM movies "
+                "WHERE file_path NOT LIKE '%/%'").fetchall()
+            return [dict(r) for r in rows]
+        esc = norm.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        rows = c.execute(
+            "SELECT id, file_path, tmdb_id, title, year FROM movies "
+            "WHERE file_path LIKE ? ESCAPE '\\'", (esc + "/%",)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            if os.path.dirname(d.get("file_path", "").replace("\\", "/")) == norm:
+                out.append(d)
+        return out
 
 
 def _attach_versions(c: sqlite3.Connection, d: dict) -> dict:

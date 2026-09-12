@@ -74,6 +74,7 @@
             <div v-if="(m.genres || []).length" class="fact"><span>类型</span><span>{{ (m.genres || []).join(' / ') }}</span></div>
             <div v-if="m.region || originName" class="fact"><span>产地</span><span>{{ [m.region, originName].filter(Boolean).join(' · ') }}</span></div>
             <div v-if="m.year" class="fact"><span>年份</span><span>{{ m.year }}</span></div>
+            <div v-if="originalMoved" class="fact"><span>原始文件</span><span>{{ m.original_file_path }} <button @click="goRestore">去恢复</button></span></div>
             <div v-if="m.tmdb_id" class="fact"><span>链接</span><span><a :href="`https://www.themoviedb.org/movie/${m.tmdb_id}`" target="_blank" rel="noopener">TMDB</a><a v-if="m.imdb_id" :href="`https://www.imdb.com/title/${m.imdb_id}/`" target="_blank" rel="noopener">IMDb</a></span></div>
           </section>
         </aside>
@@ -221,6 +222,13 @@ async function save() {
 }
 function goPerson(p) {
   if (p && p.tmdb_id) router.push('/p/' + p.tmdb_id)
+}
+const originalMoved = computed(() => {
+  const o = (m.value?.original_file_path || '').trim()
+  return !!o && o !== m.value?.file_path
+})
+function goRestore() {
+  router.push({ path: '/settings', query: { sec: 'sec-restore', ids: String(m.value.id) } })
 }
 async function tmdbSearch() {
   if (searching.value) return

@@ -18,9 +18,9 @@ from .. import store
 from ..config import settings
 from ..editions import (core_of, detect_edition, detect_spec_list,
                         sanitize_tag, split_stack)
-from ..nfo import write_movie_nfo
 from ..regions import REGION_ORDER, REGION_UNKNOWN
-from ..scanner import (SUBTITLE_EXTS, is_feature_video, is_sidecar)
+from ..scanner import (SUBTITLE_EXTS, is_feature_video, is_sidecar,
+                       sync_nfos_for)
 
 router = APIRouter(prefix="/api/files")
 
@@ -250,14 +250,12 @@ def _check_inside_root(rel: str) -> str:
 
 
 def _write_nfos(movie_id: int, dst_abs: str) -> None:
-    movie = store.get_movie(movie_id)
-    if not movie:
-        return
-    movie_dir = os.path.dirname(dst_abs)
-    write_movie_nfo(movie, os.path.join(movie_dir, "movie.nfo"))
-    stem = os.path.splitext(os.path.basename(dst_abs))[0]
-    if stem and stem != "movie":
-        write_movie_nfo(movie, os.path.join(movie_dir, stem + ".nfo"))
+    """整理后 NFO 收敛：委托 scanner.sync_nfos_for（单版本只留 movie.nfo，
+    同片多版本才补同名，共享目录只写当前同名）。失败自吞。"""
+    try:
+        sync_nfos_for(movie_id, dst_abs)
+    except Exception:
+        pass
 
 
 def _sibling_followers(src_abs: str) -> list[str]:
@@ -347,6 +345,45 @@ def move_attached_extras(movie_id: int, movie_dir_abs: str) -> int:
     return moved
 
 
+def _resync_old_dir(old_dir_abs: str) -> None:
+    """搬迁后旧目录重收敛：还有正片残留（如多版本搬走其一）时，以剩余行重调
+    sync（多→单自动删多余同名 NFO）；空了则沿用 _cleanup_old_dir 清场。失败自吞。"""
+    try:
+        if not os.path.isdir(old_dir_abs):
+            return
+        try:
+            old_rel = os.path.relpath(old_dir_abs, settings.media_root)
+            if old_rel == ".":
+                old_rel = ""
+        except ValueError:
+            return
+        try:
+            rows = store.list_movies_in_dir(old_rel)
+        except Exception:
+            return
+        remaining = []
+        for r in rows:
+            try:
+                fp = r.get("file_path", "")
+                if not fp or not is_feature_video(fp):
+                    continue
+                if os.path.isfile(os.path.join(settings.media_root, fp)):
+                    remaining.append(r)
+            except Exception:
+                continue
+        if not remaining:
+            return
+        remaining.sort(key=lambda r: int(r.get("id", 0)))
+        first = remaining[0]
+        try:
+            sync_nfos_for(int(first["id"]),
+                          os.path.join(settings.media_root, first["file_path"]))
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def _move_one(p: dict) -> dict:
     src = os.path.join(settings.media_root, p["from"])
     dst = os.path.join(settings.media_root, p["to"])
@@ -399,6 +436,9 @@ def _move_one(p: dict) -> dict:
         extras_moved = move_attached_extras(p["id"], os.path.dirname(dst))
         # 旧目录收尾（花絮搬走后再清一次）：无正片则清 NFO，空目录删掉
         _cleanup_old_dir(os.path.dirname(src))
+        # 跨目录搬迁：旧目录还有正片残留则重收敛（多→单删多余同名 NFO）
+        if os.path.normpath(os.path.dirname(src)) != os.path.normpath(os.path.dirname(dst)):
+            _resync_old_dir(os.path.dirname(src))
         # 同目录改名：删掉旧 stem 的 per-file NFO 残留（movie.nfo 已重写）
         if os.path.dirname(src) == os.path.dirname(dst):
             old_nfo = os.path.join(os.path.dirname(dst), old_stem + ".nfo")
@@ -592,3 +632,81 @@ def relocate(body: dict | None = None):
                                       else bool(body.get("group_by_region"))),
                      only=set(body.get("ids", []) or []) or None,
                      dry_run=body.get("dry_run", True))
+
+
+def _restore_candidates(only: set | None) -> list[dict]:
+    """偏离原始位置的行：有原始路径、与当前位置不一致、当前文件仍存在。"""
+    out = []
+    for m in store.list_movies(grouped=False, limit=100000):
+        if only is not None and m.get("id") not in only:
+            continue
+        orig = (m.get("original_file_path") or "").strip()
+        cur = m.get("file_path", "")
+        if not orig or os.path.normpath(orig) == os.path.normpath(cur):
+            continue
+        if not os.path.isfile(os.path.join(settings.media_root, cur)):
+            continue
+        out.append(m)
+    out.sort(key=lambda m: (m.get("file_path", ""), m.get("id", 0)))
+    return out
+
+
+def _restore_one(m: dict, dry_run: bool) -> dict:
+    """单行恢复到原始路径。dry_run 只规划；执行时复用 NFO 收敛+旧目录清理。"""
+    base = {"id": m["id"], "title": m.get("title", ""),
+            "from": m["file_path"], "to": m.get("original_file_path") or ""}
+    src = os.path.join(settings.media_root, base["from"])
+    dst = os.path.join(settings.media_root, base["to"])
+    if not os.path.isfile(src):
+        return {**base, "status": "skipped_missing_src"}
+    if os.path.exists(dst):
+        return {**base, "status": "conflict_disk_exists"}
+    if dry_run:
+        return {**base, "status": "planned"}
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        old_dir = os.path.dirname(src)
+        os.rename(src, dst)
+        # 本地写：只改 file_path，不碰 TMDB 镜像列与 original_file_path
+        store.update_movie_local(m["id"], file_path=base["to"])
+        try:
+            sync_nfos_for(m["id"], dst)
+        except Exception:
+            pass
+        _cleanup_old_dir(old_dir)
+        if os.path.normpath(old_dir) != os.path.normpath(os.path.dirname(dst)):
+            _resync_old_dir(old_dir)
+        return {**base, "status": "restored"}
+    except Exception as e:
+        return {**base, "status": f"error: {e}"}
+
+
+@router.get("/restore-candidates")
+def restore_candidates():
+    """预览偏离原始位置的行（只读，供设置页恢复区展示）。"""
+    cands = _restore_candidates(None)
+    return {"total": len(cands),
+            "items": [{"id": m["id"], "title": m.get("title", ""),
+                       "year": m.get("year"),
+                       "file_path": m["file_path"],
+                       "original_file_path": m.get("original_file_path") or ""}
+                      for m in cands]}
+
+
+@router.post("/restore-original")
+def restore_original(body: dict | None = None):
+    """恢复到原始位置：把整理/搬迁后偏离原始路径的影片搬回 original_file_path。
+    默认 dry_run:true 只预览；确认后 dry_run:false 执行。目标被占/源缺失则跳过上报，绝不覆盖。"""
+    body = body or {}
+    only = set(body.get("ids", []) or []) or None
+    dry_run = body.get("dry_run", True)
+    if dry_run:
+        plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
+                  "from": m["file_path"], "to": m.get("original_file_path") or "",
+                  "status": _restore_one(m, dry_run=True)["status"]}
+                 for m in _restore_candidates(only)]
+        return {"dry_run": True, "total": len(plans), "plans": plans}
+    results = [_restore_one(m, dry_run=False) for m in _restore_candidates(only)]
+    ok = sum(1 for r in results if r["status"] == "restored")
+    return {"dry_run": False, "total": len(results),
+            "restored": ok, "results": results}

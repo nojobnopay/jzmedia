@@ -5,7 +5,6 @@ from pydantic import BaseModel
 
 from .. import scanner, store
 from ..config import settings
-from ..nfo import write_movie_nfo
 
 router = APIRouter(prefix="/api/jobs")
 
@@ -118,27 +117,43 @@ def tmdb_refresh(body: RefreshBody | None = None):
 
 class NfoBody(BaseModel):
     limit: int = 2000
+    dry_run: bool = False
 
 
 @router.post("/rebuild-nfo")
 def rebuild_nfo(body: NfoBody | None = None):
-    """重建 NFO：为文件仍存在的影片重写同目录 movie.nfo（换机器/丢 NFO 后修复用）。"""
+    """重建 NFO（一键收敛）：为文件仍存在的影片按收敛规则重写 NFO
+    （独占单版本只留 movie.nfo 并删历史同名残留；同片多版本补各版本同名；
+    共享目录只写当前同名、不碰 movie.nfo）。换机器/丢 NFO 后修复用。
+    dry_run=true 只预览（报告会写/会删），默认 false 直接执行。"""
     limit = max(1, min((body.limit if body else 2000) or 2000, 10000))
-    movies = store.list_movies(grouped=False, limit=100000)[:limit]
+    dry_run = bool(body.dry_run) if body else False
+    movies = sorted(store.list_movies(grouped=False, limit=100000)[:limit],
+                    key=lambda m: (m.get("file_path", ""), m.get("id", 0)))
     done, skipped, failed = 0, 0, []
+    wrote_total, deleted_total = 0, 0
+    by_mode: dict[str, int] = {}
     for m in movies:
         abs_path = os.path.join(settings.media_root, m["file_path"])
-        if not os.path.exists(abs_path):
+        if not os.path.isfile(abs_path):
             skipped += 1
             continue
         try:
-            full = store.get_movie(m["id"])
-            write_movie_nfo(full, os.path.join(os.path.dirname(abs_path), "movie.nfo"))
-            done += 1
+            r = scanner.sync_nfos_for(m["id"], abs_path, dry_run=dry_run)
+            if r.get("ok"):
+                done += 1
+                mode = str(r.get("mode") or "unknown")
+                by_mode[mode] = by_mode.get(mode, 0) + 1
+                wrote_total += len(r.get("wrote") or [])
+                deleted_total += len(r.get("deleted") or [])
+            else:
+                failed.append({"id": m["id"], "file_path": m["file_path"],
+                               "error": str(r.get("mode") or "sync failed")})
         except Exception as e:
             failed.append({"id": m["id"], "file_path": m["file_path"], "error": str(e)})
     return {"total": len(movies), "ok": done, "skipped_missing": skipped,
-            "failed": failed}
+            "failed": failed, "dry_run": dry_run,
+            "wrote": wrote_total, "deleted": deleted_total, "by_mode": by_mode}
 
 
 @router.post("/rebuild-fts")
