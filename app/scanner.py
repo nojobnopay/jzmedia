@@ -247,6 +247,11 @@ def meta_from_detail(detail: dict) -> dict:
     countries = [c.get("iso_3166_1", "") for c in detail.get("production_countries", [])
                  if c.get("iso_3166_1")]
     primary, region = resolve_region(countries, detail.get("original_language"))
+    belongs = detail.get("belongs_to_collection") or {}
+    try:
+        col_id = int(belongs.get("id")) if belongs.get("id") is not None else None
+    except (TypeError, ValueError):
+        col_id = None
     return {
         "title": detail.get("title", ""),
         "original_title": detail.get("original_title", ""),
@@ -262,6 +267,9 @@ def meta_from_detail(detail: dict) -> dict:
         "origin_country": primary,
         "region": region,
         "media_type": "movie",
+        "collection_tmdb_id": col_id,
+        "collection_name": belongs.get("name", "") or "",
+        "collection_poster_path": belongs.get("poster_path", "") or "",
     }
 
 

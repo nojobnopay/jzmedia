@@ -20,13 +20,16 @@ def search(q: str = "", limit: int = 500, grouped: bool = True,
            decade: FilterList = Query(default=None),
            tag: FilterList = Query(default=None),
            min_rating: float | None = None,
-           rating_source: str = "tmdb"):
+           rating_source: str = "tmdb",
+           watched: int | None = None,
+           collection: FilterList = Query(default=None)):
     return {"q": q, "items": store.search_fts(
         q, limit, grouped, genres=store._split_multi(genre),
         regions=store._split_multi(region), countries=store._split_multi(country),
         years=store._split_ints(year), decades=store._split_ints(decade),
         tags=store._split_multi(tag), min_rating=min_rating,
-        rating_source=rating_source)}
+        rating_source=rating_source, watched=watched,
+        collection_ids=store._split_ints(collection))}
 
 
 @router.get("/movies")
@@ -38,13 +41,16 @@ def list_movies(grouped: bool = True, limit: int = 500,
                 decade: FilterList = Query(default=None),
                 tag: FilterList = Query(default=None),
                 min_rating: float | None = None,
-                rating_source: str = "tmdb"):
+                rating_source: str = "tmdb",
+                watched: int | None = None,
+                collection: FilterList = Query(default=None)):
     return {"items": store.list_movies(
         grouped, genres=store._split_multi(genre),
         regions=store._split_multi(region), countries=store._split_multi(country),
         years=store._split_ints(year), decades=store._split_ints(decade),
         tags=store._split_multi(tag), limit=max(1, min(limit, 2000)),
-        min_rating=min_rating, rating_source=rating_source)}
+        min_rating=min_rating, rating_source=rating_source, watched=watched,
+        collection_ids=store._split_ints(collection))}
 
 
 @router.get("/facets")
@@ -66,7 +72,7 @@ def patch_movie(movie_id: int, body: dict):
     if not store.get_movie(movie_id):
         raise HTTPException(404, "movie not found")
     allowed = {"title", "overview_override", "douban_rating", "custom_rating",
-               "tags", "edition", "spec"}
+               "tags", "edition", "spec", "watched"}
     data = {k: v for k, v in body.items() if k in allowed}
     for k in ("douban_rating", "custom_rating"):
         if k in data and data[k] is not None:
@@ -81,6 +87,17 @@ def patch_movie(movie_id: int, body: dict):
         raise HTTPException(422, "tags must be a list")
     if "tags" in data and isinstance(data["tags"], list):
         data["tags"] = normalize_tags(data["tags"])
+    if "watched" in data:
+        import time as _time
+        w = data["watched"]
+        if isinstance(w, bool):
+            w = 1 if w else 0
+        try:
+            w = int(w)
+        except (TypeError, ValueError):
+            raise HTTPException(422, "watched must be 0/1")
+        data["watched"] = 1 if w else 0
+        data["watched_at"] = int(_time.time()) if data["watched"] else 0
     if "edition" in data:
         from ..editions import sanitize_tag
         if data["edition"] is None:
@@ -101,6 +118,120 @@ def patch_movie(movie_id: int, body: dict):
     store.update_movie_local(movie_id, **data)
     store.resync_fts(movie_id)
     return store.get_movie(movie_id)
+
+
+@router.post("/movies/batch")
+def batch_update(body: dict):
+    """海报墙多选批量编辑（海报粒度）：ids 为代表行 id，有 tmdb_id 则展开到同 tmdb 全版本。
+    ops: watched(bool) / add_tags[] / remove_tags[] / set_tags[]（与add/remove互斥）
+         / douban_rating / custom_rating（null=清空）。"""
+    import time as _time
+    body = body or {}
+    raw_ids = body.get("ids") or []
+    ops = body.get("ops") or {}
+    try:
+        rep_ids = sorted({int(x) for x in raw_ids})
+    except (TypeError, ValueError):
+        raise HTTPException(422, "ids must be int list")
+    if not rep_ids:
+        raise HTTPException(422, "ids required")
+    if len(rep_ids) > 500:
+        raise HTTPException(422, "too many ids (max 500)")
+    add_tags = ops.get("add_tags")
+    remove_tags = ops.get("remove_tags")
+    set_tags = ops.get("set_tags")
+    if set_tags is not None and (add_tags is not None or remove_tags is not None):
+        raise HTTPException(422, "set_tags is mutually exclusive with add/remove_tags")
+    for k in ("add_tags", "remove_tags", "set_tags"):
+        v = ops.get(k)
+        if v is not None and not isinstance(v, list):
+            raise HTTPException(422, f"{k} must be a list")
+    norm_add = normalize_tags(add_tags) if add_tags is not None else None
+    norm_remove = set(normalize_tags(remove_tags)) if remove_tags is not None else None
+    norm_set = normalize_tags(set_tags) if set_tags is not None else None
+    watched = ops.get("watched", None)
+    if watched is not None:
+        if isinstance(watched, bool):
+            watched = 1 if watched else 0
+        try:
+            watched = 1 if int(watched) else 0
+        except (TypeError, ValueError):
+            raise HTTPException(422, "watched must be 0/1")
+    ratings: dict = {}
+    for k in ("douban_rating", "custom_rating"):
+        if k in ops:
+            v = ops[k]
+            if v is None:
+                ratings[k] = None
+            else:
+                try:
+                    f = float(v)
+                except (TypeError, ValueError):
+                    raise HTTPException(422, f"{k} must be 0-10")
+                if not 0 <= f <= 10:
+                    raise HTTPException(422, f"{k} must be 0-10")
+                ratings[k] = f
+    if watched is None and norm_add is None and norm_remove is None \
+            and norm_set is None and not ratings:
+        raise HTTPException(422, "empty ops")
+    expanded = store.expand_ids_to_versions(rep_ids)
+    now = int(_time.time())
+    results = []
+    affected_versions = 0
+    for rid in rep_ids:
+        vers = expanded.get(rid, [])
+        if not vers:
+            results.append({"id": rid, "expanded_ids": [], "status": "not_found"})
+            continue
+        ok = 0
+        for vid in vers:
+            m = store.get_movie(vid)
+            if not m:
+                continue
+            patch: dict = {}
+            if norm_set is not None:
+                patch["tags"] = norm_set
+            elif norm_add is not None or norm_remove is not None:
+                cur = list(m.get("tags") or [])
+                if norm_add:
+                    cur = normalize_tags(cur + norm_add)
+                if norm_remove:
+                    cur = [t for t in cur if t not in norm_remove]
+                patch["tags"] = cur
+            if watched is not None:
+                patch["watched"] = watched
+                patch["watched_at"] = now if watched else 0
+            patch.update(ratings)
+            try:
+                store.update_movie_local(vid, **patch)
+                ok += 1
+            except Exception as e:
+                results.append({"id": rid, "expanded_ids": vers,
+                                "status": f"error: {e}"})
+                break
+        else:
+            affected_versions += ok
+            results.append({"id": rid, "expanded_ids": vers,
+                            "status": "ok" if ok else "not_found"})
+    return {"total": len(rep_ids), "affected_versions": affected_versions,
+            "results": results}
+
+
+@router.get("/movies/{movie_id}/collections")
+def movie_collections(movie_id: int):
+    if not store.get_movie(movie_id):
+        raise HTTPException(404, "movie not found")
+    return {"id": movie_id, "collections": store.list_collections_for_movie(movie_id)}
+
+
+@router.get("/movies/{movie_id}/collection-hint")
+def movie_collection_hint(movie_id: int):
+    """TMDB 系列提示：本片所属远端系列 + 库内同系列兄弟，供一键建合集。"""
+    if not store.get_movie(movie_id):
+        raise HTTPException(404, "movie not found")
+    hint = store.collection_hint_for_movie(movie_id)
+    return hint or {"collection_tmdb_id": None, "collection_name": "",
+                    "in_library": [], "in_library_count": 0}
 
 
 @router.get("/movies/{movie_id}/files")

@@ -1,6 +1,7 @@
 <template>
   <nav>
     <router-link to="/">库</router-link>
+    <router-link to="/collections">合集</router-link>
     <router-link to="/settings">设置</router-link>
   </nav>
   <router-view />

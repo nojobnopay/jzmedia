@@ -4,6 +4,7 @@
     <button @click="applyAndLoad">搜索</button>
     <button @click="clearAll">全部</button>
     <button @click="doScan" :disabled="scanning">{{ scanning ? '刮削中…' : '扫描刮削' }}</button>
+    <router-link to="/collections"><button>合集</button></router-link>
   </div>
   <div v-if="msg" class="bar">{{ msg }}</div>
 
@@ -58,6 +59,11 @@
         @click="pickRating(s)">{{ s }}分以上 {{ ratingCount(s) }}</span>
       <span class="fhint">单选；未评分的不计入</span>
     </div>
+    <div class="frow">
+      <span class="flabel">观看</span>
+      <span :class="['chip', { on: sel.watched === 1 }]" @click="pickWatched(1)">已看 {{ watchedCounts.watched }}</span>
+      <span :class="['chip', { on: sel.watched === 0 }]" @click="pickWatched(0)">未看 {{ watchedCounts.unwatched }}</span>
+    </div>
     <div class="frow" v-if="activeCount">
       <span class="fhint">已选 {{ activeCount }} 项 · 命中 {{ items.length }} 部</span>
       <button @click="clearFilters">清空筛选</button>
@@ -65,17 +71,82 @@
   </div>
 
   <div class="grid">
-    <div v-for="m in items" :key="m.id" class="card" @click="$router.push('/m/' + m.id)">
+    <div v-for="m in items" :key="m.id" :class="['card', { sel: selectedIds.has(m.id) }]" @click="onCard(m)">
       <div class="poster-wrap">
+        <button :class="['sel-circle', { on: selectedIds.has(m.id) }]"
+          @click.stop="toggleSelect(m.id)" :aria-pressed="selectedIds.has(m.id)" aria-label="选择">
+          <svg viewBox="0 0 16 16" width="14" height="14"><path d="M6.2 11.3 3.1 8.2l-1.4 1.4 4.5 4.5 8.1-8.1-1.4-1.4z" fill="currentColor"/></svg>
+        </button>
         <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" />
         <ScoreBadge :score="m.tmdb_rating" source="tmdb" />
+        <span v-if="m.watched" class="watched-badge">✓已看</span>
       </div>
       <div class="t">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span><span v-if="m.needs_review"> [待确认]</span><span v-if="hasScore(m.custom_rating)" class="custom-mini">♥{{ fmtScore(m.custom_rating) }}</span><br v-if="m.region || (m.genres || []).length" /><span v-if="m.region" class="meta">{{ m.region }}</span><span v-if="(m.genres || []).length" class="meta"> {{ (m.genres || []).slice(0, 2).join('/') }}</span></div>
     </div>
   </div>
+
+  <div v-if="selecting" class="floatbar" role="toolbar" aria-label="多选操作">
+    <span class="count">{{ selectedIds.size }}</span>
+    <button @click="selectAllVisible" :disabled="!items.length" title="全选当前筛选">
+      <svg viewBox="0 0 16 16"><path d="M2 2h12v12H2z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 8.2 7.2 10.4 11 5.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      <span>全选</span>
+    </button>
+    <button @click="batchWatched(true)" :disabled="batching" title="标为已看">
+      <svg viewBox="0 0 16 16"><path d="M1.5 8S4 3.8 8 3.8 14.5 8 14.5 8 12 12.2 8 12.2 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="2.2" fill="currentColor"/></svg>
+      <span>已看</span>
+    </button>
+    <button @click="batchWatched(false)" :disabled="batching" title="标为未看">
+      <svg viewBox="0 0 16 16"><path d="M1.5 8S4 3.8 8 3.8c1.5 0 2.9.5 4 1.2M14.5 8S12 12.2 8 12.2c-1.5 0-2.9-.5-4-1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 13 13 3" stroke="currentColor" stroke-width="1.4"/></svg>
+      <span>未看</span>
+    </button>
+    <button @click="openTagDlg" title="批量标签">
+      <svg viewBox="0 0 16 16"><path d="M2 2h5.5L14 8.5 8.5 14 2 7.5z" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="6" r="1.3" fill="currentColor"/></svg>
+      <span>标签</span>
+    </button>
+    <button @click="openColDlg" title="加入合集">
+      <svg viewBox="0 0 16 16"><path d="M1.5 4.5c0-.8.7-1.5 1.5-1.5h3l1.2 1.5H13c.8 0 1.5.7 1.5 1.5v5c0 .8-.7 1.5-1.5 1.5H3c-.8 0-1.5-.7-1.5-1.5z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+      <span>合集</span>
+    </button>
+    <button @click="clearSelection" title="退出多选">
+      <svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6"/></svg>
+      <span>取消</span>
+    </button>
+    <span v-if="batchMsg || batching" class="fmsg">{{ batching ? '提交中…' : batchMsg }}</span>
+  </div>
+
+  <div v-if="tagDlg" class="dlg-mask" @click.self="tagDlg = false">
+    <div class="dlg">
+      <h3>批量标签（{{ selectedIds.size }} 部）</h3>
+      <div class="bar">
+        <label><input type="radio" value="add" v-model="tagMode" /> 追加</label>
+        <label><input type="radio" value="remove" v-model="tagMode" /> 移除</label>
+      </div>
+      <div class="bar">
+        <input v-model="newTag" placeholder="新标签，回车加入待办" @keyup.enter="queueNewTag" style="flex:1" />
+        <button @click="queueNewTag">加入</button>
+      </div>
+      <div v-if="pendingTags.length" class="bar">待{{ tagMode === 'add' ? '追加' : '移除' }}：<span v-for="t in pendingTags" :key="t" class="chip on" @click="dropPending(t)">{{ t }} ×</span></div>
+      <div class="taglist">
+        <span v-for="t in facets.tags" :key="t.value" class="chip tag" @click="queueExisting(t.value)">{{ t.value }} {{ t.count }}</span>
+      </div>
+      <div class="bar"><button @click="confirmBatchTags" :disabled="batching || !pendingTags.length">{{ batching ? '提交中…' : '确认提交' }}</button><button @click="tagDlg = false">取消</button><span>{{ batchMsg }}</span></div>
+    </div>
+  </div>
+
+  <div v-if="colDlg" class="dlg-mask" @click.self="colDlg = false">
+    <div class="dlg">
+      <h3>加入合集（{{ selectedIds.size }} 部）</h3>
+      <div class="bar"><input v-model="colQ" placeholder="搜索合集" style="flex:1" /></div>
+      <ul class="collist">
+        <li v-for="c in filteredCols" :key="c.id"><span>{{ c.name }}（{{ c.member_count }}）</span><button @click="joinCollection(c.id)" :disabled="batching">加入</button></li>
+      </ul>
+      <div class="bar"><input v-model="newCol" placeholder="新建合集名（含当前选中）" style="flex:1" /><button @click="createAndJoin" :disabled="batching || !newCol.trim()">创建并加入</button></div>
+      <div class="bar"><button @click="colDlg = false">关闭</button><span>{{ batchMsg }}</span></div>
+    </div>
+  </div>
 </template>
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import ScoreBadge from '../components/ScoreBadge.vue'
@@ -88,9 +159,32 @@ const q = ref('')
 const items = ref([])
 const msg = ref('')
 const scanning = ref(false)
-const facets = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], ratings: { tmdb: [], douban: [], custom: [] } })
-const sel = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], rating: null, ratingSource: 'tmdb' })
+const facets = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], collections: [], watched: { watched: 0, unwatched: 0 }, ratings: { tmdb: [], douban: [], custom: [] } })
+const sel = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], watched: null, rating: null, ratingSource: 'tmdb' })
 const yearPick = ref('')
+
+const watchedCounts = computed(() => facets.value.watched || { watched: 0, unwatched: 0 })
+
+// 多选态（海报粒度：selectedIds 存代表行 id，服务端展开到同 tmdb 全版本）
+// Plex 式：首勾自动进入，清空/Esc 自动退出，无手动开关
+const selectedIds = ref(new Set())
+const selecting = computed(() => selectedIds.value.size > 0)
+const batching = ref(false)
+const batchMsg = ref('')
+const tagDlg = ref(false)
+const tagMode = ref('add')
+const newTag = ref('')
+const pendingTags = ref([])
+const colDlg = ref(false)
+const colQ = ref('')
+const newCol = ref('')
+const colItems = ref([])
+const filteredCols = computed(() => {
+  const q = colQ.value.trim()
+  const src = colItems.value.length ? colItems.value : (facets.value.collections || [])
+  if (!q) return src
+  return src.filter(c => (c.name || '').includes(q))
+})
 
 function ratingCount(s) {
   const arr = (facets.value.ratings || {})[sel.value.ratingSource] || []
@@ -107,7 +201,13 @@ const hasFacets = computed(() =>
 const activeCount = computed(() =>
   sel.value.genres.length + sel.value.regions.length + sel.value.countries.length +
   sel.value.years.length + sel.value.decades.length + sel.value.tags.length +
+  (sel.value.watched == null ? 0 : 1) +
   (sel.value.rating == null ? 0 : 1))
+
+function pickWatched(v) {
+  sel.value.watched = (sel.value.watched === v) ? null : v
+  applyAndLoad()
+}
 
 function toggle(key, v) {
   const a = sel.value[key]
@@ -132,6 +232,7 @@ function syncUrl() {
   if (sel.value.years.length) query.year = sel.value.years.join(',')
   if (sel.value.decades.length) query.decade = sel.value.decades.join(',')
   if (sel.value.tags.length) query.tag = sel.value.tags.join(',')
+  if (sel.value.watched != null) query.watched = String(sel.value.watched)
   if (sel.value.rating != null) {
     query.min_rating = String(sel.value.rating)
     if (sel.value.ratingSource !== 'tmdb') query.rating_source = sel.value.ratingSource
@@ -141,6 +242,7 @@ function syncUrl() {
 function readUrl() {
   const s = (v) => v ? String(v).split(',').map(x => x.trim()).filter(Boolean) : []
   const src = String(route.query.rating_source || 'tmdb')
+  const wq = Array.isArray(route.query.watched) ? route.query.watched[0] : route.query.watched
   q.value = route.query.q || ''
   sel.value = {
     genres: s(route.query.genre),
@@ -149,6 +251,7 @@ function readUrl() {
     years: s(route.query.year),
     decades: s(route.query.decade),
     tags: s(route.query.tag),
+    watched: wq != null && wq !== '' ? Number(wq) : null,
     rating: route.query.min_rating != null && route.query.min_rating !== '' ? Number(route.query.min_rating) : null,
     ratingSource: ['tmdb', 'douban', 'custom'].includes(src) ? src : 'tmdb',
   }
@@ -163,6 +266,7 @@ function buildParams() {
       ['decade', sel.value.decades], ['tag', sel.value.tags]]) {
     for (const v of vals) p.append(key, v)
   }
+  if (sel.value.watched != null) p.set('watched', String(sel.value.watched))
   if (sel.value.rating != null) {
     p.set('min_rating', String(sel.value.rating))
     p.set('rating_source', sel.value.ratingSource)
@@ -180,17 +284,129 @@ async function applyAndLoad() {
 }
 async function showAll() {
   q.value = ''
-  sel.value = { genres: [], regions: [], countries: [], years: [], decades: [], tags: [], rating: null, ratingSource: 'tmdb' }
+  sel.value = { genres: [], regions: [], countries: [], years: [], decades: [], tags: [], watched: null, rating: null, ratingSource: 'tmdb' }
   syncUrl()
   await load()
 }
 async function clearFilters() {
-  sel.value = { genres: [], regions: [], countries: [], years: [], decades: [], tags: [], rating: null, ratingSource: 'tmdb' }
+  sel.value = { genres: [], regions: [], countries: [], years: [], decades: [], tags: [], watched: null, rating: null, ratingSource: 'tmdb' }
   await applyAndLoad()
 }
 async function clearAll() { await showAll() }
 async function loadFacets() {
   try { facets.value = await api('/api/facets') } catch (e) { /* 库空时忽略 */ }
+  try { colItems.value = (await api('/api/collections')).items || [] } catch (e) { /* 忽略 */ }
+}
+function onCard(m) {
+  if (selecting.value) toggleSelect(m.id)
+  else router.push('/m/' + m.id)
+}
+function toggleSelect(id) {
+  const s = new Set(selectedIds.value)
+  if (s.has(id)) s.delete(id)
+  else s.add(id)
+  selectedIds.value = s
+}
+function selectAllVisible() {
+  const s = new Set(selectedIds.value)
+  for (const m of items.value) s.add(m.id)
+  selectedIds.value = s
+}
+function clearSelection() {
+  selectedIds.value = new Set()
+}
+async function batchCall(ops) {
+  batching.value = true
+  batchMsg.value = ''
+  try {
+    const d = await api('/api/movies/batch', {
+      method: 'POST',
+      body: JSON.stringify({ ids: [...selectedIds.value], ops })
+    })
+    batchMsg.value = `完成：${d.affected_versions} 个文件版本`
+    clearSelection()
+    tagDlg.value = false
+    pendingTags.value = []
+    await loadFacets()
+    await load()
+  } catch (e) {
+    batchMsg.value = '批量失败：' + e.message
+  } finally {
+    batching.value = false
+  }
+}
+async function batchWatched(w) {
+  await batchCall({ watched: w })
+}
+function openTagDlg() {
+  pendingTags.value = []
+  newTag.value = ''
+  tagMode.value = 'add'
+  batchMsg.value = ''
+  tagDlg.value = true
+}
+function queueNewTag() {
+  const t = newTag.value.trim().slice(0, 20)
+  if (t && !pendingTags.value.includes(t)) pendingTags.value.push(t)
+  newTag.value = ''
+}
+function queueExisting(t) {
+  if (!pendingTags.value.includes(t)) pendingTags.value.push(t)
+}
+function dropPending(t) {
+  pendingTags.value = pendingTags.value.filter(x => x !== t)
+}
+async function confirmBatchTags() {
+  if (!pendingTags.value.length) return
+  const ops = tagMode.value === 'add'
+    ? { add_tags: pendingTags.value }
+    : { remove_tags: pendingTags.value }
+  await batchCall(ops)
+}
+function openColDlg() {
+  colQ.value = ''
+  newCol.value = ''
+  batchMsg.value = ''
+  colDlg.value = true
+}
+async function joinCollection(cid) {
+  batching.value = true
+  batchMsg.value = ''
+  try {
+    await api(`/api/collections/${cid}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ movie_ids: [...selectedIds.value] })
+    })
+    batchMsg.value = '已加入合集'
+    clearSelection()
+    await loadFacets()
+    try { colItems.value = (await api('/api/collections')).items || [] } catch (e) { /* 忽略 */ }
+  } catch (e) {
+    batchMsg.value = '加入失败：' + e.message
+  } finally {
+    batching.value = false
+  }
+}
+async function createAndJoin() {
+  const name = newCol.value.trim()
+  if (!name) return
+  batching.value = true
+  batchMsg.value = ''
+  try {
+    const d = await api('/api/collections', {
+      method: 'POST',
+      body: JSON.stringify({ name, member_ids: [...selectedIds.value] })
+    })
+    batchMsg.value = `已建合集「${d.name}」`
+    newCol.value = ''
+    clearSelection()
+    await loadFacets()
+    try { colItems.value = (await api('/api/collections')).items || [] } catch (e) { /* 忽略 */ }
+  } catch (e) {
+    batchMsg.value = '创建失败：' + e.message
+  } finally {
+    batching.value = false
+  }
 }
 async function doScan() {
   scanning.value = true
@@ -211,7 +427,16 @@ onMounted(async () => {
   readUrl()
   await loadFacets()
   await load()
+  window.addEventListener('keydown', escExit)
 })
+onUnmounted(() => {
+  window.removeEventListener('keydown', escExit)
+})
+function escExit(e) {
+  if (e.key === 'Escape' && selecting.value && !tagDlg.value && !colDlg.value) {
+    clearSelection()
+  }
+}
 watch(() => route.query, () => { readUrl(); load() })
 </script>
 <style scoped>
@@ -225,4 +450,44 @@ watch(() => route.query, () => { readUrl(); load() })
 .fhint { color: #777; font-size: 0.75rem; }
 .meta { color: #888; font-size: 0.75rem; }
 .custom-mini { color: #ff6b6b; font-size: 0.75rem; }
+.selbar { display: none; }
+.card.sel { outline: 2px solid #e50914; }
+.card.sel img { filter: brightness(.75); }
+.sel-circle {
+  position: absolute; top: 6px; left: 6px; z-index: 2;
+  width: 26px; height: 26px; padding: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid rgba(255,255,255,.85); background: rgba(0,0,0,.55); color: transparent;
+  opacity: 0; transition: opacity .15s; cursor: pointer;
+}
+.poster-wrap:hover .sel-circle, .sel-circle.on { opacity: 1; }
+.sel-circle.on { background: #e50914; border-color: #e50914; color: #fff; }
+@media (hover: none) { .sel-circle { opacity: 1; } }
+.floatbar {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 40;
+  display: flex; gap: 4px; align-items: center;
+  background: rgba(28,28,28,.96); border: 1px solid #e50914; border-radius: 999px;
+  padding: 8px 14px; box-shadow: 0 8px 28px rgba(0,0,0,.6);
+  max-width: calc(100vw - 24px); overflow-x: auto;
+}
+.floatbar .count {
+  min-width: 26px; height: 26px; border-radius: 50%;
+  background: #e50914; color: #fff; font-weight: bold; font-size: 0.8125rem;
+  display: flex; align-items: center; justify-content: center; padding: 0 6px;
+}
+.floatbar button {
+  display: flex; gap: 5px; align-items: center; border: none; background: transparent;
+  color: #eee; white-space: nowrap; font-size: 0.8125rem; padding: 6px 8px;
+}
+.floatbar button:hover:not(:disabled) { color: #ff8a8a; }
+.floatbar button svg { width: 16px; height: 16px; flex-shrink: 0; }
+.floatbar button:disabled { opacity: .4; cursor: default; }
+.floatbar .fmsg { color: #7ed321; font-size: 0.75rem; white-space: nowrap; }
+.watched-badge { position: absolute; bottom: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #7ed321; }
+.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 560px; max-height: 80vh; overflow: auto; }
+.dlg h3 { margin: 0 0 8px; }
+.taglist { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 12px; max-height: 30vh; overflow: auto; }
+.collist { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 30vh; overflow: auto; }
+.collist li { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: #262626; border-radius: 8px; padding: 6px 10px; }
 </style>

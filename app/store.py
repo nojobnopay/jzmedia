@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS movies (
   spec TEXT DEFAULT '',
   original_file_path TEXT DEFAULT '',
   needs_review INTEGER DEFAULT 0,
+  watched INTEGER DEFAULT 0,
+  watched_at INTEGER DEFAULT 0,
   updated_at INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS persons (
@@ -84,8 +86,33 @@ CREATE TABLE IF NOT EXISTS tmdb_cache (
   media_type TEXT DEFAULT 'movie',
   poster_tmdb_path TEXT DEFAULT '',
   credits TEXT DEFAULT '{"cast":[],"crew":[]}',
+  collection_tmdb_id INTEGER,
+  collection_name TEXT DEFAULT '',
+  collection_poster_path TEXT DEFAULT '',
+  collection_checked_at INTEGER DEFAULT 0,
   fetched_at INTEGER DEFAULT 0
 );
+-- 手工合集：成员以海报粒度存放（有 tmdb_id 存 movie_tmdb_id，无则存 movie_id），与海报墙分组键一致
+CREATE TABLE IF NOT EXISTS collections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  overview TEXT DEFAULT '',
+  poster_path TEXT DEFAULT '',
+  tmdb_collection_id INTEGER,
+  created_at INTEGER DEFAULT 0,
+  updated_at INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS collection_members (
+  collection_id INTEGER NOT NULL,
+  movie_tmdb_id INTEGER,
+  movie_id INTEGER,
+  sort_order INTEGER DEFAULT 0,
+  added_at INTEGER DEFAULT 0,
+  PRIMARY KEY (collection_id, movie_tmdb_id, movie_id)
+);
+CREATE INDEX IF NOT EXISTS idx_members_collection ON collection_members(collection_id);
+CREATE INDEX IF NOT EXISTS idx_members_tmdb ON collection_members(movie_tmdb_id);
+CREATE INDEX IF NOT EXISTS idx_members_movie ON collection_members(movie_id);
 CREATE VIRTUAL TABLE IF NOT EXISTS movies_fts USING fts5(
   title, original_title, overview, person_names, tags, genres,
   tokenize='unicode61'
@@ -112,7 +139,8 @@ TMDB_FIELDS = {"title", "original_title", "year", "overview",
 # 本地自有列（PATCH/rename/tags/评分等，只能经本地写路径修改，不碰 cache）
 LOCAL_FIELDS = {"file_path", "title", "overview_override",
                 "douban_rating", "custom_rating", "tags", "needs_review",
-                "edition", "spec", "original_file_path"}
+                "edition", "spec", "original_file_path",
+                "watched", "watched_at"}
 
 
 def init_db() -> None:
@@ -131,6 +159,8 @@ def init_db() -> None:
             ("edition", "ALTER TABLE movies ADD COLUMN edition TEXT DEFAULT ''"),
             ("spec", "ALTER TABLE movies ADD COLUMN spec TEXT DEFAULT ''"),
             ("original_file_path", "ALTER TABLE movies ADD COLUMN original_file_path TEXT DEFAULT ''"),
+            ("watched", "ALTER TABLE movies ADD COLUMN watched INTEGER DEFAULT 0"),
+            ("watched_at", "ALTER TABLE movies ADD COLUMN watched_at INTEGER DEFAULT 0"),
         ):
             if col not in cols:
                 c.execute(ddl)
@@ -152,7 +182,18 @@ def init_db() -> None:
         c.execute("CREATE INDEX IF NOT EXISTS idx_movies_region ON movies(region)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_movies_origin ON movies(origin_country)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_movies_tmdb ON movies(tmdb_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_movies_watched ON movies(watched)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cache_fetched ON tmdb_cache(fetched_at)")
+        # tmdb_cache 系列列自愈（老库无这几列时补上）
+        ccols = [r["name"] for r in c.execute("PRAGMA table_info(tmdb_cache)")]
+        for col, ddl in (
+            ("collection_tmdb_id", "ALTER TABLE tmdb_cache ADD COLUMN collection_tmdb_id INTEGER"),
+            ("collection_name", "ALTER TABLE tmdb_cache ADD COLUMN collection_name TEXT DEFAULT ''"),
+            ("collection_poster_path", "ALTER TABLE tmdb_cache ADD COLUMN collection_poster_path TEXT DEFAULT ''"),
+            ("collection_checked_at", "ALTER TABLE tmdb_cache ADD COLUMN collection_checked_at INTEGER DEFAULT 0"),
+        ):
+            if col not in ccols:
+                c.execute(ddl)
         # 存量自愈：尚无原始路径的行用当前路径种子（老行=最早已知路径，新行由 upsert 写入真值）
         c.execute("UPDATE movies SET original_file_path=file_path "
                   "WHERE original_file_path IS NULL OR original_file_path=''")
@@ -225,21 +266,32 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
                       credits: dict | None = None,
                       poster_tmdb_path: str = "") -> bool:
     """写入镜像。无变化时仅刷新 fetched_at 并返回 False（调用方应跳过 movies 传播）。
-    meta 为 meta_from_detail() 产出的 TMDB 列字典。返回 True=内容变化。"""
+    meta 为 meta_from_detail() 产出的 TMDB 列字典。返回 True=内容变化。
+    每次成功写入都盖 collection_checked_at（本次抓取已确认系列状态，
+    含“确认无系列”的阴性结论；失败抛异常走不到这里，下次继续排查）。"""
     now = int(time.time())
     genres_s = _dump_list(meta.get("genres"))
     genre_ids_s = _dump_list(meta.get("genre_ids"))
     origin_countries_s = _dump_list(meta.get("origin_countries"))
     credits_s = json.dumps(credits or {"cast": [], "crew": []}, ensure_ascii=False, sort_keys=True)
     poster_tmdb_path = poster_tmdb_path or ""
+    col_id = meta.get("collection_tmdb_id")
+    try:
+        col_id = int(col_id) if col_id is not None else None
+    except (TypeError, ValueError):
+        col_id = None
+    col_name = meta.get("collection_name") or ""
+    col_poster = meta.get("collection_poster_path") or ""
     with _lock, _conn() as c:
         row = c.execute("SELECT * FROM tmdb_cache WHERE tmdb_id=?", (tmdb_id,)).fetchone()
         if not row:
             c.execute(
                 "INSERT INTO tmdb_cache(tmdb_id, title, original_title, year, overview,"
                 " imdb_id, tmdb_rating, genres, genre_ids, origin_country, origin_countries,"
-                " original_language, region, media_type, poster_tmdb_path, credits, fetched_at)"
-                " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " original_language, region, media_type, poster_tmdb_path, credits,"
+                " collection_tmdb_id, collection_name, collection_poster_path,"
+                " collection_checked_at, fetched_at)"
+                " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (tmdb_id, meta.get("title", "") or "", meta.get("original_title", "") or "",
                  meta.get("year"), meta.get("overview", "") or "",
                  meta.get("imdb_id", "") or "", meta.get("tmdb_rating"),
@@ -247,8 +299,21 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
                  meta.get("origin_country", "") or "", origin_countries_s,
                  meta.get("original_language", "") or "", meta.get("region", "") or "",
                  meta.get("media_type", "") or "movie",
-                 poster_tmdb_path, credits_s, now))
+                 poster_tmdb_path, credits_s, col_id, col_name, col_poster, now, now))
             return True
+        # 兼容老库：SELECT * 可能无新列
+        try:
+            old_col_id = row["collection_tmdb_id"]
+        except Exception:
+            old_col_id = None
+        try:
+            old_col_name = row["collection_name"] or ""
+        except Exception:
+            old_col_name = ""
+        try:
+            old_col_poster = row["collection_poster_path"] or ""
+        except Exception:
+            old_col_poster = ""
         same = (
             (row["title"] or "") == (meta.get("title", "") or "")
             and (row["original_title"] or "") == (meta.get("original_title", "") or "")
@@ -265,15 +330,21 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
             and (row["media_type"] or "movie") == (meta.get("media_type", "") or "movie")
             and (row["poster_tmdb_path"] or "") == poster_tmdb_path
             and (row["credits"] or '{"cast":[],"crew":[]}') == credits_s
+            and (old_col_id == col_id)
+            and (old_col_name == col_name)
+            and (old_col_poster == col_poster)
         )
         if same:
-            c.execute("UPDATE tmdb_cache SET fetched_at=? WHERE tmdb_id=?", (now, tmdb_id))
+            c.execute("UPDATE tmdb_cache SET fetched_at=?, collection_checked_at=? WHERE tmdb_id=?",
+                      (now, now, tmdb_id))
             return False
         c.execute(
             "UPDATE tmdb_cache SET title=?, original_title=?, year=?, overview=?,"
             " imdb_id=?, tmdb_rating=?, genres=?, genre_ids=?, origin_country=?,"
             " origin_countries=?, original_language=?, region=?, media_type=?,"
-            " poster_tmdb_path=?, credits=?, fetched_at=? WHERE tmdb_id=?",
+            " poster_tmdb_path=?, credits=?, collection_tmdb_id=?,"
+            " collection_name=?, collection_poster_path=?,"
+            " collection_checked_at=?, fetched_at=? WHERE tmdb_id=?",
             (meta.get("title", "") or "", meta.get("original_title", "") or "",
              meta.get("year"), meta.get("overview", "") or "",
              meta.get("imdb_id", "") or "", meta.get("tmdb_rating"),
@@ -281,7 +352,7 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
              meta.get("origin_country", "") or "", origin_countries_s,
              meta.get("original_language", "") or "", meta.get("region", "") or "",
              meta.get("media_type", "") or "movie",
-             poster_tmdb_path, credits_s, now, tmdb_id))
+             poster_tmdb_path, credits_s, col_id, col_name, col_poster, now, now, tmdb_id))
         return True
 
 
@@ -389,6 +460,7 @@ def update_movie_meta(movie_id: int, **fields) -> None:
     allowed = {"file_path", "title", "original_title", "year", "overview", "overview_override",
                "tmdb_id", "imdb_id", "tmdb_rating", "douban_rating", "custom_rating",
                "poster_path", "genres", "genre_ids", "tags", "needs_review",
+               "watched", "watched_at",
                "origin_country", "origin_countries", "original_language",
                "region", "media_type", "edition", "spec", "original_file_path"}
     data = {k: (json.dumps(v, ensure_ascii=False) if k in ("genres", "genre_ids", "tags", "origin_countries") else v)
@@ -768,7 +840,449 @@ def get_movie(movie_id: int) -> dict | None:
             d["overview_display"] = d["overview_override"]
         else:
             d["overview_display"] = d["overview"]
-        return _attach_versions(c, d)
+        d = _attach_versions(c, d)
+        d["collections"] = _collections_for_film(c, d.get("tmdb_id"), d.get("id"))
+        return d
+
+
+def _film_key(tmdb_id, movie_id) -> tuple:
+    """海报粒度键：有 tmdb_id 按 tmdb，无按单行 id（与分组 GROUP BY 一致）。"""
+    try:
+        tid = int(tmdb_id) if tmdb_id is not None else None
+    except (TypeError, ValueError):
+        tid = None
+    if tid:
+        return (tid, None)
+    return (None, int(movie_id))
+
+
+def expand_ids_to_versions(rep_ids: list[int]) -> dict[int, list[int]]:
+    """代表 id → 该海报全版本 id 列表（海报粒度批量操作的展开）。不存在的 id 映射为空列表。"""
+    out: dict[int, list[int]] = {}
+    with _lock, _conn() as c:
+        for rid in rep_ids:
+            try:
+                rid = int(rid)
+            except (TypeError, ValueError):
+                continue
+            row = c.execute("SELECT id, tmdb_id FROM movies WHERE id=?", (rid,)).fetchone()
+            if not row:
+                out[rid] = []
+                continue
+            if row["tmdb_id"]:
+                vers = [int(r["id"]) for r in c.execute(
+                    "SELECT id FROM movies WHERE tmdb_id=? ORDER BY id", (row["tmdb_id"],))]
+                out[rid] = vers
+            else:
+                out[rid] = [rid]
+    return out
+
+
+def _collections_for_film(c: sqlite3.Connection, tmdb_id, movie_id) -> list[dict]:
+    tid, mid = _film_key(tmdb_id, movie_id)
+    if tid:
+        rows = c.execute(
+            "SELECT col.id, col.name FROM collections col "
+            "JOIN collection_members cm ON cm.collection_id=col.id "
+            "WHERE cm.movie_tmdb_id=? ORDER BY col.name", (tid,)).fetchall()
+    else:
+        rows = c.execute(
+            "SELECT col.id, col.name FROM collections col "
+            "JOIN collection_members cm ON cm.collection_id=col.id "
+            "WHERE cm.movie_id=? ORDER BY col.name", (mid,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_collections_for_movie(movie_id: int) -> list[dict]:
+    with _lock, _conn() as c:
+        row = c.execute("SELECT id, tmdb_id FROM movies WHERE id=?", (movie_id,)).fetchone()
+        if not row:
+            return []
+        return _collections_for_film(c, row["tmdb_id"], row["id"])
+
+
+def _collection_cover(c: sqlite3.Connection, cid: int) -> str:
+    """合集封面：最早成员代表行的海报（无则空）。"""
+    row = c.execute(
+        "SELECT m.poster_path FROM collection_members cm "
+        "LEFT JOIN movies m ON ((cm.movie_tmdb_id IS NOT NULL AND m.tmdb_id=cm.movie_tmdb_id) "
+        "OR (cm.movie_id IS NOT NULL AND m.id=cm.movie_id)) "
+        "WHERE cm.collection_id=? AND m.poster_path IS NOT NULL AND m.poster_path!='' "
+        "ORDER BY m.year IS NULL, m.year, m.id LIMIT 1", (cid,)).fetchone()
+    return (row["poster_path"] if row else "") or ""
+
+
+def list_collections(q: str = "") -> list[dict]:
+    with _lock, _conn() as c:
+        if (q or "").strip():
+            rows = c.execute(
+                "SELECT * FROM collections WHERE name LIKE ? ORDER BY updated_at DESC",
+                (f"%{(q or '').strip()}%",)).fetchall()
+        else:
+            rows = c.execute("SELECT * FROM collections ORDER BY updated_at DESC").fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["member_count"] = c.execute(
+                "SELECT COUNT(*) AS n FROM collection_members WHERE collection_id=?",
+                (d["id"],)).fetchone()["n"]
+            d["cover"] = d.get("poster_path") or _collection_cover(c, d["id"])
+            out.append(d)
+        return out
+
+
+def get_collection(cid: int) -> dict | None:
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM collections WHERE id=?", (cid,)).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        mems = c.execute(
+            "SELECT movie_tmdb_id, movie_id, sort_order FROM collection_members "
+            "WHERE collection_id=? ORDER BY sort_order, added_at, movie_tmdb_id, movie_id",
+            (cid,)).fetchall()
+        items = []
+        seen = set()
+        for mm in mems:
+            tid, mid = mm["movie_tmdb_id"], mm["movie_id"]
+            if tid:
+                mrow = c.execute(
+                    "SELECT *, MAX(updated_at) AS _u FROM movies WHERE tmdb_id=? "
+                    "GROUP BY COALESCE(tmdb_id, -id)", (tid,)).fetchone()
+                key = ("t", tid)
+            else:
+                mrow = c.execute("SELECT * FROM movies WHERE id=?", (mid,)).fetchone()
+                key = ("m", mid)
+            if not mrow or key in seen:
+                continue
+            seen.add(key)
+            items.append(_attach_versions(c, _row_to_dict(mrow)))
+        # 无自定义排序时按年份正序兜底（系列合集如功夫熊猫按上映顺序看）
+        if all(m["sort_order"] == 0 for m in mems) if mems else False:
+            items.sort(key=lambda x: ((x.get("year") is None), x.get("year") or 0, x.get("id")))
+        d["members"] = items
+        d["member_count"] = len(items)
+        d["cover"] = d.get("poster_path") or _collection_cover(c, cid)
+        return d
+
+
+def create_collection(name: str, overview: str = "",
+                      tmdb_collection_id: int | None = None,
+                      member_ids: list | None = None) -> dict:
+    name = " ".join(str(name or "").split())
+    if not name:
+        raise ValueError("name required")
+    if len(name) > 60:
+        name = name[:60]
+    now = int(time.time())
+    with _lock, _conn() as c:
+        try:
+            cur = c.execute(
+                "INSERT INTO collections(name, overview, tmdb_collection_id, created_at, updated_at)"
+                " VALUES(?, ?, ?, ?, ?)",
+                (name, overview or "", tmdb_collection_id, now, now))
+            cid = int(cur.lastrowid)
+        except sqlite3.IntegrityError:
+            raise ValueError("collection name exists")
+    if member_ids:
+        add_collection_members(cid, member_ids)
+    out = get_collection(cid)
+    assert out is not None
+    return out
+
+
+def update_collection(cid: int, **fields) -> dict | None:
+    allowed = {"name", "overview", "poster_path", "tmdb_collection_id"}
+    data = {k: v for k, v in fields.items() if k in allowed}
+    if "name" in data:
+        data["name"] = " ".join(str(data["name"] or "").split())[:60]
+        if not data["name"]:
+            raise ValueError("name required")
+    if not data:
+        return get_collection(cid)
+    data["updated_at"] = int(time.time())
+    with _lock, _conn() as c:
+        try:
+            c.execute(f"UPDATE collections SET {', '.join(f'{k}=?' for k in data)} WHERE id=?",
+                      (*data.values(), cid))
+        except sqlite3.IntegrityError:
+            raise ValueError("collection name exists")
+    return get_collection(cid)
+
+
+def delete_collection(cid: int) -> bool:
+    with _lock, _conn() as c:
+        row = c.execute("SELECT id FROM collections WHERE id=?", (cid,)).fetchone()
+        if not row:
+            return False
+        c.execute("DELETE FROM collection_members WHERE collection_id=?", (cid,))
+        c.execute("DELETE FROM collections WHERE id=?", (cid,))
+        return True
+
+
+def add_collection_members(cid: int, rep_ids: list) -> dict:
+    """海报粒度加入：代表 id 归一为 film key 后幂等插入。返回 {added, total}。"""
+    with _lock, _conn() as c:
+        if not c.execute("SELECT 1 FROM collections WHERE id=?", (cid,)).fetchone():
+            raise LookupError("collection not found")
+        rows = c.execute("SELECT id, tmdb_id FROM movies WHERE id IN (%s)" % ",".join("?" * len(rep_ids)),
+                         tuple(int(x) for x in rep_ids)) if rep_ids else []
+        keys = set()
+        for r in (rows or []):
+            keys.add(_film_key(r["tmdb_id"], r["id"]))
+    now = int(time.time())
+    added = 0
+    with _lock, _conn() as c:
+        for tid, mid in keys:
+            try:
+                cur = c.execute("INSERT OR IGNORE INTO collection_members"
+                                "(collection_id, movie_tmdb_id, movie_id, sort_order, added_at)"
+                                " VALUES(?, ?, ?, ?, ?)",
+                                (cid, tid, mid, 0, now))
+                if cur.rowcount:
+                    added += 1
+            except Exception:
+                continue
+        c.execute("UPDATE collections SET updated_at=? WHERE id=?", (now, cid))
+        total = c.execute("SELECT COUNT(*) AS n FROM collection_members WHERE collection_id=?",
+                          (cid,)).fetchone()["n"]
+    return {"added": added, "total": int(total)}
+
+
+def remove_collection_members(cid: int, rep_ids: list) -> dict:
+    with _lock, _conn() as c:
+        if not c.execute("SELECT 1 FROM collections WHERE id=?", (cid,)).fetchone():
+            raise LookupError("collection not found")
+        rows = c.execute("SELECT id, tmdb_id FROM movies WHERE id IN (%s)" % ",".join("?" * len(rep_ids)),
+                         tuple(int(x) for x in rep_ids)) if rep_ids else []
+        n = 0
+        for r in (rows or []):
+            tid, mid = _film_key(r["tmdb_id"], r["id"])
+            if tid:
+                c.execute("DELETE FROM collection_members WHERE collection_id=? AND movie_tmdb_id=?",
+                          (cid, tid))
+            else:
+                c.execute("DELETE FROM collection_members WHERE collection_id=? AND movie_id=?",
+                          (cid, mid))
+            n += c.total_changes
+        c.execute("UPDATE collections SET updated_at=? WHERE id=?", (int(time.time()), cid))
+        total = c.execute("SELECT COUNT(*) AS n FROM collection_members WHERE collection_id=?",
+                          (cid,)).fetchone()["n"]
+    return {"removed": int(n), "total": int(total)}
+
+
+def get_movie_by_tmdb(tmdb_id: int) -> dict | None:
+    """同 tmdb_id 的代表行（最新更新），供回填进度展示标题用。"""
+    with _lock, _conn() as c:
+        row = c.execute(
+            "SELECT *, MAX(updated_at) AS _u FROM movies WHERE tmdb_id=?"
+            " GROUP BY COALESCE(tmdb_id, -id)", (int(tmdb_id),)).fetchone()
+        if not row:
+            return None
+        return _attach_versions(c, _row_to_dict(row))
+
+
+def collection_hint_for_movie(movie_id: int) -> dict | None:
+    """TMDB 系列提示：本片 cache 的系列 + 库内同系列兄弟（供一键建合集）。"""
+    with _lock, _conn() as c:
+        mrow = c.execute("SELECT * FROM movies WHERE id=?", (movie_id,)).fetchone()
+        if not mrow or not mrow["tmdb_id"]:
+            return None
+        crow = c.execute("SELECT collection_tmdb_id, collection_name, collection_poster_path"
+                         " FROM tmdb_cache WHERE tmdb_id=?", (mrow["tmdb_id"],)).fetchone()
+        if not crow or not crow["collection_tmdb_id"]:
+            return None
+        cid, cname = crow["collection_tmdb_id"], crow["collection_name"] or ""
+        try:
+            collected = bool(c.execute(
+                "SELECT 1 FROM collections WHERE tmdb_collection_id=? OR name=?",
+                (cid, cname)).fetchone())
+        except Exception:
+            collected = False
+        sibs = c.execute(
+            "SELECT m.*, MAX(m.updated_at) AS _u FROM movies m "
+            "JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id "
+            "WHERE t.collection_tmdb_id=? GROUP BY COALESCE(m.tmdb_id, -m.id) "
+            "ORDER BY m.year IS NULL, m.year", (cid,)).fetchall()
+        items = [_attach_versions(c, _row_to_dict(r)) for r in sibs]
+        return {"collection_tmdb_id": cid, "collection_name": cname,
+                "collection_poster_path": crow["collection_poster_path"] or "",
+                "already_collected": collected,
+                "in_library": [{"id": x["id"], "title": x.get("title", ""),
+                                 "year": x.get("year")} for x in items],
+                "in_library_count": len(items)}
+
+
+def suggest_series_collections(min_members: int = 2) -> dict:
+    """TMDB 系列自动推荐（纯本地、只读）：按 tmdb_cache.collection_tmdb_id 聚类，
+    库内同系列海报数达标即推荐一项。人物合集 TMDB 给不出，不在此列（纯手动）。
+    已被合集收录的系列直接过滤（按 tmdb_collection_id 或同名匹配），不占推荐区。"""
+    try:
+        min_members = max(2, int(min_members))
+    except (TypeError, ValueError):
+        min_members = 2
+    with _lock, _conn() as c:
+        series = c.execute(
+            "SELECT t.collection_tmdb_id AS cid, MAX(t.collection_name) AS name,"
+            " MAX(t.collection_poster_path) AS poster"
+            " FROM movies m JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+            " WHERE t.collection_tmdb_id IS NOT NULL"
+            " GROUP BY t.collection_tmdb_id").fetchall()
+        try:
+            existing = {(r["tmdb_collection_id"], (r["name"] or "").strip())
+                        for r in c.execute("SELECT tmdb_collection_id, name FROM collections")}
+        except Exception:
+            existing = set()
+        # 系列内成员（海报粒度去重，年份正序）
+        items = []
+        for s in series:
+            cid = s["cid"]
+            mems = c.execute(
+                "SELECT m.*, MAX(m.updated_at) AS _u FROM movies m"
+                " JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+                " WHERE t.collection_tmdb_id=?"
+                " GROUP BY COALESCE(m.tmdb_id, -m.id)"
+                " ORDER BY m.year IS NULL, m.year, m.id", (cid,)).fetchall()
+            reps = [_attach_versions(c, _row_to_dict(r)) for r in mems]
+            if len(reps) < min_members:
+                continue
+            cover = ""
+            for r in reps:
+                if r.get("poster_path"):
+                    cover = r["poster_path"]
+                    break
+            cname = (s["name"] or "").strip() or f"系列 {cid}"
+            if any((tid == cid or nm == cname) for tid, nm in existing):
+                continue
+            items.append({
+                "collection_tmdb_id": cid,
+                "collection_name": cname,
+                "cover": cover,
+                "members": [{"id": x["id"], "title": x.get("title", ""),
+                             "year": x.get("year")} for x in reps],
+                "member_count": len(reps),
+            })
+        items.sort(key=lambda x: (-x["member_count"], x["collection_name"]))
+        cov = c.execute(
+            "SELECT COUNT(DISTINCT COALESCE(m.tmdb_id, -m.id)) AS n FROM movies m"
+            " JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+            " WHERE t.collection_tmdb_id IS NOT NULL").fetchone()["n"]
+        total = c.execute(
+            "SELECT COUNT(DISTINCT COALESCE(tmdb_id, -id)) AS n FROM movies").fetchone()["n"]
+        try:
+            standalone = c.execute(
+                "SELECT COUNT(DISTINCT COALESCE(m.tmdb_id, -m.id)) AS n FROM movies m"
+                " JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+                " WHERE t.collection_tmdb_id IS NULL"
+                " AND COALESCE(t.collection_checked_at, 0) > 0").fetchone()["n"]
+        except Exception:
+            standalone = 0
+    return {"items": items,
+            "coverage": {"with_collection": int(cov or 0),
+                         "without_collection": int((total or 0) - (cov or 0)),
+                         "standalone": int(standalone or 0),
+                         "unchecked": int((total or 0) - (cov or 0) - (standalone or 0))},
+            "topups": collected_series_new_members()}
+
+
+def collected_series_new_members() -> list[dict]:
+    """已收录合集的新片差集（纯本地只读）：仅系列建的合集（有 tmdb_collection_id）可匹配；
+    库内同系列但尚未入成员的海报即“可补齐”。纯手动合集无法匹配，直接跳过。"""
+    with _lock, _conn() as c:
+        try:
+            cols = c.execute(
+                "SELECT id, name FROM collections WHERE tmdb_collection_id IS NOT NULL"
+            ).fetchall()
+        except Exception:
+            return []
+        out = []
+        for col in cols:
+            cid = col["id"]
+            tmdb_cid = c.execute(
+                "SELECT tmdb_collection_id FROM collections WHERE id=?", (cid,)
+            ).fetchone()["tmdb_collection_id"]
+            mems = c.execute(
+                "SELECT movie_tmdb_id, movie_id FROM collection_members"
+                " WHERE collection_id=?", (cid,)).fetchall()
+            have = set()
+            for mm in mems:
+                have.add((mm["movie_tmdb_id"], mm["movie_id"]))
+            sibs = c.execute(
+                "SELECT m.*, MAX(m.updated_at) AS _u FROM movies m"
+                " JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+                " WHERE t.collection_tmdb_id=?"
+                " GROUP BY COALESCE(m.tmdb_id, -m.id)"
+                " ORDER BY m.year IS NULL, m.year, m.id", (tmdb_cid,)).fetchall()
+            new = []
+            for r in sibs:
+                d = _row_to_dict(r)
+                tid, mid = _film_key(d.get("tmdb_id"), d["id"])
+                if (tid, mid) in have:
+                    continue
+                new.append({"id": d["id"], "title": d.get("title", ""),
+                            "year": d.get("year"),
+                            "poster_path": d.get("poster_path", "")})
+            if new:
+                out.append({"collection_id": cid, "name": col["name"] or "",
+                            "new_members": new, "new_count": len(new)})
+        out.sort(key=lambda x: (-x["new_count"], x["name"]))
+        return out
+
+
+def top_up_collection(cid: int) -> dict:
+    """一键补齐：服务端实时重算差集后写入（不信任客户端 id，防列表过期加错）。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT tmdb_collection_id FROM collections WHERE id=?",
+                        (cid,)).fetchone()
+        if not row:
+            raise LookupError("collection not found")
+        if not row["tmdb_collection_id"]:
+            raise ValueError("manual collection cannot top up")
+    fresh = [t for t in collected_series_new_members() if t["collection_id"] == cid]
+    if not fresh:
+        with _lock, _conn() as c:
+            total = c.execute("SELECT COUNT(*) AS n FROM collection_members"
+                              " WHERE collection_id=?", (cid,)).fetchone()["n"]
+        return {"added": 0, "total": int(total)}
+    rep_ids = [m["id"] for m in fresh[0]["new_members"]]
+    r = add_collection_members(cid, rep_ids)
+    return r
+
+
+def tmdb_ids_missing_collection(limit: int = 200, force: bool = False) -> list[int]:
+    """待排查系列信息的 tmdb_id 列表（cache 缺失或系列为空且未确认过），供回填口用。
+    确认无系列的独立片已盖 collection_checked_at，不再重复检查；force=True 忽略盖戳全量重查。"""
+    try:
+        limit = max(1, min(int(limit), 200))
+    except (TypeError, ValueError):
+        limit = 200
+    with _lock, _conn() as c:
+        if force:
+            rows = c.execute(
+                "SELECT DISTINCT m.tmdb_id AS tid FROM movies m"
+                " LEFT JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+                " WHERE m.tmdb_id IS NOT NULL"
+                " AND (t.tmdb_id IS NULL OR t.collection_tmdb_id IS NULL)"
+                " LIMIT ?", (limit,)).fetchall()
+        else:
+            try:
+                rows = c.execute(
+                    "SELECT DISTINCT m.tmdb_id AS tid FROM movies m"
+                    " LEFT JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+                    " WHERE m.tmdb_id IS NOT NULL"
+                    " AND (t.tmdb_id IS NULL"
+                    " OR (t.collection_tmdb_id IS NULL"
+                    " AND COALESCE(t.collection_checked_at, 0) = 0))"
+                    " LIMIT ?", (limit,)).fetchall()
+            except Exception:
+                # 极老库无盖戳列时退化为旧口径
+                rows = c.execute(
+                    "SELECT DISTINCT m.tmdb_id AS tid FROM movies m"
+                    " LEFT JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+                    " WHERE m.tmdb_id IS NOT NULL"
+                    " AND (t.tmdb_id IS NULL OR t.collection_tmdb_id IS NULL)"
+                    " LIMIT ?", (limit,)).fetchall()
+        return [int(r["tid"]) for r in rows if r["tid"]]
 
 
 def list_movies(grouped: bool = True, genres: list | None = None,
@@ -776,12 +1290,16 @@ def list_movies(grouped: bool = True, genres: list | None = None,
                 years: list | None = None, decades: list | None = None,
                 tags: list | None = None, limit: int = 500,
                 min_rating: float | None = None,
-                rating_source: str | None = None) -> list[dict]:
+                rating_source: str | None = None,
+                watched: int | None = None,
+                collection_ids: list | None = None) -> list[dict]:
     where, params = _structured_where("movies", genres=genres, regions=regions,
                                       countries=countries, years=years,
                                       decades=decades, tags=tags,
                                       min_rating=min_rating,
-                                      rating_source=rating_source)
+                                      rating_source=rating_source,
+                                      watched=watched,
+                                      collection_ids=collection_ids)
     with _lock, _conn() as c:
         if not grouped:
             rows = c.execute(
@@ -800,18 +1318,23 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
                countries: list | None = None, years: list | None = None,
                decades: list | None = None, tags: list | None = None,
                min_rating: float | None = None,
-               rating_source: str | None = None) -> list[dict]:
+               rating_source: str | None = None,
+               watched: int | None = None,
+               collection_ids: list | None = None) -> list[dict]:
     fwhere, fparams = _structured_where("m", genres=genres, regions=regions,
                                         countries=countries, years=years,
                                         decades=decades, tags=tags,
                                         min_rating=min_rating,
-                                        rating_source=rating_source)
+                                        rating_source=rating_source,
+                                        watched=watched,
+                                        collection_ids=collection_ids)
     q = (q or "").strip()
     if not q:
         return list_movies(grouped=grouped, genres=genres, regions=regions,
                            countries=countries, years=years, decades=decades,
                            tags=tags, limit=limit, min_rating=min_rating,
-                           rating_source=rating_source)
+                           rating_source=rating_source, watched=watched,
+                           collection_ids=collection_ids)
     with _lock, _conn() as c:
         if not grouped:
             rows = c.execute(
@@ -861,7 +1384,8 @@ def _rating_col(source) -> str:
 
 def _structured_where(alias: str, genres=None, regions=None, countries=None,
                       years=None, decades=None, tags=None,
-                      min_rating=None, rating_source=None) -> tuple[str, tuple]:
+                      min_rating=None, rating_source=None,
+                      watched=None, collection_ids=None) -> tuple[str, tuple]:
     """结构化过滤：facet内OR、facet间AND；tags多选为AND；min_rating为单阈值（>=）。返回 (where_sql, params)。"""
     from .regions import REGION_UNKNOWN
     conds: list[str] = []
@@ -917,6 +1441,23 @@ def _structured_where(alias: str, genres=None, regions=None, countries=None,
             params.append(float(min_rating))
         except (TypeError, ValueError):
             pass
+    if watched is not None:
+        try:
+            w = int(watched)
+            conds.append(f"({alias}.watched=?)")
+            params.append(1 if w else 0)
+        except (TypeError, ValueError):
+            pass
+    cids = _split_ints(collection_ids) if collection_ids is not None else []
+    if cids:
+        # 合集内 OR：成员以海报粒度存放（tmdb_id 有则按 tmdb，无则按单行 id）
+        conds.append(
+            "(%s)" % " OR ".join(
+                f"EXISTS (SELECT 1 FROM collection_members cm WHERE cm.collection_id=? "
+                f"AND ((cm.movie_tmdb_id IS NOT NULL AND {alias}.tmdb_id=cm.movie_tmdb_id) "
+                f"OR (cm.movie_id IS NOT NULL AND {alias}.id=cm.movie_id)))"
+                for _ in cids))
+        params.extend(cids)
     if not conds:
         return "1=1", ()
     return " AND ".join(f"({x})" for x in conds), tuple(params)
@@ -929,7 +1470,16 @@ def get_facets(grouped: bool = True) -> dict:
     with _lock, _conn() as c:
         # 全量取行后 Python 内分组（组内 tags 取并集，代表行取最新），避免代表行漏掉打在旧版本上的标签
         rows = c.execute("SELECT * FROM movies").fetchall()
+        try:
+            col_rows = c.execute("SELECT id, name FROM collections ORDER BY name").fetchall()
+            collections = [{"id": r["id"], "name": r["name"],
+                            "count": c.execute("SELECT COUNT(*) AS n FROM collection_members"
+                                               " WHERE collection_id=?", (r["id"],)).fetchone()["n"]}
+                           for r in col_rows]
+        except Exception:
+            collections = []
     gc, rc, cc, yc, dc, tc, ic, sc = (Counter() for _ in range(8))
+    wc = Counter()
     if grouped:
         # 同 tmdb_id 的多版本取代表行计数；tags 取组内并集（避免标签打在非代表版本上被漏计）
         groups: dict = {}
@@ -950,6 +1500,7 @@ def get_facets(grouped: bool = True) -> dict:
             for t in d.get("tags") or []:
                 tc[t] += 1
     for d in reps:
+        wc[1 if d.get("watched") else 0] += 1
         for g in d.get("genres") or []:
             gc[g] += 1
         reg = d.get("region") or REGION_UNKNOWN
@@ -985,6 +1536,8 @@ def get_facets(grouped: bool = True) -> dict:
         "years": [{"value": k, "count": v} for k, v in sorted(yc.items(), reverse=True)],
         "decades": [{"value": k, "count": v} for k, v in sorted(dc.items(), reverse=True)],
         "tags": [{"value": k, "count": v} for k, v in tc.most_common()],
+        "watched": {"watched": wc.get(1, 0), "unwatched": wc.get(0, 0)},
+        "collections": collections,
         "ratings": {src: [{"min": s, "count": sc.get((src, s), 0)} for s in RATING_STEPS]
                     for src in RATING_SOURCES},
     }

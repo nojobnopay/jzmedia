@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from . import store
 from .config import settings
 from .db import POSTER_DIR, ensure_dirs
-from .routers import extras, files, health, jobs, movies, persons
+from .routers import collections, extras, files, health, jobs, movies, persons
 
 app = FastAPI(title="jzmedia", version="0.6.0")
 
@@ -15,6 +15,7 @@ ensure_dirs()
 store.init_db()
 app.include_router(health.router)
 app.include_router(movies.router)
+app.include_router(collections.router)
 app.include_router(files.router)
 app.include_router(extras.router)
 app.include_router(jobs.router)

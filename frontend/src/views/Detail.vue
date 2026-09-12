@@ -14,7 +14,7 @@
           <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" class="poster" />
           <div v-else class="poster poster-empty"><Spinner :size="22" /><span>海报补齐中</span></div>
           <div class="hero-info">
-            <h2>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.needs_review" class="needs-review">待确认</span></h2>
+            <h2>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.needs_review" class="needs-review">待确认</span><span v-if="m.watched" class="watched-chip">✓已看</span></h2>
             <div v-if="hasScore(m.tmdb_rating) || hasScore(m.douban_rating) || hasScore(m.custom_rating)" class="rating-row">
               <span v-if="hasScore(m.tmdb_rating)" class="rate-chip tmdb"><span class="stars">{{ starRow(m.tmdb_rating) }}</span> {{ fmtScore(m.tmdb_rating) }} <span class="src">TMDB</span></span>
               <span v-if="hasScore(m.douban_rating)" class="rate-chip douban">豆瓣 {{ fmtScore(m.douban_rating) }}</span>
@@ -23,6 +23,15 @@
             <p v-if="metaLine" class="meta-line">{{ metaLine }}</p>
             <div v-if="(m.tags || []).length" class="tag-row">
               <span v-for="t in m.tags" :key="t" class="tag-chip">{{ t }}</span>
+            </div>
+            <div v-if="(m.collections || []).length" class="tag-row">
+              <span v-for="c in m.collections" :key="c.id" class="col-chip" @click="$router.push('/c/' + c.id)">📁 {{ c.name }}</span>
+            </div>
+            <div v-if="hint && hint.collection_tmdb_id" class="hint-row">
+              TMDB 系列：{{ hint.collection_name }}（库内 {{ hint.in_library_count }} 部）
+              <button v-if="!hint.already_collected" @click="createFromSeries">一键建合集</button>
+              <span v-else class="fhint">已收录</span>
+              <span>{{ hintMsg }}</span>
             </div>
           </div>
         </div>
@@ -90,8 +99,22 @@
         </div>
         <div class="bar"><input v-model="f.tags" placeholder="标签，逗号分隔" style="flex:1" list="taglist" /></div>
         <datalist id="taglist"><option v-for="t in allTags" :key="t.value" :value="t.value" /></datalist>
+        <div class="bar"><label><input type="checkbox" v-model="f.watched" /> 已观看</label></div>
         <div class="bar"><textarea v-model="f.overview_override" placeholder="简介覆盖（留空用刮削简介）" rows="3" style="flex:1"></textarea></div>
         <div class="bar"><button @click="save">保存</button><button @click="cancelEdit">取消</button><span>{{ msg }}</span></div>
+        <h3>所属合集</h3>
+        <div class="bar">
+          <select v-model="joinColId" style="flex:1">
+            <option value="">选择合集…</option>
+            <option v-for="c in colList" :key="c.id" :value="c.id">{{ c.name }}（{{ c.member_count }}）</option>
+          </select>
+          <button @click="joinCol" :disabled="!joinColId">加入</button>
+        </div>
+        <div class="bar">
+          <input v-model="newColName" placeholder="新建合集名（含本片）" style="flex:1" />
+          <button @click="createCol" :disabled="!newColName.trim()">创建</button>
+          <span>{{ colMsg }}</span>
+        </div>
         <h3>手动匹配 <span v-if="m.tmdb_id">(当前TMDB {{ m.tmdb_id }})</span></h3>
         <div class="bar">
           <button @click="refreshTmdb" :disabled="refreshing || !!bindingId"><Spinner v-if="refreshing" />{{ refreshing ? '刷新中…' : '刷新TMDB（有变化才更新）' }}</button>
@@ -122,8 +145,14 @@ const route = useRoute()
 const router = useRouter()
 const m = ref(null)
 const sideFiles = ref(null)
-const f = ref({ custom_rating: '', douban_rating: '', tags: '', overview_override: '', edition: '', spec: '' })
+const f = ref({ custom_rating: '', douban_rating: '', tags: '', overview_override: '', edition: '', spec: '', watched: false })
 const msg = ref('')
+const hint = ref(null)
+const hintMsg = ref('')
+const colList = ref([])
+const joinColId = ref('')
+const newColName = ref('')
+const colMsg = ref('')
 const editing = ref(false)
 const savedFlash = ref(false)
 let flashTimer = null
@@ -163,7 +192,8 @@ function syncForm() {
     tags: (m.value.tags || []).join(','),
     overview_override: m.value.overview_override || '',
     edition: m.value.edition || '',
-    spec: m.value.spec || ''
+    spec: m.value.spec || '',
+    watched: !!m.value.watched
   }
 }
 async function load() {
@@ -177,6 +207,63 @@ async function load() {
     const d = await api('/api/facets')
     allTags.value = d.tags || []
   } catch (e) { /* 忽略 */ }
+  try {
+    hint.value = await api('/api/movies/' + route.params.id + '/collection-hint')
+    if (!hint.value?.collection_tmdb_id) hint.value = null
+  } catch (e) { hint.value = null }
+  try {
+    colList.value = (await api('/api/collections')).items || []
+  } catch (e) { /* 忽略 */ }
+}
+async function reloadCollections() {
+  try {
+    m.value = await api('/api/movies/' + route.params.id)
+    colList.value = (await api('/api/collections')).items || []
+  } catch (e) { /* 忽略 */ }
+}
+async function joinCol() {
+  if (!joinColId.value) return
+  colMsg.value = ''
+  try {
+    await api(`/api/collections/${joinColId.value}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ movie_ids: [Number(route.params.id)] })
+    })
+    colMsg.value = '已加入'
+    joinColId.value = ''
+    await reloadCollections()
+  } catch (e) {
+    colMsg.value = '加入失败：' + e.message
+  }
+}
+async function createCol() {
+  const name = newColName.value.trim()
+  if (!name) return
+  colMsg.value = ''
+  try {
+    await api('/api/collections', {
+      method: 'POST',
+      body: JSON.stringify({ name, member_ids: [Number(route.params.id)] })
+    })
+    colMsg.value = '已创建'
+    newColName.value = ''
+    await reloadCollections()
+  } catch (e) {
+    colMsg.value = '创建失败：' + e.message
+  }
+}
+async function createFromSeries() {
+  hintMsg.value = ''
+  try {
+    const d = await api('/api/collections/from-tmdb-series', {
+      method: 'POST',
+      body: JSON.stringify({ movie_id: Number(route.params.id) })
+    })
+    hintMsg.value = `已建「${d.name}」（${d.member_count} 部）`
+    await reloadCollections()
+  } catch (e) {
+    hintMsg.value = '创建失败：' + e.message
+  }
 }
 function toggleEdit() {
   if (!editing.value) {
@@ -211,7 +298,8 @@ async function save() {
         tags: f.value.tags.split(/[,，、]/).map(s => s.trim()).filter(Boolean),
         overview_override: f.value.overview_override,
         edition: (f.value.edition || '').trim(),
-        spec: (f.value.spec || '').trim()
+        spec: (f.value.spec || '').trim(),
+        watched: !!f.value.watched
       })
     })
     editing.value = false
@@ -333,6 +421,10 @@ onMounted(load)
 .src { color: #888; font-weight: normal; }
 .tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }
+.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid #2b4a6e; color: #6ab0ff; cursor: pointer; }
+.watched-chip { color: #7ed321; font-size: 0.875rem; border: 1px solid #3a5a1e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }
+.hint-row { margin-top: 6px; color: #aaa; font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.hint-row .fhint { color: #777; font-size: 0.75rem; }
 .sections { padding: 0 12px; max-width: 1080px; display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 .body-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; align-items: start; }
 .main-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
