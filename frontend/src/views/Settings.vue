@@ -64,8 +64,8 @@
       </section>
 
       <section id="sec-sync" class="card-block">
-        <h3>媒体库同步</h3>
-        <p class="hint">在软件之外增删视频后用这里同步：先扫描新增入库，再检查并清理失效条目。</p>
+        <h3>新片入库</h3>
+        <p class="hint">NAS 直拷 / 软件外删片后用这里：先扫描新增入库，再检查并清理失效条目。</p>
         <div class="bar">
           <button @click="doScan" :disabled="!!busy">{{ busy === 'scan' ? '扫描中…' : '扫描新文件' }}</button>
           <span>{{ scanMsg }}</span>
@@ -92,8 +92,8 @@
       </section>
 
       <section id="sec-pending" class="card-block">
-        <h3>待处理影片</h3>
-        <p class="hint">未匹配：TMDB 没找到数据；待确认：模糊命中需人工核对；疑似英文标题：非英语片却显示英文（错配或缺翻译）；未归属花絮：对不上任何影片。点「去处理」到详情页手动绑定。</p>
+        <h3>匹配确认</h3>
+        <p class="hint">上传/扫描后没认出来的片在这里核对。未匹配：TMDB 没找到数据；待确认：模糊命中需人工核对；疑似英文标题：非英语片却显示英文（错配或缺翻译）；未归属花絮：对不上任何影片。点「去处理」到详情页手动绑定。</p>
         <div class="bar">
           <button @click="loadUnmatched" :disabled="!!busy">刷新</button>
           <span v-if="pendingTotal">未匹配 {{ unmatched.length }} · 待确认 {{ needsReview.length }} · 疑似英文 {{ suspectHigh.length + suspectInfo.length }} · 未归属花絮 {{ orphans.length }}</span>
@@ -189,14 +189,14 @@
       </section>
 
       <section id="sec-organize" class="card-block">
-        <h3>文件整理与搬迁</h3>
-        <p class="hint">就地归档：保留原父目录，只建“标题 (年份)/”子目录；搬到顶层：如 batch → 电影，按“电影/大区/标题 (年份)/文件”归类。命名均为“标题 (年份)[-版本][-规格][-分卷][-版本N].ext”，先预览再执行。</p>
+        <h3>归档整理</h3>
+        <p class="hint">已匹配确认的片在这里归档到正式库。就地归档：保留原父目录，只建“标题 (年份)/”子目录；搬到顶层：如 待整理 → 电影，按“电影/大区/标题 (年份)/文件”归类。命名均为“标题 (年份)[-版本][-规格][-分卷][-版本N].ext”，先预览再执行。</p>
         <div class="bar">
           <label><input type="radio" value="inplace" v-model="orgMode" /> 就地归档</label>
           <label><input type="radio" value="relocate" v-model="orgMode" /> 搬到顶层</label>
         </div>
         <div v-if="orgMode === 'relocate'" class="bar">
-          <label>源 <input v-model="relocateFrom" placeholder="batch" style="width:120px" /></label>
+          <label>源 <input v-model="relocateFrom" placeholder="待整理" style="width:120px" /></label>
           <label>目标 <input v-model="relocateTo" placeholder="电影" style="width:120px" /></label>
           <label><input type="checkbox" v-model="groupByRegion" /> 按大区分二级目录</label>
         </div>
@@ -206,12 +206,12 @@
           <span>{{ orgMsg }}</span>
           <button v-if="orgPlans.length > COLLAPSE_N" @click="showAllPlans = !showAllPlans">{{ showAllPlans ? '收起' : `展开全部 (${orgPlans.length})` }}</button>
         </div>
-        <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（全库）' : `搬到顶层（${relocateFrom || 'batch'} → ${relocateTo || '电影'}${groupByRegion ? '，按大区' : ''}，含目标下分区过期/未分区）` }} · 列表随参数自动刷新</p>
+        <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（全库）' : `搬到顶层（${relocateFrom || '待整理'} → ${relocateTo || '电影'}${groupByRegion ? '，按大区' : ''}，含目标下分区过期/未分区）` }} · 列表随参数自动刷新</p>
         <ul v-if="orgPlans.length" class="plan-list">
           <li v-for="p in visiblePlans" :key="p.id" class="plan-row">
-            <span class="plan-from">{{ p.from }}</span>
+            <span class="plan-from" :title="p.from">{{ p.from }}</span>
             <span class="plan-arrow">→</span>
-            <span class="plan-to">{{ p.to }}</span>
+            <span class="plan-to" :title="p.to">{{ p.to }}</span>
             <span v-if="p.numbered" class="plan-status warn">编号{{ p.numbered }}·可改备注</span>
             <span v-if="p.region_stale" class="plan-status warn">原分区过期</span>
             <span v-if="p.status" :class="['plan-status', p.status === 'moved' ? 'ok' : 'fail']">{{ p.status }}</span>
@@ -230,7 +230,7 @@
               <span v-else class="kind-badge">磁盘占用</span>
             </div>
             <div v-for="p in g.items" :key="'c' + p.id" class="conflict-row">
-              <div class="conflict-file">
+              <div class="conflict-file" :title="(p.title || '') + ' ' + p.from">
                 <span class="conflict-title">{{ p.title || '(未命名)' }}<span v-if="p.tmdb_id"> · TMDB {{ p.tmdb_id }}</span></span>
                 <span class="miss-path">{{ p.from }}</span>
               </div>
@@ -269,8 +269,8 @@
       </section>
 
       <section id="sec-files" class="card-block">
-        <h3>文件管理</h3>
-        <p class="hint">直接操作媒体目录：建子目录、改名、移动、删除。花絮/字幕/周边直接删；正片删文件同时清库（影响海报墙），需二次确认。</p>
+        <h3>文件浏览</h3>
+        <p class="hint">直接翻目录动手：建子目录、改名、移动、删除，日常少用。花絮/字幕/周边直接删；正片删文件同时清库（影响海报墙），需二次确认。</p>
         <div class="bar fs-crumbs">
           <button @click="loadFs('')" :disabled="!!busy">根</button>
           <span v-for="c in fsCrumbs" :key="c.rel"> / <button @click="loadFs(c.rel)" :disabled="!!busy" class="linklike">{{ c.name }}</button></span>
@@ -425,9 +425,9 @@ const visibleSuspectInfo = computed(() => showAllSuspectInfo.value ? suspectInfo
 const visibleOrphans = computed(() => showAllOrphans.value ? orphans.value : orphans.value.slice(0, COLLAPSE_N))
 const pendingTotal = computed(() => unmatched.value.length + needsReview.value.length + suspectHigh.value.length + orphans.value.length)
 
-// 文件整理与搬迁（统一口 /api/files/organize）
+// 归档整理（统一口 /api/files/organize）
 const orgMode = ref('inplace')
-const relocateFrom = ref('batch')
+const relocateFrom = ref('待整理')
 const relocateTo = ref('电影')
 const groupByRegion = ref(true)
 const orgPlans = ref([])
@@ -475,13 +475,13 @@ const pendingCount = computed(() => pendingTotal.value)
 const navs = computed(() => [
   { id: 'sec-status', label: '库状态' },
   { id: 'sec-tmdb', label: 'TMDB 配置' },
-  { id: 'sec-sync', label: '媒体库同步' },
-  { id: 'sec-pending', label: '待处理影片', badge: pendingCount.value || '' },
+  { id: 'sec-sync', label: '新片入库' },
+  { id: 'sec-pending', label: '匹配确认', badge: pendingCount.value || '' },
   { id: 'sec-meta', label: '元数据维护' },
   { id: 'sec-display', label: '显示' },
-  { id: 'sec-organize', label: '文件整理与搬迁' },
+  { id: 'sec-organize', label: '归档整理' },
   { id: 'sec-restore', label: '恢复原始位置', badge: restoreCount.value || '' },
-  { id: 'sec-files', label: '文件管理' },
+  { id: 'sec-files', label: '文件浏览' },
 ])
 const active = ref('sec-status')
 let observer = null
@@ -839,7 +839,7 @@ async function doRestore() {
   }
 }
 
-// 文件管理（直操 MEDIA_ROOT：浏览/建目录/改名/移动/删除，正片二次确认）
+// 文件浏览（直操 MEDIA_ROOT：浏览/建目录/改名/移动/删除，正片二次确认）
 const fsPath = ref('')
 const fsParent = ref('')
 const fsCrumbs = ref([])

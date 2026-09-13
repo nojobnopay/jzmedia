@@ -4,6 +4,7 @@
     <button @click="applyAndLoad">搜索</button>
     <button @click="clearAll">全部</button>
     <button @click="doScan" :disabled="scanning">{{ scanning ? '刮削中…' : '扫描刮削' }}</button>
+    <button @click="openUpDlg" :disabled="uploading">上传</button>
     <router-link to="/collections"><button>合集</button></router-link>
   </div>
   <div v-if="msg" class="bar">{{ msg }}</div>
@@ -165,11 +166,67 @@
       </div>
     </div>
   </div>
+
+  <div v-if="upDlg" class="dlg-mask" @click.self="closeUpDlg">
+    <div class="dlg">
+      <h3>{{ upStep === 'organize' ? '归档整理（第 2 步）' : upStep === 'done' ? '完成' : '上传到媒体库（第 1 步）' }}</h3>
+      <template v-if="upStep === 'upload'">
+      <div class="bar">
+        <label><input type="radio" value="files" v-model="upMode" :disabled="uploading" @change="onUpModeChange" /> 多选文件</label>
+        <label><input type="radio" value="dir" v-model="upMode" :disabled="uploading" @change="onUpModeChange" /> 整个文件夹</label>
+      </div>
+      <div class="bar">
+        <input v-if="upMode === 'files'" type="file" multiple ref="upFiles" :disabled="uploading" @change="onUpInputChange" />
+        <input v-else type="file" webkitdirectory ref="upDir" :disabled="uploading" @change="onUpInputChange" />
+      </div>
+      <div class="bar"><span class="fhint">上传到 待整理/，文件夹结构原样保留；字幕/花絮自动归属；同名文件跳过不覆盖；&gt;2GB 建议局域网操作，可随时取消</span></div>
+      <div v-if="upFolderHead" class="bar"><span>已选文件夹：{{ upFolderHead }}</span></div>
+      <div v-if="upQueue.length" class="bar"><span class="fhint">共 {{ upQueue.length }} 个文件 · {{ fmtBytes(upTotalSize) }}{{ upDoneCount ? ` · 已传 ${upDoneCount}` : '' }}{{ upCurPct != null ? ` · 当前 ${upCurPct}%` : '' }}</span></div>
+      <div v-if="upQueue.length" class="up-progress"><div class="up-progress-fill" :style="{ width: upTotalPct + '%' }"></div></div>
+      <ul v-if="upQueue.length" class="collist">
+        <li v-for="(t, i) in visibleUpQueue" :key="i"><span :title="t.rel">{{ midEllipsis(t.rel) }}</span><span class="fhint">{{ upTaskState(t) }}</span></li>
+      </ul>
+      <p v-if="upQueue.length > 50" class="fhint">等共 {{ upQueue.length }} 个<span v-if="!showAllUp">（仅列前 50）</span> <button v-if="!showAllUp" @click="showAllUp = true">展开全部</button></p>
+      <div v-if="upSummary" class="bar"><span class="fhint">{{ upSummary }}</span></div>
+      <div v-if="upNeedsMatch.length" class="bar"><span class="fhint">以下需确认匹配：</span></div>
+      <ul v-if="upNeedsMatch.length" class="collist">
+        <li v-for="t in upNeedsMatch" :key="t.rel"><span :title="t.rel">{{ midEllipsis(t.rel) }}（{{ t.note }}）</span><button v-if="t.movieId" @click="router.push('/m/' + t.movieId)">去详情匹配</button></li>
+      </ul>
+      <div class="bar">
+        <button v-if="!uploading && !upFinished" @click="startUpload" :disabled="!canStartUpload">开始上传</button>
+        <button v-if="uploading" @click="cancelUpload">取消上传</button>
+        <button v-if="upFinished && upOrganizable" @click="goUpOrganize">下一步：归档整理</button>
+        <button v-if="!uploading" @click="closeUpDlg">{{ upFinished ? '关闭' : '取消' }}</button>
+        <span>{{ upMsg }}</span>
+      </div>
+      </template>
+      <template v-if="upStep === 'organize'">
+      <div class="bar"><span class="fhint">待整理 → 电影（按大区），仅本次上传的 {{ upOrganizableIds.length }} 部影片，先预览再执行</span></div>
+      <div class="bar"><span>{{ upOrgMsg }}</span></div>
+      <ul v-if="upOrgPlans.length" class="collist">
+        <li v-for="p in upOrgPlans" :key="p.id"><span :title="p.from + ' → ' + p.to">{{ midEllipsis(p.from, 40) }} → {{ midEllipsis(p.to, 40) }}</span><span v-if="p.status" class="fhint">{{ p.status }}</span></li>
+      </ul>
+      <div v-if="upOrgConflicts.length" class="bar"><span class="fhint">冲突 {{ upOrgConflicts.length }} 项，需先去详情匹配：</span></div>
+      <ul v-if="upOrgConflicts.length" class="collist">
+        <li v-for="c in upOrgConflicts" :key="'c' + c.id"><span :title="(c.title || '') + ' ' + c.from">{{ midEllipsis(c.title || c.from) }}（{{ c.status }}）</span><button @click="router.push('/m/' + c.id)">去详情匹配</button></li>
+      </ul>
+      <div class="bar">
+        <button v-if="!upOrgDone" @click="doUpOrganize" :disabled="upOrgBusy || !upOrgPlans.length">{{ upOrgBusy ? '执行中…' : '确认搬迁' }}</button>
+        <button @click="closeUpDlg" :disabled="upOrgBusy">{{ upOrgDone ? '完成' : '稍后整理' }}</button>
+        <span>{{ upOrgMsg }}</span>
+      </div>
+      </template>
+      <template v-if="upStep === 'done'">
+      <div class="bar"><span class="fhint">{{ upDoneSummary }}</span></div>
+      <div class="bar"><button @click="closeUpDlg">关闭</button></div>
+      </template>
+    </div>
+  </div>
 </template>
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, posterUrl } from '../api.js'
+import { api, apiUpload, posterUrl } from '../api.js'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import { hasScore, fmtScore } from '../ratings.js'
 
@@ -498,6 +555,232 @@ async function doScan() {
     scanning.value = false
   }
 }
+
+// 库页上传：多选文件 / 整个文件夹 → POST /api/uploads 逐个顺序上传。
+// 文件夹模式透传 webkitRelativePath，后端原样还原结构；落盘即调 scan_one，
+// 所以完成后只需刷新海报墙，未匹配的走设置页现有流程。
+const upDlg = ref(false)
+const upMode = ref('files')
+const upFiles = ref(null)
+const upDir = ref(null)
+const upFolderHead = ref('')
+const upQueue = ref([])
+const uploading = ref(false)
+const upMsg = ref('')
+const upSummary = ref('')
+const showAllUp = ref(false)
+const upCurPct = ref(null)
+let upAbort = null
+let upCancelled = false
+const upTotalSize = computed(() => upQueue.value.reduce((a, t) => a + (t.file.size || 0), 0))
+const upDoneCount = computed(() => upQueue.value.filter(t => t.state === 'done' || t.state === 'skipped' || t.state === 'error').length)
+const upTotalPct = computed(() => {
+  const n = upQueue.value.length
+  if (!n) return 0
+  return Math.min(100, Math.round((upDoneCount.value * 100 + (upCurPct.value || 0)) / n))
+})
+// 长路径中间缩写：保留头部 + ... + 尾部文件名，hover 用 title 看全名
+function midEllipsis(s, max = 48) {
+  s = String(s || '')
+  if (s.length <= max) return s
+  const tail = 17, head = Math.max(1, max - tail - 3)
+  return s.slice(0, head) + '...' + s.slice(-tail)
+}
+const upFinished = computed(() => upQueue.value.length > 0 && !uploading.value && upQueue.value.every(t => t.state !== 'queued' && t.state !== 'active'))
+const canStartUpload = computed(() => !uploading.value && upQueue.value.some(t => t.state === 'queued'))
+const visibleUpQueue = computed(() => showAllUp.value ? upQueue.value : upQueue.value.slice(0, 50))
+function upTaskState(t) {
+  if (t.state === 'queued') return fmtBytes(t.file.size)
+  if (t.state === 'active') return (upCurPct.value != null ? upCurPct.value + '% · ' : '') + '上传中…'
+  if (t.state === 'skipped') return '已存在·跳过'
+  if (t.state === 'error') return '失败：' + (t.note || '')
+  return t.note || '完成'
+}
+function stageName(f) {
+  const rel = (upMode.value === 'dir' && f.webkitRelativePath) ? f.webkitRelativePath : f.name
+  return String(rel || f.name || '').replace(/\\/g, '/')
+}
+function openUpDlg() {
+  upDlg.value = true
+  upStep.value = 'upload'
+  upMsg.value = ''
+  upSummary.value = ''
+  upQueue.value = []
+  upFolderHead.value = ''
+  showAllUp.value = false
+  upCurPct.value = null
+  upOrgPlans.value = []
+  upOrgConflicts.value = []
+  upOrgMsg.value = ''
+  upOrgDone.value = false
+  upDoneSummary.value = ''
+}
+function closeUpDlg() {
+  if (uploading.value || upOrgBusy.value) return
+  upDlg.value = false
+}
+function collectStaged() {
+  const input = upMode.value === 'dir' ? upDir.value : upFiles.value
+  const files = (input && input.files) ? Array.from(input.files) : []
+  const out = []
+  for (const f of files) {
+    const rel = stageName(f)
+    // 跳过隐藏文件（.DS_Store 等）与空路径
+    if (!rel || rel.split('/').some(s => s.startsWith('.'))) continue
+    out.push({ file: f, rel, state: 'queued', note: '', movieId: null })
+  }
+  return out
+}
+function syncFolderHead() {
+  upFolderHead.value = ''
+  if (upMode.value !== 'dir' || !upQueue.value.length) return
+  const top = (upQueue.value[0].rel.split('/')[0] || '').trim()
+  if (!top) return
+  upFolderHead.value = `${top}（${upQueue.value.length} 个文件 · ${fmtBytes(upTotalSize.value)}）`
+}
+function onUpInputChange() {
+  if (uploading.value) return
+  upQueue.value = collectStaged()
+  showAllUp.value = false
+  upSummary.value = ''
+  syncFolderHead()
+  if (!upQueue.value.length) {
+    upMsg.value = upMode.value === 'dir' ? '所选文件夹没有可上传的文件' : '先选择文件'
+  } else {
+    upMsg.value = ''
+  }
+}
+function onUpModeChange() {
+  if (uploading.value) return
+  upQueue.value = []
+  upFolderHead.value = ''
+  upSummary.value = ''
+  upMsg.value = ''
+  showAllUp.value = false
+}
+async function startUpload() {
+  const staged = upQueue.value.length ? upQueue.value : collectStaged()
+  if (!staged.length) {
+    upMsg.value = upMode.value === 'dir' ? '先选择文件夹' : '先选择文件'
+    return
+  }
+  if (staged.length > 500) {
+    upMsg.value = `一次最多 500 个文件（当前 ${staged.length} 个），请分批上传`
+    return
+  }
+  upQueue.value = staged
+  syncFolderHead()
+  upMsg.value = ''
+  upSummary.value = ''
+  uploading.value = true
+  upCancelled = false
+  let ok = 0, skipped = 0, failed = 0, review = 0, nomatch = 0
+  for (const t of upQueue.value) {
+    if (upCancelled) break
+    if (t.state !== 'queued') continue
+    t.state = 'active'
+    upCurPct.value = 0
+    const h = apiUpload('/api/uploads', t.file, {
+      fields: { relpath: t.rel },
+      onProgress: (p) => { upCurPct.value = p }
+    })
+    upAbort = h.abort
+    try {
+      const r = await h.promise
+      const st = (r && r.status) || 'stored'
+      t.state = 'done'
+      t.note = st
+      t.movieId = (r && r.movie_id) || null
+      ok++
+      if (st === 'ok_needs_review' || (st || '').startsWith('stored_scan_warn')) review++
+      else if (st === 'no_match') nomatch++
+    } catch (e) {
+      const m = String((e && e.message) || e)
+      if (m === '已取消' || upCancelled) {
+        t.state = 'queued'
+        t.note = ''
+      } else if (/^409\b/.test(m)) {
+        t.state = 'skipped'
+        skipped++
+      } else {
+        t.state = 'error'
+        t.note = m.slice(0, 120)
+        failed++
+      }
+    } finally {
+      upAbort = null
+    }
+  }
+  uploading.value = false
+  upCurPct.value = null
+  const parts = [`上传完成：成功 ${ok}`]
+  if (skipped) parts.push(`跳过 ${skipped}`)
+  if (nomatch) parts.push(`未匹配 ${nomatch}`)
+  if (review) parts.push(`待确认 ${review}`)
+  if (failed) parts.push(`失败 ${failed}`)
+  if (upCancelled) parts.push('（已取消）')
+  upSummary.value = parts.join(' · ')
+  await loadFacets()
+  await load()
+}
+function cancelUpload() {
+  upCancelled = true
+  if (upAbort) upAbort()
+}
+// 归档整理（第 2 步）：仅本次上传影片，待整理 → 电影（按大区），先预览再执行
+const upStep = ref('upload')
+const upOrgPlans = ref([])
+const upOrgConflicts = ref([])
+const upOrgMsg = ref('')
+const upOrgBusy = ref(false)
+const upOrgDone = ref(false)
+const upDoneSummary = ref('')
+const upNeedsMatch = computed(() => upQueue.value.filter(t => {
+  if (t.state !== 'done') return false
+  const s = t.note || ''
+  return s === 'no_match' || s === 'ok_needs_review' || s.startsWith('stored_scan_warn')
+}))
+const upOrganizableIds = computed(() => [...new Set(
+  upQueue.value.filter(t => t.movieId).map(t => t.movieId))])
+const upOrganizable = computed(() => upOrganizableIds.value.length > 0)
+function upOrgBody(dry_run) {
+  return JSON.stringify({ mode: 'relocate', from_prefix: '待整理', to_dir: '电影',
+    group_by_region: true, ids: upOrganizableIds.value, dry_run })
+}
+async function goUpOrganize() {
+  upStep.value = 'organize'
+  upOrgPlans.value = []
+  upOrgConflicts.value = []
+  upOrgDone.value = false
+  upOrgMsg.value = '预览中…'
+  try {
+    const d = await api('/api/files/organize', { method: 'POST', body: upOrgBody(true) })
+    upOrgPlans.value = d.plans || []
+    upOrgConflicts.value = d.conflicts || []
+    upOrgMsg.value = upOrgPlans.value.length ? `可搬迁 ${upOrgPlans.value.length} 项`
+      : (upOrgConflicts.value.length ? `无可搬迁，冲突 ${upOrgConflicts.value.length} 项` : '没有需要整理的')
+  } catch (e) {
+    upOrgMsg.value = '预览失败：' + e.message
+  }
+}
+async function doUpOrganize() {
+  upOrgBusy.value = true
+  try {
+    const d = await api('/api/files/organize', { method: 'POST', body: upOrgBody(false) })
+    upOrgPlans.value = d.results || []
+    upOrgConflicts.value = d.conflicts || []
+    const ok = upOrgPlans.value.filter(r => r.status === 'moved').length
+    upOrgDone.value = true
+    upDoneSummary.value = `搬迁完成：${ok}/${upOrgPlans.value.length}，已归档到正式库`
+    upStep.value = 'done'
+    await loadFacets()
+    await load()
+  } catch (e) {
+    upOrgMsg.value = '执行失败：' + e.message
+  } finally {
+    upOrgBusy.value = false
+  }
+}
 onMounted(async () => {
   readUrl()
   await loadFacets()
@@ -508,7 +791,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', escExit)
 })
 function escExit(e) {
-  if (e.key === 'Escape' && selecting.value && !tagDlg.value && !colDlg.value && !delDlg.value) {
+  if (e.key === 'Escape' && selecting.value && !tagDlg.value && !colDlg.value && !delDlg.value && !upDlg.value) {
     clearSelection()
   }
 }
@@ -558,6 +841,8 @@ watch(() => route.query, () => { readUrl(); load() })
 .floatbar button svg { width: 16px; height: 16px; flex-shrink: 0; }
 .floatbar button:disabled { opacity: .4; cursor: default; }
 .floatbar .fmsg { color: #7ed321; font-size: 0.75rem; white-space: nowrap; }
+.up-progress { height: 8px; border-radius: 999px; background: #2c2c2c; overflow: hidden; margin: 0 12px; }
+.up-progress-fill { height: 100%; background: #e50914; border-radius: 999px; transition: width .2s; }
 .watched-badge { position: absolute; bottom: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #7ed321; }
 .dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 560px; max-height: 80vh; overflow: auto; }
