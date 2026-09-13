@@ -107,6 +107,10 @@
       <svg viewBox="0 0 16 16"><path d="M1.5 4.5c0-.8.7-1.5 1.5-1.5h3l1.2 1.5H13c.8 0 1.5.7 1.5 1.5v5c0 .8-.7 1.5-1.5 1.5H3c-.8 0-1.5-.7-1.5-1.5z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
       <span>合集</span>
     </button>
+    <button @click="openDelDlg" title="删除选中影片">
+      <svg viewBox="0 0 16 16"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.7 9.2c.1.7.6 1.3 1.3 1.3h4c.7 0 1.2-.6 1.3-1.3L12 4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.5 7v4M9.5 7v4" stroke="currentColor" stroke-width="1.4"/></svg>
+      <span>删除</span>
+    </button>
     <button @click="clearSelection" title="退出多选">
       <svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6"/></svg>
       <span>取消</span>
@@ -142,6 +146,23 @@
       </ul>
       <div class="bar"><input v-model="newCol" placeholder="新建合集名（含当前选中）" style="flex:1" /><button @click="createAndJoin" :disabled="batching || !newCol.trim()">创建并加入</button></div>
       <div class="bar"><button @click="colDlg = false">关闭</button><span>{{ batchMsg }}</span></div>
+    </div>
+  </div>
+
+  <div v-if="delDlg" class="dlg-mask" @click.self="delDlg = false">
+    <div class="dlg">
+      <h3>删除影片（{{ delSummary.total_movies }} 部）</h3>
+      <p class="del-warn">警告：将永久删除磁盘文件与库记录（海报/镜像缓存保留），不可恢复。每部片的全部版本与附属文件（花絮/字幕/NFO/周边）都会一起删除。</p>
+      <p class="del-sum">{{ delSummary.total_movies }} 部影片 · {{ delSummary.total_versions }} 个正片版本 · {{ delSummary.total_files }} 个文件 · 共 {{ fmtBytes(delSummary.total_bytes) }}</p>
+      <ul class="collist">
+        <li v-for="p in visibleDelPlans" :key="p.id"><span>{{ p.title || '(未命名)' }}<span v-if="p.year"> ({{ p.year }})</span></span><span class="fhint">{{ p.feature_count }} 版本 · {{ p.extra_count }} 附属 · {{ fmtBytes(p.total_size) }}</span></li>
+      </ul>
+      <p v-if="delPlans.length > 20" class="fhint">等共 {{ delPlans.length }} 部<span v-if="!showAllDel">（仅列前 20）</span> <button v-if="!showAllDel" @click="showAllDel = true">展开全部</button></p>
+      <div class="bar">
+        <button v-if="!delDone" @click="confirmDel" :disabled="batching || !delPlans.length" class="danger-btn">{{ batching ? '删除中…' : `确认删除 ${delSummary.total_movies} 部影片（${delSummary.total_files} 个文件）` }}</button>
+        <button @click="delDlg = false">{{ delDone ? '关闭' : '取消' }}</button>
+        <span>{{ batchMsg }}</span>
+      </div>
     </div>
   </div>
 </template>
@@ -369,7 +390,61 @@ function openColDlg() {
   batchMsg.value = ''
   colDlg.value = true
 }
-async function joinCollection(cid) {
+// 整片删除：先预览影响（片名+版本/附属/大小），二次确认后执行
+const delDlg = ref(false)
+const delPlans = ref([])
+const delSummary = ref({ total_movies: 0, total_versions: 0, total_files: 0, total_bytes: 0 })
+const delDone = ref(false)
+const showAllDel = ref(false)
+const visibleDelPlans = computed(() => showAllDel.value ? delPlans.value : delPlans.value.slice(0, 20))
+function fmtBytes(n) {
+  n = Number(n) || 0
+  if (n < 1024) return n + 'B'
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K'
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + 'M'
+  return (n / 1024 / 1024 / 1024).toFixed(2) + 'G'
+}
+async function openDelDlg() {
+  batchMsg.value = ''
+  delDone.value = false
+  showAllDel.value = false
+  batching.value = true
+  try {
+    const d = await api('/api/movies/batch-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids: [...selectedIds.value], dry_run: true })
+    })
+    delPlans.value = d.plans || []
+    delSummary.value = {
+      total_movies: d.total_movies || 0, total_versions: d.total_versions || 0,
+      total_files: d.total_files || 0, total_bytes: d.total_bytes || 0
+    }
+    delDlg.value = true
+  } catch (e) {
+    batchMsg.value = '删除预览失败：' + e.message
+  } finally {
+    batching.value = false
+  }
+}
+async function confirmDel() {
+  batching.value = true
+  batchMsg.value = ''
+  try {
+    const d = await api('/api/movies/batch-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids: [...selectedIds.value], dry_run: false, confirm: true })
+    })
+    delDone.value = true
+    batchMsg.value = `已删除 ${d.deleted_movies}/${d.total_movies} 部（${d.total_files} 个文件）`
+    clearSelection()
+    await loadFacets()
+    await load()
+  } catch (e) {
+    batchMsg.value = '删除失败：' + e.message
+  } finally {
+    batching.value = false
+  }
+}async function joinCollection(cid) {
   batching.value = true
   batchMsg.value = ''
   try {
@@ -433,7 +508,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', escExit)
 })
 function escExit(e) {
-  if (e.key === 'Escape' && selecting.value && !tagDlg.value && !colDlg.value) {
+  if (e.key === 'Escape' && selecting.value && !tagDlg.value && !colDlg.value && !delDlg.value) {
     clearSelection()
   }
 }
@@ -490,4 +565,7 @@ watch(() => route.query, () => { readUrl(); load() })
 .taglist { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 12px; max-height: 30vh; overflow: auto; }
 .collist { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 30vh; overflow: auto; }
 .collist li { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: #262626; border-radius: 8px; padding: 6px 10px; }
+.del-warn { color: #ff8a8a; font-size: 0.875rem; margin: 0 0 8px; }
+.del-sum { color: #e0a63c; font-size: 0.9375rem; margin: 0 0 8px; font-weight: bold; }
+.danger-btn { border-color: #6e2b2b !important; color: #ff8a8a !important; }
 </style>

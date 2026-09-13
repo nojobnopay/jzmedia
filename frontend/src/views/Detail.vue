@@ -11,7 +11,7 @@
           </span>
         </div>
         <div class="hero-main">
-          <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" class="poster" />
+          <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" class="poster zoomable" title="查看大图" @click="openPoster" />
           <div v-else class="poster poster-empty"><Spinner :size="22" /><span>海报补齐中</span></div>
           <div class="hero-info">
             <h2>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.needs_review" class="needs-review">待确认</span><span v-if="m.watched" class="watched-chip">✓已看</span></h2>
@@ -62,18 +62,46 @@
             </div>
           </section>
 
-          <details class="card-block files">
+          <details class="card-block files" open>
             <summary>文件<span v-if="m.version_count > 1">（共{{ m.version_count }}个版本）</span></summary>
-            <ul><li v-for="v in m.versions" :key="v.id">{{ v.file_path }}<span v-if="v.edition">（{{ v.edition }}）</span><span v-if="v.spec">（{{ v.spec }}）</span></li></ul>
+            <ul class="ver-list"><li v-for="v in m.versions" :key="v.id" class="f-row">
+              <span class="f-name">{{ baseName(v.file_path) }}<span v-if="v.edition">（{{ v.edition }}）</span><span v-if="v.spec">（{{ v.spec }}）</span></span>
+              <span class="f-acts"><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a></span>
+            </li></ul>
+            <div v-for="g in fileGroups" :key="g.key">
+              <p v-if="g.items.length" class="hint">{{ g.label }}</p>
+              <ul v-if="g.items.length">
+                <li v-for="f in g.items" :key="g.key + f.name" class="f-row">
+                  <span class="f-name">{{ f.name }}</span>
+                  <span class="f-size">{{ fmtSize(f.size) }}</span>
+                  <span class="f-acts">
+                    <a :href="blobUrl(f.rel || f.name)" :download="baseName(f.rel || f.name)">下载</a>
+                    <button v-if="isVideo(f.name)" @click="openPlayer(f)">播放</button>
+                    <button v-else-if="pvKindOf(f.name)" @click="openPlayer(f)">预览</button>
+                    <button v-if="delArm[f.rel || f.name] == null" @click="doFileDelete(f)">删除</button>
+                    <button v-else @click="doFileDeleteConfirm(f)" class="danger">确认删除正片</button>
+                  </span>
+                </li>
+              </ul>
+            </div>
+            <p v-if="delMsg" class="hint warn">{{ delMsg }}</p>
           </details>
 
-          <details v-if="sideFiles && (sideFiles.extras.length || sideFiles.samples.length || sideFiles.subtitles.length)" class="card-block files">
-            <summary>花絮 / 附带文件（只读）</summary>
-            <p v-if="sideFiles.scoped === 'related'" class="hint">{{ sideFiles.hint }}</p>
-            <ul v-if="sideFiles.extras.length"><li v-for="f in sideFiles.extras" :key="'e' + f.name">🎬 {{ f.name }}</li></ul>
-            <ul v-if="sideFiles.samples.length"><li v-for="f in sideFiles.samples" :key="'s' + f.name">🎞 样片：{{ f.name }}</li></ul>
-            <ul v-if="sideFiles.subtitles.length"><li v-for="f in sideFiles.subtitles" :key="'t' + f.name">💬 {{ f.name }}</li></ul>
-          </details>
+          <section class="card-block">
+            <h3>上传文件 <span class="q-tip" tabindex="0">?<span class="q-bubble">适合上传：海报/剧照（jpg/png）、音乐/原声（mp3/flac）、剧本/字幕（txt/srt/ass/pdf）、花絮视频（自动进 extras/）；正片新版本视频也可上传，会自动刮削入库。&gt;2GB 建议在局域网操作，可随时取消。</span></span></h3>
+            <div class="bar up-row">
+              <input type="file" ref="upInput" :disabled="!!upCtl" />
+              <select v-model="upSubdir" :disabled="!!upCtl">
+                <option value="">片目录</option>
+                <option value="extras">extras/</option>
+              </select>
+              <button @click="doUpload" :disabled="!!upCtl">上传</button>
+              <button v-if="upCtl" @click="cancelUpload">取消</button>
+              <span v-if="upPct !== null">{{ upPct }}%</span>
+              <span>{{ upMsg }}</span>
+            </div>
+            <div v-if="upPct !== null" class="up-bar"><i :style="{ width: upPct + '%' }"></i></div>
+          </section>
         </div>
 
         <aside class="side-col">
@@ -132,12 +160,31 @@
         </ul>
       </section>
     </div>
+
+    <div v-if="pvName" class="dlg-mask" @click.self="closePlayer">
+      <div class="dlg pv-dlg">
+        <h3>{{ pvKind === 'video' ? '播放' : '预览' }}：{{ pvName }}</h3>
+        <video v-if="pvKind === 'video'" :src="pvUrl" controls autoplay preload="metadata" class="pv-video" @error="pvErr = true"></video>
+        <img v-else-if="pvKind === 'image'" :src="pvUrl" class="pv-img" />
+        <iframe v-else-if="pvKind === 'pdf'" :src="pvUrl" class="pv-pdf"></iframe>
+        <pre v-else-if="pvKind === 'text'" class="pv-text">{{ pvText }}</pre>
+        <p v-if="pvErr" class="hint warn">文件为空或损坏，无法播放，请下载检查</p>
+        <div class="bar"><a :href="pvUrl" :download="baseName(pvName)">下载原文件</a><button @click="closePlayer">关闭</button></div>
+      </div>
+    </div>
+
+    <div v-if="posterDlg" class="dlg-mask" @click.self="closePoster">
+      <div class="dlg pv-dlg poster-dlg">
+        <img :src="posterBig" class="pv-img poster-big" />
+        <div class="bar"><span class="hint">{{ posterHi ? '高清原图' : '标清预览（原图加载中或不可用）' }}</span><a :href="posterBig" :download="baseName(posterBig)">下载</a><button @click="closePoster">关闭</button></div>
+      </div>
+    </div>
   </div>
 </template>
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, posterUrl } from '../api.js'
+import { api, apiUpload, posterUrl } from '../api.js'
 import { hasScore, fmtScore, starRow } from '../ratings.js'
 import Spinner from '../components/Spinner.vue'
 
@@ -200,9 +247,7 @@ async function load() {
   m.value = await api('/api/movies/' + route.params.id)
   mq.value = m.value.title || ''
   syncForm()
-  try {
-    sideFiles.value = await api('/api/movies/' + route.params.id + '/files')
-  } catch (e) { sideFiles.value = null }
+  await reloadFiles()
   try {
     const d = await api('/api/facets')
     allTags.value = d.tags || []
@@ -214,6 +259,191 @@ async function load() {
   try {
     colList.value = (await api('/api/collections')).items || []
   } catch (e) { /* 忽略 */ }
+}
+async function reloadFiles() {
+  try {
+    sideFiles.value = await api('/api/movies/' + route.params.id + '/files')
+  } catch (e) { sideFiles.value = null }
+  try {
+    m.value = await api('/api/movies/' + route.params.id)
+    syncForm()
+  } catch (e) { /* 忽略 */ }
+}
+
+// 本片文件管理：上传（进度+取消）/下载/预览/删除（正片二次确认）
+const fileGroups = computed(() => {
+  const s = sideFiles.value || {}
+  return [
+    { key: 'extras', label: '🎬 花絮', items: s.extras || [] },
+    { key: 'samples', label: '🎞 样片', items: s.samples || [] },
+    { key: 'subtitles', label: '💬 字幕', items: s.subtitles || [] },
+    { key: 'nfos', label: 'NFO', items: s.nfos || [] },
+    { key: 'others', label: '周边（音乐/海报/剧本等）', items: s.others || [] },
+  ]
+})
+function baseName(p) {
+  return String(p || '').split('/').pop()
+}
+function fmtSize(n) {
+  n = Number(n) || 0
+  if (n < 1024) return n + 'B'
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K'
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + 'M'
+  return (n / 1024 / 1024 / 1024).toFixed(2) + 'G'
+}
+function blobUrl(name) {
+  return `/api/movies/${route.params.id}/blob?name=${encodeURIComponent(name)}`
+}
+const upInput = ref(null)
+const upSubdir = ref('')
+const upPct = ref(null)
+const upMsg = ref('')
+let upAbort = null
+const upCtl = computed(() => !!upAbort)
+async function doUpload() {
+  const files = upInput.value && upInput.value.files
+  if (!files || !files.length) {
+    upMsg.value = '先选文件'
+    return
+  }
+  const file = files[0]
+  upMsg.value = ''
+  upPct.value = 0
+  const h = apiUpload(`/api/movies/${route.params.id}/upload`, file, {
+    subdir: upSubdir.value,
+    onProgress: (p) => { upPct.value = p }
+  })
+  upAbort = h.abort
+  try {
+    const r = await h.promise
+    upPct.value = 100
+    upMsg.value = `已上传 ${file.name}` + (r && r.status && r.status !== 'stored' ? `（${r.status}）` : '')
+    upInput.value.value = ''
+    await reloadFiles()
+  } catch (e) {
+    upMsg.value = '上传失败：' + e.message
+  } finally {
+    upAbort = null
+    setTimeout(() => { if (!upAbort) upPct.value = null }, 3000)
+  }
+}
+function cancelUpload() {
+  if (upAbort) upAbort()
+}
+const pvName = ref('')
+const pvUrl = ref('')
+const pvKind = ref('')
+const pvText = ref('')
+const pvErr = ref(false)
+function pvKindOf(name) {
+  const ex = ('.' + String(name || '').split('.').pop()).toLowerCase()
+  if (['.mp4', '.mkv', '.webm', '.mov', '.avi', '.ts', '.m2ts', '.flv'].includes(ex)) return 'video'
+  if (['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ex)) return 'image'
+  if (ex === '.pdf') return 'pdf'
+  if (['.txt', '.srt', '.ass', '.ssa', '.lrc', '.nfo', '.md'].includes(ex)) return 'text'
+  return ''
+}
+function isVideo(name) {
+  return pvKindOf(name) === 'video'
+}
+async function openPlayer(f) {
+  const name = f.rel || f.name
+  pvErr.value = false
+  pvName.value = f.name
+  pvUrl.value = blobUrl(name)
+  pvKind.value = pvKindOf(f.name)
+  pvText.value = ''
+  if (pvKind.value === 'text') {
+    try {
+      const r = await fetch(`/api/movies/${route.params.id}/blob?name=${encodeURIComponent(name)}&mode=text`)
+      pvText.value = await r.text()
+    } catch (e) {
+      pvText.value = '预览失败：' + e.message
+    }
+  }
+}
+function closePlayer() {
+  // 弹窗 v-if 卸载 <video> 即停播
+  pvName.value = ''
+  pvUrl.value = ''
+  pvKind.value = ''
+  pvText.value = ''
+  pvErr.value = false
+}
+const delArm = ref({})
+const delMsg = ref('')
+// 海报大图：先展本地 w500（即时），后台拉原图成功后替换；失败静默保持
+const posterDlg = ref(false)
+const posterBig = ref('')
+const posterHi = ref(false)
+let posterObjUrl = ''
+async function openPoster() {
+  if (!m.value?.poster_path) return
+  posterBig.value = posterUrl(m.value.poster_path)
+  posterHi.value = false
+  posterDlg.value = true
+  try {
+    const r = await fetch(`/api/movies/${route.params.id}/poster-orig`)
+    if (!r.ok) return
+    const b = await r.blob()
+    if (posterObjUrl) URL.revokeObjectURL(posterObjUrl)
+    posterObjUrl = URL.createObjectURL(b)
+    if (posterDlg.value) {
+      posterBig.value = posterObjUrl
+      posterHi.value = true
+    }
+  } catch (e) { /* 保持本地图 */ }
+}
+function closePoster() {
+  posterDlg.value = false
+  posterBig.value = ''
+  posterHi.value = false
+  if (posterObjUrl) {
+    URL.revokeObjectURL(posterObjUrl)
+    posterObjUrl = ''
+  }
+}
+async function doFileDelete(f) {
+  const name = f.rel || f.name
+  delMsg.value = ''
+  try {
+    const d = await api('/api/movies/' + route.params.id + '/files', {
+      method: 'DELETE',
+      body: JSON.stringify({ name, dry_run: true })
+    })
+    const p = (d.plans || [])[0] || {}
+    if (p.requires_confirm) {
+      delArm.value[name] = p
+      delMsg.value = `警告：将删除正片 ${f.name}，海报墙同步移除。再点「确认删除正片」执行`
+      return
+    }
+    const d2 = await api('/api/movies/' + route.params.id + '/files', {
+      method: 'DELETE',
+      body: JSON.stringify({ name, dry_run: false })
+    })
+    const r = (d2.results || [])[0] || {}
+    delMsg.value = r.status === 'deleted' ? '已删除' : ('删除：' + (r.status || '失败'))
+    closePlayer()
+    await reloadFiles()
+  } catch (e) {
+    delMsg.value = '删除失败：' + e.message
+  }
+}
+async function doFileDeleteConfirm(f) {
+  const name = f.rel || f.name
+  try {
+    const d = await api('/api/movies/' + route.params.id + '/files', {
+      method: 'DELETE',
+      body: JSON.stringify({ name, dry_run: false, confirm: true })
+    })
+    const r = (d.results || [])[0] || {}
+    delMsg.value = r.status === 'deleted' ? '正片已删除，库已同步清理' : ('删除：' + (r.status || '失败'))
+    delete delArm.value[name]
+    closePlayer()
+    await reloadFiles()
+  } catch (e) {
+    delMsg.value = '删除失败：' + e.message
+  }
 }
 async function reloadCollections() {
   try {
@@ -391,7 +621,18 @@ async function refreshTmdb() {
     refreshing.value = false
   }
 }
-onMounted(load)
+function escPlayer(e) {
+  if (e.key !== 'Escape') return
+  if (pvName.value) closePlayer()
+  else if (posterDlg.value) closePoster()
+}
+onMounted(() => {
+  load()
+  window.addEventListener('keydown', escPlayer)
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', escPlayer)
+})
 </script>
 <style scoped>
 .detail { padding-bottom: 24px; }
@@ -410,6 +651,10 @@ onMounted(load)
 .saved-flash { color: #7ed321; font-size: 0.875rem; }
 .hero-main { display: flex; gap: 20px; margin-top: 12px; align-items: flex-start; }
 .poster { width: 220px; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.55); }
+.poster.zoomable { cursor: zoom-in; }
+.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }
+.poster-dlg { text-align: center; }
+.poster-dlg .bar { justify-content: center; }
 .poster-empty { aspect-ratio: 2/3; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; background: #262626; color: #888; font-size: 0.875rem; box-shadow: none; }
 .hero-info { min-width: 0; }
 .hero-info h2 { margin: 0 0 8px; font-size: 1.875rem; }
@@ -449,5 +694,26 @@ onMounted(load)
 .facts a { color: #6ab0ff; margin-right: 10px; }
 .files summary { cursor: pointer; color: #ccc; font-size: 0.9375rem; }
 .files ul { color: #888; font-size: 0.875rem; }
+.files a { color: #6ab0ff; margin-left: 6px; }
+.up-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 0; }
+.up-bar { height: 6px; background: #262626; border-radius: 3px; overflow: hidden; margin: 4px 0; }
+.up-bar i { display: block; height: 100%; background: #6ab0ff; }
+.f-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 3px 0; }
+.f-name { flex: 1; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f-size { color: #666; font-size: 0.75rem; }
+.f-acts { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+.ver-list { list-style: none; margin: 4px 0; padding: 0; }
+.q-tip { position: relative; display: inline-flex; width: 18px; height: 18px; border-radius: 50%; border: 1px solid #555; color: #aaa; font-size: 0.75rem; align-items: center; justify-content: center; cursor: help; font-weight: normal; }
+.q-tip .q-bubble { display: none; position: absolute; left: 50%; top: 130%; transform: translateX(-50%); width: 280px; background: #262626; border: 1px solid #444; border-radius: 8px; padding: 10px 12px; color: #ccc; font-size: 0.8125rem; line-height: 1.7; z-index: 30; white-space: normal; }
+.q-tip:hover .q-bubble, .q-tip:focus-within .q-bubble { display: block; }
+.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }
+.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.danger { border-color: #6e2b2b; color: #ff8a8a; }
+.hint.warn { color: #e0a63c; }
+.pv-video { width: 100%; max-height: 480px; background: #000; border-radius: 8px; }
+.pv-img { max-width: 100%; border-radius: 8px; }
+.pv-pdf { width: 100%; height: 480px; border: none; border-radius: 8px; background: #fff; }
+.pv-text { white-space: pre-wrap; max-height: 320px; overflow: auto; background: #111; padding: 10px; border-radius: 8px; color: #ccc; }
 .edit-panel .bar { padding: 6px 0; }
 </style>
