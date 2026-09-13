@@ -35,7 +35,7 @@ def attach(extra_id: int, body: dict):
 
 @router.post("/collect")
 def collect(body: dict | None = None):
-    """归位已归属花絮：影片已归档但花絮散落在外的（如 batch/），搬进各片 extras/。
+    """归位已归属花絮：影片已归档但花絮散落在外的（如 待整理/），搬进各片 extras/。
     dry_run 默认 true 只预览。"""
     import os as _os
     from ..config import settings as _settings

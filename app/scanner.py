@@ -555,7 +555,7 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
                 else:
                     foreign.add(f)
                 continue
-            # 磁盘有、库无（扫描中途）：文件名相似才算同片，避免把 batch/ 误判独占
+            # 磁盘有、库无（扫描中途）：文件名相似才算同片，避免把 待整理/ 误判独占
             try:
                 p = parse_filename(f)
                 pt = normalize_title(p.get("title") or "")

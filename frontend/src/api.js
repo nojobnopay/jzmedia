@@ -25,12 +25,18 @@ export async function api(path, opts = {}) {
 export const posterUrl = (p) => (p ? `/posters/${p.split('/').pop()}` : '')
 
 // 大文件上传专用：FormData + XHR（支持进度与中断取消；>2GB 局域网场景）。
-// onProgress(0~100)；返回 { promise, abort }，abort 后 promise 以 '已取消' 拒绝。
-export function apiUpload(path, file, { onProgress, subdir = '' } = {}) {
+// onProgress(0~100)；fields 透传为 query 参数（如 {relpath, target_dir}）；
+// 返回 { promise, abort }，abort 后 promise 以 '已取消' 拒绝。
+export function apiUpload(path, file, { onProgress, subdir = '', fields = {} } = {}) {
   let xhr = null
   const promise = new Promise((resolve, reject) => {
     xhr = new XMLHttpRequest()
-    const url = subdir ? `${path}?subdir=${encodeURIComponent(subdir)}` : path
+    const qs = new URLSearchParams()
+    if (subdir) qs.set('subdir', subdir)
+    for (const [k, v] of Object.entries(fields || {})) {
+      if (v !== undefined && v !== null && v !== '') qs.set(k, v)
+    }
+    const url = qs.toString() ? `${path}?${qs}` : path
     xhr.open('POST', url)
     xhr.timeout = 0 // 大文件不限时，由用户手动取消
     if (xhr.upload && onProgress) {

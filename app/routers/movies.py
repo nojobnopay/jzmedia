@@ -237,7 +237,7 @@ def movie_collection_hint(movie_id: int):
 
 @router.get("/movies/{movie_id}/files")
 def movie_files(movie_id: int):
-    """同目录文件清单（只读）：独占目录全量展示；共享目录（如未整理的 batch/）
+    """同目录文件清单（只读）：独占目录全量展示；共享目录（如未整理的 待整理/）
     只返回本片相关（自身+同 tmdb 版本+同 stem 前缀的花絮/字幕/NFO），并标 scoped=related。"""
     from ..scanner import (SUBTITLE_EXTS, VIDEO_EXTS, is_extra, is_sample)
     m = store.get_movie(movie_id)
@@ -530,6 +530,89 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
     except OSError:
         pass
     return {"name": safe, "rel": rel, "size": size, "status": status}
+
+
+@router.post("/uploads")
+def library_upload(file: UploadFile = File(...),
+                   relpath: str = Query(default=""),
+                   target_dir: str = Query(default="待整理")):
+    """库页上传：multipart file 字段；relpath 透传浏览器相对路径
+    （文件夹模式为 webkitRelativePath，单文件模式为文件名）。
+
+    目标= target_dir/relpath（逐段清洗并约束在 MEDIA_ROOT 内，默认落到
+    待整理/，本地结构原样保留）。流式落盘（1MB 分块，先写 .part 再原子
+    改名；已存在 409 跳过，绝不覆盖）。落盘后按类型入库：
+    正片→scan_one，花絮→attribute_extra，字幕/周边→仅文件。
+    """
+    from ..scanner import is_feature_video as _is_feat, is_sidecar as _is_side
+    from .files import _check_inside_root, _safe_component
+    raw = (relpath or "").strip().strip("/") or (file.filename or "").strip()
+    raw_segs = [s for s in raw.replace("\\", "/").split("/")]
+    if any(s == ".." for s in raw_segs):
+        raise HTTPException(422, "illegal path")
+    segs = [s for s in raw_segs if s not in ("", ".", "..")]
+    safe_segs = [_safe_component(s) for s in segs]
+    safe_segs = [s for s in safe_segs if s and s not in (".", "..")]
+    if not safe_segs or safe_segs[-1].startswith("."):
+        raise HTTPException(422, "illegal file name")
+    tmods = [_safe_component(s) for s in
+             (target_dir or "").strip().strip("/").replace("\\", "/").split("/")]
+    tmods = [s for s in tmods if s and s not in (".", "..")]
+    rel = _check_inside_root("/".join([*(tmods or ["待整理"]), *safe_segs]))
+    dst = os.path.join(settings.media_root, rel)
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+    except OSError as e:
+        raise HTTPException(500, f"mkdir failed: {e}")
+    if os.path.exists(dst):
+        raise HTTPException(409, f"already exists: {rel!r}")
+    part = dst + ".part"
+    size = 0
+    try:
+        with open(part, "wb") as out:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+                size += len(chunk)
+        os.rename(part, dst)
+    except Exception as e:
+        try:
+            if os.path.exists(part):
+                os.remove(part)
+        except OSError:
+            pass
+        raise HTTPException(500, f"upload failed: {e}")
+    finally:
+        try:
+            file.file.close()
+        except Exception:
+            pass
+    status = "stored"
+    try:
+        if _is_feat(rel):
+            r = scanner.scan_one(dst)
+            status = r.get("status", "stored")
+        elif _is_side(rel):
+            r = scanner.attribute_extra(dst)
+            status = r.get("status", "stored")
+    except Exception as e:
+        status = f"stored_scan_warn: {e}"
+    try:
+        st = os.stat(dst)
+        size = st.st_size
+    except OSError:
+        pass
+    movie_id = None
+    try:
+        m = store.get_by_path(rel)
+        if m:
+            movie_id = m["id"]
+    except Exception:
+        pass
+    return {"name": safe_segs[-1], "rel": rel, "size": size,
+            "status": status, "movie_id": movie_id}
 
 
 @router.delete("/movies/{movie_id}/files")

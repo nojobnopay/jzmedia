@@ -465,7 +465,7 @@ def _organize(mode: str, from_prefix: str | None = None,
         plans, conflicts = _collect_plans(only=only)
         base: dict = {"dry_run": dry_run, "mode": mode}
     else:
-        fp = _check_inside_root(str(from_prefix or ""))
+        fp = _check_inside_root(str(from_prefix or "待整理"))
         td = _check_inside_root(str(to_dir or "电影"))
         if os.path.normpath(fp) == os.path.normpath(td):
             raise HTTPException(422, "from_prefix == to_dir, nothing to do")
