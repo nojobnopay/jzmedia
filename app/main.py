@@ -31,6 +31,11 @@ if os.path.isdir(ASSETS):
 
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 def spa(full_path: str):
+    # vite public/* 落到 dist 根目录（favicon / 图标）：存在即直出，否则回退 SPA
+    if full_path:
+        candidate = os.path.normpath(os.path.join(DIST, full_path))
+        if candidate.startswith(DIST) and os.path.isfile(candidate):
+            return FileResponse(candidate)
     index = os.path.join(DIST, "index.html")
     if os.path.exists(index):
         return FileResponse(index)

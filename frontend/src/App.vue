@@ -1,5 +1,6 @@
 <template>
   <nav>
+    <router-link to="/" class="brand"><img src="/favicon.svg" alt="jzmedia" width="26" height="26" /><span>jzmedia</span></router-link>
     <router-link to="/">库</router-link>
     <router-link to="/collections">合集</router-link>
     <router-link to="/settings">设置</router-link>
@@ -8,9 +9,12 @@
 </template>
 <style>
 body { font-family: system-ui, sans-serif; margin: 0; background: #141414; color: #eee; }
-nav { padding: 12px; background: #1f1f1f; display: flex; gap: 16px; }
+nav { padding: 12px; background: #1f1f1f; display: flex; gap: 16px; align-items: center; }
 nav a { color: #eee; text-decoration: none; }
 nav a.router-link-active { color: #e50914; font-weight: bold; }
+nav .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; letter-spacing: 0.5px; }
+nav .brand img { border-radius: 6px; display: block; }
+nav .brand.router-link-active { color: #eee; font-weight: 800; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--poster-min, 150px), 1fr)); gap: 12px; padding: 12px; }
 .card { background: #222; border-radius: 8px; overflow: hidden; cursor: pointer; }
 .card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
