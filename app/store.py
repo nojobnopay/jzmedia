@@ -113,6 +113,13 @@ CREATE TABLE IF NOT EXISTS collection_members (
 CREATE INDEX IF NOT EXISTS idx_members_collection ON collection_members(collection_id);
 CREATE INDEX IF NOT EXISTS idx_members_tmdb ON collection_members(movie_tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_members_movie ON collection_members(movie_id);
+-- 应用配置 KV（设置页可写）：TMDB 密钥/代理/语言等。DB 非空值优先于环境变量，
+-- 缺 key/空串一律回落 env（.env 只做首次启动兜底）。
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT DEFAULT '',
+  updated_at INTEGER DEFAULT 0
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS movies_fts USING fts5(
   title, original_title, overview, person_names, tags, genres,
   tokenize='unicode61'
@@ -141,6 +148,67 @@ LOCAL_FIELDS = {"file_path", "title", "overview_override",
                 "douban_rating", "custom_rating", "tags", "needs_review",
                 "edition", "spec", "original_file_path",
                 "watched", "watched_at"}
+
+
+# 设置页可写的配置键白名单（与 config.effective_* 对应）
+APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
+                    "tmdb_language", "tmdb_image_base"}
+
+
+def get_setting(key: str) -> str:
+    """读单项应用配置（设置页写入的值）。缺 key/空串一律返回 ''，调用方回落 env。"""
+    with _lock, _conn() as c:
+        try:
+            c.execute("CREATE TABLE IF NOT EXISTS app_settings ("
+                      "key TEXT PRIMARY KEY, value TEXT DEFAULT '',"
+                      " updated_at INTEGER DEFAULT 0)")
+            row = c.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+        except Exception:
+            return ""
+        if not row:
+            return ""
+        try:
+            return row["value"] or ""
+        except Exception:
+            return ""
+
+
+def get_all_settings() -> dict:
+    """读出已存的配置项（仅返回白名单内、值非空的行）。"""
+    with _lock, _conn() as c:
+        try:
+            c.execute("CREATE TABLE IF NOT EXISTS app_settings ("
+                      "key TEXT PRIMARY KEY, value TEXT DEFAULT '',"
+                      " updated_at INTEGER DEFAULT 0)")
+            rows = c.execute("SELECT key, value FROM app_settings").fetchall()
+        except Exception:
+            return {}
+    out: dict = {}
+    for r in rows:
+        try:
+            k, v = r["key"], r["value"] or ""
+        except Exception:
+            continue
+        if k in APP_SETTING_KEYS and v != "":
+            out[k] = v
+    return out
+
+
+def set_setting(key: str, value: str) -> str:
+    """写单项应用配置。空串表示清空（恢复跟随 env）。返回落库后的 strip 值。"""
+    if key not in APP_SETTING_KEYS:
+        raise ValueError(f"unknown setting: {key}")
+    v = (value or "").strip()
+    now = int(time.time())
+    with _lock, _conn() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS app_settings ("
+                  "key TEXT PRIMARY KEY, value TEXT DEFAULT '',"
+                  " updated_at INTEGER DEFAULT 0)")
+        c.execute("INSERT INTO app_settings(key, value, updated_at) VALUES(?, ?, ?)"
+                  " ON CONFLICT(key) DO UPDATE SET value=excluded.value,"
+                  " updated_at=excluded.updated_at",
+                  (key, v, now))
+    return v
 
 
 def init_db() -> None:

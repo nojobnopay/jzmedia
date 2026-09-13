@@ -11,7 +11,7 @@
 - **详情页**（`/m/:id`）：TMDB 星级 + 豆瓣/自评分数（缺失自动隐藏）、演员点名反查、多版本文件列表；可手动改标题、自评/豆瓣分（0–10）、标签、简介覆盖；刮削错了可搜 TMDB 手动绑定
 - **扫描刮削**：遍历媒体目录，文件名解析 → TMDB 匹配 → 入库 + 海报下载 + 同目录写 NFO（独占单版本只留 `movie.nfo`，同片多版本才补各版本同名 `.nfo`，共享目录只写当前同名）；已入库跳过，剧集跳过（当前仅支持电影），年份容差 ±1，模糊命中标待确认
 - **文件整理**：按 `标题 (年份)[-版本][-规格][-分卷][-版本N].ext` 规划（`POST /api/files/organize`，`mode=inplace|relocate`），默认只预览（dry-run），确认后执行并联动更新库与 NFO；冲突分疑似错配（人工重匹配）与规格变体（自动区分）。首次入库路径记为原始位置，搬错可用设置页「恢复到原始位置」（`POST /api/files/restore-original`，同样先预览再执行、绝不覆盖）搬回
-- **设置页**（`/settings`）：TMDB 配置摘要 + 文件整理预览/执行
+- **设置页**（`/settings`）：TMDB 配置（Token/代理/语言，库优先免重启）+ 文件整理预览/执行
 
 ## 目录结构
 
@@ -88,7 +88,9 @@ kill <pid>
 | `BUILD_HTTP_PROXY` | 仅镜像构建期 pip/npm 用，NAS 直连留空 |
 | `UID` / `GID` | 容器运行用户，填宿主 `id -u`/`id -g`，避免容器建的文件宿主删不掉 |
 
-TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup → 头像 Settings → API → Create → Developer → 应用名用途随便填 → 把 `API Read Access Token` 填进 `TMDB_READ_TOKEN`（或把 `API Key` 填进 `TMDB_API_KEY`）。
+TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup → 头像 Settings → API → Create → Developer → 应用名用途随便填 → 把 `API Read Access Token` 填进设置页「TMDB 配置」（或 `.env` 的 `TMDB_READ_TOKEN`；或把 `API Key` 填进 `TMDB_API_KEY`）。
+
+日常改 Token/代理/语言直接在设置页改，库里的值优先于 `.env`、免重启生效；`.env` 只做首次启动兜底。`PUT /api/settings` 读写库配置（密钥只返脱敏后 4 位），缺席字段不动、显式空串=清空该项恢复跟随 `.env`。
 
 ## 数据存放
 
@@ -100,7 +102,7 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 
 | 方法与路径 | 说明 |
 |---|---|
-| `GET /api/health` · `GET /api/settings` | 健康检查；配置摘要（密钥是否已配/代理/图片源） |
+| `GET /api/health` · `GET /api/settings` · `PUT /api/settings` | 健康检查；配置摘要（密钥脱敏+来源/代理/图片源）与保存（库优先+env 兜底） |
 | `POST /api/scan` | 全量扫描刮削 |
 | `GET /api/movies` · `GET /api/search?q=` | 列表 / 全文检索；共同支持 `genre region country year decade tag`（可重复或逗号分隔，facet 内 OR、跨 facet AND，`tag` 多选为 AND）与 `min_rating` + `rating_source=tmdb\|douban\|custom`（单阈值 `>=`）、`watched=1\|0`（已看/未看）、`collection`（合集 ID，可重复或逗号分隔）；`decade=2020` 表示 2020–2029 |
 | `GET /api/facets` | 各维度实时计数（类型/大区/国家/年/年代/标签/评分离散档/观看/合集），只返回有片的项 |

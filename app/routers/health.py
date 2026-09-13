@@ -1,5 +1,9 @@
-from fastapi import APIRouter
+import re
 
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from .. import config, store
 from ..config import settings
 
 router = APIRouter(prefix="/api")
@@ -10,12 +14,81 @@ def health():
     return {"status": "ok", "phase": "phase2"}
 
 
-@router.get("/settings")
-def get_settings():
+def _settings_view() -> dict:
+    """配置摘要：密钥只给脱敏值+来源（绝不返明文）；代理/语言/图片源给有效值+来源。”
+    """
+    token, token_src = config.effective_with_source("tmdb_read_token")
+    api_key, key_src = config.effective_with_source("tmdb_api_key")
+    proxy, proxy_src = config.effective_with_source("tmdb_proxy")
+    lang, lang_src = config.effective_with_source("tmdb_language")
+    img, img_src = config.effective_with_source("tmdb_image_base")
+    # 凭证来源：优先展示实际生效的那一路
+    cred_src = token_src if token else (key_src if api_key else "unset")
     return {
         "media_root": settings.media_root,
-        "tmdb_language": settings.tmdb_language,
-        "tmdb_configured": bool(settings.tmdb_read_token or settings.tmdb_api_key),
-        "tmdb_proxy_set": bool(settings.tmdb_proxy),
-        "tmdb_image_base": settings.tmdb_image_base,
+        # 兼容老字段
+        "tmdb_language": lang,
+        "tmdb_configured": bool(token or api_key),
+        "tmdb_proxy_set": bool(proxy),
+        "tmdb_image_base": img,
+        # 新增：脱敏 + 来源
+        "tmdb_read_token_masked": config.mask_secret(token),
+        "tmdb_read_token_source": token_src,
+        "tmdb_api_key_masked": config.mask_secret(api_key),
+        "tmdb_api_key_source": key_src,
+        "tmdb_token_source": cred_src,
+        "tmdb_proxy": proxy,
+        "tmdb_proxy_source": proxy_src,
+        "tmdb_language_source": lang_src,
+        "tmdb_image_base_source": img_src,
     }
+
+
+@router.get("/settings")
+def get_settings():
+    return _settings_view()
+
+
+class SettingsUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    tmdb_read_token: str | None = None
+    tmdb_api_key: str | None = None
+    tmdb_proxy: str | None = None
+    tmdb_language: str | None = None
+    tmdb_image_base: str | None = None
+
+
+_LANG_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$")
+
+
+def _validate(key: str, value: str) -> str:
+    v = (value or "").strip()
+    if key in ("tmdb_read_token", "tmdb_api_key"):
+        # 空串 = 清空（恢复跟随 env）；非空做最小长度拦截，防手误粘贴半截
+        if v and len(v) < 10:
+            raise HTTPException(422, f"{key} too short, check paste")
+        return v
+    if key in ("tmdb_proxy", "tmdb_image_base"):
+        if v and not (v.startswith("http://") or v.startswith("https://")):
+            raise HTTPException(422, f"{key} must start with http:// or https://")
+        return v.rstrip("/") if key == "tmdb_image_base" and v else v
+    if key == "tmdb_language":
+        if v and not _LANG_RE.match(v):
+            raise HTTPException(422, "tmdb_language like zh-CN / en-US")
+        return v
+    raise HTTPException(422, f"unknown setting: {key}")
+
+
+@router.put("/settings")
+def update_settings(body: SettingsUpdate):
+    """保存 TMDB 配置到库（DB 非空值优先于 env，免重启生效）。
+    字段缺席=不动它；显式空串=清空该项、恢复跟随 env。返回脱敏视图。"""
+    data = body.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(422, "nothing to update")
+    for k, v in data.items():
+        if v is None:
+            continue
+        store.set_setting(k, _validate(k, v))
+    return _settings_view()

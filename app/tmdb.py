@@ -1,24 +1,26 @@
 """TMDB客户端（Bearer Token v4，支持TMDB_PROXY中转）"""
 import httpx
 
-from .config import settings
+from . import config
 
 API_BASE = "https://api.themoviedb.org/3"
 
 
 def _client() -> httpx.Client:
     headers = {"accept": "application/json"}
-    if settings.tmdb_read_token:
-        headers["Authorization"] = f"Bearer {settings.tmdb_read_token}"
-    proxy = settings.tmdb_proxy or None
+    read_token = config.effective_tmdb_read_token()
+    if read_token:
+        headers["Authorization"] = f"Bearer {read_token}"
+    proxy = config.effective_tmdb_proxy() or None
     return httpx.Client(base_url=API_BASE, headers=headers, timeout=20.0,
                         proxy=proxy)
 
 
 def _params(**kw) -> dict:
-    p = {"language": settings.tmdb_language}
-    if settings.tmdb_api_key and not settings.tmdb_read_token:
-        p["api_key"] = settings.tmdb_api_key
+    p = {"language": config.effective_tmdb_language()}
+    api_key = config.effective_tmdb_api_key()
+    if api_key and not config.effective_tmdb_read_token():
+        p["api_key"] = api_key
     p.update({k: v for k, v in kw.items() if v is not None})
     return p
 
@@ -53,8 +55,9 @@ def download_poster(poster_path: str, dest: str, size: str = "w500") -> bool:
     """poster_path如/p1.jpg；图片走TMDB_IMAGE_BASE（可配代理域名）。size如w500/w185。"""
     if not poster_path:
         return False
-    url = settings.tmdb_image_base.rstrip("/") + "/t/p/" + size + poster_path
-    proxy = settings.tmdb_proxy or None
+    from . import config as _config
+    url = _config.effective_tmdb_image_base().rstrip("/") + "/t/p/" + size + poster_path
+    proxy = _config.effective_tmdb_proxy() or None
     try:
         with httpx.Client(timeout=30.0, proxy=proxy) as c:
             r = c.get(url)

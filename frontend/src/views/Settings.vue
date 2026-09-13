@@ -28,6 +28,41 @@
         </div>
       </section>
 
+      <section id="sec-tmdb" class="card-block">
+        <h3>TMDB 配置</h3>
+        <p class="hint">库里的值优先于 `.env`，保存后免重启生效；密钥输入框留空表示不动它。密钥只显示脱敏后 4 位，不回显明文。</p>
+        <div class="tmdb-grid">
+          <label>Read Token <span class="src-badge">{{ srcText(s?.tmdb_read_token_source) }} {{ s?.tmdb_read_token_masked || '未配' }}</span></label>
+          <div class="bar">
+            <input v-model="tmdbForm.readToken" type="password" placeholder="粘贴新的 Bearer Token，留空不动" style="flex:1" autocomplete="off" />
+            <button v-if="tmdbForm.readToken" @click="tmdbForm.readToken = ''" :disabled="!!busy">清空输入</button>
+          </div>
+          <label>API Key <span class="src-badge">{{ srcText(s?.tmdb_api_key_source) }} {{ s?.tmdb_api_key_masked || '未配' }}</span></label>
+          <div class="bar">
+            <input v-model="tmdbForm.apiKey" type="password" placeholder="Token 优先；无 Token 才用 Key，留空不动" style="flex:1" autocomplete="off" />
+            <button v-if="tmdbForm.apiKey" @click="tmdbForm.apiKey = ''" :disabled="!!busy">清空输入</button>
+          </div>
+          <label>代理 <span class="src-badge">{{ srcText(s?.tmdb_proxy_source) }}{{ s?.tmdb_proxy ? '' : ' · 直连' }}</span></label>
+          <div class="bar">
+            <input v-model="tmdbForm.proxy" placeholder="http://host:port，留空=直连" style="flex:1" autocomplete="off" />
+          </div>
+          <label>语言 <span class="src-badge">{{ srcText(s?.tmdb_language_source) }}</span></label>
+          <div class="bar">
+            <input v-model="tmdbForm.language" placeholder="zh-CN" style="flex:1" autocomplete="off" />
+          </div>
+          <label>图片源 <span class="src-badge">{{ srcText(s?.tmdb_image_base_source) }}</span></label>
+          <div class="bar">
+            <input v-model="tmdbForm.imageBase" placeholder="https://image.tmdb.org" style="flex:1" autocomplete="off" />
+          </div>
+        </div>
+        <div class="bar">
+          <button @click="saveTmdb" :disabled="!!busy">{{ busy === 'tmdb' ? '保存中…' : '保存并测试' }}</button>
+          <button @click="clearTmdb" :disabled="!!busy">{{ armClearTmdb ? '确认恢复跟随 .env' : '恢复跟随 .env' }}</button>
+          <span>{{ tmdbCfgMsg }}</span>
+        </div>
+        <p v-if="armClearTmdb" class="hint warn-text">将清空库里的 5 项 TMDB 配置，改回跟随 .env/默认值。再点一次执行。</p>
+      </section>
+
       <section id="sec-sync" class="card-block">
         <h3>媒体库同步</h3>
         <p class="hint">在软件之外增删视频后用这里同步：先扫描新增入库，再检查并清理失效条目。</p>
@@ -292,9 +327,70 @@ const COLLAPSE_N = 20
 
 const s = ref(null)
 const stats = ref(null)
-const busy = ref(null) // scan|clean|backfill|refresh|nfo|fts|organize|restore
+const busy = ref(null) // scan|clean|backfill|refresh|nfo|fts|organize|restore|tmdb
 
 const tmdbMsg = ref('')
+const tmdbCfgMsg = ref('')
+const armClearTmdb = ref(false)
+const tmdbForm = ref({ readToken: '', apiKey: '', proxy: '', language: '', imageBase: '' })
+function srcText(src) {
+  return { db: '库', env: '环境变量', default: '默认', unset: '未设' }[src] || ''
+}
+function syncTmdbForm() {
+  tmdbForm.value.proxy = s.value?.tmdb_proxy ?? ''
+  tmdbForm.value.language = s.value?.tmdb_language ?? ''
+  tmdbForm.value.imageBase = s.value?.tmdb_image_base ?? ''
+}
+async function saveTmdb() {
+  const payload = {}
+  if (tmdbForm.value.readToken.trim()) payload.tmdb_read_token = tmdbForm.value.readToken.trim()
+  if (tmdbForm.value.apiKey.trim()) payload.tmdb_api_key = tmdbForm.value.apiKey.trim()
+  if (tmdbForm.value.proxy.trim() !== (s.value?.tmdb_proxy || '')) payload.tmdb_proxy = tmdbForm.value.proxy.trim()
+  if (tmdbForm.value.language.trim() !== (s.value?.tmdb_language || '')) payload.tmdb_language = tmdbForm.value.language.trim()
+  if (tmdbForm.value.imageBase.trim().replace(/\/+$/, '') !== (s.value?.tmdb_image_base || '')) payload.tmdb_image_base = tmdbForm.value.imageBase.trim()
+  if (!Object.keys(payload).length) {
+    tmdbCfgMsg.value = '没有改动'
+    return
+  }
+  busy.value = 'tmdb'
+  tmdbCfgMsg.value = ''
+  try {
+    s.value = await api('/api/settings', { method: 'PUT', body: JSON.stringify(payload) })
+    tmdbForm.value.readToken = ''
+    tmdbForm.value.apiKey = ''
+    syncTmdbForm()
+    await testTmdb()
+    tmdbCfgMsg.value = '已保存，' + tmdbMsg.value
+  } catch (e) {
+    tmdbCfgMsg.value = '保存失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+async function clearTmdb() {
+  if (!armClearTmdb.value) {
+    armClearTmdb.value = true
+    tmdbCfgMsg.value = '将清空库里的 5 项配置，改回跟随 .env/默认值。再点一次确认执行'
+    return
+  }
+  armClearTmdb.value = false
+  busy.value = 'tmdb'
+  tmdbCfgMsg.value = ''
+  try {
+    s.value = await api('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ tmdb_read_token: '', tmdb_api_key: '', tmdb_proxy: '', tmdb_language: '', tmdb_image_base: '' })
+    })
+    tmdbForm.value.readToken = ''
+    tmdbForm.value.apiKey = ''
+    syncTmdbForm()
+    tmdbCfgMsg.value = '已恢复跟随 .env'
+  } catch (e) {
+    tmdbCfgMsg.value = '恢复失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
 const scanMsg = ref('')
 const cleanMsg = ref('')
 const backfillMsg = ref('')
@@ -378,6 +474,7 @@ const prefs = ref(loadPrefs())
 const pendingCount = computed(() => pendingTotal.value)
 const navs = computed(() => [
   { id: 'sec-status', label: '库状态' },
+  { id: 'sec-tmdb', label: 'TMDB 配置' },
   { id: 'sec-sync', label: '媒体库同步' },
   { id: 'sec-pending', label: '待处理影片', badge: pendingCount.value || '' },
   { id: 'sec-meta', label: '元数据维护' },
@@ -874,6 +971,7 @@ async function doFsDeleteConfirm(rel) {
 
 onMounted(async () => {
   s.value = await api('/api/settings')
+  syncTmdbForm()
   await loadStats()
   await loadFs('')
   await loadOrgPreview()
@@ -934,6 +1032,8 @@ onUnmounted(() => {
 .slider-row label { min-width: 150px; font-size: 0.875rem; }
 .slider-row input[type="range"] { flex: 1; }
 .miss-list, .plan-list { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tmdb-grid label { display: block; font-size: 0.875rem; color: #ccc; margin: 8px 0 2px; }
+.src-badge { margin-left: 8px; font-size: 0.75rem; color: #888; border: 1px solid #444; border-radius: 999px; padding: 1px 10px; }
 .miss-row, .plan-row { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; }
 .miss-title { white-space: nowrap; }
 .miss-path, .plan-from { color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
