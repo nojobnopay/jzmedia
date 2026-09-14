@@ -5,7 +5,6 @@
     <button @click="clearAll">全部</button>
     <button @click="doScan" :disabled="scanning">{{ scanning ? '刮削中…' : '扫描刮削' }}</button>
     <button @click="openUpDlg" :disabled="uploading">上传</button>
-    <router-link to="/collections"><button>合集</button></router-link>
   </div>
   <div v-if="msg" class="bar">{{ msg }}</div>
 

@@ -111,7 +111,7 @@
             <div v-if="(m.genres || []).length" class="fact"><span>类型</span><span>{{ (m.genres || []).join(' / ') }}</span></div>
             <div v-if="m.region || originName" class="fact"><span>产地</span><span>{{ [m.region, originName].filter(Boolean).join(' · ') }}</span></div>
             <div v-if="m.year" class="fact"><span>年份</span><span>{{ m.year }}</span></div>
-            <div v-if="originalMoved" class="fact"><span>原始文件</span><span>{{ m.original_file_path }} <button @click="goRestore">去恢复</button></span></div>
+            <div v-if="originalMoved" class="fact"><span>原始文件</span><span class="fact-val" :title="m.original_file_path">{{ m.original_file_path }} <button @click="goRestore">去恢复</button></span></div>
             <div v-if="m.tmdb_id" class="fact"><span>链接</span><span><a :href="`https://www.themoviedb.org/movie/${m.tmdb_id}`" target="_blank" rel="noopener">TMDB</a><a v-if="m.imdb_id" :href="`https://www.imdb.com/title/${m.imdb_id}/`" target="_blank" rel="noopener">IMDb</a></span></div>
           </section>
         </aside>
@@ -645,7 +645,7 @@ onUnmounted(() => {
   -webkit-mask-image: linear-gradient(#000 30%, transparent);
   mask-image: linear-gradient(#000 30%, transparent);
 }
-.hero-inner { position: relative; padding: 12px; max-width: 1080px; }
+.hero-inner { position: relative; width: 100%; box-sizing: border-box; padding: 12px 24px; max-width: min(1600px, 100%); margin: 0 auto; }
 .topbar { display: flex; justify-content: space-between; align-items: center; }
 .top-right { display: flex; gap: 8px; align-items: center; }
 .saved-flash { color: #7ed321; font-size: 0.875rem; }
@@ -670,8 +670,8 @@ onUnmounted(() => {
 .watched-chip { color: #7ed321; font-size: 0.875rem; border: 1px solid #3a5a1e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }
 .hint-row { margin-top: 6px; color: #aaa; font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .hint-row .fhint { color: #777; font-size: 0.75rem; }
-.sections { padding: 0 12px; max-width: 1080px; display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
-.body-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; align-items: start; }
+.sections { width: 100%; box-sizing: border-box; padding: 0 24px; max-width: min(1600px, 100%); display: flex; flex-direction: column; gap: 12px; margin: 12px auto 0; }
+.body-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 12px; align-items: start; }
 .main-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .side-col { min-width: 0; }
 @media (max-width: 860px) { .body-grid { grid-template-columns: 1fr; } }
@@ -689,8 +689,10 @@ onUnmounted(() => {
 .avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #666; border: 1px solid #3a3a3a; }
 .cast-name { font-size: 0.875rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cast-char { font-size: 0.75rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; }
+.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }
 .facts .fact span:first-child { color: #888; min-width: 48px; flex-shrink: 0; }
+.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }
+.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }
 .facts a { color: #6ab0ff; margin-right: 10px; }
 .files summary { cursor: pointer; color: #ccc; font-size: 0.9375rem; }
 .files ul { color: #888; font-size: 0.875rem; }
