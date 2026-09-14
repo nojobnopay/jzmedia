@@ -31,7 +31,7 @@
               <button class="play-main" :disabled="heroBlocked" :title="heroBlockTip" @click="openHeroPlay">▶ 播放</button>
               <select v-if="(m.versions || []).length > 1" v-model.number="heroVid" class="ver-sel">
                 <option v-for="v in m.versions" :key="v.id" :value="v.id" :disabled="!!verBlocked[v.id]">
-                  {{ verLabel(v) }}{{ verBlocked[v.id] ? '（无效）' : '' }}
+                  {{ verLabel(v) }}{{ verBlocked[v.id] ? '（无效）' : (verFriendly(v.id) ? ' ★浏览器友好' : '') }}
                 </option>
               </select>
               <span v-if="heroResume" class="resume-hint">{{ heroResume }}</span>
@@ -81,7 +81,7 @@
             <summary>文件<span v-if="m.version_count > 1">（共{{ m.version_count }}个版本）</span></summary>
             <ul class="ver-list"><li v-for="v in m.versions" :key="v.id" class="f-row">
               <span class="f-name">{{ baseName(v.file_path) }}<span v-if="v.edition">（{{ v.edition }}）</span><span v-if="v.spec">（{{ v.spec }}）</span></span>
-              <span class="f-acts"><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a><button v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'">无效</button><button v-else @click="openStream(v)">播放</button></span>
+              <span class="f-acts"><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a><button v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'">无效</button><button v-else @click="openStream(v)">播放</button><span v-if="verFriendly(v.id)" class="friendly-chip" title="浏览器可直播，几乎不占 NAS 算力">★</span><span v-else-if="verMethod[v.id]==='transcode'" class="trans-chip" title="浏览器需转码，较耗 NAS 算力">转码</span></span>
             </li></ul>
             <div v-for="g in fileGroups" :key="g.key">
               <p v-if="g.items.length" class="hint">{{ g.label }}</p>
@@ -285,55 +285,56 @@ const resumeText = computed(() => {
 async function loadMedia() {
   mediaLoading.value = true
   mediaError.value = ''
+  // P-B：一次取齐全版本（媒体+决策+最优版），替代逐版本 media 轮询
   try {
-    mediaInfo.value = await api(`/api/stream/${route.params.id}/media`)
+    const agg = await api(`/api/stream/versions?movie_id=${route.params.id}&quality=720p`)
+    verList.value = agg.versions || []
+    bestVid.value = agg.best_version_id || null
+    const cur = verList.value.find(x => Number(x.version_id) === Number(route.params.id))
+    mediaInfo.value = cur && cur.playable
+      ? { playable: true, duration_text: cur.duration_text, duration: cur.duration,
+          height: cur.height, vcodec: cur.vcodec, acodec: '',
+          audio: new Array(cur.audio_count).fill({}), subs: new Array(cur.sub_count).fill({}) }
+      : (cur ? { playable: false, probe_error: cur.probe_error } : null)
     if (mediaInfo.value && !mediaInfo.value.playable) {
       mediaError.value = mediaInfo.value.probe_error || '无法识别媒体流'
     }
+    for (const x of verList.value) {
+      if (!x.playable || x.method === 'blocked') {
+        verBlocked.value[x.version_id] = true
+        verErr.value[x.version_id] = x.probe_error || '无法识别媒体流'
+      }
+      verMethod.value[x.version_id] = x.method
+    }
+    // hero 默认选中浏览器最优版（无效时回落当前行）
+    heroVid.value = bestVid.value || Number(route.params.id)
   } catch (e) {
     mediaInfo.value = null
     mediaError.value = String(e.message || e)
+    heroVid.value = Number(route.params.id)
   } finally {
     mediaLoading.value = false
   }
   try {
-    const p = await api(`/api/stream/progress?version_id=${route.params.id}`)
+    const p = await api(`/api/stream/progress?version_id=${heroVid.value}`)
     progressInfo.value = (p && Number(p.position) > 0) ? p : null
   } catch (e) { progressInfo.value = null }
-  // 多版本可用态：逐版本查 media 缓存（命中缓存零开销），失败行置灰“无效”
-  try {
-    const vers = m.value?.versions || []
-    for (const v of vers) {
-      if (v.id === Number(route.params.id)) {
-        if (mediaInfo.value && !mediaInfo.value.playable) {
-          verBlocked.value[v.id] = true
-          verErr.value[v.id] = mediaInfo.value.probe_error || '无法识别媒体流'
-        }
-        continue
-      }
-      try {
-        const mi = await api(`/api/stream/${v.id}/media`)
-        if (mi && !mi.playable) {
-          verBlocked.value[v.id] = true
-          verErr.value[v.id] = mi.probe_error || '无法识别媒体流'
-        }
-      } catch (e) { /* 单版本失败不影响其他 */ }
-    }
-  } catch (e) { /* 忽略 */ }
 }
 // 在线播放 P1：版本选播弹窗（播放单位=版本行 id）+ 播完标已看（阈值逻辑 P3 进弹窗内）
 const playVid = ref(null)
 const playTitle = ref('')
 const verBlocked = ref({})
 const verErr = ref({})
+const verMethod = ref({})
+const verList = ref([])
+const bestVid = ref(null)
+// “浏览器友好”= direct/remux（零/近零 CPU），转码版不打标
+const verFriendly = (id) => ['direct', 'remux'].includes(verMethod.value[id])
 // P4 hero 主播放键：默认当前行，多版本可下拉切换（无效版本禁用）
 const heroVid = ref(null)
 const heroBlocked = computed(() => !!verBlocked.value[heroVid.value])
 const heroBlockTip = computed(() => verErr.value[heroVid.value] || '')
-const heroResume = computed(() => {
-  if (heroVid.value !== Number(route.params.id)) return ''
-  return resumeText.value
-})
+const heroResume = computed(() => resumeText.value)
 function verLabel(v) {
   const extra = [v.edition, v.spec].filter(Boolean).join('·')
   return baseName(v.file_path) + (extra ? `（${extra}）` : '')
@@ -803,6 +804,8 @@ onUnmounted(() => {
 .play-main:hover:not(:disabled) { background: #3580cc; }
 .play-main:disabled { background: #333; border-color: #444; color: #777; cursor: not-allowed; }
 .ver-sel { background: #262626; color: #ccc; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; max-width: 320px; }
+.friendly-chip { color: #7ed321; font-size: 0.8125rem; }
+.trans-chip { color: #e0a63c; font-size: 0.75rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 0 8px; }
 .src { color: #888; font-weight: normal; }
 .tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }

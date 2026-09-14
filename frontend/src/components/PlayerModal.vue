@@ -3,6 +3,7 @@
     <div class="dlg player-dlg">
       <h3>{{ title || ('版本 ' + versionId) }}</h3>
       <p v-if="methodLine" class="play-method">{{ methodLine }}</p>
+      <p v-if="reasonLine" class="play-reason">{{ reasonLine }}</p>
       <div v-if="resumeOffer" class="resume-bar">
         <span>上次看到 {{ resumeOffer }}</span>
         <button @click="resumePlay">继续播放</button>
@@ -13,9 +14,9 @@
       <div class="play-opts">
         <label>画质
           <select v-model="quality" @change="reload">
-            <option value="original">原画</option>
+            <option value="720p">720p（默认，弱 NAS 友好）</option>
             <option value="1080p">1080p</option>
-            <option value="720p">720p</option>
+            <option value="original">原画</option>
           </select>
         </label>
         <label v-if="audios.length > 1">音轨
@@ -59,12 +60,13 @@ const videoEl = ref(null)
 let hls = null
 let saveTimer = 0
 let lastSave = 0
-const quality = ref('original')
+const quality = ref('720p')
 const audioIdx = ref(0)
 const subIdx = ref(-1)
 const audios = ref([])
 const subs = ref([])
 const method = ref('')
+const reasons = ref([])
 const err = ref('')
 const posHint = ref('')
 const resumeOffer = ref('')
@@ -76,6 +78,15 @@ const methodLine = computed(() => {
   if (!method.value) return ''
   return { direct: 'Direct Play（原文件直发）', remux: 'Direct Stream（仅换容器，零画质损失）', transcode: '转码中（按所选画质重编）' }[method.value] || method.value
 })
+const REASON_TEXT = {
+  dovi_not_supported: '含杜比视界（浏览器无 DV 解码，已降为 SDR；原盘 DV 请用电视/Kodi 看）',
+  video_codec_not_supported: '视频编码浏览器不支持，已重编为 H264',
+  audio_codec_not_supported: '音频编码浏览器不支持，已转为 AAC',
+  container_not_supported: '容器不对，已无损换为浏览器兼容容器',
+  resolution_downscale: '已按所选画质降档（省 CPU）',
+  pgs_needs_burn: '内封图片字幕需烧录（很耗 CPU），建议关闭字幕或下载原盘',
+}
+const reasonLine = computed(() => (reasons.value || []).map(r => REASON_TEXT[r] || r).join('；'))
 function audioLabel(a, i) {
   const parts = [`音轨${i + 1}`]
   if (a.codec) parts.push(String(a.codec).toUpperCase())
@@ -112,6 +123,7 @@ async function reload() {
     return
   }
   method.value = d.method
+  reasons.value = d.reasons || []
   audios.value = d.media?.audio || []
   subs.value = d.media?.subs || []
   decidedDuration.value = Number(d.media?.duration) || 0
@@ -240,7 +252,8 @@ onUnmounted(() => {
 <style scoped>
 .player-dlg { max-width: 960px; }
 .player-video { width: 100%; max-height: 60vh; background: #000; border-radius: 8px; }
-.play-method { color: #888; font-size: 0.8125rem; margin: 0 0 8px; }
+.play-method { color: #888; font-size: 0.8125rem; margin: 0 0 4px; }
+.play-reason { color: #9ecfff; font-size: 0.8125rem; margin: 0 0 8px; }
 .resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; margin-bottom: 8px; flex-wrap: wrap; }
 .play-opts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 0.875rem; color: #aaa; }
 .pos-hint { color: #666; font-size: 0.8125rem; margin-right: auto; }

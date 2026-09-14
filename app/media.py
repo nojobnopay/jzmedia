@@ -40,10 +40,12 @@ def _norm_codec(name: str) -> str:
 
 
 def probe(abs_path: str, timeout: int = 30) -> dict:
-    """ffprobe 单文件。0 字节/缺失/失败 → playable=False + probe_error（调用方禁用播放）。"""
+    """ffprobe 单文件。0 字节/缺失/失败 → playable=False + probe_error（调用方禁用播放）。
+    dv_profile：视频流 side_data_list 里的 DOVI 配置记录（0=无/未知；5/7/8 为常见 DV）。"""
     base: dict = {"container": "", "duration": 0.0, "width": 0, "height": 0,
                   "vcodec": "", "acodec": "", "vbitrate": 0, "abitrate": 0,
-                  "audio": [], "subs": [], "playable": False, "probe_error": ""}
+                  "audio": [], "subs": [], "dv_profile": 0,
+                  "playable": False, "probe_error": ""}
     try:
         size = os.path.getsize(abs_path)
     except OSError as e:
@@ -90,6 +92,15 @@ def probe(abs_path: str, timeout: int = 30) -> dict:
         if cn in ("png", "mjpeg", "bmp") and len(videos) > 1:
             continue
         base["vcodec"] = cn
+        # 杜比视界：side_data_list 里的 DOVI 配置记录（ffprobe 7.x 形态；缺字段即 0）
+        try:
+            for sd in (v.get("side_data_list") or []):
+                st = str((sd or {}).get("side_data_type") or "").lower()
+                if "dovi" in st or "dolby vision" in st:
+                    base["dv_profile"] = max(0, int((sd or {}).get("dv_profile") or 0))
+                    break
+        except (TypeError, ValueError):
+            pass
         try:
             base["width"] = int(v.get("width") or 0)
             base["height"] = int(v.get("height") or 0)
@@ -141,11 +152,13 @@ def _audio_compatible(acodec: str) -> bool:
 
 
 def decide(media: dict, quality: str = "original",
-           audio_idx: int = 0, sub_idx: int | None = None) -> dict:
+           audio_idx: int = 0, sub_idx: int | None = None,
+           client: str = "web") -> dict:
     """三档决策。media 为 probe()/media_info 行。返回 {method, reasons, plan}。
     method: direct | remux | transcode | blocked
-    reasons: container/video/audio/pgs_needs_burn/uns playable 等（Jellyfin TranscodeReason 思想）。
-    plan: 给 stream.m3u8 用的转码计划（copy 还是重编、目标高度、字幕方式）。"""
+    reasons: container/video/audio/dovi/pgs_needs_burn 等（Jellyfin TranscodeReason 思想）。
+    plan: 给 stream.m3u8 用的转码计划（copy 还是重编、目标高度、字幕方式）。
+    client: web=浏览器固定 profile（H264+AAC+MP4，无 DV 解码）；kodi=外部播放器（原盘直通）。"""
     media = media or {}
     if not media.get("playable"):
         return {"method": "blocked", "reasons": ["unplayable"],
@@ -182,6 +195,15 @@ def decide(media: dict, quality: str = "original",
     v_ok = _video_compatible(vcodec, height)
     a_ok = _audio_compatible(acodec)
     c_ok = container in ("mp4", "mov", "m4v")
+    # 杜比视界：浏览器无 DV 解码器（Chrome MSE 明确拒绝 DV），Plex 同样不转 DV；
+    # web 客户端一律强制视频重编（经 HDR 层转 SDR/HDR），kodi 等外部播放器直通。
+    try:
+        dv_profile = max(0, int(media.get("dv_profile") or 0))
+    except (TypeError, ValueError):
+        dv_profile = 0
+    if dv_profile > 0 and (client or "web").strip().lower() != "kodi":
+        v_ok = False
+        reasons.append("dovi_not_supported")
     if sub_mode == "burn":
         v_ok = False  # 烧录强制视频重编
     target_height = 0
@@ -266,6 +288,27 @@ def build_cmd(abs_path: str, plan: dict, out_m3u8: str,
             "-hls_list_size", "0", "-hls_segment_type", "mpegts",
             "-hls_segment_filename", seg_pat, out_m3u8]
     return cmd
+
+
+def score_for_client(media: dict, quality: str = "original",
+                     client: str = "web") -> tuple:
+    """浏览器选版打分（越小越优，抄 Plex 按客户端选版本）：
+    direct(0) < remux(1) < 转码(2+代价) < blocked(9)。
+    同档内 direct/remux 取分辨率最高；转码档 vcopy 优先、目标高度越小越省 CPU。"""
+    d = decide(media, quality=quality, client=client)
+    m = d["method"]
+    try:
+        h = int(media.get("height") or 0)
+    except (TypeError, ValueError):
+        h = 0
+    if m == "direct":
+        return (0, -h)
+    if m == "remux":
+        return (1, -h)
+    if m == "transcode":
+        plan = d.get("plan") or {}
+        return (2, 0 if plan.get("vcopy") else 1, int(plan.get("height") or 0))
+    return (9, 0)
 
 
 def fmt_duration(sec: float) -> str:

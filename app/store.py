@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS media_info (
   abitrate INTEGER DEFAULT 0,
   audio_json TEXT DEFAULT '[]',
   sub_json TEXT DEFAULT '[]',
+  dv_profile INTEGER DEFAULT 0,
   playable INTEGER DEFAULT 0,
   probe_error TEXT DEFAULT '',
   probed_at INTEGER DEFAULT 0
@@ -290,6 +291,10 @@ def init_db() -> None:
         # 存量自愈：尚无原始路径的行用当前路径种子（老行=最早已知路径，新行由 upsert 写入真值）
         c.execute("UPDATE movies SET original_file_path=file_path "
                   "WHERE original_file_path IS NULL OR original_file_path=''")
+        # media_info.DV 列自愈（老库无此列时补上；旧探测行 dv_profile=0=未知，按非 DV 对待）
+        micols = [r["name"] for r in c.execute("PRAGMA table_info(media_info)")]
+        if "dv_profile" not in micols:
+            c.execute("ALTER TABLE media_info ADD COLUMN dv_profile INTEGER DEFAULT 0")
         sql = (c.execute("SELECT sql FROM sqlite_master WHERE name='movies_fts'").fetchone() or [""])[0]
         if "content=" in sql:
             c.execute("DROP TABLE movies_fts")
@@ -860,21 +865,27 @@ def get_media_info(movie_id: int) -> dict | None:
 
 def upsert_media_info(movie_id: int, info: dict) -> dict:
     """写版本媒体信息缓存（ffprobe 本地派生）。info 含 container/duration/width/height/
-    vcodec/acodec/vbitrate/abitrate/audio(list)/subs(list)/playable/probe_error。返回落库后行。"""
+    vcodec/acodec/vbitrate/abitrate/audio(list)/subs(list)/dv_profile/playable/probe_error。
+    返回落库后行。"""
     now = int(time.time())
     audio_s = _dump_list(info.get("audio"))
     subs_s = _dump_list(info.get("subs"))
+    try:
+        dv = max(0, int(info.get("dv_profile") or 0))
+    except (TypeError, ValueError):
+        dv = 0
     with _lock, _conn() as c:
         c.execute(
             "INSERT INTO media_info(movie_id, container, duration, width, height,"
-            " vcodec, acodec, vbitrate, abitrate, audio_json, sub_json,"
+            " vcodec, acodec, vbitrate, abitrate, audio_json, sub_json, dv_profile,"
             " playable, probe_error, probed_at)"
-            " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(movie_id) DO UPDATE SET container=excluded.container,"
             " duration=excluded.duration, width=excluded.width, height=excluded.height,"
             " vcodec=excluded.vcodec, acodec=excluded.acodec,"
             " vbitrate=excluded.vbitrate, abitrate=excluded.abitrate,"
             " audio_json=excluded.audio_json, sub_json=excluded.sub_json,"
+            " dv_profile=excluded.dv_profile,"
             " playable=excluded.playable, probe_error=excluded.probe_error,"
             " probed_at=excluded.probed_at",
             (int(movie_id), str(info.get("container") or "")[:16],
@@ -882,7 +893,8 @@ def upsert_media_info(movie_id: int, info: dict) -> dict:
              int(info.get("width") or 0), int(info.get("height") or 0),
              str(info.get("vcodec") or "")[:32], str(info.get("acodec") or "")[:32],
              int(info.get("vbitrate") or 0), int(info.get("abitrate") or 0),
-             audio_s, subs_s, 1 if info.get("playable") else 0,
+             audio_s, subs_s, dv,
+             1 if info.get("playable") else 0,
              str(info.get("probe_error") or "")[:300], now))
     out = get_media_info(int(movie_id))
     assert out is not None

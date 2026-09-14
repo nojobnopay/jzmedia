@@ -68,14 +68,23 @@ def stream_media(version_id: int, refresh: int = 0):
 
 @router.get("/{version_id}/decide")
 def stream_decide(version_id: int, quality: str = "original",
-                  audio: int = 0, sub: int | None = None):
+                  audio: int = 0, sub: int | None = None,
+                  client: str = "web"):
     """三档决策：direct（零 CPU 走 blob）/ remux（-c copy）/ transcode / blocked。
-    direct_url 直接复用 GET /api/movies/{id}/blob（Range 直发）；hls_url 供 P1/P2 切片口。"""
+    direct_url 直接复用 GET /api/movies/{id}/blob（Range 直发）；hls_url 供切片口。
+    client=kodi 时为外部播放器直通：可播即 direct（原盘直链），不做浏览器兼容判定。"""
     m, abs_p = _version_abs(version_id)
     info = _media_cached_or_probe(m, abs_p)
     if not info.get("playable"):
         raise HTTPException(422, f"unplayable: {info.get('probe_error') or 'probe failed'}")
-    d = _media.decide(info, quality=quality, audio_idx=audio, sub_idx=sub)
+    cli = (client or "web").strip().lower()
+    if cli == "kodi":
+        blob_url = f"/api/movies/{int(m['id'])}/blob?name={m['file_path']}"
+        return {"version_id": int(m["id"]), "method": "direct", "reasons": ["kodi_passthrough"],
+                "plan": {"vcopy": True, "acopy": True, "height": 0, "sub": "none",
+                         "audio_idx": 0, "sub_idx": None},
+                "media": info, "direct_url": blob_url, "hls_url": ""}
+    d = _media.decide(info, quality=quality, audio_idx=audio, sub_idx=sub, client=cli)
     method = d["method"]
     blob_url = f"/api/movies/{int(m['id'])}/blob?name={m['file_path']}"
     qs = f"?quality={quality}&audio={audio}" + (f"&sub={sub}" if sub is not None else "")
@@ -125,10 +134,79 @@ def progress_clear(version_id: int):
     return {"version_id": vid, "cleared": store.clear_progress(vid)}
 
 
+@router.get("/versions")
+def stream_versions(movie_id: int, quality: str = "original",
+                    client: str = "web"):
+    """同片全版本一次取齐（选版器用）：每版本 media/method/reasons/score/duration_text。
+    best_version_id 为 client 下最优（浏览器永不自动选 DV/4K，抄 Plex 选版）。
+    缺失文件记 playable=false，不抛错（前端置灰）。"""
+    try:
+        mid = int(movie_id)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "bad movie_id")
+    m = store.get_movie(mid)
+    if not m:
+        raise HTTPException(404, "movie not found")
+    cli = (client or "web").strip().lower()
+    items = []
+    for v in (m.get("versions") or [{"id": m["id"], "file_path": m["file_path"],
+                                     "edition": m.get("edition") or "",
+                                     "spec": m.get("spec") or ""}]):
+        try:
+            vid = int(v["id"])
+        except (TypeError, ValueError):
+            continue
+        vm = store.get_movie(vid)
+        if not vm:
+            continue
+        abs_p = os.path.join(settings.media_root, vm["file_path"])
+        if not os.path.isfile(abs_p):
+            items.append({"version_id": vid, "file_path": vm["file_path"],
+                          "edition": v.get("edition") or "", "spec": v.get("spec") or "",
+                          "playable": False, "probe_error": "file missing",
+                          "method": "blocked", "reasons": ["unplayable"],
+                          "score": [9, 0], "duration_text": ""})
+            continue
+        info = _media_cached_or_probe(vm, abs_p)
+        if not info.get("playable"):
+            items.append({"version_id": vid, "file_path": vm["file_path"],
+                          "edition": v.get("edition") or "", "spec": v.get("spec") or "",
+                          "playable": False,
+                          "probe_error": info.get("probe_error") or "probe failed",
+                          "method": "blocked", "reasons": ["unplayable"],
+                          "score": [9, 0], "duration_text": ""})
+            continue
+        if cli == "kodi":
+            method, reasons = "direct", ["kodi_passthrough"]
+            score = (0, 0)
+        else:
+            d = _media.decide(info, quality=quality, client=cli)
+            method, reasons = d["method"], d["reasons"]
+            score = _media.score_for_client(info, quality=quality, client=cli)
+        items.append({"version_id": vid, "file_path": vm["file_path"],
+                      "edition": v.get("edition") or "", "spec": v.get("spec") or "",
+                      "playable": True, "probe_error": "",
+                      "method": method, "reasons": reasons,
+                      "score": list(score),
+                      "duration": info.get("duration") or 0,
+                      "duration_text": _media.fmt_duration(info.get("duration") or 0),
+                      "height": info.get("height") or 0,
+                      "vcodec": info.get("vcodec") or "",
+                      "dv_profile": info.get("dv_profile") or 0,
+                      "audio_count": len(info.get("audio") or []),
+                      "sub_count": len(info.get("subs") or [])})
+    best = None
+    for it in sorted(items, key=lambda x: (x["score"], x["version_id"])):
+        if it["method"] != "blocked":
+            best = it["version_id"]
+            break
+    return {"movie_id": mid, "quality": quality, "client": cli,
+            "versions": items, "best_version_id": best}
+
+
 class ProbeMissingBody(BaseModel):
     limit: int = 50
     force: bool = False
-
 
 @router.post("/probe-missing")
 def probe_missing(body: ProbeMissingBody | None = None):
