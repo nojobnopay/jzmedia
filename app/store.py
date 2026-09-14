@@ -120,6 +120,31 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value TEXT DEFAULT '',
   updated_at INTEGER DEFAULT 0
 );
+-- 在线播放：版本粒度媒体信息（ffprobe 本地派生，不进 TMDB 镜像，不进 FTS）。
+-- movie_id 即 versions 行 id（每个文件版本一行），键稳定抗搬迁改名。
+CREATE TABLE IF NOT EXISTS media_info (
+  movie_id INTEGER PRIMARY KEY,
+  container TEXT DEFAULT '',
+  duration REAL DEFAULT 0,
+  width INTEGER DEFAULT 0,
+  height INTEGER DEFAULT 0,
+  vcodec TEXT DEFAULT '',
+  acodec TEXT DEFAULT '',
+  vbitrate INTEGER DEFAULT 0,
+  abitrate INTEGER DEFAULT 0,
+  audio_json TEXT DEFAULT '[]',
+  sub_json TEXT DEFAULT '[]',
+  playable INTEGER DEFAULT 0,
+  probe_error TEXT DEFAULT '',
+  probed_at INTEGER DEFAULT 0
+);
+-- 在线播放：按版本 id 存断点（position/duration 秒），删版本行时级联清理。
+CREATE TABLE IF NOT EXISTS playback_progress (
+  version_id INTEGER PRIMARY KEY,
+  position REAL DEFAULT 0,
+  duration REAL DEFAULT 0,
+  updated_at INTEGER DEFAULT 0
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS movies_fts USING fts5(
   title, original_title, overview, person_names, tags, genres,
   tokenize='unicode61'
@@ -793,7 +818,7 @@ def find_movie_for_extra(title: str, year: int | None) -> dict | None:
 
 def delete_movie(movie_id: int) -> bool:
     """彻底删除单行（软件外删片/移动后产生）：删关联+主行+FTS行。
-    海报与 tmdb_cache 保留（多版本/重扫复用）。返回行是否存在。"""
+    海报与 tmdb_cache 保留（多版本/重扫复用）。播放侧 media_info/progress 级联清理。返回行是否存在。"""
     with _lock, _conn() as c:
         row = c.execute("SELECT id FROM movies WHERE id=?", (movie_id,)).fetchone()
         if not row:
@@ -801,7 +826,115 @@ def delete_movie(movie_id: int) -> bool:
         c.execute("DELETE FROM movie_person WHERE movie_id=?", (movie_id,))
         c.execute("DELETE FROM movies WHERE id=?", (movie_id,))
         c.execute("DELETE FROM movies_fts WHERE rowid=?", (movie_id,))
+        try:
+            c.execute("DELETE FROM media_info WHERE movie_id=?", (movie_id,))
+        except Exception:
+            pass
+        try:
+            c.execute("DELETE FROM playback_progress WHERE version_id=?", (movie_id,))
+        except Exception:
+            pass
         return True
+
+
+def get_media_info(movie_id: int) -> dict | None:
+    """读版本媒体信息缓存（含 audio_json/sub_json 已 parse 为 list）。无行返回 None。"""
+    with _lock, _conn() as c:
+        try:
+            row = c.execute("SELECT * FROM media_info WHERE movie_id=?", (movie_id,)).fetchone()
+        except Exception:
+            return None
+        if not row:
+            return None
+        d = dict(row)
+        for k in ("audio_json", "sub_json"):
+            v = d.pop(k, "[]")
+            try:
+                lst = json.loads(v or "[]")
+                d["audio" if k == "audio_json" else "subs"] = lst if isinstance(lst, list) else []
+            except Exception:
+                d["audio" if k == "audio_json" else "subs"] = []
+        d["playable"] = bool(d.get("playable"))
+        return d
+
+
+def upsert_media_info(movie_id: int, info: dict) -> dict:
+    """写版本媒体信息缓存（ffprobe 本地派生）。info 含 container/duration/width/height/
+    vcodec/acodec/vbitrate/abitrate/audio(list)/subs(list)/playable/probe_error。返回落库后行。"""
+    now = int(time.time())
+    audio_s = _dump_list(info.get("audio"))
+    subs_s = _dump_list(info.get("subs"))
+    with _lock, _conn() as c:
+        c.execute(
+            "INSERT INTO media_info(movie_id, container, duration, width, height,"
+            " vcodec, acodec, vbitrate, abitrate, audio_json, sub_json,"
+            " playable, probe_error, probed_at)"
+            " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(movie_id) DO UPDATE SET container=excluded.container,"
+            " duration=excluded.duration, width=excluded.width, height=excluded.height,"
+            " vcodec=excluded.vcodec, acodec=excluded.acodec,"
+            " vbitrate=excluded.vbitrate, abitrate=excluded.abitrate,"
+            " audio_json=excluded.audio_json, sub_json=excluded.sub_json,"
+            " playable=excluded.playable, probe_error=excluded.probe_error,"
+            " probed_at=excluded.probed_at",
+            (int(movie_id), str(info.get("container") or "")[:16],
+             float(info.get("duration") or 0),
+             int(info.get("width") or 0), int(info.get("height") or 0),
+             str(info.get("vcodec") or "")[:32], str(info.get("acodec") or "")[:32],
+             int(info.get("vbitrate") or 0), int(info.get("abitrate") or 0),
+             audio_s, subs_s, 1 if info.get("playable") else 0,
+             str(info.get("probe_error") or "")[:300], now))
+    out = get_media_info(int(movie_id))
+    assert out is not None
+    return out
+
+
+def get_progress(version_id: int) -> dict | None:
+    """读单版本断点。无行返回 None。"""
+    with _lock, _conn() as c:
+        try:
+            row = c.execute("SELECT * FROM playback_progress WHERE version_id=?",
+                            (version_id,)).fetchone()
+        except Exception:
+            return None
+        return dict(row) if row else None
+
+
+def save_progress(version_id: int, position: float, duration: float) -> dict:
+    """写单版本断点（position/duration 秒，钳制 0<=position<=duration）。返回行。"""
+    try:
+        dur = max(0.0, float(duration or 0))
+    except (TypeError, ValueError):
+        dur = 0.0
+    try:
+        pos = max(0.0, float(position or 0))
+    except (TypeError, ValueError):
+        pos = 0.0
+    if dur > 0:
+        pos = min(pos, dur)
+    now = int(time.time())
+    with _lock, _conn() as c:
+        c.execute(
+            "INSERT INTO playback_progress(version_id, position, duration, updated_at)"
+            " VALUES(?, ?, ?, ?)"
+            " ON CONFLICT(version_id) DO UPDATE SET position=excluded.position,"
+            " duration=excluded.duration, updated_at=excluded.updated_at",
+            (int(version_id), pos, dur, now))
+        row = c.execute("SELECT * FROM playback_progress WHERE version_id=?",
+                        (int(version_id),)).fetchone()
+        return dict(row)
+
+
+def clear_progress(version_id: int) -> bool:
+    """清单版本断点（用户选“从头开始”）。返回行是否存在过。"""
+    with _lock, _conn() as c:
+        try:
+            row = c.execute("SELECT 1 FROM playback_progress WHERE version_id=?",
+                            (version_id,)).fetchone()
+            c.execute("DELETE FROM playback_progress WHERE version_id=?", (version_id,))
+            return bool(row)
+        except Exception:
+            return False
 
 
 def _dir_size(path: str) -> int:

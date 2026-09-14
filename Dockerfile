@@ -28,7 +28,9 @@ LABEL org.opencontainers.image.title="jzmedia" \
       org.opencontainers.image.revision=$GIT_SHA
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY --from=web /web/dist ./frontend/dist

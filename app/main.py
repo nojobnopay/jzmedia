@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from . import store
 from .config import settings
 from .db import POSTER_DIR, ensure_dirs
-from .routers import collections, extras, files, fs, health, jobs, movies, persons
+from .routers import collections, extras, files, fs, health, jobs, movies, persons, stream
 
 app = FastAPI(title="jzmedia", version="0.6.0")
 
@@ -21,6 +21,7 @@ app.include_router(fs.router)
 app.include_router(extras.router)
 app.include_router(jobs.router)
 app.include_router(persons.router)
+app.include_router(stream.router)
 app.mount("/posters", StaticFiles(directory=POSTER_DIR), name="posters")
 
 DIST = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))

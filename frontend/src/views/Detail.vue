@@ -21,6 +21,12 @@
               <span v-if="hasScore(m.custom_rating)" class="rate-chip custom">自评 {{ fmtScore(m.custom_rating) }}</span>
             </div>
             <p v-if="metaLine" class="meta-line">{{ metaLine }}</p>
+            <div v-if="mediaBadge || mediaUnplayable || resumeText" class="media-row">
+              <span v-if="mediaBadge" class="media-badge">{{ mediaBadge }}</span>
+              <span v-if="mediaUnplayable" class="media-warn" :title="mediaError">无效文件，无法播放</span>
+              <span v-if="resumeText" class="resume-hint">{{ resumeText }}</span>
+            </div>
+            <div v-else-if="mediaLoading" class="media-row"><span class="media-loading">媒体信息探测中…</span></div>
             <div v-if="(m.tags || []).length" class="tag-row">
               <span v-for="t in m.tags" :key="t" class="tag-chip">{{ t }}</span>
             </div>
@@ -231,6 +237,57 @@ const refreshMsg = ref('')
 const bindingId = ref(null)
 const refreshing = ref(false)
 const searching = ref(false)
+// 在线播放 P0：版本媒体徽章 + 断点提示（播放器弹窗在 P1–P4 接入）
+const mediaInfo = ref(null)
+const mediaLoading = ref(false)
+const mediaError = ref('')
+const progressInfo = ref(null)
+const mediaBadge = computed(() => {
+  const mi = mediaInfo.value
+  if (!mi || !mi.playable) return ''
+  const parts = []
+  if (mi.duration_text) parts.push(mi.duration_text)
+  const h = Number(mi.height) || 0
+  if (h >= 2000) parts.push('4K')
+  else if (h >= 1000) parts.push('1080p')
+  else if (h >= 650) parts.push('720p')
+  else if (h > 0) parts.push(h + 'p')
+  if (mi.vcodec) parts.push(String(mi.vcodec).toUpperCase())
+  const na = (mi.audio || []).length
+  if (na > 1) parts.push(`音频${na}轨`)
+  else if (na === 1 && mi.acodec) parts.push(String(mi.acodec).toUpperCase())
+  const ns = (mi.subs || []).length
+  if (ns) parts.push(`字幕${ns}`)
+  return parts.join(' · ')
+})
+const mediaUnplayable = computed(() => mediaInfo.value && !mediaInfo.value.playable)
+const resumeText = computed(() => {
+  const p = progressInfo.value
+  if (!p || !(Number(p.position) > 15)) return ''
+  const dur = Number(p.duration) || Number(mediaInfo.value?.duration) || 0
+  const remain = dur - Number(p.position)
+  if (dur > 0 && (remain / dur < 0.05 || remain < 300)) return ''
+  return `上次看到 ${p.position_text || ''}`
+})
+async function loadMedia() {
+  mediaLoading.value = true
+  mediaError.value = ''
+  try {
+    mediaInfo.value = await api(`/api/stream/${route.params.id}/media`)
+    if (mediaInfo.value && !mediaInfo.value.playable) {
+      mediaError.value = mediaInfo.value.probe_error || '无法识别媒体流'
+    }
+  } catch (e) {
+    mediaInfo.value = null
+    mediaError.value = String(e.message || e)
+  } finally {
+    mediaLoading.value = false
+  }
+  try {
+    const p = await api(`/api/stream/progress?version_id=${route.params.id}`)
+    progressInfo.value = (p && Number(p.position) > 0) ? p : null
+  } catch (e) { progressInfo.value = null }
+}
 
 function syncForm() {
   f.value = {
@@ -247,6 +304,7 @@ async function load() {
   m.value = await api('/api/movies/' + route.params.id)
   mq.value = m.value.title || ''
   syncForm()
+  loadMedia()
   await reloadFiles()
   try {
     const d = await api('/api/facets')
@@ -663,6 +721,11 @@ onUnmounted(() => {
 .edition-chip { color: #6ab0ff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }
 .edition-chip.spec { color: #7ed321; border-color: #3a5a1e; }
 .meta-line { color: #aaa; font-size: 1rem; margin: 8px 0; }
+.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.media-badge { color: #9ecfff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; }
+.media-warn { color: #e0a63c; font-size: 0.8125rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 1px 10px; }
+.media-loading { color: #666; font-size: 0.8125rem; }
+.resume-hint { color: #7ed321; font-size: 0.8125rem; }
 .src { color: #888; font-weight: normal; }
 .tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }
