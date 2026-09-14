@@ -27,6 +27,15 @@
               <span v-if="resumeText" class="resume-hint">{{ resumeText }}</span>
             </div>
             <div v-else-if="mediaLoading" class="media-row"><span class="media-loading">媒体信息探测中…</span></div>
+            <div class="play-row">
+              <button class="play-main" :disabled="heroBlocked" :title="heroBlockTip" @click="openHeroPlay">▶ 播放</button>
+              <select v-if="(m.versions || []).length > 1" v-model.number="heroVid" class="ver-sel">
+                <option v-for="v in m.versions" :key="v.id" :value="v.id" :disabled="!!verBlocked[v.id]">
+                  {{ verLabel(v) }}{{ verBlocked[v.id] ? '（无效）' : '' }}
+                </option>
+              </select>
+              <span v-if="heroResume" class="resume-hint">{{ heroResume }}</span>
+            </div>
             <div v-if="(m.tags || []).length" class="tag-row">
               <span v-for="t in m.tags" :key="t" class="tag-chip">{{ t }}</span>
             </div>
@@ -317,16 +326,37 @@ const playVid = ref(null)
 const playTitle = ref('')
 const verBlocked = ref({})
 const verErr = ref({})
+// P4 hero 主播放键：默认当前行，多版本可下拉切换（无效版本禁用）
+const heroVid = ref(null)
+const heroBlocked = computed(() => !!verBlocked.value[heroVid.value])
+const heroBlockTip = computed(() => verErr.value[heroVid.value] || '')
+const heroResume = computed(() => {
+  if (heroVid.value !== Number(route.params.id)) return ''
+  return resumeText.value
+})
+function verLabel(v) {
+  const extra = [v.edition, v.spec].filter(Boolean).join('·')
+  return baseName(v.file_path) + (extra ? `（${extra}）` : '')
+}
+function openHeroPlay() {
+  if (heroBlocked.value || !heroVid.value) return
+  const v = (m.value?.versions || []).find(x => Number(x.id) === Number(heroVid.value))
+  openStream(v || { id: heroVid.value, file_path: m.value?.file_path || '' })
+}
 function openStream(v) {
   playTitle.value = baseName(v.file_path)
   playVid.value = Number(v.id)
 }
 async function onPlayEnded() {
+  // 海报粒度：同片全版本同步标已看（与批量 watched 展开语义一致）
   try {
-    m.value = await api('/api/movies/' + route.params.id, {
-      method: 'PATCH', body: JSON.stringify({ watched: true })
-    })
+    const ids = [...new Set([...(m.value?.versions || []).map(v => Number(v.id)), Number(route.params.id)])]
+    for (const id of ids) {
+      await api('/api/movies/' + id, { method: 'PATCH', body: JSON.stringify({ watched: true }) })
+    }
+    m.value = await api('/api/movies/' + route.params.id)
     syncForm()
+    flashSaved()
   } catch (e) { /* 忽略 */ }
 }
 
@@ -344,6 +374,7 @@ function syncForm() {
 async function load() {
   m.value = await api('/api/movies/' + route.params.id)
   mq.value = m.value.title || ''
+  heroVid.value = Number(route.params.id)
   syncForm()
   loadMedia()
   await reloadFiles()
@@ -767,6 +798,11 @@ onUnmounted(() => {
 .media-warn { color: #e0a63c; font-size: 0.8125rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 1px 10px; }
 .media-loading { color: #666; font-size: 0.8125rem; }
 .resume-hint { color: #7ed321; font-size: 0.8125rem; }
+.play-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 2px; }
+.play-main { font-size: 1rem; padding: 8px 28px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }
+.play-main:hover:not(:disabled) { background: #3580cc; }
+.play-main:disabled { background: #333; border-color: #444; color: #777; cursor: not-allowed; }
+.ver-sel { background: #262626; color: #ccc; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; max-width: 320px; }
 .src { color: #888; font-weight: normal; }
 .tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }

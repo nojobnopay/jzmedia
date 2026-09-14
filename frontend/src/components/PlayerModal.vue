@@ -70,6 +70,7 @@ const posHint = ref('')
 const resumeOffer = ref('')
 let resumePos = 0
 let decidedDuration = 0
+let doneWatched = false
 
 const methodLine = computed(() => {
   if (!method.value) return ''
@@ -166,6 +167,16 @@ async function saveNow() {
   } catch (e) { /* 进度上报失败不打扰播放 */ }
 }
 function onTime() {
+  const v = videoEl.value
+  if (v && !doneWatched) {
+    const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : decidedDuration.value
+    const remain = dur - v.currentTime
+    // 阈值标已看：剩余<5%或<300s（含片尾曲场景），只触发一次
+    if (dur > 0 && (remain / dur < 0.05 || remain < 300)) {
+      doneWatched = true
+      emit('watched')
+    }
+  }
   if (Date.now() - lastSave > 10000) saveNow()
 }
 async function onEnded() {
