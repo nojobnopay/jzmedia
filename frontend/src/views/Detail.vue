@@ -102,6 +102,15 @@
             <p v-if="delMsg" class="hint warn">{{ delMsg }}</p>
           </details>
 
+          <details class="card-block tvplay">
+            <summary>电视播放（Kodi/外部播放器，原盘直通零转码）</summary>
+            <ul class="ver-list"><li v-for="v in m.versions" :key="'tv' + v.id" class="f-row">
+              <span class="f-name">{{ baseName(v.file_path) }}</span>
+              <span class="f-acts"><button @click="copyTvUrl(v)">复制直链</button></span>
+            </li></ul>
+            <p class="hint">电视端 Kodi 打开此链接即播原盘（含杜比视界），不耗 NAS 算力；浏览器在线播请用上方 ▶ 播放。{{ tvMsg }}</p>
+          </details>
+
           <section class="card-block">
             <h3>上传文件 <span class="q-tip" tabindex="0">?<span class="q-bubble">适合上传：海报/剧照（jpg/png）、音乐/原声（mp3/flac）、剧本/字幕（txt/srt/ass/pdf）、花絮视频（自动进 extras/）；正片新版本视频也可上传，会自动刮削入库。&gt;2GB 建议在局域网操作，可随时取消。</span></span></h3>
             <div class="bar up-row">
@@ -347,6 +356,18 @@ function openHeroPlay() {
 function openStream(v) {
   playTitle.value = baseName(v.file_path)
   playVid.value = Number(v.id)
+}
+// P-D：电视原盘直链（Kodi/外部播放器直通，零转码；blob 本就支持 Range）
+const tvMsg = ref('')
+async function copyTvUrl(v) {
+  tvMsg.value = ''
+  const url = location.origin + `/api/movies/${v.id}/blob?name=${encodeURIComponent(v.file_path)}`
+  try {
+    await navigator.clipboard.writeText(url)
+    tvMsg.value = '已复制，在 Kodi 里打开该链接即播'
+  } catch (e) {
+    tvMsg.value = url
+  }
 }
 async function onPlayEnded() {
   // 海报粒度：同片全版本同步标已看（与批量 watched 展开语义一致）
@@ -806,6 +827,8 @@ onUnmounted(() => {
 .ver-sel { background: #262626; color: #ccc; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; max-width: 320px; }
 .friendly-chip { color: #7ed321; font-size: 0.8125rem; }
 .trans-chip { color: #e0a63c; font-size: 0.75rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 0 8px; }
+.tvplay summary { cursor: pointer; color: #ccc; font-size: 0.9375rem; }
+.tvplay .hint { color: #888; font-size: 0.8125rem; }
 .src { color: #888; font-weight: normal; }
 .tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }
