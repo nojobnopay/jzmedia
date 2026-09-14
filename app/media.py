@@ -221,6 +221,7 @@ def decide(media: dict, quality: str = "original",
 def build_cmd(abs_path: str, plan: dict, out_m3u8: str,
               start: float = 0, seg_time: int = 6) -> list[str]:
     """按 decide().plan 构造 ffmpeg HLS 命令（stock ffmpeg，无 fork 依赖）。
+    单 variant 播放列表即 out_m3u8（默认名 master.m3u8），分片 seg%05d.ts 落同目录。
     HW 加速预留：环境 HW_ACCEL=vaapi/qsv/nvenc 时切换编解码器（V2 实测开启）。"""
     import os as _os
     plan = plan or {}
@@ -260,9 +261,10 @@ def build_cmd(abs_path: str, plan: dict, out_m3u8: str,
         cmd += ["-c:a", "copy"]
     else:
         cmd += ["-c:a", "aac", "-b:a", "192k", "-ac", "2"]
+    seg_pat = _os.path.join(_os.path.dirname(out_m3u8) or ".", "seg%05d.ts")
     cmd += ["-f", "hls", "-hls_time", str(seg_time),
             "-hls_list_size", "0", "-hls_segment_type", "mpegts",
-            "-master_pl_name", "master.m3u8", out_m3u8]
+            "-hls_segment_filename", seg_pat, out_m3u8]
     return cmd
 
 

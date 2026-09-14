@@ -72,7 +72,7 @@
             <summary>文件<span v-if="m.version_count > 1">（共{{ m.version_count }}个版本）</span></summary>
             <ul class="ver-list"><li v-for="v in m.versions" :key="v.id" class="f-row">
               <span class="f-name">{{ baseName(v.file_path) }}<span v-if="v.edition">（{{ v.edition }}）</span><span v-if="v.spec">（{{ v.spec }}）</span></span>
-              <span class="f-acts"><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a></span>
+              <span class="f-acts"><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a><button v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'">无效</button><button v-else @click="openStream(v)">播放</button></span>
             </li></ul>
             <div v-for="g in fileGroups" :key="g.key">
               <p v-if="g.items.length" class="hint">{{ g.label }}</p>
@@ -179,6 +179,9 @@
       </div>
     </div>
 
+    <PlayerModal v-if="playVid" :versionId="playVid" :title="playTitle"
+      @close="playVid = null" @watched="onPlayEnded" />
+
     <div v-if="posterDlg" class="dlg-mask" @click.self="closePoster">
       <div class="dlg pv-dlg poster-dlg">
         <img :src="posterBig" class="pv-img poster-big" />
@@ -193,6 +196,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, apiUpload, posterUrl } from '../api.js'
 import { hasScore, fmtScore, starRow } from '../ratings.js'
 import Spinner from '../components/Spinner.vue'
+import PlayerModal from '../components/PlayerModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -287,6 +291,43 @@ async function loadMedia() {
     const p = await api(`/api/stream/progress?version_id=${route.params.id}`)
     progressInfo.value = (p && Number(p.position) > 0) ? p : null
   } catch (e) { progressInfo.value = null }
+  // 多版本可用态：逐版本查 media 缓存（命中缓存零开销），失败行置灰“无效”
+  try {
+    const vers = m.value?.versions || []
+    for (const v of vers) {
+      if (v.id === Number(route.params.id)) {
+        if (mediaInfo.value && !mediaInfo.value.playable) {
+          verBlocked.value[v.id] = true
+          verErr.value[v.id] = mediaInfo.value.probe_error || '无法识别媒体流'
+        }
+        continue
+      }
+      try {
+        const mi = await api(`/api/stream/${v.id}/media`)
+        if (mi && !mi.playable) {
+          verBlocked.value[v.id] = true
+          verErr.value[v.id] = mi.probe_error || '无法识别媒体流'
+        }
+      } catch (e) { /* 单版本失败不影响其他 */ }
+    }
+  } catch (e) { /* 忽略 */ }
+}
+// 在线播放 P1：版本选播弹窗（播放单位=版本行 id）+ 播完标已看（阈值逻辑 P3 进弹窗内）
+const playVid = ref(null)
+const playTitle = ref('')
+const verBlocked = ref({})
+const verErr = ref({})
+function openStream(v) {
+  playTitle.value = baseName(v.file_path)
+  playVid.value = Number(v.id)
+}
+async function onPlayEnded() {
+  try {
+    m.value = await api('/api/movies/' + route.params.id, {
+      method: 'PATCH', body: JSON.stringify({ watched: true })
+    })
+    syncForm()
+  } catch (e) { /* 忽略 */ }
 }
 
 function syncForm() {
