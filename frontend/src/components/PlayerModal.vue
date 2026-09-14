@@ -4,6 +4,7 @@
       <h3>{{ title || ('版本 ' + versionId) }}</h3>
       <p v-if="methodLine" class="play-method">{{ methodLine }}</p>
       <p v-if="reasonLine" class="play-reason">{{ reasonLine }}</p>
+      <p v-if="sessStatus" class="sess-status">{{ sessStatus }}</p>
       <div v-if="resumeOffer" class="resume-bar">
         <span>上次看到 {{ resumeOffer }}</span>
         <button @click="resumePlay">继续播放</button>
@@ -67,6 +68,9 @@ const audios = ref([])
 const subs = ref([])
 const method = ref('')
 const reasons = ref([])
+const sessStatus = ref('')
+let sessionId = null
+let pingTimer = 0
 const err = ref('')
 const posHint = ref('')
 const resumeOffer = ref('')
@@ -110,8 +114,36 @@ function fmt(sec) {
 function destroyHls() {
   if (hls) { try { hls.destroy() } catch (e) { /* 忽略 */ } hls = null }
 }
+function stopPing() {
+  if (pingTimer) { clearInterval(pingTimer); pingTimer = 0 }
+}
+async function closeSession() {
+  stopPing()
+  if (sessionId) {
+    const sid = sessionId
+    sessionId = null
+    try {
+      await api(`/api/stream/sessions/${sid}`, { method: 'DELETE' })
+    } catch (e) { /* 关播失败由服务端 TTL/清道夫回收 */ }
+  }
+}
+function startPing() {
+  stopPing()
+  if (!sessionId) return
+  pingTimer = setInterval(async () => {
+    if (!sessionId) return
+    try {
+      const r = await api(`/api/stream/sessions/${sessionId}/ping`, { method: 'POST' })
+      if (r && r.running === false && (r.segments || 0) > 0) {
+        sessStatus.value = '' // 转码完成，后台收尾
+      }
+    } catch (e) { /* 心跳失败不打扰播放 */ }
+  }, 10000)
+}
 async function reload() {
   err.value = ''
+  sessStatus.value = ''
+  await closeSession()
   destroyHls()
   const v = videoEl.value
   if (v) { try { v.pause() } catch (e) { /* 忽略 */ } v.removeAttribute('src'); v.load() }
@@ -133,7 +165,26 @@ async function reload() {
     v.src = d.direct_url + (startAt > 0 ? `#t=${Math.floor(startAt)}` : '')
     v.play().catch(() => {})
   } else {
-    const url = d.hls_url + (startAt > 0 ? `&start=${Math.floor(startAt)}` : '')
+    // 渐进式会话：服务端前 3 分片就绪即回，首画面不等整片
+    sessStatus.value = d.method === 'remux' ? '正在封装…' : '正在转码（前分片生成中，稍候即播）…'
+    let s
+    try {
+      s = await api(`/api/stream/${props.versionId}/sessions`, {
+        method: 'POST',
+        body: JSON.stringify({ quality: quality.value, audio: audioIdx.value, start: Math.floor(startAt) }),
+      })
+    } catch (e) {
+      sessStatus.value = ''
+      err.value = '无法播放：' + e.message
+      return
+    }
+    sessionId = s.session_id
+    method.value = s.method || d.method
+    reasons.value = s.reasons || d.reasons || []
+    startPing()
+    const url = s.playlist_url
+    const onPlaying = () => { sessStatus.value = '' }
+    v.addEventListener('playing', onPlaying, { once: true })
     if (v.canPlayType('application/vnd.apple.mpegurl')) {
       v.src = url
       v.play().catch(() => {})
@@ -148,6 +199,7 @@ async function reload() {
         hls.loadSource(url)
         hls.attachMedia(v)
       } else {
+        sessStatus.value = ''
         err.value = '当前浏览器不支持 HLS，请用 Chrome/Edge/Safari'
       }
     }
@@ -238,6 +290,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   saveNow()
+  closeSession()
   const v = videoEl.value
   if (v) {
     v.removeEventListener('timeupdate', onTime)
@@ -254,6 +307,7 @@ onUnmounted(() => {
 .player-video { width: 100%; max-height: 60vh; background: #000; border-radius: 8px; }
 .play-method { color: #888; font-size: 0.8125rem; margin: 0 0 4px; }
 .play-reason { color: #9ecfff; font-size: 0.8125rem; margin: 0 0 8px; }
+.sess-status { color: #e0a63c; font-size: 0.8125rem; margin: 0 0 8px; }
 .resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; margin-bottom: 8px; flex-wrap: wrap; }
 .play-opts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 0.875rem; color: #aaa; }
 .pos-hint { color: #666; font-size: 0.8125rem; margin-right: auto; }

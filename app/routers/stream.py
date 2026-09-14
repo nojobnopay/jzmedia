@@ -3,8 +3,10 @@
 - 播放单位是版本行 id（每个文件版本即一行 movies，多版本选播即选 id）。
 - 媒体信息懒探测 + media_info 缓存（ffprobe 本地派生，不污染 TMDB 镜像，不进 FTS）。
 - 伪造文件（0 字节/probe 失败）→ playable=false，decide 422，前端置灰禁用。
-- HLS：remux（-c copy，P1）/ transcode（P2）按 (version,quality,audio,start) 会话目录整片切片，
-  24h TTL 清理，最大 2 路并发（超限 429，抄 Plex TranscodeCountLimit）。
+- HLS 渐进式会话（P-A，抄 Plex chunked transcode）：ffmpeg 后台转，前 3 分片落盘即回
+  playlist（增长型、无 ENDLIST，hls.js 照播）；心跳保活 10min，关播/超时杀进程；
+  seek=关旧开新。旧直连 master/seg 口保留（内部走同一会话机制，匿名会话）。
+- 最大 2 路并发（超限 429，抄 Plex TranscodeCountLimit），会话目录 24h TTL。
 """
 import json
 import os
@@ -13,6 +15,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -28,6 +31,10 @@ router = APIRouter(prefix="/api/stream")
 _hls_sem = threading.Semaphore(2)
 _SEG_RE = re.compile(r"^seg\d+\.ts$")
 _TTL = 24 * 3600
+_MIN_SEGS = 3          # 首屏等待分片数（约 18s 内容）
+_SESS_IDLE = 600       # 会话无心跳保活期（秒）
+_sessions: dict[str, dict] = {}
+_sess_lock = threading.RLock()
 
 
 def _version_abs(version_id: int) -> tuple[dict, str]:
@@ -238,6 +245,56 @@ def _ffmpeg_ok() -> bool:
     return bool(shutil.which("ffmpeg"))
 
 
+def _seg_count(sdir: str) -> int:
+    try:
+        return sum(1 for n in os.listdir(sdir) if _SEG_RE.match(n or ""))
+    except OSError:
+        return 0
+
+
+def _kill_proc(proc) -> None:
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def _drop_session(sid: str, kill: bool = True) -> None:
+    with _sess_lock:
+        sess = _sessions.pop(sid, None)
+    if sess and kill:
+        _kill_proc(sess.get("proc"))
+
+
+def _sweeper() -> None:
+    """后台收尸：无心跳超期 / 进程已退出超期 → 杀进程删会话（分片留 TTL 清理）。"""
+    while True:
+        time.sleep(60)
+        now = time.time()
+        dead = []
+        with _sess_lock:
+            for sid, s in _sessions.items():
+                proc = s.get("proc")
+                exited = proc is not None and proc.poll() is not None
+                idle = now - float(s.get("last_ping") or now)
+                if idle > _SESS_IDLE or (exited and idle > 300):
+                    dead.append(sid)
+        for sid in dead:
+            _drop_session(sid, kill=True)
+        _purge_old()
+
+
+_sweeper_thread = threading.Thread(target=_sweeper, daemon=True)
+_sweeper_thread.start()
+
+
 def _session_dir(version_id: int, quality: str, audio: int, start: float) -> str:
     q = re.sub(r"[^a-z0-9]+", "", (quality or "original").strip().lower()) or "original"
     try:
@@ -268,9 +325,10 @@ def _purge_old() -> None:
         pass
 
 
-def _ensure_hls(version_id: int, quality: str, audio: int,
-                sub: int | None, start: float) -> tuple[str, dict]:
-    """保证会话切片存在（有则复用），返回 (session_dir, decide)。整片同步切片。"""
+def _spawn_session(version_id: int, quality: str, audio: int,
+                   sub: int | None, start: float) -> tuple[str, str, dict]:
+    """起后台转码会话（渐进式）：校验→decide→Popen→等前 _MIN_SEGS 分片。
+    返回 (session_id, session_dir, decide)。direct/burn/无 ffmpeg 等直接抛对应 HTTP 状态。"""
     m, abs_p = _version_abs(version_id)
     info = _media_cached_or_probe(m, abs_p)
     if not info.get("playable"):
@@ -284,53 +342,57 @@ def _ensure_hls(version_id: int, quality: str, audio: int,
         raise HTTPException(415, "image subtitle needs burn-in: download original and use VLC/Kodi")
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
-    sdir = _session_dir(int(m["id"]), quality, audio, start)
-    playlist = os.path.join(sdir, "master.m3u8")
-    marker = os.path.join(sdir, "plan.json")
-    plan_key = json.dumps({"q": quality, "a": audio, "s": sub,
-                           "plan": d["plan"]}, sort_keys=True)
-    try:
-        fresh = (os.path.isfile(playlist) and os.path.isfile(marker)
-                 and open(marker, encoding="utf-8").read() == plan_key
-                 and os.path.getmtime(playlist) > os.path.getmtime(abs_p))
-    except OSError:
-        fresh = False
-    if fresh:
-        return sdir, d
     if not _hls_sem.acquire(blocking=False):
         raise HTTPException(429, "transcode slots full (max 2), try later")
+    sdir = ""
     try:
         _purge_old()
+        sdir = _session_dir(int(m["id"]), quality, audio, start)
         for n in os.listdir(sdir):
             try:
                 os.remove(os.path.join(sdir, n))
             except OSError:
                 pass
+        playlist = os.path.join(sdir, "master.m3u8")
         cmd = _media.build_cmd(abs_p, d["plan"], playlist, start=start)
         try:
-            subprocess.run(cmd, timeout=1800, check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
         except FileNotFoundError:
             raise HTTPException(501, "ffmpeg not installed in server image")
-        except subprocess.TimeoutExpired:
-            raise HTTPException(504, "transcode timeout")
-        if not os.path.isfile(playlist):
-            raise HTTPException(500, "transcode failed (no playlist)")
+        except Exception as e:
+            raise HTTPException(500, f"transcode spawn failed: {e}")
+        sid = uuid.uuid4().hex[:16]
+        with _sess_lock:
+            _sessions[sid] = {"proc": proc, "sdir": sdir, "vid": int(m["id"]),
+                              "plan": d["plan"], "last_ping": time.time()}
+        # 等前 _MIN_SEGS 分片（remux 秒出；转码按实际速度）：首画面不等整片
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            if _seg_count(sdir) >= _MIN_SEGS:
+                break
+            if proc.poll() is not None:
+                break
+            time.sleep(1)
+        if _seg_count(sdir) == 0 or not os.path.isfile(playlist):
+            _drop_session(sid, kill=True)
+            raise HTTPException(500, "transcode failed (no segments)")
         try:
-            with open(marker, "w", encoding="utf-8") as fh:
-                fh.write(plan_key)
+            with open(os.path.join(sdir, "plan.json"), "w", encoding="utf-8") as fh:
+                fh.write(json.dumps({"q": quality, "a": audio, "s": sub,
+                                     "plan": d["plan"], "sid": sid}, sort_keys=True))
         except OSError:
             pass
-        return sdir, d
+        return sid, sdir, d
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"transcode failed: {e}")
     finally:
         _hls_sem.release()
 
 
-@router.get("/{version_id}/master.m3u8")
-def hls_master(version_id: int, quality: str = "original",
-               audio: int = 0, sub: int | None = None, start: float = 0):
-    """HLS 播放列表（remux/transcode 共用；direct 请走 decide.direct_url）。"""
-    sdir, _d = _ensure_hls(version_id, quality, audio, sub, start)
+def _playlist_text(sdir: str) -> str:
     playlist = os.path.join(sdir, "master.m3u8")
     try:
         with open(playlist, encoding="utf-8") as fh:
@@ -344,13 +406,113 @@ def hls_master(version_id: int, quality: str = "original",
             out.append(f"seg/{os.path.basename(s)}")
         else:
             out.append(line)
-    return PlainTextResponse("\n".join(out) + "\n",
+    return "\n".join(out) + "\n"
+
+
+def _get_session(sid: str) -> dict:
+    with _sess_lock:
+        sess = _sessions.get(sid or "")
+    if not sess:
+        raise HTTPException(404, "no such transcode session (re-POST sessions)")
+    sess["last_ping"] = time.time()
+    return sess
+
+
+class SessionBody(BaseModel):
+    quality: str = "720p"
+    audio: int = 0
+    sub: int | None = None
+    start: float = 0
+
+
+@router.post("/{version_id}/sessions")
+def hls_session_create(version_id: int, body: SessionBody | None = None):
+    """开渐进式转码会话：后台 ffmpeg，前 3 分片就绪即回（首画面不等整片）。
+    seek/换清晰度/换音轨 = 关旧开新。用 ping 保活，DELETE 关播。"""
+    body = body or SessionBody()
+    try:
+        vid = int(version_id)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "bad version_id")
+    sid, _sdir, d = _spawn_session(vid, body.quality, body.audio, body.sub, body.start)
+    return {"session_id": sid,
+            "playlist_url": f"/api/stream/sessions/{sid}/master.m3u8",
+            "method": d["method"], "reasons": d["reasons"], "plan": d["plan"]}
+
+
+@router.get("/sessions/{sid}/master.m3u8")
+def hls_session_playlist(sid: str):
+    """会话播放列表（增长型；转码完成前无 ENDLIST，hls.js 照播）。每次取即心跳。"""
+    sess = _get_session(sid)
+    return PlainTextResponse(_playlist_text(sess["sdir"]),
+                             media_type="application/vnd.apple.mpegurl")
+
+
+@router.get("/sessions/{sid}/seg/{name}")
+def hls_session_segment(sid: str, name: str):
+    """会话分片：未就绪等最多 25s（追转码进度），会话死亡则 404。"""
+    if not _SEG_RE.match(name or ""):
+        raise HTTPException(422, "bad segment name")
+    sess = _get_session(sid)
+    dest = os.path.join(sess["sdir"], name)
+    if os.path.normpath(dest) != dest or not dest.startswith(sess["sdir"]):
+        raise HTTPException(422, "bad segment name")
+    deadline = time.time() + 25
+    while not os.path.isfile(dest) and time.time() < deadline:
+        proc = sess.get("proc")
+        if proc is not None and proc.poll() is not None:
+            break
+        time.sleep(0.5)
+    if not os.path.isfile(dest):
+        raise HTTPException(404, "segment not ready (session may have ended)")
+    return FileResponse(dest, media_type="video/MP2T", filename=name)
+
+
+@router.post("/sessions/{sid}/ping")
+def hls_session_ping(sid: str):
+    """心跳保活（播放器每 ~10s 调一次；10min 无心跳会话被回收）。"""
+    sess = _get_session(sid)
+    proc = sess.get("proc")
+    running = proc is not None and proc.poll() is None
+    return {"session_id": sid, "running": running,
+            "segments": _seg_count(sess["sdir"])}
+
+
+@router.delete("/sessions/{sid}")
+def hls_session_close(sid: str):
+    """关播：杀转码进程删会话（分片留 24h TTL，供同参数重进复用）。"""
+    with _sess_lock:
+        existed = sid in _sessions
+    _drop_session(sid, kill=True)
+    return {"session_id": sid, "closed": existed}
+
+
+def _ensure_hls(version_id: int, quality: str, audio: int,
+                sub: int | None, start: float) -> tuple[str, dict]:
+    """旧直连口兼容层：内部走同一会话机制（匿名会话，无需 ping，靠 TTL/清道夫回收）。
+    行为变化：只等前 _MIN_SEGS 分片即回，不再整片同步（首画面快，语义见 sessions 口）。"""
+    try:
+        vid = int(version_id)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "bad version_id")
+    _sid, sdir, d = _spawn_session(vid, quality, audio, sub, start)
+    return sdir, d
+
+
+@router.get("/{version_id}/master.m3u8")
+def hls_master(version_id: int, quality: str = "original",
+               audio: int = 0, sub: int | None = None, start: float = 0):
+    """HLS 播放列表（旧直连口，渐进式：前分片就绪即回；direct 请走 decide.direct_url）。
+    新播放器请用 sessions 口（可 ping/关播）。"""
+    sdir, _d = _ensure_hls(version_id, quality, audio, sub, start)
+    return PlainTextResponse(_playlist_text(sdir),
                              media_type="application/vnd.apple.mpegurl")
 
 
 @router.get("/{version_id}/seg/{name}")
 def hls_segment(version_id: int, name: str):
-    """HLS 分片。文件名白名单 segNNNNN.ts，约束在会话目录内。"""
+    """HLS 分片（旧直连口）。文件名白名单 segNNNNN.ts，约束在会话目录内。
+    未就绪等最多 15s（追渐进式转码进度），仍无则 404。"""
     if not _SEG_RE.match(name or ""):
         raise HTTPException(422, "bad segment name")
     try:
@@ -361,17 +523,23 @@ def hls_segment(version_id: int, name: str):
     if not os.path.isdir(vdir):
         raise HTTPException(404, "no transcode session (GET master.m3u8 first)")
     # 会话目录由 quality/audio/start 派生：取最新 mtime 的会话（同一版本同时只播一路为主）
-    cands = []
-    try:
-        for sess in os.listdir(vdir):
-            sd = os.path.join(vdir, sess)
-            cand = os.path.join(sd, name)
-            if os.path.isfile(cand):
-                cands.append((os.path.getmtime(sd), cand))
-    except OSError:
-        pass
+    deadline = time.time() + 15
+    cands: list[tuple[float, str]] = []
+    while time.time() < deadline:
+        cands = []
+        try:
+            for sess in os.listdir(vdir):
+                sd = os.path.join(vdir, sess)
+                cand = os.path.join(sd, name)
+                if os.path.isfile(cand):
+                    cands.append((os.path.getmtime(sd), cand))
+        except OSError:
+            pass
+        if cands:
+            break
+        time.sleep(0.5)
     if not cands:
-        raise HTTPException(404, "segment not found")
+        raise HTTPException(404, "segment not ready (session may have ended)")
     cands.sort(reverse=True)
     return FileResponse(cands[0][1], media_type="video/MP2T",
                         filename=name)
