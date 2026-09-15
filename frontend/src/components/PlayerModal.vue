@@ -100,6 +100,12 @@ const startOffset = ref(0)
 const seekPos = ref(0)
 const bufSecs = ref(0)
 let bufTimer = 0
+// 卡死看门狗：HLS 播放中 currentTime 长期不动且无缓冲 → 同会话重挂 playlist 自救
+let lastTickPos = -1
+let stallTicks = 0
+let recoverCount = 0
+let lastPlaylistUrl = ''
+const lastHlsError = ref('')
 // HLS 自绘控制条状态
 const isPlaying = ref(false)
 const muted = ref(false)
@@ -205,6 +211,10 @@ async function reload() {
   err.value = ''
   sessStatus.value = ''
   needGesture.value = false
+  stallTicks = 0
+  lastTickPos = -1
+  lastPlaylistUrl = ''
+  lastHlsError.value = ''
   await closeSession()
   destroyHls()
   const v = videoEl.value
@@ -260,6 +270,10 @@ async function reload() {
     reasons.value = s.reasons || d.reasons || []
     startPing()
     const url = s.playlist_url
+    lastPlaylistUrl = url
+    recoverCount = 0
+    stallTicks = 0
+    lastTickPos = -1
     const onPlaying = () => { sessStatus.value = '' }
     v.addEventListener('playing', onPlaying, { once: true })
     if (v.canPlayType('application/vnd.apple.mpegurl')) {
@@ -271,8 +285,11 @@ async function reload() {
       if (Hls && Hls.isSupported()) {
         hls = new Hls({ maxBufferLength: 30 })
         hls.on(Hls.Events.ERROR, (_ev, data) => {
-          if (data && data.fatal) err.value = '播放错误：' + (data.details || data.type)
-          else if (data) console.warn('[hls]', data.details || data.type, data)
+          if (data) {
+            lastHlsError.value = (data.fatal ? 'FATAL ' : '') + (data.details || data.type)
+            if (data.fatal) err.value = '播放错误：' + (data.details || data.type)
+            else console.warn('[hls]', data.details || data.type, data)
+          }
         })
         hls.on(Hls.Events.MEDIA_ATTACHED, () => tryPlay())
         hls.loadSource(url)
@@ -411,7 +428,15 @@ async function copyDebug() {
     version: props.versionId, method: method.value,
     session: sessionId, pos: Math.floor(absPos()),
     buffered: Math.floor(bufSecs.value),
+    hlsError: lastHlsError.value || '',
   }
+  try {
+    const v = videoEl.value
+    if (v && v.getVideoPlaybackQuality) {
+      const q = v.getVideoPlaybackQuality()
+      info.dropped = q.droppedVideoFrames
+    }
+  } catch (e) { /* 忽略 */ }
   try {
     if (sessionId) {
       const d = await api(`/api/stream/sessions/${sessionId}/debug`)
@@ -449,6 +474,13 @@ onMounted(async () => {
   }
   document.addEventListener('fullscreenchange', onFullChange)
   window.addEventListener('beforeunload', saveNow)
+  try {
+    window.__jzPlayerDebug = () => ({
+      version: props.versionId, method: method.value, session: sessionId,
+      pos: Math.floor(absPos()), buffered: Math.floor(bufSecs.value),
+      hlsError: lastHlsError.value || '', quality: quality.value,
+    })
+  } catch (e) { /* 忽略 */ }
   bufTimer = setInterval(() => {
     try {
       const v = videoEl.value
@@ -457,9 +489,61 @@ onMounted(async () => {
       } else {
         bufSecs.value = 0
       }
+      watchStall()
     } catch (e) { bufSecs.value = 0 }
   }, 2000)
 })
+function watchStall() {
+  // 每 2s 一拍：HLS 播放态、时间不动、前方缓冲<3s → 连续 3 拍(约6s)判定卡死，同会话重挂自救
+  try {
+    const v = videoEl.value
+    if (!isHls.value || !sessionId || !lastPlaylistUrl) { stallTicks = 0; return }
+    if (!v || v.paused || v.ended) { stallTicks = 0; lastTickPos = -1; return }
+    const cur = Number(v.currentTime) || 0
+    const moved = lastTickPos >= 0 && Math.abs(cur - lastTickPos) > 0.05
+    lastTickPos = cur
+    if (moved || (bufSecs.value || 0) >= 3) { stallTicks = 0; return }
+    stallTicks += 1
+    if (stallTicks >= 3) {
+      stallTicks = 0
+      recoverStream()
+    }
+  } catch (e) { /* 看门狗自身永不抛错 */ }
+}
+async function recoverStream() {
+  // 同会话重挂：不杀转码进程（分片继续产），只重建 hls 实例并回到卡住点
+  if (recoverCount >= 3 || !lastPlaylistUrl) {
+    if (recoverCount >= 3) err.value = '多次自动恢复失败，请关闭重进或切 720p'
+    return
+  }
+  recoverCount += 1
+  const target = Math.max(0, absPos() - startOffset.value)
+  console.warn('[hls-recover] reattach same session, attempt', recoverCount)
+  sessStatus.value = '检测到卡顿，正在恢复…'
+  try {
+    destroyHls()
+    const v = videoEl.value
+    if (!v) return
+    let Hls = null
+    try { Hls = await ensureHls() } catch (e) { Hls = null }
+    if (Hls && Hls.isSupported()) {
+      hls = new Hls({ maxBufferLength: 30 })
+      hls.on(Hls.Events.ERROR, (_ev, data) => {
+        if (data) {
+          lastHlsError.value = (data.fatal ? 'FATAL ' : '') + (data.details || data.type)
+          if (data.fatal) err.value = '播放错误：' + (data.details || data.type)
+          else console.warn('[hls]', data.details || data.type, data)
+        }
+      })
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+        try { v.currentTime = Math.max(0, target - 0.5) } catch (e) { /* 忽略 */ }
+        tryPlay()
+      })
+      hls.loadSource(lastPlaylistUrl)
+      hls.attachMedia(v)
+    }
+  } catch (e) { /* 恢复失败等下次节拍或转 err */ }
+}
 onUnmounted(() => {
   saveNow()
   closeSession()
