@@ -309,11 +309,15 @@ def _sweeper() -> None:
         now = time.time()
         dead = []
         with _sess_lock:
-            for sid, s in _sessions.items():
+            for sid, s in list(_sessions.items()):
                 proc = s.get("proc")
                 exited = proc is not None and proc.poll() is not None
                 idle = now - float(s.get("last_ping") or now)
-                if idle > _SESS_IDLE or (exited and idle > 300):
+                # 完工静态会话（proc=None）：只按文件 TTL 收记录，不按 idle 杀
+                if s.get("complete"):
+                    if idle > _TTL:
+                        dead.append(sid)
+                elif idle > _SESS_IDLE or (exited and idle > 300):
                     dead.append(sid)
         for sid in dead:
             _drop_session(sid, kill=True)
@@ -379,6 +383,15 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         st_key = 0
     plan_key = json.dumps({"q": quality, "a": audio, "s": sub, "start": st_key,
                            "plan": d["plan"]}, sort_keys=True)
+    # 整片已转完（预转码/之前播完）：当静态 VOD 直接播，不起进程——hls.js 最稳形态
+    sdir0 = _session_dir(int(m["id"]), quality, audio, start)
+    if _session_complete(sdir0, plan_key):
+        sid0 = uuid.uuid4().hex[:16]
+        with _sess_lock:
+            _sessions[sid0] = {"proc": None, "sdir": sdir0, "vid": int(m["id"]),
+                               "plan": d["plan"], "plan_key": plan_key,
+                               "complete": True, "last_ping": time.time()}
+        return sid0, sdir0, d
     with _sess_lock:
         for sid, s in list(_sessions.items()):
             if int(s.get("vid") or -1) != int(m["id"]):
@@ -451,7 +464,7 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                                 (f": {tail}" if tail else ""))
         try:
             with open(os.path.join(sdir, "plan.json"), "w", encoding="utf-8") as fh:
-                fh.write(json.dumps({"q": quality, "a": audio, "s": sub,
+                fh.write(json.dumps({"q": quality, "a": audio, "s": sub, "start": st_key,
                                      "plan": d["plan"], "sid": sid}, sort_keys=True))
         except OSError:
             pass
@@ -462,6 +475,37 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         raise HTTPException(500, f"transcode failed: {e}")
     finally:
         _hls_sem.release()
+
+
+def _marker_matches(sdir: str, plan_key: str) -> bool:
+    """plan.json 与本次 plan_key 比对（忽略 sid，复用/完工判定用）。"""
+    try:
+        with open(os.path.join(sdir, "plan.json"), encoding="utf-8") as fh:
+            mk = json.load(fh)
+        mk.pop("sid", None)
+        ref = json.loads(plan_key)
+        ref.pop("sid", None)
+        return mk == ref
+    except Exception:
+        return False
+
+
+def _playlist_endlist(sdir: str) -> bool:
+    try:
+        with open(os.path.join(sdir, "master.m3u8"), encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip() == "#EXT-X-ENDLIST":
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+def _session_complete(sdir: str, plan_key: str) -> bool:
+    """整片已转完（静态 VOD）：列表带 ENDLIST + 有分片 + plan 一致 → 直接当静态文件播，
+    不起进程（这才是 hls.js 最稳的形态，预转码的目标态）。"""
+    return (_playlist_endlist(sdir) and _seg_count(sdir) > 0
+            and _marker_matches(sdir, plan_key))
 
 
 def _playlist_text(sdir: str) -> str:
@@ -495,6 +539,129 @@ class SessionBody(BaseModel):
     audio: int = 0
     sub: int | None = None
     start: float = 0
+
+
+_prewarm_jobs: dict[str, dict] = {}
+
+
+def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int) -> None:
+    """后台整片转完（夜间用）：与在线播同一 build_cmd/目录 scheme，完工即静态 VOD。
+    进度=已产分片/预估总数；失败记 error 尾。"""
+    job = _prewarm_jobs.get(job_id)
+    if not job:
+        return
+    if not _hls_sem.acquire(blocking=False):
+        job.update({"status": "failed", "error": "transcode slots full, retry later"})
+        return
+    try:
+        m, abs_p = _version_abs(vid)
+        info = _media_cached_or_probe(m, abs_p)
+        if not info.get("playable"):
+            raise RuntimeError(f"unplayable: {info.get('probe_error') or 'probe failed'}")
+        d = _media.decide(info, quality=quality, audio_idx=audio)
+        if d["method"] == "direct":
+            raise RuntimeError("already direct-playable, no prewarm needed")
+        try:
+            dur = max(0.0, float(info.get("duration") or 0))
+        except (TypeError, ValueError):
+            dur = 0.0
+        expected = max(1, int(dur / 6) + 1) if dur > 0 else 0
+        job.update({"expected": expected,
+                    "total_text": _media.fmt_duration(dur)})
+        sdir = _session_dir(int(m["id"]), quality, audio, 0)
+        for n in os.listdir(sdir):
+            try:
+                os.remove(os.path.join(sdir, n))
+            except OSError:
+                pass
+        playlist = os.path.join(sdir, "master.m3u8")
+        cmd = _media.build_cmd(abs_p, d["plan"], playlist, start=0)
+        log_path = os.path.join(sdir, "ffmpeg.log")
+        try:
+            log_fh = open(log_path, "wb")
+        except OSError:
+            log_fh = subprocess.DEVNULL  # type: ignore[assignment]
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log_fh)
+        job.update({"status": "running", "pid": proc.pid})
+        timeout = max(1800.0, dur * 4 + 600) if dur > 0 else 7200.0
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_proc(proc)
+            raise RuntimeError("prewarm timeout")
+        if proc.returncode != 0 or not _playlist_endlist(sdir):
+            tail = ""
+            try:
+                with open(log_path, "rb") as fh:
+                    fh.seek(max(0, os.path.getsize(log_path) - 2000))
+                    tail = fh.read().decode("utf-8", errors="replace").strip()[-500:]
+            except OSError:
+                pass
+            raise RuntimeError("transcode failed" + (f": {tail}" if tail else ""))
+        with open(os.path.join(sdir, "plan.json"), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"q": quality, "a": audio, "s": None, "start": 0,
+                                 "plan": d["plan"], "sid": "prewarm:" + job_id},
+                                sort_keys=True))
+        job.update({"status": "done", "segments": _seg_count(sdir)})
+    except Exception as e:
+        job.update({"status": "failed", "error": str(e)[:500]})
+    finally:
+        try:
+            job["segments"] = _seg_count(
+                _session_dir(int(job.get("version_id") or 0),
+                             str(job.get("quality") or "720p"),
+                             int(job.get("audio") or 0), 0))
+        except Exception:
+            pass
+        _hls_sem.release()
+
+
+class PrewarmBody(BaseModel):
+    version_id: int = 0
+    quality: str = "720p"
+    audio: int = 0
+
+
+@router.post("/prewarm")
+def prewarm_start(body: PrewarmBody | None = None):
+    """夜间预转码：后台把整片转完（与在线播同一管线），完工后点播即静态秒播。
+    只对 remux/transcode 生效；direct 直接 400（本来就零 CPU）。"""
+    body = body or PrewarmBody()
+    try:
+        vid = int(body.version_id)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "bad version_id")
+    if not store.get_movie(vid):
+        raise HTTPException(404, "version not found")
+    job_id = uuid.uuid4().hex[:12]
+    _prewarm_jobs[job_id] = {"job_id": job_id, "version_id": vid,
+                             "quality": body.quality or "720p",
+                             "audio": int(body.audio or 0),
+                             "status": "queued", "segments": 0, "expected": 0,
+                             "started_at": int(time.time())}
+    th = threading.Thread(target=_prewarm_worker,
+                          args=(job_id, vid, body.quality or "720p",
+                                int(body.audio or 0)),
+                          daemon=True)
+    th.start()
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.get("/prewarm/{job_id}")
+def prewarm_status(job_id: str):
+    """预转码进度：{status queued/running/done/failed, segments/expected}。"""
+    job = _prewarm_jobs.get(job_id or "")
+    if not job:
+        raise HTTPException(404, "no such prewarm job")
+    if job.get("status") == "running":
+        try:
+            job["segments"] = _seg_count(
+                _session_dir(int(job.get("version_id") or 0),
+                             str(job.get("quality") or "720p"),
+                             int(job.get("audio") or 0), 0))
+        except Exception:
+            pass
+    return dict(job)
 
 
 @router.post("/{version_id}/sessions")
@@ -583,6 +750,7 @@ def hls_session_debug(sid: str):
     except OSError:
         pass
     return {"session_id": sid, "exists": True, "running": alive,
+            "complete": bool(sess.get("complete")),
             "exit_code": exit_code, "segments": segs,
             "playlist_items": extinf, "finished": endlist,
             "last_ping_ago": round(time.time() - float(sess.get("last_ping") or 0), 1),

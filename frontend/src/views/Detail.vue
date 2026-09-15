@@ -37,6 +37,10 @@
                 </option>
               </select>
               <span v-if="heroResume" class="resume-hint">{{ heroResume }}</span>
+              <button v-if="!heroBlocked && !verFriendly(heroVid)" class="pre-btn"
+                :disabled="!!preJob" :title="'夜间/闲时把本片转好存着，完工后点播即静态秒播'"
+                @click="startPrewarm">{{ preJob ? '预转码中…' : '预转码720p' }}</button>
+              <span v-if="preMsg" class="resume-hint">{{ preMsg }}</span>
             </div>
             <div v-if="(m.tags || []).length" class="tag-row">
               <span v-for="t in m.tags" :key="t" class="tag-chip">{{ t }}</span>
@@ -360,6 +364,44 @@ function openHeroPlay() {
 function openStream(v) {
   playTitle.value = baseName(v.file_path)
   playVid.value = Number(v.id)
+}
+// 预转码：闲时把本片转完存静态，完工后点播秒播；只给需转码版显示
+const preJob = ref(null)
+const preMsg = ref('')
+let preTimer = 0
+async function startPrewarm() {
+  if (preJob.value || !heroVid.value) return
+  preMsg.value = ''
+  try {
+    const r = await api('/api/stream/prewarm', {
+      method: 'POST',
+      body: JSON.stringify({ version_id: Number(heroVid.value), quality: '720p', audio: 0 }),
+    })
+    preJob.value = r.job_id
+    preMsg.value = '已开始，后台转码中…'
+    preTimer = setInterval(async () => {
+      if (!preJob.value) return
+      try {
+        const s = await api(`/api/stream/prewarm/${preJob.value}`)
+        const exp = Number(s.expected) || 0
+        const got = Number(s.segments) || 0
+        if (s.status === 'done') {
+          preMsg.value = '已就绪，点播即秒播'
+          preJob.value = null
+          clearInterval(preTimer)
+          loadMedia()
+        } else if (s.status === 'failed') {
+          preMsg.value = '失败：' + (s.error || '未知').slice(0, 80)
+          preJob.value = null
+          clearInterval(preTimer)
+        } else if (exp > 0) {
+          preMsg.value = `转码中 ${Math.floor((got / exp) * 100)}%（${got}/${exp}）`
+        }
+      } catch (e) { /* 轮询失败下次继续 */ }
+    }, 5000)
+  } catch (e) {
+    preMsg.value = '启动失败：' + e.message
+  }
 }
 async function closeStream() {
   // 关播即刷新断点：详情页“上次看到”不再等手动刷新（仅刷新当前选中版本）
@@ -803,6 +845,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', escPlayer)
+  if (preTimer) clearInterval(preTimer)
 })
 </script>
 <style scoped>
@@ -845,6 +888,8 @@ onUnmounted(() => {
 .play-main:hover:not(:disabled) { background: #3580cc; }
 .play-main:disabled { background: #333; border-color: #444; color: #777; cursor: not-allowed; }
 .ver-sel { background: #262626; color: #ccc; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; max-width: 320px; }
+.pre-btn { background: transparent; border: 1px dashed #6e5426; color: #e0a63c; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 0.8125rem; }
+.pre-btn:disabled { opacity: 0.6; cursor: wait; }
 .friendly-chip { color: #7ed321; font-size: 0.8125rem; }
 .trans-chip { color: #e0a63c; font-size: 0.75rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 0 8px; }
 .tvplay summary { cursor: pointer; color: #ccc; font-size: 0.9375rem; }

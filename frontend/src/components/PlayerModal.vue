@@ -103,6 +103,7 @@ let bufTimer = 0
 // 卡死看门狗：HLS 播放中 currentTime 长期不动且无缓冲 → 同会话重挂 playlist 自救
 let lastTickPos = -1
 let stallTicks = 0
+let seekStuckTicks = 0
 let recoverCount = 0
 let lastPlaylistUrl = ''
 const lastHlsError = ref('')
@@ -498,16 +499,28 @@ function watchStall() {
   try {
     const v = videoEl.value
     if (!isHls.value || !sessionId || !lastPlaylistUrl) { stallTicks = 0; return }
-    if (!v || v.paused || v.ended) { stallTicks = 0; lastTickPos = -1; return }
-    const cur = Number(v.currentTime) || 0
-    const moved = lastTickPos >= 0 && Math.abs(cur - lastTickPos) > 0.05
-    lastTickPos = cur
-    if (moved || (bufSecs.value || 0) >= 3) { stallTicks = 0; return }
-    stallTicks += 1
-    if (stallTicks >= 3) {
-      stallTicks = 0
-      recoverStream()
+    if (seekPending.value) return // seek 重开进行中，不跟它抢
+    if (!v || v.paused || v.ended) { stallTicks = 0; lastTickPos = -1; }
+    else {
+      const cur = Number(v.currentTime) || 0
+      const moved = lastTickPos >= 0 && Math.abs(cur - lastTickPos) > 0.05
+      lastTickPos = cur
+      if (moved || (bufSecs.value || 0) >= 3) stallTicks = 0
+      else {
+        stallTicks += 1
+        if (stallTicks >= 3) { stallTicks = 0; recoverStream() }
+      }
     }
+    // seeking 恒定 true 超过约 10s（定位永远完不成）同样自救
+    try {
+      const vk = videoEl.value
+      if (vk && vk.seeking && !vk.paused) {
+        seekStuckTicks += 1
+        if (seekStuckTicks >= 5) { seekStuckTicks = 0; recoverStream() }
+      } else {
+        seekStuckTicks = 0
+      }
+    } catch (e) { /* 忽略 */ }
   } catch (e) { /* 看门狗自身永不抛错 */ }
 }
 async function recoverStream() {
