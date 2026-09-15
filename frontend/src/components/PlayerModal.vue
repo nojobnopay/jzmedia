@@ -43,13 +43,13 @@
             @input="onSeekInput" @change="onSeekCommit" class="ctl-seek" />
           <button @click="toggleMute" :title="muted ? '取消静音' : '静音'">{{ muted ? '🔇' : '🔊' }}</button>
           <input type="range" min="0" max="100" :value="muted ? 0 : volume * 100"
-            @input="setVolume" class="ctl-vol" />
-          <select v-model="quality" @change="reload" title="画质">
+            @input="setVolume" @change="blurPick" class="ctl-vol" />
+          <select v-model="quality" @change="onQualityChange" title="画质">
             <option value="original">原画</option>
             <option value="1080p">1080p</option>
             <option value="720p">720p</option>
           </select>
-          <select v-if="audios.length > 1" v-model.number="audioIdx" @change="reload" title="音轨">
+          <select v-if="audios.length > 1" v-model.number="audioIdx" @change="onAudioChange" title="音轨">
             <option v-for="(a, i) in audios" :key="i" :value="i">{{ audioLabel(a, i) }}</option>
           </select>
           <select v-if="subs.length" v-model.number="subIdx" @change="onSubChange" title="字幕">
@@ -465,8 +465,18 @@ function imageSubSelected() {
   const s = subs.value[subIdx.value]
   return !!(s && s.image)
 }
+// 选完即失焦：否则焦点停在下拉框，方向键会去改选项而不是 seek/音量
+function blurPick(e) {
+  try {
+    const el = e && e.target
+    if (el && el.blur) el.blur()
+  } catch (err) { /* 忽略 */ }
+}
+function onQualityChange(e) { blurPick(e); reload() }
+function onAudioChange(e) { blurPick(e); reload() }
 // 字幕切换：图片↔文本/关闭 涉及烧录状态变化 → 重开转码；纯文本切换只换 <track>
-function onSubChange() {
+function onSubChange(e) {
+  blurPick(e)
   const wantBurn = imageSubSelected()
   if (wantBurn || burnOn) reload()
   else applySubTrack()
@@ -515,11 +525,12 @@ function onSeekInput(e) {
   seekPreview.value = t
 }
 function onSeekCommit(e) {
-  // 松手：提交目标秒数 → 关旧会话开新会话
+  // 松手：提交目标秒数 → 关旧会话开新会话；顺带失焦，让方向键回到快捷键
   const raw = Number((e.target || {}).value)
   const t = seekDragging.value ? seekPreview.value
     : Math.max(0, Math.floor(Number.isFinite(raw) ? raw : seekPos.value))
   seekDragging.value = false
+  blurPick(e)
   doSeek(t)
 }
 function doSeek(t) {
