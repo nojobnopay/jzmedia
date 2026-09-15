@@ -55,7 +55,12 @@ def _version_abs(version_id: int) -> tuple[dict, str]:
 def _media_cached_or_probe(m: dict, abs_p: str) -> dict:
     cached = store.get_media_info(int(m["id"]))
     if cached and int(cached.get("probed_at") or 0) > 0:
-        return cached
+        # 脏行自愈：环境错误缓存视为未探测（旧版本落库的，一次即洗掉）
+        if not cached.get("playable") and _media.is_retryable_error(
+                str(cached.get("probe_error") or "")):
+            cached = None
+        else:
+            return cached
     info = _media.probe(abs_p)
     return store.upsert_media_info(int(m["id"]), info)
 
@@ -223,7 +228,16 @@ def probe_missing(body: ProbeMissingBody | None = None):
     force = bool(body.force) if body else False
     rows = store.list_movies(grouped=False, limit=100000)
     if not force:
-        rows = [r for r in rows if not store.get_media_info(int(r["id"]))]
+        # 无行，或旧行是环境错误（换环境后可重试），都要补探
+        kept = []
+        for r in rows:
+            mi = store.get_media_info(int(r["id"]))
+            if not mi:
+                kept.append(r)
+            elif not mi.get("playable") and _media.is_retryable_error(
+                    str(mi.get("probe_error") or "")):
+                kept.append(r)
+        rows = kept
     rows = rows[:limit]
     done, failed, unplayable = [], [], []
     for r in rows:
@@ -242,7 +256,10 @@ def probe_missing(body: ProbeMissingBody | None = None):
 
 
 def _ffmpeg_ok() -> bool:
-    return bool(shutil.which("ffmpeg"))
+    try:
+        return bool(_media.bin_status().get("ffmpeg"))
+    except Exception:
+        return bool(shutil.which("ffmpeg"))
 
 
 def _seg_count(sdir: str) -> int:
@@ -355,12 +372,27 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                 pass
         playlist = os.path.join(sdir, "master.m3u8")
         cmd = _media.build_cmd(abs_p, d["plan"], playlist, start=start)
+        log_path = os.path.join(sdir, "ffmpeg.log")
+        try:
+            log_fh = open(log_path, "wb")
+        except OSError:
+            log_fh = subprocess.DEVNULL  # type: ignore[assignment]
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL)
+                                    stderr=log_fh)
         except FileNotFoundError:
+            try:
+                if log_fh is not subprocess.DEVNULL:
+                    log_fh.close()
+            except Exception:
+                pass
             raise HTTPException(501, "ffmpeg not installed in server image")
         except Exception as e:
+            try:
+                if log_fh is not subprocess.DEVNULL:
+                    log_fh.close()
+            except Exception:
+                pass
             raise HTTPException(500, f"transcode spawn failed: {e}")
         sid = uuid.uuid4().hex[:16]
         with _sess_lock:
@@ -376,7 +408,15 @@ def _spawn_session(version_id: int, quality: str, audio: int,
             time.sleep(1)
         if _seg_count(sdir) == 0 or not os.path.isfile(playlist):
             _drop_session(sid, kill=True)
-            raise HTTPException(500, "transcode failed (no segments)")
+            tail = ""
+            try:
+                with open(log_path, "rb") as fh:
+                    fh.seek(max(0, os.path.getsize(log_path) - 2000))
+                    tail = fh.read().decode("utf-8", errors="replace").strip()[-500:]
+            except OSError:
+                pass
+            raise HTTPException(500, "transcode failed (no segments)" +
+                                (f": {tail}" if tail else ""))
         try:
             with open(os.path.join(sdir, "plan.json"), "w", encoding="utf-8") as fh:
                 fh.write(json.dumps({"q": quality, "a": audio, "s": sub,
@@ -571,7 +611,7 @@ def hls_subtitle(version_id: int, idx: int):
         fresh = False
     if not fresh:
         ff_idx = track.get("ff_index", si)
-        cmd = [shutil.which("ffmpeg") or "ffmpeg", "-y", "-hide_banner",
+        cmd = [_media.ffmpeg_bin(), "-y", "-hide_banner",
                "-loglevel", "error", "-i", abs_p, "-map", f"0:{ff_idx}", dest]
         try:
             subprocess.run(cmd, timeout=120, check=False,

@@ -171,6 +171,8 @@ async function reload() {
     try {
       s = await api(`/api/stream/${props.versionId}/sessions`, {
         method: 'POST',
+        // 建会话要等前 3 分片（弱 CPU 转码慢），放宽到 300s，对齐服务端 deadline
+        timeout: 300000,
         body: JSON.stringify({ quality: quality.value, audio: audioIdx.value, start: Math.floor(startAt) }),
       })
     } catch (e) {

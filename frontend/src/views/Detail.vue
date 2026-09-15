@@ -21,9 +21,10 @@
               <span v-if="hasScore(m.custom_rating)" class="rate-chip custom">自评 {{ fmtScore(m.custom_rating) }}</span>
             </div>
             <p v-if="metaLine" class="meta-line">{{ metaLine }}</p>
-            <div v-if="mediaBadge || mediaUnplayable || resumeText" class="media-row">
+            <div v-if="mediaBadge || mediaUnplayable || resumeText || noFfmpeg" class="media-row">
               <span v-if="mediaBadge" class="media-badge">{{ mediaBadge }}</span>
               <span v-if="mediaUnplayable" class="media-warn" :title="mediaError">无效文件，无法播放</span>
+              <span v-if="noFfmpeg" class="media-warn" title="服务器缺 ffmpeg：转码/重封装不可用，直链与电视播放不受影响">转码不可用（缺 ffmpeg）</span>
               <span v-if="resumeText" class="resume-hint">{{ resumeText }}</span>
             </div>
             <div v-else-if="mediaLoading" class="media-row"><span class="media-loading">媒体信息探测中…</span></div>
@@ -263,6 +264,7 @@ const searching = ref(false)
 const mediaInfo = ref(null)
 const mediaLoading = ref(false)
 const mediaError = ref('')
+const noFfmpeg = ref(false)
 const progressInfo = ref(null)
 const mediaBadge = computed(() => {
   const mi = mediaInfo.value
@@ -399,6 +401,10 @@ async function load() {
   heroVid.value = Number(route.params.id)
   syncForm()
   loadMedia()
+  try {
+    const h = await api('/api/health')
+    noFfmpeg.value = !h.ffmpeg
+  } catch (e) { /* 健康检查失败不挡详情页 */ }
   await reloadFiles()
   try {
     const d = await api('/api/facets')

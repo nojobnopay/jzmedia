@@ -27,6 +27,19 @@ if [ -f .env ]; then
 fi
 mkdir -p "$MEDIA_ROOT" "$DATA_DIR"
 
+# 2.5) 预检：.venv 与 ffmpeg/ffprobe（在线播放依赖）
+if [ ! -x .venv/bin/python ]; then
+  echo "[start] 缺少 .venv：先跑 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+  exit 1
+fi
+FFSTAT="$(".venv/bin/python" -c "from app.media import bin_status; s=bin_status(); print(('ffmpeg' if s['ffmpeg'] else 'no-ffmpeg') + '/' + ('ffprobe' if s['ffprobe'] else 'no-ffprobe') + ('(static待下载)' if (s['static_pkg_installed'] and not (s['static_ffmpeg_present'] or s['system_ffmpeg'])) else ''))" 2>/dev/null || echo "check-failed")"
+echo "[start] 转码依赖: $FFSTAT"
+case "$FFSTAT" in
+  no-ffmpeg*|no-ffprobe*|check-failed)
+    echo "[start] 提示：缺 ffmpeg 将导致在线播放不可用（浏览/电视直链不受影响）。修复：.venv/bin/pip install -r requirements.txt（静态版首次播放自动下载，无需 sudo）" >&2
+    ;;
+esac
+
 # 3) 启动（前台运行，Ctrl+C 停止）
 echo "[start] DATA_DIR=$DATA_DIR MEDIA_ROOT=$MEDIA_ROOT PORT=${APP_PORT:-8080}"
 exec .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port "${APP_PORT:-8080}"

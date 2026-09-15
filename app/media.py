@@ -11,8 +11,100 @@ import os
 import shutil
 import subprocess
 
-FFPROBE = shutil.which("ffprobe") or "ffprobe"
-FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
+# 二进制解析见下方 ffprobe_bin()/ffmpeg_bin()（系统版优先，静态版兜底）
+
+# 可重试的环境错误前缀：这类失败不代表文件本身无效，绝不落库为最终结论
+# （否则换个有 ffmpeg 的环境打开仍显示无效，MP4 误杀即此类）。
+RETRYABLE_ERRORS = ("ffprobe not installed", "ffprobe timeout", "stat failed")
+
+
+def _static_bins_if_present() -> dict:
+    """已下载好的 static-ffmpeg 双二进制（只看文件在不在，绝不触发下载）。"""
+    try:
+        import static_ffmpeg  # noqa: F401
+        import os as _os
+        import glob as _glob
+        pkgdir = _os.path.join(_os.path.dirname(__file__), "..", ".venv",
+                               "lib", "python3.12", "site-packages",
+                               "static_ffmpeg", "bin")
+        # .venv 位置随启动方式变：优先按已安装包的实际路径找
+        try:
+            import static_ffmpeg as _pkg
+            pkgdir = _os.path.join(_os.path.dirname(_pkg.__file__), "bin")
+        except Exception:
+            pass
+        out = {}
+        for name in ("ffmpeg", "ffprobe"):
+            cands = _glob.glob(_os.path.join(pkgdir, "*", name)) + \
+                _glob.glob(_os.path.join(pkgdir, "*", name + ".exe"))
+            hit = next((c for c in cands if _os.path.isfile(c)), "")
+            if hit:
+                out[name] = hit
+        return out
+    except Exception:
+        return {}
+
+
+_BIN_CACHE: dict = {}
+
+
+def _resolve_bin(name: str) -> str:
+    """ffmpeg/ffprobe 解析：系统版优先 → 已下载的静态版 → 懒下载静态版 → 裸名（下游报错）。
+    下载只在首次真实调用时发生一次；离线失败则缓存裸名，后续快速失败（仍为可重试错误）。"""
+    if _BIN_CACHE.get(name):
+        return _BIN_CACHE[name]
+    p = shutil.which(name)
+    if p:
+        _BIN_CACHE[name] = p
+        return p
+    present = _static_bins_if_present()
+    if present.get(name):
+        _BIN_CACHE[name] = present[name]
+        return present[name]
+    try:
+        from static_ffmpeg import run as _sfrun
+        ff, fp = _sfrun.get_or_fetch_platform_executables_else_raise()
+        if ff:
+            _BIN_CACHE["ffmpeg"] = ff
+        if fp:
+            _BIN_CACHE["ffprobe"] = fp
+        if _BIN_CACHE.get(name):
+            return _BIN_CACHE[name]
+    except Exception:
+        pass
+    _BIN_CACHE[name] = name
+    return name
+
+
+def ffprobe_bin() -> str:
+    return _resolve_bin("ffprobe")
+
+
+def ffmpeg_bin() -> str:
+    return _resolve_bin("ffmpeg")
+
+
+def bin_status() -> dict:
+    """给 /api/health 与 start.sh 预检用：只读检查，绝不触发下载。"""
+    sys_ff = shutil.which("ffmpeg") or ""
+    sys_fp = shutil.which("ffprobe") or ""
+    present = _static_bins_if_present()
+    try:
+        import static_ffmpeg  # noqa: F401
+        static_pkg = True
+    except Exception:
+        static_pkg = False
+    return {"ffmpeg": bool(sys_ff or present.get("ffmpeg")),
+            "ffprobe": bool(sys_fp or present.get("ffprobe")),
+            "system_ffmpeg": sys_ff, "system_ffprobe": sys_fp,
+            "static_ffmpeg_present": bool(present.get("ffmpeg")),
+            "static_ffprobe_present": bool(present.get("ffprobe")),
+            "static_pkg_installed": static_pkg}
+
+
+def is_retryable_error(msg: str) -> bool:
+    s = (msg or "").strip()
+    return any(s.startswith(p) for p in RETRYABLE_ERRORS)
 
 IMAGE_SUBS = {"hdmv_pgs_subtitle", "pgs", "vobsub", "dvd_subtitle", "dvdsub", "pgssub"}
 TEXT_SUBS = {"subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "vtt"}
@@ -54,7 +146,7 @@ def probe(abs_path: str, timeout: int = 30) -> dict:
     if size <= 0:
         base["probe_error"] = "empty file (0 bytes)"
         return base
-    cmd = [FFPROBE, "-v", "quiet", "-print_format", "json",
+    cmd = [ffprobe_bin(), "-v", "quiet", "-print_format", "json",
            "-show_format", "-show_streams", abs_path]
     try:
         out = subprocess.run(cmd, capture_output=True, timeout=timeout, check=False)
@@ -144,7 +236,9 @@ def probe(abs_path: str, timeout: int = 30) -> dict:
 
 
 def _video_compatible(vcodec: str, height: int) -> bool:
-    return vcodec == TARGET_VCODEC and (height or 0) <= 1080
+    # Direct/Remux 零 CPU：只看编码，不管分辨率（4K H264 原样直发，浏览器硬解）；
+    # 高度只在显式降档（quality=720p/1080p）时强制转码。
+    return vcodec == TARGET_VCODEC
 
 
 def _audio_compatible(acodec: str) -> bool:
@@ -255,7 +349,7 @@ def build_cmd(abs_path: str, plan: dict, out_m3u8: str,
     except (TypeError, ValueError):
         ai = 0
     hw = (_os.getenv("HW_ACCEL") or "").strip().lower()
-    cmd = [FFMPEG, "-y", "-hide_banner", "-loglevel", "error"]
+    cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"]
     try:
         st = max(0.0, float(start or 0))
     except (TypeError, ValueError):
@@ -286,6 +380,9 @@ def build_cmd(abs_path: str, plan: dict, out_m3u8: str,
     seg_pat = _os.path.join(_os.path.dirname(out_m3u8) or ".", "seg%05d.ts")
     cmd += ["-f", "hls", "-hls_time", str(seg_time),
             "-hls_list_size", "0", "-hls_segment_type", "mpegts",
+            # EVENT 类型：转码中的增长型列表，hls.js 从头起播；
+            # 缺了它会被当直播流、从“直播边缘”起播导致开局 3 分片时永远等画面。
+            "-hls_playlist_type", "event",
             "-hls_segment_filename", seg_pat, out_m3u8]
     return cmd
 

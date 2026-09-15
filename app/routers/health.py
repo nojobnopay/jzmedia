@@ -11,7 +11,13 @@ router = APIRouter(prefix="/api")
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "phase": "phase2"}
+    try:
+        from .. import media as _media
+        bins = _media.bin_status()
+    except Exception:
+        bins = {"ffmpeg": False, "ffprobe": False}
+    return {"status": "ok", "phase": "phase2",
+            "ffmpeg": bool(bins.get("ffmpeg")), "ffprobe": bool(bins.get("ffprobe"))}
 
 
 def _settings_view() -> dict:
