@@ -10,14 +10,22 @@
         <button @click="resumePlay">继续播放</button>
         <button @click="restartPlay">从头开始</button>
       </div>
-      <video ref="videoEl" :key="videoKey" :controls="!isHls" autoplay playsinline preload="metadata" class="player-video"
-        @error="onVideoError"></video>
+      <div class="pv-wrap" :style="videoAspect ? { aspectRatio: videoAspect } : {}">
+        <video ref="videoEl" :key="videoKey" :controls="!isHls" autoplay playsinline preload="metadata" class="player-video"
+          @error="onVideoError"></video>
+        <img v-if="freezeFrame" :src="freezeFrame" class="freeze-frame" alt="" />
+        <div v-if="seekPending" class="seek-ov">
+          <Spinner :size="18" />
+          <span>正在转码到 {{ fmt(seekPos) }}…</span>
+        </div>
+      </div>
       <div v-if="isHls" class="ctl-bar">
         <button @click="togglePlay">{{ isPlaying ? '⏸' : '▶' }}</button>
-        <span class="ctl-time">{{ fmt(seekPos) }} / {{ fmt(decidedDuration) }}</span>
+        <span class="ctl-time">{{ fmt(seekDragging ? seekPreview : seekPos) }} / {{ fmt(decidedDuration) }}</span>
         <input type="range" min="0" :max="Math.floor(decidedDuration)" step="1"
-          :value="Math.floor(seekPos)" :disabled="seekPending || !(decidedDuration > 0)"
-          @change="doSeek" class="ctl-seek" />
+          :value="seekDragging ? seekPreview : Math.floor(seekPos)"
+          :disabled="seekPending || !(decidedDuration > 0)"
+          @input="onSeekInput" @change="onSeekCommit" class="ctl-seek" />
         <button @click="toggleMute">{{ muted ? '🔇' : '🔊' }}</button>
         <input type="range" min="0" max="100" :value="muted ? 0 : volume * 100"
           @input="setVolume" class="ctl-vol" />
@@ -64,6 +72,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '../api.js'
+import Spinner from './Spinner.vue'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
 async function ensureHls() {
@@ -129,6 +138,12 @@ const volume = ref(1)
 const isFull = ref(false)
 const seekPending = ref(false)
 let seekPendingSince = 0
+// 拖动态本地化：input 期间只改 seekPreview，change(松手) 才提交 → 不被 timeupdate 抬杠
+const seekDragging = ref(false)
+const seekPreview = ref(0)
+// 冻结帧 + 视频容器比例：换会话时窗口不塌、保留上一帧画面
+const freezeFrame = ref('')
+const videoAspect = ref('16 / 9')
 const dlgEl = ref(null)
 const isHls = computed(() => method.value === 'remux' || method.value === 'transcode')
 const bufLine = computed(() => {
@@ -307,6 +322,8 @@ async function reload() {
   lastTickPos = -1
   lastPlaylistUrl = ''
   lastHlsError.value = ''
+  // 换会话前抓一帧冻结画面：窗口不塌、无图像窗口不再出现
+  freezeFrame.value = captureFrame()
   await closeSession()
   destroyHls()
   const v = videoEl.value
@@ -322,6 +339,12 @@ async function reload() {
   reasons.value = d.reasons || []
   audios.value = d.media?.audio || []
   subs.value = d.media?.subs || []
+  // 固定播放器比例（探测宽高；无则 16:9），避免无数据时容器塌陷
+  try {
+    const w = Number(d.media?.width) || 0
+    const h = Number(d.media?.height) || 0
+    videoAspect.value = (w > 0 && h > 0) ? (w + ' / ' + h) : '16 / 9'
+  } catch (e) { videoAspect.value = '16 / 9' }
   try {
     decidedDuration.value = Number(d.media?.duration) || 0
     // 风险自动降档：需视频重编且片源>1080p 时，原画/1080p 转码太重则自动逃到 720p，
@@ -416,7 +439,7 @@ async function saveNow() {
 }
 function onTime() {
   const v = videoEl.value
-  if (!seekPending.value) seekPos.value = absPos()
+  if (!seekPending.value && !seekDragging.value) seekPos.value = absPos()
   lastAdvanceAt = Date.now()
   if (v && !doneWatched) {
     const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : decidedDuration.value
@@ -429,12 +452,28 @@ function onTime() {
   }
   if (Date.now() - lastSave > 10000) saveNow()
 }
-function doSeek(e) {
-  // HLS 自绘进度：拖动即暂停+冻结滑块+提示，关旧开新（复用 start 参数），新流 playing 后解冻
+function onSeekInput(e) {
+  // 拖动中：只更新本地预览值（进度条不被播放回调重置），不触发重开会话
   const t = Math.max(0, Math.floor(Number((e.target || {}).value) || 0))
+  seekDragging.value = true
+  seekPreview.value = t
+}
+function onSeekCommit(e) {
+  // 松手：提交目标秒数 → 关旧会话开新会话
+  const raw = Number((e.target || {}).value)
+  const t = seekDragging.value ? seekPreview.value
+    : Math.max(0, Math.floor(Number.isFinite(raw) ? raw : seekPos.value))
+  seekDragging.value = false
+  doSeek(t)
+}
+function doSeek(t) {
+  // HLS 自绘进度：拖动即暂停+冻结滑块+提示，关旧开新（复用 start 参数），新流 playing 后解冻
+  t = Math.max(0, Math.floor(Number(t) || 0))
+  if (t === Math.floor(absPos())) return
   resumeOffer.value = ''
   resumePos = t
   seekPos.value = t
+  seekPreview.value = t
   seekPending.value = true
   seekPendingSince = Date.now()
   try { videoEl.value && videoEl.value.pause() } catch (err) { /* 忽略 */ }
@@ -472,7 +511,28 @@ function onVideoError() {
     ? '播放中断（分片加载失败），可关闭重进，或切 720p 再试'
     : '文件为空或损坏，无法播放，请下载检查'
 }
-function onPlayingHide() { needGesture.value = false; seekPending.value = false; seekPendingSince = 0; lastAdvanceAt = Date.now() }
+function onPlayingHide() {
+  needGesture.value = false
+  seekPending.value = false
+  seekPendingSince = 0
+  seekDragging.value = false
+  freezeFrame.value = ''
+  lastAdvanceAt = Date.now()
+}
+// 冻结当前帧（MSE 同源分片不污染画布，可安全 toDataURL）；无画面返回 ''
+function captureFrame() {
+  try {
+    const v = videoEl.value
+    if (!v || !v.videoWidth || v.readyState < 2) return ''
+    const c = document.createElement('canvas')
+    c.width = v.videoWidth
+    c.height = v.videoHeight
+    const ctx = c.getContext('2d')
+    if (!ctx) return ''
+    ctx.drawImage(v, 0, 0, c.width, c.height)
+    return c.toDataURL('image/jpeg', 0.72)
+  } catch (e) { return '' }
+}
 function onFullChange() { isFull.value = !!document.fullscreenElement }
 function togglePlay() {
   const v = videoEl.value
@@ -750,7 +810,10 @@ onUnmounted(() => {
 </script>
 <style scoped>
 .player-dlg { max-width: 960px; }
-.player-video { width: 100%; max-height: 60vh; background: #000; border-radius: 8px; }
+.pv-wrap { position: relative; background: #000; border-radius: 8px; overflow: hidden; width: 100%; max-height: 60vh; }
+.player-video { width: 100%; height: 100%; max-height: 60vh; object-fit: contain; background: #000; display: block; }
+.freeze-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.seek-ov { position: absolute; inset: 0; display: flex; gap: 10px; align-items: center; justify-content: center; background: rgba(0, 0, 0, .45); color: #e0a63c; font-size: 0.9375rem; }
 .play-method { color: #888; font-size: 0.8125rem; margin: 0 0 4px; }
 .play-reason { color: #9ecfff; font-size: 0.8125rem; margin: 0 0 8px; }
 .sess-status { color: #e0a63c; font-size: 0.8125rem; margin: 0 0 8px; }
