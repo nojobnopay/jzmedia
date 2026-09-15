@@ -35,9 +35,10 @@
           <select v-model.number="subIdx" @change="applySub">
             <option :value="-1">关闭</option>
             <option v-for="(s, i) in subs" :key="i" :value="i" :disabled="!!s.image">
-              {{ subLabel(s, i) }}{{ s.image ? '（内封图片，需下载原盘）' : '' }}
+              {{ subLabel(s, i) }}{{ s.image ? '（图片字幕，电视/Kodi可看）' : '' }}
             </option>
           </select>
+          <span v-if="subs.length && !subs.some(s => !s.image)" class="sub-note">内封字幕均为图片型，浏览器不支持切换</span>
         </label>
       </div>
       <p v-if="err" class="hint warn">{{ err }}</p>
@@ -309,7 +310,11 @@ async function restartPlay() {
   reload()
 }
 function onVideoError() {
-  if (!err.value) err.value = '文件为空或损坏，无法播放，请下载检查'
+  if (err.value) return
+  // 分流：Direct 是文件问题；HLS 多半是分片/缓冲断流（可重试或降档），别报“文件损坏”吓人
+  err.value = method.value && method.value !== 'direct'
+    ? '播放中断（分片加载失败），可关闭重进，或切 720p 再试'
+    : '文件为空或损坏，无法播放，请下载检查'
 }
 function onPlayingHide() { needGesture.value = false }
 onMounted(async () => {
@@ -359,5 +364,6 @@ onUnmounted(() => {
 .resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; margin-bottom: 8px; flex-wrap: wrap; }
 .play-opts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 0.875rem; color: #aaa; }
 .pos-hint { color: #666; font-size: 0.8125rem; margin-right: auto; }
+.sub-note { color: #888; font-size: 0.75rem; }
 .hint.warn { color: #e0a63c; }
 </style>

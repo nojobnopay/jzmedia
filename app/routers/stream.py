@@ -482,10 +482,12 @@ def hls_session_create(version_id: int, body: SessionBody | None = None):
 
 @router.get("/sessions/{sid}/master.m3u8")
 def hls_session_playlist(sid: str):
-    """会话播放列表（增长型；转码完成前无 ENDLIST，hls.js 照播）。每次取即心跳。"""
+    """会话播放列表（增长型；转码完成前无 ENDLIST，hls.js 照播）。每次取即心跳。
+    永不缓存：hls.js 靠反复重取发现新分片，缓存即断流（18s 必死）。"""
     sess = _get_session(sid)
     return PlainTextResponse(_playlist_text(sess["sdir"]),
-                             media_type="application/vnd.apple.mpegurl")
+                             media_type="application/vnd.apple.mpegurl",
+                             headers={"Cache-Control": "no-store"})
 
 
 @router.get("/sessions/{sid}/seg/{name}")
@@ -546,10 +548,11 @@ def _ensure_hls(version_id: int, quality: str, audio: int,
 def hls_master(version_id: int, quality: str = "original",
                audio: int = 0, sub: int | None = None, start: float = 0):
     """HLS 播放列表（旧直连口，渐进式：前分片就绪即回；direct 请走 decide.direct_url）。
-    新播放器请用 sessions 口（可 ping/关播）。"""
+    新播放器请用 sessions 口（可 ping/关播）。列表永不缓存（同上）。"""
     sdir, _d = _ensure_hls(version_id, quality, audio, sub, start)
     return PlainTextResponse(_playlist_text(sdir),
-                             media_type="application/vnd.apple.mpegurl")
+                             media_type="application/vnd.apple.mpegurl",
+                             headers={"Cache-Control": "no-store"})
 
 
 @router.get("/{version_id}/seg/{name}")
