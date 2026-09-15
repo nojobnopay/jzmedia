@@ -494,8 +494,11 @@ def hls_session_segment(sid: str, name: str):
     if not _SEG_RE.match(name or ""):
         raise HTTPException(422, "bad segment name")
     sess = _get_session(sid)
-    dest = os.path.join(sess["sdir"], name)
-    if os.path.normpath(dest) != dest or not dest.startswith(sess["sdir"]):
+    # 文件名已白名单限定为扁平 segNNNNN.ts（无目录成分），此处再以 dirname 双保险；
+    # 注意两侧都要 normpath：DATA_DIR 可能是相对路径（./data），单边归一会恒假。
+    base = os.path.normpath(sess["sdir"])
+    dest = os.path.normpath(os.path.join(base, os.path.basename(name or "")))
+    if os.path.dirname(dest) != base:
         raise HTTPException(422, "bad segment name")
     deadline = time.time() + 25
     while not os.path.isfile(dest) and time.time() < deadline:

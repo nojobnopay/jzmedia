@@ -39,6 +39,8 @@ def spa(full_path: str):
             return FileResponse(candidate)
     index = os.path.join(DIST, "index.html")
     if os.path.exists(index):
-        return FileResponse(index)
+        # 入口永不缓存：带哈希的 /assets 天然防旧，index.html 必须每次最新，
+        # 否则浏览器攥着旧入口引用不存在的旧包（发版后“修了像没修”）。
+        return FileResponse(index, headers={"Cache-Control": "no-store"})
     return ("<h3>jzmedia api ok</h3><p>前端未构建：进frontend跑 npm run build。"
             "</p><p><a href='/docs'>/docs</a></p>")
