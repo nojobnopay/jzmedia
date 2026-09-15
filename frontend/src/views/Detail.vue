@@ -200,7 +200,7 @@
     </div>
 
     <PlayerModal v-if="playVid" :versionId="playVid" :title="playTitle"
-      @close="playVid = null" @watched="onPlayEnded" />
+      @close="closeStream" @watched="onPlayEnded" />
 
     <div v-if="posterDlg" class="dlg-mask" @click.self="closePoster">
       <div class="dlg pv-dlg poster-dlg">
@@ -360,6 +360,16 @@ function openHeroPlay() {
 function openStream(v) {
   playTitle.value = baseName(v.file_path)
   playVid.value = Number(v.id)
+}
+async function closeStream() {
+  // 关播即刷新断点：详情页“上次看到”不再等手动刷新（仅刷新当前选中版本）
+  const v = playVid.value
+  playVid.value = null
+  if (!v || Number(v) !== Number(heroVid.value)) return
+  try {
+    const p = await api(`/api/stream/progress?version_id=${v}`)
+    progressInfo.value = (p && Number(p.position) > 0) ? p : null
+  } catch (e) { /* 忽略 */ }
 }
 // P-D：电视原盘直链（Kodi/外部播放器直通，零转码；blob 本就支持 Range）
 const tvMsg = ref('')

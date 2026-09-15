@@ -1,6 +1,6 @@
 <template>
   <div class="dlg-mask" @click.self="$emit('close')">
-    <div class="dlg player-dlg">
+    <div class="dlg player-dlg" ref="dlgEl">
       <h3>{{ title || ('版本 ' + versionId) }}</h3>
       <p v-if="methodLine" class="play-method">{{ methodLine }}</p>
       <p v-if="reasonLine" class="play-reason">{{ reasonLine }}</p>
@@ -10,13 +10,18 @@
         <button @click="resumePlay">继续播放</button>
         <button @click="restartPlay">从头开始</button>
       </div>
-      <video ref="videoEl" controls autoplay playsinline preload="metadata" class="player-video"
+      <video ref="videoEl" :controls="!isHls" autoplay playsinline preload="metadata" class="player-video"
         @error="onVideoError"></video>
-      <div v-if="isHls && decidedDuration > 0" class="seek-row">
-        <span>{{ fmt(seekPos) }}</span>
+      <div v-if="isHls" class="ctl-bar">
+        <button @click="togglePlay">{{ isPlaying ? '⏸' : '▶' }}</button>
+        <span class="ctl-time">{{ fmt(seekPos) }} / {{ fmt(decidedDuration) }}</span>
         <input type="range" min="0" :max="Math.floor(decidedDuration)" step="1"
-          :value="Math.floor(seekPos)" @change="doSeek" />
-        <span>{{ fmt(decidedDuration) }}</span>
+          :value="Math.floor(seekPos)" :disabled="seekPending || !(decidedDuration > 0)"
+          @change="doSeek" class="ctl-seek" />
+        <button @click="toggleMute">{{ muted ? '🔇' : '🔊' }}</button>
+        <input type="range" min="0" max="100" :value="muted ? 0 : volume * 100"
+          @input="setVolume" class="ctl-vol" />
+        <button @click="toggleFull">{{ isFull ? '⤢' : '⛶' }}</button>
       </div>
       <div v-if="needGesture" class="gesture-bar">
         <span>片源已就绪，浏览器阻止了自动带声播放</span>
@@ -50,6 +55,7 @@
       <p v-if="err" class="hint warn">{{ err }}</p>
       <div class="bar">
         <span class="pos-hint">{{ bufLine || posHint }}</span>
+        <button @click="copyDebug">复制调试信息</button>
         <button @click="$emit('close')">关闭</button>
       </div>
     </div>
@@ -94,6 +100,13 @@ const startOffset = ref(0)
 const seekPos = ref(0)
 const bufSecs = ref(0)
 let bufTimer = 0
+// HLS 自绘控制条状态
+const isPlaying = ref(false)
+const muted = ref(false)
+const volume = ref(1)
+const isFull = ref(false)
+const seekPending = ref(false)
+const dlgEl = ref(null)
 const isHls = computed(() => method.value === 'remux' || method.value === 'transcode')
 const bufLine = computed(() => {
   if (!isHls.value) return ''
@@ -304,7 +317,7 @@ async function saveNow() {
 }
 function onTime() {
   const v = videoEl.value
-  seekPos.value = absPos()
+  if (!seekPending.value) seekPos.value = absPos()
   if (v && !doneWatched) {
     const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : decidedDuration.value
     const remain = dur - absPos()
@@ -317,10 +330,14 @@ function onTime() {
   if (Date.now() - lastSave > 10000) saveNow()
 }
 function doSeek(e) {
-  // HLS 自绘进度：拖动=按绝对秒关旧开新（seek 即重开，复用 start 参数）
+  // HLS 自绘进度：拖动即暂停+冻结滑块+提示，关旧开新（复用 start 参数），新流 playing 后解冻
   const t = Math.max(0, Math.floor(Number((e.target || {}).value) || 0))
   resumeOffer.value = ''
   resumePos = t
+  seekPos.value = t
+  seekPending.value = true
+  try { videoEl.value && videoEl.value.pause() } catch (err) { /* 忽略 */ }
+  sessStatus.value = '正在转码…'
   reload()
 }
 async function onEnded() {
@@ -354,7 +371,59 @@ function onVideoError() {
     ? '播放中断（分片加载失败），可关闭重进，或切 720p 再试'
     : '文件为空或损坏，无法播放，请下载检查'
 }
-function onPlayingHide() { needGesture.value = false }
+function onPlayingHide() { needGesture.value = false; seekPending.value = false }
+function onFullChange() { isFull.value = !!document.fullscreenElement }
+function togglePlay() {
+  const v = videoEl.value
+  if (!v) return
+  if (v.paused) { needGesture.value = false; v.play().catch(() => { needGesture.value = true }) }
+  else v.pause()
+}
+function toggleMute() {
+  const v = videoEl.value
+  if (!v) return
+  v.muted = !v.muted
+  muted.value = v.muted
+}
+function setVolume(e) {
+  const v = videoEl.value
+  const x = Math.max(0, Math.min(100, Number((e.target || {}).value) || 0)) / 100
+  volume.value = x
+  if (!v) return
+  v.volume = x
+  v.muted = x <= 0
+  muted.value = v.muted
+}
+function toggleFull() {
+  const el = dlgEl.value
+  try {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+    else if (el && el.requestFullscreen) el.requestFullscreen().catch(() => {})
+  } catch (e) { /* 忽略 */ }
+}
+function onPlayState() {
+  const v = videoEl.value
+  isPlaying.value = !!(v && !v.paused && !v.ended)
+  if (v) { muted.value = !!v.muted; volume.value = Number(v.volume ?? 1) }
+}
+async function copyDebug() {
+  const info = {
+    version: props.versionId, method: method.value,
+    session: sessionId, pos: Math.floor(absPos()),
+    buffered: Math.floor(bufSecs.value),
+  }
+  try {
+    if (sessionId) {
+      const d = await api(`/api/stream/sessions/${sessionId}/debug`)
+      info.debug = { running: d.running, exit: d.exit_code, segs: d.segments,
+        items: d.playlist_items, finished: d.finished }
+    }
+    await navigator.clipboard.writeText(JSON.stringify(info))
+    posHint.value = '调试信息已复制，贴给开发者即可定位'
+  } catch (e) {
+    posHint.value = '复制失败：' + JSON.stringify(info)
+  }
+}
 onMounted(async () => {
   try {
     const p = await api(`/api/stream/progress?version_id=${props.versionId}`)
@@ -371,9 +440,14 @@ onMounted(async () => {
   if (v) {
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('pause', saveNow)
+    v.addEventListener('pause', onPlayState)
     v.addEventListener('ended', onEnded)
     v.addEventListener('playing', onPlayingHide)
+    v.addEventListener('play', onPlayState)
+    muted.value = !!v.muted
+    volume.value = Number(v.volume ?? 1)
   }
+  document.addEventListener('fullscreenchange', onFullChange)
   window.addEventListener('beforeunload', saveNow)
   bufTimer = setInterval(() => {
     try {
@@ -393,9 +467,12 @@ onUnmounted(() => {
   if (v) {
     v.removeEventListener('timeupdate', onTime)
     v.removeEventListener('pause', saveNow)
+    v.removeEventListener('pause', onPlayState)
     v.removeEventListener('ended', onEnded)
     v.removeEventListener('playing', onPlayingHide)
+    v.removeEventListener('play', onPlayState)
   }
+  document.removeEventListener('fullscreenchange', onFullChange)
   window.removeEventListener('beforeunload', saveNow)
   if (bufTimer) clearInterval(bufTimer)
   if (saveTimer) clearTimeout(saveTimer)
@@ -415,6 +492,11 @@ onUnmounted(() => {
 .pos-hint { color: #666; font-size: 0.8125rem; margin-right: auto; }
 .seek-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 0.75rem; color: #888; }
 .seek-row input[type="range"] { flex: 1; }
+.ctl-bar { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.ctl-bar button { padding: 4px 10px; }
+.ctl-time { font-size: 0.75rem; color: #888; white-space: nowrap; }
+.ctl-seek { flex: 1; }
+.ctl-vol { width: 90px; }
 .sub-note { color: #888; font-size: 0.75rem; }
 .hint.warn { color: #e0a63c; }
 </style>

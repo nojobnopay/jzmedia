@@ -371,6 +371,21 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         raise HTTPException(415, "image subtitle needs burn-in: download original and use VLC/Kodi")
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
+    # 单人场景：同版本同 plan 且进程活着 → 直接复用（秒开，不重转）；
+    # 同版本不同 plan → 先杀旧的再开新的（防多路 ffmpeg 抢 CPU 越跑越慢）。
+    plan_key = json.dumps({"q": quality, "a": audio, "s": sub,
+                           "plan": d["plan"]}, sort_keys=True)
+    with _sess_lock:
+        for sid, s in list(_sessions.items()):
+            if int(s.get("vid") or -1) != int(m["id"]):
+                continue
+            proc = s.get("proc")
+            if proc is not None and proc.poll() is not None:
+                continue
+            if s.get("plan_key") == plan_key:
+                s["last_ping"] = time.time()
+                return sid, s["sdir"], d
+            _drop_session(sid, kill=True)
     if not _hls_sem.acquire(blocking=False):
         raise HTTPException(429, "transcode slots full (max 2), try later")
     sdir = ""
@@ -409,7 +424,8 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         sid = uuid.uuid4().hex[:16]
         with _sess_lock:
             _sessions[sid] = {"proc": proc, "sdir": sdir, "vid": int(m["id"]),
-                              "plan": d["plan"], "last_ping": time.time()}
+                              "plan": d["plan"], "plan_key": plan_key,
+                              "last_ping": time.time()}
         # 等前 _MIN_SEGS 分片（remux 秒出；转码按实际速度）：首画面不等整片
         deadline = time.time() + 300
         while time.time() < deadline:
