@@ -16,6 +16,7 @@ import subprocess
 import threading
 import time
 import uuid
+from collections import deque
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -35,6 +36,17 @@ _MIN_SEGS = 3          # 首屏等待分片数（约 18s 内容）
 _SESS_IDLE = 600       # 会话无心跳保活期（秒）
 _sessions: dict[str, dict] = {}
 _sess_lock = threading.RLock()
+# 请求命中环形日志（卡死定位用）：{t, sid, kind, name, status}，只增不查库
+_hits: deque = deque(maxlen=200)
+
+
+def _log_hit(sid: str, kind: str, name: str, status: int) -> None:
+    try:
+        with _sess_lock:
+            _hits.append({"t": int(time.time()), "sid": sid or "",
+                          "kind": kind, "name": name or "", "status": int(status)})
+    except Exception:
+        pass
 
 
 def _version_abs(version_id: int) -> tuple[dict, str]:
@@ -485,6 +497,7 @@ def hls_session_playlist(sid: str):
     """会话播放列表（增长型；转码完成前无 ENDLIST，hls.js 照播）。每次取即心跳。
     永不缓存：hls.js 靠反复重取发现新分片，缓存即断流（18s 必死）。"""
     sess = _get_session(sid)
+    _log_hit(sid, "playlist", "master.m3u8", 200)
     return PlainTextResponse(_playlist_text(sess["sdir"]),
                              media_type="application/vnd.apple.mpegurl",
                              headers={"Cache-Control": "no-store"})
@@ -509,8 +522,51 @@ def hls_session_segment(sid: str, name: str):
             break
         time.sleep(0.5)
     if not os.path.isfile(dest):
+        _log_hit(sid, "seg", name, 404)
         raise HTTPException(404, "segment not ready (session may have ended)")
+    _log_hit(sid, "seg", name, 200)
     return FileResponse(dest, media_type="video/MP2T", filename=name)
+
+
+@router.get("/sessions/{sid}/debug")
+def hls_session_debug(sid: str):
+    """卡死自证口：进程活/死/退出码、已产分片、列表行数/是否完工、ffmpeg尾日志、近期命中。
+    前端状态行 + 此口 JSON，足够定位“没产出/没进来/播不出”三选一。"""
+    with _sess_lock:
+        sess = _sessions.get(sid or "")
+        hits = [h for h in list(_hits) if h.get("sid") == sid][-20:]
+    if not sess:
+        return {"session_id": sid, "exists": False, "hits": hits}
+    proc = sess.get("proc")
+    alive = proc is not None and proc.poll() is None
+    exit_code = None if proc is None or alive else proc.poll()
+    sdir = sess.get("sdir") or ""
+    segs = _seg_count(sdir)
+    extinf = 0
+    endlist = False
+    try:
+        with open(os.path.join(sdir, "master.m3u8"), encoding="utf-8") as fh:
+            for line in fh:
+                s = line.strip()
+                if s.startswith("#EXTINF"):
+                    extinf += 1
+                elif s == "#EXT-X-ENDLIST":
+                    endlist = True
+    except OSError:
+        pass
+    flog = ""
+    try:
+        lp = os.path.join(sdir, "ffmpeg.log")
+        with open(lp, "rb") as fh:
+            fh.seek(max(0, os.path.getsize(lp) - 2000))
+            flog = fh.read().decode("utf-8", errors="replace")[-800:]
+    except OSError:
+        pass
+    return {"session_id": sid, "exists": True, "running": alive,
+            "exit_code": exit_code, "segments": segs,
+            "playlist_items": extinf, "finished": endlist,
+            "last_ping_ago": round(time.time() - float(sess.get("last_ping") or 0), 1),
+            "ffmpeg_log_tail": flog, "hits": hits}
 
 
 @router.post("/sessions/{sid}/ping")
@@ -550,6 +606,7 @@ def hls_master(version_id: int, quality: str = "original",
     """HLS 播放列表（旧直连口，渐进式：前分片就绪即回；direct 请走 decide.direct_url）。
     新播放器请用 sessions 口（可 ping/关播）。列表永不缓存（同上）。"""
     sdir, _d = _ensure_hls(version_id, quality, audio, sub, start)
+    _log_hit("", "playlist-legacy", str(version_id), 200)
     return PlainTextResponse(_playlist_text(sdir),
                              media_type="application/vnd.apple.mpegurl",
                              headers={"Cache-Control": "no-store"})
@@ -585,8 +642,10 @@ def hls_segment(version_id: int, name: str):
             break
         time.sleep(0.5)
     if not cands:
+        _log_hit("", "seg-legacy", f"{vid}/{name}", 404)
         raise HTTPException(404, "segment not ready (session may have ended)")
     cands.sort(reverse=True)
+    _log_hit("", "seg-legacy", f"{vid}/{name}", 200)
     return FileResponse(cands[0][1], media_type="video/MP2T",
                         filename=name)
 

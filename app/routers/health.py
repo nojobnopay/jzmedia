@@ -17,7 +17,20 @@ def health():
     except Exception:
         bins = {"ffmpeg": False, "ffprobe": False}
     return {"status": "ok", "phase": "phase2",
-            "ffmpeg": bool(bins.get("ffmpeg")), "ffprobe": bool(bins.get("ffprobe"))}
+            "ffmpeg": bool(bins.get("ffmpeg")), "ffprobe": bool(bins.get("ffprobe")),
+            "build": _build_commit()}
+
+
+def _build_commit() -> str:
+    """构建版本脚标：git 短 hash，无仓库（如镜像内）则 unknown。只读，不抛错。"""
+    try:
+        import subprocess as _sp
+        out = _sp.run(["git", "rev-parse", "--short", "HEAD"],
+                      capture_output=True, timeout=5, check=False)
+        s = (out.stdout or b"").decode("utf-8", errors="replace").strip()
+        return s[:12] if out.returncode == 0 and s else "unknown"
+    except Exception:
+        return "unknown"
 
 
 def _settings_view() -> dict:

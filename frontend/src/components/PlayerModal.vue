@@ -12,6 +12,12 @@
       </div>
       <video ref="videoEl" controls autoplay playsinline preload="metadata" class="player-video"
         @error="onVideoError"></video>
+      <div v-if="isHls && decidedDuration > 0" class="seek-row">
+        <span>{{ fmt(seekPos) }}</span>
+        <input type="range" min="0" :max="Math.floor(decidedDuration)" step="1"
+          :value="Math.floor(seekPos)" @change="doSeek" />
+        <span>{{ fmt(decidedDuration) }}</span>
+      </div>
       <div v-if="needGesture" class="gesture-bar">
         <span>片源已就绪，浏览器阻止了自动带声播放</span>
         <button class="play-now" @click="userPlay">▶ 点击播放</button>
@@ -43,7 +49,7 @@
       </div>
       <p v-if="err" class="hint warn">{{ err }}</p>
       <div class="bar">
-        <span class="pos-hint">{{ posHint }}</span>
+        <span class="pos-hint">{{ bufLine || posHint }}</span>
         <button @click="$emit('close')">关闭</button>
       </div>
     </div>
@@ -83,6 +89,25 @@ const resumeOffer = ref('')
 let resumePos = 0
 const decidedDuration = ref(0)
 let doneWatched = false
+// HLS 绝对时间轴：会话按 start 开新流，片内 currentTime 从 0 起；显示/存档一律用 offset+片内
+const startOffset = ref(0)
+const seekPos = ref(0)
+const bufSecs = ref(0)
+let bufTimer = 0
+const isHls = computed(() => method.value === 'remux' || method.value === 'transcode')
+const bufLine = computed(() => {
+  if (!isHls.value) return ''
+  const total = Number(decidedDuration.value) || 0
+  let s = `已播 ${fmt(seekPos.value)}`
+  if (total > 0) s += ` / 全片 ${fmt(total)}`
+  if (bufSecs.value > 0) s += `（已缓冲 ${Math.floor(bufSecs.value)}s）`
+  return s
+})
+function absPos() {
+  const v = videoEl.value
+  const cur = (v && Number.isFinite(v.currentTime)) ? v.currentTime : 0
+  return Math.max(0, startOffset.value + cur)
+}
 
 const methodLine = computed(() => {
   if (!method.value) return ''
@@ -197,6 +222,7 @@ async function reload() {
     }
     applySubTrack()
   const startAt = resumePos || 0
+  startOffset.value = Math.floor(startAt)
   if (d.method === 'direct') {
     v.src = encodeURI(d.direct_url) + (startAt > 0 ? `#t=${Math.floor(startAt)}` : '')
     tryPlay()
@@ -233,6 +259,7 @@ async function reload() {
         hls = new Hls({ maxBufferLength: 30 })
         hls.on(Hls.Events.ERROR, (_ev, data) => {
           if (data && data.fatal) err.value = '播放错误：' + (data.details || data.type)
+          else if (data) console.warn('[hls]', data.details || data.type, data)
         })
         hls.on(Hls.Events.MEDIA_ATTACHED, () => tryPlay())
         hls.loadSource(url)
@@ -266,19 +293,21 @@ async function saveNow() {
   const v = videoEl.value
   if (!v || !Number.isFinite(v.currentTime) || v.currentTime <= 0) return
   const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : decidedDuration.value
+  const pos = absPos()
   try {
     await api(`/api/stream/progress?version_id=${props.versionId}`, {
-      method: 'POST', body: JSON.stringify({ position: v.currentTime, duration: dur || 0 })
+      method: 'POST', body: JSON.stringify({ position: pos, duration: dur || 0 })
     })
     lastSave = Date.now()
-    posHint.value = `已记录 ${fmt(v.currentTime)}`
+    posHint.value = `已记录 ${fmt(pos)}`
   } catch (e) { /* 进度上报失败不打扰播放 */ }
 }
 function onTime() {
   const v = videoEl.value
+  seekPos.value = absPos()
   if (v && !doneWatched) {
     const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : decidedDuration.value
-    const remain = dur - v.currentTime
+    const remain = dur - absPos()
     // 阈值标已看：剩余<5%或<300s（含片尾曲场景），只触发一次
     if (dur > 0 && (remain / dur < 0.05 || remain < 300)) {
       doneWatched = true
@@ -287,23 +316,32 @@ function onTime() {
   }
   if (Date.now() - lastSave > 10000) saveNow()
 }
+function doSeek(e) {
+  // HLS 自绘进度：拖动=按绝对秒关旧开新（seek 即重开，复用 start 参数）
+  const t = Math.max(0, Math.floor(Number((e.target || {}).value) || 0))
+  resumeOffer.value = ''
+  resumePos = t
+  reload()
+}
 async function onEnded() {
   await saveNow()
   emit('watched')
 }
 function resumePlay() {
+  // 起播时会话已按断点 start 开流（direct 靠 #t），这里只需消条；
+  // 只有 direct 且浏览器没吃 #t 时才补跳一次。
+  resumeOffer.value = ''
   const v = videoEl.value
-  if (v && resumePos > 0) {
-    // HLS 起播 seek 由 start 参数完成（reload 时已带）；direct 由 #t 完成。
-    // 若已在播放中则直接跳
+  if (v && method.value === 'direct' && resumePos > 0) {
     try { v.currentTime = resumePos } catch (e) { /* 忽略 */ }
   }
-  resumeOffer.value = ''
   resumePos = 0
 }
 async function restartPlay() {
   resumeOffer.value = ''
   resumePos = 0
+  startOffset.value = 0
+  seekPos.value = 0
   try {
     await api(`/api/stream/progress?version_id=${props.versionId}`, { method: 'DELETE' })
   } catch (e) { /* 忽略 */ }
@@ -337,6 +375,16 @@ onMounted(async () => {
     v.addEventListener('playing', onPlayingHide)
   }
   window.addEventListener('beforeunload', saveNow)
+  bufTimer = setInterval(() => {
+    try {
+      const v = videoEl.value
+      if (v && v.buffered && v.buffered.length && Number.isFinite(v.currentTime)) {
+        bufSecs.value = Math.max(0, v.buffered.end(v.buffered.length - 1) - v.currentTime)
+      } else {
+        bufSecs.value = 0
+      }
+    } catch (e) { bufSecs.value = 0 }
+  }, 2000)
 })
 onUnmounted(() => {
   saveNow()
@@ -349,6 +397,7 @@ onUnmounted(() => {
     v.removeEventListener('playing', onPlayingHide)
   }
   window.removeEventListener('beforeunload', saveNow)
+  if (bufTimer) clearInterval(bufTimer)
   if (saveTimer) clearTimeout(saveTimer)
   destroyHls()
 })
@@ -364,6 +413,8 @@ onUnmounted(() => {
 .resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; margin-bottom: 8px; flex-wrap: wrap; }
 .play-opts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 0.875rem; color: #aaa; }
 .pos-hint { color: #666; font-size: 0.8125rem; margin-right: auto; }
+.seek-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 0.75rem; color: #888; }
+.seek-row input[type="range"] { flex: 1; }
 .sub-note { color: #888; font-size: 0.75rem; }
 .hint.warn { color: #e0a63c; }
 </style>

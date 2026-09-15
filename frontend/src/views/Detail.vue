@@ -7,6 +7,7 @@
           <button @click="$router.back()">‹ 返回</button>
           <span class="top-right">
             <span v-if="savedFlash" class="saved-flash">已保存</span>
+            <span v-if="buildVer" class="ver-tag" :title="'后端构建 ' + buildVer">构建 {{ buildVer }}</span>
             <button @click="toggleEdit">{{ editing ? '收起' : '编辑' }}</button>
           </span>
         </div>
@@ -266,6 +267,7 @@ const mediaLoading = ref(false)
 const mediaError = ref('')
 const noFfmpeg = ref(false)
 const progressInfo = ref(null)
+const buildVer = ref('')
 const mediaBadge = computed(() => {
   const mi = mediaInfo.value
   if (!mi || !mi.playable) return ''
@@ -404,6 +406,7 @@ async function load() {
   try {
     const h = await api('/api/health')
     noFfmpeg.value = !h.ffmpeg
+    buildVer.value = h.build || ''
   } catch (e) { /* 健康检查失败不挡详情页 */ }
   await reloadFiles()
   try {
@@ -807,6 +810,7 @@ onUnmounted(() => {
 .topbar { display: flex; justify-content: space-between; align-items: center; }
 .top-right { display: flex; gap: 8px; align-items: center; }
 .saved-flash { color: #7ed321; font-size: 0.875rem; }
+.ver-tag { color: #555; font-size: 0.75rem; }
 .hero-main { display: flex; gap: 20px; margin-top: 12px; align-items: flex-start; }
 .poster { width: 220px; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.55); }
 .poster.zoomable { cursor: zoom-in; }
