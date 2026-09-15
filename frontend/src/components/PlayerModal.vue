@@ -72,6 +72,7 @@ const audios = ref([])
 const subs = ref([])
 const method = ref('')
 const reasons = ref([])
+const autoDropped = ref(false)
 const sessStatus = ref('')
 let sessionId = null
 let pingTimer = 0
@@ -79,7 +80,7 @@ const err = ref('')
 const posHint = ref('')
 const resumeOffer = ref('')
 let resumePos = 0
-let decidedDuration = 0
+const decidedDuration = ref(0)
 let doneWatched = false
 
 const methodLine = computed(() => {
@@ -93,6 +94,7 @@ const REASON_TEXT = {
   container_not_supported: '容器不对，已无损换为浏览器兼容容器',
   resolution_downscale: '已按所选画质降档（省 CPU）',
   pgs_needs_burn: '内封图片字幕需烧录（很耗 CPU），建议关闭字幕或下载原盘',
+  auto_downscale_720p: '已自动降为 720p（4K 片源软转太重，原画可在上方切回）',
 }
 const reasonLine = computed(() => (reasons.value || []).map(r => REASON_TEXT[r] || r).join('；'))
 function audioLabel(a, i) {
@@ -179,8 +181,20 @@ async function reload() {
   reasons.value = d.reasons || []
   audios.value = d.media?.audio || []
   subs.value = d.media?.subs || []
-  decidedDuration.value = Number(d.media?.duration) || 0
-  applySubTrack()
+  try {
+    decidedDuration.value = Number(d.media?.duration) || 0
+    // 风险自动降档：需视频重编且片源>1080p 时，原画/1080p 转码太重则自动逃到 720p，
+    // 只降一次防循环；direct/remux 永远保持所选画质。
+    const needVideoEncode = d.method === 'transcode' && !(d.plan || {}).vcopy
+    const srcH = Number(d.media?.height) || 0
+    if (needVideoEncode && srcH > 1080 && quality.value !== '720p' && !autoDropped.value) {
+      autoDropped.value = true
+      quality.value = '720p'
+      reasons.value = [...reasons.value, 'auto_downscale_720p']
+      await reload()
+      return
+    }
+    applySubTrack()
   const startAt = resumePos || 0
   if (d.method === 'direct') {
     v.src = encodeURI(d.direct_url) + (startAt > 0 ? `#t=${Math.floor(startAt)}` : '')
@@ -227,6 +241,11 @@ async function reload() {
         err.value = '当前浏览器不支持 HLS，请用 Chrome/Edge/Safari'
       }
     }
+    }
+  } catch (e) {
+    // 兜底：起播链路任何意外都不再静默 0:00，直接显示人话错误
+    sessStatus.value = ''
+    err.value = '播放失败：' + (e && e.message ? e.message : e)
   }
 }
 function applySubTrack() {
