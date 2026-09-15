@@ -293,10 +293,14 @@ const mediaBadge = computed(() => {
 const mediaUnplayable = computed(() => mediaInfo.value && !mediaInfo.value.playable)
 const resumeText = computed(() => {
   const p = progressInfo.value
-  if (!p || !(Number(p.position) > 15)) return ''
-  const dur = Number(p.duration) || Number(mediaInfo.value?.duration) || 0
-  const remain = dur - Number(p.position)
-  if (dur > 0 && (remain / dur < 0.05 || remain < 300)) return ''
+  const pos = Number(p?.position) || 0
+  if (!p || !(pos > 15)) return ''
+  let dur = Number(p.duration) || 0
+  // 旧版本用 HLS 增长清单时长写坏过存档：dur < position 视为不可信，回落探测总长
+  if (dur > 0 && dur < pos) dur = Number(mediaInfo.value?.duration) || 0
+  if (!dur) dur = Number(mediaInfo.value?.duration) || 0
+  const remain = dur - pos
+  if (dur > 0 && remain > 0 && (remain / dur < 0.05 || remain < 300)) return ''
   return `上次看到 ${p.position_text || ''}`
 })
 async function loadMedia() {

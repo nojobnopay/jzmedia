@@ -10,7 +10,7 @@
         <button @click="resumePlay">继续播放</button>
         <button @click="restartPlay">从头开始</button>
       </div>
-      <div class="pv-wrap" :style="videoAspect ? { aspectRatio: videoAspect } : {}">
+      <div class="pv-wrap" :style="videoPadding ? { paddingTop: videoPadding } : {}">
         <video ref="videoEl" :key="videoKey" :controls="!isHls" autoplay playsinline preload="metadata" class="player-video"
           @error="onVideoError"></video>
         <img v-if="freezeFrame" :src="freezeFrame" class="freeze-frame" alt="" />
@@ -141,9 +141,9 @@ let seekPendingSince = 0
 // 拖动态本地化：input 期间只改 seekPreview，change(松手) 才提交 → 不被 timeupdate 抬杠
 const seekDragging = ref(false)
 const seekPreview = ref(0)
-// 冻结帧 + 视频容器比例：换会话时窗口不塌、保留上一帧画面
+// 冻结帧 + 容器比例（padding-top 撑高，绝对定位铺满：换会话时窗口绝不塌）
 const freezeFrame = ref('')
-const videoAspect = ref('16 / 9')
+const videoPadding = ref('56.25%')
 const dlgEl = ref(null)
 const isHls = computed(() => method.value === 'remux' || method.value === 'transcode')
 const bufLine = computed(() => {
@@ -339,12 +339,15 @@ async function reload() {
   reasons.value = d.reasons || []
   audios.value = d.media?.audio || []
   subs.value = d.media?.subs || []
-  // 固定播放器比例（探测宽高；无则 16:9），避免无数据时容器塌陷
+  // 固定播放器比例（探测宽高 → padding-top 百分比，min() 上限 62vh），无数据时容器也不塌陷
   try {
     const w = Number(d.media?.width) || 0
     const h = Number(d.media?.height) || 0
-    videoAspect.value = (w > 0 && h > 0) ? (w + ' / ' + h) : '16 / 9'
-  } catch (e) { videoAspect.value = '16 / 9' }
+    const pct = (w > 0 && h > 0)
+      ? (Math.round((h / w) * 10000) / 100) + '%'
+      : '56.25%'
+    videoPadding.value = 'min(' + pct + ', 62vh)'
+  } catch (e) { videoPadding.value = 'min(56.25%, 62vh)' }
   try {
     decidedDuration.value = Number(d.media?.duration) || 0
     // 风险自动降档：需视频重编且片源>1080p 时，原画/1080p 转码太重则自动逃到 720p，
@@ -424,10 +427,17 @@ function applySubTrack() {
   }
 }
 function applySub() { applySubTrack() }
+// 总时长统一用探测值：HLS 增长型清单里 v.duration 只是“已产出片段之和”（如 30s），
+// 用它算剩余会一开播就误判“已看”、存档 duration 也会写坏导致详情页看不到续播。
+function mediaDuration(v) {
+  const real = Number(decidedDuration.value) || 0
+  if (real > 0) return real
+  return (v && Number.isFinite(v.duration) && v.duration > 0) ? v.duration : 0
+}
 async function saveNow() {
   const v = videoEl.value
   if (!v || !Number.isFinite(v.currentTime) || v.currentTime <= 0) return
-  const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : decidedDuration.value
+  const dur = mediaDuration(v)
   const pos = absPos()
   try {
     await api(`/api/stream/progress?version_id=${props.versionId}`, {
@@ -442,10 +452,12 @@ function onTime() {
   if (!seekPending.value && !seekDragging.value) seekPos.value = absPos()
   lastAdvanceAt = Date.now()
   if (v && !doneWatched) {
-    const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : decidedDuration.value
-    const remain = dur - absPos()
-    // 阈值标已看：剩余<5%或<300s（含片尾曲场景），只触发一次
-    if (dur > 0 && (remain / dur < 0.05 || remain < 300)) {
+    const dur = mediaDuration(v)
+    const pos = absPos()
+    const remain = dur - pos
+    // 阈值标已看：剩余<5%或<300s（含片尾曲场景），只触发一次；
+    // remain>0 防“时长未知/播放列表时长偏小”时的误判。
+    if (dur > 0 && remain > 0 && (remain / dur < 0.05 || remain < 300)) {
       doneWatched = true
       emit('watched')
     }
@@ -592,9 +604,11 @@ onMounted(async () => {
   try {
     const p = await api(`/api/stream/progress?version_id=${props.versionId}`)
     const pos = Number(p.position) || 0
-    const dur = Number(p.duration) || 0
+    let dur = Number(p.duration) || 0
+    // 旧版本用 HLS 增长清单时长（如 30s）写坏过存档：dur < pos 视为不可信，按未看完处理
+    if (dur > 0 && dur < pos) dur = 0
     const remain = dur - pos
-    if (pos > 15 && dur > 0 && !(remain / dur < 0.05 || remain < 300)) {
+    if (pos > 15 && (dur === 0 || !(remain / dur < 0.05 || remain < 300))) {
       resumePos = pos
       resumeOffer.value = p.position_text || fmt(pos)
     }
@@ -810,9 +824,9 @@ onUnmounted(() => {
 </script>
 <style scoped>
 .player-dlg { max-width: 960px; }
-.pv-wrap { position: relative; background: #000; border-radius: 8px; overflow: hidden; width: 100%; max-height: 60vh; }
-.player-video { width: 100%; height: 100%; max-height: 60vh; object-fit: contain; background: #000; display: block; }
-.freeze-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.pv-wrap { position: relative; background: #000; border-radius: 8px; overflow: hidden; width: 100%; }
+.player-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+.freeze-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
 .seek-ov { position: absolute; inset: 0; display: flex; gap: 10px; align-items: center; justify-content: center; background: rgba(0, 0, 0, .45); color: #e0a63c; font-size: 0.9375rem; }
 .play-method { color: #888; font-size: 0.8125rem; margin: 0 0 4px; }
 .play-reason { color: #9ecfff; font-size: 0.8125rem; margin: 0 0 8px; }
