@@ -371,9 +371,13 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         raise HTTPException(415, "image subtitle needs burn-in: download original and use VLC/Kodi")
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
-    # 单人场景：同版本同 plan 且进程活着 → 直接复用（秒开，不重转）；
+    # 单人场景：同版本同 plan（含 start）且进程活着 → 直接复用（秒开，不重转）；
     # 同版本不同 plan → 先杀旧的再开新的（防多路 ffmpeg 抢 CPU 越跑越慢）。
-    plan_key = json.dumps({"q": quality, "a": audio, "s": sub,
+    try:
+        st_key = max(0, int(float(start or 0)))
+    except (TypeError, ValueError):
+        st_key = 0
+    plan_key = json.dumps({"q": quality, "a": audio, "s": sub, "start": st_key,
                            "plan": d["plan"]}, sort_keys=True)
     with _sess_lock:
         for sid, s in list(_sessions.items()):

@@ -356,6 +356,8 @@ def build_cmd(abs_path: str, plan: dict, out_m3u8: str,
         st = 0.0
     if st > 0:
         cmd += ["-ss", f"{st:.3f}"]
+    # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
+    cmd += ["-fflags", "+genpts"]
     cmd += ["-i", abs_path, "-map", "v:0", "-map", f"a:{ai}?"]
     if vcopy:
         cmd += ["-c:v", "copy"]
@@ -380,9 +382,12 @@ def build_cmd(abs_path: str, plan: dict, out_m3u8: str,
     seg_pat = _os.path.join(_os.path.dirname(out_m3u8) or ".", "seg%05d.ts")
     cmd += ["-f", "hls", "-hls_time", str(seg_time),
             "-hls_list_size", "0", "-hls_segment_type", "mpegts",
-            # EVENT 类型：转码中的增长型列表，hls.js 从头起播；
-            # 缺了它会被当直播流、从“直播边缘”起播导致开局 3 分片时永远等画面。
-            "-hls_playlist_type", "event",
+            # 注意：不要加 -hls_playlist_type event！实测 hls.js 会把 EVENT 当 VOD，
+            # 只播首屏快照里的分片就停（约 18s 必死）；Plex 也是纯 live 式增长列表，
+            # 无 ENDLIST 即刷新、从头起播（开局分片少时 live edge≈0）。
+            # 时间戳归一（输出侧 make_zero；输入侧 genpts 已在 -i 之前）：
+            # 输入 -ss 后音视频起点常错位数秒，MSE 遇到大跨度错位会黑屏/卡死。
+            "-avoid_negative_ts", "make_zero",
             "-hls_segment_filename", seg_pat, out_m3u8]
     return cmd
 
