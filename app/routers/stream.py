@@ -468,6 +468,9 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                                      "plan": d["plan"], "sid": sid}, sort_keys=True))
         except OSError:
             pass
+        # 完工监视：仅自然退出(code 0)写 complete.json，供“静态 VOD 复用”用
+        threading.Thread(target=_watch_completion,
+                         args=(sid, proc, sdir, plan_key), daemon=True).start()
         return sid, sdir, d
     except HTTPException:
         raise
@@ -477,10 +480,10 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         _hls_sem.release()
 
 
-def _marker_matches(sdir: str, plan_key: str) -> bool:
-    """plan.json 与本次 plan_key 比对（忽略 sid，复用/完工判定用）。"""
+def _marker_matches(sdir: str, plan_key: str, filename: str = "plan.json") -> bool:
+    """标记文件与本次 plan_key 比对（忽略 sid；复用/完工判定用）。"""
     try:
-        with open(os.path.join(sdir, "plan.json"), encoding="utf-8") as fh:
+        with open(os.path.join(sdir, filename), encoding="utf-8") as fh:
             mk = json.load(fh)
         mk.pop("sid", None)
         ref = json.loads(plan_key)
@@ -501,11 +504,36 @@ def _playlist_endlist(sdir: str) -> bool:
     return False
 
 
+def _write_complete_marker(sdir: str, plan_key: str) -> None:
+    try:
+        with open(os.path.join(sdir, "complete.json"), "w", encoding="utf-8") as fh:
+            fh.write(plan_key)
+    except OSError:
+        pass
+
+
+def _watch_completion(sid: str, proc, sdir: str, plan_key: str) -> None:
+    """完工监视线程：仅当 ffmpeg 自然退出（返回码 0）才写 complete.json。
+    被 SIGTERM 杀掉（负返回码）的残缺会话也会写出 ENDLIST，绝不能冒充静态 VOD。"""
+    try:
+        rc = proc.wait()
+    except Exception:
+        return
+    if rc == 0 and _seg_count(sdir) > 0 and _playlist_endlist(sdir):
+        _write_complete_marker(sdir, plan_key)
+        with _sess_lock:
+            s = _sessions.get(sid)
+            if s is not None:
+                s["complete"] = True
+
+
 def _session_complete(sdir: str, plan_key: str) -> bool:
-    """整片已转完（静态 VOD）：列表带 ENDLIST + 有分片 + plan 一致 → 直接当静态文件播，
-    不起进程（这才是 hls.js 最稳的形态，预转码的目标态）。"""
+    """整片已自然转完（静态 VOD）：complete.json 存在 + 列表带 ENDLIST + 有分片 + plan 一致。
+    仅凭 ENDLIST 不够——被杀的残缺会话也会写 ENDLIST（SIGTERM 时 ffmpeg 会写 trailer）。"""
+    if not os.path.isfile(os.path.join(sdir, "complete.json")):
+        return False
     return (_playlist_endlist(sdir) and _seg_count(sdir) > 0
-            and _marker_matches(sdir, plan_key))
+            and _marker_matches(sdir, plan_key, "complete.json"))
 
 
 def _playlist_text(sdir: str) -> str:
@@ -598,10 +626,13 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int) -> None:
             except OSError:
                 pass
             raise RuntimeError("transcode failed" + (f": {tail}" if tail else ""))
+        marker = json.dumps({"q": quality, "a": audio, "s": None, "start": 0,
+                             "plan": d["plan"], "sid": "prewarm:" + job_id},
+                            sort_keys=True)
         with open(os.path.join(sdir, "plan.json"), "w", encoding="utf-8") as fh:
-            fh.write(json.dumps({"q": quality, "a": audio, "s": None, "start": 0,
-                                 "plan": d["plan"], "sid": "prewarm:" + job_id},
-                                sort_keys=True))
+            fh.write(marker)
+        # 自然转完（returncode 0 且 ENDLIST）：写完工标记，点播当静态 VOD 秒开
+        _write_complete_marker(sdir, marker)
         job.update({"status": "done", "segments": _seg_count(sdir)})
     except Exception as e:
         job.update({"status": "failed", "error": str(e)[:500]})

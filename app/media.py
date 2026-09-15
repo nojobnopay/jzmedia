@@ -354,11 +354,26 @@ def build_cmd(abs_path: str, plan: dict, out_m3u8: str,
         st = max(0.0, float(start or 0))
     except (TypeError, ValueError):
         st = 0.0
+    # seek 对齐（B4）：
+    # - 转码路径：输入 -ss 到目标前 15s + 输出侧 -ss 精确裁 15s → 解码器有完整 GOP，
+    #   音视频都在目标点精确起（否则视频顺延到下一关键帧，首段出现 5~8s 单轨空洞）。
+    # - 拷贝路径：无法重编码对齐，用 -noaccurate_seek 从目标前一个关键帧整段起，
+    #   音视频天然同点（代价：起播点最多早一个 GOP）。
+    trim_after = 0.0
     if st > 0:
-        cmd += ["-ss", f"{st:.3f}"]
+        if vcopy:
+            cmd += ["-ss", f"{st:.3f}", "-noaccurate_seek"]
+        else:
+            pre = max(0.0, st - 15.0)
+            if pre > 0:
+                cmd += ["-ss", f"{pre:.3f}"]
+            trim_after = min(st, 15.0)
     # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
     cmd += ["-fflags", "+genpts"]
-    cmd += ["-i", abs_path, "-map", "v:0", "-map", f"a:{ai}?"]
+    cmd += ["-i", abs_path]
+    if trim_after > 0:
+        cmd += ["-ss", f"{trim_after:.3f}"]
+    cmd += ["-map", "v:0", "-map", f"a:{ai}?"]
     if vcopy:
         cmd += ["-c:v", "copy"]
     else:
