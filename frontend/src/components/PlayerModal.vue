@@ -124,6 +124,7 @@ const muted = ref(false)
 const volume = ref(1)
 const isFull = ref(false)
 const seekPending = ref(false)
+let seekPendingSince = 0
 const dlgEl = ref(null)
 const isHls = computed(() => method.value === 'remux' || method.value === 'transcode')
 const bufLine = computed(() => {
@@ -221,9 +222,14 @@ async function mountHls(v, url, targetMediaTime) {
 }
 // 自动带声播放被浏览器拦截时不再静默：给明确提示 + 一键起播
 const needGesture = ref(false)
+// 用户是否期望在播（区分故意暂停）：tryPlay/手动播放=true，暂停键=false
+let wantPlaying = false
+let lastPlayAttempt = 0
 function tryPlay() {
   const v = videoEl.value
   if (!v) return
+  wantPlaying = true
+  lastPlayAttempt = Date.now()
   try {
     const r = v.play()
     if (r && r.catch) r.then(() => { needGesture.value = false }).catch(() => { needGesture.value = true })
@@ -233,6 +239,8 @@ function userPlay() {
   const v = videoEl.value
   if (!v) return
   needGesture.value = false
+  wantPlaying = true
+  lastPlayAttempt = Date.now()
   v.play().catch(() => { needGesture.value = true })
 }
 function stopPing() {
@@ -391,6 +399,7 @@ function doSeek(e) {
   resumePos = t
   seekPos.value = t
   seekPending.value = true
+  seekPendingSince = Date.now()
   try { videoEl.value && videoEl.value.pause() } catch (err) { /* 忽略 */ }
   sessStatus.value = '正在转码…'
   reload()
@@ -426,13 +435,13 @@ function onVideoError() {
     ? '播放中断（分片加载失败），可关闭重进，或切 720p 再试'
     : '文件为空或损坏，无法播放，请下载检查'
 }
-function onPlayingHide() { needGesture.value = false; seekPending.value = false; lastAdvanceAt = Date.now() }
+function onPlayingHide() { needGesture.value = false; seekPending.value = false; seekPendingSince = 0; lastAdvanceAt = Date.now() }
 function onFullChange() { isFull.value = !!document.fullscreenElement }
 function togglePlay() {
   const v = videoEl.value
   if (!v) return
-  if (v.paused) { needGesture.value = false; v.play().catch(() => { needGesture.value = true }) }
-  else v.pause()
+  if (v.paused) { needGesture.value = false; wantPlaying = true; lastPlayAttempt = Date.now(); v.play().catch(() => { needGesture.value = true }) }
+  else { wantPlaying = false; v.pause() }
 }
 function toggleMute() {
   const v = videoEl.value
@@ -514,13 +523,33 @@ onMounted(async () => {
 })
 function watchStall() {
   // 每 2s 一拍。判定条件（不再看缓冲量——缓冲充足也可能楔死）：
-  // HLS 会话存活、非 seek 切换中、元素声称在播(!paused && !ended)、有数据(readyState>=2)、
+  // HLS 会话存活、元素声称在播(!paused && !ended)、有数据(readyState>=2)、
   // currentTime 连续 3 拍(约6s)不动 → 判定卡死。seeking 恒 true 超约 10s 同样自救。
+  // 两个防自锁：seekPending 超 30s 未消则强制放行（seek 后没出 playing 不能永久屏蔽看门狗）；
+  // 期望在播却 paused 且有数据 → 补一次 tryPlay（浏览器偶发暂停，无提示比卡死强）。
   try {
     const v = videoEl.value
     if (!isHls.value || !sessionId || !lastPlaylistUrl) { stallTicks = 0; return }
-    if (seekPending.value) return // seek 重开进行中，不跟它抢
-    if (!v || v.paused || v.ended) { stallTicks = 0; lastTickPos = -1; lastAdvanceAt = Date.now() }
+    if (seekPending.value) {
+      if (!seekPendingSince) seekPendingSince = Date.now()
+      if (Date.now() - seekPendingSince > 30000) {
+        logEvt('watchdog', 'seekPending 超时放行')
+        seekPending.value = false
+        seekPendingSince = 0
+      } else {
+        return // seek 重开进行中，不跟它抢
+      }
+    }
+    if (!v || v.ended) { stallTicks = 0; lastTickPos = -1; lastAdvanceAt = Date.now() }
+    else if (v.paused) {
+      stallTicks = 0; lastTickPos = -1
+      if (wantPlaying && (v.readyState || 0) >= 2 && Date.now() - lastPlayAttempt > 5000) {
+        logEvt('watchdog', 'paused-but-wanted 重试播放')
+        tryPlay()
+      } else {
+        lastAdvanceAt = Date.now()
+      }
+    }
     else if ((v.readyState || 0) >= 2) {
       const cur = Number(v.currentTime) || 0
       const moved = lastTickPos >= 0 && Math.abs(cur - lastTickPos) > 0.05
