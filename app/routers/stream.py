@@ -371,8 +371,20 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         raise HTTPException(422, "unplayable")
     if d["method"] == "direct":
         raise HTTPException(400, "use direct_url (Direct Play, no HLS needed)")
+    # 图片字幕（PGS/VobSub）：浏览器无法当外挂字幕后，改为烧录进画面（重开转码会话）。
+    # 取所选字幕在文件里的真实流号（ff_index），塞进 plan 供 build_cmd 组 overlay 滤镜。
     if (d.get("plan") or {}).get("sub") == "burn":
-        raise HTTPException(415, "image subtitle needs burn-in: download original and use VLC/Kodi")
+        try:
+            si = int(sub if sub is not None else -1)
+        except (TypeError, ValueError):
+            si = -1
+        subs = info.get("subs") or []
+        if not (0 <= si < len(subs)):
+            raise HTTPException(422, "subtitle not found")
+        track = subs[si] or {}
+        if not int(track.get("image") or 0):
+            raise HTTPException(422, "not an image subtitle")
+        d["plan"]["sub_ff_index"] = int(track.get("ff_index", si))
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
     # 单人场景：同版本同 plan（含 start）且进程活着 → 直接复用（秒开，不重转）；

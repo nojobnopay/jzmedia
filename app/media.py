@@ -360,6 +360,9 @@ def build_cmd(abs_path: str, plan: dict, out_m3u8: str,
     # - 拷贝路径：无法重编码对齐，用 -noaccurate_seek 从目标前一个关键帧整段起，
     #   音视频天然同点（代价：起播点最多早一个 GOP）。
     trim_after = 0.0
+    burn_sub = plan.get("sub") == "burn" and plan.get("sub_ff_index") is not None
+    if burn_sub:
+        vcopy = False  # 烧录必须重编码
     if st > 0:
         if vcopy:
             cmd += ["-ss", f"{st:.3f}", "-noaccurate_seek"]
@@ -373,7 +376,17 @@ def build_cmd(abs_path: str, plan: dict, out_m3u8: str,
     cmd += ["-i", abs_path]
     if trim_after > 0:
         cmd += ["-ss", f"{trim_after:.3f}"]
-    cmd += ["-map", "v:0", "-map", f"a:{ai}?"]
+    if burn_sub:
+        # 图片字幕烧录：源分辨率下 overlay 再缩放（overlay 不缩放覆盖层），
+        # eof_action=pass：字幕流结束后原样放行视频（默认 repeat 会把最后一句字幕钉到片尾）。
+        vf = "[0:v][0:s:%d]overlay=eof_action=pass" % int(plan["sub_ff_index"])
+        if height:
+            vf += ",scale=-2:%d" % height
+        cmd += ["-filter_complex", vf + "[vout]", "-map", "[vout]", "-map", f"a:{ai}?"]
+        height = 0  # 缩放已在滤镜图内
+        hw = "sw"  # 烧录走软件编码（滤镜图与 -vf/vaapi 互斥）
+    else:
+        cmd += ["-map", "v:0", "-map", f"a:{ai}?"]
     if vcopy:
         cmd += ["-c:v", "copy"]
     else:

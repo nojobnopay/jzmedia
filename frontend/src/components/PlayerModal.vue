@@ -52,10 +52,10 @@
           <select v-if="audios.length > 1" v-model.number="audioIdx" @change="reload" title="音轨">
             <option v-for="(a, i) in audios" :key="i" :value="i">{{ audioLabel(a, i) }}</option>
           </select>
-          <select v-if="subs.length" v-model.number="subIdx" @change="applySub" title="字幕">
+          <select v-if="subs.length" v-model.number="subIdx" @change="onSubChange" title="字幕">
             <option :value="-1">无字幕</option>
-            <option v-for="(s, i) in subs" :key="i" :value="i" :disabled="!!s.image">
-              {{ subLabel(s, i) }}{{ s.image ? '（图片，需原盘）' : '' }}
+            <option v-for="(s, i) in subs" :key="i" :value="i">
+              {{ subLabel(s, i) }}{{ s.image ? '（烧录）' : '' }}
             </option>
           </select>
           <button @click="toggleFull" :title="isFull ? '退出全屏（Esc）' : '全屏（双击画面）'">{{ isFull ? '⤡' : '⛶' }}</button>
@@ -138,6 +138,8 @@ const volume = ref(1)
 const isFull = ref(false)
 const seekPending = ref(false)
 let seekPendingSince = 0
+// 当前会话是否已把图片字幕烧录进画面（切字幕/画质时据此决定是否重开）
+let burnOn = false
 // 拖动态本地化：input 期间只改 seekPreview，change(松手) 才提交 → 不被 timeupdate 抬杠
 const seekDragging = ref(false)
 const seekPreview = ref(0)
@@ -169,6 +171,8 @@ const bufLine = computed(() => {
 function absPos() {
   const v = videoEl.value
   const cur = (v && Number.isFinite(v.currentTime)) ? v.currentTime : 0
+  // Direct：媒体时间轴就是整片时间；HLS：会话时间轴从 0 起，需加会话起点
+  if (method.value === 'direct') return Math.max(0, cur)
   return Math.max(0, startOffset.value + cur)
 }
 
@@ -182,7 +186,7 @@ const REASON_TEXT = {
   audio_codec_not_supported: '音频编码浏览器不支持，已转为 AAC',
   container_not_supported: '容器不对，已无损换为浏览器兼容容器',
   resolution_downscale: '已按所选画质降档（省 CPU）',
-  pgs_needs_burn: '内封图片字幕需烧录（很耗 CPU），建议关闭字幕或下载原盘',
+  pgs_needs_burn: '图片字幕（PGS/VobSub）已烧录进画面（较耗 CPU，切换字幕或原画需重转码）',
   auto_downscale_720p: '已自动降为 720p（4K 片源软转太重，原画可在上方切回）',
 }
 const reasonLine = computed(() => (reasons.value || []).map(r => REASON_TEXT[r] || r).join('；'))
@@ -334,6 +338,13 @@ async function reload() {
   lastTickPos = -1
   lastPlaylistUrl = ''
   lastHlsError.value = ''
+  // 切画质/音轨/字幕烧录时保持当前播放位置（此前会从 0 重播）
+  if (!seekPending.value && !resumePos) {
+    try {
+      const cur = Math.floor(absPos())
+      if (cur > 5) resumePos = cur
+    } catch (e) { /* 忽略 */ }
+  }
   // 换会话前抓一帧冻结画面：窗口不塌、无图像窗口不再出现
   freezeFrame.value = captureFrame()
   await closeSession()
@@ -341,8 +352,13 @@ async function reload() {
   const v = videoEl.value
   if (v) { try { v.pause() } catch (e) { /* 忽略 */ } v.removeAttribute('src'); v.load() }
   let d
+  // 图片字幕（PGS/VobSub）：服务端把所选字幕烧录进画面，需带 sub 参数重开转码会话
+  const wantBurn = imageSubSelected()
+  burnOn = wantBurn
+  const burnSub = wantBurn ? Number(subIdx.value) : -1
   try {
-    d = await api(`/api/stream/${props.versionId}/decide?quality=${quality.value}&audio=${audioIdx.value}`)
+    d = await api(`/api/stream/${props.versionId}/decide?quality=${quality.value}&audio=${audioIdx.value}` +
+      (burnSub >= 0 ? `&sub=${burnSub}` : ''))
   } catch (e) {
     err.value = '无法播放：' + e.message
     return
@@ -359,9 +375,9 @@ async function reload() {
     const pct = (w > 0 && h > 0)
       ? (Math.round((h / w) * 10000) / 100) + '%'
       : '56.25%'
-    const box = 'min(' + pct + ', 76vh)'
+    const box = 'min(' + pct + ', 68vh)'
     videoPadding.value = d.method === 'direct' ? box : ('calc(' + box + ' + 46px)')
-  } catch (e) { videoPadding.value = 'calc(min(56.25%, 76vh) + 46px)' }
+  } catch (e) { videoPadding.value = 'calc(min(56.25%, 68vh) + 46px)' }
   try {
     decidedDuration.value = Number(d.media?.duration) || 0
     // 风险自动降档：需视频重编且片源>1080p 时，原画/1080p 转码太重则自动逃到 720p，
@@ -393,7 +409,9 @@ async function reload() {
         method: 'POST',
         // 建会话要等前 3 分片（弱 CPU 转码慢），放宽到 300s，对齐服务端 deadline
         timeout: 300000,
-        body: JSON.stringify({ quality: quality.value, audio: audioIdx.value, start: Math.floor(startAt) }),
+        body: JSON.stringify({ quality: quality.value, audio: audioIdx.value,
+                               start: Math.floor(startAt),
+                               sub: burnSub >= 0 ? burnSub : null }),
       })
     } catch (e) {
       sessStatus.value = ''
@@ -432,6 +450,7 @@ function applySubTrack() {
   const v = videoEl.value
   if (!v) return
   v.querySelectorAll('track').forEach(t => t.remove())
+  if (burnOn) return // 烧录模式：字幕已在画面里
   if (subIdx.value >= 0 && subs.value[subIdx.value] && !subs.value[subIdx.value].image) {
     const tr = document.createElement('track')
     tr.kind = 'subtitles'
@@ -441,6 +460,17 @@ function applySubTrack() {
   }
 }
 function applySub() { applySubTrack() }
+// 所选字幕是否为图片型（需烧录）
+function imageSubSelected() {
+  const s = subs.value[subIdx.value]
+  return !!(s && s.image)
+}
+// 字幕切换：图片↔文本/关闭 涉及烧录状态变化 → 重开转码；纯文本切换只换 <track>
+function onSubChange() {
+  const wantBurn = imageSubSelected()
+  if (wantBurn || burnOn) reload()
+  else applySubTrack()
+}
 // 总时长统一用探测值：HLS 增长型清单里 v.duration 只是“已产出片段之和”（如 30s），
 // 用它算剩余会一开播就误判“已看”、存档 duration 也会写坏导致详情页看不到续播。
 function mediaDuration(v) {
@@ -493,13 +523,18 @@ function onSeekCommit(e) {
   doSeek(t)
 }
 function doSeek(t) {
-  // HLS 自绘进度：拖动即暂停+冻结滑块+提示，关旧开新（复用 start 参数），新流 playing 后解冻
+  // HLS：拖动即关旧开新（复用 start 参数），新流 playing 后解冻；Direct：直接改 currentTime
   t = Math.max(0, Math.floor(Number(t) || 0))
   if (t === Math.floor(absPos())) return
   resumeOffer.value = ''
-  resumePos = t
   seekPos.value = t
   seekPreview.value = t
+  if (method.value === 'direct') {
+    const v = videoEl.value
+    if (v) { try { v.currentTime = t } catch (e) { /* 忽略 */ } }
+    return
+  }
+  resumePos = t
   seekPending.value = true
   seekPendingSince = Date.now()
   try { videoEl.value && videoEl.value.pause() } catch (err) { /* 忽略 */ }
@@ -566,7 +601,34 @@ function onFullChange() {
     if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
   }
 }
-// 键盘：空格切播/暂停（HLS）；Esc 全屏时只退全屏，非全屏才关播放器
+// 键盘快捷键（输入框/下拉聚焦时不拦截）：
+// 空格=播放/暂停；←/→ = ±10s；↑/↓ = 音量 ±5%；Esc：全屏时只退全屏，非全屏才关播放器
+function showOverlay() {
+  if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
+  mouseActive.value = true
+  if (!isFull.value) return
+  hideTimer = setTimeout(() => { mouseActive.value = false }, 3000)
+}
+function seekBy(delta) {
+  const cur = absPos()
+  const dur = Number(decidedDuration.value) || 0
+  let t = Math.floor(cur + delta)
+  if (t < 0) t = 0
+  if (dur > 0 && t > Math.floor(dur) - 1) t = Math.floor(dur) - 1
+  if (t === Math.floor(cur)) return
+  logEvt('kbd:seek', fmt(t))
+  doSeek(t)
+}
+function volumeBy(delta) {
+  const v = videoEl.value
+  if (!v) return
+  const x = Math.max(0, Math.min(1, Number(v.volume ?? 1) + delta))
+  v.volume = x
+  v.muted = x <= 0
+  volume.value = x
+  muted.value = v.muted
+  logEvt('kbd:vol', Math.round(x * 100) + '%')
+}
 function onKeydown(e) {
   const t = e.target || {}
   const tag = String(t.tagName || '').toLowerCase()
@@ -574,9 +636,20 @@ function onKeydown(e) {
   if (e.code === 'Space' && !typing) {
     if (!isHls.value) return // Direct 模式交给浏览器原生控件
     e.preventDefault()
-    if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
-    mouseActive.value = true
+    showOverlay()
     togglePlay()
+    return
+  }
+  if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing) {
+    e.preventDefault()
+    showOverlay()
+    seekBy(e.key === 'ArrowRight' ? 10 : -10)
+    return
+  }
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !typing) {
+    e.preventDefault()
+    showOverlay()
+    volumeBy(e.key === 'ArrowUp' ? 0.05 : -0.05)
     return
   }
   if (e.key === 'Escape') {
@@ -867,7 +940,7 @@ onUnmounted(() => {
 /* 弹窗自足样式：不再依赖父组件 scoped 的 .dlg；尺寸随屏幕比例自适应 */
 .player-dlg {
   background: #161616; border-radius: 12px; padding: 12px 14px 10px;
-  width: min(92vw, 1680px); max-width: min(92vw, 1680px);
+  width: min(66vw, 1400px); max-width: min(66vw, 1400px);
   max-height: 94vh; overflow: auto;
   display: flex; flex-direction: column; gap: 8px;
   box-sizing: border-box;
