@@ -298,7 +298,7 @@ async function loadMedia() {
   mediaError.value = ''
   // P-B：一次取齐全版本（媒体+决策+最优版），替代逐版本 media 轮询
   try {
-    const agg = await api(`/api/stream/versions?movie_id=${route.params.id}&quality=720p`)
+    const agg = await api(`/api/stream/versions?movie_id=${route.params.id}&quality=original`)
     verList.value = agg.versions || []
     bestVid.value = agg.best_version_id || null
     const cur = verList.value.find(x => Number(x.version_id) === Number(route.params.id))

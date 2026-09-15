@@ -19,9 +19,9 @@
       <div class="play-opts">
         <label>画质
           <select v-model="quality" @change="reload">
-            <option value="720p">720p（默认，弱 NAS 友好）</option>
+            <option value="original">原画（默认）</option>
             <option value="1080p">1080p</option>
-            <option value="original">原画</option>
+            <option value="720p">720p（弱 NAS 友好）</option>
           </select>
         </label>
         <label v-if="audios.length > 1">音轨
@@ -65,7 +65,7 @@ const videoEl = ref(null)
 let hls = null
 let saveTimer = 0
 let lastSave = 0
-const quality = ref('720p')
+const quality = ref('original')
 const audioIdx = ref(0)
 const subIdx = ref(-1)
 const audios = ref([])
