@@ -105,8 +105,12 @@ let lastTickPos = -1
 let stallTicks = 0
 let seekStuckTicks = 0
 let recoverCount = 0
+let lastRecoverAt = 0
 let lastPlaylistUrl = ''
 const lastHlsError = ref('')
+// 实际使用的播放引擎：hls(Plex式) | native(Safari原生) | direct(原文件)
+let engine = 'none'
+let mediaErrLogged = ''
 // 元素级恢复 + 冻结遥测：看门狗不再看缓冲量，只看“该走的时间走没走”
 const videoKey = ref(0)
 let lastAdvanceAt = 0
@@ -217,6 +221,7 @@ async function mountHls(v, url, targetMediaTime) {
   })
   hls.loadSource(url)
   hls.attachMedia(v)
+  engine = 'hls'
   lastAdvanceAt = Date.now()
   return true
 }
@@ -269,6 +274,31 @@ function startPing() {
     } catch (e) { /* 心跳失败不打扰播放 */ }
   }, 10000)
 }
+// 引擎选择（hls.js 官方建议）：仅现代 Safari（ManagedMediaSource）用原生 HLS。
+// Chromium 147+ 的 canPlayType('application/vnd.apple.mpegurl') 会谎报 "maybe"，
+// 但原生 HLS 会解析失败（Edge 153 实测 DEMUXER_ERROR_COULD_NOT_PARSE），必须优先 hls.js。
+function canUseNativeHls(v) {
+  try {
+    return ('ManagedMediaSource' in window)
+      && !!(v && v.canPlayType('application/vnd.apple.mpegurl'))
+  } catch (e) { return false }
+}
+// 媒体级错误（Chrome 有时只置 v.error 不触发 error 事件）：记录 + 红字，供看门狗直通恢复
+function noteMediaError() {
+  const v = videoEl.value
+  if (!v || !v.error) return false
+  const key = v.error.code + ':' + (v.error.message || '')
+  if (key !== mediaErrLogged) {
+    mediaErrLogged = key
+    logEvt('video:error', key.slice(0, 140))
+  }
+  if (!err.value) {
+    err.value = v.error.code === 4
+      ? '播放器解析失败（格式/解码错误），正在尝试自动恢复…'
+      : '播放出错（媒体错误 ' + v.error.code + '），正在尝试自动恢复…'
+  }
+  return true
+}
 async function reload() {
   err.value = ''
   sessStatus.value = ''
@@ -308,7 +338,10 @@ async function reload() {
     applySubTrack()
   const startAt = resumePos || 0
   startOffset.value = Math.floor(startAt)
+  mediaErrLogged = ''
   if (d.method === 'direct') {
+    engine = 'direct'
+    logEvt('engine:direct', '')
     v.src = encodeURI(d.direct_url) + (startAt > 0 ? `#t=${Math.floor(startAt)}` : '')
     tryPlay()
   } else {
@@ -338,10 +371,14 @@ async function reload() {
     lastTickPos = -1
     const onPlaying = () => { sessStatus.value = '' }
     v.addEventListener('playing', onPlaying, { once: true })
-    if (v.canPlayType('application/vnd.apple.mpegurl')) {
+    if (canUseNativeHls(v)) {
+      engine = 'native'
+      logEvt('engine:native', 'ManagedMediaSource')
       v.src = url
       tryPlay()
     } else {
+      engine = 'hls'
+      logEvt('engine:hls', '')
       await mountHls(v, url, null)
     }
     }
@@ -517,16 +554,18 @@ onMounted(async () => {
       } else {
         bufSecs.value = 0
       }
+      // 媒体级错误（v.error 有时不触发 error 事件）：元素已中毒，直通元素级恢复
+      if (noteMediaError() && Date.now() - lastRecoverAt > 8000 && recoverCount < 3) {
+        recoverStream(true)
+      }
       watchStall()
     } catch (e) { bufSecs.value = 0 }
   }, 2000)
 })
 function watchStall() {
   // 每 2s 一拍。判定条件（不再看缓冲量——缓冲充足也可能楔死）：
-  // HLS 会话存活、元素声称在播(!paused && !ended)、有数据(readyState>=2)、
-  // currentTime 连续 3 拍(约6s)不动 → 判定卡死。seeking 恒 true 超约 10s 同样自救。
-  // 两个防自锁：seekPending 超 30s 未消则强制放行（seek 后没出 playing 不能永久屏蔽看门狗）；
-  // 期望在播却 paused 且有数据 → 补一次 tryPlay（浏览器偶发暂停，无提示比卡死强）。
+  // HLS 会话存活、非 seek 切换中、元素声称在播(!paused && !ended)、有数据(readyState>=2)、
+  // currentTime 连续 3 拍(约6s)不动 → 判定卡死。seeking 恒 true 约 10s、媒体错误同样自救。
   try {
     const v = videoEl.value
     if (!isHls.value || !sessionId || !lastPlaylistUrl) { stallTicks = 0; return }
@@ -543,7 +582,13 @@ function watchStall() {
     if (!v || v.ended) { stallTicks = 0; lastTickPos = -1; lastAdvanceAt = Date.now() }
     else if (v.paused) {
       stallTicks = 0; lastTickPos = -1
-      if (wantPlaying && (v.readyState || 0) >= 2 && Date.now() - lastPlayAttempt > 5000) {
+      if (v.error) {
+        // 元素级致命错误：重试播放永远无效，直接元素级恢复
+        if (Date.now() - lastRecoverAt > 8000 && recoverCount < 3) {
+          logEvt('watchdog', 'media-error 元素级恢复')
+          recoverStream(true)
+        }
+      } else if (wantPlaying && (v.readyState || 0) >= 2 && Date.now() - lastPlayAttempt > 5000) {
         logEvt('watchdog', 'paused-but-wanted 重试播放')
         tryPlay()
       } else {
@@ -623,7 +668,7 @@ function debugSnapshot() {
     version: props.versionId, method: method.value, session: sessionId,
     pos: Math.floor(absPos()), buffered: Math.floor(bufSecs.value),
     hlsError: lastHlsError.value || '', quality: quality.value,
-    recoverCount,
+    recoverCount, engine,
   }
   try {
     if (v) {
@@ -650,26 +695,33 @@ function debugSnapshot() {
   info.events = evtLog.slice(-25)
   return info
 }
-async function recoverStream() {
+async function recoverStream(forceElement = false) {
   // 同会话自救（不杀转码进程，分片继续产）：
-  // 第 1-2 次只重建 hls 实例；第 3 次连 <video> 元素一起重建（应对元素级楔死）。
-  if (recoverCount >= 3 || !lastPlaylistUrl) {
-    if (recoverCount >= 3) err.value = '多次自动恢复失败，请关闭重进或切 720p'
+  // 常规：重建 hls 实例；媒体级致命错误(forceElement)或第 3 次：连 <video> 元素一起换新。
+  if (recoverCount >= 3) {
+    err.value = '多次自动恢复失败，请关闭重进或切 720p'
+    return
+  }
+  if (!lastPlaylistUrl) {
+    err.value = '无法自动恢复（缺少播放地址），请关闭重进'
     return
   }
   recoverCount += 1
+  lastRecoverAt = Date.now()
   const target = Math.max(0, absPos() - startOffset.value)
-  logEvt('recover', 'attempt=' + recoverCount + ' target=' + target.toFixed(1))
-  console.warn('[hls-recover] reattach same session, attempt', recoverCount)
+  const useElement = forceElement || recoverCount >= 3
+  logEvt('recover', 'attempt=' + recoverCount + ' element=' + useElement + ' target=' + target.toFixed(1))
+  console.warn('[play-recover] attempt', recoverCount, 'element=', useElement)
   sessStatus.value = '检测到停滞，正在恢复（第' + recoverCount + '次）…'
   try {
-    if (recoverCount >= 3) {
-      // 元素级楔死：换全新 video 节点再挂 hls
+    if (useElement) {
+      // 元素级楔死/媒体解析错误：换全新 video 节点再挂 hls
       const old = videoEl.value
       try { unbindVideo(old) } catch (e) { /* 忽略 */ }
       destroyHls()
       try { if (old) { old.pause() } } catch (e) { /* 忽略 */ }
       videoKey.value += 1
+      mediaErrLogged = ''
       await nextTick()
       const nv = videoEl.value
       if (!nv) return
