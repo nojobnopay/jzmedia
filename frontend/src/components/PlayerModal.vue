@@ -10,8 +10,12 @@
         <button @click="resumePlay">继续播放</button>
         <button @click="restartPlay">从头开始</button>
       </div>
-      <video ref="videoEl" controls autoplay preload="metadata" class="player-video"
+      <video ref="videoEl" controls autoplay playsinline preload="metadata" class="player-video"
         @error="onVideoError"></video>
+      <div v-if="needGesture" class="gesture-bar">
+        <span>片源已就绪，浏览器阻止了自动带声播放</span>
+        <button class="play-now" @click="userPlay">▶ 点击播放</button>
+      </div>
       <div class="play-opts">
         <label>画质
           <select v-model="quality" @change="reload">
@@ -114,6 +118,22 @@ function fmt(sec) {
 function destroyHls() {
   if (hls) { try { hls.destroy() } catch (e) { /* 忽略 */ } hls = null }
 }
+// 自动带声播放被浏览器拦截时不再静默：给明确提示 + 一键起播
+const needGesture = ref(false)
+function tryPlay() {
+  const v = videoEl.value
+  if (!v) return
+  try {
+    const r = v.play()
+    if (r && r.catch) r.then(() => { needGesture.value = false }).catch(() => { needGesture.value = true })
+  } catch (e) { needGesture.value = true }
+}
+function userPlay() {
+  const v = videoEl.value
+  if (!v) return
+  needGesture.value = false
+  v.play().catch(() => { needGesture.value = true })
+}
 function stopPing() {
   if (pingTimer) { clearInterval(pingTimer); pingTimer = 0 }
 }
@@ -143,6 +163,7 @@ function startPing() {
 async function reload() {
   err.value = ''
   sessStatus.value = ''
+  needGesture.value = false
   await closeSession()
   destroyHls()
   const v = videoEl.value
@@ -162,8 +183,8 @@ async function reload() {
   applySubTrack()
   const startAt = resumePos || 0
   if (d.method === 'direct') {
-    v.src = d.direct_url + (startAt > 0 ? `#t=${Math.floor(startAt)}` : '')
-    v.play().catch(() => {})
+    v.src = encodeURI(d.direct_url) + (startAt > 0 ? `#t=${Math.floor(startAt)}` : '')
+    tryPlay()
   } else {
     // 渐进式会话：服务端前 3 分片就绪即回，首画面不等整片
     sessStatus.value = d.method === 'remux' ? '正在封装…' : '正在转码（前分片生成中，稍候即播）…'
@@ -189,7 +210,7 @@ async function reload() {
     v.addEventListener('playing', onPlaying, { once: true })
     if (v.canPlayType('application/vnd.apple.mpegurl')) {
       v.src = url
-      v.play().catch(() => {})
+      tryPlay()
     } else {
       let Hls = null
       try { Hls = await ensureHls() } catch (e) { Hls = null }
@@ -198,6 +219,7 @@ async function reload() {
         hls.on(Hls.Events.ERROR, (_ev, data) => {
           if (data && data.fatal) err.value = '播放错误：' + (data.details || data.type)
         })
+        hls.on(Hls.Events.MEDIA_ATTACHED, () => tryPlay())
         hls.loadSource(url)
         hls.attachMedia(v)
       } else {
@@ -270,6 +292,7 @@ async function restartPlay() {
 function onVideoError() {
   if (!err.value) err.value = '文件为空或损坏，无法播放，请下载检查'
 }
+function onPlayingHide() { needGesture.value = false }
 onMounted(async () => {
   try {
     const p = await api(`/api/stream/progress?version_id=${props.versionId}`)
@@ -287,6 +310,7 @@ onMounted(async () => {
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('pause', saveNow)
     v.addEventListener('ended', onEnded)
+    v.addEventListener('playing', onPlayingHide)
   }
   window.addEventListener('beforeunload', saveNow)
 })
@@ -298,6 +322,7 @@ onUnmounted(() => {
     v.removeEventListener('timeupdate', onTime)
     v.removeEventListener('pause', saveNow)
     v.removeEventListener('ended', onEnded)
+    v.removeEventListener('playing', onPlayingHide)
   }
   window.removeEventListener('beforeunload', saveNow)
   if (saveTimer) clearTimeout(saveTimer)
@@ -310,6 +335,8 @@ onUnmounted(() => {
 .play-method { color: #888; font-size: 0.8125rem; margin: 0 0 4px; }
 .play-reason { color: #9ecfff; font-size: 0.8125rem; margin: 0 0 8px; }
 .sess-status { color: #e0a63c; font-size: 0.8125rem; margin: 0 0 8px; }
+.gesture-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: #262626; border: 1px solid #2b6cb0; border-radius: 8px; padding: 8px 12px; margin: 8px 0; color: #9ecfff; font-size: 0.875rem; }
+.play-now { font-size: 1rem; padding: 6px 22px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }
 .resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; margin-bottom: 8px; flex-wrap: wrap; }
 .play-opts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 0.875rem; color: #aaa; }
 .pos-hint { color: #666; font-size: 0.8125rem; margin-right: auto; }
