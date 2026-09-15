@@ -1,16 +1,25 @@
 <template>
   <div class="dlg-mask" @click.self="$emit('close')">
-    <div class="dlg player-dlg" ref="dlgEl">
-      <h3>{{ title || ('版本 ' + versionId) }}</h3>
-      <p v-if="methodLine" class="play-method">{{ methodLine }}</p>
-      <p v-if="reasonLine" class="play-reason">{{ reasonLine }}</p>
-      <p v-if="sessStatus" class="sess-status">{{ sessStatus }}</p>
+    <div class="player-dlg">
+      <div class="pd-head">
+        <h3>{{ title || ('版本 ' + versionId) }}</h3>
+        <span v-if="methodLine" class="play-method">{{ methodLine }}</span>
+        <span v-if="reasonLine" class="play-reason">{{ reasonLine }}</span>
+        <span v-if="sessStatus" class="sess-status">{{ sessStatus }}</span>
+        <span class="pd-spacer"></span>
+        <button class="pd-mini" @click="copyDebug" title="复制调试信息（贴给开发者定位）">调试</button>
+        <button class="pd-mini" @click="$emit('close')">关闭</button>
+      </div>
       <div v-if="resumeOffer" class="resume-bar">
         <span>上次看到 {{ resumeOffer }}</span>
         <button @click="resumePlay">继续播放</button>
         <button @click="restartPlay">从头开始</button>
       </div>
-      <div class="pv-wrap" :style="videoPadding ? { paddingTop: videoPadding } : {}">
+      <!-- 播放容器：全屏目标；内含视频/冻结帧/提示/顶部标题/底部控件 -->
+      <div ref="pvWrapEl" class="pv-wrap"
+        :class="{ 'has-bar': isHls, 'hide-cursor': isFull && !overlayVisible }"
+        :style="videoPadding ? { paddingTop: videoPadding } : {}"
+        @mousemove="onMouseMove" @dblclick="toggleFull">
         <video ref="videoEl" :key="videoKey" :controls="!isHls" autoplay playsinline preload="metadata" class="player-video"
           @error="onVideoError"></video>
         <img v-if="freezeFrame" :src="freezeFrame" class="freeze-frame" alt="" />
@@ -18,54 +27,45 @@
           <Spinner :size="18" />
           <span>正在转码到 {{ fmt(seekPos) }}…</span>
         </div>
-      </div>
-      <div v-if="isHls" class="ctl-bar">
-        <button @click="togglePlay">{{ isPlaying ? '⏸' : '▶' }}</button>
-        <span class="ctl-time">{{ fmt(seekDragging ? seekPreview : seekPos) }} / {{ fmt(decidedDuration) }}</span>
-        <input type="range" min="0" :max="Math.floor(decidedDuration)" step="1"
-          :value="seekDragging ? seekPreview : Math.floor(seekPos)"
-          :disabled="seekPending || !(decidedDuration > 0)"
-          @input="onSeekInput" @change="onSeekCommit" class="ctl-seek" />
-        <button @click="toggleMute">{{ muted ? '🔇' : '🔊' }}</button>
-        <input type="range" min="0" max="100" :value="muted ? 0 : volume * 100"
-          @input="setVolume" class="ctl-vol" />
-        <button @click="toggleFull">{{ isFull ? '⤢' : '⛶' }}</button>
+        <p v-if="err" class="pv-err">{{ err }}</p>
+        <div class="pv-top" :class="{ show: overlayVisible }">
+          <span class="pv-title">{{ title || ('版本 ' + versionId) }}</span>
+          <span v-if="sessStatus" class="pv-status">{{ sessStatus }}</span>
+          <span class="pd-spacer"></span>
+          <button class="pd-mini" @click="toggleFull" title="退出全屏（Esc）">⤡ 退出全屏</button>
+        </div>
+        <div v-if="isHls" class="pv-ctl" :class="{ show: overlayVisible }" @dblclick.stop>
+          <button @click="togglePlay" :title="isPlaying ? '暂停（空格）' : '播放（空格）'">{{ isPlaying ? '⏸' : '▶' }}</button>
+          <span class="ctl-time">{{ fmt(seekDragging ? seekPreview : seekPos) }} / {{ fmt(decidedDuration) }}</span>
+          <input type="range" min="0" :max="Math.floor(decidedDuration)" step="1"
+            :value="seekDragging ? seekPreview : Math.floor(seekPos)"
+            :disabled="seekPending || !(decidedDuration > 0)"
+            @input="onSeekInput" @change="onSeekCommit" class="ctl-seek" />
+          <button @click="toggleMute" :title="muted ? '取消静音' : '静音'">{{ muted ? '🔇' : '🔊' }}</button>
+          <input type="range" min="0" max="100" :value="muted ? 0 : volume * 100"
+            @input="setVolume" class="ctl-vol" />
+          <select v-model="quality" @change="reload" title="画质">
+            <option value="original">原画</option>
+            <option value="1080p">1080p</option>
+            <option value="720p">720p</option>
+          </select>
+          <select v-if="audios.length > 1" v-model.number="audioIdx" @change="reload" title="音轨">
+            <option v-for="(a, i) in audios" :key="i" :value="i">{{ audioLabel(a, i) }}</option>
+          </select>
+          <select v-if="subs.length" v-model.number="subIdx" @change="applySub" title="字幕">
+            <option :value="-1">无字幕</option>
+            <option v-for="(s, i) in subs" :key="i" :value="i" :disabled="!!s.image">
+              {{ subLabel(s, i) }}{{ s.image ? '（图片，需原盘）' : '' }}
+            </option>
+          </select>
+          <button @click="toggleFull" :title="isFull ? '退出全屏（Esc）' : '全屏（双击画面）'">{{ isFull ? '⤡' : '⛶' }}</button>
+        </div>
       </div>
       <div v-if="needGesture" class="gesture-bar">
         <span>片源已就绪，浏览器阻止了自动带声播放</span>
         <button class="play-now" @click="userPlay">▶ 点击播放</button>
       </div>
-      <div class="play-opts">
-        <label>画质
-          <select v-model="quality" @change="reload">
-            <option value="original">原画（默认）</option>
-            <option value="1080p">1080p</option>
-            <option value="720p">720p（弱 NAS 友好）</option>
-          </select>
-        </label>
-        <label v-if="audios.length > 1">音轨
-          <select v-model.number="audioIdx" @change="reload">
-            <option v-for="(a, i) in audios" :key="i" :value="i">
-              {{ audioLabel(a, i) }}
-            </option>
-          </select>
-        </label>
-        <label v-if="subs.length">字幕
-          <select v-model.number="subIdx" @change="applySub">
-            <option :value="-1">关闭</option>
-            <option v-for="(s, i) in subs" :key="i" :value="i" :disabled="!!s.image">
-              {{ subLabel(s, i) }}{{ s.image ? '（图片字幕，电视/Kodi可看）' : '' }}
-            </option>
-          </select>
-          <span v-if="subs.length && !subs.some(s => !s.image)" class="sub-note">内封字幕均为图片型，浏览器不支持切换</span>
-        </label>
-      </div>
-      <p v-if="err" class="hint warn">{{ err }}</p>
-      <div class="bar">
-        <span class="pos-hint">{{ bufLine || posHint }}</span>
-        <button @click="copyDebug">复制调试信息</button>
-        <button @click="$emit('close')">关闭</button>
-      </div>
+      <p class="hint-line">{{ bufLine || posHint }}</p>
     </div>
   </div>
 </template>
@@ -144,7 +144,19 @@ const seekPreview = ref(0)
 // 冻结帧 + 容器比例（padding-top 撑高，绝对定位铺满：换会话时窗口绝不塌）
 const freezeFrame = ref('')
 const videoPadding = ref('56.25%')
-const dlgEl = ref(null)
+// 全屏目标 = 播放容器（不是整个弹窗）：画面居中、控件悬浮可隐
+const pvWrapEl = ref(null)
+const mouseActive = ref(false)
+let hideTimer = 0
+function onMouseMove() {
+  if (!isFull.value) return
+  mouseActive.value = true
+  if (hideTimer) clearTimeout(hideTimer)
+  hideTimer = setTimeout(() => { mouseActive.value = false }, 3000)
+}
+// 全屏时控件/标题的显隐：鼠标活跃、暂停、seek 中、有错误时常显
+const overlayVisible = computed(() =>
+  !isFull.value || mouseActive.value || seekPending.value || !isPlaying.value || !!err.value)
 const isHls = computed(() => method.value === 'remux' || method.value === 'transcode')
 const bufLine = computed(() => {
   if (!isHls.value) return ''
@@ -339,15 +351,17 @@ async function reload() {
   reasons.value = d.reasons || []
   audios.value = d.media?.audio || []
   subs.value = d.media?.subs || []
-  // 固定播放器比例（探测宽高 → padding-top 百分比，min() 上限 62vh），无数据时容器也不塌陷
+  // 播放器比例：padding-top = min(片源高宽比, 76vh)（16:9 片源按屏幕宽度自适应）；
+  // HLS 模式底部额外预留控件条高度，视频区不被遮挡。无数据时容器也不塌陷。
   try {
     const w = Number(d.media?.width) || 0
     const h = Number(d.media?.height) || 0
     const pct = (w > 0 && h > 0)
       ? (Math.round((h / w) * 10000) / 100) + '%'
       : '56.25%'
-    videoPadding.value = 'min(' + pct + ', 62vh)'
-  } catch (e) { videoPadding.value = 'min(56.25%, 62vh)' }
+    const box = 'min(' + pct + ', 76vh)'
+    videoPadding.value = d.method === 'direct' ? box : ('calc(' + box + ' + 46px)')
+  } catch (e) { videoPadding.value = 'calc(min(56.25%, 76vh) + 46px)' }
   try {
     decidedDuration.value = Number(d.media?.duration) || 0
     // 风险自动降档：需视频重编且片源>1080p 时，原画/1080p 转码太重则自动逃到 720p，
@@ -545,7 +559,31 @@ function captureFrame() {
     return c.toDataURL('image/jpeg', 0.72)
   } catch (e) { return '' }
 }
-function onFullChange() { isFull.value = !!document.fullscreenElement }
+function onFullChange() {
+  isFull.value = !!document.fullscreenElement
+  if (!isFull.value) {
+    mouseActive.value = false
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
+  }
+}
+// 键盘：空格切播/暂停（HLS）；Esc 全屏时只退全屏，非全屏才关播放器
+function onKeydown(e) {
+  const t = e.target || {}
+  const tag = String(t.tagName || '').toLowerCase()
+  const typing = tag === 'input' || tag === 'select' || tag === 'textarea' || t.isContentEditable
+  if (e.code === 'Space' && !typing) {
+    if (!isHls.value) return // Direct 模式交给浏览器原生控件
+    e.preventDefault()
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
+    mouseActive.value = true
+    togglePlay()
+    return
+  }
+  if (e.key === 'Escape') {
+    if (document.fullscreenElement) return // 浏览器先退全屏，再由用户决定是否关闭
+    emit('close')
+  }
+}
 function togglePlay() {
   const v = videoEl.value
   if (!v) return
@@ -568,7 +606,7 @@ function setVolume(e) {
   muted.value = v.muted
 }
 function toggleFull() {
-  const el = dlgEl.value
+  const el = pvWrapEl.value
   try {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
     else if (el && el.requestFullscreen) el.requestFullscreen().catch(() => {})
@@ -617,6 +655,7 @@ onMounted(async () => {
   bindVideo(videoEl.value)
   document.addEventListener('fullscreenchange', onFullChange)
   window.addEventListener('beforeunload', saveNow)
+  window.addEventListener('keydown', onKeydown)
   try {
     window.__jzPlayerDebug = () => debugSnapshot()
   } catch (e) { /* 忽略 */ }
@@ -817,32 +856,75 @@ onUnmounted(() => {
   try { unbindVideo(videoEl.value) } catch (e) { /* 忽略 */ }
   document.removeEventListener('fullscreenchange', onFullChange)
   window.removeEventListener('beforeunload', saveNow)
+  window.removeEventListener('keydown', onKeydown)
+  if (hideTimer) clearTimeout(hideTimer)
   if (bufTimer) clearInterval(bufTimer)
   if (saveTimer) clearTimeout(saveTimer)
   destroyHls()
 })
 </script>
 <style scoped>
-.player-dlg { max-width: 960px; }
-.pv-wrap { position: relative; background: #000; border-radius: 8px; overflow: hidden; width: 100%; }
-.player-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
-.freeze-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
-.seek-ov { position: absolute; inset: 0; display: flex; gap: 10px; align-items: center; justify-content: center; background: rgba(0, 0, 0, .45); color: #e0a63c; font-size: 0.9375rem; }
-.play-method { color: #888; font-size: 0.8125rem; margin: 0 0 4px; }
-.play-reason { color: #9ecfff; font-size: 0.8125rem; margin: 0 0 8px; }
-.sess-status { color: #e0a63c; font-size: 0.8125rem; margin: 0 0 8px; }
-.gesture-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: #262626; border: 1px solid #2b6cb0; border-radius: 8px; padding: 8px 12px; margin: 8px 0; color: #9ecfff; font-size: 0.875rem; }
+/* 弹窗自足样式：不再依赖父组件 scoped 的 .dlg；尺寸随屏幕比例自适应 */
+.player-dlg {
+  background: #161616; border-radius: 12px; padding: 12px 14px 10px;
+  width: min(92vw, 1680px); max-width: min(92vw, 1680px);
+  max-height: 94vh; overflow: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  box-sizing: border-box;
+}
+.pd-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.pd-head h3 { margin: 0; font-size: 1.0625rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%; }
+.pd-spacer { flex: 1; }
+.pd-mini { font-size: 0.75rem; padding: 3px 10px; }
+
+.pv-wrap { --pvb: 0px; position: relative; background: #000; border-radius: 8px; overflow: hidden; width: 100%; }
+.pv-wrap.has-bar { --pvb: 46px; }
+.pv-wrap.hide-cursor { cursor: none; }
+.player-video { position: absolute; top: 0; left: 0; right: 0; bottom: var(--pvb); width: 100%; height: auto; object-fit: contain; background: #000; display: block; }
+.freeze-frame { position: absolute; top: 0; left: 0; right: 0; bottom: var(--pvb); width: 100%; height: auto; object-fit: contain; background: #000; }
+.seek-ov { position: absolute; top: 0; left: 0; right: 0; bottom: var(--pvb); display: flex; gap: 10px; align-items: center; justify-content: center; background: rgba(0, 0, 0, .45); color: #e0a63c; font-size: 0.9375rem; }
+.pv-err { position: absolute; left: 10px; right: 10px; bottom: calc(var(--pvb) + 8px); margin: 0; padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,.72); color: #e0a63c; font-size: 0.8125rem; z-index: 3; }
+
+/* 底部控件：窗口态在视频下方保留条内；全屏态为悬浮层并按鼠标显隐 */
+.pv-ctl { position: absolute; left: 0; right: 0; bottom: 0; height: var(--pvb); display: flex; gap: 8px; align-items: center; padding: 0 10px; box-sizing: border-box; background: #101010; z-index: 2; }
+.pv-ctl button { padding: 4px 10px; }
+.pv-ctl select { max-width: 130px; min-width: 0; background: #262626; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 4px 6px; font-size: 0.75rem; }
+.ctl-time { font-size: 0.75rem; color: #999; white-space: nowrap; }
+.ctl-seek { flex: 1; min-width: 80px; }
+.ctl-vol { width: 80px; }
+
+/* 顶部标题条：仅全屏显示 */
+.pv-top { display: none; }
+.pv-status { color: #e0a63c; font-size: 0.8125rem; }
+
+/* ===== 全屏（容器全屏：画面居中、控件悬浮可隐） ===== */
+.pv-wrap:fullscreen { padding-top: 0 !important; width: 100vw; height: 100vh; border-radius: 0; --pvb: 0px; }
+.pv-wrap:fullscreen .player-video,
+.pv-wrap:fullscreen .freeze-frame,
+.pv-wrap:fullscreen .seek-ov { bottom: 0; height: 100%; }
+.pv-wrap:fullscreen .pv-err { bottom: 76px; }
+.pv-wrap:fullscreen .pv-ctl {
+  height: auto; padding: 26px 18px 14px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, .88));
+  opacity: 0; pointer-events: none; transition: opacity .25s ease;
+  position: absolute; left: 0; right: 0; bottom: 0; top: auto;
+}
+.pv-wrap:fullscreen .pv-ctl.show { opacity: 1; pointer-events: auto; }
+.pv-wrap:fullscreen .pv-top {
+  display: flex; gap: 12px; align-items: center;
+  position: absolute; left: 0; right: 0; top: 0; padding: 12px 18px 30px; box-sizing: border-box;
+  background: linear-gradient(rgba(0, 0, 0, .85), transparent);
+  opacity: 0; pointer-events: none; transition: opacity .25s ease; z-index: 4;
+}
+.pv-wrap:fullscreen .pv-top.show { opacity: 1; pointer-events: auto; }
+.pv-title { color: #eee; font-size: 0.9375rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.play-method { color: #888; font-size: 0.75rem; }
+.play-reason { color: #9ecfff; font-size: 0.75rem; }
+.sess-status { color: #e0a63c; font-size: 0.75rem; }
+.gesture-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: #262626; border: 1px solid #2b6cb0; border-radius: 8px; padding: 8px 12px; margin: 4px 0 0; color: #9ecfff; font-size: 0.875rem; }
 .play-now { font-size: 1rem; padding: 6px 22px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }
-.resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; margin-bottom: 8px; flex-wrap: wrap; }
-.play-opts { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 0.875rem; color: #aaa; }
-.pos-hint { color: #666; font-size: 0.8125rem; margin-right: auto; }
-.seek-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 0.75rem; color: #888; }
-.seek-row input[type="range"] { flex: 1; }
-.ctl-bar { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
-.ctl-bar button { padding: 4px 10px; }
-.ctl-time { font-size: 0.75rem; color: #888; white-space: nowrap; }
-.ctl-seek { flex: 1; }
-.ctl-vol { width: 90px; }
-.sub-note { color: #888; font-size: 0.75rem; }
+.resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; flex-wrap: wrap; }
+.hint-line { margin: 0; color: #666; font-size: 0.8125rem; }
 .hint.warn { color: #e0a63c; }
 </style>
