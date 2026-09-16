@@ -350,6 +350,14 @@ function pickYear() {
   yearPick.value = ''
   applyAndLoad()
 }
+function _qNorm(query) {
+  const parts = []
+  for (const k of Object.keys(query || {}).sort()) {
+    const v = query[k]
+    parts.push(k + '=' + (Array.isArray(v) ? v.join(',') : String(v ?? '')))
+  }
+  return parts.join('&')
+}
 function syncUrl() {
   const query = {}
   if (q.value.trim()) query.q = q.value.trim()
@@ -364,7 +372,9 @@ function syncUrl() {
     query.min_rating = String(sel.value.rating)
     if (sel.value.ratingSource !== 'tmdb') query.rating_source = sel.value.ratingSource
   }
-  router.replace({ path: '/', query })
+  const changed = _qNorm(query) !== _qNorm(route.query)
+  if (changed) router.replace({ path: '/', query })
+  return changed   // 变则交给 route.query watcher 加载；未变由调用方显式刷新
 }
 function readUrl() {
   const s = (v) => v ? String(v).split(',').map(x => x.trim()).filter(Boolean) : []
@@ -438,8 +448,9 @@ async function loadMore() {
   }
 }
 async function applyAndLoad() {
-  syncUrl()
-  await load()
+  // URL 变了 → route.query watcher 统一加载；没变（如回车搜索词未改）才显式刷新。
+  // 修复评审 B5a-9/R04-D3：此前这里与 watcher 各发一次完全相同的 /api/search
+  if (!syncUrl()) await load()
 }
 // 搜索联想：输入防抖拉本地库（影片 标题+年份 / 演员 名字+参演数），↑↓选择 / Enter选中 / Esc关闭
 function onQInput(e) {
@@ -526,8 +537,7 @@ function onSearchEnter(e) {
 async function showAll() {
   q.value = ''
   sel.value = { genres: [], regions: [], countries: [], years: [], decades: [], tags: [], watched: null, rating: null, ratingSource: 'tmdb' }
-  syncUrl()
-  await load()
+  if (!syncUrl()) await load()
 }
 async function clearFilters() {
   sel.value = { genres: [], regions: [], countries: [], years: [], decades: [], tags: [], watched: null, rating: null, ratingSource: 'tmdb' }
