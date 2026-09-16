@@ -14,7 +14,10 @@ import os
 import subprocess
 import threading
 
+from .log import get_logger
 from .media import ffmpeg_bin
+
+logger = get_logger("transcode")
 
 VAAPI_DEVICE = os.getenv("VAAPI_DEVICE", "/dev/dri/renderD128")
 _SMOKE_TIMEOUT = 15
@@ -91,7 +94,8 @@ def _run(cmd: list[str]) -> bool:
         p = subprocess.run(cmd, timeout=_SMOKE_TIMEOUT, check=False,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return p.returncode == 0
-    except Exception:
+    except Exception as e:
+        logger.debug("smoke run failed: %s", e)
         return False
 
 

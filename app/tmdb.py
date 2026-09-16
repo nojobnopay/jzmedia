@@ -2,8 +2,10 @@
 import httpx
 
 from . import config
+from .log import get_logger
 
 API_BASE = "https://api.themoviedb.org/3"
+logger = get_logger("tmdb")
 
 
 def _client() -> httpx.Client:
@@ -65,5 +67,6 @@ def download_poster(poster_path: str, dest: str, size: str = "w500") -> bool:
             with open(dest, "wb") as f:
                 f.write(r.content)
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning("poster download failed url=%s dest=%s: %s", url, dest, e)
         return False

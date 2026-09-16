@@ -9,7 +9,11 @@ from fastapi.staticfiles import StaticFiles
 from . import store
 from .config import settings
 from .db import POSTER_DIR, ensure_dirs
+from .log import get_logger, setup_logging
 from .routers import collections, extras, files, fs, health, jobs, movies, persons, stream
+
+setup_logging()
+_logger = get_logger("main")
 
 
 @asynccontextmanager
@@ -17,9 +21,12 @@ async def _lifespan(_app: FastAPI):
     # 后台预热转码后端探测（冒烟编码最多几秒，不阻塞启动；首次 decide/health 即命中缓存）
     from . import transcode as _tr
     threading.Thread(target=_tr.detect, daemon=True).start()
+    _logger.info("jzmedia %s 启动：MEDIA_ROOT=%s DATA_DIR=%s ENV=%s",
+                 app.version, settings.media_root, settings.data_dir, settings.env)
     yield
     # 优雅退出：杀掉全部转码进程（防重启/停服后孤儿 ffmpeg 继续烧 CPU 写分片）
     stream.shutdown_sessions()
+    _logger.info("jzmedia 已停止")
 
 
 app = FastAPI(title="jzmedia", version="0.7.0", lifespan=_lifespan)

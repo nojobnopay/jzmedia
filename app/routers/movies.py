@@ -11,9 +11,24 @@ router = APIRouter(prefix="/api")
 
 FilterList = list[str] | None
 
+_PAGE_MAX = 2000
+
+
+def _page(limit: int, offset: int) -> tuple[int, int]:
+    """分页参数钳制（评审 P1-11）：limit 1..2000、offset >= 0。"""
+    try:
+        lim = max(1, min(int(limit or 500), _PAGE_MAX))
+    except (TypeError, ValueError):
+        lim = 500
+    try:
+        off = max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        off = 0
+    return lim, off
+
 
 @router.get("/search")
-def search(q: str = "", limit: int = 500, grouped: bool = True,
+def search(q: str = "", limit: int = 500, offset: int = 0, grouped: bool = True,
            genre: FilterList = Query(default=None),
            region: FilterList = Query(default=None),
            country: FilterList = Query(default=None),
@@ -24,13 +39,17 @@ def search(q: str = "", limit: int = 500, grouped: bool = True,
            rating_source: str = "tmdb",
            watched: int | None = None,
            collection: FilterList = Query(default=None)):
-    return {"q": q, "items": store.search_fts(
-        q, limit, grouped, genres=store._split_multi(genre),
+    lim, off = _page(limit, offset)
+    items = store.search_fts(
+        q, lim + 1, grouped, genres=store._split_multi(genre),
         regions=store._split_multi(region), countries=store._split_multi(country),
         years=store._split_ints(year), decades=store._split_ints(decade),
         tags=store._split_multi(tag), min_rating=min_rating,
         rating_source=rating_source, watched=watched,
-        collection_ids=store._split_ints(collection))}
+        collection_ids=store._split_ints(collection), offset=off)
+    has_more = len(items) > lim
+    return {"q": q, "items": items[:lim], "has_more": has_more,
+            "limit": lim, "offset": off}
 
 
 @router.get("/search/suggest")
@@ -41,7 +60,7 @@ def search_suggest(q: str = "", limit: int = 8):
 
 
 @router.get("/movies")
-def list_movies(grouped: bool = True, limit: int = 500,
+def list_movies(grouped: bool = True, limit: int = 500, offset: int = 0,
                 genre: FilterList = Query(default=None),
                 region: FilterList = Query(default=None),
                 country: FilterList = Query(default=None),
@@ -52,13 +71,16 @@ def list_movies(grouped: bool = True, limit: int = 500,
                 rating_source: str = "tmdb",
                 watched: int | None = None,
                 collection: FilterList = Query(default=None)):
-    return {"items": store.list_movies(
+    lim, off = _page(limit, offset)
+    items = store.list_movies(
         grouped, genres=store._split_multi(genre),
         regions=store._split_multi(region), countries=store._split_multi(country),
         years=store._split_ints(year), decades=store._split_ints(decade),
-        tags=store._split_multi(tag), limit=max(1, min(limit, 2000)),
+        tags=store._split_multi(tag), limit=lim + 1,
         min_rating=min_rating, rating_source=rating_source, watched=watched,
-        collection_ids=store._split_ints(collection))}
+        collection_ids=store._split_ints(collection), offset=off)
+    has_more = len(items) > lim
+    return {"items": items[:lim], "has_more": has_more, "limit": lim, "offset": off}
 
 
 @router.get("/facets")

@@ -12,6 +12,10 @@ import re
 import shutil
 import subprocess
 
+from .log import get_logger
+
+logger = get_logger("media")
+
 # 探测结构版本：老行 probe_ver < 本值 → 视为过期自动重探（新字段上线时 +1 即可）
 # v3：图片字幕 codec 归一为 pgs/vobsub（原 hdmv_pgs_subtitle 等）
 PROBE_VERSION = 3
@@ -75,9 +79,11 @@ def _resolve_bin(name: str) -> str:
             _BIN_CACHE["ffprobe"] = fp
         if _BIN_CACHE.get(name):
             return _BIN_CACHE[name]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("static ffmpeg download failed (%s), fallback to PATH name: %s",
+                       name, e)
     _BIN_CACHE[name] = name
+    logger.debug("resolve bin %s -> bare name (will retry on next process start)", name)
     return name
 
 

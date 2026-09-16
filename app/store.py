@@ -8,6 +8,9 @@ import time
 
 from .config import settings
 from .db import DB_PATH, POSTER_DIR, ensure_dirs
+from .log import get_logger
+
+logger = get_logger("store")
 
 _lock = threading.RLock()
 
@@ -334,7 +337,8 @@ def init_db() -> None:
 def _dump_list(v) -> str:
     try:
         return json.dumps(v or [], ensure_ascii=False)
-    except Exception:
+    except Exception as e:
+        logger.warning("dump list failed, write []: %s", e)
         return "[]"
 
 
@@ -906,6 +910,8 @@ def upsert_media_info(movie_id: int, info: dict) -> dict:
         old = get_media_info(int(movie_id))
         if old and old.get("playable"):
             return old
+        logger.debug("probe transient error mid=%s err=%s (not persisted)", movie_id,
+                     info.get("probe_error"))
         transient = dict(info)
         transient["audio"] = list(info.get("audio") or [])
         transient["subs"] = list(info.get("subs") or [])
@@ -1570,7 +1576,8 @@ def list_movies(grouped: bool = True, genres: list | None = None,
                 min_rating: float | None = None,
                 rating_source: str | None = None,
                 watched: int | None = None,
-                collection_ids: list | None = None) -> list[dict]:
+                collection_ids: list | None = None,
+                offset: int = 0) -> list[dict]:
     where, params = _structured_where("movies", genres=genres, regions=regions,
                                       countries=countries, years=years,
                                       decades=decades, tags=tags,
@@ -1578,16 +1585,20 @@ def list_movies(grouped: bool = True, genres: list | None = None,
                                       rating_source=rating_source,
                                       watched=watched,
                                       collection_ids=collection_ids)
+    try:
+        off = max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        off = 0
     with _lock, _conn() as c:
         if not grouped:
             rows = c.execute(
-                f"SELECT * FROM movies WHERE {where} ORDER BY updated_at DESC LIMIT ?",
-                (*params, limit))
+                f"SELECT * FROM movies WHERE {where} ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                (*params, limit, off))
             return [_row_to_dict(r) for r in rows]
         rows = c.execute(
             f"SELECT *, MAX(updated_at) AS _u FROM movies WHERE {where} "
-            f"GROUP BY COALESCE(tmdb_id, -id) ORDER BY _u DESC LIMIT ?",
-            (*params, limit))
+            f"GROUP BY COALESCE(tmdb_id, -id) ORDER BY _u DESC LIMIT ? OFFSET ?",
+            (*params, limit, off))
         return [_attach_versions(c, _row_to_dict(r)) for r in rows]
 
 
@@ -1611,7 +1622,7 @@ def _fts_query(q: str) -> str:
 
 
 def _search_like(c: sqlite3.Connection, q: str, fwhere: str, fparams: list,
-                 limit: int, grouped: bool):
+                 limit: int, grouped: bool, offset: int = 0):
     """FTS 无命中/语法异常时的兜底：标题/原名/演员按词 AND 子串匹配（中文部分词可用）。"""
     toks = _query_terms(q)
     if not toks:
@@ -1628,14 +1639,14 @@ def _search_like(c: sqlite3.Connection, q: str, fwhere: str, fparams: list,
         return c.execute(
             f"SELECT m.* FROM movies m WHERE ({where}) AND ({fwhere}) "
             "ORDER BY (CASE WHEN m.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END),"
-            " m.year DESC, m.id LIMIT ?",
-            (*params, *fparams, prefix, limit)).fetchall()
+            " m.year DESC, m.id LIMIT ? OFFSET ?",
+            (*params, *fparams, prefix, limit, offset)).fetchall()
     return c.execute(
         f"SELECT m.*, MIN(CASE WHEN m.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) AS _pref "
         f"FROM movies m WHERE ({where}) AND ({fwhere}) "
         "GROUP BY COALESCE(m.tmdb_id, -m.id) "
-        "ORDER BY _pref, MAX(m.year) DESC, m.id LIMIT ?",
-        (prefix, *params, *fparams, limit)).fetchall()
+        "ORDER BY _pref, MAX(m.year) DESC, m.id LIMIT ? OFFSET ?",
+        (prefix, *params, *fparams, limit, offset)).fetchall()
 
 
 def suggest_titles(q: str, limit: int = 8) -> list[dict]:
@@ -1698,7 +1709,8 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
                min_rating: float | None = None,
                rating_source: str | None = None,
                watched: int | None = None,
-               collection_ids: list | None = None) -> list[dict]:
+               collection_ids: list | None = None,
+               offset: int = 0) -> list[dict]:
     fwhere, fparams = _structured_where("m", genres=genres, regions=regions,
                                         countries=countries, years=years,
                                         decades=decades, tags=tags,
@@ -1706,13 +1718,17 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
                                         rating_source=rating_source,
                                         watched=watched,
                                         collection_ids=collection_ids)
+    try:
+        off = max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        off = 0
     q = (q or "").strip()
     if not q:
         return list_movies(grouped=grouped, genres=genres, regions=regions,
                            countries=countries, years=years, decades=decades,
                            tags=tags, limit=limit, min_rating=min_rating,
                            rating_source=rating_source, watched=watched,
-                           collection_ids=collection_ids)
+                           collection_ids=collection_ids, offset=off)
     fts_q = _fts_query(q)
     with _lock, _conn() as c:
         rows = []
@@ -1721,17 +1737,18 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
                 if not grouped:
                     rows = c.execute(
                         "SELECT m.* FROM movies_fts f JOIN movies m ON m.id=f.rowid "
-                        f"WHERE movies_fts MATCH ? AND ({fwhere}) ORDER BY rank LIMIT ?",
-                        (fts_q, *fparams, limit)).fetchall()
+                        f"WHERE movies_fts MATCH ? AND ({fwhere}) ORDER BY rank LIMIT ? OFFSET ?",
+                        (fts_q, *fparams, limit, off)).fetchall()
                 else:
                     rows = c.execute(
                         "SELECT m.*, MIN(rank) AS _r FROM movies_fts f JOIN movies m ON m.id=f.rowid "
                         f"WHERE movies_fts MATCH ? AND ({fwhere}) GROUP BY COALESCE(m.tmdb_id, -m.id) "
-                        "ORDER BY _r LIMIT ?", (fts_q, *fparams, limit)).fetchall()
+                        "ORDER BY _r LIMIT ? OFFSET ?", (fts_q, *fparams, limit, off)).fetchall()
             except sqlite3.OperationalError:
                 rows = []
         if not rows:
-            rows = _search_like(c, q, fwhere, fparams, limit, grouped)
+            # FTS 零命中时用 LIKE 兜底（同一查询各页行为一致，OFFSET 可继续翻页）
+            rows = _search_like(c, q, fwhere, fparams, limit, grouped, off)
         if not grouped:
             return [_row_to_dict(r) for r in rows]
         return [_attach_versions(c, _row_to_dict(r)) for r in rows]

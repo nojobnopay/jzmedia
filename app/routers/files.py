@@ -18,11 +18,13 @@ from .. import store
 from ..config import settings
 from ..editions import (core_of, detect_edition, detect_spec_list,
                         sanitize_tag, split_stack)
+from ..log import get_logger
 from ..regions import REGION_ORDER, REGION_UNKNOWN
 from ..scanner import (SUBTITLE_EXTS, is_feature_video, is_sidecar,
                        sync_nfos_for)
 
 router = APIRouter(prefix="/api/files")
+logger = get_logger("files")
 
 _ILLEGAL = ("\\", "/", ":", "*", "?", '"', "<", ">", "|")
 
@@ -415,7 +417,8 @@ def _move_one(p: dict) -> dict:
             try:
                 os.rename(dst, src)
             except OSError:
-                pass
+                logger.error("move rollback failed id=%s dst=%s src=%s", p["id"],
+                             p["to"], p["from"])
             raise
         # 规划期识别的版本/编号后缀落库（DB 为空才写，手工值优先），防下次预览回环
         try:
@@ -472,6 +475,8 @@ def _move_one(p: dict) -> dict:
         return {**p, "status": "moved", "followed": followed,
                 "extras_moved": extras_moved}
     except Exception as e:
+        logger.warning("move failed id=%s %s -> %s: %s", p.get("id"),
+                       p.get("from"), p.get("to"), e)
         return {**p, "status": f"error: {e}"}
 
 
@@ -750,6 +755,8 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
             _resync_old_dir(old_dir)
         return {**base, "status": "restored"}
     except Exception as e:
+        logger.warning("restore failed id=%s %s -> %s: %s", m.get("id"),
+                       base.get("from"), base.get("to"), e)
         return {**base, "status": f"error: {e}"}
 
 

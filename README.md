@@ -96,6 +96,7 @@ kill <pid>
 | `HLS_SEGMENT_TYPE` | `fmp4`（默认）\| `ts`（回滚旧 MPEG-TS 输出） |
 | `AUDIO_COPY_SAFE` | 音频直通安全集覆盖（默认 hls.js 只信 `aac,mp3`；实测 EAC3 可用时可填 `aac,mp3,eac3,ac3`） |
 | `SCAN_SKIP_DIRS` | 扫描额外跳过的目录名（逗号分隔）。内置已跳过隐藏目录与 `#recycle`/`@eaDir`/`$RECYCLE.BIN` 等系统目录 |
+| `LOG_LEVEL` | 后端日志级别（默认 `INFO`；`DEBUG` 可看扫描/整理/转码失败细节）。日志统一走 `app/log.py` |
 
 TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup → 头像 Settings → API → Create → Developer → 应用名用途随便填 → 把 `API Read Access Token` 填进设置页「TMDB 配置」（或 `.env` 的 `TMDB_READ_TOKEN`；或把 `API Key` 填进 `TMDB_API_KEY`）。
 
@@ -126,8 +127,9 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 ## 部署到 NAS（Synology 示例）
 
 1. 把本目录拷到 NAS（如 `/volume1/docker/jzmedia`），**不含** `docker-compose.override.yml`
-2. `.env` 设置：`MEDIA_HOST_PATH=/volume1/video`、`DATA_HOST_PATH=/volume1/docker/jzmedia/data`、`UID/GID` 按 DSM 用户填写，直连则 `BUILD_HTTP_PROXY` 留空
-3. **硬件转码（可选但推荐）**：`docker-compose.yml` 里取消 `devices: [/dev/dri:/dev/dri]` 与 `group_add` 注释，`VIDEO_GID/RENDER_GID` 用 DSM 上 `stat -c '%g' /dev/dri/renderD128`（通常 render=109、video=44）填写；`TRANSCODER=auto` 即可。启动后 `GET /api/stream/backends` 应报 `vaapi`/`qsv`（报 software 说明设备/驱动/权限没到位）
+2. `.env` 设置：`MEDIA_HOST_PATH=/volume1/video`、`DATA_HOST_PATH=/volume1/docker/jzmedia/data`、`UID/GID` 按 DSM 用户填写（`ssh` 到 NAS 执行 `id -u <用户名>`），直连则 `BUILD_HTTP_PROXY` 留空。
+   compose 现在会以该 UID/GID 运行容器（文件属主正确）；**首次部署请确保数据目录属主一致**：`mkdir -p <DATA_HOST_PATH> && chown -R <UID>:<GID> <DATA_HOST_PATH>`；留空/留 0 则退回 root（旧行为）
+3. **硬件转码（可选但推荐）**：`docker-compose.yml` 里取消 `devices: [/dev/dri:/dev/dri]` 与 `group_add` 注释，`VIDEO_GID/RENDER_GID` 用 DSM 上 `stat -c '%g' /dev/dri/renderD128`（通常 render=109、video=44）填写；`TRANSCODER=auto` 即可。启动后 `GET /api/stream/backends` 应报 `vaapi`/`qsv`（报 software 说明设备/驱动/权限没到位）。注意硬件转码设备的组权限是按容器进程的补充组生效的，非 root 运行时更依赖 `group_add` 正确
 4. Container Manager → 新增项目 → 路径选该目录 → 启动；浏览器打开 `http://NAS_IP:8080` 验证
 5. 多阶段镜像已内置前端构建（node 构建 + python 运行），NAS 上无需装 Node
 
@@ -137,7 +139,7 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 |---|---|
 | `GET /api/health` · `GET /api/settings` · `PUT /api/settings` | 健康检查；配置摘要（密钥脱敏+来源/代理/图片源）与保存（库优先+env 兜底） |
 | `POST /api/scan` | 全量扫描刮削 |
-| `GET /api/movies` · `GET /api/search?q=` | 列表 / 全文检索；共同支持 `genre region country year decade tag`（可重复或逗号分隔，facet 内 OR、跨 facet AND，`tag` 多选为 AND）与 `min_rating` + `rating_source=tmdb\|douban\|custom`（单阈值 `>=`）、`watched=1\|0`（已看/未看）、`collection`（合集 ID，可重复或逗号分隔）；`decade=2020` 表示 2020–2029 |
+| `GET /api/movies` · `GET /api/search?q=` | 列表 / 全文检索；分页 `limit`（1–2000，默认 500）+ `offset`，响应带 `has_more`；共同支持 `genre region country year decade tag`（可重复或逗号分隔，facet 内 OR、跨 facet AND，`tag` 多选为 AND）与 `min_rating` + `rating_source=tmdb\|douban\|custom`（单阈值 `>=`）、`watched=1\|0`（已看/未看）、`collection`（合集 ID，可重复或逗号分隔）；`decade=2020` 表示 2020–2029 |
 | `GET /api/facets` | 各维度实时计数（类型/大区/国家/年/年代/标签/评分离散档/观看/合集），只返回有片的项 |
 | `GET /api/movies/{id}` · `PATCH /api/movies/{id}` | 详情；手动改 `title overview_override douban_rating custom_rating tags edition spec watched` |
 | `POST /api/movies/batch` | 海报墙多选批量：`{ids, ops:{watched, add_tags/remove_tags/set_tags, douban_rating, custom_rating}}`，海报粒度（同 tmdb 多版本自动跟随） |
