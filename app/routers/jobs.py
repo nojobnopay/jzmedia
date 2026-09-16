@@ -1,12 +1,77 @@
 import os
+import threading
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import scanner, store
 from ..config import settings
+from ..jobkit import JobRegistry
 
 router = APIRouter(prefix="/api/jobs")
+
+# 扫描后台任务（评审 B9/R04-D6）：立即返回 job_id，进度/摘要轮询，可取消
+_SCAN_JOBS = JobRegistry(prefix="scan")
+
+
+def _scan_summary(results: list) -> dict:
+    counts: dict = {}
+    errors: list = []
+    for r in results:
+        st = str(r.get("status") or "")
+        counts[st] = counts.get(st, 0) + 1
+        if st.startswith("error"):
+            errors.append({"file": r.get("file", ""), "status": st[:200]})
+    return {"counts": counts, "errors": errors[:100], "results": results[:200]}
+
+
+def _scan_worker(jid: str) -> None:
+    def _stop() -> bool:
+        job = _SCAN_JOBS.get(jid)
+        return job is None or job.get("state") != "running"
+
+    def _cb(done, total):
+        _SCAN_JOBS.update(jid, done=int(done), total=int(total))
+
+    try:
+        res = scanner.scan_all(progress_cb=_cb, should_stop=_stop)
+        if _stop():
+            _SCAN_JOBS.update(jid, done=len(res))
+            return
+        _SCAN_JOBS.update(jid, state="done", done=len(res), total=len(res),
+                          **{"summary": _scan_summary(res)})
+    except Exception as e:
+        _SCAN_JOBS.update(jid, state="failed", error=str(e)[:300])
+
+
+@router.post("/scan")
+def scan_start():
+    """启动后台全量扫描：立即返回 {job_id}；已在跑则复用（resumed）。"""
+    running = _SCAN_JOBS.running()
+    if running:
+        return {"job_id": running["job_id"], "resumed": True}
+    job = _SCAN_JOBS.create()
+    jid = job["job_id"]
+    threading.Thread(target=_scan_worker, args=(jid,), daemon=True).start()
+    return {"job_id": jid, "resumed": False}
+
+
+@router.get("/scan/{job_id}")
+def scan_status(job_id: str):
+    """扫描进度：{state, done, total, summary?, error?}。无 job_id 看最近一个。"""
+    job = _SCAN_JOBS.get(job_id) if job_id else _SCAN_JOBS.latest()
+    if not job:
+        return {"job_id": job_id, "state": "idle", "done": 0, "total": 0}
+    return job
+
+
+@router.post("/scan/{job_id}/cancel")
+def scan_cancel(job_id: str = ""):
+    """取消扫描（协作式：worker 处理完当前文件后退出）。"""
+    if not job_id:
+        running = _SCAN_JOBS.running()
+        job_id = running["job_id"] if running else ""
+    return {"job_id": job_id, "state": _SCAN_JOBS.cancel(job_id)}
 
 
 class BackfillBody(BaseModel):

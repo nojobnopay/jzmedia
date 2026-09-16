@@ -187,3 +187,66 @@ def test_collection_cover_and_members_batch(media_root):
     assert cols[c["id"]]["member_count"] == 1
     full = store.get_collection(c["id"])
     assert full["member_count"] == 1 and full["members"][0]["version_count"] == 2
+
+
+# ---------- B9/R04-D6：扫描后台任务 ----------
+
+def test_scan_job_lifecycle(monkeypatch):
+    import time as _t
+    from app import scanner
+    from app.routers import jobs as jobs_router
+
+    def fake_scan(progress_cb=None, should_stop=None):
+        if progress_cb:
+            progress_cb(0, 3)
+        out = []
+        for i in range(3):
+            if should_stop and should_stop():
+                return out
+            _t.sleep(0.05)
+            out.append({"file": f"f{i}.mkv", "status": "no_match"})
+            if progress_cb:
+                progress_cb(len(out), 3)
+        return out
+
+    monkeypatch.setattr(scanner, "scan_all", fake_scan)
+    r = client.post("/api/jobs/scan").json()
+    assert r["resumed"] is False and r["job_id"]
+    for _ in range(60):
+        st = client.get(f"/api/jobs/scan/{r['job_id']}").json()
+        if st["state"] in ("done", "failed"):
+            break
+        _t.sleep(0.05)
+    assert st["state"] == "done"
+    assert st["total"] == 3 and st["summary"]["counts"]["no_match"] == 3
+    # 已完成后再次启动 → 新 job
+    r2 = client.post("/api/jobs/scan").json()
+    assert r2["job_id"] != r["job_id"]
+
+
+def test_scan_job_cancel(monkeypatch):
+    import time as _t
+    from app import scanner
+
+    def slow_scan(progress_cb=None, should_stop=None):
+        out = []
+        for i in range(200):
+            if should_stop and should_stop():
+                return out
+            _t.sleep(0.02)
+            out.append({"file": f"f{i}.mkv", "status": "ok"})
+            if progress_cb:
+                progress_cb(len(out), 200)
+        return out
+
+    monkeypatch.setattr(scanner, "scan_all", slow_scan)
+    r = client.post("/api/jobs/scan").json()
+    _t.sleep(0.1)
+    c = client.post(f"/api/jobs/scan/{r['job_id']}/cancel").json()
+    assert c["state"] == "cancelled"
+    for _ in range(60):
+        st = client.get(f"/api/jobs/scan/{r['job_id']}").json()
+        if st["state"] == "cancelled":
+            break
+        _t.sleep(0.05)
+    assert st["state"] == "cancelled" and st["done"] < 200

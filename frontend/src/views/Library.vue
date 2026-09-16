@@ -32,6 +32,7 @@
     <button @click="applyAndLoad">搜索</button>
     <button @click="clearAll">全部</button>
     <button @click="doScan" :disabled="scanning">{{ scanning ? '刮削中…' : '扫描刮削' }}</button>
+    <button v-if="scanning" @click="cancelScan">取消扫描</button>
     <button @click="openUpDlg" :disabled="uploading">上传</button>
   </div>
   <div v-if="msg" class="bar">{{ msg }}</div>
@@ -262,6 +263,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, apiUpload, posterUrl } from '../api.js'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import { hasScore, fmtScore } from '../ratings.js'
+import { usePolling } from '../usePolling.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -726,22 +728,54 @@ async function createAndJoin() {
     batching.value = false
   }
 }
+// 扫描后台任务（评审 B9/R04-D6）：立即返回 job_id，进度轮询、可取消
+let scanJobId = ''
+const scanPoll = usePolling(pollScan, { interval: 1000 })
+function finishScan() {
+  scanPoll.stop()
+  scanJobId = ''
+  scanning.value = false
+}
 async function doScan() {
   scanning.value = true
   msg.value = ''
   try {
-    const d = await api('/api/scan', { method: 'POST' })
-    const c = d.counts || {}
-    const ok = (c.ok || 0) + (c.ok_needs_review || 0)
-    msg.value = `完成：新增/更新 ${ok}，跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
-      + ((d.errors || []).length ? `，失败 ${d.errors.length}` : '')
-    await loadFacets()
-    await load()
+    const d = await api('/api/jobs/scan', { method: 'POST' })
+    scanJobId = d.job_id
+    if (d.resumed) msg.value = '已有扫描在跑，跟踪进度…'
+    scanPoll.start()
   } catch (e) {
-    msg.value = '扫描失败：' + e.message
-  } finally {
+    msg.value = '扫描启动失败：' + e.message
     scanning.value = false
   }
+}
+async function pollScan() {
+  if (!scanJobId) return
+  try {
+    const st = await api('/api/jobs/scan/' + scanJobId)
+    if (st.state === 'running') {
+      if (st.total) msg.value = `刮削中 ${st.done}/${st.total}…`
+      return
+    }
+    if (st.state === 'done') {
+      const sum = st.summary || {}
+      const c = sum.counts || {}
+      const ok = (c.ok || 0) + (c.ok_needs_review || 0)
+      msg.value = `完成：新增/更新 ${ok}，跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
+        + ((sum.errors || []).length ? `，失败 ${sum.errors.length}` : '')
+    } else if (st.state === 'cancelled') {
+      msg.value = `已取消（${st.done}/${st.total}）`
+    } else {
+      msg.value = '扫描失败：' + (st.error || '未知')
+    }
+    finishScan()
+    await loadFacets()
+    await load()
+  } catch (e) { /* 轮询失败下次继续 */ }
+}
+async function cancelScan() {
+  if (!scanJobId) return
+  try { await api('/api/jobs/scan/' + scanJobId + '/cancel', { method: 'POST' }) } catch (e) { /* 忽略 */ }
 }
 
 // 库页上传：多选文件 / 整个文件夹 → POST /api/uploads 逐个顺序上传。

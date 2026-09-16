@@ -146,17 +146,40 @@ def scan_one(abs_path: str) -> dict:
     return {"file": rel, "status": status, "query": used_q, **out}
 
 
-def scan_all() -> list[dict]:
+def _count_videos(skip_dirs: set) -> int:
+    total = 0
+    for root, dirs, files in os.walk(settings.media_root):
+        dirs[:] = sorted(d for d in dirs
+                         if not d.startswith(".") and d not in skip_dirs)
+        for f in files:
+            if f.startswith("."):
+                continue
+            if os.path.splitext(f)[1].lower() in VIDEO_EXTS:
+                total += 1
+    return total
+
+
+def scan_all(progress_cb=None, should_stop=None) -> list[dict]:
+    """全量扫描。可选 progress_cb(done, total) 报告进度、should_stop() 协作式取消
+    （评审 B9/R04-D6：供后台 job 展示进度/取消）。"""
     ensure_dirs()
-    store.init_db()
     out = []
     seen_extras: set[str] = set()
     skip_dirs = scan_skip_dirs()
+    total = _count_videos(skip_dirs)
+    if progress_cb:
+        try:
+            progress_cb(0, total)
+        except Exception as e:
+            logger.debug("progress_cb failed: %s", e)
     for root, dirs, files in os.walk(settings.media_root):
         # 剪枝（评审 P1-04）：隐藏目录 + NAS 回收站/缩略图等系统目录不进库
         dirs[:] = sorted(d for d in dirs
                          if not d.startswith(".") and d not in skip_dirs)
         for f in sorted(files):
+            if should_stop and should_stop():
+                logger.info("scan cancelled: processed=%s/%s", len(out), total)
+                return out
             if f.startswith("."):
                 continue
             if os.path.splitext(f)[1].lower() in VIDEO_EXTS:
@@ -169,6 +192,11 @@ def scan_all() -> list[dict]:
                     rel = os.path.relpath(os.path.join(root, f), settings.media_root)
                     logger.debug("scan_one failed file=%s: %s", rel, e, exc_info=True)
                     out.append({"file": rel, "status": f"error: {e}"})
+                if progress_cb:
+                    try:
+                        progress_cb(len(out), total)
+                    except Exception as e:
+                        logger.debug("progress_cb failed: %s", e)
     # 花絮行 GC：文件已不存在的归属记录清掉（正片走 missing/clean 流程）
     try:
         for row in store.list_all_extras():
