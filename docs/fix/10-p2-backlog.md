@@ -8,19 +8,37 @@
 ## 1. 当前指针
 
 ```
-批次：B8（fix/b8-ux）— 代码/单测/构建全部完成，**待用户 H-UI 点检确认后合回**
-步骤：4 提交（后端 perf / 前端非播放器 / 播放器 / 合集批读+a11y）；pytest 158、smoke 29/29、npm build/test
-H-UI 点检包（切分支 fix/b8-ux + 重启后端后走一遍）：
-  1 库页：点演员联想 → 直接进人物页；翻滚动能加载更多；facets 提示有“全库口径”
-  2 详情页：播放到结尾 → 已看标记（批量）；离开页面再回来无报错
-  3 播放器：无字幕片（内嵌默认中字）自动选中；设置层「兼容降级」出现「恢复客户端渲染」；
-    暂停 10 分钟后继续播放仍可播（心跳）；槽满时新开播提示“通道已满”
-  4 合集页：删除合集弹自定义确认框；系列补全进度条不再每 2s 闪动
-  5 设置页：滚动到「新片入库/匹配确认」才加载清单（下方 4s 内会补）；文件浏览改名/移动先预览再点确认
-  6 人物页：简介语言跟随设置页 TMDB 语言（改语言后刷新简介验证）
-断点：等用户回“B8 通过”或问题清单
-下一步：merge --no-ff → tag p2-b8-ux → 指针转 B9（结构重构，逐模块合）
+批次：B9 结构重构批（fix/b9-<module>）— 设计说明已出，待用户确认后逐模块开工
+B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
+进度：B5a+B6+B7+B8 已清 P2 约 150/238；剩余 = B9 结构（~12 组）+ B10 工程化（~5 组）
+设计要点（见 §6 B9 设计说明）：门面重导出保持调用面零改动；逐模块一分支一合回
+断点：等用户确认 B9 方案（门面 vs 直改、迁移框架、扫描任务化）
+下一步：确认后 git checkout -b fix/b9-nfo-collections（最小风险模块先做）
 ```
+
+## 6. B9 设计说明（送审）
+
+1. **拆分原则：门面重导出（facade）**。形如 `app/store.py` 变 `app/store/__init__.py` 重导出各子模块符号，
+   调用方（scanner/routers/…）**零改动**；子模块内部自由 import 对方。好处：每步可回滚、测试不需要改。
+   备选（直改 import 全库）不推荐：改动面 200+ 处、与后续维护冲突。
+2. **顺序（风险递增，逐模块一分支一合回）**：
+   R1 nfo/regions 注释收尾（无拆分）→ R2 collections/persons 小文件整理 +
+   `usePolling` composable → R3 store 拆分（schema/movies/persons/extras/collections/search/facets/app_settings）
+   → R4 scanner 拆分（classify/parse/match/persist/nfo-link）→ R5 files 拆 planner/executor
+   → R6 movies 拆 crud/blob/batch + scope 单源 → R7 stream 拆 session/media/subtitles/fonts
+   → R8 playback 拆 plan/cmd → R9 前端：PlayerModal 拆 composable、Library/Detail/Settings 拆组件。
+3. **DB 迁移框架（R02-D1，H-DATA）**：引入 `PRAGMA user_version` + 有序迁移表；
+   以“现有自愈语句等价迁移”为 v1 基线，测试用旧库夹具（无新列）验证幂等与升级；
+   升级前提示用户备份 `data/jzmedia.db`（一次性）。
+4. **扫描任务化（R04-D6，H-DESIGN）**：`POST /api/scan` 改后台 job（复用 collections 的 job 模式：
+   立即返回 job_id → `GET /api/jobs/scan/{id}` 进度/摘要 → 可选取消）；前端按钮改轮询。
+5. **会话元数据落盘（R12-Q3）**：`plan.json` 增写 pid/backend/attempt/started_at；
+   启动时清道夫据此清理孤儿产物（当前仅 TTL）。
+6. **前端拆分（R14-Q1/Q5、R13-Q1/Q2、R04-Q1、R14-Q2）**：按“纯逻辑抽 composable、视图抽子组件”推进，
+   每步 `npm build` + 手工点检（H-UI）合回；样式约定（JS 动态元素用非 scoped 块）写进 AGENTS。
+
+## 4. 进度 Log（倒序）
+
 
 ## 2. 已完成批次（B1–B4，P1 全清，见 docs/fix/00-index.md）
 
@@ -100,6 +118,7 @@ H-UI 点检包（切分支 fix/b8-ux + 重启后端后走一遍）：
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-16：**B8 合回 main**（tag p2-b8-ux，用户 H-UI 通过）；B9 设计说明送审。
 - 2026-09-16：**B8 代码完成**：4 提交；pytest 158、smoke 29/29、npm build/test；待 H-UI。
 - 2026-09-16：**B7 合回 main**（tag p2-b7-consistency）；B5a+B6+B7 累计清 ~75 项 P2。
 - 2026-09-16：**B7 全部组完成**：DELETE/FAIL/NFO/SCAN/PLAYBACK/EXTRAS + DECISION1 closed；
