@@ -615,8 +615,9 @@ async function openPlayer(f) {
   const name = f.rel || f.name
   pvErr.value = false
   pvName.value = f.name
-  pvUrl.value = blobUrl(name)
   pvKind.value = pvKindOf(f.name)
+  // 图片/PDF 走 inline（评审 B6/R05-D3：attachment 会让 iframe 变下载）
+  pvUrl.value = blobUrl(name) + ((pvKind.value === 'image' || pvKind.value === 'pdf') ? '&inline=1' : '')
   pvText.value = ''
   if (pvKind.value === 'text') {
     try {

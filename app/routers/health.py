@@ -1,3 +1,4 @@
+import os
 import re
 
 from fastapi import APIRouter, HTTPException
@@ -21,7 +22,16 @@ def health():
         tw = _tr.backend_info()
     except Exception:
         tw = {"name": "software", "hw": False, "reason": "detect failed"}
-    return {"status": "ok", "phase": "phase2",
+    # DB/媒体根自检（评审 B6/R01-D4）：失败时 status=degraded，编排/前端可据此告警
+    try:
+        dbh = store.health_check()
+    except Exception as e:
+        dbh = {"ok": False, "readable": False, "writable": False,
+               "error": str(e)[:200], "bytes": 0}
+    media_ok = os.path.isdir(settings.media_root) and os.access(settings.media_root, os.R_OK)
+    return {"status": "ok" if (dbh.get("ok") and media_ok) else "degraded",
+            "db": dbh,
+            "media": {"root": settings.media_root, "ok": bool(media_ok)},
             "ffmpeg": bool(bins.get("ffmpeg")), "ffprobe": bool(bins.get("ffprobe")),
             "transcoder": tw,
             "build": _build_commit()}

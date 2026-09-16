@@ -335,6 +335,24 @@ def init_db() -> None:
     rebuild_fts()
 
 
+def health_check() -> dict:
+    """健康自检（评审 B6/R01-D4）：DB 可读 + 数据目录可写；不抛错。"""
+    ok, err = True, ""
+    try:
+        with _lock, _conn() as c:
+            c.execute("SELECT 1")
+    except Exception as e:
+        ok, err = False, str(e)[:200]
+    writable = os.access(os.path.dirname(DB_PATH) or ".", os.W_OK)
+    db_bytes = 0
+    try:
+        db_bytes = os.path.getsize(DB_PATH)
+    except OSError:
+        pass
+    return {"ok": bool(ok and writable), "readable": bool(ok),
+            "writable": bool(writable), "error": err, "bytes": db_bytes}
+
+
 def _dump_list(v) -> str:
     try:
         return json.dumps(v or [], ensure_ascii=False)

@@ -458,13 +458,18 @@ def _movie_blob_rel(movie_id: int, name: str) -> tuple[dict, str]:
     return m, rel
 
 
+_INLINE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf"}
+
+
 @router.get("/movies/{movie_id}/blob")
-def movie_blob(movie_id: int, name: str = "", mode: str = ""):
+def movie_blob(movie_id: int, name: str = "", mode: str = "", inline: int = 0):
     """详情页下载/预览：name 取 /files 清单的 name 或 rel。
 
     默认 FileResponse 原样下载（支持 Range，视频可拖进度、图片可直显）；
     mode=text 返回前 64KB 文本（srt/nfo/剧本预览用）。
-    """
+    inline=1 且扩展名在白名单（图片/PDF）时不带 attachment，供 <iframe>/<img> 内嵌预览
+    （评审 B6/R05-D3：带 attachment 的 PDF 会触发下载而不是渲染）。"""
+    import mimetypes
     from fastapi.responses import FileResponse, PlainTextResponse
     m, rel = _movie_blob_rel(movie_id, name)
     abs_p = os.path.join(settings.media_root, rel)
@@ -479,6 +484,10 @@ def movie_blob(movie_id: int, name: str = "", mode: str = ""):
         except UnicodeDecodeError:
             text = chunk.decode("gbk", errors="replace")
         return PlainTextResponse(text, headers={"X-Content-Type-Options": "nosniff"})
+    if inline and os.path.splitext(rel)[1].lower() in _INLINE_EXTS:
+        media_type = mimetypes.guess_type(abs_p)[0] or "application/octet-stream"
+        return FileResponse(abs_p, media_type=media_type,
+                            headers={"X-Content-Type-Options": "nosniff"})
     return FileResponse(abs_p, filename=os.path.basename(abs_p),
                         headers={"X-Content-Type-Options": "nosniff"})
 

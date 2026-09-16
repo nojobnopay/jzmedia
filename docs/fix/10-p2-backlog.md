@@ -8,11 +8,12 @@
 ## 1. 当前指针
 
 ```
-批次：B5a 已合回 main（merge db77d6d，tag p2-b5a-harden）——P2 已清 10/238
-下一批：B6 安全加固批（fix/b6-security）；需 H-SEC（diff+curl 证据）与 H-DECISION
-        （R12-B9 debug 口保留、R08-D5 attach 需 force、R05-D4 非正片删除两步确认）
-断点：等用户对 B6 三项决策确认后开工
-下一步：git checkout -b fix/b6-security
+批次：B6 安全加固批（fix/b6-security）— 进行中
+用户决议（2026-09-16）：①R12-B9 debug 口保留（关闭）②R08-D5 改挂需 force+回 previous
+③R05-D4 非正片删除也两步确认
+步骤：分支已建；按 B6-REQ → B6-INPUT → B6-CRYPTO → B6-BEHAVIOR 四组推进
+断点：无
+下一步：B6-REQ 组（SPA 前缀越权/安全头/未知 api 404/health 语义/PDF inline）
 ```
 
 ## 2. 已完成批次（B1–B4，P1 全清，见 docs/fix/00-index.md）
