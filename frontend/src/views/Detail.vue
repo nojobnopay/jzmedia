@@ -231,6 +231,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, apiUpload, posterUrl } from '../api.js'
 import { copyText } from '../clipboard.js'
+import { usePolling } from '../usePolling.js'
 import { getCaps } from '../caps.js'
 import { hasScore, fmtScore, starRow } from '../ratings.js'
 import Spinner from '../components/Spinner.vue'
@@ -391,7 +392,27 @@ function openStream(v) {
 const preJob = ref(null)
 const preQuality = ref('auto')
 const preMsg = ref('')
-let preTimer = 0
+const prePoll = usePolling(pollPrewarm, { interval: 5000 })
+async function pollPrewarm() {
+  if (!preJob.value) return
+  try {
+    const s = await api(`/api/stream/prewarm/${preJob.value}`)
+    const exp = Number(s.expected) || 0
+    const got = Number(s.segments) || 0
+    if (s.status === 'done') {
+      preMsg.value = '已就绪，点播即秒播'
+      preJob.value = null
+      prePoll.stop()
+      loadMedia()
+    } else if (s.status === 'failed') {
+      preMsg.value = '失败：' + (s.error || '未知').slice(0, 80)
+      preJob.value = null
+      prePoll.stop()
+    } else if (exp > 0) {
+      preMsg.value = `转码中 ${Math.floor((got / exp) * 100)}%（${got}/${exp}）`
+    }
+  } catch (e) { /* 轮询失败下次继续 */ }
+}
 async function startPrewarm() {
   if (preJob.value || !heroVid.value) return
   preMsg.value = ''
@@ -404,26 +425,7 @@ async function startPrewarm() {
     })
     preJob.value = r.job_id
     preMsg.value = '已开始，后台转码中…'
-    preTimer = setInterval(async () => {
-      if (!preJob.value) return
-      try {
-        const s = await api(`/api/stream/prewarm/${preJob.value}`)
-        const exp = Number(s.expected) || 0
-        const got = Number(s.segments) || 0
-        if (s.status === 'done') {
-          preMsg.value = '已就绪，点播即秒播'
-          preJob.value = null
-          clearInterval(preTimer)
-          loadMedia()
-        } else if (s.status === 'failed') {
-          preMsg.value = '失败：' + (s.error || '未知').slice(0, 80)
-          preJob.value = null
-          clearInterval(preTimer)
-        } else if (exp > 0) {
-          preMsg.value = `转码中 ${Math.floor((got / exp) * 100)}%（${got}/${exp}）`
-        }
-      } catch (e) { /* 轮询失败下次继续 */ }
-    }, 5000)
+    prePoll.start()
   } catch (e) {
     preMsg.value = '启动失败：' + e.message
   }
@@ -897,7 +899,6 @@ onUnmounted(() => {
   if (upAbort) { try { upAbort() } catch (e) { /* 忽略 */ } }
   if (flashTimer) clearTimeout(flashTimer)
   if (posterObjUrl) URL.revokeObjectURL(posterObjUrl)
-  if (preTimer) clearInterval(preTimer)
 })
 watch(() => route.params.id, () => { load() })   // 同组件切片重载（评审 B8/R05-Q3）
 </script>
