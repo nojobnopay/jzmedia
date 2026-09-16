@@ -1395,6 +1395,34 @@ def _sidecar_abs(rel: str) -> str:
     return os.path.join(settings.media_root, rel)
 
 
+def _rm_tmp(path: str) -> None:
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def _run_ffmpeg_to_temp(dest: str, argv_of_tmp, timeout: int, err_msg: str) -> None:
+    """ffmpeg 产物先写 dest 同扩展名 .tmp，再 os.replace 原子替换（评审 B5a-6/R13-D4）：
+    并发请求/中途失败都不会留下可被读到的半成品字幕。"""
+    ext = os.path.splitext(dest)[1]
+    tmp = (dest[:-len(ext)] + ".tmp" + ext) if ext else (dest + ".tmp")
+    try:
+        subprocess.run(argv_of_tmp(tmp), timeout=timeout, check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        _rm_tmp(tmp)
+        raise HTTPException(500, f"{err_msg}: {e}")
+    if not os.path.isfile(tmp):
+        raise HTTPException(500, err_msg)
+    try:
+        os.replace(tmp, dest)
+    except OSError as e:
+        _rm_tmp(tmp)
+        raise HTTPException(500, f"{err_msg}: {e}")
+
+
 def _convert_sidecar(rel: str, vid: int, dest_ext: str) -> str:
     """外挂字幕转换到缓存（srt→vtt/ass、ass/ssa→vtt）。按源 mtime 失效。"""
     src_abs = _sidecar_abs(rel)
@@ -1410,15 +1438,11 @@ def _convert_sidecar(rel: str, vid: int, dest_ext: str) -> str:
     except OSError:
         fresh = False
     if not fresh:
-        cmd = [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
-               "-i", src_abs, "-c:s", codec, dest]
-        try:
-            subprocess.run(cmd, timeout=120, check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            raise HTTPException(500, f"subtitle convert failed: {e}")
-        if not os.path.isfile(dest):
-            raise HTTPException(500, "subtitle convert failed")
+        _run_ffmpeg_to_temp(
+            dest,
+            lambda tmp: [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
+                         "-i", src_abs, "-c:s", codec, tmp],
+            timeout=120, err_msg="subtitle convert failed")
     return dest
 
 
@@ -1434,15 +1458,11 @@ def _extract_embedded(abs_p: str, vid: int, track: dict, si: int, dest_ext: str)
         fresh = False
     if not fresh:
         ff_idx = track.get("ff_index", si)
-        cmd = [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
-               "-i", abs_p, "-map", f"0:{ff_idx}", "-c:s", codec, dest]
-        try:
-            subprocess.run(cmd, timeout=180 if dest_ext == "sup" else 120, check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            raise HTTPException(500, f"subtitle extract failed: {e}")
-        if not os.path.isfile(dest):
-            raise HTTPException(500, "subtitle extract failed")
+        _run_ffmpeg_to_temp(
+            dest,
+            lambda tmp: [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
+                         "-i", abs_p, "-map", f"0:{ff_idx}", "-c:s", codec, tmp],
+            timeout=180 if dest_ext == "sup" else 120, err_msg="subtitle extract failed")
     return dest
 
 

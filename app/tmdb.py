@@ -2,6 +2,7 @@
 import httpx
 
 from . import config
+from .fsutil import atomic_write_bytes
 from .log import get_logger
 
 API_BASE = "https://api.themoviedb.org/3"
@@ -64,8 +65,8 @@ def download_poster(poster_path: str, dest: str, size: str = "w500") -> bool:
         with httpx.Client(timeout=30.0, proxy=proxy) as c:
             r = c.get(url)
             r.raise_for_status()
-            with open(dest, "wb") as f:
-                f.write(r.content)
+            # 原子写（评审 B5a-6）：中断/半写不会留下损坏 jpg 被当有效缓存
+            atomic_write_bytes(dest, r.content)
         return True
     except Exception as e:
         logger.warning("poster download failed url=%s dest=%s: %s", url, dest, e)

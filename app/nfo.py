@@ -42,4 +42,15 @@ def write_movie_nfo(movie: dict, nfo_path: str) -> None:
     tree = ET.ElementTree(root)
     ET.indent(tree)
     os.makedirs(os.path.dirname(nfo_path) or ".", exist_ok=True)
-    tree.write(nfo_path, encoding="utf-8", xml_declaration=True)
+    # 原子写（评审 B5a-6）：中断/磁盘满不会留下半截 XML 被 Kodi/Jellyfin 读
+    tmp = nfo_path + ".tmp"
+    try:
+        tree.write(tmp, encoding="utf-8", xml_declaration=True)
+        os.replace(tmp, nfo_path)
+    except Exception:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        raise
