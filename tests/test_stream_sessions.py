@@ -103,7 +103,7 @@ def test_prewarm_refuses_when_live_other_plan(monkeypatch, media_root):
     info = {"playable": True, "container": "matroska", "duration": 120.0,
             "width": 1920, "height": 1080, "vcodec": "h264", "bit_depth": 8,
             "audio": [{"codec": "aac", "channels": 2, "default": 1}], "subs": []}
-    monkeypatch.setattr(stream, "_media_cached_or_probe", lambda m, abs_p: info)
+    monkeypatch.setattr(stream.prewarm, "_media_cached_or_probe", lambda m, abs_p: info)
     _put("live1", mid, "different-plan", FakeProc(alive=True))
     # 该版本会话目录里放个标记文件，验证拒绝路径不清理目录
     with stream._sess_lock:
@@ -148,8 +148,8 @@ def test_prewarm_attaches_same_plan_without_cleanup(monkeypatch, media_root):
     info = {"playable": True, "container": "matroska", "duration": 120.0,
             "width": 1920, "height": 1080, "vcodec": "h264", "bit_depth": 8,
             "audio": [{"codec": "aac", "channels": 2, "default": 1}], "subs": []}
-    monkeypatch.setattr(stream, "_media_cached_or_probe", lambda m, abs_p: info)
-    monkeypatch.setattr(stream, "_plan_marker", lambda plan, audio, start: "K")
+    monkeypatch.setattr(stream.prewarm, "_media_cached_or_probe", lambda m, abs_p: info)
+    monkeypatch.setattr(stream.prewarm, "_plan_marker", lambda plan, audio, start: "K")
     sdir = media_root / "film-session"
     sdir.mkdir()
     (sdir / "keep.m4s").write_bytes(b"x")
