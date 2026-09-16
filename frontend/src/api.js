@@ -1,13 +1,36 @@
+const TOKEN_KEY = 'jzmedia.token'
+
+export function getToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || '' } catch (e) { return '' }
+}
+export function setToken(t) {
+  try {
+    const v = String(t || '')
+    if (v) localStorage.setItem(TOKEN_KEY, v)
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch (e) { /* 忽略 */ }
+}
+
+function _authHeaders() {
+  const t = getToken()
+  return t ? { 'X-Api-Token': t } : {}
+}
+
 export async function api(path, opts = {}) {
   const { timeout = 120000, ...fetchOpts } = opts
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeout)
   try {
     const r = await fetch(path, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ..._authHeaders(), ...(fetchOpts.headers || {}) },
       ...fetchOpts,
       signal: ctrl.signal
     })
+    if (r.status === 401) {
+      try { window.dispatchEvent(new CustomEvent('jzmedia:unauthorized')) } catch (e) { /* 忽略 */ }
+      const t = await r.text()
+      throw new Error(`${r.status} ${t}`)
+    }
     if (!r.ok) {
       const t = await r.text()
       throw new Error(`${r.status} ${t}`)
@@ -45,6 +68,8 @@ export function apiUpload(path, file, { onProgress, onUploaded, subdir = '', fie
     }
     const url = qs.toString() ? `${path}?${qs}` : path
     xhr.open('POST', url)
+    const tk = getToken()
+    if (tk) { try { xhr.setRequestHeader('X-Api-Token', tk) } catch (e) { /* 忽略 */ } }
     xhr.timeout = 0 // 大文件不限时，由用户手动取消
     if (xhr.upload) {
       xhr.upload.onload = fireUploaded

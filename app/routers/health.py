@@ -47,6 +47,7 @@ def _settings_view() -> dict:
     proxy, proxy_src = config.effective_with_source("tmdb_proxy")
     lang, lang_src = config.effective_with_source("tmdb_language")
     img, img_src = config.effective_with_source("tmdb_image_base")
+    auth_token, auth_src = config.effective_with_source("jzmedia_token")
     # 凭证来源：优先展示实际生效的那一路
     cred_src = token_src if token else (key_src if api_key else "unset")
     return {
@@ -66,6 +67,10 @@ def _settings_view() -> dict:
         "tmdb_proxy_source": proxy_src,
         "tmdb_language_source": lang_src,
         "tmdb_image_base_source": img_src,
+        # 写操作访问控制（P1-01）：只回脱敏与来源，绝不回明文
+        "jzmedia_auth_enabled": bool(auth_token),
+        "jzmedia_token_masked": config.mask_secret(auth_token),
+        "jzmedia_token_source": auth_src,
     }
 
 
@@ -82,6 +87,7 @@ class SettingsUpdate(BaseModel):
     tmdb_proxy: str | None = None
     tmdb_language: str | None = None
     tmdb_image_base: str | None = None
+    jzmedia_token: str | None = None
 
 
 _LANG_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$")
@@ -89,9 +95,10 @@ _LANG_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$")
 
 def _validate(key: str, value: str) -> str:
     v = (value or "").strip()
-    if key in ("tmdb_read_token", "tmdb_api_key"):
+    if key in ("tmdb_read_token", "tmdb_api_key", "jzmedia_token"):
         # 空串 = 清空（恢复跟随 env）；非空做最小长度拦截，防手误粘贴半截
-        if v and len(v) < 10:
+        minimum = 8 if key == "jzmedia_token" else 10
+        if v and len(v) < minimum:
             raise HTTPException(422, f"{key} too short, check paste")
         return v
     if key in ("tmdb_proxy", "tmdb_image_base"):
@@ -107,7 +114,7 @@ def _validate(key: str, value: str) -> str:
 
 @router.put("/settings")
 def update_settings(body: SettingsUpdate):
-    """保存 TMDB 配置到库（DB 非空值优先于 env，免重启生效）。
+    """保存配置（TMDB + 写操作访问令牌）到库（DB 非空值优先于 env，免重启生效）。
     字段缺席=不动它；显式空串=清空该项、恢复跟随 env。返回脱敏视图。"""
     data = body.model_dump(exclude_unset=True)
     if not data:

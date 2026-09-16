@@ -194,7 +194,7 @@ LOCAL_FIELDS = {"file_path", "title", "overview_override",
 
 # 设置页可写的配置键白名单（与 config.effective_* 对应）
 APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
-                    "tmdb_language", "tmdb_image_base"}
+                    "tmdb_language", "tmdb_image_base", "jzmedia_token"}
 
 
 def get_setting(key: str) -> str:

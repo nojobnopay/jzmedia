@@ -16,6 +16,7 @@ os.environ["DATA_DIR"] = str(_TMP / "data")
 os.environ["MEDIA_ROOT"] = str(_TMP / "media")
 os.environ["TMDB_READ_TOKEN"] = ""
 os.environ["TMDB_API_KEY"] = ""
+os.environ["JZMEDIA_TOKEN"] = ""   # 测试默认不鉴权（鉴权用例显式开启）
 os.environ.pop("TRANSCODER", None)
 os.environ.pop("HW_ACCEL", None)
 

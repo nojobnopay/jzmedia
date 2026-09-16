@@ -49,6 +49,66 @@ def _req(base: str, path: str, method: str = "GET", body=None):
         return json.loads(raw) if raw else {}
 
 
+def _req_status(base: str, path: str, method: str = "GET", body=None, headers=None):
+    """不抛 HTTPError 的请求：返回 (status, json)。鉴权断言用。"""
+    data = None if body is None else json.dumps(body).encode()
+    h = {"Content-Type": "application/json"}
+    h.update(headers or {})
+    req = urllib.request.Request(base + path, data=data, method=method, headers=h)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            raw = r.read().decode("utf-8")
+            return r.status, (json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8")
+        try:
+            return e.code, json.loads(raw)
+        except Exception:
+            return e.code, {}
+
+
+def _stop(proc) -> None:
+    if proc is None or proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def _spawn(tmp: pathlib.Path, media: pathlib.Path, port: int, extra_env: dict):
+    env = {**os.environ, "DATA_DIR": str(tmp / "data"), "MEDIA_ROOT": str(media),
+           "SMOKE_PORT": str(port), "TMDB_READ_TOKEN": "", "TMDB_API_KEY": "",
+           **extra_env}
+    return subprocess.Popen([sys.executable, str(ROOT / "scripts/_smoke_app.py")],
+                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True)
+
+
+def _token_phase(tmp: pathlib.Path, media: pathlib.Path, check) -> None:
+    """P1-01 鉴权相位：带 JZMEDIA_TOKEN 起实例，验证写 401/带令牌 200/读放行。"""
+    token = "smoke-token-123"
+    port = _free_port()
+    proc = _spawn(tmp, media, port, {"JZMEDIA_TOKEN": token})
+    base = f"http://127.0.0.1:{port}"
+    try:
+        _wait_health(base, proc)
+        st, _ = _req_status(base, "/api/collections", "POST", {"name": "auth-smoke"})
+        check("auth write blocked without token", st == 401, str(st))
+        st2, body = _req_status(base, "/api/collections", "POST", {"name": "auth-smoke"},
+                                headers={"X-Api-Token": token})
+        check("auth write ok with X-Api-Token", st2 == 200, str(st2))
+        if st2 == 200:
+            st3, _ = _req_status(base, f"/api/collections/{body.get('id')}", "DELETE",
+                                 headers={"Authorization": f"Bearer {token}"})
+            check("auth delete ok with Bearer", st3 == 200, str(st3))
+        st4, _ = _req_status(base, "/api/movies")
+        check("auth read stays open", st4 == 200, str(st4))
+    finally:
+        _stop(proc)
+
+
 def _wait_health(base: str, proc, timeout: float = 30.0) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -71,11 +131,7 @@ def main() -> int:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(content)
     port = _free_port()
-    env = {**os.environ, "DATA_DIR": str(tmp / "data"), "MEDIA_ROOT": str(media),
-           "SMOKE_PORT": str(port), "TMDB_READ_TOKEN": "", "TMDB_API_KEY": ""}
-    proc = subprocess.Popen([sys.executable, str(ROOT / "scripts/_smoke_app.py")],
-                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True)
+    proc = _spawn(tmp, media, port, {})
     base = f"http://127.0.0.1:{port}"
     failed = []
     try:
@@ -154,12 +210,12 @@ def main() -> int:
 
         cfg = _req(base, "/api/settings")
         check("settings readable", cfg.get("tmdb_configured") is False, str(cfg)[:200])
+
+        # 鉴权相位（P1-01）：先停主实例释放 SQLite，再起带 token 的实例
+        _stop(proc)
+        _token_phase(tmp, media, check)
     finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        _stop(proc)
         shutil.rmtree(tmp, ignore_errors=True)
 
     print("-" * 60)

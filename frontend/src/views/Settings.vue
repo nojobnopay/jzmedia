@@ -63,6 +63,20 @@
         <p v-if="armClearTmdb" class="hint warn-text">将清空库里的 5 项 TMDB 配置，改回跟随 .env/默认值。再点一次执行。</p>
       </section>
 
+      <section id="sec-auth" class="card-block">
+        <h3>访问控制</h3>
+        <p class="hint">配置后，写操作（扫描/编辑/整理/删除/设置等 POST/PUT/PATCH/DELETE）需要访问令牌；GET 读取、海报与电视/Kodi 直链不受影响。令牌存库（优先于 <code>.env</code> 的 <code>JZMEDIA_TOKEN</code>），免重启生效；留空并保存 = 关闭鉴权（恢复完全开放）。</p>
+        <div class="tmdb-grid">
+          <label>访问令牌 <span class="src-badge">{{ srcText(s?.jzmedia_token_source) }} {{ s?.jzmedia_token_masked || '未设置（开放）' }}</span></label>
+          <div class="bar">
+            <input v-model="authForm.token" type="password" placeholder="新令牌（≥8 位），留空保存=关闭鉴权" style="flex:1" autocomplete="off" />
+            <button @click="saveAuth" :disabled="!!busy">{{ busy === 'auth' ? '保存中…' : '保存' }}</button>
+            <span>{{ authMsg }}</span>
+          </div>
+        </div>
+        <p class="hint">浏览器首次遇到 401 会弹输入框；输入后令牌存在本机 localStorage。令牌遗失时可直接清空数据库该项或改 `.env` 后重启。</p>
+      </section>
+
       <section id="sec-sync" class="card-block">
         <h3>新片入库</h3>
         <p class="hint">NAS 直拷 / 软件外删片后用这里：先扫描新增入库，再检查并清理失效条目。</p>
@@ -324,7 +338,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api } from '../api.js'
+import { api, setToken } from '../api.js'
 import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
 
 const route = useRoute()
@@ -482,6 +496,7 @@ const pendingCount = computed(() => pendingTotal.value)
 const navs = computed(() => [
   { id: 'sec-status', label: '库状态' },
   { id: 'sec-tmdb', label: 'TMDB 配置' },
+  { id: 'sec-auth', label: '访问控制' },
   { id: 'sec-sync', label: '新片入库' },
   { id: 'sec-pending', label: '匹配确认', badge: pendingCount.value || '' },
   { id: 'sec-meta', label: '元数据维护' },
@@ -654,6 +669,24 @@ async function doCollectExtras() {
 
 const armEpisodes = ref(false)
 const episodesMsg = ref('')
+const authForm = ref({ token: '' })
+const authMsg = ref('')
+async function saveAuth() {
+  busy.value = 'auth'
+  authMsg.value = ''
+  try {
+    const v = authForm.value.token.trim()
+    const d = await api('/api/settings', { method: 'PUT', body: JSON.stringify({ jzmedia_token: v }) })
+    s.value = d
+    setToken(v)            // 本浏览器后续写操作直接带令牌
+    authForm.value.token = ''
+    authMsg.value = v ? '已启用写操作鉴权（本浏览器已记住令牌）' : '已关闭鉴权（完全开放）'
+  } catch (e) {
+    authMsg.value = '保存失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
 async function doCleanEpisodes() {
   if (!armEpisodes.value) {
     armEpisodes.value = true

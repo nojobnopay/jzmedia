@@ -6,7 +6,41 @@
     <router-link to="/settings">设置</router-link>
   </nav>
   <router-view />
+  <div v-if="authAsk" class="auth-mask">
+    <div class="auth-dlg">
+      <h3>需要访问令牌</h3>
+      <p class="auth-hint">服务端已启用写操作鉴权：粘贴访问令牌（.env 的 <code>JZMEDIA_TOKEN</code> 或设置页里设的值）。电视/Kodi 直链读取不受影响。</p>
+      <input v-model="authInput" type="password" placeholder="访问令牌" autocomplete="off"
+        @keyup.enter="saveAuth" />
+      <div class="auth-bar">
+        <button @click="saveAuth" :disabled="!authInput.trim()">保存并重试</button>
+        <button @click="authAsk = false">取消</button>
+      </div>
+      <p class="auth-hint">保存后仅存于本浏览器 localStorage，不会上传。</p>
+    </div>
+  </div>
 </template>
+<script setup>
+import { onMounted, onUnmounted, ref } from 'vue'
+import { getToken, setToken } from './api.js'
+
+const authAsk = ref(false)
+const authInput = ref('')
+function onUnauthorized() {
+  if (authAsk.value) return
+  authInput.value = ''
+  authAsk.value = true
+}
+function saveAuth() {
+  const t = authInput.value.trim()
+  if (!t) return
+  setToken(t)
+  authAsk.value = false
+  location.reload()   // 简单可靠：带令牌重载，正在失败的请求由页面自行重试
+}
+onMounted(() => window.addEventListener('jzmedia:unauthorized', onUnauthorized))
+onUnmounted(() => window.removeEventListener('jzmedia:unauthorized', onUnauthorized))
+</script>
 <style>
 body { font-family: system-ui, sans-serif; margin: 0; background: #141414; color: #eee; }
 nav { padding: 12px; background: #1f1f1f; display: flex; gap: 16px; align-items: center; }
@@ -37,4 +71,11 @@ button { cursor: pointer; }
 .rate-chip.douban { color: #7ed321; border-color: #3a5a1e; }
 .rate-chip.custom { color: #ff6b6b; border-color: #6e2b2b; }
 .rating-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.auth-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 90; }
+.auth-dlg { background: #1c1c1c; border: 1px solid #444; border-radius: 10px; padding: 16px; width: min(420px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 10px; }
+.auth-dlg h3 { margin: 0; }
+.auth-dlg input { width: 100%; box-sizing: border-box; }
+.auth-bar { display: flex; gap: 8px; }
+.auth-hint { margin: 0; color: #888; font-size: 0.8125rem; line-height: 1.6; }
+.auth-hint code { color: #9ecfff; }
 </style>
