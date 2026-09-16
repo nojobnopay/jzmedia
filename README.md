@@ -95,6 +95,7 @@ kill <pid>
 | `TRANSCODER` | 转码后端：`auto`（默认；冒烟探测 VAAPI→QSV→NVENC，失败回落软件）\| `sw` \| `vaapi` \| `qsv` \| `nvenc`。NAS 启用硬件转码还需 compose 映射 `/dev/dri`（见 `docker-compose.yml` 注释与「部署到 NAS」） |
 | `HLS_SEGMENT_TYPE` | `fmp4`（默认）\| `ts`（回滚旧 MPEG-TS 输出） |
 | `AUDIO_COPY_SAFE` | 音频直通安全集覆盖（默认 hls.js 只信 `aac,mp3`；实测 EAC3 可用时可填 `aac,mp3,eac3,ac3`） |
+| `SCAN_SKIP_DIRS` | 扫描额外跳过的目录名（逗号分隔）。内置已跳过隐藏目录与 `#recycle`/`@eaDir`/`$RECYCLE.BIN` 等系统目录 |
 
 TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup → 头像 Settings → API → Create → Developer → 应用名用途随便填 → 把 `API Read Access Token` 填进设置页「TMDB 配置」（或 `.env` 的 `TMDB_READ_TOKEN`；或把 `API Key` 填进 `TMDB_API_KEY`）。
 
