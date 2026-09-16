@@ -954,8 +954,8 @@ def scan_one(abs_path: str) -> dict:
     parsed = parse_filename(os.path.basename(abs_path))
     parsed["title"] = normalize_title(parsed["title"])
     if parsed["type"] == "episode":
-        mid = store.upsert_movie_by_path(rel)
-        store.update_movie_meta(mid, title=parsed["title"])
+        # V1 仅电影：剧集不入库（评审 P1-03：旧实现建行会让剧集出现在海报墙/统计里，
+        # 与 README“剧集跳过”不符）。历史脏行由 POST /api/files/clean-episodes 清理。
         return {"file": rel, "status": "skipped_episode_v1"}
     m, used_q = search_with_fallback(parsed["title"], parsed["year"])
     if not m:

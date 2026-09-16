@@ -575,6 +575,44 @@ def clean_sidecars(body: dict | None = None):
             "failed": failed, "results": done}
 
 
+@router.post("/clean-episodes")
+def clean_episodes(body: dict | None = None):
+    """清理历史剧集脏行（评审 P1-03 配套）：未匹配（tmdb_id 为空）且文件名解析为剧集的
+    movies 行，删行+关联+FTS；视频文件原地保留，海报与 tmdb_cache 保留。
+    已匹配行不清理（可能是人工改判为电影）。默认 dry_run 预览。"""
+    from ..scanner import parse_filename
+    body = body or {}
+    dry_run = body.get("dry_run", True)
+    only = set(body.get("ids", []) or []) or None
+    cands = []
+    for m in store.list_movies(grouped=False, limit=100000):
+        if only is not None and m["id"] not in only:
+            continue
+        if m.get("tmdb_id"):
+            continue
+        try:
+            parsed = parse_filename(os.path.basename(m["file_path"]))
+        except Exception:
+            continue
+        if parsed.get("type") == "episode":
+            cands.append(m)
+    plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
+              "file_path": m["file_path"]} for m in cands]
+    if dry_run:
+        return {"dry_run": True, "total": len(plans), "plans": plans}
+    done, failed = [], []
+    for m in cands:
+        try:
+            ok = store.delete_movie(m["id"])
+            done.append({"id": m["id"], "file_path": m["file_path"],
+                         "status": "deleted" if ok else "already_gone"})
+        except Exception as e:
+            failed.append({"id": m["id"], "file_path": m["file_path"],
+                           "error": str(e)})
+    return {"dry_run": False, "total": len(cands), "deleted": len(done),
+            "failed": failed, "results": done}
+
+
 @router.get("/missing")
 def missing():
     """预览失效条目：库中有记录但文件已不存在的行（软件外删片/移动后产生）。"""

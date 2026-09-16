@@ -26,7 +26,7 @@
 | Fix ID | 来源 | 批次 | 问题 | 状态 | 验证 |
 |---|---|---|---|---|---|
 | P1-02 | R03-D2 | B1 | `_SAMPLE_RE` 误杀含 Sample 正片 | **done** | tests/test_scan_rules.py::test_is_sample_*（13 passed） |
-| P1-03 | R03-D1 | B1 | 剧集跳过实际入库污染海报墙 | pending | tests/test_scan_rules.py::test_episode_not_inserted |
+| P1-03 | R03-D1 | B1 | 剧集跳过实际入库污染海报墙 | **done** | tests/test_scan_rules.py::test_episode_not_inserted / test_clean_episodes_* |
 | P1-04 | R03-D3 | B1 | 扫描不剪枝 #recycle/@eaDir/隐藏目录 | pending | tests/test_scan_rules.py::test_walk_prunes |
 | P1-05 | R08-D1 | B1 | clean-sidecars 误删正片库行 | pending | tests/test_scan_rules.py::test_clean_sidecars_protects_* |
 | P1-06 | R09-D1 | B2 | 移动目标与 missing 行撞车致“文件已移/DB 未改” | pending | — |
@@ -43,12 +43,13 @@
 
 ```
 批次：B1（fix/b1-scan）
-步骤：P1-02 已修并提交；开始 P1-03（剧集不入库 + clean-episodes 清理口）
-断点：pytest 49 passed / 5 failed（剩余红=P1-03/04/05 预期）
-下一步：改 scanner.scan_one episode 分支 + files.py 新增 clean_episodes → 跑 tests/test_scan_rules.py
+步骤：P1-03 已修并提交；开始 P1-04（walk 剪枝）
+断点：pytest 52 passed / 2 failed（剩余红=P1-04/05 预期）；前端 build ok
+下一步：改 scanner.scan_all 的 os.walk 剪枝（#recycle/@eaDir/隐藏目录）→ 跑 tests/test_scan_rules.py
 ```
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-16：**P1-03 done**：`scan_one` 剧集不再建行；新增 `POST /api/files/clean-episodes`（dry_run 默认，保护已匹配行）+ Settings 两步确认按钮 + README/AGENTS 同步；pytest 52 passed / 2 failed。
 - 2026-09-16：**P1-02 done**：`_SAMPLE_RE` 收紧（禁止空格/任意词边界，whitelist 发布词 ≤3 个）；13 个样片/侧车用例绿；全量 49 passed / 5 failed（剩余为 P1-03/04/05 预期红）。
 - 2026-09-16：验证基建提交（L0-L2 + B1 复现用例）。

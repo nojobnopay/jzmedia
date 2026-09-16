@@ -147,6 +147,7 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 | `GET /api/tmdb/search?q=` · `POST /api/movies/{id}/match` | 手动匹配两步：搜 TMDB 候选 → 按 `tmdb_id` 强制绑定 |
 | `GET /api/files/preview` · `POST /api/files/rename` | 整理预览；执行（默认 `dry_run:true` 只预览） |
 | `GET /api/files/restore-candidates` · `POST /api/files/restore-original` | 偏离原始位置的影片预览；搬回首次入库位置（默认 `dry_run:true`，目标被占/源缺失跳过不上报覆盖） |
+| `POST /api/files/clean-sidecars` · `POST /api/files/clean-episodes` | 清历史脏行（只删库行、文件保留，默认 `dry_run:true`）：花絮误入库行 / 剧集误入库行（未匹配且解析为剧集；已匹配的不动） |
 | `POST /api/jobs/backfill-meta` | 给存量影片补产地/类型等新元数据（不重下海报/NFO，保留手动标题）；`{"limit":N,"force":bool}` |
 | `POST /api/jobs/rebuild-nfo` | 按收敛规则重建全库 NFO 并清历史同名残留；`{"limit":N,"dry_run":bool}`，返回 `wrote/deleted/by_mode` |
 | `POST /api/jobs/douban-fetch` | 占位，固定 `501`（默认不爬豆瓣） |
