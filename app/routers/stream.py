@@ -158,7 +158,7 @@ def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
             # 直链始终返回：HDR/DV/图片字幕等复杂片源可复制给 VLC/Kodi（目标文档 §12）
             "direct_url": blob_url,
             "hls_url": hls_url if method in ("remux", "audio_transcode",
-                                             "transcode", "video_transcode") else ""}
+                                             "video_transcode") else ""}
 
 
 @router.get("/{version_id}/decide")
@@ -379,6 +379,7 @@ def _kill_proc(proc) -> None:
     except Exception:
         try:
             proc.kill()
+            proc.wait(timeout=3)   # 评审 B7/R12-B7：kill 后等待回收
         except Exception:
             pass
 
@@ -498,8 +499,8 @@ def _media_start_for(version_id: int, abs_p: str, start: float, plan: dict) -> f
     vcopy_seek = bool((plan or {}).get("vcopy")) and (plan or {}).get("sub") != "burn"
     ms = _playback.actual_media_start(abs_p, start, vcopy_seek)
     with _sess_lock:
-        if len(_MEDIA_START_CACHE) > 64:
-            _MEDIA_START_CACHE.clear()
+        if len(_MEDIA_START_CACHE) >= 64:
+            _MEDIA_START_CACHE.pop(next(iter(_MEDIA_START_CACHE)))  # FIFO（评审 B7/R12-B6）
         _MEDIA_START_CACHE[key] = ms
     return ms
 
@@ -1151,10 +1152,12 @@ def hls_session_create(version_id: int, body: SessionBody | None = None):
         raise HTTPException(422, "bad version_id")
     sid, _sdir, d = _spawn_session(vid, body.quality, body.audio, body.sub, body.start,
                                    caps=body.caps, force_burn=body.force_burn)
+    caps_n = _caps.default_caps() if body.caps is None else _caps.normalize_caps(body.caps)
     return {"session_id": sid,
             "playlist_url": f"/api/stream/sessions/{sid}/master.m3u8",
             "method": d["method"], "reasons": d["reasons"], "plan": d["plan"],
             "media_start": float(d.get("media_start") or 0),
+            "caps_hash": _caps.caps_hash(caps_n),
             "subtitle_mode": d.get("subtitle_mode") or "none"}
 
 

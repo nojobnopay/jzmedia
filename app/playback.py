@@ -217,18 +217,27 @@ def _subtitle_mode(media: dict, sub_idx, reasons: list,
     return "none"
 
 
+def _clamp_to_source(target: int, media: dict) -> int:
+    """封顶不超过源高（评审 B7/R11-D1）：480p 源选 720p 档时不再放大重编（浪费 CPU 无画质）"""
+    try:
+        h = int(media.get("height") or 0)
+    except (TypeError, ValueError):
+        h = 0
+    return min(target, h) if (target and h) else target
+
+
 def _target_height(quality: str, media: dict, need_encode: bool) -> tuple[int, str]:
     """目标高度 + auto 降档原因。档位语义：
     - auto（新前端默认）与 original（旧前端兼容）→ 需视频重编且片源>1080p 时封顶
       （无硬件转码 720p / 有硬件 1080p；copy 路径不封顶，保原分辨率）；
     - source（原画）→ 0 不封顶（显式选择，重编耗 CPU 由 reasons 提示）；
-    - 720p/1080p 显式降档。
+    - 720p/1080p 显式降档（同样不向上放大，见 _clamp_to_source）。
     P4 起封顶值由转码后端能力决定（HW 1080p / 软件 720p）。"""
     q = (quality or "auto").strip().lower()
     if q in ("720p", "720"):
-        return 720, ""
+        return _clamp_to_source(720, media), ""
     if q in ("1080p", "1080"):
-        return 1080, ""
+        return _clamp_to_source(1080, media), ""
     if q in ("source",):
         return 0, ""
     try:
@@ -318,6 +327,12 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
         if hdr_tonemap:
             if hw_can_tonemap() and not burn:
                 tonemap = True
+                try:
+                    if int(media.get("dv_profile") or 0) > 0 and int(media.get("dv_bl_compat") or 0) == 0:
+                        # DV 无 HDR10 基底（如 P5）：硬件 tonemap 按 HDR10 处理会偏色
+                        reasons.append("dovi_no_base_tonemap")
+                except (TypeError, ValueError):
+                    pass
             else:
                 reasons.append("hdr_no_tonemap")
         return emit("video_transcode", sub_mode,
