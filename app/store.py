@@ -799,15 +799,19 @@ def list_all_extras() -> list[dict]:
         return [dict(r) for r in c.execute("SELECT * FROM extras ORDER BY file_path")]
 
 
-def update_extra_movie(extra_id: int, movie_id: int) -> bool:
-    """手工认领：orphan 花絮归到指定影片。返回行是否存在。"""
+def get_extra(extra_id: int) -> dict | None:
+    """按 id 取花絮行（评审 B6/R08-D5：改挂前拿 previous 归属）。"""
     with _lock, _conn() as c:
-        row = c.execute("SELECT id FROM extras WHERE id=?", (extra_id,)).fetchone()
-        if not row:
-            return False
-        c.execute("UPDATE extras SET movie_id=?, updated_at=? WHERE id=?",
-                  (movie_id, int(time.time()), extra_id))
-        return True
+        row = c.execute("SELECT * FROM extras WHERE id=?", (extra_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def update_extra_movie(extra_id: int, movie_id: int) -> bool:
+    """手工认领：orphan 花絮归到指定影片。返回是否有行被更新（rowcount）。"""
+    with _lock, _conn() as c:
+        cur = c.execute("UPDATE extras SET movie_id=?, updated_at=? WHERE id=?",
+                        (movie_id, int(time.time()), extra_id))
+        return int(cur.rowcount or 0) > 0
 
 
 def delete_extra_by_path(file_path: str) -> bool:

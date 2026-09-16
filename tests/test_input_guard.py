@@ -145,8 +145,29 @@ def test_list_collections_like_escaped():
     assert "100X合集" not in names
 
 
-# ---------- R13-B3：VobSub 请求 VTT 必须 415 ----------
+# ---------- R08-D5：已归属花絮改挂需 force ----------
 
+def test_attach_requires_force_for_reattach(media_root):
+    a = _row("attach/a.mkv", title="A")
+    b = _row("attach/b.mkv", title="B")
+    eid = store.upsert_extra("attach/extra.mkv", None, "extra")
+
+    r1 = client.post(f"/api/extras/{eid}/attach", json={"movie_id": a})
+    assert r1.status_code == 200
+    assert r1.json()["previous_movie_id"] is None
+    assert store.get_extra(eid)["movie_id"] == a
+
+    r2 = client.post(f"/api/extras/{eid}/attach", json={"movie_id": b})
+    assert r2.status_code == 409
+    assert store.get_extra(eid)["movie_id"] == a      # 未改挂
+
+    r3 = client.post(f"/api/extras/{eid}/attach", json={"movie_id": b, "force": True})
+    assert r3.status_code == 200
+    assert r3.json()["previous_movie_id"] == a
+    assert store.get_extra(eid)["movie_id"] == b
+
+
+# ---------- R13-B3：VobSub 请求 VTT 必须 415 ----------
 def test_vobsub_vtt_returns_415(media_root):
     rel = "guard/sub.mkv"
     _touch(media_root, rel)
