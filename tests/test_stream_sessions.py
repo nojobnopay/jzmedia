@@ -122,6 +122,23 @@ def test_prewarm_refuses_when_live_other_plan(monkeypatch, media_root):
     assert "live1" in stream._sessions
 
 
+def test_prewarm_plan_matches_online_with_same_caps():
+    """B5a-7（R12-D2）：同 caps 下 prewarm 与在线播 plan marker 一致，成品可命中。"""
+    from app import playback as pb
+    from app.routers.stream import _plan_marker, _prewarm_plan
+    info = {"playable": True, "container": "matroska", "duration": 120.0,
+            "width": 1920, "height": 1080, "vcodec": "h264", "bit_depth": 8,
+            "audio": [{"codec": "aac", "channels": 2, "default": 1}], "subs": []}
+    caps = {"video": {"h264": True}, "audio": {"aac": True},
+            "native_hls": False, "probes": {}}
+    d_pre = _prewarm_plan(info, "auto", 0, caps)
+    d_online = pb.plan(info, caps=caps, quality="auto", audio_idx=0)
+    assert d_pre["method"] == d_online["method"]
+    assert _plan_marker(d_pre["plan"], 0, 0) == _plan_marker(d_online["plan"], 0, 0)
+    # 缺省 caps 仍走保守默认，不抛错
+    assert _prewarm_plan(info, "auto", 0, None)["method"] == d_pre["method"]
+
+
 def test_prewarm_attaches_same_plan_without_cleanup(monkeypatch, media_root):
     rel = "film/b.mkv"
     p = media_root / rel

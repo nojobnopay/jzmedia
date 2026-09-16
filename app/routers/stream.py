@@ -939,7 +939,16 @@ def _register_prewarm_session(vid: int, sdir: str, plan: dict, proc,
     return sid
 
 
-def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int) -> None:
+def _prewarm_plan(info: dict, quality: str, audio: int, caps: dict | None) -> dict:
+    """预转码 plan（评审 B5a-7/R12-D2）：caps 缺省走服务端保守默认；
+    前端带上与在线播相同的 caps 时，产物键（plan marker）与在线会话一致，
+    预转码成品才能真正被点播命中，不再白转。"""
+    caps_n = _caps.default_caps() if caps is None else _caps.normalize_caps(caps)
+    return _playback.plan(info, caps=caps_n, quality=quality, audio_idx=audio)
+
+
+def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
+                    caps: dict | None = None) -> None:
     """后台整片转完（夜间用）：与在线播同一 build_cmd/目录 scheme，完工即静态 VOD。
     进度=已产分片/预估总数；失败记 error 尾。
     与在线播共用会话目录：同 plan 的在线会话直接附着复用，存在不同 plan 的在线会话时
@@ -955,8 +964,7 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int) -> None:
         info = _media_cached_or_probe(m, abs_p)
         if not info.get("playable"):
             raise RuntimeError(f"unplayable: {info.get('probe_error') or 'probe failed'}")
-        d = _playback.plan(info, caps=_caps.default_caps(), quality=quality,
-                           audio_idx=audio)
+        d = _prewarm_plan(info, quality, audio, caps)
         if d["method"] == "direct":
             raise RuntimeError("already direct-playable, no prewarm needed")
         try:
@@ -1081,6 +1089,8 @@ class PrewarmBody(BaseModel):
     version_id: int = 0
     quality: str = "auto"     # auto=按后端能力封顶（无 HW 720p / 有 HW 1080p）
     audio: int = 0
+    # 前端实测 caps（可选；评审 B5a-7）：与在线播同 caps 时产物键一致，成品可被点播命中
+    caps: dict | None = None
 
 
 @router.post("/prewarm")
@@ -1104,7 +1114,7 @@ def prewarm_start(body: PrewarmBody | None = None):
                              "started_at": int(time.time())}
     th = threading.Thread(target=_prewarm_worker,
                           args=(job_id, vid, quality,
-                                int(body.audio or 0)),
+                                int(body.audio or 0), body.caps),
                           daemon=True)
     th.start()
     return {"job_id": job_id, "status": "queued"}

@@ -396,9 +396,11 @@ async function startPrewarm() {
   if (preJob.value || !heroVid.value) return
   preMsg.value = ''
   try {
+    // 带上本机实测 caps（评审 B5a-7）：预转码产物键与在线播一致，完工后点播才能命中
+    const caps = await getCaps()
     const r = await api('/api/stream/prewarm', {
       method: 'POST',
-      body: JSON.stringify({ version_id: Number(heroVid.value), quality: preQuality.value, audio: 0 }),
+      body: JSON.stringify({ version_id: Number(heroVid.value), quality: preQuality.value, audio: 0, caps }),
     })
     preJob.value = r.job_id
     preMsg.value = '已开始，后台转码中…'
