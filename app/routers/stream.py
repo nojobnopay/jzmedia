@@ -33,9 +33,11 @@ from .. import playback as _playback
 from .. import store
 from ..config import settings
 from ..db import TRANSCODE_DIR
+from ..log import get_logger
 from ..scanner import sidecar_subtitles
 
 router = APIRouter(prefix="/api/stream")
+logger = get_logger("stream")
 
 _hls_sem = threading.Semaphore(2)
 # fMP4 扁平产物：<name>_init.mp4 / <name>_segNNNNN.m4s；TS 回滚：segNNNNN.ts
@@ -577,8 +579,8 @@ def _write_master(sdir: str, info: dict, plan: dict, seg_time: int) -> None:
     try:
         with open(os.path.join(sdir, "master.m3u8"), "w", encoding="utf-8") as fh:
             fh.write("\n".join(lines) + "\n")
-    except OSError:
-        pass
+    except OSError as e:
+        logger.warning("write master failed dir=%s: %s", sdir, e)
 
 
 def _purge_old() -> None:
@@ -761,6 +763,9 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                     except OSError:
                         pass
                 continue
+            logger.warning("transcode failed vid=%s attempt=%s backend=%s tail=%s",
+                           m["id"], attempt + 1,
+                           "sw" if force_sw else ("hw" if use_hw else "copy"), tail[-200:])
             raise HTTPException(500, "transcode failed (no segments)" +
                                 (f": {tail}" if tail else ""))
         try:
@@ -1060,6 +1065,7 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int) -> None:
             if not ok and sid_cur:
                 _drop_session(sid_cur, kill=True)
     except Exception as e:
+        logger.warning("prewarm failed job=%s: %s", job_id, e)
         job.update({"status": "failed", "error": str(e)[:500]})
     finally:
         try:
@@ -1588,6 +1594,8 @@ def _dump_attachments(abs_p: str, fdir: str) -> None:
             except OSError:
                 pass
     shutil.rmtree(tmp, ignore_errors=True)
+    if rc != 0:
+        logger.warning("dump attachments failed file=%s rc=%s", abs_p, rc)
     if rc == 0:
         try:
             with open(marker, "w", encoding="utf-8") as fh:

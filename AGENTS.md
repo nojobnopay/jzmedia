@@ -35,6 +35,7 @@
 - FTS5 `movies_fts` has **no triggers** — after any `movies`/`persons`/`movie_person` write you must call `store.resync_fts(movie_id)` (`update_movie_meta` already does; manual SQL or `link_person` does not). `store.init_db()` + `rebuild_fts()` run at startup and self-heal old trigger schemas (`DROP TRIGGER IF EXISTS movies_ai/ad/au`).
 
 ## Conventions / constraints
+- Logging: 统一走 `app/log.py`（`get_logger`/`setup_logging`，env `LOG_LEVEL`）；失败路径禁止 `except: pass` 静默（至少 `logger.warning/debug` + 关键上下文）。历史静默点按批次改造，新代码直接遵守。
 - New pages: don't add bare `GET /...` routes — the catch-all `GET /{full_path:path}` in `main.py` serves the SPA (routes: `/`, `/m/:id`, `/p/:tmdb_id`, `/collections`, `/c/:id`, `/settings`). API routes must live under `/api` routers.
 - `POST /api/jobs/douban-fetch` is intentionally `501` (no Douban scraping by default) — keep the stub. Only remote bulk write is `POST /api/jobs/tmdb-refresh` (explicit ids only); `backfill-meta` is offline from `tmdb_cache`.
 - `POST /api/files/rename` 与 `POST /api/files/organize`（统一口，`mode=inplace|relocate`）默认 `dry_run:true`；总是先看预览。`organize mode=relocate` 用 `from_prefix/to_dir/group_by_region` 做两级 region 搬迁。命名模板 `标题 (年份)[-版本][-规格][-分卷][-版本N].ext`（单 `-` 直连）；冲突分 `suspect_mismatch`（等人工重匹配，不自动加后缀）与规格变体（最小后缀消解，兜底 `-版本N`）；执行时识别到的版本/编号落库（手工值优先）。`organize mode=relocate` 全量收敛：`from_prefix` 子树之外，已在目标根下但分区过期/未分区的行一并修正（目标已规范的行无计划）；就地模式父目录为片目录形态即视为已归档（防套娃，不碰顶层分区）。

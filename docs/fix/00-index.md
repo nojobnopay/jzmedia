@@ -33,7 +33,7 @@
 | P1-07 | R12-D1 | B2 | prewarm 与在线播互踩会话目录 | **done** | tests/test_stream_sessions.py（4 用例）+ docker e2e（见 log） |
 | P1-08 | R13-D1 | B2 | HDR+烧录丢弃 tonemap 且无提示 | **done** | tests/test_playback_plan.py::test_burn_hdr_flags_no_tonemap_even_with_hw |
 | P1-09 | R01-B1 | B3 | UID/GID 文档与 compose 不一致 | pending | — |
-| P1-10 | R01-B7 | B3 | 零日志 + 76 处静默吞异常 | pending | — |
+| P1-10 | R01-B7 | B3 | 零日志 + 76 处静默吞异常 | **done** | tests/test_logging.py（5 用例） |
 | P1-11 | R04-D1 | B3 | 库页无分页 >500 截断 | pending | — |
 | P1-01 | R01-D1 | B4 | 无认证 + 破坏性 API 全开放 | pending | — |
 
@@ -43,13 +43,14 @@
 
 ```
 批次：B3（fix/b3-ops）— 进行中
-步骤：P1-09 done（主 compose user + README/AGENTS/.env.example 同步，3 用例绿）；接下来 P1-10 日志
-断点：pytest 66 passed（63+3）；未改任何运行时逻辑
-下一步：P1-10 logging 基建（app/log.py + LOG_LEVEL + 关键静默点补日志 + caplog 用例）
+步骤：P1-09/P1-10 done；接下来 P1-11 库页分页（后端 offset/has_more + 前端加载更多）
+断点：pytest 71 passed（+3 deploy +5 logging）；未改播放链
+下一步：list_movies/search_fts 加 offset → /api/search limit 钳制 + has_more → Library.vue 无限滚动
 ```
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-16：**P1-10 done**：新增 `app/log.py`（setup_logging/get_logger，`LOG_LEVEL`，第三方降噪）+ main 启动/停止日志；关键静默点补痕：files 移动/恢复失败与回滚、scanner NFO 写入失败（单/多/回退三路）与扫描异常、stream master 写入/转码失败/prewarm 失败/字体 dump、store 序列化与 probe 瞬态、tmdb 海报下载、config 读库失败、media static 下载失败、transcode smoke；tests/test_logging.py 5 用例（caplog 断言）；README/AGENTS 同步 `LOG_LEVEL` 约定。
 - 2026-09-16：**P1-09 done**：`docker-compose.yml` 增加 `user: "${UID:-0}:${GID:-0}"`（缺省 root 保持旧行为）；README NAS 步骤补 chown/组权限说明；AGENTS deploy 同步；`.env.example` 注释更新；`docker compose config` 验证三态（.env=1002→1002:1002 / 空→0:0 / 显式→4321:4321）；tests/test_deploy_config.py 3 用例。
 - 2026-09-16：**B2 批次合回 main**（--no-ff `4ac85e5`，tag `p1-b2-consistency`）。整批验证：L0（compileall/import/npm build）+ L1（pytest 63、node --test 7）+ L2 smoke 22/22 + docker e2e 全绿（明细见下）。
 - 2026-09-16：**P1-07 done + docker e2e 全绿**（jzmedia:v0.4.0 + 当前代码 + 两个 ffmpeg 合成测试片）：

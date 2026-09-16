@@ -96,6 +96,7 @@ kill <pid>
 | `HLS_SEGMENT_TYPE` | `fmp4`（默认）\| `ts`（回滚旧 MPEG-TS 输出） |
 | `AUDIO_COPY_SAFE` | 音频直通安全集覆盖（默认 hls.js 只信 `aac,mp3`；实测 EAC3 可用时可填 `aac,mp3,eac3,ac3`） |
 | `SCAN_SKIP_DIRS` | 扫描额外跳过的目录名（逗号分隔）。内置已跳过隐藏目录与 `#recycle`/`@eaDir`/`$RECYCLE.BIN` 等系统目录 |
+| `LOG_LEVEL` | 后端日志级别（默认 `INFO`；`DEBUG` 可看扫描/整理/转码失败细节）。日志统一走 `app/log.py` |
 
 TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup → 头像 Settings → API → Create → Developer → 应用名用途随便填 → 把 `API Read Access Token` 填进设置页「TMDB 配置」（或 `.env` 的 `TMDB_READ_TOKEN`；或把 `API Key` 填进 `TMDB_API_KEY`）。
 

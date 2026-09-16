@@ -8,6 +8,9 @@ import time
 
 from .config import settings
 from .db import DB_PATH, POSTER_DIR, ensure_dirs
+from .log import get_logger
+
+logger = get_logger("store")
 
 _lock = threading.RLock()
 
@@ -334,7 +337,8 @@ def init_db() -> None:
 def _dump_list(v) -> str:
     try:
         return json.dumps(v or [], ensure_ascii=False)
-    except Exception:
+    except Exception as e:
+        logger.warning("dump list failed, write []: %s", e)
         return "[]"
 
 
@@ -906,6 +910,8 @@ def upsert_media_info(movie_id: int, info: dict) -> dict:
         old = get_media_info(int(movie_id))
         if old and old.get("playable"):
             return old
+        logger.debug("probe transient error mid=%s err=%s (not persisted)", movie_id,
+                     info.get("probe_error"))
         transient = dict(info)
         transient["audio"] = list(info.get("audio") or [])
         transient["subs"] = list(info.get("subs") or [])

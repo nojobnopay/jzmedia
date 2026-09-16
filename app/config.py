@@ -1,6 +1,10 @@
 import os
 from pydantic import BaseModel
 
+from .log import get_logger
+
+logger = get_logger("config")
+
 
 class Settings(BaseModel):
     app_port: int = int(os.getenv("APP_PORT", "8080"))
@@ -33,7 +37,8 @@ def _db_value(key: str) -> str:
         from . import store
         v = store.get_setting(key)
         return (v or "").strip()
-    except Exception:
+    except Exception as e:
+        logger.warning("read setting %s from db failed, fallback to env: %s", key, e)
         return ""
 
 

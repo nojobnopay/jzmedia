@@ -14,8 +14,11 @@ from guessit import guessit
 from . import store, tmdb
 from .config import settings
 from .db import POSTER_DIR, ensure_dirs
+from .log import get_logger
 from .nfo import write_movie_nfo
 from .regions import resolve as resolve_region
+
+logger = get_logger("scanner")
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv", ".webm"}
 SUBTITLE_EXTS = {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup"}
@@ -426,6 +429,9 @@ def _sync_jobs(mid: int, jobs: list[tuple], max_workers: int = 8) -> int:
         avatar = save_person_avatar(pid_tmdb, profile_path)
         if not avatar and raw and os.path.exists(dest):
             avatar = os.path.relpath(dest, settings.data_dir)
+        if not avatar and profile_path:
+            logger.debug("avatar download failed person=%s profile=%s", pid_tmdb,
+                         profile_path)
         return pid_tmdb, avatar, bool(avatar and avatar != "-" and not existed), profile_path or ""
 
     avatars: dict = {}
@@ -581,7 +587,9 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
                     write_movie_nfo(movie, os.path.join(movie_dir, "movie.nfo"))
                     if stem and stem != "movie":
                         write_movie_nfo(movie, os.path.join(movie_dir, stem + ".nfo"))
-                except Exception:
+                except Exception as e:
+                    logger.warning("nfo fallback write failed mid=%s dir=%s: %s",
+                                   mid, rel_dir, e)
                     return {"ok": False, "mode": "fallback", "dir": rel_dir,
                             "wrote": [], "deleted": []}
             return {"ok": True, "mode": "fallback", "dir": rel_dir,
@@ -594,7 +602,9 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
                     write_movie_nfo(movie, os.path.join(movie_dir, "movie.nfo"))
                     if stem and stem != "movie":
                         write_movie_nfo(movie, os.path.join(movie_dir, stem + ".nfo"))
-                except Exception:
+                except Exception as e:
+                    logger.warning("nfo fallback write failed mid=%s dir=%s: %s",
+                                   mid, rel_dir, e)
                     return {"ok": False, "mode": "fallback", "dir": rel_dir,
                             "wrote": [], "deleted": []}
             wrote = ["movie.nfo"] + ([stem + ".nfo"] if stem and stem != "movie" else [])
@@ -608,7 +618,8 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
                     "wrote": ["movie.nfo"], "deleted": []}
         try:
             rows = store.list_movies_in_dir(rel_dir)
-        except Exception:
+        except Exception as e:
+            logger.debug("list movies in dir failed dir=%s: %s", rel_dir, e)
             rows = []
         row_by_base: dict[str, dict] = {}
         for r in rows:
@@ -689,19 +700,25 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
             writers.append((st + ".nfo", full))
         deleted = [n for n in existing_nfos if n not in wanted]
         if not dry_run:
+            failed = 0
             for name, data in writers:
                 try:
                     write_movie_nfo(data, os.path.join(movie_dir, name))
-                except Exception:
-                    pass
+                except Exception as e:
+                    failed += 1
+                    logger.warning("nfo write failed mid=%s file=%s: %s", mid, name, e)
             for n in deleted:
                 try:
                     os.remove(os.path.join(movie_dir, n))
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.debug("nfo remove failed file=%s: %s", n, e)
+            if failed:
+                return {"ok": False, "mode": "multi", "dir": rel_dir,
+                        "wrote": sorted({n for n, _ in writers}), "deleted": sorted(deleted)}
         return {"ok": True, "mode": "multi", "dir": rel_dir,
                 "wrote": sorted({n for n, _ in writers}), "deleted": sorted(deleted)}
-    except Exception:
+    except Exception as e:
+        logger.warning("sync_nfos_for failed mid=%s dir=%s: %s", mid, abs_path, e)
         return {"ok": False, "mode": "error", "dir": "",
                 "wrote": [], "deleted": []}
 
@@ -710,6 +727,7 @@ def _write_nfo_for(mid: int, abs_path: str) -> bool:
     try:
         return bool(sync_nfos_for(mid, abs_path).get("ok"))
     except Exception:
+        logger.debug("write nfo failed mid=%s path=%s", mid, abs_path, exc_info=True)
         return False
 
 
@@ -743,7 +761,9 @@ def finish_tmdb_media(mid: int, detail: dict, abs_path: str,
         store.resync_fts(mid)
         nfo = _write_nfo_for(mid, abs_path)
         return {"poster_path": poster_local, "nfo": nfo}
-    except Exception:
+    except Exception as e:
+        logger.warning("finish_tmdb_media failed mid=%s tmdb=%s: %s", mid,
+                       tmdb_id, e)
         return {"poster_path": "", "nfo": False}
 
 
@@ -1035,9 +1055,9 @@ def scan_all() -> list[dict]:
                     if r.get("status") in ("extra_attached", "extra_orphan"):
                         seen_extras.add(r["file"])
                 except Exception as e:
-                    out.append({"file": os.path.relpath(os.path.join(root, f),
-                                                        settings.media_root),
-                                "status": f"error: {e}"})
+                    rel = os.path.relpath(os.path.join(root, f), settings.media_root)
+                    logger.debug("scan_one failed file=%s: %s", rel, e, exc_info=True)
+                    out.append({"file": rel, "status": f"error: {e}"})
     # 花絮行 GC：文件已不存在的归属记录清掉（正片走 missing/clean 流程）
     try:
         for row in store.list_all_extras():
