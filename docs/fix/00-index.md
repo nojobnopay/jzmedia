@@ -31,7 +31,7 @@
 | P1-05 | R08-D1 | B1 | clean-sidecars 误删正片库行 | **done** | tests/test_scan_rules.py::test_clean_sidecars_protects_tmdb_rows |
 | P1-06 | R09-D1 | B2 | 移动目标与 missing 行撞车致“文件已移/DB 未改” | **done** | tests/test_files_organize.py（4 用例） |
 | P1-07 | R12-D1 | B2 | prewarm 与在线播互踩会话目录 | pending | — |
-| P1-08 | R13-D1 | B2 | HDR+烧录丢弃 tonemap 且无提示 | pending | — |
+| P1-08 | R13-D1 | B2 | HDR+烧录丢弃 tonemap 且无提示 | **done** | tests/test_playback_plan.py::test_burn_hdr_flags_no_tonemap_even_with_hw |
 | P1-09 | R01-B1 | B3 | UID/GID 文档与 compose 不一致 | pending | — |
 | P1-10 | R01-B7 | B3 | 零日志 + 76 处静默吞异常 | pending | — |
 | P1-11 | R04-D1 | B3 | 库页无分页 >500 截断 | pending | — |
@@ -50,6 +50,7 @@
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-16：**P1-08 done**：`playback.plan` 在 burn 时不启用硬件 tonemap 并追加 `hdr_no_tonemap`（前端有人话文案）；`transcode.video_args` 补注释防静默忽略；pytest 59 passed。
 - 2026-09-16：**P1-07 已复现（红）**：docker（jzmedia:v0.4.0 + 当前 app + 真实片源《大桥下面》只读挂载）——在线会话分片 `26/13` → 启动 prewarm 后 `22/11`（目录被清、双进程同写）。
 - 2026-09-16：**P1-06 done**：`_collect_plans` 增加库内占用检查（`conflict_db_occupied`/kind db）；`_move_one`/`_restore_one` 目标被他人行占用时提前拒绝，并在库写失败时回滚 rename；Settings 增加「库内占用」计数/徽标与恢复状态文案；pytest 58 passed，前端 build/test ok。
 - 2026-09-16：**B2 开工**：建分支 `fix/b2-consistency`。环境确认：用户 8080 服务在跑（勿动）；真实媒体在 `sample_media/`（332 个 mkv，仅 3 个非 0 字节，最小 2.96GB《大桥下面 1984》）；`jzmedia:v0.4.0` 镜像含 ffmpeg 7.1.5 可复用。

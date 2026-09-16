@@ -311,10 +311,12 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
         if (quality or "").strip().lower() == "source":
             reasons.append("source_transcode")  # 用户显式原画：不封顶重编，提示耗 CPU
         # HDR→SDR：仅硬件后端做实时 tonemap（目标文档 §12：不把实时 tone mapping
-        # 作为弱 NAS 的主要能力）；无 HW/后端不支持时明确提示色彩偏灰并建议外部播放器/直链
+        # 作为弱 NAS 的主要能力）；烧录走软件滤镜图（overlay+缩放）用不了硬件 tonemap 链，
+        # 软件 tonemap 亦非默认能力 → 同样如实提示偏灰（评审 P1-08），别让用户拿
+        # 一版无提示的灰片。
         tonemap = False
         if hdr_tonemap:
-            if hw_can_tonemap():
+            if hw_can_tonemap() and not burn:
                 tonemap = True
             else:
                 reasons.append("hdr_no_tonemap")
