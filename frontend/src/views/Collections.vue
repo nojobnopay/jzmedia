@@ -124,6 +124,8 @@ async function backfill(force = false) {
     }
     bfRounds += 1
     jobId.value = d.job_id || ''
+    lastPollDone = -1
+    if (d.resumed) sgMsg.value = '已复用运行中的补全任务，继续跟踪进度…'
     startPoll()
   } catch (e) {
     sgMsg.value = '补全失败：' + e.message
@@ -144,6 +146,7 @@ const bfStateText = computed(() => {
   return '补全中…'
 })
 let pollTimer = null
+let lastPollDone = -1
 function startPoll() {
   stopPoll()
   pollTimer = setInterval(pollStatus, 2000)
@@ -162,8 +165,12 @@ async function pollStatus() {
       current_title: d.current_title || '', failed: d.failed || []
     }
     if (d.job_id) jobId.value = d.job_id
-    // 增量呈现：系列信息一入库就能看到，中途即可接受
-    await loadSuggest()
+    // 增量呈现：仅进度变化或收尾时刷新推荐（评审 B8/R06-D2：此前每 2s 一次全量聚合）
+    const progressed = d.done !== lastPollDone
+    lastPollDone = d.done
+    if (progressed || d.state === 'done' || d.state === 'cancelled') {
+      await loadSuggest()
+    }
     if (d.state === 'done' || d.state === 'cancelled') {
       stopPoll()
       backfilling.value = false

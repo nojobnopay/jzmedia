@@ -323,8 +323,8 @@
             <span class="miss-title">{{ f.name }}</span>
             <span class="miss-path">{{ fmtBytes(f.size) }}{{ f.title ? ` · ${f.title}` : '' }}</span>
             <input v-model="fsRenameEdits[f.rel]" placeholder="新文件名" style="width:140px" />
-            <button @click="doFsRename(f.rel)" :disabled="!!busy">改名</button>
-            <button @click="doFsMove(f.rel)" :disabled="!!busy || !fsMoveDir.trim()">移动</button>
+            <button @click="doFsRename(f.rel)" :disabled="!!busy">{{ fsArmAction('rename', f.rel) ? '确认改名' : '改名' }}</button>
+            <button @click="doFsMove(f.rel)" :disabled="!!busy || !fsMoveDir.trim()">{{ fsArmAction('move', f.rel) ? '确认移动' : '移动' }}</button>
             <button v-if="!fsArmDelete[f.rel]" @click="doFsDelete(f.rel)" :disabled="!!busy">删除</button>
             <button v-else @click="doFsDeleteConfirm(f.rel)" :disabled="!!busy" class="danger">确认删除正片</button>
           </li>
@@ -957,12 +957,34 @@ async function doFsMkdir() {
     busy.value = null
   }
 }
+function fsArmAction(kind, rel) {
+  return fsArmDelete.value[kind + ':' + rel] || null
+}
 async function doFsRename(rel) {
   const name = (fsRenameEdits.value[rel] || '').trim()
   if (!name) {
     fsMsg.value = '先填新文件名'
     return
   }
+  const armedKey = 'rename:' + rel
+  if (!fsArmAction('rename', rel)) {
+    // 两步确认（评审 B8/R14-D2：与删除一致，先预览再执行）
+    busy.value = 'fs'
+    try {
+      const d = await api('/api/fs/rename', { method: 'POST', body: JSON.stringify({ from: rel, name, dry_run: true }) })
+      const p = (d.plans || [])[0] || {}
+      fsArmDelete.value = { ...fsArmDelete.value, [armedKey]: p }
+      fsArmHint.value = p.status === 'conflict_disk_exists'
+        ? `目标已存在：${p.to || name}`
+        : `将改名：${rel} → ${p.to || name}。再点「确认改名」执行`
+    } catch (e) {
+      fsMsg.value = '改名预览失败：' + e.message
+    } finally {
+      busy.value = null
+    }
+    return
+  }
+  delete fsArmDelete.value[armedKey]
   busy.value = 'fs'
   try {
     const d = await api('/api/fs/rename', { method: 'POST', body: JSON.stringify({ from: rel, name, dry_run: false }) })
@@ -982,6 +1004,24 @@ async function doFsMove(rel) {
     fsMsg.value = '先填移至目录'
     return
   }
+  const armedKey = 'move:' + rel
+  if (!fsArmAction('move', rel)) {
+    busy.value = 'fs'
+    try {
+      const d = await api('/api/fs/move', { method: 'POST', body: JSON.stringify({ from: rel, to_dir: toDir, dry_run: true }) })
+      const p = (d.plans || [])[0] || {}
+      fsArmDelete.value = { ...fsArmDelete.value, [armedKey]: p }
+      fsArmHint.value = p.status === 'conflict_disk_exists'
+        ? `目标已存在：${p.to || ''}`
+        : `将移动到：${p.to || toDir}。再点「确认移动」执行`
+    } catch (e) {
+      fsMsg.value = '移动预览失败：' + e.message
+    } finally {
+      busy.value = null
+    }
+    return
+  }
+  delete fsArmDelete.value[armedKey]
   busy.value = 'fs'
   try {
     const d = await api('/api/fs/move', { method: 'POST', body: JSON.stringify({ from: rel, to_dir: toDir, dry_run: false }) })
@@ -1040,13 +1080,16 @@ async function doFsDeleteConfirm(rel) {
 }
 
 onMounted(async () => {
-  s.value = await api('/api/settings')
-  syncTmdbForm()
-  await loadStats()
-  await loadFs('')
-  await loadOrgPreview()
-  await loadMissing(true)
-  await loadUnmatched(true)
+  // 首屏请求并行（评审 B8/R14-D1）：此前 6 个重查询串行，大库首开很慢
+  const [settingsResp] = await Promise.all([
+    api('/api/settings').catch(() => null),
+    loadStats(),
+    loadFs(''),
+    loadOrgPreview(),
+    loadMissing(true),
+    loadUnmatched(true),
+  ])
+  if (settingsResp) { s.value = settingsResp; syncTmdbForm() }
   // 详情页“去恢复”跳转承接：?sec=sec-restore&ids=1,2 → 预选并滚动定位
   try {
     const q = route.query || {}

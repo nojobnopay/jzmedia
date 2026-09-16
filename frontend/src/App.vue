@@ -61,7 +61,6 @@ button { cursor: pointer; }
 .actor { cursor: pointer; color: #6ab0ff; }
 .poster-wrap { position: relative; }
 .poster-wrap img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
-.card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
 .score-badge { position: absolute; top: 6px; right: 6px; font-size: 0.75rem; font-weight: bold; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #ffc107; white-space: nowrap; }
 .score-badge.douban { color: #7ed321; }
 .score-badge.custom { color: #ff6b6b; }

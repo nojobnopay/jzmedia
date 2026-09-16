@@ -48,7 +48,7 @@
       <span v-for="r in facets.regions" :key="r.value"
         :class="['chip', { on: sel.regions.includes(r.value) }]"
         @click="toggle('regions', r.value)">{{ r.value }} {{ r.count }}</span>
-      <span class="fhint">facet内OR、跨维度AND；选了具体国家时大区自动让位</span>
+      <span class="fhint">facet内OR、跨维度AND；选了具体国家时大区自动让位；计数为「全库口径」，不随筛选变化</span>
     </div>
     <div class="frow" v-if="facets.countries.length">
       <span class="flabel">国家/地区</span>
@@ -120,7 +120,7 @@
 
   <div v-if="selecting" class="floatbar" role="toolbar" aria-label="多选操作">
     <span class="count">{{ selectedIds.size }}</span>
-    <button @click="selectAllVisible" :disabled="!items.length" title="全选当前筛选">
+    <button @click="selectAllVisible" :disabled="!items.length" :title="`全选已加载的 ${items.length} 部（不含未加载页）`">
       <svg viewBox="0 0 16 16"><path d="M2 2h12v12H2z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 8.2 7.2 10.4 11 5.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
       <span>全选</span>
     </button>
@@ -287,7 +287,11 @@ const loadError = ref('')
 let loading = false
 let loadSeq = 0
 const facets = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], collections: [], watched: { watched: 0, unwatched: 0 }, ratings: { tmdb: [], douban: [], custom: [] } })
-const sel = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], watched: null, rating: null, ratingSource: 'tmdb' })
+function defaultSel() {
+  return { genres: [], regions: [], countries: [], years: [], decades: [],
+           tags: [], watched: null, rating: null, ratingSource: 'tmdb' }
+}
+const sel = ref(defaultSel())
 const yearPick = ref('')
 
 const watchedCounts = computed(() => facets.value.watched || { watched: 0, unwatched: 0 })
@@ -509,9 +513,14 @@ function pickRow(row) {
   closeSuggest()
   applyAndLoad()
 }
-// 演员联想：选中即按演员名搜索其参演影片（与手敲回车一致）
 function pickMovie(s) { pickRow({ kind: 'movie', v: s }) }
-function pickPerson(p) { pickRow({ kind: 'person', v: p }) }
+// 演员联想直跳人物页（评审 B8/R04-B5：比“按名字搜片”更准，避免同名混淆）
+function pickPerson(p) {
+  clearTimeout(suggestTimer)
+  suggestSeq++
+  closeSuggest()
+  router.push('/p/' + p.tmdb_id)
+}
 function closeSuggest() {
   suggestOpen.value = false
   suggestItems.value = []
@@ -536,11 +545,11 @@ function onSearchEnter(e) {
 }
 async function showAll() {
   q.value = ''
-  sel.value = { genres: [], regions: [], countries: [], years: [], decades: [], tags: [], watched: null, rating: null, ratingSource: 'tmdb' }
+  sel.value = defaultSel()
   if (!syncUrl()) await load()
 }
 async function clearFilters() {
-  sel.value = { genres: [], regions: [], countries: [], years: [], decades: [], tags: [], watched: null, rating: null, ratingSource: 'tmdb' }
+  sel.value = defaultSel()
   await applyAndLoad()
 }
 async function clearAll() { await showAll() }
@@ -1069,7 +1078,6 @@ watch(() => route.query, () => { readUrl(); load() })
 .up-scan { color: #e0a63c; font-size: 0.8125rem; }
 .meta { color: #888; font-size: 0.75rem; }
 .custom-mini { color: #ff6b6b; font-size: 0.75rem; }
-.selbar { display: none; }
 .card.sel { outline: 2px solid #e50914; }
 .card.sel img { filter: brightness(.75); }
 .sel-circle {

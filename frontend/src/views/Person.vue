@@ -93,7 +93,7 @@ async function load() {
         const full = await api('/api/persons/' + tid + '/refresh', { method: 'POST' })
         // 路由已切走则丢弃过期回包
         if (route.params.tmdb_id === tid) p.value = full
-      } catch (e) { console.warn('bio auto-fill failed:', e); /* 保持“暂无简介”，用户可点刷新简介重试 */ }
+      } catch (e) { /* 保持“暂无简介”，用户可点刷新简介重试 */ }
       finally {
         if (route.params.tmdb_id === tid) bioLoading.value = false
       }

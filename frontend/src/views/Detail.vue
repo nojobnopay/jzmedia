@@ -227,7 +227,7 @@
   </div>
 </template>
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, apiUpload, posterUrl } from '../api.js'
 import { copyText } from '../clipboard.js'
@@ -453,12 +453,12 @@ async function copyTvUrl(v) {
   }
 }
 async function onPlayEnded() {
-  // 海报粒度：同片全版本同步标已看（与批量 watched 展开语义一致）
+  // 海报粒度：同片全版本同步标已看（批量接口一次完成，评审 B8/R05-D5）
   try {
-    const ids = [...new Set([...(m.value?.versions || []).map(v => Number(v.id)), Number(route.params.id)])]
-    for (const id of ids) {
-      await api('/api/movies/' + id, { method: 'PATCH', body: JSON.stringify({ watched: true }) })
-    }
+    await api('/api/movies/batch', {
+      method: 'POST',
+      body: JSON.stringify({ ids: [Number(route.params.id)], ops: { watched: true } }),
+    })
     m.value = await api('/api/movies/' + route.params.id)
     syncForm()
     flashSaved()
@@ -809,9 +809,12 @@ function goRestore() {
 async function tmdbSearch() {
   if (searching.value) return
   searching.value = true
+  msg.value = ''
   try {
     const d = await api('/api/tmdb/search?q=' + encodeURIComponent(mq.value))
     cands.value = d.items
+  } catch (e) {
+    msg.value = '搜索失败：' + e.message
   } finally {
     searching.value = false
   }
@@ -890,8 +893,13 @@ onMounted(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', escPlayer)
+  stopUpScanTicker()                       // 评审 B8/R05-B5：离开页面停表/中止上传
+  if (upAbort) { try { upAbort() } catch (e) { /* 忽略 */ } }
+  if (flashTimer) clearTimeout(flashTimer)
+  if (posterObjUrl) URL.revokeObjectURL(posterObjUrl)
   if (preTimer) clearInterval(preTimer)
 })
+watch(() => route.params.id, () => { load() })   // 同组件切片重载（评审 B8/R05-Q3）
 </script>
 <style scoped>
 .detail { padding-bottom: 24px; }

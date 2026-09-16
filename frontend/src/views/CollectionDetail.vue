@@ -3,7 +3,7 @@
     <div class="bar">
       <button @click="$router.back()">‹ 返回</button>
       <button @click="toggleEdit">{{ editing ? '收起' : '编辑' }}</button>
-      <button @click="removeCol" :disabled="!!busy">{{ busy ? '删除中…' : '删除合集' }}</button>
+      <button @click="armDel = true" :disabled="!!busy">{{ busy ? '删除中…' : '删除合集' }}</button>
       <span>{{ msg }}</span>
     </div>
     <h2>{{ c.name }}（{{ c.member_count }}）</h2>
@@ -24,6 +24,16 @@
       </div>
     </div>
     <div v-if="!c.members.length" class="bar">空合集：去海报墙多选影片后“加入合集”，或从影片详情页加入。</div>
+    <div v-if="armDel" class="dlg-mask" @click.self="armDel = false">
+      <div class="dlg">
+        <h3>删除合集</h3>
+        <p class="hint">将删除合集「{{ c.name }}」（{{ c.member_count }} 部），只删合集，影片保留。不可恢复。</p>
+        <div class="bar">
+          <button @click="removeCol" :disabled="!!busy" class="danger-btn">{{ busy ? '删除中…' : '确认删除' }}</button>
+          <button @click="armDel = false">取消</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 <script setup>
@@ -37,6 +47,7 @@ const c = ref(null)
 const msg = ref('')
 const editing = ref(false)
 const busy = ref(false)
+const armDel = ref(false)
 const f = ref({ name: '', overview: '' })
 
 async function load() {
@@ -72,7 +83,7 @@ async function kick(mid) {
   }
 }
 async function removeCol() {
-  if (!confirm(`删除合集「${c.value?.name}」？只删合集，影片保留。`)) return
+  // 自定义弹层确认（评审 B8/R06-D6：与全站一致，不用原生 confirm）
   busy.value = true
   try {
     await api('/api/collections/' + route.params.id, { method: 'DELETE' })
@@ -87,6 +98,11 @@ onMounted(load)
 </script>
 <style scoped>
 .page { padding-bottom: 24px; }
+.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 300px; max-width: 480px; }
+.dlg h3 { margin: 0 0 8px; }
+.dlg .bar { padding: 8px 0 0; }
+.danger-btn { border-color: #6e2b2b; color: #ff8a8a; }
 .overview { color: #aaa; padding: 0 12px; }
 .card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; margin: 0 12px 12px; }
 </style>
