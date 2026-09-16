@@ -673,7 +673,17 @@ def movie_file_delete(movie_id: int, body: dict | None = None):
 
 @router.post("/scan")
 def run_scan():
-    return {"results": scanner.scan_all()}
+    """全量扫描：回包给聚合摘要（评审 B7/R03-B5：万级文件时不再把全部结果塞进响应）。"""
+    res = scanner.scan_all()
+    counts: dict = {}
+    errors: list = []
+    for r in res:
+        st = str(r.get("status") or "")
+        counts[st] = counts.get(st, 0) + 1
+        if st.startswith("error"):
+            errors.append({"file": r.get("file", ""), "status": st[:200]})
+    return {"total": len(res), "counts": counts, "errors": errors[:100],
+            "results": res[:200]}
 
 
 @router.get("/tmdb/search")

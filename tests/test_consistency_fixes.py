@@ -109,3 +109,25 @@ def test_upsert_media_info_roundtrip(media_root):
         "audio": [], "subs": [], "attachments": [],
         "probe_ver": 3, "probed_at": 1})
     assert out["playable"] is True and out["movie_id"] == mid
+
+
+# ---------- R03-B2：头像下载失败保留旧图 ----------
+
+def test_avatar_failure_keeps_old(media_root, monkeypatch):
+    from app import scanner
+    rel = "b7ava/movie.mkv"
+    _touch(media_root, rel)
+    mid = _row(rel)
+    pid = 880001
+    avatar_rel = "posters/person_880001.jpg"
+    ap = pathlib.Path(settings.data_dir) / avatar_rel
+    ap.parent.mkdir(parents=True, exist_ok=True)
+    ap.write_bytes(b"old-avatar")
+    store.upsert_person(pid, "Actor", avatar=avatar_rel, profile_tmdb_path="/old.jpg")
+
+    monkeypatch.setattr(scanner.tmdb, "download_poster", lambda *a, **kw: False)
+    # 远端换图 + 下载失败 → 保留旧头像，不清空
+    n = scanner._sync_jobs(mid, [(pid, "Actor", "/new.jpg", "actor", "", 0)])
+    assert n == 0
+    assert store.get_person_raw(pid)["avatar"] == avatar_rel
+    assert ap.is_file()

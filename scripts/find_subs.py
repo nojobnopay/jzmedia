@@ -21,7 +21,10 @@ sys.path.insert(0, ROOT)
 
 from app.config import settings          # noqa: E402
 from app import media as _media          # noqa: E402
+from app.log import get_logger           # noqa: E402
 from app.scanner import sidecar_subtitles  # noqa: E402
+
+logger = get_logger("find_subs")
 
 ASS = {"ass", "ssa"}
 TEXT = {"srt", "subrip", "mov_text", "webvtt", "vtt"}
@@ -66,7 +69,8 @@ def scan(limit: int = 0) -> dict:
                 emb["text"].append(s)
         try:
             side = sidecar_subtitles(os.path.join(settings.media_root, r["file_path"]))
-        except Exception:
+        except Exception as e:
+            logger.debug("sidecar enumerate failed file=%s: %s", r["file_path"], e)
             side = []
         if not any(emb.values()) and not fonts and not side:
             continue
