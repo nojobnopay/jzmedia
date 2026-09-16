@@ -1,0 +1,33 @@
+/* 播放器全局样式（评审 R14-Q5 样式约定）：
+   - 本文件只放 JS 动态创建、吃不到 scoped 属性的元素（字幕层/原生 track 兜底），
+     以及跨组件共享的小按钮样式；静态组件样式一律留在各自 <style scoped>。
+   - 由 PlayerModal 引入一次即可（全局生效）。 */
+
+/* VTT 自绘字幕层：JS 动态创建元素，图层由 JS 定位到画面区（contain 内接矩形），字号随画面高缩放。 */
+.sub-layer {
+  position: absolute; z-index: 3; display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end; box-sizing: border-box;
+  padding: 0 3% var(--sub-pad, 12px); gap: .15em; text-align: center; pointer-events: none;
+  color: #fff; line-height: 1.32;
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", system-ui, sans-serif;
+}
+.sub-layer .sub-cue { max-width: 92%; white-space: pre-line; }
+.sub-layer .sub-cue.ta-left, .sub-layer .sub-cue.ta-start { align-self: flex-start; text-align: left; }
+.sub-layer .sub-cue.ta-right, .sub-layer .sub-cue.ta-end { align-self: flex-end; text-align: right; }
+/* 描边：四向硬阴影 + 轻微外发光（不用 -webkit-text-stroke，避免吃字形） */
+.sub-layer.ol-1 { text-shadow: 0 1px 2px #000, 0 -1px 2px #000, 1px 0 2px #000, -1px 0 2px #000, 0 0 4px rgba(0, 0, 0, .65); }
+.sub-layer.ol-2 { text-shadow: 0 2px 3px #000, 0 -2px 3px #000, 2px 0 3px #000, -2px 0 3px #000, 0 0 6px rgba(0, 0, 0, .8); }
+.sub-layer.ol-0 { text-shadow: none; }
+/* 背景只加在单句文本块上（带内边距），不整层铺底遮挡画面 */
+.sub-layer.bg-1 .sub-cue { background: rgba(0, 0, 0, .55); padding: .12em .5em; border-radius: .25em; }
+.sub-layer.bg-2 .sub-cue { background: rgba(0, 0, 0, .85); padding: .12em .5em; border-radius: .25em; }
+/* 原生 track 兜底（解析失败回退时）：去浏览器默认黑底，只留字形描边 */
+.player-video::cue {
+  background-color: transparent;
+  text-shadow: 0 1px 2px #000, 0 -1px 2px #000, 1px 0 2px #000, -1px 0 2px #000;
+}
+.player-video::-webkit-media-text-track-display-backdrop { background-color: transparent !important; }
+
+/* 播放器小按钮（PlayerModal 与 PlayerSettings 共用） */
+.pd-mini { font-size: 0.75rem; padding: 3px 10px; }
+.pd-mini.on { background: #2b6cb0; border-color: #2b6cb0; color: #fff; }
