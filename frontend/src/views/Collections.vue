@@ -68,6 +68,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api, posterUrl } from '../api.js'
+import { usePolling } from '../usePolling.js'
 
 const q = ref('')
 const name = ref('')
@@ -145,17 +146,10 @@ const bfStateText = computed(() => {
   if (s === 'cancelled') return '已取消'
   return '补全中…'
 })
-let pollTimer = null
 let lastPollDone = -1
-function startPoll() {
-  stopPoll()
-  pollTimer = setInterval(pollStatus, 2000)
-  pollStatus()
-}
-function stopPoll() {
-  if (pollTimer) clearInterval(pollTimer)
-  pollTimer = null
-}
+const bfPoll = usePolling(pollStatus, { interval: 2000, immediate: true })
+function startPoll() { bfPoll.start() }
+function stopPoll() { bfPoll.stop() }
 async function pollStatus() {
   try {
     const d = await api('/api/collections/suggest/backfill/status' +
