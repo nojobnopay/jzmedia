@@ -1,15 +1,42 @@
 """store.search（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
 import re
 import sqlite3
+import time
 
 from ..log import get_logger
 from ._base import _attach_versions, _conn, _like_esc, _lock, _row_to_dict
 
 logger = get_logger("store.search")
 
-__all__ = ['rebuild_fts', 'resync_fts', 'list_movies', '_query_terms', '_fts_query',
+__all__ = ['get_scan_state', 'set_scan_state', 'rebuild_fts', 'resync_fts', 'list_movies', '_query_terms', '_fts_query',
            '_search_like', 'suggest_titles', 'suggest_people', 'search_fts',
            '_split_multi', '_split_ints', '_rating_col', '_structured_where', 'get_facets']
+
+def get_scan_state(file_path: str) -> dict | None:
+    """扫描增量状态（评审 B9/R03-Q3）。无行/表缺失返回 None。"""
+    with _lock, _conn() as c:
+        try:
+            row = c.execute("SELECT * FROM scan_state WHERE file_path=?",
+                            (file_path,)).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        return dict(row) if row else None
+
+
+def set_scan_state(file_path: str, mtime: int, size: int, status: str) -> None:
+    with _lock, _conn() as c:
+        try:
+            c.execute(
+                "INSERT INTO scan_state(file_path, mtime, size, status, updated_at)"
+                " VALUES(?, ?, ?, ?, ?)"
+                " ON CONFLICT(file_path) DO UPDATE SET mtime=excluded.mtime,"
+                " size=excluded.size, status=excluded.status,"
+                " updated_at=excluded.updated_at",
+                (file_path, int(mtime or 0), int(size or 0), str(status or ""),
+                 int(time.time())))
+        except sqlite3.OperationalError as e:
+            logger.debug("set scan_state failed path=%s: %s", file_path, e)
+
 
 def rebuild_fts() -> int:
     """全量重建FTS（自愈：启动时调用，消除历史trigger残留）。"""

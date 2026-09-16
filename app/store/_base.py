@@ -125,6 +125,14 @@ CREATE TABLE IF NOT EXISTS app_settings (
 -- 在线播放：版本粒度媒体信息（ffprobe 本地派生，不进 TMDB 镜像，不进 FTS）。
 -- movie_id 即 versions 行 id（每个文件版本一行），键稳定抗搬迁改名。
 -- probe_ver 为探测结构版本：低版本行在播放时自动重探（新字段上线自愈，免手动 backfill）。
+-- 扫描增量状态（评审 B9/R03-Q3）：未匹配/剧集文件名+mtime+size 未变则跳过重搜 TMDB
+CREATE TABLE IF NOT EXISTS scan_state (
+  file_path TEXT PRIMARY KEY,
+  mtime INTEGER DEFAULT 0,
+  size INTEGER DEFAULT 0,
+  status TEXT DEFAULT '',
+  updated_at INTEGER DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS media_info (
   movie_id INTEGER PRIMARY KEY,
   container TEXT DEFAULT '',
@@ -194,7 +202,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "tmdb_language", "tmdb_image_base", "jzmedia_token"}
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 def _columns(c, table: str) -> set:
@@ -309,6 +317,7 @@ def _m7(c) -> None:
         "CREATE INDEX IF NOT EXISTS idx_movies_tmdb ON movies(tmdb_id)",
         "CREATE INDEX IF NOT EXISTS idx_movies_watched ON movies(watched)",
         "CREATE INDEX IF NOT EXISTS idx_cache_fetched ON tmdb_cache(fetched_at)",
+        "CREATE INDEX IF NOT EXISTS idx_scan_state_updated ON scan_state(updated_at)",
     ):
         c.execute(ddl)
 
@@ -319,8 +328,16 @@ def _m8(c) -> None:
               "WHERE original_file_path IS NULL OR original_file_path=''")
 
 
+# v9：扫描增量状态表
+def _m9(c) -> None:
+    c.execute("CREATE TABLE IF NOT EXISTS scan_state ("
+              "file_path TEXT PRIMARY KEY, mtime INTEGER DEFAULT 0,"
+              " size INTEGER DEFAULT 0, status TEXT DEFAULT '',"
+              " updated_at INTEGER DEFAULT 0)")
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
-                    (7, _m7), (8, _m8)]
+                    (7, _m7), (8, _m8), (9, _m9)]
 
 
 def init_db() -> None:
