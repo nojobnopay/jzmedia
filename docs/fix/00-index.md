@@ -42,14 +42,15 @@
 ## 4. 当前指针（中断恢复点）
 
 ```
-批次：B2（fix/b2-consistency）— P1-06/07/08 全部 done，待整批验证后合回 main
-步骤：L1 单测 63 passed（+9 新用例）；P1-07 docker e2e 全绿；待跑 L0/L2 → merge → tag
-断点：e2e 脚本在 /tmp/opencode/b2/e2e.py（容器已停）；证据见下方 log
-下一步：L0（compileall/import/npm build）+ L2 smoke → merge --no-ff → tag p1-b2-consistency
+批次：B2（fix/b2-consistency）已合回 main（merge 4ac85e5）并打批标签 p1-b2-consistency
+步骤：B2 收尾完成。剩余 P1：B3（P1-09/10/11，宿主可验，不需用户配合）+ B4（P1-01 鉴权，需确认交互形态）
+断点：等用户指令开 B3/B4；开批时从最新 main 拉 fix/b3-ops
+下一步：git checkout -b fix/b3-ops
 ```
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-16：**B2 批次合回 main**（--no-ff `4ac85e5`，tag `p1-b2-consistency`）。整批验证：L0（compileall/import/npm build）+ L1（pytest 63、node --test 7）+ L2 smoke 22/22 + docker e2e 全绿（明细见下）。
 - 2026-09-16：**P1-07 done + docker e2e 全绿**（jzmedia:v0.4.0 + 当前代码 + 两个 ffmpeg 合成测试片）：
   - A) prewarm(remux) 完成 → 点播命中静态成品（`backend=static/complete/finished`，master 可取）；
   - B1) 先播后 prewarm：`attached=True`、sid 相同、分片 `6/3 → 58/29` **不回退**（修复前 `26/13 → 22/11`）；关播后附着任务如实失败「在线会话中断」；
