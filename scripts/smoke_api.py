@@ -22,6 +22,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 FIXTURES = [
     ("电影/The Sample Movie (2024).mkv", b"x"),               # 正片：不得被当样片
+    ("电影/Normal.Movie.2021.mkv", b"x"),                     # 第二部正片：分页断言用
     ("电影/Inception.2010.1080p.BluRay.sample.mkv", b"x"),    # 样片：不入库
     ("电影/Some.Show.S01E01.1080p.mkv", b"x"),                # 剧集：不入库
     ("#recycle/old.mkv", b"x"),                               # 回收站：不扫描
@@ -104,6 +105,15 @@ def main() -> int:
 
         sr = _req(base, "/api/search?q=Sample")
         check("search works", isinstance(sr.get("items"), list))
+
+        pg1 = _req(base, "/api/search?limit=1&offset=0")
+        pg2 = _req(base, "/api/search?limit=1&offset=1")
+        check("search pagination has_more", pg1.get("has_more") is True,
+              f"{pg1} / {pg2}")
+        check("search pagination offset", len(pg2.get("items") or []) == 1
+              and pg2.get("has_more") is False, f"{pg1} / {pg2}")
+        mv = _req(base, "/api/movies?limit=1&offset=0")
+        check("movies pagination fields", mv.get("limit") == 1 and "offset" in mv, str(mv)[:200])
 
         facets = _req(base, "/api/facets")
         check("facets keys", {"genres", "regions", "years", "tags"} <= set(facets))

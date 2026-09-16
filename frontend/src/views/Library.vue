@@ -93,7 +93,7 @@
       <span :class="['chip', { on: sel.watched === 0 }]" @click="pickWatched(0)">未看 {{ watchedCounts.unwatched }}</span>
     </div>
     <div class="frow" v-if="activeCount">
-      <span class="fhint">已选 {{ activeCount }} 项 · 命中 {{ items.length }} 部</span>
+      <span class="fhint">已选 {{ activeCount }} 项 · 已显示 {{ items.length }} 部<span v-if="hasMore">（还有更多）</span></span>
       <button @click="clearFilters">清空筛选</button>
     </div>
   </div>
@@ -111,6 +111,11 @@
       </div>
       <div class="t">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span><span v-if="m.needs_review"> [待确认]</span><span v-if="hasScore(m.custom_rating)" class="custom-mini">♥{{ fmtScore(m.custom_rating) }}</span><br v-if="m.region || (m.genres || []).length" /><span v-if="m.region" class="meta">{{ m.region }}</span><span v-if="(m.genres || []).length" class="meta"> {{ (m.genres || []).slice(0, 2).join('/') }}</span></div>
     </div>
+  </div>
+  <div ref="loadSentinel" class="load-more">
+    <button v-if="hasMore" @click="loadMore" :disabled="loadingMore">{{ loadingMore ? '加载中…' : '加载更多' }}</button>
+    <span v-else-if="items.length" class="fhint">已全部加载（{{ items.length }} 部）</span>
+    <span v-if="loadError" class="fhint warn-text">{{ loadError }}</span>
   </div>
 
   <div v-if="selecting" class="floatbar" role="toolbar" aria-label="多选操作">
@@ -270,9 +275,17 @@ const suggestIdx = ref(-1)
 let suggestTimer = null
 let suggestSeq = 0
 let composing = false
+const loadSentinel = ref(null)
+let loadIO = null
 const items = ref([])
 const msg = ref('')
 const scanning = ref(false)
+const PAGE = 60                 // 每页条数（评审 P1-11：>500 部不再被后端默认截断）
+const hasMore = ref(false)
+const loadingMore = ref(false)
+const loadError = ref('')
+let loading = false
+let loadSeq = 0
 const facets = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], collections: [], watched: { watched: 0, unwatched: 0 }, ratings: { tmdb: [], douban: [], custom: [] } })
 const sel = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], watched: null, rating: null, ratingSource: 'tmdb' })
 const yearPick = ref('')
@@ -370,7 +383,7 @@ function readUrl() {
     ratingSource: ['tmdb', 'douban', 'custom'].includes(src) ? src : 'tmdb',
   }
 }
-function buildParams() {
+function buildParams(offset = 0) {
   const p = new URLSearchParams()
   if (q.value.trim()) p.set('q', q.value.trim())
   // 选了具体国家时大区自动让位（后端两者是AND，避免华语+US这种空交集）
@@ -385,12 +398,44 @@ function buildParams() {
     p.set('min_rating', String(sel.value.rating))
     p.set('rating_source', sel.value.ratingSource)
   }
+  p.set('limit', String(PAGE))   // 分页（评审 P1-11）：加载更多而非一次全量
+  p.set('offset', String(Math.max(0, offset)))
   return p.toString()
 }
 async function load() {
-  const qs = buildParams()
-  const d = await api('/api/search?' + qs)
-  items.value = d.items
+  const seq = ++loadSeq
+  loading = true
+  try {
+    const d = await api('/api/search?' + buildParams(0))
+    if (seq !== loadSeq) return          // 更新的筛选已接管，丢弃过期回包
+    items.value = d.items || []
+    hasMore.value = !!d.has_more
+    loadError.value = ''
+  } catch (e) {
+    if (seq === loadSeq) loadError.value = '加载失败：' + e.message
+  } finally {
+    if (seq === loadSeq) loading = false
+  }
+}
+async function loadMore() {
+  if (!hasMore.value || loading) return
+  const seq = ++loadSeq
+  loading = true
+  loadingMore.value = true
+  try {
+    const d = await api('/api/search?' + buildParams(items.value.length))
+    if (seq !== loadSeq) return
+    const known = new Set(items.value.map(m => m.id))
+    for (const m of (d.items || [])) {
+      if (!known.has(m.id)) items.value.push(m)
+    }
+    hasMore.value = !!d.has_more
+    loadError.value = ''
+  } catch (e) {
+    if (seq === loadSeq) loadError.value = '加载更多失败：' + e.message
+  } finally {
+    if (seq === loadSeq) { loading = false; loadingMore.value = false }
+  }
 }
 async function applyAndLoad() {
   syncUrl()
@@ -963,11 +1008,21 @@ onMounted(async () => {
   await loadFacets()
   await load()
   window.addEventListener('keydown', escExit)
+  // 无限滚动（评审 P1-11）：哨兵进入视口前 600px 自动加载下一页；按钮仍保留作兜底
+  try {
+    if (window.IntersectionObserver && loadSentinel.value) {
+      loadIO = new IntersectionObserver((entries) => {
+        if (entries.some(e => e.isIntersecting)) loadMore()
+      }, { rootMargin: '600px 0px' })
+      loadIO.observe(loadSentinel.value)
+    }
+  } catch (e) { /* 不支持则只用按钮 */ }
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', escExit)
   stopScanTicker()
   clearTimeout(suggestTimer)
+  if (loadIO) { try { loadIO.disconnect() } catch (e) { /* 忽略 */ } loadIO = null }
 })
 function escExit(e) {
   if (e.key === 'Escape' && selecting.value && !suggestOpen.value && !tagDlg.value && !colDlg.value && !delDlg.value && !upDlg.value) {
@@ -1038,6 +1093,8 @@ watch(() => route.query, () => { readUrl(); load() })
 .up-progress { height: 8px; border-radius: 999px; background: #2c2c2c; overflow: hidden; margin: 0 12px; }
 .up-progress-fill { height: 100%; background: #e50914; border-radius: 999px; transition: width .2s; }
 .watched-badge { position: absolute; bottom: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #7ed321; }
+.load-more { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 12px 22px; }
+.warn-text { color: #e0a63c; }
 .dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 560px; max-height: 80vh; overflow: auto; }
 .dlg h3 { margin: 0 0 8px; }
