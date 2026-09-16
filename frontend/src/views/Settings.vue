@@ -82,6 +82,7 @@
         <p class="hint">NAS 直拷 / 软件外删片后用这里：先扫描新增入库，再检查并清理失效条目。</p>
         <div class="bar">
           <button @click="doScan" :disabled="!!busy">{{ busy === 'scan' ? '扫描中…' : '扫描新文件' }}</button>
+          <button v-if="busy === 'scan'" @click="cancelScan">取消</button>
           <span>{{ scanMsg }}</span>
         </div>
         <div class="bar">
@@ -339,6 +340,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, setToken } from '../api.js'
+import { usePolling } from '../usePolling.js'
 import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
 
 const route = useRoute()
@@ -547,24 +549,56 @@ async function testTmdb() {
   }
 }
 
+// 扫描后台任务（评审 B9/R04-D6）：轮询进度，可取消
+let scanJobId = ''
+const scanPoll = usePolling(pollScanJob, { interval: 1000 })
+function finishScanJob() {
+  scanPoll.stop()
+  scanJobId = ''
+  busy.value = null
+}
 async function doScan() {
   busy.value = 'scan'
   scanMsg.value = ''
   try {
-    const d = await api('/api/scan', { method: 'POST' })
-    const c = d.counts || {}
-    const ok = (c.ok || 0) + (c.ok_needs_review || 0)
-    scanMsg.value = `完成：新增/更新 ${ok}，已同步跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
-      + (c.skipped_episode_v1 ? `，剧集跳过 ${c.skipped_episode_v1}` : '')
-      + ((d.errors || []).length ? `，失败 ${d.errors.length}` : '')
-    await loadStats()
-    await loadMissing(true)
-    await loadUnmatched(true)
+    const d = await api('/api/jobs/scan', { method: 'POST' })
+    scanJobId = d.job_id
+    if (d.resumed) scanMsg.value = '已有扫描在跑，跟踪进度…'
+    scanPoll.start()
   } catch (e) {
-    scanMsg.value = '扫描失败：' + e.message
-  } finally {
+    scanMsg.value = '扫描启动失败：' + e.message
     busy.value = null
   }
+}
+async function pollScanJob() {
+  if (!scanJobId) return
+  try {
+    const st = await api('/api/jobs/scan/' + scanJobId)
+    if (st.state === 'running') {
+      if (st.total) scanMsg.value = `刮削中 ${st.done}/${st.total}…`
+      return
+    }
+    if (st.state === 'done') {
+      const sum = st.summary || {}
+      const c = sum.counts || {}
+      const ok = (c.ok || 0) + (c.ok_needs_review || 0)
+      scanMsg.value = `完成：新增/更新 ${ok}，已同步跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
+        + (c.skipped_episode_v1 ? `，剧集跳过 ${c.skipped_episode_v1}` : '')
+        + ((sum.errors || []).length ? `，失败 ${sum.errors.length}` : '')
+    } else if (st.state === 'cancelled') {
+      scanMsg.value = `已取消（${st.done}/${st.total}）`
+    } else {
+      scanMsg.value = '扫描失败：' + (st.error || '未知')
+    }
+    finishScanJob()
+    await loadStats()
+    ensureSectionData('sec-sync')
+    ensureSectionData('sec-pending')
+  } catch (e) { /* 轮询失败下次继续 */ }
+}
+async function cancelScan() {
+  if (!scanJobId) return
+  try { await api('/api/jobs/scan/' + scanJobId + '/cancel', { method: 'POST' }) } catch (e) { /* 忽略 */ }
 }
 
 async function loadMissing(silent) {
