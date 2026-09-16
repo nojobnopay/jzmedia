@@ -816,8 +816,7 @@ def apply_tmdb_detail_fast(mid: int, detail: dict, abs_path: str,
         # 其余 TMDB 列经 copy 已同步（copy 内含除 poster 外全量）
     else:
         store.copy_tmdb_to_movie(mid, old_title=old_title if old_cache else None)
-    # 快路径也刷一次 FTS（文字已就绪，海报/头像不进索引）
-    store.resync_fts(mid)
+    # copy_tmdb_to_movie/update_movie_meta 内部已 resync_fts（评审 B7/R05-B1：不再重复）
     movie = store.get_movie(mid) or {}
     needs = _media_needs(tmdb_id, mid, poster_tmdb, old_poster_tmdb, detail)
     out = {"title": movie.get("title", ""), "year": movie.get("year"),
@@ -915,7 +914,6 @@ def refresh_tmdb_id_fast(tmdb_id: int) -> tuple[dict, list[dict]]:
         if not m:
             continue
         store.copy_tmdb_to_movie(mid, old_title=old_title if old_cache else None)
-        store.resync_fts(mid)
         abs_path = os.path.join(settings.media_root, m["file_path"])
         affected.append(mid)
         jobs.append({"mid": mid, "tmdb_id": tmdb_id, "detail": detail,

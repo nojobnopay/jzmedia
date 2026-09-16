@@ -1008,8 +1008,7 @@ def upsert_media_info(movie_id: int, info: dict) -> dict:
              1 if info.get("playable") else 0,
              str(info.get("probe_error") or "")[:300], now))
     out = get_media_info(int(movie_id))
-    assert out is not None
-    return out
+    return out if out is not None else info   # 评审 B7/R02-B5：不用 assert 当控制流
 
 
 def get_progress(version_id: int) -> dict | None:
@@ -1371,7 +1370,8 @@ def add_collection_members(cid: int, rep_ids: list) -> dict:
                                 (cid, tid, mid, 0, now))
                 if cur.rowcount:
                     added += 1
-            except Exception:
+            except Exception as e:
+                logger.warning("add member failed cid=%s key=%s: %s", cid, (tid, mid), e)
                 continue
         c.execute("UPDATE collections SET updated_at=? WHERE id=?", (now, cid))
         total = c.execute("SELECT COUNT(*) AS n FROM collection_members WHERE collection_id=?",

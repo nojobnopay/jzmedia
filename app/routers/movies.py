@@ -145,8 +145,8 @@ def patch_movie(movie_id: int, body: dict):
         else:
             data["spec"] = sanitize_tag(data["spec"])
     # 本地写专用：TMDB 镜像列会被静默丢弃，保证标签/评分小改动不污染镜像
+    # （update_movie_local → update_movie_meta 内已 resync_fts，不再重复刷）
     store.update_movie_local(movie_id, **data)
-    store.resync_fts(movie_id)
     return store.get_movie(movie_id)
 
 
@@ -932,8 +932,21 @@ def batch_delete_movies(body: dict | None = None):
         if p.get("status") == "not_found" or not p.get("files"):
             results.append({**p, "status": p.get("status") or "skipped_empty"})
             continue
+        # 先删库、后删盘（评审 B7/R05-B3）：盘删失败最坏留孤儿文件（重扫可再认领），
+        # 反之先删盘会让海报墙挂死行；失败逐条上报而不是静默
+        db_errors = []
+        for vid in p.get("version_ids", []):
+            try:
+                for e in store.list_extras_by_movie(vid):
+                    try:
+                        store.delete_extra_by_path(e["file_path"])
+                    except Exception as ex:
+                        db_errors.append(f"extra {e.get('id')}: {ex}")
+                store.delete_movie(vid)
+            except Exception as ex:
+                db_errors.append(f"version {vid}: {ex}")
         touched_dirs: set[str] = set()
-        ok, missing = 0, 0
+        ok, missing, failed = 0, 0, []
         for f in p["files"]:
             abs_p = os.path.join(settings.media_root, f["rel"])
             touched_dirs.add(os.path.dirname(abs_p))
@@ -944,27 +957,16 @@ def batch_delete_movies(body: dict | None = None):
                 if os.path.isfile(abs_p):
                     os.remove(abs_p)
                     ok += 1
-            except OSError:
-                continue
-        for vid in p.get("version_ids", []):
-            try:
-                store.delete_movie(vid)
-            except Exception:
-                pass
-            try:
-                for e in store.list_extras_by_movie(vid):
-                    try:
-                        store.delete_extra_by_path(e["file_path"])
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            except OSError as ex:
+                failed.append({"rel": f["rel"], "error": str(ex)})
         for d in touched_dirs:
             _cleanup_old_dir(d)
             _resync_old_dir(d)
-        results.append({**p, "status": "deleted",
-                        "deleted_files": ok, "missing_files": missing})
-    ok_m = sum(1 for r in results if r.get("status") == "deleted")
+        status = "deleted" if (not db_errors and not failed) else "deleted_with_errors"
+        results.append({**p, "status": status,
+                        "deleted_files": ok, "missing_files": missing,
+                        "failed_files": failed, "db_errors": db_errors})
+    ok_m = sum(1 for r in results if str(r.get("status", "")).startswith("deleted"))
     return {**base, "dry_run": False, "deleted_movies": ok_m,
             "results": results}
 

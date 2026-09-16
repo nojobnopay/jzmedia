@@ -637,7 +637,11 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         if track.get("source") == "sidecar":
             d["plan"]["sub_sidecar"] = str(track.get("sidecar") or "")
         else:
-            d["plan"]["sub_ff_index"] = int(track.get("ff_index", si))
+            ff = track.get("ff_index")
+            if ff is None:
+                # 评审 B7/R13-D6：探测缓存缺流号时不再猜（猜错会烧错轨）
+                raise HTTPException(422, "subtitle stream index missing; re-probe required")
+            d["plan"]["sub_ff_index"] = int(ff)
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
     # 单人场景：同版本同 plan（含 start）且进程活着 → 直接复用（秒开，不重转）；
