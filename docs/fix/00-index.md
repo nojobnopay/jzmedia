@@ -30,7 +30,7 @@
 | P1-04 | R03-D3 | B1 | 扫描不剪枝 #recycle/@eaDir/隐藏目录 | **done** | tests/test_scan_rules.py::test_scan_all_prunes_recycle_and_hidden |
 | P1-05 | R08-D1 | B1 | clean-sidecars 误删正片库行 | **done** | tests/test_scan_rules.py::test_clean_sidecars_protects_tmdb_rows |
 | P1-06 | R09-D1 | B2 | 移动目标与 missing 行撞车致“文件已移/DB 未改” | **done** | tests/test_files_organize.py（4 用例） |
-| P1-07 | R12-D1 | B2 | prewarm 与在线播互踩会话目录 | pending | — |
+| P1-07 | R12-D1 | B2 | prewarm 与在线播互踩会话目录 | **done** | tests/test_stream_sessions.py（4 用例）+ docker e2e（见 log） |
 | P1-08 | R13-D1 | B2 | HDR+烧录丢弃 tonemap 且无提示 | **done** | tests/test_playback_plan.py::test_burn_hdr_flags_no_tonemap_even_with_hw |
 | P1-09 | R01-B1 | B3 | UID/GID 文档与 compose 不一致 | pending | — |
 | P1-10 | R01-B7 | B3 | 零日志 + 76 处静默吞异常 | pending | — |
@@ -42,14 +42,19 @@
 ## 4. 当前指针（中断恢复点）
 
 ```
-批次：B2（fix/b2-consistency）— 进行中
-步骤：分支已建；先做 P1-07 的 docker 复现（旧代码），再 P1-06/P1-08（宿主可验），最后 P1-07 修复+复验
-断点：无（刚开始）；docker 用临时 DATA_DIR + 只读挂载真实媒体，不碰用户正在跑的服务（8080）与真实库
-下一步：起 jzmedia:v0.4.0 容器（端口 18080，挂当前 app 代码）复现 prewarm 清目录
+批次：B2（fix/b2-consistency）— P1-06/07/08 全部 done，待整批验证后合回 main
+步骤：L1 单测 63 passed（+9 新用例）；P1-07 docker e2e 全绿；待跑 L0/L2 → merge → tag
+断点：e2e 脚本在 /tmp/opencode/b2/e2e.py（容器已停）；证据见下方 log
+下一步：L0（compileall/import/npm build）+ L2 smoke → merge --no-ff → tag p1-b2-consistency
 ```
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-16：**P1-07 done + docker e2e 全绿**（jzmedia:v0.4.0 + 当前代码 + 两个 ffmpeg 合成测试片）：
+  - A) prewarm(remux) 完成 → 点播命中静态成品（`backend=static/complete/finished`，master 可取）；
+  - B1) 先播后 prewarm：`attached=True`、sid 相同、分片 `6/3 → 58/29` **不回退**（修复前 `26/13 → 22/11`）；关播后附着任务如实失败「在线会话中断」；
+  - B2) 先 prewarm 后播：**复用同一会话**（reuse=True，分片 `2→44`）；关播返回 `detached:True` **不杀进程**，prewarm 继续运行（segments=31）。
+  - 附带 P2 观察（未修，记 backlog）：remux(copy) 档 prewarm 进度 `expected=31` 按 4s 估算，实际受源关键帧影响（12 片）→ 进度条偏差；后续可对 vcopy 用「时长/实测片均长」估算。
 - 2026-09-16：**P1-08 done**：`playback.plan` 在 burn 时不启用硬件 tonemap 并追加 `hdr_no_tonemap`（前端有人话文案）；`transcode.video_args` 补注释防静默忽略；pytest 59 passed。
 - 2026-09-16：**P1-07 已复现（红）**：docker（jzmedia:v0.4.0 + 当前 app + 真实片源《大桥下面》只读挂载）——在线会话分片 `26/13` → 启动 prewarm 后 `22/11`（目录被清、双进程同写）。
 - 2026-09-16：**P1-06 done**：`_collect_plans` 增加库内占用检查（`conflict_db_occupied`/kind db）；`_move_one`/`_restore_one` 目标被他人行占用时提前拒绝，并在库写失败时回滚 rename；Settings 增加「库内占用」计数/徽标与恢复状态文案；pytest 58 passed，前端 build/test ok。

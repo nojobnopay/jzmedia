@@ -408,8 +408,9 @@ def _sweeper() -> None:
                 proc = s.get("proc")
                 exited = proc is not None and proc.poll() is not None
                 idle = now - float(s.get("last_ping") or now)
-                # 完工静态会话（proc=None）：只按文件 TTL 收记录，不按 idle 杀
-                if s.get("complete"):
+                # 完工静态会话（proc=None）与预转码任务：只按文件 TTL 收记录，不按 idle 杀
+                # （预转码无客户端心跳，但有自己的 job 超时与生命周期，评审 P1-07）
+                if s.get("complete") or s.get("prewarm"):
                     if idle > _TTL:
                         dead.append(sid)
                 elif idle > _SESS_IDLE or (exited and idle > 300):
@@ -899,9 +900,45 @@ class SessionBody(BaseModel):
 _prewarm_jobs: dict[str, dict] = {}
 
 
+def _live_sessions_for(vid: int) -> list[dict]:
+    """该版本当前活着的会话（含预转码注册的），供 prewarm 复用/避让（评审 P1-07）。"""
+    out = []
+    with _sess_lock:
+        for sid, s in list(_sessions.items()):
+            if int(s.get("vid") or -1) != int(vid):
+                continue
+            proc = s.get("proc")
+            if proc is not None and proc.poll() is not None:
+                continue
+            out.append({"sid": sid, "sdir": s.get("sdir") or "", "proc": proc,
+                        "plan_key": s.get("plan_key") or ""})
+    return out
+
+
+def _find_live_session(vid: int, plan_key: str) -> dict | None:
+    """同 plan 的活会话（在线播或另一 prewarm），可附着复用。"""
+    return next((x for x in _live_sessions_for(vid) if x["plan_key"] == plan_key), None)
+
+
+def _register_prewarm_session(vid: int, sdir: str, plan: dict, proc,
+                              plan_key: str, backend: str, attempt: int) -> str:
+    """把 prewarm 转码进程注册进 `_sessions`：在线播可复用（同 plan 秒开）、
+    换档会按既有逻辑杀掉旧会话、关播 DELETE 会被识别为共享任务而不误杀。"""
+    sid = uuid.uuid4().hex[:16]
+    with _sess_lock:
+        _sessions[sid] = {"proc": proc, "sdir": sdir, "vid": int(vid),
+                          "plan": plan, "plan_key": plan_key,
+                          "caps_hash": _caps.caps_hash(_caps.default_caps()),
+                          "backend": backend, "attempt": attempt,
+                          "prewarm": True, "last_ping": time.time()}
+    return sid
+
+
 def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int) -> None:
     """后台整片转完（夜间用）：与在线播同一 build_cmd/目录 scheme，完工即静态 VOD。
-    进度=已产分片/预估总数；失败记 error 尾。"""
+    进度=已产分片/预估总数；失败记 error 尾。
+    与在线播共用会话目录：同 plan 的在线会话直接附着复用，存在不同 plan 的在线会话时
+    拒绝启动（绝不清理/双写同一目录，评审 P1-07）。"""
     job = _prewarm_jobs.get(job_id)
     if not job:
         return
@@ -926,66 +963,102 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int) -> None:
         expected = max(1, int(dur / stime) + 1) if dur > 0 else 0
         job.update({"expected": expected,
                     "total_text": _media.fmt_duration(dur)})
+        marker = _plan_marker(d["plan"], audio, 0)
         sdir = _session_dir(int(m["id"]), _session_key(d["plan"], audio), 0)
         job["sdir"] = sdir
         job["vprefix"] = _video_seg_prefix(seg)
         log_path = os.path.join(sdir, "ffmpeg.log")
         timeout = max(1800.0, dur * 4 + 600) if dur > 0 else 7200.0
+        vprefix = str(job.get("vprefix") or "video_")
+        # 静态成品已在（之前预转码/播完）：直接完成
+        if _session_complete(sdir, marker):
+            job.update({"status": "done", "segments": _seg_count(sdir, vprefix)})
+            return
+        # 在线会话避让/复用：同 plan 附着等待；不同 plan 拒绝启动
+        live_same = _find_live_session(int(m["id"]), marker)
+        if live_same is not None:
+            job.update({"status": "running", "sid": live_same["sid"],
+                        "sdir": live_same["sdir"], "attached": True,
+                        "backend": "shared"})
+            try:
+                live_same["proc"].wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("prewarm timeout (attached)")
+            if _session_complete(sdir, marker):
+                job.update({"status": "done", "segments": _seg_count(sdir, vprefix)})
+                return
+            raise RuntimeError("在线会话中断，未产出完整成品；请播放结束后重试预转码")
+        if _live_sessions_for(int(m["id"])):
+            raise RuntimeError("该版本正在播放（不同转码档），请播放结束后再预转码")
         # 硬件后端不出片 → 软件重试一次（与在线播同一兜底逻辑）
         use_hw = bool(_playback.hw_backend()) and not d["plan"].get("vcopy")
         force_sw = False
-        for attempt in (0, 1):
-            for n in os.listdir(sdir):
+        sid_cur = ""
+        ok = False
+        try:
+            for attempt in (0, 1):
+                for n in os.listdir(sdir):
+                    try:
+                        os.remove(os.path.join(sdir, n))
+                    except OSError:
+                        pass
+                if seg != "ts":
+                    _write_master(sdir, info, d["plan"], stime)
+                cmd = _playback.build_cmd(abs_p, d["plan"], start=0, seg_time=stime,
+                                          force_sw=force_sw)
                 try:
-                    os.remove(os.path.join(sdir, n))
+                    log_fh = open(log_path, "wb")
+                except OSError:
+                    log_fh = subprocess.DEVNULL  # type: ignore[assignment]
+                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log_fh,
+                                        cwd=sdir)
+                if log_fh is not subprocess.DEVNULL:
+                    try:
+                        log_fh.close()
+                    except Exception:
+                        pass
+                backend = ("software" if force_sw or not use_hw
+                           else (_playback.hw_backend() or "software"))
+                sid_cur = _register_prewarm_session(
+                    int(m["id"]), sdir, d["plan"], proc, marker, backend, attempt + 1)
+                job.update({"status": "running", "pid": proc.pid, "sid": sid_cur,
+                            "backend": backend})
+                try:
+                    proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    _kill_proc(proc)
+                    raise RuntimeError("prewarm timeout")
+                if proc.returncode == 0 and _playlist_endlist(sdir):
+                    break  # 成功
+                _drop_session(sid_cur, kill=True)
+                sid_cur = ""
+                tail = ""
+                try:
+                    with open(log_path, "rb") as fh:
+                        fh.seek(max(0, os.path.getsize(log_path) - 2000))
+                        tail = fh.read().decode("utf-8", errors="replace").strip()[-500:]
                 except OSError:
                     pass
-            if seg != "ts":
-                _write_master(sdir, info, d["plan"], stime)
-            cmd = _playback.build_cmd(abs_p, d["plan"], start=0, seg_time=stime,
-                                      force_sw=force_sw)
-            try:
-                log_fh = open(log_path, "wb")
-            except OSError:
-                log_fh = subprocess.DEVNULL  # type: ignore[assignment]
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log_fh,
-                                    cwd=sdir)
-            if log_fh is not subprocess.DEVNULL:
-                try:
-                    log_fh.close()
-                except Exception:
-                    pass
-            job.update({"status": "running", "pid": proc.pid,
-                        "backend": "software" if force_sw or not use_hw
-                                   else (_playback.hw_backend() or "software")})
-            try:
-                proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                _kill_proc(proc)
-                raise RuntimeError("prewarm timeout")
-            if proc.returncode == 0 and _playlist_endlist(sdir):
-                break  # 成功
-            tail = ""
-            try:
-                with open(log_path, "rb") as fh:
-                    fh.seek(max(0, os.path.getsize(log_path) - 2000))
-                    tail = fh.read().decode("utf-8", errors="replace").strip()[-500:]
-            except OSError:
-                pass
-            if attempt == 0 and use_hw:
-                force_sw = True
-                continue
-            raise RuntimeError("transcode failed" + (f": {tail}" if tail else ""))
-        marker = _plan_marker(d["plan"], audio, 0)
-        mk = json.loads(marker)
-        mk["sid"] = "prewarm:" + job_id
-        marker_with_sid = json.dumps(mk, sort_keys=True)
-        with open(os.path.join(sdir, "plan.json"), "w", encoding="utf-8") as fh:
-            fh.write(marker_with_sid)
-        # 自然转完（returncode 0 且 ENDLIST）：写完工标记，点播当静态 VOD 秒开
-        _write_complete_marker(sdir, marker)
-        job.update({"status": "done",
-                    "segments": _seg_count(sdir, str(job.get("vprefix") or "video_"))})
+                if attempt == 0 and use_hw:
+                    force_sw = True
+                    continue
+                raise RuntimeError("transcode failed" + (f": {tail}" if tail else ""))
+            mk = json.loads(marker)
+            mk["sid"] = "prewarm:" + job_id
+            marker_with_sid = json.dumps(mk, sort_keys=True)
+            with open(os.path.join(sdir, "plan.json"), "w", encoding="utf-8") as fh:
+                fh.write(marker_with_sid)
+            # 自然转完（returncode 0 且 ENDLIST）：写完工标记，点播当静态 VOD 秒开
+            _write_complete_marker(sdir, marker)
+            with _sess_lock:
+                s = _sessions.get(sid_cur)
+                if s is not None:
+                    s["complete"] = True
+            ok = True
+            job.update({"status": "done", "segments": _seg_count(sdir, vprefix)})
+        finally:
+            if not ok and sid_cur:
+                _drop_session(sid_cur, kill=True)
     except Exception as e:
         job.update({"status": "failed", "error": str(e)[:500]})
     finally:
@@ -1210,7 +1283,13 @@ def hls_session_file(sid: str, name: str):
 
 @router.delete("/sessions/{sid}")
 def hls_session_close(sid: str):
-    """关播：杀转码进程删会话（分片留 24h TTL，供同参数重进复用）。"""
+    """关播：杀转码进程删会话（分片留 24h TTL，供同参数重进复用）。
+    预转码会话为共享产物：播放器关闭只解除绑定，不杀后台任务（评审 P1-07）。"""
+    with _sess_lock:
+        sess = _sessions.get(sid)
+        shared = bool(sess and sess.get("prewarm") and not sess.get("complete"))
+    if shared:
+        return {"session_id": sid, "closed": False, "detached": True}
     with _sess_lock:
         existed = sid in _sessions
     _drop_session(sid, kill=True)
