@@ -50,6 +50,11 @@
                 <input type="checkbox" v-model="compatSub" @change="onCompatChange" />VTT 字幕（丢样式）
               </label>
             </div>
+            <div class="set-row">
+              <label>外部</label>
+              <button class="ctl-mini" @click="copyDirectLink"
+                title="复制原文件直链：可用 VLC/Kodi/电视播放器打开（HDR/DV 等复杂片源推荐）">复制直链</button>
+            </div>
             <p class="set-hint">{{ methodLine }}<span v-if="qualityLine"> · {{ qualityLine }}</span></p>
           </div>
         </div>
@@ -98,7 +103,7 @@
         <span>片源已就绪，浏览器阻止了自动带声播放</span>
         <button class="play-now" @click="userPlay">▶ 点击播放</button>
       </div>
-      <p class="hint-line">{{ bufLine || posHint }}</p>
+      <p class="hint-line">{{ hintLine }}</p>
     </div>
   </div>
 </template>
@@ -244,6 +249,8 @@ const bufLine = computed(() => {
   if (bufSecs.value > 0) s += `（已缓冲 ${Math.floor(bufSecs.value)}s）`
   return s
 })
+// 状态行：缓冲进度 + 操作提示并存（只显示 bufLine 会吞掉「直链已复制」等反馈）
+const hintLine = computed(() => [bufLine.value, posHint.value].filter(Boolean).join(' · '))
 function absPos() {
   const v = videoEl.value
   const cur = (v && Number.isFinite(v.currentTime)) ? v.currentTime : 0
@@ -264,6 +271,7 @@ const methodLine = computed(() => {
 })
 // 实际输出（不再只显示所选档位）：plan.height 为服务端真正落地的封顶高度
 const planHeight = ref(0)
+const directUrl = ref('')   // 原文件直链（设置弹层「复制直链」给 VLC/Kodi 用）
 const srcHeight = ref(0)
 const qualityLine = computed(() => {
   if (!method.value) return ''
@@ -281,18 +289,21 @@ const qualityLine = computed(() => {
   return dim ? `原分辨率 ${dim} 直通` : '原分辨率直通'
 })
 const REASON_TEXT = {
-  dovi_not_supported: '含杜比视界（浏览器无 DV 解码，已重编；原盘 DV 请用电视/Kodi 看）',
+  dovi_not_supported: '含杜比视界（无 HDR10 兼容基底，浏览器无法直通，已重编；原盘 DV 请用电视/Kodi）',
   video_codec_not_supported: '视频编码浏览器不支持，已重编为 H264',
   video_bit_depth_not_supported: '10bit 视频浏览器不能直解，已重编为 H264 8bit',
-  hdr_not_supported: 'HDR 片源本屏/浏览器不支持，已转 SDR（色彩可能偏灰）',
+  hdr_not_supported: 'HDR 片源本屏/浏览器不支持，已转 SDR',
+  hdr_no_tonemap: '当前转码后端不做 HDR 色调映射，色彩可能偏灰；建议用「复制直链」交给电视/Kodi',
   audio_codec_not_supported: '音频编码浏览器不支持，已单独转 AAC（视频不重编）',
   container_not_supported: '容器不对，已无损换为浏览器兼容容器',
   resolution_downscale: '已按所选画质降档（省 CPU）',
   pgs_needs_burn: '图片字幕（PGS/VobSub）已烧录进画面（较耗 CPU，切换字幕或原画需重转码）',
+  vobsub_needs_burn: 'VobSub 图片字幕只能烧录（会重编视频）',
   auto_downscale_720p: '已自动封顶 720p（未检测到硬件转码，4K 软转太重；可选“原画”强制原分辨率，更耗 CPU）',
   auto_downscale_1080p: '已自动封顶 1080p（硬件转码）',
   source_transcode: '已按原画原分辨率重编（CPU 占用高，可能卡顿）',
   audio_track_selection: '所选音轨需要走转封装（原文件直发只能播默认音轨）',
+  subtitle_burn_forced: '图片字幕客户端解码不可用，已自动改为烧录',
   subtitle_not_found: '所选字幕不可用',
 }
 const reasonLine = computed(() => (reasons.value || []).map(r => REASON_TEXT[r] || r).join('；'))
@@ -558,6 +569,7 @@ async function reload() {
     if (di >= 0) { subIdx.value = di; autoSubPicked = true }
   }
   planHeight.value = Number(d.plan?.height) || 0
+  directUrl.value = d.direct_url || ''
   srcHeight.value = Number(d.media?.height) || 0
   // 播放器比例：padding-top = min(片源高宽比, 76vh)（16:9 片源按屏幕宽度自适应）；
   // HLS 模式底部额外预留控件条高度，视频区不被遮挡。无数据时容器也不塌陷。
@@ -879,6 +891,18 @@ function onSubChange(e) {
 function onCompatChange() {
   try { localStorage.setItem('jzmedia.subCompat', compatSub.value ? '1' : '0') } catch (e) { /* 忽略 */ }
   applySubs(true)
+}
+// 复制原文件直链（VLC/Kodi/电视播放器）：HDR/DV 等浏览器难处理的片源走这条路
+async function copyDirectLink() {
+  const url = directUrl.value
+  if (!url) { posHint.value = '直链暂不可用，请稍后重试'; return }
+  const abs = location.origin + url
+  try {
+    await navigator.clipboard.writeText(abs)
+    posHint.value = '直链已复制：可在 VLC/Kodi/电视播放器里打开'
+  } catch (e) {
+    posHint.value = abs
+  }
 }
 // 总时长统一用探测值：HLS 增长型清单里 v.duration 只是“已产出片段之和”（如 30s），
 // 用它算剩余会一开播就误判“已看”、存档 duration 也会写坏导致详情页看不到续播。

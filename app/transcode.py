@@ -1,0 +1,145 @@
+"""转码后端（TranscoderBackend）：软件 / VAAPI / QSV / NVENC 的探测与参数。
+
+目标文档 §11：NAS 上优先 QSV/VAAPI，不要默认 CPU libx264。
+
+- 探测（`detect()`）：env `TRANSCODER=auto|sw|vaapi|qsv|nvenc`（兼容旧 `HW_ACCEL`）；
+  auto 时按 VAAPI → QSV → NVENC 顺序跑 **0.2s lavfi 冒烟编码**（验证设备/驱动/编码器
+  真的可用，而不是只看设备节点），全失败回落软件；结果进程内缓存（`refresh` 可重探）。
+- 参数：`input_args()` 放 `-i` 之前；`video_args(height, burn, tonemap)` 输出侧编码参数
+  （tonemap=True 时用 tonemap_vaapi / vpp_qsv；NVENC 未实现 → 调用方走 hdr_no_tonemap
+  提示外放）。软件 zscale 链按目标文档不作默认能力。烧录（软件滤镜图）与硬件滤镜互斥
+  → `burn=True` 强制软件。
+"""
+import os
+import subprocess
+import threading
+
+from .media import ffmpeg_bin
+
+VAAPI_DEVICE = os.getenv("VAAPI_DEVICE", "/dev/dri/renderD128")
+_SMOKE_TIMEOUT = 15
+_lock = threading.Lock()
+_cache = None
+
+
+class Backend:
+    def __init__(self, name: str = "", reason: str = "", device: str = ""):
+        self.name = name            # ''（软件）| vaapi | qsv | nvenc
+        self.reason = reason
+        self.device = device
+
+    @property
+    def hw(self) -> bool:
+        return bool(self.name)
+
+    def input_args(self, burn: bool = False) -> list[str]:
+        """输入侧硬件参数（必须在对应 `-i` 之前）。烧录走软件滤镜图 → 不开硬件解码。"""
+        if burn or not self.hw:
+            return []
+        if self.name == "vaapi":
+            return ["-vaapi_device", self.device or VAAPI_DEVICE,
+                    "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"]
+        if self.name == "qsv":
+            return ["-init_hw_device", "qsv=hw", "-filter_hw_device", "hw",
+                    "-hwaccel", "qsv", "-hwaccel_output_format", "qsv"]
+        if self.name == "nvenc":
+            return ["-hwaccel", "cuda"]
+        return []
+
+    def video_args(self, height: int, burn: bool = False, tonemap: bool = False) -> list[str]:
+        """输出侧视频编码参数。height=0 不缩放；burn 强制软件（滤镜图与硬件滤镜互斥）。"""
+        h = int(height or 0)
+        if burn or not self.hw:
+            args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]
+            if h:
+                args += ["-vf", f"scale=-2:{h}"]
+            return args
+        if self.name == "vaapi":
+            if tonemap:
+                vf = "tonemap_vaapi=format=nv12:t=bt709:m=bt709:r=tv"
+                vf += f",scale_vaapi=w=-2:h={h}" if h else ""
+            else:
+                vf = "scale_vaapi=format=nv12" + (f":w=-2:h={h}" if h else "")
+            return ["-vf", vf, "-c:v", "h264_vaapi", "-qp", "23"]
+        if self.name == "qsv":
+            if tonemap:
+                vf = "vpp_qsv=tonemap=1:format=nv12"
+                vf += f",vpp_qsv=w=-2:h={h}" if h else ""
+            else:
+                vf = "vpp_qsv=format=nv12" + (f":w=-2:h={h}" if h else "")
+            return ["-vf", vf, "-c:v", "h264_qsv", "-preset", "veryfast"]
+        if self.name == "nvenc":
+            args = ["-c:v", "h264_nvenc", "-preset", "p4"]
+            if h:
+                args += ["-vf", f"scale=-2:{h}"]
+            return args
+        return []
+
+
+def software() -> Backend:
+    return Backend("", "software (forced)")
+
+
+def _run(cmd: list[str]) -> bool:
+    try:
+        p = subprocess.run(cmd, timeout=_SMOKE_TIMEOUT, check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return p.returncode == 0
+    except Exception:
+        return False
+
+
+def _smoke(name: str) -> tuple[bool, str]:
+    """0.2s lavfi 冒烟编码：真实验证 设备/驱动/编码器 组合可用。"""
+    src = ["-f", "lavfi", "-i", "testsrc2=size=320x240:rate=10:duration=0.2"]
+    if name == "vaapi":
+        if not os.path.exists(VAAPI_DEVICE):
+            return False, f"{VAAPI_DEVICE} 不存在"
+        cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
+               "-vaapi_device", VAAPI_DEVICE] + src + \
+              ["-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi", "-f", "null", "-"]
+    elif name == "qsv":
+        cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
+               "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw"] + src + \
+              ["-vf", "format=nv12,hwupload=extra_hw_frames=64",
+               "-c:v", "h264_qsv", "-f", "null", "-"]
+    elif name == "nvenc":
+        cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"] + src + \
+              ["-c:v", "h264_nvenc", "-f", "null", "-"]
+    else:
+        return False, "unknown backend"
+    ok = _run(cmd)
+    return ok, ("smoke ok" if ok else "smoke failed")
+
+
+def _detect_uncached() -> Backend:
+    pref = (os.getenv("TRANSCODER") or os.getenv("HW_ACCEL") or "").strip().lower()
+    if pref in ("sw", "software", "cpu", "none"):
+        return Backend("", f"env={pref}")
+    order = [pref] if pref in ("vaapi", "qsv", "nvenc", "nvidia") else ["vaapi", "qsv", "nvenc"]
+    order = ["nvenc" if x in ("nvenc", "nvidia") else x for x in order]
+    last = ""
+    for name in order:
+        ok, why = _smoke(name)
+        if ok:
+            dev = VAAPI_DEVICE if name == "vaapi" else ""
+            forced = " (env forced)" if pref else ""
+            return Backend(name, f"smoke ok{forced}", dev)
+        last = f"{name}: {why}"
+    return Backend("", f"software fallback ({last})" if last else "software")
+
+
+def detect(refresh: bool = False) -> Backend:
+    """探测/取缓存。首次播放或 /api/stream/backends 时触发；失败自动软件兜底。"""
+    global _cache
+    with _lock:
+        if _cache is None or refresh:
+            _cache = _detect_uncached()
+        return _cache
+
+
+def backend_info(refresh: bool = False) -> dict:
+    b = detect(refresh=refresh)
+    return {"name": b.name or "software", "hw": b.hw, "device": b.device,
+            "reason": b.reason,
+            "env": os.getenv("TRANSCODER") or os.getenv("HW_ACCEL") or ""}

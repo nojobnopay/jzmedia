@@ -16,8 +16,14 @@ def health():
         bins = _media.bin_status()
     except Exception:
         bins = {"ffmpeg": False, "ffprobe": False}
+    try:
+        from .. import transcode as _tr
+        tw = _tr.backend_info()
+    except Exception:
+        tw = {"name": "software", "hw": False, "reason": "detect failed"}
     return {"status": "ok", "phase": "phase2",
             "ffmpeg": bool(bins.get("ffmpeg")), "ffprobe": bool(bins.get("ffprobe")),
+            "transcoder": tw,
             "build": _build_commit()}
 
 

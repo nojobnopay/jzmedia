@@ -43,7 +43,7 @@ watchdog 恢复、自绘控件层（不迁 Vidstack）。
 | P2 fMP4 + 多音轨 rendition | ✅ 已落地并实测 | fMP4 扁平产物 + `-var_stream_map` 单进程多音轨；自产 master（含 CODECS）；`GET /sessions/{sid}/{name}`；前端 `hls.audioTrack` 免重开切轨；`HLS_SEGMENT_TYPE=ts` 回滚 |
 | P3 ASS/JASSUB + 字体 | ✅ 已落地并实测 | `.ass` 抽取 + 附件字体懒 dump + `data/fonts` 内置；前端 JASSUB 懒加载（RPC worker/wasm）、「兼容」VTT 降级、烧录不受影响 |
 | P3.5 图片字幕客户端化 + 外挂字幕 | ✅ 已落地并实测 | PGS→libpgs 客户端（切换不重开、零转码）+ 解码失败自动降级烧录；外挂 `.srt/.ass/.ssa/.sup`（含自动选中文）与 `.idx/.sub` 烧录；字幕延迟（ASS/PGS）；`scripts/find_subs.py` |
-| P4 TranscoderBackend + HDR/DV | ⬜ 待开始 | |
+| P4 TranscoderBackend + HDR/DV | ✅ 已落地（HW 待 NAS 实测） | `app/transcode.py` 冒烟探测(VAAPI→QSV→NVENC→软件)+env 强制+缓存；`/api/stream/backends`、`/api/health.transcoder`；HW 不出片自动软编重试；HDR/DV 矩阵(DV5 阻断/DV8 compat=1 当 HDR10/HLG 按 caps 直通)+HW tonemap；设置里「复制直链」外放 |
 | P5 预转码完整化 + 收尾 | ⬜ 待开始 | |
 
 ### P1 落地记录
@@ -365,6 +365,26 @@ watchdog 恢复、自绘控件层（不迁 Vidstack）。
 
 - `/api/health` 正确报告后端；不支持 HEVC 的客户端 4K HEVC 转码走 VAAPI 且 CPU 明显低于 libx264；
 - HDR 片在支持端直通、不支持端给出外部播放建议。
+
+### P4 落地记录
+
+- `app/transcode.py`：`Backend(name/device/reason)` + `input_args(burn)` / `video_args(height, burn,
+  tonemap)` / `tonemap_filter()`；`detect(refresh)` 按 env → 冒烟编码（VAAPI→QSV→NVENC）→
+  软件兜底，进程内缓存（启动时后台预热，首次 decide/health 命中缓存）。
+- `playback.build_cmd(..., force_sw=False)`：非 copy 时按探测后端加输入侧 `-hwaccel` + 编码
+  参数；`plan.tonemap` 时用 `tonemap_vaapi` / `vpp_qsv=tonemap=1`。烧录路径强制软件。
+- `_spawn_session` 硬件不出片自动软件重试一次（`force_sw`，重写 master / 清残片 / 双份
+  ffmpeg 尾留日志）。
+- HDR/DV：`_hdr_blocks_direct` → (block, reason, tonemap)：DV compat=2 当 SDR；compat=1 当
+  HDR10（caps.hdr 可直通）；其余 DV（P5 等）阻断；HDR10/HLG 无 caps.hdr → 转码；tonemap 仅
+  硬件后端启用，无硬件时 `hdr_no_tonemap`（前端提示 + 「复制直链」）。decide 的 `direct_url`
+  恒返回（外放 VLC/Kodi）。
+- 接口/配置：`GET /api/stream/backends?refresh=1`、`/api/health.transcoder`；`.env.example`
+  加 `TRANSCODER=auto`；compose 加注释的 `/dev/dri` + `group_add`（NAS 启用）。
+- 实测（WSL 无核显）：探测回落软件并带原因；`TRANSCODER=vaapi` 强制时冒烟失败同样回落；
+  403（DV P8 compat=1）在无 HDR caps 下 `video_transcode + hdr_not_supported + hdr_no_tonemap`、
+  在 HEVC+HDR caps 下变 `remux`（直通）；`force_sw` 生成的命令无 `-hwaccel` 且为 libx264。
+  VAAPI/QSV/NVENC 实际出片与 tonemap 效果待 NAS 上按 `/api/stream/backends` 验证。
 
 ---
 

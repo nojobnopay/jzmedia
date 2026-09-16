@@ -112,6 +112,17 @@ def _media_payload(m: dict, info: dict) -> dict:
     return payload
 
 
+@router.get("/backends")
+def stream_backends(refresh: int = 0):
+    """转码后端探测（目标文档 §11）：{name: software|vaapi|qsv|nvenc, hw, device, reason}。
+    冒烟编码结果进程内缓存；?refresh=1 强制重探（NAS 上验证 /dev/dri 权限时用）。"""
+    try:
+        from .. import transcode as _tr
+    except Exception as e:
+        return {"name": "software", "hw": False, "device": "", "reason": str(e)[:120], "env": ""}
+    return _tr.backend_info(refresh=bool(refresh))
+
+
 class PlaybackQuery(BaseModel):
     """播放请求（用户选择 + 客户端能力）。caps 缺省走服务端保守默认（旧客户端/调试）。
     force_burn：客户端图片字幕解码失败时的显式降级（仅图片字幕生效）。"""
@@ -137,7 +148,8 @@ def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
             "plan": d["plan"], "subtitle_mode": d.get("subtitle_mode") or "none",
             "caps_hash": _caps.caps_hash(caps) if q.caps is not None else "",
             "media": _media_payload(m, info),
-            "direct_url": blob_url if method == "direct" else "",
+            # 直链始终返回：HDR/DV/图片字幕等复杂片源可复制给 VLC/Kodi（目标文档 §12）
+            "direct_url": blob_url,
             "hls_url": hls_url if method in ("remux", "audio_transcode",
                                              "transcode", "video_transcode") else ""}
 
@@ -640,49 +652,62 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                 os.remove(os.path.join(sdir, n))
             except OSError:
                 pass
-        if seg != "ts":
-            # fMP4 的 master 自己写（ffmpeg 对 HEVC copy 不产 CODECS）；变体列表由 ffmpeg 产
-            _write_master(sdir, info, d["plan"], stime)
-        cmd = _playback.build_cmd(abs_p, d["plan"], start=start, seg_time=stime)
+        # 等前 _MIN_SEGS 个视频分片（remux 秒出；转码按实际速度）：首画面不等整片。
+        # 硬件后端（VAAPI/QSV/NVENC）若不出片，自动用软件编码重试一次（驱动/编码器组合
+        # 不匹配时的兜底；日志留两次尝试的 ffmpeg 尾）。
         log_path = os.path.join(sdir, "ffmpeg.log")
-        try:
-            log_fh = open(log_path, "wb")
-        except OSError:
-            log_fh = subprocess.DEVNULL  # type: ignore[assignment]
-        try:
-            # cwd=sdir：ffmpeg 相对分片名按 CWD 落盘，播放列表 URI 按列表位置解析
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                    stderr=log_fh, cwd=sdir)
-        except FileNotFoundError:
-            try:
-                if log_fh is not subprocess.DEVNULL:
-                    log_fh.close()
-            except Exception:
-                pass
-            raise HTTPException(501, "ffmpeg not installed in server image")
-        except Exception as e:
-            try:
-                if log_fh is not subprocess.DEVNULL:
-                    log_fh.close()
-            except Exception:
-                pass
-            raise HTTPException(500, f"transcode spawn failed: {e}")
-        sid = uuid.uuid4().hex[:16]
-        with _sess_lock:
-            _sessions[sid] = {"proc": proc, "sdir": sdir, "vid": int(m["id"]),
-                              "plan": d["plan"], "plan_key": plan_key,
-                              "last_ping": time.time()}
-        # 等前 _MIN_SEGS 个视频分片（remux 秒出；转码按实际速度）：首画面不等整片
         vprefix = _video_seg_prefix(seg)
-        deadline = time.time() + 300
-        while time.time() < deadline:
-            if _seg_count(sdir, vprefix) >= _MIN_SEGS:
-                break
-            if proc.poll() is not None:
-                break
-            time.sleep(1)
-        if _seg_count(sdir, vprefix) == 0 or not _variant_playlists(sdir):
-            _drop_session(sid, kill=True)
+        force_sw = False
+        use_hw = bool(_playback.hw_backend()) and not d["plan"].get("vcopy")
+        proc = None
+        sid = ""
+        for attempt in (0, 1):
+            if seg != "ts":
+                # fMP4 的 master 自己写（ffmpeg 对 HEVC copy 不产 CODECS）；变体列表由 ffmpeg 产
+                _write_master(sdir, info, d["plan"], stime)
+            cmd = _playback.build_cmd(abs_p, d["plan"], start=start, seg_time=stime,
+                                      force_sw=force_sw)
+            try:
+                log_fh = open(log_path, "wb")
+            except OSError:
+                log_fh = subprocess.DEVNULL  # type: ignore[assignment]
+            try:
+                # cwd=sdir：ffmpeg 相对分片名按 CWD 落盘，播放列表 URI 按列表位置解析
+                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                        stderr=log_fh, cwd=sdir)
+            except FileNotFoundError:
+                try:
+                    if log_fh is not subprocess.DEVNULL:
+                        log_fh.close()
+                except Exception:
+                    pass
+                raise HTTPException(501, "ffmpeg not installed in server image")
+            except Exception as e:
+                try:
+                    if log_fh is not subprocess.DEVNULL:
+                        log_fh.close()
+                except Exception:
+                    pass
+                raise HTTPException(500, f"transcode spawn failed: {e}")
+            if log_fh is not subprocess.DEVNULL:
+                try:
+                    log_fh.close()
+                except Exception:
+                    pass
+            sid = uuid.uuid4().hex[:16]
+            with _sess_lock:
+                _sessions[sid] = {"proc": proc, "sdir": sdir, "vid": int(m["id"]),
+                                  "plan": d["plan"], "plan_key": plan_key,
+                                  "last_ping": time.time()}
+            deadline = time.time() + 300
+            while time.time() < deadline:
+                if _seg_count(sdir, vprefix) >= _MIN_SEGS:
+                    break
+                if proc.poll() is not None:
+                    break
+                time.sleep(1)
+            if _seg_count(sdir, vprefix) > 0 and _variant_playlists(sdir):
+                break  # 成功
             tail = ""
             try:
                 with open(log_path, "rb") as fh:
@@ -690,6 +715,15 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                     tail = fh.read().decode("utf-8", errors="replace").strip()[-500:]
             except OSError:
                 pass
+            _drop_session(sid, kill=True)
+            if attempt == 0 and use_hw:
+                force_sw = True
+                for n2 in os.listdir(sdir):   # 清残片，重来
+                    try:
+                        os.remove(os.path.join(sdir, n2))
+                    except OSError:
+                        pass
+                continue
             raise HTTPException(500, "transcode failed (no segments)" +
                                 (f": {tail}" if tail else ""))
         try:

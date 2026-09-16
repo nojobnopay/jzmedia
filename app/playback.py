@@ -55,22 +55,19 @@ def seg_time(st: str | None = None) -> int:
 
 
 def hw_backend() -> str:
-    """P1 占位后端判定（P4 换 transcode.detect() 的冒烟测试结果）。
-    返回 ''（软件）| qsv | vaapi | nvenc。env TRANSCODER 优先，HW_ACCEL 兼容旧配置；
-    auto/未设时按 /dev/dri 是否存在猜 VAAPI。"""
-    v = (os.getenv("TRANSCODER") or os.getenv("HW_ACCEL") or "").strip().lower()
-    if v in ("qsv", "vaapi"):
-        return v
-    if v in ("nvenc", "nvidia"):
-        return "nvenc"
-    if v in ("sw", "software", "cpu", "none"):
-        return ""
+    """当前转码后端名（''=软件；qsv/vaapi/nvenc）。
+    P4 起由 `app/transcode.detect()` 冒烟探测（env TRANSCODER/HW_ACCEL 可强制）。"""
     try:
-        if os.path.exists("/dev/dri/renderD128"):
-            return "vaapi"
-    except OSError:
-        pass
-    return ""
+        from . import transcode
+        return transcode.detect().name
+    except Exception:
+        return ""
+
+
+def hw_can_tonemap() -> bool:
+    """当前后端能否做 HDR→SDR 实时 tonemap：仅 VAAPI（tonemap_vaapi）/ QSV（vpp_qsv）。
+    NVENC 未实现（tonemap_cuda 需单独滤镜链）→ 视作不可，走 hdr_no_tonemap 提示外放。"""
+    return hw_backend() in ("vaapi", "qsv")
 
 
 def _is_kodi(client: str) -> bool:
@@ -154,20 +151,33 @@ def transcoded_video_codec(height: int) -> str:
     return f"avc1.6400{lv:02X}"
 
 
-def _hdr_blocks_direct(media: dict, caps: dict, client: str) -> tuple[bool, str]:
-    """HDR/DV 直通判定（P1 保守版，P4 细化 DV 直通矩阵与 tonemap）。
-    kodi 外部播放器直通；DV 一律重编；HDR10/HLG 客户端不支持 HDR 时重编。"""
+def _hdr_blocks_direct(media: dict, caps: dict, client: str) -> tuple[bool, str, bool]:
+    """HDR/DV 直通判定（目标文档 §12）。返回 (是否阻止视频直通, reason, 是否需 tonemap)。
+    - kodi 外部播放器直通；
+    - DV：compat=2（SDR 基底）当 SDR；compat=1（HDR10 基底）当 HDR10；
+      其余（profile 5 等无兼容基底）浏览器无法直通；
+    - HDR10/HLG：客户端 caps.hdr=false 时不能直通 → 走转码（有 HW 后端才做 tonemap）。"""
     if _is_kodi(client):
-        return False, ""
+        return False, "", False
     try:
         dv = int(media.get("dv_profile") or 0)
+        compat = int(media.get("dv_bl_compat") or 0)
     except (TypeError, ValueError):
-        dv = 0
+        dv, compat = 0, 0
+    hdr = str(media.get("hdr") or "")
     if dv > 0:
-        return True, "dovi_not_supported"
-    if str(media.get("hdr") or "") and not caps.get("hdr"):
-        return True, "hdr_not_supported"
-    return False, ""
+        if compat == 2:
+            return False, "", False
+        if compat == 1:
+            if caps.get("hdr"):
+                return False, "", False
+            return True, "hdr_not_supported", True
+        return True, "dovi_not_supported", True
+    if hdr:
+        if caps.get("hdr"):
+            return False, "", False
+        return True, "hdr_not_supported", True
+    return False, "", False
 
 
 def _subtitle_mode(media: dict, sub_idx, reasons: list,
@@ -278,7 +288,7 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
     a_ok = _audio_ok(want_audio, caps)
     sub_mode = _subtitle_mode(media, sub_idx, reasons, force_burn=force_burn)
     burn = sub_mode == "burn"
-    hdr_block, hdr_reason = _hdr_blocks_direct(media, caps, client)
+    hdr_block, hdr_reason, hdr_tonemap = _hdr_blocks_direct(media, caps, client)
     if hdr_block:
         v_ok = False
         reasons.append(hdr_reason)
@@ -298,9 +308,18 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
             reasons.append("resolution_downscale")
         if (quality or "").strip().lower() == "source":
             reasons.append("source_transcode")  # 用户显式原画：不封顶重编，提示耗 CPU
+        # HDR→SDR：仅硬件后端做实时 tonemap（目标文档 §12：不把实时 tone mapping
+        # 作为弱 NAS 的主要能力）；无 HW/后端不支持时明确提示色彩偏灰并建议外部播放器/直链
+        tonemap = False
+        if hdr_tonemap:
+            if hw_can_tonemap():
+                tonemap = True
+            else:
+                reasons.append("hdr_no_tonemap")
         return emit("video_transcode", sub_mode,
                     {"vcopy": False, "acopy": bool(a_ok), "height": target_height,
-                     "sub": sub_mode, "audio_idx": ai, "sub_idx": sub_idx}, variants)
+                     "sub": sub_mode, "audio_idx": ai, "sub_idx": sub_idx,
+                     "tonemap": tonemap}, variants)
     if not a_ok:
         reasons.append("audio_codec_not_supported")
         return emit("audio_transcode", sub_mode,
@@ -346,29 +365,11 @@ def score(media: dict, caps: dict | None = None, quality: str = "auto",
     return (9, 0)
 
 
-def _append_video_encoder(cmd: list, hw: str, height: int, burn: bool) -> None:
-    """追加视频重编码参数。burn（filter_complex 烧录）与 VAAPI/-vf 互斥，走软件；
-    height 为外部缩放高度（0=不缩放）。"""
-    if burn or hw in ("", "sw"):
-        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]
-        if height:
-            cmd += ["-vf", f"scale=-2:{height}"]
-        return
-    if hw == "qsv":
-        cmd += ["-c:v", "h264_qsv", "-preset", "veryfast"]
-        if height:
-            cmd += ["-vf", f"scale_qsv=w=-2:h={height}"]
-        return
-    if hw == "nvenc":
-        cmd += ["-c:v", "h264_nvenc", "-preset", "p4"]
-        if height:
-            cmd += ["-vf", f"scale=-2:{height}"]
-        return
-    filt = "format=nv12,hwupload"
-    if height:
-        filt += f",scale_vaapi=w=-2:h={height}"
-    cmd += ["-vaapi_device", "/dev/dri/renderD128", "-vf", filt,
-            "-c:v", "h264_vaapi", "-qp", "23"]
+def _append_video_encoder(cmd: list, backend, height: int, burn: bool,
+                          tonemap: bool = False) -> None:
+    """追加视频重编码参数（委托 transcode.Backend.video_args）。
+    burn（filter_complex 烧录）与硬件滤镜互斥 → Backend 内部回落软件。"""
+    cmd += backend.video_args(height, burn=burn, tonemap=tonemap)
 
 
 def _seek_args(cmd: list, vcopy: bool, start: float) -> tuple[float, float]:
@@ -404,7 +405,8 @@ def _sub_overlay_filter(plan: dict) -> tuple[str, bool]:
 
 
 def build_cmd(abs_path: str, plan: dict,
-              start: float = 0, seg_time: int | None = None) -> list[str]:
+              start: float = 0, seg_time: int | None = None,
+              force_sw: bool = False) -> list[str]:
     """按 plan() 构造 ffmpeg HLS 命令。
     ⚠️ 必须 `cwd=会话目录` 执行：ffmpeg 的 `-hls_segment_filename` 相对路径按进程
     CWD 解析（写文件），而播放列表里的 URI 按列表位置解析；只有 cwd=目录 + 裸文件名
@@ -413,12 +415,17 @@ def build_cmd(abs_path: str, plan: dict,
       （out_<name>.m3u8 + <name>_init.mp4/<name>_segNNNNN.m4s）；master.m3u8 由
       stream._write_master 生成（ffmpeg 对 HEVC copy 不产 CODECS，Safari 需要）。
     - ts（HLS_SEGMENT_TYPE=ts 回滚）：旧单 variant MPEG-TS，master.m3u8 + segNNNNN.ts。
-    HW 加速：TRANSCODER/HW_ACCEL=vaapi/qsv/nvenc（P4 自动检测）。"""
+    HW 加速：transcode.detect() 冒烟探测（env TRANSCODER/HW_ACCEL 可强制）；
+    force_sw=True 用于硬件路径失败后的软件重试。"""
     plan = plan or {}
     abs_path = os.path.abspath(abs_path)  # cwd=会话目录执行，输入须绝对化
+    backend = None
+    if not plan.get("vcopy"):
+        from . import transcode
+        backend = transcode.software() if force_sw else transcode.detect()
     if (plan.get("seg") or seg_type()) == "ts":
-        return _build_cmd_ts(abs_path, plan, start, seg_time or 6)
-    return _build_cmd_fmp4(abs_path, plan, start, seg_time or 4)
+        return _build_cmd_ts(abs_path, plan, start, seg_time or 6, backend=backend)
+    return _build_cmd_fmp4(abs_path, plan, start, seg_time or 4, backend=backend)
 
 
 def _is_burn(plan: dict) -> bool:
@@ -439,7 +446,7 @@ def _append_sub_input(cmd: list, plan: dict, pre: float) -> None:
 
 
 def _build_cmd_fmp4(abs_path: str, plan: dict,
-                    start: float, seg_time: int) -> list[str]:
+                    start: float, seg_time: int, backend=None) -> list[str]:
     vcopy = bool(plan.get("vcopy"))
     height = int(plan.get("height") or 0)
     burn_sub = _is_burn(plan)
@@ -448,6 +455,9 @@ def _build_cmd_fmp4(abs_path: str, plan: dict,
         vcopy = False  # 烧录必须重编码
     cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"]
     trim_after, pre = _seek_args(cmd, vcopy, start)
+    # 输入侧硬件参数（-hwaccel/-vaapi_device 必须在 -i 之前；烧录走软件滤镜图）
+    if not vcopy and backend is not None:
+        cmd += backend.input_args(burn=burn_sub)
     # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
     cmd += ["-fflags", "+genpts", "-i", abs_path]
     if burn_sub:
@@ -472,7 +482,9 @@ def _build_cmd_fmp4(abs_path: str, plan: dict,
         if norm_codec(str(plan.get("vcodec") or "")) == "hevc":
             cmd += ["-tag:v", "hvc1"]  # Apple/MSE 认 hvc1（hev1 部分客户端不认）
     else:
-        _append_video_encoder(cmd, hw_backend(), height, burn=burn_sub)
+        from . import transcode as _tr
+        _append_video_encoder(cmd, backend or _tr.software(), height,
+                              burn=burn_sub, tonemap=bool(plan.get("tonemap")))
         # 4s 强制关键帧：分段对齐，避免拷贝帧率/时长漂移（音频 rendition 同步也依赖）
         cmd += ["-force_key_frames", f"expr:gte(t,n_forced*{int(seg_time)})"]
     # 音频编码：按 rendition 序号（a:N 指输出音频流序号）
@@ -504,7 +516,7 @@ def _build_cmd_fmp4(abs_path: str, plan: dict,
 
 
 def _build_cmd_ts(abs_path: str, plan: dict,
-                  start: float, seg_time: int) -> list[str]:
+                  start: float, seg_time: int, backend=None) -> list[str]:
     """旧 MPEG-TS 单 variant（回滚路径，P1 行为不变）：master.m3u8 + seg%05d.ts。
     路径为裸名，调用方须以会话目录为 cwd 执行（见 build_cmd 注释）。"""
     out_m3u8 = "master.m3u8"
@@ -515,12 +527,13 @@ def _build_cmd_ts(abs_path: str, plan: dict,
         ai = max(0, int(plan.get("audio_idx") or 0))
     except (TypeError, ValueError):
         ai = 0
-    hw = hw_backend()
     cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"]
     burn_sub = _is_burn(plan)
     if burn_sub:
         vcopy = False  # 烧录必须重编码
     trim_after, pre = _seek_args(cmd, vcopy, start)
+    if not vcopy and backend is not None:
+        cmd += backend.input_args(burn=burn_sub)
     # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
     cmd += ["-fflags", "+genpts"]
     cmd += ["-i", abs_path]
@@ -541,7 +554,9 @@ def _build_cmd_ts(abs_path: str, plan: dict,
     if vcopy:
         cmd += ["-c:v", "copy"]
     else:
-        _append_video_encoder(cmd, hw, height, burn=burn_sub)
+        from . import transcode as _tr
+        _append_video_encoder(cmd, backend or _tr.software(), height,
+                              burn=burn_sub, tonemap=bool(plan.get("tonemap")))
     if acopy:
         cmd += ["-c:a", "copy"]
     else:

@@ -1,4 +1,5 @@
 import os
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -13,6 +14,9 @@ from .routers import collections, extras, files, fs, health, jobs, movies, perso
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
+    # 后台预热转码后端探测（冒烟编码最多几秒，不阻塞启动；首次 decide/health 即命中缓存）
+    from . import transcode as _tr
+    threading.Thread(target=_tr.detect, daemon=True).start()
     yield
     # 优雅退出：杀掉全部转码进程（防重启/停服后孤儿 ffmpeg 继续烧 CPU 写分片）
     stream.shutdown_sessions()
