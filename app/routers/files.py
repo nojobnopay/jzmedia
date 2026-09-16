@@ -555,8 +555,11 @@ def clean_sidecars(body: dict | None = None):
     body = body or {}
     dry_run = body.get("dry_run", True)
     only = set(body.get("ids", []) or []) or None
+    # 已匹配行不清理（评审 P1-05）：花絮规则演进可能把真实影片判成花絮/样片，
+    # 有 tmdb_id 的行必是扫描/人工确认过的电影，宁可漏清也不能误删。
     cands = [m for m in store.list_movies(grouped=False, limit=100000)
-             if (only is None or m["id"] in only) and is_sidecar(m["file_path"])]
+             if (only is None or m["id"] in only) and not m.get("tmdb_id")
+             and is_sidecar(m["file_path"])]
     plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
               "file_path": m["file_path"], "tmdb_id": m.get("tmdb_id")}
              for m in cands]
