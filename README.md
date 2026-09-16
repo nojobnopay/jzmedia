@@ -17,7 +17,7 @@
 ## 目录结构
 
 ```
-app/            后端：main（应用+前端托管）/ store（SQLite+FTS+过滤）/ scanner / tmdb /
+app/            后端：main（应用+前端托管）/ store/（包：SQLite+FTS+过滤，按域拆分）/ scanner / tmdb /
                 regions（产地映射唯一来源）/ nfo / config /
                 media（ffprobe 探测）/ caps（客户端能力）/ playback（四档决策+命令）/
                 transcode（转码后端探测）/ routers（health|movies|files|jobs|stream…）
