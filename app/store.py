@@ -9,6 +9,7 @@ import time
 from .config import settings
 from .db import DB_PATH, POSTER_DIR, ensure_dirs
 from .log import get_logger
+from .regions import country_name
 
 logger = get_logger("store")
 
@@ -1124,6 +1125,10 @@ def get_movie(movie_id: int) -> dict | None:
             d["overview_display"] = d["overview_override"]
         else:
             d["overview_display"] = d["overview"]
+        # 主产地中文名后端下发（评审 B5a-3/R10-D6）：前端不再维护国家名映射
+        primary = d.get("origin_country") or (
+            (d.get("origin_countries") or [""])[0] if d.get("origin_countries") else "")
+        d["origin_country_name"] = country_name(primary) if primary else ""
         d = _attach_versions(c, d)
         d["collections"] = _collections_for_film(c, d.get("tmdb_id"), d.get("id"))
         return d

@@ -574,7 +574,7 @@ async function doClean() {
   busy.value = 'clean'
   cleanMsg.value = ''
   try {
-    const d = await api('/api/files/clean', { method: 'POST', body: JSON.stringify({ ids: checkedMissing.value }) })
+    const d = await api('/api/files/clean', { method: 'POST', body: JSON.stringify({ ids: checkedMissing.value, dry_run: false }) })
     const removed = new Set(d.results.map(r => r.id))
     missing.value = missing.value.filter(m => !removed.has(m.id))
     checkedMissing.value = checkedMissing.value.filter(id => !removed.has(id))

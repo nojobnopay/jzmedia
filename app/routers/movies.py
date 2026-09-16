@@ -478,8 +478,47 @@ def movie_blob(movie_id: int, name: str = "", mode: str = ""):
             text = chunk.decode("utf-8")
         except UnicodeDecodeError:
             text = chunk.decode("gbk", errors="replace")
-        return PlainTextResponse(text)
-    return FileResponse(abs_p, filename=os.path.basename(abs_p))
+        return PlainTextResponse(text, headers={"X-Content-Type-Options": "nosniff"})
+    return FileResponse(abs_p, filename=os.path.basename(abs_p),
+                        headers={"X-Content-Type-Options": "nosniff"})
+
+
+def _stream_upload(file, dst: str) -> int:
+    """流式落盘（1MB 分块，先写 .part 再原子替换）。并发同名上传用 O_EXCL 占位：
+    第二个请求在占位阶段即 409，绝不覆盖（评审 B5a-5/R05-D2）。返回落盘字节数。"""
+    part = dst + ".part"
+    try:
+        fd = os.open(dst, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+    except FileExistsError:
+        raise HTTPException(409, f"already exists: {os.path.basename(dst)!r}")
+    except OSError as e:
+        raise HTTPException(500, f"create target failed: {e}")
+    size = 0
+    replaced = False
+    try:
+        with open(part, "wb") as out:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+                size += len(chunk)
+        os.replace(part, dst)
+        replaced = True
+    except Exception as e:
+        try:
+            if os.path.exists(part):
+                os.remove(part)
+        except OSError:
+            pass
+        if not replaced:
+            try:
+                os.remove(dst)      # 清掉本次创建的占位
+            except OSError:
+                pass
+        raise HTTPException(500, f"upload failed: {e}")
+    return size
 
 
 @router.post("/movies/{movie_id}/upload")
@@ -517,26 +556,8 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
     except OSError as e:
         raise HTTPException(500, f"mkdir failed: {e}")
     dst = os.path.join(target_dir, safe)
-    if os.path.exists(dst):
-        raise HTTPException(409, f"already exists: {safe!r}")
-    part = dst + ".part"
-    size = 0
     try:
-        with open(part, "wb") as out:
-            while True:
-                chunk = file.file.read(1024 * 1024)
-                if not chunk:
-                    break
-                out.write(chunk)
-                size += len(chunk)
-        os.rename(part, dst)
-    except Exception as e:
-        try:
-            if os.path.exists(part):
-                os.remove(part)
-        except OSError:
-            pass
-        raise HTTPException(500, f"upload failed: {e}")
+        size = _stream_upload(file, dst)
     finally:
         try:
             file.file.close()
@@ -553,11 +574,6 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
             status = r.get("status", "stored")
     except Exception as e:
         status = f"stored_scan_warn: {e}"
-    try:
-        st = os.stat(dst)
-        size = st.st_size
-    except OSError:
-        pass
     return {"name": safe, "rel": rel, "size": size, "status": status}
 
 
@@ -593,26 +609,8 @@ def library_upload(file: UploadFile = File(...),
         os.makedirs(os.path.dirname(dst), exist_ok=True)
     except OSError as e:
         raise HTTPException(500, f"mkdir failed: {e}")
-    if os.path.exists(dst):
-        raise HTTPException(409, f"already exists: {rel!r}")
-    part = dst + ".part"
-    size = 0
     try:
-        with open(part, "wb") as out:
-            while True:
-                chunk = file.file.read(1024 * 1024)
-                if not chunk:
-                    break
-                out.write(chunk)
-                size += len(chunk)
-        os.rename(part, dst)
-    except Exception as e:
-        try:
-            if os.path.exists(part):
-                os.remove(part)
-        except OSError:
-            pass
-        raise HTTPException(500, f"upload failed: {e}")
+        size = _stream_upload(file, dst)
     finally:
         try:
             file.file.close()
@@ -628,11 +626,6 @@ def library_upload(file: UploadFile = File(...),
             status = r.get("status", "stored")
     except Exception as e:
         status = f"stored_scan_warn: {e}"
-    try:
-        st = os.stat(dst)
-        size = st.st_size
-    except OSError:
-        pass
     movie_id = None
     try:
         m = store.get_by_path(rel)

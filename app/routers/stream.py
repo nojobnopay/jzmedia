@@ -939,7 +939,16 @@ def _register_prewarm_session(vid: int, sdir: str, plan: dict, proc,
     return sid
 
 
-def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int) -> None:
+def _prewarm_plan(info: dict, quality: str, audio: int, caps: dict | None) -> dict:
+    """预转码 plan（评审 B5a-7/R12-D2）：caps 缺省走服务端保守默认；
+    前端带上与在线播相同的 caps 时，产物键（plan marker）与在线会话一致，
+    预转码成品才能真正被点播命中，不再白转。"""
+    caps_n = _caps.default_caps() if caps is None else _caps.normalize_caps(caps)
+    return _playback.plan(info, caps=caps_n, quality=quality, audio_idx=audio)
+
+
+def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
+                    caps: dict | None = None) -> None:
     """后台整片转完（夜间用）：与在线播同一 build_cmd/目录 scheme，完工即静态 VOD。
     进度=已产分片/预估总数；失败记 error 尾。
     与在线播共用会话目录：同 plan 的在线会话直接附着复用，存在不同 plan 的在线会话时
@@ -955,8 +964,7 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int) -> None:
         info = _media_cached_or_probe(m, abs_p)
         if not info.get("playable"):
             raise RuntimeError(f"unplayable: {info.get('probe_error') or 'probe failed'}")
-        d = _playback.plan(info, caps=_caps.default_caps(), quality=quality,
-                           audio_idx=audio)
+        d = _prewarm_plan(info, quality, audio, caps)
         if d["method"] == "direct":
             raise RuntimeError("already direct-playable, no prewarm needed")
         try:
@@ -1081,6 +1089,8 @@ class PrewarmBody(BaseModel):
     version_id: int = 0
     quality: str = "auto"     # auto=按后端能力封顶（无 HW 720p / 有 HW 1080p）
     audio: int = 0
+    # 前端实测 caps（可选；评审 B5a-7）：与在线播同 caps 时产物键一致，成品可被点播命中
+    caps: dict | None = None
 
 
 @router.post("/prewarm")
@@ -1104,7 +1114,7 @@ def prewarm_start(body: PrewarmBody | None = None):
                              "started_at": int(time.time())}
     th = threading.Thread(target=_prewarm_worker,
                           args=(job_id, vid, quality,
-                                int(body.audio or 0)),
+                                int(body.audio or 0), body.caps),
                           daemon=True)
     th.start()
     return {"job_id": job_id, "status": "queued"}
@@ -1302,76 +1312,6 @@ def hls_session_close(sid: str):
     return {"session_id": sid, "closed": existed}
 
 
-def _ensure_hls(version_id: int, quality: str, audio: int,
-                sub: int | None, start: float) -> tuple[str, dict]:
-    """旧直连口兼容层：内部走同一会话机制（匿名会话，无需 ping，靠 TTL/清道夫回收）。
-    行为变化：只等前 _MIN_SEGS 分片即回，不再整片同步（首画面快，语义见 sessions 口）。"""
-    try:
-        vid = int(version_id)
-    except (TypeError, ValueError):
-        raise HTTPException(422, "bad version_id")
-    _sid, sdir, d = _spawn_session(vid, quality, audio, sub, start)
-    return sdir, d
-
-
-@router.get("/{version_id}/master.m3u8")
-def hls_master(version_id: int, quality: str = "original",
-               audio: int = 0, sub: int | None = None, start: float = 0):
-    """HLS 播放列表（旧直连口，渐进式：前分片就绪即回；direct 请走 decide.direct_url）。
-    新播放器请用 sessions 口（可 ping/关播）。fMP4 下此口只返回 master 原文，
-    变体/分片请走 sessions 口（旧 seg/ 口仅 TS 命名）。列表永不缓存。"""
-    sdir, d = _ensure_hls(version_id, quality, audio, sub, start)
-    _log_hit("", "playlist-legacy", str(version_id), 200)
-    if (d.get("plan") or {}).get("seg") == "ts":
-        body = _playlist_text(sdir)
-    else:
-        try:
-            with open(os.path.join(sdir, "master.m3u8"), encoding="utf-8") as fh:
-                body = fh.read()
-        except OSError:
-            raise HTTPException(404, "playlist not ready (session may have ended)")
-    return PlainTextResponse(body, media_type="application/vnd.apple.mpegurl",
-                             headers={"Cache-Control": "no-store"})
-
-
-@router.get("/{version_id}/seg/{name}")
-def hls_segment(version_id: int, name: str):
-    """HLS 分片（旧直连口）。文件名白名单 segNNNNN.ts，约束在会话目录内。
-    未就绪等最多 15s（追渐进式转码进度），仍无则 404。"""
-    if not _SEG_RE.match(name or ""):
-        raise HTTPException(422, "bad segment name")
-    try:
-        vid = int(version_id)
-    except (TypeError, ValueError):
-        raise HTTPException(422, "bad version_id")
-    vdir = os.path.join(TRANSCODE_DIR, str(vid))
-    if not os.path.isdir(vdir):
-        raise HTTPException(404, "no transcode session (GET master.m3u8 first)")
-    # 会话目录由 quality/audio/start 派生：取最新 mtime 的会话（同一版本同时只播一路为主）
-    deadline = time.time() + 15
-    cands: list[tuple[float, str]] = []
-    while time.time() < deadline:
-        cands = []
-        try:
-            for sess in os.listdir(vdir):
-                sd = os.path.join(vdir, sess)
-                cand = os.path.join(sd, name)
-                if os.path.isfile(cand):
-                    cands.append((os.path.getmtime(sd), cand))
-        except OSError:
-            pass
-        if cands:
-            break
-        time.sleep(0.5)
-    if not cands:
-        _log_hit("", "seg-legacy", f"{vid}/{name}", 404)
-        raise HTTPException(404, "segment not ready (session may have ended)")
-    cands.sort(reverse=True)
-    _log_hit("", "seg-legacy", f"{vid}/{name}", 200)
-    return FileResponse(cands[0][1], media_type="video/MP2T",
-                        filename=name)
-
-
 @router.get("/{version_id}/sub/{idx}.vtt")
 def hls_subtitle(version_id: int, idx: int):
     """文字字幕 → WebVTT（浏览器 <track>；内嵌抽取/外挂转换，缓存复用）。图片字幕 415。"""
@@ -1395,6 +1335,34 @@ def _sidecar_abs(rel: str) -> str:
     return os.path.join(settings.media_root, rel)
 
 
+def _rm_tmp(path: str) -> None:
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def _run_ffmpeg_to_temp(dest: str, argv_of_tmp, timeout: int, err_msg: str) -> None:
+    """ffmpeg 产物先写 dest 同扩展名 .tmp，再 os.replace 原子替换（评审 B5a-6/R13-D4）：
+    并发请求/中途失败都不会留下可被读到的半成品字幕。"""
+    ext = os.path.splitext(dest)[1]
+    tmp = (dest[:-len(ext)] + ".tmp" + ext) if ext else (dest + ".tmp")
+    try:
+        subprocess.run(argv_of_tmp(tmp), timeout=timeout, check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        _rm_tmp(tmp)
+        raise HTTPException(500, f"{err_msg}: {e}")
+    if not os.path.isfile(tmp):
+        raise HTTPException(500, err_msg)
+    try:
+        os.replace(tmp, dest)
+    except OSError as e:
+        _rm_tmp(tmp)
+        raise HTTPException(500, f"{err_msg}: {e}")
+
+
 def _convert_sidecar(rel: str, vid: int, dest_ext: str) -> str:
     """外挂字幕转换到缓存（srt→vtt/ass、ass/ssa→vtt）。按源 mtime 失效。"""
     src_abs = _sidecar_abs(rel)
@@ -1410,15 +1378,11 @@ def _convert_sidecar(rel: str, vid: int, dest_ext: str) -> str:
     except OSError:
         fresh = False
     if not fresh:
-        cmd = [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
-               "-i", src_abs, "-c:s", codec, dest]
-        try:
-            subprocess.run(cmd, timeout=120, check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            raise HTTPException(500, f"subtitle convert failed: {e}")
-        if not os.path.isfile(dest):
-            raise HTTPException(500, "subtitle convert failed")
+        _run_ffmpeg_to_temp(
+            dest,
+            lambda tmp: [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
+                         "-i", src_abs, "-c:s", codec, tmp],
+            timeout=120, err_msg="subtitle convert failed")
     return dest
 
 
@@ -1434,15 +1398,11 @@ def _extract_embedded(abs_p: str, vid: int, track: dict, si: int, dest_ext: str)
         fresh = False
     if not fresh:
         ff_idx = track.get("ff_index", si)
-        cmd = [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
-               "-i", abs_p, "-map", f"0:{ff_idx}", "-c:s", codec, dest]
-        try:
-            subprocess.run(cmd, timeout=180 if dest_ext == "sup" else 120, check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            raise HTTPException(500, f"subtitle extract failed: {e}")
-        if not os.path.isfile(dest):
-            raise HTTPException(500, "subtitle extract failed")
+        _run_ffmpeg_to_temp(
+            dest,
+            lambda tmp: [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
+                         "-i", abs_p, "-map", f"0:{ff_idx}", "-c:s", codec, tmp],
+            timeout=180 if dest_ext == "sup" else 120, err_msg="subtitle extract failed")
     return dest
 
 

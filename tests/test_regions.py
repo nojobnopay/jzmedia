@@ -33,3 +33,19 @@ def test_normalize_tags():
     assert normalize_tags(["x" * 30]) == ["x" * 20]
     assert len(normalize_tags([f"t{i}" for i in range(30)])) == 20
     assert normalize_tags("not-a-list") == []
+
+
+def test_get_movie_exposes_country_name(media_root):
+    from app import store
+    mid = store.upsert_movie_by_path("cn/US.Movie.2020.mkv")
+    store.update_movie_meta(mid, title="US Movie", year=2020, origin_country="US")
+    assert store.get_movie(mid)["origin_country_name"] == "美国"
+    # 主产地为空时回退 origin_countries[0]
+    mid2 = store.upsert_movie_by_path("cn/CN.Movie.2021.mkv")
+    store.update_movie_meta(mid2, title="CN Movie", year=2021,
+                            origin_countries=["CN"])
+    assert store.get_movie(mid2)["origin_country_name"] == "中国大陆"
+    # 无产地 → 空串（前端不硬编码兜底）
+    mid3 = store.upsert_movie_by_path("cn/None.Movie.2022.mkv")
+    store.update_movie_meta(mid3, title="None Movie", year=2022)
+    assert store.get_movie(mid3)["origin_country_name"] == ""

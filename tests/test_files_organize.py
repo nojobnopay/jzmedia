@@ -76,3 +76,31 @@ def test_move_one_still_moves_when_target_free(media_root):
     assert r["status"] == "moved"
     assert store.get_movie(a)["file_path"] == "raw/d.mkv"
     assert (media_root / "raw/d.mkv").is_file()
+
+
+# ---------- B5a-4（R09-D4）：/files/clean 默认 dry_run ----------
+
+def test_clean_defaults_to_dry_run(media_root):
+    mid = _row("clean-ghost/missing.mkv")   # 不建文件 → 属于失效行
+    prev = files_router.clean({"ids": [mid]})
+    assert prev["dry_run"] is True
+    assert any(p["id"] == mid for p in prev["plans"])
+    assert store.get_movie(mid) is not None      # 预览不删
+
+    out = files_router.clean({"ids": [mid], "dry_run": False})
+    assert out["dry_run"] is False
+    assert store.get_movie(mid) is None
+
+
+# ---------- B5a-8（R09-Q4/R12-B3）：旧兼容口已删除 ----------
+
+def test_legacy_endpoints_removed():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    c = TestClient(app)
+    assert c.post("/api/files/rename", json={}).status_code in (404, 405)
+    assert c.post("/api/files/relocate", json={}).status_code in (404, 405)
+    # 旧 HLS 直连口：不再返回 HLS 播放列表（未知 GET 落到 SPA catch-all）
+    r = c.get("/api/stream/1/master.m3u8")
+    assert "mpegurl" not in (r.headers.get("content-type") or "")
+    assert "#EXTM3U" not in r.text
