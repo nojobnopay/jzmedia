@@ -8,11 +8,18 @@
 ## 1. 当前指针
 
 ```
-批次：B8 体验/性能/小重构批（fix/b8-ux）— 进行中
-用户决议：①R13-D2 内嵌默认字幕自动选=开启 ②R06-D6 合集删除换自定义弹层
-步骤：分支已建；先后端批（性能+小修）→ 前端批 → H-UI 点检包
-断点：无
-下一步：后端批（facets 轻列/封面单查/N+1、fs 分页、EXDEV、PATCH 校验、bio 语言等）
+批次：B8（fix/b8-ux）— 代码/单测/构建全部完成，**待用户 H-UI 点检确认后合回**
+步骤：4 提交（后端 perf / 前端非播放器 / 播放器 / 合集批读+a11y）；pytest 158、smoke 29/29、npm build/test
+H-UI 点检包（切分支 fix/b8-ux + 重启后端后走一遍）：
+  1 库页：点演员联想 → 直接进人物页；翻滚动能加载更多；facets 提示有“全库口径”
+  2 详情页：播放到结尾 → 已看标记（批量）；离开页面再回来无报错
+  3 播放器：无字幕片（内嵌默认中字）自动选中；设置层「兼容降级」出现「恢复客户端渲染」；
+    暂停 10 分钟后继续播放仍可播（心跳）；槽满时新开播提示“通道已满”
+  4 合集页：删除合集弹自定义确认框；系列补全进度条不再每 2s 闪动
+  5 设置页：滚动到「新片入库/匹配确认」才加载清单（下方 4s 内会补）；文件浏览改名/移动先预览再点确认
+  6 人物页：简介语言跟随设置页 TMDB 语言（改语言后刷新简介验证）
+断点：等用户回“B8 通过”或问题清单
+下一步：merge --no-ff → tag p2-b8-ux → 指针转 B9（结构重构，逐模块合）
 ```
 
 ## 2. 已完成批次（B1–B4，P1 全清，见 docs/fix/00-index.md）
@@ -58,16 +65,16 @@
 ### B8 体验/性能/小重构批
 | 组 | 成员 | 状态 | 备注 |
 |---|---|---|---|
-| B8-LIB | R04-D2（facets 口径文案）、R04-B5（演员直跳/全选文案）、R04-Q2/Q5（类型统一）、R04-B4（死样式）、R04-B2/B3（api 小修+单测） | pending | H-UI |
-| B8-DETAIL | R05-D1（长度校验）、R05-D5（批量 PATCH）、R05-B5（定时器/delArm/catch）、R05-Q3（路由监听）、R05-Q6（错误截断） | pending | H-UI |
-| B8-PLAYER | R13-D2（内嵌默认字幕自动选）、R13-B8（控件显隐）、R13-Q3（撤销降级）、R13-B6（字体 MIME）、R12-D8（暂停 ping）、R12-D5（429 文案）、R14-D3（进度 keepalive）、R14-D4（调试口命名空间）、R14-B1（监听对称）、R14-B2（已注释，关闭） | pending | H-UI |
-| B8-SETTINGS | R14-D1（首屏并行+懒加载）、R14-D2（fs 改名/移动预览）、R14-B3（样式去重）、R14-B4/R07-B4（console）、R06-D6（confirm 二选一） | pending | H-UI |
-| B8-COLLECTIONS | R06-D1/B2（JOBS TTL/上限）、R06-D2（轮询降载）、R06-D3（ORDER BY）、R06-B6/B7（文案）、R06-Q3（sort_order 注释） | pending | |
-| B8-PERSONS | R07-D1（bio 语言）、R07-D2/D3（并发/限频）、R07-B1（person_exists）、R07-Q2（错误截断）、R07-Q4（a11y 随全局） | pending | H-UI |
-| B8-PERF | R02-D4（facets SQL）、R02-D6（封面批量）、R05-B2（批量轻查询）、R08-D2/B1（collect/classify）、R12-D6（probe-missing SQL）、R12-D7（versions 并发）、suggest N+1 | pending | H-PERF 数字 |
-| B8-SCAN-PERF | R03-D5（TMDB 重试退避）、R09-D3（EXDEV 兜底）、R14-D2（同 SETTINGS）、R01-Q6（fs_list 分页）、R09-Q5（preview 懒加载） | pending | |
-| B8-CLEANUP | R02-Q5、R10-Q1/Q2/D4、R11-Q4、R13-Q5（subs 目录 env）、R06-Q3、R09-B3（清洗单源注释）、R13-B9、R03-Q4、R12-D4（MAX_TRANSCODES env） | pending | |
-| B8-DECISION2 | R04-Q3（URL/状态机大改）、R10-Q4（缩进）、R12-Q4/Q5（微优化）、R14-D5（路由懒加载→B9） | pending | H-DECISION |
+| B8-LIB | R04-D2（facets 口径文案）、R04-B5（演员直跳/全选文案）、R04-Q2/Q5（类型统一）、R04-B4（死样式）、R04-B2/B3（api 小修+单测） | done（facets 全库口径提示/演员直跳人物页/全选已加载/defaultSel/删死样式/api 头与上传解析；R04-Q5 关闭：字符串约定一致，改动收益低） | H-UI |
+| B8-DETAIL | R05-D1（长度校验）、R05-D5（批量 PATCH）、R05-B5（定时器/delArm/catch）、R05-Q3（路由监听）、R05-Q6（错误截断） | done（PATCH 长度校验/播完 batch/离开页清理/路由 watch/错误截断） | H-UI |
+| B8-PLAYER | R13-D2（内嵌默认字幕自动选）、R13-B8（控件显隐）、R13-Q3（撤销降级）、R13-B6（字体 MIME）、R12-D8（暂停 ping）、R12-D5（429 文案）、R14-D3（进度 keepalive）、R14-D4（调试口命名空间）、R14-B1（监听对称）、R14-B2（已注释，关闭） | done（内嵌默认字幕自动选/原生兜底隐藏外观/撤销降级/暂停心跳/429 文案/keepalive/调试命名空间/监听对称；R14-B2 关闭） | H-UI |
+| B8-SETTINGS | R14-D1（首屏并行+懒加载）、R14-D2（fs 改名/移动预览）、R14-B3（样式去重）、R14-B4/R07-B4（console）、R06-D6（confirm 二选一） | done（首屏并行+懒加载/fs 预览确认/样式去重/console 清理/自定义删除弹层） | H-UI |
+| B8-COLLECTIONS | R06-D1/B2（JOBS TTL/上限）、R06-D2（轮询降载）、R06-D3（ORDER BY）、R06-B6/B7（文案）、R06-Q3（sort_order 注释） | done（Job 修剪/轮询降载/ORDER BY/resumed 文案/sort_order 注释） | |
+| B8-PERSONS | R07-D1（bio 语言）、R07-D2/D3（并发/限频）、R07-B1（person_exists）、R07-Q2（错误截断）、R07-Q4（a11y 随全局） | done（bio 语言跟随/10s 限频/person_exists/错误截断/图片 alt） | H-UI |
+| B8-PERF | R02-D4（facets SQL）、R02-D6（封面批量）、R05-B2（批量轻查询）、R08-D2/B1（collect/classify）、R12-D6（probe-missing SQL）、R12-D7（versions 并发）、suggest N+1 | done（facets 轻列/封面窗口函数/成员批读/series 批读/collect 预取/classify 映射/探测预筛/并行探测/轻量 tags） | H-PERF 数字 |
+| B8-SCAN-PERF | R03-D5（TMDB 重试退避）、R09-D3（EXDEV 兜底）、R14-D2（同 SETTINGS）、R01-Q6（fs_list 分页）、R09-Q5（preview 懒加载） | done（TMDB 重试退避/EXDEV 兜底/fs 分页/重负载 GET 懒加载；smoke 超时 8s） | |
+| B8-CLEANUP | R02-Q5、R10-Q1/Q2/D4、R11-Q4、R13-Q5（subs 目录 env）、R06-Q3、R09-B3（清洗单源注释）、R13-B9、R03-Q4、R12-D4（MAX_TRANSCODES env） | done（store/playback/files/sort_order 注释；MAX_TRANSCODES、SIDECAR_SUB_DIRS、字体 MIME；console 清理） | |
+| B8-DECISION2 | R04-Q3（URL/状态机大改）、R10-Q4（缩进）、R12-Q4/Q5（微优化）、R14-D5（路由懒加载→B9） | closed（R04-Q3 大改不做（收益/风险比低）、R10-Q4 缩进保持、R12-Q4/Q5 微优化保持、R14-D5 路由懒加载留 B9 拆分时顺带） | H-DECISION |
 
 ### B9 结构重构批（逐模块合回）
 | 组 | 成员 | 状态 |
@@ -93,6 +100,7 @@
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-16：**B8 代码完成**：4 提交；pytest 158、smoke 29/29、npm build/test；待 H-UI。
 - 2026-09-16：**B7 合回 main**（tag p2-b7-consistency）；B5a+B6+B7 累计清 ~75 项 P2。
 - 2026-09-16：**B7 全部组完成**：DELETE/FAIL/NFO/SCAN/PLAYBACK/EXTRAS + DECISION1 closed；
   pytest 147 passed、smoke 30/30、npm build/test 绿。
