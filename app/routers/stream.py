@@ -39,7 +39,15 @@ from ..scanner import sidecar_subtitles
 router = APIRouter(prefix="/api/stream")
 logger = get_logger("stream")
 
-_hls_sem = threading.Semaphore(2)
+def _max_transcodes() -> int:
+    """并发转码上限（评审 B8/R12-D4）：env MAX_TRANSCODES，默认 2（弱 NAS 可调 1）。"""
+    try:
+        return max(1, min(int(os.getenv("MAX_TRANSCODES", "2") or 2), 8))
+    except (TypeError, ValueError):
+        return 2
+
+
+_hls_sem = threading.Semaphore(_max_transcodes())
 # fMP4 扁平产物：<name>_init.mp4 / <name>_segNNNNN.m4s；TS 回滚：segNNNNN.ts
 _SEG_RE = re.compile(r"^(?:[A-Za-z0-9]+_seg\d+\.m4s|seg\d+\.ts)$")
 # 会话目录内可直接取的播放文件（master 为 P2 自产；变体列表/初始化段/分片）
@@ -244,10 +252,34 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
         raise HTTPException(404, "movie not found")
     cli = (q.client or "web").strip().lower()
     caps = _caps.default_caps() if q.caps is None else q.caps
+    versions = list(m.get("versions") or [{"id": m["id"], "file_path": m["file_path"],
+                                            "edition": m.get("edition") or "",
+                                            "spec": m.get("spec") or ""}])
+
+    def _probe_one(v: dict) -> None:
+        """无缓存版本并行补探测（评审 B8/R12-D7：多版本片不再串行等 ffprobe）。"""
+        try:
+            vm = store.get_movie(int(v["id"]))
+        except (TypeError, ValueError):
+            return
+        if not vm:
+            return
+        abs_p = os.path.join(settings.media_root, vm["file_path"])
+        if os.path.isfile(abs_p):
+            try:
+                _media_cached_or_probe(vm, abs_p)
+            except Exception as e:
+                logger.debug("pre-probe failed vid=%s: %s", vm.get("id"), e)
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            list(ex.map(_probe_one, versions))
+    except Exception as e:
+        logger.debug("parallel probe skipped: %s", e)
+
     items = []
-    for v in (m.get("versions") or [{"id": m["id"], "file_path": m["file_path"],
-                                     "edition": m.get("edition") or "",
-                                     "spec": m.get("spec") or ""}]):
+    for v in versions:
         try:
             vid = int(v["id"])
         except (TypeError, ValueError):
@@ -319,13 +351,16 @@ def probe_missing(body: ProbeMissingBody | None = None):
     force = bool(body.force) if body else False
     rows = store.list_movies(grouped=False, limit=100000)
     if not force:
-        # 无行、旧行是环境错误（换环境后可重试）、或探测结构过期（probe_ver 低）都要补探
+        # 无行、探测结构过期、或环境错误（换环境后可重试）都要补探。
+        # 先一次轻量视图预筛（评审 B8/R12-D6），避免逐行 get_media_info 的 N+1
+        mi_by_id = {int(mi["movie_id"]): mi for mi in store.list_media_info_brief()}
+        pv_now = int(getattr(_media, "PROBE_VERSION", 0))
         kept = []
         for r in rows:
-            mi = store.get_media_info(int(r["id"]))
+            mi = mi_by_id.get(int(r["id"]))
             if not mi:
                 kept.append(r)
-            elif int(mi.get("probe_ver") or 0) < int(getattr(_media, "PROBE_VERSION", 0)):
+            elif int(mi.get("probe_ver") or 0) < pv_now:
                 kept.append(r)
             elif not mi.get("playable") and _media.is_retryable_error(
                     str(mi.get("probe_error") or "")):
@@ -1593,6 +1628,15 @@ def stream_fonts(version_id: int):
     return {"version_id": int(m["id"]), "fonts": out}
 
 
+_FONT_MIME = {".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf",
+              ".otf": "font/otf", ".ttc": "font/collection"}
+
+
+def _font_mime(name: str) -> str:
+    """按扩展名给字体 MIME（评审 B8/R13-B6）：此前统一 font/ttf 不准。"""
+    return _FONT_MIME.get(os.path.splitext(name)[1].lower(), "font/ttf")
+
+
 @router.get("/fonts/builtin/{name}")
 def stream_builtin_font(name: str):
     """内置字体（data/fonts/*，运行时可投放；不在仓库里塞大字体）。"""
@@ -1602,7 +1646,7 @@ def stream_builtin_font(name: str):
     path = os.path.join(settings.data_dir, "fonts", fn)
     if not os.path.isfile(path):
         raise HTTPException(404, "font not found")
-    return FileResponse(path, media_type="font/woff2", filename=fn)
+    return FileResponse(path, media_type=_font_mime(fn), filename=fn)
 
 
 @router.get("/{version_id}/fonts/{name}")
@@ -1623,4 +1667,4 @@ def stream_attachment_font(version_id: int, name: str):
         _dump_attachments(abs_p, fdir)
     if not os.path.isfile(dest):
         raise HTTPException(404, "font extract failed")
-    return FileResponse(dest, media_type="font/ttf", filename=wanted)
+    return FileResponse(dest, media_type=_font_mime(wanted), filename=wanted)

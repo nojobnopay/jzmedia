@@ -2,8 +2,10 @@
 from fastapi import APIRouter, HTTPException
 
 from .. import store
+from ..log import get_logger
 
 router = APIRouter(prefix="/api/extras")
+logger = get_logger("extras")
 
 
 @router.get("/orphans")
@@ -53,14 +55,20 @@ def collect(body: dict | None = None):
     body = body or {}
     dry_run = body.get("dry_run", True)
     only = _only_ids(body)
+    # 一次取全量 extras 再按影片分组（评审 B8/R08-D2：不再每片一次查询）
+    try:
+        by_movie: dict = {}
+        for e in store.list_all_extras():
+            if e.get("movie_id"):
+                by_movie.setdefault(e["movie_id"], []).append(e)
+    except Exception as e:
+        logger.warning("list extras failed: %s", e)
+        by_movie = {}
     cands = []
     for m in store.list_movies(grouped=False, limit=100000):
         if only is not None and m["id"] not in only:
             continue
-        try:
-            rows = store.list_extras_by_movie(m["id"])
-        except Exception:
-            continue
+        rows = by_movie.get(m["id"], [])
         pending = [e for e in rows if _os.path.dirname(e["file_path"])
                    != _os.path.join(_os.path.dirname(m["file_path"]), "extras")]
         if pending:

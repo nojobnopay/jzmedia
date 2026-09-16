@@ -5,14 +5,27 @@
 from fastapi import APIRouter, HTTPException
 
 import threading
+import time
 
 from .. import store
 
 router = APIRouter(prefix="/api/collections")
 
 # 补全 Job（内存态，单进程自用；重启丢失可重跑，回填幂等）
+# 只保留运行中 + 最近完成 N 个（评审 B8/R06-D1/B2：避免内存无界增长）
 _JOBS: dict = {}
 _JOBS_LOCK = threading.RLock()
+_MAX_FINISHED_JOBS = 5
+
+
+def _trim_jobs() -> None:
+    finished = [(k, j) for k, j in _JOBS.items() if j.get("state") != "running"]
+    if len(finished) <= _MAX_FINISHED_JOBS:
+        return
+    finished.sort(key=lambda kv: kv[1].get("finished_at")
+                  or kv[1].get("started_at") or 0)
+    for k, _ in finished[:len(finished) - _MAX_FINISHED_JOBS]:
+        _JOBS.pop(k, None)
 
 
 @router.get("")
@@ -97,6 +110,8 @@ def suggest_backfill(body: dict | None = None):
         with _JOBS_LOCK:
             if jid in _JOBS and _JOBS[jid]["state"] == "running":
                 _JOBS[jid]["state"] = "done"
+                _JOBS[jid]["finished_at"] = int(_time.time())
+            _trim_jobs()
     _threading.Thread(target=_run, daemon=True).start()
     return {"job_id": jid, "total": len(tids), "resumed": False, "force": force}
 
@@ -128,6 +143,8 @@ def suggest_backfill_cancel(body: dict | None = None):
         if not target or _JOBS[target]["state"] != "running":
             return {"job_id": target, "state": (_JOBS[target]["state"] if target else "idle")}
         _JOBS[target]["state"] = "cancelled"
+        _JOBS[target]["finished_at"] = int(time.time())
+        _trim_jobs()
         return {"job_id": target, "state": "cancelled"}
 
 

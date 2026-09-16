@@ -16,11 +16,13 @@ from fastapi import APIRouter, HTTPException
 
 from .. import store
 from ..config import settings
+from ..log import get_logger
 from ..scanner import SUBTITLE_EXTS, is_feature_video, is_sidecar, sync_nfos_for
-from .files import (_check_inside_root, _cleanup_old_dir, _resync_old_dir,
-                    _safe_component, _sibling_followers)
+from .files import (_check_inside_root, _cleanup_old_dir, _rename_or_move,
+                    _resync_old_dir, _safe_component, _sibling_followers)
 
 router = APIRouter(prefix="/api/fs")
+logger = get_logger("fs")
 
 
 def _resolve_dir(rel: str | None) -> str:
@@ -35,8 +37,9 @@ def _resolve_dir(rel: str | None) -> str:
     return norm
 
 
-def _classify(rel: str) -> dict:
-    """单文件定性：feature / sidecar / subtitle / nfo / other，附 DB 行提示。"""
+def _classify(rel: str, extras_map: dict | None = None) -> dict:
+    """单文件定性：feature / sidecar / subtitle / nfo / other，附 DB 行提示。
+    extras_map（{path: extra}）由列表口一次性传入（评审 B8/R08-B1：避免每文件全表扫 extras）。"""
     abs_p = os.path.join(settings.media_root, rel)
     size, mtime = 0, 0
     try:
@@ -58,10 +61,16 @@ def _classify(rel: str) -> dict:
                 "title": m.get("title", ""), "year": m.get("year"),
                 "tmdb_id": m.get("tmdb_id"),
                 "version_count": len(vers) or 1}
-    for e in store.list_all_extras():
-        if e["file_path"] == rel:
+    if extras_map is not None:
+        e = extras_map.get(rel)
+        if e:
             return {**base, "kind": "sidecar",
                     "extra_id": e["id"], "movie_id": e.get("movie_id")}
+    else:
+        for e in store.list_all_extras():
+            if e["file_path"] == rel:
+                return {**base, "kind": "sidecar",
+                        "extra_id": e["id"], "movie_id": e.get("movie_id")}
     _, ex = os.path.splitext(rel)
     ex = ex.lower()
     if is_sidecar(rel):
@@ -161,7 +170,7 @@ def _exec_move_one(fr: str, to: str) -> dict:
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         followers = _sibling_followers(src)
-        os.rename(src, dst)
+        _rename_or_move(src, dst)
         _move_db_follow(fr, to, info)
         # 同茎跟随：字幕/花絮兄弟随新茎改名
         new_stem = os.path.splitext(os.path.basename(dst))[0]
@@ -173,7 +182,7 @@ def _exec_move_one(fr: str, to: str) -> dict:
             try:
                 if not os.path.exists(fdst):
                     frel_old = os.path.relpath(f, settings.media_root)
-                    os.rename(f, fdst)
+                    _rename_or_move(f, fdst)
                     frel_new = os.path.relpath(fdst, settings.media_root)
                     try:
                         rows = [e for e in store.list_all_extras()
@@ -212,14 +221,25 @@ def _exec_move_one(fr: str, to: str) -> dict:
 
 
 @router.get("/list")
-def fs_list(path: str = ""):
-    """浏览目录（只读）：根用空串；返回 dirs/files（大小/mtime/定性）。"""
+def fs_list(path: str = "", limit: int = 1000, offset: int = 0):
+    """浏览目录（只读）：根用空串；返回 dirs/files（大小/mtime/定性）。
+    files 支持 limit/offset 分页（评审 B8/R01-Q6：超大目录不再一次全量）。"""
+    try:
+        limit = max(1, min(int(limit or 1000), 5000))
+        offset = max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        limit, offset = 1000, 0
     norm = _resolve_dir(path)
     abs_p = os.path.join(settings.media_root, norm) if norm else settings.media_root
     try:
         names = sorted(os.listdir(abs_p))
     except OSError as e:
         raise HTTPException(500, f"list failed: {e}")
+    try:
+        extras_map = {e["file_path"]: e for e in store.list_all_extras()}
+    except Exception as e:
+        logger.debug("extras prefetch failed: %s", e)
+        extras_map = {}
     dirs, files = [], []
     for n in names:
         # 跳过系统/隐藏文件，保持列表干净
@@ -235,7 +255,7 @@ def fs_list(path: str = ""):
                     c = 0
                 dirs.append({"name": n, "rel": rel, "children": c})
             elif os.path.isfile(full):
-                files.append(_classify(rel))
+                files.append(_classify(rel, extras_map))
         except OSError:
             continue
     parent = os.path.dirname(norm) if norm else ""
@@ -245,9 +265,12 @@ def fs_list(path: str = ""):
         for part in norm.split("/"):
             acc.append(part)
             crumbs.append({"name": part, "rel": "/".join(acc)})
+    total_files = len(files)
+    has_more = offset + limit < total_files
     return {"path": norm, "parent": parent, "crumbs": crumbs,
-            "dirs": dirs, "files": files,
-            "total_dirs": len(dirs), "total_files": len(files)}
+            "dirs": dirs, "files": files[offset:offset + limit],
+            "total_dirs": len(dirs), "total_files": total_files,
+            "has_more": has_more, "limit": limit, "offset": offset}
 
 
 @router.post("/mkdir")

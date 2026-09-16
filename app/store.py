@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS extras (
   updated_at INTEGER DEFAULT 0
 );
 -- TMDB远端镜像：以 tmdb_id 为键的稳定缓存，不受 file_path/tags/评分等本地改动影响。
--- movies 表的 TMDB 列只是它的物化副本，只经 copy_tmdb_to_movie() 复制。
+-- movies 表的 TMDB 列只是它的物化副本：对外只经 copy_tmdb_to_movie() 复制
+-- （update_movie_meta 内部允许写这些列，供 scanner 单点场景使用）。
 CREATE TABLE IF NOT EXISTS tmdb_cache (
   tmdb_id INTEGER PRIMARY KEY,
   title TEXT DEFAULT '',
@@ -657,6 +658,13 @@ def upsert_person(tmdb_id: int, name: str, avatar: str | None = None,
         return int(row["id"])
 
 
+def person_exists(tmdb_id: int) -> bool:
+    """人物行是否存在（评审 B8/R07-B1：GET/refresh 统一口径）。"""
+    with _lock, _conn() as c:
+        return c.execute("SELECT 1 FROM persons WHERE tmdb_id=?",
+                         (int(tmdb_id),)).fetchone() is not None
+
+
 def get_person_raw(tmdb_id: int) -> dict | None:
     """人物镜像原始行（含 fetched_at/bio_fetched_at 水位，不含作品列表）。"""
     with _lock, _conn() as c:
@@ -914,6 +922,16 @@ def delete_movie(movie_id: int) -> bool:
         return True
 
 
+def list_media_info_brief() -> list[dict]:
+    """全部探测行的轻量视图（评审 B8/R12-D6：probe-missing 预筛用，不解析 JSON 列）。"""
+    with _lock, _conn() as c:
+        try:
+            return [dict(r) for r in c.execute(
+                "SELECT movie_id, playable, probe_ver, probe_error FROM media_info")]
+        except Exception:
+            return []
+
+
 def get_media_info(movie_id: int) -> dict | None:
     """读版本媒体信息缓存（含 audio_json/sub_json 已 parse 为 list）。无行返回 None。"""
     with _lock, _conn() as c:
@@ -1105,6 +1123,19 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return d
 
 
+def get_movie_tags(movie_id: int) -> list[str] | None:
+    """仅取 tags（评审 B8/R05-B2：批量操作不再走重型 get_movie）。None=行不存在。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT tags FROM movies WHERE id=?", (movie_id,)).fetchone()
+        if not row:
+            return None
+        try:
+            v = json.loads(row["tags"] or "[]")
+            return v if isinstance(v, list) else []
+        except Exception:
+            return []
+
+
 def get_by_path(file_path: str) -> dict | None:
     with _lock, _conn() as c:
         row = c.execute("SELECT * FROM movies WHERE file_path=?", (file_path,)).fetchone()
@@ -1252,9 +1283,9 @@ def list_collections(q: str = "") -> list[dict]:
         out = []
         for r in rows:
             d = dict(r)
-            d["member_count"] = c.execute(
+            d["member_count"] = int(c.execute(
                 "SELECT COUNT(*) AS n FROM collection_members WHERE collection_id=?",
-                (d["id"],)).fetchone()["n"]
+                (d["id"],)).fetchone()["n"])
             d["cover"] = d.get("poster_path") or _collection_cover(c, d["id"])
             out.append(d)
         return out
@@ -1350,7 +1381,8 @@ def delete_collection(cid: int) -> bool:
 
 
 def add_collection_members(cid: int, rep_ids: list) -> dict:
-    """海报粒度加入：代表 id 归一为 film key 后幂等插入。返回 {added, total}。"""
+    """海报粒度加入：代表 id 归一为 film key 后幂等插入。返回 {added, total}。
+    sort_order 目前恒 0（预留人工排序；读取端“全 0 按年份兜底”，评审 R06-Q3）。"""
     with _lock, _conn() as c:
         if not c.execute("SELECT 1 FROM collections WHERE id=?", (cid,)).fetchone():
             raise LookupError("collection not found")
@@ -1593,7 +1625,7 @@ def tmdb_ids_missing_collection(limit: int = 200, force: bool = False) -> list[i
                 " LEFT JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
                 " WHERE m.tmdb_id IS NOT NULL"
                 " AND (t.tmdb_id IS NULL OR t.collection_tmdb_id IS NULL)"
-                " LIMIT ?", (limit,)).fetchall()
+                " ORDER BY m.tmdb_id LIMIT ?", (limit,)).fetchall()
         else:
             try:
                 rows = c.execute(
@@ -1603,7 +1635,7 @@ def tmdb_ids_missing_collection(limit: int = 200, force: bool = False) -> list[i
                     " AND (t.tmdb_id IS NULL"
                     " OR (t.collection_tmdb_id IS NULL"
                     " AND COALESCE(t.collection_checked_at, 0) = 0))"
-                    " LIMIT ?", (limit,)).fetchall()
+                    " ORDER BY m.tmdb_id LIMIT ?", (limit,)).fetchall()
             except Exception:
                 # 极老库无盖戳列时退化为旧口径
                 rows = c.execute(
@@ -1611,7 +1643,7 @@ def tmdb_ids_missing_collection(limit: int = 200, force: bool = False) -> list[i
                     " LEFT JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
                     " WHERE m.tmdb_id IS NOT NULL"
                     " AND (t.tmdb_id IS NULL OR t.collection_tmdb_id IS NULL)"
-                    " LIMIT ?", (limit,)).fetchall()
+                    " ORDER BY m.tmdb_id LIMIT ?", (limit,)).fetchall()
         return [int(r["tid"]) for r in rows if r["tid"]]
 
 
@@ -1919,15 +1951,20 @@ def get_facets(grouped: bool = True) -> dict:
     from collections import Counter
     from .regions import REGION_ORDER, REGION_UNKNOWN, country_name
     with _lock, _conn() as c:
-        # 全量取行后 Python 内分组（组内 tags 取并集，代表行取最新），避免代表行漏掉打在旧版本上的标签
-        rows = c.execute("SELECT * FROM movies").fetchall()
+        # 全量取行后 Python 内分组（组内 tags 取并集，代表行取最新），避免代表行漏掉打在旧版本上的标签；
+        # 只取聚合所需列（评审 B8/R02-D4：不再把 overview/persons 大文本全捞进内存）
+        rows = c.execute(
+            "SELECT id, tmdb_id, updated_at, watched, genres, tags, region,"
+            " origin_country, origin_countries, year, tmdb_rating, douban_rating,"
+            " custom_rating FROM movies").fetchall()
         try:
-            col_rows = c.execute("SELECT id, name FROM collections ORDER BY name").fetchall()
-            collections = [{"id": r["id"], "name": r["name"],
-                            "count": c.execute("SELECT COUNT(*) AS n FROM collection_members"
-                                               " WHERE collection_id=?", (r["id"],)).fetchone()["n"]}
-                           for r in col_rows]
-        except Exception:
+            collections = [{"id": r["id"], "name": r["name"], "count": int(r["n"] or 0)}
+                           for r in c.execute(
+                               "SELECT c.id, c.name, COUNT(cm.rowid) AS n FROM collections c"
+                               " LEFT JOIN collection_members cm ON cm.collection_id=c.id"
+                               " GROUP BY c.id ORDER BY c.name").fetchall()]
+        except Exception as e:
+            logger.warning("facets collections failed: %s", e)
             collections = []
     gc, rc, cc, yc, dc, tc, ic, sc = (Counter() for _ in range(8))
     wc = Counter()

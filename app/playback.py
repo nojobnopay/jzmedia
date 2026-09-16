@@ -19,6 +19,9 @@ from . import caps as _caps
 from .config import settings
 from .media import (ASS_SUBS, TEXT_SUBS, ffmpeg_bin, ffprobe_bin, norm_codec)
 
+# PROBE_VERSION 变更记录（对齐 media.PROBE_VERSION；评审 B8/R11-Q4）：
+# v1 基础字段 → v2 HDR/DV/位深/附件 → v3 图片字幕 codec 归一（pgs/vobsub）；
+# 老行播放时自动重探，无需 backfill。
 MP4_CONTAINERS = ("mp4", "mov", "m4v")
 MAX_AUDIO_RENDITIONS = 8     # 单次转码最多产出的音轨 rendition 数（防极端多音轨）
 

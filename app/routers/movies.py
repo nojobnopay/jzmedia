@@ -113,6 +113,20 @@ def patch_movie(movie_id: int, body: dict):
             if not 0 <= v <= 10:
                 raise HTTPException(422, f"{k} must be 0-10")
             data[k] = v
+    if "title" in data:
+        t = (data["title"] or "").strip()
+        if not t:
+            raise HTTPException(422, "title required")
+        if len(t) > 200:
+            raise HTTPException(422, "title too long (max 200)")
+        data["title"] = t
+    if "overview_override" in data:
+        if data["overview_override"] is None:
+            data["overview_override"] = ""
+        if not isinstance(data["overview_override"], str):
+            raise HTTPException(422, "overview_override must be a string")
+        if len(data["overview_override"]) > 20000:
+            raise HTTPException(422, "overview_override too long (max 20000)")
     if "tags" in data and not isinstance(data["tags"], list):
         raise HTTPException(422, "tags must be a list")
     if "tags" in data and isinstance(data["tags"], list):
@@ -215,14 +229,14 @@ def batch_update(body: dict):
             continue
         ok = 0
         for vid in vers:
-            m = store.get_movie(vid)
-            if not m:
+            cur_tags = store.get_movie_tags(vid)     # 轻量（评审 B8/R05-B2）
+            if cur_tags is None:
                 continue
             patch: dict = {}
             if norm_set is not None:
                 patch["tags"] = norm_set
             elif norm_add is not None or norm_remove is not None:
-                cur = list(m.get("tags") or [])
+                cur = list(cur_tags)
                 if norm_add:
                     cur = normalize_tags(cur + norm_add)
                 if norm_remove:
