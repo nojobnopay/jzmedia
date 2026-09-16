@@ -1369,7 +1369,8 @@ def _convert_sidecar(rel: str, vid: int, dest_ext: str) -> str:
     if not os.path.isfile(src_abs):
         raise HTTPException(404, "sidecar subtitle missing")
     codec = "webvtt" if dest_ext == "vtt" else "ass"
-    key = hashlib.sha1((rel + "|" + dest_ext).encode("utf-8")).hexdigest()[:12]
+    key = hashlib.blake2b((rel + "|" + dest_ext).encode("utf-8"),
+                          digest_size=6).hexdigest()   # 评审 B6/R11-B6：不用 SHA-1
     sdir = os.path.join(TRANSCODE_DIR, str(int(vid)), "subs")
     os.makedirs(sdir, exist_ok=True)
     dest = os.path.join(sdir, f"side_{key}.{dest_ext}")

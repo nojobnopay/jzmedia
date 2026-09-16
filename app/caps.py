@@ -21,12 +21,13 @@ def default_caps() -> dict:
 
 
 def normalize_caps(raw) -> dict:
-    """原始 caps → 白名单结构（未知键丢弃；布尔只取真值；probes 限量限长）。"""
+    """原始 caps → 白名单结构（未知键丢弃；布尔只认真正的 True，防 "false" 这类
+    字符串被 bool() 收成真值；probes 限量限长）。"""
     raw = raw if isinstance(raw, dict) else {}
 
     def _bools(keys, src):
         src = src if isinstance(src, dict) else {}
-        return {k: bool(src.get(k)) for k in keys}
+        return {k: src.get(k) is True for k in keys}
 
     probes: dict[str, bool] = {}
     src = raw.get("probes")
@@ -35,22 +36,23 @@ def normalize_caps(raw) -> dict:
             k2 = str(k or "").strip()
             if not k2 or len(k2) > _MAX_PROBE_LEN:
                 continue
-            probes[k2] = bool(v)
+            probes[k2] = v is True
     return {"video": _bools(VIDEO_KEYS, raw.get("video")),
             "audio": _bools(AUDIO_KEYS, raw.get("audio")),
-            "hdr": bool(raw.get("hdr")),
-            "mse": bool(raw.get("mse", True)),
-            "native_hls": bool(raw.get("native_hls")),
+            "hdr": raw.get("hdr") is True,
+            "mse": raw.get("mse") is True if "mse" in raw else True,
+            "native_hls": raw.get("native_hls") is True,
             "probes": probes}
 
 
 def caps_hash(caps: dict) -> str:
-    """会话复用键摘要：只含影响 plan 的归一化字段（sort_keys 稳定）。"""
+    """会话复用键摘要：只含影响 plan 的归一化字段（sort_keys 稳定）。
+    用 BLAKE2b 而非 SHA-1（评审 B6/R11-B6）：非密码学用途也不留弱哈希告警。"""
     try:
         blob = json.dumps(normalize_caps(caps), sort_keys=True, ensure_ascii=True)
     except Exception:
         blob = "{}"
-    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
+    return hashlib.blake2b(blob.encode("utf-8"), digest_size=6).hexdigest()
 
 
 def probe_state(caps: dict, strings: list) -> int:

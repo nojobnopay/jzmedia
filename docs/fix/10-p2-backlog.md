@@ -8,11 +8,12 @@
 ## 1. 当前指针
 
 ```
-批次：B5a 已合回 main（merge db77d6d，tag p2-b5a-harden）——P2 已清 10/238
-下一批：B6 安全加固批（fix/b6-security）；需 H-SEC（diff+curl 证据）与 H-DECISION
-        （R12-B9 debug 口保留、R08-D5 attach 需 force、R05-D4 非正片删除两步确认）
-断点：等用户对 B6 三项决策确认后开工
-下一步：git checkout -b fix/b6-security
+批次：B6 安全加固批（fix/b6-security）— 代码+验证全部完成，**待用户 H-SEC/H-UI 确认后合回**
+步骤：四组 done；pytest 119 passed；smoke 30/30；npm build ok；curl 证据已附（log）
+H-UI 点检项：①详情页删除任意文件均需两步确认（按钮文案区分正片/普通）
+           ②PDF 预览改为内嵌渲染（此前会变下载）③花絮改挂重复认领会提示 409
+断点：等用户确认 → merge --no-ff → tag p2-b6-security
+下一步：用户确认后合回，指针转 B7（数据一致性，H-DATA 备份提醒）
 ```
 
 ## 2. 已完成批次（B1–B4，P1 全清，见 docs/fix/00-index.md）
@@ -38,11 +39,11 @@
 ### B6 安全加固批
 | 组 | 成员 | 状态 | 备注 |
 |---|---|---|---|
-| B6-REQ | R01-B2（SPA 前缀越权）、R01-B8+R14-B5（安全头/CSP）、R05-D3（PDF inline）、R01-D3（未知 /api 返 200 HTML）、R01-D4（health 语义） | pending | H-SEC 人审 |
-| B6-INPUT | R09-B1（symlink realpath）、R09-B4（restore 越界）、R09-B2（only 强转 int）、R06-B3（int 上界）、R11-B5（caps 严格 bool）、R07-B2（tmdb_id 值域）、R02-B1 残余（rowcount/LIKE 转义）、R13-B3（VTT 对 VobSub 应 415） | pending | |
-| B6-CRYPTO | R11-B6（sha1→blake2）、R02-B4（SQLite 特性自检） | pending | |
-| B6-BEHAVIOR | R08-D5（attach 覆盖需 force+回 previous）、R05-D4（非正片删除两步确认） | pending | H-UI 点检 |
-| B6-DECISION | R12-B9（debug 口保留：LAN+可选鉴权已覆盖，记录关闭） | pending | H-DECISION |
+| B6-REQ | R01-B2（SPA 前缀越权）、R01-B8+R14-B5（安全头/CSP）、R05-D3（PDF inline）、R01-D3（未知 /api 返 200 HTML）、R01-D4（health 语义） | done（tests/test_web_security.py 6 用例；curl 证据见 log） | H-SEC 人审 |
+| B6-INPUT | R09-B1（symlink realpath）、R09-B4（restore 越界）、R09-B2（only 强转 int）、R06-B3（int 上界）、R11-B5（caps 严格 bool）、R07-B2（tmdb_id 值域）、R02-B1 残余（rowcount/LIKE 转义）、R13-B3（VTT 对 VobSub 应 415） | done（tests/test_input_guard.py 12 用例，含 R13-B3 闭环） | |
+| B6-CRYPTO | R11-B6（sha1→blake2）、R02-B4（SQLite 特性自检） | done（tests/test_crypto_selfcheck.py 2 用例） | |
+| B6-BEHAVIOR | R08-D5（attach 覆盖需 force+回 previous）、R05-D4（非正片删除两步确认） | done（attach force 用例 + Detail 两步确认，build ok） | H-UI 点检 |
+| B6-DECISION | R12-B9（debug 口保留：LAN+可选鉴权已覆盖，记录关闭） | closed（用户确认保留 debug 口：LAN+可选鉴权已覆盖，排障优先） | H-DECISION |
 
 ### B7 数据一致性与正确性批
 | 组 | 成员 | 状态 | 备注 |
@@ -93,5 +94,9 @@
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-16：**B6 四组完成**：REQ（安全头+CSP/SPA 边界/未知 api 404/health/blob inline）、
+  INPUT（symlink/ids/tmdb_id/caps/LIKE/VobSub 415）、CRYPTO（blake2/特性自检）、
+  BEHAVIOR（attach force/删除两步确认）。H-SEC 证据：curl 头四件套齐全、
+  /api/nope → 404 JSON、`..%2Fdist-x%2Fsecret.txt` 返回 SPA 页而非同级文件。
 - 2026-09-16：**B5a 10/10 done**：R03-B1、R03-D6、R10-D6、R09-D4、R05-D2、原子写（R03-B6/R05-B8/R10-B1/R13-D4）、R12-D2、旧口删除（R09-Q4/R12-B3）、R04-D3、R06-D4；pytest 99 passed，smoke 30/30，前端 build/test 绿。
 - 2026-09-16：台账建立；B5a 开工（分支 fix/b5a-harden）。

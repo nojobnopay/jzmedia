@@ -18,19 +18,29 @@ def orphans():
 
 @router.post("/{extra_id}/attach")
 def attach(extra_id: int, body: dict):
-    """手工认领：把 orphan 花絮归到指定影片下（下次整理跟随搬迁）。"""
-    movie_id = (body or {}).get("movie_id")
+    """手工认领：把 orphan 花絮归到指定影片下（下次整理跟随搬迁）。
+    已归属花絮改挂需显式 force:true（评审 B6/R08-D5），响应回带 previous_movie_id。"""
+    body = body or {}
+    movie_id = body.get("movie_id")
     if not movie_id:
         raise HTTPException(422, "movie_id required")
     try:
         movie_id = int(movie_id)
     except (TypeError, ValueError):
         raise HTTPException(422, "movie_id must be int")
+    if not (0 < movie_id <= 2 ** 63 - 1):
+        raise HTTPException(422, "movie_id out of range")
     if not store.get_movie(movie_id):
         raise HTTPException(404, "movie not found")
+    e = store.get_extra(extra_id)
+    if not e:
+        raise HTTPException(404, "extra not found")
+    prev = e.get("movie_id")
+    if prev and not bool(body.get("force")):
+        raise HTTPException(409, "extra already attached; pass force:true to re-attach")
     if not store.update_extra_movie(extra_id, movie_id):
         raise HTTPException(404, "extra not found")
-    return {"id": extra_id, "movie_id": movie_id}
+    return {"id": extra_id, "movie_id": movie_id, "previous_movie_id": prev}
 
 
 @router.post("/collect")
@@ -39,10 +49,10 @@ def collect(body: dict | None = None):
     dry_run 默认 true 只预览。"""
     import os as _os
     from ..config import settings as _settings
-    from .files import move_attached_extras
+    from .files import _only_ids, move_attached_extras
     body = body or {}
     dry_run = body.get("dry_run", True)
-    only = set(body.get("ids", []) or []) or None
+    only = _only_ids(body)
     cands = []
     for m in store.list_movies(grouped=False, limit=100000):
         if only is not None and m["id"] not in only:

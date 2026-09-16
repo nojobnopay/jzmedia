@@ -109,7 +109,7 @@
                     <button v-if="isVideo(f.name)" @click="openPlayer(f)">播放</button>
                     <button v-else-if="pvKindOf(f.name)" @click="openPlayer(f)">预览</button>
                     <button v-if="delArm[f.rel || f.name] == null" @click="doFileDelete(f)">删除</button>
-                    <button v-else @click="doFileDeleteConfirm(f)" class="danger">确认删除正片</button>
+                    <button v-else @click="doFileDeleteConfirm(f)" class="danger">{{ (delArm[f.rel || f.name] || {}).requires_confirm ? '确认删除正片' : '确认删除' }}</button>
                   </span>
                 </li>
               </ul>
@@ -615,8 +615,9 @@ async function openPlayer(f) {
   const name = f.rel || f.name
   pvErr.value = false
   pvName.value = f.name
-  pvUrl.value = blobUrl(name)
   pvKind.value = pvKindOf(f.name)
+  // 图片/PDF 走 inline（评审 B6/R05-D3：attachment 会让 iframe 变下载）
+  pvUrl.value = blobUrl(name) + ((pvKind.value === 'image' || pvKind.value === 'pdf') ? '&inline=1' : '')
   pvText.value = ''
   if (pvKind.value === 'text') {
     try {
@@ -677,19 +678,11 @@ async function doFileDelete(f) {
       body: JSON.stringify({ name, dry_run: true })
     })
     const p = (d.plans || [])[0] || {}
-    if (p.requires_confirm) {
-      delArm.value[name] = p
-      delMsg.value = `警告：将删除正片 ${f.name}，海报墙同步移除。再点「确认删除正片」执行`
-      return
-    }
-    const d2 = await api('/api/movies/' + route.params.id + '/files', {
-      method: 'DELETE',
-      body: JSON.stringify({ name, dry_run: false })
-    })
-    const r = (d2.results || [])[0] || {}
-    delMsg.value = r.status === 'deleted' ? '已删除' : ('删除：' + (r.status || '失败'))
-    closePlayer()
-    await reloadFiles()
+    // 两步确认对所有文件统一（评审 B6/R05-D4）：非正片单击即删太容易误触
+    delArm.value[name] = p
+    delMsg.value = p.requires_confirm
+      ? `警告：将删除正片 ${f.name}，海报墙同步移除。再点「确认删除正片」执行`
+      : `将删除 ${f.name}，再点「确认删除」执行`
   } catch (e) {
     delMsg.value = '删除失败：' + e.message
   }
@@ -702,7 +695,7 @@ async function doFileDeleteConfirm(f) {
       body: JSON.stringify({ name, dry_run: false, confirm: true })
     })
     const r = (d.results || [])[0] || {}
-    delMsg.value = r.status === 'deleted' ? '正片已删除，库已同步清理' : ('删除：' + (r.status || '失败'))
+    delMsg.value = r.status === 'deleted' ? '已删除，库已同步清理' : ('删除：' + (r.status || '失败'))
     delete delArm.value[name]
     closePlayer()
     await reloadFiles()

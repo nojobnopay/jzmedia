@@ -256,6 +256,17 @@ def set_setting(key: str, value: str) -> str:
 
 def init_db() -> None:
     with _lock, _conn() as c:
+        # 启动自检 SQLite 特性（评审 B6/R02-B4）：JSON1 与 FTS5 缺失时给明确错误，
+        # 而不是运行到一半抛 OperationalError 让人摸不着头脑
+        try:
+            c.execute("SELECT json_valid('1')")
+        except sqlite3.OperationalError as e:
+            raise RuntimeError("SQLite 缺少 JSON1 扩展，jzmedia 无法运行") from e
+        try:
+            c.execute("CREATE VIRTUAL TABLE IF NOT EXISTS __fts_probe USING fts5(x)")
+            c.execute("DROP TABLE IF EXISTS __fts_probe")
+        except sqlite3.OperationalError as e:
+            raise RuntimeError("SQLite 缺少 FTS5 扩展，jzmedia 无法运行") from e
         c.executescript(SCHEMA)
         cols = [r["name"] for r in c.execute("PRAGMA table_info(movies)")]
         for col, ddl in (
@@ -333,6 +344,24 @@ def init_db() -> None:
             c.executescript(SCHEMA)
     seed_tmdb_cache_from_movies()
     rebuild_fts()
+
+
+def health_check() -> dict:
+    """健康自检（评审 B6/R01-D4）：DB 可读 + 数据目录可写；不抛错。"""
+    ok, err = True, ""
+    try:
+        with _lock, _conn() as c:
+            c.execute("SELECT 1")
+    except Exception as e:
+        ok, err = False, str(e)[:200]
+    writable = os.access(os.path.dirname(DB_PATH) or ".", os.W_OK)
+    db_bytes = 0
+    try:
+        db_bytes = os.path.getsize(DB_PATH)
+    except OSError:
+        pass
+    return {"ok": bool(ok and writable), "readable": bool(ok),
+            "writable": bool(writable), "error": err, "bytes": db_bytes}
 
 
 def _dump_list(v) -> str:
@@ -770,15 +799,19 @@ def list_all_extras() -> list[dict]:
         return [dict(r) for r in c.execute("SELECT * FROM extras ORDER BY file_path")]
 
 
-def update_extra_movie(extra_id: int, movie_id: int) -> bool:
-    """手工认领：orphan 花絮归到指定影片。返回行是否存在。"""
+def get_extra(extra_id: int) -> dict | None:
+    """按 id 取花絮行（评审 B6/R08-D5：改挂前拿 previous 归属）。"""
     with _lock, _conn() as c:
-        row = c.execute("SELECT id FROM extras WHERE id=?", (extra_id,)).fetchone()
-        if not row:
-            return False
-        c.execute("UPDATE extras SET movie_id=?, updated_at=? WHERE id=?",
-                  (movie_id, int(time.time()), extra_id))
-        return True
+        row = c.execute("SELECT * FROM extras WHERE id=?", (extra_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def update_extra_movie(extra_id: int, movie_id: int) -> bool:
+    """手工认领：orphan 花絮归到指定影片。返回是否有行被更新（rowcount）。"""
+    with _lock, _conn() as c:
+        cur = c.execute("UPDATE extras SET movie_id=?, updated_at=? WHERE id=?",
+                        (movie_id, int(time.time()), extra_id))
+        return int(cur.rowcount or 0) > 0
 
 
 def delete_extra_by_path(file_path: str) -> bool:
@@ -1204,9 +1237,11 @@ def _collection_cover(c: sqlite3.Connection, cid: int) -> str:
 def list_collections(q: str = "") -> list[dict]:
     with _lock, _conn() as c:
         if (q or "").strip():
+            # LIKE 通配符转义（评审 B6/R02-B1）：否则搜 "_"/"%" 会全匹配
             rows = c.execute(
-                "SELECT * FROM collections WHERE name LIKE ? ORDER BY updated_at DESC",
-                (f"%{(q or '').strip()}%",)).fetchall()
+                "SELECT * FROM collections WHERE name LIKE ? ESCAPE '\\' "
+                "ORDER BY updated_at DESC",
+                (f"%{_like_esc((q or '').strip())}%",)).fetchall()
         else:
             rows = c.execute("SELECT * FROM collections ORDER BY updated_at DESC").fetchall()
         out = []
@@ -1348,12 +1383,12 @@ def remove_collection_members(cid: int, rep_ids: list) -> dict:
         for r in (rows or []):
             tid, mid = _film_key(r["tmdb_id"], r["id"])
             if tid:
-                c.execute("DELETE FROM collection_members WHERE collection_id=? AND movie_tmdb_id=?",
-                          (cid, tid))
+                cur = c.execute("DELETE FROM collection_members WHERE collection_id=? AND movie_tmdb_id=?",
+                                (cid, tid))
             else:
-                c.execute("DELETE FROM collection_members WHERE collection_id=? AND movie_id=?",
-                          (cid, mid))
-            n += c.total_changes
+                cur = c.execute("DELETE FROM collection_members WHERE collection_id=? AND movie_id=?",
+                                (cid, mid))
+            n += int(cur.rowcount or 0)   # 显式 rowcount（评审 B6/R02-B1：不再依赖 total_changes）
         c.execute("UPDATE collections SET updated_at=? WHERE id=?", (int(time.time()), cid))
         total = c.execute("SELECT COUNT(*) AS n FROM collection_members WHERE collection_id=?",
                           (cid,)).fetchone()["n"]

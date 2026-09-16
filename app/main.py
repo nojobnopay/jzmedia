@@ -78,13 +78,56 @@ if os.path.isdir(ASSETS):
     app.mount("/assets", StaticFiles(directory=ASSETS), name="assets")
 
 
+# 安全响应头（评审 B6/R01-B8+R14-B5）：CSP 需放行自绘字幕/worker/wasm 场景；
+# 出问题时可用 JZMEDIA_CSP=off 应急关闭（其余头保留）
+_CSP = ("default-src 'self'; "
+        "script-src 'self' 'wasm-unsafe-eval' blob:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "media-src 'self' blob:; "
+        "connect-src 'self' blob:; "
+        "font-src 'self' data: blob:; "
+        "worker-src 'self' blob:; "
+        "frame-src 'self' blob:; "
+        "object-src 'none'; base-uri 'self'; form-action 'self'")
+
+
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    if os.getenv("JZMEDIA_CSP", "").strip().lower() not in ("off", "0", "no"):
+        resp.headers.setdefault("Content-Security-Policy", _CSP)
+    return resp
+
+
+def _spa_file(dist: str, full_path: str) -> str | None:
+    """SPA 静态文件定位（纯函数，便于测试）：只在 dist 目录内取文件。
+    评审 B6/R01-B2：此前用 startswith(dist) 前缀判断，`../dist-x/a` 归一后仍能绕过
+    （同级且以 dist 开头的目录可被读到）→ 改为路径边界判断。"""
+    if not full_path:
+        return None
+    try:
+        candidate = os.path.normpath(os.path.join(dist, full_path))
+    except (OSError, ValueError):
+        return None
+    if candidate != dist and not candidate.startswith(dist + os.sep):
+        return None
+    return candidate if os.path.isfile(candidate) else None
+
+
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 def spa(full_path: str):
+    # 未知 /api 路径返回 JSON 404（评审 B6/R01-D3）：否则会被 SPA catch-all 当成页面
+    # 返回 200 HTML，API 客户端（含调试脚本）分不清“没有这个接口”和“接口出错”。
+    if (full_path or "").startswith("api/"):
+        return JSONResponse({"detail": "not found"}, status_code=404)
     # vite public/* 落到 dist 根目录（favicon / 图标）：存在即直出，否则回退 SPA
-    if full_path:
-        candidate = os.path.normpath(os.path.join(DIST, full_path))
-        if candidate.startswith(DIST) and os.path.isfile(candidate):
-            return FileResponse(candidate)
+    hit = _spa_file(DIST, full_path)
+    if hit:
+        return FileResponse(hit)
     index = os.path.join(DIST, "index.html")
     if os.path.exists(index):
         # 入口永不缓存：带哈希的 /assets 天然防旧，index.html 必须每次最新，
