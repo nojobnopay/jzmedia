@@ -83,6 +83,9 @@ const jobId = ref('')
 const bfProgress = ref({ state: 'idle', done: 0, total: 0, current_title: '', failed: [] })
 const accepting = ref(false)
 const DISMISS_KEY = 'jzmedia.dismissedSeries'
+const BF_MAX_ROUNDS = 4          // 自动续跑上限（评审 B5a-10/R06-D4：一轮 50 条，防死循环）
+let bfRounds = 0                 // 当前补全链已发起的轮数
+let bfAuto = false               // 当前链是否为「一键补全」（force=全部重查不自动续）
 
 function dismissedIds() {
   try {
@@ -104,6 +107,10 @@ async function loadSuggest() {
 }
 async function backfill(force = false) {
   backfilling.value = true
+  if (force || bfRounds === 0) {
+    bfRounds = 0
+    bfAuto = !force
+  }
   sgMsg.value = ''
   try {
     const d = await api('/api/collections/suggest/backfill', {
@@ -112,13 +119,16 @@ async function backfill(force = false) {
     if (!d.total) {
       sgMsg.value = '没有缺系列信息的影片'
       backfilling.value = false
+      bfRounds = 0
       return
     }
+    bfRounds += 1
     jobId.value = d.job_id || ''
     startPoll()
   } catch (e) {
     sgMsg.value = '补全失败：' + e.message
     backfilling.value = false
+    bfRounds = 0
   }
 }
 const bfRunning = computed(() => backfilling.value && bfProgress.value.state === 'running')
@@ -157,6 +167,15 @@ async function pollStatus() {
     if (d.state === 'done' || d.state === 'cancelled') {
       stopPoll()
       backfilling.value = false
+      if (d.state === 'done' && bfAuto && bfRounds < BF_MAX_ROUNDS
+          && ((coverage.value && coverage.value.unchecked) || 0) > 0) {
+        // 还有未排查的片：自动续跑下一轮（最多 BF_MAX_ROUNDS 轮）
+        sgMsg.value = `已完成 ${d.done}/${d.total}，继续补全剩余…`
+        await backfill(false)
+        return
+      }
+      bfRounds = 0
+      bfAuto = false
       sgMsg.value = d.state === 'done'
         ? `补全完成 ${d.done}/${d.total}` + ((d.failed || []).length ? `，失败 ${(d.failed || []).length}` : '')
         : `已取消（${d.done}/${d.total}）`
@@ -244,6 +263,8 @@ onMounted(async () => {
     if (d.state === 'running' && d.total) {
       jobId.value = d.job_id || ''
       backfilling.value = true
+      bfRounds = Math.max(1, bfRounds)   // 刷新后接力：完成后仍可自动续跑
+      bfAuto = true
       bfProgress.value = {
         state: d.state, done: d.done || 0, total: d.total || 0,
         current_title: d.current_title || '', failed: d.failed || []
