@@ -57,5 +57,5 @@
 - WSL Docker Desktop proxy breakage is documented in README §排障 (use `crane pull … && docker load`, or `BUILD_HTTP_PROXY=http://nas:7890`).
 
 ## Versioning
-- Git (`main` branch, local-only, no remote): commit per feature, annotated tag per release (`v0.6.0` = settings rework + missing-cleanup + stats; `v0.5.0` = TMDB mirror cache + refresh + progressive person page; `v0.4.0` = filters/ratings/avatar-wall/person page). Code versions unified (`main.py` + `package.json`).
+- Git (`main` branch, local-only, no remote): commit per feature, annotated tag per release (`v0.7.0` = 在线播放 P1–P5：客户端能力四档决策 + fMP4 多音轨 + ASS/PGS 客户端字幕与外挂 + 转码后端探测/软编兜底 + HDR/DV 矩阵 + 预转码与 0.7.0 文档；`v0.6.0` = settings rework + missing-cleanup + stats; `v0.5.0` = TMDB mirror cache + refresh + progressive person page; `v0.4.0` = filters/ratings/avatar-wall/person page). Code versions unified (`main.py` + `package.json`).
 - Images: `image: jzmedia:${APP_VERSION:-latest}` in compose (local `.env` pins e.g. `vX.Y.Z`); release = `GIT_SHA=$(git rev-parse --short HEAD) docker compose build` then `docker tag jzmedia:vX.Y.Z jzmedia:latest`. Version/commit baked via Dockerfile OCI labels (`APP_VERSION`/`GIT_SHA` args). `docker image prune` clears dangling rebuilds.
