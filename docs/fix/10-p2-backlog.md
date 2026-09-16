@@ -8,11 +8,14 @@
 ## 1. 当前指针
 
 ```
-批次：B7 数据一致性批（fix/b7-consistency）— 全部组 done，待整批验证后合回
-步骤：pytest 147 passed；smoke 30/30（scan 摘要）；npm build/test ok
-H-DATA 提醒：升级重启前备份 data/jzmedia.db（本批无破坏性迁移）
-断点：无
-下一步：merge --no-ff → tag p2-b7-consistency → 指针转 B8（体验/性能，H-UI 点检包）
+批次：B8 体验/性能/小重构批（fix/b8-ux）— 待开工
+B7 已合回（merge bb62b06，tag p2-b7-consistency）
+进度：B5a+B6+B7 已清 P2 约 75/238
+开工前需用户确认 2 项（此前约定“做的时候再确认”）：
+  ①R13-D2 内嵌默认字幕自动选：开启（与音轨口径一致）还是保持仅外挂中文自动选？
+  ②R06-D6 合集删除的 confirm()：换成自定义弹层（统一观感）还是保留原生？
+断点：等用户回答
+下一步：git checkout -b fix/b8-ux
 ```
 
 ## 2. 已完成批次（B1–B4，P1 全清，见 docs/fix/00-index.md）
@@ -93,6 +96,7 @@ H-DATA 提醒：升级重启前备份 data/jzmedia.db（本批无破坏性迁移
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-16：**B7 合回 main**（tag p2-b7-consistency）；B5a+B6+B7 累计清 ~75 项 P2。
 - 2026-09-16：**B7 全部组完成**：DELETE/FAIL/NFO/SCAN/PLAYBACK/EXTRAS + DECISION1 closed；
   pytest 147 passed、smoke 30/30、npm build/test 绿。
 - 2026-09-16：**B6 合回 main**（tag p2-b6-security，用户确认）；B7 开工。
