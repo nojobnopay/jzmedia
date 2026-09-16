@@ -8,9 +8,11 @@
         <span v-if="reasonLine" class="play-reason">{{ reasonLine }}</span>
         <span v-if="sessStatus" class="sess-status">{{ sessStatus }}</span>
         <span class="pd-spacer"></span>
-        <div class="pd-setwrap">
-          <button class="pd-mini" :class="{ on: settingsOpen }" @click="toggleSettings"
-            title="播放设置（画质/音轨/字幕/延迟）">⚙ 设置</button>
+        <div id="pv-set-host-hd" ref="hdSetHost" class="pd-set-host">
+          <Teleport :to="setHost" :disabled="!setHost">
+          <div class="pd-setwrap">
+            <button class="pd-mini" :class="{ on: settingsOpen }" @click="toggleSettings"
+              title="播放设置（画质/音轨/字幕/延迟）">⚙ 设置</button>
           <div v-if="settingsOpen" class="pd-set" @click.stop>
             <div class="set-row">
               <label>画质</label>
@@ -44,6 +46,38 @@
                 <button class="ctl-mini" @click="shiftSubDelay(0.5)">+0.5</button>
               </span>
             </div>
+            <div class="set-row" v-if="subIsVtt">
+              <label>外观</label>
+              <span class="set-inline">
+                <select v-model.number="subStyle.bg" @change="onSubStyleChange" title="字幕背景（只覆盖文字区域）">
+                  <option :value="0">无背景</option>
+                  <option :value="1">半透明底</option>
+                  <option :value="2">纯黑底</option>
+                </select>
+                <select v-model.number="subStyle.outline" @change="onSubStyleChange" title="字形描边（黑边，提升亮画面可读性）">
+                  <option :value="0">无描边</option>
+                  <option :value="1">细描边</option>
+                  <option :value="2">粗描边</option>
+                </select>
+              </span>
+            </div>
+            <div class="set-row" v-if="subIsVtt">
+              <label>位置</label>
+              <span class="set-inline">
+                <select v-model="subStyle.pos" @change="onSubStyleChange"
+                  title="字幕位置：自动=下方黑边够高时落入黑边（不遮画面），否则画面内底部">
+                  <option value="auto">自动（黑边优先）</option>
+                  <option value="inside">画面内</option>
+                  <option value="outside">下黑边</option>
+                </select>
+                <select v-model.number="subStyle.size" @change="onSubStyleChange"
+                  title="字号：随画面高度自适应缩放">
+                  <option :value="1">小</option>
+                  <option :value="2">中</option>
+                  <option :value="3">大</option>
+                </select>
+              </span>
+            </div>
             <div class="set-row" v-if="subIsAss">
               <label>兼容</label>
               <label class="ctl-compat" title="ASS 渲染异常/缺字体时使用：改用简化 VTT 字幕">
@@ -57,6 +91,8 @@
             </div>
             <p class="set-hint">{{ methodLine }}<span v-if="qualityLine"> · {{ qualityLine }}</span></p>
           </div>
+          </div>
+          </Teleport>
         </div>
         <button class="pd-mini" @click="copyDebug">调试</button>
         <button class="pd-mini" @click="$emit('close')">关闭</button>
@@ -83,6 +119,7 @@
           <span class="pv-title">{{ title || ('版本 ' + versionId) }}</span>
           <span v-if="sessStatus" class="pv-status">{{ sessStatus }}</span>
           <span class="pd-spacer"></span>
+          <div id="pv-set-host-fs" ref="fsSetHost" class="pd-set-host"></div>
           <button class="pd-mini" @click="toggleFull" title="退出全屏（Esc）">⤡ 退出全屏</button>
         </div>
         <!-- 自绘控件条（HLS 与原文件直发统一使用：直发不再用原生控件遮挡画面） -->
@@ -113,6 +150,7 @@ import { api } from '../api.js'
 import { getCaps, probeStrings, withProbes } from '../caps.js'
 import { ensureJassub } from '../jassubLoader.js'
 import { ensurePgs } from '../pgsLoader.js'
+import { normalizeSubStyle, subFontPx, pickSubAnchor, subBarPad, subInnerPad } from '../subStyle.js'
 import Spinner from './Spinner.vue'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
@@ -137,9 +175,25 @@ const subs = ref([])
 let jassub = null
 let assKey = ''
 const assFonts = ref(-1)
-// VTT 平移产物（Blob URL）与代际：会话起点非 0 时按 mediaStart 平移 cue 时间
-let vttBlobUrl = ''
+// VTT 自绘字幕层：解析后的 cue（源时间轴 ms）+ 图层/循环句柄；代际防过期挂载
+let vttCues = []
+let vttLayer = null
+let vttKey = ''
 let vttSeq = 0
+let vttLoopRvfc = 0
+let vttLoopTimer = 0
+let vttRO = null
+let vttLastKey = ''
+let vttNativeFallback = false
+let vttAnchor = 'inside'   // 当前锚定：inside 画面内 / outside 下黑边
+// 字幕外观/定位（全局记忆）：背景 0无/1半透明/2纯黑；描边 0无/1细/2粗；
+// 位置 auto（黑边优先）/inside/outside；字号 1小/2中/3大。纯计算见 ../subStyle.js
+const subStyle = ref(loadSubStyle())
+function loadSubStyle() {
+  try {
+    return normalizeSubStyle(JSON.parse(localStorage.getItem('jzmedia.subStyle') || '{}'))
+  } catch (e) { return normalizeSubStyle(null) }
+}
 // PGS 图片字幕渲染（libpgs）：解码失败自动降级烧录（forceBurn 进 decide/sessions）
 let pgs = null
 let pgsCanvas = null
@@ -242,9 +296,16 @@ function onMouseMove() {
   if (hideTimer) clearTimeout(hideTimer)
   hideTimer = setTimeout(() => { mouseActive.value = false }, 3000)
 }
-// 全屏时控件/标题的显隐：鼠标活跃、暂停、seek 中、有错误时常显
+// 全屏时控件/标题的显隐：鼠标活跃、暂停、seek 中、设置打开、有错误时常显
 const overlayVisible = computed(() =>
-  !isFull.value || mouseActive.value || seekPending.value || !isPlaying.value || !!err.value)
+  !isFull.value || mouseActive.value || seekPending.value || !isPlaying.value
+  || settingsOpen.value || !!err.value)
+// 设置弹层宿主：窗口模式在标题栏；全屏 Teleport 进全屏顶栏（随鼠标唤出，与进度条一致）。
+// 用模板 ref（元素就绪后才有效）而不是选择器：Teleport 的字符串目标要求挂载前已存在。
+const hdSetHost = ref(null)
+const fsSetHost = ref(null)
+const setHost = computed(() =>
+  (isFull.value ? fsSetHost.value : hdSetHost.value) || hdSetHost.value || fsSetHost.value)
 const isHls = computed(() => ['remux', 'audio_transcode', 'transcode', 'video_transcode']
   .includes(method.value))
 const bufLine = computed(() => {
@@ -832,95 +893,244 @@ function vttMs(s) {
   if (!m) return null
   return ((Number(m[1] || 0) * 60 + Number(m[2])) * 60 + Number(m[3])) * 1000 + Number(m[4])
 }
-function vttFmt(ms) {
-  const tot = Math.max(0, Math.round(ms))
-  const h = Math.floor(tot / 3600000)
-  const m = Math.floor((tot % 3600000) / 60000)
-  const s = Math.floor((tot % 60000) / 1000)
-  const pad = (n, w) => String(n).padStart(w, '0')
-  return `${pad(h, 2)}:${pad(m, 2)}:${pad(s, 2)}.${pad(tot % 1000, 3)}`
-}
-// VTT 平移：字幕 cue 是全片绝对时间，会话时间轴从 media_start 起 → 减偏移；
-// 会话起点之前的 cue（end<=0）整块丢弃（含可选 cue 标识/文本行，防孤儿文本）。
-function shiftVtt(text, offMs) {
-  const out = []
+// 解析 WebVTT → cue 列表（源时间轴毫秒；会话偏移/用户延迟在渲染时叠加，便于即时调整）。
+// 文本去标签 + textarea 解码实体（textContent 渲染，纯文本安全）；STYLE/REGION/注释块跳过。
+function parseVtt(text) {
+  const cues = []
   for (const block of String(text || '').split(/\r?\n\r?\n/)) {
     const lines = block.split(/\r?\n/)
     let ti = -1
-    let a = null
-    let b = null
-    let indent = ''
-    let rest = ''
     for (let i = 0; i < lines.length; i++) {
-      const m = /^(\s*)(\S+)\s*-->\s*(\S+)(.*)$/.exec(lines[i])
-      if (m) {
-        ti = i
-        indent = m[1]
-        a = vttMs(m[2])
-        b = vttMs(m[3])
-        rest = m[4] || ''
-        break
-      }
+      if (/^\s*\S+\s*-->\s*\S+/.test(lines[i])) { ti = i; break }
     }
-    if (ti < 0 || a == null || b == null) { out.push(block); continue }
-    if (b - offMs <= 0) continue
-    const nl = lines.slice()
-    nl[ti] = `${indent}${vttFmt(a - offMs)} --> ${vttFmt(b - offMs)}${rest}`
-    out.push(nl.join('\n'))
+    if (ti < 0) continue
+    const m = /^(\s*)(\S+)\s*-->\s*(\S+)\s*(.*)$/.exec(lines[ti])
+    if (!m) continue
+    const a = vttMs(m[2])
+    const b = vttMs(m[3])
+    if (a == null || b == null || b <= a) continue
+    const am = /(?:^|\s)align:(\w+)/.exec(m[4] || '')
+    cues.push({ start: a, end: b, text: vttPlain(lines.slice(ti + 1).join('\n')),
+                align: am ? am[1] : '' })
   }
-  return out.join('\n\n')
+  cues.sort((x, y) => x.start - y.start || x.end - y.end)
+  return cues
 }
-async function mountVttTrack(v, seq) {
-  const offMs = Math.round((subShift() + subDelay.value) * 1000)
-  const url = `/api/stream/${props.versionId}/sub/${subIdx.value}.vtt`
-  let src = url
-  let tmpUrl = ''
-  if (offMs > 50) {
-    try {
-      const r = await fetch(url, { cache: 'no-store' })
-      if (!r.ok) throw new Error('http ' + r.status)
-      const txt = await r.text()
-      if (seq !== vttSeq) return
-      tmpUrl = URL.createObjectURL(new Blob([shiftVtt(txt, offMs)], { type: 'text/vtt' }))
-      src = tmpUrl
-    } catch (e) {
-      if (seq !== vttSeq) return
-      src = url   // 平移失败退回原文件（至少会话起点=0 时正确）
+function vttPlain(raw) {
+  const s = String(raw || '').replace(/<[^>]*>/g, '')
+  try {
+    const el = document.createElement('textarea')
+    el.innerHTML = s
+    return el.value.trim()
+  } catch (e) { return s.trim() }
+}
+function applySubStyle() {
+  if (!vttLayer) return
+  vttLayer.className = `sub-layer bg-${subStyle.value.bg} ol-${subStyle.value.outline} anchor-${vttAnchor}`
+}
+function onSubStyleChange() {
+  try {
+    localStorage.setItem('jzmedia.subStyle', JSON.stringify({
+      bg: subStyle.value.bg, outline: subStyle.value.outline,
+      pos: subStyle.value.pos, size: subStyle.value.size,
+    }))
+  } catch (e) { /* 忽略 */ }
+  applySubStyle()
+  syncSubLayerRect()   // 位置/字号改动立即重排
+  if (vttLayer) vttRender()
+}
+// 自绘图层：定位到视频「画面区」（contain 内接矩形，不进黑边）；字号随画面高缩放
+function ensureSubLayer(v) {
+  if (vttLayer && vttLayer.parentNode) return vttLayer
+  vttLayer = document.createElement('div')
+  vttLayer.className = 'sub-layer'
+  vttLayer.setAttribute('aria-hidden', 'true')
+  v.parentNode.insertBefore(vttLayer, v.nextSibling)
+  applySubStyle()
+  return vttLayer
+}
+function syncSubLayerRect() {
+  const v = videoEl.value
+  const layer = vttLayer
+  if (!v || !layer || !layer.parentNode || !v.parentNode) return
+  const cr = v.parentNode.getBoundingClientRect()
+  const vr = v.getBoundingClientRect()
+  if (!cr.width || !vr.width || !vr.height) return
+  const left = vr.left - cr.left
+  const top = vr.top - cr.top
+  const w = vr.width
+  const h = vr.height
+  let picTop = 0
+  let picW = w
+  let picH = h
+  const vw = Number(v.videoWidth) || 0
+  const vh = Number(v.videoHeight) || 0
+  if (vw > 0 && vh > 0) {
+    const ar = vw / vh
+    const boxAr = w / h
+    if (ar > boxAr) {          // 画面更宽：上下黑边
+      picH = w / ar
+      picTop = (h - picH) / 2
+    } else if (ar < boxAr) {   // 画面更高：左右黑边
+      picW = h * ar
     }
   }
-  if (seq !== vttSeq || videoEl.value !== v) {
-    if (tmpUrl) { try { URL.revokeObjectURL(tmpUrl) } catch (e) { /* 忽略 */ } }
+  const barBottom = Math.max(0, Math.round(h - picTop - picH))
+  const fontPx = subFontPx(picH, subStyle.value.size)
+  vttAnchor = pickSubAnchor(barBottom, fontPx, subStyle.value.pos)
+  layer.style.fontSize = fontPx + 'px'
+  if (vttAnchor === 'outside') {
+    // 黑边模式（mpv sub-use-margins 同款）：整元素高度做定位，字底距屏幕底自适应；
+    // 多行时允许“一行画面内一行黑边”，底部永不被裁
+    layer.style.left = left + 'px'
+    layer.style.top = top + 'px'
+    layer.style.width = w + 'px'
+    layer.style.height = h + 'px'
+    layer.style.setProperty('--sub-pad', subBarPad(barBottom) + 'px')
+  } else {
+    // 画面内：约束在 contain 内接矩形（左右/上下黑边都不进），字号随画面高缩放
+    layer.style.left = (left + (w - picW) / 2) + 'px'
+    layer.style.top = (top + picTop) + 'px'
+    layer.style.width = picW + 'px'
+    layer.style.height = picH + 'px'
+    layer.style.setProperty('--sub-pad', subInnerPad(picH) + 'px')
+  }
+  applySubStyle()
+}
+function startVttRO(v) {
+  stopVttRO()
+  if (typeof ResizeObserver === 'undefined' || !v || !v.parentNode) return
+  vttRO = new ResizeObserver(() => syncSubLayerRect())
+  try { vttRO.observe(v.parentNode); vttRO.observe(v) } catch (e) { /* 忽略 */ }
+}
+function stopVttRO() {
+  if (vttRO) { try { vttRO.disconnect() } catch (e) { /* 忽略 */ } vttRO = null }
+}
+// 渲染循环：优先 requestVideoFrameCallback（帧级），否则 100ms 轮询兜底
+function startVttLoop(v) {
+  stopVttLoop()
+  if (!v) return
+  if (typeof v.requestVideoFrameCallback === 'function') {
+    const step = () => {
+      if (!vttLayer) return
+      vttRender()
+      try { vttLoopRvfc = v.requestVideoFrameCallback(step) } catch (e) { vttLoopRvfc = 0 }
+    }
+    try { vttLoopRvfc = v.requestVideoFrameCallback(step) } catch (e) { vttLoopRvfc = 0 }
+  } else {
+    vttLoopTimer = setInterval(vttRender, 100)
+  }
+}
+function stopVttLoop() {
+  const v = videoEl.value
+  if (vttLoopRvfc && v && typeof v.cancelVideoFrameCallback === 'function') {
+    try { v.cancelVideoFrameCallback(vttLoopRvfc) } catch (e) { /* 忽略 */ }
+  }
+  vttLoopRvfc = 0
+  if (vttLoopTimer) { clearInterval(vttLoopTimer); vttLoopTimer = 0 }
+}
+// 命中判断：片内时间 + media_start + 用户延迟 落在 cue 源时间区间
+function vttRender() {
+  const v = videoEl.value
+  const layer = vttLayer
+  if (!v || !layer) return
+  const off = (subShift() + subDelay.value) * 1000
+  const t = (Number.isFinite(v.currentTime) ? v.currentTime : 0) * 1000 + off
+  const act = []
+  for (const c of vttCues) {
+    if (t >= c.start && t < c.end) act.push(c)
+    else if (c.start > t) break
+  }
+  const key = act.map(c => c.start + ':' + c.end).join(',')
+  if (key === vttLastKey) return
+  vttLastKey = key
+  layer.textContent = ''
+  for (const c of act) {
+    const d = document.createElement('div')
+    d.className = 'sub-cue' + (c.align ? ' ta-' + c.align : '')
+    d.textContent = c.text
+    layer.appendChild(d)
+  }
+}
+function clearVttDom() {
+  stopVttLoop()
+  stopVttRO()
+  const v = videoEl.value
+  if (v) v.querySelectorAll('track').forEach(t => t.remove())
+  const l = vttLayer
+  vttLayer = null
+  if (l) { try { l.remove() } catch (e) { /* 忽略 */ } }
+}
+function destroyVtt() {
+  vttSeq++
+  vttKey = ''
+  vttLastKey = ''
+  vttCues = []
+  vttNativeFallback = false
+  clearVttDom()
+}
+// 所选字幕是否走文本（自绘）渲染：VTT 本体 / ASS 勾选兼容 / ASS 无字体自动降级
+function isVttSelected() {
+  if (burnOn) return false
+  const k = subKind(subs.value[subIdx.value])
+  return k === 'vtt' || (k === 'ass' && (compatSub.value || autoVttSub.value === Number(subIdx.value)))
+}
+// 「外观」设置行可见性（复用以 isVttSelected 的同一判定）
+const subIsVtt = computed(() => isVttSelected())
+async function mountVttLayer(v, key) {
+  const seq = ++vttSeq
+  // 同轨重复调用（会话重载/延迟调整）不重拉：偏移在渲染时叠加
+  if (vttKey === key && vttLayer && vttCues.length && !vttNativeFallback) {
+    startVttLoop(v)
+    startVttRO(v)
+    syncSubLayerRect()
+    vttRender()
     return
   }
-  v.querySelectorAll('track').forEach(t => t.remove())
-  const tr = document.createElement('track')
-  tr.kind = 'subtitles'
-  tr.src = src
-  tr.default = true
-  v.appendChild(tr)
-  if (vttBlobUrl) { try { URL.revokeObjectURL(vttBlobUrl) } catch (e) { /* 忽略 */ } }
-  vttBlobUrl = tmpUrl
+  const url = `/api/stream/${props.versionId}/sub/${subIdx.value}.vtt`
+  let text = ''
+  try {
+    const r = await fetch(url)
+    if (!r.ok) throw new Error('http ' + r.status)
+    text = await r.text()
+  } catch (e) { text = '' }
+  if (seq !== vttSeq || videoEl.value !== v || !isVttSelected()) return
+  const cues = text ? parseVtt(text) : []
+  clearVttDom()
+  vttKey = key
+  vttCues = cues
+  vttLastKey = ''
+  vttNativeFallback = false
+  if (!cues.length) {
+    // 解析失败/空轨：回退原生 <track>（全局 ::cue 兜底样式已去默认黑底）
+    vttNativeFallback = true
+    const tr = document.createElement('track')
+    tr.kind = 'subtitles'
+    tr.src = url
+    tr.default = true
+    v.appendChild(tr)
+    return
+  }
+  ensureSubLayer(v)
+  startVttRO(v)
+  startVttLoop(v)
+  syncSubLayerRect()
+  vttRender()
 }
 // 应用当前所选字幕（会话重载/换视频元素/切轨共用）：先拆旧层再按类型装新层。
-// 文本/ASS/PGS 全部客户端渲染——切字幕不重开会话、不转码；仅 VobSub（burn）走烧录。
+// 文本(VTT 自绘)/ASS(PGS) 全部客户端渲染——切字幕不重开会话、不转码；仅 VobSub（burn）走烧录。
 // 三类都吃 subShift()+subDelay 偏移（会话时间轴↔字幕绝对时间轴对齐）。
 async function applySubs(force) {
   const v = videoEl.value
   if (!v) return
-  const seq = ++vttSeq
-  v.querySelectorAll('track').forEach(t => t.remove())
-  if (vttBlobUrl) { try { URL.revokeObjectURL(vttBlobUrl) } catch (e) { /* 忽略 */ } vttBlobUrl = '' }
   const kind = burnOn ? 'burn' : subKind(subs.value[subIdx.value])
   const key = `${props.versionId}:${videoKey.value}:${subIdx.value}:${compatSub.value ? 'v' : 'a'}`
   const toff = subShift() + subDelay.value
   if (jassub && (force || kind !== 'ass' || assKey !== key)) destroyAss()
   if (pgs && (force || kind !== 'pgs' || pgsKey !== key)) destroyPgs()
-  if (kind === 'none' || kind === 'burn') return
-  if (kind === 'vtt' || compatSub.value
-      || (kind === 'ass' && autoVttSub.value === Number(subIdx.value))) {
-    await mountVttTrack(v, seq)
-    return
-  }
+  if (kind === 'none' || kind === 'burn') { destroyVtt(); return }
+  if (isVttSelected()) { await mountVttLayer(v, key); return }
+  destroyVtt()
   if (kind === 'ass') {
     if (jassub && assKey === key) {
       try { jassub.timeOffset = toff } catch (e) { /* 忽略 */ }
@@ -944,10 +1154,13 @@ function imageSubSelected() {
 }
 // 当前所选是否为 ASS/SSA（决定「兼容」开关是否显示）
 const subIsAss = computed(() => subKind(subs.value[subIdx.value]) === 'ass')
-// ASS/PGS 支持 timeOffset（延迟控件可见）
-const subDelayVisible = computed(() =>
-  ['ass', 'pgs'].includes(subKind(subs.value[subIdx.value])) && !compatSub.value && !burnOn
-  && autoVttSub.value !== Number(subIdx.value))
+// 文本(VTT 自绘)/ASS/PGS 都支持 timeOffset（延迟控件可见）
+const subDelayVisible = computed(() => {
+  if (burnOn) return false
+  const k = subKind(subs.value[subIdx.value])
+  if (k === 'vtt') return true
+  return ['ass', 'pgs'].includes(k) && !compatSub.value && autoVttSub.value !== Number(subIdx.value)
+})
 const subDelayText = computed(() => (subDelay.value > 0 ? '+' : '') + subDelay.value.toFixed(1) + 's')
 function shiftSubDelay(d) {
   const x = Math.round(Math.max(-10, Math.min(10, subDelay.value + d)) * 10) / 10
@@ -956,6 +1169,7 @@ function shiftSubDelay(d) {
   const toff = subShift() + x
   if (jassub) { try { jassub.timeOffset = toff } catch (e) { /* 忽略 */ } }
   if (pgs) { try { pgs.timeOffset = toff } catch (e) { /* 忽略 */ } }
+  if (vttLayer) vttRender()   // 自绘层：偏移在渲染时叠加，立即重绘
 }
 // 字幕下拉角标：烧录/PGS/ASS 样式 + 外挂来源
 function subBadge(s) {
@@ -1363,6 +1577,9 @@ function watchStall() {
 function bindVideo(v) {
   if (!v) return
   v.addEventListener('timeupdate', onTime)
+  v.addEventListener('timeupdate', vttRender)
+  v.addEventListener('seeked', vttRender)
+  v.addEventListener('loadedmetadata', syncSubLayerRect)
   v.addEventListener('pause', saveNow)
   v.addEventListener('pause', onPlayState)
   v.addEventListener('ended', onEnded)
@@ -1382,6 +1599,9 @@ function bindVideo(v) {
 function unbindVideo(v) {
   if (!v) return
   v.removeEventListener('timeupdate', onTime)
+  v.removeEventListener('timeupdate', vttRender)
+  v.removeEventListener('seeked', vttRender)
+  v.removeEventListener('loadedmetadata', syncSubLayerRect)
   v.removeEventListener('pause', saveNow)
   v.removeEventListener('pause', onPlayState)
   v.removeEventListener('ended', onEnded)
@@ -1506,7 +1726,7 @@ onUnmounted(() => {
   destroyHls()
   destroyAss()
   destroyPgs()
-  if (vttBlobUrl) { try { URL.revokeObjectURL(vttBlobUrl) } catch (e) { /* 忽略 */ } vttBlobUrl = '' }
+  destroyVtt()
 })
 </script>
 <style scoped>
@@ -1526,9 +1746,11 @@ onUnmounted(() => {
 
 /* 设置弹层：日常只留「⚙ 设置」按钮，画质/音轨/字幕/延迟都收进来 */
 .pd-setwrap { position: relative; display: inline-flex; }
+.pd-set-host { display: inline-flex; align-items: center; }
 .pd-set { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(360px, 78vw);
   background: #1d1d1d; border: 1px solid #3a3a3a; border-radius: 10px; padding: 10px 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 8px; }
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 8px;
+  max-height: min(72vh, 560px); overflow: auto; }
 .set-row { display: flex; align-items: center; gap: 8px; }
 .set-row > label { color: #999; font-size: 0.75rem; width: 34px; flex: none; }
 .set-row select { flex: 1; min-width: 0; background: #262626; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 4px 6px; font-size: 0.75rem; }
@@ -1591,4 +1813,31 @@ onUnmounted(() => {
 .resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; flex-wrap: wrap; }
 .hint-line { margin: 0; color: #666; font-size: 0.8125rem; }
 .hint.warn { color: #e0a63c; }
+</style>
+<style>
+/* VTT 自绘字幕层：JS 动态创建元素（scoped 属性不生效），此处全局样式；
+   图层由 JS 定位到视频画面区（contain 内接矩形），字号随画面高缩放。 */
+.sub-layer {
+  position: absolute; z-index: 3; display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end; box-sizing: border-box;
+  padding: 0 3% var(--sub-pad, 12px); gap: .15em; text-align: center; pointer-events: none;
+  color: #fff; line-height: 1.32;
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", system-ui, sans-serif;
+}
+.sub-layer .sub-cue { max-width: 92%; white-space: pre-line; }
+.sub-layer .sub-cue.ta-left, .sub-layer .sub-cue.ta-start { align-self: flex-start; text-align: left; }
+.sub-layer .sub-cue.ta-right, .sub-layer .sub-cue.ta-end { align-self: flex-end; text-align: right; }
+/* 描边：四向硬阴影 + 轻微外发光（不用 -webkit-text-stroke，避免吃字形） */
+.sub-layer.ol-1 { text-shadow: 0 1px 2px #000, 0 -1px 2px #000, 1px 0 2px #000, -1px 0 2px #000, 0 0 4px rgba(0, 0, 0, .65); }
+.sub-layer.ol-2 { text-shadow: 0 2px 3px #000, 0 -2px 3px #000, 2px 0 3px #000, -2px 0 3px #000, 0 0 6px rgba(0, 0, 0, .8); }
+.sub-layer.ol-0 { text-shadow: none; }
+/* 背景只加在单句文本块上（带内边距），不整层铺底遮挡画面 */
+.sub-layer.bg-1 .sub-cue { background: rgba(0, 0, 0, .55); padding: .12em .5em; border-radius: .25em; }
+.sub-layer.bg-2 .sub-cue { background: rgba(0, 0, 0, .85); padding: .12em .5em; border-radius: .25em; }
+/* 原生 track 兜底（解析失败回退时）：去浏览器默认黑底，只留字形描边 */
+.player-video::cue {
+  background-color: transparent;
+  text-shadow: 0 1px 2px #000, 0 -1px 2px #000, 1px 0 2px #000, -1px 0 2px #000;
+}
+.player-video::-webkit-media-text-track-display-backdrop { background-color: transparent !important; }
 </style>
