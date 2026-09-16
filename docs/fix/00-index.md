@@ -42,14 +42,15 @@
 ## 4. 当前指针（中断恢复点）
 
 ```
-批次：B2（fix/b2-consistency）已合回 main（merge 4ac85e5）并打批标签 p1-b2-consistency
-步骤：B2 收尾完成。剩余 P1：B3（P1-09/10/11，宿主可验，不需用户配合）+ B4（P1-01 鉴权，需确认交互形态）
-断点：等用户指令开 B3/B4；开批时从最新 main 拉 fix/b3-ops
-下一步：git checkout -b fix/b3-ops
+批次：B3（fix/b3-ops）— 进行中
+步骤：P1-09 done（主 compose user + README/AGENTS/.env.example 同步，3 用例绿）；接下来 P1-10 日志
+断点：pytest 66 passed（63+3）；未改任何运行时逻辑
+下一步：P1-10 logging 基建（app/log.py + LOG_LEVEL + 关键静默点补日志 + caplog 用例）
 ```
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-16：**P1-09 done**：`docker-compose.yml` 增加 `user: "${UID:-0}:${GID:-0}"`（缺省 root 保持旧行为）；README NAS 步骤补 chown/组权限说明；AGENTS deploy 同步；`.env.example` 注释更新；`docker compose config` 验证三态（.env=1002→1002:1002 / 空→0:0 / 显式→4321:4321）；tests/test_deploy_config.py 3 用例。
 - 2026-09-16：**B2 批次合回 main**（--no-ff `4ac85e5`，tag `p1-b2-consistency`）。整批验证：L0（compileall/import/npm build）+ L1（pytest 63、node --test 7）+ L2 smoke 22/22 + docker e2e 全绿（明细见下）。
 - 2026-09-16：**P1-07 done + docker e2e 全绿**（jzmedia:v0.4.0 + 当前代码 + 两个 ffmpeg 合成测试片）：
   - A) prewarm(remux) 完成 → 点播命中静态成品（`backend=static/complete/finished`，master 可取）；

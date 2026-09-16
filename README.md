@@ -126,8 +126,9 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 ## 部署到 NAS（Synology 示例）
 
 1. 把本目录拷到 NAS（如 `/volume1/docker/jzmedia`），**不含** `docker-compose.override.yml`
-2. `.env` 设置：`MEDIA_HOST_PATH=/volume1/video`、`DATA_HOST_PATH=/volume1/docker/jzmedia/data`、`UID/GID` 按 DSM 用户填写，直连则 `BUILD_HTTP_PROXY` 留空
-3. **硬件转码（可选但推荐）**：`docker-compose.yml` 里取消 `devices: [/dev/dri:/dev/dri]` 与 `group_add` 注释，`VIDEO_GID/RENDER_GID` 用 DSM 上 `stat -c '%g' /dev/dri/renderD128`（通常 render=109、video=44）填写；`TRANSCODER=auto` 即可。启动后 `GET /api/stream/backends` 应报 `vaapi`/`qsv`（报 software 说明设备/驱动/权限没到位）
+2. `.env` 设置：`MEDIA_HOST_PATH=/volume1/video`、`DATA_HOST_PATH=/volume1/docker/jzmedia/data`、`UID/GID` 按 DSM 用户填写（`ssh` 到 NAS 执行 `id -u <用户名>`），直连则 `BUILD_HTTP_PROXY` 留空。
+   compose 现在会以该 UID/GID 运行容器（文件属主正确）；**首次部署请确保数据目录属主一致**：`mkdir -p <DATA_HOST_PATH> && chown -R <UID>:<GID> <DATA_HOST_PATH>`；留空/留 0 则退回 root（旧行为）
+3. **硬件转码（可选但推荐）**：`docker-compose.yml` 里取消 `devices: [/dev/dri:/dev/dri]` 与 `group_add` 注释，`VIDEO_GID/RENDER_GID` 用 DSM 上 `stat -c '%g' /dev/dri/renderD128`（通常 render=109、video=44）填写；`TRANSCODER=auto` 即可。启动后 `GET /api/stream/backends` 应报 `vaapi`/`qsv`（报 software 说明设备/驱动/权限没到位）。注意硬件转码设备的组权限是按容器进程的补充组生效的，非 root 运行时更依赖 `group_add` 正确
 4. Container Manager → 新增项目 → 路径选该目录 → 启动；浏览器打开 `http://NAS_IP:8080` 验证
 5. 多阶段镜像已内置前端构建（node 构建 + python 运行），NAS 上无需装 Node
 

@@ -53,7 +53,7 @@
 - `scanner.scan_one`: cached `tmdb_id` → `skipped_cached`; `guessit type==episode` → `skipped_episode_v1` (V1 movies only); sidecars route to `extras` via `is_sidecar`, never to movies; year match tolerance ±1; fallback-query hits set `needs_review=1`. Manual fix flow: `GET /api/tmdb/search` → `POST /api/movies/{id}/match {"tmdb_id":…}`.
 
 ## Deploy
-- `docker-compose.override.yml` is WSL-only (dev user + bind mounts + `--reload`). Delete / exclude it on NAS; set NAS `.env` to `MEDIA_HOST_PATH=/volume1/video`, `DATA_HOST_PATH=/volume1/docker/jzmedia/data`, correct `UID/GID`.
+- `docker-compose.override.yml` is WSL-only (dev user + bind mounts + `--reload`). Delete / exclude it on NAS; set NAS `.env` to `MEDIA_HOST_PATH=/volume1/video`, `DATA_HOST_PATH=/volume1/docker/jzmedia/data`, correct `UID/GID`（主 compose 用 `user: "${UID:-0}:${GID:-0}"` 运行容器，缺省 root；NAS 需保证数据目录属主为该 UID，见 README 部署说明）。
 - WSL Docker Desktop proxy breakage is documented in README §排障 (use `crane pull … && docker load`, or `BUILD_HTTP_PROXY=http://nas:7890`).
 
 ## Versioning
