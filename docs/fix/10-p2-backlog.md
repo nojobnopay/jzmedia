@@ -8,12 +8,12 @@
 ## 1. 当前指针
 
 ```
-批次：B6 安全加固批（fix/b6-security）— 代码+验证全部完成，**待用户 H-SEC/H-UI 确认后合回**
-步骤：四组 done；pytest 119 passed；smoke 30/30；npm build ok；curl 证据已附（log）
-H-UI 点检项：①详情页删除任意文件均需两步确认（按钮文案区分正片/普通）
-           ②PDF 预览改为内嵌渲染（此前会变下载）③花絮改挂重复认领会提示 409
-断点：等用户确认 → merge --no-ff → tag p2-b6-security
-下一步：用户确认后合回，指针转 B7（数据一致性，H-DATA 备份提醒）
+批次：B7 数据一致性与正确性批（fix/b7-consistency）— 进行中
+B6 已合回（merge 71911b5，tag p2-b6-security，用户确认通过）
+步骤：分支已建；按 B7-DELETE → B7-FAIL → B7-NFO → B7-SCAN → B7-PLAYBACK → B7-EXTRAS 推进
+H-DATA 提醒：本批只新增索引（CREATE INDEX IF NOT EXISTS，安全）；升级重启前请备份 data/jzmedia.db
+断点：无
+下一步：B7-DELETE（delete_movie 置空 extras 引用）
 ```
 
 ## 2. 已完成批次（B1–B4，P1 全清，见 docs/fix/00-index.md）
@@ -94,6 +94,7 @@ H-UI 点检项：①详情页删除任意文件均需两步确认（按钮文案
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-16：**B6 合回 main**（tag p2-b6-security，用户确认）；B7 开工。
 - 2026-09-16：**B6 四组完成**：REQ（安全头+CSP/SPA 边界/未知 api 404/health/blob inline）、
   INPUT（symlink/ids/tmdb_id/caps/LIKE/VobSub 415）、CRYPTO（blake2/特性自检）、
   BEHAVIOR（attach force/删除两步确认）。H-SEC 证据：curl 头四件套齐全、
