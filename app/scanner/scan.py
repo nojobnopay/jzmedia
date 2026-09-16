@@ -91,11 +91,24 @@ def scan_one(abs_path: str) -> dict:
     cached = store.get_by_path(rel)
     if cached and cached.get("tmdb_id"):
         return {"file": rel, "status": "skipped_cached", "title": cached.get("title")}
+    # 增量跳过（评审 B9/R03-Q3）：未匹配/剧集行且文件 mtime+size 未变 → 不再重打 TMDB
+    try:
+        st = os.stat(abs_path)
+        mtime, size = int(st.st_mtime), int(st.st_size)
+    except OSError:
+        mtime, size = 0, 0
+    prev = store.get_scan_state(rel)
+    if (prev is not None and mtime and size
+            and int(prev.get("mtime") or 0) == mtime
+            and int(prev.get("size") or 0) == size
+            and str(prev.get("status") or "") in (ST_NO_MATCH, ST_EPISODE)):
+        return {"file": rel, "status": "skipped_unchanged"}
     parsed = parse_filename(os.path.basename(abs_path))
     parsed["title"] = normalize_title(parsed["title"])
     if parsed["type"] == "episode":
         # V1 仅电影：剧集不入库（评审 P1-03：旧实现建行会让剧集出现在海报墙/统计里，
         # 与 README“剧集跳过”不符）。历史脏行由 POST /api/files/clean-episodes 清理。
+        store.set_scan_state(rel, mtime, size, ST_EPISODE)
         return {"file": rel, "status": ST_EPISODE}
     m, used_q, year_mismatch = search_with_fallback(parsed["title"], parsed["year"])
     if not m:
@@ -120,6 +133,7 @@ def scan_one(abs_path: str) -> dict:
                 store.update_movie_local(mid, **local)
             except Exception as e:
                 logger.debug("persist edition/spec failed mid=%s: %s", mid, e)
+        store.set_scan_state(rel, mtime, size, ST_NO_MATCH)
         return {"file": rel, "status": ST_NO_MATCH, "parsed": parsed}
     tmdb_id = int(m["id"])
     mid = store.upsert_movie_by_path(rel)

@@ -3,6 +3,7 @@ P1-05 clean-sidecars 保护。
 
 红→绿约定：本文件在修复前允许失败（失败即证明 bug 存在）。
 """
+import os
 import pathlib
 
 import pytest
@@ -194,3 +195,33 @@ def test_delete_movie_orphans_extras(media_root):
     e = store.get_extra(eid)
     assert e is not None and e["movie_id"] is None          # 不悬挂
     assert any(x["id"] == eid for x in store.list_orphan_extras())  # 出现在 orphan 列表
+
+
+# ---------- B9/R03-Q3：增量扫描（未匹配文件不再每次重打 TMDB） ----------
+
+def test_scan_unmatched_skips_unchanged(media_root, monkeypatch):
+    calls = {"n": 0}
+
+    def fake_search(q, year=None):
+        calls["n"] += 1
+        return []
+
+    monkeypatch.setattr(scanner.tmdb, "search_movie", fake_search)
+    rel = "incr/Unmatched.Movie.2021.mkv"
+    _touch(media_root, rel)
+    r1 = scanner.scan_one(str(media_root / rel))
+    assert r1["status"] == "no_match" and calls["n"] == 1
+    r2 = scanner.scan_one(str(media_root / rel))
+    assert r2["status"] == "skipped_unchanged" and calls["n"] == 1   # 未再打 TMDB
+    # 文件变更（mtime/size 变）→ 重新搜索
+    p = media_root / rel
+    p.write_bytes(b"x" * 32)
+    os.utime(p, (p.stat().st_atime, p.stat().st_mtime + 10))
+    r3 = scanner.scan_one(str(media_root / rel))
+    assert r3["status"] == "no_match" and calls["n"] == 2
+
+def test_scan_episode_skips_unchanged(media_root):
+    rel = "incr/Show.S01E01.mkv"
+    _touch(media_root, rel)
+    assert scanner.scan_one(str(media_root / rel))["status"] == "skipped_episode_v1"
+    assert scanner.scan_one(str(media_root / rel))["status"] == "skipped_unchanged"
