@@ -1113,11 +1113,12 @@ function blurPick(e) {
     if (el && el.blur) el.blur()
   } catch (err) { /* 忽略 */ }
 }
-function onQualityChange() { reload() }
+function onQualityChange(v) { quality.value = v; reload() }
 // 音轨切换：fMP4 rendition 已在会话里 → 切 hls.audioTrack 即刻生效（视频不重编不重开）；
 // 原生 Safari 用 video.audioTracks；会话尚未就绪时只改选择，等 MANIFEST_PARSED 应用；
 // 都不支持（TS 回滚单轨产物）才回退重开会话。
-function onAudioChange() {
+function onAudioChange(v) {
+  audioIdx.value = v
   logEvt('audio-change', 'ref=' + (Number(audioIdx.value) || 0) + ' ready=' + manifestReady)
   if (applyAudioTrack()) return
   if (applyNativeAudioTrack()) return
@@ -1126,7 +1127,8 @@ function onAudioChange() {
 }
 // 字幕切换：文本/ASS/PGS 都是客户端渲染层 → 即时切换不重开会话；
 // VobSub（burn）或已处于烧录模式（forceBurn 降级）才重开转码
-function onSubChange() {
+function onSubChange(v) {
+  subIdx.value = v
   autoSubPicked = true   // 用户手动选过字幕，不再自动选外挂默认轨
   if (burnOn || subKind(subs.value[subIdx.value]) === 'burn') { reload(); return }
   applySubs(true)
