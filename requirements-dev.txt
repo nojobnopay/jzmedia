@@ -1,0 +1,3 @@
+# 开发/验证依赖（L1 单测）。运行：.venv/bin/pip install -r requirements-dev.txt
+-r requirements.txt
+pytest>=8.0

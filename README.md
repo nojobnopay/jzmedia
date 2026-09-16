@@ -95,6 +95,7 @@ kill <pid>
 | `TRANSCODER` | 转码后端：`auto`（默认；冒烟探测 VAAPI→QSV→NVENC，失败回落软件）\| `sw` \| `vaapi` \| `qsv` \| `nvenc`。NAS 启用硬件转码还需 compose 映射 `/dev/dri`（见 `docker-compose.yml` 注释与「部署到 NAS」） |
 | `HLS_SEGMENT_TYPE` | `fmp4`（默认）\| `ts`（回滚旧 MPEG-TS 输出） |
 | `AUDIO_COPY_SAFE` | 音频直通安全集覆盖（默认 hls.js 只信 `aac,mp3`；实测 EAC3 可用时可填 `aac,mp3,eac3,ac3`） |
+| `SCAN_SKIP_DIRS` | 扫描额外跳过的目录名（逗号分隔）。内置已跳过隐藏目录与 `#recycle`/`@eaDir`/`$RECYCLE.BIN` 等系统目录 |
 
 TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup → 头像 Settings → API → Create → Developer → 应用名用途随便填 → 把 `API Read Access Token` 填进设置页「TMDB 配置」（或 `.env` 的 `TMDB_READ_TOKEN`；或把 `API Key` 填进 `TMDB_API_KEY`）。
 
@@ -147,6 +148,7 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 | `GET /api/tmdb/search?q=` · `POST /api/movies/{id}/match` | 手动匹配两步：搜 TMDB 候选 → 按 `tmdb_id` 强制绑定 |
 | `GET /api/files/preview` · `POST /api/files/rename` | 整理预览；执行（默认 `dry_run:true` 只预览） |
 | `GET /api/files/restore-candidates` · `POST /api/files/restore-original` | 偏离原始位置的影片预览；搬回首次入库位置（默认 `dry_run:true`，目标被占/源缺失跳过不上报覆盖） |
+| `POST /api/files/clean-sidecars` · `POST /api/files/clean-episodes` | 清历史脏行（只删库行、文件保留，默认 `dry_run:true`）：花絮误入库行 / 剧集误入库行（未匹配且解析为剧集；已匹配的不动） |
 | `POST /api/jobs/backfill-meta` | 给存量影片补产地/类型等新元数据（不重下海报/NFO，保留手动标题）；`{"limit":N,"force":bool}` |
 | `POST /api/jobs/rebuild-nfo` | 按收敛规则重建全库 NFO 并清历史同名残留；`{"limit":N,"dry_run":bool}`，返回 `wrote/deleted/by_mode` |
 | `POST /api/jobs/douban-fetch` | 占位，固定 `501`（默认不爬豆瓣） |

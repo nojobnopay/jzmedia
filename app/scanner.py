@@ -19,12 +19,35 @@ from .regions import resolve as resolve_region
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv", ".webm"}
 SUBTITLE_EXTS = {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup"}
+# 扫描剪枝（评审 P1-04）：NAS 回收站/缩略图目录/系统目录里的历史视频会污染库。
+# 隐藏目录（. 开头）一律跳过；此处再列已知的系统目录，env SCAN_SKIP_DIRS 可追加。
+_SKIP_DIR_NAMES = {"#recycle", "@eaDir", "$RECYCLE.BIN", "lost+found",
+                   ".Trash", ".Trash-1000"}
+
+
+def scan_skip_dirs() -> set[str]:
+    """剪枝目录名集合：内置 + env SCAN_SKIP_DIRS（逗号分隔）。"""
+    extra = (os.getenv("SCAN_SKIP_DIRS") or "").strip()
+    if not extra:
+        return set(_SKIP_DIR_NAMES)
+    return set(_SKIP_DIR_NAMES) | {x.strip() for x in extra.split(",") if x.strip()}
+
+
 # 播放器外挂字幕：文本（客户端渲染）+ 图片（PGS 客户端 / VobSub 烧录）
 SIDECAR_TEXT_EXTS = {".srt": "srt", ".ass": "ass", ".ssa": "ssa"}
 SIDECAR_SUB_DIRS = ("subs", "Subs", "字幕")
 
 # 样片：*.Sample.mkv / *(Sample).mkv / Sample-xxx / Inception.1080p.sample.mkv
-_SAMPLE_RE = re.compile(r"(?i)(?:^|[.\-_ \([])sample(?:[.\-_ \)}\]]|$)")
+# 判定收紧（评审 P1-02）：sample 必须由 ./-/_ 分隔，且其后只允许跟已知发布词或直接到
+# stem 末尾；纯空格边界（The Sample Movie (2024)）或任意词（Sample.This.2012）不再误判
+# ——误判的代价是正片永不入库，比漏掉一个样片严重得多。
+_SAMPLE_TOKENS = (
+    r"\d{3,4}[pi]|4k|uhd|hdr\d*|dovi|dv|10bit|8bit|remux|"
+    r"web[.\-]?dl|webrip|bluray|bdrip|brrip|hdrip|hdtv|"
+    r"x26[45]|h[.\-]?26[45]|hevc|avc|aac|ac3|eac3|dts(?:[.\-]?hd)?|truehd|flac|atmos|proper|repack"
+)
+_SAMPLE_RE = re.compile(
+    r"(?i)(?:(?:^|[.\-_])samples?(?:[.\-_](?:%s)){0,3}|\(samples?\))$" % _SAMPLE_TOKENS)
 # 花絮：预告/幕后/删减/特辑/采访/片花/making of + 中文 花絮/预告/特辑/彩蛋
 # （short/scene 只认 Plex 式末尾后缀，避免吞掉片名含 Short 的正片）
 _EXTRAS_RE = re.compile(
@@ -945,8 +968,8 @@ def scan_one(abs_path: str) -> dict:
     parsed = parse_filename(os.path.basename(abs_path))
     parsed["title"] = normalize_title(parsed["title"])
     if parsed["type"] == "episode":
-        mid = store.upsert_movie_by_path(rel)
-        store.update_movie_meta(mid, title=parsed["title"])
+        # V1 仅电影：剧集不入库（评审 P1-03：旧实现建行会让剧集出现在海报墙/统计里，
+        # 与 README“剧集跳过”不符）。历史脏行由 POST /api/files/clean-episodes 清理。
         return {"file": rel, "status": "skipped_episode_v1"}
     m, used_q = search_with_fallback(parsed["title"], parsed["year"])
     if not m:
@@ -997,8 +1020,14 @@ def scan_all() -> list[dict]:
     store.init_db()
     out = []
     seen_extras: set[str] = set()
-    for root, _, files in os.walk(settings.media_root):
+    skip_dirs = scan_skip_dirs()
+    for root, dirs, files in os.walk(settings.media_root):
+        # 剪枝（评审 P1-04）：隐藏目录 + NAS 回收站/缩略图等系统目录不进库
+        dirs[:] = sorted(d for d in dirs
+                         if not d.startswith(".") and d not in skip_dirs)
         for f in sorted(files):
+            if f.startswith("."):
+                continue
             if os.path.splitext(f)[1].lower() in VIDEO_EXTS:
                 try:
                     r = scan_one(os.path.join(root, f))

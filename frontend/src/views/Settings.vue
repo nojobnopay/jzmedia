@@ -148,6 +148,10 @@
           <button @click="doCollectExtras" :disabled="!!busy">{{ busy === 'collect' ? '归位中…' : (armCollect ? '确认归位花絮' : '归位已归属花絮到各片 extras/') }}</button>
           <span>{{ collectMsg }}</span>
         </div>
+        <div class="bar">
+          <button @click="doCleanEpisodes" :disabled="!!busy">{{ busy === 'episodes' ? '清理中…' : (armEpisodes ? '确认清理剧集行' : '清理历史剧集行（只删库，文件保留）') }}</button>
+          <span>{{ episodesMsg }}</span>
+        </div>
       </section>
 
       <section id="sec-meta" class="card-block">
@@ -640,6 +644,34 @@ async function doCollectExtras() {
     await loadUnmatched(true)
   } catch (e) {
     collectMsg.value = '归位失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+const armEpisodes = ref(false)
+const episodesMsg = ref('')
+async function doCleanEpisodes() {
+  if (!armEpisodes.value) {
+    armEpisodes.value = true
+    episodesMsg.value = '只删除库中剧集行（未匹配且文件名解析为剧集），视频文件保留。再点一次确认执行'
+    return
+  }
+  armEpisodes.value = false
+  busy.value = 'episodes'
+  episodesMsg.value = ''
+  try {
+    const prev = await api('/api/files/clean-episodes', { method: 'POST', body: JSON.stringify({ dry_run: true }) })
+    if (!prev.total) {
+      episodesMsg.value = '没有剧集脏行'
+      return
+    }
+    const d = await api('/api/files/clean-episodes', { method: 'POST', body: JSON.stringify({ dry_run: false }) })
+    episodesMsg.value = `已删除 ${d.deleted}/${d.total}` + (d.failed.length ? `，失败 ${d.failed.length}` : '')
+    await loadStats()
+    await loadUnmatched(true)
+  } catch (e) {
+    episodesMsg.value = '清理失败：' + e.message
   } finally {
     busy.value = null
   }
