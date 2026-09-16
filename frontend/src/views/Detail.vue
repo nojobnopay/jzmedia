@@ -256,13 +256,8 @@ const actors = computed(() => (m.value?.persons || []).filter(p => p.role === 'a
 //（如"Piggy"/"Deyunan (voice)"），只有原语言为英语时才可信展示
 const showCharacter = computed(() => String(m.value?.original_language || '').toLowerCase().startsWith('en'))
 const directors = computed(() => (m.value?.persons || []).filter(p => p.role === 'director'))
-const originName = computed(() => {
-  const mval = m.value || {}
-  const code = mval.origin_country || ((mval.origin_countries || [])[0]) || ''
-  if (!code) return ''
-  const names = { CN: '中国大陆', HK: '香港', TW: '台湾', MO: '澳门', JP: '日本', KR: '韩国', US: '美国', GB: '英国', FR: '法国', DE: '德国' }
-  return names[code] || code
-})
+// 主产地中文名由后端下发（origin_country_name；评审 B5a-3/R10-D6），前端不再维护映射
+const originName = computed(() => (m.value && m.value.origin_country_name) || '')
 const metaLine = computed(() => {
   const parts = []
   if (m.value?.year) parts.push(m.value.year)
