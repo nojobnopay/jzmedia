@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 5173",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "hls.js": "^1.7.3",

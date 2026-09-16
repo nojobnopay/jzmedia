@@ -43,12 +43,15 @@
 
 ```
 批次：B1（fix/b1-scan）
-步骤：进行中 → 建验证基建（pytest 已装；tests/ 与 scripts/smoke_api.py 编写中）
-断点：尚未提交任何 fix；基线用例尚未跑红
-下一步：写完 tests/ 后跑基线（预期 P1-02/03/04 对应用例红），再依次修 P1-02→05
+步骤：验证基建完成并提交；开始按顺序修 P1-02
+断点：基线已跑（回归网 35+7 绿；B1 复现用例 11 红，见下）
+下一步：P1-02 收紧 _SAMPLE_RE → 跑 tests/test_scan_rules.py → 提交
 ```
 
 ## 5. 进度 Log（倒序）
 
-- 2026-09-16：创建分支 `fix/b1-scan`；安装 pytest 9.1.1；建 `docs/fix/` 真相源。
+- 2026-09-16：验证基建完成（`requirements-dev.txt`、`tests/` 5 文件、`scripts/smoke_api.py`+`_smoke_app.py`、`frontend/tests/` + `npm test`）。
+  - 基线：回归网全绿（pytest 35 passed；node --test 7 passed）；
+  - B1 红：`test_is_sample_true[Samples.720p.mkv]`、`test_is_sample_false[4 例]`、`test_is_sidecar_keeps_sample_titled_movies`、`test_episode_not_inserted`、`test_scan_all_prunes_recycle_and_hidden`、`test_clean_sidecars_protects_tmdb_rows`、`test_clean_episodes_*`（2）。
+- 2026-09-16：创建分支 `fix/b1-scan`；安装 pytest 9.1.1；建 `docs/fix/` 真相源；提交评审文档（commit 见 git log）。
 - 2026-09-16：评审完成（`docs/review/`，P1=11）。
