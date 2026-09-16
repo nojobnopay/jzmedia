@@ -1222,9 +1222,11 @@ def _collection_cover(c: sqlite3.Connection, cid: int) -> str:
 def list_collections(q: str = "") -> list[dict]:
     with _lock, _conn() as c:
         if (q or "").strip():
+            # LIKE 通配符转义（评审 B6/R02-B1）：否则搜 "_"/"%" 会全匹配
             rows = c.execute(
-                "SELECT * FROM collections WHERE name LIKE ? ORDER BY updated_at DESC",
-                (f"%{(q or '').strip()}%",)).fetchall()
+                "SELECT * FROM collections WHERE name LIKE ? ESCAPE '\\' "
+                "ORDER BY updated_at DESC",
+                (f"%{_like_esc((q or '').strip())}%",)).fetchall()
         else:
             rows = c.execute("SELECT * FROM collections ORDER BY updated_at DESC").fetchall()
         out = []
@@ -1366,12 +1368,12 @@ def remove_collection_members(cid: int, rep_ids: list) -> dict:
         for r in (rows or []):
             tid, mid = _film_key(r["tmdb_id"], r["id"])
             if tid:
-                c.execute("DELETE FROM collection_members WHERE collection_id=? AND movie_tmdb_id=?",
-                          (cid, tid))
+                cur = c.execute("DELETE FROM collection_members WHERE collection_id=? AND movie_tmdb_id=?",
+                                (cid, tid))
             else:
-                c.execute("DELETE FROM collection_members WHERE collection_id=? AND movie_id=?",
-                          (cid, mid))
-            n += c.total_changes
+                cur = c.execute("DELETE FROM collection_members WHERE collection_id=? AND movie_id=?",
+                                (cid, mid))
+            n += int(cur.rowcount or 0)   # 显式 rowcount（评审 B6/R02-B1：不再依赖 total_changes）
         c.execute("UPDATE collections SET updated_at=? WHERE id=?", (int(time.time()), cid))
         total = c.execute("SELECT COUNT(*) AS n FROM collection_members WHERE collection_id=?",
                           (cid,)).fetchone()["n"]

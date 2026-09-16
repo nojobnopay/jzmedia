@@ -21,12 +21,13 @@ def default_caps() -> dict:
 
 
 def normalize_caps(raw) -> dict:
-    """原始 caps → 白名单结构（未知键丢弃；布尔只取真值；probes 限量限长）。"""
+    """原始 caps → 白名单结构（未知键丢弃；布尔只认真正的 True，防 "false" 这类
+    字符串被 bool() 收成真值；probes 限量限长）。"""
     raw = raw if isinstance(raw, dict) else {}
 
     def _bools(keys, src):
         src = src if isinstance(src, dict) else {}
-        return {k: bool(src.get(k)) for k in keys}
+        return {k: src.get(k) is True for k in keys}
 
     probes: dict[str, bool] = {}
     src = raw.get("probes")
@@ -35,12 +36,12 @@ def normalize_caps(raw) -> dict:
             k2 = str(k or "").strip()
             if not k2 or len(k2) > _MAX_PROBE_LEN:
                 continue
-            probes[k2] = bool(v)
+            probes[k2] = v is True
     return {"video": _bools(VIDEO_KEYS, raw.get("video")),
             "audio": _bools(AUDIO_KEYS, raw.get("audio")),
-            "hdr": bool(raw.get("hdr")),
-            "mse": bool(raw.get("mse", True)),
-            "native_hls": bool(raw.get("native_hls")),
+            "hdr": raw.get("hdr") is True,
+            "mse": raw.get("mse") is True if "mse" in raw else True,
+            "native_hls": raw.get("native_hls") is True,
             "probes": probes}
 
 

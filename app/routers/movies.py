@@ -699,6 +699,12 @@ def manual_match(movie_id: int, body: dict, background_tasks: BackgroundTasks):
     if not tmdb_id:
         raise HTTPException(422, "tmdb_id required")
     try:
+        tmdb_id = int(tmdb_id)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "tmdb_id must be int")
+    if not (0 < tmdb_id <= 2 ** 31 - 1):     # 值域守卫（评审 B6/R07-B2）
+        raise HTTPException(422, "tmdb_id out of range")
+    try:
         detail = tmdb.movie_detail(int(tmdb_id))
     except Exception as e:
         raise HTTPException(502, f"tmdb fetch failed: {e}")

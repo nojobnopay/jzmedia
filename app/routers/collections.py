@@ -26,17 +26,10 @@ def create(body: dict):
     name = (body.get("name") or "").strip()
     if not name:
         raise HTTPException(422, "name required")
-    member_ids = body.get("member_ids") or body.get("movie_ids") or []
-    try:
-        ids = [int(x) for x in member_ids]
-    except (TypeError, ValueError):
-        raise HTTPException(422, "member_ids must be int list")
+    ids = _ids_from(body)
     tmdb_cid = body.get("tmdb_collection_id")
     if tmdb_cid is not None:
-        try:
-            tmdb_cid = int(tmdb_cid)
-        except (TypeError, ValueError):
-            raise HTTPException(422, "tmdb_collection_id must be int")
+        tmdb_cid = _int_id(tmdb_cid)
     try:
         return store.create_collection(name, body.get("overview") or "",
                                        tmdb_cid, ids)
@@ -166,7 +159,7 @@ def patch_one(cid: int, body: dict):
     data = {k: v for k, v in (body or {}).items() if k in allowed}
     if "tmdb_collection_id" in data and data["tmdb_collection_id"] is not None:
         try:
-            data["tmdb_collection_id"] = int(data["tmdb_collection_id"])
+            data["tmdb_collection_id"] = _int_id(data["tmdb_collection_id"])
         except (TypeError, ValueError):
             raise HTTPException(422, "tmdb_collection_id must be int")
     try:
@@ -185,10 +178,30 @@ def delete_one(cid: int):
     return {"id": cid, "deleted": True}
 
 
+# 成员/ID 上限（评审 B6/R06-B3）：超 SQLite 64 位的 int 会在绑定时抛 OverflowError→500，
+# 列表过长会超 SQL 变量上限；统一在这里拦成 422
+_MAX_IDS = 2000
+_ID_MAX = 2 ** 63 - 1
+
+
+def _int_id(v) -> int:
+    try:
+        i = int(v)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "id must be int")
+    if not (0 < i <= _ID_MAX):
+        raise HTTPException(422, "id out of range")
+    return i
+
+
 def _ids_from(body: dict) -> list[int]:
     raw = (body or {}).get("movie_ids", (body or {}).get("member_ids", []))
+    if isinstance(raw, list) and len(raw) > _MAX_IDS:
+        raise HTTPException(422, f"too many ids (max {_MAX_IDS})")
     try:
-        return [int(x) for x in (raw or [])]
+        return [_int_id(x) for x in (raw or [])]
+    except HTTPException:
+        raise
     except (TypeError, ValueError):
         raise HTTPException(422, "movie_ids must be int list")
 
@@ -230,7 +243,7 @@ def from_tmdb_series(body: dict):
     if not movie_id:
         raise HTTPException(422, "movie_id required")
     try:
-        movie_id = int(movie_id)
+        movie_id = _int_id(movie_id)
     except (TypeError, ValueError):
         raise HTTPException(422, "movie_id must be int")
     hint = store.collection_hint_for_movie(movie_id)

@@ -251,11 +251,37 @@ def _collect_plans(target_root: str | None = None,
 
 
 def _check_inside_root(rel: str) -> str:
-    """归一并约束在 MEDIA_ROOT 内，返回归一相对路径；非法抛 422。"""
+    """归一并约束在 MEDIA_ROOT 内，返回归一相对路径；非法抛 422。
+    除字符串边界外还做 realpath 校验（评审 B6/R09-B1）：根内符号链接指向外部时，
+    仅 normpath 检查会放行，实际写入/读取会落到根外。"""
     norm = os.path.normpath((rel or "").strip().strip("/"))
     if not norm or norm == "." or norm.startswith("..") or os.path.isabs(rel or ""):
         raise HTTPException(422, f"illegal path: {rel!r}")
+    try:
+        root_real = os.path.realpath(settings.media_root)
+        abs_real = os.path.realpath(os.path.join(settings.media_root, norm))
+    except (OSError, ValueError):
+        raise HTTPException(422, f"illegal path: {rel!r}")
+    if abs_real != root_real and not abs_real.startswith(root_real + os.sep):
+        raise HTTPException(422, f"path escapes media root: {rel!r}")
     return norm
+
+
+_MAX_ONLY_IDS = 5000
+
+
+def _only_ids(body: dict | None) -> set[int] | None:
+    """body.ids → 选择集合（评审 B6/R09-B2）：强转 int；空=全量。
+    此前 set(str) 会让字符串 id 静默不匹配，把“只操作选中项”放大成全量操作。"""
+    raw = (body or {}).get("ids") or []
+    if not raw:
+        return None
+    if len(raw) > _MAX_ONLY_IDS:
+        raise HTTPException(422, f"too many ids (max {_MAX_ONLY_IDS})")
+    try:
+        return {int(x) for x in raw}
+    except (TypeError, ValueError):
+        raise HTTPException(422, "ids must be int list")
 
 
 def _write_nfos(movie_id: int, dst_abs: str) -> None:
@@ -526,7 +552,7 @@ def organize(body: dict | None = None):
                      to_dir=body.get("to_dir"),
                      group_by_region=(True if body.get("group_by_region") is None
                                       else bool(body.get("group_by_region"))),
-                     only=set(body.get("ids", []) or []) or None,
+                     only=_only_ids(body),
                      dry_run=body.get("dry_run", True))
 
 
@@ -579,7 +605,7 @@ def clean_sidecars(body: dict | None = None):
     from ..scanner import is_sidecar
     body = body or {}
     dry_run = body.get("dry_run", True)
-    only = set(body.get("ids", []) or []) or None
+    only = _only_ids(body)
     # 已匹配行不清理（评审 P1-05）：花絮规则演进可能把真实影片判成花絮/样片，
     # 有 tmdb_id 的行必是扫描/人工确认过的电影，宁可漏清也不能误删。
     cands = [m for m in store.list_movies(grouped=False, limit=100000)
@@ -611,7 +637,7 @@ def clean_episodes(body: dict | None = None):
     from ..scanner import parse_filename
     body = body or {}
     dry_run = body.get("dry_run", True)
-    only = set(body.get("ids", []) or []) or None
+    only = _only_ids(body)
     cands = []
     for m in store.list_movies(grouped=False, limit=100000):
         if only is not None and m["id"] not in only:
@@ -660,8 +686,7 @@ def clean(body: dict | None = None):
     body.ids 不传则清理全部缺失行；建议先 GET /missing 预览勾选。"""
     body = body or {}
     dry_run = body.get("dry_run", True)
-    only = body.get("ids")
-    only_set = set(only) if only else None
+    only_set = _only_ids(body)
     cands = [m for m in store.list_movies(grouped=False, limit=100000)
              if (only_set is None or m["id"] in only_set)
              and not os.path.exists(os.path.join(settings.media_root, m["file_path"]))]
@@ -704,6 +729,12 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
     """单行恢复到原始路径。dry_run 只规划；执行时复用 NFO 收敛+旧目录清理。"""
     base = {"id": m["id"], "title": m.get("title", ""),
             "from": m["file_path"], "to": m.get("original_file_path") or ""}
+    # 目标边界守卫（评审 B6/R09-B4）：to 来自库内历史值，理论上合法；
+    # 防御性再校验一次，防止库被外部工具改坏后恢复到 MEDIA_ROOT 之外
+    try:
+        base["to"] = _check_inside_root(base["to"])
+    except HTTPException as e:
+        return {**base, "status": f"error: illegal target ({e.detail})"}
     src = os.path.join(settings.media_root, base["from"])
     dst = os.path.join(settings.media_root, base["to"])
     if not os.path.isfile(src):
@@ -760,7 +791,7 @@ def restore_original(body: dict | None = None):
     """恢复到原始位置：把整理/搬迁后偏离原始路径的影片搬回 original_file_path。
     默认 dry_run:true 只预览；确认后 dry_run:false 执行。目标被占/源缺失则跳过上报，绝不覆盖。"""
     body = body or {}
-    only = set(body.get("ids", []) or []) or None
+    only = _only_ids(body)
     dry_run = body.get("dry_run", True)
     if dry_run:
         plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),

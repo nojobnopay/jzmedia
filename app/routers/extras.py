@@ -39,10 +39,10 @@ def collect(body: dict | None = None):
     dry_run 默认 true 只预览。"""
     import os as _os
     from ..config import settings as _settings
-    from .files import move_attached_extras
+    from .files import _only_ids, move_attached_extras
     body = body or {}
     dry_run = body.get("dry_run", True)
-    only = set(body.get("ids", []) or []) or None
+    only = _only_ids(body)
     cands = []
     for m in store.list_movies(grouped=False, limit=100000):
         if only is not None and m["id"] not in only:
