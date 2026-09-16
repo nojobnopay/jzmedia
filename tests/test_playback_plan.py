@@ -137,6 +137,17 @@ def test_vobsub_forces_burn():
     assert "vobsub_needs_burn" in d["reasons"]
 
 
+def test_burn_hdr_flags_no_tonemap_even_with_hw(hw_on):
+    """烧录走软件滤镜图，硬件 tonemap 不可用 → 必须如实提示 hdr_no_tonemap（P1-08）。"""
+    d = pb.plan(_media(hdr="hdr10", subs=[{"index": 0, "ff_index": 5,
+                                           "codec": "vobsub", "image": 1, "lang": "",
+                                           "title": "", "default": 0, "forced": 0}]),
+                caps=_caps(hdr=False), sub_idx=0)
+    assert d["subtitle_mode"] == "burn"
+    assert d["plan"]["tonemap"] is False
+    assert "hdr_no_tonemap" in d["reasons"]
+
+
 def test_text_subtitle_keeps_direct():
     d = pb.plan(_media(subs=[{"index": 0, "ff_index": 3, "codec": "subrip",
                               "image": 0, "lang": "chi", "title": "", "default": 1,

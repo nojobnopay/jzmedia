@@ -52,6 +52,9 @@ class Backend:
         源是 10bit 时必须显式降到 8bit（libx264/nvenc 都要；VAAPI/QSV 由滤镜 format 保证）。"""
         h = int(height or 0)
         if burn or not self.hw:
+            # 烧录：filter_complex（overlay+缩放）与硬件滤镜互斥，统一软件编码；
+            # 软件路径不实现 tonemap → 调用方（playback.plan）需在 HDR+burn 时
+            # 追加 hdr_no_tonemap 提示（评审 P1-08），勿在此静默忽略 tonemap 参数。
             args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
                     "-pix_fmt", "yuv420p"]
             if h:

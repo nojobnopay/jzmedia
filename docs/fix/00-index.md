@@ -29,9 +29,9 @@
 | P1-03 | R03-D1 | B1 | 剧集跳过实际入库污染海报墙 | **done** | tests/test_scan_rules.py::test_episode_not_inserted / test_clean_episodes_* |
 | P1-04 | R03-D3 | B1 | 扫描不剪枝 #recycle/@eaDir/隐藏目录 | **done** | tests/test_scan_rules.py::test_scan_all_prunes_recycle_and_hidden |
 | P1-05 | R08-D1 | B1 | clean-sidecars 误删正片库行 | **done** | tests/test_scan_rules.py::test_clean_sidecars_protects_tmdb_rows |
-| P1-06 | R09-D1 | B2 | 移动目标与 missing 行撞车致“文件已移/DB 未改” | pending | — |
-| P1-07 | R12-D1 | B2 | prewarm 与在线播互踩会话目录 | pending | — |
-| P1-08 | R13-D1 | B2 | HDR+烧录丢弃 tonemap 且无提示 | pending | — |
+| P1-06 | R09-D1 | B2 | 移动目标与 missing 行撞车致“文件已移/DB 未改” | **done** | tests/test_files_organize.py（4 用例） |
+| P1-07 | R12-D1 | B2 | prewarm 与在线播互踩会话目录 | **done** | tests/test_stream_sessions.py（4 用例）+ docker e2e（见 log） |
+| P1-08 | R13-D1 | B2 | HDR+烧录丢弃 tonemap 且无提示 | **done** | tests/test_playback_plan.py::test_burn_hdr_flags_no_tonemap_even_with_hw |
 | P1-09 | R01-B1 | B3 | UID/GID 文档与 compose 不一致 | pending | — |
 | P1-10 | R01-B7 | B3 | 零日志 + 76 处静默吞异常 | pending | — |
 | P1-11 | R04-D1 | B3 | 库页无分页 >500 截断 | pending | — |
@@ -42,14 +42,23 @@
 ## 4. 当前指针（中断恢复点）
 
 ```
-批次：B1（fix/b1-scan）已合回 main（merge d791def）并打批标签 p1-b1-scan
-步骤：B1 收尾完成。下一批待定：B2（P1-06/07/08，播放链需 docker+ffmpeg 实测）或 B3（P1-09/10/11，宿主可验）
-断点：等用户指令开下一批；开批时从最新 main 拉新分支（fix/b2-consistency / fix/b3-ops）
-下一步：用户确认批次后：git checkout -b fix/<batch>
+批次：B2（fix/b2-consistency）— P1-06/07/08 全部 done，待整批验证后合回 main
+步骤：L1 单测 63 passed（+9 新用例）；P1-07 docker e2e 全绿；待跑 L0/L2 → merge → tag
+断点：e2e 脚本在 /tmp/opencode/b2/e2e.py（容器已停）；证据见下方 log
+下一步：L0（compileall/import/npm build）+ L2 smoke → merge --no-ff → tag p1-b2-consistency
 ```
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-16：**P1-07 done + docker e2e 全绿**（jzmedia:v0.4.0 + 当前代码 + 两个 ffmpeg 合成测试片）：
+  - A) prewarm(remux) 完成 → 点播命中静态成品（`backend=static/complete/finished`，master 可取）；
+  - B1) 先播后 prewarm：`attached=True`、sid 相同、分片 `6/3 → 58/29` **不回退**（修复前 `26/13 → 22/11`）；关播后附着任务如实失败「在线会话中断」；
+  - B2) 先 prewarm 后播：**复用同一会话**（reuse=True，分片 `2→44`）；关播返回 `detached:True` **不杀进程**，prewarm 继续运行（segments=31）。
+  - 附带 P2 观察（未修，记 backlog）：remux(copy) 档 prewarm 进度 `expected=31` 按 4s 估算，实际受源关键帧影响（12 片）→ 进度条偏差；后续可对 vcopy 用「时长/实测片均长」估算。
+- 2026-09-16：**P1-08 done**：`playback.plan` 在 burn 时不启用硬件 tonemap 并追加 `hdr_no_tonemap`（前端有人话文案）；`transcode.video_args` 补注释防静默忽略；pytest 59 passed。
+- 2026-09-16：**P1-07 已复现（红）**：docker（jzmedia:v0.4.0 + 当前 app + 真实片源《大桥下面》只读挂载）——在线会话分片 `26/13` → 启动 prewarm 后 `22/11`（目录被清、双进程同写）。
+- 2026-09-16：**P1-06 done**：`_collect_plans` 增加库内占用检查（`conflict_db_occupied`/kind db）；`_move_one`/`_restore_one` 目标被他人行占用时提前拒绝，并在库写失败时回滚 rename；Settings 增加「库内占用」计数/徽标与恢复状态文案；pytest 58 passed，前端 build/test ok。
+- 2026-09-16：**B2 开工**：建分支 `fix/b2-consistency`。环境确认：用户 8080 服务在跑（勿动）；真实媒体在 `sample_media/`（332 个 mkv，仅 3 个非 0 字节，最小 2.96GB《大桥下面 1984》）；`jzmedia:v0.4.0` 镜像含 ffmpeg 7.1.5 可复用。
 - 2026-09-16：**B1 批次合回 main**（--no-ff `d791def`，tag `p1-b1-scan`）；main 上 pytest 54 passed。整体验证：L0（compileall/import/npm build）+ L1（pytest 54、node --test 7）+ L2 smoke 22/22。
 - 2026-09-16：**P1-05 done**：clean-sidecars 过滤 `tmdb_id` 非空行（已匹配行永不清理）；pytest 54 passed，全绿；L2 smoke 22/22 PASS；B1 批次验证完成。
 - 2026-09-16：**P1-04 done**：`scan_all` walk 剪枝（隐藏目录 + `_SKIP_DIR_NAMES`，`SCAN_SKIP_DIRS` 可追加），文件级隐藏名也跳过；pytest 53 passed / 1 failed；README 环境变量表同步。
