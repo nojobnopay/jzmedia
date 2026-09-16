@@ -1,15 +1,19 @@
-"""在线播放：ffprobe 探测 + Plex 式三档决策（Direct Play > remux > transcode）。
+"""在线播放：ffprobe 探测（MediaInfo）+ 二进制解析。
 
-浏览器固定 profile（Plex DeviceProfile 的极简版）：H264 + AAC + MP4 + 外挂文字字幕。
-- direct：mp4/h264/aac/<=1080p 且无烧录字幕 → 复用 movies.blob FileResponse 零 CPU。
-- remux：音视频兼容、仅容器不对（MKV/H264/AAC）→ ffmpeg -c copy 换容器。
-- transcode：只转不兼容流（能 copy 则 copy），画质档 原画/1080p/720p。
-- 图片字幕（pgs/vobsub/dvdsub）只能烧录 → reasons 含 pgs_needs_burn，首版 UI 置灰不硬转。
+决策/命令构造已迁至 app/playback.py（ClientCapabilities + 四档 PlaybackPlan）。
+本模块只负责：
+- probe()：ffprobe 单文件 → media_info 行（含 HDR/DV/位深/轨道 disposition/附件），
+  并给客户端能力实测生成候选码串（decorate()：vcaps + 每音轨 caps）。
+- ffmpeg/ffprobe 二进制解析与健康检查。
 """
 import json
 import os
+import re
 import shutil
 import subprocess
+
+# 探测结构版本：老行 probe_ver < 本值 → 视为过期自动重探（新字段上线时 +1 即可）
+PROBE_VERSION = 2
 
 # 二进制解析见下方 ffprobe_bin()/ffmpeg_bin()（系统版优先，静态版兜底）
 
@@ -108,13 +112,10 @@ def is_retryable_error(msg: str) -> bool:
 
 IMAGE_SUBS = {"hdmv_pgs_subtitle", "pgs", "vobsub", "dvd_subtitle", "dvdsub", "pgssub"}
 TEXT_SUBS = {"subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "vtt"}
-
-# 万能目标（Plex TranscodingProfile 同理）：H264 + AAC
-TARGET_VCODEC = "h264"
-TARGET_ACODEC = "aac"
+ASS_SUBS = {"ass", "ssa"}
 
 
-def _norm_codec(name: str) -> str:
+def norm_codec(name: str) -> str:
     s = (name or "").strip().lower()
     mapping = {
         "avc": "h264", "avc1": "h264", "h264": "h264",
@@ -131,13 +132,52 @@ def _norm_codec(name: str) -> str:
     return s or ""
 
 
+def _bit_depth(stream: dict) -> int:
+    """视频位深：bits_per_raw_sample 优先，缺则从 pix_fmt 后缀推（yuv420p10le → 10）。"""
+    try:
+        b = int(stream.get("bits_per_raw_sample") or 0)
+        if b > 0:
+            return b
+    except (TypeError, ValueError):
+        pass
+    pf = str(stream.get("pix_fmt") or "")
+    m = re.search(r"p(\d{1,2})(?:le|be)?$", pf)
+    if m:
+        try:
+            return int(m.group(1))
+        except (TypeError, ValueError):
+            pass
+    return 8 if pf else 0
+
+
+def _disposition(stream: dict) -> dict:
+    d = stream.get("disposition") or {}
+    try:
+        default = 1 if int(d.get("default") or 0) else 0
+    except (TypeError, ValueError):
+        default = 0
+    try:
+        forced = 1 if int(d.get("forced") or 0) else 0
+    except (TypeError, ValueError):
+        forced = 0
+    return {"default": default, "forced": forced}
+
+
 def probe(abs_path: str, timeout: int = 30) -> dict:
-    """ffprobe 单文件。0 字节/缺失/失败 → playable=False + probe_error（调用方禁用播放）。
-    dv_profile：视频流 side_data_list 里的 DOVI 配置记录（0=无/未知；5/7/8 为常见 DV）。"""
+    """ffprobe 单文件 → MediaInfo（播放决策输入）。0 字节/缺失/失败 → playable=False +
+    probe_error（调用方禁用播放）。
+    - dv_profile/dv_bl_compat：side_data 的 DOVI 配置记录（0=无/未知；bl_compat=1 为
+      HDR10 基底，可当 HDR10 直通）。
+    - hdr：color_transfer=smpte2084 → hdr10；arib-std-b67 → hlg；空= SDR。
+    - attachments：字体等附件清单（ASS 客户端渲染取内嵌字体用）。
+    """
     base: dict = {"container": "", "duration": 0.0, "width": 0, "height": 0,
                   "vcodec": "", "acodec": "", "vbitrate": 0, "abitrate": 0,
-                  "audio": [], "subs": [], "dv_profile": 0,
-                  "playable": False, "probe_error": ""}
+                  "video_profile": "", "video_level": 0, "bit_depth": 0, "pix_fmt": "",
+                  "color_transfer": "", "color_primaries": "", "hdr": "",
+                  "dv_profile": 0, "dv_bl_compat": 0, "hdr10plus": 0,
+                  "audio": [], "subs": [], "attachments": [],
+                  "playable": False, "probe_error": "", "probe_ver": PROBE_VERSION}
     try:
         size = os.path.getsize(abs_path)
     except OSError as e:
@@ -180,17 +220,34 @@ def probe(abs_path: str, timeout: int = 30) -> dict:
     subs = [s for s in (data.get("streams") or []) if (s.get("codec_type") or "") == "subtitle"]
     # 首视频流定分辨率/编码（封面流 png/mjpeg 跳过）
     for v in videos:
-        cn = _norm_codec(v.get("codec_name") or "")
+        cn = norm_codec(v.get("codec_name") or "")
         if cn in ("png", "mjpeg", "bmp") and len(videos) > 1:
             continue
         base["vcodec"] = cn
-        # 杜比视界：side_data_list 里的 DOVI 配置记录（ffprobe 7.x 形态；缺字段即 0）
+        base["video_profile"] = str(v.get("profile") or "")[:40]
+        try:
+            base["video_level"] = max(0, int(v.get("level") or 0))
+        except (TypeError, ValueError):
+            pass
+        base["bit_depth"] = _bit_depth(v)
+        base["pix_fmt"] = str(v.get("pix_fmt") or "")[:24]
+        base["color_transfer"] = str(v.get("color_transfer") or "").lower()[:24]
+        base["color_primaries"] = str(v.get("color_primaries") or "").lower()[:24]
+        if base["color_transfer"] in ("smpte2084",):
+            base["hdr"] = "hdr10"
+        elif base["color_transfer"] in ("arib-std-b67",):
+            base["hdr"] = "hlg"
+        # DV/HDR10+ 元数据在 side_data_list（ffprobe 7.x/8.x 形态；缺字段即 0/无）
         try:
             for sd in (v.get("side_data_list") or []):
-                st = str((sd or {}).get("side_data_type") or "").lower()
+                sd = sd or {}
+                st = str(sd.get("side_data_type") or "").lower()
                 if "dovi" in st or "dolby vision" in st:
-                    base["dv_profile"] = max(0, int((sd or {}).get("dv_profile") or 0))
-                    break
+                    base["dv_profile"] = max(0, int(sd.get("dv_profile") or 0))
+                    base["dv_bl_compat"] = max(
+                        0, int(sd.get("dv_bl_signal_compatibility_id") or 0))
+                elif "2094-40" in st or "hdr10+" in st:
+                    base["hdr10plus"] = 1
         except (TypeError, ValueError):
             pass
         try:
@@ -204,7 +261,7 @@ def probe(abs_path: str, timeout: int = 30) -> dict:
             pass
         break
     for i, a in enumerate(audios):
-        cn = _norm_codec(a.get("codec_name") or "")
+        cn = norm_codec(a.get("codec_name") or "")
         tags = a.get("tags") or {}
         try:
             br = int(a.get("bit_rate") or 0)
@@ -217,17 +274,26 @@ def probe(abs_path: str, timeout: int = 30) -> dict:
         base["audio"].append({"index": i, "ff_index": int(a.get("index", i)),
                               "codec": cn, "channels": ch, "bitrate": br,
                               "lang": str(tags.get("language") or "").lower()[:8],
-                              "title": str(tags.get("title") or "")[:60]})
+                              "title": str(tags.get("title") or "")[:60],
+                              **_disposition(a)})
         if i == 0:
             base["acodec"] = cn
             base["abitrate"] = br
     for i, s in enumerate(subs):
-        cn = _norm_codec(s.get("codec_name") or "")
+        cn = norm_codec(s.get("codec_name") or "")
         tags = s.get("tags") or {}
         base["subs"].append({"index": i, "ff_index": int(s.get("index", i)),
                              "codec": cn, "image": 1 if cn in IMAGE_SUBS else 0,
                              "lang": str(tags.get("language") or "").lower()[:8],
-                             "title": str(tags.get("title") or "")[:60]})
+                             "title": str(tags.get("title") or "")[:60],
+                             **_disposition(s)})
+    for s in (data.get("streams") or []):
+        if (s.get("codec_type") or "") != "attachment":
+            continue
+        tags = s.get("tags") or {}
+        base["attachments"].append({"index": int(s.get("index", 0)),
+                                    "name": str(tags.get("filename") or "")[:120],
+                                    "mime": str(tags.get("mimetype") or "")[:60]})
     if base["duration"] > 0 and base["vcodec"]:
         base["playable"] = True
     else:
@@ -235,210 +301,85 @@ def probe(abs_path: str, timeout: int = 30) -> dict:
     return base
 
 
-def _video_compatible(vcodec: str, height: int) -> bool:
-    # Direct/Remux 零 CPU：只看编码，不管分辨率（4K H264 原样直发，浏览器硬解）；
-    # 高度只在显式降档（quality=720p/1080p）时强制转码。
-    return vcodec == TARGET_VCODEC
+# ===== 客户端能力实测：候选码串（前端 caps.js 用 isTypeSupported/decodingInfo 逐条实测）=====
+
+def _avc_codec_string(profile: str, level: int) -> str:
+    """H264 → avc1.PPCCLL（PP=profile_idc，CC=约束位取 0，LL=level_idc）。"""
+    pid = {"baseline": 0x42, "constrained baseline": 0x42, "main": 0x4D,
+           "high": 0x64, "high 10": 0x6E, "high 4:2:2": 0x7A,
+           "high 4:4:4 predictive": 0xF4}.get((profile or "").strip().lower(), 0x64)
+    lv = level if 0 < level <= 0x3F else 0x28  # 缺省按 level 4.0
+    return f"avc1.{pid:02X}00{lv:02X}"
 
 
-def _audio_compatible(acodec: str) -> bool:
-    return acodec == TARGET_ACODEC
+def _hevc_codec_strings(bit_depth: int, level: int) -> list[str]:
+    """HEVC → hvc1/hev1 候选（profile 1=Main 8bit，2=Main10）。"""
+    pid, comp = (2, 4) if bit_depth > 8 else (1, 6)
+    lv = level if 0 < level <= 255 else 120  # ffprobe 的 level 即 general_level_idc
+    return [f"hvc1.{pid}.{comp}.L{lv}.B0", f"hev1.{pid}.{comp}.L{lv}.B0"]
 
 
-def decide(media: dict, quality: str = "original",
-           audio_idx: int = 0, sub_idx: int | None = None,
-           client: str = "web") -> dict:
-    """三档决策。media 为 probe()/media_info 行。返回 {method, reasons, plan}。
-    method: direct | remux | transcode | blocked
-    reasons: container/video/audio/dovi/pgs_needs_burn 等（Jellyfin TranscodeReason 思想）。
-    plan: 给 stream.m3u8 用的转码计划（copy 还是重编、目标高度、字幕方式）。
-    client: web=浏览器固定 profile（H264+AAC+MP4，无 DV 解码）；kodi=外部播放器（原盘直通）。"""
-    media = media or {}
-    if not media.get("playable"):
-        return {"method": "blocked", "reasons": ["unplayable"],
-                "plan": {"vcopy": False, "acopy": False, "height": 0, "sub": "none"}}
-    container = str(media.get("container") or "").lower()
-    vcodec = _norm_codec(str(media.get("vcodec") or ""))
-    audios = media.get("audio") or []
-    subs = media.get("subs") or []
+def video_codec_strings(vcodec: str, profile: str, level: int, bit_depth: int) -> list[str]:
+    """视频 → MSE/HLS CODECS 原始码串候选（不含 MIME）。"""
+    if vcodec == "h264":
+        return [_avc_codec_string(profile, level)]
+    if vcodec == "hevc":
+        return _hevc_codec_strings(bit_depth, level)
+    if vcodec == "av1":
+        lv = level if 0 < level <= 31 else 8
+        return [f"av01.0.{lv:02d}M.{'10' if bit_depth > 8 else '08'}"]
+    if vcodec == "vp9":
+        return [f"vp09.00.10.{'10' if bit_depth > 8 else '08'}"]
+    return []
+
+
+_AUDIO_CAPS = {
+    "aac": ["mp4a.40.2", "mp4a.40.5"],
+    "mp3": ["mp3", "mp4a.6b"],
+    "ac3": ["ac-3"],
+    "eac3": ["ec-3"],
+    "dts": ["dtsc", "dtsh", "dtsl", "dtse"],
+    "truehd": ["mlpa"],
+    "flac": ["flac"],
+    "opus": ["opus"],
+    "vorbis": ["vorbis"],
+    "pcm": ["lpcm", "pcm-s16"],
+}
+
+
+def audio_codec_string(acodec: str) -> str:
+    """音频 → 首选 MSE CODECS 原始码串（如 mp4a.40.2 / ec-3）；未知返回空。"""
+    caps = _AUDIO_CAPS.get(norm_codec(acodec) or "", [])
+    return caps[0] if caps else ""
+
+
+def audio_caps(acodec: str) -> list[str]:
+    """音频 → 全量 MIME 候选（前端逐条实测用）。"""
+    return [f'audio/mp4; codecs="{c}"' for c in _AUDIO_CAPS.get(acodec or "", [])]
+
+
+def decorate(info: dict) -> dict:
+    """给 media_info 行补客户端实测候选码串（vcaps + 每音轨 caps）。纯派生，不落库。
+    前端实测结果以 probes 形式回传，playback.plan 优先用精确结果、回落通用矩阵。"""
+    out = dict(info or {})
+    if not out.get("playable"):
+        out["vcaps"] = []
+        return out
+    vcodec = norm_codec(str(out.get("vcodec") or ""))
     try:
-        ai = max(0, int(audio_idx or 0))
+        bit_depth = int(out.get("bit_depth") or 0)
+        level = int(out.get("video_level") or 0)
     except (TypeError, ValueError):
-        ai = 0
-    want_audio = audios[ai] if 0 <= ai < len(audios) else (audios[0] if audios else {})
-    acodec = _norm_codec(str((want_audio or {}).get("codec") or media.get("acodec") or ""))
-    height = int(media.get("height") or 0)
-    # 字幕方式判定
-    sub_mode = "none"
-    reasons: list[str] = []
-    if sub_idx is not None:
-        try:
-            si = int(sub_idx)
-        except (TypeError, ValueError):
-            si = -1
-        track = subs[si] if 0 <= si < len(subs) else None
-        if track is None:
-            reasons.append("subtitle_not_found")
-        elif int(track.get("image") or 0) or str(track.get("codec") or "") not in TEXT_SUBS \
-                and str(track.get("codec") or "") not in ("srt", "ass", "ssa", "mov_text"):
-            # 图片字幕只能烧录 → 强制视频转码；首版调用方应置灰提示下载原盘
-            reasons.append("pgs_needs_burn")
-            sub_mode = "burn"
-        else:
-            sub_mode = "sidecar"
-    v_ok = _video_compatible(vcodec, height)
-    a_ok = _audio_compatible(acodec)
-    c_ok = container in ("mp4", "mov", "m4v")
-    # 杜比视界：浏览器无 DV 解码器（Chrome MSE 明确拒绝 DV），Plex 同样不转 DV；
-    # web 客户端一律强制视频重编（经 HDR 层转 SDR/HDR），kodi 等外部播放器直通。
-    try:
-        dv_profile = max(0, int(media.get("dv_profile") or 0))
-    except (TypeError, ValueError):
-        dv_profile = 0
-    if dv_profile > 0 and (client or "web").strip().lower() != "kodi":
-        v_ok = False
-        reasons.append("dovi_not_supported")
-    if sub_mode == "burn":
-        v_ok = False  # 烧录强制视频重编
-    target_height = 0
-    q = (quality or "original").strip().lower()
-    if q in ("720p", "720"):
-        target_height = 720
-    elif q in ("1080p", "1080"):
-        target_height = 1080
-    if height and target_height and height > target_height:
-        v_ok = False  # 降档需重编
-        reasons.append("resolution_downscale")
-    if c_ok and v_ok and a_ok and sub_mode != "burn":
-        return {"method": "direct", "reasons": reasons,
-                "plan": {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
-                         "audio_idx": ai, "sub_idx": sub_idx}}
-    if not c_ok and v_ok and a_ok and sub_mode != "burn":
-        reasons.append("container_not_supported")
-        return {"method": "remux", "reasons": reasons,
-                "plan": {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
-                         "audio_idx": ai, "sub_idx": sub_idx}}
-    if not v_ok and vcodec != TARGET_VCODEC:
-        reasons.append("video_codec_not_supported")
-    if not a_ok:
-        reasons.append("audio_codec_not_supported")
-    plan_height = 0
-    if target_height:
-        plan_height = target_height
-    elif height and height > 1080 and vcodec != TARGET_VCODEC:
-        plan_height = 1080  # 转码默认封顶 1080p（Plex 万能目标同理），原画档传 quality=source 可解
-        if q == "source":
-            plan_height = 0
-    return {"method": "transcode", "reasons": reasons,
-            "plan": {"vcopy": v_ok, "acopy": a_ok, "height": plan_height,
-                     "sub": sub_mode, "audio_idx": ai, "sub_idx": sub_idx}}
-
-
-def build_cmd(abs_path: str, plan: dict, out_m3u8: str,
-              start: float = 0, seg_time: int = 6) -> list[str]:
-    """按 decide().plan 构造 ffmpeg HLS 命令（stock ffmpeg，无 fork 依赖）。
-    单 variant 播放列表即 out_m3u8（默认名 master.m3u8），分片 seg%05d.ts 落同目录。
-    HW 加速预留：环境 HW_ACCEL=vaapi/qsv/nvenc 时切换编解码器（V2 实测开启）。"""
-    import os as _os
-    plan = plan or {}
-    vcopy = bool(plan.get("vcopy"))
-    acopy = bool(plan.get("acopy"))
-    height = int(plan.get("height") or 0)
-    try:
-        ai = max(0, int(plan.get("audio_idx") or 0))
-    except (TypeError, ValueError):
-        ai = 0
-    hw = (_os.getenv("HW_ACCEL") or "").strip().lower()
-    cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"]
-    try:
-        st = max(0.0, float(start or 0))
-    except (TypeError, ValueError):
-        st = 0.0
-    # seek 对齐（B4）：
-    # - 转码路径：输入 -ss 到目标前 15s + 输出侧 -ss 精确裁 15s → 解码器有完整 GOP，
-    #   音视频都在目标点精确起（否则视频顺延到下一关键帧，首段出现 5~8s 单轨空洞）。
-    # - 拷贝路径：无法重编码对齐，用 -noaccurate_seek 从目标前一个关键帧整段起，
-    #   音视频天然同点（代价：起播点最多早一个 GOP）。
-    trim_after = 0.0
-    burn_sub = plan.get("sub") == "burn" and plan.get("sub_ff_index") is not None
-    if burn_sub:
-        vcopy = False  # 烧录必须重编码
-    if st > 0:
-        if vcopy:
-            cmd += ["-ss", f"{st:.3f}", "-noaccurate_seek"]
-        else:
-            pre = max(0.0, st - 15.0)
-            if pre > 0:
-                cmd += ["-ss", f"{pre:.3f}"]
-            trim_after = min(st, 15.0)
-    # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
-    cmd += ["-fflags", "+genpts"]
-    cmd += ["-i", abs_path]
-    if trim_after > 0:
-        cmd += ["-ss", f"{trim_after:.3f}"]
-    if burn_sub:
-        # 图片字幕烧录：源分辨率下 overlay 再缩放（overlay 不缩放覆盖层），
-        # eof_action=pass：字幕流结束后原样放行视频（默认 repeat 会把最后一句字幕钉到片尾）。
-        vf = "[0:v][0:s:%d]overlay=eof_action=pass" % int(plan["sub_ff_index"])
-        if height:
-            vf += ",scale=-2:%d" % height
-        cmd += ["-filter_complex", vf + "[vout]", "-map", "[vout]", "-map", f"a:{ai}?"]
-        height = 0  # 缩放已在滤镜图内
-        hw = "sw"  # 烧录走软件编码（滤镜图与 -vf/vaapi 互斥）
-    else:
-        cmd += ["-map", "v:0", "-map", f"a:{ai}?"]
-    if vcopy:
-        cmd += ["-c:v", "copy"]
-    else:
-        if hw in ("qsv",):
-            cmd += ["-c:v", "h264_qsv", "-preset", "veryfast"]
-        elif hw in ("nvenc", "nvidia"):
-            cmd += ["-c:v", "h264_nvenc", "-preset", "p4"]
-        elif hw in ("vaapi",):
-            cmd += ["-vaapi_device", "/dev/dri/renderD128",
-                    "-vf", f"format=nv12,hwupload{',scale_vaapi=-2:' + str(height) if height else ''}",
-                    "-c:v", "h264_vaapi", "-qp", "23"]
-            height = 0  # 已在 vaapi 滤镜内缩放
-        else:
-            cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]
-        if height:
-            cmd += ["-vf", f"scale=-2:{height}"]
-    if acopy:
-        cmd += ["-c:a", "copy"]
-    else:
-        cmd += ["-c:a", "aac", "-b:a", "192k", "-ac", "2"]
-    seg_pat = _os.path.join(_os.path.dirname(out_m3u8) or ".", "seg%05d.ts")
-    cmd += ["-f", "hls", "-hls_time", str(seg_time),
-            "-hls_list_size", "0", "-hls_segment_type", "mpegts",
-            # 注意：不要加 -hls_playlist_type event！实测 hls.js 会把 EVENT 当 VOD，
-            # 只播首屏快照里的分片就停（约 18s 必死）；Plex 也是纯 live 式增长列表，
-            # 无 ENDLIST 即刷新、从头起播（开局分片少时 live edge≈0）。
-            # 时间戳归一（输出侧 make_zero；输入侧 genpts 已在 -i 之前）：
-            # 输入 -ss 后音视频起点常错位数秒，MSE 遇到大跨度错位会黑屏/卡死。
-            "-avoid_negative_ts", "make_zero",
-            "-hls_segment_filename", seg_pat, out_m3u8]
-    return cmd
-
-
-def score_for_client(media: dict, quality: str = "original",
-                     client: str = "web") -> tuple:
-    """浏览器选版打分（越小越优，抄 Plex 按客户端选版本）：
-    direct(0) < remux(1) < 转码(2+代价) < blocked(9)。
-    同档内 direct/remux 取分辨率最高；转码档 vcopy 优先、目标高度越小越省 CPU。"""
-    d = decide(media, quality=quality, client=client)
-    m = d["method"]
-    try:
-        h = int(media.get("height") or 0)
-    except (TypeError, ValueError):
-        h = 0
-    if m == "direct":
-        return (0, -h)
-    if m == "remux":
-        return (1, -h)
-    if m == "transcode":
-        plan = d.get("plan") or {}
-        return (2, 0 if plan.get("vcopy") else 1, int(plan.get("height") or 0))
-    return (9, 0)
+        bit_depth, level = 0, 0
+    out["vcaps"] = [f'video/mp4; codecs="{c}"' for c in video_codec_strings(
+        vcodec, str(out.get("video_profile") or ""), level, bit_depth)]
+    audio = []
+    for a in (out.get("audio") or []):
+        a2 = dict(a or {})
+        a2["caps"] = audio_caps(norm_codec(str(a2.get("codec") or "")))
+        audio.append(a2)
+    out["audio"] = audio
+    return out
 
 
 def fmt_duration(sec: float) -> str:

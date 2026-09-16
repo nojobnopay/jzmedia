@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
@@ -9,7 +10,15 @@ from .config import settings
 from .db import POSTER_DIR, ensure_dirs
 from .routers import collections, extras, files, fs, health, jobs, movies, persons, stream
 
-app = FastAPI(title="jzmedia", version="0.6.0")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    yield
+    # 优雅退出：杀掉全部转码进程（防重启/停服后孤儿 ffmpeg 继续烧 CPU 写分片）
+    stream.shutdown_sessions()
+
+
+app = FastAPI(title="jzmedia", version="0.6.0", lifespan=_lifespan)
 
 ensure_dirs()
 store.init_db()

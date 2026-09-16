@@ -4,6 +4,7 @@
       <div class="pd-head">
         <h3>{{ title || ('版本 ' + versionId) }}</h3>
         <span v-if="methodLine" class="play-method">{{ methodLine }}</span>
+        <span v-if="qualityLine" class="play-quality">{{ qualityLine }}</span>
         <span v-if="reasonLine" class="play-reason">{{ reasonLine }}</span>
         <span v-if="sessStatus" class="sess-status">{{ sessStatus }}</span>
         <span class="pd-spacer"></span>
@@ -44,8 +45,9 @@
           <button @click="toggleMute" :title="muted ? '取消静音' : '静音'">{{ muted ? '🔇' : '🔊' }}</button>
           <input type="range" min="0" max="100" :value="muted ? 0 : volume * 100"
             @input="setVolume" @change="blurPick" class="ctl-vol" />
-          <select v-model="quality" @change="onQualityChange" title="画质">
-            <option value="original">原画</option>
+          <select v-model="quality" @change="onQualityChange" title="画质：自动=按服务器能力（无硬件转码封顶 720p）；原画=不封顶重编（耗 CPU）">
+            <option value="auto">自动（推荐）</option>
+            <option value="source">原画</option>
             <option value="1080p">1080p</option>
             <option value="720p">720p</option>
           </select>
@@ -55,9 +57,12 @@
           <select v-if="subs.length" v-model.number="subIdx" @change="onSubChange" title="字幕">
             <option :value="-1">无字幕</option>
             <option v-for="(s, i) in subs" :key="i" :value="i">
-              {{ subLabel(s, i) }}{{ s.image ? '（烧录）' : '' }}
+              {{ subLabel(s, i) }}{{ s.image ? '（烧录）' : (subKind(s) === 'ass' ? '（ASS 样式）' : '') }}
             </option>
           </select>
+          <label v-if="subIsAss" class="ctl-compat" title="ASS 渲染异常/缺字体时勾选：改用简化 VTT 字幕">
+            <input type="checkbox" v-model="compatSub" @change="onCompatChange" />兼容
+          </label>
           <button @click="toggleFull" :title="isFull ? '退出全屏（Esc）' : '全屏（双击画面）'">{{ isFull ? '⤡' : '⛶' }}</button>
         </div>
       </div>
@@ -72,6 +77,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '../api.js'
+import { getCaps, probeStrings, withProbes } from '../caps.js'
+import { ensureJassub } from '../jassubLoader.js'
 import Spinner from './Spinner.vue'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
@@ -87,21 +94,35 @@ const videoEl = ref(null)
 let hls = null
 let saveTimer = 0
 let lastSave = 0
-const quality = ref('original')
+const quality = ref('auto')
 const audioIdx = ref(0)
 const subIdx = ref(-1)
 const audios = ref([])
 const subs = ref([])
+// ASS 渲染（JASSUB）：实例 + 归属键（版本:视频元素:轨:兼容标记，变更才重建）
+let jassub = null
+let assKey = ''
+const assFonts = ref(-1)
+// 「兼容字幕(VTT)」：ASS 样式渲染异常/无字体时的降级；跨会话记住选择
+const compatSub = ref((() => {
+  try { return localStorage.getItem('jzmedia.subCompat') === '1' } catch (e) { return false }
+})())
 const method = ref('')
 const reasons = ref([])
-const autoDropped = ref(false)
 const sessStatus = ref('')
 let sessionId = null
 let pingTimer = 0
+// 客户端能力：基础矩阵一次；逐片候选码串实测结果按版本缓存（decide/sessions 带 caps）
+let activeCaps = null
+const probedCaps = {}
 const err = ref('')
 const posHint = ref('')
 const resumeOffer = ref('')
 let resumePos = 0
+// 最近一次会话的起始秒（resumePlay 对不支持 #t 的浏览器补跳用；reload 消费 resumePos 后清零）
+let lastStartAt = 0
+// “从头开始”：显式以 0 起，跳过 reload 的“保持当前位置”捕获
+let startFromZero = false
 const decidedDuration = ref(0)
 let doneWatched = false
 // HLS 绝对时间轴：会话按 start 开新流，片内 currentTime 从 0 起；显示/存档一律用 offset+片内
@@ -117,6 +138,11 @@ let recoverCount = 0
 let lastRecoverAt = 0
 let lastPlaylistUrl = ''
 const lastHlsError = ref('')
+// reload 代际：并发 reload（起播等待中切音轨/快速切档）只允许最后一轮挂载，
+// 否则两轮各自 new Hls 互踩 → 实际播放的实例与 UI/会话错位（切轨无效的根因）。
+let reloadGen = 0
+// HLS master 是否已解析（MANIFEST_PARSED）：解析前的切轨请求交给解析后 applyAudioTrack
+let manifestReady = false
 // 实际使用的播放引擎：hls(Plex式) | native(Safari原生) | direct(原文件)
 let engine = 'none'
 let mediaErrLogged = ''
@@ -159,7 +185,8 @@ function onMouseMove() {
 // 全屏时控件/标题的显隐：鼠标活跃、暂停、seek 中、有错误时常显
 const overlayVisible = computed(() =>
   !isFull.value || mouseActive.value || seekPending.value || !isPlaying.value || !!err.value)
-const isHls = computed(() => method.value === 'remux' || method.value === 'transcode')
+const isHls = computed(() => ['remux', 'audio_transcode', 'transcode', 'video_transcode']
+  .includes(method.value))
 const bufLine = computed(() => {
   if (!isHls.value) return ''
   const total = Number(decidedDuration.value) || 0
@@ -178,16 +205,45 @@ function absPos() {
 
 const methodLine = computed(() => {
   if (!method.value) return ''
-  return { direct: 'Direct Play（原文件直发）', remux: 'Direct Stream（仅换容器，零画质损失）', transcode: '转码中（按所选画质重编）' }[method.value] || method.value
+  return {
+    direct: 'Direct Play（原文件直发，零转码）',
+    remux: 'Direct Stream（仅换容器，零画质损失）',
+    audio_transcode: 'Direct Stream（仅音频转码，视频原样）',
+    video_transcode: '视频转码中（按所选画质重编）',
+    transcode: '转码中（按所选画质重编）',
+  }[method.value] || method.value
+})
+// 实际输出（不再只显示所选档位）：plan.height 为服务端真正落地的封顶高度
+const planHeight = ref(0)
+const srcHeight = ref(0)
+const qualityLine = computed(() => {
+  if (!method.value) return ''
+  const h = Number(planHeight.value) || 0
+  const src = Number(srcHeight.value) || 0
+  const dim = src ? `${src}p` : ''
+  if (method.value === 'video_transcode') {
+    if (h > 0) {
+      const auto = (reasons.value || []).some(r =>
+        r === 'auto_downscale_720p' || r === 'auto_downscale_1080p')
+      return `实际输出 ${h}p${auto ? '（自动封顶）' : ''}`
+    }
+    return dim ? `原分辨率 ${dim} 重编` : '原分辨率重编'
+  }
+  return dim ? `原分辨率 ${dim} 直通` : '原分辨率直通'
 })
 const REASON_TEXT = {
-  dovi_not_supported: '含杜比视界（浏览器无 DV 解码，已降为 SDR；原盘 DV 请用电视/Kodi 看）',
+  dovi_not_supported: '含杜比视界（浏览器无 DV 解码，已重编；原盘 DV 请用电视/Kodi 看）',
   video_codec_not_supported: '视频编码浏览器不支持，已重编为 H264',
-  audio_codec_not_supported: '音频编码浏览器不支持，已转为 AAC',
+  video_bit_depth_not_supported: '10bit 视频浏览器不能直解，已重编为 H264 8bit',
+  hdr_not_supported: 'HDR 片源本屏/浏览器不支持，已转 SDR（色彩可能偏灰）',
+  audio_codec_not_supported: '音频编码浏览器不支持，已单独转 AAC（视频不重编）',
   container_not_supported: '容器不对，已无损换为浏览器兼容容器',
   resolution_downscale: '已按所选画质降档（省 CPU）',
   pgs_needs_burn: '图片字幕（PGS/VobSub）已烧录进画面（较耗 CPU，切换字幕或原画需重转码）',
-  auto_downscale_720p: '已自动降为 720p（4K 片源软转太重，原画可在上方切回）',
+  auto_downscale_720p: '已自动封顶 720p（未检测到硬件转码，4K 软转太重；可选“原画”强制原分辨率，更耗 CPU）',
+  auto_downscale_1080p: '已自动封顶 1080p（硬件转码）',
+  source_transcode: '已按原画原分辨率重编（CPU 占用高，可能卡顿）',
+  subtitle_not_found: '所选字幕不可用',
 }
 const reasonLine = computed(() => (reasons.value || []).map(r => REASON_TEXT[r] || r).join('；'))
 function audioLabel(a, i) {
@@ -213,8 +269,37 @@ function fmt(sec) {
 function destroyHls() {
   if (hls) { try { hls.destroy() } catch (e) { /* 忽略 */ } hls = null }
 }
-// hls 挂载唯一入口（起播/自救共用）：接事件遥测，MEDIA_ATTACHED 后回到目标片内时间
-async function mountHls(v, url, targetMediaTime) {
+// 应用所选音轨（fMP4 rendition）：hls.audioTracks 顺序 = 服务端产出顺序（见 playback.audio_variants）
+function applyAudioTrack() {
+  if (!hls || !hls.audioTracks || !hls.audioTracks.length) {
+    logEvt('hls:audio-skip', 'tracks=' + (hls && hls.audioTracks ? hls.audioTracks.length : -1) +
+      ' want=' + (Number(audioIdx.value) || 0))
+    return false
+  }
+  const i = Number(audioIdx.value) || 0
+  if (i >= 0 && i < hls.audioTracks.length) {
+    if (hls.audioTrack !== i) {
+      try { hls.audioTrack = i; logEvt('hls:audioTrack', i) } catch (e) { /* 忽略 */ }
+    }
+    return true
+  }
+  return false
+}
+// 原生 HLS（Safari）音轨切换：video.audioTracks[k].enabled；不支持则返回 false
+function applyNativeAudioTrack(v) {
+  const tv = v || videoEl.value
+  if (engine !== 'native' || !tv || !tv.audioTracks || !tv.audioTracks.length) return false
+  const i = Number(audioIdx.value) || 0
+  for (let k = 0; k < tv.audioTracks.length; k++) {
+    try { tv.audioTracks[k].enabled = (k === i) } catch (e) { /* 忽略 */ }
+  }
+  return i < tv.audioTracks.length
+}
+// hls 挂载唯一入口（起播/自救共用）：接事件遥测，MEDIA_ATTACHED 后回到目标片内时间。
+// opts.fromStart：新会话必须从片内 0 起播——增长型 live 列表 hls.js 默认从“直播边缘”
+// 起（copy 档 ffmpeg 会抢跑到很后面，用户 seek 到 13:20 实际从 30:50 播）；会话的绝对
+// 起点已由 startOffset 记录，片内 0 = 会话起点。自救保持默认（回到当前直播边缘附近）。
+async function mountHls(v, url, targetMediaTime, opts) {
   let Hls = null
   try { Hls = await ensureHls() } catch (e) { Hls = null }
   if (!Hls || !Hls.isSupported()) {
@@ -223,7 +308,10 @@ async function mountHls(v, url, targetMediaTime) {
     return false
   }
   destroyHls()
-  hls = new Hls({ maxBufferLength: 30 })
+  manifestReady = false
+  const cfg = { maxBufferLength: 30 }
+  if (opts && opts.fromStart) cfg.startPosition = 0
+  hls = new Hls(cfg)
   hls.on(Hls.Events.ERROR, (_ev, data) => {
     if (data) {
       lastHlsError.value = (data.fatal ? 'FATAL ' : '') + (data.details || data.type)
@@ -249,6 +337,18 @@ async function mountHls(v, url, targetMediaTime) {
       try { v.currentTime = Math.max(0, targetMediaTime) } catch (e) { /* 忽略 */ }
     }
     tryPlay()
+  })
+  hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    manifestReady = true
+    logEvt('hls:manifest', 'tracks=' + ((hls && hls.audioTracks) ? hls.audioTracks.length : -1) +
+      ' want=' + (Number(audioIdx.value) || 0))
+    applyAudioTrack()   // 应用期间/已选音轨（含起播等待期用户先切好的选择）
+  })
+  // MANIFEST_PARSED 时 audioTracks 可能还是 0（控制器稍后才填充）：真正就绪在
+  // AUDIO_TRACKS_UPDATED，必须在这里补应用一次，否则起播等待期的切轨选择丢失。
+  hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => { applyAudioTrack() })
+  hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_ev, data) => {
+    try { logEvt('hls:AUDIO_TRACK_SWITCHED', String(((data || {}).id ?? ''))) } catch (e) { /* 忽略 */ }
   })
   hls.loadSource(url)
   hls.attachMedia(v)
@@ -330,7 +430,35 @@ function noteMediaError() {
   }
   return true
 }
+// 播放决策：POST 带客户端实测 caps（目标文档 §4）；逐片候选码串先实测再复判一次
+// （每个版本只实测一次），避免“粗判 HEVC 可播但该片 Main10 超档”之类误判。
+async function decidePlayback(subArg) {
+  const base = activeCaps || probedCaps[props.versionId] || await getCaps()
+  const post = (caps) => api(`/api/stream/${props.versionId}/decide`, {
+    method: 'POST',
+    body: JSON.stringify({ quality: quality.value, audio: audioIdx.value,
+                           sub: subArg, client: 'web', caps }),
+  })
+  const d = await post(base)
+  const media = d.media || {}
+  const strs = [...(media.vcaps || []),
+    ...((media.audio || []).flatMap(a => a.caps || []))]
+  if (!strs.length || probedCaps[props.versionId]) {
+    activeCaps = probedCaps[props.versionId] || base
+    return d
+  }
+  try {
+    const probes = await probeStrings(strs, { w: media.width, h: media.height })
+    probedCaps[props.versionId] = withProbes(base, probes)
+    activeCaps = probedCaps[props.versionId]
+    return await post(activeCaps)
+  } catch (e) {
+    activeCaps = base
+    return d
+  }
+}
 async function reload() {
+  const gen = ++reloadGen
   err.value = ''
   sessStatus.value = ''
   needGesture.value = false
@@ -338,8 +466,12 @@ async function reload() {
   lastTickPos = -1
   lastPlaylistUrl = ''
   lastHlsError.value = ''
-  // 切画质/音轨/字幕烧录时保持当前播放位置（此前会从 0 重播）
-  if (!seekPending.value && !resumePos) {
+  // 切画质/音轨/字幕烧录时保持当前播放位置：
+  // 仅“非显式起播”（seek/续播/从头开始已预设目标）才用实时位置；用后即消耗 resumePos，
+  // 否则残留的旧目标会让切档跳回上次 seek 点。
+  const fromZero = startFromZero
+  startFromZero = false
+  if (!seekPending.value && !resumePos && !fromZero) {
     try {
       const cur = Math.floor(absPos())
       if (cur > 5) resumePos = cur
@@ -349,6 +481,7 @@ async function reload() {
   freezeFrame.value = captureFrame()
   await closeSession()
   destroyHls()
+  manifestReady = false   // 旧 master 已失效，新挂载解析前不再认为可切 rendition
   const v = videoEl.value
   if (v) { try { v.pause() } catch (e) { /* 忽略 */ } v.removeAttribute('src'); v.load() }
   let d
@@ -357,16 +490,18 @@ async function reload() {
   burnOn = wantBurn
   const burnSub = wantBurn ? Number(subIdx.value) : -1
   try {
-    d = await api(`/api/stream/${props.versionId}/decide?quality=${quality.value}&audio=${audioIdx.value}` +
-      (burnSub >= 0 ? `&sub=${burnSub}` : ''))
+    d = await decidePlayback(burnSub >= 0 ? burnSub : (subIdx.value >= 0 ? subIdx.value : null))
   } catch (e) {
     err.value = '无法播放：' + e.message
     return
   }
+  if (gen !== reloadGen) return   // 新一轮 reload 已接管，放弃本轮（防两个 hls 实例互踩）
   method.value = d.method
   reasons.value = d.reasons || []
   audios.value = d.media?.audio || []
   subs.value = d.media?.subs || []
+  planHeight.value = Number(d.plan?.height) || 0
+  srcHeight.value = Number(d.media?.height) || 0
   // 播放器比例：padding-top = min(片源高宽比, 76vh)（16:9 片源按屏幕宽度自适应）；
   // HLS 模式底部额外预留控件条高度，视频区不被遮挡。无数据时容器也不塌陷。
   try {
@@ -380,20 +515,11 @@ async function reload() {
   } catch (e) { videoPadding.value = 'calc(min(56.25%, 68vh) + 46px)' }
   try {
     decidedDuration.value = Number(d.media?.duration) || 0
-    // 风险自动降档：需视频重编且片源>1080p 时，原画/1080p 转码太重则自动逃到 720p，
-    // 只降一次防循环；direct/remux 永远保持所选画质。
-    const needVideoEncode = d.method === 'transcode' && !(d.plan || {}).vcopy
-    const srcH = Number(d.media?.height) || 0
-    if (needVideoEncode && srcH > 1080 && quality.value !== '720p' && !autoDropped.value) {
-      autoDropped.value = true
-      quality.value = '720p'
-      reasons.value = [...reasons.value, 'auto_downscale_720p']
-      await reload()
-      return
-    }
-    applySubTrack()
-  const startAt = resumePos || 0
-  startOffset.value = Math.floor(startAt)
+    applySubs()
+  const startAt = fromZero ? 0 : (resumePos || 0)
+  resumePos = 0
+  lastStartAt = Math.floor(startAt)
+  startOffset.value = lastStartAt
   mediaErrLogged = ''
   if (d.method === 'direct') {
     engine = 'direct'
@@ -402,7 +528,8 @@ async function reload() {
     tryPlay()
   } else {
     // 渐进式会话：服务端前 3 分片就绪即回，首画面不等整片
-    sessStatus.value = d.method === 'remux' ? '正在封装…' : '正在转码（前分片生成中，稍候即播）…'
+    sessStatus.value = (d.method === 'remux' || d.method === 'audio_transcode')
+      ? '正在换封装…' : '正在转码（前分片生成中，稍候即播）…'
     let s
     try {
       s = await api(`/api/stream/${props.versionId}/sessions`, {
@@ -411,13 +538,15 @@ async function reload() {
         timeout: 300000,
         body: JSON.stringify({ quality: quality.value, audio: audioIdx.value,
                                start: Math.floor(startAt),
-                               sub: burnSub >= 0 ? burnSub : null }),
+                               sub: burnSub >= 0 ? burnSub : null,
+                               caps: activeCaps }),
       })
     } catch (e) {
       sessStatus.value = ''
       err.value = '无法播放：' + e.message
       return
     }
+    if (gen !== reloadGen) return   // 新一轮 reload 已接管（其会杀/复用本会话），别挂旧列表
     sessionId = s.session_id
     method.value = s.method || d.method
     reasons.value = s.reasons || d.reasons || []
@@ -433,11 +562,18 @@ async function reload() {
       engine = 'native'
       logEvt('engine:native', 'ManagedMediaSource')
       v.src = url
+      // 原生 HLS 对增长型 live 同样默认从直播边缘起：新会话强制回到片内 0；
+      // 音轨选择用 video.audioTracks 应用（Safari 有；没有则维持默认轨）
+      const onMeta = () => {
+        try { v.currentTime = 0 } catch (e) { /* 忽略 */ }
+        applyNativeAudioTrack(v)
+      }
+      v.addEventListener('loadedmetadata', onMeta, { once: true })
       tryPlay()
     } else {
       engine = 'hls'
       logEvt('engine:hls', '')
-      await mountHls(v, url, null)
+      await mountHls(v, url, null, { fromStart: true })
     }
     }
   } catch (e) {
@@ -446,25 +582,85 @@ async function reload() {
     err.value = '播放失败：' + (e && e.message ? e.message : e)
   }
 }
-function applySubTrack() {
+// 字幕渲染分层：none / vtt（浏览器 <track>）/ ass（JASSUB libass 客户端渲染）/ burn（转码烧录）
+function subKind(s) {
+  if (!s) return 'none'
+  if (s.image) return 'burn'
+  const c = String(s.codec || '').toLowerCase()
+  return (c === 'ass' || c === 'ssa') ? 'ass' : 'vtt'
+}
+function destroyAss() {
+  const inst = jassub
+  jassub = null
+  assKey = ''
+  if (inst) { try { inst.destroy() } catch (e) { /* 忽略 */ } }
+}
+async function mountAss(v, key) {
+  let mod = null
+  let meta = { fonts: [] }
+  try {
+    [mod, meta] = await Promise.all([
+      ensureJassub(),
+      api(`/api/stream/${props.versionId}/fonts`).catch(() => ({ fonts: [] })),
+    ])
+  } catch (e) {
+    posHint.value = 'ASS 渲染组件加载失败，可勾选「兼容」改用 VTT 字幕'
+    return
+  }
+  if (videoEl.value !== v || burnOn || subKind(subs.value[subIdx.value]) !== 'ass') return
+  const fonts = (meta.fonts || []).map(f => f.url)
+  assFonts.value = fonts.length
+  destroyAss()
+  try {
+    jassub = new mod.JASSUB({
+      video: v,
+      subUrl: `/api/stream/${props.versionId}/sub/${subIdx.value}.ass`,
+      fonts,
+      workerUrl: mod.workerUrl,
+      wasmUrl: mod.wasmUrl,
+      modernWasmUrl: mod.modernWasmUrl,
+      // ASS 里指定字体缺失时用系统/内置兜底；无字体也不崩（libass 用内置 Liberation Sans）
+      defaultFont: 'Liberation Sans',
+    })
+    assKey = key
+    posHint.value = fonts.length
+      ? `ASS 字幕（样式渲染，${fonts.length} 个可用字体）`
+      : 'ASS 字幕：未找到内嵌/内置字体，文字可能走默认字体；异常可勾选「兼容」或投放字体到 data/fonts/'
+    Promise.resolve(jassub.ready)
+      .then(() => logEvt('ass:ready', 'fonts=' + fonts.length))
+      .catch((e) => { posHint.value = 'ASS 渲染初始化失败，可勾选「兼容」改用 VTT 字幕'; logEvt('ass:error', String(e).slice(0, 160)) })
+  } catch (e) {
+    posHint.value = 'ASS 渲染初始化失败，可勾选「兼容」改用 VTT 字幕'
+    logEvt('ass:init-error', String(e).slice(0, 160))
+  }
+}
+// 应用当前所选字幕（会话重载/换视频元素/切轨共用）：先拆旧层再按类型装新层
+async function applySubs(force) {
   const v = videoEl.value
   if (!v) return
   v.querySelectorAll('track').forEach(t => t.remove())
-  if (burnOn) return // 烧录模式：字幕已在画面里
-  if (subIdx.value >= 0 && subs.value[subIdx.value] && !subs.value[subIdx.value].image) {
+  const kind = burnOn ? 'burn' : subKind(subs.value[subIdx.value])
+  const key = `${props.versionId}:${videoKey.value}:${subIdx.value}:${compatSub.value ? 'v' : 'a'}`
+  if (jassub && (force || kind !== 'ass' || assKey !== key)) destroyAss()
+  if (kind === 'none' || kind === 'burn') return
+  if (kind === 'vtt' || compatSub.value) {
     const tr = document.createElement('track')
     tr.kind = 'subtitles'
     tr.src = `/api/stream/${props.versionId}/sub/${subIdx.value}.vtt`
     tr.default = true
     v.appendChild(tr)
+    return
   }
+  if (jassub && assKey === key) return
+  await mountAss(v, key)
 }
-function applySub() { applySubTrack() }
 // 所选字幕是否为图片型（需烧录）
 function imageSubSelected() {
   const s = subs.value[subIdx.value]
   return !!(s && s.image)
 }
+// 当前所选是否为 ASS/SSA（决定「兼容」开关是否显示）
+const subIsAss = computed(() => subKind(subs.value[subIdx.value]) === 'ass')
 // 选完即失焦：否则焦点停在下拉框，方向键会去改选项而不是 seek/音量
 function blurPick(e) {
   try {
@@ -473,13 +669,29 @@ function blurPick(e) {
   } catch (err) { /* 忽略 */ }
 }
 function onQualityChange(e) { blurPick(e); reload() }
-function onAudioChange(e) { blurPick(e); reload() }
-// 字幕切换：图片↔文本/关闭 涉及烧录状态变化 → 重开转码；纯文本切换只换 <track>
+// 音轨切换：fMP4 rendition 已在会话里 → 切 hls.audioTrack 即刻生效（视频不重编不重开）；
+// 原生 Safari 用 video.audioTracks；会话尚未就绪时只改选择，等 MANIFEST_PARSED 应用；
+// 都不支持（TS 回滚单轨产物）才回退重开会话。
+function onAudioChange(e) {
+  blurPick(e)
+  logEvt('audio-change', 'raw=' + String((e && e.target && e.target.value) ?? '') +
+    ' ref=' + (Number(audioIdx.value) || 0) + ' ready=' + manifestReady)
+  if (applyAudioTrack()) return
+  if (applyNativeAudioTrack()) return
+  if (isHls.value && !manifestReady) return
+  reload()
+}
+// 字幕切换：图片↔文本/关闭 涉及烧录状态变化 → 重开转码；文本/ASS 只换渲染层
 function onSubChange(e) {
   blurPick(e)
   const wantBurn = imageSubSelected()
   if (wantBurn || burnOn) reload()
-  else applySubTrack()
+  else applySubs(true)
+}
+// 「兼容字幕(VTT)」：ASS 样式渲染异常/无字体时的降级开关
+function onCompatChange() {
+  try { localStorage.setItem('jzmedia.subCompat', compatSub.value ? '1' : '0') } catch (e) { /* 忽略 */ }
+  applySubs(true)
 }
 // 总时长统一用探测值：HLS 增长型清单里 v.duration 只是“已产出片段之和”（如 30s），
 // 用它算剩余会一开播就误判“已看”、存档 duration 也会写坏导致详情页看不到续播。
@@ -561,14 +773,14 @@ function resumePlay() {
   // 只有 direct 且浏览器没吃 #t 时才补跳一次。
   resumeOffer.value = ''
   const v = videoEl.value
-  if (v && method.value === 'direct' && resumePos > 0) {
-    try { v.currentTime = resumePos } catch (e) { /* 忽略 */ }
+  if (v && method.value === 'direct' && lastStartAt > 0) {
+    try { v.currentTime = lastStartAt } catch (e) { /* 忽略 */ }
   }
-  resumePos = 0
 }
 async function restartPlay() {
   resumeOffer.value = ''
   resumePos = 0
+  startFromZero = true
   startOffset.value = 0
   seekPos.value = 0
   try {
@@ -742,6 +954,8 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
   try {
     window.__jzPlayerDebug = () => debugSnapshot()
+    window.__jzHls = () => hls  // 调试口：DevTools 里查 hls.audioTracks / currentLevel
+    window.__jzAss = () => jassub
   } catch (e) { /* 忽略 */ }
   bufTimer = setInterval(() => {
     try {
@@ -881,6 +1095,13 @@ function debugSnapshot() {
       try { lat = hls.latency } catch (e) { /* 忽略 */ }
       try { edge = hls.liveSyncPosition } catch (e) { /* 忽略 */ }
       info.hls = { latency: lat, liveEdge: edge }
+      try {
+        const ats = hls.audioTracks || []
+        info.hls.audio = {
+          tracks: ats.map(t => `${t.name || ''}|${t.lang || ''}|${t.default ? 'D' : ''}`),
+          current: hls.audioTrack,
+        }
+      } catch (e) { /* 忽略 */ }
       const lv = (((hls.levels || [])[hls.currentLevel] || {}).details) || null
       if (lv) {
         info.hls.level = { live: !!lv.live, frags: (lv.fragments || []).length,
@@ -889,6 +1110,8 @@ function debugSnapshot() {
       }
     }
   } catch (e) { /* 忽略 */ }
+  info.ass = { active: !!jassub, fonts: assFonts.value, compat: compatSub.value,
+    kind: subKind(subs.value[subIdx.value]) }
   info.events = evtLog.slice(-25)
   return info
 }
@@ -925,7 +1148,10 @@ async function recoverStream(forceElement = false) {
       bindVideo(nv)
       muted.value = !!nv.muted
       volume.value = Number(nv.volume ?? 1)
+      // 换过 <video> 元素：JASSUB canvas 挂在旧元素后面，必须重建
+      destroyAss()
       await mountHls(nv, lastPlaylistUrl, Math.max(0, target - 0.5))
+      applySubs(true)
       return
     }
     destroyHls()
@@ -945,6 +1171,7 @@ onUnmounted(() => {
   if (bufTimer) clearInterval(bufTimer)
   if (saveTimer) clearTimeout(saveTimer)
   destroyHls()
+  destroyAss()
 })
 </script>
 <style scoped>
@@ -976,6 +1203,8 @@ onUnmounted(() => {
 .ctl-time { font-size: 0.75rem; color: #999; white-space: nowrap; }
 .ctl-seek { flex: 1; min-width: 80px; }
 .ctl-vol { width: 80px; }
+.ctl-compat { display: inline-flex; align-items: center; gap: 3px; color: #aaa; font-size: 0.75rem; white-space: nowrap; cursor: pointer; }
+.ctl-compat input { margin: 0; }
 
 /* 顶部标题条：仅全屏显示 */
 .pv-top { display: none; }
@@ -1004,6 +1233,7 @@ onUnmounted(() => {
 .pv-title { color: #eee; font-size: 0.9375rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .play-method { color: #888; font-size: 0.75rem; }
+.play-quality { color: #7ed321; font-size: 0.75rem; }
 .play-reason { color: #9ecfff; font-size: 0.75rem; }
 .sess-status { color: #e0a63c; font-size: 0.75rem; }
 .gesture-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: #262626; border: 1px solid #2b6cb0; border-radius: 8px; padding: 8px 12px; margin: 4px 0 0; color: #9ecfff; font-size: 0.875rem; }

@@ -37,9 +37,18 @@
                 </option>
               </select>
               <span v-if="heroResume" class="resume-hint">{{ heroResume }}</span>
-              <button v-if="!heroBlocked && !verFriendly(heroVid)" class="pre-btn"
-                :disabled="!!preJob" :title="'夜间/闲时把本片转好存着，完工后点播即静态秒播'"
-                @click="startPrewarm">{{ preJob ? '预转码中…' : '预转码720p' }}</button>
+              <span v-if="!heroBlocked && !verFriendly(heroVid)" class="pre-wrap">
+                <select v-model="preQuality" :disabled="!!preJob" class="pre-sel"
+                  title="预转码目标：自动=按服务器能力（无硬件转码→720p，有硬件→1080p）">
+                  <option value="auto">自动</option>
+                  <option value="1080p">1080p</option>
+                  <option value="720p">720p</option>
+                  <option value="source">原画</option>
+                </select>
+                <button class="pre-btn" :disabled="!!preJob"
+                  title="夜间/闲时把本片转好存着，完工后点播即静态秒播"
+                  @click="startPrewarm">{{ preJob ? '预转码中…' : '开始预转码' }}</button>
+              </span>
               <span v-if="preMsg" class="resume-hint">{{ preMsg }}</span>
             </div>
             <div v-if="(m.tags || []).length" class="tag-row">
@@ -87,7 +96,7 @@
             <summary>文件<span v-if="m.version_count > 1">（共{{ m.version_count }}个版本）</span></summary>
             <ul class="ver-list"><li v-for="v in m.versions" :key="v.id" class="f-row">
               <span class="f-name">{{ baseName(v.file_path) }}<span v-if="v.edition">（{{ v.edition }}）</span><span v-if="v.spec">（{{ v.spec }}）</span></span>
-              <span class="f-acts"><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a><button v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'">无效</button><button v-else @click="openStream(v)">播放</button><span v-if="verFriendly(v.id)" class="friendly-chip" title="浏览器可直播，几乎不占 NAS 算力">★</span><span v-else-if="verMethod[v.id]==='transcode'" class="trans-chip" title="浏览器需转码，较耗 NAS 算力">转码</span></span>
+              <span class="f-acts"><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a><button v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'">无效</button><button v-else @click="openStream(v)">播放</button><span v-if="verFriendly(v.id)" class="friendly-chip" title="浏览器可直播，几乎不占 NAS 算力">★</span><span v-else-if="verMethod[v.id]==='video_transcode'" class="trans-chip" title="浏览器需视频重编码，较耗 NAS 算力">转码</span></span>
             </li></ul>
             <div v-for="g in fileGroups" :key="g.key">
               <p v-if="g.items.length" class="hint">{{ g.label }}</p>
@@ -218,6 +227,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, apiUpload, posterUrl } from '../api.js'
+import { getCaps } from '../caps.js'
 import { hasScore, fmtScore, starRow } from '../ratings.js'
 import Spinner from '../components/Spinner.vue'
 import PlayerModal from '../components/PlayerModal.vue'
@@ -283,6 +293,9 @@ const mediaBadge = computed(() => {
   else if (h >= 650) parts.push('720p')
   else if (h > 0) parts.push(h + 'p')
   if (mi.vcodec) parts.push(String(mi.vcodec).toUpperCase())
+  if (Number(mi.bit_depth) > 8) parts.push(mi.bit_depth + 'bit')
+  if (Number(mi.dv_profile) > 0) parts.push('DV P' + mi.dv_profile)
+  else if (mi.hdr) parts.push(String(mi.hdr).toUpperCase())
   const na = (mi.audio || []).length
   if (na > 1) parts.push(`音频${na}轨`)
   else if (na === 1 && mi.acodec) parts.push(String(mi.acodec).toUpperCase())
@@ -306,15 +319,21 @@ const resumeText = computed(() => {
 async function loadMedia() {
   mediaLoading.value = true
   mediaError.value = ''
-  // P-B：一次取齐全版本（媒体+决策+最优版），替代逐版本 media 轮询
+  // P1：一次取齐全版本（媒体+四档决策+最优版），带客户端实测 caps（打分随能力变化）
   try {
-    const agg = await api(`/api/stream/versions?movie_id=${route.params.id}&quality=original`)
+    const caps = await getCaps()
+    const agg = await api('/api/stream/versions', {
+      method: 'POST',
+      body: JSON.stringify({ movie_id: Number(route.params.id), quality: 'auto', caps }),
+    })
     verList.value = agg.versions || []
     bestVid.value = agg.best_version_id || null
     const cur = verList.value.find(x => Number(x.version_id) === Number(route.params.id))
     mediaInfo.value = cur && cur.playable
       ? { playable: true, duration_text: cur.duration_text, duration: cur.duration,
           height: cur.height, vcodec: cur.vcodec, acodec: '',
+          hdr: cur.hdr || '', dv_profile: cur.dv_profile || 0,
+          bit_depth: cur.bit_depth || 0,
           audio: new Array(cur.audio_count).fill({}), subs: new Array(cur.sub_count).fill({}) }
       : (cur ? { playable: false, probe_error: cur.probe_error } : null)
     if (mediaInfo.value && !mediaInfo.value.playable) {
@@ -349,8 +368,8 @@ const verErr = ref({})
 const verMethod = ref({})
 const verList = ref([])
 const bestVid = ref(null)
-// “浏览器友好”= direct/remux（零/近零 CPU），转码版不打标
-const verFriendly = (id) => ['direct', 'remux'].includes(verMethod.value[id])
+// “浏览器友好”= direct/remux/audio_transcode（零/近零 CPU：仅换容器或只转音轨），视频重编版不打标
+const verFriendly = (id) => ['direct', 'remux', 'audio_transcode'].includes(verMethod.value[id])
 // P4 hero 主播放键：默认当前行，多版本可下拉切换（无效版本禁用）
 const heroVid = ref(null)
 const heroBlocked = computed(() => !!verBlocked.value[heroVid.value])
@@ -371,6 +390,7 @@ function openStream(v) {
 }
 // 预转码：闲时把本片转完存静态，完工后点播秒播；只给需转码版显示
 const preJob = ref(null)
+const preQuality = ref('auto')
 const preMsg = ref('')
 let preTimer = 0
 async function startPrewarm() {
@@ -379,7 +399,7 @@ async function startPrewarm() {
   try {
     const r = await api('/api/stream/prewarm', {
       method: 'POST',
-      body: JSON.stringify({ version_id: Number(heroVid.value), quality: '720p', audio: 0 }),
+      body: JSON.stringify({ version_id: Number(heroVid.value), quality: preQuality.value, audio: 0 }),
     })
     preJob.value = r.job_id
     preMsg.value = '已开始，后台转码中…'
@@ -892,6 +912,8 @@ onUnmounted(() => {
 .play-main:hover:not(:disabled) { background: #3580cc; }
 .play-main:disabled { background: #333; border-color: #444; color: #777; cursor: not-allowed; }
 .ver-sel { background: #262626; color: #ccc; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; max-width: 320px; }
+.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }
+.pre-sel { background: #262626; color: #ccc; border: 1px solid #6e5426; border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }
 .pre-btn { background: transparent; border: 1px dashed #6e5426; color: #e0a63c; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 0.8125rem; }
 .pre-btn:disabled { opacity: 0.6; cursor: wait; }
 .friendly-chip { color: #7ed321; font-size: 0.8125rem; }
