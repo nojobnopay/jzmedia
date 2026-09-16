@@ -108,7 +108,7 @@ def test_backfill_resume_and_cancel(monkeypatch):
 
     monkeypatch.setattr(col.store, "tmdb_ids_missing_collection",
                         lambda limit, force: [1, 2])
-    monkeypatch.setattr(scanner, "refresh_tmdb_id_fast",
+    monkeypatch.setattr(scanner.persist, "refresh_tmdb_id_fast",
                         lambda tid: ({"changed": False}, []))
     with col._JOBS_LOCK:
         saved = dict(col._JOBS)

@@ -554,7 +554,6 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
     正片→scan_one，花絮→attribute_extra，字幕/周边→仅文件。
     subdir 仅允许空或 extras（显式放花絮子目录）。
     """
-    import shutil as _shutil
     from ..scanner import is_feature_video as _is_feat, is_sidecar as _is_side
     from .files import _safe_component
     m = store.get_movie(movie_id)
