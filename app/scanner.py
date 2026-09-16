@@ -24,7 +24,16 @@ SIDECAR_TEXT_EXTS = {".srt": "srt", ".ass": "ass", ".ssa": "ssa"}
 SIDECAR_SUB_DIRS = ("subs", "Subs", "字幕")
 
 # 样片：*.Sample.mkv / *(Sample).mkv / Sample-xxx / Inception.1080p.sample.mkv
-_SAMPLE_RE = re.compile(r"(?i)(?:^|[.\-_ \([])sample(?:[.\-_ \)}\]]|$)")
+# 判定收紧（评审 P1-02）：sample 必须由 ./-/_ 分隔，且其后只允许跟已知发布词或直接到
+# stem 末尾；纯空格边界（The Sample Movie (2024)）或任意词（Sample.This.2012）不再误判
+# ——误判的代价是正片永不入库，比漏掉一个样片严重得多。
+_SAMPLE_TOKENS = (
+    r"\d{3,4}[pi]|4k|uhd|hdr\d*|dovi|dv|10bit|8bit|remux|"
+    r"web[.\-]?dl|webrip|bluray|bdrip|brrip|hdrip|hdtv|"
+    r"x26[45]|h[.\-]?26[45]|hevc|avc|aac|ac3|eac3|dts(?:[.\-]?hd)?|truehd|flac|atmos|proper|repack"
+)
+_SAMPLE_RE = re.compile(
+    r"(?i)(?:(?:^|[.\-_])samples?(?:[.\-_](?:%s)){0,3}|\(samples?\))$" % _SAMPLE_TOKENS)
 # 花絮：预告/幕后/删减/特辑/采访/片花/making of + 中文 花絮/预告/特辑/彩蛋
 # （short/scene 只认 Plex 式末尾后缀，避免吞掉片名含 Short 的正片）
 _EXTRAS_RE = re.compile(
