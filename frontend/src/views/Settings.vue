@@ -224,6 +224,7 @@
         <p v-if="orgConflicts.length" class="hint warn-text">冲突 {{ orgConflicts.length }} 项：
           <span v-if="mismatchCount">疑似错配 {{ mismatchCount }}（需重匹配，不自动加后缀）</span>
           <span v-if="diskCount">磁盘占用 {{ diskCount }}</span>
+          <span v-if="dbCount">库内占用 {{ dbCount }}</span>
           <button @click="loadOrgPreview" :disabled="!!busy">重新预览</button>
           <button v-if="conflictGroups.length > COLLAPSE_N" @click="showAllConflicts = !showAllConflicts">{{ showAllConflicts ? '收起' : '展开全部' }}</button>
         </p>
@@ -231,6 +232,7 @@
           <div v-for="g in visibleConflictGroups" :key="g.to" class="conflict-card">
             <div class="conflict-target">→ {{ g.to }}
               <span v-if="g.kind === 'suspect_mismatch'" class="kind-badge bad">疑似错配·请重匹配</span>
+              <span v-else-if="g.kind === 'db'" class="kind-badge">库内占用</span>
               <span v-else class="kind-badge">磁盘占用</span>
             </div>
             <div v-for="p in g.items" :key="'c' + p.id" class="conflict-row">
@@ -451,6 +453,7 @@ const conflictGroups = computed(() => {
 const visibleConflictGroups = computed(() => showAllConflicts.value ? conflictGroups.value : conflictGroups.value.slice(0, COLLAPSE_N))
 const mismatchCount = computed(() => orgConflicts.value.filter(p => p.kind === 'suspect_mismatch').length)
 const diskCount = computed(() => orgConflicts.value.filter(p => p.status === 'conflict_disk_exists').length)
+const dbCount = computed(() => orgConflicts.value.filter(p => p.status === 'conflict_db_occupied').length)
 // 行内改备注（版本/规格）编辑态
 const noteEdits = ref({})
 const noteMsg = ref({})
@@ -817,6 +820,7 @@ const restoreStatusMap = {
   restored: '已恢复',
   planned: '待恢复',
   conflict_disk_exists: '目标被占跳过',
+  conflict_db_occupied: '库内已占用跳过',
   skipped_missing_src: '源缺失跳过'
 }
 function restoreStatusText(s) {

@@ -29,7 +29,7 @@
 | P1-03 | R03-D1 | B1 | 剧集跳过实际入库污染海报墙 | **done** | tests/test_scan_rules.py::test_episode_not_inserted / test_clean_episodes_* |
 | P1-04 | R03-D3 | B1 | 扫描不剪枝 #recycle/@eaDir/隐藏目录 | **done** | tests/test_scan_rules.py::test_scan_all_prunes_recycle_and_hidden |
 | P1-05 | R08-D1 | B1 | clean-sidecars 误删正片库行 | **done** | tests/test_scan_rules.py::test_clean_sidecars_protects_tmdb_rows |
-| P1-06 | R09-D1 | B2 | 移动目标与 missing 行撞车致“文件已移/DB 未改” | pending | — |
+| P1-06 | R09-D1 | B2 | 移动目标与 missing 行撞车致“文件已移/DB 未改” | **done** | tests/test_files_organize.py（4 用例） |
 | P1-07 | R12-D1 | B2 | prewarm 与在线播互踩会话目录 | pending | — |
 | P1-08 | R13-D1 | B2 | HDR+烧录丢弃 tonemap 且无提示 | pending | — |
 | P1-09 | R01-B1 | B3 | UID/GID 文档与 compose 不一致 | pending | — |
@@ -42,14 +42,17 @@
 ## 4. 当前指针（中断恢复点）
 
 ```
-批次：B1（fix/b1-scan）已合回 main（merge d791def）并打批标签 p1-b1-scan
-步骤：B1 收尾完成。下一批待定：B2（P1-06/07/08，播放链需 docker+ffmpeg 实测）或 B3（P1-09/10/11，宿主可验）
-断点：等用户指令开下一批；开批时从最新 main 拉新分支（fix/b2-consistency / fix/b3-ops）
-下一步：用户确认批次后：git checkout -b fix/<batch>
+批次：B2（fix/b2-consistency）— 进行中
+步骤：分支已建；先做 P1-07 的 docker 复现（旧代码），再 P1-06/P1-08（宿主可验），最后 P1-07 修复+复验
+断点：无（刚开始）；docker 用临时 DATA_DIR + 只读挂载真实媒体，不碰用户正在跑的服务（8080）与真实库
+下一步：起 jzmedia:v0.4.0 容器（端口 18080，挂当前 app 代码）复现 prewarm 清目录
 ```
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-16：**P1-07 已复现（红）**：docker（jzmedia:v0.4.0 + 当前 app + 真实片源《大桥下面》只读挂载）——在线会话分片 `26/13` → 启动 prewarm 后 `22/11`（目录被清、双进程同写）。
+- 2026-09-16：**P1-06 done**：`_collect_plans` 增加库内占用检查（`conflict_db_occupied`/kind db）；`_move_one`/`_restore_one` 目标被他人行占用时提前拒绝，并在库写失败时回滚 rename；Settings 增加「库内占用」计数/徽标与恢复状态文案；pytest 58 passed，前端 build/test ok。
+- 2026-09-16：**B2 开工**：建分支 `fix/b2-consistency`。环境确认：用户 8080 服务在跑（勿动）；真实媒体在 `sample_media/`（332 个 mkv，仅 3 个非 0 字节，最小 2.96GB《大桥下面 1984》）；`jzmedia:v0.4.0` 镜像含 ffmpeg 7.1.5 可复用。
 - 2026-09-16：**B1 批次合回 main**（--no-ff `d791def`，tag `p1-b1-scan`）；main 上 pytest 54 passed。整体验证：L0（compileall/import/npm build）+ L1（pytest 54、node --test 7）+ L2 smoke 22/22。
 - 2026-09-16：**P1-05 done**：clean-sidecars 过滤 `tmdb_id` 非空行（已匹配行永不清理）；pytest 54 passed，全绿；L2 smoke 22/22 PASS；B1 批次验证完成。
 - 2026-09-16：**P1-04 done**：`scan_all` walk 剪枝（隐藏目录 + `_SKIP_DIR_NAMES`，`SCAN_SKIP_DIRS` 可追加），文件级隐藏名也跳过；pytest 53 passed / 1 failed；README 环境变量表同步。

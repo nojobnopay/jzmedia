@@ -134,9 +134,11 @@ def _keeper_of(comp: dict) -> dict:
 def _collect_plans(target_root: str | None = None,
                    group_by_region: bool = False,
                    only: set | None = None) -> tuple[list, list]:
-    rows = store.list_movies(grouped=False, limit=100000)
-    if only:
-        rows = [m for m in rows if m["id"] in only]
+    all_rows = store.list_movies(grouped=False, limit=100000)
+    # 目标路径 → 库内占用行 id。磁盘缺失的 missing 行也占 UNIQUE(file_path)，
+    # 执行前必须挡掉（评审 P1-06：否则 rename 成功而 DB 更新失败，盘库不一致）。
+    db_owner = {os.path.normpath(m["file_path"]): m["id"] for m in all_rows}
+    rows = [m for m in all_rows if m["id"] in only] if only else all_rows
     comps = [c for m in rows if (c := _components(m))]
     current_paths = {os.path.normpath(m["file_path"]) for m in rows}
     # 第一遍：版本+分卷（无规格），按目标分组
@@ -229,13 +231,18 @@ def _collect_plans(target_root: str | None = None,
                               spec_used="-".join(specs))
                 if p:
                     plans.append(p)
-    # 磁盘占用检查：目标已被库外文件占用则冲突
+    # 磁盘/库内占用检查：目标已被库外文件或另一条库行占用则冲突
     final_plans = []
     for p in plans:
+        dst = os.path.normpath(p["to"])
+        owner = db_owner.get(dst)
         if (os.path.exists(os.path.join(settings.media_root, p["to"]))
-                and os.path.normpath(p["to"]) not in current_paths):
+                and dst not in current_paths):
             conflicts.append({**p, "status": "conflict_disk_exists",
-                              "kind": "spec"})
+                              "kind": "disk"})
+        elif owner is not None and owner != p["id"]:
+            conflicts.append({**p, "status": "conflict_db_occupied",
+                              "kind": "db"})
         else:
             final_plans.append(p)
     return final_plans, conflicts
@@ -391,12 +398,25 @@ def _move_one(p: dict) -> dict:
         return {**p, "status": "skipped_missing_src"}
     if os.path.exists(dst):
         return {**p, "status": "conflict_disk_exists"}
+    # 库内占用保护（评审 P1-06）：目标路径若挂在另一条库行上（哪怕文件缺失），
+    # 先改库后挪盘会撞 UNIQUE(file_path) → 盘已动库未动。此处提前拒绝。
+    existing = store.get_by_path(p["to"])
+    if existing is not None and int(existing.get("id") or -1) != int(p["id"]):
+        return {**p, "status": "conflict_db_occupied"}
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         followers = _sibling_followers(src)
         os.rename(src, dst)
         # 本地写：只改 file_path，不碰 TMDB 镜像列
-        store.update_movie_local(p["id"], file_path=p["to"])
+        try:
+            store.update_movie_local(p["id"], file_path=p["to"])
+        except Exception:
+            # 库写失败回滚移动，保证盘/库一致（正常路径已被上面的占用检查挡住）
+            try:
+                os.rename(dst, src)
+            except OSError:
+                pass
+            raise
         # 规划期识别的版本/编号后缀落库（DB 为空才写，手工值优先），防下次预览回环
         try:
             cur = store.get_movie(p["id"]) or {}
@@ -702,6 +722,10 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
         return {**base, "status": "skipped_missing_src"}
     if os.path.exists(dst):
         return {**base, "status": "conflict_disk_exists"}
+    # 库内占用保护（评审 P1-06）：同 _move_one，目标挂在别的库行上时先拒绝
+    existing = store.get_by_path(base["to"]) if base["to"] else None
+    if existing is not None and int(existing.get("id") or -1) != int(m["id"]):
+        return {**base, "status": "conflict_db_occupied"}
     if dry_run:
         return {**base, "status": "planned"}
     try:
@@ -709,7 +733,14 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
         old_dir = os.path.dirname(src)
         os.rename(src, dst)
         # 本地写：只改 file_path，不碰 TMDB 镜像列与 original_file_path
-        store.update_movie_local(m["id"], file_path=base["to"])
+        try:
+            store.update_movie_local(m["id"], file_path=base["to"])
+        except Exception:
+            try:
+                os.rename(dst, src)
+            except OSError:
+                pass
+            raise
         try:
             sync_nfos_for(m["id"], dst)
         except Exception:
