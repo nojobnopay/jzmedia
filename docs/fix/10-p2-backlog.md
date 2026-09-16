@@ -8,10 +8,10 @@
 ## 1. 当前指针
 
 ```
-批次：B5a 硬化批（fix/b5a-harden）— 进行中
-步骤：台账已建；开始 #1（R03-B1 重扫保留手动标题）
+批次：B5a 硬化批（fix/b5a-harden）— 10/10 done，待整批验证后合回 main
+步骤：L0/L1（98 passed + node 7）已随各步绿；待 L2 smoke → merge → tag p1-b5a-harden
 断点：无
-下一步：逐项「用例红→修→绿→commit」，#1..#10
+下一步：merge --no-ff → tag → 指针转 B6（先出 H-SEC 人审清单）
 ```
 
 ## 2. 已完成批次（B1–B4，P1 全清，见 docs/fix/00-index.md）
@@ -23,16 +23,16 @@
 ### B5a 硬化批（fix/b5a-harden）
 | 组 | 成员 | 状态 | 证据 |
 |---|---|---|---|
-| B5a-1 | R03-B1 重扫覆盖手动标题 | doing | — |
-| B5a-2 | R03-D6 年份兜底采信未标 needs_review | pending | — |
-| B5a-3 | R10-D6 / R05-D6 国家名前端硬编码 | pending | — |
-| B5a-4 | R09-D4 clean 缺 dry_run | pending | — |
-| B5a-5 | R05-D2 上传 rename 覆盖竞态 + blob nosniff | pending | — |
-| B5a-6 | R03-B6 / R05-B8 / R10-B1 / R13-D4 / R13-D5 原子写 | pending | — |
-| B5a-7 | R12-D2 prewarm 用 default_caps 与真实 plan 不一致 | pending | — |
-| B5a-8 | R09-Q4 / R12-B3 旧口删除（rename/relocate/legacy HLS，用户确认删） | pending | — |
-| B5a-9 | R04-D3 筛选双请求 | pending | — |
-| B5a-10 | R06-D4 backfill 不自动续跑 | pending | — |
+| B5a-1 | R03-B1 重扫覆盖手动标题 | done | 见 commit |
+| B5a-2 | R03-D6 年份兜底采信未标 needs_review | done | 见 commit |
+| B5a-3 | R10-D6 / R05-D6 国家名前端硬编码 | done | 见 commit |
+| B5a-4 | R09-D4 clean 缺 dry_run | done | 见 commit |
+| B5a-5 | R05-D2 上传 rename 覆盖竞态 + blob nosniff | done | 见 commit |
+| B5a-6 | R03-B6 / R05-B8 / R10-B1 / R13-D4 / R13-D5 原子写 | done | 见 commit |
+| B5a-7 | R12-D2 prewarm 用 default_caps 与真实 plan 不一致 | done | 见 commit |
+| B5a-8 | R09-Q4 / R12-B3 旧口删除（rename/relocate/legacy HLS，用户确认删） | done | 见 commit |
+| B5a-9 | R04-D3 筛选双请求 | done | 见 commit |
+| B5a-10 | R06-D4 backfill 不自动续跑 | done | 见 commit |
 
 ### B6 安全加固批
 | 组 | 成员 | 状态 | 备注 |
@@ -92,4 +92,5 @@
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-16：**B5a 10/10 done**：R03-B1、R03-D6、R10-D6、R09-D4、R05-D2、原子写（R03-B6/R05-B8/R10-B1/R13-D4）、R12-D2、旧口删除（R09-Q4/R12-B3）、R04-D3、R06-D4；pytest 99 passed，smoke 30/30，前端 build/test 绿。
 - 2026-09-16：台账建立；B5a 开工（分支 fix/b5a-harden）。
