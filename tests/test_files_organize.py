@@ -90,3 +90,17 @@ def test_clean_defaults_to_dry_run(media_root):
     out = files_router.clean({"ids": [mid], "dry_run": False})
     assert out["dry_run"] is False
     assert store.get_movie(mid) is None
+
+
+# ---------- B5a-8（R09-Q4/R12-B3）：旧兼容口已删除 ----------
+
+def test_legacy_endpoints_removed():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    c = TestClient(app)
+    assert c.post("/api/files/rename", json={}).status_code in (404, 405)
+    assert c.post("/api/files/relocate", json={}).status_code in (404, 405)
+    # 旧 HLS 直连口：不再返回 HLS 播放列表（未知 GET 落到 SPA catch-all）
+    r = c.get("/api/stream/1/master.m3u8")
+    assert "mpegurl" not in (r.headers.get("content-type") or "")
+    assert "#EXTM3U" not in r.text

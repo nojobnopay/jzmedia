@@ -683,30 +683,6 @@ def clean(body: dict | None = None):
             "failed": failed, "results": done}
 
 
-@router.post("/rename")
-def rename(body: dict | None = None):
-    """旧口（保留兼容）：等价于 organize mode=inplace。"""
-    body = body or {}
-    out = _organize("inplace",
-                    only=set(body.get("ids", []) or []) or None,
-                    dry_run=body.get("dry_run", True))
-    # 保持旧响应形状
-    out.pop("mode", None)
-    return out
-
-
-@router.post("/relocate")
-def relocate(body: dict | None = None):
-    """旧口（保留兼容）：等价于 organize mode=relocate。"""
-    body = body or {}
-    return _organize("relocate", from_prefix=body.get("from_prefix"),
-                     to_dir=body.get("to_dir"),
-                     group_by_region=(True if body.get("group_by_region") is None
-                                      else bool(body.get("group_by_region"))),
-                     only=set(body.get("ids", []) or []) or None,
-                     dry_run=body.get("dry_run", True))
-
-
 def _restore_candidates(only: set | None) -> list[dict]:
     """偏离原始位置的行：有原始路径、与当前位置不一致、当前文件仍存在。"""
     out = []
