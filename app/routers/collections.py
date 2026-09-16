@@ -249,6 +249,9 @@ def from_tmdb_series(body: dict):
     hint = store.collection_hint_for_movie(movie_id)
     if not hint or not hint.get("collection_tmdb_id"):
         raise HTTPException(422, "movie has no tmdb collection")
+    if hint.get("already_collected"):
+        # 服务端查重（评审 B7/R06-D5）：不再只靠前端提示，直连 API 也不会建重复合集
+        raise HTTPException(409, "series already collected")
     name = ((body or {}).get("name") or hint.get("collection_name") or "").strip()
     if not name:
         raise HTTPException(422, "name required")

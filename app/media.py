@@ -30,18 +30,11 @@ RETRYABLE_ERRORS = ("ffprobe not installed", "ffprobe timeout", "stat failed")
 def _static_bins_if_present() -> dict:
     """已下载好的 static-ffmpeg 双二进制（只看文件在不在，绝不触发下载）。"""
     try:
-        import static_ffmpeg  # noqa: F401
         import os as _os
         import glob as _glob
-        pkgdir = _os.path.join(_os.path.dirname(__file__), "..", ".venv",
-                               "lib", "python3.12", "site-packages",
-                               "static_ffmpeg", "bin")
-        # .venv 位置随启动方式变：优先按已安装包的实际路径找
-        try:
-            import static_ffmpeg as _pkg
-            pkgdir = _os.path.join(_os.path.dirname(_pkg.__file__), "bin")
-        except Exception:
-            pass
+        import static_ffmpeg as _pkg
+        # .venv 位置随启动方式变：按已安装包的实际路径找（评审 B7/R11-B2：删死路径）
+        pkgdir = _os.path.join(_os.path.dirname(_pkg.__file__), "bin")
         out = {}
         for name in ("ffmpeg", "ffprobe"):
             cands = _glob.glob(_os.path.join(pkgdir, "*", name)) + \
@@ -229,9 +222,14 @@ def probe(abs_path: str, timeout: int = 30) -> dict:
     videos = [s for s in (data.get("streams") or []) if (s.get("codec_type") or "") == "video"]
     audios = [s for s in (data.get("streams") or []) if (s.get("codec_type") or "") == "audio"]
     subs = [s for s in (data.get("streams") or []) if (s.get("codec_type") or "") == "subtitle"]
-    # 首视频流定分辨率/编码（封面流 png/mjpeg 跳过）
+    # 首视频流定分辨率/编码（封面流跳过：attached_pic 或 png/mjpeg 缩略图；评审 B7/R11-B4）
     for v in videos:
         cn = norm_codec(v.get("codec_name") or "")
+        try:
+            if int((v.get("disposition") or {}).get("attached_pic") or 0):
+                continue
+        except (TypeError, ValueError):
+            pass
         if cn in ("png", "mjpeg", "bmp") and len(videos) > 1:
             continue
         base["vcodec"] = cn
@@ -365,8 +363,9 @@ def audio_codec_string(acodec: str) -> str:
 
 
 def audio_caps(acodec: str) -> list[str]:
-    """音频 → 全量 MIME 候选（前端逐条实测用）。"""
-    return [f'audio/mp4; codecs="{c}"' for c in _AUDIO_CAPS.get(acodec or "", [])]
+    """音频 → 全量 MIME 候选（前端逐条实测用；内归一，评审 B7/R11-B3）。"""
+    return [f'audio/mp4; codecs="{c}"'
+            for c in _AUDIO_CAPS.get(norm_codec(acodec) or "", [])]
 
 
 def decorate(info: dict) -> dict:

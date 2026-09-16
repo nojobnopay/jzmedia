@@ -309,7 +309,7 @@ const hdSetHost = ref(null)
 const fsSetHost = ref(null)
 const setHost = computed(() =>
   (isFull.value ? fsSetHost.value : hdSetHost.value) || hdSetHost.value || fsSetHost.value)
-const isHls = computed(() => ['remux', 'audio_transcode', 'transcode', 'video_transcode']
+const isHls = computed(() => ['remux', 'audio_transcode', 'video_transcode']
   .includes(method.value))
 const bufLine = computed(() => {
   if (!isHls.value) return ''
@@ -336,7 +336,6 @@ const methodLine = computed(() => {
     remux: 'Direct Stream（仅换容器，零画质损失）',
     audio_transcode: 'Direct Stream（仅音频转码，视频原样）',
     video_transcode: '视频转码中（按所选画质重编）',
-    transcode: '转码中（按所选画质重编）',
   }[method.value] || method.value
 })
 // 实际输出（不再只显示所选档位）：plan.height 为服务端真正落地的封顶高度
@@ -370,6 +369,7 @@ const REASON_TEXT = {
   resolution_downscale: '已按所选画质降档（省 CPU）',
   pgs_needs_burn: '图片字幕（PGS/VobSub）已烧录进画面（较耗 CPU，切换字幕或原画需重转码）',
   vobsub_needs_burn: 'VobSub 图片字幕只能烧录（会重编视频）',
+  dovi_no_base_tonemap: '杜比视界无 HDR10 兼容基底，转码色彩不可靠；建议「复制直链」交给电视/Kodi',
   auto_downscale_720p: '已自动封顶 720p（未检测到硬件转码，4K 软转太重；可选“原画”强制原分辨率，更耗 CPU）',
   auto_downscale_1080p: '已自动封顶 1080p（硬件转码）',
   source_transcode: '已按原画原分辨率重编（CPU 占用高，可能卡顿）',

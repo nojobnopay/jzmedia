@@ -178,3 +178,19 @@ def test_clean_episodes_protects_matched_rows(media_root):
     mid = _make_movie_row(rel, tmdb_id=990002, title="Some Show")
     prev = files_router.clean_episodes({"dry_run": True})
     assert mid not in {p["id"] for p in prev["plans"]}
+
+
+# ---------- B7-DELETE（R02-B2/R08-B5/R09-B5）：删片置空花絮归属 ----------
+
+def test_delete_movie_orphans_extras(media_root):
+    rel = "del/owner.mkv"
+    _touch(media_root, rel)
+    mid = _make_movie_row(rel, title="Owner")
+    eid = store.upsert_extra("del/making.mkv", mid, "behindthescenes")
+    assert store.list_orphan_extras() == [] or all(
+        e["id"] != eid for e in store.list_orphan_extras())
+
+    assert store.delete_movie(mid) is True
+    e = store.get_extra(eid)
+    assert e is not None and e["movie_id"] is None          # 不悬挂
+    assert any(x["id"] == eid for x in store.list_orphan_extras())  # 出现在 orphan 列表

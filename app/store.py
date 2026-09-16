@@ -889,7 +889,8 @@ def find_movie_for_extra(title: str, year: int | None) -> dict | None:
 
 def delete_movie(movie_id: int) -> bool:
     """彻底删除单行（软件外删片/移动后产生）：删关联+主行+FTS行。
-    海报与 tmdb_cache 保留（多版本/重扫复用）。播放侧 media_info/progress 级联清理。返回行是否存在。"""
+    海报与 tmdb_cache 保留（多版本/重扫复用）。播放侧 media_info/progress 级联清理。
+    花絮归属置空（评审 B7/R02-B2：悬挂 movie_id 会让花絮既不在归属也不在 orphan 列表）。"""
     with _lock, _conn() as c:
         row = c.execute("SELECT id FROM movies WHERE id=?", (movie_id,)).fetchone()
         if not row:
@@ -897,6 +898,11 @@ def delete_movie(movie_id: int) -> bool:
         c.execute("DELETE FROM movie_person WHERE movie_id=?", (movie_id,))
         c.execute("DELETE FROM movies WHERE id=?", (movie_id,))
         c.execute("DELETE FROM movies_fts WHERE rowid=?", (movie_id,))
+        try:
+            c.execute("UPDATE extras SET movie_id=NULL, updated_at=? WHERE movie_id=?",
+                      (int(time.time()), movie_id))
+        except Exception as e:
+            logger.warning("clear extras refs failed mid=%s: %s", movie_id, e)
         try:
             c.execute("DELETE FROM media_info WHERE movie_id=?", (movie_id,))
         except Exception:
@@ -1002,8 +1008,7 @@ def upsert_media_info(movie_id: int, info: dict) -> dict:
              1 if info.get("playable") else 0,
              str(info.get("probe_error") or "")[:300], now))
     out = get_media_info(int(movie_id))
-    assert out is not None
-    return out
+    return out if out is not None else info   # 评审 B7/R02-B5：不用 assert 当控制流
 
 
 def get_progress(version_id: int) -> dict | None:
@@ -1365,7 +1370,8 @@ def add_collection_members(cid: int, rep_ids: list) -> dict:
                                 (cid, tid, mid, 0, now))
                 if cur.rowcount:
                     added += 1
-            except Exception:
+            except Exception as e:
+                logger.warning("add member failed cid=%s key=%s: %s", cid, (tid, mid), e)
                 continue
         c.execute("UPDATE collections SET updated_at=? WHERE id=?", (now, cid))
         total = c.execute("SELECT COUNT(*) AS n FROM collection_members WHERE collection_id=?",

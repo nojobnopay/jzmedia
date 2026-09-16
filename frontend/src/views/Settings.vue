@@ -540,10 +540,11 @@ async function doScan() {
   scanMsg.value = ''
   try {
     const d = await api('/api/scan', { method: 'POST' })
-    const c = {}
-    for (const r of d.results) c[r.status] = (c[r.status] || 0) + 1
+    const c = d.counts || {}
     const ok = (c.ok || 0) + (c.ok_needs_review || 0)
     scanMsg.value = `完成：新增/更新 ${ok}，已同步跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
+      + (c.skipped_episode_v1 ? `，剧集跳过 ${c.skipped_episode_v1}` : '')
+      + ((d.errors || []).length ? `，失败 ${d.errors.length}` : '')
     await loadStats()
     await loadMissing(true)
     await loadUnmatched(true)

@@ -722,8 +722,10 @@ async function doScan() {
   msg.value = ''
   try {
     const d = await api('/api/scan', { method: 'POST' })
-    const ok = d.results.filter(r => r.status === 'ok').length
-    msg.value = `完成：${ok}/${d.results.length} 匹配成功`
+    const c = d.counts || {}
+    const ok = (c.ok || 0) + (c.ok_needs_review || 0)
+    msg.value = `完成：新增/更新 ${ok}，跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
+      + ((d.errors || []).length ? `，失败 ${d.errors.length}` : '')
     await loadFacets()
     await load()
   } catch (e) {

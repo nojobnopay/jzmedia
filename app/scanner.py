@@ -14,11 +14,19 @@ from guessit import guessit
 from . import store, tmdb
 from .config import settings
 from .db import POSTER_DIR, ensure_dirs
+from .editions import detect_edition, detect_spec, split_stack
 from .log import get_logger
 from .nfo import write_movie_nfo
 from .regions import resolve as resolve_region
 
 logger = get_logger("scanner")
+
+# 扫描/归属状态字符串（评审 B7/R08-Q3）：集中定义，避免多处字面量拼写漂移
+ST_SKIPPED_SAMPLE = "skipped_sample"
+ST_EXTRA_ATTACHED = "extra_attached"
+ST_EXTRA_ORPHAN = "extra_orphan"
+ST_NO_MATCH = "no_match"
+ST_EPISODE = "skipped_episode_v1"
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv", ".webm"}
 SUBTITLE_EXTS = {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup"}
@@ -83,7 +91,6 @@ _KIND_WORDS: list[tuple] = [
     (re.compile(r"(?i)behind[ ._\-]*the[ ._\-]*scenes|making[\s.\-_]*of|メイキング|花絮|幕后"), "behindthescenes"),
     (re.compile(r"(?i)deleted[ ._\-]*scenes?|bloopers?"), "deleted"),
     (re.compile(r"(?i)featurette|特辑|彩蛋"), "featurette"),
-    (re.compile(r"(?i)interviews?"), "interview"),
     (re.compile(r"(?i)interviews?"), "interview"),
     (re.compile(r"(?i)[ ._\-]+scene$"), "scene"),
     (re.compile(r"(?i)[ ._\-]+shorts?$"), "short"),
@@ -290,7 +297,6 @@ def parse_filename(name: str) -> dict:
     title = g.get("title") or os.path.splitext(name)[0]
     if isinstance(title, list):
         title = title[0]
-    from .editions import detect_edition, detect_spec, split_stack
     stem = os.path.splitext(name)[0]
     _, stack = split_stack(stem)
     return {"title": str(title), "year": g.get("year"),
@@ -420,26 +426,26 @@ def _sync_jobs(mid: int, jobs: list[tuple], max_workers: int = 8) -> int:
         pid_tmdb, _, profile_path, _, _, _ = item
         if not profile_path:
             return pid_tmdb, "-", False, ""
-        raw = store.get_person_raw(pid_tmdb)
-        stored_profile = (raw or {}).get("profile_tmdb_path") or ""
+        raw = store.get_person_raw(pid_tmdb) or {}
+        stored_profile = raw.get("profile_tmdb_path") or ""
+        old_avatar = raw.get("avatar") or ""
         dest = os.path.join(POSTER_DIR, f"person_{pid_tmdb}.jpg")
-        if raw and stored_profile == (profile_path or "") and os.path.exists(dest) and (raw.get("avatar") or "") not in ("", None):
-            return pid_tmdb, raw.get("avatar") or "", False, profile_path or ""
-        if stored_profile != (profile_path or "") and os.path.exists(dest):
-            try:
-                os.remove(dest)
-            except Exception:
-                pass
-            existed = False
-        else:
-            existed = os.path.exists(dest)
+        if (stored_profile == (profile_path or "") and os.path.exists(dest)
+                and old_avatar):
+            return pid_tmdb, old_avatar, False, profile_path or ""
+        # 远端换图/首下：download_poster 自带 tmp+replace 原子写；失败绝不删旧图
+        # （评审 B7/R03-B2：此前先删旧文件再下载，失败会把头像清空）
+        existed = os.path.exists(dest)
         avatar = save_person_avatar(pid_tmdb, profile_path)
-        if not avatar and raw and os.path.exists(dest):
-            avatar = os.path.relpath(dest, settings.data_dir)
-        if not avatar and profile_path:
-            logger.debug("avatar download failed person=%s profile=%s", pid_tmdb,
-                         profile_path)
-        return pid_tmdb, avatar, bool(avatar and avatar != "-" and not existed), profile_path or ""
+        if avatar:
+            return pid_tmdb, avatar, (not existed), profile_path or ""
+        if old_avatar and os.path.exists(os.path.join(settings.data_dir, old_avatar)):
+            logger.debug("avatar download failed, keep old person=%s old=%s",
+                         pid_tmdb, old_avatar)
+            return pid_tmdb, old_avatar, False, stored_profile
+        logger.debug("avatar download failed person=%s profile=%s", pid_tmdb,
+                     profile_path)
+        return pid_tmdb, "", False, profile_path or ""
 
     avatars: dict = {}
     profiles: dict = {}
@@ -683,8 +689,8 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
                 for n in deleted:
                     try:
                         os.remove(os.path.join(movie_dir, n))
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        logger.debug("nfo remove failed file=%s: %s", n, e)
             return {"ok": True, "mode": "single", "dir": rel_dir,
                     "wrote": ["movie.nfo"], "deleted": sorted(deleted)}
         # 独占多版本：movie.nfo + 每个相关版本各写同名（各用各行的全量 dict，保留手工评分差异）
@@ -702,8 +708,8 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
                     got = store.get_movie(int(row["id"]))
                     if got:
                         full = got
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("load version row failed id=%s: %s", row.get("id"), e)
             writers.append((st + ".nfo", full))
         deleted = [n for n in existing_nfos if n not in wanted]
         if not dry_run:
@@ -816,8 +822,7 @@ def apply_tmdb_detail_fast(mid: int, detail: dict, abs_path: str,
         # 其余 TMDB 列经 copy 已同步（copy 内含除 poster 外全量）
     else:
         store.copy_tmdb_to_movie(mid, old_title=old_title if old_cache else None)
-    # 快路径也刷一次 FTS（文字已就绪，海报/头像不进索引）
-    store.resync_fts(mid)
+    # copy_tmdb_to_movie/update_movie_meta 内部已 resync_fts（评审 B7/R05-B1：不再重复）
     movie = store.get_movie(mid) or {}
     needs = _media_needs(tmdb_id, mid, poster_tmdb, old_poster_tmdb, detail)
     out = {"title": movie.get("title", ""), "year": movie.get("year"),
@@ -915,7 +920,6 @@ def refresh_tmdb_id_fast(tmdb_id: int) -> tuple[dict, list[dict]]:
         if not m:
             continue
         store.copy_tmdb_to_movie(mid, old_title=old_title if old_cache else None)
-        store.resync_fts(mid)
         abs_path = os.path.join(settings.media_root, m["file_path"])
         affected.append(mid)
         jobs.append({"mid": mid, "tmdb_id": tmdb_id, "detail": detail,
@@ -936,11 +940,11 @@ def attribute_extra(abs_path: str) -> dict:
     rel = os.path.relpath(abs_path, settings.media_root)
     base = os.path.basename(abs_path)
     if is_sample(base):
-        return {"file": rel, "status": "skipped_sample"}
+        return {"file": rel, "status": ST_SKIPPED_SAMPLE}
     kind = extra_kind(rel)
     if kind == "sample":
         # 样片片段：只认不收（永不归属、不入库、不搬迁）
-        return {"file": rel, "status": "skipped_sample"}
+        return {"file": rel, "status": ST_SKIPPED_SAMPLE}
     parsed = parse_filename(base)
     title = normalize_title(parsed.get("title") or "")
     # 花絮文件名常带原标题（如 Making of おもひでぽろぽろ）：归一后直比；
@@ -975,12 +979,12 @@ def attribute_extra(abs_path: str) -> dict:
         # 历史 orphan：正片后入库/匹配修好后重扫自动补归属（已有归属的不碰，手工认领优先）
         try:
             store.upsert_extra(rel, mid, kind)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("re-attribute extra failed file=%s: %s", rel, e)
     if mid:
-        return {"file": rel, "status": "extra_attached", "movie_id": mid,
+        return {"file": rel, "status": ST_EXTRA_ATTACHED, "movie_id": mid,
                 "kind": kind, "title": hit.get("title", "")}
-    return {"file": rel, "status": "extra_orphan", "kind": kind}
+    return {"file": rel, "status": ST_EXTRA_ORPHAN, "kind": kind}
 
 
 def scan_one(abs_path: str) -> dict:
@@ -997,7 +1001,7 @@ def scan_one(abs_path: str) -> dict:
     if parsed["type"] == "episode":
         # V1 仅电影：剧集不入库（评审 P1-03：旧实现建行会让剧集出现在海报墙/统计里，
         # 与 README“剧集跳过”不符）。历史脏行由 POST /api/files/clean-episodes 清理。
-        return {"file": rel, "status": "skipped_episode_v1"}
+        return {"file": rel, "status": ST_EPISODE}
     m, used_q, year_mismatch = search_with_fallback(parsed["title"], parsed["year"])
     if not m:
         mid = store.upsert_movie_by_path(rel)
@@ -1019,9 +1023,9 @@ def scan_one(abs_path: str) -> dict:
         if local:
             try:
                 store.update_movie_local(mid, **local)
-            except Exception:
-                pass
-        return {"file": rel, "status": "no_match", "parsed": parsed}
+            except Exception as e:
+                logger.debug("persist edition/spec failed mid=%s: %s", mid, e)
+        return {"file": rel, "status": ST_NO_MATCH, "parsed": parsed}
     tmdb_id = int(m["id"])
     mid = store.upsert_movie_by_path(rel)
     # 版本/规格后缀持久化：重扫不覆盖手工改过的值（非空保留）
@@ -1064,7 +1068,7 @@ def scan_all() -> list[dict]:
                 try:
                     r = scan_one(os.path.join(root, f))
                     out.append(r)
-                    if r.get("status") in ("extra_attached", "extra_orphan"):
+                    if r.get("status") in (ST_EXTRA_ATTACHED, ST_EXTRA_ORPHAN):
                         seen_extras.add(r["file"])
                 except Exception as e:
                     rel = os.path.relpath(os.path.join(root, f), settings.media_root)
@@ -1076,6 +1080,6 @@ def scan_all() -> list[dict]:
             if row["file_path"] not in seen_extras and not os.path.exists(
                     os.path.join(settings.media_root, row["file_path"])):
                 store.delete_extra_by_path(row["file_path"])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("extras gc failed: %s", e)
     return out

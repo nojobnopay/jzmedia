@@ -146,7 +146,7 @@ def main() -> int:
         check("health ok", h.get("status") == "ok", str(h))
 
         s = _req(base, "/api/scan", method="POST")
-        check("scan returns results", isinstance(s.get("results"), list) and len(s["results"]) >= 1,
+        check("scan returns summary", isinstance(s.get("counts"), dict) and s.get("total", 0) >= 1,
               str(s)[:200])
 
         items = _req(base, "/api/movies")["items"]

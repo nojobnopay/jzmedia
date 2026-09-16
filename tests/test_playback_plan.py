@@ -206,3 +206,48 @@ def test_quality_and_session_keys():
     assert _session_key(copy, 0) == "fcopy"
     ts = {"vcopy": True, "height": 0, "seg": "ts"}
     assert _session_key(ts, 1) == "copy_a1"
+
+
+# ---------- B7-PLAYBACK 补充矩阵 ----------
+
+def test_explicit_quality_does_not_upscale():
+    d = pb.plan(_media(vcodec="mpeg4", height=480, width=640), caps=_caps(),
+                quality="720p")
+    assert d["method"] == "video_transcode"
+    assert d["plan"]["height"] == 480          # 不放大（评审 B7/R11-D1）
+
+
+def test_quality_source_uncapped_with_reason():
+    d = pb.plan(_media(vcodec="hevc", height=2160, width=3840), caps=_caps(),
+                quality="source")
+    assert d["method"] == "video_transcode"
+    assert d["plan"]["height"] == 0
+    assert "source_transcode" in d["reasons"]
+
+
+def test_dovi_no_base_reason_when_tonemapping_with_hw(hw_on):
+    d = pb.plan(_media(dv_profile=5, dv_bl_compat=0), caps=_caps())
+    assert d["plan"]["tonemap"] is True
+    assert "dovi_no_base_tonemap" in d["reasons"]
+    assert "hdr_no_tonemap" not in d["reasons"]
+
+
+def test_native_hls_keeps_direct_for_non_default_audio():
+    media = _media(audio=[
+        {"index": 0, "ff_index": 1, "codec": "aac", "channels": 2, "bitrate": 128000,
+         "lang": "eng", "title": "", "default": 1, "forced": 0, "caps": []},
+        {"index": 1, "ff_index": 2, "codec": "aac", "channels": 2, "bitrate": 128000,
+         "lang": "chi", "title": "", "default": 0, "forced": 0, "caps": []},
+    ])
+    d = pb.plan(media, caps=_caps(native_hls=True), audio_idx=1)
+    assert d["method"] == "direct"             # Safari 原生可切轨，无需 remux
+    assert d["plan"]["audio_idx"] == 1
+
+
+def test_audio_copy_safe_env_allows_eac3(monkeypatch):
+    monkeypatch.setenv("AUDIO_COPY_SAFE", "aac,mp3,eac3,ac3")
+    media = _media(audio=[{"index": 0, "ff_index": 1, "codec": "eac3",
+                           "channels": 6, "bitrate": 640000, "lang": "eng",
+                           "title": "", "default": 1, "forced": 0, "caps": []}])
+    d = pb.plan(media, caps=_caps(audio={"aac": True, "eac3": True}))
+    assert d["method"] == "direct"
