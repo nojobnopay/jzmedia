@@ -114,6 +114,7 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
                            else (_playback.hw_backend() or "software"))
                 sid_cur = _register_prewarm_session(
                     int(m["id"]), sdir, d["plan"], proc, marker, backend, attempt + 1)
+                _write_session_meta(sdir, sid_cur, int(m["id"]), proc, backend, attempt + 1)
                 job.update({"status": "running", "pid": proc.pid, "sid": sid_cur,
                             "backend": backend})
                 try:

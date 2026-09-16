@@ -1,6 +1,7 @@
 """routers.stream.common（自 app/routers/stream.py 拆分，评审 B9/R12-Q1；经 stream 门面使用）。"""
 import os
 import re
+import signal
 import time
 import json
 import shutil
@@ -17,7 +18,7 @@ from ... import playback as _playback
 import uuid
 from ...log import get_logger
 logger = get_logger("stream.common")
-__all__ = ['router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_MIN_SEGS', 'PLAN_VERSION', '_SESS_IDLE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_abs', '_media_cached_or_probe', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_purge_old', '_kill_proc', '_drop_session', 'shutdown_sessions', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_watch_completion', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_register_prewarm_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
+__all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_MIN_SEGS', 'PLAN_VERSION', '_SESS_IDLE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_abs', '_media_cached_or_probe', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_purge_old', '_kill_proc', '_drop_session', 'shutdown_sessions', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_watch_completion', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_register_prewarm_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
 
 router = APIRouter(prefix="/api/stream")
 
@@ -62,6 +63,72 @@ def _max_transcodes() -> int:
 
 
 _hls_sem = threading.Semaphore(_max_transcodes())
+
+
+_SESSION_META = "session.json"
+
+
+def _write_session_meta(sdir: str, sid: str, vid: int, proc, backend: str,
+                        attempt: int) -> None:
+    """会话运行元数据落盘（评审 R12-Q3）：重启后据此清理孤儿 ffmpeg。"""
+    try:
+        with open(os.path.join(sdir, _SESSION_META), "w", encoding="utf-8") as fh:
+            json.dump({"sid": sid, "vid": int(vid), "pid": int(proc.pid),
+                       "backend": backend, "attempt": attempt,
+                       "started_at": int(time.time())}, fh, sort_keys=True)
+    except OSError as e:
+        logger.debug("write session meta failed dir=%s: %s", sdir, e)
+
+
+def _clear_session_meta(sdir: str) -> None:
+    try:
+        p = os.path.join(sdir, _SESSION_META)
+        if os.path.isfile(p):
+            os.remove(p)
+    except OSError:
+        pass
+
+
+def _reap_orphans() -> int:
+    """启动清道夫（评审 R12-Q3）：上次 SIGKILL/崩溃留下的孤儿 ffmpeg（session.json
+    记录 pid）若仍存活则杀掉；用 /proc/<pid>/cwd 精确比对会话目录防误杀。"""
+    killed = 0
+    try:
+        vids = os.listdir(TRANSCODE_DIR)
+    except OSError:
+        return 0
+    for vid in vids:
+        vd = os.path.join(TRANSCODE_DIR, vid)
+        try:
+            names = os.listdir(vd)
+        except OSError:
+            continue
+        for name in names:
+            sdir = os.path.join(vd, name)
+            meta = os.path.join(sdir, _SESSION_META)
+            if not os.path.isfile(meta):
+                continue
+            try:
+                with open(meta, encoding="utf-8") as fh:
+                    m = json.load(fh)
+                pid = int(m.get("pid") or 0)
+            except (OSError, ValueError):
+                _clear_session_meta(sdir)
+                continue
+            if pid > 0:
+                try:
+                    cwd = os.readlink(f"/proc/{pid}/cwd")
+                except OSError:
+                    cwd = ""
+                if cwd and os.path.realpath(cwd) == os.path.realpath(sdir):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                        killed += 1
+                        logger.warning("killed orphan ffmpeg pid=%s dir=%s", pid, sdir)
+                    except OSError as e:
+                        logger.debug("kill orphan failed pid=%s: %s", pid, e)
+            _clear_session_meta(sdir)
+    return killed
 
 
 def _log_hit(sid: str, kind: str, name: str, status: int) -> None:
@@ -298,6 +365,7 @@ def _drop_session(sid: str, kill: bool = True) -> None:
     with _sess_lock:
         sess = _sessions.pop(sid, None)
     if sess and kill:
+        _clear_session_meta(sess.get("sdir") or "")
         _kill_proc(sess.get("proc"))
 
 
@@ -401,6 +469,7 @@ def _watch_completion(sid: str, proc, sdir: str, plan_key: str) -> None:
         return
     if rc == 0 and _seg_count(sdir) > 0 and _playlist_endlist(sdir):
         _write_complete_marker(sdir, plan_key)
+        _clear_session_meta(sdir)
         with _sess_lock:
             s = _sessions.get(sid)
             if s is not None:

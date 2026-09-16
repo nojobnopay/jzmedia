@@ -166,3 +166,39 @@ def test_prewarm_attaches_same_plan_without_cleanup(monkeypatch, media_root):
     assert job["status"] == "failed" and "在线会话中断" in job["error"]
     assert (sdir / "keep.m4s").is_file()   # 附着路径不清理目录
     assert "live2" in stream._sessions
+
+
+# ---------- R12-Q3：会话元数据落盘 + 孤儿收割 ----------
+
+def test_reap_orphans_kills_and_cleans(tmp_path, monkeypatch):
+    import json as _json
+    import subprocess as _sp
+    from app.routers.stream import common
+
+    monkeypatch.setattr(common, "TRANSCODE_DIR", str(tmp_path))
+    sdir = tmp_path / "1" / "f_s0"
+    sdir.mkdir(parents=True)
+    proc = _sp.Popen(["sleep", "30"], cwd=str(sdir))
+    try:
+        (sdir / "session.json").write_text(_json.dumps({"pid": proc.pid, "sid": "x"}),
+                                           encoding="utf-8")
+        killed = common._reap_orphans()
+        assert killed == 1
+        proc.wait(timeout=5)
+        assert proc.poll() is not None
+        assert not (sdir / "session.json").exists()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def test_reap_orphans_dead_pid_cleanup(tmp_path, monkeypatch):
+    import json as _json
+    from app.routers.stream import common
+
+    monkeypatch.setattr(common, "TRANSCODE_DIR", str(tmp_path))
+    sdir = tmp_path / "2" / "f_s0"
+    sdir.mkdir(parents=True)
+    (sdir / "session.json").write_text(_json.dumps({"pid": 999999999}), encoding="utf-8")
+    assert common._reap_orphans() == 0
+    assert not (sdir / "session.json").exists()
