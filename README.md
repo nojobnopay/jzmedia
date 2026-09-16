@@ -97,6 +97,7 @@ kill <pid>
 | `AUDIO_COPY_SAFE` | 音频直通安全集覆盖（默认 hls.js 只信 `aac,mp3`；实测 EAC3 可用时可填 `aac,mp3,eac3,ac3`） |
 | `SCAN_SKIP_DIRS` | 扫描额外跳过的目录名（逗号分隔）。内置已跳过隐藏目录与 `#recycle`/`@eaDir`/`$RECYCLE.BIN` 等系统目录 |
 | `LOG_LEVEL` | 后端日志级别（默认 `INFO`；`DEBUG` 可看扫描/整理/转码失败细节）。日志统一走 `app/log.py` |
+| `JZMEDIA_TOKEN` | 写操作访问令牌（可选）。留空=不鉴权（局域网自用默认）；非空后写操作（POST/PUT/PATCH/DELETE）需带 `X-Api-Token`，读取/电视直链仍免鉴权。也可在设置页「访问控制」配置（库优先，免重启） |
 
 TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup → 头像 Settings → API → Create → Developer → 应用名用途随便填 → 把 `API Read Access Token` 填进设置页「TMDB 配置」（或 `.env` 的 `TMDB_READ_TOKEN`；或把 `API Key` 填进 `TMDB_API_KEY`）。
 
@@ -137,7 +138,7 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 
 | 方法与路径 | 说明 |
 |---|---|
-| `GET /api/health` · `GET /api/settings` · `PUT /api/settings` | 健康检查；配置摘要（密钥脱敏+来源/代理/图片源）与保存（库优先+env 兜底） |
+| `GET /api/health` · `GET /api/settings` · `PUT /api/settings` | 健康检查；配置摘要（密钥脱敏+来源/代理/图片源/鉴权状态）与保存（库优先+env 兜底；含 `jzmedia_token` 写操作令牌） |
 | `POST /api/scan` | 全量扫描刮削 |
 | `GET /api/movies` · `GET /api/search?q=` | 列表 / 全文检索；分页 `limit`（1–2000，默认 500）+ `offset`，响应带 `has_more`；共同支持 `genre region country year decade tag`（可重复或逗号分隔，facet 内 OR、跨 facet AND，`tag` 多选为 AND）与 `min_rating` + `rating_source=tmdb\|douban\|custom`（单阈值 `>=`）、`watched=1\|0`（已看/未看）、`collection`（合集 ID，可重复或逗号分隔）；`decade=2020` 表示 2020–2029 |
 | `GET /api/facets` | 各维度实时计数（类型/大区/国家/年/年代/标签/评分离散档/观看/合集），只返回有片的项 |

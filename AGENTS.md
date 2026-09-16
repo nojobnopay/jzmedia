@@ -35,6 +35,7 @@
 - FTS5 `movies_fts` has **no triggers** — after any `movies`/`persons`/`movie_person` write you must call `store.resync_fts(movie_id)` (`update_movie_meta` already does; manual SQL or `link_person` does not). `store.init_db()` + `rebuild_fts()` run at startup and self-heal old trigger schemas (`DROP TRIGGER IF EXISTS movies_ai/ad/au`).
 
 ## Conventions / constraints
+- Auth (optional): 写操作（POST/PUT/PATCH/DELETE 且 path 以 `/api` 开头）在配置了 `JZMEDIA_TOKEN`（env/设置页，DB 优先）时需带 `X-Api-Token` 或 `Authorization: Bearer`；GET/直链永远放行。实现是 `main.py` 的 `_auth_write` 中间件，设置页可写键 `jzmedia_token`（`config.SETTING_MAP` / `store.APP_SETTING_KEYS`）。
 - Logging: 统一走 `app/log.py`（`get_logger`/`setup_logging`，env `LOG_LEVEL`）；失败路径禁止 `except: pass` 静默（至少 `logger.warning/debug` + 关键上下文）。历史静默点按批次改造，新代码直接遵守。
 - New pages: don't add bare `GET /...` routes — the catch-all `GET /{full_path:path}` in `main.py` serves the SPA (routes: `/`, `/m/:id`, `/p/:tmdb_id`, `/collections`, `/c/:id`, `/settings`). API routes must live under `/api` routers.
 - `POST /api/jobs/douban-fetch` is intentionally `501` (no Douban scraping by default) — keep the stub. Only remote bulk write is `POST /api/jobs/tmdb-refresh` (explicit ids only); `backfill-meta` is offline from `tmdb_cache`.

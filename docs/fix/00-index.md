@@ -35,21 +35,24 @@
 | P1-09 | R01-B1 | B3 | UID/GID 文档与 compose 不一致 | pending | — |
 | P1-10 | R01-B7 | B3 | 零日志 + 76 处静默吞异常 | **done** | tests/test_logging.py（5 用例） |
 | P1-11 | R04-D1 | B3 | 库页无分页 >500 截断 | **done** | tests/test_pagination.py（4 用例）+ smoke 3 项 |
-| P1-01 | R01-D1 | B4 | 无认证 + 破坏性 API 全开放 | pending | — |
+| P1-01 | R01-D1 | B4 | 无认证 + 破坏性 API 全开放 | **done** | tests/test_auth.py（8 用例）+ smoke 鉴权相位 4 项 |
 
 批次定义：**B1 扫描正确性**（P1-02→03→04→05，有依赖顺序）；**B2 一致性/并发**；**B3 部署/可运维/可用性**；**B4 安全基线（可选 token，需先与用户确认交互形态）**。
 
 ## 4. 当前指针（中断恢复点）
 
 ```
-批次：B3（fix/b3-ops）已合回 main（merge d163835）并打批标签 p1-b3-ops
-步骤：P1 仅剩 P1-01（可选鉴权，B4，需用户确认交互形态）
-断点：等用户指令；开 B4 前先确认：token 存 env 还是设置页？只护写操作还是全部 API？
-下一步：git checkout -b fix/b4-auth（确认方案后）
+批次：B4（fix/b4-auth）— P1-01 done，待合回 main
+方案（用户确认）：env+设置页双通道（DB 优先）；只护写操作；401 前端弹一次存 localStorage；
+未配置=完全开放；GET/直链免鉴权。
+步骤：pytest 83 passed + smoke 30/30（含鉴权相位）+ npm build/test ok；待 merge → tag
+断点：main.py `_auth_write` 中间件；设置页「访问控制」；api.js token+401 事件；App.vue 弹层
+下一步：merge --no-ff fix/b4-auth → tag p1-b4-auth → 汇报（11/11 P1 全清）
 ```
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-16：**P1-01 done**：写操作可选鉴权全链路——`config.SETTING_MAP` 增 `jzmedia_token`（DB 优先/env 兜底，通用化命名保留 TMDB_SETTING_MAP 兼容）；`main._auth_write` 中间件（只护 `/api` 写方法，`X-Api-Token`/Bearer，`hmac.compare_digest`，未配置全放行）；`GET/PUT /api/settings` 回脱敏状态并可写入；前端 `api.js` 自动带令牌 + 401 派发事件、`apiUpload` 带头、App.vue 令牌弹层（存 localStorage 后重载）、Settings「访问控制」区（保存即记住）；`.env.example`/README/AGENTS 同步；tests/test_auth.py 8 用例 + smoke 鉴权相位 4 项。
 - 2026-09-16：**B3 批次合回 main**（--no-ff `d163835`，tag `p1-b3-ops`）。验证：L0（compileall/import/npm build）+ L1（pytest 75、node --test 7）+ L2 smoke 26/26。
 - 2026-09-16：**P1-11 done**：store `list_movies/search_fts/_search_like` 支持 `offset`；`/api/movies`/`/api/search` 统一 limit 钳制（1–2000）+ offset + `has_more`（多取 1 条判定）；Library.vue 每页 60 + IntersectionObserver 无限滚动 + 「加载更多」兜底 + 请求序列防竞态；tests/test_pagination.py 4 用例；smoke 新增 3 项分页断言；pytest 75 passed；README 分页文档同步。
 - 2026-09-16：**P1-10 done**：新增 `app/log.py`（setup_logging/get_logger，`LOG_LEVEL`，第三方降噪）+ main 启动/停止日志；关键静默点补痕：files 移动/恢复失败与回滚、scanner NFO 写入失败（单/多/回退三路）与扫描异常、stream master 写入/转码失败/prewarm 失败/字体 dump、store 序列化与 probe 瞬态、tmdb 海报下载、config 读库失败、media static 下载失败、transcode smoke；tests/test_logging.py 5 用例（caplog 断言）；README/AGENTS 同步 `LOG_LEVEL` 约定。

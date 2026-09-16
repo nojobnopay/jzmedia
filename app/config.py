@@ -16,19 +16,24 @@ class Settings(BaseModel):
     tmdb_proxy: str = os.getenv("TMDB_PROXY", "")
     tmdb_language: str = os.getenv("TMDB_LANGUAGE", "zh-CN")
     tmdb_image_base: str = os.getenv("TMDB_IMAGE_BASE", "https://image.tmdb.org")
+    jzmedia_token: str = os.getenv("JZMEDIA_TOKEN", "")
 
 
 settings = Settings()
 
 # 设置页可写键 → (Settings 属性名, 原始环境变量名, 代码默认值)
 # DB 非空值优先于环境变量；缺 key/空串一律回落 env（.env 只做首次启动兜底）。
-TMDB_SETTING_MAP = {
+SETTING_MAP = {
     "tmdb_read_token": ("tmdb_read_token", "TMDB_READ_TOKEN", ""),
     "tmdb_api_key": ("tmdb_api_key", "TMDB_API_KEY", ""),
     "tmdb_proxy": ("tmdb_proxy", "TMDB_PROXY", ""),
     "tmdb_language": ("tmdb_language", "TMDB_LANGUAGE", "zh-CN"),
     "tmdb_image_base": ("tmdb_image_base", "TMDB_IMAGE_BASE", "https://image.tmdb.org"),
+    # 写操作访问令牌（评审 P1-01）：空=不做鉴权（保持局域网自用体验）
+    "jzmedia_token": ("jzmedia_token", "JZMEDIA_TOKEN", ""),
 }
+# 兼容旧名（历史引用）
+TMDB_SETTING_MAP = SETTING_MAP
 
 
 def _db_value(key: str) -> str:
@@ -85,6 +90,11 @@ def effective_tmdb_language() -> str:
 
 def effective_tmdb_image_base() -> str:
     return effective("tmdb_image_base")
+
+
+def effective_jzmedia_token() -> str:
+    """写操作访问令牌（空=不鉴权）。每次实时读取，设置页保存后免重启生效。"""
+    return effective("jzmedia_token")
 
 
 def mask_secret(v: str) -> str:

@@ -1,12 +1,14 @@
+import hmac
 import os
 import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import store
+from . import config, store
 from .config import settings
 from .db import POSTER_DIR, ensure_dirs
 from .log import get_logger, setup_logging
@@ -30,6 +32,32 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="jzmedia", version="0.7.0", lifespan=_lifespan)
+
+# 写操作访问令牌（评审 P1-01）：仅当 JZMEDIA_TOKEN/设置页配置了令牌才生效。
+# 只护 /api 的写方法（POST/PUT/PATCH/DELETE）；GET 全放行（Kodi/电视直链、海报、
+# HLS 分片读取都免鉴权）。令牌来自 config 的 DB 优先/env 兜底机制，改后免重启。
+_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _request_token(request) -> str:
+    got = (request.headers.get("x-api-token") or "").strip()
+    if got:
+        return got
+    auth = (request.headers.get("authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+@app.middleware("http")
+async def _auth_write(request, call_next):
+    if request.method in _WRITE_METHODS and request.url.path.startswith("/api"):
+        token = await run_in_threadpool(config.effective_jzmedia_token)
+        if token and not hmac.compare_digest(_request_token(request), token):
+            return JSONResponse(
+                {"detail": "unauthorized: 需要访问令牌（设置页 → 访问控制）"},
+                status_code=401)
+    return await call_next(request)
 
 ensure_dirs()
 store.init_db()
