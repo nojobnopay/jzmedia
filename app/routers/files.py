@@ -656,13 +656,20 @@ def missing():
 @router.post("/clean")
 def clean(body: dict | None = None):
     """清理失效条目：彻底删除DB行+演职员关联+FTS（海报与tmdb_cache保留供重扫复用）。
+    默认 dry_run 预览（评审 B5a-4/R09-D4：与 clean-sidecars 等保持一致）；
     body.ids 不传则清理全部缺失行；建议先 GET /missing 预览勾选。"""
     body = body or {}
+    dry_run = body.get("dry_run", True)
     only = body.get("ids")
     only_set = set(only) if only else None
     cands = [m for m in store.list_movies(grouped=False, limit=100000)
              if (only_set is None or m["id"] in only_set)
              and not os.path.exists(os.path.join(settings.media_root, m["file_path"]))]
+    plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
+              "file_path": m["file_path"],
+              "tmdb_id": m.get("tmdb_id")} for m in cands]
+    if dry_run:
+        return {"dry_run": True, "total": len(plans), "plans": plans}
     done, failed = [], []
     for m in cands:
         try:
@@ -672,8 +679,8 @@ def clean(body: dict | None = None):
         except Exception as e:
             failed.append({"id": m["id"], "file_path": m["file_path"],
                            "error": str(e)})
-    return {"total": len(cands), "deleted": len(done), "failed": failed,
-            "results": done}
+    return {"dry_run": False, "total": len(cands), "deleted": len(done),
+            "failed": failed, "results": done}
 
 
 @router.post("/rename")
