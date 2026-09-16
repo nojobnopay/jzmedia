@@ -194,6 +194,135 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "tmdb_language", "tmdb_image_base", "jzmedia_token"}
 
 
+SCHEMA_VERSION = 8
+
+
+def _columns(c, table: str) -> set:
+    return {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+
+
+def _ensure_columns(c, table: str, cols) -> None:
+    have = _columns(c, table)
+    for name, ddl in cols:
+        if name not in have:
+            c.execute(ddl)
+
+
+def _migrate(c) -> int:
+    """按 user_version 顺序应用迁移（评审 B9/R02-D1：替代启动时 ad-hoc ALTER 探测）。
+    每一步都必须幂等；老库无需人工干预，新库由 SCHEMA 建全量后直接把版本推到最新。"""
+    try:
+        version = int(c.execute("PRAGMA user_version").fetchone()[0] or 0)
+    except (TypeError, ValueError):
+        version = 0
+    for v, fn in _MIGRATION_STEPS:
+        if version < v:
+            fn(c)
+            version = v
+    try:
+        c.execute(f"PRAGMA user_version = {int(version)}")
+    except sqlite3.OperationalError as e:
+        logger.warning("set user_version failed: %s", e)
+    return version
+
+
+# v1：movies 基础补充列 + persons.avatar
+def _m1(c) -> None:
+    _ensure_columns(c, "movies", [
+        ("person_names", "ALTER TABLE movies ADD COLUMN person_names TEXT DEFAULT ''"),
+        ("needs_review", "ALTER TABLE movies ADD COLUMN needs_review INTEGER DEFAULT 0"),
+    ])
+    if "avatar" not in _columns(c, "persons"):
+        c.execute("ALTER TABLE persons ADD COLUMN avatar TEXT DEFAULT ''")
+
+
+# v2：产地/语言/大区/媒体类型
+def _m2(c) -> None:
+    _ensure_columns(c, "movies", [
+        ("origin_country", "ALTER TABLE movies ADD COLUMN origin_country TEXT DEFAULT ''"),
+        ("origin_countries", "ALTER TABLE movies ADD COLUMN origin_countries TEXT DEFAULT '[]'"),
+        ("original_language", "ALTER TABLE movies ADD COLUMN original_language TEXT DEFAULT ''"),
+        ("region", "ALTER TABLE movies ADD COLUMN region TEXT DEFAULT ''"),
+        ("genre_ids", "ALTER TABLE movies ADD COLUMN genre_ids TEXT DEFAULT '[]'"),
+        ("media_type", "ALTER TABLE movies ADD COLUMN media_type TEXT DEFAULT 'movie'"),
+    ])
+
+
+# v3：版本/规格/原始路径/观看
+def _m3(c) -> None:
+    _ensure_columns(c, "movies", [
+        ("edition", "ALTER TABLE movies ADD COLUMN edition TEXT DEFAULT ''"),
+        ("spec", "ALTER TABLE movies ADD COLUMN spec TEXT DEFAULT ''"),
+        ("original_file_path", "ALTER TABLE movies ADD COLUMN original_file_path TEXT DEFAULT ''"),
+        ("watched", "ALTER TABLE movies ADD COLUMN watched INTEGER DEFAULT 0"),
+        ("watched_at", "ALTER TABLE movies ADD COLUMN watched_at INTEGER DEFAULT 0"),
+    ])
+
+
+# v4：人物扩展（渐进 bio 等）
+def _m4(c) -> None:
+    _ensure_columns(c, "persons", [
+        ("biography", "ALTER TABLE persons ADD COLUMN biography TEXT DEFAULT ''"),
+        ("birthday", "ALTER TABLE persons ADD COLUMN birthday TEXT DEFAULT ''"),
+        ("place_of_birth", "ALTER TABLE persons ADD COLUMN place_of_birth TEXT DEFAULT ''"),
+        ("profile_tmdb_path", "ALTER TABLE persons ADD COLUMN profile_tmdb_path TEXT DEFAULT ''"),
+        ("fetched_at", "ALTER TABLE persons ADD COLUMN fetched_at INTEGER DEFAULT 0"),
+        ("bio_fetched_at", "ALTER TABLE persons ADD COLUMN bio_fetched_at INTEGER DEFAULT 0"),
+        ("bio_lang", "ALTER TABLE persons ADD COLUMN bio_lang TEXT DEFAULT ''"),
+    ])
+
+
+# v5：tmdb_cache 系列信息列
+def _m5(c) -> None:
+    _ensure_columns(c, "tmdb_cache", [
+        ("collection_tmdb_id", "ALTER TABLE tmdb_cache ADD COLUMN collection_tmdb_id INTEGER"),
+        ("collection_name", "ALTER TABLE tmdb_cache ADD COLUMN collection_name TEXT DEFAULT ''"),
+        ("collection_poster_path", "ALTER TABLE tmdb_cache ADD COLUMN collection_poster_path TEXT DEFAULT ''"),
+        ("collection_checked_at", "ALTER TABLE tmdb_cache ADD COLUMN collection_checked_at INTEGER DEFAULT 0"),
+    ])
+
+
+# v6：media_info 探测结构扩展（probe_ver 低会触发重探）
+def _m6(c) -> None:
+    _ensure_columns(c, "media_info", [
+        ("dv_profile", "ALTER TABLE media_info ADD COLUMN dv_profile INTEGER DEFAULT 0"),
+        ("probe_ver", "ALTER TABLE media_info ADD COLUMN probe_ver INTEGER DEFAULT 0"),
+        ("video_profile", "ALTER TABLE media_info ADD COLUMN video_profile TEXT DEFAULT ''"),
+        ("video_level", "ALTER TABLE media_info ADD COLUMN video_level INTEGER DEFAULT 0"),
+        ("bit_depth", "ALTER TABLE media_info ADD COLUMN bit_depth INTEGER DEFAULT 0"),
+        ("pix_fmt", "ALTER TABLE media_info ADD COLUMN pix_fmt TEXT DEFAULT ''"),
+        ("color_transfer", "ALTER TABLE media_info ADD COLUMN color_transfer TEXT DEFAULT ''"),
+        ("color_primaries", "ALTER TABLE media_info ADD COLUMN color_primaries TEXT DEFAULT ''"),
+        ("hdr", "ALTER TABLE media_info ADD COLUMN hdr TEXT DEFAULT ''"),
+        ("dv_bl_compat", "ALTER TABLE media_info ADD COLUMN dv_bl_compat INTEGER DEFAULT 0"),
+        ("hdr10plus", "ALTER TABLE media_info ADD COLUMN hdr10plus INTEGER DEFAULT 0"),
+        ("attachments_json", "ALTER TABLE media_info ADD COLUMN attachments_json TEXT DEFAULT '[]'"),
+    ])
+
+
+# v7：过滤/缓存索引
+def _m7(c) -> None:
+    for ddl in (
+        "CREATE INDEX IF NOT EXISTS idx_movies_year ON movies(year)",
+        "CREATE INDEX IF NOT EXISTS idx_movies_region ON movies(region)",
+        "CREATE INDEX IF NOT EXISTS idx_movies_origin ON movies(origin_country)",
+        "CREATE INDEX IF NOT EXISTS idx_movies_tmdb ON movies(tmdb_id)",
+        "CREATE INDEX IF NOT EXISTS idx_movies_watched ON movies(watched)",
+        "CREATE INDEX IF NOT EXISTS idx_cache_fetched ON tmdb_cache(fetched_at)",
+    ):
+        c.execute(ddl)
+
+
+# v8：原始路径种子（老行=最早已知路径；新行由 upsert 写真实原始路径）
+def _m8(c) -> None:
+    c.execute("UPDATE movies SET original_file_path=file_path "
+              "WHERE original_file_path IS NULL OR original_file_path=''")
+
+
+_MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
+                    (7, _m7), (8, _m8)]
+
+
 def init_db() -> None:
     with _lock, _conn() as c:
         # 启动自检 SQLite 特性（评审 B6/R02-B4）：JSON1 与 FTS5 缺失时给明确错误，
@@ -208,76 +337,8 @@ def init_db() -> None:
         except sqlite3.OperationalError as e:
             raise RuntimeError("SQLite 缺少 FTS5 扩展，jzmedia 无法运行") from e
         c.executescript(SCHEMA)
-        cols = [r["name"] for r in c.execute("PRAGMA table_info(movies)")]
-        for col, ddl in (
-            ("person_names", "ALTER TABLE movies ADD COLUMN person_names TEXT DEFAULT ''"),
-            ("needs_review", "ALTER TABLE movies ADD COLUMN needs_review INTEGER DEFAULT 0"),
-            ("origin_country", "ALTER TABLE movies ADD COLUMN origin_country TEXT DEFAULT ''"),
-            ("origin_countries", "ALTER TABLE movies ADD COLUMN origin_countries TEXT DEFAULT '[]'"),
-            ("original_language", "ALTER TABLE movies ADD COLUMN original_language TEXT DEFAULT ''"),
-            ("region", "ALTER TABLE movies ADD COLUMN region TEXT DEFAULT ''"),
-            ("genre_ids", "ALTER TABLE movies ADD COLUMN genre_ids TEXT DEFAULT '[]'"),
-            ("media_type", "ALTER TABLE movies ADD COLUMN media_type TEXT DEFAULT 'movie'"),
-            ("edition", "ALTER TABLE movies ADD COLUMN edition TEXT DEFAULT ''"),
-            ("spec", "ALTER TABLE movies ADD COLUMN spec TEXT DEFAULT ''"),
-            ("original_file_path", "ALTER TABLE movies ADD COLUMN original_file_path TEXT DEFAULT ''"),
-            ("watched", "ALTER TABLE movies ADD COLUMN watched INTEGER DEFAULT 0"),
-            ("watched_at", "ALTER TABLE movies ADD COLUMN watched_at INTEGER DEFAULT 0"),
-        ):
-            if col not in cols:
-                c.execute(ddl)
-        pcols = [r["name"] for r in c.execute("PRAGMA table_info(persons)")]
-        if "avatar" not in pcols:
-            c.execute("ALTER TABLE persons ADD COLUMN avatar TEXT DEFAULT ''")
-        for col, ddl in (
-            ("biography", "ALTER TABLE persons ADD COLUMN biography TEXT DEFAULT ''"),
-            ("birthday", "ALTER TABLE persons ADD COLUMN birthday TEXT DEFAULT ''"),
-            ("place_of_birth", "ALTER TABLE persons ADD COLUMN place_of_birth TEXT DEFAULT ''"),
-            ("profile_tmdb_path", "ALTER TABLE persons ADD COLUMN profile_tmdb_path TEXT DEFAULT ''"),
-            ("fetched_at", "ALTER TABLE persons ADD COLUMN fetched_at INTEGER DEFAULT 0"),
-            ("bio_fetched_at", "ALTER TABLE persons ADD COLUMN bio_fetched_at INTEGER DEFAULT 0"),
-            ("bio_lang", "ALTER TABLE persons ADD COLUMN bio_lang TEXT DEFAULT ''"),
-        ):
-            if col not in pcols:
-                c.execute(ddl)
-        c.execute("CREATE INDEX IF NOT EXISTS idx_movies_year ON movies(year)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_movies_region ON movies(region)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_movies_origin ON movies(origin_country)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_movies_tmdb ON movies(tmdb_id)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_movies_watched ON movies(watched)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_cache_fetched ON tmdb_cache(fetched_at)")
-        # tmdb_cache 系列列自愈（老库无这几列时补上）
-        ccols = [r["name"] for r in c.execute("PRAGMA table_info(tmdb_cache)")]
-        for col, ddl in (
-            ("collection_tmdb_id", "ALTER TABLE tmdb_cache ADD COLUMN collection_tmdb_id INTEGER"),
-            ("collection_name", "ALTER TABLE tmdb_cache ADD COLUMN collection_name TEXT DEFAULT ''"),
-            ("collection_poster_path", "ALTER TABLE tmdb_cache ADD COLUMN collection_poster_path TEXT DEFAULT ''"),
-            ("collection_checked_at", "ALTER TABLE tmdb_cache ADD COLUMN collection_checked_at INTEGER DEFAULT 0"),
-        ):
-            if col not in ccols:
-                c.execute(ddl)
-        # 存量自愈：尚无原始路径的行用当前路径种子（老行=最早已知路径，新行由 upsert 写入真值）
-        c.execute("UPDATE movies SET original_file_path=file_path "
-                  "WHERE original_file_path IS NULL OR original_file_path=''")
-        # media_info 列自愈（老库缺列时补上）。probe_ver 默认 0 < media.PROBE_VERSION：
-        # 旧探测行播放时自动重探补新字段（dv_profile/hdr/bit_depth 等），无需全量 backfill。
-        micols = [r["name"] for r in c.execute("PRAGMA table_info(media_info)")]
-        for col, ddl in (
-            ("dv_profile", "ALTER TABLE media_info ADD COLUMN dv_profile INTEGER DEFAULT 0"),
-            ("probe_ver", "ALTER TABLE media_info ADD COLUMN probe_ver INTEGER DEFAULT 0"),
-            ("video_profile", "ALTER TABLE media_info ADD COLUMN video_profile TEXT DEFAULT ''"),
-            ("video_level", "ALTER TABLE media_info ADD COLUMN video_level INTEGER DEFAULT 0"),
-            ("bit_depth", "ALTER TABLE media_info ADD COLUMN bit_depth INTEGER DEFAULT 0"),
-            ("pix_fmt", "ALTER TABLE media_info ADD COLUMN pix_fmt TEXT DEFAULT ''"),
-            ("color_transfer", "ALTER TABLE media_info ADD COLUMN color_transfer TEXT DEFAULT ''"),
-            ("color_primaries", "ALTER TABLE media_info ADD COLUMN color_primaries TEXT DEFAULT ''"),
-            ("hdr", "ALTER TABLE media_info ADD COLUMN hdr TEXT DEFAULT ''"),
-            ("dv_bl_compat", "ALTER TABLE media_info ADD COLUMN dv_bl_compat INTEGER DEFAULT 0"),
-            ("hdr10plus", "ALTER TABLE media_info ADD COLUMN hdr10plus INTEGER DEFAULT 0"),
-            ("attachments_json", "ALTER TABLE media_info ADD COLUMN attachments_json TEXT DEFAULT '[]'"),
-        ):
-            if col not in micols:
-                c.execute(ddl)
+        _migrate(c)
+        # FTS 旧 trigger 内容表形态自愈（content= 老库直接重建）
         sql = (c.execute("SELECT sql FROM sqlite_master WHERE name='movies_fts'").fetchone() or [""])[0]
         if "content=" in sql:
             c.execute("DROP TABLE movies_fts")
@@ -372,4 +433,4 @@ def _like_esc(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-__all__ = ['_conn', 'init_db', 'health_check', '_dump_list', '_row_to_dict', '_film_key', '_attach_versions', '_collections_for_film', '_lock', 'SCHEMA', 'TMDB_FIELDS', 'LOCAL_FIELDS', 'APP_SETTING_KEYS', 'logger']
+__all__ = ['_conn', 'init_db', 'SCHEMA_VERSION', 'health_check', '_dump_list', '_row_to_dict', '_film_key', '_attach_versions', '_collections_for_film', '_lock', 'SCHEMA', 'TMDB_FIELDS', 'LOCAL_FIELDS', 'APP_SETTING_KEYS', 'logger']
