@@ -8,12 +8,11 @@
 ## 1. 当前指针
 
 ```
-批次：B7 数据一致性与正确性批（fix/b7-consistency）— 进行中
-B6 已合回（merge 71911b5，tag p2-b6-security，用户确认通过）
-步骤：分支已建；按 B7-DELETE → B7-FAIL → B7-NFO → B7-SCAN → B7-PLAYBACK → B7-EXTRAS 推进
-H-DATA 提醒：本批只新增索引（CREATE INDEX IF NOT EXISTS，安全）；升级重启前请备份 data/jzmedia.db
+批次：B7 数据一致性批（fix/b7-consistency）— 全部组 done，待整批验证后合回
+步骤：pytest 147 passed；smoke 30/30（scan 摘要）；npm build/test ok
+H-DATA 提醒：升级重启前备份 data/jzmedia.db（本批无破坏性迁移）
 断点：无
-下一步：B7-DELETE（delete_movie 置空 extras 引用）
+下一步：merge --no-ff → tag p2-b7-consistency → 指针转 B8（体验/性能，H-UI 点检包）
 ```
 
 ## 2. 已完成批次（B1–B4，P1 全清，见 docs/fix/00-index.md）
@@ -48,13 +47,13 @@ H-DATA 提醒：本批只新增索引（CREATE INDEX IF NOT EXISTS，安全）�
 ### B7 数据一致性与正确性批
 | 组 | 成员 | 状态 | 备注 |
 |---|---|---|---|
-| B7-DELETE | R02-B2 / R08-B5 / R09-B5（delete_movie 悬挂 extras） | pending | |
-| B7-FAIL | R05-B3（删文件顺序+失败报告）、R05-B1（重复 FTS 重建）、R13-D6（ff_index 缺失 422）、R06-D5（已收录 409）、R06-B4（吞异常改日志）、R02-B5（assert 控制流） | pending | |
-| B7-NFO | R10-D1（控制字符）、R10-D2（0 分）、R10-D3（country 回退）、R10-B2（None 文本）、R10-B3（country_name 守卫）、R10-B5（语言表注释）、R10-B6（截断注释） | pending | |
-| B7-SCAN | R03-B2（头像失败保留旧值）、R03-B5（scan 响应摘要）、R03-B7（find_subs 日志）、R03-Q4（注释）、R03-Q5（import 上移）、R03-B3（重复规则删除）、R03-B4（异常审计） | pending | |
-| B7-PLAYBACK | R11-D1（封顶钳制）、R11-D5/D7（reason）、R11-B2/B3/B4/B9（死路径/归一/封面/vbitrate）、R11-B7（master CODECS docker 验证）、R11-B8、R11-Q2（决策矩阵表测）、R11-Q3、R11-D4（smoke 超时）、R12-B1（"transcode"）、R12-B5/B6/B7（caps_hash/缓存/等待） | pending | 部分需 DOCKER |
-| B7-EXTRAS | R08-Q1/Q2（归属纯函数单测+拆分）、R08-Q3（状态常量）、R08-B4（rowcount）、R06-Q4（job 状态机单测）、R09-Q2（planner fixture 单测） | pending | |
-| B7-DECISION1 | R13-B4（sup 死路径）、R13-B7（parseVtt 格式）、R05-B6/B7、R07-B3、R10-B4、R02-Q6、R05-Q5、R08-D6、R11-B1/B10（无 bug 结论） | pending | H-DECISION |
+| B7-DELETE | R02-B2 / R08-B5 / R09-B5（delete_movie 悬挂 extras） | done（delete_movie 置空 extras；test_delete_movie_orphans_extras） | |
+| B7-FAIL | R05-B3（删文件顺序+失败报告）、R05-B1（重复 FTS 重建）、R13-D6（ff_index 缺失 422）、R06-D5（已收录 409）、R06-B4（吞异常改日志）、R02-B5（assert 控制流） | done（先库后盘+失败上报/去重 FTS/ff_index 422/系列 409/日志/去 assert；4 用例） | |
+| B7-NFO | R10-D1（控制字符）、R10-D2（0 分）、R10-D3（country 回退）、R10-B2（None 文本）、R10-B3（country_name 守卫）、R10-B5（语言表注释）、R10-B6（截断注释） | done（控制字符/评分 0/country 回退/None 文本 + 注释；4 新用例） | |
+| B7-SCAN | R03-B2（头像失败保留旧值）、R03-B5（scan 响应摘要）、R03-B7（find_subs 日志）、R03-Q4（注释）、R03-Q5（import 上移）、R03-B3（重复规则删除）、R03-B4（异常审计） | done（头像保留旧图/scan 摘要/find_subs 日志/异常审计/import 上移/删重复规则） | |
+| B7-PLAYBACK | R11-D1（封顶钳制）、R11-D5/D7（reason）、R11-B2/B3/B4/B9（死路径/归一/封面/vbitrate）、R11-B7（master CODECS docker 验证）、R11-B8、R11-Q2（决策矩阵表测）、R11-Q3、R11-D4（smoke 超时）、R12-B1（"transcode"）、R12-B5/B6/B7（caps_hash/缓存/等待） | done（不放大/DV reason/media 清理/caps_hash/FIFO/kill 等待 + 5 矩阵用例；R11-B7 经 R12 复核关闭） | 部分需 DOCKER |
+| B7-EXTRAS | R08-Q1/Q2（归属纯函数单测+拆分）、R08-Q3（状态常量）、R08-B4（rowcount）、R06-Q4（job 状态机单测）、R09-Q2（planner fixture 单测） | done（归属纯函数/planner/job 状态机 13 用例 + ST_* 常量） | |
+| B7-DECISION1 | R13-B4（sup 死路径）、R13-B7（parseVtt 格式）、R05-B6/B7、R07-B3、R10-B4、R02-Q6、R05-Q5、R08-D6、R11-B1/B10（无 bug 结论） | closed（R13-B4 sup 死路径不可达、R13-B7 parseVtt 有原生回退、R05-B6/B7 语义正确、R07-B3 无需区分、R10-B4 注释已明、R02-Q6 无未用 import、R05-Q5 良好、R08-D6 定位如此、R11-B1 契约已验、R11-B8 字段注释明确口径、R11-B9/B10/无注入面、R11-Q3 注记重探） | H-DECISION |
 
 ### B8 体验/性能/小重构批
 | 组 | 成员 | 状态 | 备注 |
@@ -94,6 +93,8 @@ H-DATA 提醒：本批只新增索引（CREATE INDEX IF NOT EXISTS，安全）�
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-16：**B7 全部组完成**：DELETE/FAIL/NFO/SCAN/PLAYBACK/EXTRAS + DECISION1 closed；
+  pytest 147 passed、smoke 30/30、npm build/test 绿。
 - 2026-09-16：**B6 合回 main**（tag p2-b6-security，用户确认）；B7 开工。
 - 2026-09-16：**B6 四组完成**：REQ（安全头+CSP/SPA 边界/未知 api 404/health/blob inline）、
   INPUT（symlink/ids/tmdb_id/caps/LIKE/VobSub 415）、CRYPTO（blake2/特性自检）、
