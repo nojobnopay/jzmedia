@@ -470,6 +470,7 @@ def _build_cmd_fmp4(abs_path: str, plan: dict,
         vf = _sub_overlay_filter(plan)[0]
         if height:
             vf += ",scale=-2:%d" % height
+        vf += ",format=yuv420p"   # 烧录输出同样降 8bit（10bit 源否则变 High10，浏览器不能解）
         cmd += ["-filter_complex", vf + "[vout]", "-map", "[vout]"]
         height = 0  # 缩放已在滤镜图内
     else:
@@ -547,6 +548,7 @@ def _build_cmd_ts(abs_path: str, plan: dict,
         vf = _sub_overlay_filter(plan)[0]
         if height:
             vf += ",scale=-2:%d" % height
+        vf += ",format=yuv420p"   # 烧录输出同样降 8bit
         cmd += ["-filter_complex", vf + "[vout]", "-map", "[vout]", "-map", f"a:{ai}?"]
         height = 0  # 缩放已在滤镜图内
     else:

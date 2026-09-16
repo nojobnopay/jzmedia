@@ -44,7 +44,7 @@ watchdog 恢复、自绘控件层（不迁 Vidstack）。
 | P3 ASS/JASSUB + 字体 | ✅ 已落地并实测 | `.ass` 抽取 + 附件字体懒 dump + `data/fonts` 内置；前端 JASSUB 懒加载（RPC worker/wasm）、「兼容」VTT 降级、烧录不受影响 |
 | P3.5 图片字幕客户端化 + 外挂字幕 | ✅ 已落地并实测 | PGS→libpgs 客户端（切换不重开、零转码）+ 解码失败自动降级烧录；外挂 `.srt/.ass/.ssa/.sup`（含自动选中文）与 `.idx/.sub` 烧录；字幕延迟（ASS/PGS）；`scripts/find_subs.py` |
 | P4 TranscoderBackend + HDR/DV | ✅ 已落地（HW 待 NAS 实测） | `app/transcode.py` 冒烟探测(VAAPI→QSV→NVENC→软件)+env 强制+缓存；`/api/stream/backends`、`/api/health.transcoder`；HW 不出片自动软编重试；HDR/DV 矩阵(DV5 阻断/DV8 compat=1 当 HDR10/HLG 按 caps 直通)+HW tonemap；设置里「复制直链」外放 |
-| P5 预转码完整化 + 收尾 | ⬜ 待开始 | |
+| P5 预转码完整化 + 收尾 | ✅ 已落地 | prewarm 与在线播同管线+硬件软编重试+backend 状态；debug 补 backend/attempt/caps_hash/variants；README/AGENTS/版本 0.7.0 |
 
 ### P1 落地记录
 
@@ -398,6 +398,29 @@ watchdog 恢复、自绘控件层（不迁 Vidstack）。
 - 文档与版本：更新 `AGENTS.md` 播放章节（caps/四档/fMP4 回滚开关/字体目录/`/dev/dri`）、
   README 播放说明（现仍写“不做播放”）；代码版本统一升 `0.7.0`；
   按仓库惯例一功能一提交、发版打 tag。
+
+### P5 落地记录
+
+- `prewarm` 已与在线播同管线：一次产出 video + 全部音轨 rendition（目标下拉在详情页，
+  默认 auto）；进度按**视频**分片计；完工判定覆盖全部 `out_*.m3u8` ENDLIST；新增
+  **硬件不出片自动软件重试**（与 `_spawn_session` 同逻辑），job 状态带 `backend`。
+- `/sessions/{sid}/debug` 增强：`backend`（copy/static/vaapi/qsv/nvenc/software）、
+  `attempt`（是否软件重试）、`caps_hash`、`plan`、`variants`（各 rendition + ENDLIST）、
+  `video_segments`。
+- 设置弹层「复制直链」（P4 已随 HDR 一起做）；状态行 `hintLine` 修复为「缓冲 + 提示」并存。
+- 文档：README 重写播放相关（功能/目录/播放接口一览/NAS 硬件转码步骤/排障 4 条）、
+  AGENTS 播放章节随各阶段更新、本文件各阶段落地记录补全；版本统一 `0.7.0`
+  （`main.py` + `package.json`）。
+- 验收：短 fixture 全片预转码 → 完工 → 点播命中静态 VOD（0 ffmpeg、秒开）；debug 字段齐全；
+  `GET /api/health` 报后端；`npm run build` 通过。
+- **验收中发现并修复（10bit 源转码输出 High10 不可播）**：预转码 10bit HEVC 源时
+  libx264/NVENC 默认沿用 10bit（H.264 High10），Windows 浏览器/MSE 不能解；
+  `video_args` 统一加 `-pix_fmt yuv420p`（VAAPI/QSV 由滤镜 format=nv12 保证），
+  烧录 filter_complex 末尾补 `format=yuv420p`；新增 `PLAN_VERSION`（复用键带版本号），
+  产物规则变化时旧静态成品自动失效重转（本次 old marker 失配 → 重转一次）。
+  实测：NVENC 对 10bit 源报 "device doesn't support required NVENC features" →
+  软编兜底 + `-pix_fmt` 修复后输出 `Main/yuv420p`（8bit）；软件路径输出 `High/yuv420p`；
+  预转码 backend=nvenc 9 分片完工 → 点播命中 static、variants 全 ENDLIST。
 
 ---
 

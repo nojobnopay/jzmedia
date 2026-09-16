@@ -45,6 +45,9 @@ _SESS_FILE_RE = re.compile(
     r"^(?:out_[A-Za-z0-9]+\.m3u8|[A-Za-z0-9]+_init\.mp4|[A-Za-z0-9]+_seg\d+\.m4s|seg\d+\.ts)$")
 _TTL = 24 * 3600
 _MIN_SEGS = 3          # 首屏等待分片数（fMP4 4s → 约 12s 内容；TS 6s → 18s）
+# 产物规则版本：改变编码参数/像素格式/容器等「产物内容」时 +1，
+# 复用键带此值 → 旧静态成品自动失效重转（避免沿用旧规则产物）
+PLAN_VERSION = 2
 _SESS_IDLE = 600       # 会话无心跳保活期（秒）
 _sessions: dict[str, dict] = {}
 _sess_lock = threading.RLock()
@@ -441,6 +444,7 @@ def _session_key(plan: dict, audio: int) -> str:
 
 def _plan_marker(plan: dict, audio: int, start: float) -> str:
     """静态/在线复用键：只保留决定转码产物的字段。
+    - 带 `PLAN_VERSION`：编码参数/像素格式等产物规则变化时旧成品自动失效重转；
     - 去掉档位字符串：目录键（`_session_key`）已含产物档位；
     - `seg`（封装类型）由目录键前缀区分，不进键（TS 回滚可继续命中 P1 旧成品）；
     - 非烧录字幕归一（文本/ASS 字幕走独立接口，不影响 ffmpeg 输出），
@@ -459,7 +463,8 @@ def _plan_marker(plan: dict, audio: int, start: float) -> str:
         st = max(0, int(float(start or 0)))
     except (TypeError, ValueError):
         st = 0
-    return json.dumps({"a": a_key, "start": st, "plan": p}, sort_keys=True)
+    return json.dumps({"v": PLAN_VERSION, "a": a_key, "start": st, "plan": p},
+                      sort_keys=True)
 
 
 def _session_dir(version_id: int, key: str, start: float) -> str:
@@ -628,6 +633,7 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         with _sess_lock:
             _sessions[sid0] = {"proc": None, "sdir": sdir0, "vid": int(m["id"]),
                                "plan": d["plan"], "plan_key": plan_key,
+                               "caps_hash": _caps.caps_hash(caps_n), "backend": "static",
                                "complete": True, "last_ping": time.time()}
         return sid0, sdir0, d
     with _sess_lock:
@@ -698,6 +704,11 @@ def _spawn_session(version_id: int, quality: str, audio: int,
             with _sess_lock:
                 _sessions[sid] = {"proc": proc, "sdir": sdir, "vid": int(m["id"]),
                                   "plan": d["plan"], "plan_key": plan_key,
+                                  "caps_hash": _caps.caps_hash(caps_n),
+                                  "backend": ("copy" if d["plan"].get("vcopy")
+                                              else ("software" if force_sw or not use_hw
+                                                    else (_playback.hw_backend() or "software"))),
+                                  "attempt": attempt + 1,
                                   "last_ping": time.time()}
             deadline = time.time() + 300
             while time.time() < deadline:
@@ -893,29 +904,42 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int) -> None:
         sdir = _session_dir(int(m["id"]), _session_key(d["plan"], audio), 0)
         job["sdir"] = sdir
         job["vprefix"] = _video_seg_prefix(seg)
-        for n in os.listdir(sdir):
-            try:
-                os.remove(os.path.join(sdir, n))
-            except OSError:
-                pass
-        if seg != "ts":
-            _write_master(sdir, info, d["plan"], stime)
-        cmd = _playback.build_cmd(abs_p, d["plan"], start=0, seg_time=stime)
         log_path = os.path.join(sdir, "ffmpeg.log")
-        try:
-            log_fh = open(log_path, "wb")
-        except OSError:
-            log_fh = subprocess.DEVNULL  # type: ignore[assignment]
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log_fh,
-                                cwd=sdir)
-        job.update({"status": "running", "pid": proc.pid})
         timeout = max(1800.0, dur * 4 + 600) if dur > 0 else 7200.0
-        try:
-            proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            _kill_proc(proc)
-            raise RuntimeError("prewarm timeout")
-        if proc.returncode != 0 or not _playlist_endlist(sdir):
+        # 硬件后端不出片 → 软件重试一次（与在线播同一兜底逻辑）
+        use_hw = bool(_playback.hw_backend()) and not d["plan"].get("vcopy")
+        force_sw = False
+        for attempt in (0, 1):
+            for n in os.listdir(sdir):
+                try:
+                    os.remove(os.path.join(sdir, n))
+                except OSError:
+                    pass
+            if seg != "ts":
+                _write_master(sdir, info, d["plan"], stime)
+            cmd = _playback.build_cmd(abs_p, d["plan"], start=0, seg_time=stime,
+                                      force_sw=force_sw)
+            try:
+                log_fh = open(log_path, "wb")
+            except OSError:
+                log_fh = subprocess.DEVNULL  # type: ignore[assignment]
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log_fh,
+                                    cwd=sdir)
+            if log_fh is not subprocess.DEVNULL:
+                try:
+                    log_fh.close()
+                except Exception:
+                    pass
+            job.update({"status": "running", "pid": proc.pid,
+                        "backend": "software" if force_sw or not use_hw
+                                   else (_playback.hw_backend() or "software")})
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                _kill_proc(proc)
+                raise RuntimeError("prewarm timeout")
+            if proc.returncode == 0 and _playlist_endlist(sdir):
+                break  # 成功
             tail = ""
             try:
                 with open(log_path, "rb") as fh:
@@ -923,6 +947,9 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int) -> None:
                     tail = fh.read().decode("utf-8", errors="replace").strip()[-500:]
             except OSError:
                 pass
+            if attempt == 0 and use_hw:
+                force_sw = True
+                continue
             raise RuntimeError("transcode failed" + (f": {tail}" if tail else ""))
         marker = _plan_marker(d["plan"], audio, 0)
         mk = json.loads(marker)
@@ -1071,8 +1098,8 @@ def hls_session_segment(sid: str, name: str):
 
 @router.get("/sessions/{sid}/debug")
 def hls_session_debug(sid: str):
-    """卡死自证口：进程活/死/退出码、已产分片、列表行数/是否完工、ffmpeg尾日志、近期命中。
-    前端状态行 + 此口 JSON，足够定位“没产出/没进来/播不出”三选一。"""
+    """卡死自证口：进程活/死/退出码、分片/列表/ENDLIST（含各 rendition）、
+    实际转码后端/重试次数/caps 摘要、ffmpeg 尾日志、近期命中。"""
     with _sess_lock:
         sess = _sessions.get(sid or "")
         hits = [h for h in list(_hits) if h.get("sid") == sid][-20:]
@@ -1082,7 +1109,9 @@ def hls_session_debug(sid: str):
     alive = proc is not None and proc.poll() is None
     exit_code = None if proc is None or alive else proc.poll()
     sdir = sess.get("sdir") or ""
+    plan = sess.get("plan") or {}
     segs = _seg_count(sdir)
+    vsegs = _seg_count(sdir, _video_seg_prefix(plan.get("seg") or "fmp4"))
     extinf = 0
     for name in _variant_playlists(sdir):
         try:
@@ -1093,6 +1122,10 @@ def hls_session_debug(sid: str):
         except OSError:
             continue
     endlist = _playlist_endlist(sdir)
+    variants = []
+    for name in _variant_playlists(sdir):
+        variants.append({"name": name,
+                         "endlist": _has_endlist(os.path.join(sdir, name))})
     flog = ""
     try:
         lp = os.path.join(sdir, "ffmpeg.log")
@@ -1103,8 +1136,11 @@ def hls_session_debug(sid: str):
         pass
     return {"session_id": sid, "exists": True, "running": alive,
             "complete": bool(sess.get("complete")),
-            "exit_code": exit_code, "segments": segs,
+            "exit_code": exit_code, "segments": segs, "video_segments": vsegs,
             "playlist_items": extinf, "finished": endlist,
+            "backend": sess.get("backend") or "", "attempt": sess.get("attempt") or 1,
+            "caps_hash": sess.get("caps_hash") or "", "plan": plan,
+            "variants": variants,
             "last_ping_ago": round(time.time() - float(sess.get("last_ping") or 0), 1),
             "ffmpeg_log_tail": flog, "hits": hits}
 

@@ -47,10 +47,13 @@ class Backend:
         return []
 
     def video_args(self, height: int, burn: bool = False, tonemap: bool = False) -> list[str]:
-        """输出侧视频编码参数。height=0 不缩放；burn 强制软件（滤镜图与硬件滤镜互斥）。"""
+        """输出侧视频编码参数。height=0 不缩放；burn 强制软件（滤镜图与硬件滤镜互斥）。
+        目标统一 8bit（yuv420p）：H.264 10bit（High10）浏览器/MSE 基本不能解，
+        源是 10bit 时必须显式降到 8bit（libx264/nvenc 都要；VAAPI/QSV 由滤镜 format 保证）。"""
         h = int(height or 0)
         if burn or not self.hw:
-            args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]
+            args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                    "-pix_fmt", "yuv420p"]
             if h:
                 args += ["-vf", f"scale=-2:{h}"]
             return args
@@ -69,7 +72,7 @@ class Backend:
                 vf = "vpp_qsv=format=nv12" + (f":w=-2:h={h}" if h else "")
             return ["-vf", vf, "-c:v", "h264_qsv", "-preset", "veryfast"]
         if self.name == "nvenc":
-            args = ["-c:v", "h264_nvenc", "-preset", "p4"]
+            args = ["-c:v", "h264_nvenc", "-preset", "p4", "-pix_fmt", "yuv420p"]
             if h:
                 args += ["-vf", f"scale=-2:{h}"]
             return args

@@ -2,7 +2,7 @@
 
 ## Stack
 - Backend: FastAPI + stdlib `sqlite3` (no ORM), Vue3 + Vite frontend. No tests, lint, typecheck, or CI.
-- Entrypoints: `app/main.py` (app + SPA hosting, version `0.6.0`), `app/store.py` (SQLite+FTS+facets/filters), `app/scanner.py` (scan/match flow), `app/tmdb.py` (TMDB client), `app/regions.py` (country→region mapping, single source), `app/routers/` (`health|movies|collections|files|extras|jobs|persons|stream`; TMDB search lives in `movies` router), `app/nfo.py` (Kodi NFO).
+- Entrypoints: `app/main.py` (app + SPA hosting, version `0.7.0`), `app/store.py` (SQLite+FTS+facets/filters), `app/scanner.py` (scan/match flow), `app/tmdb.py` (TMDB client), `app/regions.py` (country→region mapping, single source), `app/routers/` (`health|movies|collections|files|extras|jobs|persons|stream`; TMDB search lives in `movies` router), `app/nfo.py` (Kodi NFO).
 - Playback: `app/media.py` (ffprobe probe + ffmpeg bin resolve) → `app/caps.py` (ClientCapabilities normalize/hash) → `app/playback.py` (4-tier plan `direct|remux|audio_transcode|video_transcode` + `build_cmd`) → `app/routers/stream.py` (sessions/heartbeat/TTL/HLS). `POST /api/stream/{id}/decide`, `POST /api/stream/versions`, `POST /api/stream/{id}/sessions` accept `caps`; GET variants use `caps.default_caps()` (conservative). `media_info.probe_ver < media.PROBE_VERSION` auto-reprobes on play. Frontend capability detect: `frontend/src/caps.js`.
   - quality: `auto`(默认；需视频重编且源>1080p 时封顶 无HW 720p/有HW 1080p) | `source`(原画不封顶) | `1080p` | `720p`；`original` 兼容为 auto。UI 显示“实际输出”。
   - 会话目录键 `_quality_key(plan)`（copy/h720/h1080/src）、复用键 `_plan_marker`（不含档位字符串；fMP4 不含所选音轨；非烧录字幕不参与）→ 预转码与在线播同 plan 即命中静态成品。

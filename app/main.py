@@ -22,7 +22,7 @@ async def _lifespan(_app: FastAPI):
     stream.shutdown_sessions()
 
 
-app = FastAPI(title="jzmedia", version="0.6.0", lifespan=_lifespan)
+app = FastAPI(title="jzmedia", version="0.7.0", lifespan=_lifespan)
 
 ensure_dirs()
 store.init_db()
