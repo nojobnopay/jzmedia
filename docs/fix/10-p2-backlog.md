@@ -8,10 +8,11 @@
 ## 1. 当前指针
 
 ```
-批次：B5a 硬化批（fix/b5a-harden）— 10/10 done，待整批验证后合回 main
-步骤：L0/L1（98 passed + node 7）已随各步绿；待 L2 smoke → merge → tag p1-b5a-harden
-断点：无
-下一步：merge --no-ff → tag → 指针转 B6（先出 H-SEC 人审清单）
+批次：B5a 已合回 main（merge db77d6d，tag p2-b5a-harden）——P2 已清 10/238
+下一批：B6 安全加固批（fix/b6-security）；需 H-SEC（diff+curl 证据）与 H-DECISION
+        （R12-B9 debug 口保留、R08-D5 attach 需 force、R05-D4 非正片删除两步确认）
+断点：等用户对 B6 三项决策确认后开工
+下一步：git checkout -b fix/b6-security
 ```
 
 ## 2. 已完成批次（B1–B4，P1 全清，见 docs/fix/00-index.md）
