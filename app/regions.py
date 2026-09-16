@@ -55,7 +55,8 @@ COUNTRY_NAMES = {
     "PT": "葡萄牙", "AT": "奥地利",
 }
 
-# original_language 回退（无 production_countries 时用）
+# original_language 回退（无 production_countries 时用；覆盖有限，未收录语言→未知，
+# 属预期：TMDB 绝大多数条目都有 production_countries，评审 R10-B5 仅注记）
 LANG_FALLBACK = {
     "zh": "CN", "ja": "JP", "ko": "KR", "en": "US",
     "fr": "FR", "de": "DE", "it": "IT", "es": "ES", "th": "TH",
@@ -93,9 +94,11 @@ def resolve(countries: list, original_language: str | None = None) -> tuple[str,
 
 
 def country_name(code: str) -> str:
-    if not code:
+    """ISO → 中文名；未收录回退大写 ISO；入参防御（评审 B7/R10-B3：非 str 不再 AttributeError）"""
+    c = str(code or "").strip()
+    if not c:
         return REGION_UNKNOWN
-    return COUNTRY_NAMES.get(code.upper(), code.upper())
+    return COUNTRY_NAMES.get(c.upper(), c.upper())
 
 
 def normalize_tags(tags) -> list[str]:
@@ -108,6 +111,8 @@ def normalize_tags(tags) -> list[str]:
         if not s or s in seen:
             continue
         if len(s) > 20:
+            # 先截断后去重（评审 R10-B6）：超长标签截断后若与已有重复，seen 会挡住后者，
+            # 保留先出现的截断值；正常标签远短于 20，无实际影响
             s = s[:20]
         seen.add(s)
         out.append(s)
