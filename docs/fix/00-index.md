@@ -42,14 +42,15 @@
 ## 4. 当前指针（中断恢复点）
 
 ```
-批次：B1（fix/b1-scan）— 全部 4 项 done，验证通过，待合回 main
-步骤：L0（compileall/import/build）+ L1（pytest 54 / node 7 全绿）+ L2 smoke 22/22 PASS
-断点：P1-05 提交后合回 main（--no-ff）并打批标签；下一批 B2（P1-06/07/08）待用户确认
-下一步：git merge --no-ff fix/b1-scan → 更新本指针 → 向用户汇报，等指令开 B2
+批次：B1（fix/b1-scan）已合回 main（merge d791def）并打批标签 p1-b1-scan
+步骤：B1 收尾完成。下一批待定：B2（P1-06/07/08，播放链需 docker+ffmpeg 实测）或 B3（P1-09/10/11，宿主可验）
+断点：等用户指令开下一批；开批时从最新 main 拉新分支（fix/b2-consistency / fix/b3-ops）
+下一步：用户确认批次后：git checkout -b fix/<batch>
 ```
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-16：**B1 批次合回 main**（--no-ff `d791def`，tag `p1-b1-scan`）；main 上 pytest 54 passed。整体验证：L0（compileall/import/npm build）+ L1（pytest 54、node --test 7）+ L2 smoke 22/22。
 - 2026-09-16：**P1-05 done**：clean-sidecars 过滤 `tmdb_id` 非空行（已匹配行永不清理）；pytest 54 passed，全绿；L2 smoke 22/22 PASS；B1 批次验证完成。
 - 2026-09-16：**P1-04 done**：`scan_all` walk 剪枝（隐藏目录 + `_SKIP_DIR_NAMES`，`SCAN_SKIP_DIRS` 可追加），文件级隐藏名也跳过；pytest 53 passed / 1 failed；README 环境变量表同步。
 - 2026-09-16：**P1-03 done**：`scan_one` 剧集不再建行；新增 `POST /api/files/clean-episodes`（dry_run 默认，保护已匹配行）+ Settings 两步确认按钮 + README/AGENTS 同步；pytest 52 passed / 2 failed。
