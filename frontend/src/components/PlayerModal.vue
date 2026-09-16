@@ -89,6 +89,8 @@
               <button class="ctl-mini" @click="copyDirectLink"
                 title="复制原文件直链：可用 VLC/Kodi/电视播放器打开（HDR/DV 等复杂片源推荐）">复制直链</button>
             </div>
+            <input v-if="directFailUrl" readonly :value="directFailUrl" class="set-copy-url"
+              @focus="$event.target.select()" @click="$event.target.select()" />
             <p class="set-hint">{{ methodLine }}<span v-if="qualityLine"> · {{ qualityLine }}</span></p>
           </div>
           </div>
@@ -147,6 +149,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '../api.js'
+import { copyText } from '../clipboard.js'
 import { getCaps, probeStrings, withProbes } from '../caps.js'
 import { ensureJassub } from '../jassubLoader.js'
 import { ensurePgs } from '../pgsLoader.js'
@@ -339,6 +342,7 @@ const methodLine = computed(() => {
 // 实际输出（不再只显示所选档位）：plan.height 为服务端真正落地的封顶高度
 const planHeight = ref(0)
 const directUrl = ref('')   // 原文件直链（设置弹层「复制直链」给 VLC/Kodi 用）
+const directFailUrl = ref('')
 const srcHeight = ref(0)
 const qualityLine = computed(() => {
   if (!method.value) return ''
@@ -637,6 +641,7 @@ async function reload() {
   }
   planHeight.value = Number(d.plan?.height) || 0
   directUrl.value = d.direct_url || ''
+  directFailUrl.value = ''
   srcHeight.value = Number(d.media?.height) || 0
   // 播放器比例：padding-top = min(片源高宽比, 76vh)（16:9 片源按屏幕宽度自适应）；
   // HLS 模式底部额外预留控件条高度，视频区不被遮挡。无数据时容器也不塌陷。
@@ -1218,12 +1223,13 @@ function onCompatChange() {
 async function copyDirectLink() {
   const url = directUrl.value
   if (!url) { posHint.value = '直链暂不可用，请稍后重试'; return }
+  directFailUrl.value = ''
   const abs = location.origin + url
-  try {
-    await navigator.clipboard.writeText(abs)
+  if (await copyText(abs)) {
     posHint.value = '直链已复制：可在 VLC/Kodi/电视播放器里打开'
-  } catch (e) {
-    posHint.value = abs
+  } else {
+    directFailUrl.value = abs
+    posHint.value = '自动复制失败（浏览器限制），已显示链接，点框后 Ctrl+C 手动复制'
   }
 }
 // 总时长统一用探测值：HLS 增长型清单里 v.duration 只是“已产出片段之和”（如 30s），
@@ -1755,7 +1761,11 @@ onUnmounted(() => {
 .set-row > label { color: #999; font-size: 0.75rem; width: 34px; flex: none; }
 .set-row select { flex: 1; min-width: 0; background: #262626; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 4px 6px; font-size: 0.75rem; }
 .set-inline { display: inline-flex; align-items: center; gap: 6px; }
-.set-hint { margin: 2px 0 0; color: #777; font-size: 0.6875rem; }
+.set-hint { margin: 2px 0 0; color: #777; font-size: 0.6875rem; overflow-wrap: anywhere; }
+.set-copy-url { width: 100%; box-sizing: border-box; padding: 4px 6px; background: #141414;
+  border: 1px dashed #444; border-radius: 6px; color: #bbb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.6875rem;
+  overflow-x: auto; white-space: nowrap; }
 
 .pv-wrap { --pvb: 0px; position: relative; background: #000; border-radius: 8px; overflow: hidden; width: 100%; }
 .pv-wrap.has-bar { --pvb: 46px; }
@@ -1811,7 +1821,7 @@ onUnmounted(() => {
 .gesture-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: #262626; border: 1px solid #2b6cb0; border-radius: 8px; padding: 8px 12px; margin: 4px 0 0; color: #9ecfff; font-size: 0.875rem; }
 .play-now { font-size: 1rem; padding: 6px 22px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }
 .resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; flex-wrap: wrap; }
-.hint-line { margin: 0; color: #666; font-size: 0.8125rem; }
+.hint-line { margin: 0; color: #666; font-size: 0.8125rem; overflow-wrap: anywhere; }
 .hint.warn { color: #e0a63c; }
 </style>
 <style>

@@ -123,6 +123,8 @@
               <span class="f-name">{{ baseName(v.file_path) }}</span>
               <span class="f-acts"><button @click="copyTvUrl(v)">复制直链</button></span>
             </li></ul>
+            <input v-if="tvUrl" readonly :value="tvUrl" class="copy-url"
+              @focus="$event.target.select()" @click="$event.target.select()" />
             <p class="hint">电视端 Kodi 打开此链接即播原盘（含杜比视界），不耗 NAS 算力；浏览器在线播请用上方 ▶ 播放。{{ tvMsg }}</p>
           </details>
 
@@ -228,6 +230,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, apiUpload, posterUrl } from '../api.js'
+import { copyText } from '../clipboard.js'
 import { getCaps } from '../caps.js'
 import { hasScore, fmtScore, starRow } from '../ratings.js'
 import Spinner from '../components/Spinner.vue'
@@ -440,14 +443,16 @@ async function closeStream() {
 }
 // P-D：电视原盘直链（Kodi/外部播放器直通，零转码；blob 本就支持 Range）
 const tvMsg = ref('')
+const tvUrl = ref('')
 async function copyTvUrl(v) {
   tvMsg.value = ''
+  tvUrl.value = ''
   const url = location.origin + `/api/movies/${v.id}/blob?name=${encodeURIComponent(v.file_path)}`
-  try {
-    await navigator.clipboard.writeText(url)
+  if (await copyText(url)) {
     tvMsg.value = '已复制，在 Kodi 里打开该链接即播'
-  } catch (e) {
-    tvMsg.value = url
+  } else {
+    tvUrl.value = url
+    tvMsg.value = '自动复制失败（浏览器限制），已显示链接，点框后 Ctrl+C 手动复制'
   }
 }
 async function onPlayEnded() {
@@ -945,7 +950,11 @@ onUnmounted(() => {
 .friendly-chip { color: #7ed321; font-size: 0.8125rem; }
 .trans-chip { color: #e0a63c; font-size: 0.75rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 0 8px; }
 .tvplay summary { cursor: pointer; color: #ccc; font-size: 0.9375rem; }
-.tvplay .hint { color: #888; font-size: 0.8125rem; }
+.tvplay .hint { color: #888; font-size: 0.8125rem; overflow-wrap: anywhere; }
+.copy-url { display: block; width: 100%; box-sizing: border-box; margin: 6px 0 2px; padding: 6px 8px;
+  background: #141414; border: 1px dashed #444; border-radius: 6px; color: #bbb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.75rem;
+  overflow-x: auto; white-space: nowrap; }
 .src { color: #888; font-weight: normal; }
 .tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }
