@@ -13,8 +13,9 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 进度：B5a+B6+B7+B8 已清 P2 约 150/238；剩余 = B9 结构（~12 组）+ B10 工程化（~5 组）
 设计要点（见 §6 B9 设计说明）：门面重导出保持调用面零改动；逐模块一分支一合回
 断点：R2/R3 已合 main（过程偏差：store 拆分提交直接落在 main，无独立分支；已打 b9-store 标）
-下一步：后续每个模块严格先建分支：scanner → files → movies → stream → playback → 前端视图；
-        再插 R02-D1 迁移框架（H-DATA，需提醒备份）与 R04-D6 扫描任务化
+下一步：files 拆 planner/executor → movies 拆 crud/blob/batch+scope 单源 → stream 拆
+        session/media/subtitles/fonts → playback 拆 plan/cmd → R02-D1 迁移框架（H-DATA）
+        → R04-D6 扫描任务化 → 前端视图拆分；每模块先建分支再改
 ```
 
 ## 6. B9 设计说明（送审）
@@ -100,7 +101,7 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 |---|---|---|
 | B9-STORE | R02-Q1/Q3（拆分+DB_PATH 注入）、R02-D1（user_version 迁移，H-DATA） | 进行中（拆分完成：app/store/ 11 子模块 + 门面；R02-Q1 关闭（测试以 env 注入 DATA_DIR）；R02-D1 迁移框架待做，H-DATA 前置） |
 | B9-STREAM | R12-Q1/Q3（会话/媒体/字幕/字体拆分+元数据落盘） | pending |
-| B9-SCANNER | R03-Q1/Q3（拆分+增量扫描，H-DESIGN） | pending |
+| B9-SCANNER | R03-Q1/Q3（拆分+增量扫描，H-DESIGN） | 拆分 done（app/scanner/ 6 阶段模块+门面，pytest/smoke 绿）；R03-Q3 增量扫描待设计 |
 | B9-PLAYBACK | R11-Q1（决策/命令拆分） | pending |
 | B9-MOVIES | R05-Q1/Q2/B4（CRUD/blob/batch + scope 单源） | pending |
 | B9-FILES | R09-Q1（planner/executor 拆分） | pending |
@@ -119,6 +120,8 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-16：**B9-R4 完成**：scanner 拆为 classify/parse/match/persist/nfo_link/scan 六模块 + 门面；
+  228→…（158 tests + smoke 29/29 全绿，pyflakes 无未定义/未用 import）。
 - 2026-09-16：**B9-R2/R3 完成**：usePolling composable（Collections/Detail 接入）；
   store 1935 行拆成 app/store/ 11 子模块 + 门面重导出（调用方零改动），pytest 158 + smoke 29/29。
 - 2026-09-16：**B8 合回 main**（tag p2-b8-ux，用户 H-UI 通过）；B9 设计说明送审。
