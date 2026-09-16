@@ -13,9 +13,10 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 进度：B5a+B6+B7+B8 已清 P2 约 150/238；剩余 = B9 结构（~12 组）+ B10 工程化（~5 组）
 设计要点（见 §6 B9 设计说明）：门面重导出保持调用面零改动；逐模块一分支一合回
 断点：R2/R3 已合 main（过程偏差：store 拆分提交直接落在 main，无独立分支；已打 b9-store 标）
-剩余：R02-D1 迁移框架（H-DATA：实施前请用户备份 data/jzmedia.db）→ R04-D6 扫描任务化
-      → R12-Q3 会话元数据落盘 → R03-Q3 增量扫描（H-DESIGN）→ 前端视图拆分
-断点：后端六个巨型模块拆分全部合回 main（tags: b9-store/scanner/files/movies/stream/playback）
+剩余：仅前端视图拆分（PlayerModal 1853 / Library 1050 / Settings 1060 / Detail 1014 +
+      样式单源 R07-Q3/R14-Q5、R13-Q1/Q2 状态机收敛），逐组件合回 + H-UI 点检
+断点：B9 后端 100% done（tags: b9-store/scanner/files/movies/stream/playback/session-meta/
+      migrations/scan-job/incr-scan）；pytest 166 + smoke 29/29
 ```
 
 ## 6. B9 设计说明（送审）
@@ -99,15 +100,15 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 ### B9 结构重构批（逐模块合回）
 | 组 | 成员 | 状态 |
 |---|---|---|
-| B9-STORE | R02-Q1/Q3（拆分+DB_PATH 注入）、R02-D1（user_version 迁移，H-DATA） | 进行中（拆分完成：app/store/ 11 子模块 + 门面；R02-Q1 关闭（测试以 env 注入 DATA_DIR）；R02-D1 迁移框架待做，H-DATA 前置） |
-| B9-STREAM | R12-Q1/Q3（会话/媒体/字幕/字体拆分+元数据落盘） | 拆分 done（app/routers/stream/ 5 模块 + 门面，pytest/smoke 绿）；R12-Q3 会话元数据落盘待做 |
-| B9-SCANNER | R03-Q1/Q3（拆分+增量扫描，H-DESIGN） | 拆分 done（app/scanner/ 6 阶段模块+门面，pytest/smoke 绿）；R03-Q3 增量扫描待设计 |
-| B9-PLAYBACK | R11-Q1（决策/命令拆分） | done（app/playback/ plan/cmd/backend + 门面） |
-| B9-MOVIES | R05-Q1/Q2/B4（CRUD/blob/batch + scope 单源） | done（app/routers/movies/ common/scope/routes + same_stem 单源） |
-| B9-FILES | R09-Q1（planner/executor 拆分） | done（app/routers/files/ paths/planner/executor/routes + 门面） |
-| B9-COLLECTIONS/PERSONS | R06-Q1、R07-Q1/Q3（composable/样式单源） | 进行中（usePolling 抽取并接入 Collections/Detail；R07-Q3 样式单源并入前端模块） |
+| B9-STORE | R02-Q1/Q3（拆分+DB_PATH 注入）、R02-D1（user_version 迁移，H-DATA） | done（拆分 + R02-Q1 关闭（env 注入）+ R02-D1 user_version 迁移框架 v1–v9） |
+| B9-STREAM | R12-Q1/Q3（会话/媒体/字幕/字体拆分+元数据落盘） | done（拆分 + R12-Q3 session.json 元数据 + 启动孤儿收割） |
+| B9-SCANNER | R03-Q1/Q3（拆分+增量扫描，H-DESIGN） | done（拆分 + R03-Q3 增量扫描 scan_state） |
+| B9-PLAYBACK | R11-Q1（决策/命令拆分） | done（plan/cmd/backend） |
+| B9-MOVIES | R05-Q1/Q2/B4（CRUD/blob/batch + scope 单源） | done（common/scope/routes + same_stem 单源） |
+| B9-FILES | R09-Q1（planner/executor 拆分） | done（paths/planner/executor/routes） |
+| B9-COLLECTIONS/PERSONS | R06-Q1、R07-Q1/Q3（composable/样式单源） | 部分（usePolling 完成；样式单源随前端拆分） |
 | B9-PLAYER-UI | R14-Q1/Q5、R13-Q1/Q2（PlayerModal 拆分+样式约定） | pending |
-| B9-VIEWS | R14-Q2、R04-Q1（Settings/Library 拆分）、R04-D6（scan 后台任务，复用 job 框架） | pending |
+| B9-VIEWS | R14-Q2、R04-Q1（Settings/Library 拆分）、R04-D6（scan 后台任务，复用 job 框架） | 进行中：R04-D6 扫描任务化 done；前端视图拆分待做 |
 
 ### B10 工程化收尾批
 | 组 | 成员 | 状态 |
@@ -120,6 +121,8 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-16：**B9 后端 100% 完成**：迁移框架 v9、扫描任务化、增量扫描、会话元数据+孤儿收割；
+  pytest 166 passed / smoke 29/29。
 - 2026-09-16：**B9 后端拆分全部完成**：store/scanner/files/movies/stream/playback 六包 + usePolling；
   每步 pytest 158 + smoke 29/29 + pyflakes 清零；tags b9-*。剩余：迁移框架/扫描任务化/会话元数据/前端拆分。
 - 2026-09-16：**B9-R4 完成**：scanner 拆为 classify/parse/match/persist/nfo_link/scan 六模块 + 门面；
