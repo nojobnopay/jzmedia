@@ -1,36 +1,25 @@
-"""PlaybackPlanner：MediaInfo + ClientCapabilities + 用户选择 → 四档 PlaybackPlan + FFmpeg 命令。
-
-四档（目标文档 §5，优先级从低到高开销）：
-- direct：容器/视频/音频都兼容 → 复用 /api/movies/{id}/blob（Range 直发），零 CPU。
-- remux：编码兼容、仅容器不对（MKV 等）→ ffmpeg -c copy 换浏览器容器。
-- audio_transcode：视频兼容、所选音轨不兼容（DTS/TrueHD…）→ video copy + 音频转 AAC。
-- video_transcode：视频编码/位深/HDR/图片字幕烧录/降档必须重编（P4 接 HW 后端）。
-- blocked：文件不可播（探测失败/伪造）。
-
-reasons 抄 Jellyfin TranscodeReason 思路，供前端人话提示；plan 供 build_cmd 组命令。
-P2 起默认输出 HLS + fMP4（`-var_stream_map` 单进程：video + 全部音轨 rendition，
-切音轨只换 rendition 不重开视频转码）；`HLS_SEGMENT_TYPE=ts` 可回滚旧 MPEG-TS 单音轨。
-"""
-import json
+"""playback.plan（自 app/playback.py 拆分，评审 B9/R11-Q1；经 playback 门面使用）。"""
 import os
-import subprocess
+from .. import caps as _caps
+from ..media import ASS_SUBS
+from ..media import TEXT_SUBS
+from ..media import norm_codec
+from . import backend
+from ..log import get_logger
+logger = get_logger("playback.plan")
+__all__ = ['MP4_CONTAINERS', 'MAX_AUDIO_RENDITIONS', 'AUDIO_COPY_SAFE', 'AUDIO_COPY_SAFE_NATIVE', '_ISO639_2', '_env_set', 'seg_type', 'seg_time', '_is_kodi', '_generic_video_key', '_video_ok', '_audio_ok', 'iso639_2', 'audio_variants', 'transcoded_video_codec', '_hdr_blocks_direct', '_subtitle_mode', '_clamp_to_source', '_target_height', 'plan', 'score']
 
-from . import caps as _caps
-from .config import settings
-from .media import (ASS_SUBS, TEXT_SUBS, ffmpeg_bin, ffprobe_bin, norm_codec)
-
-# PROBE_VERSION 变更记录（对齐 media.PROBE_VERSION；评审 B8/R11-Q4）：
-# v1 基础字段 → v2 HDR/DV/位深/附件 → v3 图片字幕 codec 归一（pgs/vobsub）；
-# 老行播放时自动重探，无需 backfill。
 MP4_CONTAINERS = ("mp4", "mov", "m4v")
+
+
 MAX_AUDIO_RENDITIONS = 8     # 单次转码最多产出的音轨 rendition 数（防极端多音轨）
 
-# 音频 copy 安全集：浏览器声明支持 ≠ 当前输出管线能出音。
-# - hls.js 管线实测 EAC3/AC3 copy 无声（古董局中局 EAC3 6ch 复现），默认只信 AAC/MP3；
-#   fMP4 下若实测 Windows Chrome Dolby 有声，可用 env AUDIO_COPY_SAFE=eac3,ac3 放开。
-# - Safari 原生 HLS 走 Apple 管线，Dolby（AC3/EAC3）可直通。
+
 AUDIO_COPY_SAFE = {"aac", "mp3"}
+
+
 AUDIO_COPY_SAFE_NATIVE = {"aac", "mp3", "ac3", "eac3"}
+
 
 _ISO639_2 = {
     "zh": "chi", "cn": "chi", "en": "eng", "ja": "jpn", "jp": "jpn", "ko": "kor",
@@ -57,22 +46,6 @@ def seg_type() -> str:
 def seg_time(st: str | None = None) -> int:
     """分片时长：fMP4 4s（目标文档 §6）/ TS 6s（历史稳定值）。"""
     return 6 if (st or seg_type()) == "ts" else 4
-
-
-def hw_backend() -> str:
-    """当前转码后端名（''=软件；qsv/vaapi/nvenc）。
-    P4 起由 `app/transcode.detect()` 冒烟探测（env TRANSCODER/HW_ACCEL 可强制）。"""
-    try:
-        from . import transcode
-        return transcode.detect().name
-    except Exception:
-        return ""
-
-
-def hw_can_tonemap() -> bool:
-    """当前后端能否做 HDR→SDR 实时 tonemap：仅 VAAPI（tonemap_vaapi）/ QSV（vpp_qsv）。
-    NVENC 未实现（tonemap_cuda 需单独滤镜链）→ 视作不可，走 hdr_no_tonemap 提示外放。"""
-    return hw_backend() in ("vaapi", "qsv")
 
 
 def _is_kodi(client: str) -> bool:
@@ -248,7 +221,7 @@ def _target_height(quality: str, media: dict, need_encode: bool) -> tuple[int, s
     except (TypeError, ValueError):
         h = 0
     if need_encode and h > 1080:
-        return (1080, "auto_downscale_1080p") if hw_backend() else (720, "auto_downscale_720p")
+        return (1080, "auto_downscale_1080p") if backend.hw_backend() else (720, "auto_downscale_720p")
     return 0, ""
 
 
@@ -328,7 +301,7 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
         # 一版无提示的灰片。
         tonemap = False
         if hdr_tonemap:
-            if hw_can_tonemap() and not burn:
+            if backend.hw_can_tonemap() and not burn:
                 tonemap = True
                 try:
                     if int(media.get("dv_profile") or 0) > 0 and int(media.get("dv_bl_compat") or 0) == 0:
@@ -386,256 +359,3 @@ def score(media: dict, caps: dict | None = None, quality: str = "auto",
         return (3, cap, 0 if p.get("vcopy") else 1)
     return (9, 0)
 
-
-def _append_video_encoder(cmd: list, backend, height: int, burn: bool,
-                          tonemap: bool = False) -> None:
-    """追加视频重编码参数（委托 transcode.Backend.video_args）。
-    burn（filter_complex 烧录）与硬件滤镜互斥 → Backend 内部回落软件。"""
-    cmd += backend.video_args(height, burn=burn, tonemap=tonemap)
-
-
-def _keyframe_start(abs_path: str, st: float) -> float | None:
-    """源中 <= st 的最后一个视频关键帧 PTS（对齐 copy 会话 -noaccurate_seek 实际起点）。
-    ffprobe 只解码关键帧（-skip_frame nokey），失败/超时返回 None 由调用方回落。"""
-    for span in (10.0, 300.0):
-        lo = max(0.0, st - span)
-        cmd = [ffprobe_bin(), "-v", "error", "-select_streams", "v:0",
-               "-skip_frame", "nokey", "-show_entries", "frame=pts_time",
-               "-of", "json",
-               "-read_intervals", f"{lo:.3f}%{st + 0.05:.3f}",
-               abs_path]
-        try:
-            out = subprocess.run(cmd, capture_output=True, timeout=15, check=False)
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        try:
-            frames = json.loads(out.stdout.decode("utf-8", errors="replace")).get("frames") or []
-        except ValueError:
-            frames = []
-        pts: list[float] = []
-        for f in frames:
-            try:
-                v = float((f or {}).get("pts_time"))
-            except (TypeError, ValueError):
-                continue
-            if v <= st + 1e-3:
-                pts.append(v)
-        if pts:
-            return max(pts)
-    return None
-
-
-def actual_media_start(abs_path: str, start: float, vcopy: bool) -> float:
-    """会话片内 0 对应的源时间：copy 会话=目标前关键帧（-noaccurate_seek），
-    转码/烧录=准确 seek 到 start。客户端字幕等绝对时间轴产物按此平移。"""
-    try:
-        st = max(0.0, float(start or 0))
-    except (TypeError, ValueError):
-        st = 0.0
-    if st <= 0:
-        return 0.0
-    if not vcopy:
-        return st
-    kf = _keyframe_start(abs_path, st)
-    return kf if (kf is not None and 0 <= kf <= st + 1e-3) else st
-
-
-def _seek_args(cmd: list, vcopy: bool, start: float) -> tuple[float, float]:
-    """seek 对齐（B4）追加输入侧参数，返回 (输出侧精确裁剪秒数, 输入侧提前秒数)。
-    - 转码：输入 -ss 到目标前 15s + 输出侧裁 15s → 解码器有完整 GOP，音视频同点；
-    - 拷贝：-noaccurate_seek 从目标前一关键帧整段起（代价：起播最多早一个 GOP）。
-    外挂图片字幕烧录时，第二输入要用同样的输入侧提前量（见 build_cmd）。"""
-    try:
-        st = max(0.0, float(start or 0))
-    except (TypeError, ValueError):
-        st = 0.0
-    trim_after = 0.0
-    pre = 0.0
-    if st > 0:
-        if vcopy:
-            cmd += ["-ss", f"{st:.3f}", "-noaccurate_seek"]
-        else:
-            pre = max(0.0, st - 15.0)
-            if pre > 0:
-                cmd += ["-ss", f"{pre:.3f}"]
-            trim_after = min(st, 15.0)
-    return trim_after, pre
-
-
-def _sub_overlay_filter(plan: dict) -> tuple[str, bool]:
-    """烧录 overlay 滤镜：返回 (filter_complex 串, 是否外挂第二输入)。
-    - 内嵌图片字幕：同一输入 [0:v][0:s:N]；
-    - 外挂图片字幕（VobSub）：第二输入 [0:v][1:s:0]。"""
-    side = str(plan.get("sub_sidecar") or "")
-    if side:
-        return "[0:v][1:s:0]overlay=eof_action=pass", True
-    return ("[0:v][0:s:%d]overlay=eof_action=pass" % int(plan["sub_ff_index"]), False)
-
-
-def build_cmd(abs_path: str, plan: dict,
-              start: float = 0, seg_time: int | None = None,
-              force_sw: bool = False) -> list[str]:
-    """按 plan() 构造 ffmpeg HLS 命令。
-    ⚠️ 必须 `cwd=会话目录` 执行：ffmpeg 的 `-hls_segment_filename` 相对路径按进程
-    CWD 解析（写文件），而播放列表里的 URI 按列表位置解析；只有 cwd=目录 + 裸文件名
-    才能两者一致（否则分片会落到服务进程 CWD，会话目录里永远没分片）。
-    - fmp4（默认）：`-var_stream_map` 单进程，video + 全部音轨 rendition 扁平落盘
-      （out_<name>.m3u8 + <name>_init.mp4/<name>_segNNNNN.m4s）；master.m3u8 由
-      stream._write_master 生成（ffmpeg 对 HEVC copy 不产 CODECS，Safari 需要）。
-    - ts（HLS_SEGMENT_TYPE=ts 回滚）：旧单 variant MPEG-TS，master.m3u8 + segNNNNN.ts。
-    HW 加速：transcode.detect() 冒烟探测（env TRANSCODER/HW_ACCEL 可强制）；
-    force_sw=True 用于硬件路径失败后的软件重试。"""
-    plan = plan or {}
-    abs_path = os.path.abspath(abs_path)  # cwd=会话目录执行，输入须绝对化
-    backend = None
-    if not plan.get("vcopy"):
-        from . import transcode
-        backend = transcode.software() if force_sw else transcode.detect()
-    if (plan.get("seg") or seg_type()) == "ts":
-        return _build_cmd_ts(abs_path, plan, start, seg_time or 6, backend=backend)
-    return _build_cmd_fmp4(abs_path, plan, start, seg_time or 4, backend=backend)
-
-
-def _is_burn(plan: dict) -> bool:
-    """图片字幕烧录（内嵌 sub_ff_index 或外挂 sub_sidecar 二选一）。"""
-    return (plan.get("sub") == "burn"
-            and (plan.get("sub_ff_index") is not None
-                 or bool(plan.get("sub_sidecar"))))
-
-
-def _append_sub_input(cmd: list, plan: dict, pre: float) -> None:
-    """外挂图片字幕（VobSub）第二输入：与主输入同样的输入侧提前量（时间轴对齐）。"""
-    rel = str(plan.get("sub_sidecar") or "")
-    if not rel:
-        return
-    if pre > 0:
-        cmd += ["-ss", f"{pre:.3f}"]
-    cmd += ["-i", os.path.abspath(os.path.join(settings.media_root, rel))]
-
-
-def _build_cmd_fmp4(abs_path: str, plan: dict,
-                    start: float, seg_time: int, backend=None) -> list[str]:
-    vcopy = bool(plan.get("vcopy"))
-    height = int(plan.get("height") or 0)
-    burn_sub = _is_burn(plan)
-    variants = list(plan.get("audios") or [])[:MAX_AUDIO_RENDITIONS]
-    if burn_sub:
-        vcopy = False  # 烧录必须重编码
-    cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"]
-    trim_after, pre = _seek_args(cmd, vcopy, start)
-    # 输入侧硬件参数（-hwaccel/-vaapi_device 必须在 -i 之前；烧录走软件滤镜图）
-    if not vcopy and backend is not None:
-        cmd += backend.input_args(burn=burn_sub)
-    # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
-    cmd += ["-fflags", "+genpts", "-i", abs_path]
-    if burn_sub:
-        _append_sub_input(cmd, plan, pre)
-    if trim_after > 0:
-        cmd += ["-ss", f"{trim_after:.3f}"]
-    # 映射：视频（烧录走 overlay 滤镜输出）+ 全部音轨
-    if burn_sub:
-        # overlay 不缩放覆盖层：源分辨率叠加后再缩放；eof_action=pass 防最后一句字幕钉片尾
-        vf = _sub_overlay_filter(plan)[0]
-        if height:
-            vf += ",scale=-2:%d" % height
-        vf += ",format=yuv420p"   # 烧录输出同样降 8bit（10bit 源否则变 High10，浏览器不能解）
-        cmd += ["-filter_complex", vf + "[vout]", "-map", "[vout]"]
-        height = 0  # 缩放已在滤镜图内
-    else:
-        cmd += ["-map", "v:0"]
-    for a in variants:
-        cmd += ["-map", f"a:{int(a.get('i') or 0)}"]
-    # 视频编码
-    if vcopy:
-        cmd += ["-c:v", "copy"]
-        if norm_codec(str(plan.get("vcodec") or "")) == "hevc":
-            cmd += ["-tag:v", "hvc1"]  # Apple/MSE 认 hvc1（hev1 部分客户端不认）
-    else:
-        from . import transcode as _tr
-        _append_video_encoder(cmd, backend or _tr.software(), height,
-                              burn=burn_sub, tonemap=bool(plan.get("tonemap")))
-        # 4s 强制关键帧：分段对齐，避免拷贝帧率/时长漂移（音频 rendition 同步也依赖）
-        cmd += ["-force_key_frames", f"expr:gte(t,n_forced*{int(seg_time)})"]
-    # 音频编码：按 rendition 序号（a:N 指输出音频流序号）
-    for n, a in enumerate(variants):
-        if a.get("copy"):
-            cmd += [f"-c:a:{n}", "copy"]
-        else:
-            cmd += [f"-c:a:{n}", "aac", f"-b:a:{n}", "192k", f"-ac:a:{n}", "2"]
-    # var_stream_map：video 变体带 agroup:aud，音轨各自独立 rendition
-    parts = ["v:0,agroup:aud,name:video"] if variants else ["v:0,name:video"]
-    for n, a in enumerate(variants):
-        opts = [f"a:{n}", "agroup:aud", f"name:audio{n}"]
-        if a.get("lang"):
-            opts.append(f"language:{a['lang']}")
-        parts.append(",".join(opts))
-    cmd += ["-var_stream_map", " ".join(parts)]
-    cmd += ["-f", "hls", "-hls_time", str(int(seg_time)),
-            "-hls_list_size", "0",
-            "-hls_segment_type", "fmp4",
-            # %v = var_stream_map 的 name；扁平命名（<name>_segNNNNN.m4s）便于统一 HTTP 路由
-            "-hls_fmp4_init_filename", "%v_init.mp4",
-            "-hls_segment_filename", "%v_seg%05d.m4s",
-            # temp_file：分片先写 .tmp 再原子改名，防半写分片被 hls.js 拉走
-            "-hls_flags", "temp_file+independent_segments",
-            # 时间戳归一：输入 -ss 后音视频起点常错位数秒，MSE 遇大跨度错位会黑屏/卡死
-            "-avoid_negative_ts", "make_zero",
-            "out_%v.m3u8"]
-    return cmd
-
-
-def _build_cmd_ts(abs_path: str, plan: dict,
-                  start: float, seg_time: int, backend=None) -> list[str]:
-    """旧 MPEG-TS 单 variant（回滚路径，P1 行为不变）：master.m3u8 + seg%05d.ts。
-    路径为裸名，调用方须以会话目录为 cwd 执行（见 build_cmd 注释）。"""
-    out_m3u8 = "master.m3u8"
-    vcopy = bool(plan.get("vcopy"))
-    acopy = bool(plan.get("acopy"))
-    height = int(plan.get("height") or 0)
-    try:
-        ai = max(0, int(plan.get("audio_idx") or 0))
-    except (TypeError, ValueError):
-        ai = 0
-    cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"]
-    burn_sub = _is_burn(plan)
-    if burn_sub:
-        vcopy = False  # 烧录必须重编码
-    trim_after, pre = _seek_args(cmd, vcopy, start)
-    if not vcopy and backend is not None:
-        cmd += backend.input_args(burn=burn_sub)
-    # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
-    cmd += ["-fflags", "+genpts"]
-    cmd += ["-i", abs_path]
-    if burn_sub:
-        _append_sub_input(cmd, plan, pre)
-    if trim_after > 0:
-        cmd += ["-ss", f"{trim_after:.3f}"]
-    if burn_sub:
-        # 图片字幕烧录：源分辨率下 overlay 再缩放（overlay 不缩放覆盖层），
-        # eof_action=pass：字幕流结束后原样放行视频（默认 repeat 会把最后一句字幕钉到片尾）。
-        vf = _sub_overlay_filter(plan)[0]
-        if height:
-            vf += ",scale=-2:%d" % height
-        vf += ",format=yuv420p"   # 烧录输出同样降 8bit
-        cmd += ["-filter_complex", vf + "[vout]", "-map", "[vout]", "-map", f"a:{ai}?"]
-        height = 0  # 缩放已在滤镜图内
-    else:
-        cmd += ["-map", "v:0", "-map", f"a:{ai}?"]
-    if vcopy:
-        cmd += ["-c:v", "copy"]
-    else:
-        from . import transcode as _tr
-        _append_video_encoder(cmd, backend or _tr.software(), height,
-                              burn=burn_sub, tonemap=bool(plan.get("tonemap")))
-    if acopy:
-        cmd += ["-c:a", "copy"]
-    else:
-        cmd += ["-c:a", "aac", "-b:a", "192k", "-ac", "2"]
-    seg_pat = "seg%05d.ts"
-    cmd += ["-f", "hls", "-hls_time", str(seg_time),
-            "-hls_list_size", "0", "-hls_segment_type", "mpegts",
-            # 不要加 -hls_playlist_type event！hls.js 会把 EVENT 当 VOD 只播首屏分片
-            # （约 18s 必死）；Plex 也是纯 live 式增长列表，无 ENDLIST 即刷新。
-            "-avoid_negative_ts", "make_zero",
-            "-hls_segment_filename", seg_pat, out_m3u8]
-    return cmd
