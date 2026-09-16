@@ -42,16 +42,16 @@
 ## 4. 当前指针（中断恢复点）
 
 ```
-批次：B4（fix/b4-auth）— P1-01 done，待合回 main
-方案（用户确认）：env+设置页双通道（DB 优先）；只护写操作；401 前端弹一次存 localStorage；
-未配置=完全开放；GET/直链免鉴权。
-步骤：pytest 83 passed + smoke 30/30（含鉴权相位）+ npm build/test ok；待 merge → tag
-断点：main.py `_auth_write` 中间件；设置页「访问控制」；api.js token+401 事件；App.vue 弹层
-下一步：merge --no-ff fix/b4-auth → tag p1-b4-auth → 汇报（11/11 P1 全清）
+批次：B4（fix/b4-auth）已合回 main（merge f593e56）并打批标签 p1-b4-auth
+状态：**P1 11/11 全部 done**；剩余为 P2（docs/review/99-final-report.md §2 分组建议）
+断点：无进行中批次。后续可选：B5 结构重构（巨型模块拆分/旧口清理/单源化，量大需单独规划）
+     或按 P2 backlog 择要（remux 预转码进度估算、SETTING_MAP 注释等）
+下一步：等用户指令
 ```
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-16：**B4 批次合回 main**（--no-ff `f593e56`，tag `p1-b4-auth`）。验证：L0 + pytest 83 + node 7 + smoke 30/30。**P1 全清（11/11）。**
 - 2026-09-16：**P1-01 done**：写操作可选鉴权全链路——`config.SETTING_MAP` 增 `jzmedia_token`（DB 优先/env 兜底，通用化命名保留 TMDB_SETTING_MAP 兼容）；`main._auth_write` 中间件（只护 `/api` 写方法，`X-Api-Token`/Bearer，`hmac.compare_digest`，未配置全放行）；`GET/PUT /api/settings` 回脱敏状态并可写入；前端 `api.js` 自动带令牌 + 401 派发事件、`apiUpload` 带头、App.vue 令牌弹层（存 localStorage 后重载）、Settings「访问控制」区（保存即记住）；`.env.example`/README/AGENTS 同步；tests/test_auth.py 8 用例 + smoke 鉴权相位 4 项。
 - 2026-09-16：**B3 批次合回 main**（--no-ff `d163835`，tag `p1-b3-ops`）。验证：L0（compileall/import/npm build）+ L1（pytest 75、node --test 7）+ L2 smoke 26/26。
 - 2026-09-16：**P1-11 done**：store `list_movies/search_fts/_search_like` 支持 `offset`；`/api/movies`/`/api/search` 统一 limit 钳制（1–2000）+ offset + `has_more`（多取 1 条判定）；Library.vue 每页 60 + IntersectionObserver 无限滚动 + 「加载更多」兜底 + 请求序列防竞态；tests/test_pagination.py 4 用例；smoke 新增 3 项分页断言；pytest 75 passed；README 分页文档同步。
