@@ -95,7 +95,7 @@ def _stub_match(monkeypatch, release_date: str, tmdb_id: int):
         return {"title": "Year Test", "year": 2024, "tmdb_id": detail["id"],
                 "nfo": False}
 
-    monkeypatch.setattr(scanner, "apply_tmdb_detail", _apply)
+    monkeypatch.setattr(scanner.scan, "apply_tmdb_detail", _apply)
 
 
 def test_scan_year_mismatch_marks_needs_review(media_root, monkeypatch):

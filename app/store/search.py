@@ -1,10 +1,11 @@
 """store.search（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
 import re
 import sqlite3
-from collections import Counter
 
-from ..regions import REGION_ORDER, REGION_UNKNOWN, country_name
+from ..log import get_logger
 from ._base import _attach_versions, _conn, _like_esc, _lock, _row_to_dict
+
+logger = get_logger("store.search")
 
 __all__ = ['rebuild_fts', 'resync_fts', 'list_movies', '_query_terms', '_fts_query',
            '_search_like', 'suggest_titles', 'suggest_people', 'search_fts',

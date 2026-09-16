@@ -1,4 +1,6 @@
 """SQLite 存储层门面（评审 B9/R02-Q3：原 1900 行单文件按域拆分，调用方零改动）。"""
+from . import (_base, collections, extras, media_info, movies, persons,
+               progress, search, settings, tmdb_cache)  # noqa: F401
 from ._base import *
 from .settings import *
 from .tmdb_cache import *
