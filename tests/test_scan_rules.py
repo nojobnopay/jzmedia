@@ -65,6 +65,19 @@ def test_is_sidecar_keeps_sample_titled_movies():
     assert scanner.is_feature_video("The Sample Movie (2024).mkv") is True
 
 
+# ---------- B5a-1（R03-B1）：重扫不覆盖手动标题 ----------
+
+def test_scan_keeps_manual_title_on_no_match(media_root):
+    rel = "keep/Manual.Movie.2024.mkv"
+    _touch(media_root, rel)
+    r = scanner.scan_one(str(media_root / rel))
+    assert r["status"] == "no_match"
+    mid = store.get_by_path(rel)["id"]
+    store.update_movie_local(mid, title="我改的标题")
+    scanner.scan_one(str(media_root / rel))    # 重扫（离线仍 no_match）
+    assert store.get_by_path(rel)["title"] == "我改的标题"
+
+
 # ---------- P1-03：剧集不得入库 ----------
 
 def test_episode_not_inserted(media_root):

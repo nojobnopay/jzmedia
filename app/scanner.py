@@ -994,7 +994,12 @@ def scan_one(abs_path: str) -> dict:
     m, used_q = search_with_fallback(parsed["title"], parsed["year"])
     if not m:
         mid = store.upsert_movie_by_path(rel)
-        store.update_movie_meta(mid, title=parsed["title"], year=parsed["year"])
+        # 重扫不覆盖既有标题（评审 B5a-1/R03-B1）：只补空值，人工修正/上次解析
+        # 结果都保留；年份不可手工改，允许按文件名更新
+        patch: dict = {"year": parsed["year"]}
+        if not (cached or {}).get("title"):
+            patch["title"] = parsed["title"]
+        store.update_movie_meta(mid, **patch)
         try:
             cur = store.get_movie(mid) or {}
         except Exception:
