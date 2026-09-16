@@ -9,100 +9,24 @@
         <span v-if="sessStatus" class="sess-status">{{ sessStatus }}</span>
         <span class="pd-spacer"></span>
         <div id="pv-set-host-hd" ref="hdSetHost" class="pd-set-host">
-          <Teleport :to="setHost" :disabled="!setHost">
-          <div class="pd-setwrap">
-            <button class="pd-mini" :class="{ on: settingsOpen }" @click="toggleSettings"
-              title="播放设置（画质/音轨/字幕/延迟）">⚙ 设置</button>
-          <div v-if="settingsOpen" class="pd-set" @click.stop>
-            <div class="set-row">
-              <label>画质</label>
-              <select v-model="quality" @change="onQualityChange" title="自动=按服务器能力；原画=不封顶重编（耗 CPU）">
-                <option value="auto">自动（推荐）</option>
-                <option value="source">原画</option>
-                <option value="1080p">1080p</option>
-                <option value="720p">720p</option>
-              </select>
-            </div>
-            <div class="set-row" v-if="audios.length > 1">
-              <label>音轨</label>
-              <select v-model.number="audioIdx" @change="onAudioChange">
-                <option v-for="(a, i) in audios" :key="i" :value="i">{{ audioLabel(a, i) }}</option>
-              </select>
-            </div>
-            <div class="set-row" v-if="subs.length">
-              <label>字幕</label>
-              <select v-model.number="subIdx" @change="onSubChange">
-                <option :value="-1">无字幕</option>
-                <option v-for="(s, i) in subs" :key="i" :value="i">
-                  {{ subLabel(s, i) }}{{ subBadge(s) }}
-                </option>
-              </select>
-            </div>
-            <div class="set-row" v-if="subDelayVisible">
-              <label>延迟</label>
-              <span class="set-inline">
-                <button class="ctl-mini" @click="shiftSubDelay(-0.5)">−0.5</button>
-                <span class="delay-val">{{ subDelayText }}</span>
-                <button class="ctl-mini" @click="shiftSubDelay(0.5)">+0.5</button>
-              </span>
-            </div>
-            <div class="set-row" v-if="subIsVtt">
-              <label>外观</label>
-              <span class="set-inline">
-                <select v-model.number="subStyle.bg" @change="onSubStyleChange" title="字幕背景（只覆盖文字区域）">
-                  <option :value="0">无背景</option>
-                  <option :value="1">半透明底</option>
-                  <option :value="2">纯黑底</option>
-                </select>
-                <select v-model.number="subStyle.outline" @change="onSubStyleChange" title="字形描边（黑边，提升亮画面可读性）">
-                  <option :value="0">无描边</option>
-                  <option :value="1">细描边</option>
-                  <option :value="2">粗描边</option>
-                </select>
-              </span>
-            </div>
-            <div class="set-row" v-if="subIsVtt">
-              <label>位置</label>
-              <span class="set-inline">
-                <select v-model="subStyle.pos" @change="onSubStyleChange"
-                  title="字幕位置：自动=下方黑边够高时落入黑边（不遮画面），否则画面内底部">
-                  <option value="auto">自动（黑边优先）</option>
-                  <option value="inside">画面内</option>
-                  <option value="outside">下黑边</option>
-                </select>
-                <select v-model.number="subStyle.size" @change="onSubStyleChange"
-                  title="字号：随画面高度自适应缩放">
-                  <option :value="1">小</option>
-                  <option :value="2">中</option>
-                  <option :value="3">大</option>
-                </select>
-              </span>
-            </div>
-            <div class="set-row" v-if="subIsAss || subIsVtt || forceBurn">
-              <span class="set-label">兼容降级</span>
-              <span class="set-inline">
-                <button class="ctl-mini" @click="undoDegrade"
-                  :disabled="!forceBurn && !subIsAss && autoVttSub < 0 && !vttNativeFallback"
-                  title="取消 VTT 兼容/烧录降级，恢复 ASS/PGS 客户端渲染">恢复客户端渲染</button>
-              </span>
-            </div>
-            <div class="set-row" v-if="subIsAss">
-              <label>兼容</label>
-              <label class="ctl-compat" title="ASS 渲染异常/缺字体时使用：改用简化 VTT 字幕">
-                <input type="checkbox" v-model="compatSub" @change="onCompatChange" />VTT 字幕（丢样式）
-              </label>
-            </div>
-            <div class="set-row">
-              <label>外部</label>
-              <button class="ctl-mini" @click="copyDirectLink"
-                title="复制原文件直链：可用 VLC/Kodi/电视播放器打开（HDR/DV 等复杂片源推荐）">复制直链</button>
-            </div>
-            <input v-if="directFailUrl" readonly :value="directFailUrl" class="set-copy-url"
-              @focus="$event.target.select()" @click="$event.target.select()" />
-            <p class="set-hint">{{ methodLine }}<span v-if="qualityLine"> · {{ qualityLine }}</span></p>
-          </div>
-          </div>
-          </Teleport>
+          <PlayerSettings
+            :host="setHost" :open="settingsOpen"
+            :quality="quality" :audios="audios" :audio-idx="audioIdx"
+            :subs="subs" :sub-idx="subIdx"
+            :sub-delay-visible="subDelayVisible" :sub-delay-text="subDelayText"
+            :sub-is-vtt="subIsVtt" :sub-is-ass="subIsAss" :force-burn="forceBurn"
+            :undo-disabled="undoDegradeDisabled" :compat-sub="compatSub"
+            :direct-fail-url="directFailUrl" :method-line="methodLine" :quality-line="qualityLine"
+            :sub-style="subStyle"
+            @toggle-settings="toggleSettings"
+            @quality-change="onQualityChange"
+            @audio-change="onAudioChange"
+            @sub-change="onSubChange"
+            @shift-delay="shiftSubDelay"
+            @update:sub-style="onSubStyleSet"
+            @undo-degrade="undoDegrade"
+            @compat-change="onCompatSet"
+            @copy-direct="copyDirectLink" />
         </div>
         <button class="pd-mini" @click="copyDebug">调试</button>
         <button class="pd-mini" @click="$emit('close')">关闭</button>
@@ -163,6 +87,9 @@ import { ensureJassub } from '../jassubLoader.js'
 import { ensurePgs } from '../pgsLoader.js'
 import { normalizeSubStyle, subFontPx, pickSubAnchor, subBarPad, subInnerPad } from '../subStyle.js'
 import Spinner from './Spinner.vue'
+import PlayerSettings from './PlayerSettings.vue'
+import { subKind, audioLabel, subLabel, subBadge, fmtTime as fmt } from '../playerLabels.js'
+import '../player.css'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
 async function ensureHls() {
@@ -386,26 +313,6 @@ const REASON_TEXT = {
   subtitle_not_found: '所选字幕不可用',
 }
 const reasonLine = computed(() => (reasons.value || []).map(r => REASON_TEXT[r] || r).join('；'))
-function audioLabel(a, i) {
-  const parts = [`音轨${i + 1}`]
-  if (a.codec) parts.push(String(a.codec).toUpperCase())
-  if (a.channels) parts.push(a.channels + 'ch')
-  if (a.lang) parts.push(a.lang)
-  if (a.title) parts.push(a.title)
-  return parts.join(' ')
-}
-function subLabel(s, i) {
-  const parts = [`字幕${i + 1}`]
-  if (s.lang) parts.push(s.lang)
-  if (s.title) parts.push(s.title)
-  if (s.codec && !s.image) parts.push(String(s.codec).toUpperCase())
-  return parts.join(' ')
-}
-function fmt(sec) {
-  sec = Math.max(0, Math.floor(Number(sec) || 0))
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60
-  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`
-}
 function destroyHls() {
   if (hls) { try { hls.destroy() } catch (e) { /* 忽略 */ } hls = null }
 }
@@ -750,12 +657,6 @@ async function reload() {
   }
 }
 // 字幕渲染分层：none / vtt（浏览器 <track>）/ ass（JASSUB）/ pgs（libpgs）/ burn（VobSub 烧录）
-function subKind(s) {
-  if (!s) return 'none'
-  if (s.image) return String(s.codec || '').toLowerCase() === 'pgs' ? 'pgs' : 'burn'
-  const c = String(s.codec || '').toLowerCase()
-  return (c === 'ass' || c === 'ssa') ? 'ass' : 'vtt'
-}
 function destroyAss() {
   const inst = jassub
   jassub = null
@@ -1192,6 +1093,10 @@ const subDelayVisible = computed(() => {
   return ['ass', 'pgs'].includes(k) && !compatSub.value && autoVttSub.value !== Number(subIdx.value)
 })
 const subDelayText = computed(() => (subDelay.value > 0 ? '+' : '') + subDelay.value.toFixed(1) + 's')
+// PlayerSettings 回调（子组件只发信号，状态与副作用留在本组件）
+const undoDegradeDisabled = computed(() => !forceBurn.value && !subIsAss.value && autoVttSub.value < 0 && !vttNativeFallback.value)
+function onSubStyleSet(v) { subStyle.value = v; onSubStyleChange() }
+function onCompatSet(v) { compatSub.value = v; onCompatChange() }
 function shiftSubDelay(d) {
   const x = Math.round(Math.max(-10, Math.min(10, subDelay.value + d)) * 10) / 10
   subDelay.value = x
@@ -1201,31 +1106,19 @@ function shiftSubDelay(d) {
   if (pgs) { try { pgs.timeOffset = toff } catch (e) { /* 忽略 */ } }
   if (vttLayer) vttRender()   // 自绘层：偏移在渲染时叠加，立即重绘
 }
-// 字幕下拉角标：烧录/PGS/ASS 样式 + 外挂来源
-function subBadge(s) {
-  const kind = subKind(s)
-  const parts = []
-  if (kind === 'burn') parts.push('烧录')
-  else if (kind === 'pgs') parts.push('PGS')
-  else if (kind === 'ass') parts.push('ASS 样式')
-  if (s && s.source === 'sidecar') parts.push('外挂')
-  return parts.length ? '（' + parts.join('·') + '）' : ''
-}
-// 选完即失焦：否则焦点停在下拉框，方向键会去改选项而不是 seek/音量
+// 选完即失焦：否则焦点停在下拉框/滑块，方向键会去改控件而不是 seek/音量
 function blurPick(e) {
   try {
     const el = e && e.target
     if (el && el.blur) el.blur()
   } catch (err) { /* 忽略 */ }
 }
-function onQualityChange(e) { blurPick(e); reload() }
+function onQualityChange() { reload() }
 // 音轨切换：fMP4 rendition 已在会话里 → 切 hls.audioTrack 即刻生效（视频不重编不重开）；
 // 原生 Safari 用 video.audioTracks；会话尚未就绪时只改选择，等 MANIFEST_PARSED 应用；
 // 都不支持（TS 回滚单轨产物）才回退重开会话。
-function onAudioChange(e) {
-  blurPick(e)
-  logEvt('audio-change', 'raw=' + String((e && e.target && e.target.value) ?? '') +
-    ' ref=' + (Number(audioIdx.value) || 0) + ' ready=' + manifestReady)
+function onAudioChange() {
+  logEvt('audio-change', 'ref=' + (Number(audioIdx.value) || 0) + ' ready=' + manifestReady)
   if (applyAudioTrack()) return
   if (applyNativeAudioTrack()) return
   if (isHls.value && !manifestReady) return
@@ -1233,8 +1126,7 @@ function onAudioChange(e) {
 }
 // 字幕切换：文本/ASS/PGS 都是客户端渲染层 → 即时切换不重开会话；
 // VobSub（burn）或已处于烧录模式（forceBurn 降级）才重开转码
-function onSubChange(e) {
-  blurPick(e)
+function onSubChange() {
   autoSubPicked = true   // 用户手动选过字幕，不再自动选外挂默认轨
   if (burnOn || subKind(subs.value[subIdx.value]) === 'burn') { reload(); return }
   applySubs(true)
@@ -1795,25 +1687,9 @@ onUnmounted(() => {
 .pd-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
 .pd-head h3 { margin: 0; font-size: 1.0625rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%; }
 .pd-spacer { flex: 1; }
-.pd-mini { font-size: 0.75rem; padding: 3px 10px; }
-.pd-mini.on { background: #2b6cb0; border-color: #2b6cb0; color: #fff; }
 
-/* 设置弹层：日常只留「⚙ 设置」按钮，画质/音轨/字幕/延迟都收进来 */
-.pd-setwrap { position: relative; display: inline-flex; }
+/* 设置弹层样式随子组件 PlayerSettings.vue + 全局 player.css（R14-Q5 约定） */
 .pd-set-host { display: inline-flex; align-items: center; }
-.pd-set { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(360px, 78vw);
-  background: #1d1d1d; border: 1px solid #3a3a3a; border-radius: 10px; padding: 10px 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 8px;
-  max-height: min(72vh, 560px); overflow: auto; }
-.set-row { display: flex; align-items: center; gap: 8px; }
-.set-row > label { color: #999; font-size: 0.75rem; width: 34px; flex: none; }
-.set-row select { flex: 1; min-width: 0; background: #262626; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 4px 6px; font-size: 0.75rem; }
-.set-inline { display: inline-flex; align-items: center; gap: 6px; }
-.set-hint { margin: 2px 0 0; color: #777; font-size: 0.6875rem; overflow-wrap: anywhere; }
-.set-copy-url { width: 100%; box-sizing: border-box; padding: 4px 6px; background: #141414;
-  border: 1px dashed #444; border-radius: 6px; color: #bbb;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.6875rem;
-  overflow-x: auto; white-space: nowrap; }
 
 .pv-wrap { --pvb: 0px; position: relative; background: #000; border-radius: 8px; overflow: hidden; width: 100%; }
 .pv-wrap.has-bar { --pvb: 46px; }
@@ -1830,10 +1706,6 @@ onUnmounted(() => {
 .ctl-time { font-size: 0.75rem; color: #999; white-space: nowrap; }
 .ctl-seek { flex: 1; min-width: 80px; }
 .ctl-vol { width: 80px; }
-.ctl-compat { display: inline-flex; align-items: center; gap: 3px; color: #aaa; font-size: 0.75rem; white-space: nowrap; cursor: pointer; }
-.ctl-compat input { margin: 0; }
-.ctl-mini { padding: 1px 6px !important; font-size: 0.75rem; line-height: 1.2; }
-.delay-val { min-width: 34px; text-align: center; color: #7ed321; }
 /* PGS 画布样式在 ensurePgsCanvas 内联设置（动态元素吃不到 scoped 样式） */
 
 /* 顶部标题条：仅全屏显示 */
@@ -1871,31 +1743,4 @@ onUnmounted(() => {
 .resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; flex-wrap: wrap; }
 .hint-line { margin: 0; color: #666; font-size: 0.8125rem; overflow-wrap: anywhere; }
 .hint.warn { color: #e0a63c; }
-</style>
-<style>
-/* VTT 自绘字幕层：JS 动态创建元素（scoped 属性不生效），此处全局样式；
-   图层由 JS 定位到视频画面区（contain 内接矩形），字号随画面高缩放。 */
-.sub-layer {
-  position: absolute; z-index: 3; display: flex; flex-direction: column;
-  align-items: center; justify-content: flex-end; box-sizing: border-box;
-  padding: 0 3% var(--sub-pad, 12px); gap: .15em; text-align: center; pointer-events: none;
-  color: #fff; line-height: 1.32;
-  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", system-ui, sans-serif;
-}
-.sub-layer .sub-cue { max-width: 92%; white-space: pre-line; }
-.sub-layer .sub-cue.ta-left, .sub-layer .sub-cue.ta-start { align-self: flex-start; text-align: left; }
-.sub-layer .sub-cue.ta-right, .sub-layer .sub-cue.ta-end { align-self: flex-end; text-align: right; }
-/* 描边：四向硬阴影 + 轻微外发光（不用 -webkit-text-stroke，避免吃字形） */
-.sub-layer.ol-1 { text-shadow: 0 1px 2px #000, 0 -1px 2px #000, 1px 0 2px #000, -1px 0 2px #000, 0 0 4px rgba(0, 0, 0, .65); }
-.sub-layer.ol-2 { text-shadow: 0 2px 3px #000, 0 -2px 3px #000, 2px 0 3px #000, -2px 0 3px #000, 0 0 6px rgba(0, 0, 0, .8); }
-.sub-layer.ol-0 { text-shadow: none; }
-/* 背景只加在单句文本块上（带内边距），不整层铺底遮挡画面 */
-.sub-layer.bg-1 .sub-cue { background: rgba(0, 0, 0, .55); padding: .12em .5em; border-radius: .25em; }
-.sub-layer.bg-2 .sub-cue { background: rgba(0, 0, 0, .85); padding: .12em .5em; border-radius: .25em; }
-/* 原生 track 兜底（解析失败回退时）：去浏览器默认黑底，只留字形描边 */
-.player-video::cue {
-  background-color: transparent;
-  text-shadow: 0 1px 2px #000, 0 -1px 2px #000, 1px 0 2px #000, -1px 0 2px #000;
-}
-.player-video::-webkit-media-text-track-display-backdrop { background-color: transparent !important; }
 </style>
