@@ -15,7 +15,8 @@ from ...log import get_logger
 logger = get_logger("stream.session")
 from .common import (_MIN_SEGS, _SEG_RE, _SESS_FILE_RE, _has_endlist, _drop_session, _ffmpeg_ok, _get_session, _hls_sem, _hits,
                      _log_hit, _media_cached_or_probe, _media_start_for, _plan_marker,
-                     _playlist_endlist, _playlist_text, _purge_old, _seg_count, _sess_lock,
+                     _playlist_endlist, _playlist_text, _purge_old, _seg_count,
+                     _sess_lock, _write_session_meta,
                      _sessions, _session_complete, _session_dir, _session_key, _variant_playlists,
                      _version_abs, _video_seg_prefix, _watch_completion, _write_master, router)
 from .media import _media_payload
@@ -162,6 +163,10 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                 except Exception:
                     pass
             sid = uuid.uuid4().hex[:16]
+            _write_session_meta(sdir, sid, int(m["id"]), proc,
+                                ("copy" if d["plan"].get("vcopy") else
+                                 ("software" if force_sw or not use_hw
+                                  else (_playback.hw_backend() or "software"))), attempt + 1)
             with _sess_lock:
                 _sessions[sid] = {"proc": proc, "sdir": sdir, "vid": int(m["id"]),
                                   "plan": d["plan"], "plan_key": plan_key,

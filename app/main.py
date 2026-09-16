@@ -22,6 +22,12 @@ _logger = get_logger("main")
 async def _lifespan(_app: FastAPI):
     # 后台预热转码后端探测（冒烟编码最多几秒，不阻塞启动；首次 decide/health 即命中缓存）
     from . import transcode as _tr
+    try:
+        killed = stream._reap_orphans()   # 上次崩溃/SIGKILL 留下的孤儿 ffmpeg（评审 R12-Q3）
+        if killed:
+            _logger.warning("启动清理孤儿转码进程 %s 个", killed)
+    except Exception as e:
+        _logger.warning("reap orphans failed: %s", e)
     threading.Thread(target=_tr.detect, daemon=True).start()
     _logger.info("jzmedia %s 启动：MEDIA_ROOT=%s DATA_DIR=%s ENV=%s",
                  app.version, settings.media_root, settings.data_dir, settings.env)
