@@ -42,6 +42,7 @@ watchdog 恢复、自绘控件层（不迁 Vidstack）。
 | P1 能力检测 + 四档决策器 | ✅ 已落地 | 新增 `app/caps.py`、`app/playback.py`；`media.probe` 扩字段 + `probe_ver` 自愈重探；POST `decide/versions/sessions` 带 caps；前端 `caps.js` + 详情/播放器接入；HLS 输出仍 TS（P2 换 fMP4） |
 | P2 fMP4 + 多音轨 rendition | ✅ 已落地并实测 | fMP4 扁平产物 + `-var_stream_map` 单进程多音轨；自产 master（含 CODECS）；`GET /sessions/{sid}/{name}`；前端 `hls.audioTrack` 免重开切轨；`HLS_SEGMENT_TYPE=ts` 回滚 |
 | P3 ASS/JASSUB + 字体 | ✅ 已落地并实测 | `.ass` 抽取 + 附件字体懒 dump + `data/fonts` 内置；前端 JASSUB 懒加载（RPC worker/wasm）、「兼容」VTT 降级、烧录不受影响 |
+| P3.5 图片字幕客户端化 + 外挂字幕 | ✅ 已落地并实测 | PGS→libpgs 客户端（切换不重开、零转码）+ 解码失败自动降级烧录；外挂 `.srt/.ass/.ssa/.sup`（含自动选中文）与 `.idx/.sub` 烧录；字幕延迟（ASS/PGS）；`scripts/find_subs.py` |
 | P4 TranscoderBackend + HDR/DV | ⬜ 待开始 | |
 | P5 预转码完整化 + 收尾 | ⬜ 待开始 | |
 
@@ -283,6 +284,59 @@ watchdog 恢复、自绘控件层（不迁 Vidstack）。
   + 内置字体）：ASS 模式红字 7236 px（样式保留）+ CJK 白字 1835 px，字体三源全部拉取；
   兼容模式红字 0、`<track>` 生效；切回 ASS canvas 重建；seek 后红字仍在；关闭播放器
   worker 销毁、canvas 移除。目录穿越请求只落到 SPA 兜底（无文件泄露），非本片字体 404。
+
+---
+
+## P3.5 图片字幕客户端化 + 外挂字幕（字幕独立于视频）
+
+目标（用户第一性原则 + 目标文档 §8 预留的 bitmap renderer）：字幕渲染与视频彻底解耦——
+切换字幕/调时间不重开会话、不转码；NAS 视频 CPU 为零；烧录只剩 VobSub 与降级兜底。
+
+### 落地记录
+
+- **PGS → libpgs 客户端渲染**：`GET /{id}/sub/{idx}.sup`（内嵌 `-c:s copy` 抽取缓存；
+  外挂 `.sup` 直服；VobSub 415）。前端 `src/pgsLoader.js` 懒加载 `libpgs`
+  （`workerUrl` 必须显式传，默认值是相对路径会 404），`PgsRenderer` canvas 叠加，
+  `timeOffset` 支持延迟；**解码失败/超时（20s）自动降级烧录**（`force_burn` 进
+  decide/sessions → `subtitle_mode=burn`，`reasons=subtitle_burn_forced`）。
+- **字幕延迟**：ASS(JASSUB)/PGS(libpgs) 的 `timeOffset`，±0.5s 步进（±10s 上限），
+  按版本存 `localStorage jzmedia.subDelay.<vid>`；VTT 原生 `<track>` 不支持（已确认边界）。
+- **外挂字幕**：`scanner.sidecar_subtitles()` 同目录（含 `subs/Subs/字幕` 一层）stem 匹配；
+  `_sub_list()` 合并内嵌+外挂（`source/sidecar` 标记、文件名后缀推断 lang/title、图片 codec
+  归一 pgs/vobsub）；`.srt→VTT/ASS` 转换缓存（按源 mtime 失效），`.ass/.ssa` 直服；
+  `.idx/.sub` 成对去重（优先 `.sub`）走烧录第二输入 `[1:s:0]`（输入侧 `-ss` 与主输入同
+  提前量对齐时间轴）。**无内嵌字幕时自动选中第一条中文文本外挂**（图片不自动选）。
+- **决策/复用**：`subtitle_mode` 扩为 `none|webvtt|ass_client|pgs_client|burn`；
+  `_plan_marker` 只对 `burn` 保留字幕字段 → 客户端渲染的字幕选择不再影响静态成品复用。
+- **工具**：`scripts/find_subs.py`（只读 SQLite + 磁盘）列出可测片源：内嵌 ASS/PGS/VobSub、
+  字体附件、外挂字幕、未探测行数；`--limit/--json`。
+- 实测（Playwright + 真实片源片段）：内嵌 PGS 选中/切换轨道 `sessionPosts` 恒为 1
+  （**不重开会话不转码**），合成画面 diff 28643 px（可见）；切外挂 ass/srt/sup 同样不重开；
+  SideTest 无内嵌字幕时自动选中中文外挂 ASS（JASSUB 激活）；+0.5s 延迟生效；
+  阻断 libpgs worker → 超时兜底：`force_burn=true` + 新会话（body 带 `force_burn`）。
+- 已知边界：`.sup` 整片抽取/下载（局域网一次性、缓存即时）；VobSub 仍烧录；
+  VTT 无延迟；`.idx` 多语言只取第一流。
+
+### 反馈修复（《刑房》外挂 ASS 等三项）
+
+1. **《刑房》外挂 ASS 不显示**：两个叠加原因——(a) 外挂后缀 `简中` 未在语言词表内 →
+   不满足"自动选中中文外挂"规则；(b) **原文件直发（direct）时自绘控件条整体不渲染**
+   （`v-if="isHls"`），用户无法手动选字幕。修复：词表补 `简中/繁中/中日/中…`（有序匹配）；
+   控件条改为 direct 也启用（去掉原生 `controls`，`--pvb` 统一预留 46px，seek/时长/音量
+   对 direct 走同一套 `absPos`/`doSeek`）。另：ASS 无可用字体且含 CJK 时 **自动降级 VTT**
+   （`assNeedsCjk` 前 40KB 探测 + `autoVttSub` 按轨，提示投放 `data/fonts/`），
+   有 CJK 字体时 libass 字形回退正常（实测墨迹 40835px vs VTT 33406px，均可见）。
+2. **延迟控件出现又消失 / 控件条拥挤**：按用户建议把**画质/音轨/字幕/兼容/延迟**收进
+   头部「⚙ 设置」弹层（日常只留按钮，空白处/Esc 关闭）；控件条只保留播放/时间/进度/
+   音量/全屏。弹层对 direct 同样可用。
+3. **窗口模式控件遮挡画面/字幕**：核因是 (a) direct 用原生控件（悬浮在画面底部）、
+   (b) libpgs 自建 canvas 用 `inset:0` 覆盖整个 wrap（含控件条区域），字幕坐标落进被
+   遮挡区。修复：统一自绘控件条并预留 46px；PGS 改为传入自建 canvas，内联样式
+   `top:0; width:100%; height:calc(100% - var(--pvb))`（动态元素吃不到 scoped 样式，
+   必须内联）。实测：`video.bottom == .pv-ctl.top`（overlap 0）、PGS canvas rect 与
+   video rect 完全一致。
+4. 附带修复：所选音轨非默认且客户端无原生 HLS 时 direct → remux（
+   `audio_track_selection`），否则设置里切音轨在原片直发下会静默无效。
 
 ---
 

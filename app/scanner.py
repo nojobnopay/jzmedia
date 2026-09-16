@@ -19,6 +19,9 @@ from .regions import resolve as resolve_region
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv", ".webm"}
 SUBTITLE_EXTS = {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup"}
+# 播放器外挂字幕：文本（客户端渲染）+ 图片（PGS 客户端 / VobSub 烧录）
+SIDECAR_TEXT_EXTS = {".srt": "srt", ".ass": "ass", ".ssa": "ssa"}
+SIDECAR_SUB_DIRS = ("subs", "Subs", "字幕")
 
 # 样片：*.Sample.mkv / *(Sample).mkv / Sample-xxx / Inception.1080p.sample.mkv
 _SAMPLE_RE = re.compile(r"(?i)(?:^|[.\-_ \([])sample(?:[.\-_ \)}\]]|$)")
@@ -165,6 +168,59 @@ def is_sidecar(rel_path: str) -> bool:
 def is_feature_video(rel_path: str) -> bool:
     return (os.path.splitext(rel_path)[1].lower() in VIDEO_EXTS
             and not is_sidecar(rel_path))
+
+
+def _stem_matches(video_stem: str, name_stem: str) -> bool:
+    """外挂字幕命名匹配：与正片 stem 相同，或以 正片stem + [-._ 空格] 开头。"""
+    if name_stem == video_stem:
+        return True
+    return any(name_stem.startswith(video_stem + sep) for sep in ("-", ".", "_", " "))
+
+
+def sidecar_subtitles(abs_video: str) -> list[dict]:
+    """正片同名外挂字幕清单（播放器用；只读磁盘，不入库）。
+    同目录（含一层 subs/Subs/字幕 子目录）内 stem 匹配的：
+    - 文本 .srt/.ass/.ssa → codec srt|ass|ssa, image=0（客户端渲染）
+    - .sup → codec pgs, image=1（客户端渲染）
+    - .sub/.idx 成对 → codec vobsub, image=1（仅烧录；同 stem 只列一条，优先 .sub）
+    返回 [{rel, name, codec, image, suffix}]，suffix 为文件名中 stem 之后的部分（供语言推断）。"""
+    video_stem = os.path.splitext(os.path.basename(abs_video))[0]
+    src_dir = os.path.dirname(abs_video)
+    dirs = [src_dir] + [os.path.join(src_dir, d) for d in SIDECAR_SUB_DIRS]
+    found: dict[tuple, dict] = {}
+    for d in dirs:
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for n in names:
+            full = os.path.join(d, n)
+            if not os.path.isfile(full):
+                continue
+            stem, ex = os.path.splitext(n)
+            ex = ex.lower()
+            if not _stem_matches(video_stem, stem):
+                continue
+            if ex in SIDECAR_TEXT_EXTS:
+                codec, image = SIDECAR_TEXT_EXTS[ex], 0
+            elif ex == ".sup":
+                codec, image = "pgs", 1
+            elif ex in (".sub", ".idx"):
+                codec, image = "vobsub", 1
+            else:
+                continue
+            suffix = stem[len(video_stem):].lstrip("-._ ")
+            key = (d, stem) if codec == "vobsub" else (d, n)
+            item = {"rel": os.path.relpath(full, settings.media_root), "name": n,
+                    "codec": codec, "image": image, "suffix": suffix, "path": full}
+            # VobSub 成对（.sub/.idx 同 stem）：优先 .sub，避免重复列轨
+            if key in found and not (codec == "vobsub" and ex == ".sub"):
+                continue
+            found[key] = item
+    out = sorted(found.values(), key=lambda x: (os.path.dirname(x["rel"]), x["name"]))
+    for it in out:
+        it.pop("path", None)
+    return out
 
 
 _ROMAN = {"II": "2", "III": "3", "IV": "4", "VI": "6",

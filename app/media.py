@@ -13,7 +13,8 @@ import shutil
 import subprocess
 
 # 探测结构版本：老行 probe_ver < 本值 → 视为过期自动重探（新字段上线时 +1 即可）
-PROBE_VERSION = 2
+# v3：图片字幕 codec 归一为 pgs/vobsub（原 hdmv_pgs_subtitle 等）
+PROBE_VERSION = 3
 
 # 二进制解析见下方 ffprobe_bin()/ffmpeg_bin()（系统版优先，静态版兜底）
 
@@ -110,7 +111,8 @@ def is_retryable_error(msg: str) -> bool:
     s = (msg or "").strip()
     return any(s.startswith(p) for p in RETRYABLE_ERRORS)
 
-IMAGE_SUBS = {"hdmv_pgs_subtitle", "pgs", "vobsub", "dvd_subtitle", "dvdsub", "pgssub"}
+# 图片字幕归一后的 codec：pgs（可客户端渲染）/ vobsub（仅烧录）
+IMAGE_SUBS = {"pgs", "vobsub"}
 TEXT_SUBS = {"subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "vtt"}
 ASS_SUBS = {"ass", "ssa"}
 
@@ -125,6 +127,9 @@ def norm_codec(name: str) -> str:
         "aac": "aac", "mp3": "mp3", "ac3": "ac3", "eac3": "eac3",
         "dts": "dts", "truehd": "truehd", "flac": "flac",
         "opus": "opus", "vorbis": "vorbis", "pcm": "pcm",
+        # 图片字幕家族归一（PGS 可客户端渲染；VobSub 只能烧录）
+        "hdmv_pgs_subtitle": "pgs", "pgssub": "pgs", "pgs": "pgs",
+        "vobsub": "vobsub", "dvd_subtitle": "vobsub", "dvdsub": "vobsub",
     }
     for key, val in mapping.items():
         if s == key or s.startswith(key):

@@ -320,13 +320,16 @@ DTS 英文 → AAC
 
 ## 8. 字幕策略
 
+> 已落地（P3/P3.5）：文本/ASS/PGS 全部**客户端渲染**，切换字幕不重开会话、不触发视频转码；
+> 仅 VobSub（及客户端解码失败的降级）走烧录。字幕延迟（±10s）对 ASS/PGS 生效。
+
 ### SRT / WebVTT
 
 ```text
-SRT → WebVTT
+SRT → WebVTT（服务端抽取/转换，缓存）
 ```
 
-浏览器直接显示。
+浏览器 `<track>` 直接显示。
 
 ---
 
@@ -350,27 +353,40 @@ JASSUB
 浏览器 WASM/libass 渲染
 ```
 
-NAS 基本无额外负担。
+NAS 基本无额外负担。内嵌轨 `-c:s ass` 抽取缓存；**外挂 `.ass/.ssa` 直接服务原文件**。
+字体来源：MKV 附件（首次请求懒抽取）+ `data/fonts/` 内置投放。
 
 ---
 
-### PGS / VobSub
+### PGS
 
-属于图片字幕。
+```text
+PGS
+↓
+ffmpeg -c:s copy 抽 .sup（纯流拷贝，缓存；外挂 .sup 直服）
+↓
+libpgs（浏览器端解码渲染，客户端画布叠加）
+```
 
-第一阶段直接采用：
+与 ASS 同理：切换/关闭字幕即时，不重编码、不重开会话，NAS 视频 CPU 归零。
+`timeOffset` 支持字幕延迟。
+
+---
+
+### VobSub（.idx/.sub）
+
+ffmpeg 无 vobsub muxer、解码器独立，暂不客户端渲染：
 
 ```text
 字幕 burn-in
 ↓
-FFmpeg
+FFmpeg（第二输入 overlay）
 ↓
 重新编码 video
 ```
 
-选择 / 关闭这类字幕时需要重新建立播放会话。
-
-后续如有需要，再实现客户端 bitmap subtitle renderer。
+选择 / 关闭这类字幕时重新建立播放会话（这是唯一需要重编的字幕路径）。
+客户端 PGS 解码失败时也自动降级到 burn-in（`force_burn`）。
 
 ---
 

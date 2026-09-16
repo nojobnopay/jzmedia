@@ -11,6 +11,7 @@
   seek=关旧开新。旧直连 master/seg 口保留（内部走同一会话机制，匿名会话）。
 - 最大 2 路并发（超限 429，抄 Plex TranscodeCountLimit），会话目录 24h TTL。
 """
+import hashlib
 import json
 import os
 import re
@@ -32,6 +33,7 @@ from .. import playback as _playback
 from .. import store
 from ..config import settings
 from ..db import TRANSCODE_DIR
+from ..scanner import sidecar_subtitles
 
 router = APIRouter(prefix="/api/stream")
 
@@ -99,23 +101,33 @@ def stream_media(version_id: int, refresh: int = 0):
     else:
         info = _media_cached_or_probe(m, abs_p)
     return {"version_id": int(m["id"]), "file_path": m["file_path"],
-            "title": m.get("title", ""), **_media.decorate(info),
+            "title": m.get("title", ""), **_media_payload(m, info),
             "duration_text": _media.fmt_duration(info.get("duration") or 0)}
 
 
+def _media_payload(m: dict, info: dict) -> dict:
+    """播放/媒体信息响应体：ffprobe 字段 + 候选码串 + 内嵌/外挂合并字幕轨。"""
+    payload = _media.decorate(info)
+    payload["subs"] = _sub_list(m, info)
+    return payload
+
+
 class PlaybackQuery(BaseModel):
-    """播放请求（用户选择 + 客户端能力）。caps 缺省走服务端保守默认（旧客户端/调试）。"""
+    """播放请求（用户选择 + 客户端能力）。caps 缺省走服务端保守默认（旧客户端/调试）。
+    force_burn：客户端图片字幕解码失败时的显式降级（仅图片字幕生效）。"""
     quality: str = "auto"
     audio: int = 0
     sub: int | None = None
     client: str = "web"
     caps: dict | None = None
+    force_burn: bool = False
 
 
 def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
     caps = _caps.default_caps() if q.caps is None else q.caps
-    d = _playback.plan(info, caps=caps, quality=q.quality, audio_idx=q.audio,
-                       sub_idx=q.sub, client=q.client)
+    merged = _media_payload(m, info)   # subs = 内嵌+外挂合并清单（决策与响应同源）
+    d = _playback.plan(merged, caps=caps, quality=q.quality, audio_idx=q.audio,
+                       sub_idx=q.sub, client=q.client, force_burn=q.force_burn)
     method = d["method"]
     blob_url = f"/api/movies/{int(m['id'])}/blob?name={m['file_path']}"
     sub_q = f"&sub={q.sub}" if q.sub is not None else ""
@@ -124,7 +136,7 @@ def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
     return {"version_id": int(m["id"]), "method": method, "reasons": d["reasons"],
             "plan": d["plan"], "subtitle_mode": d.get("subtitle_mode") or "none",
             "caps_hash": _caps.caps_hash(caps) if q.caps is not None else "",
-            "media": _media.decorate(info),
+            "media": _media_payload(m, info),
             "direct_url": blob_url if method == "direct" else "",
             "hls_url": hls_url if method in ("remux", "audio_transcode",
                                              "transcode", "video_transcode") else ""}
@@ -253,7 +265,7 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
                       "dv_profile": info.get("dv_profile") or 0,
                       "bit_depth": info.get("bit_depth") or 0,
                       "audio_count": len(info.get("audio") or []),
-                      "sub_count": len(info.get("subs") or [])})
+                      "sub_count": len(_sub_list(vm, info))})
     best = None
     for it in sorted(items, key=lambda x: (x["score"], x["version_id"])):
         if it["method"] != "blocked":
@@ -549,34 +561,40 @@ def _purge_old() -> None:
 
 def _spawn_session(version_id: int, quality: str, audio: int,
                    sub: int | None, start: float,
-                   caps: dict | None = None) -> tuple[str, str, dict]:
+                   caps: dict | None = None,
+                   force_burn: bool = False) -> tuple[str, str, dict]:
     """起后台转码会话（渐进式）：校验→plan→Popen→等前 _MIN_SEGS 分片。
     返回 (session_id, session_dir, plan_result)。direct/无 ffmpeg 等直接抛对应 HTTP 状态。
-    caps 参与 plan 与 plan_key（不同客户端能力不复用同一转码档）。"""
+    caps 参与 plan 与 plan_key（不同客户端能力不复用同一转码档）；force_burn 为
+    客户端图片字幕解码失败时的烧录降级（见 playback._subtitle_mode）。"""
     m, abs_p = _version_abs(version_id)
     info = _media_cached_or_probe(m, abs_p)
     if not info.get("playable"):
         raise HTTPException(422, f"unplayable: {info.get('probe_error') or 'probe failed'}")
     caps_n = _caps.default_caps() if caps is None else _caps.normalize_caps(caps)
-    d = _playback.plan(info, caps=caps_n, quality=quality, audio_idx=audio, sub_idx=sub)
+    d = _playback.plan(_media_payload(m, info), caps=caps_n, quality=quality,
+                       audio_idx=audio, sub_idx=sub, force_burn=force_burn)
     if d["method"] == "blocked":
         raise HTTPException(422, "unplayable")
     if d["method"] == "direct":
         raise HTTPException(400, "use direct_url (Direct Play, no HLS needed)")
-    # 图片字幕（PGS/VobSub）：浏览器无法当外挂字幕后，改为烧录进画面（重开转码会话）。
-    # 取所选字幕在文件里的真实流号（ff_index），塞进 plan 供 build_cmd 组 overlay 滤镜。
+    # 图片字幕烧录（仅 VobSub/降级）：内嵌取真实流号（ff_index）；外挂（.idx/.sub）
+    # 记 sub_sidecar，build_cmd 以第二输入 + [1:s:0] overlay（时间轴对齐同主输入）。
     if (d.get("plan") or {}).get("sub") == "burn":
+        subs = _sub_list(m, info)
         try:
             si = int(sub if sub is not None else -1)
         except (TypeError, ValueError):
             si = -1
-        subs = info.get("subs") or []
         if not (0 <= si < len(subs)):
             raise HTTPException(422, "subtitle not found")
         track = subs[si] or {}
         if not int(track.get("image") or 0):
             raise HTTPException(422, "not an image subtitle")
-        d["plan"]["sub_ff_index"] = int(track.get("ff_index", si))
+        if track.get("source") == "sidecar":
+            d["plan"]["sub_sidecar"] = str(track.get("sidecar") or "")
+        else:
+            d["plan"]["sub_ff_index"] = int(track.get("ff_index", si))
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
     # 单人场景：同版本同 plan（含 start）且进程活着 → 直接复用（秒开，不重转）；
@@ -805,6 +823,7 @@ class SessionBody(BaseModel):
     sub: int | None = None
     start: float = 0
     caps: dict | None = None
+    force_burn: bool = False
 
 
 _prewarm_jobs: dict[str, dict] = {}
@@ -952,7 +971,7 @@ def hls_session_create(version_id: int, body: SessionBody | None = None):
     except (TypeError, ValueError):
         raise HTTPException(422, "bad version_id")
     sid, _sdir, d = _spawn_session(vid, body.quality, body.audio, body.sub, body.start,
-                                   caps=body.caps)
+                                   caps=body.caps, force_burn=body.force_burn)
     return {"session_id": sid,
             "playlist_url": f"/api/stream/sessions/{sid}/master.m3u8",
             "method": d["method"], "reasons": d["reasons"], "plan": d["plan"],
@@ -1174,50 +1193,139 @@ def hls_segment(version_id: int, name: str):
 
 @router.get("/{version_id}/sub/{idx}.vtt")
 def hls_subtitle(version_id: int, idx: int):
-    """文字字幕抽取 → WebVTT（缓存复用）。图片字幕 415。"""
+    """文字字幕 → WebVTT（浏览器 <track>；内嵌抽取/外挂转换，缓存复用）。图片字幕 415。"""
     m, abs_p = _version_abs(version_id)
     info = _media_cached_or_probe(m, abs_p)
-    subs = info.get("subs") or []
-    try:
-        si = int(idx)
-    except (TypeError, ValueError):
-        raise HTTPException(422, "bad subtitle index")
-    if not (0 <= si < len(subs)):
-        raise HTTPException(404, "subtitle not found")
-    track = subs[si]
+    track = _sub_pick(m, info, idx)
     if int(track.get("image") or 0):
-        raise HTTPException(415, "image subtitle (PGS/VobSub): download original and use VLC/Kodi")
+        raise HTTPException(415, "image subtitle (PGS/VobSub): client render or burn-in only")
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
-    sdir = os.path.join(TRANSCODE_DIR, str(int(m["id"])), "subs")
+    si = int(idx)
+    if track.get("source") == "sidecar":
+        dest = _convert_sidecar(str(track.get("sidecar") or ""), int(m["id"]), "vtt")
+    else:
+        dest = _extract_embedded(abs_p, int(m["id"]), track, si, "vtt")
+    return FileResponse(dest, media_type="text/vtt", filename=f"sub{si}.vtt")
+
+
+def _sidecar_abs(rel: str) -> str:
+    """外挂字幕绝对路径（rel 来自服务端枚举，不接受客户端路径）。"""
+    return os.path.join(settings.media_root, rel)
+
+
+def _convert_sidecar(rel: str, vid: int, dest_ext: str) -> str:
+    """外挂字幕转换到缓存（srt→vtt/ass、ass/ssa→vtt）。按源 mtime 失效。"""
+    src_abs = _sidecar_abs(rel)
+    if not os.path.isfile(src_abs):
+        raise HTTPException(404, "sidecar subtitle missing")
+    codec = "webvtt" if dest_ext == "vtt" else "ass"
+    key = hashlib.sha1((rel + "|" + dest_ext).encode("utf-8")).hexdigest()[:12]
+    sdir = os.path.join(TRANSCODE_DIR, str(int(vid)), "subs")
     os.makedirs(sdir, exist_ok=True)
-    dest = os.path.join(sdir, f"{si}.vtt")
+    dest = os.path.join(sdir, f"side_{key}.{dest_ext}")
     try:
-        fresh = (os.path.isfile(dest) and os.path.getmtime(dest) > os.path.getmtime(abs_p))
+        fresh = os.path.isfile(dest) and os.path.getmtime(dest) > os.path.getmtime(src_abs)
+    except OSError:
+        fresh = False
+    if not fresh:
+        cmd = [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
+               "-i", src_abs, "-c:s", codec, dest]
+        try:
+            subprocess.run(cmd, timeout=120, check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            raise HTTPException(500, f"subtitle convert failed: {e}")
+        if not os.path.isfile(dest):
+            raise HTTPException(500, "subtitle convert failed")
+    return dest
+
+
+def _extract_embedded(abs_p: str, vid: int, track: dict, si: int, dest_ext: str) -> str:
+    """内嵌字幕抽取到缓存（vtt→webvtt 转换；ass→ASS；sup→PGS 流拷贝）。按源 mtime 失效。"""
+    codec = {"vtt": "webvtt", "ass": "ass"}.get(dest_ext, "copy")
+    sdir = os.path.join(TRANSCODE_DIR, str(int(vid)), "subs")
+    os.makedirs(sdir, exist_ok=True)
+    dest = os.path.join(sdir, f"{si}.{dest_ext}")
+    try:
+        fresh = os.path.isfile(dest) and os.path.getmtime(dest) > os.path.getmtime(abs_p)
     except OSError:
         fresh = False
     if not fresh:
         ff_idx = track.get("ff_index", si)
-        cmd = [_media.ffmpeg_bin(), "-y", "-hide_banner",
-               "-loglevel", "error", "-i", abs_p, "-map", f"0:{ff_idx}", dest]
+        cmd = [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
+               "-i", abs_p, "-map", f"0:{ff_idx}", "-c:s", codec, dest]
         try:
-            subprocess.run(cmd, timeout=120, check=False,
+            subprocess.run(cmd, timeout=180 if dest_ext == "sup" else 120, check=False,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as e:
             raise HTTPException(500, f"subtitle extract failed: {e}")
         if not os.path.isfile(dest):
             raise HTTPException(500, "subtitle extract failed")
-    return FileResponse(dest, media_type="text/vtt", filename=f"sub{si}.vtt")
+    return dest
 
 
-# ===== ASS/SSA 客户端渲染（JASSUB）：原始 .ass + 内嵌/内置字体 =====
+# ===== 客户端字幕轨清单（内嵌 + 正片同名外挂）=====
 _FONT_RE = re.compile(r"^[^/\\]{1,120}\.(?:ttf|otf|ttc|woff2?)$", re.IGNORECASE)
+# 外挂文件名后缀 → (lang, 展示名) 粗推断（仅用于下拉可读性/自动选中文）
+_SIDECAR_LANG_HINTS = (
+    ("中英", "chi", "中英"), ("简英", "chi", "简英"), ("繁英", "chi", "繁英"),
+    ("简中", "chi", "简中"), ("繁中", "chi", "繁中"), ("中日", "chi", "中日"),
+    ("双语", "chi", "双语"), ("中字", "chi", "中字"), ("中文", "chi", "中文"),
+    ("简体", "chi", "简体"), ("繁体", "chi", "繁体"), ("简", "chi", "简体"),
+    ("繁", "chi", "繁体"), ("中", "chi", "中文"),
+    ("chs", "chi", "简体"), ("cht", "chi", "繁体"), ("sc", "chi", ""),
+    ("tc", "chi", ""), ("chi", "chi", ""), ("zh", "chi", ""),
+    ("eng", "eng", ""), ("en", "eng", ""), ("jpn", "jpn", ""),
+    ("jp", "jpn", ""), ("kor", "kor", ""), ("ko", "kor", ""),
+)
 
 
-def _sub_track(m: dict, abs_p: str, idx: int) -> dict:
-    """定位指定字幕轨（不存在 404）；返回 track dict。"""
-    info = _media_cached_or_probe(m, abs_p)
-    subs = info.get("subs") or []
+def _guess_sidecar_lang(suffix: str) -> tuple[str, str]:
+    s = (suffix or "").strip().lower()
+    for key, lang, title in _SIDECAR_LANG_HINTS:
+        if key in s:
+            return lang, title
+    return "", ""
+
+
+def _sub_list(m: dict, info: dict) -> list[dict]:
+    """播放器字幕轨清单：内嵌（ffprobe 缓存）+ 正片同名外挂（实时枚举磁盘）。
+    索引即前端 subIdx；图片 codec 归一为 pgs/vobsub；外挂带 source/sidecar。
+    自动默认：片源无任何内嵌字幕时，第一条中文文本外挂标 default=1
+    （图片外挂不自动选，避免意外触发烧录重编）。"""
+    out: list[dict] = []
+    for t in (info.get("subs") or []):
+        t2 = dict(t or {})
+        codec = _media.norm_codec(str(t2.get("codec") or ""))
+        t2["codec"] = codec
+        t2["image"] = 1 if (int(t2.get("image") or 0) or codec in _media.IMAGE_SUBS) else 0
+        t2["source"] = "embedded"
+        out.append(t2)
+    try:
+        side = sidecar_subtitles(os.path.join(settings.media_root, m["file_path"]))
+    except Exception:
+        side = []
+    has_embedded = bool(info.get("subs"))
+    auto_done = False
+    for s in side:
+        lang, title = _guess_sidecar_lang(str(s.get("suffix") or ""))
+        item = {"index": len(out), "ff_index": None, "codec": s.get("codec") or "",
+                "image": int(s.get("image") or 0), "lang": lang,
+                "title": title or s.get("name") or "", "default": 0, "forced": 0,
+                "source": "sidecar", "sidecar": s.get("rel") or ""}
+        if (not has_embedded and not auto_done and not item["image"] and lang == "chi"):
+            item["default"] = 1
+            auto_done = True
+        out.append(item)
+    for i, t in enumerate(out):
+        t["index"] = i
+    return out
+
+
+def _sub_pick(m: dict, info: dict, idx) -> dict:
+    """按索引取字幕轨（内嵌+外挂合并清单）；越界 404。"""
+    subs = _sub_list(m, info)
     try:
         si = int(idx)
     except (TypeError, ValueError):
@@ -1229,38 +1337,53 @@ def _sub_track(m: dict, abs_p: str, idx: int) -> dict:
 
 @router.get("/{version_id}/sub/{idx}.ass")
 def hls_subtitle_ass(version_id: int, idx: int):
-    """ASS/SSA 抽取为原始 .ass（JASSUB WASM/libass 客户端渲染，保留字体/位置/动画）。
-    文本类非 ASS 字幕 415（走 .vtt）；图片字幕 415（只能烧录）。"""
+    """ASS/SSA 原始文件（JASSUB WASM/libass 客户端渲染，保留字体/位置/动画）。
+    外挂 ass/ssa 直接服务；外挂 srt 转 ASS；文本类非 ASS 415；图片字幕 415（客户端渲染/烧录）。"""
     m, abs_p = _version_abs(version_id)
-    track = _sub_track(m, abs_p, idx)
+    info = _media_cached_or_probe(m, abs_p)
+    track = _sub_pick(m, info, idx)
     if int(track.get("image") or 0):
-        raise HTTPException(415, "image subtitle (PGS/VobSub): burn-in only")
+        raise HTTPException(415, "image subtitle: client render or burn-in only")
     codec = _media.norm_codec(str(track.get("codec") or ""))
-    if codec not in _media.ASS_SUBS:
+    if codec not in _media.ASS_SUBS and codec not in ("srt", "subrip", "webvtt", "vtt"):
         raise HTTPException(415, f"not an ass/ssa subtitle: {codec or 'unknown'}")
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
     si = int(idx)
-    sdir = os.path.join(TRANSCODE_DIR, str(int(m["id"])), "subs")
-    os.makedirs(sdir, exist_ok=True)
-    dest = os.path.join(sdir, f"{si}.ass")
-    try:
-        fresh = os.path.isfile(dest) and os.path.getmtime(dest) > os.path.getmtime(abs_p)
-    except OSError:
-        fresh = False
-    if not fresh:
-        ff_idx = track.get("ff_index", si)
-        # 统一转 ASS：SSA 老格式也归一（libass 只吃 ASS 语法）
-        cmd = [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
-               "-i", abs_p, "-map", f"0:{ff_idx}", "-c:s", "ass", dest]
-        try:
-            subprocess.run(cmd, timeout=120, check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            raise HTTPException(500, f"subtitle extract failed: {e}")
-        if not os.path.isfile(dest):
-            raise HTTPException(500, "subtitle extract failed")
+    if track.get("source") == "sidecar":
+        rel = str(track.get("sidecar") or "")
+        if codec in _media.ASS_SUBS:
+            src = _sidecar_abs(rel)
+            if not os.path.isfile(src):
+                raise HTTPException(404, "sidecar subtitle missing")
+            return FileResponse(src, media_type="text/x-ssa", filename=os.path.basename(src))
+        dest = _convert_sidecar(rel, int(m["id"]), "ass")
+        return FileResponse(dest, media_type="text/x-ssa", filename=f"sub{si}.ass")
+    dest = _extract_embedded(abs_p, int(m["id"]), track, si, "ass")
     return FileResponse(dest, media_type="text/x-ssa", filename=f"sub{si}.ass")
+
+
+@router.get("/{version_id}/sub/{idx}.sup")
+def hls_subtitle_sup(version_id: int, idx: int):
+    """PGS 原始 .sup（libpgs 浏览器端解码渲染，零转码）：内嵌 `-c:s copy` 抽取缓存；
+    外挂 .sup 直接服务；非 PGS 415（VobSub 只能烧录）。"""
+    m, abs_p = _version_abs(version_id)
+    info = _media_cached_or_probe(m, abs_p)
+    track = _sub_pick(m, info, idx)
+    codec = _media.norm_codec(str(track.get("codec") or ""))
+    if codec != "pgs":
+        raise HTTPException(415, f"not a pgs subtitle: {codec or 'unknown'}")
+    if track.get("source") == "sidecar":
+        src = _sidecar_abs(str(track.get("sidecar") or ""))
+        if not os.path.isfile(src):
+            raise HTTPException(404, "sidecar subtitle missing")
+        return FileResponse(src, media_type="application/x-pgs",
+                            filename=os.path.basename(src))
+    if not _ffmpeg_ok():
+        raise HTTPException(501, "ffmpeg not installed in server image")
+    si = int(idx)
+    dest = _extract_embedded(abs_p, int(m["id"]), track, si, "sup")
+    return FileResponse(dest, media_type="application/x-pgs", filename=f"sub{si}.sup")
 
 
 def _dump_attachments(abs_p: str, fdir: str) -> None:

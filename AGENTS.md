@@ -11,7 +11,12 @@
   - 音轨切换：fMP4 走 `hls.audioTrack`（`MANIFEST_PARSED` + `AUDIO_TRACKS_UPDATED` 后应用——前者触发时 `audioTracks` 可能还是空），不重开会话；解析前切轨只改选择不重开（`manifestReady`/`reloadGen` 防并发 reload 出双 hls 实例）；原生 Safari 用 `video.audioTracks`。前端选择与服务端产物解耦（默认音轨=源 disposition 首条 default）。
   - 停服：`main.py` lifespan 退出调 `stream.shutdown_sessions()` 杀转码子进程（防孤儿 ffmpeg）。
   - 首屏等待只数视频分片（`_seg_count(prefix)`）；完工=全部 `out_*.m3u8` 带 ENDLIST；统一路由 `GET /sessions/{sid}/{name}`（白名单 `_SESS_FILE_RE`）。
-  - 字幕：文本 → `.vtt` + `<track>`；ASS/SSA → `GET /{id}/sub/{idx}.ass` + JASSUB（`frontend/src/jassubLoader.js` 懒加载，`workerUrl` 必须指 RPC worker `jassub/dist/worker/worker.js?worker&url`）客户端渲染；图片字幕 → 烧录重编。字体来源：MKV 附件（首次请求 `/{id}/fonts/{name}` 时 `ffmpeg -dump_attachment` 到 `transcode/{id}/fonts/`）+ `data/fonts/*` 内置（`GET /fonts/builtin/{name}`）；`GET /{id}/fonts` 汇总清单。前端「兼容」勾选强制走 VTT（localStorage `jzmedia.subCompat`）。
+  - 字幕（客户端渲染为主，`subtitle_mode: none|webvtt|ass_client|pgs_client|burn`）：文本 → `.vtt` + `<track>`；ASS/SSA → `GET /{id}/sub/{idx}.ass` + JASSUB（`frontend/src/jassubLoader.js`，`workerUrl` 必须指 RPC worker `jassub/dist/worker/worker.js?worker&url`）；PGS → `GET /{id}/sub/{idx}.sup`（`-c:s copy` 抽取）+ libpgs（`frontend/src/pgsLoader.js`，workerUrl 必传）；切字幕不重开会话不转码；libpgs 失败/超时自动降级烧录（`force_burn`）。仅 VobSub 走烧录（外挂第二输入 `[1:s:0]`）。字幕延迟 `timeOffset`（ASS/PGS，localStorage `jzmedia.subDelay.<vid>`）。
+  - 外挂字幕：`scanner.sidecar_subtitles` 同目录(含 `subs/字幕` 一层) stem 匹配；`_sub_list` 合并内嵌+外挂（`source/sidecar`，无内嵌时自动选第一条中文文本外挂，后缀词表 `_SIDECAR_LANG_HINTS`）；`data/fonts/*` 为内置字体投放目录（`ensure_dirs` 创建、gitignore）。
+  - 音轨选择：原文件直发（direct）只能播默认音轨 → 选了非默认轨且客户端无原生 HLS 时自动改走 remux（HLS rendition 切换）；reason `audio_track_selection`。
+  - 前端 UI：画质/音轨/字幕/兼容/延迟收进弹层（头部「⚙ 设置」）；控件条（自绘）对 direct 与原 HLS 统一启用（不再用原生 `<video controls>`，避免遮挡画面/字幕，`--pvb` 统一预留 46px）；PGS 画布用 `ensurePgsCanvas` 内联定位到画面区（动态元素吃不到 scoped 样式）。ASS 无任何可用字体且含 CJK 时自动降级 VTT（`autoVttSub` + 提示投放字体）。
+  - 字体：MKV 附件首次请求 `/{id}/fonts/{name}` 时 `ffmpeg -dump_attachment` 到 `transcode/{id}/fonts/`；`GET /{id}/fonts` 汇总 attachment+builtin。前端「兼容」勾选强制走 VTT（localStorage `jzmedia.subCompat`）。
+  - 找可测片源：`python scripts/find_subs.py`（只读，列内嵌 ASS/PGS/字体附件/外挂）。
 
 ## Run
 - Backend (WSL dev, hot-reload via `docker-compose.override.yml`): `cp .env.example .env && mkdir -p sample_media/电影 data && docker compose up --build`, check `http://localhost:8080/docs`.

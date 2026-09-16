@@ -14,6 +14,7 @@ P2 起默认输出 HLS + fMP4（`-var_stream_map` 单进程：video + 全部音�
 import os
 
 from . import caps as _caps
+from .config import settings
 from .media import (ASS_SUBS, TEXT_SUBS, ffmpeg_bin, norm_codec)
 
 MP4_CONTAINERS = ("mp4", "mov", "m4v")
@@ -169,8 +170,13 @@ def _hdr_blocks_direct(media: dict, caps: dict, client: str) -> tuple[bool, str]
     return False, ""
 
 
-def _subtitle_mode(media: dict, sub_idx, reasons: list) -> str:
-    """subtitle_mode: none | webvtt | ass_client | burn（烧录会强制视频重编）。"""
+def _subtitle_mode(media: dict, sub_idx, reasons: list,
+                   force_burn: bool = False) -> str:
+    """subtitle_mode: none | webvtt | ass_client | pgs_client | burn。
+    - 文本 → webvtt / ass_client（客户端渲染，切换不重开会话）
+    - pgs（内嵌/外挂）→ pgs_client（libpgs 客户端，零转码）
+    - vobsub / 未知图片 → burn（唯一需要视频重编的字幕路径）
+    - force_burn：客户端解码失败等场景显式要求烧录（图片字幕才生效）"""
     if sub_idx is None:
         return "none"
     subs = media.get("subs") or []
@@ -184,7 +190,12 @@ def _subtitle_mode(media: dict, sub_idx, reasons: list) -> str:
         return "none"
     codec = norm_codec(str(track.get("codec") or ""))
     if int(track.get("image") or 0):
-        reasons.append("pgs_needs_burn")
+        if force_burn:
+            reasons.append("subtitle_burn_forced")
+            return "burn"
+        if codec == "pgs":
+            return "pgs_client"
+        reasons.append("vobsub_needs_burn")
         return "burn"
     if codec in ASS_SUBS:
         return "ass_client"
@@ -218,7 +229,8 @@ def _target_height(quality: str, media: dict, need_encode: bool) -> tuple[int, s
 
 
 def plan(media: dict, caps: dict | None = None, quality: str = "auto",
-         audio_idx: int = 0, sub_idx=None, client: str = "web") -> dict:
+         audio_idx: int = 0, sub_idx=None, client: str = "web",
+         force_burn: bool = False) -> dict:
     """四档决策。返回 {method, reasons, plan, subtitle_mode}。
     plan: {vcopy, acopy, height, sub, audio_idx, sub_idx, audios, seg}（build_cmd 输入）。
     - audios: 全部音轨 rendition 计划（fMP4 多音轨；TS 回滚只用 audio_idx）；
@@ -264,7 +276,7 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
     codec_ok = _video_ok(media, caps)
     v_ok = codec_ok
     a_ok = _audio_ok(want_audio, caps)
-    sub_mode = _subtitle_mode(media, sub_idx, reasons)
+    sub_mode = _subtitle_mode(media, sub_idx, reasons, force_burn=force_burn)
     burn = sub_mode == "burn"
     hdr_block, hdr_reason = _hdr_blocks_direct(media, caps, client)
     if hdr_block:
@@ -296,6 +308,15 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
                      "audio_idx": ai, "sub_idx": sub_idx}, variants)
     if container not in MP4_CONTAINERS:
         reasons.append("container_not_supported")
+        return emit("remux", sub_mode,
+                    {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
+                     "audio_idx": ai, "sub_idx": sub_idx}, variants)
+    # 原文件直发只能播默认音轨（Chrome/Firefox 无 audioTracks 切换 API）：
+    # 用户选了非默认轨 → 走 HLS remux（全部音轨 rendition），由前端切 hls.audioTrack。
+    default_ai = next((i for i, t in enumerate(audios)
+                       if int((t or {}).get("default") or 0)), 0)
+    if ai != default_ai and not caps.get("native_hls"):
+        reasons.append("audio_track_selection")
         return emit("remux", sub_mode,
                     {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
                      "audio_idx": ai, "sub_idx": sub_idx}, variants)
@@ -350,15 +371,17 @@ def _append_video_encoder(cmd: list, hw: str, height: int, burn: bool) -> None:
             "-c:v", "h264_vaapi", "-qp", "23"]
 
 
-def _seek_args(cmd: list, vcopy: bool, start: float) -> float:
-    """seek 对齐（B4）追加输入侧参数，返回输出侧精确裁剪秒数。
+def _seek_args(cmd: list, vcopy: bool, start: float) -> tuple[float, float]:
+    """seek 对齐（B4）追加输入侧参数，返回 (输出侧精确裁剪秒数, 输入侧提前秒数)。
     - 转码：输入 -ss 到目标前 15s + 输出侧裁 15s → 解码器有完整 GOP，音视频同点；
-    - 拷贝：-noaccurate_seek 从目标前一关键帧整段起（代价：起播最多早一个 GOP）。"""
+    - 拷贝：-noaccurate_seek 从目标前一关键帧整段起（代价：起播最多早一个 GOP）。
+    外挂图片字幕烧录时，第二输入要用同样的输入侧提前量（见 build_cmd）。"""
     try:
         st = max(0.0, float(start or 0))
     except (TypeError, ValueError):
         st = 0.0
     trim_after = 0.0
+    pre = 0.0
     if st > 0:
         if vcopy:
             cmd += ["-ss", f"{st:.3f}", "-noaccurate_seek"]
@@ -367,7 +390,17 @@ def _seek_args(cmd: list, vcopy: bool, start: float) -> float:
             if pre > 0:
                 cmd += ["-ss", f"{pre:.3f}"]
             trim_after = min(st, 15.0)
-    return trim_after
+    return trim_after, pre
+
+
+def _sub_overlay_filter(plan: dict) -> tuple[str, bool]:
+    """烧录 overlay 滤镜：返回 (filter_complex 串, 是否外挂第二输入)。
+    - 内嵌图片字幕：同一输入 [0:v][0:s:N]；
+    - 外挂图片字幕（VobSub）：第二输入 [0:v][1:s:0]。"""
+    side = str(plan.get("sub_sidecar") or "")
+    if side:
+        return "[0:v][1:s:0]overlay=eof_action=pass", True
+    return ("[0:v][0:s:%d]overlay=eof_action=pass" % int(plan["sub_ff_index"]), False)
 
 
 def build_cmd(abs_path: str, plan: dict,
@@ -388,24 +421,43 @@ def build_cmd(abs_path: str, plan: dict,
     return _build_cmd_fmp4(abs_path, plan, start, seg_time or 4)
 
 
+def _is_burn(plan: dict) -> bool:
+    """图片字幕烧录（内嵌 sub_ff_index 或外挂 sub_sidecar 二选一）。"""
+    return (plan.get("sub") == "burn"
+            and (plan.get("sub_ff_index") is not None
+                 or bool(plan.get("sub_sidecar"))))
+
+
+def _append_sub_input(cmd: list, plan: dict, pre: float) -> None:
+    """外挂图片字幕（VobSub）第二输入：与主输入同样的输入侧提前量（时间轴对齐）。"""
+    rel = str(plan.get("sub_sidecar") or "")
+    if not rel:
+        return
+    if pre > 0:
+        cmd += ["-ss", f"{pre:.3f}"]
+    cmd += ["-i", os.path.abspath(os.path.join(settings.media_root, rel))]
+
+
 def _build_cmd_fmp4(abs_path: str, plan: dict,
                     start: float, seg_time: int) -> list[str]:
     vcopy = bool(plan.get("vcopy"))
     height = int(plan.get("height") or 0)
-    burn_sub = plan.get("sub") == "burn" and plan.get("sub_ff_index") is not None
+    burn_sub = _is_burn(plan)
     variants = list(plan.get("audios") or [])[:MAX_AUDIO_RENDITIONS]
     if burn_sub:
         vcopy = False  # 烧录必须重编码
     cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"]
-    trim_after = _seek_args(cmd, vcopy, start)
+    trim_after, pre = _seek_args(cmd, vcopy, start)
     # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
     cmd += ["-fflags", "+genpts", "-i", abs_path]
+    if burn_sub:
+        _append_sub_input(cmd, plan, pre)
     if trim_after > 0:
         cmd += ["-ss", f"{trim_after:.3f}"]
     # 映射：视频（烧录走 overlay 滤镜输出）+ 全部音轨
     if burn_sub:
         # overlay 不缩放覆盖层：源分辨率叠加后再缩放；eof_action=pass 防最后一句字幕钉片尾
-        vf = "[0:v][0:s:%d]overlay=eof_action=pass" % int(plan["sub_ff_index"])
+        vf = _sub_overlay_filter(plan)[0]
         if height:
             vf += ",scale=-2:%d" % height
         cmd += ["-filter_complex", vf + "[vout]", "-map", "[vout]"]
@@ -465,19 +517,21 @@ def _build_cmd_ts(abs_path: str, plan: dict,
         ai = 0
     hw = hw_backend()
     cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"]
-    burn_sub = plan.get("sub") == "burn" and plan.get("sub_ff_index") is not None
+    burn_sub = _is_burn(plan)
     if burn_sub:
         vcopy = False  # 烧录必须重编码
-    trim_after = _seek_args(cmd, vcopy, start)
+    trim_after, pre = _seek_args(cmd, vcopy, start)
     # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
     cmd += ["-fflags", "+genpts"]
     cmd += ["-i", abs_path]
+    if burn_sub:
+        _append_sub_input(cmd, plan, pre)
     if trim_after > 0:
         cmd += ["-ss", f"{trim_after:.3f}"]
     if burn_sub:
         # 图片字幕烧录：源分辨率下 overlay 再缩放（overlay 不缩放覆盖层），
         # eof_action=pass：字幕流结束后原样放行视频（默认 repeat 会把最后一句字幕钉到片尾）。
-        vf = "[0:v][0:s:%d]overlay=eof_action=pass" % int(plan["sub_ff_index"])
+        vf = _sub_overlay_filter(plan)[0]
         if height:
             vf += ",scale=-2:%d" % height
         cmd += ["-filter_complex", vf + "[vout]", "-map", "[vout]", "-map", f"a:{ai}?"]

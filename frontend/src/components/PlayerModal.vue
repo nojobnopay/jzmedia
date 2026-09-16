@@ -8,7 +8,52 @@
         <span v-if="reasonLine" class="play-reason">{{ reasonLine }}</span>
         <span v-if="sessStatus" class="sess-status">{{ sessStatus }}</span>
         <span class="pd-spacer"></span>
-        <button class="pd-mini" @click="copyDebug" title="复制调试信息（贴给开发者定位）">调试</button>
+        <div class="pd-setwrap">
+          <button class="pd-mini" :class="{ on: settingsOpen }" @click="toggleSettings"
+            title="播放设置（画质/音轨/字幕/延迟）">⚙ 设置</button>
+          <div v-if="settingsOpen" class="pd-set" @click.stop>
+            <div class="set-row">
+              <label>画质</label>
+              <select v-model="quality" @change="onQualityChange" title="自动=按服务器能力；原画=不封顶重编（耗 CPU）">
+                <option value="auto">自动（推荐）</option>
+                <option value="source">原画</option>
+                <option value="1080p">1080p</option>
+                <option value="720p">720p</option>
+              </select>
+            </div>
+            <div class="set-row" v-if="audios.length > 1">
+              <label>音轨</label>
+              <select v-model.number="audioIdx" @change="onAudioChange">
+                <option v-for="(a, i) in audios" :key="i" :value="i">{{ audioLabel(a, i) }}</option>
+              </select>
+            </div>
+            <div class="set-row" v-if="subs.length">
+              <label>字幕</label>
+              <select v-model.number="subIdx" @change="onSubChange">
+                <option :value="-1">无字幕</option>
+                <option v-for="(s, i) in subs" :key="i" :value="i">
+                  {{ subLabel(s, i) }}{{ subBadge(s) }}
+                </option>
+              </select>
+            </div>
+            <div class="set-row" v-if="subDelayVisible">
+              <label>延迟</label>
+              <span class="set-inline">
+                <button class="ctl-mini" @click="shiftSubDelay(-0.5)">−0.5</button>
+                <span class="delay-val">{{ subDelayText }}</span>
+                <button class="ctl-mini" @click="shiftSubDelay(0.5)">+0.5</button>
+              </span>
+            </div>
+            <div class="set-row" v-if="subIsAss">
+              <label>兼容</label>
+              <label class="ctl-compat" title="ASS 渲染异常/缺字体时使用：改用简化 VTT 字幕">
+                <input type="checkbox" v-model="compatSub" @change="onCompatChange" />VTT 字幕（丢样式）
+              </label>
+            </div>
+            <p class="set-hint">{{ methodLine }}<span v-if="qualityLine"> · {{ qualityLine }}</span></p>
+          </div>
+        </div>
+        <button class="pd-mini" @click="copyDebug">调试</button>
         <button class="pd-mini" @click="$emit('close')">关闭</button>
       </div>
       <div v-if="resumeOffer" class="resume-bar">
@@ -17,11 +62,11 @@
         <button @click="restartPlay">从头开始</button>
       </div>
       <!-- 播放容器：全屏目标；内含视频/冻结帧/提示/顶部标题/底部控件 -->
-      <div ref="pvWrapEl" class="pv-wrap"
-        :class="{ 'has-bar': isHls, 'hide-cursor': isFull && !overlayVisible }"
+      <div ref="pvWrapEl" class="pv-wrap has-bar"
+        :class="{ 'hide-cursor': isFull && !overlayVisible }"
         :style="videoPadding ? { paddingTop: videoPadding } : {}"
         @mousemove="onMouseMove" @dblclick="toggleFull">
-        <video ref="videoEl" :key="videoKey" :controls="!isHls" autoplay playsinline preload="metadata" class="player-video"
+        <video ref="videoEl" :key="videoKey" autoplay playsinline preload="metadata" class="player-video"
           @error="onVideoError"></video>
         <img v-if="freezeFrame" :src="freezeFrame" class="freeze-frame" alt="" />
         <div v-if="seekPending" class="seek-ov">
@@ -35,7 +80,8 @@
           <span class="pd-spacer"></span>
           <button class="pd-mini" @click="toggleFull" title="退出全屏（Esc）">⤡ 退出全屏</button>
         </div>
-        <div v-if="isHls" class="pv-ctl" :class="{ show: overlayVisible }" @dblclick.stop>
+        <!-- 自绘控件条（HLS 与原文件直发统一使用：直发不再用原生控件遮挡画面） -->
+        <div class="pv-ctl" :class="{ show: overlayVisible }" @dblclick.stop>
           <button @click="togglePlay" :title="isPlaying ? '暂停（空格）' : '播放（空格）'">{{ isPlaying ? '⏸' : '▶' }}</button>
           <span class="ctl-time">{{ fmt(seekDragging ? seekPreview : seekPos) }} / {{ fmt(decidedDuration) }}</span>
           <input type="range" min="0" :max="Math.floor(decidedDuration)" step="1"
@@ -45,24 +91,6 @@
           <button @click="toggleMute" :title="muted ? '取消静音' : '静音'">{{ muted ? '🔇' : '🔊' }}</button>
           <input type="range" min="0" max="100" :value="muted ? 0 : volume * 100"
             @input="setVolume" @change="blurPick" class="ctl-vol" />
-          <select v-model="quality" @change="onQualityChange" title="画质：自动=按服务器能力（无硬件转码封顶 720p）；原画=不封顶重编（耗 CPU）">
-            <option value="auto">自动（推荐）</option>
-            <option value="source">原画</option>
-            <option value="1080p">1080p</option>
-            <option value="720p">720p</option>
-          </select>
-          <select v-if="audios.length > 1" v-model.number="audioIdx" @change="onAudioChange" title="音轨">
-            <option v-for="(a, i) in audios" :key="i" :value="i">{{ audioLabel(a, i) }}</option>
-          </select>
-          <select v-if="subs.length" v-model.number="subIdx" @change="onSubChange" title="字幕">
-            <option :value="-1">无字幕</option>
-            <option v-for="(s, i) in subs" :key="i" :value="i">
-              {{ subLabel(s, i) }}{{ s.image ? '（烧录）' : (subKind(s) === 'ass' ? '（ASS 样式）' : '') }}
-            </option>
-          </select>
-          <label v-if="subIsAss" class="ctl-compat" title="ASS 渲染异常/缺字体时勾选：改用简化 VTT 字幕">
-            <input type="checkbox" v-model="compatSub" @change="onCompatChange" />兼容
-          </label>
           <button @click="toggleFull" :title="isFull ? '退出全屏（Esc）' : '全屏（双击画面）'">{{ isFull ? '⤡' : '⛶' }}</button>
         </div>
       </div>
@@ -79,6 +107,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '../api.js'
 import { getCaps, probeStrings, withProbes } from '../caps.js'
 import { ensureJassub } from '../jassubLoader.js'
+import { ensurePgs } from '../pgsLoader.js'
 import Spinner from './Spinner.vue'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
@@ -103,6 +132,26 @@ const subs = ref([])
 let jassub = null
 let assKey = ''
 const assFonts = ref(-1)
+// PGS 图片字幕渲染（libpgs）：解码失败自动降级烧录（forceBurn 进 decide/sessions）
+let pgs = null
+let pgsCanvas = null
+let pgsKey = ''
+const forceBurn = ref(false)
+// 字幕时间偏移（秒）：ASS(JASSUB)/PGS(libpgs) 的 timeOffset；按版本记忆
+const subDelay = ref(0)
+// 外挂中文默认轨只自动选一次（用户手动选过后不再自动覆盖）
+let autoSubPicked = false
+// 缺字体时自动转 VTT 的字幕轨索引（按轨，不污染其他 ASS 轨；重开播放器即重置）
+const autoVttSub = ref(-1)
+// 设置弹层（画质/音轨/字幕/延迟）：日常只留一个按钮，避免控件条拥挤/遮挡画面
+const settingsOpen = ref(false)
+function toggleSettings() { settingsOpen.value = !settingsOpen.value }
+function onDocClick(e) {
+  if (!settingsOpen.value) return
+  const t = e && e.target
+  if (t && t.closest && t.closest('.pd-setwrap')) return
+  settingsOpen.value = false
+}
 // 「兼容字幕(VTT)」：ASS 样式渲染异常/无字体时的降级；跨会话记住选择
 const compatSub = ref((() => {
   try { return localStorage.getItem('jzmedia.subCompat') === '1' } catch (e) { return false }
@@ -243,6 +292,7 @@ const REASON_TEXT = {
   auto_downscale_720p: '已自动封顶 720p（未检测到硬件转码，4K 软转太重；可选“原画”强制原分辨率，更耗 CPU）',
   auto_downscale_1080p: '已自动封顶 1080p（硬件转码）',
   source_transcode: '已按原画原分辨率重编（CPU 占用高，可能卡顿）',
+  audio_track_selection: '所选音轨需要走转封装（原文件直发只能播默认音轨）',
   subtitle_not_found: '所选字幕不可用',
 }
 const reasonLine = computed(() => (reasons.value || []).map(r => REASON_TEXT[r] || r).join('；'))
@@ -437,7 +487,8 @@ async function decidePlayback(subArg) {
   const post = (caps) => api(`/api/stream/${props.versionId}/decide`, {
     method: 'POST',
     body: JSON.stringify({ quality: quality.value, audio: audioIdx.value,
-                           sub: subArg, client: 'web', caps }),
+                           sub: subArg, client: 'web', caps,
+                           force_burn: forceBurn.value }),
   })
   const d = await post(base)
   const media = d.media || {}
@@ -485,9 +536,8 @@ async function reload() {
   const v = videoEl.value
   if (v) { try { v.pause() } catch (e) { /* 忽略 */ } v.removeAttribute('src'); v.load() }
   let d
-  // 图片字幕（PGS/VobSub）：服务端把所选字幕烧录进画面，需带 sub 参数重开转码会话
+  // 图片字幕：默认客户端渲染（PGS→libpgs）；VobSub/解码降级走烧录（服务端 subtitle_mode）
   const wantBurn = imageSubSelected()
-  burnOn = wantBurn
   const burnSub = wantBurn ? Number(subIdx.value) : -1
   try {
     d = await decidePlayback(burnSub >= 0 ? burnSub : (subIdx.value >= 0 ? subIdx.value : null))
@@ -496,10 +546,17 @@ async function reload() {
     return
   }
   if (gen !== reloadGen) return   // 新一轮 reload 已接管，放弃本轮（防两个 hls 实例互踩）
+  burnOn = d.subtitle_mode ? d.subtitle_mode === 'burn' : wantBurn
   method.value = d.method
   reasons.value = d.reasons || []
   audios.value = d.media?.audio || []
   subs.value = d.media?.subs || []
+  // 外挂中文默认轨：打开时自动选一次（用户手动选过后不再覆盖；图片外挂不自动选）
+  if (subIdx.value === -1 && !autoSubPicked) {
+    const di = (subs.value || []).findIndex(s => s && s.source === 'sidecar'
+      && !s.image && Number(s.default) === 1)
+    if (di >= 0) { subIdx.value = di; autoSubPicked = true }
+  }
   planHeight.value = Number(d.plan?.height) || 0
   srcHeight.value = Number(d.media?.height) || 0
   // 播放器比例：padding-top = min(片源高宽比, 76vh)（16:9 片源按屏幕宽度自适应）；
@@ -511,7 +568,8 @@ async function reload() {
       ? (Math.round((h / w) * 10000) / 100) + '%'
       : '56.25%'
     const box = 'min(' + pct + ', 68vh)'
-    videoPadding.value = d.method === 'direct' ? box : ('calc(' + box + ' + 46px)')
+    // 统一为底部控件条预留 46px（HLS 与原文件直发一致），避免控件压住画面/字幕
+    videoPadding.value = 'calc(' + box + ' + 46px)'
   } catch (e) { videoPadding.value = 'calc(min(56.25%, 68vh) + 46px)' }
   try {
     decidedDuration.value = Number(d.media?.duration) || 0
@@ -539,7 +597,8 @@ async function reload() {
         body: JSON.stringify({ quality: quality.value, audio: audioIdx.value,
                                start: Math.floor(startAt),
                                sub: burnSub >= 0 ? burnSub : null,
-                               caps: activeCaps }),
+                               caps: activeCaps,
+                               force_burn: forceBurn.value }),
       })
     } catch (e) {
       sessStatus.value = ''
@@ -582,10 +641,10 @@ async function reload() {
     err.value = '播放失败：' + (e && e.message ? e.message : e)
   }
 }
-// 字幕渲染分层：none / vtt（浏览器 <track>）/ ass（JASSUB libass 客户端渲染）/ burn（转码烧录）
+// 字幕渲染分层：none / vtt（浏览器 <track>）/ ass（JASSUB）/ pgs（libpgs）/ burn（VobSub 烧录）
 function subKind(s) {
   if (!s) return 'none'
-  if (s.image) return 'burn'
+  if (s.image) return String(s.codec || '').toLowerCase() === 'pgs' ? 'pgs' : 'burn'
   const c = String(s.codec || '').toLowerCase()
   return (c === 'ass' || c === 'ssa') ? 'ass' : 'vtt'
 }
@@ -594,6 +653,87 @@ function destroyAss() {
   jassub = null
   assKey = ''
   if (inst) { try { inst.destroy() } catch (e) { /* 忽略 */ } }
+}
+function destroyPgs() {
+  const inst = pgs
+  pgs = null
+  pgsKey = ''
+  if (inst) { try { inst.dispose() } catch (e) { /* 忽略 */ } }
+  // 自建 canvas（libpgs 拥有时只解除引用，不删元素；我们统一切断引用后移除）
+  if (pgsCanvas) {
+    try { pgsCanvas.remove() } catch (e) { /* 忽略 */ }
+    pgsCanvas = null
+  }
+}
+// PGS 画布：显式传入并对齐「画面区」（不含底部控件条），避免字幕坐标落进控件条被遮挡。
+// 注意：canvas 是 JS 动态创建，Vue scoped 样式不生效 → 内联样式（bottom 用 --pvb，全屏时归零）。
+function ensurePgsCanvas(v) {
+  if (pgsCanvas && pgsCanvas.parentNode === v.parentNode) return pgsCanvas
+  pgsCanvas = document.createElement('canvas')
+  const st = pgsCanvas.style
+  st.position = 'absolute'
+  st.top = '0'
+  st.left = '0'
+  // 高度必须减去控件条（放 bottom 会被 height:100% 覆盖；100% 是 wrap 的 padding box）
+  st.width = '100%'
+  st.height = 'calc(100% - var(--pvb))'
+  st.pointerEvents = 'none'
+  st.objectFit = 'contain'
+  v.insertAdjacentElement('afterend', pgsCanvas)
+  return pgsCanvas
+}
+// PGS 客户端解码不可用（库加载失败/解码异常）→ 自动降级烧录（重开会话并提示）
+function fallbackBurnSub(msg) {
+  if (forceBurn.value) return
+  forceBurn.value = true
+  posHint.value = (msg || 'PGS 客户端渲染不可用') + '，已自动切换为烧录模式（较耗 CPU）'
+  logEvt('pgs:fallback-burn', String(msg || '').slice(0, 120))
+  reload()
+}
+async function mountPgs(v, key) {
+  let mod = null
+  try {
+    mod = await ensurePgs()
+  } catch (e) {
+    fallbackBurnSub('PGS 渲染组件加载失败')
+    return
+  }
+  if (videoEl.value !== v || burnOn || subKind(subs.value[subIdx.value]) !== 'pgs') return
+  destroyPgs()
+  try {
+    const inst = new mod.PgsRenderer({
+      video: v,
+      canvas: ensurePgsCanvas(v),
+      subUrl: `/api/stream/${props.versionId}/sub/${subIdx.value}.sup`,
+      workerUrl: mod.workerUrl,
+      timeOffset: subDelay.value,
+      aspectRatio: 'contain',   // 与 video object-fit 一致
+    })
+    pgs = inst
+    pgsKey = key
+    // worker 加载失败可能既不 resolve 也不 reject（事件被吞）→ 超时兜底降级烧录
+    let settled = false
+    const timer = setTimeout(() => {
+      if (!settled && pgs === inst) fallbackBurnSub('PGS 渲染超时')
+    }, 20000)
+    Promise.resolve(inst.ready)
+      .then(() => { settled = true; clearTimeout(timer); logEvt('pgs:ready', 'delay=' + subDelay.value) })
+      .catch((e) => {
+        settled = true
+        clearTimeout(timer)
+        if (pgs === inst) fallbackBurnSub('PGS 解码失败：' + String(e).slice(0, 80))
+      })
+  } catch (e) {
+    fallbackBurnSub('PGS 渲染初始化失败')
+  }
+}
+// ASS 是否含中日韩文本（无字体时判断是否需要降级 VTT；只看前 40KB 足够覆盖样式/首批对白）
+async function assNeedsCjk(url) {
+  try {
+    const r = await fetch(url, { cache: 'no-store' })
+    const t = (await r.text()).slice(0, 40000)
+    return /[\u2E80-\u9FFF\uF900-\uFAFF\u3400-\u4DBF\uAC00-\uD7AF]/.test(t)
+  } catch (e) { return false }
 }
 async function mountAss(v, key) {
   let mod = null
@@ -609,6 +749,19 @@ async function mountAss(v, key) {
   }
   if (videoEl.value !== v || burnOn || subKind(subs.value[subIdx.value]) !== 'ass') return
   const fonts = (meta.fonts || []).map(f => f.url)
+  // 无任何可用字体 + 含中日韩文本：libass 缺字形会显示不全，
+  // 自动降级浏览器 VTT（系统字体渲染，保证可读；投放字体到 data/fonts/ 即恢复 ASS 样式）
+  if (!fonts.length) {
+    const needCjk = await assNeedsCjk(`/api/stream/${props.versionId}/sub/${subIdx.value}.ass`)
+    if (videoEl.value !== v || burnOn || subKind(subs.value[subIdx.value]) !== 'ass') return
+    if (needCjk) {
+      autoVttSub.value = Number(subIdx.value)
+      posHint.value = '未找到中文字体：已用浏览器 VTT 显示；把任意中文字体（woff2/ttf/ttc）放入 data/fonts/ 可恢复 ASS 样式'
+      logEvt('ass:no-font-vtt', 'sub=' + subIdx.value)
+      applySubs(true)
+      return
+    }
+  }
   assFonts.value = fonts.length
   destroyAss()
   try {
@@ -619,6 +772,7 @@ async function mountAss(v, key) {
       workerUrl: mod.workerUrl,
       wasmUrl: mod.wasmUrl,
       modernWasmUrl: mod.modernWasmUrl,
+      timeOffset: subDelay.value,
       // ASS 里指定字体缺失时用系统/内置兜底；无字体也不崩（libass 用内置 Liberation Sans）
       defaultFont: 'Liberation Sans',
     })
@@ -634,7 +788,8 @@ async function mountAss(v, key) {
     logEvt('ass:init-error', String(e).slice(0, 160))
   }
 }
-// 应用当前所选字幕（会话重载/换视频元素/切轨共用）：先拆旧层再按类型装新层
+// 应用当前所选字幕（会话重载/换视频元素/切轨共用）：先拆旧层再按类型装新层。
+// 文本/ASS/PGS 全部客户端渲染——切字幕不重开会话、不转码；仅 VobSub（burn）走烧录。
 async function applySubs(force) {
   const v = videoEl.value
   if (!v) return
@@ -642,8 +797,10 @@ async function applySubs(force) {
   const kind = burnOn ? 'burn' : subKind(subs.value[subIdx.value])
   const key = `${props.versionId}:${videoKey.value}:${subIdx.value}:${compatSub.value ? 'v' : 'a'}`
   if (jassub && (force || kind !== 'ass' || assKey !== key)) destroyAss()
+  if (pgs && (force || kind !== 'pgs' || pgsKey !== key)) destroyPgs()
   if (kind === 'none' || kind === 'burn') return
-  if (kind === 'vtt' || compatSub.value) {
+  if (kind === 'vtt' || compatSub.value
+      || (kind === 'ass' && autoVttSub.value === Number(subIdx.value))) {
     const tr = document.createElement('track')
     tr.kind = 'subtitles'
     tr.src = `/api/stream/${props.versionId}/sub/${subIdx.value}.vtt`
@@ -651,16 +808,45 @@ async function applySubs(force) {
     v.appendChild(tr)
     return
   }
-  if (jassub && assKey === key) return
-  await mountAss(v, key)
+  if (kind === 'ass') {
+    if (jassub && assKey === key) return
+    await mountAss(v, key)
+    return
+  }
+  if (kind === 'pgs') {
+    if (pgs && pgsKey === key) return
+    await mountPgs(v, key)
+  }
 }
-// 所选字幕是否为图片型（需烧录）
+// 所选字幕是否为图片型（需烧录；实际是否烧录以服务端 subtitle_mode 为准）
 function imageSubSelected() {
   const s = subs.value[subIdx.value]
   return !!(s && s.image)
 }
 // 当前所选是否为 ASS/SSA（决定「兼容」开关是否显示）
 const subIsAss = computed(() => subKind(subs.value[subIdx.value]) === 'ass')
+// ASS/PGS 支持 timeOffset（延迟控件可见）
+const subDelayVisible = computed(() =>
+  ['ass', 'pgs'].includes(subKind(subs.value[subIdx.value])) && !compatSub.value && !burnOn
+  && autoVttSub.value !== Number(subIdx.value))
+const subDelayText = computed(() => (subDelay.value > 0 ? '+' : '') + subDelay.value.toFixed(1) + 's')
+function shiftSubDelay(d) {
+  const x = Math.round(Math.max(-10, Math.min(10, subDelay.value + d)) * 10) / 10
+  subDelay.value = x
+  try { localStorage.setItem('jzmedia.subDelay.' + props.versionId, String(x)) } catch (e) { /* 忽略 */ }
+  if (jassub) { try { jassub.timeOffset = x } catch (e) { /* 忽略 */ } }
+  if (pgs) { try { pgs.timeOffset = x } catch (e) { /* 忽略 */ } }
+}
+// 字幕下拉角标：烧录/PGS/ASS 样式 + 外挂来源
+function subBadge(s) {
+  const kind = subKind(s)
+  const parts = []
+  if (kind === 'burn') parts.push('烧录')
+  else if (kind === 'pgs') parts.push('PGS')
+  else if (kind === 'ass') parts.push('ASS 样式')
+  if (s && s.source === 'sidecar') parts.push('外挂')
+  return parts.length ? '（' + parts.join('·') + '）' : ''
+}
 // 选完即失焦：否则焦点停在下拉框，方向键会去改选项而不是 seek/音量
 function blurPick(e) {
   try {
@@ -681,12 +867,13 @@ function onAudioChange(e) {
   if (isHls.value && !manifestReady) return
   reload()
 }
-// 字幕切换：图片↔文本/关闭 涉及烧录状态变化 → 重开转码；文本/ASS 只换渲染层
+// 字幕切换：文本/ASS/PGS 都是客户端渲染层 → 即时切换不重开会话；
+// VobSub（burn）或已处于烧录模式（forceBurn 降级）才重开转码
 function onSubChange(e) {
   blurPick(e)
-  const wantBurn = imageSubSelected()
-  if (wantBurn || burnOn) reload()
-  else applySubs(true)
+  autoSubPicked = true   // 用户手动选过字幕，不再自动选外挂默认轨
+  if (burnOn || subKind(subs.value[subIdx.value]) === 'burn') { reload(); return }
+  applySubs(true)
 }
 // 「兼容字幕(VTT)」：ASS 样式渲染异常/无字体时的降级开关
 function onCompatChange() {
@@ -856,9 +1043,13 @@ function onKeydown(e) {
   const t = e.target || {}
   const tag = String(t.tagName || '').toLowerCase()
   const typing = tag === 'input' || tag === 'select' || tag === 'textarea' || t.isContentEditable
-  if (e.code === 'Space' && !typing) {
-    if (!isHls.value) return // Direct 模式交给浏览器原生控件
+  if (e.key === 'Escape' && settingsOpen.value) {   // 先关设置弹层，再谈退出全屏/关播
     e.preventDefault()
+    settingsOpen.value = false
+    return
+  }
+  if (e.code === 'Space' && !typing) {
+    e.preventDefault()   // 直发也走自绘控件：空格统一播放/暂停
     showOverlay()
     togglePlay()
     return
@@ -935,6 +1126,11 @@ async function copyDebug() {
   }
 }
 onMounted(async () => {
+  // 字幕延迟按版本记忆（ASS/PGS 客户端渲染的 timeOffset）
+  try {
+    const saved = Number(localStorage.getItem('jzmedia.subDelay.' + props.versionId))
+    if (Number.isFinite(saved)) subDelay.value = Math.round(saved * 10) / 10
+  } catch (e) { /* 忽略 */ }
   try {
     const p = await api(`/api/stream/progress?version_id=${props.versionId}`)
     const pos = Number(p.position) || 0
@@ -950,12 +1146,14 @@ onMounted(async () => {
   await reload()
   bindVideo(videoEl.value)
   document.addEventListener('fullscreenchange', onFullChange)
+  document.addEventListener('click', onDocClick)
   window.addEventListener('beforeunload', saveNow)
   window.addEventListener('keydown', onKeydown)
   try {
     window.__jzPlayerDebug = () => debugSnapshot()
     window.__jzHls = () => hls  // 调试口：DevTools 里查 hls.audioTracks / currentLevel
     window.__jzAss = () => jassub
+    window.__jzPgs = () => pgs
   } catch (e) { /* 忽略 */ }
   bufTimer = setInterval(() => {
     try {
@@ -1112,6 +1310,7 @@ function debugSnapshot() {
   } catch (e) { /* 忽略 */ }
   info.ass = { active: !!jassub, fonts: assFonts.value, compat: compatSub.value,
     kind: subKind(subs.value[subIdx.value]) }
+  info.pgs = { active: !!pgs, delay: subDelay.value, force_burn: forceBurn.value }
   info.events = evtLog.slice(-25)
   return info
 }
@@ -1148,8 +1347,9 @@ async function recoverStream(forceElement = false) {
       bindVideo(nv)
       muted.value = !!nv.muted
       volume.value = Number(nv.volume ?? 1)
-      // 换过 <video> 元素：JASSUB canvas 挂在旧元素后面，必须重建
+      // 换过 <video> 元素：JASSUB/libpgs 的 canvas 挂在旧元素后面，必须重建
       destroyAss()
+      destroyPgs()
       await mountHls(nv, lastPlaylistUrl, Math.max(0, target - 0.5))
       applySubs(true)
       return
@@ -1165,6 +1365,7 @@ onUnmounted(() => {
   closeSession()
   try { unbindVideo(videoEl.value) } catch (e) { /* 忽略 */ }
   document.removeEventListener('fullscreenchange', onFullChange)
+  document.removeEventListener('click', onDocClick)
   window.removeEventListener('beforeunload', saveNow)
   window.removeEventListener('keydown', onKeydown)
   if (hideTimer) clearTimeout(hideTimer)
@@ -1172,6 +1373,7 @@ onUnmounted(() => {
   if (saveTimer) clearTimeout(saveTimer)
   destroyHls()
   destroyAss()
+  destroyPgs()
 })
 </script>
 <style scoped>
@@ -1187,6 +1389,18 @@ onUnmounted(() => {
 .pd-head h3 { margin: 0; font-size: 1.0625rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%; }
 .pd-spacer { flex: 1; }
 .pd-mini { font-size: 0.75rem; padding: 3px 10px; }
+.pd-mini.on { background: #2b6cb0; border-color: #2b6cb0; color: #fff; }
+
+/* 设置弹层：日常只留「⚙ 设置」按钮，画质/音轨/字幕/延迟都收进来 */
+.pd-setwrap { position: relative; display: inline-flex; }
+.pd-set { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(360px, 78vw);
+  background: #1d1d1d; border: 1px solid #3a3a3a; border-radius: 10px; padding: 10px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 8px; }
+.set-row { display: flex; align-items: center; gap: 8px; }
+.set-row > label { color: #999; font-size: 0.75rem; width: 34px; flex: none; }
+.set-row select { flex: 1; min-width: 0; background: #262626; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 4px 6px; font-size: 0.75rem; }
+.set-inline { display: inline-flex; align-items: center; gap: 6px; }
+.set-hint { margin: 2px 0 0; color: #777; font-size: 0.6875rem; }
 
 .pv-wrap { --pvb: 0px; position: relative; background: #000; border-radius: 8px; overflow: hidden; width: 100%; }
 .pv-wrap.has-bar { --pvb: 46px; }
@@ -1205,6 +1419,9 @@ onUnmounted(() => {
 .ctl-vol { width: 80px; }
 .ctl-compat { display: inline-flex; align-items: center; gap: 3px; color: #aaa; font-size: 0.75rem; white-space: nowrap; cursor: pointer; }
 .ctl-compat input { margin: 0; }
+.ctl-mini { padding: 1px 6px !important; font-size: 0.75rem; line-height: 1.2; }
+.delay-val { min-width: 34px; text-align: center; color: #7ed321; }
+/* PGS 画布样式在 ensurePgsCanvas 内联设置（动态元素吃不到 scoped 样式） */
 
 /* 顶部标题条：仅全屏显示 */
 .pv-top { display: none; }
