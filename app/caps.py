@@ -46,12 +46,13 @@ def normalize_caps(raw) -> dict:
 
 
 def caps_hash(caps: dict) -> str:
-    """会话复用键摘要：只含影响 plan 的归一化字段（sort_keys 稳定）。"""
+    """会话复用键摘要：只含影响 plan 的归一化字段（sort_keys 稳定）。
+    用 BLAKE2b 而非 SHA-1（评审 B6/R11-B6）：非密码学用途也不留弱哈希告警。"""
     try:
         blob = json.dumps(normalize_caps(caps), sort_keys=True, ensure_ascii=True)
     except Exception:
         blob = "{}"
-    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
+    return hashlib.blake2b(blob.encode("utf-8"), digest_size=6).hexdigest()
 
 
 def probe_state(caps: dict, strings: list) -> int:

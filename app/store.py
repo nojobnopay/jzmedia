@@ -256,6 +256,17 @@ def set_setting(key: str, value: str) -> str:
 
 def init_db() -> None:
     with _lock, _conn() as c:
+        # 启动自检 SQLite 特性（评审 B6/R02-B4）：JSON1 与 FTS5 缺失时给明确错误，
+        # 而不是运行到一半抛 OperationalError 让人摸不着头脑
+        try:
+            c.execute("SELECT json_valid('1')")
+        except sqlite3.OperationalError as e:
+            raise RuntimeError("SQLite 缺少 JSON1 扩展，jzmedia 无法运行") from e
+        try:
+            c.execute("CREATE VIRTUAL TABLE IF NOT EXISTS __fts_probe USING fts5(x)")
+            c.execute("DROP TABLE IF EXISTS __fts_probe")
+        except sqlite3.OperationalError as e:
+            raise RuntimeError("SQLite 缺少 FTS5 扩展，jzmedia 无法运行") from e
         c.executescript(SCHEMA)
         cols = [r["name"] for r in c.execute("PRAGMA table_info(movies)")]
         for col, ddl in (
