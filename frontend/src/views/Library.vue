@@ -105,7 +105,7 @@
           @click.stop="toggleSelect(m.id)" :aria-pressed="selectedIds.has(m.id)" aria-label="选择">
           <svg viewBox="0 0 16 16" width="14" height="14"><path d="M6.2 11.3 3.1 8.2l-1.4 1.4 4.5 4.5 8.1-8.1-1.4-1.4z" fill="currentColor"/></svg>
         </button>
-        <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" />
+        <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" :alt="m.title || '海报'" />
         <ScoreBadge :score="m.tmdb_rating" source="tmdb" />
         <span v-if="m.watched" class="watched-badge">✓已看</span>
       </div>

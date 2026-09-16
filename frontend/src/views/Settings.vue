@@ -507,8 +507,20 @@ const navs = computed(() => [
 ])
 const active = ref('sec-status')
 let observer = null
+const _sectionLoaded = { 'sec-sync': false, 'sec-pending': false }
+function ensureSectionData(id) {
+  // 重负载清单按需加载（评审 B8/R09-Q5）：首屏不打 missing/unmatched 全表扫描
+  if (id === 'sec-sync' && !_sectionLoaded[id]) {
+    _sectionLoaded[id] = true
+    loadMissing(true)
+  } else if (id === 'sec-pending' && !_sectionLoaded[id]) {
+    _sectionLoaded[id] = true
+    loadUnmatched(true)
+  }
+}
 function go(id) {
   active.value = id
+  ensureSectionData(id)
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
@@ -1086,10 +1098,10 @@ onMounted(async () => {
     loadStats(),
     loadFs(''),
     loadOrgPreview(),
-    loadMissing(true),
-    loadUnmatched(true),
   ])
   if (settingsResp) { s.value = settingsResp; syncTmdbForm() }
+  // 两个重负载清单延迟加载（评审 B8/R09-Q5）：滚动到区块时拉；另 4s 空闲补拉徽标数
+  setTimeout(() => { ensureSectionData('sec-pending'); ensureSectionData('sec-sync') }, 4000)
   // 详情页“去恢复”跳转承接：?sec=sec-restore&ids=1,2 → 预选并滚动定位
   try {
     const q = route.query || {}
@@ -1103,7 +1115,10 @@ onMounted(async () => {
   } catch (e) { /* 忽略 */ }
   observer = new IntersectionObserver((entries) => {
     for (const e of entries) {
-      if (e.isIntersecting) active.value = e.target.id
+      if (e.isIntersecting) {
+        active.value = e.target.id
+        ensureSectionData(e.target.id)
+      }
     }
   }, { rootMargin: '-20% 0px -70% 0px' })
   for (const n of navs.value) {

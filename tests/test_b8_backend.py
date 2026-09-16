@@ -171,3 +171,19 @@ def test_jobs_trim_keeps_recent_finished():
         assert "j8" in left and "j0" not in left
         collections_router._JOBS.clear()
         collections_router._JOBS.update(saved)
+
+
+# ---------- R02-D6：合集封面/成员批读正确性 ----------
+
+def test_collection_cover_and_members_batch(media_root):
+    tid = 880031
+    a = _row("b8c/a.mkv", title="A", year=2001, tmdb_id=tid)
+    b = _row("b8c/b.mkv", title="B", year=2002, tmdb_id=tid)
+    store.update_movie_meta(a, poster_path="posters/a.jpg")
+    c = store.create_collection("B8 封面", member_ids=[a])
+    store.update_collection(c["id"], poster_path="")
+    cols = {x["id"]: x for x in store.list_collections()}
+    assert cols[c["id"]]["cover"] == "posters/a.jpg"
+    assert cols[c["id"]]["member_count"] == 1
+    full = store.get_collection(c["id"])
+    assert full["member_count"] == 1 and full["members"][0]["version_count"] == 2

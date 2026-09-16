@@ -1,4 +1,6 @@
-"""TMDB客户端（Bearer Token v4，支持TMDB_PROXY中转）"""
+"""TMDB客户端（Bearer Token v4，支持TMDB_PROXY中转；瞬时错误自动重试，评审 B8/R03-D5）"""
+import time
+
 import httpx
 
 from . import config
@@ -19,6 +21,36 @@ def _client() -> httpx.Client:
                         proxy=proxy)
 
 
+_RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+def _get(c: httpx.Client, path: str, params: dict | None = None,
+         retries: int = 2) -> httpx.Response:
+    """GET + 瞬时错误退避重试（429/5xx/网络错误）；4xx 不重试直接抛。"""
+    last: Exception | None = None
+    for i in range(retries + 1):
+        try:
+            r = c.get(path, params=params)
+            if r.status_code in _RETRY_STATUS:
+                last = httpx.HTTPStatusError(
+                    f"retryable status {r.status_code}", request=r.request,
+                    response=r)
+                raise last
+            r.raise_for_status()
+            return r
+        except httpx.HTTPStatusError as e:
+            if e.response is not None and e.response.status_code not in _RETRY_STATUS:
+                raise
+            if i >= retries:
+                raise
+        except httpx.TransportError as e:
+            last = e
+            if i >= retries:
+                raise
+        time.sleep(0.8 * (i + 1))
+    raise last if last else RuntimeError("tmdb request failed")
+
+
 def _params(**kw) -> dict:
     p = {"language": config.effective_tmdb_language()}
     api_key = config.effective_tmdb_api_key()
@@ -30,17 +62,14 @@ def _params(**kw) -> dict:
 
 def search_movie(query: str, year: int | None = None) -> list[dict]:
     with _client() as c:
-        r = c.get("/search/movie", params=_params(query=query, year=year))
-        r.raise_for_status()
-        return r.json().get("results", [])
+        return _get(c, "/search/movie",
+                    params=_params(query=query, year=year)).json().get("results", [])
 
 
 def movie_detail(tmdb_id: int) -> dict:
     with _client() as c:
-        r = c.get(f"/movie/{tmdb_id}",
-                  params=_params(append_to_response="credits,external_ids"))
-        r.raise_for_status()
-        return r.json()
+        return _get(c, f"/movie/{tmdb_id}",
+                    params=_params(append_to_response="credits,external_ids")).json()
 
 
 def person_detail(tmdb_id: int, language: str | None = None) -> dict:
@@ -49,9 +78,7 @@ def person_detail(tmdb_id: int, language: str | None = None) -> dict:
         params = _params()
         if language:
             params["language"] = language
-        r = c.get(f"/person/{tmdb_id}", params=params)
-        r.raise_for_status()
-        return r.json()
+        return _get(c, f"/person/{tmdb_id}", params=params).json()
 
 
 def download_poster(poster_path: str, dest: str, size: str = "w500") -> bool:

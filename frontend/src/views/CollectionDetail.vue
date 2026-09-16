@@ -16,7 +16,7 @@
     <div class="grid">
       <div v-for="m in c.members" :key="m.id" class="card">
         <div class="poster-wrap" @click="$router.push('/m/' + m.id)">
-          <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" />
+          <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" :alt="m.title || '海报'" />
         </div>
         <div class="t">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span>
           <button @click="kick(m.id)">移出</button>

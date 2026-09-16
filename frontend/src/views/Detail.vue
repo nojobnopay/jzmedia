@@ -12,7 +12,7 @@
           </span>
         </div>
         <div class="hero-main">
-          <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" class="poster zoomable" title="查看大图" @click="openPoster" />
+          <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" class="poster zoomable" :alt="(m.title || '海报') + ' 海报'" title="查看大图" @click="openPoster" />
           <div v-else class="poster poster-empty"><Spinner :size="22" /><span>海报补齐中</span></div>
           <div class="hero-info">
             <h2>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.needs_review" class="needs-review">待确认</span><span v-if="m.watched" class="watched-chip">✓已看</span></h2>
@@ -84,7 +84,7 @@
             </p>
             <div v-if="actors.length" class="cast-wall">
               <div v-for="p in actors" :key="p.tmdb_id" class="cast-card" @click="goPerson(p)">
-                <img v-if="p.avatar && p.avatar !== '-'" :src="posterUrl(p.avatar)" loading="lazy" />
+                <img v-if="p.avatar && p.avatar !== '-'" :src="posterUrl(p.avatar)" loading="lazy" :alt="p.name || '演员'" />
                 <div v-else class="avatar-fallback">{{ (p.name || '?').slice(0, 1) }}</div>
                 <div class="cast-name">{{ p.name }}</div>
                 <div v-if="showCharacter && p.character_name" class="cast-char">{{ p.character_name }}</div>

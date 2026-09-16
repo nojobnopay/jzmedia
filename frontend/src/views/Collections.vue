@@ -41,7 +41,7 @@
     <div class="grid">
       <div v-for="s in suggest" :key="s.collection_tmdb_id" class="card sg-card">
         <div class="poster-wrap">
-          <img v-if="s.cover" :src="posterUrl(s.cover)" loading="lazy" />
+          <img v-if="s.cover" :src="posterUrl(s.cover)" loading="lazy" :alt="s.collection_name || '合集'" />
           <div v-else class="cover-empty">📁</div>
         </div>
         <div class="t">{{ s.collection_name }}（库内 {{ s.member_count }} 部）</div>
@@ -57,7 +57,7 @@
   <div class="grid">
     <div v-for="c in items" :key="c.id" class="card" @click="$router.push('/c/' + c.id)">
       <div class="poster-wrap">
-        <img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" />
+        <img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" :alt="c.name || '合集'" />
         <div v-else class="cover-empty">📁</div>
       </div>
       <div class="t">{{ c.name }}（{{ c.member_count }} 部）</div>
