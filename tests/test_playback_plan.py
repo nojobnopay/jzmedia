@@ -6,19 +6,20 @@ static-ffmpeg 下载（网络）。
 import pytest
 
 from app import playback as pb
+import app.playback.backend as pb_backend
 from app.routers.stream import _plan_marker, _quality_key, _session_key
 
 
 @pytest.fixture(autouse=True)
 def _no_hw(monkeypatch):
-    monkeypatch.setattr(pb, "hw_backend", lambda: "")
-    monkeypatch.setattr(pb, "hw_can_tonemap", lambda: False)
+    monkeypatch.setattr(pb_backend, "hw_backend", lambda: "")
+    monkeypatch.setattr(pb_backend, "hw_can_tonemap", lambda: False)
 
 
 @pytest.fixture()
 def hw_on(monkeypatch):
-    monkeypatch.setattr(pb, "hw_backend", lambda: "vaapi")
-    monkeypatch.setattr(pb, "hw_can_tonemap", lambda: True)
+    monkeypatch.setattr(pb_backend, "hw_backend", lambda: "vaapi")
+    monkeypatch.setattr(pb_backend, "hw_can_tonemap", lambda: True)
 
 
 def _media(**kw):
