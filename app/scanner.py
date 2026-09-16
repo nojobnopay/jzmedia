@@ -300,25 +300,32 @@ def parse_filename(name: str) -> dict:
             "stack": stack}
 
 
-def pick_match(results: list[dict], year: int | None) -> dict | None:
+def pick_match(results: list[dict], year: int | None) -> tuple[dict | None, bool]:
+    """挑结果：优先年份±1 内命中；都超出时退回首个候选，并报告年份未对上
+    （评审 B5a-2/R03-D6：此前静默采信错年份结果，不标待确认）。"""
     if not results:
-        return None
+        return None, False
     if year:
         for r in results:
             rd = (r.get("release_date") or "")[:4]
             if rd.isdigit() and abs(int(rd) - year) <= 1:
-                return r
-    return results[0]
+                return r, False
+    m = results[0]
+    mismatch = False
+    if year:
+        rd = (m.get("release_date") or "")[:4]
+        mismatch = not (rd.isdigit() and abs(int(rd) - year) <= 1)
+    return m, mismatch
 
 
-def search_with_fallback(title: str, year: int | None) -> tuple[dict | None, str]:
-    """依次试短查询，返回(命中, 实际生效的查询词)。"""
+def search_with_fallback(title: str, year: int | None) -> tuple[dict | None, str, bool]:
+    """依次试短查询，返回(命中, 实际生效的查询词, 年份是否未对上)。"""
     for q in short_candidates(title):
         results = tmdb.search_movie(q, year)
-        m = pick_match(results, year)
+        m, year_mismatch = pick_match(results, year)
         if m:
-            return m, q
-    return None, title
+            return m, q, year_mismatch
+    return None, title, False
 
 
 def meta_from_detail(detail: dict) -> dict:
@@ -991,7 +998,7 @@ def scan_one(abs_path: str) -> dict:
         # V1 仅电影：剧集不入库（评审 P1-03：旧实现建行会让剧集出现在海报墙/统计里，
         # 与 README“剧集跳过”不符）。历史脏行由 POST /api/files/clean-episodes 清理。
         return {"file": rel, "status": "skipped_episode_v1"}
-    m, used_q = search_with_fallback(parsed["title"], parsed["year"])
+    m, used_q, year_mismatch = search_with_fallback(parsed["title"], parsed["year"])
     if not m:
         mid = store.upsert_movie_by_path(rel)
         # 重扫不覆盖既有标题（评审 B5a-1/R03-B1）：只补空值，人工修正/上次解析
@@ -1034,7 +1041,7 @@ def scan_one(abs_path: str) -> dict:
     else:
         detail = tmdb.movie_detail(tmdb_id)
         out = apply_tmdb_detail(mid, detail, abs_path)
-    needs_review = 1 if used_q != parsed["title"] else 0
+    needs_review = 1 if (used_q != parsed["title"] or year_mismatch) else 0
     store.update_movie_local(mid, needs_review=needs_review)
     status = "ok" if not needs_review else "ok_needs_review"
     return {"file": rel, "status": status, "query": used_q, **out}

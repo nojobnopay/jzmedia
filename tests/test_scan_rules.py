@@ -78,6 +78,45 @@ def test_scan_keeps_manual_title_on_no_match(media_root):
     assert store.get_by_path(rel)["title"] == "我改的标题"
 
 
+# ---------- B5a-2（R03-D6）：年份对不上也采信时标 needs_review ----------
+
+def _stub_match(monkeypatch, release_date: str, tmdb_id: int):
+    monkeypatch.setattr(scanner.tmdb, "search_movie", lambda q, year=None: [
+        {"id": tmdb_id, "title": "Year Test", "original_title": "Year Test",
+         "release_date": release_date, "vote_average": 7.0}])
+    monkeypatch.setattr(scanner.tmdb, "movie_detail", lambda tid: {
+        "id": tid, "title": "Year Test", "original_title": "Year Test",
+        "release_date": release_date, "overview": "", "vote_average": 7.0,
+        "genres": [], "production_countries": [], "original_language": "en",
+        "external_ids": {}, "poster_path": "",
+        "credits": {"cast": [], "crew": []}})
+    def _apply(mid, detail, abs_path):
+        store.update_movie_meta(mid, tmdb_id=detail["id"])
+        return {"title": "Year Test", "year": 2024, "tmdb_id": detail["id"],
+                "nfo": False}
+
+    monkeypatch.setattr(scanner, "apply_tmdb_detail", _apply)
+
+
+def test_scan_year_mismatch_marks_needs_review(media_root, monkeypatch):
+    rel = "keep/Year.Test.2024.mkv"
+    _touch(media_root, rel)
+    _stub_match(monkeypatch, "1999-01-01", 424242)
+    r = scanner.scan_one(str(media_root / rel))
+    assert r["status"] == "ok_needs_review"
+    row = store.get_by_path(rel)
+    assert row["needs_review"] == 1
+    assert row["tmdb_id"] == 424242
+
+
+def test_scan_year_match_stays_ok(media_root, monkeypatch):
+    rel = "keep/Year.Ok.2024.mkv"
+    _touch(media_root, rel)
+    _stub_match(monkeypatch, "2024-05-01", 424243)
+    r = scanner.scan_one(str(media_root / rel))
+    assert r["status"] == "ok"
+
+
 # ---------- P1-03：剧集不得入库 ----------
 
 def test_episode_not_inserted(media_root):
