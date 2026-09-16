@@ -6,7 +6,7 @@
           <button @click="$router.back()">‹ 返回</button>
         </div>
         <div class="hero-main">
-          <img v-if="p.avatar && p.avatar !== '-'" :src="posterUrl(p.avatar)" class="person-photo" />
+          <img v-if="p.avatar && p.avatar !== '-'" :src="posterUrl(p.avatar)" class="person-photo" :alt="(p.name || '人物') + ' 头像'" />
           <div v-else class="person-photo avatar-fallback">{{ (p.name || '?').slice(0, 1) }}</div>
           <div class="hero-info">
             <h2>{{ p.name }}</h2>
@@ -30,7 +30,7 @@
         <div class="work-wall">
           <div v-for="w in p.acting" :key="w.id" class="work-card" @click="$router.push('/m/' + w.id)">
             <div class="poster-wrap">
-              <img v-if="w.poster_path" :src="posterUrl(w.poster_path)" loading="lazy" />
+              <img v-if="w.poster_path" :src="posterUrl(w.poster_path)" loading="lazy" :alt="w.title || '海报'" />
               <ScoreBadge :score="w.tmdb_rating" source="tmdb" />
             </div>
             <div class="cast-name">{{ w.title }} <span v-if="w.year">({{ w.year }})</span></div>
@@ -44,7 +44,7 @@
         <div class="work-wall">
           <div v-for="w in p.directing" :key="w.id" class="work-card" @click="$router.push('/m/' + w.id)">
             <div class="poster-wrap">
-              <img v-if="w.poster_path" :src="posterUrl(w.poster_path)" loading="lazy" />
+              <img v-if="w.poster_path" :src="posterUrl(w.poster_path)" loading="lazy" :alt="w.title || '海报'" />
               <ScoreBadge :score="w.tmdb_rating" source="tmdb" />
             </div>
             <div class="cast-name">{{ w.title }} <span v-if="w.year">({{ w.year }})</span></div>
@@ -93,7 +93,7 @@ async function load() {
         const full = await api('/api/persons/' + tid + '/refresh', { method: 'POST' })
         // 路由已切走则丢弃过期回包
         if (route.params.tmdb_id === tid) p.value = full
-      } catch (e) { console.warn('bio auto-fill failed:', e); /* 保持“暂无简介”，用户可点刷新简介重试 */ }
+      } catch (e) { /* 保持“暂无简介”，用户可点刷新简介重试 */ }
       finally {
         if (route.params.tmdb_id === tid) bioLoading.value = false
       }

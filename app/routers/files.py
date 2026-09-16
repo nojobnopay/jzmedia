@@ -10,7 +10,9 @@
 - 真分卷（-cd1/-part1 数字后缀）归一为 -partN；续集文字（Part Two）不算分卷。
 - 花絮/样片不入库不整理；搬迁时同名前缀的花絮跟随正片。
 """
+import errno
 import os
+import shutil
 
 from fastapi import APIRouter, HTTPException
 
@@ -49,6 +51,8 @@ def _region_stale(file_path: str, region: str) -> bool:
 
 
 def _safe_component(s: str) -> str:
+    """文件名安全清洗。与 editions.sanitize_tag 的差异（评审 B8/R09-B3）：本函数不限长、
+    不剥首尾点划线（用于路径段）；sanitize_tag 面向标签/后缀（限 20、剥边界）。"""
     s = str(s or "").strip()
     for ch in _ILLEGAL:
         s = s.replace(ch, "")
@@ -419,6 +423,17 @@ def _resync_old_dir(old_dir_abs: str) -> None:
         pass
 
 
+def _rename_or_move(src: str, dst: str) -> None:
+    """同盘 rename；跨盘（EXDEV）退化为 shutil.move（评审 B8/R09-D3）。"""
+    try:
+        os.rename(src, dst)
+    except OSError as e:
+        if e.errno == errno.EXDEV:
+            shutil.move(src, dst)
+        else:
+            raise
+
+
 def _move_one(p: dict) -> dict:
     src = os.path.join(settings.media_root, p["from"])
     dst = os.path.join(settings.media_root, p["to"])
@@ -434,7 +449,7 @@ def _move_one(p: dict) -> dict:
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         followers = _sibling_followers(src)
-        os.rename(src, dst)
+        _rename_or_move(src, dst)
         # 本地写：只改 file_path，不碰 TMDB 镜像列
         try:
             store.update_movie_local(p["id"], file_path=p["to"])
@@ -476,7 +491,7 @@ def _move_one(p: dict) -> dict:
             fdst = os.path.join(os.path.dirname(dst), new_stem + suffix)
             try:
                 if not os.path.exists(fdst):
-                    os.rename(f, fdst)
+                    _rename_or_move(f, fdst)
                     followed += 1
             except OSError:
                 continue
@@ -750,13 +765,13 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         old_dir = os.path.dirname(src)
-        os.rename(src, dst)
+        _rename_or_move(src, dst)
         # 本地写：只改 file_path，不碰 TMDB 镜像列与 original_file_path
         try:
             store.update_movie_local(m["id"], file_path=base["to"])
         except Exception:
             try:
-                os.rename(dst, src)
+                _rename_or_move(dst, src)
             except OSError:
                 pass
             raise

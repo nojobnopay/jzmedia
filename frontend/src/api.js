@@ -16,24 +16,29 @@ function _authHeaders() {
   return t ? { 'X-Api-Token': t } : {}
 }
 
+function _brief(text) {
+  // 错误体截断（评审 B8/R05-Q6/R14-Q4）：HTTP body 直出 UI 会撑破布局
+  const t = String(text || '').replace(/\s+/g, ' ').trim()
+  return t.length > 300 ? t.slice(0, 300) + '…' : t
+}
+
 export async function api(path, opts = {}) {
   const { timeout = 120000, ...fetchOpts } = opts
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeout)
   try {
     const r = await fetch(path, {
-      headers: { 'Content-Type': 'application/json', ..._authHeaders(), ...(fetchOpts.headers || {}) },
+      // 仅带 body 时发 JSON Content-Type（评审 B8/R04-B2）
+      headers: { ...(fetchOpts.body != null ? { 'Content-Type': 'application/json' } : {}), ..._authHeaders(), ...(fetchOpts.headers || {}) },
       ...fetchOpts,
       signal: ctrl.signal
     })
     if (r.status === 401) {
       try { window.dispatchEvent(new CustomEvent('jzmedia:unauthorized')) } catch (e) { /* 忽略 */ }
-      const t = await r.text()
-      throw new Error(`${r.status} ${t}`)
+      throw new Error(`${r.status} ${_brief(await r.text())}`)
     }
     if (!r.ok) {
-      const t = await r.text()
-      throw new Error(`${r.status} ${t}`)
+      throw new Error(`${r.status} ${_brief(await r.text())}`)
     }
     return r.json()
   } catch (e) {
@@ -85,9 +90,9 @@ export function apiUpload(path, file, { onProgress, onUploaded, subdir = '', fie
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try { resolve(JSON.parse(xhr.responseText)) }
-        catch (e) { resolve({}) }
+        catch (e) { reject(new Error('上传响应解析失败（服务端可能异常，请刷新查看）')) }
       } else {
-        reject(new Error(`${xhr.status} ${xhr.responseText}`.slice(0, 300)))
+        reject(new Error(`${xhr.status} ${_brief(xhr.responseText)}`))
       }
     }
     xhr.onerror = () => reject(new Error('上传失败：网络错误'))

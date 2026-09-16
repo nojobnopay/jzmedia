@@ -46,7 +46,16 @@ def scan_skip_dirs() -> set[str]:
 
 # 播放器外挂字幕：文本（客户端渲染）+ 图片（PGS 客户端 / VobSub 烧录）
 SIDECAR_TEXT_EXTS = {".srt": "srt", ".ass": "ass", ".ssa": "ssa"}
-SIDECAR_SUB_DIRS = ("subs", "Subs", "字幕")
+def _sidecar_sub_dirs() -> tuple:
+    """外挂字幕查找目录（评审 B8/R13-Q5）：默认同目录 + subs/Subs/字幕，可用
+    env SIDECAR_SUB_DIRS 覆盖（逗号分隔）。"""
+    raw = (os.getenv("SIDECAR_SUB_DIRS") or "").strip()
+    if not raw:
+        return ("subs", "Subs", "字幕")
+    return tuple(x.strip() for x in raw.split(",") if x.strip())
+
+
+SIDECAR_SUB_DIRS = _sidecar_sub_dirs()
 
 # 样片：*.Sample.mkv / *(Sample).mkv / Sample-xxx / Inception.1080p.sample.mkv
 # 判定收紧（评审 P1-02）：sample 必须由 ./-/_ 分隔，且其后只允许跟已知发布词或直接到

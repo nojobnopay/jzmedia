@@ -20,7 +20,7 @@ from .media import ffmpeg_bin
 logger = get_logger("transcode")
 
 VAAPI_DEVICE = os.getenv("VAAPI_DEVICE", "/dev/dri/renderD128")
-_SMOKE_TIMEOUT = 15
+_SMOKE_TIMEOUT = 8
 _lock = threading.Lock()
 _cache = None
 

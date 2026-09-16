@@ -78,6 +78,14 @@
                 </select>
               </span>
             </div>
+            <div class="set-row" v-if="subIsAss || subIsVtt || forceBurn">
+              <span class="set-label">兼容降级</span>
+              <span class="set-inline">
+                <button class="ctl-mini" @click="undoDegrade"
+                  :disabled="!forceBurn && !subIsAss && autoVttSub < 0 && !vttNativeFallback"
+                  title="取消 VTT 兼容/烧录降级，恢复 ASS/PGS 客户端渲染">恢复客户端渲染</button>
+              </span>
+            </div>
             <div class="set-row" v-if="subIsAss">
               <label>兼容</label>
               <label class="ctl-compat" title="ASS 渲染异常/缺字体时使用：改用简化 VTT 字幕">
@@ -187,7 +195,7 @@ let vttLoopRvfc = 0
 let vttLoopTimer = 0
 let vttRO = null
 let vttLastKey = ''
-let vttNativeFallback = false
+const vttNativeFallback = ref(false)
 let vttAnchor = 'inside'   // 当前锚定：inside 画面内 / outside 下黑边
 // 字幕外观/定位（全局记忆）：背景 0无/1半透明/2纯黑；描边 0无/1细/2粗；
 // 位置 auto（黑边优先）/inside/outside；字号 1小/2中/3大。纯计算见 ../subStyle.js
@@ -635,8 +643,14 @@ async function reload() {
   subs.value = d.media?.subs || []
   // 外挂中文默认轨：打开时自动选一次（用户手动选过后不再覆盖；图片外挂不自动选）
   if (subIdx.value === -1 && !autoSubPicked) {
-    const di = (subs.value || []).findIndex(s => s && s.source === 'sidecar'
-      && !s.image && Number(s.default) === 1)
+    // 自动选轨（评审 B8/R13-D2，用户确认开启）：外挂中文 default → 内嵌 default → 首条中文文本；
+    // 图片轨永不自动选（避免意外触发烧录重编）
+    const list = subs.value || []
+    let di = list.findIndex(s => s && s.source === 'sidecar' && !s.image
+      && Number(s.default) === 1)
+    if (di < 0) di = list.findIndex(s => s && !s.image && Number(s.default) === 1)
+    if (di < 0) di = list.findIndex(s => s && !s.image
+      && String(s.lang || '').toLowerCase().startsWith('chi'))
     if (di >= 0) { subIdx.value = di; autoSubPicked = true }
   }
   planHeight.value = Number(d.plan?.height) || 0
@@ -687,7 +701,9 @@ async function reload() {
       })
     } catch (e) {
       sessStatus.value = ''
-      err.value = '无法播放：' + e.message
+      err.value = String(e.message || '').startsWith('429')
+        ? '服务器转码通道已满（最多 2 路），请稍后重试或先关闭其他播放'
+        : '无法播放：' + e.message
       return
     }
     if (gen !== reloadGen) return   // 新一轮 reload 已接管（其会杀/复用本会话），别挂旧列表
@@ -1071,21 +1087,26 @@ function destroyVtt() {
   vttKey = ''
   vttLastKey = ''
   vttCues = []
-  vttNativeFallback = false
+  vttNativeFallback.value = false
   clearVttDom()
 }
 // 所选字幕是否走文本（自绘）渲染：VTT 本体 / ASS 勾选兼容 / ASS 无字体自动降级
-function isVttSelected() {
-  if (burnOn) return false
+function isVttKind() {
   const k = subKind(subs.value[subIdx.value])
-  return k === 'vtt' || (k === 'ass' && (compatSub.value || autoVttSub.value === Number(subIdx.value)))
+  return k === 'vtt' || (k === 'ass' && (compatSub.value
+    || autoVttSub.value === Number(subIdx.value)))
+}
+function isVttSelected() {
+  // 原生 <track> 兜底时不显示外观控件（改了也不生效，评审 B8/R13-B8）
+  if (burnOn || vttNativeFallback.value) return false
+  return isVttKind()
 }
 // 「外观」设置行可见性（复用以 isVttSelected 的同一判定）
 const subIsVtt = computed(() => isVttSelected())
 async function mountVttLayer(v, key) {
   const seq = ++vttSeq
   // 同轨重复调用（会话重载/延迟调整）不重拉：偏移在渲染时叠加
-  if (vttKey === key && vttLayer && vttCues.length && !vttNativeFallback) {
+  if (vttKey === key && vttLayer && vttCues.length && !vttNativeFallback.value) {
     startVttLoop(v)
     startVttRO(v)
     syncSubLayerRect()
@@ -1105,10 +1126,10 @@ async function mountVttLayer(v, key) {
   vttKey = key
   vttCues = cues
   vttLastKey = ''
-  vttNativeFallback = false
+  vttNativeFallback.value = false
   if (!cues.length) {
     // 解析失败/空轨：回退原生 <track>（全局 ::cue 兜底样式已去默认黑底）
-    vttNativeFallback = true
+    vttNativeFallback.value = true
     const tr = document.createElement('track')
     tr.kind = 'subtitles'
     tr.src = url
@@ -1134,7 +1155,11 @@ async function applySubs(force) {
   if (jassub && (force || kind !== 'ass' || assKey !== key)) destroyAss()
   if (pgs && (force || kind !== 'pgs' || pgsKey !== key)) destroyPgs()
   if (kind === 'none' || kind === 'burn') { destroyVtt(); return }
-  if (isVttSelected()) { await mountVttLayer(v, key); return }
+  if (kind === 'vtt' || isVttKind()) {
+    if (vttNativeFallback.value) return   // 原生兜底已就绪，无需自绘层
+    await mountVttLayer(v, key)
+    return
+  }
   destroyVtt()
   if (kind === 'ass') {
     if (jassub && assKey === key) {
@@ -1214,6 +1239,16 @@ function onSubChange(e) {
   if (burnOn || subKind(subs.value[subIdx.value]) === 'burn') { reload(); return }
   applySubs(true)
 }
+// 撤销自动降级（评审 B8/R13-Q3）：VTT 兼容/烧录/原生兜底一键恢复客户端渲染
+function undoDegrade() {
+  forceBurn.value = false
+  autoVttSub.value = -1
+  compatSub.value = false
+  try { localStorage.setItem('jzmedia.subCompat', '0') } catch (e) { /* 忽略 */ }
+  vttNativeFallback.value = false
+  posHint.value = '已恢复客户端渲染，正在重新加载…'
+  reload()
+}
 // 「兼容字幕(VTT)」：ASS 样式渲染异常/无字体时的降级开关
 function onCompatChange() {
   try { localStorage.setItem('jzmedia.subCompat', compatSub.value ? '1' : '0') } catch (e) { /* 忽略 */ }
@@ -1246,7 +1281,8 @@ async function saveNow() {
   const pos = absPos()
   try {
     await api(`/api/stream/progress?version_id=${props.versionId}`, {
-      method: 'POST', body: JSON.stringify({ position: pos, duration: dur || 0 })
+      method: 'POST', body: JSON.stringify({ position: pos, duration: dur || 0 }),
+      keepalive: true   // 关页/刷新时也能把最后一次进度发出去（评审 B8/R14-D3）
     })
     lastSave = Date.now()
     posHint.value = `已记录 ${fmt(pos)}`
@@ -1502,10 +1538,10 @@ onMounted(async () => {
   window.addEventListener('beforeunload', saveNow)
   window.addEventListener('keydown', onKeydown)
   try {
+    // 调试口收进命名空间（评审 B8/R14-D4）；__jzPlayerDebug 保留兼容
+    window.__jzPlayer = { snapshot: () => debugSnapshot(), hls: () => hls,
+                          ass: () => jassub, pgs: () => pgs }
     window.__jzPlayerDebug = () => debugSnapshot()
-    window.__jzHls = () => hls  // 调试口：DevTools 里查 hls.audioTracks / currentLevel
-    window.__jzAss = () => jassub
-    window.__jzPgs = () => pgs
   } catch (e) { /* 忽略 */ }
   bufTimer = setInterval(() => {
     try {
@@ -1580,6 +1616,22 @@ function watchStall() {
     } catch (e) { /* 忽略 */ }
   } catch (e) { /* 看门狗自身永不抛错 */ }
 }
+function onPausePing() {
+  // 暂停会停止 hls.js 取片 → 服务端 10min 无心跳会回收会话（评审 B8/R12-D8）
+  if (!sessionId) return
+  api(`/api/stream/sessions/${sessionId}/ping`, { method: 'POST' })
+    .catch(() => { /* 心跳失败不打扰 */ })
+}
+const _evtHandlers = {
+  waiting: () => logEvt('video:waiting', 't=' + fmtT(videoEl.value)),
+  stalled: () => logEvt('video:stalled', 't=' + fmtT(videoEl.value)),
+  seeking: () => logEvt('video:seeking', 'to=' + fmtT(videoEl.value)),
+  seeked: () => { logEvt('video:seeked', 't=' + fmtT(videoEl.value)); lastAdvanceAt = Date.now() },
+  emptied: () => logEvt('video:emptied', ''),
+  suspend: () => logEvt('video:suspend', ''),
+  abort: () => logEvt('video:abort', ''),
+  canplay: () => logEvt('video:canplay', ''),
+}
 function bindVideo(v) {
   if (!v) return
   v.addEventListener('timeupdate', onTime)
@@ -1588,17 +1640,11 @@ function bindVideo(v) {
   v.addEventListener('loadedmetadata', syncSubLayerRect)
   v.addEventListener('pause', saveNow)
   v.addEventListener('pause', onPlayState)
+  v.addEventListener('pause', onPausePing)
   v.addEventListener('ended', onEnded)
   v.addEventListener('playing', onPlayingHide)
   v.addEventListener('play', onPlayState)
-  v.addEventListener('waiting', () => logEvt('video:waiting', 't=' + fmtT(v)))
-  v.addEventListener('stalled', () => logEvt('video:stalled', 't=' + fmtT(v)))
-  v.addEventListener('seeking', () => logEvt('video:seeking', 'to=' + fmtT(v)))
-  v.addEventListener('seeked', () => { logEvt('video:seeked', 't=' + fmtT(v)); lastAdvanceAt = Date.now() })
-  v.addEventListener('emptied', () => logEvt('video:emptied', ''))
-  v.addEventListener('suspend', () => logEvt('video:suspend', ''))
-  v.addEventListener('abort', () => logEvt('video:abort', ''))
-  v.addEventListener('canplay', () => logEvt('video:canplay', ''))
+  for (const [ev, h] of Object.entries(_evtHandlers)) v.addEventListener(ev, h)
   muted.value = !!v.muted
   volume.value = Number(v.volume ?? 1)
 }
@@ -1610,9 +1656,11 @@ function unbindVideo(v) {
   v.removeEventListener('loadedmetadata', syncSubLayerRect)
   v.removeEventListener('pause', saveNow)
   v.removeEventListener('pause', onPlayState)
+  v.removeEventListener('pause', onPausePing)
   v.removeEventListener('ended', onEnded)
   v.removeEventListener('playing', onPlayingHide)
   v.removeEventListener('play', onPlayState)
+  for (const [ev, h] of Object.entries(_evtHandlers)) v.removeEventListener(ev, h)
 }
 function fmtT(v) {
   try { return (Number(v.currentTime) || 0).toFixed(1) } catch (e) { return '?' }
