@@ -1,30 +1,19 @@
+"""routers.movies.routes（自 app/routers/movies.py 拆分，评审 B9/R05-Q1；经 movies 门面使用）。"""
 import os
-
-from fastapi import (APIRouter, BackgroundTasks, File, HTTPException, Query,
-                   UploadFile)
-
-from .. import scanner, store, tmdb
-from ..config import settings
-from ..regions import normalize_tags
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
+from ... import store
+from ... import scanner
+from ... import tmdb
+from ...config import settings
+from ...regions import normalize_tags
+from ...log import get_logger
+logger = get_logger("movies.routes")
+from ...scanner import same_stem
+from .common import (_INLINE_EXTS, FilterList, _page, _stream_upload)
+from .scope import _movie_delete_scope
+__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig']
 
 router = APIRouter(prefix="/api")
-
-FilterList = list[str] | None
-
-_PAGE_MAX = 2000
-
-
-def _page(limit: int, offset: int) -> tuple[int, int]:
-    """分页参数钳制（评审 P1-11）：limit 1..2000、offset >= 0。"""
-    try:
-        lim = max(1, min(int(limit or 500), _PAGE_MAX))
-    except (TypeError, ValueError):
-        lim = 500
-    try:
-        off = max(0, int(offset or 0))
-    except (TypeError, ValueError):
-        off = 0
-    return lim, off
 
 
 @router.get("/search")
@@ -143,7 +132,7 @@ def patch_movie(movie_id: int, body: dict):
         data["watched"] = 1 if w else 0
         data["watched_at"] = int(_time.time()) if data["watched"] else 0
     if "edition" in data:
-        from ..editions import sanitize_tag
+        from ...editions import sanitize_tag
         if data["edition"] is None:
             data["edition"] = ""
         elif not isinstance(data["edition"], str):
@@ -151,7 +140,7 @@ def patch_movie(movie_id: int, body: dict):
         else:
             data["edition"] = sanitize_tag(data["edition"])
     if "spec" in data:
-        from ..editions import sanitize_tag
+        from ...editions import sanitize_tag
         if data["spec"] is None:
             data["spec"] = ""
         elif not isinstance(data["spec"], str):
@@ -282,7 +271,7 @@ def movie_collection_hint(movie_id: int):
 def movie_files(movie_id: int):
     """同目录文件清单（只读）：独占目录全量展示；共享目录（如未整理的 待整理/）
     只返回本片相关（自身+同 tmdb 版本+同 stem 前缀的花絮/字幕/NFO），并标 scoped=related。"""
-    from ..scanner import (SUBTITLE_EXTS, VIDEO_EXTS, is_extra, is_sample)
+    from ...scanner import (SUBTITLE_EXTS, VIDEO_EXTS, is_extra, is_sample)
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
@@ -298,11 +287,7 @@ def movie_files(movie_id: int):
     own_stems = {os.path.splitext(os.path.basename(p))[0] for p in own_paths}
 
     def _same_stem(name_stem: str) -> bool:
-        for s in own_stems:
-            if name_stem == s or name_stem.startswith(
-                    (s + "-", s + ".", s + "_", s + " ")):
-                return True
-        return False
+        return same_stem(name_stem, own_stems)   # 单源（评审 B9/R05-B4）
 
     names = sorted(os.listdir(movie_dir))
     # 共享目录判定：存在不属于本片的正片视频
@@ -411,7 +396,7 @@ def movie_files(movie_id: int):
 
 def _movie_blob_rel(movie_id: int, name: str) -> tuple[dict, str]:
     """详情页文件定位：name 可为 files 清单的 name 或 rel；返回 (movie, rel)。"""
-    from .fs import _check_inside_root
+    from ..fs import _check_inside_root
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
@@ -472,9 +457,6 @@ def _movie_blob_rel(movie_id: int, name: str) -> tuple[dict, str]:
     return m, rel
 
 
-_INLINE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf"}
-
-
 @router.get("/movies/{movie_id}/blob")
 def movie_blob(movie_id: int, name: str = "", mode: str = "", inline: int = 0):
     """详情页下载/预览：name 取 /files 清单的 name 或 rel。
@@ -506,44 +488,6 @@ def movie_blob(movie_id: int, name: str = "", mode: str = "", inline: int = 0):
                         headers={"X-Content-Type-Options": "nosniff"})
 
 
-def _stream_upload(file, dst: str) -> int:
-    """流式落盘（1MB 分块，先写 .part 再原子替换）。并发同名上传用 O_EXCL 占位：
-    第二个请求在占位阶段即 409，绝不覆盖（评审 B5a-5/R05-D2）。返回落盘字节数。"""
-    part = dst + ".part"
-    try:
-        fd = os.open(dst, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.close(fd)
-    except FileExistsError:
-        raise HTTPException(409, f"already exists: {os.path.basename(dst)!r}")
-    except OSError as e:
-        raise HTTPException(500, f"create target failed: {e}")
-    size = 0
-    replaced = False
-    try:
-        with open(part, "wb") as out:
-            while True:
-                chunk = file.file.read(1024 * 1024)
-                if not chunk:
-                    break
-                out.write(chunk)
-                size += len(chunk)
-        os.replace(part, dst)
-        replaced = True
-    except Exception as e:
-        try:
-            if os.path.exists(part):
-                os.remove(part)
-        except OSError:
-            pass
-        if not replaced:
-            try:
-                os.remove(dst)      # 清掉本次创建的占位
-            except OSError:
-                pass
-        raise HTTPException(500, f"upload failed: {e}")
-    return size
-
-
 @router.post("/movies/{movie_id}/upload")
 def movie_upload(movie_id: int, file: UploadFile = File(...),
                  subdir: str = Query(default="")):
@@ -554,8 +498,8 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
     正片→scan_one，花絮→attribute_extra，字幕/周边→仅文件。
     subdir 仅允许空或 extras（显式放花絮子目录）。
     """
-    from ..scanner import is_feature_video as _is_feat, is_sidecar as _is_side
-    from .files import _safe_component
+    from ...scanner import is_feature_video as _is_feat, is_sidecar as _is_side
+    from ..files import _safe_component
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
@@ -611,8 +555,8 @@ def library_upload(file: UploadFile = File(...),
     改名；已存在 409 跳过，绝不覆盖）。落盘后按类型入库：
     正片→scan_one，花絮→attribute_extra，字幕/周边→仅文件。
     """
-    from ..scanner import is_feature_video as _is_feat, is_sidecar as _is_side
-    from .files import _check_inside_root, _safe_component
+    from ...scanner import is_feature_video as _is_feat, is_sidecar as _is_side
+    from ..files import _check_inside_root, _safe_component
     raw = (relpath or "").strip().strip("/") or (file.filename or "").strip()
     raw_segs = [s for s in raw.replace("\\", "/").split("/")]
     if any(s == ".." for s in raw_segs):
@@ -664,7 +608,7 @@ def movie_file_delete(movie_id: int, body: dict | None = None):
     """详情页删单文件：{name, dry_run, confirm}。
 
     周边/花絮 dry_run:false 即删；正片必须 confirm:true（影响海报墙，二次警告）。"""
-    from .fs import _exec_delete_one, _impact_for_delete
+    from ..fs import _exec_delete_one, _impact_for_delete
     body = body or {}
     m = store.get_movie(movie_id)
     if not m:
@@ -759,114 +703,6 @@ def refresh_movie(movie_id: int, background_tasks: BackgroundTasks):
     return {"id": movie_id, **out}
 
 
-def _movie_delete_scope(movie_id: int) -> dict:
-    """整片删除范围：返回 {movie, version_ids, files[{rel,size,kind}], total_size}。
-
-    - 独占目录：整棵目录树全部文件。
-    - 共享目录：本片版本文件 + 同茎跟随（不含 movie.nfo）+ 已归属花絮文件。
-    海报/tmdb_cache 不在此列（delete_movie 语义保留）。"""
-    from ..scanner import (SUBTITLE_EXTS, VIDEO_EXTS, is_extra, is_sample)
-    m = store.get_movie(movie_id)
-    if not m:
-        raise HTTPException(404, f"movie {movie_id} not found")
-    versions = [v.get("file_path", "") for v in (m.get("versions") or [])]
-    if m["file_path"] not in versions:
-        versions.append(m["file_path"])
-    version_ids = [v.get("id") for v in (m.get("versions") or []) if v.get("id")]
-    if m["id"] not in version_ids:
-        version_ids.append(m["id"])
-    own_paths = set(versions)
-    own_stems = {os.path.splitext(os.path.basename(p))[0] for p in versions}
-    rel_dir = os.path.dirname(m["file_path"])
-    movie_dir = os.path.join(settings.media_root, rel_dir) if rel_dir \
-        else settings.media_root
-
-    def _same_stem(stem: str) -> bool:
-        for s in own_stems:
-            if stem == s or stem.startswith((s + "-", s + ".", s + "_", s + " ")):
-                return True
-        return False
-
-    # 共享判定：目录顶层存在不属于本片的正片视频
-    foreign = False
-    try:
-        top = sorted(os.listdir(movie_dir)) if os.path.isdir(movie_dir) else []
-    except OSError:
-        top = []
-    for n in top:
-        full = os.path.join(movie_dir, n)
-        if not os.path.isfile(full):
-            continue
-        rel = os.path.join(rel_dir, n) if rel_dir else n
-        _, ex = os.path.splitext(n)
-        if ex.lower() in VIDEO_EXTS and not is_sample(n) \
-                and not is_extra(rel) and rel not in own_paths:
-            foreign = True
-            break
-    try:
-        extra_rows = store.list_extras_by_movie(movie_id)
-    except Exception:
-        extra_rows = []
-    extra_set = {e["file_path"] for e in extra_rows}
-    rels: dict[str, str] = {}  # rel -> kind
-    if not foreign and os.path.isdir(movie_dir):
-        for root, _, files in os.walk(movie_dir):
-            for fn in sorted(files):
-                if fn.startswith("."):
-                    continue
-                full = os.path.join(root, fn)
-                try:
-                    rel = os.path.relpath(full, settings.media_root)
-                except ValueError:
-                    continue
-                if rel in own_paths:
-                    rels[rel] = "feature"
-                elif rel in extra_set:
-                    rels[rel] = "sidecar"
-                else:
-                    _, ex = os.path.splitext(fn)
-                    ex = ex.lower()
-                    if ex in SUBTITLE_EXTS:
-                        rels[rel] = "subtitle"
-                    elif ex == ".nfo":
-                        rels[rel] = "nfo"
-                    else:
-                        rels[rel] = "other"
-    else:
-        for p in versions:
-            rels[p] = "feature"
-        if os.path.isdir(movie_dir):
-            for n in top:
-                full = os.path.join(movie_dir, n)
-                if not os.path.isfile(full):
-                    continue
-                rel = os.path.join(rel_dir, n) if rel_dir else n
-                if rel in rels or n == "movie.nfo":
-                    continue
-                if _same_stem(os.path.splitext(n)[0]):
-                    _, ex = os.path.splitext(n)
-                    ex = ex.lower()
-                    if ex in SUBTITLE_EXTS:
-                        rels[rel] = "subtitle"
-                    elif ex == ".nfo":
-                        rels[rel] = "nfo"
-                    else:
-                        rels[rel] = "sidecar"
-    for e in extra_set:
-        if e not in rels and os.path.isfile(os.path.join(settings.media_root, e)):
-            rels[e] = "sidecar"
-    files, total = [], 0
-    for rel in sorted(rels):
-        try:
-            size = os.path.getsize(os.path.join(settings.media_root, rel))
-        except OSError:
-            size = 0
-        total += size
-        files.append({"rel": rel, "size": size, "kind": rels[rel]})
-    return {"movie": m, "version_ids": sorted(set(version_ids)),
-            "exclusive": not foreign, "files": files, "total_size": total}
-
-
 @router.post("/movies/batch-delete")
 def batch_delete_movies(body: dict | None = None):
     """整片删除（海报墙多选）：{ids[], dry_run, confirm}。
@@ -874,7 +710,7 @@ def batch_delete_movies(body: dict | None = None):
     dry_run 默认 true：返回每部片标题/年份/版本文件/附属文件/字节数，
     须 confirm:true 才执行。执行删磁盘文件 + 版本库行 + extras 库行
     （海报/tmdb_cache 保留）；独占目录整树删，共享目录仅删本片相关。"""
-    from .files import _cleanup_old_dir, _resync_old_dir
+    from ..files import _cleanup_old_dir, _resync_old_dir
     body = body or {}
     raw = body.get("ids") or []
     try:
@@ -1002,7 +838,7 @@ def movie_poster_orig(movie_id: int):
     即清缓存，下次点击自动重下。"""
     from fastapi.responses import FileResponse
     from .. import tmdb as _tmdb
-    from ..db import POSTER_DIR
+    from ...db import POSTER_DIR
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
@@ -1025,3 +861,4 @@ def movie_poster_orig(movie_id: int):
         if not ok or not os.path.isfile(dest):
             raise HTTPException(502, "original poster download failed")
     return FileResponse(dest, filename=os.path.basename(dest))
+

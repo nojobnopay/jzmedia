@@ -4,7 +4,7 @@ import re
 from ..config import settings
 from ..log import get_logger
 logger = get_logger("scanner.classify")
-__all__ = ['VIDEO_EXTS', 'SUBTITLE_EXTS', '_SKIP_DIR_NAMES', 'scan_skip_dirs', 'SIDECAR_TEXT_EXTS', '_sidecar_sub_dirs', 'SIDECAR_SUB_DIRS', '_SAMPLE_TOKENS', '_SAMPLE_RE', 'strip_kind_affix', 'extra_kind', 'is_sample', '_parent_has_feature', 'is_extra', 'is_sidecar', 'is_feature_video', '_stem_matches', 'sidecar_subtitles', '_EXTRAS_RE', 'EXTRAS_DIR_NAMES', '_GENERIC_DIR_NAMES', 'KIND_BY_DIR', '_KIND_WORDS', '_STRIP_LEAD_RES', '_STRIP_TRAIL_RE']
+__all__ = ['same_stem', 'VIDEO_EXTS', 'SUBTITLE_EXTS', '_SKIP_DIR_NAMES', 'scan_skip_dirs', 'SIDECAR_TEXT_EXTS', '_sidecar_sub_dirs', 'SIDECAR_SUB_DIRS', '_SAMPLE_TOKENS', '_SAMPLE_RE', 'strip_kind_affix', 'extra_kind', 'is_sample', '_parent_has_feature', 'is_extra', 'is_sidecar', 'is_feature_video', '_stem_matches', 'sidecar_subtitles', '_EXTRAS_RE', 'EXTRAS_DIR_NAMES', '_GENERIC_DIR_NAMES', 'KIND_BY_DIR', '_KIND_WORDS', '_STRIP_LEAD_RES', '_STRIP_TRAIL_RE']
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv", ".webm"}
 
@@ -141,6 +141,17 @@ def is_sidecar(rel_path: str) -> bool:
 def is_feature_video(rel_path: str) -> bool:
     return (os.path.splitext(rel_path)[1].lower() in VIDEO_EXTS
             and not is_sidecar(rel_path))
+
+
+def same_stem(name_stem: str, stems) -> bool:
+    """同茎兄弟判定单源（评审 B9/R05-B4）：等名或以 `stem + [-._ ]` 开头。
+    供 movies 删除范围/文件清单与 files 跟随搬迁共用，替换此前三处各自实现。"""
+    for s in (stems or ()):
+        if name_stem == s:
+            return True
+        if any(name_stem.startswith(s + sep) for sep in ("-", ".", "_", " ")):
+            return True
+    return False
 
 
 def _stem_matches(video_stem: str, name_stem: str) -> bool:
