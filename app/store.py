@@ -1,6 +1,7 @@
 """SQLite存储层（标准库sqlite3 + FTS5全文检索：片名/原名/简介/演员/标签/类型）"""
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -1590,6 +1591,106 @@ def list_movies(grouped: bool = True, genres: list | None = None,
         return [_attach_versions(c, _row_to_dict(r)) for r in rows]
 
 
+def _like_esc(s: str) -> str:
+    """转义 LIKE 通配符（配合 ESCAPE '\\' 使用）。"""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _query_terms(q: str) -> list[str]:
+    """提取查询词（unicode \\w：中英文均可），丢弃引号/冒号等 FTS 语法字符。"""
+    return re.findall(r"\w+", q or "")
+
+
+def _fts_query(q: str) -> str:
+    """转成安全的 FTS5 查询：逐词加引号，末词前缀（边输边搜）。无有效词返回 ''。"""
+    toks = _query_terms(q)
+    if not toks:
+        return ""
+    return " ".join(f'"{t}"' + ("*" if i == len(toks) - 1 else "")
+                    for i, t in enumerate(toks))
+
+
+def _search_like(c: sqlite3.Connection, q: str, fwhere: str, fparams: list,
+                 limit: int, grouped: bool):
+    """FTS 无命中/语法异常时的兜底：标题/原名/演员按词 AND 子串匹配（中文部分词可用）。"""
+    toks = _query_terms(q)
+    if not toks:
+        return []
+    conds, params = [], []
+    for t in toks:
+        p = f"%{_like_esc(t)}%"
+        conds.append("(m.title LIKE ? ESCAPE '\\' OR m.original_title LIKE ? ESCAPE '\\'"
+                     " OR m.person_names LIKE ? ESCAPE '\\')")
+        params.extend([p, p, p])
+    where = " AND ".join(conds)
+    prefix = f"{_like_esc(toks[0])}%"
+    if not grouped:
+        return c.execute(
+            f"SELECT m.* FROM movies m WHERE ({where}) AND ({fwhere}) "
+            "ORDER BY (CASE WHEN m.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END),"
+            " m.year DESC, m.id LIMIT ?",
+            (*params, *fparams, prefix, limit)).fetchall()
+    return c.execute(
+        f"SELECT m.*, MIN(CASE WHEN m.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) AS _pref "
+        f"FROM movies m WHERE ({where}) AND ({fwhere}) "
+        "GROUP BY COALESCE(m.tmdb_id, -m.id) "
+        "ORDER BY _pref, MAX(m.year) DESC, m.id LIMIT ?",
+        (prefix, *params, *fparams, limit)).fetchall()
+
+
+def suggest_titles(q: str, limit: int = 8) -> list[dict]:
+    """搜索框联想：本地库标题/原名子串匹配（LIKE，中文/部分词可用），
+    前缀命中优先、年份降序，按 tmdb_id 归并多版本。返回 [{id, tmdb_id, title, original_title, year}]。"""
+    toks = _query_terms(q)
+    if not toks:
+        return []
+    limit = max(1, min(int(limit or 8), 20))
+    conds, params = [], []
+    for t in toks:
+        p = f"%{_like_esc(t)}%"
+        conds.append("(m.title LIKE ? ESCAPE '\\' OR m.original_title LIKE ? ESCAPE '\\')")
+        params.extend([p, p])
+    where = " AND ".join(conds)
+    prefix = f"{_like_esc(toks[0])}%"
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT m.id, m.tmdb_id, m.title, m.original_title, m.year, "
+            "MIN(CASE WHEN m.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) AS _pref "
+            "FROM movies m WHERE " + where +
+            " GROUP BY COALESCE(m.tmdb_id, -m.id) "
+            "ORDER BY _pref, MAX(m.year) DESC, m.id LIMIT ?",
+            (prefix, *params, limit)).fetchall()
+        return [{"id": r["id"], "tmdb_id": r["tmdb_id"], "title": r["title"],
+                 "original_title": r["original_title"], "year": r["year"]}
+                for r in rows]
+
+
+def suggest_people(q: str, limit: int = 5) -> list[dict]:
+    """搜索框联想（演员）：persons.name 子串匹配，名字前缀优先、库内参演数降序。
+    返回 [{tmdb_id, name, count}]。"""
+    toks = _query_terms(q)
+    if not toks:
+        return []
+    limit = max(1, min(int(limit or 5), 20))
+    conds, params = [], []
+    for t in toks:
+        p = f"%{_like_esc(t)}%"
+        conds.append("p.name LIKE ? ESCAPE '\\'")
+        params.append(p)
+    where = " AND ".join(conds)
+    prefix = f"{_like_esc(toks[0])}%"
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT p.tmdb_id, p.name, COUNT(mp.movie_id) AS n "
+            "FROM persons p LEFT JOIN movie_person mp ON mp.person_id = p.id "
+            f"WHERE {where} "
+            "GROUP BY p.tmdb_id "
+            "ORDER BY (p.name LIKE ? ESCAPE '\\') DESC, n DESC, p.name LIMIT ?",
+            (*params, prefix, limit)).fetchall()
+        return [{"tmdb_id": r["tmdb_id"], "name": r["name"], "count": int(r["n"] or 0)}
+                for r in rows]
+
+
 def search_fts(q: str, limit: int = 50, grouped: bool = True,
                genres: list | None = None, regions: list | None = None,
                countries: list | None = None, years: list | None = None,
@@ -1612,17 +1713,27 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
                            tags=tags, limit=limit, min_rating=min_rating,
                            rating_source=rating_source, watched=watched,
                            collection_ids=collection_ids)
+    fts_q = _fts_query(q)
     with _lock, _conn() as c:
+        rows = []
+        if fts_q:
+            try:
+                if not grouped:
+                    rows = c.execute(
+                        "SELECT m.* FROM movies_fts f JOIN movies m ON m.id=f.rowid "
+                        f"WHERE movies_fts MATCH ? AND ({fwhere}) ORDER BY rank LIMIT ?",
+                        (fts_q, *fparams, limit)).fetchall()
+                else:
+                    rows = c.execute(
+                        "SELECT m.*, MIN(rank) AS _r FROM movies_fts f JOIN movies m ON m.id=f.rowid "
+                        f"WHERE movies_fts MATCH ? AND ({fwhere}) GROUP BY COALESCE(m.tmdb_id, -m.id) "
+                        "ORDER BY _r LIMIT ?", (fts_q, *fparams, limit)).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+        if not rows:
+            rows = _search_like(c, q, fwhere, fparams, limit, grouped)
         if not grouped:
-            rows = c.execute(
-                "SELECT m.* FROM movies_fts f JOIN movies m ON m.id=f.rowid "
-                f"WHERE movies_fts MATCH ? AND ({fwhere}) ORDER BY rank LIMIT ?",
-                (q, *fparams, limit))
             return [_row_to_dict(r) for r in rows]
-        rows = c.execute(
-            "SELECT m.*, MIN(rank) AS _r FROM movies_fts f JOIN movies m ON m.id=f.rowid "
-            f"WHERE movies_fts MATCH ? AND ({fwhere}) GROUP BY COALESCE(m.tmdb_id, -m.id) "
-            "ORDER BY _r LIMIT ?", (q, *fparams, limit))
         return [_attach_versions(c, _row_to_dict(r)) for r in rows]
 
 

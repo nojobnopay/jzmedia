@@ -11,11 +11,13 @@ reasons 抄 Jellyfin TranscodeReason 思路，供前端人话提示；plan 供 b
 P2 起默认输出 HLS + fMP4（`-var_stream_map` 单进程：video + 全部音轨 rendition，
 切音轨只换 rendition 不重开视频转码）；`HLS_SEGMENT_TYPE=ts` 可回滚旧 MPEG-TS 单音轨。
 """
+import json
 import os
+import subprocess
 
 from . import caps as _caps
 from .config import settings
-from .media import (ASS_SUBS, TEXT_SUBS, ffmpeg_bin, norm_codec)
+from .media import (ASS_SUBS, TEXT_SUBS, ffmpeg_bin, ffprobe_bin, norm_codec)
 
 MP4_CONTAINERS = ("mp4", "mov", "m4v")
 MAX_AUDIO_RENDITIONS = 8     # 单次转码最多产出的音轨 rendition 数（防极端多音轨）
@@ -370,6 +372,52 @@ def _append_video_encoder(cmd: list, backend, height: int, burn: bool,
     """追加视频重编码参数（委托 transcode.Backend.video_args）。
     burn（filter_complex 烧录）与硬件滤镜互斥 → Backend 内部回落软件。"""
     cmd += backend.video_args(height, burn=burn, tonemap=tonemap)
+
+
+def _keyframe_start(abs_path: str, st: float) -> float | None:
+    """源中 <= st 的最后一个视频关键帧 PTS（对齐 copy 会话 -noaccurate_seek 实际起点）。
+    ffprobe 只解码关键帧（-skip_frame nokey），失败/超时返回 None 由调用方回落。"""
+    for span in (10.0, 300.0):
+        lo = max(0.0, st - span)
+        cmd = [ffprobe_bin(), "-v", "error", "-select_streams", "v:0",
+               "-skip_frame", "nokey", "-show_entries", "frame=pts_time",
+               "-of", "json",
+               "-read_intervals", f"{lo:.3f}%{st + 0.05:.3f}",
+               abs_path]
+        try:
+            out = subprocess.run(cmd, capture_output=True, timeout=15, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        try:
+            frames = json.loads(out.stdout.decode("utf-8", errors="replace")).get("frames") or []
+        except ValueError:
+            frames = []
+        pts: list[float] = []
+        for f in frames:
+            try:
+                v = float((f or {}).get("pts_time"))
+            except (TypeError, ValueError):
+                continue
+            if v <= st + 1e-3:
+                pts.append(v)
+        if pts:
+            return max(pts)
+    return None
+
+
+def actual_media_start(abs_path: str, start: float, vcopy: bool) -> float:
+    """会话片内 0 对应的源时间：copy 会话=目标前关键帧（-noaccurate_seek），
+    转码/烧录=准确 seek 到 start。客户端字幕等绝对时间轴产物按此平移。"""
+    try:
+        st = max(0.0, float(start or 0))
+    except (TypeError, ValueError):
+        st = 0.0
+    if st <= 0:
+        return 0.0
+    if not vcopy:
+        return st
+    kf = _keyframe_start(abs_path, st)
+    return kf if (kf is not None and 0 <= kf <= st + 1e-3) else st
 
 
 def _seek_args(cmd: list, vcopy: bool, start: float) -> tuple[float, float]:

@@ -33,6 +33,13 @@ def search(q: str = "", limit: int = 500, grouped: bool = True,
         collection_ids=store._split_ints(collection))}
 
 
+@router.get("/search/suggest")
+def search_suggest(q: str = "", limit: int = 8):
+    """搜索框联想：本地库标题/原名（中文/部分词可用）+ 演员名（含参演数），轻量返回。"""
+    return {"q": q, "items": store.suggest_titles(q, limit),
+            "persons": store.suggest_people(q, 5)}
+
+
 @router.get("/movies")
 def list_movies(grouped: bool = True, limit: int = 500,
                 genre: FilterList = Query(default=None),

@@ -1,6 +1,34 @@
 <template>
   <div class="bar">
-    <input v-model="q" placeholder="搜片名 / 演员 / 标签" @keyup.enter="applyAndLoad" />
+    <div class="q-wrap">
+      <input v-model="q" placeholder="搜片名 / 演员 / 标签" autocomplete="off"
+        @input="onQInput" @compositionstart="composing = true" @compositionend="onCompositionEnd"
+        @keyup.enter="onSearchEnter" @keydown.down.prevent="suggestMove(1)"
+        @keydown.up.prevent="suggestMove(-1)" @keydown.esc.stop="closeSuggest"
+        @blur="onQBlur" />
+      <ul v-if="suggestOpen" class="suggest">
+        <li v-if="suggestNoMatch" class="s-empty">无匹配</li>
+        <template v-if="suggestItems.length">
+          <li class="s-head">影片</li>
+          <li v-for="(s, i) in suggestItems" :key="'m' + s.id"
+            :class="{ on: suggestIdx === i }"
+            @mousedown.prevent="pickMovie(s)" @mouseenter="suggestIdx = i">
+            <span class="s-title">{{ s.title }}</span>
+            <span v-if="s.year" class="s-year">({{ s.year }})</span>
+          </li>
+        </template>
+        <template v-if="suggestPersons.length">
+          <li class="s-head">演员</li>
+          <li v-for="(p, j) in suggestPersons" :key="'p' + p.tmdb_id"
+            :class="{ on: suggestIdx === suggestItems.length + j }"
+            @mousedown.prevent="pickPerson(p)"
+            @mouseenter="suggestIdx = suggestItems.length + j">
+            <span class="s-title">{{ p.name }}</span>
+            <span class="s-year">库内 {{ p.count }} 部</span>
+          </li>
+        </template>
+      </ul>
+    </div>
     <button @click="applyAndLoad">搜索</button>
     <button @click="clearAll">全部</button>
     <button @click="doScan" :disabled="scanning">{{ scanning ? '刮削中…' : '扫描刮削' }}</button>
@@ -126,7 +154,7 @@
         <label><input type="radio" value="remove" v-model="tagMode" /> 移除</label>
       </div>
       <div class="bar">
-        <input v-model="newTag" placeholder="新标签，回车加入待办" @keyup.enter="queueNewTag" style="flex:1" />
+        <input v-model="newTag" placeholder="新标签，回车加入待办" @keyup.enter="onTagEnter" style="flex:1" />
         <button @click="queueNewTag">加入</button>
       </div>
       <div v-if="pendingTags.length" class="bar">待{{ tagMode === 'add' ? '追加' : '移除' }}：<span v-for="t in pendingTags" :key="t" class="chip on" @click="dropPending(t)">{{ t }} ×</span></div>
@@ -180,8 +208,9 @@
       </div>
       <div class="bar"><span class="fhint">上传到 待整理/，文件夹结构原样保留；字幕/花絮自动归属；同名文件跳过不覆盖；&gt;2GB 建议局域网操作，可随时取消</span></div>
       <div v-if="upFolderHead" class="bar"><span>已选文件夹：{{ upFolderHead }}</span></div>
-      <div v-if="upQueue.length" class="bar"><span class="fhint">共 {{ upQueue.length }} 个文件 · {{ fmtBytes(upTotalSize) }}{{ upDoneCount ? ` · 已传 ${upDoneCount}` : '' }}{{ upCurPct != null ? ` · 当前 ${upCurPct}%` : '' }}</span></div>
+      <div v-if="upQueue.length" class="bar"><span class="fhint">共 {{ upQueue.length }} 个文件 · {{ fmtBytes(upTotalSize) }}{{ upDoneCount ? ` · 已传 ${upDoneCount}` : '' }}{{ upScanning ? ' · 当前已传完 · 刮削中…' : (upCurPct != null ? ` · 当前 ${upCurPct}%` : '') }}</span></div>
       <div v-if="upQueue.length" class="up-progress"><div class="up-progress-fill" :style="{ width: upTotalPct + '%' }"></div></div>
+      <div v-if="upScanning" class="bar"><span class="up-scan">{{ upScanHint }}</span></div>
       <ul v-if="upQueue.length" class="collist">
         <li v-for="(t, i) in visibleUpQueue" :key="i"><span :title="t.rel">{{ midEllipsis(t.rel) }}</span><span class="fhint">{{ upTaskState(t) }}</span></li>
       </ul>
@@ -233,6 +262,14 @@ const route = useRoute()
 const router = useRouter()
 
 const q = ref('')
+const suggestOpen = ref(false)
+const suggestItems = ref([])
+const suggestPersons = ref([])
+const suggestNoMatch = ref(false)
+const suggestIdx = ref(-1)
+let suggestTimer = null
+let suggestSeq = 0
+let composing = false
 const items = ref([])
 const msg = ref('')
 const scanning = ref(false)
@@ -359,6 +396,88 @@ async function applyAndLoad() {
   syncUrl()
   await load()
 }
+// 搜索联想：输入防抖拉本地库（影片 标题+年份 / 演员 名字+参演数），↑↓选择 / Enter选中 / Esc关闭
+function onQInput(e) {
+  if (composing || (e && e.isComposing)) return
+  scheduleSuggest()
+}
+function onCompositionEnd() {
+  composing = false
+  scheduleSuggest()
+}
+function scheduleSuggest() {
+  clearTimeout(suggestTimer)
+  const term = q.value.trim()
+  if (!term) {
+    closeSuggest()
+    return
+  }
+  suggestTimer = setTimeout(fetchSuggest, 180)
+}
+async function fetchSuggest() {
+  const term = q.value.trim()
+  if (!term) return
+  const seq = ++suggestSeq
+  try {
+    const d = await api('/api/search/suggest?q=' + encodeURIComponent(term) + '&limit=8')
+    if (seq !== suggestSeq) return
+    suggestItems.value = (d && d.items) || []
+    suggestPersons.value = (d && d.persons) || []
+    suggestNoMatch.value = !suggestItems.value.length && !suggestPersons.value.length
+    suggestIdx.value = -1
+    suggestOpen.value = true
+  } catch (e) {
+    if (seq === suggestSeq) closeSuggest()
+  }
+}
+function suggestRow(idx) {
+  if (idx < 0) return null
+  if (idx < suggestItems.value.length) return { kind: 'movie', v: suggestItems.value[idx] }
+  const j = idx - suggestItems.value.length
+  if (j < suggestPersons.value.length) return { kind: 'person', v: suggestPersons.value[j] }
+  return null
+}
+function suggestMove(d) {
+  if (!suggestOpen.value) return
+  const n = suggestItems.value.length + suggestPersons.value.length
+  if (!n) return
+  let i = suggestIdx.value + d
+  if (i < 0) i = n - 1
+  if (i >= n) i = 0
+  suggestIdx.value = i
+}
+function pickRow(row) {
+  clearTimeout(suggestTimer)
+  suggestSeq++
+  q.value = row.kind === 'movie' ? row.v.title : row.v.name
+  closeSuggest()
+  applyAndLoad()
+}
+// 演员联想：选中即按演员名搜索其参演影片（与手敲回车一致）
+function pickMovie(s) { pickRow({ kind: 'movie', v: s }) }
+function pickPerson(p) { pickRow({ kind: 'person', v: p }) }
+function closeSuggest() {
+  suggestOpen.value = false
+  suggestItems.value = []
+  suggestPersons.value = []
+  suggestNoMatch.value = false
+  suggestIdx.value = -1
+}
+function onQBlur() {
+  setTimeout(closeSuggest, 120)
+}
+function onSearchEnter(e) {
+  if (e && (e.isComposing || e.keyCode === 229)) return
+  clearTimeout(suggestTimer)
+  suggestSeq++
+  const row = suggestOpen.value ? suggestRow(suggestIdx.value) : null
+  if (row) {
+    pickRow(row)
+    return
+  }
+  closeSuggest()
+  applyAndLoad()
+}
 async function showAll() {
   q.value = ''
   sel.value = { genres: [], regions: [], countries: [], years: [], decades: [], tags: [], watched: null, rating: null, ratingSource: 'tmdb' }
@@ -426,6 +545,10 @@ function queueNewTag() {
   const t = newTag.value.trim().slice(0, 20)
   if (t && !pendingTags.value.includes(t)) pendingTags.value.push(t)
   newTag.value = ''
+}
+function onTagEnter(e) {
+  if (e && (e.isComposing || e.keyCode === 229)) return
+  queueNewTag()
 }
 function queueExisting(t) {
   if (!pendingTags.value.includes(t)) pendingTags.value.push(t)
@@ -590,11 +713,35 @@ const canStartUpload = computed(() => !uploading.value && upQueue.value.some(t =
 const visibleUpQueue = computed(() => showAllUp.value ? upQueue.value : upQueue.value.slice(0, 50))
 function upTaskState(t) {
   if (t.state === 'queued') return fmtBytes(t.file.size)
-  if (t.state === 'active') return (upCurPct.value != null ? upCurPct.value + '% · ' : '') + '上传中…'
+  if (t.state === 'active') {
+    if (t.phase === 'scanning') return '已传完 · 联网刮削中…'
+    return (upCurPct.value != null ? upCurPct.value + '% · ' : '') + '上传中…'
+  }
   if (t.state === 'skipped') return '已存在·跳过'
   if (t.state === 'error') return '失败：' + (t.note || '')
   return t.note || '完成'
 }
+// 字节传完后的等待提示（服务端在响应前同步跑 scan_one：TMDB 搜索/详情/海报头像）
+const upScanSecs = ref(0)
+const scanSamples = ref([])
+let upScanTimer = null
+function startScanTicker() {
+  if (upScanTimer) clearInterval(upScanTimer)
+  upScanSecs.value = 0
+  upScanTimer = setInterval(() => { upScanSecs.value++ }, 1000)
+}
+function stopScanTicker() {
+  if (upScanTimer) { clearInterval(upScanTimer); upScanTimer = null }
+}
+const upScanning = computed(() => upQueue.value.some(t => t.state === 'active' && t.phase === 'scanning'))
+const upScanHint = computed(() => {
+  const base = `已传完，正在联网匹配 TMDB 元数据并下载海报，预计约 10–30 秒，请耐心等待（已等待 ${upScanSecs.value}s）`
+  const samples = scanSamples.value
+  if (!samples.length) return base
+  const avg = Math.max(1, Math.round(samples.reduce((a, b) => a + b, 0) / samples.length / 1000))
+  const left = upQueue.value.filter(t => t.state === 'queued' || (t.state === 'active' && t.phase === 'scanning')).length
+  return `${base}；本会话平均约 ${avg} 秒/部，共 ${left} 部待刮削，预计还需约 ${avg * left} 秒`
+})
 function stageName(f) {
   const rel = (upMode.value === 'dir' && f.webkitRelativePath) ? f.webkitRelativePath : f.name
   return String(rel || f.name || '').replace(/\\/g, '/')
@@ -608,6 +755,8 @@ function openUpDlg() {
   upFolderHead.value = ''
   showAllUp.value = false
   upCurPct.value = null
+  scanSamples.value = []
+  stopScanTicker()
   upOrgPlans.value = []
   upOrgConflicts.value = []
   upOrgMsg.value = ''
@@ -626,7 +775,7 @@ function collectStaged() {
     const rel = stageName(f)
     // 跳过隐藏文件（.DS_Store 等）与空路径
     if (!rel || rel.split('/').some(s => s.startsWith('.'))) continue
-    out.push({ file: f, rel, state: 'queued', note: '', movieId: null })
+    out.push({ file: f, rel, state: 'queued', phase: 'uploading', note: '', movieId: null })
   }
   return out
 }
@@ -673,19 +822,42 @@ async function startUpload() {
   upSummary.value = ''
   uploading.value = true
   upCancelled = false
+  scanSamples.value = []
+  stopScanTicker()
   let ok = 0, skipped = 0, failed = 0, review = 0, nomatch = 0
   for (const t of upQueue.value) {
     if (upCancelled) break
     if (t.state !== 'queued') continue
     t.state = 'active'
+    t.phase = 'uploading'
+    t.scanStartedAt = 0
     upCurPct.value = 0
     const h = apiUpload('/api/uploads', t.file, {
       fields: { relpath: t.rel },
-      onProgress: (p) => { upCurPct.value = p }
+      onProgress: (p) => { upCurPct.value = p },
+      onUploaded: () => {
+        // 延迟 800ms 再切“刮削中”，字幕/花絮等本地快路径不会闪提示
+        if (t._hintTimer) clearTimeout(t._hintTimer)
+        t._hintTimer = setTimeout(() => {
+          if (t.state === 'active' && t.phase === 'uploading') {
+            t.phase = 'scanning'
+            t.scanStartedAt = Date.now()
+            startScanTicker()
+          }
+        }, 800)
+      }
     })
     upAbort = h.abort
     try {
       const r = await h.promise
+      clearTimeout(t._hintTimer)
+      t._hintTimer = null
+      if (t.scanStartedAt) {
+        scanSamples.value.push(Date.now() - t.scanStartedAt)
+        t.scanStartedAt = 0
+      }
+      stopScanTicker()
+      t.phase = 'uploading'
       const st = (r && r.status) || 'stored'
       t.state = 'done'
       t.note = st
@@ -694,6 +866,11 @@ async function startUpload() {
       if (st === 'ok_needs_review' || (st || '').startsWith('stored_scan_warn')) review++
       else if (st === 'no_match') nomatch++
     } catch (e) {
+      clearTimeout(t._hintTimer)
+      t._hintTimer = null
+      t.scanStartedAt = 0
+      stopScanTicker()
+      t.phase = 'uploading'
       const m = String((e && e.message) || e)
       if (m === '已取消' || upCancelled) {
         t.state = 'queued'
@@ -712,6 +889,7 @@ async function startUpload() {
   }
   uploading.value = false
   upCurPct.value = null
+  stopScanTicker()
   const parts = [`上传完成：成功 ${ok}`]
   if (skipped) parts.push(`跳过 ${skipped}`)
   if (nomatch) parts.push(`未匹配 ${nomatch}`)
@@ -788,9 +966,11 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', escExit)
+  stopScanTicker()
+  clearTimeout(suggestTimer)
 })
 function escExit(e) {
-  if (e.key === 'Escape' && selecting.value && !tagDlg.value && !colDlg.value && !delDlg.value && !upDlg.value) {
+  if (e.key === 'Escape' && selecting.value && !suggestOpen.value && !tagDlg.value && !colDlg.value && !delDlg.value && !upDlg.value) {
     clearSelection()
   }
 }
@@ -805,6 +985,21 @@ watch(() => route.query, () => { readUrl(); load() })
 .chip.tag { border-style: dashed; }
 .chip.off { opacity: .45; }
 .fhint { color: #777; font-size: 0.75rem; }
+.q-wrap { position: relative; flex: 0 1 260px; }
+.q-wrap input { width: 100%; box-sizing: border-box; }
+.suggest {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 60;
+  list-style: none; margin: 0; padding: 4px 0; max-height: 320px; overflow: auto;
+  background: #1c1c1c; border: 1px solid #444; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.55);
+}
+.suggest li { padding: 6px 12px; cursor: pointer; display: flex; gap: 6px; align-items: baseline; }
+.suggest li.on { background: #333; }
+.suggest .s-head { color: #777; font-size: 0.75rem; padding: 6px 12px 2px; cursor: default; }
+.suggest .s-title { color: #eee; }
+.suggest .s-year { color: #888; font-size: 0.8125rem; }
+.suggest .s-empty { color: #777; cursor: default; }
+.up-scan { color: #e0a63c; font-size: 0.8125rem; }
 .meta { color: #888; font-size: 0.75rem; }
 .custom-mini { color: #ff6b6b; font-size: 0.75rem; }
 .selbar { display: none; }

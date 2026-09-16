@@ -51,6 +51,8 @@ PLAN_VERSION = 2
 _SESS_IDLE = 600       # 会话无心跳保活期（秒）
 _sessions: dict[str, dict] = {}
 _sess_lock = threading.RLock()
+# 真实媒体起点探测缓存：{(version_id, int(start)): media_start}，防反复 seek 时重复 ffprobe
+_MEDIA_START_CACHE: dict = {}
 # 请求命中环形日志（卡死定位用）：{t, sid, kind, name, status}，只增不查库
 _hits: deque = deque(maxlen=200)
 
@@ -478,6 +480,27 @@ def _session_dir(version_id: int, key: str, start: float) -> str:
     return d
 
 
+def _media_start_for(version_id: int, abs_p: str, start: float, plan: dict) -> float:
+    """会话片内 0 对应的源时间（copy=目标前关键帧，转码/烧录=start）。
+    按 (version, int(start)) 缓存探测结果，重开会话/复用同一 start 时不重复 ffprobe。"""
+    try:
+        st_key = max(0, int(float(start or 0)))
+    except (TypeError, ValueError):
+        st_key = 0
+    key = (int(version_id), st_key)
+    with _sess_lock:
+        hit = _MEDIA_START_CACHE.get(key)
+    if hit is not None:
+        return hit
+    vcopy_seek = bool((plan or {}).get("vcopy")) and (plan or {}).get("sub") != "burn"
+    ms = _playback.actual_media_start(abs_p, start, vcopy_seek)
+    with _sess_lock:
+        if len(_MEDIA_START_CACHE) > 64:
+            _MEDIA_START_CACHE.clear()
+        _MEDIA_START_CACHE[key] = ms
+    return ms
+
+
 def _write_master(sdir: str, info: dict, plan: dict, seg_time: int) -> None:
     """自产 fMP4 master.m3u8（目标文档 §6 布局）：ffmpeg 的 -master_pl_name 对
     HEVC copy 不产 CODECS（Safari 原生 HLS 需要），故自己写、字段可控。"""
@@ -624,6 +647,8 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         st_key = 0
     plan_key = _plan_marker(d["plan"], audio, st_key)
     skey = _session_key(d["plan"], audio)
+    # 真实媒体起点：客户端字幕（VTT/ASS/PGS）按此平移对齐播放进度
+    d["media_start"] = _media_start_for(int(m["id"]), abs_p, start, d["plan"])
     seg = d["plan"].get("seg") or "fmp4"
     stime = _playback.seg_time(seg)
     # 整片已转完（预转码/之前播完）：当静态 VOD 直接播，不起进程——hls.js 最稳形态
@@ -1036,6 +1061,7 @@ def hls_session_create(version_id: int, body: SessionBody | None = None):
     return {"session_id": sid,
             "playlist_url": f"/api/stream/sessions/{sid}/master.m3u8",
             "method": d["method"], "reasons": d["reasons"], "plan": d["plan"],
+            "media_start": float(d.get("media_start") or 0),
             "subtitle_mode": d.get("subtitle_mode") or "none"}
 
 

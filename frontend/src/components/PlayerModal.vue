@@ -137,6 +137,9 @@ const subs = ref([])
 let jassub = null
 let assKey = ''
 const assFonts = ref(-1)
+// VTT 平移产物（Blob URL）与代际：会话起点非 0 时按 mediaStart 平移 cue 时间
+let vttBlobUrl = ''
+let vttSeq = 0
 // PGS 图片字幕渲染（libpgs）：解码失败自动降级烧录（forceBurn 进 decide/sessions）
 let pgs = null
 let pgsCanvas = null
@@ -181,6 +184,9 @@ const decidedDuration = ref(0)
 let doneWatched = false
 // HLS 绝对时间轴：会话按 start 开新流，片内 currentTime 从 0 起；显示/存档一律用 offset+片内
 const startOffset = ref(0)
+// 当前会话片内 0 对应的源时间（服务端 media_start；copy 会话=关键帧，转码=start）；
+// direct=原文件时间轴，不需平移。客户端字幕（VTT/ASS/PGS）按它对齐播放进度。
+let mediaStart = 0
 const seekPos = ref(0)
 const bufSecs = ref(0)
 let bufTimer = 0
@@ -585,11 +591,12 @@ async function reload() {
   } catch (e) { videoPadding.value = 'calc(min(56.25%, 68vh) + 46px)' }
   try {
     decidedDuration.value = Number(d.media?.duration) || 0
-    applySubs()
   const startAt = fromZero ? 0 : (resumePos || 0)
   resumePos = 0
   lastStartAt = Math.floor(startAt)
   startOffset.value = lastStartAt
+  mediaStart = d.method === 'direct' ? 0 : lastStartAt
+  applySubs()
   mediaErrLogged = ''
   if (d.method === 'direct') {
     engine = 'direct'
@@ -621,6 +628,13 @@ async function reload() {
     sessionId = s.session_id
     method.value = s.method || d.method
     reasons.value = s.reasons || d.reasons || []
+    // 服务端实际媒体起点（copy 会话=目标前关键帧，可能早于请求 start）：字幕按它平移
+    const ms = Number(s.media_start)
+    if (Number.isFinite(ms) && Math.abs(ms - startOffset.value) > 0.01) {
+      startOffset.value = ms
+      mediaStart = ms
+      applySubs()
+    }
     startPing()
     const url = s.playlist_url
     lastPlaylistUrl = url
@@ -718,7 +732,7 @@ async function mountPgs(v, key) {
       canvas: ensurePgsCanvas(v),
       subUrl: `/api/stream/${props.versionId}/sub/${subIdx.value}.sup`,
       workerUrl: mod.workerUrl,
-      timeOffset: subDelay.value,
+      timeOffset: subShift() + subDelay.value,
       aspectRatio: 'contain',   // 与 video object-fit 一致
     })
     pgs = inst
@@ -729,7 +743,12 @@ async function mountPgs(v, key) {
       if (!settled && pgs === inst) fallbackBurnSub('PGS 渲染超时')
     }, 20000)
     Promise.resolve(inst.ready)
-      .then(() => { settled = true; clearTimeout(timer); logEvt('pgs:ready', 'delay=' + subDelay.value) })
+      .then(() => {
+        settled = true
+        clearTimeout(timer)
+        if (pgs === inst) { try { inst.timeOffset = subShift() + subDelay.value } catch (e) { /* 忽略 */ } }
+        logEvt('pgs:ready', 'delay=' + subDelay.value)
+      })
       .catch((e) => {
         settled = true
         clearTimeout(timer)
@@ -784,7 +803,7 @@ async function mountAss(v, key) {
       workerUrl: mod.workerUrl,
       wasmUrl: mod.wasmUrl,
       modernWasmUrl: mod.modernWasmUrl,
-      timeOffset: subDelay.value,
+      timeOffset: subShift() + subDelay.value,
       // ASS 里指定字体缺失时用系统/内置兜底；无字体也不崩（libass 用内置 Liberation Sans）
       defaultFont: 'Liberation Sans',
     })
@@ -792,41 +811,129 @@ async function mountAss(v, key) {
     posHint.value = fonts.length
       ? `ASS 字幕（样式渲染，${fonts.length} 个可用字体）`
       : 'ASS 字幕：未找到内嵌/内置字体，文字可能走默认字体；异常可勾选「兼容」或投放字体到 data/fonts/'
-    Promise.resolve(jassub.ready)
-      .then(() => logEvt('ass:ready', 'fonts=' + fonts.length))
+    const inst = jassub
+    Promise.resolve(inst.ready)
+      .then(() => {
+        if (jassub === inst) { try { inst.timeOffset = subShift() + subDelay.value } catch (e) { /* 忽略 */ } }
+        logEvt('ass:ready', 'fonts=' + fonts.length)
+      })
       .catch((e) => { posHint.value = 'ASS 渲染初始化失败，可勾选「兼容」改用 VTT 字幕'; logEvt('ass:error', String(e).slice(0, 160)) })
   } catch (e) {
     posHint.value = 'ASS 渲染初始化失败，可勾选「兼容」改用 VTT 字幕'
     logEvt('ass:init-error', String(e).slice(0, 160))
   }
 }
+// 当前会话片内 0 对应的源时间（direct=原文件时间轴，不需平移）
+function subShift() {
+  return method.value === 'direct' ? 0 : mediaStart
+}
+function vttMs(s) {
+  const m = /^(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{3})$/.exec(String(s || '').trim())
+  if (!m) return null
+  return ((Number(m[1] || 0) * 60 + Number(m[2])) * 60 + Number(m[3])) * 1000 + Number(m[4])
+}
+function vttFmt(ms) {
+  const tot = Math.max(0, Math.round(ms))
+  const h = Math.floor(tot / 3600000)
+  const m = Math.floor((tot % 3600000) / 60000)
+  const s = Math.floor((tot % 60000) / 1000)
+  const pad = (n, w) => String(n).padStart(w, '0')
+  return `${pad(h, 2)}:${pad(m, 2)}:${pad(s, 2)}.${pad(tot % 1000, 3)}`
+}
+// VTT 平移：字幕 cue 是全片绝对时间，会话时间轴从 media_start 起 → 减偏移；
+// 会话起点之前的 cue（end<=0）整块丢弃（含可选 cue 标识/文本行，防孤儿文本）。
+function shiftVtt(text, offMs) {
+  const out = []
+  for (const block of String(text || '').split(/\r?\n\r?\n/)) {
+    const lines = block.split(/\r?\n/)
+    let ti = -1
+    let a = null
+    let b = null
+    let indent = ''
+    let rest = ''
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^(\s*)(\S+)\s*-->\s*(\S+)(.*)$/.exec(lines[i])
+      if (m) {
+        ti = i
+        indent = m[1]
+        a = vttMs(m[2])
+        b = vttMs(m[3])
+        rest = m[4] || ''
+        break
+      }
+    }
+    if (ti < 0 || a == null || b == null) { out.push(block); continue }
+    if (b - offMs <= 0) continue
+    const nl = lines.slice()
+    nl[ti] = `${indent}${vttFmt(a - offMs)} --> ${vttFmt(b - offMs)}${rest}`
+    out.push(nl.join('\n'))
+  }
+  return out.join('\n\n')
+}
+async function mountVttTrack(v, seq) {
+  const offMs = Math.round((subShift() + subDelay.value) * 1000)
+  const url = `/api/stream/${props.versionId}/sub/${subIdx.value}.vtt`
+  let src = url
+  let tmpUrl = ''
+  if (offMs > 50) {
+    try {
+      const r = await fetch(url, { cache: 'no-store' })
+      if (!r.ok) throw new Error('http ' + r.status)
+      const txt = await r.text()
+      if (seq !== vttSeq) return
+      tmpUrl = URL.createObjectURL(new Blob([shiftVtt(txt, offMs)], { type: 'text/vtt' }))
+      src = tmpUrl
+    } catch (e) {
+      if (seq !== vttSeq) return
+      src = url   // 平移失败退回原文件（至少会话起点=0 时正确）
+    }
+  }
+  if (seq !== vttSeq || videoEl.value !== v) {
+    if (tmpUrl) { try { URL.revokeObjectURL(tmpUrl) } catch (e) { /* 忽略 */ } }
+    return
+  }
+  v.querySelectorAll('track').forEach(t => t.remove())
+  const tr = document.createElement('track')
+  tr.kind = 'subtitles'
+  tr.src = src
+  tr.default = true
+  v.appendChild(tr)
+  if (vttBlobUrl) { try { URL.revokeObjectURL(vttBlobUrl) } catch (e) { /* 忽略 */ } }
+  vttBlobUrl = tmpUrl
+}
 // 应用当前所选字幕（会话重载/换视频元素/切轨共用）：先拆旧层再按类型装新层。
 // 文本/ASS/PGS 全部客户端渲染——切字幕不重开会话、不转码；仅 VobSub（burn）走烧录。
+// 三类都吃 subShift()+subDelay 偏移（会话时间轴↔字幕绝对时间轴对齐）。
 async function applySubs(force) {
   const v = videoEl.value
   if (!v) return
+  const seq = ++vttSeq
   v.querySelectorAll('track').forEach(t => t.remove())
+  if (vttBlobUrl) { try { URL.revokeObjectURL(vttBlobUrl) } catch (e) { /* 忽略 */ } vttBlobUrl = '' }
   const kind = burnOn ? 'burn' : subKind(subs.value[subIdx.value])
   const key = `${props.versionId}:${videoKey.value}:${subIdx.value}:${compatSub.value ? 'v' : 'a'}`
+  const toff = subShift() + subDelay.value
   if (jassub && (force || kind !== 'ass' || assKey !== key)) destroyAss()
   if (pgs && (force || kind !== 'pgs' || pgsKey !== key)) destroyPgs()
   if (kind === 'none' || kind === 'burn') return
   if (kind === 'vtt' || compatSub.value
       || (kind === 'ass' && autoVttSub.value === Number(subIdx.value))) {
-    const tr = document.createElement('track')
-    tr.kind = 'subtitles'
-    tr.src = `/api/stream/${props.versionId}/sub/${subIdx.value}.vtt`
-    tr.default = true
-    v.appendChild(tr)
+    await mountVttTrack(v, seq)
     return
   }
   if (kind === 'ass') {
-    if (jassub && assKey === key) return
+    if (jassub && assKey === key) {
+      try { jassub.timeOffset = toff } catch (e) { /* 忽略 */ }
+      return
+    }
     await mountAss(v, key)
     return
   }
   if (kind === 'pgs') {
-    if (pgs && pgsKey === key) return
+    if (pgs && pgsKey === key) {
+      try { pgs.timeOffset = toff } catch (e) { /* 忽略 */ }
+      return
+    }
     await mountPgs(v, key)
   }
 }
@@ -846,8 +953,9 @@ function shiftSubDelay(d) {
   const x = Math.round(Math.max(-10, Math.min(10, subDelay.value + d)) * 10) / 10
   subDelay.value = x
   try { localStorage.setItem('jzmedia.subDelay.' + props.versionId, String(x)) } catch (e) { /* 忽略 */ }
-  if (jassub) { try { jassub.timeOffset = x } catch (e) { /* 忽略 */ } }
-  if (pgs) { try { pgs.timeOffset = x } catch (e) { /* 忽略 */ } }
+  const toff = subShift() + x
+  if (jassub) { try { jassub.timeOffset = toff } catch (e) { /* 忽略 */ } }
+  if (pgs) { try { pgs.timeOffset = toff } catch (e) { /* 忽略 */ } }
 }
 // 字幕下拉角标：烧录/PGS/ASS 样式 + 外挂来源
 function subBadge(s) {
@@ -1398,6 +1506,7 @@ onUnmounted(() => {
   destroyHls()
   destroyAss()
   destroyPgs()
+  if (vttBlobUrl) { try { URL.revokeObjectURL(vttBlobUrl) } catch (e) { /* 忽略 */ } vttBlobUrl = '' }
 })
 </script>
 <style scoped>

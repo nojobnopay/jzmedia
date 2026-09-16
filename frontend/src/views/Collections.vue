@@ -1,6 +1,6 @@
 <template>
   <div class="bar">
-    <input v-model="q" placeholder="搜合集名" @keyup.enter="load" style="flex:1" />
+    <input v-model="q" placeholder="搜合集名" @keyup.enter="onSearchEnter" style="flex:1" />
     <button @click="load">搜索</button>
     <input v-model="name" placeholder="新建合集名，如 周星驰合集" style="flex:1" />
     <button @click="create" :disabled="!name.trim()">新建</button>
@@ -218,6 +218,10 @@ async function load() {
   } catch (e) {
     msg.value = '加载失败：' + e.message
   }
+}
+function onSearchEnter(e) {
+  if (e && (e.isComposing || e.keyCode === 229)) return
+  load()
 }
 async function create() {
   const n = name.value.trim()

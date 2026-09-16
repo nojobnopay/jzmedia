@@ -137,7 +137,8 @@
               <button @click="doUpload" :disabled="!!upCtl">上传</button>
               <button v-if="upCtl" @click="cancelUpload">取消</button>
               <span v-if="upPct !== null">{{ upPct }}%</span>
-              <span>{{ upMsg }}</span>
+              <span v-if="upScanning" class="up-scan">已传完，正在联网匹配 TMDB 元数据并下载海报，预计约 10–30 秒，请耐心等待（已等待 {{ upScanSecs }}s）</span>
+              <span v-else>{{ upMsg }}</span>
             </div>
             <div v-if="upPct !== null" class="up-bar"><i :style="{ width: upPct + '%' }"></i></div>
           </section>
@@ -535,8 +536,16 @@ const upInput = ref(null)
 const upSubdir = ref('')
 const upPct = ref(null)
 const upMsg = ref('')
+const upScanning = ref(false)
+const upScanSecs = ref(0)
 let upAbort = null
+let upScanTimer = null
+let upHintTimer = null
 const upCtl = computed(() => !!upAbort)
+function stopUpScanTicker() {
+  if (upScanTimer) { clearInterval(upScanTimer); upScanTimer = null }
+  if (upHintTimer) { clearTimeout(upHintTimer); upHintTimer = null }
+}
 async function doUpload() {
   const files = upInput.value && upInput.value.files
   if (!files || !files.length) {
@@ -546,22 +555,39 @@ async function doUpload() {
   const file = files[0]
   upMsg.value = ''
   upPct.value = 0
+  upScanning.value = false
+  upScanSecs.value = 0
   const h = apiUpload(`/api/movies/${route.params.id}/upload`, file, {
     subdir: upSubdir.value,
-    onProgress: (p) => { upPct.value = p }
+    onProgress: (p) => { upPct.value = p },
+    onUploaded: () => {
+      // 延迟 800ms 再切“刮削中”，字幕/花絮等本地快路径不会闪提示
+      if (upHintTimer) clearTimeout(upHintTimer)
+      upHintTimer = setTimeout(() => {
+        if (!upAbort) return
+        upScanning.value = true
+        upScanSecs.value = 0
+        if (upScanTimer) clearInterval(upScanTimer)
+        upScanTimer = setInterval(() => { upScanSecs.value++ }, 1000)
+      }, 800)
+    }
   })
   upAbort = h.abort
   try {
     const r = await h.promise
+    stopUpScanTicker()
+    upScanning.value = false
     upPct.value = 100
     upMsg.value = `已上传 ${file.name}` + (r && r.status && r.status !== 'stored' ? `（${r.status}）` : '')
     upInput.value.value = ''
     await reloadFiles()
   } catch (e) {
+    stopUpScanTicker()
+    upScanning.value = false
     upMsg.value = '上传失败：' + e.message
   } finally {
     upAbort = null
-    setTimeout(() => { if (!upAbort) upPct.value = null }, 3000)
+    setTimeout(() => { if (!upAbort) { upPct.value = null; upScanning.value = false } }, 3000)
   }
 }
 function cancelUpload() {
@@ -957,6 +983,7 @@ onUnmounted(() => {
 .up-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 0; }
 .up-bar { height: 6px; background: #262626; border-radius: 3px; overflow: hidden; margin: 4px 0; }
 .up-bar i { display: block; height: 100%; background: #6ab0ff; }
+.up-scan { color: #e0a63c; font-size: 0.8125rem; }
 .f-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 3px 0; }
 .f-name { flex: 1; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .f-size { color: #666; font-size: 0.75rem; }
