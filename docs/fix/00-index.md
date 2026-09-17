@@ -32,7 +32,7 @@
 | P1-06 | R09-D1 | B2 | 移动目标与 missing 行撞车致“文件已移/DB 未改” | **done** | tests/test_files_organize.py（4 用例） |
 | P1-07 | R12-D1 | B2 | prewarm 与在线播互踩会话目录 | **done** | tests/test_stream_sessions.py（4 用例）+ docker e2e（见 log） |
 | P1-08 | R13-D1 | B2 | HDR+烧录丢弃 tonemap 且无提示 | **done** | tests/test_playback_plan.py::test_burn_hdr_flags_no_tonemap_even_with_hw |
-| P1-09 | R01-B1 | B3 | UID/GID 文档与 compose 不一致 | pending | — |
+| P1-09 | R01-B1 | B3 | UID/GID 文档与 compose 不一致 | **done** | docker-compose.yml `user: ${UID:-0}:${GID:-0}` + tests/test_deploy_config.py（3 用例）+ README NAS 属主说明 |
 | P1-10 | R01-B7 | B3 | 零日志 + 76 处静默吞异常 | **done** | tests/test_logging.py（5 用例） |
 | P1-11 | R04-D1 | B3 | 库页无分页 >500 截断 | **done** | tests/test_pagination.py（4 用例）+ smoke 3 项 |
 | P1-01 | R01-D1 | B4 | 无认证 + 破坏性 API 全开放 | **done** | tests/test_auth.py（8 用例）+ smoke 鉴权相位 4 项 |
@@ -42,14 +42,27 @@
 ## 4. 当前指针（中断恢复点）
 
 ```
-批次：B4（fix/b4-auth）已合回 main（merge f593e56）并打批标签 p1-b4-auth
-状态：**P1 11/11 全部 done**；剩余为 P2（docs/review/99-final-report.md §2 分组建议）
-断点：无进行中批次。后续可选：B5 结构重构（巨型模块拆分/旧口清理/单源化，量大需单独规划）
-     或按 P2 backlog 择要（remux 预转码进度估算、SETTING_MAP 注释等）
-下一步：等用户指令
+状态：**全部收口，v0.8.0 已发布（tag v0.8.0，2026-09-17）**
+  - P1 11/11 done；P2 主体（B5a/B6/B7/B8）done；B9 结构拆分 done（后端 6 大模块 + 前端视图 +
+    迁移框架 v1–v9 + 扫描任务化 + 增量扫描 + 会话元数据/孤儿收割）
+  - 用户追加三项 done：刮削失败可见性（scan_failed/rescan/海报墙未匹配角标）、设置页「入库流程」
+    合并、文件浏览 Windows 化（复制 job/目录递归/快捷键，目录改名不做）
+  - 匹配后归档引导 done（详情弹窗 + 设置页自动展开 ③）；归档执行 500（拆分漏 import）已修并加
+    pyflakes 未定义名回归网（tests/test_no_undefined_names.py）
+  - B10 工程化 done：R01-Q1/Q2/Q3/Q5 + 前端 eslint 最小集；B10-CI closed（无远端仓库）
+  - R13-Q1/Q2 done：subtitleParse 纯解析抽出 + ASS/PGS 渲染器注册表
+验证基线：pytest 180 passed / node --test 16 passed / smoke 29/29 / eslint 0 error / npm build ✓
+断点：无进行中批次；H-UI 用户点检全部通过（2026-09-17）
+后续（非阻塞）：PlayerModal 仍 ~1730 行（useSubtitles 完整 composable 未抽，注册表已就位）；
+  长尾 P2 见 docs/fix/10-p2-backlog（无 pending 组）
 ```
 
 ## 5. 进度 Log（倒序）
+
+- 2026-09-17：**v0.8.0 发布**（tag `v0.8.0`）。H-UI 用户点检通过：未匹配可见性与重试、匹配后归档引导、
+  设置页入库流程、文件浏览 Windows 化（含复制/剪切/粘贴/删除/快捷键）、字幕切换（重构后）。
+  附带修复：归档 500（B9 拆分漏 import `_move_one`/`_rename_or_move`）、prewarm 漏
+  `_write_session_meta`、归档提示预览节流。
 
 - 2026-09-16：**B4 批次合回 main**（--no-ff `f593e56`，tag `p1-b4-auth`）。验证：L0 + pytest 83 + node 7 + smoke 30/30。**P1 全清（11/11）。**
 - 2026-09-16：**P1-01 done**：写操作可选鉴权全链路——`config.SETTING_MAP` 增 `jzmedia_token`（DB 优先/env 兜底，通用化命名保留 TMDB_SETTING_MAP 兼容）；`main._auth_write` 中间件（只护 `/api` 写方法，`X-Api-Token`/Bearer，`hmac.compare_digest`，未配置全放行）；`GET/PUT /api/settings` 回脱敏状态并可写入；前端 `api.js` 自动带令牌 + 401 派发事件、`apiUpload` 带头、App.vue 令牌弹层（存 localStorage 后重载）、Settings「访问控制」区（保存即记住）；`.env.example`/README/AGENTS 同步；tests/test_auth.py 8 用例 + smoke 鉴权相位 4 项。
