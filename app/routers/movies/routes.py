@@ -109,6 +109,7 @@ def patch_movie(movie_id: int, body: dict):
         if len(t) > 200:
             raise HTTPException(422, "title too long (max 200)")
         data["title"] = t
+        data["title_auto"] = 0   # 手工标题：此后刷新/重扫不覆盖（评审 title_auto）
     if "overview_override" in data:
         if data["overview_override"] is None:
             data["overview_override"] = ""

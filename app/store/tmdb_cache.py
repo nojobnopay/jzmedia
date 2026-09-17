@@ -169,10 +169,12 @@ def copy_tmdb_to_movie(movie_id: int, old_title: str | None = None) -> bool:
             return False
         cur_title = (mrow["title"] or "")
         new_title = (crow["title"] or "")
+        auto_title = int(mrow["title_auto"] or 0) if "title_auto" in mrow.keys() else 0
         if old_title is None:
-            want_title = not cur_title
+            # 空标题 or 扫描自动写入的文件名标题 → 允许 TMDB 标题覆盖
+            want_title = (not cur_title) or bool(auto_title)
         else:
-            want_title = (not cur_title) or (cur_title == (old_title or ""))
+            want_title = (not cur_title) or (cur_title == (old_title or "")) or bool(auto_title)
         fields: dict = {
             "original_title": crow["original_title"] or "",
             "year": crow["year"],
@@ -190,6 +192,7 @@ def copy_tmdb_to_movie(movie_id: int, old_title: str | None = None) -> bool:
         }
         if want_title:
             fields["title"] = new_title
+            fields["title_auto"] = 0   # 标题来源转为 TMDB（此后视为受保护标题）
     if not fields:
         return False
     # 走 update_movie_meta 以复用 updated_at+FTS 逻辑（调用方已判定确需写入）

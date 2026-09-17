@@ -130,7 +130,9 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None) -
     mid = store.upsert_movie_by_path(rel)
     patch: dict = {"year": parsed["year"]}
     if not (cached or {}).get("title"):
+        # 文件名解析标题先用于失败/未匹配时可见；title_auto=1 允许后续 TMDB 标题覆盖
         patch["title"] = parsed["title"]
+        patch["title_auto"] = 1
     try:
         store.update_movie_meta(mid, **patch)
     except Exception as e:
