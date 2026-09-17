@@ -25,7 +25,7 @@
           <button @click="createCol" :disabled="!newColName.trim()">创建</button>
           <span>{{ colMsg }}</span>
         </div>
-        <h3>手动匹配 <span v-if="m.tmdb_id">(当前TMDB {{ m.tmdb_id }})</span></h3>
+        <h3>手动匹配 <span v-if="movie.tmdb_id">(当前TMDB {{ movie.tmdb_id }})</span></h3>
         <div class="bar">
           <button @click="refreshTmdb" :disabled="refreshing || !!bindingId"><Spinner v-if="refreshing" />{{ refreshing ? '刷新中…' : '刷新TMDB（有变化才更新）' }}</button>
           <span>{{ refreshMsg }}</span>
