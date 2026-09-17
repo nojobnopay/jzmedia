@@ -42,6 +42,17 @@ export function parseVtt(text) {
   return cues
 }
 
+// 自动选轨（评审 B8/R13-D2 + 用户反馈）：外挂中文 default → 任意 default → 首条中文。
+// PGS 客户端渲染（pgs_client）可自动选，零转码；VobSub 等烧录轨不自动选（防意外触发重编）。
+export function pickDefaultSub(list) {
+  const arr = Array.isArray(list) ? list : []
+  const autoOk = (s) => !!s && (!s.image || String(s.codec || '').toLowerCase() === 'pgs')
+  let i = arr.findIndex(s => autoOk(s) && s.source === 'sidecar' && Number(s.default) === 1)
+  if (i < 0) i = arr.findIndex(s => autoOk(s) && Number(s.default) === 1)
+  if (i < 0) i = arr.findIndex(s => autoOk(s) && String(s.lang || '').toLowerCase().startsWith('chi'))
+  return i
+}
+
 // 当前时刻命中的 cue（源时间轴毫秒；cues 已按 start 升序）。
 // 从 vttRender 抽出（评审 R13-Q4），命中判定可单测，避免字幕错位类回归。
 export function activeCues(cues, timeMs) {

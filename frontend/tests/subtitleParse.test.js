@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { vttMs, parseVtt, vttPlain, activeCues } from '../src/subtitleParse.js'
+import { vttMs, parseVtt, vttPlain, activeCues, pickDefaultSub } from '../src/subtitleParse.js'
 
 test('vttMs：时/分/秒/毫秒与容错', () => {
   assert.equal(vttMs('00:01:02.500'), 62500)
@@ -43,4 +43,35 @@ test('activeCues：区间命中/边界半开/提前中断', () => {
   assert.deepEqual(activeCues(cues, 2000), [])
   assert.deepEqual(activeCues(cues, 5500).map(c => c.start), [5000])
   assert.deepEqual(activeCues(null, 10), [])
+})
+
+test('pickDefaultSub：PGS 中文默认轨可自动选（用户反馈：芭蕾杀姬 8 条 PGS 全中文）', () => {
+  const pgs = (i, d) => ({ index: i, codec: 'pgs', image: 1, lang: 'chi', default: d, source: 'embedded' })
+  const list = [pgs(0, 1), pgs(1, 0), pgs(2, 0), pgs(3, 0), pgs(4, 0), pgs(5, 0), pgs(6, 0), pgs(7, 0)]
+  assert.equal(pickDefaultSub(list), 0)
+  assert.equal(pickDefaultSub([pgs(1, 0), pgs(2, 0)]), 0)   // 无 default → 首条中文 PGS
+})
+
+test('pickDefaultSub：VobSub（烧录轨）不自动选，优先顺序仍生效', () => {
+  const list = [
+    { index: 0, codec: 'vobsub', image: 1, lang: 'chi', default: 1, source: 'embedded' },
+    { index: 1, codec: 'subrip', image: 0, lang: 'eng', default: 0, source: 'embedded' },
+    { index: 2, codec: 'subrip', image: 0, lang: 'chi', default: 0, source: 'sidecar' }
+  ]
+  assert.equal(pickDefaultSub(list), 2)                     // 跳过 vobsub，落到中文文本
+  assert.equal(pickDefaultSub([
+    { index: 0, codec: 'vobsub', image: 1, lang: 'chi', default: 1 }
+  ]), -1)
+})
+
+test('pickDefaultSub：外挂 default > 内嵌 default > 首条中文；空清单 -1', () => {
+  const list = [
+    { index: 0, codec: 'subrip', image: 0, lang: 'eng', default: 1, source: 'embedded' },
+    { index: 1, codec: 'ass', image: 0, lang: 'chi', default: 1, source: 'sidecar' },
+    { index: 2, codec: 'subrip', image: 0, lang: 'chi', default: 0, source: 'sidecar' }
+  ]
+  assert.equal(pickDefaultSub(list), 1)
+  assert.equal(pickDefaultSub([{ index: 0, codec: 'subrip', image: 0, lang: 'eng', default: 1 }]), 0)
+  assert.equal(pickDefaultSub([]), -1)
+  assert.equal(pickDefaultSub(null), -1)
 })
