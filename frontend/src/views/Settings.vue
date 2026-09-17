@@ -77,9 +77,15 @@
         <p class="hint">浏览器首次遇到 401 会弹输入框；输入后令牌存在本机 localStorage。令牌遗失时可直接清空数据库该项或改 `.env` 后重启。</p>
       </section>
 
-      <section id="sec-sync" class="card-block">
-        <h3>新片入库</h3>
-        <p class="hint">NAS 直拷 / 软件外删片后用这里：先扫描新增入库，再检查并清理失效条目。</p>
+      <section id="sec-pipeline" class="card-block">
+        <h3>入库流程</h3>
+        <p class="hint">按顺序走：① 扫描新增 → ② 解决未匹配/待确认 → ③ 归档到正式库。库级批量修复（补产地/刷新 TMDB/NFO/搜索索引）见下方「高级维护」。</p>
+        <div id="sec-sync" class="pipe-step">
+          <div class="pipe-head">
+            <h4>① 扫描入库</h4>
+            <span class="fhint">NAS 直拷 / 软件外删片后用：先扫描新增，再检查并清理失效条目</span>
+          </div>
+          <div class="pipe-body">
         <div class="bar">
           <button @click="doScan" :disabled="!!busy">{{ busy === 'scan' ? '扫描中…' : '扫描新文件' }}</button>
           <button v-if="busy === 'scan'" @click="cancelScan">取消</button>
@@ -104,10 +110,14 @@
           </button>
           <span>{{ cleanMsg }}</span>
         </div>
-      </section>
-
-      <section id="sec-pending" class="card-block">
-        <h3>匹配确认</h3>
+          </div>
+        </div>
+        <div id="sec-pending" class="pipe-step">
+          <div class="pipe-head pipe-toggle" @click="pipeOpen.pending = !pipeOpen.pending">
+            <h4>② 待匹配确认 <span v-if="pendingCount" class="nav-badge">{{ pendingCount }}</span></h4>
+            <span class="fhint">{{ pipeOpen.pending ? '收起' : '展开' }}</span>
+          </div>
+          <div v-show="pipeOpen.pending" class="pipe-body">
         <p class="hint">上传/扫描后没认出来的片在这里核对。未匹配：TMDB 没找到数据；待确认：模糊命中需人工核对；疑似英文标题：非英语片却显示英文（错配或缺翻译）；未归属花絮：对不上任何影片。点「去处理」到详情页手动绑定。</p>
         <div class="bar">
           <button @click="loadUnmatched" :disabled="!!busy">刷新</button>
@@ -167,48 +177,14 @@
           <button @click="doCleanEpisodes" :disabled="!!busy">{{ busy === 'episodes' ? '清理中…' : (armEpisodes ? '确认清理剧集行' : '清理历史剧集行（只删库，文件保留）') }}</button>
           <span>{{ episodesMsg }}</span>
         </div>
-      </section>
-
-      <section id="sec-meta" class="card-block">
-        <h3>元数据维护</h3>
-        <div class="bar">
-          <button @click="doBackfill" :disabled="!!busy">{{ busy === 'backfill' ? '补数据中…' : '补产地信息' }}</button>
-          <span>{{ backfillMsg }}</span>
+          </div>
         </div>
-        <div class="bar">
-          <button @click="doRefreshAll" :disabled="!!busy">
-            {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? `确认刷新全部（约${stats ? stats.grouped : '?'}部）` : '刷新全部TMDB数据') }}
-          </button>
-          <span>{{ refreshMsg }}</span>
-        </div>
-        <p v-if="armRefresh" class="hint warn-text">将逐部请求 TMDB（以 limit 截断），无变化的不动，手工标题不受影响。再点一次执行。</p>
-        <div class="bar">
-          <button @click="doRebuildNfo" :disabled="!!busy">{{ busy === 'nfo' ? '重建中…' : '重建全部NFO' }}</button>
-          <span>{{ nfoMsg }}</span>
-        </div>
-        <div class="bar">
-          <button @click="doRebuildFts" :disabled="!!busy">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</button>
-          <span>{{ ftsMsg }}</span>
-        </div>
-      </section>
-
-      <section id="sec-display" class="card-block">
-        <h3>显示</h3>
-        <div class="slider-row">
-          <label>字体大小 <b>{{ prefs.fontSize }}px</b></label>
-          <input type="range" min="13" max="20" step="1" v-model.number="prefs.fontSize" @input="saveDisplay" />
-        </div>
-        <div class="slider-row">
-          <label>海报墙密度 <b>{{ prefs.posterMin }}px</b></label>
-          <input type="range" min="120" max="200" step="10" v-model.number="prefs.posterMin" @input="saveDisplay" />
-        </div>
-        <div class="bar">
-          <button @click="resetDisplay">恢复默认</button>
-        </div>
-      </section>
-
-      <section id="sec-organize" class="card-block">
-        <h3>归档整理</h3>
+        <div id="sec-organize" class="pipe-step">
+          <div class="pipe-head pipe-toggle" @click="pipeOpen.organize = !pipeOpen.organize">
+            <h4>③ 归档整理 <span v-if="orgPlans.length + orgConflicts.length" class="nav-badge">{{ orgPlans.length + orgConflicts.length }}</span></h4>
+            <span class="fhint">{{ pipeOpen.organize ? '收起' : '展开' }}</span>
+          </div>
+          <div v-show="pipeOpen.organize" class="pipe-body">
         <p class="hint">已匹配确认的片在这里归档到正式库。就地归档：保留原父目录，只建“标题 (年份)/”子目录；搬到顶层：如 待整理 → 电影，按“电影/大区/标题 (年份)/文件”归类。命名均为“标题 (年份)[-版本][-规格][-分卷][-版本N].ext”，先预览再执行。</p>
         <div class="bar">
           <label><input type="radio" value="inplace" v-model="orgMode" /> 就地归档</label>
@@ -267,7 +243,50 @@
             </div>
           </div>
         </div>
+          </div>
+        </div>
       </section>
+
+
+      <section id="sec-meta" class="card-block">
+        <h3>高级维护</h3>
+        <p class="hint">库级批量修复，日常无需操作：补产地信息、逐部刷新 TMDB、重建 NFO、重建搜索索引。</p>
+        <div class="bar">
+          <button @click="doBackfill" :disabled="!!busy">{{ busy === 'backfill' ? '补数据中…' : '补产地信息' }}</button>
+          <span>{{ backfillMsg }}</span>
+        </div>
+        <div class="bar">
+          <button @click="doRefreshAll" :disabled="!!busy">
+            {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? `确认刷新全部（约${stats ? stats.grouped : '?'}部）` : '刷新全部TMDB数据') }}
+          </button>
+          <span>{{ refreshMsg }}</span>
+        </div>
+        <p v-if="armRefresh" class="hint warn-text">将逐部请求 TMDB（以 limit 截断），无变化的不动，手工标题不受影响。再点一次执行。</p>
+        <div class="bar">
+          <button @click="doRebuildNfo" :disabled="!!busy">{{ busy === 'nfo' ? '重建中…' : '重建全部NFO' }}</button>
+          <span>{{ nfoMsg }}</span>
+        </div>
+        <div class="bar">
+          <button @click="doRebuildFts" :disabled="!!busy">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</button>
+          <span>{{ ftsMsg }}</span>
+        </div>
+      </section>
+
+      <section id="sec-display" class="card-block">
+        <h3>显示</h3>
+        <div class="slider-row">
+          <label>字体大小 <b>{{ prefs.fontSize }}px</b></label>
+          <input type="range" min="13" max="20" step="1" v-model.number="prefs.fontSize" @input="saveDisplay" />
+        </div>
+        <div class="slider-row">
+          <label>海报墙密度 <b>{{ prefs.posterMin }}px</b></label>
+          <input type="range" min="120" max="200" step="10" v-model.number="prefs.posterMin" @input="saveDisplay" />
+        </div>
+        <div class="bar">
+          <button @click="resetDisplay">恢复默认</button>
+        </div>
+      </section>
+
       <section id="sec-restore" class="card-block">
         <h3>恢复到原始位置</h3>
         <p class="hint">整理/搬迁后偏离首次入库位置的影片可搬回原处。先预览再执行，目标被占用或源文件缺失会跳过上报、绝不覆盖。</p>
@@ -458,15 +477,14 @@ const navs = computed(() => [
   { id: 'sec-status', label: '库状态' },
   { id: 'sec-tmdb', label: 'TMDB 配置' },
   { id: 'sec-auth', label: '访问控制' },
-  { id: 'sec-sync', label: '新片入库' },
-  { id: 'sec-pending', label: '匹配确认', badge: pendingCount.value || '' },
-  { id: 'sec-meta', label: '元数据维护' },
+  { id: 'sec-pipeline', label: '入库流程', badge: pendingCount.value || '' },
+  { id: 'sec-meta', label: '高级维护' },
   { id: 'sec-display', label: '显示' },
-  { id: 'sec-organize', label: '归档整理' },
   { id: 'sec-restore', label: '恢复原始位置', badge: restoreCount.value || '' },
   { id: 'sec-files', label: '文件浏览' },
 ])
 const active = ref('sec-status')
+const pipeOpen = ref({ pending: true, organize: false })
 let observer = null
 const _sectionLoaded = { 'sec-sync': false, 'sec-pending': false }
 function ensureSectionData(id) {
@@ -477,6 +495,10 @@ function ensureSectionData(id) {
   } else if (id === 'sec-pending' && !_sectionLoaded[id]) {
     _sectionLoaded[id] = true
     loadUnmatched(true)
+  } else if (id === 'sec-pipeline') {
+    // 合并后的「入库流程」：两个重负载清单一起按需加载（评审 P2 后续）
+    ensureSectionData('sec-sync')
+    ensureSectionData('sec-pending')
   }
 }
 function go(id) {
@@ -917,7 +939,7 @@ onMounted(async () => {
   ])
   if (settingsResp) { s.value = settingsResp; syncTmdbForm() }
   // 两个重负载清单延迟加载（评审 B8/R09-Q5）：滚动到区块时拉；另 4s 空闲补拉徽标数
-  setTimeout(() => { ensureSectionData('sec-pending'); ensureSectionData('sec-sync') }, 4000)
+  setTimeout(() => ensureSectionData('sec-pipeline'), 4000)
   // 详情页“去恢复”跳转承接：?sec=sec-restore&ids=1,2 → 预选并滚动定位
   try {
     const q = route.query || {}
@@ -963,6 +985,12 @@ onUnmounted(() => {
 }
 .card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
 .card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.pipe-step { margin: 12px 0 0; border-top: 1px dashed #3a3a3a; padding-top: 10px; }
+.pipe-head { display: flex; gap: 8px; align-items: baseline; }
+.pipe-head h4 { margin: 0; font-size: 0.9375rem; color: #ccc; }
+.pipe-toggle { cursor: pointer; user-select: none; }
+.pipe-toggle:hover h4 { color: #fff; }
+.pipe-body { margin-top: 6px; }
 .sub-h { margin: 10px 0 4px; font-size: 0.9375rem; color: #ccc; display: flex; gap: 8px; align-items: center; }
 .meta-line { color: #aaa; font-size: 0.875rem; margin: 8px 0; }
 .hint { color: #777; font-size: 0.8125rem; margin: 0 0 4px; }
