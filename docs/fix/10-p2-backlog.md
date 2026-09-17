@@ -21,6 +21,7 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
       - 刮削失败也建行可见（scan_failed + POST /api/movies/{id}/rescan + 海报墙未匹配角标）
       - 设置页合并「入库流程」三段、元数据维护→高级维护
       - 文件浏览 Windows 化（选中/双击/快捷键/Ctrl+C·X·V、复制 job/目录递归/副本命名；目录改名不支持）
+      后续追加（tag b9-archive-prompt）：匹配成功后主动提示归档（详情弹窗 + 设置页自动展开 ③）
       剩余：R13-Q1/Q2 useSubtitles 渲染器注册表（PlayerModal 1780 行）+ B10 工程化；pytest 174 + smoke 29/29
 ```
 
