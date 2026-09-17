@@ -90,7 +90,7 @@
   </div>
 </template>
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted, nextTick } from 'vue'
 import { api } from '../api.js'
 import { copyText } from '../clipboard.js'
 import { getCaps, probeStrings, withProbes } from '../caps.js'
@@ -103,6 +103,7 @@ import { useFocusTrap } from '../useFocusTrap.js'
 import PlayerSettings from './PlayerSettings.vue'
 import { subKind, fmtTime as fmt } from '../playerLabels.js'
 import { parseVtt, activeCues, pickDefaultSub, decodeSubtitleBytes, localSubCodec } from '../subtitleParse.js'
+import { pickProgressPosition } from '../progress.js'
 import '../player.css'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
@@ -219,6 +220,11 @@ watch(dropHint, (hint) => {
 })
 const resumeOffer = ref('')
 let resumePos = 0
+// 续播条倒计时（用户 2026-09）：弹窗打开起 10s，未点「继续播放/从头开始」视为同意续播自动消条
+let resumeTimer = 0
+function clearResumeTimer() {
+  if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = 0 }
+}
 // 最近一次会话的起始秒（resumePlay 对不支持 #t 的浏览器补跳用；reload 消费 resumePos 后清零）
 let lastStartAt = 0
 // “从头开始”：显式以 0 起，跳过 reload 的“保持当前位置”捕获
@@ -1305,19 +1311,46 @@ function mediaDuration(v) {
   if (real > 0) return real
   return (v && Number.isFinite(v.duration) && v.duration > 0) ? v.duration : 0
 }
-async function saveNow() {
-  const v = videoEl.value
-  if (!v || !Number.isFinite(v.currentTime) || v.currentTime <= 0) return
-  const dur = mediaDuration(v)
-  const pos = absPos()
+// 进度上报去重（用户 2026-09）：并发调用共享同一请求；失败后至少间隔 10s 再试，
+// 防 timeupdate 高频触发 + 网络失败时堆积重复 POST（存档为单行 UPSERT、无文件 I/O）。
+let savePromise = null
+let lastSaveAttempt = 0
+// 取关闭/上报这一刻的存档内容（pos==null 表示无有效位置，不写）
+function progressPayload(v) {
+  const pos = pickProgressPosition({
+    seekPending: seekPending.value, seekPreview: seekPreview.value,
+    absPos: absPos(), currentTime: v.currentTime
+  })
+  return pos == null ? null : { pos, dur: mediaDuration(v) }
+}
+async function postProgress(p) {
   try {
     await api(`/api/stream/progress?version_id=${props.versionId}`, {
-      method: 'POST', body: JSON.stringify({ position: pos, duration: dur || 0 }),
-      keepalive: true   // 关页/刷新时也能把最后一次进度发出去（评审 B8/R14-D3）
+      method: 'POST', body: JSON.stringify({ position: p.pos, duration: p.dur || 0 }),
+      keepalive: true,   // 关页/刷新时也能把最后一次进度发出去（评审 B8/R14-D3）
+      timeout: 15000     // 单行 UPSERT：慢/挂起时及时放弃，别拖住关播后的「上次看到」刷新
     })
     lastSave = Date.now()
-    posHint.value = `已记录 ${fmt(pos)}`
+    posHint.value = `已记录 ${fmt(p.pos)}`
   } catch (e) { /* 进度上报失败不打扰播放 */ }
+}
+function saveNow() {
+  if (savePromise) return savePromise
+  lastSaveAttempt = Date.now()
+  const v = videoEl.value
+  const p = v ? progressPayload(v) : null
+  savePromise = (p ? postProgress(p) : Promise.resolve()).finally(() => { savePromise = null })
+  return savePromise
+}
+// 关闭时最终存档：等在途请求落定后按「关闭这一刻」的位置再写一次（顺序正确、不并发堆积）。
+// 幂等：父级关窗时先调一次、卸载钩子再调返回同一 Promise，不会双发。
+let finalSavePromise = null
+function saveFinal() {
+  if (finalSavePromise) return finalSavePromise
+  const v = videoEl.value
+  const p = v ? progressPayload(v) : null
+  finalSavePromise = (savePromise || Promise.resolve()).then(() => (p ? postProgress(p) : undefined))
+  return finalSavePromise
 }
 function onTime() {
   const v = videoEl.value
@@ -1333,7 +1366,7 @@ function onTime() {
       emit('watched')
     }
   }
-  if (Date.now() - lastSave > 10000) saveNow()
+  if (Date.now() - Math.max(lastSave, lastSaveAttempt) > 10000) saveNow()   // 成功后 10s 间隔；失败也不密集重试
 }
 function onSeekInput(e) {
   // 拖动中：只更新本地预览值（进度条不被播放回调重置），不触发重开会话
@@ -1354,6 +1387,7 @@ function doSeek(t) {
   // HLS：拖动即关旧开新（复用 start 参数），新流 playing 后解冻；Direct：直接改 currentTime
   t = Math.max(0, Math.floor(Number(t) || 0))
   if (t === Math.floor(absPos())) return
+  clearResumeTimer()   // 用户已 seek：连倒计时一起清，防残留回调把画面拉回断点
   resumeOffer.value = ''
   seekPos.value = t
   seekPreview.value = t
@@ -1375,14 +1409,19 @@ async function onEnded() {
 }
 function resumePlay() {
   // 起播时会话已按断点 start 开流（direct 靠 #t），这里只需消条；
-  // 只有 direct 且浏览器没吃 #t 时才补跳一次。
+  // direct 且浏览器没吃 #t（仍在片头附近）才补跳一次，点晚了也不把画面倒回断点。
+  clearResumeTimer()
   resumeOffer.value = ''
   const v = videoEl.value
   if (v && method.value === 'direct' && lastStartAt > 0) {
-    try { v.currentTime = lastStartAt } catch (e) { /* 忽略 */ }
+    const cur = Number(v.currentTime) || 0
+    if (cur < lastStartAt - 5) {
+      try { v.currentTime = lastStartAt } catch (e) { /* 忽略 */ }
+    }
   }
 }
 async function restartPlay() {
+  clearResumeTimer()
   resumeOffer.value = ''
   resumePos = 0
   startFromZero = true
@@ -1423,6 +1462,8 @@ function captureFrame() {
 }
 function onFullChange() {
   isFull.value = !!document.fullscreenElement
+  // 进入全屏视为同意继续播放（用户 2026-09）：立即消条
+  if (isFull.value && resumeOffer.value) resumePlay()
   if (!isFull.value) {
     mouseActive.value = false
     if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
@@ -1560,6 +1601,9 @@ onMounted(async () => {
     if (pos > 15 && (dur === 0 || !(remain / dur < 0.05 || remain < 300))) {
       resumePos = pos
       resumeOffer.value = p.position_text || fmt(pos)
+      // 弹窗打开即计时：10s 内未点任一按钮 = 同意续播，自动消条（direct 缺 #t 会在到点时补跳）
+      clearResumeTimer()
+      resumeTimer = setTimeout(() => { resumeTimer = 0; resumePlay() }, 10000)
     }
   } catch (e) { /* 无断点直接播 */ }
   await reload()
@@ -1798,10 +1842,15 @@ async function recoverStream(forceElement = false) {
     await mountHls(v, lastPlaylistUrl, Math.max(0, target - 0.5))
   } catch (e) { /* 恢复失败等下次节拍或转 err */ }
 }
-onUnmounted(() => {
-  saveNow()
-  closeSession()
+onBeforeUnmount(() => {
+  // Vue 在 unmount 阶段先 setRef(null) 再跑 onUnmounted：videoEl 在 onUnmounted 已为 null，
+  // 最终进度必须在这里上报（用户 2026-09：拖进度后关闭，重开回到旧断点）。
+  // 走 closeStream 关闭时父级已先调过 saveFinal（同一 Promise）；这里覆盖路由切换等直接卸载。
+  saveFinal()
   try { unbindVideo(videoEl.value) } catch (e) { /* 忽略 */ }
+})
+onUnmounted(() => {
+  closeSession()
   document.removeEventListener('fullscreenchange', onFullChange)
   document.removeEventListener('click', onDocClick)
   window.removeEventListener('beforeunload', saveNow)
@@ -1810,6 +1859,7 @@ onUnmounted(() => {
   if (bufTimer) clearInterval(bufTimer)
   if (saveTimer) clearTimeout(saveTimer)
   clearDropCountdown()
+  clearResumeTimer()
   destroyHls()
   destroyAss()
   destroyPgs()
@@ -1817,6 +1867,8 @@ onUnmounted(() => {
   for (const s of localSubs.value) revokeLocalUrl(s)   // 临时字幕 blob URL 回收
   localSubs.value = []
 })
+// 父级关窗时先取最终存档 Promise：落库后再刷新详情页「上次看到」（卸载后 emit 会被 Vue 丢弃）
+defineExpose({ saveFinal })
 </script>
 <style scoped>
 /* 弹窗自足样式：不再依赖父组件 scoped 的 .dlg；尺寸随屏幕比例自适应 */

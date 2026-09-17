@@ -139,7 +139,7 @@
         @matched="onMatched" @refreshed="onRefreshed" />
     </div>
 
-    <PlayerModal v-if="playVid" :versionId="playVid" :title="playTitle"
+    <PlayerModal v-if="playVid" ref="playerRef" :versionId="playVid" :title="playTitle"
       @close="closeStream" @watched="onPlayEnded" />
 
     <div v-if="posterDlg" class="dlg-mask" @click.self="closePoster">
@@ -311,6 +311,7 @@ async function loadMedia() {
 }
 // 在线播放 P1：版本选播弹窗（播放单位=版本行 id）+ 播完标已看（阈值逻辑 P3 进弹窗内）
 const playVid = ref(null)
+const playerRef = ref(null)   // PlayerModal 暴露 saveFinal：关窗后等最终断点落库再刷新
 const playTitle = ref('')
 const verBlocked = ref({})
 const verErr = ref({})
@@ -382,13 +383,20 @@ async function startPrewarm() {
     preMsg.value = '启动失败：' + e.message
   }
 }
-async function closeStream() {
-  // 关播即刷新断点：详情页“上次看到”不再等手动刷新（仅刷新当前选中版本）
-  const v = playVid.value
+function closeStream() {
+  const vid = playVid.value
+  // 关播：先同步取播放器的最终存档 Promise（此时组件未卸载、位置=关闭这一刻），
+  // 再关窗；落库完成后再 GET 刷新「上次看到」。不走 saved 事件：组件卸载后 emit 会被 Vue 丢弃。
+  const saving = (playerRef.value && playerRef.value.saveFinal)
+    ? playerRef.value.saveFinal() : Promise.resolve()
   playVid.value = null
-  if (!v || Number(v) !== Number(heroVid.value)) return
+  Promise.resolve(saving).catch(() => { /* 忽略 */ }).then(() => refreshProgress(vid))
+}
+async function refreshProgress(vid) {
+  // 刷新断点显示（仅当前 hero 版本；非 hero 版本本就不展示「上次看到」）
+  if (!vid || Number(vid) !== Number(heroVid.value)) return
   try {
-    const p = await api(`/api/stream/progress?version_id=${v}`)
+    const p = await api(`/api/stream/progress?version_id=${vid}`)
     progressInfo.value = (p && Number(p.position) > 0) ? p : null
   } catch (e) { /* 忽略 */ }
 }
