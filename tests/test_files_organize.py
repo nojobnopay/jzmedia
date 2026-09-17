@@ -156,3 +156,69 @@ def test_organize_hint_inplace_when_already_canonical(media_root):
     d2 = c.get(f"/api/movies/{mid2}/organize-hint").json()
     assert d2["params"]["mode"] == "inplace" and d2["needs"] is True
     assert d2["plans"][0]["to"].startswith("电影/华语/Hint Other (2018)/")
+
+
+# ---------- B9 后续：执行路径回归（拆分后漏 import 曾致 500） ----------
+
+def test_organize_execute_inplace_moves_file(media_root):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app import store
+    rel = "raw/Exec.One.2015.mkv"
+    p = media_root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"x")
+    mid = store.upsert_movie_by_path(rel)
+    store.update_movie_meta(mid, tmdb_id=88001, title="Exec One", year=2015,
+                            region="华语", original_language="zh")
+    c = TestClient(app)
+    prev = c.post("/api/files/organize", json={"mode": "inplace", "ids": [mid],
+                                               "dry_run": True}).json()
+    assert prev["plans"], prev
+    d = c.post("/api/files/organize", json={"mode": "inplace", "ids": [mid],
+                                            "dry_run": False}).json()
+    assert [r["status"] for r in d["results"]] == ["moved"]
+    new_rel = (store.get_movie(mid) or {}).get("file_path")
+    assert new_rel and new_rel != rel
+    assert (media_root / new_rel).exists()
+    assert not (media_root / rel).exists()
+
+
+def test_restore_execute_moves_file_back(media_root):
+    from app import store
+    from app.routers import files as files_router
+    rel = "moved/Back.Movie.2016.mkv"
+    p = media_root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"x")
+    mid = store.upsert_movie_by_path(rel)
+    # 模拟历史原始位置（审计列只在首次入库写入，这里直接改库构造场景）
+    store.update_movie_meta(mid, tmdb_id=88002, title="Back Movie", year=2016,
+                            original_file_path="origin/Back.Movie.2016.mkv")
+    r = files_router._restore_one(store.get_movie(mid), dry_run=False)
+    assert r["status"] == "restored", r
+    assert (media_root / "origin/Back.Movie.2016.mkv").exists()
+    assert (store.get_movie(mid) or {}).get("file_path") == "origin/Back.Movie.2016.mkv"
+
+
+def test_organize_execute_relocate_via_hint_params(media_root):
+    """用户实际路径：详情页匹配 → 归档推荐（relocate）→ 确认执行。"""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app import store
+    rel = "待整理/Relocate.Me.2017.mkv"
+    p = media_root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"x")
+    mid = store.upsert_movie_by_path(rel)
+    store.update_movie_meta(mid, tmdb_id=88003, title="Relocate Me", year=2017,
+                            region="华语", original_language="zh")
+    c = TestClient(app)
+    hint = c.get(f"/api/movies/{mid}/organize-hint").json()
+    assert hint["needs"] and hint["params"]["mode"] == "relocate"
+    d = c.post("/api/files/organize", json={**hint["params"], "ids": [mid],
+                                            "dry_run": False}).json()
+    assert [r["status"] for r in d["results"]] == ["moved"], d
+    new_rel = (store.get_movie(mid) or {}).get("file_path")
+    assert new_rel.startswith("电影/华语/Relocate Me (2017)/")
+    assert (media_root / new_rel).exists()

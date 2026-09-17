@@ -13,7 +13,7 @@ from ... import playback as _playback
 import uuid
 from ...log import get_logger
 logger = get_logger("stream.prewarm")
-from .common import _sess_lock, _sessions, _hls_sem, _media_cached_or_probe, _version_abs, _session_dir, _session_key, _plan_marker, _write_master, _playlist_endlist, _write_complete_marker, _session_complete, _seg_count, _video_seg_prefix, _live_sessions_for, _find_live_session, _register_prewarm_session, _drop_session, _kill_proc, router
+from .common import _write_session_meta, _sess_lock, _sessions, _hls_sem, _media_cached_or_probe, _version_abs, _session_dir, _session_key, _plan_marker, _write_master, _playlist_endlist, _write_complete_marker, _session_complete, _seg_count, _video_seg_prefix, _live_sessions_for, _find_live_session, _register_prewarm_session, _drop_session, _kill_proc, router
 __all__ = ['_prewarm_jobs', '_prewarm_plan', '_prewarm_worker', 'PrewarmBody', 'prewarm_start', 'prewarm_status']
 
 _prewarm_jobs: dict[str, dict] = {}
