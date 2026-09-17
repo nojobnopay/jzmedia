@@ -18,18 +18,18 @@ fi
 export DATA_DIR="${DATA_DIR:-./data}"
 export MEDIA_ROOT="${MEDIA_ROOT:-./sample_media}"
 if [ -f .env ]; then
-  for k in TMDB_API_KEY TMDB_READ_TOKEN TMDB_PROXY TMDB_LANGUAGE APP_PORT; do
-    if [ -z "${!k:-}" ]; then
-      v="$(grep -E "^${k}=" .env | cut -d= -f2-)"
-      [ -n "$v" ] && export "$k=$v"
-    fi
-  done
+  # 全键回读（已导出的环境变量优先）；容器专用键在宿主直跑无意义，跳过（评审 R01-B5）
+  while IFS='=' read -r k v; do
+    case "$k" in ''|'#'*) continue ;; esac
+    case "$k" in MEDIA_HOST_PATH|DATA_HOST_PATH|BUILD_HTTP_PROXY|APP_VERSION|GIT_SHA|UID|GID) continue ;; esac
+    if [ -z "${!k:-}" ] && [ -n "$v" ]; then export "$k=$v"; fi
+  done < .env
 fi
 mkdir -p "$MEDIA_ROOT" "$DATA_DIR"
 
 # 2.5) 预检：.venv 与 ffmpeg/ffprobe（在线播放依赖）
 if [ ! -x .venv/bin/python ]; then
-  echo "[start] 缺少 .venv：先跑 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+  echo "[start] 缺少 .venv：先跑 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt" >&2
   exit 1
 fi
 FFSTAT="$(".venv/bin/python" -c "from app.media import bin_status; s=bin_status(); print(('ffmpeg' if s['ffmpeg'] else 'no-ffmpeg') + '/' + ('ffprobe' if s['ffprobe'] else 'no-ffprobe') + ('(static待下载)' if (s['static_pkg_installed'] and not (s['static_ffmpeg_present'] or s['system_ffmpeg'])) else ''))" 2>/dev/null || echo "check-failed")"
