@@ -156,7 +156,7 @@
   </div>
 
   <div v-if="tagDlg" class="dlg-mask" @click.self="tagDlg = false">
-    <div class="dlg" role="dialog" aria-modal="true">
+    <div ref="tagDlgRef" class="dlg" role="dialog" aria-modal="true">
       <h3>批量标签（{{ selectedIds.size }} 部）</h3>
       <div class="bar">
         <label><input type="radio" value="add" v-model="tagMode" /> 追加</label>
@@ -175,7 +175,7 @@
   </div>
 
   <div v-if="colDlg" class="dlg-mask" @click.self="colDlg = false">
-    <div class="dlg" role="dialog" aria-modal="true">
+    <div ref="colDlgRef" class="dlg" role="dialog" aria-modal="true">
       <h3>加入合集（{{ selectedIds.size }} 部）</h3>
       <div class="bar"><input v-model="colQ" placeholder="搜索合集" style="flex:1" /></div>
       <ul class="collist">
@@ -187,7 +187,7 @@
   </div>
 
   <div v-if="delDlg" class="dlg-mask" @click.self="delDlg = false">
-    <div class="dlg" role="dialog" aria-modal="true">
+    <div ref="delDlgRef" class="dlg" role="dialog" aria-modal="true">
       <h3>删除影片（{{ delSummary.total_movies }} 部）</h3>
       <p class="del-warn">警告：将永久删除磁盘文件与库记录（海报/镜像缓存保留），不可恢复。每部片的全部版本与附属文件（花絮/字幕/NFO/周边）都会一起删除。</p>
       <p class="del-sum">{{ delSummary.total_movies }} 部影片 · {{ delSummary.total_versions }} 个正片版本 · {{ delSummary.total_files }} 个文件 · 共 {{ fmtBytes(delSummary.total_bytes) }}</p>
@@ -214,6 +214,7 @@ import UploadDialog from '../components/UploadDialog.vue'
 import { fmtBytes } from '../format.js'
 import { hasScore, fmtScore } from '../ratings.js'
 import { usePolling } from '../usePolling.js'
+import { useFocusTrap } from '../useFocusTrap.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -254,6 +255,9 @@ const selectedIds = ref(new Set())
 const selecting = computed(() => selectedIds.value.size > 0)
 const batching = ref(false)
 const batchMsg = ref('')
+const tagDlgRef = ref(null)
+const colDlgRef = ref(null)
+const delDlgRef = ref(null)
 const tagDlg = ref(false)
 const tagMode = ref('add')
 const newTag = ref('')
@@ -589,6 +593,9 @@ function openColDlg() {
 }
 // 整片删除：先预览影响（片名+版本/附属/大小），二次确认后执行
 const delDlg = ref(false)
+useFocusTrap(computed(() => tagDlg.value), tagDlgRef)
+useFocusTrap(computed(() => colDlg.value), colDlgRef)
+useFocusTrap(computed(() => delDlg.value), delDlgRef)
 const delPlans = ref([])
 const delSummary = ref({ total_movies: 0, total_versions: 0, total_files: 0, total_bytes: 0 })
 const delDone = ref(false)

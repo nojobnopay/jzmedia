@@ -1,6 +1,6 @@
 <template>
   <div class="dlg-mask" @click.self="$emit('close')">
-    <div class="player-dlg" role="dialog" aria-modal="true">
+    <div ref="dlgRef" class="player-dlg" role="dialog" aria-modal="true">
       <div class="pd-head">
         <h3>{{ title || ('版本 ' + versionId) }}</h3>
         <span v-if="methodLine" class="play-method">{{ methodLine }}</span>
@@ -87,6 +87,7 @@ import { ensureJassub } from '../jassubLoader.js'
 import { ensurePgs } from '../pgsLoader.js'
 import { normalizeSubStyle, subFontPx, pickSubAnchor, subBarPad, subInnerPad } from '../subStyle.js'
 import Spinner from './Spinner.vue'
+import { useFocusTrap } from '../useFocusTrap.js'
 import PlayerSettings from './PlayerSettings.vue'
 import { subKind, fmtTime as fmt } from '../playerLabels.js'
 import { parseVtt, activeCues } from '../subtitleParse.js'
@@ -101,8 +102,10 @@ async function ensureHls() {
 const props = defineProps({ versionId: { type: Number, required: true }, title: { type: String, default: '' } })
 const emit = defineEmits(['close', 'watched'])
 
+const dlgRef = ref(null)
 const videoEl = ref(null)
 let hls = null
+useFocusTrap(ref(true), dlgRef)
 let saveTimer = 0
 let lastSave = 0
 const quality = ref('auto')
