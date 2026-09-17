@@ -89,7 +89,7 @@ import { normalizeSubStyle, subFontPx, pickSubAnchor, subBarPad, subInnerPad } f
 import Spinner from './Spinner.vue'
 import PlayerSettings from './PlayerSettings.vue'
 import { subKind, fmtTime as fmt } from '../playerLabels.js'
-import { parseVtt } from '../subtitleParse.js'
+import { parseVtt, activeCues } from '../subtitleParse.js'
 import '../player.css'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
@@ -922,11 +922,7 @@ function vttRender() {
   if (!v || !layer) return
   const off = (subShift() + subDelay.value) * 1000
   const t = (Number.isFinite(v.currentTime) ? v.currentTime : 0) * 1000 + off
-  const act = []
-  for (const c of vttCues) {
-    if (t >= c.start && t < c.end) act.push(c)
-    else if (c.start > t) break
-  }
+  const act = activeCues(vttCues, t)   // 命中判定纯函数（评审 R13-Q4）
   const key = act.map(c => c.start + ':' + c.end).join(',')
   if (key === vttLastKey) return
   vttLastKey = key

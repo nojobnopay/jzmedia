@@ -278,3 +278,12 @@ def test_no_mse_native_hls_allows_remux():
     m = _media(container="mkv")
     d = pb.plan(m, caps, quality="auto", client="web")
     assert d["method"] == "remux"
+
+
+def test_quality_key_burn_splits_dir():
+    copy = {"vcopy": True, "acopy": True, "height": 0, "sub": "none"}
+    burn = {"vcopy": True, "acopy": True, "height": 0, "sub": "burn"}
+    assert _quality_key(copy) == "copy"
+    assert _quality_key(burn) == "copy_burn"
+    assert _quality_key({**copy, "height": 720, "vcopy": False}) == "h720"
+    assert _quality_key({**burn, "height": 720, "vcopy": False}) == "h720_burn"

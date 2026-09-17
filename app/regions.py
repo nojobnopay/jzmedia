@@ -38,8 +38,7 @@ WEST_COUNTRIES = {
     "AU", "NZ",
 }
 
-# 华语细分显示
-CHINESE_SUB = {"CN": "中国大陆", "HK": "香港", "TW": "台湾", "MO": "澳门"}
+# 华语细分（CN/HK/TW/MO）中文名统一在下方 COUNTRY_NAMES；不再单独维护（评审 R10-D5）
 
 # 常用国家中文名（facets展示用，未收录回退ISO码）
 COUNTRY_NAMES = {
