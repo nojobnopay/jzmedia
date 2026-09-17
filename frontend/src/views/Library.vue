@@ -107,8 +107,11 @@
           <svg viewBox="0 0 16 16" width="14" height="14"><path d="M6.2 11.3 3.1 8.2l-1.4 1.4 4.5 4.5 8.1-8.1-1.4-1.4z" fill="currentColor"/></svg>
         </button>
         <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" :alt="m.title || '海报'" />
+        <!-- 未匹配/无海报占位（评审 B9 后续）：刮削失败也留在墙上可见，点进详情可重新匹配 -->
+        <div v-else class="no-poster" aria-hidden="true">{{ (m.title || '?').slice(0, 1) }}</div>
         <ScoreBadge :score="m.tmdb_rating" source="tmdb" />
         <span v-if="m.watched" class="watched-badge">✓已看</span>
+        <span v-if="!m.tmdb_id" class="unmatched-badge" title="尚未匹配 TMDB，点击卡片进详情匹配">未匹配</span>
       </div>
       <div class="t">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span><span v-if="m.needs_review"> [待确认]</span><span v-if="hasScore(m.custom_rating)" class="custom-mini">♥{{ fmtScore(m.custom_rating) }}</span><br v-if="m.region || (m.genres || []).length" /><span v-if="m.region" class="meta">{{ m.region }}</span><span v-if="(m.genres || []).length" class="meta"> {{ (m.genres || []).slice(0, 2).join('/') }}</span></div>
     </div>
@@ -704,6 +707,7 @@ async function pollScan() {
       const c = sum.counts || {}
       const ok = (c.ok || 0) + (c.ok_needs_review || 0)
       msg.value = `完成：新增/更新 ${ok}，跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
+        + (c.scan_failed ? `，刮削失败 ${c.scan_failed}（可重试）` : '')
         + ((sum.errors || []).length ? `，失败 ${sum.errors.length}` : '')
     } else if (st.state === 'cancelled') {
       msg.value = `已取消（${st.done}/${st.total}）`
@@ -808,6 +812,10 @@ watch(() => route.query, () => { readUrl(); load() })
 .floatbar button svg { width: 16px; height: 16px; flex-shrink: 0; }
 .floatbar button:disabled { opacity: .4; cursor: default; }
 .floatbar .fmsg { color: #7ed321; font-size: 0.75rem; white-space: nowrap; }
+.no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center;
+  background: #242424; color: #555; font-size: 2.5rem; font-weight: bold; user-select: none; }
+.unmatched-badge { position: absolute; bottom: 6px; right: 6px; font-size: 0.75rem; padding: 2px 8px;
+  border-radius: 999px; background: rgba(224, 166, 60, .92); color: #1c1c1c; font-weight: bold; }
 .watched-badge { position: absolute; bottom: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #7ed321; }
 .load-more { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 12px 22px; }
 .warn-text { color: #e0a63c; }

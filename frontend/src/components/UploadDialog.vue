@@ -21,9 +21,15 @@
       </ul>
       <p v-if="upQueue.length > 50" class="fhint">等共 {{ upQueue.length }} 个<span v-if="!showAllUp">（仅列前 50）</span> <button v-if="!showAllUp" @click="showAllUp = true">展开全部</button></p>
       <div v-if="upSummary" class="bar"><span class="fhint">{{ upSummary }}</span></div>
-      <div v-if="upNeedsMatch.length" class="bar"><span class="fhint">以下需确认匹配：</span></div>
+      <div v-if="upNeedsMatch.length" class="bar"><span class="fhint">以下需处理（共 {{ upNeedsMatch.length }} 部）：</span></div>
       <ul v-if="upNeedsMatch.length" class="collist">
-        <li v-for="t in upNeedsMatch" :key="t.rel"><span :title="t.rel">{{ midEllipsis(t.rel) }}（{{ t.note }}）</span><button v-if="t.movieId" @click="router.push('/m/' + t.movieId)">去详情匹配</button></li>
+        <li v-for="t in upNeedsMatch" :key="t.rel">
+          <span :title="t.rel">{{ midEllipsis(t.rel) }}（{{ noteText(t) }}）</span>
+          <button v-if="t.movieId" @click="router.push('/m/' + t.movieId)">去详情匹配</button>
+          <button v-if="t.movieId && canRetry(t)" @click="rescanTask(t)" :disabled="t._rescuing">
+            {{ t._rescuing ? '重试中…' : '重试刮削' }}
+          </button>
+        </li>
       </ul>
       <div class="bar">
         <button v-if="!uploading && !upFinished" @click="startUpload" :disabled="!canStartUpload">开始上传</button>
@@ -88,6 +94,45 @@ const upTotalPct = computed(() => {
 const upFinished = computed(() => upQueue.value.length > 0 && !uploading.value && upQueue.value.every(t => t.state !== 'queued' && t.state !== 'active'))
 const canStartUpload = computed(() => !uploading.value && upQueue.value.some(t => t.state === 'queued'))
 const visibleUpQueue = computed(() => showAllUp.value ? upQueue.value : upQueue.value.slice(0, 50))
+// 状态文案（评审 B9 后续）：失败可重试、未匹配可去匹配，别只丢裸状态码
+const NOTE_TEXT = {
+  ok: '已入库', ok_needs_review: '待确认', no_match: 'TMDB 未匹配',
+  scan_failed: '刮削失败（可重试）', skipped_cached: '已入库', skipped_unchanged: '未变化',
+  skipped_sample: '样片跳过', skipped_episode_v1: '剧集跳过'
+}
+function noteText(t) {
+  const n = String((t && t.note) || '')
+  if (n.startsWith('stored_scan_warn')) return '刮削出错（可重试）'
+  return NOTE_TEXT[n] || n || '完成'
+}
+function canRetry(t) {
+  const n = String((t && t.note) || '')
+  return n === 'no_match' || n === 'scan_failed' || n.startsWith('stored_scan_warn')
+}
+async function rescanTask(t) {
+  if (!t || !t.movieId || t._rescuing) return
+  t._rescuing = true
+  upMsg.value = ''
+  try {
+    const d = await api('/api/movies/' + t.movieId + '/rescan', { method: 'POST' })
+    const st = (d && d.status) || ''
+    if (st === 'ok' || st === 'ok_needs_review') {
+      t.note = d.tmdb_id ? 'ok' : st
+      upMsg.value = `「${d.title || t.rel}」刮削完成`
+      emit('done')
+    } else if (st === 'scan_failed') {
+      t.note = 'scan_failed'
+      upMsg.value = '仍失败：' + ((d && d.error) || '网络/接口异常，可稍后再试')
+    } else {
+      t.note = st || 'no_match'
+      upMsg.value = '仍无匹配结果，可去详情手动搜索'
+    }
+  } catch (e) {
+    upMsg.value = '重试失败：' + e.message
+  } finally {
+    t._rescuing = false
+  }
+}
 function upTaskState(t) {
   if (t.state === 'queued') return fmtBytes(t.file.size)
   if (t.state === 'active') {
@@ -96,7 +141,7 @@ function upTaskState(t) {
   }
   if (t.state === 'skipped') return '已存在·跳过'
   if (t.state === 'error') return '失败：' + (t.note || '')
-  return t.note || '完成'
+  return noteText(t)
 }
 // 字节传完后的等待提示（服务端在响应前同步跑 scan_one：TMDB 搜索/详情/海报头像）
 const upScanSecs = ref(0)
@@ -185,7 +230,7 @@ async function startUpload() {
   upCancelled = false
   scanSamples.value = []
   stopScanTicker()
-  let ok = 0, skipped = 0, failed = 0, review = 0, nomatch = 0
+  let ok = 0, skipped = 0, failed = 0, review = 0, nomatch = 0, scanfail = 0
   for (const t of upQueue.value) {
     if (upCancelled) break
     if (t.state !== 'queued') continue
@@ -224,8 +269,9 @@ async function startUpload() {
       t.note = st
       t.movieId = (r && r.movie_id) || null
       ok++
-      if (st === 'ok_needs_review' || (st || '').startsWith('stored_scan_warn')) review++
+      if (st === 'ok_needs_review') review++
       else if (st === 'no_match') nomatch++
+      else if (st === 'scan_failed' || st.startsWith('stored_scan_warn')) scanfail++
     } catch (e) {
       clearTimeout(t._hintTimer)
       t._hintTimer = null
@@ -255,6 +301,7 @@ async function startUpload() {
   if (skipped) parts.push(`跳过 ${skipped}`)
   if (nomatch) parts.push(`未匹配 ${nomatch}`)
   if (review) parts.push(`待确认 ${review}`)
+  if (scanfail) parts.push(`刮削失败 ${scanfail}（可重试）`)
   if (failed) parts.push(`失败 ${failed}`)
   if (upCancelled) parts.push('（已取消）')
   upSummary.value = parts.join(' · ')
@@ -275,7 +322,8 @@ const upDoneSummary = ref('')
 const upNeedsMatch = computed(() => upQueue.value.filter(t => {
   if (t.state !== 'done') return false
   const s = t.note || ''
-  return s === 'no_match' || s === 'ok_needs_review' || s.startsWith('stored_scan_warn')
+  return s === 'no_match' || s === 'scan_failed' || s === 'ok_needs_review'
+    || s.startsWith('stored_scan_warn')
 }))
 const upOrganizableIds = computed(() => [...new Set(
   upQueue.value.filter(t => t.movieId).map(t => t.movieId))])

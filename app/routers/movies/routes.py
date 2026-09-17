@@ -11,7 +11,7 @@ logger = get_logger("movies.routes")
 from ...scanner import same_stem
 from .common import (_INLINE_EXTS, FilterList, _page, _stream_upload)
 from .scope import _movie_delete_scope
-__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig']
+__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig']
 
 router = APIRouter(prefix="/api")
 
@@ -683,6 +683,30 @@ def manual_match(movie_id: int, body: dict, background_tasks: BackgroundTasks):
                               abs_path, media["poster_tmdb"],
                               media["old_poster_tmdb"])
     return {"id": movie_id, **out}
+
+
+@router.post("/movies/{movie_id}/rescan")
+def rescan_movie(movie_id: int):
+    """手动重试刮削（评审 B9 后续）：读行内 file_path，force 跳过增量跳过与缓存短路。
+    刮削失败的行（scan_failed/no_match）重试后仍在，绝不因失败消失。"""
+    m = store.get_movie(movie_id)
+    if not m:
+        raise HTTPException(404, "movie not found")
+    rel = (m.get("file_path") or "").strip()
+    if not rel:
+        raise HTTPException(422, "movie has no file_path")
+    abs_path = os.path.join(settings.media_root, rel)
+    if not os.path.isfile(abs_path):
+        raise HTTPException(410, f"file missing: {rel}")
+    try:
+        r = scanner.scan_one(abs_path, force=True)
+    except Exception as e:
+        logger.warning("rescan failed movie_id=%s rel=%s: %s", movie_id, rel, e)
+        raise HTTPException(502, f"rescan failed: {e}")
+    cur = store.get_movie(movie_id) or {}
+    return {"id": movie_id, **r,
+            "tmdb_id": cur.get("tmdb_id"), "title": cur.get("title"),
+            "year": cur.get("year")}
 
 
 @router.post("/movies/{movie_id}/refresh")
