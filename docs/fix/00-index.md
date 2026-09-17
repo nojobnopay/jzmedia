@@ -55,8 +55,10 @@
 断点：无进行中批次；H-UI 用户点检全部通过（2026-09-17）
 审计：14 份评审 ID 覆盖率复核发现 53 条未入组，已补齐为 B11 批（tag b11-audit-gaps，见
   docs/fix/10-p2-backlog §B11）；其中判定「无需改」者已注明理由
-后续（架构长尾，非 bug，待用户决定是否继续）：R01-Q4 fs.py 三段式/拆分、R05-Q4 Detail 拆分、
-  R14-B6 焦点陷阱、R13-Q1 useSubtitles 完整 composable（解析/注册表/命中判定已收口）
+架构长尾（2026-09-17 用户同意后推进）：R01-Q4 fs 拆包 done（b11c-fs-package）；
+  R05-Q4 Detail 拆分部分 done（b11d-detail-focus：上传/编辑面板，剩播放条+文件管理器）；
+  R14-B6 焦点陷阱 done（9 处弹窗）；R13-Q1 剩完整 useSubtitles composable（约 500 行搬迁，
+  建议专门会话 + 即时 H-UI）
 ```
 
 ## 5. 进度 Log（倒序）

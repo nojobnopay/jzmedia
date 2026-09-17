@@ -139,8 +139,13 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
   R02-Q4（错误风格随 P1-10 日志批统一）、R08-B2（`_KIND_WORDS` 无重复，现版即正确）、
   R12-Q2（tests/test_stream_sessions.py 已覆盖核心并发状态机）
 - 覆盖率结论：14 份评审 249 条 ID 全部有归属（修复/等价覆盖/判定无需改/架构长尾）
-剩余（架构长尾，非 bug）：R01-Q4 fs.py 三段式/拆分、R05-Q4 Detail 拆分、R14-B6 焦点陷阱、
-R13-Q1 useSubtitles 完整 composable（解析/注册表/命中判定已收口）
+架构长尾推进（2026-09-17，用户同意后执行）：
+- R01-Q4 done（tag `b11c-fs-package`）：fs.py（643 行）→ fs/ 六模块 + 门面
+- R05-Q4 部分（tag `b11d-detail-focus`）：Detail 1079→799，上传/编辑匹配面板抽组件；
+  剩余：播放条与文件管理器（含版本探测/预览/删除）仍在本页
+- R14-B6 done：useFocusTrap 接入 9 处弹窗（Tab 循环/打开聚焦/关闭还原）
+- R13-Q1 部分：解析/注册表/命中判定已收口；完整 useSubtitles composable（约 500 行搬迁）
+  因 PlayerModal 刚经用户验证、回归风险高，留专门会话 + 即时 H-UI 点检后实施
 ### B10 工程化收尾批
 | 组 | 成员 | 状态 |
 |---|---|---|
