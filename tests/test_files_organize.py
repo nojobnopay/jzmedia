@@ -283,3 +283,50 @@ def test_collect_reports_skipped_conflict(media_root):
     assert d["moved"] == 0 and d["skipped"]
     assert any(sk["file_path"] == "scatter/featurette.mkv"
                and sk["reason"] == "target_exists" for sk in d["skipped"])
+
+
+# ---------- B11 二轮补漏：_under 归一 / EXDEV 兜底 / relocate 单次全表 ----------
+
+def test_under_root_normalizes_prefix():
+    from app.routers.files.routes import _under_root
+    assert _under_root("电影/华语/a.mkv", "电影")
+    assert _under_root("./电影/华语/a.mkv", "电影")   # 非规范前缀不漏判（R09-B7）
+    assert _under_root("电影//华语/a.mkv", "电影")
+    assert _under_root("电影", "电影")
+    assert not _under_root("电影院/a.mkv", "电影")
+    assert not _under_root("a/b.mkv", "电影")
+
+
+def test_rename_or_move_falls_back_on_exdev(monkeypatch):
+    import errno
+    from app.routers.files import paths as fp
+    moved = {}
+
+    def boom(*a, **k):
+        raise OSError(errno.EXDEV, "cross-device link")
+
+    monkeypatch.setattr(fp.os, "rename", boom)
+    monkeypatch.setattr(fp.shutil, "move",
+                        lambda s, d: moved.update(src=s, dst=d))
+    fp._rename_or_move("/vol1/a.mkv", "/vol2/a.mkv")
+    assert moved == {"src": "/vol1/a.mkv", "dst": "/vol2/a.mkv"}
+
+
+def test_relocate_reads_movies_once(media_root, monkeypatch):
+    from app.routers import files as files_router
+    rel = "待整理/One.Read.2020.mkv"
+    _touch(media_root, rel)
+    _row(rel, title="One Read", year=2020, tmdb_id=99201)
+    calls = {"n": 0}
+    orig = files_router.store.list_movies
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return orig(*a, **k)
+
+    monkeypatch.setattr(files_router.store, "list_movies", counting)
+    d = files_router._organize("relocate", from_prefix="待整理",
+                               to_dir="电影", dry_run=True)
+    assert calls["n"] == 1          # 评审 99 §2.2：relocate 不再两次全表
+    assert d["plans"]
+

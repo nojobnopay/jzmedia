@@ -3,23 +3,22 @@ import os
 import errno
 import shutil
 from ...config import settings
+from ...editions import _ILLEGAL
 from fastapi import HTTPException
 from ...log import get_logger
 logger = get_logger("files.paths")
-__all__ = ['_ILLEGAL', '_MAX_ONLY_IDS', '_safe_component', '_check_inside_root', '_only_ids', '_rename_or_move']
-
-_ILLEGAL = ("\\", "/", ":", "*", "?", '"', "<", ">", "|")
+__all__ = ['_MAX_ONLY_IDS', '_safe_component', '_check_inside_root', '_only_ids', '_rename_or_move']
 
 
 _MAX_ONLY_IDS = 5000
 
 
 def _safe_component(s: str) -> str:
-    """文件名安全清洗。与 editions.sanitize_tag 的差异（评审 B8/R09-B3）：本函数不限长、
-    不剥首尾点划线（用于路径段）；sanitize_tag 面向标签/后缀（限 20、剥边界）。"""
+    """文件名安全清洗。非法字符表与 editions 单源（评审 B11/R09-B3）；与
+    editions.sanitize_tag 的差异：本函数不限长、不剥首尾点划线（用于路径段）；
+    sanitize_tag 面向标签/后缀（限 20、剥边界）。"""
     s = str(s or "").strip()
-    for ch in _ILLEGAL:
-        s = s.replace(ch, "")
+    s = _ILLEGAL.sub("", s)
     return " ".join(s.split())
 
 

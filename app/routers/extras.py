@@ -27,8 +27,8 @@ def orphans():
                 guess["guessed_title"] = t
             if parsed.get("year"):
                 guess["guessed_year"] = parsed["year"]
-        except Exception:
-            pass
+        except Exception as ex:
+            logger.debug("guess orphan title failed id=%s path=%s: %s", e.get("id"), rel, ex)
         items.append({"id": e["id"], "file_path": rel,
                       "kind": e.get("kind") or "extra", **guess})
     return {"total": len(items), "items": items}

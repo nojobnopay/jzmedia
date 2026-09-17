@@ -19,14 +19,10 @@ __all__ = ['_ordered_plans', '_REGION_SET', '_MOVIE_DIR_RE', '_is_movie_dir_name
 _REGION_SET = set(REGION_ORDER)
 
 
-_MOVIE_DIR_RE = None  # 惰性编译：片目录形态 `X (YYYY)`
+_MOVIE_DIR_RE = re.compile(r"^.+ \(\d{4}\)$")  # 片目录形态 `X (YYYY)`（评审 B11/R09-B3：模块级编译）
 
 
 def _is_movie_dir_name(name: str) -> bool:
-    global _MOVIE_DIR_RE
-    if _MOVIE_DIR_RE is None:
-        import re as _re
-        _MOVIE_DIR_RE = _re.compile(r"^.+ \(\d{4}\)$")
     return bool(_MOVIE_DIR_RE.match((name or "").strip()))
 
 
@@ -120,8 +116,12 @@ def _keeper_of(comp: dict) -> dict:
 
 def _collect_plans(target_root: str | None = None,
                    group_by_region: bool = False,
-                   only: set | None = None) -> tuple[list, list]:
-    all_rows = store.list_movies(grouped=False, limit=100000)
+                   only: set | None = None,
+                   all_rows: list | None = None) -> tuple[list, list]:
+    # all_rows 允许调用方传入已读的全表（评审 99 §2.2：relocate 免二次全表读）；
+    # 库内占用检查需要全表，因此不能只传 scoped 子集。
+    all_rows = (all_rows if all_rows is not None
+                else store.list_movies(grouped=False, limit=100000))
     # 目标路径 → 库内占用行 id。磁盘缺失的 missing 行也占 UNIQUE(file_path)，
     # 执行前必须挡掉（评审 P1-06：否则 rename 成功而 DB 更新失败，盘库不一致）。
     db_owner = {os.path.normpath(m["file_path"]): m["id"] for m in all_rows}

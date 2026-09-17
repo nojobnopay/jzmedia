@@ -27,7 +27,8 @@ def _sibling_followers(src_abs: str) -> list[str]:
     out = []
     try:
         names = os.listdir(src_dir)
-    except OSError:
+    except OSError as e:
+        logger.debug("list sibling dir failed dir=%s: %s", src_dir, e)
         return out
     for n in names:
         full = os.path.join(src_dir, n)
@@ -46,7 +47,8 @@ def _cleanup_old_dir(old_dir_abs: str) -> None:
     """旧目录无正片残留时清掉 NFO 残留；空目录则删掉（共享大目录不会为空，无动作）。"""
     try:
         names = os.listdir(old_dir_abs)
-    except OSError:
+    except OSError as e:
+        logger.debug("list old dir failed dir=%s: %s", old_dir_abs, e)
         return
     has_feature = False
     for n in names:
@@ -80,7 +82,8 @@ def move_attached_extras(movie_id: int, movie_dir_abs: str) -> dict:
     skipped: list[dict] = []
     try:
         rows = store.list_extras_by_movie(movie_id)
-    except Exception:
+    except Exception as e:
+        logger.debug("list extras failed movie_id=%s: %s", movie_id, e)
         return {"moved": 0, "skipped": []}
     for e in rows:
         esrc = os.path.join(settings.media_root, e["file_path"])
@@ -96,7 +99,7 @@ def move_attached_extras(movie_id: int, movie_dir_abs: str) -> dict:
                 continue
             os.makedirs(edst_dir, exist_ok=True)
             if not os.path.exists(edst):
-                os.rename(esrc, edst)
+                _rename_or_move(esrc, edst)
                 store.upsert_extra(os.path.relpath(edst, settings.media_root),
                                    movie_id, e.get("kind") or "extra")
                 try:
@@ -123,11 +126,13 @@ def _resync_old_dir(old_dir_abs: str) -> None:
             old_rel = os.path.relpath(old_dir_abs, settings.media_root)
             if old_rel == ".":
                 old_rel = ""
-        except ValueError:
+        except ValueError as e:
+            logger.debug("relpath old dir failed dir=%s: %s", old_dir_abs, e)
             return
         try:
             rows = store.list_movies_in_dir(old_rel)
-        except Exception:
+        except Exception as e:
+            logger.debug("list old dir movies failed dir=%s: %s", old_rel, e)
             return
         remaining = []
         for r in rows:
@@ -137,7 +142,8 @@ def _resync_old_dir(old_dir_abs: str) -> None:
                     continue
                 if os.path.isfile(os.path.join(settings.media_root, fp)):
                     remaining.append(r)
-            except Exception:
+            except Exception as e:
+                logger.debug("probe old dir row failed path=%s: %s", r.get("file_path"), e)
                 continue
         if not remaining:
             return
@@ -171,10 +177,12 @@ def _move_one(p: dict) -> dict:
         # 本地写：只改 file_path，不碰 TMDB 镜像列
         try:
             store.update_movie_local(p["id"], file_path=p["to"])
-        except Exception:
+        except Exception as e:
             # 库写失败回滚移动，保证盘/库一致（正常路径已被上面的占用检查挡住）
+            logger.warning("update db after move failed id=%s %s -> %s: %s",
+                           p.get("id"), p.get("from"), p.get("to"), e)
             try:
-                os.rename(dst, src)
+                _rename_or_move(dst, src)
             except OSError:
                 logger.error("move rollback failed id=%s dst=%s src=%s", p["id"],
                              p["to"], p["from"])
@@ -182,7 +190,8 @@ def _move_one(p: dict) -> dict:
         # 规划期识别的版本/编号后缀落库（DB 为空才写，手工值优先），防下次预览回环
         try:
             cur = store.get_movie(p["id"]) or {}
-        except Exception:
+        except Exception as e:
+            logger.debug("get movie for persist failed id=%s: %s", p.get("id"), e)
             cur = {}
         persist: dict = {}
         if p.get("edition") and not cur.get("edition"):
@@ -211,7 +220,8 @@ def _move_one(p: dict) -> dict:
                 if not os.path.exists(fdst):
                     _rename_or_move(f, fdst)
                     followed += 1
-            except OSError:
+            except OSError as e:
+                logger.debug("follow sidecar failed %s -> %s: %s", f, fdst, e)
                 continue
         _cleanup_old_dir(os.path.dirname(src))
         # 归属花絮跟随：搬进目标 extras/ 子目录（Plex 子目录名 collapsing，茎名清洗保留）

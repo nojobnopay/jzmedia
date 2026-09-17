@@ -11,9 +11,17 @@ logger = get_logger("files.routes")
 from .paths import _check_inside_root, _only_ids, _rename_or_move
 from .planner import _collect_plans, _ordered_plans
 from .executor import _cleanup_old_dir, _resync_old_dir, _move_one
-__all__ = ['router', '_organize', 'organize', 'preview', 'unmatched', 'clean_sidecars', 'clean_episodes', 'missing', 'clean', '_restore_candidates', '_restore_one', 'restore_candidates', 'restore_original']
+__all__ = ['router', '_organize', 'organize', 'preview', 'unmatched', 'clean_sidecars', 'clean_episodes', 'missing', 'clean', '_restore_candidates', '_restore_one', 'restore_candidates', 'restore_original', '_under_root', '_delete_rows']
 
 router = APIRouter(prefix="/api/files")
+
+
+def _under_root(path: str, root: str) -> bool:
+    """路径是否在 root 子树内（含自身）。两侧 normpath 归一（评审 B11/R09-B7）：
+    `./电影/x`、`电影//x` 等非规范写法不再漏判。"""
+    p = os.path.normpath(path or "")
+    r = os.path.normpath(root or "")
+    return p == r or p.startswith(r.rstrip("/") + "/")
 
 
 def _organize(mode: str, from_prefix: str | None = None,
@@ -30,20 +38,20 @@ def _organize(mode: str, from_prefix: str | None = None,
         td = _check_inside_root(str(to_dir or "电影"))
         if os.path.normpath(fp) == os.path.normpath(td):
             raise HTTPException(422, "from_prefix == to_dir, nothing to do")
-        rows = store.list_movies(grouped=False, limit=100000)
+        all_rows = store.list_movies(grouped=False, limit=100000)
         if only:
-            rows = [m for m in rows if m["id"] in only]
+            scoped_rows = [m for m in all_rows if m["id"] in only]
         else:
             # 全量收敛：from_prefix 子树 + 已在目标根下但尚未规范的行
             #（分区过期如改绑换产地、两级分区前的平铺残留）；目标已规范的行无计划
-            def _under(m, root: str) -> bool:
-                return (os.path.normpath(m["file_path"]) == root
-                        or m["file_path"].startswith(root.rstrip("/") + "/"))
-            rows = [m for m in rows if _under(m, fp) or _under(m, td)]
-        scoped = {m["id"] for m in rows}
+            scoped_rows = [m for m in all_rows
+                           if _under_root(m["file_path"], fp)
+                           or _under_root(m["file_path"], td)]
+        scoped = {m["id"] for m in scoped_rows}
         plans, conflicts = _collect_plans(target_root=td,
                                           group_by_region=bool(group_by_region),
-                                          only=scoped or {-1})
+                                          only=scoped or {-1},
+                                          all_rows=all_rows)
         base = {"dry_run": dry_run, "mode": mode, "from_prefix": fp,
                 "to_dir": td, "group_by_region": bool(group_by_region)}
     if dry_run:
@@ -108,6 +116,24 @@ def unmatched():
             "total_orphan_extras": len(orphans)}
 
 
+def _delete_rows(cands: list) -> dict:
+    """执行删行（只删库，文件保留）：逐行上报结果与失败原因。
+    clean / clean-sidecars / clean-episodes 共用（评审 B11/R09-B3 抽取）。"""
+    done, failed = [], []
+    for m in cands:
+        try:
+            ok = store.delete_movie(m["id"])
+            done.append({"id": m["id"], "file_path": m["file_path"],
+                         "status": "deleted" if ok else "already_gone"})
+        except Exception as e:
+            logger.warning("delete movie row failed id=%s path=%s: %s",
+                           m.get("id"), m.get("file_path"), e)
+            failed.append({"id": m["id"], "file_path": m["file_path"],
+                           "error": str(e)})
+    return {"dry_run": False, "total": len(cands), "deleted": len(done),
+            "failed": failed, "results": done}
+
+
 @router.post("/clean-sidecars")
 def clean_sidecars(body: dict | None = None):
     """清理历史脏行：file_path 命中现行花絮/样片规则的 movies 行，删行+关联+FTS。
@@ -125,17 +151,7 @@ def clean_sidecars(body: dict | None = None):
              for m in cands]
     if dry_run:
         return {"dry_run": True, "total": len(plans), "plans": plans}
-    done, failed = [], []
-    for m in cands:
-        try:
-            ok = store.delete_movie(m["id"])
-            done.append({"id": m["id"], "file_path": m["file_path"],
-                         "status": "deleted" if ok else "already_gone"})
-        except Exception as e:
-            failed.append({"id": m["id"], "file_path": m["file_path"],
-                           "error": str(e)})
-    return {"dry_run": False, "total": len(cands), "deleted": len(done),
-            "failed": failed, "results": done}
+    return _delete_rows(cands)
 
 
 @router.post("/clean-episodes")
@@ -155,7 +171,9 @@ def clean_episodes(body: dict | None = None):
             continue
         try:
             parsed = parse_filename(os.path.basename(m["file_path"]))
-        except Exception:
+        except Exception as e:
+            logger.debug("parse episode name failed id=%s path=%s: %s",
+                         m.get("id"), m.get("file_path"), e)
             continue
         if parsed.get("type") == "episode":
             cands.append(m)
@@ -163,17 +181,7 @@ def clean_episodes(body: dict | None = None):
               "file_path": m["file_path"]} for m in cands]
     if dry_run:
         return {"dry_run": True, "total": len(plans), "plans": plans}
-    done, failed = [], []
-    for m in cands:
-        try:
-            ok = store.delete_movie(m["id"])
-            done.append({"id": m["id"], "file_path": m["file_path"],
-                         "status": "deleted" if ok else "already_gone"})
-        except Exception as e:
-            failed.append({"id": m["id"], "file_path": m["file_path"],
-                           "error": str(e)})
-    return {"dry_run": False, "total": len(cands), "deleted": len(done),
-            "failed": failed, "results": done}
+    return _delete_rows(cands)
 
 
 @router.get("/missing")
@@ -204,17 +212,7 @@ def clean(body: dict | None = None):
               "tmdb_id": m.get("tmdb_id")} for m in cands]
     if dry_run:
         return {"dry_run": True, "total": len(plans), "plans": plans}
-    done, failed = [], []
-    for m in cands:
-        try:
-            ok = store.delete_movie(m["id"])
-            done.append({"id": m["id"], "file_path": m["file_path"],
-                         "status": "deleted" if ok else "already_gone"})
-        except Exception as e:
-            failed.append({"id": m["id"], "file_path": m["file_path"],
-                           "error": str(e)})
-    return {"dry_run": False, "total": len(cands), "deleted": len(done),
-            "failed": failed, "results": done}
+    return _delete_rows(cands)
 
 
 def _restore_candidates(only: set | None) -> list[dict]:
@@ -263,7 +261,9 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
         # 本地写：只改 file_path，不碰 TMDB 镜像列与 original_file_path
         try:
             store.update_movie_local(m["id"], file_path=base["to"])
-        except Exception:
+        except Exception as e:
+            logger.warning("update db after restore failed id=%s %s -> %s: %s",
+                           m.get("id"), base.get("from"), base.get("to"), e)
             try:
                 _rename_or_move(dst, src)
             except OSError as rb:
