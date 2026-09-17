@@ -1,6 +1,6 @@
 <template>
   <div class="dlg-mask" @click.self="$emit('close')">
-    <div class="player-dlg">
+    <div class="player-dlg" role="dialog" aria-modal="true">
       <div class="pd-head">
         <h3>{{ title || ('版本 ' + versionId) }}</h3>
         <span v-if="methodLine" class="play-method">{{ methodLine }}</span>

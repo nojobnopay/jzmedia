@@ -1,5 +1,9 @@
 <template>
-  <div class="page" v-if="c">
+  <div v-if="!c" class="page">
+    <p class="msg">{{ loadErr || '加载中…' }}</p>
+    <p v-if="loadErr" class="msg"><button @click="$router.push('/collections')">返回合集列表</button></p>
+  </div>
+  <div v-else class="page">
     <div class="bar">
       <button @click="$router.back()">‹ 返回</button>
       <button @click="toggleEdit">{{ editing ? '收起' : '编辑' }}</button>
@@ -25,7 +29,7 @@
     </div>
     <div v-if="!c.members.length" class="bar">空合集：去海报墙多选影片后“加入合集”，或从影片详情页加入。</div>
     <div v-if="armDel" class="dlg-mask" @click.self="armDel = false">
-      <div class="dlg">
+      <div class="dlg" role="dialog" aria-modal="true">
         <h3>删除合集</h3>
         <p class="hint">将删除合集「{{ c.name }}」（{{ c.member_count }} 部），只删合集，影片保留。不可恢复。</p>
         <div class="bar">
@@ -46,13 +50,20 @@ const router = useRouter()
 const c = ref(null)
 const msg = ref('')
 const editing = ref(false)
+const loadErr = ref('')
 const busy = ref(false)
 const armDel = ref(false)
 const f = ref({ name: '', overview: '' })
 
 async function load() {
-  c.value = await api('/api/collections/' + route.params.id)
-  f.value = { name: c.value.name || '', overview: c.value.overview || '' }
+  loadErr.value = ''
+  try {
+    c.value = await api('/api/collections/' + route.params.id)
+    f.value = { name: c.value.name || '', overview: c.value.overview || '' }
+  } catch (e) {
+    c.value = null
+    loadErr.value = e && /404/.test(String(e.message)) ? '合集不存在或已删除' : ('加载失败：' + e.message)
+  }
 }
 function toggleEdit() {
   if (!editing.value && c.value) f.value = { name: c.value.name, overview: c.value.overview || '' }

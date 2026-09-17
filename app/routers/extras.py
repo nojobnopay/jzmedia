@@ -1,7 +1,10 @@
 """花絮归属：orphan 列表 + 手工认领。"""
+import os
+
 from fastapi import APIRouter, HTTPException
 
 from .. import store
+from ..config import settings
 from ..log import get_logger
 
 router = APIRouter(prefix="/api/extras")
@@ -49,8 +52,6 @@ def attach(extra_id: int, body: dict):
 def collect(body: dict | None = None):
     """归位已归属花絮：影片已归档但花絮散落在外的（如 待整理/），搬进各片 extras/。
     dry_run 默认 true 只预览。"""
-    import os as _os
-    from ..config import settings as _settings
     from .files import _only_ids, move_attached_extras
     body = body or {}
     dry_run = body.get("dry_run", True)
@@ -69,11 +70,11 @@ def collect(body: dict | None = None):
         if only is not None and m["id"] not in only:
             continue
         rows = by_movie.get(m["id"], [])
-        pending = [e for e in rows if _os.path.dirname(e["file_path"])
-                   != _os.path.join(_os.path.dirname(m["file_path"]), "extras")]
+        pending = [e for e in rows if os.path.dirname(e["file_path"])
+                   != os.path.join(os.path.dirname(m["file_path"]), "extras")]
         if pending:
             cands.append({"id": m["id"], "title": m.get("title", ""),
-                          "dir": _os.path.dirname(m["file_path"]),
+                          "dir": os.path.dirname(m["file_path"]),
                           "extras": [e["file_path"] for e in pending]})
     if dry_run:
         return {"dry_run": True, "total": len(cands), "plans": cands}
@@ -81,7 +82,7 @@ def collect(body: dict | None = None):
     for c in cands:
         try:
             n = move_attached_extras(
-                c["id"], _os.path.join(_settings.media_root, c["dir"]))
+                c["id"], os.path.join(settings.media_root, c["dir"]))
             done.append({"id": c["id"], "moved": n})
         except Exception as e:
             done.append({"id": c["id"], "moved": 0, "error": str(e)})

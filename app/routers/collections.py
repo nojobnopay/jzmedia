@@ -6,8 +6,9 @@ from fastapi import APIRouter, HTTPException
 
 import threading
 import time
+import uuid
 
-from .. import store
+from .. import scanner, store
 
 router = APIRouter(prefix="/api/collections")
 
@@ -62,16 +63,13 @@ def suggest_backfill(body: dict | None = None):
     立即返回 {job_id, total}；前端轮询 ./status 看进度，推荐经 GET /suggest 增量呈现。
     轻量路径只写镜像+文字（不下海报/头像、不写 NFO），手工标题不覆盖；
     确认无系列的独立片自动排除（force=True 忽略排除全量重查）。"""
-    import threading as _threading
-    import time as _time
-    import uuid as _uuid
     limit = ((body or {}).get("limit") or 50)
     try:
         limit = max(1, min(int(limit), 200))
     except (TypeError, ValueError):
         raise HTTPException(422, "limit must be int")
     force = bool((body or {}).get("force"))
-    from .. import scanner
+    
     with _JOBS_LOCK:
         for jid, j in _JOBS.items():
             if j["state"] == "running":
@@ -80,10 +78,10 @@ def suggest_backfill(body: dict | None = None):
         if not tids:
             return {"job_id": "", "total": 0, "resumed": False,
                     "suggest": store.suggest_series_collections()}
-        jid = _uuid.uuid4().hex[:12]
+        jid = uuid.uuid4().hex[:12]
         _JOBS[jid] = {"state": "running", "done": 0, "total": len(tids),
                       "current_title": "", "failed": [], "force": force,
-                      "started_at": int(_time.time())}
+                      "started_at": int(time.time())}
     def _run():
         for tid in tids:
             with _JOBS_LOCK:
@@ -110,9 +108,9 @@ def suggest_backfill(body: dict | None = None):
         with _JOBS_LOCK:
             if jid in _JOBS and _JOBS[jid]["state"] == "running":
                 _JOBS[jid]["state"] = "done"
-                _JOBS[jid]["finished_at"] = int(_time.time())
+                _JOBS[jid]["finished_at"] = int(time.time())
             _trim_jobs()
-    _threading.Thread(target=_run, daemon=True).start()
+    threading.Thread(target=_run, daemon=True).start()
     return {"job_id": jid, "total": len(tids), "resumed": False, "force": force}
 
 
@@ -172,7 +170,8 @@ def get_one(cid: int):
 def patch_one(cid: int, body: dict):
     if not store.get_collection(cid):
         raise HTTPException(404, "collection not found")
-    allowed = {"name", "overview", "poster_path", "tmdb_collection_id"}
+    # 海报由成员海报聚合（store.collection_posters），不接受任意路径写入（评审 R06-B5）
+    allowed = {"name", "overview", "tmdb_collection_id"}
     data = {k: v for k, v in (body or {}).items() if k in allowed}
     if "tmdb_collection_id" in data and data["tmdb_collection_id"] is not None:
         try:
