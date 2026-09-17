@@ -10,7 +10,7 @@ from .classify import is_sample, is_sidecar, extra_kind, strip_kind_affix, scan_
 from .parse import parse_filename, normalize_title
 from .match import search_with_fallback
 from .persist import apply_cached_to_movie, apply_tmdb_detail
-__all__ = ['ST_SKIPPED_SAMPLE', 'ST_EXTRA_ATTACHED', 'ST_EXTRA_ORPHAN', 'ST_NO_MATCH', 'ST_EPISODE', 'attribute_extra', 'scan_one', 'scan_all']
+__all__ = ['ST_SKIPPED_SAMPLE', 'ST_EXTRA_ATTACHED', 'ST_EXTRA_ORPHAN', 'ST_NO_MATCH', 'ST_EPISODE', 'ST_SCAN_FAILED', 'attribute_extra', 'scan_one', 'scan_all']
 
 ST_SKIPPED_SAMPLE = "skipped_sample"
 
@@ -22,6 +22,9 @@ ST_EXTRA_ORPHAN = "extra_orphan"
 
 
 ST_NO_MATCH = "no_match"
+
+# 刮削出错（TMDB 网络/接口异常）：行已入库、可重试（评审 B9/R03-Q1 后续）
+ST_SCAN_FAILED = "scan_failed"
 
 
 ST_EPISODE = "skipped_episode_v1"
@@ -82,14 +85,26 @@ def attribute_extra(abs_path: str) -> dict:
     return {"file": rel, "status": ST_EXTRA_ORPHAN, "kind": kind}
 
 
-def scan_one(abs_path: str) -> dict:
+def _persist_local_extras(mid: int, parsed: dict, cur: dict) -> None:
+    """版本/规格后缀持久化：重扫不覆盖手工改过的值（非空保留）。"""
+    local: dict = {}
+    if not cur.get("edition") and parsed.get("edition"):
+        local["edition"] = parsed["edition"]
+    if not cur.get("spec") and parsed.get("spec"):
+        local["spec"] = parsed["spec"]
+    if local:
+        store.update_movie_local(mid, **local)
+
+
+def scan_one(abs_path: str, force: bool = False) -> dict:
+    """单文件入库。force=True（手动重试）跳过增量跳过与缓存短路，重新刮削。"""
     rel = os.path.relpath(abs_path, settings.media_root)
     if is_sidecar(rel):
         if is_sample(os.path.basename(abs_path)):
             return {"file": rel, "status": "skipped_sample"}
         return attribute_extra(abs_path)
     cached = store.get_by_path(rel)
-    if cached and cached.get("tmdb_id"):
+    if cached and cached.get("tmdb_id") and not force:
         return {"file": rel, "status": "skipped_cached", "title": cached.get("title")}
     # 增量跳过（评审 B9/R03-Q3）：未匹配/剧集行且文件 mtime+size 未变 → 不再重打 TMDB
     try:
@@ -98,10 +113,10 @@ def scan_one(abs_path: str) -> dict:
     except OSError:
         mtime, size = 0, 0
     prev = store.get_scan_state(rel)
-    if (prev is not None and mtime and size
+    if (not force and prev is not None and mtime and size
             and int(prev.get("mtime") or 0) == mtime
             and int(prev.get("size") or 0) == size
-            and str(prev.get("status") or "") in (ST_NO_MATCH, ST_EPISODE)):
+            and str(prev.get("status") or "") in (ST_NO_MATCH, ST_EPISODE, ST_SCAN_FAILED)):
         return {"file": rel, "status": "skipped_unchanged"}
     parsed = parse_filename(os.path.basename(abs_path))
     parsed["title"] = normalize_title(parsed["title"])
@@ -110,50 +125,40 @@ def scan_one(abs_path: str) -> dict:
         # 与 README“剧集跳过”不符）。历史脏行由 POST /api/files/clean-episodes 清理。
         store.set_scan_state(rel, mtime, size, ST_EPISODE)
         return {"file": rel, "status": ST_EPISODE}
-    m, used_q, year_mismatch = search_with_fallback(parsed["title"], parsed["year"])
-    if not m:
-        mid = store.upsert_movie_by_path(rel)
-        # 重扫不覆盖既有标题（评审 B5a-1/R03-B1）：只补空值，人工修正/上次解析
-        # 结果都保留；年份不可手工改，允许按文件名更新
-        patch: dict = {"year": parsed["year"]}
-        if not (cached or {}).get("title"):
-            patch["title"] = parsed["title"]
-        store.update_movie_meta(mid, **patch)
-        try:
-            cur = store.get_movie(mid) or {}
-        except Exception:
-            cur = {}
-        local = {}
-        if parsed.get("edition") and not cur.get("edition"):
-            local["edition"] = parsed["edition"]
-        if parsed.get("spec") and not cur.get("spec"):
-            local["spec"] = parsed["spec"]
-        if local:
-            try:
-                store.update_movie_local(mid, **local)
-            except Exception as e:
-                logger.debug("persist edition/spec failed mid=%s: %s", mid, e)
-        store.set_scan_state(rel, mtime, size, ST_NO_MATCH)
-        return {"file": rel, "status": ST_NO_MATCH, "parsed": parsed}
-    tmdb_id = int(m["id"])
+    # 先建行（评审 B9 后续）：刮削失败也要让影片在海报墙/匹配确认可见，绝不“消失在文件浏览里”
     mid = store.upsert_movie_by_path(rel)
-    # 版本/规格后缀持久化：重扫不覆盖手工改过的值（非空保留）
+    patch: dict = {"year": parsed["year"]}
+    if not (cached or {}).get("title"):
+        patch["title"] = parsed["title"]
+    try:
+        store.update_movie_meta(mid, **patch)
+    except Exception as e:
+        logger.warning("persist parsed meta failed mid=%s: %s", mid, e)
     try:
         cur = store.get_movie(mid) or {}
     except Exception:
         cur = {}
-    local: dict = {}
-    if not cur.get("edition") and parsed.get("edition"):
-        local["edition"] = parsed["edition"]
-    if not cur.get("spec") and parsed.get("spec"):
-        local["spec"] = parsed["spec"]
-    if local:
-        store.update_movie_local(mid, **local)
-    if store.get_tmdb_cached(tmdb_id):
-        out = apply_cached_to_movie(mid, tmdb_id, abs_path)
-    else:
-        detail = tmdb.movie_detail(tmdb_id)
-        out = apply_tmdb_detail(mid, detail, abs_path)
+    _persist_local_extras(mid, parsed, cur)
+    try:
+        m, used_q, year_mismatch = search_with_fallback(parsed["title"], parsed["year"])
+    except Exception as e:
+        logger.warning("tmdb search failed file=%s: %s", rel, e)
+        return {"file": rel, "status": ST_SCAN_FAILED, "movie_id": mid,
+                "error": str(e)[:200]}
+    if not m:
+        store.set_scan_state(rel, mtime, size, ST_NO_MATCH)
+        return {"file": rel, "status": ST_NO_MATCH, "movie_id": mid, "parsed": parsed}
+    tmdb_id = int(m["id"])
+    try:
+        if store.get_tmdb_cached(tmdb_id):
+            out = apply_cached_to_movie(mid, tmdb_id, abs_path)
+        else:
+            detail = tmdb.movie_detail(tmdb_id)
+            out = apply_tmdb_detail(mid, detail, abs_path)
+    except Exception as e:
+        logger.warning("tmdb detail/apply failed mid=%s tmdb_id=%s: %s", mid, tmdb_id, e)
+        return {"file": rel, "status": ST_SCAN_FAILED, "movie_id": mid,
+                "error": str(e)[:200]}
     needs_review = 1 if (used_q != parsed["title"] or year_mismatch) else 0
     store.update_movie_local(mid, needs_review=needs_review)
     status = "ok" if not needs_review else "ok_needs_review"

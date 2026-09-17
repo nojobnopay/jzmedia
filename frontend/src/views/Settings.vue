@@ -534,6 +534,7 @@ async function pollScanJob() {
       const c = sum.counts || {}
       const ok = (c.ok || 0) + (c.ok_needs_review || 0)
       scanMsg.value = `完成：新增/更新 ${ok}，已同步跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
+        + (c.scan_failed ? `，刮削失败 ${c.scan_failed}（可重试）` : '')
         + (c.skipped_episode_v1 ? `，剧集跳过 ${c.skipped_episode_v1}` : '')
         + ((sum.errors || []).length ? `，失败 ${sum.errors.length}` : '')
     } else if (st.state === 'cancelled') {

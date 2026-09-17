@@ -483,6 +483,8 @@ async function load() {
   mq.value = m.value.title || ''
   heroVid.value = Number(route.params.id)
   syncForm()
+  // 未匹配（刮削失败/无结果）自动展开编辑面板，直接可搜 TMDB 重新匹配（评审 B9 后续）
+  if (!m.value.tmdb_id) editing.value = true
   loadMedia()
   try {
     const h = await api('/api/health')

@@ -225,3 +225,62 @@ def test_scan_episode_skips_unchanged(media_root):
     _touch(media_root, rel)
     assert scanner.scan_one(str(media_root / rel))["status"] == "skipped_episode_v1"
     assert scanner.scan_one(str(media_root / rel))["status"] == "skipped_unchanged"
+
+
+# ---------- B9 后续：刮削失败也建行可见（scan_failed）+ 手动重试 ----------
+
+def test_scan_tmdb_error_keeps_row(media_root, monkeypatch):
+    def boom(q, year=None):
+        raise RuntimeError("tmdb unreachable")
+    monkeypatch.setattr(scanner.tmdb, "search_movie", boom)
+    rel = "faildir/The.Mummy.1999.BD1080p.mp4"
+    _touch(media_root, rel)
+    r = scanner.scan_one(str(media_root / rel))
+    assert r["status"] == "scan_failed" and r.get("movie_id")
+    row = store.get_by_path(rel)
+    assert row and row["tmdb_id"] is None                     # 行已建：海报墙/匹配确认可见
+    assert row["title"] == "The Mummy" and row["year"] == 1999
+
+
+def test_scan_tmdb_error_then_manual_rescan(media_root, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    client = TestClient(app)
+    def boom(q, year=None):
+        raise RuntimeError("tmdb unreachable")
+    monkeypatch.setattr(scanner.tmdb, "search_movie", boom)
+    rel = "faildir/Retry.Movie.2021.mkv"
+    _touch(media_root, rel)
+    mid = (scanner.scan_one(str(media_root / rel)) or {}).get("movie_id")
+    assert mid
+    # 恢复 TMDB → 手动重试
+    monkeypatch.setattr(scanner.tmdb, "search_movie", lambda q, year=None: [
+        {"id": 777001, "title": "Retry Movie", "original_title": "Retry Movie",
+         "release_date": "2021-05-01", "vote_average": 7.0}])
+    monkeypatch.setattr(scanner.tmdb, "movie_detail", lambda tid: {
+        "id": tid, "title": "Retry Movie", "original_title": "Retry Movie",
+        "release_date": "2021-05-01", "overview": "", "vote_average": 7.0,
+        "genres": [], "production_countries": [], "original_language": "en",
+        "external_ids": {}, "poster_path": "", "credits": {"cast": [], "crew": []}})
+    def _apply(mid2, detail, abs_path):
+        store.update_movie_meta(mid2, tmdb_id=detail["id"])
+        return {"title": "Retry Movie", "year": 2021, "tmdb_id": detail["id"], "nfo": False}
+    monkeypatch.setattr(scanner.scan, "apply_tmdb_detail", _apply)
+    d = client.post(f"/api/movies/{mid}/rescan").json()
+    assert d["status"] in ("ok", "ok_needs_review") and d["tmdb_id"] == 777001
+    assert (store.get_movie(mid) or {}).get("tmdb_id") == 777001
+
+
+def test_unmatched_api_lists_failed_scan(media_root, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    client = TestClient(app)
+
+    def boom(q, year=None):
+        raise RuntimeError("offline")
+    monkeypatch.setattr(scanner.tmdb, "search_movie", boom)
+    rel = "faildir/Visible.In.List.2002.mkv"
+    _touch(media_root, rel)
+    scanner.scan_one(str(media_root / rel))
+    d = client.get("/api/files/unmatched").json()
+    assert any(u["file_path"] == rel for u in d["unmatched"])
