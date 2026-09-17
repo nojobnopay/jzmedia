@@ -134,6 +134,11 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
   cue 命中纯函数（R13-Q4）、死常量 CHINESE_SUB（R10-D5）
 - 判定无需改（复核确认）：R11-Q5/R12-B8/R13-B1/R13-B2/R08-Q4/R02-Q2（无漏洞/可接受），
   R02-B4/R02-B6/R04-D4/R04-D5/R03-D4/R03-Q2/R10-Q3/R12-B4/R14-Q4/R09-B6/B7 等已由前批等价修复覆盖
+- 二轮补漏（tag `b11b-audit2`）：R01-B6 代理脱敏回显（+2 用例）、R09-Q3 files 包静默点日志、
+  R11-D3 媒体音轨列表与产物一致；另复核 R01-B3（fs extras_map 已修，前批以 R08-B1 名义）、
+  R02-Q4（错误风格随 P1-10 日志批统一）、R08-B2（`_KIND_WORDS` 无重复，现版即正确）、
+  R12-Q2（tests/test_stream_sessions.py 已覆盖核心并发状态机）
+- 覆盖率结论：14 份评审 249 条 ID 全部有归属（修复/等价覆盖/判定无需改/架构长尾）
 剩余（架构长尾，非 bug）：R01-Q4 fs.py 三段式/拆分、R05-Q4 Detail 拆分、R14-B6 焦点陷阱、
 R13-Q1 useSubtitles 完整 composable（解析/注册表/命中判定已收口）
 ### B10 工程化收尾批
