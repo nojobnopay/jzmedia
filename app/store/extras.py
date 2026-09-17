@@ -1,5 +1,7 @@
 """store.extras（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
+import os
 import time
+from ..config import settings
 from ._base import _conn, _lock, _row_to_dict
 __all__ = ['upsert_extra', 'list_extras_by_movie', 'list_orphan_extras', 'list_all_extras', 'get_extra', 'update_extra_movie', 'delete_extra_by_path', 'repath_extra_by_basename', 'find_movie_for_extra']
 
@@ -61,17 +63,15 @@ def repath_extra_by_basename(basename: str, new_path: str,
     """已入库花絮被搬迁改路径后按 basename 认领：仅认领原文件已消失的行
     （同名不同文件不误认），更新路径+归属/kind，避免删建抖动。
     返回更新后的行，无可认领返回 None。"""
-    import os as _os
-    from ..config import settings as _settings
     with _lock, _conn() as c:
         rows = [dict(r) for r in c.execute("SELECT * FROM extras").fetchall()]
-    same = [r for r in rows if _os.path.basename(r["file_path"]) == basename]
+    same = [r for r in rows if os.path.basename(r["file_path"]) == basename]
     if not same:
         return None
     if any(r["file_path"] == new_path for r in same):
         return next(r for r in same if r["file_path"] == new_path)
-    gone = [r for r in same if not _os.path.exists(
-        _os.path.join(_settings.media_root, r["file_path"]))]
+    gone = [r for r in same if not os.path.exists(
+        os.path.join(settings.media_root, r["file_path"]))]
     if not gone:
         return None
     keep = sorted(gone, key=lambda r: r["id"])[0]

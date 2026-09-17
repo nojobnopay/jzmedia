@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS movies (
   watched_at INTEGER DEFAULT 0,
   updated_at INTEGER DEFAULT 0
 );
+
 CREATE TABLE IF NOT EXISTS persons (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tmdb_id INTEGER UNIQUE,
@@ -61,6 +62,8 @@ CREATE TABLE IF NOT EXISTS movie_person (
   PRIMARY KEY (movie_id, person_id, role)
 );
 -- 花絮归属：file_path 唯一；movie_id 为 NULL 表示未归属（orphan）；kind 见 scanner.extra_kind
+CREATE INDEX IF NOT EXISTS idx_movie_person_person ON movie_person(person_id);
+
 CREATE TABLE IF NOT EXISTS extras (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_path TEXT UNIQUE NOT NULL,
@@ -68,6 +71,9 @@ CREATE TABLE IF NOT EXISTS extras (
   kind TEXT DEFAULT 'extra',
   updated_at INTEGER DEFAULT 0
 );
+
+CREATE INDEX IF NOT EXISTS idx_extras_movie ON extras(movie_id);
+
 -- TMDB远端镜像：以 tmdb_id 为键的稳定缓存，不受 file_path/tags/评分等本地改动影响。
 -- movies 表的 TMDB 列只是它的物化副本：对外只经 copy_tmdb_to_movie() 复制
 -- （update_movie_meta 内部允许写这些列，供 scanner 单点场景使用）。
@@ -179,8 +185,12 @@ DROP TRIGGER IF EXISTS movies_au;
 
 def _conn() -> sqlite3.Connection:
     ensure_dirs()
-    c = sqlite3.connect(DB_PATH, check_same_thread=False)
+    # R02-D2：一调用一连接；5s busy_timeout 防并发写瞬时 SQLITE_BUSY，
+    # synchronous=NORMAL 配合 WAL（WAL 在 init_db 里设置，持久于库文件）
+    c = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=5.0)
     c.row_factory = sqlite3.Row
+    c.execute("PRAGMA busy_timeout=5000")
+    c.execute("PRAGMA synchronous=NORMAL")
     return c
 
 
@@ -202,7 +212,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "tmdb_language", "tmdb_image_base", "jzmedia_token"}
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 def _columns(c, table: str) -> set:
@@ -336,8 +346,14 @@ def _m9(c) -> None:
               " updated_at INTEGER DEFAULT 0)")
 
 
+# v10：补 person 侧回查与 extras 归属索引（评审 R02-B7）
+def _m10(c) -> None:
+    c.execute("CREATE INDEX IF NOT EXISTS idx_movie_person_person ON movie_person(person_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_extras_movie ON extras(movie_id)")
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
-                    (7, _m7), (8, _m8), (9, _m9)]
+                    (7, _m7), (8, _m8), (9, _m9), (10, _m10)]
 
 
 def init_db() -> None:
@@ -360,10 +376,14 @@ def init_db() -> None:
         if "content=" in sql:
             c.execute("DROP TABLE movies_fts")
             c.executescript(SCHEMA)
-    from .search import rebuild_fts
+    from .search import rebuild_fts, fts_needs_rebuild
     from .tmdb_cache import seed_tmdb_cache_from_movies
+    with _lock, _conn() as c:
+        c.execute("PRAGMA journal_mode=WAL")   # R02-D2：写不阻塞读、崩溃恢复更好
     seed_tmdb_cache_from_movies()
-    rebuild_fts()
+    # R02-D3：FTS 与 movies 行数一致时跳过全量重建（大库启动不再 O(n) 连接+写）
+    if fts_needs_rebuild():
+        rebuild_fts()
 
 
 def health_check() -> dict:

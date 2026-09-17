@@ -127,7 +127,8 @@ def create_collection(name: str, overview: str = "",
     if member_ids:
         add_collection_members(cid, member_ids)
     out = get_collection(cid)
-    assert out is not None
+    if out is None:   # 理论不可达（同事务刚写）；不用 assert（-O 会被剥离，评审 R02-B5）
+        raise RuntimeError("collection lost after insert")
     return out
 
 
