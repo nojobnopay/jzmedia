@@ -2,3 +2,5 @@
 -r requirements.txt
 pytest>=8.0
 pyflakes>=3.0
+# 宿主直跑（./start.sh）无系统 ffmpeg 时的静态二进制兜底（评审 R01-Q5）
+static-ffmpeg>=3.0

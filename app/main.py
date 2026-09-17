@@ -20,6 +20,9 @@ _logger = get_logger("main")
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
+    # 启动初始化（评审 R01-Q1）：此前在模块导入期执行，测试无法隔离/导入即写盘
+    ensure_dirs()
+    store.init_db()
     # 后台预热转码后端探测（冒烟编码最多几秒，不阻塞启动；首次 decide/health 即命中缓存）
     from . import transcode as _tr
     try:
@@ -37,7 +40,7 @@ async def _lifespan(_app: FastAPI):
     _logger.info("jzmedia 已停止")
 
 
-app = FastAPI(title="jzmedia", version="0.7.0", lifespan=_lifespan)
+app = FastAPI(title="jzmedia", version="0.8.0", lifespan=_lifespan)
 
 # 写操作访问令牌（评审 P1-01）：仅当 JZMEDIA_TOKEN/设置页配置了令牌才生效。
 # 只护 /api 的写方法（POST/PUT/PATCH/DELETE）；GET 全放行（Kodi/电视直链、海报、
@@ -65,8 +68,6 @@ async def _auth_write(request, call_next):
                 status_code=401)
     return await call_next(request)
 
-ensure_dirs()
-store.init_db()
 app.include_router(health.router)
 app.include_router(movies.router)
 app.include_router(collections.router)
@@ -76,7 +77,8 @@ app.include_router(extras.router)
 app.include_router(jobs.router)
 app.include_router(persons.router)
 app.include_router(stream.router)
-app.mount("/posters", StaticFiles(directory=POSTER_DIR), name="posters")
+# check_dir=False：目录由 lifespan ensure_dirs 创建，导入期不再有副作用（评审 R01-Q1）
+app.mount("/posters", StaticFiles(directory=POSTER_DIR, check_dir=False), name="posters")
 
 DIST = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
 ASSETS = os.path.join(DIST, "assets")

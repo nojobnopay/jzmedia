@@ -2,7 +2,7 @@
 
 ## Stack
 - Backend: FastAPI + stdlib `sqlite3` (no ORM), Vue3 + Vite frontend. No tests, lint, typecheck, or CI.
-- Entrypoints: `app/main.py` (app + SPA hosting, version `0.7.0`), `app/store.py` (SQLite+FTS+facets/filters), `app/scanner.py` (scan/match flow), `app/tmdb.py` (TMDB client), `app/regions.py` (country→region mapping, single source), `app/routers/` (`health|movies|collections|files|extras|fs|jobs|persons|stream`; TMDB search lives in `movies` router), `app/nfo.py` (Kodi NFO).
+- Entrypoints: `app/main.py` (app + SPA hosting, version `0.8.0`；启动初始化 ensure_dirs/init_db 在 lifespan，导入期无副作用), `app/store.py` (SQLite+FTS+facets/filters), `app/scanner.py` (scan/match flow), `app/tmdb.py` (TMDB client), `app/regions.py` (country→region mapping, single source), `app/routers/` (`health|movies|collections|files|extras|fs|jobs|persons|stream`; TMDB search lives in `movies` router), `app/nfo.py` (Kodi NFO).
 - Playback: `app/media.py` (ffprobe probe + ffmpeg bin resolve) → `app/caps.py` (ClientCapabilities normalize/hash) → `app/playback.py` (4-tier plan `direct|remux|audio_transcode|video_transcode` + `build_cmd`) → `app/routers/stream.py` (sessions/heartbeat/TTL/HLS). `POST /api/stream/{id}/decide`, `POST /api/stream/versions`, `POST /api/stream/{id}/sessions` accept `caps`; GET variants use `caps.default_caps()` (conservative). `media_info.probe_ver < media.PROBE_VERSION` auto-reprobes on play. Frontend capability detect: `frontend/src/caps.js`.
   - quality: `auto`(默认；需视频重编且源>1080p 时封顶 无HW 720p/有HW 1080p) | `source`(原画不封顶) | `1080p` | `720p`；`original` 兼容为 auto。UI 显示“实际输出”。
   - 会话目录键 `_quality_key(plan)`（copy/h720/h1080/src）、复用键 `_plan_marker`（不含档位字符串；fMP4 不含所选音轨；非烧录字幕不参与）→ 预转码与在线播同 plan 即命中静态成品。
@@ -23,7 +23,7 @@
 ## Run
 - Backend (WSL dev, hot-reload via `docker-compose.override.yml`): `cp .env.example .env && mkdir -p sample_media/电影 data && docker compose up --build`, check `http://localhost:8080/docs`.
 - Host-direct (no docker): prefer `./start.sh` — rebuilds `frontend/dist` only when stale, maps `.env` container paths (`/media`, `/app/data`) back to host defaults, then runs uvicorn. Manual equivalent needs `DATA_DIR=./data MEDIA_ROOT=./sample_media` overrides plus `TMDB_*` from `.env` (see README §启动服务).
-- Frontend dev: `npm run dev` in `frontend/` (5173, proxies `/api`,`/posters` → 8080). Prod build: `npm run build` → `frontend/dist`, served by FastAPI at `/` + `/assets`.
+- Frontend dev: `npm run lint`（eslint 最小集：未定义/未用变量/console 警告）、`npm test`（node --test）in `frontend/`；`npm run build` 产出 `frontend/dist`。`npm run dev` (5173, proxies `/api`,`/posters` → 8080). Prod build: `npm run build` → `frontend/dist`, served by FastAPI at `/` + `/assets`.
 - No single-test command — there are no tests. Verify via `/api/health` and the scan/list endpoints in README §5.
 
 ## Env / paths (gotchas)
@@ -63,5 +63,5 @@
 - WSL Docker Desktop proxy breakage is documented in README §排障 (use `crane pull … && docker load`, or `BUILD_HTTP_PROXY=http://nas:7890`).
 
 ## Versioning
-- Git (`main` branch, local-only, no remote): commit per feature, annotated tag per release (`v0.7.0` = 在线播放 P1–P5：客户端能力四档决策 + fMP4 多音轨 + ASS/PGS 客户端字幕与外挂 + 转码后端探测/软编兜底 + HDR/DV 矩阵 + 预转码与 0.7.0 文档；`v0.6.0` = settings rework + missing-cleanup + stats; `v0.5.0` = TMDB mirror cache + refresh + progressive person page; `v0.4.0` = filters/ratings/avatar-wall/person page). Code versions unified (`main.py` + `package.json`).
+- Git (`main` branch, local-only, no remote): commit per feature, annotated tag per release (`v0.7.0` = 在线播放 P1–P5：客户端能力四档决策 + fMP4 多音轨 + ASS/PGS 客户端字幕与外挂 + 转码后端探测/软编兜底 + HDR/DV 矩阵 + 预转码与 0.7.0 文档；`v0.6.0` = settings rework + missing-cleanup + stats; `v0.5.0` = TMDB mirror cache + refresh + progressive person page; `v0.4.0` = filters/ratings/avatar-wall/person page). Code versions unified (`main.py` + `package.json`). 依赖版本锁定在 `requirements.txt`；宿主直跑用 `requirements-dev.txt`（含 static-ffmpeg 兜底，评审 R01-Q5）；compose 有 `init: true` + `/api/health` healthcheck（R01-Q3）。
 - Images: `image: jzmedia:${APP_VERSION:-latest}` in compose (local `.env` pins e.g. `vX.Y.Z`); release = `GIT_SHA=$(git rev-parse --short HEAD) docker compose build` then `docker tag jzmedia:vX.Y.Z jzmedia:latest`. Version/commit baked via Dockerfile OCI labels (`APP_VERSION`/`GIT_SHA` args). `docker image prune` clears dangling rebuilds.

@@ -4,7 +4,7 @@ ARG HTTPS_PROXY=""
 WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN if [ -n "$HTTP_PROXY" ]; then npm config set proxy "$HTTP_PROXY" && npm config set https-proxy "$HTTPS_PROXY"; fi \
- && npm install --no-audit --no-fund
+ && npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
