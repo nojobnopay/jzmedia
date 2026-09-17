@@ -5,7 +5,7 @@
 - Entrypoints: `app/main.py` (app + SPA hosting, version `0.8.0`；启动初始化 ensure_dirs/init_db 在 lifespan，导入期无副作用), `app/store.py` (SQLite+FTS+facets/filters), `app/scanner.py` (scan/match flow), `app/tmdb.py` (TMDB client), `app/regions.py` (country→region mapping, single source), `app/routers/` (`health|movies|collections|files|extras|fs|jobs|persons|stream`; TMDB search lives in `movies` router), `app/nfo.py` (Kodi NFO).
 - Playback: `app/media.py` (ffprobe probe + ffmpeg bin resolve) → `app/caps.py` (ClientCapabilities normalize/hash) → `app/playback.py` (4-tier plan `direct|remux|audio_transcode|video_transcode` + `build_cmd`) → `app/routers/stream.py` (sessions/heartbeat/TTL/HLS). `POST /api/stream/{id}/decide`, `POST /api/stream/versions`, `POST /api/stream/{id}/sessions` accept `caps`; GET variants use `caps.default_caps()` (conservative). `media_info.probe_ver < media.PROBE_VERSION` auto-reprobes on play. Frontend capability detect: `frontend/src/caps.js`.
   - quality: `auto`(默认；需视频重编且源>1080p 时封顶 无HW 720p/有HW 1080p) | `source`(原画不封顶) | `1080p` | `720p`；`original` 兼容为 auto。UI 显示“实际输出”。
-  - 会话目录键 `_quality_key(plan)`（copy/h720/h1080/src）、复用键 `_plan_marker`（不含档位字符串；fMP4 不含所选音轨；非烧录字幕不参与）→ 预转码与在线播同 plan 即命中静态成品。
+  - 会话目录键 `_quality_key(plan)`（copy/h720/h1080/src，烧录另有 `_burn` 后缀防互踩）、复用键 `_plan_marker`（不含档位字符串；fMP4 不含所选音轨；非烧录字幕不参与）→ 预转码与在线播同 plan 即命中静态成品。
   - 音频 copy 安全集：hls.js 只信 `aac/mp3`（EAC3/AC3 copy 实测无声），Safari 原生 HLS 才放行 Dolby；其余 `audio_transcode` 转 AAC。可用 env `AUDIO_COPY_SAFE` 放开实测可用的编码。
   - HLS 输出：默认 fMP4（`HLS_SEGMENT_TYPE=ts` 回滚旧 MPEG-TS）。fMP4 单进程 `-var_stream_map` 产 video + 全部音轨 rendition，扁平命名 `out_<name>.m3u8`/`<name>_init.mp4`/`<name>_segNNNNN.m4s`，每片 4s；`master.m3u8` 由 `stream._write_master` 自产（ffmpeg 对 HEVC copy 不产 CODECS，Safari 需要）。**ffmpeg 必须 `cwd=会话目录` 执行**（分片相对名按 CWD 落盘，输入路径已在 `build_cmd` 绝对化）。
   - 音轨切换：fMP4 走 `hls.audioTrack`（`MANIFEST_PARSED` + `AUDIO_TRACKS_UPDATED` 后应用——前者触发时 `audioTracks` 可能还是空），不重开会话；解析前切轨只改选择不重开（`manifestReady`/`reloadGen` 防并发 reload 出双 hls 实例）；原生 Safari 用 `video.audioTracks`。前端选择与服务端产物解耦（默认音轨=源 disposition 首条 default）。
@@ -32,7 +32,7 @@
 - Data: `./data/jzmedia.db` + `./data/posters/` (`<tmdb_id>.jpg` posters, `person_<tmdb_id>.jpg` w185 avatars; both served at `/posters`); NFO rule: exclusive single-version dir keeps only `movie.nfo`, same-film multi-version (same dir + same tmdb_id) also writes per-file `<stem>.nfo`, shared mixed dirs write only current stem (see `scanner.sync_nfos_for`). All gitignored — never commit.
 
 ## DB / FTS rule
-- FTS5 `movies_fts` has **no triggers** — after any `movies`/`persons`/`movie_person` write you must call `store.resync_fts(movie_id)` (`update_movie_meta` already does; manual SQL or `link_person` does not). `store.init_db()` + `rebuild_fts()` run at startup and self-heal old trigger schemas (`DROP TRIGGER IF EXISTS movies_ai/ad/au`).
+- SQLite 以 WAL 运行（`_conn` 带 busy_timeout=5000，R02-D2）；FTS5 `movies_fts` has **no triggers** — after any `movies`/`persons`/`movie_person` write you must call `store.resync_fts(movie_id)` (`update_movie_meta` already does; manual SQL or `link_person` does not). `store.init_db()` + `rebuild_fts()` run at startup and self-heal old trigger schemas (`DROP TRIGGER IF EXISTS movies_ai/ad/au`).
 
 ## Conventions / constraints
 - Auth (optional): 写操作（POST/PUT/PATCH/DELETE 且 path 以 `/api` 开头）在配置了 `JZMEDIA_TOKEN`（env/设置页，DB 优先）时需带 `X-Api-Token` 或 `Authorization: Bearer`；GET/直链永远放行。实现是 `main.py` 的 `_auth_write` 中间件，设置页可写键 `jzmedia_token`（`config.SETTING_MAP` / `store.APP_SETTING_KEYS`）。
