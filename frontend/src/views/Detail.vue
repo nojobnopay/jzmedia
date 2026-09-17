@@ -7,6 +7,7 @@
           <button @click="$router.back()">‹ 返回</button>
           <span class="top-right">
             <span v-if="savedFlash" class="saved-flash">已保存</span>
+            <span v-if="regionNote" class="saved-flash" style="color:#e0a63c">{{ regionNote }}</span>
             <span v-if="buildVer" class="ver-tag" :title="'后端构建 ' + buildVer">构建 {{ buildVer }}</span>
             <button @click="toggleEdit">{{ editing ? '收起' : '编辑' }}</button>
           </span>
@@ -144,48 +145,9 @@
         </aside>
       </div>
 
-      <section v-if="editing" class="card-block edit-panel">
-        <h3>手动编辑</h3>
-        <div class="bar"><input v-model="f.edition" placeholder="版本（如 导演剪辑版，留空为普通版）" style="flex:1" /></div>
-        <div class="bar"><input v-model="f.spec" placeholder="规格/备注（如 杜比视界/蓝光，留空自动识别）" style="flex:1" /></div>
-        <div class="bar">
-          <label>自评 <input v-model="f.custom_rating" placeholder="0-10" style="width:70px" /></label>
-          <label>豆瓣 <input v-model="f.douban_rating" placeholder="0-10" style="width:70px" /></label>
-        </div>
-        <div class="bar"><input v-model="f.tags" placeholder="标签，逗号分隔" style="flex:1" list="taglist" /></div>
-        <datalist id="taglist"><option v-for="t in allTags" :key="t.value" :value="t.value" /></datalist>
-        <div class="bar"><label><input type="checkbox" v-model="f.watched" /> 已观看</label></div>
-        <div class="bar"><textarea v-model="f.overview_override" placeholder="简介覆盖（留空用刮削简介）" rows="3" style="flex:1"></textarea></div>
-        <div class="bar"><button @click="save">保存</button><button @click="cancelEdit">取消</button><span>{{ msg }}</span></div>
-        <h3>所属合集</h3>
-        <div class="bar">
-          <select v-model="joinColId" style="flex:1">
-            <option value="">选择合集…</option>
-            <option v-for="c in colList" :key="c.id" :value="c.id">{{ c.name }}（{{ c.member_count }}）</option>
-          </select>
-          <button @click="joinCol" :disabled="!joinColId">加入</button>
-        </div>
-        <div class="bar">
-          <input v-model="newColName" placeholder="新建合集名（含本片）" style="flex:1" />
-          <button @click="createCol" :disabled="!newColName.trim()">创建</button>
-          <span>{{ colMsg }}</span>
-        </div>
-        <h3>手动匹配 <span v-if="m.tmdb_id">(当前TMDB {{ m.tmdb_id }})</span></h3>
-        <div class="bar">
-          <button @click="refreshTmdb" :disabled="refreshing || !!bindingId"><Spinner v-if="refreshing" />{{ refreshing ? '刷新中…' : '刷新TMDB（有变化才更新）' }}</button>
-          <span>{{ refreshMsg }}</span>
-        </div>
-        <div class="bar">
-          <input v-model="mq" placeholder="TMDB搜关键词" style="flex:1" />
-          <button @click="tmdbSearch" :disabled="searching || !!bindingId"><Spinner v-if="searching" />{{ searching ? '搜索中…' : '搜TMDB' }}</button>
-        </div>
-        <ul>
-          <li v-for="c in cands" :key="c.tmdb_id">
-            {{ c.title }} ({{ (c.release_date || '').slice(0, 4) }}) ★{{ c.vote_average }}
-            <button @click="bindMatch(c.tmdb_id)" :disabled="!!bindingId || refreshing"><Spinner v-if="bindingId === c.tmdb_id" />{{ bindingId === c.tmdb_id ? '绑定中…' : '绑定' }}</button>
-          </li>
-        </ul>
-      </section>
+      <MovieEditPanel v-if="editing" :movie="m" :movie-id="Number(route.params.id)"
+        @close="editing = false" @saved="onEditSaved" @changed="onEditChanged"
+        @matched="onMatched" @refreshed="onRefreshed" />
     </div>
 
     <div v-if="pvName" class="dlg-mask" @click.self="closePlayer">
@@ -244,19 +206,16 @@ import { hasScore, fmtScore, starRow } from '../ratings.js'
 import Spinner from '../components/Spinner.vue'
 import PlayerModal from '../components/PlayerModal.vue'
 import MovieUploadPanel from '../components/MovieUploadPanel.vue'
+import MovieEditPanel from '../components/MovieEditPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
 const m = ref(null)
 const sideFiles = ref(null)
-const f = ref({ custom_rating: '', douban_rating: '', tags: '', overview_override: '', edition: '', spec: '', watched: false })
 const msg = ref('')
 const hint = ref(null)
 const hintMsg = ref('')
-const colList = ref([])
-const joinColId = ref('')
-const newColName = ref('')
-const colMsg = ref('')
+const regionNote = ref('')
 const archHint = ref(null)
 const archApplying = ref(false)
 const archMsg = ref('')
@@ -279,13 +238,6 @@ const metaLine = computed(() => {
   if (genres) parts.push(genres)
   return parts.join(' · ')
 })
-const allTags = ref([])
-const mq = ref('')
-const cands = ref([])
-const refreshMsg = ref('')
-const bindingId = ref(null)
-const refreshing = ref(false)
-const searching = ref(false)
 // 在线播放 P0：版本媒体徽章 + 断点提示（播放器弹窗在 P1–P4 接入）
 const mediaInfo = ref(null)
 const mediaLoading = ref(false)
@@ -473,27 +425,14 @@ async function onPlayEnded() {
       body: JSON.stringify({ ids: [Number(route.params.id)], ops: { watched: true } }),
     })
     m.value = await api('/api/movies/' + route.params.id)
-    syncForm()
     flashSaved()
   } catch (e) { /* 忽略 */ }
 }
 
-function syncForm() {
-  f.value = {
-    custom_rating: m.value.custom_rating ?? '',
-    douban_rating: m.value.douban_rating ?? '',
-    tags: (m.value.tags || []).join(','),
-    overview_override: m.value.overview_override || '',
-    edition: m.value.edition || '',
-    spec: m.value.spec || '',
-    watched: !!m.value.watched
-  }
-}
 async function load() {
+  regionNote.value = ''
   m.value = await api('/api/movies/' + route.params.id)
-  mq.value = m.value.title || ''
   heroVid.value = Number(route.params.id)
-  syncForm()
   // 未匹配（刮削失败/无结果）自动展开编辑面板，直接可搜 TMDB 重新匹配（评审 B9 后续）
   if (!m.value.tmdb_id) editing.value = true
   loadMedia()
@@ -504,16 +443,9 @@ async function load() {
   } catch (e) { /* 健康检查失败不挡详情页 */ }
   await reloadFiles()
   try {
-    const d = await api('/api/facets')
-    allTags.value = d.tags || []
-  } catch (e) { /* 忽略 */ }
-  try {
     hint.value = await api('/api/movies/' + route.params.id + '/collection-hint')
     if (!hint.value?.collection_tmdb_id) hint.value = null
   } catch (e) { hint.value = null }
-  try {
-    colList.value = (await api('/api/collections')).items || []
-  } catch (e) { /* 忽略 */ }
 }
 async function reloadFiles() {
   try {
@@ -521,7 +453,6 @@ async function reloadFiles() {
   } catch (e) { sideFiles.value = null }
   try {
     m.value = await api('/api/movies/' + route.params.id)
-    syncForm()
   } catch (e) { /* 忽略 */ }
 }
 
@@ -657,43 +588,6 @@ async function doFileDeleteConfirm(f) {
     delMsg.value = '删除失败：' + e.message
   }
 }
-async function reloadCollections() {
-  try {
-    m.value = await api('/api/movies/' + route.params.id)
-    colList.value = (await api('/api/collections')).items || []
-  } catch (e) { /* 忽略 */ }
-}
-async function joinCol() {
-  if (!joinColId.value) return
-  colMsg.value = ''
-  try {
-    await api(`/api/collections/${joinColId.value}/members`, {
-      method: 'POST',
-      body: JSON.stringify({ movie_ids: [Number(route.params.id)] })
-    })
-    colMsg.value = '已加入'
-    joinColId.value = ''
-    await reloadCollections()
-  } catch (e) {
-    colMsg.value = '加入失败：' + e.message
-  }
-}
-async function createCol() {
-  const name = newColName.value.trim()
-  if (!name) return
-  colMsg.value = ''
-  try {
-    await api('/api/collections', {
-      method: 'POST',
-      body: JSON.stringify({ name, member_ids: [Number(route.params.id)] })
-    })
-    colMsg.value = '已创建'
-    newColName.value = ''
-    await reloadCollections()
-  } catch (e) {
-    colMsg.value = '创建失败：' + e.message
-  }
-}
 async function createFromSeries() {
   hintMsg.value = ''
   try {
@@ -702,53 +596,31 @@ async function createFromSeries() {
       body: JSON.stringify({ movie_id: Number(route.params.id) })
     })
     hintMsg.value = `已建「${d.name}」（${d.member_count} 部）`
-    await reloadCollections()
+    await load()
   } catch (e) {
     hintMsg.value = '创建失败：' + e.message
   }
 }
 function toggleEdit() {
-  if (!editing.value) {
-    syncForm()
-    msg.value = ''
-  }
   editing.value = !editing.value
 }
-function cancelEdit() {
-  syncForm()
-  msg.value = ''
+// 编辑面板回调（R05-Q4：子组件只发信号，重载/闪存/归档引导留在本页）
+async function onEditSaved() { editing.value = false; flashSaved(); await load() }
+async function onEditChanged() { flashSaved(); await load() }
+async function onRefreshed() { await load(); flashSaved(); await waitForMedia() }
+async function onMatched({ oldRegion = '', background = {} } = {}) {
+  await load()
   editing.value = false
+  checkArchiveHint()
+  flashSaved()
+  regionNote.value = (m.value?.region && m.value.region !== oldRegion)
+    ? `产地变为${m.value.region}，文件仍在旧分区，请到设置页用“搬到顶层”修复。` : ''
+  if (background.poster || background.avatars) await waitForMedia()
 }
 function flashSaved() {
   savedFlash.value = true
   if (flashTimer) clearTimeout(flashTimer)
   flashTimer = setTimeout(() => { savedFlash.value = false }, 3000)
-}
-function num(v) {
-  if (v === '' || v == null) return null
-  const n = Number(v)
-  return Number.isFinite(n) ? n : v
-}
-async function save() {
-  msg.value = ''
-  try {
-    m.value = await api('/api/movies/' + route.params.id, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        custom_rating: num(f.value.custom_rating),
-        douban_rating: num(f.value.douban_rating),
-        tags: f.value.tags.split(/[,，、]/).map(s => s.trim()).filter(Boolean),
-        overview_override: f.value.overview_override,
-        edition: (f.value.edition || '').trim(),
-        spec: (f.value.spec || '').trim(),
-        watched: !!f.value.watched
-      })
-    })
-    editing.value = false
-    flashSaved()
-  } catch (e) {
-    msg.value = '保存失败：' + e.message
-  }
 }
 function goPerson(p) {
   if (p && p.tmdb_id) router.push('/p/' + p.tmdb_id)
@@ -760,64 +632,17 @@ const originalMoved = computed(() => {
 function goRestore() {
   router.push({ path: '/settings', query: { sec: 'sec-restore', ids: String(m.value.id) } })
 }
-async function tmdbSearch() {
-  if (searching.value) return
-  searching.value = true
-  msg.value = ''
-  try {
-    const d = await api('/api/tmdb/search?q=' + encodeURIComponent(mq.value))
-    cands.value = d.items
-  } catch (e) {
-    msg.value = '搜索失败：' + e.message
-  } finally {
-    searching.value = false
-  }
-}
-// 后台补齐（海报/头像）轮询：海报就绪即停，最多约 30s
 async function waitForMedia(tries = 10) {
   for (let i = 0; i < tries; i++) {
     await new Promise(r => setTimeout(r, 3000))
     try {
       const cur = await api('/api/movies/' + route.params.id)
       m.value = cur
-      syncForm()
       if (cur.poster_path) return
     } catch (e) { /* 忽略，继续轮询 */ }
   }
   await load()
 }
-async function bindMatch(tmdb_id) {
-  if (bindingId.value) return
-  bindingId.value = tmdb_id
-  msg.value = '正在获取 TMDB 详情…'
-  const oldRegion = m.value?.region || ''
-  try {
-    const r = await api('/api/movies/' + route.params.id + '/match', {
-      method: 'POST',
-      body: JSON.stringify({ tmdb_id })
-    })
-    await load()
-    editing.value = false
-    checkArchiveHint()
-    const regionNote = (m.value?.region && m.value.region !== oldRegion)
-      ? `产地变为${m.value.region}，文件仍在旧分区，请到设置页用“搬到顶层”修复。` : ''
-    if (r.background && (r.background.poster || r.background.avatars)) {
-      msg.value = '已绑定，海报/演员补齐中…' + regionNote
-      flashSaved()
-      await waitForMedia()
-      if (!regionNote) msg.value = ''
-      else msg.value = regionNote
-    } else {
-      msg.value = regionNote
-      flashSaved()
-    }
-  } catch (e) {
-    msg.value = '绑定失败：' + e.message
-  } finally {
-    bindingId.value = null
-  }
-}
-// 匹配成功 → 查推荐归档路径（失败不影响绑定）
 async function checkArchiveHint() {
   archHint.value = null
   archMsg.value = ''
@@ -847,26 +672,6 @@ async function doArchive() {
   } catch (e) {
     archMsg.value = '归档失败：' + e.message
     archApplying.value = false
-  }
-}
-async function refreshTmdb() {
-  if (refreshing.value) return
-  refreshing.value = true
-  refreshMsg.value = '刷新中…'
-  try {
-    const r = await api('/api/movies/' + route.params.id + '/refresh', { method: 'POST' })
-    refreshMsg.value = r.changed ? `已更新（${(r.affected_ids || []).length}个版本）` : '远端无变化'
-    await load()
-    if (r.changed) flashSaved()
-    if (r.background && (r.background.poster || r.background.avatars)) {
-      refreshMsg.value += '，图片补齐中…'
-      await waitForMedia()
-      refreshMsg.value = r.changed ? `已更新（${(r.affected_ids || []).length}个版本）` : '远端无变化'
-    }
-  } catch (e) {
-    refreshMsg.value = '刷新失败：' + e.message
-  } finally {
-    refreshing.value = false
   }
 }
 function escPlayer(e) {
@@ -992,5 +797,4 @@ button.danger { border-color: #6e2b2b; color: #ff8a8a; }
 .pv-img { max-width: 100%; border-radius: 8px; }
 .pv-pdf { width: 100%; height: 480px; border: none; border-radius: 8px; background: #fff; }
 .pv-text { white-space: pre-wrap; max-height: 320px; overflow: auto; background: #111; padding: 10px; border-radius: 8px; color: #ccc; }
-.edit-panel .bar { padding: 6px 0; }
 </style>
