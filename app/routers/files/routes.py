@@ -266,13 +266,13 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
         except Exception:
             try:
                 _rename_or_move(dst, src)
-            except OSError:
-                pass
+            except OSError as rb:
+                logger.warning("restore rollback failed id=%s dst=%s: %s", m.get("id"), dst, rb)
             raise
         try:
             sync_nfos_for(m["id"], dst)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("restore nfos sync failed id=%s dst=%s: %s", m.get("id"), dst, e)
         _cleanup_old_dir(old_dir)
         if os.path.normpath(old_dir) != os.path.normpath(os.path.dirname(dst)):
             _resync_old_dir(old_dir)

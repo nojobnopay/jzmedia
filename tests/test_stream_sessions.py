@@ -216,3 +216,14 @@ def test_guess_sidecar_lang_token_match():
     # 单字提示只认独立 token：「中配」以前会被子串「中」误判为中文（评审 R13-B5）
     assert _guess_sidecar_lang("中配")[0] == ""
     assert _guess_sidecar_lang("中")[0] == "chi"
+
+
+# ---------- B11 审计补齐：媒体负载音轨与产物一致（R11-D3） ----------
+
+def test_media_payload_caps_audio_renditions():
+    from app.routers.stream.media import _media_payload
+    from app.playback import MAX_AUDIO_RENDITIONS
+    info = {"audio": [{"index": i, "codec": "aac", "channels": 2} for i in range(12)],
+            "subs": []}
+    payload = _media_payload({"id": 1, "file_path": "x.mkv"}, info)
+    assert len(payload["audio"]) == MAX_AUDIO_RENDITIONS

@@ -76,3 +76,29 @@ def test_blob_inline_whitelist(media_root):
 def test_health_check_store_helper():
     d = store.health_check()
     assert d["ok"] is True and d["bytes"] > 0
+
+
+def test_settings_proxy_masked_and_echo_safe():
+    """评审 R01-B6：代理 URL 含凭证只回脱敏值；回显值不回写；空串仍可清空。"""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    c = TestClient(app)
+    c.put("/api/settings", json={"tmdb_proxy": "http://user:pass@proxy.local:7890"})
+    d = c.get("/api/settings").json()
+    assert d["tmdb_proxy"] == "http://***@proxy.local:7890"
+    assert "pass" not in d["tmdb_proxy"]
+    # 前端把脱敏回显原样提交 → 视为不修改（不得把 *** 落库）
+    c.put("/api/settings", json={"tmdb_proxy": d["tmdb_proxy"]})
+    assert c.get("/api/settings").json()["tmdb_proxy"] == "http://***@proxy.local:7890"
+    # 空串=清空（恢复跟随 env）
+    c.put("/api/settings", json={"tmdb_proxy": ""})
+    assert c.get("/api/settings").json()["tmdb_proxy"] == ""
+
+
+def test_settings_proxy_without_creds_unchanged():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    c = TestClient(app)
+    c.put("/api/settings", json={"tmdb_proxy": "http://proxy.local:7890"})
+    assert c.get("/api/settings").json()["tmdb_proxy"] == "http://proxy.local:7890"
+    c.put("/api/settings", json={"tmdb_proxy": ""})

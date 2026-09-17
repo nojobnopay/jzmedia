@@ -73,7 +73,8 @@ def _settings_view() -> dict:
         "tmdb_api_key_masked": config.mask_secret(api_key),
         "tmdb_api_key_source": key_src,
         "tmdb_token_source": cred_src,
-        "tmdb_proxy": proxy,
+        # 脱敏回显（评审 R01-B6）：代理 URL 常含 user:pass；前端保存时按值比对，回显值不落库
+        "tmdb_proxy": config.mask_proxy(proxy),
         "tmdb_proxy_source": proxy_src,
         "tmdb_language_source": lang_src,
         "tmdb_image_base_source": img_src,
@@ -129,6 +130,11 @@ def update_settings(body: SettingsUpdate):
     data = body.model_dump(exclude_unset=True)
     if not data:
         raise HTTPException(422, "nothing to update")
+    # 回显的脱敏代理值视为「不修改」（评审 R01-B6）；空串仍然=清空
+    if data.get("tmdb_proxy"):
+        cur, _ = config.effective_with_source("tmdb_proxy")
+        if data["tmdb_proxy"] == config.mask_proxy(cur):
+            data.pop("tmdb_proxy")
     for k, v in data.items():
         if v is None:
             continue
