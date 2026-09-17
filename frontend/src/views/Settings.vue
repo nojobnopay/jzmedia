@@ -308,7 +308,7 @@
         </ul>
       </section>
 
-      <FsBrowser @changed="loadStats" />
+      <FsBrowser :active="active === 'sec-files'" @changed="loadStats" @scan="doScan" />
     </div>
   </div>
 </template>
