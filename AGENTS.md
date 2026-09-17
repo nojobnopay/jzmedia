@@ -23,7 +23,7 @@
 ## Run
 - Backend (WSL dev, hot-reload via `docker-compose.override.yml`): `cp .env.example .env && mkdir -p sample_media/电影 data && docker compose up --build`, check `http://localhost:8080/docs`.
 - Host-direct (no docker): prefer `./start.sh` — rebuilds `frontend/dist` only when stale, maps `.env` container paths (`/media`, `/app/data`) back to host defaults, then runs uvicorn. Manual equivalent needs `DATA_DIR=./data MEDIA_ROOT=./sample_media` overrides plus `TMDB_*` from `.env` (see README §启动服务).
-- Frontend dev: `npm run lint`（eslint 最小集：未定义/未用变量/console 警告）、`npm test`（node --test）in `frontend/`；`npm run build` 产出 `frontend/dist`。`npm run dev` (5173, proxies `/api`,`/posters` → 8080). Prod build: `npm run build` → `frontend/dist`, served by FastAPI at `/` + `/assets`.
+- Frontend dev: `npm run lint`（eslint 最小集：未定义/未用变量/console 警告）、`npm test`（node --test；含 `tests/templateBindings.test.js` 模板标识符绑定检查，防拆分后残留父级引用）in `frontend/`；`npm run build` 产出 `frontend/dist`。`npm run dev` (5173, proxies `/api`,`/posters` → 8080). Prod build: `npm run build` → `frontend/dist`, served by FastAPI at `/` + `/assets`.
 - No single-test command — there are no tests. Verify via `/api/health` and the scan/list endpoints in README §5.
 
 ## Env / paths (gotchas)
