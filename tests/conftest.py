@@ -24,10 +24,13 @@ import pytest  # noqa: E402
 
 from app import store  # noqa: E402
 from app.config import settings  # noqa: E402
+from app.db import ensure_dirs  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _init_db():
+    # 与生产 lifespan 相同的前置初始化（R01-Q1 后不再有导入期副作用）
+    ensure_dirs()
     store.init_db()
     yield
 

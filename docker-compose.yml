@@ -32,4 +32,13 @@ services:
     #   - "${VIDEO_GID:-44}"
     #   - "${RENDER_GID:-109}"
     restart: unless-stopped
+    # tini 作为 PID 1：转发信号、回收 ffmpeg 等子进程僵尸（评审 R01-Q3）
+    init: true
+    # 编排级探活：健康接口自检 DB/媒体根（镜像无 curl，用自带 python）
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=5).status==200 else 1)\""]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080

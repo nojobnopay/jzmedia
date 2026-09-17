@@ -45,7 +45,8 @@ docker compose up --build -d
 ### 方式二：宿主直跑（不装 Docker 时调试用）
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# 宿主直跑需要 ffmpeg/ffprobe；无系统 ffmpeg 时装 requirements-dev.txt（含 static-ffmpeg 兜底）
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 export DATA_DIR=./data MEDIA_ROOT=./sample_media TMDB_LANGUAGE=zh-CN
 export TMDB_READ_TOKEN=$(grep -E '^TMDB_READ_TOKEN=' .env | cut -d= -f2-)
 export TMDB_PROXY=$(grep -E '^TMDB_PROXY=' .env | cut -d= -f2-)
