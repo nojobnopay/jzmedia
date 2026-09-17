@@ -225,6 +225,28 @@
       </div>
     </div>
   </div>
+  <!-- 重新匹配后的归档推荐（评审 B9 后续）：有推荐路径就弹窗，不让用户自己去设置页找 -->
+  <div v-if="archHint" class="dlg-mask" @click.self="archHint = null">
+    <div class="dlg arch-dlg">
+      <h3>已匹配成功，可以归档了</h3>
+      <p class="hint">检测到推荐的正式库路径，归档后可避免后续迁移：</p>
+      <ul class="arch-list">
+        <li v-for="(p, i2) in archHint.plans" :key="i2">
+          <span class="arch-from">{{ p.from }}</span>
+          <span class="arch-arrow">→</span>
+          <span class="arch-to">{{ p.to }}</span>
+        </li>
+      </ul>
+      <p v-if="(archHint.conflicts || []).length" class="warn-text">
+        另有 {{ archHint.conflicts.length }} 项冲突（疑似错配），请先核对匹配再归档。
+      </p>
+      <div class="bar">
+        <button @click="doArchive" :disabled="archApplying">{{ archApplying ? '归档中…' : '立即归档' }}</button>
+        <button @click="archHint = null" :disabled="archApplying">稍后（可在设置页「入库流程 → ③ 归档整理」处理）</button>
+        <span>{{ archMsg }}</span>
+      </div>
+    </div>
+  </div>
 </template>
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
@@ -249,6 +271,9 @@ const colList = ref([])
 const joinColId = ref('')
 const newColName = ref('')
 const colMsg = ref('')
+const archHint = ref(null)
+const archApplying = ref(false)
+const archMsg = ref('')
 const editing = ref(false)
 const savedFlash = ref(false)
 let flashTimer = null
@@ -848,6 +873,7 @@ async function bindMatch(tmdb_id) {
     })
     await load()
     editing.value = false
+    checkArchiveHint()
     const regionNote = (m.value?.region && m.value.region !== oldRegion)
       ? `产地变为${m.value.region}，文件仍在旧分区，请到设置页用“搬到顶层”修复。` : ''
     if (r.background && (r.background.poster || r.background.avatars)) {
@@ -864,6 +890,38 @@ async function bindMatch(tmdb_id) {
     msg.value = '绑定失败：' + e.message
   } finally {
     bindingId.value = null
+  }
+}
+// 匹配成功 → 查推荐归档路径（失败不影响绑定）
+async function checkArchiveHint() {
+  archHint.value = null
+  archMsg.value = ''
+  try {
+    const h = await api('/api/movies/' + route.params.id + '/organize-hint')
+    if (h && h.needs) archHint.value = h
+  } catch (e) { /* 忽略 */ }
+}
+async function doArchive() {
+  const h = archHint.value
+  if (!h || archApplying.value) return
+  archApplying.value = true
+  archMsg.value = ''
+  try {
+    const p = h.params || {}
+    const body = p.mode === 'relocate'
+      ? { mode: 'relocate', from_prefix: p.from_prefix, to_dir: p.to_dir,
+          group_by_region: true, ids: [Number(route.params.id)], dry_run: false }
+      : { mode: 'inplace', ids: [Number(route.params.id)], dry_run: false }
+    const d = await api('/api/files/organize', { method: 'POST', body: JSON.stringify(body) })
+    const rs = d.results || []
+    const ok = rs.filter(r => r.status === 'moved').length
+    archApplying.value = false
+    archHint.value = null
+    msg.value = `归档完成：${ok}/${rs.length} 项`
+    await load()
+  } catch (e) {
+    archMsg.value = '归档失败：' + e.message
+    archApplying.value = false
   }
 }
 async function refreshTmdb() {
@@ -1002,6 +1060,12 @@ watch(() => route.params.id, () => { load() })   // 同组件切片重载（评�
 .q-tip { position: relative; display: inline-flex; width: 18px; height: 18px; border-radius: 50%; border: 1px solid #555; color: #aaa; font-size: 0.75rem; align-items: center; justify-content: center; cursor: help; font-weight: normal; }
 .q-tip .q-bubble { display: none; position: absolute; left: 50%; top: 130%; transform: translateX(-50%); width: 280px; background: #262626; border: 1px solid #444; border-radius: 8px; padding: 10px 12px; color: #ccc; font-size: 0.8125rem; line-height: 1.7; z-index: 30; white-space: normal; }
 .q-tip:hover .q-bubble, .q-tip:focus-within .q-bubble { display: block; }
+.arch-dlg { max-width: 720px; }
+.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
+.arch-list li { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }
+.arch-from { color: #888; overflow-wrap: anywhere; }
+.arch-arrow { color: #6ab0ff; }
+.arch-to { color: #7ed321; overflow-wrap: anywhere; }
 .dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }
 .dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
