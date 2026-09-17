@@ -128,22 +128,7 @@
             <p class="hint">电视端 Kodi 打开此链接即播原盘（含杜比视界），不耗 NAS 算力；浏览器在线播请用上方 ▶ 播放。{{ tvMsg }}</p>
           </details>
 
-          <section class="card-block">
-            <h3>上传文件 <span class="q-tip" tabindex="0">?<span class="q-bubble">适合上传：海报/剧照（jpg/png）、音乐/原声（mp3/flac）、剧本/字幕（txt/srt/ass/pdf）、花絮视频（自动进 extras/）；正片新版本视频也可上传，会自动刮削入库。&gt;2GB 建议在局域网操作，可随时取消。</span></span></h3>
-            <div class="bar up-row">
-              <input type="file" ref="upInput" :disabled="!!upCtl" />
-              <select v-model="upSubdir" :disabled="!!upCtl">
-                <option value="">片目录</option>
-                <option value="extras">extras/</option>
-              </select>
-              <button @click="doUpload" :disabled="!!upCtl">上传</button>
-              <button v-if="upCtl" @click="cancelUpload">取消</button>
-              <span v-if="upPct !== null">{{ upPct }}%</span>
-              <span v-if="upScanning" class="up-scan">已传完，正在联网匹配 TMDB 元数据并下载海报，预计约 10–30 秒，请耐心等待（已等待 {{ upScanSecs }}s）</span>
-              <span v-else>{{ upMsg }}</span>
-            </div>
-            <div v-if="upPct !== null" class="up-bar"><i :style="{ width: upPct + '%' }"></i></div>
-          </section>
+          <MovieUploadPanel :movie-id="Number(route.params.id)" @uploaded="load" />
         </div>
 
         <aside class="side-col">
@@ -251,13 +236,14 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, apiUpload, posterUrl } from '../api.js'
+import { api, posterUrl } from '../api.js'
 import { copyText } from '../clipboard.js'
 import { usePolling } from '../usePolling.js'
 import { getCaps } from '../caps.js'
 import { hasScore, fmtScore, starRow } from '../ratings.js'
 import Spinner from '../components/Spinner.vue'
 import PlayerModal from '../components/PlayerModal.vue'
+import MovieUploadPanel from '../components/MovieUploadPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -562,67 +548,6 @@ function fmtSize(n) {
 }
 function blobUrl(name) {
   return `/api/movies/${route.params.id}/blob?name=${encodeURIComponent(name)}`
-}
-const upInput = ref(null)
-const upSubdir = ref('')
-const upPct = ref(null)
-const upMsg = ref('')
-const upScanning = ref(false)
-const upScanSecs = ref(0)
-let upAbort = null
-let upScanTimer = null
-let upHintTimer = null
-const upCtl = computed(() => !!upAbort)
-function stopUpScanTicker() {
-  if (upScanTimer) { clearInterval(upScanTimer); upScanTimer = null }
-  if (upHintTimer) { clearTimeout(upHintTimer); upHintTimer = null }
-}
-async function doUpload() {
-  const files = upInput.value && upInput.value.files
-  if (!files || !files.length) {
-    upMsg.value = '先选文件'
-    return
-  }
-  const file = files[0]
-  upMsg.value = ''
-  upPct.value = 0
-  upScanning.value = false
-  upScanSecs.value = 0
-  const h = apiUpload(`/api/movies/${route.params.id}/upload`, file, {
-    subdir: upSubdir.value,
-    onProgress: (p) => { upPct.value = p },
-    onUploaded: () => {
-      // 延迟 800ms 再切“刮削中”，字幕/花絮等本地快路径不会闪提示
-      if (upHintTimer) clearTimeout(upHintTimer)
-      upHintTimer = setTimeout(() => {
-        if (!upAbort) return
-        upScanning.value = true
-        upScanSecs.value = 0
-        if (upScanTimer) clearInterval(upScanTimer)
-        upScanTimer = setInterval(() => { upScanSecs.value++ }, 1000)
-      }, 800)
-    }
-  })
-  upAbort = h.abort
-  try {
-    const r = await h.promise
-    stopUpScanTicker()
-    upScanning.value = false
-    upPct.value = 100
-    upMsg.value = `已上传 ${file.name}` + (r && r.status && r.status !== 'stored' ? `（${r.status}）` : '')
-    upInput.value.value = ''
-    await reloadFiles()
-  } catch (e) {
-    stopUpScanTicker()
-    upScanning.value = false
-    upMsg.value = '上传失败：' + e.message
-  } finally {
-    upAbort = null
-    setTimeout(() => { if (!upAbort) { upPct.value = null; upScanning.value = false } }, 3000)
-  }
-}
-function cancelUpload() {
-  if (upAbort) upAbort()
 }
 const pvName = ref('')
 const pvUrl = ref('')
@@ -955,8 +880,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', escPlayer)
-  stopUpScanTicker()                       // 评审 B8/R05-B5：离开页面停表/中止上传
-  if (upAbort) { try { upAbort() } catch (e) { /* 忽略 */ } }
+  // 上传中止/计时由 MovieUploadPanel 自身卸载时处理（评审 B8/R05-B5）
   if (flashTimer) clearTimeout(flashTimer)
   if (posterObjUrl) URL.revokeObjectURL(posterObjUrl)
 })
@@ -1048,18 +972,11 @@ watch(() => route.params.id, () => { load() })   // 同组件切片重载（评�
 .files summary { cursor: pointer; color: #ccc; font-size: 0.9375rem; }
 .files ul { color: #888; font-size: 0.875rem; }
 .files a { color: #6ab0ff; margin-left: 6px; }
-.up-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 0; }
-.up-bar { height: 6px; background: #262626; border-radius: 3px; overflow: hidden; margin: 4px 0; }
-.up-bar i { display: block; height: 100%; background: #6ab0ff; }
-.up-scan { color: #e0a63c; font-size: 0.8125rem; }
 .f-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 3px 0; }
 .f-name { flex: 1; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .f-size { color: #666; font-size: 0.75rem; }
 .f-acts { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 .ver-list { list-style: none; margin: 4px 0; padding: 0; }
-.q-tip { position: relative; display: inline-flex; width: 18px; height: 18px; border-radius: 50%; border: 1px solid #555; color: #aaa; font-size: 0.75rem; align-items: center; justify-content: center; cursor: help; font-weight: normal; }
-.q-tip .q-bubble { display: none; position: absolute; left: 50%; top: 130%; transform: translateX(-50%); width: 280px; background: #262626; border: 1px solid #444; border-radius: 8px; padding: 10px 12px; color: #ccc; font-size: 0.8125rem; line-height: 1.7; z-index: 30; white-space: normal; }
-.q-tip:hover .q-bubble, .q-tip:focus-within .q-bubble { display: block; }
 .arch-dlg { max-width: 720px; }
 .arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
 .arch-list li { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }
