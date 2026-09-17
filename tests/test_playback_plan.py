@@ -117,6 +117,54 @@ def test_hdr_passthrough_when_caps_hdr():
     assert d["method"] == "direct"
 
 
+def _hevc10_media(**kw):
+    return _media(vcodec="hevc", bit_depth=10, video_profile="Main 10",
+                  video_level=150, **kw)
+
+
+def _caps_hevc10(**kw):
+    return _caps(video={"h264": True, "hevc10": True}, **kw)
+
+
+def test_hdr_passthrough_when_client_decodes_pq():
+    """caps.hdr_decode=能解 PQ（与显示器是否 HDR 无关）→ Plex 式原画直通。"""
+    d = pb.plan(_hevc10_media(hdr="hdr10"), caps=_caps_hevc10(hdr_decode=True))
+    assert d["method"] == "direct"
+    assert "hdr_not_supported" not in d["reasons"]
+
+
+def test_dv_compat1_passthrough_when_client_decodes_pq():
+    d = pb.plan(_hevc10_media(dv_profile=8, dv_bl_compat=1),
+                caps=_caps_hevc10(hdr_decode=True))
+    assert d["method"] == "direct"
+    assert "hdr_not_supported" not in d["reasons"]
+
+
+def test_hdr_without_decode_capability_still_transcodes():
+    d = pb.plan(_hevc10_media(hdr="hdr10"), caps=_caps_hevc10())
+    assert d["method"] == "video_transcode"
+    assert "hdr_not_supported" in d["reasons"]
+
+
+def test_native_hls_passthrough_hdr():
+    d = pb.plan(_hevc10_media(hdr="hdr10"), caps=_caps_hevc10(native_hls=True))
+    assert d["method"] == "direct"
+
+
+def test_dv_profile5_blocked_even_with_pq_decode():
+    d = pb.plan(_hevc10_media(dv_profile=5, dv_bl_compat=0),
+                caps=_caps_hevc10(hdr_decode=True))
+    assert d["method"] == "video_transcode"
+    assert "dovi_not_supported" in d["reasons"]
+
+
+def test_caps_normalize_keeps_hdr_decode_bool():
+    from app import caps as caps_mod
+    c = caps_mod.normalize_caps({"hdr_decode": True, "hdr": "yes"})
+    assert c["hdr_decode"] is True
+    assert c["hdr"] is False
+
+
 def test_dv_compat2_treated_as_sdr():
     d = pb.plan(_media(dv_profile=8, dv_bl_compat=2), caps=_caps())
     assert d["method"] == "direct"

@@ -134,7 +134,9 @@ def _hdr_blocks_direct(media: dict, caps: dict, client: str) -> tuple[bool, str,
     - kodi 外部播放器直通；
     - DV：compat=2（SDR 基底）当 SDR；compat=1（HDR10 基底）当 HDR10；
       其余（profile 5 等无兼容基底）浏览器无法直通；
-    - HDR10/HLG：客户端 caps.hdr=false 时不能直通 → 走转码（有 HW 后端才做 tonemap）。"""
+    - HDR10/HLG：客户端能解 PQ（caps.hdr_decode；旧字段 hdr；Safari 原生 HLS）
+      即直通，显示映射（HDR 直通或 tone map 到 SDR）交给浏览器/系统（Plex 式）；
+      不能解才走转码（有 HW 后端才做 tonemap）。"""
     if _is_kodi(client):
         return False, "", False
     try:
@@ -143,16 +145,18 @@ def _hdr_blocks_direct(media: dict, caps: dict, client: str) -> tuple[bool, str,
     except (TypeError, ValueError):
         dv, compat = 0, 0
     hdr = str(media.get("hdr") or "")
+    hdr_ok = (caps.get("hdr_decode") is True or caps.get("hdr") is True
+              or caps.get("native_hls") is True)
     if dv > 0:
         if compat == 2:
             return False, "", False
         if compat == 1:
-            if caps.get("hdr"):
+            if hdr_ok:
                 return False, "", False
             return True, "hdr_not_supported", True
         return True, "dovi_not_supported", True
     if hdr:
-        if caps.get("hdr"):
+        if hdr_ok:
             return False, "", False
         return True, "hdr_not_supported", True
     return False, "", False

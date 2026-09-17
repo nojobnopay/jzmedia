@@ -65,6 +65,11 @@
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-17：**HDR/DV 原画直通 + 掉帧提示（用户反馈）**：`caps.hdr_decode` 与显示器 HDR 解耦
+  （前端常开 PQ 解码探测）→ HDR10 / DV P8.1 能解即直通（Plex 式，4K DV 零转码；P5 仍阻断）；
+  原画直通源 >1080p 时 `dropGuard` 30s 丢帧 ≥5 弹居中浮层询问（窗口/全屏统一，手点切换；
+  10s 超时/取消=保持原画；不自动/不记忆）；调试快照补 total/corrupted。验证：pytest 210 /
+  node --test 27 / lint 0 error / npm build ✓（详见 `10-p2-backlog.md` 架构长尾推进末条）。
 - 2026-09-17：**标题来源修复**（tag `b12-title-auto`）：`title_auto` 列 + 迁移 v11 离线愈合
   （用户库 Kikujiro→菊次郎的夏天），修复 B9 引入的「文件名标题挡 TMDB 标题」回归；
 - 2026-09-17：**B11 审计补齐批合回**（tag `b11-audit-gaps`）：覆盖上表 53 条中的可行动项

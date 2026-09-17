@@ -155,6 +155,12 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
   当作手工标题，挡住 TMDB 标题（Kikujiro vs 菊次郎的夏天）；新增 `movies.title_auto` 区分
   自动/手工标题，`copy_tmdb_to_movie` 按标记决定跟随；迁移 v11 回填并对已匹配行用 tmdb_cache
   离线愈合（用户库实测命中 1 行，其余 214 行仅打标记）；PATCH 标题即转受保护。pytest 201。
+- HDR/DV 原画直通 + 掉帧提示（2026-09-17 用户反馈《芭蕾杀姬》《大桥下面》）：`_hdr_blocks_direct`
+  新增 `caps.hdr_decode`（前端常开 PQ 解码探测，与"显示器是否 HDR"解耦）→ HDR10 / DV P8.1
+  浏览器能解即原画直通（Plex 式，4K DV 从"转 1080p"变为零转码 remux；P5 仍阻断，旧客户端保守
+  不变）；原画直通（视频 copy）且源 >1080p 时跑 `dropGuard` 看门狗：30s 窗口丢帧 ≥5 → 播放器
+  居中浮层询问「切换到 1080p 转码？」（窗口/全屏统一，切换/取消，10s 无操作=保持原画；手点降档、
+  不自动切、不记忆）。pytest 210 / node --test 27。
 
 ### B10 工程化收尾批
 | 组 | 成员 | 状态 |

@@ -4,7 +4,7 @@
 // 2) 逐片候选码串（服务端 media_info.vcaps + 每音轨 caps）→ decide 前实测回传，
 //    避免“支持 H264 ≠ 支持 Hi10P / Main10 超分辨率档”这类粗判。
 // 实测优先 navigator.mediaCapabilities.decodingInfo，回落 MediaSource.isTypeSupported。
-const STORAGE_KEY = 'jzmedia.caps.v1'
+const STORAGE_KEY = 'jzmedia.caps.v2'
 const TTL = 24 * 3600 * 1000
 
 const VIDEO_TESTS = [
@@ -95,21 +95,26 @@ async function detect () {
   for (const [key, w, h, codecs] of VIDEO_TESTS) video[key] = await anySupport(codecs, w, h)
   const audio = {}
   for (const [key, codecs] of AUDIO_TESTS) audio[key] = await anySupport(codecs, 0, 0, 'audio')
+  // 解码端 HDR 能力（与显示器是否 HDR 无关）：浏览器能解 PQ → 服务端放行 HDR/DV 原画
+  // 直通，显示映射（HDR 直通或 tone map 到 SDR）交给浏览器/系统（Plex 式）。
+  // L153/L150 都探：部分硬件只到 4K30；Chrome/Safari 的 PQ 声明才准。
+  const hdrDecode = await anySupport(
+    ['hvc1.2.4.L153.B0', 'hev1.2.4.L153.B0',
+     'hvc1.2.4.L150.B0', 'hev1.2.4.L150.B0', 'av01.0.12M.10'],
+    3840, 2160, 'video', 'pq')
   let hdr = false
   try {
     hdr = !!(window.matchMedia && window.matchMedia('(dynamic-range: high)').matches)
   } catch (e) { hdr = false }
-  if (hdr) {
-    // HDR 直通还要看 HEVC/AV1 的 PQ 解码声明（Chrome/Safari 才准）
-    hdr = await anySupport(['hvc1.2.4.L153.B0', 'hev1.2.4.L153.B0', 'av01.0.12M.10'],
-      3840, 2160, 'video', 'pq')
-  }
+  // 旧字段语义保留：显示器 HDR 且能解 PQ（服务端兼容期仍认它）
+  if (hdr) hdr = hdrDecode
   let nativeHls = false
   try {
     nativeHls = ('ManagedMediaSource' in window) &&
       !!document.createElement('video').canPlayType('application/vnd.apple.mpegurl')
   } catch (e) { nativeHls = false }
-  return { video, audio, hdr, mse: !!window.MediaSource, native_hls: nativeHls, probes: {} }
+  return { video, audio, hdr, hdr_decode: hdrDecode,
+           mse: !!window.MediaSource, native_hls: nativeHls, probes: {} }
 }
 
 let basePromise = null

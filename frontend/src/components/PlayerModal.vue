@@ -69,6 +69,14 @@
             @input="setVolume" @change="blurPick" class="ctl-vol" />
           <button @click="toggleFull" :title="isFull ? '退出全屏（Esc）' : '全屏（双击画面）'">{{ isFull ? '⤡' : '⛶' }}</button>
         </div>
+        <!-- 掉帧浮层询问（窗口/全屏统一，画面居中）：10s 无操作视为放弃（不变），
+             点取消同样保持原画 -->
+        <div v-if="dropHint" class="drop-prompt" @dblclick.stop>
+          <span>检测到原画直通丢帧（30 秒 {{ dropDrops }} 帧），切换到 1080p 转码？</span>
+          <button class="drop-go" @click="switchTo1080">切换</button>
+          <button class="drop-cancel" @click="cancelDropPrompt">取消</button>
+          <span class="drop-count">{{ dropCountdown }}s</span>
+        </div>
       </div>
       <div v-if="needGesture" class="gesture-bar">
         <span>片源已就绪，浏览器阻止了自动带声播放</span>
@@ -79,13 +87,14 @@
   </div>
 </template>
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '../api.js'
 import { copyText } from '../clipboard.js'
 import { getCaps, probeStrings, withProbes } from '../caps.js'
 import { ensureJassub } from '../jassubLoader.js'
 import { ensurePgs } from '../pgsLoader.js'
 import { normalizeSubStyle, subFontPx, pickSubAnchor, subBarPad, subInnerPad } from '../subStyle.js'
+import { createDropGuard, tickDropGuard, isCopyVideoPath } from '../dropGuard.js'
 import Spinner from './Spinner.vue'
 import { useFocusTrap } from '../useFocusTrap.js'
 import PlayerSettings from './PlayerSettings.vue'
@@ -170,6 +179,37 @@ let activeCaps = null
 const probedCaps = {}
 const err = ref('')
 const posHint = ref('')
+// 掉帧看门狗：原画直通（视频 copy）且源 >1080p 时持续丢帧 → 提示手点降档。
+// 不自动切、不落 localStorage（仅当次提示）。浮层询问（窗口/全屏统一，10s 超时=不变）。
+let dropGuard = createDropGuard()
+let dropPlayStart = 0
+let dropHintFired = false
+const dropHint = ref(false)
+const dropDrops = ref(0)        // 触发窗口的丢帧数（提示文案）
+const dropCountdown = ref(0)    // 浮层倒计时（秒）
+let dropCountdownTimer = 0
+function clearDropCountdown() {
+  if (dropCountdownTimer) { clearInterval(dropCountdownTimer); dropCountdownTimer = 0 }
+  dropCountdown.value = 0
+}
+function startDropCountdown() {
+  clearDropCountdown()
+  dropCountdown.value = 10
+  dropCountdownTimer = setInterval(() => {
+    if (dropCountdown.value <= 1) cancelDropPrompt()
+    else dropCountdown.value -= 1
+  }, 1000)
+}
+function cancelDropPrompt() {
+  clearDropCountdown()
+  dropHint.value = false
+  posHint.value = '已保留原画（如仍卡顿可在「⚙ 设置」里切档）'
+}
+// 浮层出现即起倒计时（窗口/全屏统一）；消失/切档/卸载时清掉
+watch(dropHint, (hint) => {
+  if (hint) startDropCountdown()
+  else clearDropCountdown()
+})
 const resumeOffer = ref('')
 let resumePos = 0
 // 最近一次会话的起始秒（resumePlay 对不支持 #t 的浏览器补跳用；reload 消费 resumePos 后清零）
@@ -512,6 +552,10 @@ async function reload() {
   err.value = ''
   sessStatus.value = ''
   needGesture.value = false
+  dropGuard = createDropGuard()
+  dropPlayStart = 0
+  dropHintFired = false
+  dropHint.value = false
   stallTicks = 0
   lastTickPos = -1
   lastPlaylistUrl = ''
@@ -1071,7 +1115,36 @@ function blurPick(e) {
     if (el && el.blur) el.blur()
   } catch (err) { /* 忽略 */ }
 }
-function onQualityChange(v) { quality.value = v; reload() }
+function onQualityChange(v) {
+  quality.value = v
+  dropHint.value = false
+  reload()
+}
+// 掉帧看门狗采样（每 2s 一拍，挂在 bufTimer 上）：原画直通持续丢帧 → 提示 + 手点降档。
+// 触发条件见 dropGuard.js（30s 窗口 ≥5 帧、起播 15s 后、仅视频 copy 路径）。
+function sampleDropGuard() {
+  const v = videoEl.value
+  if (dropHintFired || !v || !v.getVideoPlaybackQuality) return
+  if (!isCopyVideoPath(method.value, srcHeight.value)) return
+  const playing = !v.paused && !v.seeking && !v.ended && (v.readyState || 0) >= 2
+  if (playing && !dropPlayStart) dropPlayStart = Date.now()
+  let q = null
+  try { q = v.getVideoPlaybackQuality() } catch (e) { return }
+  const r = tickDropGuard(dropGuard,
+    { dropped: q.droppedVideoFrames, total: q.totalVideoFrames },
+    { now: Date.now(), playing, startedAt: dropPlayStart })
+  if (r.fire) {
+    dropHintFired = true
+    dropHint.value = true
+    dropDrops.value = r.drops
+    logEvt('drops:detected', 'd30=' + r.drops + ' f30=' + r.frames)
+  }
+}
+function switchTo1080() {
+  clearDropCountdown()
+  onQualityChange('1080p')
+  posHint.value = '已按建议切换到 1080p 转码；如仍想原画，可在「⚙ 设置」里切回'
+}
 // 音轨切换：fMP4 rendition 已在会话里 → 切 hls.audioTrack 即刻生效（视频不重编不重开）；
 // 原生 Safari 用 video.audioTracks；会话尚未就绪时只改选择，等 MANIFEST_PARSED 应用；
 // 都不支持（TS 回滚单轨产物）才回退重开会话。
@@ -1349,6 +1422,8 @@ async function copyDebug() {
     if (v && v.getVideoPlaybackQuality) {
       const q = v.getVideoPlaybackQuality()
       info.dropped = q.droppedVideoFrames
+      info.totalFrames = q.totalVideoFrames
+      info.corruptedFrames = q.corruptedVideoFrames
     }
   } catch (e) { /* 忽略 */ }
   try {
@@ -1406,6 +1481,7 @@ onMounted(async () => {
         recoverStream(true)
       }
       watchStall()
+      sampleDropGuard()
     } catch (e) { bufSecs.value = 0 }
   }, 2000)
 })
@@ -1565,6 +1641,8 @@ function debugSnapshot() {
   info.ass = { active: !!jassub, fonts: assFonts.value, compat: compatSub.value,
     kind: subKind(subs.value[subIdx.value]) }
   info.pgs = { active: !!pgs, delay: subDelay.value, force_burn: forceBurn.value }
+  info.drops = { hint: dropHint.value, fired: dropHintFired,
+    win: { at: dropGuard.at, dropped: dropGuard.dropped, total: dropGuard.total } }
   info.events = evtLog.slice(-25)
   return info
 }
@@ -1625,6 +1703,7 @@ onUnmounted(() => {
   if (hideTimer) clearTimeout(hideTimer)
   if (bufTimer) clearInterval(bufTimer)
   if (saveTimer) clearTimeout(saveTimer)
+  clearDropCountdown()
   destroyHls()
   destroyAss()
   destroyPgs()
@@ -1698,5 +1777,16 @@ onUnmounted(() => {
 .play-now { font-size: 1rem; padding: 6px 22px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }
 .resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; flex-wrap: wrap; }
 .hint-line { margin: 0; color: #666; font-size: 0.8125rem; overflow-wrap: anywhere; }
+/* 掉帧询问浮层（窗口/全屏统一）：画面居中，控件条/标题显隐都不遮挡 */
+.drop-prompt {
+  position: absolute; z-index: 6; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  display: flex; gap: 10px; align-items: center; max-width: 92vw;
+  padding: 10px 16px; border-radius: 10px; background: rgba(0, 0, 0, .82);
+  color: #eee; font-size: 0.875rem; box-shadow: 0 4px 18px rgba(0, 0, 0, .4);
+}
+.drop-prompt button { padding: 3px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
+.drop-go { background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; }
+.drop-cancel { background: transparent; border: 1px solid #777; color: #ccc; }
+.drop-count { color: #9ecfff; font-variant-numeric: tabular-nums; }
 .hint.warn { color: #e0a63c; }
 </style>

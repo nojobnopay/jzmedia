@@ -40,6 +40,7 @@ def normalize_caps(raw) -> dict:
     return {"video": _bools(VIDEO_KEYS, raw.get("video")),
             "audio": _bools(AUDIO_KEYS, raw.get("audio")),
             "hdr": raw.get("hdr") is True,
+            "hdr_decode": raw.get("hdr_decode") is True,
             "mse": raw.get("mse") is True if "mse" in raw else True,
             "native_hls": raw.get("native_hls") is True,
             "probes": probes}
