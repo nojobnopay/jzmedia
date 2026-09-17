@@ -63,6 +63,8 @@
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-17：**标题来源修复**（tag `b12-title-auto`）：`title_auto` 列 + 迁移 v11 离线愈合
+  （用户库 Kikujiro→菊次郎的夏天），修复 B9 引入的「文件名标题挡 TMDB 标题」回归；
 - 2026-09-17：**B11 审计补齐批合回**（tag `b11-audit-gaps`）：覆盖上表 53 条中的可行动项
   （store 并发/索引/FTS 条件重建、部署文档、整理排序与状态聚合、播放 MSE 档位、prewarm 修剪、
   字幕 token/全文判定、cue 命中纯函数等）；pytest 193 / node 17 / smoke 29/29 / lint 0 error。

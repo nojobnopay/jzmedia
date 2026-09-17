@@ -146,6 +146,11 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 - R14-B6 done：useFocusTrap 接入 9 处弹窗（Tab 循环/打开聚焦/关闭还原）
 - R13-Q1 部分：解析/注册表/命中判定已收口；完整 useSubtitles composable（约 500 行搬迁）
   因 PlayerModal 刚经用户验证、回归风险高，留专门会话 + 即时 H-UI 点检后实施
+- 标题来源修复（tag `b12-title-auto`，2026-09-17 用户报障）：B9「先建行再刮削」写入的文件名标题被
+  当作手工标题，挡住 TMDB 标题（Kikujiro vs 菊次郎的夏天）；新增 `movies.title_auto` 区分
+  自动/手工标题，`copy_tmdb_to_movie` 按标记决定跟随；迁移 v11 回填并对已匹配行用 tmdb_cache
+  离线愈合（用户库实测命中 1 行，其余 214 行仅打标记）；PATCH 标题即转受保护。pytest 201。
+
 ### B10 工程化收尾批
 | 组 | 成员 | 状态 |
 |---|---|---|
