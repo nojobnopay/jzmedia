@@ -88,7 +88,8 @@ import { ensurePgs } from '../pgsLoader.js'
 import { normalizeSubStyle, subFontPx, pickSubAnchor, subBarPad, subInnerPad } from '../subStyle.js'
 import Spinner from './Spinner.vue'
 import PlayerSettings from './PlayerSettings.vue'
-import { subKind, audioLabel, subLabel, subBadge, fmtTime as fmt } from '../playerLabels.js'
+import { subKind, fmtTime as fmt } from '../playerLabels.js'
+import { parseVtt } from '../subtitleParse.js'
 import '../player.css'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
@@ -200,7 +201,6 @@ let engine = 'none'
 let mediaErrLogged = ''
 // 元素级恢复 + 冻结遥测：看门狗不再看缓冲量，只看“该走的时间走没走”
 const videoKey = ref(0)
-let lastAdvanceAt = 0
 let evtLog = []
 const bootAt = Date.now()
 function logEvt(kind, detail) {
@@ -400,7 +400,6 @@ async function mountHls(v, url, targetMediaTime, opts) {
   hls.loadSource(url)
   hls.attachMedia(v)
   engine = 'hls'
-  lastAdvanceAt = Date.now()
   return true
 }
 // 自动带声播放被浏览器拦截时不再静默：给明确提示 + 一键起播
@@ -810,42 +809,6 @@ async function mountAss(v, key) {
 function subShift() {
   return method.value === 'direct' ? 0 : mediaStart
 }
-function vttMs(s) {
-  const m = /^(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{3})$/.exec(String(s || '').trim())
-  if (!m) return null
-  return ((Number(m[1] || 0) * 60 + Number(m[2])) * 60 + Number(m[3])) * 1000 + Number(m[4])
-}
-// 解析 WebVTT → cue 列表（源时间轴毫秒；会话偏移/用户延迟在渲染时叠加，便于即时调整）。
-// 文本去标签 + textarea 解码实体（textContent 渲染，纯文本安全）；STYLE/REGION/注释块跳过。
-function parseVtt(text) {
-  const cues = []
-  for (const block of String(text || '').split(/\r?\n\r?\n/)) {
-    const lines = block.split(/\r?\n/)
-    let ti = -1
-    for (let i = 0; i < lines.length; i++) {
-      if (/^\s*\S+\s*-->\s*\S+/.test(lines[i])) { ti = i; break }
-    }
-    if (ti < 0) continue
-    const m = /^(\s*)(\S+)\s*-->\s*(\S+)\s*(.*)$/.exec(lines[ti])
-    if (!m) continue
-    const a = vttMs(m[2])
-    const b = vttMs(m[3])
-    if (a == null || b == null || b <= a) continue
-    const am = /(?:^|\s)align:(\w+)/.exec(m[4] || '')
-    cues.push({ start: a, end: b, text: vttPlain(lines.slice(ti + 1).join('\n')),
-                align: am ? am[1] : '' })
-  }
-  cues.sort((x, y) => x.start - y.start || x.end - y.end)
-  return cues
-}
-function vttPlain(raw) {
-  const s = String(raw || '').replace(/<[^>]*>/g, '')
-  try {
-    const el = document.createElement('textarea')
-    el.innerHTML = s
-    return el.value.trim()
-  } catch (e) { return s.trim() }
-}
 function applySubStyle() {
   if (!vttLayer) return
   vttLayer.className = `sub-layer bg-${subStyle.value.bg} ol-${subStyle.value.outline} anchor-${vttAnchor}`
@@ -1062,21 +1025,22 @@ async function applySubs(force) {
     return
   }
   destroyVtt()
-  if (kind === 'ass') {
-    if (jassub && assKey === key) {
-      try { jassub.timeOffset = toff } catch (e) { /* 忽略 */ }
-      return
-    }
-    await mountAss(v, key)
-    return
-  }
-  if (kind === 'pgs') {
-    if (pgs && pgsKey === key) {
-      try { pgs.timeOffset = toff } catch (e) { /* 忽略 */ }
-      return
-    }
-    await mountPgs(v, key)
-  }
+  // 渲染器注册表（评审 R13-Q2）：{alive,key,mount,reuse} → 新增渲染器只需加一条
+  const r = SUB_RENDERERS[kind]
+  if (!r) return
+  if (r.alive() && r.key() === key) { r.reuse(toff); return }
+  await r.mount(v, key)
+}
+// 外部渲染器（ASS/PGS）：挂载/复用/销毁统一由注册表驱动，键=版本:元素代:轨道:兼容位
+const SUB_RENDERERS = {
+  ass: {
+    alive: () => !!jassub, key: () => assKey, mount: mountAss,
+    reuse: (toff) => { try { jassub.timeOffset = toff } catch (e) { /* 忽略 */ } },
+  },
+  pgs: {
+    alive: () => !!pgs, key: () => pgsKey, mount: mountPgs,
+    reuse: (toff) => { try { pgs.timeOffset = toff } catch (e) { /* 忽略 */ } },
+  },
 }
 // 所选字幕是否为图片型（需烧录；实际是否烧录以服务端 subtitle_mode 为准）
 function imageSubSelected() {
@@ -1185,7 +1149,6 @@ async function saveNow() {
 function onTime() {
   const v = videoEl.value
   if (!seekPending.value && !seekDragging.value) seekPos.value = absPos()
-  lastAdvanceAt = Date.now()
   if (v && !doneWatched) {
     const dur = mediaDuration(v)
     const pos = absPos()
@@ -1270,7 +1233,6 @@ function onPlayingHide() {
   seekPendingSince = 0
   seekDragging.value = false
   freezeFrame.value = ''
-  lastAdvanceAt = Date.now()
 }
 // 冻结当前帧（MSE 同源分片不污染画布，可安全 toDataURL）；无画面返回 ''
 function captureFrame() {
@@ -1470,7 +1432,7 @@ function watchStall() {
         return // seek 重开进行中，不跟它抢
       }
     }
-    if (!v || v.ended) { stallTicks = 0; lastTickPos = -1; lastAdvanceAt = Date.now() }
+    if (!v || v.ended) { stallTicks = 0; lastTickPos = -1 }
     else if (v.paused) {
       stallTicks = 0; lastTickPos = -1
       if (v.error) {
@@ -1482,15 +1444,13 @@ function watchStall() {
       } else if (wantPlaying && (v.readyState || 0) >= 2 && Date.now() - lastPlayAttempt > 5000) {
         logEvt('watchdog', 'paused-but-wanted 重试播放')
         tryPlay()
-      } else {
-        lastAdvanceAt = Date.now()
       }
     }
     else if ((v.readyState || 0) >= 2) {
       const cur = Number(v.currentTime) || 0
       const moved = lastTickPos >= 0 && Math.abs(cur - lastTickPos) > 0.05
       lastTickPos = cur
-      if (moved) { stallTicks = 0; lastAdvanceAt = Date.now() }
+      if (moved) { stallTicks = 0 }
       else {
         stallTicks += 1
         if (stallTicks >= 3) { stallTicks = 0; recoverStream() }
@@ -1520,7 +1480,7 @@ const _evtHandlers = {
   waiting: () => logEvt('video:waiting', 't=' + fmtT(videoEl.value)),
   stalled: () => logEvt('video:stalled', 't=' + fmtT(videoEl.value)),
   seeking: () => logEvt('video:seeking', 'to=' + fmtT(videoEl.value)),
-  seeked: () => { logEvt('video:seeked', 't=' + fmtT(videoEl.value)); lastAdvanceAt = Date.now() },
+  seeked: () => { logEvt('video:seeked', 't=' + fmtT(videoEl.value)) },
   emptied: () => logEvt('video:emptied', ''),
   suspend: () => logEvt('video:suspend', ''),
   abort: () => logEvt('video:abort', ''),

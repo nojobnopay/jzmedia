@@ -22,7 +22,7 @@
 </template>
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
-import { getToken, setToken } from './api.js'
+import { setToken } from './api.js'
 
 const authAsk = ref(false)
 const authInput = ref('')
