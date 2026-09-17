@@ -29,7 +29,7 @@
     </div>
     <div v-if="!c.members.length" class="bar">空合集：去海报墙多选影片后“加入合集”，或从影片详情页加入。</div>
     <div v-if="armDel" class="dlg-mask" @click.self="armDel = false">
-      <div class="dlg" role="dialog" aria-modal="true">
+      <div ref="delDlgRef" class="dlg" role="dialog" aria-modal="true">
         <h3>删除合集</h3>
         <p class="hint">将删除合集「{{ c.name }}」（{{ c.member_count }} 部），只删合集，影片保留。不可恢复。</p>
         <div class="bar">
@@ -41,9 +41,10 @@
   </div>
 </template>
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
+import { useFocusTrap } from '../useFocusTrap.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -51,6 +52,8 @@ const c = ref(null)
 const msg = ref('')
 const editing = ref(false)
 const loadErr = ref('')
+const delDlgRef = ref(null)
+useFocusTrap(computed(() => !!armDel.value), delDlgRef)
 const busy = ref(false)
 const armDel = ref(false)
 const f = ref({ name: '', overview: '' })

@@ -1,6 +1,6 @@
 <template>
   <div class="dlg-mask" @click.self="closeDlg">
-    <div class="dlg" role="dialog" aria-modal="true">
+    <div ref="dlgRef" class="dlg" role="dialog" aria-modal="true">
       <h3>{{ upStep === 'organize' ? '归档整理（第 2 步）' : upStep === 'done' ? '完成' : '上传到媒体库（第 1 步）' }}</h3>
       <template v-if="upStep === 'upload'">
       <div class="bar">
@@ -68,9 +68,12 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, apiUpload } from '../api.js'
 import { fmtBytes, midEllipsis } from '../format.js'
+import { useFocusTrap } from '../useFocusTrap.js'
 
 const emit = defineEmits(['close', 'done'])
 const router = useRouter()
+const dlgRef = ref(null)
+useFocusTrap(ref(true), dlgRef)
 
 const upMode = ref('files')
 const upFiles = ref(null)
