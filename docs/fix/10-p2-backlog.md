@@ -167,6 +167,12 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-17：**删两个一次性清理口**（H-UI 用户确认；本机 dry-run 均为 0）：
+  「清理历史花絮脏行」`POST /api/files/clean-sidecars`、「清理历史剧集行」
+  `POST /api/files/clean-episodes` 从 UI+API+smoke 断言+相关测试删除，README/AGENTS/scanner
+  注释同步（旧扫描器脏行清完即无用；现行扫描不再产生：花絮→extras、剧集 skip、_SAMPLE_RE 收紧）。
+  保留 `POST /api/extras/collect`「归位已归属花絮」（手工认领后文件进 extras/ 的唯一手动口）。
+  验证：pytest 200 / node 21 / smoke 27/27 / eslint 0 error / build ✓
 - 2026-09-17：**整理域残留收口**（评审 R09-D3/B3/B7/Q3/Q5 + 99 §2.2 + R14-Q2）：
   - D3：`move_attached_extras`/`_move_one` 回滚改 `_rename_or_move`（EXDEV 兜底补全）
   - B7：抽 `_under_root(path, root)` 两侧 normpath（`./电影/x`、`电影//x` 不再漏判）+ 用例

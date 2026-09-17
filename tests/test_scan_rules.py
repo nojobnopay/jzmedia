@@ -1,5 +1,4 @@
-"""B1 批次（扫描正确性）回归网：P1-02 样片误杀 / P1-03 剧集入库 / P1-04 walk 剪枝 /
-P1-05 clean-sidecars 保护。
+"""B1 批次（扫描正确性）回归网：P1-02 样片误杀 / P1-03 剧集入库 / P1-04 walk 剪枝。
 
 红→绿约定：本文件在修复前允许失败（失败即证明 bug 存在）。
 """
@@ -10,7 +9,6 @@ import pytest
 
 from app import scanner, store
 from app.config import settings
-from app.routers import files as files_router
 
 
 @pytest.fixture(autouse=True)
@@ -141,44 +139,6 @@ def test_scan_all_prunes_recycle_and_hidden(media_root):
     assert store.get_by_path(".hidden/secret.mkv") is None
     # 正向对照：正常文件仍被遍历（离线为 no_match，但会建行）
     assert store.get_by_path("Normal.Movie.2020.mkv") is not None
-
-
-# ---------- P1-05：clean-sidecars 保护 ----------
-
-def test_clean_sidecars_protects_tmdb_rows(media_root):
-    rel = "花絮/making.mkv"          # is_sidecar 为真（花絮目录）
-    _touch(media_root, rel)
-    mid = _make_movie_row(rel, tmdb_id=990001)
-    prev = files_router.clean_sidecars({"dry_run": True})
-    assert mid not in {p["id"] for p in prev["plans"]}
-
-
-def test_clean_sidecars_still_flags_unmatched_sidecar(media_root):
-    rel = "junk.movie.trailer.mkv"
-    _touch(media_root, rel)
-    mid = _make_movie_row(rel)
-    prev = files_router.clean_sidecars({"dry_run": True})
-    assert mid in {p["id"] for p in prev["plans"]}
-
-
-# ---------- P1-03 配套：历史剧集脏行清理口 ----------
-
-def test_clean_episodes_preview_and_delete(media_root):
-    rel = "Some.Show.S02E03.1080p.mkv"
-    _touch(media_root, rel)
-    mid = _make_movie_row(rel)      # 模拟历史脏行
-    prev = files_router.clean_episodes({"dry_run": True})
-    assert mid in {p["id"] for p in prev["plans"]}
-    files_router.clean_episodes({"dry_run": False, "ids": [mid]})
-    assert store.get_movie(mid) is None
-
-
-def test_clean_episodes_protects_matched_rows(media_root):
-    rel = "Some.Show.S03E01.1080p.mkv"
-    _touch(media_root, rel)
-    mid = _make_movie_row(rel, tmdb_id=990002, title="Some Show")
-    prev = files_router.clean_episodes({"dry_run": True})
-    assert mid not in {p["id"] for p in prev["plans"]}
 
 
 # ---------- B7-DELETE（R02-B2/R08-B5/R09-B5）：删片置空花絮归属 ----------

@@ -4,14 +4,13 @@ import re
 from fastapi import APIRouter, HTTPException
 from ... import store
 from ...config import settings
-from ...scanner import is_sidecar
 from ...scanner import sync_nfos_for
 from ...log import get_logger
 logger = get_logger("files.routes")
 from .paths import _check_inside_root, _only_ids, _rename_or_move
 from .planner import _collect_plans, _ordered_plans
 from .executor import _cleanup_old_dir, _resync_old_dir, _move_one
-__all__ = ['router', '_organize', 'organize', 'preview', 'unmatched', 'clean_sidecars', 'clean_episodes', 'missing', 'clean', '_restore_candidates', '_restore_one', 'restore_candidates', 'restore_original', '_under_root', '_delete_rows']
+__all__ = ['router', '_organize', 'organize', 'preview', 'unmatched', 'missing', 'clean', '_restore_candidates', '_restore_one', 'restore_candidates', 'restore_original', '_under_root', '_delete_rows']
 
 router = APIRouter(prefix="/api/files")
 
@@ -117,8 +116,7 @@ def unmatched():
 
 
 def _delete_rows(cands: list) -> dict:
-    """执行删行（只删库，文件保留）：逐行上报结果与失败原因。
-    clean / clean-sidecars / clean-episodes 共用（评审 B11/R09-B3 抽取）。"""
+    """执行删行（只删库，文件保留）：逐行上报结果与失败原因。clean 使用。"""
     done, failed = [], []
     for m in cands:
         try:
@@ -132,56 +130,6 @@ def _delete_rows(cands: list) -> dict:
                            "error": str(e)})
     return {"dry_run": False, "total": len(cands), "deleted": len(done),
             "failed": failed, "results": done}
-
-
-@router.post("/clean-sidecars")
-def clean_sidecars(body: dict | None = None):
-    """清理历史脏行：file_path 命中现行花絮/样片规则的 movies 行，删行+关联+FTS。
-    视频文件原地保留（下次扫描按花絮归属），海报与 tmdb_cache 保留。默认 dry_run 预览。"""
-    body = body or {}
-    dry_run = body.get("dry_run", True)
-    only = _only_ids(body)
-    # 已匹配行不清理（评审 P1-05）：花絮规则演进可能把真实影片判成花絮/样片，
-    # 有 tmdb_id 的行必是扫描/人工确认过的电影，宁可漏清也不能误删。
-    cands = [m for m in store.list_movies(grouped=False, limit=100000)
-             if (only is None or m["id"] in only) and not m.get("tmdb_id")
-             and is_sidecar(m["file_path"])]
-    plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
-              "file_path": m["file_path"], "tmdb_id": m.get("tmdb_id")}
-             for m in cands]
-    if dry_run:
-        return {"dry_run": True, "total": len(plans), "plans": plans}
-    return _delete_rows(cands)
-
-
-@router.post("/clean-episodes")
-def clean_episodes(body: dict | None = None):
-    """清理历史剧集脏行（评审 P1-03 配套）：未匹配（tmdb_id 为空）且文件名解析为剧集的
-    movies 行，删行+关联+FTS；视频文件原地保留，海报与 tmdb_cache 保留。
-    已匹配行不清理（可能是人工改判为电影）。默认 dry_run 预览。"""
-    from ...scanner import parse_filename
-    body = body or {}
-    dry_run = body.get("dry_run", True)
-    only = _only_ids(body)
-    cands = []
-    for m in store.list_movies(grouped=False, limit=100000):
-        if only is not None and m["id"] not in only:
-            continue
-        if m.get("tmdb_id"):
-            continue
-        try:
-            parsed = parse_filename(os.path.basename(m["file_path"]))
-        except Exception as e:
-            logger.debug("parse episode name failed id=%s path=%s: %s",
-                         m.get("id"), m.get("file_path"), e)
-            continue
-        if parsed.get("type") == "episode":
-            cands.append(m)
-    plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
-              "file_path": m["file_path"]} for m in cands]
-    if dry_run:
-        return {"dry_run": True, "total": len(plans), "plans": plans}
-    return _delete_rows(cands)
 
 
 @router.get("/missing")
@@ -199,7 +147,7 @@ def missing():
 @router.post("/clean")
 def clean(body: dict | None = None):
     """清理失效条目：彻底删除DB行+演职员关联+FTS（海报与tmdb_cache保留供重扫复用）。
-    默认 dry_run 预览（评审 B5a-4/R09-D4：与 clean-sidecars 等保持一致）；
+    默认 dry_run 预览（评审 B5a-4/R09-D4）；
     body.ids 不传则清理全部缺失行；建议先 GET /missing 预览勾选。"""
     body = body or {}
     dry_run = body.get("dry_run", True)

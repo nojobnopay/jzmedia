@@ -123,7 +123,7 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None) -
     parsed["title"] = normalize_title(parsed["title"])
     if parsed["type"] == "episode":
         # V1 仅电影：剧集不入库（评审 P1-03：旧实现建行会让剧集出现在海报墙/统计里，
-        # 与 README“剧集跳过”不符）。历史脏行由 POST /api/files/clean-episodes 清理。
+        # 与 README“剧集跳过”不符）。旧版本产生的剧集脏行可手工删行后重扫。
         store.set_scan_state(rel, mtime, size, ST_EPISODE)
         return {"file": rel, "status": ST_EPISODE}
     # 先建行（评审 B9 后续）：刮削失败也要让影片在海报墙/匹配确认可见，绝不“消失在文件浏览里”

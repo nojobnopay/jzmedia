@@ -3,7 +3,7 @@
 
 用法：.venv/bin/python scripts/smoke_api.py
 覆盖：health / scan（含 B1 四条规则回归）/ movies / search / facets / missing /
-organize / restore / clean-sidecars / clean-episodes / collections / backends /
+organize / restore / collections / backends /
 probe-missing / stats / settings。播放转码链路不在此层（宿主无 ffmpeg，需 docker 人工验）。
 """
 import json
@@ -183,13 +183,6 @@ def main() -> int:
 
         res = _req(base, "/api/files/restore-original", method="POST", body={"dry_run": True})
         check("restore dry-run", res.get("dry_run") is True, str(res)[:200])
-
-        cs = _req(base, "/api/files/clean-sidecars", method="POST", body={"dry_run": True})
-        check("clean-sidecars dry-run", isinstance(cs.get("plans"), list), str(cs)[:200])
-
-        ce = _req(base, "/api/files/clean-episodes", method="POST", body={"dry_run": True})
-        check("clean-episodes dry-run", isinstance(ce.get("plans"), list) and ce.get("total") == 0,
-              str(ce)[:200])
 
         col = _req(base, "/api/collections", method="POST", body={"name": "smoke-合集"})
         check("collection create", bool(col.get("id")), str(col)[:200])

@@ -166,16 +166,8 @@
           </li>
         </ul>
         <div class="bar">
-          <button @click="doCleanSidecars" :disabled="!!busy">{{ busy === 'sidecars' ? '清理中…' : (armSidecars ? '确认清理脏行' : '清理历史花絮脏行（只删库，文件保留）') }}</button>
-          <span>{{ sidecarsMsg }}</span>
-        </div>
-        <div class="bar">
           <button @click="doCollectExtras" :disabled="!!busy">{{ busy === 'collect' ? '归位中…' : (armCollect ? '确认归位花絮' : '归位已归属花絮到各片 extras/') }}</button>
           <span>{{ collectMsg }}</span>
-        </div>
-        <div class="bar">
-          <button @click="doCleanEpisodes" :disabled="!!busy">{{ busy === 'episodes' ? '清理中…' : (armEpisodes ? '确认清理剧集行' : '清理历史剧集行（只删库，文件保留）') }}</button>
-          <span>{{ episodesMsg }}</span>
         </div>
           </div>
         </div>
@@ -331,7 +323,6 @@ const suspectHigh = ref([])
 const suspectInfo = ref([])
 const orphans = ref([])
 const orphanMovie = ref({})
-const sidecarsMsg = ref('')
 const collectMsg = ref('')
 const showAllUnmatched = ref(false)
 const showAllNeedsReview = ref(false)
@@ -523,34 +514,7 @@ async function attachOrphan(id) {
   }
 }
 
-const armSidecars = ref(false)
 const armCollect = ref(false)
-async function doCleanSidecars() {
-  if (!armSidecars.value) {
-    armSidecars.value = true
-    sidecarsMsg.value = '只删除库中花絮/样片行，视频文件保留。再点一次确认执行'
-    return
-  }
-  armSidecars.value = false
-  busy.value = 'sidecars'
-  sidecarsMsg.value = ''
-  try {
-    const prev = await api('/api/files/clean-sidecars', { method: 'POST', body: JSON.stringify({ dry_run: true }) })
-    if (!prev.total) {
-      sidecarsMsg.value = '没有花絮脏行'
-      return
-    }
-    const d = await api('/api/files/clean-sidecars', { method: 'POST', body: JSON.stringify({ dry_run: false }) })
-    sidecarsMsg.value = `已删除 ${d.deleted}/${d.total}` + (d.failed.length ? `，失败 ${d.failed.length}` : '')
-    await loadStats()
-    await loadUnmatched(true)
-  } catch (e) {
-    sidecarsMsg.value = '清理失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-
 async function doCollectExtras() {
   if (!armCollect.value) {
     armCollect.value = true
@@ -576,8 +540,6 @@ async function doCollectExtras() {
   }
 }
 
-const armEpisodes = ref(false)
-const episodesMsg = ref('')
 const authForm = ref({ token: '' })
 const authMsg = ref('')
 async function saveAuth() {
@@ -592,31 +554,6 @@ async function saveAuth() {
     authMsg.value = v ? '已启用写操作鉴权（本浏览器已记住令牌）' : '已关闭鉴权（完全开放）'
   } catch (e) {
     authMsg.value = '保存失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-async function doCleanEpisodes() {
-  if (!armEpisodes.value) {
-    armEpisodes.value = true
-    episodesMsg.value = '只删除库中剧集行（未匹配且文件名解析为剧集），视频文件保留。再点一次确认执行'
-    return
-  }
-  armEpisodes.value = false
-  busy.value = 'episodes'
-  episodesMsg.value = ''
-  try {
-    const prev = await api('/api/files/clean-episodes', { method: 'POST', body: JSON.stringify({ dry_run: true }) })
-    if (!prev.total) {
-      episodesMsg.value = '没有剧集脏行'
-      return
-    }
-    const d = await api('/api/files/clean-episodes', { method: 'POST', body: JSON.stringify({ dry_run: false }) })
-    episodesMsg.value = `已删除 ${d.deleted}/${d.total}` + (d.failed.length ? `，失败 ${d.failed.length}` : '')
-    await loadStats()
-    await loadUnmatched(true)
-  } catch (e) {
-    episodesMsg.value = '清理失败：' + e.message
   } finally {
     busy.value = null
   }
