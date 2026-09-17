@@ -93,42 +93,9 @@
             </div>
           </section>
 
-          <details class="card-block files" open>
-            <summary>文件<span v-if="m.version_count > 1">（共{{ m.version_count }}个版本）</span></summary>
-            <ul class="ver-list"><li v-for="v in m.versions" :key="v.id" class="f-row">
-              <span class="f-name">{{ baseName(v.file_path) }}<span v-if="v.edition">（{{ v.edition }}）</span><span v-if="v.spec">（{{ v.spec }}）</span></span>
-              <span class="f-acts"><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a><button v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'">无效</button><button v-else @click="openStream(v)">播放</button><span v-if="verFriendly(v.id)" class="friendly-chip" title="浏览器可直播，几乎不占 NAS 算力">★</span><span v-else-if="verMethod[v.id]==='video_transcode'" class="trans-chip" title="浏览器需视频重编码，较耗 NAS 算力">转码</span></span>
-            </li></ul>
-            <div v-for="g in fileGroups" :key="g.key">
-              <p v-if="g.items.length" class="hint">{{ g.label }}</p>
-              <ul v-if="g.items.length">
-                <li v-for="f in g.items" :key="g.key + f.name" class="f-row">
-                  <span class="f-name">{{ f.name }}</span>
-                  <span class="f-size">{{ fmtSize(f.size) }}</span>
-                  <span class="f-acts">
-                    <a :href="blobUrl(f.rel || f.name)" :download="baseName(f.rel || f.name)">下载</a>
-                    <button v-if="isVideo(f.name)" @click="openPlayer(f)">播放</button>
-                    <button v-else-if="pvKindOf(f.name)" @click="openPlayer(f)">预览</button>
-                    <button v-if="delArm[f.rel || f.name] == null" @click="doFileDelete(f)">删除</button>
-                    <button v-else @click="doFileDeleteConfirm(f)" class="danger">{{ (delArm[f.rel || f.name] || {}).requires_confirm ? '确认删除正片' : '确认删除' }}</button>
-                  </span>
-                </li>
-              </ul>
-            </div>
-            <p v-if="delMsg" class="hint warn">{{ delMsg }}</p>
-          </details>
-
-          <details class="card-block tvplay">
-            <summary>电视播放（Kodi/外部播放器，原盘直通零转码）</summary>
-            <ul class="ver-list"><li v-for="v in m.versions" :key="'tv' + v.id" class="f-row">
-              <span class="f-name">{{ baseName(v.file_path) }}</span>
-              <span class="f-acts"><button @click="copyTvUrl(v)">复制直链</button></span>
-            </li></ul>
-            <input v-if="tvUrl" readonly :value="tvUrl" class="copy-url"
-              @focus="$event.target.select()" @click="$event.target.select()" />
-            <p class="hint">电视端 Kodi 打开此链接即播原盘（含杜比视界），不耗 NAS 算力；浏览器在线播请用上方 ▶ 播放。{{ tvMsg }}</p>
-          </details>
-
+          <MovieFileManager :movie-id="Number(route.params.id)" :movie="m" :side-files="sideFiles"
+            :ver-blocked="verBlocked" :ver-err="verErr" :ver-method="verMethod" :ver-friendly="verFriendly"
+            @play="openStream" @changed="onFilesChanged" />
           <MovieUploadPanel :movie-id="Number(route.params.id)" @uploaded="load" />
         </div>
 
@@ -148,18 +115,6 @@
       <MovieEditPanel v-if="editing" :movie="m" :movie-id="Number(route.params.id)"
         @close="editing = false" @saved="onEditSaved" @changed="onEditChanged"
         @matched="onMatched" @refreshed="onRefreshed" />
-    </div>
-
-    <div v-if="pvName" class="dlg-mask" @click.self="closePlayer">
-      <div ref="pvDlgRef" class="dlg pv-dlg" role="dialog" aria-modal="true">
-        <h3>{{ pvKind === 'video' ? '播放' : '预览' }}：{{ pvName }}</h3>
-        <video v-if="pvKind === 'video'" :src="pvUrl" controls autoplay preload="metadata" class="pv-video" @error="pvErr = true"></video>
-        <img v-else-if="pvKind === 'image'" :src="pvUrl" class="pv-img" />
-        <iframe v-else-if="pvKind === 'pdf'" :src="pvUrl" class="pv-pdf"></iframe>
-        <pre v-else-if="pvKind === 'text'" class="pv-text">{{ pvText }}</pre>
-        <p v-if="pvErr" class="hint warn">文件为空或损坏，无法播放，请下载检查</p>
-        <div class="bar"><a :href="pvUrl" :download="baseName(pvName)">下载原文件</a><button @click="closePlayer">关闭</button></div>
-      </div>
     </div>
 
     <PlayerModal v-if="playVid" :versionId="playVid" :title="playTitle"
@@ -199,13 +154,13 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
-import { copyText } from '../clipboard.js'
 import { usePolling } from '../usePolling.js'
 import { getCaps } from '../caps.js'
 import { hasScore, fmtScore, starRow } from '../ratings.js'
 import Spinner from '../components/Spinner.vue'
 import PlayerModal from '../components/PlayerModal.vue'
 import MovieUploadPanel from '../components/MovieUploadPanel.vue'
+import MovieFileManager from '../components/MovieFileManager.vue'
 import MovieEditPanel from '../components/MovieEditPanel.vue'
 import { useFocusTrap } from '../useFocusTrap.js'
 
@@ -216,7 +171,6 @@ const sideFiles = ref(null)
 const msg = ref('')
 const hint = ref(null)
 const hintMsg = ref('')
-const pvDlgRef = ref(null)
 const posterDlgRef = ref(null)
 const archDlgRef = ref(null)
 const regionNote = ref('')
@@ -342,6 +296,9 @@ const heroVid = ref(null)
 const heroBlocked = computed(() => !!verBlocked.value[heroVid.value])
 const heroBlockTip = computed(() => verErr.value[heroVid.value] || '')
 const heroResume = computed(() => resumeText.value)
+function baseName(p) {
+  return String(p || '').split('/').pop()
+}
 function verLabel(v) {
   const extra = [v.edition, v.spec].filter(Boolean).join('·')
   return baseName(v.file_path) + (extra ? `（${extra}）` : '')
@@ -407,20 +364,6 @@ async function closeStream() {
     progressInfo.value = (p && Number(p.position) > 0) ? p : null
   } catch (e) { /* 忽略 */ }
 }
-// P-D：电视原盘直链（Kodi/外部播放器直通，零转码；blob 本就支持 Range）
-const tvMsg = ref('')
-const tvUrl = ref('')
-async function copyTvUrl(v) {
-  tvMsg.value = ''
-  tvUrl.value = ''
-  const url = location.origin + `/api/movies/${v.id}/blob?name=${encodeURIComponent(v.file_path)}`
-  if (await copyText(url)) {
-    tvMsg.value = '已复制，在 Kodi 里打开该链接即播'
-  } else {
-    tvUrl.value = url
-    tvMsg.value = '自动复制失败（浏览器限制），已显示链接，点框后 Ctrl+C 手动复制'
-  }
-}
 async function onPlayEnded() {
   // 海报粒度：同片全版本同步标已看（批量接口一次完成，评审 B8/R05-D5）
   try {
@@ -460,74 +403,6 @@ async function reloadFiles() {
   } catch (e) { /* 忽略 */ }
 }
 
-// 本片文件管理：上传（进度+取消）/下载/预览/删除（正片二次确认）
-const fileGroups = computed(() => {
-  const s = sideFiles.value || {}
-  return [
-    { key: 'extras', label: '🎬 花絮', items: s.extras || [] },
-    { key: 'samples', label: '🎞 样片', items: s.samples || [] },
-    { key: 'subtitles', label: '💬 字幕', items: s.subtitles || [] },
-    { key: 'nfos', label: 'NFO', items: s.nfos || [] },
-    { key: 'others', label: '周边（音乐/海报/剧本等）', items: s.others || [] },
-  ]
-})
-function baseName(p) {
-  return String(p || '').split('/').pop()
-}
-function fmtSize(n) {
-  n = Number(n) || 0
-  if (n < 1024) return n + 'B'
-  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K'
-  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + 'M'
-  return (n / 1024 / 1024 / 1024).toFixed(2) + 'G'
-}
-function blobUrl(name) {
-  return `/api/movies/${route.params.id}/blob?name=${encodeURIComponent(name)}`
-}
-const pvName = ref('')
-const pvUrl = ref('')
-const pvKind = ref('')
-const pvText = ref('')
-const pvErr = ref(false)
-function pvKindOf(name) {
-  const ex = ('.' + String(name || '').split('.').pop()).toLowerCase()
-  if (['.mp4', '.mkv', '.webm', '.mov', '.avi', '.ts', '.m2ts', '.flv'].includes(ex)) return 'video'
-  if (['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ex)) return 'image'
-  if (ex === '.pdf') return 'pdf'
-  if (['.txt', '.srt', '.ass', '.ssa', '.lrc', '.nfo', '.md'].includes(ex)) return 'text'
-  return ''
-}
-function isVideo(name) {
-  return pvKindOf(name) === 'video'
-}
-async function openPlayer(f) {
-  const name = f.rel || f.name
-  pvErr.value = false
-  pvName.value = f.name
-  pvKind.value = pvKindOf(f.name)
-  // 图片/PDF 走 inline（评审 B6/R05-D3：attachment 会让 iframe 变下载）
-  pvUrl.value = blobUrl(name) + ((pvKind.value === 'image' || pvKind.value === 'pdf') ? '&inline=1' : '')
-  pvText.value = ''
-  if (pvKind.value === 'text') {
-    try {
-      const r = await fetch(`/api/movies/${route.params.id}/blob?name=${encodeURIComponent(name)}&mode=text`)
-      pvText.value = await r.text()
-    } catch (e) {
-      pvText.value = '预览失败：' + e.message
-    }
-  }
-}
-function closePlayer() {
-  // 弹窗 v-if 卸载 <video> 即停播
-  pvName.value = ''
-  pvUrl.value = ''
-  pvKind.value = ''
-  pvText.value = ''
-  pvErr.value = false
-}
-const delArm = ref({})
-const delMsg = ref('')
-// 海报大图：先展本地 w500（即时），后台拉原图成功后替换；失败静默保持
 const posterDlg = ref(false)
 const posterBig = ref('')
 const posterHi = ref(false)
@@ -558,40 +433,6 @@ function closePoster() {
     posterObjUrl = ''
   }
 }
-async function doFileDelete(f) {
-  const name = f.rel || f.name
-  delMsg.value = ''
-  try {
-    const d = await api('/api/movies/' + route.params.id + '/files', {
-      method: 'DELETE',
-      body: JSON.stringify({ name, dry_run: true })
-    })
-    const p = (d.plans || [])[0] || {}
-    // 两步确认对所有文件统一（评审 B6/R05-D4）：非正片单击即删太容易误触
-    delArm.value[name] = p
-    delMsg.value = p.requires_confirm
-      ? `警告：将删除正片 ${f.name}，海报墙同步移除。再点「确认删除正片」执行`
-      : `将删除 ${f.name}，再点「确认删除」执行`
-  } catch (e) {
-    delMsg.value = '删除失败：' + e.message
-  }
-}
-async function doFileDeleteConfirm(f) {
-  const name = f.rel || f.name
-  try {
-    const d = await api('/api/movies/' + route.params.id + '/files', {
-      method: 'DELETE',
-      body: JSON.stringify({ name, dry_run: false, confirm: true })
-    })
-    const r = (d.results || [])[0] || {}
-    delMsg.value = r.status === 'deleted' ? '已删除，库已同步清理' : ('删除：' + (r.status || '失败'))
-    delete delArm.value[name]
-    closePlayer()
-    await reloadFiles()
-  } catch (e) {
-    delMsg.value = '删除失败：' + e.message
-  }
-}
 async function createFromSeries() {
   hintMsg.value = ''
   try {
@@ -609,6 +450,7 @@ function toggleEdit() {
   editing.value = !editing.value
 }
 // 编辑面板回调（R05-Q4：子组件只发信号，重载/闪存/归档引导留在本页）
+async function onFilesChanged() { await reloadFiles() }
 async function onEditSaved() { editing.value = false; flashSaved(); await load() }
 async function onEditChanged() { flashSaved(); await load() }
 async function onRefreshed() { await load(); flashSaved(); await waitForMedia() }
@@ -679,12 +521,11 @@ async function doArchive() {
   }
 }
 function escPlayer(e) {
+  // 预览弹窗（Esc 关闭）随 MovieFileManager；这里只管海报大图
   if (e.key !== 'Escape') return
-  if (pvName.value) closePlayer()
-  else if (posterDlg.value) closePoster()
+  if (posterDlg.value) closePoster()
 }
 // 焦点陷阱需在 ref 全部声明后启用（watch immediate 会立即求值，避免 TDZ 崩整页）
-useFocusTrap(computed(() => !!pvName.value), pvDlgRef)
 useFocusTrap(computed(() => !!posterDlg.value), posterDlgRef)
 useFocusTrap(computed(() => !!archHint.value), archDlgRef)
 
@@ -701,109 +542,11 @@ onUnmounted(() => {
 watch(() => route.params.id, () => { load() })   // 同组件切片重载（评审 B8/R05-Q3）
 </script>
 <style scoped>
-.detail { padding-bottom: 24px; }
-.hero { position: relative; overflow: hidden; }
-.hero-bg {
+.detail { padding-bottom: 24px; }.hero { position: relative; overflow: hidden; }.hero-bg {
   position: absolute; inset: 0;
   background-size: cover; background-position: center 20%;
   filter: blur(28px) brightness(.45) saturate(1.2);
   transform: scale(1.15);
   -webkit-mask-image: linear-gradient(#000 30%, transparent);
   mask-image: linear-gradient(#000 30%, transparent);
-}
-.hero-inner { position: relative; width: 100%; box-sizing: border-box; padding: 12px 24px; max-width: min(1600px, 100%); margin: 0 auto; }
-.topbar { display: flex; justify-content: space-between; align-items: center; }
-.top-right { display: flex; gap: 8px; align-items: center; }
-.saved-flash { color: #7ed321; font-size: 0.875rem; }
-.ver-tag { color: #555; font-size: 0.75rem; }
-.hero-main { display: flex; gap: 20px; margin-top: 12px; align-items: flex-start; }
-.poster { width: 220px; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.55); }
-.poster.zoomable { cursor: zoom-in; }
-.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }
-.poster-dlg { text-align: center; }
-.poster-dlg .bar { justify-content: center; }
-.poster-empty { aspect-ratio: 2/3; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; background: #262626; color: #888; font-size: 0.875rem; box-shadow: none; }
-.hero-info { min-width: 0; }
-.hero-info h2 { margin: 0 0 8px; font-size: 1.875rem; }
-.hero-info .year { color: #aaa; font-weight: normal; font-size: 1.3125rem; }
-.needs-review { color: #ff6b6b; font-size: 0.875rem; border: 1px solid #6e2b2b; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }
-.edition-chip { color: #6ab0ff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }
-.edition-chip.spec { color: #7ed321; border-color: #3a5a1e; }
-.meta-line { color: #aaa; font-size: 1rem; margin: 8px 0; }
-.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
-.media-badge { color: #9ecfff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; }
-.media-warn { color: #e0a63c; font-size: 0.8125rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 1px 10px; }
-.media-loading { color: #666; font-size: 0.8125rem; }
-.resume-hint { color: #7ed321; font-size: 0.8125rem; }
-.play-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 2px; }
-.play-main { font-size: 1rem; padding: 8px 28px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }
-.play-main:hover:not(:disabled) { background: #3580cc; }
-.play-main:disabled { background: #333; border-color: #444; color: #777; cursor: not-allowed; }
-.ver-sel { background: #262626; color: #ccc; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; max-width: 320px; }
-.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }
-.pre-sel { background: #262626; color: #ccc; border: 1px solid #6e5426; border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }
-.pre-btn { background: transparent; border: 1px dashed #6e5426; color: #e0a63c; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 0.8125rem; }
-.pre-btn:disabled { opacity: 0.6; cursor: wait; }
-.friendly-chip { color: #7ed321; font-size: 0.8125rem; }
-.trans-chip { color: #e0a63c; font-size: 0.75rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 0 8px; }
-.tvplay summary { cursor: pointer; color: #ccc; font-size: 0.9375rem; }
-.tvplay .hint { color: #888; font-size: 0.8125rem; overflow-wrap: anywhere; }
-.copy-url { display: block; width: 100%; box-sizing: border-box; margin: 6px 0 2px; padding: 6px 8px;
-  background: #141414; border: 1px dashed #444; border-radius: 6px; color: #bbb;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.75rem;
-  overflow-x: auto; white-space: nowrap; }
-.src { color: #888; font-weight: normal; }
-.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
-.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }
-.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid #2b4a6e; color: #6ab0ff; cursor: pointer; }
-.watched-chip { color: #7ed321; font-size: 0.875rem; border: 1px solid #3a5a1e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }
-.hint-row { margin-top: 6px; color: #aaa; font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.hint-row .fhint { color: #777; font-size: 0.75rem; }
-.sections { width: 100%; box-sizing: border-box; padding: 0 24px; max-width: min(1600px, 100%); display: flex; flex-direction: column; gap: 12px; margin: 12px auto 0; }
-.body-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 12px; align-items: start; }
-.main-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.side-col { min-width: 0; }
-@media (max-width: 860px) { .body-grid { grid-template-columns: 1fr; } }
-.card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; }
-.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.overview { margin: 0; line-height: 1.8; color: #e6e6e6; font-size: 1rem; }
-.empty { margin: 0; color: #777; font-size: 0.9375rem; }
-.crew { margin: 8px 0; font-size: 0.9375rem; }
-.role { color: #888; margin-right: 8px; font-size: 0.875rem; }
-.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: #262626; border: 1px solid #3a3a3a; cursor: pointer; font-size: 0.9375rem; }
-.actor-chip:hover { border-color: #6ab0ff; color: #6ab0ff; }
-.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }
-.cast-card { cursor: pointer; min-width: 0; }
-.cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: #262626; }
-.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #666; border: 1px solid #3a3a3a; }
-.cast-name { font-size: 0.875rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cast-char { font-size: 0.75rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }
-.facts .fact span:first-child { color: #888; min-width: 48px; flex-shrink: 0; }
-.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }
-.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }
-.facts a { color: #6ab0ff; margin-right: 10px; }
-.files summary { cursor: pointer; color: #ccc; font-size: 0.9375rem; }
-.files ul { color: #888; font-size: 0.875rem; }
-.files a { color: #6ab0ff; margin-left: 6px; }
-.f-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 3px 0; }
-.f-name { flex: 1; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.f-size { color: #666; font-size: 0.75rem; }
-.f-acts { display: flex; gap: 8px; align-items: center; margin-left: auto; }
-.ver-list { list-style: none; margin: 4px 0; padding: 0; }
-.arch-dlg { max-width: 720px; }
-.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
-.arch-list li { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }
-.arch-from { color: #888; overflow-wrap: anywhere; }
-.arch-arrow { color: #6ab0ff; }
-.arch-to { color: #7ed321; overflow-wrap: anywhere; }
-.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }
-.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-button.danger { border-color: #6e2b2b; color: #ff8a8a; }
-.hint.warn { color: #e0a63c; }
-.pv-video { width: 100%; max-height: 480px; background: #000; border-radius: 8px; }
-.pv-img { max-width: 100%; border-radius: 8px; }
-.pv-pdf { width: 100%; height: 480px; border: none; border-radius: 8px; background: #fff; }
-.pv-text { white-space: pre-wrap; max-height: 320px; overflow: auto; background: #111; padding: 10px; border-radius: 8px; color: #ccc; }
-</style>
+}.hero-inner { position: relative; width: 100%; box-sizing: border-box; padding: 12px 24px; max-width: min(1600px, 100%); margin: 0 auto; }.topbar { display: flex; justify-content: space-between; align-items: center; }.top-right { display: flex; gap: 8px; align-items: center; }.saved-flash { color: #7ed321; font-size: 0.875rem; }.ver-tag { color: #555; font-size: 0.75rem; }.hero-main { display: flex; gap: 20px; margin-top: 12px; align-items: flex-start; }.poster { width: 220px; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.55); }.poster.zoomable { cursor: zoom-in; }.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }.poster-dlg { text-align: center; }.poster-dlg .bar { justify-content: center; }.poster-empty { aspect-ratio: 2/3; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; background: #262626; color: #888; font-size: 0.875rem; box-shadow: none; }.hero-info { min-width: 0; }.hero-info h2 { margin: 0 0 8px; font-size: 1.875rem; }.hero-info .year { color: #aaa; font-weight: normal; font-size: 1.3125rem; }.needs-review { color: #ff6b6b; font-size: 0.875rem; border: 1px solid #6e2b2b; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.edition-chip { color: #6ab0ff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.edition-chip.spec { color: #7ed321; border-color: #3a5a1e; }.meta-line { color: #aaa; font-size: 1rem; margin: 8px 0; }.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }.media-badge { color: #9ecfff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; }.media-warn { color: #e0a63c; font-size: 0.8125rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 1px 10px; }.media-loading { color: #666; font-size: 0.8125rem; }.resume-hint { color: #7ed321; font-size: 0.8125rem; }.play-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 2px; }.play-main { font-size: 1rem; padding: 8px 28px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }.play-main:hover:not(:disabled) { background: #3580cc; }.play-main:disabled { background: #333; border-color: #444; color: #777; cursor: not-allowed; }.ver-sel { background: #262626; color: #ccc; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; max-width: 320px; }.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }.pre-sel { background: #262626; color: #ccc; border: 1px solid #6e5426; border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }.pre-btn { background: transparent; border: 1px dashed #6e5426; color: #e0a63c; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 0.8125rem; }.pre-btn:disabled { opacity: 0.6; cursor: wait; }.src { color: #888; font-weight: normal; }.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid #2b4a6e; color: #6ab0ff; cursor: pointer; }.watched-chip { color: #7ed321; font-size: 0.875rem; border: 1px solid #3a5a1e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.hint-row { margin-top: 6px; color: #aaa; font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.hint-row .fhint { color: #777; font-size: 0.75rem; }.sections { width: 100%; box-sizing: border-box; padding: 0 24px; max-width: min(1600px, 100%); display: flex; flex-direction: column; gap: 12px; margin: 12px auto 0; }.body-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 12px; align-items: start; }.main-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }.side-col { min-width: 0; }@media (max-width: 860px) { .body-grid { grid-template-columns: 1fr; }}.card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; }.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }.overview { margin: 0; line-height: 1.8; color: #e6e6e6; font-size: 1rem; }.empty { margin: 0; color: #777; font-size: 0.9375rem; }.crew { margin: 8px 0; font-size: 0.9375rem; }.role { color: #888; margin-right: 8px; font-size: 0.875rem; }.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: #262626; border: 1px solid #3a3a3a; cursor: pointer; font-size: 0.9375rem; }.actor-chip:hover { border-color: #6ab0ff; color: #6ab0ff; }.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }.cast-card { cursor: pointer; min-width: 0; }.cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: #262626; }.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #666; border: 1px solid #3a3a3a; }.cast-name { font-size: 0.875rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.cast-char { font-size: 0.75rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }.facts .fact span:first-child { color: #888; min-width: 48px; flex-shrink: 0; }.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }.facts a { color: #6ab0ff; margin-right: 10px; }.arch-dlg { max-width: 720px; }.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }.arch-list li { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }.arch-from { color: #888; overflow-wrap: anywhere; }.arch-arrow { color: #6ab0ff; }.arch-to { color: #7ed321; overflow-wrap: anywhere; }.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }button.danger { border-color: #6e2b2b; color: #ff8a8a; }.hint.warn { color: #e0a63c; }</style>
