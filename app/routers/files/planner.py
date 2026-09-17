@@ -14,7 +14,7 @@ from ...scanner import is_sidecar
 from ...log import get_logger
 logger = get_logger("files.planner")
 from .paths import _safe_component
-__all__ = ['_REGION_SET', '_MOVIE_DIR_RE', '_is_movie_dir_name', '_region_stale', '_components', '_stem_of', '_target_for', '_finalize', '_keeper_of', '_collect_plans']
+__all__ = ['_ordered_plans', '_REGION_SET', '_MOVIE_DIR_RE', '_is_movie_dir_name', '_region_stale', '_components', '_stem_of', '_target_for', '_finalize', '_keeper_of', '_collect_plans']
 
 _REGION_SET = set(REGION_ORDER)
 
@@ -107,6 +107,8 @@ def _finalize(comp: dict, stem: str, target_root: str | None,
          "region_stale": _region_stale(comp["from"], comp["m"].get("region") or "")}
     if numbered:
         d["numbered"] = numbered
+    if not os.path.isfile(os.path.join(settings.media_root, comp["from"])):
+        d["status"] = "source_missing"   # 预览即标注（评审 R09-D6），执行会跳过
     return d
 
 
@@ -232,3 +234,24 @@ def _collect_plans(target_root: str | None = None,
             final_plans.append(p)
     return final_plans, conflicts
 
+
+def _ordered_plans(plans: list) -> list:
+    """链式改名/换位排序（评审 R09-D2）：先执行目标不被其他计划占用的计划。
+
+    例：A→B 且 B→C：B→C 的目标 C 无人占用 → 先做；再做 A→B，避免无谓的
+    conflict_disk_exists。存在环（A↔B）时退回原顺序（执行侧不覆盖，重跑可收敛）。"""
+    rest = list(plans)
+    out: list = []
+    while rest:
+        progressed = False
+        for p in list(rest):
+            tgt = os.path.normpath(p["to"])
+            blocked = any(q is not p and os.path.normpath(q["from"]) == tgt for q in rest)
+            if not blocked:
+                out.append(p)
+                rest.remove(p)
+                progressed = True
+        if not progressed:
+            out.extend(rest)   # 环：无法拓扑排序，原顺序执行
+            break
+    return out

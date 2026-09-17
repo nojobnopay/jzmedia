@@ -72,14 +72,16 @@ def _cleanup_old_dir(old_dir_abs: str) -> None:
         pass
 
 
-def move_attached_extras(movie_id: int, movie_dir_abs: str) -> int:
+def move_attached_extras(movie_id: int, movie_dir_abs: str) -> dict:
     """把已归属花絮搬进指定影片目录的 extras/ 子目录（茎名清洗保留），更新归属路径。
-    供 _move_one 跟随与 /api/extras/collect 共用。返回搬迁数。"""
+    供 _move_one 跟随与 /api/extras/collect 共用。
+    返回 {moved, skipped}；skipped=目标已存在等未搬项（评审 R08-D3：不再静默跳过）。"""
     moved = 0
+    skipped: list[dict] = []
     try:
         rows = store.list_extras_by_movie(movie_id)
     except Exception:
-        return 0
+        return {"moved": 0, "skipped": []}
     for e in rows:
         esrc = os.path.join(settings.media_root, e["file_path"])
         if not os.path.isfile(esrc):
@@ -102,9 +104,13 @@ def move_attached_extras(movie_id: int, movie_dir_abs: str) -> int:
                 except Exception:
                     pass
                 moved += 1
-        except OSError:
+            else:
+                skipped.append({"file_path": e["file_path"],
+                                "reason": "target_exists"})
+        except OSError as ex:
+            skipped.append({"file_path": e["file_path"], "reason": f"error: {ex}"})
             continue
-    return moved
+    return {"moved": moved, "skipped": skipped}
 
 
 def _resync_old_dir(old_dir_abs: str) -> None:
@@ -209,7 +215,8 @@ def _move_one(p: dict) -> dict:
                 continue
         _cleanup_old_dir(os.path.dirname(src))
         # 归属花絮跟随：搬进目标 extras/ 子目录（Plex 子目录名 collapsing，茎名清洗保留）
-        extras_moved = move_attached_extras(p["id"], os.path.dirname(dst))
+        _ex = move_attached_extras(p["id"], os.path.dirname(dst))
+        extras_moved = _ex.get("moved", 0)
         # 旧目录收尾（花絮搬走后再清一次）：无正片则清 NFO，空目录删掉
         _cleanup_old_dir(os.path.dirname(src))
         # 跨目录搬迁：旧目录还有正片残留则重收敛（多→单删多余同名 NFO）

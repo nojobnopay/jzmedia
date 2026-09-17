@@ -9,7 +9,7 @@ from ...scanner import sync_nfos_for
 from ...log import get_logger
 logger = get_logger("files.routes")
 from .paths import _check_inside_root, _only_ids, _rename_or_move
-from .planner import _collect_plans
+from .planner import _collect_plans, _ordered_plans
 from .executor import _cleanup_old_dir, _resync_old_dir, _move_one
 __all__ = ['router', '_organize', 'organize', 'preview', 'unmatched', 'clean_sidecars', 'clean_episodes', 'missing', 'clean', '_restore_candidates', '_restore_one', 'restore_candidates', 'restore_original']
 
@@ -48,7 +48,7 @@ def _organize(mode: str, from_prefix: str | None = None,
                 "to_dir": td, "group_by_region": bool(group_by_region)}
     if dry_run:
         return {**base, "plans": plans, "conflicts": conflicts}
-    return {**base, "results": [_move_one(p) for p in plans],
+    return {**base, "results": [_move_one(p) for p in _ordered_plans(plans)],
             "conflicts": conflicts}
 
 

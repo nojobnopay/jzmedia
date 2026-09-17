@@ -222,3 +222,64 @@ def test_organize_execute_relocate_via_hint_params(media_root):
     new_rel = (store.get_movie(mid) or {}).get("file_path")
     assert new_rel.startswith("电影/华语/Relocate Me (2017)/")
     assert (media_root / new_rel).exists()
+
+
+# ---------- B11 审计补齐：链式排序 / 预览标注 / 花絮跳过明细 / orphan 猜测 ----------
+
+def test_ordered_plans_chain_and_cycle():
+    from app.routers.files.planner import _ordered_plans
+    chain = [{"id": 1, "from": "a.mkv", "to": "b.mkv"},
+             {"id": 2, "from": "b.mkv", "to": "c.mkv"}]
+    assert [p["id"] for p in _ordered_plans(chain)] == [2, 1]
+    cyc = [{"id": 1, "from": "a.mkv", "to": "b.mkv"},
+           {"id": 2, "from": "b.mkv", "to": "a.mkv"}]
+    assert len(_ordered_plans(cyc)) == 2          # 环：原样返回不丢项
+    free = [{"id": 1, "from": "a.mkv", "to": "x/a.mkv"}]
+    assert [p["id"] for p in _ordered_plans(free)] == [1]
+
+
+def test_organize_preview_marks_source_missing(media_root):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app import store
+    mid = store.upsert_movie_by_path("ghost/Not.On.Disk.2010.mkv")
+    store.update_movie_meta(mid, tmdb_id=99101, title="Ghost Movie", year=2010,
+                            region="华语", original_language="zh")
+    c = TestClient(app)
+    d = c.post("/api/files/organize", json={"mode": "inplace", "ids": [mid],
+                                            "dry_run": True}).json()
+    plan = next(p for p in d["plans"] if p["id"] == mid)
+    assert plan.get("status") == "source_missing"
+
+
+def test_orphan_guessed_title(media_root):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app import store
+    store.upsert_extra("scatter/Making.Of.The.Guess.1998.mkv", None, "extra")
+    c = TestClient(app)
+    d = c.get("/api/extras/orphans").json()
+    row = next(x for x in d["items"] if "Guess" in x["file_path"])
+    assert row.get("guessed_title") and row.get("guessed_year") == 1998
+
+
+def test_collect_reports_skipped_conflict(media_root):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app import store
+    movie_dir = media_root / "lib/Film (2020)"
+    movie_dir.mkdir(parents=True, exist_ok=True)
+    (movie_dir / "Film (2020).mkv").write_bytes(b"x")
+    mid = store.upsert_movie_by_path("lib/Film (2020)/Film (2020).mkv")
+    store.update_movie_meta(mid, tmdb_id=99102, title="Film", year=2020)
+    (media_root / "scatter").mkdir(parents=True, exist_ok=True)
+    (media_root / "scatter/featurette.mkv").write_bytes(b"z")
+    store.upsert_extra("scatter/featurette.mkv", mid, "extra")
+    # 目标已存在 → 不覆盖，应上报 skipped
+    (movie_dir / "extras").mkdir(exist_ok=True)
+    (movie_dir / "extras/featurette.mkv").write_bytes(b"y")
+    c = TestClient(app)
+    d = c.post("/api/extras/collect", json={"dry_run": False, "ids": [mid]}).json()
+    assert d["moved"] == 0 and d["skipped"]
+    assert any(sk["file_path"] == "scatter/featurette.mkv"
+               and sk["reason"] == "target_exists" for sk in d["skipped"])

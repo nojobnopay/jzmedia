@@ -13,11 +13,24 @@ logger = get_logger("extras")
 
 @router.get("/orphans")
 def orphans():
-    """未归属花絮：标题/年份对不上库内任何影片，文件原地保留，人工认领。"""
+    """未归属花絮：标题/年份对不上库内任何影片，文件原地保留，人工认领。
+    附文件名解析的猜测标题/年份（评审 R08-D4），认领时便于在库里搜索确认。"""
+    from ..scanner.parse import parse_filename, normalize_title
     items = []
     for e in store.list_orphan_extras():
-        items.append({"id": e["id"], "file_path": e["file_path"],
-                      "kind": e.get("kind") or "extra"})
+        rel = e["file_path"]
+        guess = {}
+        try:
+            parsed = parse_filename(os.path.basename(rel))
+            t = normalize_title(parsed.get("title") or "")
+            if t:
+                guess["guessed_title"] = t
+            if parsed.get("year"):
+                guess["guessed_year"] = parsed["year"]
+        except Exception:
+            pass
+        items.append({"id": e["id"], "file_path": rel,
+                      "kind": e.get("kind") or "extra", **guess})
     return {"total": len(items), "items": items}
 
 
@@ -79,12 +92,18 @@ def collect(body: dict | None = None):
     if dry_run:
         return {"dry_run": True, "total": len(cands), "plans": cands}
     done = []
+    skipped: list[dict] = []
     for c in cands:
         try:
-            n = move_attached_extras(
+            r = move_attached_extras(
                 c["id"], os.path.join(settings.media_root, c["dir"]))
-            done.append({"id": c["id"], "moved": n})
+            done.append({"id": c["id"], "moved": r.get("moved", 0),
+                         "skipped": len(r.get("skipped") or [])})
+            for sk in (r.get("skipped") or []):
+                skipped.append({"id": c["id"], **sk})
         except Exception as e:
             done.append({"id": c["id"], "moved": 0, "error": str(e)})
+    # skipped 多为目标已存在（不覆盖）；带明细回报，避免用户反复点整理（评审 R08-D3）
     return {"dry_run": False, "total": len(cands),
-            "moved": sum(d.get("moved", 0) for d in done), "results": done}
+            "moved": sum(d.get("moved", 0) for d in done),
+            "skipped": skipped, "results": done}
