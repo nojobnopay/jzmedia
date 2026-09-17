@@ -499,6 +499,12 @@ function ensureSectionData(id) {
     // 合并后的「入库流程」：两个重负载清单一起按需加载（评审 P2 后续）
     ensureSectionData('sec-sync')
     ensureSectionData('sec-pending')
+    loadOrgPreview().then(() => {
+      if (orgPlans.value.length && !pipeOpen.value.organize) {
+        pipeOpen.value.organize = true
+        orgMsg.value = orgMsg.value || `检测到 ${orgPlans.value.length} 项可归档，已为你展开`
+      }
+    })
   }
 }
 function go(id) {
@@ -568,6 +574,12 @@ async function pollScanJob() {
     await loadStats()
     ensureSectionData('sec-sync')
     ensureSectionData('sec-pending')
+    // 扫描入库后主动提示归档（评审 B9 后续）：有可归档项就展开 ③ 并说明下一步
+    await loadOrgPreview()
+    if (orgPlans.value.length) {
+      pipeOpen.value.organize = true
+      orgMsg.value = `检测到 ${orgPlans.value.length} 项可归档，「③ 归档整理」已为你展开，点「确认搬迁」执行`
+    }
   } catch (e) { /* 轮询失败下次继续 */ }
 }
 async function cancelScan() {

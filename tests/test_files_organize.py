@@ -104,3 +104,55 @@ def test_legacy_endpoints_removed():
     r = c.get("/api/stream/1/master.m3u8")
     assert "mpegurl" not in (r.headers.get("content-type") or "")
     assert "#EXTM3U" not in r.text
+
+
+# ---------- B9 后续：重新匹配后的归档推荐 ----------
+
+def test_organize_hint_relocate(media_root):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app import store
+    c = TestClient(app)
+    rel = "待整理/Hint.Movie.2018.mkv"
+    p = media_root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"x")
+    mid = store.upsert_movie_by_path(rel)
+    store.update_movie_meta(mid, tmdb_id=99001, title="Hint Movie", year=2018,
+                            region="华语", original_language="zh")
+    d = c.get(f"/api/movies/{mid}/organize-hint").json()
+    assert d["needs"] is True and d["params"]["mode"] == "relocate"
+    assert d["params"]["from_prefix"] == "待整理"
+    assert d["plans"] and d["plans"][0]["to"].startswith("电影/")
+    # 未匹配行 → 不给归档建议
+    mid2 = store.upsert_movie_by_path("待整理/Unmatched.2020.mkv")
+    d2 = c.get(f"/api/movies/{mid2}/organize-hint").json()
+    assert d2["needs"] is False and d2["reason"] == "unmatched"
+
+
+def test_organize_hint_inplace_when_already_canonical(media_root):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app import store
+    c = TestClient(app)
+    # 已规范：片目录 + 规范文件名 → 无计划
+    rel = "电影/华语/Hint Movie (2018)/Hint Movie (2018).mkv"
+    p = media_root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"x")
+    mid = store.upsert_movie_by_path(rel)
+    store.update_movie_meta(mid, tmdb_id=99002, title="Hint Movie", year=2018,
+                            region="华语", original_language="zh")
+    d = c.get(f"/api/movies/{mid}/organize-hint").json()
+    assert d["params"]["mode"] == "inplace"
+    assert d["needs"] is False            # 已规范 → 无计划
+    # 正式库内但平铺/命名不规范 → 就地归档计划
+    rel2 = "电影/华语/Hint.Other.2018.mkv"
+    p2 = media_root / rel2
+    p2.write_bytes(b"x")
+    mid2 = store.upsert_movie_by_path(rel2)
+    store.update_movie_meta(mid2, tmdb_id=99003, title="Hint Other", year=2018,
+                            region="华语", original_language="zh")
+    d2 = c.get(f"/api/movies/{mid2}/organize-hint").json()
+    assert d2["params"]["mode"] == "inplace" and d2["needs"] is True
+    assert d2["plans"][0]["to"].startswith("电影/华语/Hint Other (2018)/")

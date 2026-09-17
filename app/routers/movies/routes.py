@@ -11,7 +11,7 @@ logger = get_logger("movies.routes")
 from ...scanner import same_stem
 from .common import (_INLINE_EXTS, FilterList, _page, _stream_upload)
 from .scope import _movie_delete_scope
-__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig']
+__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'organize_hint', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig']
 
 router = APIRouter(prefix="/api")
 
@@ -683,6 +683,38 @@ def manual_match(movie_id: int, body: dict, background_tasks: BackgroundTasks):
                               abs_path, media["poster_tmdb"],
                               media["old_poster_tmdb"])
     return {"id": movie_id, **out}
+
+
+@router.get("/movies/{movie_id}/organize-hint")
+def organize_hint(movie_id: int):
+    """重新匹配后的归档推荐（评审 B9 后续）：按行内路径自动选 就地/搬迁，dry_run 预览。
+
+    返回 {needs, total, plans, conflicts, params}；params 可直接回传 /api/files/organize 执行。
+    未匹配行返回 needs=false（先匹配再归档）。"""
+    from ..files import _organize
+    m = store.get_movie(movie_id)
+    if not m:
+        raise HTTPException(404, "movie not found")
+    if not m.get("tmdb_id"):
+        return {"needs": False, "total": 0, "plans": [], "conflicts": [],
+                "params": {}, "reason": "unmatched"}
+    rel = (m.get("file_path") or "").strip()
+    if not rel:
+        raise HTTPException(422, "movie has no file_path")
+    top = rel.split("/")[0] if "/" in rel else ""
+    if top and top != "电影":
+        # 不在正式库（待整理/下载等）→ 推荐搬到 电影/大区/标题 (年份)/
+        d = _organize("relocate", from_prefix=top, to_dir="电影", group_by_region=True,
+                      only={movie_id}, dry_run=True)
+        params = {"mode": "relocate", "from_prefix": top, "to_dir": "电影",
+                  "group_by_region": True}
+    else:
+        # 已在电影分区/根目录平铺 → 就地规范化（建片目录、改规范名）
+        d = _organize("inplace", only={movie_id}, dry_run=True)
+        params = {"mode": "inplace"}
+    plans = d.get("plans") or []
+    return {"needs": bool(plans), "total": len(plans), "plans": plans[:20],
+            "conflicts": (d.get("conflicts") or [])[:20], "params": params}
 
 
 @router.post("/movies/{movie_id}/rescan")
