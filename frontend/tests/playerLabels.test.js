@@ -18,10 +18,12 @@ test('audioLabel/subLabel 组合字段', () => {
   assert.equal(subLabel({ lang: 'chs', codec: 'pgs', image: 1 }, 0), '字幕1 chs')
 })
 
-test('subBadge：渲染方式 + 外挂来源', () => {
+test('subBadge：渲染方式 + 外挂/本地来源', () => {
   assert.equal(subBadge({ codec: 'ass' }), '（ASS 样式）')
   assert.equal(subBadge({ image: 1, codec: 'pgs', source: 'sidecar' }), '（PGS·外挂）')
   assert.equal(subBadge({ codec: 'subrip' }), '')
+  assert.equal(subBadge({ codec: 'ass', source: 'local' }), '（ASS 样式·本地）')
+  assert.equal(subBadge({ codec: 'srt', source: 'local' }), '（本地）')
 })
 
 test('fmtTime：时/分补零与非法值', () => {

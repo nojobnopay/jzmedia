@@ -1,10 +1,13 @@
 """scanner.classify（自 app/scanner.py 拆分，评审 B9/R03-Q1；对外经 app.scanner 门面使用）。"""
 import os
 import re
+from functools import lru_cache
+from guessit import guessit
 from ..config import settings
 from ..log import get_logger
+from .parse import normalize_title
 logger = get_logger("scanner.classify")
-__all__ = ['same_stem', 'VIDEO_EXTS', 'SUBTITLE_EXTS', '_SKIP_DIR_NAMES', 'scan_skip_dirs', 'SIDECAR_TEXT_EXTS', '_sidecar_sub_dirs', 'SIDECAR_SUB_DIRS', '_SAMPLE_TOKENS', '_SAMPLE_RE', 'strip_kind_affix', 'extra_kind', 'is_sample', '_parent_has_feature', 'is_extra', 'is_sidecar', 'is_feature_video', '_stem_matches', 'sidecar_subtitles', '_EXTRAS_RE', 'EXTRAS_DIR_NAMES', '_GENERIC_DIR_NAMES', 'KIND_BY_DIR', '_KIND_WORDS', '_STRIP_LEAD_RES', '_STRIP_TRAIL_RE']
+__all__ = ['same_stem', 'VIDEO_EXTS', 'SUBTITLE_EXTS', '_SKIP_DIR_NAMES', 'scan_skip_dirs', 'SIDECAR_TEXT_EXTS', '_sidecar_sub_dirs', 'SIDECAR_SUB_DIRS', '_SAMPLE_TOKENS', '_SAMPLE_RE', 'strip_kind_affix', 'extra_kind', 'is_sample', '_parent_has_feature', 'is_extra', 'is_sidecar', 'is_feature_video', '_stem_matches', 'sidecar_subtitles', '_EXTRAS_RE', 'EXTRAS_DIR_NAMES', '_GENERIC_DIR_NAMES', 'KIND_BY_DIR', '_KIND_WORDS', '_STRIP_LEAD_RES', '_STRIP_TRAIL_RE', '_SIDECAR_LANG_HINTS', '_guess_sidecar_lang', '_strip_lang_tail', '_title_key', '_stem_title_matches']
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv", ".webm"}
 
@@ -154,8 +157,72 @@ def same_stem(name_stem: str, stems) -> bool:
     return False
 
 
+_SIDECAR_LANG_HINTS = (
+    ("中英", "chi", "中英"), ("简英", "chi", "简英"), ("繁英", "chi", "繁英"),
+    ("简中", "chi", "简中"), ("繁中", "chi", "繁中"), ("中日", "chi", "中日"),
+    ("双语", "chi", "双语"), ("中字", "chi", "中字"), ("中文", "chi", "中文"),
+    ("简体", "chi", "简体"), ("繁体", "chi", "繁体"), ("简", "chi", "简体"),
+    ("繁", "chi", "繁体"), ("中", "chi", "中文"),
+    ("chs", "chi", "简体"), ("cht", "chi", "繁体"), ("sc", "chi", ""),
+    ("tc", "chi", ""), ("chi", "chi", ""), ("zh", "chi", ""),
+    ("eng", "eng", ""), ("en", "eng", ""), ("jpn", "jpn", ""),
+    ("jp", "jpn", ""), ("kor", "kor", ""), ("ko", "kor", ""),
+)
+
+
+def _guess_sidecar_lang(suffix: str) -> tuple[str, str]:
+    """按分隔符切 token 匹配（评审 R13-B5）：单字提示（如「中」）只认独立 token，
+    避免命中「中文配音版/中英特效」这类含字词；多字提示仍允许子串（如「简体」）。"""
+    s = (suffix or "").strip().lower()
+    toks = [t for t in re.split(r"[\s._\-\[\]()【】]+", s) if t]
+    for key, lang, title in _SIDECAR_LANG_HINTS:
+        if key in toks or (len(key) >= 2 and key in s):
+            return lang, title
+    return "", ""
+
+
+def _strip_lang_tail(stem: str) -> str:
+    """剥掉文件名尾部语言提示 token（大桥下面.chs→大桥下面；大桥下面.中英双字→大桥下面）。
+    无可剥或只剩空串时原样返回。"""
+    s = (stem or "").strip()
+    while True:
+        toks = [t for t in re.split(r"[\s._\-\[\]()【】]+", s) if t]
+        if len(toks) < 2 or not _guess_sidecar_lang(toks[-1])[0]:
+            break
+        pos = s.rfind(toks[-1])
+        nxt = s[:pos].rstrip(" ._-[]()【】")
+        if not nxt or nxt == s:
+            break
+        s = nxt
+    return s
+
+
+@lru_cache(maxsize=4096)
+def _title_key(stem: str) -> str:
+    """标题键：guessit 取 title，NFKC 归一并小写；取不到时回退整个 stem。
+    供外挂字幕宽松匹配（标题同名即认，Alien 不会误配 Alien Resurrection）。"""
+    s = (stem or "").strip()
+    if not s:
+        return ""
+    try:
+        t = guessit(s).get("title") or s
+    except Exception:
+        t = s
+    if isinstance(t, list):
+        t = t[0]
+    return normalize_title(str(t)).lower()
+
+
+def _stem_title_matches(video_stem: str, name_stem: str) -> bool:
+    """宽松匹配：字幕名为纯标题（可带语言后缀）时，标题与正片标题相同即可。
+    如 大桥下面.srt / 大桥下面.chs.srt ↔ 大桥下面 (1984).mkv；标题过短（<2 字符）不认，防误配。"""
+    a = _title_key(video_stem)
+    b = _title_key(_strip_lang_tail(name_stem))
+    return bool(a) and a == b and len(a) >= 2
+
+
 def _stem_matches(video_stem: str, name_stem: str) -> bool:
-    """外挂字幕命名匹配：与正片 stem 相同，或以 正片stem + [-._ 空格] 开头。"""
+    """外挂字幕命名匹配（严格）：与正片 stem 相同，或以 正片stem + [-._ 空格] 开头。"""
     if name_stem == video_stem:
         return True
     return any(name_stem.startswith(video_stem + sep) for sep in ("-", ".", "_", " "))
@@ -163,11 +230,13 @@ def _stem_matches(video_stem: str, name_stem: str) -> bool:
 
 def sidecar_subtitles(abs_video: str) -> list[dict]:
     """正片同名外挂字幕清单（播放器用；只读磁盘，不入库）。
-    同目录（含一层 subs/Subs/字幕 子目录）内 stem 匹配的：
+    同目录（含一层 subs/Subs/字幕 子目录）内匹配的：
+    - 严格：stem 同正片或以正片 stem 开头（正片.nfo 等）
+    - 宽松：字幕 stem 剥掉语言后缀后标题与正片标题同名（大桥下面.srt ↔ 大桥下面 (1984).mkv）
     - 文本 .srt/.ass/.ssa → codec srt|ass|ssa, image=0（客户端渲染）
     - .sup → codec pgs, image=1（客户端渲染）
     - .sub/.idx 成对 → codec vobsub, image=1（仅烧录；同 stem 只列一条，优先 .sub）
-    返回 [{rel, name, codec, image, suffix}]，suffix 为文件名中 stem 之后的部分（供语言推断）。"""
+    返回 [{rel, name, codec, image, suffix}]，suffix 为文件名中标题之后的部分（供语言推断）。"""
     video_stem = os.path.splitext(os.path.basename(abs_video))[0]
     src_dir = os.path.dirname(abs_video)
     dirs = [src_dir] + [os.path.join(src_dir, d) for d in SIDECAR_SUB_DIRS]
@@ -183,7 +252,12 @@ def sidecar_subtitles(abs_video: str) -> list[dict]:
                 continue
             stem, ex = os.path.splitext(n)
             ex = ex.lower()
-            if not _stem_matches(video_stem, stem):
+            if _stem_matches(video_stem, stem):
+                suffix = stem[len(video_stem):].lstrip("-._ ")
+            elif _stem_title_matches(video_stem, stem):
+                base = _strip_lang_tail(stem)
+                suffix = stem[len(base):].lstrip(" ._-") if stem.startswith(base) else ""
+            else:
                 continue
             if ex in SIDECAR_TEXT_EXTS:
                 codec, image = SIDECAR_TEXT_EXTS[ex], 0
@@ -193,7 +267,6 @@ def sidecar_subtitles(abs_video: str) -> list[dict]:
                 codec, image = "vobsub", 1
             else:
                 continue
-            suffix = stem[len(video_stem):].lstrip("-._ ")
             key = (d, stem) if codec == "vobsub" else (d, n)
             item = {"rel": os.path.relpath(full, settings.media_root), "name": n,
                     "codec": codec, "image": image, "suffix": suffix, "path": full}

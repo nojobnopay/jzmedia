@@ -9,7 +9,7 @@
 - **媒体库**（`/`）：海报墙，关键词搜索（片名/原名/简介/演员/标签/类型），多维过滤——类型 / 产地大区（华语/日本/韩国/欧美/其他亚洲/其他）/ 国家·地区（大陆/香港/台湾细分）/ 年代+年份 / 自定义标签（多选 AND）/ 观看（已看/未看）/ 合集 / 评分（TMDB/豆瓣/自评来源 + 9+/8+/7+/6+ 档位）。多选模式可批量标已看/未看、批量加/去标签、加入合集。过滤条件同步到 URL，可分享链接
 - **合集**（`/collections`、`/c/:id`）：手工合集（任意选片，如周星驰合集）+ TMDB 系列一键建（如功夫熊猫系列，详情页提示）；成员海报粒度，同片多版本自动跟随
 - **详情页**（`/m/:id`）：TMDB 星级 + 豆瓣/自评分数（缺失自动隐藏）、演员点名反查、多版本文件列表；可手动改标题、自评/豆瓣分（0–10）、标签、简介覆盖；刮削错了可搜 TMDB 手动绑定
-- **在线播放**（详情页 ▶）：按客户端实测能力四档决策——原文件直发（零 CPU）/ 仅换封装 / 仅音频转码 / 视频转码；HLS 输出 fMP4 + 多音轨 rendition（切音轨不重开）；字幕客户端渲染（文本 VTT、ASS/SSA→JASSUB、PGS→libpgs，仅 VobSub 烧录），支持外挂同名字幕与字幕延迟；硬件转码自动探测（VAAPI/QSV/NVENC，失败回落软件并自动重试）；HDR10 / DV P8.1(compat=1) 只要浏览器能解 PQ 就原画直通（`hdr_decode`，与显示器是否 HDR 解耦；SDR 屏由浏览器/系统 tone map，P5 仍阻断），原画直通持续丢帧时播放器居中浮层询问（窗口/全屏统一，10s 无操作/取消=保持原画；不自动切、不记忆）；断点续播 + 夜间预转码静态秒播
+- **在线播放**（详情页 ▶）：按客户端实测能力四档决策——原文件直发（零 CPU）/ 仅换封装 / 仅音频转码 / 视频转码；HLS 输出 fMP4 + 多音轨 rendition（切音轨不重开）；字幕客户端渲染（文本 VTT、ASS/SSA→JASSUB、PGS→libpgs，仅 VobSub 烧录），支持外挂字幕（严格同名或标题同名宽松匹配，`大桥下面.srt` 亦认 `大桥下面 (1984).mkv`）、播放器设置里临时加载本地字幕文件（srt/vtt/ass/ssa，不入库）与字幕延迟；硬件转码自动探测（VAAPI/QSV/NVENC，失败回落软件并自动重试）；HDR10 / DV P8.1(compat=1) 只要浏览器能解 PQ 就原画直通（`hdr_decode`，与显示器是否 HDR 解耦；SDR 屏由浏览器/系统 tone map，P5 仍阻断），原画直通持续丢帧时播放器居中浮层询问（窗口/全屏统一，10s 无操作/取消=保持原画；不自动切、不记忆）；断点续播 + 夜间预转码静态秒播
 - **扫描刮削**：遍历媒体目录，文件名解析 → TMDB 匹配 → 入库 + 海报下载 + 同目录写 NFO（独占单版本只留 `movie.nfo`，同片多版本才补各版本同名 `.nfo`，共享目录只写当前同名）；已入库跳过，剧集跳过（当前仅支持电影），年份容差 ±1，模糊命中标待确认
 - **文件整理**：按 `标题 (年份)[-版本][-规格][-分卷][-版本N].ext` 规划（`POST /api/files/organize`，`mode=inplace|relocate`），默认只预览（dry-run），确认后执行并联动更新库与 NFO；冲突分疑似错配（人工重匹配）与规格变体（自动区分）。首次入库路径记为原始位置，搬错可用设置页「恢复到原始位置」（`POST /api/files/restore-original`，同样先预览再执行、绝不覆盖）搬回
 - **设置页**（`/settings`）：TMDB 配置（Token/代理/语言，库优先免重启）+ 文件整理预览/执行
@@ -124,7 +124,7 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 | `GET /api/stream/sessions/{sid}/debug` | 自证口：进程/分片/各 rendition ENDLIST/实际后端/重试次数/caps 摘要/ffmpeg 尾日志 |
 | `GET /api/stream/progress` · `POST` · `DELETE` | 单版本断点续播（读/写/清） |
 | `POST /api/stream/prewarm` · `GET /api/stream/prewarm/{job_id}` | 夜间预转码（后台整片转完 → 静态 VOD 秒播）/ 进度 |
-| `GET /api/stream/{id}/sub/{idx}.vtt|.ass|.sup` · `GET /api/stream/{id}/fonts` | 字幕抽取（文本→VTT、ASS/SSA→ASS、PGS→SUP）与字体清单；外挂同名 `.srt/.ass/.ssa/.sup` 自动并入 |
+| `GET /api/stream/{id}/sub/{idx}.vtt|.ass|.sup` · `GET /api/stream/{id}/fonts` | 字幕抽取（文本→VTT、ASS/SSA→ASS、PGS→SUP）与字体清单；外挂同名/标题同名 `.srt/.ass/.ssa/.sup` 自动并入（无内嵌时自动选中文本轨；播放器设置可临时加载本地字幕文件） |
 | `GET /api/stream/backends?refresh=1` | 转码后端探测结果（software/vaapi/qsv/nvenc + 判定原因） |
 | `POST /api/stream/probe-missing` | 给无探测缓存（或探测结构过期）的版本补 ffprobe（离线本地） |
 

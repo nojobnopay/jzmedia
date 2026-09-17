@@ -16,6 +16,7 @@
             :sub-delay-visible="subDelayVisible" :sub-delay-text="subDelayText"
             :sub-is-vtt="subIsVtt" :sub-is-ass="subIsAss" :force-burn="forceBurn"
             :undo-disabled="undoDegradeDisabled" :compat-sub="compatSub"
+            :has-local-sub="localSubs.length > 0"
             :direct-fail-url="directFailUrl" :method-line="methodLine" :quality-line="qualityLine"
             :sub-style="subStyle"
             @toggle-settings="toggleSettings"
@@ -26,6 +27,8 @@
             @update:sub-style="onSubStyleSet"
             @undo-degrade="undoDegrade"
             @compat-change="onCompatSet"
+            @load-sub-file="onLoadSubFile"
+            @remove-local-subs="removeLocalSubs"
             @copy-direct="copyDirectLink" />
         </div>
         <button class="pd-mini" @click="copyDebug">调试</button>
@@ -99,7 +102,7 @@ import Spinner from './Spinner.vue'
 import { useFocusTrap } from '../useFocusTrap.js'
 import PlayerSettings from './PlayerSettings.vue'
 import { subKind, fmtTime as fmt } from '../playerLabels.js'
-import { parseVtt, activeCues, pickDefaultSub } from '../subtitleParse.js'
+import { parseVtt, activeCues, pickDefaultSub, decodeSubtitleBytes, localSubCodec } from '../subtitleParse.js'
 import '../player.css'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
@@ -122,6 +125,10 @@ const audioIdx = ref(0)
 const subIdx = ref(-1)
 const audios = ref([])
 const subs = ref([])
+// 临时加载的本地字幕（2026-09 用户需求）：浏览器端解析/渲染，不入库，关播放器即失效；
+// 影片重载（切档/seek/音轨）后合并保留，选中项按 localId 恢复。
+const localSubs = ref([])
+let localSubSeq = 0
 // ASS 渲染（JASSUB）：实例 + 归属键（版本:视频元素:轨:兼容标记，变更才重建）
 let jassub = null
 let assKey = ''
@@ -582,8 +589,10 @@ async function reload() {
   // 图片字幕：默认客户端渲染（PGS→libpgs）；VobSub/解码降级走烧录（服务端 subtitle_mode）
   const wantBurn = imageSubSelected()
   const burnSub = wantBurn ? Number(subIdx.value) : -1
+  // 本地临时字幕不在服务端轨清单里：decide/sessions 一律传 null（防 subtitle_not_found）
+  const serverSub = burnSub >= 0 ? burnSub : (isLocalSub(selectedSub()) ? null : (subIdx.value >= 0 ? subIdx.value : null))
   try {
-    d = await decidePlayback(burnSub >= 0 ? burnSub : (subIdx.value >= 0 ? subIdx.value : null))
+    d = await decidePlayback(serverSub)
   } catch (e) {
     err.value = '无法播放：' + e.message
     return
@@ -593,7 +602,7 @@ async function reload() {
   method.value = d.method
   reasons.value = d.reasons || []
   audios.value = d.media?.audio || []
-  subs.value = d.media?.subs || []
+  mergeSubs(d.media?.subs || [])
   // 默认字幕：打开时自动选一次（用户手动选过后不再覆盖）；规则见 pickDefaultSub
   // （PGS 已客户端渲染 → 可自动选；VobSub 等烧录轨仍不自动选）
   if (subIdx.value === -1 && !autoSubPicked) {
@@ -802,13 +811,16 @@ async function mountAss(v, key) {
     posHint.value = 'ASS 渲染组件加载失败，可勾选「兼容」改用 VTT 字幕'
     return
   }
-  if (videoEl.value !== v || burnOn || subKind(subs.value[subIdx.value]) !== 'ass') return
+  if (videoEl.value !== v || burnOn || subKind(selectedSub()) !== 'ass') return
+  const sub = selectedSub() || {}
+  const assUrl = sub.url || `/api/stream/${props.versionId}/sub/${subIdx.value}.ass`
   const fonts = (meta.fonts || []).map(f => f.url)
   // 无任何可用字体 + 含中日韩文本：libass 缺字形会显示不全，
-  // 自动降级浏览器 VTT（系统字体渲染，保证可读；投放字体到 data/fonts/ 即恢复 ASS 样式）
-  if (!fonts.length) {
-    const needCjk = await assNeedsCjk(`/api/stream/${props.versionId}/sub/${subIdx.value}.ass`)
-    if (videoEl.value !== v || burnOn || subKind(subs.value[subIdx.value]) !== 'ass') return
+  // 自动降级浏览器 VTT（系统字体渲染，保证可读；投放字体到 data/fonts/ 即恢复 ASS 样式）；
+  // 本地临时 ASS 无服务端 VTT 变体 → 保持 JASSUB（宁可默认字体也不空白）
+  if (!fonts.length && !isLocalSub(sub)) {
+    const needCjk = await assNeedsCjk(assUrl)
+    if (videoEl.value !== v || burnOn || subKind(selectedSub()) !== 'ass') return
     if (needCjk) {
       autoVttSub.value = Number(subIdx.value)
       posHint.value = '未找到中文字体：已用浏览器 VTT 显示；把任意中文字体（woff2/ttf/ttc）放入 data/fonts/ 可恢复 ASS 样式'
@@ -822,7 +834,7 @@ async function mountAss(v, key) {
   try {
     jassub = new mod.JASSUB({
       video: v,
-      subUrl: `/api/stream/${props.versionId}/sub/${subIdx.value}.ass`,
+      subUrl: assUrl,
       fonts,
       workerUrl: mod.workerUrl,
       wasmUrl: mod.wasmUrl,
@@ -834,16 +846,18 @@ async function mountAss(v, key) {
     assKey = key
     posHint.value = fonts.length
       ? `ASS 字幕（样式渲染，${fonts.length} 个可用字体）`
-      : 'ASS 字幕：未找到内嵌/内置字体，文字可能走默认字体；异常可勾选「兼容」或投放字体到 data/fonts/'
+      : (isLocalSub(sub)
+        ? 'ASS 字幕：未找到内嵌/内置字体，文字可能走默认字体；可把中文字体（woff2/ttf/ttc）放入 data/fonts/'
+        : 'ASS 字幕：未找到内嵌/内置字体，文字可能走默认字体；异常可勾选「兼容」或投放字体到 data/fonts/')
     const inst = jassub
     Promise.resolve(inst.ready)
       .then(() => {
         if (jassub === inst) { try { inst.timeOffset = subShift() + subDelay.value } catch (e) { /* 忽略 */ } }
         logEvt('ass:ready', 'fonts=' + fonts.length)
       })
-      .catch((e) => { posHint.value = 'ASS 渲染初始化失败，可勾选「兼容」改用 VTT 字幕'; logEvt('ass:error', String(e).slice(0, 160)) })
+      .catch((e) => { posHint.value = 'ASS 渲染初始化失败' + (isLocalSub(sub) ? '' : '，可勾选「兼容」改用 VTT 字幕'); logEvt('ass:error', String(e).slice(0, 160)) })
   } catch (e) {
-    posHint.value = 'ASS 渲染初始化失败，可勾选「兼容」改用 VTT 字幕'
+    posHint.value = 'ASS 渲染初始化失败' + (isLocalSub(sub) ? '' : '，可勾选「兼容」改用 VTT 字幕')
     logEvt('ass:init-error', String(e).slice(0, 160))
   }
 }
@@ -992,9 +1006,12 @@ function destroyVtt() {
   vttNativeFallback.value = false
   clearVttDom()
 }
-// 所选字幕是否走文本（自绘）渲染：VTT 本体 / ASS 勾选兼容 / ASS 无字体自动降级
+// 所选字幕是否走文本（自绘）渲染：VTT 本体 / ASS 勾选兼容 / ASS 无字体自动降级。
+// 本地临时 ASS 无服务端 VTT 变体，不走兼容降级（保持 JASSUB 渲染）。
 function isVttKind() {
-  const k = subKind(subs.value[subIdx.value])
+  const s = selectedSub()
+  const k = subKind(s)
+  if (isLocalSub(s)) return k === 'vtt'
   return k === 'vtt' || (k === 'ass' && (compatSub.value
     || autoVttSub.value === Number(subIdx.value)))
 }
@@ -1015,13 +1032,16 @@ async function mountVttLayer(v, key) {
     vttRender()
     return
   }
-  const url = `/api/stream/${props.versionId}/sub/${subIdx.value}.vtt`
-  let text = ''
-  try {
-    const r = await fetch(url)
-    if (!r.ok) throw new Error('http ' + r.status)
-    text = await r.text()
-  } catch (e) { text = '' }
+  const sub = selectedSub() || {}
+  const url = sub.url || `/api/stream/${props.versionId}/sub/${subIdx.value}.vtt`
+  let text = typeof sub.text === 'string' ? sub.text : ''   // 本地字幕：已在加载期解码（含 GBK 兜底）
+  if (!text) {
+    try {
+      const r = await fetch(url)
+      if (!r.ok) throw new Error('http ' + r.status)
+      text = await r.text()
+    } catch (e) { text = '' }
+  }
   if (seq !== vttSeq || videoEl.value !== v || !isVttSelected()) return
   const cues = text ? parseVtt(text) : []
   clearVttDom()
@@ -1045,20 +1065,100 @@ async function mountVttLayer(v, key) {
   syncSubLayerRect()
   vttRender()
 }
+// 当前所选字幕轨（内嵌/外挂/本地统一取法）
+function selectedSub() {
+  return subs.value[subIdx.value] || null
+}
+function isLocalSub(s) {
+  return !!(s && s.source === 'local')
+}
+// 服务端轨清单与本地临时字幕合并（每次 reload 后调用；本地轨追加在末尾，索引重排；
+// 选中项若为本地轨按 localId 找回，避免清单变化后错位）。
+function mergeSubs(serverSubs) {
+  const sel = selectedSub()
+  const selLocalId = isLocalSub(sel) ? sel.localId : ''
+  subs.value = [...(serverSubs || []), ...localSubs.value]
+  subs.value.forEach((s, i) => { s.index = i })
+  if (selLocalId) {
+    subIdx.value = subs.value.findIndex(s => s.localId === selLocalId)
+  } else if (subIdx.value >= subs.value.length) {
+    subIdx.value = -1
+  }
+}
+function revokeLocalUrl(s) {
+  if (s && s.blobUrl) {
+    try { URL.revokeObjectURL(s.blobUrl) } catch (e) { /* 忽略 */ }
+  }
+}
+// 临时加载本地字幕文件（srt/vtt 自绘、ass/ssa JASSUB；图片格式不支持，见 localSubCodec）。
+// 纯浏览器端：不入库、不上传，关播放器即失效；同名文件重复加载自动替换。
+async function onLoadSubFile(file) {
+  const codec = localSubCodec(file && file.name)
+  if (!codec) {
+    posHint.value = '不支持的字幕格式：仅可临时加载 srt/vtt/ass/ssa（图片字幕请与正片同名放入片目录）'
+    return
+  }
+  const localId = 'loc' + (++localSubSeq)
+  const entry = { localId, source: 'local', title: (file && file.name) || ('本地字幕 ' + localSubSeq),
+                  codec, image: 0, lang: '', default: 0, forced: 0 }
+  try {
+    if (codec === 'ass' || codec === 'ssa') {
+      entry.url = URL.createObjectURL(file)
+    } else {
+      entry.text = decodeSubtitleBytes(await file.arrayBuffer())
+      entry.url = URL.createObjectURL(new Blob([entry.text], { type: 'text/vtt' }))   // 原生 <track> 兜底用
+    }
+    entry.blobUrl = entry.url
+  } catch (e) {
+    posHint.value = '字幕文件读取失败：' + ((e && e.message) || e)
+    return
+  }
+  const prev = localSubs.value.findIndex(s => s.title === entry.title)
+  if (prev >= 0) {
+    revokeLocalUrl(localSubs.value[prev])
+    localSubs.value.splice(prev, 1)
+  }
+  localSubs.value.push(entry)
+  mergeSubs(subs.value.filter(s => s.source !== 'local'))
+  const li = subs.value.findIndex(s => s.localId === localId)
+  if (li < 0) return
+  subIdx.value = li
+  autoSubPicked = true
+  posHint.value = `已加载临时字幕：${entry.title}（仅本次播放，不入库）`
+  if (burnOn) { reload(); return }   // 前一轨是烧录会话：重开会话去掉画面里烧死的字幕
+  applySubs(true)
+}
+function removeLocalSubs() {
+  if (!localSubs.value.length) return
+  const wasLocal = isLocalSub(selectedSub())
+  for (const s of localSubs.value) revokeLocalUrl(s)
+  localSubs.value = []
+  mergeSubs(subs.value.filter(s => s.source !== 'local'))
+  if (wasLocal) subIdx.value = -1
+  posHint.value = '已移除临时字幕'
+  if (burnOn) { reload(); return }
+  applySubs(true)
+}
 // 应用当前所选字幕（会话重载/换视频元素/切轨共用）：先拆旧层再按类型装新层。
 // 文本(VTT 自绘)/ASS(PGS) 全部客户端渲染——切字幕不重开会话、不转码；仅 VobSub（burn）走烧录。
 // 三类都吃 subShift()+subDelay 偏移（会话时间轴↔字幕绝对时间轴对齐）。
 async function applySubs(force) {
   const v = videoEl.value
   if (!v) return
-  const kind = burnOn ? 'burn' : subKind(subs.value[subIdx.value])
-  const key = `${props.versionId}:${videoKey.value}:${subIdx.value}:${compatSub.value ? 'v' : 'a'}`
+  const sel = selectedSub()
+  const kind = burnOn ? 'burn' : subKind(sel)
+  const subToken = isLocalSub(sel) ? sel.localId : subIdx.value
+  const key = `${props.versionId}:${videoKey.value}:${subToken}:${compatSub.value ? 'v' : 'a'}`
   const toff = subShift() + subDelay.value
   if (jassub && (force || kind !== 'ass' || assKey !== key)) destroyAss()
   if (pgs && (force || kind !== 'pgs' || pgsKey !== key)) destroyPgs()
   if (kind === 'none' || kind === 'burn') { destroyVtt(); return }
   if (kind === 'vtt' || isVttKind()) {
-    if (vttNativeFallback.value) return   // 原生兜底已就绪，无需自绘层
+    // 原生 <track> 兜底中：同轨无需重挂；换轨（含切到本地字幕）必须先清旧 track 再重挂
+    if (vttNativeFallback.value) {
+      if (vttKey === key) return
+      destroyVtt()
+    }
     await mountVttLayer(v, key)
     return
   }
@@ -1082,16 +1182,22 @@ const SUB_RENDERERS = {
 }
 // 所选字幕是否为图片型（需烧录；实际是否烧录以服务端 subtitle_mode 为准）
 function imageSubSelected() {
-  const s = subs.value[subIdx.value]
+  const s = selectedSub()
   return !!(s && s.image)
 }
-// 当前所选是否为 ASS/SSA（决定「兼容」开关是否显示）
-const subIsAss = computed(() => subKind(subs.value[subIdx.value]) === 'ass')
+// 当前所选是否为 ASS/SSA（决定「兼容」开关是否显示）；本地临时 ASS 无服务端 VTT 变体，不显示
+const subIsAss = computed(() => {
+  const s = selectedSub()
+  if (isLocalSub(s)) return false
+  return subKind(s) === 'ass'
+})
 // 文本(VTT 自绘)/ASS/PGS 都支持 timeOffset（延迟控件可见）
 const subDelayVisible = computed(() => {
   if (burnOn) return false
-  const k = subKind(subs.value[subIdx.value])
+  const s = selectedSub()
+  const k = subKind(s)
   if (k === 'vtt') return true
+  if (isLocalSub(s)) return k === 'ass'   // 本地 ASS 直接 JASSUB 渲染，不受全局兼容开关影响
   return ['ass', 'pgs'].includes(k) && !compatSub.value && autoVttSub.value !== Number(subIdx.value)
 })
 const subDelayText = computed(() => (subDelay.value > 0 ? '+' : '') + subDelay.value.toFixed(1) + 's')
@@ -1708,6 +1814,8 @@ onUnmounted(() => {
   destroyAss()
   destroyPgs()
   destroyVtt()
+  for (const s of localSubs.value) revokeLocalUrl(s)   // 临时字幕 blob URL 回收
+  localSubs.value = []
 })
 </script>
 <style scoped>

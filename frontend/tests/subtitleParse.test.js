@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { vttMs, parseVtt, vttPlain, activeCues, pickDefaultSub } from '../src/subtitleParse.js'
+import { vttMs, parseVtt, vttPlain, activeCues, pickDefaultSub,
+  decodeSubtitleBytes, localSubCodec } from '../src/subtitleParse.js'
 
 test('vttMs：时/分/秒/毫秒与容错', () => {
   assert.equal(vttMs('00:01:02.500'), 62500)
@@ -81,4 +82,29 @@ test('pickDefaultSub：语言优先（中文 default > 首条中文 > 任意 def
   assert.equal(pickDefaultSub([{ index: 0, codec: 'subrip', image: 0, lang: 'eng', default: 0 }]), -1)
   assert.equal(pickDefaultSub([]), -1)
   assert.equal(pickDefaultSub(null), -1)
+})
+
+test('decodeSubtitleBytes：BOM 优先 / UTF-8 严格 / GB18030 兜底', () => {
+  assert.equal(decodeSubtitleBytes(new Uint8Array([0xEF, 0xBB, 0xBF, 0xE4, 0xB8, 0xAD])), '中')  // UTF-8 BOM
+  assert.equal(decodeSubtitleBytes(new Uint8Array([0xFF, 0xFE, 0x2D, 0x4E])), '中')              // UTF-16LE BOM
+  assert.equal(decodeSubtitleBytes(new Uint8Array([0xD6, 0xD0])), '中')                            // GBK 兜底
+  assert.equal(decodeSubtitleBytes(new Uint8Array([])), '')
+})
+
+test('parseVtt：SRT 文本可直接解析（逗号时间戳 + 序号行）', () => {
+  const srt = '1\r\n00:00:02,914 --> 00:00:11,358\r\n大桥下面\r\n\r\n2\r\n00:00:46,484 --> 00:00:48,000\r\n第二句\r\n'
+  const cues = parseVtt(srt)
+  assert.deepEqual(cues.map(c => [c.start, c.end, c.text]),
+    [[2914, 11358, '大桥下面'], [46484, 48000, '第二句']])
+})
+
+test('localSubCodec：仅文本字幕可临时加载（图片格式拒绝）', () => {
+  assert.equal(localSubCodec('大桥下面.srt'), 'srt')
+  assert.equal(localSubCodec('Sub.VTT'), 'vtt')
+  assert.equal(localSubCodec('a.ass'), 'ass')
+  assert.equal(localSubCodec('a.SSA'), 'ssa')
+  assert.equal(localSubCodec('a.sup'), '')
+  assert.equal(localSubCodec('a.sub'), '')
+  assert.equal(localSubCodec('a.idx'), '')
+  assert.equal(localSubCodec(''), '')
 })

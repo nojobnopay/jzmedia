@@ -20,6 +20,7 @@ export function vttPlain(raw) {
 }
 
 // 解析 WebVTT → cue 列表（源时间轴毫秒）；STYLE/REGION/注释块跳过。
+// SRT 可直接复用本函数（时间戳用逗号，vttMs 兼容 [.,]，序号行被块内 --> 搜索忽略）。
 export function parseVtt(text) {
   const cues = []
   for (const block of String(text || '').split(/\r?\n\r?\n/)) {
@@ -65,4 +66,36 @@ export function activeCues(cues, timeMs) {
     else if (c.start > t) break
   }
   return out
+}
+
+// 本地字幕文件解码（2026-09 播放器临时加载）：BOM 优先，UTF-8 严格解失败回落
+// GB18030（简中 SRT 常见编码）；极端异常返回 ''。纯函数，可 node 单测。
+export function decodeSubtitleBytes(buf) {
+  let b = buf instanceof Uint8Array ? buf : new Uint8Array(buf || [])
+  try {
+    if (b.length >= 2 && b[0] === 0xFF && b[1] === 0xFE) {
+      return new TextDecoder('utf-16le').decode(b.subarray(2))
+    }
+    if (b.length >= 2 && b[0] === 0xFE && b[1] === 0xFF) {
+      return new TextDecoder('utf-16be').decode(b.subarray(2))
+    }
+    if (b.length >= 3 && b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF) {
+      b = b.subarray(3)
+    }
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(b)
+    } catch (e) {
+      return new TextDecoder('gb18030').decode(b)
+    }
+  } catch (e) {
+    try { return new TextDecoder('utf-8').decode(b) } catch (e2) { return '' }
+  }
+}
+
+// 本地字幕文件 → codec（仅文本格式；图片字幕 .sup/.sub/.idx 不支持临时加载，返回 ''）。
+// srt/vtt 走自绘层（parseVtt），ass/ssa 交给 JASSUB（blob URL）。
+export function localSubCodec(filename) {
+  const ext = String(filename || '').split('.').pop().toLowerCase()
+  if (ext === 'srt' || ext === 'vtt' || ext === 'ass' || ext === 'ssa') return ext
+  return ''
 }

@@ -20,14 +20,20 @@
             <option v-for="(a, i) in audios" :key="i" :value="i">{{ audioLabel(a, i) }}</option>
           </select>
         </div>
-        <div class="set-row" v-if="subs.length">
+        <div class="set-row">
           <label>字幕</label>
-          <select :value="subIdx" @change="pick($event, 'sub-change', Number($event.target.value))">
+          <select v-if="subs.length" :value="subIdx" @change="pick($event, 'sub-change', Number($event.target.value))">
             <option :value="-1">无字幕</option>
             <option v-for="(s, i) in subs" :key="i" :value="i">
               {{ subLabel(s, i) }}{{ subBadge(s) }}
             </option>
           </select>
+          <span v-else class="fhint-inline">片源无字幕轨</span>
+          <button class="ctl-mini" @click="pickSubFile"
+            title="临时加载本地字幕文件（srt/vtt/ass/ssa）：浏览器端解析，仅本次播放，不入库">加载文件</button>
+          <button v-if="hasLocalSub" class="ctl-mini" @click="$emit('remove-local-subs')"
+            title="移除临时加载的字幕">移除</button>
+          <input ref="subFileInput" type="file" accept=".srt,.vtt,.ass,.ssa" class="sub-file" @change="onSubFile" />
         </div>
         <div class="set-row" v-if="subDelayVisible">
           <label>延迟</label>
@@ -97,6 +103,7 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { audioLabel, subLabel, subBadge } from '../playerLabels.js'
 
 const props = defineProps({
@@ -114,13 +121,26 @@ const props = defineProps({
   forceBurn: { type: Boolean, default: false },
   undoDisabled: { type: Boolean, default: false },
   compatSub: { type: Boolean, default: false },
+  hasLocalSub: { type: Boolean, default: false },
   directFailUrl: { type: String, default: '' },
   methodLine: { type: String, default: '' },
   qualityLine: { type: String, default: '' },
   subStyle: { type: Object, default: () => ({ bg: 0, outline: 0, pos: 'auto', size: 2 }) }
 })
 const emit = defineEmits(['toggle-settings', 'quality-change', 'audio-change', 'sub-change',
-  'shift-delay', 'update:sub-style', 'undo-degrade', 'compat-change', 'copy-direct'])
+  'shift-delay', 'update:sub-style', 'undo-degrade', 'compat-change', 'copy-direct',
+  'load-sub-file', 'remove-local-subs'])
+
+const subFileInput = ref(null)
+function pickSubFile() {
+  const el = subFileInput.value
+  if (el) el.click()
+}
+function onSubFile(e) {
+  const f = e && e.target && e.target.files && e.target.files[0]
+  if (f) emit('load-sub-file', f)
+  try { if (e && e.target) e.target.value = '' } catch (err) { /* 忽略 */ }   // 允许重复选同一文件
+}
 
 // 选完即失焦：否则焦点停在下拉框，方向键会去改选项而不是 seek/音量
 function pick(e, name, value) {
@@ -154,4 +174,6 @@ function styleSet(key, value) {
 .ctl-compat input { margin: 0; }
 .ctl-mini { padding: 1px 6px !important; font-size: 0.75rem; line-height: 1.2; }
 .delay-val { min-width: 34px; text-align: center; color: #7ed321; }
+.sub-file { display: none; }
+.fhint-inline { flex: 1; min-width: 0; color: #777; font-size: 0.75rem; }
 </style>

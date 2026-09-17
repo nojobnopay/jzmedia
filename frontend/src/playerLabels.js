@@ -25,7 +25,7 @@ export function subLabel(s, i) {
   return parts.join(' ')
 }
 
-// 字幕下拉角标：烧录/PGS/ASS 样式 + 外挂来源
+// 字幕下拉角标：烧录/PGS/ASS 样式 + 外挂/临时本地来源
 export function subBadge(s) {
   const kind = subKind(s)
   const parts = []
@@ -33,6 +33,7 @@ export function subBadge(s) {
   else if (kind === 'pgs') parts.push('PGS')
   else if (kind === 'ass') parts.push('ASS 样式')
   if (s && s.source === 'sidecar') parts.push('外挂')
+  else if (s && s.source === 'local') parts.push('本地')
   return parts.length ? '（' + parts.join('·') + '）' : ''
 }
 

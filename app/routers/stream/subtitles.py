@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse
 from ...config import settings
 from ...db import TRANSCODE_DIR
-from ...scanner import sidecar_subtitles
+from ...scanner import sidecar_subtitles, _SIDECAR_LANG_HINTS, _guess_sidecar_lang
 from ... import media as _media
 from ...log import get_logger
 logger = get_logger("stream.subtitles")
@@ -86,35 +86,12 @@ def _extract_embedded(abs_p: str, vid: int, track: dict, si: int, dest_ext: str)
 _FONT_RE = re.compile(r"^[^/\\]{1,120}\.(?:ttf|otf|ttc|woff2?)$", re.IGNORECASE)
 
 
-_SIDECAR_LANG_HINTS = (
-    ("中英", "chi", "中英"), ("简英", "chi", "简英"), ("繁英", "chi", "繁英"),
-    ("简中", "chi", "简中"), ("繁中", "chi", "繁中"), ("中日", "chi", "中日"),
-    ("双语", "chi", "双语"), ("中字", "chi", "中字"), ("中文", "chi", "中文"),
-    ("简体", "chi", "简体"), ("繁体", "chi", "繁体"), ("简", "chi", "简体"),
-    ("繁", "chi", "繁体"), ("中", "chi", "中文"),
-    ("chs", "chi", "简体"), ("cht", "chi", "繁体"), ("sc", "chi", ""),
-    ("tc", "chi", ""), ("chi", "chi", ""), ("zh", "chi", ""),
-    ("eng", "eng", ""), ("en", "eng", ""), ("jpn", "jpn", ""),
-    ("jp", "jpn", ""), ("kor", "kor", ""), ("ko", "kor", ""),
-)
-
-
-def _guess_sidecar_lang(suffix: str) -> tuple[str, str]:
-    """按分隔符切 token 匹配（评审 R13-B5）：单字提示（如「中」）只认独立 token，
-    避免命中「中文配音版/中英特效」这类含字词；多字提示仍允许子串（如「简体」）。"""
-    s = (suffix or "").strip().lower()
-    toks = [t for t in re.split(r"[\s._\-\[\]()【】]+", s) if t]
-    for key, lang, title in _SIDECAR_LANG_HINTS:
-        if key in toks or (len(key) >= 2 and key in s):
-            return lang, title
-    return "", ""
-
-
 def _sub_list(m: dict, info: dict) -> list[dict]:
     """播放器字幕轨清单：内嵌（ffprobe 缓存）+ 正片同名外挂（实时枚举磁盘）。
     索引即前端 subIdx；图片 codec 归一为 pgs/vobsub；外挂带 source/sidecar。
-    自动默认：片源无任何内嵌字幕时，第一条中文文本外挂标 default=1
-    （图片外挂不自动选，避免意外触发烧录重编）。"""
+    自动默认：片源无任何内嵌字幕时，第一条中文文本外挂标 default=1；
+    无中文外挂再兜底第一条文本外挂（用户 2026-09：仅上传了 大桥下面.srt 也应自动加载）；
+    图片外挂不自动选，避免意外触发烧录重编。"""
     out: list[dict] = []
     for t in (info.get("subs") or []):
         t2 = dict(t or {})
@@ -129,6 +106,7 @@ def _sub_list(m: dict, info: dict) -> list[dict]:
         side = []
     has_embedded = bool(info.get("subs"))
     auto_done = False
+    side_items: list[dict] = []
     for s in side:
         lang, title = _guess_sidecar_lang(str(s.get("suffix") or ""))
         item = {"index": len(out), "ff_index": None, "codec": s.get("codec") or "",
@@ -138,7 +116,13 @@ def _sub_list(m: dict, info: dict) -> list[dict]:
         if (not has_embedded and not auto_done and not item["image"] and lang == "chi"):
             item["default"] = 1
             auto_done = True
+        side_items.append(item)
         out.append(item)
+    if not has_embedded and not auto_done:
+        for item in side_items:
+            if not item["image"]:
+                item["default"] = 1
+                break
     for i, t in enumerate(out):
         t["index"] = i
     return out
