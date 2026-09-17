@@ -41,3 +41,15 @@ export function parseVtt(text) {
   cues.sort((x, y) => x.start - y.start || x.end - y.end)
   return cues
 }
+
+// 当前时刻命中的 cue（源时间轴毫秒；cues 已按 start 升序）。
+// 从 vttRender 抽出（评审 R13-Q4），命中判定可单测，避免字幕错位类回归。
+export function activeCues(cues, timeMs) {
+  const t = Number(timeMs) || 0
+  const out = []
+  for (const c of cues || []) {
+    if (t >= c.start && t < c.end) out.push(c)
+    else if (c.start > t) break
+  }
+  return out
+}

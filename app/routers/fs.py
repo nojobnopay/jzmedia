@@ -161,7 +161,6 @@ def _move_db_follow(fr: str, to: str, info: dict) -> None:
 
 def _exec_move_one(fr: str, to: str) -> dict:
     """执行单文件改名/移动（含跟随字幕/花絮兄弟与 DB 联动）。"""
-    from ..scanner import is_sidecar as _is_sidecar  # 局部引用防循环
     base = {"from": fr, "to": to}
     src = os.path.join(settings.media_root, fr)
     dst = os.path.join(settings.media_root, to)
@@ -216,7 +215,6 @@ def _exec_move_one(fr: str, to: str) -> dict:
         _cleanup_old_dir(os.path.dirname(src))
         if os.path.normpath(os.path.dirname(src)) != os.path.normpath(os.path.dirname(dst)):
             _resync_old_dir(os.path.dirname(src))
-        _ = _is_sidecar
         return {**base, "status": "moved", "followed": followed,
                 "kind": info.get("kind") or "other"}
     except Exception as e:
@@ -302,8 +300,10 @@ def fs_rename(body: dict | None = None):
     body = body or {}
     dry_run = body.get("dry_run", True)
     fr = _check_inside_root(str(body.get("from") or ""))
-    name = _safe_component(str(body.get("name") or ""))
-    if not name or "/" in name:
+    raw_name = str(body.get("name") or "")
+    name = _safe_component(raw_name)
+    # 检查原始输入（sanitize 后 "/" 必不存在，评审 R01-B4）：防静默改写 a/b → ab
+    if not name or "/" in raw_name or "\\" in raw_name:
         raise HTTPException(422, "illegal file name")
     if not os.path.isfile(os.path.join(settings.media_root, fr)):
         raise HTTPException(404, f"not a file: {fr!r}")

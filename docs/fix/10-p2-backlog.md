@@ -118,6 +118,24 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 | B9-PLAYER-UI | R14-Q1/Q5、R13-Q1/Q2（PlayerModal 拆分+样式约定） | done（PlayerSettings 拆分 + playerLabels/player.css/subtitleParse 单源 + ASS/PGS 渲染器注册表） |
 | B9-VIEWS | R14-Q2、R04-Q1（Settings/Library 拆分）、R04-D6（scan 后台任务，复用 job 框架） | done：扫描任务化 + 迁移框架 + 增量扫描 + Settings FsBrowser/入库流程合并 + Library UploadDialog |
 
+### B11 审计补齐批（2026-09-17，tag `b11-audit-gaps`）
+起因：对 14 份评审做 ID 覆盖率复核，发现 53 个条目从未进入分组台账；逐条核对后补齐：
+- store/启动：WAL+busy_timeout（R02-D2）、FTS 条件重建（R02-D3）、person/extras 索引（R02-B7）、
+  删死代码 get_all_settings/内层 import/assert（R02-B3/B5）
+- 部署/文档：start.sh 全键回读（R01-B5）、config.app_port 删除与 fs 死判断（R01-B4）、
+  单 worker 与大库搜索说明（R01-D2/R02-D5）
+- 接口/前端：搜索 limit 已钳制（R04-B1 实为已修）、扫描等待动态化（R04-Q4）、集合/花絮内层 import
+  （R06-B1/R08-B3）、poster_path 白名单（R06-B5）、CollectionDetail 加载/404（R06-Q2）、
+  弹窗 role=dialog（R14-B6 部分）
+- 整理/花絮：链式改名排序（R09-D2）、预览标 source_missing（R09-D6）、执行结果按状态聚合（R09-D5）、
+  collect skipped 明细（R08-D3）、orphan 猜测标题（R08-D4）
+- 播放/字幕：无 MSE → blocked（R11-D2）、qsv/nvenc 质量参数（R11-D6）、prewarm 任务锁+修剪（R12-B2）、
+  烧录独立目录键（R12-D3）、ASS CJK 全文判定（R13-D3）、外挂语言 token 匹配（R13-B5）、
+  cue 命中纯函数（R13-Q4）、死常量 CHINESE_SUB（R10-D5）
+- 判定无需改（复核确认）：R11-Q5/R12-B8/R13-B1/R13-B2/R08-Q4/R02-Q2（无漏洞/可接受），
+  R02-B4/R02-B6/R04-D4/R04-D5/R03-D4/R03-Q2/R10-Q3/R12-B4/R14-Q4/R09-B6/B7 等已由前批等价修复覆盖
+剩余（架构长尾，非 bug）：R01-Q4 fs.py 三段式/拆分、R05-Q4 Detail 拆分、R14-B6 焦点陷阱、
+R13-Q1 useSubtitles 完整 composable（解析/注册表/命中判定已收口）
 ### B10 工程化收尾批
 | 组 | 成员 | 状态 |
 |---|---|---|

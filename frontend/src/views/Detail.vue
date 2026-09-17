@@ -204,7 +204,7 @@
     </div>
 
     <div v-if="pvName" class="dlg-mask" @click.self="closePlayer">
-      <div class="dlg pv-dlg">
+      <div class="dlg pv-dlg" role="dialog" aria-modal="true">
         <h3>{{ pvKind === 'video' ? '播放' : '预览' }}：{{ pvName }}</h3>
         <video v-if="pvKind === 'video'" :src="pvUrl" controls autoplay preload="metadata" class="pv-video" @error="pvErr = true"></video>
         <img v-else-if="pvKind === 'image'" :src="pvUrl" class="pv-img" />
@@ -219,7 +219,7 @@
       @close="closeStream" @watched="onPlayEnded" />
 
     <div v-if="posterDlg" class="dlg-mask" @click.self="closePoster">
-      <div class="dlg pv-dlg poster-dlg">
+      <div class="dlg pv-dlg poster-dlg" role="dialog" aria-modal="true">
         <img :src="posterBig" class="pv-img poster-big" />
         <div class="bar"><span class="hint">{{ posterHi ? '高清原图' : '标清预览（原图加载中或不可用）' }}</span><a :href="posterBig" :download="baseName(posterBig)">下载</a><button @click="closePoster">关闭</button></div>
       </div>
@@ -227,7 +227,7 @@
   </div>
   <!-- 重新匹配后的归档推荐（评审 B9 后续）：有推荐路径就弹窗，不让用户自己去设置页找 -->
   <div v-if="archHint" class="dlg-mask" @click.self="archHint = null">
-    <div class="dlg arch-dlg">
+    <div class="dlg arch-dlg" role="dialog" aria-modal="true">
       <h3>已匹配成功，可以归档了</h3>
       <p class="hint">检测到推荐的正式库路径，归档后可避免后续迁移：</p>
       <ul class="arch-list">

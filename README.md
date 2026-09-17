@@ -39,6 +39,8 @@ docker compose up --build -d
 ```
 
 - 前台看日志：`docker compose up --build`（不加 `-d`）
+- **必须单 worker 运行**（评审 R01-D2）：转码会话/预转码状态在进程内存，`uvicorn --workers N` 会导致会话互踩；compose/start.sh 均为单进程，勿自行加 workers
+- 大库搜索性能（评审 R02-D5）：<2 万部时 FTS 正常；中文部分词等场景会退化到 `LIKE %词%` 全表扫描，超大库搜索会变慢（功能可用的折衷）
 - `docker-compose.override.yml` 仅本机开发用（热重载 + 宿主用户运行），compose 会自动加载；**部署到 NAS 时不要上传该文件**
 - 验证：浏览器打开 http://localhost:8080（前端）或 http://localhost:8080/docs（接口文档），`/api/health` 应返回 `{"status":"ok",...}`
 

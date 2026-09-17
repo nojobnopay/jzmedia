@@ -160,7 +160,7 @@
         <ul v-if="orphans.length" class="miss-list">
           <li v-for="e in visibleOrphans" :key="'o' + e.id" class="miss-row">
             <span class="miss-title">{{ e.kind }}</span>
-            <span class="miss-path">{{ e.file_path }}</span>
+            <span class="miss-path">{{ e.file_path }}<span v-if="e.guessed_title" class="fhint">（猜测：{{ e.guessed_title }}{{ e.guessed_year ? ' ' + e.guessed_year : '' }}）</span></span>
             <input v-model="orphanMovie[e.id]" placeholder="影片ID" style="width:80px" />
             <button @click="attachOrphan(e.id)" :disabled="!!busy">认领</button>
           </li>
@@ -855,6 +855,18 @@ watch([orgMode, relocateFrom, relocateTo, groupByRegion], () => {
   }, 300)
 })
 
+// 整理/恢复状态文案（评审 R09-D5）：失败原因不再只给数字
+const PLAN_STATUS_TEXT = {
+  moved: '已移动', skipped_missing_src: '源文件缺失', conflict_disk_exists: '磁盘占用',
+  conflict_db_occupied: '库内占用', conflict_needs_rematch: '需重新匹配',
+  source_missing: '源文件缺失（预览提示）', restored: '已恢复', planned: '待执行',
+  error: '错误', skipped: '已跳过',
+}
+function planStatusText(s) {
+  const k = String(s || '')
+  if (k.startsWith('error')) return '错误：' + k.slice(6).trim()
+  return PLAN_STATUS_TEXT[k] || k
+}
 async function doOrganize() {
   busy.value = 'organize'
   orgMsg.value = ''
@@ -863,8 +875,11 @@ async function doOrganize() {
     orgPlans.value = d.results
     orgConflicts.value = d.conflicts || []
     syncNotes()
-    const ok = d.results.filter(r => r.status === 'moved').length
-    orgMsg.value = `执行完毕：移动 ${ok}/${d.results.length}`
+    const byStatus = {}
+    for (const r of d.results) byStatus[r.status] = (byStatus[r.status] || 0) + 1
+    const parts = Object.entries(byStatus)
+      .map(([k, v]) => `${planStatusText(k)} ${v}`)
+    orgMsg.value = `执行完毕（${d.results.length} 项）：` + parts.join(' · ')
     await loadStats()
     await loadMissing(true)
   } catch (e) {

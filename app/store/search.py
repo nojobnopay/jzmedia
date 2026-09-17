@@ -8,7 +8,7 @@ from ._base import _attach_versions, _conn, _like_esc, _lock, _row_to_dict
 
 logger = get_logger("store.search")
 
-__all__ = ['get_scan_state', 'set_scan_state', 'rebuild_fts', 'resync_fts', 'list_movies', '_query_terms', '_fts_query',
+__all__ = ['get_scan_state', 'set_scan_state', 'fts_needs_rebuild', 'rebuild_fts', 'resync_fts', 'list_movies', '_query_terms', '_fts_query',
            '_search_like', 'suggest_titles', 'suggest_people', 'search_fts',
            '_split_multi', '_split_ints', '_rating_col', '_structured_where', 'get_facets']
 
@@ -36,6 +36,17 @@ def set_scan_state(file_path: str, mtime: int, size: int, status: str) -> None:
                  int(time.time())))
         except sqlite3.OperationalError as e:
             logger.debug("set scan_state failed path=%s: %s", file_path, e)
+
+
+def fts_needs_rebuild() -> bool:
+    """FTS 行数与 movies 不一致（或表缺失）→ 需要全量重建（评审 R02-D3）。"""
+    with _lock, _conn() as c:
+        try:
+            n_movies = int(c.execute("SELECT COUNT(*) FROM movies").fetchone()[0])
+            n_fts = int(c.execute("SELECT COUNT(*) FROM movies_fts").fetchone()[0])
+        except sqlite3.OperationalError:
+            return True
+    return n_movies != n_fts
 
 
 def rebuild_fts() -> int:

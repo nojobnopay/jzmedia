@@ -76,9 +76,13 @@ class Backend:
                 vf += f",vpp_qsv=w=-2:h={h}" if h else ""
             else:
                 vf = "vpp_qsv=format=nv12" + (f":w=-2:h={h}" if h else "")
-            return ["-vf", vf, "-c:v", "h264_qsv", "-preset", "veryfast"]
+            # ICQ 质量档（评审 R11-D6）：不指定时 QSV 默认质量偏低
+            return ["-vf", vf, "-c:v", "h264_qsv", "-preset", "veryfast",
+                    "-global_quality", "23"]
         if self.name == "nvenc":
-            args = ["-c:v", "h264_nvenc", "-preset", "p4", "-pix_fmt", "yuv420p"]
+            # VBR + CQ（评审 R11-D6）：默认码率策略不透明，显式质量优先
+            args = ["-c:v", "h264_nvenc", "-preset", "p4", "-pix_fmt", "yuv420p",
+                    "-rc", "vbr", "-cq", "23", "-b:v", "0"]
             if h:
                 args += ["-vf", f"scale=-2:{h}"]
             return args

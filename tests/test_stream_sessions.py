@@ -202,3 +202,17 @@ def test_reap_orphans_dead_pid_cleanup(tmp_path, monkeypatch):
     (sdir / "session.json").write_text(_json.dumps({"pid": 999999999}), encoding="utf-8")
     assert common._reap_orphans() == 0
     assert not (sdir / "session.json").exists()
+
+
+# ---------- B11 审计补齐：外挂字幕语言 token 判定（R13-B5） ----------
+
+def test_guess_sidecar_lang_token_match():
+    from app.routers.stream.subtitles import _guess_sidecar_lang
+    assert _guess_sidecar_lang("chs")[0] == "chi"        # 独立 token 命中
+    assert _guess_sidecar_lang("zh-hans")[0] == "chi"    # 分隔符切分
+    assert _guess_sidecar_lang("chi")[0] == "chi"
+    assert _guess_sidecar_lang("eng")[0] == "eng"
+    assert _guess_sidecar_lang("")[0] == ""
+    # 单字提示只认独立 token：「中配」以前会被子串「中」误判为中文（评审 R13-B5）
+    assert _guess_sidecar_lang("中配")[0] == ""
+    assert _guess_sidecar_lang("中")[0] == "chi"

@@ -53,12 +53,17 @@
   - R13-Q1/Q2 done：subtitleParse 纯解析抽出 + ASS/PGS 渲染器注册表
 验证基线：pytest 180 passed / node --test 16 passed / smoke 29/29 / eslint 0 error / npm build ✓
 断点：无进行中批次；H-UI 用户点检全部通过（2026-09-17）
-后续（非阻塞）：PlayerModal 仍 ~1730 行（useSubtitles 完整 composable 未抽，注册表已就位）；
-  长尾 P2 见 docs/fix/10-p2-backlog（无 pending 组）
+审计：14 份评审 ID 覆盖率复核发现 53 条未入组，已补齐为 B11 批（tag b11-audit-gaps，见
+  docs/fix/10-p2-backlog §B11）；其中判定「无需改」者已注明理由
+后续（架构长尾，非 bug，待用户决定是否继续）：R01-Q4 fs.py 三段式/拆分、R05-Q4 Detail 拆分、
+  R14-B6 焦点陷阱、R13-Q1 useSubtitles 完整 composable（解析/注册表/命中判定已收口）
 ```
 
 ## 5. 进度 Log（倒序）
 
+- 2026-09-17：**B11 审计补齐批合回**（tag `b11-audit-gaps`）：覆盖上表 53 条中的可行动项
+  （store 并发/索引/FTS 条件重建、部署文档、整理排序与状态聚合、播放 MSE 档位、prewarm 修剪、
+  字幕 token/全文判定、cue 命中纯函数等）；pytest 193 / node 17 / smoke 29/29 / lint 0 error。
 - 2026-09-17：**v0.8.0 发布**（tag `v0.8.0`）。H-UI 用户点检通过：未匹配可见性与重试、匹配后归档引导、
   设置页入库流程、文件浏览 Windows 化（含复制/剪切/粘贴/删除/快捷键）、字幕切换（重构后）。
   附带修复：归档 500（B9 拆分漏 import `_move_one`/`_rename_or_move`）、prewarm 漏

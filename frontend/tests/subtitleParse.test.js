@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { vttMs, parseVtt, vttPlain } from '../src/subtitleParse.js'
+import { vttMs, parseVtt, vttPlain, activeCues } from '../src/subtitleParse.js'
 
 test('vttMs：时/分/秒/毫秒与容错', () => {
   assert.equal(vttMs('00:01:02.500'), 62500)
@@ -33,4 +33,14 @@ test('parseVtt：块解析/标签剥离/排序/跳过 STYLE 与注释', () => {
 test('vttPlain：无 DOM 时仅去标签', () => {
   assert.equal(vttPlain('<i>hi</i> there'), 'hi there')
   assert.equal(vttPlain(''), '')
+})
+
+test('activeCues：区间命中/边界半开/提前中断', () => {
+  const cues = [{ start: 0, end: 1000 }, { start: 1000, end: 2000 }, { start: 5000, end: 6000 }]
+  assert.deepEqual(activeCues(cues, 0).length, 1)
+  assert.deepEqual(activeCues(cues, 999).length, 1)
+  assert.deepEqual(activeCues(cues, 1000).map(c => c.start), [1000])   // [start,end) 半开
+  assert.deepEqual(activeCues(cues, 2000), [])
+  assert.deepEqual(activeCues(cues, 5500).map(c => c.start), [5000])
+  assert.deepEqual(activeCues(null, 10), [])
 })

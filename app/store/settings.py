@@ -1,7 +1,7 @@
 """store.settings（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
 import time
 from ._base import APP_SETTING_KEYS, _conn, _lock
-__all__ = ['get_setting', 'get_all_settings', 'set_setting']
+__all__ = ['get_setting', 'set_setting']
 
 def get_setting(key: str) -> str:
     """读单项应用配置（设置页写入的值）。缺 key/空串一律返回 ''，调用方回落 env。"""
@@ -20,26 +20,6 @@ def get_setting(key: str) -> str:
         except Exception:
             return ""
 
-
-def get_all_settings() -> dict:
-    """读出已存的配置项（仅返回白名单内、值非空的行）。"""
-    with _lock, _conn() as c:
-        try:
-            c.execute("CREATE TABLE IF NOT EXISTS app_settings ("
-                      "key TEXT PRIMARY KEY, value TEXT DEFAULT '',"
-                      " updated_at INTEGER DEFAULT 0)")
-            rows = c.execute("SELECT key, value FROM app_settings").fetchall()
-        except Exception:
-            return {}
-    out: dict = {}
-    for r in rows:
-        try:
-            k, v = r["key"], r["value"] or ""
-        except Exception:
-            continue
-        if k in APP_SETTING_KEYS and v != "":
-            out[k] = v
-    return out
 
 
 def set_setting(key: str, value: str) -> str:

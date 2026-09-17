@@ -1,6 +1,6 @@
 <template>
   <div class="dlg-mask" @click.self="closeDlg">
-    <div class="dlg">
+    <div class="dlg" role="dialog" aria-modal="true">
       <h3>{{ upStep === 'organize' ? '归档整理（第 2 步）' : upStep === 'done' ? '完成' : '上传到媒体库（第 1 步）' }}</h3>
       <template v-if="upStep === 'upload'">
       <div class="bar">
@@ -157,9 +157,9 @@ function stopScanTicker() {
 }
 const upScanning = computed(() => upQueue.value.some(t => t.state === 'active' && t.phase === 'scanning'))
 const upScanHint = computed(() => {
-  const base = `已传完，正在联网匹配 TMDB 元数据并下载海报，预计约 10–30 秒，请耐心等待（已等待 ${upScanSecs.value}s）`
+  const base = `已传完，正在联网匹配 TMDB 元数据并下载海报，请耐心等待（已等待 ${upScanSecs.value}s）`
   const samples = scanSamples.value
-  if (!samples.length) return base
+  if (!samples.length) return base   // 本会话还没有样本：不给臆测耗时（评审 R04-Q4）
   const avg = Math.max(1, Math.round(samples.reduce((a, b) => a + b, 0) / samples.length / 1000))
   const left = upQueue.value.filter(t => t.state === 'queued' || (t.state === 'active' && t.phase === 'scanning')).length
   return `${base}；本会话平均约 ${avg} 秒/部，共 ${left} 部待刮削，预计还需约 ${avg * left} 秒`

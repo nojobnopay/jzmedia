@@ -173,12 +173,14 @@ def _media_cached_or_probe(m: dict, abs_p: str) -> dict:
 def _quality_key(plan: dict) -> str:
     """会话目录的档位键：由实际产物（plan）决定，而非用户请求字符串。
     这样 auto/原画/1080p/720p 落到同一 plan 时共用目录与静态成品（预转码命中在线播）：
-    - copy（vcopy 且不封顶）→ "copy"；重编封顶 → "h720"/"h1080"；重编不封顶 → "src"。"""
+    - copy（vcopy 且不封顶）→ "copy"；重编封顶 → "h720"/"h1080"；重编不封顶 → "src"。
+    - 烧录（sub=burn）追加 "_burn"：与非烧录成品的产物不同，分目录避免互踩清空（评审 R12-D3）。"""
     plan = plan or {}
+    burn = "_burn" if str(plan.get("sub") or "") == "burn" else ""
     if plan.get("vcopy") and not int(plan.get("height") or 0):
-        return "copy"
+        return "copy" + burn
     h = int(plan.get("height") or 0)
-    return f"h{h}" if h else "src"
+    return (f"h{h}" if h else "src") + burn
 
 
 def _session_key(plan: dict, audio: int) -> str:

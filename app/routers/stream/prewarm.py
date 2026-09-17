@@ -16,7 +16,21 @@ logger = get_logger("stream.prewarm")
 from .common import _write_session_meta, _sess_lock, _sessions, _hls_sem, _media_cached_or_probe, _version_abs, _session_dir, _session_key, _plan_marker, _write_master, _playlist_endlist, _write_complete_marker, _session_complete, _seg_count, _video_seg_prefix, _live_sessions_for, _find_live_session, _register_prewarm_session, _drop_session, _kill_proc, router
 __all__ = ['_prewarm_jobs', '_prewarm_plan', '_prewarm_worker', 'PrewarmBody', 'prewarm_start', 'prewarm_status']
 
+# 预转码任务（评审 R12-B2）：加锁保护并发读写，完成后只留最近 N 条防内存无界
 _prewarm_jobs: dict[str, dict] = {}
+_prewarm_lock = threading.RLock()
+_MAX_FINISHED_PREWARM = 5
+
+
+def _trim_prewarm_jobs() -> None:
+    """调用方需持有 _prewarm_lock：按开始时间保留运行中 + 最近 N 条完成态。"""
+    finished = [(k, j) for k, j in _prewarm_jobs.items()
+                if j.get("status") not in ("queued", "running")]
+    if len(finished) <= _MAX_FINISHED_PREWARM:
+        return
+    finished.sort(key=lambda kv: kv[1].get("started_at") or 0)
+    for k, _ in finished[:len(finished) - _MAX_FINISHED_PREWARM]:
+        _prewarm_jobs.pop(k, None)
 
 
 def _prewarm_plan(info: dict, quality: str, audio: int, caps: dict | None) -> dict:
@@ -188,11 +202,13 @@ def prewarm_start(body: PrewarmBody | None = None):
         raise HTTPException(404, "version not found")
     quality = body.quality or "auto"
     job_id = uuid.uuid4().hex[:12]
-    _prewarm_jobs[job_id] = {"job_id": job_id, "version_id": vid,
-                             "quality": quality,
-                             "audio": int(body.audio or 0),
-                             "status": "queued", "segments": 0, "expected": 0,
-                             "started_at": int(time.time())}
+    with _prewarm_lock:
+        _trim_prewarm_jobs()
+        _prewarm_jobs[job_id] = {"job_id": job_id, "version_id": vid,
+                                 "quality": quality,
+                                 "audio": int(body.audio or 0),
+                                 "status": "queued", "segments": 0, "expected": 0,
+                                 "started_at": int(time.time())}
     th = threading.Thread(target=_prewarm_worker,
                           args=(job_id, vid, quality,
                                 int(body.audio or 0), body.caps),
@@ -204,7 +220,8 @@ def prewarm_start(body: PrewarmBody | None = None):
 @router.get("/prewarm/{job_id}")
 def prewarm_status(job_id: str):
     """预转码进度：{status queued/running/done/failed, segments/expected}。"""
-    job = _prewarm_jobs.get(job_id or "")
+    with _prewarm_lock:
+        job = _prewarm_jobs.get(job_id or "")
     if not job:
         raise HTTPException(404, "no such prewarm job")
     if job.get("status") == "running" and job.get("sdir"):

@@ -1,7 +1,10 @@
 """花絮归属：orphan 列表 + 手工认领。"""
+import os
+
 from fastapi import APIRouter, HTTPException
 
 from .. import store
+from ..config import settings
 from ..log import get_logger
 
 router = APIRouter(prefix="/api/extras")
@@ -10,11 +13,24 @@ logger = get_logger("extras")
 
 @router.get("/orphans")
 def orphans():
-    """未归属花絮：标题/年份对不上库内任何影片，文件原地保留，人工认领。"""
+    """未归属花絮：标题/年份对不上库内任何影片，文件原地保留，人工认领。
+    附文件名解析的猜测标题/年份（评审 R08-D4），认领时便于在库里搜索确认。"""
+    from ..scanner.parse import parse_filename, normalize_title
     items = []
     for e in store.list_orphan_extras():
-        items.append({"id": e["id"], "file_path": e["file_path"],
-                      "kind": e.get("kind") or "extra"})
+        rel = e["file_path"]
+        guess = {}
+        try:
+            parsed = parse_filename(os.path.basename(rel))
+            t = normalize_title(parsed.get("title") or "")
+            if t:
+                guess["guessed_title"] = t
+            if parsed.get("year"):
+                guess["guessed_year"] = parsed["year"]
+        except Exception:
+            pass
+        items.append({"id": e["id"], "file_path": rel,
+                      "kind": e.get("kind") or "extra", **guess})
     return {"total": len(items), "items": items}
 
 
@@ -49,8 +65,6 @@ def attach(extra_id: int, body: dict):
 def collect(body: dict | None = None):
     """归位已归属花絮：影片已归档但花絮散落在外的（如 待整理/），搬进各片 extras/。
     dry_run 默认 true 只预览。"""
-    import os as _os
-    from ..config import settings as _settings
     from .files import _only_ids, move_attached_extras
     body = body or {}
     dry_run = body.get("dry_run", True)
@@ -69,21 +83,27 @@ def collect(body: dict | None = None):
         if only is not None and m["id"] not in only:
             continue
         rows = by_movie.get(m["id"], [])
-        pending = [e for e in rows if _os.path.dirname(e["file_path"])
-                   != _os.path.join(_os.path.dirname(m["file_path"]), "extras")]
+        pending = [e for e in rows if os.path.dirname(e["file_path"])
+                   != os.path.join(os.path.dirname(m["file_path"]), "extras")]
         if pending:
             cands.append({"id": m["id"], "title": m.get("title", ""),
-                          "dir": _os.path.dirname(m["file_path"]),
+                          "dir": os.path.dirname(m["file_path"]),
                           "extras": [e["file_path"] for e in pending]})
     if dry_run:
         return {"dry_run": True, "total": len(cands), "plans": cands}
     done = []
+    skipped: list[dict] = []
     for c in cands:
         try:
-            n = move_attached_extras(
-                c["id"], _os.path.join(_settings.media_root, c["dir"]))
-            done.append({"id": c["id"], "moved": n})
+            r = move_attached_extras(
+                c["id"], os.path.join(settings.media_root, c["dir"]))
+            done.append({"id": c["id"], "moved": r.get("moved", 0),
+                         "skipped": len(r.get("skipped") or [])})
+            for sk in (r.get("skipped") or []):
+                skipped.append({"id": c["id"], **sk})
         except Exception as e:
             done.append({"id": c["id"], "moved": 0, "error": str(e)})
+    # skipped 多为目标已存在（不覆盖）；带明细回报，避免用户反复点整理（评审 R08-D3）
     return {"dry_run": False, "total": len(cands),
-            "moved": sum(d.get("moved", 0) for d in done), "results": done}
+            "moved": sum(d.get("moved", 0) for d in done),
+            "skipped": skipped, "results": done}
