@@ -29,7 +29,10 @@ def stream_media(version_id: int, refresh: int = 0):
 
 def _media_payload(m: dict, info: dict) -> dict:
     """播放/媒体信息响应体：ffprobe 字段 + 候选码串 + 内嵌/外挂合并字幕轨。"""
+    from ...playback import MAX_AUDIO_RENDITIONS
     payload = _media.decorate(info)
+    # 音轨与 HLS 产物一致（R11-D3）：产物只含前 8 条，列表也截断，避免选到不存在的轨
+    payload["audio"] = list(payload.get("audio") or [])[:MAX_AUDIO_RENDITIONS]
     payload["subs"] = _sub_list(m, info)
     return payload
 

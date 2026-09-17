@@ -97,6 +97,24 @@ def effective_jzmedia_token() -> str:
     return effective("jzmedia_token")
 
 
+def mask_proxy(url: str) -> str:
+    """代理 URL 脱敏（评审 R01-B6）：隐去 user:pass，保留 scheme://host:port。"""
+    u = (url or "").strip()
+    if not u or "://" not in u:
+        return u
+    try:
+        from urllib.parse import urlsplit, urlunsplit
+        p = urlsplit(u)
+        if not p.hostname:
+            return u
+        host = p.hostname + (f":{p.port}" if p.port else "")
+        if p.username or p.password:
+            host = "***@" + host
+        return urlunsplit((p.scheme, host, p.path, p.query, p.fragment))
+    except ValueError:
+        return u
+
+
 def mask_secret(v: str) -> str:
     """脱敏：空→空；长度>8 显示 ****+后4位，否则统一 ****（绝不返明文）。"""
     s = (v or "").strip()

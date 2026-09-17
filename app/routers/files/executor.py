@@ -16,8 +16,8 @@ def _write_nfos(movie_id: int, dst_abs: str) -> None:
     同片多版本才补同名，共享目录只写当前同名）。失败自吞。"""
     try:
         sync_nfos_for(movie_id, dst_abs)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("write nfos failed id=%s dst=%s: %s", movie_id, dst_abs, e)
 
 
 def _sibling_followers(src_abs: str) -> list[str]:
@@ -63,13 +63,13 @@ def _cleanup_old_dir(old_dir_abs: str) -> None:
         if n == "movie.nfo" or n.endswith(".nfo"):
             try:
                 os.remove(os.path.join(old_dir_abs, n))
-            except OSError:
-                pass
+            except OSError as e:
+                logger.debug("remove stale nfo failed dir=%s name=%s: %s", old_dir_abs, n, e)
     try:
         if not os.listdir(old_dir_abs):
             os.rmdir(old_dir_abs)
-    except OSError:
-        pass
+    except OSError as e:
+        logger.debug("rmdir old dir failed dir=%s: %s", old_dir_abs, e)
 
 
 def move_attached_extras(movie_id: int, movie_dir_abs: str) -> dict:
@@ -101,8 +101,8 @@ def move_attached_extras(movie_id: int, movie_dir_abs: str) -> dict:
                                    movie_id, e.get("kind") or "extra")
                 try:
                     store.delete_extra_by_path(e["file_path"])
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("delete old extra row failed path=%s: %s", e["file_path"], e)
                 moved += 1
             else:
                 skipped.append({"file_path": e["file_path"],
@@ -146,10 +146,10 @@ def _resync_old_dir(old_dir_abs: str) -> None:
         try:
             sync_nfos_for(int(first["id"]),
                           os.path.join(settings.media_root, first["file_path"]))
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as e:
+            logger.debug("resync nfos failed dir=%s: %s", old_dir_abs, e)
+    except Exception as e:
+        logger.debug("resync old dir failed dir=%s: %s", old_dir_abs, e)
 
 
 def _move_one(p: dict) -> dict:
@@ -197,8 +197,8 @@ def _move_one(p: dict) -> dict:
         if persist:
             try:
                 store.update_movie_local(p["id"], **persist)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("persist spec/edition failed id=%s: %s", p.get("id"), e)
         _write_nfos(p["id"], dst)
         # 花絮/字幕跟随：新 stem + 原后缀
         new_stem = os.path.splitext(os.path.basename(dst))[0]
@@ -230,8 +230,8 @@ def _move_one(p: dict) -> dict:
                 try:
                     if os.path.exists(old_nfo):
                         os.remove(old_nfo)
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.debug("remove old nfo failed path=%s: %s", old_nfo, e)
         return {**p, "status": "moved", "followed": followed,
                 "extras_moved": extras_moved}
     except Exception as e:
