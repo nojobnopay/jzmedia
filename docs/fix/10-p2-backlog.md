@@ -15,8 +15,13 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 断点：R2/R3 已合 main（过程偏差：store 拆分提交直接落在 main，无独立分支；已打 b9-store 标）
 剩余：仅前端视图拆分（PlayerModal 1853 / Library 1050 / Settings 1060 / Detail 1014 +
       样式单源 R07-Q3/R14-Q5、R13-Q1/Q2 状态机收敛），逐组件合回 + H-UI 点检
-断点：B9 后端 100% done（tags: b9-store/scanner/files/movies/stream/playback/session-meta/
-      migrations/scan-job/incr-scan）；pytest 166 + smoke 29/29
+断点：B9 全部 done（tags: b9-store/scanner/files/movies/stream/playback/session-meta/
+      migrations/scan-job/incr-scan/settings-fs/settings-pipeline/upload-dialog/player-ui）
+      用户新增三项已完成（tags: b9-unmatched-visible/b9-fs-windows）：
+      - 刮削失败也建行可见（scan_failed + POST /api/movies/{id}/rescan + 海报墙未匹配角标）
+      - 设置页合并「入库流程」三段、元数据维护→高级维护
+      - 文件浏览 Windows 化（选中/双击/快捷键/Ctrl+C·X·V、复制 job/目录递归/副本命名；目录改名不支持）
+      剩余：R13-Q1/Q2 useSubtitles 渲染器注册表（PlayerModal 1780 行）+ B10 工程化；pytest 174 + smoke 29/29
 ```
 
 ## 6. B9 设计说明（送审）
@@ -107,8 +112,8 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 | B9-MOVIES | R05-Q1/Q2/B4（CRUD/blob/batch + scope 单源） | done（common/scope/routes + same_stem 单源） |
 | B9-FILES | R09-Q1（planner/executor 拆分） | done（paths/planner/executor/routes） |
 | B9-COLLECTIONS/PERSONS | R06-Q1、R07-Q1/Q3（composable/样式单源） | 部分（usePolling 完成；样式单源随前端拆分） |
-| B9-PLAYER-UI | R14-Q1/Q5、R13-Q1/Q2（PlayerModal 拆分+样式约定） | pending |
-| B9-VIEWS | R14-Q2、R04-Q1（Settings/Library 拆分）、R04-D6（scan 后台任务，复用 job 框架） | 进行中：R04-D6 扫描任务化 done；前端视图拆分待做 |
+| B9-PLAYER-UI | R14-Q1/Q5、R13-Q1/Q2（PlayerModal 拆分+样式约定） | 部分（Settings 弹层→PlayerSettings、playerLabels/player.css 单源；useSubtitles 渲染器注册表待做） |
+| B9-VIEWS | R14-Q2、R04-Q1（Settings/Library 拆分）、R04-D6（scan 后台任务，复用 job 框架） | done：扫描任务化 + 迁移框架 + 增量扫描 + Settings FsBrowser/入库流程合并 + Library UploadDialog |
 
 ### B10 工程化收尾批
 | 组 | 成员 | 状态 |
@@ -121,6 +126,8 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-17：**用户三项需求交付**（未匹配可见/入库流程合并/文件浏览 Windows 化），分支 tags
+  `b9-unmatched-visible`/`b9-settings-pipeline`/`b9-fs-windows`；详情见 AGENTS.md 对应小节。
 - 2026-09-16：**B9 后端 100% 完成**：迁移框架 v9、扫描任务化、增量扫描、会话元数据+孤儿收割；
   pytest 166 passed / smoke 29/29。
 - 2026-09-16：**B9 后端拆分全部完成**：store/scanner/files/movies/stream/playback 六包 + usePolling；

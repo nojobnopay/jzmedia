@@ -1,5 +1,4 @@
 """B9 后续（问题 3）：文件浏览复制——冲突副本命名 / 目录递归 / 嵌套拒绝 / 正片登记。"""
-import os
 import pathlib
 import time
 
