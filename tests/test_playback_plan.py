@@ -252,3 +252,29 @@ def test_audio_copy_safe_env_allows_eac3(monkeypatch):
                            "title": "", "default": 1, "forced": 0, "caps": []}])
     d = pb.plan(media, caps=_caps(audio={"aac": True, "eac3": True}))
     assert d["method"] == "direct"
+
+
+# ---------- B11 审计补齐：无 MSE 客户端不能走 HLS 档（R11-D2） ----------
+
+def test_no_mse_blocks_hls_tier():
+    caps = _caps(mse=False, native_hls=False)
+    # mkv 容器需要 remux → 无 MSE 时阻断并给 no_mse
+    m = _media(container="mkv")
+    d = pb.plan(m, caps, quality="auto", client="web")
+    assert d["method"] == "blocked"
+    assert "no_mse" in d["reasons"]
+
+
+def test_no_mse_direct_ok():
+    caps = _caps(mse=False, native_hls=False)
+    m = _media()   # mp4/h264/aac → direct
+    d = pb.plan(m, caps, quality="auto", client="web")
+    assert d["method"] == "direct"
+    assert "no_mse" not in d["reasons"]
+
+
+def test_no_mse_native_hls_allows_remux():
+    caps = _caps(mse=False, native_hls=True)
+    m = _media(container="mkv")
+    d = pb.plan(m, caps, quality="auto", client="web")
+    assert d["method"] == "remux"

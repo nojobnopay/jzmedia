@@ -253,6 +253,17 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
         return emit("direct", "none",
                     {"vcopy": True, "acopy": True, "height": 0, "sub": "none",
                      "audio_idx": 0, "sub_idx": None}, [])
+    # 无 MSE 且无原生 HLS 的浏览器（老 Safari/部分电视浏览器）播不了 HLS 档：
+    # 只有 direct 可用，需要走 HLS 的档一律阻断并给明确原因（评审 R11-D2）
+    no_mse = caps.get("mse") is False and not caps.get("native_hls")
+
+    def _emit_or_blocked(method: str, sub_mode: str, plan_dict: dict, variants):
+        if no_mse:
+            reasons.append("no_mse")
+            return emit("blocked", "none",
+                        {"vcopy": False, "acopy": False, "height": 0, "sub": "none",
+                         "audio_idx": 0, "sub_idx": None}, [])
+        return emit(method, sub_mode, plan_dict, variants)
     container = str(media.get("container") or "").lower()
     vcodec = norm_codec(str(media.get("vcodec") or ""))
     try:
@@ -311,18 +322,18 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
                     pass
             else:
                 reasons.append("hdr_no_tonemap")
-        return emit("video_transcode", sub_mode,
+        return _emit_or_blocked("video_transcode", sub_mode,
                     {"vcopy": False, "acopy": bool(a_ok), "height": target_height,
                      "sub": sub_mode, "audio_idx": ai, "sub_idx": sub_idx,
                      "tonemap": tonemap}, variants)
     if not a_ok:
         reasons.append("audio_codec_not_supported")
-        return emit("audio_transcode", sub_mode,
+        return _emit_or_blocked("audio_transcode", sub_mode,
                     {"vcopy": True, "acopy": False, "height": 0, "sub": sub_mode,
                      "audio_idx": ai, "sub_idx": sub_idx}, variants)
     if container not in MP4_CONTAINERS:
         reasons.append("container_not_supported")
-        return emit("remux", sub_mode,
+        return _emit_or_blocked("remux", sub_mode,
                     {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
                      "audio_idx": ai, "sub_idx": sub_idx}, variants)
     # 原文件直发只能播默认音轨（Chrome/Firefox 无 audioTracks 切换 API）：
@@ -331,7 +342,7 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
                        if int((t or {}).get("default") or 0)), 0)
     if ai != default_ai and not caps.get("native_hls"):
         reasons.append("audio_track_selection")
-        return emit("remux", sub_mode,
+        return _emit_or_blocked("remux", sub_mode,
                     {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
                      "audio_idx": ai, "sub_idx": sub_idx}, variants)
     return emit("direct", sub_mode,

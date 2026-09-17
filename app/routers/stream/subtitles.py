@@ -100,9 +100,12 @@ _SIDECAR_LANG_HINTS = (
 
 
 def _guess_sidecar_lang(suffix: str) -> tuple[str, str]:
+    """按分隔符切 token 匹配（评审 R13-B5）：单字提示（如「中」）只认独立 token，
+    避免命中「中文配音版/中英特效」这类含字词；多字提示仍允许子串（如「简体」）。"""
     s = (suffix or "").strip().lower()
+    toks = [t for t in re.split(r"[\s._\-\[\]()【】]+", s) if t]
     for key, lang, title in _SIDECAR_LANG_HINTS:
-        if key in s:
+        if key in toks or (len(key) >= 2 and key in s):
             return lang, title
     return "", ""
 

@@ -744,7 +744,8 @@ async function mountPgs(v, key) {
 async function assNeedsCjk(url) {
   try {
     const r = await fetch(url, { cache: 'no-store' })
-    const t = (await r.text()).slice(0, 40000)
+    // 全文判定（评审 R13-D3）：前 40KB 多为样式段，正文中文会漏判；2MB 上限防极端文件
+    const t = (await r.text()).slice(0, 2000000)
     return /[\u2E80-\u9FFF\uF900-\uFAFF\u3400-\u4DBF\uAC00-\uD7AF]/.test(t)
   } catch (e) { return false }
 }
