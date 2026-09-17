@@ -8,9 +8,9 @@ from ...scanner import is_sidecar
 from ...scanner import sync_nfos_for
 from ...log import get_logger
 logger = get_logger("files.routes")
-from .paths import _check_inside_root, _only_ids
+from .paths import _check_inside_root, _only_ids, _rename_or_move
 from .planner import _collect_plans
-from .executor import _cleanup_old_dir, _resync_old_dir
+from .executor import _cleanup_old_dir, _resync_old_dir, _move_one
 __all__ = ['router', '_organize', 'organize', 'preview', 'unmatched', 'clean_sidecars', 'clean_episodes', 'missing', 'clean', '_restore_candidates', '_restore_one', 'restore_candidates', 'restore_original']
 
 router = APIRouter(prefix="/api/files")
@@ -112,7 +112,6 @@ def unmatched():
 def clean_sidecars(body: dict | None = None):
     """清理历史脏行：file_path 命中现行花絮/样片规则的 movies 行，删行+关联+FTS。
     视频文件原地保留（下次扫描按花絮归属），海报与 tmdb_cache 保留。默认 dry_run 预览。"""
-    from ...scanner import is_sidecar
     body = body or {}
     dry_run = body.get("dry_run", True)
     only = _only_ids(body)
