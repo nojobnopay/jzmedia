@@ -22,7 +22,9 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
       - 设置页合并「入库流程」三段、元数据维护→高级维护
       - 文件浏览 Windows 化（选中/双击/快捷键/Ctrl+C·X·V、复制 job/目录递归/副本命名；目录改名不支持）
       后续追加（tag b9-archive-prompt）：匹配成功后主动提示归档（详情弹窗 + 设置页自动展开 ③）
-      剩余：R13-Q1/Q2 useSubtitles 渲染器注册表（PlayerModal 1780 行）+ B10 工程化；pytest 174 + smoke 29/29
+      收尾（2026-09-17）：R13-Q1/Q2 字幕解析抽出+渲染器注册表；B10 全部完成（导入期副作用迁
+      lifespan/依赖锁版本/npm ci/healthcheck+init/eslint）。
+      最终：pytest 180 passed、node --test 16 passed、smoke 29/29、eslint 0 error、npm build ✓
 ```
 
 ## 6. B9 设计说明（送审）
@@ -113,17 +115,17 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 | B9-MOVIES | R05-Q1/Q2/B4（CRUD/blob/batch + scope 单源） | done（common/scope/routes + same_stem 单源） |
 | B9-FILES | R09-Q1（planner/executor 拆分） | done（paths/planner/executor/routes） |
 | B9-COLLECTIONS/PERSONS | R06-Q1、R07-Q1/Q3（composable/样式单源） | 部分（usePolling 完成；样式单源随前端拆分） |
-| B9-PLAYER-UI | R14-Q1/Q5、R13-Q1/Q2（PlayerModal 拆分+样式约定） | 部分（Settings 弹层→PlayerSettings、playerLabels/player.css 单源；useSubtitles 渲染器注册表待做） |
+| B9-PLAYER-UI | R14-Q1/Q5、R13-Q1/Q2（PlayerModal 拆分+样式约定） | done（PlayerSettings 拆分 + playerLabels/player.css/subtitleParse 单源 + ASS/PGS 渲染器注册表） |
 | B9-VIEWS | R14-Q2、R04-Q1（Settings/Library 拆分）、R04-D6（scan 后台任务，复用 job 框架） | done：扫描任务化 + 迁移框架 + 增量扫描 + Settings FsBrowser/入库流程合并 + Library UploadDialog |
 
 ### B10 工程化收尾批
 | 组 | 成员 | 状态 |
 |---|---|---|
-| B10-DEPS | R01-Q2（锁版本）、R01-Q5（static-ffmpeg extras） | pending |
-| B10-DOCKER | R01-Q3（healthcheck/init）、Dockerfile npm ci | pending |
-| B10-TESTS | R14-Q3/R04-Q6（eslint+前端测试框架）、R03-Q5 等已随批补测 | pending |
-| B10-IMPORT | R01-Q1（导入期副作用迁 lifespan） | pending |
-| B10-CI | 无远端仓库，CI 记 closed（有远端再加） | pending |
+| B10-DEPS | R01-Q2（锁版本）、R01-Q5（static-ffmpeg extras） | done（requirements 锁版本；static-ffmpeg → requirements-dev） |
+| B10-DOCKER | R01-Q3（healthcheck/init）、Dockerfile npm ci | done（init: true + /api/health healthcheck + npm ci） |
+| B10-TESTS | R14-Q3/R04-Q6（eslint+前端测试框架）、R03-Q5 等已随批补测 | done（eslint 最小集 0 error；node --test 16 用例） |
+| B10-IMPORT | R01-Q1（导入期副作用迁 lifespan） | done（ensure_dirs/init_db 入 lifespan；测试自带初始化） |
+| B10-CI | 无远端仓库，CI 记 closed（有远端再加） | closed（本地 L0+L1+L2 全绿：pytest 180 / node 16 / smoke 29 / lint 0 error） |
 
 ## 4. 进度 Log（倒序）
 
