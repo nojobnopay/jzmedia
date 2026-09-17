@@ -179,7 +179,7 @@
         </div>
           </div>
         </div>
-        <OrganizePanel ref="organizeRef" @changed="onPanelChanged" />
+        <OrganizePanel ref="organizeRef" @changed="onOrganizeChanged" />
       </section>
 
 
@@ -363,7 +363,7 @@ const navs = computed(() => [
 const active = ref('sec-status')
 const pipeOpen = ref({ pending: true })
 let observer = null
-const _sectionLoaded = { 'sec-sync': false, 'sec-pending': false, 'sec-pipeline': false }
+const _sectionLoaded = { 'sec-sync': false, 'sec-pending': false, 'sec-pipeline': false, 'sec-restore': false }
 function ensureSectionData(id) {
   // 重负载清单按需加载（评审 B8/R09-Q5）：首屏不打 missing/unmatched 全表扫描
   if (id === 'sec-sync' && !_sectionLoaded[id]) {
@@ -372,6 +372,10 @@ function ensureSectionData(id) {
   } else if (id === 'sec-pending' && !_sectionLoaded[id]) {
     _sectionLoaded[id] = true
     loadUnmatched(true)
+  } else if (id === 'sec-restore' && !_sectionLoaded[id]) {
+    // 恢复面板进入区块自动加载（H-UI：原「预览」按钮仅做首次加载，已删）
+    _sectionLoaded[id] = true
+    restoreRef.value?.ensure()
   } else if (id === 'sec-pipeline') {
     // 合并后的「入库流程」：两个重负载清单一起按需加载（评审 P2 后续）
     ensureSectionData('sec-sync')
@@ -690,6 +694,11 @@ function resetDisplay() {
 async function onPanelChanged() {
   await loadStats()
   await loadMissing(true)
+}
+async function onOrganizeChanged() {
+  await onPanelChanged()
+  // 归档会改变文件路径 → 恢复清单若已加载需刷新（H-UI：原「预览」按钮兼做刷新）
+  await restoreRef.value?.reloadIfLoaded()
 }
 
 // 文件浏览（直操 MEDIA_ROOT：浏览/建目录/改名/移动/删除，正片二次确认）

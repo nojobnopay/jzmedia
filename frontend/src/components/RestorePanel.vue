@@ -1,12 +1,11 @@
 <template>
   <section id="sec-restore" class="card-block">
     <h3>恢复到原始位置</h3>
-    <p class="hint">整理/搬迁后偏离首次入库位置的影片可搬回原处。先预览再执行，目标被占用或源文件缺失会跳过上报、绝不覆盖。</p>
+    <p class="hint">整理/搬迁后偏离首次入库位置的影片可搬回原处。列表进入本区自动加载，确认后执行；目标被占用或源文件缺失会跳过上报、绝不覆盖。</p>
     <div class="bar">
-      <button @click="load()" :disabled="!!busy">预览</button>
       <button @click="doRestore" :disabled="!!busy || !checkedRestore.length">{{ busy === 'restore' ? '恢复中…' : (armRestore ? `确认恢复 (${checkedRestore.length})` : '恢复选中') }}</button>
       <button v-if="restorePlans.length" @click="toggleAllRestore">{{ allRestoreChecked ? '全不选' : '全选' }}</button>
-      <span>{{ restoreMsg }}</span>
+      <span>{{ restoreMsg || selHint }}</span>
       <button v-if="restorePlans.length > COLLAPSE_N" @click="showAllRestore = !showAllRestore">{{ showAllRestore ? '收起' : `展开全部 (${restorePlans.length})` }}</button>
     </div>
     <p v-if="armRestore" class="hint warn-text">再点一次执行恢复，无二次弹窗。目标被占用/源缺失的项会自动跳过。</p>
@@ -14,20 +13,26 @@
       <li v-for="p in visibleRestorePlans" :key="'r' + p.id" class="plan-row">
         <input type="checkbox" :value="p.id" v-model="checkedRestore" />
         <span class="conflict-title">{{ p.title || '(未命名)' }}<span v-if="p.year"> ({{ p.year }})</span></span>
-        <span class="miss-path">{{ p.from }} → {{ p.to }}</span>
+        <span class="miss-path" @mouseenter="showTip(p, $event)" @mouseleave="hideTip">{{ p.from }} → {{ p.to }}</span>
         <span v-if="p.status" :class="['plan-status', p.status === 'restored' ? 'ok' : 'fail']">{{ restoreStatusText(p.status) }}</span>
       </li>
     </ul>
+    <div v-if="tip.show" class="path-tip" :class="{ up: tip.up }"
+         :style="{ left: tip.left + 'px', top: tip.top + 'px' }">
+      <div class="tip-row"><span class="tip-k">当前</span>{{ tip.from }}</div>
+      <div class="tip-row"><span class="tip-k">原始</span>{{ tip.to }}</div>
+    </div>
   </section>
 </template>
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from '../api.js'
 
 const COLLAPSE_N = 20
 const emit = defineEmits(['count', 'changed'])
 
 const busy = ref(null)
+const loaded = ref(false)
 // 恢复到原始位置（读 original_file_path，两段确认防误操作）
 const restorePlans = ref([])
 const checkedRestore = ref([])
@@ -36,6 +41,14 @@ const armRestore = ref(false)
 const showAllRestore = ref(false)
 const visibleRestorePlans = computed(() => showAllRestore.value ? restorePlans.value : restorePlans.value.slice(0, COLLAPSE_N))
 const allRestoreChecked = computed(() => restorePlans.value.length > 0 && checkedRestore.value.length === restorePlans.value.length)
+// 勾选数实时提示（H-UI：此前只在预览时算一次，勾选后仍显示“已预选 0 个”）
+const selHint = computed(() => {
+  if (!loaded.value) return ''
+  const total = restorePlans.value.length
+  if (!total) return '没有偏离原始位置的影片'
+  const n = checkedRestore.value.length
+  return n === total ? `共 ${total} 项，已全选` : `共 ${total} 项，已勾选 ${n} 项`
+})
 function toggleAllRestore() {
   checkedRestore.value = allRestoreChecked.value ? [] : restorePlans.value.map(p => p.id)
 }
@@ -51,9 +64,10 @@ function restoreStatusText(s) {
   return restoreStatusMap[s] || (/^error/.test(s) ? '失败' : s)
 }
 async function load(preselect) {
+  loaded.value = true
   restoreMsg.value = ''
   armRestore.value = false
-  if (!Array.isArray(preselect)) preselect = []
+  const ids = (Array.isArray(preselect) ? preselect : []).map(Number).filter(Number.isFinite)
   try {
     const d = await api('/api/files/restore-candidates')
     // 预览接口字段是 file_path/original_file_path，统一映射成 from/to（含标题供展示）
@@ -61,14 +75,16 @@ async function load(preselect) {
       id: e.id, title: e.title || '', year: e.year || '',
       from: e.file_path || '', to: e.original_file_path || ''
     }))
-    const ids = (preselect || []).map(Number).filter(Number.isFinite)
-    checkedRestore.value = ids.length
-      ? restorePlans.value.filter(p => ids.includes(p.id)).map(p => p.id)
-      : restorePlans.value.map(p => p.id)
-    if (!restorePlans.value.length) restoreMsg.value = '没有偏离原始位置的影片'
-    else if (checkedRestore.value.length !== restorePlans.value.length) restoreMsg.value = `共 ${restorePlans.value.length} 项，已预选 ${checkedRestore.value.length} 项`
+    if (ids.length) {
+      // 详情页“去恢复”带 ids：只勾选这些
+      checkedRestore.value = restorePlans.value.filter(p => ids.includes(p.id)).map(p => p.id)
+    } else {
+      // 预览只刷新列表，不改变勾选（H-UI：此前等于全选）；仅保留仍存在的已勾选项
+      const alive = new Set(restorePlans.value.map(p => p.id))
+      checkedRestore.value = checkedRestore.value.filter(id => alive.has(id))
+    }
   } catch (e) {
-    restoreMsg.value = '预览失败：' + e.message
+    restoreMsg.value = '加载失败：' + e.message
   }
   emit('count', restorePlans.value.length)
 }
@@ -98,7 +114,33 @@ async function doRestore() {
     busy.value = null
   }
 }
-defineExpose({ load })
+// 长路径悬浮弹层（H-UI）：行内文本截断，悬停显示完整“当前 → 原始”
+const tip = ref({ show: false, up: false, left: 0, top: 0, from: '', to: '' })
+function showTip(p, ev) {
+  const r = ev.currentTarget.getBoundingClientRect()
+  const width = Math.min(560, window.innerWidth - 24)
+  const left = Math.max(8, Math.min(r.left, window.innerWidth - 24 - width))
+  const up = r.bottom > window.innerHeight - 120
+  tip.value = { show: true, up, left,
+                top: up ? r.top - 6 : r.bottom + 6,
+                from: p.from, to: p.to }
+}
+function hideTip() {
+  if (tip.value.show) tip.value.show = false
+}
+onMounted(() => window.addEventListener('scroll', hideTip, true))
+onUnmounted(() => window.removeEventListener('scroll', hideTip, true))
+
+// 进入区块时自动加载一次（H-UI：原先靠「预览」按钮，按钮语义弱且只做首次加载）
+async function ensure() {
+  if (loaded.value) return
+  await load()
+}
+// 归档整理改变了路径后，若恢复清单已加载则静默刷新（保留勾选）
+async function reloadIfLoaded() {
+  if (loaded.value) await load()
+}
+defineExpose({ load, ensure, reloadIfLoaded })
 </script>
 <style scoped>
 .card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
@@ -112,4 +154,9 @@ defineExpose({ load })
 .plan-status.fail { color: #ff8a8a; }
 .conflict-title { display: block; }
 .miss-path { color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.path-tip { position: fixed; z-index: 60; max-width: min(560px, calc(100vw - 24px)); background: #262626; border: 1px solid #555; border-radius: 8px; padding: 8px 10px; font-size: 0.8125rem; color: #ddd; box-shadow: 0 6px 24px rgba(0,0,0,.5); pointer-events: none; }
+.path-tip.up { transform: translateY(-100%); }
+.tip-row { line-height: 1.5; overflow-wrap: anywhere; }
+.tip-row + .tip-row { margin-top: 4px; padding-top: 4px; border-top: 1px dashed #3a3a3a; }
+.tip-k { color: #888; margin-right: 6px; }
 </style>

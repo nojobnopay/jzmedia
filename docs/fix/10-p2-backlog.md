@@ -167,6 +167,24 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-17：**整理域残留收口**（评审 R09-D3/B3/B7/Q3/Q5 + 99 §2.2 + R14-Q2）：
+  - D3：`move_attached_extras`/`_move_one` 回滚改 `_rename_or_move`（EXDEV 兜底补全）
+  - B7：抽 `_under_root(path, root)` 两侧 normpath（`./电影/x`、`电影//x` 不再漏判）+ 用例
+  - Q3：files 包/`extras.py` 残留静默 except 全部补日志（含 from/to/id）
+  - B3：`_ILLEGAL` 与 `editions` 单源、`_MOVIE_DIR_RE` 模块级编译、
+    clean/clean-sidecars/clean-episodes 抽 `_delete_rows`
+  - 99 §2.2：`_collect_plans(all_rows=...)`，relocate 免二次全表读（+用例）
+  - Q5：设置页归档预览不再首屏预打；由 `OrganizePanel.ensure/refresh` 懒加载
+  - R14-Q2：Settings 拆 `OrganizePanel.vue`/`RestorePanel.vue`（1059→773 行，含原
+    ③ 折叠头与恢复区；父级仅保留 `@count/@changed` 与深链承接）
+  - 验证：pytest 204 / node --test 21 / smoke 29/29 / eslint 0 error / npm build ✓
+- 2026-09-17：**H-UI 反馈修复（恢复面板）**：①「预览」不再等于全选——只刷新列表并保留
+  已勾选（带 ids 的详情跳转仍只勾选指定项）；②「已预选 N 项」改为实时 computed（勾选/全选
+  即时更新）；③ 恢复条目长路径悬停弹层显示完整“当前/原始”路径（fixed 定位+视口收口，
+  滚动自动收起）。
+- 2026-09-17：**H-UI 跟进（恢复面板）**：删除「预览」按钮（其唯一职责是首次加载）——
+  改为进入「恢复原始位置」区块自动加载（nav 点击/IntersectionObserver/详情跳转），
+  归档整理成功后若清单已加载则静默刷新（保留勾选）；未加载前不显示条数提示。
 - 2026-09-17：**用户三项需求交付**（未匹配可见/入库流程合并/文件浏览 Windows 化），分支 tags
   `b9-unmatched-visible`/`b9-settings-pipeline`/`b9-fs-windows`；详情见 AGENTS.md 对应小节。
 - 2026-09-16：**B9 后端 100% 完成**：迁移框架 v9、扫描任务化、增量扫描、会话元数据+孤儿收割；
