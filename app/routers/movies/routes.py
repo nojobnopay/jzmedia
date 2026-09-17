@@ -11,7 +11,7 @@ logger = get_logger("movies.routes")
 from ...scanner import same_stem
 from .common import (_INLINE_EXTS, FilterList, _page, _stream_upload)
 from .scope import _movie_delete_scope
-__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'organize_hint', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig']
+__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_similar', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'organize_hint', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig']
 
 router = APIRouter(prefix="/api")
 
@@ -266,6 +266,14 @@ def movie_collection_hint(movie_id: int):
     hint = store.collection_hint_for_movie(movie_id)
     return hint or {"collection_tmdb_id": None, "collection_name": "",
                     "in_library": [], "in_library_count": 0}
+
+
+@router.get("/movies/{movie_id}/similar")
+def movie_similar(movie_id: int, limit: int = 12):
+    """库中类似（Plex 式推荐）：纯本地相似度（系列/合集/导演/主演/类型/标签），不调网。"""
+    if not store.get_movie(movie_id):
+        raise HTTPException(404, "movie not found")
+    return {"id": movie_id, "items": store.similar_movies(movie_id, limit)}
 
 
 @router.get("/movies/{movie_id}/files")
