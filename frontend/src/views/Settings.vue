@@ -179,72 +179,7 @@
         </div>
           </div>
         </div>
-        <div id="sec-organize" class="pipe-step">
-          <div class="pipe-head pipe-toggle" @click="pipeOpen.organize = !pipeOpen.organize">
-            <h4>③ 归档整理 <span v-if="orgPlans.length + orgConflicts.length" class="nav-badge">{{ orgPlans.length + orgConflicts.length }}</span></h4>
-            <span class="fhint">{{ pipeOpen.organize ? '收起' : '展开' }}</span>
-          </div>
-          <div v-show="pipeOpen.organize" class="pipe-body">
-        <p class="hint">已匹配确认的片在这里归档到正式库。就地归档：保留原父目录，只建“标题 (年份)/”子目录；搬到顶层：如 待整理 → 电影，按“电影/大区/标题 (年份)/文件”归类。命名均为“标题 (年份)[-版本][-规格][-分卷][-版本N].ext”，先预览再执行。</p>
-        <div class="bar">
-          <label><input type="radio" value="inplace" v-model="orgMode" /> 就地归档</label>
-          <label><input type="radio" value="relocate" v-model="orgMode" /> 搬到顶层</label>
-        </div>
-        <div v-if="orgMode === 'relocate'" class="bar">
-          <label>源 <input v-model="relocateFrom" placeholder="待整理" style="width:120px" /></label>
-          <label>目标 <input v-model="relocateTo" placeholder="电影" style="width:120px" /></label>
-          <label><input type="checkbox" v-model="groupByRegion" /> 按大区分二级目录</label>
-        </div>
-        <div class="bar">
-          <button @click="loadOrgPreview" :disabled="!!busy">预览</button>
-          <button @click="doOrganize" :disabled="!!busy || !orgPlans.length">{{ busy === 'organize' ? '执行中…' : '执行' }}</button>
-          <span>{{ orgMsg }}</span>
-          <button v-if="orgPlans.length > COLLAPSE_N" @click="showAllPlans = !showAllPlans">{{ showAllPlans ? '收起' : `展开全部 (${orgPlans.length})` }}</button>
-        </div>
-        <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（全库）' : `搬到顶层（${relocateFrom || '待整理'} → ${relocateTo || '电影'}${groupByRegion ? '，按大区' : ''}，含目标下分区过期/未分区）` }} · 列表随参数自动刷新</p>
-        <ul v-if="orgPlans.length" class="plan-list">
-          <li v-for="p in visiblePlans" :key="p.id" class="plan-row">
-            <span class="plan-from" :title="p.from">{{ p.from }}</span>
-            <span class="plan-arrow">→</span>
-            <span class="plan-to" :title="p.to">{{ p.to }}</span>
-            <span v-if="p.numbered" class="plan-status warn">编号{{ p.numbered }}·可改备注</span>
-            <span v-if="p.region_stale" class="plan-status warn">原分区过期</span>
-            <span v-if="p.status" :class="['plan-status', p.status === 'moved' ? 'ok' : 'fail']">{{ p.status }}</span>
-          </li>
-        </ul>
-        <p v-if="orgConflicts.length" class="hint warn-text">冲突 {{ orgConflicts.length }} 项：
-          <span v-if="mismatchCount">疑似错配 {{ mismatchCount }}（需重匹配，不自动加后缀）</span>
-          <span v-if="diskCount">磁盘占用 {{ diskCount }}</span>
-          <span v-if="dbCount">库内占用 {{ dbCount }}</span>
-          <button @click="loadOrgPreview" :disabled="!!busy">重新预览</button>
-          <button v-if="conflictGroups.length > COLLAPSE_N" @click="showAllConflicts = !showAllConflicts">{{ showAllConflicts ? '收起' : '展开全部' }}</button>
-        </p>
-        <div v-if="orgConflicts.length" class="conflict-groups">
-          <div v-for="g in visibleConflictGroups" :key="g.to" class="conflict-card">
-            <div class="conflict-target">→ {{ g.to }}
-              <span v-if="g.kind === 'suspect_mismatch'" class="kind-badge bad">疑似错配·请重匹配</span>
-              <span v-else-if="g.kind === 'db'" class="kind-badge">库内占用</span>
-              <span v-else class="kind-badge">磁盘占用</span>
-            </div>
-            <div v-for="p in g.items" :key="'c' + p.id" class="conflict-row">
-              <div class="conflict-file" :title="(p.title || '') + ' ' + p.from">
-                <span class="conflict-title">{{ p.title || '(未命名)' }}<span v-if="p.tmdb_id"> · TMDB {{ p.tmdb_id }}</span></span>
-                <span class="miss-path">{{ p.from }}</span>
-              </div>
-              <div class="conflict-actions">
-                <button @click="$router.push('/m/' + p.id)">去详情匹配</button>
-              </div>
-              <div class="conflict-note">
-                <input v-model="noteEdits[p.id].edition" placeholder="版本" style="width:90px" />
-                <input v-model="noteEdits[p.id].spec" placeholder="规格/备注" style="width:90px" />
-                <button @click="saveNote(p.id)" :disabled="!!busy">改备注</button>
-                <span>{{ noteMsg[p.id] }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-          </div>
-        </div>
+        <OrganizePanel ref="organizeRef" @changed="onPanelChanged" />
       </section>
 
 
@@ -287,35 +222,18 @@
         </div>
       </section>
 
-      <section id="sec-restore" class="card-block">
-        <h3>恢复到原始位置</h3>
-        <p class="hint">整理/搬迁后偏离首次入库位置的影片可搬回原处。先预览再执行，目标被占用或源文件缺失会跳过上报、绝不覆盖。</p>
-        <div class="bar">
-          <button @click="loadRestorePreview()" :disabled="!!busy">预览</button>
-          <button @click="doRestore" :disabled="!!busy || !checkedRestore.length">{{ busy === 'restore' ? '恢复中…' : (armRestore ? `确认恢复 (${checkedRestore.length})` : '恢复选中') }}</button>
-          <button v-if="restorePlans.length" @click="toggleAllRestore">{{ allRestoreChecked ? '全不选' : '全选' }}</button>
-          <span>{{ restoreMsg }}</span>
-          <button v-if="restorePlans.length > COLLAPSE_N" @click="showAllRestore = !showAllRestore">{{ showAllRestore ? '收起' : `展开全部 (${restorePlans.length})` }}</button>
-        </div>
-        <p v-if="armRestore" class="hint warn-text">再点一次执行恢复，无二次弹窗。目标被占用/源缺失的项会自动跳过。</p>
-        <ul v-if="restorePlans.length" class="plan-list">
-          <li v-for="p in visibleRestorePlans" :key="'r' + p.id" class="plan-row">
-            <input type="checkbox" :value="p.id" v-model="checkedRestore" />
-            <span class="conflict-title">{{ p.title || '(未命名)' }}<span v-if="p.year"> ({{ p.year }})</span></span>
-            <span class="miss-path">{{ p.from }} → {{ p.to }}</span>
-            <span v-if="p.status" :class="['plan-status', p.status === 'restored' ? 'ok' : 'fail']">{{ restoreStatusText(p.status) }}</span>
-          </li>
-        </ul>
-      </section>
+      <RestorePanel ref="restoreRef" @count="restoreCount = $event" @changed="onPanelChanged" />
 
       <FsBrowser :active="active === 'sec-files'" @changed="loadStats" @scan="doScan" />
     </div>
   </div>
 </template>
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import FsBrowser from '../components/FsBrowser.vue'
+import OrganizePanel from '../components/OrganizePanel.vue'
+import RestorePanel from '../components/RestorePanel.vue'
 import { fmtBytes } from '../format.js'
 import { api, setToken } from '../api.js'
 import { usePolling } from '../usePolling.js'
@@ -397,7 +315,9 @@ const backfillMsg = ref('')
 const refreshMsg = ref('')
 const nfoMsg = ref('')
 const ftsMsg = ref('')
-const orgMsg = ref('')
+
+const organizeRef = ref(null)
+const restoreRef = ref(null)
 
 const missing = ref([])
 const checkedMissing = ref([])
@@ -425,54 +345,11 @@ const visibleSuspectInfo = computed(() => showAllSuspectInfo.value ? suspectInfo
 const visibleOrphans = computed(() => showAllOrphans.value ? orphans.value : orphans.value.slice(0, COLLAPSE_N))
 const pendingTotal = computed(() => unmatched.value.length + needsReview.value.length + suspectHigh.value.length + orphans.value.length)
 
-// 归档整理（统一口 /api/files/organize）
-const orgMode = ref('inplace')
-const relocateFrom = ref('待整理')
-const relocateTo = ref('电影')
-const groupByRegion = ref(true)
-const orgPlans = ref([])
-const orgConflicts = ref([])
-const showAllPlans = ref(false)
-const showAllConflicts = ref(false)
-const visiblePlans = computed(() => showAllPlans.value ? orgPlans.value : orgPlans.value.slice(0, COLLAPSE_N))
-// 冲突按目标分组（一张卡放一起：保留方 + 冲突方）
-const conflictGroups = computed(() => {
-  const map = new Map()
-  for (const p of orgConflicts.value) {
-    if (!map.has(p.to)) map.set(p.to, { to: p.to, kind: p.kind || '', items: [] })
-    map.get(p.to).items.push(p)
-  }
-  return [...map.values()]
-})
-const visibleConflictGroups = computed(() => showAllConflicts.value ? conflictGroups.value : conflictGroups.value.slice(0, COLLAPSE_N))
-const mismatchCount = computed(() => orgConflicts.value.filter(p => p.kind === 'suspect_mismatch').length)
-const diskCount = computed(() => orgConflicts.value.filter(p => p.status === 'conflict_disk_exists').length)
-const dbCount = computed(() => orgConflicts.value.filter(p => p.status === 'conflict_db_occupied').length)
-// 行内改备注（版本/规格）编辑态
-const noteEdits = ref({})
-const noteMsg = ref({})
-function ensureNote(id) {
-  if (!noteEdits.value[id]) noteEdits.value[id] = { edition: '', spec: '' }
-  return noteEdits.value[id]
-}
-async function saveNote(id) {
-  const n = ensureNote(id)
-  noteMsg.value[id] = ''
-  try {
-    await api('/api/movies/' + id, {
-      method: 'PATCH',
-      body: JSON.stringify({ edition: (n.edition || '').trim(), spec: (n.spec || '').trim() })
-    })
-    noteMsg.value[id] = '已保存，请重新预览'
-  } catch (e) {
-    noteMsg.value[id] = '保存失败：' + e.message
-  }
-}
-
 const prefs = ref(loadPrefs())
 
 // 左侧悬浮导航
 const pendingCount = computed(() => pendingTotal.value)
+const restoreCount = ref(0)
 const navs = computed(() => [
   { id: 'sec-status', label: '库状态' },
   { id: 'sec-tmdb', label: 'TMDB 配置' },
@@ -484,7 +361,7 @@ const navs = computed(() => [
   { id: 'sec-files', label: '文件浏览' },
 ])
 const active = ref('sec-status')
-const pipeOpen = ref({ pending: true, organize: false })
+const pipeOpen = ref({ pending: true })
 let observer = null
 const _sectionLoaded = { 'sec-sync': false, 'sec-pending': false, 'sec-pipeline': false }
 function ensureSectionData(id) {
@@ -500,14 +377,9 @@ function ensureSectionData(id) {
     ensureSectionData('sec-sync')
     ensureSectionData('sec-pending')
     if (!_sectionLoaded['sec-pipeline']) {
-      // 只做一次（观察器会在滚动中反复触发）
+      // 只做一次（观察器会在滚动中反复触发）；归档预览由 OrganizePanel 自行懒加载
       _sectionLoaded['sec-pipeline'] = true
-      loadOrgPreview().then(() => {
-        if (orgPlans.value.length && !pipeOpen.value.organize) {
-          pipeOpen.value.organize = true
-          orgMsg.value = orgMsg.value || `检测到 ${orgPlans.value.length} 项可归档，已为你展开`
-        }
-      })
+      organizeRef.value?.ensure(true)
     }
   }
 }
@@ -579,11 +451,7 @@ async function pollScanJob() {
     ensureSectionData('sec-sync')
     ensureSectionData('sec-pending')
     // 扫描入库后主动提示归档（评审 B9 后续）：有可归档项就展开 ③ 并说明下一步
-    await loadOrgPreview()
-    if (orgPlans.value.length) {
-      pipeOpen.value.organize = true
-      orgMsg.value = `检测到 ${orgPlans.value.length} 项可归档，「③ 归档整理」已为你展开，点「确认搬迁」执行`
-    }
+    organizeRef.value?.refresh(true)
   } catch (e) { /* 轮询失败下次继续 */ }
 }
 async function cancelScan() {
@@ -819,145 +687,9 @@ function resetDisplay() {
   savePrefs({ ...prefs.value })
 }
 
-function orgBody(dry_run) {
-  const b = { mode: orgMode.value, dry_run }
-  if (orgMode.value === 'relocate') {
-    b.from_prefix = relocateFrom.value.trim()
-    b.to_dir = relocateTo.value.trim()
-    b.group_by_region = !!groupByRegion.value
-  }
-  return JSON.stringify(b)
-}
-
-function syncNotes() {
-  for (const p of orgConflicts.value) ensureNote(p.id)
-}
-
-async function loadOrgPreview() {
-  orgMsg.value = ''
-  try {
-    const d = await api('/api/files/organize', { method: 'POST', body: orgBody(true) })
-    orgPlans.value = d.plans
-    orgConflicts.value = d.conflicts || []
-    syncNotes()
-    if (!d.plans.length) orgMsg.value = orgConflicts.value.length ? `无可整理，冲突 ${orgConflicts.value.length} 项` : '没有需要整理的'
-  } catch (e) {
-    orgMsg.value = '预览失败：' + e.message
-  }
-}
-
-// 模式/参数一变自动重跑预览（防“列表与模式不符”），防抖 300ms，忙时跳过
-let orgPreviewTimer = null
-watch([orgMode, relocateFrom, relocateTo, groupByRegion], () => {
-  if (orgPreviewTimer) clearTimeout(orgPreviewTimer)
-  orgPreviewTimer = setTimeout(() => {
-    if (!busy.value) loadOrgPreview()
-  }, 300)
-})
-
-// 整理/恢复状态文案（评审 R09-D5）：失败原因不再只给数字
-const PLAN_STATUS_TEXT = {
-  moved: '已移动', skipped_missing_src: '源文件缺失', conflict_disk_exists: '磁盘占用',
-  conflict_db_occupied: '库内占用', conflict_needs_rematch: '需重新匹配',
-  source_missing: '源文件缺失（预览提示）', restored: '已恢复', planned: '待执行',
-  error: '错误', skipped: '已跳过',
-}
-function planStatusText(s) {
-  const k = String(s || '')
-  if (k.startsWith('error')) return '错误：' + k.slice(6).trim()
-  return PLAN_STATUS_TEXT[k] || k
-}
-async function doOrganize() {
-  busy.value = 'organize'
-  orgMsg.value = ''
-  try {
-    const d = await api('/api/files/organize', { method: 'POST', body: orgBody(false) })
-    orgPlans.value = d.results
-    orgConflicts.value = d.conflicts || []
-    syncNotes()
-    const byStatus = {}
-    for (const r of d.results) byStatus[r.status] = (byStatus[r.status] || 0) + 1
-    const parts = Object.entries(byStatus)
-      .map(([k, v]) => `${planStatusText(k)} ${v}`)
-    orgMsg.value = `执行完毕（${d.results.length} 项）：` + parts.join(' · ')
-    await loadStats()
-    await loadMissing(true)
-  } catch (e) {
-    orgMsg.value = '执行失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-
-// 恢复到原始位置（读 original_file_path，两段确认防误操作）
-const restorePlans = ref([])
-const checkedRestore = ref([])
-const restoreMsg = ref('')
-const armRestore = ref(false)
-const showAllRestore = ref(false)
-const visibleRestorePlans = computed(() => showAllRestore.value ? restorePlans.value : restorePlans.value.slice(0, COLLAPSE_N))
-const allRestoreChecked = computed(() => restorePlans.value.length > 0 && checkedRestore.value.length === restorePlans.value.length)
-const restoreCount = computed(() => restorePlans.value.length)
-function toggleAllRestore() {
-  checkedRestore.value = allRestoreChecked.value ? [] : restorePlans.value.map(p => p.id)
-}
-const restoreStatusMap = {
-  restored: '已恢复',
-  planned: '待恢复',
-  conflict_disk_exists: '目标被占跳过',
-  conflict_db_occupied: '库内已占用跳过',
-  skipped_missing_src: '源缺失跳过'
-}
-function restoreStatusText(s) {
-  if (!s) return ''
-  return restoreStatusMap[s] || (/^error/.test(s) ? '失败' : s)
-}
-async function loadRestorePreview(preselect) {
-  restoreMsg.value = ''
-  armRestore.value = false
-  if (!Array.isArray(preselect)) preselect = []
-  try {
-    const d = await api('/api/files/restore-candidates')
-    // 预览接口字段是 file_path/original_file_path，统一映射成 from/to（含标题供展示）
-    restorePlans.value = (Array.isArray(d.items) ? d.items : []).map(e => ({
-      id: e.id, title: e.title || '', year: e.year || '',
-      from: e.file_path || '', to: e.original_file_path || ''
-    }))
-    const ids = (preselect || []).map(Number).filter(Number.isFinite)
-    checkedRestore.value = ids.length
-      ? restorePlans.value.filter(p => ids.includes(p.id)).map(p => p.id)
-      : restorePlans.value.map(p => p.id)
-    if (!restorePlans.value.length) restoreMsg.value = '没有偏离原始位置的影片'
-    else if (checkedRestore.value.length !== restorePlans.value.length) restoreMsg.value = `共 ${restorePlans.value.length} 项，已预选 ${checkedRestore.value.length} 项`
-  } catch (e) {
-    restoreMsg.value = '预览失败：' + e.message
-  }
-}
-async function doRestore() {
-  if (!armRestore.value) {
-    armRestore.value = true
-    restoreMsg.value = `再点一次确认恢复 ${checkedRestore.value.length} 项`
-    return
-  }
-  busy.value = 'restore'
-  restoreMsg.value = ''
-  try {
-    const d = await api('/api/files/restore-original', {
-      method: 'POST',
-      body: JSON.stringify({ ids: checkedRestore.value, dry_run: false })
-    })
-    const ok = (d.results || []).filter(r => r.status === 'restored').length
-    restoreMsg.value = `执行完毕：恢复 ${ok}/${d.results.length}`
-    armRestore.value = false
-    restorePlans.value = (d.results || []).map(r => ({ id: r.id, title: r.title, from: r.from, to: r.to, status: r.status }))
-    checkedRestore.value = (d.results || []).filter(r => r.status !== 'restored').map(r => r.id)
-    await loadStats()
-    await loadMissing(true)
-  } catch (e) {
-    restoreMsg.value = '恢复失败：' + e.message
-  } finally {
-    busy.value = null
-  }
+async function onPanelChanged() {
+  await loadStats()
+  await loadMissing(true)
 }
 
 // 文件浏览（直操 MEDIA_ROOT：浏览/建目录/改名/移动/删除，正片二次确认）
@@ -966,7 +698,6 @@ onMounted(async () => {
   const [settingsResp] = await Promise.all([
     api('/api/settings').catch(() => null),
     loadStats(),
-    loadOrgPreview(),
   ])
   if (settingsResp) { s.value = settingsResp; syncTmdbForm() }
   // 两个重负载清单延迟加载（评审 B8/R09-Q5）：滚动到区块时拉；另 4s 空闲补拉徽标数
@@ -976,7 +707,7 @@ onMounted(async () => {
     const q = route.query || {}
     const ids = (Array.isArray(q.ids) ? q.ids : String(q.ids || '').split(','))
       .map(Number).filter(Number.isFinite)
-    if (q.sec || ids.length) await loadRestorePreview(ids)
+    if (q.sec || ids.length) await restoreRef.value?.load(ids)
     if (q.sec && document.getElementById(String(q.sec))) {
       active.value = String(q.sec)
       document.getElementById(String(q.sec))?.scrollIntoView({ block: 'start' })
@@ -998,7 +729,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (observer) observer.disconnect()
-  if (orgPreviewTimer) clearTimeout(orgPreviewTimer)
 })
 </script>
 <style scoped>
@@ -1034,26 +764,10 @@ onUnmounted(() => {
 .slider-row { display: flex; align-items: center; gap: 12px; padding: 6px 12px; }
 .slider-row label { min-width: 150px; font-size: 0.875rem; }
 .slider-row input[type="range"] { flex: 1; }
-.miss-list, .plan-list { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.miss-list { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .tmdb-grid label { display: block; font-size: 0.875rem; color: #ccc; margin: 8px 0 2px; }
 .src-badge { margin-left: 8px; font-size: 0.75rem; color: #888; border: 1px solid #444; border-radius: 999px; padding: 1px 10px; }
-.miss-row, .plan-row { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; }
+.miss-row { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; }
 .miss-title { white-space: nowrap; }
-.miss-path, .plan-from { color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.plan-arrow { color: #6ab0ff; }
-.plan-to { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.plan-status { font-size: 0.75rem; }
-.plan-status.ok { color: #7ed321; }
-.plan-status.fail { color: #ff8a8a; }
-.plan-status.warn { color: #e0a63c; }
-.conflict-groups { display: flex; flex-direction: column; gap: 8px; margin: 4px 0; }
-.conflict-card { background: #262626; border: 1px solid #6e2b2b; border-radius: 8px; padding: 8px 10px; }
-.conflict-target { font-size: 0.8125rem; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kind-badge { font-size: 0.75rem; border: 1px solid #444; border-radius: 999px; padding: 1px 10px; margin-left: 8px; color: #aaa; }
-.kind-badge.bad { color: #ff8a8a; border-color: #6e2b2b; }
-.conflict-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-top: 1px dashed #3a3a3a; font-size: 0.8125rem; }
-.conflict-file { flex: 1; min-width: 200px; }
-.conflict-title { display: block; }
-.conflict-actions { display: flex; gap: 6px; }
-.conflict-note { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.miss-path { color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 </style>
