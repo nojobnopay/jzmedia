@@ -96,8 +96,9 @@ def _persist_local_extras(mid: int, parsed: dict, cur: dict) -> None:
         store.update_movie_local(mid, **local)
 
 
-def scan_one(abs_path: str, force: bool = False) -> dict:
-    """单文件入库。force=True（手动重试）跳过增量跳过与缓存短路，重新刮削。"""
+def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None) -> dict:
+    """单文件入库。force=True（手动重试）跳过增量跳过与缓存短路，重新刮削。
+    tmdb_hint（复制文件时来自源行）：缓存命中则直绑该 tmdb_id，避免重搜与误配。"""
     rel = os.path.relpath(abs_path, settings.media_root)
     if is_sidecar(rel):
         if is_sample(os.path.basename(abs_path)):
@@ -139,12 +140,17 @@ def scan_one(abs_path: str, force: bool = False) -> dict:
     except Exception:
         cur = {}
     _persist_local_extras(mid, parsed, cur)
-    try:
-        m, used_q, year_mismatch = search_with_fallback(parsed["title"], parsed["year"])
-    except Exception as e:
-        logger.warning("tmdb search failed file=%s: %s", rel, e)
-        return {"file": rel, "status": ST_SCAN_FAILED, "movie_id": mid,
-                "error": str(e)[:200]}
+    m, used_q, year_mismatch = None, parsed["title"], False
+    if tmdb_hint and store.get_tmdb_cached(int(tmdb_hint)):
+        # 复制场景：源片已匹配 → 直绑，避免重搜错配（评审 B9 后续）
+        m = {"id": int(tmdb_hint)}
+    if m is None:
+        try:
+            m, used_q, year_mismatch = search_with_fallback(parsed["title"], parsed["year"])
+        except Exception as e:
+            logger.warning("tmdb search failed file=%s: %s", rel, e)
+            return {"file": rel, "status": ST_SCAN_FAILED, "movie_id": mid,
+                    "error": str(e)[:200]}
     if not m:
         store.set_scan_state(rel, mtime, size, ST_NO_MATCH)
         return {"file": rel, "status": ST_NO_MATCH, "movie_id": mid, "parsed": parsed}
