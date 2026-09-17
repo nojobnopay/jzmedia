@@ -92,9 +92,10 @@
           <span>{{ scanMsg }}</span>
         </div>
         <div class="bar">
-          <button @click="loadMissing" :disabled="!!busy">检查失效条目</button>
+          <button @click="loadMissing()" :disabled="!!busy || missingLoading">{{ missingLoading ? '检查中…' : '检查失效条目' }}</button>
           <button v-if="missing.length" @click="toggleAllMissing">{{ allChecked ? '全不选' : '全选' }}</button>
           <span v-if="missing.length">共 {{ missing.length }} 条失效</span>
+          <span>{{ cleanMsg }}</span>
           <button v-if="missing.length > COLLAPSE_N" @click="showAllMissing = !showAllMissing">{{ showAllMissing ? '收起' : `展开全部 (${missing.length})` }}</button>
         </div>
         <ul v-if="missing.length" class="miss-list">
@@ -108,7 +109,6 @@
           <button @click="doClean" :disabled="!!busy || !checkedMissing.length">
             {{ busy === 'clean' ? '清理中…' : `删除选中 (${checkedMissing.length})` }}
           </button>
-          <span>{{ cleanMsg }}</span>
         </div>
           </div>
         </div>
@@ -120,7 +120,7 @@
           <div v-show="pipeOpen.pending" class="pipe-body">
         <p class="hint">上传/扫描后没认出来的片在这里核对。未匹配：TMDB 没找到数据；待确认：模糊命中需人工核对；疑似英文标题：非英语片却显示英文（错配或缺翻译）；未归属花絮：对不上任何影片。点「去处理」到详情页手动绑定。</p>
         <div class="bar">
-          <button @click="loadUnmatched" :disabled="!!busy">刷新</button>
+          <button @click="loadUnmatched()" :disabled="!!busy">刷新</button>
           <span v-if="pendingTotal">未匹配 {{ unmatched.length }} · 待确认 {{ needsReview.length }} · 疑似英文 {{ suspectHigh.length + suspectInfo.length }} · 未归属花絮 {{ orphans.length }}</span>
           <span v-else>全部已匹配</span>
         </div>
@@ -454,7 +454,9 @@ async function cancelScan() {
   try { await api('/api/jobs/scan/' + scanJobId + '/cancel', { method: 'POST' }) } catch (e) { /* 忽略 */ }
 }
 
+const missingLoading = ref(false)
 async function loadMissing(silent) {
+  missingLoading.value = true
   if (!silent) cleanMsg.value = ''
   try {
     const d = await api('/api/files/missing')
@@ -463,6 +465,8 @@ async function loadMissing(silent) {
     if (!silent) cleanMsg.value = d.total ? '' : '没有失效条目'
   } catch (e) {
     if (!silent) cleanMsg.value = '检查失败：' + e.message
+  } finally {
+    missingLoading.value = false
   }
 }
 

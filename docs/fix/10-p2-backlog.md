@@ -167,6 +167,15 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 
 ## 4. 进度 Log（倒序）
 
+- 2026-09-17：**H-UI 反馈修复（入库流程/文件预览）**：①「检查失效条目」两处根因：
+  a) `@click="loadMissing"` 把 MouseEvent 当 `silent` 传入（`loadUnmatched` 同类），
+  改显式调用 `loadMissing()`/`loadUnmatched()`；b) `cleanMsg` 只挂在 `v-if="missing.length"`
+  的删除条里，0 条时「没有失效条目」根本没渲染（用户复报“点击无响应”）→ 消息移到顶栏
+  常显，另加「检查中…」即时反馈（`missingLoading`）。② 详情页文件管理器预览弹窗跟随分辨率
+  （`min(1600px, 100vw-48px)`、视频 78vh/PDF 80vh/文本 70vh）并加「⛶ 全屏」：对话框元素
+  requestFullscreen + fullscreenchange 同步（只认本对话框，播放器全屏不误翻文案），
+  全屏中 Esc 只退全屏、非全屏才关弹窗；`:fullscreen` 纵向 flex 铺满。
+  验证：node --test 21 / eslint 0 error / npm run build ✓（8080 实测已出「检查中…」字符串）
 - 2026-09-17：**删两个一次性清理口**（H-UI 用户确认；本机 dry-run 均为 0）：
   「清理历史花絮脏行」`POST /api/files/clean-sidecars`、「清理历史剧集行」
   `POST /api/files/clean-episodes` 从 UI+API+smoke 断言+相关测试删除，README/AGENTS/scanner
