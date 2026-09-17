@@ -1,6 +1,6 @@
 // 弹窗焦点陷阱（评审 R14-B6）：Tab/Shift+Tab 在弹窗内循环，打开聚焦、关闭还原。
 // 用法：const box = ref(null); useFocusTrap(openRef, box)
-import { nextTick, onUnmounted, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, watch } from 'vue'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), ' +
   'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -60,6 +60,8 @@ export function useFocusTrap(active, containerRef) {
     prevActive = null
   }
 
-  watch(active, (v) => { v ? activate() : deactivate() }, { immediate: true })
+  // 不用 immediate：setup 期求值 getter 可能碰到尚未初始化的 ref（TDZ 会崩整页）
+  watch(active, (v) => { v ? activate() : deactivate() })
+  onMounted(() => { if (active.value) activate() })
   onUnmounted(deactivate)
 }

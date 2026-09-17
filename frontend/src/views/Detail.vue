@@ -219,9 +219,6 @@ const hintMsg = ref('')
 const pvDlgRef = ref(null)
 const posterDlgRef = ref(null)
 const archDlgRef = ref(null)
-useFocusTrap(computed(() => !!pvName.value), pvDlgRef)
-useFocusTrap(computed(() => !!posterDlg.value), posterDlgRef)
-useFocusTrap(computed(() => !!archHint.value), archDlgRef)
 const regionNote = ref('')
 const archHint = ref(null)
 const archApplying = ref(false)
@@ -686,6 +683,11 @@ function escPlayer(e) {
   if (pvName.value) closePlayer()
   else if (posterDlg.value) closePoster()
 }
+// 焦点陷阱需在 ref 全部声明后启用（watch immediate 会立即求值，避免 TDZ 崩整页）
+useFocusTrap(computed(() => !!pvName.value), pvDlgRef)
+useFocusTrap(computed(() => !!posterDlg.value), posterDlgRef)
+useFocusTrap(computed(() => !!archHint.value), archDlgRef)
+
 onMounted(() => {
   load()
   window.addEventListener('keydown', escPlayer)

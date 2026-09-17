@@ -53,7 +53,6 @@ const msg = ref('')
 const editing = ref(false)
 const loadErr = ref('')
 const delDlgRef = ref(null)
-useFocusTrap(computed(() => !!armDel.value), delDlgRef)
 const busy = ref(false)
 const armDel = ref(false)
 const f = ref({ name: '', overview: '' })
@@ -108,6 +107,7 @@ async function removeCol() {
     busy.value = false
   }
 }
+useFocusTrap(computed(() => !!armDel.value), delDlgRef)
 onMounted(load)
 </script>
 <style scoped>
