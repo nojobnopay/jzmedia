@@ -42,14 +42,16 @@ export function parseVtt(text) {
   return cues
 }
 
-// 自动选轨（评审 B8/R13-D2 + 用户反馈）：外挂中文 default → 任意 default → 首条中文。
-// PGS 客户端渲染（pgs_client）可自动选，零转码；VobSub 等烧录轨不自动选（防意外触发重编）。
+// 自动选轨（评审 B8/R13-D2 + 用户反馈）：中文优先（中文 default → 首条中文 → 任意 default），
+// 即外语 default 不压中文字幕；PGS 客户端渲染（pgs_client）可自动选，零转码；
+// VobSub 等烧录轨不自动选（防意外触发重编）。
 export function pickDefaultSub(list) {
   const arr = Array.isArray(list) ? list : []
   const autoOk = (s) => !!s && (!s.image || String(s.codec || '').toLowerCase() === 'pgs')
-  let i = arr.findIndex(s => autoOk(s) && s.source === 'sidecar' && Number(s.default) === 1)
+  const zh = (s) => String((s || {}).lang || '').toLowerCase().startsWith('chi')
+  let i = arr.findIndex(s => autoOk(s) && zh(s) && Number(s.default) === 1)
+  if (i < 0) i = arr.findIndex(s => autoOk(s) && zh(s))
   if (i < 0) i = arr.findIndex(s => autoOk(s) && Number(s.default) === 1)
-  if (i < 0) i = arr.findIndex(s => autoOk(s) && String(s.lang || '').toLowerCase().startsWith('chi'))
   return i
 }
 

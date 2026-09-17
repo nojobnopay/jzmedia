@@ -64,14 +64,21 @@ test('pickDefaultSub：VobSub（烧录轨）不自动选，优先顺序仍生效
   ]), -1)
 })
 
-test('pickDefaultSub：外挂 default > 内嵌 default > 首条中文；空清单 -1', () => {
+test('pickDefaultSub：语言优先（中文 default > 首条中文 > 任意 default）', () => {
   const list = [
     { index: 0, codec: 'subrip', image: 0, lang: 'eng', default: 1, source: 'embedded' },
     { index: 1, codec: 'ass', image: 0, lang: 'chi', default: 1, source: 'sidecar' },
     { index: 2, codec: 'subrip', image: 0, lang: 'chi', default: 0, source: 'sidecar' }
   ]
   assert.equal(pickDefaultSub(list), 1)
+  // 外语 default 不压中文字幕（用户确认：语言优先）
+  assert.equal(pickDefaultSub([
+    { index: 0, codec: 'subrip', image: 0, lang: 'eng', default: 1, source: 'embedded' },
+    { index: 1, codec: 'subrip', image: 0, lang: 'chi', default: 0, source: 'embedded' }
+  ]), 1)
+  // 无中文时回落任意 default，再无可选则 -1
   assert.equal(pickDefaultSub([{ index: 0, codec: 'subrip', image: 0, lang: 'eng', default: 1 }]), 0)
+  assert.equal(pickDefaultSub([{ index: 0, codec: 'subrip', image: 0, lang: 'eng', default: 0 }]), -1)
   assert.equal(pickDefaultSub([]), -1)
   assert.equal(pickDefaultSub(null), -1)
 })
