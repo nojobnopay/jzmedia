@@ -32,6 +32,7 @@ def update_movie_local(movie_id: int, **fields) -> None:
 
 def update_movie_meta(movie_id: int, **fields) -> None:
     allowed = {"file_path", "title", "original_title", "year", "overview", "overview_override",
+               "title_auto",
                "tmdb_id", "imdb_id", "tmdb_rating", "douban_rating", "custom_rating",
                "poster_path", "genres", "genre_ids", "tags", "needs_review",
                "watched", "watched_at",

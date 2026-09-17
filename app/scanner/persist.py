@@ -199,7 +199,7 @@ def apply_tmdb_detail_fast(mid: int, detail: dict, abs_path: str,
         store.copy_tmdb_to_movie(mid, old_title=cur_title)
         # copy 在 current==old_title 时才会跟随标题；换绑需强制对齐远端标题
         if (store.get_movie(mid) or {}).get("title") != (meta.get("title") or ""):
-            store.update_movie_meta(mid, title=meta.get("title") or "")
+            store.update_movie_meta(mid, title=meta.get("title") or "", title_auto=0)
         # 其余 TMDB 列经 copy 已同步（copy 内含除 poster 外全量）
     else:
         store.copy_tmdb_to_movie(mid, old_title=old_title if old_cache else None)

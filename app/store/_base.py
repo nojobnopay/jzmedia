@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS movies (
   spec TEXT DEFAULT '',
   original_file_path TEXT DEFAULT '',
   needs_review INTEGER DEFAULT 0,
+  title_auto INTEGER DEFAULT 0,   -- 1=标题为扫描按文件名自动写入（可被 TMDB 覆盖），0=TMDB/手工
   watched INTEGER DEFAULT 0,
   watched_at INTEGER DEFAULT 0,
   updated_at INTEGER DEFAULT 0
@@ -201,7 +202,7 @@ TMDB_FIELDS = {"title", "original_title", "year", "overview",
                "origin_country", "origin_countries", "original_language",
                "region", "media_type"}
 # 本地自有列（PATCH/rename/tags/评分等，只能经本地写路径修改，不碰 cache）
-LOCAL_FIELDS = {"file_path", "title", "overview_override",
+LOCAL_FIELDS = {"file_path", "title", "title_auto", "overview_override",
                 "douban_rating", "custom_rating", "tags", "needs_review",
                 "edition", "spec", "original_file_path",
                 "watched", "watched_at"}
@@ -212,7 +213,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "tmdb_language", "tmdb_image_base", "jzmedia_token"}
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 def _columns(c, table: str) -> set:
@@ -233,15 +234,17 @@ def _migrate(c) -> int:
         version = int(c.execute("PRAGMA user_version").fetchone()[0] or 0)
     except (TypeError, ValueError):
         version = 0
+    applied = False
     for v, fn in _MIGRATION_STEPS:
         if version < v:
             fn(c)
             version = v
+            applied = True
     try:
         c.execute(f"PRAGMA user_version = {int(version)}")
     except sqlite3.OperationalError as e:
         logger.warning("set user_version failed: %s", e)
-    return version
+    return version, applied
 
 
 # v1：movies 基础补充列 + persons.avatar
@@ -352,8 +355,44 @@ def _m10(c) -> None:
     c.execute("CREATE INDEX IF NOT EXISTS idx_extras_movie ON extras(movie_id)")
 
 
+# v11：标题来源标记 + 存量自动愈合（修复「文件名标题挡住 TMDB 标题」回归）
+def _m11(c) -> None:
+    _ensure_columns(c, "movies", [
+        ("title_auto", "ALTER TABLE movies ADD COLUMN title_auto INTEGER DEFAULT 0"),
+    ])
+    try:
+        from ..scanner.parse import parse_filename, normalize_title
+    except Exception as e:   # 解析器不可用时跳过回填（只加列）
+        logger.warning("title_auto backfill skipped: %s", e)
+        return
+    rows = c.execute("SELECT id, file_path, title, tmdb_id FROM movies "
+                     "WHERE title IS NOT NULL AND title != ''").fetchall()
+    healed = 0
+    for r in rows:
+        try:
+            base = os.path.basename(str(r["file_path"] or "").replace("\\", "/"))
+            parsed = normalize_title(parse_filename(base).get("title") or "")
+        except Exception:
+            continue
+        if not parsed or parsed != r["title"]:
+            continue
+        # 标题与「按路径反解」一致 → 视为扫描自动写入，允许 TMDB 覆盖
+        c.execute("UPDATE movies SET title_auto=1 WHERE id=?", (r["id"],))
+        tid = r["tmdb_id"]
+        if not tid:
+            continue
+        crow = c.execute("SELECT title FROM tmdb_cache WHERE tmdb_id=?", (tid,)).fetchone()
+        cache_title = (crow["title"] if crow else "") or ""
+        if cache_title and cache_title != r["title"]:
+            c.execute("UPDATE movies SET title=?, title_auto=0 WHERE id=?",
+                      (cache_title, r["id"]))
+            healed += 1
+    if healed:
+        logger.info("title_auto migration healed %s titles from tmdb_cache", healed)
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
-                    (7, _m7), (8, _m8), (9, _m9), (10, _m10)]
+                    (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11)]
 
 
 def init_db() -> None:
@@ -370,7 +409,7 @@ def init_db() -> None:
         except sqlite3.OperationalError as e:
             raise RuntimeError("SQLite 缺少 FTS5 扩展，jzmedia 无法运行") from e
         c.executescript(SCHEMA)
-        _migrate(c)
+        _migrated = _migrate(c)
         # FTS 旧 trigger 内容表形态自愈（content= 老库直接重建）
         sql = (c.execute("SELECT sql FROM sqlite_master WHERE name='movies_fts'").fetchone() or [""])[0]
         if "content=" in sql:
@@ -381,8 +420,9 @@ def init_db() -> None:
     with _lock, _conn() as c:
         c.execute("PRAGMA journal_mode=WAL")   # R02-D2：写不阻塞读、崩溃恢复更好
     seed_tmdb_cache_from_movies()
-    # R02-D3：FTS 与 movies 行数一致时跳过全量重建（大库启动不再 O(n) 连接+写）
-    if fts_needs_rebuild():
+    # R02-D3：FTS 与 movies 行数一致时跳过全量重建（大库启动不再 O(n) 连接+写）；
+    # 本次跑过迁移（可能改标题/新列）则强制重建，避免索引与数据脱节
+    if _migrated[1] or fts_needs_rebuild():
         rebuild_fts()
 
 
