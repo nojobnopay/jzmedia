@@ -58,6 +58,7 @@
 架构长尾（2026-09-17 用户同意后推进）：R01-Q4 fs 拆包 done（b11c-fs-package）；
   R05-Q4 Detail 拆分 done（b11d-detail-focus + b11e-filemanager：上传/编辑/文件管理三组件，
   1079→552；播放条按设计留在详情页）；
+  默认字幕轨修正 done（b12-default-sub：PGS 可自动选，仅烧录轨排除）；
   R14-B6 焦点陷阱 done（9 处弹窗）；R13-Q1 剩完整 useSubtitles composable（约 500 行搬迁，
   建议专门会话 + 即时 H-UI）
 ```

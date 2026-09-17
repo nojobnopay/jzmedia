@@ -90,7 +90,7 @@ import Spinner from './Spinner.vue'
 import { useFocusTrap } from '../useFocusTrap.js'
 import PlayerSettings from './PlayerSettings.vue'
 import { subKind, fmtTime as fmt } from '../playerLabels.js'
-import { parseVtt, activeCues } from '../subtitleParse.js'
+import { parseVtt, activeCues, pickDefaultSub } from '../subtitleParse.js'
 import '../player.css'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
@@ -550,16 +550,10 @@ async function reload() {
   reasons.value = d.reasons || []
   audios.value = d.media?.audio || []
   subs.value = d.media?.subs || []
-  // 外挂中文默认轨：打开时自动选一次（用户手动选过后不再覆盖；图片外挂不自动选）
+  // 默认字幕：打开时自动选一次（用户手动选过后不再覆盖）；规则见 pickDefaultSub
+  // （PGS 已客户端渲染 → 可自动选；VobSub 等烧录轨仍不自动选）
   if (subIdx.value === -1 && !autoSubPicked) {
-    // 自动选轨（评审 B8/R13-D2，用户确认开启）：外挂中文 default → 内嵌 default → 首条中文文本；
-    // 图片轨永不自动选（避免意外触发烧录重编）
-    const list = subs.value || []
-    let di = list.findIndex(s => s && s.source === 'sidecar' && !s.image
-      && Number(s.default) === 1)
-    if (di < 0) di = list.findIndex(s => s && !s.image && Number(s.default) === 1)
-    if (di < 0) di = list.findIndex(s => s && !s.image
-      && String(s.lang || '').toLowerCase().startsWith('chi'))
+    const di = pickDefaultSub(subs.value)
     if (di >= 0) { subIdx.value = di; autoSubPicked = true }
   }
   planHeight.value = Number(d.plan?.height) || 0

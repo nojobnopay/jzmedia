@@ -143,6 +143,9 @@ B8 已合回（merge e51bcff，tag p2-b8-ux，用户 H-UI 通过）
 - R01-Q4 done（tag `b11c-fs-package`）：fs.py（643 行）→ fs/ 六模块 + 门面
 - R05-Q4 done（tag `b11d-detail-focus` + `b11e-filemanager`）：Detail 1079→552（上传/编辑匹配/
   文件管理器三组件）；播放条与版本探测仍在详情页（与 PlayerModal 强耦合，保持内聚）
+- 默认字幕轨修正（tag `b12-default-sub`，用户反馈《芭蕾杀姬》）：原规则排除全部图片轨，纯 PGS
+  片源（UHD 内嵌特效字幕常见）播放时默认「无字幕」。现 PGS 客户端渲染（pgs_client 零转码）可自动
+  选，仅 VobSub/未知图片（烧录轨）仍排除；规则抽为 `subtitleParse.pickDefaultSub`（node 单测 3 组）
 - R14-B6 done：useFocusTrap 接入 9 处弹窗（Tab 循环/打开聚焦/关闭还原）
 - R13-Q1 部分：解析/注册表/命中判定已收口；完整 useSubtitles composable（约 500 行搬迁）
   因 PlayerModal 刚经用户验证、回归风险高，留专门会话 + 即时 H-UI 点检后实施
