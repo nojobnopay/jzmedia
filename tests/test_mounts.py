@@ -48,6 +48,10 @@ def smb_library(tmp_path):
     library_paths.invalidate_cache()
 
 
+def test_smb_library_path_matches_mount_point(smb_library):
+    assert smb_library["path"] == mounts.mount_point(smb_library["id"])
+
+
 def test_mount_unsupported_returns_guidance(smb_library, monkeypatch):
     monkeypatch.setattr(mounts, "mount_supported", lambda: (False, "无 CAP_SYS_ADMIN"))
     res = mounts.mount_library(smb_library)

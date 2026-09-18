@@ -14,7 +14,7 @@ import threading
 import time
 
 from ..config import settings
-from ..db import DB_PATH, ensure_dirs
+from ..db import DB_PATH, ensure_dirs, mount_point
 from ..log import get_logger
 
 logger = get_logger("store")
@@ -365,7 +365,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "tmdb_language", "tmdb_image_base", "jzmedia_token"}
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 def _columns(c, table: str) -> set:
@@ -662,9 +662,25 @@ def _m13(c) -> None:
     c.execute("CREATE INDEX IF NOT EXISTS idx_tv_episodes_library ON tv_episodes(library_id)")
 
 
+def _m14(c) -> None:
+    """远程库 path 归一为固定挂载点（app.mounts 按 data_dir/mounts/lib_<id> 挂载，
+    path 必须同源，否则扫描用错目录；本地库不动）。"""
+    try:
+        rows = c.execute("SELECT id, path FROM libraries"
+                         " WHERE source IN ('smb','nfs')").fetchall()
+    except sqlite3.OperationalError:
+        return
+    for r in rows:
+        want = mount_point(int(r["id"]))
+        if (r["path"] or "") != want:
+            c.execute("UPDATE libraries SET path=? WHERE id=?",
+                      (want, int(r["id"])))
+            logger.info("远程库 path 归一 lib=%s -> %s", r["id"], want)
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
-                    (12, _m12), (13, _m13)]
+                    (12, _m12), (13, _m13), (14, _m14)]
 
 
 def init_db() -> None:

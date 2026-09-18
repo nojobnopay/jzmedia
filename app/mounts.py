@@ -14,7 +14,7 @@ import threading
 import time
 
 from . import library_paths, secrets, store
-from .config import settings
+from .db import mount_point, mounts_dir
 from .log import get_logger
 
 logger = get_logger("mounts")
@@ -40,14 +40,6 @@ _backoff: dict[int, tuple[float, int]] = {}   # lid -> (next_try_ts, fail_count)
 
 def enabled() -> bool:
     return os.getenv("ALLOW_SMB_MOUNT", "1").strip().lower() not in ("0", "false", "no", "off")
-
-
-def mounts_dir() -> str:
-    return os.path.join(settings.data_dir, "mounts")
-
-
-def mount_point(library_id: int) -> str:
-    return os.path.join(mounts_dir(), f"lib_{int(library_id)}")
 
 
 def _cred_path(library_id: int) -> str:

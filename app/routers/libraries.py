@@ -62,6 +62,7 @@ class LibraryUpdate(BaseModel):
 
     name: str | None = None
     kind: str | None = None
+    path: str | None = None   # 仅本地库且影片数为 0 时可改（D 修复：复用默认库）
     read_only: bool | None = None
     auto_mount: bool | None = None
     enabled: bool | None = None

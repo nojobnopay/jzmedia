@@ -8,6 +8,7 @@ import sqlite3
 import time
 
 from .. import secrets
+from ..db import mount_point
 from ._base import DEFAULT_LIBRARY_ID, _conn, _lock, logger
 
 __all__ = ['list_libraries', 'get_library', 'default_library', 'set_library_status',
@@ -190,10 +191,10 @@ def create_library(name: str, kind: str = "movie", source: str = "local",
             raise ValueError("本地库必须提供路径")
         if not os.path.isdir(path):
             raise ValueError(f"路径不存在或不是目录: {path}")
-    elif not path:
-        # 远程库挂载点由 mounts 管理，默认 data_dir 下约定位置（C 阶段落地实际挂载）
-        raise ValueError("远程库必须提供挂载点路径（或先建库后由挂载管理器生成）")
-    _check_no_nesting(path)
+        _check_no_nesting(path)
+    else:
+        # 远程库挂载点由应用内挂载统一决定（data_dir/mounts/lib_<id>），建行后派生
+        path = ""
     row = {
         "name": name, "kind": kind, "source": source, "path": path,
         "read_only": 1 if read_only else 0,
@@ -209,7 +210,7 @@ def create_library(name: str, kind: str = "movie", source: str = "local",
     if source == "smb":
         row.update(_smb_fields(smb))
         if not row["smb_host"] or not row["smb_share"]:
-            raise ValueError("SMB 库需要 host 与 share")
+            raise ValueError("SMB 库需要主机与共享名")
     elif source == "nfs":
         row.update(_nfs_fields(nfs))
         if not row["nfs_export"]:
@@ -223,6 +224,9 @@ def create_library(name: str, kind: str = "movie", source: str = "local",
         except sqlite3.IntegrityError as e:
             raise ValueError(f"库名已存在: {name}") from e
         lid = int(cur.lastrowid)
+        if source != "local":
+            path = mount_point(lid)
+            c.execute("UPDATE libraries SET path=? WHERE id=?", (path, lid))
     logger.info("新建库 id=%s name=%s kind=%s source=%s path=%s",
                 lid, name, kind, source, path)
     return get_library(lid) or {}
@@ -260,6 +264,18 @@ def update_library(library_id: int, **fields) -> dict | None:
         else:
             v = str(v).strip()
         data[k] = v
+    if "path" in fields and fields["path"] is not None:
+        new_path = str(fields["path"]).strip()
+        if str(cur.get("source") or "local") != "local":
+            raise ValueError("远程库路径由挂载点自动决定，不可修改")
+        if library_movie_count(library_id) > 0:
+            raise ValueError("库内已有影片记录，不能改路径（请先清理记录或新建库）")
+        if not new_path:
+            raise ValueError("路径不能为空")
+        if not os.path.isdir(new_path):
+            raise ValueError(f"路径不存在或不是目录: {new_path}")
+        _check_no_nesting(new_path, exclude_id=int(library_id))
+        data["path"] = new_path
     if "smb" in fields and fields["smb"] is not None:
         data.update(_smb_fields(fields["smb"]))
     if "nfs" in fields and fields["nfs"] is not None:

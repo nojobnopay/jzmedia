@@ -107,3 +107,20 @@ def test_fresh_db_is_at_current_version(monkeypatch):
     # 会话库（conftest 已 init）应已是当前版本，且查询不重跑种子
     with sqlite3.connect(_base.DB_PATH) as c:
         assert c.execute("PRAGMA user_version").fetchone()[0] == _base.SCHEMA_VERSION
+
+
+def test_m14_normalizes_remote_library_path(tmp_path, monkeypatch):
+    """v14：存量远程库 path 归一为固定挂载点（挂载与扫描同源）。"""
+    dbp = tmp_path / "v13.db"
+    monkeypatch.setattr(_base, "DB_PATH", str(dbp))
+    monkeypatch.setattr(_base, "ensure_dirs", lambda: None)
+    _base.init_db()
+    with sqlite3.connect(dbp) as c:
+        c.execute("INSERT INTO libraries(name, kind, source, path, created_at, updated_at)"
+                  " VALUES('smb-test', 'movie', 'smb', '/wrong/path', 0, 0)")
+        c.execute("PRAGMA user_version = 13")
+    _base.init_db()
+    from app.db import mount_point
+    with sqlite3.connect(dbp) as c:
+        row = c.execute("SELECT id, path FROM libraries WHERE name='smb-test'").fetchone()
+        assert row[1] == mount_point(row[0])

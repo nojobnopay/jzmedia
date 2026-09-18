@@ -119,7 +119,11 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 ## 多库与远程库（v0.9）
 
 - 一个 jzmedia 实例可管理多个**相互独立**的媒体库（类型：电影/剧集，来源：本地/SMB/NFS）；顶栏切换，设置页「媒体库」新建/检查/删除（删库只清记录，**不动磁盘文件**）。
-- 本地库直接登记容器内路径；SMB/NFS 可应用内挂载：compose 取消 `cap_add: [SYS_ADMIN]` 注释（DSM 必要时 `privileged: true`），镜像已含 `cifs-utils`/`nfs-common`。能力不足时 `POST /api/libraries/{id}/check` 返回宿主挂载命令，可挂到宿主后按本地路径登记；`ALLOW_SMB_MOUNT=0` 可整体禁用应用内挂载。
+- **路径怎么填**：
+  - jzmedia 跑在 NAS 的 Docker 里（推荐）：用「本地路径」，填**容器内路径**——compose 把 `/volume1/video` 挂到 `/media` 后，`\\NAS\video\Movies` 即 `/media/Movies`，不需要 SMB/cap_add。
+  - 开发机远程访问：用 SMB/NFS。UNC `\\主机\共享\目录` 拆成「服务器地址=NAS（或 tailnet IP）、共享名=video、共享内目录=Movies」；**不需要填容器挂载点**，jzmedia 自动挂到 `data/mounts/lib_<id>`。
+- 应用内挂载：compose 取消 `cap_add: [SYS_ADMIN]` 注释（DSM 必要时 `privileged: true`），镜像已含 `cifs-utils`/`nfs-common`；能力不足时 `POST /api/libraries/{id}/check` 返回宿主挂载命令，挂到宿主后按本地路径登记；`ALLOW_SMB_MOUNT=0` 可整体禁用应用内挂载。
+- 默认库与路径调整：首次启动会用 `MEDIA_ROOT` 播种一个库（NAS 上即 `/media`）。想按 Movies/TV 分库时，把 compose 的 `MEDIA_ROOT` 改成 `/media/Movies`，或删掉默认库记录；**0 部影片的本地库可直接「改路径」**（有片后拒绝，防路径与记录脱节）。
 - 远程凭据以 Fernet 加密存库（`data/secret.key`，0600；换机请一并携带，丢了重新输入密码），API 只写不读、日志脱敏。
 - 只读库：归档/改名/移动/删除/上传/NFO 与图片写入一律 409；浏览/播放/扫描照常。
 - 库级命名档 `kodi|plex|off` 与落盘策略 `none|nfo|nfo_art`（Plex 本地海报）为后续 D 阶段；当前归档已按 D5 扁平化。

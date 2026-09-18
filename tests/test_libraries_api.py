@@ -130,6 +130,39 @@ def test_read_only_library_blocks_writes(tmp_path, media_root):
         store.delete_movie(mid)
 
 
+def test_smb_library_path_auto_derived(tmp_path, media_root):
+    from app.db import mount_point
+    r = client.post("/api/libraries", json={
+        "name": "test-lib-smb-auto", "source": "smb",
+        "smb": {"host": "nas", "share": "video", "subpath": "Movies"}})
+    assert r.status_code == 200, r.text
+    lib = r.json()
+    _created.append(lib["id"])
+    assert lib["path"] == mount_point(lib["id"])
+    # 远程库路径不可修改
+    rp = client.patch(f"/api/libraries/{lib['id']}",
+                      json={"path": str(tmp_path / "whatever")})
+    assert rp.status_code == 422
+
+
+def test_local_empty_library_path_can_change(tmp_path, media_root):
+    lib, p = _mk(tmp_path, "test-lib-relocate", "old")
+    newdir = tmp_path / "newhome"
+    newdir.mkdir()
+    r = client.patch(f"/api/libraries/{lib['id']}", json={"path": str(newdir)})
+    assert r.status_code == 200, r.text
+    assert r.json()["path"] == str(newdir)
+    # 有片后拒绝改路径
+    (newdir / "a.mkv").write_bytes(b"x")
+    mid = store.upsert_movie_by_path("a.mkv", library_id=lib["id"])
+    try:
+        r2 = client.patch(f"/api/libraries/{lib['id']}", json={"path": str(p)})
+        assert r2.status_code == 422
+        assert "影片记录" in r2.json()["detail"]
+    finally:
+        store.delete_movie(mid)
+
+
 def test_mount_endpoints_local_and_smb_guidance(tmp_path, media_root):
     lib, p = _mk(tmp_path, "test-lib-mount")
     # 本地库：mount/unmount 为无操作成功

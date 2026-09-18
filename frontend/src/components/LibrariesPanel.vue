@@ -24,9 +24,18 @@
             <button @click="check(l)" :disabled="!!busy">{{ busy === 'check' + l.id ? '检查中…' : '检查' }}</button>
             <button v-if="l.source !== 'local'" @click="mount(l, true)" :disabled="!!busy">挂载</button>
             <button v-if="l.source !== 'local'" @click="mount(l, false)" :disabled="!!busy">卸载</button>
+            <button v-if="l.source === 'local' && l.movie_count === 0" @click="editPath(l)" :disabled="!!busy">改路径</button>
             <button @click="toggleReadOnly(l)" :disabled="!!busy">{{ l.read_only ? '取消只读' : '设只读' }}</button>
             <button @click="toggleEnabled(l)" :disabled="!!busy">{{ l.enabled ? '停用' : '启用' }}</button>
             <button class="danger" @click="armDelete(l)" :disabled="!!busy">删除</button>
+          </td>
+        </tr>
+        <tr v-if="pathEdit && pathEdit.id === l.id">
+          <td colspan="8" class="path-edit">
+            <input v-model="pathEdit.value" placeholder="/media/Movies（容器内路径）" style="min-width:320px" />
+            <button @click="savePath(l)" :disabled="!!busy">{{ busy === 'path' ? '保存中…' : '保存' }}</button>
+            <button @click="pathEdit = null">取消</button>
+            <span class="fhint">仅当库内 0 部影片时可改；NAS Docker 里填 /media/... 这类容器路径</span>
           </td>
         </tr>
       </tbody>
@@ -57,16 +66,18 @@
           <option value="nfs">NFS（应用内挂载）</option>
         </select>
       </label>
-      <label>路径 <input v-model="form.path" placeholder="容器内路径 / 挂载点（如 /data/mounts/lib_2）" style="min-width:280px" /></label>
+      <label v-if="form.source === 'local'">路径 <input v-model="form.path" placeholder="容器内路径，NAS 上如 /media/Movies" style="min-width:280px" /></label>
       <template v-if="form.source === 'smb'">
-        <label>主机 <input v-model="form.smb_host" placeholder="nas 或 tailnet IP" /></label>
-        <label>共享 <input v-model="form.smb_share" placeholder="media" /></label>
-        <label>子路径 <input v-model="form.smb_subpath" placeholder="Movies（可空）" /></label>
+        <label>服务器地址 <input v-model="form.smb_host" placeholder="NAS 或 tailnet IP" /></label>
+        <label>共享名 <input v-model="form.smb_share" placeholder="video" /></label>
+        <label>共享内目录 <input v-model="form.smb_subpath" placeholder="Movies（可空）" /></label>
         <label>用户名 <input v-model="form.smb_username" placeholder="可空" /></label>
         <label>密码 <input v-model="form.smb_password" type="password" placeholder="可空" autocomplete="off" /></label>
+        <span class="fhint">最终挂载：\{{ form.smb_host || '主机' }}\{{ form.smb_share || '共享' }}{{ form.smb_subpath ? '\\' + form.smb_subpath : '' }} → 容器挂载点自动分配（data/mounts/lib_N），无需手填</span>
       </template>
       <template v-if="form.source === 'nfs'">
-        <label>导出 <input v-model="form.nfs_export" placeholder="nas:/volume1/media/Movies" style="min-width:240px" /></label>
+        <label>导出路径 <input v-model="form.nfs_export" placeholder="NAS:/volume1/video/Movies" style="min-width:260px" /></label>
+        <span class="fhint">最终挂载：{{ form.nfs_export || 'NAS:/export' }} → 容器挂载点自动分配（data/mounts/lib_N），无需手填</span>
       </template>
       <label>命名档
         <select v-model="form.naming_profile">
@@ -83,13 +94,14 @@
         </select>
       </label>
       <label class="ck"><input type="checkbox" v-model="form.read_only" /> 只读库</label>
-      <button @click="create" :disabled="!!busy || !form.name.trim() || !form.path.trim()">
+      <button @click="create" :disabled="!!busy || !form.name.trim() || (form.source === 'local' && !form.path.trim())">
         {{ busy === 'create' ? '创建中…' : '创建' }}
       </button>
       <span class="fhint">{{ msg }}</span>
     </div>
-    <p class="hint">SMB/NFS 由 jzmedia 应用内挂载（需 compose <code>cap_add: [SYS_ADMIN]</code>，镜像已含 cifs/nfs 工具）；
-      能力不足时「检查」会给出宿主挂载命令，挂好后按本地路径登记。只读库禁止归档/上传/删除/NFO 写入。凭据 Fernet 加密存储、绝不回显。</p>
+    <p class="hint">路径填写：jzmedia 跑在 NAS Docker 里填<b>容器内路径</b>（compose 把 <code>/volume1/video</code> 挂到 <code>/media</code> 后即
+      <code>/media/Movies</code>），不需要 SMB；开发机远程访问可选 SMB/NFS（容器内挂载需 compose <code>cap_add: [SYS_ADMIN]</code>，镜像已含 cifs/nfs 工具），
+      能力不足时「检查」会给宿主挂载命令。默认库路径被嵌套拒绝时：删除默认库记录、或把它的路径改到目标目录（0 影片时才可改）。只读库禁止归档/上传/删除/NFO 写入；凭据 Fernet 加密、绝不回显。</p>
   </section>
 </template>
 
@@ -104,6 +116,7 @@ const busy = ref('')
 const msg = ref('')
 const arm = ref(null)
 const armConfirm = ref(false)
+const pathEdit = ref(null)
 const form = reactive({
   name: '', kind: 'movie', source: 'local', path: '', naming_profile: 'kodi',
   artwork_mode: 'nfo', read_only: false,
@@ -135,6 +148,31 @@ async function check (l) {
     await load()
   } catch (e) {
     msg.value = '检查失败：' + e.message
+  } finally {
+    busy.value = ''
+  }
+}
+
+function editPath (l) {
+  pathEdit.value = { id: l.id, value: l.path || '' }
+  msg.value = ''
+}
+
+async function savePath (l) {
+  const v = (pathEdit.value?.value || '').trim()
+  if (!v) return
+  busy.value = 'path'
+  msg.value = ''
+  try {
+    await api(`/api/libraries/${l.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ path: v }),
+    })
+    msg.value = `「${l.name}」路径已改为 ${v}`
+    pathEdit.value = null
+    await load()
+  } catch (e) {
+    msg.value = '改路径失败：' + e.message
   } finally {
     busy.value = ''
   }
