@@ -13,7 +13,7 @@ from .config import settings
 from .db import POSTER_DIR, ensure_dirs
 from .log import get_logger, setup_logging
 from .routers import (collections, extras, files, fs, health, jobs, libraries,
-                      movies, persons, stream)
+                      movies, persons, stream, tv)
 
 setup_logging()
 _logger = get_logger("main")
@@ -99,6 +99,7 @@ app.include_router(extras.router)
 app.include_router(jobs.router)
 app.include_router(persons.router)
 app.include_router(stream.router)
+app.include_router(tv.router)
 # check_dir=False：目录由 lifespan ensure_dirs 创建，导入期不再有副作用（评审 R01-Q1）
 app.mount("/posters", StaticFiles(directory=POSTER_DIR, check_dir=False), name="posters")
 

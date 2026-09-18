@@ -30,17 +30,20 @@ class SessionBody(BaseModel):
     start: float = 0
     caps: dict | None = None
     force_burn: bool = False
+    kind: str = "movie"   # F：movie|episode
 
 
 def _spawn_session(version_id: int, quality: str, audio: int,
                    sub: int | None, start: float,
                    caps: dict | None = None,
-                   force_burn: bool = False) -> tuple[str, str, dict]:
+                   force_burn: bool = False,
+                   kind: str = "movie") -> tuple[str, str, dict]:
     """起后台转码会话（渐进式）：校验→plan→Popen→等前 _MIN_SEGS 分片。
     返回 (session_id, session_dir, plan_result)。direct/无 ffmpeg 等直接抛对应 HTTP 状态。
     caps 参与 plan 与 plan_key（不同客户端能力不复用同一转码档）；force_burn 为
     客户端图片字幕解码失败时的烧录降级（见 playback._subtitle_mode）。"""
-    m, abs_p = _version_abs(version_id)
+    m, abs_p = _version_abs(version_id, kind)
+    k = m.get("kind") or "movie"
     info = _media_cached_or_probe(m, abs_p)
     if not info.get("playable"):
         raise HTTPException(422, f"unplayable: {info.get('probe_error') or 'probe failed'}")
@@ -89,18 +92,20 @@ def _spawn_session(version_id: int, quality: str, audio: int,
     seg = d["plan"].get("seg") or "fmp4"
     stime = _playback.seg_time(seg)
     # 整片已转完（预转码/之前播完）：当静态 VOD 直接播，不起进程——hls.js 最稳形态
-    sdir0 = _session_dir(int(m["id"]), skey, start)
+    sdir0 = _session_dir(int(m["id"]), skey, start, k)
     if _session_complete(sdir0, plan_key):
         sid0 = uuid.uuid4().hex[:16]
         with _sess_lock:
             _sessions[sid0] = {"proc": None, "sdir": sdir0, "vid": int(m["id"]),
-                               "plan": d["plan"], "plan_key": plan_key,
+                               "kind": k, "plan": d["plan"], "plan_key": plan_key,
                                "caps_hash": _caps.caps_hash(caps_n), "backend": "static",
                                "complete": True, "last_ping": time.time()}
         return sid0, sdir0, d
     with _sess_lock:
         for sid, s in list(_sessions.items()):
             if int(s.get("vid") or -1) != int(m["id"]):
+                continue
+            if str(s.get("kind") or "movie") != k:
                 continue
             proc = s.get("proc")
             if proc is not None and proc.poll() is not None:
@@ -114,7 +119,7 @@ def _spawn_session(version_id: int, quality: str, audio: int,
     sdir = ""
     try:
         _purge_old()
-        sdir = _session_dir(int(m["id"]), skey, start)
+        sdir = _session_dir(int(m["id"]), skey, start, k)
         for n in os.listdir(sdir):
             try:
                 os.remove(os.path.join(sdir, n))
@@ -236,7 +241,8 @@ def hls_session_create(version_id: int, body: SessionBody | None = None):
     except (TypeError, ValueError):
         raise HTTPException(422, "bad version_id")
     sid, _sdir, d = _spawn_session(vid, body.quality, body.audio, body.sub, body.start,
-                                   caps=body.caps, force_burn=body.force_burn)
+                                   caps=body.caps, force_burn=body.force_burn,
+                                   kind=body.kind)
     caps_n = _caps.default_caps() if body.caps is None else _caps.normalize_caps(body.caps)
     return {"session_id": sid,
             "playlist_url": f"/api/stream/sessions/{sid}/master.m3u8",

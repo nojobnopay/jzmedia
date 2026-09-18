@@ -5,6 +5,7 @@
 当前沿用剧集跳过语义。
 """
 import os
+import re
 from .. import library_paths
 from .. import store
 from .. import tmdb
@@ -239,6 +240,57 @@ def _count_videos(root: str, skip_dirs: set) -> int:
     return total
 
 
+_SEASON_DIR_RE = re.compile(r"(?i)^(?:season|s)\s*0*(\d{1,3})$")
+_SHOW_DIR_RE = re.compile(r"^(.*?)\s*\((\d{4})\)\s*$")
+
+
+def _tv_show_title(rel: str, fallback: str) -> tuple[str, int | None]:
+    """剧名（Plex 树优先最近一级 `剧名 (年份)` 祖先目录，其次顶层目录，最后文件名解析）。"""
+    parts = [p for p in rel.replace("\\", "/").split("/")[:-1] if p]
+    for p in reversed(parts):
+        m = _SHOW_DIR_RE.match(p.strip())
+        if m:
+            return m.group(1).strip(), int(m.group(2))
+    if parts:
+        return parts[0].strip(), None
+    return (fallback or "").strip(), None
+
+
+def scan_tv_one(abs_path: str, library_id=None) -> dict:
+    """TV 只读清单入库：解析 SxxEyy → tv_shows/tv_episodes；不刮削/不改名/不写 NFO。"""
+    lib_id = _lib_id(library_id)
+    rel = os.path.relpath(abs_path, library_paths.library_root(lib_id))
+    base = os.path.basename(abs_path)
+    try:
+        st = os.stat(abs_path)
+        mtime, size = int(st.st_mtime), int(st.st_size)
+    except OSError:
+        mtime, size = 0, 0
+    if is_sidecar(rel) or is_sample(base):
+        store.set_scan_state(rel, mtime, size, "skipped_sidecar", library_id=lib_id)
+        return {"file": rel, "status": "skipped_sidecar"}
+    parsed = parse_filename(base)
+    season, episode = parsed.get("season"), parsed.get("episode")
+    if season is None:
+        parent = os.path.basename(os.path.dirname(abs_path))
+        m = _SEASON_DIR_RE.match(parent or "")
+        if m:
+            season = int(m.group(1))
+    if season is None or episode is None:
+        store.set_scan_state(rel, mtime, size, "tv_unknown", library_id=lib_id)
+        return {"file": rel, "status": "skipped_tv_unknown", "parsed": parsed}
+    title, year = _tv_show_title(rel, parsed.get("title") or os.path.splitext(base)[0])
+    if not title:
+        store.set_scan_state(rel, mtime, size, "tv_unknown", library_id=lib_id)
+        return {"file": rel, "status": "skipped_tv_unknown"}
+    show_id = store.upsert_show(lib_id, title, year, sort_title=normalize_title(title))
+    ep_title = parsed.get("episode_title") or ""
+    ep_id = store.upsert_episode(show_id, lib_id, rel, season, episode, ep_title)
+    store.set_scan_state(rel, mtime, size, "tv_ok", library_id=lib_id)
+    return {"file": rel, "status": "tv_ok", "show_id": show_id, "episode_id": ep_id,
+            "show": title, "season": season, "episode": episode}
+
+
 def _scan_libraries(library_id) -> list[dict]:
     try:
         if library_id is None:
@@ -249,6 +301,37 @@ def _scan_libraries(library_id) -> list[dict]:
     except Exception as e:
         logger.warning("resolve scan libraries failed: %s", e)
         return [library_paths.default_library()]
+
+
+def _tv_walk(lib_id: int, root: str, skip_dirs: set, out: list, done: int,
+             grand: int, progress_cb, should_stop) -> int:
+    for root_dir, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs
+                         if not d.startswith(".") and d not in skip_dirs)
+        for f in sorted(files):
+            if should_stop and should_stop():
+                return done
+            if f.startswith("."):
+                continue
+            if os.path.splitext(f)[1].lower() not in VIDEO_EXTS:
+                continue
+            abs_p = os.path.join(root_dir, f)
+            try:
+                r = scan_tv_one(abs_p, library_id=lib_id)
+                r["library_id"] = lib_id
+                out.append(r)
+            except Exception as e:
+                rel = os.path.relpath(abs_p, root)
+                logger.debug("scan_tv_one failed file=%s: %s", rel, e, exc_info=True)
+                out.append({"file": rel, "library_id": lib_id,
+                            "status": f"error: {e}"})
+            done += 1
+            if progress_cb:
+                try:
+                    progress_cb(done, grand)
+                except Exception as e:
+                    logger.debug("progress_cb failed: %s", e)
+    return done
 
 
 def scan_all(progress_cb=None, should_stop=None, library_id=None) -> list[dict]:
@@ -285,6 +368,13 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None) -> list[dict]:
                         "status": f"error: library root {err}"})
             continue
         root = str(lib["path"])
+        if str(lib.get("kind") or "movie") == "tv":
+            done = _tv_walk(lib_id, root, skip_dirs, out, done, grand,
+                            progress_cb, should_stop)
+            if should_stop and should_stop():
+                logger.info("scan cancelled: processed=%s/%s", done, grand)
+                return out
+            continue
         seen_extras: set[str] = set()
         for root_dir, dirs, files in os.walk(root):
             # 剪枝（评审 P1-04）：隐藏目录 + NAS 回收站/缩略图等系统目录不进库

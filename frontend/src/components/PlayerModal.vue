@@ -112,7 +112,12 @@ async function ensureHls() {
   return HlsCls
 }
 
-const props = defineProps({ versionId: { type: Number, required: true }, title: { type: String, default: '' } })
+const props = defineProps({ versionId: { type: Number, required: true }, title: { type: String, default: '' },
+  kind: { type: String, default: 'movie' } })
+const isEpisode = computed(() => props.kind === 'episode')
+const kindParam = computed(() => isEpisode.value ? '?kind=episode' : '')
+const kindSuffix = computed(() => isEpisode.value ? '&kind=episode' : '')
+const subDelayKey = computed(() => 'jzmedia.subDelay.' + (isEpisode.value ? 'ep.' : '') + props.versionId)
 const emit = defineEmits(['close', 'watched'])
 
 const dlgRef = ref(null)
@@ -540,7 +545,7 @@ async function decidePlayback(subArg) {
     method: 'POST',
     body: JSON.stringify({ quality: quality.value, audio: audioIdx.value,
                            sub: subArg, client: 'web', caps,
-                           force_burn: forceBurn.value }),
+                           force_burn: forceBurn.value, kind: props.kind }),
   })
   const d = await post(base)
   const media = d.media || {}
@@ -659,7 +664,7 @@ async function reload() {
                                start: Math.floor(startAt),
                                sub: burnSub >= 0 ? burnSub : null,
                                caps: activeCaps,
-                               force_burn: forceBurn.value }),
+                               force_burn: forceBurn.value, kind: props.kind }),
       })
     } catch (e) {
       sessStatus.value = ''
@@ -768,7 +773,7 @@ async function mountPgs(v, key) {
     const inst = new mod.PgsRenderer({
       video: v,
       canvas: ensurePgsCanvas(v),
-      subUrl: `/api/stream/${props.versionId}/sub/${subIdx.value}.sup`,
+      subUrl: `/api/stream/${props.versionId}/sub/${subIdx.value}.sup${kindParam.value}`,
       workerUrl: mod.workerUrl,
       timeOffset: subShift() + subDelay.value,
       aspectRatio: 'contain',   // 与 video object-fit 一致
@@ -811,7 +816,7 @@ async function mountAss(v, key) {
   try {
     [mod, meta] = await Promise.all([
       ensureJassub(),
-      api(`/api/stream/${props.versionId}/fonts`).catch(() => ({ fonts: [] })),
+      api(`/api/stream/${props.versionId}/fonts${kindParam.value}`).catch(() => ({ fonts: [] })),
     ])
   } catch (e) {
     posHint.value = 'ASS 渲染组件加载失败，可勾选「兼容」改用 VTT 字幕'
@@ -819,7 +824,7 @@ async function mountAss(v, key) {
   }
   if (videoEl.value !== v || burnOn || subKind(selectedSub()) !== 'ass') return
   const sub = selectedSub() || {}
-  const assUrl = sub.url || `/api/stream/${props.versionId}/sub/${subIdx.value}.ass`
+  const assUrl = sub.url || `/api/stream/${props.versionId}/sub/${subIdx.value}.ass${kindParam.value}`
   const fonts = (meta.fonts || []).map(f => f.url)
   // 无任何可用字体 + 含中日韩文本：libass 缺字形会显示不全，
   // 自动降级浏览器 VTT（系统字体渲染，保证可读；投放字体到 data/fonts/ 即恢复 ASS 样式）；
@@ -1039,7 +1044,7 @@ async function mountVttLayer(v, key) {
     return
   }
   const sub = selectedSub() || {}
-  const url = sub.url || `/api/stream/${props.versionId}/sub/${subIdx.value}.vtt`
+  const url = sub.url || `/api/stream/${props.versionId}/sub/${subIdx.value}.vtt${kindParam.value}`
   let text = typeof sub.text === 'string' ? sub.text : ''   // 本地字幕：已在加载期解码（含 GBK 兜底）
   if (!text) {
     try {
@@ -1214,7 +1219,7 @@ function onCompatSet(v) { compatSub.value = v; onCompatChange() }
 function shiftSubDelay(d) {
   const x = Math.round(Math.max(-10, Math.min(10, subDelay.value + d)) * 10) / 10
   subDelay.value = x
-  try { localStorage.setItem('jzmedia.subDelay.' + props.versionId, String(x)) } catch (e) { /* 忽略 */ }
+  try { localStorage.setItem(subDelayKey.value, String(x)) } catch (e) { /* 忽略 */ }
   const toff = subShift() + x
   if (jassub) { try { jassub.timeOffset = toff } catch (e) { /* 忽略 */ } }
   if (pgs) { try { pgs.timeOffset = toff } catch (e) { /* 忽略 */ } }
@@ -1325,7 +1330,7 @@ function progressPayload(v) {
 }
 async function postProgress(p) {
   try {
-    await api(`/api/stream/progress?version_id=${props.versionId}`, {
+    await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`, {
       method: 'POST', body: JSON.stringify({ position: p.pos, duration: p.dur || 0 }),
       keepalive: true,   // 关页/刷新时也能把最后一次进度发出去（评审 B8/R14-D3）
       timeout: 15000     // 单行 UPSERT：慢/挂起时及时放弃，别拖住关播后的「上次看到」刷新
@@ -1428,7 +1433,7 @@ async function restartPlay() {
   startOffset.value = 0
   seekPos.value = 0
   try {
-    await api(`/api/stream/progress?version_id=${props.versionId}`, { method: 'DELETE' })
+    await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`, { method: 'DELETE' })
   } catch (e) { /* 忽略 */ }
   reload()
 }
@@ -1588,11 +1593,11 @@ async function copyDebug() {
 onMounted(async () => {
   // 字幕延迟按版本记忆（ASS/PGS 客户端渲染的 timeOffset）
   try {
-    const saved = Number(localStorage.getItem('jzmedia.subDelay.' + props.versionId))
+    const saved = Number(localStorage.getItem(subDelayKey.value))
     if (Number.isFinite(saved)) subDelay.value = Math.round(saved * 10) / 10
   } catch (e) { /* 忽略 */ }
   try {
-    const p = await api(`/api/stream/progress?version_id=${props.versionId}`)
+    const p = await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`)
     const pos = Number(p.position) || 0
     let dur = Number(p.duration) || 0
     // 旧版本用 HLS 增长清单时长（如 30s）写坏过存档：dur < pos 视为不可信，按未看完处理

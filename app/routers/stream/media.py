@@ -14,15 +14,16 @@ from .subtitles import _sub_list
 __all__ = ['stream_media', '_media_payload', 'stream_backends', 'PlaybackQuery', '_decide_payload', 'stream_decide', 'stream_decide_post', 'VersionsQuery', '_versions_payload', 'stream_versions', 'stream_versions_post', 'ProbeMissingBody', 'probe_missing', 'ProgressBody', 'progress_get', 'progress_save', 'progress_clear']
 
 @router.get("/{version_id}/media")
-def stream_media(version_id: int, refresh: int = 0):
+def stream_media(version_id: int, refresh: int = 0, kind: str = "movie"):
     """版本媒体信息（徽章行用）：容器/时长/分辨率/编码/HDR/位深/音字幕列表/playable，
-    并附客户端实测候选码串（vcaps + 每音轨 caps）。"""
-    m, abs_p = _version_abs(version_id)
+    并附客户端实测候选码串（vcaps + 每音轨 caps）。kind=movie|episode（F）。"""
+    m, abs_p = _version_abs(version_id, kind)
+    k = m.get("kind") or "movie"
     if refresh:
-        info = store.upsert_media_info(int(m["id"]), _media.probe(abs_p))
+        info = store.upsert_media_info(int(m["id"]), _media.probe(abs_p), k)
     else:
         info = _media_cached_or_probe(m, abs_p)
-    return {"version_id": int(m["id"]), "file_path": m["file_path"],
+    return {"version_id": int(m["id"]), "kind": k, "file_path": m["file_path"],
             "title": m.get("title", ""), **_media_payload(m, info),
             "duration_text": _media.fmt_duration(info.get("duration") or 0)}
 
@@ -57,6 +58,7 @@ class PlaybackQuery(BaseModel):
     client: str = "web"
     caps: dict | None = None
     force_burn: bool = False
+    kind: str = "movie"   # F：movie|episode
 
 
 def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
@@ -65,11 +67,16 @@ def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
     d = _playback.plan(merged, caps=caps, quality=q.quality, audio_idx=q.audio,
                        sub_idx=q.sub, client=q.client, force_burn=q.force_burn)
     method = d["method"]
-    blob_url = f"/api/movies/{int(m['id'])}/blob?name={m['file_path']}"
+    k = m.get("kind") or "movie"
+    if k == "episode":
+        blob_url = f"/api/tv/episodes/{int(m['id'])}/blob"
+    else:
+        blob_url = f"/api/movies/{int(m['id'])}/blob?name={m['file_path']}"
     sub_q = f"&sub={q.sub}" if q.sub is not None else ""
+    kind_q = "" if k == "movie" else "&kind=episode"
     hls_url = (f"/api/stream/{int(m['id'])}/master.m3u8"
-               f"?quality={q.quality}&audio={q.audio}{sub_q}")
-    return {"version_id": int(m["id"]), "method": method, "reasons": d["reasons"],
+               f"?quality={q.quality}&audio={q.audio}{sub_q}{kind_q}")
+    return {"version_id": int(m["id"]), "kind": k, "method": method, "reasons": d["reasons"],
             "plan": d["plan"], "subtitle_mode": d.get("subtitle_mode") or "none",
             "caps_hash": _caps.caps_hash(caps) if q.caps is not None else "",
             "media": _media_payload(m, info),
@@ -82,9 +89,9 @@ def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
 @router.get("/{version_id}/decide")
 def stream_decide(version_id: int, quality: str = "auto",
                   audio: int = 0, sub: int | None = None,
-                  client: str = "web"):
+                  client: str = "web", kind: str = "movie"):
     """三档决策（GET 兼容口：无 caps，走服务端保守默认）。新播放器用 POST 带 caps。"""
-    m, abs_p = _version_abs(version_id)
+    m, abs_p = _version_abs(version_id, kind)
     info = _media_cached_or_probe(m, abs_p)
     if not info.get("playable"):
         raise HTTPException(422, f"unplayable: {info.get('probe_error') or 'probe failed'}")
@@ -96,7 +103,7 @@ def stream_decide(version_id: int, quality: str = "auto",
 def stream_decide_post(version_id: int, body: PlaybackQuery | None = None):
     """四档决策（目标文档 §5）：direct / remux / audio_transcode / video_transcode。
     caps 由前端 caps.js 实测上报；direct_url 复用 blob（Range 直发），hls_url 供切片口。"""
-    m, abs_p = _version_abs(version_id)
+    m, abs_p = _version_abs(version_id, body.kind if body else "movie")
     info = _media_cached_or_probe(m, abs_p)
     if not info.get("playable"):
         raise HTTPException(422, f"unplayable: {info.get('probe_error') or 'probe failed'}")
@@ -265,15 +272,15 @@ class ProgressBody(BaseModel):
 
 
 @router.get("/progress")
-def progress_get(version_id: int):
+def progress_get(version_id: int, kind: str = "movie"):
     """读单版本断点。无行返回 {position:0,...}（前端视为从头）。"""
     try:
         vid = int(version_id)
     except (TypeError, ValueError):
         raise HTTPException(422, "bad version_id")
-    if not store.get_movie(vid):
+    if not store.get_playable(kind, vid):
         raise HTTPException(404, "version not found")
-    p = store.get_progress(vid)
+    p = store.get_progress(vid, kind)
     if not p:
         return {"version_id": vid, "position": 0, "duration": 0, "updated_at": 0,
                 "position_text": "0:00"}
@@ -281,19 +288,19 @@ def progress_get(version_id: int):
 
 
 @router.post("/progress")
-def progress_save(body: ProgressBody, version_id: int):
+def progress_save(body: ProgressBody, version_id: int, kind: str = "movie"):
     """写单版本断点（position/duration 秒）。伪造/缺失版本 404/410，不落脏行。"""
-    _version_abs(version_id)
-    p = store.save_progress(int(version_id), body.position, body.duration)
+    _version_abs(version_id, kind)
+    p = store.save_progress(int(version_id), body.position, body.duration, kind)
     return {**p, "position_text": _media.fmt_duration(p.get("position") or 0)}
 
 
 @router.delete("/progress")
-def progress_clear(version_id: int):
+def progress_clear(version_id: int, kind: str = "movie"):
     """清单版本断点（用户选“从头开始”）。"""
     try:
         vid = int(version_id)
     except (TypeError, ValueError):
         raise HTTPException(422, "bad version_id")
-    return {"version_id": vid, "cleared": store.clear_progress(vid)}
+    return {"version_id": vid, "cleared": store.clear_progress(vid, kind)}
 

@@ -14,13 +14,14 @@ from ...scanner import sidecar_subtitles, _SIDECAR_LANG_HINTS, _guess_sidecar_la
 from ... import media as _media
 from ...log import get_logger
 logger = get_logger("stream.subtitles")
-from .common import (_ffmpeg_ok, _media_cached_or_probe,                       _run_ffmpeg_to_temp, _version_abs, router)
+from .common import (_ffmpeg_ok, _media_cached_or_probe, _run_ffmpeg_to_temp,
+                     _version_abs, router, version_cache_dir)
 __all__ = ['hls_subtitle', '_sidecar_abs', '_convert_sidecar', '_extract_embedded', '_FONT_RE', '_SIDECAR_LANG_HINTS', '_guess_sidecar_lang', '_sub_list', '_sub_pick', 'hls_subtitle_ass', 'hls_subtitle_sup', '_dump_attachments', 'stream_fonts', '_FONT_MIME', '_font_mime', 'stream_builtin_font', 'stream_attachment_font']
 
 @router.get("/{version_id}/sub/{idx}.vtt")
-def hls_subtitle(version_id: int, idx: int):
+def hls_subtitle(version_id: int, idx: int, kind: str = "movie"):
     """文字字幕 → WebVTT（浏览器 <track>；内嵌抽取/外挂转换，缓存复用）。图片字幕 415。"""
-    m, abs_p = _version_abs(version_id)
+    m, abs_p = _version_abs(version_id, kind)
     info = _media_cached_or_probe(m, abs_p)
     track = _sub_pick(m, info, idx)
     if int(track.get("image") or 0):
@@ -29,9 +30,10 @@ def hls_subtitle(version_id: int, idx: int):
         raise HTTPException(501, "ffmpeg not installed in server image")
     si = int(idx)
     if track.get("source") == "sidecar":
-        dest = _convert_sidecar(str(track.get("sidecar") or ""), int(m["id"]), "vtt")
+        dest = _convert_sidecar(str(track.get("sidecar") or ""), int(m["id"]),
+                                "vtt", kind)
     else:
-        dest = _extract_embedded(abs_p, int(m["id"]), track, si, "vtt")
+        dest = _extract_embedded(abs_p, int(m["id"]), track, si, "vtt", kind)
     return FileResponse(dest, media_type="text/vtt", filename=f"sub{si}.vtt")
 
 
@@ -40,7 +42,8 @@ def _sidecar_abs(rel: str) -> str:
     return library_paths.abs_path(rel)
 
 
-def _convert_sidecar(rel: str, vid: int, dest_ext: str) -> str:
+def _convert_sidecar(rel: str, vid: int, dest_ext: str,
+                     kind: str = "movie") -> str:
     """外挂字幕转换到缓存（srt→vtt/ass、ass/ssa→vtt）。按源 mtime 失效。"""
     src_abs = _sidecar_abs(rel)
     if not os.path.isfile(src_abs):
@@ -48,7 +51,7 @@ def _convert_sidecar(rel: str, vid: int, dest_ext: str) -> str:
     codec = "webvtt" if dest_ext == "vtt" else "ass"
     key = hashlib.blake2b((rel + "|" + dest_ext).encode("utf-8"),
                           digest_size=6).hexdigest()   # 评审 B6/R11-B6：不用 SHA-1
-    sdir = os.path.join(TRANSCODE_DIR, str(int(vid)), "subs")
+    sdir = os.path.join(version_cache_dir(kind, vid), "subs")
     os.makedirs(sdir, exist_ok=True)
     dest = os.path.join(sdir, f"side_{key}.{dest_ext}")
     try:
@@ -64,10 +67,11 @@ def _convert_sidecar(rel: str, vid: int, dest_ext: str) -> str:
     return dest
 
 
-def _extract_embedded(abs_p: str, vid: int, track: dict, si: int, dest_ext: str) -> str:
+def _extract_embedded(abs_p: str, vid: int, track: dict, si: int, dest_ext: str,
+                      kind: str = "movie") -> str:
     """内嵌字幕抽取到缓存（vtt→webvtt 转换；ass→ASS；sup→PGS 流拷贝）。按源 mtime 失效。"""
     codec = {"vtt": "webvtt", "ass": "ass"}.get(dest_ext, "copy")
-    sdir = os.path.join(TRANSCODE_DIR, str(int(vid)), "subs")
+    sdir = os.path.join(version_cache_dir(kind, vid), "subs")
     os.makedirs(sdir, exist_ok=True)
     dest = os.path.join(sdir, f"{si}.{dest_ext}")
     try:
@@ -144,10 +148,10 @@ def _sub_pick(m: dict, info: dict, idx) -> dict:
 
 
 @router.get("/{version_id}/sub/{idx}.ass")
-def hls_subtitle_ass(version_id: int, idx: int):
+def hls_subtitle_ass(version_id: int, idx: int, kind: str = "movie"):
     """ASS/SSA 原始文件（JASSUB WASM/libass 客户端渲染，保留字体/位置/动画）。
     外挂 ass/ssa 直接服务；外挂 srt 转 ASS；文本类非 ASS 415；图片字幕 415（客户端渲染/烧录）。"""
-    m, abs_p = _version_abs(version_id)
+    m, abs_p = _version_abs(version_id, kind)
     info = _media_cached_or_probe(m, abs_p)
     track = _sub_pick(m, info, idx)
     if int(track.get("image") or 0):
@@ -165,17 +169,17 @@ def hls_subtitle_ass(version_id: int, idx: int):
             if not os.path.isfile(src):
                 raise HTTPException(404, "sidecar subtitle missing")
             return FileResponse(src, media_type="text/x-ssa", filename=os.path.basename(src))
-        dest = _convert_sidecar(rel, int(m["id"]), "ass")
+        dest = _convert_sidecar(rel, int(m["id"]), "ass", kind)
         return FileResponse(dest, media_type="text/x-ssa", filename=f"sub{si}.ass")
-    dest = _extract_embedded(abs_p, int(m["id"]), track, si, "ass")
+    dest = _extract_embedded(abs_p, int(m["id"]), track, si, "ass", kind)
     return FileResponse(dest, media_type="text/x-ssa", filename=f"sub{si}.ass")
 
 
 @router.get("/{version_id}/sub/{idx}.sup")
-def hls_subtitle_sup(version_id: int, idx: int):
+def hls_subtitle_sup(version_id: int, idx: int, kind: str = "movie"):
     """PGS 原始 .sup（libpgs 浏览器端解码渲染，零转码）：内嵌 `-c:s copy` 抽取缓存；
     外挂 .sup 直接服务；非 PGS 415（VobSub 只能烧录）。"""
-    m, abs_p = _version_abs(version_id)
+    m, abs_p = _version_abs(version_id, kind)
     info = _media_cached_or_probe(m, abs_p)
     track = _sub_pick(m, info, idx)
     codec = _media.norm_codec(str(track.get("codec") or ""))
@@ -190,7 +194,7 @@ def hls_subtitle_sup(version_id: int, idx: int):
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
     si = int(idx)
-    dest = _extract_embedded(abs_p, int(m["id"]), track, si, "sup")
+    dest = _extract_embedded(abs_p, int(m["id"]), track, si, "sup", kind)
     return FileResponse(dest, media_type="application/x-pgs", filename=f"sub{si}.sup")
 
 
@@ -232,10 +236,10 @@ def _dump_attachments(abs_p: str, fdir: str) -> None:
 
 
 @router.get("/{version_id}/fonts")
-def stream_fonts(version_id: int):
+def stream_fonts(version_id: int, kind: str = "movie"):
     """ASS 渲染可用字体清单：MKV 内嵌 attachment + data/fonts 内置（运行时可投放）。
     附件字体在首次请求字体文件时懒抽取（见 /{id}/fonts/{name}）。"""
-    m, abs_p = _version_abs(version_id)
+    m, abs_p = _version_abs(version_id, kind)
     info = _media_cached_or_probe(m, abs_p)
     out = []
     for a in (info.get("attachments") or []):
@@ -274,9 +278,9 @@ def stream_builtin_font(name: str):
 
 
 @router.get("/{version_id}/fonts/{name}")
-def stream_attachment_font(version_id: int, name: str):
-    """MKV 内嵌字体（attachment）：首次请求时从片源 dump 到 transcode/{id}/fonts/。"""
-    m, abs_p = _version_abs(version_id)
+def stream_attachment_font(version_id: int, name: str, kind: str = "movie"):
+    """MKV 内嵌字体（attachment）：首次请求时从片源 dump 到缓存 fonts/。"""
+    m, abs_p = _version_abs(version_id, kind)
     info = _media_cached_or_probe(m, abs_p)
     wanted = os.path.basename(unquote(name or ""))
     if not _FONT_RE.match(wanted):
@@ -284,7 +288,7 @@ def stream_attachment_font(version_id: int, name: str):
     att = {os.path.basename(str(a.get("name") or "")) for a in (info.get("attachments") or [])}
     if wanted not in att:
         raise HTTPException(404, "font not found in this file")
-    fdir = os.path.join(TRANSCODE_DIR, str(int(m["id"])), "fonts")
+    fdir = os.path.join(version_cache_dir(kind, int(m["id"])), "fonts")
     os.makedirs(fdir, exist_ok=True)
     dest = os.path.join(fdir, wanted)
     if not os.path.isfile(dest):

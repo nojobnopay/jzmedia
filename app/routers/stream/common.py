@@ -18,7 +18,7 @@ from ... import playback as _playback
 import uuid
 from ...log import get_logger
 logger = get_logger("stream.common")
-__all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_MIN_SEGS', 'PLAN_VERSION', '_SESS_IDLE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_abs', '_media_cached_or_probe', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_purge_old', '_kill_proc', '_drop_session', 'shutdown_sessions', 'drop_sessions_for_version', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_watch_completion', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_register_prewarm_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
+__all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_MIN_SEGS', 'PLAN_VERSION', '_SESS_IDLE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_abs', '_media_cached_or_probe', 'version_cache_dir', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_purge_old', '_kill_proc', '_drop_session', 'shutdown_sessions', 'drop_sessions_for_version', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_watch_completion', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_register_prewarm_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
 
 router = APIRouter(prefix="/api/stream")
 
@@ -140,13 +140,22 @@ def _log_hit(sid: str, kind: str, name: str, status: int) -> None:
         pass
 
 
-def _version_abs(version_id: int) -> tuple[dict, str]:
-    """版本行 + 磁盘绝对路径。行不存在 404；文件缺失 410（前端按无效文件置灰）。"""
+def version_cache_dir(kind, item_id: int) -> str:
+    """按 (kind, id) 隔离的字幕/字体缓存目录（movie=m<id>，episode=e<id>）。"""
+    pre = "e" if str(kind or "movie") == "episode" else "m"
+    d = os.path.join(TRANSCODE_DIR, f"{pre}{int(item_id)}")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _version_abs(version_id: int, kind: str = "movie") -> tuple[dict, str]:
+    """播放行 + 磁盘绝对路径。行不存在 404；文件缺失 410（前端按无效文件置灰）。
+    `kind=movie|episode`（F 阶段）：剧集与电影共用同一套流接口。"""
     try:
         vid = int(version_id)
     except (TypeError, ValueError):
         raise HTTPException(422, "bad version_id")
-    m = store.get_movie(vid)
+    m = store.get_playable(kind, vid)
     if not m:
         raise HTTPException(404, "version not found")
     abs_p = library_paths.resolve(
@@ -158,7 +167,8 @@ def _version_abs(version_id: int) -> tuple[dict, str]:
 
 def _media_cached_or_probe(m: dict, abs_p: str) -> dict:
     """缓存优先；环境错误缓存/探测结构过期（probe_ver 低）→ 自动重探（自愈，免 backfill）。"""
-    cached = store.get_media_info(int(m["id"]))
+    kind = m.get("kind") or "movie"
+    cached = store.get_media_info(int(m["id"]), kind)
     if cached and int(cached.get("probed_at") or 0) > 0:
         stale = int(cached.get("probe_ver") or 0) < int(getattr(_media, "PROBE_VERSION", 0))
         # 脏行自愈：环境错误缓存视为未探测（旧版本落库的，一次即洗掉）
@@ -168,7 +178,7 @@ def _media_cached_or_probe(m: dict, abs_p: str) -> dict:
         else:
             return cached
     info = _media.probe(abs_p)
-    return store.upsert_media_info(int(m["id"]), info)
+    return store.upsert_media_info(int(m["id"]), info, kind)
 
 
 def _quality_key(plan: dict) -> str:
@@ -219,13 +229,14 @@ def _plan_marker(plan: dict, audio: int, start: float) -> str:
                       sort_keys=True)
 
 
-def _session_dir(version_id: int, key: str, start: float) -> str:
+def _session_dir(version_id: int, key: str, start: float, kind: str = "movie") -> str:
     k = re.sub(r"[^a-z0-9_]+", "", (key or "src").strip().lower()) or "src"
     try:
         st = max(0, int(float(start or 0)))
     except (TypeError, ValueError):
         st = 0
-    d = os.path.join(TRANSCODE_DIR, str(int(version_id)), f"{k}_s{st}")
+    pre = "e" if str(kind or "movie") == "episode" else "m"
+    d = os.path.join(TRANSCODE_DIR, f"{pre}{int(version_id)}", f"{k}_s{st}")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -523,12 +534,15 @@ def _video_seg_prefix(seg: str) -> str:
     return "seg" if seg == "ts" else "video_"
 
 
-def _live_sessions_for(vid: int) -> list[dict]:
-    """该版本当前活着的会话（含预转码注册的），供 prewarm 复用/避让（评审 P1-07）。"""
+def _live_sessions_for(vid: int, kind: str | None = None) -> list[dict]:
+    """该 item 当前活着的会话（含预转码注册的），供 prewarm 复用/避让（评审 P1-07）。
+    `kind` 提供时同时匹配类型（电影/剧集 id 空间独立，防串）。"""
     out = []
     with _sess_lock:
         for sid, s in list(_sessions.items()):
             if int(s.get("vid") or -1) != int(vid):
+                continue
+            if kind is not None and str(s.get("kind") or "movie") != str(kind):
                 continue
             proc = s.get("proc")
             if proc is not None and proc.poll() is not None:
@@ -538,9 +552,11 @@ def _live_sessions_for(vid: int) -> list[dict]:
     return out
 
 
-def _find_live_session(vid: int, plan_key: str) -> dict | None:
+def _find_live_session(vid: int, plan_key: str,
+                       kind: str | None = None) -> dict | None:
     """同 plan 的活会话（在线播或另一 prewarm），可附着复用。"""
-    return next((x for x in _live_sessions_for(vid) if x["plan_key"] == plan_key), None)
+    return next((x for x in _live_sessions_for(vid, kind)
+                 if x["plan_key"] == plan_key), None)
 
 
 def _register_prewarm_session(vid: int, sdir: str, plan: dict, proc,

@@ -114,7 +114,7 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 - 只读库：归档/改名/移动/删除/上传/NFO 与图片写入一律 409；浏览/播放/扫描照常。
 - 库级命名档 `kodi|plex|off` 与落盘策略 `none|nfo|nfo_art`（Plex 本地海报）为后续 D 阶段；当前归档已按 D5 扁平化。
 - 离线/降级刮削（E 阶段）：扫描匹配失败自动回退本地 `match_index`（TMDB 缓存/NFO/外部候选统一索引），再按库链尝试无 key 桥接（Wikidata，取 IMDb/TMDB ID）；同目录 `movie.nfo` 可直接导入匹配；`POST /api/jobs/import-imdb` 可离线导入 IMDb `title.basics` 数据集（`IMDB_DATASET_PATH` 或传 path）；豆瓣建议接口默认关闭（`DOUBAN_ENABLED=1` 显式开启，仅作候选提示）。库级链顺序可用 `libraries.metadata_providers`（JSON 数组）覆盖。
-- TV 库本期建库后扫描为只读清单（F 阶段补浏览页与播放入口）。
+- TV 库（F 阶段）：解析 `SxxEyy` 入只读清单（不刮削/不改名/不写 NFO），顶栏「剧集」按剧/季/集浏览并播放（流接口 `kind=episode`，转码会话/断点/字幕缓存按 `(kind,id)` 隔离）。
 
 ## 数据存放
 

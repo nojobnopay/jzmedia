@@ -53,8 +53,22 @@ def parse_filename(name: str) -> dict:
         title = title[0]
     stem = os.path.splitext(name)[0]
     _, stack = split_stack(stem)
+
+    def _int(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    season = _int(g.get("season"))
+    episode = _int(g.get("episode"))
+    ep_title = g.get("episode_title") or ""
+    if isinstance(ep_title, list):
+        ep_title = ep_title[0] if ep_title else ""
     return {"title": str(title), "year": g.get("year"),
             "type": g.get("type", "movie"),
+            "season": season, "episode": episode,
+            "episode_title": str(ep_title),
             "edition": detect_edition(name, g.get("edition")),
             "spec": detect_spec(name),
             "stack": stack}
