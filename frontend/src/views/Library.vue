@@ -116,6 +116,15 @@
       <div class="t">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span><span v-if="m.needs_review"> [待确认]</span><span v-if="hasScore(m.custom_rating)" class="custom-mini">♥{{ fmtScore(m.custom_rating) }}</span><br v-if="m.region || (m.genres || []).length" /><span v-if="m.region" class="meta">{{ m.region }}</span><span v-if="(m.genres || []).length" class="meta"> {{ (m.genres || []).slice(0, 2).join('/') }}</span></div>
     </div>
   </div>
+  <div v-if="showEmptyGuide" class="empty-guide">
+    <p class="eg-title">这个库还没有影片</p>
+    <p class="eg-step">① <button @click="doScan" :disabled="scanning">{{ scanning ? '扫描中…' : '扫描入库' }}</button>
+      <span>扫描媒体目录并联网匹配 TMDB，进度显示在上方</span></p>
+    <p class="eg-step">② 扫描完成后继续
+      <router-link to="/settings?sec=sec-pipeline">入库流程</router-link>：待匹配确认 → 归档整理</p>
+    <p class="fhint">路径/连接有问题时到「设置 → 媒体库」点「连接」处理；顶栏可切换其他库。</p>
+  </div>
+
   <div ref="loadSentinel" class="load-more">
     <button v-if="hasMore" @click="loadMore" :disabled="loadingMore">{{ loadingMore ? '加载中…' : '加载更多' }}</button>
     <span v-else-if="items.length" class="fhint">已全部加载（{{ items.length }} 部）</span>
@@ -291,6 +300,10 @@ const activeCount = computed(() =>
   sel.value.years.length + sel.value.decades.length + sel.value.tags.length +
   (sel.value.watched == null ? 0 : 1) +
   (sel.value.rating == null ? 0 : 1))
+const firstLoaded = ref(false)
+const showEmptyGuide = computed(() =>
+  firstLoaded.value && !items.value.length && !activeCount.value &&
+  !q.value.trim() && !loadError.value)
 
 function pickWatched(v) {
   sel.value.watched = (sel.value.watched === v) ? null : v
@@ -763,6 +776,7 @@ onMounted(async () => {
   readUrl()
   await loadFacets()
   await load()
+  firstLoaded.value = true
   window.addEventListener('keydown', escExit)
   unsubLib = onLibChange(() => { readUrl(); loadFacets(); load() })
   // 无限滚动（评审 P1-11）：哨兵进入视口前 600px 自动加载下一页；按钮仍保留作兜底
@@ -850,6 +864,10 @@ watch(() => route.query, () => { readUrl(); load() })
 .unmatched-badge { position: absolute; bottom: 6px; right: 6px; font-size: 0.75rem; padding: 2px 8px;
   border-radius: 999px; background: rgba(224, 166, 60, .92); color: #1c1c1c; font-weight: bold; }
 .watched-badge { position: absolute; bottom: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #7ed321; }
+.empty-guide { margin: 28px auto; max-width: 620px; padding: 18px 20px; border: 1px solid #333; border-radius: 10px; background: #191919; }
+.empty-guide .eg-title { margin: 0 0 10px; font-size: 1.125rem; font-weight: 600; }
+.empty-guide .eg-step { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; color: #bbb; font-size: 0.875rem; }
+.empty-guide a { color: #9ecfff; }
 .load-more { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 12px 22px; }
 .warn-text { color: #e0a63c; }
 .dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }

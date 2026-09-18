@@ -118,15 +118,15 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 
 ## 多库与远程库（v0.9）
 
-- 一个 jzmedia 实例可管理多个**相互独立**的媒体库（类型：电影/剧集，来源：本地/SMB/NFS）；顶栏切换，设置页「媒体库」新建/检查/删除（删库只清记录，**不动磁盘文件**）。
+- 一个 jzmedia 实例可管理多个**相互独立**的媒体库（类型：电影/剧集，来源：本地/SMB/NFS）；顶栏切换，设置页「媒体库」新建/连接·检查/扫描/删除（删库只清记录，**不动磁盘文件**）。行内主按钮：本地库「检查」、远程库「连接」（自动挂载+检查一步完成，失败原因与宿主挂载命令就地展示、可复制）；行内「扫描此库」直接入库并显示进度；编辑连接/改路径/挂载/卸载/只读/停用/删除收在「⋯」菜单，建库后会出现「① 连接 ② 扫描」引导。
 - **路径怎么填**：
   - jzmedia 跑在 NAS 的 Docker 里（推荐）：用「本地路径」，填**容器内路径**——compose 把 `/volume1/video` 挂到 `/media` 后，`\\NAS\video\Movies` 即 `/media/Movies`，不需要 SMB/cap_add。
-  - 开发机远程访问：用 SMB/NFS。SMB 只需把资源管理器地址整段粘进「服务器 / 共享路径」（如 `\\NAS\video\Movies`，也认 `//主机/共享/目录` 与 `smb://用户@主机/共享/目录`），jzmedia 自动解析主机/共享/目录并挂到 `data/mounts/lib_<id>`；特殊共享名可展开「高级」手动拆分。已有远程库可在列表里「编辑连接」改地址/账号。
-- 应用内挂载：compose 取消 `cap_add: [SYS_ADMIN]` 注释（DSM 必要时 `privileged: true`），镜像已含 `cifs-utils`/`nfs-common`；能力不足时 `POST /api/libraries/{id}/check` 返回宿主挂载命令，挂到宿主后按本地路径登记；`ALLOW_SMB_MOUNT=0` 可整体禁用应用内挂载。
+  - 开发机远程访问：用 SMB/NFS。SMB 只需把资源管理器地址整段粘进「服务器 / 共享路径」（如 `\\NAS\video\Movies`，也认 `//主机/共享/目录` 与 `smb://用户@主机/共享/目录`），jzmedia 自动解析主机/共享/目录并挂到 `data/mounts/lib_<id>`；特殊共享名可展开「高级」手动拆分。已有远程库可在「⋯ → 编辑连接」改地址/账号，保存后自动重连。
+- 应用内挂载：compose 取消 `cap_add: [SYS_ADMIN]` 注释（DSM 必要时 `privileged: true`），镜像已含 `cifs-utils`/`nfs-common`；能力不足时「连接」会就地给出宿主挂载命令（可复制），挂到宿主后按本地路径登记；`ALLOW_SMB_MOUNT=0` 可整体禁用应用内挂载。
 - 默认库与路径调整：首次启动会用 `MEDIA_ROOT` 播种一个库（NAS 上即 `/media`）。想按 Movies/TV 分库时，把 compose 的 `MEDIA_ROOT` 改成 `/media/Movies`，或删掉默认库记录；**0 部影片的本地库可直接「改路径」**（有片后拒绝，防路径与记录脱节）。
 - 远程凭据以 Fernet 加密存库（`data/secret.key`，0600；换机请一并携带，丢了重新输入密码），API 只写不读、日志脱敏。
 - 只读库：归档/改名/移动/删除/上传/NFO 与图片写入一律 409；浏览/播放/扫描照常。
-- 库级命名档 `kodi|plex|off` 与落盘策略 `none|nfo|nfo_art`（Plex 本地海报）为后续 D 阶段；当前归档已按 D5 扁平化。
+- 库级命名档 `kodi|plex|off` 与落盘策略 `none|nfo|nfo_art`（Plex 本地海报）在建库时选择、归档/扫描按库生效；归档一律扁平（D5）。
 - 离线/降级刮削（E 阶段）：扫描匹配失败自动回退本地 `match_index`（TMDB 缓存/NFO/外部候选统一索引），再按库链尝试无 key 桥接（Wikidata，取 IMDb/TMDB ID）；同目录 `movie.nfo` 可直接导入匹配；`POST /api/jobs/import-imdb` 可离线导入 IMDb `title.basics` 数据集（`IMDB_DATASET_PATH` 或传 path）；豆瓣建议接口默认关闭（`DOUBAN_ENABLED=1` 显式开启，仅作候选提示）。库级链顺序可用 `libraries.metadata_providers`（JSON 数组）覆盖。
 - TV 库（F 阶段）：解析 `SxxEyy` 入只读清单（不刮削/不改名/不写 NFO），顶栏「剧集」按剧/季/集浏览并播放（流接口 `kind=episode`，转码会话/断点/字幕缓存按 `(kind,id)` 隔离）。
 
