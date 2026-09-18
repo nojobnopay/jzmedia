@@ -36,8 +36,26 @@ def write_movie_nfo(movie: dict, nfo_path: str) -> None:
         ET.SubElement(root, "year").text = _t(movie["year"])
     overview = movie.get("overview_override") or movie.get("overview")
     ET.SubElement(root, "plot").text = _t(overview)
+    # D6：Plex NFO Agent 可读的补充字段（Kodi/Jellyfin 忽略未知标签）
+    cache = movie.get("_tmdb_cache") or {}
+    if cache.get("premiered"):
+        ET.SubElement(root, "premiered").text = _t(cache["premiered"])
+    if cache.get("tagline"):
+        ET.SubElement(root, "tagline").text = _t(cache["tagline"])
+    try:
+        runtime = int(cache.get("runtime") or 0)
+    except (TypeError, ValueError):
+        runtime = 0
+    if runtime > 0:
+        ET.SubElement(root, "runtime").text = str(runtime)
+    for name in (cache.get("studios") or [])[:5]:
+        if name:
+            ET.SubElement(root, "studio").text = _t(name)
     if _positive(movie.get("tmdb_rating")):
         ET.SubElement(root, "rating").text = _t(movie["tmdb_rating"])
+        ratings = ET.SubElement(root, "ratings")
+        r = ET.SubElement(ratings, "rating", name="themoviedb", max="10", default="true")
+        ET.SubElement(r, "value").text = _t(movie["tmdb_rating"])
     if _positive(movie.get("custom_rating")):
         ET.SubElement(root, "customrating").text = _t(movie["custom_rating"])
     if _positive(movie.get("douban_rating")):
@@ -48,6 +66,9 @@ def write_movie_nfo(movie: dict, nfo_path: str) -> None:
     codes = list(movie.get("origin_countries") or [])
     if not codes and movie.get("origin_country"):
         codes = [movie["origin_country"]]
+    if cache.get("collection_name"):
+        st = ET.SubElement(root, "set")
+        ET.SubElement(st, "name").text = _t(cache["collection_name"])
     for code in codes:
         ET.SubElement(root, "country").text = _t(country_name(code))
     for t in movie.get("tags") or []:
@@ -66,6 +87,11 @@ def write_movie_nfo(movie: dict, nfo_path: str) -> None:
             a = ET.SubElement(root, "actor")
             ET.SubElement(a, "name").text = _t(p.get("name"))
             ET.SubElement(a, "role").text = _t(p.get("character_name"))
+            try:
+                order = int(p.get("cast_order"))
+            except (TypeError, ValueError):
+                order = 99
+            ET.SubElement(a, "order").text = str(order)
     tree = ET.ElementTree(root)
     ET.indent(tree)
     os.makedirs(os.path.dirname(nfo_path) or ".", exist_ok=True)

@@ -68,6 +68,19 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
     origin_countries_s = _dump_list(meta.get("origin_countries"))
     credits_s = json.dumps(credits or {"cast": [], "crew": []}, ensure_ascii=False, sort_keys=True)
     poster_tmdb_path = poster_tmdb_path or ""
+    premiered = str(meta.get("premiered") or "")[:10]
+    tagline = str(meta.get("tagline") or "")
+    try:
+        runtime = max(0, int(meta.get("runtime") or 0))
+    except (TypeError, ValueError):
+        runtime = 0
+    studios_s = _dump_list(meta.get("studios"))
+    backdrop = str(meta.get("backdrop_tmdb_path") or "")
+    logo = str(meta.get("logo_tmdb_path") or "")
+    try:
+        payload_s = json.dumps(meta, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        payload_s = "{}"
     col_id = meta.get("collection_tmdb_id")
     try:
         col_id = int(col_id) if col_id is not None else None
@@ -83,8 +96,10 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
                 " imdb_id, tmdb_rating, genres, genre_ids, origin_country, origin_countries,"
                 " original_language, region, media_type, poster_tmdb_path, credits,"
                 " collection_tmdb_id, collection_name, collection_poster_path,"
-                " collection_checked_at, fetched_at)"
-                " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " collection_checked_at, fetched_at, source, payload_json, premiered,"
+                " tagline, runtime, studios, backdrop_tmdb_path, logo_tmdb_path)"
+                " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+                " 'tmdb', ?, ?, ?, ?, ?, ?, ?)",
                 (tmdb_id, meta.get("title", "") or "", meta.get("original_title", "") or "",
                  meta.get("year"), meta.get("overview", "") or "",
                  meta.get("imdb_id", "") or "", meta.get("tmdb_rating"),
@@ -92,7 +107,8 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
                  meta.get("origin_country", "") or "", origin_countries_s,
                  meta.get("original_language", "") or "", meta.get("region", "") or "",
                  meta.get("media_type", "") or "movie",
-                 poster_tmdb_path, credits_s, col_id, col_name, col_poster, now, now))
+                 poster_tmdb_path, credits_s, col_id, col_name, col_poster, now, now,
+                 payload_s, premiered, tagline, runtime, studios_s, backdrop, logo))
             return True
         # 兼容老库：SELECT * 可能无新列
         try:
@@ -126,6 +142,12 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
             and (old_col_id == col_id)
             and (old_col_name == col_name)
             and (old_col_poster == col_poster)
+            and (row["premiered"] or "") == premiered
+            and (row["tagline"] or "") == tagline
+            and int(row["runtime"] or 0) == runtime
+            and (row["studios"] or "[]") == studios_s
+            and (row["backdrop_tmdb_path"] or "") == backdrop
+            and (row["logo_tmdb_path"] or "") == logo
         )
         if same:
             c.execute("UPDATE tmdb_cache SET fetched_at=?, collection_checked_at=? WHERE tmdb_id=?",
@@ -137,7 +159,9 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
             " origin_countries=?, original_language=?, region=?, media_type=?,"
             " poster_tmdb_path=?, credits=?, collection_tmdb_id=?,"
             " collection_name=?, collection_poster_path=?,"
-            " collection_checked_at=?, fetched_at=? WHERE tmdb_id=?",
+            " collection_checked_at=?, fetched_at=?, payload_json=?, premiered=?,"
+            " tagline=?, runtime=?, studios=?, backdrop_tmdb_path=?, logo_tmdb_path=?"
+            " WHERE tmdb_id=?",
             (meta.get("title", "") or "", meta.get("original_title", "") or "",
              meta.get("year"), meta.get("overview", "") or "",
              meta.get("imdb_id", "") or "", meta.get("tmdb_rating"),
@@ -145,7 +169,8 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
              meta.get("origin_country", "") or "", origin_countries_s,
              meta.get("original_language", "") or "", meta.get("region", "") or "",
              meta.get("media_type", "") or "movie",
-             poster_tmdb_path, credits_s, col_id, col_name, col_poster, now, now, tmdb_id))
+             poster_tmdb_path, credits_s, col_id, col_name, col_poster, now, now,
+             payload_s, premiered, tagline, runtime, studios_s, backdrop, logo, tmdb_id))
         return True
 
 

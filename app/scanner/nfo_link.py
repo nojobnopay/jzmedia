@@ -1,4 +1,5 @@
 """scanner.nfo_link（自 app/scanner.py 拆分，评审 B9/R03-Q1；对外经 app.scanner 门面使用）。"""
+import hashlib
 import os
 from .. import library_paths
 from .. import store
@@ -8,6 +9,45 @@ logger = get_logger("scanner.nfo_link")
 from .parse import normalize_title, parse_filename
 from .classify import is_feature_video
 __all__ = ['_list_dir_nfos', '_same_film', '_ref_title_year', 'sync_nfos_for', '_write_nfo_for']
+
+
+def _sha1(path: str) -> str:
+    try:
+        with open(path, "rb") as fh:
+            return hashlib.sha1(fh.read()).hexdigest()
+    except OSError:
+        return ""
+
+
+def _with_cache(movie: dict | None) -> dict | None:
+    """附加 tmdb_cache（D6：NFO 写 premiered/tagline/set/ratings 等字段用）。"""
+    if not movie:
+        return movie
+    tid = movie.get("tmdb_id")
+    if tid:
+        try:
+            movie["_tmdb_cache"] = store.get_tmdb_cached(int(tid)) or {}
+        except Exception:
+            movie["_tmdb_cache"] = {}
+    return movie
+
+
+def _write_one(data: dict, path: str, force: bool = False) -> str:
+    """写单个 NFO（带所有权保护）：返回 written|skipped_external|failed。
+    磁盘文件被用户/其他工具改过（哈希与 nfo_hash 不一致）时默认不覆盖。"""
+    try:
+        mid = int(data.get("id") or 0)
+        stored = str(data.get("nfo_hash") or "")
+        if not force and stored and os.path.isfile(path) and _sha1(path) != stored:
+            logger.info("NFO 被外部修改，跳过覆盖 file=%s", path)
+            return "skipped_external"
+        write_movie_nfo(data, path)
+        if mid:
+            store.update_movie_meta(mid, nfo_hash=_sha1(path))
+        return "written"
+    except Exception as e:
+        logger.warning("nfo write failed file=%s: %s", path, e)
+        return "failed"
 
 def _list_dir_nfos(movie_dir_abs: str) -> tuple[list[str] | None, list[str]]:
     """目录顶层 (全部文件名|None不可读, 正片视频名列表)。只看顶层，不进 extras/ 等子目录。"""
@@ -67,7 +107,8 @@ def _ref_title_year(movie: dict, abs_path: str) -> tuple[str, object]:
         return "", y
 
 
-def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
+def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False,
+                  force: bool = False) -> dict:
     """NFO 收敛唯一入口（幂等，失败自吞，调用方无需 try）。
 
     规则：movie.nfo 在独占目录永远保留；仅“同片多行同目录”（同 tmdb_id，
@@ -76,7 +117,7 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
     返回 {ok, mode, dir, wrote[], deleted[]}（dry_run 只计算不落盘）。
     """
     try:
-        movie = store.get_movie(mid)
+        movie = _with_cache(store.get_movie(mid))
         if not movie:
             return {"ok": False, "mode": "missing", "dir": "",
                     "wrote": [], "deleted": []}
@@ -91,13 +132,12 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
         if movie_dir and not os.path.isdir(movie_dir):
             # 目录尚不存在（如搬迁竞态）：退化为旧双写，保证元数据不丢
             if not dry_run:
-                try:
-                    write_movie_nfo(movie, os.path.join(movie_dir, "movie.nfo"))
-                    if stem and stem != "movie":
-                        write_movie_nfo(movie, os.path.join(movie_dir, stem + ".nfo"))
-                except Exception as e:
-                    logger.warning("nfo fallback write failed mid=%s dir=%s: %s",
-                                   mid, rel_dir, e)
+                st = _write_one(movie, os.path.join(movie_dir, "movie.nfo"), force)
+                if stem and stem != "movie":
+                    st2 = _write_one(movie, os.path.join(movie_dir, stem + ".nfo"), force)
+                    if st2 == "failed":
+                        st = "failed"
+                if st == "failed":
                     return {"ok": False, "mode": "fallback", "dir": rel_dir,
                             "wrote": [], "deleted": []}
             return {"ok": True, "mode": "fallback", "dir": rel_dir,
@@ -106,13 +146,12 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
         names, feats = _list_dir_nfos(movie_dir)
         if names is None:
             if not dry_run:
-                try:
-                    write_movie_nfo(movie, os.path.join(movie_dir, "movie.nfo"))
-                    if stem and stem != "movie":
-                        write_movie_nfo(movie, os.path.join(movie_dir, stem + ".nfo"))
-                except Exception as e:
-                    logger.warning("nfo fallback write failed mid=%s dir=%s: %s",
-                                   mid, rel_dir, e)
+                st = _write_one(movie, os.path.join(movie_dir, "movie.nfo"), force)
+                if stem and stem != "movie":
+                    st2 = _write_one(movie, os.path.join(movie_dir, stem + ".nfo"), force)
+                    if st2 == "failed":
+                        st = "failed"
+                if st == "failed":
                     return {"ok": False, "mode": "fallback", "dir": rel_dir,
                             "wrote": [], "deleted": []}
             wrote = ["movie.nfo"] + ([stem + ".nfo"] if stem and stem != "movie" else [])
@@ -120,9 +159,10 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
                     "wrote": wrote, "deleted": []}
         if stem == "movie":
             # 文件本身就叫 movie.*：同名 NFO 即 movie.nfo，只写一份
+            st = "written"
             if not dry_run:
-                write_movie_nfo(movie, os.path.join(movie_dir, "movie.nfo"))
-            return {"ok": True, "mode": "single-movie-stem", "dir": rel_dir,
+                st = _write_one(movie, os.path.join(movie_dir, "movie.nfo"), force)
+            return {"ok": st != "failed", "mode": "single-movie-stem", "dir": rel_dir,
                     "wrote": ["movie.nfo"], "deleted": []}
         try:
             rows = store.list_movies_in_dir(rel_dir)
@@ -172,21 +212,25 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
         if foreign:
             target = os.path.join(movie_dir, stem + ".nfo")
             if not dry_run:
-                write_movie_nfo(movie, target)
+                _write_one(movie, target, force)
             return {"ok": True, "mode": "shared", "dir": rel_dir,
                     "wrote": [stem + ".nfo"], "deleted": []}
         existing_nfos = [n for n in (names or [])
                          if n.endswith(".nfo") and os.path.isfile(os.path.join(movie_dir, n))]
         if len(feats) <= 1:
             deleted = [n for n in existing_nfos if n != "movie.nfo"]
+            st = "written"
             if not dry_run:
-                write_movie_nfo(movie, os.path.join(movie_dir, "movie.nfo"))
+                st = _write_one(movie, os.path.join(movie_dir, "movie.nfo"), force)
                 for n in deleted:
                     try:
                         os.remove(os.path.join(movie_dir, n))
                     except OSError as e:
                         logger.debug("nfo remove failed file=%s: %s", n, e)
-            return {"ok": True, "mode": "single", "dir": rel_dir,
+            if st == "failed":
+                logger.warning("sync_nfos_for failed mid=%s dir=%s: nfo write failed",
+                               mid, rel_dir)
+            return {"ok": st != "failed", "mode": "single", "dir": rel_dir,
                     "wrote": ["movie.nfo"], "deleted": sorted(deleted)}
         # 独占多版本：movie.nfo + 每个相关版本各写同名（各用各行的全量 dict，保留手工评分差异）
         wanted = {"movie.nfo"}
@@ -200,7 +244,7 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
             full = movie
             if row is not None and int(row.get("id", -1)) != int(mid):
                 try:
-                    got = store.get_movie(int(row["id"]))
+                    got = _with_cache(store.get_movie(int(row["id"])))
                     if got:
                         full = got
                 except Exception as e:
@@ -210,11 +254,8 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
         if not dry_run:
             failed = 0
             for name, data in writers:
-                try:
-                    write_movie_nfo(data, os.path.join(movie_dir, name))
-                except Exception as e:
+                if _write_one(data, os.path.join(movie_dir, name), force) == "failed":
                     failed += 1
-                    logger.warning("nfo write failed mid=%s file=%s: %s", mid, name, e)
             for n in deleted:
                 try:
                     os.remove(os.path.join(movie_dir, n))

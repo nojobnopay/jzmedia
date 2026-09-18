@@ -8,7 +8,7 @@ from ..regions import country_name
 from ._base import (DEFAULT_LIBRARY_ID, LOCAL_FIELDS, _attach_versions,
                     _collections_for_film, _conn, _lock, _row_to_dict, logger)
 from .search import resync_fts
-__all__ = ['upsert_movie_by_path', 'update_movie_local', 'update_movie_meta', 'get_by_path', 'list_movies_in_dir', 'get_movie', 'expand_ids_to_versions', 'get_movie_by_tmdb', 'get_movie_tags', 'list_movie_ids_by_library', 'delete_movie', '_dir_size', 'library_stats']
+__all__ = ['upsert_movie_by_path', 'update_movie_local', 'update_movie_meta', 'get_by_path', 'list_movies_in_dir', 'get_movie', 'expand_ids_to_versions', 'get_movie_by_tmdb', 'get_movie_tags', 'list_movie_ids_by_library', 'list_movie_paths_by_tmdb', 'delete_movie', '_dir_size', 'library_stats']
 
 def upsert_movie_by_path(file_path: str,
                          library_id: int = DEFAULT_LIBRARY_ID) -> int:
@@ -41,7 +41,8 @@ def update_movie_meta(movie_id: int, **fields) -> None:
                "poster_path", "genres", "genre_ids", "tags", "needs_review",
                "watched", "watched_at",
                "origin_country", "origin_countries", "original_language",
-               "region", "media_type", "edition", "spec", "original_file_path"}
+               "region", "media_type", "edition", "spec", "original_file_path",
+               "nfo_hash", "match_source"}
     data = {k: (json.dumps(v, ensure_ascii=False) if k in ("genres", "genre_ids", "tags", "origin_countries") else v)
             for k, v in fields.items() if k in allowed}
     if not data:
@@ -151,6 +152,15 @@ def list_movie_ids_by_library(library_id: int) -> list[int]:
         rows = c.execute("SELECT id FROM movies WHERE library_id=? ORDER BY id",
                          (int(library_id),)).fetchall()
         return [int(r["id"]) for r in rows]
+
+
+def list_movie_paths_by_tmdb(tmdb_id: int, library_id) -> list[dict]:
+    """同库同 tmdb 的版本行轻量列表（本地图片落盘判定用）。"""
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT id, file_path FROM movies WHERE tmdb_id=? AND library_id=?"
+            " ORDER BY id", (int(tmdb_id), int(library_id))).fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_movie_tags(movie_id: int) -> list[str] | None:

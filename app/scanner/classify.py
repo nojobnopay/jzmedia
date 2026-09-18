@@ -7,7 +7,7 @@ from .. import library_paths
 from ..log import get_logger
 from .parse import normalize_title
 logger = get_logger("scanner.classify")
-__all__ = ['same_stem', 'VIDEO_EXTS', 'SUBTITLE_EXTS', '_SKIP_DIR_NAMES', 'scan_skip_dirs', 'SIDECAR_TEXT_EXTS', '_sidecar_sub_dirs', 'SIDECAR_SUB_DIRS', '_SAMPLE_TOKENS', '_SAMPLE_RE', 'strip_kind_affix', 'extra_kind', 'is_sample', '_parent_has_feature', 'is_extra', 'is_sidecar', 'is_feature_video', '_stem_matches', 'sidecar_subtitles', '_EXTRAS_RE', 'EXTRAS_DIR_NAMES', '_GENERIC_DIR_NAMES', 'KIND_BY_DIR', '_KIND_WORDS', '_STRIP_LEAD_RES', '_STRIP_TRAIL_RE', '_SIDECAR_LANG_HINTS', '_guess_sidecar_lang', '_strip_lang_tail', '_title_key', '_stem_title_matches']
+__all__ = ['same_stem', 'VIDEO_EXTS', 'SUBTITLE_EXTS', '_SKIP_DIR_NAMES', 'scan_skip_dirs', 'SIDECAR_TEXT_EXTS', '_sidecar_sub_dirs', 'SIDECAR_SUB_DIRS', '_SAMPLE_TOKENS', '_SAMPLE_RE', 'strip_kind_affix', 'extra_kind', 'is_sample', '_parent_has_feature', 'is_extra', 'is_sidecar', 'is_feature_video', '_stem_matches', 'sidecar_subtitles', '_EXTRAS_RE', 'EXTRAS_DIR_NAMES', '_GENERIC_DIR_NAMES', 'KIND_BY_DIR', '_KIND_WORDS', '_STRIP_LEAD_RES', '_STRIP_TRAIL_RE', '_SIDECAR_LANG_HINTS', '_guess_sidecar_lang', '_strip_lang_tail', '_title_key', '_stem_title_matches', 'PLEX_EXTRAS_DIRS', 'extras_dir_name']
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv", ".webm"}
 
@@ -295,6 +295,19 @@ EXTRAS_DIR_NAMES = {"extras", "extra", "featurettes", "featurette",
 
 
 _GENERIC_DIR_NAMES = {"scenes", "other", "shorts"}
+
+# Plex 本地花絮目录名（D6）：按 kind 映射，Plex 才会当 extras 展示
+PLEX_EXTRAS_DIRS = {"trailer": "Trailers", "behindthescenes": "Behind The Scenes",
+                    "deleted": "Deleted Scenes", "featurette": "Featurettes",
+                    "interview": "Interviews", "scene": "Scenes",
+                    "short": "Shorts", "other": "Other", "extra": "Other"}
+
+
+def extras_dir_name(kind: str, naming_profile: str = "kodi") -> str:
+    """花絮子目录名：kodi 档统一 extras/；plex 档用 Plex 识别名。"""
+    if str(naming_profile or "kodi").lower() == "plex":
+        return PLEX_EXTRAS_DIRS.get(str(kind or "extra"), "Other")
+    return "extras"
 
 
 KIND_BY_DIR = {"trailers": "trailer", "trailer": "trailer", "预告": "trailer",

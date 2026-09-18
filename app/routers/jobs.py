@@ -218,7 +218,7 @@ def rebuild_nfo(body: NfoBody | None = None):
             skipped += 1
             continue
         try:
-            r = scanner.sync_nfos_for(m["id"], abs_path, dry_run=dry_run)
+            r = scanner.sync_nfos_for(m["id"], abs_path, dry_run=dry_run, force=True)
             if r.get("ok"):
                 done += 1
                 mode = str(r.get("mode") or "unknown")

@@ -3,6 +3,7 @@ import os
 from ... import library_paths
 from ... import store
 from ...scanner import SUBTITLE_EXTS
+from ...scanner import extras_dir_name
 from ...scanner import is_feature_video
 from ...scanner import is_sidecar
 from ...scanner import sync_nfos_for
@@ -89,12 +90,16 @@ def move_attached_extras(movie_id: int, movie_dir_abs: str) -> dict:
     except Exception as e:
         logger.debug("list extras failed movie_id=%s: %s", movie_id, e)
         return {"moved": 0, "skipped": []}
+    home = store.get_movie(movie_id) or {}
+    profile = library_paths.naming_profile(
+        home.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
     for e in rows:
         lib_id = e.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
         esrc = library_paths.resolve(lib_id, e["file_path"])
         if not os.path.isfile(esrc):
             continue
-        edst_dir = os.path.join(movie_dir_abs, "extras")
+        edst_dir = os.path.join(movie_dir_abs,
+                                extras_dir_name(e.get("kind"), profile))
         base = _safe_component(os.path.splitext(os.path.basename(esrc))[0])
         if not base:
             continue
@@ -229,7 +234,7 @@ def _move_one(p: dict) -> dict:
                 logger.debug("follow sidecar failed %s -> %s: %s", f, fdst, e)
                 continue
         _cleanup_old_dir(os.path.dirname(src))
-        # 归属花絮跟随：搬进目标 extras/ 子目录（Plex 子目录名 collapsing，茎名清洗保留）
+        # 归属花絮跟随：搬进目标花絮子目录（kodi=extras/；plex=Trailers/Featurettes 等）
         _ex = move_attached_extras(p["id"], os.path.dirname(dst))
         extras_moved = _ex.get("moved", 0)
         # 旧目录收尾（花絮搬走后再清一次）：无正片则清 NFO，空目录删掉

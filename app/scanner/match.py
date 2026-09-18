@@ -65,6 +65,14 @@ def meta_from_detail(detail: dict) -> dict:
         "collection_tmdb_id": col_id,
         "collection_name": belongs.get("name", "") or "",
         "collection_poster_path": belongs.get("poster_path", "") or "",
+        # D6：NFO/本地图片所需补充字段（Plex NFO Agent 可读）
+        "premiered": (detail.get("release_date") or "")[:10],
+        "tagline": detail.get("tagline", "") or "",
+        "runtime": int(detail.get("runtime") or 0),
+        "studios": [c["name"] for c in detail.get("production_companies", [])
+                    if c.get("name")],
+        "backdrop_tmdb_path": detail.get("backdrop_path") or "",
+        "logo_tmdb_path": "",
     }
 
 

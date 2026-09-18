@@ -3,6 +3,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from ..config import settings
+from .. import artwork
 from .. import library_paths
 from .. import store
 from .. import tmdb
@@ -155,7 +156,8 @@ def finish_tmdb_media(mid: int, detail: dict, abs_path: str,
         sync_persons(mid, detail)
         store.resync_fts(mid)
         nfo = _write_nfo_for(mid, abs_path)
-        return {"poster_path": poster_local, "nfo": nfo}
+        art = artwork.write_for_movie(mid, abs_path)
+        return {"poster_path": poster_local, "nfo": nfo, "artwork": art}
     except Exception as e:
         logger.warning("finish_tmdb_media failed mid=%s tmdb=%s: %s", mid,
                        tmdb_id, e)
@@ -171,6 +173,7 @@ def apply_tmdb_detail(mid: int, detail: dict, abs_path: str,
                       media["old_poster_tmdb"])
     movie = store.get_movie(mid)
     out["nfo"] = _write_nfo_for(mid, abs_path)
+    out["artwork"] = artwork.write_for_movie(mid, abs_path)
     if movie:
         out["title"], out["year"] = movie["title"], movie["year"]
     return out
@@ -230,8 +233,9 @@ def apply_cached_to_movie(mid: int, tmdb_id: int, abs_path: str) -> dict:
     store.resync_fts(mid)
     movie = store.get_movie(mid) or {}
     nfo = _write_nfo_for(mid, abs_path)
+    art = artwork.write_for_movie(mid, abs_path)
     return {"title": movie.get("title", ""), "year": movie.get("year"),
-            "tmdb_id": tmdb_id, "nfo": nfo}
+            "tmdb_id": tmdb_id, "nfo": nfo, "artwork": art}
 
 
 def finish_refresh_media(jobs: list[dict]) -> int:
@@ -248,6 +252,7 @@ def finish_refresh_media(jobs: list[dict]) -> int:
             sync_persons(mid, j["detail"])
             store.resync_fts(mid)
             _write_nfo_for(mid, j["abs_path"])
+            artwork.write_for_movie(mid, j["abs_path"])
             n += 1
         except Exception:
             continue

@@ -80,6 +80,20 @@ def test_off_profile_never_renames(tmp_path):
         library_paths.invalidate_cache()
 
 
+def test_plex_extras_dir_mapping(plex_lib):
+    lib, root = plex_lib
+    mid, ap = _movie(root, "raw/Extra.Movie.2022.mkv", lib["id"],
+                     title="Extra Movie", year=2022)
+    srt = root / "raw" / "Extra.Movie.2022-预告.mkv"
+    srt.write_bytes(b"x")
+    store.upsert_extra("raw/Extra.Movie.2022-预告.mkv", mid, "trailer",
+                       library_id=lib["id"])
+    from app.routers.files.executor import move_attached_extras
+    r = move_attached_extras(mid, str(ap.parent))
+    assert r["moved"] == 1
+    assert (ap.parent / "Trailers" / "Extra.Movie.2022-预告.mkv").is_file()
+
+
 def test_plex_warnings_rules():
     from app.routers.files.planner import _plex_warnings
     w = _plex_warnings("Bad <name>", {"stack": "cd1", "labels": ["x264"]}, "")

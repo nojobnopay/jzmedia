@@ -81,20 +81,24 @@ def person_detail(tmdb_id: int, language: str | None = None) -> dict:
         return _get(c, f"/person/{tmdb_id}", params=params).json()
 
 
-def download_poster(poster_path: str, dest: str, size: str = "w500") -> bool:
-    """poster_path如/p1.jpg；图片走TMDB_IMAGE_BASE（可配代理域名）。size如w500/w185。"""
-    if not poster_path:
+def download_image(image_path: str, dest: str, size: str = "w500") -> bool:
+    """任意 TMDB 图片（poster/backdrop/logo）下载到 dest；原子写（评审 B5a-6）。"""
+    if not image_path:
         return False
     from . import config as _config
-    url = _config.effective_tmdb_image_base().rstrip("/") + "/t/p/" + size + poster_path
+    url = _config.effective_tmdb_image_base().rstrip("/") + "/t/p/" + size + image_path
     proxy = _config.effective_tmdb_proxy() or None
     try:
         with httpx.Client(timeout=30.0, proxy=proxy) as c:
             r = c.get(url)
             r.raise_for_status()
-            # 原子写（评审 B5a-6）：中断/半写不会留下损坏 jpg 被当有效缓存
             atomic_write_bytes(dest, r.content)
         return True
     except Exception as e:
-        logger.warning("poster download failed url=%s dest=%s: %s", url, dest, e)
+        logger.warning("image download failed url=%s dest=%s: %s", url, dest, e)
         return False
+
+
+def download_poster(poster_path: str, dest: str, size: str = "w500") -> bool:
+    """poster_path如/p1.jpg；图片走TMDB_IMAGE_BASE（可配代理域名）。size如w500/w185。"""
+    return download_image(poster_path, dest, size)
