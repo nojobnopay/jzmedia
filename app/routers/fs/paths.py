@@ -8,13 +8,14 @@ from ..files import _check_inside_root
 __all__ = ['_resolve_dir', '_check_inside_root']
 
 
-def _resolve_dir(rel: str | None) -> str:
-    """目录相对路径归一：空串=根；其余必须在 ROOT 内且对应目录。"""
+def _resolve_dir(rel: str | None, library_id=None) -> str:
+    """目录相对路径归一：空串=根；其余必须在库内且对应目录（缺省=默认库）。"""
     raw = (rel or "").strip().strip("/")
     if not raw:
         return ""
-    norm = _check_inside_root(raw)
-    abs_p = library_paths.abs_path(norm)
+    norm = _check_inside_root(raw, library_id)
+    abs_p = library_paths.resolve(
+        library_paths.default_id() if library_id is None else library_id, norm)
     if not os.path.isdir(abs_p):
         raise HTTPException(404, f"not a directory: {rel!r}")
     return norm

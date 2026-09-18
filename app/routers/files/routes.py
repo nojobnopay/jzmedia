@@ -25,39 +25,58 @@ def _under_root(path: str, root: str) -> bool:
 
 def _organize(mode: str, from_prefix: str | None = None,
               to_dir: str | None = None, group_by_region: bool = True,
-              only: set | None = None, dry_run: bool = True) -> dict:
-    """统一整理入口：inplace=就地归档（target_root=None），relocate=顶层搬迁。"""
+              only: set | None = None, dry_run: bool = True,
+              library_id: int | None = None) -> dict:
+    """统一整理入口：inplace=就地归档（target_root=None），relocate=顶层搬迁。
+    `library_id` 缺省=默认库；路径/行全部限定在该库内（多库 v12）。"""
     if mode not in ("inplace", "relocate"):
         raise HTTPException(422, "mode must be inplace|relocate")
+    lid = int(library_id) if library_id is not None else library_paths.default_id()
+
+    def _inside(rel: str) -> str:
+        try:
+            return library_paths.check_inside(lid, rel)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
     if mode == "inplace":
-        plans, conflicts = _collect_plans(only=only)
-        base: dict = {"dry_run": dry_run, "mode": mode}
+        # 指定 ids 时按行自带库操作（详情页单行入口不强制传库）；否则整库扫描
+        plans, conflicts = _collect_plans(only=only,
+                                          library_id=(None if only else lid))
+        base: dict = {"dry_run": dry_run, "mode": mode, "library_id": lid}
     else:
-        fp = _check_inside_root(str(from_prefix or "待整理"))
-        td = _check_inside_root(str(to_dir or "电影"))
+        fp = _inside(str(from_prefix or "待整理"))
+        td = _inside(str(to_dir or "电影"))
         if os.path.normpath(fp) == os.path.normpath(td):
             raise HTTPException(422, "from_prefix == to_dir, nothing to do")
         all_rows = store.list_movies(grouped=False, limit=100000)
+
+        def _in_lib(m: dict) -> bool:
+            return int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID) == lid
+
         if only:
             scoped_rows = [m for m in all_rows if m["id"] in only]
+            if library_id is not None:   # 显式指定库时只接受该库行，防误操作
+                scoped_rows = [m for m in scoped_rows if _in_lib(m)]
         else:
             # 全量收敛：from_prefix 子树 + 已在目标根下但尚未规范的行
             #（分区过期如改绑换产地、两级分区前的平铺残留）；目标已规范的行无计划
-            scoped_rows = [m for m in all_rows
-                           if _under_root(m["file_path"], fp)
-                           or _under_root(m["file_path"], td)]
+            scoped_rows = [m for m in all_rows if _in_lib(m)
+                           and (_under_root(m["file_path"], fp)
+                                or _under_root(m["file_path"], td))]
         scoped = {m["id"] for m in scoped_rows}
         plans, conflicts = _collect_plans(target_root=td,
                                           group_by_region=bool(group_by_region),
                                           only=scoped or {-1},
-                                          all_rows=all_rows)
+                                          all_rows=all_rows,
+                                          library_id=(None if only else lid))
         base = {"dry_run": dry_run, "mode": mode, "from_prefix": fp,
-                "to_dir": td, "group_by_region": bool(group_by_region)}
+                "to_dir": td, "group_by_region": bool(group_by_region),
+                "library_id": lid}
     if dry_run:
         return {**base, "plans": plans, "conflicts": conflicts}
-    for lid in sorted({int(p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
-                       for p in plans}):
-        _require_writable(lid)
+    for lid2 in sorted({int(p.get("library_id") or lid) for p in plans}):
+        _require_writable(lid2)
     return {**base, "results": [_move_one(p) for p in _ordered_plans(plans)],
             "conflicts": conflicts}
 
@@ -65,15 +84,22 @@ def _organize(mode: str, from_prefix: str | None = None,
 @router.post("/organize")
 def organize(body: dict | None = None):
     """统一整理口：mode=inplace 就地归档；mode=relocate 顶层搬迁
-    （from_prefix→to_dir[/region]/标题 (年份)/文件）。dry_run 默认 true 只预览。"""
+    （from_prefix→to_dir/标题 (年份)/文件）。dry_run 默认 true 只预览。
+    `library_id`（或别名 `library`）缺省=默认库。"""
     body = body or {}
+    lib = body.get("library_id", body.get("library"))
+    try:
+        lib = int(lib) if lib not in (None, "") else None
+    except (TypeError, ValueError):
+        raise HTTPException(422, "library_id must be int")
     return _organize(mode=str(body.get("mode") or "inplace"),
                      from_prefix=body.get("from_prefix"),
                      to_dir=body.get("to_dir"),
                      group_by_region=(True if body.get("group_by_region") is None
                                       else bool(body.get("group_by_region"))),
                      only=_only_ids(body),
-                     dry_run=body.get("dry_run", True))
+                     dry_run=body.get("dry_run", True),
+                     library_id=lib)
 
 
 @router.get("/preview")

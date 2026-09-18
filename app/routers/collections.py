@@ -30,8 +30,10 @@ def _trim_jobs() -> None:
 
 
 @router.get("")
-def list_all(q: str = ""):
-    return {"items": store.list_collections(q)}
+def list_all(q: str = "", library: str | None = None):
+    libs = store._split_ints(library)
+    lid = libs[0] if len(libs) == 1 else None
+    return {"items": store.list_collections(q, library_id=lid)}
 
 
 @router.post("")
@@ -46,15 +48,18 @@ def create(body: dict):
         tmdb_cid = _int_id(tmdb_cid)
     try:
         return store.create_collection(name, body.get("overview") or "",
-                                       tmdb_cid, ids)
+                                       tmdb_cid, ids,
+                                       library_id=body.get("library_id"))
     except ValueError as e:
         raise HTTPException(422, str(e))
 
 
 @router.get("/suggest")
-def suggest(min_members: int = 2):
+def suggest(min_members: int = 2, library: str | None = None):
     """TMDB 系列推荐（纯本地只读）：库内同系列≥min_members 部即一项，用户点接受才建合集。"""
-    return store.suggest_series_collections(min_members)
+    libs = store._split_ints(library)
+    return store.suggest_series_collections(
+        min_members, library_id=(libs[0] if len(libs) == 1 else None))
 
 
 @router.post("/suggest/backfill")
@@ -69,6 +74,8 @@ def suggest_backfill(body: dict | None = None):
     except (TypeError, ValueError):
         raise HTTPException(422, "limit must be int")
     force = bool((body or {}).get("force"))
+    libs = store._split_ints((body or {}).get("library"))
+    lib_id = libs[0] if len(libs) == 1 else None
     
     with _JOBS_LOCK:
         for jid, j in _JOBS.items():
@@ -77,7 +84,7 @@ def suggest_backfill(body: dict | None = None):
         tids = store.tmdb_ids_missing_collection(limit, force)
         if not tids:
             return {"job_id": "", "total": 0, "resumed": False,
-                    "suggest": store.suggest_series_collections()}
+                    "suggest": store.suggest_series_collections(library_id=lib_id)}
         jid = uuid.uuid4().hex[:12]
         _JOBS[jid] = {"state": "running", "done": 0, "total": len(tids),
                       "current_title": "", "failed": [], "force": force,
@@ -272,8 +279,10 @@ def from_tmdb_series(body: dict):
     if not name:
         raise HTTPException(422, "name required")
     member_ids = [x["id"] for x in hint.get("in_library", [])]
+    m = store.get_movie(movie_id) or {}
     try:
         return store.create_collection(name, (body or {}).get("overview") or "",
-                                       hint["collection_tmdb_id"], member_ids)
+                                       hint["collection_tmdb_id"], member_ids,
+                                       library_id=m.get("library_id"))
     except ValueError as e:
         raise HTTPException(422, str(e))

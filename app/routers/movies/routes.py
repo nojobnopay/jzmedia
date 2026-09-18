@@ -727,16 +727,18 @@ def organize_hint(movie_id: int):
     if not rel:
         raise HTTPException(422, "movie has no file_path")
     top = rel.split("/")[0] if "/" in rel else ""
+    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
     if top and top != "电影":
-        # 不在正式库（待整理/下载等）→ 推荐搬到 电影/大区/标题 (年份)/
-        d = _organize("relocate", from_prefix=top, to_dir="电影", group_by_region=True,
-                      only={movie_id}, dry_run=True)
+        # 不在正式库（待整理/下载等）→ 推荐搬到 电影/标题 (年份)/（扁平，D5）
+        d = _organize("relocate", from_prefix=top, to_dir="电影",
+                      group_by_region=False, only={movie_id}, dry_run=True,
+                      library_id=lib_id)
         params = {"mode": "relocate", "from_prefix": top, "to_dir": "电影",
-                  "group_by_region": True}
+                  "group_by_region": False, "library_id": lib_id}
     else:
         # 已在电影分区/根目录平铺 → 就地规范化（建片目录、改规范名）
-        d = _organize("inplace", only={movie_id}, dry_run=True)
-        params = {"mode": "inplace"}
+        d = _organize("inplace", only={movie_id}, dry_run=True, library_id=lib_id)
+        params = {"mode": "inplace", "library_id": lib_id}
     plans = d.get("plans") or []
     return {"needs": bool(plans), "total": len(plans), "plans": plans[:20],
             "conflicts": (d.get("conflicts") or [])[:20], "params": params}

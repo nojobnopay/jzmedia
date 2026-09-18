@@ -31,11 +31,12 @@ def _safe_component(s: str) -> str:
     return " ".join(s.split())
 
 
-def _check_inside_root(rel: str) -> str:
-    """归一并约束在默认库根内，返回归一相对路径；非法抛 422。
+def _check_inside_root(rel: str, library_id=None) -> str:
+    """归一并约束在指定库（缺省=默认库）根内，返回归一相对路径；非法抛 422。
     realpath 校验见 library_paths.check_inside（评审 B6/R09-B1）。"""
+    lid = library_paths.default_id() if library_id is None else library_id
     try:
-        return library_paths.check_inside(library_paths.default_id(), rel)
+        return library_paths.check_inside(lid, rel)
     except ValueError as e:
         raise HTTPException(422, str(e))
 

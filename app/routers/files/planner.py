@@ -95,17 +95,17 @@ def _finalize(comp: dict, stem: str, target_root: str | None,
     new_rel = _target_for(comp, stem, target_root, group_by_region)
     if os.path.normpath(new_rel) == os.path.normpath(comp["from"]):
         return None
+    lib_id = comp["m"].get("library_id") or library_paths.DEFAULT_LIBRARY_ID
     d = {"id": comp["id"], "from": comp["from"], "to": new_rel,
          "title": comp["m"].get("title", ""),
          "tmdb_id": comp["m"].get("tmdb_id"),
-         "library_id": comp["m"].get("library_id")
-         or library_paths.DEFAULT_LIBRARY_ID,
+         "library_id": lib_id,
          "edition": comp["edition"], "spec": spec_used,
          "stack": comp["stack"],
          "region_stale": _region_stale(comp["from"], comp["m"].get("region") or "")}
     if numbered:
         d["numbered"] = numbered
-    if not os.path.isfile(library_paths.abs_path(comp["from"])):
+    if not os.path.isfile(library_paths.resolve(lib_id, comp["from"])):
         d["status"] = "source_missing"   # 预览即标注（评审 R09-D6），执行会跳过
     return d
 
@@ -119,17 +119,26 @@ def _keeper_of(comp: dict) -> dict:
 def _collect_plans(target_root: str | None = None,
                    group_by_region: bool = False,
                    only: set | None = None,
-                   all_rows: list | None = None) -> tuple[list, list]:
+                   all_rows: list | None = None,
+                   library_id: int | None = None) -> tuple[list, list]:
     # all_rows 允许调用方传入已读的全表（评审 99 §2.2：relocate 免二次全表读）；
     # 库内占用检查需要全表，因此不能只传 scoped 子集。
     all_rows = (all_rows if all_rows is not None
                 else store.list_movies(grouped=False, limit=100000))
-    # 目标路径 → 库内占用行 id。磁盘缺失的 missing 行也占 UNIQUE(file_path)，
-    # 执行前必须挡掉（评审 P1-06：否则 rename 成功而 DB 更新失败，盘库不一致）。
-    db_owner = {os.path.normpath(m["file_path"]): m["id"] for m in all_rows}
-    rows = [m for m in all_rows if m["id"] in only] if only else all_rows
+    # 目标路径 → 占用行 id。按 (库, 路径) 键控（多库 v12）：不同库同名相对路径互不冲突。
+    db_owner = {}
+    for m in all_rows:
+        lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        db_owner[(lid, os.path.normpath(m["file_path"]))] = m["id"]
+    rows = all_rows
+    if library_id is not None:
+        rows = [m for m in rows if int(m.get("library_id")
+                                       or library_paths.DEFAULT_LIBRARY_ID) == int(library_id)]
+    if only:
+        rows = [m for m in rows if m["id"] in only]
     comps = [c for m in rows if (c := _components(m))]
-    current_paths = {os.path.normpath(m["file_path"]) for m in rows}
+    current_paths = {(int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID),
+                      os.path.normpath(m["file_path"])) for m in rows}
     # 第一遍：版本+分卷（无规格），按目标分组
     groups: dict[str, list] = {}
     stem0: dict[int, str] = {}
@@ -224,9 +233,10 @@ def _collect_plans(target_root: str | None = None,
     final_plans = []
     for p in plans:
         dst = os.path.normpath(p["to"])
-        owner = db_owner.get(dst)
-        if (os.path.exists(library_paths.abs_path(p["to"]))
-                and dst not in current_paths):
+        lib_id = int(p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        owner = db_owner.get((lib_id, dst))
+        if (os.path.exists(library_paths.resolve(lib_id, p["to"]))
+                and (lib_id, dst) not in current_paths):
             conflicts.append({**p, "status": "conflict_disk_exists",
                               "kind": "disk"})
         elif owner is not None and owner != p["id"]:

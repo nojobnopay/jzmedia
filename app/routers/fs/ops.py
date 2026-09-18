@@ -13,7 +13,8 @@ __all__ = ['_exec_delete_one', '_move_db_follow', '_exec_move_one']
 def _exec_delete_one(plan: dict) -> dict:
     """执行单文件删除（含 DB 联动与旧目录 NFO 收尾）。调用方已确认。"""
     rel = plan["rel"]
-    abs_p = library_paths.abs_path(rel)
+    lid = int(plan.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+    abs_p = library_paths.resolve(lid, rel)
     old_dir = os.path.dirname(abs_p)
     if not os.path.isfile(abs_p) and not os.path.lexists(abs_p):
         return {**plan, "status": "skipped_missing_src"}
@@ -27,7 +28,7 @@ def _exec_delete_one(plan: dict) -> dict:
             store.delete_movie(plan["movie_id"])
         elif kind == "sidecar":
             try:
-                store.delete_extra_by_path(rel)
+                store.delete_extra_by_path(rel, library_id=lid)
             except Exception:
                 pass
     except Exception as e:
@@ -37,47 +38,51 @@ def _exec_delete_one(plan: dict) -> dict:
     return {**plan, "status": "deleted"}
 
 
-def _move_db_follow(fr: str, to: str, info: dict) -> None:
+def _move_db_follow(fr: str, to: str, info: dict, library_id=None) -> None:
     """移动后的 DB 联动：正片改 file_path + NFO；花絮改路径归属；其余不管。"""
+    lid = int(library_id or library_paths.DEFAULT_LIBRARY_ID)
     if info.get("kind") == "feature" and info.get("movie_id"):
         store.update_movie_local(info["movie_id"], file_path=to)
         try:
-            sync_nfos_for(info["movie_id"], library_paths.abs_path(to))
+            sync_nfos_for(info["movie_id"], library_paths.resolve(lid, to))
         except Exception:
             pass
     elif info.get("kind") == "sidecar":
         try:
             rows = [e for e in store.list_all_extras()
-                    if e["file_path"] == fr]
+                    if e["file_path"] == fr
+                    and int(e.get("library_id") or 0) == lid]
         except Exception:
             rows = []
         if rows:
             e = rows[0]
             try:
-                store.delete_extra_by_path(fr)
+                store.delete_extra_by_path(fr, library_id=lid)
             except Exception:
                 pass
             try:
-                store.upsert_extra(to, e.get("movie_id"), e.get("kind") or "extra")
+                store.upsert_extra(to, e.get("movie_id"), e.get("kind") or "extra",
+                                   library_id=lid)
             except Exception:
                 pass
 
 
-def _exec_move_one(fr: str, to: str) -> dict:
+def _exec_move_one(fr: str, to: str, library_id=None) -> dict:
     """执行单文件改名/移动（含跟随字幕/花絮兄弟与 DB 联动）。"""
-    base = {"from": fr, "to": to}
-    src = library_paths.abs_path(fr)
-    dst = library_paths.abs_path(to)
+    lid = int(library_id or library_paths.DEFAULT_LIBRARY_ID)
+    base = {"from": fr, "to": to, "library_id": lid}
+    src = library_paths.resolve(lid, fr)
+    dst = library_paths.resolve(lid, to)
     if not os.path.isfile(src):
         return {**base, "status": "skipped_missing_src"}
     if os.path.exists(dst):
         return {**base, "status": "conflict_disk_exists"}
-    info = _classify(fr)
+    info = _classify(fr, library_id=lid)
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         followers = _sibling_followers(src)
         _rename_or_move(src, dst)
-        _move_db_follow(fr, to, info)
+        _move_db_follow(fr, to, info, lid)
         # 同茎跟随：字幕/花絮兄弟随新茎改名
         new_stem = os.path.splitext(os.path.basename(dst))[0]
         old_stem = os.path.splitext(os.path.basename(src))[0]
@@ -87,17 +92,18 @@ def _exec_move_one(fr: str, to: str) -> dict:
             fdst = os.path.join(os.path.dirname(dst), new_stem + suffix)
             try:
                 if not os.path.exists(fdst):
-                    frel_old = os.path.relpath(f, library_paths.default_root())
+                    frel_old = os.path.relpath(f, library_paths.library_root(lid))
                     _rename_or_move(f, fdst)
-                    frel_new = os.path.relpath(fdst, library_paths.default_root())
+                    frel_new = os.path.relpath(fdst, library_paths.library_root(lid))
                     try:
                         rows = [e for e in store.list_all_extras()
-                                if e["file_path"] == frel_old]
+                                if e["file_path"] == frel_old
+                                and int(e.get("library_id") or 0) == lid]
                         if rows:
-                            store.delete_extra_by_path(frel_old)
+                            store.delete_extra_by_path(frel_old, library_id=lid)
                             store.upsert_extra(
                                 frel_new, rows[0].get("movie_id"),
-                                rows[0].get("kind") or "extra")
+                                rows[0].get("kind") or "extra", library_id=lid)
                     except Exception:
                         pass
                     followed += 1

@@ -58,11 +58,12 @@ def _copy_file(src: str, dst: str, on_bytes, should_stop) -> bool:
     return True
 
 
-def _measure(items: list[str]) -> tuple[int, int, int]:
+def _measure(items: list[str], library_id=None) -> tuple[int, int, int]:
     """(总字节, 文件数, 目录数)；符号链接按 0 字节且不跟随。"""
+    lid = int(library_id or library_paths.DEFAULT_LIBRARY_ID)
     total = files = dirs = 0
     for rel in items:
-        abs_p = library_paths.abs_path(rel)
+        abs_p = library_paths.resolve(lid, rel)
         if os.path.isdir(abs_p) and not os.path.islink(abs_p):
             dirs += 1
             for root, dnames, fnames in os.walk(abs_p):
@@ -85,7 +86,9 @@ def _measure(items: list[str]) -> tuple[int, int, int]:
     return total, files, dirs
 
 
-def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict) -> None:
+def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict,
+                 library_id=None) -> None:
+    lid = int(library_id or library_paths.DEFAULT_LIBRARY_ID)
     def _stop() -> bool:
         job = _COPY_JOBS.get(jid)
         return job is None or job.get("state") != "running"
@@ -104,11 +107,11 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict) -> None:
         for rel in items:
             if _stop():
                 return
-            src_abs = library_paths.abs_path(rel)
+            src_abs = library_paths.resolve(lid, rel)
             base = os.path.basename(rel.rstrip("/"))
             dst_abs, was_renamed = _unique_dst(
-                library_paths.abs_path(os.path.join(to_dir, base)) if to_dir
-                else library_paths.abs_path(base))
+                library_paths.resolve(lid, os.path.join(to_dir, base)) if to_dir
+                else library_paths.resolve(lid, base))
             if was_renamed:
                 renamed += 1
             item_status = "copied"
@@ -146,12 +149,13 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict) -> None:
                         os.makedirs(os.path.dirname(dst_abs), exist_ok=True)
                         if not _copy_file(src_abs, dst_abs, _on_bytes, _stop):
                             return
-                    rel_dst = os.path.relpath(dst_abs, library_paths.default_root())
+                    rel_dst = os.path.relpath(dst_abs, library_paths.library_root(lid))
                     if is_feature_video(rel_dst):
                         # 正片复制 → 登记（源已匹配则直绑 tmdb，避免重搜/误配）
                         hint = hints.get(rel)
                         try:
-                            r = scanner.scan_one(dst_abs, tmdb_hint=hint)
+                            r = scanner.scan_one(dst_abs, tmdb_hint=hint,
+                                                 library_id=lid)
                             item_status = str(r.get("status") or "copied")
                             if r.get("status") in ("ok", "ok_needs_review"):
                                 registered += 1
@@ -161,7 +165,7 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict) -> None:
                 except OSError as e:
                     item_status = f"error: {e}"
             results.append({"from": rel,
-                            "to": os.path.relpath(dst_abs, library_paths.default_root()),
+                            "to": os.path.relpath(dst_abs, library_paths.library_root(lid)),
                             "status": item_status, "renamed": was_renamed})
             _COPY_JOBS.update(jid, done=len(results), renamed=renamed, registered=registered)
         if _stop():
@@ -189,18 +193,24 @@ def fs_copy(body: dict | None = None):
         raise HTTPException(422, "from required")
     if len(raws) > 100:
         raise HTTPException(422, "too many paths (max 100)")
+    try:
+        lid_raw = body.get("library_id", body.get("library"))
+        lid = int(lid_raw) if lid_raw not in (None, "") else library_paths.default_id()
+    except (TypeError, ValueError):
+        raise HTTPException(422, "library must be int")
     # 目标目录可不存在（粘贴到新目录），空串=根；_check_inside_root 拒绝空串，故单独处理
     raw_to = str(body.get("to_dir") or "").strip().strip("/")
-    to_dir = _check_inside_root(raw_to) if raw_to else ""
-    dst_root = library_paths.abs_path(to_dir) if to_dir else library_paths.default_root()
+    to_dir = _check_inside_root(raw_to, lid) if raw_to else ""
+    dst_root = library_paths.resolve(lid, to_dir) if to_dir \
+        else library_paths.library_root(lid)
     if os.path.exists(dst_root) and not os.path.isdir(dst_root):
         raise HTTPException(422, f"target is not a directory: {to_dir!r}")
     items: list[str] = []
     hints: dict = {}
     conflicts: list[str] = []
     for r in raws:
-        rel = _check_inside_root(str(r or ""))
-        abs_p = library_paths.abs_path(rel)
+        rel = _check_inside_root(str(r or ""), lid)
+        abs_p = library_paths.resolve(lid, rel)
         if not os.path.exists(abs_p):
             raise HTTPException(404, f"not found: {rel!r}")
         if os.path.isdir(abs_p) and not os.path.islink(abs_p):
@@ -211,23 +221,25 @@ def fs_copy(body: dict | None = None):
         base = os.path.basename(rel.rstrip("/"))
         if os.path.exists(os.path.join(dst_root, base)):
             conflicts.append(base)
-        info = _classify(rel)
+        info = _classify(rel, library_id=lid)
         if info.get("kind") == "feature" and info.get("tmdb_id"):
             hints[rel] = int(info["tmdb_id"])
         items.append(rel)
-    total_bytes, files, dirs = _measure(items)
+    total_bytes, files, dirs = _measure(items, lid)
     if body.get("dry_run", True):
         needs_confirm = (total_bytes >= COPY_CONFIRM_BYTES
                          or (files + dirs) >= COPY_CONFIRM_ITEMS)
         return {"dry_run": True, "total": len(items), "files": files, "dirs": dirs,
                 "bytes": total_bytes, "conflicts": conflicts[:50],
+                "library_id": lid,
                 "needs_confirm": needs_confirm,
                 "hint": (f"约 {files} 个文件 / {round(total_bytes / 1024 / 1024 / 1024, 2)} GB"
                          + ("，同名的会自动改「(副本)」" if conflicts else ""))}
-    _require_writable(library_paths.default_id())
-    job = _COPY_JOBS.create(total=len(items), bytes_total=total_bytes)
+    _require_writable(lid)
+    job = _COPY_JOBS.create(total=len(items), bytes_total=total_bytes,
+                            library_id=lid)
     jid = job["job_id"]
-    threading.Thread(target=_copy_worker, args=(jid, items, to_dir, hints),
+    threading.Thread(target=_copy_worker, args=(jid, items, to_dir, hints, lid),
                      daemon=True).start()
     return {"dry_run": False, "job_id": jid, "total": len(items), "bytes": total_bytes,
             "conflicts": conflicts[:50]}

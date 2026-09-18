@@ -10,7 +10,7 @@
 import json
 import math
 
-from ._base import _conn, _lock, _row_to_dict, logger
+from ._base import DEFAULT_LIBRARY_ID, _conn, _lock, _row_to_dict, logger
 
 __all__ = ['similar_movies']
 
@@ -153,9 +153,11 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
             return []
         m = _row_to_dict(row)
         tid = m.get("tmdb_id")
+        lib_id = m.get("library_id") or DEFAULT_LIBRARY_ID
         if tid:
             ver_ids = [int(r["id"]) for r in c.execute(
-                "SELECT id FROM movies WHERE tmdb_id=?", (tid,))]
+                "SELECT id FROM movies WHERE tmdb_id=? AND library_id=?",
+                (tid, lib_id))]
             cur_key = ("t", int(tid))
         else:
             ver_ids = [int(m["id"])]
@@ -191,8 +193,8 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
         if cur_col:
             try:
                 series_cols = {int(r["id"]) for r in c.execute(
-                    "SELECT id FROM collections WHERE tmdb_collection_id=?",
-                    (cur_col,))}
+                    "SELECT id FROM collections WHERE tmdb_collection_id=?"
+                    " AND library_id=?", (cur_col, lib_id))}
                 cur_manual -= series_cols
             except Exception:
                 pass
@@ -209,49 +211,54 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
         if cur_col:
             _add(c.execute(
                 "SELECT m.id FROM movies m JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
-                " WHERE t.collection_tmdb_id=? GROUP BY COALESCE(m.tmdb_id, -m.id)",
-                (cur_col,)).fetchall())
+                " WHERE t.collection_tmdb_id=? AND m.library_id=?"
+                " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id)",
+                (cur_col, lib_id)).fetchall())
         if cur_dirs:
             _add(c.execute(
                 "SELECT m.id, MAX(m.updated_at) AS _u FROM movies m"
                 " JOIN movie_person mp ON mp.movie_id=m.id"
                 " WHERE mp.role='director' AND mp.person_id IN (%s)"
-                " GROUP BY COALESCE(m.tmdb_id, -m.id) ORDER BY _u DESC LIMIT ?"
+                " AND m.library_id=?"
+                " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id) ORDER BY _u DESC LIMIT ?"
                 % ",".join("?" * len(cur_dirs)),
-                (*cur_dirs, _CAND_DIRECTOR)).fetchall())
+                (*cur_dirs, lib_id, _CAND_DIRECTOR)).fetchall())
         if cur_actors:
             _add(c.execute(
                 "SELECT m.id, MAX(m.updated_at) AS _u FROM movies m"
                 " JOIN movie_person mp ON mp.movie_id=m.id"
                 " WHERE mp.role='actor' AND mp.person_id IN (%s)"
-                " GROUP BY COALESCE(m.tmdb_id, -m.id) ORDER BY _u DESC LIMIT ?"
+                " AND m.library_id=?"
+                " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id) ORDER BY _u DESC LIMIT ?"
                 % ",".join("?" * len(cur_actors)),
-                (*cur_actors, _CAND_ACTOR)).fetchall())
+                (*cur_actors, lib_id, _CAND_ACTOR)).fetchall())
         if cur_tags:
             _add(c.execute(
                 "SELECT m.id, MAX(m.updated_at) AS _u FROM movies m"
-                " WHERE EXISTS (SELECT 1 FROM json_each(m.tags) je WHERE je.value IN (%s))"
-                " GROUP BY COALESCE(m.tmdb_id, -m.id) ORDER BY _u DESC LIMIT ?"
+                " WHERE m.library_id=?"
+                " AND EXISTS (SELECT 1 FROM json_each(m.tags) je WHERE je.value IN (%s))"
+                " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id) ORDER BY _u DESC LIMIT ?"
                 % ",".join("?" * len(cur_tags)),
-                (*sorted(cur_tags), _CAND_TAG)).fetchall())
+                (lib_id, *sorted(cur_tags), _CAND_TAG)).fetchall())
         if cur_manual:
             _add(c.execute(
                 "SELECT m.id, MAX(m.updated_at) AS _u FROM movies m"
                 " JOIN collection_members cm ON"
                 " ((cm.movie_tmdb_id IS NOT NULL AND cm.movie_tmdb_id=m.tmdb_id)"
                 " OR (cm.movie_id IS NOT NULL AND cm.movie_id=m.id))"
-                " WHERE cm.collection_id IN (%s)"
-                " GROUP BY COALESCE(m.tmdb_id, -m.id) ORDER BY _u DESC LIMIT ?"
+                " WHERE cm.collection_id IN (%s) AND m.library_id=?"
+                " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id) ORDER BY _u DESC LIMIT ?"
                 % ",".join("?" * len(cur_manual)),
-                (*sorted(cur_manual), _CAND_MANUAL)).fetchall())
+                (*sorted(cur_manual), lib_id, _CAND_MANUAL)).fetchall())
         if cur_genres:
             _add(c.execute(
                 "SELECT id FROM (SELECT m.id AS id,"
                 " (SELECT COUNT(*) FROM json_each(m.genre_ids) je WHERE je.value IN (%s))"
-                " AS hits FROM movies m GROUP BY COALESCE(m.tmdb_id, -m.id))"
+                " AS hits FROM movies m WHERE m.library_id=?"
+                " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id))"
                 " WHERE hits>0 ORDER BY hits DESC LIMIT ?"
                 % ",".join("?" * len(cur_genres)),
-                (*sorted(cur_genres), _CAND_GENRE)).fetchall())
+                (*sorted(cur_genres), lib_id, _CAND_GENRE)).fetchall())
         cand.discard(int(m["id"]))
         if not cand:
             return []
@@ -264,7 +271,7 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
             " m.genres, m.genre_ids, m.tags, MAX(m.updated_at) AS _u,"
             " t.collection_tmdb_id AS _cid"
             " FROM movies m LEFT JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
-            " WHERE m.id IN (%s) GROUP BY COALESCE(m.tmdb_id, -m.id)"
+            " WHERE m.id IN (%s) GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id)"
             % ",".join("?" * len(ids)), tuple(ids)).fetchall()
         reps = []
         tids, mids = [], []
@@ -302,6 +309,8 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
         if mids:
             wheres.append("m.id IN (%s)" % ",".join("?" * len(mids)))
             params.extend(mids)
+        wheres.append("m.library_id=?")
+        params.append(lib_id)
         for r in c.execute(
                 "SELECT m.id AS mid, m.tmdb_id AS mtid, mp.person_id, mp.role"
                 " FROM movie_person mp JOIN movies m ON m.id=mp.movie_id"

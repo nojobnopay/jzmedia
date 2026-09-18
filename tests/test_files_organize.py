@@ -216,11 +216,12 @@ def test_organize_execute_relocate_via_hint_params(media_root):
     c = TestClient(app)
     hint = c.get(f"/api/movies/{mid}/organize-hint").json()
     assert hint["needs"] and hint["params"]["mode"] == "relocate"
+    assert hint["params"]["group_by_region"] is False   # D5：扁平（不再按大区）
     d = c.post("/api/files/organize", json={**hint["params"], "ids": [mid],
                                             "dry_run": False}).json()
     assert [r["status"] for r in d["results"]] == ["moved"], d
     new_rel = (store.get_movie(mid) or {}).get("file_path")
-    assert new_rel.startswith("电影/华语/Relocate Me (2017)/")
+    assert new_rel.startswith("电影/Relocate Me (2017)/")
     assert (media_root / new_rel).exists()
 
 
