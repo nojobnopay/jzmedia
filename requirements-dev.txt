@@ -4,3 +4,5 @@ pytest>=8.0
 pyflakes>=3.0
 # 宿主直跑（./start.sh）无系统 ffmpeg 时的静态二进制兜底（评审 R01-Q5）
 static-ffmpeg>=3.0
+# SMB 直读 spike（进程内 SMB2/3，不依赖内核 CIFS/挂载权限）；POC 验证通过后再决定是否进 requirements.txt
+smbprotocol>=1.13
