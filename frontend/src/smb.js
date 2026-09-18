@@ -11,7 +11,7 @@ export function parseSmbInput (raw) {
   const text = String(raw || '').trim()
   if (!text) {
     return { host: '', share: '', subpath: '', username: '',
-      error: '请输入服务器/共享路径，如 \\\\NAS\\video\\Movies' }
+      error: '请输入服务器/共享路径，如 \\\\ServerName\\ShareName' }
   }
   if (DRIVE_RE.test(text)) {
     return { host: '', share: '', subpath: '', username: '',
@@ -31,7 +31,7 @@ export function parseSmbInput (raw) {
   const segs = body.split('/').filter(Boolean)
   if (segs.length < 2) {
     return { host: segs[0] || '', share: '', subpath: '', username,
-      error: '还需要共享名，形如 \\\\主机\\共享（如 \\\\NAS\\video）' }
+      error: '还需要共享名，形如 \\\\ServerName\\ShareName' }
   }
   const host = isUrl ? unquote(segs[0]) : segs[0]
   const share = isUrl ? unquote(segs[1]) : segs[1]

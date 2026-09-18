@@ -25,7 +25,7 @@ def parse_smb_url(raw: str) -> dict:
     text = str(raw or "").strip()
     if not text:
         return {"host": "", "share": "", "subpath": "", "username": "",
-                "error": "请输入服务器/共享路径，如 \\\\NAS\\video\\Movies"}
+                "error": "请输入服务器/共享路径，如 \\\\ServerName\\ShareName"}
     if _DRIVE_RE.match(text):
         return {"host": "", "share": "", "subpath": "", "username": "",
                 "error": "这看起来是 Windows 映射盘路径；请填 NAS 的 \\\\主机\\共享\\目录，或容器的本地路径"}
@@ -40,7 +40,7 @@ def parse_smb_url(raw: str) -> dict:
     if len(segs) < 2:
         return {"host": segs[0] if segs else "", "share": "", "subpath": "",
                 "username": username,
-                "error": "还需要共享名，形如 \\\\主机\\共享（如 \\\\NAS\\video）"}
+                "error": "还需要共享名，形如 \\\\ServerName\\ShareName"}
     host = _unquote(segs[0]) if is_url else segs[0]
     share = _unquote(segs[1]) if is_url else segs[1]
     if not host:

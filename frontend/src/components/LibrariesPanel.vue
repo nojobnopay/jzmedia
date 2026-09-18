@@ -33,9 +33,9 @@
         </tr>
         <tr v-if="connEdit && connEdit.id === l.id">
           <td colspan="8" class="path-edit">
-            <input v-model="connEdit.url" placeholder="\\NAS\video\Movies" style="min-width:300px" />
-            <input v-model="connEdit.username" placeholder="用户名（可空）" />
-            <input v-model="connEdit.password" type="password" placeholder="密码（留空不改）" autocomplete="off" />
+            <input v-model="connEdit.url" placeholder="\\ServerName\ShareName\Folder" style="min-width:300px" />
+            <input v-model="connEdit.username" placeholder="SMB 登录用户名" />
+            <input v-model="connEdit.password" type="password" placeholder="SMB 密码（留空不改）" autocomplete="off" />
             <button @click="saveConn(l)" :disabled="!!busy">{{ busy === 'conn' ? '保存中…' : '保存连接' }}</button>
             <button @click="connEdit = null">取消</button>
             <span class="fhint" :class="{ 'warn-text': connPreview.error }">{{ connPreview.error || `→ ${connPreview.host}/${connPreview.share}/${connPreview.subpath}` }}</span>
@@ -77,25 +77,34 @@
           <option value="nfs">NFS（应用内挂载）</option>
         </select>
       </label>
+      <label v-if="form.source === 'smb'" class="ck adv-switch">
+        <input type="checkbox" v-model="advSplitting" /> 高级：手动拆分
+      </label>
       <label v-if="form.source === 'local'">路径 <input v-model="form.path" placeholder="容器内路径，NAS 上如 /media/Movies" style="min-width:280px" /></label>
       <template v-if="form.source === 'smb'">
         <label v-if="!advSplitting">服务器 / 共享路径
-          <input v-model="form.smb_url" placeholder="\\NAS\video\Movies" style="min-width:320px" /></label>
-        <span v-if="!advSplitting" class="fhint" :class="{ 'warn-text': smbPreview.error }">
-          {{ smbPreview.error || `解析：主机 ${smbPreview.host} · 共享 ${smbPreview.share} · 目录 ${smbPreview.subpath || '（共享根）'} → 挂载 data/mounts/lib_N` }}
-        </span>
-        <label class="ck"><input type="checkbox" v-model="advSplitting" /> 高级：手动拆分</label>
+          <input v-model="form.smb_url" placeholder="\\ServerName\ShareName\Folder" style="min-width:320px" /></label>
+        <div v-if="!advSplitting" class="parse-line" :class="{ 'warn-text': smbPreview.error }">
+          <template v-if="smbPreview.error">{{ smbPreview.error }}</template>
+          <template v-else>
+            主机 <b>{{ smbPreview.host }}</b> · 共享 <b>{{ smbPreview.share }}</b>
+            · 目录 <b>{{ smbPreview.subpath || '（共享根）' }}</b>
+            <br />→ 自动挂载到 <code>data/mounts/lib_N</code>（无需填写）
+          </template>
+        </div>
         <template v-if="advSplitting">
-          <label>服务器地址 <input v-model="form.smb_host" placeholder="NAS 或 tailnet IP" /></label>
-          <label>共享名 <input v-model="form.smb_share" placeholder="video" /></label>
-          <label>共享内目录 <input v-model="form.smb_subpath" placeholder="Movies（可空）" /></label>
+          <label>服务器地址 <input v-model="form.smb_host" placeholder="ServerName 或 IP" /></label>
+          <label>共享名 <input v-model="form.smb_share" placeholder="ShareName" /></label>
+          <label>共享内目录 <input v-model="form.smb_subpath" placeholder="Folder（可空）" /></label>
         </template>
-        <label>用户名 <input v-model="form.smb_username" placeholder="可空（地址里的 用户@ 会自动带出）" /></label>
-        <label>密码 <input v-model="form.smb_password" type="password" placeholder="可空" autocomplete="off" /></label>
+        <label>用户名 <input v-model="form.smb_username" placeholder="SMB 登录用户名（可空）" /></label>
+        <label>密码 <input v-model="form.smb_password" type="password" placeholder="SMB 密码（可空）" autocomplete="off" /></label>
       </template>
       <template v-if="form.source === 'nfs'">
-        <label>导出路径 <input v-model="form.nfs_export" placeholder="NAS:/volume1/video/Movies" style="min-width:260px" /></label>
-        <span class="fhint">最终挂载：{{ form.nfs_export || 'NAS:/export' }} → 容器挂载点自动分配（data/mounts/lib_N），无需手填</span>
+        <label>导出路径 <input v-model="form.nfs_export" placeholder="ServerName:/volume1/video/Movies" style="min-width:260px" /></label>
+        <div class="parse-line">
+          → 自动挂载到 <code>data/mounts/lib_N</code>（无需填写），NFS 服务器需已导出该路径
+        </div>
       </template>
       <label>命名档
         <select v-model="form.naming_profile">
@@ -117,9 +126,18 @@
       </button>
       <span class="fhint">{{ msg }}</span>
     </div>
-    <p class="hint">路径填写：jzmedia 跑在 NAS Docker 里填<b>容器内路径</b>（compose 把 <code>/volume1/video</code> 挂到 <code>/media</code> 后即
-      <code>/media/Movies</code>），不需要 SMB；开发机远程访问可选 SMB/NFS（容器内挂载需 compose <code>cap_add: [SYS_ADMIN]</code>，镜像已含 cifs/nfs 工具），
-      能力不足时「检查」会给宿主挂载命令。默认库路径被嵌套拒绝时：删除默认库记录、或把它的路径改到目标目录（0 影片时才可改）。只读库禁止归档/上传/删除/NFO 写入；凭据 Fernet 加密、绝不回显。</p>
+    <div class="hint-block">
+      <p class="hint-title">路径怎么填</p>
+      <ul class="hint-list">
+        <li><b>NAS Docker（推荐）</b>：选「本地路径」，填容器内路径——compose 把宿主 <code>/volume1/video</code>
+          挂到容器 <code>/media</code> 后，即填 <code>/media/Movies</code>，不需要 SMB。</li>
+        <li><b>开发机远程访问</b>：选 SMB，粘贴 <code>\\ServerName\共享名\子目录</code>（或 <code>smb://用户@ServerName/共享名/子目录</code>），
+          挂载点自动分配；容器内挂载需 compose <code>cap_add: [SYS_ADMIN]</code>，能力不足时点「检查」会给出宿主挂载命令。</li>
+        <li><b>默认库已占路径</b>：默认库若为 0 影片，可点「改路径」指向 <code>/media/Movies</code> 或
+          <code>/media/TV Shows</code>；也可以直接删除默认库记录（不动磁盘文件）。</li>
+        <li><b>安全与限制</b>：远程凭据 Fernet 加密存储、绝不回显；只读库禁止归档/上传/删除/NFO 写入。</li>
+      </ul>
+    </div>
   </section>
 </template>
 
@@ -359,6 +377,14 @@ defineExpose({ ensure: load })
 .lib-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .lib-form label { display: inline-flex; gap: 6px; align-items: center; }
 .lib-form label.ck { gap: 4px; }
+.parse-line { flex-basis: 100%; color: #888; font-size: 0.8125rem; line-height: 1.8; padding-left: 6px; }
+.parse-line b { color: #ccc; font-weight: 600; }
+.parse-line code { color: #9ecfff; }
+.hint-block { margin-top: 10px; }
+.hint-title { margin: 0 0 2px; color: #999; font-size: 0.8125rem; font-weight: 600; }
+.hint-list { margin: 0; padding-left: 20px; color: #888; font-size: 0.8125rem; line-height: 1.9; }
+.hint-list li { margin: 2px 0; }
+.hint-list code { color: #9ecfff; }
 .fhint { color: #777; font-size: 0.75rem; font-weight: normal; }
 .hint { color: #888; font-size: 0.8125rem; line-height: 1.6; }
 </style>
