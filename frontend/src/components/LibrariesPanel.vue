@@ -22,12 +22,23 @@
           </td>
           <td class="ops">
             <button @click="check(l)" :disabled="!!busy">{{ busy === 'check' + l.id ? '检查中…' : '检查' }}</button>
+            <button v-if="l.source !== 'local'" @click="editConn(l)" :disabled="!!busy">编辑连接</button>
             <button v-if="l.source !== 'local'" @click="mount(l, true)" :disabled="!!busy">挂载</button>
             <button v-if="l.source !== 'local'" @click="mount(l, false)" :disabled="!!busy">卸载</button>
             <button v-if="l.source === 'local' && l.movie_count === 0" @click="editPath(l)" :disabled="!!busy">改路径</button>
             <button @click="toggleReadOnly(l)" :disabled="!!busy">{{ l.read_only ? '取消只读' : '设只读' }}</button>
             <button @click="toggleEnabled(l)" :disabled="!!busy">{{ l.enabled ? '停用' : '启用' }}</button>
             <button class="danger" @click="armDelete(l)" :disabled="!!busy">删除</button>
+          </td>
+        </tr>
+        <tr v-if="connEdit && connEdit.id === l.id">
+          <td colspan="8" class="path-edit">
+            <input v-model="connEdit.url" placeholder="\\NAS\video\Movies" style="min-width:300px" />
+            <input v-model="connEdit.username" placeholder="用户名（可空）" />
+            <input v-model="connEdit.password" type="password" placeholder="密码（留空不改）" autocomplete="off" />
+            <button @click="saveConn(l)" :disabled="!!busy">{{ busy === 'conn' ? '保存中…' : '保存连接' }}</button>
+            <button @click="connEdit = null">取消</button>
+            <span class="fhint" :class="{ 'warn-text': connPreview.error }">{{ connPreview.error || `→ ${connPreview.host}/${connPreview.share}/${connPreview.subpath}` }}</span>
           </td>
         </tr>
         <tr v-if="pathEdit && pathEdit.id === l.id">
@@ -68,12 +79,19 @@
       </label>
       <label v-if="form.source === 'local'">路径 <input v-model="form.path" placeholder="容器内路径，NAS 上如 /media/Movies" style="min-width:280px" /></label>
       <template v-if="form.source === 'smb'">
-        <label>服务器地址 <input v-model="form.smb_host" placeholder="NAS 或 tailnet IP" /></label>
-        <label>共享名 <input v-model="form.smb_share" placeholder="video" /></label>
-        <label>共享内目录 <input v-model="form.smb_subpath" placeholder="Movies（可空）" /></label>
-        <label>用户名 <input v-model="form.smb_username" placeholder="可空" /></label>
+        <label v-if="!advSplitting">服务器 / 共享路径
+          <input v-model="form.smb_url" placeholder="\\NAS\video\Movies" style="min-width:320px" /></label>
+        <span v-if="!advSplitting" class="fhint" :class="{ 'warn-text': smbPreview.error }">
+          {{ smbPreview.error || `解析：主机 ${smbPreview.host} · 共享 ${smbPreview.share} · 目录 ${smbPreview.subpath || '（共享根）'} → 挂载 data/mounts/lib_N` }}
+        </span>
+        <label class="ck"><input type="checkbox" v-model="advSplitting" /> 高级：手动拆分</label>
+        <template v-if="advSplitting">
+          <label>服务器地址 <input v-model="form.smb_host" placeholder="NAS 或 tailnet IP" /></label>
+          <label>共享名 <input v-model="form.smb_share" placeholder="video" /></label>
+          <label>共享内目录 <input v-model="form.smb_subpath" placeholder="Movies（可空）" /></label>
+        </template>
+        <label>用户名 <input v-model="form.smb_username" placeholder="可空（地址里的 用户@ 会自动带出）" /></label>
         <label>密码 <input v-model="form.smb_password" type="password" placeholder="可空" autocomplete="off" /></label>
-        <span class="fhint">最终挂载：\{{ form.smb_host || '主机' }}\{{ form.smb_share || '共享' }}{{ form.smb_subpath ? '\\' + form.smb_subpath : '' }} → 容器挂载点自动分配（data/mounts/lib_N），无需手填</span>
       </template>
       <template v-if="form.source === 'nfs'">
         <label>导出路径 <input v-model="form.nfs_export" placeholder="NAS:/volume1/video/Movies" style="min-width:260px" /></label>
@@ -106,9 +124,10 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '../api.js'
 import { loadLibs } from '../libraries.js'
+import { parseSmbInput, smbUrlOf } from '../smb.js'
 
 const emit = defineEmits(['changed'])
 const items = ref([])
@@ -117,10 +136,19 @@ const msg = ref('')
 const arm = ref(null)
 const armConfirm = ref(false)
 const pathEdit = ref(null)
+const connEdit = ref(null)
+const advSplitting = ref(false)
+const smbPreview = computed(() => parseSmbInput(form.smb_url))
+const connPreview = computed(() => parseSmbInput(connEdit.value ? connEdit.value.url : ''))
+watch(() => form.smb_url, (v) => {
+  const p = parseSmbInput(v)
+  if (p.username && !form.smb_username) form.smb_username = p.username
+})
 const form = reactive({
   name: '', kind: 'movie', source: 'local', path: '', naming_profile: 'kodi',
   artwork_mode: 'nfo', read_only: false,
-  smb_host: '', smb_share: '', smb_subpath: '', smb_username: '', smb_password: '',
+  smb_url: '', smb_host: '', smb_share: '', smb_subpath: '',
+  smb_username: '', smb_password: '',
   nfs_export: '',
 })
 
@@ -173,6 +201,34 @@ async function savePath (l) {
     await load()
   } catch (e) {
     msg.value = '改路径失败：' + e.message
+  } finally {
+    busy.value = ''
+  }
+}
+
+function editConn (l) {
+  connEdit.value = { id: l.id, url: smbUrlOf(l), username: l.smb_username || '', password: '' }
+  msg.value = ''
+}
+
+async function saveConn (l) {
+  const p = connPreview.value
+  if (p.error) { msg.value = p.error; return }
+  busy.value = 'conn'
+  msg.value = ''
+  try {
+    const smb = { username: connEdit.value.username,
+                  domain: l.smb_domain || '', options: l.smb_options || '' }
+    if (connEdit.value.password) smb.password = connEdit.value.password
+    await api(`/api/libraries/${l.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ smb_url: connEdit.value.url, smb }),
+    })
+    msg.value = `「${l.name}」连接已更新（远程库路径仍由挂载点自动分配）`
+    connEdit.value = null
+    await load()
+  } catch (e) {
+    msg.value = '保存连接失败：' + e.message
   } finally {
     busy.value = ''
   }
@@ -258,9 +314,12 @@ async function create () {
       read_only: form.read_only,
     }
     if (form.source === 'smb') {
-      body.smb = { host: form.smb_host, share: form.smb_share,
-                   subpath: form.smb_subpath, username: form.smb_username,
-                   password: form.smb_password }
+      body.smb = advSplitting.value
+        ? { host: form.smb_host, share: form.smb_share,
+            subpath: form.smb_subpath, username: form.smb_username,
+            password: form.smb_password }
+        : { url: form.smb_url, username: form.smb_username,
+            password: form.smb_password }
     } else if (form.source === 'nfs') {
       body.nfs = { export: form.nfs_export }
     }
@@ -271,6 +330,7 @@ async function create () {
     msg.value = `已创建「${d.name}」`
     form.name = ''
     form.path = ''
+    form.smb_url = ''
     form.smb_host = ''
     form.smb_share = ''
     form.smb_password = ''

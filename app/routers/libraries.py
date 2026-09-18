@@ -45,12 +45,17 @@ class LibraryCreate(BaseModel):
     metadata_providers: str = ""
     smb: dict | None = None
     nfs: dict | None = None
+    smb_url: str | None = None   # 单输入框：\\主机\共享\目录（也兼容 smb://）
 
 
 @router.post("")
 def create_library(body: LibraryCreate):
+    data = body.model_dump()
+    smb_url = (data.pop("smb_url", None) or "").strip()
+    if smb_url:
+        data["smb"] = {**(data.get("smb") or {}), "url": smb_url}
     try:
-        lib = store.create_library(**body.model_dump())
+        lib = store.create_library(**data)
     except ValueError as e:
         raise HTTPException(422, str(e))
     library_paths.invalidate_cache()
@@ -74,6 +79,7 @@ class LibraryUpdate(BaseModel):
     metadata_providers: str | None = None
     smb: dict | None = None
     nfs: dict | None = None
+    smb_url: str | None = None   # 编辑连接：完整地址（与 smb 二选一，url 优先）
     smb_password: str | None = None
     nfs_password: str | None = None
 
@@ -83,6 +89,9 @@ def update_library(library_id: int, body: LibraryUpdate):
     data = body.model_dump(exclude_unset=True)
     if not data:
         raise HTTPException(422, "nothing to update")
+    smb_url = (data.pop("smb_url", None) or "").strip()
+    if smb_url:
+        data["smb"] = {**(data.get("smb") or {}), "url": smb_url}
     try:
         lib = store.update_library(library_id, **data)
     except ValueError as e:

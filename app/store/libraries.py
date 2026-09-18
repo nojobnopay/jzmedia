@@ -145,10 +145,25 @@ def public_library(lib: dict | None) -> dict | None:
 
 def _smb_fields(smb: dict | None) -> dict:
     smb = smb or {}
+    url = str(smb.get("url") or smb.get("address") or "").strip()
+    if url:
+        from ..smburl import parse_smb_url
+        p = parse_smb_url(url)
+        if p.get("error"):
+            raise ValueError(p["error"])
+        host = p["host"]
+        share = p["share"]
+        subpath = p["subpath"]
+        if p.get("username") and not str(smb.get("username") or "").strip():
+            smb = {**smb, "username": p["username"]}
+    else:
+        host = str(smb.get("host") or "").strip()
+        share = str(smb.get("share") or "").strip().strip("/")
+        subpath = str(smb.get("subpath") or "").strip().strip("/")
     out = {
-        "smb_host": str(smb.get("host") or "").strip(),
-        "smb_share": str(smb.get("share") or "").strip().strip("/"),
-        "smb_subpath": str(smb.get("subpath") or "").strip().strip("/"),
+        "smb_host": host,
+        "smb_share": share,
+        "smb_subpath": subpath,
         "smb_domain": str(smb.get("domain") or "").strip(),
         "smb_username": str(smb.get("username") or "").strip(),
         "smb_options": str(smb.get("options") or "").strip(),
