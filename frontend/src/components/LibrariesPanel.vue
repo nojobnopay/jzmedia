@@ -145,13 +145,18 @@
       <span class="fhint">{{ msg }}</span>
       <div class="parse-line">
         <template v-if="form.naming_profile === 'plex'">
-          命名档 <b>plex</b>：归档为 <code>标题 (年份) {edition-版本} - 规格.ext</code>，归档预览会做 Plex 兼容性检查（可能被 Plex 认错的名字先告警）。
+          命名档 <b>plex</b>（Plex 规范，目录+文件名都带剪辑）：
+          普通片 <code>标题 (年份)/标题 (年份).ext</code>；
+          剪辑片 <code>标题 (年份) {edition-版本}/标题 (年份) {edition-版本} - 规格.ext</code>——
+          Plex 只有看到 <code>{edition-…}</code> 才会把导演剪辑版等拆成独立条目。归档预览会做 Plex 兼容性检查（可能被 Plex 认错的名字先告警）。
         </template>
         <template v-else-if="form.naming_profile === 'off'">
           命名档 <b>off</b>：不改文件名和目录，只入库/浏览/播放（对该库不执行归档改名）。
         </template>
         <template v-else>
-          命名档 <b>kodi</b>：归档为 <code>标题 (年份)[-版本][-规格][-分卷].ext</code>，兼容 Kodi/Jellyfin/Emby（现有模板）。
+          命名档 <b>kodi</b>（通用模板，兼容 Kodi/Jellyfin/Emby 与现有目录）：
+          普通片 <code>标题 (年份)/标题 (年份).ext</code>；带剪辑时目录不加 <code>{edition-…}</code>，版本只写在文件名：
+          <code>标题 (年份)/标题 (年份)[-版本][-规格][-分卷].ext</code>——Plex 下仍能匹配影片，但多个剪辑会合并为同一部片的多版本。
         </template>
         <br />
         <template v-if="form.artwork_mode === 'nfo_art'">
