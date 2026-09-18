@@ -22,6 +22,8 @@
           </td>
           <td class="ops">
             <button @click="check(l)" :disabled="!!busy">{{ busy === 'check' + l.id ? '检查中…' : '检查' }}</button>
+            <button v-if="l.source !== 'local'" @click="mount(l, true)" :disabled="!!busy">挂载</button>
+            <button v-if="l.source !== 'local'" @click="mount(l, false)" :disabled="!!busy">卸载</button>
             <button @click="toggleReadOnly(l)" :disabled="!!busy">{{ l.read_only ? '取消只读' : '设只读' }}</button>
             <button @click="toggleEnabled(l)" :disabled="!!busy">{{ l.enabled ? '停用' : '启用' }}</button>
             <button class="danger" @click="armDelete(l)" :disabled="!!busy">删除</button>
@@ -45,10 +47,27 @@
       <label>类型
         <select v-model="form.kind">
           <option value="movie">电影</option>
-          <option value="tv">剧集（本期只读清单，不刮削）</option>
+          <option value="tv">剧集（只读清单，不刮削）</option>
         </select>
       </label>
-      <label>路径 <input v-model="form.path" placeholder="/media/movies 或已挂载的 /volume1/media/Movies" style="min-width:280px" /></label>
+      <label>来源
+        <select v-model="form.source">
+          <option value="local">本地路径</option>
+          <option value="smb">SMB（应用内挂载）</option>
+          <option value="nfs">NFS（应用内挂载）</option>
+        </select>
+      </label>
+      <label>路径 <input v-model="form.path" placeholder="容器内路径 / 挂载点（如 /data/mounts/lib_2）" style="min-width:280px" /></label>
+      <template v-if="form.source === 'smb'">
+        <label>主机 <input v-model="form.smb_host" placeholder="nas 或 tailnet IP" /></label>
+        <label>共享 <input v-model="form.smb_share" placeholder="media" /></label>
+        <label>子路径 <input v-model="form.smb_subpath" placeholder="Movies（可空）" /></label>
+        <label>用户名 <input v-model="form.smb_username" placeholder="可空" /></label>
+        <label>密码 <input v-model="form.smb_password" type="password" placeholder="可空" autocomplete="off" /></label>
+      </template>
+      <template v-if="form.source === 'nfs'">
+        <label>导出 <input v-model="form.nfs_export" placeholder="nas:/volume1/media/Movies" style="min-width:240px" /></label>
+      </template>
       <label>命名档
         <select v-model="form.naming_profile">
           <option value="kodi">kodi</option>
@@ -69,7 +88,8 @@
       </button>
       <span class="fhint">{{ msg }}</span>
     </div>
-    <p class="hint">SMB/NFS 应用内挂载在 C 阶段提供；当前请宿主挂载后登记为本地路径。只读库禁止归档/上传/删除/NFO 写入。</p>
+    <p class="hint">SMB/NFS 由 jzmedia 应用内挂载（需 compose <code>cap_add: [SYS_ADMIN]</code>，镜像已含 cifs/nfs 工具）；
+      能力不足时「检查」会给出宿主挂载命令，挂好后按本地路径登记。只读库禁止归档/上传/删除/NFO 写入。凭据 Fernet 加密存储、绝不回显。</p>
   </section>
 </template>
 
@@ -85,8 +105,10 @@ const msg = ref('')
 const arm = ref(null)
 const armConfirm = ref(false)
 const form = reactive({
-  name: '', kind: 'movie', path: '', naming_profile: 'kodi',
+  name: '', kind: 'movie', source: 'local', path: '', naming_profile: 'kodi',
   artwork_mode: 'nfo', read_only: false,
+  smb_host: '', smb_share: '', smb_subpath: '', smb_username: '', smb_password: '',
+  nfs_export: '',
 })
 
 function statusText (l) {
@@ -173,17 +195,48 @@ async function doDelete () {
   }
 }
 
+async function mount (l, up) {
+  busy.value = (up ? 'mount' : 'unmount') + l.id
+  msg.value = ''
+  try {
+    const d = await api(`/api/libraries/${l.id}/${up ? 'mount' : 'unmount'}`,
+                        { method: 'POST' })
+    msg.value = d.ok ? `${up ? '已挂载' : '已卸载'}「${l.name}」` : `挂载失败：${d.error}`
+    await load()
+  } catch (e) {
+    msg.value = '挂载失败：' + e.message
+  } finally {
+    busy.value = ''
+  }
+}
+
 async function create () {
   busy.value = 'create'
   msg.value = ''
   try {
+    const body = {
+      name: form.name, kind: form.kind, source: form.source, path: form.path,
+      naming_profile: form.naming_profile, artwork_mode: form.artwork_mode,
+      read_only: form.read_only,
+    }
+    if (form.source === 'smb') {
+      body.smb = { host: form.smb_host, share: form.smb_share,
+                   subpath: form.smb_subpath, username: form.smb_username,
+                   password: form.smb_password }
+    } else if (form.source === 'nfs') {
+      body.nfs = { export: form.nfs_export }
+    }
     const d = await api('/api/libraries', {
       method: 'POST',
-      body: JSON.stringify({ ...form }),
+      body: JSON.stringify(body),
     })
     msg.value = `已创建「${d.name}」`
     form.name = ''
     form.path = ''
+    form.smb_host = ''
+    form.smb_share = ''
+    form.smb_password = ''
+    form.nfs_export = ''
     await load()
   } catch (e) {
     msg.value = '创建失败：' + e.message
