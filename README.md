@@ -65,6 +65,16 @@ cd frontend && npm install && npm run dev   # http://localhost:5173，/api 与 /
 
 改完前端记得回根目录逻辑：`npm run build`（产物进 `frontend/dist`，由后端托管；compose 构建镜像时会自动构建）。
 
+### 自检与冒烟
+
+```bash
+.venv/bin/python -m pytest -q                      # 后端回归（迁移/多库/播放/离线匹配/TV）
+.venv/bin/python -m pyflakes app                   # 未定义名检查
+.venv/bin/python scripts/smoke_multi_library.py    # 双库隔离冒烟（临时目录，安全）
+.venv/bin/python scripts/smoke_metadata_offline.py # 离线匹配/NFO 导入冒烟
+cd frontend && npm test && npm run lint && npm run build
+```
+
 ## 停止服务
 
 ```bash

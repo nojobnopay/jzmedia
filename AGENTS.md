@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Stack
-- Backend: FastAPI + stdlib `sqlite3` (no ORM), Vue3 + Vite frontend. No tests, lint, typecheck, or CI.
+- Backend: FastAPI + stdlib `sqlite3` (no ORM), Vue3 + Vite frontend. 验证：`pytest`（tests/）+ `pyflakes app` + 前端 `npm test`/`npm run lint`；无 CI。
 - Entrypoints: `app/main.py` (app + SPA hosting, version `0.8.0`；启动初始化 ensure_dirs/init_db 在 lifespan，导入期无副作用), `app/store.py` (SQLite+FTS+facets/filters), `app/scanner.py` (scan/match flow), `app/tmdb.py` (TMDB client), `app/regions.py` (country→region mapping, single source), `app/routers/` (`health|movies|collections|files|extras|fs|jobs|persons|stream`; TMDB search lives in `movies` router), `app/nfo.py` (Kodi NFO).
 - Playback: `app/media.py` (ffprobe probe + ffmpeg bin resolve) → `app/caps.py` (ClientCapabilities normalize/hash) → `app/playback.py` (4-tier plan `direct|remux|audio_transcode|video_transcode` + `build_cmd`) → `app/routers/stream.py` (sessions/heartbeat/TTL/HLS). `POST /api/stream/{id}/decide`, `POST /api/stream/versions`, `POST /api/stream/{id}/sessions` accept `caps`; GET variants use `caps.default_caps()` (conservative). `media_info.probe_ver < media.PROBE_VERSION` auto-reprobes on play. Frontend capability detect: `frontend/src/caps.js`.
   - quality: `auto`(默认；需视频重编且源>1080p 时封顶 无HW 720p/有HW 1080p) | `source`(原画不封顶) | `1080p` | `720p`；`original` 兼容为 auto。UI 显示“实际输出”。
@@ -24,7 +24,7 @@
 - Backend (WSL dev, hot-reload via `docker-compose.override.yml`): `cp .env.example .env && mkdir -p sample_media/电影 data && docker compose up --build`, check `http://localhost:8080/docs`.
 - Host-direct (no docker): prefer `./start.sh` — rebuilds `frontend/dist` only when stale, maps `.env` container paths (`/media`, `/app/data`) back to host defaults, then runs uvicorn. Manual equivalent needs `DATA_DIR=./data MEDIA_ROOT=./sample_media` overrides plus `TMDB_*` from `.env` (see README §启动服务).
 - Frontend dev: `npm run lint`（eslint 最小集：未定义/未用变量/console 警告）、`npm test`（node --test；含 `tests/templateBindings.test.js` 模板标识符绑定检查，防拆分后残留父级引用）in `frontend/`；`npm run build` 产出 `frontend/dist`。`npm run dev` (5173, proxies `/api`,`/posters` → 8080). Prod build: `npm run build` → `frontend/dist`, served by FastAPI at `/` + `/assets`.
-- No single-test command — there are no tests. Verify via `/api/health` and the scan/list endpoints in README §5.
+- 验证命令：`.venv/bin/python -m pytest -q`（270+ 用例，含迁移/多库/离线匹配/TV）；`.venv/bin/python -m pyflakes app`；冒烟 `scripts/smoke_multi_library.py`、`scripts/smoke_metadata_offline.py`（临时目录、不触网）；线上自检 `/api/health` + README §5 接口。
 
 ## Env / paths (gotchas)
 - Config is `os.getenv` in `app/config.py`; compose sets `MEDIA_ROOT=/media`, `DATA_DIR=/app/data` inside container. In code always use `settings.media_root` / `settings.data_dir`, never host paths (`MEDIA_HOST_PATH` is compose-only volume mapping).
