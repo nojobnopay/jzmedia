@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from ... import caps as _caps
 from ... import media as _media
 from ... import store
-from ...config import settings
+from ... import library_paths
 from ... import playback as _playback
 from ...log import get_logger
 logger = get_logger("stream.media")
@@ -135,7 +135,8 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
             return
         if not vm:
             return
-        abs_p = os.path.join(settings.media_root, vm["file_path"])
+        abs_p = library_paths.resolve(
+            vm.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, vm["file_path"])
         if os.path.isfile(abs_p):
             try:
                 _media_cached_or_probe(vm, abs_p)
@@ -158,7 +159,8 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
         vm = store.get_movie(vid)
         if not vm:
             continue
-        abs_p = os.path.join(settings.media_root, vm["file_path"])
+        abs_p = library_paths.resolve(
+            vm.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, vm["file_path"])
         base = {"version_id": vid, "file_path": vm["file_path"],
                 "edition": v.get("edition") or "", "spec": v.get("spec") or ""}
         if not os.path.isfile(abs_p):
@@ -225,7 +227,8 @@ def probe_missing(body: ProbeMissingBody | None = None):
     if not force:
         # 无行、探测结构过期、或环境错误（换环境后可重试）都要补探。
         # 先一次轻量视图预筛（评审 B8/R12-D6），避免逐行 get_media_info 的 N+1
-        mi_by_id = {int(mi["movie_id"]): mi for mi in store.list_media_info_brief()}
+        mi_by_id = {int(mi["item_id"]): mi for mi in store.list_media_info_brief()
+                    if str(mi.get("kind") or "movie") == "movie"}
         pv_now = int(getattr(_media, "PROBE_VERSION", 0))
         kept = []
         for r in rows:
@@ -242,7 +245,8 @@ def probe_missing(body: ProbeMissingBody | None = None):
     done, failed, unplayable = [], [], []
     for r in rows:
         vid = int(r["id"])
-        abs_p = os.path.join(settings.media_root, r["file_path"])
+        abs_p = library_paths.resolve(
+            r.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, r["file_path"])
         try:
             info = store.upsert_media_info(vid, _media.probe(abs_p))
         except Exception as e:

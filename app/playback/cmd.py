@@ -2,7 +2,7 @@
 import os
 import json
 import subprocess
-from ..config import settings
+from .. import library_paths
 from ..media import ffmpeg_bin
 from ..media import ffprobe_bin
 from ..media import norm_codec
@@ -134,7 +134,7 @@ def _append_sub_input(cmd: list, plan: dict, pre: float) -> None:
         return
     if pre > 0:
         cmd += ["-ss", f"{pre:.3f}"]
-    cmd += ["-i", os.path.abspath(os.path.join(settings.media_root, rel))]
+    cmd += ["-i", os.path.abspath(library_paths.abs_path(rel))]
 
 
 def _build_cmd_fmp4(abs_path: str, plan: dict,

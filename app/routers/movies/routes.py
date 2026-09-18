@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, Uplo
 from ... import store
 from ... import scanner
 from ... import tmdb
-from ...config import settings
+from ... import library_paths
 from ...regions import normalize_tags
 from ...log import get_logger
 logger = get_logger("movies.routes")
@@ -27,7 +27,8 @@ def search(q: str = "", limit: int = 500, offset: int = 0, grouped: bool = True,
            min_rating: float | None = None,
            rating_source: str = "tmdb",
            watched: int | None = None,
-           collection: FilterList = Query(default=None)):
+           collection: FilterList = Query(default=None),
+           library: FilterList = Query(default=None)):
     lim, off = _page(limit, offset)
     items = store.search_fts(
         q, lim + 1, grouped, genres=store._split_multi(genre),
@@ -35,17 +36,20 @@ def search(q: str = "", limit: int = 500, offset: int = 0, grouped: bool = True,
         years=store._split_ints(year), decades=store._split_ints(decade),
         tags=store._split_multi(tag), min_rating=min_rating,
         rating_source=rating_source, watched=watched,
-        collection_ids=store._split_ints(collection), offset=off)
+        collection_ids=store._split_ints(collection),
+        library_ids=store._split_ints(library), offset=off)
     has_more = len(items) > lim
     return {"q": q, "items": items[:lim], "has_more": has_more,
             "limit": lim, "offset": off}
 
 
 @router.get("/search/suggest")
-def search_suggest(q: str = "", limit: int = 8):
+def search_suggest(q: str = "", limit: int = 8,
+                   library: FilterList = Query(default=None)):
     """搜索框联想：本地库标题/原名（中文/部分词可用）+ 演员名（含参演数），轻量返回。"""
-    return {"q": q, "items": store.suggest_titles(q, limit),
-            "persons": store.suggest_people(q, 5)}
+    libs = store._split_ints(library)
+    return {"q": q, "items": store.suggest_titles(q, limit, library_ids=libs),
+            "persons": store.suggest_people(q, 5, library_ids=libs)}
 
 
 @router.get("/movies")
@@ -59,7 +63,8 @@ def list_movies(grouped: bool = True, limit: int = 500, offset: int = 0,
                 min_rating: float | None = None,
                 rating_source: str = "tmdb",
                 watched: int | None = None,
-                collection: FilterList = Query(default=None)):
+                collection: FilterList = Query(default=None),
+                library: FilterList = Query(default=None)):
     lim, off = _page(limit, offset)
     items = store.list_movies(
         grouped, genres=store._split_multi(genre),
@@ -67,15 +72,17 @@ def list_movies(grouped: bool = True, limit: int = 500, offset: int = 0,
         years=store._split_ints(year), decades=store._split_ints(decade),
         tags=store._split_multi(tag), limit=lim + 1,
         min_rating=min_rating, rating_source=rating_source, watched=watched,
-        collection_ids=store._split_ints(collection), offset=off)
+        collection_ids=store._split_ints(collection),
+        library_ids=store._split_ints(library), offset=off)
     has_more = len(items) > lim
     return {"items": items[:lim], "has_more": has_more, "limit": lim, "offset": off}
 
 
 @router.get("/facets")
-def facets(grouped: bool = True):
+def facets(grouped: bool = True, library: FilterList = Query(default=None)):
     """动态分类计数：类型/大区/国家/年/年代/标签，只返回有片的项。"""
-    return store.get_facets(grouped=grouped)
+    return store.get_facets(grouped=grouped,
+                            library_ids=store._split_ints(library))
 
 
 @router.get("/movies/{movie_id}")
@@ -285,7 +292,9 @@ def movie_files(movie_id: int):
     if not m:
         raise HTTPException(404, "movie not found")
     rel_dir = os.path.dirname(m["file_path"])
-    movie_dir = os.path.join(settings.media_root, rel_dir)
+    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    root = library_paths.library_root(lib_id)
+    movie_dir = os.path.join(root, rel_dir) if rel_dir else root
     empty = {"dir": rel_dir, "scoped": "dir", "hint": "",
              "feature": [], "extras": [], "samples": [],
              "subtitles": [], "nfos": [], "others": []}
@@ -386,7 +395,7 @@ def movie_files(movie_id: int):
               out["subtitles"], out["nfos"], out["others"]) for x in lst}
     known_basenames = {os.path.basename(x) for x in known}
     for e in attached:
-        full = os.path.join(settings.media_root, e["file_path"])
+        full = library_paths.resolve(lib_id, e["file_path"])
         if not os.path.isfile(full):
             continue
         if e["file_path"] in known or os.path.basename(e["file_path"]) in known_basenames:
@@ -409,6 +418,7 @@ def _movie_blob_rel(movie_id: int, name: str) -> tuple[dict, str]:
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
+    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
     raw = (name or "").strip()
     if not raw:
         raise HTTPException(422, "name required")
@@ -429,7 +439,7 @@ def _movie_blob_rel(movie_id: int, name: str) -> tuple[dict, str]:
             norm = _check_inside_root(c)
         except HTTPException:
             continue
-        if os.path.isfile(os.path.join(settings.media_root, norm)):
+        if os.path.isfile(library_paths.resolve(lib_id, norm)):
             rel = norm
             break
     if not rel:
@@ -477,7 +487,7 @@ def movie_blob(movie_id: int, name: str = "", mode: str = "", inline: int = 0):
     import mimetypes
     from fastapi.responses import FileResponse, PlainTextResponse
     m, rel = _movie_blob_rel(movie_id, name)
-    abs_p = os.path.join(settings.media_root, rel)
+    abs_p = library_paths.resolve(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, rel)
     if (mode or "").strip().lower() == "text":
         try:
             with open(abs_p, "rb") as fh:
@@ -508,7 +518,7 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
     subdir 仅允许空或 extras（显式放花絮子目录）。
     """
     from ...scanner import is_feature_video as _is_feat, is_sidecar as _is_side
-    from ..files import _safe_component
+    from ..files import _require_writable, _safe_component
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
@@ -520,8 +530,10 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
     if sub not in ("", "extras"):
         raise HTTPException(422, "subdir must be ''|extras")
     rel_dir = os.path.dirname(m["file_path"])
-    movie_dir = os.path.join(settings.media_root, rel_dir) if rel_dir \
-        else settings.media_root
+    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    _require_writable(lib_id)
+    root = library_paths.library_root(lib_id)
+    movie_dir = os.path.join(root, rel_dir) if rel_dir else root
     if not os.path.isdir(movie_dir):
         raise HTTPException(404, "movie dir missing")
     target_dir = os.path.join(movie_dir, "extras") if (
@@ -538,14 +550,14 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
             file.file.close()
         except Exception:
             pass
-    rel = os.path.relpath(dst, settings.media_root)
+    rel = os.path.relpath(dst, root)
     status = "stored"
     try:
         if _is_feat(rel):
-            r = scanner.scan_one(dst)
+            r = scanner.scan_one(dst, library_id=lib_id)
             status = r.get("status", "stored")
         elif _is_side(rel):
-            r = scanner.attribute_extra(dst)
+            r = scanner.attribute_extra(dst, library_id=lib_id)
             status = r.get("status", "stored")
     except Exception as e:
         status = f"stored_scan_warn: {e}"
@@ -565,7 +577,7 @@ def library_upload(file: UploadFile = File(...),
     正片→scan_one，花絮→attribute_extra，字幕/周边→仅文件。
     """
     from ...scanner import is_feature_video as _is_feat, is_sidecar as _is_side
-    from ..files import _check_inside_root, _safe_component
+    from ..files import _check_inside_root, _require_writable, _safe_component
     raw = (relpath or "").strip().strip("/") or (file.filename or "").strip()
     raw_segs = [s for s in raw.replace("\\", "/").split("/")]
     if any(s == ".." for s in raw_segs):
@@ -579,7 +591,8 @@ def library_upload(file: UploadFile = File(...),
              (target_dir or "").strip().strip("/").replace("\\", "/").split("/")]
     tmods = [s for s in tmods if s and s not in (".", "..")]
     rel = _check_inside_root("/".join([*(tmods or ["待整理"]), *safe_segs]))
-    dst = os.path.join(settings.media_root, rel)
+    dst = library_paths.abs_path(rel)
+    _require_writable(library_paths.default_id())
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
     except OSError as e:
@@ -631,6 +644,8 @@ def movie_file_delete(movie_id: int, body: dict | None = None):
                 "needs_confirm": 1 if plan.get("requires_confirm") else 0,
                 "hint": ("正片文件：删除后将从海报墙移除，需 confirm:true 二次确认"
                          if plan.get("requires_confirm") else "")}
+    from ..files import _require_writable as _rw
+    _rw(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
     r = _exec_delete_one(plan)
     return {"dry_run": False, "total": 1,
             "deleted": 1 if r.get("status") == "deleted" else 0,
@@ -684,7 +699,8 @@ def manual_match(movie_id: int, body: dict, background_tasks: BackgroundTasks):
         detail = tmdb.movie_detail(int(tmdb_id))
     except Exception as e:
         raise HTTPException(502, f"tmdb fetch failed: {e}")
-    abs_path = os.path.join(settings.media_root, m["file_path"])
+    abs_path = library_paths.resolve(
+        m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, m["file_path"])
     out, media = scanner.apply_tmdb_detail_fast(
         movie_id, detail, abs_path, force_title=True)
     store.update_movie_local(movie_id, needs_review=0)
@@ -736,11 +752,13 @@ def rescan_movie(movie_id: int):
     rel = (m.get("file_path") or "").strip()
     if not rel:
         raise HTTPException(422, "movie has no file_path")
-    abs_path = os.path.join(settings.media_root, rel)
+    abs_path = library_paths.resolve(
+        m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, rel)
     if not os.path.isfile(abs_path):
         raise HTTPException(410, f"file missing: {rel}")
     try:
-        r = scanner.scan_one(abs_path, force=True)
+        r = scanner.scan_one(abs_path, force=True,
+                             library_id=m.get("library_id"))
     except Exception as e:
         logger.warning("rescan failed movie_id=%s rel=%s: %s", movie_id, rel, e)
         raise HTTPException(502, f"rescan failed: {e}")
@@ -835,6 +853,7 @@ def batch_delete_movies(body: dict | None = None):
         n_feat = sum(1 for f in scope["files"] if f["kind"] == "feature")
         plans.append({"id": rep, "title": m.get("title", ""),
                       "year": m.get("year"), "tmdb_id": m.get("tmdb_id"),
+                      "library_id": m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
                       "exclusive": scope["exclusive"],
                       "version_ids": sorted(set(scope["version_ids"])),
                       "files": scope["files"],
@@ -851,6 +870,10 @@ def batch_delete_movies(body: dict | None = None):
             "hint": "将永久删除磁盘文件与库记录（海报/镜像缓存保留），不可恢复"}
     if dry_run or not confirm:
         return {**base, "dry_run": True, "plans": plans}
+    from ..files import _require_writable as _rw
+    for lid in sorted({int(p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+                       for p in plans if p.get("files")}):
+        _rw(lid)
     results = []
     for p in plans:
         if p.get("status") == "not_found" or not p.get("files"):
@@ -872,7 +895,8 @@ def batch_delete_movies(body: dict | None = None):
         touched_dirs: set[str] = set()
         ok, missing, failed = 0, 0, []
         for f in p["files"]:
-            abs_p = os.path.join(settings.media_root, f["rel"])
+            abs_p = library_paths.resolve(
+                p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, f["rel"])
             touched_dirs.add(os.path.dirname(abs_p))
             if not os.path.lexists(abs_p):
                 missing += 1

@@ -3,9 +3,8 @@ import os
 
 from fastapi import HTTPException
 
-from ... import store
-from ...config import settings
-from ..files import _safe_component
+from ... import library_paths, store
+from ..files import _require_writable, _safe_component
 from .classify import _classify
 from .common import logger, router
 from .classify import _impact_for_delete
@@ -24,7 +23,7 @@ def fs_list(path: str = "", limit: int = 1000, offset: int = 0):
     except (TypeError, ValueError):
         limit, offset = 1000, 0
     norm = _resolve_dir(path)
-    abs_p = os.path.join(settings.media_root, norm) if norm else settings.media_root
+    abs_p = library_paths.abs_path(norm)
     try:
         names = sorted(os.listdir(abs_p))
     except OSError as e:
@@ -77,7 +76,8 @@ def fs_mkdir(body: dict | None = None):
         raise HTTPException(422, "illegal dir name")
     rel = os.path.join(parent, name) if parent else name
     rel = _check_inside_root(rel)
-    abs_p = os.path.join(settings.media_root, rel)
+    abs_p = library_paths.abs_path(rel)
+    _require_writable(library_paths.default_id())
     try:
         os.makedirs(abs_p, exist_ok=False)
     except FileExistsError:
@@ -98,7 +98,7 @@ def fs_rename(body: dict | None = None):
     # 检查原始输入（sanitize 后 "/" 必不存在，评审 R01-B4）：防静默改写 a/b → ab
     if not name or "/" in raw_name or "\\" in raw_name:
         raise HTTPException(422, "illegal file name")
-    if not os.path.isfile(os.path.join(settings.media_root, fr)):
+    if not os.path.isfile(library_paths.abs_path(fr)):
         raise HTTPException(404, f"not a file: {fr!r}")
     to = os.path.join(os.path.dirname(fr), name) if os.path.dirname(fr) else name
     to = _check_inside_root(to)
@@ -107,9 +107,10 @@ def fs_rename(body: dict | None = None):
     info = _classify(fr)
     if dry_run:
         preview = {**info, "from": fr, "to": to, "status": "planned"}
-        if os.path.exists(os.path.join(settings.media_root, to)):
+        if os.path.exists(library_paths.abs_path(to)):
             preview["status"] = "conflict_disk_exists"
         return {"dry_run": True, "plans": [preview]}
+    _require_writable(library_paths.default_id())
     r = _exec_move_one(fr, to)
     return {"dry_run": False, "results": [r],
             "moved": 1 if r.get("status") == "moved" else 0}
@@ -122,7 +123,7 @@ def fs_move(body: dict | None = None):
     dry_run = body.get("dry_run", True)
     fr = _check_inside_root(str(body.get("from") or ""))
     to_dir = _check_inside_root(str(body.get("to_dir") or ""))
-    if not os.path.isfile(os.path.join(settings.media_root, fr)):
+    if not os.path.isfile(library_paths.abs_path(fr)):
         raise HTTPException(404, f"not a file: {fr!r}")
     to = os.path.join(to_dir, os.path.basename(fr))
     to = _check_inside_root(to)
@@ -131,9 +132,10 @@ def fs_move(body: dict | None = None):
     info = _classify(fr)
     if dry_run:
         preview = {**info, "from": fr, "to": to, "status": "planned"}
-        if os.path.exists(os.path.join(settings.media_root, to)):
+        if os.path.exists(library_paths.abs_path(to)):
             preview["status"] = "conflict_disk_exists"
         return {"dry_run": True, "plans": [preview]}
+    _require_writable(library_paths.default_id())
     r = _exec_move_one(fr, to)
     return {"dry_run": False, "results": [r],
             "moved": 1 if r.get("status") == "moved" else 0}
@@ -159,7 +161,7 @@ def fs_delete(body: dict | None = None):
     plans: list[dict] = []
     for r in raws:
         rel = _check_inside_root(str(r or ""))
-        abs_p = os.path.join(settings.media_root, rel)
+        abs_p = library_paths.abs_path(rel)
         if os.path.isdir(abs_p):
             try:
                 empty = not os.listdir(abs_p)
@@ -181,6 +183,7 @@ def fs_delete(body: dict | None = None):
                 "needs_confirm": len(needs_confirm),
                 "hint": ("含正片文件，需 confirm:true 二次确认"
                          if needs_confirm else "")}
+    _require_writable(library_paths.default_id())
     done = []
     for p in plans:
         if p.get("kind") == "dir":
@@ -188,7 +191,7 @@ def fs_delete(body: dict | None = None):
                 done.append({**p, "status": p.get("status") or "dir_not_empty"})
                 continue
             try:
-                os.rmdir(os.path.join(settings.media_root, p["rel"]))
+                os.rmdir(library_paths.abs_path(p["rel"]))
                 done.append({**p, "status": "deleted"})
             except OSError as e:
                 done.append({**p, "status": f"error: {e}"})

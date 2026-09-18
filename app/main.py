@@ -12,7 +12,8 @@ from . import config, store
 from .config import settings
 from .db import POSTER_DIR, ensure_dirs
 from .log import get_logger, setup_logging
-from .routers import collections, extras, files, fs, health, jobs, movies, persons, stream
+from .routers import (collections, extras, files, fs, health, jobs, libraries,
+                      movies, persons, stream)
 
 setup_logging()
 _logger = get_logger("main")
@@ -32,8 +33,17 @@ async def _lifespan(_app: FastAPI):
     except Exception as e:
         _logger.warning("reap orphans failed: %s", e)
     threading.Thread(target=_tr.detect, daemon=True).start()
-    _logger.info("jzmedia %s 启动：MEDIA_ROOT=%s DATA_DIR=%s ENV=%s",
-                 app.version, settings.media_root, settings.data_dir, settings.env)
+    try:
+        from . import library_paths
+        library_paths.invalidate_cache()
+        libs = library_paths.list_libraries(only_enabled=True)
+        lib_desc = ", ".join(f"{l['id']}:{l['name']}({l['kind']}/{l['source']})"
+                             for l in libs) or "无库（请在设置页建库）"
+    except Exception as e:
+        _logger.warning("list libraries at startup failed: %s", e)
+        lib_desc = "unavailable"
+    _logger.info("jzmedia %s 启动：libraries=[%s] DATA_DIR=%s ENV=%s",
+                 app.version, lib_desc, settings.data_dir, settings.env)
     yield
     # 优雅退出：杀掉全部转码进程（防重启/停服后孤儿 ffmpeg 继续烧 CPU 写分片）
     stream.shutdown_sessions()
@@ -69,6 +79,7 @@ async def _auth_write(request, call_next):
     return await call_next(request)
 
 app.include_router(health.router)
+app.include_router(libraries.router)
 app.include_router(movies.router)
 app.include_router(collections.router)
 app.include_router(files.router)

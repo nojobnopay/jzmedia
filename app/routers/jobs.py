@@ -4,8 +4,7 @@ import threading
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import scanner, store
-from ..config import settings
+from .. import library_paths, scanner, store
 from ..jobkit import JobRegistry
 
 router = APIRouter(prefix="/api/jobs")
@@ -25,7 +24,7 @@ def _scan_summary(results: list) -> dict:
     return {"counts": counts, "errors": errors[:100], "results": results[:200]}
 
 
-def _scan_worker(jid: str) -> None:
+def _scan_worker(jid: str, library_id: int | None = None) -> None:
     def _stop() -> bool:
         job = _SCAN_JOBS.get(jid)
         return job is None or job.get("state") != "running"
@@ -34,7 +33,10 @@ def _scan_worker(jid: str) -> None:
         _SCAN_JOBS.update(jid, done=int(done), total=int(total))
 
     try:
-        res = scanner.scan_all(progress_cb=_cb, should_stop=_stop)
+        kwargs = {"progress_cb": _cb, "should_stop": _stop}
+        if library_id is not None:
+            kwargs["library_id"] = library_id
+        res = scanner.scan_all(**kwargs)
         if _stop():
             _SCAN_JOBS.update(jid, done=len(res))
             return
@@ -44,16 +46,23 @@ def _scan_worker(jid: str) -> None:
         _SCAN_JOBS.update(jid, state="failed", error=str(e)[:300])
 
 
+class ScanBody(BaseModel):
+    library_id: int | None = None
+
+
 @router.post("/scan")
-def scan_start():
-    """启动后台全量扫描：立即返回 {job_id}；已在跑则复用（resumed）。"""
+def scan_start(body: ScanBody | None = None):
+    """启动后台扫描：{library_id?} 缺省=全部启用库；立即返回 {job_id}；
+    已在跑则复用（resumed）。"""
+    library_id = body.library_id if body else None
     running = _SCAN_JOBS.running()
     if running:
-        return {"job_id": running["job_id"], "resumed": True}
-    job = _SCAN_JOBS.create()
+        return {"job_id": running["job_id"], "resumed": True,
+                "library_id": running.get("library_id")}
+    job = _SCAN_JOBS.create(library_id=library_id)
     jid = job["job_id"]
-    threading.Thread(target=_scan_worker, args=(jid,), daemon=True).start()
-    return {"job_id": jid, "resumed": False}
+    threading.Thread(target=_scan_worker, args=(jid, library_id), daemon=True).start()
+    return {"job_id": jid, "resumed": False, "library_id": library_id}
 
 
 @router.get("/scan/{job_id}")
@@ -195,11 +204,16 @@ def rebuild_nfo(body: NfoBody | None = None):
     dry_run = bool(body.dry_run) if body else False
     movies = sorted(store.list_movies(grouped=False, limit=100000)[:limit],
                     key=lambda m: (m.get("file_path", ""), m.get("id", 0)))
+    from .files import _require_writable
+    for lid in sorted({int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+                       for m in movies}):
+        _require_writable(lid)
     done, skipped, failed = 0, 0, []
     wrote_total, deleted_total = 0, 0
     by_mode: dict[str, int] = {}
     for m in movies:
-        abs_path = os.path.join(settings.media_root, m["file_path"])
+        abs_path = library_paths.resolve(
+            m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, m["file_path"])
         if not os.path.isfile(abs_path):
             skipped += 1
             continue
@@ -229,10 +243,16 @@ def rebuild_fts():
 
 
 @router.get("/stats")
-def stats():
-    """库状态一览（设置页展示用，纯本地聚合）。"""
+def stats(library: str | None = None):
+    """库状态一览（设置页展示用，纯本地聚合）；library 缺省=全库合计。"""
+    libs = store._split_ints(library)
     missing = 0
     for m in store.list_movies(grouped=False, limit=100000):
-        if not os.path.exists(os.path.join(settings.media_root, m["file_path"])):
+        if libs and int(m.get("library_id") or 0) not in libs:
+            continue
+        if not os.path.exists(library_paths.resolve(
+                m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
+                m["file_path"])):
             missing += 1
-    return {**store.library_stats(), "missing_files": missing}
+    base = store.library_stats(libs[0] if len(libs) == 1 else None)
+    return {**base, "missing_files": missing}

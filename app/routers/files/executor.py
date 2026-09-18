@@ -1,7 +1,7 @@
 """routers.files.executor（自 app/routers/files.py 拆分，评审 B9/R09-Q1；经 files 门面使用）。"""
 import os
+from ... import library_paths
 from ... import store
-from ...config import settings
 from ...scanner import SUBTITLE_EXTS
 from ...scanner import is_feature_video
 from ...scanner import is_sidecar
@@ -37,7 +37,9 @@ def _sibling_followers(src_abs: str) -> list[str]:
         st, ex = os.path.splitext(n)
         if st == stem or st.startswith(stem + "-") or st.startswith(stem + ".") \
                 or st.startswith(stem + "_") or st.startswith(stem + " "):
-            rel_probe = os.path.relpath(full, settings.media_root)
+            _lib, rel_probe = library_paths.locate(full)
+            if rel_probe is None:
+                continue
             if is_sidecar(rel_probe) or ex.lower() in SUBTITLE_EXTS:
                 out.append(full)
     return out
@@ -55,7 +57,9 @@ def _cleanup_old_dir(old_dir_abs: str) -> None:
         full = os.path.join(old_dir_abs, n)
         if not os.path.isfile(full):
             continue
-        rel = os.path.relpath(full, settings.media_root)
+        _lib, rel = library_paths.locate(full)
+        if rel is None:
+            continue
         if is_feature_video(rel):
             has_feature = True
             break
@@ -86,7 +90,8 @@ def move_attached_extras(movie_id: int, movie_dir_abs: str) -> dict:
         logger.debug("list extras failed movie_id=%s: %s", movie_id, e)
         return {"moved": 0, "skipped": []}
     for e in rows:
-        esrc = os.path.join(settings.media_root, e["file_path"])
+        lib_id = e.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+        esrc = library_paths.resolve(lib_id, e["file_path"])
         if not os.path.isfile(esrc):
             continue
         edst_dir = os.path.join(movie_dir_abs, "extras")
@@ -100,10 +105,11 @@ def move_attached_extras(movie_id: int, movie_dir_abs: str) -> dict:
             os.makedirs(edst_dir, exist_ok=True)
             if not os.path.exists(edst):
                 _rename_or_move(esrc, edst)
-                store.upsert_extra(os.path.relpath(edst, settings.media_root),
-                                   movie_id, e.get("kind") or "extra")
+                store.upsert_extra(os.path.relpath(
+                    edst, library_paths.library_root(lib_id)),
+                    movie_id, e.get("kind") or "extra", library_id=lib_id)
                 try:
-                    store.delete_extra_by_path(e["file_path"])
+                    store.delete_extra_by_path(e["file_path"], library_id=lib_id)
                 except Exception as e:
                     logger.debug("delete old extra row failed path=%s: %s", e["file_path"], e)
                 moved += 1
@@ -122,15 +128,13 @@ def _resync_old_dir(old_dir_abs: str) -> None:
     try:
         if not os.path.isdir(old_dir_abs):
             return
-        try:
-            old_rel = os.path.relpath(old_dir_abs, settings.media_root)
-            if old_rel == ".":
-                old_rel = ""
-        except ValueError as e:
-            logger.debug("relpath old dir failed dir=%s: %s", old_dir_abs, e)
+        lib, old_rel = library_paths.locate(old_dir_abs)
+        if lib is None or old_rel is None:
             return
+        if old_rel == ".":
+            old_rel = ""
         try:
-            rows = store.list_movies_in_dir(old_rel)
+            rows = store.list_movies_in_dir(old_rel, library_id=lib["id"])
         except Exception as e:
             logger.debug("list old dir movies failed dir=%s: %s", old_rel, e)
             return
@@ -140,7 +144,7 @@ def _resync_old_dir(old_dir_abs: str) -> None:
                 fp = r.get("file_path", "")
                 if not fp or not is_feature_video(fp):
                     continue
-                if os.path.isfile(os.path.join(settings.media_root, fp)):
+                if os.path.isfile(library_paths.resolve(lib["id"], fp)):
                     remaining.append(r)
             except Exception as e:
                 logger.debug("probe old dir row failed path=%s: %s", r.get("file_path"), e)
@@ -151,7 +155,7 @@ def _resync_old_dir(old_dir_abs: str) -> None:
         first = remaining[0]
         try:
             sync_nfos_for(int(first["id"]),
-                          os.path.join(settings.media_root, first["file_path"]))
+                          library_paths.resolve(lib["id"], first["file_path"]))
         except Exception as e:
             logger.debug("resync nfos failed dir=%s: %s", old_dir_abs, e)
     except Exception as e:
@@ -159,15 +163,16 @@ def _resync_old_dir(old_dir_abs: str) -> None:
 
 
 def _move_one(p: dict) -> dict:
-    src = os.path.join(settings.media_root, p["from"])
-    dst = os.path.join(settings.media_root, p["to"])
+    lib_id = p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    src = library_paths.resolve(lib_id, p["from"])
+    dst = library_paths.resolve(lib_id, p["to"])
     if not os.path.exists(src):
         return {**p, "status": "skipped_missing_src"}
     if os.path.exists(dst):
         return {**p, "status": "conflict_disk_exists"}
     # 库内占用保护（评审 P1-06）：目标路径若挂在另一条库行上（哪怕文件缺失），
     # 先改库后挪盘会撞 UNIQUE(file_path) → 盘已动库未动。此处提前拒绝。
-    existing = store.get_by_path(p["to"])
+    existing = store.get_by_path(p["to"], library_id=lib_id)
     if existing is not None and int(existing.get("id") or -1) != int(p["id"]):
         return {**p, "status": "conflict_db_occupied"}
     try:

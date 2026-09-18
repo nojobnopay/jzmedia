@@ -1,7 +1,9 @@
 """SQLite 存储层门面（评审 B9/R02-Q3：原 1900 行单文件按域拆分，调用方零改动）。"""
-from . import (_base, collections, extras, media_info, movies, persons,
-               progress, search, settings, similar, tmdb_cache)  # noqa: F401
+from . import (_base, collections, extras, libraries, match_index, media_info,
+               movies, persons, progress, search, settings, similar, tmdb_cache)  # noqa: F401
 from ._base import *
+from .libraries import *
+from .match_index import *
 from .settings import *
 from .tmdb_cache import *
 from .movies import *
@@ -16,6 +18,8 @@ from ..db import DB_PATH  # 兼容历史导入（tests 等使用 store.DB_PATH�
 
 __all__ = ['DB_PATH']
 __all__ += list(_base.__all__)
+__all__ += list(libraries.__all__)
+__all__ += list(match_index.__all__)
 __all__ += list(settings.__all__)
 __all__ += list(tmdb_cache.__all__)
 __all__ += list(movies.__all__)

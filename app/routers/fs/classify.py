@@ -1,8 +1,8 @@
 """routers.fs.classify（自 app/routers/fs.py 拆分，评审 R01-Q4；经 fs 门面使用）。"""
 import os
 
+from ... import library_paths
 from ... import store
-from ...config import settings
 from ...scanner import SUBTITLE_EXTS, is_feature_video, is_sidecar
 __all__ = ['_classify', '_impact_for_delete']
 
@@ -10,7 +10,7 @@ __all__ = ['_classify', '_impact_for_delete']
 def _classify(rel: str, extras_map: dict | None = None) -> dict:
     """单文件定性：feature / sidecar / subtitle / nfo / other，附 DB 行提示。
     extras_map（{path: extra}）由列表口一次性传入（评审 B8/R08-B1：避免每文件全表扫 extras）。"""
-    abs_p = os.path.join(settings.media_root, rel)
+    abs_p = library_paths.abs_path(rel)
     size, mtime = 0, 0
     try:
         st = os.stat(abs_p)

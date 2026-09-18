@@ -1,6 +1,6 @@
 """scanner.nfo_link（自 app/scanner.py 拆分，评审 B9/R03-Q1；对外经 app.scanner 门面使用）。"""
 import os
-from ..config import settings
+from .. import library_paths
 from .. import store
 from ..nfo import write_movie_nfo
 from ..log import get_logger
@@ -24,7 +24,7 @@ def _list_dir_nfos(movie_dir_abs: str) -> tuple[list[str] | None, list[str]]:
         except OSError:
             continue
         try:
-            rel = os.path.relpath(full, settings.media_root)
+            rel = os.path.relpath(full, library_paths.default_root())
         except ValueError:
             continue
         if is_feature_video(rel):
@@ -82,7 +82,7 @@ def sync_nfos_for(mid: int, abs_path: str, dry_run: bool = False) -> dict:
                     "wrote": [], "deleted": []}
         movie_dir = os.path.dirname(abs_path)
         try:
-            rel_dir = os.path.relpath(movie_dir, settings.media_root)
+            rel_dir = os.path.relpath(movie_dir, library_paths.default_root())
             if rel_dir == ".":
                 rel_dir = ""
         except ValueError:

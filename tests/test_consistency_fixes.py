@@ -108,7 +108,7 @@ def test_upsert_media_info_roundtrip(media_root):
         "width": 640, "height": 360, "vcodec": "h264", "bit_depth": 8,
         "audio": [], "subs": [], "attachments": [],
         "probe_ver": 3, "probed_at": 1})
-    assert out["playable"] is True and out["movie_id"] == mid
+    assert out["playable"] is True and out["item_id"] == mid and out["kind"] == "movie"
 
 
 # ---------- R03-B2：头像下载失败保留旧图 ----------

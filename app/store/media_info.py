@@ -1,14 +1,18 @@
-"""store.media_info（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
+"""store.media_info（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。
+
+多库 v13：键为 `(kind, item_id)`（movie|episode），一表服务电影版本与电视剧集。
+"""
 import json
 import time
 from ._base import _conn, _dump_list, _lock, logger
 __all__ = ['get_media_info', 'list_media_info_brief', 'upsert_media_info']
 
-def get_media_info(movie_id: int) -> dict | None:
+def get_media_info(item_id: int, kind: str = "movie") -> dict | None:
     """读版本媒体信息缓存（含 audio_json/sub_json 已 parse 为 list）。无行返回 None。"""
     with _lock, _conn() as c:
         try:
-            row = c.execute("SELECT * FROM media_info WHERE movie_id=?", (movie_id,)).fetchone()
+            row = c.execute("SELECT * FROM media_info WHERE kind=? AND item_id=?",
+                            (str(kind or "movie"), int(item_id))).fetchone()
         except Exception:
             return None
         if not row:
@@ -31,12 +35,12 @@ def list_media_info_brief() -> list[dict]:
     with _lock, _conn() as c:
         try:
             return [dict(r) for r in c.execute(
-                "SELECT movie_id, playable, probe_ver, probe_error FROM media_info")]
+                "SELECT kind, item_id, playable, probe_ver, probe_error FROM media_info")]
         except Exception:
             return []
 
 
-def upsert_media_info(movie_id: int, info: dict) -> dict:
+def upsert_media_info(item_id: int, info: dict, kind: str = "movie") -> dict:
     """写版本媒体信息缓存（ffprobe 本地派生）。info 含 container/duration/width/height/
     vcodec/acodec/音频与字幕列表（含 disposition）/HDR/DV/位深/附件等（见 media.probe）。
     环境错误（ffprobe 缺失/超时/不可读）不落库：返回旧行或内存透传（probed_at=0），
@@ -46,12 +50,13 @@ def upsert_media_info(movie_id: int, info: dict) -> dict:
     except Exception:
         def _retryable(_m: str) -> bool:
             return False
+    kind = str(kind or "movie")
     if not info.get("playable") and _retryable(str(info.get("probe_error") or "")):
-        old = get_media_info(int(movie_id))
+        old = get_media_info(int(item_id), kind)
         if old and old.get("playable"):
             return old
-        logger.debug("probe transient error mid=%s err=%s (not persisted)", movie_id,
-                     info.get("probe_error"))
+        logger.debug("probe transient error kind=%s item=%s err=%s (not persisted)",
+                     kind, item_id, info.get("probe_error"))
         transient = dict(info)
         transient["audio"] = list(info.get("audio") or [])
         transient["subs"] = list(info.get("subs") or [])
@@ -74,13 +79,13 @@ def upsert_media_info(movie_id: int, info: dict) -> dict:
 
     with _lock, _conn() as c:
         c.execute(
-            "INSERT INTO media_info(movie_id, container, duration, width, height,"
+            "INSERT INTO media_info(kind, item_id, container, duration, width, height,"
             " vcodec, acodec, vbitrate, abitrate, audio_json, sub_json, dv_profile,"
             " probe_ver, video_profile, video_level, bit_depth, pix_fmt, color_transfer,"
             " color_primaries, hdr, dv_bl_compat, hdr10plus, attachments_json,"
             " playable, probe_error, probed_at)"
-            " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-            " ON CONFLICT(movie_id) DO UPDATE SET container=excluded.container,"
+            " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(kind, item_id) DO UPDATE SET container=excluded.container,"
             " duration=excluded.duration, width=excluded.width, height=excluded.height,"
             " vcodec=excluded.vcodec, acodec=excluded.acodec,"
             " vbitrate=excluded.vbitrate, abitrate=excluded.abitrate,"
@@ -94,7 +99,7 @@ def upsert_media_info(movie_id: int, info: dict) -> dict:
             " attachments_json=excluded.attachments_json,"
             " playable=excluded.playable, probe_error=excluded.probe_error,"
             " probed_at=excluded.probed_at",
-            (int(movie_id), str(info.get("container") or "")[:16],
+            (kind, int(item_id), str(info.get("container") or "")[:16],
              float(info.get("duration") or 0),
              int(info.get("width") or 0), int(info.get("height") or 0),
              str(info.get("vcodec") or "")[:32], str(info.get("acodec") or "")[:32],
@@ -107,6 +112,5 @@ def upsert_media_info(movie_id: int, info: dict) -> dict:
              _iv("dv_bl_compat"), _iv("hdr10plus"), attach_s,
              1 if info.get("playable") else 0,
              str(info.get("probe_error") or "")[:300], now))
-    out = get_media_info(int(movie_id))
+    out = get_media_info(int(item_id), kind)
     return out if out is not None else info   # 评审 B7/R02-B5：不用 assert 当控制流
-

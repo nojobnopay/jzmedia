@@ -9,8 +9,8 @@ import subprocess
 import threading
 from collections import deque
 from fastapi import APIRouter, HTTPException
+from ... import library_paths
 from ... import store
-from ...config import settings
 from ...db import TRANSCODE_DIR
 from ... import caps as _caps
 from ... import media as _media
@@ -18,7 +18,7 @@ from ... import playback as _playback
 import uuid
 from ...log import get_logger
 logger = get_logger("stream.common")
-__all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_MIN_SEGS', 'PLAN_VERSION', '_SESS_IDLE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_abs', '_media_cached_or_probe', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_purge_old', '_kill_proc', '_drop_session', 'shutdown_sessions', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_watch_completion', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_register_prewarm_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
+__all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_MIN_SEGS', 'PLAN_VERSION', '_SESS_IDLE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_abs', '_media_cached_or_probe', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_purge_old', '_kill_proc', '_drop_session', 'shutdown_sessions', 'drop_sessions_for_version', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_watch_completion', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_register_prewarm_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
 
 router = APIRouter(prefix="/api/stream")
 
@@ -149,7 +149,8 @@ def _version_abs(version_id: int) -> tuple[dict, str]:
     m = store.get_movie(vid)
     if not m:
         raise HTTPException(404, "version not found")
-    abs_p = os.path.join(settings.media_root, m["file_path"])
+    abs_p = library_paths.resolve(
+        m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, m["file_path"])
     if not os.path.isfile(abs_p):
         raise HTTPException(410, "file missing")
     return m, abs_p
@@ -378,6 +379,20 @@ def shutdown_sessions() -> None:
         sids = list(_sessions.keys())
     for sid in sids:
         _drop_session(sid, kill=True)
+
+
+def drop_sessions_for_version(version_id: int) -> int:
+    """关掉某版本的在线/预转码会话（删库/删片用，防 ffmpeg 继续写分片）。"""
+    try:
+        vid = int(version_id)
+    except (TypeError, ValueError):
+        return 0
+    with _sess_lock:
+        sids = [sid for sid, s in _sessions.items()
+                if int(s.get("vid") or -1) == vid]
+    for sid in sids:
+        _drop_session(sid, kill=True)
+    return len(sids)
 
 
 def _sweeper() -> None:

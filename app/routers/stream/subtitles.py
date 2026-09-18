@@ -8,6 +8,7 @@ from urllib.parse import quote, unquote
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 from ...config import settings
+from ... import library_paths
 from ...db import TRANSCODE_DIR
 from ...scanner import sidecar_subtitles, _SIDECAR_LANG_HINTS, _guess_sidecar_lang
 from ... import media as _media
@@ -36,7 +37,7 @@ def hls_subtitle(version_id: int, idx: int):
 
 def _sidecar_abs(rel: str) -> str:
     """外挂字幕绝对路径（rel 来自服务端枚举，不接受客户端路径）。"""
-    return os.path.join(settings.media_root, rel)
+    return library_paths.abs_path(rel)
 
 
 def _convert_sidecar(rel: str, vid: int, dest_ext: str) -> str:
@@ -101,7 +102,9 @@ def _sub_list(m: dict, info: dict) -> list[dict]:
         t2["source"] = "embedded"
         out.append(t2)
     try:
-        side = sidecar_subtitles(os.path.join(settings.media_root, m["file_path"]))
+        side = sidecar_subtitles(library_paths.resolve(
+            m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
+            m["file_path"]))
     except Exception:
         side = []
     has_embedded = bool(info.get("subs"))

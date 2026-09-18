@@ -1,8 +1,7 @@
 """routers.fs.ops（自 app/routers/fs.py 拆分，评审 R01-Q4；经 fs 门面使用）。"""
 import os
 
-from ... import store
-from ...config import settings
+from ... import library_paths, store
 from ...scanner import is_sidecar, sync_nfos_for
 from ..files import (_cleanup_old_dir, _rename_or_move, _resync_old_dir,
                      _sibling_followers)
@@ -14,7 +13,7 @@ __all__ = ['_exec_delete_one', '_move_db_follow', '_exec_move_one']
 def _exec_delete_one(plan: dict) -> dict:
     """执行单文件删除（含 DB 联动与旧目录 NFO 收尾）。调用方已确认。"""
     rel = plan["rel"]
-    abs_p = os.path.join(settings.media_root, rel)
+    abs_p = library_paths.abs_path(rel)
     old_dir = os.path.dirname(abs_p)
     if not os.path.isfile(abs_p) and not os.path.lexists(abs_p):
         return {**plan, "status": "skipped_missing_src"}
@@ -43,8 +42,7 @@ def _move_db_follow(fr: str, to: str, info: dict) -> None:
     if info.get("kind") == "feature" and info.get("movie_id"):
         store.update_movie_local(info["movie_id"], file_path=to)
         try:
-            sync_nfos_for(info["movie_id"],
-                          os.path.join(settings.media_root, to))
+            sync_nfos_for(info["movie_id"], library_paths.abs_path(to))
         except Exception:
             pass
     elif info.get("kind") == "sidecar":
@@ -68,8 +66,8 @@ def _move_db_follow(fr: str, to: str, info: dict) -> None:
 def _exec_move_one(fr: str, to: str) -> dict:
     """执行单文件改名/移动（含跟随字幕/花絮兄弟与 DB 联动）。"""
     base = {"from": fr, "to": to}
-    src = os.path.join(settings.media_root, fr)
-    dst = os.path.join(settings.media_root, to)
+    src = library_paths.abs_path(fr)
+    dst = library_paths.abs_path(to)
     if not os.path.isfile(src):
         return {**base, "status": "skipped_missing_src"}
     if os.path.exists(dst):
@@ -89,9 +87,9 @@ def _exec_move_one(fr: str, to: str) -> dict:
             fdst = os.path.join(os.path.dirname(dst), new_stem + suffix)
             try:
                 if not os.path.exists(fdst):
-                    frel_old = os.path.relpath(f, settings.media_root)
+                    frel_old = os.path.relpath(f, library_paths.default_root())
                     _rename_or_move(f, fdst)
-                    frel_new = os.path.relpath(fdst, settings.media_root)
+                    frel_new = os.path.relpath(fdst, library_paths.default_root())
                     try:
                         rows = [e for e in store.list_all_extras()
                                 if e["file_path"] == frel_old]

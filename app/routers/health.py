@@ -4,7 +4,7 @@ import re
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import config, store
+from .. import config, library_paths, store
 from ..config import settings
 
 router = APIRouter(prefix="/api")
@@ -28,10 +28,27 @@ def health():
     except Exception as e:
         dbh = {"ok": False, "readable": False, "writable": False,
                "error": str(e)[:200], "bytes": 0}
-    media_ok = os.path.isdir(settings.media_root) and os.access(settings.media_root, os.R_OK)
-    return {"status": "ok" if (dbh.get("ok") and media_ok) else "degraded",
+    # 逐库可读性自检（多库 v12）：任一启用库不可读 → degraded
+    libs = []
+    all_ok = True
+    try:
+        for lib in library_paths.list_libraries(only_enabled=True):
+            p = str(lib.get("path") or "")
+            ok = bool(p) and os.path.isdir(p) and os.access(p, os.R_OK)
+            all_ok = all_ok and ok
+            libs.append({"id": lib.get("id"), "name": lib.get("name"),
+                         "kind": lib.get("kind"), "source": lib.get("source"),
+                         "path": p, "ok": ok, "read_only": bool(lib.get("read_only")),
+                         "last_status": lib.get("last_status") or ""})
+    except Exception as e:
+        all_ok = False
+        libs = [{"id": None, "name": "", "kind": "", "source": "",
+                 "path": settings.media_root, "ok": False, "read_only": False,
+                 "last_status": "", "error": str(e)[:200]}]
+    return {"status": "ok" if (dbh.get("ok") and all_ok) else "degraded",
             "db": dbh,
-            "media": {"root": settings.media_root, "ok": bool(media_ok)},
+            "media": {"root": settings.media_root, "ok": bool(all_ok),
+                      "libraries": libs},
             "ffmpeg": bool(bins.get("ffmpeg")), "ffprobe": bool(bins.get("ffprobe")),
             "transcoder": tw,
             "build": _build_commit()}
@@ -62,6 +79,14 @@ def _settings_view() -> dict:
     cred_src = token_src if token else (key_src if api_key else "unset")
     return {
         "media_root": settings.media_root,
+        "libraries": [{"id": l.get("id"), "name": l.get("name"),
+                       "kind": l.get("kind"), "source": l.get("source"),
+                       "path": l.get("path"), "enabled": bool(l.get("enabled")),
+                       "read_only": bool(l.get("read_only")),
+                       "naming_profile": l.get("naming_profile"),
+                       "artwork_mode": l.get("artwork_mode"),
+                       "last_status": l.get("last_status") or ""}
+                      for l in library_paths.list_libraries()],
         # 兼容老字段
         "tmdb_language": lang,
         "tmdb_configured": bool(token or api_key),

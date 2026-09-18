@@ -3,7 +3,7 @@ import os
 import re
 from functools import lru_cache
 from guessit import guessit
-from ..config import settings
+from .. import library_paths
 from ..log import get_logger
 from .parse import normalize_title
 logger = get_logger("scanner.classify")
@@ -126,8 +126,8 @@ def is_extra(rel_path: str) -> bool:
     for i, p in enumerate(parts[:-1]):
         low = (p or "").strip().lower()
         if low in _GENERIC_DIR_NAMES:
-            above = os.path.join(settings.media_root, *parts[:i]) \
-                if i else settings.media_root
+            above = os.path.join(library_paths.default_root(), *parts[:i]) \
+                if i else library_paths.default_root()
             if _parent_has_feature(above):
                 return True
         elif low in EXTRAS_DIR_NAMES:
@@ -268,7 +268,7 @@ def sidecar_subtitles(abs_video: str) -> list[dict]:
             else:
                 continue
             key = (d, stem) if codec == "vobsub" else (d, n)
-            item = {"rel": os.path.relpath(full, settings.media_root), "name": n,
+            item = {"rel": os.path.relpath(full, library_paths.default_root()), "name": n,
                     "codec": codec, "image": image, "suffix": suffix, "path": full}
             # VobSub 成对（.sub/.idx 同 stem）：优先 .sub，避免重复列轨
             if key in found and not (codec == "vobsub" and ex == ".sub"):

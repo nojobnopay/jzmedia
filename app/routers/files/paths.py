@@ -2,12 +2,21 @@
 import os
 import errno
 import shutil
-from ...config import settings
+from ... import library_paths
 from ...editions import _ILLEGAL
 from fastapi import HTTPException
 from ...log import get_logger
 logger = get_logger("files.paths")
-__all__ = ['_MAX_ONLY_IDS', '_safe_component', '_check_inside_root', '_only_ids', '_rename_or_move']
+__all__ = ['_MAX_ONLY_IDS', '_safe_component', '_check_inside_root', '_only_ids',
+           '_rename_or_move', '_require_writable']
+
+
+def _require_writable(library_id) -> None:
+    """只读库写操作守卫：转 HTTP 409（D5/§10.3）。"""
+    try:
+        library_paths.require_writable(library_id)
+    except library_paths.LibraryReadOnlyError as e:
+        raise HTTPException(409, str(e))
 
 
 _MAX_ONLY_IDS = 5000
@@ -23,20 +32,12 @@ def _safe_component(s: str) -> str:
 
 
 def _check_inside_root(rel: str) -> str:
-    """归一并约束在 MEDIA_ROOT 内，返回归一相对路径；非法抛 422。
-    除字符串边界外还做 realpath 校验（评审 B6/R09-B1）：根内符号链接指向外部时，
-    仅 normpath 检查会放行，实际写入/读取会落到根外。"""
-    norm = os.path.normpath((rel or "").strip().strip("/"))
-    if not norm or norm == "." or norm.startswith("..") or os.path.isabs(rel or ""):
-        raise HTTPException(422, f"illegal path: {rel!r}")
+    """归一并约束在默认库根内，返回归一相对路径；非法抛 422。
+    realpath 校验见 library_paths.check_inside（评审 B6/R09-B1）。"""
     try:
-        root_real = os.path.realpath(settings.media_root)
-        abs_real = os.path.realpath(os.path.join(settings.media_root, norm))
-    except (OSError, ValueError):
-        raise HTTPException(422, f"illegal path: {rel!r}")
-    if abs_real != root_real and not abs_real.startswith(root_real + os.sep):
-        raise HTTPException(422, f"path escapes media root: {rel!r}")
-    return norm
+        return library_paths.check_inside(library_paths.default_id(), rel)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
 
 def _only_ids(body: dict | None) -> set[int] | None:

@@ -4,7 +4,7 @@ import sqlite3
 import time
 
 from ..log import get_logger
-from ._base import _attach_versions, _conn, _like_esc, _lock, _row_to_dict
+from ._base import DEFAULT_LIBRARY_ID, _attach_versions, _conn, _like_esc, _lock, _row_to_dict
 
 logger = get_logger("store.search")
 
@@ -12,28 +12,30 @@ __all__ = ['get_scan_state', 'set_scan_state', 'fts_needs_rebuild', 'rebuild_fts
            '_search_like', 'suggest_titles', 'suggest_people', 'search_fts',
            '_split_multi', '_split_ints', '_rating_col', '_structured_where', 'get_facets']
 
-def get_scan_state(file_path: str) -> dict | None:
+def get_scan_state(file_path: str,
+                   library_id: int = DEFAULT_LIBRARY_ID) -> dict | None:
     """扫描增量状态（评审 B9/R03-Q3）。无行/表缺失返回 None。"""
     with _lock, _conn() as c:
         try:
-            row = c.execute("SELECT * FROM scan_state WHERE file_path=?",
-                            (file_path,)).fetchone()
+            row = c.execute("SELECT * FROM scan_state WHERE file_path=? AND library_id=?",
+                            (file_path, int(library_id))).fetchone()
         except sqlite3.OperationalError:
             return None
         return dict(row) if row else None
 
 
-def set_scan_state(file_path: str, mtime: int, size: int, status: str) -> None:
+def set_scan_state(file_path: str, mtime: int, size: int, status: str,
+                   library_id: int = DEFAULT_LIBRARY_ID) -> None:
     with _lock, _conn() as c:
         try:
             c.execute(
-                "INSERT INTO scan_state(file_path, mtime, size, status, updated_at)"
-                " VALUES(?, ?, ?, ?, ?)"
-                " ON CONFLICT(file_path) DO UPDATE SET mtime=excluded.mtime,"
+                "INSERT INTO scan_state(file_path, library_id, mtime, size, status,"
+                " updated_at) VALUES(?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(library_id, file_path) DO UPDATE SET mtime=excluded.mtime,"
                 " size=excluded.size, status=excluded.status,"
                 " updated_at=excluded.updated_at",
-                (file_path, int(mtime or 0), int(size or 0), str(status or ""),
-                 int(time.time())))
+                (file_path, int(library_id), int(mtime or 0), int(size or 0),
+                 str(status or ""), int(time.time())))
         except sqlite3.OperationalError as e:
             logger.debug("set scan_state failed path=%s: %s", file_path, e)
 
@@ -87,6 +89,7 @@ def list_movies(grouped: bool = True, genres: list | None = None,
                 rating_source: str | None = None,
                 watched: int | None = None,
                 collection_ids: list | None = None,
+                library_ids: list | int | None = None,
                 offset: int = 0) -> list[dict]:
     where, params = _structured_where("movies", genres=genres, regions=regions,
                                       countries=countries, years=years,
@@ -94,7 +97,8 @@ def list_movies(grouped: bool = True, genres: list | None = None,
                                       min_rating=min_rating,
                                       rating_source=rating_source,
                                       watched=watched,
-                                      collection_ids=collection_ids)
+                                      collection_ids=collection_ids,
+                                      library_ids=library_ids)
     try:
         off = max(0, int(offset or 0))
     except (TypeError, ValueError):
@@ -107,7 +111,7 @@ def list_movies(grouped: bool = True, genres: list | None = None,
             return [_row_to_dict(r) for r in rows]
         rows = c.execute(
             f"SELECT *, MAX(updated_at) AS _u FROM movies WHERE {where} "
-            f"GROUP BY COALESCE(tmdb_id, -id) ORDER BY _u DESC LIMIT ? OFFSET ?",
+            f"GROUP BY library_id, COALESCE(tmdb_id, -id) ORDER BY _u DESC LIMIT ? OFFSET ?",
             (*params, limit, off))
         return [_attach_versions(c, _row_to_dict(r)) for r in rows]
 
@@ -149,12 +153,12 @@ def _search_like(c: sqlite3.Connection, q: str, fwhere: str, fparams: list,
     return c.execute(
         f"SELECT m.*, MIN(CASE WHEN m.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) AS _pref "
         f"FROM movies m WHERE ({where}) AND ({fwhere}) "
-        "GROUP BY COALESCE(m.tmdb_id, -m.id) "
+        "GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id) "
         "ORDER BY _pref, MAX(m.year) DESC, m.id LIMIT ? OFFSET ?",
         (prefix, *params, *fparams, limit, offset)).fetchall()
 
 
-def suggest_titles(q: str, limit: int = 8) -> list[dict]:
+def suggest_titles(q: str, limit: int = 8, library_ids=None) -> list[dict]:
     """搜索框联想：本地库标题/原名子串匹配（LIKE，中文/部分词可用），
     前缀命中优先、年份降序，按 tmdb_id 归并多版本。返回 [{id, tmdb_id, title, original_title, year}]。"""
     toks = _query_terms(q)
@@ -166,6 +170,10 @@ def suggest_titles(q: str, limit: int = 8) -> list[dict]:
         p = f"%{_like_esc(t)}%"
         conds.append("(m.title LIKE ? ESCAPE '\\' OR m.original_title LIKE ? ESCAPE '\\')")
         params.extend([p, p])
+    libs = _split_ints(library_ids) if library_ids is not None else []
+    if libs:
+        conds.append("m.library_id IN (%s)" % ",".join("?" * len(libs)))
+        params.extend(libs)
     where = " AND ".join(conds)
     prefix = f"{_like_esc(toks[0])}%"
     with _lock, _conn() as c:
@@ -173,7 +181,7 @@ def suggest_titles(q: str, limit: int = 8) -> list[dict]:
             "SELECT m.id, m.tmdb_id, m.title, m.original_title, m.year, "
             "MIN(CASE WHEN m.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) AS _pref "
             "FROM movies m WHERE " + where +
-            " GROUP BY COALESCE(m.tmdb_id, -m.id) "
+            " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id) "
             "ORDER BY _pref, MAX(m.year) DESC, m.id LIMIT ?",
             (prefix, *params, limit)).fetchall()
         return [{"id": r["id"], "tmdb_id": r["tmdb_id"], "title": r["title"],
@@ -181,7 +189,7 @@ def suggest_titles(q: str, limit: int = 8) -> list[dict]:
                 for r in rows]
 
 
-def suggest_people(q: str, limit: int = 5) -> list[dict]:
+def suggest_people(q: str, limit: int = 5, library_ids=None) -> list[dict]:
     """搜索框联想（演员）：persons.name 子串匹配，名字前缀优先、库内参演数降序。
     返回 [{tmdb_id, name, count}]。"""
     toks = _query_terms(q)
@@ -193,12 +201,17 @@ def suggest_people(q: str, limit: int = 5) -> list[dict]:
         p = f"%{_like_esc(t)}%"
         conds.append("p.name LIKE ? ESCAPE '\\'")
         params.append(p)
+    libs = _split_ints(library_ids) if library_ids is not None else []
+    if libs:
+        conds.append("m.library_id IN (%s)" % ",".join("?" * len(libs)))
+        params.extend(libs)
     where = " AND ".join(conds)
     prefix = f"{_like_esc(toks[0])}%"
     with _lock, _conn() as c:
         rows = c.execute(
             "SELECT p.tmdb_id, p.name, COUNT(mp.movie_id) AS n "
             "FROM persons p LEFT JOIN movie_person mp ON mp.person_id = p.id "
+            "LEFT JOIN movies m ON m.id = mp.movie_id "
             f"WHERE {where} "
             "GROUP BY p.tmdb_id "
             "ORDER BY (p.name LIKE ? ESCAPE '\\') DESC, n DESC, p.name LIMIT ?",
@@ -215,6 +228,7 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
                rating_source: str | None = None,
                watched: int | None = None,
                collection_ids: list | None = None,
+               library_ids: list | int | None = None,
                offset: int = 0) -> list[dict]:
     fwhere, fparams = _structured_where("m", genres=genres, regions=regions,
                                         countries=countries, years=years,
@@ -222,7 +236,8 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
                                         min_rating=min_rating,
                                         rating_source=rating_source,
                                         watched=watched,
-                                        collection_ids=collection_ids)
+                                        collection_ids=collection_ids,
+                                        library_ids=library_ids)
     try:
         off = max(0, int(offset or 0))
     except (TypeError, ValueError):
@@ -233,7 +248,8 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
                            countries=countries, years=years, decades=decades,
                            tags=tags, limit=limit, min_rating=min_rating,
                            rating_source=rating_source, watched=watched,
-                           collection_ids=collection_ids, offset=off)
+                           collection_ids=collection_ids, library_ids=library_ids,
+                           offset=off)
     fts_q = _fts_query(q)
     with _lock, _conn() as c:
         rows = []
@@ -247,7 +263,8 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
                 else:
                     rows = c.execute(
                         "SELECT m.*, MIN(rank) AS _r FROM movies_fts f JOIN movies m ON m.id=f.rowid "
-                        f"WHERE movies_fts MATCH ? AND ({fwhere}) GROUP BY COALESCE(m.tmdb_id, -m.id) "
+                        f"WHERE movies_fts MATCH ? AND ({fwhere}) "
+                        "GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id) "
                         "ORDER BY _r LIMIT ? OFFSET ?", (fts_q, *fparams, limit, off)).fetchall()
             except sqlite3.OperationalError:
                 rows = []
@@ -295,11 +312,17 @@ def _rating_col(source) -> str:
 def _structured_where(alias: str, genres=None, regions=None, countries=None,
                       years=None, decades=None, tags=None,
                       min_rating=None, rating_source=None,
-                      watched=None, collection_ids=None) -> tuple[str, tuple]:
-    """结构化过滤：facet内OR、facet间AND；tags多选为AND；min_rating为单阈值（>=）。返回 (where_sql, params)。"""
+                      watched=None, collection_ids=None,
+                      library_ids=None) -> tuple[str, tuple]:
+    """结构化过滤：facet内OR、facet间AND；tags多选为AND；min_rating为单阈值（>=）。
+    `library_ids`（int/列表）为库分区条件（多库 v12）。返回 (where_sql, params)。"""
     from ..regions import REGION_UNKNOWN
     conds: list[str] = []
     params: list = []
+    libs = _split_ints(library_ids) if library_ids is not None else []
+    if libs:
+        conds.append(f"{alias}.library_id IN (%s)" % ",".join("?" * len(libs)))
+        params.extend(libs)
     gs = _split_multi(genres)
     if gs:
         conds.append("(%s)" % " OR ".join(
@@ -373,34 +396,45 @@ def _structured_where(alias: str, genres=None, regions=None, countries=None,
     return " AND ".join(f"({x})" for x in conds), tuple(params)
 
 
-def get_facets(grouped: bool = True) -> dict:
-    """库内实际计数的动态facets：只返回 count>0 项，供前端直接渲染。"""
+def get_facets(grouped: bool = True, library_ids=None) -> dict:
+    """库内实际计数的动态facets：只返回 count>0 项，供前端直接渲染。
+    `library_ids` 限定统计范围（多库 v12）。"""
     from collections import Counter
     from ..regions import REGION_ORDER, REGION_UNKNOWN, country_name
+    libs = _split_ints(library_ids) if library_ids is not None else []
+    where, params = "", []
+    if libs:
+        where = " WHERE library_id IN (%s)" % ",".join("?" * len(libs))
+        params.extend(libs)
+    cwhere, cparams = "", []
+    if libs:
+        cwhere = " WHERE c.library_id IN (%s)" % ",".join("?" * len(libs))
+        cparams.extend(libs)
     with _lock, _conn() as c:
         # 全量取行后 Python 内分组（组内 tags 取并集，代表行取最新），避免代表行漏掉打在旧版本上的标签；
         # 只取聚合所需列（评审 B8/R02-D4：不再把 overview/persons 大文本全捞进内存）
         rows = c.execute(
-            "SELECT id, tmdb_id, updated_at, watched, genres, tags, region,"
+            "SELECT id, library_id, tmdb_id, updated_at, watched, genres, tags, region,"
             " origin_country, origin_countries, year, tmdb_rating, douban_rating,"
-            " custom_rating FROM movies").fetchall()
+            " custom_rating FROM movies" + where, params).fetchall()
         try:
             collections = [{"id": r["id"], "name": r["name"], "count": int(r["n"] or 0)}
                            for r in c.execute(
                                "SELECT c.id, c.name, COUNT(cm.rowid) AS n FROM collections c"
                                " LEFT JOIN collection_members cm ON cm.collection_id=c.id"
-                               " GROUP BY c.id ORDER BY c.name").fetchall()]
+                               + cwhere +
+                               " GROUP BY c.id ORDER BY c.name", cparams).fetchall()]
         except Exception as e:
             logger.warning("facets collections failed: %s", e)
             collections = []
     gc, rc, cc, yc, dc, tc, ic, sc = (Counter() for _ in range(8))
     wc = Counter()
     if grouped:
-        # 同 tmdb_id 的多版本取代表行计数；tags 取组内并集（避免标签打在非代表版本上被漏计）
+        # 同库同 tmdb_id 的多版本取代表行计数；tags 取组内并集（避免标签打在非代表版本上被漏计）
         groups: dict = {}
         for r in rows:
             d = _row_to_dict(r)
-            key = d.get("tmdb_id") or -d["id"]
+            key = (d.get("library_id"), d.get("tmdb_id") or -d["id"])
             g = groups.setdefault(key, {"rep": None, "tags": set()})
             if g["rep"] is None or (d.get("updated_at", 0) or 0) > (g["rep"].get("updated_at", 0) or 0):
                 g["rep"] = d

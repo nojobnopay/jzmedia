@@ -2,12 +2,12 @@
 import os
 import re
 from fastapi import APIRouter, HTTPException
-from ... import store
-from ...config import settings
+from ... import library_paths, store
 from ...scanner import sync_nfos_for
 from ...log import get_logger
 logger = get_logger("files.routes")
-from .paths import _check_inside_root, _only_ids, _rename_or_move
+from .paths import (_check_inside_root, _only_ids, _rename_or_move,
+                    _require_writable)
 from .planner import _collect_plans, _ordered_plans
 from .executor import _cleanup_old_dir, _resync_old_dir, _move_one
 __all__ = ['router', '_organize', 'organize', 'preview', 'unmatched', 'missing', 'clean', '_restore_candidates', '_restore_one', 'restore_candidates', 'restore_original', '_under_root', '_delete_rows']
@@ -55,6 +55,9 @@ def _organize(mode: str, from_prefix: str | None = None,
                 "to_dir": td, "group_by_region": bool(group_by_region)}
     if dry_run:
         return {**base, "plans": plans, "conflicts": conflicts}
+    for lid in sorted({int(p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+                       for p in plans}):
+        _require_writable(lid)
     return {**base, "results": [_move_one(p) for p in _ordered_plans(plans)],
             "conflicts": conflicts}
 
@@ -79,18 +82,22 @@ def preview():
 
 
 @router.get("/unmatched")
-def unmatched():
+def unmatched(library: str | None = None):
     """待处理明细（只读，供设置页展示+跳转处理）：
     unmatched=TMDB 无命中；needs_review=模糊命中待确认；
     suspect_title=标题无 CJK（high=非英语片，疑似错配/缺译；info=英语片，多为正常/陈旧）；
-    orphan_extras=未归属花絮（文件原地保留）。"""
+    orphan_extras=未归属花絮（文件原地保留）。library 缺省=全库。"""
     import re as _re
+    libs = store._split_ints(library)
     un, nr, high, info, orphans = [], [], [], [], []
     for m in store.list_movies(grouped=False, limit=100000):
+        if libs and int(m.get("library_id") or 0) not in libs:
+            continue
         item = {"id": m["id"], "title": m.get("title", ""),
                 "original_title": m.get("original_title", ""),
                 "year": m.get("year"), "file_path": m["file_path"],
                 "tmdb_id": m.get("tmdb_id"),
+                "library_id": m.get("library_id"),
                 "original_language": m.get("original_language", "")}
         if not m.get("tmdb_id"):
             un.append(item)
@@ -105,6 +112,8 @@ def unmatched():
                  not in ("en", "") else info).append(item)
     un.sort(key=lambda x: x["file_path"])
     for e in store.list_orphan_extras():
+        if libs and int(e.get("library_id") or 0) not in libs:
+            continue
         orphans.append({"id": e["id"], "file_path": e["file_path"],
                         "kind": e.get("kind") or "extra"})
     return {"unmatched": un, "needs_review": nr,
@@ -133,11 +142,17 @@ def _delete_rows(cands: list) -> dict:
 
 
 @router.get("/missing")
-def missing():
-    """预览失效条目：库中有记录但文件已不存在的行（软件外删片/移动后产生）。"""
+def missing(library: str | None = None):
+    """预览失效条目：库中有记录但文件已不存在的行（软件外删片/移动后产生）。
+    library 缺省=全库。"""
+    libs = store._split_ints(library)
     out = []
     for m in store.list_movies(grouped=False, limit=100000):
-        if not os.path.exists(os.path.join(settings.media_root, m["file_path"])):
+        if libs and int(m.get("library_id") or 0) not in libs:
+            continue
+        if not os.path.exists(library_paths.resolve(
+                m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
+                m["file_path"])):
             out.append({"id": m["id"], "title": m.get("title", ""),
                         "year": m.get("year"), "file_path": m["file_path"],
                         "tmdb_id": m.get("tmdb_id")})
@@ -154,7 +169,9 @@ def clean(body: dict | None = None):
     only_set = _only_ids(body)
     cands = [m for m in store.list_movies(grouped=False, limit=100000)
              if (only_set is None or m["id"] in only_set)
-             and not os.path.exists(os.path.join(settings.media_root, m["file_path"]))]
+             and not os.path.exists(library_paths.resolve(
+                 m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
+                 m["file_path"]))]
     plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
               "file_path": m["file_path"],
               "tmdb_id": m.get("tmdb_id")} for m in cands]
@@ -173,7 +190,8 @@ def _restore_candidates(only: set | None) -> list[dict]:
         cur = m.get("file_path", "")
         if not orig or os.path.normpath(orig) == os.path.normpath(cur):
             continue
-        if not os.path.isfile(os.path.join(settings.media_root, cur)):
+        if not os.path.isfile(library_paths.resolve(
+                m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, cur)):
             continue
         out.append(m)
     out.sort(key=lambda m: (m.get("file_path", ""), m.get("id", 0)))
@@ -190,14 +208,19 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
         base["to"] = _check_inside_root(base["to"])
     except HTTPException as e:
         return {**base, "status": f"error: illegal target ({e.detail})"}
-    src = os.path.join(settings.media_root, base["from"])
-    dst = os.path.join(settings.media_root, base["to"])
+    src = library_paths.resolve(
+        m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, base["from"])
+    dst = library_paths.resolve(
+        m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, base["to"])
     if not os.path.isfile(src):
         return {**base, "status": "skipped_missing_src"}
     if os.path.exists(dst):
         return {**base, "status": "conflict_disk_exists"}
     # 库内占用保护（评审 P1-06）：同 _move_one，目标挂在别的库行上时先拒绝
-    existing = store.get_by_path(base["to"]) if base["to"] else None
+    existing = store.get_by_path(
+        base["to"],
+        library_id=m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID) \
+        if base["to"] else None
     if existing is not None and int(existing.get("id") or -1) != int(m["id"]):
         return {**base, "status": "conflict_db_occupied"}
     if dry_run:
@@ -256,7 +279,11 @@ def restore_original(body: dict | None = None):
                   "status": _restore_one(m, dry_run=True)["status"]}
                  for m in _restore_candidates(only)]
         return {"dry_run": True, "total": len(plans), "plans": plans}
-    results = [_restore_one(m, dry_run=False) for m in _restore_candidates(only)]
+    cands = _restore_candidates(only)
+    for lid in sorted({int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+                       for m in cands}):
+        _require_writable(lid)
+    results = [_restore_one(m, dry_run=False) for m in cands]
     ok = sum(1 for r in results if r["status"] == "restored")
     return {"dry_run": False, "total": len(results),
             "restored": ok, "results": results}

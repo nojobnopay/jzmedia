@@ -3,7 +3,7 @@ import os
 
 from fastapi import HTTPException
 
-from ...config import settings
+from ... import library_paths
 from ..files import _check_inside_root
 __all__ = ['_resolve_dir', '_check_inside_root']
 
@@ -14,7 +14,7 @@ def _resolve_dir(rel: str | None) -> str:
     if not raw:
         return ""
     norm = _check_inside_root(raw)
-    abs_p = os.path.join(settings.media_root, norm)
+    abs_p = library_paths.abs_path(norm)
     if not os.path.isdir(abs_p):
         raise HTTPException(404, f"not a directory: {rel!r}")
     return norm

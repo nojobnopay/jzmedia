@@ -3,8 +3,7 @@ import os
 
 from fastapi import APIRouter, HTTPException
 
-from .. import store
-from ..config import settings
+from .. import library_paths, store
 from ..log import get_logger
 
 router = APIRouter(prefix="/api/extras")
@@ -12,12 +11,16 @@ logger = get_logger("extras")
 
 
 @router.get("/orphans")
-def orphans():
+def orphans(library: str | None = None):
     """未归属花絮：标题/年份对不上库内任何影片，文件原地保留，人工认领。
-    附文件名解析的猜测标题/年份（评审 R08-D4），认领时便于在库里搜索确认。"""
+    附文件名解析的猜测标题/年份（评审 R08-D4），认领时便于在库里搜索确认。
+    library 缺省=全库。"""
     from ..scanner.parse import parse_filename, normalize_title
+    libs = store._split_ints(library)
     items = []
     for e in store.list_orphan_extras():
+        if libs and int(e.get("library_id") or 0) not in libs:
+            continue
         rel = e["file_path"]
         guess = {}
         try:
@@ -88,15 +91,21 @@ def collect(body: dict | None = None):
         if pending:
             cands.append({"id": m["id"], "title": m.get("title", ""),
                           "dir": os.path.dirname(m["file_path"]),
+                          "library_id": m.get("library_id")
+                          or library_paths.DEFAULT_LIBRARY_ID,
                           "extras": [e["file_path"] for e in pending]})
     if dry_run:
         return {"dry_run": True, "total": len(cands), "plans": cands}
     done = []
     skipped: list[dict] = []
     for c in cands:
+        from .files import _require_writable
+        _require_writable(c.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
         try:
             r = move_attached_extras(
-                c["id"], os.path.join(settings.media_root, c["dir"]))
+                c["id"], library_paths.resolve(c.get("library_id")
+                                               or library_paths.DEFAULT_LIBRARY_ID,
+                                               c["dir"]))
             done.append({"id": c["id"], "moved": r.get("moved", 0),
                          "skipped": len(r.get("skipped") or [])})
             for sk in (r.get("skipped") or []):

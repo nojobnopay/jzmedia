@@ -4,6 +4,7 @@ uvicorn[standard]==0.52.4
 pydantic==2.13.5
 httpx==0.28.1
 guessit==4.4.0
+cryptography==50.0.1
 python-multipart==0.0.32
 # 宿主直跑（./start.sh，无系统 ffmpeg）所需静态二进制见 requirements-dev.txt（评审 R01-Q5：
 # Docker 镜像用 apt 的 ffmpeg，镜像内不再多装一份宿主兜底包）

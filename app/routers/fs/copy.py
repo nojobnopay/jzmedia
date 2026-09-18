@@ -5,10 +5,10 @@ import threading
 
 from fastapi import HTTPException
 
-from ... import scanner, store
-from ...config import settings
+from ... import library_paths, scanner, store
 from ...jobkit import JobRegistry
 from ...scanner import is_feature_video
+from ..files import _require_writable
 from .classify import _classify
 from .common import logger, router
 from .paths import _check_inside_root
@@ -62,7 +62,7 @@ def _measure(items: list[str]) -> tuple[int, int, int]:
     """(总字节, 文件数, 目录数)；符号链接按 0 字节且不跟随。"""
     total = files = dirs = 0
     for rel in items:
-        abs_p = os.path.join(settings.media_root, rel)
+        abs_p = library_paths.abs_path(rel)
         if os.path.isdir(abs_p) and not os.path.islink(abs_p):
             dirs += 1
             for root, dnames, fnames in os.walk(abs_p):
@@ -104,11 +104,11 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict) -> None:
         for rel in items:
             if _stop():
                 return
-            src_abs = os.path.join(settings.media_root, rel)
+            src_abs = library_paths.abs_path(rel)
             base = os.path.basename(rel.rstrip("/"))
             dst_abs, was_renamed = _unique_dst(
-                os.path.join(settings.media_root, to_dir, base) if to_dir
-                else os.path.join(settings.media_root, base))
+                library_paths.abs_path(os.path.join(to_dir, base)) if to_dir
+                else library_paths.abs_path(base))
             if was_renamed:
                 renamed += 1
             item_status = "copied"
@@ -146,7 +146,7 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict) -> None:
                         os.makedirs(os.path.dirname(dst_abs), exist_ok=True)
                         if not _copy_file(src_abs, dst_abs, _on_bytes, _stop):
                             return
-                    rel_dst = os.path.relpath(dst_abs, settings.media_root)
+                    rel_dst = os.path.relpath(dst_abs, library_paths.default_root())
                     if is_feature_video(rel_dst):
                         # 正片复制 → 登记（源已匹配则直绑 tmdb，避免重搜/误配）
                         hint = hints.get(rel)
@@ -160,7 +160,8 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict) -> None:
                             item_status = f"copied_scan_warn: {e}"
                 except OSError as e:
                     item_status = f"error: {e}"
-            results.append({"from": rel, "to": os.path.relpath(dst_abs, settings.media_root),
+            results.append({"from": rel,
+                            "to": os.path.relpath(dst_abs, library_paths.default_root()),
                             "status": item_status, "renamed": was_renamed})
             _COPY_JOBS.update(jid, done=len(results), renamed=renamed, registered=registered)
         if _stop():
@@ -191,7 +192,7 @@ def fs_copy(body: dict | None = None):
     # 目标目录可不存在（粘贴到新目录），空串=根；_check_inside_root 拒绝空串，故单独处理
     raw_to = str(body.get("to_dir") or "").strip().strip("/")
     to_dir = _check_inside_root(raw_to) if raw_to else ""
-    dst_root = os.path.join(settings.media_root, to_dir) if to_dir else settings.media_root
+    dst_root = library_paths.abs_path(to_dir) if to_dir else library_paths.default_root()
     if os.path.exists(dst_root) and not os.path.isdir(dst_root):
         raise HTTPException(422, f"target is not a directory: {to_dir!r}")
     items: list[str] = []
@@ -199,7 +200,7 @@ def fs_copy(body: dict | None = None):
     conflicts: list[str] = []
     for r in raws:
         rel = _check_inside_root(str(r or ""))
-        abs_p = os.path.join(settings.media_root, rel)
+        abs_p = library_paths.abs_path(rel)
         if not os.path.exists(abs_p):
             raise HTTPException(404, f"not found: {rel!r}")
         if os.path.isdir(abs_p) and not os.path.islink(abs_p):
@@ -223,6 +224,7 @@ def fs_copy(body: dict | None = None):
                 "needs_confirm": needs_confirm,
                 "hint": (f"约 {files} 个文件 / {round(total_bytes / 1024 / 1024 / 1024, 2)} GB"
                          + ("，同名的会自动改「(副本)」" if conflicts else ""))}
+    _require_writable(library_paths.default_id())
     job = _COPY_JOBS.create(total=len(items), bytes_total=total_bytes)
     jid = job["job_id"]
     threading.Thread(target=_copy_worker, args=(jid, items, to_dir, hints),

@@ -1,8 +1,7 @@
 """routers.movies.scope（自 app/routers/movies.py 拆分，评审 B9/R05-Q1；经 movies 门面使用）。"""
 import os
 from fastapi import HTTPException
-from ... import store
-from ...config import settings
+from ... import library_paths, store
 from ...log import get_logger
 logger = get_logger("movies.scope")
 from ...scanner import same_stem
@@ -27,8 +26,9 @@ def _movie_delete_scope(movie_id: int) -> dict:
     own_paths = set(versions)
     own_stems = {os.path.splitext(os.path.basename(p))[0] for p in versions}
     rel_dir = os.path.dirname(m["file_path"])
-    movie_dir = os.path.join(settings.media_root, rel_dir) if rel_dir \
-        else settings.media_root
+    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    lib_root = library_paths.library_root(lib_id)
+    movie_dir = os.path.join(lib_root, rel_dir) if rel_dir else lib_root
 
     def _same_stem(stem: str) -> bool:
         return same_stem(stem, own_stems)   # 单源（评审 B9/R05-B4）
@@ -62,7 +62,7 @@ def _movie_delete_scope(movie_id: int) -> dict:
                     continue
                 full = os.path.join(root, fn)
                 try:
-                    rel = os.path.relpath(full, settings.media_root)
+                    rel = os.path.relpath(full, lib_root)
                 except ValueError:
                     continue
                 if rel in own_paths:
@@ -99,12 +99,12 @@ def _movie_delete_scope(movie_id: int) -> dict:
                     else:
                         rels[rel] = "sidecar"
     for e in extra_set:
-        if e not in rels and os.path.isfile(os.path.join(settings.media_root, e)):
+        if e not in rels and os.path.isfile(library_paths.resolve(lib_id, e)):
             rels[e] = "sidecar"
     files, total = [], 0
     for rel in sorted(rels):
         try:
-            size = os.path.getsize(os.path.join(settings.media_root, rel))
+            size = os.path.getsize(library_paths.resolve(lib_id, rel))
         except OSError:
             size = 0
         total += size

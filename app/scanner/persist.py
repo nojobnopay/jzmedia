@@ -3,6 +3,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from ..config import settings
+from .. import library_paths
 from .. import store
 from .. import tmdb
 from ..db import POSTER_DIR
@@ -285,8 +286,9 @@ def refresh_tmdb_id_fast(tmdb_id: int) -> tuple[dict, list[dict]]:
                         jobs.append({"mid": mid, "tmdb_id": tmdb_id,
                                      "detail": detail, "poster_tmdb": new_poster_tmdb,
                                      "old_poster_tmdb": old_poster_tmdb,
-                                     "abs_path": os.path.join(
-                                         settings.media_root, m["file_path"])})
+                                     "abs_path": library_paths.resolve(
+                                         m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
+                                         m["file_path"])})
             except Exception:
                 continue
         cur = store.get_tmdb_cached(tmdb_id) or {}
@@ -301,7 +303,8 @@ def refresh_tmdb_id_fast(tmdb_id: int) -> tuple[dict, list[dict]]:
         if not m:
             continue
         store.copy_tmdb_to_movie(mid, old_title=old_title if old_cache else None)
-        abs_path = os.path.join(settings.media_root, m["file_path"])
+        abs_path = library_paths.resolve(
+            m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, m["file_path"])
         affected.append(mid)
         jobs.append({"mid": mid, "tmdb_id": tmdb_id, "detail": detail,
                      "poster_tmdb": new_poster_tmdb,

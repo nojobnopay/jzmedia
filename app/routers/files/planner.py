@@ -1,8 +1,8 @@
 """routers.files.planner（自 app/routers/files.py 拆分，评审 B9/R09-Q1；经 files 门面使用）。"""
 import os
 import re
+from ... import library_paths
 from ... import store
-from ...config import settings
 from ...editions import core_of
 from ...editions import detect_edition
 from ...editions import detect_spec_list
@@ -98,12 +98,14 @@ def _finalize(comp: dict, stem: str, target_root: str | None,
     d = {"id": comp["id"], "from": comp["from"], "to": new_rel,
          "title": comp["m"].get("title", ""),
          "tmdb_id": comp["m"].get("tmdb_id"),
+         "library_id": comp["m"].get("library_id")
+         or library_paths.DEFAULT_LIBRARY_ID,
          "edition": comp["edition"], "spec": spec_used,
          "stack": comp["stack"],
          "region_stale": _region_stale(comp["from"], comp["m"].get("region") or "")}
     if numbered:
         d["numbered"] = numbered
-    if not os.path.isfile(os.path.join(settings.media_root, comp["from"])):
+    if not os.path.isfile(library_paths.abs_path(comp["from"])):
         d["status"] = "source_missing"   # 预览即标注（评审 R09-D6），执行会跳过
     return d
 
@@ -223,7 +225,7 @@ def _collect_plans(target_root: str | None = None,
     for p in plans:
         dst = os.path.normpath(p["to"])
         owner = db_owner.get(dst)
-        if (os.path.exists(os.path.join(settings.media_root, p["to"]))
+        if (os.path.exists(library_paths.abs_path(p["to"]))
                 and dst not in current_paths):
             conflicts.append({**p, "status": "conflict_disk_exists",
                               "kind": "disk"})
