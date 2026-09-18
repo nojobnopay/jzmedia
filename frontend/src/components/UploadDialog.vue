@@ -334,7 +334,7 @@ const upOrganizableIds = computed(() => [...new Set(
 const upOrganizable = computed(() => upOrganizableIds.value.length > 0)
 function upOrgBody(dry_run) {
   return JSON.stringify({ mode: 'relocate', from_prefix: '待整理', to_dir: '电影',
-    group_by_region: false, library_id: libParam(),
+    library_id: libParam(),
     ids: upOrganizableIds.value, dry_run })
 }
 async function goUpOrganize() {

@@ -165,6 +165,20 @@ def is_read_only(library_id) -> bool:
     return bool(int(lib.get("read_only") or 0))
 
 
+def naming_profile(library_id) -> str:
+    """库级命名档：plex|kodi|off（缺省 kodi）。"""
+    lib = get_library(library_id) or default_library()
+    v = str(lib.get("naming_profile") or "kodi").strip().lower()
+    return v if v in ("plex", "kodi", "off") else "kodi"
+
+
+def artwork_mode(library_id) -> str:
+    """库级落盘策略：none|nfo|nfo_art（缺省 nfo）。"""
+    lib = get_library(library_id) or default_library()
+    v = str(lib.get("artwork_mode") or "nfo").strip().lower()
+    return v if v in ("none", "nfo", "nfo_art") else "nfo"
+
+
 class LibraryReadOnlyError(RuntimeError):
     """只读库写入被拒（路由层转 409）。"""
 

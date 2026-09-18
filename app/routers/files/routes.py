@@ -24,10 +24,10 @@ def _under_root(path: str, root: str) -> bool:
 
 
 def _organize(mode: str, from_prefix: str | None = None,
-              to_dir: str | None = None, group_by_region: bool = True,
+              to_dir: str | None = None,
               only: set | None = None, dry_run: bool = True,
               library_id: int | None = None) -> dict:
-    """统一整理入口：inplace=就地归档（target_root=None），relocate=顶层搬迁。
+    """统一整理入口：inplace=就地归档（target_root=None），relocate=顶层搬迁（扁平）。
     `library_id` 缺省=默认库；路径/行全部限定在该库内（多库 v12）。"""
     if mode not in ("inplace", "relocate"):
         raise HTTPException(422, "mode must be inplace|relocate")
@@ -66,13 +66,11 @@ def _organize(mode: str, from_prefix: str | None = None,
                                 or _under_root(m["file_path"], td))]
         scoped = {m["id"] for m in scoped_rows}
         plans, conflicts = _collect_plans(target_root=td,
-                                          group_by_region=bool(group_by_region),
                                           only=scoped or {-1},
                                           all_rows=all_rows,
                                           library_id=(None if only else lid))
         base = {"dry_run": dry_run, "mode": mode, "from_prefix": fp,
-                "to_dir": td, "group_by_region": bool(group_by_region),
-                "library_id": lid}
+                "to_dir": td, "library_id": lid}
     if dry_run:
         return {**base, "plans": plans, "conflicts": conflicts}
     for lid2 in sorted({int(p.get("library_id") or lid) for p in plans}):
@@ -83,9 +81,8 @@ def _organize(mode: str, from_prefix: str | None = None,
 
 @router.post("/organize")
 def organize(body: dict | None = None):
-    """统一整理口：mode=inplace 就地归档；mode=relocate 顶层搬迁
-    （from_prefix→to_dir/标题 (年份)/文件）。dry_run 默认 true 只预览。
-    `library_id`（或别名 `library`）缺省=默认库。"""
+    """统一整理口：mode=inplace 就地归档；mode=relocate 顶层搬迁（扁平）。
+    dry_run 默认 true 只预览。`library_id`（或别名 `library`）缺省=默认库。"""
     body = body or {}
     lib = body.get("library_id", body.get("library"))
     try:
@@ -95,8 +92,6 @@ def organize(body: dict | None = None):
     return _organize(mode=str(body.get("mode") or "inplace"),
                      from_prefix=body.get("from_prefix"),
                      to_dir=body.get("to_dir"),
-                     group_by_region=(True if body.get("group_by_region") is None
-                                      else bool(body.get("group_by_region"))),
                      only=_only_ids(body),
                      dry_run=body.get("dry_run", True),
                      library_id=lib)

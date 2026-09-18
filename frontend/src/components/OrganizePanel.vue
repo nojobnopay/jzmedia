@@ -5,7 +5,7 @@
       <span class="fhint">{{ open ? '收起' : '展开' }}</span>
     </div>
     <div v-show="open" class="pipe-body">
-      <p class="hint">已匹配确认的片在这里归档到正式库。就地归档：保留原父目录，只建“标题 (年份)/”子目录；搬到顶层：如 待整理 → 电影，按“电影/大区/标题 (年份)/文件”归类。命名均为“标题 (年份)[-版本][-规格][-分卷][-版本N].ext”，先预览再执行。</p>
+      <p class="hint">已匹配确认的片在这里归档到正式库。就地归档：保留原父目录，只建“标题 (年份)/”子目录；搬到顶层：如 待整理 → 电影，按“电影/标题 (年份)/文件”扁平归类（D5，不再分区）。命名随库级命名档（kodi/plex），先预览再执行。</p>
       <div class="bar">
         <label><input type="radio" value="inplace" v-model="orgMode" /> 就地归档</label>
         <label><input type="radio" value="relocate" v-model="orgMode" /> 搬到顶层</label>
@@ -13,7 +13,6 @@
       <div v-if="orgMode === 'relocate'" class="bar">
         <label>源 <input v-model="relocateFrom" placeholder="待整理" style="width:120px" /></label>
         <label>目标 <input v-model="relocateTo" placeholder="电影" style="width:120px" /></label>
-        <label><input type="checkbox" v-model="groupByRegion" /> 按大区分二级目录</label>
       </div>
       <div class="bar">
         <button @click="loadOrgPreview" :disabled="!!busy">预览</button>
@@ -21,14 +20,14 @@
         <span>{{ orgMsg }}</span>
         <button v-if="orgPlans.length > COLLAPSE_N" @click="showAllPlans = !showAllPlans">{{ showAllPlans ? '收起' : `展开全部 (${orgPlans.length})` }}</button>
       </div>
-      <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（全库）' : `搬到顶层（${relocateFrom || '待整理'} → ${relocateTo || '电影'}${groupByRegion ? '，按大区' : ''}，含目标下分区过期/未分区）` }} · 列表随参数自动刷新</p>
+      <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（全库）' : `搬到顶层（${relocateFrom || '待整理'} → ${relocateTo || '电影'}，扁平，含目标下未规范的行）` }} · 列表随参数自动刷新</p>
       <ul v-if="orgPlans.length" class="plan-list">
         <li v-for="p in visiblePlans" :key="p.id" class="plan-row">
           <span class="plan-from" :title="p.from">{{ p.from }}</span>
           <span class="plan-arrow">→</span>
           <span class="plan-to" :title="p.to">{{ p.to }}</span>
           <span v-if="p.numbered" class="plan-status warn">编号{{ p.numbered }}·可改备注</span>
-          <span v-if="p.region_stale" class="plan-status warn">原分区过期</span>
+          <span v-if="p.plex_warnings && p.plex_warnings.length" class="plan-status warn" :title="p.plex_warnings.join('；')">Plex 兼容性 {{ p.plex_warnings.length }}</span>
           <span v-if="p.status" :class="['plan-status', p.status === 'moved' ? 'ok' : 'fail']">{{ p.status }}</span>
         </li>
       </ul>
@@ -79,7 +78,7 @@ const open = ref(false)
 const orgMode = ref('inplace')
 const relocateFrom = ref('待整理')
 const relocateTo = ref('电影')
-const groupByRegion = ref(true)
+
 const orgPlans = ref([])
 const orgConflicts = ref([])
 const orgMsg = ref('')
@@ -125,7 +124,6 @@ function orgBody(dry_run) {
   if (orgMode.value === 'relocate') {
     b.from_prefix = relocateFrom.value.trim()
     b.to_dir = relocateTo.value.trim()
-    b.group_by_region = !!groupByRegion.value
   }
   return JSON.stringify(b)
 }
@@ -182,7 +180,7 @@ async function doOrganize() {
 
 // 模式/参数一变自动重跑预览（防“列表与模式不符”），防抖 300ms，忙时跳过
 let orgPreviewTimer = null
-watch([orgMode, relocateFrom, relocateTo, groupByRegion], () => {
+watch([orgMode, relocateFrom, relocateTo], () => {
   if (orgPreviewTimer) clearTimeout(orgPreviewTimer)
   orgPreviewTimer = setTimeout(() => {
     if (!busy.value) loadOrgPreview()

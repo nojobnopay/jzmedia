@@ -575,7 +575,7 @@ async function doArchive() {
     const p = h.params || {}
     const body = p.mode === 'relocate'
       ? { mode: 'relocate', from_prefix: p.from_prefix, to_dir: p.to_dir,
-          group_by_region: false, library_id: p.library_id,
+          library_id: p.library_id,
           ids: [Number(route.params.id)], dry_run: false }
       : { mode: 'inplace', library_id: p.library_id,
           ids: [Number(route.params.id)], dry_run: false }
