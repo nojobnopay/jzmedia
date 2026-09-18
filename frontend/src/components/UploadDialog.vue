@@ -67,6 +67,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, apiUpload } from '../api.js'
+import { libParam } from '../libraries.js'
 import { fmtBytes, midEllipsis } from '../format.js'
 import { useFocusTrap } from '../useFocusTrap.js'
 
@@ -242,7 +243,7 @@ async function startUpload() {
     t.scanStartedAt = 0
     upCurPct.value = 0
     const h = apiUpload('/api/uploads', t.file, {
-      fields: { relpath: t.rel },
+      fields: { relpath: t.rel, library_id: libParam() },
       onProgress: (p) => { upCurPct.value = p },
       onUploaded: () => {
         // 延迟 800ms 再切“刮削中”，字幕/花絮等本地快路径不会闪提示
@@ -333,7 +334,8 @@ const upOrganizableIds = computed(() => [...new Set(
 const upOrganizable = computed(() => upOrganizableIds.value.length > 0)
 function upOrgBody(dry_run) {
   return JSON.stringify({ mode: 'relocate', from_prefix: '待整理', to_dir: '电影',
-    group_by_region: true, ids: upOrganizableIds.value, dry_run })
+    group_by_region: false, library_id: libParam(),
+    ids: upOrganizableIds.value, dry_run })
 }
 async function goUpOrganize() {
   upStep.value = 'organize'

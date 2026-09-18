@@ -76,7 +76,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { fmtBytes } from '../format.js'
@@ -84,8 +84,18 @@ import { usePolling } from '../usePolling.js'
 
 // 文件浏览（评审 R14-Q2 + B9 后续）：从 Settings.vue 抽出；Windows 式选中/双击/快捷键/复制粘贴。
 // 删除正片/复制正片登记后发 changed 让父页刷新统计；目录复制完成引导父页触发扫描。
-const props = defineProps({ active: { type: Boolean, default: false } })
+const props = defineProps({ active: { type: Boolean, default: false },
+                           library: { type: Number, default: null } })
 const emit = defineEmits(['changed', 'scan'])
+
+// 多库 v12：所有 fs 调用带当前库（未选库=默认库，由后端兜底）
+function fsBody (obj) {
+  return props.library == null ? obj : { ...obj, library_id: props.library }
+}
+function fsListUrl (path) {
+  const base = '/api/fs/list?path=' + encodeURIComponent(path || '')
+  return props.library == null ? base : base + '&library=' + props.library
+}
 const router = useRouter()
 const busy = ref(null)
 
@@ -122,7 +132,7 @@ async function loadFs(path) {
   fsArmDelete.value = {}
   selRels.value = []
   try {
-    const d = await api('/api/fs/list?path=' + encodeURIComponent(path || ''))
+    const d = await api(fsListUrl(path))
     fsPath.value = d.path || ''
     fsParent.value = d.parent ?? ''
     fsCrumbs.value = d.crumbs || []
@@ -136,12 +146,20 @@ async function loadFs(path) {
   }
 }
 
+// 换库（顶栏切换）：回到根目录重载，避免拿着旧库相对路径请求新库
+watch(() => props.library, () => {
+  fsPath.value = ''
+  clipboard.value = { mode: 'copy', rels: [] }
+  copyJob.value = null
+  if (props.active) loadFs('')
+})
+
 async function doFsMkdir() {
   const name = fsMkdirName.value.trim()
   if (!name) return
   busy.value = 'fs'
   try {
-    await api('/api/fs/mkdir', { method: 'POST', body: JSON.stringify({ path: fsPath.value, name }) })
+    await api('/api/fs/mkdir', { method: 'POST', body: JSON.stringify(fsBody({ path: fsPath.value, name })) })
     fsMkdirName.value = ''
     fsMsg.value = `已在当前目录创建「${name}」`
     await loadFs(fsPath.value)
@@ -167,7 +185,7 @@ async function doFsRename(rel) {
     // 两步确认（评审 B8/R14-D2：与删除一致，先预览再执行）
     busy.value = 'fs'
     try {
-      const d = await api('/api/fs/rename', { method: 'POST', body: JSON.stringify({ from: rel, name, dry_run: true }) })
+      const d = await api('/api/fs/rename', { method: 'POST', body: JSON.stringify(fsBody({ from: rel, name, dry_run: true })) })
       const p = (d.plans || [])[0] || {}
       fsArmDelete.value = { ...fsArmDelete.value, [armedKey]: p }
       fsArmHint.value = p.status === 'conflict_disk_exists'
@@ -183,7 +201,7 @@ async function doFsRename(rel) {
   delete fsArmDelete.value[armedKey]
   busy.value = 'fs'
   try {
-    const d = await api('/api/fs/rename', { method: 'POST', body: JSON.stringify({ from: rel, name, dry_run: false }) })
+    const d = await api('/api/fs/rename', { method: 'POST', body: JSON.stringify(fsBody({ from: rel, name, dry_run: false })) })
     const r = (d.results || [])[0] || {}
     fsMsg.value = r.status === 'moved' ? `已改名${r.followed ? `（跟随 ${r.followed} 个）` : ''}` : ('改名：' + (r.status || '失败'))
     await loadFs(fsPath.value)
@@ -199,7 +217,7 @@ async function doFsDelete(rel) {
   busy.value = 'fs'
   fsArmHint.value = ''
   try {
-    const d = await api('/api/fs/delete', { method: 'POST', body: JSON.stringify({ paths: [rel], dry_run: true }) })
+    const d = await api('/api/fs/delete', { method: 'POST', body: JSON.stringify(fsBody({ paths: [rel], dry_run: true })) })
     const p = (d.plans || [])[0] || {}
     if (p.status === 'dir_not_empty') {
       fsMsg.value = '目录非空，先清空再删（不做递归删）'
@@ -211,7 +229,7 @@ async function doFsDelete(rel) {
       fsArmHint.value = `警告：将删除正片《${p.title || p.name}》${vers}，海报墙同步移除，关联与索引清理。再点「确认删除正片」执行`
       return
     }
-    const d2 = await api('/api/fs/delete', { method: 'POST', body: JSON.stringify({ paths: [rel], dry_run: false }) })
+    const d2 = await api('/api/fs/delete', { method: 'POST', body: JSON.stringify(fsBody({ paths: [rel], dry_run: false })) })
     const r = (d2.results || [])[0] || {}
     fsMsg.value = r.status === 'deleted' ? `已物理删除（${fsKindText(p.kind)}，不可恢复）` : ('删除：' + (r.status || '失败'))
     await loadFs(fsPath.value)
@@ -226,7 +244,7 @@ async function doFsDelete(rel) {
 async function doFsDeleteConfirm(rel) {
   busy.value = 'fs'
   try {
-    const d = await api('/api/fs/delete', { method: 'POST', body: JSON.stringify({ paths: [rel], dry_run: false, confirm: true }) })
+    const d = await api('/api/fs/delete', { method: 'POST', body: JSON.stringify(fsBody({ paths: [rel], dry_run: false, confirm: true })) })
     const r = (d.results || [])[0] || {}
     fsMsg.value = r.status === 'deleted' ? '正片已删除，库已同步清理（不可恢复）' : ('删除：' + (r.status || '失败'))
     delete fsArmDelete.value[rel]
@@ -302,10 +320,10 @@ async function doPasteMove() {
   const skipped = []
   try {
     for (const rel of rels) {
-      const pv = await api('/api/fs/move', { method: 'POST', body: JSON.stringify({ from: rel, to_dir: fsPath.value, dry_run: true }) })
+      const pv = await api('/api/fs/move', { method: 'POST', body: JSON.stringify(fsBody({ from: rel, to_dir: fsPath.value, dry_run: true })) })
       const p = (pv.plans || [])[0] || {}
       if (p.status === 'conflict_disk_exists') { skipped.push(rel); continue }
-      const d = await api('/api/fs/move', { method: 'POST', body: JSON.stringify({ from: rel, to_dir: fsPath.value, dry_run: false }) })
+      const d = await api('/api/fs/move', { method: 'POST', body: JSON.stringify(fsBody({ from: rel, to_dir: fsPath.value, dry_run: false })) })
       const r = (d.results || [])[0] || {}
       if (r.status === 'moved') moved++
       else skipped.push(rel)
@@ -331,7 +349,7 @@ async function doPasteCopy() {
   try {
     const pv = await api('/api/fs/copy', {
       method: 'POST',
-      body: JSON.stringify({ from: rels, to_dir: fsPath.value, dry_run: true })
+      body: JSON.stringify(fsBody({ from: rels, to_dir: fsPath.value, dry_run: true }))
     })
     if (pv.needs_confirm || (pv.conflicts || []).length) {
       pendCopy.value = {
@@ -367,7 +385,7 @@ async function confirmCopy() {
 async function startCopy(rels) {
   const d = await api('/api/fs/copy', {
     method: 'POST',
-    body: JSON.stringify({ from: rels, to_dir: fsPath.value, dry_run: false })
+    body: JSON.stringify(fsBody({ from: rels, to_dir: fsPath.value, dry_run: false }))
   })
   copyJob.value = { jobId: d.job_id, total: d.total, bytesTotal: d.bytes, done: 0, bytesDone: 0,
                     hadDirs: rels.some(r => dirInfo(r)) }

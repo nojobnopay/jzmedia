@@ -68,6 +68,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api, posterUrl } from '../api.js'
+import { libParam, loadLibs, onLibChange } from '../libraries.js'
 import { usePolling } from '../usePolling.js'
 
 const q = ref('')
@@ -99,7 +100,8 @@ function dismissedIds() {
 async function loadSuggest() {
   sgMsg.value = ''
   try {
-    const d = await api('/api/collections/suggest')
+    const d = await api('/api/collections/suggest'
+      + (libParam() != null ? '?library=' + libParam() : ''))
     const gone = dismissedIds()
     suggest.value = (d.items || []).filter(s => !gone.has(s.collection_tmdb_id))
     topups.value = d.topups || []
@@ -115,7 +117,7 @@ async function backfill(force = false) {
   sgMsg.value = ''
   try {
     const d = await api('/api/collections/suggest/backfill', {
-      method: 'POST', body: JSON.stringify({ limit: 50, force })
+      method: 'POST', body: JSON.stringify({ limit: 50, force, library: libParam() })
     })
     if (!d.total) {
       sgMsg.value = '没有缺系列信息的影片'
@@ -233,7 +235,11 @@ async function topUp(t) {
 async function load() {
   msg.value = ''
   try {
-    const d = await api('/api/collections' + (q.value.trim() ? '?q=' + encodeURIComponent(q.value.trim()) : ''))
+    const p = new URLSearchParams()
+    if (q.value.trim()) p.set('q', q.value.trim())
+    if (libParam() != null) p.set('library', String(libParam()))
+    const qs = p.toString()
+    const d = await api('/api/collections' + (qs ? '?' + qs : ''))
     items.value = d.items || []
   } catch (e) {
     msg.value = '加载失败：' + e.message
@@ -248,16 +254,22 @@ async function create() {
   if (!n) return
   msg.value = ''
   try {
-    const d = await api('/api/collections', { method: 'POST', body: JSON.stringify({ name: n }) })
+    const d = await api('/api/collections', {
+      method: 'POST',
+      body: JSON.stringify({ name: n, library_id: libParam() })
+    })
     name.value = ''
     items.value.unshift({ id: d.id, name: d.name, member_count: 0, cover: d.cover || '' })
   } catch (e) {
     msg.value = '创建失败：' + e.message
   }
 }
+let unsubLib = null
 onMounted(async () => {
+  try { await loadLibs(api) } catch (e) { /* 忽略 */ }
   await load()
   await loadSuggest()
+  unsubLib = onLibChange(() => { load(); loadSuggest() })
   // 续跑：刷新页面后后台若还在补全，自动续上进度条
   try {
     const d = await api('/api/collections/suggest/backfill/status')
@@ -274,7 +286,10 @@ onMounted(async () => {
     }
   } catch (e) { /* 无后台任务时静默 */ }
 })
-onUnmounted(() => { stopPoll() })
+onUnmounted(() => {
+  stopPoll()
+  if (unsubLib) { try { unsubLib() } catch (e) { /* 忽略 */ } unsubLib = null }
+})
 </script>
 <style scoped>
 .cover-empty { aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; background: #262626; }

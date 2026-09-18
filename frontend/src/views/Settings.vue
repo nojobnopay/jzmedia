@@ -28,6 +28,8 @@
         </div>
       </section>
 
+      <LibrariesPanel ref="librariesRef" @changed="onLibrariesChanged" />
+
       <section id="sec-tmdb" class="card-block">
         <h3>TMDB 配置</h3>
         <p class="hint">库里的值优先于 `.env`，保存后免重启生效；密钥输入框留空表示不动它。密钥只显示脱敏后 4 位，不回显明文。</p>
@@ -216,7 +218,7 @@
 
       <RestorePanel ref="restoreRef" @count="restoreCount = $event" @changed="onPanelChanged" />
 
-      <FsBrowser :active="active === 'sec-files'" @changed="loadStats" @scan="doScan" />
+      <FsBrowser :active="active === 'sec-files'" :library="libId" @changed="loadStats" @scan="doScan" />
     </div>
   </div>
 </template>
@@ -224,10 +226,12 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import FsBrowser from '../components/FsBrowser.vue'
+import LibrariesPanel from '../components/LibrariesPanel.vue'
 import OrganizePanel from '../components/OrganizePanel.vue'
 import RestorePanel from '../components/RestorePanel.vue'
 import { fmtBytes } from '../format.js'
 import { api, setToken } from '../api.js'
+import { currentLibId, loadLibs } from '../libraries.js'
 import { usePolling } from '../usePolling.js'
 import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
 
@@ -310,6 +314,7 @@ const ftsMsg = ref('')
 
 const organizeRef = ref(null)
 const restoreRef = ref(null)
+const librariesRef = ref(null)
 
 const missing = ref([])
 const checkedMissing = ref([])
@@ -343,6 +348,7 @@ const pendingCount = computed(() => pendingTotal.value)
 const restoreCount = ref(0)
 const navs = computed(() => [
   { id: 'sec-status', label: '库状态' },
+  { id: 'sec-libraries', label: '媒体库' },
   { id: 'sec-tmdb', label: 'TMDB 配置' },
   { id: 'sec-auth', label: '访问控制' },
   { id: 'sec-pipeline', label: '入库流程', badge: pendingCount.value || '' },
@@ -354,7 +360,7 @@ const navs = computed(() => [
 const active = ref('sec-status')
 const pipeOpen = ref({ pending: true })
 let observer = null
-const _sectionLoaded = { 'sec-sync': false, 'sec-pending': false, 'sec-pipeline': false, 'sec-restore': false }
+const _sectionLoaded = { 'sec-sync': false, 'sec-pending': false, 'sec-pipeline': false, 'sec-restore': false, 'sec-libraries': false }
 function ensureSectionData(id) {
   // 重负载清单按需加载（评审 B8/R09-Q5）：首屏不打 missing/unmatched 全表扫描
   if (id === 'sec-sync' && !_sectionLoaded[id]) {
@@ -367,6 +373,9 @@ function ensureSectionData(id) {
     // 恢复面板进入区块自动加载（H-UI：原「预览」按钮仅做首次加载，已删）
     _sectionLoaded[id] = true
     restoreRef.value?.ensure()
+  } else if (id === 'sec-libraries' && !_sectionLoaded[id]) {
+    _sectionLoaded[id] = true
+    librariesRef.value?.ensure()
   } else if (id === 'sec-pipeline') {
     // 合并后的「入库流程」：两个重负载清单一起按需加载（评审 P2 后续）
     ensureSectionData('sec-sync')
@@ -636,20 +645,27 @@ async function onPanelChanged() {
   await loadStats()
   await loadMissing(true)
 }
+async function onLibrariesChanged() {
+  await loadStats()
+}
 async function onOrganizeChanged() {
   await onPanelChanged()
   // 归档会改变文件路径 → 恢复清单若已加载需刷新（H-UI：原「预览」按钮兼做刷新）
   await restoreRef.value?.reloadIfLoaded()
 }
 
-// 文件浏览（直操 MEDIA_ROOT：浏览/建目录/改名/移动/删除，正片二次确认）
+// 文件浏览（直操媒体库：浏览/建目录/改名/移动/删除，正片二次确认）
+const libId = ref(currentLibId())
+function syncLibId() { libId.value = currentLibId() }
 onMounted(async () => {
   // 首屏请求并行（评审 B8/R14-D1）：此前 6 个重查询串行，大库首开很慢
   const [settingsResp] = await Promise.all([
     api('/api/settings').catch(() => null),
+    loadLibs(api).then(syncLibId).catch(() => null),
     loadStats(),
   ])
   if (settingsResp) { s.value = settingsResp; syncTmdbForm() }
+  window.addEventListener('jzmedia:libraries-changed', syncLibId)
   // 两个重负载清单延迟加载（评审 B8/R09-Q5）：滚动到区块时拉；另 4s 空闲补拉徽标数
   setTimeout(() => ensureSectionData('sec-pipeline'), 4000)
   // 详情页“去恢复”跳转承接：?sec=sec-restore&ids=1,2 → 预选并滚动定位
@@ -679,6 +695,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (observer) observer.disconnect()
+  window.removeEventListener('jzmedia:libraries-changed', syncLibId)
 })
 </script>
 <style scoped>

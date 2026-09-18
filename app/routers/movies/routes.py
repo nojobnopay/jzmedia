@@ -567,17 +567,20 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
 @router.post("/uploads")
 def library_upload(file: UploadFile = File(...),
                    relpath: str = Query(default=""),
-                   target_dir: str = Query(default="待整理")):
+                   target_dir: str = Query(default="待整理"),
+                   library_id: int | None = Query(default=None)):
     """库页上传：multipart file 字段；relpath 透传浏览器相对路径
     （文件夹模式为 webkitRelativePath，单文件模式为文件名）。
 
-    目标= target_dir/relpath（逐段清洗并约束在 MEDIA_ROOT 内，默认落到
+    目标= target_dir/relpath（逐段清洗并约束在库根内，默认落到
     待整理/，本地结构原样保留）。流式落盘（1MB 分块，先写 .part 再原子
     改名；已存在 409 跳过，绝不覆盖）。落盘后按类型入库：
     正片→scan_one，花絮→attribute_extra，字幕/周边→仅文件。
+    `library_id` 缺省=默认库（多库 v12）。
     """
     from ...scanner import is_feature_video as _is_feat, is_sidecar as _is_side
     from ..files import _check_inside_root, _require_writable, _safe_component
+    lid = library_paths.default_id() if library_id is None else int(library_id)
     raw = (relpath or "").strip().strip("/") or (file.filename or "").strip()
     raw_segs = [s for s in raw.replace("\\", "/").split("/")]
     if any(s == ".." for s in raw_segs):
@@ -590,9 +593,9 @@ def library_upload(file: UploadFile = File(...),
     tmods = [_safe_component(s) for s in
              (target_dir or "").strip().strip("/").replace("\\", "/").split("/")]
     tmods = [s for s in tmods if s and s not in (".", "..")]
-    rel = _check_inside_root("/".join([*(tmods or ["待整理"]), *safe_segs]))
-    dst = library_paths.abs_path(rel)
-    _require_writable(library_paths.default_id())
+    rel = _check_inside_root("/".join([*(tmods or ["待整理"]), *safe_segs]), lid)
+    dst = library_paths.resolve(lid, rel)
+    _require_writable(lid)
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
     except OSError as e:
@@ -607,22 +610,22 @@ def library_upload(file: UploadFile = File(...),
     status = "stored"
     try:
         if _is_feat(rel):
-            r = scanner.scan_one(dst)
+            r = scanner.scan_one(dst, library_id=lid)
             status = r.get("status", "stored")
         elif _is_side(rel):
-            r = scanner.attribute_extra(dst)
+            r = scanner.attribute_extra(dst, library_id=lid)
             status = r.get("status", "stored")
     except Exception as e:
         status = f"stored_scan_warn: {e}"
     movie_id = None
     try:
-        m = store.get_by_path(rel)
+        m = store.get_by_path(rel, library_id=lid)
         if m:
             movie_id = m["id"]
     except Exception:
         pass
     return {"name": safe_segs[-1], "rel": rel, "size": size,
-            "status": status, "movie_id": movie_id}
+            "status": status, "movie_id": movie_id, "library_id": lid}
 
 
 @router.delete("/movies/{movie_id}/files")

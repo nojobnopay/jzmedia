@@ -209,6 +209,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
+import { libParam, switchLib, loadLibs, onLibChange } from '../libraries.js'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import UploadDialog from '../components/UploadDialog.vue'
 import { fmtBytes } from '../format.js'
@@ -332,6 +333,8 @@ function syncUrl() {
     query.min_rating = String(sel.value.rating)
     if (sel.value.ratingSource !== 'tmdb') query.rating_source = sel.value.ratingSource
   }
+  const lp = libParam()
+  if (lp != null) query.lib = String(lp)
   const changed = _qNorm(query) !== _qNorm(route.query)
   if (changed) router.replace({ path: '/', query })
   return changed   // 变则交给 route.query watcher 加载；未变由调用方显式刷新
@@ -340,6 +343,11 @@ function readUrl() {
   const s = (v) => v ? String(v).split(',').map(x => x.trim()).filter(Boolean) : []
   const src = String(route.query.rating_source || 'tmdb')
   const wq = Array.isArray(route.query.watched) ? route.query.watched[0] : route.query.watched
+  // 分享链接可携带 lib：切到对应库（本地未存过时以此为准）
+  const qlib = Array.isArray(route.query.lib) ? route.query.lib[0] : route.query.lib
+  if (qlib != null && qlib !== '' && Number(qlib) !== libParam()) {
+    try { switchLib(Number(qlib)) } catch (e) { /* 未知库忽略 */ }
+  }
   q.value = route.query.q || ''
   sel.value = {
     genres: s(route.query.genre),
@@ -368,6 +376,8 @@ function buildParams(offset = 0) {
     p.set('min_rating', String(sel.value.rating))
     p.set('rating_source', sel.value.ratingSource)
   }
+  const lp = libParam()
+  if (lp != null) p.set('library', String(lp))
   p.set('limit', String(PAGE))   // 分页（评审 P1-11）：加载更多而非一次全量
   p.set('offset', String(Math.max(0, offset)))
   return p.toString()
@@ -435,7 +445,8 @@ async function fetchSuggest() {
   if (!term) return
   const seq = ++suggestSeq
   try {
-    const d = await api('/api/search/suggest?q=' + encodeURIComponent(term) + '&limit=8')
+    const d = await api('/api/search/suggest?q=' + encodeURIComponent(term) + '&limit=8'
+      + (libParam() != null ? '&library=' + libParam() : ''))
     if (seq !== suggestSeq) return
     suggestItems.value = (d && d.items) || []
     suggestPersons.value = (d && d.persons) || []
@@ -512,8 +523,9 @@ async function clearAll() { await showAll() }
 // 上传/归档完成后刷新海报墙与 facets（UploadDialog 内部只发信号）
 async function onUpDone() { await loadFacets(); await load() }
 async function loadFacets() {
-  try { facets.value = await api('/api/facets') } catch (e) { /* 库空时忽略 */ }
-  try { colItems.value = (await api('/api/collections')).items || [] } catch (e) { /* 忽略 */ }
+  const lq = libParam() != null ? ('?library=' + libParam()) : ''
+  try { facets.value = await api('/api/facets' + lq) } catch (e) { /* 库空时忽略 */ }
+  try { colItems.value = (await api('/api/collections' + lq)).items || [] } catch (e) { /* 忽略 */ }
 }
 function onCard(m) {
   if (selecting.value) toggleSelect(m.id)
@@ -652,7 +664,10 @@ async function confirmDel() {
     batchMsg.value = '已加入合集'
     clearSelection()
     await loadFacets()
-    try { colItems.value = (await api('/api/collections')).items || [] } catch (e) { /* 忽略 */ }
+    try {
+      const lq = libParam() != null ? ('?library=' + libParam()) : ''
+      colItems.value = (await api('/api/collections' + lq)).items || []
+    } catch (e) { /* 忽略 */ }
   } catch (e) {
     batchMsg.value = '加入失败：' + e.message
   } finally {
@@ -667,13 +682,17 @@ async function createAndJoin() {
   try {
     const d = await api('/api/collections', {
       method: 'POST',
-      body: JSON.stringify({ name, member_ids: [...selectedIds.value] })
+      body: JSON.stringify({ name, member_ids: [...selectedIds.value],
+                             library_id: libParam() })
     })
     batchMsg.value = `已建合集「${d.name}」`
     newCol.value = ''
     clearSelection()
     await loadFacets()
-    try { colItems.value = (await api('/api/collections')).items || [] } catch (e) { /* 忽略 */ }
+    try {
+      const lq = libParam() != null ? ('?library=' + libParam()) : ''
+      colItems.value = (await api('/api/collections' + lq)).items || []
+    } catch (e) { /* 忽略 */ }
   } catch (e) {
     batchMsg.value = '创建失败：' + e.message
   } finally {
@@ -692,7 +711,10 @@ async function doScan() {
   scanning.value = true
   msg.value = ''
   try {
-    const d = await api('/api/jobs/scan', { method: 'POST' })
+    const d = await api('/api/jobs/scan', {
+      method: 'POST',
+      body: JSON.stringify({ library_id: libParam() })
+    })
     scanJobId = d.job_id
     if (d.resumed) msg.value = '已有扫描在跑，跟踪进度…'
     scanPoll.start()
@@ -735,11 +757,14 @@ async function cancelScan() {
 // 文件夹模式透传 webkitRelativePath，后端原样还原结构；落盘即调 scan_one，
 // 所以完成后只需刷新海报墙，未匹配的走设置页现有流程。
 const upDlg = ref(false)
+let unsubLib = null
 onMounted(async () => {
+  try { await loadLibs(api) } catch (e) { /* 后端不可用时按单库旧行为 */ }
   readUrl()
   await loadFacets()
   await load()
   window.addEventListener('keydown', escExit)
+  unsubLib = onLibChange(() => { readUrl(); loadFacets(); load() })
   // 无限滚动（评审 P1-11）：哨兵进入视口前 600px 自动加载下一页；按钮仍保留作兜底
   try {
     if (window.IntersectionObserver && loadSentinel.value) {
@@ -753,6 +778,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('keydown', escExit)
   clearTimeout(suggestTimer)
+  if (unsubLib) { try { unsubLib() } catch (e) { /* 忽略 */ } unsubLib = null }
   if (loadIO) { try { loadIO.disconnect() } catch (e) { /* 忽略 */ } loadIO = null }
 })
 function escExit(e) {
