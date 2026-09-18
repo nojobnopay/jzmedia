@@ -40,6 +40,10 @@ case "$FFSTAT" in
     ;;
 esac
 
+# 2.6) 远程库挂载能力（SMB/NFS 应用内挂载；能力不足时改用宿主挂载后登记为本地路径）
+MOUNTSTAT="$(".venv/bin/python" -c "from app.mounts import mount_supported; ok, why = mount_supported(); print(('ok' if ok else 'unavailable') + ('' if ok else ': ' + why))" 2>/dev/null || echo "check-failed")"
+echo "[start] 远程库挂载: $MOUNTSTAT"
+
 # 3) 启动（前台运行，Ctrl+C 停止）
 echo "[start] DATA_DIR=$DATA_DIR MEDIA_ROOT=$MEDIA_ROOT PORT=${APP_PORT:-8080}"
 exec .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port "${APP_PORT:-8080}"

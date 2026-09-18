@@ -28,7 +28,9 @@ LABEL org.opencontainers.image.title="jzmedia" \
       org.opencontainers.image.revision=$GIT_SHA
 
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+# cifs-utils/nfs-common：应用内挂载远程库（C 阶段）；无此需求也可保留（体积很小）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg cifs-utils nfs-common \
  && rm -rf /var/lib/apt/lists/* \
  && pip install --no-cache-dir -r requirements.txt
 

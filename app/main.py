@@ -33,6 +33,12 @@ async def _lifespan(_app: FastAPI):
     except Exception as e:
         _logger.warning("reap orphans failed: %s", e)
     threading.Thread(target=_tr.detect, daemon=True).start()
+    # 远程库挂载看门狗（C 阶段）：启动重挂 + 60s 巡检（ALLOW_SMB_MOUNT=0 可禁用）
+    try:
+        from . import mounts as _mounts
+        _mounts.start_watchdog()
+    except Exception as e:
+        _logger.warning("start mount watchdog failed: %s", e)
     try:
         from . import library_paths
         library_paths.invalidate_cache()
@@ -47,6 +53,11 @@ async def _lifespan(_app: FastAPI):
     yield
     # 优雅退出：杀掉全部转码进程（防重启/停服后孤儿 ffmpeg 继续烧 CPU 写分片）
     stream.shutdown_sessions()
+    try:
+        from . import mounts as _mounts
+        _mounts.shutdown_mounts()
+    except Exception as e:
+        _logger.warning("shutdown mounts failed: %s", e)
     _logger.info("jzmedia 已停止")
 
 

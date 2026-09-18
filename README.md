@@ -106,6 +106,15 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 
 日常改 Token/代理/语言直接在设置页改，库里的值优先于 `.env`、免重启生效；`.env` 只做首次启动兜底。`PUT /api/settings` 读写库配置（密钥只返脱敏后 4 位），缺席字段不动、显式空串=清空该项恢复跟随 `.env`。
 
+## 多库与远程库（v0.9）
+
+- 一个 jzmedia 实例可管理多个**相互独立**的媒体库（类型：电影/剧集，来源：本地/SMB/NFS）；顶栏切换，设置页「媒体库」新建/检查/删除（删库只清记录，**不动磁盘文件**）。
+- 本地库直接登记容器内路径；SMB/NFS 可应用内挂载：compose 取消 `cap_add: [SYS_ADMIN]` 注释（DSM 必要时 `privileged: true`），镜像已含 `cifs-utils`/`nfs-common`。能力不足时 `POST /api/libraries/{id}/check` 返回宿主挂载命令，可挂到宿主后按本地路径登记；`ALLOW_SMB_MOUNT=0` 可整体禁用应用内挂载。
+- 远程凭据以 Fernet 加密存库（`data/secret.key`，0600；换机请一并携带，丢了重新输入密码），API 只写不读、日志脱敏。
+- 只读库：归档/改名/移动/删除/上传/NFO 与图片写入一律 409；浏览/播放/扫描照常。
+- 库级命名档 `kodi|plex|off` 与落盘策略 `none|nfo|nfo_art`（Plex 本地海报）为后续 D 阶段；当前归档已按 D5 扁平化。
+- 离线/降级刮削（match_index、无 key 提供方）为 E 阶段；TV 库本期建库后扫描为只读清单（F 阶段补浏览页）。
+
 ## 数据存放
 
 - `./data/jzmedia.db`：主库；`./data/posters/<tmdb_id>.jpg`：海报，对外服务于 `/posters`

@@ -31,6 +31,11 @@ services:
     # group_add:
     #   - "${VIDEO_GID:-44}"
     #   - "${RENDER_GID:-109}"
+    # 应用内挂载 SMB/NFS 远程库（C 阶段）：需要 CAP_SYS_ADMIN（容器内 mount）。
+    # DSM/群晖 的 AppArmor 可能仍拦截，必要时改用 privileged: true；不需要应用内挂载
+    # （宿主挂载后登记为 local 路径）时保持注释即可。
+    # cap_add:
+    #   - SYS_ADMIN
     restart: unless-stopped
     # tini 作为 PID 1：转发信号、回收 ffmpeg 等子进程僵尸（评审 R01-Q3）
     init: true

@@ -130,7 +130,21 @@ def test_read_only_library_blocks_writes(tmp_path, media_root):
         store.delete_movie(mid)
 
 
-def test_mount_endpoints_are_501(tmp_path, media_root):
+def test_mount_endpoints_local_and_smb_guidance(tmp_path, media_root):
     lib, p = _mk(tmp_path, "test-lib-mount")
-    assert client.post(f"/api/libraries/{lib['id']}/mount").status_code == 501
-    assert client.post(f"/api/libraries/{lib['id']}/unmount").status_code == 501
+    # 本地库：mount/unmount 为无操作成功
+    r = client.post(f"/api/libraries/{lib['id']}/mount")
+    assert r.status_code == 200 and r.json()["ok"] is True
+    r = client.post(f"/api/libraries/{lib['id']}/unmount")
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+    # SMB 库：无论环境是否支持挂载，都必须返回可读的失败/指引，不抛 500
+    rs = client.post("/api/libraries", json={
+        "name": "test-lib-smb", "source": "smb", "path": str(tmp_path / "smb"),
+        "smb": {"host": "nas", "share": "media", "username": "u", "password": "p"}})
+    assert rs.status_code == 200, rs.text
+    smb = rs.json()
+    _created.append(smb["id"])
+    m = client.post(f"/api/libraries/{smb['id']}/mount").json()
+    assert m["ok"] is False
+    assert m["suggested_cmd"] and "mount" in m["suggested_cmd"]
