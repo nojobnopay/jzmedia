@@ -106,18 +106,22 @@
           → 自动挂载到 <code>data/mounts/lib_N</code>（无需填写），NFS 服务器需已导出该路径
         </div>
       </template>
-      <label>命名档
+    </div>
+
+    <div class="lib-form lib-form-policy">
+      <span class="form-sec-title">整理与落盘 <span class="fhint">（影响归档改名与媒体目录写盘；不确定就保持默认）</span></span>
+      <label title="归档整理时如何重命名文件/目录">命名档
         <select v-model="form.naming_profile">
-          <option value="kodi">kodi</option>
-          <option value="plex">plex</option>
+          <option value="kodi">kodi（通用模板）</option>
+          <option value="plex">plex（Plex 规范）</option>
           <option value="off">off（不改名）</option>
         </select>
       </label>
-      <label>落盘
+      <label title="是否在影片目录写 NFO / 海报图片">落盘
         <select v-model="form.artwork_mode">
-          <option value="nfo">NFO</option>
-          <option value="nfo_art">NFO + 本地海报</option>
-          <option value="none">仅数据库</option>
+          <option value="nfo">仅 NFO</option>
+          <option value="nfo_art">NFO + 本地海报（Plex 推荐）</option>
+          <option value="none">只写数据库</option>
         </select>
       </label>
       <label class="ck"><input type="checkbox" v-model="form.read_only" /> 只读库</label>
@@ -125,6 +129,28 @@
         {{ busy === 'create' ? '创建中…' : '创建' }}
       </button>
       <span class="fhint">{{ msg }}</span>
+      <div class="parse-line">
+        <template v-if="form.naming_profile === 'plex'">
+          命名档 <b>plex</b>：归档为 <code>标题 (年份) {edition-版本} - 规格.ext</code>，归档预览会做 Plex 兼容性检查（可能被 Plex 认错的名字先告警）。
+        </template>
+        <template v-else-if="form.naming_profile === 'off'">
+          命名档 <b>off</b>：不改文件名和目录，只入库/浏览/播放（对该库不执行归档改名）。
+        </template>
+        <template v-else>
+          命名档 <b>kodi</b>：归档为 <code>标题 (年份)[-版本][-规格][-分卷].ext</code>，兼容 Kodi/Jellyfin/Emby（现有模板）。
+        </template>
+        <br />
+        <template v-if="form.artwork_mode === 'nfo_art'">
+          落盘 <b>NFO + 本地海报</b>：除 <code>movie.nfo</code> 外，把 <code>poster.jpg</code>/<code>fanart.jpg</code>
+          写进影片目录；Plex 抓不到海报时会优先用这张本地图（配 plex 命名档最合适）。
+        </template>
+        <template v-else-if="form.artwork_mode === 'none'">
+          落盘 <b>只写数据库</b>：不向媒体目录写任何文件（NFO/图片都不写），适合只读库或不想被写目录的场景。
+        </template>
+        <template v-else>
+          落盘 <b>仅 NFO</b>：在影片目录写 <code>movie.nfo</code>（Kodi/Jellyfin/Emby 可读；Plex 需启用 NFO Agent 才会读）。
+        </template>
+      </div>
     </div>
     <div class="hint-block">
       <p class="hint-title">路径怎么填</p>
@@ -377,6 +403,9 @@ defineExpose({ ensure: load })
 .lib-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .lib-form label { display: inline-flex; gap: 6px; align-items: center; }
 .lib-form label.ck { gap: 4px; }
+.lib-form-policy { border-top: 1px dashed #333; padding-top: 10px; margin-top: 12px; }
+.form-sec-title { flex-basis: 100%; color: #999; font-size: 0.8125rem; font-weight: 600; }
+.form-sec-title .fhint { font-weight: normal; }
 .parse-line { flex-basis: 100%; color: #888; font-size: 0.8125rem; line-height: 1.8; padding-left: 6px; }
 .parse-line b { color: #ccc; font-weight: 600; }
 .parse-line code { color: #9ecfff; }
