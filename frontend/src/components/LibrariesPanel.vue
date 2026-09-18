@@ -33,9 +33,9 @@
         </tr>
         <tr v-if="connEdit && connEdit.id === l.id">
           <td colspan="8" class="path-edit">
-            <input v-model="connEdit.url" placeholder="\\ServerName\ShareName\Folder" style="min-width:300px" />
-            <input v-model="connEdit.username" placeholder="SMB 登录用户名" />
-            <input v-model="connEdit.password" type="password" placeholder="SMB 密码（留空不改）" autocomplete="off" />
+            <input v-model="connEdit.url" v-bind="NOFILL" name="jz-conn-url" placeholder="\\ServerName\ShareName\Folder" style="min-width:300px" />
+            <input v-model="connEdit.username" v-bind="NOFILL" name="jz-conn-user" placeholder="SMB 登录用户名" />
+            <input v-model="connEdit.password" v-bind="NOFILL_PW" name="jz-conn-pass" type="password" placeholder="SMB 密码（留空不改）" />
             <button @click="saveConn(l)" :disabled="!!busy">{{ busy === 'conn' ? '保存中…' : '保存连接' }}</button>
             <button @click="connEdit = null">取消</button>
             <span class="fhint" :class="{ 'warn-text': connPreview.error }">{{ connPreview.error || `→ ${connPreview.host}/${connPreview.share}/${connPreview.subpath}` }}</span>
@@ -43,7 +43,7 @@
         </tr>
         <tr v-if="pathEdit && pathEdit.id === l.id">
           <td colspan="8" class="path-edit">
-            <input v-model="pathEdit.value" placeholder="/media/Movies（容器内路径）" style="min-width:320px" />
+            <input v-model="pathEdit.value" v-bind="NOFILL" name="jz-path-edit" placeholder="/media/Movies（容器内路径）" style="min-width:320px" />
             <button @click="savePath(l)" :disabled="!!busy">{{ busy === 'path' ? '保存中…' : '保存' }}</button>
             <button @click="pathEdit = null">取消</button>
             <span class="fhint">仅当库内 0 部影片时可改；NAS Docker 里填 /media/... 这类容器路径</span>
@@ -63,7 +63,7 @@
 
     <h4>新建库</h4>
     <div class="lib-form">
-      <label>名称 <input v-model="form.name" placeholder="如 NAS 电影" /></label>
+      <label>名称 <input v-model="form.name" v-bind="NOFILL" name="jz-lib-name" placeholder="如 NAS 电影" /></label>
       <label>类型
         <select v-model="form.kind">
           <option value="movie">电影</option>
@@ -80,10 +80,11 @@
       <label v-if="form.source === 'smb'" class="ck adv-switch">
         <input type="checkbox" v-model="advSplitting" /> 高级：手动拆分
       </label>
-      <label v-if="form.source === 'local'">路径 <input v-model="form.path" placeholder="容器内路径，NAS 上如 /media/Movies" style="min-width:280px" /></label>
+      <label v-if="form.source === 'local'">路径
+        <input v-model="form.path" v-bind="NOFILL" name="jz-lib-path" placeholder="容器内路径，NAS 上如 /media/Movies" style="min-width:280px" /></label>
       <template v-if="form.source === 'smb'">
         <label v-if="!advSplitting">服务器 / 共享路径
-          <input v-model="form.smb_url" placeholder="\\ServerName\ShareName\Folder" style="min-width:320px" /></label>
+          <input v-model="form.smb_url" v-bind="NOFILL" name="jz-smb-url" placeholder="\\ServerName\ShareName\Folder" style="min-width:320px" /></label>
         <div v-if="!advSplitting" class="parse-line" :class="{ 'warn-text': smbPreview.error }">
           <template v-if="smbPreview.error">{{ smbPreview.error }}</template>
           <template v-else>
@@ -93,19 +94,32 @@
           </template>
         </div>
         <template v-if="advSplitting">
-          <label>服务器地址 <input v-model="form.smb_host" placeholder="ServerName 或 IP" /></label>
-          <label>共享名 <input v-model="form.smb_share" placeholder="ShareName" /></label>
-          <label>共享内目录 <input v-model="form.smb_subpath" placeholder="Folder（可空）" /></label>
+          <label>服务器地址 <input v-model="form.smb_host" v-bind="NOFILL" name="jz-smb-host" placeholder="ServerName 或 IP" /></label>
+          <label>共享名 <input v-model="form.smb_share" v-bind="NOFILL" name="jz-smb-share" placeholder="ShareName" /></label>
+          <label>共享内目录 <input v-model="form.smb_subpath" v-bind="NOFILL" name="jz-smb-subpath" placeholder="Folder（可空）" /></label>
         </template>
-        <label>用户名 <input v-model="form.smb_username" placeholder="SMB 登录用户名（可空）" /></label>
-        <label>密码 <input v-model="form.smb_password" type="password" placeholder="SMB 密码（可空）" autocomplete="off" /></label>
+        <label>用户名 <input v-model="form.smb_username" v-bind="NOFILL" name="jz-smb-user" placeholder="SMB 登录用户名（可空）" /></label>
+        <label>密码 <input v-model="form.smb_password" v-bind="NOFILL_PW" name="jz-smb-pass" type="password" placeholder="SMB 密码（可空）" /></label>
       </template>
       <template v-if="form.source === 'nfs'">
-        <label>导出路径 <input v-model="form.nfs_export" placeholder="ServerName:/volume1/video/Movies" style="min-width:260px" /></label>
+        <label>导出路径 <input v-model="form.nfs_export" v-bind="NOFILL" name="jz-nfs-export" placeholder="ServerName:/volume1/video/Movies" style="min-width:260px" /></label>
         <div class="parse-line">
           → 自动挂载到 <code>data/mounts/lib_N</code>（无需填写），NFS 服务器需已导出该路径
         </div>
       </template>
+      <div class="hint-block">
+        <p class="hint-title">路径怎么填</p>
+        <ul class="hint-list">
+          <li v-if="form.source === 'local'"><b>NAS Docker（推荐）</b>：填容器内路径——compose 把宿主 <code>/volume1/video</code>
+            挂到容器 <code>/media</code> 后，即填 <code>/media/Movies</code>（不需要 SMB），并确认该目录已挂进容器。</li>
+          <li v-else><b>远程访问</b>：SMB 粘贴 <code>\\ServerName\共享名\子目录</code>（或 <code>smb://用户@ServerName/共享名/子目录</code>），
+            NFS 填 <code>ServerName:/导出路径</code>；挂载点自动分配，无需手填。容器内挂载需 compose <code>cap_add: [SYS_ADMIN]</code>，
+            能力不足时点「检查」会给出宿主挂载命令。</li>
+          <li><b>默认库已占路径</b>：默认库若为 0 影片，可点「改路径」指向 <code>/media/Movies</code> 或
+            <code>/media/TV Shows</code>；也可以直接删除默认库记录（不动磁盘文件）。</li>
+          <li><b>安全与限制</b>：远程凭据 Fernet 加密存储、绝不回显；只读库禁止归档/上传/删除/NFO 写入。</li>
+        </ul>
+      </div>
     </div>
 
     <div class="lib-form lib-form-policy">
@@ -152,18 +166,6 @@
         </template>
       </div>
     </div>
-    <div class="hint-block">
-      <p class="hint-title">路径怎么填</p>
-      <ul class="hint-list">
-        <li><b>NAS Docker（推荐）</b>：选「本地路径」，填容器内路径——compose 把宿主 <code>/volume1/video</code>
-          挂到容器 <code>/media</code> 后，即填 <code>/media/Movies</code>，不需要 SMB。</li>
-        <li><b>开发机远程访问</b>：选 SMB，粘贴 <code>\\ServerName\共享名\子目录</code>（或 <code>smb://用户@ServerName/共享名/子目录</code>），
-          挂载点自动分配；容器内挂载需 compose <code>cap_add: [SYS_ADMIN]</code>，能力不足时点「检查」会给出宿主挂载命令。</li>
-        <li><b>默认库已占路径</b>：默认库若为 0 影片，可点「改路径」指向 <code>/media/Movies</code> 或
-          <code>/media/TV Shows</code>；也可以直接删除默认库记录（不动磁盘文件）。</li>
-        <li><b>安全与限制</b>：远程凭据 Fernet 加密存储、绝不回显；只读库禁止归档/上传/删除/NFO 写入。</li>
-      </ul>
-    </div>
   </section>
 </template>
 
@@ -188,6 +190,8 @@ watch(() => form.smb_url, (v) => {
   const p = parseSmbInput(v)
   if (p.username && !form.smb_username) form.smb_username = p.username
 })
+const NOFILL = { autocomplete: 'off', 'data-lpignore': 'true', 'data-1p-ignore': '', 'data-bwignore': 'true' }
+const NOFILL_PW = { ...NOFILL, autocomplete: 'new-password' }
 const form = reactive({
   name: '', kind: 'movie', source: 'local', path: '', naming_profile: 'kodi',
   artwork_mode: 'nfo', read_only: false,
@@ -409,7 +413,7 @@ defineExpose({ ensure: load })
 .parse-line { flex-basis: 100%; color: #888; font-size: 0.8125rem; line-height: 1.8; padding-left: 6px; }
 .parse-line b { color: #ccc; font-weight: 600; }
 .parse-line code { color: #9ecfff; }
-.hint-block { margin-top: 10px; }
+.hint-block { flex-basis: 100%; margin-top: 10px; }
 .hint-title { margin: 0 0 2px; color: #999; font-size: 0.8125rem; font-weight: 600; }
 .hint-list { margin: 0; padding-left: 20px; color: #888; font-size: 0.8125rem; line-height: 1.9; }
 .hint-list li { margin: 2px 0; }
