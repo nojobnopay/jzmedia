@@ -12,7 +12,7 @@ import time
 from ._base import _conn, _lock, logger
 
 __all__ = ['seed_match_index_from_cache', 'upsert_match_entry', 'search_match_index',
-           'list_match_entries', 'delete_match_entries']
+           'list_match_entries', 'delete_match_entries', 'import_imdb_tsv']
 
 
 def _fts_sync(c, rowid: int, title: str, original_title: str) -> None:
@@ -164,3 +164,47 @@ def delete_match_entries(source: str, source_id=None) -> int:
             except sqlite3.OperationalError:
                 pass
         return len(rows)
+
+
+def import_imdb_tsv(path: str, limit: int | None = None, progress_cb=None,
+                    should_stop=None) -> dict:
+    """导入 IMDb `title.basics.tsv(.gz)` → match_index(source='imdb')。
+
+    - 只收 movie/tvMovie/tvSeries 且有 primaryTitle 的行；幂等（source+source_id）。
+    - 手动触发（设置页/接口），数据集 GB 级，导入期间不锁库（逐行 upsert）。
+    - progress_cb(count) 每 500 行回调一次；should_stop() 协作取消。
+    """
+    import csv
+    import gzip
+    opener = gzip.open if str(path).endswith(".gz") else open
+    imported = 0
+    try:
+        with opener(path, "rt", encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            for row in reader:
+                if should_stop and should_stop():
+                    break
+                if (row.get("titleType") or "") not in ("movie", "tvMovie", "tvSeries"):
+                    continue
+                title = (row.get("primaryTitle") or "").strip()
+                tconst = (row.get("tconst") or "").strip()
+                if not title or not tconst:
+                    continue
+                y = (row.get("startYear") or "").strip()
+                year = int(y) if y.isdigit() else None
+                upsert_match_entry("imdb", tconst, "movie", title,
+                                   (row.get("originalTitle") or "").strip(),
+                                   year, None, tconst, {"imdb": tconst})
+                imported += 1
+                if limit and imported >= int(limit):
+                    break
+                if progress_cb and imported % 500 == 0:
+                    try:
+                        progress_cb(imported)
+                    except Exception:
+                        pass
+    except (OSError, csv.Error) as e:
+        logger.warning("import imdb tsv failed path=%s: %s", path, e)
+        raise
+    logger.info("IMDb 数据集导入完成：%s 条（path=%s）", imported, path)
+    return {"imported": imported}

@@ -15,6 +15,8 @@ from .classify import is_sample, is_sidecar, extra_kind, strip_kind_affix, scan_
 from .parse import parse_filename, normalize_title
 from .match import search_with_fallback
 from .persist import apply_cached_to_movie, apply_tmdb_detail
+from ..metadata import local as meta_local
+from ..metadata import nfo_import as meta_nfo
 __all__ = ['ST_SKIPPED_SAMPLE', 'ST_EXTRA_ATTACHED', 'ST_EXTRA_ORPHAN', 'ST_NO_MATCH', 'ST_EPISODE', 'ST_SCAN_FAILED', 'attribute_extra', 'scan_one', 'scan_all']
 
 DEFAULT_LIBRARY_ID = library_paths.DEFAULT_LIBRARY_ID
@@ -160,6 +162,8 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None,
         cur = {}
     _persist_local_extras(mid, parsed, cur)
     m, used_q, year_mismatch = None, parsed["title"], False
+    match_source = "tmdb"
+    online_error = ""
     if tmdb_hint and store.get_tmdb_cached(int(tmdb_hint)):
         # 复制场景：源片已匹配 → 直绑，避免重搜错配（评审 B9 后续）
         m = {"id": int(tmdb_hint)}
@@ -167,10 +171,37 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None,
         try:
             m, used_q, year_mismatch = search_with_fallback(parsed["title"], parsed["year"])
         except Exception as e:
+            online_error = str(e)[:200]
             logger.warning("tmdb search failed file=%s: %s", rel, e)
-            return {"file": rel, "status": ST_SCAN_FAILED, "movie_id": mid,
-                    "error": str(e)[:200]}
+    if m is None:
+        # 离线/降级兜底（E 阶段）：NFO 导入 → match_index 本地匹配
+        offline = None
+        try:
+            nfo_c = meta_nfo.candidates_for(abs_path)
+            if nfo_c is not None and nfo_c.tmdb_id:
+                offline = nfo_c
+                try:
+                    store.upsert_match_entry(
+                        "nfo", nfo_c.source_id, "movie", nfo_c.title,
+                        nfo_c.original_title, nfo_c.year, nfo_c.tmdb_id,
+                        nfo_c.imdb_id, {"file": rel})
+                except Exception as e:
+                    logger.debug("index nfo candidate failed file=%s: %s", rel, e)
+            if offline is None:
+                offline = meta_local.best(parsed["title"], parsed["year"])
+        except Exception as e:
+            logger.debug("offline match failed file=%s: %s", rel, e)
+        if offline is not None and offline.tmdb_id:
+            m = {"id": int(offline.tmdb_id)}
+            match_source = offline.source or "local"
+            used_q = parsed["title"]
+            year_mismatch = False
+            logger.info("离线匹配 file=%s -> tmdb=%s source=%s", rel,
+                        offline.tmdb_id, match_source)
     if not m:
+        if online_error:
+            return {"file": rel, "status": ST_SCAN_FAILED, "movie_id": mid,
+                    "error": online_error}
         store.set_scan_state(rel, mtime, size, ST_NO_MATCH, library_id=lib_id)
         return {"file": rel, "status": ST_NO_MATCH, "movie_id": mid, "parsed": parsed}
     tmdb_id = int(m["id"])
@@ -186,8 +217,13 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None,
                 "error": str(e)[:200]}
     needs_review = 1 if (used_q != parsed["title"] or year_mismatch) else 0
     store.update_movie_local(mid, needs_review=needs_review)
+    try:
+        store.update_movie_meta(mid, match_source=match_source)
+    except Exception as e:
+        logger.debug("persist match_source failed mid=%s: %s", mid, e)
     status = "ok" if not needs_review else "ok_needs_review"
-    return {"file": rel, "status": status, "query": used_q, **out}
+    return {"file": rel, "status": status, "query": used_q,
+            "match_source": match_source, **out}
 
 
 def _count_videos(root: str, skip_dirs: set) -> int:

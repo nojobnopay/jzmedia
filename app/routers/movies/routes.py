@@ -1,6 +1,7 @@
 """routers.movies.routes（自 app/routers/movies.py 拆分，评审 B9/R05-Q1；经 movies 门面使用）。"""
 import os
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
+from ... import config
 from ... import store
 from ... import scanner
 from ... import tmdb
@@ -671,15 +672,41 @@ def run_scan():
 
 
 @router.get("/tmdb/search")
-def tmdb_search(q: str, year: int | None = None):
-    """手动匹配第一步：按关键词查TMDB候选。"""
-    out = []
-    for r in tmdb.search_movie(q, year)[:10]:
-        out.append({"tmdb_id": r.get("id"), "title": r.get("title"),
-                    "original_title": r.get("original_title"),
-                    "release_date": r.get("release_date"),
-                    "vote_average": r.get("vote_average")})
-    return {"items": out}
+def tmdb_search(q: str, year: int | None = None,
+                library: FilterList = Query(default=None)):
+    """手动匹配第一步：按关键词查候选（E 阶段支持降级链）。
+
+    - `provider=auto`（默认）：TMDB 优先（有凭据且可达），失败回退本地离线索引，
+      再按库 `metadata_providers` 链尝试 wikidata/（可选）douban。
+    - 响应 `source` 标注来源；`tmdb_id` 为空的是提示候选（不可直接绑定）。
+    """
+    from ... import metadata
+    libs = store._split_ints(library)
+    lib_id = libs[0] if len(libs) == 1 else None
+    items: list[dict] = []
+    source = ""
+    if (config.effective_tmdb_read_token() or config.effective_tmdb_api_key()):
+        try:
+            for r in tmdb.search_movie(q, year)[:10]:
+                items.append({"tmdb_id": r.get("id"), "title": r.get("title"),
+                              "original_title": r.get("original_title"),
+                              "release_date": r.get("release_date"),
+                              "vote_average": r.get("vote_average"),
+                              "source": "tmdb"})
+            source = "tmdb"
+        except Exception as e:
+            logger.warning("tmdb search failed q=%s: %s", q, e)
+    if not items:
+        try:
+            for c in metadata.chain.search(q, year, "movie", library_id=lib_id,
+                                           limit=10):
+                items.append({**c.to_dict(),
+                              "release_date": str(c.year or ""),
+                              "vote_average": None})
+            source = "offline" if items else "none"
+        except Exception as e:
+            logger.warning("offline search failed q=%s: %s", q, e)
+    return {"items": items, "source": source}
 
 
 @router.post("/movies/{movie_id}/match")

@@ -256,3 +256,66 @@ def stats(library: str | None = None):
             missing += 1
     base = store.library_stats(libs[0] if len(libs) == 1 else None)
     return {**base, "missing_files": missing}
+
+
+# ===== IMDb 离线数据集导入（E 阶段）：手动触发，离线匹配用 =====
+_IMDB_JOBS = JobRegistry(prefix="imdb")
+
+
+class ImdbImportBody(BaseModel):
+    path: str | None = None
+    limit: int | None = None
+
+
+def _imdb_worker(jid: str, path: str, limit) -> None:
+    def _stop() -> bool:
+        job = _IMDB_JOBS.get(jid)
+        return job is None or job.get("state") != "running"
+
+    def _cb(n: int) -> None:
+        _IMDB_JOBS.update(jid, done=int(n))
+
+    try:
+        r = store.import_imdb_tsv(path, limit, _cb, _stop)
+        if _stop():
+            _IMDB_JOBS.update(jid, done=int(r.get("imported") or 0))
+            return
+        _IMDB_JOBS.update(jid, state="done", done=r["imported"],
+                          total=r["imported"])
+    except Exception as e:
+        _IMDB_JOBS.update(jid, state="failed", error=str(e)[:300])
+
+
+@router.post("/import-imdb")
+def import_imdb(body: ImdbImportBody | None = None):
+    """导入 IMDb title.basics 数据集（离线匹配用；GB 级文件请显式传 limit 试跑）。
+    path 缺省读 env `IMDB_DATASET_PATH`；单任务复用（resumed）。"""
+    path = (body.path if body else None) or os.getenv("IMDB_DATASET_PATH", "")
+    path = str(path or "").strip()
+    if not path:
+        raise HTTPException(422, "path required (or set IMDB_DATASET_PATH)")
+    if not os.path.isfile(path):
+        raise HTTPException(404, f"file not found: {path}")
+    running = _IMDB_JOBS.running()
+    if running:
+        return {"job_id": running["job_id"], "resumed": True}
+    job = _IMDB_JOBS.create(path=path, total=0)
+    jid = job["job_id"]
+    threading.Thread(target=_imdb_worker,
+                     args=(jid, path, (body.limit if body else None)),
+                     daemon=True).start()
+    return {"job_id": jid, "resumed": False}
+
+
+@router.get("/import-imdb/{job_id}")
+def import_imdb_status(job_id: str = ""):
+    job = _IMDB_JOBS.get(job_id) if job_id else _IMDB_JOBS.latest()
+    return job or {"job_id": job_id, "state": "idle", "done": 0, "total": 0}
+
+
+@router.post("/import-imdb/{job_id}/cancel")
+def import_imdb_cancel(job_id: str = ""):
+    if not job_id:
+        running = _IMDB_JOBS.running()
+        job_id = running["job_id"] if running else ""
+    return {"job_id": job_id, "state": _IMDB_JOBS.cancel(job_id)}

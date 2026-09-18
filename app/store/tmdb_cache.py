@@ -1,9 +1,24 @@
 """store.tmdb_cache（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
 import json
 import time
-from ._base import _conn, _dump_list, _lock
+from ._base import _conn, _dump_list, _lock, logger
 from .movies import update_movie_meta
 __all__ = ['seed_tmdb_cache_from_movies', 'get_tmdb_cached', 'upsert_tmdb_cache', 'list_movie_ids_by_tmdb', 'copy_tmdb_to_movie', 'tmdb_ids_missing_collection']
+
+def _index_match(meta: dict, tmdb_id: int) -> None:
+    """同步离线候选索引（E）：每次 TMDB 缓存写入后刷新 match_index。"""
+    try:
+        from .match_index import upsert_match_entry
+        upsert_match_entry("tmdb", str(int(tmdb_id)),
+                           str(meta.get("media_type") or "movie"),
+                           meta.get("title", "") or "",
+                           meta.get("original_title", "") or "",
+                           meta.get("year"), int(tmdb_id),
+                           meta.get("imdb_id", "") or "",
+                           {"collection_tmdb_id": meta.get("collection_tmdb_id")})
+    except Exception as e:
+        logger.debug("index tmdb entry failed tmdb_id=%s: %s", tmdb_id, e)
+
 
 def seed_tmdb_cache_from_movies() -> int:
     """离线种子：用 movies 现有行补 tmdb_cache 缺失项，不调网。
@@ -88,7 +103,7 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
         col_id = None
     col_name = meta.get("collection_name") or ""
     col_poster = meta.get("collection_poster_path") or ""
-    with _lock, _conn() as c:
+    def _apply(c) -> bool:
         row = c.execute("SELECT * FROM tmdb_cache WHERE tmdb_id=?", (tmdb_id,)).fetchone()
         if not row:
             c.execute(
@@ -172,6 +187,12 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
              poster_tmdb_path, credits_s, col_id, col_name, col_poster, now, now,
              payload_s, premiered, tagline, runtime, studios_s, backdrop, logo, tmdb_id))
         return True
+
+    with _lock, _conn() as c:
+        changed = _apply(c)
+    if changed:
+        _index_match(meta, tmdb_id)
+    return changed
 
 
 def list_movie_ids_by_tmdb(tmdb_id: int) -> list[int]:
