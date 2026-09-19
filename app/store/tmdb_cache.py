@@ -56,7 +56,7 @@ def get_tmdb_cached(tmdb_id: int) -> dict | None:
         if not row:
             return None
         d = dict(row)
-        for k in ("genres", "genre_ids", "origin_countries"):
+        for k in ("genres", "genre_ids", "origin_countries", "studios"):
             try:
                 v = json.loads(d.get(k) or "[]")
                 d[k] = v if isinstance(v, list) else []

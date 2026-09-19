@@ -11,6 +11,7 @@ from collections import deque
 from fastapi import APIRouter, HTTPException
 from ... import library_paths
 from ... import store
+from ... import storage
 from ...db import TRANSCODE_DIR
 from ... import caps as _caps
 from ... import media as _media
@@ -18,7 +19,7 @@ from ... import playback as _playback
 import uuid
 from ...log import get_logger
 logger = get_logger("stream.common")
-__all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_MIN_SEGS', 'PLAN_VERSION', '_SESS_IDLE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_abs', '_media_cached_or_probe', 'version_cache_dir', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_purge_old', '_kill_proc', '_drop_session', 'shutdown_sessions', 'drop_sessions_for_version', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_watch_completion', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_register_prewarm_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
+__all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_MIN_SEGS', 'PLAN_VERSION', '_SESS_IDLE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_source', '_media_cached_or_probe', 'version_cache_dir', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_purge_old', '_kill_proc', '_drop_session', 'shutdown_sessions', 'drop_sessions_for_version', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_watch_completion', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_register_prewarm_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
 
 router = APIRouter(prefix="/api/stream")
 
@@ -148,8 +149,9 @@ def version_cache_dir(kind, item_id: int) -> str:
     return d
 
 
-def _version_abs(version_id: int, kind: str = "movie") -> tuple[dict, str]:
-    """播放行 + 磁盘绝对路径。行不存在 404；文件缺失 410（前端按无效文件置灰）。
+def _version_source(version_id: int, kind: str = "movie") -> tuple[dict, "storage.MediaSource"]:
+    """播放行 + MediaSource（本地路径或远程内网 URL）。行不存在 404；文件缺失 410
+    （前端按无效文件置灰）；远程离线 503（指导 §19/§35：Offline ≠ Deleted）。
     `kind=movie|episode`（F 阶段）：剧集与电影共用同一套流接口。"""
     try:
         vid = int(version_id)
@@ -158,15 +160,21 @@ def _version_abs(version_id: int, kind: str = "movie") -> tuple[dict, str]:
     m = store.get_playable(kind, vid)
     if not m:
         raise HTTPException(404, "version not found")
-    abs_p = library_paths.resolve(
-        m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, m["file_path"])
-    if not os.path.isfile(abs_p):
+    try:
+        src = storage.media_source(
+            m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, m["file_path"])
+    except storage.StorageNotFound:
         raise HTTPException(410, "file missing")
-    return m, abs_p
+    except storage.StorageOffline as e:
+        raise HTTPException(503, f"source offline: {e}")
+    except storage.StorageError as e:
+        raise HTTPException(500, f"storage error: {e}")
+    return m, src
 
 
-def _media_cached_or_probe(m: dict, abs_p: str) -> dict:
-    """缓存优先；环境错误缓存/探测结构过期（probe_ver 低）→ 自动重探（自愈，免 backfill）。"""
+def _media_cached_or_probe(m: dict, src) -> dict:
+    """缓存优先；环境错误缓存/探测结构过期（probe_ver 低）→ 自动重探（自愈，免 backfill）。
+    `src` 为 MediaSource（本地/远程统一；str 兼容旧调用 = 本地路径）。"""
     kind = m.get("kind") or "movie"
     cached = store.get_media_info(int(m["id"]), kind)
     if cached and int(cached.get("probed_at") or 0) > 0:
@@ -177,7 +185,10 @@ def _media_cached_or_probe(m: dict, abs_p: str) -> dict:
             cached = None
         else:
             return cached
-    info = _media.probe(abs_p)
+    if isinstance(src, str):
+        info = _media.probe(src)
+    else:
+        info = _media.probe(src.input, size=src.size)
     return store.upsert_media_info(int(m["id"]), info, kind)
 
 
@@ -241,9 +252,10 @@ def _session_dir(version_id: int, key: str, start: float, kind: str = "movie") -
     return d
 
 
-def _media_start_for(version_id: int, abs_p: str, start: float, plan: dict) -> float:
+def _media_start_for(version_id: int, input_url: str, start: float, plan: dict) -> float:
     """会话片内 0 对应的源时间（copy=目标前关键帧，转码/烧录=start）。
-    按 (version, int(start)) 缓存探测结果，重开会话/复用同一 start 时不重复 ffprobe。"""
+    按 (version, int(start)) 缓存探测结果，重开会话/复用同一 start 时不重复 ffprobe。
+    `input_url` 可为本地路径或内网 URL（远程直读）。"""
     try:
         st_key = max(0, int(float(start or 0)))
     except (TypeError, ValueError):
@@ -254,7 +266,7 @@ def _media_start_for(version_id: int, abs_p: str, start: float, plan: dict) -> f
     if hit is not None:
         return hit
     vcopy_seek = bool((plan or {}).get("vcopy")) and (plan or {}).get("sub") != "burn"
-    ms = _playback.actual_media_start(abs_p, start, vcopy_seek)
+    ms = _playback.actual_media_start(input_url, start, vcopy_seek)
     with _sess_lock:
         if len(_MEDIA_START_CACHE) >= 64:
             _MEDIA_START_CACHE.pop(next(iter(_MEDIA_START_CACHE)))  # FIFO（评审 B7/R12-B6）

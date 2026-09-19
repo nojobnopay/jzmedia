@@ -1,36 +1,90 @@
 """scanner.match（自 app/scanner.py 拆分，评审 B9/R03-Q1；对外经 app.scanner 门面使用）。"""
+import difflib
 from .. import tmdb
 from ..regions import resolve as resolve_region
-from .parse import short_candidates
+from .parse import short_candidates, normalize_title
 from ..log import get_logger
 logger = get_logger("scanner.match")
-__all__ = ['pick_match', 'search_with_fallback', 'meta_from_detail', 'extract_credits', 'jobs_from_credits']
+__all__ = ['pick_match', 'search_with_fallback', 'title_similar', 'SIM_THRESHOLD',
+           'meta_from_detail', 'extract_credits', 'jobs_from_credits']
 
-def pick_match(results: list[dict], year: int | None) -> tuple[dict | None, bool]:
-    """挑结果：优先年份±1 内命中；都超出时退回首个候选，并报告年份未对上
-    （评审 B5a-2/R03-D6：此前静默采信错年份结果，不标待确认）。"""
+# 标题相似门（2026-09 错配修复）：TMDB 命中标题必须与文件名标题足够像，
+# 否则不自动绑定（年份精确也只是“待确认”），避免“龙珠Z剧场版→世界大战”式错配。
+SIM_THRESHOLD = 0.7
+
+
+def title_similar(a: str, b: str) -> float:
+    """两个标题的归一化相似度（0..1）：互为子串直接 1.0，否则 difflib 比率。
+    大小写不敏感（normalize_title 不做 casefold，这里补上）。"""
+    na = normalize_title(a or "").casefold()
+    nb = normalize_title(b or "").casefold()
+    if not na or not nb:
+        return 0.0
+    if na == nb or na in nb or nb in na:
+        return 1.0
+    return difflib.SequenceMatcher(None, na, nb).ratio()
+
+
+def _hit_titles(r: dict) -> list[str]:
+    return [str(r.get("title") or ""), str(r.get("original_title") or "")]
+
+
+def _sim(r: dict, query: str) -> float:
+    return max((title_similar(query, t) for t in _hit_titles(r)), default=0.0)
+
+
+def _year_ok(r: dict, year) -> bool:
+    if not year:
+        return True
+    rd = (r.get("release_date") or "")[:4]
+    try:
+        return rd.isdigit() and abs(int(rd) - int(year)) <= 1
+    except (TypeError, ValueError):
+        return False
+
+
+def pick_match(results: list[dict], year: int | None,
+               query: str = "") -> tuple[dict | None, bool]:
+    """挑结果（严格门，2026-09）：
+    1) 相似度 ≥ 阈值且年份 ±1 → 直接采信；
+    2) 年份 ±1 但相似度低 → 采信并标记待确认；
+    3) 相似度高但年份对不上 → 采信并标记待确认；
+    4) 都不满足 → 不绑定（返回 None，落 no_match / 候选待选），
+       绝不静默采信 results[0]（错配之源）。
+
+    `query` 为空时退回旧行为（年份优先，否则首个候选），仅供无查询上下文的调用。"""
     if not results:
         return None, False
-    if year:
-        for r in results:
-            rd = (r.get("release_date") or "")[:4]
-            if rd.isdigit() and abs(int(rd) - year) <= 1:
-                return r, False
-    m = results[0]
-    mismatch = False
-    if year:
-        rd = (m.get("release_date") or "")[:4]
-        mismatch = not (rd.isdigit() and abs(int(rd) - year) <= 1)
-    return m, mismatch
+    if not query:
+        if year:
+            for r in results:
+                if _year_ok(r, year):
+                    return r, False
+        m = results[0]
+        return m, bool(year and not _year_ok(m, year))
+    scored = [(r, _sim(r, query)) for r in results]
+    for r, s in scored:
+        if s >= SIM_THRESHOLD and _year_ok(r, year):
+            return r, False
+    for r, s in scored:
+        if _year_ok(r, year):
+            return r, True
+    for r, s in scored:
+        if s >= SIM_THRESHOLD:
+            return r, True
+    return None, False
 
 
 def search_with_fallback(title: str, year: int | None) -> tuple[dict | None, str, bool]:
-    """依次试短查询，返回(命中, 实际生效的查询词, 年份是否未对上)。"""
+    """依次试短查询，返回(命中, 实际生效的查询词, 是否需人工确认)。
+    命中须过标题相似门（短查询本身即查询词，过短候选命中也会标待确认）。"""
     for q in short_candidates(title):
         results = tmdb.search_movie(q, year)
-        m, year_mismatch = pick_match(results, year)
+        m, review = pick_match(results, year, query=q)
         if m:
-            return m, q, year_mismatch
+            if q != title:
+                review = True     # 用了短查询：可能过度截断，一律待确认
+            return m, q, review
     return None, title, False
 
 

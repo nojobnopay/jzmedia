@@ -167,14 +167,15 @@ def _disposition(stream: dict) -> dict:
     return {"default": default, "forced": forced}
 
 
-def probe(abs_path: str, timeout: int = 30) -> dict:
+def probe(abs_path: str, timeout: int = 30, size: int | None = None) -> dict:
     """ffprobe 单文件 → MediaInfo（播放决策输入）。0 字节/缺失/失败 → playable=False +
     probe_error（调用方禁用播放）。
     - dv_profile/dv_bl_compat：side_data 的 DOVI 配置记录（0=无/未知；bl_compat=1 为
       HDR10 基底，可当 HDR10 直通）。
     - hdr：color_transfer=smpte2084 → hdr10；arib-std-b67 → hlg；空= SDR。
     - attachments：字体等附件清单（ASS 客户端渲染取内嵌字体用）。
-    """
+    - 远程直读：`abs_path` 可为内网 URL，size 由调用方从 StorageBackend.stat 提供
+      （URL 无法 os.path.getsize）。"""
     base: dict = {"container": "", "duration": 0.0, "width": 0, "height": 0,
                   "vcodec": "", "acodec": "", "vbitrate": 0, "abitrate": 0,
                   "video_profile": "", "video_level": 0, "bit_depth": 0, "pix_fmt": "",
@@ -182,12 +183,13 @@ def probe(abs_path: str, timeout: int = 30) -> dict:
                   "dv_profile": 0, "dv_bl_compat": 0, "hdr10plus": 0,
                   "audio": [], "subs": [], "attachments": [],
                   "playable": False, "probe_error": "", "probe_ver": PROBE_VERSION}
-    try:
-        size = os.path.getsize(abs_path)
-    except OSError as e:
-        base["probe_error"] = f"stat failed: {e}"[:300]
-        return base
-    if size <= 0:
+    if size is None:
+        try:
+            size = os.path.getsize(abs_path)
+        except OSError as e:
+            base["probe_error"] = f"stat failed: {e}"[:300]
+            return base
+    if int(size or 0) <= 0:
         base["probe_error"] = "empty file (0 bytes)"
         return base
     cmd = [ffprobe_bin(), "-v", "quiet", "-print_format", "json",

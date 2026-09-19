@@ -86,6 +86,7 @@ def test_artwork_disabled_and_readonly(art_lib, monkeypatch):
 
 
 def test_artwork_multi_version_stem_poster(art_lib, monkeypatch):
+    """P3 后默认（kodi/同 edition）：多版本只写一份 poster，不写 per-version。"""
     lib, root = art_lib
     tmdb_id = 771003
     poster = os.path.join(POSTER_DIR, f"{tmdb_id}.jpg")
@@ -104,7 +105,17 @@ def test_artwork_multi_version_stem_poster(art_lib, monkeypatch):
     try:
         out = artwork.write_for_movie(mid2, str(ap2))
         assert out["ok"] is True
-        assert "Art.2020.2160p-poster.jpg" in out["wrote"]
+        assert "poster.jpg" in out["wrote"], out
+        assert "Art.2020.2160p-poster.jpg" not in out["wrote"], out
+        assert not (ap2.parent / "Art.2020.2160p-poster.jpg").exists()
+        # plex + 版本间 edition 不同 → 才写 per-version（Plex 拆独立条目）
+        with store._lock, store._conn() as c:
+            c.execute("UPDATE libraries SET naming_profile='plex' WHERE id=?",
+                      (lib["id"],))
+            c.execute("UPDATE movies SET edition='导演剪辑版' WHERE id=?", (mid1,))
+        library_paths.invalidate_cache()
+        out2 = artwork.write_for_movie(mid2, str(ap2))
+        assert "Art.2020.2160p-poster.jpg" in out2["wrote"], out2
         assert (ap2.parent / "Art.2020.2160p-poster.jpg").is_file()
     finally:
         store.delete_movie(mid1)

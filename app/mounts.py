@@ -112,7 +112,8 @@ def suggested_cmd(lib: dict) -> str:
     """宿主挂载指引（能力不足时的降级文案，含 fstab 风格）。"""
     path = str(lib.get("path") or mount_point(int(lib.get("id") or 0)))
     if str(lib.get("source")) == "smb":
-        share = f"//{lib.get('smb_host')}/{lib.get('smb_share')}"
+        host = lib.get("smb_connect_host") or lib.get("smb_host")
+        share = f"//{host}/{lib.get('smb_share')}"
         if lib.get("smb_subpath"):
             share += "/" + str(lib["smb_subpath"])
         return (f"sudo mount -t cifs '{share}' '{path}' -o credentials=/etc/jzmedia-smb.cred,"
@@ -128,7 +129,8 @@ def _run_mount(lib: dict) -> tuple[bool, str]:
     os.makedirs(mp, exist_ok=True)
     source = str(lib.get("source") or "")
     if source == "smb":
-        share = f"//{lib.get('smb_host')}/{lib.get('smb_share')}"
+        host = lib.get("smb_connect_host") or lib.get("smb_host")
+        share = f"//{host}/{lib.get('smb_share')}"
         if lib.get("smb_subpath"):
             share += "/" + str(lib["smb_subpath"])
         try:
@@ -276,17 +278,40 @@ def check_library(lib: dict) -> dict:
             "error": err}
 
 
+def _smb_direct_active() -> bool:
+    """SMB 是否走用户态直读（跳过重挂）：direct 恒真；auto 时挂载能力不足也为真。"""
+    try:
+        from . import storage
+        mode = storage.smb_driver_mode()
+    except Exception:
+        return False
+    if mode == "direct":
+        return True
+    if mode == "auto":
+        ok, _reason = mount_supported()
+        return not ok
+    return False
+
+
+def _auto_remote_libs() -> list[dict]:
+    """看门狗目标：启用的 auto_mount 远程库；SMB 直读时排除 SMB 库（不依赖挂载）。"""
+    try:
+        libs = [l for l in store.list_libraries(only_enabled=True)
+                if str(l.get("source")) in ("smb", "nfs")
+                and int(l.get("auto_mount") or 0)]
+    except Exception as e:
+        logger.debug("watchdog list libraries failed: %s", e)
+        return []
+    if _smb_direct_active():
+        libs = [l for l in libs if str(l.get("source")) != "smb"]
+    return libs
+
+
 def _watchdog_loop() -> None:
     while not _watchdog_stop.wait(_WATCH_INTERVAL):
         if not enabled():
             continue
-        try:
-            libs = [l for l in store.list_libraries(only_enabled=True)
-                    if str(l.get("source")) in ("smb", "nfs")
-                    and int(l.get("auto_mount") or 0)]
-        except Exception as e:
-            logger.debug("watchdog list libraries failed: %s", e)
-            continue
+        libs = _auto_remote_libs()
         now = time.time()
         for lib in libs:
             lid = int(lib["id"])
@@ -321,13 +346,7 @@ def start_watchdog() -> None:
 
 
 def _initial_remount() -> None:
-    try:
-        libs = [l for l in store.list_libraries(only_enabled=True)
-                if str(l.get("source")) in ("smb", "nfs")
-                and int(l.get("auto_mount") or 0)]
-    except Exception as e:
-        logger.warning("startup remount list failed: %s", e)
-        return
+    libs = _auto_remote_libs()
     for lib in libs:
         if not is_mounted(lib):
             mount_library(lib)

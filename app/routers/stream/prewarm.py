@@ -13,7 +13,7 @@ from ... import playback as _playback
 import uuid
 from ...log import get_logger
 logger = get_logger("stream.prewarm")
-from .common import _write_session_meta, _sess_lock, _sessions, _hls_sem, _media_cached_or_probe, _version_abs, _session_dir, _session_key, _plan_marker, _write_master, _playlist_endlist, _write_complete_marker, _session_complete, _seg_count, _video_seg_prefix, _live_sessions_for, _find_live_session, _register_prewarm_session, _drop_session, _kill_proc, router
+from .common import _write_session_meta, _sess_lock, _sessions, _hls_sem, _media_cached_or_probe, _version_source, _session_dir, _session_key, _plan_marker, _write_master, _playlist_endlist, _write_complete_marker, _session_complete, _seg_count, _video_seg_prefix, _live_sessions_for, _find_live_session, _register_prewarm_session, _drop_session, _kill_proc, router
 __all__ = ['_prewarm_jobs', '_prewarm_plan', '_prewarm_worker', 'PrewarmBody', 'prewarm_start', 'prewarm_status']
 
 # 预转码任务（评审 R12-B2）：加锁保护并发读写，完成后只留最近 N 条防内存无界
@@ -54,8 +54,8 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
         job.update({"status": "failed", "error": "transcode slots full, retry later"})
         return
     try:
-        m, abs_p = _version_abs(vid)
-        info = _media_cached_or_probe(m, abs_p)
+        m, src = _version_source(vid)
+        info = _media_cached_or_probe(m, src)
         if not info.get("playable"):
             raise RuntimeError(f"unplayable: {info.get('probe_error') or 'probe failed'}")
         d = _prewarm_plan(info, quality, audio, caps)
@@ -111,7 +111,7 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
                         pass
                 if seg != "ts":
                     _write_master(sdir, info, d["plan"], stime)
-                cmd = _playback.build_cmd(abs_p, d["plan"], start=0, seg_time=stime,
+                cmd = _playback.build_cmd(src.input, d["plan"], start=0, seg_time=stime,
                                           force_sw=force_sw)
                 try:
                     log_fh = open(log_path, "wb")

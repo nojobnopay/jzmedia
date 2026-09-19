@@ -28,7 +28,7 @@ def _positive(v) -> bool:
         return False
 
 
-def write_movie_nfo(movie: dict, nfo_path: str) -> None:
+def _build_root(movie: dict):
     root = ET.Element("movie")
     ET.SubElement(root, "title").text = _t(movie.get("title"))
     ET.SubElement(root, "originaltitle").text = _t(movie.get("original_title"))
@@ -92,13 +92,25 @@ def write_movie_nfo(movie: dict, nfo_path: str) -> None:
             except (TypeError, ValueError):
                 order = 99
             ET.SubElement(a, "order").text = str(order)
+    return root
+
+
+def render_movie_nfo_bytes(movie: dict) -> bytes:
+    """movie dict → NFO XML 字节（远程后端 write 用；与本地落盘内容一致）。"""
+    root = _build_root(movie)
     tree = ET.ElementTree(root)
     ET.indent(tree)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def write_movie_nfo(movie: dict, nfo_path: str) -> None:
+    data = render_movie_nfo_bytes(movie)
     os.makedirs(os.path.dirname(nfo_path) or ".", exist_ok=True)
     # 原子写（评审 B5a-6）：中断/磁盘满不会留下半截 XML 被 Kodi/Jellyfin 读
     tmp = nfo_path + ".tmp"
     try:
-        tree.write(tmp, encoding="utf-8", xml_declaration=True)
+        with open(tmp, "wb") as fh:
+            fh.write(data)
         os.replace(tmp, nfo_path)
     except Exception:
         try:

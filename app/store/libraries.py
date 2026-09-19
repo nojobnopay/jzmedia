@@ -9,7 +9,7 @@ import time
 
 from .. import secrets
 from ..db import mount_point
-from ._base import DEFAULT_LIBRARY_ID, _conn, _lock, logger
+from ._base import DEFAULT_LIBRARY_ID, _conn, _identity_of, _lock, logger
 
 __all__ = ['list_libraries', 'get_library', 'default_library', 'set_library_status',
            'create_library', 'update_library', 'delete_library',
@@ -26,6 +26,15 @@ _SECRET_FIELDS = ("smb_password", "nfs_password")
 
 def _now() -> int:
     return int(time.time())
+
+
+def _invalidate_paths() -> None:
+    """库表变化后清 library_paths 快照（直连 store 的脚本/任务同样即时生效）。"""
+    try:
+        from .. import library_paths
+        library_paths.invalidate_cache()
+    except Exception:
+        pass
 
 
 def _norm_choice(value, allowed, field: str, default: str | None = None) -> str:
@@ -167,11 +176,25 @@ def _smb_fields(smb: dict | None) -> dict:
         "smb_domain": str(smb.get("domain") or "").strip(),
         "smb_username": str(smb.get("username") or "").strip(),
         "smb_options": str(smb.get("options") or "").strip(),
+        "smb_connect_host": str(smb.get("connect_host") or "").strip(),
     }
     pwd = smb.get("password")
     if pwd is not None and str(pwd) != "":
         out["smb_password"] = secrets.encrypt_str(str(pwd))
     return out
+
+
+def _check_identity(ident: str, exclude_id=None) -> None:
+    """防重复入库（指导 §26）：同一存储身份只允许一个库；不做自动合并。"""
+    if not ident:
+        return
+    for lib in list_libraries():
+        if exclude_id is not None and int(lib.get("id") or 0) == int(exclude_id):
+            continue
+        if str(lib.get("storage_identity") or "") == ident:
+            raise ValueError(
+                f"已存在指向同一存储的库「{lib.get('name')}」；请直接使用该库，"
+                "如要改变访问方式（直读/挂载/宿主挂载）在原库上操作即可，无需新建")
 
 
 def _nfs_fields(nfs: dict | None) -> dict:
@@ -230,6 +253,9 @@ def create_library(name: str, kind: str = "movie", source: str = "local",
         row.update(_nfs_fields(nfs))
         if not row["nfs_export"]:
             raise ValueError("NFS 库需要 export")
+    ident = _identity_of(row)
+    _check_identity(ident)
+    row["storage_identity"] = ident
     cols = ", ".join(row.keys())
     qs = ", ".join("?" for _ in row)
     with _lock, _conn() as c:
@@ -244,6 +270,7 @@ def create_library(name: str, kind: str = "movie", source: str = "local",
             c.execute("UPDATE libraries SET path=? WHERE id=?", (path, lid))
     logger.info("新建库 id=%s name=%s kind=%s source=%s path=%s",
                 lid, name, kind, source, path)
+    _invalidate_paths()
     return get_library(lid) or {}
 
 
@@ -300,6 +327,11 @@ def update_library(library_id: int, **fields) -> dict | None:
             data[k] = ""    # 显式空串=清空凭据
     if not data:
         return cur
+    # 存储身份重算 + 防重复（改连接/路径时）
+    ident = _identity_of({**cur, **data})
+    if ident != (cur.get("storage_identity") or ""):
+        _check_identity(ident, exclude_id=int(library_id))
+        data["storage_identity"] = ident
     data["updated_at"] = _now()
     cols = ", ".join(f"{k}=?" for k in data)
     with _lock, _conn() as c:
@@ -308,6 +340,7 @@ def update_library(library_id: int, **fields) -> dict | None:
                       (*data.values(), int(library_id)))
         except sqlite3.IntegrityError as e:
             raise ValueError(f"库名已存在: {data.get('name')}") from e
+    _invalidate_paths()
     return get_library(library_id)
 
 
@@ -363,4 +396,5 @@ def delete_library(library_id: int) -> dict | None:
         stats["collections"] = _delete_ids(c, "collections", "id", col_ids)
         c.execute("DELETE FROM libraries WHERE id=?", (lid,))
     logger.info("删除库 id=%s name=%s 记录清理: %s", lid, cur.get("name"), stats)
+    _invalidate_paths()
     return stats

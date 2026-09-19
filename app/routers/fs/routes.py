@@ -21,12 +21,68 @@ def _lib_param(v) -> int | None:
         raise HTTPException(422, "library must be int")
 
 
+def _backend(lid: int):
+    from ... import storage
+    try:
+        return storage.backend_for(lid)
+    except storage.StorageError as e:
+        raise HTTPException(503, f"library unavailable: {e}")
+
+
+def _require_posix_fs(lid: int) -> None:
+    """写类文件操作（新建/改名/移动/删除/复制）：直读远程库暂不支持，明确 501。"""
+    backend = _backend(lid)
+    if backend.abs_path("") is None:
+        raise HTTPException(
+            501,
+            "直读远程库暂不支持网页文件操作（新建/改名/移动/删除/复制）；"
+            "入库整理请用「入库流程 → 归档整理」，或设 SMB_DRIVER=mount 后使用")
+
+
+def _list_remote(backend, norm: str, lid: int, extras_map: dict,
+                 limit: int, offset: int) -> dict:
+    """直读远程库目录浏览：StorageBackend.list（每目录一次网络往返）。"""
+    from ... import storage
+    try:
+        entries = backend.list(norm)
+    except storage.StorageNotFound:
+        raise HTTPException(404, f"not found: {norm or '/'}")
+    except storage.StorageOffline as e:
+        raise HTTPException(503, f"source offline: {e}")
+    except storage.StorageError as e:
+        raise HTTPException(500, f"list failed: {e}")
+    dirs, files = [], []
+    for e in sorted(entries, key=lambda x: x["name"]):
+        n = e["name"]
+        if n.startswith("."):
+            continue
+        rel = os.path.join(norm, n) if norm else n
+        if e["is_dir"]:
+            dirs.append({"name": n, "rel": rel, "children": None})
+        else:
+            files.append(_classify(rel, extras_map, library_id=lid))
+    parent = os.path.dirname(norm) if norm else ""
+    crumbs = []
+    if norm:
+        acc = []
+        for part in norm.split("/"):
+            acc.append(part)
+            crumbs.append({"name": part, "rel": "/".join(acc)})
+    total_files = len(files)
+    has_more = offset + limit < total_files
+    return {"path": norm, "parent": parent, "crumbs": crumbs,
+            "dirs": dirs, "files": files[offset:offset + limit],
+            "total_dirs": len(dirs), "total_files": total_files,
+            "has_more": has_more, "limit": limit, "offset": offset,
+            "fs_writable": False, "driver": backend.driver}
+
+
 @router.get("/list")
 def fs_list(path: str = "", limit: int = 1000, offset: int = 0,
             library: int | None = None):
     """浏览目录（只读）：根用空串；返回 dirs/files（大小/mtime/定性）。
     files 支持 limit/offset 分页（评审 B8/R01-Q6：超大目录不再一次全量）。
-    `library` 缺省=默认库。"""
+    `library` 缺省=默认库；直读远程库同样可浏览（fs_writable=false，写入操作 501）。"""
     try:
         limit = max(1, min(int(limit or 1000), 5000))
         offset = max(0, int(offset or 0))
@@ -34,17 +90,20 @@ def fs_list(path: str = "", limit: int = 1000, offset: int = 0,
         limit, offset = 1000, 0
     lid = library_paths.default_id() if library is None else int(library)
     norm = _resolve_dir(path, lid)
-    abs_p = library_paths.resolve(lid, norm)
-    try:
-        names = sorted(os.listdir(abs_p))
-    except OSError as e:
-        raise HTTPException(500, f"list failed: {e}")
+    backend = _backend(lid)
     try:
         extras_map = {e["file_path"]: e for e in store.list_all_extras()
                       if int(e.get("library_id") or 0) == int(lid)}
     except Exception as e:
         logger.debug("extras prefetch failed: %s", e)
         extras_map = {}
+    if backend.abs_path(norm) is None:
+        return _list_remote(backend, norm, lid, extras_map, limit, offset)
+    abs_p = library_paths.resolve(lid, norm)
+    try:
+        names = sorted(os.listdir(abs_p))
+    except OSError as e:
+        raise HTTPException(500, f"list failed: {e}")
     dirs, files = [], []
     for n in names:
         # 跳过系统/隐藏文件，保持列表干净
@@ -75,7 +134,8 @@ def fs_list(path: str = "", limit: int = 1000, offset: int = 0,
     return {"path": norm, "parent": parent, "crumbs": crumbs,
             "dirs": dirs, "files": files[offset:offset + limit],
             "total_dirs": len(dirs), "total_files": total_files,
-            "has_more": has_more, "limit": limit, "offset": offset}
+            "has_more": has_more, "limit": limit, "offset": offset,
+            "fs_writable": True, "driver": backend.driver}
 
 
 @router.post("/mkdir")
@@ -84,6 +144,7 @@ def fs_mkdir(body: dict | None = None):
     body = body or {}
     lid = _lib_param(body.get("library_id", body.get("library")))
     lid = library_paths.default_id() if lid is None else lid
+    _require_posix_fs(lid)
     parent = _resolve_dir(str(body.get("path") or ""), lid)
     name = _safe_component(str(body.get("name") or ""))
     if not name or name in (".", "..") or "/" in str(body.get("name") or ""):
@@ -108,6 +169,7 @@ def fs_rename(body: dict | None = None):
     dry_run = body.get("dry_run", True)
     lid = _lib_param(body.get("library_id", body.get("library")))
     lid = library_paths.default_id() if lid is None else lid
+    _require_posix_fs(lid)
     fr = _check_inside_root(str(body.get("from") or ""), lid)
     raw_name = str(body.get("name") or "")
     name = _safe_component(raw_name)
@@ -139,6 +201,7 @@ def fs_move(body: dict | None = None):
     dry_run = body.get("dry_run", True)
     lid = _lib_param(body.get("library_id", body.get("library")))
     lid = library_paths.default_id() if lid is None else lid
+    _require_posix_fs(lid)
     fr = _check_inside_root(str(body.get("from") or ""), lid)
     to_dir = _check_inside_root(str(body.get("to_dir") or ""), lid)
     if not os.path.isfile(library_paths.resolve(lid, fr)):
@@ -178,6 +241,7 @@ def fs_delete(body: dict | None = None):
     confirm = bool(body.get("confirm", False))
     lid_raw = _lib_param(body.get("library_id", body.get("library")))
     lid = library_paths.default_id() if lid_raw is None else lid_raw
+    _require_posix_fs(lid)
     plans: list[dict] = []
     for r in raws:
         rel = _check_inside_root(str(r or ""), lid)

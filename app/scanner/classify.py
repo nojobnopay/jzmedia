@@ -4,10 +4,11 @@ import re
 from functools import lru_cache
 from guessit import guessit
 from .. import library_paths
+from .. import storage
 from ..log import get_logger
 from .parse import normalize_title
 logger = get_logger("scanner.classify")
-__all__ = ['same_stem', 'VIDEO_EXTS', 'SUBTITLE_EXTS', '_SKIP_DIR_NAMES', 'scan_skip_dirs', 'SIDECAR_TEXT_EXTS', '_sidecar_sub_dirs', 'SIDECAR_SUB_DIRS', '_SAMPLE_TOKENS', '_SAMPLE_RE', 'strip_kind_affix', 'extra_kind', 'is_sample', '_parent_has_feature', 'is_extra', 'is_sidecar', 'is_feature_video', '_stem_matches', 'sidecar_subtitles', '_EXTRAS_RE', 'EXTRAS_DIR_NAMES', '_GENERIC_DIR_NAMES', 'KIND_BY_DIR', '_KIND_WORDS', '_STRIP_LEAD_RES', '_STRIP_TRAIL_RE', '_SIDECAR_LANG_HINTS', '_guess_sidecar_lang', '_strip_lang_tail', '_title_key', '_stem_title_matches', 'PLEX_EXTRAS_DIRS', 'extras_dir_name']
+__all__ = ['same_stem', 'VIDEO_EXTS', 'SUBTITLE_EXTS', '_SKIP_DIR_NAMES', 'scan_skip_dirs', 'SIDECAR_TEXT_EXTS', '_sidecar_sub_dirs', 'SIDECAR_SUB_DIRS', '_SAMPLE_TOKENS', '_SAMPLE_RE', 'strip_kind_affix', 'extra_kind', 'is_sample', '_parent_has_feature', 'is_extra', 'is_sidecar', 'is_feature_video', '_stem_matches', 'sidecar_subtitles', 'sidecar_subtitles_fs', '_EXTRAS_RE', 'EXTRAS_DIR_NAMES', '_GENERIC_DIR_NAMES', 'KIND_BY_DIR', '_KIND_WORDS', '_STRIP_LEAD_RES', '_STRIP_TRAIL_RE', '_SIDECAR_LANG_HINTS', '_guess_sidecar_lang', '_strip_lang_tail', '_title_key', '_stem_title_matches', 'PLEX_EXTRAS_DIRS', 'extras_dir_name']
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv", ".webm"}
 
@@ -16,7 +17,11 @@ SUBTITLE_EXTS = {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup"}
 
 
 _SKIP_DIR_NAMES = {"#recycle", "@eaDir", "$RECYCLE.BIN", "lost+found",
-                   ".Trash", ".Trash-1000"}
+                   ".Trash", ".Trash-1000",
+                   # 蓝光/DVD 原盘结构：碎片（00000.m2ts 等）不是独立影片
+                   # （2026-09 用户反馈：BDMV/STREAM 碎片被当电影入库且错配）
+                   "BDMV", "VIDEO_TS", "AUDIO_TS", "CERTIFICATE",
+                   "bdmv", "video_ts", "audio_ts", "certificate"}
 
 
 def scan_skip_dirs() -> set[str]:
@@ -229,27 +234,42 @@ def _stem_matches(video_stem: str, name_stem: str) -> bool:
 
 
 def sidecar_subtitles(abs_video: str) -> list[dict]:
-    """正片同名外挂字幕清单（播放器用；只读磁盘，不入库）。
+    """本地路径入口（向后兼容）：相对默认库转为 backend 调用。"""
+    if not abs_video:
+        return []
+    lib_id = library_paths.default_id()
+    try:
+        rel = os.path.relpath(abs_video, library_paths.library_root(lib_id))
+    except ValueError:
+        rel = os.path.basename(abs_video)
+    return sidecar_subtitles_fs(storage.backend_for(lib_id), rel)
+
+
+def sidecar_subtitles_fs(backend, rel_video: str) -> list[dict]:
+    """正片同名外挂字幕清单（backend 版：本地/远程直读统一；只读，不入库）。
     同目录（含一层 subs/Subs/字幕 子目录）内匹配的：
     - 严格：stem 同正片或以正片 stem 开头（正片.nfo 等）
     - 宽松：字幕 stem 剥掉语言后缀后标题与正片标题同名（大桥下面.srt ↔ 大桥下面 (1984).mkv）
     - 文本 .srt/.ass/.ssa → codec srt|ass|ssa, image=0（客户端渲染）
     - .sup → codec pgs, image=1（客户端渲染）
     - .sub/.idx 成对 → codec vobsub, image=1（仅烧录；同 stem 只列一条，优先 .sub）
-    返回 [{rel, name, codec, image, suffix}]，suffix 为文件名中标题之后的部分（供语言推断）。"""
-    video_stem = os.path.splitext(os.path.basename(abs_video))[0]
-    src_dir = os.path.dirname(abs_video)
-    dirs = [src_dir] + [os.path.join(src_dir, d) for d in SIDECAR_SUB_DIRS]
+    返回 [{rel, name, codec, image, suffix}]，rel 为库内相对路径，suffix 为文件名中标题
+    之后的部分（供语言推断）。"""
+    rel_video = backend.norm(rel_video)
+    video_stem = os.path.splitext(os.path.basename(rel_video))[0]
+    src_dir = os.path.dirname(rel_video)
+    dirs = [src_dir] + [(f"{src_dir}/{d}" if src_dir else d)
+                        for d in SIDECAR_SUB_DIRS]
     found: dict[tuple, dict] = {}
     for d in dirs:
         try:
-            names = sorted(os.listdir(d))
-        except OSError:
+            entries = backend.list(d)
+        except storage.StorageError:
             continue
-        for n in names:
-            full = os.path.join(d, n)
-            if not os.path.isfile(full):
+        for e in entries:
+            if e["is_dir"]:
                 continue
+            n = e["name"]
             stem, ex = os.path.splitext(n)
             ex = ex.lower()
             if _stem_matches(video_stem, stem):
@@ -268,16 +288,13 @@ def sidecar_subtitles(abs_video: str) -> list[dict]:
             else:
                 continue
             key = (d, stem) if codec == "vobsub" else (d, n)
-            item = {"rel": os.path.relpath(full, library_paths.default_root()), "name": n,
-                    "codec": codec, "image": image, "suffix": suffix, "path": full}
+            item = {"rel": (f"{d}/{n}" if d else n), "name": n,
+                    "codec": codec, "image": image, "suffix": suffix}
             # VobSub 成对（.sub/.idx 同 stem）：优先 .sub，避免重复列轨
             if key in found and not (codec == "vobsub" and ex == ".sub"):
                 continue
             found[key] = item
-    out = sorted(found.values(), key=lambda x: (os.path.dirname(x["rel"]), x["name"]))
-    for it in out:
-        it.pop("path", None)
-    return out
+    return sorted(found.values(), key=lambda x: (os.path.dirname(x["rel"]), x["name"]))
 
 
 _EXTRAS_RE = re.compile(

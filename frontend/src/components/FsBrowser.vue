@@ -10,18 +10,21 @@
           <span v-if="fsPath" class="miss-path">{{ fsPath }}</span>
         </div>
         <div class="bar">
-          <input v-model="fsMkdirName" placeholder="新子目录名" style="width:160px" />
-          <button @click="doFsMkdir" :disabled="!!busy || !fsMkdirName.trim()">新建目录</button>
-          <button @click="copySelection" :disabled="!!busy || !selRels.length">复制</button>
-          <button @click="cutSelection" :disabled="!!busy || !selRels.length">剪切</button>
-          <button @click="paste" :disabled="!!busy || !clipboard.rels.length || copyJob">
-            {{ clipboard.mode === 'cut' ? '粘贴（移动）' : '粘贴' }}
-          </button>
-          <button @click="deleteSelection" :disabled="!!busy || !selRels.length">删除选中</button>
-          <span v-if="selRels.length" class="fhint">已选 {{ selRels.length }} 项</span>
-          <span v-else-if="clipboard.rels.length" class="fhint">
-            剪贴板：{{ clipboard.mode === 'cut' ? '已剪切' : '已复制' }} {{ clipboard.rels.length }} 项
-          </span>
+          <template v-if="fsWritable">
+            <input v-model="fsMkdirName" placeholder="新子目录名" style="width:160px" />
+            <button @click="doFsMkdir" :disabled="!!busy || !fsMkdirName.trim()">新建目录</button>
+            <button @click="copySelection" :disabled="!!busy || !selRels.length">复制</button>
+            <button @click="cutSelection" :disabled="!!busy || !selRels.length">剪切</button>
+            <button @click="paste" :disabled="!!busy || !clipboard.rels.length || copyJob">
+              {{ clipboard.mode === 'cut' ? '粘贴（移动）' : '粘贴' }}
+            </button>
+            <button @click="deleteSelection" :disabled="!!busy || !selRels.length">删除选中</button>
+            <span v-if="selRels.length" class="fhint">已选 {{ selRels.length }} 项</span>
+            <span v-else-if="clipboard.rels.length" class="fhint">
+              剪贴板：{{ clipboard.mode === 'cut' ? '已剪切' : '已复制' }} {{ clipboard.rels.length }} 项
+            </span>
+          </template>
+          <span v-else class="fhint">直读远程库：仅浏览；重命名/移动/删除请用「入库流程 → 归档整理」（或在 NAS 上直接管理）</span>
         </div>
         <div v-if="fsParent !== null" class="bar">
           <button @click="loadFs(fsParent)" :disabled="!!busy">‹ 上级目录</button>
@@ -50,7 +53,7 @@
             <span class="miss-title">📁 {{ d.name }}</span>
             <span class="miss-path">{{ d.children }} 项</span>
             <button @click.stop="enterDir(d.rel)" :disabled="!!busy">进入</button>
-            <button @click.stop="doFsDelete(d.rel)" :disabled="!!busy">删空目录</button>
+            <button v-if="fsWritable" @click.stop="doFsDelete(d.rel)" :disabled="!!busy">删空目录</button>
           </li>
         </ul>
         <ul v-if="fsFiles.length" class="miss-list">
@@ -64,10 +67,10 @@
             <span v-else class="kind-badge">其他</span>
             <span class="miss-title">{{ f.name }}</span>
             <span class="miss-path">{{ fmtBytes(f.size) }}{{ f.title ? ` · ${f.title}` : '' }}</span>
-            <input v-model="fsRenameEdits[f.rel]" placeholder="新文件名" style="width:140px" @click.stop />
-            <button @click.stop="doFsRename(f.rel)" :disabled="!!busy">{{ fsArmAction('rename', f.rel) ? '确认改名' : '改名' }}</button>
-            <button v-if="!fsArmDelete[f.rel]" @click.stop="doFsDelete(f.rel)" :disabled="!!busy">删除</button>
-            <button v-else @click.stop="doFsDeleteConfirm(f.rel)" :disabled="!!busy" class="danger">确认删除正片</button>
+            <input v-if="fsWritable" v-model="fsRenameEdits[f.rel]" placeholder="新文件名" style="width:140px" @click.stop />
+            <button v-if="fsWritable" @click.stop="doFsRename(f.rel)" :disabled="!!busy">{{ fsArmAction('rename', f.rel) ? '确认改名' : '改名' }}</button>
+            <button v-if="fsWritable && !fsArmDelete[f.rel]" @click.stop="doFsDelete(f.rel)" :disabled="!!busy">删除</button>
+            <button v-else-if="fsWritable" @click.stop="doFsDeleteConfirm(f.rel)" :disabled="!!busy" class="danger">确认删除正片</button>
           </li>
         </ul>
         <p v-if="fsArmHint" class="hint warn-text">{{ fsArmHint }}</p>
@@ -114,6 +117,7 @@ const clipboard = ref({ mode: 'copy', rels: [] })
 const pendCopy = ref(null)
 const fsPrompts = ref([])
 const copyJob = ref(null)
+const fsWritable = ref(true)   // 直读远程库=false：仅浏览，写操作 501
 
 const copyPct = computed(() => {
   const j = copyJob.value
@@ -138,6 +142,7 @@ async function loadFs(path) {
     fsCrumbs.value = d.crumbs || []
     fsDirs.value = d.dirs || []
     fsFiles.value = d.files || []
+    fsWritable.value = d.fs_writable !== false
     for (const f of fsFiles.value) {
       if (!(f.rel in fsRenameEdits.value)) fsRenameEdits.value[f.rel] = ''
     }

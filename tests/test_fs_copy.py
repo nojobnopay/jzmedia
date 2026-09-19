@@ -71,7 +71,7 @@ def test_scan_one_tmdb_hint_skips_search(media_root, monkeypatch):
     def boom(q, year=None):
         raise AssertionError("search should not be called with tmdb_hint")
     monkeypatch.setattr(scanner.tmdb, "search_movie", boom)
-    def _apply_cached(mid, tmdb_id, abs_path):
+    def _apply_cached(mid, tmdb_id, abs_path, **kw):
         store.update_movie_meta(mid, tmdb_id=tmdb_id)
         return {"title": "Hinted", "year": 2020, "tmdb_id": tmdb_id, "nfo": False}
     monkeypatch.setattr(scanner.scan, "apply_cached_to_movie", _apply_cached)
@@ -97,7 +97,7 @@ def test_copy_feature_registers_version(media_root, monkeypatch):
     def boom(q, year=None):
         raise AssertionError("no search expected for copy of matched feature")
     monkeypatch.setattr(scanner.tmdb, "search_movie", boom)
-    def _apply_cached(m, tmdb_id, abs_path):
+    def _apply_cached(m, tmdb_id, abs_path, **kw):
         store.update_movie_meta(m, tmdb_id=tmdb_id)
         return {"title": "Feature", "year": 2019, "tmdb_id": tmdb_id, "nfo": False}
     monkeypatch.setattr(scanner.scan, "apply_cached_to_movie", _apply_cached)

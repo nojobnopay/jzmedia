@@ -18,7 +18,7 @@ from .common import (_MIN_SEGS, _SEG_RE, _SESS_FILE_RE, _has_endlist, _drop_sess
                      _playlist_endlist, _playlist_text, _purge_old, _seg_count,
                      _sess_lock, _write_session_meta,
                      _sessions, _session_complete, _session_dir, _session_key, _variant_playlists,
-                     _version_abs, _video_seg_prefix, _watch_completion, _write_master, router)
+                     _version_source, _video_seg_prefix, _watch_completion, _write_master, router)
 from .media import _media_payload
 from .subtitles import _sub_list
 __all__ = ['SessionBody', '_spawn_session', 'hls_session_create', 'hls_session_playlist', '_wait_file', 'hls_session_segment', 'hls_session_debug', 'hls_session_ping', 'hls_session_close', 'hls_session_file']
@@ -42,9 +42,9 @@ def _spawn_session(version_id: int, quality: str, audio: int,
     返回 (session_id, session_dir, plan_result)。direct/无 ffmpeg 等直接抛对应 HTTP 状态。
     caps 参与 plan 与 plan_key（不同客户端能力不复用同一转码档）；force_burn 为
     客户端图片字幕解码失败时的烧录降级（见 playback._subtitle_mode）。"""
-    m, abs_p = _version_abs(version_id, kind)
+    m, src = _version_source(version_id, kind)
     k = m.get("kind") or "movie"
-    info = _media_cached_or_probe(m, abs_p)
+    info = _media_cached_or_probe(m, src)
     if not info.get("playable"):
         raise HTTPException(422, f"unplayable: {info.get('probe_error') or 'probe failed'}")
     caps_n = _caps.default_caps() if caps is None else _caps.normalize_caps(caps)
@@ -68,7 +68,10 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         if not int(track.get("image") or 0):
             raise HTTPException(422, "not an image subtitle")
         if track.get("source") == "sidecar":
-            d["plan"]["sub_sidecar"] = str(track.get("sidecar") or "")
+            side = str(track.get("sidecar") or "")
+            d["plan"]["sub_sidecar"] = side
+            # 远程库无本地路径：第二输入用内网 URL（build_cmd 不再假设 POSIX）
+            d["plan"]["sub_sidecar_input"] = src.backend.get_read_url(side)
         else:
             ff = track.get("ff_index")
             if ff is None:
@@ -88,7 +91,7 @@ def _spawn_session(version_id: int, quality: str, audio: int,
     plan_key = _plan_marker(d["plan"], audio, st_key)
     skey = _session_key(d["plan"], audio)
     # 真实媒体起点：客户端字幕（VTT/ASS/PGS）按此平移对齐播放进度
-    d["media_start"] = _media_start_for(int(m["id"]), abs_p, start, d["plan"])
+    d["media_start"] = _media_start_for(int(m["id"]), src.input, start, d["plan"])
     seg = d["plan"].get("seg") or "fmp4"
     stime = _playback.seg_time(seg)
     # 整片已转完（预转码/之前播完）：当静态 VOD 直接播，不起进程——hls.js 最稳形态
@@ -138,7 +141,7 @@ def _spawn_session(version_id: int, quality: str, audio: int,
             if seg != "ts":
                 # fMP4 的 master 自己写（ffmpeg 对 HEVC copy 不产 CODECS）；变体列表由 ffmpeg 产
                 _write_master(sdir, info, d["plan"], stime)
-            cmd = _playback.build_cmd(abs_p, d["plan"], start=start, seg_time=stime,
+            cmd = _playback.build_cmd(src.input, d["plan"], start=start, seg_time=stime,
                                       force_sw=force_sw)
             try:
                 log_fh = open(log_path, "wb")

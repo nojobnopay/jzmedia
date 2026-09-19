@@ -46,7 +46,7 @@
           </tr>
           <tr v-if="rowMsg[l.id]" class="row-msg">
             <td colspan="8">
-              <span :class="{ 'msg-err': rowMsg[l.id].kind === 'error', 'msg-ok': rowMsg[l.id].kind === 'ok' }">{{ rowMsg[l.id].text }}</span>
+              <span :class="{ 'msg-err': rowMsg[l.id].kind === 'error', 'msg-ok': rowMsg[l.id].kind === 'ok', 'msg-warn': rowMsg[l.id].kind === 'warn' }">{{ rowMsg[l.id].text }}</span>
               <button v-if="rowMsg[l.id].cmd" @click="copyCmd(l.id)">复制宿主挂载命令</button>
               <button v-if="rowMsg[l.id].cmd" @click="showCmd[l.id] = !showCmd[l.id]">{{ showCmd[l.id] ? '收起命令' : '查看命令' }}</button>
               <code v-if="rowMsg[l.id].cmd && showCmd[l.id]" class="cmd-text">{{ rowMsg[l.id].cmd }}</code>
@@ -57,6 +57,7 @@
               <input v-model="connEdit.url" v-bind="NOFILL" name="jz-conn-url" placeholder="\\ServerName\ShareName\Folder" style="min-width:300px" />
               <input v-model="connEdit.username" v-bind="NOFILL" name="jz-conn-user" placeholder="SMB 登录用户名" />
               <input v-model="connEdit.password" v-bind="NOFILL_PW" name="jz-conn-pass" type="password" placeholder="SMB 密码（留空不改）" />
+              <input v-model="connEdit.connect_host" v-bind="NOFILL" name="jz-conn-connect" placeholder="连接地址（可选，Tailscale IP）" />
               <button @click="saveConn(l)" :disabled="!!busy">{{ busy === 'conn' ? '保存中…' : '保存并连接' }}</button>
               <button @click="connEdit = null">取消</button>
               <span class="fhint" :class="{ 'warn-text': connPreview.error }">{{ connPreview.error || `→ ${connPreview.host}/${connPreview.share}/${connPreview.subpath}` }}</span>
@@ -103,7 +104,7 @@
       <label>来源
         <select v-model="form.source">
           <option value="local">本地路径</option>
-          <option value="smb">SMB（应用内挂载）</option>
+          <option value="smb">SMB（直读 / 挂载）</option>
           <option value="nfs">NFS（应用内挂载）</option>
         </select>
       </label>
@@ -120,7 +121,8 @@
           <template v-else>
             主机 <b>{{ smbPreview.host }}</b> · 共享 <b>{{ smbPreview.share }}</b>
             · 目录 <b>{{ smbPreview.subpath || '（共享根）' }}</b>
-            <br />→ 自动挂载到 <code>data/mounts/lib_N</code>（无需填写）
+            <br /><template v-if="smbDriver === 'mount'">→ 自动挂载到 <code>data/mounts/lib_N</code>（无需填写）</template>
+            <template v-else>→ 直读模式（<code>SMB_DRIVER={{ smbDriver }}</code>，免挂载），点「测试连接」检测</template>
           </template>
         </div>
         <template v-if="advSplitting">
@@ -130,6 +132,21 @@
         </template>
         <label>用户名 <input v-model="form.smb_username" v-bind="NOFILL" name="jz-smb-user" placeholder="SMB 登录用户名（可空）" /></label>
         <label>密码 <input v-model="form.smb_password" v-bind="NOFILL_PW" name="jz-smb-pass" type="password" placeholder="SMB 密码（可空）" /></label>
+        <label>连接地址 <input v-model="form.smb_connect_host" v-bind="NOFILL" name="jz-smb-connect" placeholder="可选：Tailscale IP / 内网地址（留空=用服务器地址）" style="min-width:240px" /></label>
+        <button @click="testConn" :disabled="test.busy || busy">
+          {{ test.busy ? '测试中…' : '测试连接' }}
+        </button>
+        <div v-if="test.text" class="parse-line test-result" :class="{ 'warn-text': !test.ok }">
+          {{ test.ok ? '✓' : '✗' }} {{ test.text }}
+          <template v-if="!test.ok && test.suggestions.length">
+            <br /><span v-for="(s, i) in test.suggestions" :key="i">· {{ s }}<br /></span>
+          </template>
+          <div v-if="test.stages.length" class="stage-line">
+            <span v-for="st in test.stages" :key="st.stage" class="stage-chip"
+                  :class="{ bad: !st.ok, skip: st.skipped }"
+                  :title="st.message || ''">{{ st.stage }}<template v-if="st.ms"> {{ st.ms }}ms</template></span>
+          </div>
+        </div>
       </template>
       <template v-if="form.source === 'nfs'">
         <label>导出路径 <input v-model="form.nfs_export" v-bind="NOFILL" name="jz-nfs-export" placeholder="ServerName:/volume1/video/Movies" style="min-width:260px" /></label>
@@ -143,8 +160,9 @@
           <li v-if="form.source === 'local'"><b>NAS Docker（推荐）</b>：填容器内路径——compose 把宿主 <code>/volume1/video</code>
             挂到容器 <code>/media</code> 后，即填 <code>/media/Movies</code>（不需要 SMB），并确认该目录已挂进容器。</li>
           <li v-else><b>远程访问</b>：SMB 粘贴 <code>\\ServerName\共享名\子目录</code>（或 <code>smb://用户@ServerName/共享名/子目录</code>），
-            NFS 填 <code>ServerName:/导出路径</code>；挂载点自动分配，无需手填。容器内挂载需 compose <code>cap_add: [SYS_ADMIN]</code>，
-            能力不足时点「连接」会给出宿主挂载命令。</li>
+            NFS 填 <code>ServerName:/导出路径</code>；挂载点自动分配，无需手填。SMB 默认走用户态直读
+            （无需 <code>SYS_ADMIN</code>，点「测试连接」可看 11 阶段诊断）；也可设 <code>SMB_DRIVER=mount</code>
+            改用容器内挂载（需 compose <code>cap_add: [SYS_ADMIN]</code>，能力不足时点「连接」会给出宿主挂载命令）。</li>
           <li><b>默认库已占路径</b>：默认库若为 0 影片，可在其「⋯ → 改路径」指向 <code>/media/Movies</code> 或
             <code>/media/TV Shows</code>；也可以直接删除默认库记录（不动磁盘文件）。</li>
           <li><b>安全与限制</b>：远程凭据 Fernet 加密存储、绝不回显；只读库禁止归档/上传/删除/NFO 写入。</li>
@@ -214,6 +232,7 @@ const emit = defineEmits(['changed'])
 const items = ref([])
 const busy = ref('')
 const msg = ref('')
+const smbDriver = ref('auto')       // 服务端 SMB_DRIVER：auto|direct|mount
 const arm = ref(null)
 const armConfirm = ref(false)
 const pathEdit = ref(null)
@@ -223,6 +242,7 @@ const created = ref(null)
 const rowMsg = reactive({})     // lid -> {text, kind: info|ok|error|warn, cmd?}
 const showCmd = reactive({})
 const scanJobs = reactive({})   // lid -> job_id（存在即扫描中）
+const test = reactive({ busy: false, ok: null, text: '', suggestions: [], stages: [] })
 const scanning = computed(() => {
   const out = {}
   for (const k of Object.keys(scanJobs)) out[k] = true
@@ -240,13 +260,33 @@ const form = reactive({
   name: '', kind: 'movie', source: 'local', path: '', naming_profile: 'kodi',
   artwork_mode: 'nfo', read_only: false,
   smb_url: '', smb_host: '', smb_share: '', smb_subpath: '',
-  smb_username: '', smb_password: '',
+  smb_username: '', smb_password: '', smb_connect_host: '',
   nfs_export: '',
 })
 
 function setMsg (lid, text, kind = 'info', cmd = '') {
   rowMsg[lid] = { text, kind, cmd }
   if (!cmd) delete showCmd[lid]
+}
+
+const STATUS_TEXT = {
+  auth_failed: '认证失败',
+  hostname_resolve_failed: '主机名无法解析',
+  tcp_timeout: '连接超时',
+  connection_refused: '连接被拒',
+  tcp_unreachable: '网络不可达',
+  smb_negotiate_failed: 'SMB 协商失败',
+  share_not_found: '共享不存在',
+  share_access_denied: '共享无权限',
+  path_not_found: '目录不存在',
+  read_failed: '读取失败',
+  write_failed: '写入失败',
+  stream_failed: '随机读失败',
+  ffprobe_failed: '探测失败',
+  ffprobe_missing: '缺少 ffprobe',
+  unreachable: '连接失败',
+  error: '不可读',
+  library_offline: '已离线',
 }
 
 function statusKind (l) {
@@ -260,15 +300,13 @@ function statusText (l) {
   if (!l.enabled) return '已停用'
   if (l.last_status === 'ok') return '可读'
   if (l.last_status === 'not_mounted') return '未连接'
-  if (l.last_status === 'auth_failed') return '认证失败'
-  if (l.last_status === 'unreachable') return '连接失败'
-  if (l.last_status === 'error') return '不可读'
-  return '未检查'
+  return STATUS_TEXT[l.last_status] || '未检查'
 }
 
 async function load () {
   const d = await api('/api/libraries')
   items.value = d.items || []
+  smbDriver.value = d.smb_driver || 'auto'
   try { await loadLibs(api, { force: true }) } catch (e) { /* 忽略 */ }
   emit('changed')
 }
@@ -288,12 +326,15 @@ async function copyCmd (lid) {
   }
 }
 
-// 主操作：本地=检查；远程=挂载 + 检查（一步完成）
+// 主操作：本地=检查；远程=挂载 + 检查（挂载模式）或直读诊断（direct/auto）
 async function connect (l) {
   busy.value = 'conn' + l.id
-  setMsg(l.id, l.source === 'local' ? '正在检查路径…' : '正在连接（挂载 + 检查，最多约 20 秒）…')
+  const direct = l.source === 'smb' && smbDriver.value !== 'mount'
+  setMsg(l.id, l.source === 'local' ? '正在检查路径…'
+    : direct ? '正在检测直读连接（11 阶段，最多约 1 分钟）…'
+      : '正在连接（挂载 + 检查，最多约 20 秒）…')
   try {
-    if (l.source !== 'local') {
+    if (l.source !== 'local' && !direct) {
       const m = await api(`/api/libraries/${l.id}/mount`, { method: 'POST' })
       if (!m.ok) {
         const cmd = m.suggested_cmd || ''
@@ -305,15 +346,59 @@ async function connect (l) {
     }
     const d = await api(`/api/libraries/${l.id}/check`, { method: 'POST' })
     if (d.readable) {
-      setMsg(l.id, `连接正常：${d.writable ? '可读可写' : '可读（只读）'}，可以扫描入库了`, 'ok')
+      const head = `连接正常：${d.writable ? '可读可写' : '可读（只读）'}`
+        + (direct ? '，直读模式（免挂载）' : '') + '，可以扫描入库了'
+      if (d.warning) {
+        setMsg(l.id, `${head}。注意：${d.warning}`
+          + '（归档/NFO 写入将跳过，可把该库勾选为「只读库」）', 'warn')
+      } else {
+        setMsg(l.id, head, 'ok')
+      }
     } else {
-      setMsg(l.id, `路径不可读：${d.reason || d.error || '请检查路径/权限'}`, 'error')
+      const sug = (d.suggestions || []).slice(0, 2).join('；')
+      const why = d.message || d.reason || d.error || '请检查路径/权限'
+      setMsg(l.id, `检测失败${d.stage ? '（' + d.stage + '）' : ''}：${why}`
+        + (sug ? '。建议：' + sug : ''), 'error',
+      direct ? '' : (d.suggested_cmd || ''))
     }
     await load()
   } catch (e) {
     setMsg(l.id, '连接失败：' + e.message, 'error')
   } finally {
     busy.value = ''
+  }
+}
+
+// 新建库表单：SMB 连接预检（不落库）——直读/挂载同一套诊断
+function _smbTestBody () {
+  if (advSplitting.value) {
+    return { host: form.smb_host, share: form.smb_share, subpath: form.smb_subpath,
+             username: form.smb_username, password: form.smb_password,
+             connect_host: form.smb_connect_host }
+  }
+  const p = smbPreview.value
+  if (p.error) throw new Error(p.error)
+  return { host: p.host, share: p.share, subpath: p.subpath,
+           username: form.smb_username, password: form.smb_password,
+           connect_host: form.smb_connect_host }
+}
+
+async function testConn () {
+  test.busy = true; test.ok = null; test.text = ''; test.suggestions = []; test.stages = []
+  try {
+    const d = await api('/api/libraries/diag/smb', {
+      method: 'POST', body: JSON.stringify(_smbTestBody()),
+    })
+    test.ok = !!d.ok
+    test.stages = d.stages || []
+    test.text = d.ok ? '远程库就绪，可以创建'
+      : `${d.stage || ''}：${d.message || '检测失败'}`
+    test.suggestions = d.suggestions || []
+  } catch (e) {
+    test.ok = false
+    test.text = '测试失败：' + e.message
+  } finally {
+    test.busy = false
   }
 }
 
@@ -325,12 +410,12 @@ function ensureScanTimer () {
   if (!scanTimer) scanTimer = setInterval(pollScans, 1200)
 }
 
-async function scanLib (l) {
-  setMsg(l.id, '正在启动扫描…')
+async function scanLib (l, force = false) {
+  setMsg(l.id, force ? '正在启动强制重扫（跳过缓存，重走匹配与落盘）…' : '正在启动扫描…')
   try {
     const d = await api('/api/jobs/scan', {
       method: 'POST',
-      body: JSON.stringify({ library_id: l.id }),
+      body: JSON.stringify({ library_id: l.id, force: !!force }),
     })
     const owner = d.library_id
     if (d.resumed && owner != null && Number(owner) !== Number(l.id)) {
@@ -400,7 +485,8 @@ async function savePath (l) {
 }
 
 function editConn (l) {
-  connEdit.value = { id: l.id, url: smbUrlOf(l), username: l.smb_username || '', password: '' }
+  connEdit.value = { id: l.id, url: smbUrlOf(l), username: l.smb_username || '',
+                     password: '', connect_host: l.smb_connect_host || '' }
 }
 
 async function saveConn (l) {
@@ -409,6 +495,7 @@ async function saveConn (l) {
   busy.value = 'conn'
   try {
     const smb = { username: connEdit.value.username,
+                  connect_host: connEdit.value.connect_host || '',
                   domain: l.smb_domain || '', options: l.smb_options || '' }
     if (connEdit.value.password) smb.password = connEdit.value.password
     await api(`/api/libraries/${l.id}`, {
@@ -511,9 +598,9 @@ async function create () {
       body.smb = advSplitting.value
         ? { host: form.smb_host, share: form.smb_share,
             subpath: form.smb_subpath, username: form.smb_username,
-            password: form.smb_password }
+            password: form.smb_password, connect_host: form.smb_connect_host }
         : { url: form.smb_url, username: form.smb_username,
-            password: form.smb_password }
+            password: form.smb_password, connect_host: form.smb_connect_host }
     } else if (form.source === 'nfs') {
       body.nfs = { export: form.nfs_export }
     }
@@ -528,6 +615,7 @@ async function create () {
     form.smb_host = ''
     form.smb_share = ''
     form.smb_password = ''
+    form.smb_connect_host = ''
     form.nfs_export = ''
     created.value = { id: d.id, name: d.name, source: d.source }
     await load()
@@ -562,6 +650,7 @@ defineExpose({ ensure: load })
 .row-msg td { background: #202020; color: #bbb; font-size: 0.8125rem; }
 .row-msg .msg-ok { color: #7fd18b; }
 .row-msg .msg-err { color: #ff8a8a; }
+.row-msg .msg-warn { color: #e0b34a; }
 .row-msg button { margin-left: 8px; }
 .row-msg .cmd-text { display: block; margin-top: 6px; padding: 6px 8px; background: #151515; border: 1px solid #333; border-radius: 6px; color: #9ecfff; white-space: pre-wrap; word-break: break-all; }
 .more { position: relative; display: inline-block; }
@@ -580,6 +669,12 @@ defineExpose({ ensure: load })
 .form-sec-title { flex-basis: 100%; color: #999; font-size: 0.8125rem; font-weight: 600; }
 .form-sec-title .fhint { font-weight: normal; }
 .parse-line { flex-basis: 100%; color: #888; font-size: 0.8125rem; line-height: 1.8; padding-left: 6px; }
+.test-result { border-left: 2px solid #3a5a3a; }
+.test-result.warn-text { border-left-color: #6e2b2b; }
+.stage-line { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.stage-chip { font-size: 0.6875rem; border: 1px solid #3a5a3a; color: #7fd18b; border-radius: 999px; padding: 0 6px; }
+.stage-chip.bad { border-color: #6e2b2b; color: #ff8a8a; }
+.stage-chip.skip { border-color: #444; color: #777; }
 .parse-line b { color: #ccc; font-weight: 600; }
 .parse-line code { color: #9ecfff; }
 .hint-block { flex-basis: 100%; margin-top: 10px; }

@@ -19,7 +19,7 @@ from ...editions import split_stack
 from ...scanner import is_sidecar
 from ...log import get_logger
 logger = get_logger("files.planner")
-from .paths import _safe_component
+from .paths import _safe_component, _exists, _is_file
 __all__ = ['_ordered_plans', '_MOVIE_DIR_RE', '_is_movie_dir_name', '_components',
            '_stem_of', '_target_for', '_finalize', '_keeper_of', '_collect_plans']
 
@@ -144,7 +144,7 @@ def _finalize(comp: dict, stem: str, target_root: str | None,
         warns = _plex_warnings(stem, comp, numbered)
         if warns:
             d["plex_warnings"] = warns
-    if not os.path.isfile(library_paths.resolve(lib_id, comp["from"])):
+    if not _is_file(lib_id, comp["from"]):
         d["status"] = "source_missing"   # 预览即标注（评审 R09-D6），执行会跳过
     return d
 
@@ -273,8 +273,7 @@ def _collect_plans(target_root: str | None = None,
         dst = os.path.normpath(p["to"])
         lib_id = int(p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
         owner = db_owner.get((lib_id, dst))
-        if (os.path.exists(library_paths.resolve(lib_id, p["to"]))
-                and (lib_id, dst) not in current_paths):
+        if (_exists(lib_id, p["to"]) and (lib_id, dst) not in current_paths):
             conflicts.append({**p, "status": "conflict_disk_exists",
                               "kind": "disk"})
         elif owner is not None and owner != p["id"]:

@@ -141,7 +141,7 @@ class SmbBackend:
         return int(self.smbclient.stat(self._p(rel)).st_size)
 
     def read(self, rel, offset, length):
-        with self.smbclient.open_file(self._p(rel), mode="rb") as f:
+        with self.smbclient.open_file(self._p(rel), mode="rb", share_access="r") as f:
             f.seek(offset)
             return f.read(length)
 
@@ -275,7 +275,8 @@ class RangeProxy:
 
     @property
     def url(self):
-        return f"http://127.0.0.1:{self.port}/{os.path.basename(self.rel)}"
+        from urllib.parse import quote
+        return f"http://127.0.0.1:{self.port}/{quote(os.path.basename(self.rel))}"
 
     def close(self):
         self.httpd.shutdown()

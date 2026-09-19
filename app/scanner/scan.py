@@ -7,6 +7,7 @@
 import os
 import re
 from .. import library_paths
+from .. import storage
 from .. import store
 from .. import tmdb
 from ..db import ensure_dirs
@@ -18,7 +19,7 @@ from .match import search_with_fallback
 from .persist import apply_cached_to_movie, apply_tmdb_detail
 from ..metadata import local as meta_local
 from ..metadata import nfo_import as meta_nfo
-__all__ = ['ST_SKIPPED_SAMPLE', 'ST_EXTRA_ATTACHED', 'ST_EXTRA_ORPHAN', 'ST_NO_MATCH', 'ST_EPISODE', 'ST_SCAN_FAILED', 'attribute_extra', 'scan_one', 'scan_all']
+__all__ = ['ST_SKIPPED_SAMPLE', 'ST_EXTRA_ATTACHED', 'ST_EXTRA_ORPHAN', 'ST_NO_MATCH', 'ST_EPISODE', 'ST_SCAN_FAILED', 'ST_LIBRARY_OFFLINE', 'attribute_extra', 'attribute_extra_file', 'scan_one', 'scan_file', 'scan_tv_one', 'scan_tv_file', 'scan_all']
 
 DEFAULT_LIBRARY_ID = library_paths.DEFAULT_LIBRARY_ID
 
@@ -39,6 +40,9 @@ ST_SCAN_FAILED = "scan_failed"
 
 ST_EPISODE = "skipped_episode_v1"
 
+# 远程库不可达：本次跳过该库，绝不删行/GC（指导 §19 Offline ≠ Deleted）
+ST_LIBRARY_OFFLINE = "library_offline"
+
 
 def _lib_id(library_id) -> int:
     try:
@@ -48,13 +52,20 @@ def _lib_id(library_id) -> int:
 
 
 def attribute_extra(abs_path: str, library_id=None) -> dict:
+    """本地路径入口（上传/复制等本地写路径）；内部转 backend+rel。"""
+    lib_id = _lib_id(library_id)
+    rel = os.path.relpath(abs_path, library_paths.library_root(lib_id))
+    return attribute_extra_file(storage.backend_for(lib_id), rel)
+
+
+def attribute_extra_file(backend, rel: str) -> dict:
     """花絮归属：解析标题/年份 → 库内标题/原标题匹配（年份±1，种类词前后缀剥掉再试一轮）
     → extras 表幂等记录。历史 orphan 在正片后入库/匹配修好后重扫自动补归属
     （已有归属的不碰，手工认领优先）。
     样片永不归属（仅返回 skipped_sample）。返回 {file, status, movie_id?, kind}。"""
-    lib_id = _lib_id(library_id)
-    rel = os.path.relpath(abs_path, library_paths.library_root(lib_id))
-    base = os.path.basename(abs_path)
+    lib_id = backend.library_id or DEFAULT_LIBRARY_ID
+    rel = backend.norm(rel)
+    base = os.path.basename(rel)
     if is_sample(base):
         return {"file": rel, "status": ST_SKIPPED_SAMPLE}
     kind = extra_kind(rel)
@@ -116,22 +127,34 @@ def _persist_local_extras(mid: int, parsed: dict, cur: dict) -> None:
 
 def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None,
              library_id=None) -> dict:
-    """单文件入库。force=True（手动重试）跳过增量跳过与缓存短路，重新刮削。
-    tmdb_hint（复制文件时来自源行）：缓存命中则直绑该 tmdb_id，避免重搜与误配。"""
+    """本地路径入口（上传/复制/重扫等本地写路径）；内部转 backend+rel。"""
     lib_id = _lib_id(library_id)
     rel = os.path.relpath(abs_path, library_paths.library_root(lib_id))
+    return scan_file(storage.backend_for(lib_id), rel, force=force, tmdb_hint=tmdb_hint)
+
+
+def scan_file(backend, rel: str, force: bool = False,
+              tmdb_hint: int | None = None, local_index: dict | None = None) -> dict:
+    """单文件入库（backend+库内相对路径；本地/远程直读统一）。
+    force=True（手动重试）跳过增量跳过与缓存短路，重新刮削。
+    tmdb_hint（复制文件时来自源行）：缓存命中则直绑该 tmdb_id，避免重搜与误配。
+    local_index（扫描批次共享）：跨库已匹配索引——本地优先绑定，免网络且防错配。
+    NFO 导入与媒体目录落盘：远程直读无 POSIX 路径时经 backend 适配器执行。"""
+    lib_id = backend.library_id or DEFAULT_LIBRARY_ID
+    rel = backend.norm(rel)
+    abs_path = backend.abs_path(rel) or ""
     if is_sidecar(rel):
-        if is_sample(os.path.basename(abs_path)):
+        if is_sample(os.path.basename(rel)):
             return {"file": rel, "status": "skipped_sample"}
-        return attribute_extra(abs_path, library_id=lib_id)
+        return attribute_extra_file(backend, rel)
     cached = store.get_by_path(rel, library_id=lib_id)
     if cached and cached.get("tmdb_id") and not force:
         return {"file": rel, "status": "skipped_cached", "title": cached.get("title")}
     # 增量跳过（评审 B9/R03-Q3）：未匹配/剧集行且文件 mtime+size 未变 → 不再重打 TMDB
     try:
-        st = os.stat(abs_path)
-        mtime, size = int(st.st_mtime), int(st.st_size)
-    except OSError:
+        st = backend.stat(rel)
+        mtime, size = int(st.mtime), int(st.size)
+    except storage.StorageError:
         mtime, size = 0, 0
     prev = store.get_scan_state(rel, library_id=lib_id)
     if (not force and prev is not None and mtime and size
@@ -139,7 +162,7 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None,
             and int(prev.get("size") or 0) == size
             and str(prev.get("status") or "") in (ST_NO_MATCH, ST_EPISODE, ST_SCAN_FAILED)):
         return {"file": rel, "status": "skipped_unchanged"}
-    parsed = parse_filename(os.path.basename(abs_path))
+    parsed = parse_filename(os.path.basename(rel))
     parsed["title"] = normalize_title(parsed["title"])
     if parsed["type"] == "episode":
         # V1 仅电影：剧集不入库（评审 P1-03：旧实现建行会让剧集出现在海报墙/统计里，
@@ -169,6 +192,44 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None,
         # 复制场景：源片已匹配 → 直绑，避免重搜错配（评审 B9 后续）
         m = {"id": int(tmdb_hint)}
     if m is None:
+        # 本地优先（2026-09）：其他库/其他版本已有同名片（归一标题+年份）→ 直接复用，
+        # 零网络且避免 TMDB 模糊搜索错配；无本地数据再走远端搜索。
+        # 查询键含文件名/父目录里的中文段（告白.Confessions.2010 → 告白），
+        # 弥补 guessit 只认英文；年份优先取父目录（'...(2010)'）。
+        # force 重扫同样先走本地：这才是"用本地库数据纠正远程库错配"的路径
+        # （要换到别的 TMDB id 请用手动匹配）。
+        try:
+            index = (local_index if local_index is not None
+                     else meta_local.library_index())
+            loc_year = meta_local.parse_path_year(rel, parsed["year"])
+            for cand_title in meta_local.parse_path_variants(rel):
+                hit = meta_local.library_hit(cand_title, loc_year, index=index)
+                if hit is not None and hit.tmdb_id:
+                    break
+            else:
+                hit = None
+        except Exception as e:
+            hit = None
+            logger.debug("local-first lookup failed file=%s: %s", rel, e)
+        if hit is not None and hit.tmdb_id:
+            m = {"id": int(hit.tmdb_id)}
+            match_source = hit.source or "library"
+            online_error = ""
+            logger.info("本地优先匹配 file=%s -> tmdb=%s source=%s", rel,
+                        hit.tmdb_id, match_source)
+    # 换绑纠正判定：目标 tmdb 与当前不同，或当前标题正是旧 tmdb 的缓存标题
+    #（= 之前错配自动写入的标题）→ 用新缓存标题覆盖，防错配标题残留。
+    force_title = False
+    if m:
+        try:
+            force_title = int((cached or {}).get("tmdb_id") or 0) != int(m.get("id") or 0)
+        except (TypeError, ValueError):
+            force_title = True
+        if not force_title and (cached or {}).get("tmdb_id"):
+            old_cache = store.get_tmdb_cached(int(cached["tmdb_id"])) or {}
+            force_title = bool(old_cache.get("title")
+                               and old_cache["title"] == (cached.get("title") or ""))
+    if m is None:
         try:
             m, used_q, year_mismatch = search_with_fallback(parsed["title"], parsed["year"])
         except Exception as e:
@@ -178,7 +239,7 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None,
         # 离线/降级兜底（E 阶段）：NFO 导入 → match_index 本地匹配
         offline = None
         try:
-            nfo_c = meta_nfo.candidates_for(abs_path)
+            nfo_c = meta_nfo.candidates_for(abs_path) if abs_path else None
             if nfo_c is not None and nfo_c.tmdb_id:
                 offline = nfo_c
                 try:
@@ -208,10 +269,13 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None,
     tmdb_id = int(m["id"])
     try:
         if store.get_tmdb_cached(tmdb_id):
-            out = apply_cached_to_movie(mid, tmdb_id, abs_path)
+            out = apply_cached_to_movie(mid, tmdb_id, abs_path,
+                                        backend=backend, rel=rel,
+                                        force_title=force_title)
         else:
             detail = tmdb.movie_detail(tmdb_id)
-            out = apply_tmdb_detail(mid, detail, abs_path)
+            out = apply_tmdb_detail(mid, detail, abs_path,
+                                    backend=backend, rel=rel)
     except Exception as e:
         logger.warning("tmdb detail/apply failed mid=%s tmdb_id=%s: %s", mid, tmdb_id, e)
         return {"file": rel, "status": ST_SCAN_FAILED, "movie_id": mid,
@@ -227,17 +291,10 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None,
             "match_source": match_source, **out}
 
 
-def _count_videos(root: str, skip_dirs: set) -> int:
-    total = 0
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = sorted(d for d in dirs
-                         if not d.startswith(".") and d not in skip_dirs)
-        for f in files:
-            if f.startswith("."):
-                continue
-            if os.path.splitext(f)[1].lower() in VIDEO_EXTS:
-                total += 1
-    return total
+def _video_entries(entries) -> list:
+    """树遍历结果 → 视频文件项（跳过隐藏文件/非视频）。"""
+    return [e for e in entries
+            if not e.is_dir and os.path.splitext(e.name)[1].lower() in VIDEO_EXTS]
 
 
 _SEASON_DIR_RE = re.compile(r"(?i)^(?:season|s)\s*0*(\d{1,3})$")
@@ -257,14 +314,21 @@ def _tv_show_title(rel: str, fallback: str) -> tuple[str, int | None]:
 
 
 def scan_tv_one(abs_path: str, library_id=None) -> dict:
-    """TV 只读清单入库：解析 SxxEyy → tv_shows/tv_episodes；不刮削/不改名/不写 NFO。"""
+    """本地路径入口（TV）；内部转 backend+rel。"""
     lib_id = _lib_id(library_id)
     rel = os.path.relpath(abs_path, library_paths.library_root(lib_id))
-    base = os.path.basename(abs_path)
+    return scan_tv_file(storage.backend_for(lib_id), rel)
+
+
+def scan_tv_file(backend, rel: str) -> dict:
+    """TV 只读清单入库：解析 SxxEyy → tv_shows/tv_episodes；不刮削/不改名/不写 NFO。"""
+    lib_id = backend.library_id or DEFAULT_LIBRARY_ID
+    rel = backend.norm(rel)
+    base = os.path.basename(rel)
     try:
-        st = os.stat(abs_path)
-        mtime, size = int(st.st_mtime), int(st.st_size)
-    except OSError:
+        st = backend.stat(rel)
+        mtime, size = int(st.mtime), int(st.size)
+    except storage.StorageError:
         mtime, size = 0, 0
     if is_sidecar(rel) or is_sample(base):
         store.set_scan_state(rel, mtime, size, "skipped_sidecar", library_id=lib_id)
@@ -272,7 +336,7 @@ def scan_tv_one(abs_path: str, library_id=None) -> dict:
     parsed = parse_filename(base)
     season, episode = parsed.get("season"), parsed.get("episode")
     if season is None:
-        parent = os.path.basename(os.path.dirname(abs_path))
+        parent = os.path.basename(os.path.dirname(rel))
         m = _SEASON_DIR_RE.match(parent or "")
         if m:
             season = int(m.group(1))
@@ -303,39 +367,11 @@ def _scan_libraries(library_id) -> list[dict]:
         return [library_paths.default_library()]
 
 
-def _tv_walk(lib_id: int, root: str, skip_dirs: set, out: list, done: int,
-             grand: int, progress_cb, should_stop) -> int:
-    for root_dir, dirs, files in os.walk(root):
-        dirs[:] = sorted(d for d in dirs
-                         if not d.startswith(".") and d not in skip_dirs)
-        for f in sorted(files):
-            if should_stop and should_stop():
-                return done
-            if f.startswith("."):
-                continue
-            if os.path.splitext(f)[1].lower() not in VIDEO_EXTS:
-                continue
-            abs_p = os.path.join(root_dir, f)
-            try:
-                r = scan_tv_one(abs_p, library_id=lib_id)
-                r["library_id"] = lib_id
-                out.append(r)
-            except Exception as e:
-                rel = os.path.relpath(abs_p, root)
-                logger.debug("scan_tv_one failed file=%s: %s", rel, e, exc_info=True)
-                out.append({"file": rel, "library_id": lib_id,
-                            "status": f"error: {e}"})
-            done += 1
-            if progress_cb:
-                try:
-                    progress_cb(done, grand)
-                except Exception as e:
-                    logger.debug("progress_cb failed: %s", e)
-    return done
-
-
-def scan_all(progress_cb=None, should_stop=None, library_id=None) -> list[dict]:
+def scan_all(progress_cb=None, should_stop=None, library_id=None,
+             force: bool = False) -> list[dict]:
     """扫描。`library_id=None` 遍历全部启用库；否则只扫该库。
+    遍历/stat 走 StorageBackend：直读远程库不依赖 POSIX 挂载（指导 Phase1）。
+    库不可达（StorageOffline）→ `library_offline` 跳过，且**不 GC、不删行**（§19）。
     可选 progress_cb(done, total) 报告全局进度、should_stop() 协作式取消
     （评审 B9/R04-D6：供后台 job 展示进度/取消）。
     返回结果条目带 `library_id`（跨库任务可区分）。"""
@@ -344,78 +380,87 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None) -> list[dict]:
     if not libs:
         return []
     skip_dirs = scan_skip_dirs()
-    plans: list[tuple[dict, int, str]] = []
+    out: list[dict] = []
+    plans: list[tuple[dict, object, list]] = []
     grand = 0
     for lib in libs:
-        root = str(lib.get("path") or "")
-        if not root or not os.path.isdir(root):
-            plans.append((lib, 0, "unavailable"))
+        lib_id = _lib_id(lib.get("id"))
+        try:
+            backend = storage.backend_for(lib_id)
+        except storage.StorageError as e:
+            out.append({"file": "", "library_id": lib_id,
+                        "status": f"error: library unavailable: {e}"})
             continue
-        total = _count_videos(root, skip_dirs)
-        plans.append((lib, total, ""))
-        grand += total
+        try:
+            backend.stat("")
+            entries = list(backend.iter_tree("", skip_dirs=skip_dirs))
+        except storage.StorageOffline as e:
+            logger.warning("扫描跳过离线库 lib=%s: %s", lib_id, e)
+            out.append({"file": "", "library_id": lib_id,
+                        "status": ST_LIBRARY_OFFLINE, "error": str(e)[:200]})
+            continue
+        except storage.StorageError as e:
+            out.append({"file": "", "library_id": lib_id,
+                        "status": f"error: library root {e}"})
+            continue
+        vids = _video_entries(entries)
+        plans.append((lib, backend, vids))
+        grand += len(vids)
     if progress_cb:
         try:
             progress_cb(0, grand)
         except Exception as e:
             logger.debug("progress_cb failed: %s", e)
-    out: list[dict] = []
+    # 本地优先索引：整批共享一次构建（跨库已匹配片 → tmdb 绑定）
+    try:
+        local_index = meta_local.library_index()
+    except Exception as e:
+        logger.debug("build local index failed: %s", e)
+        local_index = {}
     done = 0
-    for lib, _total, err in plans:
+    for lib, backend, vids in plans:
         lib_id = _lib_id(lib.get("id"))
-        if err:
-            out.append({"file": str(lib.get("path") or ""), "library_id": lib_id,
-                        "status": f"error: library root {err}"})
-            continue
-        root = str(lib["path"])
-        if str(lib.get("kind") or "movie") == "tv":
-            done = _tv_walk(lib_id, root, skip_dirs, out, done, grand,
-                            progress_cb, should_stop)
+        is_tv = str(lib.get("kind") or "movie") == "tv"
+        seen_extras: set[str] = set()
+        for e in vids:
             if should_stop and should_stop():
                 logger.info("scan cancelled: processed=%s/%s", done, grand)
                 return out
-            continue
-        seen_extras: set[str] = set()
-        for root_dir, dirs, files in os.walk(root):
-            # 剪枝（评审 P1-04）：隐藏目录 + NAS 回收站/缩略图等系统目录不进库
-            dirs[:] = sorted(d for d in dirs
-                             if not d.startswith(".") and d not in skip_dirs)
-            for f in sorted(files):
-                if should_stop and should_stop():
-                    logger.info("scan cancelled: processed=%s/%s", done, grand)
-                    return out
-                if f.startswith("."):
-                    continue
-                if os.path.splitext(f)[1].lower() not in VIDEO_EXTS:
-                    continue
-                abs_p = os.path.join(root_dir, f)
+            try:
+                r = (scan_tv_file(backend, e.rel) if is_tv
+                     else scan_file(backend, e.rel, force=force,
+                                    local_index=local_index))
+                r["library_id"] = lib_id
+                out.append(r)
+                if r.get("status") in (ST_EXTRA_ATTACHED, ST_EXTRA_ORPHAN):
+                    seen_extras.add(r["file"])
+            except Exception as ex:
+                logger.debug("scan failed file=%s: %s", e.rel, ex, exc_info=True)
+                out.append({"file": e.rel, "library_id": lib_id,
+                            "status": f"error: {ex}"})
+            done += 1
+            if progress_cb:
                 try:
-                    r = scan_one(abs_p, library_id=lib_id)
-                    r["library_id"] = lib_id
-                    out.append(r)
-                    if r.get("status") in (ST_EXTRA_ATTACHED, ST_EXTRA_ORPHAN):
-                        seen_extras.add(r["file"])
-                except Exception as e:
-                    rel = os.path.relpath(abs_p, root)
-                    logger.debug("scan_one failed file=%s: %s", rel, e, exc_info=True)
-                    out.append({"file": rel, "library_id": lib_id,
-                                "status": f"error: {e}"})
-                done += 1
-                if progress_cb:
-                    try:
-                        progress_cb(done, grand)
-                    except Exception as e:
-                        logger.debug("progress_cb failed: %s", e)
-        # 花絮行 GC（按库分区）：文件已不存在的归属记录清掉（正片走 missing/clean 流程）
+                    progress_cb(done, grand)
+                except Exception as ex:
+                    logger.debug("progress_cb failed: %s", ex)
+        if is_tv:
+            continue
+        # 花絮行 GC（按库分区，仅在一次完整遍历后执行）：文件已不存在的归属记录清掉
+        # （正片走 missing/clean 流程）；exists 走 backend，库离线/出错时整体保留行。
         try:
             for row in store.list_all_extras():
                 if int(row.get("library_id") or DEFAULT_LIBRARY_ID) != lib_id:
                     continue
                 if row["file_path"] in seen_extras:
                     continue
-                if os.path.exists(library_paths.resolve(lib_id, row["file_path"])):
-                    continue
+                try:
+                    if backend.exists(row["file_path"]):
+                        continue
+                except storage.StorageError as ex:
+                    logger.debug("extras gc skipped (storage) lib=%s: %s", lib_id, ex)
+                    break
                 store.delete_extra_by_path(row["file_path"], library_id=lib_id)
-        except Exception as e:
-            logger.debug("extras gc failed lib=%s: %s", lib_id, e)
+        except Exception as ex:
+            logger.debug("extras gc failed lib=%s: %s", lib_id, ex)
     return out

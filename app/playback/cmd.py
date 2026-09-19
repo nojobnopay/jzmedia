@@ -110,7 +110,8 @@ def build_cmd(abs_path: str, plan: dict,
     HW 加速：transcode.detect() 冒烟探测（env TRANSCODER/HW_ACCEL 可强制）；
     force_sw=True 用于硬件路径失败后的软件重试。"""
     plan = plan or {}
-    abs_path = os.path.abspath(abs_path)  # cwd=会话目录执行，输入须绝对化
+    if "://" not in abs_path:   # 远程直读输入是内网 URL，不能 abspath（指导 §10/§11）
+        abs_path = os.path.abspath(abs_path)  # cwd=会话目录执行，输入须绝对化
     backend = None
     if not plan.get("vcopy"):
         from .. import transcode
@@ -128,13 +129,17 @@ def _is_burn(plan: dict) -> bool:
 
 
 def _append_sub_input(cmd: list, plan: dict, pre: float) -> None:
-    """外挂图片字幕（VobSub）第二输入：与主输入同样的输入侧提前量（时间轴对齐）。"""
+    """外挂图片字幕（VobSub）第二输入：与主输入同样的输入侧提前量（时间轴对齐）。
+    `sub_sidecar_input` 由调用方按 StorageBackend 解析（本地路径或内网 URL）。"""
     rel = str(plan.get("sub_sidecar") or "")
     if not rel:
         return
     if pre > 0:
         cmd += ["-ss", f"{pre:.3f}"]
-    cmd += ["-i", os.path.abspath(library_paths.abs_path(rel))]
+    src = str(plan.get("sub_sidecar_input") or "")
+    if not src:
+        src = os.path.abspath(library_paths.abs_path(rel))
+    cmd += ["-i", src]
 
 
 def _build_cmd_fmp4(abs_path: str, plan: dict,

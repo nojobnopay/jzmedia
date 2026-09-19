@@ -198,6 +198,8 @@ def fs_copy(body: dict | None = None):
         lid = int(lid_raw) if lid_raw not in (None, "") else library_paths.default_id()
     except (TypeError, ValueError):
         raise HTTPException(422, "library must be int")
+    from .routes import _require_posix_fs
+    _require_posix_fs(lid)
     # 目标目录可不存在（粘贴到新目录），空串=根；_check_inside_root 拒绝空串，故单独处理
     raw_to = str(body.get("to_dir") or "").strip().strip("/")
     to_dir = _check_inside_root(raw_to, lid) if raw_to else ""

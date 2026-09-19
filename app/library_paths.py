@@ -172,6 +172,19 @@ def naming_profile(library_id) -> str:
     return v if v in ("plex", "kodi", "off") else "kodi"
 
 
+def per_version_meta(library_id, versions) -> bool:
+    """多版本是否写 per-version 元数据（`<stem>.nfo` / `<stem>-poster.jpg`）：
+    默认仅 plex 档且版本间 edition 不同才写（Plex 拆独立条目）；env `PER_VERSION_META=1`
+    可强制回退旧行为（所有多版本都写）。"""
+    v = (os.getenv("PER_VERSION_META") or "").strip().lower()
+    if v and v not in ("0", "false", "no", "off"):
+        return True
+    if naming_profile(library_id) != "plex":
+        return False
+    eds = {str((x or {}).get("edition") or "") for x in (versions or [])}
+    return len(eds) > 1
+
+
 def artwork_mode(library_id) -> str:
     """库级落盘策略：none|nfo|nfo_art（缺省 nfo）。"""
     lib = get_library(library_id) or default_library()

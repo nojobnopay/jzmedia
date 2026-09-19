@@ -1,10 +1,11 @@
 import os
+import re
 import threading
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import library_paths, scanner, store
+from .. import artwork, library_paths, scanner, store
 from ..jobkit import JobRegistry
 
 router = APIRouter(prefix="/api/jobs")
@@ -24,7 +25,8 @@ def _scan_summary(results: list) -> dict:
     return {"counts": counts, "errors": errors[:100], "results": results[:200]}
 
 
-def _scan_worker(jid: str, library_id: int | None = None) -> None:
+def _scan_worker(jid: str, library_id: int | None = None,
+                 force: bool = False) -> None:
     def _stop() -> bool:
         job = _SCAN_JOBS.get(jid)
         return job is None or job.get("state") != "running"
@@ -33,7 +35,7 @@ def _scan_worker(jid: str, library_id: int | None = None) -> None:
         _SCAN_JOBS.update(jid, done=int(done), total=int(total))
 
     try:
-        kwargs = {"progress_cb": _cb, "should_stop": _stop}
+        kwargs = {"progress_cb": _cb, "should_stop": _stop, "force": bool(force)}
         if library_id is not None:
             kwargs["library_id"] = library_id
         res = scanner.scan_all(**kwargs)
@@ -48,21 +50,25 @@ def _scan_worker(jid: str, library_id: int | None = None) -> None:
 
 class ScanBody(BaseModel):
     library_id: int | None = None
+    force: bool = False   # 强制重扫（跳过缓存短路，重走匹配+落盘；修复错配用）
 
 
 @router.post("/scan")
 def scan_start(body: ScanBody | None = None):
-    """启动后台扫描：{library_id?} 缺省=全部启用库；立即返回 {job_id}；
-    已在跑则复用（resumed）。"""
+    """启动后台扫描：{library_id?, force?} 缺省=全部启用库；立即返回 {job_id}；
+    已在跑则复用（resumed）。force=true 时已有匹配的行也会重走（本地优先/TMDB）。"""
     library_id = body.library_id if body else None
+    force = bool(body.force) if body else False
     running = _SCAN_JOBS.running()
     if running:
         return {"job_id": running["job_id"], "resumed": True,
                 "library_id": running.get("library_id")}
-    job = _SCAN_JOBS.create(library_id=library_id)
+    job = _SCAN_JOBS.create(library_id=library_id, force=force)
     jid = job["job_id"]
-    threading.Thread(target=_scan_worker, args=(jid, library_id), daemon=True).start()
-    return {"job_id": jid, "resumed": False, "library_id": library_id}
+    threading.Thread(target=_scan_worker, args=(jid, library_id, force),
+                     daemon=True).start()
+    return {"job_id": jid, "resumed": False, "library_id": library_id,
+            "force": force}
 
 
 @router.get("/scan/{job_id}")
@@ -204,7 +210,8 @@ def rebuild_nfo(body: NfoBody | None = None):
     dry_run = bool(body.dry_run) if body else False
     movies = sorted(store.list_movies(grouped=False, limit=100000)[:limit],
                     key=lambda m: (m.get("file_path", ""), m.get("id", 0)))
-    from .files import _require_writable
+    from .. import storage
+    from .files import _is_file, _require_writable
     for lid in sorted({int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
                        for m in movies}):
         _require_writable(lid)
@@ -212,13 +219,20 @@ def rebuild_nfo(body: NfoBody | None = None):
     wrote_total, deleted_total = 0, 0
     by_mode: dict[str, int] = {}
     for m in movies:
-        abs_path = library_paths.resolve(
-            m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, m["file_path"])
-        if not os.path.isfile(abs_path):
+        lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+        rel = m["file_path"]
+        if not _is_file(lib_id, rel):
             skipped += 1
             continue
         try:
-            r = scanner.sync_nfos_for(m["id"], abs_path, dry_run=dry_run, force=True)
+            abs_path = storage.media_write_path(lib_id, rel)
+            if abs_path:
+                r = scanner.sync_nfos_for(m["id"], abs_path, dry_run=dry_run,
+                                          force=True)
+            else:
+                backend = storage.backend_for(lib_id)
+                r = scanner.sync_nfos_for(m["id"], backend=backend, rel=rel,
+                                          dry_run=dry_run, force=True)
             if r.get("ok"):
                 done += 1
                 mode = str(r.get("mode") or "unknown")
@@ -245,14 +259,14 @@ def rebuild_fts():
 @router.get("/stats")
 def stats(library: str | None = None):
     """库状态一览（设置页展示用，纯本地聚合）；library 缺省=全库合计。"""
+    from .files import _exists
     libs = store._split_ints(library)
     missing = 0
     for m in store.list_movies(grouped=False, limit=100000):
         if libs and int(m.get("library_id") or 0) not in libs:
             continue
-        if not os.path.exists(library_paths.resolve(
-                m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
-                m["file_path"])):
+        if not _exists(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
+                       m["file_path"]):
             missing += 1
     base = store.library_stats(libs[0] if len(libs) == 1 else None)
     return {**base, "missing_files": missing}
@@ -319,3 +333,201 @@ def import_imdb_cancel(job_id: str = ""):
         running = _IMDB_JOBS.running()
         job_id = running["job_id"] if running else ""
     return {"job_id": job_id, "state": _IMDB_JOBS.cancel(job_id)}
+
+
+# ===== 元数据落盘重建 / 存量清理（2026-09 用户反馈修复） =====
+_META_JOBS = JobRegistry(prefix="meta")
+
+
+def _target_counts(rows: list) -> dict:
+    """按写目标类型统计（预览/结果用）：local / remote / unavailable。"""
+    out = {"local": 0, "remote": 0, "unavailable": 0}
+    for m in rows:
+        t = scanner.write_target(m)
+        if t.get("abs_path"):
+            out["local"] += 1
+        elif t.get("backend") is not None:
+            out["remote"] += 1
+        else:
+            out["unavailable"] += 1
+    return out
+
+
+def _meta_worker(jid: str, library_id: int | None, dry_run: bool,
+                 write_art: bool = True, backdrops: bool = True) -> None:
+    from .files import _is_file
+
+    def _stop() -> bool:
+        job = _META_JOBS.get(jid)
+        return job is None or job.get("state") != "running"
+
+    try:
+        rows = [m for m in store.list_movies(grouped=False, limit=100000)
+                if m.get("tmdb_id")
+                and (library_id is None
+                     or int(m.get("library_id") or 0) == int(library_id))]
+        _META_JOBS.update(jid, total=len(rows))
+        done, failed = 0, []
+        for m in rows:
+            if _stop():
+                _META_JOBS.update(jid, done=done)
+                return
+            try:
+                lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+                if not _is_file(lib_id, m["file_path"]):
+                    raise RuntimeError("file missing")
+                target = scanner.write_target(m)
+                abs_p = target.get("abs_path") or ""
+                backend = target.get("backend")
+                rel = target.get("rel") or ""
+                if not abs_p and backend is None:
+                    raise RuntimeError("no writable target")
+                scanner.sync_nfos_for(m["id"], abs_p, force=True,
+                                      backend=backend, rel=rel)
+                if write_art:
+                    artwork.write_for_movie(m["id"], abs_p, backend=backend,
+                                            rel=rel, backdrops=backdrops)
+                done += 1
+            except Exception as e:
+                failed.append({"id": m.get("id"), "file_path": m.get("file_path"),
+                               "error": str(e)[:200]})
+            _META_JOBS.update(jid, done=done, failed=failed[-20:],
+                              current=str(m.get("file_path") or "")[:120])
+        _META_JOBS.update(jid, state="done", done=done, total=len(rows))
+    except Exception as e:
+        _META_JOBS.update(jid, state="failed", error=str(e)[:300])
+
+
+class RebuildMetaBody(BaseModel):
+    library_id: int | None = None
+    dry_run: bool = True
+    artwork: bool = True       # 同步 poster（artwork_mode=nfo_art 时）
+    backdrops: bool = True     # 缺 fanart 时下载 backdrop（费流量，可关）
+
+
+@router.post("/rebuild-meta")
+def rebuild_meta(body: RebuildMetaBody | None = None):
+    """重建媒体目录落盘（离线，不触网）：按现有匹配从 tmdb_cache 重写 NFO
+    + poster/fanart（远程直读库经 backend 写 NAS）。用于手动修正匹配后同步、
+    或历史误写（挂载点）后补写。dry_run=true 默认只预览。"""
+    body = body or RebuildMetaBody()
+    library_id = body.library_id
+    rows = [m for m in store.list_movies(grouped=False, limit=100000)
+            if m.get("tmdb_id")
+            and (library_id is None
+                 or int(m.get("library_id") or 0) == int(library_id))]
+    counts = _target_counts(rows)
+    if body.dry_run:
+        return {"dry_run": True, "total": len(rows), "targets": counts,
+                "sample": [m.get("file_path") for m in rows[:20]]}
+    running = _META_JOBS.running()
+    if running:
+        return {"job_id": running["job_id"], "resumed": True,
+                "library_id": running.get("library_id")}
+    job = _META_JOBS.create(library_id=library_id, total=len(rows), targets=counts)
+    jid = job["job_id"]
+    threading.Thread(target=_meta_worker,
+                     args=(jid, library_id, False, body.artwork,
+                           body.backdrops), daemon=True).start()
+    return {"job_id": jid, "resumed": False, "library_id": library_id,
+            "total": len(rows), "targets": counts}
+
+
+@router.get("/rebuild-meta/{job_id}")
+def rebuild_meta_status(job_id: str = ""):
+    job = _META_JOBS.get(job_id) if job_id else _META_JOBS.latest()
+    return job or {"job_id": job_id, "state": "idle", "done": 0, "total": 0}
+
+
+@router.post("/rebuild-meta/{job_id}/cancel")
+def rebuild_meta_cancel(job_id: str = ""):
+    if not job_id:
+        running = _META_JOBS.running()
+        job_id = running["job_id"] if running else ""
+    return {"job_id": job_id, "state": _META_JOBS.cancel(job_id)}
+
+
+_BDMV_SEG_RE = re.compile(r"(^|/)(BDMV|VIDEO_TS|CERTIFICATE|AUDIO_TS)(/|$)",
+                          re.IGNORECASE)
+
+
+class CleanStraysBody(BaseModel):
+    library_id: int | None = None
+    dry_run: bool = True
+
+
+@router.post("/clean-bdmv")
+def clean_bdmv(body: CleanStraysBody | None = None):
+    """清理 BDMV/VIDEO_TS 等蓝光结构里的碎片行（00000.m2ts 等，只删 DB 记录，
+    不动物理文件）。dry_run=true 默认只预览。"""
+    body = body or CleanStraysBody()
+    rows = [m for m in store.list_movies(grouped=False, limit=100000)
+            if _BDMV_SEG_RE.search(str(m.get("file_path") or ""))
+            and (body.library_id is None
+                 or int(m.get("library_id") or 0) == int(body.library_id))]
+    if body.dry_run:
+        return {"dry_run": True, "total": len(rows),
+                "sample": [{"id": m["id"], "file_path": m["file_path"],
+                            "title": m.get("title")} for m in rows[:20]]}
+    deleted, failed = 0, []
+    for m in rows:
+        try:
+            if store.delete_movie(int(m["id"])):
+                deleted += 1
+        except Exception as e:
+            failed.append({"id": m["id"], "error": str(e)[:200]})
+    return {"dry_run": False, "total": len(rows), "deleted": deleted,
+            "failed": failed}
+
+
+@router.post("/clean-mount-artifacts")
+def clean_mount_artifacts(body: CleanStraysBody | None = None):
+    """清理挂载点目录里被误写的媒体产物（NFO/图片，历史 bug：远程库写到了挂载点）。
+    仅当该库挂载点**未真正挂载**时清理（挂载中时目录即 NAS，绝不碰）。
+    dry_run=true 默认只预览。"""
+    from ..db import mounts_dir
+    body = body or CleanStraysBody()
+    base = mounts_dir()
+    items: list[str] = []
+    if os.path.isdir(base):
+        for name in sorted(os.listdir(base)):
+            if not name.startswith("lib_"):
+                continue
+            if body.library_id is not None:
+                try:
+                    if int(name.split("_", 1)[1]) != int(body.library_id):
+                        continue
+                except (ValueError, IndexError):
+                    continue
+            root = os.path.join(base, name)
+            try:
+                if os.path.ismount(root):
+                    continue          # 真挂载：指向 NAS，禁止清理
+            except OSError:
+                continue
+            for dirpath, _dirs, files in os.walk(root):
+                for f in files:
+                    if f.lower().endswith((".nfo", ".jpg", ".jpeg", ".png")):
+                        items.append(os.path.relpath(os.path.join(dirpath, f), base))
+    if body.dry_run:
+        return {"dry_run": True, "total": len(items), "sample": items[:50]}
+    removed, failed = 0, []
+    for rel in items:
+        p = os.path.join(base, rel)
+        try:
+            os.remove(p)
+            removed += 1
+        except OSError as e:
+            failed.append({"file": rel, "error": str(e)})
+    # 清空目录（自底向上）
+    if os.path.isdir(base):
+        for dirpath, dirs, files in os.walk(base, topdown=False):
+            if dirpath == base:
+                continue
+            try:
+                if not os.listdir(dirpath):
+                    os.rmdir(dirpath)
+            except OSError:
+                pass
+    return {"dry_run": False, "total": len(items), "removed": removed,
+            "failed": failed}

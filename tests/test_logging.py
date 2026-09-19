@@ -56,7 +56,7 @@ def test_sync_nfos_failure_logs(monkeypatch, media_root, caplog):
     def _boom(*a, **kw):
         raise OSError("disk full")
 
-    monkeypatch.setattr(scanner.nfo_link, "write_movie_nfo", _boom)
+    monkeypatch.setattr(scanner.nfo_link, "render_movie_nfo_bytes", _boom)
     with caplog.at_level(logging.WARNING, logger="jzmedia.scanner"):
         r = scanner.sync_nfos_for(mid, str(media_root / "syncnfo-only/c.mkv"))
     assert r["ok"] is False
@@ -72,7 +72,7 @@ def test_sync_nfos_multi_version_write_failure_logged(monkeypatch, media_root, c
     def _boom(*a, **kw):
         raise OSError("nfo boom")
 
-    monkeypatch.setattr(scanner.nfo_link, "write_movie_nfo", _boom)
+    monkeypatch.setattr(scanner.nfo_link, "render_movie_nfo_bytes", _boom)
     with caplog.at_level(logging.WARNING, logger="jzmedia.scanner"):
         r = scanner.sync_nfos_for(mid, str(media_root / "syncnfo-multi/x (2020).mkv"))
     assert r["ok"] is False
@@ -86,8 +86,8 @@ def test_scan_one_error_logged(monkeypatch, media_root, caplog):
     def _boom(*a, **kw):
         raise RuntimeError("probe boom")
 
-    monkeypatch.setattr(scanner.scan, "scan_one", _boom)
+    monkeypatch.setattr(scanner.scan, "scan_file", _boom)
     with caplog.at_level(logging.DEBUG, logger="jzmedia.scanner"):
         out = scanner.scan_all()
     assert any(str(r.get("status", "")).startswith("error") for r in out)
-    assert any("scan_one failed" in rec.message for rec in caplog.records)
+    assert any("scan failed" in rec.message for rec in caplog.records)

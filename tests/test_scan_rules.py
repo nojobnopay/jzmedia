@@ -79,17 +79,18 @@ def test_scan_keeps_manual_title_on_no_match(media_root):
 
 # ---------- B5a-2（R03-D6）：年份对不上也采信时标 needs_review ----------
 
-def _stub_match(monkeypatch, release_date: str, tmdb_id: int):
+def _stub_match(monkeypatch, release_date: str, tmdb_id: int,
+                title: str = "Year Test"):
     monkeypatch.setattr(scanner.tmdb, "search_movie", lambda q, year=None: [
-        {"id": tmdb_id, "title": "Year Test", "original_title": "Year Test",
+        {"id": tmdb_id, "title": title, "original_title": title,
          "release_date": release_date, "vote_average": 7.0}])
     monkeypatch.setattr(scanner.tmdb, "movie_detail", lambda tid: {
-        "id": tid, "title": "Year Test", "original_title": "Year Test",
+        "id": tid, "title": title, "original_title": title,
         "release_date": release_date, "overview": "", "vote_average": 7.0,
         "genres": [], "production_countries": [], "original_language": "en",
         "external_ids": {}, "poster_path": "",
         "credits": {"cast": [], "crew": []}})
-    def _apply(mid, detail, abs_path):
+    def _apply(mid, detail, abs_path, **kw):
         store.update_movie_meta(mid, tmdb_id=detail["id"])
         return {"title": "Year Test", "year": 2024, "tmdb_id": detail["id"],
                 "nfo": False}
@@ -111,9 +112,9 @@ def test_scan_year_mismatch_marks_needs_review(media_root, monkeypatch):
 def test_scan_year_match_stays_ok(media_root, monkeypatch):
     rel = "keep/Year.Ok.2024.mkv"
     _touch(media_root, rel)
-    _stub_match(monkeypatch, "2024-05-01", 424243)
+    _stub_match(monkeypatch, "2024-05-01", 424243, title="Year Ok")
     r = scanner.scan_one(str(media_root / rel))
-    assert r["status"] == "ok"
+    assert r["status"] == "ok", r
 
 
 # ---------- P1-03：剧集不得入库 ----------
@@ -222,7 +223,7 @@ def test_scan_tmdb_error_then_manual_rescan(media_root, monkeypatch):
         "release_date": "2021-05-01", "overview": "", "vote_average": 7.0,
         "genres": [], "production_countries": [], "original_language": "en",
         "external_ids": {}, "poster_path": "", "credits": {"cast": [], "crew": []}})
-    def _apply(mid2, detail, abs_path):
+    def _apply(mid2, detail, abs_path, **kw):
         store.update_movie_meta(mid2, tmdb_id=detail["id"])
         return {"title": "Retry Movie", "year": 2021, "tmdb_id": detail["id"], "nfo": False}
     monkeypatch.setattr(scanner.scan, "apply_tmdb_detail", _apply)

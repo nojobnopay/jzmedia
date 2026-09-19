@@ -43,8 +43,9 @@ CREATE TABLE IF NOT EXISTS libraries (
   metadata_providers TEXT NOT NULL DEFAULT '',
   smb_host TEXT DEFAULT '', smb_share TEXT DEFAULT '', smb_subpath TEXT DEFAULT '',
   smb_domain TEXT DEFAULT '', smb_username TEXT DEFAULT '', smb_password TEXT DEFAULT '',
-  smb_options TEXT DEFAULT '',
+  smb_options TEXT DEFAULT '', smb_connect_host TEXT DEFAULT '',
   nfs_export TEXT DEFAULT '', nfs_password TEXT DEFAULT '', nfs_options TEXT DEFAULT '',
+  storage_identity TEXT DEFAULT '',
   last_status TEXT DEFAULT '', last_error TEXT DEFAULT '', last_check_at INTEGER DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL DEFAULT 0
@@ -365,7 +366,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "tmdb_language", "tmdb_image_base", "jzmedia_token"}
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 def _columns(c, table: str) -> set:
@@ -678,9 +679,52 @@ def _m14(c) -> None:
             logger.info("远程库 path 归一 lib=%s -> %s", r["id"], want)
 
 
+def _m15(c) -> None:
+    """存储身份（防重复入库）+ SMB 连接地址分离（display_host vs connect_host）。
+
+    - `storage_identity`：本地=realpath；SMB=host/share/subpath；NFS=export。
+      存量行回填；不设 UNIQUE（历史重复行保留，新建时守卫）。
+    - `smb_connect_host`：Tailscale/内网可达地址（空=与 smb_host 相同）。
+    """
+    _ensure_columns(c, "libraries", [
+        ("smb_connect_host", "ALTER TABLE libraries ADD COLUMN smb_connect_host TEXT DEFAULT ''"),
+        ("storage_identity", "ALTER TABLE libraries ADD COLUMN storage_identity TEXT DEFAULT ''"),
+    ])
+    try:
+        rows = c.execute("SELECT * FROM libraries").fetchall()
+    except sqlite3.OperationalError:
+        return
+    for r in rows:
+        ident = _identity_of(dict(r))
+        if ident and (r["storage_identity"] or "") != ident:
+            c.execute("UPDATE libraries SET storage_identity=? WHERE id=?",
+                      (ident, int(r["id"])))
+    c.execute("CREATE INDEX IF NOT EXISTS idx_libraries_identity"
+              " ON libraries(storage_identity)")
+
+
+def _identity_of(lib: dict) -> str:
+    """存储身份哈希源串（模块级：迁移与 store.libraries 共用，避免双实现）。"""
+    source = str(lib.get("source") or "local")
+    if source == "local":
+        try:
+            return "local:" + os.path.realpath(str(lib.get("path") or ""))
+        except (OSError, ValueError):
+            return ""
+    if source == "smb":
+        # 身份用展示主机名（connect_host 只是访问方式，不应改变存储身份）
+        host = str(lib.get("smb_host") or "").strip().lower()
+        share = str(lib.get("smb_share") or "").strip().strip("/").lower()
+        sub = str(lib.get("smb_subpath") or "").strip().strip("/").lower()
+        return f"smb:{host}/{share}/{sub}" if host and share else ""
+    if source == "nfs":
+        return "nfs:" + str(lib.get("nfs_export") or "").strip().lower()
+    return ""
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
-                    (12, _m12), (13, _m13), (14, _m14)]
+                    (12, _m12), (13, _m13), (14, _m14), (15, _m15)]
 
 
 def init_db() -> None:

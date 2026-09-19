@@ -3,12 +3,51 @@ import os
 import errno
 import shutil
 from ... import library_paths
+from ... import storage
 from ...editions import _ILLEGAL
 from fastapi import HTTPException
 from ...log import get_logger
 logger = get_logger("files.paths")
 __all__ = ['_MAX_ONLY_IDS', '_safe_component', '_check_inside_root', '_only_ids',
-           '_rename_or_move', '_require_writable']
+           '_rename_or_move', '_require_writable', '_backend_for', '_exists', '_is_file']
+
+
+def _backend_for(library_id):
+    try:
+        return storage.backend_for(library_id)
+    except storage.StorageError as e:
+        logger.debug("backend unavailable lib=%s: %s", library_id, e)
+        return None
+
+
+def _exists(library_id, rel: str) -> bool:
+    """存在性（本地/远程统一）。存储离线等错误保守返回 True（防把离线误判成已删）。"""
+    backend = _backend_for(library_id)
+    if backend is None:
+        return False
+    local = backend.abs_path(rel)
+    if local is not None:
+        return os.path.exists(local)
+    try:
+        return backend.exists(rel)
+    except storage.StorageError as e:
+        logger.warning("exists check failed lib=%s rel=%s: %s", library_id, rel, e)
+        return True
+
+
+def _is_file(library_id, rel: str) -> bool:
+    """是否文件（本地/远程统一）；错误同样保守返回 True。"""
+    backend = _backend_for(library_id)
+    if backend is None:
+        return False
+    local = backend.abs_path(rel)
+    if local is not None:
+        return os.path.isfile(local)
+    try:
+        return not backend.stat(rel).is_dir
+    except storage.StorageError as e:
+        logger.warning("is_file check failed lib=%s rel=%s: %s", library_id, rel, e)
+        return True
 
 
 def _require_writable(library_id) -> None:

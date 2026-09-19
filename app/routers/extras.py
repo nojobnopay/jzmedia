@@ -100,12 +100,17 @@ def collect(body: dict | None = None):
     skipped: list[dict] = []
     for c in cands:
         from .files import _require_writable
-        _require_writable(c.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        from .. import storage
+        lib_id = c.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+        _require_writable(lib_id)
         try:
-            r = move_attached_extras(
-                c["id"], library_paths.resolve(c.get("library_id")
-                                               or library_paths.DEFAULT_LIBRARY_ID,
-                                               c["dir"]))
+            backend = storage.backend_for(lib_id)
+            if backend.abs_path(c["dir"] or "") is None:
+                # 远程直读库：整条链路走 backend（无挂载依赖）
+                r = move_attached_extras(c["id"], "", backend=backend,
+                                         movie_dir_rel=c["dir"] or "")
+            else:
+                r = move_attached_extras(c["id"], library_paths.resolve(lib_id, c["dir"]))
             done.append({"id": c["id"], "moved": r.get("moved", 0),
                          "skipped": len(r.get("skipped") or [])})
             for sk in (r.get("skipped") or []):

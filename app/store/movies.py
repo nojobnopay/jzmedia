@@ -155,10 +155,10 @@ def list_movie_ids_by_library(library_id: int) -> list[int]:
 
 
 def list_movie_paths_by_tmdb(tmdb_id: int, library_id) -> list[dict]:
-    """同库同 tmdb 的版本行轻量列表（本地图片落盘判定用）。"""
+    """同库同 tmdb 的版本行轻量列表（本地图片落盘判定用；edition 供多版本策略）。"""
     with _lock, _conn() as c:
         rows = c.execute(
-            "SELECT id, file_path FROM movies WHERE tmdb_id=? AND library_id=?"
+            "SELECT id, file_path, edition FROM movies WHERE tmdb_id=? AND library_id=?"
             " ORDER BY id", (int(tmdb_id), int(library_id))).fetchall()
         return [dict(r) for r in rows]
 

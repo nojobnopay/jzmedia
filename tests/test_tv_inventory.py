@@ -82,7 +82,7 @@ def test_tv_playback_kind_isolation(tv_lib, monkeypatch):
     assert got["position"] == 5
 
     # 媒体信息（探测打桩）：kind=episode 命中剧集行
-    monkeypatch.setattr("app.media.probe", lambda p: {
+    monkeypatch.setattr("app.media.probe", lambda p, size=None, timeout=30: {
         "playable": True, "duration": 10.0, "audio": [], "subs": [],
         "attachments": [], "container": "mkv", "probe_ver": 99, "probed_at": 1})
     d = client.get(f"/api/stream/{eid}/media?kind=episode").json()

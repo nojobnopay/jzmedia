@@ -1,28 +1,39 @@
 """routers.stream.media（自 app/routers/stream.py 拆分，评审 B9/R12-Q1；经 stream 门面使用）。"""
-import os
 from fastapi import HTTPException
 from pydantic import BaseModel
 from ... import caps as _caps
 from ... import media as _media
+from ... import storage
 from ... import store
 from ... import library_paths
 from ... import playback as _playback
 from ...log import get_logger
 logger = get_logger("stream.media")
-from .common import _media_cached_or_probe, _version_abs, router
+from .common import _media_cached_or_probe, _version_source, router
 from .subtitles import _sub_list
 __all__ = ['stream_media', '_media_payload', 'stream_backends', 'PlaybackQuery', '_decide_payload', 'stream_decide', 'stream_decide_post', 'VersionsQuery', '_versions_payload', 'stream_versions', 'stream_versions_post', 'ProbeMissingBody', 'probe_missing', 'ProgressBody', 'progress_get', 'progress_save', 'progress_clear']
+
+
+def _source_or_none(vm: dict):
+    """库内相对路径 → MediaSource；缺失/离线等存储错误返回 None（版本列表置灰用）。"""
+    try:
+        return storage.media_source(
+            vm.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, vm["file_path"])
+    except storage.StorageError:
+        return None
+
 
 @router.get("/{version_id}/media")
 def stream_media(version_id: int, refresh: int = 0, kind: str = "movie"):
     """版本媒体信息（徽章行用）：容器/时长/分辨率/编码/HDR/位深/音字幕列表/playable，
     并附客户端实测候选码串（vcaps + 每音轨 caps）。kind=movie|episode（F）。"""
-    m, abs_p = _version_abs(version_id, kind)
+    m, src = _version_source(version_id, kind)
     k = m.get("kind") or "movie"
     if refresh:
-        info = store.upsert_media_info(int(m["id"]), _media.probe(abs_p), k)
+        info = store.upsert_media_info(int(m["id"]),
+                                       _media.probe(src.input, size=src.size), k)
     else:
-        info = _media_cached_or_probe(m, abs_p)
+        info = _media_cached_or_probe(m, src)
     return {"version_id": int(m["id"]), "kind": k, "file_path": m["file_path"],
             "title": m.get("title", ""), **_media_payload(m, info),
             "duration_text": _media.fmt_duration(info.get("duration") or 0)}
@@ -91,8 +102,8 @@ def stream_decide(version_id: int, quality: str = "auto",
                   audio: int = 0, sub: int | None = None,
                   client: str = "web", kind: str = "movie"):
     """三档决策（GET 兼容口：无 caps，走服务端保守默认）。新播放器用 POST 带 caps。"""
-    m, abs_p = _version_abs(version_id, kind)
-    info = _media_cached_or_probe(m, abs_p)
+    m, src = _version_source(version_id, kind)
+    info = _media_cached_or_probe(m, src)
     if not info.get("playable"):
         raise HTTPException(422, f"unplayable: {info.get('probe_error') or 'probe failed'}")
     return _decide_payload(m, info, PlaybackQuery(quality=quality, audio=audio,
@@ -103,8 +114,8 @@ def stream_decide(version_id: int, quality: str = "auto",
 def stream_decide_post(version_id: int, body: PlaybackQuery | None = None):
     """四档决策（目标文档 §5）：direct / remux / audio_transcode / video_transcode。
     caps 由前端 caps.js 实测上报；direct_url 复用 blob（Range 直发），hls_url 供切片口。"""
-    m, abs_p = _version_abs(version_id, body.kind if body else "movie")
-    info = _media_cached_or_probe(m, abs_p)
+    m, src = _version_source(version_id, body.kind if body else "movie")
+    info = _media_cached_or_probe(m, src)
     if not info.get("playable"):
         raise HTTPException(422, f"unplayable: {info.get('probe_error') or 'probe failed'}")
     return _decide_payload(m, info, body or PlaybackQuery())
@@ -142,11 +153,10 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
             return
         if not vm:
             return
-        abs_p = library_paths.resolve(
-            vm.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, vm["file_path"])
-        if os.path.isfile(abs_p):
+        src = _source_or_none(vm)
+        if src is not None:
             try:
-                _media_cached_or_probe(vm, abs_p)
+                _media_cached_or_probe(vm, src)
             except Exception as e:
                 logger.debug("pre-probe failed vid=%s: %s", vm.get("id"), e)
 
@@ -166,16 +176,15 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
         vm = store.get_movie(vid)
         if not vm:
             continue
-        abs_p = library_paths.resolve(
-            vm.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, vm["file_path"])
+        src = _source_or_none(vm)
         base = {"version_id": vid, "file_path": vm["file_path"],
                 "edition": v.get("edition") or "", "spec": v.get("spec") or ""}
-        if not os.path.isfile(abs_p):
+        if src is None:
             items.append({**base, "playable": False, "probe_error": "file missing",
                           "method": "blocked", "reasons": ["unplayable"],
                           "score": [9, 0], "duration_text": ""})
             continue
-        info = _media_cached_or_probe(vm, abs_p)
+        info = _media_cached_or_probe(vm, src)
         if not info.get("playable"):
             items.append({**base, "playable": False,
                           "probe_error": info.get("probe_error") or "probe failed",
@@ -252,10 +261,13 @@ def probe_missing(body: ProbeMissingBody | None = None):
     done, failed, unplayable = [], [], []
     for r in rows:
         vid = int(r["id"])
-        abs_p = library_paths.resolve(
-            r.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, r["file_path"])
+        src = _source_or_none(r)
+        if src is None:
+            failed.append({"id": vid, "error": "file missing"})
+            continue
         try:
-            info = store.upsert_media_info(vid, _media.probe(abs_p))
+            info = store.upsert_media_info(
+                vid, _media.probe(src.input, size=src.size))
         except Exception as e:
             failed.append({"id": vid, "error": str(e)[:200]})
             continue
@@ -290,7 +302,7 @@ def progress_get(version_id: int, kind: str = "movie"):
 @router.post("/progress")
 def progress_save(body: ProgressBody, version_id: int, kind: str = "movie"):
     """写单版本断点（position/duration 秒）。伪造/缺失版本 404/410，不落脏行。"""
-    _version_abs(version_id, kind)
+    _version_source(version_id, kind)
     p = store.save_progress(int(version_id), body.position, body.duration, kind)
     return {**p, "position_text": _media.fmt_duration(p.get("position") or 0)}
 

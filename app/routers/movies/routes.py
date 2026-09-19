@@ -1,6 +1,7 @@
 """routers.movies.routes（自 app/routers/movies.py 拆分，评审 B9/R05-Q1；经 movies 门面使用）。"""
 import os
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
+from fastapi import (APIRouter, BackgroundTasks, File, HTTPException, Query,
+                     Request, UploadFile)
 from ... import config
 from ... import store
 from ... import scanner
@@ -478,34 +479,26 @@ def _movie_blob_rel(movie_id: int, name: str) -> tuple[dict, str]:
 
 
 @router.get("/movies/{movie_id}/blob")
-def movie_blob(movie_id: int, name: str = "", mode: str = "", inline: int = 0):
+def movie_blob(movie_id: int, request: Request, name: str = "", mode: str = "",
+               inline: int = 0):
     """详情页下载/预览：name 取 /files 清单的 name 或 rel。
 
-    默认 FileResponse 原样下载（支持 Range，视频可拖进度、图片可直显）；
+    默认原样发送（本地 FileResponse / 远程 Range 流式，视频可拖进度、图片可直显）；
     mode=text 返回前 64KB 文本（srt/nfo/剧本预览用）。
     inline=1 且扩展名在白名单（图片/PDF）时不带 attachment，供 <iframe>/<img> 内嵌预览
     （评审 B6/R05-D3：带 attachment 的 PDF 会触发下载而不是渲染）。"""
-    import mimetypes
-    from fastapi.responses import FileResponse, PlainTextResponse
+    from ... import storage
+    from ..blob import media_response, text_response, guess_media_type
     m, rel = _movie_blob_rel(movie_id, name)
-    abs_p = library_paths.resolve(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, rel)
+    backend = storage.backend_for(
+        m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
     if (mode or "").strip().lower() == "text":
-        try:
-            with open(abs_p, "rb") as fh:
-                chunk = fh.read(64 * 1024)
-        except OSError as e:
-            raise HTTPException(500, f"read failed: {e}")
-        try:
-            text = chunk.decode("utf-8")
-        except UnicodeDecodeError:
-            text = chunk.decode("gbk", errors="replace")
-        return PlainTextResponse(text, headers={"X-Content-Type-Options": "nosniff"})
+        return text_response(backend, rel)
     if inline and os.path.splitext(rel)[1].lower() in _INLINE_EXTS:
-        media_type = mimetypes.guess_type(abs_p)[0] or "application/octet-stream"
-        return FileResponse(abs_p, media_type=media_type,
-                            headers={"X-Content-Type-Options": "nosniff"})
-    return FileResponse(abs_p, filename=os.path.basename(abs_p),
-                        headers={"X-Content-Type-Options": "nosniff"})
+        return media_response(request, backend, rel,
+                              media_type=guess_media_type(rel), inline=True)
+    return media_response(request, backend, rel,
+                          filename=os.path.basename(backend.norm(rel)))
 
 
 @router.post("/movies/{movie_id}/upload")
@@ -725,18 +718,55 @@ def manual_match(movie_id: int, body: dict, background_tasks: BackgroundTasks):
         raise HTTPException(422, "tmdb_id must be int")
     if not (0 < tmdb_id <= 2 ** 31 - 1):     # 值域守卫（评审 B6/R07-B2）
         raise HTTPException(422, "tmdb_id out of range")
+    # 写目标：本地=绝对路径；远程直读=backend+rel（此前写挂载点导致 NAS 不更新）
+    target = scanner.write_target(m)
     try:
         detail = tmdb.movie_detail(int(tmdb_id))
     except Exception as e:
-        raise HTTPException(502, f"tmdb fetch failed: {e}")
-    abs_path = library_paths.resolve(
-        m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, m["file_path"])
-    out, media = scanner.apply_tmdb_detail_fast(
-        movie_id, detail, abs_path, force_title=True)
+        # TMDB 不可用（无 token/断网/401）时用本地缓存离线绑定（本地库数据支持远程库纠正）
+        if not store.get_tmdb_cached(int(tmdb_id)):
+            raise HTTPException(502, f"tmdb fetch failed: {e}") from e
+        logger.info("TMDB 不可用，手动匹配走本地缓存 movie_id=%s tmdb_id=%s",
+                    movie_id, tmdb_id)
+        cached = store.get_tmdb_cached(int(tmdb_id)) or {}
+        # 显式换绑：先强制对齐缓存标题（copy_tmdb_to_movie 不覆盖手工标题），
+        # 再落缓存元数据与 NFO/海报（标题/studios 等一次写对）
+        if cached.get("title"):
+            try:
+                store.update_movie_meta(movie_id, title=str(cached["title"]),
+                                        title_auto=0)
+            except Exception as e2:
+                logger.debug("force title from cache failed movie_id=%s: %s",
+                             movie_id, e2)
+        try:
+            store.update_movie_meta(movie_id, nfo_hash="")
+        except Exception as e2:
+            logger.debug("clear nfo_hash failed movie_id=%s: %s", movie_id, e2)
+        try:
+            out = scanner.apply_cached_to_movie(
+                movie_id, int(tmdb_id), target.get("abs_path") or "",
+                backend=target.get("backend"), rel=target.get("rel") or "",
+                force_title=True)
+        except Exception as e2:
+            logger.warning("offline match apply failed movie_id=%s: %s", movie_id, e2)
+            raise HTTPException(500, f"apply cached failed: {e2}") from e2
+        store.update_movie_local(movie_id, needs_review=0)
+        try:
+            store.update_movie_meta(movie_id, match_source="local")
+        except Exception as e2:
+            logger.debug("persist match_source failed movie_id=%s: %s", movie_id, e2)
+        return {"id": movie_id, "offline": True, **out}
+    out, media = scanner.apply_tmdb_detail_fast(movie_id, detail, "", force_title=True)
     store.update_movie_local(movie_id, needs_review=0)
-    background_tasks.add_task(scanner.finish_tmdb_media, movie_id, detail,
-                              abs_path, media["poster_tmdb"],
-                              media["old_poster_tmdb"])
+    # 显式换绑：清 NFO 所有权哈希，允许覆盖 NAS 上旧的（错配）NFO
+    try:
+        store.update_movie_meta(movie_id, nfo_hash="")
+    except Exception as e:
+        logger.debug("clear nfo_hash failed movie_id=%s: %s", movie_id, e)
+    background_tasks.add_task(
+        scanner.finish_tmdb_media, movie_id, detail,
+        target.get("abs_path") or "", media["poster_tmdb"], media["old_poster_tmdb"],
+        backend=target.get("backend"), rel=target.get("rel") or "")
     return {"id": movie_id, **out}
 
 
@@ -776,20 +806,28 @@ def organize_hint(movie_id: int):
 @router.post("/movies/{movie_id}/rescan")
 def rescan_movie(movie_id: int):
     """手动重试刮削（评审 B9 后续）：读行内 file_path，force 跳过增量跳过与缓存短路。
-    刮削失败的行（scan_failed/no_match）重试后仍在，绝不因失败消失。"""
+    走 StorageBackend：直读远程库（无挂载）同样可重扫。刮削失败的行（scan_failed/
+    no_match）重试后仍在，绝不因失败消失。"""
+    from ... import storage
+
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
     rel = (m.get("file_path") or "").strip()
     if not rel:
         raise HTTPException(422, "movie has no file_path")
-    abs_path = library_paths.resolve(
-        m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, rel)
-    if not os.path.isfile(abs_path):
-        raise HTTPException(410, f"file missing: {rel}")
     try:
-        r = scanner.scan_one(abs_path, force=True,
-                             library_id=m.get("library_id"))
+        backend = storage.backend_for(
+            m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        backend.stat(rel)
+    except storage.StorageNotFound:
+        raise HTTPException(410, f"file missing: {rel}")
+    except storage.StorageOffline as e:
+        raise HTTPException(503, f"source offline: {e}")
+    except storage.StorageError as e:
+        raise HTTPException(500, f"storage error: {e}")
+    try:
+        r = scanner.scan_file(backend, rel, force=True)
     except Exception as e:
         logger.warning("rescan failed movie_id=%s rel=%s: %s", movie_id, rel, e)
         raise HTTPException(502, f"rescan failed: {e}")

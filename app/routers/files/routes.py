@@ -6,10 +6,11 @@ from ... import library_paths, store
 from ...scanner import sync_nfos_for
 from ...log import get_logger
 logger = get_logger("files.routes")
-from .paths import (_check_inside_root, _only_ids, _rename_or_move,
-                    _require_writable)
+from .paths import (_backend_for, _check_inside_root, _exists, _is_file, _only_ids,
+                    _rename_or_move, _require_writable)
 from .planner import _collect_plans, _ordered_plans
-from .executor import _cleanup_old_dir, _resync_old_dir, _move_one
+from .executor import (_cleanup_old_dir, _remote_cleanup_old_dir,
+                       _remote_resync_old_dir, _resync_old_dir, _move_one)
 __all__ = ['router', '_organize', 'organize', 'preview', 'unmatched', 'missing', 'clean', '_restore_candidates', '_restore_one', 'restore_candidates', 'restore_original', '_under_root', '_delete_rows']
 
 router = APIRouter(prefix="/api/files")
@@ -171,9 +172,8 @@ def missing(library: str | None = None):
     for m in store.list_movies(grouped=False, limit=100000):
         if libs and int(m.get("library_id") or 0) not in libs:
             continue
-        if not os.path.exists(library_paths.resolve(
-                m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
-                m["file_path"])):
+        if not _exists(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
+                       m["file_path"]):
             out.append({"id": m["id"], "title": m.get("title", ""),
                         "year": m.get("year"), "file_path": m["file_path"],
                         "tmdb_id": m.get("tmdb_id")})
@@ -184,15 +184,23 @@ def missing(library: str | None = None):
 def clean(body: dict | None = None):
     """清理失效条目：彻底删除DB行+演职员关联+FTS（海报与tmdb_cache保留供重扫复用）。
     默认 dry_run 预览（评审 B5a-4/R09-D4）；
-    body.ids 不传则清理全部缺失行；建议先 GET /missing 预览勾选。"""
+    body.ids 不传则清理全部缺失行；建议先 GET /missing 预览勾选。
+    body.library_id/library 可限定库（缺省=全库）。"""
     body = body or {}
     dry_run = body.get("dry_run", True)
     only_set = _only_ids(body)
+    raw_lib = body.get("library_id", body.get("library"))
+    if raw_lib in (None, ""):
+        libs: set[int] = set()
+    elif isinstance(raw_lib, int):
+        libs = {raw_lib}
+    else:
+        libs = set(store._split_ints(raw_lib))
     cands = [m for m in store.list_movies(grouped=False, limit=100000)
              if (only_set is None or m["id"] in only_set)
-             and not os.path.exists(library_paths.resolve(
-                 m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
-                 m["file_path"]))]
+             and (not libs or int(m.get("library_id") or 0) in libs)
+             and not _exists(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
+                             m["file_path"])]
     plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
               "file_path": m["file_path"],
               "tmdb_id": m.get("tmdb_id")} for m in cands]
@@ -211,8 +219,7 @@ def _restore_candidates(only: set | None) -> list[dict]:
         cur = m.get("file_path", "")
         if not orig or os.path.normpath(orig) == os.path.normpath(cur):
             continue
-        if not os.path.isfile(library_paths.resolve(
-                m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, cur)):
+        if not _is_file(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, cur):
             continue
         out.append(m)
     out.sort(key=lambda m: (m.get("file_path", ""), m.get("id", 0)))
@@ -220,7 +227,8 @@ def _restore_candidates(only: set | None) -> list[dict]:
 
 
 def _restore_one(m: dict, dry_run: bool) -> dict:
-    """单行恢复到原始路径。dry_run 只规划；执行时复用 NFO 收敛+旧目录清理。"""
+    """单行恢复到原始路径。dry_run 只规划；执行时复用 NFO 收敛+旧目录清理。
+    远程直读库经 StorageBackend 执行（无挂载依赖）。"""
     base = {"id": m["id"], "title": m.get("title", ""),
             "from": m["file_path"], "to": m.get("original_file_path") or ""}
     # 目标边界守卫（评审 B6/R09-B4）：to 来自库内历史值，理论上合法；
@@ -229,6 +237,10 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
         base["to"] = _check_inside_root(base["to"])
     except HTTPException as e:
         return {**base, "status": f"error: illegal target ({e.detail})"}
+    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    backend = _backend_for(lib_id)
+    if backend is not None and backend.abs_path(base["from"]) is None:
+        return _restore_one_remote(m, base, backend, dry_run)
     src = library_paths.resolve(
         m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, base["from"])
     dst = library_paths.resolve(
@@ -271,6 +283,55 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
         return {**base, "status": "restored"}
     except Exception as e:
         logger.warning("restore failed id=%s %s -> %s: %s", m.get("id"),
+                       base.get("from"), base.get("to"), e)
+        return {**base, "status": f"error: {e}"}
+
+
+def _restore_one_remote(m: dict, base: dict, backend, dry_run: bool) -> dict:
+    """远程直读库恢复：库内相对路径 rename + DB 更新 + NFO/旧目录收敛。"""
+    from ... import storage
+    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    src_rel = backend.norm(base["from"])
+    dst_rel = backend.norm(base["to"])
+    try:
+        if not _is_file(lib_id, src_rel):
+            return {**base, "status": "skipped_missing_src"}
+        if backend.exists(dst_rel):
+            return {**base, "status": "conflict_disk_exists"}
+    except storage.StorageError as e:
+        return {**base, "status": f"error: {e}"}
+    existing = store.get_by_path(base["to"], library_id=lib_id) if base["to"] else None
+    if existing is not None and int(existing.get("id") or -1) != int(m["id"]):
+        return {**base, "status": "conflict_db_occupied"}
+    if dry_run:
+        return {**base, "status": "planned"}
+    try:
+        parent = os.path.dirname(dst_rel)
+        if parent:
+            backend.mkdir(parent, parents=True)
+        old_dir = os.path.dirname(src_rel)
+        backend.rename(src_rel, dst_rel)
+        try:
+            store.update_movie_local(m["id"], file_path=base["to"])
+        except Exception as e:
+            logger.warning("update db after restore failed id=%s %s -> %s: %s",
+                           m.get("id"), base.get("from"), base.get("to"), e)
+            try:
+                backend.rename(dst_rel, src_rel)
+            except Exception as rb:
+                logger.warning("restore rollback failed id=%s dst=%s: %s",
+                               m.get("id"), dst_rel, rb)
+            raise
+        try:
+            sync_nfos_for(m["id"], backend=backend, rel=dst_rel)
+        except Exception as e:
+            logger.debug("restore nfos sync failed id=%s dst=%s: %s", m.get("id"), dst_rel, e)
+        _remote_cleanup_old_dir(backend, old_dir)
+        if os.path.normpath(old_dir) != os.path.normpath(os.path.dirname(dst_rel)):
+            _remote_resync_old_dir(backend, old_dir, lib_id)
+        return {**base, "status": "restored"}
+    except Exception as e:
+        logger.warning("remote restore failed id=%s %s -> %s: %s", m.get("id"),
                        base.get("from"), base.get("to"), e)
         return {**base, "status": f"error: {e}"}
 

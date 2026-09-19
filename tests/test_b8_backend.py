@@ -196,7 +196,7 @@ def test_scan_job_lifecycle(monkeypatch):
     from app import scanner
     from app.routers import jobs as jobs_router
 
-    def fake_scan(progress_cb=None, should_stop=None):
+    def fake_scan(progress_cb=None, should_stop=None, **kwargs):
         if progress_cb:
             progress_cb(0, 3)
         out = []
@@ -228,7 +228,7 @@ def test_scan_job_cancel(monkeypatch):
     import time as _t
     from app import scanner
 
-    def slow_scan(progress_cb=None, should_stop=None):
+    def slow_scan(progress_cb=None, should_stop=None, **kwargs):
         out = []
         for i in range(200):
             if should_stop and should_stop():

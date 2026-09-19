@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ..config import settings
 from .. import artwork
 from .. import library_paths
+from .. import storage
 from .. import store
 from .. import tmdb
 from ..db import POSTER_DIR
@@ -12,7 +13,7 @@ from ..log import get_logger
 logger = get_logger("scanner.persist")
 from .match import extract_credits, jobs_from_credits, meta_from_detail
 from .nfo_link import _write_nfo_for
-__all__ = ['save_person_avatar', '_sync_jobs', 'sync_persons', 'sync_persons_from_cache', 'ensure_movie_poster', '_media_needs', 'finish_tmdb_media', 'apply_tmdb_detail', 'apply_tmdb_detail_fast', 'apply_cached_to_movie', 'finish_refresh_media', 'refresh_tmdb_id', 'refresh_tmdb_id_fast']
+__all__ = ['save_person_avatar', '_sync_jobs', 'sync_persons', 'sync_persons_from_cache', 'ensure_movie_poster', '_media_needs', 'finish_tmdb_media', 'apply_tmdb_detail', 'apply_tmdb_detail_fast', 'apply_cached_to_movie', 'finish_refresh_media', 'refresh_tmdb_id', 'refresh_tmdb_id_fast', 'write_target']
 
 def save_person_avatar(person_tmdb_id: int, profile_path: str | None) -> str:
     """人物头像落盘（w185），文件已存在则跳过。返回相对 DATA_DIR 的路径，失败返回 ''。"""
@@ -112,6 +113,21 @@ def sync_persons_from_cache(mid: int, tmdb_id: int) -> int:
     return 0
 
 
+def write_target(m: dict) -> dict:
+    """媒体目录写目标：本地=abs_path；远程直读=backend+库内 rel（无 POSIX 路径）。
+    返回 dict：{abs_path} 或 {abs_path: "", backend, rel}；不可用时 abs_path=''。"""
+    lid = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    rel = m.get("file_path") or ""
+    try:
+        backend = storage.backend_for(lid)
+        local = backend.abs_path(rel) or ""
+    except storage.StorageError:
+        return {"abs_path": ""}
+    if local:
+        return {"abs_path": local}
+    return {"abs_path": "", "backend": backend, "rel": rel}
+
+
 def ensure_movie_poster(tmdb_id: int, poster_tmdb_path: str | None,
                         old_poster_tmdb_path: str | None = None) -> str:
     """海报本地路径保障：远端 path 未变且文件存在则复用，否则下载（覆盖）。
@@ -147,16 +163,18 @@ def _media_needs(tmdb_id: int, mid: int, poster_tmdb: str,
 
 
 def finish_tmdb_media(mid: int, detail: dict, abs_path: str,
-                      poster_tmdb: str, old_poster_tmdb: str) -> dict:
-    """后台重活：海报下载 + 头像同步 + FTS + NFO。幂等，失败自吞（下次刷新/重绑自愈）。"""
+                      poster_tmdb: str, old_poster_tmdb: str,
+                      backend=None, rel: str = "") -> dict:
+    """后台重活：海报下载 + 头像同步 + FTS + NFO。幂等，失败自吞（下次刷新/重绑自愈）。
+    backend/rel 供远程直读库经 StorageBackend 落盘（本地忽略）。"""
     tmdb_id = detail["id"]
     try:
         poster_local = ensure_movie_poster(tmdb_id, poster_tmdb, old_poster_tmdb)
         store.update_movie_meta(mid, poster_path=poster_local)
         sync_persons(mid, detail)
         store.resync_fts(mid)
-        nfo = _write_nfo_for(mid, abs_path)
-        art = artwork.write_for_movie(mid, abs_path)
+        nfo = _write_nfo_for(mid, abs_path, backend=backend, rel=rel)
+        art = artwork.write_for_movie(mid, abs_path, backend=backend, rel=rel)
         return {"poster_path": poster_local, "nfo": nfo, "artwork": art}
     except Exception as e:
         logger.warning("finish_tmdb_media failed mid=%s tmdb=%s: %s", mid,
@@ -165,15 +183,15 @@ def finish_tmdb_media(mid: int, detail: dict, abs_path: str,
 
 
 def apply_tmdb_detail(mid: int, detail: dict, abs_path: str,
-                      force_title: bool = False) -> dict:
+                      force_title: bool = False, backend=None, rel: str = "") -> dict:
     """把TMDB详情写入镜像并复制到本片（人物/海报/NFO/FTS，全同步版；扫描链路用）。
     force_title=True（手动换绑）时无条件覆盖标题；否则保留手工改过的标题。"""
     out, media = apply_tmdb_detail_fast(mid, detail, abs_path, force_title)
     finish_tmdb_media(mid, detail, abs_path, media["poster_tmdb"],
-                      media["old_poster_tmdb"])
+                      media["old_poster_tmdb"], backend=backend, rel=rel)
     movie = store.get_movie(mid)
-    out["nfo"] = _write_nfo_for(mid, abs_path)
-    out["artwork"] = artwork.write_for_movie(mid, abs_path)
+    out["nfo"] = _write_nfo_for(mid, abs_path, backend=backend, rel=rel)
+    out["artwork"] = artwork.write_for_movie(mid, abs_path, backend=backend, rel=rel)
     if movie:
         out["title"], out["year"] = movie["title"], movie["year"]
     return out
@@ -216,24 +234,33 @@ def apply_tmdb_detail_fast(mid: int, detail: dict, abs_path: str,
     return out, media
 
 
-def apply_cached_to_movie(mid: int, tmdb_id: int, abs_path: str) -> dict:
-    """零网络复用：从 tmdb_cache 向新行复制元数据+海报复用+人物复用，供同 tmdb_id 多版本使用。"""
+def apply_cached_to_movie(mid: int, tmdb_id: int, abs_path: str,
+                          backend=None, rel: str = "",
+                          force_title: bool = False) -> dict:
+    """零网络复用：从 tmdb_cache 向新行复制元数据+海报复用+人物复用，供同 tmdb_id 多版本使用。
+    force_title=True（本地优先纠正错配）时用缓存标题覆盖（含此前错配写入的标题）。"""
     cur = store.get_movie(mid)
-    cur_tmdb = (cur or {}).get("tmdb_id")
+    cur_tmdb = cur.get("tmdb_id")
     if cur_tmdb and cur_tmdb != tmdb_id:
         store.clear_movie_persons(mid)
     if not cur_tmdb or cur_tmdb != tmdb_id:
         store.update_movie_meta(mid, tmdb_id=tmdb_id)
     store.copy_tmdb_to_movie(mid, old_title=None)
     cached = store.get_tmdb_cached(tmdb_id) or {}
+    if force_title and cached.get("title"):
+        # 换绑（本地优先纠正错配）：标题对齐新片，清 title_auto 防后续被文件名覆盖
+        try:
+            store.update_movie_meta(mid, title=str(cached["title"]), title_auto=0)
+        except Exception as e:
+            logger.debug("force title from cache failed mid=%s: %s", mid, e)
     poster_local = ensure_movie_poster(tmdb_id, cached.get("poster_tmdb_path") or "",
                                        cached.get("poster_tmdb_path") or "")
     store.update_movie_meta(mid, poster_path=poster_local)
     sync_persons_from_cache(mid, tmdb_id)
     store.resync_fts(mid)
     movie = store.get_movie(mid) or {}
-    nfo = _write_nfo_for(mid, abs_path)
-    art = artwork.write_for_movie(mid, abs_path)
+    nfo = _write_nfo_for(mid, abs_path, backend=backend, rel=rel)
+    art = artwork.write_for_movie(mid, abs_path, backend=backend, rel=rel)
     return {"title": movie.get("title", ""), "year": movie.get("year"),
             "tmdb_id": tmdb_id, "nfo": nfo, "artwork": art}
 
@@ -251,8 +278,10 @@ def finish_refresh_media(jobs: list[dict]) -> int:
             store.update_movie_meta(mid, poster_path=poster_local)
             sync_persons(mid, j["detail"])
             store.resync_fts(mid)
-            _write_nfo_for(mid, j["abs_path"])
-            artwork.write_for_movie(mid, j["abs_path"])
+            _write_nfo_for(mid, j.get("abs_path") or "",
+                           backend=j.get("backend"), rel=j.get("rel") or "")
+            artwork.write_for_movie(mid, j.get("abs_path") or "",
+                                    backend=j.get("backend"), rel=j.get("rel") or "")
             n += 1
         except Exception:
             continue
@@ -291,9 +320,7 @@ def refresh_tmdb_id_fast(tmdb_id: int) -> tuple[dict, list[dict]]:
                         jobs.append({"mid": mid, "tmdb_id": tmdb_id,
                                      "detail": detail, "poster_tmdb": new_poster_tmdb,
                                      "old_poster_tmdb": old_poster_tmdb,
-                                     "abs_path": library_paths.resolve(
-                                         m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
-                                         m["file_path"])})
+                                     **write_target(m)})
             except Exception:
                 continue
         cur = store.get_tmdb_cached(tmdb_id) or {}
@@ -308,12 +335,10 @@ def refresh_tmdb_id_fast(tmdb_id: int) -> tuple[dict, list[dict]]:
         if not m:
             continue
         store.copy_tmdb_to_movie(mid, old_title=old_title if old_cache else None)
-        abs_path = library_paths.resolve(
-            m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, m["file_path"])
         affected.append(mid)
         jobs.append({"mid": mid, "tmdb_id": tmdb_id, "detail": detail,
                      "poster_tmdb": new_poster_tmdb,
-                     "old_poster_tmdb": old_poster_tmdb, "abs_path": abs_path})
+                     "old_poster_tmdb": old_poster_tmdb, **write_target(m)})
     return ({"changed": True, "affected_ids": affected,
              "title": new_meta.get("title", ""), "year": new_meta.get("year"),
              "tmdb_id": tmdb_id,

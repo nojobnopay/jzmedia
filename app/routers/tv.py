@@ -4,7 +4,7 @@
 """
 import os
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from .. import library_paths, store
 
@@ -66,18 +66,18 @@ def episode_detail(episode_id: int):
 
 
 @router.get("/episodes/{episode_id}/blob")
-def episode_blob(episode_id: int):
-    """剧集文件原样直发（支持 Range；direct 播放/VLC/Kodi 直链用）。"""
-    from fastapi.responses import FileResponse
+def episode_blob(episode_id: int, request: Request):
+    """剧集文件原样直发（本地 FileResponse / 远程 Range 流式；VLC/Kodi 直链用）。"""
+    from .. import storage
+    from .blob import media_response
 
     e = store.get_episode(episode_id)
     if not e:
         raise HTTPException(404, "episode not found")
-    abs_p = library_paths.resolve(e.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
-                                  e.get("file_path") or "")
-    if not os.path.isfile(abs_p):
-        raise HTTPException(410, "file missing")
-    return FileResponse(abs_p, filename=os.path.basename(abs_p))
+    backend = storage.backend_for(
+        e.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+    return media_response(request, backend, e.get("file_path") or "",
+                          filename=os.path.basename(e.get("file_path") or ""))
 
 
 @router.get("/stats")

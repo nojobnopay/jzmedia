@@ -7,9 +7,135 @@ from .. import store
 from ..scanner.parse import normalize_title
 from .base import Candidate
 
-__all__ = ['search', 'best', 'score_row', 'MIN_AUTO_SCORE']
+__all__ = ['search', 'best', 'score_row', 'library_index', 'library_hit',
+           'parse_title_variants', 'parse_path_variants', 'parse_path_year',
+           'MIN_AUTO_SCORE']
 
 MIN_AUTO_SCORE = 45.0
+
+
+def library_index() -> dict:
+    """跨库已匹配影片索引（远程库扫描"本地优先"用）：
+    {(归一标题|原标题, 年份): (tmdb_id, 来源)}。一次全表读，扫描批次共享。"""
+    idx: dict = {}
+    try:
+        rows = store.list_movies(grouped=False, limit=100000)
+    except Exception:
+        return idx
+    for m in rows:
+        tid = m.get("tmdb_id")
+        if not tid:
+            continue
+        try:
+            tid = int(tid)
+        except (TypeError, ValueError):
+            continue
+        year = m.get("year")
+        try:
+            year = int(year) if year is not None else None
+        except (TypeError, ValueError):
+            year = None
+        for key in (normalize_title(m.get("title") or ""),
+                    normalize_title(m.get("original_title") or "")):
+            if key:
+                idx.setdefault((key, year), (tid, "library"))
+    return idx
+
+
+def library_hit(title: str, year, original_title: str = "",
+                index: dict | None = None):
+    """本地优先命中：其他库已匹配的同名片（归一标题 + 年份精确）→ Candidate（零网络）。
+
+    查询键：文件名标题、原标题；年份缺失时仅当该标题跨年唯一才绑定。
+    都没命中返回 None（继续 TMDB 搜索，之后的离线兜底仍会走 match_index，见 `best`）。"""
+    keys = [k for k in (normalize_title(title or ""),
+                        normalize_title(original_title or "")) if k]
+    if not keys:
+        return None
+    try:
+        y = int(year) if year is not None else None
+    except (TypeError, ValueError):
+        y = None
+    idx = library_index() if index is None else index
+    for k in keys:
+        hit = idx.get((k, y))
+        if hit:
+            return Candidate(title=title or "", original_title=original_title or "",
+                             year=y, tmdb_id=hit[0], imdb_id="", source="library",
+                             source_id=str(hit[0]), score=60.0, payload={})
+    if y is None:
+        tids = {v[0] for (k, _yy), v in idx.items() if k in keys}
+        if len(tids) == 1:
+            tid = next(iter(tids))
+            return Candidate(title=title or "", original_title=original_title or "",
+                             year=None, tmdb_id=tid, imdb_id="", source="library",
+                             source_id=str(tid), score=55.0, payload={})
+    return None
+
+
+def parse_title_variants(basename: str) -> list[str]:
+    """文件名 → 本地优先查询键（除 guessit 标题外，补点分段的**中文**段）：
+    `告白.Confessions.2010` → ['Confessions', '告白']（guessit 只认英文段，中文段靠这里补）。
+    只收含 CJK 的段，避免英文短词（Love/It 等）误命中其他片。"""
+    import os as _os
+    stem = _os.path.splitext(basename or "")[0]
+    out: list[str] = []
+
+    def _add(v: str) -> None:
+        v = (v or "").strip()
+        if v and v not in out:
+            out.append(v)
+    try:
+        from ..scanner.parse import parse_filename
+        t = (parse_filename(basename).get("title") or "").strip()
+        # 单字符标题（如 x.mkv）不作查询键：太短容易误命中
+        if len(t) >= 2 or any("\u4e00" <= ch <= "\u9fff" for ch in t):
+            _add(t)
+    except Exception:
+        pass
+    for seg in stem.split("."):
+        seg = seg.strip()
+        if len(seg) < 2 or seg.isdigit():
+            continue
+        if not any("\u4e00" <= ch <= "\u9fff" for ch in seg):
+            continue
+        _add(seg)
+    return out
+
+
+def parse_path_variants(rel: str) -> list[str]:
+    """库内相对路径 → 本地优先查询键：文件名变体 + 父目录各段的中文候选
+    （`告白.Confessions.2010/Confessions.2010.mp4` → ['Confessions', '告白']）。"""
+    import os as _os
+    rel = str(rel or "").replace("\\", "/")
+    out: list[str] = []
+
+    def _add(v: str) -> None:
+        v = (v or "").strip()
+        if v and v not in out:
+            out.append(v)
+    for v in parse_title_variants(_os.path.basename(rel)):
+        _add(v)
+    parts = [p for p in rel.split("/")[:-1] if p and p != "."]
+    for d in parts:
+        for v in parse_title_variants(d):
+            _add(v)
+    return out
+
+
+def parse_path_year(rel: str, fallback=None):
+    """父目录里的年份优先（`告白.Confessions.2010/` → 2010）；无则用 fallback。"""
+    import os as _os
+    import re as _re
+    rel = str(rel or "").replace("\\", "/")
+    for d in reversed([p for p in rel.split("/")[:-1] if p and p != "."]):
+        m = _re.search(r"\((\d{4})\)", d) or _re.search(r"[._\- ]((?:19|20)\d{2})(?:[._\- ]|$)", d)
+        if m:
+            try:
+                return int(m.group(1))
+            except (TypeError, ValueError):
+                pass
+    return fallback
 
 
 def score_row(term: str, year, row: dict) -> float:
