@@ -134,11 +134,12 @@
             <button @click="$router.push('/m/' + m.id)">去处理</button>
           </li>
         </ul>
-        <h4 v-if="needsReview.length" class="sub-h">待确认（{{ needsReview.length }}）<button v-if="needsReview.length > COLLAPSE_N" @click="showAllNeedsReview = !showAllNeedsReview">{{ showAllNeedsReview ? '收起' : '展开全部' }}</button></h4>
+        <h4 v-if="needsReview.length" class="sub-h">待确认（{{ needsReview.length }}）<button v-if="needsReview.length > COLLAPSE_N" @click="showAllNeedsReview = !showAllNeedsReview">{{ showAllNeedsReview ? '收起' : '展开全部' }}</button><button :disabled="!!busy" title="匹配核对无误时一键清除待确认标记（不重刮；同片多版本一起确认）" @click="confirmAllNeedsReview">全部确认</button></h4>
         <ul v-if="needsReview.length" class="miss-list">
           <li v-for="m in visibleNeedsReview" :key="'n' + m.id" class="miss-row">
             <span class="miss-title">{{ m.title || '(未命名)' }}<span v-if="m.year"> ({{ m.year }})</span></span>
             <span class="miss-path">{{ m.file_path }}</span>
+            <button :disabled="!!busy" title="匹配无误，清除待确认" @click="confirmReview([m.id])">确认</button>
             <button @click="$router.push('/m/' + m.id)">去处理</button>
           </li>
         </ul>
@@ -511,6 +512,30 @@ async function loadUnmatched(silent) {
   } catch (e) {
     if (!silent) scanMsg.value = '待处理加载失败：' + e.message
   }
+}
+
+async function confirmReview (ids) {
+  const list = (ids || []).slice(0, 500)
+  if (!list.length) return
+  busy.value = 'confirm'
+  try {
+    await api('/api/movies/batch', {
+      method: 'POST',
+      body: JSON.stringify({ ids: list, ops: { confirm_review: true } }),
+    })
+    const set = new Set(list)
+    needsReview.value = needsReview.value.filter(m => !set.has(m.id))
+    await loadStats()
+  } catch (e) {
+    scanMsg.value = '确认失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+async function confirmAllNeedsReview () {
+  if (!needsReview.value.length) return
+  await confirmReview(needsReview.value.map(m => m.id))
 }
 
 async function attachOrphan(id) {

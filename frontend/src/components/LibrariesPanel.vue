@@ -4,7 +4,7 @@
     <p v-if="!items.length" class="hint">还没有库——请在下方新建，或确认服务端 <code>MEDIA_ROOT</code> 已播种默认库。</p>
     <table v-else class="lib-table">
       <thead>
-        <tr><th>库名</th><th>类型</th><th>来源</th><th>路径</th><th>命名档</th><th>影片</th><th>状态</th><th></th></tr>
+        <tr><th>库名</th><th>类型</th><th>来源</th><th>地址</th><th>命名档</th><th>影片</th><th>状态</th><th></th></tr>
       </thead>
       <tbody>
         <template v-for="l in items" :key="l.id">
@@ -14,8 +14,11 @@
               <span v-if="l.read_only" class="badge">只读</span>
             </td>
             <td>{{ l.kind === 'tv' ? '剧集' : '电影' }}</td>
-            <td>{{ l.source }}</td>
-            <td class="path" :title="l.path">{{ l.path }}</td>
+            <td>
+              {{ l.source }}
+              <span v-if="driverText(l)" class="badge drv" :class="{ direct: l.driver !== 'mount' }">{{ driverText(l) }}</span>
+            </td>
+            <td class="path" :title="pathTitle(l)">{{ pathText(l) }}</td>
             <td>{{ l.naming_profile }}</td>
             <td>{{ l.movie_count }}</td>
             <td>
@@ -309,6 +312,33 @@ async function load () {
   smbDriver.value = d.smb_driver || 'auto'
   try { await loadLibs(api, { force: true }) } catch (e) { /* 忽略 */ }
   emit('changed')
+}
+
+function pathText (l) {
+  if (l.source === 'smb') return smbUrlOf(l) || l.path
+  if (l.source === 'nfs') return l.nfs_export || l.path
+  return l.path
+}
+
+function pathTitle (l) {
+  if (l.source === 'local') return l.path
+  const lines = [pathText(l)]
+  if (l.source === 'smb') {
+    lines.push(`访问方式：${l.driver === 'mount' ? '容器/宿主挂载' : '用户态直读（无需挂载）'}`)
+    if (l.smb_connect_host && l.smb_connect_host !== l.smb_host) {
+      lines.push(`实际连接地址：${l.smb_connect_host}`)
+    }
+  } else {
+    lines.push('访问方式：宿主挂载')
+  }
+  lines.push(`宿主挂载回退路径：${l.path}`)
+  return lines.join('\n')
+}
+
+function driverText (l) {
+  if (l.source === 'smb') return l.driver === 'mount' ? '挂载' : '直读'
+  if (l.source === 'nfs') return '挂载'
+  return ''
 }
 
 function closeMenu (e) {
@@ -638,7 +668,7 @@ defineExpose({ ensure: load })
 .lib-table tr.off { opacity: .5; }
 .lib-table .path { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-table .ops { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.badge { margin-left: 6px; font-size: 0.75rem; border: 1px solid #6b5518; color: #e0b34a; border-radius: 999px; padding: 1px 8px; }
+.badge { margin-left: 6px; font-size: 0.75rem; border: 1px solid #6b5518; color: #e0b34a; border-radius: 999px; padding: 1px 8px; }.badge.drv { border-color: #2b4a6e; color: #6ab0ff; }
 .danger { border-color: #6e2b2b; color: #ff8a8a; }
 .danger-box { border: 1px solid #6e2b2b; border-radius: 8px; padding: 10px; margin: 10px 0; }
 .status-pill { display: inline-block; font-size: 0.75rem; border-radius: 999px; padding: 1px 8px; border: 1px solid #444; color: #aaa; }

@@ -167,7 +167,7 @@ def patch_movie(movie_id: int, body: dict):
 def batch_update(body: dict):
     """海报墙多选批量编辑（海报粒度）：ids 为代表行 id，有 tmdb_id 则展开到同 tmdb 全版本。
     ops: watched(bool) / add_tags[] / remove_tags[] / set_tags[]（与add/remove互斥）
-         / douban_rating / custom_rating（null=清空）。"""
+         / douban_rating / custom_rating（null=清空）/ confirm_review(bool，清待确认标记）。"""
     import time as _time
     body = body or {}
     raw_ids = body.get("ids") or []
@@ -192,6 +192,9 @@ def batch_update(body: dict):
     norm_add = normalize_tags(add_tags) if add_tags is not None else None
     norm_remove = set(normalize_tags(remove_tags)) if remove_tags is not None else None
     norm_set = normalize_tags(set_tags) if set_tags is not None else None
+    confirm_review = ops.get("confirm_review", None)
+    if confirm_review is not None:
+        confirm_review = bool(confirm_review)
     watched = ops.get("watched", None)
     if watched is not None:
         if isinstance(watched, bool):
@@ -215,7 +218,7 @@ def batch_update(body: dict):
                     raise HTTPException(422, f"{k} must be 0-10")
                 ratings[k] = f
     if watched is None and norm_add is None and norm_remove is None \
-            and norm_set is None and not ratings:
+            and norm_set is None and not ratings and confirm_review is None:
         raise HTTPException(422, "empty ops")
     expanded = store.expand_ids_to_versions(rep_ids)
     now = int(_time.time())
@@ -244,6 +247,8 @@ def batch_update(body: dict):
             if watched is not None:
                 patch["watched"] = watched
                 patch["watched_at"] = now if watched else 0
+            if confirm_review:
+                patch["needs_review"] = 0
             patch.update(ratings)
             try:
                 store.update_movie_local(vid, **patch)
@@ -258,6 +263,19 @@ def batch_update(body: dict):
                             "status": "ok" if ok else "not_found"})
     return {"total": len(rep_ids), "affected_versions": affected_versions,
             "results": results}
+
+
+@router.post("/movies/{movie_id}/confirm-match")
+def confirm_match(movie_id: int):
+    """确认当前匹配无误：清除「待确认」标记（本地写，不重刮、不触网、不改标题）。
+    与批量 ops.confirm_review 共用语义（2026-09 用户反馈：待确认应可一键确认）。"""
+    m = store.get_movie(movie_id)
+    if not m:
+        raise HTTPException(404, "movie not found")
+    if not m.get("tmdb_id"):
+        raise HTTPException(422, "unmatched: use /match to bind a tmdb_id first")
+    store.update_movie_local(movie_id, needs_review=0)
+    return {"id": movie_id, "needs_review": 0, "tmdb_id": m.get("tmdb_id")}
 
 
 @router.get("/movies/{movie_id}/collections")

@@ -4,6 +4,8 @@
 - 凭据只写不读（store.public_library 脱敏）。
 - 删库只清 DB 记录（store.delete_library），绝不触碰磁盘媒体文件。
 """
+import os
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -16,11 +18,33 @@ router = APIRouter(prefix="/api/libraries")
 logger = get_logger("libraries")
 
 
+def _driver_hint(lib: dict) -> str:
+    """库当前实际访问方式（仅展示用，不建立连接）：
+    local=本地路径；smb=用户态直读；mount=容器/宿主挂载。"""
+    source = str(lib.get("source") or "local")
+    if source == "local":
+        return "local"
+    if source == "nfs":
+        return "mount"
+    mode = storage.smb_driver_mode()
+    if mode == "mount":
+        return "mount"
+    if mode == "auto":
+        path = str(lib.get("path") or "")
+        try:
+            if path and os.path.ismount(path):
+                return "mount"
+        except OSError:
+            pass
+    return "smb"
+
+
 def _payload(lib: dict | None) -> dict | None:
     out = store.public_library(lib)
     if out is None:
         return None
     out["movie_count"] = store.library_movie_count(out.get("id"))
+    out["driver"] = _driver_hint(lib or {})
     return out
 
 
