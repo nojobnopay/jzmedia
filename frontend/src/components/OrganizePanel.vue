@@ -16,8 +16,8 @@
       </div>
       <div class="bar">
         <button @click="loadOrgPreview" :disabled="!!busy">预览</button>
-        <button @click="doOrganize" :disabled="!!busy || !checkedPlans.length">
-          {{ busy === 'organize' ? '执行中…' : `执行选中 (${checkedPlans.length})` }}
+        <button @click="doOrganize" :disabled="!!busy || !execCount">
+          {{ busy === 'organize' ? '执行中…' : `执行选中 (${execCount})` }}
         </button>
         <button v-if="orgPlans.length" @click="toggleAllPlans">{{ allChecked ? '全不选' : '全选' }}</button>
         <span>{{ orgMsg }}</span>
@@ -25,13 +25,16 @@
       </div>
       <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（当前库；专属目录整目录改名）' : `搬到顶层（${relocateFrom || '待整理'} → ${relocateTo || '电影'}，整目录/散文件）` }} · 列表随参数自动刷新</p>
       <ul v-if="orgPlans.length" class="plan-list">
-        <li v-for="p in visiblePlans" :key="p.id" class="plan-item">
+        <li v-for="p in visiblePlans" :key="p.id" class="plan-item"
+            :class="{ skipped: rowViews[p.id] && rowViews[p.id].skipped }">
           <div class="plan-row">
             <input type="checkbox" :value="p.id" v-model="checkedPlans" />
             <span v-if="p.kind === 'dir'" class="kind-badge" :title="dirTip(p)">{{ planDetails[p.id] && planDetails[p.id].badge }}</span>
             <span class="plan-from" :title="p.from">{{ p.kind === 'dir' ? p.from + '/' : p.from }}</span>
             <span class="plan-arrow">→</span>
-            <span class="plan-to" :title="p.to">{{ p.kind === 'dir' ? p.to + '/' : p.to }}</span>
+            <span class="plan-to" :title="rowViews[p.id] && rowViews[p.id].plan.to">{{ toText(p) }}</span>
+            <span v-if="rowViews[p.id] && rowViews[p.id].forcedRelocate" class="kind-badge act">搬到顶层</span>
+            <span v-if="rowViews[p.id] && rowViews[p.id].skipped" class="kind-badge act">保持不动</span>
             <select v-model="planAction[p.id]" class="act-sel" :disabled="!!busy" title="本行动作（不改的可选「保持不动」）">
               <option value="auto">跟随上方</option>
               <option value="relocate">强制搬到顶层</option>
@@ -89,7 +92,7 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { api } from '../api.js'
-import { dirBadge, dirFileLines } from '../organizePlans.js'
+import { dirBadge, dirFileLines, projectPlan } from '../organizePlans.js'
 
 const COLLAPSE_N = 20
 const props = defineProps({
@@ -128,12 +131,35 @@ function dirTip(p) {
   const n = (p.files || []).length
   return `整目录改名：含 ${n} 个影片文件（多版本按规格改名）；Sample/封面/截图等子目录与文件原名跟随`
 }
-// 目录计划行内明细（徽标+影片改名），执行时目录与影片都改
+// 逐行动作即时投影：切换下拉/目标目录时立即反映该行将要执行的路径（不改执行参数）
+const rowViews = computed(() => {
+  const out = {}
+  for (const p of orgPlans.value) {
+    out[p.id] = projectPlan(p, {
+      action: planAction.value[p.id] || 'auto',
+      orgMode: orgMode.value,
+      toDir: (relocateTo.value || '').trim() || '电影',
+    })
+  }
+  return out
+})
+function toText(p) {
+  const view = rowViews.value[p.id]
+  const to = view && view.plan ? view.plan.to : p.to
+  return p.kind === 'dir' ? to + '/' : to
+}
+// 勾选且动作不是「保持不动」的数量（执行按钮计数）
+const execCount = computed(() => orgPlans.value.filter(
+  p => checkedPlans.value.includes(p.id) && (planAction.value[p.id] || 'auto') !== 'skip'
+).length)
+// 目录计划行内明细（徽标+影片改名）；读投影后的 plan，tooltip 路径与显示一致
 const planDetails = computed(() => {
   const out = {}
   for (const p of orgPlans.value) {
     if (p.kind !== 'dir') continue
-    out[p.id] = { badge: dirBadge(p), ...dirFileLines(p) }
+    const view = rowViews.value[p.id]
+    const pp = view && view.plan ? view.plan : p
+    out[p.id] = { badge: dirBadge(pp), ...dirFileLines(pp) }
   }
   return out
 })
@@ -258,6 +284,7 @@ async function doOrganize() {
     }
     orgPlans.value = results
     orgConflicts.value = conflicts
+    planAction.value = {}          // 结果行是最终路径，动作重置为 auto 防二次投影
     syncNotes()
     syncActions()
     checkedPlans.value = results.filter(r => r.status !== 'moved').map(r => r.id)
@@ -317,7 +344,9 @@ defineExpose({ ensure, refresh })
 .nav-badge { margin-left: 6px; font-size: 0.75rem; color: #e0a63c; }
 .plan-list { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .plan-item { background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; }
+.plan-item.skipped { opacity: 0.55; }
 .plan-row { display: flex; gap: 8px; align-items: center; }
+.kind-badge.act { color: #6ab0ff; border-color: #2c4a6e; }
 .plan-file-lines { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; padding-left: 22px; }
 .plan-file-line { display: flex; gap: 6px; align-items: baseline; color: #9a9a9a; font-size: 0.75rem; }
 .pf-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
