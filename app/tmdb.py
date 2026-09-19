@@ -67,9 +67,12 @@ def search_movie(query: str, year: int | None = None) -> list[dict]:
 
 
 def movie_detail(tmdb_id: int) -> dict:
+    """电影详情。附加 alternative_titles：TMDB 的 zh-CN 记录可能没有本地化 title
+    （回退成英文原名）但中文名在别名表里（如 Top Gun: Maverick → 壮志凌云*），
+    由 scanner.match.pick_display_title 择中文显示名。"""
     with _client() as c:
         return _get(c, f"/movie/{tmdb_id}",
-                    params=_params(append_to_response="credits,external_ids")).json()
+                    params=_params(append_to_response="credits,external_ids,alternative_titles")).json()
 
 
 def person_detail(tmdb_id: int, language: str | None = None) -> dict:

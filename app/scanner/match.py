@@ -1,16 +1,55 @@
 """scanner.match（自 app/scanner.py 拆分，评审 B9/R03-Q1；对外经 app.scanner 门面使用）。"""
 import difflib
+from .. import config
 from .. import tmdb
 from ..regions import resolve as resolve_region
 from .parse import short_candidates, normalize_title
 from ..log import get_logger
 logger = get_logger("scanner.match")
 __all__ = ['pick_match', 'search_with_fallback', 'title_similar', 'SIM_THRESHOLD',
-           'meta_from_detail', 'extract_credits', 'jobs_from_credits']
+           'pick_display_title', 'meta_from_detail', 'extract_credits',
+           'jobs_from_credits']
 
 # 标题相似门（2026-09 错配修复）：TMDB 命中标题必须与文件名标题足够像，
 # 否则不自动绑定（年份精确也只是“待确认”），避免“龙珠Z剧场版→世界大战”式错配。
 SIM_THRESHOLD = 0.7
+
+
+def _has_cjk(s: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in (s or ""))
+
+
+def pick_display_title(detail: dict, language: str | None = None) -> str:
+    """TMDB 详情 → 中文显示名（2026-09 用户反馈：Top Gun: Maverick 有中文简介无中文名）。
+
+    TMDB 的 zh-CN 记录可能缺本地化 title（回退英文原名），中文名只存在于
+    `alternative_titles.titles`（别名表，Plex 也读它）。规则：
+    - 本地化标题已含 CJK → 原样使用；
+    - 配置语言为 zh-* 且标题无 CJK → 取中文别名，优先级 = 配置地区 → CN → TW → HK → SG
+      （要求含 CJK、非空、不等于原标题）；
+    - 其他语言/无候选 → 原样返回。
+    """
+    raw = str((detail or {}).get("title") or "").strip()
+    if _has_cjk(raw):
+        return raw
+    lang = str(language if language is not None
+               else config.effective_tmdb_language() or "").strip().lower()
+    if not lang.startswith("zh"):
+        return raw
+    region = lang.split("-", 1)[1].upper() if "-" in lang else ""
+    prefs: list[str] = []
+    for r in ([region] if region else []) + ["CN", "TW", "HK", "SG"]:
+        if r and r not in prefs:
+            prefs.append(r)
+    alts = ((detail or {}).get("alternative_titles") or {}).get("titles") or []
+    for want in prefs:
+        for t in alts:
+            t = t or {}
+            iso = str(t.get("iso_3166_1") or "").upper()
+            cand = str(t.get("title") or "").strip()
+            if iso == want and cand and cand != raw and _has_cjk(cand):
+                return cand
+    return raw
 
 
 def title_similar(a: str, b: str) -> float:
@@ -89,7 +128,9 @@ def search_with_fallback(title: str, year: int | None) -> tuple[dict | None, str
 
 
 def meta_from_detail(detail: dict) -> dict:
-    """TMDB详情 → 可写入 tmdb_cache 的字典（产地/类型/语言，不含海报/NFO）。"""
+    """TMDB详情 → 可写入 tmdb_cache 的字典（产地/类型/语言，不含海报/NFO）。
+    显示标题经 pick_display_title（zh 别名回退，缺中文主标题的片子也有中文名）；
+    original_title 保留 TMDB 原始标题（为空时回退主标题，英文原名不丢）。"""
     year = None
     if detail.get("release_date", "")[:4].isdigit():
         year = int(detail["release_date"][:4])
@@ -101,9 +142,11 @@ def meta_from_detail(detail: dict) -> dict:
         col_id = int(belongs.get("id")) if belongs.get("id") is not None else None
     except (TypeError, ValueError):
         col_id = None
+    raw_title = str(detail.get("title") or "").strip()
+    original_title = str(detail.get("original_title") or "").strip() or raw_title
     return {
-        "title": detail.get("title", ""),
-        "original_title": detail.get("original_title", ""),
+        "title": pick_display_title(detail),
+        "original_title": original_title,
         "year": year,
         "overview": detail.get("overview", ""),
         "tmdb_id": detail["id"],
