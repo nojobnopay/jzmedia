@@ -137,7 +137,8 @@ def unmatched(library: str | None = None):
         if libs and int(e.get("library_id") or 0) not in libs:
             continue
         orphans.append({"id": e["id"], "file_path": e["file_path"],
-                        "kind": e.get("kind") or "extra"})
+                        "kind": e.get("kind") or "extra",
+                        "library_id": e.get("library_id")})
     return {"unmatched": un, "needs_review": nr,
             "suspect_title_high": high, "suspect_title_info": info,
             "orphan_extras": orphans,
@@ -209,11 +210,14 @@ def clean(body: dict | None = None):
     return _delete_rows(cands)
 
 
-def _restore_candidates(only: set | None) -> list[dict]:
-    """偏离原始位置的行：有原始路径、与当前位置不一致、当前文件仍存在。"""
+def _restore_candidates(only: set | None, libs: set[int] | None = None) -> list[dict]:
+    """偏离原始位置的行：有原始路径、与当前位置不一致、当前文件仍存在。
+    libs 非空时只取这些库的行（设置页按库展示）。"""
     out = []
     for m in store.list_movies(grouped=False, limit=100000):
         if only is not None and m.get("id") not in only:
+            continue
+        if libs and int(m.get("library_id") or 0) not in libs:
             continue
         orig = (m.get("original_file_path") or "").strip()
         cur = m.get("file_path", "")
@@ -337,9 +341,9 @@ def _restore_one_remote(m: dict, base: dict, backend, dry_run: bool) -> dict:
 
 
 @router.get("/restore-candidates")
-def restore_candidates():
-    """预览偏离原始位置的行（只读，供设置页恢复区展示）。"""
-    cands = _restore_candidates(None)
+def restore_candidates(library: str | None = None):
+    """预览偏离原始位置的行（只读，供设置页恢复区展示）。library 缺省=全库。"""
+    cands = _restore_candidates(None, store._split_ints(library))
     return {"total": len(cands),
             "items": [{"id": m["id"], "title": m.get("title", ""),
                        "year": m.get("year"),
@@ -351,17 +355,19 @@ def restore_candidates():
 @router.post("/restore-original")
 def restore_original(body: dict | None = None):
     """恢复到原始位置：把整理/搬迁后偏离原始路径的影片搬回 original_file_path。
-    默认 dry_run:true 只预览；确认后 dry_run:false 执行。目标被占/源缺失则跳过上报，绝不覆盖。"""
+    默认 dry_run:true 只预览；确认后 dry_run:false 执行。目标被占/源缺失则跳过上报，绝不覆盖。
+    body.library_id/library 可限定库（缺省=全库）。"""
     body = body or {}
     only = _only_ids(body)
     dry_run = body.get("dry_run", True)
+    libs = store._split_ints(body.get("library_id", body.get("library")))
     if dry_run:
         plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
                   "from": m["file_path"], "to": m.get("original_file_path") or "",
                   "status": _restore_one(m, dry_run=True)["status"]}
-                 for m in _restore_candidates(only)]
+                 for m in _restore_candidates(only, libs)]
         return {"dry_run": True, "total": len(plans), "plans": plans}
-    cands = _restore_candidates(only)
+    cands = _restore_candidates(only, libs)
     for lid in sorted({int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
                        for m in cands}):
         _require_writable(lid)

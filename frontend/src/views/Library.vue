@@ -121,7 +121,7 @@
     <p class="eg-step">① <button @click="doScan" :disabled="scanning">{{ scanning ? '扫描中…' : '扫描入库' }}</button>
       <span>扫描媒体目录并联网匹配 TMDB，进度显示在上方</span></p>
     <p class="eg-step">② 扫描完成后继续
-      <router-link to="/settings?sec=sec-pipeline">入库流程</router-link>：待匹配确认 → 归档整理</p>
+      <router-link :to="pipelineLink">入库流程</router-link>：待匹配确认 → 归档整理</p>
     <p class="fhint">路径/连接有问题时到「设置 → 媒体库」点「连接」处理；顶栏可切换其他库。</p>
   </div>
 
@@ -258,6 +258,12 @@ const sel = ref(defaultSel())
 const yearPick = ref('')
 
 const watchedCounts = computed(() => facets.value.watched || { watched: 0, unwatched: 0 })
+
+// 入库流程深链：多库时带上当前库，设置页库工具直接选中该库
+const pipelineLink = computed(() => {
+  const lp = libParam()
+  return { path: '/settings', query: lp != null ? { sec: 'sec-pipeline', library: String(lp) } : { sec: 'sec-pipeline' } }
+})
 
 // 多选态（海报粒度：selectedIds 存代表行 id，服务端展开到同 tmdb 全版本）
 // Plex 式：首勾自动进入，清空/Esc 自动退出，无手动开关

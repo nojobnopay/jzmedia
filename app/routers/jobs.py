@@ -92,12 +92,14 @@ def scan_cancel(job_id: str = ""):
 class BackfillBody(BaseModel):
     limit: int = 500
     force: bool = False
+    library_id: int | None = None
 
 
 class RefreshBody(BaseModel):
     ids: list[int] | None = None
     tmdb_ids: list[int] | None = None
     limit: int = 500
+    library_id: int | None = None
 
 
 @router.post("/douban-fetch")
@@ -116,8 +118,11 @@ def backfill_meta(body: BackfillBody | None = None):
     """
     limit = (body.limit if body else 500) or 500
     force = bool(body.force) if body else False
+    lib_id = body.library_id if body else None
     all_tmdb = [m for m in store.list_movies(grouped=False, limit=100000)
-                if m.get("tmdb_id")]
+                if m.get("tmdb_id")
+                and (lib_id is None
+                     or int(m.get("library_id") or 0) == int(lib_id))]
     if force:
         cands = all_tmdb
     else:
@@ -176,7 +181,11 @@ def tmdb_refresh(body: RefreshBody | None = None):
             tmdb_ids.append(tid)
     if not tmdb_ids:
         # 空 body = 刷新全部（设置页“一键刷新”用，需二次确认；cap by limit）
+        # body.library_id 指定时只刷新该库（设置页按库高级维护）
         for m in store.list_movies(grouped=False, limit=100000):
+            if body.library_id is not None \
+                    and int(m.get("library_id") or 0) != int(body.library_id):
+                continue
             if m.get("tmdb_id") and int(m["tmdb_id"]) not in seen:
                 seen.add(int(m["tmdb_id"]))
                 tmdb_ids.append(int(m["tmdb_id"]))
@@ -198,6 +207,7 @@ def tmdb_refresh(body: RefreshBody | None = None):
 class NfoBody(BaseModel):
     limit: int = 2000
     dry_run: bool = False
+    library_id: int | None = None
 
 
 @router.post("/rebuild-nfo")
@@ -205,10 +215,14 @@ def rebuild_nfo(body: NfoBody | None = None):
     """重建 NFO（一键收敛）：为文件仍存在的影片按收敛规则重写 NFO
     （独占单版本只留 movie.nfo 并删历史同名残留；同片多版本补各版本同名；
     共享目录只写当前同名、不碰 movie.nfo）。换机器/丢 NFO 后修复用。
-    dry_run=true 只预览（报告会写/会删），默认 false 直接执行。"""
+    dry_run=true 只预览（报告会写/会删），默认 false 直接执行。
+    body.library_id 可限定库（缺省=全库）。"""
     limit = max(1, min((body.limit if body else 2000) or 2000, 10000))
     dry_run = bool(body.dry_run) if body else False
-    movies = sorted(store.list_movies(grouped=False, limit=100000)[:limit],
+    lib_id = body.library_id if body else None
+    movies = sorted([m for m in store.list_movies(grouped=False, limit=100000)
+                     if lib_id is None
+                     or int(m.get("library_id") or 0) == int(lib_id)][:limit],
                     key=lambda m: (m.get("file_path", ""), m.get("id", 0)))
     from .. import storage
     from .files import _is_file, _require_writable

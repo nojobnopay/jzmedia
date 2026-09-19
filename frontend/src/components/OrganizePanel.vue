@@ -1,5 +1,5 @@
 <template>
-  <div id="sec-organize" class="pipe-step">
+  <div :id="active ? 'sec-organize' : undefined" class="pipe-step">
     <div class="pipe-head pipe-toggle" @click="open = !open">
       <h4>③ 归档整理 <span v-if="orgPlans.length + orgConflicts.length" class="nav-badge">{{ orgPlans.length + orgConflicts.length }}</span></h4>
       <span class="fhint">{{ open ? '收起' : '展开' }}</span>
@@ -20,7 +20,7 @@
         <span>{{ orgMsg }}</span>
         <button v-if="orgPlans.length > COLLAPSE_N" @click="showAllPlans = !showAllPlans">{{ showAllPlans ? '收起' : `展开全部 (${orgPlans.length})` }}</button>
       </div>
-      <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（全库）' : `搬到顶层（${relocateFrom || '待整理'} → ${relocateTo || '电影'}，扁平，含目标下未规范的行）` }} · 列表随参数自动刷新</p>
+      <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（当前库）' : `搬到顶层（${relocateFrom || '待整理'} → ${relocateTo || '电影'}，扁平，含目标下未规范的行）` }} · 列表随参数自动刷新</p>
       <ul v-if="orgPlans.length" class="plan-list">
         <li v-for="p in visiblePlans" :key="p.id" class="plan-row">
           <span class="plan-from" :title="p.from">{{ p.from }}</span>
@@ -70,6 +70,10 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { api } from '../api.js'
 
 const COLLAPSE_N = 20
+const props = defineProps({
+  library: { type: Object, default: null },
+  active: { type: Boolean, default: false },
+})
 const emit = defineEmits(['changed'])
 
 const busy = ref(null)
@@ -121,6 +125,7 @@ async function saveNote(id) {
 
 function orgBody(dry_run) {
   const b = { mode: orgMode.value, dry_run }
+  if (props.library && props.library.id != null) b.library_id = props.library.id
   if (orgMode.value === 'relocate') {
     b.from_prefix = relocateFrom.value.trim()
     b.to_dir = relocateTo.value.trim()

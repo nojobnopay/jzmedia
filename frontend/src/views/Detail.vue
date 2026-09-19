@@ -560,7 +560,9 @@ const originalMoved = computed(() => {
   return !!o && o !== m.value?.file_path
 })
 function goRestore() {
-  router.push({ path: '/settings', query: { sec: 'sec-restore', ids: String(m.value.id) } })
+  const query = { sec: 'sec-restore', ids: String(m.value.id) }
+  if (m.value.library_id != null) query.library = String(m.value.library_id)
+  router.push({ path: '/settings', query })
 }
 async function waitForMedia(tries = 10) {
   for (let i = 0; i < tries; i++) {

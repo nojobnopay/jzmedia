@@ -1,6 +1,6 @@
 <template>
-  <section id="sec-restore" class="card-block">
-    <h3>恢复到原始位置</h3>
+  <section :id="active ? 'sec-restore' : undefined" class="card-block">
+    <h3>恢复到原始位置 <span class="fhint" v-if="library">仅作用于「{{ library.name }}」</span></h3>
     <p class="hint">整理/搬迁后偏离首次入库位置的影片可搬回原处。列表进入本区自动加载，确认后执行；目标被占用或源文件缺失会跳过上报、绝不覆盖。</p>
     <div class="bar">
       <button @click="doRestore" :disabled="!!busy || !checkedRestore.length">{{ busy === 'restore' ? '恢复中…' : (armRestore ? `确认恢复 (${checkedRestore.length})` : '恢复选中') }}</button>
@@ -29,6 +29,10 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from '../api.js'
 
 const COLLAPSE_N = 20
+const props = defineProps({
+  library: { type: Object, default: null },
+  active: { type: Boolean, default: false },
+})
 const emit = defineEmits(['count', 'changed'])
 
 const busy = ref(null)
@@ -69,7 +73,8 @@ async function load(preselect) {
   armRestore.value = false
   const ids = (Array.isArray(preselect) ? preselect : []).map(Number).filter(Number.isFinite)
   try {
-    const d = await api('/api/files/restore-candidates')
+    const q = props.library && props.library.id != null ? '?library=' + props.library.id : ''
+    const d = await api('/api/files/restore-candidates' + q)
     // 预览接口字段是 file_path/original_file_path，统一映射成 from/to（含标题供展示）
     restorePlans.value = (Array.isArray(d.items) ? d.items : []).map(e => ({
       id: e.id, title: e.title || '', year: e.year || '',
@@ -99,7 +104,11 @@ async function doRestore() {
   try {
     const d = await api('/api/files/restore-original', {
       method: 'POST',
-      body: JSON.stringify({ ids: checkedRestore.value, dry_run: false })
+      body: JSON.stringify({
+        ids: checkedRestore.value,
+        dry_run: false,
+        ...(props.library && props.library.id != null ? { library_id: props.library.id } : {}),
+      })
     })
     const ok = (d.results || []).filter(r => r.status === 'restored').length
     restoreMsg.value = `执行完毕：恢复 ${ok}/${d.results.length}`

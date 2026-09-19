@@ -1,0 +1,235 @@
+<template>
+  <section :id="active ? 'sec-meta' : undefined" class="card-block">
+    <h3>高级维护 <span class="fhint">仅作用于「{{ library.name }}」</span></h3>
+    <p class="hint">库级批量修复，日常无需操作：补产地、刷新 TMDB、重写 NFO/海报、清理历史脏行。</p>
+
+    <div class="bar">
+      <button @click="doBackfill" :disabled="!!busy">{{ busy === 'backfill' ? '补数据中…' : '补产地信息' }}</button>
+      <span>{{ backfillMsg }}</span>
+    </div>
+
+    <div class="bar">
+      <button @click="doRefreshAll" :disabled="!!busy">
+        {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? '确认刷新全部 TMDB' : '刷新全部 TMDB 数据') }}
+      </button>
+      <span>{{ refreshMsg }}</span>
+    </div>
+    <p v-if="armRefresh" class="hint warn-text">将逐部请求 TMDB（以 limit 截断），无变化的不动，手工标题不受影响。再点一次执行。</p>
+
+    <div class="bar">
+      <button @click="doRebuildNfo" :disabled="!!busy">{{ busy === 'nfo' ? '重建中…' : '重建全部 NFO' }}</button>
+      <span>{{ nfoMsg }}</span>
+    </div>
+
+    <div class="bar">
+      <button @click="doRebuildMeta" :disabled="!!busy">
+        {{ busy === 'meta' ? `重建元数据中 ${metaDone}/${metaTotal}…` : (armMeta ? '确认重建元数据' : '重建元数据（NFO+海报）') }}
+      </button>
+      <button v-if="busy === 'meta'" @click="cancelMeta">取消</button>
+      <span>{{ metaMsg }}</span>
+    </div>
+    <p v-if="armMeta" class="hint warn-text">按现有匹配从镜像缓存重写 NFO 与 poster/fanart（不触网、不覆盖手工标题；远程库直接写 NAS）。再点一次执行。</p>
+
+    <div class="bar">
+      <button @click="doCleanBdmv" :disabled="!!busy">
+        {{ busy === 'bdmv' ? '清理中…' : (armBdmv ? '确认清理 BDMV 碎片' : '清理 BDMV 碎片') }}
+      </button>
+      <span>{{ bdmvMsg }}</span>
+    </div>
+    <p v-if="armBdmv" class="hint warn-text">删除原盘结构（BDMV/VIDEO_TS）里的碎片记录（只删库记录，不动物理文件）。再点一次执行。</p>
+
+    <div v-if="library.source !== 'local'" class="bar">
+      <button @click="doCleanMount" :disabled="!!busy">
+        {{ busy === 'mount' ? '清理中…' : (armMount ? '确认清理挂载残留' : '清理挂载残留') }}
+      </button>
+      <span>{{ mountMsg }}</span>
+    </div>
+    <p v-if="armMount" class="hint warn-text">清理挂载点目录里被历史误写的 NFO/图片（仅在未真正挂载时执行，绝不动 NAS）。再点一次执行。</p>
+  </section>
+</template>
+<script setup>
+import { ref } from 'vue'
+import { api } from '../api.js'
+import { usePolling } from '../usePolling.js'
+
+const props = defineProps({
+  library: { type: Object, required: true },
+  active: { type: Boolean, default: false },
+})
+const emit = defineEmits(['changed'])
+
+const busy = ref(null)
+const backfillMsg = ref('')
+const refreshMsg = ref('')
+const nfoMsg = ref('')
+const metaMsg = ref('')
+const bdmvMsg = ref('')
+const mountMsg = ref('')
+
+function libBody(extra = {}) {
+  return JSON.stringify({ ...extra, library_id: props.library.id })
+}
+
+async function doBackfill() {
+  busy.value = 'backfill'
+  backfillMsg.value = ''
+  try {
+    const d = await api('/api/jobs/backfill-meta', { method: 'POST', body: libBody() })
+    backfillMsg.value = `回填完成：${d.ok}/${d.total}，失败 ${d.failed.length}`
+    emit('changed')
+  } catch (e) {
+    backfillMsg.value = '回填失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+const armRefresh = ref(false)
+async function doRefreshAll() {
+  if (!armRefresh.value) {
+    armRefresh.value = true
+    refreshMsg.value = '再点一次确认执行'
+    return
+  }
+  armRefresh.value = false
+  busy.value = 'refresh'
+  refreshMsg.value = ''
+  try {
+    const d = await api('/api/jobs/tmdb-refresh', {
+      method: 'POST', body: libBody({ limit: 5000 })
+    })
+    const changed = d.results.filter(r => r.changed).length
+    refreshMsg.value = `完成：${d.total} 部中有变化 ${changed} 部，失败 ${d.failed.length}`
+    emit('changed')
+  } catch (e) {
+    refreshMsg.value = '刷新失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+async function doRebuildNfo() {
+  busy.value = 'nfo'
+  nfoMsg.value = ''
+  try {
+    const d = await api('/api/jobs/rebuild-nfo', { method: 'POST', body: libBody() })
+    nfoMsg.value = `完成：重写 ${d.ok}/${d.total}，跳过缺失 ${d.skipped_missing}，失败 ${d.failed.length}`
+    emit('changed')
+  } catch (e) {
+    nfoMsg.value = '重建失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+// 重建元数据：jobkit 后台任务（进度轮询，可取消）
+const armMeta = ref(false)
+const metaDone = ref(0)
+const metaTotal = ref(0)
+let metaJobId = ''
+const metaPoll = usePolling(pollMetaJob, { interval: 1000 })
+async function doRebuildMeta() {
+  if (!armMeta.value) {
+    armMeta.value = true
+    metaMsg.value = '再点一次确认执行'
+    return
+  }
+  armMeta.value = false
+  busy.value = 'meta'
+  metaMsg.value = ''
+  metaDone.value = 0
+  metaTotal.value = 0
+  try {
+    const d = await api('/api/jobs/rebuild-meta', {
+      method: 'POST', body: libBody({ dry_run: false, artwork: true, backdrops: false })
+    })
+    metaJobId = d.job_id || ''
+    metaTotal.value = d.total || 0
+    if (d.resumed) metaMsg.value = '已有重建任务在跑，跟踪进度…'
+    if (!metaJobId) return finishMeta('没有可重建的影片（都需要 TMDB 匹配）')
+    metaPoll.start()
+  } catch (e) {
+    metaMsg.value = '重建失败：' + e.message
+    busy.value = null
+  }
+}
+async function pollMetaJob() {
+  if (!metaJobId) return
+  try {
+    const st = await api('/api/jobs/rebuild-meta/' + metaJobId)
+    if (st.state === 'running') {
+      metaDone.value = st.done || 0
+      if (st.total) metaTotal.value = st.total
+      return
+    }
+    if (st.state === 'done') {
+      finishMeta(`完成：重写 ${st.done || 0}/${st.total || 0}`
+        + ((st.failed || []).length ? `，失败 ${(st.failed || []).length}` : ''))
+      emit('changed')
+    } else if (st.state === 'cancelled') {
+      finishMeta(`已取消（${st.done || 0}/${st.total || 0}）`)
+    } else {
+      finishMeta('重建失败：' + (st.error || '未知错误'))
+    }
+  } catch (e) { /* 轮询失败下次继续 */ }
+}
+function finishMeta(msg) {
+  metaPoll.stop()
+  metaJobId = ''
+  metaMsg.value = msg
+  busy.value = null
+}
+async function cancelMeta() {
+  if (!metaJobId) return
+  try { await api('/api/jobs/rebuild-meta/' + metaJobId + '/cancel', { method: 'POST' }) } catch (e) { /* 忽略 */ }
+}
+
+const armBdmv = ref(false)
+async function doCleanBdmv() {
+  if (!armBdmv.value) {
+    armBdmv.value = true
+    bdmvMsg.value = '再点一次确认执行'
+    return
+  }
+  armBdmv.value = false
+  busy.value = 'bdmv'
+  bdmvMsg.value = ''
+  try {
+    const d = await api('/api/jobs/clean-bdmv', { method: 'POST', body: libBody() })
+    bdmvMsg.value = d.total ? `已删除 ${d.deleted}/${d.total} 条碎片记录` : '没有需要清理的记录'
+    emit('changed')
+  } catch (e) {
+    bdmvMsg.value = '清理失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+const armMount = ref(false)
+async function doCleanMount() {
+  if (!armMount.value) {
+    armMount.value = true
+    mountMsg.value = '再点一次确认执行'
+    return
+  }
+  armMount.value = false
+  busy.value = 'mount'
+  mountMsg.value = ''
+  try {
+    const d = await api('/api/jobs/clean-mount-artifacts', { method: 'POST', body: libBody() })
+    mountMsg.value = d.total ? `已清理 ${d.removed}/${d.total} 个文件` : '没有挂载残留'
+    emit('changed')
+  } catch (e) {
+    mountMsg.value = '清理失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+</script>
+<style scoped>
+.card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.hint { color: #777; font-size: 0.8125rem; margin: 0 0 4px; }
+.warn-text { color: #e0a63c; }
+.fhint { font-size: 0.75rem; color: #888; font-weight: normal; }
+</style>

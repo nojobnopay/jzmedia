@@ -67,11 +67,12 @@ def attach(extra_id: int, body: dict):
 @router.post("/collect")
 def collect(body: dict | None = None):
     """归位已归属花絮：影片已归档但花絮散落在外的（如 待整理/），搬进各片 extras/。
-    dry_run 默认 true 只预览。"""
+    dry_run 默认 true 只预览。body.library_id/library 可限定库（缺省=全库）。"""
     from .files import _only_ids, move_attached_extras
     body = body or {}
     dry_run = body.get("dry_run", True)
     only = _only_ids(body)
+    libs = store._split_ints(body.get("library_id", body.get("library")))
     # 一次取全量 extras 再按影片分组（评审 B8/R08-D2：不再每片一次查询）
     try:
         by_movie: dict = {}
@@ -84,6 +85,8 @@ def collect(body: dict | None = None):
     cands = []
     for m in store.list_movies(grouped=False, limit=100000):
         if only is not None and m["id"] not in only:
+            continue
+        if libs and int(m.get("library_id") or 0) not in libs:
             continue
         rows = by_movie.get(m["id"], [])
         pending = [e for e in rows if os.path.dirname(e["file_path"])
