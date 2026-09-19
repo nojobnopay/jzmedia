@@ -25,20 +25,31 @@
       </div>
       <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（当前库；专属目录整目录改名）' : `搬到顶层（${relocateFrom || '待整理'} → ${relocateTo || '电影'}，整目录/散文件）` }} · 列表随参数自动刷新</p>
       <ul v-if="orgPlans.length" class="plan-list">
-        <li v-for="p in visiblePlans" :key="p.id" class="plan-row">
-          <input type="checkbox" :value="p.id" v-model="checkedPlans" />
-          <span v-if="p.kind === 'dir'" class="kind-badge" :title="dirTip(p)">目录</span>
-          <span class="plan-from" :title="p.from">{{ p.kind === 'dir' ? p.from + '/' : p.from }}</span>
-          <span class="plan-arrow">→</span>
-          <span class="plan-to" :title="p.to">{{ p.kind === 'dir' ? p.to + '/' : p.to }}</span>
-          <select v-model="planAction[p.id]" class="act-sel" :disabled="!!busy" title="本行动作（不改的可选「保持不动」）">
-            <option value="auto">跟随上方</option>
-            <option value="relocate">强制搬到顶层</option>
-            <option value="skip">保持不动</option>
-          </select>
-          <span v-if="p.numbered" class="plan-status warn">编号{{ p.numbered }}·可改备注</span>
-          <span v-if="p.plex_warnings && p.plex_warnings.length" class="plan-status warn" :title="p.plex_warnings.join('；')">Plex 兼容性 {{ p.plex_warnings.length }}</span>
-          <span v-if="p.status" :class="['plan-status', p.status === 'moved' ? 'ok' : 'fail']">{{ planStatusText(p.status) }}</span>
+        <li v-for="p in visiblePlans" :key="p.id" class="plan-item">
+          <div class="plan-row">
+            <input type="checkbox" :value="p.id" v-model="checkedPlans" />
+            <span v-if="p.kind === 'dir'" class="kind-badge" :title="dirTip(p)">{{ planDetails[p.id] && planDetails[p.id].badge }}</span>
+            <span class="plan-from" :title="p.from">{{ p.kind === 'dir' ? p.from + '/' : p.from }}</span>
+            <span class="plan-arrow">→</span>
+            <span class="plan-to" :title="p.to">{{ p.kind === 'dir' ? p.to + '/' : p.to }}</span>
+            <select v-model="planAction[p.id]" class="act-sel" :disabled="!!busy" title="本行动作（不改的可选「保持不动」）">
+              <option value="auto">跟随上方</option>
+              <option value="relocate">强制搬到顶层</option>
+              <option value="skip">保持不动</option>
+            </select>
+            <span v-if="p.numbered" class="plan-status warn">编号{{ p.numbered }}·可改备注</span>
+            <span v-if="p.plex_warnings && p.plex_warnings.length" class="plan-status warn" :title="p.plex_warnings.join('；')">Plex 兼容性 {{ p.plex_warnings.length }}</span>
+            <span v-if="p.status" :class="['plan-status', p.status === 'moved' ? 'ok' : 'fail']">{{ planStatusText(p.status) }}</span>
+          </div>
+          <div v-if="p.kind === 'dir' && planDetails[p.id]" class="plan-file-lines">
+            <div v-for="(l, i) in planDetails[p.id].lines" :key="'f' + i" class="plan-file-line" :title="l.from + ' → ' + l.to">
+              <span class="pf-from">{{ l.nameFrom }}</span>
+              <span class="pf-arrow">→</span>
+              <span class="pf-to">{{ l.nameTo }}</span>
+            </div>
+            <div v-if="planDetails[p.id].more" class="pf-more">还有 {{ planDetails[p.id].more }} 个影片文件同样改名</div>
+            <div v-else-if="!planDetails[p.id].lines.length" class="pf-more">仅目录改名（文件名已规范）</div>
+          </div>
         </li>
       </ul>
       <p v-if="orgConflicts.length" class="hint warn-text">冲突 {{ orgConflicts.length }} 项：
@@ -78,6 +89,7 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { api } from '../api.js'
+import { dirBadge, dirFileLines } from '../organizePlans.js'
 
 const COLLAPSE_N = 20
 const props = defineProps({
@@ -116,6 +128,15 @@ function dirTip(p) {
   const n = (p.files || []).length
   return `整目录改名：含 ${n} 个影片文件（多版本按规格改名）；Sample/封面/截图等子目录与文件原名跟随`
 }
+// 目录计划行内明细（徽标+影片改名），执行时目录与影片都改
+const planDetails = computed(() => {
+  const out = {}
+  for (const p of orgPlans.value) {
+    if (p.kind !== 'dir') continue
+    out[p.id] = { badge: dirBadge(p), ...dirFileLines(p) }
+  }
+  return out
+})
 // 冲突按目标分组（一张卡放一起：保留方 + 冲突方）
 const conflictGroups = computed(() => {
   const map = new Map()
@@ -295,7 +316,14 @@ defineExpose({ ensure, refresh })
 .warn-text { color: #e0a63c; }
 .nav-badge { margin-left: 6px; font-size: 0.75rem; color: #e0a63c; }
 .plan-list { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.plan-row { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; }
+.plan-item { background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; }
+.plan-row { display: flex; gap: 8px; align-items: center; }
+.plan-file-lines { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; padding-left: 22px; }
+.plan-file-line { display: flex; gap: 6px; align-items: baseline; color: #9a9a9a; font-size: 0.75rem; }
+.pf-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.pf-arrow { color: #6ab0ff; }
+.pf-to { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; color: #c9c9c9; }
+.pf-more { color: #777; font-size: 0.75rem; }
 .act-sel { background: #1c1c1c; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 2px 4px; font-size: 0.75rem; }
 .plan-from { color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .plan-arrow { color: #6ab0ff; }
