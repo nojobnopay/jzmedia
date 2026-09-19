@@ -20,7 +20,8 @@ from ...scanner import is_sidecar
 from ...log import get_logger
 logger = get_logger("files.planner")
 from .paths import _safe_component, _exists, _is_file
-__all__ = ['_ordered_plans', '_MOVIE_DIR_RE', '_is_movie_dir_name', '_components',
+__all__ = ['_ordered_plans', '_MOVIE_DIR_RE', '_is_movie_dir_name', '_dir_owned_by_comp',
+           '_components',
            '_stem_of', '_target_for', '_finalize', '_keeper_of', '_collect_plans']
 
 
@@ -29,6 +30,46 @@ _MOVIE_DIR_RE = re.compile(r"^.+ \(\d{4}\)(\s*\{edition-[^}]+\})?$")  # 片目�
 
 def _is_movie_dir_name(name: str) -> bool:
     return bool(_MOVIE_DIR_RE.match((name or "").strip()))
+
+
+# 罗马数字/带圈序号归一：Ⅰ→1、Ⅻ→12（含小写），便于「加菲猫Ⅰ」↔「加菲猫1」
+_ROMAN_TRANS = {}
+for _i in range(12):
+    _ROMAN_TRANS[0x2160 + _i] = str(_i + 1)   # Ⅰ-Ⅻ
+    _ROMAN_TRANS[0x2170 + _i] = str(_i + 1)   # ⅰ-ⅻ
+_ASCII_ROMAN = {"i": "1", "ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6",
+                "vii": "7", "viii": "8", "ix": "9", "x": "10"}
+# CJK 之间的装饰性标点合并（创：战纪 → 创战纪；燃烧吧!!热战·烈战 → 燃烧吧热战烈战）
+_CJK_PUNCT_RE = re.compile(
+    r"(?<=[\u4e00-\u9fff])[·．.、，,：:；;！!？?（）()\[\]【】《》〈〉「」『』\-—～~]+"
+    r"(?=[\u4e00-\u9fff])")
+
+
+def _norm_tokens(s) -> set:
+    s = str(s or "").lower().translate(_ROMAN_TRANS)
+    s = _CJK_PUNCT_RE.sub("", s)
+    out = set()
+    for t in re.split(r"[^0-9a-z\u4e00-\u9fff]+", s):
+        if t:
+            out.add(_ASCII_ROMAN.get(t, t))
+    return out
+
+
+def _dir_owned_by_comp(name: str, comp: dict) -> bool:
+    """父目录名是否像本片自己的目录：目录名与「文件名茎 ∪ 标题 ∪ 原名」分词覆盖率 ≥60%。
+    证据：12.Monkeys.1995/、壮志凌云2.Top.Gun.Maverick.2022/、望夫成龙.Love.is.Love.1990/；
+    排除：olddir/、变形金刚系列.Transformers/（50%）、海贼王剧场版/、周星驰.Stephen Chow/。"""
+    dt = _norm_tokens(name)
+    if not dt:
+        return False
+    m = comp.get("m") or {}
+    stem = os.path.splitext(os.path.basename(comp.get("from") or ""))[0]
+    ft = (_norm_tokens(stem) | _norm_tokens(m.get("title"))
+          | _norm_tokens(m.get("original_title")))
+    if not ft:
+        return False
+    inter = dt & ft
+    return bool(inter) and len(inter) * 10 >= len(dt) * 6
 
 
 def _dir_of(base: str, edition: str, profile: str) -> str:
@@ -115,11 +156,18 @@ def _components(m: dict) -> dict | None:
 def _target_for(comp: dict, stem: str, target_root: str | None) -> str:
     if target_root is None:
         parent = os.path.dirname(comp["from"])
-        # 已在归档目录内不再套娃：父目录名即片目录形态（含旧标题/plex edition）时改取祖父，
-        # 保证就地整理幂等
-        if (os.path.basename(parent) == comp["base"]
-                or _is_movie_dir_name(os.path.basename(parent))):
-            parent = os.path.dirname(parent)
+        # 影片专属目录不再套娃：父目录为规范片目录形态（含旧标题/plex edition），或目录名
+        # 与影片文件名/标题高度匹配（12.Monkeys.1995/）时上跳取祖父；连续上跳（≤8）顺带
+        # 修复历史套娃。合集目录（周星驰.Stephen Chow 等名字不匹配的）保留，向下套一层。
+        depth = 0
+        while parent and depth < 8:
+            name = os.path.basename(parent)
+            if (name == comp["base"] or _is_movie_dir_name(name)
+                    or _dir_owned_by_comp(name, comp)):
+                parent = os.path.dirname(parent)
+                depth += 1
+            else:
+                break
         return os.path.join(parent, _dir_of(comp["base"], comp["edition"],
                                             comp["profile"]), stem + comp["ext"])
     return os.path.join(target_root, _dir_of(comp["base"], comp["edition"],
@@ -165,19 +213,77 @@ def _collect_plans(target_root: str | None = None,
                 else store.list_movies(grouped=False, limit=100000))
     # 目标路径 → 占用行 id。按 (库, 路径) 键控（多库 v12）：不同库同名相对路径互不冲突。
     db_owner = {}
+    db_dir_keys: dict[tuple[int, str], set] = {}   # (库, 目录) → 影片标识集合
     for m in all_rows:
         lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
-        db_owner[(lid, os.path.normpath(m["file_path"]))] = m["id"]
+        rel = os.path.normpath(m["file_path"])
+        db_owner[(lid, rel)] = m["id"]
+        d = os.path.dirname(rel)
+        if d:
+            db_dir_keys.setdefault((lid, d), set()).add(
+                m.get("tmdb_id") or -int(m["id"]))
     rows = all_rows
     if library_id is not None:
         rows = [m for m in rows if int(m.get("library_id")
                                        or library_paths.DEFAULT_LIBRARY_ID) == int(library_id)]
     if only:
         rows = [m for m in rows if m["id"] in only]
+
     # naming_profile=off 的库不参与改名（_components 返回 None 即被过滤）
     comps = [c for m in rows if (c := _components(m))]
-    current_paths = {(int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID),
-                      os.path.normpath(m["file_path"])) for m in rows}
+
+    def _dir_of_comp(c: dict) -> tuple[int, str] | None:
+        lid = int(c["m"].get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        d = os.path.dirname(os.path.normpath(c["from"]))
+        return (lid, d) if d else None
+
+    # 目录级归属判定（多版本目录中只要有一个文件名/标题与目录名匹配即算专属目录）：
+    # 目录是操作单位，只在“该目录只属于这一部影片”时参与整目录改名。
+    cand_dirs = {k for c in comps if (k := _dir_of_comp(c))}
+    dir_comps: dict[tuple[int, str], list] = {}
+    if cand_dirs:
+        for m in all_rows:
+            lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+            d = os.path.dirname(os.path.normpath(m["file_path"]))
+            if not d or (lid, d) not in cand_dirs:
+                continue
+            c = _components(m)
+            if c:
+                dir_comps.setdefault((lid, d), []).append(c)
+    dir_owned: dict[tuple[int, str], bool] = {}
+    for key, cs in dir_comps.items():
+        name = os.path.basename(key[1])
+        if len(db_dir_keys.get(key, ())) > 1:
+            dir_owned[key] = False          # 多片共享目录：绝不整目录改名
+        elif _is_movie_dir_name(name):
+            dir_owned[key] = True
+        else:
+            dir_owned[key] = any(_dir_owned_by_comp(name, c) for c in cs)
+
+    # 专属目录内全部影片行一并纳入（only 子集执行也整目录带走，避免半拉）；
+    # 非专属目录只保留选中行（共享目录里别的片不能被顺带移动）
+    expanded: list = []
+    seen_ids: set = set()
+
+    def _add(c: dict, owned: bool) -> None:
+        if c["id"] in seen_ids:
+            return
+        seen_ids.add(c["id"])
+        c["dir_owned"] = owned
+        expanded.append(c)
+
+    for c in comps:
+        key = _dir_of_comp(c)
+        if key and dir_owned.get(key):
+            for cc in dir_comps.get(key, []):
+                _add(cc, True)
+        else:
+            _add(c, False)
+    comps = expanded
+    comp_by_id = {c["id"]: c for c in comps}
+    current_paths = {(int(c["m"].get("library_id") or library_paths.DEFAULT_LIBRARY_ID),
+                      os.path.normpath(c["from"])) for c in comps}
+
     # 第一遍：版本+分卷（无规格），按目标分组
     groups: dict[str, list] = {}
     stem0: dict[int, str] = {}
@@ -267,11 +373,76 @@ def _collect_plans(target_root: str | None = None,
                               spec_used="-".join(specs))
                 if p:
                     plans.append(p)
+
+    # 目录计划：专属目录（单影片）内全部文件目标同一新目录且目录名要变时，
+    # 合并为「整目录改名」——Sample/封面/截图等非影片内容原名跟随，正片按上面
+    # 解析出的规范名在目录内改名（用户需求 2026-09）。
+    kept, by_dir = [], {}
+    for p in plans:
+        c = comp_by_id.get(p["id"])
+        lib_id = int(p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        from_dir = os.path.dirname(os.path.normpath(p["from"]))
+        to_dir = os.path.dirname(os.path.normpath(p["to"]))
+        if (c and c.get("dir_owned") and from_dir
+                and len(db_dir_keys.get((lib_id, from_dir), ())) <= 1
+                and to_dir and os.path.normpath(to_dir) != os.path.normpath(from_dir)):
+            by_dir.setdefault((lib_id, from_dir), []).append(p)
+        else:
+            kept.append(p)
+    dir_plans = []
+    for (lib_id, from_dir), members in sorted(by_dir.items()):
+        targets = {os.path.normpath(os.path.dirname(m["to"])) for m in members}
+        if len(targets) != 1:
+            kept.extend(members)      # plex 多 edition 各自目录：退回逐文件
+            continue
+        members.sort(key=lambda x: x["id"])
+        files = [m for m in members if m.get("status") != "source_missing"]
+        p = {"kind": "dir", "id": members[0]["id"],
+             "movie_ids": sorted({m["id"] for m in members}),
+             "from": from_dir, "to": targets.pop(), "files": files,
+             "title": members[0].get("title", ""),
+             "tmdb_id": members[0].get("tmdb_id"),
+             "library_id": lib_id,
+             "edition": members[0].get("edition") or "",
+             "naming_profile": members[0].get("naming_profile") or "kodi",
+             "flatten": True}
+        if not _exists(lib_id, from_dir):
+            p["status"] = "source_missing"
+        dir_plans.append(p)
+    plans = kept + dir_plans
+
     # 磁盘/库内占用检查：目标已被库外文件或另一条库行占用则冲突
     final_plans = []
+    claimed_dirs: dict[tuple[int, str], int] = {}
+    current_dirs = {(int(c["m"].get("library_id") or library_paths.DEFAULT_LIBRARY_ID),
+                     os.path.dirname(os.path.normpath(c["from"]))) for c in comps}
     for p in plans:
-        dst = os.path.normpath(p["to"])
         lib_id = int(p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        if p.get("kind") == "dir":
+            dst_dir = os.path.normpath(p["to"])
+            occupied = db_dir_keys.get((lib_id, dst_dir), set())
+            owner_ok = occupied <= set(p["movie_ids"])
+            file_bad = None
+            for f in p.get("files") or []:
+                o = db_owner.get((lib_id, os.path.normpath(f["to"])))
+                if o is not None and o not in p["movie_ids"]:
+                    file_bad = "conflict_db_occupied"
+                    break
+            if claimed_dirs.get((lib_id, dst_dir)) is not None:
+                conflicts.append({**p, "status": "conflict_disk_exists",
+                                  "kind": "disk"})
+            elif (_exists(lib_id, p["to"])
+                  and (lib_id, dst_dir) not in current_dirs):
+                conflicts.append({**p, "status": "conflict_disk_exists",
+                                  "kind": "disk"})
+            elif not owner_ok or file_bad:
+                conflicts.append({**p, "status": "conflict_db_occupied",
+                                  "kind": "db"})
+            else:
+                claimed_dirs[(lib_id, dst_dir)] = p["id"]
+                final_plans.append(p)
+            continue
+        dst = os.path.normpath(p["to"])
         owner = db_owner.get((lib_id, dst))
         if (_exists(lib_id, p["to"]) and (lib_id, dst) not in current_paths):
             conflicts.append({**p, "status": "conflict_disk_exists",

@@ -8,7 +8,7 @@ from ..regions import country_name
 from ._base import (DEFAULT_LIBRARY_ID, LOCAL_FIELDS, _attach_versions,
                     _collections_for_film, _conn, _lock, _row_to_dict, logger)
 from .search import resync_fts
-__all__ = ['upsert_movie_by_path', 'update_movie_local', 'update_movie_meta', 'get_by_path', 'list_movies_in_dir', 'get_movie', 'expand_ids_to_versions', 'get_movie_by_tmdb', 'get_movie_tags', 'list_movie_ids_by_library', 'list_movie_paths_by_tmdb', 'delete_movie', '_dir_size', 'library_stats']
+__all__ = ['upsert_movie_by_path', 'update_movie_local', 'update_movie_meta', 'get_by_path', 'list_movies_in_dir', 'get_movie', 'expand_ids_to_versions', 'get_movie_by_tmdb', 'get_movie_tags', 'list_movie_ids_by_library', 'list_movie_paths_by_tmdb', 'repath_movies_prefix', 'delete_movie', '_dir_size', 'library_stats']
 
 def upsert_movie_by_path(file_path: str,
                          library_id: int = DEFAULT_LIBRARY_ID) -> int:
@@ -60,6 +60,24 @@ def get_by_path(file_path: str,
         row = c.execute("SELECT * FROM movies WHERE file_path=? AND library_id=?",
                         (file_path, int(library_id))).fetchone()
         return _row_to_dict(row) if row else None
+
+
+def repath_movies_prefix(library_id: int, old_dir: str, new_dir: str) -> int:
+    """影片目录整体改名后批量改库：该目录下所有行的 file_path 前缀替换。
+    只改 file_path，不碰 original_file_path（恢复原始位置仍指旧路径）；FTS 不含
+    路径列，无需重建。返回更新行数。"""
+    old = os.path.normpath((old_dir or "").strip().strip("/"))
+    new = os.path.normpath((new_dir or "").strip().strip("/"))
+    if old in ("", ".") or old == new:
+        return 0
+    like = old.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/%"
+    with _lock, _conn() as c:
+        cur = c.execute(
+            "UPDATE movies SET file_path = ? || substr(file_path, ?), updated_at=? "
+            "WHERE library_id=? AND file_path LIKE ? ESCAPE '\\'",
+            (new, len(old) + 1, int(time.time()),
+             int(library_id), like))
+        return int(cur.rowcount or 0)
 
 
 def list_movies_in_dir(rel_dir: str,

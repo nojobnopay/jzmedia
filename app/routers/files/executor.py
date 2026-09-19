@@ -11,7 +11,7 @@ from ...log import get_logger
 logger = get_logger("files.executor")
 from .paths import _rename_or_move, _safe_component
 __all__ = ['_write_nfos', '_sibling_followers', '_cleanup_old_dir', 'move_attached_extras',
-           '_resync_old_dir', '_move_one', '_move_one_remote',
+           '_resync_old_dir', '_move_one', '_move_one_remote', '_move_dir',
            '_remote_cleanup_old_dir', '_remote_resync_old_dir', '_remote_move_extras']
 
 def _write_nfos(movie_id: int, dst_abs: str) -> None:
@@ -96,6 +96,13 @@ def _repath_followed_extra(lib_id, old_rel: str, new_rel: str, movie_id) -> None
 def _rel_is_file(backend, rel: str) -> bool:
     try:
         return not backend.stat(rel).is_dir
+    except Exception:
+        return False
+
+
+def _rel_is_dir(backend, rel: str) -> bool:
+    try:
+        return bool(backend.stat(rel).is_dir)
     except Exception:
         return False
 
@@ -411,7 +418,162 @@ def _move_one_remote(p: dict, backend) -> dict:
         return {**p, "status": f"error: {e}"}
 
 
+def _persist_plan_meta(p: dict, cur: dict) -> None:
+    """规划期识别的版本/编号后缀落库（DB 为空才写，手工值优先）。"""
+    persist: dict = {}
+    if p.get("edition") and not cur.get("edition"):
+        persist["edition"] = p["edition"]
+    if not cur.get("spec"):
+        if p.get("numbered"):
+            full = ((p.get("spec") or "") + "-" if p.get("spec") else "") + p["numbered"]
+            persist["spec"] = full
+        elif p.get("spec"):
+            persist["spec"] = p["spec"]
+    if persist:
+        try:
+            store.update_movie_local(p["id"], **persist)
+        except Exception as e:
+            logger.debug("persist spec/edition failed id=%s: %s", p.get("id"), e)
+
+
+def _rename_feature_in_dir(backend, f: dict, src_dir: str, dst_dir: str) -> int:
+    """目录计划内的单个正片改名（目录已在新位置）：正片 + 同茎跟随。
+    返回跟随文件数；失败上抛由调用方记录。"""
+    base = os.path.basename(f["from"])
+    cur_src = f"{dst_dir}/{base}" if dst_dir else base
+    dst = f["to"]
+    if os.path.normpath(cur_src) == os.path.normpath(dst):
+        return 0
+    if not _rel_is_file(backend, cur_src):
+        return 0
+    followers = _remote_sibling_followers(backend, cur_src)
+    backend.rename(cur_src, dst)
+    store.update_movie_local(f["id"], file_path=dst)
+    cur = store.get_movie(f["id"]) or {}
+    _persist_plan_meta(f, cur)
+    old_stem = os.path.splitext(os.path.basename(cur_src))[0]
+    new_stem = os.path.splitext(os.path.basename(dst))[0]
+    followed = 0
+    for fol in followers:
+        suffix = os.path.basename(fol)[len(old_stem):]
+        fdst = (f"{os.path.dirname(dst)}/{new_stem}{suffix}"
+                if os.path.dirname(dst) else f"{new_stem}{suffix}")
+        try:
+            if not backend.exists(fdst):
+                backend.rename(fol, fdst)
+                followed += 1
+                _repath_followed_extra(int(f.get("library_id")
+                                           or library_paths.DEFAULT_LIBRARY_ID),
+                                       fol, fdst, f["id"])
+        except Exception as e:
+            logger.debug("dir-plan follow sidecar failed %s -> %s: %s", fol, fdst, e)
+    return followed
+
+
+def _cleanup_empty_ancestors(backend, start_dir: str, movie_id: int) -> int:
+    """目录改名后清理变为空的旧祖先（历史套娃，如 12.Monkeys.1995/12.Monkeys.1995/）。
+    仅删「看起来仍是该片目录」（规范名/名字匹配）且为空的目录，合集目录绝不动。"""
+    from .planner import _dir_owned_by_comp, _is_movie_dir_name
+    try:
+        m = store.get_movie(movie_id) or {}
+    except Exception:
+        return 0
+    removed = 0
+    parent = start_dir
+    while parent:
+        name = os.path.basename(parent)
+        if not (_is_movie_dir_name(name)
+                or _dir_owned_by_comp(name, {"from": m.get("file_path") or "",
+                                             "m": m})):
+            break
+        try:
+            if backend.list(parent):
+                break
+        except Exception:
+            break
+        try:
+            backend.delete(parent)
+            removed += 1
+        except Exception as e:
+            logger.debug("rmdir empty ancestor failed dir=%s: %s", parent, e)
+            break
+        parent = os.path.dirname(parent)
+    return removed
+
+
+def _move_dir(p: dict) -> dict:
+    """目录计划执行：整目录改名（或搬迁）→ 前缀改库（movies+extras）→ 目录内正片改名。
+    目录内非影片内容（Sample/封面/截图等）原名跟随，不做任何处理。"""
+    from ... import storage
+    lib_id = int(p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+    try:
+        backend = storage.backend_for(lib_id)
+    except storage.StorageError as e:
+        return {**p, "status": f"error: {e}"}
+    src_dir = backend.norm(p["from"])
+    dst_dir = backend.norm(p["to"])
+    if not src_dir or not dst_dir or src_dir == dst_dir:
+        return {**p, "status": "skipped_missing_src"}
+    try:
+        if not _rel_is_dir(backend, src_dir):
+            return {**p, "status": "skipped_missing_src"}
+        if backend.exists(dst_dir):
+            return {**p, "status": "conflict_disk_exists"}
+    except Exception as e:
+        logger.warning("dir move precheck failed id=%s: %s", p.get("id"), e)
+        return {**p, "status": f"error: {e}"}
+    try:
+        parent = os.path.dirname(dst_dir)
+        if parent:
+            backend.mkdir(parent, parents=True)
+        backend.rename(src_dir, dst_dir)
+    except Exception as e:
+        logger.warning("dir rename failed %s -> %s: %s", src_dir, dst_dir, e)
+        return {**p, "status": f"error: {e}"}
+    try:
+        store.repath_movies_prefix(lib_id, src_dir, dst_dir)
+        store.repath_extras_prefix(lib_id, src_dir, dst_dir)
+    except Exception as e:
+        logger.error("repath after dir rename failed %s -> %s: %s", src_dir, dst_dir, e)
+        try:
+            backend.rename(dst_dir, src_dir)
+        except Exception as rb:
+            logger.error("dir rename rollback failed dst=%s src=%s: %s",
+                         dst_dir, src_dir, rb)
+        return {**p, "status": f"error: {e}"}
+    followed = files_moved = 0
+    errors: list[dict] = []
+    for f in p.get("files") or []:
+        try:
+            followed += _rename_feature_in_dir(backend, f, src_dir, dst_dir)
+            files_moved += 1
+        except Exception as e:
+            logger.warning("dir-plan file rename failed id=%s %s -> %s: %s",
+                           f.get("id"), f.get("from"), f.get("to"), e)
+            errors.append({"id": f.get("id"), "error": str(e)[:200]})
+    # NFO 收敛（全部改名完成后按最终路径统一重写；多版本按收敛规则补/删）
+    for mid in p.get("movie_ids") or []:
+        try:
+            m = store.get_movie(mid) or {}
+            rel = m.get("file_path") or ""
+            if rel:
+                sync_nfos_for(mid, backend=backend, rel=rel)
+        except Exception as e:
+            logger.debug("dir-plan sync nfos failed id=%s: %s", mid, e)
+    # 目录计划不做花絮归位：整目录是单位，Behind The Scenes/Sample/extras 等
+    # 子目录与文件原名原位置跟随（用户需求 2026-09）；归位走「花絮归位」按钮。
+    cleaned = _cleanup_empty_ancestors(backend, os.path.dirname(src_dir),
+                                       int(p["id"]))
+    out = {**p, "status": "moved", "kind": "dir", "followed": followed,
+           "files_moved": files_moved, "cleaned_dirs": cleaned}
+    if errors:
+        out["errors"] = errors
+    return out
+
+
 def _move_one(p: dict) -> dict:
+    if p.get("kind") == "dir":
+        return _move_dir(p)
     lib_id = p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
     from ... import storage
     try:

@@ -788,6 +788,12 @@ def manual_match(movie_id: int, body: dict, background_tasks: BackgroundTasks):
     return {"id": movie_id, **out}
 
 
+# 暂存目录词表：文件在这些顶层目录下才推荐「搬到 电影/」；其余一律就地规范化
+# （影片专属目录整目录改名 / 合集目录内套一层）。NAS 库根就是 Movies，顶层目录
+# 是片目录名，不能再按“顶层 != 电影 就搬迁”判断（2026-09 用户反馈）。
+_STAGING_DIRS = {"待整理", "未整理", "下载", "downloads", "incoming", "temp", "tmp"}
+
+
 @router.get("/movies/{movie_id}/organize-hint")
 def organize_hint(movie_id: int):
     """重新匹配后的归档推荐（评审 B9 后续）：按行内路径自动选 就地/搬迁，dry_run 预览。
@@ -806,14 +812,15 @@ def organize_hint(movie_id: int):
         raise HTTPException(422, "movie has no file_path")
     top = rel.split("/")[0] if "/" in rel else ""
     lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
-    if top and top != "电影":
-        # 不在正式库（待整理/下载等）→ 推荐搬到 电影/标题 (年份)/（扁平，D5）
+    if top and top.strip().lower() in _STAGING_DIRS:
+        # 暂存区（待整理/下载等）→ 推荐搬到 电影/标题 (年份)/（扁平，D5；目录为单位）
         d = _organize("relocate", from_prefix=top, to_dir="电影",
                       only={movie_id}, dry_run=True, library_id=lib_id)
         params = {"mode": "relocate", "from_prefix": top, "to_dir": "电影",
                   "library_id": lib_id}
     else:
-        # 已在电影分区/根目录平铺 → 就地规范化（建片目录、改规范名）
+        # 正式库内（含 NAS 库根/合集目录）→ 就地规范化：专属目录整目录改名，
+        # 散文件/合集平铺建片目录，只改片名
         d = _organize("inplace", only={movie_id}, dry_run=True, library_id=lib_id)
         params = {"mode": "inplace", "library_id": lib_id}
     plans = d.get("plans") or []

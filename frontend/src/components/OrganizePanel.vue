@@ -5,7 +5,7 @@
       <span class="fhint">{{ open ? '收起' : '展开' }}</span>
     </div>
     <div v-show="open" class="pipe-body">
-      <p class="hint">已匹配确认的片在这里归档到正式库。就地归档：保留原父目录，只建“标题 (年份)/”子目录；搬到顶层：如 待整理 → 电影，按“电影/标题 (年份)/文件”扁平归类（D5，不再分区）。命名随库级命名档（kodi/plex），先预览再执行。</p>
+      <p class="hint">已匹配确认的片在这里归档。就地归档：影片专属目录<b>整目录改名</b>为「标题 (年份)」（Sample/封面/截图等原名跟随），合集目录保留；散文件按「父目录/标题 (年份)/」套一层。搬到顶层：整目录（或散文件）移到目标根下。先预览，逐行勾选/选动作再执行。</p>
       <div class="bar">
         <label><input type="radio" value="inplace" v-model="orgMode" /> 就地归档</label>
         <label><input type="radio" value="relocate" v-model="orgMode" /> 搬到顶层</label>
@@ -16,19 +16,29 @@
       </div>
       <div class="bar">
         <button @click="loadOrgPreview" :disabled="!!busy">预览</button>
-        <button @click="doOrganize" :disabled="!!busy || !orgPlans.length">{{ busy === 'organize' ? '执行中…' : '执行' }}</button>
+        <button @click="doOrganize" :disabled="!!busy || !checkedPlans.length">
+          {{ busy === 'organize' ? '执行中…' : `执行选中 (${checkedPlans.length})` }}
+        </button>
+        <button v-if="orgPlans.length" @click="toggleAllPlans">{{ allChecked ? '全不选' : '全选' }}</button>
         <span>{{ orgMsg }}</span>
         <button v-if="orgPlans.length > COLLAPSE_N" @click="showAllPlans = !showAllPlans">{{ showAllPlans ? '收起' : `展开全部 (${orgPlans.length})` }}</button>
       </div>
-      <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（当前库）' : `搬到顶层（${relocateFrom || '待整理'} → ${relocateTo || '电影'}，扁平，含目标下未规范的行）` }} · 列表随参数自动刷新</p>
+      <p class="hint">当前：{{ orgMode === 'inplace' ? '就地归档（当前库；专属目录整目录改名）' : `搬到顶层（${relocateFrom || '待整理'} → ${relocateTo || '电影'}，整目录/散文件）` }} · 列表随参数自动刷新</p>
       <ul v-if="orgPlans.length" class="plan-list">
         <li v-for="p in visiblePlans" :key="p.id" class="plan-row">
-          <span class="plan-from" :title="p.from">{{ p.from }}</span>
+          <input type="checkbox" :value="p.id" v-model="checkedPlans" />
+          <span v-if="p.kind === 'dir'" class="kind-badge" :title="dirTip(p)">目录</span>
+          <span class="plan-from" :title="p.from">{{ p.kind === 'dir' ? p.from + '/' : p.from }}</span>
           <span class="plan-arrow">→</span>
-          <span class="plan-to" :title="p.to">{{ p.to }}</span>
+          <span class="plan-to" :title="p.to">{{ p.kind === 'dir' ? p.to + '/' : p.to }}</span>
+          <select v-model="planAction[p.id]" class="act-sel" :disabled="!!busy" title="本行动作（不改的可选「保持不动」）">
+            <option value="auto">跟随上方</option>
+            <option value="relocate">强制搬到顶层</option>
+            <option value="skip">保持不动</option>
+          </select>
           <span v-if="p.numbered" class="plan-status warn">编号{{ p.numbered }}·可改备注</span>
           <span v-if="p.plex_warnings && p.plex_warnings.length" class="plan-status warn" :title="p.plex_warnings.join('；')">Plex 兼容性 {{ p.plex_warnings.length }}</span>
-          <span v-if="p.status" :class="['plan-status', p.status === 'moved' ? 'ok' : 'fail']">{{ p.status }}</span>
+          <span v-if="p.status" :class="['plan-status', p.status === 'moved' ? 'ok' : 'fail']">{{ planStatusText(p.status) }}</span>
         </li>
       </ul>
       <p v-if="orgConflicts.length" class="hint warn-text">冲突 {{ orgConflicts.length }} 项：
@@ -78,7 +88,7 @@ const emit = defineEmits(['changed'])
 
 const busy = ref(null)
 const open = ref(false)
-// 归档整理（统一口 /api/files/organize）
+// 归档整理（统一口 /api/files/organize）：整目录改名 / 逐文件搬迁，逐行可勾选与选动作
 const orgMode = ref('inplace')
 const relocateFrom = ref('待整理')
 const relocateTo = ref('电影')
@@ -89,6 +99,23 @@ const orgMsg = ref('')
 const showAllPlans = ref(false)
 const showAllConflicts = ref(false)
 const visiblePlans = computed(() => showAllPlans.value ? orgPlans.value : orgPlans.value.slice(0, COLLAPSE_N))
+// 逐行选择与动作（auto=跟随上方模式 / relocate=强制搬到顶层 / skip=保持不动）
+const checkedPlans = ref([])
+const planAction = ref({})
+const allChecked = computed(() => orgPlans.value.length > 0
+  && checkedPlans.value.length === orgPlans.value.length)
+function toggleAllPlans() {
+  checkedPlans.value = allChecked.value ? [] : orgPlans.value.map(p => p.id)
+}
+function syncActions() {
+  const next = {}
+  for (const p of orgPlans.value) next[p.id] = planAction.value[p.id] || 'auto'
+  planAction.value = next
+}
+function dirTip(p) {
+  const n = (p.files || []).length
+  return `整目录改名：含 ${n} 个影片文件（多版本按规格改名）；Sample/封面/截图等子目录与文件原名跟随`
+}
 // 冲突按目标分组（一张卡放一起：保留方 + 冲突方）
 const conflictGroups = computed(() => {
   const map = new Map()
@@ -143,7 +170,9 @@ async function loadOrgPreview() {
     const d = await api('/api/files/organize', { method: 'POST', body: orgBody(true) })
     orgPlans.value = d.plans
     orgConflicts.value = d.conflicts || []
+    checkedPlans.value = d.plans.map(p => p.id)
     syncNotes()
+    syncActions()
     if (!d.plans.length) orgMsg.value = orgConflicts.value.length ? `无可整理，冲突 ${orgConflicts.value.length} 项` : '没有需要整理的'
   } catch (e) {
     orgMsg.value = '预览失败：' + e.message
@@ -162,19 +191,59 @@ function planStatusText(s) {
   if (k.startsWith('error')) return '错误：' + k.slice(6).trim()
   return PLAN_STATUS_TEXT[k] || k
 }
+
 async function doOrganize() {
+  const chosen = orgPlans.value.filter(p => checkedPlans.value.includes(p.id))
+  if (!chosen.length) {
+    orgMsg.value = '先勾选要执行的项'
+    return
+  }
+  // 按动作分组；同片多版本（同 tmdb）整组执行，服务端按目录/分组重算才稳定
+  const byMode = new Map()
+  const addWithSiblings = (p, mode) => {
+    if (!byMode.has(mode)) byMode.set(mode, new Set())
+    const set = byMode.get(mode)
+    set.add(p.id)
+    if (p.tmdb_id) {
+      for (const q of orgPlans.value) {
+        if (q.tmdb_id === p.tmdb_id) set.add(q.id)
+      }
+    }
+  }
+  for (const p of chosen) {
+    const act = planAction.value[p.id] || 'auto'
+    if (act === 'skip') continue
+    addWithSiblings(p, act === 'relocate' ? 'relocate' : orgMode.value)
+  }
+  if (!byMode.size) {
+    orgMsg.value = '选中的项都是「保持不动」'
+    return
+  }
   busy.value = 'organize'
   orgMsg.value = ''
   try {
-    const d = await api('/api/files/organize', { method: 'POST', body: orgBody(false) })
-    orgPlans.value = d.results
-    orgConflicts.value = d.conflicts || []
+    const results = []
+    let conflicts = []
+    for (const [mode, ids] of byMode) {
+      const body = { mode, dry_run: false, ids: [...ids] }
+      if (props.library && props.library.id != null) body.library_id = props.library.id
+      if (mode === 'relocate') {
+        body.from_prefix = relocateFrom.value.trim()
+        body.to_dir = relocateTo.value.trim()
+      }
+      const d = await api('/api/files/organize', { method: 'POST', body: JSON.stringify(body) })
+      results.push(...(d.results || []))
+      conflicts = d.conflicts || conflicts
+    }
+    orgPlans.value = results
+    orgConflicts.value = conflicts
     syncNotes()
+    syncActions()
+    checkedPlans.value = results.filter(r => r.status !== 'moved').map(r => r.id)
     const byStatus = {}
-    for (const r of d.results) byStatus[r.status] = (byStatus[r.status] || 0) + 1
-    const parts = Object.entries(byStatus)
-      .map(([k, v]) => `${planStatusText(k)} ${v}`)
-    orgMsg.value = `执行完毕（${d.results.length} 项）：` + parts.join(' · ')
+    for (const r of results) byStatus[r.status] = (byStatus[r.status] || 0) + 1
+    const parts = Object.entries(byStatus).map(([k, v]) => `${planStatusText(k)} ${v}`)
+    orgMsg.value = `执行完毕（${results.length} 项）：` + parts.join(' · ')
     emit('changed')
   } catch (e) {
     orgMsg.value = '执行失败：' + e.message
@@ -210,7 +279,7 @@ async function refresh(auto = false) {
   await loadOrgPreview()
   if (auto && orgPlans.value.length) {
     open.value = true
-    orgMsg.value = `检测到 ${orgPlans.value.length} 项可归档，「③ 归档整理」已为你展开，点「执行」搬迁`
+    orgMsg.value = `检测到 ${orgPlans.value.length} 项可归档，「③ 归档整理」已为你展开，点「执行选中」搬迁`
   }
 }
 defineExpose({ ensure, refresh })
@@ -227,6 +296,7 @@ defineExpose({ ensure, refresh })
 .nav-badge { margin-left: 6px; font-size: 0.75rem; color: #e0a63c; }
 .plan-list { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .plan-row { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; }
+.act-sel { background: #1c1c1c; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 2px 4px; font-size: 0.75rem; }
 .plan-from { color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .plan-arrow { color: #6ab0ff; }
 .plan-to { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
@@ -237,7 +307,7 @@ defineExpose({ ensure, refresh })
 .conflict-groups { display: flex; flex-direction: column; gap: 8px; margin: 4px 0; }
 .conflict-card { background: #262626; border: 1px solid #6e2b2b; border-radius: 8px; padding: 8px 10px; }
 .conflict-target { font-size: 0.8125rem; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kind-badge { font-size: 0.75rem; border: 1px solid #444; border-radius: 999px; padding: 1px 10px; margin-left: 8px; color: #aaa; }
+.kind-badge { font-size: 0.75rem; border: 1px solid #444; border-radius: 999px; padding: 1px 10px; margin-left: 0; color: #aaa; }
 .kind-badge.bad { color: #ff8a8a; border-color: #6e2b2b; }
 .conflict-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-top: 1px dashed #3a3a3a; font-size: 0.8125rem; }
 .conflict-file { flex: 1; min-width: 200px; }

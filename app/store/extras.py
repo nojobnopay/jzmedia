@@ -2,7 +2,7 @@
 import os
 import time
 from ._base import DEFAULT_LIBRARY_ID, _conn, _lock, _row_to_dict
-__all__ = ['upsert_extra', 'list_extras_by_movie', 'list_orphan_extras', 'list_all_extras', 'get_extra', 'update_extra_movie', 'delete_extra_by_path', 'repath_extra_by_basename', 'find_movie_for_extra']
+__all__ = ['upsert_extra', 'list_extras_by_movie', 'list_orphan_extras', 'list_all_extras', 'get_extra', 'update_extra_movie', 'delete_extra_by_path', 'repath_extra_by_basename', 'repath_extras_prefix', 'find_movie_for_extra']
 
 def upsert_extra(file_path: str, movie_id: int | None,
                  kind: str = "extra",
@@ -61,6 +61,22 @@ def _abs_in_library(library_id: int, rel: str) -> str:
     except Exception:
         from ..config import settings
         return os.path.join(settings.media_root, rel)
+
+
+def repath_extras_prefix(library_id: int, old_dir: str, new_dir: str) -> int:
+    """影片目录整体改名后批量改花絮行：该目录下所有 extras.file_path 前缀替换。"""
+    old = os.path.normpath((old_dir or "").strip().strip("/"))
+    new = os.path.normpath((new_dir or "").strip().strip("/"))
+    if old in ("", ".") or old == new:
+        return 0
+    like = old.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/%"
+    with _lock, _conn() as c:
+        cur = c.execute(
+            "UPDATE extras SET file_path = ? || substr(file_path, ?), updated_at=? "
+            "WHERE library_id=? AND file_path LIKE ? ESCAPE '\\'",
+            (new, len(old) + 1, int(time.time()),
+             int(library_id), like))
+        return int(cur.rowcount or 0)
 
 
 def delete_extra_by_path(file_path: str,
