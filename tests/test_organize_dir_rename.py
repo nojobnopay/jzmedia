@@ -237,6 +237,85 @@ def test_prefix_repath_single_slash(media_root):
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_collection_range_dir_kept(media_root):
+    """合集名含数字区间（惊声尖笑.Scary.Movie.1-5.2000-2013）：1/5 部不得因年份/
+    音轨数字（DTS-HD.MA.5.1）撞上合集名而越界改名到库根（用户反馈回归）。"""
+    coll = "惊声尖笑.Scary.Movie.1-5.2000-2013"
+    parts = [
+        (1, "惊声尖笑", 2000, 4247, "Scary.Movie.2000"),
+        (2, "惊声尖笑2", 2001, 4248, "Scary.Movie.2.2001"),
+        (3, "惊声尖笑3", 2003, 4256, "Scary.Movie.3.2003"),
+        (4, "惊声尖笑4", 2006, 4257, "Scary.Movie.4.2006"),
+        (5, "惊声尖笑5", 2013, 4258, "Scary.Movie.5.2013"),
+    ]
+    ids = []
+    try:
+        for _n, title, year, tmdb, sub in parts:
+            rel = f"{coll}/{sub}/{sub}.BluRay.1080p.DTS-HD.MA.5.1.x265.10bit-ALT.mkv"
+            ids.append(_mk(media_root, rel, title=title, year=year, tmdb=tmdb))
+        prev = _organize("inplace", only=set(ids), dry_run=True)
+        dirs = [p for p in prev["plans"] if p.get("kind") == "dir"]
+        assert len(dirs) == 5, prev["plans"]
+        for p in dirs:
+            assert p["to"].startswith(coll + "/"), p["to"]   # 全部留在合集内
+        tos = sorted(p["to"] for p in dirs)
+        assert tos[0] == f"{coll}/惊声尖笑 (2000)"
+        assert tos[-1] == f"{coll}/惊声尖笑5 (2013)"
+    finally:
+        for mid in ids:
+            store.delete_movie(mid)
+        import shutil
+        shutil.rmtree(media_root / coll, ignore_errors=True)
+
+
+def test_collection_shared_words_kept(media_root):
+    """合集与片名共用词（黑衣人.Men.in.Black）：不得把合集当某一部的专属目录上跳。"""
+    coll = "黑衣人.Men.in.Black"
+    rows = [
+        ("黑衣人.Men.in.Black.1997", "黑衣人", 1997, 607),
+        ("黑衣人2.Men.in.Black.II.2002", "黑衣人2", 2002, 608),
+    ]
+    ids = []
+    try:
+        for sub, title, year, tmdb in rows:
+            ids.append(_mk(media_root, f"{coll}/{sub}/{sub}.1080p.BluRay.mkv",
+                           title=title, year=year, tmdb=tmdb))
+        prev = _organize("inplace", only=set(ids), dry_run=True)
+        dirs = [p for p in prev["plans"] if p.get("kind") == "dir"]
+        assert len(dirs) == 2
+        assert all(p["to"].startswith(coll + "/") for p in dirs), [p["to"] for p in dirs]
+    finally:
+        for mid in ids:
+            store.delete_movie(mid)
+        import shutil
+        shutil.rmtree(media_root / coll, ignore_errors=True)
+
+
+def test_mixed_parent_dir_not_renamed(media_root):
+    """影片目录里混放另一部片的子目录：父目录不得被整目录改名连坐搬走。"""
+    parent = "12.Monkeys.1995"
+    a = _mk(media_root, f"{parent}/12.Monkeys.1995.mkv",
+            title="十二猴子", year=1995, tmdb=99020)
+    b = _mk(media_root, f"{parent}/Other.Movie.2000/Other.Movie.2000.mkv",
+            title="别的片", year=2000, tmdb=99021)
+    try:
+        prev = _organize("inplace", only={a, b}, dry_run=True)
+        assert not [p for p in prev["plans"]
+                    if p.get("kind") == "dir" and p["from"] == parent]
+        out = _organize("inplace", only={a, b}, dry_run=False)
+        assert all(r["status"] == "moved" for r in out["results"]), out["results"]
+        assert (media_root / parent).is_dir()          # 父目录保留
+        assert (media_root / parent / "十二猴子 (1995)" / "十二猴子 (1995).mkv").is_file()
+        assert (media_root / parent / "别的片 (2000)" / "别的片 (2000).mkv").is_file()
+        assert store.get_movie(b)["file_path"] == \
+            f"{parent}/别的片 (2000)/别的片 (2000).mkv"
+    finally:
+        store.delete_movie(a)
+        store.delete_movie(b)
+        import shutil
+        shutil.rmtree(media_root / parent, ignore_errors=True)
+
+
 def test_remote_dir_rename_with_extras(smb_lib):
     lib, root, _fake = smb_lib
     rel = "12.Monkeys.1995/12.Monkeys.1995.mkv"

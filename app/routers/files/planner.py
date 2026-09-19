@@ -160,7 +160,10 @@ def _target_for(comp: dict, stem: str, target_root: str | None) -> str:
         # 与影片文件名/标题高度匹配（12.Monkeys.1995/）时上跳取祖父；连续上跳（≤8）顺带
         # 修复历史套娃。合集目录（周星驰.Stephen Chow 等名字不匹配的）保留，向下套一层。
         depth = 0
+        blocked = comp.get("blocked_dirs") or ()
         while parent and depth < 8:
+            if parent in blocked:
+                break        # 合集目录（子树多片）：保留，不越界上跳
             name = os.path.basename(parent)
             if (name == comp["base"] or _is_movie_dir_name(name)
                     or _dir_owned_by_comp(name, comp)):
@@ -213,15 +216,22 @@ def _collect_plans(target_root: str | None = None,
                 else store.list_movies(grouped=False, limit=100000))
     # 目标路径 → 占用行 id。按 (库, 路径) 键控（多库 v12）：不同库同名相对路径互不冲突。
     db_owner = {}
-    db_dir_keys: dict[tuple[int, str], set] = {}   # (库, 目录) → 影片标识集合
+    # (库, 目录) → 该目录「整棵子树」（含子目录）里的影片标识集合。合集目录（多片）
+    # 不得被当作某一部的专属目录上跳/整目录改名（用户反馈：惊声尖笑 1/5 越界）。
+    subtree_keys: dict[tuple[int, str], set] = {}
     for m in all_rows:
         lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
         rel = os.path.normpath(m["file_path"])
         db_owner[(lid, rel)] = m["id"]
+        key = m.get("tmdb_id") or -int(m["id"])
         d = os.path.dirname(rel)
-        if d:
-            db_dir_keys.setdefault((lid, d), set()).add(
-                m.get("tmdb_id") or -int(m["id"]))
+        while d:
+            subtree_keys.setdefault((lid, d), set()).add(key)
+            d = os.path.dirname(d)
+    blocked_by_lib: dict[int, set[str]] = {}
+    for (lid, d), keys in subtree_keys.items():
+        if len(keys) > 1:
+            blocked_by_lib.setdefault(lid, set()).add(d)
     rows = all_rows
     if library_id is not None:
         rows = [m for m in rows if int(m.get("library_id")
@@ -253,8 +263,8 @@ def _collect_plans(target_root: str | None = None,
     dir_owned: dict[tuple[int, str], bool] = {}
     for key, cs in dir_comps.items():
         name = os.path.basename(key[1])
-        if len(db_dir_keys.get(key, ())) > 1:
-            dir_owned[key] = False          # 多片共享目录：绝不整目录改名
+        if len(subtree_keys.get(key, ())) > 1:
+            dir_owned[key] = False          # 子树多片（合集/混放）：绝不整目录改名
         elif _is_movie_dir_name(name):
             dir_owned[key] = True
         else:
@@ -270,6 +280,8 @@ def _collect_plans(target_root: str | None = None,
             return
         seen_ids.add(c["id"])
         c["dir_owned"] = owned
+        lid = int(c["m"].get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        c["blocked_dirs"] = blocked_by_lib.get(lid, set())
         expanded.append(c)
 
     for c in comps:
@@ -384,7 +396,7 @@ def _collect_plans(target_root: str | None = None,
         from_dir = os.path.dirname(os.path.normpath(p["from"]))
         to_dir = os.path.dirname(os.path.normpath(p["to"]))
         if (c and c.get("dir_owned") and from_dir
-                and len(db_dir_keys.get((lib_id, from_dir), ())) <= 1
+                and len(subtree_keys.get((lib_id, from_dir), ())) <= 1
                 and to_dir and os.path.normpath(to_dir) != os.path.normpath(from_dir)):
             by_dir.setdefault((lib_id, from_dir), []).append(p)
         else:
@@ -420,7 +432,7 @@ def _collect_plans(target_root: str | None = None,
         lib_id = int(p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
         if p.get("kind") == "dir":
             dst_dir = os.path.normpath(p["to"])
-            occupied = db_dir_keys.get((lib_id, dst_dir), set())
+            occupied = subtree_keys.get((lib_id, dst_dir), set())
             owner_ok = occupied <= set(p["movie_ids"])
             file_bad = None
             for f in p.get("files") or []:
