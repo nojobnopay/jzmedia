@@ -1,6 +1,5 @@
 """routers.files.routes（自 app/routers/files.py 拆分，评审 B9/R09-Q1；经 files 门面使用）。"""
 import os
-import re
 from fastapi import APIRouter, HTTPException
 from ... import library_paths, store
 from ...scanner import sync_nfos_for
@@ -11,7 +10,7 @@ from .paths import (_backend_for, _check_inside_root, _exists, _is_file, _only_i
 from .planner import _collect_plans, _ordered_plans
 from .executor import (_cleanup_old_dir, _remote_cleanup_old_dir,
                        _remote_resync_old_dir, _resync_old_dir, _move_one)
-__all__ = ['router', '_organize', 'organize', 'preview', 'unmatched', 'missing', 'clean', '_restore_candidates', '_restore_one', 'restore_candidates', 'restore_original', '_under_root', '_delete_rows']
+__all__ = ['router', '_organize', 'organize', 'preview', 'unmatched', 'missing', 'clean', '_restore_candidates', '_restore_one', 'restore_candidates', 'restore_original', '_under_root', '_delete_rows', '_scope_libs']
 
 router = APIRouter(prefix="/api/files")
 
@@ -24,15 +23,50 @@ def _under_root(path: str, root: str) -> bool:
     return p == r or p.startswith(r.rstrip("/") + "/")
 
 
+def _scope_libs(library: str | None,
+                media_library: int | str | None = None) -> list[int] | None:
+    """只读接口作用域（库工具媒体库化）：media_library 优先 → 其全部视频库；
+    未知媒体库返回 `[-1]` 哨兵（绝不退化成全库）；library 兼容逗号多库；
+    都缺省=None=全库。"""
+    if media_library is not None and str(media_library).strip() != "":
+        try:
+            mid = int(media_library)
+        except (TypeError, ValueError):
+            raise HTTPException(422, "media_library must be int")
+        return store.library_ids_for_media(mid) or [-1]
+    return store._split_ints(library)
+
+
 def _organize(mode: str, from_prefix: str | None = None,
               to_dir: str | None = None,
               only: set | None = None, dry_run: bool = True,
-              library_id: int | None = None) -> dict:
-    """统一整理入口：inplace=就地归档（target_root=None），relocate=顶层搬迁（扁平）。
-    `library_id` 缺省=默认库；路径/行全部限定在该库内（多库 v12）。"""
+              library_id: int | None = None,
+              media_library_id: int | None = None) -> dict:
+    """统一整理入口：inplace=就地归档（保留用户自建父目录，规范影片自身目录/文件）；
+    relocate=搬到视频库根（平铺为 `标题 (年份)/…`）。
+    作用域：`media_library_id`=整个媒体库（其全部视频库，目标根=各视频库根）；
+    `library_id`=单个视频库（缺省=默认库）；带 `ids` 时按行自带库（详情页单行入口）。
+    兼容旧参数 `from_prefix`/`to_dir`（仅单库作用域；to_dir 空=库根）。"""
     if mode not in ("inplace", "relocate"):
         raise HTTPException(422, "mode must be inplace|relocate")
-    lid = int(library_id) if library_id is not None else library_paths.default_id()
+
+    if media_library_id is not None and str(media_library_id).strip() != "":
+        try:
+            mid = int(media_library_id)
+        except (TypeError, ValueError):
+            raise HTTPException(422, "media_library_id must be int")
+        lib_ids: set[int] | None = set(store.library_ids_for_media(mid))
+        lid: int | None = None
+        scope: dict = {"media_library_id": mid}
+        if not lib_ids:
+            empty = {"dry_run": dry_run, "mode": mode, **scope}
+            if dry_run:
+                return {**empty, "plans": [], "conflicts": []}
+            return {**empty, "results": [], "conflicts": []}
+    else:
+        lid = int(library_id) if library_id is not None else library_paths.default_id()
+        lib_ids = None
+        scope = {"library_id": lid}
 
     def _inside(rel: str) -> str:
         try:
@@ -41,40 +75,62 @@ def _organize(mode: str, from_prefix: str | None = None,
             raise HTTPException(422, str(e))
 
     if mode == "inplace":
-        # 指定 ids 时按行自带库操作（详情页单行入口不强制传库）；否则整库扫描
-        plans, conflicts = _collect_plans(only=only,
-                                          library_id=(None if only else lid))
-        base: dict = {"dry_run": dry_run, "mode": mode, "library_id": lid}
+        # 就地：ids 且未指定媒体库作用域时按行自带库（详情页单行入口不强制传库）
+        plans, conflicts = _collect_plans(
+            only=only,
+            library_id=(lib_ids if lib_ids is not None
+                        else (None if only else lid)))
+        base: dict = {"dry_run": dry_run, "mode": mode, **scope}
     else:
-        fp = _inside(str(from_prefix or "待整理"))
-        td = _inside(str(to_dir or "电影"))
-        if os.path.normpath(fp) == os.path.normpath(td):
+        td = ""
+        if to_dir not in (None, ""):
+            if lib_ids is not None:
+                raise HTTPException(
+                    422, "to_dir 仅单库（library_id）可用；媒体库作用域固定到各视频库根")
+            td = _inside(str(to_dir))
+        if from_prefix not in (None, ""):
+            if lib_ids is not None:
+                raise HTTPException(
+                    422, "from_prefix 仅单库（library_id）可用；媒体库作用域为整库收敛")
+            fp = _inside(str(from_prefix))
+        else:
+            fp = None
+        if fp and td and os.path.normpath(fp) == os.path.normpath(td):
             raise HTTPException(422, "from_prefix == to_dir, nothing to do")
         all_rows = store.list_movies(grouped=False, limit=100000)
+        # 显式作用域（媒体库或指定库）才做库过滤；只给 ids 时按行自带库
+        explicit_scope = lib_ids is not None or library_id is not None
 
         def _in_lib(m: dict) -> bool:
-            return int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID) == lid
+            if lib_ids is not None:
+                return int(m.get("library_id")
+                           or library_paths.DEFAULT_LIBRARY_ID) in lib_ids
+            if only and not explicit_scope:
+                return True
+            return int(m.get("library_id")
+                       or library_paths.DEFAULT_LIBRARY_ID) == lid
 
         if only:
-            scoped_rows = [m for m in all_rows if m["id"] in only]
-            if library_id is not None:   # 显式指定库时只接受该库行，防误操作
-                scoped_rows = [m for m in scoped_rows if _in_lib(m)]
-        else:
+            scoped_rows = [m for m in all_rows if m["id"] in only and _in_lib(m)]
+        elif fp:
             # 全量收敛：from_prefix 子树 + 已在目标根下但尚未规范的行
-            #（分区过期如改绑换产地、两级分区前的平铺残留）；目标已规范的行无计划
             scoped_rows = [m for m in all_rows if _in_lib(m)
                            and (_under_root(m["file_path"], fp)
-                                or _under_root(m["file_path"], td))]
+                                or (td and _under_root(m["file_path"], td)))]
+        else:
+            # 媒体库/单库全量：目标根下未规范 + 更深层遗留（平铺收敛）
+            scoped_rows = [m for m in all_rows if _in_lib(m)]
         scoped = {m["id"] for m in scoped_rows}
-        plans, conflicts = _collect_plans(target_root=td,
-                                          only=scoped or {-1},
-                                          all_rows=all_rows,
-                                          library_id=(None if only else lid))
+        plans, conflicts = _collect_plans(
+            target_root=td, only=scoped or {-1}, all_rows=all_rows,
+            library_id=(lib_ids if lib_ids is not None
+                        else (None if only else lid)))
         base = {"dry_run": dry_run, "mode": mode, "from_prefix": fp,
-                "to_dir": td, "library_id": lid}
+                "to_dir": td, **scope}
     if dry_run:
         return {**base, "plans": plans, "conflicts": conflicts}
-    for lid2 in sorted({int(p.get("library_id") or lid) for p in plans}):
+    for lid2 in sorted({int(p.get("library_id")
+                      or library_paths.DEFAULT_LIBRARY_ID) for p in plans}):
         _require_writable(lid2)
     return {**base, "results": [_move_one(p) for p in _ordered_plans(plans)],
             "conflicts": conflicts}
@@ -82,10 +138,12 @@ def _organize(mode: str, from_prefix: str | None = None,
 
 @router.post("/organize")
 def organize(body: dict | None = None):
-    """统一整理口：mode=inplace 就地归档；mode=relocate 顶层搬迁（扁平）。
-    dry_run 默认 true 只预览。`library_id`（或别名 `library`）缺省=默认库。"""
+    """统一整理口：mode=inplace 就地归档；mode=relocate 搬到视频库根（平铺）。
+    dry_run 默认 true 只预览。`media_library_id`=整个媒体库；`library_id`（或别名
+    `library`）单库，缺省=默认库；旧 `from_prefix`/`to_dir` 仅单库兼容。"""
     body = body or {}
     lib = body.get("library_id", body.get("library"))
+    media = body.get("media_library_id", body.get("media_library"))
     try:
         lib = int(lib) if lib not in (None, "") else None
     except (TypeError, ValueError):
@@ -95,7 +153,8 @@ def organize(body: dict | None = None):
                      to_dir=body.get("to_dir"),
                      only=_only_ids(body),
                      dry_run=body.get("dry_run", True),
-                     library_id=lib)
+                     library_id=lib,
+                     media_library_id=media)
 
 
 @router.get("/preview")
@@ -104,13 +163,14 @@ def preview():
 
 
 @router.get("/unmatched")
-def unmatched(library: str | None = None):
+def unmatched(library: str | None = None, media_library: int | None = None):
     """待处理明细（只读，供设置页展示+跳转处理）：
     unmatched=TMDB 无命中；needs_review=模糊命中待确认；
     suspect_title=标题无 CJK（high=非英语片，疑似错配/缺译；info=英语片，多为正常/陈旧）；
-    orphan_extras=未归属花絮（文件原地保留）。library 缺省=全库。"""
+    orphan_extras=未归属花絮（文件原地保留）。library/media_library 缺省=全库；
+    media_library=整个媒体库（其全部视频库）。"""
     import re as _re
-    libs = store._split_ints(library)
+    libs = _scope_libs(library, media_library)
     un, nr, high, info, orphans = [], [], [], [], []
     for m in store.list_movies(grouped=False, limit=100000):
         if libs and int(m.get("library_id") or 0) not in libs:
@@ -165,10 +225,10 @@ def _delete_rows(cands: list) -> dict:
 
 
 @router.get("/missing")
-def missing(library: str | None = None):
+def missing(library: str | None = None, media_library: int | None = None):
     """预览失效条目：库中有记录但文件已不存在的行（软件外删片/移动后产生）。
-    library 缺省=全库。"""
-    libs = store._split_ints(library)
+    library/media_library 缺省=全库；返回项带 library_id 供按视频库分表。"""
+    libs = _scope_libs(library, media_library)
     out = []
     for m in store.list_movies(grouped=False, limit=100000):
         if libs and int(m.get("library_id") or 0) not in libs:
@@ -177,7 +237,8 @@ def missing(library: str | None = None):
                        m["file_path"]):
             out.append({"id": m["id"], "title": m.get("title", ""),
                         "year": m.get("year"), "file_path": m["file_path"],
-                        "tmdb_id": m.get("tmdb_id")})
+                        "tmdb_id": m.get("tmdb_id"),
+                        "library_id": m.get("library_id")})
     return {"total": len(out), "items": out}
 
 
@@ -186,17 +247,12 @@ def clean(body: dict | None = None):
     """清理失效条目：彻底删除DB行+演职员关联+FTS（海报与tmdb_cache保留供重扫复用）。
     默认 dry_run 预览（评审 B5a-4/R09-D4）；
     body.ids 不传则清理全部缺失行；建议先 GET /missing 预览勾选。
-    body.library_id/library 可限定库（缺省=全库）。"""
+    body.library_id/library 单库或多库；media_library_id 整个媒体库（缺省=全库）。"""
     body = body or {}
     dry_run = body.get("dry_run", True)
     only_set = _only_ids(body)
-    raw_lib = body.get("library_id", body.get("library"))
-    if raw_lib in (None, ""):
-        libs: set[int] = set()
-    elif isinstance(raw_lib, int):
-        libs = {raw_lib}
-    else:
-        libs = set(store._split_ints(raw_lib))
+    libs = _scope_libs(body.get("library_id", body.get("library")),
+                       body.get("media_library_id", body.get("media_library")))
     cands = [m for m in store.list_movies(grouped=False, limit=100000)
              if (only_set is None or m["id"] in only_set)
              and (not libs or int(m.get("library_id") or 0) in libs)
@@ -234,7 +290,8 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
     """单行恢复到原始路径。dry_run 只规划；执行时复用 NFO 收敛+旧目录清理。
     远程直读库经 StorageBackend 执行（无挂载依赖）。"""
     base = {"id": m["id"], "title": m.get("title", ""),
-            "from": m["file_path"], "to": m.get("original_file_path") or ""}
+            "from": m["file_path"], "to": m.get("original_file_path") or "",
+            "library_id": m.get("library_id")}
     # 目标边界守卫（评审 B6/R09-B4）：to 来自库内历史值，理论上合法；
     # 防御性再校验一次，防止库被外部工具改坏后恢复到 MEDIA_ROOT 之外
     try:
@@ -341,14 +398,18 @@ def _restore_one_remote(m: dict, base: dict, backend, dry_run: bool) -> dict:
 
 
 @router.get("/restore-candidates")
-def restore_candidates(library: str | None = None):
-    """预览偏离原始位置的行（只读，供设置页恢复区展示）。library 缺省=全库。"""
-    cands = _restore_candidates(None, store._split_ints(library))
+def restore_candidates(library: str | None = None,
+                       media_library: int | None = None):
+    """预览偏离原始位置的行（只读，供设置页恢复区展示）。
+    library/media_library 缺省=全库；返回项带 library_id 供按视频库分表。"""
+    libs = _scope_libs(library, media_library)
+    cands = _restore_candidates(None, set(libs) if libs else None)
     return {"total": len(cands),
             "items": [{"id": m["id"], "title": m.get("title", ""),
                        "year": m.get("year"),
                        "file_path": m["file_path"],
-                       "original_file_path": m.get("original_file_path") or ""}
+                       "original_file_path": m.get("original_file_path") or "",
+                       "library_id": m.get("library_id")}
                       for m in cands]}
 
 
@@ -356,18 +417,20 @@ def restore_candidates(library: str | None = None):
 def restore_original(body: dict | None = None):
     """恢复到原始位置：把整理/搬迁后偏离原始路径的影片搬回 original_file_path。
     默认 dry_run:true 只预览；确认后 dry_run:false 执行。目标被占/源缺失则跳过上报，绝不覆盖。
-    body.library_id/library 可限定库（缺省=全库）。"""
+    body.library_id/library 单库或多库；media_library_id 整个媒体库（缺省=全库）。"""
     body = body or {}
     only = _only_ids(body)
     dry_run = body.get("dry_run", True)
-    libs = store._split_ints(body.get("library_id", body.get("library")))
+    libs = _scope_libs(body.get("library_id", body.get("library")),
+                       body.get("media_library_id", body.get("media_library")))
+    lib_set = set(libs) if libs else None
     if dry_run:
         plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
                   "from": m["file_path"], "to": m.get("original_file_path") or "",
                   "status": _restore_one(m, dry_run=True)["status"]}
-                 for m in _restore_candidates(only, libs)]
+                 for m in _restore_candidates(only, lib_set)]
         return {"dry_run": True, "total": len(plans), "plans": plans}
-    cands = _restore_candidates(only, libs)
+    cands = _restore_candidates(only, lib_set)
     for lid in sorted({int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
                        for m in cands}):
         _require_writable(lid)

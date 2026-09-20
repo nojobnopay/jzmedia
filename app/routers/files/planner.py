@@ -130,12 +130,12 @@ def _components(m: dict) -> dict | None:
     """单行规划要素：base/edition/spec标签列表/stack/命名档。DB 为空时从现文件名识别回填。"""
     if not m.get("title") or not m.get("year"):
         return None
-    if is_sidecar(m["file_path"]):
+    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    if is_sidecar(m["file_path"], library_id=lib_id):
         return None
     title = _safe_component(m["title"])
     if not title:
         return None
-    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
     profile = library_paths.naming_profile(lib_id)
     if profile == "off":
         return None
@@ -209,7 +209,7 @@ def _keeper_of(comp: dict) -> dict:
 def _collect_plans(target_root: str | None = None,
                    only: set | None = None,
                    all_rows: list | None = None,
-                   library_id: int | None = None) -> tuple[list, list]:
+                   library_id: int | set | None = None) -> tuple[list, list]:
     # all_rows 允许调用方传入已读的全表（评审 99 §2.2：relocate 免二次全表读）；
     # 库内占用检查需要全表，因此不能只传 scoped 子集。
     all_rows = (all_rows if all_rows is not None
@@ -234,8 +234,11 @@ def _collect_plans(target_root: str | None = None,
             blocked_by_lib.setdefault(lid, set()).add(d)
     rows = all_rows
     if library_id is not None:
+        lids = (set(int(x) for x in library_id)
+                if isinstance(library_id, (set, frozenset, list, tuple))
+                else {int(library_id)})
         rows = [m for m in rows if int(m.get("library_id")
-                                       or library_paths.DEFAULT_LIBRARY_ID) == int(library_id)]
+                                       or library_paths.DEFAULT_LIBRARY_ID) in lids]
     if only:
         rows = [m for m in rows if m["id"] in only]
 

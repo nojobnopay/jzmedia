@@ -150,7 +150,7 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict,
                         if not _copy_file(src_abs, dst_abs, _on_bytes, _stop):
                             return
                     rel_dst = os.path.relpath(dst_abs, library_paths.library_root(lid))
-                    if is_feature_video(rel_dst):
+                    if is_feature_video(rel_dst, library_id=lid):
                         # 正片复制 → 登记（源已匹配则直绑 tmdb，避免重搜/误配）
                         hint = hints.get(rel)
                         try:

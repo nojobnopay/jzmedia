@@ -55,7 +55,11 @@ _SAMPLE_TOKENS = (
 
 
 _SAMPLE_RE = re.compile(
-    r"(?i)(?:(?:^|[.\-_])samples?(?:[.\-_](?:%s)){0,3}|\(samples?\))$" % _SAMPLE_TOKENS)
+    r"(?i)(?:(?:^|[\s.\-_])samples?(?:[\s.\-_](?:%s)){0,3}|\(samples?\))$" % _SAMPLE_TOKENS)
+
+# 花絮/样片目录名归一：分隔符（`.`/`_`/`-` → 空格）+ 复合名切分（Sample,Screens）
+_DIR_SEP_RE = re.compile(r"[.\-_]+")
+_DIR_SPLIT_RE = re.compile(r"[,，、;；&+]+")
 
 
 def strip_kind_affix(title: str) -> str:
@@ -82,12 +86,14 @@ def strip_kind_affix(title: str) -> str:
 
 
 def extra_kind(rel_path: str) -> str:
-    """花絮归属类型：先看所处花絮子目录（由内向外），再看文件名关键词，默认 extra。"""
+    """花絮归属类型：先看所处花絮子目录（由内向外，目录名 token 化），再看文件名关键词，默认 extra。
+    Sample,Screens → sample（跳过不登记）；Behind.The.Scenes → behindthescenes。"""
     parts = (rel_path or "").replace("\\", "/").split("/")
     for p in reversed(parts[:-1]):
-        k = KIND_BY_DIR.get((p or "").strip().lower())
-        if k:
-            return k
+        for tok in _dir_tokens(p):
+            k = KIND_BY_DIR.get(tok)
+            if k:
+                return k
     if is_sample(os.path.basename(rel_path or "")):
         return "sample"
     stem = os.path.splitext(parts[-1] if parts else "")[0]
@@ -101,9 +107,42 @@ def is_sample(basename: str) -> bool:
     return bool(_SAMPLE_RE.search(os.path.splitext(basename)[0]))
 
 
-def _parent_has_feature(abs_dir: str) -> bool:
+def _dir_tokens(name: str) -> list[str]:
+    """目录名归一 token（有序去重）：`._-`→空格，再按 `,，、;；&+` 切分。
+    `Sample,Screens` → [sample, screens]；`Behind.The.Scenes` → [behind the scenes]；
+    `Extras & Trailers` → [extras & trailers, extras, trailers]。"""
+    base = " ".join(_DIR_SEP_RE.sub(" ", str(name or "").strip().lower()).split())
+    if not base:
+        return []
+    out: list[str] = []
+    for t in [base, *_DIR_SPLIT_RE.split(base)]:
+        t = t.strip()
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
+def _parent_has_feature(abs_dir: str = "", backend=None, rel_dir: str = "") -> bool:
     """父目录是否含正片文件（二级规则：scenes/other/shorts 类通用名目录的判定用）。
-    只看文件名级特征（不递归调 is_extra，避免循环）。"""
+    只看文件名级特征（不递归调 is_extra，避免循环）。
+    backend 给定时走存储层（远程直读/非默认库不再依赖 POSIX 根）。"""
+    if backend is not None:
+        try:
+            entries = backend.list(rel_dir)
+        except storage.StorageError as e:
+            logger.debug("parent_has_feature list failed rel=%s: %s", rel_dir, e)
+            return False
+        names = [str(e.get("name") or "") for e in entries if not e.get("is_dir")]
+        for n in names:
+            if os.path.splitext(n)[1].lower() not in VIDEO_EXTS:
+                continue
+            if is_sample(n):
+                continue
+            stem = os.path.splitext(n)[0]
+            if _EXTRAS_RE.search(stem):
+                continue
+            return True
+        return False
     try:
         names = os.listdir(abs_dir)
     except OSError:
@@ -123,32 +162,40 @@ def _parent_has_feature(abs_dir: str) -> bool:
     return False
 
 
-def is_extra(rel_path: str) -> bool:
-    """rel_path 为 MEDIA_ROOT 下相对路径：文件名命中花絮词，或所处花絮子目录。
+def is_extra(rel_path: str, library_id=None, backend=None) -> bool:
+    """rel_path 为库内相对路径：文件名命中花絮词，或所处花絮子目录。
+    目录名 token 化匹配（Sample,Screens / Behind.The.Scenes / Extras & Trailers 均命中）。
     scenes/other/shorts 类通用目录名仅当其父目录含正片文件（即“某部片的子目录”
-    语义，如 Movie/Shorts/）时生效；顶层 Shorts/ 合集目录不受影响。"""
+    语义，如 Movie/Shorts/）时生效；顶层 Shorts/ 合集目录不受影响。
+    backend 给定时通用目录判定走存储层（远程直读可用）；否则用 library_id 的根。"""
     parts = (rel_path or "").replace("\\", "/").split("/")
     for i, p in enumerate(parts[:-1]):
-        low = (p or "").strip().lower()
-        if low in _GENERIC_DIR_NAMES:
-            above = os.path.join(library_paths.default_root(), *parts[:i]) \
-                if i else library_paths.default_root()
-            if _parent_has_feature(above):
-                return True
-        elif low in EXTRAS_DIR_NAMES:
+        toks = _dir_tokens(p)
+        if any(t in EXTRAS_DIR_NAMES for t in toks):
             return True
+        if any(t in _GENERIC_DIR_NAMES for t in toks):
+            if backend is not None:
+                if _parent_has_feature(backend=backend, rel_dir="/".join(parts[:i])):
+                    return True
+            else:
+                root = (library_paths.library_root(library_id)
+                        if library_id is not None else library_paths.default_root())
+                above = os.path.join(root, *parts[:i]) if i else root
+                if _parent_has_feature(abs_dir=above):
+                    return True
     return bool(_EXTRAS_RE.search(os.path.splitext(parts[-1] if parts else "")[0]))
 
 
-def is_sidecar(rel_path: str) -> bool:
+def is_sidecar(rel_path: str, library_id=None, backend=None) -> bool:
     """扫描应跳过的非正片：花絮或样片。"""
     base = os.path.basename(rel_path or "")
-    return is_sample(base) or is_extra(rel_path)
+    return is_sample(base) or is_extra(rel_path, library_id=library_id,
+                                       backend=backend)
 
 
-def is_feature_video(rel_path: str) -> bool:
+def is_feature_video(rel_path: str, library_id=None, backend=None) -> bool:
     return (os.path.splitext(rel_path)[1].lower() in VIDEO_EXTS
-            and not is_sidecar(rel_path))
+            and not is_sidecar(rel_path, library_id=library_id, backend=backend))
 
 
 def same_stem(name_stem: str, stems) -> bool:
@@ -299,15 +346,16 @@ def sidecar_subtitles_fs(backend, rel_video: str) -> list[dict]:
 
 _EXTRAS_RE = re.compile(
     r"(?i)(behind[ ._\-]*the[ ._\-]*scenes|featurette|deleted[ ._\-]*scenes?|"
-    r"bloopers?|interviews?|trailers?|teasers?|"
+    r"bloopers?|interviews?|trailers?|teasers?|screenshots?|"
     r"making[\s.\-_]*of|メイキング|"
     r"[ ._\-]+shorts?$|[ ._\-]+scene$|"
-    r"花絮|预告|特辑|彩蛋|幕后)")
+    r"花絮|预告|特辑|彩蛋|幕后|截图|样片)")
 
 
 EXTRAS_DIR_NAMES = {"extras", "extra", "featurettes", "featurette",
                     "behind the scenes", "deleted scenes", "trailers", "trailer",
                     "interviews", "interview", "samples", "sample",
+                    "screens", "screenshots", "截图", "封面截图", "样片",
                     "花絮", "预告", "特辑"}
 
 
@@ -335,6 +383,8 @@ KIND_BY_DIR = {"trailers": "trailer", "trailer": "trailer", "预告": "trailer",
                "interviews": "interview", "interview": "interview",
                "scenes": "scene", "shorts": "short", "short": "short",
                "other": "other", "samples": "sample", "sample": "sample",
+               "screens": "sample", "screenshots": "sample",
+               "截图": "sample", "封面截图": "sample", "样片": "sample",
                "extras": "extra", "extra": "extra"}
 
 
@@ -344,6 +394,7 @@ _KIND_WORDS: list[tuple] = [
     (re.compile(r"(?i)deleted[ ._\-]*scenes?|bloopers?"), "deleted"),
     (re.compile(r"(?i)featurette|特辑|彩蛋"), "featurette"),
     (re.compile(r"(?i)interviews?"), "interview"),
+    (re.compile(r"(?i)screenshots?|截图|样片"), "sample"),
     (re.compile(r"(?i)[ ._\-]+scene$"), "scene"),
     (re.compile(r"(?i)[ ._\-]+shorts?$"), "short"),
 ]

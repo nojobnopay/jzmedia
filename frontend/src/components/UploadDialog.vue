@@ -21,7 +21,7 @@
         <input v-if="upMode === 'files'" type="file" multiple ref="upFiles" :disabled="uploading" @change="onUpInputChange" />
         <input v-else type="file" webkitdirectory ref="upDir" :disabled="uploading" @change="onUpInputChange" />
       </div>
-      <div class="bar"><span class="fhint">上传到 待整理/，文件夹结构原样保留；字幕/花絮自动归属；同名文件跳过不覆盖；&gt;2GB 建议局域网操作，可随时取消</span></div>
+      <div class="bar"><span class="fhint">上传到视频库根（文件夹结构原样保留）；字幕/花絮自动归属；同名文件跳过不覆盖；&gt;2GB 建议局域网操作，可随时取消</span></div>
       <div v-if="upFolderHead" class="bar"><span>已选文件夹：{{ upFolderHead }}</span></div>
       <div v-if="upQueue.length" class="bar"><span class="fhint">共 {{ upQueue.length }} 个文件 · {{ fmtBytes(upTotalSize) }}{{ upDoneCount ? ` · 已传 ${upDoneCount}` : '' }}{{ upScanning ? ' · 当前已传完 · 刮削中…' : (upCurPct != null ? ` · 当前 ${upCurPct}%` : '') }}</span></div>
       <div v-if="upQueue.length" class="up-progress"><div class="up-progress-fill" :style="{ width: upTotalPct + '%' }"></div></div>
@@ -50,7 +50,7 @@
       </div>
       </template>
       <template v-if="upStep === 'organize'">
-      <div class="bar"><span class="fhint">待整理 → 电影（按大区），仅本次上传的 {{ upOrganizableIds.length }} 部影片，先预览再执行</span></div>
+      <div class="bar"><span class="fhint">规范命名并收敛到视频库根（按命名档平铺），仅本次上传的 {{ upOrganizableIds.length }} 部影片，先预览再执行</span></div>
       <div class="bar"><span>{{ upOrgMsg }}</span></div>
       <ul v-if="upOrgPlans.length" class="collist">
         <li v-for="p in upOrgPlans" :key="p.id"><span :title="p.from + ' → ' + p.to">{{ midEllipsis(p.from, 40) }} → {{ midEllipsis(p.to, 40) }}</span><span v-if="p.status" class="fhint">{{ p.status }}</span></li>
@@ -342,7 +342,7 @@ function cancelUpload() {
   upCancelled = true
   if (upAbort) upAbort()
 }
-// 归档整理（第 2 步）：仅本次上传影片，待整理 → 电影（按大区），先预览再执行
+// 归档整理（第 2 步）：仅本次上传影片，规范命名并收敛到视频库根，先预览再执行
 const upStep = ref('upload')
 const upOrgPlans = ref([])
 const upOrgConflicts = ref([])
@@ -360,8 +360,7 @@ const upOrganizableIds = computed(() => [...new Set(
   upQueue.value.filter(t => t.movieId).map(t => t.movieId))])
 const upOrganizable = computed(() => upOrganizableIds.value.length > 0)
 function upOrgBody(dry_run) {
-  return JSON.stringify({ mode: 'relocate', from_prefix: '待整理', to_dir: '电影',
-    library_id: upLibId.value,
+  return JSON.stringify({ mode: 'relocate', library_id: upLibId.value,
     ids: upOrganizableIds.value, dry_run })
 }
 async function goUpOrganize() {
@@ -388,7 +387,7 @@ async function doUpOrganize() {
     upOrgConflicts.value = d.conflicts || []
     const ok = upOrgPlans.value.filter(r => r.status === 'moved').length
     upOrgDone.value = true
-    upDoneSummary.value = `搬迁完成：${ok}/${upOrgPlans.value.length}，已归档到正式库`
+    upDoneSummary.value = `搬迁完成：${ok}/${upOrgPlans.value.length}，已归档到视频库根`
     upStep.value = 'done'
     emit('done')
   } catch (e) {

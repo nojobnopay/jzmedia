@@ -65,7 +65,7 @@ async def _lifespan(_app: FastAPI):
     _logger.info("jzmedia 已停止")
 
 
-app = FastAPI(title="jzmedia", version="0.9.0", lifespan=_lifespan)
+app = FastAPI(title="jzmedia", version="0.10.0", lifespan=_lifespan)
 
 # 写操作访问令牌（评审 P1-01）：仅当 JZMEDIA_TOKEN/设置页配置了令牌才生效。
 # 只护 /api 的写方法（POST/PUT/PATCH/DELETE）；GET 全放行（Kodi/电视直链、海报、

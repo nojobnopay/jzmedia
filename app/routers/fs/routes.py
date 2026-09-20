@@ -77,17 +77,111 @@ def _list_remote(backend, norm: str, lid: int, extras_map: dict,
             "fs_writable": False, "driver": backend.driver}
 
 
+def _media_norm(path: str) -> str:
+    """媒体根内相对路径归一（空=根）；越界/绝对路径 422。"""
+    raw = str(path or "").strip().replace("\\", "/")
+    if os.path.isabs(raw):
+        raise HTTPException(422, f"illegal path: {path!r}")
+    parts = [p for p in raw.split("/") if p not in ("", ".")]
+    if any(p == ".." for p in parts):
+        raise HTTPException(422, f"path escapes media root: {path!r}")
+    return "/".join(parts)
+
+
+def _list_media_root(mid: int, path: str, limit: int, offset: int) -> dict:
+    """媒体库根浏览（只读，文件浏览媒体根模式）：真实列目录 + 视频库 subpath 徽章。
+    不进 DB 分类（媒体根不属于任何视频库），文件一律 kind=other、不可写。"""
+    from ... import storage
+    lib = store.get_media_library(mid)
+    if not lib:
+        raise HTTPException(404, "media library not found")
+    norm = _media_norm(path)
+    try:
+        backend = storage.backend_for_media(mid)
+    except storage.StorageError as e:
+        raise HTTPException(503, f"media library unavailable: {e}")
+    if norm:
+        try:
+            if not backend.is_dir(norm):
+                raise HTTPException(404, f"not a directory: {path!r}")
+        except HTTPException:
+            raise
+        except storage.StorageNotFound:
+            raise HTTPException(404, f"not found: {path!r}")
+        except storage.StorageOffline as e:
+            raise HTTPException(503, f"source offline: {e}")
+        except storage.StorageError as e:
+            raise HTTPException(500, f"stat failed: {e}")
+    try:
+        entries = backend.list(norm)
+    except storage.StorageNotFound:
+        raise HTTPException(404, f"not found: {path!r}")
+    except storage.StorageOffline as e:
+        raise HTTPException(503, f"source offline: {e}")
+    except storage.StorageError as e:
+        raise HTTPException(500, f"list failed: {e}")
+    vids = [(str(v.get("subpath") or "").strip().strip("/"), v)
+            for v in store.video_libraries_of(mid)]
+    exact = {sub: v for sub, v in vids if sub}
+    dirs, files = [], []
+    for e in sorted(entries, key=lambda x: x["name"]):
+        n = str(e.get("name") or "")
+        if not n or n.startswith("."):
+            continue
+        rel = f"{norm}/{n}" if norm else n
+        if e.get("is_dir"):
+            item = {"name": n, "rel": rel, "children": None}
+            v = exact.get(rel)
+            if v:
+                item["video_library_id"] = v.get("id")
+                item["video_library_name"] = v.get("name")
+                item["kind"] = v.get("kind") or "movie"
+            elif any(sub.startswith(rel + "/") for sub, _ in vids if sub):
+                item["contains_video_library"] = True
+            dirs.append(item)
+        else:
+            files.append({"rel": rel, "name": n,
+                          "size": int(e.get("size") or 0),
+                          "mtime": float(e.get("mtime") or 0),
+                          "kind": "other"})
+    parent = os.path.dirname(norm) if norm else ""
+    crumbs = []
+    if norm:
+        acc = []
+        for part in norm.split("/"):
+            acc.append(part)
+            crumbs.append({"name": part, "rel": "/".join(acc)})
+    total_files = len(files)
+    has_more = offset + limit < total_files
+    return {"path": norm, "parent": parent, "crumbs": crumbs,
+            "dirs": dirs, "files": files[offset:offset + limit],
+            "total_dirs": len(dirs), "total_files": total_files,
+            "has_more": has_more, "limit": limit, "offset": offset,
+            "fs_writable": False, "driver": backend.driver,
+            "root_kind": "media", "media_library_id": mid,
+            "media_name": lib.get("name")}
+
+
 @router.get("/list")
 def fs_list(path: str = "", limit: int = 1000, offset: int = 0,
-            library: int | None = None):
+            library: int | None = None,
+            media_library: int | None = None):
     """浏览目录（只读）：根用空串；返回 dirs/files（大小/mtime/定性）。
     files 支持 limit/offset 分页（评审 B8/R01-Q6：超大目录不再一次全量）。
-    `library` 缺省=默认库；直读远程库同样可浏览（fs_writable=false，写入操作 501）。"""
+    `library` 缺省=默认库；直读远程库同样可浏览（fs_writable=false，写入操作 501）。
+    `media_library` 列媒体库根（文件浏览媒体根模式）：首层目录带 `video_library_id`
+    徽章，进入视频库目录后前端切换回 `library` 上下文；媒体根一律只读。"""
     try:
         limit = max(1, min(int(limit or 1000), 5000))
         offset = max(0, int(offset or 0))
     except (TypeError, ValueError):
         limit, offset = 1000, 0
+    if media_library is not None and str(media_library).strip() != "":
+        try:
+            mid = int(media_library)
+        except (TypeError, ValueError):
+            raise HTTPException(422, "media_library must be int")
+        return _list_media_root(mid, path, limit, offset)
     lid = library_paths.default_id() if library is None else int(library)
     norm = _resolve_dir(path, lid)
     backend = _backend(lid)

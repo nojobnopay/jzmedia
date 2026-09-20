@@ -143,7 +143,7 @@ def scan_file(backend, rel: str, force: bool = False,
     lib_id = backend.library_id or DEFAULT_LIBRARY_ID
     rel = backend.norm(rel)
     abs_path = backend.abs_path(rel) or ""
-    if is_sidecar(rel):
+    if is_sidecar(rel, backend=backend):
         if is_sample(os.path.basename(rel)):
             return {"file": rel, "status": "skipped_sample"}
         return attribute_extra_file(backend, rel)
@@ -330,7 +330,7 @@ def scan_tv_file(backend, rel: str) -> dict:
         mtime, size = int(st.mtime), int(st.size)
     except storage.StorageError:
         mtime, size = 0, 0
-    if is_sidecar(rel) or is_sample(base):
+    if is_sidecar(rel, backend=backend) or is_sample(base):
         store.set_scan_state(rel, mtime, size, "skipped_sidecar", library_id=lib_id)
         return {"file": rel, "status": "skipped_sidecar"}
     parsed = parse_filename(base)

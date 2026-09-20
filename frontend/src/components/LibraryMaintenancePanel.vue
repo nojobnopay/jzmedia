@@ -1,15 +1,15 @@
 <template>
   <section :id="active ? 'sec-meta' : undefined" class="card-block">
-    <h3>高级维护 <span class="fhint">仅作用于「{{ library.name }}」</span></h3>
-    <p class="hint">库级批量修复，日常无需操作：补产地、刷新 TMDB、重写 NFO/海报、清理历史脏行。</p>
+    <h3>高级维护 <span class="fhint">作用于「{{ media.name }}」的 {{ movieLibs.length }} 个电影视频库</span></h3>
+    <p class="hint">库级批量修复，日常无需操作：补产地、刷新 TMDB、重写 NFO/海报、清理历史脏行。剧集库仅入清单，不参与。</p>
 
     <div class="bar">
-      <button @click="doBackfill" :disabled="!!busy">{{ busy === 'backfill' ? '补数据中…' : '补产地信息' }}</button>
+      <button @click="doBackfill" :disabled="!!busy || !movieLibs.length">{{ busy === 'backfill' ? '补数据中…' : '补产地信息' }}</button>
       <span>{{ backfillMsg }}</span>
     </div>
 
     <div class="bar">
-      <button @click="doRefreshAll" :disabled="!!busy">
+      <button @click="doRefreshAll" :disabled="!!busy || !movieLibs.length">
         {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? '确认刷新全部 TMDB' : '刷新全部 TMDB 数据') }}
       </button>
       <span>{{ refreshMsg }}</span>
@@ -17,12 +17,12 @@
     <p v-if="armRefresh" class="hint warn-text">将逐部请求 TMDB（以 limit 截断），无变化的不动，手工标题不受影响。再点一次执行。</p>
 
     <div class="bar">
-      <button @click="doRebuildNfo" :disabled="!!busy">{{ busy === 'nfo' ? '重建中…' : '重建全部 NFO' }}</button>
+      <button @click="doRebuildNfo" :disabled="!!busy || !movieLibs.length">{{ busy === 'nfo' ? '重建中…' : '重建全部 NFO' }}</button>
       <span>{{ nfoMsg }}</span>
     </div>
 
     <div class="bar">
-      <button @click="doRebuildMeta" :disabled="!!busy">
+      <button @click="doRebuildMeta" :disabled="!!busy || !movieLibs.length">
         {{ busy === 'meta' ? `重建元数据中 ${metaDone}/${metaTotal}…` : (armMeta ? '确认重建元数据' : '重建元数据（NFO+海报）') }}
       </button>
       <button v-if="busy === 'meta'" @click="cancelMeta">取消</button>
@@ -31,14 +31,22 @@
     <p v-if="armMeta" class="hint warn-text">按现有匹配从镜像缓存重写 NFO 与 poster/fanart（不触网、不覆盖手工标题；远程库直接写 NAS）。再点一次执行。</p>
 
     <div class="bar">
-      <button @click="doCleanBdmv" :disabled="!!busy">
+      <button @click="doCleanBdmv" :disabled="!!busy || !movieLibs.length">
         {{ busy === 'bdmv' ? '清理中…' : (armBdmv ? '确认清理 BDMV 碎片' : '清理 BDMV 碎片') }}
       </button>
       <span>{{ bdmvMsg }}</span>
     </div>
     <p v-if="armBdmv" class="hint warn-text">删除原盘结构（BDMV/VIDEO_TS）里的碎片记录（只删库记录，不动物理文件）。再点一次执行。</p>
 
-    <div v-if="library.source !== 'local'" class="bar">
+    <div class="bar">
+      <button @click="doCleanSamples" :disabled="!!busy || !movieLibs.length">
+        {{ busy === 'samples' ? '清理中…' : (armSamples ? '确认清理误入库样片' : '清理误入库样片') }}
+      </button>
+      <span>{{ samplesMsg }}</span>
+    </div>
+    <p v-if="armSamples" class="hint warn-text">删除路径属于 Sample/Screens/Behind The Scenes 等样片/花絮目录的影片记录（只删库记录，不动物理文件）。再点一次执行。</p>
+
+    <div v-if="media.source !== 'local'" class="bar">
       <button @click="doCleanMount" :disabled="!!busy">
         {{ busy === 'mount' ? '清理中…' : (armMount ? '确认清理挂载残留' : '清理挂载残留') }}
       </button>
@@ -48,15 +56,19 @@
   </section>
 </template>
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { api } from '../api.js'
 import { usePolling } from '../usePolling.js'
 
 const props = defineProps({
-  library: { type: Object, required: true },
+  media: { type: Object, required: true },
+  libFilter: { type: Number, default: null },
   active: { type: Boolean, default: false },
 })
 const emit = defineEmits(['changed'])
+
+const movieLibs = computed(() => (props.media.video_libraries || [])
+  .filter(v => (v.kind || 'movie') !== 'tv'))
 
 const busy = ref(null)
 const backfillMsg = ref('')
@@ -67,7 +79,7 @@ const bdmvMsg = ref('')
 const mountMsg = ref('')
 
 function libBody(extra = {}) {
-  return JSON.stringify({ ...extra, library_id: props.library.id })
+  return JSON.stringify({ ...extra, media_library_id: props.media.id })
 }
 
 async function doBackfill() {
@@ -200,6 +212,28 @@ async function doCleanBdmv() {
     emit('changed')
   } catch (e) {
     bdmvMsg.value = '清理失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+const armSamples = ref(false)
+const samplesMsg = ref('')
+async function doCleanSamples() {
+  if (!armSamples.value) {
+    armSamples.value = true
+    samplesMsg.value = '再点一次确认执行'
+    return
+  }
+  armSamples.value = false
+  busy.value = 'samples'
+  samplesMsg.value = ''
+  try {
+    const d = await api('/api/jobs/clean-samples', { method: 'POST', body: libBody() })
+    samplesMsg.value = d.total ? `已删除 ${d.deleted}/${d.total} 条误入库记录` : '没有需要清理的记录'
+    emit('changed')
+  } catch (e) {
+    samplesMsg.value = '清理失败：' + e.message
   } finally {
     busy.value = null
   }

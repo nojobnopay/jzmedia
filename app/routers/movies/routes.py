@@ -341,7 +341,7 @@ def movie_files(movie_id: int):
         rel = os.path.join(rel_dir, n) if rel_dir else n
         _, ex = os.path.splitext(n)
         if ex.lower() in VIDEO_EXTS and not is_sample(n) \
-                and not is_extra(rel) and rel not in own_paths:
+                and not is_extra(rel, library_id=lib_id) and rel not in own_paths:
             foreign = True
             break
     out = {"dir": rel_dir,
@@ -374,7 +374,7 @@ def movie_files(movie_id: int):
         elif ex in VIDEO_EXTS:
             if is_sample(n):
                 out["samples"].append(item)
-            elif is_extra(rel):
+            elif is_extra(rel, library_id=lib_id):
                 out["extras"].append(item)
             else:
                 out["feature"].append(item)
@@ -569,10 +569,10 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
     rel = os.path.relpath(dst, root)
     status = "stored"
     try:
-        if _is_feat(rel):
+        if _is_feat(rel, library_id=lib_id):
             r = scanner.scan_one(dst, library_id=lib_id)
             status = r.get("status", "stored")
-        elif _is_side(rel):
+        elif _is_side(rel, library_id=lib_id):
             r = scanner.attribute_extra(dst, library_id=lib_id)
             status = r.get("status", "stored")
     except Exception as e:
@@ -583,13 +583,14 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
 @router.post("/uploads")
 def library_upload(file: UploadFile = File(...),
                    relpath: str = Query(default=""),
-                   target_dir: str = Query(default="待整理"),
+                   target_dir: str = Query(default=""),
                    library_id: int | None = Query(default=None)):
     """库页上传：multipart file 字段；relpath 透传浏览器相对路径
     （文件夹模式为 webkitRelativePath，单文件模式为文件名）。
 
-    目标= target_dir/relpath（逐段清洗并约束在库根内，默认落到
-    待整理/，本地结构原样保留）。流式落盘（1MB 分块，先写 .part 再原子
+    目标= target_dir/relpath（逐段清洗并约束在库根内；target_dir 缺省空 =
+    视频库根，本地结构原样保留，2026-09 媒体库级重构：不再默认落 待整理/）。
+    流式落盘（1MB 分块，先写 .part 再原子
     改名；已存在 409 跳过，绝不覆盖）。落盘后按类型入库：
     正片→scan_one，花絮→attribute_extra，字幕/周边→仅文件。
     `library_id` 缺省=默认库（多库 v12）。
@@ -609,7 +610,7 @@ def library_upload(file: UploadFile = File(...),
     tmods = [_safe_component(s) for s in
              (target_dir or "").strip().strip("/").replace("\\", "/").split("/")]
     tmods = [s for s in tmods if s and s not in (".", "..")]
-    rel = _check_inside_root("/".join([*(tmods or ["待整理"]), *safe_segs]), lid)
+    rel = _check_inside_root("/".join([*tmods, *safe_segs]), lid)
     dst = library_paths.resolve(lid, rel)
     _require_writable(lid)
     try:
@@ -625,10 +626,10 @@ def library_upload(file: UploadFile = File(...),
             pass
     status = "stored"
     try:
-        if _is_feat(rel):
+        if _is_feat(rel, library_id=lid):
             r = scanner.scan_one(dst, library_id=lid)
             status = r.get("status", "stored")
-        elif _is_side(rel):
+        elif _is_side(rel, library_id=lid):
             r = scanner.attribute_extra(dst, library_id=lid)
             status = r.get("status", "stored")
     except Exception as e:
@@ -817,11 +818,9 @@ def organize_hint(movie_id: int):
     top = rel.split("/")[0] if "/" in rel else ""
     lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
     if top and top.strip().lower() in _STAGING_DIRS:
-        # 暂存区（待整理/下载等）→ 推荐搬到 电影/标题 (年份)/（扁平，D5；目录为单位）
-        d = _organize("relocate", from_prefix=top, to_dir="电影",
-                      only={movie_id}, dry_run=True, library_id=lib_id)
-        params = {"mode": "relocate", "from_prefix": top, "to_dir": "电影",
-                  "library_id": lib_id}
+        # 暂存区（待整理/下载等）→ 推荐搬到视频库根（平铺，D5；目录为单位）
+        d = _organize("relocate", only={movie_id}, dry_run=True, library_id=lib_id)
+        params = {"mode": "relocate", "library_id": lib_id}
     else:
         # 正式库内（含 NAS 库根/合集目录）→ 就地规范化：专属目录整目录改名，
         # 散文件/合集平铺建片目录，只改片名

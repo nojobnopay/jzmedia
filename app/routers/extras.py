@@ -67,12 +67,14 @@ def attach(extra_id: int, body: dict):
 @router.post("/collect")
 def collect(body: dict | None = None):
     """归位已归属花絮：影片已归档但花絮散落在外的（如 待整理/），搬进各片 extras/。
-    dry_run 默认 true 只预览。body.library_id/library 可限定库（缺省=全库）。"""
-    from .files import _only_ids, move_attached_extras
+    dry_run 默认 true 只预览。body.library_id/library 单库或多库；
+    media_library_id/media_library 整个媒体库（缺省=全库）。"""
+    from .files import _only_ids, _scope_libs, move_attached_extras
     body = body or {}
     dry_run = body.get("dry_run", True)
     only = _only_ids(body)
-    libs = store._split_ints(body.get("library_id", body.get("library")))
+    libs = _scope_libs(body.get("library_id", body.get("library")),
+                       body.get("media_library_id", body.get("media_library")))
     # 一次取全量 extras 再按影片分组（评审 B8/R08-D2：不再每片一次查询）
     try:
         by_movie: dict = {}

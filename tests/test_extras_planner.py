@@ -31,6 +31,23 @@ def test_extra_kind_by_dir_and_name():
     assert scanner.extra_kind("电影/x.mkv") == "extra"
 
 
+def test_extra_kind_compound_dirs():
+    """复合/点分目录名 token 化：Sample,Screens / Behind.The.Scenes / Extras & Trailers。"""
+    assert scanner.extra_kind("电影/Sample,Screens/x.mkv") == "sample"
+    assert scanner.extra_kind("电影/Screens/x.mkv") == "sample"
+    assert scanner.extra_kind("电影/截图/x.mkv") == "sample"
+    assert scanner.extra_kind("电影/Behind.The.Scenes/x.mkv") == "behindthescenes"
+    assert scanner.extra_kind("电影/Extras & Trailers/x.mkv") == "extra"
+
+
+def test_is_extra_compound_dirs():
+    assert scanner.is_extra("电影/Sample,Screens/x.mkv") is True
+    assert scanner.is_extra("电影/Screens/x.mkv") is True
+    assert scanner.is_extra("电影/Behind.The.Scenes/x.mkv") is True
+    assert scanner.is_extra("电影/Extras & Trailers/x.mkv") is True
+    assert scanner.is_extra("电影/普通目录/x.mkv") is False
+
+
 def test_attribute_extra_attach_and_orphan(media_root):
     rel_owner = "att/功夫 (2004).mkv"
     p = media_root / rel_owner
@@ -133,3 +150,15 @@ def test_backfill_resume_and_cancel(monkeypatch):
         with col._JOBS_LOCK:
             col._JOBS.clear()
             col._JOBS.update(saved)
+
+
+def test_planner_skips_sidecar_rows(_planner):
+    """误入库的样片/花絮行不参与归档改名（用户要求：这些短片不要动）。"""
+    rows = [
+        _row(1, "Avengers.Endgame.2019/Sample,Screens/"
+                "Avengers Endgame 2019 BluRay 1080p By 3Li Sample.mkv",
+             "复仇者联盟4：终局之战", 2019, tmdb=299534),
+        _row(2, "Movie (2020)/Behind.The.Scenes/clip.mkv", "Movie", 2020, tmdb=1),
+    ]
+    plans, conflicts = _planner(rows)
+    assert plans == [] and conflicts == []

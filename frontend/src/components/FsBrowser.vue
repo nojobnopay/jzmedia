@@ -1,13 +1,22 @@
 <template>
       <section id="sec-files" class="card-block">
-        <h3>文件浏览</h3>
+        <h3>文件浏览 <span class="fhint" v-if="media">根 = 「{{ media.name }}」媒体库根</span></h3>
         <p class="hint">类 Windows 操作：单击选中（Ctrl 多选）、双击进入目录/正片进详情；快捷键
           Ctrl+C 复制 / Ctrl+X 剪切 / Ctrl+V 粘贴到当前目录 / Delete 删除 / Enter 进入 / Backspace 上级 / F5 刷新。
           复制冲突自动改「(副本)」绝不覆盖；正片复制会登记为同片新版本；目录不支持改名（请用「归档整理」）。</p>
+        <p v-if="ctx.mode === 'media'" class="hint">
+          媒体库根为只读总览：点进带「电影/剧集」徽章的目录即进入该视频库，之后可改名/删除/复制等（跨视频库移动/复制请用「归档整理」或在 NAS 上操作）。
+        </p>
+        <p v-else class="hint">
+          当前视频库：<b>{{ ctxLib ? ctxLib.name : ctx.libId }}</b>
+          <span class="tab-kind">{{ ctxLib ? kindText(ctxLib.kind) : '' }}</span>
+          <button @click="goRoot()" :disabled="!!busy">返回媒体库根</button>
+        </p>
         <div class="bar fs-crumbs">
-          <button @click="loadFs('')" :disabled="!!busy">根</button>
+          <button @click="goRoot()" :disabled="!!busy">根</button>
           <span v-for="c in fsCrumbs" :key="c.rel"> / <button @click="loadFs(c.rel)" :disabled="!!busy" class="linklike">{{ c.name }}</button></span>
           <span v-if="fsPath" class="miss-path">{{ fsPath }}</span>
+          <span v-if="ctx.mode === 'media' && fsPath && !insideVideoLib" class="fhint warn-text">不在任何视频库内：只读，不能被扫描/归档登记</span>
         </div>
         <div class="bar">
           <template v-if="fsWritable">
@@ -24,12 +33,15 @@
               剪贴板：{{ clipboard.mode === 'cut' ? '已剪切' : '已复制' }} {{ clipboard.rels.length }} 项
             </span>
           </template>
-          <span v-else class="fhint">直读远程库：仅浏览；重命名/移动/删除请用「入库流程 → 归档整理」（或在 NAS 上直接管理）</span>
+          <span v-else class="fhint">{{ ctx.mode === 'media'
+            ? '媒体库根：仅浏览；进入视频库目录后可操作'
+            : '直读远程库：仅浏览；重命名/移动/删除请用「入库流程 → 归档整理」（或在 NAS 上直接管理）' }}</span>
         </div>
-        <div v-if="fsParent !== null" class="bar">
+        <div v-if="fsParent !== null && fsParent !== ''" class="bar">
           <button @click="loadFs(fsParent)" :disabled="!!busy">‹ 上级目录</button>
           <span>{{ fsMsg }}</span>
         </div>
+        <div v-else class="bar"><span>{{ fsMsg }}</span></div>
         <div v-if="pendCopy" class="bar fs-prompt">
           <span class="warn-text">复制确认：{{ pendCopy.hint }}。继续？</span>
           <button @click="confirmCopy" :disabled="!!busy">确认复制</button>
@@ -49,10 +61,12 @@
         <ul v-if="fsDirs.length" class="miss-list">
           <li v-for="d in fsDirs" :key="'d' + d.rel"
             :class="['miss-row', 'fs-row', { sel: selRels.includes(d.rel) }]"
-            @click="onRowClick($event, d.rel)" @dblclick="enterDir(d.rel)">
+            @click="onRowClick($event, d.rel)" @dblclick="enterDir(d)">
+            <span v-if="d.video_library_id" class="kind-badge" :class="{ tv: d.kind === 'tv' }">{{ kindText(d.kind) }}库</span>
+            <span v-else-if="d.contains_video_library" class="kind-badge">含视频库</span>
             <span class="miss-title">📁 {{ d.name }}</span>
-            <span class="miss-path">{{ d.children }} 项</span>
-            <button @click.stop="enterDir(d.rel)" :disabled="!!busy">进入</button>
+            <span class="miss-path">{{ d.children == null ? '目录' : d.children + ' 项' }}</span>
+            <button @click.stop="enterDir(d)" :disabled="!!busy">进入</button>
             <button v-if="fsWritable" @click.stop="doFsDelete(d.rel)" :disabled="!!busy">删空目录</button>
           </li>
         </ul>
@@ -84,23 +98,32 @@ import { useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { fmtBytes } from '../format.js'
 import { usePolling } from '../usePolling.js'
+import { kindText, libById } from '../libraryToolGroups.js'
 
-// 文件浏览（评审 R14-Q2 + B9 后续）：从 Settings.vue 抽出；Windows 式选中/双击/快捷键/复制粘贴。
-// 删除正片/复制正片登记后发 changed 让父页刷新统计；目录复制完成引导父页触发扫描。
-const props = defineProps({ active: { type: Boolean, default: false },
-                           library: { type: Number, default: null } })
+// 文件浏览（2026-09 媒体库级）：根 = 媒体库根（只读总览，带视频库徽章）；
+// 进入视频库目录后切换上下文回原 per-library 逻辑（分类/改名/删除/正片跳转全可用）。
+const props = defineProps({
+  active: { type: Boolean, default: false },
+  media: { type: Object, default: null },
+  videoLibs: { type: Array, default: () => [] },
+})
 const emit = defineEmits(['changed', 'scan'])
 
-// 多库 v12：所有 fs 调用带当前库（未选库=默认库，由后端兜底）
-function fsBody (obj) {
-  return props.library == null ? obj : { ...obj, library_id: props.library }
-}
-function fsListUrl (path) {
-  const base = '/api/fs/list?path=' + encodeURIComponent(path || '')
-  return props.library == null ? base : base + '&library=' + props.library
-}
 const router = useRouter()
 const busy = ref(null)
+// 上下文：media=媒体库根只读；lib=某视频库（可写）
+const ctx = ref({ mode: 'media', libId: null })
+const ctxLib = computed(() => libById(props.videoLibs, ctx.value.libId))
+// 媒体根下当前路径是否已在某视频库子树内（用于“库外目录只读”提示）
+const insideVideoLib = computed(() => {
+  if (ctx.value.mode !== 'media') return true
+  const norm = String(fsPath.value || '').replace(/^\/+|\/+$/g, '')
+  if (!norm) return false
+  return (props.videoLibs || []).some(l => {
+    const sub = String(l.subpath || '').replace(/^\/+|\/+$/g, '')
+    return !!sub && norm.startsWith(sub + '/')
+  })
+})
 
 const fsPath = ref('')
 const fsParent = ref('')
@@ -117,7 +140,7 @@ const clipboard = ref({ mode: 'copy', rels: [] })
 const pendCopy = ref(null)
 const fsPrompts = ref([])
 const copyJob = ref(null)
-const fsWritable = ref(true)   // 直读远程库=false：仅浏览，写操作 501
+const fsWritable = ref(false)
 
 const copyPct = computed(() => {
   const j = copyJob.value
@@ -130,19 +153,33 @@ function fsKindText(k) {
   return { feature: '正片', sidecar: '花絮', subtitle: '字幕', nfo: 'NFO', other: '其他', dir: '目录' }[k] || k
 }
 
+// 库上下文写操作 body（媒体根模式只读，不会走到这里）
+function fsBody(obj) {
+  return ctx.value.mode === 'lib'
+    ? { ...obj, library_id: ctx.value.libId }
+    : { ...obj, media_library_id: props.media ? props.media.id : null }
+}
+function listUrl(path) {
+  if (ctx.value.mode === 'media' && props.media && props.media.id != null) {
+    return '/api/fs/list?media_library=' + props.media.id + '&path=' + encodeURIComponent(path || '')
+  }
+  return '/api/fs/list?path=' + encodeURIComponent(path || '') + '&library=' + ctx.value.libId
+}
+
 async function loadFs(path) {
   fsMsg.value = ''
   fsArmHint.value = ''
   fsArmDelete.value = {}
   selRels.value = []
   try {
-    const d = await api(fsListUrl(path))
+    const d = await api(listUrl(path))
     fsPath.value = d.path || ''
     fsParent.value = d.parent ?? ''
     fsCrumbs.value = d.crumbs || []
     fsDirs.value = d.dirs || []
     fsFiles.value = d.files || []
-    fsWritable.value = d.fs_writable !== false
+    if (d.root_kind === 'media') ctx.value = { mode: 'media', libId: null }
+    fsWritable.value = ctx.value.mode === 'lib' && d.fs_writable !== false
     for (const f of fsFiles.value) {
       if (!(f.rel in fsRenameEdits.value)) fsRenameEdits.value[f.rel] = ''
     }
@@ -151,8 +188,22 @@ async function loadFs(path) {
   }
 }
 
-// 换库（顶栏切换）：回到根目录重载，避免拿着旧库相对路径请求新库
-watch(() => props.library, () => {
+function switchToLib(libId) {
+  ctx.value = { mode: 'lib', libId: Number(libId) }
+  clipboard.value = { mode: 'copy', rels: [] }
+  loadFs('')
+}
+function goRoot() {
+  if (ctx.value.mode === 'lib') {
+    ctx.value = { mode: 'media', libId: null }
+    clipboard.value = { mode: 'copy', rels: [] }
+  }
+  loadFs('')
+}
+
+// 换媒体库（工具页标签）：回到媒体根重载
+watch(() => props.media && props.media.id, () => {
+  ctx.value = { mode: 'media', libId: null }
   fsPath.value = ''
   clipboard.value = { mode: 'copy', rels: [] }
   copyJob.value = null
@@ -161,7 +212,7 @@ watch(() => props.library, () => {
 
 async function doFsMkdir() {
   const name = fsMkdirName.value.trim()
-  if (!name) return
+  if (!name || !fsWritable.value) return
   busy.value = 'fs'
   try {
     await api('/api/fs/mkdir', { method: 'POST', body: JSON.stringify(fsBody({ path: fsPath.value, name })) })
@@ -180,6 +231,7 @@ function fsArmAction(kind, rel) {
 }
 
 async function doFsRename(rel) {
+  if (!fsWritable.value) return
   const name = (fsRenameEdits.value[rel] || '').trim()
   if (!name) {
     fsMsg.value = '先填新文件名'
@@ -219,6 +271,7 @@ async function doFsRename(rel) {
 }
 
 async function doFsDelete(rel) {
+  if (!fsWritable.value) return
   busy.value = 'fs'
   fsArmHint.value = ''
   try {
@@ -280,7 +333,14 @@ function onRowClick(e, rel) {
     selRels.value = [rel]
   }
 }
-function enterDir(rel) { if (!busy.value) loadFs(rel) }
+function enterDir(d) {
+  if (busy.value) return
+  if (ctx.value.mode === 'media' && d.video_library_id) {
+    switchToLib(d.video_library_id)
+    return
+  }
+  loadFs(d.rel)
+}
 function openFile(f) {
   if (f && f.kind === 'feature' && f.movie_id) router.push('/m/' + f.movie_id)
 }
@@ -293,7 +353,7 @@ function copySelection() {
   fsMsg.value = `已复制 ${selRels.value.length} 项到剪贴板，进入目标目录 Ctrl+V 粘贴`
 }
 function cutSelection() {
-  if (!selRels.value.length) return
+  if (!fsWritable.value || !selRels.value.length) return
   const dirs = selRels.value.filter(r => dirInfo(r))
   const files = selRels.value.filter(r => !dirInfo(r))
   clipboard.value = { mode: 'cut', rels: files }
@@ -303,6 +363,10 @@ function cutSelection() {
 }
 
 function paste() {
+  if (!fsWritable.value) {
+    fsMsg.value = '媒体库根为只读，请先进入某个视频库目录'
+    return
+  }
   if (!clipboard.value.rels.length || copyJob.value) return
   if (clipboard.value.mode === 'cut') doPasteMove()
   else doPasteCopy()
@@ -434,7 +498,7 @@ function cancelCopy() {
 }
 
 async function deleteSelection() {
-  if (!selRels.value.length) return
+  if (!fsWritable.value || !selRels.value.length) return
   const rels = [...selRels.value]
   const feats = rels.filter(r => { const f = fileInfo(r); return f && f.kind === 'feature' })
   for (const rel of rels) await doFsDelete(rel)
@@ -451,11 +515,11 @@ function onKeydown(e) {
   if (e.key === 'Escape') { selRels.value = []; return }
   if (e.key === 'Enter') {
     const d = selRels.value.length === 1 ? dirInfo(selRels.value[0]) : null
-    if (d) { enterDir(d.rel); e.preventDefault() }
+    if (d) { enterDir(d); e.preventDefault() }
     return
   }
   if (e.key === 'Backspace') {
-    if (fsParent.value !== null) { loadFs(fsParent.value); e.preventDefault() }
+    if (fsParent.value !== null && fsParent.value !== '') { loadFs(fsParent.value); e.preventDefault() }
     return
   }
   if (e.key === 'F5') { loadFs(fsPath.value); e.preventDefault() }
@@ -484,6 +548,7 @@ onUnmounted(() => {
 .miss-path { color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .kind-badge { font-size: 0.75rem; border: 1px solid #444; border-radius: 999px; padding: 1px 10px; margin-left: 8px; color: #aaa; }
 .kind-badge.bad { color: #ff8a8a; border-color: #6e2b2b; }
+.kind-badge.tv { color: #c08aff; border-color: #4a2b6e; }
 .fs-crumbs { flex-wrap: wrap; }
 .linklike { background: none; border: none; color: #6ab0ff; cursor: pointer; padding: 0 2px; }
 button.danger { border-color: #6e2b2b; color: #ff8a8a; }
@@ -493,4 +558,5 @@ button.danger { border-color: #6e2b2b; color: #ff8a8a; }
 .fs-prompt { border: 1px dashed #6e2b2b; border-radius: 8px; padding: 6px 10px; }
 .up-progress { height: 8px; border-radius: 999px; background: #2c2c2c; overflow: hidden; margin: 4px 0; }
 .up-progress-fill { height: 100%; background: #e50914; border-radius: 999px; transition: width .2s; }
+.tab-kind { margin-left: 6px; font-size: 0.6875rem; color: #888; border: 1px solid #444; border-radius: 999px; padding: 0 6px; }
 </style>

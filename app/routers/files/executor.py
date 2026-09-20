@@ -43,7 +43,8 @@ def _sibling_followers(src_abs: str) -> list[str]:
             _lib, rel_probe = library_paths.locate(full)
             if rel_probe is None:
                 continue
-            if is_sidecar(rel_probe) or ex.lower() in SUBTITLE_EXTS:
+            if is_sidecar(rel_probe, library_id=(_lib or {}).get("id")) \
+                    or ex.lower() in SUBTITLE_EXTS:
                 out.append(full)
     return out
 
@@ -63,7 +64,7 @@ def _cleanup_old_dir(old_dir_abs: str) -> None:
         _lib, rel = library_paths.locate(full)
         if rel is None:
             continue
-        if is_feature_video(rel):
+        if is_feature_video(rel, library_id=(_lib or {}).get("id")):
             has_feature = True
             break
     if has_feature:
@@ -127,7 +128,7 @@ def _remote_sibling_followers(backend, rel_src: str) -> list[str]:
         st, ex = os.path.splitext(n)
         if (st == stem or st.startswith(stem + "-") or st.startswith(stem + ".")
                 or st.startswith(stem + "_") or st.startswith(stem + " ")):
-            if is_sidecar(rel) or ex.lower() in SUBTITLE_EXTS:
+            if is_sidecar(rel, backend=backend) or ex.lower() in SUBTITLE_EXTS:
                 out.append(rel)
     return out
 
@@ -145,7 +146,7 @@ def _remote_cleanup_old_dir(backend, rel_dir: str) -> None:
         if e["is_dir"]:
             continue
         rel = f"{rel_dir}/{e['name']}"
-        if is_feature_video(rel):
+        if is_feature_video(rel, backend=backend):
             return
     for e in entries:
         n = e["name"]
@@ -171,7 +172,8 @@ def _remote_resync_old_dir(backend, rel_dir: str, lib_id) -> None:
             logger.debug("list old dir movies failed dir=%s: %s", rel_dir, e)
             return
         remaining = [r for r in rows
-                     if r.get("file_path") and is_feature_video(r["file_path"])
+                     if r.get("file_path")
+                     and is_feature_video(r["file_path"], library_id=lib_id)
                      and _rel_is_file(backend, r["file_path"])]
         if not remaining:
             return
@@ -302,7 +304,7 @@ def _resync_old_dir(old_dir_abs: str) -> None:
         for r in rows:
             try:
                 fp = r.get("file_path", "")
-                if not fp or not is_feature_video(fp):
+                if not fp or not is_feature_video(fp, library_id=lib["id"]):
                     continue
                 if os.path.isfile(library_paths.resolve(lib["id"], fp)):
                     remaining.append(r)

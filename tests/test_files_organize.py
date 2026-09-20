@@ -122,8 +122,9 @@ def test_organize_hint_relocate(media_root):
                             region="华语", original_language="zh")
     d = c.get(f"/api/movies/{mid}/organize-hint").json()
     assert d["needs"] is True and d["params"]["mode"] == "relocate"
-    assert d["params"]["from_prefix"] == "待整理"
-    assert d["plans"] and d["plans"][0]["to"].startswith("电影/")
+    # 搬到顶层 = 视频库根：不再有 待整理→电影 前缀
+    assert "from_prefix" not in d["params"] and "to_dir" not in d["params"]
+    assert d["plans"] and d["plans"][0]["to"] == "Hint Movie (2018)/Hint Movie (2018).mkv"
     # 未匹配行 → 不给归档建议
     mid2 = store.upsert_movie_by_path("待整理/Unmatched.2020.mkv")
     d2 = c.get(f"/api/movies/{mid2}/organize-hint").json()
@@ -220,7 +221,7 @@ def test_organize_execute_relocate_via_hint_params(media_root):
                                             "dry_run": False}).json()
     assert [r["status"] for r in d["results"]] == ["moved"], d
     new_rel = (store.get_movie(mid) or {}).get("file_path")
-    assert new_rel.startswith("电影/Relocate Me (2017)/")
+    assert new_rel.startswith("Relocate Me (2017)/")   # 顶层 = 视频库根
     assert (media_root / new_rel).exists()
 
 

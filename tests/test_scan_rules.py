@@ -43,6 +43,8 @@ def _make_movie_row(rel: str, tmdb_id=None, title="T", year=2020) -> int:
     "Movie.2020.sample.1080p.mkv",
     "Movie.sample.remux.mkv",
     "Samples.720p.mkv",
+    "Avengers Endgame 2019 BluRay 1080p By 3Li Sample.mkv",
+    "Movie 2020 Sample 1080p.mkv",
 ])
 def test_is_sample_true(name):
     assert scanner.is_sample(name) is True
@@ -245,3 +247,58 @@ def test_unmatched_api_lists_failed_scan(media_root, monkeypatch):
     scanner.scan_one(str(media_root / rel))
     d = client.get("/api/files/unmatched").json()
     assert any(u["file_path"] == rel for u in d["unmatched"])
+
+
+# ---------- 2026-09：Sample,Screens / Behind The Scenes 误入库修复 ----------
+
+def test_sample_dir_not_registered_as_movie(media_root):
+    """用户实例：影片目录内 Sample,Screens/ 里的样片不再入库为电影。"""
+    rel = ("Avengers.Endgame.2019/Sample,Screens/"
+           "Avengers Endgame 2019 BluRay 1080p By 3Li Sample.mkv")
+    _touch(media_root, rel)
+    r = scanner.scan_one(str(media_root / rel))
+    assert r["status"] == "skipped_sample"
+    assert store.get_by_path(rel) is None
+
+
+def test_compound_sample_dir_clip_skipped(media_root):
+    """Sample,Screens/ 里的普通命名片段也按样片处理（不登记、不刮削）。"""
+    rel = "Avengers.Endgame.2019/Sample,Screens/clip.mkv"
+    _touch(media_root, rel)
+    r = scanner.scan_one(str(media_root / rel))
+    assert r["status"] == "skipped_sample"
+    assert store.get_by_path(rel) is None
+
+
+def test_behind_scenes_dir_attributed_not_movie(media_root):
+    """Behind.The.Scenes/（点分复合名）归花絮，不进 movies 行。"""
+    rel = "Behind.Movie (2020)/Behind.The.Scenes/clip.mkv"
+    _touch(media_root, rel)
+    r = scanner.scan_one(str(media_root / rel))
+    assert r["status"] == "extra_orphan"
+    assert store.get_by_path(rel) is None
+
+
+def test_screens_dir_not_registered(media_root):
+    rel = "Shot.Movie (2021)/Screens/sample-clip.mkv"
+    _touch(media_root, rel)
+    r = scanner.scan_one(str(media_root / rel))
+    assert r["status"] == "skipped_sample"
+    assert store.get_by_path(rel) is None
+
+
+def test_clean_samples_job(media_root):
+    """历史误入库样片行清理：只删 DB 行，文件保留。"""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    client = TestClient(app)
+    rel = ("Avengers.Endgame.2019/Sample,Screens/"
+           "Avengers Endgame 2019 BluRay 1080p By 3Li Sample.mkv")
+    _touch(media_root, rel)
+    mid = _make_movie_row(rel, tmdb_id=999001, title="Avengers Endgame", year=2019)
+    d = client.post("/api/jobs/clean-samples", json={"dry_run": True}).json()
+    assert mid in [x["id"] for x in d["sample"]]
+    r = client.post("/api/jobs/clean-samples", json={"dry_run": False}).json()
+    assert r["deleted"] >= 1
+    assert store.get_movie(mid) is None
+    assert (media_root / rel).exists()          # 物理文件不动

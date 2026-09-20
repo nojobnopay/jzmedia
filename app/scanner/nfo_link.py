@@ -142,12 +142,19 @@ def _write_one(data: dict, fs, name: str, force: bool = False) -> str:
         return "failed"
 
 
+def _fs_is_feature(fs, name: str) -> bool:
+    """目录适配器内的正片判定：本地传 lib_id、远程传 backend（多库/直读通用）。"""
+    return is_feature_video(fs.rel_of(name),
+                            library_id=getattr(fs, "lib_id", None),
+                            backend=getattr(fs, "backend", None))
+
+
 def _list_dir_nfos(fs) -> tuple[list[str] | None, list[str]]:
     """目录顶层 (全部文件名|None不可读, 正片视频名列表)。只看顶层，不进 extras/ 等子目录。"""
     names = fs.names()
     if names is None:
         return None, []
-    feats = [n for n in names if fs.is_file(n) and is_feature_video(fs.rel_of(n))]
+    feats = [n for n in names if fs.is_file(n) and _fs_is_feature(fs, n)]
     return names, sorted(feats)
 
 
@@ -256,7 +263,7 @@ def _sync_nfos(movie: dict, fs, name: str, dry_run: bool,
         # 目录尚不存在（如搬迁竞态）或不可读：退化为旧双写
         return _fallback_writes(movie, fs, stem, dry_run, force)
     feats = sorted(n for n in names
-                   if fs.is_file(n) and is_feature_video(fs.rel_of(n)))
+                   if fs.is_file(n) and _fs_is_feature(fs, n))
     if stem == "movie":
         # 文件本身就叫 movie.*：同名 NFO 即 movie.nfo，只写一份
         st = "written"
@@ -271,9 +278,11 @@ def _sync_nfos(movie: dict, fs, name: str, dry_run: bool,
         logger.debug("list movies in dir failed dir=%s: %s", rel_dir, e)
         rows = []
     row_by_base: dict[str, dict] = {}
+    lib_id = movie.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
     for r in rows:
         try:
-            if not is_feature_video(r.get("file_path", "")):
+            if not is_feature_video(r.get("file_path", ""),
+                                    library_id=r.get("library_id") or lib_id):
                 continue
         except Exception:
             continue

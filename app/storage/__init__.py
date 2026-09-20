@@ -11,14 +11,15 @@ from .base import (
     StorageNotFound, StorageOffline, StorageReadOnly, StorageStat,
     StorageUnsupported, WalkEntry,
 )
-from .factory import backend_for, backend_for_library, smb_driver_mode
+from .factory import (backend_for, backend_for_library, backend_for_media,
+                      smb_driver_mode)
 from .local import LocalStorageBackend
 
 __all__ = [
     'StorageBackend', 'StorageStat', 'MediaSource', 'WalkEntry', 'LocalStorageBackend',
     'StorageError', 'StorageInvalidPath', 'StorageNotFound', 'StorageDenied',
     'StorageReadOnly', 'StorageOffline', 'StorageUnsupported',
-    'backend_for', 'backend_for_library', 'smb_driver_mode',
+    'backend_for', 'backend_for_library', 'backend_for_media', 'smb_driver_mode',
     'media_source', 'media_write_path',
 ]
 

@@ -131,3 +131,20 @@ def test_rescan_remote_movie_api(smb_movie_lib):
     r = client.post(f"/api/movies/{mid}/rescan")
     assert r.status_code == 200, r.text
     assert r.json()["status"] in ("no_match", "ok", "ok_needs_review")
+
+
+def test_scan_remote_generic_extras_dir_backend_aware(smb_movie_lib):
+    """远程直读库 Movie/Scenes/ 归花絮（backend 感知，不再依赖 POSIX default_root）。"""
+    lib, root, _fake = smb_movie_lib
+    d = root / "Remote Movie (2002)"
+    d.mkdir()
+    (d / "Remote Movie (2002).mkv").write_bytes(b"x")
+    (d / "Scenes").mkdir()
+    (d / "Scenes" / "clip.mkv").write_bytes(b"x")
+    out = scanner.scan_all(library_id=lib["id"])
+    statuses = {r["file"]: r["status"] for r in out}
+    # 归花絮（能按祖先目录名归属则 attached，否则 orphan）；绝不建 movies 行
+    assert statuses.get("Remote Movie (2002)/Scenes/clip.mkv") in (
+        "extra_attached", "extra_orphan")
+    assert store.get_by_path("Remote Movie (2002)/Scenes/clip.mkv",
+                             library_id=lib["id"]) is None

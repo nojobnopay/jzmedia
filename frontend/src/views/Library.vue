@@ -218,7 +218,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
-import { currentMediaId, mediaParam, preferredVideoLibId, switchLib, switchMedia,
+import { currentMediaId, mediaParam, switchLib, switchMedia,
          loadLibs, onLibChange } from '../libraries.js'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import UploadDialog from '../components/UploadDialog.vue'
@@ -260,10 +260,10 @@ const yearPick = ref('')
 
 const watchedCounts = computed(() => facets.value.watched || { watched: 0, unwatched: 0 })
 
-// 入库流程深链：带上当前媒体库的首选视频库（设置页库工具按视频库工作）
+// 入库流程深链：媒体库级（设置页库工具顶层为媒体库，视频库作为分表维度）
 const pipelineLink = computed(() => {
-  const lp = preferredVideoLibId('movie')
-  return { path: '/settings', query: lp != null ? { sec: 'sec-pipeline', library: String(lp) } : { sec: 'sec-pipeline' } }
+  const mid = currentMediaId()
+  return { path: '/settings', query: mid != null ? { sec: 'sec-pipeline', media: String(mid) } : { sec: 'sec-pipeline' } }
 })
 
 // 多选态（海报粒度：selectedIds 存代表行 id，服务端展开到同 tmdb 全版本）

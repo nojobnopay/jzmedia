@@ -104,7 +104,7 @@
         </div>
       </section>
 
-      <LibraryToolsPanel ref="toolsRef" :libraries="libList" :current-lib-id="currentId"
+      <LibraryToolsPanel ref="toolsRef" :media-libs="mediaList" :current-media-id="currentId"
         @changed="onToolsChanged" />
     </div>
   </div>
@@ -116,7 +116,7 @@ import LibrariesPanel from '../components/LibrariesPanel.vue'
 import LibraryToolsPanel from '../components/LibraryToolsPanel.vue'
 import { fmtBytes } from '../format.js'
 import { api, setToken } from '../api.js'
-import { currentLibId, listLibs, loadLibs } from '../libraries.js'
+import { currentMediaId, listLibs, loadLibs, buildMediaLibs } from '../libraries.js'
 import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
 
 const route = useRoute()
@@ -249,13 +249,14 @@ async function loadStats() {
   try { stats.value = await api('/api/jobs/stats') } catch (e) { /* 忽略 */ }
 }
 
-// 媒体库工具（按库标签页）：库列表来自全局状态，库变动后同步
+// 媒体库工具（按媒体库标签页）：库列表来自全局状态，库变动后同步
 const toolsRef = ref(null)
 const libList = ref(listLibs())
-const currentId = ref(currentLibId())
+const mediaList = computed(() => buildMediaLibs(libList.value))
+const currentId = ref(currentMediaId())
 function syncLibs() {
   libList.value = listLibs()
-  currentId.value = currentLibId()
+  currentId.value = currentMediaId()
 }
 async function onLibrariesChanged() {
   syncLibs()
@@ -267,7 +268,7 @@ async function onToolsChanged() {
 
 const librariesRef = ref(null)
 
-// 左侧导航：通用项 + 每个库一组工具入口
+// 左侧导航：通用项 + 每个媒体库一组工具入口
 const navs = computed(() => {
   const items = [
     { id: 'sec-status', label: '库状态' },
@@ -277,9 +278,9 @@ const navs = computed(() => {
     { id: 'sec-display', label: '显示' },
     { id: 'sec-index', label: '搜索索引' },
   ]
-  const libItems = libList.value.map(l => ({
-    id: 'lib-' + l.id, label: l.name + (l.kind === 'tv' ? ' · 剧集' : ''),
-    libId: l.id, group: '媒体库工具 · ' + (l.media_name || '媒体库'),
+  const libItems = mediaList.value.map(m => ({
+    id: 'lib-' + m.id, label: m.name || ('媒体库 ' + m.id),
+    mediaId: m.id, group: '媒体库工具',
   }))
   return [...items, ...libItems]
 })
@@ -293,8 +294,8 @@ function ensureSectionData(id) {
 }
 function go(n) {
   active.value = n.id
-  if (n.libId != null) {
-    toolsRef.value?.select(n.libId, { scroll: true })
+  if (n.mediaId != null) {
+    toolsRef.value?.select(n.mediaId, { scroll: true })
     return
   }
   ensureSectionData(n.id)
@@ -312,15 +313,17 @@ onMounted(async () => {
   if (settingsResp) { s.value = settingsResp; syncTmdbForm() }
   window.addEventListener('jzmedia:libraries-changed', onLibrariesChanged)
 
-  // 深链承接：?sec=sec-restore&ids=1,2 / ?sec=sec-pipeline / ?library=N
+  // 深链承接：?sec=sec-restore&ids=1,2 / ?sec=sec-pipeline&media=N（兼容 ?library=视频库）
   try {
     const q = route.query || {}
     const sec = q.sec ? String(q.sec) : ''
     const ids = (Array.isArray(q.ids) ? q.ids : String(q.ids || '').split(','))
       .map(Number).filter(Number.isFinite)
     const libId = q.library != null && q.library !== '' ? Number(q.library) : null
-    if (LIB_SECS.has(sec) || ids.length || libId != null) {
+    const mediaId = q.media != null && q.media !== '' ? Number(q.media) : null
+    if (LIB_SECS.has(sec) || ids.length || libId != null || mediaId != null) {
       await toolsRef.value?.focus({
+        media: mediaId,
         library: libId,
         sec: LIB_SECS.has(sec) ? sec : '',
         ids,
@@ -338,7 +341,7 @@ onMounted(async () => {
     }
   }, { rootMargin: '-20% 0px -70% 0px' })
   for (const n of navs.value) {
-    if (n.libId != null) continue
+    if (n.mediaId != null) continue
     const el = document.getElementById(n.id)
     if (el) observer.observe(el)
   }

@@ -38,33 +38,31 @@ test('dirFileLines 超过上限只报剩余数量', () => {
   assert.deepEqual(dirFileLines({ kind: 'dir' }), { lines: [], more: 0 })
 })
 
-test('projectPlan 强制搬到顶层：目录计划换前缀（含 files 明细）', () => {
+test('projectPlan 强制搬到顶层：目录计划收敛到视频库根（含 files 明细）', () => {
   const p = {
     kind: 'dir',
     to: '周星驰.Stephen Chow/功夫 (2004)',
     files: [{ id: 1, from: '周星驰.Stephen Chow/功夫.Kung.Fu.Hustle.2004/Old.mkv',
               to: '周星驰.Stephen Chow/功夫 (2004)/功夫 (2004).mkv' }],
   }
-  const r = projectPlan(p, { action: 'relocate', orgMode: 'inplace', toDir: '电影' })
+  const r = projectPlan(p, { action: 'relocate', orgMode: 'inplace' })
   assert.equal(r.forcedRelocate, true)
   assert.equal(r.skipped, false)
-  assert.equal(r.plan.to, '电影/功夫 (2004)')
-  assert.equal(r.plan.files[0].to, '电影/功夫 (2004)/功夫 (2004).mkv')
+  assert.equal(r.plan.to, '功夫 (2004)')
+  assert.equal(r.plan.files[0].to, '功夫 (2004)/功夫 (2004).mkv')
   assert.equal(p.to, '周星驰.Stephen Chow/功夫 (2004)')   // 不改原对象
 })
 
 test('projectPlan 强制搬到顶层：逐文件计划', () => {
   const p = { to: '待整理/Hint Movie (2018)/Hint Movie (2018).mkv' }
-  const r = projectPlan(p, { action: 'relocate', orgMode: 'inplace', toDir: '电影' })
-  assert.equal(r.plan.to, '电影/Hint Movie (2018)/Hint Movie (2018).mkv')
+  const r = projectPlan(p, { action: 'relocate', orgMode: 'inplace' })
+  assert.equal(r.plan.to, 'Hint Movie (2018)/Hint Movie (2018).mkv')
 })
 
-test('projectPlan 根级片目录与空/带斜杠目标目录', () => {
+test('projectPlan 根级片目录直接落脚视频库根', () => {
   const p = { kind: 'dir', to: '十二猴子 (1995)', files: [] }
-  assert.equal(projectPlan(p, { action: 'relocate', orgMode: 'inplace', toDir: '  ' }).plan.to,
-               '电影/十二猴子 (1995)')
-  assert.equal(projectPlan(p, { action: 'relocate', orgMode: 'inplace', toDir: '动画/' }).plan.to,
-               '动画/十二猴子 (1995)')
+  assert.equal(projectPlan(p, { action: 'relocate', orgMode: 'inplace' }).plan.to,
+               '十二猴子 (1995)')
 })
 
 test('projectPlan 跟随上方或全局已是顶层时不二次投影', () => {
@@ -76,7 +74,7 @@ test('projectPlan 跟随上方或全局已是顶层时不二次投影', () => {
 
 test('projectPlan 保持不动：标记且路径不变', () => {
   const p = { kind: 'dir', to: '十二猴子 (1995)', files: [] }
-  const r = projectPlan(p, { action: 'skip', orgMode: 'inplace', toDir: '电影' })
+  const r = projectPlan(p, { action: 'skip', orgMode: 'inplace' })
   assert.equal(r.skipped, true)
   assert.equal(r.forcedRelocate, false)
   assert.equal(r.plan, p)

@@ -16,13 +16,48 @@ _SCAN_JOBS = JobRegistry(prefix="scan")
 
 def _scan_summary(results: list) -> dict:
     counts: dict = {}
+    by_library: dict = {}
     errors: list = []
     for r in results:
         st = str(r.get("status") or "")
         counts[st] = counts.get(st, 0) + 1
+        lid = r.get("library_id")
+        if lid is not None:
+            try:
+                bucket = by_library.setdefault(int(lid), {})
+            except (TypeError, ValueError):
+                bucket = None
+            if bucket is not None:
+                bucket[st] = bucket.get(st, 0) + 1
         if st.startswith("error"):
             errors.append({"file": r.get("file", ""), "status": st[:200]})
-    return {"counts": counts, "errors": errors[:100], "results": results[:200]}
+    return {"counts": counts, "by_library": by_library,
+            "errors": errors[:100], "results": results[:200]}
+
+
+def _lib_filter(library_id=None, media_library_id=None) -> set[int] | None:
+    """作用域解析（库工具媒体库化）：media_library_id 优先 → 其全部视频库；
+    library_id 兼容单库/逗号多库；都缺省=None（全库）。
+    未知媒体库返回空集合（调用方应据此返回空结果，绝不退化成全库）。"""
+    if media_library_id is not None and str(media_library_id).strip() != "":
+        try:
+            mid = int(media_library_id)
+        except (TypeError, ValueError):
+            raise HTTPException(422, "media_library_id must be int")
+        return set(store.library_ids_for_media(mid))
+    if library_id is not None and str(library_id).strip() != "":
+        return set(store._split_ints(library_id))
+    return None
+
+
+def _in_filter(m: dict, lib_ids: set[int] | None) -> bool:
+    """行是否落在作用域内（lib_ids=None 表示全库）。"""
+    if lib_ids is None:
+        return True
+    try:
+        return int(m.get("library_id") or 0) in lib_ids
+    except (TypeError, ValueError):
+        return False
 
 
 def _scan_worker(jid: str, library_id: int | None = None,
@@ -100,6 +135,7 @@ class BackfillBody(BaseModel):
     limit: int = 500
     force: bool = False
     library_id: int | None = None
+    media_library_id: int | None = None
 
 
 class RefreshBody(BaseModel):
@@ -107,6 +143,7 @@ class RefreshBody(BaseModel):
     tmdb_ids: list[int] | None = None
     limit: int = 500
     library_id: int | None = None
+    media_library_id: int | None = None
 
 
 @router.post("/douban-fetch")
@@ -125,11 +162,10 @@ def backfill_meta(body: BackfillBody | None = None):
     """
     limit = (body.limit if body else 500) or 500
     force = bool(body.force) if body else False
-    lib_id = body.library_id if body else None
+    lib_ids = _lib_filter(body.library_id if body else None,
+                          body.media_library_id if body else None)
     all_tmdb = [m for m in store.list_movies(grouped=False, limit=100000)
-                if m.get("tmdb_id")
-                and (lib_id is None
-                     or int(m.get("library_id") or 0) == int(lib_id))]
+                if m.get("tmdb_id") and _in_filter(m, lib_ids)]
     if force:
         cands = all_tmdb
     else:
@@ -188,10 +224,10 @@ def tmdb_refresh(body: RefreshBody | None = None):
             tmdb_ids.append(tid)
     if not tmdb_ids:
         # 空 body = 刷新全部（设置页“一键刷新”用，需二次确认；cap by limit）
-        # body.library_id 指定时只刷新该库（设置页按库高级维护）
+        # body.library_id / media_library_id 指定时只刷新该范围（设置页高级维护）
+        lib_ids = _lib_filter(body.library_id, body.media_library_id)
         for m in store.list_movies(grouped=False, limit=100000):
-            if body.library_id is not None \
-                    and int(m.get("library_id") or 0) != int(body.library_id):
+            if not _in_filter(m, lib_ids):
                 continue
             if m.get("tmdb_id") and int(m["tmdb_id"]) not in seen:
                 seen.add(int(m["tmdb_id"]))
@@ -215,6 +251,7 @@ class NfoBody(BaseModel):
     limit: int = 2000
     dry_run: bool = False
     library_id: int | None = None
+    media_library_id: int | None = None
 
 
 @router.post("/rebuild-nfo")
@@ -226,10 +263,10 @@ def rebuild_nfo(body: NfoBody | None = None):
     body.library_id 可限定库（缺省=全库）。"""
     limit = max(1, min((body.limit if body else 2000) or 2000, 10000))
     dry_run = bool(body.dry_run) if body else False
-    lib_id = body.library_id if body else None
+    lib_ids = _lib_filter(body.library_id if body else None,
+                          body.media_library_id if body else None)
     movies = sorted([m for m in store.list_movies(grouped=False, limit=100000)
-                     if lib_id is None
-                     or int(m.get("library_id") or 0) == int(lib_id)][:limit],
+                     if _in_filter(m, lib_ids)][:limit],
                     key=lambda m: (m.get("file_path", ""), m.get("id", 0)))
     from .. import storage
     from .files import _is_file, _require_writable
@@ -374,7 +411,7 @@ def _target_counts(rows: list) -> dict:
     return out
 
 
-def _meta_worker(jid: str, library_id: int | None, dry_run: bool,
+def _meta_worker(jid: str, lib_ids: set[int] | None, dry_run: bool,
                  write_art: bool = True, backdrops: bool = True) -> None:
     from .files import _is_file
 
@@ -384,9 +421,7 @@ def _meta_worker(jid: str, library_id: int | None, dry_run: bool,
 
     try:
         rows = [m for m in store.list_movies(grouped=False, limit=100000)
-                if m.get("tmdb_id")
-                and (library_id is None
-                     or int(m.get("library_id") or 0) == int(library_id))]
+                if m.get("tmdb_id") and _in_filter(m, lib_ids)]
         _META_JOBS.update(jid, total=len(rows))
         done, failed = 0, []
         for m in rows:
@@ -421,6 +456,7 @@ def _meta_worker(jid: str, library_id: int | None, dry_run: bool,
 
 class RebuildMetaBody(BaseModel):
     library_id: int | None = None
+    media_library_id: int | None = None
     dry_run: bool = True
     artwork: bool = True       # 同步 poster（artwork_mode=nfo_art 时）
     backdrops: bool = True     # 缺 fanart 时下载 backdrop（费流量，可关）
@@ -430,13 +466,12 @@ class RebuildMetaBody(BaseModel):
 def rebuild_meta(body: RebuildMetaBody | None = None):
     """重建媒体目录落盘（离线，不触网）：按现有匹配从 tmdb_cache 重写 NFO
     + poster/fanart（远程直读库经 backend 写 NAS）。用于手动修正匹配后同步、
-    或历史误写（挂载点）后补写。dry_run=true 默认只预览。"""
+    或历史误写（挂载点）后补写。dry_run=true 默认只预览。
+    body.library_id（单库）或 media_library_id（整个媒体库）限定范围。"""
     body = body or RebuildMetaBody()
-    library_id = body.library_id
+    lib_ids = _lib_filter(body.library_id, body.media_library_id)
     rows = [m for m in store.list_movies(grouped=False, limit=100000)
-            if m.get("tmdb_id")
-            and (library_id is None
-                 or int(m.get("library_id") or 0) == int(library_id))]
+            if m.get("tmdb_id") and _in_filter(m, lib_ids)]
     counts = _target_counts(rows)
     if body.dry_run:
         return {"dry_run": True, "total": len(rows), "targets": counts,
@@ -444,13 +479,17 @@ def rebuild_meta(body: RebuildMetaBody | None = None):
     running = _META_JOBS.running()
     if running:
         return {"job_id": running["job_id"], "resumed": True,
-                "library_id": running.get("library_id")}
-    job = _META_JOBS.create(library_id=library_id, total=len(rows), targets=counts)
+                "library_id": running.get("library_id"),
+                "media_library_id": running.get("media_library_id")}
+    job = _META_JOBS.create(library_id=body.library_id,
+                            media_library_id=body.media_library_id,
+                            total=len(rows), targets=counts)
     jid = job["job_id"]
     threading.Thread(target=_meta_worker,
-                     args=(jid, library_id, False, body.artwork,
+                     args=(jid, lib_ids, False, body.artwork,
                            body.backdrops), daemon=True).start()
-    return {"job_id": jid, "resumed": False, "library_id": library_id,
+    return {"job_id": jid, "resumed": False, "library_id": body.library_id,
+            "media_library_id": body.media_library_id,
             "total": len(rows), "targets": counts}
 
 
@@ -474,18 +513,20 @@ _BDMV_SEG_RE = re.compile(r"(^|/)(BDMV|VIDEO_TS|CERTIFICATE|AUDIO_TS)(/|$)",
 
 class CleanStraysBody(BaseModel):
     library_id: int | None = None
+    media_library_id: int | None = None
     dry_run: bool = True
 
 
 @router.post("/clean-bdmv")
 def clean_bdmv(body: CleanStraysBody | None = None):
     """清理 BDMV/VIDEO_TS 等蓝光结构里的碎片行（00000.m2ts 等，只删 DB 记录，
-    不动物理文件）。dry_run=true 默认只预览。"""
+    不动物理文件）。dry_run=true 默认只预览。
+    body.library_id（单库）或 media_library_id（整个媒体库）限定范围。"""
     body = body or CleanStraysBody()
+    lib_ids = _lib_filter(body.library_id, body.media_library_id)
     rows = [m for m in store.list_movies(grouped=False, limit=100000)
             if _BDMV_SEG_RE.search(str(m.get("file_path") or ""))
-            and (body.library_id is None
-                 or int(m.get("library_id") or 0) == int(body.library_id))]
+            and _in_filter(m, lib_ids)]
     if body.dry_run:
         return {"dry_run": True, "total": len(rows),
                 "sample": [{"id": m["id"], "file_path": m["file_path"],
@@ -501,22 +542,64 @@ def clean_bdmv(body: CleanStraysBody | None = None):
             "failed": failed}
 
 
+@router.post("/clean-samples")
+def clean_samples(body: CleanStraysBody | None = None):
+    """清理误入库的样片/花絮行：路径按现行规则属于 Sample/Screens/Behind The Scenes
+    等样片/花絮目录（含 Sample,Screens 复合名）或样片文件名的 movies 行
+    （历史扫描未识别时误建）。只删 DB 行，不动物理文件；dry_run=true 默认只预览。
+    body.library_id（单库）或 media_library_id（整个媒体库）限定范围。"""
+    body = body or CleanStraysBody()
+    lib_ids = _lib_filter(body.library_id, body.media_library_id)
+    rows = []
+    for m in store.list_movies(grouped=False, limit=100000):
+        if not _in_filter(m, lib_ids):
+            continue
+        if scanner.is_sidecar(m.get("file_path") or "",
+                              library_id=m.get("library_id")):
+            rows.append(m)
+    if body.dry_run:
+        return {"dry_run": True, "total": len(rows),
+                "sample": [{"id": m["id"], "file_path": m["file_path"],
+                            "title": m.get("title")} for m in rows[:50]]}
+    deleted, failed = 0, []
+    for m in rows:
+        try:
+            if store.delete_movie(int(m["id"])):
+                deleted += 1
+        except Exception as e:
+            failed.append({"id": m["id"], "error": str(e)[:200]})
+    return {"dry_run": False, "total": len(rows), "deleted": deleted,
+            "failed": failed}
+
+
 @router.post("/clean-mount-artifacts")
 def clean_mount_artifacts(body: CleanStraysBody | None = None):
     """清理挂载点目录里被误写的媒体产物（NFO/图片，历史 bug：远程库写到了挂载点）。
     仅当该库挂载点**未真正挂载**时清理（挂载中时目录即 NAS，绝不碰）。
-    dry_run=true 默认只预览。"""
+    dry_run=true 默认只预览。挂载点目录为 `lib_<媒体库id>`：media_library_id 直接
+    指定；兼容 library_id（视频库）自动映射到所属媒体库。"""
     from ..db import mounts_dir
     body = body or CleanStraysBody()
+    target_media: int | None = None
+    if body.media_library_id is not None and str(body.media_library_id).strip() != "":
+        try:
+            target_media = int(body.media_library_id)
+        except (TypeError, ValueError):
+            raise HTTPException(422, "media_library_id must be int")
+    elif body.library_id is not None and str(body.library_id).strip() != "":
+        try:
+            target_media = store.media_id_for_library(int(body.library_id)) or -1
+        except (TypeError, ValueError):
+            raise HTTPException(422, "library_id must be int")
     base = mounts_dir()
     items: list[str] = []
     if os.path.isdir(base):
         for name in sorted(os.listdir(base)):
             if not name.startswith("lib_"):
                 continue
-            if body.library_id is not None:
+            if target_media is not None:
                 try:
-                    if int(name.split("_", 1)[1]) != int(body.library_id):
+                    if int(name.split("_", 1)[1]) != int(target_media):
                         continue
                 except (ValueError, IndexError):
                     continue

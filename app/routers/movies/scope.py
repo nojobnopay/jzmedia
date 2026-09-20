@@ -46,7 +46,7 @@ def _movie_delete_scope(movie_id: int) -> dict:
         rel = os.path.join(rel_dir, n) if rel_dir else n
         _, ex = os.path.splitext(n)
         if ex.lower() in VIDEO_EXTS and not is_sample(n) \
-                and not is_extra(rel) and rel not in own_paths:
+                and not is_extra(rel, library_id=lib_id) and rel not in own_paths:
             foreign = True
             break
     try:

@@ -46,13 +46,13 @@ def _classify(rel: str, extras_map: dict | None = None,
                         "extra_id": e["id"], "movie_id": e.get("movie_id")}
     _, ex = os.path.splitext(rel)
     ex = ex.lower()
-    if is_sidecar(rel):
+    if is_sidecar(rel, library_id=lid):
         return {**base, "kind": "sidecar"}
     if ex in SUBTITLE_EXTS:
         return {**base, "kind": "subtitle"}
     if ex == ".nfo":
         return {**base, "kind": "nfo"}
-    if is_feature_video(rel):
+    if is_feature_video(rel, library_id=lid):
         # 库无行但形态是正片（多为未扫描）：按 feature 对待，删时提醒
         return {**base, "kind": "feature", "movie_id": None,
                 "version_count": 1}
