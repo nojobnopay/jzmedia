@@ -3,6 +3,16 @@
     <div ref="dlgRef" class="dlg" role="dialog" aria-modal="true">
       <h3>{{ upStep === 'organize' ? '归档整理（第 2 步）' : upStep === 'done' ? '完成' : '上传到媒体库（第 1 步）' }}</h3>
       <template v-if="upStep === 'upload'">
+      <div v-if="upLibCandidates.length > 1" class="bar">
+        <label>上传到视频库
+          <select v-model.number="upLibId" :disabled="uploading">
+            <option v-for="l in upLibCandidates" :key="l.id" :value="l.id">
+              {{ l.name }}{{ l.subpath ? '（' + l.subpath + '）' : '' }}
+            </option>
+          </select>
+        </label>
+        <span class="fhint">当前媒体库有多个电影类视频库，可切换目标</span>
+      </div>
       <div class="bar">
         <label><input type="radio" value="files" v-model="upMode" :disabled="uploading" @change="onUpModeChange" /> 多选文件</label>
         <label><input type="radio" value="dir" v-model="upMode" :disabled="uploading" @change="onUpModeChange" /> 整个文件夹</label>
@@ -67,7 +77,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, apiUpload } from '../api.js'
-import { libParam } from '../libraries.js'
+import { currentMediaId, currentMediaVideoLibs, preferredVideoLibId } from '../libraries.js'
 import { fmtBytes, midEllipsis } from '../format.js'
 import { useFocusTrap } from '../useFocusTrap.js'
 
@@ -76,6 +86,17 @@ const router = useRouter()
 const dlgRef = ref(null)
 useFocusTrap(ref(true), dlgRef)
 
+const upLibCandidates = computed(() => currentMediaVideoLibs('movie'))
+const upLibId = ref(_storedUploadLib())
+function _storedUploadLib () {
+  const cands = currentMediaVideoLibs('movie')
+  try {
+    const mid = currentMediaId()
+    const v = mid != null ? Number(localStorage.getItem('jzmedia.uploadLib.' + mid)) : NaN
+    if (cands.some((l) => Number(l.id) === v)) return v
+  } catch (e) { /* 忽略 */ }
+  return preferredVideoLibId('movie')
+}
 const upMode = ref('files')
 const upFiles = ref(null)
 const upDir = ref(null)
@@ -222,6 +243,12 @@ async function startUpload() {
     upMsg.value = upMode.value === 'dir' ? '先选择文件夹' : '先选择文件'
     return
   }
+  try {
+    const mid = currentMediaId()
+    if (mid != null && upLibId.value != null) {
+      localStorage.setItem('jzmedia.uploadLib.' + mid, String(upLibId.value))
+    }
+  } catch (e) { /* 忽略 */ }
   if (staged.length > 500) {
     upMsg.value = `一次最多 500 个文件（当前 ${staged.length} 个），请分批上传`
     return
@@ -243,7 +270,7 @@ async function startUpload() {
     t.scanStartedAt = 0
     upCurPct.value = 0
     const h = apiUpload('/api/uploads', t.file, {
-      fields: { relpath: t.rel, library_id: libParam() },
+      fields: { relpath: t.rel, library_id: upLibId.value },
       onProgress: (p) => { upCurPct.value = p },
       onUploaded: () => {
         // 延迟 800ms 再切“刮削中”，字幕/花絮等本地快路径不会闪提示
@@ -334,7 +361,7 @@ const upOrganizableIds = computed(() => [...new Set(
 const upOrganizable = computed(() => upOrganizableIds.value.length > 0)
 function upOrgBody(dry_run) {
   return JSON.stringify({ mode: 'relocate', from_prefix: '待整理', to_dir: '电影',
-    library_id: libParam(),
+    library_id: upLibId.value,
     ids: upOrganizableIds.value, dry_run })
 }
 async function goUpOrganize() {

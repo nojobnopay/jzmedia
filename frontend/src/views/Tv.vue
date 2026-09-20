@@ -5,7 +5,7 @@
     <span class="fhint">{{ msg }}</span>
   </div>
   <div v-if="!items.length" class="bar fhint">
-    当前媒体库还没有剧集。在设置页「媒体库」新建一个「剧集」类型的库并扫描即可（只读清单，不刮削/不改名）。
+    当前媒体库还没有剧集。在设置页「媒体库」对应媒体库下添加一个「剧集」类型的视频库并扫描即可（只读清单，不刮削/不改名）。
   </div>
   <div class="grid">
     <div v-for="s in items" :key="s.id" class="card show-card" @click="$router.push('/tv/' + s.id)">
@@ -19,7 +19,7 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api.js'
-import { libParam, loadLibs, onLibChange } from '../libraries.js'
+import { mediaParam, loadLibs, onLibChange } from '../libraries.js'
 
 const q = ref('')
 const items = ref([])
@@ -31,7 +31,7 @@ async function load () {
   try {
     const p = new URLSearchParams()
     if (q.value.trim()) p.set('q', q.value.trim())
-    if (libParam() != null) p.set('library', String(libParam()))
+    if (mediaParam() != null) p.set('media_library', String(mediaParam()))
     const qs = p.toString()
     const d = await api('/api/tv/shows' + (qs ? '?' + qs : ''))
     items.value = d.items || []

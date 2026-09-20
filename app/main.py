@@ -13,7 +13,7 @@ from .config import settings
 from .db import POSTER_DIR, ensure_dirs
 from .log import get_logger, setup_logging
 from .routers import (collections, extras, files, fs, health, jobs, libraries,
-                      movies, persons, stream, tv)
+                      media_libraries, movies, persons, stream, tv)
 
 setup_logging()
 _logger = get_logger("main")
@@ -42,13 +42,17 @@ async def _lifespan(_app: FastAPI):
     try:
         from . import library_paths
         library_paths.invalidate_cache()
-        libs = library_paths.list_libraries(only_enabled=True)
-        lib_desc = ", ".join(f"{l['id']}:{l['name']}({l['kind']}/{l['source']})"
-                             for l in libs) or "无库（请在设置页建库）"
+        medias = store.list_media_libraries()
+        parts = []
+        for m in medias:
+            vids = store.video_libraries_of(m["id"])
+            vdesc = "/".join(f"{v['name']}:{v['kind']}" for v in vids) or "无视频库"
+            parts.append(f"{m['id']}:{m['name']}({m['source']})[{vdesc}]")
+        lib_desc = ", ".join(parts) or "无媒体库（请在设置页建库）"
     except Exception as e:
         _logger.warning("list libraries at startup failed: %s", e)
         lib_desc = "unavailable"
-    _logger.info("jzmedia %s 启动：libraries=[%s] DATA_DIR=%s ENV=%s",
+    _logger.info("jzmedia %s 启动：media=[%s] DATA_DIR=%s ENV=%s",
                  app.version, lib_desc, settings.data_dir, settings.env)
     yield
     # 优雅退出：杀掉全部转码进程（防重启/停服后孤儿 ffmpeg 继续烧 CPU 写分片）
@@ -61,7 +65,7 @@ async def _lifespan(_app: FastAPI):
     _logger.info("jzmedia 已停止")
 
 
-app = FastAPI(title="jzmedia", version="0.8.0", lifespan=_lifespan)
+app = FastAPI(title="jzmedia", version="0.9.0", lifespan=_lifespan)
 
 # 写操作访问令牌（评审 P1-01）：仅当 JZMEDIA_TOKEN/设置页配置了令牌才生效。
 # 只护 /api 的写方法（POST/PUT/PATCH/DELETE）；GET 全放行（Kodi/电视直链、海报、
@@ -90,6 +94,7 @@ async def _auth_write(request, call_next):
     return await call_next(request)
 
 app.include_router(health.router)
+app.include_router(media_libraries.router)
 app.include_router(libraries.router)
 app.include_router(movies.router)
 app.include_router(collections.router)

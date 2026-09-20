@@ -36,7 +36,7 @@ def _organize(lib_id, mid, dry=True):
 def plex_lib(tmp_path):
     lib, root = _lib(tmp_path, "plexlib", "plex")
     yield lib, root
-    store.delete_library(lib["id"])
+    store.delete_media_library(lib["media_library_id"])
     library_paths.invalidate_cache()
 
 
@@ -76,7 +76,7 @@ def test_off_profile_never_renames(tmp_path):
         assert d2.get("results", []) == []
         assert (root / "raw" / "Keep.Me.2021.mkv").is_file()
     finally:
-        store.delete_library(lib["id"])
+        store.delete_media_library(lib["media_library_id"])
         library_paths.invalidate_cache()
 
 

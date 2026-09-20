@@ -10,11 +10,15 @@ _EXTRA_IDS = (2, 3)
 
 
 def _insert_library(lid, name, path, kind="movie", read_only=0, enabled=1):
+    """直接落两行：媒体库（连接/只读）+ 视频库（根 subpath=''）。"""
     with store._lock, store._conn() as c:
-        c.execute("INSERT INTO libraries(id, name, kind, source, path, read_only,"
+        c.execute("INSERT INTO media_libraries(id, name, source, path, read_only,"
+                  " enabled, created_at, updated_at) VALUES(?, ?, 'local', ?, ?, ?, 0, 0)",
+                  (lid, name, path, read_only, enabled))
+        c.execute("INSERT INTO libraries(id, media_library_id, name, kind, subpath, path,"
                   " enabled, created_at, updated_at)"
-                  " VALUES(?, ?, ?, 'local', ?, ?, ?, 0, 0)",
-                  (lid, name, kind, path, read_only, enabled))
+                  " VALUES(?, ?, ?, ?, '', ?, ?, 0, 0)",
+                  (lid, lid, name, kind, path, enabled))
     library_paths.invalidate_cache()
 
 
@@ -22,7 +26,9 @@ def _insert_library(lid, name, path, kind="movie", read_only=0, enabled=1):
 def extra_libraries():
     yield
     with store._lock, store._conn() as c:
-        c.execute(f"DELETE FROM libraries WHERE id IN ({','.join(map(str, _EXTRA_IDS))})")
+        ids = ",".join(map(str, _EXTRA_IDS))
+        c.execute(f"DELETE FROM libraries WHERE id IN ({ids})")
+        c.execute(f"DELETE FROM media_libraries WHERE id IN ({ids})")
     library_paths.invalidate_cache()
 
 

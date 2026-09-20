@@ -1,16 +1,14 @@
 <template>
   <nav>
     <router-link to="/" class="brand"><img src="/favicon.svg" alt="jzmedia" width="26" height="26" /><span>jzmedia</span></router-link>
-    <router-link to="/">库</router-link>
+    <router-link to="/">电影</router-link>
     <router-link to="/tv">剧集</router-link>
     <router-link to="/collections">合集</router-link>
     <router-link to="/settings">设置</router-link>
     <span class="nav-spacer"></span>
-    <select v-if="libs.length > 1" class="lib-switch" :value="currentId" title="切换媒体库"
+    <select v-if="showSwitch" class="lib-switch" :value="currentId" title="切换媒体库"
       @change="onSwitch">
-      <option v-for="l in libs" :key="l.id" :value="l.id">
-        {{ l.name }}{{ l.kind === 'tv' ? ' · 剧集' : '' }}{{ l.read_only ? ' · 只读' : '' }}
-      </option>
+      <option v-for="m in libs" :key="m.id" :value="m.id">{{ optionLabel(m) }}</option>
     </select>
   </nav>
   <router-view />
@@ -29,16 +27,22 @@
   </div>
 </template>
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { setToken, api } from './api.js'
-import { listLibs, currentLibId, loadLibs, switchLib } from './libraries.js'
+import { listMediaLibs, currentMediaId, loadLibs, switchMedia } from './libraries.js'
 
 const authAsk = ref(false)
 const authInput = ref('')
-const libs = ref([])
-const currentId = ref(null)
+const libs = ref([])          // 媒体库列表
+const currentId = ref(null)   // 当前媒体库 id
 const router = useRouter()
+const route = useRoute()
+
+const showSwitch = computed(() => libs.value.length > 1)
+function optionLabel(m) {
+  return m.name + (m.read_only ? ' · 只读' : '')
+}
 
 function onUnauthorized() {
   if (authAsk.value) return
@@ -53,15 +57,15 @@ function saveAuth() {
   location.reload()   // 简单可靠：带令牌重载，正在失败的请求由页面自行重试
 }
 function onSwitch(e) {
-  // 换库回海报墙：详情/人物页的 id 属于旧库，留在原页会 404
-  switchLib(Number(e.target.value))
-  router.push('/')
+  // 换媒体库：海报墙/剧集页原地刷新；详情/人物页的 id 属于旧库，回首页
+  switchMedia(Number(e.target.value))
+  if (route.path !== '/' && route.path !== '/tv') router.push('/')
 }
 onMounted(async () => {
   try {
     await loadLibs(api)
-    libs.value = listLibs()
-    currentId.value = currentLibId()
+    libs.value = listMediaLibs()
+    currentId.value = currentMediaId()
   } catch (e) { /* 库接口不可用时保持旧行为（后端报错会在页面自现） */ }
   window.addEventListener('jzmedia:unauthorized', onUnauthorized)
   window.addEventListener('jzmedia:libraries-changed', syncLibs)
@@ -71,8 +75,8 @@ onUnmounted(() => {
   window.removeEventListener('jzmedia:libraries-changed', syncLibs)
 })
 function syncLibs() {
-  libs.value = listLibs()
-  currentId.value = currentLibId()
+  libs.value = listMediaLibs()
+  currentId.value = currentMediaId()
 }
 </script>
 <style>

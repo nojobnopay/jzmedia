@@ -279,7 +279,7 @@ const navs = computed(() => {
   ]
   const libItems = libList.value.map(l => ({
     id: 'lib-' + l.id, label: l.name + (l.kind === 'tv' ? ' · 剧集' : ''),
-    libId: l.id, group: '媒体库工具',
+    libId: l.id, group: '媒体库工具 · ' + (l.media_name || '媒体库'),
   }))
   return [...items, ...libItems]
 })

@@ -355,8 +355,12 @@ def scan_tv_file(backend, rel: str) -> dict:
             "show": title, "season": season, "episode": episode}
 
 
-def _scan_libraries(library_id) -> list[dict]:
+def _scan_libraries(library_id, media_library_id=None) -> list[dict]:
     try:
+        if media_library_id is not None:
+            mid = int(media_library_id)
+            return [l for l in library_paths.list_libraries(only_enabled=True)
+                    if int(l.get("media_library_id") or 0) == mid]
         if library_id is None:
             libs = library_paths.list_libraries(only_enabled=True)
             return libs or [library_paths.default_library()]
@@ -368,15 +372,16 @@ def _scan_libraries(library_id) -> list[dict]:
 
 
 def scan_all(progress_cb=None, should_stop=None, library_id=None,
-             force: bool = False) -> list[dict]:
-    """扫描。`library_id=None` 遍历全部启用库；否则只扫该库。
+             force: bool = False, media_library_id=None) -> list[dict]:
+    """扫描。`library_id=None` 遍历全部启用视频库；`media_library_id` 只扫该媒体库下的
+    全部启用视频库；否则只扫指定视频库。
     遍历/stat 走 StorageBackend：直读远程库不依赖 POSIX 挂载（指导 Phase1）。
     库不可达（StorageOffline）→ `library_offline` 跳过，且**不 GC、不删行**（§19）。
     可选 progress_cb(done, total) 报告全局进度、should_stop() 协作式取消
     （评审 B9/R04-D6：供后台 job 展示进度/取消）。
     返回结果条目带 `library_id`（跨库任务可区分）。"""
     ensure_dirs()
-    libs = _scan_libraries(library_id)
+    libs = _scan_libraries(library_id, media_library_id)
     if not libs:
         return []
     skip_dirs = scan_skip_dirs()

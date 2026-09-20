@@ -16,12 +16,12 @@ def libs(tmp_path):
     def _mk(name, profile="kodi"):
         lib = store.create_library(name=f"{name}-{tmp_path.name}", path=str(root),
                                    naming_profile=profile, artwork_mode="nfo_art")
-        made.append(lib["id"])
+        made.append(lib["media_library_id"])
         return lib
     library_paths.invalidate_cache()
     yield _mk, root
-    for lid in made:
-        store.delete_library(lid)
+    for mid in made:
+        store.delete_media_library(mid)
     library_paths.invalidate_cache()
 
 

@@ -26,7 +26,7 @@ def _scan_summary(results: list) -> dict:
 
 
 def _scan_worker(jid: str, library_id: int | None = None,
-                 force: bool = False) -> None:
+                 force: bool = False, media_library_id: int | None = None) -> None:
     def _stop() -> bool:
         job = _SCAN_JOBS.get(jid)
         return job is None or job.get("state") != "running"
@@ -38,6 +38,8 @@ def _scan_worker(jid: str, library_id: int | None = None,
         kwargs = {"progress_cb": _cb, "should_stop": _stop, "force": bool(force)}
         if library_id is not None:
             kwargs["library_id"] = library_id
+        if media_library_id is not None:
+            kwargs["media_library_id"] = media_library_id
         res = scanner.scan_all(**kwargs)
         if _stop():
             _SCAN_JOBS.update(jid, done=len(res))
@@ -49,26 +51,31 @@ def _scan_worker(jid: str, library_id: int | None = None,
 
 
 class ScanBody(BaseModel):
-    library_id: int | None = None
+    library_id: int | None = None           # 单个视频库
+    media_library_id: int | None = None     # 整个媒体库（其全部启用视频库）
     force: bool = False   # 强制重扫（跳过缓存短路，重走匹配+落盘；修复错配用）
 
 
 @router.post("/scan")
 def scan_start(body: ScanBody | None = None):
-    """启动后台扫描：{library_id?, force?} 缺省=全部启用库；立即返回 {job_id}；
-    已在跑则复用（resumed）。force=true 时已有匹配的行也会重走（本地优先/TMDB）。"""
+    """启动后台扫描：{library_id?|media_library_id?, force?} 缺省=全部启用库；
+    立即返回 {job_id}；已在跑则复用（resumed）。force=true 时已有匹配的行也会重走。"""
     library_id = body.library_id if body else None
+    media_library_id = body.media_library_id if body else None
     force = bool(body.force) if body else False
     running = _SCAN_JOBS.running()
     if running:
         return {"job_id": running["job_id"], "resumed": True,
-                "library_id": running.get("library_id")}
-    job = _SCAN_JOBS.create(library_id=library_id, force=force)
+                "library_id": running.get("library_id"),
+                "media_library_id": running.get("media_library_id")}
+    job = _SCAN_JOBS.create(library_id=library_id, media_library_id=media_library_id,
+                            force=force)
     jid = job["job_id"]
-    threading.Thread(target=_scan_worker, args=(jid, library_id, force),
+    threading.Thread(target=_scan_worker,
+                     args=(jid, library_id, force, media_library_id),
                      daemon=True).start()
     return {"job_id": jid, "resumed": False, "library_id": library_id,
-            "force": force}
+            "media_library_id": media_library_id, "force": force}
 
 
 @router.get("/scan/{job_id}")

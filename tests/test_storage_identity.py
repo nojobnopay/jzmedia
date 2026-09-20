@@ -18,8 +18,8 @@ def _smb(host="nas", share="video", subpath="Movies", connect=""):
 def cleanup():
     ids = []
     yield ids
-    for lid in ids:
-        store.delete_library(lid)
+    for mid in ids:
+        store.delete_media_library(mid)
     library_paths.invalidate_cache()
 
 
@@ -35,19 +35,19 @@ def test_identity_of_variants(tmp_path):
 
 def test_duplicate_smb_identity_rejected(cleanup):
     a = store.create_library(name="dup-a", source="smb", smb=_smb())
-    cleanup.append(a["id"])
+    cleanup.append(a["media_library_id"])
     assert a["storage_identity"] == "smb:nas/video/movies"
     with pytest.raises(ValueError) as ei:
         store.create_library(name="dup-b", source="smb", smb=_smb())
     assert "同一存储" in str(ei.value)
     # 不同子目录/不同共享不冲突
     b = store.create_library(name="dup-c", source="smb", smb=_smb(subpath="TV"))
-    cleanup.append(b["id"])
+    cleanup.append(b["media_library_id"])
     c = store.create_library(name="dup-d", source="smb", smb=_smb(share="photo"))
-    cleanup.append(c["id"])
-    # 改库到已占用身份 → 拒绝
+    cleanup.append(c["media_library_id"])
+    # 改媒体库连接到已占用身份 → 拒绝
     with pytest.raises(ValueError):
-        store.update_library(c["id"], smb=_smb())
+        store.update_media_library(c["media_library_id"], smb=_smb())
     # 改名/其它字段不触发误判
     store.update_library(c["id"], name="dup-d2")
 
@@ -55,7 +55,7 @@ def test_duplicate_smb_identity_rejected(cleanup):
 def test_nfs_identity_rejected(cleanup):
     a = store.create_library(name="nfs-a", source="nfs",
                              nfs={"export": "nas:/vol1"})
-    cleanup.append(a["id"])
+    cleanup.append(a["media_library_id"])
     with pytest.raises(ValueError):
         store.create_library(name="nfs-b", source="nfs", nfs={"export": "NAS:/vol1"})
 
@@ -85,7 +85,7 @@ def smb_lib(tmp_path, monkeypatch):
     library_paths.invalidate_cache()
     smb.invalidate()
     yield lib, root, fake
-    store.delete_library(lib["id"])
+    store.delete_media_library(lib["media_library_id"])
     library_paths.invalidate_cache()
     smb.invalidate()
 
@@ -113,18 +113,9 @@ def test_diag_uses_connect_host(tmp_path, monkeypatch):
     smb.invalidate()
 
 
-def test_m15_backfills_identity(tmp_path):
+def test_m15_skips_new_schema():
+    """v17 后连接字段已上移 media_libraries：_m15 对新 schema 直接跳过（不补旧列）。"""
     from app.store import _base
     with store._lock, store._conn() as c:
-        c.execute("INSERT INTO libraries(name, kind, source, path, storage_identity,"
-                  " created_at, updated_at) VALUES('m15-tmp','movie','smb','/x','',0,0)")
-        lid = int(c.execute("SELECT id FROM libraries WHERE name='m15-tmp'").fetchone()[0])
-        c.execute("UPDATE libraries SET smb_host='NAS', smb_share='Video',"
-                  " smb_subpath='Movies' WHERE id=?", (lid,))
-        try:
-            _base._m15(c)
-            row = c.execute("SELECT storage_identity FROM libraries WHERE id=?",
-                            (lid,)).fetchone()
-            assert row[0] == "smb:nas/video/movies"
-        finally:
-            c.execute("DELETE FROM libraries WHERE id=?", (lid,))
+        _base._m15(c)
+        assert "source" not in _base._columns(c, "libraries")

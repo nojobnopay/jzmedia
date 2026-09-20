@@ -28,7 +28,7 @@ def smb_movie_lib(tmp_path, monkeypatch):
     monkeypatch.setattr(scanner.scan, "search_with_fallback",
                         lambda title, year: (None, title, False))
     yield lib, root, fake
-    store.delete_library(lib["id"])
+    store.delete_media_library(lib["media_library_id"])
     library_paths.invalidate_cache()
     smb.invalidate()
 
@@ -102,7 +102,7 @@ def test_scan_tv_library_direct(tmp_path, monkeypatch):
         assert shows and shows[0]["title"] == "Remote Show"
         assert store.count_episodes(lib["id"]) == 1
     finally:
-        store.delete_library(lib["id"])
+        store.delete_media_library(lib["media_library_id"])
         library_paths.invalidate_cache()
         smb.invalidate()
 

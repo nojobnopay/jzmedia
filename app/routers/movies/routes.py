@@ -11,7 +11,7 @@ from ...regions import normalize_tags
 from ...log import get_logger
 logger = get_logger("movies.routes")
 from ...scanner import same_stem
-from .common import (_INLINE_EXTS, FilterList, _page, _stream_upload)
+from .common import (_INLINE_EXTS, FilterList, _library_scope, _page, _stream_upload)
 from .scope import _movie_delete_scope
 __all__ = ['router', 'search', 'search_suggest', 'list_movies', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_similar', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'organize_hint', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig']
 
@@ -30,7 +30,8 @@ def search(q: str = "", limit: int = 500, offset: int = 0, grouped: bool = True,
            rating_source: str = "tmdb",
            watched: int | None = None,
            collection: FilterList = Query(default=None),
-           library: FilterList = Query(default=None)):
+           library: FilterList = Query(default=None),
+           media_library: int | None = None):
     lim, off = _page(limit, offset)
     items = store.search_fts(
         q, lim + 1, grouped, genres=store._split_multi(genre),
@@ -39,7 +40,7 @@ def search(q: str = "", limit: int = 500, offset: int = 0, grouped: bool = True,
         tags=store._split_multi(tag), min_rating=min_rating,
         rating_source=rating_source, watched=watched,
         collection_ids=store._split_ints(collection),
-        library_ids=store._split_ints(library), offset=off)
+        library_ids=_library_scope(library, media_library), offset=off)
     has_more = len(items) > lim
     return {"q": q, "items": items[:lim], "has_more": has_more,
             "limit": lim, "offset": off}
@@ -47,9 +48,10 @@ def search(q: str = "", limit: int = 500, offset: int = 0, grouped: bool = True,
 
 @router.get("/search/suggest")
 def search_suggest(q: str = "", limit: int = 8,
-                   library: FilterList = Query(default=None)):
+                   library: FilterList = Query(default=None),
+                   media_library: int | None = None):
     """搜索框联想：本地库标题/原名（中文/部分词可用）+ 演员名（含参演数），轻量返回。"""
-    libs = store._split_ints(library)
+    libs = _library_scope(library, media_library)
     return {"q": q, "items": store.suggest_titles(q, limit, library_ids=libs),
             "persons": store.suggest_people(q, 5, library_ids=libs)}
 
@@ -66,7 +68,8 @@ def list_movies(grouped: bool = True, limit: int = 500, offset: int = 0,
                 rating_source: str = "tmdb",
                 watched: int | None = None,
                 collection: FilterList = Query(default=None),
-                library: FilterList = Query(default=None)):
+                library: FilterList = Query(default=None),
+                media_library: int | None = None):
     lim, off = _page(limit, offset)
     items = store.list_movies(
         grouped, genres=store._split_multi(genre),
@@ -75,16 +78,17 @@ def list_movies(grouped: bool = True, limit: int = 500, offset: int = 0,
         tags=store._split_multi(tag), limit=lim + 1,
         min_rating=min_rating, rating_source=rating_source, watched=watched,
         collection_ids=store._split_ints(collection),
-        library_ids=store._split_ints(library), offset=off)
+        library_ids=_library_scope(library, media_library), offset=off)
     has_more = len(items) > lim
     return {"items": items[:lim], "has_more": has_more, "limit": lim, "offset": off}
 
 
 @router.get("/facets")
-def facets(grouped: bool = True, library: FilterList = Query(default=None)):
+def facets(grouped: bool = True, library: FilterList = Query(default=None),
+           media_library: int | None = None):
     """动态分类计数：类型/大区/国家/年/年代/标签，只返回有片的项。"""
     return store.get_facets(grouped=grouped,
-                            library_ids=store._split_ints(library))
+                            library_ids=_library_scope(library, media_library))
 
 
 @router.get("/movies/{movie_id}")

@@ -131,7 +131,7 @@ def test_factory_and_range_proxy(share, fake, monkeypatch):
             httpproxy.shutdown()
     finally:
         httpproxy.shutdown()
-        store.delete_library(lib["id"])
+        store.delete_media_library(lib["media_library_id"])
         smb.invalidate()
 
 

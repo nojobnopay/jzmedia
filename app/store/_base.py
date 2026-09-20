@@ -25,22 +25,17 @@ _lock = threading.RLock()
 DEFAULT_LIBRARY_ID = 1
 
 
-_LIBRARIES_DDL = """
-CREATE TABLE IF NOT EXISTS libraries (
+# 媒体库（v17）：存储连接/根目录（凭据、挂载、身份、健康）；视频库（libraries）挂在它下面。
+_MEDIA_LIBRARIES_DDL = """
+CREATE TABLE IF NOT EXISTS media_libraries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT UNIQUE NOT NULL,
-  kind TEXT NOT NULL DEFAULT 'movie' CHECK(kind IN ('movie','tv')),
   source TEXT NOT NULL DEFAULT 'local' CHECK(source IN ('local','smb','nfs')),
   path TEXT NOT NULL,
   read_only INTEGER NOT NULL DEFAULT 0,
   auto_mount INTEGER NOT NULL DEFAULT 1,
   enabled INTEGER NOT NULL DEFAULT 1,
   sort_order INTEGER NOT NULL DEFAULT 0,
-  naming_profile TEXT NOT NULL DEFAULT 'kodi' CHECK(naming_profile IN ('plex','kodi','off')),
-  artwork_mode TEXT NOT NULL DEFAULT 'nfo' CHECK(artwork_mode IN ('none','nfo','nfo_art')),
-  organize_target TEXT NOT NULL DEFAULT '电影',
-  inbox_dir TEXT NOT NULL DEFAULT '待整理',
-  metadata_providers TEXT NOT NULL DEFAULT '',
   smb_host TEXT DEFAULT '', smb_share TEXT DEFAULT '', smb_subpath TEXT DEFAULT '',
   smb_domain TEXT DEFAULT '', smb_username TEXT DEFAULT '', smb_password TEXT DEFAULT '',
   smb_options TEXT DEFAULT '', smb_connect_host TEXT DEFAULT '',
@@ -49,6 +44,30 @@ CREATE TABLE IF NOT EXISTS libraries (
   last_status TEXT DEFAULT '', last_error TEXT DEFAULT '', last_check_at INTEGER DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_media_libraries_identity
+  ON media_libraries(storage_identity);
+"""
+
+# 视频库（v17）：媒体库根下的一个子树 + 类型（movie|tv）；path 为派生生效根。
+_LIBRARIES_DDL = """
+CREATE TABLE IF NOT EXISTS libraries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  media_library_id INTEGER NOT NULL DEFAULT 1,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'movie' CHECK(kind IN ('movie','tv')),
+  subpath TEXT NOT NULL DEFAULT '',
+  path TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  naming_profile TEXT NOT NULL DEFAULT 'kodi' CHECK(naming_profile IN ('plex','kodi','off')),
+  artwork_mode TEXT NOT NULL DEFAULT 'nfo' CHECK(artwork_mode IN ('none','nfo','nfo_art')),
+  organize_target TEXT NOT NULL DEFAULT '电影',
+  inbox_dir TEXT NOT NULL DEFAULT '待整理',
+  metadata_providers TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(media_library_id, name)
 );
 """
 
@@ -204,8 +223,23 @@ CREATE TABLE IF NOT EXISTS tv_episodes (
 );
 """
 
-# 手工合集跟随媒体库隔离（v16）：同名合集可分库共存，唯一键为 (library_id, name)。
+# 手工合集跟随媒体库隔离（v18）：成员可跨同一媒体库内的视频库，唯一键 (media_library_id, name)。
 _COLLECTIONS_DDL = """
+CREATE TABLE IF NOT EXISTS collections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  overview TEXT DEFAULT '',
+  poster_path TEXT DEFAULT '',
+  tmdb_collection_id INTEGER,
+  media_library_id INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER DEFAULT 0,
+  updated_at INTEGER DEFAULT 0,
+  UNIQUE(media_library_id, name)
+);
+"""
+
+# v16 形态（视频库级）：仅供 _m16 迁移步骤使用，勿改。
+_COLLECTIONS_V16_DDL = """
 CREATE TABLE IF NOT EXISTS collections (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -219,8 +253,11 @@ CREATE TABLE IF NOT EXISTS collections (
 );
 """
 
+_COLLECTIONS_V16_COLUMNS = ["id", "name", "overview", "poster_path", "tmdb_collection_id",
+                            "library_id", "created_at", "updated_at"]
+
 _COLLECTIONS_COLUMNS = ["id", "name", "overview", "poster_path", "tmdb_collection_id",
-                        "library_id", "created_at", "updated_at"]
+                        "media_library_id", "created_at", "updated_at"]
 
 # 成员以海报粒度存放（有 tmdb_id 存 movie_tmdb_id，无则存 movie_id），与海报墙分组键一致。
 _COLLECTION_MEMBERS_DDL = """
@@ -235,7 +272,6 @@ CREATE TABLE IF NOT EXISTS collection_members (
 CREATE INDEX IF NOT EXISTS idx_members_collection ON collection_members(collection_id);
 CREATE INDEX IF NOT EXISTS idx_members_tmdb ON collection_members(movie_tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_members_movie ON collection_members(movie_id);
-CREATE INDEX IF NOT EXISTS idx_collections_library ON collections(library_id);
 """
 
 _REST_DDL = """
@@ -329,9 +365,9 @@ DROP TRIGGER IF EXISTS movies_ad;
 DROP TRIGGER IF EXISTS movies_au;
 """
 
-SCHEMA = "".join([_LIBRARIES_DDL, _MOVIES_DDL, _EXTRAS_DDL, _SCAN_STATE_DDL,
-                  _MEDIA_INFO_DDL, _PROGRESS_DDL, _TV_SHOWS_DDL, _TV_EPISODES_DDL,
-                  _COLLECTIONS_DDL, _COLLECTION_MEMBERS_DDL, _REST_DDL])
+SCHEMA = "".join([_MEDIA_LIBRARIES_DDL, _LIBRARIES_DDL, _MOVIES_DDL, _EXTRAS_DDL,
+                  _SCAN_STATE_DDL, _MEDIA_INFO_DDL, _PROGRESS_DDL, _TV_SHOWS_DDL,
+                  _TV_EPISODES_DDL, _COLLECTIONS_DDL, _COLLECTION_MEMBERS_DDL, _REST_DDL])
 
 _MOVIE_INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_movies_year ON movies(year)",
@@ -378,7 +414,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "tmdb_language", "tmdb_image_base", "jzmedia_token"}
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 18
 
 
 def _columns(c, table: str) -> set:
@@ -415,7 +451,7 @@ def _rebuild_table(c, table: str, ddl: str, columns: list[str],
 
 
 def _seed_default_library(c) -> None:
-    """libraries 为空时按 MEDIA_ROOT 播种默认库（v12 自举；幂等）。"""
+    """libraries 为空时按 MEDIA_ROOT 播种默认媒体库+视频库（v12 自举/v17 两层；幂等）。"""
     row = c.execute("SELECT COUNT(*) AS n FROM libraries").fetchone()
     if int(row["n"] or 0) > 0:
         return
@@ -425,12 +461,19 @@ def _seed_default_library(c) -> None:
     except (OSError, ValueError):
         name = "默认库"
     now = int(time.time())
+    have = c.execute("SELECT COUNT(*) AS n FROM media_libraries").fetchone()
+    if int(have["n"] or 0) == 0:
+        c.execute(
+            "INSERT INTO media_libraries(id, name, source, path, read_only, auto_mount,"
+            " enabled, sort_order, created_at, updated_at)"
+            " VALUES(?, ?, 'local', ?, 0, 1, 1, 0, ?, ?)",
+            (DEFAULT_LIBRARY_ID, name, root, now, now))
     c.execute(
-        "INSERT INTO libraries(id, name, kind, source, path, naming_profile,"
-        " artwork_mode, created_at, updated_at)"
-        " VALUES(?, ?, 'movie', 'local', ?, 'kodi', 'nfo', ?, ?)",
-        (DEFAULT_LIBRARY_ID, name, root, now, now))
-    logger.info("多库迁移：默认库 id=%s name=%s path=%s", DEFAULT_LIBRARY_ID, name, root)
+        "INSERT INTO libraries(id, media_library_id, name, kind, subpath, path, enabled,"
+        " sort_order, naming_profile, artwork_mode, created_at, updated_at)"
+        " VALUES(?, ?, ?, 'movie', '', ?, 1, 0, 'kodi', 'nfo', ?, ?)",
+        (DEFAULT_LIBRARY_ID, DEFAULT_LIBRARY_ID, name, root, now, now))
+    logger.info("多库迁移：默认媒体库 id=%s name=%s path=%s", DEFAULT_LIBRARY_ID, name, root)
 
 
 def _migrate(c) -> int:
@@ -698,6 +741,8 @@ def _m15(c) -> None:
       存量行回填；不设 UNIQUE（历史重复行保留，新建时守卫）。
     - `smb_connect_host`：Tailscale/内网可达地址（空=与 smb_host 相同）。
     """
+    if not _has_column(c, "libraries", "source"):
+        return   # v17 新 schema：连接字段在 media_libraries，无需回填
     _ensure_columns(c, "libraries", [
         ("smb_connect_host", "ALTER TABLE libraries ADD COLUMN smb_connect_host TEXT DEFAULT ''"),
         ("storage_identity", "ALTER TABLE libraries ADD COLUMN storage_identity TEXT DEFAULT ''"),
@@ -736,14 +781,182 @@ def _identity_of(lib: dict) -> str:
 
 def _m16(c) -> None:
     """合集按库隔离：去掉全局 UNIQUE(name)，改 UNIQUE(library_id, name)（用户反馈：同名合集
-    应在不同库各自存在，此前跨库建同名合集被全局唯一挡下）。旧约束更严，重建不会冲突。"""
-    _rebuild_table(c, "collections", _COLLECTIONS_DDL, _COLLECTIONS_COLUMNS)
+    应在不同库各自存在，此前跨库建同名合集被全局唯一挡下）。旧约束更严，重建不会冲突。
+    v18 起合集改媒体库级，本步保留 v16 冻结形态（勿改用新 DDL）。"""
+    _rebuild_table(c, "collections", _COLLECTIONS_V16_DDL, _COLLECTIONS_V16_COLUMNS)
     c.execute("CREATE INDEX IF NOT EXISTS idx_collections_library ON collections(library_id)")
+
+
+# v17：媒体库（连接/根）→ 视频库（子目录 + 类型）两层。
+# - 每个旧库行原 id 建同名媒体库（挂载点 lib_<id>、影片归属 id 全部保持）；
+# - 远程库把旧 smb_subpath 最后一段下沉为视频库 subpath，其余归媒体库（Movies → "" + Movies）；
+# - 本地库若全部记录都在同一顶层子目录，自动拆出该视频库并去掉路径前缀（保留已匹配数据）；
+# - libraries.path 改为「媒体根 + subpath」派生生效根（读写两端唯一入口）。
+_VIDEO_PATH_COLS = (("movies", "file_path"), ("extras", "file_path"),
+                    ("scan_state", "file_path"), ("tv_episodes", "file_path"))
+
+
+def _m17_guess_subdir(c, library_id: int) -> str:
+    """本地库：全部记录共享唯一顶层子目录时返回该目录名，否则 ''（含根级文件即不拆）。"""
+    tops: set[str] = set()
+    found = False
+    for table, col in _VIDEO_PATH_COLS:
+        try:
+            rows = c.execute(f"SELECT {col} AS p FROM {table} WHERE library_id=?",
+                             (library_id,)).fetchall()
+        except sqlite3.OperationalError:
+            continue
+        for r in rows:
+            p = str(r["p"] or "").replace("\\", "/").strip("/")
+            if not p:
+                continue
+            if "/" not in p:
+                return ""
+            tops.add(p.split("/", 1)[0])
+            found = True
+    if not found or len(tops) != 1:
+        return ""
+    return tops.pop()
+
+
+def _m17_rebase(c, library_id: int, prefix: str) -> None:
+    """拆分本地库：把记录相对路径去掉 `prefix/` 前缀（含 original_file_path 审计路径）。"""
+    pref = prefix.strip("/") + "/"
+    start = len(pref) + 1   # SQLite substr 1-based
+    for table, col in _VIDEO_PATH_COLS:
+        try:
+            c.execute(f"UPDATE {table} SET {col}=substr({col}, ?)"
+                      f" WHERE library_id=? AND {col} LIKE ?",
+                      (start, library_id, pref + "%"))
+        except sqlite3.OperationalError as e:
+            logger.debug("v17 rebase skip %s: %s", table, e)
+    try:
+        c.execute("UPDATE movies SET original_file_path=substr(original_file_path, ?)"
+                  " WHERE library_id=? AND original_file_path LIKE ?",
+                  (start, library_id, pref + "%"))
+    except sqlite3.OperationalError as e:
+        logger.debug("v17 rebase original_file_path skip: %s", e)
+
+
+def _m17(c) -> None:
+    """媒体库/视频库两层迁移（libraries 重建为视频库，存储连接上移 media_libraries）。"""
+    if _has_column(c, "libraries", "media_library_id"):
+        return   # 新 schema（fresh DB）或已迁移
+    c.executescript(_MEDIA_LIBRARIES_DDL)
+    try:
+        old_rows = [dict(r) for r in c.execute("SELECT * FROM libraries").fetchall()]
+    except sqlite3.OperationalError:
+        old_rows = []
+    c.execute("ALTER TABLE libraries RENAME TO libraries_v16")
+    c.execute(_LIBRARIES_DDL)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_libraries_media ON libraries(media_library_id)")
+    now = int(time.time())
+
+    def _i(v, d: int = 0) -> int:
+        try:
+            return int(v) if v is not None else d
+        except (TypeError, ValueError):
+            return d
+
+    for r in old_rows:
+        lid = _i(r.get("id"))
+        source = str(r.get("source") or "local")
+        media_path = str(r.get("path") or "") or (mount_point(lid) if source != "local" else "")
+        subpath = ""
+        if source == "smb":
+            raw = str(r.get("smb_subpath") or "").strip().strip("/")
+            if raw:
+                parent, _, base = raw.rpartition("/")
+                subpath = base
+                r["smb_subpath"] = parent
+        elif source == "local":
+            guess = _m17_guess_subdir(c, lid)
+            if guess:
+                subpath = guess
+                _m17_rebase(c, lid, guess)
+        lib_path = os.path.join(media_path, subpath) if subpath else media_path
+        video_name = subpath.rsplit("/", 1)[-1] if subpath else str(r.get("name") or f"库{lid}")
+        mident = _identity_of({"source": source, "path": media_path,
+                               "smb_host": r.get("smb_host"),
+                               "smb_share": r.get("smb_share"),
+                               "smb_subpath": r.get("smb_subpath"),
+                               "nfs_export": r.get("nfs_export")})
+        c.execute(
+            "INSERT INTO media_libraries(id, name, source, path, read_only, auto_mount,"
+            " enabled, sort_order, smb_host, smb_share, smb_subpath, smb_domain, smb_username,"
+            " smb_password, smb_options, smb_connect_host, nfs_export, nfs_password,"
+            " nfs_options, storage_identity, last_status, last_error, last_check_at,"
+            " created_at, updated_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (lid, str(r.get("name") or f"媒体库{lid}"), source, media_path,
+             _i(r.get("read_only")), _i(r.get("auto_mount"), 1), _i(r.get("enabled"), 1),
+             _i(r.get("sort_order")), str(r.get("smb_host") or ""),
+             str(r.get("smb_share") or ""), str(r.get("smb_subpath") or ""),
+             str(r.get("smb_domain") or ""), str(r.get("smb_username") or ""),
+             str(r.get("smb_password") or ""), str(r.get("smb_options") or ""),
+             str(r.get("smb_connect_host") or ""), str(r.get("nfs_export") or ""),
+             str(r.get("nfs_password") or ""), str(r.get("nfs_options") or ""),
+             mident, str(r.get("last_status") or ""),
+             str(r.get("last_error") or ""), _i(r.get("last_check_at")),
+             _i(r.get("created_at"), now), _i(r.get("updated_at"), now)))
+        c.execute(
+            "INSERT INTO libraries(id, media_library_id, name, kind, subpath, path, enabled,"
+            " sort_order, naming_profile, artwork_mode, organize_target, inbox_dir,"
+            " metadata_providers, created_at, updated_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (lid, lid, video_name, str(r.get("kind") or "movie"), subpath, lib_path,
+             _i(r.get("enabled"), 1), _i(r.get("sort_order")),
+             str(r.get("naming_profile") or "kodi"), str(r.get("artwork_mode") or "nfo"),
+             str(r.get("organize_target") or "电影"), str(r.get("inbox_dir") or "待整理"),
+             str(r.get("metadata_providers") or ""),
+             _i(r.get("created_at"), now), _i(r.get("updated_at"), now)))
+    c.execute("DROP TABLE libraries_v16")
+    logger.info("v17 媒体库/视频库迁移完成：媒体库 %s 个", len(old_rows))
+
+
+# v18：合集改媒体库级（成员可跨同一媒体库内的视频库；同名合集按媒体库唯一）。
+# - collections.library_id（视频库）→ media_library_id（由所属媒体库映射）；
+# - 同一媒体库内同名合集合并（保留最早创建的，成员去重并入后删除重复行）。
+def _m18(c) -> None:
+    if _has_column(c, "collections", "media_library_id"):
+        return   # 新 schema（fresh DB）或已迁移
+    _ensure_columns(c, "collections", [
+        ("media_library_id", "ALTER TABLE collections"
+         " ADD COLUMN media_library_id INTEGER NOT NULL DEFAULT 1"),
+    ])
+    c.execute("UPDATE collections SET media_library_id=COALESCE("
+              "(SELECT l.media_library_id FROM libraries l"
+              " WHERE l.id=collections.library_id), 1)")
+    try:
+        dup_groups = c.execute(
+            "SELECT media_library_id, name, MIN(id) AS keep FROM collections"
+            " GROUP BY media_library_id, name HAVING COUNT(*)>1").fetchall()
+    except sqlite3.OperationalError:
+        dup_groups = []
+    merged = 0
+    for g in dup_groups:
+        keep = int(g["keep"])
+        dups = [int(r["id"]) for r in c.execute(
+            "SELECT id FROM collections WHERE media_library_id=? AND name=? AND id<>?",
+            (int(g["media_library_id"]), g["name"], keep))]
+        for d in dups:
+            c.execute("INSERT OR IGNORE INTO collection_members"
+                      "(collection_id, movie_tmdb_id, movie_id, sort_order, added_at)"
+                      " SELECT ?, movie_tmdb_id, movie_id, sort_order, added_at"
+                      " FROM collection_members WHERE collection_id=?", (keep, d))
+            c.execute("DELETE FROM collection_members WHERE collection_id=?", (d,))
+            c.execute("DELETE FROM collections WHERE id=?", (d,))
+            merged += 1
+    _rebuild_table(c, "collections", _COLLECTIONS_DDL, _COLLECTIONS_COLUMNS)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_collections_media"
+              " ON collections(media_library_id)")
+    logger.info("v18 合集媒体库级迁移完成：合并同名合集 %s 个", merged)
 
 
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
-                    (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16)]
+                    (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
+                    (17, _m17), (18, _m18)]
 
 
 def init_db() -> None:
@@ -761,6 +974,11 @@ def init_db() -> None:
             raise RuntimeError("SQLite 缺少 FTS5 扩展，jzmedia 无法运行") from e
         c.executescript(SCHEMA)
         _migrated = _migrate(c)
+        # v17/v18 索引：旧库在迁移里建表列后补，新库此处兜底（故不能写进 SCHEMA）
+        c.execute("CREATE INDEX IF NOT EXISTS idx_libraries_media"
+                  " ON libraries(media_library_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_collections_media"
+                  " ON collections(media_library_id)")
         # FTS 旧 trigger 内容表形态自愈（content= 老库直接重建）
         sql = (c.execute("SELECT sql FROM sqlite_master WHERE name='movies_fts'").fetchone() or [""])[0]
         if "content=" in sql:
@@ -858,13 +1076,13 @@ def _attach_versions(c: sqlite3.Connection, d: dict) -> dict:
 
 
 def _collections_for_film(c: sqlite3.Connection, tmdb_id, movie_id,
-                          library_id=None) -> list[dict]:
-    """影片所属手工合集（合集跟随媒体库：library_id 给定时只返回同库合集）。"""
+                          media_library_id=None) -> list[dict]:
+    """影片所属手工合集（合集跟随媒体库：media_library_id 给定时只返回同媒体库合集）。"""
     tid, mid = _film_key(tmdb_id, movie_id)
     lib_sql, lib_params = "", []
-    if library_id is not None:
-        lib_sql = " AND col.library_id=?"
-        lib_params = [int(library_id)]
+    if media_library_id is not None:
+        lib_sql = " AND col.media_library_id=?"
+        lib_params = [int(media_library_id)]
     if tid:
         rows = c.execute(
             "SELECT col.id, col.name FROM collections col "

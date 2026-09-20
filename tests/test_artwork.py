@@ -15,7 +15,7 @@ def art_lib(tmp_path):
                               artwork_mode="nfo_art")
     library_paths.invalidate_cache()
     yield lib, root
-    store.delete_library(lib["id"])
+    store.delete_media_library(lib["media_library_id"])
     library_paths.invalidate_cache()
 
 
@@ -75,12 +75,13 @@ def test_artwork_disabled_and_readonly(art_lib, monkeypatch):
         library_paths.invalidate_cache()
         assert artwork.write_for_movie(mid, str(ap))["reason"] == "disabled"
 
-        store.update_library(lib["id"], artwork_mode="nfo_art", read_only=True)
+        store.update_library(lib["id"], artwork_mode="nfo_art")
+        store.update_media_library(lib["media_library_id"], read_only=True)
         library_paths.invalidate_cache()
         assert artwork.write_for_movie(mid, str(ap))["reason"] == "read_only"
         assert not (ap.parent / "poster.jpg").exists()
     finally:
-        store.update_library(lib["id"], read_only=False)
+        store.update_media_library(lib["media_library_id"], read_only=False)
         library_paths.invalidate_cache()
         store.delete_movie(mid)
 

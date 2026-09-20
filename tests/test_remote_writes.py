@@ -23,7 +23,7 @@ def smb_lib(tmp_path, monkeypatch):
     library_paths.invalidate_cache()
     smb.invalidate()
     yield lib, root, fake
-    store.delete_library(lib["id"])
+    store.delete_media_library(lib["media_library_id"])
     library_paths.invalidate_cache()
     smb.invalidate()
 
@@ -103,8 +103,7 @@ def test_read_only_remote_skips_writes(smb_lib):
     d = root / "RO (2020)"
     d.mkdir()
     (d / "RO (2020).mkv").write_bytes(b"x")
-    with store._lock, store._conn() as c:
-        c.execute("UPDATE libraries SET read_only=1 WHERE id=?", (lib["id"],))
+    store.update_media_library(lib["media_library_id"], read_only=True)
     library_paths.invalidate_cache()
     mid = _movie_row(lib, "RO (2020)/RO (2020).mkv", tmdb_id=778903)
     backend = storage.backend_for(lib["id"])

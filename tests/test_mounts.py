@@ -44,20 +44,22 @@ def smb_library(tmp_path):
                                    "username": "u", "password": "p"})
     library_paths.invalidate_cache()
     yield lib
-    store.delete_library(lib["id"])
+    store.delete_media_library(lib["media_library_id"])
     library_paths.invalidate_cache()
 
 
 def test_smb_library_path_matches_mount_point(smb_library):
-    assert smb_library["path"] == mounts.mount_point(smb_library["id"])
+    assert smb_library["path"] == mounts.mount_point(smb_library["media_library_id"])
 
 
 def test_mount_unsupported_returns_guidance(smb_library, monkeypatch):
     monkeypatch.setattr(mounts, "mount_supported", lambda: (False, "无 CAP_SYS_ADMIN"))
-    res = mounts.mount_library(smb_library)
+    media = store.get_media_library(smb_library["media_library_id"])
+    res = mounts.mount_library(media)
     assert res["ok"] is False and res["mount_supported"] is False
     assert "mount" in res["suggested_cmd"] and "nas/media" in res["suggested_cmd"]
-    assert store.get_library(smb_library["id"])["last_status"] == "not_mounted"
+    assert store.get_media_library(smb_library["media_library_id"])["last_status"] == (
+        "not_mounted")
 
 
 def test_local_library_check(media_root, tmp_path):
@@ -66,9 +68,9 @@ def test_local_library_check(media_root, tmp_path):
     lib = store.create_library(name=f"local-{tmp_path.name}", path=str(path))
     library_paths.invalidate_cache()
     try:
-        out = mounts.check_library(lib)
+        out = mounts.check_library(store.get_media_library(lib["media_library_id"]))
         assert out["readable"] is True and out["last_status"] == "ok"
         assert out["mount_supported"] in (True, False)
     finally:
-        store.delete_library(lib["id"])
+        store.delete_media_library(lib["media_library_id"])
         library_paths.invalidate_cache()

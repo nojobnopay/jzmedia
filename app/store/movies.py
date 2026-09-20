@@ -124,8 +124,11 @@ def get_movie(movie_id: int) -> dict | None:
             (d.get("origin_countries") or [""])[0] if d.get("origin_countries") else "")
         d["origin_country_name"] = country_name(primary) if primary else ""
         d = _attach_versions(c, d)
+        mrow = c.execute("SELECT media_library_id FROM libraries WHERE id=?",
+                         (d.get("library_id"),)).fetchone()
+        d["media_library_id"] = int(mrow["media_library_id"]) if mrow else None
         d["collections"] = _collections_for_film(c, d.get("tmdb_id"), d.get("id"),
-                                                 d.get("library_id"))
+                                                 d.get("media_library_id"))
         return d
 
 

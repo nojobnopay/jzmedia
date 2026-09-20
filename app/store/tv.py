@@ -61,12 +61,25 @@ def _show_row(r) -> dict:
     return d
 
 
-def list_shows(library_id=None, q: str = "", limit: int = 500,
+def _lib_cond(alias: str, library_ids) -> tuple[str, list]:
+    """视频库范围条件片段：单个 id 或 id 列表（v18 媒体库聚合）；None=不过滤。"""
+    if library_ids is None:
+        return "", []
+    ids = ([int(x) for x in library_ids]
+           if isinstance(library_ids, (list, tuple, set)) else [int(library_ids)])
+    if not ids:
+        return "1=0", []
+    ph = ",".join("?" for _ in ids)
+    return f"{alias}.library_id IN ({ph})", ids
+
+
+def list_shows(library_ids=None, q: str = "", limit: int = 500,
                offset: int = 0) -> list[dict]:
     where, params = [], []
-    if library_id is not None:
-        where.append("s.library_id=?")
-        params.append(int(library_id))
+    cond, cparams = _lib_cond("s", library_ids)
+    if cond:
+        where.append(cond)
+        params.extend(cparams)
     if (q or "").strip():
         where.append("s.title LIKE ? ESCAPE '\\'")
         params.append(f"%{''.join(ch for ch in q.strip() if ch not in '%_\\')}%")
@@ -84,19 +97,17 @@ def list_shows(library_id=None, q: str = "", limit: int = 500,
         return [_show_row(r) for r in rows]
 
 
-def count_shows(library_id=None) -> int:
-    where, params = "", []
-    if library_id is not None:
-        where, params = " WHERE library_id=?", [int(library_id)]
+def count_shows(library_ids=None) -> int:
+    cond, params = _lib_cond("tv_shows", library_ids)
+    where = (" WHERE " + cond) if cond else ""
     with _lock, _conn() as c:
         return int(c.execute("SELECT COUNT(*) FROM tv_shows" + where,
                              params).fetchone()[0])
 
 
-def count_episodes(library_id=None) -> int:
-    where, params = "", []
-    if library_id is not None:
-        where, params = " WHERE library_id=?", [int(library_id)]
+def count_episodes(library_ids=None) -> int:
+    cond, params = _lib_cond("tv_episodes", library_ids)
+    where = (" WHERE " + cond) if cond else ""
     with _lock, _conn() as c:
         return int(c.execute("SELECT COUNT(*) FROM tv_episodes" + where,
                              params).fetchone()[0])

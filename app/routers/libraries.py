@@ -1,42 +1,25 @@
-"""库管理 API（MULTI_LIBRARY_PLAN §11）：CRUD / 检查 / SMB·NFS 挂载（C 阶段）。
+"""视频库 API（v17 两层）：CRUD / 检查；连接/挂载/诊断见 /api/media-libraries。
 
-- 所有库变更后调用 library_paths.invalidate_cache()。
-- 凭据只写不读（store.public_library 脱敏）。
-- 删库只清 DB 记录（store.delete_library），绝不触碰磁盘媒体文件。
+- `GET /api/libraries` 返回全部视频库（增强视图：带 media_library_id/media_name/subpath/
+  来源/连接字段），前端海报墙、剧集页、工具页沿用该接口与 `?library=<视频库id>`。
+- POST 两种：带 `media_library_id` 在既有媒体库下建视频库；否则按旧扁平参数自动
+  建同名媒体库 + 根视频库（兼容旧客户端/脚本与测试）。
+- 存储连接、根路径、只读、挂载属于媒体库；视频库只改名称/类型/子路径/命名档等。
 """
-import os
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import library_paths, mounts, secrets, storage, store
+from .. import library_paths, mounts, storage, store
 from ..log import get_logger
-from ..storage import diag as storage_diag
-from ..storage import smb as storage_smb
+from .media_libraries import (_check_smb_direct, SmbDiagBody, diag_media_library,
+                              diag_smb as diag_smb_media, driver_hint,
+                              mount_media_library, unmount_media_library)
 
 router = APIRouter(prefix="/api/libraries")
 logger = get_logger("libraries")
 
-
-def _driver_hint(lib: dict) -> str:
-    """库当前实际访问方式（仅展示用，不建立连接）：
-    local=本地路径；smb=用户态直读；mount=容器/宿主挂载。"""
-    source = str(lib.get("source") or "local")
-    if source == "local":
-        return "local"
-    if source == "nfs":
-        return "mount"
-    mode = storage.smb_driver_mode()
-    if mode == "mount":
-        return "mount"
-    if mode == "auto":
-        path = str(lib.get("path") or "")
-        try:
-            if path and os.path.ismount(path):
-                return "mount"
-        except OSError:
-            pass
-    return "smb"
+_VIDEO_KEYS = ("name", "kind", "subpath", "enabled", "sort_order", "naming_profile",
+               "artwork_mode", "organize_target", "inbox_dir", "metadata_providers")
 
 
 def _payload(lib: dict | None) -> dict | None:
@@ -44,7 +27,8 @@ def _payload(lib: dict | None) -> dict | None:
     if out is None:
         return None
     out["movie_count"] = store.library_movie_count(out.get("id"))
-    out["driver"] = _driver_hint(lib or {})
+    out["episode_count"] = store.library_tv_count(out.get("id"))
+    out["driver"] = driver_hint(lib or {})
     return out
 
 
@@ -57,8 +41,11 @@ def list_libraries():
 
 
 class LibraryCreate(BaseModel):
-    name: str
+    name: str = ""
     kind: str = "movie"
+    media_library_id: int | None = None
+    subpath: str = ""
+    # 兼容旧扁平建库（未传 media_library_id 时走 media+root-video 自动包装）
     source: str = "local"
     path: str = ""
     read_only: bool = False
@@ -72,7 +59,7 @@ class LibraryCreate(BaseModel):
     metadata_providers: str = ""
     smb: dict | None = None
     nfs: dict | None = None
-    smb_url: str | None = None   # 单输入框：\\主机\共享\目录（也兼容 smb://）
+    smb_url: str | None = None
 
 
 @router.post("")
@@ -81,8 +68,15 @@ def create_library(body: LibraryCreate):
     smb_url = (data.pop("smb_url", None) or "").strip()
     if smb_url:
         data["smb"] = {**(data.get("smb") or {}), "url": smb_url}
+    mid = data.pop("media_library_id", None)
     try:
-        lib = store.create_library(**data)
+        if mid is not None:
+            lib = store.create_video_library(mid, **{k: data[k] for k in _VIDEO_KEYS})
+        else:
+            data.pop("subpath", None)
+            if not str(data.get("name") or "").strip():
+                raise ValueError("库名不能为空")
+            lib = store.create_library(**data)
     except ValueError as e:
         raise HTTPException(422, str(e))
     library_paths.invalidate_cache()
@@ -93,10 +87,8 @@ class LibraryUpdate(BaseModel):
     model_config = {"extra": "forbid"}
 
     name: str | None = None
-    kind: str | None = None
-    path: str | None = None   # 仅本地库且影片数为 0 时可改（D 修复：复用默认库）
-    read_only: bool | None = None
-    auto_mount: bool | None = None
+    kind: str | None = None   # 仅空库可改（有影片/剧集记录时 422）
+    subpath: str | None = None
     enabled: bool | None = None
     sort_order: int | None = None
     naming_profile: str | None = None
@@ -104,11 +96,6 @@ class LibraryUpdate(BaseModel):
     organize_target: str | None = None
     inbox_dir: str | None = None
     metadata_providers: str | None = None
-    smb: dict | None = None
-    nfs: dict | None = None
-    smb_url: str | None = None   # 编辑连接：完整地址（与 smb 二选一，url 优先）
-    smb_password: str | None = None
-    nfs_password: str | None = None
 
 
 @router.patch("/{library_id}")
@@ -116,9 +103,6 @@ def update_library(library_id: int, body: LibraryUpdate):
     data = body.model_dump(exclude_unset=True)
     if not data:
         raise HTTPException(422, "nothing to update")
-    smb_url = (data.pop("smb_url", None) or "").strip()
-    if smb_url:
-        data["smb"] = {**(data.get("smb") or {}), "url": smb_url}
     try:
         lib = store.update_library(library_id, **data)
     except ValueError as e:
@@ -148,112 +132,49 @@ def delete_library(library_id: int):
             drop_sessions_for_version(vid)
     except Exception as e:
         logger.debug("drop sessions before delete failed: %s", e)
-    if str(lib.get("source") or "local") in ("smb", "nfs"):
-        try:
-            mounts.unmount_library(lib)
-        except Exception as e:
-            logger.debug("unmount before delete failed: %s", e)
     stats = store.delete_library(library_id)
-    mounts.cleanup_library(lib)
     library_paths.invalidate_cache()
     return {"deleted": True, **(stats or {})}
 
 
 @router.post("/{library_id}/check")
 def check_library(library_id: int):
-    """路径/挂载/可写性 + 影片数；SMB 直读模式走诊断管线（不触碰挂载），
-    挂载模式/NFS/本地走挂载与路径检查。"""
+    """媒体库连接 + 本视频库子目录可达性 + 记录数；SMB 直读走诊断管线。"""
     lib = store.get_library(library_id)
     if not lib:
         raise HTTPException(404, "library not found")
-    if str(lib.get("source")) == "smb" and storage.smb_driver_mode() != "mount":
-        return _check_smb_direct(lib)
-    out = mounts.check_library(lib)
-    out["movie_count"] = store.library_movie_count(library_id)
+    media = store.get_media_library(lib.get("media_library_id"))
+    if not media:
+        raise HTTPException(404, "media library not found")
+    if str(media.get("source")) == "smb" and storage.smb_driver_mode() != "mount":
+        out = _check_smb_direct(media)
+    else:
+        out = mounts.check_library(media)
+    ok, err = True, ""
     try:
-        out["driver"] = storage.backend_for(library_id).driver
-    except storage.StorageError:
-        out["driver"] = ""
+        storage.backend_for(library_id).stat("")
+    except storage.StorageError as e:
+        ok, err = False, str(e)[:200]
+    out["video"] = {"id": library_id, "name": lib.get("name"),
+                    "subpath": lib.get("subpath") or "", "ok": ok, "error": err}
+    out["movie_count"] = store.library_movie_count(library_id)
+    out["episode_count"] = store.library_tv_count(library_id)
     return out
-
-
-class SmbDiagBody(BaseModel):
-    host: str = ""
-    share: str = ""
-    subpath: str = ""
-    username: str = ""
-    password: str = ""
-    domain: str = ""
-    read_only: bool = False
 
 
 @router.post("/diag/smb")
 def diag_smb(body: SmbDiagBody):
-    """网页填地址/账号后先测：分阶段诊断（指导 §13/§14），不落库。"""
-    return storage_diag.diagnose_smb(**body.model_dump())
-
-
-def _diag_body(lib: dict) -> dict:
-    """库行 → diagnose_smb 参数（凭据解密只在内存；失败转 409）。"""
-    try:
-        password = secrets.decrypt_str(lib.get("smb_password") or "")
-    except secrets.SecretError as e:
-        raise HTTPException(409, f"凭据不可用: {e}") from e
-    return {"host": lib.get("smb_host") or "", "share": lib.get("smb_share") or "",
-            "subpath": lib.get("smb_subpath") or "",
-            "username": lib.get("smb_username") or "", "password": password,
-            "domain": lib.get("smb_domain") or "",
-            "connect_host": lib.get("smb_connect_host") or "",
-            "read_only": bool(int(lib.get("read_only") or 0))}
+    """兼容别名：SMB 预检不落库。"""
+    return diag_smb_media(body)
 
 
 @router.post("/{library_id}/diag")
 def diag_library(library_id: int):
-    """对已存库运行诊断（凭据从库解密），结果落 last_status 供 UI 展示。"""
+    """兼容别名：解析到所属媒体库走 SMB 诊断。"""
     lib = store.get_library(library_id)
     if not lib:
         raise HTTPException(404, "library not found")
-    if str(lib.get("source")) != "smb":
-        raise HTTPException(422, "诊断目前仅支持 SMB 库")
-    out = storage_diag.diagnose_smb(**_diag_body(lib))
-    status = "ok" if out.get("ok") else str(out.get("code") or "error").lower()
-    store.set_library_status(library_id, status, "" if out.get("ok")
-                             else f"{out.get('stage')}: {out.get('message')}")
-    if out.get("ok"):
-        storage_smb.invalidate(library_id)
-    return out
-
-
-def _check_smb_direct(lib: dict) -> dict:
-    """SMB 直读库的「检查」：走诊断管线（读/写/流/ffprobe），不触碰挂载。
-    只读账号写失败记为 warning：readable 仍为真（扫描/播放可用）。"""
-    out = storage_diag.diagnose_smb(**_diag_body(lib))
-    warnings = out.get("warnings") or []
-    write_failed = any(w.get("code") == "WRITE_FAILED" for w in warnings)
-    status = "ok" if out.get("ok") else str(out.get("code") or "error").lower()
-    err = "" if out.get("ok") else f"{out.get('stage')}: {out.get('message')}"
-    store.set_library_status(int(lib["id"]), status, err)
-    if out.get("ok"):
-        storage_smb.invalidate(int(lib["id"]))
-    try:
-        driver = storage.backend_for(int(lib["id"])).driver
-    except storage.StorageError:
-        driver = "smb"
-    suggestions = out.get("suggestions") or []
-    warn_text = warnings[0].get("message", "") if warnings else ""
-    warn_sug = (warnings[0].get("suggestions") or []) if warnings else []
-    reason = "；".join(suggestions[:2]) or out.get("message") or ""
-    if warn_text:
-        reason = (reason + "；" if reason else "") + warn_text
-    return {**out,
-            "id": int(lib["id"]), "source": "smb", "driver": driver,
-            "readable": bool(out.get("ok")),
-            "writable": bool(out.get("ok")) and not write_failed
-            and not bool(int(lib.get("read_only") or 0)),
-            "read_only": bool(int(lib.get("read_only") or 0)),
-            "reason": reason, "error": err, "last_status": status,
-            "warning": warn_text, "warning_suggestions": warn_sug,
-            "movie_count": store.library_movie_count(int(lib["id"]))}
+    return diag_media_library(int(lib["media_library_id"]))
 
 
 @router.post("/{library_id}/mount")
@@ -261,7 +182,7 @@ def mount_library(library_id: int):
     lib = store.get_library(library_id)
     if not lib:
         raise HTTPException(404, "library not found")
-    return mounts.mount_library(lib)
+    return mount_media_library(int(lib["media_library_id"]))
 
 
 @router.post("/{library_id}/unmount")
@@ -269,4 +190,4 @@ def unmount_library(library_id: int):
     lib = store.get_library(library_id)
     if not lib:
         raise HTTPException(404, "library not found")
-    return mounts.unmount_library(lib)
+    return unmount_media_library(int(lib["media_library_id"]))

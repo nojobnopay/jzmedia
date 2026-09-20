@@ -29,11 +29,24 @@ def _trim_jobs() -> None:
         _JOBS.pop(k, None)
 
 
-@router.get("")
-def list_all(q: str = "", library: str | None = None):
+def _media_scope(library, media_library) -> int | None:
+    """合集媒体库范围（v18）：media_library 优先；library（视频库 id）兼容映射到媒体库。"""
+    if media_library is not None and str(media_library).strip() != "":
+        try:
+            return int(media_library)
+        except (TypeError, ValueError):
+            return -1   # 非法参数：明确空范围（无 -1 媒体库）
     libs = store._split_ints(library)
-    lid = libs[0] if len(libs) == 1 else None
-    return {"items": store.list_collections(q, library_id=lid)}
+    if libs:
+        return store.media_id_for_library(libs[0]) or -1
+    return None
+
+
+@router.get("")
+def list_all(q: str = "", library: str | None = None,
+             media_library: int | None = None):
+    return {"items": store.list_collections(
+        q, media_library_id=_media_scope(library, media_library))}
 
 
 @router.post("")
@@ -46,28 +59,34 @@ def create(body: dict):
     tmdb_cid = body.get("tmdb_collection_id")
     if tmdb_cid is not None:
         tmdb_cid = _int_id(tmdb_cid)
-    lib_id = body.get("library_id")
-    if lib_id is not None:
+    mid = body.get("media_library_id")
+    if mid is None and body.get("library_id") is not None:
+        # 兼容旧客户端：视频库 id → 所属媒体库
         try:
-            lib_id = int(lib_id)
+            mid = store.media_id_for_library(int(body["library_id"]))
         except (TypeError, ValueError):
             raise HTTPException(422, "library_id must be int")
-        if not store.get_library(lib_id):   # 合集跟随媒体库：不允许落在不存在的库
-            raise HTTPException(422, "library not found")
+    if mid is not None:
+        try:
+            mid = int(mid)
+        except (TypeError, ValueError):
+            raise HTTPException(422, "media_library_id must be int")
+        if not store.get_media_library(mid):   # 合集跟随媒体库：不允许落在不存在的媒体库
+            raise HTTPException(422, "media library not found")
     try:
         return store.create_collection(name, body.get("overview") or "",
                                        tmdb_cid, ids,
-                                       library_id=lib_id)
+                                       media_library_id=mid)
     except ValueError as e:
         raise HTTPException(422, str(e))
 
 
 @router.get("/suggest")
-def suggest(min_members: int = 2, library: str | None = None):
-    """TMDB 系列推荐（纯本地只读）：库内同系列≥min_members 部即一项，用户点接受才建合集。"""
-    libs = store._split_ints(library)
+def suggest(min_members: int = 2, library: str | None = None,
+            media_library: int | None = None):
+    """TMDB 系列推荐（纯本地只读）：媒体库内同系列≥min_members 部即一项，用户点接受才建合集。"""
     return store.suggest_series_collections(
-        min_members, library_id=(libs[0] if len(libs) == 1 else None))
+        min_members, media_library_id=_media_scope(library, media_library))
 
 
 @router.post("/suggest/backfill")
@@ -82,8 +101,14 @@ def suggest_backfill(body: dict | None = None):
     except (TypeError, ValueError):
         raise HTTPException(422, "limit must be int")
     force = bool((body or {}).get("force"))
-    libs = store._split_ints((body or {}).get("library"))
-    lib_id = libs[0] if len(libs) == 1 else None
+    media_id = _media_scope((body or {}).get("library"),
+                            (body or {}).get("media_library"))
+    # 兼容旧字段 library_id（视频库 id）→ 媒体库
+    if media_id is None and (body or {}).get("library_id") is not None:
+        try:
+            media_id = store.media_id_for_library(int(body["library_id"]))
+        except (TypeError, ValueError):
+            media_id = -1
     
     with _JOBS_LOCK:
         for jid, j in _JOBS.items():
@@ -92,7 +117,7 @@ def suggest_backfill(body: dict | None = None):
         tids = store.tmdb_ids_missing_collection(limit, force)
         if not tids:
             return {"job_id": "", "total": 0, "resumed": False,
-                    "suggest": store.suggest_series_collections(library_id=lib_id)}
+                    "suggest": store.suggest_series_collections(media_library_id=media_id)}
         jid = uuid.uuid4().hex[:12]
         _JOBS[jid] = {"state": "running", "done": 0, "total": len(tids),
                       "current_title": "", "failed": [], "force": force,
@@ -287,10 +312,9 @@ def from_tmdb_series(body: dict):
     if not name:
         raise HTTPException(422, "name required")
     member_ids = [x["id"] for x in hint.get("in_library", [])]
-    m = store.get_movie(movie_id) or {}
     try:
         return store.create_collection(name, (body or {}).get("overview") or "",
                                        hint["collection_tmdb_id"], member_ids,
-                                       library_id=m.get("library_id"))
+                                       media_library_id=hint.get("media_library_id"))
     except ValueError as e:
         raise HTTPException(422, str(e))

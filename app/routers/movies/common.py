@@ -1,11 +1,28 @@
 """routers.movies.common（自 app/routers/movies.py 拆分，评审 B9/R05-Q1；经 movies 门面使用）。"""
 import os
 from fastapi import HTTPException
+from ... import store
 from ...log import get_logger
 logger = get_logger("movies.common")
-__all__ = ['FilterList', '_PAGE_MAX', '_page', '_stream_upload', '_INLINE_EXTS']
+__all__ = ['FilterList', '_PAGE_MAX', '_page', '_stream_upload', '_INLINE_EXTS',
+           '_library_scope']
 
 FilterList = list[str] | None
+
+# 媒体库无视频库/参数非法时的哨兵：IN (-1) 必空，绝不退化成全库
+_EMPTY_LIB = [-1]
+
+
+def _library_scope(library, media_library) -> list | None:
+    """读接口库范围（v18 媒体库聚合）：media_library 优先 → 其全部视频库 id；
+    library（视频库，可重复/逗号）→ 指定 id；都缺省=None（全库不过滤）。"""
+    if media_library is not None and str(media_library).strip() != "":
+        try:
+            mid = int(media_library)
+        except (TypeError, ValueError):
+            return list(_EMPTY_LIB)
+        return store.library_ids_for_media(mid) or list(_EMPTY_LIB)
+    return store._split_ints(library)
 
 
 _PAGE_MAX = 2000

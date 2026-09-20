@@ -8,7 +8,7 @@
         <button v-for="l in libraries" :key="l.id"
           :class="{ on: l.id === selectedId, off: !l.enabled }"
           :title="tabTitle(l)" @click="select(l.id)">
-          {{ l.name }}
+          <span v-if="mediaCount > 1" class="tab-media">{{ l.media_name || '媒体库' }}</span>{{ l.name }}
           <span v-if="l.kind === 'tv'" class="tab-kind">剧集</span>
           <span v-if="!l.enabled" class="tab-kind">停用</span>
           <span v-if="badgeOf(l.id)" class="nav-badge">{{ badgeOf(l.id) }}</span>
@@ -56,6 +56,9 @@ const router = useRouter()
 
 const selectedId = ref(null)
 const loadedLibs = new Set()
+// 多个媒体库时标签前缀媒体库名（区分同名视频库）
+const mediaCount = computed(() => new Set(
+  props.libraries.map(l => Number(l.media_library_id) || 0)).size)
 const pipeRefs = ref({})
 const restoreRefs = ref({})
 const restoreCount = ref({})
@@ -92,7 +95,9 @@ function tabTitle(l) {
   const parts = []
   if (p) parts.push(`待处理 ${p}`)
   if (r) parts.push(`待恢复 ${r}`)
-  return parts.length ? parts.join(' · ') : l.name
+  const name = (mediaCount.value > 1 && l.media_name)
+    ? `${l.media_name} / ${l.name}` : l.name
+  return parts.length ? parts.join(' · ') : name
 }
 
 async function loadBadges() {

@@ -171,7 +171,7 @@ def test_diag_api_endpoints(tmp_path, monkeypatch):
         assert r.status_code == 200 and r.json()["status"] == "ok"
         assert store.get_library(lib["id"])["last_status"] == "ok"
     finally:
-        store.delete_library(lib["id"])
+        store.delete_media_library(lib["media_library_id"])
         library_paths.invalidate_cache()
         smb.invalidate()
         httpproxy.shutdown()

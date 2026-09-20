@@ -408,7 +408,9 @@ def get_facets(grouped: bool = True, library_ids=None) -> dict:
         params.extend(libs)
     cwhere, cparams = "", []
     if libs:
-        cwhere = " WHERE c.library_id IN (%s)" % ",".join("?" * len(libs))
+        # 合集跟随媒体库（v18）：按所选视频库所属媒体库统计
+        cwhere = (" WHERE c.media_library_id IN (SELECT media_library_id FROM libraries"
+                  " WHERE id IN (%s))" % ",".join("?" * len(libs)))
         cparams.extend(libs)
     with _lock, _conn() as c:
         # 全量取行后 Python 内分组（组内 tags 取并集，代表行取最新），避免代表行漏掉打在旧版本上的标签；

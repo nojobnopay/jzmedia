@@ -19,7 +19,7 @@ def second_library(tmp_path):
     lib = store.create_library(name=f"tools-lib-{tmp_path.name}", path=str(root))
     library_paths.invalidate_cache()
     yield lib
-    store.delete_library(lib["id"])
+    store.delete_media_library(lib["media_library_id"])
     library_paths.invalidate_cache()
 
 

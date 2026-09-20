@@ -1,9 +1,10 @@
-"""远程库挂载管理（MULTI_LIBRARY_PLAN §7）：SMB/NFS 应用内挂载 + 看门狗。
+"""远程媒体库挂载管理（MULTI_LIBRARY_PLAN §7 / v17 两层）：SMB/NFS 应用内挂载 + 看门狗。
 
-- 挂载点固定 `data_dir/mounts/lib_<id>`（重启路径稳定，无需 compose 变更）。
+- 挂载单位是**媒体库**（存储连接）：挂载点固定 `data_dir/mounts/lib_<media_id>`；
+  视频库是其下的子目录（subpath），不单独挂载。
 - 凭据只存 Fernet 密文；挂载时写 0600 临时凭据文件（SMB），绝不进日志。
 - 能力检测（CAP_SYS_ADMIN + mount.cifs/mount.nfs 可用）；不可用时返回宿主挂载指引。
-- 看门狗：60s 巡检 auto_mount 的远程库，失联按退避重挂（5s→5min）；状态写 libraries。
+- 看门狗：60s 巡检 auto_mount 的远程媒体库，失联按退避重挂（5s→5min）；状态写 media_libraries。
 - env `ALLOW_SMB_MOUNT=0` 可整体禁用应用内挂载（只读宿主挂载模式）。
 """
 import os
@@ -199,19 +200,19 @@ def mount_library(lib: dict) -> dict:
                 "mount_supported": True, "suggested_cmd": ""}
     ok_cap, reason = mount_supported()
     if not ok_cap:
-        store.set_library_status(int(lib["id"]), "not_mounted", reason)
+        store.set_media_status(int(lib["id"]), "not_mounted", reason)
         library_paths.invalidate_cache()
         return {"ok": False, "status": "not_mounted", "error": reason,
                 "mount_supported": False, "suggested_cmd": suggested_cmd(lib)}
     if is_mounted(lib):
-        store.set_library_status(int(lib["id"]), "ok", "")
+        store.set_media_status(int(lib["id"]), "ok", "")
         library_paths.invalidate_cache()
         return {"ok": True, "status": "ok", "error": "",
                 "mount_supported": True, "suggested_cmd": ""}
     ok, err = _run_mount(lib)
     status = "ok" if ok else ("auth_failed" if "auth" in err.lower()
                               or "password" in err.lower() else "unreachable")
-    store.set_library_status(int(lib["id"]), status, err)
+    store.set_media_status(int(lib["id"]), status, err)
     library_paths.invalidate_cache()
     if ok:
         logger.info("挂载成功 lib=%s path=%s", lib.get("id"), lib.get("path"))
@@ -226,11 +227,11 @@ def unmount_library(lib: dict) -> dict:
         return {"ok": True, "status": "local", "error": ""}
     mp = mount_point(int(lib["id"]))
     if not os.path.ismount(mp):
-        store.set_library_status(int(lib["id"]), "not_mounted", "")
+        store.set_media_status(int(lib["id"]), "not_mounted", "")
         library_paths.invalidate_cache()
         return {"ok": True, "status": "not_mounted", "error": ""}
     ok, err = _run_umount(mp)
-    store.set_library_status(int(lib["id"]), "not_mounted" if ok else "error", err)
+    store.set_media_status(int(lib["id"]), "not_mounted" if ok else "error", err)
     library_paths.invalidate_cache()
     return {"ok": ok, "status": "not_mounted" if ok else "error", "error": err}
 
@@ -267,7 +268,7 @@ def check_library(lib: dict) -> dict:
             status, err = "ok", ""      # 宿主已挂载但不在我们管理范围内也算可用
         else:
             status, err = "not_mounted", cap_reason or "未挂载"
-    store.set_library_status(lid, status, err)
+    store.set_media_status(lid, status, err)
     library_paths.invalidate_cache()
     return {"id": lid, "source": source, "path": path,
             "exists": exists, "readable": readable, "writable": writable,
@@ -296,7 +297,7 @@ def _smb_direct_active() -> bool:
 def _auto_remote_libs() -> list[dict]:
     """看门狗目标：启用的 auto_mount 远程库；SMB 直读时排除 SMB 库（不依赖挂载）。"""
     try:
-        libs = [l for l in store.list_libraries(only_enabled=True)
+        libs = [l for l in store.list_media_libraries(only_enabled=True)
                 if str(l.get("source")) in ("smb", "nfs")
                 and int(l.get("auto_mount") or 0)]
     except Exception as e:
@@ -365,7 +366,7 @@ def shutdown_mounts() -> None:
     if not enabled():
         return
     try:
-        libs = store.list_libraries()
+        libs = store.list_media_libraries()
     except Exception:
         return
     for lib in libs:

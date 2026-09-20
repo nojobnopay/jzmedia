@@ -43,11 +43,11 @@ def test_create_and_edit_connection_via_url(tmp_path):
         assert lib["smb_share"] == "video"
         assert lib["smb_subpath"] == "Movies"
         assert lib["smb_username"] == "u"
-        assert lib["path"] == mount_point(lib["id"])
+        assert lib["path"] == mount_point(lib["media_library_id"])
         assert lib["smb_password_set"] is True
 
         # 编辑连接：换地址（密码留空=不改）
-        r2 = client.patch(f"/api/libraries/{lib['id']}", json={
+        r2 = client.patch(f"/api/media-libraries/{lib['media_library_id']}", json={
             "smb_url": "smb://nas2/media/%E7%94%B5%E5%BD%B1",
             "smb": {"username": "u2"}})
         assert r2.status_code == 200, r2.text
@@ -56,11 +56,16 @@ def test_create_and_edit_connection_via_url(tmp_path):
             "nas2", "media", "电影")
         assert lib2["smb_username"] == "u2"
         assert lib2["smb_password_set"] is True   # 留空不清密码
-        assert lib2["path"] == mount_point(lib["id"])   # 路径不受连接编辑影响
+        assert lib2["path"] == mount_point(lib["media_library_id"])   # 路径不受连接编辑影响
+        # 视频库视图同步媒体连接
+        v2 = client.get("/api/libraries").json()["items"]
+        v2 = {v["id"]: v for v in v2}[lib["id"]]
+        assert v2["smb_subpath"] == "电影"
 
         # 非法地址 → 422
-        r3 = client.patch(f"/api/libraries/{lib['id']}", json={"smb_url": "Z:\\x"})
+        r3 = client.patch(f"/api/media-libraries/{lib['media_library_id']}",
+                          json={"smb_url": "Z:\\x"})
         assert r3.status_code == 422
     finally:
-        store.delete_library(lib["id"])
+        store.delete_media_library(lib["media_library_id"])
         library_paths.invalidate_cache()

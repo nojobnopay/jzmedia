@@ -16,7 +16,7 @@ def tv_lib(tmp_path):
                               path=str(root))
     library_paths.invalidate_cache()
     yield lib, root
-    store.delete_library(lib["id"])
+    store.delete_media_library(lib["media_library_id"])
     library_paths.invalidate_cache()
 
 

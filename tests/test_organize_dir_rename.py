@@ -369,6 +369,6 @@ def smb_lib(tmp_path, monkeypatch):
     library_paths.invalidate_cache()
     smb.invalidate()
     yield lib, root, fake
-    store.delete_library(lib["id"])
+    store.delete_media_library(lib["media_library_id"])
     library_paths.invalidate_cache()
     smb.invalidate()

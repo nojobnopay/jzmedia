@@ -117,12 +117,12 @@
     </div>
   </div>
   <div v-if="showEmptyGuide" class="empty-guide">
-    <p class="eg-title">这个库还没有影片</p>
+    <p class="eg-title">当前媒体库还没有影片</p>
     <p class="eg-step">① <button @click="doScan" :disabled="scanning">{{ scanning ? '扫描中…' : '扫描入库' }}</button>
-      <span>扫描媒体目录并联网匹配 TMDB，进度显示在上方</span></p>
+      <span>扫描媒体库下全部视频库并联网匹配 TMDB，进度显示在上方</span></p>
     <p class="eg-step">② 扫描完成后继续
       <router-link :to="pipelineLink">入库流程</router-link>：待匹配确认 → 归档整理</p>
-    <p class="fhint">路径/连接有问题时到「设置 → 媒体库」点「连接」处理；顶栏可切换其他库。</p>
+    <p class="fhint">路径/连接有问题时到「设置 → 媒体库」点「连接」处理；顶栏可切换其他媒体库。</p>
   </div>
 
   <div ref="loadSentinel" class="load-more">
@@ -218,7 +218,8 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
-import { libParam, switchLib, loadLibs, onLibChange } from '../libraries.js'
+import { currentMediaId, mediaParam, preferredVideoLibId, switchLib, switchMedia,
+         loadLibs, onLibChange } from '../libraries.js'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import UploadDialog from '../components/UploadDialog.vue'
 import { fmtBytes } from '../format.js'
@@ -259,9 +260,9 @@ const yearPick = ref('')
 
 const watchedCounts = computed(() => facets.value.watched || { watched: 0, unwatched: 0 })
 
-// 入库流程深链：多库时带上当前库，设置页库工具直接选中该库
+// 入库流程深链：带上当前媒体库的首选视频库（设置页库工具按视频库工作）
 const pipelineLink = computed(() => {
-  const lp = libParam()
+  const lp = preferredVideoLibId('movie')
   return { path: '/settings', query: lp != null ? { sec: 'sec-pipeline', library: String(lp) } : { sec: 'sec-pipeline' } }
 })
 
@@ -352,8 +353,8 @@ function syncUrl() {
     query.min_rating = String(sel.value.rating)
     if (sel.value.ratingSource !== 'tmdb') query.rating_source = sel.value.ratingSource
   }
-  const lp = libParam()
-  if (lp != null) query.lib = String(lp)
+  const lp = mediaParam()
+  if (lp != null) query.media = String(lp)
   const changed = _qNorm(query) !== _qNorm(route.query)
   if (changed) router.replace({ path: '/', query })
   return changed   // 变则交给 route.query watcher 加载；未变由调用方显式刷新
@@ -362,10 +363,16 @@ function readUrl() {
   const s = (v) => v ? String(v).split(',').map(x => x.trim()).filter(Boolean) : []
   const src = String(route.query.rating_source || 'tmdb')
   const wq = Array.isArray(route.query.watched) ? route.query.watched[0] : route.query.watched
-  // 分享链接可携带 lib：切到对应库（本地未存过时以此为准）
+  // 分享链接可携带 media（媒体库）；旧链接的 lib（视频库）兼容映射到其媒体库
+  const qmedia = Array.isArray(route.query.media) ? route.query.media[0] : route.query.media
+  if (qmedia != null && qmedia !== '' && Number(qmedia) !== currentMediaId()) {
+    try { switchMedia(Number(qmedia)) } catch (e) { /* 未知媒体库忽略 */ }
+  }
   const qlib = Array.isArray(route.query.lib) ? route.query.lib[0] : route.query.lib
-  if (qlib != null && qlib !== '' && Number(qlib) !== libParam()) {
-    try { switchLib(Number(qlib)) } catch (e) { /* 未知库忽略 */ }
+  if (qmedia == null || qmedia === '') {
+    if (qlib != null && qlib !== '') {
+      try { switchLib(Number(qlib)) } catch (e) { /* 未知库忽略 */ }
+    }
   }
   q.value = route.query.q || ''
   sel.value = {
@@ -395,8 +402,8 @@ function buildParams(offset = 0) {
     p.set('min_rating', String(sel.value.rating))
     p.set('rating_source', sel.value.ratingSource)
   }
-  const lp = libParam()
-  if (lp != null) p.set('library', String(lp))
+  const lp = mediaParam()
+  if (lp != null) p.set('media_library', String(lp))
   p.set('limit', String(PAGE))   // 分页（评审 P1-11）：加载更多而非一次全量
   p.set('offset', String(Math.max(0, offset)))
   return p.toString()
@@ -465,7 +472,7 @@ async function fetchSuggest() {
   const seq = ++suggestSeq
   try {
     const d = await api('/api/search/suggest?q=' + encodeURIComponent(term) + '&limit=8'
-      + (libParam() != null ? '&library=' + libParam() : ''))
+      + (mediaParam() != null ? '&media_library=' + mediaParam() : ''))
     if (seq !== suggestSeq) return
     suggestItems.value = (d && d.items) || []
     suggestPersons.value = (d && d.persons) || []
@@ -542,7 +549,7 @@ async function clearAll() { await showAll() }
 // 上传/归档完成后刷新海报墙与 facets（UploadDialog 内部只发信号）
 async function onUpDone() { await loadFacets(); await load() }
 async function loadFacets() {
-  const lq = libParam() != null ? ('?library=' + libParam()) : ''
+  const lq = mediaParam() != null ? ('?media_library=' + mediaParam()) : ''
   try { facets.value = await api('/api/facets' + lq) } catch (e) { /* 库空时忽略 */ }
   try { colItems.value = (await api('/api/collections' + lq)).items || [] } catch (e) { /* 忽略 */ }
 }
@@ -676,15 +683,16 @@ async function confirmDel() {
   batching.value = true
   batchMsg.value = ''
   try {
-    await api(`/api/collections/${cid}/members`, {
+    const r = await api(`/api/collections/${cid}/members`, {
       method: 'POST',
       body: JSON.stringify({ movie_ids: [...selectedIds.value] })
     })
-    batchMsg.value = '已加入合集'
+    batchMsg.value = (r && r.skipped)
+      ? `已加入合集（跳过 ${r.skipped} 部：不属于该媒体库）` : '已加入合集'
     clearSelection()
     await loadFacets()
     try {
-      const lq = libParam() != null ? ('?library=' + libParam()) : ''
+      const lq = mediaParam() != null ? ('?media_library=' + mediaParam()) : ''
       colItems.value = (await api('/api/collections' + lq)).items || []
     } catch (e) { /* 忽略 */ }
   } catch (e) {
@@ -702,14 +710,14 @@ async function createAndJoin() {
     const d = await api('/api/collections', {
       method: 'POST',
       body: JSON.stringify({ name, member_ids: [...selectedIds.value],
-                             library_id: libParam() })
+                             media_library_id: currentMediaId() })
     })
     batchMsg.value = `已建合集「${d.name}」`
     newCol.value = ''
     clearSelection()
     await loadFacets()
     try {
-      const lq = libParam() != null ? ('?library=' + libParam()) : ''
+      const lq = mediaParam() != null ? ('?media_library=' + mediaParam()) : ''
       colItems.value = (await api('/api/collections' + lq)).items || []
     } catch (e) { /* 忽略 */ }
   } catch (e) {
@@ -732,7 +740,7 @@ async function doScan() {
   try {
     const d = await api('/api/jobs/scan', {
       method: 'POST',
-      body: JSON.stringify({ library_id: libParam() })
+      body: JSON.stringify({ media_library_id: currentMediaId() })
     })
     scanJobId = d.job_id
     if (d.resumed) msg.value = '已有扫描在跑，跟踪进度…'

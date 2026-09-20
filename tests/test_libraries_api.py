@@ -1,4 +1,4 @@
-"""库管理 API（v12）：CRUD / 嵌套校验 / 只读与策略 / 删库事务（只清 DB 不动文件）。"""
+"""库管理 API（v17 两层）：媒体库 CRUD / 视频库 CRUD / 嵌套校验 / 只读 / 删库事务。"""
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,14 +7,14 @@ from app.main import app
 
 client = TestClient(app)
 
-_created: list[int] = []
+_created: list[int] = []   # 媒体库 id（级联清掉其视频库）
 
 
 @pytest.fixture(autouse=True)
 def _cleanup_created():
     yield
-    for lid in list(_created):
-        store.delete_library(lid)
+    for mid in list(_created):
+        store.delete_media_library(mid)
     _created.clear()
     library_paths.invalidate_cache()
 
@@ -27,7 +27,7 @@ def _mk(tmp_path, name, sub="libA", **extra):
     r = client.post("/api/libraries", json=body)
     assert r.status_code == 200, r.text
     lib = r.json()
-    _created.append(lib["id"])
+    _created.append(lib["media_library_id"])
     return lib, p
 
 
@@ -36,12 +36,18 @@ def test_create_list_patch_check(tmp_path, media_root):
     assert lib["kind"] == "movie" and lib["source"] == "local"
     assert lib["smb_password_set"] is False
     assert lib["naming_profile"] == "kodi" and lib["artwork_mode"] == "nfo"
+    assert lib["media_library_id"] and lib["subpath"] == ""
 
     data = client.get("/api/libraries").json()
     ids = {l["id"]: l for l in data["items"]}
     assert lib["id"] in ids
     assert store.DEFAULT_LIBRARY_ID in ids
     assert data["default_id"] == store.DEFAULT_LIBRARY_ID
+    # 媒体库视图（嵌套视频库清单）
+    md = client.get("/api/media-libraries").json()
+    media = {m["id"]: m for m in md["items"]}
+    assert lib["media_library_id"] in media
+    assert any(v["id"] == lib["id"] for v in media[lib["media_library_id"]]["video_libraries"])
 
     # 重名 / 非法 kind / 非法命名档
     r = client.post("/api/libraries", json={"name": "test-lib-a",
@@ -54,19 +60,23 @@ def test_create_list_patch_check(tmp_path, media_root):
                                             "naming_profile": "xbmc"})
     assert r.status_code == 422
 
-    r = client.patch(f"/api/libraries/{lib['id']}",
-                     json={"read_only": True, "naming_profile": "plex",
-                           "artwork_mode": "nfo_art"})
+    # 只读属于媒体库；命名档属于视频库
+    r = client.patch(f"/api/media-libraries/{lib['media_library_id']}",
+                     json={"read_only": True})
     assert r.status_code == 200, r.text
     assert r.json()["read_only"] is True
-    assert r.json()["naming_profile"] == "plex"
     assert library_paths.is_read_only(lib["id"]) is True
+    r = client.patch(f"/api/libraries/{lib['id']}",
+                     json={"naming_profile": "plex", "artwork_mode": "nfo_art"})
+    assert r.status_code == 200, r.text
+    assert r.json()["naming_profile"] == "plex"
 
     r = client.post(f"/api/libraries/{lib['id']}/check")
     assert r.status_code == 200
     j = r.json()
     assert j["readable"] is True and j["writable"] is True and j["exists"] is True
     assert j["last_status"] == "ok"
+    assert j["video"]["ok"] is True
 
 
 def test_nested_root_rejected(tmp_path, media_root):
@@ -94,7 +104,6 @@ def test_delete_library_only_clears_db(tmp_path, media_root):
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["deleted"] is True and j["movies"] == 1 and j["extras"] == 1
-    _created.remove(lib["id"])
 
     # 磁盘文件必须原样保留
     assert (p / "a.mkv").is_file()
@@ -137,10 +146,11 @@ def test_smb_library_path_auto_derived(tmp_path, media_root):
         "smb": {"host": "nas", "share": "video", "subpath": "Movies"}})
     assert r.status_code == 200, r.text
     lib = r.json()
-    _created.append(lib["id"])
-    assert lib["path"] == mount_point(lib["id"])
+    _created.append(lib["media_library_id"])
+    assert lib["path"] == mount_point(lib["media_library_id"])
+    assert lib["smb_subpath"] == "Movies"
     # 远程库路径不可修改
-    rp = client.patch(f"/api/libraries/{lib['id']}",
+    rp = client.patch(f"/api/media-libraries/{lib['media_library_id']}",
                       json={"path": str(tmp_path / "whatever")})
     assert rp.status_code == 422
 
@@ -149,16 +159,19 @@ def test_local_empty_library_path_can_change(tmp_path, media_root):
     lib, p = _mk(tmp_path, "test-lib-relocate", "old")
     newdir = tmp_path / "newhome"
     newdir.mkdir()
-    r = client.patch(f"/api/libraries/{lib['id']}", json={"path": str(newdir)})
+    r = client.patch(f"/api/media-libraries/{lib['media_library_id']}",
+                     json={"path": str(newdir)})
     assert r.status_code == 200, r.text
     assert r.json()["path"] == str(newdir)
+    assert store.get_library(lib["id"])["path"] == str(newdir)
     # 有片后拒绝改路径
     (newdir / "a.mkv").write_bytes(b"x")
     mid = store.upsert_movie_by_path("a.mkv", library_id=lib["id"])
     try:
-        r2 = client.patch(f"/api/libraries/{lib['id']}", json={"path": str(p)})
+        r2 = client.patch(f"/api/media-libraries/{lib['media_library_id']}",
+                          json={"path": str(p)})
         assert r2.status_code == 422
-        assert "影片记录" in r2.json()["detail"]
+        assert "记录" in r2.json()["detail"]
     finally:
         store.delete_movie(mid)
 
@@ -177,7 +190,7 @@ def test_mount_endpoints_local_and_smb_guidance(tmp_path, media_root):
         "smb": {"host": "nas", "share": "media", "username": "u", "password": "p"}})
     assert rs.status_code == 200, rs.text
     smb = rs.json()
-    _created.append(smb["id"])
+    _created.append(smb["media_library_id"])
     m = client.post(f"/api/libraries/{smb['id']}/mount").json()
     assert m["ok"] is False
     assert m["suggested_cmd"] and "mount" in m["suggested_cmd"]

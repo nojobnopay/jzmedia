@@ -83,8 +83,8 @@ def two_libs(tmp_path):
     b = store.create_library(name=f"m-b-{tmp_path.name}", path=str(root_b))
     library_paths.invalidate_cache()
     yield (a, root_a), (b, root_b)
-    store.delete_library(a["id"])
-    store.delete_library(b["id"])
+    store.delete_media_library(a["media_library_id"])
+    store.delete_media_library(b["media_library_id"])
     library_paths.invalidate_cache()
 
 
@@ -173,5 +173,5 @@ def test_scan_skips_bdmv_fragments(tmp_path):
         assert all("BDMV" not in f for f in files), out
         assert any(f.endswith("正片.mkv") for f in files), out
     finally:
-        store.delete_library(lib["id"])
+        store.delete_media_library(lib["media_library_id"])
         library_paths.invalidate_cache()

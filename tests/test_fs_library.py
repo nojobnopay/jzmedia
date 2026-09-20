@@ -15,7 +15,7 @@ def second_library(tmp_path):
     lib = store.create_library(name=f"fs-lib-{tmp_path.name}", path=str(root))
     library_paths.invalidate_cache()
     yield lib, root
-    store.delete_library(lib["id"])
+    store.delete_media_library(lib["media_library_id"])
     library_paths.invalidate_cache()
 
 

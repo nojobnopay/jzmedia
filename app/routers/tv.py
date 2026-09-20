@@ -11,9 +11,17 @@ from .. import library_paths, store
 router = APIRouter(prefix="/api/tv")
 
 
-def _lib_id(library) -> int | None:
-    libs = store._split_ints(library)
-    return libs[0] if len(libs) == 1 else None
+def _lib_ids(library, media_library) -> list | None:
+    """范围解析（v18 媒体库聚合）：media_library 优先 → 其全部视频库 id；
+    library（视频库，可逗号）→ 指定 id 列表；都缺省=None（全库）。
+    媒体库不存在/无视频库时返回 []（明确空结果，绝不退化成全库）。"""
+    if media_library is not None and str(media_library).strip() != "":
+        try:
+            mid = int(media_library)
+        except (TypeError, ValueError):
+            return []
+        return store.library_ids_for_media(mid)
+    return store._split_ints(library) or None
 
 
 def _episode_payload(e: dict) -> dict:
@@ -27,17 +35,18 @@ def _episode_payload(e: dict) -> dict:
 
 
 @router.get("/shows")
-def list_shows(library: str | None = None, q: str = "",
-               limit: int = 200, offset: int = 0):
-    """剧集列表：library 缺省=全库；带集数/季数。"""
-    lid = _lib_id(library)
+def list_shows(library: str | None = None, media_library: int | None = None,
+               q: str = "", limit: int = 200, offset: int = 0):
+    """剧集列表：media_library=整个媒体库（其全部剧集类视频库并集）；
+    library=单个/多个视频库；都缺省=全库。带集数/季数。"""
+    libs = _lib_ids(library, media_library)
     try:
         limit = max(1, min(int(limit or 200), 2000))
         offset = max(0, int(offset or 0))
     except (TypeError, ValueError):
         limit, offset = 200, 0
-    items = store.list_shows(lid, q, limit, offset)
-    total = store.count_shows(lid)
+    items = store.list_shows(libs, q, limit, offset)
+    total = store.count_shows(libs)
     return {"items": items, "total": total,
             "has_more": offset + len(items) < total,
             "limit": limit, "offset": offset}
@@ -81,6 +90,6 @@ def episode_blob(episode_id: int, request: Request):
 
 
 @router.get("/stats")
-def tv_stats(library: str | None = None):
-    lid = _lib_id(library)
-    return {"shows": store.count_shows(lid), "episodes": store.count_episodes(lid)}
+def tv_stats(library: str | None = None, media_library: int | None = None):
+    libs = _lib_ids(library, media_library)
+    return {"shows": store.count_shows(libs), "episodes": store.count_episodes(libs)}

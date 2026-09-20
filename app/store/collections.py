@@ -1,4 +1,7 @@
-"""store.collections（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
+"""store.collections（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。
+
+v18：合集跟随**媒体库**（成员可跨同一媒体库内的视频库；同名合集按媒体库唯一）。
+"""
 import sqlite3
 import time
 from ._base import (DEFAULT_LIBRARY_ID, _like_esc, _attach_versions,
@@ -6,13 +9,20 @@ from ._base import (DEFAULT_LIBRARY_ID, _like_esc, _attach_versions,
                     _row_to_dict, logger)
 __all__ = ['list_collections_for_movie', '_collection_cover', '_collection_covers', 'list_collections', 'get_collection', 'create_collection', 'update_collection', 'delete_collection', 'add_collection_members', 'remove_collection_members', 'collection_hint_for_movie', 'suggest_series_collections', 'collected_series_new_members', 'top_up_collection']
 
+# 媒体库 → 其视频库集合（SQL 子查询片段；配合 media_library_id 参数）
+_LIB_IN_MEDIA = "SELECT id FROM libraries WHERE media_library_id=?"
+
+
 def list_collections_for_movie(movie_id: int) -> list[dict]:
     with _lock, _conn() as c:
-        row = c.execute("SELECT id, tmdb_id, library_id FROM movies WHERE id=?",
-                        (movie_id,)).fetchone()
+        row = c.execute(
+            "SELECT m.tmdb_id, m.id, l.media_library_id FROM movies m"
+            " JOIN libraries l ON l.id=m.library_id WHERE m.id=?",
+            (movie_id,)).fetchone()
         if not row:
             return []
-        return _collections_for_film(c, row["tmdb_id"], row["id"], row["library_id"])
+        return _collections_for_film(c, row["tmdb_id"], row["id"],
+                                     row["media_library_id"])
 
 
 def _collection_cover(c: sqlite3.Connection, cid: int) -> str:
@@ -22,7 +32,7 @@ def _collection_cover(c: sqlite3.Connection, cid: int) -> str:
 
 def _collection_covers(c: sqlite3.Connection) -> dict:
     """全部合集封面一次算完（评审 B8/R02-D6）：窗口函数取每合集最早有海报的成员。
-    封面候选限合集所在库（同名影片在多库时不串封面）。"""
+    封面候选限合集所在媒体库（同名影片在多库时不串封面）。"""
     try:
         rows = c.execute(
             "SELECT collection_id, poster_path FROM ("
@@ -33,22 +43,23 @@ def _collection_covers(c: sqlite3.Connection) -> dict:
             " JOIN collections col ON col.id=cm.collection_id"
             " JOIN movies m ON ((cm.movie_tmdb_id IS NOT NULL AND m.tmdb_id=cm.movie_tmdb_id)"
             "   OR (cm.movie_id IS NOT NULL AND m.id=cm.movie_id))"
-            "   AND m.library_id=col.library_id"
+            "   AND m.library_id IN (SELECT id FROM libraries"
+            " WHERE media_library_id=col.media_library_id)"
             " WHERE m.poster_path IS NOT NULL AND m.poster_path!='')"
             " WHERE rn=1").fetchall()
-        return {int(r["collection_id"]): r["poster_path"] for r in rows}
     except Exception as e:
         logger.warning("collection covers failed: %s", e)
         return {}
+    return {int(r["collection_id"]): r["poster_path"] for r in rows}
 
 
-def list_collections(q: str = "", library_id: int | None = None) -> list[dict]:
-    """合集列表；library_id 限定所属库（多库 v12，缺省=全库）。"""
+def list_collections(q: str = "", media_library_id: int | None = None) -> list[dict]:
+    """合集列表；media_library_id 限定所属媒体库（v18，缺省=全部媒体库）。"""
     params: list = []
     where = ""
-    if library_id is not None:
-        where = " AND library_id=?"
-        params.append(int(library_id))
+    if media_library_id is not None:
+        where = " AND media_library_id=?"
+        params.append(int(media_library_id))
     with _lock, _conn() as c:
         if (q or "").strip():
             # LIKE 通配符转义（评审 B6/R02-B1）：否则搜 "_"/"%" 会全匹配
@@ -96,9 +107,9 @@ def get_collection(cid: int) -> dict | None:
                 conds.append("id IN (%s)" % ",".join("?" * len(mids)))
                 params.extend(mids)
             sql = "SELECT * FROM movies WHERE (" + " OR ".join(conds) + ")"
-            if d.get("library_id") is not None:
-                sql += " AND library_id=?"
-                params.append(int(d["library_id"]))
+            if d.get("media_library_id") is not None:
+                sql += " AND library_id IN (" + _LIB_IN_MEDIA + ")"
+                params.append(int(d["media_library_id"]))
             for r in c.execute(sql, tuple(params)):
                 d0 = _row_to_dict(r)
                 key = ("t", int(d0["tmdb_id"])) if d0.get("tmdb_id") else ("m", int(d0["id"]))
@@ -123,35 +134,34 @@ def get_collection(cid: int) -> dict | None:
         return d
 
 
-def _default_library_id() -> int:
-    """缺省库解析（用户反馈）：优先真实存在的默认库，避免默认库被删后
-    合集落在已不存在的 library_id=1 上（前端单库时不传 library）。"""
-    from .libraries import default_library
+def _default_media_id() -> int:
+    """缺省媒体库解析：默认视频库所属媒体库，其次第一个启用媒体库，最后兜底 id=1。"""
+    from .media_libraries import default_media_id
     try:
-        lib = default_library()
+        mid = default_media_id()
     except Exception as e:
-        logger.warning("default library resolve failed: %s", e)
-        lib = None
-    return int(lib["id"]) if lib else DEFAULT_LIBRARY_ID
+        logger.warning("default media library resolve failed: %s", e)
+        mid = None
+    return int(mid) if mid else DEFAULT_LIBRARY_ID
 
 
 def create_collection(name: str, overview: str = "",
                       tmdb_collection_id: int | None = None,
                       member_ids: list | None = None,
-                      library_id: int | None = None) -> dict:
+                      media_library_id: int | None = None) -> dict:
     name = " ".join(str(name or "").split())
     if not name:
         raise ValueError("name required")
     if len(name) > 60:
         name = name[:60]
-    lib_id = int(library_id) if library_id is not None else _default_library_id()
+    mid = int(media_library_id) if media_library_id is not None else _default_media_id()
     now = int(time.time())
     with _lock, _conn() as c:
         try:
             cur = c.execute(
                 "INSERT INTO collections(name, overview, tmdb_collection_id,"
-                " library_id, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?)",
-                (name, overview or "", tmdb_collection_id, lib_id, now, now))
+                " media_library_id, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?)",
+                (name, overview or "", tmdb_collection_id, mid, now, now))
             cid = int(cur.lastrowid)
         except sqlite3.IntegrityError:
             raise ValueError("collection name exists")
@@ -193,26 +203,28 @@ def delete_collection(cid: int) -> bool:
 
 
 def add_collection_members(cid: int, rep_ids: list) -> dict:
-    """海报粒度加入：代表 id 归一为 film key 后幂等插入。返回 {added, total}。
+    """海报粒度加入：代表 id 归一为 film key 后幂等插入。返回 {added, total, skipped}。
+    成员限合集所属**媒体库**（v18：同媒体库的任意视频库均可；跨媒体库 id 计入 skipped）。
     sort_order 目前恒 0（预留人工排序；读取端“全 0 按年份兜底”，评审 R06-Q3）。"""
     with _lock, _conn() as c:
-        crow = c.execute("SELECT library_id FROM collections WHERE id=?", (cid,)).fetchone()
+        crow = c.execute("SELECT media_library_id FROM collections WHERE id=?",
+                         (cid,)).fetchone()
         if not crow:
             raise LookupError("collection not found")
-        lib_id = crow["library_id"]
+        media_id = crow["media_library_id"]
         ids = [int(x) for x in rep_ids] if rep_ids else []
+        rows = []
         if ids:
             sql = "SELECT id, tmdb_id FROM movies WHERE id IN (%s)" % ",".join("?" * len(ids))
             params: list = list(ids)
-            if lib_id is not None:   # 成员限同库（多库 v12：跨库 id 静默拒绝）
-                sql += " AND library_id=?"
-                params.append(int(lib_id))
+            if media_id is not None:
+                sql += " AND library_id IN (" + _LIB_IN_MEDIA + ")"
+                params.append(int(media_id))
             rows = c.execute(sql, params).fetchall()
-        else:
-            rows = []
         keys = set()
         for r in (rows or []):
             keys.add(_film_key(r["tmdb_id"], r["id"]))
+        skipped = max(0, len(set(ids)) - len(rows or []))
     now = int(time.time())
     added = 0
     with _lock, _conn() as c:
@@ -230,7 +242,7 @@ def add_collection_members(cid: int, rep_ids: list) -> dict:
         c.execute("UPDATE collections SET updated_at=? WHERE id=?", (now, cid))
         total = c.execute("SELECT COUNT(*) AS n FROM collection_members WHERE collection_id=?",
                           (cid,)).fetchone()["n"]
-    return {"added": added, "total": int(total)}
+    return {"added": added, "total": int(total), "skipped": int(skipped)}
 
 
 def remove_collection_members(cid: int, rep_ids: list) -> dict:
@@ -256,9 +268,12 @@ def remove_collection_members(cid: int, rep_ids: list) -> dict:
 
 
 def collection_hint_for_movie(movie_id: int) -> dict | None:
-    """TMDB 系列提示：本片 cache 的系列 + 库内同系列兄弟（供一键建合集）。"""
+    """TMDB 系列提示：本片 cache 的系列 + 媒体库内同系列兄弟（供一键建合集）。"""
     with _lock, _conn() as c:
-        mrow = c.execute("SELECT * FROM movies WHERE id=?", (movie_id,)).fetchone()
+        mrow = c.execute(
+            "SELECT m.*, l.media_library_id FROM movies m"
+            " JOIN libraries l ON l.id=m.library_id WHERE m.id=?",
+            (movie_id,)).fetchone()
         if not mrow or not mrow["tmdb_id"]:
             return None
         crow = c.execute("SELECT collection_tmdb_id, collection_name, collection_poster_path"
@@ -266,44 +281,46 @@ def collection_hint_for_movie(movie_id: int) -> dict | None:
         if not crow or not crow["collection_tmdb_id"]:
             return None
         cid, cname = crow["collection_tmdb_id"], crow["collection_name"] or ""
-        lib_id = mrow["library_id"] if "library_id" in mrow.keys() else DEFAULT_LIBRARY_ID
+        media_id = (mrow["media_library_id"] if "media_library_id" in mrow.keys()
+                    else _default_media_id())
         try:
             collected = bool(c.execute(
-                "SELECT 1 FROM collections WHERE library_id=?"
+                "SELECT 1 FROM collections WHERE media_library_id=?"
                 " AND (tmdb_collection_id=? OR name=?)",
-                (lib_id, cid, cname)).fetchone())
+                (media_id, cid, cname)).fetchone())
         except Exception:
             collected = False
         sibs = c.execute(
             "SELECT m.*, MAX(m.updated_at) AS _u FROM movies m "
             "JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id "
-            "WHERE t.collection_tmdb_id=? AND m.library_id=?"
+            "WHERE t.collection_tmdb_id=? AND m.library_id IN (" + _LIB_IN_MEDIA + ")"
             " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id) "
-            "ORDER BY m.year IS NULL, m.year", (cid, lib_id)).fetchall()
+            "ORDER BY m.year IS NULL, m.year", (cid, media_id)).fetchall()
         items = [_attach_versions(c, _row_to_dict(r)) for r in sibs]
         return {"collection_tmdb_id": cid, "collection_name": cname,
                 "collection_poster_path": crow["collection_poster_path"] or "",
                 "already_collected": collected,
+                "media_library_id": media_id,
                 "in_library": [{"id": x["id"], "title": x.get("title", ""),
                                  "year": x.get("year")} for x in items],
                 "in_library_count": len(items)}
 
 
 def suggest_series_collections(min_members: int = 2,
-                               library_id: int | None = None) -> dict:
+                               media_library_id: int | None = None) -> dict:
     """TMDB 系列自动推荐（纯本地、只读）：按 tmdb_cache.collection_tmdb_id 聚类，
-    库内同系列海报数达标即推荐一项。人物合集 TMDB 给不出，不在此列（纯手动）。
+    媒体库内同系列海报数达标即推荐一项。人物合集 TMDB 给不出，不在此列（纯手动）。
     已被合集收录的系列直接过滤（按 tmdb_collection_id 或同名匹配），不占推荐区。
-    library_id 限定库范围（多库 v12）。"""
+    media_library_id 限定媒体库范围（v18；缺省=全部）。"""
     try:
         min_members = max(2, int(min_members))
     except (TypeError, ValueError):
         min_members = 2
-    lib_id = int(library_id) if library_id is not None else None
+    media_id = int(media_library_id) if media_library_id is not None else None
     mwhere, mparams = "", []
-    if lib_id is not None:
-        mwhere = " AND m.library_id=?"
-        mparams = [lib_id]
+    if media_id is not None:
+        mwhere = " AND m.library_id IN (" + _LIB_IN_MEDIA + ")"
+        mparams = [media_id]
     with _lock, _conn() as c:
         series = c.execute(
             "SELECT t.collection_tmdb_id AS cid, MAX(t.collection_name) AS name,"
@@ -312,11 +329,11 @@ def suggest_series_collections(min_members: int = 2,
             " WHERE t.collection_tmdb_id IS NOT NULL" + mwhere +
             " GROUP BY t.collection_tmdb_id", mparams).fetchall()
         try:
-            ewhere = " WHERE library_id=?" if lib_id is not None else ""
+            ewhere = " WHERE media_library_id=?" if media_id is not None else ""
             existing = {(r["tmdb_collection_id"], (r["name"] or "").strip())
                         for r in c.execute(
                             "SELECT tmdb_collection_id, name FROM collections" + ewhere,
-                            ([lib_id] if lib_id is not None else []))}
+                            ([media_id] if media_id is not None else []))}
         except Exception:
             existing = set()
         # 系列内成员一次取回再分组（评审 B8/R02-D4：不再每系列一次查询）
@@ -357,10 +374,10 @@ def suggest_series_collections(min_members: int = 2,
             "SELECT COUNT(DISTINCT COALESCE(m.tmdb_id, -m.id)) AS n FROM movies m"
             " JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
             " WHERE t.collection_tmdb_id IS NOT NULL" + mwhere, mparams).fetchone()["n"]
-        if lib_id is not None:
+        if media_id is not None:
             total = c.execute(
                 "SELECT COUNT(DISTINCT COALESCE(tmdb_id, -id)) AS n FROM movies"
-                " WHERE library_id=?", (lib_id,)).fetchone()["n"]
+                " WHERE library_id IN (" + _LIB_IN_MEDIA + ")", (media_id,)).fetchone()["n"]
         else:
             total = c.execute(
                 "SELECT COUNT(DISTINCT COALESCE(tmdb_id, -id)) AS n FROM movies").fetchone()["n"]
@@ -378,24 +395,24 @@ def suggest_series_collections(min_members: int = 2,
                          "without_collection": int((total or 0) - (cov or 0)),
                          "standalone": int(standalone or 0),
                          "unchecked": int((total or 0) - (cov or 0) - (standalone or 0))},
-            "topups": collected_series_new_members(lib_id)}
+            "topups": collected_series_new_members(media_id)}
 
 
-def collected_series_new_members(library_id: int | None = None) -> list[dict]:
+def collected_series_new_members(media_library_id: int | None = None) -> list[dict]:
     """已收录合集的新片差集（纯本地只读）：仅系列建的合集（有 tmdb_collection_id）可匹配；
-    库内同系列但尚未入成员的海报即“可补齐”。纯手动合集无法匹配，直接跳过。
-    library_id 限定库范围（多库 v12）。"""
-    lib_id = int(library_id) if library_id is not None else None
+    媒体库内同系列但尚未入成员的海报即“可补齐”。纯手动合集无法匹配，直接跳过。
+    media_library_id 限定媒体库范围（v18；缺省=全部）。"""
+    media_id = int(media_library_id) if media_library_id is not None else None
     mwhere, mparams = "", []
-    if lib_id is not None:
-        mwhere = " AND m.library_id=?"
-        mparams = [lib_id]
+    if media_id is not None:
+        mwhere = " AND m.library_id IN (" + _LIB_IN_MEDIA + ")"
+        mparams = [media_id]
     with _lock, _conn() as c:
         try:
             cwhere, cparams = " WHERE tmdb_collection_id IS NOT NULL", []
-            if lib_id is not None:
-                cwhere += " AND library_id=?"
-                cparams.append(lib_id)
+            if media_id is not None:
+                cwhere += " AND media_library_id=?"
+                cparams.append(media_id)
             cols = c.execute(
                 "SELECT id, name, tmdb_collection_id FROM collections" + cwhere,
                 cparams).fetchall()
@@ -438,21 +455,21 @@ def collected_series_new_members(library_id: int | None = None) -> list[dict]:
 def top_up_collection(cid: int) -> dict:
     """一键补齐：服务端实时重算差集后写入（不信任客户端 id，防列表过期加错）。"""
     with _lock, _conn() as c:
-        row = c.execute("SELECT tmdb_collection_id, library_id FROM collections WHERE id=?",
-                        (cid,)).fetchone()
+        row = c.execute(
+            "SELECT tmdb_collection_id, media_library_id FROM collections WHERE id=?",
+            (cid,)).fetchone()
         if not row:
             raise LookupError("collection not found")
         if not row["tmdb_collection_id"]:
             raise ValueError("manual collection cannot top up")
-        lib_id = row["library_id"]
-    fresh = [t for t in collected_series_new_members(lib_id)
+        media_id = row["media_library_id"]
+    fresh = [t for t in collected_series_new_members(media_id)
              if t["collection_id"] == cid]
     if not fresh:
         with _lock, _conn() as c:
             total = c.execute("SELECT COUNT(*) AS n FROM collection_members"
                               " WHERE collection_id=?", (cid,)).fetchone()["n"]
-        return {"added": 0, "total": int(total)}
+        return {"added": 0, "total": int(total), "skipped": 0}
     rep_ids = [m["id"] for m in fresh[0]["new_members"]]
     r = add_collection_members(cid, rep_ids)
     return r
-

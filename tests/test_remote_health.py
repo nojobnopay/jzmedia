@@ -33,7 +33,7 @@ def smb_lib(tmp_path, monkeypatch):
     library_paths.invalidate_cache()
     smb.invalidate()
     yield lib, root, fake
-    store.delete_library(lib["id"])
+    store.delete_media_library(lib["media_library_id"])
     library_paths.invalidate_cache()
     smb.invalidate()
 
@@ -94,8 +94,10 @@ def test_check_smb_read_only_account_is_warning(smb_lib, monkeypatch):
 def test_watchdog_skips_smb_when_direct(smb_lib, monkeypatch):
     lib, _root, _fake = smb_lib
     monkeypatch.setenv("SMB_DRIVER", "direct")
-    assert all(int(l["id"]) != int(lib["id"]) for l in mounts._auto_remote_libs())
+    assert all(int(l["id"]) != int(lib["media_library_id"])
+               for l in mounts._auto_remote_libs())
     monkeypatch.setenv("SMB_DRIVER", "mount")
-    with store._lock, store._conn() as c:
-        c.execute("UPDATE libraries SET auto_mount=1 WHERE id=?", (lib["id"],))
-    assert any(int(l["id"]) == int(lib["id"]) for l in mounts._auto_remote_libs())
+    store.update_media_library(lib["media_library_id"], auto_mount=True)
+    library_paths.invalidate_cache()
+    assert any(int(l["id"]) == int(lib["media_library_id"])
+               for l in mounts._auto_remote_libs())

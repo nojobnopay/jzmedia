@@ -4,7 +4,7 @@ import re
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import config, library_paths, store
+from .. import config, storage, store
 from ..config import settings
 
 router = APIRouter(prefix="/api")
@@ -28,18 +28,27 @@ def health():
     except Exception as e:
         dbh = {"ok": False, "readable": False, "writable": False,
                "error": str(e)[:200], "bytes": 0}
-    # 逐库可读性自检（多库 v12）：任一启用库不可读 → degraded
+    # 逐媒体库可读性自检（v17 两层）：任一启用媒体库不可读 → degraded
     libs = []
     all_ok = True
     try:
-        for lib in library_paths.list_libraries(only_enabled=True):
+        for lib in store.list_media_libraries(only_enabled=True):
             p = str(lib.get("path") or "")
-            ok = bool(p) and os.path.isdir(p) and os.access(p, os.R_OK)
+            source = str(lib.get("source") or "local")
+            mounted_ok = bool(p) and os.path.isdir(p) and os.access(p, os.R_OK)
+            # SMB 直读不依赖本地挂载点：连接状态由 /check 诊断管线按需验证
+            ok = mounted_ok or (source == "smb"
+                                and storage.smb_driver_mode() != "mount")
             all_ok = all_ok and ok
             libs.append({"id": lib.get("id"), "name": lib.get("name"),
-                         "kind": lib.get("kind"), "source": lib.get("source"),
+                         "source": source,
                          "path": p, "ok": ok, "read_only": bool(lib.get("read_only")),
-                         "last_status": lib.get("last_status") or ""})
+                         "last_status": lib.get("last_status") or "",
+                         "video_libraries": [
+                             {"id": v.get("id"), "name": v.get("name"),
+                              "kind": v.get("kind"), "subpath": v.get("subpath") or "",
+                              "path": v.get("path") or ""}
+                             for v in store.video_libraries_of(lib.get("id"))]})
     except Exception as e:
         all_ok = False
         libs = [{"id": None, "name": "", "kind": "", "source": "",
@@ -79,14 +88,17 @@ def _settings_view() -> dict:
     cred_src = token_src if token else (key_src if api_key else "unset")
     return {
         "media_root": settings.media_root,
-        "libraries": [{"id": l.get("id"), "name": l.get("name"),
-                       "kind": l.get("kind"), "source": l.get("source"),
-                       "path": l.get("path"), "enabled": bool(l.get("enabled")),
-                       "read_only": bool(l.get("read_only")),
-                       "naming_profile": l.get("naming_profile"),
-                       "artwork_mode": l.get("artwork_mode"),
-                       "last_status": l.get("last_status") or ""}
-                      for l in library_paths.list_libraries()],
+        "libraries": [{"id": m.get("id"), "name": m.get("name"),
+                       "source": m.get("source"),
+                       "path": m.get("path"), "enabled": bool(m.get("enabled")),
+                       "read_only": bool(m.get("read_only")),
+                       "last_status": m.get("last_status") or "",
+                       "video_libraries": [
+                           {"id": v.get("id"), "name": v.get("name"),
+                            "kind": v.get("kind"), "subpath": v.get("subpath") or "",
+                            "enabled": bool(v.get("enabled"))}
+                           for v in store.video_libraries_of(m.get("id"))]}
+                      for m in store.list_media_libraries()],
         # 兼容老字段
         "tmdb_language": lang,
         "tmdb_configured": bool(token or api_key),

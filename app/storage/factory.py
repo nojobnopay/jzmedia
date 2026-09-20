@@ -28,12 +28,13 @@ def smb_driver_mode() -> str:
 
 
 def _mount_ready(lib: dict) -> bool:
-    """挂载点已挂载且可读（存量远程库路径稳定可判）。"""
-    path = str(lib.get("path") or "")
-    if not path:
+    """媒体库挂载点已挂载且可读（视频库 path 是挂载点子目录，不能用 ismount(path)）。"""
+    mp = str(lib.get("media_mount_point") or lib.get("media_path")
+             or lib.get("path") or "")
+    if not mp:
         return False
     try:
-        return os.path.ismount(path) and os.access(path, os.R_OK)
+        return os.path.ismount(mp) and os.access(mp, os.R_OK)
     except OSError:
         return False
 

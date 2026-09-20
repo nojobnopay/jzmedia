@@ -6,7 +6,7 @@
 
 ## 功能
 
-- **媒体库**（`/`）：海报墙，关键词搜索（片名/原名/简介/演员/标签/类型），多维过滤——类型 / 产地大区（华语/日本/韩国/欧美/其他亚洲/其他）/ 国家·地区（大陆/香港/台湾细分）/ 年代+年份 / 自定义标签（多选 AND）/ 观看（已看/未看）/ 合集 / 评分（TMDB/豆瓣/自评来源 + 9+/8+/7+/6+ 档位）。多选模式可批量标已看/未看、批量加/去标签、加入合集。过滤条件同步到 URL，可分享链接
+- **电影**（`/`）：海报墙，关键词搜索（片名/原名/简介/演员/标签/类型），多维过滤——类型 / 产地大区（华语/日本/韩国/欧美/其他亚洲/其他）/ 国家·地区（大陆/香港/台湾细分）/ 年代+年份 / 自定义标签（多选 AND）/ 观看（已看/未看）/ 合集 / 评分（TMDB/豆瓣/自评来源 + 9+/8+/7+/6+ 档位）。多选模式可批量标已看/未看、批量加/去标签、加入合集。过滤条件同步到 URL，可分享链接
 - **合集**（`/collections`、`/c/:id`）：手工合集（任意选片，如周星驰合集）+ TMDB 系列一键建（如功夫熊猫系列，详情页提示）；成员海报粒度，同片多版本自动跟随
 - **详情页**（`/m/:id`）：TMDB 星级 + 豆瓣/自评分数（缺失自动隐藏）、演员点名反查、多版本文件列表；可手动改标题、自评/豆瓣分（0–10）、标签、简介覆盖；刮削错了可搜 TMDB 手动绑定
 - **在线播放**（详情页 ▶）：按客户端实测能力四档决策——原文件直发（零 CPU）/ 仅换封装 / 仅音频转码 / 视频转码；HLS 输出 fMP4 + 多音轨 rendition（切音轨不重开）；字幕客户端渲染（文本 VTT、ASS/SSA→JASSUB、PGS→libpgs，仅 VobSub 烧录），支持外挂字幕（严格同名或标题同名宽松匹配，`大桥下面.srt` 亦认 `大桥下面 (1984).mkv`）、播放器设置里临时加载本地字幕文件（srt/vtt/ass/ssa，不入库）与字幕延迟；硬件转码自动探测（VAAPI/QSV/NVENC，失败回落软件并自动重试）；HDR10 / DV P8.1(compat=1) 只要浏览器能解 PQ 就原画直通（`hdr_decode`，与显示器是否 HDR 解耦；SDR 屏由浏览器/系统 tone map，P5 仍阻断），原画直通持续丢帧时播放器居中浮层询问（窗口/全屏统一，10s 无操作/取消=保持原画；不自动切、不记忆）；断点续播（打开即自动续播，右上「继续播放/从头开始」条 10 秒未选自动消失，全屏/seek 也即时消失）+ 夜间预转码静态秒播
@@ -116,19 +116,20 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 
 日常改 Token/代理/语言直接在设置页改，库里的值优先于 `.env`、免重启生效；`.env` 只做首次启动兜底。`PUT /api/settings` 读写库配置（密钥只返脱敏后 4 位），缺席字段不动、显式空串=清空该项恢复跟随 `.env`。
 
-## 多库与远程库（v0.9）
+## 媒体库 / 视频库（v0.9）
 
-- 一个 jzmedia 实例可管理多个**相互独立**的媒体库（类型：电影/剧集，来源：本地/SMB/NFS）；顶栏切换，设置页「媒体库」新建/连接·检查/扫描/删除（删库只清记录，**不动磁盘文件**）。行内主按钮：本地库「检查」、远程库「连接」（自动挂载+检查一步完成，失败原因与宿主挂载命令就地展示、可复制）；行内「扫描此库」直接入库并显示进度；编辑连接/改路径/挂载/卸载/只读/停用/删除收在「⋯」菜单，建库后会出现「① 连接 ② 扫描」引导。
-- **路径怎么填**：
-  - jzmedia 跑在 NAS 的 Docker 里（推荐）：用「本地路径」，填**容器内路径**——compose 把 `/volume1/video` 挂到 `/media` 后，`\\NAS\video\Movies` 即 `/media/Movies`，不需要 SMB/cap_add。
-  - 开发机远程访问：用 SMB/NFS。SMB 只需把资源管理器地址整段粘进「服务器 / 共享路径」（如 `\\NAS\video\Movies`，也认 `//主机/共享/目录` 与 `smb://用户@主机/共享/目录`），jzmedia 自动解析主机/共享/目录并挂到 `data/mounts/lib_<id>`；特殊共享名可展开「高级」手动拆分。已有远程库可在「⋯ → 编辑连接」改地址/账号，保存后自动重连。
+- 两层结构：**媒体库** = 一个存储连接/根目录（NAS 的 `\\NAS\video`、本地的 `/media`），下面挂多个**视频库**——每个视频库是媒体库根下的一个子目录，类型只能是**电影**或**剧集**（如 Movies=电影、TV Shows=剧集、Unrated=电影）。设置页「媒体库」管理两层：媒体行可检查/连接、扫描全部、编辑连接/改路径/挂载/只读/停用/删除媒体库、添加视频库；展开后逐视频库扫描/编辑/删除。删库只清记录，**不动磁盘文件**。
+- 顶栏切换器只切**媒体库**（NAS / sample_media）：电影页展示当前媒体库下所有电影类视频库的并集，剧集页展示所有剧集类视频库的并集；URL 参数 `?media=<媒体库 id>`（旧 `?lib=<视频库 id>` 分享链接兼容映射）。设置页工具、扫描、整理、文件浏览仍按具体视频库工作。
+- **路径怎么填**：媒体库根填连接/总目录，视频库填相对子目录。
+  - jzmedia 跑在 NAS 的 Docker 里（推荐）：媒体库根用「本地路径」填**容器内路径**（compose 把 `/volume1/video` 挂到 `/media` 后填 `/media`），视频库子目录填 `Movies`、`TV Shows`、`Unrated` 等，不需要 SMB/cap_add。
+  - 开发机远程访问：用 SMB/NFS 建一个媒体库（如 `\\NAS\video`），再添加视频库。SMB 只需把地址整段粘进「服务器 / 共享路径」（也认 `//主机/共享/目录` 与 `smb://用户@主机/共享/目录`），jzmedia 自动解析并挂到 `data/mounts/lib_<媒体库id>`；特殊共享名可展开「高级」手动拆分；保存后自动重连。添加视频库时可点「检测子目录」列出媒体库根下的目录。
 - 应用内挂载：compose 取消 `cap_add: [SYS_ADMIN]` 注释（DSM 必要时 `privileged: true`），镜像已含 `cifs-utils`/`nfs-common`；能力不足时「连接」会就地给出宿主挂载命令（可复制），挂到宿主后按本地路径登记；`ALLOW_SMB_MOUNT=0` 可整体禁用应用内挂载。
-- 默认库与路径调整：首次启动会用 `MEDIA_ROOT` 播种一个库（NAS 上即 `/media`）。想按 Movies/TV 分库时，把 compose 的 `MEDIA_ROOT` 改成 `/media/Movies`，或删掉默认库记录；**0 部影片的本地库可直接「改路径」**（有片后拒绝，防路径与记录脱节）。
+- 默认播种与调整：首次启动用 `MEDIA_ROOT` 播种一个媒体库 + 一个根视频库。升级到 v0.9 时自动迁移：每个旧库变成同名媒体库，远程库的旧共享子目录下沉为同名视频库（如 `NAS-电影` + `Movies`），本地库若影片都在同一顶层子目录会自动拆出该视频库并改写记录路径（如 `sample_media` + `电影`），**已匹配数据保留、无需重扫**。之后可改媒体库名、继续添加视频库；**0 记录的本地媒体库可直接「改路径」**（有记录后拒绝，防路径与记录脱节）。
 - 远程凭据以 Fernet 加密存库（`data/secret.key`，0600；换机请一并携带，丢了重新输入密码），API 只写不读、日志脱敏。
-- 只读库：归档/改名/移动/删除/上传/NFO 与图片写入一律 409；浏览/播放/扫描照常。
-- 库级命名档 `kodi|plex|off` 与落盘策略 `none|nfo|nfo_art`（Plex 本地海报）在建库时选择、归档/扫描按库生效；归档一律扁平（D5）。
-- 离线/降级刮削（E 阶段）：扫描匹配失败自动回退本地 `match_index`（TMDB 缓存/NFO/外部候选统一索引），再按库链尝试无 key 桥接（Wikidata，取 IMDb/TMDB ID）；同目录 `movie.nfo` 可直接导入匹配；`POST /api/jobs/import-imdb` 可离线导入 IMDb `title.basics` 数据集（`IMDB_DATASET_PATH` 或传 path）；豆瓣建议接口默认关闭（`DOUBAN_ENABLED=1` 显式开启，仅作候选提示）。库级链顺序可用 `libraries.metadata_providers`（JSON 数组）覆盖。
-- TV 库（F 阶段）：解析 `SxxEyy` 入只读清单（不刮削/不改名/不写 NFO），顶栏「剧集」按剧/季/集浏览并播放（流接口 `kind=episode`，转码会话/断点/字幕缓存按 `(kind,id)` 隔离）。
+- 只读媒体库：归档/改名/移动/删除/上传/NFO 与图片写入一律 409；浏览/播放/扫描照常。
+- 视频库级命名档 `kodi|plex|off` 与落盘策略 `none|nfo|nfo_art`（Plex 本地海报）在建库/编辑视频库时选择、归档/扫描按库生效；归档一律扁平（D5）。上传时若当前媒体库有多个电影类视频库（如 Movies + Unrated），弹窗内可选目标视频库（按媒体库记忆）。
+- 离线/降级刮削（E 阶段）：扫描匹配失败自动回退本地 `match_index`（TMDB 缓存/NFO/外部候选统一索引），再按库链尝试无 key 桥接（Wikidata，取 IMDb/TMDB ID）；同目录 `movie.nfo` 可直接导入匹配；`POST /api/jobs/import-imdb` 可离线导入 IMDb `title.basics` 数据集（`IMDB_DATASET_PATH` 或传 path）；豆瓣建议接口默认关闭（`DOUBAN_ENABLED=1` 显式开启，仅作候选提示）。库级链顺序可用视频库的 `metadata_providers`（JSON 数组）覆盖。
+- 剧集类视频库（F 阶段）：解析 `SxxEyy` 入只读清单（不刮削/不改名/不写 NFO），顶栏「剧集」按剧/季/集浏览并播放（流接口 `kind=episode`，转码会话/断点/字幕缓存按 `(kind,id)` 隔离）。
 
 ## 数据存放
 
@@ -161,18 +162,21 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 4. Container Manager → 新增项目 → 路径选该目录 → 启动；浏览器打开 `http://NAS_IP:8080` 验证
 5. 多阶段镜像已内置前端构建（node 构建 + python 运行），NAS 上无需装 Node
 
-## 接口一览（媒体库）
+## 接口一览（媒体库 / 视频库）
 
 | 方法与路径 | 说明 |
 |---|---|
 | `GET /api/health` · `GET /api/settings` · `PUT /api/settings` | 健康检查；配置摘要（密钥脱敏+来源/代理/图片源/鉴权状态）与保存（库优先+env 兜底；含 `jzmedia_token` 写操作令牌） |
-| `POST /api/scan` | 全量扫描刮削 |
-| `GET /api/movies` · `GET /api/search?q=` | 列表 / 全文检索；分页 `limit`（1–2000，默认 500）+ `offset`，响应带 `has_more`；共同支持 `genre region country year decade tag`（可重复或逗号分隔，facet 内 OR、跨 facet AND，`tag` 多选为 AND）与 `min_rating` + `rating_source=tmdb\|douban\|custom`（单阈值 `>=`）、`watched=1\|0`（已看/未看）、`collection`（合集 ID，可重复或逗号分隔）；`decade=2020` 表示 2020–2029 |
-| `GET /api/facets` | 各维度实时计数（类型/大区/国家/年/年代/标签/评分离散档/观看/合集），只返回有片的项 |
+| `POST /api/jobs/scan` | 后台扫描（立即返回 job_id，轮询 `./scan/{job_id}` 进度、`./scan/{job_id}/cancel` 取消）；`{library_id}` 扫单个视频库，`{media_library_id}` 扫整个媒体库，缺省扫全部启用视频库；`force:true` 强制重扫 |
+| `GET/POST /api/media-libraries` · `PATCH/DELETE /api/media-libraries/{id}` | 媒体库（存储连接/根）列表/新建/编辑/删除；POST body 带 `video_libraries:[{name,subpath,kind}]`（至少一条，kind=movie\|tv）；DELETE 级联清其全部视频库记录（不动磁盘文件） |
+| `POST /api/media-libraries/{id}/check` · `mount` · `unmount` · `diag` · `POST /api/media-libraries/diag/smb` · `GET /api/media-libraries/{id}/subdirs` | 媒体库检查/挂载/卸载/11 阶段诊断/创建前 SMB 预检/子目录浏览（添加视频库选题材目录） |
+| `GET/POST /api/libraries` · `PATCH/DELETE /api/libraries/{id}` | 视频库 CRUD（GET 为扁平列表，带 `media_library_id/media_name/subpath/kind`）；`PATCH` 名称/类型(仅空库)/子路径/命名档；连接与路径在媒体库上改 |
+| `GET /api/movies` · `GET /api/search?q=` | 列表 / 全文检索；分页 `limit`（1–2000，默认 500）+ `offset`，响应带 `has_more`；共同支持 `genre region country year decade tag`（可重复或逗号分隔，facet 内 OR、跨 facet AND，`tag` 多选为 AND）与 `min_rating` + `rating_source=tmdb\|douban\|custom`（单阈值 `>=`）、`watched=1\|0`（已看/未看）、`collection`（合集 ID，可重复或逗号分隔）；`decade=2020` 表示 2020–2029；`media_library=<id>` 按媒体库聚合（其全部视频库并集），`library=` 仍按视频库 |
+| `GET /api/facets` | 各维度实时计数（类型/大区/国家/年/年代/标签/评分离散档/观看/合集），只返回有片的项；支持 `media_library=` |
 | `GET /api/movies/{id}` · `PATCH /api/movies/{id}` | 详情；手动改 `title overview_override douban_rating custom_rating tags edition spec watched` |
 | `GET /api/movies/{id}/similar?limit=` | 库中类似（详情页 Plex 式推荐，纯本地相似度不调网）：同系列/合集/导演/主演/类型/标签加权；返回海报行数据（含推荐理由） |
 | `POST /api/movies/batch` | 海报墙多选批量：`{ids, ops:{watched, add_tags/remove_tags/set_tags, douban_rating, custom_rating}}`，海报粒度（同 tmdb 多版本自动跟随） |
-| `GET/POST /api/collections` · `GET/PATCH/DELETE /api/collections/{id}` | 合集列表/新建/详情/改名/删除；成员海报粒度；合集跟随媒体库（同名可分库共存，`library_id` 缺省=真实默认库，不存在报 422） |
+| `GET/POST /api/collections` · `GET/PATCH/DELETE /api/collections/{id}` | 合集列表/新建/详情/改名/删除；成员海报粒度；合集跟随**媒体库**（成员可跨同媒体库视频库，同名可分媒体库共存；`media_library_id` 缺省=默认媒体库，不存在报 422；旧 `library_id` 自动映射） |
 | `POST /api/collections/{id}/members` · `POST /api/collections/{id}/members/remove` | 加入/移出合集（`{movie_ids}`，代表行 id 即可）；`POST /api/collections/from-tmdb-series {movie_id}` 按 TMDB 系列一键建合集 |
 | `GET /api/collections/suggest` · `POST /api/collections/suggest/backfill` | 系列推荐（纯本地只读，库内同系列≥2部；已收录的不再推荐，有新片则进 `topups`；忽略态存浏览器 localStorage）；补全为后台任务（立即返回 job_id，轮询 `./status` 看进度，可取消，仅补系列信息不碰海报） |
 | `POST /api/collections/{id}/members/top-up` | 一键补齐：把库内同系列新片收进已有合集（服务端实时重算差集；扫描/刷新/补全永不自动写成员） |

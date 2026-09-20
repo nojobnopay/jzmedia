@@ -70,7 +70,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api, posterUrl } from '../api.js'
-import { libParam, loadLibs, onLibChange } from '../libraries.js'
+import { currentMediaId, mediaParam, loadLibs, onLibChange } from '../libraries.js'
 import { usePolling } from '../usePolling.js'
 
 const q = ref('')
@@ -103,7 +103,7 @@ async function loadSuggest() {
   sgMsg.value = ''
   try {
     const d = await api('/api/collections/suggest'
-      + (libParam() != null ? '?library=' + libParam() : ''))
+      + (mediaParam() != null ? '?media_library=' + mediaParam() : ''))
     const gone = dismissedIds()
     suggest.value = (d.items || []).filter(s => !gone.has(s.collection_tmdb_id))
     topups.value = d.topups || []
@@ -119,7 +119,7 @@ async function backfill(force = false) {
   sgMsg.value = ''
   try {
     const d = await api('/api/collections/suggest/backfill', {
-      method: 'POST', body: JSON.stringify({ limit: 50, force, library: libParam() })
+      method: 'POST', body: JSON.stringify({ limit: 50, force, media_library: mediaParam() })
     })
     if (!d.total) {
       sgMsg.value = '没有缺系列信息的影片'
@@ -265,7 +265,7 @@ async function load() {
   try {
     const p = new URLSearchParams()
     if (q.value.trim()) p.set('q', q.value.trim())
-    if (libParam() != null) p.set('library', String(libParam()))
+    if (mediaParam() != null) p.set('media_library', String(mediaParam()))
     const qs = p.toString()
     const d = await api('/api/collections' + (qs ? '?' + qs : ''))
     items.value = d.items || []
@@ -284,7 +284,7 @@ async function create() {
   try {
     const d = await api('/api/collections', {
       method: 'POST',
-      body: JSON.stringify({ name: n, library_id: libParam() })
+      body: JSON.stringify({ name: n, media_library_id: currentMediaId() })
     })
     name.value = ''
     items.value.unshift({ id: d.id, name: d.name, member_count: 0, cover: d.cover || '' })
