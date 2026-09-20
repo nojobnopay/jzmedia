@@ -12,5 +12,5 @@ node_modules/
 frontend/node_modules/
 frontend/dist/
 dist/
-sample_media/*
-!sample_media/.gitkeep
+media/*
+!media/.gitkeep

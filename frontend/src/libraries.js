@@ -1,4 +1,4 @@
-// 多库状态（v18 媒体库级）：当前选择 = 媒体库（NAS / sample_media），电影墙/剧集页按它聚合；
+// 多库状态（v18 媒体库级）：当前选择 = 媒体库（NAS / media），电影墙/剧集页按它聚合；
 // 视频库仅用于工具页（扫描/整理/文件浏览）与上传目标。纯模块状态 + 订阅，不依赖 Vue。
 const LIB_KEY = 'jzmedia.lib'      // 旧键：视频库 id（迁移回退 + 工具页记忆）
 const MEDIA_KEY = 'jzmedia.media'  // 当前媒体库 id

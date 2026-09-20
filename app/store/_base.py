@@ -455,7 +455,7 @@ def _seed_default_library(c) -> None:
     row = c.execute("SELECT COUNT(*) AS n FROM libraries").fetchone()
     if int(row["n"] or 0) > 0:
         return
-    root = settings.media_root or "./sample_media"
+    root = settings.media_root or "./media"
     try:
         name = os.path.basename(os.path.normpath(root)) or "默认库"
     except (OSError, ValueError):

@@ -9,7 +9,7 @@ logger = get_logger("config")
 class Settings(BaseModel):
     # app_port 由 compose/start.sh 消费（APP_PORT），应用内无引用，不再保留字段（评审 R01-B4）
     env: str = os.getenv("ENV", "dev")   # 仅用于启动日志标注运行环境
-    media_root: str = os.getenv("MEDIA_ROOT", "./sample_media")
+    media_root: str = os.getenv("MEDIA_ROOT", "./media")
     data_dir: str = os.getenv("DATA_DIR", "./data")
     tmdb_api_key: str = os.getenv("TMDB_API_KEY", "")
     tmdb_read_token: str = os.getenv("TMDB_READ_TOKEN", "")

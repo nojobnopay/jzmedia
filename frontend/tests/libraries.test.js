@@ -12,7 +12,7 @@ const DATA = {
     { id: 1, name: '电影', kind: 'movie', media_library_id: 10, media_name: 'NAS', enabled: true, media_enabled: true },
     { id: 2, name: 'TV Shows', kind: 'tv', media_library_id: 10, media_name: 'NAS', enabled: true, media_enabled: true },
     { id: 3, name: 'Unrated', kind: 'movie', media_library_id: 10, media_name: 'NAS', enabled: true, media_enabled: true },
-    { id: 4, name: '电影', kind: 'movie', media_library_id: 20, media_name: 'sample_media', enabled: true, media_enabled: true },
+    { id: 4, name: '电影', kind: 'movie', media_library_id: 20, media_name: 'media', enabled: true, media_enabled: true },
   ],
   default_id: 4,
 }
@@ -20,7 +20,7 @@ const DATA = {
 test('pickMedia：存储值优先，其次回退媒体库，最后第一个启用库', () => {
   const medias = [
     { id: 10, name: 'NAS', enabled: true },
-    { id: 20, name: 'sample_media', enabled: true },
+    { id: 20, name: 'media', enabled: true },
   ]
   assert.equal(pickMedia(medias, 20, 10).id, 20)
   assert.equal(pickMedia(medias, 99, 10).id, 10)

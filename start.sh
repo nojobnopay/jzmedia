@@ -16,7 +16,7 @@ fi
 # 2) 后端路径：宿主直跑必须用宿主路径（.env 里是容器内路径 /media、/app/data，不能直接用）；
 #    TMDB_* 从 .env 取（已导出的环境变量优先）。
 export DATA_DIR="${DATA_DIR:-./data}"
-export MEDIA_ROOT="${MEDIA_ROOT:-./sample_media}"
+export MEDIA_ROOT="${MEDIA_ROOT:-./media}"
 if [ -f .env ]; then
   # 全键回读（已导出的环境变量优先）；容器专用键在宿主直跑无意义，跳过（评审 R01-B5）
   while IFS='=' read -r k v; do

@@ -21,8 +21,8 @@
   - 找可测片源：`python scripts/find_subs.py`（只读，列内嵌 ASS/PGS/字体附件/外挂）。
 
 ## Run
-- Backend (WSL dev, hot-reload via `docker-compose.override.yml`): `cp .env.example .env && mkdir -p sample_media/电影 data && docker compose up --build`, check `http://localhost:8080/docs`.
-- Host-direct (no docker): prefer `./start.sh` — rebuilds `frontend/dist` only when stale, maps `.env` container paths (`/media`, `/app/data`) back to host defaults, then runs uvicorn. Manual equivalent needs `DATA_DIR=./data MEDIA_ROOT=./sample_media` overrides plus `TMDB_*` from `.env` (see README §启动服务).
+- Backend (WSL dev, hot-reload via `docker-compose.override.yml`): `cp .env.example .env && mkdir -p media/电影 data && docker compose up --build`, check `http://localhost:8080/docs`.
+- Host-direct (no docker): prefer `./start.sh` — rebuilds `frontend/dist` only when stale, maps `.env` container paths (`/media`, `/app/data`) back to host defaults, then runs uvicorn. Manual equivalent needs `DATA_DIR=./data MEDIA_ROOT=./media` overrides plus `TMDB_*` from `.env` (see README §启动服务).
 - Frontend dev: `npm run lint`（eslint 最小集：未定义/未用变量/console 警告）、`npm test`（node --test；含 `tests/templateBindings.test.js` 模板标识符绑定检查，防拆分后残留父级引用）in `frontend/`；`npm run build` 产出 `frontend/dist`。`npm run dev` (5173, proxies `/api`,`/posters` → 8080). Prod build: `npm run build` → `frontend/dist`, served by FastAPI at `/` + `/assets`.
 - 验证命令：`.venv/bin/python -m pytest -q`（400+ 用例，含迁移/多库/媒体库聚合/离线匹配/TV/存储层）；`.venv/bin/python -m pyflakes app`；冒烟 `scripts/smoke_multi_library.py`、`scripts/smoke_metadata_offline.py`（临时目录、不触网）；线上自检 `/api/health` + README §5 接口。
 

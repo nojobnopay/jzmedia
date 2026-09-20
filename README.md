@@ -25,7 +25,7 @@ frontend/src/   前端：views（Library|Detail|Settings）/ components（Player
                 caps.js（能力检测）/ jassubLoader.js / pgsLoader.js / ratings.js
 scripts/        本地工具：find_subs.py（只读列出可测字幕片源）
 data/           运行数据：jzmedia.db + posters/ + transcode/ + fonts/（gitignored，不提交）
-sample_media/   本地试玩用媒体目录（gitignored）
+media/          本地试玩用媒体目录（gitignored）
 ```
 
 ## 启动服务
@@ -34,7 +34,7 @@ sample_media/   本地试玩用媒体目录（gitignored）
 
 ```bash
 cp .env.example .env   # 首次：按需改 .env（媒体路径、TMDB 密钥见下文“配置”）
-mkdir -p sample_media/电影 data
+mkdir -p media/电影 data
 docker compose up --build -d
 ```
 
@@ -49,7 +49,7 @@ docker compose up --build -d
 ```bash
 # 宿主直跑需要 ffmpeg/ffprobe；无系统 ffmpeg 时装 requirements-dev.txt（含 static-ffmpeg 兜底）
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-export DATA_DIR=./data MEDIA_ROOT=./sample_media TMDB_LANGUAGE=zh-CN
+export DATA_DIR=./data MEDIA_ROOT=./media TMDB_LANGUAGE=zh-CN
 export TMDB_READ_TOKEN=$(grep -E '^TMDB_READ_TOKEN=' .env | cut -d= -f2-)
 export TMDB_PROXY=$(grep -E '^TMDB_PROXY=' .env | cut -d= -f2-)
 .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
@@ -99,7 +99,7 @@ kill <pid>
 | 变量 | 说明 |
 |---|---|
 | `APP_PORT` | 对外端口，默认 8080 |
-| `MEDIA_HOST_PATH` / `DATA_HOST_PATH` | 宿主侧媒体目录 / 数据目录（compose 挂载用）。WSL 试玩用 `./sample_media`；NAS 上改为 `/volume1/video` 等 |
+| `MEDIA_HOST_PATH` / `DATA_HOST_PATH` | 宿主侧媒体目录 / 数据目录（compose 挂载用）。WSL 试玩用 `./media`；NAS 上改为 `/volume1/video` 等 |
 | `TMDB_READ_TOKEN` | TMDB Bearer Token（优先于 `TMDB_API_KEY`），没有则刮削不可用，库管理功能正常 |
 | `TMDB_PROXY` | 运行时 TMDB API + 海报下载走的代理，直连不稳时填 |
 | `TMDB_LANGUAGE` | 刮削语言，默认 `zh-CN` |
@@ -119,12 +119,12 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 ## 媒体库 / 视频库（v0.9）
 
 - 两层结构：**媒体库** = 一个存储连接/根目录（NAS 的 `\\NAS\video`、本地的 `/media`），下面挂多个**视频库**——每个视频库是媒体库根下的一个子目录，类型只能是**电影**或**剧集**（如 Movies=电影、TV Shows=剧集、Unrated=电影）。设置页「媒体库」管理两层：媒体行可检查/连接、扫描全部、编辑连接/改路径/挂载/只读/停用/删除媒体库、添加视频库；展开后逐视频库扫描/编辑/删除。删库只清记录，**不动磁盘文件**。
-- 顶栏切换器只切**媒体库**（NAS / sample_media）：电影页展示当前媒体库下所有电影类视频库的并集，剧集页展示所有剧集类视频库的并集；URL 参数 `?media=<媒体库 id>`（旧 `?lib=<视频库 id>` 分享链接兼容映射）。设置页工具、扫描、整理、文件浏览仍按具体视频库工作。
+- 顶栏切换器只切**媒体库**（NAS / media）：电影页展示当前媒体库下所有电影类视频库的并集，剧集页展示所有剧集类视频库的并集；URL 参数 `?media=<媒体库 id>`（旧 `?lib=<视频库 id>` 分享链接兼容映射）。设置页工具、扫描、整理、文件浏览仍按具体视频库工作。
 - **路径怎么填**：媒体库根填连接/总目录，视频库填相对子目录。
   - jzmedia 跑在 NAS 的 Docker 里（推荐）：媒体库根用「本地路径」填**容器内路径**（compose 把 `/volume1/video` 挂到 `/media` 后填 `/media`），视频库子目录填 `Movies`、`TV Shows`、`Unrated` 等，不需要 SMB/cap_add。
   - 开发机远程访问：用 SMB/NFS 建一个媒体库（如 `\\NAS\video`），再添加视频库。SMB 只需把地址整段粘进「服务器 / 共享路径」（也认 `//主机/共享/目录` 与 `smb://用户@主机/共享/目录`），jzmedia 自动解析并挂到 `data/mounts/lib_<媒体库id>`；特殊共享名可展开「高级」手动拆分；保存后自动重连。添加视频库时可点「检测子目录」列出媒体库根下的目录。
 - 应用内挂载：compose 取消 `cap_add: [SYS_ADMIN]` 注释（DSM 必要时 `privileged: true`），镜像已含 `cifs-utils`/`nfs-common`；能力不足时「连接」会就地给出宿主挂载命令（可复制），挂到宿主后按本地路径登记；`ALLOW_SMB_MOUNT=0` 可整体禁用应用内挂载。
-- 默认播种与调整：首次启动用 `MEDIA_ROOT` 播种一个媒体库 + 一个根视频库。升级到 v0.9 时自动迁移：每个旧库变成同名媒体库，远程库的旧共享子目录下沉为同名视频库（如 `NAS-电影` + `Movies`），本地库若影片都在同一顶层子目录会自动拆出该视频库并改写记录路径（如 `sample_media` + `电影`），**已匹配数据保留、无需重扫**。之后可改媒体库名、继续添加视频库；**0 记录的本地媒体库可直接「改路径」**（有记录后拒绝，防路径与记录脱节）。
+- 默认播种与调整：首次启动用 `MEDIA_ROOT` 播种一个媒体库 + 一个根视频库。升级到 v0.9 时自动迁移：每个旧库变成同名媒体库，远程库的旧共享子目录下沉为同名视频库（如 `NAS-电影` + `Movies`），本地库若影片都在同一顶层子目录会自动拆出该视频库并改写记录路径（如 `media` + `电影`），**已匹配数据保留、无需重扫**。之后可改媒体库名、继续添加视频库；**0 记录的本地媒体库可直接「改路径」**（有记录后拒绝，防路径与记录脱节）。
 - 远程凭据以 Fernet 加密存库（`data/secret.key`，0600；换机请一并携带，丢了重新输入密码），API 只写不读、日志脱敏。
 - 只读媒体库：归档/改名/移动/删除/上传/NFO 与图片写入一律 409；浏览/播放/扫描照常。
 - 视频库级命名档 `kodi|plex|off` 与落盘策略 `none|nfo|nfo_art`（Plex 本地海报）在建库/编辑视频库时选择、归档/扫描按库生效；归档一律扁平（D5）。上传时若当前媒体库有多个电影类视频库（如 Movies + Unrated），弹窗内可选目标视频库（按媒体库记忆）。

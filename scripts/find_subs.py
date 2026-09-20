@@ -2,7 +2,7 @@
 """找出可用于字幕功能验证的片源（只读，不探测、不改库）。
 
 列出：内嵌 ASS/SSA / PGS / VobSub 轨、字体附件、以及正片同名外挂字幕。
-库与媒体路径与主程序同源：环境变量 DATA_DIR（默认 ./data）、MEDIA_ROOT（默认 ./sample_media）。
+库与媒体路径与主程序同源：环境变量 DATA_DIR（默认 ./data）、MEDIA_ROOT（默认 ./media）。
 
 用法：
     python scripts/find_subs.py            # 全库扫描

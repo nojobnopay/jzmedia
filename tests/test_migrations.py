@@ -277,11 +277,11 @@ def test_v16_local_library_auto_splits_common_subdir(tmp_path, monkeypatch):
     monkeypatch.setattr(_base, "ensure_dirs", lambda: None)
     _base.init_db()
     _make_v16(dbp)
-    root = tmp_path / "sample_media"
+    root = tmp_path / "media"
     root.mkdir()
     with sqlite3.connect(dbp) as c:
         c.execute("INSERT INTO libraries(id, name, kind, source, path, created_at,"
-                  " updated_at) VALUES(3, 'sample_media', 'movie', 'local', ?, 0, 0)",
+                  " updated_at) VALUES(3, 'media', 'movie', 'local', ?, 0, 0)",
                   (str(root),))
         c.execute("INSERT INTO movies(file_path, library_id, title)"
                   " VALUES('电影/A (2020)/a.mkv', 3, 'A')")
