@@ -20,7 +20,9 @@
     </div>
   </section>
   <section v-if="suggest.length || coverage" class="suggest-sec">
-    <h3>推荐合集 <span class="fhint">TMDB 系列·库内≥2部才推荐，接受后即从这里消失</span></h3>
+    <h3>推荐合集 <span class="fhint">TMDB 系列·库内≥2部才推荐，接受后即从这里消失</span>
+      <button v-if="suggest.length" @click="acceptAll" :disabled="accepting">全部接受（{{ suggest.length }}）</button>
+    </h3>
     <div v-if="coverage && (coverage.unchecked || coverage.without_collection)" class="bar">
       <span class="fhint">{{ coverage.unchecked ?? coverage.without_collection }} 部待排查<span v-if="coverage.standalone"> · {{ coverage.standalone }} 部确认无系列（独立片，不再检查）</span>（仅补系列信息，不碰海报）</span>
       <button v-if="!bfRunning" @click="backfill(false)" :disabled="backfilling">补全系列信息</button>
@@ -208,6 +210,32 @@ async function accept(s) {
   } finally {
     accepting.value = false
   }
+}
+// 批量接受当前库的全部系列推荐（逐条串行，避免并发写合集/成员）
+async function acceptAll() {
+  if (accepting.value || !suggest.value.length) return
+  accepting.value = true
+  sgMsg.value = ''
+  const list = [...suggest.value]
+  const failed = []
+  let ok = 0
+  for (const s of list) {
+    try {
+      await api('/api/collections/from-tmdb-series', {
+        method: 'POST',
+        body: JSON.stringify({ movie_id: s.members[0].id, name: s.collection_name })
+      })
+      ok += 1
+      sgMsg.value = `批量建合集 ${ok}/${list.length}…`
+    } catch (e) {
+      failed.push(s.collection_name || String(s.collection_tmdb_id))
+    }
+  }
+  accepting.value = false
+  sgMsg.value = `已建 ${ok} 个合集`
+    + (failed.length ? `，失败 ${failed.length}：${failed.slice(0, 3).join('、')}${failed.length > 3 ? ' 等' : ''}` : '')
+  await load()
+  await loadSuggest()
 }
 function dismiss(s) {
   try {

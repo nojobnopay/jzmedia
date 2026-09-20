@@ -8,10 +8,11 @@ __all__ = ['list_collections_for_movie', '_collection_cover', '_collection_cover
 
 def list_collections_for_movie(movie_id: int) -> list[dict]:
     with _lock, _conn() as c:
-        row = c.execute("SELECT id, tmdb_id FROM movies WHERE id=?", (movie_id,)).fetchone()
+        row = c.execute("SELECT id, tmdb_id, library_id FROM movies WHERE id=?",
+                        (movie_id,)).fetchone()
         if not row:
             return []
-        return _collections_for_film(c, row["tmdb_id"], row["id"])
+        return _collections_for_film(c, row["tmdb_id"], row["id"], row["library_id"])
 
 
 def _collection_cover(c: sqlite3.Connection, cid: int) -> str:
@@ -20,7 +21,8 @@ def _collection_cover(c: sqlite3.Connection, cid: int) -> str:
 
 
 def _collection_covers(c: sqlite3.Connection) -> dict:
-    """全部合集封面一次算完（评审 B8/R02-D6）：窗口函数取每合集最早有海报的成员。"""
+    """全部合集封面一次算完（评审 B8/R02-D6）：窗口函数取每合集最早有海报的成员。
+    封面候选限合集所在库（同名影片在多库时不串封面）。"""
     try:
         rows = c.execute(
             "SELECT collection_id, poster_path FROM ("
@@ -28,8 +30,10 @@ def _collection_covers(c: sqlite3.Connection) -> dict:
             " ROW_NUMBER() OVER (PARTITION BY cm.collection_id"
             "   ORDER BY m.year IS NULL, m.year, m.id) AS rn"
             " FROM collection_members cm"
+            " JOIN collections col ON col.id=cm.collection_id"
             " JOIN movies m ON ((cm.movie_tmdb_id IS NOT NULL AND m.tmdb_id=cm.movie_tmdb_id)"
             "   OR (cm.movie_id IS NOT NULL AND m.id=cm.movie_id))"
+            "   AND m.library_id=col.library_id"
             " WHERE m.poster_path IS NOT NULL AND m.poster_path!='')"
             " WHERE rn=1").fetchall()
         return {int(r["collection_id"]): r["poster_path"] for r in rows}
@@ -119,6 +123,18 @@ def get_collection(cid: int) -> dict | None:
         return d
 
 
+def _default_library_id() -> int:
+    """缺省库解析（用户反馈）：优先真实存在的默认库，避免默认库被删后
+    合集落在已不存在的 library_id=1 上（前端单库时不传 library）。"""
+    from .libraries import default_library
+    try:
+        lib = default_library()
+    except Exception as e:
+        logger.warning("default library resolve failed: %s", e)
+        lib = None
+    return int(lib["id"]) if lib else DEFAULT_LIBRARY_ID
+
+
 def create_collection(name: str, overview: str = "",
                       tmdb_collection_id: int | None = None,
                       member_ids: list | None = None,
@@ -128,7 +144,7 @@ def create_collection(name: str, overview: str = "",
         raise ValueError("name required")
     if len(name) > 60:
         name = name[:60]
-    lib_id = int(library_id) if library_id is not None else DEFAULT_LIBRARY_ID
+    lib_id = int(library_id) if library_id is not None else _default_library_id()
     now = int(time.time())
     with _lock, _conn() as c:
         try:

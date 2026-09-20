@@ -75,6 +75,71 @@ def test_series_hint_scoped(media_root, second_library):
         store.delete_movie(b)
 
 
+def test_same_name_collections_per_library(media_root, second_library):
+    """合集跟随媒体库（v16）：同名合集可分库共存，同库重名仍拒绝，影片 chips 不跨库。"""
+    lib = second_library
+    a = _movie("dup/a.mkv", tmdb_id=883001, title="A")
+    b = _movie("dup/b.mkv", library_id=lib["id"], tmdb_id=883001, title="A")
+    c1 = store.create_collection("同名合集")
+    c2 = store.create_collection("同名合集", library_id=lib["id"])
+    try:
+        assert c1["id"] != c2["id"]
+        assert c1["library_id"] == store.DEFAULT_LIBRARY_ID
+        assert c2["library_id"] == lib["id"]
+        with pytest.raises(ValueError):
+            store.create_collection("同名合集", library_id=lib["id"])
+
+        store.add_collection_members(c1["id"], [a])
+        store.add_collection_members(c2["id"], [b])
+        # 影片详情 chips / 接口只返回同库合集（同 tmdb 也不串）
+        assert [x["id"] for x in store.list_collections_for_movie(a)] == [c1["id"]]
+        assert [x["id"] for x in store.list_collections_for_movie(b)] == [c2["id"]]
+        assert [x["id"] for x in store.get_movie(a)["collections"]] == [c1["id"]]
+        assert [x["id"] for x in store.get_movie(b)["collections"]] == [c2["id"]]
+        # 列表按库过滤
+        in_default = [x["id"] for x in store.list_collections(library_id=store.DEFAULT_LIBRARY_ID)]
+        assert c1["id"] in in_default and c2["id"] not in in_default
+    finally:
+        store.delete_collection(c1["id"])
+        store.delete_collection(c2["id"])
+        store.delete_movie(a)
+        store.delete_movie(b)
+
+
+def test_create_collection_defaults_to_existing_library(media_root, second_library,
+                                                        monkeypatch):
+    """创建未指定 library_id 时落到真实默认库，而非已不存在的 id=1（用户反馈）。"""
+    from app.store import libraries as libraries_mod
+    lib = second_library
+    monkeypatch.setattr(libraries_mod, "default_library", lambda: lib)
+    col = store.create_collection("默认库解析合集")
+    try:
+        assert col["library_id"] == lib["id"]
+    finally:
+        store.delete_collection(col["id"])
+
+
+def test_manual_collection_stays_in_library(media_root, second_library):
+    """相似推荐的“同合集”加分不跨库（同 tmdb 的其它库合集不算）。"""
+    lib = second_library
+    a = _movie("csl/a.mkv", tmdb_id=883101, title="A")
+    e = _movie("csl/e.mkv", tmdb_id=883102, title="E")
+    c = _movie("csl/c.mkv", library_id=lib["id"], tmdb_id=883101, title="A")
+    d = _movie("csl/d.mkv", library_id=lib["id"], tmdb_id=883102, title="E")
+    pid = store.upsert_person(991001, "同导演")
+    for mid in (a, e, c, d):
+        store.link_person(mid, pid, "director")
+    col = store.create_collection("跨库合集", member_ids=[a, e])
+    try:
+        by_id = {x["id"]: x for x in store.similar_movies(c, limit=10)}
+        assert d in by_id                              # 同导演仍推荐
+        assert "同合集" not in by_id[d]["reason"]       # 但不认其它库的合集
+    finally:
+        store.delete_collection(col["id"])
+        for mid in (a, e, c, d):
+            store.delete_movie(mid)
+
+
 def test_similar_candidates_stay_in_library(media_root, second_library):
     lib = second_library
     a = _movie("sim/a.mkv", tmdb_id=882001, title="A", year=2001)

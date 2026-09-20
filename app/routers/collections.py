@@ -46,10 +46,18 @@ def create(body: dict):
     tmdb_cid = body.get("tmdb_collection_id")
     if tmdb_cid is not None:
         tmdb_cid = _int_id(tmdb_cid)
+    lib_id = body.get("library_id")
+    if lib_id is not None:
+        try:
+            lib_id = int(lib_id)
+        except (TypeError, ValueError):
+            raise HTTPException(422, "library_id must be int")
+        if not store.get_library(lib_id):   # 合集跟随媒体库：不允许落在不存在的库
+            raise HTTPException(422, "library not found")
     try:
         return store.create_collection(name, body.get("overview") or "",
                                        tmdb_cid, ids,
-                                       library_id=body.get("library_id"))
+                                       library_id=lib_id)
     except ValueError as e:
         raise HTTPException(422, str(e))
 

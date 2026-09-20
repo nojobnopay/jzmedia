@@ -53,15 +53,20 @@ def _json_list(s) -> list:
         return []
 
 
-def _manual_collections(c, tmdb_id, movie_id) -> set:
-    """本片所属手工合集 id（海报粒度：有 tmdb_id 按 tmdb，无按单行 id）。"""
+def _manual_collections(c, tmdb_id, movie_id, library_id=None) -> set:
+    """本片所属手工合集 id（海报粒度：有 tmdb_id 按 tmdb，无按单行 id）。
+    library_id 给定时只认同库合集（合集跟随媒体库，跨库不参与“同合集”）。"""
     try:
+        lib_sql, lib_params = "", []
+        if library_id is not None:
+            lib_sql = " JOIN collections col ON col.id=cm.collection_id AND col.library_id=?"
+            lib_params = [int(library_id)]
         if tmdb_id:
-            rows = c.execute("SELECT collection_id FROM collection_members"
-                             " WHERE movie_tmdb_id=?", (int(tmdb_id),))
+            rows = c.execute("SELECT cm.collection_id FROM collection_members cm"
+                             + lib_sql + " WHERE cm.movie_tmdb_id=?", (*lib_params, int(tmdb_id)))
         else:
-            rows = c.execute("SELECT collection_id FROM collection_members"
-                             " WHERE movie_id=?", (int(movie_id),))
+            rows = c.execute("SELECT cm.collection_id FROM collection_members cm"
+                             + lib_sql + " WHERE cm.movie_id=?", (*lib_params, int(movie_id)))
         return {int(r["collection_id"]) for r in rows}
     except Exception as e:
         logger.warning("similar manual collections failed mid=%s: %s", movie_id, e)
@@ -188,7 +193,7 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
                 if pid not in cur_actors or order < cur_actors[pid]:
                     cur_actors[pid] = order
         cur_actors = {pid: o for pid, o in cur_actors.items() if o <= 10}
-        cur_manual = _manual_collections(c, tid, int(m["id"]))
+        cur_manual = _manual_collections(c, tid, int(m["id"]), lib_id)
         # 同系列的手工合集不重复计分（避免“同系列 · 同合集”）
         if cur_col:
             try:

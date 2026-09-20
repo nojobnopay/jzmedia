@@ -1,6 +1,8 @@
 """B9/R02-D1：user_version 迁移框架（旧库升级/幂等/种子）回归网。"""
 import sqlite3
 
+import pytest
+
 from app.store import _base
 
 # 代表“最老生产库”形态：迁移新增列全部缺失，其余原始列齐全
@@ -107,6 +109,47 @@ def test_fresh_db_is_at_current_version(monkeypatch):
     # 会话库（conftest 已 init）应已是当前版本，且查询不重跑种子
     with sqlite3.connect(_base.DB_PATH) as c:
         assert c.execute("PRAGMA user_version").fetchone()[0] == _base.SCHEMA_VERSION
+
+
+def test_m16_collections_scope_per_library(tmp_path, monkeypatch):
+    """v16：collections 去掉全局 UNIQUE(name)，改 UNIQUE(library_id, name)。"""
+    dbp = tmp_path / "v15.db"
+    monkeypatch.setattr(_base, "DB_PATH", str(dbp))
+    monkeypatch.setattr(_base, "ensure_dirs", lambda: None)
+    _base.init_db()
+    with sqlite3.connect(dbp) as c:
+        # 还原 v15 形态（全局 UNIQUE）+ 一条存量行
+        c.executescript("""
+        DROP TABLE collections;
+        CREATE TABLE collections (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT UNIQUE NOT NULL,
+          overview TEXT DEFAULT '',
+          poster_path TEXT DEFAULT '',
+          tmdb_collection_id INTEGER,
+          library_id INTEGER NOT NULL DEFAULT 1,
+          created_at INTEGER DEFAULT 0,
+          updated_at INTEGER DEFAULT 0
+        );
+        INSERT INTO collections(name, library_id, created_at, updated_at)
+          VALUES('同名合集', 1, 1, 1);
+        """)
+        c.execute("PRAGMA user_version = 15")
+    _base.init_db()
+    with sqlite3.connect(dbp) as c:
+        assert c.execute("PRAGMA user_version").fetchone()[0] == _base.SCHEMA_VERSION
+        assert c.execute("SELECT name, library_id FROM collections").fetchone() == (
+            "同名合集", 1)   # 存量行保留（归属不变）
+        cols = {r[1] for r in c.execute("PRAGMA table_info(collections)")}
+        assert "library_id" in cols
+        idx = {r[0] for r in c.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'")}
+        assert "idx_collections_library" in idx
+        # 跨库同名可建，同库同名仍拒绝
+        c.execute("INSERT INTO collections(name, library_id) VALUES('同名合集', 2)")
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute("INSERT INTO collections(name, library_id) VALUES('同名合集', 1)")
+    _base.init_db()   # 幂等
 
 
 def test_m14_normalizes_remote_library_path(tmp_path, monkeypatch):

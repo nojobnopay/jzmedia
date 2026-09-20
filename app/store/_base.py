@@ -204,6 +204,40 @@ CREATE TABLE IF NOT EXISTS tv_episodes (
 );
 """
 
+# 手工合集跟随媒体库隔离（v16）：同名合集可分库共存，唯一键为 (library_id, name)。
+_COLLECTIONS_DDL = """
+CREATE TABLE IF NOT EXISTS collections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  overview TEXT DEFAULT '',
+  poster_path TEXT DEFAULT '',
+  tmdb_collection_id INTEGER,
+  library_id INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER DEFAULT 0,
+  updated_at INTEGER DEFAULT 0,
+  UNIQUE(library_id, name)
+);
+"""
+
+_COLLECTIONS_COLUMNS = ["id", "name", "overview", "poster_path", "tmdb_collection_id",
+                        "library_id", "created_at", "updated_at"]
+
+# 成员以海报粒度存放（有 tmdb_id 存 movie_tmdb_id，无则存 movie_id），与海报墙分组键一致。
+_COLLECTION_MEMBERS_DDL = """
+CREATE TABLE IF NOT EXISTS collection_members (
+  collection_id INTEGER NOT NULL,
+  movie_tmdb_id INTEGER,
+  movie_id INTEGER,
+  sort_order INTEGER DEFAULT 0,
+  added_at INTEGER DEFAULT 0,
+  PRIMARY KEY (collection_id, movie_tmdb_id, movie_id)
+);
+CREATE INDEX IF NOT EXISTS idx_members_collection ON collection_members(collection_id);
+CREATE INDEX IF NOT EXISTS idx_members_tmdb ON collection_members(movie_tmdb_id);
+CREATE INDEX IF NOT EXISTS idx_members_movie ON collection_members(movie_id);
+CREATE INDEX IF NOT EXISTS idx_collections_library ON collections(library_id);
+"""
+
 _REST_DDL = """
 CREATE TABLE IF NOT EXISTS persons (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -260,28 +294,6 @@ CREATE TABLE IF NOT EXISTS tmdb_cache (
   backdrop_tmdb_path TEXT DEFAULT '',
   logo_tmdb_path TEXT DEFAULT ''
 );
--- 手工合集：成员以海报粒度存放（有 tmdb_id 存 movie_tmdb_id，无则存 movie_id），与海报墙分组键一致
-CREATE TABLE IF NOT EXISTS collections (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT UNIQUE NOT NULL,
-  overview TEXT DEFAULT '',
-  poster_path TEXT DEFAULT '',
-  tmdb_collection_id INTEGER,
-  library_id INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER DEFAULT 0,
-  updated_at INTEGER DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS collection_members (
-  collection_id INTEGER NOT NULL,
-  movie_tmdb_id INTEGER,
-  movie_id INTEGER,
-  sort_order INTEGER DEFAULT 0,
-  added_at INTEGER DEFAULT 0,
-  PRIMARY KEY (collection_id, movie_tmdb_id, movie_id)
-);
-CREATE INDEX IF NOT EXISTS idx_members_collection ON collection_members(collection_id);
-CREATE INDEX IF NOT EXISTS idx_members_tmdb ON collection_members(movie_tmdb_id);
-CREATE INDEX IF NOT EXISTS idx_members_movie ON collection_members(movie_id);
 -- 应用配置 KV（设置页可写）：TMDB 密钥/代理/语言等。DB 非空值优先于环境变量，
 -- 缺 key/空串一律回落 env（.env 只做首次启动兜底）。
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -319,7 +331,7 @@ DROP TRIGGER IF EXISTS movies_au;
 
 SCHEMA = "".join([_LIBRARIES_DDL, _MOVIES_DDL, _EXTRAS_DDL, _SCAN_STATE_DDL,
                   _MEDIA_INFO_DDL, _PROGRESS_DDL, _TV_SHOWS_DDL, _TV_EPISODES_DDL,
-                  _REST_DDL])
+                  _COLLECTIONS_DDL, _COLLECTION_MEMBERS_DDL, _REST_DDL])
 
 _MOVIE_INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_movies_year ON movies(year)",
@@ -366,7 +378,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "tmdb_language", "tmdb_image_base", "jzmedia_token"}
 
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 
 def _columns(c, table: str) -> set:
@@ -722,9 +734,16 @@ def _identity_of(lib: dict) -> str:
     return ""
 
 
+def _m16(c) -> None:
+    """合集按库隔离：去掉全局 UNIQUE(name)，改 UNIQUE(library_id, name)（用户反馈：同名合集
+    应在不同库各自存在，此前跨库建同名合集被全局唯一挡下）。旧约束更严，重建不会冲突。"""
+    _rebuild_table(c, "collections", _COLLECTIONS_DDL, _COLLECTIONS_COLUMNS)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_collections_library ON collections(library_id)")
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
-                    (12, _m12), (13, _m13), (14, _m14), (15, _m15)]
+                    (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16)]
 
 
 def init_db() -> None:
@@ -838,18 +857,26 @@ def _attach_versions(c: sqlite3.Connection, d: dict) -> dict:
     return d
 
 
-def _collections_for_film(c: sqlite3.Connection, tmdb_id, movie_id) -> list[dict]:
+def _collections_for_film(c: sqlite3.Connection, tmdb_id, movie_id,
+                          library_id=None) -> list[dict]:
+    """影片所属手工合集（合集跟随媒体库：library_id 给定时只返回同库合集）。"""
     tid, mid = _film_key(tmdb_id, movie_id)
+    lib_sql, lib_params = "", []
+    if library_id is not None:
+        lib_sql = " AND col.library_id=?"
+        lib_params = [int(library_id)]
     if tid:
         rows = c.execute(
             "SELECT col.id, col.name FROM collections col "
             "JOIN collection_members cm ON cm.collection_id=col.id "
-            "WHERE cm.movie_tmdb_id=? ORDER BY col.name", (tid,)).fetchall()
+            "WHERE cm.movie_tmdb_id=?" + lib_sql + " ORDER BY col.name",
+            (tid, *lib_params)).fetchall()
     else:
         rows = c.execute(
             "SELECT col.id, col.name FROM collections col "
             "JOIN collection_members cm ON cm.collection_id=col.id "
-            "WHERE cm.movie_id=? ORDER BY col.name", (mid,)).fetchall()
+            "WHERE cm.movie_id=?" + lib_sql + " ORDER BY col.name",
+            (mid, *lib_params)).fetchall()
     return [dict(r) for r in rows]
 
 

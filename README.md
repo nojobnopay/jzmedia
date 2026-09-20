@@ -172,7 +172,7 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 | `GET /api/movies/{id}` · `PATCH /api/movies/{id}` | 详情；手动改 `title overview_override douban_rating custom_rating tags edition spec watched` |
 | `GET /api/movies/{id}/similar?limit=` | 库中类似（详情页 Plex 式推荐，纯本地相似度不调网）：同系列/合集/导演/主演/类型/标签加权；返回海报行数据（含推荐理由） |
 | `POST /api/movies/batch` | 海报墙多选批量：`{ids, ops:{watched, add_tags/remove_tags/set_tags, douban_rating, custom_rating}}`，海报粒度（同 tmdb 多版本自动跟随） |
-| `GET/POST /api/collections` · `GET/PATCH/DELETE /api/collections/{id}` | 合集列表/新建/详情/改名/删除；成员海报粒度 |
+| `GET/POST /api/collections` · `GET/PATCH/DELETE /api/collections/{id}` | 合集列表/新建/详情/改名/删除；成员海报粒度；合集跟随媒体库（同名可分库共存，`library_id` 缺省=真实默认库，不存在报 422） |
 | `POST /api/collections/{id}/members` · `POST /api/collections/{id}/members/remove` | 加入/移出合集（`{movie_ids}`，代表行 id 即可）；`POST /api/collections/from-tmdb-series {movie_id}` 按 TMDB 系列一键建合集 |
 | `GET /api/collections/suggest` · `POST /api/collections/suggest/backfill` | 系列推荐（纯本地只读，库内同系列≥2部；已收录的不再推荐，有新片则进 `topups`；忽略态存浏览器 localStorage）；补全为后台任务（立即返回 job_id，轮询 `./status` 看进度，可取消，仅补系列信息不碰海报） |
 | `POST /api/collections/{id}/members/top-up` | 一键补齐：把库内同系列新片收进已有合集（服务端实时重算差集；扫描/刷新/补全永不自动写成员） |

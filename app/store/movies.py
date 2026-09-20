@@ -124,7 +124,8 @@ def get_movie(movie_id: int) -> dict | None:
             (d.get("origin_countries") or [""])[0] if d.get("origin_countries") else "")
         d["origin_country_name"] = country_name(primary) if primary else ""
         d = _attach_versions(c, d)
-        d["collections"] = _collections_for_film(c, d.get("tmdb_id"), d.get("id"))
+        d["collections"] = _collections_for_film(c, d.get("tmdb_id"), d.get("id"),
+                                                 d.get("library_id"))
         return d
 
 
