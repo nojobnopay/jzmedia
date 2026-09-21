@@ -63,8 +63,11 @@ def update_person_bio(tmdb_id: int, biography: str = "",
                    now, lang or "", tmdb_id))
 
 
-def get_person(tmdb_id: int) -> dict | None:
-    """人物详情＋库内作品（参演/执导分开，同 tmdb 去重，年份倒序）。"""
+def get_person(tmdb_id: int, library_ids: list[int] | None = None) -> dict | None:
+    """人物详情＋库内作品（参演/执导分开，同 tmdb 去重，年份倒序）。
+
+    `library_ids` 非空时只统计这些视频库的作品（媒体库在路由层展开为其视频库 id）；
+    None/空列表=全库（与读接口 `_library_scope` 口径一致，无效 id 由调用方传 [-1] 哨兵）。"""
     with _lock, _conn() as c:
         prow = c.execute("SELECT * FROM persons WHERE tmdb_id=?", (tmdb_id,)).fetchone()
         if not prow:
@@ -72,12 +75,17 @@ def get_person(tmdb_id: int) -> dict | None:
         p = dict(prow)
         acting, directing = [], []
         seen = set()
-        for r in c.execute(
-                "SELECT m.*, mp.role, mp.character_name, mp.cast_order FROM movies m "
-                "JOIN movie_person mp ON mp.movie_id=m.id "
-                "JOIN persons p ON p.id=mp.person_id "
-                "WHERE p.tmdb_id=? ORDER BY mp.role, m.year IS NULL, m.year DESC",
-                (tmdb_id,)):
+        sql = ("SELECT m.*, mp.role, mp.character_name, mp.cast_order FROM movies m "
+               "JOIN movie_person mp ON mp.movie_id=m.id "
+               "JOIN persons p ON p.id=mp.person_id "
+               "WHERE p.tmdb_id=?")
+        params: list = [tmdb_id]
+        if library_ids:
+            ids = [int(x) for x in library_ids]
+            sql += " AND m.library_id IN (%s)" % ",".join("?" * len(ids))
+            params += ids
+        sql += " ORDER BY mp.role, m.year IS NULL, m.year DESC"
+        for r in c.execute(sql, params):
             d = _row_to_dict(r)
             key = d.get("tmdb_id") or -d["id"]
             role = r["role"]

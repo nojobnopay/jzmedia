@@ -5,6 +5,8 @@ from fastapi import APIRouter, HTTPException
 
 from .. import config, store, tmdb
 
+from .movies.common import _library_scope
+
 router = APIRouter(prefix="/api/persons")
 
 # tmdb_id 值域守卫（评审 B6/R07-B2）：超大 int 会在 SQLite 绑定时抛 OverflowError→500
@@ -50,20 +52,26 @@ def _fetch_and_cache_bio(tmdb_id: int) -> None:
 
 
 @router.get("/{tmdb_id}")
-def get_person(tmdb_id: int):
+def get_person(tmdb_id: int, library: str | None = None,
+               media_library: int | None = None):
     """人物详情＋库内作品（纯本地，瞬时返回，不阻塞等 TMDB）。
-    简介首次访问由前端在后台调 POST /refresh 补齐（渐进加载）；空简介有负缓存，
-    不再每次访问重试（与电影镜像策略一致）。"""
-    p = store.get_person(_check_id(tmdb_id))
+
+    作品列表支持库范围（v18 读聚合）：`media_library=<id>` 聚合其全部视频库、
+    `library=<视频库id[,id]>` 指定；都缺省=全库。简介首次访问由前端在后台调
+    POST /refresh 补齐（渐进加载）；空简介有负缓存，不再每次访问重试。"""
+    scope = _library_scope(library, media_library)
+    p = store.get_person(_check_id(tmdb_id), library_ids=scope)
     if not p:
         raise HTTPException(404, "person not found")
     return p
 
 
 @router.post("/{tmdb_id}/refresh")
-def refresh_person(tmdb_id: int):
-    """手动刷新人物简介/生日/出生地（唯一的远端写入口）。"""
+def refresh_person(tmdb_id: int, library: str | None = None,
+                   media_library: int | None = None):
+    """手动刷新人物简介/生日/出生地（唯一的远端写入口）；返回仍按当前库范围。"""
     tmdb_id = _check_id(tmdb_id)
+    scope = _library_scope(library, media_library)
     if not store.person_exists(tmdb_id):
         raise HTTPException(404, "person not found")
     if _rate_ok(tmdb_id):
@@ -71,4 +79,4 @@ def refresh_person(tmdb_id: int):
             _fetch_and_cache_bio(int(tmdb_id))
         except Exception as e:
             raise HTTPException(502, f"tmdb fetch failed: {e}")
-    return store.get_person(tmdb_id)
+    return store.get_person(tmdb_id, library_ids=scope)

@@ -56,9 +56,10 @@
   <div v-else class="page"><p>{{ err || '加载中…' }}</p></div>
 </template>
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, posterUrl } from '../api.js'
+import { mediaParam, onLibChange } from '../libraries.js'
 import ScoreBadge from '../components/ScoreBadge.vue'
 
 const route = useRoute()
@@ -66,6 +67,7 @@ const p = ref(null)
 const err = ref('')
 const bioMsg = ref('')
 const bioLoading = ref(false)
+let unsubLib = null
 
 const countsLine = computed(() => {
   if (!p.value) return ''
@@ -78,6 +80,11 @@ const countsLine = computed(() => {
 function showChar(w) {
   return String(w.original_language || '').toLowerCase().startsWith('en') && w.character_name
 }
+// 作品列表随当前媒体库聚合（v18 读聚合）；单媒体库不带参数=全库
+function personUrl() {
+  const mp = mediaParam()
+  return '/api/persons/' + route.params.tmdb_id + (mp != null ? '?media_library=' + mp : '')
+}
 async function load() {
   p.value = null
   err.value = ''
@@ -85,12 +92,12 @@ async function load() {
   const tid = route.params.tmdb_id
   try {
     // 本地数据先秒开（后端纯本地查询，不等 TMDB）
-    p.value = await api('/api/persons/' + tid)
+    p.value = await api(personUrl())
     // 简介从未抓过才后台补齐，头像/参演/执导已随首屏展示
     if (!(p.value.biography || '').trim() && !(p.value.bio_fetched_at || 0)) {
       bioLoading.value = true
       try {
-        const full = await api('/api/persons/' + tid + '/refresh', { method: 'POST' })
+        const full = await api(personUrl(), { method: 'POST' })
         // 路由已切走则丢弃过期回包
         if (route.params.tmdb_id === tid) p.value = full
       } catch (e) { /* 保持“暂无简介”，用户可点刷新简介重试 */ }
@@ -105,14 +112,18 @@ async function load() {
 async function refreshBio() {
   bioMsg.value = '刷新中…'
   try {
-    p.value = await api('/api/persons/' + route.params.tmdb_id + '/refresh', { method: 'POST' })
+    p.value = await api(personUrl(), { method: 'POST' })
     bioMsg.value = (p.value.biography || '').trim() ? '已更新' : '远端暂无简介'
   } catch (e) {
     bioMsg.value = '刷新失败'
   }
   setTimeout(() => { bioMsg.value = '' }, 3000)
 }
-onMounted(load)
+onMounted(() => {
+  load()
+  unsubLib = onLibChange(() => load())
+})
+onUnmounted(() => { if (unsubLib) unsubLib() })
 watch(() => route.params.tmdb_id, load)
 </script>
 <style scoped>
