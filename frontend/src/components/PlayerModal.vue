@@ -367,7 +367,10 @@ async function mountHls(v, url, targetMediaTime, opts) {
     } catch (e) { /* 忽略 */ }
   })
   hls.on(Hls.Events.FRAG_BUFFERED, (_ev, data) => {
-    try { logEvt('hls:FRAG_BUFFERED', 'sn=' + ((((data || {}).frag || {}).sn ?? ''))) } catch (e) { /* 忽略 */ }
+    try {
+      const frag = (data || {}).frag || {}
+      logEvt('hls:FRAG_BUFFERED', 'sn=' + (frag.sn ?? '') + ' type=' + (frag.type || ''))
+    } catch (e) { /* 忽略 */ }
   })
   hls.on(Hls.Events.MEDIA_ATTACHED, () => {
     if (targetMediaTime !== null && targetMediaTime !== undefined) {
@@ -649,7 +652,8 @@ const {
   syncForSession, applySubs, onSubChange, onLoadSubFile, removeLocalSubs,
   onSubStyleSet, onCompatSet, undoDegrade, shiftSubDelay,
   destroyAss, destroyPgs, dispose,
-  attachSubtitleVideo, detachSubtitleVideo, subtitleDebugInfo, assInstance, pgsInstance,
+  attachVideo: attachSubtitleVideo, detachVideo: detachSubtitleVideo,
+  debugInfo: subtitleDebugInfo, assInstance, pgsInstance,
 } = useSubtitles({
   videoEl, videoKey,
   versionId: () => props.versionId,
@@ -1210,6 +1214,7 @@ function debugSnapshot() {
     pos: Math.floor(absPos()), buffered: Math.floor(bufSecs.value),
     hlsError: lastHlsError.value || '', quality: quality.value,
     recoverCount, engine, playing: isPlaying.value,
+    freeze: !!freezeFrame.value, seekPending: seekPending.value,
   }
   try {
     if (v) {

@@ -4,6 +4,9 @@
 // 任何 setup 异常都会在 node --test 阶段失败（lint/build 不会执行 setup，测不出这类问题）。
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { ref } from 'vue'
 
 import { useSubtitles } from '../src/useSubtitles.js'
@@ -62,4 +65,30 @@ test('dispose 清理本地字幕引用不抛', () => {
   const s = useSubtitles(makeCtx())
   s.dispose()
   assert.deepEqual(s.localSubs.value, [])
+})
+
+test('PlayerModal 解构的 useSubtitles 键全部存在（防命名错位回归）', () => {
+  // 2026-09 线上事故：PlayerModal 解构了 attachSubtitleVideo/detachSubtitleVideo/
+  // subtitleDebugInfo，而 composable 返回 attachVideo/detachVideo/debugInfo（undefined），
+  // bindVideo 首行调用即抛 TypeError → onMounted 中断（全屏 isFull 监听/settings 实例、
+  // 看门狗、调试入口全部失效）。lint/build/templateBindings 都测不出，必须靠本用例。
+  const src = readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/components/PlayerModal.vue'),
+    'utf8')
+  const m = src.match(/const\s*\{([\s\S]*?)\}\s*=\s*useSubtitles\(/)
+  assert.ok(m, 'PlayerModal 应解构 useSubtitles()')
+  const names = []
+  for (const part of m[1].split(',')) {
+    const p = part.trim()
+    if (!p) continue
+    names.push(p.includes(':') ? p.split(':')[0].trim() : p)   // 取源名（别名左侧）
+  }
+  assert.ok(names.length >= 20, '解构块应包含全部字幕后端')
+  const api = useSubtitles(makeCtx())
+  for (const n of names) {
+    assert.ok(n in api, `useSubtitles() 返回缺少键：${n}`)
+  }
+  assert.equal(typeof api.attachVideo, 'function')
+  assert.equal(typeof api.detachVideo, 'function')
+  assert.equal(typeof api.debugInfo, 'function')
 })
