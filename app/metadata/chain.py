@@ -2,12 +2,13 @@
 
 默认链：local（离线索引）→ tmdb（有凭据时）→ wikidata（无 key 桥接）。
 `douban` 需 env `DOUBAN_ENABLED=1` 且显式加入库链才会被调用（默认关）。
+失败冷却（§9.1）：连续失败 3 次进入 10 分钟冷却，冷却期内跳过该 provider。
 """
 import json
 
 from .. import config, library_paths
 from ..log import get_logger
-from . import douban, local, wikidata
+from . import douban, local, state, wikidata
 from .base import Candidate
 
 logger = get_logger("metadata.chain")
@@ -37,11 +38,8 @@ def _tmdb(title: str, year, limit: int) -> list[Candidate]:
     if not (config.effective_tmdb_read_token() or config.effective_tmdb_api_key()):
         return []
     from .. import tmdb as tmdb_client
-    try:
-        rows = tmdb_client.search_movie(title, year)
-    except Exception as e:
-        logger.debug("tmdb provider failed term=%s: %s", title, e)
-        return []
+    # 失败不吞：由 search 统一记失败/冷却（返回空列表=正常无结果，不计失败）
+    rows = tmdb_client.search_movie(title, year)
     out: list[Candidate] = []
     for r in (rows or [])[:limit]:
         rd = (r.get("release_date") or "")[:4]
@@ -53,26 +51,40 @@ def _tmdb(title: str, year, limit: int) -> list[Candidate]:
     return out
 
 
+# provider 名 → 调用（唯一分发点；链外名字直接跳过）
+_SEARCHERS = {
+    "local": lambda term, year, kind, limit: local.search(term, year, kind, limit),
+    "tmdb": lambda term, year, kind, limit: _tmdb(term, year, min(int(limit), 20)),
+    "wikidata": lambda term, year, kind, limit: wikidata.search(term, year, kind, limit),
+    "douban": lambda term, year, kind, limit: douban.search(term, year, kind, limit),
+}
+
+
 def search(title: str, year: int | None = None, kind: str = "movie",
            library_id=None, limit: int = 10) -> list[Candidate]:
     term = (title or "").strip()
     if not term:
         return []
     for name in chain_for(library_id):
+        fn = _SEARCHERS.get(name)
+        if fn is None:
+            continue
+        if not state.available(name):
+            logger.debug("provider %s cooling, skipped term=%s", name, term)
+            continue
         try:
-            if name == "local":
-                hits = local.search(term, year, kind, limit)
-            elif name == "tmdb":
-                hits = _tmdb(term, year, min(int(limit), 20))
-            elif name == "wikidata":
-                hits = wikidata.search(term, year, kind, limit)
-            elif name == "douban":
-                hits = douban.search(term, year, kind, limit)
-            else:
-                continue
+            hits = fn(term, year, kind, limit)
         except Exception as e:
-            logger.debug("provider %s failed term=%s: %s", name, term, e)
+            tripped = state.note_fail(name, str(e))
+            if tripped:
+                logger.warning("provider %s 连续失败进入冷却 %ss term=%s: %s",
+                               name, state.COOLDOWN_SEC, term, e)
+            else:
+                logger.debug("provider %s failed term=%s: %s", name, term, e)
             hits = []
+        else:
+            # 无异常即视为健康（空结果不算失败，避免误冷却）
+            state.note_ok(name)
         if hits:
             return hits
     return []

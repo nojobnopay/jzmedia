@@ -14,7 +14,7 @@ from .config import settings
 from .db import POSTER_DIR, ensure_dirs
 from .log import get_logger, setup_logging
 from .routers import (collections, extras, files, fs, health, jobs, libraries,
-                      media_libraries, movies, persons, stream, tv)
+                      media_libraries, metadata, movies, persons, stream, tv)
 
 setup_logging()
 _logger = get_logger("main")
@@ -98,6 +98,7 @@ app.include_router(health.router)
 app.include_router(media_libraries.router)
 app.include_router(libraries.router)
 app.include_router(movies.router)
+app.include_router(metadata.router)
 app.include_router(collections.router)
 app.include_router(files.router)
 app.include_router(fs.router)

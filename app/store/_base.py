@@ -412,7 +412,9 @@ LOCAL_FIELDS = {"file_path", "title", "title_auto", "overview_override",
 
 # 设置页可写的配置键白名单（与 config.effective_* 对应）
 APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
-                    "tmdb_language", "tmdb_image_base", "jzmedia_token"}
+                    "tmdb_language", "tmdb_image_base", "jzmedia_token",
+                    # 内部状态（不经 /api/settings 暴露，仅 metadata.state 读写）
+                    "metadata_provider_state"}
 
 
 SCHEMA_VERSION = 19

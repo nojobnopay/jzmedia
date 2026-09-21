@@ -64,6 +64,19 @@
           <span>{{ tmdbCfgMsg }}</span>
         </div>
         <p v-if="armClearTmdb" class="hint warn-text">将清空库里的 5 项 TMDB 配置，改回跟随 .env/默认值。再点一次执行。</p>
+
+        <div class="provider-block">
+          <h4>元数据降级链
+            <span class="fhint">连续失败 {{ providerInfo?.fail_threshold ?? 3 }} 次自动冷却
+              {{ Math.round((providerInfo?.cooldown_sec ?? 600) / 60) }} 分钟；冷却期内的来源会被搜索链跳过</span>
+          </h4>
+          <div class="provider-row" v-for="p in providers" :key="p.name">
+            <span class="p-name">{{ p.label }}</span>
+            <span class="p-state" :class="{ cool: !p.available }">{{ providerStateText(p) }}</span>
+            <button v-if="!p.available" @click="resetProvider(p.name)" :disabled="!!busy">重置冷却</button>
+            <span v-if="p.last_error" class="fhint p-err" :title="p.last_error">{{ p.last_error }}</span>
+          </div>
+        </div>
       </section>
 
       <section id="sec-auth" class="card-block">
@@ -243,6 +256,31 @@ async function testTmdb() {
   } catch (e) {
     tmdbMsg.value = '连接失败：' + e.message
   }
+  loadProviders()   // 测试会经过降级链：顺带刷新 provider 冷却状态
+}
+
+// 元数据降级链状态（E 阶段补全）：provider 冷却/最近错误 + 重置
+const providerInfo = ref(null)
+const providers = computed(() => providerInfo.value?.providers || [])
+async function loadProviders() {
+  try { providerInfo.value = await api('/api/metadata/providers') } catch (e) { /* 忽略 */ }
+}
+function providerStateText(p) {
+  if (!p.available) {
+    const s = p.cooldown_remaining || 0
+    return s >= 60 ? `冷却中 · 约 ${Math.ceil(s / 60)} 分钟后重试` : `冷却中 · ${s}s 后重试`
+  }
+  if (p.fails) return `连续失败 ${p.fails} 次`
+  if (p.last_ok_at) return '正常'
+  return '未使用'
+}
+async function resetProvider(name) {
+  busy.value = 'providers'
+  try {
+    providerInfo.value = await api('/api/metadata/providers/reset', {
+      method: 'POST', body: JSON.stringify({ name }) })
+  } catch (e) { /* 忽略 */ }
+  finally { busy.value = null }
 }
 
 async function loadStats() {
@@ -309,6 +347,7 @@ onMounted(async () => {
     api('/api/settings').catch(() => null),
     loadLibs(api).then(syncLibs).catch(() => null),
     loadStats(),
+    loadProviders(),
   ])
   if (settingsResp) { s.value = settingsResp; syncTmdbForm() }
   window.addEventListener('jzmedia:libraries-changed', onLibrariesChanged)
@@ -382,4 +421,11 @@ onUnmounted(() => {
 .slider-row input[type="range"] { flex: 1; }
 .tmdb-grid label { display: block; font-size: 0.875rem; color: #ccc; margin: 8px 0 2px; }
 .src-badge { margin-left: 8px; font-size: 0.75rem; color: #888; border: 1px solid #444; border-radius: 999px; padding: 1px 10px; }
+.provider-block { margin-top: 12px; border-top: 1px dashed #3a3a3a; padding-top: 8px; }
+.provider-block h4 { margin: 0 0 6px; font-size: 0.9375rem; color: #ddd; }
+.provider-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 3px 0; font-size: 0.8125rem; }
+.p-name { min-width: 110px; color: #ccc; }
+.p-state { color: #7ed321; }
+.p-state.cool { color: #e0a63c; }
+.p-err { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
