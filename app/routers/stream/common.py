@@ -290,12 +290,12 @@ def _write_master(sdir: str, info: dict, plan: dict, seg_time: int) -> None:
         vc = cands[0] if cands else ""
         w, h = src_w, src_h
     else:
-        vc = _playback.transcoded_video_codec(tgt_h or src_h)
         if tgt_h and src_h and src_w:
             h = min(tgt_h, src_h)
             w = max(2, round(src_w * h / src_h / 2) * 2)
         else:
             w, h = src_w, src_h
+        vc = _playback.transcoded_video_codec(w, h)
     lines = ["#EXTM3U", "#EXT-X-VERSION:7", "#EXT-X-INDEPENDENT-SEGMENTS"]
     default_acodec = ""
     audio_bits = 0

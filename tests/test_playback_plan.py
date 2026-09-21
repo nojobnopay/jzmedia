@@ -335,3 +335,15 @@ def test_quality_key_burn_splits_dir():
     assert _quality_key(burn) == "copy_burn"
     assert _quality_key({**copy, "height": 720, "vcopy": False}) == "h720"
     assert _quality_key({**burn, "height": 720, "vcopy": False}) == "h720_burn"
+
+
+def test_transcoded_video_codec_level_by_output_size():
+    """CODECS 声明必须与编码器实际 level 匹配（沙丘 720p 实测：1282x720 实际 3.2，
+    旧实现按高度硬编码 3.1 → 声明低于实际，严格客户端可能拒绝视频轨）。"""
+    tc = pb.transcoded_video_codec
+    assert tc(1280, 720).endswith("1F")     # 3600 MBs → 3.1
+    assert tc(1282, 720).endswith("20")     # 3645 MBs → 3.2（宽超 1280 就要 3.2）
+    assert tc(1920, 1080).endswith("28")    # 8160 MBs → 4.0
+    assert tc(3840, 2160).endswith("33")    # 32400 MBs → 5.1
+    assert tc(0, 0).endswith("28")          # 未知尺寸兜底 4.0
+    assert tc(1282, 720).startswith("avc1.6400")   # High profile

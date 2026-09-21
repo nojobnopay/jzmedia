@@ -123,10 +123,28 @@ def audio_variants(media: dict, caps: dict) -> list[dict]:
     return out
 
 
-def transcoded_video_codec(height: int) -> str:
-    """重编目标（H.264 High）→ CODECS 码串：720p 用 level 3.1，其余 4.0。"""
-    lv = 0x1F if int(height or 0) <= 720 else 0x28
-    return f"avc1.6400{lv:02X}"
+# H.264 Annex A：level → MaxFS（每帧最大宏块数）。声明取「输出宽高所需的最小 level」，
+# 必须 ≥ 编码器实际 level（放宽声明对解码端安全；收紧会被 Safari 等严格客户端拒绝）。
+_AVC_LEVELS = ((3600, 0x1F), (5120, 0x20), (8192, 0x28), (8704, 0x29),
+               (22080, 0x32), (36864, 0x33))
+
+
+def _avc_level(width: int, height: int) -> int:
+    w = int(width or 0)
+    h = int(height or 0)
+    if w <= 0 or h <= 0:
+        return 0x28   # 未知尺寸按 1080p 档兜底（4.0）
+    mbs = ((w + 15) // 16) * ((h + 15) // 16)
+    for max_fs, lv in _AVC_LEVELS:
+        if mbs <= max_fs:
+            return lv
+    return 0x33
+
+
+def transcoded_video_codec(width: int = 0, height: int = 0) -> str:
+    """重编目标（H.264 High）→ CODECS 码串，level 随输出宽高（如 1282×720→3.2、
+    1920×1080→4.0、3840×2160→5.1），与编码器实际参数一致。"""
+    return f"avc1.6400{_avc_level(width, height):02X}"
 
 
 def _hdr_blocks_direct(media: dict, caps: dict, client: str) -> tuple[bool, str, bool]:

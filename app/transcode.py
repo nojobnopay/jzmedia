@@ -52,14 +52,19 @@ class Backend:
     def video_args(self, height: int, burn: bool = False, tonemap: bool = False) -> list[str]:
         """输出侧视频编码参数。height=0 不缩放；burn 强制软件（滤镜图与硬件滤镜互斥）。
         目标统一 8bit（yuv420p）：H.264 10bit（High10）浏览器/MSE 基本不能解，
-        源是 10bit 时必须显式降到 8bit（libx264/nvenc 都要；VAAPI/QSV 由滤镜 format 保证）。"""
+        源是 10bit 时必须显式降到 8bit（libx264/nvenc 都要；VAAPI/QSV 由滤镜 format 保证）。
+        统一 High profile：master.m3u8 的 CODECS 按 `avc1.6400xx` 声明，编码器实际
+        也是 High（NVENC 默认 Main 会与声明不符，Safari 等严格客户端可能不认视频轨）。
+        关键帧：playback 侧 `-force_key_frames 4s`；NVENC/QSV 需显式 `-forced-idr 1`
+        才会把强制关键帧当 IDR（否则 HLS 分片仍按源码 GOP，10s+ 分片会让音轨跑在
+        视频前面 → 画面卡住声音继续），见 2026-09 沙丘 720p 实测。"""
         h = int(height or 0)
         if burn or not self.hw:
             # 烧录：filter_complex（overlay+缩放）与硬件滤镜互斥，统一软件编码；
             # 软件路径不实现 tonemap → 调用方（playback.plan）需在 HDR+burn 时
             # 追加 hdr_no_tonemap 提示（评审 P1-08），勿在此静默忽略 tonemap 参数。
             args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-                    "-pix_fmt", "yuv420p"]
+                    "-pix_fmt", "yuv420p", "-profile:v", "high", "-forced-idr", "1"]
             if h:
                 args += ["-vf", f"scale=-2:{h}"]
             return args
@@ -69,7 +74,8 @@ class Backend:
                 vf += f",scale_vaapi=w=-2:h={h}" if h else ""
             else:
                 vf = "scale_vaapi=format=nv12" + (f":w=-2:h={h}" if h else "")
-            return ["-vf", vf, "-c:v", "h264_vaapi", "-qp", "23"]
+            # 注意：本构建 h264_vaapi 无 forced-idr 选项，4s 关键帧能否生效待 NAS 实测
+            return ["-vf", vf, "-c:v", "h264_vaapi", "-qp", "23", "-profile:v", "high"]
         if self.name == "qsv":
             if tonemap:
                 vf = "vpp_qsv=tonemap=1:format=nv12"
@@ -78,11 +84,12 @@ class Backend:
                 vf = "vpp_qsv=format=nv12" + (f":w=-2:h={h}" if h else "")
             # ICQ 质量档（评审 R11-D6）：不指定时 QSV 默认质量偏低
             return ["-vf", vf, "-c:v", "h264_qsv", "-preset", "veryfast",
-                    "-global_quality", "23"]
+                    "-global_quality", "23", "-profile:v", "high", "-forced_idr", "1"]
         if self.name == "nvenc":
             # VBR + CQ（评审 R11-D6）：默认码率策略不透明，显式质量优先
             args = ["-c:v", "h264_nvenc", "-preset", "p4", "-pix_fmt", "yuv420p",
-                    "-rc", "vbr", "-cq", "23", "-b:v", "0"]
+                    "-rc", "vbr", "-cq", "23", "-b:v", "0",
+                    "-profile:v", "high", "-forced-idr", "1"]
             if h:
                 args += ["-vf", f"scale=-2:{h}"]
             return args
