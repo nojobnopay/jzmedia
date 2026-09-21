@@ -1,12 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import Library from './views/Library.vue'
-import Detail from './views/Detail.vue'
-import Person from './views/Person.vue'
-import Settings from './views/Settings.vue'
-import Collections from './views/Collections.vue'
-import CollectionDetail from './views/CollectionDetail.vue'
-import Tv from './views/Tv.vue'
-import TvShow from './views/TvShow.vue'
+
+// 路由级懒加载（评审 R14-D5）：各 View 独立分包，首屏不再吃下全部页面
+const Library = () => import('./views/Library.vue')
+const Detail = () => import('./views/Detail.vue')
+const Person = () => import('./views/Person.vue')
+const Settings = () => import('./views/Settings.vue')
+const Collections = () => import('./views/Collections.vue')
+const CollectionDetail = () => import('./views/CollectionDetail.vue')
+const Tv = () => import('./views/Tv.vue')
+const TvShow = () => import('./views/TvShow.vue')
 
 export default createRouter({
   history: createWebHistory(),
@@ -18,6 +20,8 @@ export default createRouter({
     { path: '/c/:id', component: CollectionDetail },
     { path: '/tv', component: Tv },
     { path: '/tv/:id', component: TvShow },
-    { path: '/settings', component: Settings }
+    { path: '/settings', component: Settings },
+    // 未知路径统一回首页（此前空 router-view + 导航残影；评审 R14-D5）
+    { path: '/:pathMatch(.*)*', redirect: '/' }
   ]
 })
