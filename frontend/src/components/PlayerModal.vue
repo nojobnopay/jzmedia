@@ -798,6 +798,8 @@ function saveFinal() {
 function onTime() {
   const v = videoEl.value
   if (!seekPending.value && !seekDragging.value) seekPos.value = absPos()
+  // 播放状态自愈：play/pause 事件若在监听绑定前/元素替换间隙丢失，timeupdate 低频校正
+  if (v && isPlaying.value !== (!v.paused && !v.ended)) onPlayState()
   if (v && !doneWatched) {
     const dur = mediaDuration(v)
     const pos = absPos()
@@ -1157,6 +1159,9 @@ function bindVideo(v) {
   for (const [ev, h] of Object.entries(_evtHandlers)) v.addEventListener(ev, h)
   muted.value = !!v.muted
   volume.value = Number(v.volume ?? 1)
+  // 起播竞态：reload 里的 tryPlay/autoplay 的 play 事件可能早于本函数绑定监听，
+  // 绑定后立即同步一次，否则播放中按钮仍显示 ▶（用户反馈：播放/暂停图标一样）
+  onPlayState()
 }
 function unbindVideo(v) {
   if (!v) return
@@ -1191,7 +1196,7 @@ function debugSnapshot() {
     version: props.versionId, method: method.value, session: sessionId,
     pos: Math.floor(absPos()), buffered: Math.floor(bufSecs.value),
     hlsError: lastHlsError.value || '', quality: quality.value,
-    recoverCount, engine,
+    recoverCount, engine, playing: isPlaying.value,
   }
   try {
     if (v) {
