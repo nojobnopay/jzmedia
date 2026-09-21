@@ -91,6 +91,21 @@ def test_missing_clean_remote_no_false_positive(smb_lib):
     assert cl2["total"] == 1
 
 
+def test_missing_batches_list_per_dir(smb_lib):
+    """P2：失效检测按父目录分组，一次 list 判定整目录（不再逐行 stat）。"""
+    lib, root, fake = smb_lib
+    d = root / "Batch (2021)"
+    d.mkdir()
+    for i in range(6):
+        (d / f"Batch.part{i}.mkv").write_bytes(b"x")
+        _movie(lib, f"Batch (2021)/Batch.part{i}.mkv", title=f"B{i}", year=2021)
+    fake.counts.clear()
+    out = missing(library=str(lib["id"]))
+    assert out["total"] == 0
+    assert fake.counts.get("scandir", 0) == 1   # 整目录一次
+    assert fake.counts.get("stat", 0) == 0
+
+
 def test_offline_never_reports_deleted(smb_lib):
     lib, root, fake = smb_lib
     (root / "Offline (2022).mkv").write_bytes(b"x")
@@ -100,6 +115,26 @@ def test_offline_never_reports_deleted(smb_lib):
     assert all(it["id"] != mid for it in out["items"])   # 离线 ≠ 已删除
     cl = clean({"dry_run": True, "library_id": lib["id"]})
     assert cl["total"] == 0
+    smb.invalidate()
+
+
+def test_batch_delete_offline_keeps_rows_and_files(smb_lib):
+    """离线直读库整片删除：绝不允许“删了 DB 行但 NAS 文件还在”。"""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    lib, root, fake = smb_lib
+    (root / "Del (2022).mkv").write_bytes(b"x")
+    mid = _movie(lib, "Del (2022).mkv", title="Del", year=2022)
+    fake.offline = True
+    c = TestClient(app)
+    r = c.post("/api/movies/batch-delete",
+               json={"ids": [mid], "dry_run": False, "confirm": True})
+    assert r.status_code == 200, r.text
+    res = r.json()["results"][0]
+    assert res["status"] in ("planned", "skipped_empty") or \
+        res["status"].startswith("error")
+    assert store.get_movie(mid) is not None          # 行保留
+    assert (root / "Del (2022).mkv").exists()        # 文件保留
     smb.invalidate()
 
 

@@ -9,10 +9,13 @@ from fastapi import HTTPException
 from ...log import get_logger
 logger = get_logger("files.paths")
 __all__ = ['_MAX_ONLY_IDS', '_safe_component', '_check_inside_root', '_only_ids',
-           '_rename_or_move', '_require_writable', '_backend_for', '_exists', '_is_file']
+           '_rename_or_move', '_require_writable', '_backend_for', '_exists',
+           '_is_file', '_exists_map']
 
 
 def _backend_for(library_id):
+    """取后端；不可用（含直读库离线冷却期）返回 None，由调用方保守处理。
+    离线是 debug 级：批量端点会逐行调用，warning 会刷屏。"""
     try:
         return storage.backend_for(library_id)
     except storage.StorageError as e:
@@ -21,10 +24,11 @@ def _backend_for(library_id):
 
 
 def _exists(library_id, rel: str) -> bool:
-    """存在性（本地/远程统一）。存储离线等错误保守返回 True（防把离线误判成已删）。"""
+    """存在性（本地/远程统一）。后端不可用（离线/冷却期）保守返回 True——
+    绝不能把 StorageOffline 当成“文件已删”，否则 /files/clean 会误删 DB 行（§19）。"""
     backend = _backend_for(library_id)
     if backend is None:
-        return False
+        return True
     local = backend.abs_path(rel)
     if local is not None:
         return os.path.exists(local)
@@ -36,10 +40,10 @@ def _exists(library_id, rel: str) -> bool:
 
 
 def _is_file(library_id, rel: str) -> bool:
-    """是否文件（本地/远程统一）；错误同样保守返回 True。"""
+    """是否文件（本地/远程统一）；后端不可用/错误同样保守返回 True。"""
     backend = _backend_for(library_id)
     if backend is None:
-        return False
+        return True
     local = backend.abs_path(rel)
     if local is not None:
         return os.path.isfile(local)
@@ -48,6 +52,43 @@ def _is_file(library_id, rel: str) -> bool:
     except storage.StorageError as e:
         logger.warning("is_file check failed lib=%s rel=%s: %s", library_id, rel, e)
         return True
+
+
+def _exists_map(library_id, rels) -> dict[str, bool]:
+    """批量文件存在性：远程按父目录分组，一次 backend.list 建集合（N 次 stat → D 次 list）。
+    本地仍走 os.path.isfile（系统调用，便宜）。
+    语义与 `_exists` 对齐：StorageNotFound → False；离线/其它存储错误保守 True（§19）。"""
+    rels = {str(r) for r in (rels or ()) if r}
+    if not rels:
+        return {}
+    backend = _backend_for(library_id)
+    if backend is None:
+        return {rel: True for rel in rels}
+    local_root = backend.abs_path("")
+    out: dict[str, bool] = {}
+    by_dir: dict[str, list[str]] = {}
+    for rel in rels:
+        by_dir.setdefault(os.path.dirname(rel), []).append(rel)
+    for d, items in by_dir.items():
+        if local_root is not None:
+            for rel in items:
+                out[rel] = os.path.isfile(backend.abs_path(rel) or "")
+            continue
+        try:
+            entries = backend.list(d)
+        except storage.StorageNotFound:
+            for rel in items:
+                out[rel] = False
+            continue
+        except storage.StorageError as e:
+            logger.debug("exists batch list failed lib=%s dir=%s: %s", library_id, d, e)
+            for rel in items:
+                out[rel] = True
+            continue
+        names = {str(e.get("name") or "") for e in entries if not e.get("is_dir")}
+        for rel in items:
+            out[rel] = os.path.basename(rel) in names
+    return out
 
 
 def _require_writable(library_id) -> None:

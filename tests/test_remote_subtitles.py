@@ -48,6 +48,22 @@ def test_sub_list_sidecar_remote(smb_lib):
     assert sup["image"] == 1 and sup["sidecar"] == "subs/Movie (2000).sup"
 
 
+def test_decide_payload_sidecar_list_once(smb_lib, monkeypatch):
+    """P2：decide 只枚举一次外挂字幕目录（此前 _media_payload 被调两次）。"""
+    from app.routers.stream.media import PlaybackQuery, _decide_payload
+    monkeypatch.setenv("SMB_META_TTL", "0")   # 关缓存，纯看调用次数
+    lib, root, fake = smb_lib
+    (root / "Movie (2000).mkv").write_bytes(b"x")
+    m = _movie(lib, "Movie (2000).mkv")
+    info = {"playable": True, "container": "mkv", "vcodec": "h264",
+            "audio": [{"index": 1, "codec": "aac", "channels": 2}],
+            "subs": [], "duration": 60, "width": 1920, "height": 1080}
+    fake.counts.clear()
+    out = _decide_payload(m, info, PlaybackQuery())
+    assert fake.counts.get("scandir", 0) == 4   # src + subs/Subs/字幕 各一次
+    assert "media" in out and out["media"]["subs"] == []
+
+
 def test_sidecar_src_url_and_missing(smb_lib):
     lib, root, _fake = smb_lib
     (root / "A (2001).ass").write_bytes(b"[Script Info]")

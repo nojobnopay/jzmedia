@@ -5,7 +5,7 @@ import threading
 
 from fastapi import HTTPException
 
-from ... import library_paths, scanner, store
+from ... import library_paths, scanner, storage, store
 from ...jobkit import JobRegistry
 from ...scanner import is_feature_video
 from ..files import _require_writable
@@ -13,6 +13,10 @@ from .classify import _classify
 from .common import logger, router
 from .paths import _check_inside_root
 __all__ = ['fs_copy', 'fs_copy_status', 'fs_copy_cancel']
+
+
+class _CopyCancelled(Exception):
+    """协作取消信号：触发临时文件清理后由 worker 捕获。"""
 
 
 _COPY_JOBS = JobRegistry(prefix="copy")
@@ -84,6 +88,151 @@ def _measure(items: list[str], library_id=None) -> tuple[int, int, int]:
                 except OSError:
                     pass
     return total, files, dirs
+
+
+def _rel_exists(backend, rel: str) -> bool:
+    try:
+        return bool(backend.exists(rel))
+    except storage.StorageError:
+        return False
+
+
+def _unique_dst_rel(backend, to_dir: str, base: str) -> tuple[str, bool]:
+    """远程冲突自动副本命名（与本地 `_unique_dst` 同语义，绝不覆盖）。"""
+    rel = f"{to_dir}/{base}" if to_dir else base
+    if not _rel_exists(backend, rel):
+        return rel, False
+    root, ext = os.path.splitext(rel)
+    i = 1
+    while True:
+        cand = f"{root}{' (副本)' if i == 1 else f' (副本 {i})'}{ext}"
+        if not _rel_exists(backend, cand):
+            return cand, True
+        i += 1
+
+
+def _measure_remote(backend, items: list[str]) -> tuple[int, int, int]:
+    """远程 (总字节, 文件数, 目录数)：iter_tree 每目录一次 list。"""
+    total = files = dirs = 0
+    for rel in items:
+        try:
+            st = backend.stat(rel)
+        except storage.StorageError as e:
+            logger.debug("measure stat failed rel=%s: %s", rel, e)
+            continue
+        if st.is_dir:
+            dirs += 1
+            try:
+                for e in backend.iter_tree(rel):
+                    if e.is_dir:
+                        dirs += 1
+                    else:
+                        files += 1
+                        total += int(e.size or 0)
+            except storage.StorageError as e:
+                logger.debug("measure tree failed rel=%s: %s", rel, e)
+        else:
+            files += 1
+            total += int(st.size)
+    return total, files, dirs
+
+
+def _copy_file_remote(backend, src_rel: str, dst_rel: str,
+                      on_bytes, should_stop) -> bool:
+    """远程分块复制（1MB：进度/取消）；取消返回 False（临时文件由 open_write 清理），
+    存储错误上抛由 worker 按项记 error。"""
+    try:
+        with backend.open_read(src_rel) as fr, backend.open_write(dst_rel) as fw:
+            while True:
+                if should_stop and should_stop():
+                    raise _CopyCancelled()
+                chunk = fr.read(1024 * 1024)
+                if not chunk:
+                    break
+                fw.write(chunk)
+                if on_bytes:
+                    on_bytes(len(chunk))
+        return True
+    except _CopyCancelled:
+        return False
+
+
+def _copy_worker_remote(jid: str, items: list[str], to_dir: str, hints: dict,
+                        library_id=None) -> None:
+    """远程直读库复制后台任务：目录递归经 iter_tree，文件 1MB 分块流式复制。"""
+    lid = int(library_id or library_paths.DEFAULT_LIBRARY_ID)
+
+    def _stop() -> bool:
+        job = _COPY_JOBS.get(jid)
+        return job is None or job.get("state") != "running"
+
+    bytes_done = 0
+
+    def _on_bytes(n: int) -> None:
+        nonlocal bytes_done
+        bytes_done += n
+        _COPY_JOBS.update(jid, bytes_done=bytes_done)
+
+    results: list[dict] = []
+    renamed = 0
+    registered = 0
+    try:
+        backend = storage.backend_for(lid)
+        for rel in items:
+            if _stop():
+                return
+            base = os.path.basename(rel.rstrip("/"))
+            dst_rel, was_renamed = _unique_dst_rel(backend, to_dir, base)
+            if was_renamed:
+                renamed += 1
+            item_status = "copied"
+            try:
+                st = backend.stat(rel)
+                if st.is_dir:
+                    # 目录递归：远程无 POSIX 符号链接语义（服务器侧链接按普通项处理）
+                    backend.mkdir(dst_rel, parents=True)
+                    prefix = rel.rstrip("/") + "/"
+                    for e in backend.iter_tree(rel):
+                        sub = e.rel[len(prefix):] if e.rel.startswith(prefix) else e.name
+                        target = f"{dst_rel}/{sub}"
+                        if e.is_dir:
+                            backend.mkdir(target, parents=True)
+                        else:
+                            if _stop():
+                                return
+                            if not _copy_file_remote(backend, e.rel, target,
+                                                     _on_bytes, _stop):
+                                return
+                else:
+                    if _stop():
+                        return
+                    if not _copy_file_remote(backend, rel, dst_rel, _on_bytes, _stop):
+                        return
+                    if is_feature_video(dst_rel, library_id=lid, backend=backend):
+                        # 正片复制 → 登记（源已匹配则直绑 tmdb，避免重搜/误配）
+                        hint = hints.get(rel)
+                        try:
+                            r = scanner.scan_file(backend, dst_rel, tmdb_hint=hint)
+                            item_status = str(r.get("status") or "copied")
+                            if r.get("status") in ("ok", "ok_needs_review"):
+                                registered += 1
+                        except Exception as e:
+                            logger.warning("register copied feature failed rel=%s: %s",
+                                           dst_rel, e)
+                            item_status = f"copied_scan_warn: {e}"
+            except storage.StorageError as e:
+                item_status = f"error: {e}"
+            results.append({"from": rel, "to": dst_rel, "status": item_status,
+                            "renamed": was_renamed})
+            _COPY_JOBS.update(jid, done=len(results), renamed=renamed,
+                              registered=registered)
+        if _stop():
+            return
+        _COPY_JOBS.update(jid, state="done", done=len(results), renamed=renamed,
+                          registered=registered, results=results[:200])
+    except Exception as e:
+        logger.warning("remote copy job failed jid=%s: %s", jid, e)
+        _COPY_JOBS.update(jid, state="failed", error=str(e)[:300])
 
 
 def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict,
@@ -198,36 +347,67 @@ def fs_copy(body: dict | None = None):
         lid = int(lid_raw) if lid_raw not in (None, "") else library_paths.default_id()
     except (TypeError, ValueError):
         raise HTTPException(422, "library must be int")
-    from .routes import _require_posix_fs
-    _require_posix_fs(lid)
+    try:
+        backend = storage.backend_for(lid)
+    except storage.StorageError as e:
+        raise HTTPException(503, f"library unavailable: {e}")
+    remote = backend.abs_path("") is None
     # 目标目录可不存在（粘贴到新目录），空串=根；_check_inside_root 拒绝空串，故单独处理
     raw_to = str(body.get("to_dir") or "").strip().strip("/")
     to_dir = _check_inside_root(raw_to, lid) if raw_to else ""
-    dst_root = library_paths.resolve(lid, to_dir) if to_dir \
-        else library_paths.library_root(lid)
-    if os.path.exists(dst_root) and not os.path.isdir(dst_root):
-        raise HTTPException(422, f"target is not a directory: {to_dir!r}")
     items: list[str] = []
     hints: dict = {}
     conflicts: list[str] = []
-    for r in raws:
-        rel = _check_inside_root(str(r or ""), lid)
-        abs_p = library_paths.resolve(lid, rel)
-        if not os.path.exists(abs_p):
-            raise HTTPException(404, f"not found: {rel!r}")
-        if os.path.isdir(abs_p) and not os.path.islink(abs_p):
-            norm_src = os.path.normpath(abs_p)
-            norm_dst = os.path.normpath(dst_root)
-            if norm_dst == norm_src or norm_dst.startswith(norm_src + os.sep):
+    if remote:
+        if to_dir and _rel_exists(backend, to_dir):
+            try:
+                if not backend.is_dir(to_dir):
+                    raise HTTPException(422, f"target is not a directory: {to_dir!r}")
+            except HTTPException:
+                raise
+            except storage.StorageError as e:
+                raise HTTPException(503, f"target stat failed: {e}")
+        for r in raws:
+            rel = _check_inside_root(str(r or ""), lid)
+            try:
+                st = backend.stat(rel)
+            except storage.StorageNotFound:
+                raise HTTPException(404, f"not found: {rel!r}")
+            except storage.StorageError as e:
+                raise HTTPException(503, f"stat failed: {e}")
+            if st.is_dir and (to_dir == rel or to_dir.startswith(rel.rstrip("/") + "/")):
                 raise HTTPException(422, f"target inside source: {rel!r}")
-        base = os.path.basename(rel.rstrip("/"))
-        if os.path.exists(os.path.join(dst_root, base)):
-            conflicts.append(base)
-        info = _classify(rel, library_id=lid)
-        if info.get("kind") == "feature" and info.get("tmdb_id"):
-            hints[rel] = int(info["tmdb_id"])
-        items.append(rel)
-    total_bytes, files, dirs = _measure(items, lid)
+            base = os.path.basename(rel.rstrip("/"))
+            if _rel_exists(backend, f"{to_dir}/{base}" if to_dir else base):
+                conflicts.append(base)
+            info = _classify(rel, library_id=lid, backend=backend)
+            if info.get("kind") == "feature" and info.get("tmdb_id"):
+                hints[rel] = int(info["tmdb_id"])
+            items.append(rel)
+        total_bytes, files, dirs = _measure_remote(backend, items)
+    else:
+        dst_root = library_paths.resolve(lid, to_dir) if to_dir \
+            else library_paths.library_root(lid)
+        if os.path.exists(dst_root) and not os.path.isdir(dst_root):
+            raise HTTPException(422, f"target is not a directory: {to_dir!r}")
+        for r in raws:
+            rel = _check_inside_root(str(r or ""), lid)
+            abs_p = library_paths.resolve(lid, rel)
+            if not os.path.exists(abs_p):
+                raise HTTPException(404, f"not found: {rel!r}")
+            if os.path.isdir(abs_p) and not os.path.islink(abs_p):
+                norm_src = os.path.normpath(abs_p)
+                norm_dst = os.path.normpath(dst_root)
+                if norm_dst == norm_src or norm_dst.startswith(norm_src + os.sep):
+                    raise HTTPException(422, f"target inside source: {rel!r}")
+            base = os.path.basename(rel.rstrip("/"))
+            if os.path.exists(os.path.join(dst_root, base)):
+                conflicts.append(base)
+            info = _classify(rel, library_id=lid)
+            if info.get("kind") == "feature" and info.get("tmdb_id"):
+                hints[rel] = int(info["tmdb_id"])
+            items.append(rel)
+        total_bytes, files, dirs = _measure(items, lid)
     if body.get("dry_run", True):
         needs_confirm = (total_bytes >= COPY_CONFIRM_BYTES
                          or (files + dirs) >= COPY_CONFIRM_ITEMS)
@@ -241,7 +421,8 @@ def fs_copy(body: dict | None = None):
     job = _COPY_JOBS.create(total=len(items), bytes_total=total_bytes,
                             library_id=lid)
     jid = job["job_id"]
-    threading.Thread(target=_copy_worker, args=(jid, items, to_dir, hints, lid),
+    worker = _copy_worker_remote if remote else _copy_worker
+    threading.Thread(target=worker, args=(jid, items, to_dir, hints, lid),
                      daemon=True).start()
     return {"dry_run": False, "job_id": jid, "total": len(items), "bytes": total_bytes,
             "conflicts": conflicts[:50]}

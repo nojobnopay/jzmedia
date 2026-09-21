@@ -1,4 +1,6 @@
-"""Batch D3：文件浏览器对直读远程库只读（列表可用、写操作 501）。"""
+"""远程文件浏览器：列表（只读时代）与写操作 backend 化（mkdir/rename/move/delete/copy）。"""
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -28,35 +30,125 @@ def smb_lib(tmp_path, monkeypatch):
     smb.invalidate()
 
 
-def test_fs_list_remote_read_only(smb_lib):
+def test_fs_list_remote_writable(smb_lib):
     lib, _root, _fake = smb_lib
     c = TestClient(app)
     d = c.get(f"/api/fs/list?library={lib['id']}").json()
-    assert d["fs_writable"] is False and d["driver"] == "smb"
+    # 写操作已 backend 化（mkdir/rename/move/delete/copy），可写库不再 fs_writable=false
+    assert d["fs_writable"] is True and d["driver"] == "smb"
     assert [x["name"] for x in d["dirs"]] == ["电影"]
     assert d["dirs"][0]["children"] is None
     d2 = c.get(f"/api/fs/list?path=电影&library={lib['id']}").json()
     assert {x["name"] for x in d2["dirs"]} == {"片 (2020)"}
     assert any(f["name"] == "note.txt" for f in d2["files"])
-    # 离线 → 503（不吞成空目录）
+    # 离线 → 503（不吞成空目录）；清元数据缓存模拟 TTL 过期
     _fake.offline = True
+    smb.clear_meta()
     assert c.get(f"/api/fs/list?library={lib['id']}").status_code == 503
     smb.invalidate()
 
 
-def test_fs_write_remote_501(smb_lib):
-    lib, _root, _fake = smb_lib
+def test_fs_write_remote_ops(smb_lib):
+    """直读远程库写操作全链路（backend，无挂载）。"""
+    lib, root, _fake = smb_lib
     c = TestClient(app)
     lid = lib["id"]
-    assert c.post("/api/fs/mkdir", json={"library_id": lid, "name": "x"}).status_code == 501
-    assert c.post("/api/fs/rename", json={"library_id": lid, "from": "电影/note.txt",
-                                          "name": "n2.txt"}).status_code == 501
-    assert c.post("/api/fs/move", json={"library_id": lid, "from": "电影/note.txt",
-                                        "to_dir": "电影"}).status_code == 501
-    assert c.post("/api/fs/delete", json={"library_id": lid,
-                                          "paths": ["电影/note.txt"]}).status_code == 501
-    assert c.post("/api/fs/copy", json={"library_id": lid, "from": ["电影/note.txt"],
-                                        "to_dir": "电影"}).status_code == 501
+    # mkdir（含冲突 409）
+    r = c.post("/api/fs/mkdir", json={"library_id": lid, "path": "电影",
+                                      "name": "新目录"})
+    assert r.status_code == 200, r.text
+    assert (root / "电影" / "新目录").is_dir()
+    assert c.post("/api/fs/mkdir", json={"library_id": lid, "path": "电影",
+                                         "name": "新目录"}).status_code == 409
+    # rename（dry_run 预览 + 执行）
+    d = c.post("/api/fs/rename", json={"library_id": lid, "from": "电影/note.txt",
+                                       "name": "n2.txt"}).json()
+    assert d["plans"][0]["status"] == "planned"
+    r = c.post("/api/fs/rename", json={"library_id": lid, "from": "电影/note.txt",
+                                       "name": "n2.txt", "dry_run": False}).json()
+    assert r["moved"] == 1 and (root / "电影" / "n2.txt").is_file()
+    # move
+    r = c.post("/api/fs/move", json={"library_id": lid, "from": "电影/n2.txt",
+                                     "to_dir": "电影/新目录", "dry_run": False}).json()
+    assert r["moved"] == 1 and (root / "电影" / "新目录" / "n2.txt").is_file()
+    # delete：非空目录拒绝、文件删除、空目录可删
+    d = c.post("/api/fs/delete", json={"library_id": lid,
+                                       "paths": ["电影/新目录"]}).json()
+    assert d["plans"][0]["status"] == "dir_not_empty"
+    d = c.post("/api/fs/delete", json={"library_id": lid, "dry_run": False,
+                                       "paths": ["电影/新目录/n2.txt"]}).json()
+    assert d["deleted"] == 1 and not (root / "电影" / "新目录" / "n2.txt").exists()
+    # 删最后一个文件后旧目录空 → 收尾自动清掉（与本地 _cleanup_old_dir 同语义）
+    assert not (root / "电影" / "新目录").exists()
+    # 显式删除空目录
+    c.post("/api/fs/mkdir", json={"library_id": lid, "path": "电影", "name": "空目录"})
+    d = c.post("/api/fs/delete", json={"library_id": lid, "dry_run": False,
+                                       "paths": ["电影/空目录"]}).json()
+    assert d["deleted"] == 1 and not (root / "电影" / "空目录").exists()
+
+
+def test_fs_copy_remote(smb_lib):
+    """远程复制：预览统计 + 后台任务分块复制（绝不覆盖，冲突自动副本）。"""
+    lib, root, _fake = smb_lib
+    c = TestClient(app)
+    lid = lib["id"]
+    (root / "电影" / "note2.txt").write_bytes(b"x" * 10)
+    prev = c.post("/api/fs/copy", json={"library_id": lid,
+                                        "from": ["电影/note2.txt"],
+                                        "to_dir": "电影/片 (2020)"}).json()
+    assert prev["dry_run"] is True and prev["files"] == 1 and prev["bytes"] == 10
+    out = c.post("/api/fs/copy", json={"library_id": lid,
+                                       "from": ["电影/note2.txt"],
+                                       "to_dir": "电影/片 (2020)",
+                                       "dry_run": False}).json()
+    jid = out["job_id"]
+    for _ in range(100):
+        st = c.get(f"/api/fs/copy/{jid}").json()
+        if st.get("state") in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert st["state"] == "done", st
+    assert (root / "电影" / "片 (2020)" / "note2.txt").read_bytes() == b"x" * 10
+    # 冲突 → 自动「(副本)」，不覆盖
+    out2 = c.post("/api/fs/copy", json={"library_id": lid,
+                                        "from": ["电影/note2.txt"],
+                                        "to_dir": "电影/片 (2020)",
+                                        "dry_run": False}).json()
+    for _ in range(100):
+        st2 = c.get(f"/api/fs/copy/{out2['job_id']}").json()
+        if st2.get("state") in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert st2["state"] == "done" and st2["renamed"] == 1
+    assert (root / "电影" / "片 (2020)" / "note2 (副本).txt").is_file()
+    # 目录递归复制到不存在的新目标目录
+    d = root / "电影" / "合集目录"
+    (d / "sub").mkdir(parents=True)
+    (d / "a.txt").write_bytes(b"a")
+    (d / "sub" / "b.txt").write_bytes(b"bb")
+    out3 = c.post("/api/fs/copy", json={"library_id": lid,
+                                        "from": ["电影/合集目录"],
+                                        "to_dir": "电影/新目标",
+                                        "dry_run": False}).json()
+    for _ in range(100):
+        st3 = c.get(f"/api/fs/copy/{out3['job_id']}").json()
+        if st3.get("state") in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert st3["state"] == "done", st3
+    assert (root / "电影" / "新目标" / "合集目录" / "a.txt").read_bytes() == b"a"
+    assert (root / "电影" / "新目标" / "合集目录" / "sub" / "b.txt").read_bytes() == b"bb"
+
+
+def test_fs_write_remote_read_only_lib(smb_lib):
+    lib, _root, _fake = smb_lib
+    store.update_media_library(lib["media_library_id"], read_only=True)
+    library_paths.invalidate_cache()
+    c = TestClient(app)
+    r = c.post("/api/fs/mkdir", json={"library_id": lib["id"], "name": "x"})
+    assert r.status_code == 409, r.text
+    d = c.get(f"/api/fs/list?library={lib['id']}").json()
+    assert d["fs_writable"] is False
 
 
 def test_fs_list_local_still_writable(media_root):
@@ -95,8 +187,9 @@ def test_fs_media_root_remote_read_only(tmp_path, monkeypatch):
         # 媒体根内继续下钻（远程 list）
         d2 = c.get(f"/api/fs/list?media_library={media['id']}&path=电影").json()
         assert [x["name"] for x in d2["dirs"]] == ["片 (2020)"]
-        # 离线 → 503（不吞成空目录）
+        # 离线 → 503（不吞成空目录）；清元数据缓存模拟 TTL 过期
         fake.offline = True
+        smb.clear_meta()
         assert c.get(f"/api/fs/list?media_library={media['id']}").status_code == 503
         smb.invalidate()
     finally:

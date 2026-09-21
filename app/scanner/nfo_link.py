@@ -65,23 +65,35 @@ class _LocalDirFS:
 
 
 class _BackendDirFS:
-    """远程存储适配：与本地同一套 NFO 收敛策略，经 StorageBackend 落盘。"""
+    """远程存储适配：与本地同一套 NFO 收敛策略，经 StorageBackend 落盘。
+
+    一次 list 建目录快照 `{name: is_dir}`，`names()`/`is_file()` 复用——
+    此前每个目录项一次 stat，独占大目录（含字幕/花絮）会放大成几十次往返。"""
 
     def __init__(self, backend, rel_dir: str):
         self.backend = backend
         self.dir = backend.norm(rel_dir or "")
+        self._snapshot: dict | None = None
+        self._unreadable = False
+
+    def _load(self) -> dict | None:
+        if self._snapshot is None and not self._unreadable:
+            try:
+                entries = self.backend.list(self.dir)
+            except Exception as e:
+                logger.debug("dir fs list failed dir=%s: %s", self.dir, e)
+                self._unreadable = True
+                return None
+            self._snapshot = {str(e["name"]): bool(e.get("is_dir"))
+                              for e in entries}
+        return self._snapshot
 
     def exists(self) -> bool:
-        try:
-            return self.backend.is_dir(self.dir)
-        except Exception:
-            return False
+        return self._load() is not None
 
     def names(self):
-        try:
-            return sorted(e["name"] for e in self.backend.list(self.dir))
-        except Exception:
-            return None
+        snap = self._load()
+        return sorted(snap) if snap is not None else None
 
     def rel_of(self, name: str) -> str:
         return f"{self.dir}/{name}" if self.dir else name
@@ -90,10 +102,10 @@ class _BackendDirFS:
         return self.rel_of(name)
 
     def is_file(self, name: str) -> bool:
-        try:
-            return not self.backend.stat(self.rel_of(name)).is_dir
-        except Exception:
+        snap = self._load()
+        if snap is None:
             return False
+        return name in snap and not snap[name]
 
     def read(self, name: str):
         try:

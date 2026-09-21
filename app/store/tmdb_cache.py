@@ -3,7 +3,7 @@ import json
 import time
 from ._base import _conn, _dump_list, _lock, logger
 from .movies import update_movie_meta
-__all__ = ['seed_tmdb_cache_from_movies', 'get_tmdb_cached', 'upsert_tmdb_cache', 'list_movie_ids_by_tmdb', 'copy_tmdb_to_movie', 'tmdb_ids_missing_collection']
+__all__ = ['seed_tmdb_cache_from_movies', 'get_tmdb_cached', 'upsert_tmdb_cache', 'list_movie_ids_by_tmdb', 'copy_tmdb_to_movie', 'tmdb_ids_missing_collection', 'set_poster_override']
 
 def _index_match(meta: dict, tmdb_id: int) -> None:
     """同步离线候选索引（E）：每次 TMDB 缓存写入后刷新 match_index。"""
@@ -105,6 +105,15 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
     col_poster = meta.get("collection_poster_path") or ""
     def _apply(c) -> bool:
         row = c.execute("SELECT * FROM tmdb_cache WHERE tmdb_id=?", (tmdb_id,)).fetchone()
+        # v19：手工选过候选海报 → 刷新不得把默认海报写回去（override 只由 set_poster_override 改）
+        if row is not None:
+            try:
+                override = (row["poster_override"] or "").strip()
+            except Exception:
+                override = ""
+            if override:
+                nonlocal poster_tmdb_path
+                poster_tmdb_path = override
         if not row:
             c.execute(
                 "INSERT INTO tmdb_cache(tmdb_id, title, original_title, year, overview,"
@@ -193,6 +202,24 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
     if changed:
         _index_match(meta, tmdb_id)
     return changed
+
+
+def set_poster_override(tmdb_id: int, file_path: str) -> bool:
+    """记录候选海报手工选择（v19）：写 `poster_override` + `poster_tmdb_path`。
+
+    此后 `upsert_tmdb_cache`（刷新/重刮）不会把 TMDB 默认海报写回。
+    传空串 = 清除选择（仅清 override，不重置当前 poster_tmdb_path）。返回是否有该缓存行。
+    """
+    fp = (file_path or "").strip()
+    tid = int(tmdb_id)
+    with _lock, _conn() as c:
+        if fp:
+            cur = c.execute("UPDATE tmdb_cache SET poster_override=?, poster_tmdb_path=?"
+                            " WHERE tmdb_id=?", (fp, fp, tid))
+        else:
+            cur = c.execute("UPDATE tmdb_cache SET poster_override='' WHERE tmdb_id=?",
+                            (tid,))
+        return cur.rowcount > 0
 
 
 def list_movie_ids_by_tmdb(tmdb_id: int) -> list[int]:

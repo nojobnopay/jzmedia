@@ -1,5 +1,9 @@
 """routers.movies.routes（自 app/routers/movies.py 拆分，评审 B9/R05-Q1；经 movies 门面使用）。"""
+import hashlib
 import os
+import re
+from urllib.parse import quote
+
 from fastapi import (APIRouter, BackgroundTasks, File, HTTPException, Query,
                      Request, UploadFile)
 from ... import config
@@ -11,9 +15,10 @@ from ...regions import normalize_tags
 from ...log import get_logger
 logger = get_logger("movies.routes")
 from ...scanner import same_stem
-from .common import (_INLINE_EXTS, FilterList, _library_scope, _page, _stream_upload)
+from .common import (_INLINE_EXTS, FilterList, _library_scope, _page,
+                     _stream_upload, _stream_upload_backend)
 from .scope import _movie_delete_scope
-__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_similar', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'organize_hint', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig']
+__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_similar', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'organize_hint', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig', 'movie_posters', 'movie_poster_thumb', 'movie_poster_set']
 
 router = APIRouter(prefix="/api")
 
@@ -307,22 +312,79 @@ def movie_similar(movie_id: int, limit: int = 12):
     return {"id": movie_id, "items": store.similar_movies(movie_id, limit)}
 
 
+def _dir_entries(backend, rel_dir: str) -> list[dict] | None:
+    """目录项 {name,is_dir,size,mtime}：本地走 POSIX、远程直读走 backend.list。
+    目录不存在/不可达返回 None（调用方按空处理）。"""
+    local = backend.abs_path(rel_dir)
+    if local is not None:
+        try:
+            out = []
+            with os.scandir(local) as it:
+                for e in it:
+                    try:
+                        st = e.stat()
+                        size, mtime = int(st.st_size), int(st.st_mtime)
+                    except OSError:
+                        size, mtime = 0, 0
+                    out.append({"name": e.name, "is_dir": e.is_dir(),
+                                "size": size, "mtime": mtime})
+            return out
+        except OSError:
+            return None
+    try:
+        return [{"name": str(e.get("name") or ""),
+                 "is_dir": bool(e.get("is_dir")),
+                 "size": int(e.get("size") or 0),
+                 "mtime": int(e.get("mtime") or 0)}
+                for e in backend.list(rel_dir)]
+    except Exception as e:
+        logger.debug("dir entries failed lib=%s rel=%s: %s",
+                     backend.library_id, rel_dir, e)
+        return None
+
+
+def _file_meta(backend, rel: str) -> tuple[int, int] | None:
+    """文件 (size, mtime)；不存在/目录/错误 → None。本地/远程统一。"""
+    local = backend.abs_path(rel)
+    if local is not None:
+        try:
+            if not os.path.isfile(local):
+                return None
+            st = os.stat(local)
+            return int(st.st_size), int(st.st_mtime)
+        except OSError:
+            return None
+    try:
+        st = backend.stat(rel)
+    except Exception:
+        return None
+    if st.is_dir:
+        return None
+    return int(st.size), int(st.mtime)
+
+
 @router.get("/movies/{movie_id}/files")
 def movie_files(movie_id: int):
     """同目录文件清单（只读）：独占目录全量展示；共享目录（如未整理的 待整理/）
-    只返回本片相关（自身+同 tmdb 版本+同 stem 前缀的花絮/字幕/NFO），并标 scoped=related。"""
+    只返回本片相关（自身+同 tmdb 版本+同 stem 前缀的花絮/字幕/NFO），并标 scoped=related。
+    本地/远程直读统一：目录列举与 size/mtime 经 StorageBackend（直读库不再全空/0）。"""
+    from ... import storage
     from ...scanner import (SUBTITLE_EXTS, VIDEO_EXTS, is_extra, is_sample)
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
     rel_dir = os.path.dirname(m["file_path"])
     lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
-    root = library_paths.library_root(lib_id)
-    movie_dir = os.path.join(root, rel_dir) if rel_dir else root
     empty = {"dir": rel_dir, "scoped": "dir", "hint": "",
              "feature": [], "extras": [], "samples": [],
              "subtitles": [], "nfos": [], "others": []}
-    if not os.path.isdir(movie_dir):
+    try:
+        backend = storage.backend_for(lib_id)
+    except storage.StorageError as e:
+        logger.warning("movie files backend unavailable lib=%s: %s", lib_id, e)
+        return empty
+    entries = _dir_entries(backend, rel_dir)
+    if entries is None:
         return empty
     own_paths = {v.get("file_path", "") for v in (m.get("versions") or [])}
     own_paths.add(m["file_path"])
@@ -331,17 +393,17 @@ def movie_files(movie_id: int):
     def _same_stem(name_stem: str) -> bool:
         return same_stem(name_stem, own_stems)   # 单源（评审 B9/R05-B4）
 
-    names = sorted(os.listdir(movie_dir))
+    files = [e for e in entries if not e["is_dir"]]
+    names = sorted(e["name"] for e in files)
+    by_name = {e["name"]: e for e in files}
     # 共享目录判定：存在不属于本片的正片视频
     foreign = False
     for n in names:
-        full = os.path.join(movie_dir, n)
-        if not os.path.isfile(full):
-            continue
         rel = os.path.join(rel_dir, n) if rel_dir else n
         _, ex = os.path.splitext(n)
         if ex.lower() in VIDEO_EXTS and not is_sample(n) \
-                and not is_extra(rel, library_id=lib_id) and rel not in own_paths:
+                and not is_extra(rel, library_id=lib_id, backend=backend) \
+                and rel not in own_paths:
             foreign = True
             break
     out = {"dir": rel_dir,
@@ -351,14 +413,8 @@ def movie_files(movie_id: int):
     if foreign:
         out["hint"] = "该片尚未归档，同目录为共享目录，仅显示同名相关文件"
     for n in names:
-        full = os.path.join(movie_dir, n)
-        if not os.path.isfile(full):
-            continue
-        try:
-            _st = os.stat(full)
-            size, mtime = _st.st_size, int(_st.st_mtime)
-        except OSError:
-            size, mtime = 0, 0
+        e = by_name[n]
+        size, mtime = e["size"], e["mtime"]
         rel = os.path.join(rel_dir, n) if rel_dir else n
         item = {"name": n, "rel": rel, "size": size, "mtime": mtime}
         _, ex = os.path.splitext(n)
@@ -374,7 +430,7 @@ def movie_files(movie_id: int):
         elif ex in VIDEO_EXTS:
             if is_sample(n):
                 out["samples"].append(item)
-            elif is_extra(rel, library_id=lib_id):
+            elif is_extra(rel, library_id=lib_id, backend=backend):
                 out["extras"].append(item)
             else:
                 out["feature"].append(item)
@@ -383,27 +439,17 @@ def movie_files(movie_id: int):
     # 归属花絮子目录（仅独占目录：共享目录的 extras/ 归属不明，不混入各片）
     if foreign:
         return out
-    extras_dir = os.path.join(movie_dir, "extras")
-    try:
-        sub = sorted(os.listdir(extras_dir)) if os.path.isdir(extras_dir) else []
-    except OSError:
-        sub = []
+    sub_entries = _dir_entries(backend, os.path.join(rel_dir, "extras")) or []
     seen = {x["name"] for lst in
             (out["extras"], out["samples"], out["feature"]) for x in lst}
-    for n in sub:
-        full = os.path.join(extras_dir, n)
-        if not os.path.isfile(full):
-            continue
+    for e in sorted((x for x in sub_entries if not x["is_dir"]),
+                    key=lambda x: x["name"]):
+        n = e["name"]
         disp = f"extras/{n}"
         if disp in seen:
             continue
-        try:
-            _st = os.stat(full)
-            size, mtime = _st.st_size, int(_st.st_mtime)
-        except OSError:
-            size, mtime = 0, 0
         rel = os.path.join(rel_dir, disp) if rel_dir else disp
-        item = {"name": disp, "size": size, "mtime": mtime, "rel": rel}
+        item = {"name": disp, "size": e["size"], "mtime": e["mtime"], "rel": rel}
         # 花絮子目录全文件列出：视频进 extras 组，其余进 others 组（不再隐身）
         if os.path.splitext(n)[1].lower() in VIDEO_EXTS:
             out["extras"].append(item)
@@ -419,18 +465,13 @@ def movie_files(movie_id: int):
               out["subtitles"], out["nfos"], out["others"]) for x in lst}
     known_basenames = {os.path.basename(x) for x in known}
     for e in attached:
-        full = library_paths.resolve(lib_id, e["file_path"])
-        if not os.path.isfile(full):
-            continue
         if e["file_path"] in known or os.path.basename(e["file_path"]) in known_basenames:
             continue
-        try:
-            _st = os.stat(full)
-            size, mtime = _st.st_size, int(_st.st_mtime)
-        except OSError:
-            size, mtime = 0, 0
+        meta = _file_meta(backend, e["file_path"])
+        if meta is None:
+            continue
         out["extras"].append({"name": e["file_path"], "rel": e["file_path"],
-                              "size": size, "mtime": mtime,
+                              "size": meta[0], "mtime": meta[1],
                               "attached": True})
         known.add(e["file_path"])
     return out
@@ -439,10 +480,16 @@ def movie_files(movie_id: int):
 def _movie_blob_rel(movie_id: int, name: str) -> tuple[dict, str]:
     """详情页文件定位：name 可为 files 清单的 name 或 rel；返回 (movie, rel)。"""
     from ..fs import _check_inside_root
+    from ... import storage
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
     lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    try:
+        backend = storage.backend_for(lib_id)
+    except storage.StorageError as e:
+        logger.warning("movie blob backend unavailable lib=%s: %s", lib_id, e)
+        backend = None
     raw = (name or "").strip()
     if not raw:
         raise HTTPException(422, "name required")
@@ -463,7 +510,9 @@ def _movie_blob_rel(movie_id: int, name: str) -> tuple[dict, str]:
             norm = _check_inside_root(c)
         except HTTPException:
             continue
-        if os.path.isfile(library_paths.resolve(lib_id, norm)):
+        found = (_file_meta(backend, norm) is not None if backend is not None
+                 else os.path.isfile(library_paths.resolve(lib_id, norm)))
+        if found:
             rel = norm
             break
     if not rel:
@@ -548,6 +597,41 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
     rel_dir = os.path.dirname(m["file_path"])
     lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
     _require_writable(lib_id)
+    from ... import storage
+    backend = storage.backend_for(lib_id)
+    remote = backend.abs_path("") is None
+    if remote:
+        # 直读远程库：目标目录/写入/入库全走 StorageBackend（不再落本地挂载点）
+        try:
+            if not backend.is_dir(rel_dir):
+                raise HTTPException(404, "movie dir missing")
+        except HTTPException:
+            raise
+        except storage.StorageOffline as e:
+            raise HTTPException(503, f"source offline: {e}")
+        except storage.StorageError:
+            raise HTTPException(404, "movie dir missing")
+        target_dir = (f"{rel_dir}/extras" if rel_dir else "extras") if (
+            sub == "extras" or _is_side(safe)) else rel_dir
+        rel = f"{target_dir}/{safe}" if target_dir else safe
+        try:
+            size = _stream_upload_backend(file, backend, rel)
+        finally:
+            try:
+                file.file.close()
+            except Exception:
+                pass
+        status = "stored"
+        try:
+            if _is_feat(rel, library_id=lib_id, backend=backend):
+                r = scanner.scan_file(backend, rel)
+                status = r.get("status", "stored")
+            elif _is_side(rel, library_id=lib_id, backend=backend):
+                r = scanner.attribute_extra_file(backend, rel)
+                status = r.get("status", "stored")
+        except Exception as e:
+            status = f"stored_scan_warn: {e}"
+        return {"name": safe, "rel": rel, "size": size, "status": status}
     root = library_paths.library_root(lib_id)
     movie_dir = os.path.join(root, rel_dir) if rel_dir else root
     if not os.path.isdir(movie_dir):
@@ -611,8 +695,44 @@ def library_upload(file: UploadFile = File(...),
              (target_dir or "").strip().strip("/").replace("\\", "/").split("/")]
     tmods = [s for s in tmods if s and s not in (".", "..")]
     rel = _check_inside_root("/".join([*tmods, *safe_segs]), lid)
-    dst = library_paths.resolve(lid, rel)
     _require_writable(lid)
+    from ... import storage
+    backend = storage.backend_for(lid)
+    if backend.abs_path("") is None:
+        # 直读远程库：目录自动创建 + 流式写入均经 backend（不再写本地挂载点）
+        parent = os.path.dirname(rel)
+        if parent:
+            try:
+                backend.mkdir(parent, parents=True)
+            except storage.StorageError as e:
+                raise HTTPException(500, f"mkdir failed: {e}")
+        try:
+            size = _stream_upload_backend(file, backend, rel)
+        finally:
+            try:
+                file.file.close()
+            except Exception:
+                pass
+        status = "stored"
+        try:
+            if _is_feat(rel, library_id=lid, backend=backend):
+                r = scanner.scan_file(backend, rel)
+                status = r.get("status", "stored")
+            elif _is_side(rel, library_id=lid, backend=backend):
+                r = scanner.attribute_extra_file(backend, rel)
+                status = r.get("status", "stored")
+        except Exception as e:
+            status = f"stored_scan_warn: {e}"
+        movie_id = None
+        try:
+            m = store.get_by_path(rel, library_id=lid)
+            if m:
+                movie_id = m["id"]
+        except Exception:
+            pass
+        return {"name": safe_segs[-1], "rel": rel, "size": size,
+                "status": status, "movie_id": movie_id, "library_id": lid}
+    dst = library_paths.resolve(lid, rel)
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
     except OSError as e:
@@ -650,13 +770,19 @@ def movie_file_delete(movie_id: int, body: dict | None = None):
     """详情页删单文件：{name, dry_run, confirm}。
 
     周边/花絮 dry_run:false 即删；正片必须 confirm:true（影响海报墙，二次警告）。"""
-    from ..fs import _exec_delete_one, _impact_for_delete
+    from ..fs import _exec_delete_one, _exec_delete_one_remote, _impact_for_delete
+    from ... import storage
     body = body or {}
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
     _, rel = _movie_blob_rel(movie_id, str(body.get("name") or ""))
-    plan = _impact_for_delete(rel)
+    lid = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    backend = storage.backend_for(lid)
+    remote = backend.abs_path("") is None
+    plan = {**_impact_for_delete(rel, lid,
+                                 backend=backend if remote else None),
+            "library_id": lid}
     dry_run = body.get("dry_run", True)
     confirm = bool(body.get("confirm", False))
     if dry_run or (plan.get("requires_confirm") and not confirm):
@@ -665,8 +791,8 @@ def movie_file_delete(movie_id: int, body: dict | None = None):
                 "hint": ("正片文件：删除后将从海报墙移除，需 confirm:true 二次确认"
                          if plan.get("requires_confirm") else "")}
     from ..files import _require_writable as _rw
-    _rw(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
-    r = _exec_delete_one(plan)
+    _rw(lid)
+    r = _exec_delete_one_remote(plan, backend) if remote else _exec_delete_one(plan)
     return {"dry_run": False, "total": 1,
             "deleted": 1 if r.get("status") == "deleted" else 0,
             "results": [r]}
@@ -844,9 +970,10 @@ def rescan_movie(movie_id: int):
     rel = (m.get("file_path") or "").strip()
     if not rel:
         raise HTTPException(422, "movie has no file_path")
+    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    storage.clear_meta_cache(lib_id)   # 重扫=显式“重新看盘”
     try:
-        backend = storage.backend_for(
-            m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        backend = storage.backend_for(lib_id)
         backend.stat(rel)
     except storage.StorageNotFound:
         raise HTTPException(410, f"file missing: {rel}")
@@ -890,7 +1017,9 @@ def batch_delete_movies(body: dict | None = None):
     dry_run 默认 true：返回每部片标题/年份/版本文件/附属文件/字节数，
     须 confirm:true 才执行。执行删磁盘文件 + 版本库行 + extras 库行
     （海报/tmdb_cache 保留）；独占目录整树删，共享目录仅删本片相关。"""
-    from ..files import _cleanup_old_dir, _resync_old_dir
+    from ..files import (_cleanup_old_dir, _remote_cleanup_old_dir,
+                         _remote_resync_old_dir, _resync_old_dir)
+    from ... import storage
     body = body or {}
     raw = body.get("ids") or []
     try:
@@ -989,11 +1118,45 @@ def batch_delete_movies(body: dict | None = None):
                 store.delete_movie(vid)
             except Exception as ex:
                 db_errors.append(f"version {vid}: {ex}")
+        lib_id = p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+        backend = None
+        err = ""
+        try:
+            backend = storage.backend_for(lib_id)
+        except storage.StorageError as ex:
+            err = str(ex)
+            logger.warning("batch delete backend unavailable lib=%s: %s", lib_id, ex)
+        if backend is None:
+            # 库不可达（离线/未挂载）：绝不能先删 DB 行留下 NAS 孤儿文件
+            results.append({**p, "status": "error: library unavailable",
+                            "deleted_files": 0, "missing_files": 0,
+                            "failed_files": [], "db_errors": [err]})
+            continue
+        remote = backend.abs_path("") is None
         touched_dirs: set[str] = set()
+        touched_remote_dirs: set[str] = set()
         ok, missing, failed = 0, 0, []
         for f in p["files"]:
-            abs_p = library_paths.resolve(
-                p.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, f["rel"])
+            rel = f["rel"]
+            if remote:
+                try:
+                    st = backend.stat(rel)
+                except storage.StorageNotFound:
+                    missing += 1
+                    continue
+                except storage.StorageError as ex:
+                    failed.append({"rel": rel, "error": str(ex)})
+                    continue
+                if st.is_dir:
+                    continue
+                try:
+                    backend.delete(rel)
+                    ok += 1
+                    touched_remote_dirs.add(os.path.dirname(rel))
+                except storage.StorageError as ex:
+                    failed.append({"rel": rel, "error": str(ex)})
+                continue
+            abs_p = library_paths.resolve(lib_id, rel)
             touched_dirs.add(os.path.dirname(abs_p))
             if not os.path.lexists(abs_p):
                 missing += 1
@@ -1003,10 +1166,14 @@ def batch_delete_movies(body: dict | None = None):
                     os.remove(abs_p)
                     ok += 1
             except OSError as ex:
-                failed.append({"rel": f["rel"], "error": str(ex)})
+                failed.append({"rel": rel, "error": str(ex)})
         for d in touched_dirs:
             _cleanup_old_dir(d)
             _resync_old_dir(d)
+        if remote:
+            for rel_d in touched_remote_dirs:
+                _remote_cleanup_old_dir(backend, rel_d)
+                _remote_resync_old_dir(backend, rel_d, lib_id)
         status = "deleted" if (not db_errors and not failed) else "deleted_with_errors"
         results.append({**p, "status": status,
                         "deleted_files": ok, "missing_files": missing,
@@ -1023,7 +1190,6 @@ def movie_poster_orig(movie_id: int):
     无 tmdb_id/远端路径/下载失败时 4xx/5xx，前端回退本地 w500 图。删 *_orig.jpg
     即清缓存，下次点击自动重下。"""
     from fastapi.responses import FileResponse
-    from .. import tmdb as _tmdb
     from ...db import POSTER_DIR
     m = store.get_movie(movie_id)
     if not m:
@@ -1041,10 +1207,148 @@ def movie_poster_orig(movie_id: int):
     dest = os.path.join(POSTER_DIR, f"{int(tid)}_orig.jpg")
     if not os.path.isfile(dest):
         try:
-            ok = _tmdb.download_poster(remote, dest, size="original")
+            ok = tmdb.download_poster(remote, dest, size="original")
         except Exception:
             ok = False
         if not ok or not os.path.isfile(dest):
             raise HTTPException(502, "original poster download failed")
-    return FileResponse(dest, filename=os.path.basename(dest))
+    # 换海报会原地覆盖 _orig.jpg（URL 不变）→ 强制浏览器重新验证，避免显示旧原图
+    return FileResponse(dest, filename=os.path.basename(dest),
+                        headers={"Cache-Control": "no-cache"})
+
+
+_POSTER_PATH_RE = re.compile(r"^/[A-Za-z0-9]{6,}\.(?:jpg|jpeg|png)$")
+
+
+def _valid_poster_path(raw: str) -> str:
+    """候选海报 file_path 白名单（TMDB 形态）：只允许 `/<hash>.jpg|png`，
+    后端再拼固定图片域名，浏览器传参无法构造任意 URL。"""
+    p = str(raw or "").strip()
+    if not _POSTER_PATH_RE.match(p):
+        raise HTTPException(422, f"illegal poster path: {raw!r}")
+    return p
+
+
+@router.get("/movies/{movie_id}/posters")
+def movie_posters(movie_id: int):
+    """候选海报（Plex 式换海报）：TMDB /movie/{id}/images，按分辨率+评分排序。
+    缩略图走后端代理（浏览器无需可达 TMDB 图片域名）；current 为当前选择。"""
+    m = store.get_movie(movie_id)
+    if not m:
+        raise HTTPException(404, "movie not found")
+    tid = m.get("tmdb_id")
+    if not tid:
+        raise HTTPException(404, "movie has no tmdb_id")
+    try:
+        data = tmdb.movie_images(int(tid))
+    except Exception as e:
+        logger.warning("movie images failed tmdb_id=%s: %s", tid, e)
+        raise HTTPException(503, f"tmdb images failed: {e}")
+    cached = store.get_tmdb_cached(int(tid)) or {}
+    current = str(cached.get("poster_override")
+                  or cached.get("poster_tmdb_path") or "").strip()
+    items = []
+    for p in (data.get("posters") or []):
+        fp = str(p.get("file_path") or "")
+        if not _POSTER_PATH_RE.match(fp):
+            continue
+        items.append({
+            "file_path": fp,
+            "width": int(p.get("width") or 0),
+            "height": int(p.get("height") or 0),
+            "lang": p.get("iso_639_1") or "",
+            "vote_average": round(float(p.get("vote_average") or 0), 1),
+            "thumb_url": f"/api/movies/{int(movie_id)}/poster-thumb?path={quote(fp)}",
+            "current": fp == current,
+        })
+    items.sort(key=lambda x: (x["width"] * x["height"], x["vote_average"]),
+               reverse=True)
+    return {"tmdb_id": int(tid), "current": current, "items": items}
+
+
+@router.get("/movies/{movie_id}/poster-thumb")
+def movie_poster_thumb(movie_id: int, path: str = Query(default="")):
+    """候选海报缩略图代理：下载 w185 缓存到 data/posters/cand/，FileResponse 返回。"""
+    from fastapi.responses import FileResponse
+    from ...db import POSTER_DIR
+    fp = _valid_poster_path(path)
+    m = store.get_movie(movie_id)
+    if not m or not m.get("tmdb_id"):
+        raise HTTPException(404, "movie not found")
+    tid = int(m["tmdb_id"])
+    name = hashlib.sha1(fp.encode("utf-8")).hexdigest()[:12]
+    dest = os.path.join(POSTER_DIR, "cand", f"{tid}_{name}.jpg")
+    if not os.path.isfile(dest):
+        try:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+        except OSError as e:
+            raise HTTPException(500, f"cache dir failed: {e}")
+        if not tmdb.download_image(fp, dest, size="w185"):
+            raise HTTPException(502, "thumb download failed")
+    return FileResponse(dest, media_type="image/jpeg")
+
+
+@router.post("/movies/{movie_id}/poster")
+def movie_poster_set(movie_id: int, body: dict | None = None):
+    """选定候选海报：下载 w500 + original 覆盖本地缓存 → 记 override（刷新不回退）
+    → 同步同 tmdb 全部版本 poster_path → best-effort 重写媒体目录 poster.jpg。"""
+    from ...config import settings
+    from ... import artwork, storage
+    from ...db import POSTER_DIR
+    body = body or {}
+    fp = _valid_poster_path(body.get("file_path"))
+    m = store.get_movie(movie_id)
+    if not m:
+        raise HTTPException(404, "movie not found")
+    tid = m.get("tmdb_id")
+    if not tid:
+        raise HTTPException(404, "movie has no tmdb_id")
+    tid = int(tid)
+    # 候选归属校验：只能选该片 TMDB 列表里的海报（防手填任意路径）
+    try:
+        data = tmdb.movie_images(tid)
+    except Exception as e:
+        raise HTTPException(503, f"tmdb images failed: {e}")
+    allowed = {str(p.get("file_path") or "") for p in (data.get("posters") or [])}
+    if fp not in allowed:
+        raise HTTPException(422, "poster not in candidates")
+    try:
+        os.makedirs(POSTER_DIR, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(500, f"poster dir failed: {e}")
+    dest = os.path.join(POSTER_DIR, f"{tid}.jpg")
+    if not tmdb.download_image(fp, dest, size="w500"):
+        raise HTTPException(502, "poster download failed")
+    orig = os.path.join(POSTER_DIR, f"{tid}_orig.jpg")
+    original_ok = False
+    try:
+        if os.path.exists(orig):
+            os.remove(orig)   # 旧原图缓存必须清掉，poster-orig 命中即返回
+        original_ok = tmdb.download_image(fp, orig, size="original")
+    except OSError as e:
+        logger.debug("remove stale orig poster failed %s: %s", orig, e)
+    store.set_poster_override(tid, fp)
+    poster_rel = os.path.relpath(dest, settings.data_dir)
+    wrote: list[str] = []
+    for mid in (store.list_movie_ids_by_tmdb(tid) or [int(movie_id)]):
+        try:
+            store.update_movie_meta(int(mid), poster_path=poster_rel)
+        except Exception as e:
+            logger.debug("update poster_path failed mid=%s: %s", mid, e)
+        try:
+            vm = store.get_movie(int(mid)) or {}
+            lid = vm.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+            backend = storage.backend_for(lid)
+            if backend.abs_path("") is None:
+                r = artwork.write_for_movie(int(mid), backend=backend,
+                                            rel=vm.get("file_path") or "",
+                                            backdrops=False)
+            else:
+                r = artwork.write_for_movie(int(mid), backdrops=False)
+            if r.get("ok") and r.get("wrote"):
+                wrote.extend(r["wrote"])
+        except Exception as e:
+            logger.debug("rewrite media poster failed mid=%s: %s", mid, e)
+    return {"ok": True, "poster_path": poster_rel, "file_path": fp,
+            "original_ok": original_ok, "wrote": sorted(set(wrote))}
 

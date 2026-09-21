@@ -83,6 +83,32 @@ def test_write_rename_delete(root):
         b.delete("full")
 
 
+def test_open_write_streams_and_atomic(root):
+    b = _backend(root)
+    with b.open_write("电影/stream/new.bin") as fh:
+        fh.write(b"abc")
+        fh.write(b"def")
+    assert (root / "电影" / "stream" / "new.bin").read_bytes() == b"abcdef"
+    assert not list((root / "电影" / "stream").glob("*.part-*"))
+
+
+def test_open_write_failure_cleans_tmp(root):
+    b = _backend(root)
+    with pytest.raises(RuntimeError):
+        with b.open_write("电影/fail.bin") as fh:
+            fh.write(b"partial")
+            raise RuntimeError("boom")
+    assert not (root / "电影" / "fail.bin").exists()
+    assert not list((root / "电影").glob("*.part-*"))
+
+
+def test_open_write_read_only(root):
+    b = _backend(root, read_only=1)
+    with pytest.raises(StorageReadOnly):
+        with b.open_write("x.bin"):
+            pass
+
+
 def test_read_only_guards(root):
     b = _backend(root, read_only=1)
     assert b.read("b.txt") == b"hello"

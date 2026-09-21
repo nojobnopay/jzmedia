@@ -316,16 +316,24 @@ def rebuild_fts():
 
 @router.get("/stats")
 def stats(library: str | None = None):
-    """库状态一览（设置页展示用，纯本地聚合）；library 缺省=全库合计。"""
-    from .files import _exists
+    """库状态一览（设置页展示用，纯本地聚合）；library 缺省=全库合计。
+    显式“重新看盘”：先清元数据短 TTL 缓存。"""
+    from .files import _exists_map
+    from .. import storage
+    storage.clear_meta_cache()
     libs = store._split_ints(library)
-    missing = 0
-    for m in store.list_movies(grouped=False, limit=100000):
-        if libs and int(m.get("library_id") or 0) not in libs:
-            continue
-        if not _exists(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
-                       m["file_path"]):
-            missing += 1
+    rows = [m for m in store.list_movies(grouped=False, limit=100000)
+            if not libs or int(m.get("library_id") or 0) in libs]
+    groups: dict[int, set] = {}
+    for m in rows:
+        lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        groups.setdefault(lid, set()).add(m["file_path"])
+    maps = {lid: _exists_map(lid, rels) for lid, rels in groups.items()}
+    missing = sum(
+        1 for m in rows
+        if not maps[int(m.get("library_id")
+                        or library_paths.DEFAULT_LIBRARY_ID)].get(
+                            m["file_path"], True))
     base = store.library_stats(libs[0] if len(libs) == 1 else None)
     return {**base, "missing_files": missing}
 

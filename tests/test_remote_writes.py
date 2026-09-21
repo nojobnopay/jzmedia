@@ -98,6 +98,44 @@ def test_scan_remote_writes_nfo_and_poster(smb_lib):
         os.remove(poster)
 
 
+def test_sync_nfo_remote_one_list_snapshot(smb_lib):
+    """P2：_BackendDirFS 一次 list 建快照，目录内多文件不再逐项 stat。"""
+    lib, root, fake = smb_lib
+    d = root / "Snap (2020)"
+    d.mkdir()
+    (d / "Snap (2020).mkv").write_bytes(b"x")
+    for i in range(8):
+        (d / f"Snap (2020).part{i}.srt").write_bytes(b"1\n")
+    mid = _movie_row(lib, "Snap (2020)/Snap (2020).mkv", tmdb_id=778904)
+    backend = storage.backend_for(lib["id"])
+    fake.counts.clear()
+    r = scanner.nfo_link.sync_nfos_for(mid, backend=backend,
+                                       rel="Snap (2020)/Snap (2020).mkv")
+    assert r["ok"] is True and "movie.nfo" in r["wrote"]
+    assert fake.counts.get("stat", 0) == 0
+    assert fake.counts.get("scandir", 0) == 1
+
+
+def test_artwork_remote_size_mismatch_skips_read(smb_lib):
+    """P2：海报写入先比 size，size 不同直接写（不再整文件读回比对）。"""
+    lib, root, fake = smb_lib
+    d = root / "Art2 (2019)"
+    d.mkdir()
+    (d / "poster.jpg").write_bytes(b"\xff\xd8OLD")   # 长度与源不同
+    mid = _movie_row(lib, "Art2 (2019)/Art2 (2019).mkv", tmdb_id=778905)
+    poster = os.path.join(POSTER_DIR, "778905.jpg")
+    with open(poster, "wb") as fh:
+        fh.write(b"\xff\xd8NEWPOSTER-LONGER")
+    try:
+        backend = storage.backend_for(lib["id"])
+        fake.counts.clear()
+        r = artwork.write_for_movie(mid, backend=backend, rel="Art2 (2019)/Art2 (2019).mkv")
+        assert r["ok"] is True and "poster.jpg" in r["wrote"]
+        assert fake.counts.get("open_file", 0) == 1   # 只有写入，没有读回
+    finally:
+        os.remove(poster)
+
+
 def test_read_only_remote_skips_writes(smb_lib):
     lib, root, _fake = smb_lib
     d = root / "RO (2020)"

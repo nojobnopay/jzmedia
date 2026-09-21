@@ -187,11 +187,13 @@ def apply_tmdb_detail(mid: int, detail: dict, abs_path: str,
     """把TMDB详情写入镜像并复制到本片（人物/海报/NFO/FTS，全同步版；扫描链路用）。
     force_title=True（手动换绑）时无条件覆盖标题；否则保留手工改过的标题。"""
     out, media = apply_tmdb_detail_fast(mid, detail, abs_path, force_title)
-    finish_tmdb_media(mid, detail, abs_path, media["poster_tmdb"],
-                      media["old_poster_tmdb"], backend=backend, rel=rel)
+    # finish_tmdb_media 内部已完成 NFO+海报落盘；此前这里再写一遍（远程库=双倍
+    # 往返），直接复用其结果（幂等失败自吞，返回空字段）。
+    fin = finish_tmdb_media(mid, detail, abs_path, media["poster_tmdb"],
+                            media["old_poster_tmdb"], backend=backend, rel=rel)
     movie = store.get_movie(mid)
-    out["nfo"] = _write_nfo_for(mid, abs_path, backend=backend, rel=rel)
-    out["artwork"] = artwork.write_for_movie(mid, abs_path, backend=backend, rel=rel)
+    out["nfo"] = fin.get("nfo", False)
+    out["artwork"] = fin.get("artwork", {})
     if movie:
         out["title"], out["year"] = movie["title"], movie["year"]
     return out

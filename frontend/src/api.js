@@ -50,7 +50,13 @@ export async function api(path, opts = {}) {
     clearTimeout(timer)
   }
 }
-export const posterUrl = (p) => (p ? `/posters/${p.split('/').pop()}` : '')
+// v 为可选版本（一般传 updated_at）：海报原地覆盖时 URL 不变，浏览器会吃旧缓存；
+// 带版本参数即可强制取新图（后端对可变海报也发 Cache-Control: no-cache 双保险）。
+export const posterUrl = (p, v) => {
+  if (!p) return ''
+  const u = `/posters/${p.split('/').pop()}`
+  return v ? `${u}?v=${encodeURIComponent(v)}` : u
+}
 
 // 大文件上传专用：FormData + XHR（支持进度与中断取消；>2GB 局域网场景）。
 // onProgress(0~100)；onUploaded 在字节发完时触发（服务端可能还在刮削，用于切换等待提示）；

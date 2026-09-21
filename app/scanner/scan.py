@@ -134,11 +134,13 @@ def scan_one(abs_path: str, force: bool = False, tmdb_hint: int | None = None,
 
 
 def scan_file(backend, rel: str, force: bool = False,
-              tmdb_hint: int | None = None, local_index: dict | None = None) -> dict:
+              tmdb_hint: int | None = None, local_index: dict | None = None,
+              entry=None) -> dict:
     """单文件入库（backend+库内相对路径；本地/远程直读统一）。
     force=True（手动重试）跳过增量跳过与缓存短路，重新刮削。
     tmdb_hint（复制文件时来自源行）：缓存命中则直绑该 tmdb_id，避免重搜与误配。
     local_index（扫描批次共享）：跨库已匹配索引——本地优先绑定，免网络且防错配。
+    entry（iter_tree 的 WalkEntry）：带 size/mtime，扫描时免每片一次 stat 往返。
     NFO 导入与媒体目录落盘：远程直读无 POSIX 路径时经 backend 适配器执行。"""
     lib_id = backend.library_id or DEFAULT_LIBRARY_ID
     rel = backend.norm(rel)
@@ -150,12 +152,16 @@ def scan_file(backend, rel: str, force: bool = False,
     cached = store.get_by_path(rel, library_id=lib_id)
     if cached and cached.get("tmdb_id") and not force:
         return {"file": rel, "status": "skipped_cached", "title": cached.get("title")}
-    # 增量跳过（评审 B9/R03-Q3）：未匹配/剧集行且文件 mtime+size 未变 → 不再重打 TMDB
-    try:
-        st = backend.stat(rel)
-        mtime, size = int(st.mtime), int(st.size)
-    except storage.StorageError:
-        mtime, size = 0, 0
+    # 增量跳过（评审 B9/R03-Q3）：未匹配/剧集行且文件 mtime+size 未变 → 不再重打 TMDB。
+    # entry 由 iter_tree 顺带返回（每目录一次 list），远程库不再逐片 stat。
+    if entry is not None:
+        mtime, size = int(entry.mtime), int(entry.size)
+    else:
+        try:
+            st = backend.stat(rel)
+            mtime, size = int(st.mtime), int(st.size)
+        except storage.StorageError:
+            mtime, size = 0, 0
     prev = store.get_scan_state(rel, library_id=lib_id)
     if (not force and prev is not None and mtime and size
             and int(prev.get("mtime") or 0) == mtime
@@ -239,7 +245,8 @@ def scan_file(backend, rel: str, force: bool = False,
         # 离线/降级兜底（E 阶段）：NFO 导入 → match_index 本地匹配
         offline = None
         try:
-            nfo_c = meta_nfo.candidates_for(abs_path) if abs_path else None
+            nfo_c = (meta_nfo.candidates_for(abs_path) if abs_path
+                     else meta_nfo.candidates_for_backend(backend, rel))
             if nfo_c is not None and nfo_c.tmdb_id:
                 offline = nfo_c
                 try:
@@ -320,16 +327,20 @@ def scan_tv_one(abs_path: str, library_id=None) -> dict:
     return scan_tv_file(storage.backend_for(lib_id), rel)
 
 
-def scan_tv_file(backend, rel: str) -> dict:
-    """TV 只读清单入库：解析 SxxEyy → tv_shows/tv_episodes；不刮削/不改名/不写 NFO。"""
+def scan_tv_file(backend, rel: str, entry=None) -> dict:
+    """TV 只读清单入库：解析 SxxEyy → tv_shows/tv_episodes；不刮削/不改名/不写 NFO。
+    entry（iter_tree 的 WalkEntry）带 size/mtime 时免一次 stat。"""
     lib_id = backend.library_id or DEFAULT_LIBRARY_ID
     rel = backend.norm(rel)
     base = os.path.basename(rel)
-    try:
-        st = backend.stat(rel)
-        mtime, size = int(st.mtime), int(st.size)
-    except storage.StorageError:
-        mtime, size = 0, 0
+    if entry is not None:
+        mtime, size = int(entry.mtime), int(entry.size)
+    else:
+        try:
+            st = backend.stat(rel)
+            mtime, size = int(st.mtime), int(st.size)
+        except storage.StorageError:
+            mtime, size = 0, 0
     if is_sidecar(rel, backend=backend) or is_sample(base):
         store.set_scan_state(rel, mtime, size, "skipped_sidecar", library_id=lib_id)
         return {"file": rel, "status": "skipped_sidecar"}
@@ -396,6 +407,7 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
             out.append({"file": "", "library_id": lib_id,
                         "status": f"error: library unavailable: {e}"})
             continue
+        storage.clear_meta_cache(lib_id)   # 扫描必须看到磁盘当前状态（不吃 TTL 缓存）
         try:
             backend.stat("")
             entries = list(backend.iter_tree("", skip_dirs=skip_dirs))
@@ -409,7 +421,9 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
                         "status": f"error: library root {e}"})
             continue
         vids = _video_entries(entries)
-        plans.append((lib, backend, vids))
+        # 树内全部文件（含花絮/字幕）：花絮行 GC 直接成员判定，免逐行 stat
+        tree_files = {e.rel for e in entries if not e.is_dir}
+        plans.append((lib, backend, vids, tree_files))
         grand += len(vids)
     if progress_cb:
         try:
@@ -422,8 +436,13 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
     except Exception as e:
         logger.debug("build local index failed: %s", e)
         local_index = {}
+    try:
+        all_extras = store.list_all_extras()
+    except Exception as e:
+        logger.debug("list extras failed: %s", e)
+        all_extras = []
     done = 0
-    for lib, backend, vids in plans:
+    for lib, backend, vids, tree_files in plans:
         lib_id = _lib_id(lib.get("id"))
         is_tv = str(lib.get("kind") or "movie") == "tv"
         seen_extras: set[str] = set()
@@ -432,9 +451,9 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
                 logger.info("scan cancelled: processed=%s/%s", done, grand)
                 return out
             try:
-                r = (scan_tv_file(backend, e.rel) if is_tv
+                r = (scan_tv_file(backend, e.rel, entry=e) if is_tv
                      else scan_file(backend, e.rel, force=force,
-                                    local_index=local_index))
+                                    local_index=local_index, entry=e))
                 r["library_id"] = lib_id
                 out.append(r)
                 if r.get("status") in (ST_EXTRA_ATTACHED, ST_EXTRA_ORPHAN):
@@ -452,19 +471,14 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
         if is_tv:
             continue
         # 花絮行 GC（按库分区，仅在一次完整遍历后执行）：文件已不存在的归属记录清掉
-        # （正片走 missing/clean 流程）；exists 走 backend，库离线/出错时整体保留行。
+        # （正片走 missing/clean 流程）；用本次树遍历快照成员判定，免逐行 stat 往返
+        # （遍历成功即代表磁盘当前状态；库离线在上面的 iter_tree 已跳过整库）。
         try:
-            for row in store.list_all_extras():
+            for row in all_extras:
                 if int(row.get("library_id") or DEFAULT_LIBRARY_ID) != lib_id:
                     continue
-                if row["file_path"] in seen_extras:
+                if row["file_path"] in seen_extras or row["file_path"] in tree_files:
                     continue
-                try:
-                    if backend.exists(row["file_path"]):
-                        continue
-                except storage.StorageError as ex:
-                    logger.debug("extras gc skipped (storage) lib=%s: %s", lib_id, ex)
-                    break
                 store.delete_extra_by_path(row["file_path"], library_id=lib_id)
         except Exception as ex:
             logger.debug("extras gc failed lib=%s: %s", lib_id, ex)

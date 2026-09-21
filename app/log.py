@@ -26,6 +26,12 @@ def setup_logging(force: bool = False) -> None:
     root.setLevel(level)
     for noisy in ("httpx", "httpcore", "urllib3"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    # smbprotocol 对每次线上操作打 INFO（Create/Close/Read...），直读库会刷屏；
+    # 默认压到 WARNING，排障时用 env SMB_LOG_LEVEL=DEBUG/INFO 单独放开。
+    smb_level_name = (os.getenv("SMB_LOG_LEVEL") or "WARNING").strip().upper() or "WARNING"
+    smb_level = getattr(logging, smb_level_name, logging.WARNING)
+    for noisy in ("smbprotocol", "smbclient", "spnego"):
+        logging.getLogger(noisy).setLevel(smb_level)
     _configured = True
 
 

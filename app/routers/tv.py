@@ -6,7 +6,7 @@ import os
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from .. import library_paths, store
+from .. import library_paths, storage, store
 
 router = APIRouter(prefix="/api/tv")
 
@@ -25,10 +25,17 @@ def _lib_ids(library, media_library) -> list | None:
 
 
 def _episode_payload(e: dict) -> dict:
+    """集文件存在性：本地 POSIX / 远程直读 backend 统一（离线保守 True，§19）。"""
     d = dict(e)
+    rel = e.get("file_path") or ""
+    lib_id = e.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
     try:
-        d["exists"] = os.path.isfile(
-            library_paths.resolve(e.get("library_id"), e.get("file_path") or ""))
+        backend = storage.backend_for(lib_id)
+        local = backend.abs_path(rel)
+        d["exists"] = (os.path.isfile(local) if local is not None
+                       else bool(backend.exists(rel)))
+    except storage.StorageOffline:
+        d["exists"] = True
     except Exception:
         d["exists"] = False
     return d

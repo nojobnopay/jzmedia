@@ -328,7 +328,8 @@ CREATE TABLE IF NOT EXISTS tmdb_cache (
   runtime INTEGER DEFAULT 0,
   studios TEXT DEFAULT '[]',
   backdrop_tmdb_path TEXT DEFAULT '',
-  logo_tmdb_path TEXT DEFAULT ''
+  logo_tmdb_path TEXT DEFAULT '',
+  poster_override TEXT DEFAULT ''   -- v19：用户在候选海报里的手工选择（刷新不覆盖）
 );
 -- 应用配置 KV（设置页可写）：TMDB 密钥/代理/语言等。DB 非空值优先于环境变量，
 -- 缺 key/空串一律回落 env（.env 只做首次启动兜底）。
@@ -414,7 +415,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "tmdb_language", "tmdb_image_base", "jzmedia_token"}
 
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 
 def _columns(c, table: str) -> set:
@@ -953,10 +954,18 @@ def _m18(c) -> None:
     logger.info("v18 合集媒体库级迁移完成：合并同名合集 %s 个", merged)
 
 
+def _m19(c) -> None:
+    """v19：tmdb_cache 加 poster_override（候选海报手工选择；刷新不覆盖）。"""
+    _ensure_columns(c, "tmdb_cache", [
+        ("poster_override", "ALTER TABLE tmdb_cache"
+         " ADD COLUMN poster_override TEXT DEFAULT ''"),
+    ])
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
-                    (17, _m17), (18, _m18)]
+                    (17, _m17), (18, _m18), (19, _m19)]
 
 
 def init_db() -> None:

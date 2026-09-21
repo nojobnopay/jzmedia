@@ -50,6 +50,10 @@ def backend_for_library(lib: dict | None) -> StorageBackend:
                 from . import smb
                 return smb.backend_if_available(lib)
             except Exception as e:
+                # 直读不可用且挂载点未就绪：明确上抛，绝不落到未挂载的空目录——
+                # 否则读操作看到空目录，会把“库离线”误判成“文件缺失”（§19）。
+                if not _mount_ready(lib):
+                    raise
                 logger.warning("SMB 直读不可用，回退挂载点 lib=%s: %s",
                                lib.get("id"), e)
     driver = "mount" if source in ("smb", "nfs") else "local"

@@ -1,13 +1,16 @@
 """routers.fs.ops（自 app/routers/fs.py 拆分，评审 R01-Q4；经 fs 门面使用）。"""
 import os
 
-from ... import library_paths, store
+from ... import library_paths, storage, store
 from ...scanner import is_sidecar, sync_nfos_for
 from ..files import (_cleanup_old_dir, _rename_or_move, _resync_old_dir,
                      _sibling_followers)
+from ..files.executor import (_remote_cleanup_old_dir, _remote_resync_old_dir,
+                              _remote_sibling_followers, _repath_followed_extra)
 from .classify import _classify
 from .common import logger
-__all__ = ['_exec_delete_one', '_move_db_follow', '_exec_move_one']
+__all__ = ['_exec_delete_one', '_move_db_follow', '_exec_move_one',
+           '_exec_delete_one_remote', '_exec_move_one_remote']
 
 
 def _exec_delete_one(plan: dict) -> dict:
@@ -38,13 +41,18 @@ def _exec_delete_one(plan: dict) -> dict:
     return {**plan, "status": "deleted"}
 
 
-def _move_db_follow(fr: str, to: str, info: dict, library_id=None) -> None:
-    """移动后的 DB 联动：正片改 file_path + NFO；花絮改路径归属；其余不管。"""
+def _move_db_follow(fr: str, to: str, info: dict, library_id=None,
+                    backend=None) -> None:
+    """移动后的 DB 联动：正片改 file_path + NFO；花絮改路径归属；其余不管。
+    backend 给定时 NFO 经 StorageBackend 落盘（远程直读库）。"""
     lid = int(library_id or library_paths.DEFAULT_LIBRARY_ID)
     if info.get("kind") == "feature" and info.get("movie_id"):
         store.update_movie_local(info["movie_id"], file_path=to)
         try:
-            sync_nfos_for(info["movie_id"], library_paths.resolve(lid, to))
+            if backend is not None:
+                sync_nfos_for(info["movie_id"], backend=backend, rel=to)
+            else:
+                sync_nfos_for(info["movie_id"], library_paths.resolve(lid, to))
         except Exception:
             pass
     elif info.get("kind") == "sidecar":
@@ -128,6 +136,94 @@ def _exec_move_one(fr: str, to: str, library_id=None) -> dict:
         return {**base, "status": "moved", "followed": followed,
                 "kind": info.get("kind") or "other"}
     except Exception as e:
+        return {**base, "status": f"error: {e}"}
+
+
+def _exec_delete_one_remote(plan: dict, backend) -> dict:
+    """远程直读库删除（文件/空目录，库内相对路径）；DB 联动与旧目录收尾同本地。"""
+    rel = plan["rel"]
+    lid = int(plan.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+    kind = plan.get("kind") or "other"
+    try:
+        st = backend.stat(rel)
+    except storage.StorageNotFound:
+        return {**plan, "status": "skipped_missing_src"}
+    except storage.StorageError as e:
+        return {**plan, "status": f"error: {e}"}
+    if st.is_dir:
+        try:
+            if backend.list(rel):
+                return {**plan, "status": "dir_not_empty"}
+            backend.delete(rel)
+        except storage.StorageError as e:
+            return {**plan, "status": f"error: {e}"}
+        return {**plan, "status": "deleted"}
+    try:
+        backend.delete(rel)
+    except storage.StorageError as e:
+        return {**plan, "status": f"error: {e}"}
+    try:
+        if kind == "feature" and plan.get("movie_id"):
+            store.delete_movie(plan["movie_id"])
+        elif kind == "sidecar":
+            try:
+                store.delete_extra_by_path(rel, library_id=lid)
+            except Exception as e:
+                logger.debug("delete extra row failed rel=%s: %s", rel, e)
+    except Exception as e:
+        return {**plan, "status": f"error: {e}"}
+    old_dir = os.path.dirname(rel)
+    _remote_cleanup_old_dir(backend, old_dir)
+    _remote_resync_old_dir(backend, old_dir, lid)
+    return {**plan, "status": "deleted"}
+
+
+def _exec_move_one_remote(fr: str, to: str, library_id, backend) -> dict:
+    """远程直读库改名/移动（含同茎跟随与 DB 联动）；与本地 `_exec_move_one` 语义一致。"""
+    lid = int(library_id or library_paths.DEFAULT_LIBRARY_ID)
+    base = {"from": fr, "to": to, "library_id": lid}
+    try:
+        st = backend.stat(fr)
+    except storage.StorageNotFound:
+        return {**base, "status": "skipped_missing_src"}
+    except storage.StorageError as e:
+        return {**base, "status": f"error: {e}"}
+    if st.is_dir:
+        return {**base, "status": "error: is a directory"}
+    try:
+        if backend.exists(to):
+            return {**base, "status": "conflict_disk_exists"}
+    except storage.StorageError as e:
+        return {**base, "status": f"error: {e}"}
+    info = _classify(fr, library_id=lid, backend=backend)
+    old_dir = os.path.dirname(fr)
+    new_dir = os.path.dirname(to)
+    old_stem = os.path.splitext(os.path.basename(fr))[0]
+    new_stem = os.path.splitext(os.path.basename(to))[0]
+    try:
+        if new_dir:
+            backend.mkdir(new_dir, parents=True)
+        followers = _remote_sibling_followers(backend, fr)
+        backend.rename(fr, to)
+        _move_db_follow(fr, to, info, lid, backend=backend)
+        followed = 0
+        for f in followers:
+            suffix = os.path.basename(f)[len(old_stem):]
+            fdst = f"{new_dir}/{new_stem}{suffix}" if new_dir else f"{new_stem}{suffix}"
+            try:
+                if not backend.exists(fdst):
+                    backend.rename(f, fdst)
+                    _repath_followed_extra(lid, f, fdst, info.get("movie_id") or 0)
+                    followed += 1
+            except storage.StorageError as e:
+                logger.debug("follow sidecar failed %s -> %s: %s", f, fdst, e)
+                continue
+        _remote_cleanup_old_dir(backend, old_dir)
+        if os.path.normpath(old_dir) != os.path.normpath(new_dir):
+            _remote_resync_old_dir(backend, old_dir, lid)
+        return {**base, "status": "moved", "followed": followed,
+                "kind": info.get("kind") or "other"}
+    except storage.StorageError as e:
         return {**base, "status": f"error: {e}"}
 
 

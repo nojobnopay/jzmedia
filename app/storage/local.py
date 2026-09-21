@@ -10,6 +10,7 @@ from __future__ import annotations
 import errno
 import os
 import shutil
+import time
 from contextlib import contextmanager
 from typing import Iterator, BinaryIO
 
@@ -168,6 +169,39 @@ class LocalStorageBackend(StorageBackend):
             fsutil.atomic_write_bytes(p, data)
         except OSError as e:
             raise _map_os_error(e, path) from e
+
+    @contextmanager
+    def open_write(self, path: str) -> Iterator[BinaryIO]:
+        """流式原子写：`.part-<pid>-<ns>` 临时文件，关闭成功后 os.replace 落位；
+        异常/中断清理临时文件，绝不留下半成品。"""
+        self._require_writable()
+        dest = self._abs(path)
+        tmp = f"{dest}.part-{os.getpid()}-{time.monotonic_ns()}"
+        try:
+            parent = os.path.dirname(dest)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            fh = open(tmp, "wb")
+        except OSError as e:
+            raise _map_os_error(e, path) from e
+        ok = False
+        try:
+            yield fh
+            fh.close()
+            os.replace(tmp, dest)
+            ok = True
+        except OSError as e:
+            raise _map_os_error(e, path) from e
+        finally:
+            if not ok:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
 
     def rename(self, src: str, dst: str) -> None:
         self._require_writable()

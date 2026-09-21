@@ -188,6 +188,16 @@ class StorageBackend(abc.ABC):
     def write(self, path: str, data: bytes) -> None:
         """原子写（临时文件 + rename），父目录自动创建。"""
 
+    @contextmanager
+    def open_write(self, path: str) -> Iterator[BinaryIO]:
+        """流式原子写（大文件上传/复制）：临时文件 + 关闭时 rename，父目录自动建。
+
+        默认不支持，由后端覆写；失败/中断必须清理临时文件。
+        """
+        self._require_writable()
+        raise StorageUnsupported(f"{self.driver} 后端不支持流式写: {path}")
+        yield  # pragma: no cover（生成器语法占位）
+
     @abc.abstractmethod
     def rename(self, src: str, dst: str) -> None:
         """同库 rename；跨设备时后端自行降级（复制+删除）。"""

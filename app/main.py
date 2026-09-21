@@ -1,5 +1,6 @@
 import hmac
 import os
+import re
 import threading
 from contextlib import asynccontextmanager
 
@@ -128,12 +129,20 @@ _CSP = ("default-src 'self'; "
         "object-src 'none'; base-uri 'self'; form-action 'self'")
 
 
+# 可变海报文件（`<tmdb>.jpg` / `<tmdb>_orig.jpg`，换海报会原地覆盖，URL 不变）：
+# StaticFiles 默认不发 Cache-Control，浏览器启发式缓存会一直用旧图 → 强制重新验证
+# （ETag/Last-Modified 未变则 304，变了则 200）。cand/（hash 命名）与头像不受影响。
+_POSTER_MUTABLE_RE = re.compile(r"^/posters/\d+(_orig)?\.(?:jpg|jpeg|png)$")
+
+
 @app.middleware("http")
 async def _security_headers(request, call_next):
     resp = await call_next(request)
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "same-origin")
     resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    if _POSTER_MUTABLE_RE.match(request.url.path):
+        resp.headers.setdefault("Cache-Control", "no-cache")
     if os.getenv("JZMEDIA_CSP", "").strip().lower() not in ("off", "0", "no"):
         resp.headers.setdefault("Content-Security-Policy", _CSP)
     return resp

@@ -3,12 +3,13 @@ import os
 
 from fastapi import HTTPException
 
-from ... import library_paths, store
+from ... import library_paths, storage, store
 from ..files import _require_writable, _safe_component
 from .classify import _classify
 from .common import logger, router
 from .classify import _impact_for_delete
-from .ops import _exec_delete_one, _exec_move_one
+from .ops import (_exec_delete_one, _exec_delete_one_remote, _exec_move_one,
+                  _exec_move_one_remote)
 from .paths import _check_inside_root, _resolve_dir
 __all__ = ['fs_list', 'fs_mkdir', 'fs_rename', 'fs_move', 'fs_delete']
 
@@ -22,21 +23,52 @@ def _lib_param(v) -> int | None:
 
 
 def _backend(lid: int):
-    from ... import storage
     try:
         return storage.backend_for(lid)
     except storage.StorageError as e:
         raise HTTPException(503, f"library unavailable: {e}")
 
 
-def _require_posix_fs(lid: int) -> None:
-    """写类文件操作（新建/改名/移动/删除/复制）：直读远程库暂不支持，明确 501。"""
-    backend = _backend(lid)
-    if backend.abs_path("") is None:
-        raise HTTPException(
-            501,
-            "直读远程库暂不支持网页文件操作（新建/改名/移动/删除/复制）；"
-            "入库整理请用「入库流程 → 归档整理」，或设 SMB_DRIVER=mount 后使用")
+def _is_remote(backend) -> bool:
+    """直读远程库（无 POSIX 路径）→ 写操作走 StorageBackend。"""
+    return backend.abs_path("") is None
+
+
+def _rel_exists(backend, rel: str) -> bool:
+    try:
+        return bool(backend.exists(rel))
+    except storage.StorageError:
+        return False
+
+
+def _rel_is_file(backend, rel: str) -> bool:
+    try:
+        return not backend.stat(rel).is_dir
+    except storage.StorageError:
+        return False
+
+
+def _stat_file_or_404(backend, rel: str) -> None:
+    """文件存在性校验：缺失/目录 → 404；存储错误映射 HTTP。"""
+    try:
+        st = backend.stat(rel)
+    except storage.StorageNotFound:
+        raise HTTPException(404, f"not a file: {rel!r}")
+    except storage.StorageError as e:
+        raise _http_storage(e, "stat failed")
+    if st.is_dir:
+        raise HTTPException(404, f"not a file: {rel!r}")
+
+
+def _http_storage(e: storage.StorageError, action: str) -> HTTPException:
+    """存储错误 → HTTP（远程写操作统一映射）。"""
+    if isinstance(e, storage.StorageOffline):
+        return HTTPException(503, f"{action}: source offline")
+    if isinstance(e, storage.StorageDenied):
+        return HTTPException(403, f"{action}: {e}")
+    if isinstance(e, storage.StorageReadOnly):
+        return HTTPException(409, str(e))
+    return HTTPException(500, f"{action}: {e}")
 
 
 def _list_remote(backend, norm: str, lid: int, extras_map: dict,
@@ -60,7 +92,8 @@ def _list_remote(backend, norm: str, lid: int, extras_map: dict,
         if e["is_dir"]:
             dirs.append({"name": n, "rel": rel, "children": None})
         else:
-            files.append(_classify(rel, extras_map, library_id=lid))
+            files.append(_classify(rel, extras_map, library_id=lid,
+                                   entry=e, backend=backend))
     parent = os.path.dirname(norm) if norm else ""
     crumbs = []
     if norm:
@@ -74,7 +107,8 @@ def _list_remote(backend, norm: str, lid: int, extras_map: dict,
             "dirs": dirs, "files": files[offset:offset + limit],
             "total_dirs": len(dirs), "total_files": total_files,
             "has_more": has_more, "limit": limit, "offset": offset,
-            "fs_writable": False, "driver": backend.driver}
+            # 直读远程库写操作已经 StorageBackend（mkdir/rename/move/delete/copy）
+            "fs_writable": not backend.read_only, "driver": backend.driver}
 
 
 def _media_norm(path: str) -> str:
@@ -238,15 +272,23 @@ def fs_mkdir(body: dict | None = None):
     body = body or {}
     lid = _lib_param(body.get("library_id", body.get("library")))
     lid = library_paths.default_id() if lid is None else lid
-    _require_posix_fs(lid)
+    backend = _backend(lid)
     parent = _resolve_dir(str(body.get("path") or ""), lid)
     name = _safe_component(str(body.get("name") or ""))
     if not name or name in (".", "..") or "/" in str(body.get("name") or ""):
         raise HTTPException(422, "illegal dir name")
     rel = os.path.join(parent, name) if parent else name
     rel = _check_inside_root(rel, lid)
-    abs_p = library_paths.resolve(lid, rel)
     _require_writable(lid)
+    if _is_remote(backend):
+        if _rel_exists(backend, rel):
+            raise HTTPException(409, f"already exists: {rel!r}")
+        try:
+            backend.mkdir(rel)
+        except storage.StorageError as e:
+            raise _http_storage(e, "mkdir failed")
+        return {"rel": rel, "status": "created"}
+    abs_p = library_paths.resolve(lid, rel)
     try:
         os.makedirs(abs_p, exist_ok=False)
     except FileExistsError:
@@ -263,27 +305,28 @@ def fs_rename(body: dict | None = None):
     dry_run = body.get("dry_run", True)
     lid = _lib_param(body.get("library_id", body.get("library")))
     lid = library_paths.default_id() if lid is None else lid
-    _require_posix_fs(lid)
+    backend = _backend(lid)
+    remote = _is_remote(backend)
     fr = _check_inside_root(str(body.get("from") or ""), lid)
     raw_name = str(body.get("name") or "")
     name = _safe_component(raw_name)
     # 检查原始输入（sanitize 后 "/" 必不存在，评审 R01-B4）：防静默改写 a/b → ab
     if not name or "/" in raw_name or "\\" in raw_name:
         raise HTTPException(422, "illegal file name")
-    if not os.path.isfile(library_paths.resolve(lid, fr)):
-        raise HTTPException(404, f"not a file: {fr!r}")
+    _stat_file_or_404(backend, fr)
     to = os.path.join(os.path.dirname(fr), name) if os.path.dirname(fr) else name
     to = _check_inside_root(to, lid)
     if os.path.normpath(fr) == os.path.normpath(to):
         raise HTTPException(422, "name unchanged")
-    info = _classify(fr, library_id=lid)
+    info = _classify(fr, library_id=lid, backend=backend if remote else None)
     if dry_run:
         preview = {**info, "from": fr, "to": to, "status": "planned"}
-        if os.path.exists(library_paths.resolve(lid, to)):
+        if _rel_exists(backend, to):
             preview["status"] = "conflict_disk_exists"
         return {"dry_run": True, "plans": [preview]}
     _require_writable(lid)
-    r = _exec_move_one(fr, to, library_id=lid)
+    r = (_exec_move_one_remote(fr, to, lid, backend) if remote
+         else _exec_move_one(fr, to, library_id=lid))
     return {"dry_run": False, "results": [r],
             "moved": 1 if r.get("status") == "moved" else 0}
 
@@ -295,23 +338,24 @@ def fs_move(body: dict | None = None):
     dry_run = body.get("dry_run", True)
     lid = _lib_param(body.get("library_id", body.get("library")))
     lid = library_paths.default_id() if lid is None else lid
-    _require_posix_fs(lid)
+    backend = _backend(lid)
+    remote = _is_remote(backend)
     fr = _check_inside_root(str(body.get("from") or ""), lid)
     to_dir = _check_inside_root(str(body.get("to_dir") or ""), lid)
-    if not os.path.isfile(library_paths.resolve(lid, fr)):
-        raise HTTPException(404, f"not a file: {fr!r}")
+    _stat_file_or_404(backend, fr)
     to = os.path.join(to_dir, os.path.basename(fr))
     to = _check_inside_root(to, lid)
     if os.path.normpath(fr) == os.path.normpath(to):
         raise HTTPException(422, "already there")
-    info = _classify(fr, library_id=lid)
+    info = _classify(fr, library_id=lid, backend=backend if remote else None)
     if dry_run:
         preview = {**info, "from": fr, "to": to, "status": "planned"}
-        if os.path.exists(library_paths.resolve(lid, to)):
+        if _rel_exists(backend, to):
             preview["status"] = "conflict_disk_exists"
         return {"dry_run": True, "plans": [preview]}
     _require_writable(lid)
-    r = _exec_move_one(fr, to, library_id=lid)
+    r = (_exec_move_one_remote(fr, to, lid, backend) if remote
+         else _exec_move_one(fr, to, library_id=lid))
     return {"dry_run": False, "results": [r],
             "moved": 1 if r.get("status") == "moved" else 0}
 
@@ -335,27 +379,43 @@ def fs_delete(body: dict | None = None):
     confirm = bool(body.get("confirm", False))
     lid_raw = _lib_param(body.get("library_id", body.get("library")))
     lid = library_paths.default_id() if lid_raw is None else lid_raw
-    _require_posix_fs(lid)
+    backend = _backend(lid)
+    remote = _is_remote(backend)
     plans: list[dict] = []
     for r in raws:
         rel = _check_inside_root(str(r or ""), lid)
-        abs_p = library_paths.resolve(lid, rel)
-        if os.path.isdir(abs_p):
+        try:
+            st = backend.stat(rel)
+        except storage.StorageNotFound:
+            st = None
+        except storage.StorageError as e:
+            raise _http_storage(e, "stat failed")
+        if st is None:
+            # 本地断链符号链接：stat 失败但 lexists 为真，仍允许删除（清理语义）
+            if not remote:
+                abs_p = library_paths.resolve(lid, rel)
+                if os.path.islink(abs_p) and os.path.lexists(abs_p):
+                    plans.append({**_impact_for_delete(rel, lid),
+                                  "library_id": lid})
+                    continue
+            plans.append({"rel": rel, "name": os.path.basename(rel),
+                          "kind": "other", "requires_confirm": False,
+                          "library_id": lid, "status": "skipped_missing_src"})
+            continue
+        if st.is_dir:
             try:
-                empty = not os.listdir(abs_p)
-            except OSError:
+                entries = backend.list(rel)
+                empty = not entries
+            except storage.StorageError:
                 empty = False
             plans.append({"rel": rel, "name": os.path.basename(rel),
                           "kind": "dir", "requires_confirm": False,
                           "library_id": lid,
                           "status": "planned_rmdir" if empty else "dir_not_empty"})
             continue
-        if not os.path.lexists(abs_p):
-            plans.append({"rel": rel, "name": os.path.basename(rel),
-                          "kind": "other", "requires_confirm": False,
-                          "library_id": lid, "status": "skipped_missing_src"})
-            continue
-        plans.append({**_impact_for_delete(rel, lid), "library_id": lid})
+        plans.append({**_impact_for_delete(rel, lid,
+                                           backend=backend if remote else None),
+                      "library_id": lid})
     needs_confirm = [p for p in plans if p.get("requires_confirm")]
     if dry_run or (needs_confirm and not confirm):
         return {"dry_run": True, "total": len(plans), "plans": plans,
@@ -370,15 +430,21 @@ def fs_delete(body: dict | None = None):
                 done.append({**p, "status": p.get("status") or "dir_not_empty"})
                 continue
             try:
-                os.rmdir(library_paths.resolve(lid, p["rel"]))
+                if remote:
+                    backend.delete(p["rel"])
+                else:
+                    os.rmdir(library_paths.resolve(lid, p["rel"]))
                 done.append({**p, "status": "deleted"})
+            except storage.StorageError as e:
+                done.append({**p, "status": f"error: {e}"})
             except OSError as e:
                 done.append({**p, "status": f"error: {e}"})
             continue
         if p.get("status") == "skipped_missing_src":
             done.append(p)
             continue
-        done.append(_exec_delete_one(p))
+        done.append(_exec_delete_one_remote(p, backend) if remote
+                    else _exec_delete_one(p))
     ok = sum(1 for r in done if r.get("status") == "deleted")
     return {"dry_run": False, "total": len(done), "deleted": ok,
             "results": done}

@@ -76,7 +76,7 @@ def test_fs_copy_scoped(media_root, second_library):
                                           "dry_run": False,
                                           "library_id": lib["id"]}).json()
     assert r["total"] == 1
-    for _ in range(40):
+    for _ in range(100):
         st = client.get(f"/api/fs/copy/{r['job_id']}").json()
         if st.get("state") in ("done", "failed"):
             break

@@ -5,8 +5,8 @@ from ... import library_paths, store
 from ...scanner import sync_nfos_for
 from ...log import get_logger
 logger = get_logger("files.routes")
-from .paths import (_backend_for, _check_inside_root, _exists, _is_file, _only_ids,
-                    _rename_or_move, _require_writable)
+from .paths import (_backend_for, _check_inside_root, _exists_map, _is_file,
+                    _only_ids, _rename_or_move, _require_writable)
 from .planner import _collect_plans, _ordered_plans
 from .executor import (_cleanup_old_dir, _remote_cleanup_old_dir,
                        _remote_resync_old_dir, _resync_old_dir, _move_one)
@@ -227,14 +227,22 @@ def _delete_rows(cands: list) -> dict:
 @router.get("/missing")
 def missing(library: str | None = None, media_library: int | None = None):
     """预览失效条目：库中有记录但文件已不存在的行（软件外删片/移动后产生）。
-    library/media_library 缺省=全库；返回项带 library_id 供按视频库分表。"""
+    library/media_library 缺省=全库；返回项带 library_id 供按视频库分表。
+    显式“重新看盘”：先清元数据短 TTL 缓存（外部删除必须立即反映）。"""
+    from ... import storage
+    storage.clear_meta_cache()
     libs = _scope_libs(library, media_library)
+    rows = [m for m in store.list_movies(grouped=False, limit=100000)
+            if not libs or int(m.get("library_id") or 0) in libs]
+    groups: dict[int, set] = {}
+    for m in rows:
+        lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        groups.setdefault(lid, set()).add(m["file_path"])
+    maps = {lid: _exists_map(lid, rels) for lid, rels in groups.items()}
     out = []
-    for m in store.list_movies(grouped=False, limit=100000):
-        if libs and int(m.get("library_id") or 0) not in libs:
-            continue
-        if not _exists(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
-                       m["file_path"]):
+    for m in rows:
+        lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        if not maps[lid].get(m["file_path"], True):
             out.append({"id": m["id"], "title": m.get("title", ""),
                         "year": m.get("year"), "file_path": m["file_path"],
                         "tmdb_id": m.get("tmdb_id"),
@@ -248,16 +256,25 @@ def clean(body: dict | None = None):
     默认 dry_run 预览（评审 B5a-4/R09-D4）；
     body.ids 不传则清理全部缺失行；建议先 GET /missing 预览勾选。
     body.library_id/library 单库或多库；media_library_id 整个媒体库（缺省=全库）。"""
+    from ... import storage
+    storage.clear_meta_cache()   # 显式“重新看盘”（绝不能因缓存漏删/误删）
     body = body or {}
     dry_run = body.get("dry_run", True)
     only_set = _only_ids(body)
     libs = _scope_libs(body.get("library_id", body.get("library")),
                        body.get("media_library_id", body.get("media_library")))
-    cands = [m for m in store.list_movies(grouped=False, limit=100000)
-             if (only_set is None or m["id"] in only_set)
-             and (not libs or int(m.get("library_id") or 0) in libs)
-             and not _exists(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID,
-                             m["file_path"])]
+    rows = [m for m in store.list_movies(grouped=False, limit=100000)
+            if (only_set is None or m["id"] in only_set)
+            and (not libs or int(m.get("library_id") or 0) in libs)]
+    groups: dict[int, set] = {}
+    for m in rows:
+        lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        groups.setdefault(lid, set()).add(m["file_path"])
+    maps = {lid: _exists_map(lid, rels) for lid, rels in groups.items()}
+    cands = [m for m in rows
+             if not maps[int(m.get("library_id")
+                             or library_paths.DEFAULT_LIBRARY_ID)].get(
+                                 m["file_path"], True)]
     plans = [{"id": m["id"], "title": m.get("title", ""), "year": m.get("year"),
               "file_path": m["file_path"],
               "tmdb_id": m.get("tmdb_id")} for m in cands]
@@ -268,8 +285,9 @@ def clean(body: dict | None = None):
 
 def _restore_candidates(only: set | None, libs: set[int] | None = None) -> list[dict]:
     """偏离原始位置的行：有原始路径、与当前位置不一致、当前文件仍存在。
-    libs 非空时只取这些库的行（设置页按库展示）。"""
-    out = []
+    libs 非空时只取这些库的行（设置页按库展示）。
+    批量存在性按父目录分组（远程直读库免逐行 stat）。"""
+    rows = []
     for m in store.list_movies(grouped=False, limit=100000):
         if only is not None and m.get("id") not in only:
             continue
@@ -279,9 +297,16 @@ def _restore_candidates(only: set | None, libs: set[int] | None = None) -> list[
         cur = m.get("file_path", "")
         if not orig or os.path.normpath(orig) == os.path.normpath(cur):
             continue
-        if not _is_file(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, cur):
-            continue
-        out.append(m)
+        rows.append(m)
+    groups: dict[int, set] = {}
+    for m in rows:
+        lid = int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        groups.setdefault(lid, set()).add(m["file_path"])
+    maps = {lid: _exists_map(lid, rels) for lid, rels in groups.items()}
+    out = [m for m in rows
+           if maps[int(m.get("library_id")
+                     or library_paths.DEFAULT_LIBRARY_ID)].get(
+                         m["file_path"], True)]
     out.sort(key=lambda m: (m.get("file_path", ""), m.get("id", 0)))
     return out
 
@@ -401,7 +426,10 @@ def _restore_one_remote(m: dict, base: dict, backend, dry_run: bool) -> dict:
 def restore_candidates(library: str | None = None,
                        media_library: int | None = None):
     """预览偏离原始位置的行（只读，供设置页恢复区展示）。
-    library/media_library 缺省=全库；返回项带 library_id 供按视频库分表。"""
+    library/media_library 缺省=全库；返回项带 library_id 供按视频库分表。
+    显式“重新看盘”：先清元数据短 TTL 缓存。"""
+    from ... import storage
+    storage.clear_meta_cache()
     libs = _scope_libs(library, media_library)
     cands = _restore_candidates(None, set(libs) if libs else None)
     return {"total": len(cands),
@@ -418,6 +446,8 @@ def restore_original(body: dict | None = None):
     """恢复到原始位置：把整理/搬迁后偏离原始路径的影片搬回 original_file_path。
     默认 dry_run:true 只预览；确认后 dry_run:false 执行。目标被占/源缺失则跳过上报，绝不覆盖。
     body.library_id/library 单库或多库；media_library_id 整个媒体库（缺省=全库）。"""
+    from ... import storage
+    storage.clear_meta_cache()   # 显式“重新看盘”
     body = body or {}
     only = _only_ids(body)
     dry_run = body.get("dry_run", True)

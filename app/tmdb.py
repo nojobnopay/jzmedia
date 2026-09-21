@@ -84,6 +84,14 @@ def person_detail(tmdb_id: int, language: str | None = None) -> dict:
         return _get(c, f"/person/{tmdb_id}", params=params).json()
 
 
+def movie_images(tmdb_id: int, languages: str = "zh,en,null") -> dict:
+    """候选图片（Plex 式换海报）：/movie/{id}/images，返回 {posters, backdrops, logos}。
+    每项含 file_path/width/height/iso_639_1/vote_average；网络/权限错误上抛。"""
+    with _client() as c:
+        return _get(c, f"/movie/{int(tmdb_id)}/images",
+                    params={"include_image_language": languages}).json()
+
+
 def download_image(image_path: str, dest: str, size: str = "w500") -> bool:
     """任意 TMDB 图片（poster/backdrop/logo）下载到 dest；原子写（评审 B5a-6）。"""
     if not image_path:

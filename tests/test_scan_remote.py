@@ -133,6 +133,20 @@ def test_rescan_remote_movie_api(smb_movie_lib):
     assert r.json()["status"] in ("no_match", "ok", "ok_needs_review")
 
 
+def test_scan_no_per_file_stat(smb_movie_lib):
+    """P2 扫描热路径：iter_tree 已带 size/mtime，不得再为每个视频文件 stat。"""
+    lib, root, fake = smb_movie_lib
+    d = root / "Many (2001)"
+    d.mkdir()
+    for i in range(5):
+        (d / f"Many.part{i}.mkv").write_bytes(b"x")
+    fake.counts.clear()
+    scanner.scan_all(library_id=lib["id"])
+    # 只允许库根一次 stat（backend.stat("") 可达性探测）；scandir 每目录一次
+    assert fake.counts.get("stat", 0) <= 1
+    assert fake.counts.get("scandir", 0) <= 2
+
+
 def test_scan_remote_generic_extras_dir_backend_aware(smb_movie_lib):
     """远程直读库 Movie/Scenes/ 归花絮（backend 感知，不再依赖 POSIX default_root）。"""
     lib, root, _fake = smb_movie_lib

@@ -135,6 +135,55 @@ def test_factory_and_range_proxy(share, fake, monkeypatch):
         smb.invalidate()
 
 
+def test_offline_not_treated_as_missing(share, fake, monkeypatch):
+    """§19 回归：直读库离线/冷却期不得判为“文件已删”，/files/clean 绝不删行。"""
+    from app import library_paths
+    from app.main import app
+    from fastapi.testclient import TestClient
+    client = TestClient(app)
+
+    monkeypatch.setenv("SMB_DRIVER", "direct")
+    lib = store.create_library(name="NAS离线", kind="movie", source="smb",
+                               smb={"host": "nas", "share": "video",
+                                    "username": "u", "password": "pw"})
+    library_paths.invalidate_cache()
+    mid = None
+    try:
+        mid = store.upsert_movie_by_path("电影/a.mkv", library_id=lib["id"])
+        store.update_movie_meta(mid, title="A", year=2020, tmdb_id=1)
+        # 在线：文件存在 → 不是缺失
+        assert client.get(f"/api/files/missing?library={lib['id']}").json()["total"] == 0
+        # 离线（stat 抛 StorageOffline）→ 同样不判缺失
+        fake.offline = True
+        assert client.get(f"/api/files/missing?library={lib['id']}").json()["total"] == 0
+        d = client.post("/api/files/clean",
+                        json={"dry_run": False, "library_id": lib["id"]}).json()
+        assert d["total"] == 0 and store.get_movie(mid) is not None
+        # 后端初始化失败（认证错误→30s 冷却，backend_for 直接抛）也不得判缺失
+        fake.offline = False
+        fake.password_ok = False
+        lib2 = store.create_library(name="NAS坏凭据", kind="movie", source="smb",
+                                    smb={"host": "nas2", "share": "video",
+                                         "username": "u", "password": "pw"})
+        library_paths.invalidate_cache()
+        mid2 = store.upsert_movie_by_path("电影/a.mkv", library_id=lib2["id"])
+        try:
+            assert client.get(
+                f"/api/files/missing?library={lib2['id']}").json()["total"] == 0
+            d2 = client.post("/api/files/clean",
+                             json={"dry_run": False, "library_id": lib2["id"]}).json()
+            assert d2["total"] == 0 and store.get_movie(mid2) is not None
+        finally:
+            store.delete_movie(mid2)
+            store.delete_media_library(lib2["media_library_id"])
+    finally:
+        if mid is not None:
+            store.delete_movie(mid)
+        store.delete_media_library(lib["media_library_id"])
+        library_paths.invalidate_cache()
+        smb.invalidate()
+
+
 def test_range_parse_edges():
     assert httpproxy._parse_range(None, 10) == (0, 9, 200)
     assert httpproxy._parse_range("bytes=2-5", 10) == (2, 5, 206)

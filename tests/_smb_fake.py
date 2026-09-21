@@ -60,8 +60,12 @@ class FakeSmbClient:
         self.write_denied = write_denied
         self.sessions = []
         self.calls = []
+        self.counts: dict[str, int] = {}   # 线上操作计数（缓存/批量断言用）
         self.path = SimpleNamespace(isdir=self.isdir)
         self.shutil = SimpleNamespace(rmtree=self.rmtree)
+
+    def _count(self, op: str) -> None:
+        self.counts[op] = self.counts.get(op, 0) + 1
 
     def _p(self, unc: str) -> Path:
         parts = [p for p in str(unc).replace("\\", "/").split("/") if p]
@@ -83,6 +87,7 @@ class FakeSmbClient:
         self.sessions.append((server, kwargs))
 
     def scandir(self, unc, search_pattern="*", **kwargs):
+        self._count("scandir")
         self._guard()
         p = self._p(unc)
         entries = []
@@ -91,12 +96,14 @@ class FakeSmbClient:
         return FakeScandir(entries)
 
     def stat(self, unc, **kwargs):
+        self._count("stat")
         self._guard()
         if self.stat_ntstatus is not None:
             raise os_error(self.stat_ntstatus, str(unc))
         return os.stat(self._p(unc))
 
     def open_file(self, unc, mode="r", share_access=None, **kwargs):
+        self._count("open_file")
         if any(c in mode for c in "wax+"):
             self._wguard()
         else:

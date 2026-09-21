@@ -54,7 +54,7 @@ def stream_backends(refresh: int = 0):
     """转码后端探测（目标文档 §11）：{name: software|vaapi|qsv|nvenc, hw, device, reason}。
     冒烟编码结果进程内缓存；?refresh=1 强制重探（NAS 上验证 /dev/dri 权限时用）。"""
     try:
-        from .. import transcode as _tr
+        from ... import transcode as _tr
     except Exception as e:
         return {"name": "software", "hw": False, "device": "", "reason": str(e)[:120], "env": ""}
     return _tr.backend_info(refresh=bool(refresh))
@@ -74,7 +74,9 @@ class PlaybackQuery(BaseModel):
 
 def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
     caps = _caps.default_caps() if q.caps is None else q.caps
-    merged = _media_payload(m, info)   # subs = 内嵌+外挂合并清单（决策与响应同源）
+    # 只算一次：subs = 内嵌+外挂合并清单（决策与响应同源；此前重复调用会再枚举
+    # 一遍外挂字幕目录，直读库 = 多 4 次 SMB list）
+    merged = _media_payload(m, info)
     d = _playback.plan(merged, caps=caps, quality=q.quality, audio_idx=q.audio,
                        sub_idx=q.sub, client=q.client, force_burn=q.force_burn)
     method = d["method"]
@@ -90,7 +92,7 @@ def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
     return {"version_id": int(m["id"]), "kind": k, "method": method, "reasons": d["reasons"],
             "plan": d["plan"], "subtitle_mode": d.get("subtitle_mode") or "none",
             "caps_hash": _caps.caps_hash(caps) if q.caps is not None else "",
-            "media": _media_payload(m, info),
+            "media": merged,
             # 直链始终返回：HDR/DV/图片字幕等复杂片源可复制给 VLC/Kodi（目标文档 §12）
             "direct_url": blob_url,
             "hls_url": hls_url if method in ("remux", "audio_transcode",
@@ -145,27 +147,42 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
                                             "edition": m.get("edition") or "",
                                             "spec": m.get("spec") or ""}])
 
-    def _probe_one(v: dict) -> None:
+    # 每版本只解析一次：并行补探测并把 (vm, src, info) 缓存，报告循环复用——
+    # 此前报告循环再次 stat 源文件、再次走探测，直读库 = 成倍往返。
+    prepared: dict[int, tuple] = {}
+
+    def _prepare_one(v: dict) -> None:
         """无缓存版本并行补探测（评审 B8/R12-D7：多版本片不再串行等 ffprobe）。"""
         try:
-            vm = store.get_movie(int(v["id"]))
+            vid = int(v["id"])
         except (TypeError, ValueError):
+            return
+        if vid in prepared:
+            return
+        try:
+            vm = store.get_movie(vid)
+        except Exception as e:
+            logger.debug("get version failed vid=%s: %s", vid, e)
             return
         if not vm:
             return
         src = _source_or_none(vm)
+        info = None
         if src is not None:
             try:
-                _media_cached_or_probe(vm, src)
+                info = _media_cached_or_probe(vm, src)
             except Exception as e:
-                logger.debug("pre-probe failed vid=%s: %s", vm.get("id"), e)
+                logger.debug("pre-probe failed vid=%s: %s", vid, e)
+        prepared[vid] = (vm, src, info)
 
     try:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=4) as ex:
-            list(ex.map(_probe_one, versions))
+            list(ex.map(_prepare_one, versions))
     except Exception as e:
         logger.debug("parallel probe skipped: %s", e)
+        for v in versions:
+            _prepare_one(v)
 
     items = []
     for v in versions:
@@ -173,10 +190,12 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
             vid = int(v["id"])
         except (TypeError, ValueError):
             continue
-        vm = store.get_movie(vid)
-        if not vm:
+        if vid not in prepared:
+            _prepare_one(v)
+        hit = prepared.get(vid)
+        if hit is None:
             continue
-        src = _source_or_none(vm)
+        vm, src, info = hit
         base = {"version_id": vid, "file_path": vm["file_path"],
                 "edition": v.get("edition") or "", "spec": v.get("spec") or ""}
         if src is None:
@@ -184,10 +203,9 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
                           "method": "blocked", "reasons": ["unplayable"],
                           "score": [9, 0], "duration_text": ""})
             continue
-        info = _media_cached_or_probe(vm, src)
-        if not info.get("playable"):
+        if info is None or not info.get("playable"):
             items.append({**base, "playable": False,
-                          "probe_error": info.get("probe_error") or "probe failed",
+                          "probe_error": (info or {}).get("probe_error") or "probe failed",
                           "method": "blocked", "reasons": ["unplayable"],
                           "score": [9, 0], "duration_text": ""})
             continue

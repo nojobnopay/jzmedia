@@ -20,8 +20,19 @@ __all__ = [
     'StorageError', 'StorageInvalidPath', 'StorageNotFound', 'StorageDenied',
     'StorageReadOnly', 'StorageOffline', 'StorageUnsupported',
     'backend_for', 'backend_for_library', 'backend_for_media', 'smb_driver_mode',
-    'media_source', 'media_write_path',
+    'media_source', 'media_write_path', 'clear_meta_cache',
 ]
+
+
+def clear_meta_cache(library_id=None) -> None:
+    """清空元数据短 TTL 缓存（连接/实例保留）；显式“重新看盘”入口用，
+    如扫描、失效清理、恢复预览——这些动作必须看到磁盘当前状态，不能吃缓存。
+    本地后端无缓存，空操作。"""
+    from . import smb as _smb
+    try:
+        _smb.clear_meta(library_id)
+    except Exception:   # 缓存清理永不阻断业务
+        pass
 
 
 def media_source(library_id, rel: str) -> MediaSource:

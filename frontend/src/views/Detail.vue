@@ -1,7 +1,7 @@
 <template>
   <div class="detail" v-if="m">
     <div class="hero">
-      <div v-if="m.poster_path" class="hero-bg" :style="{ backgroundImage: `url(${posterUrl(m.poster_path)})` }"></div>
+      <div v-if="m.poster_path" class="hero-bg" :style="{ backgroundImage: `url(${posterSrc})` }"></div>
       <div class="hero-inner">
         <div class="topbar">
           <button @click="$router.back()">‹ 返回</button>
@@ -13,7 +13,7 @@
           </span>
         </div>
         <div class="hero-main">
-          <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" class="poster zoomable" :alt="(m.title || '海报') + ' 海报'" title="查看大图" @click="openPoster" />
+          <img v-if="m.poster_path" :src="posterSrc" class="poster zoomable" :alt="(m.title || '海报') + ' 海报'" title="查看大图" @click="openPoster" />
           <div v-else class="poster poster-empty"><Spinner :size="22" /><span>海报补齐中</span></div>
           <div class="hero-info">
             <h2>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.needs_review" class="needs-review">待确认<button class="nr-btn ok" :disabled="!!nrBusy" title="匹配无误，清除待确认标记（不重刮）" @click="confirmMatch">确认</button><button class="nr-btn" :disabled="!!nrBusy" title="打开匹配面板，重新搜索 TMDB" @click="editing = true">重新匹配</button></span><span v-if="m.watched" class="watched-chip">✓已看</span></h2>
@@ -144,8 +144,31 @@
 
     <div v-if="posterDlg" class="dlg-mask" @click.self="closePoster">
       <div ref="posterDlgRef" class="dlg pv-dlg poster-dlg" role="dialog" aria-modal="true">
-        <img :src="posterBig" class="pv-img poster-big" />
-        <div class="bar"><span class="hint">{{ posterHi ? '高清原图' : '标清预览（原图加载中或不可用）' }}</span><a :href="posterBig" :download="baseName(posterBig)">下载</a><button @click="closePoster">关闭</button></div>
+        <template v-if="!posterPick">
+          <img :src="posterBig" class="pv-img poster-big" />
+          <div class="bar"><span class="hint">{{ posterHi ? '高清原图' : '标清预览（原图加载中或不可用）' }}</span><a :href="posterBig" :download="baseName(posterBig)">下载</a><button @click="openPosterPicker">换海报</button><button @click="closePoster">关闭</button></div>
+        </template>
+        <template v-else>
+          <div class="poster-pick-head">
+            <b>选择海报</b>
+            <span class="hint">来自 TMDB，按分辨率排序（当前选择高亮）</span>
+          </div>
+          <p v-if="posterErr" class="warn-text">{{ posterErr }}</p>
+          <p v-if="posterLoading" class="hint">候选加载中…</p>
+          <div v-else class="poster-grid">
+            <button v-for="c in posterCands" :key="c.file_path" class="poster-cand"
+              :class="{ cur: c.current }" :disabled="posterSaving"
+              :title="`${c.width}×${c.height}${c.lang ? ' · ' + c.lang : ''}`"
+              @click="choosePoster(c)">
+              <img :src="c.thumb_url" loading="lazy" :alt="`${c.width}×${c.height}`" />
+              <span class="poster-cand-meta">{{ c.width }}×{{ c.height }}</span>
+            </button>
+          </div>
+          <div class="bar">
+            <button :disabled="posterSaving" @click="posterPick = false">返回</button>
+            <button @click="closePoster">关闭</button>
+          </div>
+        </template>
       </div>
     </div>
   </div>
@@ -476,13 +499,18 @@ const posterDlg = ref(false)
 const posterBig = ref('')
 const posterHi = ref(false)
 let posterObjUrl = ''
+// 换海报后原地覆盖文件（URL 不变）→ 用版本参数强制取新图；posterVer 用于同页即时刷新
+const posterVer = ref(0)
+const posterSrc = computed(() =>
+  posterUrl(m.value?.poster_path, posterVer.value || m.value?.updated_at))
 async function openPoster() {
   if (!m.value?.poster_path) return
-  posterBig.value = posterUrl(m.value.poster_path)
+  posterBig.value = posterSrc.value
   posterHi.value = false
   posterDlg.value = true
   try {
-    const r = await fetch(`/api/movies/${route.params.id}/poster-orig`)
+    const v = posterVer.value || m.value?.updated_at || ''
+    const r = await fetch(`/api/movies/${route.params.id}/poster-orig?v=${encodeURIComponent(v)}`)
     if (!r.ok) return
     const b = await r.blob()
     if (posterObjUrl) URL.revokeObjectURL(posterObjUrl)
@@ -493,8 +521,51 @@ async function openPoster() {
     }
   } catch (e) { /* 保持本地图 */ }
 }
+// 换海报（TMDB 候选，后端代理缩略图；选定后持久化 override，刷新不回退）
+const posterPick = ref(false)
+const posterCands = ref([])
+const posterLoading = ref(false)
+const posterSaving = ref(false)
+const posterErr = ref('')
+async function openPosterPicker() {
+  posterPick.value = true
+  posterErr.value = ''
+  if (posterCands.value.length) return
+  posterLoading.value = true
+  try {
+    const d = await api(`/api/movies/${route.params.id}/posters`)
+    posterCands.value = d.items || []
+  } catch (e) {
+    posterErr.value = '候选海报加载失败：' + e.message
+  } finally {
+    posterLoading.value = false
+  }
+}
+async function choosePoster(c) {
+  if (posterSaving.value) return
+  posterSaving.value = true
+  posterErr.value = ''
+  try {
+    await api(`/api/movies/${route.params.id}/poster`, {
+      method: 'POST',
+      body: JSON.stringify({ file_path: c.file_path })
+    })
+    posterPick.value = false
+    posterCands.value = []
+    posterVer.value++    // 版本号变化 → 头部/弹窗 URL 立刻指向新图
+    await load()
+    await openPoster()   // 重新拉取新原图
+  } catch (e) {
+    posterErr.value = '切换失败：' + e.message
+  } finally {
+    posterSaving.value = false
+  }
+}
 function closePoster() {
   posterDlg.value = false
+  posterPick.value = false
+  posterCands.value = []
+  posterErr.value = ''
   posterBig.value = ''
   posterHi.value = false
   if (posterObjUrl) {
@@ -661,4 +732,11 @@ watch(() => route.params.id, () => { load() })   // 同组件切片重载（评�
 .similar-block:hover .similar-nav { opacity: 1; }
 .similar-nav:hover { background: rgba(0,0,0,.85); }
 @media (hover: none) { .similar-nav { display: none; } }
+.poster-pick-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
+.poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; max-height: 60vh; overflow: auto; padding: 2px; }
+.poster-cand { position: relative; padding: 0; border: 2px solid transparent; border-radius: 8px; background: #262626; cursor: pointer; overflow: hidden; }
+.poster-cand.cur { border-color: #7ed321; }
+.poster-cand img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
+.poster-cand-meta { position: absolute; left: 0; right: 0; bottom: 0; font-size: 0.6875rem; color: #ddd; background: rgba(0,0,0,.6); padding: 2px 4px; }
+.poster-cand:disabled { opacity: 0.6; cursor: wait; }
 </style>

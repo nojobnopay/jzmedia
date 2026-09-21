@@ -34,6 +34,20 @@ def test_setup_logging_level_and_idempotent(monkeypatch):
     assert logging.getLogger().name == "root"
 
 
+def test_setup_logging_silences_smbprotocol(monkeypatch):
+    """smbprotocol 每次线上操作都打 INFO，直读库会刷屏：默认必须压到 WARNING，
+    排障时可经 SMB_LOG_LEVEL 放开（回归 app/log.py 的 noisy 列表）。"""
+    monkeypatch.delenv("SMB_LOG_LEVEL", raising=False)
+    setup_logging(force=True)
+    assert logging.getLogger("smbprotocol.open").getEffectiveLevel() == logging.WARNING
+    assert logging.getLogger("smbclient").getEffectiveLevel() == logging.WARNING
+    monkeypatch.setenv("SMB_LOG_LEVEL", "DEBUG")
+    setup_logging(force=True)
+    assert logging.getLogger("smbprotocol.open").getEffectiveLevel() == logging.DEBUG
+    monkeypatch.delenv("SMB_LOG_LEVEL", raising=False)
+    setup_logging(force=True)
+
+
 def test_move_failure_logs_and_rolls_back(monkeypatch, media_root, caplog):
     src = _touch(media_root, "log/a.mkv")
     mid = _row("log/a.mkv")

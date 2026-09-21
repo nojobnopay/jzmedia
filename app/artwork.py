@@ -68,8 +68,13 @@ def _backend_join(rel_dir: str, name: str) -> str:
 
 
 def _backend_put(backend, rel_dst: str, data: bytes) -> bool:
-    """内容不同才写（原子写由后端保证）；返回是否实际写入。"""
+    """内容不同才写（原子写由后端保证）；返回是否实际写入。
+    先比 size（一次 stat 比整文件读便宜），size 不同直接写；相同才读回比对。"""
     try:
+        st = backend.stat(rel_dst)
+        if st.is_dir or int(st.size) != len(data):
+            backend.write(rel_dst, data)
+            return True
         if backend.read(rel_dst) == data:
             return False
     except Exception:
@@ -212,6 +217,9 @@ def _cleanup_stale_backend_posters(backend, movie_dir: str, versions: list,
             continue
         rel = _backend_join(movie_dir, f"{stem}-poster.jpg")
         try:
+            st = backend.stat(rel)
+            if st.is_dir or int(st.size) != len(poster_data):
+                continue   # size 不同必不相同，省一次整文件读
             if backend.read(rel) == poster_data:
                 backend.delete(rel)
                 cleaned.append(f"{stem}-poster.jpg")

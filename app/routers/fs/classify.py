@@ -8,18 +8,24 @@ __all__ = ['_classify', '_impact_for_delete']
 
 
 def _classify(rel: str, extras_map: dict | None = None,
-              library_id=None) -> dict:
+              library_id=None, entry: dict | None = None,
+              backend=None) -> dict:
     """单文件定性：feature / sidecar / subtitle / nfo / other，附 DB 行提示。
     extras_map（{path: extra}）由列表口一次性传入（评审 B8/R08-B1：避免每文件全表扫 extras）。
-    `library_id` 缺省=默认库（多库 v12：行/花絮/路径均限定在该库）。"""
+    `library_id` 缺省=默认库（多库 v12：行/花絮/路径均限定在该库）。
+    `entry`（目录列举项，带 size/mtime）与 `backend` 由远程直读列表口传入：
+    避免再走 POSIX stat（直读库 size 不再为 0），通用目录花絮判定也不再退化。"""
     lid = library_paths.default_id() if library_id is None else int(library_id)
-    abs_p = library_paths.resolve(lid, rel)
-    size, mtime = 0, 0
-    try:
-        st = os.stat(abs_p)
-        size, mtime = st.st_size, int(st.st_mtime)
-    except OSError:
-        pass
+    if entry is not None:
+        size, mtime = int(entry.get("size") or 0), int(entry.get("mtime") or 0)
+    else:
+        abs_p = library_paths.resolve(lid, rel)
+        size, mtime = 0, 0
+        try:
+            st = os.stat(abs_p)
+            size, mtime = st.st_size, int(st.st_mtime)
+        except OSError:
+            pass
     base = {"rel": rel, "name": os.path.basename(rel),
             "size": size, "mtime": mtime}
     m = store.get_by_path(rel, library_id=lid)
@@ -46,22 +52,22 @@ def _classify(rel: str, extras_map: dict | None = None,
                         "extra_id": e["id"], "movie_id": e.get("movie_id")}
     _, ex = os.path.splitext(rel)
     ex = ex.lower()
-    if is_sidecar(rel, library_id=lid):
+    if is_sidecar(rel, library_id=lid, backend=backend):
         return {**base, "kind": "sidecar"}
     if ex in SUBTITLE_EXTS:
         return {**base, "kind": "subtitle"}
     if ex == ".nfo":
         return {**base, "kind": "nfo"}
-    if is_feature_video(rel, library_id=lid):
+    if is_feature_video(rel, library_id=lid, backend=backend):
         # 库无行但形态是正片（多为未扫描）：按 feature 对待，删时提醒
         return {**base, "kind": "feature", "movie_id": None,
                 "version_count": 1}
     return {**base, "kind": "other"}
 
 
-def _impact_for_delete(rel: str, library_id=None) -> dict:
+def _impact_for_delete(rel: str, library_id=None, backend=None) -> dict:
     """删除预览：正片 requires_confirm=True 并带影响面，其余直接可删。"""
-    info = _classify(rel, library_id=library_id)
+    info = _classify(rel, library_id=library_id, backend=backend)
     if info["kind"] == "feature":
         attached = 0
         if info.get("movie_id"):
