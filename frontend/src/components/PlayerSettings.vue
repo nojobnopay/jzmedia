@@ -1,6 +1,5 @@
 <template>
-  <Teleport :to="host" :disabled="!host">
-    <div class="pd-setwrap">
+  <div class="pd-setwrap">
       <button class="pd-mini" :class="{ on: open }" @click="$emit('toggle-settings')"
         title="播放设置（画质/音轨/字幕/延迟）">⚙ 设置</button>
       <div v-if="open" class="pd-set" @click.stop>
@@ -28,7 +27,7 @@
               {{ subLabel(s, i) }}{{ subBadge(s) }}
             </option>
           </select>
-          <span v-else class="fhint-inline">片源无字幕轨</span>
+          <span v-else class="fhint-inline">未检测到字幕轨（画面硬字幕无法关闭）</span>
           <button class="ctl-mini" @click="pickSubFile"
             title="临时加载本地字幕文件（srt/vtt/ass/ssa）：浏览器端解析，仅本次播放，不入库">加载文件</button>
           <button v-if="hasLocalSub" class="ctl-mini" @click="$emit('remove-local-subs')"
@@ -98,8 +97,7 @@
           @focus="$event.target.select()" @click="$event.target.select()" />
         <p class="set-hint">{{ methodLine }}<span v-if="qualityLine"> · {{ qualityLine }}</span></p>
       </div>
-    </div>
-  </Teleport>
+  </div>
 </template>
 
 <script setup>
@@ -107,7 +105,6 @@ import { ref } from 'vue'
 import { audioLabel, subLabel, subBadge } from '../playerLabels.js'
 
 const props = defineProps({
-  host: { type: String, default: '' },
   open: { type: Boolean, default: false },
   quality: { type: String, default: 'auto' },
   audios: { type: Array, default: () => [] },

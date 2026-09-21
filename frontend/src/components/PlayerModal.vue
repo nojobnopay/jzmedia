@@ -8,28 +8,9 @@
         <span v-if="reasonLine" class="play-reason">{{ reasonLine }}</span>
         <span v-if="sessStatus" class="sess-status">{{ sessStatus }}</span>
         <span class="pd-spacer"></span>
-        <div id="pv-set-host-hd" ref="hdSetHost" class="pd-set-host">
-          <PlayerSettings
-            :host="setHost" :open="settingsOpen"
-            :quality="quality" :audios="audios" :audio-idx="audioIdx"
-            :subs="subs" :sub-idx="subIdx"
-            :sub-delay-visible="subDelayVisible" :sub-delay-text="subDelayText"
-            :sub-is-vtt="subIsVtt" :sub-is-ass="subIsAss" :force-burn="forceBurn"
-            :undo-disabled="undoDegradeDisabled" :compat-sub="compatSub"
-            :has-local-sub="localSubs.length > 0"
-            :direct-fail-url="directFailUrl" :method-line="methodLine" :quality-line="qualityLine"
-            :sub-style="subStyle"
-            @toggle-settings="toggleSettings"
-            @quality-change="onQualityChange"
-            @audio-change="onAudioChange"
-            @sub-change="onSubChange"
-            @shift-delay="shiftSubDelay"
-            @update:sub-style="onSubStyleSet"
-            @undo-degrade="undoDegrade"
-            @compat-change="onCompatSet"
-            @load-sub-file="onLoadSubFile"
-            @remove-local-subs="removeLocalSubs"
-            @copy-direct="copyDirectLink" />
+        <div class="pd-set-host">
+          <!-- 窗口态：设置入口在标题栏；全屏态由 .pv-top 的条件实例承载（不再用 Teleport） -->
+          <PlayerSettings v-if="!isFull" v-bind="settingsProps" v-on="settingsEvents" />
         </div>
         <button class="pd-mini" @click="copyDebug">调试</button>
         <button class="pd-mini" @click="$emit('close')">关闭</button>
@@ -56,7 +37,9 @@
           <span class="pv-title">{{ title || ('版本 ' + versionId) }}</span>
           <span v-if="sessStatus" class="pv-status">{{ sessStatus }}</span>
           <span class="pd-spacer"></span>
-          <div id="pv-set-host-fs" ref="fsSetHost" class="pd-set-host"></div>
+          <div class="pd-set-host">
+            <PlayerSettings v-if="isFull" v-bind="settingsProps" v-on="settingsEvents" />
+          </div>
           <button class="pd-mini" @click="toggleFull" title="退出全屏（Esc）">⤡ 退出全屏</button>
         </div>
         <!-- 自绘控件条（HLS 与原文件直发统一使用：直发不再用原生控件遮挡画面） -->
@@ -251,12 +234,6 @@ function onMouseMove() {
 const overlayVisible = computed(() =>
   !isFull.value || mouseActive.value || seekPending.value || !isPlaying.value
   || settingsOpen.value || !!err.value)
-// 设置弹层宿主：窗口模式在标题栏；全屏 Teleport 进全屏顶栏（随鼠标唤出，与进度条一致）。
-// 用模板 ref（元素就绪后才有效）而不是选择器：Teleport 的字符串目标要求挂载前已存在。
-const hdSetHost = ref(null)
-const fsSetHost = ref(null)
-const setHost = computed(() =>
-  (isFull.value ? fsSetHost.value : hdSetHost.value) || hdSetHost.value || fsSetHost.value)
 const isHls = computed(() => ['remux', 'audio_transcode', 'video_transcode']
   .includes(method.value))
 const bufLine = computed(() => {
@@ -685,6 +662,42 @@ const {
   toast: (t) => { posHint.value = t },
   logEvt: (kind, detail) => logEvt(kind, detail),
 })
+
+// 设置弹层：窗口态渲染在标题栏、全屏态渲染在 .pv-top（两次条件实例，不再用动态 Teleport
+// 宿主——2026-09 用户反馈全屏找不到设置入口）。open 状态在父组件，切换全屏不丢。
+const settingsProps = computed(() => ({
+  open: settingsOpen.value,
+  quality: quality.value,
+  audios: audios.value,
+  audioIdx: audioIdx.value,
+  subs: subs.value,
+  subIdx: subIdx.value,
+  subDelayVisible: subDelayVisible.value,
+  subDelayText: subDelayText.value,
+  subIsVtt: subIsVtt.value,
+  subIsAss: subIsAss.value,
+  forceBurn: forceBurn.value,
+  undoDisabled: undoDegradeDisabled.value,
+  compatSub: compatSub.value,
+  hasLocalSub: localSubs.value.length > 0,
+  directFailUrl: directFailUrl.value,
+  methodLine: methodLine.value,
+  qualityLine: qualityLine.value,
+  subStyle: subStyle.value,
+}))
+const settingsEvents = {
+  'toggle-settings': toggleSettings,
+  'quality-change': onQualityChange,
+  'audio-change': onAudioChange,
+  'sub-change': onSubChange,
+  'shift-delay': shiftSubDelay,
+  'update:sub-style': onSubStyleSet,
+  'undo-degrade': undoDegrade,
+  'compat-change': onCompatSet,
+  'load-sub-file': onLoadSubFile,
+  'remove-local-subs': removeLocalSubs,
+  'copy-direct': copyDirectLink,
+}
 
 // 选完即失焦：否则焦点停在下拉框/滑块，方向键会去改控件而不是 seek/音量
 function blurPick(e) {
