@@ -33,8 +33,8 @@ export function useSubtitles(ctx) {
   const autoVttSub = ref(-1)
   // 「兼容字幕(VTT)」：ASS 样式渲染异常/无字体时的降级；跨会话记住选择
   const compatSub = ref((() => {
-    try { return localStorage.getItem('jzmedia.subCompat') === '1' } catch (e) { return false } })
-  )()
+    try { return localStorage.getItem('jzmedia.subCompat') === '1' } catch (e) { return false }
+  })())
 
   function selectedSub() {
     return subs.value[subIdx.value] || null
