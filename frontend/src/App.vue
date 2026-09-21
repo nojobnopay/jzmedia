@@ -93,6 +93,18 @@ nav .brand.router-link-active { color: #eee; font-weight: 800; }
 .card { background: #222; border-radius: 8px; overflow: hidden; cursor: pointer; }
 .card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
 .card .t { padding: 8px; font-size: 0.875rem; }
+/* 共享页面块（评审 R07-Q3 样式单源）：Detail/Person 等页面卡片与头部；
+   页面可在 scoped 样式里覆盖特化属性（如 Settings 的 margin-bottom、Person 的 .hero-inner 宽度） */
+.card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; }
+.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.hero-main { display: flex; gap: 20px; margin-top: 12px; align-items: flex-start; }
+.hero-info { min-width: 0; }
+.hero-info h2 { margin: 0 0 8px; font-size: 1.875rem; }
+.meta-line { color: #aaa; font-size: 1rem; margin: 8px 0; }
+.overview { margin: 0; line-height: 1.8; color: #e6e6e6; font-size: 1rem; white-space: pre-wrap; }
+.empty { margin: 0; color: #777; font-size: 0.9375rem; }
+.cast-name { font-size: 0.875rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cast-char { font-size: 0.75rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar { padding: 12px; display: flex; gap: 8px; }
 input, button, textarea { font-size: 0.875rem; padding: 6px 10px; border-radius: 6px; border: 1px solid #444; background: #222; color: #eee; }
 input[type="range"] { padding: 0; }

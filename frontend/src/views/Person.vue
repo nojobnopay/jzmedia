@@ -119,19 +119,10 @@ watch(() => route.params.tmdb_id, load)
 .detail { padding-bottom: 24px; }
 .hero-inner { position: relative; padding: 12px; max-width: 1080px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; }
-.hero-main { display: flex; gap: 20px; margin-top: 12px; align-items: flex-start; }
 .person-photo { width: 160px; border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.55); }
 .avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 4rem; color: #666; background: #262626; border: 1px solid #3a3a3a; aspect-ratio: 3/4; }
-.hero-info { min-width: 0; }
-.hero-info h2 { margin: 0 0 8px; font-size: 1.875rem; }
-.meta-line { color: #aaa; font-size: 1rem; margin: 8px 0; }
 .sections { padding: 0 12px; max-width: 1080px; display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
-.card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; }
-.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.overview { margin: 0; line-height: 1.8; color: #e6e6e6; font-size: 1rem; white-space: pre-wrap; }
-.empty { margin: 0; color: #777; font-size: 0.9375rem; }
+.overview { white-space: pre-wrap; }
 .work-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
 .work-card { cursor: pointer; min-width: 0; }
-.cast-name { font-size: 0.875rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cast-char { font-size: 0.75rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
