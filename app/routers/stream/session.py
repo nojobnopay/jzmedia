@@ -5,7 +5,7 @@ import json
 import subprocess
 import threading
 from fastapi import HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from ... import caps as _caps
@@ -287,6 +287,26 @@ def _wait_file(sess: dict, dest: str, timeout: float = 25.0) -> bool:
     return os.path.isfile(dest)
 
 
+def _read_playlist_stable(path: str, attempts: int = 5) -> bytes:
+    """读取会被 ffmpeg 持续改写的 m3u8：以 stat 前后一致确认内容快照。
+
+    不能用 FileResponse：其 Content-Length 来自 stat，文件随后增长会让 ASGI 抛
+    `RuntimeError: Response content longer than Content-Length`（2026-09 实测
+    out_audio0.m3u8：音频 rendition 列表每出一片就重写一次）。"""
+    data = b""
+    for _ in range(max(1, attempts)):
+        try:
+            size1 = os.path.getsize(path)
+            with open(path, "rb") as fh:
+                data = fh.read()
+            if len(data) == size1 and os.path.getsize(path) == size1:
+                return data
+        except OSError:
+            return data
+        time.sleep(0.05)
+    return data
+
+
 @router.get("/sessions/{sid}/seg/{name}")
 def hls_session_segment(sid: str, name: str):
     """会话分片：未就绪等最多 25s（追转码进度），会话死亡则 404。"""
@@ -403,8 +423,11 @@ def hls_session_file(sid: str, name: str):
         raise HTTPException(404, "file not ready (session may have ended)")
     _log_hit(sid, "file", name, 200)
     if name.endswith(".m3u8"):
-        media = "application/vnd.apple.mpegurl"
-    elif name.endswith(".mp4"):
+        # 变体列表随转码增长/重写：按内容快照返回（见 _read_playlist_stable）
+        return Response(content=_read_playlist_stable(dest),
+                        media_type="application/vnd.apple.mpegurl",
+                        headers={"Cache-Control": "no-store"})
+    if name.endswith(".mp4"):
         media = "video/mp4"
     else:
         media = "video/iso.segment"

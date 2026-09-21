@@ -227,3 +227,50 @@ def test_media_payload_caps_audio_renditions():
             "subs": []}
     payload = _media_payload({"id": 1, "file_path": "x.mkv"}, info)
     assert len(payload["audio"]) == MAX_AUDIO_RENDITIONS
+
+
+# ---------- 2026-09 播放排障：变体 m3u8 随转码增长，不能按 stat 定长直发 ----------
+
+def test_variant_playlist_served_as_content_snapshot(tmp_path, monkeypatch):
+    """out_*.m3u8 由 ffmpeg 持续改写：必须按内容快照返回。
+    用 FileResponse（Content-Length 来自 stat）时文件随后增长会让 ASGI 抛
+    RuntimeError: Response content longer than Content-Length（实测 out_audio0.m3u8）。"""
+    from fastapi.responses import FileResponse
+    from app.routers.stream import session as session_mod
+
+    sdir = tmp_path / "sess"
+    sdir.mkdir()
+    body = "#EXTM3U\n#EXT-X-VERSION:7\n#EXTINF:4.0,\nout_audio0_seg00000.m4s\n"
+    (sdir / "out_audio0.m3u8").write_text(body, encoding="utf-8")
+    monkeypatch.setattr(session_mod, "_get_session", lambda sid: {"sdir": str(sdir)})
+
+    resp = session_mod.hls_session_file("sid", "out_audio0.m3u8")
+    assert not isinstance(resp, FileResponse)
+    data = resp.body
+    assert data == body.encode()
+    assert resp.headers["content-length"] == str(len(data))
+    assert resp.headers["cache-control"] == "no-store"
+
+
+def test_read_playlist_stable_retries_when_file_grows(tmp_path, monkeypatch):
+    """读取期间文件变化（stat 长度与读入内容不一致）→ 重读快照，不返回半截内容。"""
+    import os
+    from app.routers.stream import session as session_mod
+
+    f = tmp_path / "out_video.m3u8"
+    f.write_text("#EXTM3U\n#EXTINF:4.0,\nout_video_seg00000.m4s\n", encoding="utf-8")
+    real = os.path.getsize
+    calls = {"n": 0}
+
+    def fake_getsize(p, *a, **k):
+        if str(p) == str(f):
+            n = calls["n"]
+            calls["n"] += 1
+            return real(p, *a, **k) - (1 if n == 0 else 0)   # 首次模拟“读到一半又长了”
+        return real(p, *a, **k)
+
+    monkeypatch.setattr(os.path, "getsize", fake_getsize)
+    monkeypatch.setattr(session_mod.time, "sleep", lambda *_: None)
+    data = session_mod._read_playlist_stable(str(f))
+    assert data == f.read_bytes()
+    assert calls["n"] >= 2

@@ -7,7 +7,7 @@
   - quality: `auto`(默认；需视频重编且源>1080p 时封顶 无HW 720p/有HW 1080p) | `source`(原画不封顶) | `1080p` | `720p`；`original` 兼容为 auto。UI 显示“实际输出”。
   - 会话目录键 `_quality_key(plan)`（copy/h720/h1080/src，烧录另有 `_burn` 后缀防互踩）、复用键 `_plan_marker`（不含档位字符串；fMP4 不含所选音轨；非烧录字幕不参与）→ 预转码与在线播同 plan 即命中静态成品。
   - 音频 copy 安全集：hls.js 只信 `aac/mp3`（EAC3/AC3 copy 实测无声），Safari 原生 HLS 才放行 Dolby；其余 `audio_transcode` 转 AAC。可用 env `AUDIO_COPY_SAFE` 放开实测可用的编码。
-  - HLS 输出：默认 fMP4（`HLS_SEGMENT_TYPE=ts` 回滚旧 MPEG-TS）。fMP4 单进程 `-var_stream_map` 产 video + 全部音轨 rendition，扁平命名 `out_<name>.m3u8`/`<name>_init.mp4`/`<name>_segNNNNN.m4s`，每片 4s；`master.m3u8` 由 `stream._write_master` 自产（ffmpeg 对 HEVC copy 不产 CODECS，Safari 需要）。**ffmpeg 必须 `cwd=会话目录` 执行**（分片相对名按 CWD 落盘，输入路径已在 `build_cmd` 绝对化）。
+  - HLS 输出：默认 fMP4（`HLS_SEGMENT_TYPE=ts` 回滚旧 MPEG-TS）。fMP4 单进程 `-var_stream_map` 产 video + 全部音轨 rendition，扁平命名 `out_<name>.m3u8`/`<name>_init.mp4`/`<name>_segNNNNN.m4s`，每片 4s；`master.m3u8` 由 `stream._write_master` 自产（ffmpeg 对 HEVC copy 不产 CODECS，Safari 需要）；变体 `out_*.m3u8` 被 ffmpeg 持续改写，服务端按内容快照返回（`session._read_playlist_stable`，**不用 FileResponse**——stat 定长遇增长会抛 `Response content longer than Content-Length`）。**ffmpeg 必须 `cwd=会话目录` 执行**（分片相对名按 CWD 落盘，输入路径已在 `build_cmd` 绝对化）。
   - 音轨切换：fMP4 走 `hls.audioTrack`（`MANIFEST_PARSED` + `AUDIO_TRACKS_UPDATED` 后应用——前者触发时 `audioTracks` 可能还是空），不重开会话；解析前切轨只改选择不重开（`manifestReady`/`reloadGen` 防并发 reload 出双 hls 实例）；原生 Safari 用 `video.audioTracks`。前端选择与服务端产物解耦（默认音轨=源 disposition 首条 default）。
   - 停服：`main.py` lifespan 退出调 `stream.shutdown_sessions()` 杀转码子进程（防孤儿 ffmpeg）。
   - 首屏等待只数视频分片（`_seg_count(prefix)`）；完工=全部 `out_*.m3u8` 带 ENDLIST；统一路由 `GET /sessions/{sid}/{name}`（白名单 `_SESS_FILE_RE`）。
