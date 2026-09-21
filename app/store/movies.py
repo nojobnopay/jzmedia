@@ -13,9 +13,10 @@ __all__ = ['upsert_movie_by_path', 'update_movie_local', 'update_movie_meta', 'g
 def upsert_movie_by_path(file_path: str,
                          library_id: int = DEFAULT_LIBRARY_ID) -> int:
     with _lock, _conn() as c:
-        c.execute("INSERT OR IGNORE INTO movies(file_path, library_id, updated_at)"
-                  " VALUES(?, ?, ?)",
-                  (file_path, int(library_id), int(time.time())))
+        now = int(time.time())
+        c.execute("INSERT OR IGNORE INTO movies(file_path, library_id, added_at, updated_at)"
+                  " VALUES(?, ?, ?, ?)",
+                  (file_path, int(library_id), now, now))
         row = c.execute("SELECT id FROM movies WHERE file_path=? AND library_id=?",
                         (file_path, int(library_id))).fetchone()
         mid = int(row["id"])

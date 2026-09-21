@@ -419,8 +419,25 @@ def _target_counts(rows: list) -> dict:
     return out
 
 
+def _meta_rows(ids: list[int] | None, lib_ids: set[int] | None) -> list[dict]:
+    """rebuild-meta 作用域：给了 ids 只取这些影片（单部/少量修复，忽略库筛选），
+    否则按库筛选。只取有 tmdb_id 的行。"""
+    want = {int(x) for x in (ids or [])}
+    rows = []
+    for m in store.list_movies(grouped=False, limit=100000):
+        if not m.get("tmdb_id"):
+            continue
+        if want:
+            if int(m.get("id") or 0) in want:
+                rows.append(m)
+        elif _in_filter(m, lib_ids):
+            rows.append(m)
+    return rows
+
+
 def _meta_worker(jid: str, lib_ids: set[int] | None, dry_run: bool,
-                 write_art: bool = True, backdrops: bool = True) -> None:
+                 write_art: bool = True, backdrops: bool = True,
+                 ids: list[int] | None = None) -> None:
     from .files import _is_file
 
     def _stop() -> bool:
@@ -428,8 +445,7 @@ def _meta_worker(jid: str, lib_ids: set[int] | None, dry_run: bool,
         return job is None or job.get("state") != "running"
 
     try:
-        rows = [m for m in store.list_movies(grouped=False, limit=100000)
-                if m.get("tmdb_id") and _in_filter(m, lib_ids)]
+        rows = _meta_rows(ids, lib_ids)
         _META_JOBS.update(jid, total=len(rows))
         done, failed = 0, []
         for m in rows:
@@ -465,6 +481,7 @@ def _meta_worker(jid: str, lib_ids: set[int] | None, dry_run: bool,
 class RebuildMetaBody(BaseModel):
     library_id: int | None = None
     media_library_id: int | None = None
+    ids: list[int] | None = None   # 单部/少量影片修复（优先于库筛选；上限 500）
     dry_run: bool = True
     artwork: bool = True       # 同步 poster（artwork_mode=nfo_art 时）
     backdrops: bool = True     # 缺 fanart 时下载 backdrop（费流量，可关）
@@ -475,29 +492,36 @@ def rebuild_meta(body: RebuildMetaBody | None = None):
     """重建媒体目录落盘（离线，不触网）：按现有匹配从 tmdb_cache 重写 NFO
     + poster/fanart（远程直读库经 backend 写 NAS）。用于手动修正匹配后同步、
     或历史误写（挂载点）后补写。dry_run=true 默认只预览。
-    body.library_id（单库）或 media_library_id（整个媒体库）限定范围。"""
+    body.ids（单部修复）优先；否则 library_id（单库）或 media_library_id（整个媒体库）。"""
     body = body or RebuildMetaBody()
-    lib_ids = _lib_filter(body.library_id, body.media_library_id)
-    rows = [m for m in store.list_movies(grouped=False, limit=100000)
-            if m.get("tmdb_id") and _in_filter(m, lib_ids)]
+    try:
+        ids = sorted({int(x) for x in (body.ids or [])})
+    except (TypeError, ValueError):
+        raise HTTPException(422, "ids must be int list")
+    if len(ids) > 500:
+        raise HTTPException(422, "too many ids (max 500)")
+    lib_ids = None if ids else _lib_filter(body.library_id, body.media_library_id)
+    rows = _meta_rows(ids, lib_ids)
     counts = _target_counts(rows)
     if body.dry_run:
-        return {"dry_run": True, "total": len(rows), "targets": counts,
+        return {"dry_run": True, "total": len(rows), "ids": ids, "targets": counts,
                 "sample": [m.get("file_path") for m in rows[:20]]}
     running = _META_JOBS.running()
     if running:
+        if ids:
+            raise HTTPException(409, "已有重建任务在跑，请等结束后再按影片重建")
         return {"job_id": running["job_id"], "resumed": True,
                 "library_id": running.get("library_id"),
                 "media_library_id": running.get("media_library_id")}
     job = _META_JOBS.create(library_id=body.library_id,
                             media_library_id=body.media_library_id,
-                            total=len(rows), targets=counts)
+                            ids=ids, total=len(rows), targets=counts)
     jid = job["job_id"]
     threading.Thread(target=_meta_worker,
                      args=(jid, lib_ids, False, body.artwork,
-                           body.backdrops), daemon=True).start()
+                           body.backdrops, ids), daemon=True).start()
     return {"job_id": jid, "resumed": False, "library_id": body.library_id,
-            "media_library_id": body.media_library_id,
+            "media_library_id": body.media_library_id, "ids": ids,
             "total": len(rows), "targets": counts}
 
 

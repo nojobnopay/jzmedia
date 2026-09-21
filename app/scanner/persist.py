@@ -1,5 +1,6 @@
 """scanner.persist（自 app/scanner.py 拆分，评审 B9/R03-Q1；对外经 app.scanner 门面使用）。"""
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from ..config import settings
@@ -13,7 +14,33 @@ from ..log import get_logger
 logger = get_logger("scanner.persist")
 from .match import extract_credits, jobs_from_credits, meta_from_detail
 from .nfo_link import _write_nfo_for
-__all__ = ['save_person_avatar', '_sync_jobs', 'sync_persons', 'sync_persons_from_cache', 'ensure_movie_poster', '_media_needs', 'finish_tmdb_media', 'apply_tmdb_detail', 'apply_tmdb_detail_fast', 'apply_cached_to_movie', 'finish_refresh_media', 'refresh_tmdb_id', 'refresh_tmdb_id_fast', 'write_target']
+__all__ = ['save_person_avatar', '_sync_jobs', 'sync_persons', 'sync_persons_from_cache', 'ensure_movie_poster', '_media_needs', 'finish_tmdb_media', 'apply_tmdb_detail', 'apply_tmdb_detail_fast', 'apply_cached_to_movie', 'finish_refresh_media', 'refresh_tmdb_id', 'refresh_tmdb_id_fast', 'write_target', '_media_lock']
+
+# 同片媒体落盘串行锁（2026-09 修复）：换绑/刷新可能并发触发（双击匹配、匹配+刷新），
+# 两个后台任务用不同快照写同一目录会互相覆盖（NFO 缺演员/海报回退旧图）。
+_MEDIA_LOCKS: dict[int, threading.Lock] = {}
+_MEDIA_LOCKS_GUARD = threading.Lock()
+
+
+def _media_lock(mid: int) -> threading.Lock:
+    key = int(mid)
+    with _MEDIA_LOCKS_GUARD:
+        return _MEDIA_LOCKS.setdefault(key, threading.Lock())
+
+
+def _write_artwork_retry(mid: int, abs_path: str, backend, rel: str) -> dict:
+    """海报/fanart 落盘：失败重试一次并告警（此前失败只返回 {ok:False}，用户无感）。"""
+    art = artwork.write_for_movie(mid, abs_path, backend=backend, rel=rel)
+    if art.get("ok"):
+        return art
+    logger.warning("artwork failed mid=%s rel=%s reason=%s; retry once",
+                   mid, rel or abs_path, art.get("reason"))
+    art2 = artwork.write_for_movie(mid, abs_path, backend=backend, rel=rel)
+    if not art2.get("ok"):
+        logger.warning("artwork retry failed mid=%s rel=%s reason=%s",
+                       mid, rel or abs_path, art2.get("reason"))
+    return art2
+
 
 def save_person_avatar(person_tmdb_id: int, profile_path: str | None) -> str:
     """人物头像落盘（w185），文件已存在则跳过。返回相对 DATA_DIR 的路径，失败返回 ''。"""
@@ -166,20 +193,21 @@ def finish_tmdb_media(mid: int, detail: dict, abs_path: str,
                       poster_tmdb: str, old_poster_tmdb: str,
                       backend=None, rel: str = "") -> dict:
     """后台重活：海报下载 + 头像同步 + FTS + NFO。幂等，失败自吞（下次刷新/重绑自愈）。
-    backend/rel 供远程直读库经 StorageBackend 落盘（本地忽略）。"""
+    backend/rel 供远程直读库经 StorageBackend 落盘（本地忽略）。同片串行（_media_lock）。"""
     tmdb_id = detail["id"]
-    try:
-        poster_local = ensure_movie_poster(tmdb_id, poster_tmdb, old_poster_tmdb)
-        store.update_movie_meta(mid, poster_path=poster_local)
-        sync_persons(mid, detail)
-        store.resync_fts(mid)
-        nfo = _write_nfo_for(mid, abs_path, backend=backend, rel=rel)
-        art = artwork.write_for_movie(mid, abs_path, backend=backend, rel=rel)
-        return {"poster_path": poster_local, "nfo": nfo, "artwork": art}
-    except Exception as e:
-        logger.warning("finish_tmdb_media failed mid=%s tmdb=%s: %s", mid,
-                       tmdb_id, e)
-        return {"poster_path": "", "nfo": False}
+    with _media_lock(mid):
+        try:
+            poster_local = ensure_movie_poster(tmdb_id, poster_tmdb, old_poster_tmdb)
+            store.update_movie_meta(mid, poster_path=poster_local)
+            sync_persons(mid, detail)
+            store.resync_fts(mid)
+            nfo = _write_nfo_for(mid, abs_path, backend=backend, rel=rel)
+            art = _write_artwork_retry(mid, abs_path, backend, rel)
+            return {"poster_path": poster_local, "nfo": nfo, "artwork": art}
+        except Exception as e:
+            logger.warning("finish_tmdb_media failed mid=%s tmdb=%s: %s", mid,
+                           tmdb_id, e)
+            return {"poster_path": "", "nfo": False}
 
 
 def apply_tmdb_detail(mid: int, detail: dict, abs_path: str,
@@ -268,40 +296,46 @@ def apply_cached_to_movie(mid: int, tmdb_id: int, abs_path: str,
 
 
 def finish_refresh_media(jobs: list[dict]) -> int:
-    """后台重活：各版本的海报/头像/NFO。幂等，失败自吞。返回处理数。"""
+    """后台重活：各版本的海报/头像/NFO。幂等，失败自吞返回处理数。同片串行（_media_lock）。"""
     n = 0
     for j in jobs:
-        try:
-            mid = j["mid"]
-            if not store.get_movie(mid):
-                continue
-            poster_local = ensure_movie_poster(j["tmdb_id"], j["poster_tmdb"],
-                                               j["old_poster_tmdb"])
-            store.update_movie_meta(mid, poster_path=poster_local)
-            sync_persons(mid, j["detail"])
-            store.resync_fts(mid)
-            _write_nfo_for(mid, j.get("abs_path") or "",
-                           backend=j.get("backend"), rel=j.get("rel") or "")
-            artwork.write_for_movie(mid, j.get("abs_path") or "",
-                                    backend=j.get("backend"), rel=j.get("rel") or "")
-            n += 1
-        except Exception:
+        mid = j.get("mid")
+        if mid is None:
             continue
+        with _media_lock(int(mid)):
+            try:
+                if not store.get_movie(mid):
+                    continue
+                poster_local = ensure_movie_poster(j["tmdb_id"], j["poster_tmdb"],
+                                                   j["old_poster_tmdb"])
+                store.update_movie_meta(mid, poster_path=poster_local)
+                sync_persons(mid, j["detail"])
+                store.resync_fts(mid)
+                _write_nfo_for(mid, j.get("abs_path") or "",
+                               backend=j.get("backend"), rel=j.get("rel") or "")
+                _write_artwork_retry(mid, j.get("abs_path") or "",
+                                     j.get("backend"), j.get("rel") or "")
+                n += 1
+            except Exception as e:
+                logger.warning("finish_refresh_media failed mid=%s: %s", mid, e)
+                continue
     return n
 
 
-def refresh_tmdb_id(tmdb_id: int) -> dict:
+def refresh_tmdb_id(tmdb_id: int, force: bool = False) -> dict:
     """手动刷新唯一入口：抓远端 → 写镜像 → 有变化才扇出到所有同 tmdb_id 版本。
-    返回 {changed, affected_ids, title, year}。无变化时不碰任何 movies 行。"""
-    out, jobs = refresh_tmdb_id_fast(int(tmdb_id))
+    force=True 即使镜像无变化也重写各版本 NFO/海报（用户显式刷新=修复落盘）。
+    返回 {changed, affected_ids, title, year}。无变化且不 force 时不碰任何 movies 行。"""
+    out, jobs = refresh_tmdb_id_fast(int(tmdb_id), force=force)
     if jobs:
         finish_refresh_media(jobs)
     return out
 
 
-def refresh_tmdb_id_fast(tmdb_id: int) -> tuple[dict, list[dict]]:
+def refresh_tmdb_id_fast(tmdb_id: int, force: bool = False) -> tuple[dict, list[dict]]:
     """快路径（刷新接口用）：抓远端 + 写镜像 + 文字扇出，立即回包；
-    海报/头像/NFO 由调用方经 finish_refresh_media() 放后台。返回 (result, jobs)。"""
+    海报/头像/NFO 由调用方经 finish_refresh_media() 放后台。返回 (result, jobs)。
+    force=True：镜像无变化时也返回全版本 jobs（修复 NAS 落盘缺失）。"""
     tmdb_id = int(tmdb_id)
     detail = tmdb.movie_detail(tmdb_id)
     new_meta = meta_from_detail(detail)
@@ -314,22 +348,25 @@ def refresh_tmdb_id_fast(tmdb_id: int) -> tuple[dict, list[dict]]:
     if not changed:
         jobs = []
         for mid in store.list_movie_ids_by_tmdb(tmdb_id):
-            # 缺头像补齐放后台；回包 flags 诚实告知
             try:
-                if store.persons_missing_avatar(mid):
-                    m = store.get_movie(mid)
-                    if m:
-                        jobs.append({"mid": mid, "tmdb_id": tmdb_id,
-                                     "detail": detail, "poster_tmdb": new_poster_tmdb,
-                                     "old_poster_tmdb": old_poster_tmdb,
-                                     **write_target(m)})
-            except Exception:
+                m = store.get_movie(mid)
+                if not m:
+                    continue
+                # 缺头像补齐 / force 全量重写（均放后台）
+                if force or store.persons_missing_avatar(mid):
+                    jobs.append({"mid": mid, "tmdb_id": tmdb_id,
+                                 "detail": detail, "poster_tmdb": new_poster_tmdb,
+                                 "old_poster_tmdb": old_poster_tmdb,
+                                 **write_target(m)})
+            except Exception as e:
+                logger.debug("refresh job build failed mid=%s: %s", mid, e)
                 continue
         cur = store.get_tmdb_cached(tmdb_id) or {}
-        return ({"changed": False, "affected_ids": [],
+        return ({"changed": False, "affected_ids": [], "forced": bool(force and jobs),
                  "title": cur.get("title", ""), "year": cur.get("year"),
                  "tmdb_id": tmdb_id,
-                 "background": {"poster": False, "avatars": bool(jobs)}}, jobs)
+                 "background": {"poster": bool(force and new_poster_tmdb),
+                                "avatars": bool(jobs)}}, jobs)
     affected: list[int] = []
     jobs = []
     for mid in store.list_movie_ids_by_tmdb(tmdb_id):

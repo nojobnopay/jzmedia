@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS movies (
   watched_at INTEGER DEFAULT 0,
   match_source TEXT DEFAULT '',   -- tmdb|local|nfo|tvmaze|…（离线/降级匹配来源）
   nfo_hash TEXT DEFAULT '',       -- 上次写 NFO 的内容哈希（外部改动保护）
+  added_at INTEGER DEFAULT 0,     -- 首次入库时间（不可变；重扫/刷新/backfill 不碰）
   updated_at INTEGER DEFAULT 0,
   UNIQUE(library_id, file_path)
 );
@@ -116,7 +117,7 @@ _MOVIE_COLUMNS = ["id", "file_path", "library_id", "title", "original_title", "y
                   "tags", "person_names", "origin_country", "origin_countries",
                   "original_language", "region", "media_type", "edition", "spec",
                   "original_file_path", "needs_review", "title_auto", "watched",
-                  "watched_at", "match_source", "nfo_hash", "updated_at"]
+                  "watched_at", "match_source", "nfo_hash", "added_at", "updated_at"]
 
 _EXTRAS_DDL = """
 CREATE TABLE IF NOT EXISTS extras (
@@ -417,7 +418,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "metadata_provider_state"}
 
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 
 def _columns(c, table: str) -> set:
@@ -964,10 +965,22 @@ def _m19(c) -> None:
     ])
 
 
+def _m20(c) -> None:
+    """v20：movies 加 added_at（首次入库时间，排序用；不可变）。
+    存量行没有历史入库记录，用 updated_at 近似（=当前墙默认顺序），为 0 的用 now 兜底。
+    迁移后 added_at 只在首次入库写入，元数据刷新/重扫/标已看/搬迁都不再改它。"""
+    _ensure_columns(c, "movies", [
+        ("added_at", "ALTER TABLE movies ADD COLUMN added_at INTEGER DEFAULT 0"),
+    ])
+    now = int(time.time())
+    c.execute("UPDATE movies SET added_at = CASE WHEN COALESCE(updated_at, 0) > 0"
+              " THEN updated_at ELSE ? END WHERE COALESCE(added_at, 0) = 0", (now,))
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
-                    (17, _m17), (18, _m18), (19, _m19)]
+                    (17, _m17), (18, _m18), (19, _m19), (20, _m20)]
 
 
 def init_db() -> None:

@@ -119,6 +119,61 @@ def test_rebuild_meta_job(smb_lib, monkeypatch):
     assert (p.parent / "movie.nfo").is_file()
 
 
+def test_rebuild_meta_ids_only_target(smb_lib):
+    """2026-09：rebuild-meta 支持 ids（单部修复），只处理指定影片。"""
+    lib, root, _fake = smb_lib
+    mids = []
+    for i, (title, tid) in enumerate((("甲片", 889101), ("乙片", 889102))):
+        rel = f"{title} ({2010 + i})/{title} ({2010 + i}).mkv"
+        p = root / rel
+        p.parent.mkdir(parents=True)
+        p.write_bytes(b"x")
+        mid = store.upsert_movie_by_path(rel, library_id=lib["id"])
+        store.update_movie_meta(mid, title=title, year=2010 + i, tmdb_id=tid)
+        store.upsert_tmdb_cache(tid, {"title": title, "year": 2010 + i,
+                                      "media_type": "movie"}, {}, "")
+        mids.append(mid)
+    client = TestClient(app)
+    prev = client.post("/api/jobs/rebuild-meta",
+                       json={"ids": [mids[0]], "dry_run": True}).json()
+    assert prev["total"] == 1 and prev["ids"] == [mids[0]]
+    r = client.post("/api/jobs/rebuild-meta",
+                    json={"ids": [mids[0]], "dry_run": False, "backdrops": False}).json()
+    assert r["job_id"] and r["total"] == 1 and r["ids"] == [mids[0]]
+    for _ in range(60):
+        st = client.get(f"/api/jobs/rebuild-meta/{r['job_id']}").json()
+        if st["state"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert st["state"] == "done" and st["done"] == 1, st
+    assert (root / "甲片 (2010)/movie.nfo").is_file()
+    assert not (root / "乙片 (2011)/movie.nfo").exists()
+
+
+def test_refresh_force_rewrites_media(smb_lib, monkeypatch):
+    """2026-09：显式刷新默认 force → 缓存无变化也重写 NFO/海报（修 NAS 落盘缺失）。"""
+    lib, root, _fake = smb_lib
+    rel = "刷新片 (2012)/刷新片 (2012).mkv"
+    p = root / rel
+    p.parent.mkdir(parents=True)
+    p.write_bytes(b"x")
+    mid = store.upsert_movie_by_path(rel, library_id=lib["id"])
+    store.update_movie_meta(mid, title="刷新片", year=2012, tmdb_id=889201)
+    store.upsert_tmdb_cache(889201, {"title": "刷新片", "year": 2012,
+                                     "media_type": "movie"}, {}, "")
+    monkeypatch.setattr(scanner.tmdb, "movie_detail",
+                        lambda tid: _match_detail(tid, title="刷新片"))
+    client = TestClient(app)
+    r = client.post(f"/api/movies/{mid}/refresh")
+    assert r.status_code == 200, r.text
+    assert (p.parent / "movie.nfo").is_file()
+    # force=false 且镜像无变化 → 退回旧行为（不重写）
+    (p.parent / "movie.nfo").unlink()
+    r2 = client.post(f"/api/movies/{mid}/refresh", json={"force": False})
+    assert r2.status_code == 200
+    assert not (p.parent / "movie.nfo").exists()
+
+
 def test_clean_bdmv_rows(smb_lib):
     lib, _root, _fake = smb_lib
     junk = "BD/BDMV/STREAM/00001.m2ts"

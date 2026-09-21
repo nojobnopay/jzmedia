@@ -99,8 +99,24 @@
     </div>
   </div>
 
+  <ContinueWatchingRow v-if="showContinue" ref="cwRef" :media-library-id="curMediaId"
+    @open="openMovie" @resume="resumeMovie" />
+
+  <div v-if="items.length" class="wall-head">
+    <h3>全部影片 <span class="wall-count">{{ wallCountText }}</span></h3>
+    <div class="wall-sort">
+      <span class="flabel">排序</span>
+      <span v-for="s in WALL_SORTS" :key="s.key"
+        :class="['chip', { on: sort.key === s.key }]"
+        :title="s.key === 'rating' ? '按上面「评分」来源的分数排序' : `按${s.label}排序`"
+        @click="pickSort(s.key)">{{ s.label }}<template v-if="sort.key === s.key"> {{ sort.order === 'asc' ? '↑' : '↓' }}</template></span>
+      <span class="fhint">默认按入库时间；搜索时按相关度</span>
+    </div>
+  </div>
+
   <div class="grid">
-    <div v-for="m in items" :key="m.id" :class="['card', { sel: selectedIds.has(m.id) }]" @click="onCard(m)">
+    <div v-for="m in items" :key="m.id" :class="['card', { sel: selectedIds.has(m.id) }]"
+      :title="m.added_at ? ('入库 ' + fmtDate(m.added_at)) : ''" @click="onCard(m)">
       <div class="poster-wrap">
         <button :class="['sel-circle', { on: selectedIds.has(m.id) }]"
           @click.stop="toggleSelect(m.id)" :aria-pressed="selectedIds.has(m.id)" aria-label="选择">
@@ -212,6 +228,9 @@
     </div>
   </div>
 
+  <PlayerModal v-if="playVid" ref="playerRef" :versionId="playVid" :title="playTitle"
+    @close="closeStream" @watched="onPlayWatched" />
+
   <UploadDialog v-if="upDlg" @close="upDlg = false" @done="onUpDone" />
 </template>
 <script setup>
@@ -222,10 +241,14 @@ import { currentMediaId, mediaParam, switchLib, switchMedia,
          loadLibs, onLibChange } from '../libraries.js'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import UploadDialog from '../components/UploadDialog.vue'
-import { fmtBytes } from '../format.js'
+import ContinueWatchingRow from '../components/ContinueWatchingRow.vue'
+import PlayerModal from '../components/PlayerModal.vue'
+import { fmtBytes, fmtDate } from '../format.js'
 import { hasScore, fmtScore } from '../ratings.js'
 import { usePolling } from '../usePolling.js'
 import { useFocusTrap } from '../useFocusTrap.js'
+import { WALL_SORTS, loadWallSort, normalizeWallSort, saveWallSort,
+         toggleWallSort, wallSortParams } from '../wallSort.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -258,7 +281,36 @@ function defaultSel() {
 const sel = ref(defaultSel())
 const yearPick = ref('')
 
+// 海报墙排序：默认按入库时间倒序（localStorage 记忆 + URL ?sort=&order= 可分享）
+const sort = ref(loadWallSort(localStorage))
+const curMediaId = ref(currentMediaId())
+const cwRef = ref(null)
+const showContinue = computed(() =>
+  !activeCount.value && !q.value.trim() && !selecting.value)
+const playVid = ref(null)
+const playTitle = ref('')
+const playerRef = ref(null)
+
+function pickSort(key) {
+  sort.value = toggleWallSort(sort.value, key)
+  saveWallSort(localStorage, sort.value)
+  applyAndLoad()
+}
+async function refreshContinue() {
+  if (cwRef.value && cwRef.value.reload) await cwRef.value.reload()
+}
+
 const watchedCounts = computed(() => facets.value.watched || { watched: 0, unwatched: 0 })
+
+// 「全部影片」标题行计数：有筛选/搜索时显示筛选结果数，否则显示库内总片数（海报粒度）
+const wallCountText = computed(() => {
+  if (q.value.trim() || activeCount.value) {
+    return `筛选出 ${items.value.length}${hasMore.value ? '+' : ''} 部`
+  }
+  const w = watchedCounts.value
+  const total = (w.watched || 0) + (w.unwatched || 0)
+  return total ? `共 ${total} 部` : ''
+})
 
 // 入库流程深链：媒体库级（设置页库工具顶层为媒体库，视频库作为分表维度）
 const pipelineLink = computed(() => {
@@ -349,10 +401,11 @@ function syncUrl() {
   if (sel.value.decades.length) query.decade = sel.value.decades.join(',')
   if (sel.value.tags.length) query.tag = sel.value.tags.join(',')
   if (sel.value.watched != null) query.watched = String(sel.value.watched)
-  if (sel.value.rating != null) {
-    query.min_rating = String(sel.value.rating)
+  if (sel.value.rating != null) query.min_rating = String(sel.value.rating)
+  if (sel.value.rating != null || sort.value.key === 'rating') {
     if (sel.value.ratingSource !== 'tmdb') query.rating_source = sel.value.ratingSource
   }
+  Object.assign(query, wallSortParams(sort.value))
   const lp = mediaParam()
   if (lp != null) query.media = String(lp)
   const changed = _qNorm(query) !== _qNorm(route.query)
@@ -375,6 +428,14 @@ function readUrl() {
     }
   }
   q.value = route.query.q || ''
+  // 排序：URL 带 sort 优先（可分享）；否则用 localStorage 记忆（默认最近添加↓）
+  const qs = Array.isArray(route.query.sort) ? route.query.sort[0] : route.query.sort
+  if (qs != null && qs !== '') {
+    const qo = Array.isArray(route.query.order) ? route.query.order[0] : route.query.order
+    sort.value = normalizeWallSort({ key: qs, order: qo })
+  } else {
+    sort.value = loadWallSort(localStorage)
+  }
   sel.value = {
     genres: s(route.query.genre),
     regions: s(route.query.region),
@@ -386,6 +447,7 @@ function readUrl() {
     rating: route.query.min_rating != null && route.query.min_rating !== '' ? Number(route.query.min_rating) : null,
     ratingSource: ['tmdb', 'douban', 'custom'].includes(src) ? src : 'tmdb',
   }
+  curMediaId.value = currentMediaId()
 }
 function buildParams(offset = 0) {
   const p = new URLSearchParams()
@@ -398,10 +460,12 @@ function buildParams(offset = 0) {
     for (const v of vals) p.append(key, v)
   }
   if (sel.value.watched != null) p.set('watched', String(sel.value.watched))
-  if (sel.value.rating != null) {
-    p.set('min_rating', String(sel.value.rating))
+  if (sel.value.rating != null) p.set('min_rating', String(sel.value.rating))
+  if (sel.value.rating != null || sort.value.key === 'rating') {
     p.set('rating_source', sel.value.ratingSource)
   }
+  p.set('sort', sort.value.key)
+  p.set('order', sort.value.order)
   const lp = mediaParam()
   if (lp != null) p.set('media_library', String(lp))
   p.set('limit', String(PAGE))   // 分页（评审 P1-11）：加载更多而非一次全量
@@ -557,6 +621,32 @@ function onCard(m) {
   if (selecting.value) toggleSelect(m.id)
   else router.push('/m/' + m.id)
 }
+function openMovie(id) { router.push('/m/' + id) }
+// 继续观看行 ▶：本页直接续播（断点已存在，PlayerModal 自己会按 version_id 续起）
+function resumeMovie(m) {
+  playVid.value = Number((m.progress && m.progress.version_id) || m.id)
+  playTitle.value = m.title || ''
+}
+async function closeStream() {
+  // 与 Detail 一致：先取最终存档 Promise，再关窗，落库后刷新继续观看行与海报墙
+  const saving = (playerRef.value && playerRef.value.saveFinal)
+    ? playerRef.value.saveFinal() : Promise.resolve()
+  playVid.value = null
+  Promise.resolve(saving).catch(() => { /* 忽略 */ }).then(() => {
+    refreshContinue()
+    load()
+  })
+}
+async function onPlayWatched() {
+  // 海报粒度：同片全版本标已看；继续观看行重拉，已看完的自动消失
+  try {
+    await api('/api/movies/batch', {
+      method: 'POST',
+      body: JSON.stringify({ ids: [Number(playVid.value)], ops: { watched: true } }),
+    })
+  } catch (e) { /* 忽略 */ }
+  refreshContinue()
+}
 function toggleSelect(id) {
   const s = new Set(selectedIds.value)
   if (s.has(id)) s.delete(id)
@@ -585,6 +675,7 @@ async function batchCall(ops) {
     pendingTags.value = []
     await loadFacets()
     await load()
+    await refreshContinue()
   } catch (e) {
     batchMsg.value = '批量失败：' + e.message
   } finally {
@@ -674,6 +765,7 @@ async function confirmDel() {
     clearSelection()
     await loadFacets()
     await load()
+    await refreshContinue()
   } catch (e) {
     batchMsg.value = '删除失败：' + e.message
   } finally {
@@ -825,6 +917,14 @@ watch(() => route.query, () => { readUrl(); load() })
 .chip.tag { border-style: dashed; }
 .chip.off { opacity: .45; }
 .fhint { color: #777; font-size: 0.75rem; }
+.wall-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 16px 12px 0; padding-top: 12px; border-top: 1px solid #2e2e2e;
+}
+.wall-head h3 { margin: 0; font-size: 1.0625rem; color: #ddd; }
+.wall-count { color: #777; font-size: 0.8125rem; font-weight: normal; margin-left: 4px; }
+.wall-sort { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.wall-sort .flabel { min-width: 0; }
 .q-wrap { position: relative; flex: 0 1 260px; }
 .q-wrap input { width: 100%; box-sizing: border-box; }
 .suggest {

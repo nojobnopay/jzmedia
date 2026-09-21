@@ -395,7 +395,8 @@ class SmbStorageBackend(StorageBackend):
     def write(self, path: str, data: bytes) -> None:
         self._require_writable()
         unc = self._unc(path)
-        tmp = unc + f".tmp{os.getpid()}"
+        # 临时名带单调时钟：同片并发后台任务写同一路径时不会互相踩
+        tmp = f"{unc}.tmp-{os.getpid()}-{time.monotonic_ns()}"
         try:
             parent = unc.rsplit("/", 1)[0]
             smbclient.makedirs(parent, exist_ok=True)

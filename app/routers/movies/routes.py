@@ -18,7 +18,7 @@ from ...scanner import same_stem
 from .common import (_INLINE_EXTS, FilterList, _library_scope, _page,
                      _stream_upload, _stream_upload_backend)
 from .scope import _movie_delete_scope
-__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_similar', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'organize_hint', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig', 'movie_posters', 'movie_poster_thumb', 'movie_poster_set']
+__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'recent_played', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_similar', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'organize_hint', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig', 'movie_posters', 'movie_poster_thumb', 'movie_poster_set']
 
 router = APIRouter(prefix="/api")
 
@@ -36,7 +36,8 @@ def search(q: str = "", limit: int = 500, offset: int = 0, grouped: bool = True,
            watched: int | None = None,
            collection: FilterList = Query(default=None),
            library: FilterList = Query(default=None),
-           media_library: int | None = None):
+           media_library: int | None = None,
+           sort: str = "updated", order: str = "desc"):
     lim, off = _page(limit, offset)
     items = store.search_fts(
         q, lim + 1, grouped, genres=store._split_multi(genre),
@@ -45,7 +46,8 @@ def search(q: str = "", limit: int = 500, offset: int = 0, grouped: bool = True,
         tags=store._split_multi(tag), min_rating=min_rating,
         rating_source=rating_source, watched=watched,
         collection_ids=store._split_ints(collection),
-        library_ids=_library_scope(library, media_library), offset=off)
+        library_ids=_library_scope(library, media_library), offset=off,
+        sort=sort, order=order)
     has_more = len(items) > lim
     return {"q": q, "items": items[:lim], "has_more": has_more,
             "limit": lim, "offset": off}
@@ -74,7 +76,8 @@ def list_movies(grouped: bool = True, limit: int = 500, offset: int = 0,
                 watched: int | None = None,
                 collection: FilterList = Query(default=None),
                 library: FilterList = Query(default=None),
-                media_library: int | None = None):
+                media_library: int | None = None,
+                sort: str = "updated", order: str = "desc"):
     lim, off = _page(limit, offset)
     items = store.list_movies(
         grouped, genres=store._split_multi(genre),
@@ -83,9 +86,23 @@ def list_movies(grouped: bool = True, limit: int = 500, offset: int = 0,
         tags=store._split_multi(tag), limit=lim + 1,
         min_rating=min_rating, rating_source=rating_source, watched=watched,
         collection_ids=store._split_ints(collection),
-        library_ids=_library_scope(library, media_library), offset=off)
+        library_ids=_library_scope(library, media_library), offset=off,
+        sort=sort, order=order)
     has_more = len(items) > lim
     return {"items": items[:lim], "has_more": has_more, "limit": lim, "offset": off}
+
+
+@router.get("/movies/recent-played")
+def recent_played(limit: int = 20, include_finished: bool = False,
+                  library: FilterList = Query(default=None),
+                  media_library: int | None = None):
+    """继续观看/最近播放（海报粒度）：默认未看完，按最后播放时间倒序。
+    include_finished=true 含已看完（前端「全部最近播放」切换用）。"""
+    lim = max(1, min(int(limit or 20), 100))
+    return {"items": store.list_recent_played(
+        lim, library_ids=_library_scope(library, media_library),
+        include_finished=bool(include_finished)),
+        "limit": lim, "include_finished": bool(include_finished)}
 
 
 @router.get("/facets")
@@ -993,16 +1010,19 @@ def rescan_movie(movie_id: int):
 
 
 @router.post("/movies/{movie_id}/refresh")
-def refresh_movie(movie_id: int, background_tasks: BackgroundTasks):
-    """手动刷新：按本片 tmdb_id 抓远端 → 写镜像 → 有变化才扇出到同 tmdb_id 全版本。
-    无变化时不碰任何 movies 行（含 updated_at）。海报/头像/NFO 放后台补齐。"""
+def refresh_movie(movie_id: int, background_tasks: BackgroundTasks,
+                  body: dict | None = None):
+    """手动刷新：按本片 tmdb_id 抓远端 → 写镜像 → 有变化扇出到同 tmdb_id 全版本。
+    默认 force=true（用户显式刷新）：即使镜像无变化也重写 NFO/海报到媒体目录
+    （修复 NAS 落盘缺失/换绑后未覆盖）；body {"force": false} 可退回旧行为。"""
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
     if not m.get("tmdb_id"):
         raise HTTPException(422, "movie has no tmdb_id, use /match first")
+    force = bool((body or {}).get("force", True))
     try:
-        out, jobs = scanner.refresh_tmdb_id_fast(int(m["tmdb_id"]))
+        out, jobs = scanner.refresh_tmdb_id_fast(int(m["tmdb_id"]), force=force)
     except Exception as e:
         raise HTTPException(502, f"tmdb fetch failed: {e}")
     if jobs:

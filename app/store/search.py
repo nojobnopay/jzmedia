@@ -10,7 +10,8 @@ logger = get_logger("store.search")
 
 __all__ = ['get_scan_state', 'set_scan_state', 'fts_needs_rebuild', 'rebuild_fts', 'resync_fts', 'list_movies', '_query_terms', '_fts_query',
            '_search_like', 'suggest_titles', 'suggest_people', 'search_fts',
-           '_split_multi', '_split_ints', '_rating_col', '_structured_where', 'get_facets']
+           '_split_multi', '_split_ints', '_rating_col', '_structured_where', 'get_facets',
+           'SORT_KEYS', 'normalize_sort']
 
 def get_scan_state(file_path: str,
                    library_id: int = DEFAULT_LIBRARY_ID) -> dict | None:
@@ -81,6 +82,41 @@ def resync_fts(movie_id: int) -> None:
              names, row["tags"], row["genres"]))
 
 
+SORT_KEYS = {"added": "added_at", "updated": "updated_at", "year": "year",
+             "title": "title COLLATE NOCASE", "rating": None}
+SORT_DEFAULT = "updated"
+
+
+def normalize_sort(sort, order) -> tuple[str, str]:
+    """排序参数归一（白名单，未知键回落 updated；order 只认 asc，其余 desc）。"""
+    key = str(sort or "").strip().lower()
+    if key not in SORT_KEYS:
+        key = SORT_DEFAULT
+    direction = "ASC" if str(order or "").strip().lower() == "asc" else "DESC"
+    return key, direction
+
+
+def _sort_column(sort, rating_source) -> str:
+    col = SORT_KEYS[normalize_sort(sort, None)[0]]
+    return _rating_col(rating_source) if col is None else col
+
+
+def _order_clause(sort, order, rating_source, grouped: bool) -> str:
+    """ORDER BY：NULL/缺失沉底 + id 兜底（翻页稳定）。grouped 走聚合别名 _s/_id。"""
+    col = _sort_column(sort, rating_source)
+    _, direction = normalize_sort(sort, order)
+    if grouped:
+        return f"ORDER BY _s IS NULL, _s {direction}, _id DESC"
+    return f"ORDER BY ({col} IS NULL), {col} {direction}, id DESC"
+
+
+def _select_sort_extra(grouped: bool, sort, rating_source) -> str:
+    if not grouped:
+        return ""
+    col = _sort_column(sort, rating_source)
+    return f", MAX({col}) AS _s, MAX(id) AS _id"
+
+
 def list_movies(grouped: bool = True, genres: list | None = None,
                 regions: list | None = None, countries: list | None = None,
                 years: list | None = None, decades: list | None = None,
@@ -90,7 +126,8 @@ def list_movies(grouped: bool = True, genres: list | None = None,
                 watched: int | None = None,
                 collection_ids: list | None = None,
                 library_ids: list | int | None = None,
-                offset: int = 0) -> list[dict]:
+                offset: int = 0, sort: str | None = None,
+                order: str | None = None) -> list[dict]:
     where, params = _structured_where("movies", genres=genres, regions=regions,
                                       countries=countries, years=years,
                                       decades=decades, tags=tags,
@@ -103,15 +140,17 @@ def list_movies(grouped: bool = True, genres: list | None = None,
         off = max(0, int(offset or 0))
     except (TypeError, ValueError):
         off = 0
+    order_sql = _order_clause(sort, order, rating_source, grouped)
     with _lock, _conn() as c:
         if not grouped:
             rows = c.execute(
-                f"SELECT * FROM movies WHERE {where} ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                f"SELECT * FROM movies WHERE {where} {order_sql} LIMIT ? OFFSET ?",
                 (*params, limit, off))
             return [_row_to_dict(r) for r in rows]
         rows = c.execute(
-            f"SELECT *, MAX(updated_at) AS _u FROM movies WHERE {where} "
-            f"GROUP BY library_id, COALESCE(tmdb_id, -id) ORDER BY _u DESC LIMIT ? OFFSET ?",
+            f"SELECT *{_select_sort_extra(grouped, sort, rating_source)}"
+            f" FROM movies WHERE {where} "
+            f"GROUP BY library_id, COALESCE(tmdb_id, -id) {order_sql} LIMIT ? OFFSET ?",
             (*params, limit, off))
         return [_attach_versions(c, _row_to_dict(r)) for r in rows]
 
@@ -229,7 +268,8 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
                watched: int | None = None,
                collection_ids: list | None = None,
                library_ids: list | int | None = None,
-               offset: int = 0) -> list[dict]:
+               offset: int = 0, sort: str | None = None,
+               order: str | None = None) -> list[dict]:
     fwhere, fparams = _structured_where("m", genres=genres, regions=regions,
                                         countries=countries, years=years,
                                         decades=decades, tags=tags,
@@ -249,7 +289,7 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
                            tags=tags, limit=limit, min_rating=min_rating,
                            rating_source=rating_source, watched=watched,
                            collection_ids=collection_ids, library_ids=library_ids,
-                           offset=off)
+                           offset=off, sort=sort, order=order)
     fts_q = _fts_query(q)
     with _lock, _conn() as c:
         rows = []

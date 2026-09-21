@@ -189,6 +189,7 @@ async function refreshTmdb() {
   try {
     const r = await api('/api/movies/' + props.movieId + '/refresh', { method: 'POST' })
     refreshMsg.value = r.changed ? `已更新（${(r.affected_ids || []).length}个版本）` : '远端无变化'
+    if (r.forced) refreshMsg.value = '远端无变化，已按当前匹配重写 NFO/海报'
     if (r.background && (r.background.poster || r.background.avatars)) {
       refreshMsg.value += '，图片补齐中…'
     }

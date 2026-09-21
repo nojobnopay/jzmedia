@@ -8,7 +8,10 @@
           <span class="top-right">
             <span v-if="savedFlash" class="saved-flash">已保存</span>
             <span v-if="regionNote" class="saved-flash" style="color:#e0a63c">{{ regionNote }}</span>
+            <span v-if="metaMsg" class="saved-flash" :style="metaErr ? 'color:#e0a63c' : ''">{{ metaMsg }}</span>
             <span v-if="buildVer" class="ver-tag" :title="'后端构建 ' + buildVer">构建 {{ buildVer }}</span>
+            <button :disabled="metaBusy" title="按当前匹配重写该片 NFO/海报（含 NAS 落盘），用于换绑后落盘缺失"
+              @click="rebuildMeta">{{ metaBusy ? '重写中…' : '重写元数据' }}</button>
             <button @click="toggleEdit">{{ editing ? '收起' : '编辑' }}</button>
           </span>
         </div>
@@ -106,6 +109,7 @@
             <div v-if="(m.genres || []).length" class="fact"><span>类型</span><span>{{ (m.genres || []).join(' / ') }}</span></div>
             <div v-if="m.region || originName" class="fact"><span>产地</span><span>{{ [m.region, originName].filter(Boolean).join(' · ') }}</span></div>
             <div v-if="m.year" class="fact"><span>年份</span><span>{{ m.year }}</span></div>
+            <div v-if="fmtDate(m.added_at)" class="fact"><span>入库</span><span>{{ fmtDate(m.added_at) }}</span></div>
             <div v-if="originalMoved" class="fact"><span>原始文件</span><span class="fact-val" :title="m.original_file_path">{{ m.original_file_path }} <button @click="goRestore">去恢复</button></span></div>
             <div v-if="m.tmdb_id" class="fact"><span>链接</span><span><a :href="`https://www.themoviedb.org/movie/${m.tmdb_id}`" target="_blank" rel="noopener">TMDB</a><a v-if="m.imdb_id" :href="`https://www.imdb.com/title/${m.imdb_id}/`" target="_blank" rel="noopener">IMDb</a></span></div>
           </section>
@@ -202,6 +206,7 @@ import { api, posterUrl } from '../api.js'
 import { usePolling } from '../usePolling.js'
 import { getCaps } from '../caps.js'
 import { hasScore, fmtScore, starRow } from '../ratings.js'
+import { fmtDate } from '../format.js'
 import Spinner from '../components/Spinner.vue'
 import PlayerModal from '../components/PlayerModal.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
@@ -405,6 +410,59 @@ async function startPrewarm() {
   } catch (e) {
     preMsg.value = '启动失败：' + e.message
   }
+}
+// 重写元数据（2026-09）：换绑/刷新后 NAS 上 NFO/海报可能没落盘，这里按当前匹配单部重写
+const metaBusy = ref(false)
+const metaMsg = ref('')
+const metaErr = ref(false)
+let metaJobId = ''
+const metaPoll = usePolling(pollMeta, { interval: 1000 })
+async function rebuildMeta() {
+  if (metaBusy.value) return
+  metaBusy.value = true
+  metaMsg.value = ''
+  metaErr.value = false
+  try {
+    const d = await api('/api/jobs/rebuild-meta', {
+      method: 'POST',
+      body: JSON.stringify({ ids: [Number(route.params.id)], dry_run: false, backdrops: false }),
+    })
+    metaJobId = d.job_id || ''
+    if (!metaJobId) {
+      metaBusy.value = false
+      metaErr.value = true
+      metaMsg.value = '重写启动失败'
+      return
+    }
+    metaMsg.value = '后台重写中…'
+    metaPoll.start()
+  } catch (e) {
+    metaBusy.value = false
+    metaErr.value = true
+    metaMsg.value = '重写失败：' + e.message
+  }
+}
+async function pollMeta() {
+  if (!metaJobId) return
+  try {
+    const st = await api('/api/jobs/rebuild-meta/' + metaJobId)
+    if (st.state === 'running') {
+      metaMsg.value = `重写中 ${st.done}/${st.total}…`
+      return
+    }
+    metaPoll.stop()
+    metaJobId = ''
+    metaBusy.value = false
+    if (st.state === 'done') {
+      const failed = (st.failed || []).length
+      metaErr.value = failed > 0
+      metaMsg.value = failed ? `完成，失败 ${failed} 部` : '已重写 NFO / 海报'
+      await load()
+    } else {
+      metaErr.value = true
+      metaMsg.value = '重写失败：' + (st.error || st.state || '未知')
+    }
+  } catch (e) { /* 轮询失败下次继续 */ }
 }
 function closeStream() {
   const vid = playVid.value

@@ -136,6 +136,26 @@ def test_artwork_remote_size_mismatch_skips_read(smb_lib):
         os.remove(poster)
 
 
+def test_smb_write_tmp_name_unique(smb_lib, monkeypatch):
+    """2026-09 修复：同路径并发写时临时名必须唯一（此前固定 `.tmp<pid>` 会互相踩）。"""
+    lib, root, fake = smb_lib
+    backend = storage.backend_for(lib["id"])
+    d = root / "Tmp (2020)"
+    d.mkdir()
+    tmps: list[str] = []
+    orig = fake.replace
+
+    def rec(src, dst, **kw):
+        tmps.append(str(src))
+        return orig(src, dst, **kw)
+
+    monkeypatch.setattr(fake, "replace", rec)
+    backend.write("Tmp (2020)/a.bin", b"1")
+    backend.write("Tmp (2020)/a.bin", b"2")
+    assert len(tmps) == 2 and tmps[0] != tmps[1]
+    assert (d / "a.bin").read_bytes() == b"2"
+
+
 def test_read_only_remote_skips_writes(smb_lib):
     lib, root, _fake = smb_lib
     d = root / "RO (2020)"
