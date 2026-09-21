@@ -10,7 +10,7 @@
 | # | 任务 | 状态 | 结论 |
 |---|---|---|---|
 | 1 | 前端路由懒加载 + 404 catch-all | **done** 2026-09-21 (`764e53f`) | `router.js` 全 View 动态 import + `/:pathMatch(.*)*` 回首页；构建已拆出独立 chunk |
-| 2 | 抽 `useSubtitles()` composable（~500–600 行） | pending | PlayerModal 字幕子系统（VTT/ASS/PGS + 偏移/样式/降级链）仍在单文件；原 R13-Q1/R14-Q1 延期项 → 需专门会话 + 即时 H-UI 点检 |
+| 2 | 抽 `useSubtitles()` composable（~500–600 行） | **done** 2026-09-21 | 字幕子系统移至 `frontend/src/useSubtitles.js`（选轨/默认轨、本地临时字幕、VTT 自绘、ASS/PGS、延迟/外观/兼容降级）；PlayerModal 1957→1380 行，对外标识符同名、设置契约不变；lint/test/build 通过，**待 H-UI 按验收清单点检** |
 
 ## P2 — 有价值，排期不紧
 
