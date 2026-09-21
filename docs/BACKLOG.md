@@ -7,18 +7,18 @@
 
 ## P1 — 小而明确，建议尽快
 
-| # | 任务 | 现状与位置 |
-|---|---|---|
-| 1 | 前端路由懒加载 + 404 catch-all | `frontend/src/router.js` 仍 8 个静态 `import`，无 `/:pathMatch(.*)*`；`PlayerModal`/hls 已懒加载，但各 View/caps/subStyle 仍在主包。原评审 R14-D5 曾"留给 B9 拆分顺带"，B9 收口时漏做 |
-| 2 | 抽 `useSubtitles()` composable（~500–600 行） | `frontend/src/components/PlayerModal.vue` 现 1957 行，VTT/ASS/PGS 三渲染器 + 偏移 + 样式 + 降级链仍在单文件；原 R13-Q1/R14-Q1，当时因"刚经用户验证、回归风险高"明确延期 → 需专门会话 + 即时 H-UI 点检 |
+| # | 任务 | 状态 | 结论 |
+|---|---|---|---|
+| 1 | 前端路由懒加载 + 404 catch-all | **done** 2026-09-21 (`764e53f`) | `router.js` 全 View 动态 import + `/:pathMatch(.*)*` 回首页；构建已拆出独立 chunk |
+| 2 | 抽 `useSubtitles()` composable（~500–600 行） | pending | PlayerModal 字幕子系统（VTT/ASS/PGS + 偏移/样式/降级链）仍在单文件；原 R13-Q1/R14-Q1 延期项 → 需专门会话 + 即时 H-UI 点检 |
 
 ## P2 — 有价值，排期不紧
 
-| # | 任务 | 现状与位置 |
-|---|---|---|
-| 3 | Collections/CollectionDetail/Person 样式单源 | B9-COLLECTIONS/PERSONS 台账标"部分"：`usePolling` 已抽，样式去重未收口 |
-| 4 | 人物页作品列表按当前媒体库过滤 | 规划 §10.1/§12 的 `/p/:tmdb_id?lib=` 未实现：`app/routers/persons.py` 与 `frontend/src/views/Person.vue` 均无库参数（TV 页已有 `media_library` 过滤，可参照） |
-| 5 | Provider 失败冷却 + 设置页链路状态 | 规划 §9.1 的 `provider_state`（fail_count/cooldown_until）未实现；`app/metadata/chain.py` 逐次直接调用，仅 `app/mounts.py:39` 有库级退避。设置页无 provider 链路/最近错误展示 |
+| # | 任务 | 状态 | 结论 |
+|---|---|---|---|
+| 3 | Collections/CollectionDetail/Person 样式单源 | **done** 2026-09-21 (`0996a9e`) | 共享块（card-block/hero-*/meta-line/overview/empty/cast-*）上移 `App.vue` 全局，Person/Detail 去重；页面特化保留 scoped 覆盖 |
+| 4 | 人物页作品列表按当前媒体库过滤 | **done** 2026-09-21 | `GET/POST /api/persons/{tmdb_id}` 支持 `media_library`/`library`（`_library_scope`，未知媒体库→空），Person.vue 随切换器重载；`tests/test_person_scope.py` |
+| 5 | Provider 失败冷却 + 设置页链路状态 | **done** 2026-09-21 | `app/metadata/state.py` 状态落 `app_settings`：连续失败 3 次冷却 10 分钟、冷却期链跳过、成功清零；`GET/POST /api/metadata/providers` + 设置页 TMDB 区展示/重置；`tests/test_metadata_chain.py` |
 
 ## 后续版本（需要单独立项）
 
