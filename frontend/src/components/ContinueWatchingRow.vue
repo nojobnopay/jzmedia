@@ -22,7 +22,7 @@
             <div v-if="!m.watched" class="cw-bar" aria-hidden="true">
               <div class="cw-bar-in" :style="{ width: progressWidth(m.progress) }"></div>
             </div>
-            <button class="cw-play" :aria-label="'继续播放 ' + (m.title || '')" title="继续播放"
+            <button class="poster-play" :aria-label="'继续播放 ' + (m.title || '')" title="继续播放"
               @click.stop="$emit('resume', m)">▶</button>
           </div>
           <div class="cw-name" :title="m.title">{{ m.title }}<span v-if="m.year" class="cw-year">({{ m.year }})</span><span v-if="m.version_count > 1" class="cw-year">×{{ m.version_count }}</span></div>
@@ -150,13 +150,6 @@ defineExpose({ reload })
 .cw-left, .cw-done { position: absolute; top: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); }
 .cw-left { color: #ddd; }
 .cw-done { color: #7ed321; }
-.cw-play {
-  position: absolute; inset: 0; margin: auto; width: 44px; height: 44px; border-radius: 50%;
-  border: none; background: rgba(0,0,0,.62); color: #fff; font-size: 1.125rem;
-  display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s;
-}
-.cw-card:hover .cw-play, .cw-play:focus-visible { opacity: 1; }
-@media (hover: none) { .cw-play { opacity: 1; width: 38px; height: 38px; } }
 .cw-name { padding: 6px 2px 0; font-size: 0.8125rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cw-year { color: #888; font-size: 0.75rem; margin-left: 4px; }
 .cw-nav {

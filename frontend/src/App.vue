@@ -113,6 +113,25 @@ button { cursor: pointer; }
 .actor { cursor: pointer; color: #6ab0ff; }
 .poster-wrap { position: relative; }
 .poster-wrap img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
+/* 海报悬浮播放键（海报墙/继续观看共用单源）：hover 海报显形，hover 按钮本身放大变红（Plex 式） */
+.poster-play {
+  position: absolute; inset: 0; margin: auto; z-index: 2;
+  width: 52px; height: 52px; padding: 0; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.85); background: rgba(0,0,0,.62); color: #fff;
+  font-size: 1.25rem; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; cursor: pointer;
+  transition: opacity .15s, transform .15s, background .15s, border-color .15s, box-shadow .15s;
+}
+.poster-wrap:hover .poster-play, .poster-play:focus-visible { opacity: 1; }
+.poster-play:hover {
+  transform: scale(1.12);
+  background: #e50914; border-color: #e50914;
+  box-shadow: 0 6px 18px rgba(0,0,0,.55);
+}
+.poster-play:active { transform: scale(1); }
+.poster-play:disabled { cursor: wait; opacity: .85; }
+@media (hover: none) { .poster-play { opacity: 1; width: 44px; height: 44px; } }
 .score-badge { position: absolute; top: 6px; right: 6px; font-size: 0.75rem; font-weight: bold; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #ffc107; white-space: nowrap; }
 .score-badge.douban { color: #7ed321; }
 .score-badge.custom { color: #ff6b6b; }

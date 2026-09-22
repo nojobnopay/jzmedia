@@ -125,6 +125,12 @@
         <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" :alt="m.title || '海报'" />
         <!-- 未匹配/无海报占位（评审 B9 后续）：刮削失败也留在墙上可见，点进详情可重新匹配 -->
         <div v-else class="no-poster" aria-hidden="true">{{ (m.title || '?').slice(0, 1) }}</div>
+        <button v-if="!selecting" class="poster-play" :disabled="playBusy !== null"
+          :title="'播放 ' + (m.title || '')" :aria-label="'播放 ' + (m.title || '')"
+          @click.stop="playMovie(m)">
+          <Spinner v-if="playBusy === m.id" :size="18" />
+          <template v-else>▶</template>
+        </button>
         <ScoreBadge :score="m.tmdb_rating" source="tmdb" />
         <span v-if="m.watched" class="watched-badge">✓已看</span>
         <span v-if="!m.tmdb_id" class="unmatched-badge" title="尚未匹配 TMDB，点击卡片进详情匹配">未匹配</span>
@@ -240,9 +246,11 @@ import { api, posterUrl } from '../api.js'
 import { currentMediaId, mediaParam, switchLib, switchMedia,
          loadLibs, onLibChange } from '../libraries.js'
 import ScoreBadge from '../components/ScoreBadge.vue'
+import Spinner from '../components/Spinner.vue'
 import UploadDialog from '../components/UploadDialog.vue'
 import ContinueWatchingRow from '../components/ContinueWatchingRow.vue'
 import PlayerModal from '../components/PlayerModal.vue'
+import { getCaps } from '../caps.js'
 import { fmtBytes, fmtDate } from '../format.js'
 import { hasScore, fmtScore } from '../ratings.js'
 import { usePolling } from '../usePolling.js'
@@ -289,6 +297,7 @@ const showContinue = computed(() =>
   !activeCount.value && !q.value.trim() && !selecting.value)
 const playVid = ref(null)
 const playTitle = ref('')
+const playBusy = ref(null)   // 多版本智能选版中的卡片 id（转圈防重复点）
 const playerRef = ref(null)
 
 function pickSort(key) {
@@ -626,6 +635,27 @@ function openMovie(id) { router.push('/m/' + id) }
 function resumeMovie(m) {
   playVid.value = Number((m.progress && m.progress.version_id) || m.id)
   playTitle.value = m.title || ''
+}
+// 海报墙 ▶：直接播放。单版本零等待；多版本先问服务端 best_version_id（带客户端 caps），
+// 避免误播浏览器不可播的 DV/4K 版（与详情页选版一致），失败回落代表版本。
+async function playMovie(m) {
+  if (playBusy.value !== null) return
+  const id = Number(m.id)
+  let vid = id
+  if (Number(m.version_count || 1) > 1) {
+    playBusy.value = id
+    try {
+      const caps = await getCaps()
+      const agg = await api('/api/stream/versions', {
+        method: 'POST',
+        body: JSON.stringify({ movie_id: id, quality: 'auto', caps }),
+      })
+      if (agg && agg.best_version_id) vid = Number(agg.best_version_id)
+    } catch (e) { /* 选版失败回落代表版本 */ }
+    finally { playBusy.value = null }
+  }
+  playTitle.value = (m.title || '') + (m.year ? ` (${m.year})` : '')
+  playVid.value = vid
 }
 async function closeStream() {
   // 与 Detail 一致：先取最终存档 Promise，再关窗，落库后刷新继续观看行与海报墙
