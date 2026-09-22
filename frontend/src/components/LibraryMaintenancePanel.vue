@@ -46,6 +46,14 @@
     </div>
     <p v-if="armSamples" class="hint warn-text">删除路径属于 Sample/Screens/Behind The Scenes 等样片/花絮目录的影片记录（只删库记录，不动物理文件）。再点一次执行。</p>
 
+    <div class="bar">
+      <button @click="doCleanCache" :disabled="!!busy">
+        {{ busy === 'cache' ? '清理中…' : (armCache ? '确认清理转码缓存' : '清理转码缓存') }}
+      </button>
+      <span>{{ cacheMsg }}</span>
+    </div>
+    <p v-if="armCache" class="hint warn-text">全局（不限本媒体库）：删除 data/transcode 下可回收的转码/预缓存产物，跳过正在播放的会话；海报/NFO 不动。再点一次执行。</p>
+
     <div v-if="media.source !== 'local'" class="bar">
       <button @click="doCleanMount" :disabled="!!busy">
         {{ busy === 'mount' ? '清理中…' : (armMount ? '确认清理挂载残留' : '清理挂载残留') }}
@@ -234,6 +242,48 @@ async function doCleanSamples() {
     emit('changed')
   } catch (e) {
     samplesMsg.value = '清理失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+// 转码缓存手动清理（全局）：dry_run 预览 → 再点执行（删可回收目录，跳过在播会话）
+const armCache = ref(false)
+const cacheMsg = ref('')
+function fmtBytes(n) {
+  const x = Number(n) || 0
+  if (x >= 1 << 30) return (x / (1 << 30)).toFixed(1) + ' GB'
+  if (x >= 1 << 20) return (x / (1 << 20)).toFixed(0) + ' MB'
+  return Math.max(0, Math.round(x / 1024)) + ' KB'
+}
+async function doCleanCache() {
+  if (!armCache.value) {
+    busy.value = 'cache'
+    cacheMsg.value = ''
+    try {
+      const d = await api('/api/stream/cache/clean', {
+        method: 'POST', body: JSON.stringify({ dry_run: true })
+      })
+      armCache.value = true
+      cacheMsg.value = d.candidates
+        ? `可清理 ${d.candidates} 个目录 / ${fmtBytes(d.candidate_bytes)}（缓存共 ${fmtBytes(d.total)}，上限 ${fmtBytes(d.cap)}）——再点一次执行`
+        : `没有可清理的转码缓存（共 ${fmtBytes(d.total)}）`
+    } catch (e) {
+      cacheMsg.value = '预览失败：' + e.message
+    } finally {
+      busy.value = null
+    }
+    return
+  }
+  armCache.value = false
+  busy.value = 'cache'
+  try {
+    const d = await api('/api/stream/cache/clean', {
+      method: 'POST', body: JSON.stringify({ dry_run: false })
+    })
+    cacheMsg.value = `已清理 ${d.removed} 个目录，释放 ${fmtBytes(d.freed)}（剩余 ${fmtBytes(Math.max(0, d.total - d.freed))}）`
+  } catch (e) {
+    cacheMsg.value = '清理失败：' + e.message
   } finally {
     busy.value = null
   }

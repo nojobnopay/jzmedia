@@ -28,9 +28,9 @@
         <video ref="videoEl" :key="videoKey" autoplay playsinline preload="metadata" class="player-video"
           @error="onVideoError"></video>
         <img v-if="freezeFrame" :src="freezeFrame" class="freeze-frame" alt="" />
-        <div v-if="seekPending" class="seek-ov">
+        <div v-if="seekPending || booting" class="seek-ov">
           <Spinner :size="18" />
-          <span>正在转码到 {{ fmt(seekPos) }}…</span>
+          <span>{{ seekPending ? ('正在转码到 ' + fmt(seekPos) + '…') : (sessStatus || '正在准备播放…') }}</span>
         </div>
         <p v-if="err" class="pv-err">{{ err }}</p>
         <div class="pv-top" :class="{ show: overlayVisible }">
@@ -120,6 +120,9 @@ function onDocClick(e) {
 const method = ref('')
 const reasons = ref([])
 const sessStatus = ref('')
+// 起播等待浮层（decide/建会话最长 300s，画面纯黑会让用户以为卡死而关窗——关窗后的
+// 晚到挂载正是“海报墙传出声音”的触发场景，见 reload/mountHls 的 disposed 守卫）
+const booting = ref(false)
 let sessionId = null
 let pingTimer = 0
 // 客户端能力：基础矩阵一次；逐片候选码串实测结果按版本缓存（decide/sessions 带 caps）
@@ -190,6 +193,10 @@ const lastHlsError = ref('')
 // reload 代际：并发 reload（起播等待中切音轨/快速切档）只允许最后一轮挂载，
 // 否则两轮各自 new Hls 互踩 → 实际播放的实例与 UI/会话错位（切轨无效的根因）。
 let reloadGen = 0
+// 卸载守卫：关窗后晚到的 decide/sessions 响应绝不挂 hls（元素已脱离文档，浏览器
+// 不显示画面但会继续放音频 → 用户 2026-09 实测“关窗后海报墙听见片声”）。
+let disposed = false
+let bootCtrl = null   // 当前 reload 的取消控制器（关窗/新一轮 reload 中止在飞请求）
 // HLS master 是否已解析（MANIFEST_PARSED）：解析前的切轨请求交给解析后 applyAudioTrack
 let manifestReady = false
 // 实际使用的播放引擎：hls(Plex式) | native(Safari原生) | direct(原文件)
@@ -339,6 +346,11 @@ function applyNativeAudioTrack(v) {
 async function mountHls(v, url, targetMediaTime, opts) {
   let Hls = null
   try { Hls = await ensureHls() } catch (e) { Hls = null }
+  // 动态 import 等待期可能已关窗/换元素/新一轮 reload：绝不在过期元素上建实例
+  // （对齐 useSubtitles 的 videoEl.value !== v 守卫；此处是音频泄漏的直接入口）
+  if (disposed || !v || videoEl.value !== v) return false
+  if (opts && opts.gen != null && opts.gen !== reloadGen) return false
+  if (opts && opts.signal && opts.signal.aborted) return false
   if (!Hls || !Hls.isSupported()) {
     sessStatus.value = ''
     err.value = '当前浏览器不支持 HLS，请用 Chrome/Edge/Safari'
@@ -397,12 +409,15 @@ async function mountHls(v, url, targetMediaTime, opts) {
 }
 // 自动带声播放被浏览器拦截时不再静默：给明确提示 + 一键起播
 const needGesture = ref(false)
+// 起播浮层收口：有明确错误或需要用户手势时立即撤掉，不遮挡错误/手势条
+watch(needGesture, (v) => { if (v) booting.value = false })
+watch(err, (v) => { if (v) booting.value = false })
 // 用户是否期望在播（区分故意暂停）：tryPlay/手动播放=true，暂停键=false
 let wantPlaying = false
 let lastPlayAttempt = 0
 function tryPlay() {
   const v = videoEl.value
-  if (!v) return
+  if (!v || disposed) return
   wantPlaying = true
   lastPlayAttempt = Date.now()
   try {
@@ -433,9 +448,9 @@ async function closeSession() {
 }
 function startPing() {
   stopPing()
-  if (!sessionId) return
+  if (!sessionId || disposed) return
   pingTimer = setInterval(async () => {
-    if (!sessionId) return
+    if (!sessionId || disposed) return
     try {
       const r = await api(`/api/stream/sessions/${sessionId}/ping`, { method: 'POST' })
       if (r && r.running === false && (r.segments || 0) > 0) {
@@ -471,10 +486,11 @@ function noteMediaError() {
 }
 // 播放决策：POST 带客户端实测 caps（目标文档 §4）；逐片候选码串先实测再复判一次
 // （每个版本只实测一次），避免“粗判 HEVC 可播但该片 Main10 超档”之类误判。
-async function decidePlayback(subArg) {
+async function decidePlayback(subArg, signal) {
   const base = activeCaps || probedCaps[props.versionId] || await getCaps()
   const post = (caps) => api(`/api/stream/${props.versionId}/decide`, {
     method: 'POST',
+    signal,
     body: JSON.stringify({ quality: quality.value, audio: audioIdx.value,
                            sub: subArg, client: 'web', caps,
                            force_burn: forceBurn.value, kind: props.kind }),
@@ -499,6 +515,11 @@ async function decidePlayback(subArg) {
 }
 async function reload() {
   const gen = ++reloadGen
+  // 中止上一轮在飞请求（旧 decide/sessions 即使晚到也会被 gen/disposed 守卫丢弃）
+  if (bootCtrl) { try { bootCtrl.abort() } catch (e) { /* 忽略 */ } }
+  const ctrl = new AbortController()
+  bootCtrl = ctrl
+  booting.value = true
   err.value = ''
   sessStatus.value = ''
   needGesture.value = false
@@ -527,7 +548,9 @@ async function reload() {
   destroyHls()
   manifestReady = false   // 旧 master 已失效，新挂载解析前不再认为可切 rendition
   const v = videoEl.value
-  if (v) { try { v.pause() } catch (e) { /* 忽略 */ } v.removeAttribute('src'); v.load() }
+  if (!v || disposed) { booting.value = false; return }   // 关窗/换元素后不再起新一轮
+  try { v.pause() } catch (e) { /* 忽略 */ }
+  v.removeAttribute('src'); v.load()
   let d
   // 图片字幕：默认客户端渲染（PGS→libpgs）；VobSub/解码降级走烧录（服务端 subtitle_mode）
   const wantBurn = imageSubSelected()
@@ -535,12 +558,13 @@ async function reload() {
   // 本地临时字幕不在服务端轨清单里：decide/sessions 一律传 null（防 subtitle_not_found）
   const serverSub = burnSub >= 0 ? burnSub : (isLocalSub(selectedSub()) ? null : (subIdx.value >= 0 ? subIdx.value : null))
   try {
-    d = await decidePlayback(serverSub)
+    d = await decidePlayback(serverSub, ctrl.signal)
   } catch (e) {
+    if (disposed || gen !== reloadGen || ctrl.signal.aborted) return
     err.value = '无法播放：' + e.message
     return
   }
-  if (gen !== reloadGen) return   // 新一轮 reload 已接管，放弃本轮（防两个 hls 实例互踩）
+  if (disposed || gen !== reloadGen) return   // 新一轮 reload/关窗已接管，放弃本轮（防两个 hls 实例互踩）
   burnOn = d.subtitle_mode ? d.subtitle_mode === 'burn' : wantBurn
   method.value = d.method
   reasons.value = d.reasons || []
@@ -587,6 +611,7 @@ async function reload() {
         method: 'POST',
         // 建会话要等前 3 分片（弱 CPU 转码慢），放宽到 300s，对齐服务端 deadline
         timeout: 300000,
+        signal: ctrl.signal,
         body: JSON.stringify({ quality: quality.value, audio: audioIdx.value,
                                start: Math.floor(startAt),
                                sub: burnSub >= 0 ? burnSub : null,
@@ -594,13 +619,20 @@ async function reload() {
                                force_burn: forceBurn.value, kind: props.kind }),
       })
     } catch (e) {
+      if (disposed || gen !== reloadGen || ctrl.signal.aborted) return
       sessStatus.value = ''
       err.value = String(e.message || '').startsWith('429')
         ? '服务器转码通道已满（最多 2 路），请稍后重试或先关闭其他播放'
         : '无法播放：' + e.message
       return
     }
-    if (gen !== reloadGen) return   // 新一轮 reload 已接管（其会杀/复用本会话），别挂旧列表
+    if (disposed || gen !== reloadGen) {
+      // 晚到会话：本轮已被关窗/新档接管，立即回收，防孤儿 ffmpeg + 泄漏心跳（服务端
+      // 另有 unclaimed 快速收割兜底客户端 abort 拿不到 sid 的情况）
+      const late = s && s.session_id
+      if (late) api(`/api/stream/sessions/${late}`, { method: 'DELETE' }).catch(() => { /* 忽略 */ })
+      return
+    }
     sessionId = s.session_id
     method.value = s.method || d.method
     reasons.value = s.reasons || d.reasons || []
@@ -617,7 +649,7 @@ async function reload() {
     recoverCount = 0
     stallTicks = 0
     lastTickPos = -1
-    const onPlaying = () => { sessStatus.value = '' }
+    const onPlaying = () => { sessStatus.value = ''; booting.value = false }
     v.addEventListener('playing', onPlaying, { once: true })
     if (canUseNativeHls(v)) {
       engine = 'native'
@@ -634,11 +666,12 @@ async function reload() {
     } else {
       engine = 'hls'
       logEvt('engine:hls', '')
-      await mountHls(v, url, null, { fromStart: true })
+      await mountHls(v, url, null, { fromStart: true, gen, signal: ctrl.signal })
     }
     }
   } catch (e) {
-    // 兜底：起播链路任何意外都不再静默 0:00，直接显示人话错误
+    // 兜底：起播链路任何意外都不再静默 0:00，直接显示人话错误（关窗/新档接管后不报）
+    if (disposed || gen !== reloadGen) return
     sessStatus.value = ''
     err.value = '播放失败：' + (e && e.message ? e.message : e)
   }
@@ -907,6 +940,7 @@ function onPlayingHide() {
   seekPendingSince = 0
   seekDragging.value = false
   freezeFrame.value = ''
+  booting.value = false
 }
 // 冻结当前帧（MSE 同源分片不污染画布，可安全 toDataURL）；无画面返回 ''
 function captureFrame() {
@@ -1022,6 +1056,7 @@ function toggleFull() {
 function onPlayState() {
   const v = videoEl.value
   isPlaying.value = !!(v && !v.paused && !v.ended)
+  if (isPlaying.value) booting.value = false   // direct 起播早于 bindVideo 时也要收浮层
   if (v) { muted.value = !!v.muted; volume.value = Number(v.volume ?? 1) }
 }
 async function copyDebug() {
@@ -1063,7 +1098,10 @@ onMounted(async () => {
       resumeTimer = setTimeout(() => { resumeTimer = 0; resumePlay() }, 10000)
     }
   } catch (e) { /* 无断点直接播 */ }
+  if (disposed) return
   await reload()
+  // 进度请求/reload 期间可能已关窗：此时不能再绑监听/起定时器（onUnmounted 已经清理过）
+  if (disposed) return
   bindVideo(videoEl.value)
   document.addEventListener('fullscreenchange', onFullChange)
   document.addEventListener('click', onDocClick)
@@ -1254,6 +1292,7 @@ function debugSnapshot() {
 async function recoverStream(forceElement = false) {
   // 同会话自救（不杀转码进程，分片继续产）：
   // 常规：重建 hls 实例；媒体级致命错误(forceElement)或第 3 次：连 <video> 元素一起换新。
+  if (disposed) return
   if (recoverCount >= 3) {
     err.value = '多次自动恢复失败，请关闭重进或切 720p'
     return
@@ -1280,7 +1319,7 @@ async function recoverStream(forceElement = false) {
       mediaErrLogged = ''
       await nextTick()
       const nv = videoEl.value
-      if (!nv) return
+      if (disposed || !nv) return
       bindVideo(nv)
       muted.value = !!nv.muted
       volume.value = Number(nv.volume ?? 1)
@@ -1302,9 +1341,22 @@ onBeforeUnmount(() => {
   // 最终进度必须在这里上报（用户 2026-09：拖进度后关闭，重开回到旧断点）。
   // 走 closeStream 关闭时父级已先调过 saveFinal（同一 Promise）；这里覆盖路由切换等直接卸载。
   saveFinal()
+  const v = videoEl.value
+  if (v) {
+    // 显式停掉媒体元素：节点被移出文档后浏览器不显示画面但会继续放音频（HTML 规范），
+    // 晚到的 hls 挂载正是“关窗后海报墙出声”的入口，这里先断源再让 destroyHls 收尾。
+    try { v.pause() } catch (e) { /* 忽略 */ }
+    try { v.removeAttribute('src') } catch (e) { /* 忽略 */ }
+    try { v.load() } catch (e) { /* 忽略 */ }
+  }
   try { unbindVideo(videoEl.value) } catch (e) { /* 忽略 */ }
 })
 onUnmounted(() => {
+  // 先作废在飞 reload：晚到的 decide/sessions 响应不得再 startPing/挂 hls（音频泄漏根因）
+  disposed = true
+  reloadGen += 1
+  wantPlaying = false
+  if (bootCtrl) { try { bootCtrl.abort() } catch (e) { /* 忽略 */ } bootCtrl = null }
   closeSession()
   document.removeEventListener('fullscreenchange', onFullChange)
   document.removeEventListener('click', onDocClick)

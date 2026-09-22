@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   applyLibs, currentLibId, currentMediaId, currentMediaVideoLibs,
-  listLibs, listMediaLibs, mediaParam, onLibChange, pickMedia,
+  isRemoteVideoLib, listLibs, listMediaLibs, mediaParam, onLibChange, pickMedia,
   preferredVideoLibId, resetLibState, switchLib, switchMedia,
 } from '../src/libraries.js'
 
@@ -80,4 +80,23 @@ test('switchLib：旧视频库 id 映射到所属媒体库', () => {
   assert.equal(currentMediaId(), 10)
   assert.equal(preferredVideoLibId('tv'), 2)
   assert.equal(switchLib(999), null)
+})
+
+test('isRemoteVideoLib：smb/nfs 判远程，local/未知/未加载为 false', () => {
+  resetLibState()
+  applyLibs({
+    items: [
+      { id: 1, name: 'NAS Movies', kind: 'movie', media_library_id: 10, source: 'smb' },
+      { id: 2, name: 'NFS', kind: 'movie', media_library_id: 10, source: 'nfs' },
+      { id: 3, name: '本地', kind: 'movie', media_library_id: 20, source: 'local' },
+    ],
+    default_id: 3,
+  })
+  assert.equal(isRemoteVideoLib(1), true)
+  assert.equal(isRemoteVideoLib(2), true)
+  assert.equal(isRemoteVideoLib(3), false)
+  assert.equal(isRemoteVideoLib(999), false)   // 未知库
+  assert.equal(isRemoteVideoLib(null), false)
+  resetLibState()
+  assert.equal(isRemoteVideoLib(1), false)     // 未加载
 })

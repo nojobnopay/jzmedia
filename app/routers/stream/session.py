@@ -13,7 +13,7 @@ from ... import playback as _playback
 import uuid
 from ...log import get_logger
 logger = get_logger("stream.session")
-from .common import (_MIN_SEGS, _SEG_RE, _SESS_FILE_RE, _has_endlist, _drop_session, _ffmpeg_ok, _get_session, _hls_sem, _hits,
+from .common import (_min_segs, _SEG_RE, _SESS_FILE_RE, _has_endlist, _drop_session, _ffmpeg_ok, _get_session, _hls_sem, _hits,
                      _log_hit, _media_cached_or_probe, _media_start_for, _plan_marker,
                      _playlist_endlist, _playlist_text, _purge_old, _seg_count,
                      _sess_lock, _write_session_meta,
@@ -38,7 +38,7 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                    caps: dict | None = None,
                    force_burn: bool = False,
                    kind: str = "movie") -> tuple[str, str, dict]:
-    """起后台转码会话（渐进式）：校验→plan→Popen→等前 _MIN_SEGS 分片。
+    """起后台转码会话（渐进式）：校验→plan→Popen→等前 _min_segs(plan) 个视频分片。
     返回 (session_id, session_dir, plan_result)。direct/无 ffmpeg 等直接抛对应 HTTP 状态。
     caps 参与 plan 与 plan_key（不同客户端能力不复用同一转码档）；force_burn 为
     客户端图片字幕解码失败时的烧录降级（见 playback._subtitle_mode）。"""
@@ -102,7 +102,8 @@ def _spawn_session(version_id: int, quality: str, audio: int,
             _sessions[sid0] = {"proc": None, "sdir": sdir0, "vid": int(m["id"]),
                                "kind": k, "plan": d["plan"], "plan_key": plan_key,
                                "caps_hash": _caps.caps_hash(caps_n), "backend": "static",
-                               "complete": True, "last_ping": time.time()}
+                               "complete": True, "last_ping": time.time(),
+                               "created": time.time(), "unclaimed": True}
         return sid0, sdir0, d
     with _sess_lock:
         for sid, s in list(_sessions.items()):
@@ -115,6 +116,9 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                 continue
             if s.get("plan_key") == plan_key:
                 s["last_ping"] = time.time()
+                # 复用给新客户端：重置未认领宽限起点，防上一轮 abort 留下的会话被收割
+                # 撞上本轮刚起播（新客户端取 playlist 时 _get_session 会正式认领）
+                s["created"] = time.time()
                 return sid, s["sdir"], d
             _drop_session(sid, kill=True)
     if not _hls_sem.acquire(blocking=False):
@@ -128,11 +132,12 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                 os.remove(os.path.join(sdir, n))
             except OSError:
                 pass
-        # 等前 _MIN_SEGS 个视频分片（remux 秒出；转码按实际速度）：首画面不等整片。
+        # 等前 _min_segs(plan) 个视频分片（remux=1 片秒出；转码按实际速度 2 片）：首画面不等整片。
         # 硬件后端（VAAPI/QSV/NVENC）若不出片，自动用软件编码重试一次（驱动/编码器组合
         # 不匹配时的兜底；日志留两次尝试的 ffmpeg 尾）。
         log_path = os.path.join(sdir, "ffmpeg.log")
         vprefix = _video_seg_prefix(seg)
+        min_segs = _min_segs(d["plan"])
         force_sw = False
         use_hw = bool(_playback.hw_backend()) and not d["plan"].get("vcopy")
         proc = None
@@ -183,10 +188,16 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                                               else ("software" if force_sw or not use_hw
                                                     else (_playback.hw_backend() or "software"))),
                                   "attempt": attempt + 1,
-                                  "last_ping": time.time()}
-            deadline = time.time() + 300
+                                  "last_ping": time.time(),
+                                  "created": time.time(), "unclaimed": True}
+            deadline = time.time() + (45 if (attempt == 0 and use_hw and not force_sw) else 300)
+            # 硬件首轮只等 45s：出不了分片就尽快回退软编，不让用户对着黑屏等满 300s
+            # （能出 1 片即算成功，见下方判定；用户 2026-09 反馈）。
             while time.time() < deadline:
-                if _seg_count(sdir, vprefix) >= _MIN_SEGS:
+                # 同时要求变体播放列表已落盘：copy=1 片时若只看分片数，可能撞上
+                # 「分片已 rename、m3u8 尚未更新」的毫秒级窗口而误判失败
+                if (_seg_count(sdir, vprefix) >= min_segs
+                        and _variant_playlists(sdir)):
                     break
                 if proc.poll() is not None:
                     break

@@ -167,6 +167,36 @@ def _disposition(stream: dict) -> dict:
     return {"default": default, "forced": forced}
 
 
+def probe_limit_args(abs_path: str) -> list[str]:
+    """远程输入（内网 Range 代理 URL）的 ffmpeg 输入限制参数（供 playback.build_cmd 用）。
+    ffmpeg 默认 probesize≈5MB、analyzeduration 实际 5s：慢链路上首帧前要白读十几 MB
+    （远程库需经 SMB 拉取）。本地文件读盘快，保持默认。
+    注意：只用于转码输入（只 map v/a 轨，Tracks 在 MKV 头部早期即可发现）。**不要**用于
+    ffprobe 元数据探测——附件（字体）可能排在 2MB 之后，截断会丢 attachments/字体信息。
+    env：`FFMPEG_PROBESIZE`（默认 2M，0=不限）、`FFMPEG_ANALYZEDURATION`（默认 1000000µs，
+    0=不限）、`FFMPEG_RW_TIMEOUT_US`（默认 30000000µs=30s，0=关闭；HTTP 读超时快速失败）。"""
+    if not str(abs_path or "").startswith(("http://", "https://")):
+        return []
+
+    def _num(name: str, default: int) -> int:
+        try:
+            return max(0, int(os.getenv(name, str(default)) or 0))
+        except (TypeError, ValueError):
+            return default
+
+    out: list[str] = []
+    ps = _num("FFMPEG_PROBESIZE", 2 << 20)
+    if ps > 0:
+        out += ["-probesize", str(ps)]
+    ad = _num("FFMPEG_ANALYZEDURATION", 1_000_000)
+    if ad > 0:
+        out += ["-analyzeduration", str(ad)]
+    rt = _num("FFMPEG_RW_TIMEOUT_US", 30_000_000)
+    if rt > 0:
+        out += ["-rw_timeout", str(rt)]
+    return out
+
+
 def probe(abs_path: str, timeout: int = 30, size: int | None = None) -> dict:
     """ffprobe 单文件 → MediaInfo（播放决策输入）。0 字节/缺失/失败 → playable=False +
     probe_error（调用方禁用播放）。

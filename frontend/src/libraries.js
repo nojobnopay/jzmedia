@@ -76,6 +76,14 @@ export function listLibs () { return _libs }
 
 export function listMediaLibs () { return _mediaLibs }
 
+// 视频库是否远程（SMB/NFS）：远程库读盘慢，remux/audio_transcode 档建议先「预缓存到服务器」
+export function isRemoteVideoLib (libId) {
+  const id = Number(libId)
+  if (!id) return false
+  const l = (_libs || []).find((x) => Number(x.id) === id)
+  return !!l && (l.source === 'smb' || l.source === 'nfs')
+}
+
 export function currentLib () { return _current }
 
 export function currentMediaId () {

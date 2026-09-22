@@ -41,17 +41,23 @@
                 </option>
               </select>
               <span v-if="heroResume" class="resume-hint">{{ heroResume }}</span>
-              <span v-if="!heroBlocked && !verFriendly(heroVid)" class="pre-wrap">
+              <span v-if="!heroBlocked && (!verFriendly(heroVid) || (heroRemux && heroRemoteLib))" class="pre-wrap">
                 <select v-model="preQuality" :disabled="!!preJob" class="pre-sel"
-                  title="预转码目标：自动=按服务器能力（无硬件转码→720p，有硬件→1080p）">
+                  :title="heroRemux && heroRemoteLib
+                    ? '预缓存目标：远程库建议「原画」（无损 copy、几乎不耗 CPU；选 720p/1080p 会真转码）'
+                    : '预转码目标：自动=按服务器能力（无硬件转码→720p，有硬件→1080p）'">
                   <option value="auto">自动</option>
                   <option value="1080p">1080p</option>
                   <option value="720p">720p</option>
                   <option value="source">原画</option>
                 </select>
                 <button class="pre-btn" :disabled="!!preJob"
-                  title="夜间/闲时把本片转好存着，完工后点播即静态秒播"
-                  @click="startPrewarm">{{ preJob ? '预转码中…' : '开始预转码' }}</button>
+                  :title="heroRemux && heroRemoteLib
+                    ? '把整片缓存到服务器本地（远程库读盘慢）：完工后点播零 NAS 读取、秒开，24h 内有效'
+                    : '夜间/闲时把本片转好存着，完工后点播即静态秒播'"
+                  @click="startPrewarm">{{ preJob
+                    ? (heroRemux && heroRemoteLib ? '预缓存中…' : '预转码中…')
+                    : (heroRemux && heroRemoteLib ? '预缓存到服务器' : '开始预转码') }}</button>
               </span>
               <span v-if="preMsg" class="resume-hint">{{ preMsg }}</span>
             </div>
@@ -214,6 +220,7 @@ import MovieUploadPanel from '../components/MovieUploadPanel.vue'
 import MovieFileManager from '../components/MovieFileManager.vue'
 import MovieEditPanel from '../components/MovieEditPanel.vue'
 import { useFocusTrap } from '../useFocusTrap.js'
+import { isRemoteVideoLib } from '../libraries.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -352,6 +359,13 @@ const verFriendly = (id) => ['direct', 'remux', 'audio_transcode'].includes(verM
 const heroVid = ref(null)
 const heroBlocked = computed(() => !!verBlocked.value[heroVid.value])
 const heroBlockTip = computed(() => verErr.value[heroVid.value] || '')
+// 预缓存入口（P1）：remux/audio_transcode 本不需要转码，但远程库读盘慢——整片缓存到服务端
+// 本地后点播零 NAS 读取。direct 无需缓存；本地库读取快也不必（保持旧按钮仅给转码版）。
+const heroRemux = computed(() => ['remux', 'audio_transcode'].includes(verMethod.value[heroVid.value]))
+const heroRemoteLib = computed(() => {
+  const v = (m.value?.versions || []).find(x => Number(x.id) === Number(heroVid.value))
+  return isRemoteVideoLib(v?.library_id ?? m.value?.library_id)
+})
 const heroResume = computed(() => resumeText.value)
 function baseName(p) {
   return String(p || '').split('/').pop()

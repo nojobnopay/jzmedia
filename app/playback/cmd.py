@@ -6,6 +6,7 @@ from .. import library_paths
 from ..media import ffmpeg_bin
 from ..media import ffprobe_bin
 from ..media import norm_codec
+from ..media import probe_limit_args
 from ..log import get_logger
 logger = get_logger("playback.cmd")
 from .plan import MAX_AUDIO_RENDITIONS, seg_type
@@ -156,6 +157,7 @@ def _build_cmd_fmp4(abs_path: str, plan: dict,
     if not vcopy and backend is not None:
         cmd += backend.input_args(burn=burn_sub)
     # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
+    cmd += probe_limit_args(abs_path)   # 远程输入：限探测读取 + HTTP 读超时（本地无操作）
     cmd += ["-fflags", "+genpts", "-i", abs_path]
     if burn_sub:
         _append_sub_input(cmd, plan, pre)
@@ -233,6 +235,7 @@ def _build_cmd_ts(abs_path: str, plan: dict,
     if not vcopy and backend is not None:
         cmd += backend.input_args(burn=burn_sub)
     # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
+    cmd += probe_limit_args(abs_path)   # 远程输入：限探测读取 + HTTP 读超时（本地无操作）
     cmd += ["-fflags", "+genpts"]
     cmd += ["-i", abs_path]
     if burn_sub:

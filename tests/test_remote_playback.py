@@ -21,6 +21,24 @@ def test_build_cmd_keeps_url_input():
     assert cmd2[cmd2.index("-i") + 1].startswith("/")
 
 
+def test_build_cmd_remote_input_gets_probe_limits(monkeypatch):
+    """远程输入限探测读取 + HTTP 读超时（慢链路首帧前别白读 5MB）；本地不加。"""
+    plan = {"vcopy": True, "audios": [], "vcodec": "h264", "seg": "fmp4"}
+    for k in ("FFMPEG_PROBESIZE", "FFMPEG_ANALYZEDURATION", "FFMPEG_RW_TIMEOUT_US"):
+        monkeypatch.delenv(k, raising=False)
+    remote = playback.build_cmd("http://127.0.0.1:1234/v1/l1/a.mkv", plan, start=0)
+    assert "-probesize" in remote and "-analyzeduration" in remote and "-rw_timeout" in remote
+    assert remote.index("-probesize") < remote.index("-i")   # 必须在 -i 前生效
+    local = playback.build_cmd("rel/x.mkv", plan, start=0)
+    assert "-probesize" not in local and "-rw_timeout" not in local
+    # env 置 0 = 关闭对应限制
+    monkeypatch.setenv("FFMPEG_PROBESIZE", "0")
+    monkeypatch.setenv("FFMPEG_ANALYZEDURATION", "0")
+    monkeypatch.setenv("FFMPEG_RW_TIMEOUT_US", "0")
+    off = playback.build_cmd("http://127.0.0.1:1/a.mkv", plan, start=0)
+    assert "-probesize" not in off and "-rw_timeout" not in off
+
+
 def test_build_cmd_sidecar_input_override():
     plan = {"vcopy": False, "audios": [], "vcodec": "h264", "seg": "fmp4",
             "sub": "burn", "sub_sidecar": "subs/a.idx",

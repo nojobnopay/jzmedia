@@ -9,6 +9,7 @@ import subprocess
 import threading
 from collections import deque
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from ... import library_paths
 from ... import store
 from ... import storage
@@ -19,7 +20,7 @@ from ... import playback as _playback
 import uuid
 from ...log import get_logger
 logger = get_logger("stream.common")
-__all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_MIN_SEGS', 'PLAN_VERSION', '_SESS_IDLE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_source', '_media_cached_or_probe', 'version_cache_dir', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_purge_old', '_kill_proc', '_drop_session', 'shutdown_sessions', 'drop_sessions_for_version', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_watch_completion', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_register_prewarm_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
+__all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_min_segs', 'PLAN_VERSION', '_SESS_IDLE', '_UNCLAIMED_TTL', '_CACHE_MIN_AGE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_source', '_media_cached_or_probe', 'version_cache_dir', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_tree_size', '_cache_cap_bytes', '_transcode_cache_scan', '_evict_transcode_cache', '_purge_old', 'CacheCleanBody', 'clean_stream_cache', '_kill_proc', '_drop_session', 'shutdown_sessions', 'drop_sessions_for_version', '_dead_sessions', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_watch_completion', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_register_prewarm_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
 
 router = APIRouter(prefix="/api/stream")
 
@@ -34,13 +35,33 @@ _SESS_FILE_RE = re.compile(
 _TTL = 24 * 3600
 
 
-_MIN_SEGS = 3          # 首屏等待分片数（fMP4 4s → 约 12s 内容；TS 6s → 18s）
+def _min_segs(plan: dict | None = None) -> int:
+    """首屏等待的视频分片数：copy/remux 出片快，1 片即回；视频重编/烧录慢，留 2 片缓冲。
+    copy 档分片按源码 GOP 切（可能 9s/片），原固定等 3 片=27s 内容，慢链路上起播黑屏很久
+    （用户 2026-09 反馈）。env `MIN_SEGS_COPY`/`MIN_SEGS_TRANSCODE` 可调（1~10）。"""
+    p = plan or {}
+    transcode = (not p.get("vcopy")) or p.get("sub") == "burn"
+    env = "MIN_SEGS_TRANSCODE" if transcode else "MIN_SEGS_COPY"
+    default = 2 if transcode else 1
+    try:
+        return max(1, min(int(os.getenv(env, str(default)) or default), 10))
+    except (TypeError, ValueError):
+        return default
 
 
 PLAN_VERSION = 2
 
 
 _SESS_IDLE = 600       # 会话无心跳保活期（秒）
+
+
+# 会话从未被客户端认领（没有任何 playlist/分片/心跳请求）就断开时，快速收割的宽限期。
+# 场景：建会话 POST 期间用户关窗 → 前端 abort 拿不到 sid → 无人 DELETE，ffmpeg 变孤儿。
+_UNCLAIMED_TTL = 90
+
+
+# 转码缓存目录保护期：新建/刚写过的目录不参与限额淘汰（防与 ffmpeg 写入竞态）。
+_CACHE_MIN_AGE = 300.0
 
 
 _sessions: dict[str, dict] = {}
@@ -353,8 +374,116 @@ def _write_master(sdir: str, info: dict, plan: dict, seg_time: int) -> None:
         logger.warning("write master failed dir=%s: %s", sdir, e)
 
 
+def _tree_size(path: str) -> int:
+    """目录树字节数（best-effort；用于缓存限额统计）。"""
+    total = 0
+    for root, _dirs, files in os.walk(path, onerror=lambda e: None):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                continue
+    return total
+
+
+def _cache_cap_bytes() -> int:
+    """转码缓存总量上限（env `TRANSCODE_CACHE_GB`，默认 10；0=只按 TTL 回收）。"""
+    try:
+        gb = float(os.getenv("TRANSCODE_CACHE_GB", "10") or 0)
+    except (TypeError, ValueError):
+        gb = 10.0
+    return int(max(0.0, gb) * (1 << 30))
+
+
+def _transcode_cache_scan(now: float) -> tuple[int, list[tuple[float, int, str]]]:
+    """扫 TRANSCODE_DIR：返回 (总字节, 可淘汰候选 [(mtime, size, dir)]，最旧在前)。
+    活动会话目录（进程在跑，或 10min 内被取过流）与创建 <5min 的新目录不进候选：
+    防删掉正在播/正在写的分片，也防与「建目录→登记会话」的毫秒级窗口竞态。"""
+    live: set[str] = set()
+    with _sess_lock:
+        for s in _sessions.values():
+            proc = s.get("proc")
+            running = proc is not None and proc.poll() is None
+            recent = now - float(s.get("last_ping") or 0) < _SESS_IDLE
+            if running or recent:
+                live.add(os.path.normpath(str(s.get("sdir") or "")))
+    total = 0
+    cands: list[tuple[float, int, str]] = []
+    try:
+        vids = os.listdir(TRANSCODE_DIR)
+    except OSError:
+        return 0, []
+    for vid in vids:
+        vd = os.path.join(TRANSCODE_DIR, vid)
+        if not os.path.isdir(vd):
+            continue
+        try:
+            sess_list = os.listdir(vd)
+        except OSError:
+            continue
+        for sess in sess_list:
+            sd = os.path.join(vd, sess)
+            try:
+                if not os.path.isdir(sd):
+                    continue
+                mtime = os.path.getmtime(sd)
+            except OSError:
+                continue
+            size = _tree_size(sd)
+            total += size
+            if os.path.normpath(sd) in live or now - mtime < _CACHE_MIN_AGE:
+                continue
+            cands.append((mtime, size, sd))
+    cands.sort(key=lambda x: x[0])
+    return total, cands
+
+
+def _evict_transcode_cache(now: float | None = None, cap: int | None = None,
+                           dry_run: bool = False, delete_all: bool = False) -> dict:
+    """转码缓存回收：超 cap（默认 TRANSCODE_CACHE_GB）按最旧淘汰到 90% 水位（滞回）；
+    delete_all=True（手动清理）删掉全部可淘汰目录；dry_run 只统计。跳过活动目录。"""
+    now = time.time() if now is None else now
+    cap = _cache_cap_bytes() if cap is None else max(0, int(cap))
+    total, cands = _transcode_cache_scan(now)
+    cand_bytes = sum(size for _m, size, _p in cands)
+    stat = {"total": total, "cap": cap, "candidates": len(cands),
+            "candidate_bytes": cand_bytes, "freed": 0, "removed": 0}
+    if not delete_all and (cap <= 0 or total <= cap):
+        return stat
+    target = int(cap * 0.9) if cap > 0 else 0
+    freed = removed = 0
+    for _mtime, size, sd in cands:
+        if not delete_all and total - freed <= target:
+            break
+        if not dry_run:
+            shutil.rmtree(sd, ignore_errors=True)
+        freed += size
+        removed += 1
+    stat.update({"freed": freed, "removed": removed})
+    return stat
+
+
+_cap_lock = threading.Lock()
+_cap_last = 0.0
+_CAP_INTERVAL = 300.0   # 限额扫描节流：避免每次建会话都全目录 walk
+
+
+class CacheCleanBody(BaseModel):
+    dry_run: bool = True
+
+
+@router.post("/cache/clean")
+def clean_stream_cache(body: CacheCleanBody | None = None) -> dict:
+    """转码缓存手动清理（设置页维护面板，全局不限于媒体库）：dry_run 预览可回收量；
+    执行删掉全部可淘汰目录（跳过正在转码/10min 内播放过的会话与 5min 内新目录）。"""
+    b = body or CacheCleanBody()
+    r = _evict_transcode_cache(dry_run=bool(b.dry_run), delete_all=True)
+    return {"dry_run": bool(b.dry_run), **r}
+
+
 def _purge_old() -> None:
-    """转码会话 TTL 清理（best-effort，失败自吞）。"""
+    """转码缓存回收（best-effort，失败自吞）：① 超 24h TTL 删除会话目录；
+    ② 总量超 TRANSCODE_CACHE_GB 时按最旧淘汰到 90% 水位（节流 5min 一次）。"""
     try:
         now = time.time()
         for vid in os.listdir(TRANSCODE_DIR):
@@ -370,6 +499,15 @@ def _purge_old() -> None:
                     continue
     except OSError:
         pass
+    global _cap_last
+    with _cap_lock:
+        if time.time() - _cap_last < _CAP_INTERVAL:
+            return
+        _cap_last = time.time()
+    try:
+        _evict_transcode_cache()
+    except Exception as e:   # 缓存回收绝不打断播放/扫描
+        logger.debug("transcode cache cap pass failed: %s", e)
 
 
 def _kill_proc(proc) -> None:
@@ -418,25 +556,34 @@ def drop_sessions_for_version(version_id: int) -> int:
     return len(sids)
 
 
+def _dead_sessions(now: float) -> list[str]:
+    """应收割的会话 id（无心跳超期 / 未认领超宽限 / 进程已退出超期）；纯计算便于回归测试。"""
+    dead = []
+    with _sess_lock:
+        for sid, s in list(_sessions.items()):
+            proc = s.get("proc")
+            exited = proc is not None and proc.poll() is not None
+            idle = now - float(s.get("last_ping") or now)
+            # 完工静态会话（proc=None）与预转码任务：只按文件 TTL 收记录，不按 idle 杀
+            # （预转码无客户端心跳，但有自己的 job 超时与生命周期，评审 P1-07）
+            if s.get("complete") or s.get("prewarm"):
+                if idle > _TTL:
+                    dead.append(sid)
+            elif s.get("unclaimed"):
+                # 客户端从未取过流（关窗 abort 拿不到 sid / 会话是给别人的）：快速回收
+                age = now - float(s.get("created") or s.get("last_ping") or now)
+                if age > _UNCLAIMED_TTL:
+                    dead.append(sid)
+            elif idle > _SESS_IDLE or (exited and idle > 300):
+                dead.append(sid)
+    return dead
+
+
 def _sweeper() -> None:
     """后台收尸：无心跳超期 / 进程已退出超期 → 杀进程删会话（分片留 TTL 清理）。"""
     while True:
         time.sleep(60)
-        now = time.time()
-        dead = []
-        with _sess_lock:
-            for sid, s in list(_sessions.items()):
-                proc = s.get("proc")
-                exited = proc is not None and proc.poll() is not None
-                idle = now - float(s.get("last_ping") or now)
-                # 完工静态会话（proc=None）与预转码任务：只按文件 TTL 收记录，不按 idle 杀
-                # （预转码无客户端心跳，但有自己的 job 超时与生命周期，评审 P1-07）
-                if s.get("complete") or s.get("prewarm"):
-                    if idle > _TTL:
-                        dead.append(sid)
-                elif idle > _SESS_IDLE or (exited and idle > 300):
-                    dead.append(sid)
-        for sid in dead:
+        for sid in _dead_sessions(time.time()):
             _drop_session(sid, kill=True)
         _purge_old()
 
@@ -619,6 +766,8 @@ def _get_session(sid: str) -> dict:
     if not sess:
         raise HTTPException(404, "no such transcode session (re-POST sessions)")
     sess["last_ping"] = time.time()
+    # 任何一次真实取流请求（playlist/分片/心跳/调试）= 客户端已拿到 sid，撤销快速收割
+    sess["unclaimed"] = False
     return sess
 
 

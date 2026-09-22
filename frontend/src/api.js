@@ -22,10 +22,16 @@ function _brief(text) {
   return t.length > 300 ? t.slice(0, 300) + '…' : t
 }
 
+// opts.signal：调用方取消（关窗/切档）与内部超时合并；外部取消抛「已取消」而非超时文案。
 export async function api(path, opts = {}) {
-  const { timeout = 120000, ...fetchOpts } = opts
+  const { timeout = 120000, signal: outer, ...fetchOpts } = opts
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeout)
+  const onOuterAbort = outer ? () => ctrl.abort() : null
+  if (onOuterAbort) {
+    if (outer.aborted) ctrl.abort()
+    else outer.addEventListener('abort', onOuterAbort)
+  }
   try {
     const r = await fetch(path, {
       // 仅带 body 时发 JSON Content-Type（评审 B8/R04-B2）
@@ -43,11 +49,13 @@ export async function api(path, opts = {}) {
     return r.json()
   } catch (e) {
     if (e && e.name === 'AbortError') {
+      if (outer && outer.aborted) throw new Error('已取消')
       throw new Error('请求超时，后台可能仍在处理，稍后刷新查看')
     }
     throw e
   } finally {
     clearTimeout(timer)
+    if (onOuterAbort) outer.removeEventListener('abort', onOuterAbort)
   }
 }
 // v 为可选版本（一般传 updated_at）：海报原地覆盖时 URL 不变，浏览器会吃旧缓存；

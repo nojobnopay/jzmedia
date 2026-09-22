@@ -3,6 +3,7 @@
 宿主无 ffmpeg，这里用假进程 + 假探测验证守卫逻辑（真实链路由 docker e2e 验证）。
 """
 import pathlib
+import time
 
 import pytest
 
@@ -274,3 +275,102 @@ def test_read_playlist_stable_retries_when_file_grows(tmp_path, monkeypatch):
     data = session_mod._read_playlist_stable(str(f))
     assert data == f.read_bytes()
     assert calls["n"] >= 2
+
+
+# ---------- 2026-09 关窗音频泄漏：建会话期间 abort → 未认领会话快速收割 ----------
+
+def test_unclaimed_session_reaped_after_grace():
+    """客户端从未取流（关窗 abort 拿不到 sid）：宽限期后必须回收孤儿 ffmpeg。"""
+    from app.routers.stream import common
+
+    now = 1_000_000.0
+    with stream._sess_lock:
+        stream._sessions["u1"] = {"proc": FakeProc(alive=True), "sdir": "/tmp/x",
+                                  "vid": 1, "plan": {}, "plan_key": "k",
+                                  "last_ping": now, "created": now, "unclaimed": True}
+    assert common._dead_sessions(now + common._UNCLAIMED_TTL - 1) == []
+    assert common._dead_sessions(now + common._UNCLAIMED_TTL + 1) == ["u1"]
+
+
+def test_get_session_claims_and_resets_grace():
+    """首次 playlist/分片/心跳请求即认领：之后按普通 idle 规则，不再宽限回收。"""
+    from app.routers.stream import common
+
+    now = time.time()
+    with stream._sess_lock:
+        stream._sessions["u2"] = {"proc": FakeProc(alive=True), "sdir": "/tmp/x",
+                                  "vid": 1, "plan": {}, "plan_key": "k",
+                                  "last_ping": now - 100, "created": now - 100,
+                                  "unclaimed": True}
+    sess = common._get_session("u2")
+    assert sess["unclaimed"] is False
+    assert common._dead_sessions(time.time() + common._UNCLAIMED_TTL + 1) == []
+    assert common._dead_sessions(time.time() + common._SESS_IDLE + 1) == ["u2"]
+
+
+# ---------- P1：首屏等待分片数按 plan 自适应 ----------
+
+def test_min_segs_copy_fast_transcode_cautious(monkeypatch):
+    """copy/remux 1 片即回（原固定 3 片=27s 内容）；视频重编/烧录留 2 片。"""
+    from app.routers.stream import common
+
+    monkeypatch.delenv("MIN_SEGS_COPY", raising=False)
+    monkeypatch.delenv("MIN_SEGS_TRANSCODE", raising=False)
+    assert common._min_segs({"vcopy": True}) == 1
+    assert common._min_segs({"vcopy": False}) == 2
+    assert common._min_segs({"vcopy": True, "sub": "burn"}) == 2   # 烧录=重编码
+    assert common._min_segs(None) == 2                              # 缺省按保守（转码）
+    monkeypatch.setenv("MIN_SEGS_COPY", "3")
+    monkeypatch.setenv("MIN_SEGS_TRANSCODE", "1")
+    assert common._min_segs({"vcopy": True}) == 3
+    assert common._min_segs({"vcopy": False}) == 1
+    monkeypatch.setenv("MIN_SEGS_COPY", "abc")   # 坏值回落默认
+    assert common._min_segs({"vcopy": True}) == 1
+
+
+# ---------- P1：转码缓存总量限额（TRANSCODE_CACHE_GB）----------
+
+def _mk_cache_dir(root: pathlib.Path, vid: str, name: str, size: int, mtime: float):
+    d = root / vid / name
+    d.mkdir(parents=True)
+    (d / "video_seg00000.m4s").write_bytes(b"x" * size)
+    import os as _os
+    _os.utime(d, (mtime, mtime))
+    return d
+
+
+def test_transcode_cache_cap_evicts_oldest_skips_active_and_fresh(tmp_path, monkeypatch):
+    from app.routers.stream import common
+
+    monkeypatch.setattr(common, "TRANSCODE_DIR", str(tmp_path))
+    now = time.time()
+    old = _mk_cache_dir(tmp_path, "1", "fcopy_s0", 4 << 20, now - 3600)
+    mid = _mk_cache_dir(tmp_path, "1", "fcopy_s100", 4 << 20, now - 1800)
+    fresh = _mk_cache_dir(tmp_path, "2", "fh720_s0", 4 << 20, now - 10)   # <5min 保护期
+    # 活动会话目录（进程在跑）即使很旧也不许删
+    with stream._sess_lock:
+        stream._sessions["act"] = {"proc": FakeProc(alive=True), "sdir": str(mid),
+                                   "vid": 1, "plan": {}, "plan_key": "k",
+                                   "last_ping": now}
+    r = common._evict_transcode_cache(now=now, cap=8 << 20)
+    assert r["total"] == 12 << 20 and r["removed"] == 1 and r["freed"] == 4 << 20
+    assert not old.exists() and mid.exists() and fresh.exists()
+    # 会话退出且超过活跃窗口后，mid 变成可淘汰
+    with stream._sess_lock:
+        stream._sessions["act"]["proc"] = FakeProc(alive=False)
+        stream._sessions["act"]["last_ping"] = now - common._SESS_IDLE - 1
+    r2 = common._evict_transcode_cache(now=now, cap=1 << 20)
+    assert not mid.exists() and r2["removed"] == 1
+    assert fresh.exists()   # 新目录始终受保护
+
+
+def test_cache_clean_endpoint_dry_run_then_execute(tmp_path, monkeypatch):
+    from app.routers.stream import common
+
+    monkeypatch.setattr(common, "TRANSCODE_DIR", str(tmp_path))
+    now = time.time()
+    d1 = _mk_cache_dir(tmp_path, "1", "fcopy_s0", 2 << 20, now - 3600)
+    dry = common.clean_stream_cache(common.CacheCleanBody(dry_run=True))
+    assert dry["dry_run"] is True and dry["removed"] == 1 and d1.exists()
+    run = common.clean_stream_cache(common.CacheCleanBody(dry_run=False))
+    assert run["removed"] == 1 and not d1.exists()
