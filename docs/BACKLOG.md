@@ -25,7 +25,8 @@
 | # | 任务 | 说明 |
 |---|---|---|
 | 6 | TVmaze provider | 规划 §9.3：无 key 剧集源，仅框架；`app/metadata/` 现无 `tvmaze.py`，`KNOWN_PROVIDERS = local/tmdb/wikidata/douban/nfo` |
-| 7 | 完整 TV 支持 | 规划 §1.2/§13 明确的后续独立版本：TMDB TV 刮削、tvshow/episode NFO、Plex 剧集命名与 `.plexmatch`、剧集改名整理。当前 TV 为只读清单（`scan_tv_one` + `/api/tv/*`） |
+| 7 | 完整 TV 支持 | **done** 2026-09-22（T1+T2+T3）：T1 扫描器 v2 + v21（`tv_parse.py` 规则阶梯/子剧拆分/绝对集号/多集区间/增量+失效 GC；`tmdb_cache` 复合主键；4,150 视频 → 3,877 集 / 0 未知）。T2 刮削与前端（`tv_match.py`+`tv_persist.py`、`/api/jobs/tv-scrape`、TV API/海报墙/详情/继续观看/连播、stream episode 版本与 prewarm；60/60 剧匹配、99.6% 集有元数据、12 部待确认）。T3 落盘与维护（v22 所有权哈希；`tv_nfo_link` 写 `tvshow.nfo`+季 `season.nfo`；`artwork.write_for_show` 写海报/季海报；`/api/jobs/rebuild-tv-nfo`；`PATCH /api/tv/shows/{id}` 手工标题保护；fs 浏览器剧集跳转；`.plexmatch` 可选）。**不做**：剧集改名（NAS 有硬链接/做种，用户已确认只写元数据）；逐集 NFO 远程库默认关（SMB ~1.6s/文件；本次已按用户确认跑全量，`TV_EPISODE_NFO=1` 或 job `episodes:true` 可开）。未匹配剧列表仍走海报墙「待确认」角标 + 详情页手动匹配 |
+| 11 | TV 结构与花絮收口（用户 2026-09-22 确认的 T4） | **doing**：T4.1 完成（v23 `extras.show_id`/`tv_episodes.needs_review`；扫描分流登记花絮/剧场版 271 个并自愈重复剧行；`kind='extra'` 播放链路；未匹配 14 集标注 + 手动指定 TMDB 集）。T4.2 v2 完成（7 动作：剧根改名/季目录规范化/包装层/补 Season/特典归位/花絮目录上移/正片统一命名 + 分组摘要 + 逐剧勾选 + 整理审计/撤销；2026-09 事故已还原 BB 223 + Legal.High 14）。T4.3 完成（`scripts/tv_structure_report.py` 只读体检）。多版本（V1/V2）详情页分组 + 连播隔离完成；5 部剧与 TMDB 编号口径对齐（`scripts/fix_tv_bindings.py`，含老友记 `-partN` 拆分集与 S06 重排）。**待用户执行**：NAS dry-run 全库预览 → 试点 2–3 部 → 分批执行（剧根改名会断种，做种目录需先确认） |
 | 8 | 播放实验项 | ① MKV 容器直通（Chrome 可直解 mkv，需 caps 实验）；② 无缝切画质（不重开会话）；③ 内置 CJK 字体子集是否随仓库分发（现为 `data/fonts/` 运行时可投放） |
 | 9 | NFS 纯网页配置 | 技术指导 §28 的 libnfs sidecar 方向；现状 NFS 仅 host mount 兼容模式（`app/storage/factory.py:6`），未做应用内协议访问 |
 | 10 | `logo.png` 落盘 | 规划 §8.3「后续可选」；`tmdb_cache.logo_tmdb_path` 字段已留，无落盘/展示实现 |

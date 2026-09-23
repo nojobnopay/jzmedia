@@ -32,7 +32,9 @@
 
           <LibraryPipelinePanel :ref="el => setPanelRef(m.id, el)" :media="m" :lib-filter="libFilter"
             :active="Number(m.id) === Number(selectedId)" @changed="onChanged" @organized="onOrganized" />
-          <LibraryMaintenancePanel v-if="hasMovieLibs(m)" :media="m" :lib-filter="libFilter"
+          <LibraryMaintenancePanel v-if="(m.video_libraries || []).length" :media="m" :lib-filter="libFilter"
+            :active="Number(m.id) === Number(selectedId)" @changed="onChanged" />
+          <TvOrganizePanel v-if="tvLibsOf(m).length" :media="m"
             :active="Number(m.id) === Number(selectedId)" @changed="onChanged" />
           <RestorePanel v-if="hasMovieLibs(m)" :ref="el => setRestoreRef(m.id, el)" :media="m" :lib-filter="libFilter"
             :active="Number(m.id) === Number(selectedId)"
@@ -53,6 +55,7 @@ import FsBrowser from './FsBrowser.vue'
 import LibraryMaintenancePanel from './LibraryMaintenancePanel.vue'
 import LibraryPipelinePanel from './LibraryPipelinePanel.vue'
 import RestorePanel from './RestorePanel.vue'
+import TvOrganizePanel from './TvOrganizePanel.vue'
 import { kindText, mediaPendingCount } from '../libraryToolGroups.js'
 
 // 媒体库工具容器（2026-09 媒体库级重构）：顶层标签 = 媒体库；
@@ -84,6 +87,9 @@ function setRestoreRef(id, el) {
 }
 function hasMovieLibs(m) {
   return (m.video_libraries || []).some(v => (v.kind || 'movie') !== 'tv')
+}
+function tvLibsOf(m) {
+  return (m.video_libraries || []).filter(v => (v.kind || 'movie') === 'tv')
 }
 function mediaLibIds(m) {
   return (m.video_libraries || []).map(v => v.id)

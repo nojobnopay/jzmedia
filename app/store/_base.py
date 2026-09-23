@@ -125,13 +125,15 @@ CREATE TABLE IF NOT EXISTS extras (
   file_path TEXT NOT NULL,
   library_id INTEGER NOT NULL DEFAULT 1,
   movie_id INTEGER,
+  show_id INTEGER,           -- v23：剧集花絮归属（movie_id 为空、show_id 有值）
   kind TEXT DEFAULT 'extra',
   updated_at INTEGER DEFAULT 0,
   UNIQUE(library_id, file_path)
 );
 """
 
-_EXTRAS_COLUMNS = ["id", "file_path", "library_id", "movie_id", "kind", "updated_at"]
+_EXTRAS_COLUMNS = ["id", "file_path", "library_id", "movie_id", "show_id", "kind",
+                   "updated_at"]
 
 _SCAN_STATE_DDL = """
 CREATE TABLE IF NOT EXISTS scan_state (
@@ -144,6 +146,32 @@ CREATE TABLE IF NOT EXISTS scan_state (
   PRIMARY KEY (library_id, file_path)
 );
 """
+
+# v24：目录整理审计（每次 execute_tv_organize 留痕，支撑撤销/还原；2026-09 事故）
+_ORGANIZE_MOVES_DDL = """
+CREATE TABLE IF NOT EXISTS organize_moves (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  library_id INTEGER NOT NULL DEFAULT 1,
+  show_id INTEGER DEFAULT 0,
+  batch_id TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'file',
+  obj TEXT NOT NULL DEFAULT 'file',   -- dir|file：目录移动还原走前缀重写
+  action TEXT NOT NULL DEFAULT '',
+  from_path TEXT NOT NULL,
+  to_path TEXT NOT NULL,
+  created_at INTEGER DEFAULT 0,
+  undone_at INTEGER DEFAULT 0
+);
+"""
+
+_ORGANIZE_MOVES_INDEX_DDL = [
+    "CREATE INDEX IF NOT EXISTS idx_organize_moves_batch"
+    " ON organize_moves(batch_id)",
+    "CREATE INDEX IF NOT EXISTS idx_organize_moves_library"
+    " ON organize_moves(library_id)",
+    "CREATE INDEX IF NOT EXISTS idx_organize_moves_show"
+    " ON organize_moves(show_id)",
+]
 
 _MEDIA_INFO_DDL = """
 CREATE TABLE IF NOT EXISTS media_info (
@@ -196,17 +224,67 @@ CREATE TABLE IF NOT EXISTS playback_progress (
 );
 """
 
+# TV（v21）：剧/季/集三层元数据镜像（T2 起由 TMDB 刮削回填；T1 只写解析结果）。
 _TV_SHOWS_DDL = """
 CREATE TABLE IF NOT EXISTS tv_shows (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   library_id INTEGER NOT NULL DEFAULT 1,
   title TEXT DEFAULT '',
   sort_title TEXT DEFAULT '',
+  original_title TEXT DEFAULT '',
   year INTEGER,
+  overview TEXT DEFAULT '',
+  overview_override TEXT DEFAULT '',
   tmdb_id INTEGER,
+  imdb_id TEXT DEFAULT '',
+  tvdb_id INTEGER,
+  tmdb_rating REAL,
+  custom_rating REAL,
+  poster_path TEXT DEFAULT '',
+  backdrop_path TEXT DEFAULT '',
+  genres TEXT DEFAULT '[]',
+  genre_ids TEXT DEFAULT '[]',
+  tags TEXT DEFAULT '[]',
+  person_names TEXT DEFAULT '',
+  origin_country TEXT DEFAULT '',
+  origin_countries TEXT DEFAULT '[]',
+  original_language TEXT DEFAULT '',
+  region TEXT DEFAULT '',
+  status TEXT DEFAULT '',
+  first_air_date TEXT DEFAULT '',
+  last_air_date TEXT DEFAULT '',
+  number_of_seasons INTEGER DEFAULT 0,
+  number_of_episodes INTEGER DEFAULT 0,
+  episode_run_time INTEGER DEFAULT 0,
+  networks TEXT DEFAULT '[]',
+  created_by TEXT DEFAULT '[]',
+  title_auto INTEGER DEFAULT 0,
+  watched INTEGER DEFAULT 0,
+  watched_at INTEGER DEFAULT 0,
   needs_review INTEGER DEFAULT 0,
+  match_source TEXT DEFAULT '',
+  nfo_hash TEXT DEFAULT '',        -- 上次写 tvshow.nfo 的内容哈希（外部改动保护，v22）
+  added_at INTEGER DEFAULT 0,
+  fetched_at INTEGER DEFAULT 0,
   updated_at INTEGER DEFAULT 0,
   UNIQUE(library_id, title, year)
+);
+"""
+
+_TV_SEASONS_DDL = """
+CREATE TABLE IF NOT EXISTS tv_seasons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  show_id INTEGER NOT NULL,
+  library_id INTEGER NOT NULL DEFAULT 1,
+  season INTEGER NOT NULL DEFAULT 0,
+  name TEXT DEFAULT '',
+  overview TEXT DEFAULT '',
+  air_date TEXT DEFAULT '',
+  poster_path TEXT DEFAULT '',
+  episode_count INTEGER DEFAULT 0,
+  tmdb_season_id INTEGER,
+  updated_at INTEGER DEFAULT 0,
+  UNIQUE(show_id, season)
 );
 """
 
@@ -218,7 +296,22 @@ CREATE TABLE IF NOT EXISTS tv_episodes (
   file_path TEXT NOT NULL,
   season INTEGER DEFAULT 0,
   episode INTEGER DEFAULT 0,
+  episode_end INTEGER DEFAULT 0,     -- 一文件多集：覆盖到该集（0=单集，Plex 语义）
+  absolute_number INTEGER,           -- 绝对集号（动画/长篇，T2 用于映射季集）
+  tmdb_episode_id INTEGER,
   title TEXT DEFAULT '',
+  overview TEXT DEFAULT '',
+  still_path TEXT DEFAULT '',
+  air_date TEXT DEFAULT '',
+  runtime INTEGER DEFAULT 0,
+  tmdb_rating REAL,
+  watched INTEGER DEFAULT 0,
+  watched_at INTEGER DEFAULT 0,
+  missing INTEGER DEFAULT 0,
+  needs_review INTEGER DEFAULT 0,  -- v23：刮削后 TMDB 无对应集（手动指定集号）
+  local_only INTEGER DEFAULT 0,    -- v25：确认「TMDB 无对应集」的本地集（重刮不覆盖）
+  nfo_hash TEXT DEFAULT '',        -- 上次写该集 NFO 的内容哈希（外部改动保护，v22）
+  added_at INTEGER DEFAULT 0,
   updated_at INTEGER DEFAULT 0,
   UNIQUE(library_id, file_path)
 );
@@ -275,6 +368,57 @@ CREATE INDEX IF NOT EXISTS idx_members_tmdb ON collection_members(movie_tmdb_id)
 CREATE INDEX IF NOT EXISTS idx_members_movie ON collection_members(movie_id);
 """
 
+# TMDB远端镜像（v21 起复合主键 `(media_type, tmdb_id)`）：电影与剧集共用一张缓存，
+# 数值 id 空间独立（movie 550 与 tv 550 是不同条目），必须带 media_type 区分。
+# movies 表的 TMDB 列只是它的物化副本：对外只经 copy_tmdb_to_movie() 复制。
+_TMDB_CACHE_DDL = """
+CREATE TABLE IF NOT EXISTS tmdb_cache (
+  tmdb_id INTEGER NOT NULL,
+  media_type TEXT NOT NULL DEFAULT 'movie',
+  title TEXT DEFAULT '',
+  original_title TEXT DEFAULT '',
+  year INTEGER,
+  overview TEXT DEFAULT '',
+  imdb_id TEXT DEFAULT '',
+  tmdb_rating REAL,
+  genres TEXT DEFAULT '[]',
+  genre_ids TEXT DEFAULT '[]',
+  origin_country TEXT DEFAULT '',
+  origin_countries TEXT DEFAULT '[]',
+  original_language TEXT DEFAULT '',
+  region TEXT DEFAULT '',
+  poster_tmdb_path TEXT DEFAULT '',
+  credits TEXT DEFAULT '{"cast":[],"crew":[]}',
+  collection_tmdb_id INTEGER,
+  collection_name TEXT DEFAULT '',
+  collection_poster_path TEXT DEFAULT '',
+  collection_checked_at INTEGER DEFAULT 0,
+  fetched_at INTEGER DEFAULT 0,
+  source TEXT DEFAULT 'tmdb',
+  payload_json TEXT DEFAULT '{}',
+  premiered TEXT DEFAULT '',
+  tagline TEXT DEFAULT '',
+  runtime INTEGER DEFAULT 0,
+  studios TEXT DEFAULT '[]',
+  backdrop_tmdb_path TEXT DEFAULT '',
+  logo_tmdb_path TEXT DEFAULT '',
+  poster_override TEXT DEFAULT '',  -- v19：用户在候选海报里的手工选择（刷新不覆盖）
+  PRIMARY KEY (media_type, tmdb_id)
+);
+"""
+# 注：索引单独一条语句（`_rebuild_table` 要求 DDL 单语句，不能内联 CREATE INDEX）。
+_TMDB_CACHE_INDEX_DDL = "CREATE INDEX IF NOT EXISTS idx_tmdb_cache_tmdb ON tmdb_cache(tmdb_id);"
+
+# 迁移用：重建前的列清单（与 _TMDB_CACHE_DDL 字段一致，media_type 单独搬运）。
+_TMDB_CACHE_COLUMNS = ["tmdb_id", "media_type", "title", "original_title", "year",
+                       "overview", "imdb_id", "tmdb_rating", "genres", "genre_ids",
+                       "origin_country", "origin_countries", "original_language", "region",
+                       "poster_tmdb_path", "credits", "collection_tmdb_id",
+                       "collection_name", "collection_poster_path", "collection_checked_at",
+                       "fetched_at", "source", "payload_json", "premiered", "tagline",
+                       "runtime", "studios", "backdrop_tmdb_path", "logo_tmdb_path",
+                       "poster_override"]
+
 _REST_DDL = """
 CREATE TABLE IF NOT EXISTS persons (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -296,42 +440,6 @@ CREATE TABLE IF NOT EXISTS movie_person (
 -- 花絮归属：file_path 唯一；movie_id 为 NULL 表示未归属（orphan）；kind 见 scanner.extra_kind
 CREATE INDEX IF NOT EXISTS idx_movie_person_person ON movie_person(person_id);
 
--- TMDB远端镜像：以 tmdb_id 为键的稳定缓存，不受 file_path/tags/评分等本地改动影响。
--- movies 表的 TMDB 列只是它的物化副本：对外只经 copy_tmdb_to_movie() 复制
--- （update_movie_meta 内部允许写这些列，供 scanner 单点场景使用）。
--- v12 扩展：source/payload_json（离线重放）/premiered/tagline/runtime/studios/图源。
-CREATE TABLE IF NOT EXISTS tmdb_cache (
-  tmdb_id INTEGER PRIMARY KEY,
-  title TEXT DEFAULT '',
-  original_title TEXT DEFAULT '',
-  year INTEGER,
-  overview TEXT DEFAULT '',
-  imdb_id TEXT DEFAULT '',
-  tmdb_rating REAL,
-  genres TEXT DEFAULT '[]',
-  genre_ids TEXT DEFAULT '[]',
-  origin_country TEXT DEFAULT '',
-  origin_countries TEXT DEFAULT '[]',
-  original_language TEXT DEFAULT '',
-  region TEXT DEFAULT '',
-  media_type TEXT DEFAULT 'movie',
-  poster_tmdb_path TEXT DEFAULT '',
-  credits TEXT DEFAULT '{"cast":[],"crew":[]}',
-  collection_tmdb_id INTEGER,
-  collection_name TEXT DEFAULT '',
-  collection_poster_path TEXT DEFAULT '',
-  collection_checked_at INTEGER DEFAULT 0,
-  fetched_at INTEGER DEFAULT 0,
-  source TEXT DEFAULT 'tmdb',
-  payload_json TEXT DEFAULT '{}',
-  premiered TEXT DEFAULT '',
-  tagline TEXT DEFAULT '',
-  runtime INTEGER DEFAULT 0,
-  studios TEXT DEFAULT '[]',
-  backdrop_tmdb_path TEXT DEFAULT '',
-  logo_tmdb_path TEXT DEFAULT '',
-  poster_override TEXT DEFAULT ''   -- v19：用户在候选海报里的手工选择（刷新不覆盖）
-);
 -- 应用配置 KV（设置页可写）：TMDB 密钥/代理/语言等。DB 非空值优先于环境变量，
 -- 缺 key/空串一律回落 env（.env 只做首次启动兜底）。
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -368,8 +476,11 @@ DROP TRIGGER IF EXISTS movies_au;
 """
 
 SCHEMA = "".join([_MEDIA_LIBRARIES_DDL, _LIBRARIES_DDL, _MOVIES_DDL, _EXTRAS_DDL,
-                  _SCAN_STATE_DDL, _MEDIA_INFO_DDL, _PROGRESS_DDL, _TV_SHOWS_DDL,
-                  _TV_EPISODES_DDL, _COLLECTIONS_DDL, _COLLECTION_MEMBERS_DDL, _REST_DDL])
+                  _SCAN_STATE_DDL, _ORGANIZE_MOVES_DDL, _MEDIA_INFO_DDL, _PROGRESS_DDL,
+                  _TV_SHOWS_DDL,
+                  _TV_SEASONS_DDL, _TV_EPISODES_DDL, _COLLECTIONS_DDL,
+                  _COLLECTION_MEMBERS_DDL, _TMDB_CACHE_DDL, _TMDB_CACHE_INDEX_DDL,
+                  _REST_DDL])
 
 _MOVIE_INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_movies_year ON movies(year)",
@@ -383,6 +494,7 @@ _MOVIE_LIBRARY_INDEX_DDL = "CREATE INDEX IF NOT EXISTS idx_movies_library ON mov
 
 _EXTRAS_INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_extras_movie ON extras(movie_id)",
+    "CREATE INDEX IF NOT EXISTS idx_extras_show ON extras(show_id)",
     "CREATE INDEX IF NOT EXISTS idx_extras_library ON extras(library_id)",
 ]
 
@@ -418,7 +530,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "metadata_provider_state"}
 
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 25
 
 
 def _columns(c, table: str) -> set:
@@ -977,10 +1089,125 @@ def _m20(c) -> None:
               " THEN updated_at ELSE ? END WHERE COALESCE(added_at, 0) = 0", (now,))
 
 
+# v21：TV 完整支持地基（T1）——tv_shows/tv_episodes 元数据列 + tv_seasons 表 +
+# tmdb_cache 复合主键 `(media_type, tmdb_id)`（电影/剧集数值 id 空间独立）。
+def _m21(c) -> None:
+    _ensure_columns(c, "tv_shows", [
+        ("original_title", "ALTER TABLE tv_shows ADD COLUMN original_title TEXT DEFAULT ''"),
+        ("overview", "ALTER TABLE tv_shows ADD COLUMN overview TEXT DEFAULT ''"),
+        ("overview_override", "ALTER TABLE tv_shows ADD COLUMN overview_override TEXT DEFAULT ''"),
+        ("imdb_id", "ALTER TABLE tv_shows ADD COLUMN imdb_id TEXT DEFAULT ''"),
+        ("tvdb_id", "ALTER TABLE tv_shows ADD COLUMN tvdb_id INTEGER"),
+        ("tmdb_rating", "ALTER TABLE tv_shows ADD COLUMN tmdb_rating REAL"),
+        ("custom_rating", "ALTER TABLE tv_shows ADD COLUMN custom_rating REAL"),
+        ("poster_path", "ALTER TABLE tv_shows ADD COLUMN poster_path TEXT DEFAULT ''"),
+        ("backdrop_path", "ALTER TABLE tv_shows ADD COLUMN backdrop_path TEXT DEFAULT ''"),
+        ("genres", "ALTER TABLE tv_shows ADD COLUMN genres TEXT DEFAULT '[]'"),
+        ("genre_ids", "ALTER TABLE tv_shows ADD COLUMN genre_ids TEXT DEFAULT '[]'"),
+        ("tags", "ALTER TABLE tv_shows ADD COLUMN tags TEXT DEFAULT '[]'"),
+        ("person_names", "ALTER TABLE tv_shows ADD COLUMN person_names TEXT DEFAULT ''"),
+        ("origin_country", "ALTER TABLE tv_shows ADD COLUMN origin_country TEXT DEFAULT ''"),
+        ("origin_countries", "ALTER TABLE tv_shows ADD COLUMN origin_countries TEXT DEFAULT '[]'"),
+        ("original_language", "ALTER TABLE tv_shows ADD COLUMN original_language TEXT DEFAULT ''"),
+        ("region", "ALTER TABLE tv_shows ADD COLUMN region TEXT DEFAULT ''"),
+        ("status", "ALTER TABLE tv_shows ADD COLUMN status TEXT DEFAULT ''"),
+        ("first_air_date", "ALTER TABLE tv_shows ADD COLUMN first_air_date TEXT DEFAULT ''"),
+        ("last_air_date", "ALTER TABLE tv_shows ADD COLUMN last_air_date TEXT DEFAULT ''"),
+        ("number_of_seasons", "ALTER TABLE tv_shows ADD COLUMN number_of_seasons INTEGER DEFAULT 0"),
+        ("number_of_episodes", "ALTER TABLE tv_shows ADD COLUMN number_of_episodes INTEGER DEFAULT 0"),
+        ("episode_run_time", "ALTER TABLE tv_shows ADD COLUMN episode_run_time INTEGER DEFAULT 0"),
+        ("networks", "ALTER TABLE tv_shows ADD COLUMN networks TEXT DEFAULT '[]'"),
+        ("created_by", "ALTER TABLE tv_shows ADD COLUMN created_by TEXT DEFAULT '[]'"),
+        ("title_auto", "ALTER TABLE tv_shows ADD COLUMN title_auto INTEGER DEFAULT 0"),
+        ("watched", "ALTER TABLE tv_shows ADD COLUMN watched INTEGER DEFAULT 0"),
+        ("watched_at", "ALTER TABLE tv_shows ADD COLUMN watched_at INTEGER DEFAULT 0"),
+        ("match_source", "ALTER TABLE tv_shows ADD COLUMN match_source TEXT DEFAULT ''"),
+        ("added_at", "ALTER TABLE tv_shows ADD COLUMN added_at INTEGER DEFAULT 0"),
+        ("fetched_at", "ALTER TABLE tv_shows ADD COLUMN fetched_at INTEGER DEFAULT 0"),
+    ])
+    _ensure_columns(c, "tv_episodes", [
+        ("episode_end", "ALTER TABLE tv_episodes ADD COLUMN episode_end INTEGER DEFAULT 0"),
+        ("absolute_number", "ALTER TABLE tv_episodes ADD COLUMN absolute_number INTEGER"),
+        ("tmdb_episode_id", "ALTER TABLE tv_episodes ADD COLUMN tmdb_episode_id INTEGER"),
+        ("overview", "ALTER TABLE tv_episodes ADD COLUMN overview TEXT DEFAULT ''"),
+        ("still_path", "ALTER TABLE tv_episodes ADD COLUMN still_path TEXT DEFAULT ''"),
+        ("air_date", "ALTER TABLE tv_episodes ADD COLUMN air_date TEXT DEFAULT ''"),
+        ("runtime", "ALTER TABLE tv_episodes ADD COLUMN runtime INTEGER DEFAULT 0"),
+        ("tmdb_rating", "ALTER TABLE tv_episodes ADD COLUMN tmdb_rating REAL"),
+        ("watched", "ALTER TABLE tv_episodes ADD COLUMN watched INTEGER DEFAULT 0"),
+        ("watched_at", "ALTER TABLE tv_episodes ADD COLUMN watched_at INTEGER DEFAULT 0"),
+        ("missing", "ALTER TABLE tv_episodes ADD COLUMN missing INTEGER DEFAULT 0"),
+        ("added_at", "ALTER TABLE tv_episodes ADD COLUMN added_at INTEGER DEFAULT 0"),
+    ])
+    c.execute(_TV_SEASONS_DDL)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tv_seasons_show ON tv_seasons(show_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tv_seasons_library ON tv_seasons(library_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tv_shows_tmdb ON tv_shows(tmdb_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tv_episodes_season"
+              " ON tv_episodes(show_id, season, episode)")
+    c.execute("UPDATE tv_shows SET added_at=updated_at WHERE COALESCE(added_at,0)=0"
+              " AND COALESCE(updated_at,0)>0")
+    c.execute("UPDATE tv_episodes SET added_at=updated_at WHERE COALESCE(added_at,0)=0"
+              " AND COALESCE(updated_at,0)>0")
+    try:
+        pk_cols = [r["name"] for r in c.execute("PRAGMA table_info(tmdb_cache)") if r["pk"]]
+    except sqlite3.OperationalError:
+        pk_cols = []
+    if set(pk_cols) != {"media_type", "tmdb_id"}:
+        old_cols = _columns(c, "tmdb_cache")
+        shared = [col for col in _TMDB_CACHE_COLUMNS
+                  if col in old_cols and col != "media_type"]
+        _rebuild_table(c, "tmdb_cache", _TMDB_CACHE_DDL, shared,
+                       copy_extra="media_type",
+                       extra_values=("COALESCE(media_type,'movie')"
+                                     if "media_type" in old_cols else "'movie'"))
+        logger.info("v21 tmdb_cache 复合主键迁移完成（存量行 media_type=movie）")
+    c.execute(_TMDB_CACHE_INDEX_DDL)
+
+
+# v22：TV NFO 所有权哈希（T3 落盘）：tvshow.nfo / 每集 <stem>.nfo 的外部改动保护。
+def _m22(c) -> None:
+    _ensure_columns(c, "tv_shows", [
+        ("nfo_hash", "ALTER TABLE tv_shows ADD COLUMN nfo_hash TEXT DEFAULT ''"),
+    ])
+    _ensure_columns(c, "tv_episodes", [
+        ("nfo_hash", "ALTER TABLE tv_episodes ADD COLUMN nfo_hash TEXT DEFAULT ''"),
+    ])
+
+
+# v23：TV 花絮/剧场版登记（extras.show_id）+ 未匹配集标记（tv_episodes.needs_review）。
+def _m23(c) -> None:
+    _ensure_columns(c, "extras", [
+        ("show_id", "ALTER TABLE extras ADD COLUMN show_id INTEGER"),
+    ])
+    _ensure_columns(c, "tv_episodes", [
+        ("needs_review", "ALTER TABLE tv_episodes ADD COLUMN needs_review INTEGER DEFAULT 0"),
+    ])
+    c.execute("CREATE INDEX IF NOT EXISTS idx_extras_show ON extras(show_id)")
+
+
+# v24：整理审计表 organize_moves（撤销/还原；此前整理未留痕，只能靠 scan_state 兜底）。
+def _m24(c) -> None:
+    c.execute(_ORGANIZE_MOVES_DDL)
+    _ensure_columns(c, "organize_moves", [
+        ("obj", "ALTER TABLE organize_moves ADD COLUMN obj TEXT NOT NULL DEFAULT 'file'"),
+    ])
+    for ddl in _ORGANIZE_MOVES_INDEX_DDL:
+        c.execute(ddl)
+
+
+# v25：本地确认集（TMDB 无对应集时清 needs_review 且不被重刮覆盖/重标）。
+def _m25(c) -> None:
+    _ensure_columns(c, "tv_episodes", [
+        ("local_only", "ALTER TABLE tv_episodes ADD COLUMN local_only INTEGER DEFAULT 0"),
+    ])
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
-                    (17, _m17), (18, _m18), (19, _m19), (20, _m20)]
+                    (17, _m17), (18, _m18), (19, _m19), (20, _m20), (21, _m21),
+                    (22, _m22), (23, _m23), (24, _m24), (25, _m25)]
 
 
 def init_db() -> None:
@@ -1015,6 +1242,14 @@ def init_db() -> None:
         c.execute("PRAGMA journal_mode=WAL")   # R02-D2：写不阻塞读、崩溃恢复更好
     seed_tmdb_cache_from_movies()
     seed_match_index_from_cache()
+    # v24：整理审计回填——此前整理未留痕，从 scan_state 配对补齐 legacy 批次（只做一次）
+    try:
+        from .tv import backfill_legacy_organize_moves
+        _n = backfill_legacy_organize_moves()
+        if _n:
+            logger.warning("organize_moves 回填 %d 条历史移动（legacy 批次，可撤销）", _n)
+    except Exception as e:
+        logger.warning("organize_moves legacy backfill failed: %s", e)
     # R02-D3：FTS 与 movies 行数一致时跳过全量重建（大库启动不再 O(n) 连接+写）；
     # 本次跑过迁移（可能改标题/新列）则强制重建，避免索引与数据脱节
     if _migrated[1] or fts_needs_rebuild():

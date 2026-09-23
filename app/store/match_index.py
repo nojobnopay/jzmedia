@@ -75,7 +75,8 @@ def seed_match_index_from_cache() -> int:
             return 0
         for r in rows:
             tid = int(r["tmdb_id"])
-            sid = str(tid)
+            mt = str(r["media_type"] or "movie")
+            sid = str(tid) if mt == "movie" else f"{mt}:{tid}"
             exists = c.execute(
                 "SELECT id FROM match_index WHERE source='tmdb' AND source_id=?",
                 (sid,)).fetchone()

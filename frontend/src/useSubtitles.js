@@ -124,7 +124,9 @@ export function useSubtitles(ctx) {
   }
 
   // ================= 字幕延迟 / 外观 =================
-  const subDelayKey = computed(() => 'jzmedia.subDelay.' + (ctx.isEpisode() ? 'ep.' : '') + versionId())
+  const subDelayKey = computed(() => 'jzmedia.subDelay.'
+    + (ctx.delayKeyPrefix ? ctx.delayKeyPrefix() : (ctx.isEpisode() ? 'ep.' : ''))
+    + versionId())
   const subDelay = ref(0)
   // 字幕延迟按版本记忆（打开播放器即恢复；ASS/PGS 走 timeOffset，VTT 自绘渲染时叠加）
   try {

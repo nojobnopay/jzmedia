@@ -172,7 +172,7 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
         cur_col = None
         if tid:
             cr = c.execute("SELECT collection_tmdb_id AS cid FROM tmdb_cache"
-                           " WHERE tmdb_id=?", (tid,)).fetchone()
+                           " WHERE media_type='movie' AND tmdb_id=?", (tid,)).fetchone()
             cur_col = int(cr["cid"]) if cr and cr["cid"] else None
         cur_genres = _int_set(m.get("genre_ids"))
         cur_tags = {str(x) for x in (m.get("tags") or [])}
@@ -219,7 +219,7 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
 
         if cur_col:
             _add(c.execute(
-                "SELECT m.id FROM movies m JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+                "SELECT m.id FROM movies m JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id AND t.media_type='movie'"
                 " WHERE t.collection_tmdb_id=? AND m.library_id=?"
                 " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id)",
                 (cur_col, lib_id)).fetchall())
@@ -279,7 +279,7 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
             " m.douban_rating, m.custom_rating, m.region, m.original_language,"
             " m.genres, m.genre_ids, m.tags, MAX(m.updated_at) AS _u,"
             " t.collection_tmdb_id AS _cid"
-            " FROM movies m LEFT JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+            " FROM movies m LEFT JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id AND t.media_type='movie'"
             " WHERE m.id IN (%s) GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id)"
             % ",".join("?" * len(ids)), tuple(ids)).fetchall()
         reps = []

@@ -42,7 +42,7 @@ def _prewarm_plan(info: dict, quality: str, audio: int, caps: dict | None) -> di
 
 
 def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
-                    caps: dict | None = None) -> None:
+                    caps: dict | None = None, kind: str = "movie") -> None:
     """后台整片转完（夜间用）：与在线播同一 build_cmd/目录 scheme，完工即静态 VOD。
     进度=已产分片/预估总数；失败记 error 尾。
     与在线播共用会话目录：同 plan 的在线会话直接附着复用，存在不同 plan 的在线会话时
@@ -54,7 +54,7 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
         job.update({"status": "failed", "error": "transcode slots full, retry later"})
         return
     try:
-        m, src = _version_source(vid)
+        m, src = _version_source(vid, kind)
         info = _media_cached_or_probe(m, src)
         if not info.get("playable"):
             raise RuntimeError(f"unplayable: {info.get('probe_error') or 'probe failed'}")
@@ -71,7 +71,7 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
         job.update({"expected": expected,
                     "total_text": _media.fmt_duration(dur)})
         marker = _plan_marker(d["plan"], audio, 0)
-        sdir = _session_dir(int(m["id"]), _session_key(d["plan"], audio), 0)
+        sdir = _session_dir(int(m["id"]), _session_key(d["plan"], audio), 0, kind)
         job["sdir"] = sdir
         job["vprefix"] = _video_seg_prefix(seg)
         log_path = os.path.join(sdir, "ffmpeg.log")
@@ -82,7 +82,7 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
             job.update({"status": "done", "segments": _seg_count(sdir, vprefix)})
             return
         # 在线会话避让/复用：同 plan 附着等待；不同 plan 拒绝启动
-        live_same = _find_live_session(int(m["id"]), marker)
+        live_same = _find_live_session(int(m["id"]), marker, kind)
         if live_same is not None:
             job.update({"status": "running", "sid": live_same["sid"],
                         "sdir": live_same["sdir"], "attached": True,
@@ -95,7 +95,7 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
                 job.update({"status": "done", "segments": _seg_count(sdir, vprefix)})
                 return
             raise RuntimeError("在线会话中断，未产出完整成品；请播放结束后重试预转码")
-        if _live_sessions_for(int(m["id"])):
+        if _live_sessions_for(int(m["id"]), kind):
             raise RuntimeError("该版本正在播放（不同转码档），请播放结束后再预转码")
         # 硬件后端不出片 → 软件重试一次（与在线播同一兜底逻辑）
         use_hw = bool(_playback.hw_backend()) and not d["plan"].get("vcopy")
@@ -127,7 +127,8 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
                 backend = ("software" if force_sw or not use_hw
                            else (_playback.hw_backend() or "software"))
                 sid_cur = _register_prewarm_session(
-                    int(m["id"]), sdir, d["plan"], proc, marker, backend, attempt + 1)
+                    int(m["id"]), sdir, d["plan"], proc, marker, backend,
+                    attempt + 1, kind)
                 _write_session_meta(sdir, sid_cur, int(m["id"]), proc, backend, attempt + 1)
                 job.update({"status": "running", "pid": proc.pid, "sid": sid_cur,
                             "backend": backend})
@@ -182,6 +183,7 @@ def _prewarm_worker(job_id: str, vid: int, quality: str, audio: int,
 
 class PrewarmBody(BaseModel):
     version_id: int = 0
+    kind: str = "movie"       # movie|episode（T2：剧集也可预缓存）
     quality: str = "auto"     # auto=按后端能力封顶（无 HW 720p / 有 HW 1080p）
     audio: int = 0
     # 前端实测 caps（可选；评审 B5a-7）：与在线播同 caps 时产物键一致，成品可被点播命中
@@ -198,20 +200,21 @@ def prewarm_start(body: PrewarmBody | None = None):
         vid = int(body.version_id)
     except (TypeError, ValueError):
         raise HTTPException(422, "bad version_id")
-    if not store.get_movie(vid):
+    kind = "episode" if str(body.kind or "movie") == "episode" else "movie"
+    if not store.get_playable(kind, vid):
         raise HTTPException(404, "version not found")
     quality = body.quality or "auto"
     job_id = uuid.uuid4().hex[:12]
     with _prewarm_lock:
         _trim_prewarm_jobs()
-        _prewarm_jobs[job_id] = {"job_id": job_id, "version_id": vid,
+        _prewarm_jobs[job_id] = {"job_id": job_id, "version_id": vid, "kind": kind,
                                  "quality": quality,
                                  "audio": int(body.audio or 0),
                                  "status": "queued", "segments": 0, "expected": 0,
                                  "started_at": int(time.time())}
     th = threading.Thread(target=_prewarm_worker,
                           args=(job_id, vid, quality,
-                                int(body.audio or 0), body.caps),
+                                int(body.audio or 0), body.caps, kind),
                           daemon=True)
     th.start()
     return {"job_id": job_id, "status": "queued"}

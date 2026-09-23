@@ -91,7 +91,7 @@ def _spawn_session(version_id: int, quality: str, audio: int,
     plan_key = _plan_marker(d["plan"], audio, st_key)
     skey = _session_key(d["plan"], audio)
     # 真实媒体起点：客户端字幕（VTT/ASS/PGS）按此平移对齐播放进度
-    d["media_start"] = _media_start_for(int(m["id"]), src.input, start, d["plan"])
+    d["media_start"] = _media_start_for(int(m["id"]), src.input, start, d["plan"], k)
     seg = d["plan"].get("seg") or "fmp4"
     stime = _playback.seg_time(seg)
     # 整片已转完（预转码/之前播完）：当静态 VOD 直接播，不起进程——hls.js 最稳形态

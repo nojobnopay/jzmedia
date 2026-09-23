@@ -83,10 +83,12 @@ def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
     k = m.get("kind") or "movie"
     if k == "episode":
         blob_url = f"/api/tv/episodes/{int(m['id'])}/blob"
+    elif k == "extra":
+        blob_url = f"/api/tv/extras/{int(m['id'])}/blob"
     else:
         blob_url = f"/api/movies/{int(m['id'])}/blob?name={m['file_path']}"
     sub_q = f"&sub={q.sub}" if q.sub is not None else ""
-    kind_q = "" if k == "movie" else "&kind=episode"
+    kind_q = "" if k == "movie" else f"&kind={k}"
     hls_url = (f"/api/stream/{int(m['id'])}/master.m3u8"
                f"?quality={q.quality}&audio={q.audio}{sub_q}{kind_q}")
     return {"version_id": int(m["id"]), "kind": k, "method": method, "reasons": d["reasons"],
@@ -125,27 +127,42 @@ def stream_decide_post(version_id: int, body: PlaybackQuery | None = None):
 
 class VersionsQuery(BaseModel):
     movie_id: int
+    kind: str = "movie"      # movie|episode（剧集多版本：同剧同季同集的不同文件）
     quality: str = "auto"
     client: str = "web"
     caps: dict | None = None
 
 
 def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
-    """同片全版本一次取齐（选版器用）：每版本 media/method/reasons/score/duration_text。
+    """同片/同集全版本一次取齐（选版器用）：每版本 media/method/reasons/score/duration_text。
     best_version_id 为 client 下最优（浏览器永不自动选 DV/4K，抄 Plex 选版）。
     缺失文件记 playable=false，不抛错（前端置灰）。"""
     try:
         mid = int(movie_id)
     except (TypeError, ValueError):
         raise HTTPException(422, "bad movie_id")
-    m = store.get_movie(mid)
-    if not m:
-        raise HTTPException(404, "movie not found")
+    kind = "episode" if str(q.kind or "movie") == "episode" else "movie"
+    if kind == "episode":
+        ep = store.get_episode(mid)
+        if not ep:
+            raise HTTPException(404, "episode not found")
+        versions = store.list_episode_versions(ep["show_id"], ep["season"],
+                                               ep["episode"]) or [ep]
+
+        def _fetch(vid: int):
+            return store.get_playable("episode", vid)
+    else:
+        m = store.get_movie(mid)
+        if not m:
+            raise HTTPException(404, "movie not found")
+        versions = list(m.get("versions") or [{"id": m["id"], "file_path": m["file_path"],
+                                                "edition": m.get("edition") or "",
+                                                "spec": m.get("spec") or ""}])
+
+        def _fetch(vid: int):
+            return store.get_movie(vid)
     cli = (q.client or "web").strip().lower()
     caps = _caps.default_caps() if q.caps is None else q.caps
-    versions = list(m.get("versions") or [{"id": m["id"], "file_path": m["file_path"],
-                                            "edition": m.get("edition") or "",
-                                            "spec": m.get("spec") or ""}])
 
     # 每版本只解析一次：并行补探测并把 (vm, src, info) 缓存，报告循环复用——
     # 此前报告循环再次 stat 源文件、再次走探测，直读库 = 成倍往返。
@@ -160,7 +177,7 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
         if vid in prepared:
             return
         try:
-            vm = store.get_movie(vid)
+            vm = _fetch(vid)
         except Exception as e:
             logger.debug("get version failed vid=%s: %s", vid, e)
             return
@@ -198,6 +215,11 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
         vm, src, info = hit
         base = {"version_id": vid, "file_path": vm["file_path"],
                 "edition": v.get("edition") or "", "spec": v.get("spec") or ""}
+        if kind == "episode":
+            base.update({"season": int(v.get("season") or 0),
+                         "episode": int(v.get("episode") or 0),
+                         "episode_end": int(v.get("episode_end") or 0),
+                         "title": v.get("title") or ""})
         if src is None:
             items.append({**base, "playable": False, "probe_error": "file missing",
                           "method": "blocked", "reasons": ["unplayable"],
@@ -229,14 +251,16 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
         if it["method"] != "blocked":
             best = it["version_id"]
             break
-    return {"movie_id": mid, "quality": q.quality, "client": cli,
+    return {"movie_id": mid, "id": mid, "kind": kind, "quality": q.quality, "client": cli,
             "versions": items, "best_version_id": best}
 
 
 @router.get("/versions")
-def stream_versions(movie_id: int, quality: str = "auto", client: str = "web"):
-    """版本聚合（GET 兼容口：无 caps，走服务端保守默认）。"""
-    return _versions_payload(movie_id, VersionsQuery(movie_id=movie_id, quality=quality,
+def stream_versions(movie_id: int, kind: str = "movie", quality: str = "auto",
+                    client: str = "web"):
+    """版本聚合（GET 兼容口：无 caps，走服务端保守默认）。kind=movie|episode。"""
+    return _versions_payload(movie_id, VersionsQuery(movie_id=movie_id, kind=kind,
+                                                     quality=quality,
                                                      client=client, caps=None))
 
 

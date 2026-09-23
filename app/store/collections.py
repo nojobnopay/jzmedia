@@ -277,7 +277,8 @@ def collection_hint_for_movie(movie_id: int) -> dict | None:
         if not mrow or not mrow["tmdb_id"]:
             return None
         crow = c.execute("SELECT collection_tmdb_id, collection_name, collection_poster_path"
-                         " FROM tmdb_cache WHERE tmdb_id=?", (mrow["tmdb_id"],)).fetchone()
+                         " FROM tmdb_cache WHERE media_type='movie' AND tmdb_id=?",
+                         (mrow["tmdb_id"],)).fetchone()
         if not crow or not crow["collection_tmdb_id"]:
             return None
         cid, cname = crow["collection_tmdb_id"], crow["collection_name"] or ""
@@ -292,7 +293,7 @@ def collection_hint_for_movie(movie_id: int) -> dict | None:
             collected = False
         sibs = c.execute(
             "SELECT m.*, MAX(m.updated_at) AS _u FROM movies m "
-            "JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id "
+            "JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id AND t.media_type='movie' "
             "WHERE t.collection_tmdb_id=? AND m.library_id IN (" + _LIB_IN_MEDIA + ")"
             " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id) "
             "ORDER BY m.year IS NULL, m.year", (cid, media_id)).fetchall()
@@ -325,7 +326,7 @@ def suggest_series_collections(min_members: int = 2,
         series = c.execute(
             "SELECT t.collection_tmdb_id AS cid, MAX(t.collection_name) AS name,"
             " MAX(t.collection_poster_path) AS poster"
-            " FROM movies m JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+            " FROM movies m JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id AND t.media_type='movie'"
             " WHERE t.collection_tmdb_id IS NOT NULL" + mwhere +
             " GROUP BY t.collection_tmdb_id", mparams).fetchall()
         try:
@@ -339,7 +340,7 @@ def suggest_series_collections(min_members: int = 2,
         # 系列内成员一次取回再分组（评审 B8/R02-D4：不再每系列一次查询）
         all_mems = c.execute(
             "SELECT m.*, t.collection_tmdb_id AS _cid, MAX(m.updated_at) AS _u"
-            " FROM movies m JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+            " FROM movies m JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id AND t.media_type='movie'"
             " WHERE t.collection_tmdb_id IS NOT NULL" + mwhere +
             " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id)"
             " ORDER BY m.year IS NULL, m.year, m.id", mparams).fetchall()
@@ -372,7 +373,7 @@ def suggest_series_collections(min_members: int = 2,
         items.sort(key=lambda x: (-x["member_count"], x["collection_name"]))
         cov = c.execute(
             "SELECT COUNT(DISTINCT COALESCE(m.tmdb_id, -m.id)) AS n FROM movies m"
-            " JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+            " JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id AND t.media_type='movie'"
             " WHERE t.collection_tmdb_id IS NOT NULL" + mwhere, mparams).fetchone()["n"]
         if media_id is not None:
             total = c.execute(
@@ -384,7 +385,7 @@ def suggest_series_collections(min_members: int = 2,
         try:
             standalone = c.execute(
                 "SELECT COUNT(DISTINCT COALESCE(m.tmdb_id, -m.id)) AS n FROM movies m"
-                " JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+                " JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id AND t.media_type='movie'"
                 " WHERE t.collection_tmdb_id IS NULL"
                 " AND COALESCE(t.collection_checked_at, 0) > 0" + mwhere,
                 mparams).fetchone()["n"]
@@ -420,7 +421,7 @@ def collected_series_new_members(media_library_id: int | None = None) -> list[di
             return []
         all_mems = c.execute(
             "SELECT m.*, t.collection_tmdb_id AS _cid, MAX(m.updated_at) AS _u"
-            " FROM movies m JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id"
+            " FROM movies m JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id AND t.media_type='movie'"
             " WHERE t.collection_tmdb_id IS NOT NULL" + mwhere +
             " GROUP BY m.library_id, COALESCE(m.tmdb_id, -m.id)"
             " ORDER BY m.year IS NULL, m.year, m.id", mparams).fetchall()

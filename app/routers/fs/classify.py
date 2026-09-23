@@ -40,6 +40,18 @@ def _classify(rel: str, extras_map: dict | None = None,
                 "title": m.get("title", ""), "year": m.get("year"),
                 "tmdb_id": m.get("tmdb_id"),
                 "version_count": len(vers) or 1}
+    # TV 集行：双击进剧详情（fs 浏览器剧库内正片跳转，T3）
+    try:
+        ep = store.get_episode_by_path(rel, library_id=lid)
+    except Exception:
+        ep = None
+    if ep:
+        show = store.get_show_meta(ep.get("show_id")) or {}
+        return {**base, "kind": "feature", "episode_id": ep["id"],
+                "show_id": ep["show_id"], "movie_id": None,
+                "title": show.get("title") or "", "year": show.get("year"),
+                "season": ep.get("season"), "episode": ep.get("episode"),
+                "tmdb_id": show.get("tmdb_id"), "version_count": 1}
     if extras_map is not None:
         e = extras_map.get(rel)
         if e:

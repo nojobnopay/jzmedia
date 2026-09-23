@@ -48,6 +48,18 @@ def test_is_extra_compound_dirs():
     assert scanner.is_extra("电影/普通目录/x.mkv") is False
 
 
+def test_extra_kw_boundary_no_substring_false_positive():
+    """中文关键词按片段/词尾匹配：标题子串（《幕后黑手》）不误判为花絮。"""
+    assert scanner.is_extra("电影/幕后黑手 (2024).mkv") is False
+    assert scanner.is_extra(
+        "剧/半泽直树 (2013)/Season 02/半泽直树-S02E09-幕后黑手.mp4", tv=True) is False
+    # 词尾（散落花絮）/独立片段（功夫-花絮、预告-功夫、特辑：功夫）仍命中
+    assert scanner.extra_kind("电影/散落花絮.mkv") == "behindthescenes"
+    assert scanner.extra_kind("电影/功夫-花絮.mkv") == "behindthescenes"
+    assert scanner.extra_kind("电影/预告-功夫.mkv") == "trailer"
+    assert scanner.extra_kind("电影/特辑：功夫.mkv") == "featurette"
+
+
 def test_attribute_extra_attach_and_orphan(media_root):
     rel_owner = "att/功夫 (2004).mkv"
     p = media_root / rel_owner

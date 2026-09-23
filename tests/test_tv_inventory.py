@@ -56,7 +56,8 @@ def test_tv_api_browse(tv_lib):
     show = shows["items"][0]
     detail = client.get(f"/api/tv/shows/{show['id']}").json()
     assert detail["title"] == "Another"
-    assert detail["seasons"] == [{"season": 2, "episode_count": 1}]
+    assert detail["seasons"][0]["season"] == 2
+    assert detail["seasons"][0]["episode_count"] == 1
     ep = detail["episodes"][0]
     assert ep["season"] == 2 and ep["episode"] == 5 and ep["exists"] is True
     one = client.get(f"/api/tv/episodes/{ep['id']}").json()

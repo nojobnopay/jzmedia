@@ -162,10 +162,19 @@ def _log_hit(sid: str, kind: str, name: str, status: int) -> None:
         pass
 
 
+def _kind_prefix(kind) -> str:
+    """会话/缓存目录前缀：电影 m / 剧集 e / 花絮-剧场版 x（id 空间独立防串）。"""
+    k = str(kind or "movie")
+    if k == "episode":
+        return "e"
+    if k == "extra":
+        return "x"
+    return "m"
+
+
 def version_cache_dir(kind, item_id: int) -> str:
-    """按 (kind, id) 隔离的字幕/字体缓存目录（movie=m<id>，episode=e<id>）。"""
-    pre = "e" if str(kind or "movie") == "episode" else "m"
-    d = os.path.join(TRANSCODE_DIR, f"{pre}{int(item_id)}")
+    """按 (kind, id) 隔离的字幕/字体缓存目录（movie=m<id>，episode=e<id>，extra=x<id>）。"""
+    d = os.path.join(TRANSCODE_DIR, f"{_kind_prefix(kind)}{int(item_id)}")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -267,21 +276,23 @@ def _session_dir(version_id: int, key: str, start: float, kind: str = "movie") -
         st = max(0, int(float(start or 0)))
     except (TypeError, ValueError):
         st = 0
-    pre = "e" if str(kind or "movie") == "episode" else "m"
+    pre = _kind_prefix(kind)
     d = os.path.join(TRANSCODE_DIR, f"{pre}{int(version_id)}", f"{k}_s{st}")
     os.makedirs(d, exist_ok=True)
     return d
 
 
-def _media_start_for(version_id: int, input_url: str, start: float, plan: dict) -> float:
+def _media_start_for(version_id: int, input_url: str, start: float, plan: dict,
+                     kind: str = "movie") -> float:
     """会话片内 0 对应的源时间（copy=目标前关键帧，转码/烧录=start）。
-    按 (version, int(start)) 缓存探测结果，重开会话/复用同一 start 时不重复 ffprobe。
+    按 (kind, version, int(start)) 缓存探测结果，重开会话/复用同一 start 时不重复 ffprobe
+    （kind 参与键：电影/剧集 id 空间独立，防同号串缓存）。
     `input_url` 可为本地路径或内网 URL（远程直读）。"""
     try:
         st_key = max(0, int(float(start or 0)))
     except (TypeError, ValueError):
         st_key = 0
-    key = (int(version_id), st_key)
+    key = (str(kind or "movie"), int(version_id), st_key)
     with _sess_lock:
         hit = _MEDIA_START_CACHE.get(key)
     if hit is not None:
@@ -719,12 +730,14 @@ def _find_live_session(vid: int, plan_key: str,
 
 
 def _register_prewarm_session(vid: int, sdir: str, plan: dict, proc,
-                              plan_key: str, backend: str, attempt: int) -> str:
+                              plan_key: str, backend: str, attempt: int,
+                              kind: str = "movie") -> str:
     """把 prewarm 转码进程注册进 `_sessions`：在线播可复用（同 plan 秒开）、
     换档会按既有逻辑杀掉旧会话、关播 DELETE 会被识别为共享任务而不误杀。"""
     sid = uuid.uuid4().hex[:16]
     with _sess_lock:
         _sessions[sid] = {"proc": proc, "sdir": sdir, "vid": int(vid),
+                          "kind": str(kind or "movie"),
                           "plan": plan, "plan_key": plan_key,
                           "caps_hash": _caps.caps_hash(_caps.default_caps()),
                           "backend": backend, "attempt": attempt,

@@ -96,6 +96,8 @@ def test_migration_from_legacy_db(tmp_path, monkeypatch):
                 "tv_shows", "tv_episodes"} <= tables
         assert "library_id" in {r[1] for r in c.execute("PRAGMA table_info(extras)")}
         assert "library_id" in {r[1] for r in c.execute("PRAGMA table_info(scan_state)")}
+        # v25：本地确认集标记
+        assert "local_only" in {r[1] for r in c.execute("PRAGMA table_info(tv_episodes)")}
 
         # v13：media_info/playback_progress 复合键，存量行映射为 movie
         mi_cols = {r[1] for r in c.execute("PRAGMA table_info(media_info)")}
@@ -115,6 +117,53 @@ def test_fresh_db_is_at_current_version(monkeypatch):
     # 会话库（conftest 已 init）应已是当前版本，且查询不重跑种子
     with sqlite3.connect(_base.DB_PATH) as c:
         assert c.execute("PRAGMA user_version").fetchone()[0] == _base.SCHEMA_VERSION
+
+
+def test_v21_tv_metadata_and_cache_pk(tmp_path, monkeypatch):
+    """v21：TV 元数据列/季表 + tmdb_cache 复合主键（存量行归 movie 且数据保留）。"""
+    dbp = tmp_path / "v20.db"
+    _init_legacy(dbp)
+    with sqlite3.connect(dbp) as c:
+        c.executescript("""
+ALTER TABLE tmdb_cache ADD COLUMN title TEXT DEFAULT '';
+ALTER TABLE tmdb_cache ADD COLUMN media_type TEXT DEFAULT 'movie';
+ALTER TABLE tmdb_cache ADD COLUMN poster_override TEXT DEFAULT '';
+CREATE TABLE tv_shows (id INTEGER PRIMARY KEY AUTOINCREMENT,
+  library_id INTEGER NOT NULL DEFAULT 1, title TEXT DEFAULT '',
+  sort_title TEXT DEFAULT '', year INTEGER, tmdb_id INTEGER,
+  needs_review INTEGER DEFAULT 0, updated_at INTEGER DEFAULT 0,
+  UNIQUE(library_id, title, year));
+CREATE TABLE tv_episodes (id INTEGER PRIMARY KEY AUTOINCREMENT,
+  show_id INTEGER NOT NULL, library_id INTEGER NOT NULL DEFAULT 1,
+  file_path TEXT NOT NULL, season INTEGER DEFAULT 0, episode INTEGER DEFAULT 0,
+  title TEXT DEFAULT '', updated_at INTEGER DEFAULT 0,
+  UNIQUE(library_id, file_path));
+""")
+        c.execute("INSERT INTO tmdb_cache(tmdb_id, title) VALUES(550, 'Fight Club')")
+        c.execute("INSERT INTO tv_shows(library_id, title, updated_at) VALUES(1, 'Show', 111)")
+        c.execute("INSERT INTO tv_episodes(show_id, library_id, file_path, season, episode,"
+                  " updated_at) VALUES(1, 1, 'Show/S01E01.mkv', 1, 1, 222)")
+    monkeypatch.setattr(_base, "DB_PATH", str(dbp))
+    monkeypatch.setattr(_base, "ensure_dirs", lambda: None)
+    _base.init_db()
+    with sqlite3.connect(dbp) as c:
+        c.row_factory = sqlite3.Row
+        assert c.execute("PRAGMA user_version").fetchone()[0] == _base.SCHEMA_VERSION
+        pk = [r["name"] for r in c.execute("PRAGMA table_info(tmdb_cache)") if r["pk"]]
+        assert set(pk) == {"media_type", "tmdb_id"}
+        row = c.execute("SELECT * FROM tmdb_cache WHERE tmdb_id=550").fetchone()
+        assert row["media_type"] == "movie" and row["title"] == "Fight Club"
+        scols = {r[1] for r in c.execute("PRAGMA table_info(tv_shows)")}
+        assert {"tmdb_id", "overview", "poster_path", "status", "number_of_seasons",
+                "added_at", "match_source", "watched"} <= scols
+        ecols = {r[1] for r in c.execute("PRAGMA table_info(tv_episodes)")}
+        assert {"episode_end", "absolute_number", "still_path", "air_date", "watched",
+                "missing", "added_at"} <= ecols
+        assert c.execute("SELECT added_at FROM tv_shows").fetchone()[0] == 111
+        assert c.execute("SELECT added_at FROM tv_episodes").fetchone()[0] == 222
+        tables = {r[0] for r in c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "tv_seasons" in tables
 
 
 def test_m16_to_v18_collections_media_level(tmp_path, monkeypatch):

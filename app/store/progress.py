@@ -6,6 +6,7 @@ import time
 from ._base import _attach_versions, _conn, _lock, _row_to_dict
 from .search import _split_ints
 __all__ = ['get_progress', 'save_progress', 'clear_progress', 'list_recent_played',
+           'list_recent_played_tv',
            'CONTINUE_MIN_POSITION', 'CONTINUE_MAX_PERCENT', 'CONTINUE_MIN_REMAIN']
 
 # 「继续观看」判定（与 PlayerModal 断点/自动标看阈值对齐）：
@@ -118,6 +119,79 @@ def list_recent_played(limit: int = 20, library_ids=None,
                 "last_played_at": played,
             }
             out.append(_attach_versions(c, d))
+            if len(out) >= lim:
+                break
+        return out
+
+
+def list_recent_played_tv(limit: int = 20, library_ids=None,
+                          include_finished: bool = False) -> list[dict]:
+    """剧集「继续观看」（T2）：断点粒度，海报粒度去重（同 show+季+集留最近版本）。
+
+    返回项兼容电影行结构：`title`=剧名、`poster_path`=剧海报、`year`=剧年份、
+    `progress.version_id`=集 id（可直接续播）；另带 `kind='episode'`、`show_id`、
+    `season/episode/episode_end`、`subtitle`（SxxEyy · 集名）、`episode_title`。
+    默认排除已看完（`tv_episodes.watched` 或剩余阈值），include_finished 全给。"""
+    lim = max(1, min(int(limit or 20), 100))
+    libs = _split_ints(library_ids) if library_ids is not None else []
+    conds = ["p.kind='episode'", "p.position >= ?"]
+    params: list = [CONTINUE_MIN_POSITION]
+    if libs:
+        conds.append("e.library_id IN (%s)" % ",".join("?" * len(libs)))
+        params.extend(libs)
+    if not include_finished:
+        conds.append("COALESCE(e.watched, 0)=0")
+        conds.append("NOT (p.duration > 0 AND (p.position / p.duration >= ?"
+                     " OR p.duration - p.position <= ?))")
+        params.extend([CONTINUE_MAX_PERCENT, CONTINUE_MIN_REMAIN])
+    where = " AND ".join(conds)
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT e.*, s.title AS _show_title, s.year AS _show_year,"
+            " s.poster_path AS _show_poster, s.library_id AS _show_lib,"
+            " p.item_id AS _pvid, p.position AS _ppos, p.duration AS _pdur,"
+            " p.updated_at AS _pplayed"
+            " FROM playback_progress p JOIN tv_episodes e ON e.id = p.item_id"
+            " JOIN tv_shows s ON s.id = e.show_id"
+            f" WHERE {where} ORDER BY p.updated_at DESC, p.item_id DESC LIMIT ?",
+            (*params, lim * 5)).fetchall()
+        out, seen = [], set()
+        for r in rows:
+            key = (r["show_id"], int(r["season"] or 0), int(r["episode"] or 0))
+            if key in seen:
+                continue
+            seen.add(key)
+            vid = int(r["_pvid"])
+            pos = float(r["_ppos"] or 0)
+            dur = float(r["_pdur"] or 0)
+            played = int(r["_pplayed"] or 0)
+            season = int(r["season"] or 0)
+            episode = int(r["episode"] or 0)
+            end = int(r["episode_end"] or 0)
+            ep_no = f"S{season:02d}E{episode:02d}" + (f"-E{end:02d}" if end else "")
+            out.append({
+                "kind": "episode",
+                "id": int(r["show_id"]),
+                "show_id": int(r["show_id"]),
+                "library_id": int(r["_show_lib"] or 0),
+                "title": r["_show_title"] or "",
+                "year": r["_show_year"],
+                "poster_path": r["_show_poster"] or "",
+                "season": season,
+                "episode": episode,
+                "episode_end": end,
+                "absolute_number": r["absolute_number"],
+                "episode_title": r["title"] or "",
+                "subtitle": ep_no + (f" · {r['title']}" if r["title"] else ""),
+                "progress": {
+                    "version_id": vid,
+                    "position": round(pos, 3),
+                    "duration": round(dur, 3),
+                    "percent": round(min(1.0, pos / dur), 4) if dur > 0 else 0.0,
+                    "remaining_sec": max(0, int(dur - pos)) if dur > 0 else 0,
+                    "last_played_at": played,
+                },
+            })
             if len(out) >= lim:
                 break
         return out

@@ -260,7 +260,8 @@ def library_stats(library_id: int | None = None) -> dict:
         no_match = c.execute(
             f"SELECT COUNT(*) AS n FROM movies{where}{cond}tmdb_id IS NULL",
             params).fetchone()["n"]
-        cache = c.execute("SELECT COUNT(*) AS n FROM tmdb_cache").fetchone()["n"]
+        cache = c.execute("SELECT COUNT(*) AS n FROM tmdb_cache"
+                          " WHERE media_type='movie'").fetchone()["n"]
         persons = c.execute("SELECT COUNT(*) AS n FROM persons").fetchone()["n"]
     try:
         db_bytes = os.path.getsize(DB_PATH)

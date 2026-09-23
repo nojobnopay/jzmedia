@@ -7,10 +7,13 @@ from .. import library_paths
 from .. import storage
 from ..log import get_logger
 from .parse import normalize_title
+from . import tv_parse
 logger = get_logger("scanner.classify")
-__all__ = ['same_stem', 'VIDEO_EXTS', 'SUBTITLE_EXTS', '_SKIP_DIR_NAMES', 'scan_skip_dirs', 'SIDECAR_TEXT_EXTS', '_sidecar_sub_dirs', 'SIDECAR_SUB_DIRS', '_SAMPLE_TOKENS', '_SAMPLE_RE', 'strip_kind_affix', 'extra_kind', 'is_sample', '_parent_has_feature', 'is_extra', 'is_sidecar', 'is_feature_video', '_stem_matches', 'sidecar_subtitles', 'sidecar_subtitles_fs', '_EXTRAS_RE', 'EXTRAS_DIR_NAMES', '_GENERIC_DIR_NAMES', 'KIND_BY_DIR', '_KIND_WORDS', '_STRIP_LEAD_RES', '_STRIP_TRAIL_RE', '_SIDECAR_LANG_HINTS', '_guess_sidecar_lang', '_strip_lang_tail', '_title_key', '_stem_title_matches', 'PLEX_EXTRAS_DIRS', 'extras_dir_name']
+__all__ = ['same_stem', 'VIDEO_EXTS', 'SUBTITLE_EXTS', '_SKIP_DIR_NAMES', 'scan_skip_dirs', 'SIDECAR_TEXT_EXTS', '_sidecar_sub_dirs', 'SIDECAR_SUB_DIRS', '_SAMPLE_TOKENS', '_SAMPLE_RE', 'strip_kind_affix', 'extra_kind', 'is_sample', '_parent_has_feature', 'is_extra', 'is_extras_dir', 'is_sidecar', 'is_feature_video', '_stem_matches', 'sidecar_subtitles', 'sidecar_subtitles_fs', '_EXTRAS_RE', 'EXTRAS_DIR_NAMES', '_GENERIC_DIR_NAMES', 'KIND_BY_DIR', '_KIND_WORDS', '_STRIP_LEAD_RES', '_STRIP_TRAIL_RE', '_SIDECAR_LANG_HINTS', '_guess_sidecar_lang', '_strip_lang_tail', '_title_key', '_stem_title_matches', 'PLEX_EXTRAS_DIRS', 'extras_dir_name']
 
-VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv", ".webm"}
+VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mov", ".wmv", ".flv", ".webm",
+              # 旧库常见容器（NAS 实测 Inuyasha/出包王女整剧为 rmvb）：补齐可扫描
+              ".rmvb", ".rm", ".mpg", ".mpeg"}
 
 
 SUBTITLE_EXTS = {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup"}
@@ -162,16 +165,19 @@ def _parent_has_feature(abs_dir: str = "", backend=None, rel_dir: str = "") -> b
     return False
 
 
-def is_extra(rel_path: str, library_id=None, backend=None) -> bool:
+def is_extra(rel_path: str, library_id=None, backend=None, tv: bool = False) -> bool:
     """rel_path 为库内相对路径：文件名命中花絮词，或所处花絮子目录。
     目录名 token 化匹配（Sample,Screens / Behind.The.Scenes / Extras & Trailers 均命中）。
     scenes/other/shorts 类通用目录名仅当其父目录含正片文件（即“某部片的子目录”
     语义，如 Movie/Shorts/）时生效；顶层 Shorts/ 合集目录不受影响。
-    backend 给定时通用目录判定走存储层（远程直读可用）；否则用 library_id 的根。"""
+    backend 给定时通用目录判定走存储层（远程直读可用）；否则用 library_id 的根。
+    tv=True（剧库）：剧场版/真人版/Movies 目录按非正片跳过（不是剧集）。"""
     parts = (rel_path or "").replace("\\", "/").split("/")
     for i, p in enumerate(parts[:-1]):
         toks = _dir_tokens(p)
         if any(t in EXTRAS_DIR_NAMES for t in toks):
+            return True
+        if tv and tv_parse.is_tv_movie_dir(p):
             return True
         if any(t in _GENERIC_DIR_NAMES for t in toks):
             if backend is not None:
@@ -186,11 +192,16 @@ def is_extra(rel_path: str, library_id=None, backend=None) -> bool:
     return bool(_EXTRAS_RE.search(os.path.splitext(parts[-1] if parts else "")[0]))
 
 
-def is_sidecar(rel_path: str, library_id=None, backend=None) -> bool:
-    """扫描应跳过的非正片：花絮或样片。"""
+def is_extras_dir(name: str) -> bool:
+    """目录名本身是否花絮目录（TV 子剧拆分判定用）。"""
+    return any(t in EXTRAS_DIR_NAMES for t in _dir_tokens(name))
+
+
+def is_sidecar(rel_path: str, library_id=None, backend=None, tv: bool = False) -> bool:
+    """扫描应跳过的非正片：花絮或样片。tv=True 时额外跳过剧库内的电影目录。"""
     base = os.path.basename(rel_path or "")
     return is_sample(base) or is_extra(rel_path, library_id=library_id,
-                                       backend=backend)
+                                       backend=backend, tv=tv)
 
 
 def is_feature_video(rel_path: str, library_id=None, backend=None) -> bool:
@@ -344,16 +355,28 @@ def sidecar_subtitles_fs(backend, rel_video: str) -> list[dict]:
     return sorted(found.values(), key=lambda x: (os.path.dirname(x["rel"]), x["name"]))
 
 
+# 中文花絮关键词的边界规则：必须是独立片段（前后为分隔符/首尾）或以词尾收尾。
+# 防子串误判（如剧集标题《幕后黑手》里的「幕后」不是花絮词；`散落花絮` 仍按词尾命中）。
+_CJK_BOUNDARY = r"[\s._\-\[\]()（）【】:：]"
+_CJK_EXTRAS_KW = "花絮|预告|特辑|彩蛋|幕后|截图|样片"
+
+
+def _cjk_kw(kw: str = _CJK_EXTRAS_KW) -> str:
+    return (rf"(?:^|{_CJK_BOUNDARY})(?:{kw})(?=$|{_CJK_BOUNDARY})"
+            rf"|(?:{kw})$")
+
+
 _EXTRAS_RE = re.compile(
-    r"(?i)(behind[ ._\-]*the[ ._\-]*scenes|featurette|deleted[ ._\-]*scenes?|"
+    r"(?i)(?:behind[ ._\-]*the[ ._\-]*scenes|featurette|deleted[ ._\-]*scenes?|"
     r"bloopers?|interviews?|trailers?|teasers?|screenshots?|"
     r"making[\s.\-_]*of|メイキング|"
     r"[ ._\-]+shorts?$|[ ._\-]+scene$|"
-    r"花絮|预告|特辑|彩蛋|幕后|截图|样片)")
+    + _cjk_kw() + ")")
 
 
 EXTRAS_DIR_NAMES = {"extras", "extra", "featurettes", "featurette",
-                    "behind the scenes", "deleted scenes", "trailers", "trailer",
+                    "behind the scenes", "behind the scene",
+                    "deleted scenes", "deleted scene", "trailers", "trailer",
                     "interviews", "interview", "samples", "sample",
                     "screens", "screenshots", "截图", "封面截图", "样片",
                     "花絮", "预告", "特辑"}
@@ -376,7 +399,9 @@ def extras_dir_name(kind: str, naming_profile: str = "kodi") -> str:
 
 
 KIND_BY_DIR = {"trailers": "trailer", "trailer": "trailer", "预告": "trailer",
-               "behind the scenes": "behindthescenes", "花絮": "behindthescenes",
+               "behind the scenes": "behindthescenes",
+               "behind the scene": "behindthescenes",
+               "花絮": "behindthescenes",
                "幕后": "behindthescenes", "deleted scenes": "deleted",
                "featurettes": "featurette", "featurette": "featurette",
                "特辑": "featurette", "彩蛋": "featurette",
@@ -389,12 +414,13 @@ KIND_BY_DIR = {"trailers": "trailer", "trailer": "trailer", "预告": "trailer",
 
 
 _KIND_WORDS: list[tuple] = [
-    (re.compile(r"(?i)trailers?|teasers?|预告"), "trailer"),
-    (re.compile(r"(?i)behind[ ._\-]*the[ ._\-]*scenes|making[\s.\-_]*of|メイキング|花絮|幕后"), "behindthescenes"),
+    (re.compile(r"(?i)trailers?|teasers?|" + _cjk_kw("预告")), "trailer"),
+    (re.compile(r"(?i)behind[ ._\-]*the[ ._\-]*scenes|making[\s.\-_]*of|メイキング|"
+                + _cjk_kw("花絮|幕后")), "behindthescenes"),
     (re.compile(r"(?i)deleted[ ._\-]*scenes?|bloopers?"), "deleted"),
-    (re.compile(r"(?i)featurette|特辑|彩蛋"), "featurette"),
+    (re.compile(r"(?i)featurette|" + _cjk_kw("特辑|彩蛋")), "featurette"),
     (re.compile(r"(?i)interviews?"), "interview"),
-    (re.compile(r"(?i)screenshots?|截图|样片"), "sample"),
+    (re.compile(r"(?i)screenshots?|" + _cjk_kw("截图|样片")), "sample"),
     (re.compile(r"(?i)[ ._\-]+scene$"), "scene"),
     (re.compile(r"(?i)[ ._\-]+shorts?$"), "short"),
 ]

@@ -5,7 +5,6 @@
 当前沿用剧集跳过语义。
 """
 import os
-import re
 from .. import library_paths
 from .. import storage
 from .. import store
@@ -13,13 +12,15 @@ from .. import tmdb
 from ..db import ensure_dirs
 from ..log import get_logger
 logger = get_logger("scanner.scan")
-from .classify import is_sample, is_sidecar, extra_kind, strip_kind_affix, scan_skip_dirs, VIDEO_EXTS
+from .classify import (is_sample, is_sidecar, is_extras_dir, extra_kind,
+                       strip_kind_affix, scan_skip_dirs, VIDEO_EXTS)
 from .parse import parse_filename, normalize_title
+from . import tv_parse
 from .match import search_with_fallback
 from .persist import apply_cached_to_movie, apply_tmdb_detail
 from ..metadata import local as meta_local
 from ..metadata import nfo_import as meta_nfo
-__all__ = ['ST_SKIPPED_SAMPLE', 'ST_EXTRA_ATTACHED', 'ST_EXTRA_ORPHAN', 'ST_NO_MATCH', 'ST_EPISODE', 'ST_SCAN_FAILED', 'ST_LIBRARY_OFFLINE', 'attribute_extra', 'attribute_extra_file', 'scan_one', 'scan_file', 'scan_tv_one', 'scan_tv_file', 'scan_all']
+__all__ = ['ST_SKIPPED_SAMPLE', 'ST_EXTRA_ATTACHED', 'ST_EXTRA_ORPHAN', 'ST_NO_MATCH', 'ST_EPISODE', 'ST_SCAN_FAILED', 'ST_LIBRARY_OFFLINE', 'attribute_extra', 'attribute_extra_file', 'scan_one', 'scan_file', 'scan_tv_one', 'scan_tv_file', 'scan_all', 'resolve_tv_numbers', 'tv_plan']
 
 DEFAULT_LIBRARY_ID = library_paths.DEFAULT_LIBRARY_ID
 
@@ -304,20 +305,119 @@ def _video_entries(entries) -> list:
             if not e.is_dir and os.path.splitext(e.name)[1].lower() in VIDEO_EXTS]
 
 
-_SEASON_DIR_RE = re.compile(r"(?i)^(?:season|s)\s*0*(\d{1,3})$")
-_SHOW_DIR_RE = re.compile(r"^(.*?)\s*\((\d{4})\)\s*$")
+def _tv_show_root(rel: str, subshows=None) -> str:
+    """剧根目录（库内相对）：子剧目录优先（`七龙珠/七龙珠.Z` → 七龙珠.Z），否则顶层目录；
+    库根散文件返回 ''（不建剧，避免 `random.mkv` 之类噪声）。"""
+    parts = [p for p in rel.replace("\\", "/").split("/") if p]
+    if len(parts) <= 1:
+        return ""
+    if subshows and len(parts) >= 3:
+        d2 = "/".join(parts[:2])
+        if d2 in subshows:
+            return d2
+    return parts[0]
 
 
-def _tv_show_title(rel: str, fallback: str) -> tuple[str, int | None]:
-    """剧名（Plex 树优先最近一级 `剧名 (年份)` 祖先目录，其次顶层目录，最后文件名解析）。"""
-    parts = [p for p in rel.replace("\\", "/").split("/")[:-1] if p]
-    for p in reversed(parts):
-        m = _SHOW_DIR_RE.match(p.strip())
-        if m:
-            return m.group(1).strip(), int(m.group(2))
-    if parts:
-        return parts[0].strip(), None
-    return (fallback or "").strip(), None
+def _tv_subshow_dirs(entries) -> set[str]:
+    """子剧目录：剧根下「直接含视频文件、无季子目录、非季/非花絮/非特典/非电影」的目录。
+    NAS 实测唯一命中 `七龙珠/{A,Z,GT}`（同一目录放了 3 部独立剧）。"""
+    info: dict[str, dict] = {}
+
+    def _node(rel: str) -> dict:
+        return info.setdefault(rel, {"has_video": False, "season_child": False})
+
+    for e in entries:
+        parent = os.path.dirname(e.rel)
+        if parent:
+            node = _node(parent)
+            if e.is_dir:
+                if tv_parse.season_from_dir(e.name) is not None:
+                    node["season_child"] = True
+            elif os.path.splitext(e.name)[1].lower() in VIDEO_EXTS:
+                node["has_video"] = True
+        if e.is_dir:
+            _node(e.rel)
+    out = set()
+    for d, n in info.items():
+        parts = d.split("/")
+        if len(parts) != 2 or not n["has_video"] or n["season_child"]:
+            continue
+        name = parts[1]
+        if tv_parse.season_from_dir(name) is not None:
+            continue
+        if (tv_parse.is_tv_special_dir(name) or tv_parse.is_tv_movie_dir(name)
+                or is_extras_dir(name)):
+            continue
+        out.add(d)
+    return out
+
+
+def _tv_special_hints(vids) -> dict[str, int]:
+    """无编号特典（`Legal.High.SP`、单文件 OVA）按目录内路径序编号。"""
+    groups: dict[str, list[str]] = {}
+    for e in vids:
+        p = tv_parse.parse_episode(os.path.basename(e.rel))
+        if p.get("special") and p.get("episode") is None:
+            groups.setdefault(os.path.dirname(e.rel), []).append(e.rel)
+    hints: dict[str, int] = {}
+    for rels in groups.values():
+        for i, r in enumerate(sorted(rels), 1):
+            hints[r] = i
+    return hints
+
+
+def resolve_tv_numbers(base: str, parent: str, show_root: str,
+                       episode_hint=None) -> dict:
+    """纯解析（不触 DB）：tv_parse 规则阶梯 + 季目录回退 + guessit 兜底 + 季号守卫。
+    返回 {ok, season, episode, episode_end, absolute, special, source, guess, parsed}。
+    `scripts/tv_parse_report.py` 与 scan_tv_file 共用，保证报告与入库口径一致。"""
+    parsed = tv_parse.parse_episode(base)
+    season, episode = parsed.get("season"), parsed.get("episode")
+    from_dir = tv_parse.season_from_dir(parent)
+    if season is None:
+        season = from_dir
+    if season is None and parsed.get("special"):
+        season = 0
+    guess = None
+    if season is None or episode is None:
+        guess = parse_filename(base)
+        try:
+            # 裸数字（绝对集号）时 guessit 的季号不可信（`0001` → S0E1、`0100` → S1E0），
+            # 此时季号由目录/默认 S1 决定，绝不让 guessit 覆盖。
+            if (season is None and guess.get("season") is not None
+                    and parsed.get("source") != "bare"):
+                season = int(guess["season"])
+            if episode is None and guess.get("episode") is not None:
+                episode = int(guess["episode"])
+        except (TypeError, ValueError):
+            pass
+        if season is not None and (season > 99 or 1900 <= season <= 2099):
+            season = None   # guessit 把年份当季号（`武林外传…2006.EP01`）
+    if season is None and episode is not None and show_root:
+        season = 1          # 剧根/子剧目录下的裸集号 → 第 1 季
+    if episode is None and parsed.get("special") and episode_hint:
+        episode = int(episode_hint)
+    absolute = (episode if parsed.get("absolute") and parsed.get("season") is None
+                and from_dir is None and not parsed.get("special") else None)
+    return {"ok": season is not None and episode is not None,
+            "season": season, "episode": episode,
+            "episode_end": int(parsed.get("episode_end") or 0),
+            "absolute": absolute, "special": bool(parsed.get("special")),
+            "source": parsed.get("source") or "", "guess": guess, "parsed": parsed}
+
+
+def tv_plan(entries, vids) -> dict:
+    """扫描计划（入库与诊断报告共用）：{rel: {show_root, episode_hint}}。"""
+    subshows = _tv_subshow_dirs(entries)
+    hints = _tv_special_hints(vids)
+    return {e.rel: {"show_root": _tv_show_root(e.rel, subshows),
+                    "episode_hint": hints.get(e.rel)} for e in vids}
+
+
+def _tv_in_movie_dir(rel: str) -> bool:
+    """路径是否位于剧库内的电影目录（Movies/剧场版/真人版…）。"""
+    parts = rel.replace("\\", "/").split("/")[:-1]
+    return any(tv_parse.is_tv_movie_dir(p) for p in parts)
 
 
 def scan_tv_one(abs_path: str, library_id=None) -> dict:
@@ -327,8 +427,12 @@ def scan_tv_one(abs_path: str, library_id=None) -> dict:
     return scan_tv_file(storage.backend_for(lib_id), rel)
 
 
-def scan_tv_file(backend, rel: str, entry=None) -> dict:
-    """TV 只读清单入库：解析 SxxEyy → tv_shows/tv_episodes；不刮削/不改名/不写 NFO。
+def scan_tv_file(backend, rel: str, entry=None, show_root=None,
+                 episode_hint=None, force: bool = False) -> dict:
+    """TV 入库：规则阶梯解析（tv_parse）→ tv_shows/tv_seasons/tv_episodes。
+    - 重扫增量：mtime/size 未变且上次 tv_ok → skipped_unchanged（force=True 强制重解析）；
+    - 特典（SP/OVA/OAD）入 Season 0；一文件多集记 episode_end；绝对集号记 absolute_number；
+    - 不刮削/不改名/不写 NFO（T2 起由 tv_persist 回填元数据）。
     entry（iter_tree 的 WalkEntry）带 size/mtime 时免一次 stat。"""
     lib_id = backend.library_id or DEFAULT_LIBRARY_ID
     rel = backend.norm(rel)
@@ -341,29 +445,60 @@ def scan_tv_file(backend, rel: str, entry=None) -> dict:
             mtime, size = int(st.mtime), int(st.size)
         except storage.StorageError:
             mtime, size = 0, 0
-    if is_sidecar(rel, backend=backend) or is_sample(base):
-        store.set_scan_state(rel, mtime, size, "skipped_sidecar", library_id=lib_id)
-        return {"file": rel, "status": "skipped_sidecar"}
-    parsed = parse_filename(base)
-    season, episode = parsed.get("season"), parsed.get("episode")
-    if season is None:
-        parent = os.path.basename(os.path.dirname(rel))
-        m = _SEASON_DIR_RE.match(parent or "")
-        if m:
-            season = int(m.group(1))
-    if season is None or episode is None:
+    if is_sample(base):
+        store.set_scan_state(rel, mtime, size, "skipped_sample", library_id=lib_id)
+        return {"file": rel, "status": "skipped_sample"}
+    if is_sidecar(rel, backend=backend, tv=True):
+        # 花絮/剧场版登记（T4）：样片只跳过；花絮与剧库内电影挂到剧上可见可播。
+        if show_root is None:
+            show_root = _tv_show_root(rel)
+        if not show_root:
+            store.set_scan_state(rel, mtime, size, "skipped_sidecar", library_id=lib_id)
+            return {"file": rel, "status": "skipped_sidecar"}
+        kind = "movie" if _tv_in_movie_dir(rel) else extra_kind(rel)
+        # 归属优先按「剧根已有正片」解析：TMDB 改名后（Breaking Bad → 绝命毒师）
+        # 不能按目录名新建重复行；库里还没有集行时才建档，之后正片扫描/刮削复用该行。
+        show_id = store.find_show_by_dir_prefix(show_root, lib_id)
+        if not show_id:
+            sd = tv_parse.parse_show_dir(os.path.basename(show_root))
+            title = sd["title"] or os.path.splitext(base)[0]
+            show_id = store.upsert_show(lib_id, title, sd.get("year"),
+                                        sort_title=normalize_title(title),
+                                        hints=sd.get("hints"))
+        store.upsert_tv_extra(rel, show_id, kind=kind, library_id=lib_id)
+        store.set_scan_state(rel, mtime, size, "extra_tv", library_id=lib_id)
+        return {"file": rel, "status": ST_EXTRA_ATTACHED, "show_id": show_id,
+                "extra_kind": kind}
+    if not force:
+        st = store.get_scan_state(rel, lib_id)
+        if (st and st.get("status") == "tv_ok"
+                and int(st.get("mtime") or 0) == mtime
+                and int(st.get("size") or 0) == size):
+            return {"file": rel, "status": "skipped_unchanged"}
+    if show_root is None:
+        show_root = _tv_show_root(rel)
+    num = resolve_tv_numbers(base, os.path.basename(os.path.dirname(rel)),
+                             show_root, episode_hint)
+    if not num["ok"]:
         store.set_scan_state(rel, mtime, size, "tv_unknown", library_id=lib_id)
-        return {"file": rel, "status": "skipped_tv_unknown", "parsed": parsed}
-    title, year = _tv_show_title(rel, parsed.get("title") or os.path.splitext(base)[0])
+        return {"file": rel, "status": "skipped_tv_unknown", "parsed": num["parsed"]}
+    sd = (tv_parse.parse_show_dir(os.path.basename(show_root)) if show_root
+          else {"title": "", "year": None, "hints": {}})
+    title = sd["title"] or (num["parsed"].get("title")
+                            or os.path.splitext(base)[0]).strip()
     if not title:
         store.set_scan_state(rel, mtime, size, "tv_unknown", library_id=lib_id)
         return {"file": rel, "status": "skipped_tv_unknown"}
-    show_id = store.upsert_show(lib_id, title, year, sort_title=normalize_title(title))
-    ep_title = parsed.get("episode_title") or ""
-    ep_id = store.upsert_episode(show_id, lib_id, rel, season, episode, ep_title)
+    show_id = store.upsert_show(lib_id, title, sd.get("year"),
+                                sort_title=normalize_title(title), hints=sd.get("hints"))
+    ep_title = str((num["guess"] or {}).get("episode_title") or "")
+    ep_id = store.upsert_episode(show_id, lib_id, rel, num["season"], num["episode"],
+                                 ep_title, episode_end=num["episode_end"],
+                                 absolute_number=num["absolute"])
     store.set_scan_state(rel, mtime, size, "tv_ok", library_id=lib_id)
     return {"file": rel, "status": "tv_ok", "show_id": show_id, "episode_id": ep_id,
-            "show": title, "season": season, "episode": episode}
+            "show": title, "season": num["season"], "episode": num["episode"],
+            "episode_end": num["episode_end"]}
 
 
 def _scan_libraries(library_id, media_library_id=None) -> list[dict]:
@@ -423,7 +558,10 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
         vids = _video_entries(entries)
         # 树内全部文件（含花絮/字幕）：花絮行 GC 直接成员判定，免逐行 stat
         tree_files = {e.rel for e in entries if not e.is_dir}
-        plans.append((lib, backend, vids, tree_files))
+        # TV：子剧目录（七龙珠.Z）+ 无编号特典顺序号，一次遍历内预计算
+        ctx = (tv_plan(entries, vids)
+               if str(lib.get("kind") or "movie") == "tv" else None)
+        plans.append((lib, backend, vids, tree_files, ctx))
         grand += len(vids)
     if progress_cb:
         try:
@@ -442,7 +580,7 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
         logger.debug("list extras failed: %s", e)
         all_extras = []
     done = 0
-    for lib, backend, vids, tree_files in plans:
+    for lib, backend, vids, tree_files, ctx in plans:
         lib_id = _lib_id(lib.get("id"))
         is_tv = str(lib.get("kind") or "movie") == "tv"
         seen_extras: set[str] = set()
@@ -451,9 +589,15 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
                 logger.info("scan cancelled: processed=%s/%s", done, grand)
                 return out
             try:
-                r = (scan_tv_file(backend, e.rel, entry=e) if is_tv
-                     else scan_file(backend, e.rel, force=force,
-                                    local_index=local_index, entry=e))
+                if is_tv:
+                    plan = (ctx or {}).get(e.rel, {})
+                    r = scan_tv_file(backend, e.rel, entry=e,
+                                     show_root=plan.get("show_root"),
+                                     episode_hint=plan.get("episode_hint"),
+                                     force=force)
+                else:
+                    r = scan_file(backend, e.rel, force=force,
+                                  local_index=local_index, entry=e)
                 r["library_id"] = lib_id
                 out.append(r)
                 if r.get("status") in (ST_EXTRA_ATTACHED, ST_EXTRA_ORPHAN):
@@ -469,6 +613,25 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
                 except Exception as ex:
                     logger.debug("progress_cb failed: %s", ex)
         if is_tv:
+            # TV 失效 GC（仅在一次完整遍历后执行）：删掉磁盘上已不存在的集行/空剧，
+            # 级联清理播放断点与探测缓存（库离线在 iter_tree 已整库跳过，绝不误删）。
+            try:
+                removed = store.delete_episodes_not_in(tree_files, lib_id)
+                extra_removed = 0   # 剧集花絮/剧场版行 GC
+                for row in all_extras:
+                    if int(row.get("library_id") or DEFAULT_LIBRARY_ID) != lib_id:
+                        continue
+                    if not row.get("show_id") or row["file_path"] in tree_files:
+                        continue
+                    if store.delete_extra_by_path(row["file_path"], library_id=lib_id):
+                        extra_removed += 1
+                repaired = store.reattach_tv_extras(lib_id)
+                pruned = store.prune_empty_shows(lib_id)
+                if removed or pruned or extra_removed or repaired:
+                    logger.info("TV GC lib=%s: 失效集 %s / 花絮 %s / 重挂 %s / 空剧 %s",
+                                lib_id, removed, extra_removed, repaired, pruned)
+            except Exception as ex:
+                logger.warning("TV GC failed lib=%s: %s", lib_id, ex)
             continue
         # 花絮行 GC（按库分区，仅在一次完整遍历后执行）：文件已不存在的归属记录清掉
         # （正片走 missing/clean 流程）；用本次树遍历快照成员判定，免逐行 stat 往返

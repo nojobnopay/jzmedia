@@ -75,6 +75,51 @@ def movie_detail(tmdb_id: int) -> dict:
                     params=_params(append_to_response="credits,external_ids,alternative_titles")).json()
 
 
+def search_tv(query: str, year: int | None = None) -> list[dict]:
+    """剧集搜索（`first_air_date_year` 过滤）。返回 results（含 name/original_name/first_air_date）。"""
+    with _client() as c:
+        return _get(c, "/search/tv",
+                    params=_params(query=query, first_air_date_year=year)).json().get("results", [])
+
+
+def tv_detail(tmdb_id: int) -> dict:
+    """剧集详情。附加 credits/external_ids/alternative_titles/content_ratings：
+    - external_ids 提供 imdb_id/tvdb_id（TVDB 排序/`.plexmatch` 用）；
+    - alternative_titles（results 形态）供中文显示名与英文原名匹配兜底。"""
+    with _client() as c:
+        return _get(c, f"/tv/{int(tmdb_id)}",
+                    params=_params(append_to_response=(
+                        "credits,external_ids,alternative_titles,content_ratings"))).json()
+
+
+def tv_season(tmdb_id: int, season_number: int) -> dict:
+    """季详情（含 episodes[]：name/overview/still_path/air_date/runtime/vote_average/id）。"""
+    with _client() as c:
+        return _get(c, f"/tv/{int(tmdb_id)}/season/{int(season_number)}",
+                    params=_params(append_to_response="credits")).json()
+
+
+def tv_alternative_titles(tmdb_id: int) -> list[dict]:
+    """剧集别名表（`/tv/{id}/alternative_titles` → results，含 iso_3166_1/title）。"""
+    with _client() as c:
+        data = _get(c, f"/tv/{int(tmdb_id)}/alternative_titles").json()
+        return data.get("results", []) or []
+
+
+def tv_images(tmdb_id: int, languages: str = "zh,en,null") -> dict:
+    """候选图片（/tv/{id}/images，返回 {posters, backdrops, logos}）。"""
+    with _client() as c:
+        return _get(c, f"/tv/{int(tmdb_id)}/images",
+                    params={"include_image_language": languages}).json()
+
+
+def find_by_external_id(external_id: str, source: str = "tvdb_id") -> list[dict]:
+    """外部 id → TMDB 剧集（/find；source=tvdb_id|imdb_id）。返回 tv_results。"""
+    with _client() as c:
+        return _get(c, f"/find/{external_id}",
+                    params=_params(external_source=source)).json().get("tv_results", []) or []
+
+
 def person_detail(tmdb_id: int, language: str | None = None) -> dict:
     """人物详情（简介/生日/出生地）；无中文简介时 TMDB 可能返回空字符串，可传 language='en-US' 兜底。"""
     with _client() as c:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import posixpath
 import socket
 import stat as _st
 import threading
@@ -246,6 +247,9 @@ class SmbStorageBackend(StorageBackend):
         self._meta = TTLCache(ttl=_meta_ttl())
         # 读句柄池：Range/流式播放复用句柄，省 Create/Close 往返
         self._handles = _HandlePool(max_idle=_handle_pool_size(), ttl=_handle_ttl())
+        # 已知存在的目录（list/mkdir/write 时登记）：写路径免每次 makedirs 往返
+        # （NAS 实测一次 makedirs≈0.4s，逐文件 NFO/海报批量写时是主要开销）
+        self._known_dirs: set[str] = {""}
         self._register()
 
     # ---------------- 连接 ----------------
@@ -287,7 +291,20 @@ class SmbStorageBackend(StorageBackend):
                             ("stat", parent), ("list", parent))
             if subtree:
                 self._meta.drop_path(rel)
+                prefix = rel + "/" if rel else ""
+                self._known_dirs = {d for d in self._known_dirs
+                                    if d != rel and not (prefix and d.startswith(prefix))}
             self._handles.evict(rel)
+
+    def _ensure_parent(self, rel: str, unc: str) -> None:
+        """父目录不存在才 makedirs（已登记过则省一次网络往返）。"""
+        parent = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        if parent in self._known_dirs:
+            return
+        smbclient.makedirs(unc.rsplit("/", 1)[0], exist_ok=True)
+        if len(self._known_dirs) > 5000:
+            self._known_dirs = {""}
+        self._known_dirs.add(parent)
 
     # ---------------- 读 ----------------
 
@@ -319,6 +336,9 @@ class SmbStorageBackend(StorageBackend):
                 self._meta.put(key, None, negative=True)
             raise err from e
         self._meta.put(key, out)
+        if len(self._known_dirs) > 5000:
+            self._known_dirs = {""}
+        self._known_dirs.add(rel)
         return out
 
     def stat(self, path: str = "") -> StorageStat:
@@ -391,6 +411,7 @@ class SmbStorageBackend(StorageBackend):
         except Exception as e:
             raise map_smb_error(e, path or "/") from e
         self._invalidate_meta(path)
+        self._known_dirs.add(self.norm(path))
 
     def write(self, path: str, data: bytes) -> None:
         self._require_writable()
@@ -398,8 +419,7 @@ class SmbStorageBackend(StorageBackend):
         # 临时名带单调时钟：同片并发后台任务写同一路径时不会互相踩
         tmp = f"{unc}.tmp-{os.getpid()}-{time.monotonic_ns()}"
         try:
-            parent = unc.rsplit("/", 1)[0]
-            smbclient.makedirs(parent, exist_ok=True)
+            self._ensure_parent(path, unc)
             with smbclient.open_file(tmp, mode="wb", share_access="r") as fh:
                 fh.write(data)
             smbclient.replace(tmp, unc)
@@ -419,8 +439,7 @@ class SmbStorageBackend(StorageBackend):
         unc = self._unc(rel)
         tmp = f"{unc}.part-{os.getpid()}-{time.monotonic_ns()}"
         try:
-            parent = unc.rsplit("/", 1)[0]
-            smbclient.makedirs(parent, exist_ok=True)
+            self._ensure_parent(path, unc)
             fh = smbclient.open_file(tmp, mode="wb", share_access="rwd")
         except Exception as e:
             raise map_smb_error(e, path) from e
@@ -447,6 +466,13 @@ class SmbStorageBackend(StorageBackend):
 
     def rename(self, src: str, dst: str) -> None:
         self._require_writable()
+        # 与本地语义对齐：目标父目录不存在时先建（SMB replace 不自动建，跨季移动会 404）
+        parent = posixpath.dirname(self.norm(dst))
+        if parent and parent != ".":
+            try:
+                self.mkdir(parent, parents=True)
+            except Exception:      # 建目录失败不吞真错，让 rename 抛原始错误
+                pass
         try:
             smbclient.replace(self._unc(src), self._unc(dst))
         except Exception as e:

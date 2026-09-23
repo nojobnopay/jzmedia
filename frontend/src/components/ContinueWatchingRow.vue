@@ -26,6 +26,7 @@
               @click.stop="$emit('resume', m)">▶</button>
           </div>
           <div class="cw-name" :title="m.title">{{ m.title }}<span v-if="m.year" class="cw-year">({{ m.year }})</span><span v-if="m.version_count > 1" class="cw-year">×{{ m.version_count }}</span></div>
+          <div v-if="m.subtitle" class="cw-ep" :title="m.subtitle">{{ m.subtitle }}</div>
         </div>
       </div>
       <button v-if="canRight" class="cw-nav right" aria-label="向右滚动" @click="scrollByDir(1)">›</button>
@@ -40,7 +41,10 @@ import { api, posterUrl } from '../api.js'
 import { fmtDate, fmtRemaining } from '../format.js'
 import { canScroll, loadRecentAll, progressWidth, saveRecentAll, scrollStep } from '../recentPlayed.js'
 
-const props = defineProps({ mediaLibraryId: { type: Number, default: null } })
+const props = defineProps({
+  mediaLibraryId: { type: Number, default: null },
+  kind: { type: String, default: 'movie' },   // movie|tv（剧集行显示 SxxEyy 副标题）
+})
 defineEmits(['open', 'resume'])
 
 const items = ref([])
@@ -60,7 +64,8 @@ async function reload() {
     p.set('limit', '20')
     if (allMode.value) p.set('include_finished', 'true')
     if (props.mediaLibraryId != null) p.set('media_library', String(props.mediaLibraryId))
-    const d = await api('/api/movies/recent-played?' + p.toString())
+    const base = props.kind === 'tv' ? '/api/tv/recent-played' : '/api/movies/recent-played'
+    const d = await api(base + '?' + p.toString())
     if (s !== seq) return
     items.value = (d && d.items) || []
     await nextTick()
@@ -99,6 +104,7 @@ function scrollByDir(dir) {
 }
 
 watch(() => props.mediaLibraryId, reload)
+watch(() => props.kind, reload)
 onMounted(async () => {
   await reload()
   window.addEventListener('resize', updateScroll)
@@ -152,6 +158,7 @@ defineExpose({ reload })
 .cw-done { color: #7ed321; }
 .cw-name { padding: 6px 2px 0; font-size: 0.8125rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cw-year { color: #888; font-size: 0.75rem; margin-left: 4px; }
+.cw-ep { padding: 1px 2px 0; font-size: 0.6875rem; color: #9ecfff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cw-nav {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
   width: 30px; height: 52px; border-radius: 8px; cursor: pointer;

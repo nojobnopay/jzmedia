@@ -1,8 +1,11 @@
 """store.extras（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
 import os
 import time
-from ._base import DEFAULT_LIBRARY_ID, _conn, _lock, _row_to_dict
-__all__ = ['upsert_extra', 'list_extras_by_movie', 'list_orphan_extras', 'list_all_extras', 'get_extra', 'update_extra_movie', 'delete_extra_by_path', 'repath_extra_by_basename', 'repath_extras_prefix', 'find_movie_for_extra']
+from ._base import DEFAULT_LIBRARY_ID, _conn, _lock, _row_to_dict, logger
+__all__ = ['upsert_extra', 'upsert_tv_extra', 'list_extras_by_movie', 'list_extras_by_show',
+           'list_orphan_extras', 'list_all_extras', 'get_extra', 'update_extra_movie',
+           'delete_extra_by_path', 'repath_extra_by_basename', 'repath_extras_prefix',
+           'find_movie_for_extra']
 
 def upsert_extra(file_path: str, movie_id: int | None,
                  kind: str = "extra",
@@ -21,16 +24,43 @@ def upsert_extra(file_path: str, movie_id: int | None,
         return int(row["id"])
 
 
+def upsert_tv_extra(file_path: str, show_id: int | None,
+                    kind: str = "extra",
+                    library_id: int = DEFAULT_LIBRARY_ID) -> int:
+    """剧集花絮/剧场版归属（T4）：movie_id 置空、show_id 归属剧行（按 库+路径 幂等）。
+    kind 复用 scanner.extra_kind 取值；剧场版目录文件用 kind='movie'。"""
+    with _lock, _conn() as c:
+        c.execute("INSERT OR IGNORE INTO extras(file_path, library_id, updated_at)"
+                  " VALUES(?, ?, ?)",
+                  (file_path, int(library_id), int(time.time())))
+        c.execute("UPDATE extras SET show_id=?, movie_id=NULL, kind=?, updated_at=?"
+                  " WHERE file_path=? AND library_id=?",
+                  (show_id, kind or "extra", int(time.time()), file_path,
+                   int(library_id)))
+        row = c.execute("SELECT id FROM extras WHERE file_path=? AND library_id=?",
+                        (file_path, int(library_id))).fetchone()
+        return int(row["id"])
+
+
 def list_extras_by_movie(movie_id: int) -> list[dict]:
     with _lock, _conn() as c:
         return [dict(r) for r in c.execute(
             "SELECT * FROM extras WHERE movie_id=? ORDER BY file_path", (movie_id,))]
 
 
-def list_orphan_extras() -> list[dict]:
+def list_extras_by_show(show_id: int) -> list[dict]:
     with _lock, _conn() as c:
         return [dict(r) for r in c.execute(
-            "SELECT * FROM extras WHERE movie_id IS NULL ORDER BY file_path")]
+            "SELECT * FROM extras WHERE show_id=? ORDER BY kind, file_path",
+            (int(show_id),))]
+
+
+def list_orphan_extras() -> list[dict]:
+    """未归属花絮（电影侧：既无 movie_id 也无 show_id；TV 花絮不算未归属）。"""
+    with _lock, _conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM extras WHERE movie_id IS NULL AND show_id IS NULL"
+            " ORDER BY file_path")]
 
 
 def list_all_extras() -> list[dict]:
@@ -71,11 +101,23 @@ def repath_extras_prefix(library_id: int, old_dir: str, new_dir: str) -> int:
         return 0
     like = old.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/%"
     with _lock, _conn() as c:
+        rows = [str(r["file_path"]) for r in c.execute(
+            "SELECT file_path FROM extras WHERE library_id=? AND file_path LIKE ?"
+            " ESCAPE '\\'", (int(library_id), like))]
         cur = c.execute(
             "UPDATE extras SET file_path = ? || substr(file_path, ?), updated_at=? "
             "WHERE library_id=? AND file_path LIKE ? ESCAPE '\\'",
             (new, len(old) + 1, int(time.time()),
              int(library_id), like))
+        for p in rows:
+            try:
+                c.execute("UPDATE OR IGNORE scan_state SET file_path=?"
+                          " WHERE library_id=? AND file_path=?",
+                          (new + p[len(old):], int(library_id), p))
+                c.execute("DELETE FROM scan_state WHERE library_id=? AND file_path=?",
+                          (int(library_id), p))
+            except Exception as e:      # scan_state 只是缓存，失败不影响主流程
+                logger.debug("scan_state follow failed %s: %s", p, e)
         return int(cur.rowcount or 0)
 
 
@@ -99,7 +141,8 @@ def repath_extra_by_basename(basename: str, new_path: str,
     返回更新后的行，无可认领返回 None。"""
     with _lock, _conn() as c:
         rows = [dict(r) for r in c.execute(
-            "SELECT * FROM extras WHERE library_id=?", (int(library_id),)).fetchall()]
+            "SELECT * FROM extras WHERE library_id=? AND show_id IS NULL",
+            (int(library_id),)).fetchall()]
     same = [r for r in rows if os.path.basename(r["file_path"]) == basename]
     if not same:
         return None

@@ -342,7 +342,9 @@ function enterDir(d) {
   loadFs(d.rel)
 }
 function openFile(f) {
-  if (f && f.kind === 'feature' && f.movie_id) router.push('/m/' + f.movie_id)
+  if (!f || f.kind !== 'feature') return
+  if (f.show_id) { router.push('/tv/' + f.show_id); return }   // 剧库：进剧详情
+  if (f.movie_id) router.push('/m/' + f.movie_id)
 }
 function fileInfo(rel) { return fsFiles.value.find(f => f.rel === rel) || null }
 function dirInfo(rel) { return fsDirs.value.find(d => d.rel === rel) || null }

@@ -95,9 +95,12 @@ async function ensureHls() {
 const props = defineProps({ versionId: { type: Number, required: true }, title: { type: String, default: '' },
   kind: { type: String, default: 'movie' } })
 const isEpisode = computed(() => props.kind === 'episode')
-const kindParam = computed(() => isEpisode.value ? '?kind=episode' : '')
-const kindSuffix = computed(() => isEpisode.value ? '&kind=episode' : '')
-const emit = defineEmits(['close', 'watched'])
+const isExtra = computed(() => props.kind === 'extra')
+const kindParam = computed(() => isEpisode.value ? '?kind=episode'
+  : (isExtra.value ? '?kind=extra' : ''))
+const kindSuffix = computed(() => isEpisode.value ? '&kind=episode'
+  : (isExtra.value ? '&kind=extra' : ''))
+const emit = defineEmits(['close', 'watched', 'ended'])
 
 const dlgRef = ref(null)
 const videoEl = ref(null)
@@ -692,6 +695,7 @@ const {
   versionId: () => props.versionId,
   kindParam: () => kindParam.value,
   isEpisode: () => isEpisode.value,
+  delayKeyPrefix: () => (isExtra.value ? 'x.' : (isEpisode.value ? 'ep.' : '')),
   getMethod: () => method.value,
   getMediaStart: () => mediaStart,
   getBurnOn: () => burnOn,
@@ -901,6 +905,7 @@ function doSeek(t) {
 async function onEnded() {
   await saveNow()
   emit('watched')
+  emit('ended')   // 剧集连播：父级据此切下一集（watched 可能在片尾前 5% 触发，不可用于连播）
 }
 function resumePlay() {
   // 起播时会话已按断点 start 开流（direct 靠 #t），这里只需消条；

@@ -228,4 +228,155 @@ def _cleanup_stale_backend_posters(backend, movie_dir: str, versions: list,
     return cleaned
 
 
-__all__ = ['write_for_movie', 'per_version_meta']
+def _tv_poster_src(show: dict, tmdb_id: int) -> str:
+    for name in (str(show.get("poster_path") or ""), f"tv_{int(tmdb_id)}.jpg"):
+        if not name:
+            continue
+        cand = os.path.join(POSTER_DIR, name)
+        if os.path.isfile(cand) and os.path.getsize(cand) > 0:
+            return cand
+    return ""
+
+
+def _tv_backdrop_src(show: dict, tmdb_id: int) -> str:
+    for name in (str(show.get("backdrop_path") or ""), f"tv_backdrop_{int(tmdb_id)}.jpg"):
+        if not name:
+            continue
+        cand = os.path.join(POSTER_DIR, name)
+        if os.path.isfile(cand) and os.path.getsize(cand) > 0:
+            return cand
+    return ""
+
+
+def _tv_season_poster_src(season_row: dict | None, tmdb_id: int, season: int) -> str:
+    name = str((season_row or {}).get("poster_path") or "") \
+        or f"tv_{int(tmdb_id)}_s{int(season)}.jpg"
+    cand = os.path.join(POSTER_DIR, name)
+    if os.path.isfile(cand) and os.path.getsize(cand) > 0:
+        return cand
+    return ""
+
+
+def _cleanup_tv_wrapper_art(backend, show_dir: str,
+                            poster: bytes, backdrop: bytes) -> int:
+    """删除发布包装层里与我们写的内容一致的海报/背景（旧 show_dir_of 误放残留），
+    否则包装层永远非空、规范化工具无法清掉它。只处理剧根下「不含正片、非季目录」的
+    子目录，且只删内容完全相同的文件（子剧目录含正片，天然跳过）。"""
+    from .scanner.tv_parse import season_from_dir
+    from .scanner.classify import VIDEO_EXTS
+    ours = {}
+    if poster:
+        ours["poster.jpg"] = poster
+    if backdrop:
+        ours["fanart.jpg"] = backdrop
+    if not ours or not show_dir:
+        return 0
+    try:
+        kids = backend.list(show_dir)
+    except Exception as e:
+        logger.debug("tv wrapper art list failed dir=%s: %s", show_dir, e)
+        return 0
+    removed = 0
+    for e in kids:
+        if not e.get("is_dir"):
+            continue
+        name = str(e["name"] or "")
+        if not name or season_from_dir(name) is not None:
+            continue
+        child = _backend_join(show_dir, name)
+        try:
+            inner = backend.list(child)
+        except Exception:
+            continue
+        if any(not x.get("is_dir")
+               and os.path.splitext(str(x["name"]))[1].lower() in VIDEO_EXTS
+               for x in inner):
+            continue          # 含正片（子剧/电影目录）不动
+        for fname, data in ours.items():
+            try:
+                if backend.read(f"{child}/{fname}") == data:
+                    backend.delete(f"{child}/{fname}")
+                    removed += 1
+            except Exception:
+                continue
+    return removed
+
+
+def write_for_show(show_id: int, backend=None, thumbs: bool = False) -> dict:
+    """剧集海报落盘（T3）：剧根 `poster.jpg`/`fanart.jpg`、季目录 `seasonNN-poster.jpg`；
+    `thumbs=True` 时另写每集 `<stem>-thumb.jpg`（3877 集级别，默认关）。
+
+    与电影同门槛：`artwork_mode=nfo_art` 且库非只读；本地/远程统一经 StorageBackend。
+    失败自吞返回 {ok, wrote[], reason?}。"""
+    try:
+        from . import library_paths as _lp
+        from . import storage
+        from .scanner import tv_nfo_link
+        show = store.get_show_meta(int(show_id))
+        if not show or not show.get("tmdb_id"):
+            return {"ok": False, "reason": "unmatched"}
+        lid = show.get("library_id") or _lp.DEFAULT_LIBRARY_ID
+        if _lp.artwork_mode(lid) != "nfo_art":
+            return {"ok": False, "reason": "disabled"}
+        if _lp.is_read_only(lid):
+            return {"ok": False, "reason": "read_only"}
+        episodes = store.list_episodes(int(show_id))
+        if not episodes:
+            return {"ok": False, "reason": "no_episodes"}
+        tmdb_id = int(show["tmdb_id"])
+        if backend is None:
+            backend = storage.backend_for(int(lid))
+        show_dir = tv_nfo_link.show_dir_of(episodes[0]["file_path"],
+                                           tv_nfo_link._direct_dirs(episodes))
+        wrote: list[str] = []
+        poster = _read_bytes(_tv_poster_src(show, tmdb_id))
+        if poster and _backend_put(backend, _backend_join(show_dir, "poster.jpg"), poster):
+            wrote.append("poster.jpg")
+        backdrop = _read_bytes(_tv_backdrop_src(show, tmdb_id))
+        if backdrop and _backend_put(backend, _backend_join(show_dir, "fanart.jpg"), backdrop):
+            wrote.append("fanart.jpg")
+        try:
+            _cleanup_tv_wrapper_art(backend, show_dir, poster, backdrop)
+        except Exception as e:
+            logger.debug("tv wrapper art cleanup failed show=%s: %s", show_id, e)
+        season_rows = {int(s.get("season") or 0): s for s in store.list_seasons(int(show_id))}
+        seen: set[int] = set()
+        for e in episodes:
+            try:
+                sn = int(e.get("season") or 0)
+            except (TypeError, ValueError):
+                continue
+            if sn <= 0 or sn in seen:
+                continue
+            seen.add(sn)
+            src = _tv_season_poster_src(season_rows.get(sn), tmdb_id, sn)
+            data = _read_bytes(src) if src else b""
+            if not data:
+                continue
+            sdir = tv_nfo_link.season_dir_of(e["file_path"])
+            name = f"season{sn:02d}-poster.jpg"
+            if _backend_put(backend, _backend_join(sdir, name), data):
+                wrote.append(name)
+        if thumbs:
+            from .scanner import tv_persist
+            for e in episodes:
+                if not e.get("still_path"):
+                    continue
+                local = tv_persist.ensure_episode_still(int(e["id"]))
+                data = _read_bytes(local) if local else b""
+                if not data:
+                    continue
+                stem = os.path.splitext(os.path.basename(e["file_path"]))[0]
+                if not stem:
+                    continue
+                name = stem + "-thumb.jpg"
+                if _backend_put(backend, _backend_join(
+                        os.path.dirname(e["file_path"]), name), data):
+                    wrote.append(name)
+        return {"ok": True, "wrote": wrote}
+    except Exception as e:
+        logger.warning("write_for_show failed show=%s: %s", show_id, e)
+        return {"ok": False, "reason": "error", "error": str(e)[:200]}
+
+
+__all__ = ['write_for_movie', 'write_for_show', 'per_version_meta']

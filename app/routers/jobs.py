@@ -131,6 +131,409 @@ def scan_cancel(job_id: str = ""):
     return {"job_id": job_id, "state": _SCAN_JOBS.cancel(job_id)}
 
 
+# ---- TV 刮削（T2）：未匹配/未刮过的剧 → TMDB 元数据 + 海报 ----
+_TV_JOBS = JobRegistry(prefix="tv")
+
+
+def _tv_summary(results: list) -> dict:
+    counts: dict = {}
+    errors: list = []
+    for r in results:
+        st = str(r.get("status") or "")
+        counts[st] = counts.get(st, 0) + 1
+        if st.startswith("error"):
+            errors.append({"show_id": r.get("show_id"),
+                           "title": r.get("title", ""), "status": st[:200]})
+    return {"counts": counts, "errors": errors[:100], "results": results[:200]}
+
+
+def _tv_worker(jid: str, library_id=None, media_library_id=None,
+               ids=None, force: bool = False) -> None:
+    def _stop() -> bool:
+        job = _TV_JOBS.get(jid)
+        return job is None or job.get("state") != "running"
+
+    def _cb(done, total):
+        _TV_JOBS.update(jid, done=int(done), total=int(total))
+
+    try:
+        lib_ids = _lib_filter(library_id, media_library_id)
+        if lib_ids is not None and not lib_ids:
+            _TV_JOBS.update(jid, state="done", done=0, total=0,
+                            summary={"counts": {}, "errors": [], "results": []})
+            return
+        from ..scanner import tv_persist
+        res = tv_persist.scrape_pending(
+            library_ids=(sorted(lib_ids) if lib_ids is not None else None),
+            ids=ids, force=bool(force), progress_cb=_cb, should_stop=_stop)
+        if _stop():
+            _TV_JOBS.update(jid, done=len(res))
+            return
+        _TV_JOBS.update(jid, state="done", done=len(res), total=len(res),
+                        **{"summary": _tv_summary(res)})
+    except Exception as e:
+        _TV_JOBS.update(jid, state="failed", error=str(e)[:300])
+
+
+class TvScrapeBody(BaseModel):
+    library_id: int | None = None
+    media_library_id: int | None = None
+    ids: list[int] | None = None      # 显式剧 id（优先于库筛选）
+    force: bool = False               # 已刮过的也重刮
+
+
+@router.post("/tv-scrape")
+def tv_scrape_start(body: TvScrapeBody | None = None):
+    """启动剧集刮削后台任务：{library_id?|media_library_id?|ids?, force?}。
+    只刮「未匹配或未刮过」的剧；force=true 全量重刮。立即返回 {job_id}。"""
+    body = body or TvScrapeBody()
+    running = _TV_JOBS.running()
+    if running:
+        return {"job_id": running["job_id"], "resumed": True}
+    job = _TV_JOBS.create(library_id=body.library_id,
+                          media_library_id=body.media_library_id,
+                          ids=body.ids, force=body.force)
+    jid = job["job_id"]
+    threading.Thread(target=_tv_worker,
+                     args=(jid, body.library_id, body.media_library_id,
+                           body.ids, body.force),
+                     daemon=True).start()
+    return {"job_id": jid, "resumed": False, "force": body.force,
+            "ids": body.ids or []}
+
+
+@router.get("/tv-scrape/{job_id}")
+def tv_scrape_status(job_id: str = ""):
+    job = _TV_JOBS.get(job_id) if job_id else _TV_JOBS.latest()
+    if not job:
+        return {"job_id": job_id, "state": "idle", "done": 0, "total": 0}
+    return job
+
+
+@router.post("/tv-scrape/{job_id}/cancel")
+def tv_scrape_cancel(job_id: str = ""):
+    if not job_id:
+        running = _TV_JOBS.running()
+        job_id = running["job_id"] if running else ""
+    return {"job_id": job_id, "state": _TV_JOBS.cancel(job_id)}
+
+
+# ---- 剧集 NFO/海报落盘（T3）：按现有匹配从 DB 重写 tvshow/季/集 NFO + 海报 ----
+_TV_NFO_JOBS = JobRegistry(prefix="tvnfo")
+
+
+def _tv_nfo_summary(results: list) -> dict:
+    counts: dict = {}
+    totals = {"nfo_wrote": 0, "nfo_skipped": 0, "nfo_failed": 0, "artwork_wrote": 0}
+    for r in results:
+        st = str(r.get("status") or "")
+        counts[st] = counts.get(st, 0) + 1
+        for k in totals:
+            totals[k] += int(r.get(k) or 0)
+    return {"counts": counts, "totals": totals, "results": results[:200]}
+
+
+def _tv_nfo_worker(jid: str, library_id=None, media_library_id=None, ids=None,
+                   dry_run: bool = False, thumbs: bool = False,
+                   episodes: bool | None = None) -> None:
+    def _stop() -> bool:
+        job = _TV_NFO_JOBS.get(jid)
+        return job is None or job.get("state") != "running"
+
+    def _cb(done, total):
+        _TV_NFO_JOBS.update(jid, done=int(done), total=int(total))
+
+    try:
+        lib_ids = _lib_filter(library_id, media_library_id)
+        if lib_ids is not None and not lib_ids:
+            _TV_NFO_JOBS.update(jid, state="done", done=0, total=0,
+                                summary={"counts": {}, "totals": {}, "results": []})
+            return
+        from .. import storage
+        from ..scanner import tv_nfo_link, tv_persist
+        shows = store.list_shows_for_scrape(
+            library_ids=(sorted(lib_ids) if lib_ids is not None else None),
+            ids=ids, force=True)
+        out: list[dict] = []
+        for i, s in enumerate(shows):
+            if _stop():
+                return
+            st: dict = {"show_id": s.get("id"), "title": s.get("title")}
+            try:
+                if dry_run:
+                    be = storage.backend_for(int(s["library_id"]))
+                    r = tv_nfo_link.sync_tv_nfos_for(int(s["id"]), backend=be,
+                                                     dry_run=True,
+                                                     episode_nfo=episodes)
+                    st.update({"status": "dry_run",
+                               "nfo_wrote": len(r.get("wrote") or [])})
+                else:
+                    m = tv_persist.write_media_files(int(s["id"]), s.get("library_id"),
+                                                     thumbs=bool(thumbs),
+                                                     episode_nfo=episodes)
+                    art = m.get("artwork") or {}
+                    st.update({"status": "ok" if m.get("nfo") else "partial",
+                               "nfo_wrote": m.get("nfo_wrote") or 0,
+                               "nfo_skipped": m.get("nfo_skipped") or 0,
+                               "nfo_failed": m.get("nfo_failed") or 0,
+                               "artwork_wrote": len(art.get("wrote") or []),
+                               "artwork_reason": art.get("reason") or ""})
+            except Exception as e:
+                st["status"] = f"error: {str(e)[:160]}"
+            out.append(st)
+            _cb(i + 1, len(shows))
+        _TV_NFO_JOBS.update(jid, state="done", done=len(out), total=len(out),
+                            summary=_tv_nfo_summary(out))
+    except Exception as e:
+        _TV_NFO_JOBS.update(jid, state="failed", error=str(e)[:300])
+
+
+class TvNfoBody(BaseModel):
+    library_id: int | None = None
+    media_library_id: int | None = None
+    ids: list[int] | None = None
+    dry_run: bool = False          # 只预览会写哪些 NFO（不落盘）
+    thumbs: bool = False           # 另写每集 <stem>-thumb.jpg（千集级，默认关）
+    episodes: bool | None = None   # 逐集 <stem>.nfo（None=本地写/远程不写；远程开启约 1.7h）
+
+
+@router.post("/rebuild-tv-nfo")
+def tv_nfo_start(body: TvNfoBody | None = None):
+    """重写剧集 NFO/海报（离线，不触网）：`tvshow.nfo` + 季 `season.nfo` + 每集 `<stem>.nfo`；
+    `artwork_mode=nfo_art` 的库另写 poster/fanart/季海报。立即返回 {job_id}。"""
+    body = body or TvNfoBody()
+    running = _TV_NFO_JOBS.running()
+    if running:
+        return {"job_id": running["job_id"], "resumed": True}
+    job = _TV_NFO_JOBS.create(library_id=body.library_id,
+                              media_library_id=body.media_library_id,
+                              ids=body.ids, dry_run=body.dry_run,
+                              thumbs=body.thumbs, episodes=body.episodes)
+    jid = job["job_id"]
+    threading.Thread(target=_tv_nfo_worker,
+                     args=(jid, body.library_id, body.media_library_id, body.ids,
+                           body.dry_run, body.thumbs, body.episodes),
+                     daemon=True).start()
+    return {"job_id": jid, "resumed": False, "dry_run": body.dry_run}
+
+
+@router.get("/rebuild-tv-nfo/{job_id}")
+def tv_nfo_status(job_id: str = ""):
+    job = _TV_NFO_JOBS.get(job_id) if job_id else _TV_NFO_JOBS.latest()
+    if not job:
+        return {"job_id": job_id, "state": "idle", "done": 0, "total": 0}
+    return job
+
+
+@router.post("/rebuild-tv-nfo/{job_id}/cancel")
+def tv_nfo_cancel(job_id: str = ""):
+    if not job_id:
+        running = _TV_NFO_JOBS.running()
+        job_id = running["job_id"] if running else ""
+    return {"job_id": job_id, "state": _TV_NFO_JOBS.cancel(job_id)}
+
+
+# ---- TV 目录规范化（T4.2）：包装层拍平/补 Season/花絮拍平（只移动不改名）----
+_TV_ORG_JOBS = JobRegistry(prefix="tvorg")
+
+
+def _tv_org_worker(jid: str, library_id=None, media_library_id=None, ids=None,
+                   actions=None, dry_run: bool = True,
+                   allow_torrent: bool = False,
+                   allow_absolute_shows=None) -> None:
+    def _stop() -> bool:
+        job = _TV_ORG_JOBS.get(jid)
+        return job is None or job.get("state") != "running"
+
+    try:
+        from ..scanner import tv_organize
+        lib_ids = _lib_filter(library_id, media_library_id)
+        if lib_ids is not None and not lib_ids:
+            _TV_ORG_JOBS.update(jid, state="done", done=0, total=0,
+                                summary={"counts": {}, "total": 0, "plans": []})
+            return
+        plan = tv_organize.plan_tv_organize(
+            library_ids=(sorted(lib_ids) if lib_ids is not None else None),
+            ids=ids, actions=actions or tv_organize.TV_ORGANIZE_ACTIONS,
+            allow_torrent=allow_torrent,
+            allow_absolute_shows=allow_absolute_shows)
+        if dry_run:
+            _TV_ORG_JOBS.update(
+                jid, state="done", done=len(plan["plans"]), total=len(plan["plans"]),
+                summary={"dry_run": True, "counts": plan["counts"],
+                         "total": plan["total"], "conflicts": plan["conflicts"],
+                         "untouched": plan.get("untouched", 0),
+                         "manual": plan.get("manual", 0),
+                         "absolute": plan.get("absolute", 0),
+                         "blocked": plan["blocked"],
+                         "plans": [tv_organize.summarize_plan(p)
+                                   for p in plan["plans"][:200]]})
+            return
+
+        def _cb(done, total):
+            _TV_ORG_JOBS.update(jid, done=int(done), total=int(total))
+
+        res = tv_organize.execute_tv_organize(
+            plan["plans"], should_stop=_stop, progress_cb=_cb,
+            allow_torrent=allow_torrent)
+        if _stop():
+            return
+        _TV_ORG_JOBS.update(jid, state="done", done=res["moved"] + res["renamed"],
+                            total=plan["total"],
+                            summary={"dry_run": False, "plan_total": plan["total"],
+                                     **res})
+    except Exception as e:
+        _TV_ORG_JOBS.update(jid, state="failed", error=str(e)[:300])
+
+
+class TvOrganizeBody(BaseModel):
+    library_id: int | None = None
+    media_library_id: int | None = None
+    ids: list[int] | None = None       # 只整理这些剧（缺省全部）
+    actions: list[str] | None = None   # 见 tv_organize.TV_ORGANIZE_ACTIONS，缺省全部
+    dry_run: bool = True               # 默认只预览
+    allow_torrent: bool = False        # 含 .torrent 的剧默认跳过
+    allow_absolute_shows: list[int] | None = None  # 显式同意的绝对集号风险剧（可改名）
+
+
+@router.post("/tv-organize")
+def tv_organize_start(body: TvOrganizeBody | None = None):
+    """剧集目录规范化（只移动/补目录，不改文件名）：默认 dry_run 返回预览计划；
+    dry_run=false 执行（两段确认由前端负责）。立即返回 {job_id}。"""
+    body = body or TvOrganizeBody()
+    running = _TV_ORG_JOBS.running()
+    if running:
+        return {"job_id": running["job_id"], "resumed": True}
+    job = _TV_ORG_JOBS.create(library_id=body.library_id,
+                              media_library_id=body.media_library_id,
+                              ids=body.ids, actions=body.actions,
+                              dry_run=body.dry_run)
+    jid = job["job_id"]
+    threading.Thread(target=_tv_org_worker,
+                     args=(jid, body.library_id, body.media_library_id, body.ids,
+                           body.actions, body.dry_run, body.allow_torrent,
+                           body.allow_absolute_shows),
+                     daemon=True).start()
+    return {"job_id": jid, "resumed": False, "dry_run": body.dry_run}
+
+
+@router.get("/tv-organize/history")
+def tv_organize_history(limit: int = 30):
+    """整理批次历史（v24 审计）：时间、条数、已撤销数；用于「撤销整理」选择。"""
+    batches = store.list_organize_batches(limit=max(1, min(int(limit or 30), 200)))
+    return {"batches": batches}
+
+
+@router.get("/tv-organize/{job_id}")
+def tv_organize_status(job_id: str = ""):
+    job = _TV_ORG_JOBS.get(job_id) if job_id else _TV_ORG_JOBS.latest()
+    if not job:
+        return {"job_id": job_id, "state": "idle", "done": 0, "total": 0}
+    return job
+
+
+@router.post("/tv-organize/{job_id}/cancel")
+def tv_organize_cancel(job_id: str = ""):
+    if not job_id:
+        running = _TV_ORG_JOBS.running()
+        job_id = running["job_id"] if running else ""
+    return {"job_id": job_id, "state": _TV_ORG_JOBS.cancel(job_id)}
+
+
+# ---- 撤销整理（v24 审计）：按批次把移动反向搬回，默认 dry_run 预览 ----
+_TV_RESTORE_JOBS = JobRegistry(prefix="tvundo")
+
+
+def _tv_restore_worker(jid: str, batch_id=None, library_id=None,
+                       media_library_id=None, shows=None, kinds=None,
+                       dry_run: bool = True) -> None:
+    def _stop() -> bool:
+        job = _TV_RESTORE_JOBS.get(jid)
+        return job is None or job.get("state") != "running"
+
+    try:
+        from ..scanner import tv_organize
+        lib_ids = _lib_filter(library_id, media_library_id)
+        if lib_ids is not None and not lib_ids:
+            _TV_RESTORE_JOBS.update(jid, state="done", done=0, total=0,
+                                    summary={"dry_run": dry_run, "total": 0,
+                                             "plans": []})
+            return
+        plan = tv_organize.plan_restore(
+            batch_id=batch_id,
+            library_ids=(sorted(lib_ids) if lib_ids is not None else None),
+            shows=shows, kinds=kinds)
+        if dry_run:
+            _TV_RESTORE_JOBS.update(
+                jid, state="done", done=len(plan["plans"]), total=len(plan["plans"]),
+                summary={"dry_run": True, "batch_id": plan["batch_id"],
+                         "counts": plan["counts"], "total": plan["total"],
+                         "conflicts": plan["conflicts"],
+                         "plans": plan["plans"][:200]})
+            return
+
+        def _cb(done, total):
+            _TV_RESTORE_JOBS.update(jid, done=int(done), total=int(total))
+
+        res = tv_organize.execute_restore(plan["plans"], should_stop=_stop,
+                                          progress_cb=_cb)
+        if _stop():
+            return
+        _TV_RESTORE_JOBS.update(jid, state="done", done=res["restored"],
+                                total=plan["total"],
+                                summary={"dry_run": False, "plan_total": plan["total"],
+                                         **res})
+    except Exception as e:
+        _TV_RESTORE_JOBS.update(jid, state="failed", error=str(e)[:300])
+
+
+class TvRestoreBody(BaseModel):
+    batch_id: str | None = None        # 缺省=最近一次整理批次
+    library_id: int | None = None
+    media_library_id: int | None = None
+    shows: list[int] | None = None     # 只还原这些剧（show_id）
+    kinds: list[str] | None = None     # episode|extra|file|dir|rmdir 过滤
+    dry_run: bool = True               # 默认只预览
+
+
+@router.post("/tv-organize-restore")
+def tv_organize_restore_start(body: TvRestoreBody | None = None):
+    """撤销整理（按审计反向搬回）：默认 dry_run 返回预览；执行需显式 dry_run=false
+    （前端两段确认）。立即返回 {job_id}。"""
+    body = body or TvRestoreBody()
+    running = _TV_RESTORE_JOBS.running()
+    if running:
+        return {"job_id": running["job_id"], "resumed": True}
+    job = _TV_RESTORE_JOBS.create(batch_id=body.batch_id,
+                                  library_id=body.library_id,
+                                  media_library_id=body.media_library_id,
+                                  shows=body.shows, kinds=body.kinds,
+                                  dry_run=body.dry_run)
+    jid = job["job_id"]
+    threading.Thread(target=_tv_restore_worker,
+                     args=(jid, body.batch_id, body.library_id,
+                           body.media_library_id, body.shows, body.kinds,
+                           body.dry_run),
+                     daemon=True).start()
+    return {"job_id": jid, "resumed": False, "dry_run": body.dry_run}
+
+
+@router.get("/tv-organize-restore/{job_id}")
+def tv_organize_restore_status(job_id: str = ""):
+    job = _TV_RESTORE_JOBS.get(job_id) if job_id else _TV_RESTORE_JOBS.latest()
+    if not job:
+        return {"job_id": job_id, "state": "idle", "done": 0, "total": 0}
+    return job
+
+
+@router.post("/tv-organize-restore/{job_id}/cancel")
+def tv_organize_restore_cancel(job_id: str = ""):
+    if not job_id:
+        running = _TV_RESTORE_JOBS.running()
+        job_id = running["job_id"] if running else ""
+    return {"job_id": job_id, "state": _TV_RESTORE_JOBS.cancel(job_id)}
+
+
 class BackfillBody(BaseModel):
     limit: int = 500
     force: bool = False

@@ -103,6 +103,131 @@ def render_movie_nfo_bytes(movie: dict) -> bytes:
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
+# ---------------- TV（T3）：tvshow.nfo / season.nfo / 每集 episodedetails ----------------
+
+def _build_tvshow_root(show: dict, seasons: list | None = None,
+                       credits: dict | None = None):
+    """剧级 NFO（Kodi/Jellyfin 同构，Plex NFO Agent 可读字段尽力补齐）。"""
+    root = ET.Element("tvshow")
+    ET.SubElement(root, "title").text = _t(show.get("title"))
+    ET.SubElement(root, "originaltitle").text = _t(show.get("original_title"))
+    if show.get("year"):
+        ET.SubElement(root, "year").text = _t(show["year"])
+    overview = show.get("overview_override") or show.get("overview")
+    ET.SubElement(root, "plot").text = _t(overview)
+    if show.get("first_air_date"):
+        ET.SubElement(root, "premiered").text = _t(show["first_air_date"])
+    if show.get("status"):
+        ET.SubElement(root, "status").text = _t(show["status"])
+    if _positive(show.get("tmdb_rating")):
+        ET.SubElement(root, "rating").text = _t(show["tmdb_rating"])
+        ratings = ET.SubElement(root, "ratings")
+        r = ET.SubElement(ratings, "rating", name="themoviedb", max="10", default="true")
+        ET.SubElement(r, "value").text = _t(show["tmdb_rating"])
+    if _positive(show.get("custom_rating")):
+        ET.SubElement(root, "customrating").text = _t(show["custom_rating"])
+    for g in show.get("genres") or []:
+        ET.SubElement(root, "genre").text = _t(g)
+    codes = list(show.get("origin_countries") or [])
+    if not codes and show.get("origin_country"):
+        codes = [show["origin_country"]]
+    for code in codes:
+        ET.SubElement(root, "country").text = _t(country_name(code))
+    for t in show.get("tags") or []:
+        ET.SubElement(root, "tag").text = _t(t)
+    for name in (show.get("networks") or [])[:5]:
+        if name:
+            ET.SubElement(root, "studio").text = _t(name)
+    if show.get("tmdb_id"):
+        ET.SubElement(root, "uniqueid", type="tmdb").text = _t(show["tmdb_id"])
+    if show.get("imdb_id"):
+        ET.SubElement(root, "uniqueid", type="imdb").text = _t(show["imdb_id"])
+    if show.get("tvdb_id"):
+        ET.SubElement(root, "uniqueid", type="tvdb").text = _t(show["tvdb_id"])
+    for s in seasons or []:
+        try:
+            num = int(s.get("season") or 0)
+        except (TypeError, ValueError):
+            continue
+        name = str(s.get("name") or "").strip()
+        if num > 0 and name:
+            ET.SubElement(root, "namedseason", number=str(num)).text = _t(name)
+    for c in ((credits or {}).get("cast") or [])[:10]:
+        if not c.get("name"):
+            continue
+        a = ET.SubElement(root, "actor")
+        ET.SubElement(a, "name").text = _t(c.get("name"))
+        ET.SubElement(a, "role").text = _t(c.get("character"))
+        try:
+            order = int(c.get("order", 99))
+        except (TypeError, ValueError):
+            order = 99
+        ET.SubElement(a, "order").text = str(order)
+    return root
+
+
+def render_tvshow_nfo_bytes(show: dict, seasons: list | None = None,
+                            credits: dict | None = None) -> bytes:
+    """剧 dict + 季列表 + 演员 → tvshow.nfo XML 字节。"""
+    root = _build_tvshow_root(show, seasons, credits)
+    ET.indent(ET.ElementTree(root))
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def render_season_nfo_bytes(season: dict) -> bytes:
+    """季级 NFO（Jellyfin/Emby 读取季名与简介；Kodi/Plex 忽略）。"""
+    root = ET.Element("season")
+    try:
+        num = int(season.get("season") or 0)
+    except (TypeError, ValueError):
+        num = 0
+    ET.SubElement(root, "seasonnumber").text = str(num)
+    if season.get("name"):
+        ET.SubElement(root, "title").text = _t(season["name"])
+    if season.get("overview"):
+        ET.SubElement(root, "plot").text = _t(season["overview"])
+    if season.get("air_date"):
+        ET.SubElement(root, "premiered").text = _t(season["air_date"])
+    ET.indent(ET.ElementTree(root))
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def render_episode_nfo_bytes(show: dict, episode: dict) -> bytes:
+    """集 NFO（Kodi/Jellyfin 同构）：title/showtitle/season/episode/aired/plot/runtime。"""
+    root = ET.Element("episodedetails")
+    ET.SubElement(root, "title").text = _t(episode.get("title"))
+    ET.SubElement(root, "showtitle").text = _t(show.get("title"))
+    try:
+        season = int(episode.get("season") or 0)
+        number = int(episode.get("episode") or 0)
+    except (TypeError, ValueError):
+        season, number = 0, 0
+    ET.SubElement(root, "season").text = str(season)
+    ET.SubElement(root, "episode").text = str(number)
+    try:
+        end = int(episode.get("episode_end") or 0)
+    except (TypeError, ValueError):
+        end = 0
+    if end > number:
+        ET.SubElement(root, "episodenumberend").text = str(end)
+    if episode.get("overview"):
+        ET.SubElement(root, "plot").text = _t(episode["overview"])
+    if episode.get("air_date"):
+        ET.SubElement(root, "aired").text = _t(episode["air_date"])
+    try:
+        runtime = int(episode.get("runtime") or 0)
+    except (TypeError, ValueError):
+        runtime = 0
+    if runtime > 0:
+        ET.SubElement(root, "runtime").text = str(runtime)
+    if _positive(episode.get("tmdb_rating")):
+        ET.SubElement(root, "rating").text = _t(episode["tmdb_rating"])
+    if episode.get("tmdb_episode_id"):
+        ET.SubElement(root, "uniqueid", type="tmdb").text = _t(episode["tmdb_episode_id"])
+    ET.indent(ET.ElementTree(root))
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
 def write_movie_nfo(movie: dict, nfo_path: str) -> None:
     data = render_movie_nfo_bytes(movie)
     os.makedirs(os.path.dirname(nfo_path) or ".", exist_ok=True)
