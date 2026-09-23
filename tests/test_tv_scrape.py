@@ -256,6 +256,26 @@ def test_confirm_local_episode_survives_rescrape(tv_lib, fake_tmdb):
     assert store.get_episode(ep3["id"])["local_only"] == 0
 
 
+def test_confirm_local_clears_stale_tmdb_binding(tv_lib, fake_tmdb):
+    """confirm-local 同时清除此前错误的 TMDB 绑定（Disc49 类：本地集含 TMDB 未收录片段）。"""
+    lib, root = tv_lib
+    _touch(root, "Test Show (2020)/Season 01/Test.Show.S01E01.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    tv_persist.scrape_pending(library_ids=[lib["id"]])
+    show = store.list_shows(lib["id"])[0]
+    ep = store.get_show(show["id"])["episodes"][0]
+    assert ep["tmdb_episode_id"]
+    r = client.post(f"/api/tv/episodes/{ep['id']}/confirm-local",
+                    json={"title": "本地集"})
+    assert r.status_code == 200, r.text
+    ep2 = store.get_episode(ep["id"])
+    assert ep2["local_only"] == 1 and ep2["needs_review"] == 0
+    assert ep2["tmdb_episode_id"] is None and ep2["title"] == "本地集"
+    tv_persist.scrape_pending(ids=[show["id"]], force=True)
+    ep3 = store.get_episode(ep["id"])
+    assert ep3["local_only"] == 1 and ep3["tmdb_episode_id"] is None
+
+
 def test_match_quality_gate(monkeypatch):
     """不像的候选不绑定（电影同门）。"""
     monkeypatch.setattr("app.tmdb.search_tv", lambda q, year=None: [

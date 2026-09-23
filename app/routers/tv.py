@@ -405,7 +405,8 @@ def confirm_local(episode_id: int, body: EpisodeLocalBody | None = None):
     e = store.get_episode(episode_id)
     if not e:
         raise HTTPException(404, "episode not found")
-    fields: dict = {"needs_review": 0, "local_only": 1}
+    # 确认为本地集 → 同时清掉可能错误的 TMDB 绑定（如文件此前按编号错绑）
+    fields: dict = {"needs_review": 0, "local_only": 1, "tmdb_episode_id": None}
     body = body or EpisodeLocalBody()
     if body.title is not None and str(body.title).strip():
         fields["title"] = str(body.title).strip()
