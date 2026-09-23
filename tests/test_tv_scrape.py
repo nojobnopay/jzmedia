@@ -276,6 +276,54 @@ def test_confirm_local_clears_stale_tmdb_binding(tv_lib, fake_tmdb):
     assert ep3["local_only"] == 1 and ep3["tmdb_episode_id"] is None
 
 
+def test_cross_season_fallback_guard(tv_lib, fake_tmdb, monkeypatch):
+    """跨季回退守卫：本地 (季,集) 超出 TMDB 该季集数时不静默跨季绑定（AoT S01E26→S04E26 教训）。
+
+    假剧 S1=E1-E2、S2=E3-E4（TMDB 式跨季连续编号，越狱兔类）：
+    - S01E03（显式季号、超 S1 集数）→ 不绑 S02E03，标 needs_review；
+    - S02E01（同季合理 fits）→ 仍按①回退绑 S02E03，不受守卫影响。
+    """
+    lib, root = tv_lib
+    for f in ("S01E01", "S01E02", "S01E03", "S02E01", "S02E02"):
+        _touch(root, f"Test Show (2020)/Season {f[1:3]}/Test.Show.{f}.mkv")
+    scanner.scan_all(library_id=lib["id"])
+
+    def season(sn):
+        sn = int(sn)
+        base = 2000 + sn * 10
+        # S1: E1-E2；S2: E3-E4（跨季连续编号）
+        nums = (1, 2) if sn == 1 else (3, 4)
+        return {"episodes": [
+            {"id": base + n, "episode_number": n, "name": f"S{sn}E{n}",
+             "overview": "", "still_path": "", "air_date": "2020-01-01",
+             "runtime": 45, "vote_average": 8.0} for n in nums]}
+
+    detail = _detail(300, seasons=[
+        {"id": 1, "season_number": 1, "episode_count": 2, "name": "S1",
+         "overview": "", "air_date": "", "poster_path": ""},
+        {"id": 2, "season_number": 2, "episode_count": 2, "name": "S2",
+         "overview": "", "air_date": "", "poster_path": ""}])
+    monkeypatch.setattr("app.tmdb.tv_detail", lambda tid: detail)
+    monkeypatch.setattr("app.tmdb.tv_season", lambda tid, sn: season(sn))
+    monkeypatch.setattr("app.tmdb.search_tv",
+                        lambda q, year=None: [{"id": 300, "name": "测试剧",
+                                               "original_name": "Test Show",
+                                               "first_air_date": "2020-01-01"}])
+    res = tv_persist.scrape_pending(library_ids=[lib["id"]])
+    assert res[0]["status"] == "ok"
+    eps = {(e["season"], e["episode"]): e
+           for e in store.get_show(store.list_shows(lib["id"])[0]["id"])["episodes"]}
+    # 精确命中不受影响
+    assert eps[(1, 1)]["tmdb_episode_id"] == 2011
+    assert eps[(1, 2)]["tmdb_episode_id"] == 2012
+    # S01E03：旧逻辑会静默绑 S02E03（abs 唯一集号 3）；守卫后标待确认
+    assert eps[(1, 3)]["tmdb_episode_id"] is None
+    assert eps[(1, 3)]["needs_review"] == 1
+    # S02E01：fits → ①回退仍生效（cand=2+1=3 → S02E03，未被 S01E03 占用）
+    assert eps[(2, 1)]["tmdb_episode_id"] == 2023
+    assert eps[(2, 2)]["tmdb_episode_id"] == 2024
+
+
 def test_match_quality_gate(monkeypatch):
     """不像的候选不绑定（电影同门）。"""
     monkeypatch.setattr("app.tmdb.search_tv", lambda q, year=None: [

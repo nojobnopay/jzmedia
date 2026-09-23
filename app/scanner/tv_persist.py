@@ -300,8 +300,15 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
             # ② 本地季拼接编号（咒术 S2E1 → TMDB S1E25，本地季切分与 TMDB 不同）；
             # ③ 本地绝对编号（AoT S4E60 → TMDB S4E1；怪兽 S2E13 → S1E13）。
             fits = season in counts and episode <= counts[season]
+            # 跨季回退守卫（AoT S01E26 → S04E26 误绑教训）：本地 (季,集) 超出 TMDB
+            # 该季集数、且文件不是绝对编号解析时，不查跨季 abs_index——静默绑到毫不
+            # 相干的另一季不如标待确认（沿用电影侧“不像不绑”门）。同季合理（fits）
+            # 与绝对号解析的行不受影响。
+            cross_ok = fits or e.get("absolute_number") is not None
             local_before = sum(c for sn, c in local_counts.items() if sn < season)
             cands: list[int] = []
+            if not cross_ok:
+                continue  # 直接落到后面的 needs_review=1（不占用 claimed）
             if fits:
                 cands.append(sum(c for sn, c in offsets if sn < season) + episode)
             cands.append(local_before + episode)
