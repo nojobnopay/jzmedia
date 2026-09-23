@@ -62,20 +62,66 @@ def _episode_payload(e: dict, progress: dict | None = None) -> dict:
 
 @router.get("/shows")
 def list_shows(library: str | None = None, media_library: int | None = None,
-               q: str = "", limit: int = 200, offset: int = 0):
+               q: str = "", limit: int = 200, offset: int = 0,
+               genre: list[str] | None = Query(default=None),
+               region: list[str] | None = Query(default=None),
+               country: list[str] | None = Query(default=None),
+               year: list[str] | None = Query(default=None),
+               decade: list[str] | None = Query(default=None),
+               tag: list[str] | None = Query(default=None),
+               min_rating: float | None = None,
+               rating_source: str = "tmdb",
+               watched: int | None = None,
+               status: list[str] | None = Query(default=None),
+               sort: str | None = None, order: str | None = None):
     """剧集列表：media_library=整个媒体库（其全部剧集类视频库并集）；
-    library=单个/多个视频库；都缺省=全库。带集数/季数。"""
+    library=单个/多个视频库；都缺省=全库。带集数/季数。
+
+    过滤语义与电影墙一致（facet 内 OR、跨维度 AND、tags 多选 AND；
+    选了具体国家时建议前端让大区让位）；`status` 为连载状态桶
+    （continuing/ended/other）；`sort` 白名单 added/updated/year/title/rating
+   （缺省保持历史 sort_title 排序）。"""
     libs = _lib_ids(library, media_library)
     try:
         limit = max(1, min(int(limit or 200), 2000))
         offset = max(0, int(offset or 0))
     except (TypeError, ValueError):
         limit, offset = 200, 0
-    items = store.list_shows(libs, q, limit, offset)
-    total = store.count_shows(libs)
+    if rating_source not in ("tmdb", "custom"):
+        raise HTTPException(422, "rating_source must be tmdb|custom")
+    f = {"genres": store._split_multi(genre), "regions": store._split_multi(region),
+         "countries": store._split_multi(country), "years": store._split_ints(year),
+         "decades": store._split_ints(decade), "tags": store._split_multi(tag),
+         "min_rating": min_rating, "rating_source": rating_source,
+         "watched": watched, "status": store._split_multi(status)}
+    items = store.list_shows(libs, q, limit, offset, **f,
+                             sort=sort, order=order)
+    total = store.count_shows(libs, q, **f)
     return {"items": items, "total": total,
             "has_more": offset + len(items) < total,
             "limit": limit, "offset": offset}
+
+
+@router.get("/facets")
+def tv_facets(library: str | None = None, media_library: int | None = None):
+    """剧集动态分类计数（全库口径，只返有剧的项；与电影 /api/facets 同形状，
+    ratings 只有 tmdb/custom，另带 status 三桶）。"""
+    libs = _lib_ids(library, media_library)
+    return store.get_tv_facets(libs)
+
+
+@router.get("/suggest")
+def tv_suggest(q: str = "", limit: int = 8,
+               library: str | None = None, media_library: int | None = None):
+    """剧集搜索联想：本地剧名/原名 + 演职员（人名回填搜索，不跳人物页；
+    与电影 /api/search/suggest 同形状）。"""
+    libs = _lib_ids(library, media_library)
+    try:
+        lim = max(1, min(int(limit or 8), 20))
+    except (TypeError, ValueError):
+        lim = 8
+    return {"q": q, "items": store.suggest_tv_shows(q, lim, library_ids=libs),
+            "persons": store.suggest_tv_people(q, 5, library_ids=libs)}
 
 
 @router.get("/shows/{show_id}")

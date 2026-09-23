@@ -9,7 +9,8 @@ import os
 import re
 import time
 
-from ._base import DEFAULT_LIBRARY_ID, _conn, _lock, logger
+from ._base import DEFAULT_LIBRARY_ID, _conn, _like_esc, _lock, logger
+from .search import (_query_terms, _split_ints, _split_multi, normalize_sort)
 
 __all__ = ['upsert_show', 'upsert_episode', 'upsert_season', 'list_shows', 'get_show',
            'list_episodes', 'get_episode', 'count_shows', 'count_episodes',
@@ -25,6 +26,9 @@ __all__ = ['upsert_show', 'upsert_episode', 'upsert_season', 'list_shows', 'get_
            'record_organize_moves', 'list_organize_moves', 'list_organize_batches',
            'mark_organize_undone', 'delete_scan_state_paths', 'delete_scan_state_prefix',
            'pair_moved_tv_paths', 'backfill_legacy_organize_moves',
+           'get_tv_facets', 'suggest_tv_shows', 'suggest_tv_people',
+           'tv_status_bucket', 'TV_RATING_SOURCES', 'TV_RATING_STEPS',
+           'TV_STATUS_CONTINUING', 'TV_STATUS_ENDED',
            'TV_META_FIELDS', 'EPISODE_META_FIELDS']
 
 import json as _json
@@ -418,20 +422,337 @@ def _lib_cond(alias: str, library_ids) -> tuple[str, list]:
     return f"{alias}.library_id IN ({ph})", ids
 
 
+# ---- 剧集墙筛选/联想（对齐电影墙：facet 内 OR、跨维度 AND、tags 多选 AND） ----
+
+# TMDB 剧集无豆瓣评分：只有 tmdb + 手工自评
+TV_RATING_SOURCES = {"tmdb": "tmdb_rating", "custom": "custom_rating"}
+TV_RATING_STEPS = (9, 8, 7, 6)
+
+# 连载状态归一桶（Tmdb 原值杂，前端按桶筛选/展示）
+TV_STATUS_CONTINUING = {"Continuing", "Returning Series", "In Production"}
+TV_STATUS_ENDED = {"Ended", "Canceled", "Cancelled"}
+
+
+def tv_status_bucket(status) -> str:
+    """TMDB status 原值 → continuing|ended|other（空值归 other）。"""
+    s = str(status or "").strip()
+    if s in TV_STATUS_CONTINUING:
+        return "continuing"
+    if s in TV_STATUS_ENDED:
+        return "ended"
+    return "other"
+
+
+def _tv_rating_col(source) -> str:
+    return TV_RATING_SOURCES.get(str(source or "tmdb").lower(), "tmdb_rating")
+
+
+def _tv_structured_where(alias: str, genres=None, regions=None,
+                         countries=None, years=None, decades=None,
+                         tags=None, min_rating=None, rating_source=None,
+                         watched=None, status=None) -> tuple[str, tuple]:
+    """剧集结构化过滤（语义与电影 `_structured_where` 一致，作用于 tv_shows）。
+
+    `library_ids` 不在此处理（调用方经 `_lib_cond` 拼）。
+    `watched=1` = 整剧已看完（有集且无未看集）；`watched=0` = 未看完。
+    `status` 接受 continuing/ended/other 桶名（大小写不敏感）。
+    无条件返回 ("1=1", ())。
+    """
+    from ..regions import REGION_UNKNOWN
+    conds: list[str] = []
+    params: list = []
+    gs = _split_multi(genres)
+    if gs:
+        conds.append("(%s)" % " OR ".join(
+            f"EXISTS (SELECT 1 FROM json_each({alias}.genres) je WHERE je.value=?)"
+            for _ in gs))
+        params.extend(gs)
+    rs = _split_multi(regions)
+    if rs:
+        parts = []
+        known = [r for r in rs if r != REGION_UNKNOWN]
+        if known:
+            parts.append(f"{alias}.region IN (%s)" % ",".join("?" * len(known)))
+            params.extend(known)
+        if REGION_UNKNOWN in rs:
+            parts.append(f"({alias}.region IS NULL OR {alias}.region='')")
+        conds.append("(%s)" % " OR ".join(parts))
+    cs = [c.upper() for c in _split_multi(countries)]
+    if cs:
+        parts = []
+        known = [c for c in cs if c not in (REGION_UNKNOWN, "")]
+        if known:
+            parts.append(f"{alias}.origin_country IN (%s)" % ",".join("?" * len(known)))
+            params.extend(known)
+            parts.append(
+                "EXISTS (SELECT 1 FROM json_each(%s.origin_countries) je"
+                " WHERE je.value IN (%s))"
+                % (alias, ",".join("?" * len(known))))
+            params.extend(known)
+        if REGION_UNKNOWN in cs or "" in _split_multi(countries):
+            parts.append(f"({alias}.origin_country IS NULL OR {alias}.origin_country='')")
+        conds.append("(%s)" % " OR ".join(parts))
+    ys = _split_ints(years)
+    if ys:
+        conds.append(f"{alias}.year IN (%s)" % ",".join("?" * len(ys)))
+        params.extend(ys)
+    ds = _split_ints(decades)
+    if ds:
+        parts = []
+        for d in ds:
+            parts.append(f"({alias}.year>=? AND {alias}.year<=?)")
+            params.extend([d, d + 9])
+        conds.append("(%s)" % " OR ".join(parts))
+    for t in _split_multi(tags):  # 标签多选为 AND（逐个收窄）
+        conds.append(
+            f"EXISTS (SELECT 1 FROM json_each({alias}.tags) je WHERE je.value=?)")
+        params.append(t)
+    if min_rating is not None:
+        try:
+            conds.append(f"({alias}.{_tv_rating_col(rating_source)}>=?)")
+            params.append(float(min_rating))
+        except (TypeError, ValueError):
+            pass
+    if watched is not None:
+        try:
+            w = int(watched)
+        except (TypeError, ValueError):
+            w = None
+        if w == 1:
+            conds.append(
+                f"(EXISTS (SELECT 1 FROM tv_episodes e WHERE e.show_id={alias}.id)"
+                f" AND NOT EXISTS (SELECT 1 FROM tv_episodes e WHERE e.show_id={alias}.id"
+                " AND COALESCE(e.watched,0)=0))")
+        elif w == 0:
+            conds.append(
+                f"((NOT EXISTS (SELECT 1 FROM tv_episodes e WHERE e.show_id={alias}.id))"
+                f" OR EXISTS (SELECT 1 FROM tv_episodes e WHERE e.show_id={alias}.id"
+                " AND COALESCE(e.watched,0)=0))")
+    sts = {str(s or "").strip().lower() for s in _split_multi(status)}
+    sts.discard("")
+    if sts:
+        parts = []
+        if "continuing" in sts:
+            ph = ",".join("?" * len(TV_STATUS_CONTINUING))
+            parts.append(f"{alias}.status IN ({ph})")
+            params.extend(sorted(TV_STATUS_CONTINUING))
+        if "ended" in sts:
+            ph = ",".join("?" * len(TV_STATUS_ENDED))
+            parts.append(f"{alias}.status IN ({ph})")
+            params.extend(sorted(TV_STATUS_ENDED))
+        if "other" in sts:
+            all_known = sorted(TV_STATUS_CONTINUING | TV_STATUS_ENDED)
+            ph = ",".join("?" * len(all_known))
+            parts.append(f"({alias}.status IS NULL OR {alias}.status=''"
+                         f" OR {alias}.status NOT IN ({ph}))")
+            params.extend(all_known)
+        if parts:
+            conds.append("(%s)" % " OR ".join(parts))
+    if not conds:
+        return "1=1", ()
+    return " AND ".join(f"({x})" for x in conds), tuple(params)
+
+
+_TV_SORT_COLS = {"added": "s.added_at", "updated": "s.updated_at",
+                 "year": "s.year", "title": "s.sort_title", "rating": None}
+
+
+def _tv_order_clause(sort, order, rating_source) -> str:
+    """剧集墙 ORDER BY：sort=None 保持历史默认（sort_title）；否则白名单排序，
+    NULL/缺失沉底 + id 兜底（翻页稳定）。"""
+    if sort is None and order is None:
+        return "ORDER BY s.sort_title, s.year IS NULL, s.year, s.id"
+    key, direction = normalize_sort(sort, order)
+    col = _TV_SORT_COLS[key]
+    if col is None:
+        col = f"s.{_tv_rating_col(rating_source)}"
+    return f"ORDER BY ({col} IS NULL), {col} {direction}, s.id DESC"
+
+
+def get_tv_facets(library_ids=None) -> dict:
+    """剧集动态分类计数（全库口径，不随筛选变化，只返 count>0 项）。
+
+    `watched` 按整剧口径：有集且无未看集 = 已看完，其余 = 未看完。
+    `status` 按 `tv_status_bucket` 三桶计数。`ratings` 只有 tmdb/custom。
+    """
+    from collections import Counter
+    from ..regions import REGION_ORDER, REGION_UNKNOWN, country_name
+    cond, params = _lib_cond("s", library_ids)
+    where = (" WHERE " + cond) if cond else ""
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT s.genres, s.tags, s.region, s.origin_country,"
+            " s.origin_countries, s.year, s.tmdb_rating, s.custom_rating,"
+            " s.status, COUNT(e.id) AS _eps, COALESCE(SUM(e.watched),0) AS _ew"
+            " FROM tv_shows s LEFT JOIN tv_episodes e ON e.show_id=s.id"
+            + where + " GROUP BY s.id", params).fetchall()
+    gc, rc, yc, dc, tc, ic, cc, sc, stc = (Counter() for _ in range(9))
+    wc = Counter()
+    for r in rows:
+        d = _jsonify({"genres": r["genres"], "tags": r["tags"],
+                      "origin_countries": r["origin_countries"]})
+        eps = int(r["_eps"] or 0)
+        ew = int(r["_ew"] or 0)
+        wc[1 if (eps > 0 and ew == eps) else 0] += 1
+        for g in d.get("genres") or []:
+            gc[g] += 1
+        reg = r["region"] or REGION_UNKNOWN
+        rc[reg] += 1
+        codes = d.get("origin_countries") or []
+        primary = r["origin_country"] or (codes[0] if codes else "")
+        cc[primary or REGION_UNKNOWN] += 1
+        involved = set(codes) | ({primary} if primary else set())
+        for code in involved or {REGION_UNKNOWN}:
+            ic[code] += 1
+        y = r["year"]
+        if isinstance(y, int):
+            yc[y] += 1
+            dc[(y // 10) * 10] += 1
+        for src in TV_RATING_SOURCES:
+            v = r["tmdb_rating"] if src == "tmdb" else r["custom_rating"]
+            if isinstance(v, (int, float)) and v > 0:
+                for step in TV_RATING_STEPS:
+                    if v >= step:
+                        sc[(src, step)] += 1
+        for t in d.get("tags") or []:
+            tc[t] += 1
+        stc[tv_status_bucket(r["status"])] += 1
+    order = {v: i for i, v in enumerate(REGION_ORDER)}
+    return {
+        "genres": [{"value": k, "count": v} for k, v in gc.most_common()],
+        "regions": sorted(({"value": k, "count": v} for k, v in rc.items()),
+                          key=lambda x: (order.get(x["value"], 99), -x["count"])),
+        "countries": [{"code": ("" if k == REGION_UNKNOWN else k),
+                       "name": (REGION_UNKNOWN if k == REGION_UNKNOWN else country_name(k)),
+                       "count": v} for k, v in ic.most_common()],
+        "primary_countries": [{"code": ("" if k == REGION_UNKNOWN else k),
+                       "name": (REGION_UNKNOWN if k == REGION_UNKNOWN else country_name(k)),
+                       "count": v} for k, v in cc.most_common()],
+        "years": [{"value": k, "count": v} for k, v in sorted(yc.items(), reverse=True)],
+        "decades": [{"value": k, "count": v} for k, v in sorted(dc.items(), reverse=True)],
+        "tags": [{"value": k, "count": v} for k, v in tc.most_common()],
+        "watched": {"watched": wc.get(1, 0), "unwatched": wc.get(0, 0)},
+        "status": [{"value": k, "count": v}
+                   for k, v in sorted(stc.items(), key=lambda kv: -kv[1])],
+        "ratings": {src: [{"min": s, "count": sc.get((src, s), 0)} for s in TV_RATING_STEPS]
+                    for src in TV_RATING_SOURCES},
+    }
+
+
+def suggest_tv_shows(q: str, limit: int = 8, library_ids=None) -> list[dict]:
+    """剧集搜索联想：本地剧名/原名子串匹配，前缀命中优先、年份降序。
+
+    返回 [{id, tmdb_id, title, original_title, year}]。"""
+    toks = _query_terms(q)
+    if not toks:
+        return []
+    limit = max(1, min(int(limit or 8), 20))
+    conds, params = [], []
+    for t in toks:
+        p = f"%{_like_esc(t)}%"
+        conds.append("(s.title LIKE ? ESCAPE '\\' OR s.original_title LIKE ? ESCAPE '\\')")
+        params.extend([p, p])
+    cond, cparams = _lib_cond("s", library_ids)
+    if cond:
+        conds.append(cond)
+        params.extend(cparams)
+    where = " AND ".join(f"({x})" for x in conds)
+    prefix = f"{_like_esc(toks[0])}%"
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT s.id, s.tmdb_id, s.title, s.original_title, s.year,"
+            " MIN(CASE WHEN s.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) AS _pref"
+            " FROM tv_shows s WHERE " + where +
+            " GROUP BY s.id ORDER BY _pref, s.year DESC, s.id LIMIT ?",
+            (prefix, *params, limit)).fetchall()
+        return [{"id": r["id"], "tmdb_id": r["tmdb_id"], "title": r["title"],
+                 "original_title": r["original_title"], "year": r["year"]}
+                for r in rows]
+
+
+def suggest_tv_people(q: str, limit: int = 5, library_ids=None) -> list[dict]:
+    """剧集演员联想：剧集无 movie_person 式 join 表（演职员只存
+    `tv_shows.person_names` 反范式串），按库内剧名下人名聚合计数。
+
+    返回 [{name, count}]（无 tmdb_id；前端点击回填人名搜索，不跳人物页）。"""
+    toks = _query_terms(q)
+    if not toks:
+        return []
+    limit = max(1, min(int(limit or 5), 20))
+    conds, params = [], []
+    for t in toks:
+        p = f"%{_like_esc(t)}%"
+        conds.append("s.person_names LIKE ? ESCAPE '\\'")
+        params.append(p)
+    cond, cparams = _lib_cond("s", library_ids)
+    if cond:
+        conds.append(cond)
+        params.extend(cparams)
+    where = " AND ".join(f"({x})" for x in conds)
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT s.person_names FROM tv_shows s WHERE " + where
+            + " LIMIT 500", params).fetchall()
+    from collections import Counter
+    cc: Counter = Counter()
+    lowers = [t.casefold() for t in toks]
+    for r in rows:
+        for name in str(r["person_names"] or "").split(","):
+            nm = " ".join(name.split())
+            if not nm:
+                continue
+            fold = nm.casefold()
+            if all(t in fold for t in lowers):
+                cc[nm] += 1
+    return [{"name": n, "count": c} for n, c in
+            sorted(cc.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
+
+
 def list_shows(library_ids=None, q: str = "", limit: int = 500,
-               offset: int = 0) -> list[dict]:
+               offset: int = 0, *, genres=None, regions=None,
+               countries=None, years=None, decades=None, tags=None,
+               min_rating=None, rating_source=None, watched=None,
+               status=None, sort=None, order=None) -> list[dict]:
+    """剧集列表（海报墙）：库范围 + 本地搜索 + 结构化筛选 + 排序。
+
+    过滤语义与电影墙一致：facet 内 OR、跨维度 AND、tags 多选 AND、
+    min_rating 单阈值（>=）；`status` 为连载状态桶
+   （continuing/ended/other，见 `tv_status_bucket`）；`watched=1` 为整剧
+    已看完（有集且无未看集），`watched=0` 为未看完。
+    `sort=None` 时保持历史默认（sort_title）排序；传 sort 后走白名单排序。
+    """
     where, params = [], []
     cond, cparams = _lib_cond("s", library_ids)
     if cond:
         where.append(cond)
         params.extend(cparams)
+    fwhere, fparams = _tv_structured_where(
+        "s", genres=genres, regions=regions, countries=countries,
+        years=years, decades=decades, tags=tags, min_rating=min_rating,
+        rating_source=rating_source, watched=watched, status=status)
+    if fwhere != "1=1":
+        where.append(fwhere)
+        params.extend(fparams)
     if (q or "").strip():
-        term = f"%{''.join(ch for ch in q.strip() if ch not in '%_\\')}%"
-        where.append("(s.title LIKE ? ESCAPE '\\' OR s.original_title LIKE ? ESCAPE '\\')")
-        params.extend([term, term])
+        toks = _query_terms(q)
+        if toks:
+            # 词级 AND：标题/原名/演职员（person_names 含前 10 演员 + 创作者）
+            for t in toks:
+                p = f"%{_like_esc(t)}%"
+                where.append("(s.title LIKE ? ESCAPE '\\'"
+                             " OR s.original_title LIKE ? ESCAPE '\\'"
+                             " OR s.person_names LIKE ? ESCAPE '\\')")
+                params.extend([p, p, p])
+        else:
+            term = f"%{_like_esc(q.strip())}%"
+            where.append("(s.title LIKE ? ESCAPE '\\'"
+                         " OR s.original_title LIKE ? ESCAPE '\\'"
+                         " OR s.person_names LIKE ? ESCAPE '\\')")
+            params.extend([term, term, term])
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
     limit = max(1, min(int(limit or 500), 2000))
     offset = max(0, int(offset or 0))
+    order_sql = _tv_order_clause(sort, order, rating_source)
     with _lock, _conn() as c:
         rows = c.execute(
             "SELECT s.*, COUNT(e.id) AS episode_count,"
@@ -439,16 +760,46 @@ def list_shows(library_ids=None, q: str = "", limit: int = 500,
             " COALESCE(SUM(e.watched), 0) AS watched_count"
             " FROM tv_shows s LEFT JOIN tv_episodes e ON e.show_id=s.id"
             + wsql +
-            " GROUP BY s.id ORDER BY s.sort_title, s.year IS NULL, s.year, s.id"
+            " GROUP BY s.id " + order_sql +
             " LIMIT ? OFFSET ?", (*params, limit, offset)).fetchall()
         return [_show_row(r) for r in rows]
 
 
-def count_shows(library_ids=None) -> int:
-    cond, params = _lib_cond("tv_shows", library_ids)
-    where = (" WHERE " + cond) if cond else ""
+def count_shows(library_ids=None, q: str = "", *, genres=None,
+                regions=None, countries=None, years=None, decades=None,
+                tags=None, min_rating=None, rating_source=None,
+                watched=None, status=None) -> int:
+    """按同样过滤口径计剧数（分页 total 用；无过滤时退化为旧行为）。"""
+    where, params = [], []
+    cond, cparams = _lib_cond("tv_shows", library_ids)
+    if cond:
+        where.append(cond)
+        params.extend(cparams)
+    fwhere, fparams = _tv_structured_where(
+        "tv_shows", genres=genres, regions=regions, countries=countries,
+        years=years, decades=decades, tags=tags, min_rating=min_rating,
+        rating_source=rating_source, watched=watched, status=status)
+    if fwhere != "1=1":
+        where.append(fwhere)
+        params.extend(fparams)
+    if (q or "").strip():
+        toks = _query_terms(q)
+        if toks:
+            for t in toks:
+                p = f"%{_like_esc(t)}%"
+                where.append("(tv_shows.title LIKE ? ESCAPE '\\'"
+                             " OR tv_shows.original_title LIKE ? ESCAPE '\\'"
+                             " OR tv_shows.person_names LIKE ? ESCAPE '\\')")
+                params.extend([p, p, p])
+        else:
+            term = f"%{_like_esc(q.strip())}%"
+            where.append("(tv_shows.title LIKE ? ESCAPE '\\'"
+                         " OR tv_shows.original_title LIKE ? ESCAPE '\\'"
+                         " OR tv_shows.person_names LIKE ? ESCAPE '\\')")
+            params.extend([term, term, term])
+    wsql = (" WHERE " + " AND ".join(where)) if where else ""
     with _lock, _conn() as c:
-        return int(c.execute("SELECT COUNT(*) FROM tv_shows" + where,
+        return int(c.execute("SELECT COUNT(*) FROM tv_shows" + wsql,
                              params).fetchone()[0])
 
 
