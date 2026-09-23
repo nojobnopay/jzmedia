@@ -1,14 +1,14 @@
 <template>
   <section :id="active ? 'sec-pipeline' : undefined" class="card-block">
     <h3>入库流程 <span class="fhint">作用于「{{ media.name }}」整个媒体库</span></h3>
-    <p class="hint">① 扫描整个媒体库（电影按文件名刮削入库；剧集按目录结构入清单，不刮削）→
+    <p class="hint">① 扫描整个媒体库（电影按文件名刮削入库；剧集按目录结构入清单后顺手刮削）→
       <template v-if="movieLibs.length">② 处理未匹配/待确认 → ③ 归档整理。</template>
-      列表按视频库分表；库级批量修复见下方「高级维护」。</p>
+      扫描自动同步删除（盘上没了的记录同步删掉）；列表按视频库分表；库级批量修复见下方「高级维护」。</p>
 
     <div :id="active ? 'sec-sync' : undefined" class="pipe-step">
       <div class="pipe-head">
         <h4>① 扫描入库</h4>
-        <span class="fhint">NAS 直拷 / 软件外删片后用：扫描整个媒体库，再检查并清理失效条目</span>
+        <span class="fhint">NAS 直拷 / 软件外删片改名后用：扫描整个媒体库自动同步（新增+删除+重匹配）</span>
       </div>
       <div class="pipe-body">
         <div class="bar">
@@ -34,6 +34,7 @@
           <button @click="loadMissing()" :disabled="!!busy || missingLoading">{{ missingLoading ? '检查中…' : '检查失效条目' }}</button>
           <button v-if="missing.length" @click="scanOpen = !scanOpen">{{ scanOpen ? '收起清单' : '展开清单' }}</button>
           <span v-if="missing.length">共 {{ missing.length }} 条失效</span>
+          <span v-else class="fhint">扫描已自动同步删除，无失效即为正常</span>
           <span>{{ cleanMsg }}</span>
         </div>
         <div v-show="scanOpen && missing.length">
@@ -199,9 +200,12 @@ async function startScan() {
 // 单库结果文案：与后端 status 词表对应
 function libResultText(c) {
   const parts = []
-  const ok = (c.ok || 0) + (c.ok_needs_review || 0)
+  const ok = (c.ok || 0) + (c.ok_needs_review || 0) + (c.tv_ok || 0)
   if (c.library_offline) return '库离线：跳过（未删除任何记录）'
   if (ok) parts.push(`新增/更新 ${ok}`)
+  if (c.removed_movie) parts.push(`删除失效影片 ${c.removed_movie}`)
+  if (c.removed_episode) parts.push(`删除失效集 ${c.removed_episode}`)
+  if (c.removed_show) parts.push(`清理空剧 ${c.removed_show}`)
   if (c.skipped_cached) parts.push(`跳过已同步 ${c.skipped_cached}`)
   if (c.no_match) parts.push(`未匹配 ${c.no_match}`)
   if (c.scan_failed) parts.push(`刮削失败 ${c.scan_failed}`)
@@ -230,16 +234,25 @@ async function pollScanJob() {
       const sum = st.summary || {}
       const c = sum.counts || {}
       syncScanRows(sum)
+      const removed = (c.removed_movie || 0) + (c.removed_episode || 0) + (c.removed_show || 0)
+      const tvSc = sum.tv_scrape || {}
+      const tvScCounts = tvSc.counts || {}
+      const tvScDone = Object.values(tvScCounts).reduce((a, b) => a + (Number(b) || 0), 0)
+      const tvScText = tvSc.skipped ? '；剧集刮削跳过（已有任务在跑）'
+        : tvSc.error ? `；剧集刮削失败：${tvSc.error}`
+        : tvScDone ? `；剧集刮削 ${tvScDone}` : ''
       if (scanLibRows.value.length) {
-        const ok = (c.ok || 0) + (c.ok_needs_review || 0)
-        scanMsg.value = `完成：新增/更新 ${ok}` + (c.library_offline ? '；有库离线已跳过' : '') + '。见下方各视频库结果'
+        const ok = (c.ok || 0) + (c.ok_needs_review || 0) + (c.tv_ok || 0)
+        scanMsg.value = `完成：新增/更新 ${ok}` + (removed ? `，删除失效 ${removed}` : '')
+          + (c.library_offline ? '；有库离线已跳过' : '') + tvScText + '。见下方各视频库结果'
       } else {
-        const ok = (c.ok || 0) + (c.ok_needs_review || 0)
+        const ok = (c.ok || 0) + (c.ok_needs_review || 0) + (c.tv_ok || 0)
         scanMsg.value = c.library_offline
           ? `库离线：跳过扫描（${c.library_offline} 项），未删除任何记录`
-          : `完成：新增/更新 ${ok}，已同步跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
+          : `完成：新增/更新 ${ok}` + (removed ? `，删除失效 ${removed}` : '')
+            + `，已同步跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
             + (c.scan_failed ? `，刮削失败 ${c.scan_failed}（可重试）` : '')
-            + ((sum.errors || []).length ? `，失败 ${sum.errors.length}` : '')
+            + ((sum.errors || []).length ? `，失败 ${sum.errors.length}` : '') + tvScText
       }
     } else if (st.state === 'cancelled') {
       scanMsg.value = `已取消（${st.done}/${st.total}）`

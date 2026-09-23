@@ -253,7 +253,7 @@ def missing(library: str | None = None, media_library: int | None = None):
 @router.post("/clean")
 def clean(body: dict | None = None):
     """清理失效条目：彻底删除DB行+演职员关联+FTS（海报与tmdb_cache保留供重扫复用）。
-    默认 dry_run 预览（评审 B5a-4/R09-D4）；
+    扫描已自动同步删除，本接口保留作核验/手动补删（默认 dry_run 预览）；
     body.ids 不传则清理全部缺失行；建议先 GET /missing 预览勾选。
     body.library_id/library 单库或多库；media_library_id 整个媒体库（缺省=全库）。"""
     from ... import storage

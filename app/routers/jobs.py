@@ -7,6 +7,9 @@ from pydantic import BaseModel
 
 from .. import artwork, library_paths, scanner, store
 from ..jobkit import JobRegistry
+from ..log import get_logger
+
+logger = get_logger("jobs.scan")
 
 router = APIRouter(prefix="/api/jobs")
 
@@ -20,7 +23,13 @@ def _scan_summary(results: list) -> dict:
     errors: list = []
     for r in results:
         st = str(r.get("status") or "")
-        counts[st] = counts.get(st, 0) + 1
+        try:
+            n = int(r.get("count") or 1)
+        except (TypeError, ValueError):
+            n = 1
+        if n < 1:
+            n = 1
+        counts[st] = counts.get(st, 0) + n
         lid = r.get("library_id")
         if lid is not None:
             try:
@@ -28,7 +37,7 @@ def _scan_summary(results: list) -> dict:
             except (TypeError, ValueError):
                 bucket = None
             if bucket is not None:
-                bucket[st] = bucket.get(st, 0) + 1
+                bucket[st] = bucket.get(st, 0) + n
         if st.startswith("error"):
             errors.append({"file": r.get("file", ""), "status": st[:200]})
     return {"counts": counts, "by_library": by_library,
@@ -60,6 +69,23 @@ def _in_filter(m: dict, lib_ids: set[int] | None) -> bool:
         return False
 
 
+def _scan_tv_lib_ids(library_id=None, media_library_id=None) -> list[int]:
+    """本次扫描作用域内的 TV 视频库 id（链式刮削用；失败返回空，不阻塞扫描完成）。"""
+    try:
+        if media_library_id is not None:
+            libs = [l for l in store.list_libraries(only_enabled=True)
+                    if int(l.get("media_library_id") or 0) == int(media_library_id)]
+        elif library_id is not None:
+            lib = store.get_library(int(library_id))
+            libs = [lib] if lib else []
+        else:
+            libs = store.list_libraries(only_enabled=True)
+        return sorted({int(l["id"]) for l in libs if l and str(l.get("kind") or "") == "tv"})
+    except Exception as e:
+        logger.debug("resolve scan tv libs failed: %s", e)
+        return []
+
+
 def _scan_worker(jid: str, library_id: int | None = None,
                  force: bool = False, media_library_id: int | None = None) -> None:
     def _stop() -> bool:
@@ -79,8 +105,28 @@ def _scan_worker(jid: str, library_id: int | None = None,
         if _stop():
             _SCAN_JOBS.update(jid, done=len(res))
             return
+        summary = _scan_summary(res)
+        # TV 链式刮削（②A）：扫描后顺手补新剧简介/海报，不用用户再点一次。
+        # 只刮未匹配/未刮过的剧（scrape_pending 内部过滤，幂等有界）；已有
+        # tv-scrape 在跑则跳过；异常只记 summary，不把扫描置失败。
+        try:
+            tv_libs = _scan_tv_lib_ids(library_id, media_library_id)
+        except Exception:
+            tv_libs = []
+        if tv_libs and not _stop():
+            try:
+                if _TV_JOBS.running():
+                    summary["tv_scrape"] = {"skipped": "running"}
+                else:
+                    from ..scanner import tv_persist
+                    tv_res = tv_persist.scrape_pending(
+                        library_ids=tv_libs, force=False, should_stop=_stop)
+                    summary["tv_scrape"] = _tv_summary(tv_res)
+            except Exception as e:
+                logger.warning("chained tv scrape failed: %s", e)
+                summary["tv_scrape"] = {"error": str(e)[:200]}
         _SCAN_JOBS.update(jid, state="done", done=len(res), total=len(res),
-                          **{"summary": _scan_summary(res)})
+                          **{"summary": summary})
     except Exception as e:
         _SCAN_JOBS.update(jid, state="failed", error=str(e)[:300])
 

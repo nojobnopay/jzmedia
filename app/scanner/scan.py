@@ -523,9 +523,12 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
     全部启用视频库；否则只扫指定视频库。
     遍历/stat 走 StorageBackend：直读远程库不依赖 POSIX 挂载（指导 Phase1）。
     库不可达（StorageOffline）→ `library_offline` 跳过，且**不 GC、不删行**（§19）。
+    完整遍历成功的库自动同步删除：电影 `delete_movies_not_in` / 剧集
+    `delete_episodes_not_in+prune_empty_shows`（Plex 式删除识别，不改盘上文件名）。
     可选 progress_cb(done, total) 报告全局进度、should_stop() 协作式取消
-    （评审 B9/R04-D6：供后台 job 展示进度/取消）。
-    返回结果条目带 `library_id`（跨库任务可区分）。"""
+    （评审 B9/R04-D6：供后台 job 展示进度/取消；取消的库不 GC）。
+    返回结果条目带 `library_id`（跨库任务可区分）；GC 以聚合条目
+   （`removed_movie/removed_episode/removed_show` + `count`）回传。"""
     ensure_dirs()
     libs = _scan_libraries(library_id, media_library_id)
     if not libs:
@@ -612,6 +615,9 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
                     progress_cb(done, grand)
                 except Exception as ex:
                     logger.debug("progress_cb failed: %s", ex)
+        if should_stop and should_stop():
+            logger.info("scan cancelled before GC: lib=%s", lib_id)
+            return out
         if is_tv:
             # TV 失效 GC（仅在一次完整遍历后执行）：删掉磁盘上已不存在的集行/空剧，
             # 级联清理播放断点与探测缓存（库离线在 iter_tree 已整库跳过，绝不误删）。
@@ -630,11 +636,28 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
                 if removed or pruned or extra_removed or repaired:
                     logger.info("TV GC lib=%s: 失效集 %s / 花絮 %s / 重挂 %s / 空剧 %s",
                                 lib_id, removed, extra_removed, repaired, pruned)
+                if removed:
+                    out.append({"file": "", "library_id": lib_id,
+                                "status": "removed_episode", "count": int(removed)})
+                if pruned:
+                    out.append({"file": "", "library_id": lib_id,
+                                "status": "removed_show", "count": int(pruned)})
             except Exception as ex:
                 logger.warning("TV GC failed lib=%s: %s", lib_id, ex)
             continue
-        # 花絮行 GC（按库分区，仅在一次完整遍历后执行）：文件已不存在的归属记录清掉
-        # （正片走 missing/clean 流程）；用本次树遍历快照成员判定，免逐行 stat 往返
+        # 电影正片 GC（Plex 式删除识别，仅在一次完整遍历后执行）：磁盘已不存在的行
+        # 立刻 purge（含断点/探测/人物关联；海报与 tmdb_cache 保留供重扫复用）。
+        # 库离线在上面的 iter_tree 已整库跳过，绝不误删；取消扫描直接 return，不到这里。
+        try:
+            removed_movies = store.delete_movies_not_in(tree_files, lib_id)
+            if removed_movies:
+                logger.info("movie GC lib=%s: 失效影片 %s", lib_id, removed_movies)
+                out.append({"file": "", "library_id": lib_id,
+                            "status": "removed_movie", "count": int(removed_movies)})
+        except Exception as ex:
+            logger.warning("movie GC failed lib=%s: %s", lib_id, ex)
+        # 花絮行 GC（按库分区，仅在一次完整遍历后执行）：文件已不存在的归属记录清掉；
+        # 用本次树遍历快照成员判定，免逐行 stat 往返
         # （遍历成功即代表磁盘当前状态；库离线在上面的 iter_tree 已跳过整库）。
         try:
             for row in all_extras:

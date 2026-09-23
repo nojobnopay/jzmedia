@@ -8,7 +8,7 @@ from ..regions import country_name
 from ._base import (DEFAULT_LIBRARY_ID, LOCAL_FIELDS, _attach_versions,
                     _collections_for_film, _conn, _lock, _row_to_dict, logger)
 from .search import resync_fts
-__all__ = ['upsert_movie_by_path', 'update_movie_local', 'update_movie_meta', 'get_by_path', 'list_movies_in_dir', 'get_movie', 'expand_ids_to_versions', 'get_movie_by_tmdb', 'get_movie_tags', 'list_movie_ids_by_library', 'list_movie_paths_by_tmdb', 'repath_movies_prefix', 'delete_movie', '_dir_size', 'library_stats']
+__all__ = ['upsert_movie_by_path', 'update_movie_local', 'update_movie_meta', 'get_by_path', 'list_movies_in_dir', 'get_movie', 'expand_ids_to_versions', 'get_movie_by_tmdb', 'get_movie_tags', 'list_movie_ids_by_library', 'list_movie_paths_by_tmdb', 'repath_movies_prefix', 'delete_movie', 'delete_movies_not_in', '_dir_size', 'library_stats']
 
 def upsert_movie_by_path(file_path: str,
                          library_id: int = DEFAULT_LIBRARY_ID) -> int:
@@ -225,6 +225,56 @@ def delete_movie(movie_id: int) -> bool:
         except Exception:
             pass
         return True
+
+
+def delete_movies_not_in(keep_paths, library_id=None) -> int:
+    """失效影片 GC：删除库内不在 keep_paths（本次完整遍历快照）中的 movies 行。
+
+    仅在一次成功的完整遍历后调用（调用方保证；库离线已整库跳过，绝不误删）。
+    级联清理与 delete_movie 一致（人物关联/FTS/花絮归属置空/探测缓存/断点），
+    海报与 tmdb_cache 保留供重扫复用；同时清理对应 scan_state 孤儿行。
+    """
+    try:
+        lib_id = int(library_id) if library_id is not None else DEFAULT_LIBRARY_ID
+    except (TypeError, ValueError):
+        lib_id = DEFAULT_LIBRARY_ID
+    keep = set(keep_paths or ())
+    with _lock, _conn() as c:
+        rows = c.execute("SELECT id, file_path FROM movies WHERE library_id=?",
+                         (lib_id,)).fetchall()
+        gone = [(int(r["id"]), str(r["file_path"]))
+                for r in rows if str(r["file_path"]) not in keep]
+        if not gone:
+            return 0
+        now = int(time.time())
+        for i in range(0, len(gone), 400):
+            chunk = gone[i:i + 400]
+            ids = [mid for mid, _p in chunk]
+            paths = [p for _m, p in chunk]
+            ph = ",".join("?" for _ in ids)
+            c.execute(f"DELETE FROM movie_person WHERE movie_id IN ({ph})", ids)
+            c.execute(f"DELETE FROM movies WHERE id IN ({ph})", ids)
+            c.execute(f"DELETE FROM movies_fts WHERE rowid IN ({ph})", ids)
+            try:
+                c.execute(f"UPDATE extras SET movie_id=NULL, updated_at=? WHERE movie_id IN ({ph})",
+                          (now, *ids))
+            except Exception as e:
+                logger.warning("clear extras refs failed lib=%s: %s", lib_id, e)
+            try:
+                c.execute(f"DELETE FROM media_info WHERE kind='movie' AND item_id IN ({ph})", ids)
+            except Exception:
+                pass
+            try:
+                c.execute(f"DELETE FROM playback_progress WHERE kind='movie' AND item_id IN ({ph})",
+                          ids)
+            except Exception:
+                pass
+            try:
+                c.execute(f"DELETE FROM scan_state WHERE library_id=? AND file_path IN ({ph})",
+                          (lib_id, *paths))
+            except Exception as e:
+                logger.debug("clean scan_state failed lib=%s: %s", lib_id, e)
+        return len(gone)
 
 
 def _dir_size(path: str) -> int:
