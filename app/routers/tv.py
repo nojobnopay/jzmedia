@@ -124,6 +124,30 @@ def tv_suggest(q: str = "", limit: int = 8,
             "persons": store.suggest_tv_people(q, 5, library_ids=libs)}
 
 
+def _show_cast(show: dict) -> list[dict]:
+    """演职员（详情页展示用）：读 `tmdb_cache(tv).credits` 前 10，
+    返回 [{name, character, profile_path}]；未匹配/无缓存返回 []。
+
+    纯本地读缓存、不触网；TV 人物不进 `persons` 表（电影人物页体系专用），
+    故点击不跳人物页（前端只做展示）。"""
+    try:
+        tid = int(show.get("tmdb_id") or 0)
+    except (TypeError, ValueError):
+        return []
+    if not tid:
+        return []
+    credits = (store.get_tmdb_cached(tid, "tv") or {}).get("credits") or {}
+    out = []
+    for c in (credits.get("cast") or [])[:10]:
+        name = str(c.get("name") or "").strip()
+        if not name:
+            continue
+        out.append({"name": name,
+                    "character": str(c.get("character") or "").strip(),
+                    "profile_path": c.get("profile_path") or ""})
+    return out
+
+
 @router.get("/shows/{show_id}")
 def show_detail(show_id: int):
     """剧详情：季（含海报/名称）+ 全部集（存在性/断点/已看）+ 下一集。"""
@@ -138,6 +162,7 @@ def show_detail(show_id: int):
     nxt = store.next_episode(show_id)
     d["next_episode"] = _episode_payload(nxt) if nxt else None
     d["extras"] = [_extra_payload(x) for x in store.list_extras_by_show(show_id)]
+    d["cast"] = _show_cast(d)
     return d
 
 

@@ -2,9 +2,13 @@
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app import library_paths, store
+from app.main import app
 from app.scanner import tv_persist
+
+client = TestClient(app)
 
 
 @pytest.fixture()
@@ -102,8 +106,7 @@ def test_online_apply_refreshes_names(tv_lib):
     assert store.get_show_meta(sid)["person_names"] == "新人"
 
 
-def test_scrape_pending_pure_backfill_separate(tv_lib):
-    # scrape_pending 保持纯净（只做刮削）；回填由任务层另行调用
+def test_scrape_pending_pure_backfill_separate(tv_lib):    # scrape_pending 保持纯净（只做刮削）；回填由任务层另行调用
     lib = tv_lib
     sid = store.upsert_show(lib["id"], "测试剧", 2020)
     store.update_show_meta(sid, tmdb_id=666, fetched_at=int(time.time()))
@@ -112,3 +115,25 @@ def test_scrape_pending_pure_backfill_separate(tv_lib):
     out = tv_persist.backfill_person_names(library_ids=[lib["id"]])
     assert [(r["show_id"], r["status"]) for r in out] == [(sid, "ok_backfilled")]
     assert store.get_show_meta(sid)["person_names"] == "姚晨"
+
+
+def test_show_detail_cast(tv_lib):
+    lib = tv_lib
+    sid = store.upsert_show(lib["id"], "测试剧", 2020)
+    store.update_show_meta(sid, tmdb_id=777)
+    store.upsert_tmdb_cache(777, _meta(), {"cast": [
+        {"id": 1, "name": "周杰", "profile_path": "/zhou.jpg",
+         "character": "包拯", "order": 0},
+        {"id": 2, "name": "", "profile_path": None,
+         "character": "", "order": 1},
+    ], "crew": []}, "", media_type="tv")
+    d = client.get(f"/api/tv/shows/{sid}").json()
+    assert d["cast"] == [{"name": "周杰", "character": "包拯",
+                          "profile_path": "/zhou.jpg"}]
+
+
+def test_show_detail_cast_empty_without_match(tv_lib):
+    lib = tv_lib
+    sid = store.upsert_show(lib["id"], "未匹配剧", 2020)
+    d = client.get(f"/api/tv/shows/{sid}").json()
+    assert d["cast"] == []

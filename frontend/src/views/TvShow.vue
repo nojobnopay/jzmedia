@@ -47,6 +47,17 @@
         </div>
       </div>
     </div>
+    <section v-if="castList.length" class="card-block cast-sec">
+      <h3>演职员 <span class="dim">{{ castList.length }}</span></h3>
+      <div class="cast-wall">
+        <div v-for="p in castList" :key="p.name" class="cast-card"
+          :title="p.character ? `${p.name} 饰 ${p.character}` : p.name">
+          <div class="avatar-fallback" aria-hidden="true">{{ (p.name || '?').slice(0, 1) }}</div>
+          <div class="cast-name">{{ p.name }}</div>
+          <div v-if="showCharacter && p.character" class="cast-char">{{ p.character }}</div>
+        </div>
+      </div>
+    </section>
     <div class="bar seasons">
       <button v-for="s in show.seasons" :key="s.season" class="chip"
         :class="{ on: season === s.season }" @click="season = s.season">
@@ -169,6 +180,12 @@ const searchedCand = ref(false)
 
 const movies = computed(() => (show.value?.extras || []).filter(x => x.kind === 'movie'))
 const features = computed(() => (show.value?.extras || []).filter(x => x.kind !== 'movie'))
+// 演职员：后端 show_detail 透出 tmdb_cache credits 前 10（只做展示，不跳人物页——
+// TV 人物未入库，站内无数据）。饰演角色仅英文原语言展示（与电影 Detail 同规则，
+// CJK 剧的罗马音/英文角色名读作噪音）。
+const castList = computed(() => show.value?.cast || [])
+const showCharacter = computed(() =>
+  String(show.value?.original_language || '').startsWith('en'))
 
 const seasonEps = computed(() =>
   (show.value?.episodes || []).filter(e => Number(e.season) === Number(season.value)))
@@ -405,6 +422,11 @@ onMounted(load)
 .ver-sep .ver-line { display: inline-block; width: 40px; height: 1px; background: #3a3a3a; vertical-align: middle; margin: 0 8px; }
 .extras { margin: 12px; }
 .extras h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.cast-sec { margin: 12px; }
+.cast-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+.cast-card { text-align: center; }
+.avatar-fallback { width: 64px; height: 64px; margin: 0 auto 6px; border-radius: 50%; background: #2a2a2a; color: #888; font-size: 1.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; }
 .ex-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .ex-card { width: 220px; padding: 8px 10px; background: #1f1f1f; border: 1px solid #333; border-radius: 8px; }
 .ex-name { font-size: 0.875rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
