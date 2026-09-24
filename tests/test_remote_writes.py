@@ -62,7 +62,8 @@ def test_artwork_remote_write(smb_lib):
     d = root / "Art (2019)"
     d.mkdir()
     mid = _movie_row(lib, "Art (2019)/Art (2019).mkv", tmdb_id=778901)
-    poster = os.path.join(POSTER_DIR, "778901.jpg")
+    poster = os.path.join(POSTER_DIR, "movies", "778901.jpg")
+    os.makedirs(os.path.dirname(poster), exist_ok=True)
     with open(poster, "wb") as fh:
         fh.write(b"\xff\xd8POSTER")
     try:
@@ -86,7 +87,8 @@ def test_scan_remote_writes_nfo_and_poster(smb_lib):
     p = root / rel
     p.parent.mkdir(parents=True)
     p.write_bytes(b"x")
-    poster = os.path.join(POSTER_DIR, "778902.jpg")
+    poster = os.path.join(POSTER_DIR, "movies", "778902.jpg")
+    os.makedirs(os.path.dirname(poster), exist_ok=True)
     with open(poster, "wb") as fh:
         fh.write(b"\xff\xd8SCANPOSTER")
     try:
@@ -123,7 +125,8 @@ def test_artwork_remote_size_mismatch_skips_read(smb_lib):
     d.mkdir()
     (d / "poster.jpg").write_bytes(b"\xff\xd8OLD")   # 长度与源不同
     mid = _movie_row(lib, "Art2 (2019)/Art2 (2019).mkv", tmdb_id=778905)
-    poster = os.path.join(POSTER_DIR, "778905.jpg")
+    poster = os.path.join(POSTER_DIR, "movies", "778905.jpg")
+    os.makedirs(os.path.dirname(poster), exist_ok=True)
     with open(poster, "wb") as fh:
         fh.write(b"\xff\xd8NEWPOSTER-LONGER")
     try:

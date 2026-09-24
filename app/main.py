@@ -25,6 +25,12 @@ async def _lifespan(_app: FastAPI):
     # 启动初始化（评审 R01-Q1）：此前在模块导入期执行，测试无法隔离/导入即写盘
     ensure_dirs()
     store.init_db()
+    # posters 子目录迁移（根部旧文件 → 功能子目录 + DB 旧值改写；幂等可重入）
+    try:
+        from . import posters as _posters
+        _posters.migrate_posters()
+    except Exception as e:
+        _logger.warning("poster migrate at startup failed: %s", e)
     # 后台预热转码后端探测（冒烟编码最多几秒，不阻塞启动；首次 decide/health 即命中缓存）
     from . import transcode as _tr
     try:
@@ -130,10 +136,10 @@ _CSP = ("default-src 'self'; "
         "object-src 'none'; base-uri 'self'; form-action 'self'")
 
 
-# 可变海报文件（`<tmdb>.jpg` / `<tmdb>_orig.jpg`，换海报会原地覆盖，URL 不变）：
+# 可变海报文件（换海报会原地覆盖，URL 不变）：
 # StaticFiles 默认不发 Cache-Control，浏览器启发式缓存会一直用旧图 → 强制重新验证
-# （ETag/Last-Modified 未变则 304，变了则 200）。cand/（hash 命名）与头像不受影响。
-_POSTER_MUTABLE_RE = re.compile(r"^/posters/\d+(_orig)?\.(?:jpg|jpeg|png)$")
+# （ETag/Last-Modified 未变则 304，变了则 200）。cand/（hash 命名）与头像/tv/背景不受影响。
+_POSTER_MUTABLE_RE = re.compile(r"^/posters/(?:movies|orig)/\d+\.(?:jpg|jpeg|png)$")
 
 
 @app.middleware("http")

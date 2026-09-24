@@ -81,12 +81,14 @@ def test_poster_set_persists_and_blocks_refresh_revert(monkeypatch):
 
     def _fake_dl(fp, dest, size="w500"):
         downloads.append((fp, size))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
         with open(dest, "wb") as fh:
             fh.write(size.encode())
         return True
 
     monkeypatch.setattr(tmdb, "download_image", _fake_dl)
-    orig = os.path.join(POSTER_DIR, f"{tid}_orig.jpg")
+    orig = os.path.join(POSTER_DIR, "orig", f"{tid}.jpg")
+    os.makedirs(os.path.dirname(orig), exist_ok=True)
     with open(orig, "wb") as fh:
         fh.write(b"OLD")   # 旧原图缓存必须被清掉
     r = client.post(f"/api/movies/{mid}/poster", json={"file_path": "/bigposter1.jpg"})
@@ -94,12 +96,12 @@ def test_poster_set_persists_and_blocks_refresh_revert(monkeypatch):
     assert r.json()["original_ok"] is True and r.json()["file_path"] == "/bigposter1.jpg"
     assert ("/bigposter1.jpg", "w500") in downloads
     assert ("/bigposter1.jpg", "original") in downloads
-    with open(os.path.join(POSTER_DIR, f"{tid}.jpg"), "rb") as fh:
+    with open(os.path.join(POSTER_DIR, "movies", f"{tid}.jpg"), "rb") as fh:
         assert fh.read() == b"w500"
     with open(orig, "rb") as fh:
         assert fh.read() == b"original"
     # 同 tmdb 行 poster_path 同步
-    assert store.get_movie(mid)["poster_path"] == f"posters/{tid}.jpg"
+    assert store.get_movie(mid)["poster_path"] == f"posters/movies/{tid}.jpg"
     # 刷新（TMDB 默认海报仍是低分那张）不得回退
     _seed_cache(tid, "/lowposter.jpg")
     cached = store.get_tmdb_cached(tid)
@@ -129,9 +131,11 @@ def test_poster_cache_headers(monkeypatch):
     tid = 479459
     mid = _movie(tid)
     _seed_cache(tid, "/lowposter.jpg")
-    with open(os.path.join(POSTER_DIR, f"{tid}.jpg"), "wb") as fh:
+    dest = os.path.join(POSTER_DIR, "movies", f"{tid}.jpg")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "wb") as fh:
         fh.write(b"JPEG")
-    r = client.get(f"/posters/{tid}.jpg")
+    r = client.get(f"/posters/movies/{tid}.jpg")
     assert r.status_code == 200
     assert r.headers.get("cache-control") == "no-cache"
     # 候选缩略图（hash 命名，内容不变）不加 no-cache
@@ -141,7 +145,7 @@ def test_poster_cache_headers(monkeypatch):
         fh.write(b"THUMB")
     r2 = client.get(f"/posters/cand/{tid}_abcdef123456.jpg")
     assert r2.status_code == 200 and not r2.headers.get("cache-control")
-    # poster-orig（原地覆盖的 _orig.jpg）同样 no-cache
+    # poster-orig（原地覆盖的 orig 图）同样 no-cache
     monkeypatch.setattr(tmdb, "download_image",
                         lambda fp, dest, size="w500": (
                             open(dest, "wb").write(b"O") or True))

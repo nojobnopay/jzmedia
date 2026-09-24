@@ -37,7 +37,8 @@ def _cache(tmdb_id, backdrop="/bd.jpg", **extra):
 def test_artwork_nfo_art_roundtrip(art_lib, monkeypatch):
     lib, root = art_lib
     tmdb_id = 771001
-    poster = os.path.join(POSTER_DIR, f"{tmdb_id}.jpg")
+    poster = os.path.join(POSTER_DIR, "movies", f"{tmdb_id}.jpg")
+    os.makedirs(os.path.dirname(poster), exist_ok=True)
     with open(poster, "wb") as fh:
         fh.write(b"POSTER")
     _cache(tmdb_id)
@@ -65,7 +66,8 @@ def test_artwork_nfo_art_roundtrip(art_lib, monkeypatch):
 def test_artwork_disabled_and_readonly(art_lib, monkeypatch):
     lib, root = art_lib
     tmdb_id = 771002
-    poster = os.path.join(POSTER_DIR, f"{tmdb_id}.jpg")
+    poster = os.path.join(POSTER_DIR, "movies", f"{tmdb_id}.jpg")
+    os.makedirs(os.path.dirname(poster), exist_ok=True)
     with open(poster, "wb") as fh:
         fh.write(b"POSTER")
     _cache(tmdb_id)
@@ -90,7 +92,8 @@ def test_artwork_multi_version_stem_poster(art_lib, monkeypatch):
     """P3 后默认（kodi/同 edition）：多版本只写一份 poster，不写 per-version。"""
     lib, root = art_lib
     tmdb_id = 771003
-    poster = os.path.join(POSTER_DIR, f"{tmdb_id}.jpg")
+    poster = os.path.join(POSTER_DIR, "movies", f"{tmdb_id}.jpg")
+    os.makedirs(os.path.dirname(poster), exist_ok=True)
     with open(poster, "wb") as fh:
         fh.write(b"POSTER")
     _cache(tmdb_id)

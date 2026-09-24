@@ -860,13 +860,16 @@ def match_episode(episode_id: int, body: EpisodeMatchBody):
         **({"episode_credits": json.dumps(ep_credits, ensure_ascii=False)}
            if ep_credits else {}),
     )
-    # 剧照换了 → 懒下载缓存失效（下次请求重拉）
+    # 剧照换了 → 懒下载缓存失效（下次请求重拉；兼容迁移前根部旧文件）
     try:
         from ..db import POSTER_DIR
         from ..scanner.tv_persist import episode_still_name
         stale = os.path.join(POSTER_DIR, episode_still_name(int(episode_id)))
         if os.path.isfile(stale):
             os.remove(stale)
+        legacy = os.path.join(POSTER_DIR, f"tv_e{int(episode_id)}.jpg")
+        if os.path.isfile(legacy):
+            os.remove(legacy)
     except OSError:
         pass
     return {"ok": True, "episode_id": int(episode_id),

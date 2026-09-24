@@ -133,7 +133,7 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 
 ## 数据存放
 
-- `./data/jzmedia.db`：主库；`./data/posters/<tmdb_id>.jpg`：海报，对外服务于 `/posters`
+- `./data/jzmedia.db`：主库；`./data/posters/`：图片缓存（按功能拆子目录：`movies/` 主海报、`orig/` 原图、`backdrops/` 背景、`persons/` 头像、`tv/` 剧集+季海报、`stills/` 集剧照、`cand/` 候选缩略图、`tvcast/` 剧集演职头像），对外服务于 `/posters`
 - `./data/transcode/<版本id>/`：HLS 会话产物与字幕/字体抽取缓存（24h TTL 自清）；`subs/` 为 VTT/ASS/SUP 抽取，`fonts/` 为 MKV 附件字体 dump
 - `./data/fonts/*.woff2|ttf|otf|ttc`：**ASS 渲染兜底字体投放目录**（不放仓库；中文 ASS 建议放一个中文字体，播放器自动加载）
 - NFO：独占单版本目录只留 `movie.nfo`（标题/原标题/年份/简介/评分/类型/产地/演职员 + TMDB/IMDb ID），同片多版本（同目录同 `tmdb_id`）才为每个版本补 `<视频文件名>.nfo`，共享混放目录只写当前同名、不碰 `movie.nfo`；Kodi / Jellyfin / Emby 通用，`POST /api/jobs/rebuild-nfo` 可一键全量收敛历史残留

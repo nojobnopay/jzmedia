@@ -1,4 +1,5 @@
 """TMDB客户端（Bearer Token v4，支持TMDB_PROXY中转；瞬时错误自动重试，评审 B8/R03-D5）"""
+import os
 import time
 
 import httpx
@@ -158,6 +159,10 @@ def download_image(image_path: str, dest: str, size: str = "w500") -> bool:
     url = _config.effective_tmdb_image_base().rstrip("/") + "/t/p/" + size + image_path
     proxy = _config.effective_tmdb_proxy() or None
     try:
+        # posters 已按功能拆子目录：目标父目录可能尚不存在（如测试隔离目录），先建
+        parent = os.path.dirname(dest)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with httpx.Client(timeout=30.0, proxy=proxy) as c:
             r = c.get(url)
             r.raise_for_status()

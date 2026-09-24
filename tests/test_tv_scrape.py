@@ -97,7 +97,7 @@ def test_scrape_show_and_api(tv_lib, fake_tmdb):
     assert res[0]["episodes_matched"] == 2
     show = store.list_shows(lib["id"])[0]
     assert show["tmdb_id"] == 100 and show["title"] == "测试剧"
-    assert show["status"] == "Ended" and show["poster_path"] == "tv_100.jpg"
+    assert show["status"] == "Ended" and show["poster_path"] == "tv/100.jpg"
     assert show["number_of_seasons"] == 1 and show["episode_run_time"] == 45
     # 同标题在别的用例已刮过时走本地索引（library）——两者都算正确绑定
     assert show["match_source"] in ("tmdb", "library") and show["needs_review"] == 0

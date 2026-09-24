@@ -26,10 +26,10 @@ test('castCharacter 兼容 character/character_name 双字段', () => {
 })
 
 test('castAvatarSrc 优先级：TMDB profile_path > 本地 avatar > 占位', () => {
-  const tmdb = castAvatarSrc({ profile_path: '/abc123.jpg', avatar: 'person_1.jpg' })
+  const tmdb = castAvatarSrc({ profile_path: '/abc123.jpg', avatar: 'posters/persons/1.jpg' })
   assert.ok(tmdb.includes('/api/tv/cast-avatar'))
-  const local = castAvatarSrc({ avatar: 'person_1.jpg' })
-  assert.equal(local, '/posters/person_1.jpg')
+  const local = castAvatarSrc({ avatar: 'posters/persons/1.jpg' })
+  assert.equal(local, '/posters/persons/1.jpg')
   assert.equal(castAvatarSrc({ avatar: '-' }), '')
   assert.equal(castAvatarSrc({}), '')
 })

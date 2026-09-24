@@ -24,7 +24,8 @@ def test_poster_orig_returns_original(monkeypatch):
     mid = _movie()
     store.upsert_tmdb_cache(778001, {"title": "海报", "year": 2020,
                                      "media_type": "movie"}, {}, "/p1.jpg")
-    dest = os.path.join(POSTER_DIR, "778001_orig.jpg")
+    dest = os.path.join(POSTER_DIR, "orig", "778001.jpg")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
     if os.path.exists(dest):
         os.remove(dest)
     calls = []

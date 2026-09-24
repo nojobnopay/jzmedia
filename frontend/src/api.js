@@ -60,9 +60,12 @@ export async function api(path, opts = {}) {
 }
 // v 为可选版本（一般传 updated_at）：海报原地覆盖时 URL 不变，浏览器会吃旧缓存；
 // 带版本参数即可强制取新图（后端对可变海报也发 Cache-Control: no-cache 双保险）。
+// DB 存 DATA_DIR 相对路径（如 posters/movies/123.jpg）：去掉头部 posters/ 保留子目录。
 export const posterUrl = (p, v) => {
   if (!p) return ''
-  const u = `/posters/${p.split('/').pop()}`
+  let rel = String(p).replace(/^\/+/, '')
+  if (rel.startsWith('posters/')) rel = rel.slice('posters/'.length)
+  const u = `/posters/${rel}`
   return v ? `${u}?v=${encodeURIComponent(v)}` : u
 }
 

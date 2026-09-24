@@ -1206,11 +1206,12 @@ def batch_delete_movies(body: dict | None = None):
 @router.get("/movies/{movie_id}/poster-orig")
 def movie_poster_orig(movie_id: int):
     """海报原图（按需缓存）：tmdb_cache.poster_tmdb_path → original 尺寸落盘
-    posters/<tmdb_id>_orig.jpg（走 TMDB_PROXY，已存在直接复用），FileResponse 返回。
-    无 tmdb_id/远端路径/下载失败时 4xx/5xx，前端回退本地 w500 图。删 *_orig.jpg
-    即清缓存，下次点击自动重下。"""
+    posters/orig/<tmdb_id>.jpg（走 TMDB_PROXY，已存在直接复用），FileResponse 返回。
+    无 tmdb_id/远端路径/下载失败时 4xx/5xx，前端回退本地 w500 图。删 orig 下
+    对应文件即清缓存，下次点击自动重下。"""
     from fastapi.responses import FileResponse
-    from ...db import POSTER_DIR
+    from ... import posters as _posters
+    from ...config import settings
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
@@ -1224,7 +1225,7 @@ def movie_poster_orig(movie_id: int):
     remote = ((cached or {}).get("poster_tmdb_path") or "").strip()
     if not remote:
         raise HTTPException(404, "no poster path in cache")
-    dest = os.path.join(POSTER_DIR, f"{int(tid)}_orig.jpg")
+    dest = os.path.join(settings.data_dir, _posters.movie_orig_rel(int(tid)))
     if not os.path.isfile(dest):
         try:
             ok = tmdb.download_poster(remote, dest, size="original")
@@ -1232,7 +1233,7 @@ def movie_poster_orig(movie_id: int):
             ok = False
         if not ok or not os.path.isfile(dest):
             raise HTTPException(502, "original poster download failed")
-    # 换海报会原地覆盖 _orig.jpg（URL 不变）→ 强制浏览器重新验证，避免显示旧原图
+    # 换海报会原地覆盖 orig 图（URL 不变）→ 强制浏览器重新验证，避免显示旧原图
     return FileResponse(dest, filename=os.path.basename(dest),
                         headers={"Cache-Control": "no-cache"})
 
@@ -1313,8 +1314,7 @@ def movie_poster_set(movie_id: int, body: dict | None = None):
     """选定候选海报：下载 w500 + original 覆盖本地缓存 → 记 override（刷新不回退）
     → 同步同 tmdb 全部版本 poster_path → best-effort 重写媒体目录 poster.jpg。"""
     from ...config import settings
-    from ... import artwork, storage
-    from ...db import POSTER_DIR
+    from ... import artwork, posters as _posters, storage
     body = body or {}
     fp = _valid_poster_path(body.get("file_path"))
     m = store.get_movie(movie_id)
@@ -1332,14 +1332,14 @@ def movie_poster_set(movie_id: int, body: dict | None = None):
     allowed = {str(p.get("file_path") or "") for p in (data.get("posters") or [])}
     if fp not in allowed:
         raise HTTPException(422, "poster not in candidates")
+    dest = os.path.join(settings.data_dir, _posters.movie_poster_rel(tid))
     try:
-        os.makedirs(POSTER_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
     except OSError as e:
         raise HTTPException(500, f"poster dir failed: {e}")
-    dest = os.path.join(POSTER_DIR, f"{tid}.jpg")
     if not tmdb.download_image(fp, dest, size="w500"):
         raise HTTPException(502, "poster download failed")
-    orig = os.path.join(POSTER_DIR, f"{tid}_orig.jpg")
+    orig = os.path.join(settings.data_dir, _posters.movie_orig_rel(tid))
     original_ok = False
     try:
         if os.path.exists(orig):

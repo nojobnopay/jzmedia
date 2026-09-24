@@ -31,19 +31,23 @@ _STILL_FAIL_TTL = 600.0
 
 
 def tv_poster_name(tmdb_id: int) -> str:
-    return f"tv_{int(tmdb_id)}.jpg"
+    """剧集海报（POSTER_DIR 相对路径，`tv/<id>.jpg`；入库值）。"""
+    return f"tv/{int(tmdb_id)}.jpg"
 
 
 def tv_backdrop_name(tmdb_id: int) -> str:
-    return f"tv_backdrop_{int(tmdb_id)}.jpg"
+    """剧集背景（POSTER_DIR 相对路径，`backdrops/tv_<id>.jpg`；入库值）。"""
+    return f"backdrops/tv_{int(tmdb_id)}.jpg"
 
 
 def tv_season_poster_name(tmdb_id: int, season: int) -> str:
-    return f"tv_{int(tmdb_id)}_s{int(season)}.jpg"
+    """季海报（POSTER_DIR 相对路径，`tv/<id>_s<N>.jpg`；入库值）。"""
+    return f"tv/{int(tmdb_id)}_s{int(season)}.jpg"
 
 
 def episode_still_name(episode_id: int) -> str:
-    return f"tv_e{int(episode_id)}.jpg"
+    """集剧照（POSTER_DIR 相对路径，`stills/<episode_id>.jpg`；不入库）。"""
+    return f"stills/{int(episode_id)}.jpg"
 
 
 def _download(path: str, dest: str, size: str) -> str:
@@ -65,6 +69,15 @@ def ensure_episode_still(episode_id: int) -> str:
     dest = os.path.join(POSTER_DIR, episode_still_name(episode_id))
     if os.path.isfile(dest) and os.path.getsize(dest) > 0:
         return dest
+    # 迁移前根部旧文件（tv_e<id>.jpg）：懒搬到新位置，省一次 TMDB 下载
+    legacy = os.path.join(POSTER_DIR, f"tv_e{int(episode_id)}.jpg")
+    try:
+        if os.path.isfile(legacy) and os.path.getsize(legacy) > 0:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            os.replace(legacy, dest)
+            return dest
+    except OSError as e:
+        logger.debug("still legacy move failed episode=%s: %s", episode_id, e)
     failed_at = _STILL_FAIL.get(int(episode_id), 0.0)
     if failed_at and (time.time() - failed_at) < _STILL_FAIL_TTL:
         return ""

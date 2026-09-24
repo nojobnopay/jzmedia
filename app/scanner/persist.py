@@ -6,10 +6,10 @@ from concurrent.futures import ThreadPoolExecutor
 from ..config import settings
 from .. import artwork
 from .. import library_paths
+from .. import posters as _posters
 from .. import storage
 from .. import store
 from .. import tmdb
-from ..db import POSTER_DIR
 from ..log import get_logger
 logger = get_logger("scanner.persist")
 from .match import extract_credits, jobs_from_credits, meta_from_detail
@@ -43,10 +43,11 @@ def _write_artwork_retry(mid: int, abs_path: str, backend, rel: str) -> dict:
 
 
 def save_person_avatar(person_tmdb_id: int, profile_path: str | None) -> str:
-    """人物头像落盘（w185），文件已存在则跳过。返回相对 DATA_DIR 的路径，失败返回 ''。"""
+    """人物头像落盘（w185，`posters/persons/<id>.jpg`），文件已存在则跳过。
+    返回相对 DATA_DIR 的路径，失败返回 ''。"""
     if not profile_path:
         return ""
-    dest = os.path.join(POSTER_DIR, f"person_{person_tmdb_id}.jpg")
+    dest = os.path.join(settings.data_dir, _posters.person_avatar_rel(person_tmdb_id))
     if os.path.exists(dest):
         return os.path.relpath(dest, settings.data_dir)
     if tmdb.download_poster(profile_path, dest, size="w185"):
@@ -70,7 +71,8 @@ def _sync_jobs(mid: int, jobs: list[tuple], max_workers: int = 8) -> int:
         raw = store.get_person_raw(pid_tmdb) or {}
         stored_profile = raw.get("profile_tmdb_path") or ""
         old_avatar = raw.get("avatar") or ""
-        dest = os.path.join(POSTER_DIR, f"person_{pid_tmdb}.jpg")
+        dest = os.path.join(settings.data_dir,
+                              _posters.person_avatar_rel(pid_tmdb))
         if (stored_profile == (profile_path or "") and os.path.exists(dest)
                 and old_avatar):
             return pid_tmdb, old_avatar, False, profile_path or ""
@@ -159,7 +161,7 @@ def ensure_movie_poster(tmdb_id: int, poster_tmdb_path: str | None,
                         old_poster_tmdb_path: str | None = None) -> str:
     """海报本地路径保障：远端 path 未变且文件存在则复用，否则下载（覆盖）。
     返回相对 DATA_DIR 的路径，失败时有文件则复用旧文件，否则 ''。"""
-    dest = os.path.join(POSTER_DIR, f"{tmdb_id}.jpg")
+    dest = os.path.join(settings.data_dir, _posters.movie_poster_rel(tmdb_id))
     remote = poster_tmdb_path or ""
     if not remote:
         return os.path.relpath(dest, settings.data_dir) if os.path.exists(dest) else ""
@@ -173,7 +175,7 @@ def ensure_movie_poster(tmdb_id: int, poster_tmdb_path: str | None,
 def _media_needs(tmdb_id: int, mid: int, poster_tmdb: str,
                  old_poster_tmdb: str, detail: dict) -> dict:
     """后台重活是否真有事做（供回包 flags，前端展示“补齐中”）。纯本地判断，不调网。"""
-    dest = os.path.join(POSTER_DIR, f"{tmdb_id}.jpg")
+    dest = os.path.join(settings.data_dir, _posters.movie_poster_rel(tmdb_id))
     poster = bool(poster_tmdb) and not (
         os.path.exists(dest) and (old_poster_tmdb or "") == poster_tmdb)
     try:
