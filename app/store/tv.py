@@ -19,7 +19,7 @@ __all__ = ['upsert_show', 'upsert_episode', 'upsert_season', 'list_shows', 'get_
            'remap_absolute_episodes', 'list_shows_for_scrape', 'set_show_match',
            'mark_episode_watched', 'mark_show_watched', 'next_episode',
            'episode_after', 'get_show_meta', 'episode_progress_map',
-           'list_episode_versions', 'list_seasons', 'get_episode_by_path',
+           'list_episode_versions', 'list_seasons',            'get_episode_by_path',
            'find_show_by_dir_prefix', 'reattach_tv_extras', 'move_tv_paths',
            'repath_tv_episodes_prefix', 'episode_version',
            'has_other_show_under_prefix',
@@ -29,6 +29,9 @@ __all__ = ['upsert_show', 'upsert_episode', 'upsert_season', 'list_shows', 'get_
            'get_tv_facets', 'suggest_tv_shows', 'suggest_tv_people',
            'tv_status_bucket', 'TV_RATING_SOURCES', 'TV_RATING_STEPS',
            'TV_STATUS_CONTINUING', 'TV_STATUS_ENDED',
+           'parse_season_cast', 'parse_episode_credits',
+           'get_season', 'list_season_episodes', 'season_next_episode',
+           'mark_season_watched', 'similar_shows', 'episode_cast',
            'TV_META_FIELDS', 'EPISODE_META_FIELDS']
 
 import json as _json
@@ -47,7 +50,8 @@ TV_META_FIELDS = {"title", "sort_title", "original_title", "year", "overview",
 EPISODE_META_FIELDS = {"title", "overview", "still_path", "air_date", "runtime",
                        "tmdb_rating", "tmdb_episode_id", "season", "episode",
                        "episode_end", "absolute_number", "watched", "watched_at",
-                       "missing", "needs_review", "local_only", "nfo_hash"}
+                       "missing", "needs_review", "local_only", "nfo_hash",
+                       "episode_credits"}
 
 _LIST_COLS = {"genres", "genre_ids", "tags", "origin_countries", "networks", "created_by"}
 
@@ -328,8 +332,12 @@ def upsert_show(library_id: int, title: str, year: int | None = None,
 
 def upsert_season(show_id: int, library_id: int, season: int, name: str = "",
                   overview: str = "", air_date: str = "", poster_path: str = "",
-                  episode_count: int = 0, tmdb_season_id: int | None = None) -> int:
-    """季元数据幂等写（T2 刮削用；空值不覆盖已有非空值）。"""
+                  episode_count: int = 0, tmdb_season_id: int | None = None,
+                  cast_json: str | None = None) -> int:
+    """季元数据幂等写（T2 刮削用；空值不覆盖已有非空值）。
+
+    `cast_json` 为本季常驻阵容 JSON（`tv_match.tv_season_credits` 形态）：
+    非 None 即覆盖（`"[]"` 表示有数据但无常驻），None 保持旧值（离线/缺席）。"""
     lib_id = int(library_id or DEFAULT_LIBRARY_ID)
     now = int(time.time())
     with _lock, _conn() as c:
@@ -342,16 +350,18 @@ def upsert_season(show_id: int, library_id: int, season: int, name: str = "",
                 " air_date=CASE WHEN COALESCE(air_date,'')='' THEN ? ELSE air_date END,"
                 " poster_path=CASE WHEN COALESCE(poster_path,'')='' THEN ? ELSE poster_path END,"
                 " episode_count=MAX(episode_count, ?), tmdb_season_id=COALESCE(?, tmdb_season_id),"
+                ' "cast"=COALESCE(?, "cast"),'
                 " updated_at=? WHERE id=?",
                 (name or "", overview or "", air_date or "", poster_path or "",
-                 int(episode_count or 0), tmdb_season_id, now, int(row["id"])))
+                 int(episode_count or 0), tmdb_season_id, cast_json, now, int(row["id"])))
             return int(row["id"])
         cur = c.execute(
             "INSERT INTO tv_seasons(show_id, library_id, season, name, overview, air_date,"
-            " poster_path, episode_count, tmdb_season_id, updated_at)"
-            " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ' poster_path, episode_count, tmdb_season_id, "cast", updated_at)'
+            " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (int(show_id), lib_id, int(season), name or "", overview or "", air_date or "",
-             poster_path or "", int(episode_count or 0), tmdb_season_id, now))
+             poster_path or "", int(episode_count or 0), tmdb_season_id,
+             cast_json if cast_json is not None else "[]", now))
         return int(cur.lastrowid)
 
 
@@ -408,6 +418,34 @@ def _show_row(r) -> dict:
     d["season_count"] = int(d.get("season_count") or 0)
     d["watched_count"] = int(d.get("watched_count") or 0)
     return d
+
+
+def parse_season_cast(v) -> list[dict]:
+    """tv_seasons.cast JSON → 列表（脏数据/空值返回 []，不抛）。"""
+    if isinstance(v, list):
+        return [x for x in v if isinstance(x, dict)]
+    if not isinstance(v, str) or not v.strip():
+        return []
+    try:
+        parsed = _json.loads(v)
+    except (TypeError, ValueError):
+        return []
+    return [x for x in parsed] if isinstance(parsed, list) else []
+
+
+def parse_episode_credits(v) -> dict:
+    """tv_episodes.episode_credits JSON → {guests, directors}（脏数据返回空骨架）。"""
+    empty = {"guests": [], "directors": []}
+    if isinstance(v, dict):
+        return {"guests": [x for x in v.get("guests", []) if isinstance(x, dict)],
+                "directors": [x for x in v.get("directors", []) if isinstance(x, dict)]}
+    if not isinstance(v, str) or not v.strip():
+        return empty
+    try:
+        parsed = _json.loads(v)
+    except (TypeError, ValueError):
+        return empty
+    return parse_episode_credits(parsed) if isinstance(parsed, dict) else empty
 
 
 def _lib_cond(alias: str, library_ids) -> tuple[str, list]:
@@ -839,6 +877,7 @@ def get_show(show_id: int) -> dict | None:
                 "overview": m.get("overview") or "",
                 "air_date": m.get("air_date") or "",
                 "poster_path": m.get("poster_path") or "",
+                "cast": parse_season_cast(m.get("cast")),
             })
         d["seasons"] = seasons
         d["season_count"] = len(seasons)
@@ -846,11 +885,235 @@ def get_show(show_id: int) -> dict | None:
 
 
 def list_seasons(show_id: int) -> list[dict]:
-    """季元数据行（轻量，不含集）。"""
+    """季元数据行（轻量，不含集；cast 已解析为列表）。"""
     with _lock, _conn() as c:
         rows = c.execute("SELECT * FROM tv_seasons WHERE show_id=? ORDER BY season",
                          (int(show_id),)).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["cast"] = parse_season_cast(d.get("cast"))
+        out.append(d)
+    return out
+
+
+def get_season(show_id: int, season: int) -> dict | None:
+    """单季元数据行（含解析后 cast；无行返回 None，调用方可用集列表合成）。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM tv_seasons WHERE show_id=? AND season=?",
+                        (int(show_id), int(season))).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["cast"] = parse_season_cast(d.get("cast"))
+        return d
+
+
+def list_season_episodes(show_id: int, season: int) -> list[dict]:
+    """某季集行（播出顺序：集号/文件路径；版本分组与连播由调用方处理）。"""
+    with _lock, _conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM tv_episodes WHERE show_id=? AND season=?"
+            " ORDER BY episode, episode_end, file_path",
+            (int(show_id), int(season),)).fetchall()]
+
+
+def season_next_episode(show_id: int, season: int) -> dict | None:
+    """本季下一集（Plex 式季内连播）：① 本季未看完断点的最近一集 →
+    ② 本季最后看完的下一集（同版本优先，同集另一版本不算）→ ③ 本季首条未看。
+    规则与 `next_episode` 同构，仅作用域限本季。"""
+    with _lock, _conn() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT e.*, p.position AS _pos, p.duration AS _dur,"
+            " p.updated_at AS _played FROM tv_episodes e"
+            " LEFT JOIN playback_progress p ON p.kind='episode' AND p.item_id=e.id"
+            " WHERE e.show_id=? AND e.season=? ORDER BY e.episode, e.episode_end, e.file_path",
+            (int(show_id), int(season),))]
+    if not rows:
+        return None
+
+    def _finished(e: dict) -> bool:
+        if int(e.get("watched") or 0):
+            return True
+        dur = float(e.get("_dur") or 0)
+        pos = float(e.get("_pos") or 0)
+        return dur > 0 and (pos / dur >= 0.95 or dur - pos <= 300)
+
+    partial = [e for e in rows if not _finished(e) and float(e.get("_pos") or 0) >= 15]
+    if partial:
+        return max(partial, key=lambda e: int(e.get("_played") or 0))
+    last_finished = -1
+    for i, e in enumerate(rows):
+        if _finished(e):
+            last_finished = i
+    if last_finished >= 0:
+        anchor = rows[last_finished]
+        anchor_ver = episode_version(anchor.get("file_path"))
+        anchor_key = (int(anchor.get("episode") or 0), int(anchor.get("episode_end") or 0))
+        for e in rows[last_finished + 1:]:
+            if not _finished(e) and episode_version(e.get("file_path")) == anchor_ver:
+                return e
+        for e in rows[last_finished + 1:]:
+            if _finished(e):
+                continue
+            key = (int(e.get("episode") or 0), int(e.get("episode_end") or 0))
+            if key == anchor_key:
+                continue
+            return e
+    for e in rows:
+        if not _finished(e):
+            return e
+    return None
+
+
+def mark_season_watched(show_id: int, season: int, watched: bool = True) -> int:
+    """标本季已看/未看（返回受影响集数）；标已看清本季全部集断点。"""
+    now = int(time.time())
+    with _lock, _conn() as c:
+        ids = [int(r["id"]) for r in c.execute(
+            "SELECT id FROM tv_episodes WHERE show_id=? AND season=?",
+            (int(show_id), int(season),))]
+        if not ids:
+            return 0
+        c.execute("UPDATE tv_episodes SET watched=?, watched_at=?, updated_at=?"
+                  " WHERE show_id=? AND season=?",
+                  (1 if watched else 0, now if watched else 0, now,
+                   int(show_id), int(season)))
+        if watched:
+            for i in range(0, len(ids), 400):
+                chunk = ids[i:i + 400]
+                ph = ",".join("?" for _ in chunk)
+                c.execute("DELETE FROM playback_progress WHERE kind='episode'"
+                          f" AND item_id IN ({ph})", chunk)
+    return len(ids)
+
+
+def similar_shows(show_id: int, limit: int = 12) -> list[dict]:
+    """库中类似剧集（详情页"相关节目"，纯本地不触网，对标电影 similar）。
+
+    信号：同电视网 +30 / 同类型 +12·个 / 同主创 +15·个 / 同主演 +6·个 /
+    同产地大区 +8 / 同主产国 +6 / 年份±3 +4。门槛 = 至少命中一个内容信号
+    （电视网/类型/主创/主演）且总分 ≥15；返回含 `reason`（命中信号文案）。"""
+    me = get_show_meta(show_id)
+    if not me:
+        return []
+    me_genres = set(me.get("genres") or [])
+    me_networks = set(me.get("networks") or [])
+    me_cast = {n.strip() for n in str(me.get("person_names") or "").split(",")
+               if n.strip()}
+    me_creators = {str(c.get("name") or "").strip()
+                   for c in (me.get("created_by") or []) if c.get("name")}
+    try:
+        me_year = int(me.get("year") or 0)
+    except (TypeError, ValueError):
+        me_year = 0
+    try:
+        lim = max(1, min(int(limit or 12), 30))
+    except (TypeError, ValueError):
+        lim = 12
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT s.*, COUNT(e.id) AS episode_count,"
+            " COUNT(DISTINCT e.season) AS season_count,"
+            " COALESCE(SUM(e.watched), 0) AS watched_count"
+            " FROM tv_shows s LEFT JOIN tv_episodes e ON e.show_id=s.id"
+            " WHERE s.id<>? GROUP BY s.id LIMIT 1001",
+            (int(show_id),)).fetchall()
+    scored = []
+    for r in rows:
+        d = _jsonify(dict(r))
+        score, reasons, signal = 0, [], False
+        shared_net = me_networks & set(d.get("networks") or [])
+        if shared_net:
+            score += 30
+            signal = True
+            reasons.append("同电视网 " + sorted(shared_net)[0])
+        shared_g = me_genres & set(d.get("genres") or [])
+        if shared_g:
+            score += 12 * len(shared_g)
+            signal = True
+            reasons.append("同类型 " + sorted(shared_g)[0])
+        cand_creators = {str(x.get("name") or "").strip()
+                         for x in (d.get("created_by") or []) if x.get("name")}
+        shared_cr = me_creators & cand_creators
+        if shared_cr:
+            score += 15 * min(len(shared_cr), 2)
+            signal = True
+            reasons.append("同主创 " + sorted(shared_cr)[0])
+        cand_cast = {n.strip() for n in str(d.get("person_names") or "").split(",")
+                     if n.strip()}
+        shared_cast = me_cast & cand_cast
+        if shared_cast:
+            score += 6 * min(len(shared_cast), 5)
+            signal = True
+            reasons.append("同主演 " + sorted(shared_cast)[0])
+        if me.get("region") and d.get("region") == me.get("region"):
+            score += 8
+        if me.get("origin_country") and d.get("origin_country") == me.get("origin_country"):
+            score += 6
+        try:
+            y = int(d.get("year") or 0)
+        except (TypeError, ValueError):
+            y = 0
+        if me_year and y and abs(y - me_year) <= 3:
+            score += 4
+        if not signal or score < 15:
+            continue
+        out = _show_row(r)
+        out["score"] = score
+        out["reason"] = " · ".join(reasons[:2])
+        scored.append(out)
+    scored.sort(key=lambda x: (-x["score"], x.get("title") or ""))
+    return scored[:lim]
+
+
+def episode_cast(episode_id: int) -> dict:
+    """单集演职成品（集详情页用）：本季常驻 + 本集客串去重合并。
+
+    返回 {cast: [{id,name,character,profile_path,guest}], directors: [...],
+    cast_source: 'season'|'aggregate'|'none'}。常驻缺席时回退全剧聚合
+    （aggregate），两者皆无为 none。"""
+    ep = get_episode(episode_id)
+    if not ep:
+        return {"cast": [], "directors": [], "cast_source": "none"}
+    season_row = get_season(int(ep.get("show_id") or 0), int(ep.get("season") or 0))
+    regulars = list((season_row or {}).get("cast") or [])
+    source = "season"
+    if not regulars:
+        show = get_show_meta(int(ep.get("show_id") or 0))
+        tid = (show or {}).get("tmdb_id")
+        if tid:
+            with _lock, _conn() as c:
+                row = c.execute("SELECT credits FROM tmdb_cache"
+                                " WHERE media_type='tv' AND tmdb_id=?",
+                                (int(tid),)).fetchone()
+            if row and row["credits"]:
+                try:
+                    cr = _json.loads(row["credits"])
+                except (TypeError, ValueError):
+                    cr = {}
+                regulars = [x for x in (cr.get("cast") or [])[:10]
+                            if isinstance(x, dict) and x.get("name")]
+                if regulars:
+                    source = "aggregate"
+    if not regulars:
+        ec = parse_episode_credits(ep.get("episode_credits"))
+        return {"cast": [dict(g, guest=True) for g in ec["guests"]],
+                "directors": ec["directors"], "cast_source": "none"}
+    seen = {int(x.get("id") or 0) for x in regulars if x.get("id")}
+    cast = [dict(x, guest=False) for x in regulars]
+    ec = parse_episode_credits(ep.get("episode_credits"))
+    for g in ec["guests"]:
+        try:
+            gid = int(g.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if gid and gid in seen:
+            continue
+        if gid:
+            seen.add(gid)
+        cast.append(dict(g, guest=True))
+    return {"cast": cast, "directors": ec["directors"], "cast_source": source}
 
 
 def list_episode_versions(show_id: int, season: int, episode: int) -> list[dict]:

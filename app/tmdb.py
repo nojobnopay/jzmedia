@@ -93,10 +93,23 @@ def tv_detail(tmdb_id: int) -> dict:
 
 
 def tv_season(tmdb_id: int, season_number: int) -> dict:
-    """季详情（含 episodes[]：name/overview/still_path/air_date/runtime/vote_average/id）。"""
+    """季详情（含 episodes[]：name/overview/still_path/air_date/runtime/vote_average/id，
+    每集另带 guest_stars[]/crew[]；顶层 credits 为本季常驻阵容）。"""
     with _client() as c:
         return _get(c, f"/tv/{int(tmdb_id)}/season/{int(season_number)}",
                     params=_params(append_to_response="credits")).json()
+
+
+def tv_aggregate_credits(tmdb_id: int) -> dict:
+    """全剧聚合演职员（`/tv/{id}/aggregate_credits`，网站 Series Cast 同源）。
+
+    注意与 `tv_detail(append=credits)` 的区别：后者官方定义仅返回**最新季**
+    阵容；本接口返回全剧所有集的聚合：`cast[].roles[] {character, episode_count}`
+    + `total_episode_count`（一人多角可表达），crew 带 `jobs[]`。季/集级展示
+    另有季 credits 与季详情 `episodes[].guest_stars`，见 tv_season。"""
+    with _client() as c:
+        return _get(c, f"/tv/{int(tmdb_id)}/aggregate_credits",
+                    params=_params()).json()
 
 
 def tv_alternative_titles(tmdb_id: int) -> list[dict]:

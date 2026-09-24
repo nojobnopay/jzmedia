@@ -283,6 +283,7 @@ CREATE TABLE IF NOT EXISTS tv_seasons (
   poster_path TEXT DEFAULT '',
   episode_count INTEGER DEFAULT 0,
   tmdb_season_id INTEGER,
+  cast TEXT DEFAULT '[]',       -- 本季常驻阵容（tv_season credits 最小集，v26）
   updated_at INTEGER DEFAULT 0,
   UNIQUE(show_id, season)
 );
@@ -310,6 +311,7 @@ CREATE TABLE IF NOT EXISTS tv_episodes (
   missing INTEGER DEFAULT 0,
   needs_review INTEGER DEFAULT 0,  -- v23：刮削后 TMDB 无对应集（手动指定集号）
   local_only INTEGER DEFAULT 0,    -- v25：确认「TMDB 无对应集」的本地集（重刮不覆盖）
+  episode_credits TEXT DEFAULT '{}', -- v26：单集客串+导演（季详情 episodes[] 条目）
   nfo_hash TEXT DEFAULT '',        -- 上次写该集 NFO 的内容哈希（外部改动保护，v22）
   added_at INTEGER DEFAULT 0,
   updated_at INTEGER DEFAULT 0,
@@ -530,7 +532,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "metadata_provider_state"}
 
 
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
 
 
 def _columns(c, table: str) -> set:
@@ -1203,11 +1205,23 @@ def _m25(c) -> None:
     ])
 
 
+# v26：TV 按季/按集演职（Plex 式三层浏览）：tv_seasons.cast 本季常驻阵容、
+# tv_episodes.episode_credits 单集客串+导演（季详情 episodes[] 条目免费带来，
+# 无需逐集请求；series 级改存 aggregate_credits 全剧聚合）。
+def _m26(c) -> None:
+    _ensure_columns(c, "tv_seasons", [
+        ("cast", "ALTER TABLE tv_seasons ADD COLUMN cast TEXT DEFAULT '[]'"),
+    ])
+    _ensure_columns(c, "tv_episodes", [
+        ("episode_credits", "ALTER TABLE tv_episodes ADD COLUMN episode_credits TEXT DEFAULT '{}'"),
+    ])
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
                     (17, _m17), (18, _m18), (19, _m19), (20, _m20), (21, _m21),
-                    (22, _m22), (23, _m23), (24, _m24), (25, _m25)]
+                    (22, _m22), (23, _m23),                      (24, _m24), (25, _m25), (26, _m26)]
 
 
 def init_db() -> None:

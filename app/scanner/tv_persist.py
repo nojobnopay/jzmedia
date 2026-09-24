@@ -158,16 +158,30 @@ def person_names_from_credits(credits, created_by=None) -> str:
 def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = None,
                     source: str = "tmdb", needs_review: int = 0,
                     download_art: bool = True, offline_reason: str = "",
-                    library_id: int | None = None) -> dict:
-    """把 TMDB 详情落到 tv_shows/tv_seasons/tv_episodes（幂等）。返回统计。"""
+                    library_id: int | None = None,
+                    aggregate: dict | None = None) -> dict:
+    """把 TMDB 详情落到 tv_shows/tv_seasons/tv_episodes（幂等）。返回统计。
+
+    三级演职（与 TMDB 口径对齐）：series 级存 `aggregate_credits` 全剧聚合
+    （`tv_detail` 自带的 credits 官方定义仅为最新季，不可用）；季级存各季
+    credits；集级存对应集 `guest_stars` + 导演（季详情免费带来）。
+    `aggregate=None`（离线/未拉取）时三级一律不覆盖旧值。"""
     now = int(time.time())
     tmdb_id = int(detail.get("id"))
     lib_id = int(library_id or 0) or int(store.DEFAULT_LIBRARY_ID)
     meta = tv_match.tv_meta_from_detail(detail)
-    # 离线回放的 payload 无 credits：此时不得覆盖缓存 credits/person_names
-    #（否则一次断网重刮清空全剧演员信息，搜索联想随之失效）。
-    has_credits = isinstance(detail.get("credits"), dict)
-    credits = tv_match.tv_credits(detail) if has_credits else {"cast": [], "crew": []}
+    # series 级：aggregate 优先；其缺席时回退 detail credits（旧行为，仍好于无）；
+    # 两者皆无（离线回放）则沿用缓存、不覆盖（否则一次断网重刮清空演员信息）。
+    if isinstance(aggregate, dict):
+        credits = tv_match.tv_aggregate_credits(aggregate)
+        credits["crew"] = tv_match.tv_credits(detail).get("crew", [])
+        has_credits = True
+    elif isinstance(detail.get("credits"), dict):
+        credits = tv_match.tv_credits(detail)
+        has_credits = True
+    else:
+        credits = {"cast": [], "crew": []}
+        has_credits = False
     if has_credits:
         store.upsert_tmdb_cache(tmdb_id, meta, credits,
                                 meta.get("poster_tmdb_path") or "", media_type="tv")
@@ -248,19 +262,25 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
         if art.get(("backdrop",)):
             fields["backdrop_path"] = tv_backdrop_name(tmdb_id)
     store.update_show_meta(show_id, **fields)
-    # 季元数据（含 TMDB 集数 → 绝对集号偏移）
+    # 季元数据（含 TMDB 集数 → 绝对集号偏移；本季常驻阵容随季详情免费到来）
     for s in seasons:
         try:
             sn = int(s.get("season_number"))
         except (TypeError, ValueError):
             continue
         poster = tv_season_poster_name(tmdb_id, sn) if art.get(("season", sn)) else ""
+        sd = (season_details or {}).get(sn)
+        cast_json = None
+        if isinstance(sd, dict) and isinstance(sd.get("credits"), dict):
+            cast_json = json.dumps(tv_match.tv_season_credits(sd),
+                                   ensure_ascii=False)
         store.upsert_season(show_id, lib_id, sn,
                             name=s.get("name") or "", overview=s.get("overview") or "",
                             air_date=str(s.get("air_date") or "")[:10],
                             poster_path=poster,
                             episode_count=int(s.get("episode_count") or 0),
-                            tmdb_season_id=s.get("id"))
+                            tmdb_season_id=s.get("id"),
+                            cast_json=cast_json)
     # 绝对集号 → (season, episode)（季已写，偏移可用）
     remapped = store.remap_absolute_episodes(show_id)
     # 集元数据回填：先精确 (季,集)，再按 TMDB 编号习惯回退（跨季连续编号 / 本地绝对编号）
@@ -270,6 +290,35 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
     matched = 0
     applied_ids: set = set()
 
+    def _episode_credits_for(e: dict) -> str | None:
+        """本地集（含多集区间）→ episode_credits JSON；对应 TMDB 条目缺
+        `guest_stars` 键视为无数据（返回 None，调用方跳过覆盖）。"""
+        try:
+            s0 = int(e.get("season") or 0)
+            e0 = int(e.get("episode") or 0)
+            e1 = int(e.get("episode_end") or 0) or e0
+        except (TypeError, ValueError):
+            return None
+        guests, directors, seen = [], [], set()
+        found_key = False
+        for n in range(e0, e1 + 1):
+            t2 = season_index.get((s0, n))
+            if not isinstance(t2, dict) or "guest_stars" not in t2:
+                continue
+            found_key = True
+            for g in tv_match.tv_episode_credits(t2)["guests"]:
+                if g["id"] not in seen:
+                    seen.add(g["id"])
+                    guests.append(g)
+            for d in tv_match.tv_episode_credits(t2)["directors"]:
+                if ("d", d["id"]) not in seen:
+                    seen.add(("d", d["id"]))
+                    directors.append(d)
+        if not found_key:
+            return None
+        return json.dumps({"guests": guests, "directors": directors},
+                          ensure_ascii=False)
+
     def _apply(e: dict, t: dict) -> None:
         nonlocal matched
         applied_ids.add(int(e["id"]))
@@ -277,6 +326,10 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
             runtime = int(t.get("runtime") or 0)
         except (TypeError, ValueError):
             runtime = 0
+        extra: dict = {}
+        ec = _episode_credits_for(e)
+        if ec is not None:
+            extra["episode_credits"] = ec
         store.update_episode_meta(
             int(e["id"]),
             tmdb_episode_id=t.get("id"),
@@ -287,6 +340,7 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
             runtime=runtime,
             tmdb_rating=t.get("vote_average"),
             needs_review=0,
+            **extra,
         )
         matched += 1
 
@@ -439,6 +493,7 @@ def scrape_show(show: dict, force: bool = False, download_art: bool = True) -> d
         offline_reason = ""
     local = store.list_episodes(show_id)
     season_details: dict = {}
+    aggregate: dict | None = None
     if not offline_reason:
         for sn in wanted_seasons(detail, local):
             try:
@@ -446,10 +501,17 @@ def scrape_show(show: dict, force: bool = False, download_art: bool = True) -> d
             except Exception as e:
                 logger.warning("tv season fetch failed tmdb_id=%s season=%s: %s",
                                tmdb_id, sn, e)
+        # 全剧聚合演职（单季 credits 官方仅为最新季，不可用；失败回退 detail 内嵌）
+        try:
+            aggregate = tmdb.tv_aggregate_credits(int(tmdb_id))
+        except Exception as e:
+            logger.warning("tv aggregate credits failed tmdb_id=%s: %s", tmdb_id, e)
+            aggregate = None
     stats = apply_tv_detail(show_id, detail, season_details, source=source,
                             needs_review=needs_review, download_art=download_art,
                             offline_reason=offline_reason,
-                            library_id=show.get("library_id"))
+                            library_id=show.get("library_id"),
+                            aggregate=aggregate)
     status = "ok_offline" if offline_reason else "ok"
     media = write_media_files(show_id, show.get("library_id"))
     return {"show_id": show_id, "status": status, "title": title,

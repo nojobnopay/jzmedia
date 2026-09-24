@@ -14,6 +14,7 @@ from .parse import short_candidates
 
 logger = get_logger("scanner.tv_match")
 __all__ = ['resolve_show', 'pick_tv_match', 'tv_meta_from_detail', 'tv_credits',
+           'tv_aggregate_credits', 'tv_season_credits', 'tv_episode_credits',
            'tv_display_title']
 
 _ALT_RETRY = 3   # 相似门不过时，对前 N 个候选拉别名表重评
@@ -254,7 +255,11 @@ def tv_meta_from_detail(detail: dict) -> dict:
 
 
 def tv_credits(detail: dict) -> dict:
-    """credits 最小集：前 10 演员 + 创作者（created_by，crew 位存 creator）。"""
+    """credits 最小集：前 10 演员 + 创作者（created_by，crew 位存 creator）。
+
+    适用于 `tv_detail(append=credits)` 与季详情顶层 `credits`（单季常驻阵容，
+    条目为 `{character}` 字符串形）。全剧聚合另见 `tv_aggregate_credits`
+   （`roles[]` 数组形）。"""
     cast = []
     for i, c in enumerate((detail.get("credits") or {}).get("cast", [])[:10]):
         if not c.get("id"):
@@ -268,3 +273,76 @@ def tv_credits(detail: dict) -> dict:
             crew.append({"id": p["id"], "name": p.get("name", ""),
                          "profile_path": p.get("profile_path"), "job": "Creator"})
     return {"cast": cast, "crew": crew}
+
+
+def _min_cast(entries, limit: int = 10, character_of=None) -> list[dict]:
+    """credits 条目 → 最小集（id/name/profile_path/character/order，兼容
+    aggregate 的 `roles[]` 形与季 credits 的 `character` 字符串形）。"""
+    out = []
+    for i, c in enumerate(entries or []):
+        if len(out) >= limit:
+            break
+        if not c.get("id"):
+            continue
+        out.append({"id": c["id"], "name": c.get("name", "") or "",
+                    "profile_path": c.get("profile_path"),
+                    "character": character_of(c) if character_of else "",
+                    "order": len(out)})
+    return out
+
+
+def tv_aggregate_credits(agg: dict, limit: int = 10) -> dict:
+    """全剧聚合 credits 最小集（`aggregate_credits` → 缓存形态）。
+
+    一人多角时 `character` 取首个角色（展示用），`episode_count` 为各角色
+    出场集数之和（供"主演/客串"排序）；crew 位同样存 created_by（调用方在
+    `apply_tv_detail` 内合并，与季级行为一致）。"""
+    cast = []
+    for c in (agg or {}).get("cast", []) or []:
+        if len(cast) >= limit:
+            break
+        if not c.get("id"):
+            continue
+        roles = c.get("roles") or []
+        eps = 0
+        for r in roles:
+            try:
+                eps += int(r.get("episode_count") or 0)
+            except (TypeError, ValueError):
+                continue
+        try:
+            total = int(c.get("total_episode_count") or 0)
+        except (TypeError, ValueError):
+            total = 0
+        cast.append({"id": c["id"], "name": c.get("name", "") or "",
+                     "profile_path": c.get("profile_path"),
+                     "character": str((roles[0].get("character") if roles else "") or ""),
+                     "episode_count": eps or total,
+                     "total_episode_count": total or eps,
+                     "order": len(cast)})
+    return {"cast": cast, "crew": []}
+
+
+def tv_season_credits(season_detail: dict, limit: int = 10) -> list[dict]:
+    """本季常驻阵容最小集（季详情顶层 `credits` → `tv_seasons.cast` 落库形态，
+    与 `tv_credits` 同形；缺席返回 []，调用方据此跳过覆盖）。"""
+    return _min_cast((season_detail or {}).get("credits", {}).get("cast", [])
+                     if isinstance((season_detail or {}).get("credits"), dict)
+                     else [], limit, lambda c: str(c.get("character") or ""))
+
+
+def tv_episode_credits(episode_entry: dict) -> dict:
+    """单集演职（季详情 `episodes[]` 条目 → `tv_episodes.episode_credits` 落库形态）。
+
+    `{guests: [{id,name,character,profile_path}], directors: [{id,name}]}`；
+    条目缺 `guest_stars` 键视为无数据（返回 {}，调用方跳过覆盖——TMDB 正常
+    一定带键，缺键只出现在异常 payload）。"""
+    if not isinstance(episode_entry, dict) or "guest_stars" not in episode_entry:
+        return {}
+    guests = _min_cast(episode_entry.get("guest_stars"), 20,
+                       lambda c: str(c.get("character") or ""))
+    directors = []
+    for p in episode_entry.get("crew") or []:
+        if str(p.get("job") or "") == "Director" and p.get("id"):
+            directors.append({"id": p["id"], "name": p.get("name", "") or ""})
+    return {"guests": guests, "directors": directors}

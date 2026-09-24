@@ -3,6 +3,7 @@ T2 起补 TMDB 刮削、匹配、已看状态与继续观看）。
 
 播放接口沿用 `/api/stream/{version_id}?kind=episode`（播放键已按 (kind,item_id) 隔离）。
 """
+import json
 import os
 import threading
 
@@ -11,7 +12,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .. import library_paths, storage, store, tmdb
-from ..scanner import tv_persist
+from ..scanner import tv_match, tv_persist
 from ..scanner.parse import normalize_title
 
 router = APIRouter(prefix="/api/tv")
@@ -148,6 +149,82 @@ def _show_cast(show: dict) -> list[dict]:
     return out
 
 
+@router.get("/shows/{show_id}/similar")
+def similar_shows(show_id: int, limit: int = 12):
+    """相关节目（Plex 式剧详情行）：纯本地打分（电视网/类型/主创/主演），
+    不触网；至少命中一个内容信号且总分达标才返回（见 store.similar_shows）。"""
+    if not store.get_show_meta(show_id):
+        raise HTTPException(404, "show not found")
+    try:
+        lim = max(1, min(int(limit or 12), 30))
+    except (TypeError, ValueError):
+        lim = 12
+    return {"items": store.similar_shows(show_id, lim)}
+
+
+def _season_cast_with_fallback(show_tmdb_id, season_cast: list) -> tuple[list, str]:
+    """季演职：本季常驻优先，缺席回退全剧聚合（aggregate），皆无为 none。"""
+    if season_cast:
+        return season_cast, "season"
+    try:
+        tid = int(show_tmdb_id or 0)
+    except (TypeError, ValueError):
+        tid = 0
+    if tid:
+        cached = store.get_tmdb_cached(tid, "tv") or {}
+        credits = cached.get("credits") or {}
+        agg = [x for x in (credits.get("cast") or [])[:10]
+               if isinstance(x, dict) and x.get("name")]
+        if agg:
+            return agg, "aggregate"
+    return [], "none"
+
+
+@router.get("/shows/{show_id}/seasons/{season}")
+def season_detail(show_id: int, season: int):
+    """季详情（Plex 式季页）：季元数据 + 演职（本季→全剧回退）+ 本季集
+    （存在性/断点/已看）+ 本季下一集（季内连播）+ 已看计数。"""
+    show = store.get_show_meta(show_id)
+    if not show:
+        raise HTTPException(404, "show not found")
+    try:
+        sn = int(season)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "season must be int")
+    meta = store.get_season(show_id, sn)
+    eps = store.list_season_episodes(show_id, sn)
+    if meta is None and not eps:
+        raise HTTPException(404, "season not found")
+    if meta is None:
+        meta = {"show_id": int(show_id), "season": sn, "name": "",
+                "overview": "", "air_date": "", "poster_path": "",
+                "episode_count": len(eps), "cast": []}
+    progress = store.episode_progress_map(show_id)
+    payloads = [_episode_payload(e, progress.get(int(e["id"])))
+                for e in eps]
+    cast, cast_source = _season_cast_with_fallback(
+        show.get("tmdb_id"), list(meta.get("cast") or []))
+    nxt = store.season_next_episode(show_id, sn)
+    return {
+        "show_id": int(show_id),
+        "show_title": show.get("title") or "",
+        "show_year": show.get("year"),
+        "show_poster": show.get("poster_path") or "",
+        "original_language": show.get("original_language") or "",
+        "season": sn,
+        "name": meta.get("name") or "",
+        "overview": meta.get("overview") or "",
+        "air_date": meta.get("air_date") or "",
+        "poster_path": meta.get("poster_path") or "",
+        "episode_count": len(payloads),
+        "watched_count": sum(1 for e in payloads if int(e.get("watched") or 0)),
+        "cast": cast,
+        "cast_source": cast_source,
+        "episodes": payloads,
+        "next_episode": _episode_payload(nxt) if nxt else None,
+    }
+
+
 @router.get("/shows/{show_id}")
 def show_detail(show_id: int):
     """剧详情：季（含海报/名称）+ 全部集（存在性/断点/已看）+ 下一集。"""
@@ -175,6 +252,13 @@ def episode_detail(episode_id: int):
     show = store.get_show(e["show_id"]) or {}
     out["show_title"] = show.get("title", "")
     out["show_year"] = show.get("year")
+    out["show_poster"] = show.get("poster_path") or ""
+    out["original_language"] = show.get("original_language") or ""
+    season_meta = store.get_season(int(e["show_id"]), int(e.get("season") or 0))
+    out["season_name"] = (season_meta or {}).get("name") or ""
+    out["season_poster"] = (season_meta or {}).get("poster_path") or ""
+    # 单集演职成品：本季常驻 + 本集客串（去重，客串打标），缺席回退聚合
+    out.update(store.episode_cast(episode_id))
     return out
 
 
@@ -255,9 +339,13 @@ def match_show(show_id: int, body: MatchBody):
             season_details[sn] = tmdb.tv_season(int(body.tmdb_id), sn)
         except Exception:
             continue
+    try:
+        aggregate = tmdb.tv_aggregate_credits(int(body.tmdb_id))
+    except Exception:
+        aggregate = None
     stats = tv_persist.apply_tv_detail(
         show_id, detail, season_details, source="manual", needs_review=0,
-        library_id=show.get("library_id"))
+        library_id=show.get("library_id"), aggregate=aggregate)
     # NFO/海报落盘放后台：大剧（千集级）同步写会让浏览器请求超时
     threading.Thread(target=tv_persist.write_media_files,
                      args=(show_id, show.get("library_id")), daemon=True).start()
@@ -354,6 +442,20 @@ def show_watched(show_id: int, body: WatchedBody | None = None):
     return {"ok": True, "watched": watched, "episodes": n}
 
 
+@router.post("/shows/{show_id}/seasons/{season}/watched")
+def season_watched(show_id: int, season: int, body: WatchedBody | None = None):
+    """标本季已看/未看（返回受影响集数；标已看清本季断点）。"""
+    if not store.get_show_meta(show_id):
+        raise HTTPException(404, "show not found")
+    try:
+        sn = int(season)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "season must be int")
+    watched = bool(body.watched) if body else True
+    n = store.mark_season_watched(show_id, sn, watched)
+    return {"ok": True, "watched": watched, "episodes": n}
+
+
 @router.get("/episodes/{episode_id}/next")
 def episode_next(episode_id: int):
     """按播出顺序的下一集（播放器连播用）。"""
@@ -438,6 +540,7 @@ def match_episode(episode_id: int, body: EpisodeMatchBody):
         runtime = int(found.get("runtime") or 0)
     except (TypeError, ValueError):
         runtime = 0
+    ep_credits = tv_match.tv_episode_credits(found)
     store.update_episode_meta(
         episode_id,
         tmdb_episode_id=found.get("id"),
@@ -449,6 +552,8 @@ def match_episode(episode_id: int, body: EpisodeMatchBody):
         tmdb_rating=found.get("vote_average"),
         needs_review=0,
         local_only=0,          # 重新绑定 TMDB 集 → 取消「本地确认集」
+        **({"episode_credits": json.dumps(ep_credits, ensure_ascii=False)}
+           if ep_credits else {}),
     )
     # 剧照换了 → 懒下载缓存失效（下次请求重拉）
     try:
