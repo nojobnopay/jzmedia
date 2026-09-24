@@ -25,9 +25,13 @@
               @click="play(s.next_episode)">
               ▶ {{ s.next_episode.progress ? '继续' : '播放本季' }} {{ epNo(s.next_episode) }}
             </button>
-            <button v-if="s.episodes.length" @click="toggleSeasonWatched">
+            <button v-if="eps.length" @click="toggleSeasonWatched">
               {{ seasonDone ? '标记本季未看' : '标记本季已看' }}
             </button>
+            <button :disabled="verifying" @click="verifyExists" title="触网核验本季存在性（默认只信本地）">
+              {{ verifying ? '校验中…' : '校验存在性' }}
+            </button>
+            <span v-if="s.stale" class="dim small" title="本地态可能过期，点“校验存在性”触网核验">本地态</span>
             <span v-if="busy" class="dim">处理中…</span>
           </div>
         </div>
@@ -36,16 +40,19 @@
     <section v-if="s.cast && s.cast.length" class="card-block cast-sec">
       <h3>演职员 <span class="dim">{{ s.cast.length }} · {{ s.cast_source === 'season' ? seasonLabel(s.season) : '全剧' }}</span></h3>
       <div class="cast-wall">
-        <div v-for="p in s.cast" :key="p.id || p.name" class="cast-card"
+          <div v-for="p in s.cast" :key="p.id || p.name" class="cast-card"
+          :class="{ clickable: !!Number(p.id) }" @click="goPerson(p)"
           :title="p.character ? `${p.name} 饰 ${p.character}` : p.name">
-          <div class="avatar-fallback" aria-hidden="true">{{ (p.name || '?').slice(0, 1) }}</div>
+          <img v-if="p.profile_path" :src="castAvatarUrl(p.profile_path)" loading="lazy"
+            class="cast-avatar" :alt="p.name || '演员'" @error="p.profile_path = ''" />
+          <div v-else class="avatar-fallback" aria-hidden="true">{{ (p.name || '?').slice(0, 1) }}</div>
           <div class="cast-name">{{ p.name }}</div>
           <div v-if="showCharacter && p.character" class="cast-char">{{ p.character }}</div>
         </div>
       </div>
     </section>
     <div class="grid ep-grid">
-      <div v-for="e in s.episodes" :key="e.id" class="card ep-card" @click="openEpisode(e.id)">
+      <div v-for="e in eps" :key="e.id" class="card ep-card" @click="openEpisode(e.id)">
         <div class="still-wrap">
           <img v-if="e.still_path" :src="stillUrl(e)" loading="lazy" alt=""
             @error="e.still_path = ''" />
@@ -69,6 +76,13 @@
         </div>
       </div>
     </div>
+    <div ref="sentinel" class="more-sentinel" aria-hidden="true"></div>
+    <div v-if="hasMore" class="bar more-bar">
+      <button :disabled="loadingMore" @click="loadMore">
+        {{ loadingMore ? '加载中…' : `加载更多（${eps.length}/${s.total || s.episode_count}）` }}
+      </button>
+    </div>
+    <div v-else-if="eps.length" class="bar dim small">已加载全部 {{ eps.length }} 集</div>
   </div>
   <div v-else class="bar">{{ msg || '加载中…' }}</div>
   <PlayerModal v-if="playing" :key="'episode:' + playing.id"
@@ -77,25 +91,38 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, posterUrl } from '../api.js'
+import { api, castAvatarUrl, posterUrl } from '../api.js'
 import { episodeVersion } from '../episodeVersions.js'
 import { fmtRemaining } from '../format.js'
 import { progressWidth } from '../recentPlayed.js'
 import PlayerModal from '../components/PlayerModal.vue'
 
+const PAGE = 100  // 与后端季分页 limit 默认对齐
+
 const route = useRoute()
 const router = useRouter()
 const s = ref(null)
+const eps = ref([])  // 按显示范围懒加载的集（s.episodes 只含首屏，不再全量）
+const hasMore = ref(false)
+const loadingMore = ref(false)
 const msg = ref('')
 const playing = ref(null)
 const busy = ref(false)
 const selecting = ref(false)  // 预留：与电影墙多选语义对齐时启用
+const verifyMode = ref('0')
+const verifying = ref(false)
+const sentinel = ref(null)
+let observer = null
 
 const seasonDone = computed(() => {
-  const eps = s.value?.episodes || []
-  return eps.length > 0 && eps.every(e => Number(e.watched))
+  // 表头计数恒为全季（不受分页影响）
+  const total = Number(s.value?.episode_count) || 0
+  const watched = Number(s.value?.watched_count) || 0
+  if (total > 0) return watched >= total
+  const list = eps.value || []
+  return list.length > 0 && list.every(e => Number(e.watched))
 })
 // 饰演角色仅英文原语言展示（与剧详情页同规则）
 const showCharacter = computed(() =>
@@ -112,6 +139,14 @@ function stillUrl (e) { return `/api/tv/episodes/${e.id}/still` }
 function openEpisode (id) {
   router.push(`/tv/${s.value.show_id}/s/${s.value.season}/e/${id}`)
 }
+function goPerson (p) {
+  // 同步跳转、零等待：建档收敛到人物页内部（404 承接 + 建档中提示），
+  // 跳转本身不再 await，杜绝连点竞态（后 resolve 的请求顶掉页面）。
+  const tid = Number(p && p.id)
+  if (!Number.isFinite(tid) || tid <= 0) return
+  router.push({ path: '/p/' + tid,
+    query: { name: p.name || '', profile: p.profile_path || '' } })
+}
 function playLabel (e) {
   const ver = episodeVersion(e)
   return `${s.value.show_title} ${epNo(e)}${e.title ? ' · ' + e.title : ''}`
@@ -120,13 +155,58 @@ function playLabel (e) {
 function play (e) {
   playing.value = { id: e.id, label: playLabel(e) }
 }
+function seasonUrl (offset) {
+  const v = verifyMode.value && verifyMode.value !== '0'
+    ? '&verify=' + encodeURIComponent(verifyMode.value) : ''
+  return `/api/tv/shows/${route.params.showId}/seasons/${route.params.season}`
+    + `?offset=${offset}&limit=${PAGE}${v}`
+}
 async function load () {
   msg.value = ''
+  loadingMore.value = false
   try {
-    s.value = await api(`/api/tv/shows/${route.params.showId}/seasons/${route.params.season}`)
+    const d = await api(seasonUrl(0))
+    s.value = d
+    eps.value = d.episodes || []
+    hasMore.value = !!d.has_more
+    observeSentinel()
   } catch (e) {
     msg.value = '加载失败：' + e.message
   }
+}
+async function loadMore () {
+  if (loadingMore.value || !hasMore.value || !s.value) return
+  loadingMore.value = true
+  try {
+    const d = await api(seasonUrl(eps.value.length))
+    eps.value = eps.value.concat(d.episodes || [])
+    hasMore.value = !!d.has_more
+    // 表头计数恒为全季：用最新头更新（集行只追加）
+    if (d.watched_count !== undefined) s.value.watched_count = d.watched_count
+    if (d.episode_count !== undefined) s.value.episode_count = d.episode_count
+  } catch (e) {
+    msg.value = '加载失败：' + e.message
+  } finally {
+    loadingMore.value = false
+  }
+}
+function observeSentinel () {
+  disconnectObserver()
+  if (typeof IntersectionObserver === 'undefined') return
+  observer = new IntersectionObserver((entries) => {
+    if (entries.some(en => en.isIntersecting)) loadMore()
+  }, { rootMargin: '600px' })
+  if (sentinel.value) observer.observe(sentinel.value)
+}
+function disconnectObserver () {
+  if (observer) { observer.disconnect(); observer = null }
+}
+async function verifyExists () {
+  verifying.value = true
+  try {
+    verifyMode.value = '1'
+    await load()
+  } catch (e) { msg.value = '校验失败：' + e.message } finally { verifying.value = false }
 }
 async function toggleSeasonWatched () {
   busy.value = true
@@ -156,8 +236,9 @@ async function onEnded () {
   else playing.value = null
 }
 
-onMounted(load)
-watch(() => [route.params.showId, route.params.season], load)
+onMounted(() => load())
+onUnmounted(disconnectObserver)
+watch(() => [route.params.showId, route.params.season], () => load())
 </script>
 
 <style scoped>
@@ -175,9 +256,12 @@ watch(() => [route.params.showId, route.params.season], load)
 .acts .primary { background: #e50914; border-color: #e50914; color: #fff; }
 .cast-sec { margin: 12px; }
 .cast-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
 .cast-card { text-align: center; }
-.avatar-fallback { width: 64px; height: 64px; margin: 0 auto 6px; border-radius: 50%; background: #2a2a2a; color: #888; font-size: 1.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; }
+.avatar-fallback { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; background: #2a2a2a; color: #888; font-size: 2.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; }
+.cast-avatar { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; object-fit: cover; object-position: center 20%; display: block; background: #2a2a2a; transition: transform .15s ease; }
+.cast-card.clickable { cursor: pointer; }
+.cast-card.clickable:hover .cast-avatar { transform: scale(1.06); }
 .ep-grid { --poster-min: 220px; }
 .ep-card { cursor: pointer; }
 .still-wrap { position: relative; background: #222; }

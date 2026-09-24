@@ -32,6 +32,8 @@ __all__ = ['upsert_show', 'upsert_episode', 'upsert_season', 'list_shows', 'get_
            'parse_season_cast', 'parse_episode_credits',
            'get_season', 'list_season_episodes', 'season_next_episode',
            'mark_season_watched', 'similar_shows', 'episode_cast',
+           'count_season_episodes', 'count_season_watched', 'count_show_episodes',
+           'count_show_watched', 'count_show_review', 'show_season_stats',
            'TV_META_FIELDS', 'EPISODE_META_FIELDS']
 
 import json as _json
@@ -909,13 +911,113 @@ def get_season(show_id: int, season: int) -> dict | None:
         return d
 
 
-def list_season_episodes(show_id: int, season: int) -> list[dict]:
-    """某季集行（播出顺序：集号/文件路径；版本分组与连播由调用方处理）。"""
+def list_season_episodes(show_id: int, season: int,
+                          offset: int = 0, limit: int | None = None) -> list[dict]:
+    """某季集行（播出顺序：集号/文件路径；版本分组与连播由调用方处理）。
+
+    本地优先改造：支持 offset/limit 分页，季页按显示范围懒加载（默认全量，
+    调用方不传即保持旧行为）。"""
+    sql = ("SELECT * FROM tv_episodes WHERE show_id=? AND season=?"
+           " ORDER BY episode, episode_end, file_path")
+    params: list = [int(show_id), int(season)]
+    if limit is not None:
+        sql += " LIMIT ? OFFSET ?"
+        params += [max(1, min(int(limit), 500)), max(0, int(offset))]
     with _lock, _conn() as c:
-        return [dict(r) for r in c.execute(
-            "SELECT * FROM tv_episodes WHERE show_id=? AND season=?"
-            " ORDER BY episode, episode_end, file_path",
-            (int(show_id), int(season),)).fetchall()]
+        return [dict(r) for r in c.execute(sql, params).fetchall()]
+
+
+def count_season_episodes(show_id: int, season: int) -> int:
+    """某季集总数（分页 total 用，不拉行）。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT COUNT(*) FROM tv_episodes WHERE show_id=? AND season=?",
+                        (int(show_id), int(season))).fetchone()
+        return int(row[0] or 0) if row else 0
+
+
+def count_season_watched(show_id: int, season: int) -> int:
+    """某季已看数（分页后表头总数仍按全季算）。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT COUNT(*) FROM tv_episodes"
+                        " WHERE show_id=? AND season=? AND watched!=0",
+                        (int(show_id), int(season))).fetchone()
+        return int(row[0] or 0) if row else 0
+
+
+def count_show_episodes(show_id: int) -> int:
+    """整剧集总数（剧详情瘦身后不再拉全量 episodes 行）。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT COUNT(*) FROM tv_episodes WHERE show_id=?",
+                        (int(show_id),)).fetchone()
+        return int(row[0] or 0) if row else 0
+
+
+def count_show_watched(show_id: int) -> int:
+    """整剧已看数。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT COUNT(*) FROM tv_episodes"
+                        " WHERE show_id=? AND watched!=0",
+                        (int(show_id),)).fetchone()
+        return int(row[0] or 0) if row else 0
+
+
+def count_show_review(show_id: int) -> int:
+    """整剧待确认（needs_review）数。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT COUNT(*) FROM tv_episodes"
+                        " WHERE show_id=? AND needs_review!=0",
+                        (int(show_id),)).fetchone()
+        return int(row[0] or 0) if row else 0
+
+
+def show_season_stats(show_id: int) -> list[dict]:
+    """整剧按季聚合（剧详情季卡墙用，一次轻量查询代替全量 episodes 行）。
+
+    每季返回 {season, total, watched, distinct, versions, has_partial,
+    next_episode}：distinct=去重集数（同集多版本只算一集）、versions=版本数、
+    has_partial=有未看完断点、next_episode=首个未看集号（供“从X开始”文案）。
+    全部来自本地 DB，零远程 I/O。"""
+    with _lock, _conn() as c:
+        rows = [dict(r) for r in c.execute(
+            "SELECT e.season AS season, e.episode AS episode,"
+            " e.file_path AS file_path, e.watched AS watched,"
+            " p.position AS _pos, p.duration AS _dur"
+            " FROM tv_episodes e LEFT JOIN playback_progress p"
+            " ON p.kind='episode' AND p.item_id=e.id"
+            " WHERE e.show_id=?", (int(show_id),))]
+    by_season: dict[int, list[dict]] = {}
+    for r in rows:
+        by_season.setdefault(int(r.get("season") or 0), []).append(r)
+
+    def _finished(r: dict) -> bool:
+        if int(r.get("watched") or 0):
+            return True
+        dur = float(r.get("_dur") or 0)
+        pos = float(r.get("_pos") or 0)
+        return dur > 0 and (pos / dur >= 0.95 or dur - pos <= 300)
+
+    out = []
+    for sn in sorted(by_season):
+        eps = sorted(by_season[sn],
+                     key=lambda r: (int(r.get("episode") or 0), str(r.get("file_path") or "")))
+        keys, vers = set(), set()
+        watched = 0
+        has_partial = False
+        next_ep = None
+        for r in eps:
+            keys.add(int(r.get("episode") or 0))
+            vers.add(episode_version(r.get("file_path")))
+            if int(r.get("watched") or 0):
+                watched += 1
+            if not _finished(r) and float(r.get("_pos") or 0) >= 15:
+                has_partial = True
+            if next_ep is None and not _finished(r):
+                next_ep = int(r.get("episode") or 0)
+        out.append({"season": sn, "total": len(eps), "watched": watched,
+                    "distinct": len(keys), "versions": len(vers),
+                    "done": len(eps) > 0 and watched == len(eps),
+                    "has_partial": has_partial, "next_episode": next_ep})
+    return out
 
 
 def season_next_episode(show_id: int, season: int) -> dict | None:

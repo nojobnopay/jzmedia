@@ -3,19 +3,31 @@ T2 起补 TMDB 刮削、匹配、已看状态与继续观看）。
 
 播放接口沿用 `/api/stream/{version_id}?kind=episode`（播放键已按 (kind,item_id) 隔离）。
 """
+import hashlib
 import json
 import os
+import re
 import threading
+import time
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .. import library_paths, storage, store, tmdb
+from ..log import get_logger
 from ..scanner import tv_match, tv_persist
 from ..scanner.parse import normalize_title
 
+logger = get_logger("tv")
+
 router = APIRouter(prefix="/api/tv")
+
+# 本地优先快照（大集数剧集提速）：(library_id, show_root) → (fingerprint, expires)。
+# fingerprint 为剧根目录一次 list 的轻量摘要；TTL 默认 600s（季分页 limit 默认 100）。
+_SNAP_TTL = 600.0
+_SNAP: dict[tuple, tuple] = {}
+_SNAP_LOCK = threading.Lock()
 
 
 def _lib_ids(library, media_library) -> list | None:
@@ -31,34 +43,125 @@ def _lib_ids(library, media_library) -> list | None:
     return store._split_ints(library) or None
 
 
-def _extra_payload(x: dict) -> dict:
-    """花絮/剧场版行：文件存在性（同集） + 中文 kind 标签。"""
-    d = _episode_payload(x)
+def _local_exists(e: dict) -> bool:
+    """本地优先存在性：只信 DB `missing` 列，零远程 I/O。
+
+    显示即对、手动刷新：浏览态默认走这里；播放/用户点校验时才触网核验。
+    离线/错误一律保守 True 的旧语义由核验路径保持（§19）。"""
+    return not int(e.get("missing") or 0)
+
+
+def _episode_payload(e: dict, progress: dict | None = None,
+                     exists: bool | None = None) -> dict:
+    """集行载荷：默认本地优先（`missing` 列），零远程 I/O。
+
+    `exists` 显式传入时直接采用（批量核验结果）；不传即本地态。
+    远程核验走 `_verify_exists_map`（按父目录分组一次 list，N stat → D list）。
+    可选附带断点（`episode_progress_map` 一次查出，避免逐集查询）。"""
+    d = dict(e)
+    rel = e.get("file_path") or ""
+    d["version"] = store.episode_version(rel)      # 多版本分组（剧详情页/连播）
+    d["exists"] = bool(exists) if exists is not None else _local_exists(e)
+    if progress is not None:
+        d["progress"] = progress
+    return d
+
+
+def _extra_payload(x: dict, exists: bool | None = None) -> dict:
+    """花絮/剧场版行：文件存在性（同集，默认本地优先） + 中文 kind 标签。"""
+    d = _episode_payload(x, exists=exists)
     sub = str(x.get("kind") or "extra")
     d["label"] = store.EXTRA_LABELS.get(sub, "花絮")
     d["kind"] = sub
     return d
 
 
-def _episode_payload(e: dict, progress: dict | None = None) -> dict:
-    """集文件存在性：本地 POSIX / 远程直读 backend 统一（离线保守 True，§19）。
-    可选附带断点（`episode_progress_map` 一次查出，避免逐集查询）。"""
-    d = dict(e)
-    rel = e.get("file_path") or ""
-    d["version"] = store.episode_version(rel)      # 多版本分组（剧详情页/连播）
-    lib_id = e.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+def _verify_exists_map(rows: list[dict]) -> dict[str, bool]:
+    """批量远程核验：按 (library_id, 父目录) 分组，一次 backend.list 建集合。
+
+    语义与 files.paths._exists_map 对齐：StorageNotFound → False；
+    离线/其它存储错误保守 True（§19，绝不把离线当删除）。
+    本地后端走 os.path.isfile（syscall 便宜）。"""
+    from .files.paths import _exists_map
+    out: dict[str, bool] = {}
+    groups: dict[int, list[str]] = {}
+    for r in rows or ():
+        rel = str(r.get("file_path") or "")
+        if not rel:
+            continue
+        lid = int(r.get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        groups.setdefault(lid, []).append(rel)
+    for lid, rels in groups.items():
+        try:
+            out.update(_exists_map(lid, rels))
+        except Exception as exc:
+            logger.warning("tv batch verify failed lib=%s n=%d: %s", lid, len(rels), exc)
+            for rel in rels:
+                out.setdefault(rel, True)
+    return out
+
+
+def _show_root_of(rel: str) -> str:
+    """剧根目录（快照键）：相对路径首段，如 Show/Season 01/x.mkv → Show。"""
+    seg = str(rel or "").split("/", 1)[0].strip()
+    return seg or ""
+
+
+def _snapshot_fingerprint(backend, root: str):
+    """剧根一次 list 的轻量指纹：(条目数, 名称hash, 最大mtime)，失败返回 None。"""
     try:
-        backend = storage.backend_for(lib_id)
-        local = backend.abs_path(rel)
-        d["exists"] = (os.path.isfile(local) if local is not None
-                       else bool(backend.exists(rel)))
-    except storage.StorageOffline:
-        d["exists"] = True
+        entries = backend.list(root)
     except Exception:
-        d["exists"] = False
-    if progress is not None:
-        d["progress"] = progress
-    return d
+        return None
+    names = sorted(str(e.get("name") or "") for e in (entries or []))
+    mtimes = [float(e.get("mtime") or 0) for e in (entries or [])]
+    return (len(names), hash(tuple(names)),
+            max(mtimes) if mtimes else 0.0)
+
+
+def _snapshot_hit(lib_id: int, root: str, backend) -> bool | None:
+    """快照比对：True=无变化（可信本地态）；False=有变化；None=无法判断。
+
+    命中且未过期直接返回缓存指纹比对；未命中/过期则 list 一次并刷新快照。
+    任何存储错误返回 None（调用方保守按本地态 + stale=True 返回）。"""
+    if not root:
+        return None
+    key = (int(lib_id), root)
+    now = time.monotonic()
+    try:
+        with _SNAP_LOCK:
+            hit = _SNAP.get(key)
+            if hit is not None and hit[1] > now:
+                cached_fp = hit[0]
+            else:
+                cached_fp = None
+        fp = _snapshot_fingerprint(backend, root)
+        if fp is None:
+            return None
+        with _SNAP_LOCK:
+            _SNAP[key] = (fp, now + _SNAP_TTL)
+            if len(_SNAP) > 2000:  # 防无界增长：清过期，仍满则整体清空
+                for k in [k for k, (_f, exp) in _SNAP.items() if exp <= now]:
+                    _SNAP.pop(k, None)
+                if len(_SNAP) > 2000:
+                    _SNAP.clear()
+        if cached_fp is None:
+            return None  # 首次建快照：无法断定无变化，按需核验由调用方决定
+        return bool(cached_fp == fp)
+    except storage.StorageOffline:
+        return None
+    except Exception as exc:
+        logger.debug("tv snapshot failed lib=%s root=%s: %s", lib_id, root, exc)
+        return None
+
+
+def _backend_for(lib_id: int):
+    """取后端；不可用返回 None（调用方保守按本地态 + stale 返回）。"""
+    try:
+        return storage.backend_for(lib_id)
+    except storage.StorageError as exc:
+        logger.debug("tv backend unavailable lib=%s: %s", lib_id, exc)
+        return None
 
 
 @router.get("/shows")
@@ -127,10 +230,10 @@ def tv_suggest(q: str = "", limit: int = 8,
 
 def _show_cast(show: dict) -> list[dict]:
     """演职员（详情页展示用）：读 `tmdb_cache(tv).credits` 前 10，
-    返回 [{name, character, profile_path}]；未匹配/无缓存返回 []。
+    返回 [{id, name, character, profile_path}]；未匹配/无缓存返回 []。
 
-    纯本地读缓存、不触网；TV 人物不进 `persons` 表（电影人物页体系专用），
-    故点击不跳人物页（前端只做展示）。"""
+    纯本地读缓存、不触网；`id` 为 TMDB 人物 id（无 id 条目跳过），供前端
+    点击进人物页（先 `POST /api/persons/ensure` 建档再跳 `/p/:id`）。"""
     try:
         tid = int(show.get("tmdb_id") or 0)
     except (TypeError, ValueError):
@@ -141,9 +244,13 @@ def _show_cast(show: dict) -> list[dict]:
     out = []
     for c in (credits.get("cast") or [])[:10]:
         name = str(c.get("name") or "").strip()
-        if not name:
+        try:
+            pid = int(c.get("id") or 0)
+        except (TypeError, ValueError):
+            pid = 0
+        if not name or pid <= 0:
             continue
-        out.append({"name": name,
+        out.append({"id": pid, "name": name,
                     "character": str(c.get("character") or "").strip(),
                     "profile_path": c.get("profile_path") or ""})
     return out
@@ -181,9 +288,15 @@ def _season_cast_with_fallback(show_tmdb_id, season_cast: list) -> tuple[list, s
 
 
 @router.get("/shows/{show_id}/seasons/{season}")
-def season_detail(show_id: int, season: int):
-    """季详情（Plex 式季页）：季元数据 + 演职（本季→全剧回退）+ 本季集
-    （存在性/断点/已看）+ 本季下一集（季内连播）+ 已看计数。"""
+def season_detail(show_id: int, season: int, offset: int = 0, limit: int = 100,
+                 verify: str = "0"):
+    """季详情（Plex 式季页）：季元数据 + 演职（本季→全剧回退）+ 本季集分页
+    （存在性/断点/已看）+ 本季下一集（季内连播）+ 已看计数。
+
+    本地优先：默认 `verify=0` 只信 DB（零远程 I/O），按 `offset/limit`
+   （默认 100）懒加载；`verify=1` 对本页批量核验（按父目录分组一次 list）；
+    `verify=auto` 先比 10min 剧根快照，无变化直接本地态。离线/失败保守
+    本地态 + `stale=True`。表头计数恒为全季（不受分页影响）。"""
     show = store.get_show_meta(show_id)
     if not show:
         raise HTTPException(404, "show not found")
@@ -191,17 +304,41 @@ def season_detail(show_id: int, season: int):
         sn = int(season)
     except (TypeError, ValueError):
         raise HTTPException(422, "season must be int")
+    limit = max(1, min(int(limit or 100), 500))
+    offset = max(0, int(offset or 0))
+    total = store.count_season_episodes(show_id, sn)
     meta = store.get_season(show_id, sn)
-    eps = store.list_season_episodes(show_id, sn)
-    if meta is None and not eps:
+    if meta is None and total == 0:
         raise HTTPException(404, "season not found")
     if meta is None:
         meta = {"show_id": int(show_id), "season": sn, "name": "",
                 "overview": "", "air_date": "", "poster_path": "",
-                "episode_count": len(eps), "cast": []}
+                "episode_count": total, "cast": []}
+    eps = store.list_season_episodes(show_id, sn, offset=offset, limit=limit)
     progress = store.episode_progress_map(show_id)
-    payloads = [_episode_payload(e, progress.get(int(e["id"])))
-                for e in eps]
+    verified, stale, emap = False, False, {}
+    mode = str(verify or "0").lower()
+    if mode not in ("0", "1", "auto"):
+        raise HTTPException(422, "verify must be 0|1|auto")
+    if mode == "1":
+        emap = _verify_exists_map(eps)
+        verified = True
+    elif mode == "auto" and eps:
+        lib_id = int(eps[0].get("library_id") or library_paths.DEFAULT_LIBRARY_ID)
+        backend = _backend_for(lib_id)
+        hit = _snapshot_hit(lib_id, _show_root_of(eps[0].get("file_path") or ""),
+                             backend) if backend is not None else None
+        if hit is True:
+            verified = False  # 快照一致：本地态可信，无需触网
+        elif hit is False:
+            emap = _verify_exists_map(eps)
+            verified = True
+        else:
+            stale = True  # 无法判断（首建快照/后端不可用）：本地态 + 标 stale
+    payloads = [_episode_payload(
+        e, progress.get(int(e["id"])),
+        emap.get(str(e.get("file_path") or "")) if verified else None)
+        for e in eps]
     cast, cast_source = _season_cast_with_fallback(
         show.get("tmdb_id"), list(meta.get("cast") or []))
     nxt = store.season_next_episode(show_id, sn)
@@ -216,40 +353,147 @@ def season_detail(show_id: int, season: int):
         "overview": meta.get("overview") or "",
         "air_date": meta.get("air_date") or "",
         "poster_path": meta.get("poster_path") or "",
-        "episode_count": len(payloads),
-        "watched_count": sum(1 for e in payloads if int(e.get("watched") or 0)),
+        "episode_count": total,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(payloads) < total,
+        "watched_count": store.count_season_watched(show_id, sn),
         "cast": cast,
         "cast_source": cast_source,
         "episodes": payloads,
         "next_episode": _episode_payload(nxt) if nxt else None,
+        "verified": verified,
+        "stale": stale,
     }
 
 
 @router.get("/shows/{show_id}")
-def show_detail(show_id: int):
-    """剧详情：季（含海报/名称）+ 全部集（存在性/断点/已看）+ 下一集。"""
-    d = store.get_show(show_id)
-    if not d:
+def show_detail(show_id: int, verify: str = "0", include_episodes: int = 0):
+    """剧详情：季（含海报/名称/按季聚合）+ 下一集 + 花絮/剧场版。
+
+    本地优先：默认零远程 I/O（`exists` 只信 DB `missing` 列）。
+    全量 `episodes[]` 已瘦身（1665 集大剧首屏从 E+X+1 次 STAT 降到 0~1 次）：
+    季卡墙用 `seasons[]`（带 total/watched/distinct/versions/has_partial/
+    next_episode 聚合）+ `season_stats`，集列表请按季调季详情分页接口。
+    `include_episodes=1` 兼容旧端（全量本地态，不触网，已废弃）。
+    `verify=1` 对花絮/next 做批量核验；`verify=auto` 先比 10min 剧根快照。"""
+    mode = str(verify or "0").lower()
+    if mode not in ("0", "1", "auto"):
+        raise HTTPException(422, "verify must be 0|1|auto")
+    show = store.get_show_meta(show_id)
+    if not show:
         raise HTTPException(404, "show not found")
-    progress = store.episode_progress_map(show_id)
-    d["episodes"] = [_episode_payload(e, progress.get(int(e["id"])))
-                     for e in d["episodes"]]
-    d["watched_count"] = sum(1 for e in d["episodes"] if int(e.get("watched") or 0))
-    d["review_count"] = sum(1 for e in d["episodes"] if int(e.get("needs_review") or 0))
+    d = dict(show)
+    seasons_meta = store.list_seasons(show_id)
+    stats = {s["season"]: s for s in store.show_season_stats(show_id)}
+    seasons = []
+    for m in seasons_meta:
+        sn = int(m.get("season") or 0)
+        st = stats.pop(sn, {})
+        seasons.append({
+            "season": sn,
+            "episode_count": int(m.get("episode_count") or st.get("total") or 0),
+            "total": int(st.get("total") or m.get("episode_count") or 0),
+            "watched_count": int(st.get("watched") or 0),
+            "distinct": int(st.get("distinct") or 0),
+            "versions": int(st.get("versions") or 0),
+            "done": bool(st.get("done", False)),
+            "has_partial": bool(st.get("has_partial", False)),
+            "next_episode_num": st.get("next_episode"),
+            "name": m.get("name") or "",
+            "overview": m.get("overview") or "",
+            "air_date": m.get("air_date") or "",
+            "poster_path": m.get("poster_path") or "",
+            "cast": m.get("cast") or [],
+        })
+    for sn in sorted(stats):  # 有集无季元数据行：合成季卡
+        st = stats[sn]
+        seasons.append({
+            "season": sn,
+            "episode_count": int(st.get("total") or 0),
+            "total": int(st.get("total") or 0),
+            "watched_count": int(st.get("watched") or 0),
+            "distinct": int(st.get("distinct") or 0),
+            "versions": int(st.get("versions") or 0),
+            "done": bool(st.get("done", False)),
+            "has_partial": bool(st.get("has_partial", False)),
+            "next_episode_num": st.get("next_episode"),
+            "name": "", "overview": "", "air_date": "", "poster_path": "",
+            "cast": [],
+        })
+    seasons.sort(key=lambda s: s["season"])
+    d["seasons"] = seasons
+    d["season_count"] = len(seasons)
+    total_eps = store.count_show_episodes(show_id)
+    d["episode_count"] = total_eps
+    d["watched_count"] = store.count_show_watched(show_id)
+    d["review_count"] = store.count_show_review(show_id)
     nxt = store.next_episode(show_id)
-    d["next_episode"] = _episode_payload(nxt) if nxt else None
-    d["extras"] = [_extra_payload(x) for x in store.list_extras_by_show(show_id)]
+    extras = store.list_extras_by_show(show_id)
+    verified, stale = False, False
+    if mode == "1" and (nxt is not None or extras):
+        emap = _verify_exists_map(
+            ([nxt] if nxt else []) + [{"file_path": x.get("file_path"),
+                                       "library_id": x.get("library_id")} for x in extras])
+        d["next_episode"] = _episode_payload(
+            nxt, None, emap.get(str(nxt.get("file_path") or ""))) if nxt else None
+        d["extras"] = [_extra_payload(
+            x, emap.get(str(x.get("file_path") or ""))) for x in extras]
+        verified = True
+    elif mode == "auto":
+        probe_rows = (([nxt] if nxt else []) + extras)[:1]
+        snap_hit = None
+        if probe_rows:
+            lid = int(probe_rows[0].get("library_id")
+                      or library_paths.DEFAULT_LIBRARY_ID)
+            backend = _backend_for(lid)
+            snap_hit = _snapshot_hit(
+                lid, _show_root_of(probe_rows[0].get("file_path") or ""),
+                backend) if backend is not None else None
+        if snap_hit is False:
+            emap = _verify_exists_map(
+                ([nxt] if nxt else []) + extras)
+            d["next_episode"] = _episode_payload(
+                nxt, None, emap.get(str(nxt.get("file_path") or ""))) if nxt else None
+            d["extras"] = [_extra_payload(
+                x, emap.get(str(x.get("file_path") or ""))) for x in extras]
+            verified = True
+        else:
+            d["next_episode"] = _episode_payload(nxt) if nxt else None
+            d["extras"] = [_extra_payload(x) for x in extras]
+            stale = snap_hit is None
+    else:
+        d["next_episode"] = _episode_payload(nxt) if nxt else None
+        d["extras"] = [_extra_payload(x) for x in extras]
+    d["verified"] = verified
+    d["stale"] = stale
+    if int(include_episodes or 0):
+        progress = store.episode_progress_map(show_id)
+        rows = store.list_episodes(show_id)
+        d["episodes"] = [_episode_payload(e, progress.get(int(e["id"])))
+                         for e in rows]
     d["cast"] = _show_cast(d)
     return d
 
 
 @router.get("/episodes/{episode_id}")
-def episode_detail(episode_id: int):
+def episode_detail(episode_id: int, verify: str = "0"):
+    """单集详情：默认本地优先（零远程 I/O）；`verify=1` 远程核验本集。
+
+    附带剧/季轻量元数据（`get_show_meta`，不再拉整剧 episodes 行）。"""
     e = store.get_episode(episode_id)
     if not e:
         raise HTTPException(404, "episode not found")
-    out = _episode_payload(e)
-    show = store.get_show(e["show_id"]) or {}
+    mode = str(verify or "0").lower()
+    if mode not in ("0", "1"):
+        raise HTTPException(422, "verify must be 0|1")
+    exists = None
+    if mode == "1":
+        emap = _verify_exists_map([e])
+        exists = emap.get(str(e.get("file_path") or ""))
+    out = _episode_payload(e, exists=exists)
+    show = store.get_show_meta(e["show_id"]) or {}
     out["show_title"] = show.get("title", "")
     out["show_year"] = show.get("year")
     out["show_poster"] = show.get("poster_path") or ""
@@ -292,6 +536,43 @@ def recent_played(limit: int = 20, include_finished: bool = False,
     if libs == []:
         return {"items": []}
     return {"items": store.list_recent_played_tv(limit, libs, include_finished)}
+
+
+_TV_AVATAR_PATH_RE = re.compile(r"^/[A-Za-z0-9]{6,}\.(?:jpg|jpeg|png)$")
+
+
+@router.get("/cast-avatar")
+def tv_cast_avatar(path: str = Query(default="")):
+    """演职员头像代理（剧/季/集详情页用）：TMDB profile_path → h632 下载缓存
+    到 `data/posters/tvcast/`，FileResponse 返回（浏览器无需可达 TMDB 图片域名）。
+
+    h632（高约 632px）供 180px 圆形展示清晰；缓存键带尺寸前缀 `h632_`，
+    与旧 w185 键隔离（旧文件自然失效，不串图）。
+    人物级缓存（按 path 去重，多剧复用同一人只存一份）；失败抛 502，
+    前端 `onerror` 回退首字母占位。"""
+    from fastapi.responses import FileResponse
+    from ..db import POSTER_DIR
+    p = str(path or "").strip()
+    if not _TV_AVATAR_PATH_RE.match(p):
+        raise HTTPException(422, f"illegal avatar path: {path!r}")
+    name = hashlib.sha1(p.encode("utf-8")).hexdigest()[:12]
+    dest = os.path.join(POSTER_DIR, "tvcast", f"h632_{name}.jpg")
+    if not os.path.isfile(dest):
+        try:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+        except OSError as e:
+            logger.warning("tv avatar cache dir failed: %s", e)
+            raise HTTPException(500, f"cache dir failed: {e}")
+        try:
+            ok = tmdb.download_image(p, dest, size="h632")
+        except Exception as e:
+            logger.warning("tv avatar download failed path=%s: %s", p, e)
+            raise HTTPException(502, "avatar download failed")
+        if not ok:
+            logger.warning("tv avatar download failed path=%s: tmdb returned false", p)
+            raise HTTPException(502, "avatar download failed")
+    return FileResponse(dest, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/search")

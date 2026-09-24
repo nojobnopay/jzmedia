@@ -2,10 +2,14 @@ import threading
 import time
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from .. import config, store, tmdb
+from ..log import get_logger
 
 from .movies.common import _library_scope
+
+logger = get_logger("persons")
 
 router = APIRouter(prefix="/api/persons")
 
@@ -80,3 +84,45 @@ def refresh_person(tmdb_id: int, library: str | None = None,
         except Exception as e:
             raise HTTPException(502, f"tmdb fetch failed: {e}")
     return store.get_person(tmdb_id, library_ids=scope)
+
+
+class EnsureBody(BaseModel):
+    tmdb_id: int
+    name: str = ""
+    profile_path: str = ""
+
+
+@router.post("/ensure")
+def ensure_person(body: EnsureBody, library: str | None = None,
+                  media_library: int | None = None):
+    """剧集点击建档：用 TV 侧已有的 {tmdb_id, name, profile_path} 建人物镜像行
+    （头像复用电影 `save_person_avatar` 管线，简介走人物页渐进 refresh 补齐）。
+
+    已有行只补名字/profile，不重下头像；无 profile_path 记 '-'（确认无照片，
+    防回填重试）；下载失败记 ''（下次点击重试）。返回仍按当前库范围（含 tv_works）。"""
+    tid = _check_id(int(body.tmdb_id or 0))
+    scope = _library_scope(library, media_library)
+    name = " ".join(str(body.name or "").split()) or f"TMDB {tid}"
+    profile = str(body.profile_path or "").strip()
+    raw = store.get_person_raw(tid) or {}
+    if (raw.get("avatar") or "") not in ("", None):
+        store.upsert_person(tid, name, avatar=None,
+                            profile_tmdb_path=profile or None,
+                            fetched_at=raw.get("fetched_at") or None)
+        return store.get_person(tid, library_ids=scope)
+    if profile:
+        from ..scanner import persist as _persist
+        try:
+            avatar = _persist.save_person_avatar(tid, profile)
+        except Exception as e:
+            logger.warning("ensure avatar failed person=%s: %s", tid, e)
+            avatar = ""
+        avatar = avatar or ""
+    else:
+        avatar = "-"
+    store.upsert_person(tid, name, avatar=avatar,
+                        profile_tmdb_path=profile or None, fetched_at=None)
+    p = store.get_person(tid, library_ids=scope)
+    if not p:
+        raise HTTPException(500, "ensure failed")
+    return p

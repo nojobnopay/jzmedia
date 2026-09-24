@@ -128,7 +128,7 @@ def test_show_detail_cast(tv_lib):
          "character": "", "order": 1},
     ], "crew": []}, "", media_type="tv")
     d = client.get(f"/api/tv/shows/{sid}").json()
-    assert d["cast"] == [{"name": "周杰", "character": "包拯",
+    assert d["cast"] == [{"id": 1, "name": "周杰", "character": "包拯",
                           "profile_path": "/zhou.jpg"}]
 
 

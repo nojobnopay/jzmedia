@@ -62,9 +62,12 @@
     <section v-if="ep.cast && ep.cast.length" class="card-block cast-sec">
       <h3>演职员 <span class="dim">{{ ep.cast.length }} · {{ ep.cast_source === 'season' ? '本季' : ep.cast_source === 'aggregate' ? '全剧' : '' }}</span></h3>
       <div class="cast-wall">
-        <div v-for="p in ep.cast" :key="p.id || p.name" class="cast-card"
+          <div v-for="p in ep.cast" :key="p.id || p.name" class="cast-card"
+          :class="{ clickable: !!Number(p.id) }" @click="goPerson(p)"
           :title="p.character ? `${p.name} 饰 ${p.character}` : p.name">
-          <div class="avatar-fallback" aria-hidden="true">{{ (p.name || '?').slice(0, 1) }}</div>
+          <img v-if="p.profile_path" :src="castAvatarUrl(p.profile_path)" loading="lazy"
+            class="cast-avatar" :alt="p.name || '演员'" @error="p.profile_path = ''" />
+          <div v-else class="avatar-fallback" aria-hidden="true">{{ (p.name || '?').slice(0, 1) }}</div>
           <div class="cast-name">{{ p.name }}</div>
           <div v-if="showCharacter && p.character" class="cast-char">{{ p.character }}</div>
           <div v-if="p.guest" class="guest-badge">客串</div>
@@ -81,7 +84,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '../api.js'
+import { api, castAvatarUrl } from '../api.js'
 import { episodeVersion } from '../episodeVersions.js'
 import PlayerModal from '../components/PlayerModal.vue'
 
@@ -130,14 +133,41 @@ function play () {
 function goEpisode (id) {
   router.push(`/tv/${ep.value.show_id}/s/${ep.value.season}/e/${id}`)
 }
+function goPerson (p) {
+  // 同步跳转、零等待：建档收敛到人物页内部（404 承接 + 建档中提示），
+  // 跳转本身不再 await，杜绝连点竞态（后 resolve 的请求顶掉页面）。
+  const tid = Number(p && p.id)
+  if (!Number.isFinite(tid) || tid <= 0) return
+  router.push({ path: '/p/' + tid,
+    query: { name: p.name || '', profile: p.profile_path || '' } })
+}
 async function load () {
   msg.value = ''
   try {
     ep.value = await api(`/api/tv/episodes/${route.params.epId}`)
     pickSeason.value = Number(ep.value.season) || 1
     try {
-      const d = await api(`/api/tv/shows/${ep.value.show_id}/seasons/${ep.value.season}`)
-      siblings.value = d.episodes || []
+      // 上下集导航：季接口已分页（limit 上限 500），逐页找当前集所在页
+      //（大季才多请求，全本地 DB 开销小；失败不挡集详情）
+      const base = `/api/tv/shows/${ep.value.show_id}/seasons/${ep.value.season}`
+      let offset = 0
+      const step = 500
+      siblings.value = []
+      let prevTail = null
+      for (;;) {
+        const d = await api(`${base}?offset=${offset}&limit=${step}`)
+        const list = d.episodes || []
+        const i = list.findIndex(e => Number(e.id) === Number(ep.value?.id))
+        if (i >= 0) {
+          // 含上一页尾，保证处在分页边界时上一集可用；下一集跨页时缺失可接受
+          //（季页按范围懒加载，集详情只保证本页内导航）
+          siblings.value = (i === 0 && prevTail ? [prevTail] : []).concat(list)
+          break
+        }
+        if (!d.has_more || !list.length || offset > 10000) { siblings.value = list; break }
+        prevTail = list[list.length - 1]
+        offset += step
+      }
     } catch (e) { siblings.value = [] }  // 上下集导航失败不挡集详情
   } catch (e) {
     msg.value = '加载失败：' + e.message
@@ -228,9 +258,12 @@ watch(() => route.params.epId, load)
 .crew-sec h3, .cast-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
 .crew { margin: 0; font-size: 0.9375rem; color: #ddd; }
 .crew .role { color: #888; font-size: 0.8125rem; margin-right: 8px; }
-.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
 .cast-card { text-align: center; }
-.avatar-fallback { width: 64px; height: 64px; margin: 0 auto 6px; border-radius: 50%; background: #2a2a2a; color: #888; font-size: 1.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; }
+.avatar-fallback { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; background: #2a2a2a; color: #888; font-size: 2.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; }
+.cast-avatar { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; object-fit: cover; object-position: center 20%; display: block; background: #2a2a2a; transition: transform .15s ease; }
+.cast-card.clickable { cursor: pointer; }
+.cast-card.clickable:hover .cast-avatar { transform: scale(1.06); }
 .guest-badge { display: inline-block; margin-top: 2px; font-size: 0.6875rem; padding: 0 6px; border-radius: 3px; color: #7aaaff; border: 1px solid rgba(120, 170, 255, .4); }
 .seen-tag { color: #7ed321; }
 .review-badge { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(255, 179, 0, .16); color: #ffb300; border: 1px solid rgba(255, 179, 0, .4); }

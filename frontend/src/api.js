@@ -66,6 +66,14 @@ export const posterUrl = (p, v) => {
   return v ? `${u}?v=${encodeURIComponent(v)}` : u
 }
 
+// TV 演职员头像：走后端代理 `/api/tv/cast-avatar`（浏览器无需可达 TMDB 图片
+// 域名，w185 缓存到 data/posters/tvcast/）；下载失败后端抛 502，调用方需
+// `@error` 回退首字母占位（季页剧照同模式）。
+export const castAvatarUrl = (p) => {
+  if (!p) return ''
+  return `/api/tv/cast-avatar?path=${encodeURIComponent(p)}`
+}
+
 // 大文件上传专用：FormData + XHR（支持进度与中断取消；>2GB 局域网场景）。
 // onProgress(0~100)；onUploaded 在字节发完时触发（服务端可能还在刮削，用于切换等待提示）；
 // fields 透传为 query 参数（如 {relpath, target_dir}）；

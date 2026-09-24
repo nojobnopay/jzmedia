@@ -247,8 +247,8 @@ def test_confirm_local_episode_survives_rescrape(tv_lib, fake_tmdb):
     ep3b = store.get_episode(ep3["id"])
     assert ep3b["needs_review"] == 0 and ep3b["local_only"] == 1
     assert ep3b["title"] == "本地特典集" and not ep3b["tmdb_episode_id"]
-    # 详情接口带 local_only（前端「本地集」徽标）
-    d = client.get(f"/api/tv/shows/{show['id']}").json()
+    # 季接口带 local_only（前端「本地集」徽标；剧详情已瘦身不再带全量集）
+    d = client.get(f"/api/tv/shows/{show['id']}/seasons/1").json()
     assert any(e.get("local_only") for e in d["episodes"])
     # 重新绑定 TMDB 集 → 取消 local_only
     client.post(f"/api/tv/episodes/{ep3['id']}/match-episode",

@@ -22,13 +22,17 @@
             <button v-if="nextEp" class="primary" :disabled="!nextEp.exists" @click="play(nextEp)">
               ▶ {{ nextEp.progress ? '继续观看' : '播放下一集' }} {{ epNo(nextEp) }}
             </button>
-            <button v-if="show.episodes.length" @click="toggleShowWatched">
+            <button v-if="Number(show.episode_count) > 0" @click="toggleShowWatched">
               {{ allWatched ? '标记整剧未看' : '标记整剧已看' }}
             </button>
             <button v-if="show.needs_review" @click="confirmMatch">确认匹配</button>
             <button :disabled="busy" @click="renameShow">改名</button>
             <button :disabled="busy" @click="refreshMeta">刷新元数据</button>
             <button @click="matchOpen = !matchOpen">{{ matchOpen ? '收起匹配' : '手动匹配' }}</button>
+            <button :disabled="verifying" @click="verifyExists" title="触网核验花絮/下一集存在性（默认只信本地）">
+              {{ verifying ? '校验中…' : '校验存在性' }}
+            </button>
+            <span v-if="show.stale" class="dim small" title="本地态可能过期，点“校验存在性”触网核验">本地态</span>
             <span class="dim">{{ show.watched_count }}/{{ show.episode_count }} 已看</span>
             <span v-if="busy" class="dim">处理中…</span>
           </div>
@@ -50,9 +54,12 @@
     <section v-if="castList.length" class="card-block cast-sec">
       <h3>演职员 <span class="dim">{{ castList.length }}</span></h3>
       <div class="cast-wall">
-        <div v-for="p in castList" :key="p.name" class="cast-card"
+          <div v-for="p in castList" :key="p.id || p.name" class="cast-card"
+          :class="{ clickable: !!Number(p.id) }" @click="goPerson(p)"
           :title="p.character ? `${p.name} 饰 ${p.character}` : p.name">
-          <div class="avatar-fallback" aria-hidden="true">{{ (p.name || '?').slice(0, 1) }}</div>
+          <img v-if="p.profile_path" :src="castAvatarUrl(p.profile_path)" loading="lazy"
+            class="cast-avatar" :alt="p.name || '演员'" @error="p.profile_path = ''" />
+          <div v-else class="avatar-fallback" aria-hidden="true">{{ (p.name || '?').slice(0, 1) }}</div>
           <div class="cast-name">{{ p.name }}</div>
           <div v-if="showCharacter && p.character" class="cast-char">{{ p.character }}</div>
         </div>
@@ -121,7 +128,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, posterUrl } from '../api.js'
+import { api, castAvatarUrl, posterUrl } from '../api.js'
 import { episodeVersion, seasonStats } from '../episodeVersions.js'
 import PlayerModal from '../components/PlayerModal.vue'
 
@@ -137,6 +144,7 @@ const results = ref([])
 const searching = ref(false)
 const searched = ref(false)
 const similar = ref([])
+const verifying = ref(false)
 
 const movies = computed(() => (show.value?.extras || []).filter(x => x.kind === 'movie'))
 const features = computed(() => (show.value?.extras || []).filter(x => x.kind !== 'movie'))
@@ -146,28 +154,54 @@ const features = computed(() => (show.value?.extras || []).filter(x => x.kind !=
 const castList = computed(() => show.value?.cast || [])
 const showCharacter = computed(() =>
   String(show.value?.original_language || '').startsWith('en'))
+function seasonEntry (sn) {
+  return (show.value?.seasons || []).find(s => Number(s.season) === Number(sn)) || null
+}
 function seasonStat (sn) {
+  // 本地优先：剧详情不再带全量 episodes，季卡聚合由后端 seasons[] 直接给出；
+  // 兼容旧响应（include_episodes=1）时回退 episodes 计算。
+  const e = seasonEntry(sn)
+  if (e && (e.distinct || e.versions || e.total)) {
+    return { distinct: Number(e.distinct) || Number(e.total) || 0,
+             versions: Number(e.versions) || 1 }
+  }
   return seasonStats((show.value?.episodes || [])
-    .filter(e => Number(e.season) === Number(sn)))
+    .filter(x => Number(x.season) === Number(sn)))
 }
 function seasonEps (sn) {
   return (show.value?.episodes || []).filter(e => Number(e.season) === Number(sn))
 }
 function seasonProgress (sn) {
+  const e = seasonEntry(sn)
+  if (e && (e.total || e.watched_count)) {
+    const total = Number(e.total) || 0
+    const watched = Number(e.watched_count) || 0
+    return { watched, total, done: total > 0 && watched >= total }
+  }
   const eps = seasonEps(sn)
-  const watched = eps.filter(e => Number(e.watched)).length
+  const watched = eps.filter(x => Number(x.watched)).length
   return { watched, total: eps.length, done: eps.length > 0 && watched === eps.length }
 }
 function seasonContinue (sn) {
+  const e = seasonEntry(sn)
+  if (e && (e.total || e.has_partial !== undefined)) {
+    if (e.done) return ''
+    if (e.has_partial) return '继续观看'
+    if (e.next_episode_num) return `从 E${pad(e.next_episode_num)} 开始`
+    return ''
+  }
   const eps = seasonEps(sn)
   if (!eps.length) return ''
-  const partial = eps.find(e => e.progress && !Number(e.watched))
+  const partial = eps.find(x => x.progress && !Number(x.watched))
   if (partial) return `继续 ${epNo(partial)}`
-  const next = eps.find(e => !Number(e.watched))
+  const next = eps.find(x => !Number(x.watched))
   if (next) return `从 ${epNo(next)} 开始`
   return ''
 }
 const allWatched = computed(() => {
+  const total = Number(show.value?.episode_count) || 0
+  const watched = Number(show.value?.watched_count) || 0
+  if (total > 0) return watched >= total
   const eps = show.value?.episodes || []
   return eps.length > 0 && eps.every(e => Number(e.watched))
 })
@@ -213,11 +247,20 @@ function playExtra (x) {
 }
 function openSeason (sn) { router.push(`/tv/${show.value.id}/s/${sn}`) }
 function openShow (id) { router.push('/tv/' + id) }
-async function load () {
+function goPerson (p) {
+  // 同步跳转、零等待：建档收敛到人物页内部（404 承接 + 建档中提示），
+  // 跳转本身不再 await，杜绝连点竞态（后 resolve 的请求顶掉页面）。
+  const tid = Number(p && p.id)
+  if (!Number.isFinite(tid) || tid <= 0) return
+  router.push({ path: '/p/' + tid,
+    query: { name: p.name || '', profile: p.profile_path || '' } })
+}
+async function load (verify = '0') {
   msg.value = ''
   similar.value = []
   try {
-    show.value = await api('/api/tv/shows/' + route.params.id)
+    const q = verify && verify !== '0' ? '?verify=' + encodeURIComponent(verify) : ''
+    show.value = await api('/api/tv/shows/' + route.params.id + q)
     if (!show.value.tmdb_id || show.value.needs_review) matchOpen.value = true
     try {
       similar.value = (await api(`/api/tv/shows/${route.params.id}/similar`)).items || []
@@ -227,6 +270,12 @@ async function load () {
   }
 }
 
+async function verifyExists () {
+  verifying.value = true
+  try {
+    await load('1')
+  } catch (e) { msg.value = '校验失败：' + e.message } finally { verifying.value = false }
+}
 async function markWatched (episodeId, watched) {
   try {
     await api(`/api/tv/episodes/${episodeId}/watched`, {
@@ -311,8 +360,8 @@ async function onEnded () {
   } catch (e) { /* 连播失败：停在结束画面，用户可关窗 */ }
 }
 
-onMounted(load)
-watch(() => route.params.id, load)
+onMounted(() => load())
+watch(() => route.params.id, () => load())
 </script>
 
 <style scoped>
@@ -355,9 +404,12 @@ watch(() => route.params.id, load)
 .extras h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
 .cast-sec { margin: 12px; }
 .cast-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
 .cast-card { text-align: center; }
-.avatar-fallback { width: 64px; height: 64px; margin: 0 auto 6px; border-radius: 50%; background: #2a2a2a; color: #888; font-size: 1.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; }
+.avatar-fallback { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; background: #2a2a2a; color: #888; font-size: 2.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; }
+.cast-avatar { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; object-fit: cover; object-position: center 20%; display: block; background: #2a2a2a; transition: transform .15s ease; }
+.cast-card.clickable { cursor: pointer; }
+.cast-card.clickable:hover .cast-avatar { transform: scale(1.06); }
 .ex-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .ex-card { width: 220px; padding: 8px 10px; background: #1f1f1f; border: 1px solid #333; border-radius: 8px; }
 .ex-name { font-size: 0.875rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }

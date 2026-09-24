@@ -1,7 +1,8 @@
 """store.persons（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
+import json as _json
 import time
 from ._base import _conn, _lock, _row_to_dict
-__all__ = ['upsert_person', 'get_person_raw', 'person_exists', 'persons_missing_avatar', 'update_person_bio', 'get_person', 'link_person', 'clear_movie_persons', 'get_movie_person_links', 'copy_person_links', 'find_sibling_with_persons']
+__all__ = ['upsert_person', 'get_person_raw', 'person_exists', 'persons_missing_avatar', 'update_person_bio', 'get_person', 'get_person_tv_works', 'link_person', 'clear_movie_persons', 'get_movie_person_links', 'copy_person_links', 'find_sibling_with_persons']
 
 def upsert_person(tmdb_id: int, name: str, avatar: str | None = None,
                   profile_tmdb_path: str | None = None,
@@ -101,7 +102,106 @@ def get_person(tmdb_id: int, library_ids: list[int] | None = None) -> dict | Non
             (acting if role == "actor" else directing).append(item)
         p["acting"] = acting
         p["directing"] = directing
+        p["tv_works"] = get_person_tv_works(tmdb_id, library_ids=library_ids)
         return p
+
+
+def get_person_tv_works(person_tmdb_id: int,
+                        library_ids: list[int] | None = None) -> list[dict]:
+    """人物参演的库内剧集（TV 点击进人物页用）：按 TMDB 人物 id 扫三级 credits
+    （全剧聚合 `tmdb_cache(tv).credits.cast` → 季常驻 `tv_seasons.cast` →
+    集客串 `tv_episodes.episode_credits.guests`），命中即收录所属剧。
+
+    纯本地；返回 [{show_id, title, year, poster_path, original_language,
+    character}]（character 取聚合首角色，去重按 show，年份倒序）。
+    剧集数量级小（通常 < 千），内存过滤即可。"""
+    try:
+        pid = int(person_tmdb_id)
+    except (TypeError, ValueError):
+        return []
+    if pid <= 0:
+        return []
+    with _lock, _conn() as c:
+        sql = ("SELECT id, library_id, title, year, poster_path, tmdb_id,"
+               " original_language FROM tv_shows")
+        params: list = []
+        if library_ids:
+            ids = [int(x) for x in library_ids]
+            sql += " WHERE library_id IN (%s)" % ",".join("?" * len(ids))
+            params += ids
+        shows = [dict(r) for r in c.execute(sql, params).fetchall()]
+        if not shows:
+            return []
+        cache_rows = {int(r["tmdb_id"]): (r["credits"] or "")
+                      for r in c.execute("SELECT tmdb_id, credits FROM tmdb_cache"
+                                         " WHERE media_type='tv'").fetchall()
+                      if r["tmdb_id"] is not None}
+        season_rows = c.execute('SELECT show_id, "cast" FROM tv_seasons').fetchall()
+        season_cast: dict[int, list] = {}
+        for r in season_rows:
+            try:
+                items = _json.loads(r["cast"]) if r["cast"] else []
+            except (TypeError, ValueError):
+                items = []
+            if isinstance(items, list) and items:
+                season_cast.setdefault(int(r["show_id"]), []).extend(items)
+        guest_rows = c.execute(
+            "SELECT show_id, episode_credits FROM tv_episodes"
+            " WHERE episode_credits IS NOT NULL AND episode_credits != ''"
+            " AND episode_credits != '{}'").fetchall()
+        guest_cast: dict[int, list] = {}
+        for r in guest_rows:
+            try:
+                ec = _json.loads(r["episode_credits"])
+            except (TypeError, ValueError):
+                continue
+            guests = (ec or {}).get("guests") if isinstance(ec, dict) else None
+            if guests:
+                guest_cast.setdefault(int(r["show_id"]), []).extend(guests)
+    out, seen = [], set()
+    for s in shows:
+        sid = int(s["id"])
+        if sid in seen:
+            continue
+        character, matched = "", False
+        tid = s.get("tmdb_id")
+        if tid is not None:
+            try:
+                cr = _json.loads(cache_rows.get(int(tid)) or "{}")
+            except (TypeError, ValueError):
+                cr = {}
+            for entry in (cr.get("cast") or []):
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    hit = int(entry.get("id") or 0) == pid
+                except (TypeError, ValueError):
+                    continue
+                if hit:
+                    matched = True
+                    character = str(entry.get("character") or "")
+                    break
+        if not matched:  # 季常驻/集客串（无角色名也算参演）
+            for entry in season_cast.get(sid, []) + guest_cast.get(sid, []):
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    hit = int(entry.get("id") or 0) == pid
+                except (TypeError, ValueError):
+                    continue
+                if hit:
+                    matched = True
+                    character = str(entry.get("character") or "")
+                    break
+        if matched:
+            seen.add(sid)
+            out.append({"show_id": sid, "title": s.get("title") or "",
+                        "year": s.get("year"),
+                        "poster_path": s.get("poster_path") or "",
+                        "original_language": s.get("original_language") or "",
+                        "character": character})
+    out.sort(key=lambda w: (w.get("year") is None, -(w.get("year") or 0)))
+    return out
 
 
 def link_person(movie_id: int, person_id: int, role: str,

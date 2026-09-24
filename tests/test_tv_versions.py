@@ -78,7 +78,7 @@ def test_show_detail_exposes_version(tv_lib):
         p.write_bytes(b"x")
     scanner.scan_all(library_id=lib["id"])
     show = store.list_shows(lib["id"])[0]
-    d = client.get(f"/api/tv/shows/{show['id']}").json()
+    d = client.get(f"/api/tv/shows/{show['id']}", params={"include_episodes": 1}).json()
     vers = sorted(e["version"] for e in d["episodes"])
     assert vers == [1, 2]
     nxt = client.get(f"/api/tv/episodes/"
