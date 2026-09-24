@@ -2,5 +2,7 @@
 -r requirements.txt
 pytest>=8.0
 pyflakes>=3.0
+# 单用例超时熔断：hang 转失败+堆栈（pytest.ini: timeout=120），不进运行时镜像
+pytest-timeout>=2.0
 # 宿主直跑（./start.sh）无系统 ffmpeg 时的静态二进制兜底（评审 R01-Q5）
 static-ffmpeg>=3.0
