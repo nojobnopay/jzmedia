@@ -78,6 +78,9 @@ _SPECIAL_WORD = re.compile(
 
 _TOKEN_SPLIT = re.compile(r"[\s._\-\[\]\(\)【】{}]+")
 _TRAIL_NUM = re.compile(r"(?<=[^\d\s])(0*\d{1,4})$")
+# 括号包裹的尾部数字是集号标记（`蜡笔小新_高清版 (240).flv`）：即使命中分辨率词表
+# （240/360/480/576/720/1080/1440…）也按集号处理；`Show.1080p` 带字母后缀不受影响。
+_PAREN_NUM = re.compile(r"[\(\[【（]\s*(0*\d{1,4})\s*[\)\]】）]\s*$")
 # 发布规格 token：裸数字是分辨率/规格时跳过（`Show.1080.BluRay`），
 # 但后面跟的是正片名而非规格时按集号处理（`240.巨大的希望…mkv`）。
 _RELEASE_TAG = {"bluray", "blu", "bdrip", "brrip", "web", "dl", "webrip", "hdrip",
@@ -138,7 +141,7 @@ def _range_end(start, end) -> int:
 
 def _bare_number(stem: str) -> int | None:
     """裸数字：① 整名纯数字（`1080.flv`）② 纯数字 token（排除年份/规格）
-    ③ 标题紧贴数字（`黑街01`）。"""
+    ③ 标题紧贴数字（`黑街01`）④ 括号包裹的尾部数字（`高清版 (240)`，分辨率同值也算集号）。"""
     s = stem.strip()
     if s.isdigit():
         v = int(s)
@@ -157,6 +160,11 @@ def _bare_number(stem: str) -> int | None:
                     or re.match(r"^\d{3,4}[pi]$", nxt)):
                 continue
         return v
+    m = _PAREN_NUM.search(s)
+    if m:
+        v = int(m.group(1))
+        if 0 < v <= 9999 and not (1900 <= v <= 2099):
+            return v
     m = _TRAIL_NUM.search(s)
     if m:
         digits = m.group(1)

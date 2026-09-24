@@ -51,9 +51,27 @@ def test_bare_numbers(name, episode):
     "Show.1080p.mkv",
     "Show.2019.mkv",
     "Show.2160p.HEVC.mkv",
+    "Show (2019).mkv",
 ])
 def test_no_episode(name):
     assert tv_parse.parse_episode(name)["episode"] is None
+
+
+@pytest.mark.parametrize("name,episode", [
+    # 括号数字是集号标记：与分辨率同值（240/360/720/1080/1440）也按集号解析
+    ("蜡笔小新_高清版 (240).flv", 240),
+    ("蜡笔小新_高清版 (360).flv", 360),
+    ("蜡笔小新_高清版 (720).flv", 720),
+    ("蜡笔小新_高清版 (1080).flv", 1080),
+    ("Show (1440).mkv", 1440),
+    ("蜡笔小新_高清版（240）.flv", 240),
+    ("Show【720】.mp4", 720),
+])
+def test_bare_bracketed_numbers(name, episode):
+    p = tv_parse.parse_episode(name)
+    assert p["episode"] == episode, name
+    assert p["season"] is None, name
+    assert p["absolute"] is True, name
 
 
 @pytest.mark.parametrize("name,episode", [
