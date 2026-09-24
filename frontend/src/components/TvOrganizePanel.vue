@@ -1,5 +1,5 @@
 <template>
-  <section :id="active ? 'sec-meta' : undefined" class="card-block">
+  <section :id="active ? 'sec-tvorganize' : undefined" class="card-block">
     <h3>剧集目录整理 <span class="fhint">目录只移动，正片按 Plex 模板改名</span></h3>
     <p class="hint">
       剧根改名（`Breaking.Bad.2008 → 绝命毒师 (2008)`）；季目录规范化（`season 1`/`S04` → `Season 01`）；

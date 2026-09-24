@@ -6,18 +6,19 @@
           :alt="show.title" />
         <div v-else class="hero-poster hero-no-poster">{{ (show.title || '?').slice(0, 1) }}</div>
         <div class="hero-body">
+          <div class="topbar"><button @click="$router.back()">‹ 返回</button></div>
           <h2>{{ show.title }}<span v-if="show.year" class="dim"> ({{ show.year }})</span></h2>
+          <HeroRatings :tmdb="show.tmdb_rating" />
           <div class="meta">
             <span v-if="show.status">{{ statusText(show.status) }}</span>
             <span v-if="show.first_air_date">{{ show.first_air_date }}</span>
             <span v-if="show.region">{{ show.region }}</span>
             <span v-if="show.episode_run_time">{{ show.episode_run_time }} 分钟/集</span>
             <span v-if="show.genres && show.genres.length">{{ show.genres.join(' / ') }}</span>
-            <span v-if="show.tmdb_rating">★ {{ Number(show.tmdb_rating).toFixed(1) }}</span>
             <span v-if="show.tmdb_id" class="dim">TMDB {{ show.tmdb_id }}</span>
           </div>
-          <p v-if="show.overview" class="ov">{{ show.overview }}</p>
-          <p v-else class="ov dim">暂无简介（可「刷新元数据」或手动匹配）</p>
+          <p v-if="show.overview" class="overview">{{ show.overview }}</p>
+          <p v-else class="empty">暂无简介</p>
           <div class="acts">
             <button v-if="nextEp" class="primary" :disabled="!nextEp.exists" @click="play(nextEp)">
               ▶ {{ nextEp.progress ? '继续观看' : '播放下一集' }} {{ epNo(nextEp) }}
@@ -51,20 +52,7 @@
         </div>
       </div>
     </div>
-    <section v-if="castList.length" class="card-block cast-sec">
-      <h3>演职员 <span class="dim">{{ castList.length }}</span></h3>
-      <div class="cast-wall">
-          <div v-for="p in castList" :key="p.id || p.name" class="cast-card"
-          :class="{ clickable: !!Number(p.id) }" @click="goPerson(p)"
-          :title="p.character ? `${p.name} 饰 ${p.character}` : p.name">
-          <img v-if="p.profile_path" :src="castAvatarUrl(p.profile_path)" loading="lazy"
-            class="cast-avatar" :alt="p.name || '演员'" @error="p.profile_path = ''" />
-          <div v-else class="avatar-fallback" aria-hidden="true">{{ (p.name || '?').slice(0, 1) }}</div>
-          <div class="cast-name">{{ p.name }}</div>
-          <div v-if="showCharacter && p.character" class="cast-char">{{ p.character }}</div>
-        </div>
-      </div>
-    </section>
+    <CastWall :cast="castList" :original-language="show.original_language || ''" />
     <section v-if="show.seasons && show.seasons.length" class="card-block season-sec">
       <h3>剧季 <span class="dim">{{ show.seasons.length }}</span></h3>
       <div class="season-grid">
@@ -84,18 +72,8 @@
         </div>
       </div>
     </section>
-    <section v-if="similar.length" class="card-block similar-sec">
-      <h3>相关节目</h3>
-      <div class="sim-row">
-        <div v-for="m in similar" :key="m.id" class="sim-card" @click="openShow(m.id)"
-          :title="m.reason || m.title">
-          <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" :alt="m.title" />
-          <div v-else class="sim-no-poster" aria-hidden="true">{{ (m.title || '?').slice(0, 1) }}</div>
-          <div class="sim-name">{{ m.title }}</div>
-          <div v-if="m.reason" class="dim small">{{ m.reason }}</div>
-        </div>
-      </div>
-    </section>
+    <SimilarRow :items="similar" title="相关节目" subtitle="按电视网 / 类型 / 主创 / 主演推荐"
+      @open="openShow" />
     <section v-if="movies.length" class="card-block extras">
       <h3>剧场版 <span class="dim">{{ movies.length }}</span></h3>
       <div class="ex-row">
@@ -128,9 +106,12 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, castAvatarUrl, posterUrl } from '../api.js'
+import { api, posterUrl } from '../api.js'
 import { episodeVersion, seasonStats } from '../episodeVersions.js'
 import PlayerModal from '../components/PlayerModal.vue'
+import CastWall from '../components/CastWall.vue'
+import HeroRatings from '../components/HeroRatings.vue'
+import SimilarRow from '../components/SimilarRow.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -148,12 +129,8 @@ const verifying = ref(false)
 
 const movies = computed(() => (show.value?.extras || []).filter(x => x.kind === 'movie'))
 const features = computed(() => (show.value?.extras || []).filter(x => x.kind !== 'movie'))
-// 演职员：后端 show_detail 透出全剧聚合前 10（只做展示，不跳人物页——
-// TV 人物未入库，站内无数据）。饰演角色仅英文原语言展示（与电影 Detail 同规则，
-// CJK 剧的罗马音/英文角色名读作噪音）。
+// 演职员：后端 show_detail 透出全剧聚合前 10（归一字段，见 cast.js）。
 const castList = computed(() => show.value?.cast || [])
-const showCharacter = computed(() =>
-  String(show.value?.original_language || '').startsWith('en'))
 function seasonEntry (sn) {
   return (show.value?.seasons || []).find(s => Number(s.season) === Number(sn)) || null
 }
@@ -247,14 +224,6 @@ function playExtra (x) {
 }
 function openSeason (sn) { router.push(`/tv/${show.value.id}/s/${sn}`) }
 function openShow (id) { router.push('/tv/' + id) }
-function goPerson (p) {
-  // 同步跳转、零等待：建档收敛到人物页内部（404 承接 + 建档中提示），
-  // 跳转本身不再 await，杜绝连点竞态（后 resolve 的请求顶掉页面）。
-  const tid = Number(p && p.id)
-  if (!Number.isFinite(tid) || tid <= 0) return
-  router.push({ path: '/p/' + tid,
-    query: { name: p.name || '', profile: p.profile_path || '' } })
-}
 async function load (verify = '0') {
   msg.value = ''
   similar.value = []
@@ -370,10 +339,12 @@ watch(() => route.params.id, () => load())
 .hero-inner { display: flex; gap: 18px; padding: 18px 16px; align-items: flex-end; }
 .hero-poster { width: 150px; aspect-ratio: 2/3; object-fit: cover; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.6); flex: 0 0 auto; }
 .hero-no-poster { display: flex; align-items: center; justify-content: center; background: #242424; color: #555; font-size: 2.5rem; font-weight: bold; }
-.hero-body { min-width: 0; }
+.hero-body { min-width: 0; flex: 1; }
 .hero-body h2 { margin: 0 0 6px; font-size: 1.5rem; }
+.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .meta { display: flex; flex-wrap: wrap; gap: 10px; color: #aaa; font-size: 0.8125rem; margin-bottom: 8px; }
-.ov { max-width: 900px; color: #ccc; font-size: 0.875rem; line-height: 1.5; margin: 0 0 10px; }
+/* 简介与空态走 App.vue 全局 .overview/.empty 单源（与电影 Detail 同形态） */
+.overview { max-width: 900px; }
 .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .acts .primary { background: #e50914; border-color: #e50914; color: #fff; }
 .match { margin-top: 10px; max-width: 720px; }
@@ -381,8 +352,8 @@ watch(() => route.params.id, () => load())
 .match-bar input { flex: 1; }
 .mrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #2c2c2c; font-size: 0.875rem; }
 .mrow .mname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.season-sec, .similar-sec { margin: 12px; }
-.season-sec h3, .similar-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.season-sec { margin: 12px; }
+.season-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
 .season-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .season-card { background: #1f1f1f; border: 1px solid #333; border-radius: 8px; overflow: hidden; cursor: pointer; }
 .season-card:hover { border-color: #e50914; }
@@ -392,24 +363,13 @@ watch(() => route.params.id, () => load())
 .season-done { position: absolute; top: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #7ed321; }
 .season-name { padding: 8px 8px 0; font-size: 0.875rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .season-ct { padding: 2px 8px 8px; font-size: 0.75rem; color: #9ecfff; }
-.sim-row { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
-.sim-card { flex: 0 0 120px; width: 120px; cursor: pointer; }
-.sim-card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 8px; display: block; }
-.sim-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: #242424; color: #555; font-size: 2rem; font-weight: bold; border-radius: 8px; }
-.sim-name { margin-top: 6px; font-size: 0.8125rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 推荐行样式单源：SimilarRow.vue */
 .review-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(255, 179, 0, .16); color: #ffb300; border: 1px solid rgba(255, 179, 0, .4); }
 .local-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(120, 170, 255, .14); color: #7aaaff; border: 1px solid rgba(120, 170, 255, .4); }
 .ver-badge { margin-left: 6px; font-size: 0.6875rem; padding: 0 5px; border-radius: 3px; color: #b98a00; border: 1px solid #6b5410; }
 .extras { margin: 12px; }
 .extras h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.cast-sec { margin: 12px; }
-.cast-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-.cast-card { text-align: center; }
-.avatar-fallback { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; background: #2a2a2a; color: #888; font-size: 2.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; }
-.cast-avatar { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; object-fit: cover; object-position: center 20%; display: block; background: #2a2a2a; transition: transform .15s ease; }
-.cast-card.clickable { cursor: pointer; }
-.cast-card.clickable:hover .cast-avatar { transform: scale(1.06); }
+/* 演职员样式单源：CastWall.vue（此处不再重复定义 cast-wall/cast-card） */
 .ex-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .ex-card { width: 220px; padding: 8px 10px; background: #1f1f1f; border: 1px solid #333; border-radius: 8px; }
 .ex-name { font-size: 0.875rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }

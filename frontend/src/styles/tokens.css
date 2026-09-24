@@ -1,0 +1,45 @@
+/* jzmedia 设计地基（P0）：全站单源 tokens。
+   页面 scoped 样式只允许覆盖特化属性，颜色/间距/圆角/字号/断点一律引用此处变量。 */
+:root {
+  --jz-bg: #141414;
+  --jz-surface: #1c1c1c;
+  --jz-surface-2: #222;
+  --jz-surface-3: #262626;
+  --jz-border: #2c2c2c;
+  --jz-border-strong: #444;
+  --jz-text: #eee;
+  --jz-text-dim: #aaa;
+  --jz-text-faint: #777;
+  --jz-accent: #e50914;
+  --jz-link: #9ecfff;
+  --jz-star: #ffc107;
+  --jz-green: #7ed321;
+  --jz-blue-chip: #6ab0ff;
+  --jz-warn: #e0a63c;
+  --jz-danger: #ff6b6b;
+
+  --jz-radius-s: 6px;
+  --jz-radius-m: 8px;
+  --jz-radius-l: 10px;
+  --jz-radius-pill: 999px;
+
+  --jz-gap-xs: 6px;
+  --jz-gap-s: 8px;
+  --jz-gap-m: 12px;
+  --jz-gap-l: 16px;
+  --jz-gap-xl: 20px;
+
+  --jz-font-s: 0.75rem;
+  --jz-font-m: 0.875rem;
+  --jz-font-l: 0.9375rem;
+  --jz-font-xl: 1.0625rem;
+
+  --jz-cast-size: 150px;
+  --jz-poster-min: 150px;
+
+  --jz-break-sm: 700px;
+}
+
+/* 全站复用小件（与 App.vue 共享样式同源，页面不得各自定义第二套） */
+.jz-dim { color: var(--jz-text-faint); }
+.jz-small { font-size: var(--jz-font-s); }

@@ -13,16 +13,16 @@
           @error="ep.still_path = ''" />
         <div class="hero-body">
           <h2>{{ epNo(ep) }}<span v-if="ep.title"> · {{ ep.title }}</span></h2>
+          <HeroRatings :tmdb="ep.tmdb_rating" />
           <div class="meta">
             <span v-if="ep.air_date">{{ ep.air_date }}</span>
             <span v-if="ep.runtime">{{ ep.runtime }} 分钟</span>
-            <span v-if="ep.tmdb_rating">★ {{ Number(ep.tmdb_rating).toFixed(1) }}</span>
             <span v-if="ep.watched" class="seen-tag">✓已看</span>
             <span v-if="ep.needs_review" class="review-badge">未匹配集号</span>
             <span v-if="ep.local_only" class="local-badge">本地集</span>
           </div>
-          <p v-if="ep.overview" class="ov">{{ ep.overview }}</p>
-          <p v-else class="ov dim">本集暂无简介</p>
+          <p v-if="ep.overview" class="overview">{{ ep.overview }}</p>
+          <p v-else class="empty">暂无简介</p>
           <div class="acts">
             <button v-if="ep.exists" class="primary" @click="play">
               ▶ {{ ep.progress ? '继续播放' : '播放' }}
@@ -54,26 +54,9 @@
         </div>
       </div>
     </div>
-    <section v-if="directors.length" class="card-block crew-sec">
-      <p class="crew"><span class="role">导演</span>
-        <span v-for="(d, i) in directors" :key="d.id || d.name">{{ d.name }}<span v-if="i < directors.length - 1"> / </span></span>
-      </p>
-    </section>
-    <section v-if="ep.cast && ep.cast.length" class="card-block cast-sec">
-      <h3>演职员 <span class="dim">{{ ep.cast.length }} · {{ ep.cast_source === 'season' ? '本季' : ep.cast_source === 'aggregate' ? '全剧' : '' }}</span></h3>
-      <div class="cast-wall">
-          <div v-for="p in ep.cast" :key="p.id || p.name" class="cast-card"
-          :class="{ clickable: !!Number(p.id) }" @click="goPerson(p)"
-          :title="p.character ? `${p.name} 饰 ${p.character}` : p.name">
-          <img v-if="p.profile_path" :src="castAvatarUrl(p.profile_path)" loading="lazy"
-            class="cast-avatar" :alt="p.name || '演员'" @error="p.profile_path = ''" />
-          <div v-else class="avatar-fallback" aria-hidden="true">{{ (p.name || '?').slice(0, 1) }}</div>
-          <div class="cast-name">{{ p.name }}</div>
-          <div v-if="showCharacter && p.character" class="cast-char">{{ p.character }}</div>
-          <div v-if="p.guest" class="guest-badge">客串</div>
-        </div>
-      </div>
-    </section>
+    <CrewRow :directors="directors" />
+    <CastWall :cast="ep.cast || []" :original-language="ep.original_language || ''"
+      :subtitle="ep.cast_source === 'season' ? '本季' : ep.cast_source === 'aggregate' ? '全剧' : ''" />
   </div>
   <div v-else class="bar">{{ msg || '加载中…' }}</div>
   <PlayerModal v-if="playing" :key="'episode:' + playing.id"
@@ -84,9 +67,12 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, castAvatarUrl } from '../api.js'
+import { api } from '../api.js'
 import { episodeVersion } from '../episodeVersions.js'
 import PlayerModal from '../components/PlayerModal.vue'
+import CastWall from '../components/CastWall.vue'
+import CrewRow from '../components/CrewRow.vue'
+import HeroRatings from '../components/HeroRatings.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -101,9 +87,6 @@ const localTitle = ref('')
 const candidates = ref([])
 const searchedCand = ref(false)
 
-// 饰演角色仅英文原语言展示（与剧详情页同规则；集接口带 show 原语言需后端透出）
-const showCharacter = computed(() =>
-  String(ep.value?.original_language || '').startsWith('en'))
 const directors = computed(() => ep.value?.directors || [])
 const prevEp = computed(() => {
   const i = siblings.value.findIndex(e => Number(e.id) === Number(ep.value?.id))
@@ -132,14 +115,6 @@ function play () {
 }
 function goEpisode (id) {
   router.push(`/tv/${ep.value.show_id}/s/${ep.value.season}/e/${id}`)
-}
-function goPerson (p) {
-  // 同步跳转、零等待：建档收敛到人物页内部（404 承接 + 建档中提示），
-  // 跳转本身不再 await，杜绝连点竞态（后 resolve 的请求顶掉页面）。
-  const tid = Number(p && p.id)
-  if (!Number.isFinite(tid) || tid <= 0) return
-  router.push({ path: '/p/' + tid,
-    query: { name: p.name || '', profile: p.profile_path || '' } })
 }
 async function load () {
   msg.value = ''
@@ -246,7 +221,8 @@ watch(() => route.params.epId, load)
 .hero-body { min-width: 0; }
 .hero-body h2 { margin: 0 0 6px; font-size: 1.5rem; }
 .meta { display: flex; flex-wrap: wrap; gap: 10px; color: #aaa; font-size: 0.8125rem; margin-bottom: 8px; }
-.ov { max-width: 900px; color: #ccc; font-size: 0.875rem; line-height: 1.5; margin: 0 0 10px; }
+/* 简介与空态走 App.vue 全局 .overview/.empty 单源（与电影/剧详情同形态） */
+.overview { max-width: 900px; }
 .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .acts .primary { background: #e50914; border-color: #e50914; color: #fff; }
 .match { margin-top: 10px; max-width: 720px; }
@@ -254,17 +230,7 @@ watch(() => route.params.epId, load)
 .match-bar input { flex: 1; }
 .mrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #2c2c2c; font-size: 0.875rem; }
 .mrow .mname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.crew-sec, .cast-sec { margin: 12px; }
-.crew-sec h3, .cast-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.crew { margin: 0; font-size: 0.9375rem; color: #ddd; }
-.crew .role { color: #888; font-size: 0.8125rem; margin-right: 8px; }
-.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-.cast-card { text-align: center; }
-.avatar-fallback { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; background: #2a2a2a; color: #888; font-size: 2.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; }
-.cast-avatar { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; object-fit: cover; object-position: center 20%; display: block; background: #2a2a2a; transition: transform .15s ease; }
-.cast-card.clickable { cursor: pointer; }
-.cast-card.clickable:hover .cast-avatar { transform: scale(1.06); }
-.guest-badge { display: inline-block; margin-top: 2px; font-size: 0.6875rem; padding: 0 6px; border-radius: 3px; color: #7aaaff; border: 1px solid rgba(120, 170, 255, .4); }
+/* 演职员/导演样式单源：CastWall.vue / CrewRow.vue */
 .seen-tag { color: #7ed321; }
 .review-badge { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(255, 179, 0, .16); color: #ffb300; border: 1px solid rgba(255, 179, 0, .4); }
 .local-badge { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(120, 170, 255, .14); color: #7aaaff; border: 1px solid rgba(120, 170, 255, .4); }

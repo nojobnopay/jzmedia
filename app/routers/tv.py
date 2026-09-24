@@ -228,9 +228,30 @@ def tv_suggest(q: str = "", limit: int = 8,
             "persons": store.suggest_tv_people(q, 5, library_ids=libs)}
 
 
+def _norm_tv_person(c: dict) -> dict:
+    """TV 演职单条归一（P1）：补电影侧别名 tmdb_id/character_name/avatar，
+    前端 cast.js 只认归一字段，新老客户端兼容。"""
+    try:
+        pid = int(c.get("id") or c.get("tmdb_id") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    character = str(c.get("character") or c.get("character_name") or "").strip()
+    profile = c.get("profile_path") or c.get("avatar") or ""
+    out = dict(c)
+    out["id"] = pid
+    out["tmdb_id"] = pid
+    out["name"] = str(c.get("name") or "").strip()
+    out["character"] = character
+    out["character_name"] = character
+    out["profile_path"] = profile
+    out["avatar"] = profile
+    return out
+
+
 def _show_cast(show: dict) -> list[dict]:
     """演职员（详情页展示用）：读 `tmdb_cache(tv).credits` 前 10，
-    返回 [{id, name, character, profile_path}]；未匹配/无缓存返回 []。
+    返回归一场 [{id, tmdb_id, name, character, character_name,
+    profile_path, avatar}]；未匹配/无缓存返回 []。
 
     纯本地读缓存、不触网；`id` 为 TMDB 人物 id（无 id 条目跳过），供前端
     点击进人物页（先 `POST /api/persons/ensure` 建档再跳 `/p/:id`）。"""
@@ -250,9 +271,10 @@ def _show_cast(show: dict) -> list[dict]:
             pid = 0
         if not name or pid <= 0:
             continue
-        out.append({"id": pid, "name": name,
-                    "character": str(c.get("character") or "").strip(),
-                    "profile_path": c.get("profile_path") or ""})
+        out.append(_norm_tv_person({
+            "id": pid, "name": name,
+            "character": str(c.get("character") or "").strip(),
+            "profile_path": c.get("profile_path") or ""}))
     return out
 
 
@@ -270,9 +292,11 @@ def similar_shows(show_id: int, limit: int = 12):
 
 
 def _season_cast_with_fallback(show_tmdb_id, season_cast: list) -> tuple[list, str]:
-    """季演职：本季常驻优先，缺席回退全剧聚合（aggregate），皆无为 none。"""
+    """季演职：本季常驻优先，缺席回退全剧聚合（aggregate），皆无为 none。
+    返回条目均为归一形态（见 _norm_tv_person）。"""
     if season_cast:
-        return season_cast, "season"
+        return [_norm_tv_person(x) for x in season_cast
+                if isinstance(x, dict) and x.get("name")], "season"
     try:
         tid = int(show_tmdb_id or 0)
     except (TypeError, ValueError):
@@ -283,7 +307,7 @@ def _season_cast_with_fallback(show_tmdb_id, season_cast: list) -> tuple[list, s
         agg = [x for x in (credits.get("cast") or [])[:10]
                if isinstance(x, dict) and x.get("name")]
         if agg:
-            return agg, "aggregate"
+            return [_norm_tv_person(x) for x in agg], "aggregate"
     return [], "none"
 
 

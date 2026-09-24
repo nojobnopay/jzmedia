@@ -136,7 +136,7 @@ const route = useRoute()
 
 // 库工具锚点（深链：/settings?sec=sec-restore&ids=… / ?sec=sec-pipeline）
 const LIB_SECS = new Set(['sec-pipeline', 'sec-sync', 'sec-pending', 'sec-organize',
-  'sec-meta', 'sec-restore', 'sec-files', 'sec-libtools'])
+  'sec-meta', 'sec-tvorganize', 'sec-restore', 'sec-files', 'sec-libtools'])
 
 const s = ref(null)
 const stats = ref(null)

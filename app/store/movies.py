@@ -112,10 +112,24 @@ def get_movie(movie_id: int) -> dict | None:
         if not row:
             return None
         d = _row_to_dict(row)
-        d["persons"] = [dict(r) for r in c.execute(
-            "SELECT p.name, p.tmdb_id, p.avatar, mp.role, mp.character_name, mp.cast_order "
+        persons = [dict(r) for r in c.execute(
+            "SELECT p.name, p.tmdb_id, p.avatar, p.profile_tmdb_path, mp.role,"
+            " mp.character_name, mp.cast_order "
             "FROM persons p JOIN movie_person mp ON mp.person_id=p.id "
             "WHERE mp.movie_id=? ORDER BY mp.cast_order", (movie_id,))]
+        # 演职员统一契约（P1）：电影/TV 双源归一。电影行补 TV 侧别名
+        #（id/profile_path/character），TV 侧补电影侧别名（见 routers.tv），
+        # 前端 cast.js 只认归一字段，新老客户端兼容。
+        for p in persons:
+            try:
+                tid = int(p.get("tmdb_id") or 0)
+            except (TypeError, ValueError):
+                tid = 0
+            p["tmdb_id"] = tid
+            p["id"] = tid
+            p["profile_path"] = p.get("profile_tmdb_path") or ""
+            p["character"] = p.get("character_name") or ""
+        d["persons"] = persons
         if d["overview_override"]:
             d["overview_display"] = d["overview_override"]
         else:

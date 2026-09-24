@@ -234,8 +234,8 @@
     </div>
   </div>
 
-  <PlayerModal v-if="playVid" ref="playerRef" :versionId="playVid" :title="playTitle"
-    @close="closeStream" @watched="onPlayWatched" />
+  <PlayerModal v-if="playVid" :key="'movie:' + playVid" ref="playerRef" :versionId="playVid" :title="playTitle"
+    kind="movie" @close="closeStream" @watched="onPlayWatched" />
 
   <UploadDialog v-if="upDlg" @close="upDlg = false" @done="onUpDone" />
 </template>

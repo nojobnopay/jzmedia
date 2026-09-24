@@ -18,8 +18,8 @@
             <span>{{ s.episode_count }} 集</span>
             <span>{{ s.watched_count }}/{{ s.episode_count }} 已看</span>
           </div>
-          <p v-if="s.overview" class="ov">{{ s.overview }}</p>
-          <p v-else class="ov dim">本季暂无简介</p>
+          <p v-if="s.overview" class="overview">{{ s.overview }}</p>
+          <p v-else class="empty">暂无简介</p>
           <div class="acts">
             <button v-if="s.next_episode" class="primary" :disabled="!s.next_episode.exists"
               @click="play(s.next_episode)">
@@ -37,27 +37,15 @@
         </div>
       </div>
     </div>
-    <section v-if="s.cast && s.cast.length" class="card-block cast-sec">
-      <h3>演职员 <span class="dim">{{ s.cast.length }} · {{ s.cast_source === 'season' ? seasonLabel(s.season) : '全剧' }}</span></h3>
-      <div class="cast-wall">
-          <div v-for="p in s.cast" :key="p.id || p.name" class="cast-card"
-          :class="{ clickable: !!Number(p.id) }" @click="goPerson(p)"
-          :title="p.character ? `${p.name} 饰 ${p.character}` : p.name">
-          <img v-if="p.profile_path" :src="castAvatarUrl(p.profile_path)" loading="lazy"
-            class="cast-avatar" :alt="p.name || '演员'" @error="p.profile_path = ''" />
-          <div v-else class="avatar-fallback" aria-hidden="true">{{ (p.name || '?').slice(0, 1) }}</div>
-          <div class="cast-name">{{ p.name }}</div>
-          <div v-if="showCharacter && p.character" class="cast-char">{{ p.character }}</div>
-        </div>
-      </div>
-    </section>
+    <CastWall :cast="s.cast || []" :original-language="s.original_language || ''"
+      :subtitle="s.cast_source === 'season' ? seasonLabel(s.season) : '全剧'" />
     <div class="grid ep-grid">
       <div v-for="e in eps" :key="e.id" class="card ep-card" @click="openEpisode(e.id)">
         <div class="still-wrap">
           <img v-if="e.still_path" :src="stillUrl(e)" loading="lazy" alt=""
             @error="e.still_path = ''" />
           <div v-else class="still-none" aria-hidden="true">{{ epNo(e) }}</div>
-          <button v-if="e.exists && !selecting" class="poster-play"
+          <button v-if="e.exists" class="poster-play"
             :aria-label="'播放 ' + epNo(e)" :title="'播放 ' + epNo(e)"
             @click.stop="play(e)">▶</button>
           <span v-if="e.watched" class="ep-done">✓已看</span>
@@ -93,11 +81,12 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, castAvatarUrl, posterUrl } from '../api.js'
+import { api, posterUrl } from '../api.js'
 import { episodeVersion } from '../episodeVersions.js'
 import { fmtRemaining } from '../format.js'
 import { progressWidth } from '../recentPlayed.js'
 import PlayerModal from '../components/PlayerModal.vue'
+import CastWall from '../components/CastWall.vue'
 
 const PAGE = 100  // 与后端季分页 limit 默认对齐
 
@@ -110,7 +99,6 @@ const loadingMore = ref(false)
 const msg = ref('')
 const playing = ref(null)
 const busy = ref(false)
-const selecting = ref(false)  // 预留：与电影墙多选语义对齐时启用
 const verifyMode = ref('0')
 const verifying = ref(false)
 const sentinel = ref(null)
@@ -124,10 +112,6 @@ const seasonDone = computed(() => {
   const list = eps.value || []
   return list.length > 0 && list.every(e => Number(e.watched))
 })
-// 饰演角色仅英文原语言展示（与剧详情页同规则）
-const showCharacter = computed(() =>
-  String(s.value?.original_language || '').startsWith('en'))
-
 function pad (n) { return String(n).padStart(2, '0') }
 function seasonLabel (n) { return Number(n) === 0 ? '特典' : `第 ${n} 季` }
 function epNo (e) {
@@ -138,14 +122,6 @@ function epNo (e) {
 function stillUrl (e) { return `/api/tv/episodes/${e.id}/still` }
 function openEpisode (id) {
   router.push(`/tv/${s.value.show_id}/s/${s.value.season}/e/${id}`)
-}
-function goPerson (p) {
-  // 同步跳转、零等待：建档收敛到人物页内部（404 承接 + 建档中提示），
-  // 跳转本身不再 await，杜绝连点竞态（后 resolve 的请求顶掉页面）。
-  const tid = Number(p && p.id)
-  if (!Number.isFinite(tid) || tid <= 0) return
-  router.push({ path: '/p/' + tid,
-    query: { name: p.name || '', profile: p.profile_path || '' } })
 }
 function playLabel (e) {
   const ver = episodeVersion(e)
@@ -251,17 +227,10 @@ watch(() => [route.params.showId, route.params.season], () => load())
 .hero-body { min-width: 0; }
 .hero-body h2 { margin: 0 0 6px; font-size: 1.5rem; }
 .meta { display: flex; flex-wrap: wrap; gap: 10px; color: #aaa; font-size: 0.8125rem; margin-bottom: 8px; }
-.ov { max-width: 900px; color: #ccc; font-size: 0.875rem; line-height: 1.5; margin: 0 0 10px; }
+/* 简介与空态走 App.vue 全局 .overview/.empty 单源（与电影/剧详情同形态）；季无评分，不渲染 HeroRatings */
 .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .acts .primary { background: #e50914; border-color: #e50914; color: #fff; }
-.cast-sec { margin: 12px; }
-.cast-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-.cast-card { text-align: center; }
-.avatar-fallback { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; background: #2a2a2a; color: #888; font-size: 2.5rem; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; }
-.cast-avatar { width: 150px; height: 150px; margin: 0 auto 6px; border-radius: 50%; object-fit: cover; object-position: center 20%; display: block; background: #2a2a2a; transition: transform .15s ease; }
-.cast-card.clickable { cursor: pointer; }
-.cast-card.clickable:hover .cast-avatar { transform: scale(1.06); }
+/* 演职员样式单源：CastWall.vue */
 .ep-grid { --poster-min: 220px; }
 .ep-card { cursor: pointer; }
 .still-wrap { position: relative; background: #222; }

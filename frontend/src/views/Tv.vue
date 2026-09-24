@@ -117,13 +117,11 @@
     </div>
   </div>
 
-  <div v-if="!items.length && firstLoaded && !loadError" class="bar fhint">
-    <span v-if="q.trim() || activeCount">没有符合条件的剧集。</span>
-    <span v-else>当前媒体库还没有剧集。在设置页「媒体库」对应媒体库下添加一个「剧集」类型的视频库并扫描，
-    再到「库工具 → 剧集刮削」补元数据即可。</span>
+  <EmptyState v-if="!items.length && firstLoaded && !loadError"
+    :text="(q.trim() || activeCount) ? '没有符合条件的剧集。' : '当前媒体库还没有剧集。在设置页「媒体库」对应媒体库下添加一个「剧集」类型的视频库并扫描，再到「库工具 → 剧集刮削」补元数据即可。'">
     <button v-if="q.trim() || activeCount" @click="clearAll">清空回到全部</button>
-  </div>
-  <div v-if="loadError" class="bar fhint warn-text">{{ loadError }}</div>
+  </EmptyState>
+  <EmptyState v-if="loadError" :text="loadError" />
 
   <div class="grid">
     <div v-for="s in items" :key="s.id" class="card show-card" @click="openShow(s.id)">
@@ -148,8 +146,8 @@
     <span v-else-if="items.length" class="fhint">已全部加载（{{ items.length }} 部）</span>
   </div>
 
-  <PlayerModal v-if="playing" :version-id="playing.id" :title="playing.label"
-    kind="episode" @close="playing = null" @watched="onWatched" />
+  <PlayerModal v-if="playing" :key="'episode:' + playing.id" :version-id="playing.id" :title="playing.label"
+    kind="episode" @close="playing = null" @watched="onWatched" @ended="onWatched" />
 </template>
 
 <script setup>
@@ -165,6 +163,7 @@ import { buildTvParams, countTvActive, defaultTvSel, normalizeTvSel,
 import ContinueWatchingRow from '../components/ContinueWatchingRow.vue'
 import PlayerModal from '../components/PlayerModal.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const route = useRoute()
 const router = useRouter()

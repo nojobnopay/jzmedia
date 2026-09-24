@@ -20,11 +20,7 @@
           <div v-else class="poster poster-empty"><Spinner :size="22" /><span>海报补齐中</span></div>
           <div class="hero-info">
             <h2>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.needs_review" class="needs-review">待确认<button class="nr-btn ok" :disabled="!!nrBusy" title="匹配无误，清除待确认标记（不重刮）" @click="confirmMatch">确认</button><button class="nr-btn" :disabled="!!nrBusy" title="打开匹配面板，重新搜索 TMDB" @click="editing = true">重新匹配</button></span><span v-if="m.watched" class="watched-chip">✓已看</span></h2>
-            <div v-if="hasScore(m.tmdb_rating) || hasScore(m.douban_rating) || hasScore(m.custom_rating)" class="rating-row">
-              <span v-if="hasScore(m.tmdb_rating)" class="rate-chip tmdb"><span class="stars">{{ starRow(m.tmdb_rating) }}</span> {{ fmtScore(m.tmdb_rating) }} <span class="src">TMDB</span></span>
-              <span v-if="hasScore(m.douban_rating)" class="rate-chip douban">豆瓣 {{ fmtScore(m.douban_rating) }}</span>
-              <span v-if="hasScore(m.custom_rating)" class="rate-chip custom">自评 {{ fmtScore(m.custom_rating) }}</span>
-            </div>
+            <HeroRatings :tmdb="m.tmdb_rating" :douban="m.douban_rating" :custom="m.custom_rating" />
             <p v-if="metaLine" class="meta-line">{{ metaLine }}</p>
             <div v-if="mediaBadge || mediaUnplayable || resumeText || noFfmpeg" class="media-row">
               <span v-if="mediaBadge" class="media-badge">{{ mediaBadge }}</span>
@@ -87,20 +83,8 @@
             <p v-else class="empty">暂无简介</p>
           </section>
 
-          <section v-if="directors.length || actors.length" class="card-block">
-            <h3>演职员</h3>
-            <p v-if="directors.length" class="crew"><span class="role">导演</span>
-              <span v-for="(p, i) in directors" :key="'d' + p.tmdb_id"><span class="actor-chip" @click="goPerson(p)">{{ p.name }}</span><span v-if="i < directors.length - 1"> </span></span>
-            </p>
-            <div v-if="actors.length" class="cast-wall">
-              <div v-for="p in actors" :key="p.tmdb_id" class="cast-card" @click="goPerson(p)">
-                <img v-if="p.avatar && p.avatar !== '-'" :src="posterUrl(p.avatar)" loading="lazy" :alt="p.name || '演员'" />
-                <div v-else class="avatar-fallback">{{ (p.name || '?').slice(0, 1) }}</div>
-                <div class="cast-name">{{ p.name }}</div>
-                <div v-if="showCharacter && p.character_name" class="cast-char">{{ p.character_name }}</div>
-              </div>
-            </div>
-          </section>
+          <CrewRow :directors="directors" />
+          <CastWall :cast="actors" :original-language="origLang" />
 
           <MovieFileManager :movie-id="Number(route.params.id)" :movie="m" :side-files="sideFiles"
             :ver-blocked="verBlocked" :ver-err="verErr" :ver-method="verMethod" :ver-friendly="verFriendly"
@@ -122,35 +106,16 @@
         </aside>
       </div>
 
-      <section v-if="similar.length" class="card-block similar-block">
-        <h3>库中类似 <span class="similar-sub">按系列 / 影人 / 类型 / 标签推荐</span></h3>
-        <div class="similar-wrap">
-          <button v-if="similar.length > 4" class="similar-nav left" aria-label="向左滚动" @click="scrollSimilar(-1)">‹</button>
-          <div ref="simRowRef" class="similar-row" @scroll="onSimScroll">
-            <div v-for="x in similar" :key="x.id" class="similar-card" @click="$router.push('/m/' + x.id)">
-              <div class="poster-wrap">
-                <img v-if="x.poster_path" :src="posterUrl(x.poster_path)" loading="lazy" :alt="(x.title || '影片') + ' 海报'" />
-                <div v-else class="similar-no-poster" aria-hidden="true">{{ (x.title || '?').slice(0, 1) }}</div>
-                <ScoreBadge :score="x.tmdb_rating" source="tmdb" />
-              </div>
-              <div class="similar-name" :title="x.title">{{ x.title }}<span v-if="x.year" class="similar-year">({{ x.year }})</span><span v-if="x.version_count > 1" class="similar-year">×{{ x.version_count }}</span><span v-if="hasScore(x.custom_rating)" class="similar-custom">♥{{ fmtScore(x.custom_rating) }}</span></div>
-              <div v-if="x.reason" class="similar-reason" :title="x.reason">{{ x.reason }}</div>
-            </div>
-          </div>
-          <div v-if="simBar.show" class="similar-bar" aria-hidden="true">
-            <div class="similar-bar-thumb" :style="{ left: simBar.left + '%', width: simBar.width + '%' }"></div>
-          </div>
-          <button v-if="similar.length > 4" class="similar-nav right" aria-label="向右滚动" @click="scrollSimilar(1)">›</button>
-        </div>
-      </section>
+      <SimilarRow :items="similar" title="库中类似" subtitle="按系列 / 影人 / 类型 / 标签推荐"
+        @open="(id) => $router.push('/m/' + id)" />
 
       <MovieEditPanel v-if="editing" :movie="m" :movie-id="Number(route.params.id)"
         @close="editing = false" @saved="onEditSaved" @changed="onEditChanged"
         @matched="onMatched" @refreshed="onRefreshed" />
     </div>
 
-    <PlayerModal v-if="playVid" ref="playerRef" :versionId="playVid" :title="playTitle"
-      @close="closeStream" @watched="onPlayEnded" />
+    <PlayerModal v-if="playVid" :key="'movie:' + playVid" ref="playerRef" :versionId="playVid" :title="playTitle"
+      kind="movie" @close="closeStream" @watched="onPlayEnded" />
 
     <div v-if="posterDlg" class="dlg-mask" @click.self="closePoster">
       <div ref="posterDlgRef" class="dlg pv-dlg poster-dlg" role="dialog" aria-modal="true">
@@ -204,18 +169,22 @@
       </div>
     </div>
   </div>
+  <EmptyState v-else :text="loadErr || '加载中…'" />
 </template>
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import { usePolling } from '../usePolling.js'
 import { getCaps } from '../caps.js'
-import { hasScore, fmtScore, starRow } from '../ratings.js'
+import HeroRatings from '../components/HeroRatings.vue'
+import SimilarRow from '../components/SimilarRow.vue'
+import EmptyState from '../components/EmptyState.vue'
 import { fmtDate } from '../format.js'
 import Spinner from '../components/Spinner.vue'
 import PlayerModal from '../components/PlayerModal.vue'
-import ScoreBadge from '../components/ScoreBadge.vue'
+import CastWall from '../components/CastWall.vue'
+import CrewRow from '../components/CrewRow.vue'
 import MovieUploadPanel from '../components/MovieUploadPanel.vue'
 import MovieFileManager from '../components/MovieFileManager.vue'
 import MovieEditPanel from '../components/MovieEditPanel.vue'
@@ -227,16 +196,15 @@ const router = useRouter()
 const m = ref(null)
 const sideFiles = ref(null)
 const msg = ref('')
+const loadErr = ref('')
 const hint = ref(null)
 const hintMsg = ref('')
 const posterDlgRef = ref(null)
 const archDlgRef = ref(null)
 const regionNote = ref('')
 // 库中类似（Plex 式推荐）：后端纯本地相似度，失败静默不挡详情页
+// 渲染与滚动收敛到 SimilarRow.vue 单源
 const similar = ref([])
-const simRowRef = ref(null)
-// 扁平细线滚动指示（隐藏原生滚动条，thumb 反映滚动位置）
-const simBar = ref({ show: false, left: 0, width: 100 })
 const archHint = ref(null)
 const archApplying = ref(false)
 const archMsg = ref('')
@@ -244,10 +212,8 @@ const editing = ref(false)
 const savedFlash = ref(false)
 let flashTimer = null
 const actors = computed(() => (m.value?.persons || []).filter(p => p.role === 'actor'))
-// TMDB character 是贡献者自由文本、不随语言翻译：非英语片里是英文描述/罗马音
-//（如"Piggy"/"Deyunan (voice)"），只有原语言为英语时才可信展示
-const showCharacter = computed(() => String(m.value?.original_language || '').toLowerCase().startsWith('en'))
 const directors = computed(() => (m.value?.persons || []).filter(p => p.role === 'director'))
+const origLang = computed(() => m.value?.original_language || '')
 // 主产地中文名由后端下发（origin_country_name；评审 B5a-3/R10-D6），前端不再维护映射
 const originName = computed(() => (m.value && m.value.origin_country_name) || '')
 const metaLine = computed(() => {
@@ -509,7 +475,13 @@ async function onPlayEnded() {
 
 async function load() {
   regionNote.value = ''
-  m.value = await api('/api/movies/' + route.params.id)
+  loadErr.value = ''
+  try {
+    m.value = await api('/api/movies/' + route.params.id)
+  } catch (e) {
+    loadErr.value = '加载失败：' + e.message
+    return
+  }
   heroVid.value = Number(route.params.id)
   // 未匹配（刮削失败/无结果）自动展开编辑面板，直接可搜 TMDB 重新匹配（评审 B9 后续）
   if (!m.value.tmdb_id) editing.value = true
@@ -534,29 +506,6 @@ async function loadSimilar() {
     // 路由已切走则丢弃过期回包（同组件切片）
     if (String(route.params.id) === String(mid)) similar.value = d.items || []
   } catch (e) { /* 推荐失败不挡详情页 */ }
-  await nextTick()
-  updateSimBar()
-}
-function updateSimBar() {
-  const el = simRowRef.value
-  if (!el || el.scrollWidth <= el.clientWidth + 1) {
-    simBar.value = { show: false, left: 0, width: 100 }
-    return
-  }
-  const view = el.clientWidth
-  const total = el.scrollWidth
-  const width = Math.max(8, (view / total) * 100)
-  const maxScroll = total - view
-  const left = maxScroll > 0 ? (el.scrollLeft / maxScroll) * (100 - width) : 0
-  simBar.value = { show: true, left, width }
-}
-function onSimScroll() {
-  updateSimBar()
-}
-function scrollSimilar(dir) {
-  const el = simRowRef.value
-  if (!el) return
-  el.scrollBy({ left: dir * Math.max(240, el.clientWidth * 0.8), behavior: 'smooth' })
 }
 async function reloadFiles() {
   try {
@@ -695,9 +644,6 @@ function flashSaved() {
   if (flashTimer) clearTimeout(flashTimer)
   flashTimer = setTimeout(() => { savedFlash.value = false }, 3000)
 }
-function goPerson(p) {
-  if (p && p.tmdb_id) router.push('/p/' + p.tmdb_id)
-}
 const originalMoved = computed(() => {
   const o = (m.value?.original_file_path || '').trim()
   return !!o && o !== m.value?.file_path
@@ -762,11 +708,9 @@ useFocusTrap(computed(() => !!archHint.value), archDlgRef)
 onMounted(() => {
   load()
   window.addEventListener('keydown', escPlayer)
-  window.addEventListener('resize', updateSimBar)
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', escPlayer)
-  window.removeEventListener('resize', updateSimBar)
   // 上传中止/计时由 MovieUploadPanel 自身卸载时处理（评审 B8/R05-B5）
   if (flashTimer) clearTimeout(flashTimer)
   if (posterObjUrl) URL.revokeObjectURL(posterObjUrl)
@@ -782,28 +726,7 @@ watch(() => route.params.id, () => { load() })   // 同组件切片重载（评�
   -webkit-mask-image: linear-gradient(#000 30%, transparent);
   mask-image: linear-gradient(#000 30%, transparent);
 }.hero-inner { position: relative; width: 100%; box-sizing: border-box; padding: 12px 24px; max-width: min(1600px, 100%); margin: 0 auto; }.topbar { display: flex; justify-content: space-between; align-items: center; }.top-right { display: flex; gap: 8px; align-items: center; }.saved-flash { color: #7ed321; font-size: 0.875rem; }.ver-tag { color: #555; font-size: 0.75rem; }.poster { width: 220px; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.55); }.poster.zoomable { cursor: zoom-in; }.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }.poster-dlg { text-align: center; }.poster-dlg .bar { justify-content: center; }.poster-empty { aspect-ratio: 2/3; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; background: #262626; color: #888; font-size: 0.875rem; box-shadow: none; }.hero-info .year { color: #aaa; font-weight: normal; font-size: 1.3125rem; }.needs-review { color: #ff6b6b; font-size: 0.875rem; border: 1px solid #6e2b2b; border-radius: 999px; padding: 1px 4px 1px 10px; margin-left: 8px; vertical-align: middle; display: inline-flex; align-items: center; gap: 4px; }.needs-review .nr-btn { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; border: 1px solid #6e2b2b; background: transparent; color: #ff8a8a; cursor: pointer; }.needs-review .nr-btn.ok { border-color: #3a5a1e; color: #7ed321; }.needs-review .nr-btn:disabled { opacity: .6; cursor: wait; }.edition-chip { color: #6ab0ff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.edition-chip.spec { color: #7ed321; border-color: #3a5a1e; }.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }.media-badge { color: #9ecfff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; }.media-warn { color: #e0a63c; font-size: 0.8125rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 1px 10px; }.media-loading { color: #666; font-size: 0.8125rem; }.resume-hint { color: #7ed321; font-size: 0.8125rem; }.play-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 2px; }.play-main { font-size: 1rem; padding: 8px 28px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }.play-main:hover:not(:disabled) { background: #3580cc; }.play-main:disabled { background: #333; border-color: #444; color: #777; cursor: not-allowed; }.ver-sel { background: #262626; color: #ccc; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; max-width: 320px; }.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }.pre-sel { background: #262626; color: #ccc; border: 1px solid #6e5426; border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }.pre-btn { background: transparent; border: 1px dashed #6e5426; color: #e0a63c; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 0.8125rem; }.pre-btn:disabled { opacity: 0.6; cursor: wait; }.src { color: #888; font-weight: normal; }.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid #2b4a6e; color: #6ab0ff; cursor: pointer; }.watched-chip { color: #7ed321; font-size: 0.875rem; border: 1px solid #3a5a1e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.hint-row { margin-top: 6px; color: #aaa; font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.hint-row .fhint { color: #777; font-size: 0.75rem; }.sections { width: 100%; box-sizing: border-box; padding: 0 24px; max-width: min(1600px, 100%); display: flex; flex-direction: column; gap: 12px; margin: 12px auto 0; }.body-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 12px; align-items: start; }.main-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }.side-col { min-width: 0; }@media (max-width: 860px) { .body-grid { grid-template-columns: 1fr; }}.crew { margin: 8px 0; font-size: 0.9375rem; }.role { color: #888; margin-right: 8px; font-size: 0.875rem; }.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: #262626; border: 1px solid #3a3a3a; cursor: pointer; font-size: 0.9375rem; }.actor-chip:hover { border-color: #6ab0ff; color: #6ab0ff; }.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }.cast-card { cursor: pointer; min-width: 0; }.cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: #262626; }.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #666; border: 1px solid #3a3a3a; }.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }.facts .fact span:first-child { color: #888; min-width: 48px; flex-shrink: 0; }.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }.facts a { color: #6ab0ff; margin-right: 10px; }.arch-dlg { max-width: 720px; }.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }.arch-list li { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }.arch-from { color: #888; overflow-wrap: anywhere; }.arch-arrow { color: #6ab0ff; }.arch-to { color: #7ed321; overflow-wrap: anywhere; }.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }button.danger { border-color: #6e2b2b; color: #ff8a8a; }.hint.warn { color: #e0a63c; }
-.similar-block { position: relative; }
-.similar-sub { color: #777; font-size: 0.75rem; font-weight: normal; margin-left: 6px; }
-.similar-wrap { position: relative; }
-.similar-row { display: flex; gap: 12px; overflow-x: auto; padding: 2px 2px 10px; scroll-behavior: smooth; scrollbar-width: none; }
-.similar-row::-webkit-scrollbar { display: none; }
-.similar-bar { position: relative; height: 3px; margin: 0 2px; }
-.similar-bar-thumb { position: absolute; top: 0; height: 100%; border-radius: 999px; background: rgba(255,255,255,.18); transition: background .15s; }
-.similar-wrap:hover .similar-bar-thumb { background: rgba(255,255,255,.32); }
-.similar-card { flex: 0 0 140px; width: 140px; cursor: pointer; min-width: 0; }
-.similar-card .poster-wrap img { border-radius: 8px; transition: filter .15s; }
-.similar-card:hover .poster-wrap img { filter: brightness(1.1); }
-.similar-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: #242424; color: #555; font-size: 2rem; font-weight: bold; border-radius: 8px; user-select: none; }
-.similar-name { font-size: 0.8125rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.similar-year { color: #999; font-size: 0.75rem; margin-left: 4px; }
-.similar-custom { color: #ff6b6b; font-size: 0.75rem; margin-left: 4px; }
-.similar-reason { font-size: 0.75rem; color: #888; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.similar-nav { position: absolute; top: 42%; transform: translateY(-50%); z-index: 2; width: 32px; height: 44px; border: none; border-radius: 8px; background: rgba(0,0,0,.62); color: #eee; font-size: 1.5rem; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s; padding: 0; }
-.similar-nav.left { left: 4px; }
-.similar-nav.right { right: 4px; }
-.similar-block:hover .similar-nav { opacity: 1; }
-.similar-nav:hover { background: rgba(0,0,0,.85); }
-@media (hover: none) { .similar-nav { display: none; } }
+/* 推荐行样式单源：SimilarRow.vue */
 .poster-pick-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
 .poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; max-height: 60vh; overflow: auto; padding: 2px; }
 .poster-cand { position: relative; padding: 0; border: 2px solid transparent; border-radius: 8px; background: #262626; cursor: pointer; overflow: hidden; }

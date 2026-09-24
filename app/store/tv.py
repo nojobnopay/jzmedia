@@ -1169,10 +1169,45 @@ def similar_shows(show_id: int, limit: int = 12) -> list[dict]:
     return scored[:lim]
 
 
+def _norm_cast_entry(c: dict, guest: bool = False) -> dict:
+    """演职单条归一（P1，与 routers.tv._norm_tv_person 同契约）：
+    补 tmdb_id/character_name/avatar 别名，guest 透传。"""
+    try:
+        pid = int(c.get("id") or c.get("tmdb_id") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    character = str(c.get("character") or c.get("character_name") or "")
+    profile = c.get("profile_path") or c.get("avatar") or ""
+    out = dict(c)
+    out["id"] = pid
+    out["tmdb_id"] = pid
+    out["name"] = str(c.get("name") or "")
+    out["character"] = character
+    out["character_name"] = character
+    out["profile_path"] = profile
+    out["avatar"] = profile
+    out["guest"] = bool(guest)
+    return out
+
+
+def _norm_director(d: dict) -> dict:
+    """导演单条归一：补 tmdb_id 别名（集 credits 只有 id/name）。"""
+    try:
+        pid = int(d.get("id") or d.get("tmdb_id") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    out = dict(d)
+    out["id"] = pid
+    out["tmdb_id"] = pid
+    out["name"] = str(d.get("name") or "")
+    return out
+
+
 def episode_cast(episode_id: int) -> dict:
     """单集演职成品（集详情页用）：本季常驻 + 本集客串去重合并。
 
-    返回 {cast: [{id,name,character,profile_path,guest}], directors: [...],
+    返回 {cast: [归一 {id,tmdb_id,name,character,character_name,
+    profile_path,avatar,guest}], directors: [归一 {id,tmdb_id,name}],
     cast_source: 'season'|'aggregate'|'none'}。常驻缺席时回退全剧聚合
     （aggregate），两者皆无为 none。"""
     ep = get_episode(episode_id)
@@ -1200,12 +1235,16 @@ def episode_cast(episode_id: int) -> dict:
                     source = "aggregate"
     if not regulars:
         ec = parse_episode_credits(ep.get("episode_credits"))
-        return {"cast": [dict(g, guest=True) for g in ec["guests"]],
-                "directors": ec["directors"], "cast_source": "none"}
+        return {"cast": [_norm_cast_entry(g, True) for g in ec["guests"]
+                         if isinstance(g, dict)],
+                "directors": [_norm_director(d) for d in ec["directors"]
+                              if isinstance(d, dict)], "cast_source": "none"}
     seen = {int(x.get("id") or 0) for x in regulars if x.get("id")}
-    cast = [dict(x, guest=False) for x in regulars]
+    cast = [_norm_cast_entry(x, False) for x in regulars if isinstance(x, dict)]
     ec = parse_episode_credits(ep.get("episode_credits"))
     for g in ec["guests"]:
+        if not isinstance(g, dict):
+            continue
         try:
             gid = int(g.get("id") or 0)
         except (TypeError, ValueError):
@@ -1214,8 +1253,11 @@ def episode_cast(episode_id: int) -> dict:
             continue
         if gid:
             seen.add(gid)
-        cast.append(dict(g, guest=True))
-    return {"cast": cast, "directors": ec["directors"], "cast_source": source}
+        cast.append(_norm_cast_entry(g, True))
+    return {"cast": cast,
+            "directors": [_norm_director(d) for d in ec["directors"]
+                          if isinstance(d, dict)],
+            "cast_source": source}
 
 
 def list_episode_versions(show_id: int, season: int, episode: int) -> list[dict]:
