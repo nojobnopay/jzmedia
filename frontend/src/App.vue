@@ -113,7 +113,7 @@ button { cursor: pointer; }
 .actor { cursor: pointer; color: #6ab0ff; }
 .poster-wrap { position: relative; }
 .poster-wrap img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
-/* 海报悬浮播放键（海报墙/继续观看共用单源）：hover 海报显形，hover 按钮本身放大变红（Plex 式） */
+/* 海报悬浮播放键（海报墙/继续观看/季集卡共用单源）：hover 海报显形，hover 按钮本身放大变红（Plex 式） */
 .poster-play {
   position: absolute; inset: 0; margin: auto; z-index: 2;
   width: 52px; height: 52px; padding: 0; border-radius: 50%;
@@ -123,7 +123,7 @@ button { cursor: pointer; }
   opacity: 0; cursor: pointer;
   transition: opacity .15s, transform .15s, background .15s, border-color .15s, box-shadow .15s;
 }
-.poster-wrap:hover .poster-play, .poster-play:focus-visible { opacity: 1; }
+.poster-wrap:hover .poster-play, .still-wrap:hover .poster-play, .poster-play:focus-visible { opacity: 1; }
 .poster-play:hover {
   transform: scale(1.12);
   background: #e50914; border-color: #e50914;

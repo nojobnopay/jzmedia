@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src')
 const library = readFileSync(path.join(SRC, 'views/Library.vue'), 'utf-8')
+const season = readFileSync(path.join(SRC, 'views/SeasonView.vue'), 'utf-8')
 const cw = readFileSync(path.join(SRC, 'components/ContinueWatchingRow.vue'), 'utf-8')
 const app = readFileSync(path.join(SRC, 'App.vue'), 'utf-8')
 
@@ -39,6 +40,20 @@ test('海报墙卡片：其余区域进详情、左上角仍是选择', () => {
 test('继续观看：播放键 stop 续播，卡片点击进详情', () => {
   assert.match(cw, /class="poster-play"[\s\S]{0,200}@click\.stop="\$emit\('resume', m\)"/)
   assert.match(cw, /@click="\$emit\('open', m\.id\)"/)
+})
+
+test('季详情页集卡：中央播放键只播本集，卡片其余区域进详情（与电影墙一致）', () => {
+  assert.match(season, /class="still-wrap"/, '季集卡容器为 still-wrap')
+  assert.match(season, /v-if="e\.exists"[\s\S]{0,300}class="poster-play"/,
+    '有片源才显示中央播放键')
+  assert.match(season, /class="poster-play"[\s\S]{0,300}@click\.stop="play\(e\)"/,
+    '播放键必须 stop 冒泡只播放，不进详情')
+  assert.match(season, /@click="openEpisode\(e\.id\)"/, '卡片其余区域进集详情')
+})
+
+test('季集卡 hover 显形：still-wrap 与 poster-wrap 同规则（桌面端可见中央 ▶）', () => {
+  assert.match(app, /\.still-wrap:hover \.poster-play/,
+    '季集卡 hover 必须显形播放键，否则桌面端看不见')
 })
 
 test('共享 poster-play 样式：hover 海报显形 + hover 按钮放大变红（Plex 式）', () => {

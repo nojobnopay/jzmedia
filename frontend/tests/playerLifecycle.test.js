@@ -12,8 +12,10 @@ import { fileURLToPath } from 'node:url'
 const COMPONENT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)), '../src/components/PlayerModal.vue')
 const API = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/api.js')
+const PLAYER_CSS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/player.css')
 const src = readFileSync(COMPONENT, 'utf-8')
 const apiSrc = readFileSync(API, 'utf-8')
+const playerCss = readFileSync(PLAYER_CSS, 'utf-8')
 
 // 取函数体（首个 { 到配对 }）：跳过字符串/注释，够了——本组件相关函数不用模板字面量嵌 {}。
 function fnBody(marker) {
@@ -82,4 +84,13 @@ test('api() 支持外部 signal：外部取消与超时区分', () => {
   assert.match(apiSrc, /signal:\s*outer/, 'api 必须接收外部 AbortSignal')
   assert.match(apiSrc, /outer\.aborted/, 'api 必须区分外部取消与超时')
   assert.match(apiSrc, /addEventListener\('abort'/)
+})
+
+test('播放器遮罩自足：player.css 提供 fixed 居中 .dlg-mask（不依赖父页面 scoped 样式）', () => {
+  // 2026-09 用户实测：剧集页（Tv/TvShow/SeasonView/EpisodeView）没有 scoped .dlg-mask，
+  // 播放器曾退化为文档流排在卡片下方。遮罩定位必须由 PlayerModal 引入的全局样式自带。
+  assert.match(playerCss, /\.dlg-mask\s*\{[^}]*position:\s*fixed/, '遮罩必须 fixed 相对视口')
+  assert.match(playerCss, /\.dlg-mask\s*\{[^}]*inset:\s*0/, '遮罩必须铺满视口')
+  assert.match(playerCss, /\.dlg-mask\s*\{[^}]*justify-content:\s*center/, '播放器必须水平居中')
+  assert.match(playerCss, /\.dlg-mask\s*\{[^}]*z-index:\s*50/, '遮罩必须顶层显示')
 })

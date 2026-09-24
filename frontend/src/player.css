@@ -28,6 +28,14 @@
 }
 .player-video::-webkit-media-text-track-display-backdrop { background-color: transparent !important; }
 
+/* 播放器遮罩（PlayerModal 自足：fixed 居中顶层，不再依赖各父页面的 scoped .dlg-mask——
+   剧集页 Tv/TvShow/SeasonView/EpisodeView 没有该规则时播放器会退化为文档流排在卡片下方） */
+.dlg-mask {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .66);
+}
+
 /* 播放器小按钮（PlayerModal 与 PlayerSettings 共用） */
 .pd-mini { font-size: 0.75rem; padding: 3px 10px; }
 .pd-mini.on { background: #2b6cb0; border-color: #2b6cb0; color: #fff; }
