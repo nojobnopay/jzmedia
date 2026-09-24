@@ -23,7 +23,8 @@ from .tv_parse import map_absolute
 logger = get_logger("scanner.tv_persist")
 __all__ = ['scrape_show', 'scrape_pending', 'apply_tv_detail', 'ensure_episode_still',
            'wanted_seasons', 'write_media_files', 'tv_poster_name', 'tv_backdrop_name',
-           'tv_season_poster_name', 'episode_still_name']
+           'tv_season_poster_name', 'episode_still_name', 'backfill_person_names',
+           'person_names_from_credits']
 
 _STILL_FAIL: dict[int, float] = {}   # 剧照下载失败短冷却（防坏路径反复打 TMDB）
 _STILL_FAIL_TTL = 600.0
@@ -143,6 +144,17 @@ def wanted_seasons(detail: dict, local: list[dict]) -> list[int]:
     return sorted(want)
 
 
+def person_names_from_credits(credits, created_by=None) -> str:
+    """演职员人名串（搜索联想/q 搜人用）：前 10 演员 + 创作者，去重拼接。
+
+    与电影 `person_names` 同口径；`created_by` 为 TMDB `created_by` 列表
+    或剧行同形数据（取 name）。"""
+    cast_names = [c.get("name") for c in ((credits or {}).get("cast") or [])
+                  if c.get("name")]
+    creator_names = [c.get("name") for c in (created_by or []) if c.get("name")]
+    return ", ".join(dict.fromkeys(cast_names + creator_names))
+
+
 def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = None,
                     source: str = "tmdb", needs_review: int = 0,
                     download_art: bool = True, offline_reason: str = "",
@@ -152,15 +164,22 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
     tmdb_id = int(detail.get("id"))
     lib_id = int(library_id or 0) or int(store.DEFAULT_LIBRARY_ID)
     meta = tv_match.tv_meta_from_detail(detail)
-    credits = tv_match.tv_credits(detail) if detail.get("credits") else {"cast": [], "crew": []}
-    store.upsert_tmdb_cache(tmdb_id, meta, credits,
-                            meta.get("poster_tmdb_path") or "", media_type="tv")
+    # 离线回放的 payload 无 credits：此时不得覆盖缓存 credits/person_names
+    #（否则一次断网重刮清空全剧演员信息，搜索联想随之失效）。
+    has_credits = isinstance(detail.get("credits"), dict)
+    credits = tv_match.tv_credits(detail) if has_credits else {"cast": [], "crew": []}
+    if has_credits:
+        store.upsert_tmdb_cache(tmdb_id, meta, credits,
+                                meta.get("poster_tmdb_path") or "", media_type="tv")
+    else:
+        cached = store.get_tmdb_cached(tmdb_id, "tv")
+        store.upsert_tmdb_cache(tmdb_id, meta,
+                                (cached or {}).get("credits") or {"cast": [], "crew": []},
+                                meta.get("poster_tmdb_path") or "", media_type="tv")
     # 剧集镜像列（标题保护：手工改过的标题不被 TMDB 覆盖，title_auto=0 表示受保护）
     cur = store.get_show_meta(show_id) or {}
     keep_title = bool(cur.get("title")) and not int(cur.get("title_auto") or 0)
     title = str(cur.get("title")) if keep_title else meta["title"]
-    cast_names = [c.get("name") for c in (credits.get("cast") or []) if c.get("name")]
-    creator_names = [c.get("name") for c in (meta.get("created_by") or []) if c.get("name")]
     fields = {
         "title": title,
         "sort_title": normalize_title(title),
@@ -186,11 +205,13 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
         "episode_run_time": meta.get("episode_run_time") or 0,
         "networks": meta.get("networks") or [],
         "created_by": meta.get("created_by") or [],
-        "person_names": ", ".join(dict.fromkeys(cast_names + creator_names)),
         "fetched_at": now,
         "needs_review": int(needs_review or 0),
         "match_source": source or "tmdb",
     }
+    if has_credits:
+        fields["person_names"] = person_names_from_credits(
+            credits, meta.get("created_by"))
     seasons = detail.get("seasons") or []
     # 海报/背景/季海报并发下载（先下载再写路径，失败留空由前端回落占位）
     art: dict = {}
@@ -438,10 +459,56 @@ def scrape_show(show: dict, force: bool = False, download_art: bool = True) -> d
                if k in ("seasons", "episodes_matched", "remapped")}}
 
 
+def backfill_person_names(library_ids=None, ids=None, progress_cb=None,
+                          should_stop=None) -> list[dict]:
+    """离线回填 `person_names`：人名串为空 + 有 TMDB 绑定 + 缓存 credits 非空的剧。
+
+    背景：`person_names` 列是后加的，存量已刮削剧（`fetched_at>0`）会被普通刮削
+    跳过，导致人名搜索/联想长期无数据。本函数纯读缓存、不触网。
+    返回与 `scrape_pending` 同形的行（status=`ok_backfilled`/`no_cache_credits`），
+    供任务汇总直接计入。"""
+    shows = store.list_shows_for_scrape(library_ids, ids=ids, force=True)
+    targets = [s for s in shows
+               if s.get("tmdb_id") and not (s.get("person_names") or "").strip()]
+    out: list[dict] = []
+    total = len(targets)
+    for i, show in enumerate(targets):
+        if should_stop and should_stop():
+            logger.info("tv person backfill cancelled: %s/%s", i, total)
+            break
+        sid = int(show["id"])
+        try:
+            cached = store.get_tmdb_cached(int(show["tmdb_id"]), "tv")
+            credits = (cached or {}).get("credits") or {}
+            names = person_names_from_credits(credits, show.get("created_by"))
+            if not names:
+                r = {"show_id": sid, "status": "no_cache_credits",
+                     "title": show.get("title") or ""}
+            else:
+                store.update_show_meta(sid, person_names=names)
+                r = {"show_id": sid, "status": "ok_backfilled",
+                     "title": show.get("title") or "", "names": names}
+        except Exception as e:
+            logger.warning("tv person backfill failed show=%s: %s", sid, e)
+            r = {"show_id": sid, "status": f"error: {e}",
+                 "title": show.get("title") or ""}
+        r["library_id"] = show.get("library_id")
+        out.append(r)
+        if progress_cb:
+            try:
+                progress_cb(i + 1, total)
+            except Exception as e:
+                logger.debug("progress_cb failed: %s", e)
+    return out
+
+
 def scrape_pending(library_ids=None, ids=None, force: bool = False,
                    download_art: bool = True, progress_cb=None,
                    should_stop=None) -> list[dict]:
-    """批量刮削（jobkit/手动）：未匹配或未刮过的剧；force=True 全量重刮。"""
+    """批量刮削（jobkit/手动）：未匹配或未刮过的剧；force=True 全量重刮。
+
+    存量已刮剧的人名串回填不在此做（`backfill_person_names`，任务层另行调用，
+    进度独立一段）。"""
     shows = store.list_shows_for_scrape(library_ids, ids=ids, force=force)
     out: list[dict] = []
     total = len(shows)

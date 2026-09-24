@@ -209,9 +209,21 @@ def _tv_worker(jid: str, library_id=None, media_library_id=None,
                             summary={"counts": {}, "errors": [], "results": []})
             return
         from ..scanner import tv_persist
+        lib_arg = (sorted(lib_ids) if lib_ids is not None else None)
         res = tv_persist.scrape_pending(
-            library_ids=(sorted(lib_ids) if lib_ids is not None else None),
+            library_ids=lib_arg,
             ids=ids, force=bool(force), progress_cb=_cb, should_stop=_stop)
+        # 离线回填人名串：存量已刮剧普通刮削跳过（person_names 为空导致搜不到演员），
+        # force 全量重刮又太重；本段纯读缓存、不触网。
+        if not _stop():
+            n0 = len(res)
+
+            def _cb2(done, _total):
+                _cb(n0 + int(done), n0 + int(_total))
+
+            res = list(res) + tv_persist.backfill_person_names(
+                library_ids=lib_arg, ids=ids, progress_cb=_cb2,
+                should_stop=_stop)
         if _stop():
             _TV_JOBS.update(jid, done=len(res))
             return
