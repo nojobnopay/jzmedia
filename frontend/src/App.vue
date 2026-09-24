@@ -59,7 +59,7 @@ function saveAuth() {
 function onSwitch(e) {
   // 换媒体库：海报墙/剧集页原地刷新；详情/人物页的 id 属于旧库，回首页
   switchMedia(Number(e.target.value))
-  if (route.path !== '/' && route.path !== '/tv') router.push('/')
+  if (route.path !== '/' && !route.path.startsWith('/tv')) router.push('/')
 }
 onMounted(async () => {
   try {

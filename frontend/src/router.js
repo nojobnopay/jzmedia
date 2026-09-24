@@ -9,6 +9,8 @@ const Collections = () => import('./views/Collections.vue')
 const CollectionDetail = () => import('./views/CollectionDetail.vue')
 const Tv = () => import('./views/Tv.vue')
 const TvShow = () => import('./views/TvShow.vue')
+const SeasonView = () => import('./views/SeasonView.vue')
+const EpisodeView = () => import('./views/EpisodeView.vue')
 
 export default createRouter({
   history: createWebHistory(),
@@ -20,6 +22,8 @@ export default createRouter({
     { path: '/c/:id', component: CollectionDetail },
     { path: '/tv', component: Tv },
     { path: '/tv/:id', component: TvShow },
+    { path: '/tv/:showId/s/:season', component: SeasonView },
+    { path: '/tv/:showId/s/:season/e/:epId', component: EpisodeView },
     { path: '/settings', component: Settings },
     // 未知路径统一回首页（此前空 router-view + 导航残影；评审 R14-D5）
     { path: '/:pathMatch(.*)*', redirect: '/' }

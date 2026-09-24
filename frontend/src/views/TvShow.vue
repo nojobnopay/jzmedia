@@ -58,73 +58,37 @@
         </div>
       </div>
     </section>
-    <div class="bar seasons">
-      <button v-for="s in show.seasons" :key="s.season" class="chip"
-        :class="{ on: season === s.season }" @click="season = s.season">
-        <img v-if="s.poster_path" :src="posterUrl(s.poster_path)" class="chip-poster" alt="" />
-        {{ seasonLabel(s.season) }}（{{ seasonStat(s.season).distinct }}<template
-          v-if="seasonStat(s.season).versions > 1"> · {{ seasonStat(s.season).versions }} 版本</template>）
-      </button>
-    </div>
-    <table class="ep-table">
-      <template v-for="g in seasonGroups" :key="'v' + g.version">
-        <tr v-if="multiVersion" class="ver-sep">
-          <td colspan="4">
-            <span class="ver-line"></span>版本 {{ g.version }} · {{ g.episodes.length }} 集<span class="ver-line"></span>
-          </td>
-        </tr>
-        <tr v-for="e in g.episodes" :key="e.id" :class="{ seen: e.watched }">
-          <td class="ep-still">
-            <img v-if="e.still_path" :src="stillUrl(e)" loading="lazy" alt=""
-              @error="e.still_path = ''" />
-            <span v-else class="dim">—</span>
-          </td>
-          <td class="ep-no">
-            {{ epNo(e) }}<span v-if="multiVersion" class="ver-badge">V{{ g.version }}</span>
-          </td>
-          <td class="ep-title">
-            <div>
-              {{ e.title || '（未匹配集名）' }}
-              <span v-if="e.needs_review" class="review-badge">未匹配集号</span>
-              <span v-if="e.local_only" class="local-badge">本地集</span>
-            </div>
-            <div class="dim small">
-              {{ e.air_date || '' }}
-              <span v-if="e.runtime"> · {{ e.runtime }} 分钟</span>
-              <span v-if="e.overview"> · {{ e.overview.slice(0, 90) }}</span>
-            </div>
-            <div v-if="e.progress && !e.watched" class="pbar">
-              <div :style="{ width: Math.round((e.progress.percent || 0) * 100) + '%' }"></div>
-            </div>
-          </td>
-          <td class="ep-act">
-            <button v-if="e.exists" @click="play(e)">{{ e.progress ? '续播' : '播放' }}</button>
-            <span v-else class="dim">文件缺失</span>
-            <button v-if="e.needs_review" class="mini" @click="openEpisodePicker(e)">指定 TMDB 集</button>
-            <button class="mini" @click="toggleEpWatched(e)">{{ e.watched ? '取消已看' : '标已看' }}</button>
-          </td>
-        </tr>
-      </template>
-    </table>
-    <div v-if="pickEp" class="match card-block">
-      <div class="bar match-bar">
-        <span>为 <b>{{ epNo(pickEp) }}</b> 指定 TMDB 集（本地集号不变，只取元数据）</span>
-        <input v-model.number="pickSeason" type="number" min="0" style="width: 72px" />
-        <button :disabled="searching" @click="loadCandidates">查询该季</button>
-        <button @click="pickEp = null">取消</button>
+    <section v-if="show.seasons && show.seasons.length" class="card-block season-sec">
+      <h3>剧季 <span class="dim">{{ show.seasons.length }}</span></h3>
+      <div class="season-grid">
+        <div v-for="s in show.seasons" :key="s.season" class="season-card"
+          @click="openSeason(s.season)">
+          <div class="season-poster">
+            <img v-if="s.poster_path" :src="posterUrl(s.poster_path)" loading="lazy"
+              :alt="seasonLabel(s.season)" />
+            <div v-else class="season-no-poster" aria-hidden="true">{{ seasonLabel(s.season).slice(0, 1) }}</div>
+            <span v-if="seasonProgress(s.season).done" class="season-done">✓已看</span>
+          </div>
+          <div class="season-name">{{ s.name || seasonLabel(s.season) }}</div>
+          <div class="dim small">{{ seasonStat(s.season).distinct }} 集<template
+            v-if="seasonStat(s.season).versions > 1"> · {{ seasonStat(s.season).versions }} 版本</template>
+            · {{ seasonProgress(s.season).watched }}/{{ seasonProgress(s.season).total }} 已看</div>
+          <div v-if="seasonContinue(s.season)" class="season-ct">{{ seasonContinue(s.season) }}</div>
+        </div>
       </div>
-      <div class="bar match-bar">
-        <span class="dim">TMDB 确实没有这一集（如特别篇/合拍片）：</span>
-        <input v-model="localTitle" placeholder="本地集名（可选）" style="width: 220px" />
-        <button @click="confirmLocal">确认无对应集</button>
+    </section>
+    <section v-if="similar.length" class="card-block similar-sec">
+      <h3>相关节目</h3>
+      <div class="sim-row">
+        <div v-for="m in similar" :key="m.id" class="sim-card" @click="openShow(m.id)"
+          :title="m.reason || m.title">
+          <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" :alt="m.title" />
+          <div v-else class="sim-no-poster" aria-hidden="true">{{ (m.title || '?').slice(0, 1) }}</div>
+          <div class="sim-name">{{ m.title }}</div>
+          <div v-if="m.reason" class="dim small">{{ m.reason }}</div>
+        </div>
       </div>
-      <div v-for="c in candidates" :key="c.tmdb_episode_id" class="mrow">
-        <span class="mname">S{{ pad(c.season) }}E{{ pad(c.episode) }} · {{ c.title }}</span>
-        <span class="dim">{{ c.air_date }}</span>
-        <button @click="bindEpisode(c)">绑定</button>
-      </div>
-      <div v-if="searchedCand && !candidates.length" class="dim">该季没有候选</div>
-    </div>
+    </section>
     <section v-if="movies.length" class="card-block extras">
       <h3>剧场版 <span class="dim">{{ movies.length }}</span></h3>
       <div class="ex-row">
@@ -155,16 +119,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
-import { episodeVersion, groupEpisodesByVersion, seasonStats } from '../episodeVersions.js'
+import { episodeVersion, seasonStats } from '../episodeVersions.js'
 import PlayerModal from '../components/PlayerModal.vue'
 
 const route = useRoute()
+const router = useRouter()
 const show = ref(null)
 const msg = ref('')
-const season = ref(null)
 const playing = ref(null)
 const busy = ref(false)
 const matchOpen = ref(false)
@@ -172,29 +136,36 @@ const mq = ref('')
 const results = ref([])
 const searching = ref(false)
 const searched = ref(false)
-const pickEp = ref(null)
-const pickSeason = ref(1)
-const localTitle = ref('')
-const candidates = ref([])
-const searchedCand = ref(false)
+const similar = ref([])
 
 const movies = computed(() => (show.value?.extras || []).filter(x => x.kind === 'movie'))
 const features = computed(() => (show.value?.extras || []).filter(x => x.kind !== 'movie'))
-// 演职员：后端 show_detail 透出 tmdb_cache credits 前 10（只做展示，不跳人物页——
+// 演职员：后端 show_detail 透出全剧聚合前 10（只做展示，不跳人物页——
 // TV 人物未入库，站内无数据）。饰演角色仅英文原语言展示（与电影 Detail 同规则，
 // CJK 剧的罗马音/英文角色名读作噪音）。
 const castList = computed(() => show.value?.cast || [])
 const showCharacter = computed(() =>
   String(show.value?.original_language || '').startsWith('en'))
-
-const seasonEps = computed(() =>
-  (show.value?.episodes || []).filter(e => Number(e.season) === Number(season.value)))
-// 多版本分组：V1 全部在前、V2 在后（单版本时与原来的扁平列表一致）
-const seasonGroups = computed(() => groupEpisodesByVersion(seasonEps.value))
-const multiVersion = computed(() => seasonGroups.value.length > 1)
 function seasonStat (sn) {
   return seasonStats((show.value?.episodes || [])
     .filter(e => Number(e.season) === Number(sn)))
+}
+function seasonEps (sn) {
+  return (show.value?.episodes || []).filter(e => Number(e.season) === Number(sn))
+}
+function seasonProgress (sn) {
+  const eps = seasonEps(sn)
+  const watched = eps.filter(e => Number(e.watched)).length
+  return { watched, total: eps.length, done: eps.length > 0 && watched === eps.length }
+}
+function seasonContinue (sn) {
+  const eps = seasonEps(sn)
+  if (!eps.length) return ''
+  const partial = eps.find(e => e.progress && !Number(e.watched))
+  if (partial) return `继续 ${epNo(partial)}`
+  const next = eps.find(e => !Number(e.watched))
+  if (next) return `从 ${epNo(next)} 开始`
+  return ''
 }
 const allWatched = computed(() => {
   const eps = show.value?.episodes || []
@@ -218,7 +189,6 @@ function epNo (e) {
   const abs = e.absolute_number ? ` · 绝对 ${e.absolute_number}` : ''
   return base + end + abs
 }
-function stillUrl (e) { return `/api/tv/episodes/${e.id}/still` }
 function statusText (s) {
   if (s === 'Continuing' || s === 'Returning Series' || s === 'In Production') return '连载中'
   if (s === 'Ended' || s === 'Canceled' || s === 'Cancelled') return '已完结'
@@ -241,55 +211,17 @@ function playExtra (x) {
     label: `${show.value.title} · ${x.label} · ${baseName(x.file_path)}`,
   }
 }
-async function openEpisodePicker (e) {
-  pickEp.value = e
-  pickSeason.value = Number(e.season) || 1
-  localTitle.value = e.title || ''
-  candidates.value = []
-  searchedCand.value = false
-  await loadCandidates()
-}
-async function loadCandidates () {
-  searching.value = true
-  searchedCand.value = false
-  try {
-    const d = await api(`/api/tv/shows/${show.value.id}/tmdb-episodes?season=${pickSeason.value}`)
-    candidates.value = d.items || []
-    searchedCand.value = true
-  } catch (e) { msg.value = '候选查询失败：' + e.message } finally { searching.value = false }
-}
-async function bindEpisode (c) {
-  if (!pickEp.value) return
-  try {
-    await api(`/api/tv/episodes/${pickEp.value.id}/match-episode`, {
-      method: 'POST',
-      body: JSON.stringify({ tmdb_episode_id: c.tmdb_episode_id, season: c.season }),
-    })
-    pickEp.value = null
-    candidates.value = []
-    await load()
-  } catch (e) { msg.value = '绑定失败：' + e.message }
-}
-async function confirmLocal () {
-  if (!pickEp.value) return
-  try {
-    await api(`/api/tv/episodes/${pickEp.value.id}/confirm-local`, {
-      method: 'POST',
-      body: JSON.stringify({ title: localTitle.value || null }),
-    })
-    pickEp.value = null
-    candidates.value = []
-    await load()
-  } catch (e) { msg.value = '操作失败：' + e.message }
-}
-
+function openSeason (sn) { router.push(`/tv/${show.value.id}/s/${sn}`) }
+function openShow (id) { router.push('/tv/' + id) }
 async function load () {
+  msg.value = ''
+  similar.value = []
   try {
     show.value = await api('/api/tv/shows/' + route.params.id)
-    if (season.value == null) {
-      season.value = show.value.seasons?.[0]?.season ?? 0
-    }
     if (!show.value.tmdb_id || show.value.needs_review) matchOpen.value = true
+    try {
+      similar.value = (await api(`/api/tv/shows/${route.params.id}/similar`)).items || []
+    } catch (e) { similar.value = [] }  // 相关节目失败不挡详情页
   } catch (e) {
     msg.value = '加载失败：' + e.message
   }
@@ -300,10 +232,6 @@ async function markWatched (episodeId, watched) {
     await api(`/api/tv/episodes/${episodeId}/watched`, {
       method: 'POST', body: JSON.stringify({ watched }) })
   } catch (e) { msg.value = '操作失败：' + e.message }
-}
-async function toggleEpWatched (e) {
-  await markWatched(e.id, !Number(e.watched))
-  await load()
 }
 async function toggleShowWatched () {
   busy.value = true
@@ -384,6 +312,7 @@ async function onEnded () {
 }
 
 onMounted(load)
+watch(() => route.params.id, load)
 </script>
 
 <style scoped>
@@ -403,23 +332,25 @@ onMounted(load)
 .match-bar input { flex: 1; }
 .mrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #2c2c2c; font-size: 0.875rem; }
 .mrow .mname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.seasons { flex-wrap: wrap; }
-.chip { font-size: 0.8125rem; padding: 4px 10px; border: 1px solid #444; border-radius: 999px; cursor: pointer; background: #1c1c1c; display: inline-flex; align-items: center; gap: 6px; }
-.chip.on { border-color: #e50914; color: #ff8a8a; }
-.chip-poster { width: 18px; height: 27px; object-fit: cover; border-radius: 3px; }
-.ep-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; margin-top: 8px; }
-.ep-table td { padding: 8px; border-bottom: 1px solid #2c2c2c; vertical-align: top; }
-.ep-table tr.seen .ep-no, .ep-table tr.seen .ep-title > div:first-child { color: #777; }
-.ep-still img { width: 120px; aspect-ratio: 16/9; object-fit: cover; border-radius: 4px; display: block; }
-.ep-no { color: #9ecfff; white-space: nowrap; }
-.ep-title { color: #ddd; min-width: 0; }
-.ep-act { white-space: nowrap; text-align: right; }
-.ep-act .mini { margin-left: 6px; font-size: 0.75rem; }
+.season-sec, .similar-sec { margin: 12px; }
+.season-sec h3, .similar-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.season-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.season-card { background: #1f1f1f; border: 1px solid #333; border-radius: 8px; overflow: hidden; cursor: pointer; }
+.season-card:hover { border-color: #e50914; }
+.season-poster { position: relative; background: #222; }
+.season-poster img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
+.season-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: #242424; color: #555; font-size: 2rem; font-weight: bold; }
+.season-done { position: absolute; top: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #7ed321; }
+.season-name { padding: 8px 8px 0; font-size: 0.875rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.season-ct { padding: 2px 8px 8px; font-size: 0.75rem; color: #9ecfff; }
+.sim-row { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+.sim-card { flex: 0 0 120px; width: 120px; cursor: pointer; }
+.sim-card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 8px; display: block; }
+.sim-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: #242424; color: #555; font-size: 2rem; font-weight: bold; border-radius: 8px; }
+.sim-name { margin-top: 6px; font-size: 0.8125rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .review-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(255, 179, 0, .16); color: #ffb300; border: 1px solid rgba(255, 179, 0, .4); }
 .local-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(120, 170, 255, .14); color: #7aaaff; border: 1px solid rgba(120, 170, 255, .4); }
 .ver-badge { margin-left: 6px; font-size: 0.6875rem; padding: 0 5px; border-radius: 3px; color: #b98a00; border: 1px solid #6b5410; }
-.ver-sep td { padding: 10px 8px 4px; color: #888; font-size: 0.8125rem; border-bottom: 1px solid #2c2c2c; text-align: center; }
-.ver-sep .ver-line { display: inline-block; width: 40px; height: 1px; background: #3a3a3a; vertical-align: middle; margin: 0 8px; }
 .extras { margin: 12px; }
 .extras h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
 .cast-sec { margin: 12px; }
@@ -430,12 +361,9 @@ onMounted(load)
 .ex-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .ex-card { width: 220px; padding: 8px 10px; background: #1f1f1f; border: 1px solid #333; border-radius: 8px; }
 .ex-name { font-size: 0.875rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
-.pbar { height: 4px; background: #333; border-radius: 2px; margin-top: 6px; max-width: 420px; }
-.pbar > div { height: 100%; background: #e50914; border-radius: 2px; }
 .dim { color: #777; }
 .small { font-size: 0.75rem; margin-top: 2px; }
 @media (max-width: 700px) {
   .hero-inner { flex-direction: column; align-items: flex-start; }
-  .ep-still { display: none; }
 }
 </style>
