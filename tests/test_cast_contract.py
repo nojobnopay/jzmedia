@@ -43,12 +43,20 @@ def test_get_movie_persons_aliases(tmp_path, monkeypatch):
     import app.store._base as base
     monkeypatch.setattr(base.settings, "data_dir", str(tmp_path))
     base.init_db()
+    # 注意：_conn 用 import 期绑定的 DB_PATH，上面的 data_dir monkeypatch
+    # 实际隔离不了，行会落进共享测试库 → 必须自清理，否则绝对路径行污染
+    # 后续用例（planner 子树循环 hang、storage 相对路径校验失败）。
     mid = store.upsert_movie_by_path("/m/Film (2020)/Film.mkv", 1)
     pid = store.upsert_person(101, "Actor A", "person_101.jpg", "/prof.jpg")
     store.link_person(mid, pid, "actor", "Hero", 0)
-    d = store.get_movie(mid)
-    assert d and len(d["persons"]) == 1
-    p = d["persons"][0]
-    assert p["id"] == 101 and p["tmdb_id"] == 101
-    assert p["character"] == "Hero" and p["character_name"] == "Hero"
-    assert p["profile_path"] == "/prof.jpg" and p["avatar"] == "person_101.jpg"
+    try:
+        d = store.get_movie(mid)
+        assert d and len(d["persons"]) == 1
+        p = d["persons"][0]
+        assert p["id"] == 101 and p["tmdb_id"] == 101
+        assert p["character"] == "Hero" and p["character_name"] == "Hero"
+        assert p["profile_path"] == "/prof.jpg" and p["avatar"] == "person_101.jpg"
+    finally:
+        store.delete_movie(mid)
+        with store._lock, store._conn() as c:
+            c.execute("DELETE FROM persons WHERE id=?", (pid,))

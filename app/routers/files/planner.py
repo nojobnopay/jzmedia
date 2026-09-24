@@ -225,7 +225,9 @@ def _collect_plans(target_root: str | None = None,
         db_owner[(lid, rel)] = m["id"]
         key = m.get("tmdb_id") or -int(m["id"])
         d = os.path.dirname(rel)
-        while d:
+        # 根处 dirname 不再收敛（dirname('/')=='/'）：必须停，否则绝对路径行
+        # 会让整棵子树循环无限打转、hang 死整理接口（2026-09 全量测试挂起根因）。
+        while d and d != os.path.dirname(d):
             subtree_keys.setdefault((lid, d), set()).add(key)
             d = os.path.dirname(d)
     blocked_by_lib: dict[int, set[str]] = {}

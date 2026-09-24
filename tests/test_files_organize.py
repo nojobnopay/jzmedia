@@ -67,6 +67,17 @@ def test_collect_plans_flags_db_occupied(media_root):
                for c in conflicts)
 
 
+def test_collect_plans_terminates_on_absolute_path(media_root):
+    """planner 子树循环必须终止：绝对路径行 dirname 爬到 '/' 即停。
+    此前 `while d:` 在 '/' 处无限打转，曾 hang 死全量 suite（pytest-timeout 抓获）。"""
+    mid = store.upsert_movie_by_path("/abs/HangLoop (2021)/HangLoop (2021).mkv")
+    try:
+        plans, conflicts = files_router._collect_plans(only={mid})
+        assert isinstance(plans, list) and isinstance(conflicts, list)
+    finally:
+        store.delete_movie(mid)
+
+
 def test_move_one_still_moves_when_target_free(media_root):
     _touch(media_root, "raw/c.mkv")
     a = _row("raw/c.mkv", title="C")
