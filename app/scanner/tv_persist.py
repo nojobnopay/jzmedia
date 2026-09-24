@@ -144,15 +144,17 @@ def wanted_seasons(detail: dict, local: list[dict]) -> list[int]:
     return sorted(want)
 
 
-def person_names_from_credits(credits, created_by=None) -> str:
-    """演职员人名串（搜索联想/q 搜人用）：前 10 演员 + 创作者，去重拼接。
+def person_names_from_credits(credits, created_by=None, extra=()) -> str:
+    """演职员人名串（搜索联想/q 搜人用）：全剧聚合 + 各季常驻 + 创作者，去重拼接。
 
-    与电影 `person_names` 同口径；`created_by` 为 TMDB `created_by` 列表
-    或剧行同形数据（取 name）。"""
+    只取聚合前 N 会漏掉单季主角（如少年包青天 S1 周杰只演 40 集、排不进
+    全剧前 10），故与季常驻取并集；与电影 `person_names` 同用途。
+    `extra` 为季常驻名序列（调用方从季详情 credits 同源提取）。"""
     cast_names = [c.get("name") for c in ((credits or {}).get("cast") or [])
                   if c.get("name")]
+    season_names = [str(n or "").strip() for n in (extra or []) if str(n or "").strip()]
     creator_names = [c.get("name") for c in (created_by or []) if c.get("name")]
-    return ", ".join(dict.fromkeys(cast_names + creator_names))
+    return ", ".join(dict.fromkeys(cast_names + season_names + creator_names))
 
 
 def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = None,
@@ -224,8 +226,14 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
         "match_source": source or "tmdb",
     }
     if has_credits:
+        season_names: list[str] = []
+        for _sd in (season_details or {}).values():
+            _cr = _sd.get("credits") if isinstance(_sd, dict) else None
+            for _c in ((_cr or {}).get("cast") or []):
+                if isinstance(_c, dict) and _c.get("name"):
+                    season_names.append(_c["name"])
         fields["person_names"] = person_names_from_credits(
-            credits, meta.get("created_by"))
+            credits, meta.get("created_by"), season_names)
     seasons = detail.get("seasons") or []
     # 海报/背景/季海报并发下载（先下载再写路径，失败留空由前端回落占位）
     art: dict = {}
@@ -542,7 +550,13 @@ def backfill_person_names(library_ids=None, ids=None, progress_cb=None,
         try:
             cached = store.get_tmdb_cached(int(show["tmdb_id"]), "tv")
             credits = (cached or {}).get("credits") or {}
-            names = person_names_from_credits(credits, show.get("created_by"))
+            season_names = []
+            for _s in store.list_seasons(sid):
+                for _c in _s.get("cast") or []:
+                    if isinstance(_c, dict) and _c.get("name"):
+                        season_names.append(_c["name"])
+            names = person_names_from_credits(credits, show.get("created_by"),
+                                              season_names)
             if not names:
                 r = {"show_id": sid, "status": "no_cache_credits",
                      "title": show.get("title") or ""}

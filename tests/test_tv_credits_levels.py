@@ -92,6 +92,25 @@ def test_season_episode_parse():
     assert tv_match.tv_episode_credits({"id": 1}) == {}  # 缺键视为无数据
 
 
+def test_person_names_unions_season_regulars(tv_lib):
+    # 聚合前 N 漏掉的单季主角，须由季常驻并集补回（少年包青天 S1 周杰案）
+    lib = tv_lib
+    sid = store.upsert_show(lib["id"], "测试剧", 2020)
+    store.upsert_episode(sid, lib["id"], "测试剧/Season 01/测试剧-S01E01.mkv",
+                         1, 1, "")
+    agg = {"cast": [
+        {"id": 3, "name": "全剧红人", "profile_path": None,
+         "roles": [{"character": "主", "episode_count": 100}],
+         "total_episode_count": 100}], "crew": []}
+    sd = _season_details()
+    sd[1]["credits"] = {"cast": [
+        {"id": 1, "name": "单季主角", "profile_path": None,
+         "character": "角", "order": 0}], "crew": []}
+    tv_persist.apply_tv_detail(sid, _detail(103), sd, download_art=False,
+                               library_id=lib["id"], aggregate=agg)
+    assert store.get_show_meta(sid)["person_names"] == "全剧红人, 单季主角, 编剧刘"
+
+
 def test_apply_three_levels(tv_lib):
     lib = tv_lib
     sid = store.upsert_show(lib["id"], "测试剧", 2020)
