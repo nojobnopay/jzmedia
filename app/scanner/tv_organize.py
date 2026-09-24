@@ -293,7 +293,7 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
             "dir_moves": [], "file_moves": [], "dir_renames": [],
             "rmdirs": [], "untouched": [], "manual": [], "manual_more": 0,
             "rename_count": 0, "absolute_risk": False, "root_move": None,
-            "conflicts": [], "warnings": [], "blocked": False}
+            "conflicts": [], "warnings": [], "blocked": False, "dir_totals": {}}
     if _torrent_present(cache, show_dir) and not allow_torrent:
         plan["blocked"] = True
         plan["warnings"].append("存在 .torrent（移动/改名会破坏做种，执行时默认跳过）")
@@ -398,15 +398,26 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
                 ep_start, ep_end = 0, 0
             if ep_end > ep_start and (ep_end - ep_start) > _MAX_EP_RANGE:
                 continue          # 多集合并且区间过宽（无法确认）：不强制补 Season
+            in_show = d2 == show_dir
+            # 已在季目录内（Season NN/Specials/特典…）：重绑后季拆分变化（如平台合集
+            # 拼接号 S1~S4）时按库内季号归位；深度 >1 的目录交给 wrapper/untouched。
+            in_season_dir = (os.path.dirname(d2) == show_dir
+                             and season_from_dir(os.path.basename(d2)) is not None)
             target_dir = None
             action = None
             if season == 0:
                 if "specials" in actions and not _is_canonical_specials_dir(d2, show_dir):
                     target_dir = _join(show_dir, "Season 00")
                     action = "specials"
-            elif "season" in actions and d2 == show_dir:
-                target_dir = _join(show_dir, _season_dir_name(season))
-                action = "season"
+            elif "season" in actions:
+                if in_show:
+                    target_dir = _join(show_dir, _season_dir_name(season))
+                    action = "season"
+                elif in_season_dir:
+                    want = _join(show_dir, _season_dir_name(season))
+                    if want != d2:
+                        target_dir = want
+                        action = "season"
             if not target_dir:
                 continue
             move_dir[int(e["id"])] = {"dir": target_dir, "action": action}
@@ -463,6 +474,9 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
         ver_of.get(int(e["id"]), 1),
         int(e.get("season") or 0), int(e.get("episode") or 0),
         str(e.get("file_path") or "")))
+    # 最终归属目录分布（含无需移动的正片）：预览用，回答"执行后每季各多少集"，
+    # 避免"Season 01 只有 1 项"被误读（1 项=需移动的，480 项=已就位不再列出）。
+    dir_totals: dict[str, int] = {}
     for e in ep_sorted:
         eid = int(e["id"])
         fp = str(e["file_path"] or "")
@@ -471,6 +485,7 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
         stem, ext = os.path.splitext(base)
         mv = move_dir.get(eid)
         final_dir = mv["dir"] if mv else _project(src_dir, proj)
+        dir_totals[final_dir] = dir_totals.get(final_dir, 0) + 1
         action = mv["action"] if mv else "rename"
         new_base = None
         new_stem = None
@@ -549,6 +564,8 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
                 plan["file_moves"].append({"action": action, "kind": "file",
                                            "from": _join(src_dir, f), "to": t2,
                                            "dir": final_dir})
+
+    plan["dir_totals"] = dir_totals
 
     # ---- 7) 花絮：类型目录整目录上移（深度 ≤2；更深只报告） ----
     if "extras" in actions:
@@ -656,7 +673,7 @@ def plan_tv_organize(library_ids=None, ids=None, actions=TV_ORGANIZE_ACTIONS,
                     "dir_moves": [], "file_moves": [], "dir_renames": [],
                     "rmdirs": [], "untouched": [], "manual": [], "manual_more": 0,
                     "rename_count": 0, "absolute_risk": False, "root_move": None,
-                    "conflicts": [], "blocked": False,
+                    "conflicts": [], "blocked": False, "dir_totals": {},
                     "warnings": [f"plan error: {str(e)[:160]}"]}
         if not plan:
             continue
@@ -727,11 +744,13 @@ def summarize_plan(plan: dict, samples: int = 3) -> dict:
         else:
             counts[g["action"]] = counts.get(g["action"], 0) + g["count"]
     counts["rename"] = int(plan.get("rename_count") or counts.get("rename", 0))
+    dir_totals = [{"dir": d, "count": int(n)}
+                  for d, n in sorted((plan.get("dir_totals") or {}).items())]
     return {"show_id": plan.get("show_id"), "title": plan.get("title"),
             "library_id": plan.get("library_id"), "show_dir": plan.get("show_dir"),
             "blocked": bool(plan.get("blocked")), "absolute_risk":
             bool(plan.get("absolute_risk")), "warnings": plan.get("warnings") or [],
-            "counts": counts, "groups": groups,
+            "counts": counts, "groups": groups, "dir_totals": dir_totals,
             "untouched": [untouched_dirs[k] for k in sorted(untouched_dirs)],
             "untouched_count": len(plan.get("untouched") or []),
             "manual": plan.get("manual") or [], "manual_more":

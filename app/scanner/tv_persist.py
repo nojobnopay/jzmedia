@@ -174,13 +174,16 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
                     source: str = "tmdb", needs_review: int = 0,
                     download_art: bool = True, offline_reason: str = "",
                     library_id: int | None = None,
-                    aggregate: dict | None = None) -> dict:
+                    aggregate: dict | None = None,
+                    force_title: bool = False) -> dict:
     """把 TMDB 详情落到 tv_shows/tv_seasons/tv_episodes（幂等）。返回统计。
 
     三级演职（与 TMDB 口径对齐）：series 级存 `aggregate_credits` 全剧聚合
     （`tv_detail` 自带的 credits 官方定义仅为最新季，不可用）；季级存各季
     credits；集级存对应集 `guest_stars` + 导演（季详情免费带来）。
-    `aggregate=None`（离线/未拉取）时三级一律不覆盖旧值。"""
+    `aggregate=None`（离线/未拉取）时三级一律不覆盖旧值。
+    `force_title=True`（显式换绑，与电影 manual_match 同语义）：忽略
+    `title_auto=0` 的保护标记，用新条目的 TMDB 标题覆盖（防换绑后标题停留在旧条目）。"""
     now = int(time.time())
     tmdb_id = int(detail.get("id"))
     lib_id = int(library_id or 0) or int(store.DEFAULT_LIBRARY_ID)
@@ -205,9 +208,11 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
         store.upsert_tmdb_cache(tmdb_id, meta,
                                 (cached or {}).get("credits") or {"cast": [], "crew": []},
                                 meta.get("poster_tmdb_path") or "", media_type="tv")
-    # 剧集镜像列（标题保护：手工改过的标题不被 TMDB 覆盖，title_auto=0 表示受保护）
+    # 剧集镜像列（标题保护：手工改过的标题不被 TMDB 覆盖，title_auto=0 表示受保护；
+    # 显式换绑 force_title=True 例外——新条目标题必须生效，否则标题会停在旧条目）
     cur = store.get_show_meta(show_id) or {}
-    keep_title = bool(cur.get("title")) and not int(cur.get("title_auto") or 0)
+    keep_title = ((not force_title) and bool(cur.get("title"))
+                  and not int(cur.get("title_auto") or 0))
     title = str(cur.get("title")) if keep_title else meta["title"]
     fields = {
         "title": title,

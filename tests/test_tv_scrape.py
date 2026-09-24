@@ -163,6 +163,20 @@ def test_manual_match_and_search(tv_lib, fake_tmdb):
         == "第1季第1集"
 
 
+def test_manual_match_forces_title_after_rebind(tv_lib, fake_tmdb, monkeypatch):
+    """显式换绑必须跟新条目标题（title_auto=0 只保护真正的手工标题）。"""
+    lib, root = tv_lib
+    _touch(root, "Whatever/Season 01/Whatever.S01E01.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    tv_persist.scrape_pending(library_ids=[lib["id"]])
+    show = store.list_shows(lib["id"])[0]
+    assert show["title"] == "测试剧"
+    monkeypatch.setattr("app.tmdb.tv_detail", lambda tid: _detail(name="改名后的剧"))
+    r = client.post(f"/api/tv/shows/{show['id']}/match", json={"tmdb_id": 100})
+    assert r.status_code == 200, r.text
+    assert store.get_show_meta(show["id"])["title"] == "改名后的剧"
+
+
 def test_watched_progress_and_recent(tv_lib, fake_tmdb):
     lib, root = tv_lib
     _touch(root, "Test Show (2020)/Season 01/Test.Show.S01E01.mkv")

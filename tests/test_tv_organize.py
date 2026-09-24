@@ -1,4 +1,6 @@
 """T4.2 v2：TV 目录规范化（剧根/季目录/包装层/补 Season/特典/花絮/正片改名）。"""
+import os
+
 import pytest
 
 from app import library_paths, scanner, store
@@ -104,6 +106,57 @@ def test_specials_move_to_season00(tv_lib):
     assert (root / "Show (2020)/Season 00/Show.OVA.01.mkv").is_file()
     assert (root / "Show (2020)/Season 00/Show.OVA.01.nfo").is_file()
     assert not (root / "Show (2020)/[OVA]").exists()
+
+
+def test_season_relocate_misplaced_files(tv_lib):
+    """重绑后季拆分变化：文件仍在 Season 01 但库内是第 2 季 → 移入 Season 02（+DB 同步）。"""
+    lib, root = tv_lib
+    _touch(root, "Show (2020)/Season 01/Show.S01E01.mkv")
+    _touch(root, "Show (2020)/Season 01/Show.S01E02.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    show = store.list_shows(lib["id"])[0]
+    eps = sorted(store.list_episodes(show["id"]), key=lambda e: int(e["episode"]))
+    store.update_episode_meta(eps[1]["id"], season=2, episode=1)
+    plan, res = _run(lib, actions=("season",))
+    assert plan["counts"]["season"] == 1, plan["counts"]
+    assert res["moved"] == 1 and res["failed"] == 0, res
+    assert (root / "Show (2020)/Season 01/Show.S01E01.mkv").is_file()
+    assert (root / "Show (2020)/Season 02/Show.S01E02.mkv").is_file()
+    assert store.get_episode(eps[1]["id"])["file_path"] == \
+        "Show (2020)/Season 02/Show.S01E02.mkv"
+    plan2 = tv_organize.plan_tv_organize(library_ids=[lib["id"]], actions=("season",))
+    assert plan2["total"] == 0          # 幂等
+
+
+def test_specials_relocate_from_wrong_season_dir(tv_lib):
+    """库内特典（S0）落在 Season 01 目录 → specials 动作归位 Season 00。"""
+    lib, root = tv_lib
+    _touch(root, "Show (2020)/Season 01/Show.S01E01.mkv")
+    _touch(root, "Show (2020)/Season 01/S00E01.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    show = store.list_shows(lib["id"])[0]
+    assert any(int(e["season"]) == 0 for e in store.list_episodes(show["id"]))
+    plan, res = _run(lib, actions=("specials",))
+    assert plan["counts"]["specials"] == 1, plan["counts"]
+    assert res["moved"] == 1 and res["failed"] == 0, res
+    assert (root / "Show (2020)/Season 00/S00E01.mkv").is_file()
+    assert (root / "Show (2020)/Season 01/Show.S01E01.mkv").is_file()
+
+
+def test_summarize_dir_totals_includes_in_place(tv_lib):
+    """最终分布含无需移动的正片：Season 01 不应只显示"被移动的那 1 项"。"""
+    lib, root = tv_lib
+    _touch(root, "Show (2020)/Season 01/Show.S01E01.mkv")
+    _touch(root, "Show (2020)/Season 01/Show.S01E02.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    show = store.list_shows(lib["id"])[0]
+    eps = sorted(store.list_episodes(show["id"]), key=lambda e: int(e["episode"]))
+    store.update_episode_meta(eps[1]["id"], season=2, episode=1)
+    plan = tv_organize.plan_tv_organize(library_ids=[lib["id"]], actions=("season",))
+    s = tv_organize.summarize_plan(plan["plans"][0])
+    totals = {os.path.basename(r["dir"]): r["count"] for r in s["dir_totals"]}
+    assert totals == {"Season 01": 1, "Season 02": 1}, totals
+    assert s["counts"]["season"] == 1     # 变更清单里只有 1 项要移动
 
 
 def test_root_rename_matched_show(tv_lib):

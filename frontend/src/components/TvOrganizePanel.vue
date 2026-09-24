@@ -6,19 +6,27 @@
       包装层拍平；剧根散集补 `Season NN/`；特典（OVA/OAD/SP）归位 `Season 00/`；
       花絮类型目录整目录上移（仅深度 ≤2，更深只报告，花絮文件名不动）；
       正片统一命名（`剧名-S01E01-集名.ext`，同集多版本加 `-V2`）。
-      执行逐条留痕可撤销；含 .torrent 的剧默认跳过。展开每剧可看具体改动与「需手动处理」项；
-      勾选「绝对集号风险」剧即表示同意按其 TMDB 编号改名。
+      执行逐条留痕可撤销；含 .torrent 的剧默认跳过。展开每剧可看具体改动、最终季目录分布与「需手动处理」项；
+      绝对集号风险剧需先勾选「我确认按 TMDB 编号改名」才会执行正片改名（勾选后自动重新预览并加入执行选择）。
     </p>
     <div class="bar">
       <label v-for="k in ACTION_KEYS" :key="k">
         <input type="checkbox" v-model="acts[k]" /> {{ ACTION_LABELS[k] }}
       </label>
     </div>
+    <p v-if="absShows.length" class="hint warn-text abs-row">
+      <label>
+        <input type="checkbox" v-model="absConfirm" @change="onAbsToggle" />
+        我确认按 TMDB 编号改名（{{ absShows.length }} 部含绝对集号风险剧）
+      </label>
+      <span class="dim">勾选后自动重新预览，计划会包含「正片统一命名」；未确认时该剧正片不改名。</span>
+    </p>
     <div class="bar">
       <button @click="run(true)" :disabled="!!busy || !enabled.length">
         {{ busy === 'plan' ? '预览中…' : '预览整理计划' }}
       </button>
-      <button @click="run(false)" :disabled="!!busy || !enabled.length || !checked.length"
+      <button @click="run(false)"
+        :disabled="!!busy || !enabled.length || !checked.length || blockedByAbs"
         :class="{ danger: armRun }">
         {{ busy === 'exec' ? `整理中 ${done}/${total}…` : (armRun ? `确认执行选中 (${checked.length})` : `执行选中 (${checked.length})`) }}
       </button>
@@ -29,6 +37,9 @@
       </label>
       <span>{{ msg }}</span>
     </div>
+    <p v-if="blockedByAbs" class="hint warn-text">
+      选中的剧含绝对集号风险：请先勾选上方「我确认按 TMDB 编号改名」。
+    </p>
     <p v-if="armRun" class="hint warn-text">
       将对勾选的剧移动目录/改正片名（花絮文件名不动），执行后自动重写 NFO/海报。再点一次执行。
     </p>
@@ -67,6 +78,9 @@
                 <div v-if="groupSamples(g).more" class="g-more">
                   还有 {{ groupSamples(g).more }} 项同样处理
                 </div>
+              </div>
+              <div v-if="(p.dir_totals || []).length" class="g-title">
+                最终分布（正片）：{{ dirTotalsText(p) }}
               </div>
               <div v-if="(p.untouched || []).length" class="manual-block">
                 <div class="g-title warn-text">未动（更深层花絮，建议手动整理）</div>
@@ -142,8 +156,8 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api.js'
 import {
-  ACTION_LABELS, basename, defaultChecked, groupSamples, groupText, manualText,
-  planTotal, showFlags, showTotalText, untouchedText,
+  ACTION_LABELS, basename, defaultChecked, dirTotalsText, groupSamples, groupText,
+  manualText, planTotal, riskShowIds, showFlags, showTotalText, untouchedText,
 } from '../tvOrganizePlans.js'
 
 const props = defineProps({
@@ -172,6 +186,17 @@ const visiblePlans = computed(() => (onlyChanged.value
   : plans.value))
 const allChecked = computed(() => plans.value.length > 0
   && plans.value.every((p) => checked.value.includes(p.show_id)))
+// 绝对集号风险确认（与详情页弹窗口径一致）：确认后预览/执行才包含正片改名
+const absConfirm = ref(false)
+const absShows = computed(() => riskShowIds(plans.value))
+const blockedByAbs = computed(() => !absConfirm.value && checked.value.some(
+  (id) => plans.value.some((p) => p.show_id === id && p.absolute_risk)))
+
+function onAbsToggle() {
+  if (busy.value) return
+  // 切换确认状态后重新预览：计划列表与默认勾选（含风险剧）随之刷新
+  run(true)
+}
 
 function toggle(showId) {
   expanded.value = { ...expanded.value, [showId]: !expanded.value[showId] }
@@ -226,6 +251,7 @@ async function run(dryRun) {
   armRun.value = false
   busy.value = dryRun ? 'plan' : 'exec'
   msg.value = ''
+  const absIds = absShows.value      // 清空 plans 前先取风险剧 id（预览时也要带上）
   if (dryRun) {
     plans.value = []
     checked.value = []
@@ -241,6 +267,8 @@ async function run(dryRun) {
     if (!dryRun) {
       body.ids = checked.value
       body.allow_absolute_shows = checked.value   // 勾选=显式同意该剧（含绝对集号风险剧）执行
+    } else if (absConfirm.value && absIds.length) {
+      body.allow_absolute_shows = absIds           // 已确认：预览即含正片改名（与执行口径一致）
     }
     const d = await api('/api/jobs/tv-organize', {
       method: 'POST',
@@ -265,12 +293,16 @@ async function poll() {
       const s = j.summary || {}
       if (s.dry_run) {
         plans.value = s.plans || []
-        checked.value = plans.value.filter(defaultChecked).map((p) => p.show_id)
+        checked.value = plans.value
+          .filter((p) => defaultChecked(p, { allowAbs: absConfirm.value }))
+          .map((p) => p.show_id)
         const c = s.counts || {}
         msg.value = `计划：` + ACTION_KEYS.filter((k) => c[k])
           .map((k) => `${ACTION_LABELS[k]} ${c[k]}`).join('，')
           + `；散文件未动 ${s.untouched || 0}，需手动 ${s.manual || 0}，`
           + `绝对集号风险剧 ${s.absolute || 0}，冲突 ${s.conflicts || 0}，做种跳过 ${s.blocked || 0} 部`
+          + (s.absolute && !absConfirm.value
+            ? '（正片改名未包含：勾选上方确认后重新预览）' : '')
       } else {
         msg.value = `完成：改名/移动 ${s.moved || 0}，跳过 ${s.skipped || 0}`
           + (s.failed ? `，失败 ${s.failed}` : '')

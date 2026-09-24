@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   basename, dirname, planTotal, groupText, groupSamples, untouchedText,
-  manualText, showTotalText, defaultChecked, showFlags,
+  manualText, showTotalText, defaultChecked, showFlags, riskShowIds, dirTotalsText,
 } from '../src/tvOrganizePlans.js'
 
 test('basename/dirname', () => {
@@ -59,6 +59,27 @@ test('defaultChecked skips blocked/absolute_risk shows', () => {
   assert.equal(defaultChecked({}), true)
   assert.equal(defaultChecked({ blocked: true }), false)
   assert.equal(defaultChecked({ absolute_risk: true }), false)
+  // 已确认绝对风险：风险剧参与默认勾选（做种阻断仍不勾）
+  assert.equal(defaultChecked({ absolute_risk: true }, { allowAbs: true }), true)
+  assert.equal(defaultChecked({ absolute_risk: true, blocked: true }, { allowAbs: true }), false)
+})
+
+test('riskShowIds lists absolute-risk shows', () => {
+  assert.deepEqual(riskShowIds([{ show_id: 1 }, { show_id: 2, absolute_risk: true }]), [2])
+  assert.deepEqual(riskShowIds(null), [])
+})
+
+test('dirTotalsText shows final per-dir counts (incl. in-place)', () => {
+  const plan = {
+    dir_totals: [
+      { dir: 'Show (1992)/Season 01', count: 480 },
+      { dir: 'Show (1992)/Season 02', count: 873 },
+    ],
+  }
+  assert.equal(dirTotalsText(plan), 'Season 01 480 · Season 02 873')
+  assert.equal(dirTotalsText({}), '')
+  const many = { dir_totals: Array.from({ length: 10 }, (_, i) => ({ dir: `S${i}`, count: i + 1 })) }
+  assert.ok(dirTotalsText(many, 8).includes('…共 10 个目录'))
 })
 
 test('showFlags', () => {

@@ -627,34 +627,218 @@ class MatchBody(BaseModel):
     tmdb_id: int
 
 
+# 匹配后 NFO/海报落盘策略：集数 ≤ 该阈值同步写（前端一次 load 即见新海报），
+# 大剧放后台线程防请求超时（响应 media.queued=true，前端轮询补齐）。
+_TV_MATCH_SYNC_EPISODES = 120
+
+
+def _match_show_snapshot(show: dict) -> dict:
+    """匹配响应携带的剧快照（前端免一次 reload 即可刷新标题/简介/海报）。"""
+    return {
+        "tmdb_id": show.get("tmdb_id"),
+        "title": show.get("title") or "",
+        "poster_path": show.get("poster_path") or "",
+        "backdrop_path": show.get("backdrop_path") or "",
+        "has_overview": bool((show.get("overview_override") or show.get("overview") or "").strip()),
+        "fetched_at": show.get("fetched_at") or 0,
+        "needs_review": int(show.get("needs_review") or 0),
+        "match_source": show.get("match_source") or "",
+    }
+
+
+def _apply_tv_cached_offline(show_id: int, tmdb_id: int, cached: dict) -> dict:
+    """离线换绑：按 tmdb_cache 镜像回填剧行（与电影 manual_match 离线分支同语义）。
+
+    无季/集详情，不碰集行；本地海报文件存在才指向（不存在留空由前端占位）。"""
+    from ..db import POSTER_DIR
+    payload: dict = {}
+    try:
+        payload = json.loads(cached.get("payload_json") or "{}")
+    except (TypeError, ValueError):
+        payload = {}
+    src = payload if payload.get("title") else (cached or {})
+    fields: dict = {"tmdb_id": int(tmdb_id), "needs_review": 0,
+                    "match_source": "manual", "title_auto": 0,
+                    "fetched_at": int(time.time())}
+    for k in ("original_title", "year", "overview", "imdb_id", "tvdb_id",
+              "tmdb_rating", "genres", "genre_ids", "origin_country",
+              "origin_countries", "original_language", "region", "status",
+              "first_air_date", "last_air_date", "number_of_seasons",
+              "number_of_episodes", "episode_run_time", "networks",
+              "created_by"):
+        if src.get(k) not in (None, ""):
+            fields[k] = src[k]
+    if src.get("title"):
+        fields["title"] = str(src["title"])
+        fields["sort_title"] = normalize_title(str(src["title"]))
+    for key, namer in (("poster_path", tv_persist.tv_poster_name),
+                       ("backdrop_path", tv_persist.tv_backdrop_name)):
+        try:
+            rel = namer(int(tmdb_id))
+            dest = os.path.join(POSTER_DIR, rel)
+            if os.path.isfile(dest) and os.path.getsize(dest) > 0:
+                fields[key] = rel
+        except OSError as e:
+            logger.debug("tv offline art check failed tmdb_id=%s: %s", tmdb_id, e)
+    store.update_show_meta(show_id, **fields)
+    return store.get_show_meta(show_id) or {}
+
+
 @router.post("/shows/{show_id}/match")
 def match_show(show_id: int, body: MatchBody):
-    """手动换绑 TMDB 剧集：拉详情+季详情并落库（source=manual，清待确认）。"""
+    """手动换绑 TMDB 剧集：拉详情+季详情并落库（source=manual，清待确认）。
+
+    快回包：文字元数据同步落库，响应自带剧快照 + 落盘状态 media
+    （小剧同步写 NFO/海报，大剧后台线程并置 media.queued=true）。
+    TMDB 不可用时用 tmdb_cache 离线绑定（{offline:true}，与电影同语义）。"""
+    try:
+        tmdb_id = int(body.tmdb_id)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "tmdb_id must be int")
+    if not (0 < tmdb_id <= 2 ** 31 - 1):
+        raise HTTPException(422, "tmdb_id out of range")
     show = store.get_show_meta(show_id)
     if not show:
         raise HTTPException(404, "show not found")
     try:
-        detail = tmdb.tv_detail(int(body.tmdb_id))
+        detail = tmdb.tv_detail(tmdb_id)
     except Exception as e:
-        raise HTTPException(502, f"TMDB 详情失败：{str(e)[:200]}")
+        cached = store.get_tmdb_cached(tmdb_id, "tv")
+        if not cached:
+            raise HTTPException(502, f"TMDB 详情失败：{str(e)[:200]}")
+        logger.warning("tv match offline bind show=%s tmdb_id=%s: %s",
+                       show_id, tmdb_id, e)
+        fresh = _apply_tv_cached_offline(show_id, tmdb_id, cached)
+        return {"ok": True, "offline": True, "show_id": int(show_id),
+                "tmdb_id": int(tmdb_id), "episodes_matched": 0, "remapped": 0,
+                "media": {"queued": False, "offline": True},
+                "show": _match_show_snapshot(fresh)}
     local = store.list_episodes(show_id)
     season_details: dict = {}
+    failed_seasons: list[int] = []
     for sn in tv_persist.wanted_seasons(detail, local):
         try:
             season_details[sn] = tmdb.tv_season(int(body.tmdb_id), sn)
-        except Exception:
-            continue
+        except Exception as e:
+            # 单季拉取失败不静默：漏一季会让整季集号停在待确认（换绑可见性）
+            failed_seasons.append(int(sn))
+            logger.warning("tv match season fetch failed tmdb_id=%s season=%s: %s",
+                           tmdb_id, sn, e)
     try:
         aggregate = tmdb.tv_aggregate_credits(int(body.tmdb_id))
     except Exception:
         aggregate = None
     stats = tv_persist.apply_tv_detail(
         show_id, detail, season_details, source="manual", needs_review=0,
-        library_id=show.get("library_id"), aggregate=aggregate)
-    # NFO/海报落盘放后台：大剧（千集级）同步写会让浏览器请求超时
-    threading.Thread(target=tv_persist.write_media_files,
-                     args=(show_id, show.get("library_id")), daemon=True).start()
-    return {"ok": True, **stats}
+        library_id=show.get("library_id"), aggregate=aggregate,
+        force_title=True)      # 显式换绑：标题必须跟新条目（电影 manual_match 同语义）
+    fresh = store.get_show_meta(show_id) or {}
+    try:
+        sync_limit = int(os.getenv("TV_MATCH_SYNC_EPISODES",
+                                   str(_TV_MATCH_SYNC_EPISODES)) or _TV_MATCH_SYNC_EPISODES)
+    except (TypeError, ValueError):
+        sync_limit = _TV_MATCH_SYNC_EPISODES
+    if len(local) <= sync_limit:
+        # 小剧同步落盘：返回时 NFO/海报已写完，前端一次 load 即见新图
+        try:
+            media = tv_persist.write_media_files(show_id, show.get("library_id"))
+        except Exception as e:
+            logger.warning("tv match media write failed show=%s: %s", show_id, e)
+            media = {"nfo": False, "nfo_wrote": 0, "nfo_skipped": 0,
+                     "artwork": {"ok": False, "reason": "error"}}
+    else:
+        # 大剧（千集级）同步写会让浏览器请求超时：放后台，前端轮询补齐
+        threading.Thread(target=tv_persist.write_media_files,
+                         args=(show_id, show.get("library_id")), daemon=True).start()
+        media = {"nfo": False, "nfo_wrote": 0, "nfo_skipped": 0,
+                 "artwork": {"ok": False, "reason": "queued"}, "queued": True}
+    return {"ok": True, "offline": False, **stats, "media": media,
+            "seasons_failed": failed_seasons,
+            "show": _match_show_snapshot(fresh)}
+
+
+def _is_tv_lib_read_only(library_id) -> bool:
+    try:
+        return library_paths.is_read_only(int(library_id or 0))
+    except Exception:
+        return False
+
+
+@router.get("/shows/{show_id}/organize-hint")
+def show_organize_hint(show_id: int, actions: str | None = None,
+                       allow_absolute: bool = False):
+    """单剧整理预览（对标电影 organize-hint）：复用 plan_tv_organize 同步返回。
+
+    返回 {needs, matched, absolute_risk, blocked, counts, groups, manual,
+    conflicts, untouched, params}；params 可直接回传 POST /api/jobs/tv-organize
+    执行（ids + actions + allow_absolute_shows）。
+    TV 无跨库搬迁语义：needs=有可执行移动/改名；绝对集号风险剧 needs=false
+    但仍带 absolute/manual 解释，前端照样提示去设置页勾选。"""
+    from ..scanner import tv_organize
+    show = store.get_show_meta(show_id)
+    if not show:
+        raise HTTPException(404, "show not found")
+    if actions:
+        acts = [a.strip() for a in str(actions).split(",")
+                if a.strip() in tv_organize.TV_ORGANIZE_ACTIONS]
+        acts = acts or list(tv_organize.TV_ORGANIZE_ACTIONS)
+    else:
+        acts = list(tv_organize.TV_ORGANIZE_ACTIONS)
+    allow_abs = [int(show_id)] if allow_absolute else []
+    plan = tv_organize.plan_tv_organize(ids=[int(show_id)], actions=acts,
+                                        allow_absolute_shows=allow_abs)
+    plans = plan.get("plans") or []
+    lib = None
+    try:
+        lib = store.get_library(int(show.get("library_id") or 0))
+    except Exception:
+        lib = None
+    base = {"show_id": int(show_id), "title": show.get("title") or "",
+            "library_id": show.get("library_id"),
+            "media_library_id": (lib or {}).get("media_library_id"),
+            "matched": bool(show.get("tmdb_id")),
+            "params": {"ids": [int(show_id)], "actions": acts,
+                       "allow_absolute_shows": allow_abs}}
+    p = plans[0] if plans else None
+    if p is None:
+        reason = ("read_only" if _is_tv_lib_read_only(show.get("library_id"))
+                  else "no_plan")
+        return {**base, "needs": False, "reason": reason, "show_dir": "",
+                "absolute_risk": False, "blocked": False, "warnings": [],
+                "counts": {}, "groups": [], "dir_totals": [],
+                "manual": [], "manual_more": 0,
+                "conflicts": [], "untouched": [], "untouched_count": 0}
+    summary = tv_organize.summarize_plan(p)
+    needs = bool(p.get("file_moves") or p.get("dir_moves")
+                 or p.get("dir_renames") or p.get("root_move"))
+    if not needs:
+        if not show.get("tmdb_id"):
+            reason = "unmatched"
+        elif summary.get("absolute_risk"):
+            reason = "absolute"
+        elif (summary.get("manual") or summary.get("manual_more")):
+            reason = "manual"
+        elif summary.get("blocked"):
+            reason = "blocked"
+        elif summary.get("conflicts"):
+            reason = "conflicts"
+        else:
+            reason = "no_plan"
+    else:
+        reason = "ok"
+    return {**base, "needs": needs, "reason": reason,
+            "show_dir": p.get("show_dir") or "",
+            "absolute_risk": bool(summary.get("absolute_risk")),
+            "blocked": bool(summary.get("blocked")),
+            "warnings": summary.get("warnings") or [],
+            "counts": summary.get("counts") or {},
+            "groups": summary.get("groups") or [],
+            "dir_totals": summary.get("dir_totals") or [],
+            "manual": summary.get("manual") or [],
+            "manual_more": int(summary.get("manual_more") or 0),
+            "conflicts": summary.get("conflicts") or [],
+            "untouched": summary.get("untouched") or [],
+            "untouched_count": int(summary.get("untouched_count") or 0)}
 
 
 @router.post("/shows/{show_id}/refresh")
