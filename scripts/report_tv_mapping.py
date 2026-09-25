@@ -7,9 +7,10 @@ import re
 import sqlite3
 import sys
 
-ROOT = "."
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)
+os.makedirs("docs/private", exist_ok=True)
 
 from app import store                                    # noqa: E402
 from app.scanner import tv_nfo_link, tv_organize         # noqa: E402
@@ -105,7 +106,7 @@ for e in con.execute("SELECT * FROM tv_episodes ORDER BY show_id, season, episod
         "改名": "是" if orig != cur else "否",
         "fix_touched": "是" if touched else "否",
     })
-with open("docs/tv-rename-mapping-20260922.csv", "w", newline="", encoding="utf-8-sig") as f:
+with open("docs/private/tv-rename-mapping-20260922.csv", "w", newline="", encoding="utf-8-sig") as f:
     w = csv.DictWriter(f, fieldnames=list(ep_rows[0].keys()))
     w.writeheader()
     w.writerows(ep_rows)
@@ -122,13 +123,13 @@ for x in con.execute("SELECT * FROM extras ORDER BY id"):
         "当前路径": cur, "原始路径": walk(cur),
         "改名": "是" if walk(cur) != cur else "否",
     })
-with open("docs/tv-extras-mapping-20260922.csv", "w", newline="", encoding="utf-8-sig") as f:
+with open("docs/private/tv-extras-mapping-20260922.csv", "w", newline="", encoding="utf-8-sig") as f:
     w = csv.DictWriter(f, fieldnames=list(ex_rows[0].keys()))
     w.writeheader()
     w.writerows(ex_rows)
 
 # ---------- 全量审计 CSV ----------
-with open("docs/tv-organize-audit-20260922.csv", "w", newline="", encoding="utf-8-sig") as f:
+with open("docs/private/tv-organize-audit-20260922.csv", "w", newline="", encoding="utf-8-sig") as f:
     w = csv.DictWriter(f, fieldnames=["id", "batch_id", "show_id", "library_id",
                                       "kind", "obj", "action", "from_path", "to_path",
                                       "created_at", "undone_at"])

@@ -1,4 +1,4 @@
-"""用户态 SMB2/3 直读后端（指导 §8/§11/§12；spike 见 docs/plans/SMB_DIRECT_SPIKE.md）。
+"""用户态 SMB2/3 直读后端（指导 §8/§11/§12）。
 
 - 不依赖容器内 mount.cifs / CAP_SYS_ADMIN：进程内 `smbclient`(smbprotocol) + 内网
   HTTP Range 代理（`storage.httpproxy`）供 ffprobe/ffmpeg 读取。

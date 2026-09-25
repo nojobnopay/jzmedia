@@ -8,9 +8,10 @@ import sqlite3
 import subprocess
 import sys
 
-ROOT = "."
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)
+os.makedirs("docs/private", exist_ok=True)
 
 import importlib.util                                    # noqa: E402
 
@@ -28,7 +29,7 @@ con = sqlite3.connect("data/jzmedia.db")
 con.row_factory = sqlite3.Row
 moves = [dict(r) for r in con.execute("SELECT * FROM organize_moves ORDER BY id")]
 
-ep = list(csv.DictReader(open("docs/tv-rename-mapping-20260922.csv", encoding="utf-8-sig")))
+ep = list(csv.DictReader(open("docs/private/tv-rename-mapping-20260922.csv", encoding="utf-8-sig")))
 by_show = collections.defaultdict(list)
 for r in ep:
     by_show[int(r["show_id"])].append(r)
@@ -67,9 +68,9 @@ w = L.append
 w("# 剧集修正记录与遗留问题（2026-09-22）")
 w("")
 w("> 数据来源：`organize_moves` 审计表 + `scan_state` 尺寸台账 + DB（只读）。配套数据文件：")
-w("> - `docs/tv-rename-mapping-20260922.csv` — 全部 3877 集：当前路径 / 原始路径 / 修正前路径")
-w("> - `docs/tv-extras-mapping-20260922.csv` — 274 个花絮/剧场版同样三列")
-w("> - `docs/tv-organize-audit-20260922.csv` — 5361 条移动审计（organize_moves 全量导出）")
+w("> - `docs/private/tv-rename-mapping-20260922.csv` — 全部 3877 集：当前路径 / 原始路径 / 修正前路径")
+w("> - `docs/private/tv-extras-mapping-20260922.csv` — 274 个花絮/剧场版同样三列")
+w("> - `docs/private/tv-organize-audit-20260922.csv` — 5361 条移动审计（organize_moves 全量导出）")
 w(">")
 w("> 重新生成（如后续又有改名）：先 `scripts/report_tv_mapping.py` 再 `scripts/report_tv_fix_doc.py`"
   "（只读，需 `DATA_DIR=./data MEDIA_ROOT=./media`）。")
@@ -215,7 +216,7 @@ w("| 黑镜 | S02E04 白色圣诞节 |")
 w("")
 w("## 4. 恢复 / 撤销手段")
 w("")
-w("全部移动都在 `organize_moves` 表（已导出 `docs/tv-organize-audit-20260922.csv`）：")
+w("全部移动都在 `organize_moves` 表（已导出 `docs/private/tv-organize-audit-20260922.csv`）：")
 w("")
 w("| 批次 | 条数 | 内容 |")
 w("|---|---|---|")
@@ -254,5 +255,5 @@ w("print(p['total'], p['counts'], p['conflicts'], p['manual'])")
 w("PY")
 w("```")
 
-open("docs/tv-fix-and-pending-20260922.md", "w", encoding="utf-8").write("\n".join(L) + "\n")
-print("written docs/tv-fix-and-pending-20260922.md", len(L), "行")
+open("docs/private/tv-fix-and-pending-20260922.md", "w", encoding="utf-8").write("\n".join(L) + "\n")
+print("written docs/private/tv-fix-and-pending-20260922.md", len(L), "行")

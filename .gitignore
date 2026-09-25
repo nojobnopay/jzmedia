@@ -8,9 +8,14 @@ data/*.log
 data/posters/
 data/transcode/
 data/fonts/
+data/secret.key
+data/mounts/
 node_modules/
 frontend/node_modules/
 frontend/dist/
 dist/
 media/*
 !media/.gitkeep
+docs/private/
+docs/tv-organize-moves-*.json
+docs/tv-fix-and-pending-*.md

@@ -46,7 +46,7 @@
 
 ## 已弃项（附理由，不重开）
 
-- **rclone sidecar（技术指导 Phase 2/3）**：`SMB_DIRECT_SPIKE` 在真实 NAS 实测后判定改用
+- **rclone sidecar（技术指导 Phase 2/3）**：真实 NAS 实测后判定改用
   `smbprotocol` 进程内直读（内置 Range 代理），rclone 暂缓；仅当重连/VFS 缓存出现痛点时再议。
   已按此实现并全链路落地（`app/storage/`）。
 - **B9-COLLECTIONS/PERSONS 之外的旧评审条目**：249 条已全部修复/等价覆盖/判定无需改，无欠账。
@@ -62,9 +62,10 @@
 | `docs/fix/10-p2-backlog.md` | `c8f73f3` | P2 全量台账（B5a–B11，已完成） |
 | `docs/plans/PLAYER_IMPL_PHASES.md` | `800207a` | 播放 P1–P5 实施日志（代码注释 `目标文档 §x` 指其配套 NAS 方案） |
 | `docs/plans/NAS_Web_Video_Player_Development_Plan.md` | `67696f3` | 播放器目标与原则（代码注释 `目标文档 §x`） |
-| `docs/plans/SMB_DIRECT_SPIKE.md` | `4bc2552` | SMB 直读 spike 实测与 GO 决策 |
 | `docs/plans/MULTI_LIBRARY_PLAN.md` | `e65dd96` | 多库/远程库/离线刮削定稿（A–G；schema 章节为 v12/v13，已被 v17/v18 取代） |
-| `docs/plans/jzmedia_remote_media_library_technical_guidance.md` | `4bc2552` | 远程库技术指导（代码注释 `指导 §x`；rclone 主路径已弃） |
 
-检索示例：`git show 4bc2552:docs/plans/SMB_DIRECT_SPIKE.md`；`docs/review/` 已按用户要求删除（见上表回溯方式），代码中
+说明：SMB spike 实测与远程库技术指导两份文档因含内网地址，已从 git 历史整体移除（本地留存于 `docs/private/`）。
+其余历史文档仍可按上表 `git show <最后提交>:<路径>` 回溯（提交哈希为历史重写前值，找不到时用 `git log --all -- <路径>` 定位）。
+
+检索示例：`git show 078bf33:docs/review/01-R01-infra.md`；`docs/review/` 已按用户要求删除（见上表回溯方式），代码中
 `评审 Rxx-xx` ID 按 `078bf33` 提交查到详情。
