@@ -151,6 +151,9 @@ def score_row(term: str, year, row: dict) -> float:
         s += 18
     elif nt and ot and (nt in ot or ot in nt):
         s += 14
+    elif nt and _alt_hit(nt, row.get("alt_titles")):
+        # 别名精确（v27）：低于主标题/原标题，但配合年份可过自动绑定阈
+        s += 36
     if year and row.get("year"):
         try:
             d = abs(int(row["year"]) - int(year))
@@ -162,6 +165,15 @@ def score_row(term: str, year, row: dict) -> float:
     if row.get("imdb_id"):
         s += 3
     return s
+
+
+def _alt_hit(nt: str, alt_titles) -> bool:
+    """别名串（换行拼接）里是否有归一后与查询精确相等的项。"""
+    for a in str(alt_titles or "").splitlines():
+        a = a.strip()
+        if a and normalize_title(a) == nt:
+            return True
+    return False
 
 
 def search(title: str, year: int | None = None, kind: str = "movie",
@@ -185,6 +197,9 @@ def search(title: str, year: int | None = None, kind: str = "movie",
             tmdb_id = int(tmdb_id) if tmdb_id is not None else None
         except (TypeError, ValueError):
             tmdb_id = None
+        if not tmdb_id and r.get("imdb_id"):
+            # imdb → tmdb 离线桥（P1.2）：NFO/IMDb 数据集候选也能直接绑定缓存链路
+            tmdb_id = store.find_tmdb_by_imdb(str(r["imdb_id"]), kind=kind)
         out.append(Candidate(
             title=r.get("title") or "", original_title=r.get("original_title") or "",
             year=r.get("year"), tmdb_id=tmdb_id, imdb_id=r.get("imdb_id") or "",

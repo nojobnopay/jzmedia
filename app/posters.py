@@ -17,6 +17,7 @@ DB 存 DATA_DIR 相对路径（如 `posters/movies/123.jpg`）；`resolve()` 兼
 旧值（裸文件名 / 根部旧名前缀 / `posters/<旧名>`），供读侧回退。
 存量文件 + DB 值由 `migrate_posters()` 在启动时一次性搬迁（幂等、可重入）。
 """
+import hashlib
 import os
 import re
 
@@ -26,7 +27,24 @@ logger = get_logger("posters")
 
 # ensure_dirs 建目录用（db.ensure_dirs 运行时 lazy-import，避免导入期循环）。
 SUBDIRS = ("movies", "orig", "backdrops", "persons", "tv", "stills",
-           "cand", "tvcast")
+           "cand", "tvcast", "ext")
+
+
+def _ext_key(source: str, source_id) -> str:
+    """外部元数据图片文件名：来源名 + source_id 短哈希（防奇怪字符/超长）。"""
+    src = re.sub(r"[^A-Za-z0-9_.-]", "_", str(source or "ext"))[:24] or "ext"
+    h = hashlib.sha1(str(source_id or "").encode("utf-8")).hexdigest()[:12]
+    return f"{src}_{h}"
+
+
+def external_poster_rel(source: str, source_id) -> str:
+    """外部元数据源海报（DATA_DIR 相对路径，入库用）。"""
+    return f"posters/ext/{_ext_key(source, source_id)}.jpg"
+
+
+def external_backdrop_rel(source: str, source_id) -> str:
+    """外部元数据源背景图（DATA_DIR 相对路径，入库用）。"""
+    return f"posters/ext/{_ext_key(source, source_id)}_bd.jpg"
 
 _EXT = r"(?:jpg|jpeg|png)"
 
@@ -245,4 +263,5 @@ def migrate_posters(poster_dir: str | None = None,
 __all__ = ['SUBDIRS', 'movie_poster_rel', 'movie_orig_rel', 'movie_backdrop_rel',
            'person_avatar_rel', 'tv_poster_rel', 'tv_backdrop_rel',
            'tv_season_poster_rel', 'episode_still_rel', 'legacy_rel',
+           'external_poster_rel', 'external_backdrop_rel',
            'resolve', 'remap_db_value', 'migrate_posters']

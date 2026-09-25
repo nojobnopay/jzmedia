@@ -154,14 +154,28 @@ def _hint_detail(hints: dict) -> tuple[dict | None, str]:
     return None, ""
 
 
-def resolve_show(title: str, year, hints: dict | None = None,
-                 use_library: bool = True) -> dict:
-    """剧名 → 匹配结果：{tmdb_id, detail, source, needs_review, query}（未命中全 None）。
+def _external_show_candidate(title: str, year, library_id=None):
+    """无 key 外部源（wikidata/tvmaze/bgm）→ 候选/门控（P2.4）；失败返回 (None, 0)。"""
+    try:
+        from ..metadata import auto as meta_auto
+        from ..metadata import chain as meta_chain
+        hits = meta_chain.search(title, year, "tv", library_id=library_id, limit=5,
+                                 exclude=("local", "tmdb"))
+        return meta_auto.pick_auto(hits, title, year, "tv")
+    except Exception as e:
+        logger.debug("tv external chain failed title=%s: %s", title, e)
+        return None, 0, ""
 
-    顺序：目录 hint → 本地已匹配（离线）→ TMDB 搜索（短查询回退 + 别名重评）。
+
+def resolve_show(title: str, year, hints: dict | None = None,
+                 use_library: bool = True, library_id=None) -> dict:
+    """剧名 → 匹配结果：{tmdb_id, detail, source, needs_review, query[, candidate]}。
+
+    顺序：目录 hint → 本地已匹配（离线）→ TMDB 搜索（短查询回退 + 别名重评）
+    → 无 key 外部源（仅 TMDB 不可用/无结果时；带 `candidate` 供直接落外部元数据）。
     `use_library=False`（force 重刮）跳过本地索引，强制走真实搜索——本地索引可能
     残留上一条错配（如 `西部世界` 曾绑到 1980 版）。
-    TMDB 异常向上抛（调用方标 scan_failed 下次重试）；空结果不算失败。"""
+    TMDB 异常且外部源也无命中时向上抛（调用方标 scan_failed 下次重试）。"""
     detail, source = _hint_detail(hints or {})
     if detail:
         return {"tmdb_id": int(detail["id"]), "detail": detail, "source": source,
@@ -170,26 +184,38 @@ def resolve_show(title: str, year, hints: dict | None = None,
     if tid:
         return {"tmdb_id": tid, "detail": None, "source": "library",
                 "needs_review": False, "query": title or ""}
-    for q in short_candidates(title):
-        results = tmdb.search_tv(q, year)
-        hit, review = pick_tv_match(results, year, query=q)
-        if hit is None and results:
-            # 别名重评：本地化标题 vs 英文目录名（Legal High / Hanzawa Naoki）
-            for cand in results[:_ALT_RETRY]:
-                try:
-                    alts = tmdb.tv_alternative_titles(int(cand["id"]))
-                except Exception as e:
-                    logger.debug("tv alt titles failed id=%s: %s", cand.get("id"), e)
-                    continue
-                names = [str(a.get("title") or "") for a in alts]
-                if any(title_similar(q, n) >= SIM_THRESHOLD for n in names):
-                    hit, review = cand, True
-                    break
-        if hit:
-            if q != title:
-                review = True     # 短查询可能过度截断：一律待确认
-            return {"tmdb_id": int(hit["id"]), "detail": None, "source": "tmdb",
-                    "needs_review": bool(review), "query": q}
+    tmdb_error: Exception | None = None
+    try:
+        for q in short_candidates(title):
+            results = tmdb.search_tv(q, year)
+            hit, review = pick_tv_match(results, year, query=q)
+            if hit is None and results:
+                # 别名重评：本地化标题 vs 英文目录名（Legal High / Hanzawa Naoki）
+                for cand in results[:_ALT_RETRY]:
+                    try:
+                        alts = tmdb.tv_alternative_titles(int(cand["id"]))
+                    except Exception as e:
+                        logger.debug("tv alt titles failed id=%s: %s", cand.get("id"), e)
+                        continue
+                    names = [str(a.get("title") or "") for a in alts]
+                    if any(title_similar(q, n) >= SIM_THRESHOLD for n in names):
+                        hit, review = cand, True
+                        break
+            if hit:
+                if q != title:
+                    review = True     # 短查询可能过度截断：一律待确认
+                return {"tmdb_id": int(hit["id"]), "detail": None, "source": "tmdb",
+                        "needs_review": bool(review), "query": q}
+    except Exception as e:
+        tmdb_error = e
+    # 外部源兜底（P2.4）：TMDB 失败/无结果时尝试无 key provider
+    cand, review, _why = _external_show_candidate(title, year, library_id)
+    if cand is not None:
+        return {"tmdb_id": cand.tmdb_id, "detail": None, "source": cand.source,
+                "needs_review": bool(review), "query": title or "",
+                "candidate": cand}
+    if tmdb_error is not None:
+        raise tmdb_error
     return {"tmdb_id": None, "detail": None, "source": "", "needs_review": False,
             "query": title or ""}
 
@@ -216,9 +242,12 @@ def tv_meta_from_detail(detail: dict) -> dict:
                    "profile_path": p.get("profile_path")}
                   for p in (detail.get("created_by") or []) if p.get("id")]
     raw_name = str(detail.get("name") or "").strip()
+    from .match import collect_aliases
+    aliases = collect_aliases((detail.get("alternative_titles") or {}).get("results"))
     return {
         "title": tv_display_title(detail),
         "original_title": str(detail.get("original_name") or "").strip() or raw_name,
+        "aliases": aliases,
         "year": year,
         "overview": detail.get("overview", "") or "",
         "tmdb_id": detail["id"],

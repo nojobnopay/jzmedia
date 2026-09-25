@@ -936,6 +936,49 @@ def manual_match(movie_id: int, body: dict, background_tasks: BackgroundTasks):
     return {"id": movie_id, **out}
 
 
+@router.post("/movies/{movie_id}/bind-external")
+def bind_external(movie_id: int, body: dict):
+    """外部元数据候选（wikidata/tvmaze/bgm/nfo）显式绑定（P2.4）。
+
+    外源 detail 落库（有 tmdb_id 且已有缓存时优先复用 TMDB 缓存）；用户显式选择
+    视为确认，清 needs_review。"""
+    m = store.get_movie(movie_id)
+    if not m:
+        raise HTTPException(404, "movie not found")
+    source = str((body or {}).get("source") or "").strip()
+    source_id = str((body or {}).get("source_id") or "").strip()
+    if not source or not source_id:
+        raise HTTPException(422, "source/source_id required")
+    from ...metadata import chain as meta_chain
+    from ...metadata import external as meta_external
+    from ...metadata.base import Candidate
+    cand = Candidate(source=source, source_id=source_id,
+                     title=m.get("title") or "", year=m.get("year"))
+    detail = meta_chain.detail_for(cand)
+    if not detail or not detail.get("title"):
+        raise HTTPException(502, "外部详情获取失败")
+    target = scanner.write_target(m)
+    tid = detail.get("tmdb_id")
+    try:
+        tid = int(tid) if tid else 0
+    except (TypeError, ValueError):
+        tid = 0
+    if tid and store.get_tmdb_cached(tid):
+        out = scanner.apply_cached_to_movie(
+            movie_id, tid, target.get("abs_path") or "",
+            backend=target.get("backend"), rel=target.get("rel") or "",
+            force_title=True)
+        store.update_movie_local(movie_id, needs_review=0)
+        store.update_movie_meta(movie_id, match_source=source)
+        return {"id": movie_id, "source": source, "upgraded": True, **out}
+    out = meta_external.apply_external_movie(
+        movie_id, detail, source=source, source_id=source_id,
+        backend=target.get("backend"), rel=target.get("rel") or "",
+        abs_path=target.get("abs_path") or "", needs_review=0, set_tmdb_id=True)
+    store.update_movie_local(movie_id, needs_review=0)
+    return {"id": movie_id, "upgraded": False, **out}
+
+
 # 暂存目录词表：文件在这些顶层目录下才推荐「搬到 电影/」；其余一律就地规范化
 # （影片专属目录整目录改名 / 合集目录内套一层）。NAS 库根就是 Movies，顶层目录
 # 是片目录名，不能再按“顶层 != 电影 就搬迁”判断（2026-09 用户反馈）。

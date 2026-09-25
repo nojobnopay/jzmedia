@@ -123,7 +123,8 @@ const visibleUpQueue = computed(() => showAllUp.value ? upQueue.value : upQueue.
 const NOTE_TEXT = {
   ok: '已入库', ok_needs_review: '待确认', no_match: 'TMDB 未匹配',
   scan_failed: '刮削失败（可重试）', skipped_cached: '已入库', skipped_unchanged: '未变化',
-  skipped_sample: '样片跳过', skipped_episode_v1: '剧集跳过'
+  skipped_sample: '样片跳过', skipped_episode_v1: '剧集跳过',
+  ok_external: '离线入库（外源元数据）', skipped_external: '已入库（离线外源）'
 }
 function noteText(t) {
   const n = String((t && t.note) || '')
@@ -132,7 +133,8 @@ function noteText(t) {
 }
 function canRetry(t) {
   const n = String((t && t.note) || '')
-  return n === 'no_match' || n === 'scan_failed' || n.startsWith('stored_scan_warn')
+  return n === 'no_match' || n === 'scan_failed' || n === 'ok_external'
+    || n === 'skipped_external' || n.startsWith('stored_scan_warn')
 }
 async function rescanTask(t) {
   if (!t || !t.movieId || t._rescuing) return
@@ -141,7 +143,7 @@ async function rescanTask(t) {
   try {
     const d = await api('/api/movies/' + t.movieId + '/rescan', { method: 'POST' })
     const st = (d && d.status) || ''
-    if (st === 'ok' || st === 'ok_needs_review') {
+    if (st === 'ok' || st === 'ok_needs_review' || st === 'ok_external') {
       t.note = d.tmdb_id ? 'ok' : st
       upMsg.value = `「${d.title || t.rel}」刮削完成`
       emit('done')

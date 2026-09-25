@@ -172,6 +172,6 @@ def test_organize_moves_table_migrated(tv_lib):
     with _base._lock, _base._conn() as c:
         version = int(c.execute("PRAGMA user_version").fetchone()[0])
         cols = {r["name"] for r in c.execute("PRAGMA table_info(organize_moves)")}
-    assert version == _base.SCHEMA_VERSION == 26
+    assert version == _base.SCHEMA_VERSION == 27
     assert {"batch_id", "kind", "action", "from_path", "to_path",
             "undone_at"} <= cols

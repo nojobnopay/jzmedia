@@ -70,14 +70,32 @@ def main() -> None:
         if r2.get("match_source") != "nfo":
             _fail(f"NFO 导入失败: {r2}")
 
-        # 3) 手动搜索离线回退
+        # 3) NFO 完整离线回放（无 tmdb 缓存也不丢元数据）
+        rel3 = "smoke3/Nfo.Full.2004.mkv"
+        p3 = media / rel3
+        p3.parent.mkdir(parents=True, exist_ok=True)
+        p3.write_bytes(b"x")
+        (p3.parent / "movie.nfo").write_text(
+            '<?xml version="1.0"?><movie><title>Nfo Full</title><year>2004</year>'
+            '<plot>离线简介</plot><genre>剧情</genre>'
+            '<uniqueid type="imdb">tt9900004</uniqueid></movie>', encoding="utf-8")
+        r3 = scanner.scan_one(str(p3))
+        if r3.get("status") != "ok_external" or r3.get("match_source") != "nfo":
+            _fail(f"NFO 完整回放失败: {r3}")
+        row3 = store.get_by_path(rel3)
+        if not row3 or row3["title"] != "Nfo Full" or row3["tmdb_id"]:
+            _fail("NFO 回放字段/升级路径异常")
+        if not store.get_external("nfo", rel3):
+            _fail("external_meta 未落库")
+
+        # 4) 手动搜索离线回退
         store.upsert_match_entry("tmdb", "990003", "movie", "接口离线 Smoke", "",
                                  2003, 990003, "", {})
         d = c.get("/api/tmdb/search", params={"q": "接口离线 Smoke"}).json()
         if d.get("source") != "offline" or not d.get("items"):
             _fail(f"离线搜索回退失败: {d.get('source')}")
 
-        # 4) IMDb 数据集导入 + 候选
+        # 5) IMDb 数据集导入 + 候选
         tsv = tmp / "title.basics.tsv.gz"
         with gzip.open(tsv, "wt", encoding="utf-8", newline="") as fh:
             fh.write("tconst\ttitleType\tprimaryTitle\toriginalTitle\tstartYear\n")
@@ -89,7 +107,7 @@ def main() -> None:
         if not any(x.imdb_id == "tt9900001" for x in local.search("IMDb Smoke", 1999)):
             _fail("IMDb 候选未进本地索引")
 
-    print("PASS smoke_metadata_offline：本地索引 / NFO 导入 / 离线搜索回退 / IMDb 导入")
+    print("PASS smoke_metadata_offline：本地索引 / NFO 完整回放 / 离线搜索回退 / IMDb 导入")
 
 
 if __name__ == "__main__":

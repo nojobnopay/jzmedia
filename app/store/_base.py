@@ -405,11 +405,37 @@ CREATE TABLE IF NOT EXISTS tmdb_cache (
   backdrop_tmdb_path TEXT DEFAULT '',
   logo_tmdb_path TEXT DEFAULT '',
   poster_override TEXT DEFAULT '',  -- v19：用户在候选海报里的手工选择（刷新不覆盖）
+  seasons_json TEXT DEFAULT '{}',   -- v27：TV 各季详情压缩缓存（离线重放集名/简介/剧照，
+                                    -- 不触网；`{season: detail}`，仅 detail 精简形态）
   PRIMARY KEY (media_type, tmdb_id)
 );
 """
 # 注：索引单独一条语句（`_rebuild_table` 要求 DDL 单语句，不能内联 CREATE INDEX）。
 _TMDB_CACHE_INDEX_DDL = "CREATE INDEX IF NOT EXISTS idx_tmdb_cache_tmdb ON tmdb_cache(tmdb_id);"
+
+# 外部元数据源（v27，Phase 2）：无 token / 离线降级来源的完整元数据落库。
+# 与 tmdb_cache 平行：身份是 (source, source_id)，tmdb_id 可空（不伪造 TMDB 身份）。
+# payload_json 存标准化 detail（overview/genres/people/episodes…），供 apply/再次绑定回放。
+_EXTERNAL_META_DDL = """
+CREATE TABLE IF NOT EXISTS external_meta (
+  source TEXT NOT NULL,
+  source_id TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'movie',
+  title TEXT DEFAULT '',
+  original_title TEXT DEFAULT '',
+  year INTEGER,
+  tmdb_id INTEGER,
+  imdb_id TEXT DEFAULT '',
+  tvdb_id INTEGER,
+  poster_url TEXT DEFAULT '',
+  backdrop_url TEXT DEFAULT '',
+  payload_json TEXT DEFAULT '{}',
+  fetched_at INTEGER DEFAULT 0,
+  PRIMARY KEY (source, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_external_meta_tmdb ON external_meta(tmdb_id);
+CREATE INDEX IF NOT EXISTS idx_external_meta_imdb ON external_meta(imdb_id);
+"""
 
 # 迁移用：重建前的列清单（与 _TMDB_CACHE_DDL 字段一致，media_type 单独搬运）。
 _TMDB_CACHE_COLUMNS = ["tmdb_id", "media_type", "title", "original_title", "year",
@@ -457,6 +483,8 @@ CREATE TABLE IF NOT EXISTS match_index (
   kind TEXT NOT NULL DEFAULT 'movie',
   title TEXT DEFAULT '',
   original_title TEXT DEFAULT '',
+  alt_titles TEXT DEFAULT '',    -- v27：别名表（TMDB alternative_titles / 外部源别名，
+                                 -- 换行拼接；LIKE 部分词召回，提升离线匹配命中）
   year INTEGER,
   tmdb_id INTEGER,
   imdb_id TEXT DEFAULT '',
@@ -482,7 +510,7 @@ SCHEMA = "".join([_MEDIA_LIBRARIES_DDL, _LIBRARIES_DDL, _MOVIES_DDL, _EXTRAS_DDL
                   _TV_SHOWS_DDL,
                   _TV_SEASONS_DDL, _TV_EPISODES_DDL, _COLLECTIONS_DDL,
                   _COLLECTION_MEMBERS_DDL, _TMDB_CACHE_DDL, _TMDB_CACHE_INDEX_DDL,
-                  _REST_DDL])
+                  _EXTERNAL_META_DDL, _REST_DDL])
 
 _MOVIE_INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_movies_year ON movies(year)",
@@ -532,7 +560,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "metadata_provider_state"}
 
 
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 
 
 def _columns(c, table: str) -> set:
@@ -1217,11 +1245,24 @@ def _m26(c) -> None:
     ])
 
 
+# v27：外部元数据源（Phase 2）——external_meta 表 + match_index.alt_titles（别名召回）
+# + tmdb_cache.seasons_json（TV 离线季详情回放）。
+def _m27(c) -> None:
+    c.executescript(_EXTERNAL_META_DDL)
+    _ensure_columns(c, "match_index", [
+        ("alt_titles", "ALTER TABLE match_index ADD COLUMN alt_titles TEXT DEFAULT ''"),
+    ])
+    _ensure_columns(c, "tmdb_cache", [
+        ("seasons_json", "ALTER TABLE tmdb_cache ADD COLUMN seasons_json TEXT DEFAULT '{}'"),
+    ])
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
                     (17, _m17), (18, _m18), (19, _m19), (20, _m20), (21, _m21),
-                    (22, _m22), (23, _m23),                      (24, _m24), (25, _m25), (26, _m26)]
+                    (22, _m22), (23, _m23),                      (24, _m24), (25, _m25),
+                    (26, _m26), (27, _m27)]
 
 
 def init_db() -> None:
@@ -1252,10 +1293,12 @@ def init_db() -> None:
     from .search import rebuild_fts, fts_needs_rebuild
     from .tmdb_cache import seed_tmdb_cache_from_movies
     from .match_index import seed_match_index_from_cache
+    from .external import seed_match_index_from_external
     with _lock, _conn() as c:
         c.execute("PRAGMA journal_mode=WAL")   # R02-D2：写不阻塞读、崩溃恢复更好
     seed_tmdb_cache_from_movies()
     seed_match_index_from_cache()
+    seed_match_index_from_external()
     # v24：整理审计回填——此前整理未留痕，从 scan_state 配对补齐 legacy 批次（只做一次）
     try:
         from .tv import backfill_legacy_organize_moves

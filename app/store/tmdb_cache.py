@@ -3,7 +3,68 @@ import json
 import time
 from ._base import _conn, _dump_list, _lock, logger
 from .movies import update_movie_meta
-__all__ = ['seed_tmdb_cache_from_movies', 'get_tmdb_cached', 'upsert_tmdb_cache', 'list_movie_ids_by_tmdb', 'copy_tmdb_to_movie', 'tmdb_ids_missing_collection', 'set_poster_override']
+__all__ = ['seed_tmdb_cache_from_movies', 'get_tmdb_cached', 'upsert_tmdb_cache', 'list_movie_ids_by_tmdb', 'copy_tmdb_to_movie', 'tmdb_ids_missing_collection', 'set_poster_override', 'set_tmdb_cache_seasons', 'get_tmdb_cache_seasons']
+
+# 季详情精简白名单（v27）：只留 apply_tv_detail 消费的字段，控制 seasons_json 体积
+_SEASON_KEYS = ("id", "name", "overview", "air_date", "poster_path",
+                "season_number", "episode_count", "credits")
+_SEASON_EP_KEYS = ("id", "name", "overview", "still_path", "air_date", "runtime",
+                   "vote_average", "season_number", "episode_number",
+                   "guest_stars", "crew")
+
+
+def _slim_season_detail(sd: dict) -> dict:
+    if not isinstance(sd, dict):
+        return {}
+    out = {k: sd.get(k) for k in _SEASON_KEYS if k in sd}
+    eps = []
+    for ep in sd.get("episodes") or []:
+        if isinstance(ep, dict):
+            eps.append({k: ep.get(k) for k in _SEASON_EP_KEYS if k in ep})
+    if eps:
+        out["episodes"] = eps
+    return out
+
+
+def set_tmdb_cache_seasons(tmdb_id: int, season_details: dict,
+                           media_type: str = "tv") -> bool:
+    """TV 季详情压缩入库（v27 离线回放：断网重刮仍能补集名/简介/剧照）。"""
+    try:
+        data = {str(k): _slim_season_detail(v)
+                for k, v in (season_details or {}).items()}
+        payload = json.dumps(data, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        return False
+    if payload in ("{}", ""):
+        return False
+    with _lock, _conn() as c:
+        cur = c.execute("UPDATE tmdb_cache SET seasons_json=?"
+                        " WHERE media_type=? AND tmdb_id=?",
+                        (payload, str(media_type or "tv"), int(tmdb_id)))
+        return int(cur.rowcount or 0) > 0
+
+
+def get_tmdb_cache_seasons(tmdb_id: int, media_type: str = "tv") -> dict:
+    """读回季详情（离线回放）；无缓存返回 {}（键还原为 int 季号）。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT seasons_json FROM tmdb_cache"
+                        " WHERE media_type=? AND tmdb_id=?",
+                        (str(media_type or "tv"), int(tmdb_id))).fetchone()
+    if not row:
+        return {}
+    try:
+        data = json.loads(row["seasons_json"] or "{}")
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out = {}
+    for k, v in data.items():
+        try:
+            out[int(k)] = v
+        except (TypeError, ValueError):
+            continue
+    return out
 
 def _match_source_id(tmdb_id: int, media_type: str) -> str:
     """match_index source_id：电影保持历史格式（`123`）避免重复播种，剧集加前缀。"""
@@ -15,13 +76,15 @@ def _index_match(meta: dict, tmdb_id: int, media_type: str = "movie") -> None:
     """同步离线候选索引（E）：每次 TMDB 缓存写入后刷新 match_index。"""
     try:
         from .match_index import upsert_match_entry
+        alt = [str(a).strip() for a in (meta.get("aliases") or []) if str(a).strip()]
         upsert_match_entry("tmdb", _match_source_id(tmdb_id, media_type),
                            str(media_type or "movie"),
                            meta.get("title", "") or "",
                            meta.get("original_title", "") or "",
                            meta.get("year"), int(tmdb_id),
                            meta.get("imdb_id", "") or "",
-                           {"collection_tmdb_id": meta.get("collection_tmdb_id")})
+                           {"collection_tmdb_id": meta.get("collection_tmdb_id")},
+                           alt_titles="\n".join(alt))
     except Exception as e:
         logger.debug("index tmdb entry failed tmdb_id=%s: %s", tmdb_id, e)
 

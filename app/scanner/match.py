@@ -127,6 +127,18 @@ def search_with_fallback(title: str, year: int | None) -> tuple[dict | None, str
     return None, title, False
 
 
+def collect_aliases(entries, limit: int = 30) -> list[str]:
+    """别名表条目 → 去重标题列表（离线匹配/索引召回用）。"""
+    out: list[str] = []
+    for e in entries or []:
+        t = str((e or {}).get("title") or "").strip()
+        if t and t not in out:
+            out.append(t)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def meta_from_detail(detail: dict) -> dict:
     """TMDB详情 → 可写入 tmdb_cache 的字典（产地/类型/语言，不含海报/NFO）。
     显示标题经 pick_display_title（zh 别名回退，缺中文主标题的片子也有中文名）；
@@ -144,9 +156,11 @@ def meta_from_detail(detail: dict) -> dict:
         col_id = None
     raw_title = str(detail.get("title") or "").strip()
     original_title = str(detail.get("original_title") or "").strip() or raw_title
+    aliases = collect_aliases((detail.get("alternative_titles") or {}).get("titles"))
     return {
         "title": pick_display_title(detail),
         "original_title": original_title,
+        "aliases": [a for a in aliases if a != raw_title and a != original_title],
         "year": year,
         "overview": detail.get("overview", ""),
         "tmdb_id": detail["id"],

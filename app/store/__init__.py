@@ -1,11 +1,12 @@
 """SQLite 存储层门面（评审 B9/R02-Q3：原 1900 行单文件按域拆分，调用方零改动）。"""
-from . import (_base, collections, extras, libraries, media_libraries, match_index,
-               media_info, items, movies, persons, progress, search, settings, similar,
-               tmdb_cache, tv)  # noqa: F401
+from . import (_base, collections, external, extras, libraries, media_libraries,
+               match_index, media_info, items, movies, persons, progress, search,
+               settings, similar, tmdb_cache, tv)  # noqa: F401
 from ._base import *
 from .libraries import *
 from .media_libraries import *
 from .match_index import *
+from .external import *
 from .settings import *
 from .tmdb_cache import *
 from .tv import *
@@ -25,6 +26,7 @@ __all__ += list(_base.__all__)
 __all__ += list(libraries.__all__)
 __all__ += list(media_libraries.__all__)
 __all__ += list(match_index.__all__)
+__all__ += list(external.__all__)
 __all__ += list(settings.__all__)
 __all__ += list(tmdb_cache.__all__)
 __all__ += list(movies.__all__)

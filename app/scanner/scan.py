@@ -20,7 +20,9 @@ from .match import search_with_fallback
 from .persist import apply_cached_to_movie, apply_tmdb_detail
 from ..metadata import local as meta_local
 from ..metadata import nfo_import as meta_nfo
-__all__ = ['ST_SKIPPED_SAMPLE', 'ST_EXTRA_ATTACHED', 'ST_EXTRA_ORPHAN', 'ST_NO_MATCH', 'ST_EPISODE', 'ST_SCAN_FAILED', 'ST_LIBRARY_OFFLINE', 'attribute_extra', 'attribute_extra_file', 'scan_one', 'scan_file', 'scan_tv_one', 'scan_tv_file', 'scan_all', 'resolve_tv_numbers', 'tv_plan']
+from ..metadata import external as meta_external
+_EXTERNAL_MATCH_SOURCES = meta_external.EXTERNAL_SOURCES
+__all__ = ['ST_SKIPPED_SAMPLE', 'ST_EXTRA_ATTACHED', 'ST_EXTRA_ORPHAN', 'ST_NO_MATCH', 'ST_EPISODE', 'ST_SCAN_FAILED', 'ST_LIBRARY_OFFLINE', 'ST_EXTERNAL', 'attribute_extra', 'attribute_extra_file', 'scan_one', 'scan_file', 'scan_tv_one', 'scan_tv_file', 'scan_all', 'resolve_tv_numbers', 'tv_plan']
 
 DEFAULT_LIBRARY_ID = library_paths.DEFAULT_LIBRARY_ID
 
@@ -43,6 +45,10 @@ ST_EPISODE = "skipped_episode_v1"
 
 # 远程库不可达：本次跳过该库，绝不删行/GC（指导 §19 Offline ≠ Deleted）
 ST_LIBRARY_OFFLINE = "library_offline"
+
+# 离线/无 token 外源落库（NFO/Wikidata/TVmaze/Bangumi）：行可播可显示，
+# 联网后 force 重扫/手动匹配可升级为 TMDB 元数据（tmdb_id 保持 NULL 不阻塞升级）
+ST_EXTERNAL = "ok_external"
 
 
 def _lib_id(library_id) -> int:
@@ -151,8 +157,12 @@ def scan_file(backend, rel: str, force: bool = False,
             return {"file": rel, "status": "skipped_sample"}
         return attribute_extra_file(backend, rel)
     cached = store.get_by_path(rel, library_id=lib_id)
-    if cached and cached.get("tmdb_id") and not force:
-        return {"file": rel, "status": "skipped_cached", "title": cached.get("title")}
+    if cached and not force:
+        if cached.get("tmdb_id"):
+            return {"file": rel, "status": "skipped_cached", "title": cached.get("title")}
+        if str(cached.get("match_source") or "") in _EXTERNAL_MATCH_SOURCES:
+            # 外源已落库（NFO/无 key API）：增量短路，force 或手动匹配可升级 TMDB
+            return {"file": rel, "status": "skipped_external", "title": cached.get("title")}
     # 增量跳过（评审 B9/R03-Q3）：未匹配/剧集行且文件 mtime+size 未变 → 不再重打 TMDB。
     # entry 由 iter_tree 顺带返回（每目录一次 list），远程库不再逐片 stat。
     if entry is not None:
@@ -167,7 +177,8 @@ def scan_file(backend, rel: str, force: bool = False,
     if (not force and prev is not None and mtime and size
             and int(prev.get("mtime") or 0) == mtime
             and int(prev.get("size") or 0) == size
-            and str(prev.get("status") or "") in (ST_NO_MATCH, ST_EPISODE, ST_SCAN_FAILED)):
+            and str(prev.get("status") or "") in (ST_NO_MATCH, ST_EPISODE,
+                                                  ST_SCAN_FAILED, ST_EXTERNAL)):
         return {"file": rel, "status": "skipped_unchanged"}
     parsed = parse_filename(os.path.basename(rel))
     parsed["title"] = normalize_title(parsed["title"])
@@ -193,6 +204,7 @@ def scan_file(backend, rel: str, force: bool = False,
         cur = {}
     _persist_local_extras(mid, parsed, cur)
     m, used_q, year_mismatch = None, parsed["title"], False
+    offline_review = 0
     match_source = "tmdb"
     online_error = ""
     if tmdb_hint and store.get_tmdb_cached(int(tmdb_hint)):
@@ -243,31 +255,91 @@ def scan_file(backend, rel: str, force: bool = False,
             online_error = str(e)[:200]
             logger.warning("tmdb search failed file=%s: %s", rel, e)
     if m is None:
-        # 离线/降级兜底（E 阶段）：NFO 导入 → match_index 本地匹配
-        offline = None
+        # 离线/降级兜底（E/Phase 1）：NFO 完整回放 → match_index 本地匹配 → 外源链（P2.4）
+        parsed_nfo = None
         try:
-            nfo_c = (meta_nfo.candidates_for(abs_path) if abs_path
-                     else meta_nfo.candidates_for_backend(backend, rel))
-            if nfo_c is not None and nfo_c.tmdb_id:
-                offline = nfo_c
-                try:
-                    store.upsert_match_entry(
-                        "nfo", nfo_c.source_id, "movie", nfo_c.title,
-                        nfo_c.original_title, nfo_c.year, nfo_c.tmdb_id,
-                        nfo_c.imdb_id, {"file": rel})
-                except Exception as e:
-                    logger.debug("index nfo candidate failed file=%s: %s", rel, e)
-            if offline is None:
-                offline = meta_local.best(parsed["title"], parsed["year"])
+            parsed_nfo = (meta_nfo.read_any_for(abs_path) if abs_path
+                          else meta_nfo.read_any_for_backend(backend, rel))
         except Exception as e:
-            logger.debug("offline match failed file=%s: %s", rel, e)
-        if offline is not None and offline.tmdb_id:
-            m = {"id": int(offline.tmdb_id)}
-            match_source = offline.source or "local"
-            used_q = parsed["title"]
-            year_mismatch = False
-            logger.info("离线匹配 file=%s -> tmdb=%s source=%s", rel,
-                        offline.tmdb_id, match_source)
+            logger.debug("nfo parse failed file=%s: %s", rel, e)
+        if parsed_nfo and parsed_nfo.get("_kind") == "movie":
+            nfo_c = meta_nfo.candidate_from_movie(parsed_nfo, source_id=rel)
+            if nfo_c.tmdb_id and store.get_tmdb_cached(int(nfo_c.tmdb_id)):
+                m = {"id": int(nfo_c.tmdb_id)}
+                match_source = "nfo"
+                used_q = parsed["title"]
+                year_mismatch = False
+                logger.info("NFO 缓存命中 file=%s -> tmdb=%s", rel, nfo_c.tmdb_id)
+            else:
+                # NFO 带完整元数据：离线首见片直接落库（tmdb_id 留空，联网后可升级）
+                try:
+                    out = meta_external.apply_nfo_movie(
+                        mid, parsed_nfo, backend=backend, rel=rel,
+                        abs_path=abs_path)
+                    store.set_scan_state(rel, mtime, size, ST_EXTERNAL,
+                                         library_id=lib_id)
+                    logger.info("NFO 离线落库 file=%s title=%s", rel,
+                                out.get("title"))
+                    return {"file": rel, "status": ST_EXTERNAL, "movie_id": mid,
+                            "match_source": "nfo", **out}
+                except Exception as e:
+                    logger.warning("NFO 离线落库失败 file=%s: %s", rel, e)
+        if m is None:
+            offline = None
+            try:
+                offline = meta_local.best(parsed["title"], parsed["year"])
+            except Exception as e:
+                logger.debug("offline match failed file=%s: %s", rel, e)
+            if offline is not None and offline.tmdb_id:
+                m = {"id": int(offline.tmdb_id)}
+                match_source = offline.source or "local"
+                used_q = parsed["title"]
+                year_mismatch = False
+                logger.info("离线匹配 file=%s -> tmdb=%s source=%s", rel,
+                            offline.tmdb_id, match_source)
+        if m is None:
+            # 无 key 外部源（P2.4：wikidata/tvmaze/bgm）：过门后直接落外部元数据；
+            # 带 tmdb_id 且已有缓存时优先复用 TMDB 缓存（质量更高）
+            cand, review, why = None, 0, ""
+            try:
+                from ..metadata import chain as meta_chain
+                from ..metadata import auto as meta_auto
+                hits = meta_chain.search(parsed["title"], parsed["year"], "movie",
+                                         library_id=lib_id, limit=5,
+                                         exclude=("local", "tmdb"))
+                cand, review, why = meta_auto.pick_auto(hits, parsed["title"],
+                                                        parsed["year"], "movie")
+            except Exception as e:
+                logger.debug("external chain failed file=%s: %s", rel, e)
+            if cand is not None:
+                offline_review = int(review or 0)
+                if cand.tmdb_id and store.get_tmdb_cached(int(cand.tmdb_id)):
+                    m = {"id": int(cand.tmdb_id)}
+                    match_source = cand.source or "external"
+                    used_q = parsed["title"]
+                    year_mismatch = False
+                    logger.info("外源桥接缓存 file=%s src=%s -> tmdb=%s",
+                                rel, cand.source, cand.tmdb_id)
+                else:
+                    detail = meta_chain.detail_for(cand)
+                    if detail:
+                        try:
+                            out = meta_external.apply_external_movie(
+                                mid, detail, source=cand.source,
+                                source_id=cand.source_id, backend=backend,
+                                rel=rel, abs_path=abs_path,
+                                needs_review=int(review or 0), set_tmdb_id=False)
+                            store.set_scan_state(rel, mtime, size, ST_EXTERNAL,
+                                                 library_id=lib_id)
+                            logger.info("外源离线落库 file=%s src=%s why=%s title=%s",
+                                        rel, cand.source, why, out.get("title"))
+                            return {"file": rel, "status": ST_EXTERNAL,
+                                    "movie_id": mid,
+                                    "match_source": cand.source or "external",
+                                    **out}
+                        except Exception as e:
+                            logger.warning("外部元数据落库失败 file=%s src=%s: %s",
+                                           rel, cand.source, e)
     if not m:
         if online_error:
             return {"file": rel, "status": ST_SCAN_FAILED, "movie_id": mid,
@@ -288,7 +360,7 @@ def scan_file(backend, rel: str, force: bool = False,
         logger.warning("tmdb detail/apply failed mid=%s tmdb_id=%s: %s", mid, tmdb_id, e)
         return {"file": rel, "status": ST_SCAN_FAILED, "movie_id": mid,
                 "error": str(e)[:200]}
-    needs_review = 1 if (used_q != parsed["title"] or year_mismatch) else 0
+    needs_review = 1 if (used_q != parsed["title"] or year_mismatch) else offline_review
     store.update_movie_local(mid, needs_review=needs_review)
     try:
         store.update_movie_meta(mid, match_source=match_source)

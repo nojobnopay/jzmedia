@@ -41,6 +41,12 @@ const busy = ref(null)
 const tvMsg = ref('')
 const tvDone = ref(0)
 const tvTotal = ref(0)
+// 刮削结果状态中文（ok_external/ok_offline 为离线/无 token 降级路径）
+const SCRAPE_STATUS_TEXT = {
+  ok: '已刮削', ok_offline: '离线补全', ok_external: '离线外源',
+  ok_needs_review: '待确认', no_match: '未匹配', skipped_cached: '已缓存',
+  error: '失败',
+}
 let tvJob = ''
 let tvTimer = null
 
@@ -70,7 +76,7 @@ async function pollTv() {
     if (j.state === 'done') {
       clearInterval(tvTimer); tvTimer = null; busy.value = null
       const c = (j.summary && j.summary.counts) || {}
-      const parts = Object.entries(c).map(([k, v]) => `${k} ${v}`)
+      const parts = Object.entries(c).map(([k, v]) => `${SCRAPE_STATUS_TEXT[k] || k} ${v}`)
       tvMsg.value = '完成：' + (parts.join('，') || '无待刮剧')
       emit('changed')
     } else if (j.state === 'failed' || j.state === 'cancelled') {

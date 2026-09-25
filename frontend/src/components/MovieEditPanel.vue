@@ -35,11 +35,15 @@
           <button @click="tmdbSearch" :disabled="searching || !!bindingId"><Spinner v-if="searching" />{{ searching ? '搜索中…' : '搜TMDB' }}</button>
         </div>
         <ul>
-          <li v-for="c in cands" :key="c.tmdb_id">
-            {{ c.title }} ({{ (c.release_date || '').slice(0, 4) }}) ★{{ c.vote_average }}
-            <button @click="bindMatch(c.tmdb_id)" :disabled="!!bindingId || refreshing"><Spinner v-if="bindingId === c.tmdb_id" />{{ bindingId === c.tmdb_id ? '绑定中…' : '绑定' }}</button>
+          <li v-for="c in cands" :key="candKey(c)">
+            <span class="src-badge" v-if="c.source && c.source !== 'tmdb'">{{ srcLabel(c.source) }}</span>
+            {{ c.title }} ({{ (c.release_date || c.year || '').toString().slice(0, 4) }})
+            <template v-if="c.vote_average != null">★{{ c.vote_average }}</template>
+            <button v-if="c.tmdb_id" @click="bindMatch(c.tmdb_id)" :disabled="!!bindingId || refreshing"><Spinner v-if="bindingId === c.tmdb_id" />{{ bindingId === c.tmdb_id ? '绑定中…' : '绑定' }}</button>
+            <button v-else-if="isExternal(c)" @click="bindExternal(c)" :disabled="!!bindingId || refreshing"><Spinner v-if="bindingId === candKey(c)" />{{ bindingId === candKey(c) ? '绑定中…' : '绑定外源' }}</button>
           </li>
         </ul>
+        <p class="fhint">候选来源：TMDB 无凭据/不可用时自动回退本地索引、Wikidata、TVmaze（剧）、Bangumi 与 NFO；外源绑定不依赖 TMDB Token。</p>
       </section>
 </template>
 
@@ -182,6 +186,34 @@ async function bindMatch(tmdb_id) {
     bindingId.value = null
   }
 }
+// 外部元数据候选（P2.5）：无 TMDB ID 时走 bind-external，不依赖 Token
+const EXTERNAL_SOURCES = ['wikidata', 'tvmaze', 'bgm', 'douban', 'nfo']
+const SOURCE_LABELS = {
+  wikidata: 'Wikidata', tvmaze: 'TVmaze', bgm: 'Bangumi',
+  douban: '豆瓣', nfo: 'NFO', local: '本地', library: '本地库'
+}
+function candKey(c) {
+  return c.tmdb_id ? 'tmdb:' + c.tmdb_id : (c.source || '') + ':' + (c.source_id || c.title || '')
+}
+function srcLabel(s) { return SOURCE_LABELS[s] || s }
+function isExternal(c) { return !c.tmdb_id && EXTERNAL_SOURCES.includes(c.source) }
+async function bindExternal(c) {
+  if (bindingId.value) return
+  bindingId.value = candKey(c)
+  msg.value = '正在获取外部详情…'
+  const oldRegion = props.movie?.region || ''
+  try {
+    const r = await api('/api/movies/' + props.movieId + '/bind-external', {
+      method: 'POST',
+      body: JSON.stringify({ source: c.source, source_id: c.source_id })
+    })
+    emit('matched', { oldRegion, background: r.background || {} })
+  } catch (e) {
+    msg.value = '绑定失败：' + e.message
+  } finally {
+    bindingId.value = null
+  }
+}
 async function refreshTmdb() {
   if (refreshing.value) return
   refreshing.value = true
@@ -213,4 +245,7 @@ onMounted(async () => {
 
 <style scoped>
 .edit-panel .bar { padding: 6px 0; }
+.edit-panel .src-badge { display: inline-block; padding: 0 5px; border-radius: 3px;
+  background: #333; border: 1px solid #444; font-size: 0.75rem; margin-right: 4px; }
+.edit-panel .fhint { color: #888; font-size: 0.8125rem; }
 </style>

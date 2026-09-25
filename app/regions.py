@@ -100,6 +100,24 @@ def country_name(code: str) -> str:
     return COUNTRY_NAMES.get(c.upper(), c.upper())
 
 
+# 反向表：中文名/别名 → ISO（NFO/外部源回导用；懒构建一次）
+_NAME_TO_CODE: dict | None = None
+
+
+def name_to_country(value: str) -> str:
+    """国家中文名/ISO 码 → ISO 码（离线 NFO 导入用）；无法识别返回 ''。"""
+    global _NAME_TO_CODE
+    v = str(value or "").strip()
+    if not v:
+        return ""
+    if len(v) == 2 and v.isascii() and v.isalpha():
+        return v.upper()
+    if _NAME_TO_CODE is None:
+        _NAME_TO_CODE = {name: code for code, name in COUNTRY_NAMES.items()}
+        _NAME_TO_CODE.update({"中国": "CN", "中国大陆": "CN", "美国": "US"})
+    return _NAME_TO_CODE.get(v, "")
+
+
 def normalize_tags(tags) -> list[str]:
     """自定义标签归一：去首尾空格/压内部空白/去重保序/截断防脏数据。"""
     if not isinstance(tags, list):

@@ -8,13 +8,14 @@ import json
 
 from .. import config, library_paths
 from ..log import get_logger
-from . import douban, local, state, wikidata
+from . import bangumi, douban, local, state, tvmaze, wikidata
 from .base import Candidate
 
 logger = get_logger("metadata.chain")
 
 DEFAULT_CHAIN = ("local", "tmdb", "wikidata")
-KNOWN_PROVIDERS = {"local", "tmdb", "wikidata", "douban", "nfo"}
+KNOWN_PROVIDERS = {"local", "tmdb", "wikidata", "douban", "nfo",
+                   "tvmaze", "bgm"}
 
 
 def chain_for(library_id=None) -> list[str]:
@@ -57,15 +58,28 @@ _SEARCHERS = {
     "tmdb": lambda term, year, kind, limit: _tmdb(term, year, min(int(limit), 20)),
     "wikidata": lambda term, year, kind, limit: wikidata.search(term, year, kind, limit),
     "douban": lambda term, year, kind, limit: douban.search(term, year, kind, limit),
+    "tvmaze": lambda term, year, kind, limit: tvmaze.search(term, year, kind, limit),
+    "bgm": lambda term, year, kind, limit: bangumi.search(term, year, kind, limit),
+}
+
+# 重详情源：search 只给候选，落库前按需拉完整 detail（无 key 公开 API）
+_DETAILERS = {
+    "wikidata": wikidata.detail,
+    "tvmaze": tvmaze.detail,
+    "bgm": bangumi.detail,
 }
 
 
 def search(title: str, year: int | None = None, kind: str = "movie",
-           library_id=None, limit: int = 10) -> list[Candidate]:
+           library_id=None, limit: int = 10,
+           exclude=()) -> list[Candidate]:
     term = (title or "").strip()
     if not term:
         return []
+    skip = {str(x) for x in (exclude or ())}
     for name in chain_for(library_id):
+        if name in skip:
+            continue
         fn = _SEARCHERS.get(name)
         if fn is None:
             continue
@@ -90,4 +104,30 @@ def search(title: str, year: int | None = None, kind: str = "movie",
     return []
 
 
-__all__ = ['search', 'chain_for', 'DEFAULT_CHAIN', 'KNOWN_PROVIDERS']
+def detail_for(cand: Candidate, fetch: bool = True) -> dict:
+    """候选 → 标准化 detail：优先重详情源（tvmaze/bgm/wikidata），失败回退 payload。
+
+    `fetch=False`（搜索预览/低置信候选）只读 payload，不触发额外网络请求。"""
+    from . import external as _external
+    base = _external.detail_from_candidate(cand)
+    if not fetch or not cand.source_id:
+        return base
+    fn = _DETAILERS.get(str(cand.source or ""))
+    if fn is None:
+        return base
+    try:
+        d = fn(cand.source_id)
+    except Exception as e:
+        logger.debug("provider %s detail failed id=%s: %s",
+                     cand.source, cand.source_id, e)
+        return base
+    if not isinstance(d, dict) or not d.get("title"):
+        return base
+    # 基础候选字段补位（detail 缺失时）
+    for k, v in base.items():
+        if not d.get(k) and v:
+            d[k] = v
+    return d
+
+
+__all__ = ['search', 'detail_for', 'chain_for', 'DEFAULT_CHAIN', 'KNOWN_PROVIDERS']

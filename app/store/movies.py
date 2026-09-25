@@ -40,7 +40,7 @@ def update_movie_meta(movie_id: int, **fields) -> None:
                "title_auto",
                "tmdb_id", "imdb_id", "tmdb_rating", "douban_rating", "custom_rating",
                "poster_path", "genres", "genre_ids", "tags", "needs_review",
-               "watched", "watched_at",
+               "person_names", "watched", "watched_at",
                "origin_country", "origin_countries", "original_language",
                "region", "media_type", "edition", "spec", "original_file_path",
                "nfo_hash", "match_source"}

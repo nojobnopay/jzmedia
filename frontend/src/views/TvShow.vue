@@ -40,15 +40,17 @@
           </div>
           <div v-if="matchOpen" class="match card-block">
             <div class="bar match-bar">
-              <input v-model="mq" placeholder="TMDB 搜剧名（可用英文原名）" @keyup.enter="doSearch" />
+              <input v-model="mq" placeholder="搜剧名（TMDB / 无 key 外源）" @keyup.enter="doSearch" />
               <button :disabled="searching" @click="doSearch">搜索</button>
             </div>
-            <div v-for="r in results" :key="r.tmdb_id" class="mrow">
+            <div v-for="r in results" :key="r.tmdb_id || r.source + ':' + r.source_id" class="mrow">
+              <span v-if="r.source && r.source !== 'tmdb'" class="src-badge">{{ srcLabel(r.source) }}</span>
               <span class="mname">{{ r.title }}<span v-if="r.original_title && r.original_title !== r.title" class="dim"> / {{ r.original_title }}</span></span>
               <span class="dim">{{ r.year || '—' }}</span>
-              <button @click="doMatch(r.tmdb_id)">匹配</button>
+              <button v-if="r.tmdb_id" @click="doMatch(r.tmdb_id)">匹配</button>
+              <button v-else-if="isExternal(r)" @click="doMatchExternal(r)">绑定外源</button>
             </div>
-            <div v-if="searched && !results.length" class="dim">没有结果</div>
+            <div v-if="searched && !results.length" class="dim">没有结果（TMDB 不可用时会自动回退本地/外源）</div>
           </div>
         </div>
       </div>
@@ -414,6 +416,28 @@ async function doMatch (tmdbId) {
     await checkOrgHint()
   } catch (e) { msg.value = '匹配失败：' + e.message } finally { busy.value = false }
 }
+// 外部元数据绑定（P2.5）：无 TMDB Token 时用 Wikidata/TVmaze/Bangumi/NFO 落库
+const EXTERNAL_SOURCES = ['wikidata', 'tvmaze', 'bgm', 'douban', 'nfo']
+const SOURCE_LABELS = {
+  wikidata: 'Wikidata', tvmaze: 'TVmaze', bgm: 'Bangumi',
+  douban: '豆瓣', nfo: 'NFO', local: '本地', library: '本地库'
+}
+function srcLabel (s) { return SOURCE_LABELS[s] || s }
+function isExternal (r) { return !r.tmdb_id && EXTERNAL_SOURCES.includes(r.source) }
+async function doMatchExternal (r) {
+  busy.value = true
+  try {
+    const res = await api(`/api/tv/shows/${show.value.id}/bind-external`, {
+      method: 'POST', body: JSON.stringify({ source: r.source, source_id: r.source_id }) })
+    matchOpen.value = false
+    results.value = []
+    posterVer.value++
+    await load()
+    posterVer.value++
+    msg.value = '已绑定外源元数据（无 TMDB ID，后续可手动匹配 TMDB 升级）'
+    if (res && res.episodes_filled) msg.value += `，回填 ${res.episodes_filled} 集`
+  } catch (e) { msg.value = '绑定失败：' + e.message } finally { busy.value = false }
+}
 // 匹配成功后查单剧整理预览：有可执行计划或风险/手动项即弹窗（对标电影归档引导）
 async function checkOrgHint () {
   orgHint.value = null
@@ -561,6 +585,7 @@ onUnmounted(() => { if (orgTimer) clearInterval(orgTimer) })
 .match-bar input { flex: 1; }
 .mrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #2c2c2c; font-size: 0.875rem; }
 .mrow .mname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mrow .src-badge { padding: 1px 6px; border-radius: 3px; background: #333; border: 1px solid #444; font-size: 0.75rem; color: #bbb; }
 .season-sec { margin: 12px; }
 .season-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
 .season-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }

@@ -208,6 +208,12 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
         store.upsert_tmdb_cache(tmdb_id, meta,
                                 (cached or {}).get("credits") or {"cast": [], "crew": []},
                                 meta.get("poster_tmdb_path") or "", media_type="tv")
+    # v27：季详情压缩缓存（离线重刮回放集名/简介/剧照；仅在线拉到时覆盖）
+    if season_details:
+        try:
+            store.set_tmdb_cache_seasons(tmdb_id, season_details, media_type="tv")
+        except Exception as e:
+            logger.debug("cache seasons failed tmdb_id=%s: %s", tmdb_id, e)
     # 剧集镜像列（标题保护：手工改过的标题不被 TMDB 覆盖，title_auto=0 表示受保护；
     # 显式换绑 force_title=True 例外——新条目标题必须生效，否则标题会停在旧条目）
     cur = store.get_show_meta(show_id) or {}
@@ -487,6 +493,73 @@ def _detail_with_fallback(tmdb_id: int) -> tuple[dict, str]:
         raise
 
 
+def _apply_external_candidate(show: dict, cand, needs_review: int) -> dict | None:
+    """外源候选（wikidata/tvmaze/bgm/nfo）→ detail → 剧/季/集落库。
+
+    成功返回与 `scrape_show` 同形结果（status=ok_external）；失败返回 None
+    （调用方继续原 TMDB/离线链路）。"""
+    from ..metadata import chain as meta_chain
+    from ..metadata import external as meta_external
+    detail = meta_chain.detail_for(cand)
+    if not detail or not detail.get("title"):
+        return None
+    show_id = int(show["id"])
+    try:
+        out = meta_external.apply_external_show(
+            show_id, detail, source=cand.source, source_id=cand.source_id,
+            library_id=show.get("library_id"), needs_review=int(needs_review or 0),
+            set_tmdb_id=False, write_nfo=False)
+    except Exception as e:
+        logger.warning("external show apply failed show=%s src=%s: %s",
+                       show_id, cand.source, e)
+        return None
+    media = write_media_files(show_id, show.get("library_id"))
+    return {"show_id": show_id, "status": "ok_external",
+            "title": show.get("title") or "", "tmdb_id": out.get("tmdb_id"),
+            "match_source": cand.source,
+            "needs_review": int(needs_review or 0),
+            "episodes_filled": out.get("episodes_filled", 0), "media": media}
+
+
+def _nfo_show_candidate(show: dict):
+    """同目录 `tvshow.nfo` → Candidate（离线回放，source='nfo'；无文件返回 None）。"""
+    from .. import storage
+    from ..metadata import nfo_import as meta_nfo
+    from ..metadata.base import Candidate
+    from ..metadata.external import detail_from_nfo_tvshow
+    from . import tv_nfo_link
+    show_id = int(show["id"])
+    lid = int(show.get("library_id") or 0) or store.DEFAULT_LIBRARY_ID
+    try:
+        backend = storage.backend_for(lid)
+    except Exception:
+        return None
+    dir_rel = ""
+    for ep in store.list_episodes(show_id) or []:
+        rel = str(ep.get("file_path") or "")
+        if rel:
+            dir_rel = tv_nfo_link.show_dir_of(rel)
+            break
+    if not dir_rel:
+        return None
+    rel = f"{dir_rel}/tvshow.nfo"
+    try:
+        data = backend.read(rel)
+    except Exception:
+        return None
+    parsed = meta_nfo.parse_tvshow_bytes(data)
+    if not parsed:
+        return None
+    parsed["_nfo_name"] = "tvshow.nfo"
+    detail = detail_from_nfo_tvshow(parsed)
+    return Candidate(title=parsed.get("title") or "",
+                     original_title=parsed.get("original_title") or "",
+                     year=parsed.get("year"), tmdb_id=parsed.get("tmdb_id"),
+                     imdb_id=parsed.get("imdb_id") or "", source="nfo",
+                     source_id=rel, score=60.0,
+                     payload={"detail": detail})
+
+
 def scrape_show(show: dict, force: bool = False, download_art: bool = True) -> dict:
     """刮削单剧：匹配（如未绑定）→ detail → 季详情 → 落库。"""
     show_id = int(show["id"])
@@ -496,6 +569,7 @@ def scrape_show(show: dict, force: bool = False, download_art: bool = True) -> d
     tmdb_id = show.get("tmdb_id")
     source = show.get("match_source") or ""
     needs_review = int(show.get("needs_review") or 0)
+    cand = None
     if not tmdb_id:
         # 仅当 tvdb/imdb 来自目录 hint（match_source=hint）时才作为匹配提示；
         # 刮削回填的 tvdb_id 属于上一条匹配，换绑时必须忽略（防错配残留）。
@@ -503,23 +577,67 @@ def scrape_show(show: dict, force: bool = False, download_art: bool = True) -> d
                  if str(show.get("match_source") or "") == "hint" else {})
         # force 重解析：不采信库里可能来自上一条错配的年份，只用标题+热度
         res = tv_match.resolve_show(title, None if force else show.get("year"), hints,
-                                    use_library=not force)
-        if not res.get("tmdb_id"):
+                                    use_library=not force,
+                                    library_id=show.get("library_id"))
+        cand = res.get("candidate")
+        if not res.get("tmdb_id") and cand is None:
+            # 无外源命中：同目录 tvshow.nfo 离线回放（P1.1 TV）
+            nfo_c = _nfo_show_candidate(show)
+            if nfo_c is not None:
+                ext = _apply_external_candidate(show, nfo_c, 0)
+                if ext is not None:
+                    return ext
             return {"show_id": show_id, "status": "no_match", "title": title,
                     "query": res.get("query") or title}
-        tmdb_id = int(res["tmdb_id"])
+        tmdb_id = int(res["tmdb_id"]) if res.get("tmdb_id") else 0
         source = res.get("source") or "tmdb"
         needs_review = int(res.get("needs_review") or 0)
         detail = res.get("detail")
     else:
         detail = None
+    # 无 key 外源直落（P2.4）：没有 tmdb_id 或没有 TMDB 缓存时，直接用外部 detail
+    if cand is not None and (not tmdb_id
+                             or not store.get_tmdb_cached(int(tmdb_id), "tv")):
+        ext = _apply_external_candidate(show, cand, needs_review)
+        if ext is not None:
+            return ext
+    if not tmdb_id:
+        # 外源详情不可用且无 tmdb_id：tvshow.nfo 兜底，再没有就 no_match（不调 /tv/0）
+        nfo_c = _nfo_show_candidate(show)
+        if nfo_c is not None:
+            ext = _apply_external_candidate(show, nfo_c, needs_review)
+            if ext is not None:
+                return ext
+        return {"show_id": show_id, "status": "no_match", "title": title,
+                "query": title}
     if detail is None:
-        detail, offline_reason = _detail_with_fallback(int(tmdb_id))
+        try:
+            detail, offline_reason = _detail_with_fallback(int(tmdb_id))
+        except Exception:
+            # TMDB 不可用且外源此前未试（已绑定剧 force 重刮）：最后兜底外源/NFO
+            if cand is None:
+                c2, r2, _w = tv_match._external_show_candidate(
+                    title, None if force else show.get("year"),
+                    show.get("library_id"))
+                if c2 is None:
+                    c2 = _nfo_show_candidate(show)
+                if c2 is not None:
+                    needs_review = max(needs_review, int(r2 or 0))
+                    ext = _apply_external_candidate(show, c2, needs_review)
+                    if ext is not None:
+                        return ext
+            raise
     else:
         offline_reason = ""
     local = store.list_episodes(show_id)
     season_details: dict = {}
     aggregate: dict | None = None
+    if offline_reason:
+        # v27：离线用已缓存季详情回放集级元数据（此前只能拿到剧级）
+        try:
+            season_details = store.get_tmdb_cache_seasons(int(tmdb_id))
+        except Exception as e:
+            logger.debug("offline seasons load failed tmdb_id=%s: %s", tmdb_id, e)
     if not offline_reason:
         for sn in wanted_seasons(detail, local):
             try:

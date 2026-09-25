@@ -76,6 +76,20 @@
             <button v-if="!p.available" @click="resetProvider(p.name)" :disabled="!!busy">重置冷却</button>
             <span v-if="p.last_error" class="fhint p-err" :title="p.last_error">{{ p.last_error }}</span>
           </div>
+          <div class="provider-row chain-editor">
+            <span class="fhint">库级降级链（顺序固定，未勾选=不启用；不配置=默认 本地→TMDB→Wikidata；TVmaze/Bangumi 为无 key 外源）</span>
+          </div>
+          <div class="provider-row">
+            <select v-model.number="chainLibId" @change="loadChainFor" :disabled="!libList.length">
+              <option v-for="l in libList" :key="l.id" :value="l.id">{{ l.name }}</option>
+            </select>
+            <label v-for="name in CHAIN_PROVIDERS" :key="name" class="chain-item">
+              <input type="checkbox" :value="name" v-model="chainSel" />
+              {{ CHAIN_LABELS[name] }}
+            </label>
+            <button @click="saveChain" :disabled="!!busy || chainLibId == null">保存链路</button>
+            <span>{{ chainMsg }}</span>
+          </div>
         </div>
       </section>
 
@@ -109,12 +123,19 @@
       </section>
 
       <section id="sec-index" class="card-block">
-        <h3>搜索索引</h3>
+        <h3>搜索索引 / 离线数据</h3>
         <p class="hint">全文搜索异常时的修复口（全局，不区分库）。</p>
         <div class="bar">
           <button @click="doRebuildFts" :disabled="!!busy">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</button>
           <span>{{ ftsMsg }}</span>
         </div>
+        <div class="bar">
+          <input v-model="imdbPath" placeholder="IMDb 数据集路径 title.basics.tsv(.gz)（留空读 IMDB_DATASET_PATH）" style="flex:1" />
+          <button @click="doImportImdb" :disabled="!!busy">{{ busy === 'imdb' ? '导入中…' : '导入 IMDb 离线数据' }}</button>
+          <button v-if="busy === 'imdb'" @click="cancelImportImdb">取消</button>
+          <span>{{ imdbMsg }}</span>
+        </div>
+        <p class="hint">IMDb 数据集作为离线候选（标题/年份/IMDb ID），配合本地缓存/外部源提升无网匹配；文件需事先放在服务器可读路径。</p>
       </section>
 
       <LibraryToolsPanel ref="toolsRef" :libs="libList" :current-media-id="currentId"
@@ -283,6 +304,97 @@ async function resetProvider(name) {
   finally { busy.value = null }
 }
 
+// 库级降级链（P2.5）：视频库为单位配置 provider 顺序（后端 metadata_providers JSON）
+const CHAIN_PROVIDERS = ['local', 'tmdb', 'wikidata', 'tvmaze', 'bgm', 'douban', 'nfo']
+const CHAIN_LABELS = {
+  local: '本地索引', tmdb: 'TMDB', wikidata: 'Wikidata', tvmaze: 'TVmaze',
+  bgm: 'Bangumi', douban: '豆瓣(需 env)', nfo: 'NFO 导入'
+}
+const DEFAULT_CHAIN = ['local', 'tmdb', 'wikidata']
+const chainLibId = ref(null)
+const chainSel = ref([...DEFAULT_CHAIN])
+const chainMsg = ref('')
+function loadChainFor() {
+  const lib = libList.value.find(l => l.id === chainLibId.value)
+  let arr = []
+  try { arr = JSON.parse(lib?.metadata_providers || '[]') } catch (e) { arr = [] }
+  const valid = Array.isArray(arr) ? arr.filter(x => CHAIN_PROVIDERS.includes(x)) : []
+  chainSel.value = valid.length ? valid : [...DEFAULT_CHAIN]
+}
+function initChain() {
+  if (chainLibId.value == null && libList.value.length) {
+    chainLibId.value = libList.value[0].id
+  }
+  loadChainFor()
+}
+async function saveChain() {
+  if (chainLibId.value == null) return
+  busy.value = 'chain'
+  chainMsg.value = ''
+  try {
+    const arr = CHAIN_PROVIDERS.filter(n => chainSel.value.includes(n))
+    await api('/api/libraries/' + chainLibId.value, {
+      method: 'PATCH',
+      body: JSON.stringify({ metadata_providers: arr.length ? JSON.stringify(arr) : '' })
+    })
+    chainMsg.value = arr.length ? `已保存：${arr.join(' → ')}` : '已保存（空=默认链路）'
+    await loadLibs(api)
+    syncLibs()
+  } catch (e) {
+    chainMsg.value = '保存失败：' + e.message
+  } finally {
+    busy.value = null
+  }
+}
+
+// IMDb 离线数据集导入（P2.5）：后台任务 + 轮询进度
+const imdbPath = ref('')
+const imdbMsg = ref('')
+let imdbTimer = null
+async function pollImportImdb(jid) {
+  try {
+    const d = await api('/api/jobs/import-imdb/' + jid)
+    const state = d?.state || 'running'
+    if (state === 'done') {
+      imdbMsg.value = `导入完成：${d.done || d.total || 0} 条`
+      stopImportImdbTimer()
+      busy.value = null
+    } else if (state === 'failed') {
+      imdbMsg.value = '导入失败：' + (d.error || '未知错误')
+      stopImportImdbTimer()
+      busy.value = null
+    } else {
+      imdbMsg.value = `导入中… 已处理 ${d.done || 0} 条`
+    }
+  } catch (e) { /* 轮询失败继续 */ }
+}
+function stopImportImdbTimer() {
+  if (imdbTimer) { clearInterval(imdbTimer); imdbTimer = null }
+}
+async function doImportImdb() {
+  busy.value = 'imdb'
+  imdbMsg.value = '启动导入…'
+  try {
+    const d = await api('/api/jobs/import-imdb', {
+      method: 'POST',
+      body: JSON.stringify({ path: imdbPath.value.trim() || null })
+    })
+    imdbMsg.value = d.resumed ? '已有导入任务，继续轮询…' : '导入中…'
+    stopImportImdbTimer()
+    imdbTimer = setInterval(() => pollImportImdb(d.job_id), 1500)
+    pollImportImdb(d.job_id)
+  } catch (e) {
+    imdbMsg.value = '启动失败：' + e.message
+    busy.value = null
+  }
+}
+async function cancelImportImdb() {
+  try { await api('/api/jobs/import-imdb/cancel', { method: 'POST', body: '{}' }) } catch (e) { /* 忽略 */ }
+  imdbMsg.value = '已取消'
+  stopImportImdbTimer()
+  busy.value = null
+}
+
 async function loadStats() {
   try { stats.value = await api('/api/jobs/stats') } catch (e) { /* 忽略 */ }
 }
@@ -294,6 +406,7 @@ const currentId = ref(currentMediaId())
 function syncLibs() {
   libList.value = listLibs()
   currentId.value = currentMediaId()
+  initChain()
 }
 async function onLibrariesChanged() {
   syncLibs()
@@ -412,6 +525,8 @@ onUnmounted(() => {
 .provider-block { margin-top: 12px; border-top: 1px dashed #3a3a3a; padding-top: 8px; }
 .provider-block h4 { margin: 0 0 6px; font-size: 0.9375rem; color: #ddd; }
 .provider-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 3px 0; font-size: 0.8125rem; }
+.chain-item { display: inline-flex; gap: 3px; align-items: center; }
+.chain-editor { padding-top: 6px; }
 .p-name { min-width: 110px; color: #ccc; }
 .p-state { color: #7ed321; }
 .p-state.cool { color: #e0a63c; }

@@ -151,19 +151,20 @@ def movie_images(tmdb_id: int, languages: str = "zh,en,null") -> dict:
                     params={"include_image_language": languages}).json()
 
 
-def download_image(image_path: str, dest: str, size: str = "w500") -> bool:
-    """任意 TMDB 图片（poster/backdrop/logo）下载到 dest；原子写（评审 B5a-6）。"""
-    if not image_path:
+def download_url(url: str, dest: str, timeout: float = 30.0,
+                 headers: dict | None = None) -> bool:
+    """任意图片 URL 下载到 dest（走 TMDB_PROXY；原子写）。外部元数据源（Phase 2）共用。"""
+    url = str(url or "").strip()
+    if not url or not url.lower().startswith(("http://", "https://")):
         return False
-    from . import config as _config
-    url = _config.effective_tmdb_image_base().rstrip("/") + "/t/p/" + size + image_path
-    proxy = _config.effective_tmdb_proxy() or None
+    proxy = config.effective_tmdb_proxy() or None
     try:
         # posters 已按功能拆子目录：目标父目录可能尚不存在（如测试隔离目录），先建
         parent = os.path.dirname(dest)
         if parent:
             os.makedirs(parent, exist_ok=True)
-        with httpx.Client(timeout=30.0, proxy=proxy) as c:
+        with httpx.Client(timeout=timeout, proxy=proxy,
+                          headers=headers or {}) as c:
             r = c.get(url)
             r.raise_for_status()
             atomic_write_bytes(dest, r.content)
@@ -171,6 +172,14 @@ def download_image(image_path: str, dest: str, size: str = "w500") -> bool:
     except Exception as e:
         logger.warning("image download failed url=%s dest=%s: %s", url, dest, e)
         return False
+
+
+def download_image(image_path: str, dest: str, size: str = "w500") -> bool:
+    """任意 TMDB 图片（poster/backdrop/logo）下载到 dest；原子写（评审 B5a-6）。"""
+    if not image_path:
+        return False
+    url = config.effective_tmdb_image_base().rstrip("/") + "/t/p/" + size + image_path
+    return download_url(url, dest)
 
 
 def download_poster(poster_path: str, dest: str, size: str = "w500") -> bool:

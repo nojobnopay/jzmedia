@@ -22,7 +22,9 @@ _MAX_ENTRIES = 16
 LABELS = {
     "local": "本地离线索引",
     "tmdb": "TMDB",
-    "wikidata": "Wikidata",
+    "wikidata": "Wikidata（无 key）",
+    "tvmaze": "TVmaze（无 key，剧集）",
+    "bgm": "Bangumi（无 key，中文/动漫）",
     "douban": "豆瓣（默认关）",
     "nfo": "NFO 导入",
 }

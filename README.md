@@ -128,7 +128,7 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 - 远程凭据以 Fernet 加密存库（`data/secret.key`，0600；换机请一并携带，丢了重新输入密码），API 只写不读、日志脱敏。
 - 只读媒体库：归档/改名/移动/删除/上传/NFO 与图片写入一律 409；浏览/播放/扫描照常。
 - 视频库级命名档 `kodi|plex|off` 与落盘策略 `none|nfo|nfo_art`（Plex 本地海报）在建库/编辑视频库时选择、归档/扫描按库生效；归档一律扁平（D5）。上传时若当前媒体库有多个电影类视频库（如 Movies + Unrated），弹窗内可选目标视频库（按媒体库记忆）。
-- 离线/降级刮削（E 阶段）：扫描匹配失败自动回退本地 `match_index`（TMDB 缓存/NFO/外部候选统一索引），再按库链尝试无 key 桥接（Wikidata，取 IMDb/TMDB ID）；同目录 `movie.nfo` 可直接导入匹配；`POST /api/jobs/import-imdb` 可离线导入 IMDb `title.basics` 数据集（`IMDB_DATASET_PATH` 或传 path）；豆瓣建议接口默认关闭（`DOUBAN_ENABLED=1` 显式开启，仅作候选提示）。库级链顺序可用视频库的 `metadata_providers`（JSON 数组）覆盖。
+- 离线/降级刮削（E 阶段 + v0.19.0 Phase 1/2）：扫描匹配失败自动回退本地 `match_index`（TMDB 缓存/NFO/外部候选统一索引；含 imdb_id→tmdb_id 离线桥与别名召回），再按库链尝试无 key 外源——**Wikidata**（标题/年份/简介/类型/导演/演员/Commons 海报）、**TVmaze**（剧集，含分集）、**Bangumi**（中文/动漫，`BANGUMI_UA` 建议填联系方式）；结果落 `external_meta`（可离线回放，`tmdb_id` 可空，联网后 force 重扫/手动匹配升级）。同目录 `movie.nfo`/`tvshow.nfo`/`<stem>.nfo` 完整字段（含本地 poster.jpg）可**直接离线入库**，无需 TMDB 缓存。`POST /api/jobs/import-imdb` 可离线导入 IMDb `title.basics` 数据集（`IMDB_DATASET_PATH` 或传 path）；豆瓣建议接口默认关闭（`DOUBAN_ENABLED=1` 显式开启，仅作候选提示）。库级链顺序用视频库的 `metadata_providers`（JSON 数组；设置页 TMDB 区可勾选保存，默认 `local→tmdb→wikidata`）。手动匹配面板对无 TMDB ID 的外源候选提供「绑定外源」（`POST /api/movies/{id}/bind-external` / `POST /api/tv/shows/{id}/bind-external`）。
 - 剧集类视频库（F 阶段）：解析 `SxxEyy` 入只读清单（不刮削/不改名/不写 NFO），顶栏「剧集」按剧/季/集浏览并播放（流接口 `kind=episode`，转码会话/断点/字幕缓存按 `(kind,id)` 隔离）。
 
 ## 数据存放
@@ -180,7 +180,9 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 | `POST /api/collections/{id}/members` · `POST /api/collections/{id}/members/remove` | 加入/移出合集（`{movie_ids}`，代表行 id 即可）；`POST /api/collections/from-tmdb-series {movie_id}` 按 TMDB 系列一键建合集 |
 | `GET /api/collections/suggest` · `POST /api/collections/suggest/backfill` | 系列推荐（纯本地只读，库内同系列≥2部；已收录的不再推荐，有新片则进 `topups`；忽略态存浏览器 localStorage）；补全为后台任务（立即返回 job_id，轮询 `./status` 看进度，可取消，仅补系列信息不碰海报） |
 | `POST /api/collections/{id}/members/top-up` | 一键补齐：把库内同系列新片收进已有合集（服务端实时重算差集；扫描/刷新/补全永不自动写成员） |
-| `GET /api/tmdb/search?q=` · `POST /api/movies/{id}/match` | 手动匹配两步：搜 TMDB 候选 → 按 `tmdb_id` 强制绑定 |
+| `GET /api/tmdb/search?q=` · `POST /api/movies/{id}/match` | 手动匹配两步：搜 TMDB 候选 → 按 `tmdb_id` 强制绑定（TMDB 不可用自动回退本地/外源候选） |
+| `POST /api/movies/{id}/bind-external` · `POST /api/tv/shows/{id}/bind-external` | 绑定无 token 外源候选（`{source, source_id}`；Wikidata/TVmaze/Bangumi/NFO，含详情与图片落库） |
+| `GET /api/tv/search?q=` | 剧集候选搜索（TMDB 优先，失败回退本地/外源） |
 | `GET /api/files/preview` · `POST /api/files/organize` | 整理预览；执行（默认 `dry_run:true` 只预览；`mode=inplace\|relocate`） |
 | `GET /api/files/restore-candidates` · `POST /api/files/restore-original` | 偏离原始位置的影片预览；搬回首次入库位置（默认 `dry_run:true`，目标被占/源缺失跳过不上报覆盖） |
 | `POST /api/jobs/backfill-meta` | 给存量影片补产地/类型等新元数据（不重下海报/NFO，保留手动标题）；`{"limit":N,"force":bool}` |

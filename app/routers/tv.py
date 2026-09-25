@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from .. import library_paths, storage, store, tmdb
+from .. import config, library_paths, storage, store, tmdb
 from ..log import get_logger
 from ..scanner import tv_match, tv_persist
 from ..scanner.parse import normalize_title
@@ -602,27 +602,44 @@ def tv_cast_avatar(path: str = Query(default="")):
 
 
 @router.get("/search")
-def search_tv(q: str = "", year: int | None = None):
-    """TMDB 剧集搜索（手动匹配用）。"""
+def search_tv(q: str = "", year: int | None = None,
+              library: str | None = None):
+    """剧集搜索（手动匹配用）：TMDB 优先，失败/无凭据回退降级链（P2.4 外源）。"""
     term = (q or "").strip()
     if not term:
-        return {"items": []}
-    try:
-        rows = tmdb.search_tv(term, year)
-    except Exception as e:
-        raise HTTPException(502, f"TMDB 搜索失败：{str(e)[:200]}")
-    items = []
-    for r in (rows or [])[:20]:
-        fd = str(r.get("first_air_date") or "")[:4]
-        items.append({
-            "tmdb_id": r.get("id"),
-            "title": r.get("name") or "",
-            "original_title": r.get("original_name") or "",
-            "year": int(fd) if fd.isdigit() else None,
-            "overview": r.get("overview") or "",
-            "poster_path": r.get("poster_path") or "",
-        })
-    return {"items": items}
+        return {"items": [], "source": "none"}
+    items: list[dict] = []
+    source = "none"
+    if (config.effective_tmdb_read_token() or config.effective_tmdb_api_key()):
+        try:
+            rows = tmdb.search_tv(term, year)
+            for r in (rows or [])[:20]:
+                fd = str(r.get("first_air_date") or "")[:4]
+                items.append({
+                    "tmdb_id": r.get("id"),
+                    "title": r.get("name") or "",
+                    "original_title": r.get("original_name") or "",
+                    "year": int(fd) if fd.isdigit() else None,
+                    "overview": r.get("overview") or "",
+                    "poster_path": r.get("poster_path") or "",
+                    "source": "tmdb", "source_id": str(r.get("id") or ""),
+                })
+            if items:
+                source = "tmdb"
+        except Exception as e:
+            logger.warning("tv search failed q=%s: %s", term, e)
+    if not items:
+        try:
+            from ..metadata import chain as meta_chain
+            libs = store._split_ints(library)
+            lib_id = libs[0] if len(libs) == 1 else None
+            for c in meta_chain.search(term, year, "tv", library_id=lib_id, limit=10):
+                items.append({**c.to_dict(), "overview": "", "poster_path": "",
+                              "external": True})
+            source = "offline" if items else "none"
+        except Exception as e:
+            logger.warning("tv offline search failed q=%s: %s", term, e)
+    return {"items": items, "source": source}
 
 
 class MatchBody(BaseModel):
@@ -757,6 +774,29 @@ def match_show(show_id: int, body: MatchBody):
     return {"ok": True, "offline": False, **stats, "media": media,
             "seasons_failed": failed_seasons,
             "show": _match_show_snapshot(fresh)}
+
+
+@router.post("/shows/{show_id}/bind-external")
+def bind_external_show(show_id: int, body: dict):
+    """外部元数据候选（wikidata/tvmaze/bgm/nfo）显式绑定（P2.4）。
+
+    拉取外源 detail（tvmaze/bgm 含剧集）落库；带 tmdb_id 的候选仅作为提示，
+    后续仍可用「匹配 TMDB」升级。"""
+    show = store.get_show_meta(show_id)
+    if not show:
+        raise HTTPException(404, "show not found")
+    source = str((body or {}).get("source") or "").strip()
+    source_id = str((body or {}).get("source_id") or "").strip()
+    if not source or not source_id:
+        raise HTTPException(422, "source/source_id required")
+    from ..metadata.base import Candidate
+    cand = Candidate(source=source, source_id=source_id,
+                     title=show.get("title") or "", year=show.get("year"))
+    out = tv_persist._apply_external_candidate(show, cand, 0)
+    if out is None:
+        raise HTTPException(502, "外部详情获取失败")
+    fresh = store.get_show_meta(show_id) or {}
+    return {"ok": True, "show": _match_show_snapshot(fresh), **out}
 
 
 def _is_tv_lib_read_only(library_id) -> bool:

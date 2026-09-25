@@ -27,8 +27,12 @@ def _fts_sync(c, rowid: int, title: str, original_title: str) -> None:
 def upsert_match_entry(source: str, source_id, kind: str = "movie",
                        title: str = "", original_title: str = "",
                        year: int | None = None, tmdb_id: int | None = None,
-                       imdb_id: str = "", payload: dict | None = None) -> int:
-    """写入/更新候选（source+source_id 幂等），返回 match_index.id。"""
+                       imdb_id: str = "", payload: dict | None = None,
+                       alt_titles: str = "") -> int:
+    """写入/更新候选（source+source_id 幂等），返回 match_index.id。
+
+    `alt_titles` 为换行拼接的别名串（v27）：参与 LIKE 召回，提升「英文目录名/
+    台译名/别名」的离线匹配命中（CJK 分词 FTS 不可靠，统一走 LIKE）。"""
     now = int(time.time())
     try:
         payload_s = json.dumps(payload or {}, ensure_ascii=False)
@@ -40,16 +44,18 @@ def upsert_match_entry(source: str, source_id, kind: str = "movie",
         if row:
             rid = int(row["id"])
             c.execute(
-                "UPDATE match_index SET kind=?, title=?, original_title=?, year=?,"
-                " tmdb_id=?, imdb_id=?, payload=?, fetched_at=? WHERE id=?",
-                (str(kind or "movie"), title or "", original_title or "", year,
-                 tmdb_id, imdb_id or "", payload_s, now, rid))
+                "UPDATE match_index SET kind=?, title=?, original_title=?, alt_titles=?,"
+                " year=?, tmdb_id=?, imdb_id=?, payload=?, fetched_at=? WHERE id=?",
+                (str(kind or "movie"), title or "", original_title or "",
+                 alt_titles or "", year, tmdb_id, imdb_id or "", payload_s, now, rid))
         else:
             cur = c.execute(
                 "INSERT INTO match_index(source, source_id, kind, title, original_title,"
-                " year, tmdb_id, imdb_id, payload, fetched_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                " alt_titles, year, tmdb_id, imdb_id, payload, fetched_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (str(source), str(source_id), str(kind or "movie"), title or "",
-                 original_title or "", year, tmdb_id, imdb_id or "", payload_s, now))
+                 original_title or "", alt_titles or "", year, tmdb_id, imdb_id or "",
+                 payload_s, now))
             rid = int(cur.lastrowid)
         _fts_sync(c, rid, title, original_title)
         return rid
@@ -69,8 +75,9 @@ def seed_match_index_from_cache() -> int:
             if n_idx >= n_cache:
                 return 0
             rows = c.execute(
-                "SELECT tmdb_id, title, original_title, year, imdb_id, media_type"
-                " FROM tmdb_cache WHERE tmdb_id IS NOT NULL AND title != ''").fetchall()
+                "SELECT tmdb_id, title, original_title, year, imdb_id, media_type,"
+                " payload_json FROM tmdb_cache WHERE tmdb_id IS NOT NULL AND title != ''"
+            ).fetchall()
         except sqlite3.OperationalError:
             return 0
         for r in rows:
@@ -82,12 +89,19 @@ def seed_match_index_from_cache() -> int:
                 (sid,)).fetchone()
             if exists:
                 continue
+            try:
+                _pl = json.loads(r["payload_json"] or "{}")
+            except (TypeError, ValueError):
+                _pl = {}
+            alt = [str(a).strip() for a in ((_pl or {}).get("aliases") or [])
+                   if str(a).strip()]
             cur = c.execute(
                 "INSERT INTO match_index(source, source_id, kind, title, original_title,"
-                " year, tmdb_id, imdb_id, payload, fetched_at)"
-                " VALUES('tmdb', ?, ?, ?, ?, ?, ?, ?, '{}', 0)",
+                " alt_titles, year, tmdb_id, imdb_id, payload, fetched_at)"
+                " VALUES('tmdb', ?, ?, ?, ?, ?, ?, ?, ?, '{}', 0)",
                 (sid, r["media_type"] or "movie", r["title"] or "",
-                 r["original_title"] or "", r["year"], tid, r["imdb_id"] or ""))
+                 r["original_title"] or "", "\n".join(alt), r["year"], tid,
+                 r["imdb_id"] or ""))
             _fts_sync(c, int(cur.lastrowid), r["title"] or "", r["original_title"] or "")
             inserted += 1
     if inserted:
@@ -124,8 +138,9 @@ def search_match_index(term: str, kind: str | None = None, limit: int = 20,
     esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     like = f"%{esc}%"
     sql = ("SELECT * FROM match_index WHERE (title LIKE ? ESCAPE '\\'"
-           " OR original_title LIKE ? ESCAPE '\\')")
-    args: list = [like, like]
+           " OR original_title LIKE ? ESCAPE '\\'"
+           " OR alt_titles LIKE ? ESCAPE '\\')")
+    args: list = [like, like, like]
     if kind:
         sql += " AND kind=?"
         args.append(kind)

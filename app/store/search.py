@@ -73,7 +73,12 @@ def resync_fts(movie_id: int) -> None:
                 "SELECT p.name FROM persons p JOIN movie_person mp ON mp.person_id=p.id "
                 "WHERE mp.movie_id=? ORDER BY mp.cast_order", (movie_id,))
         )
-        c.execute("UPDATE movies SET person_names=? WHERE id=?", (names, movie_id))
+        if names:
+            c.execute("UPDATE movies SET person_names=? WHERE id=?", (names, movie_id))
+        else:
+            # 外源（NFO/Wikidata/…）人名只在 movies.person_names 文本里，无 person 关联：
+            # 无关联时不覆盖，防 resync 把外部源人名清空（Phase 1+2）
+            names = str(row["person_names"] or "")
         c.execute("DELETE FROM movies_fts WHERE rowid=?", (movie_id,))
         c.execute(
             "INSERT INTO movies_fts(rowid, title, original_title, overview,"
