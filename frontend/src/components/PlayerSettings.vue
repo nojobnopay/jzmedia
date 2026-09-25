@@ -1,123 +1,116 @@
 <template>
   <div class="pd-setwrap">
-      <button class="pd-mini" :class="{ on: open }" @click="$emit('toggle-settings')"
-        title="播放设置（倍速/画质/音轨/字幕/预览）">⚙ 设置</button>
-      <div v-if="open" class="pd-set" @click.stop>
-        <div class="set-row">
-          <label>速度</label>
-          <select :value="playbackRate" @change="pick($event, 'rate-change', Number($event.target.value))">
-            <option v-for="rate in PLAYBACK_RATES" :key="rate" :value="rate">{{ rate }}×</option>
-          </select>
+    <button class="player-icon-btn settings-trigger" :class="{ on: open }" @click="$emit('toggle-settings')"
+      aria-label="播放设置" :aria-expanded="open" title="播放设置"><PlayerIcon name="settings" /></button>
+    <section v-if="open" class="pd-set" :style="{ maxHeight: panelHeight + 'px' }" aria-label="播放设置" @click.stop>
+      <header class="set-header">
+        <strong>播放设置</strong>
+        <button class="player-icon-btn" @click="$emit('toggle-settings')" aria-label="关闭设置" title="关闭设置"><PlayerIcon name="close" :size="18" /></button>
+      </header>
+      <div class="set-section">
+        <div class="section-label">播放速度</div>
+        <div class="rate-options" role="group" aria-label="播放速度">
+          <button v-for="rate in PLAYBACK_RATES" :key="rate" :class="{ selected: playbackRate === rate }"
+            :aria-pressed="playbackRate === rate" @click="pick($event, 'rate-change', rate)">{{ rate }}×</button>
         </div>
         <div class="set-row">
-          <label>进度预览</label>
-          <button v-if="previewBusy" class="ctl-mini" @click="$emit('preview-cancel')">取消生成</button>
-          <button v-else class="ctl-mini" @click="$emit('preview-start')">生成预览</button>
-        </div>
-        <p class="set-hint">{{ previewStatus }}。远程片源建议空闲时生成，也可在库工具中批量生成。</p>
-        <div class="set-row">
-          <label>画质</label>
-          <select :value="quality" @change="pick($event, 'quality-change', $event.target.value)"
-            title="自动=按服务器能力；原画=不封顶重编（耗 CPU）">
+          <label for="player-quality">画质</label>
+          <select id="player-quality" :value="quality" @change="pick($event, 'quality-change', $event.target.value)">
             <option value="auto">自动（推荐）</option>
             <option value="source">原画</option>
             <option value="1080p">1080p</option>
             <option value="720p">720p</option>
           </select>
         </div>
-        <div class="set-row" v-if="audios.length > 1">
-          <label>音轨</label>
-          <select :value="audioIdx" @change="pick($event, 'audio-change', Number($event.target.value))">
+        <div v-if="audios.length > 1" class="set-row">
+          <label for="player-audio">音轨</label>
+          <select id="player-audio" :value="audioIdx" @change="pick($event, 'audio-change', Number($event.target.value))">
             <option v-for="(a, i) in audios" :key="i" :value="i">{{ audioLabel(a, i) }}</option>
           </select>
         </div>
-        <div class="set-row">
-          <label>字幕</label>
-          <select v-if="subs.length" :value="subIdx" @change="pick($event, 'sub-change', Number($event.target.value))">
-            <option :value="-1">无字幕</option>
-            <option v-for="(s, i) in subs" :key="i" :value="i">
-              {{ subLabel(s, i) }}{{ subBadge(s) }}
-            </option>
-          </select>
-          <span v-else class="fhint-inline">未检测到字幕轨（画面硬字幕无法关闭）</span>
-          <button class="ctl-mini" @click="pickSubFile"
-            title="临时加载本地字幕文件（srt/vtt/ass/ssa）：浏览器端解析，仅本次播放，不入库">加载文件</button>
-          <button v-if="hasLocalSub" class="ctl-mini" @click="$emit('remove-local-subs')"
-            title="移除临时加载的字幕">移除</button>
+      </div>
+      <div class="set-section">
+        <div class="section-label">字幕</div>
+        <select v-if="subs.length" class="sub-select" aria-label="字幕轨道" :value="subIdx" @change="pick($event, 'sub-change', Number($event.target.value))">
+          <option :value="-1">关闭字幕</option>
+          <option v-for="(s, i) in subs" :key="i" :value="i">{{ subLabel(s, i) }}{{ subBadge(s) }}</option>
+        </select>
+        <p v-else class="set-hint">暂无字幕，可加载本地字幕文件。</p>
+        <div class="sub-file-actions">
+          <button class="set-button" @click="pickSubFile" title="临时加载 SRT、VTT、ASS 或 SSA 字幕，仅本次播放有效"><PlayerIcon name="subtitles" :size="16" />加载字幕文件</button>
+          <button v-if="hasLocalSub" class="set-button" @click="$emit('remove-local-subs')">移除本地字幕</button>
           <input ref="subFileInput" type="file" accept=".srt,.vtt,.ass,.ssa" class="sub-file" @change="onSubFile" />
         </div>
-        <div class="set-row" v-if="subDelayVisible">
-          <label>延迟</label>
-          <span class="set-inline">
-            <button class="ctl-mini" @click="$emit('shift-delay', -0.5)">−0.5</button>
-            <span class="delay-val">{{ subDelayText }}</span>
-            <button class="ctl-mini" @click="$emit('shift-delay', 0.5)">+0.5</button>
-          </span>
-        </div>
-        <div class="set-row" v-if="subIsVtt">
-          <label>外观</label>
-          <span class="set-inline">
-            <select :value="subStyle.bg" @change="styleSet('bg', Number($event.target.value))" title="字幕背景（只覆盖文字区域）">
-              <option :value="0">无背景</option>
-              <option :value="1">半透明底</option>
-              <option :value="2">纯黑底</option>
-            </select>
-            <select :value="subStyle.outline" @change="styleSet('outline', Number($event.target.value))" title="字形描边（黑边，提升亮画面可读性）">
-              <option :value="0">无描边</option>
-              <option :value="1">细描边</option>
-              <option :value="2">粗描边</option>
-            </select>
-          </span>
-        </div>
-        <div class="set-row" v-if="subIsVtt">
-          <label>位置</label>
-          <span class="set-inline">
-            <select :value="subStyle.pos" @change="styleSet('pos', $event.target.value)"
-              title="字幕位置：自动=下方黑边够高时落入黑边（不遮画面），否则画面内底部">
-              <option value="auto">自动（黑边优先）</option>
-              <option value="inside">画面内</option>
-              <option value="outside">下黑边</option>
-            </select>
-            <select :value="subStyle.size" @change="styleSet('size', Number($event.target.value))"
-              title="字号：随画面高度自适应缩放">
-              <option :value="1">小</option>
-              <option :value="2">中</option>
-              <option :value="3">大</option>
-            </select>
-          </span>
-        </div>
-        <div class="set-row" v-if="subIsAss || subIsVtt || forceBurn">
-          <span class="set-label">兼容降级</span>
-          <span class="set-inline">
-            <button class="ctl-mini" @click="$emit('undo-degrade')" :disabled="undoDisabled"
-              title="取消 VTT 兼容/烧录降级，恢复 ASS/PGS 客户端渲染">恢复客户端渲染</button>
-          </span>
-        </div>
-        <div class="set-row" v-if="subIsAss">
-          <label>兼容</label>
-          <label class="ctl-compat" title="ASS 渲染异常/缺字体时使用：改用简化 VTT 字幕">
-            <input type="checkbox" :checked="compatSub"
-              @change="$emit('compat-change', $event.target.checked)" />VTT 字幕（丢样式）
+        <details v-if="subDelayVisible || subIsVtt || subIsAss || forceBurn" class="set-details">
+          <summary>字幕调整<PlayerIcon name="chevron" :size="14" /></summary>
+          <div v-if="subDelayVisible" class="set-row">
+            <span class="set-label">时间偏移</span>
+            <span class="set-inline">
+              <button class="set-button" @click="$emit('shift-delay', -0.5)" aria-label="字幕提前 0.5 秒">−0.5s</button>
+              <span class="delay-val">{{ subDelayText }}</span>
+              <button class="set-button" @click="$emit('shift-delay', 0.5)" aria-label="字幕延后 0.5 秒">+0.5s</button>
+            </span>
+          </div>
+          <div v-if="subIsVtt" class="set-row">
+            <span class="set-label">外观</span>
+            <span class="set-inline">
+              <select :value="subStyle.bg" @change="styleSet('bg', Number($event.target.value))" aria-label="字幕背景">
+                <option :value="0">无背景</option><option :value="1">半透明底</option><option :value="2">纯黑底</option>
+              </select>
+              <select :value="subStyle.outline" @change="styleSet('outline', Number($event.target.value))" aria-label="字幕描边">
+                <option :value="0">无描边</option><option :value="1">细描边</option><option :value="2">粗描边</option>
+              </select>
+            </span>
+          </div>
+          <div v-if="subIsVtt" class="set-row">
+            <span class="set-label">位置 / 大小</span>
+            <span class="set-inline">
+              <select :value="subStyle.pos" @change="styleSet('pos', $event.target.value)" aria-label="字幕位置">
+                <option value="auto">自动</option><option value="inside">画面内</option><option value="outside">下黑边</option>
+              </select>
+              <select :value="subStyle.size" @change="styleSet('size', Number($event.target.value))" aria-label="字幕字号">
+                <option :value="1">小</option><option :value="2">中</option><option :value="3">大</option>
+              </select>
+            </span>
+          </div>
+          <label v-if="subIsAss" class="ctl-compat">
+            <input type="checkbox" :checked="compatSub" @change="$emit('compat-change', $event.target.checked)" />兼容模式（使用简化字幕）
           </label>
-        </div>
-        <div class="set-row">
-          <label>外部</label>
-          <button class="ctl-mini" @click="$emit('copy-direct')"
-            title="复制原文件直链：可用 VLC/Kodi/电视播放器打开（HDR/DV 等复杂片源推荐）">复制直链</button>
-        </div>
-        <input v-if="directFailUrl" readonly :value="directFailUrl" class="set-copy-url"
-          @focus="$event.target.select()" @click="$event.target.select()" />
-        <p class="set-hint">{{ methodLine }}<span v-if="qualityLine"> · {{ qualityLine }}</span></p>
+          <button v-if="subIsAss || subIsVtt || forceBurn" class="set-button" @click="$emit('undo-degrade')" :disabled="undoDisabled">恢复客户端渲染</button>
+        </details>
       </div>
+      <details class="set-section set-details more-settings">
+        <summary>更多选项<PlayerIcon name="chevron" :size="14" /></summary>
+        <div class="set-row">
+          <span class="set-label">进度缩略图</span>
+          <button v-if="previewBusy" class="set-button" @click="$emit('preview-cancel')">取消生成</button>
+          <button v-else class="set-button" @click="$emit('preview-start')">生成预览</button>
+        </div>
+        <p class="set-hint">{{ previewStatus }}。远程片源建议空闲时生成。</p>
+        <button class="set-button external-button" @click="$emit('copy-direct')" title="复制原文件直链，在 VLC、Kodi 等播放器打开"><PlayerIcon name="external" :size="16" />复制播放直链</button>
+        <input v-if="directFailUrl" readonly :value="directFailUrl" class="set-copy-url" aria-label="播放直链"
+          @focus="$event.target.select()" @click="$event.target.select()" />
+        <div class="play-info">
+          <span class="section-label">播放信息</span>
+          <p>{{ methodLine }}</p><p v-if="qualityLine">{{ qualityLine }}</p>
+          <p v-if="reasonLine">{{ reasonLine }}</p><p v-if="bufferLine">{{ bufferLine }}</p>
+          <button class="set-button" @click="$emit('copy-debug')">复制诊断信息</button>
+        </div>
+      </details>
+    </section>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
+import PlayerIcon from './PlayerIcon.vue'
 import { audioLabel, subLabel, subBadge } from '../playerLabels.js'
 import { PLAYBACK_RATES } from '../playbackControls.js'
 
 const props = defineProps({
+  panelHeight: { type: Number, default: 400 },
+  reasonLine: { type: String, default: '' },
+  bufferLine: { type: String, default: '' },
   playbackRate: { type: Number, default: 1 },
   previewBusy: Boolean,
   previewStatus: { type: String, default: '' },
@@ -142,7 +135,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['toggle-settings', 'quality-change', 'audio-change', 'sub-change',
   'shift-delay', 'update:sub-style', 'undo-degrade', 'compat-change', 'copy-direct',
-  'load-sub-file', 'remove-local-subs', 'rate-change', 'preview-start', 'preview-cancel'])
+  'load-sub-file', 'remove-local-subs', 'rate-change', 'preview-start', 'preview-cancel', 'copy-debug'])
 
 const subFileInput = ref(null)
 function pickSubFile() {
@@ -169,24 +162,50 @@ function styleSet(key, value) {
 </script>
 
 <style scoped>
-.pd-setwrap { position: relative; display: inline-flex; }
-.pd-set { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(360px, 78vw);
-  background: #1d1d1d; border: 1px solid #3a3a3a; border-radius: 10px; padding: 10px 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 8px;
-  max-height: min(72vh, 560px); overflow: auto; }
-.set-row { display: flex; align-items: center; gap: 8px; }
-.set-row > label, .set-label { color: #999; font-size: 0.75rem; width: 34px; flex: none; }
-.set-row select { flex: 1; min-width: 0; background: #262626; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 4px 6px; font-size: 0.75rem; }
-.set-inline { display: inline-flex; align-items: center; gap: 6px; }
-.set-hint { margin: 2px 0 0; color: #777; font-size: 0.6875rem; overflow-wrap: anywhere; }
-.set-copy-url { width: 100%; box-sizing: border-box; padding: 4px 6px; background: #141414;
-  border: 1px dashed #444; border-radius: 6px; color: #bbb;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.6875rem;
-  overflow-x: auto; white-space: nowrap; }
-.ctl-compat { display: inline-flex; align-items: center; gap: 3px; color: #aaa; font-size: 0.75rem; white-space: nowrap; cursor: pointer; }
-.ctl-compat input { margin: 0; }
-.ctl-mini { padding: 1px 6px !important; font-size: 0.75rem; line-height: 1.2; }
-.delay-val { min-width: 34px; text-align: center; color: #7ed321; }
+.pd-setwrap { display: inline-flex; position: static; }
+.settings-trigger.on { background: rgba(255,255,255,.12); color: #fff; }
+.pd-set { position: absolute; right: 16px; bottom: calc(100% + 8px); z-index: 20;
+  width: min(350px, calc(100% - 32px)); box-sizing: border-box; overflow: auto;
+  color: #eee; background: rgba(28,28,31,.97); border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px; box-shadow: 0 12px 40px #0008; scrollbar-width: thin; scrollbar-color: #555 transparent;
+  text-align: left; font-size: .8125rem; color-scheme: dark; }
+.set-header { position: sticky; top: 0; z-index: 1; background: #1c1c1f; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px 8px 18px;
+  border-bottom: 1px solid #ffffff10; }
+.set-header strong { font-size: .875rem; font-weight: 600; }
+.set-section { padding: 14px 18px; border-bottom: 1px solid #ffffff10; }
+.set-section:last-child { border-bottom: 0; }
+.section-label { display: block; color: #aaa; font-size: .6875rem; letter-spacing: .06em; margin-bottom: 10px; }
+.rate-options { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 14px; }
+.rate-options button { border: 0; padding: 8px 0; font-size: .75rem; font-weight: 500; background: #ffffff09; color: #bbb; border-radius: 6px; }
+.rate-options button:hover { color: #fff; background: #ffffff18; }
+.rate-options button.selected { background: var(--player-accent); color: #fff; }
+.set-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; min-width: 0; }
+.set-row > label, .set-label { flex: 1; color: #ccc; font-size: .75rem; white-space: nowrap; }
+.pd-set select { min-width: 0; box-sizing: border-box; border: 1px solid #ffffff12; background: #ffffff08;
+  color: #eee; font-size: .75rem; padding: 7px 8px; border-radius: 7px; max-width: 70%; }
+.pd-set select option { background: #242427; color: #eee; }
+.pd-set select.sub-select { width: 100%; max-width: 100%; }
+.set-inline { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; }
+.set-inline select { flex: 1; }
+.set-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #ffffff14;
+  border-radius: 7px; padding: 6px 8px; background: #ffffff08; color: #ddd; font-size: .6875rem; line-height: 1.5; }
+.set-button:hover:not(:disabled) { background: #ffffff18; color: #fff; }
+.set-button:disabled { opacity: .4; cursor: default; }
+.sub-file-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.set-hint { margin: 7px 0 0; color: #aaa; font-size: .6875rem; line-height: 1.7; overflow-wrap: anywhere; }
+.set-details summary { display: flex; align-items: center; justify-content: space-between; list-style: none;
+  color: #ccc; padding: 12px 0 0; font-size: .75rem; cursor: pointer; }
+.set-details summary::-webkit-details-marker { display: none; }
+.set-details[open] > summary { margin-bottom: 10px; }
+.set-details[open] > summary svg { transform: rotate(90deg); }
+.more-settings > summary { padding: 0; }
+.ctl-compat { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: .75rem; cursor: pointer; }
+.ctl-compat input { accent-color: var(--player-accent); }
+.delay-val { min-width: 38px; text-align: center; font-variant-numeric: tabular-nums; color: #fff; font-size: .75rem; }
 .sub-file { display: none; }
-.fhint-inline { flex: 1; min-width: 0; color: #777; font-size: 0.75rem; }
+.external-button { margin-top: 14px; }
+.set-copy-url { width: 100%; box-sizing: border-box; margin-top: 8px; font-size: .6875rem; }
+.play-info { margin-top: 14px; padding-top: 14px; border-top: 1px solid #ffffff10; }
+.play-info p { margin: 6px 0; color: #aaa; font-size: .6875rem; line-height: 1.6; overflow-wrap: anywhere; }
+.play-info .set-button { margin-top: 6px; }
 </style>

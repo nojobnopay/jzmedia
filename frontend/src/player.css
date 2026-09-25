@@ -36,6 +36,21 @@
   background: rgba(0, 0, 0, .66);
 }
 
-/* 播放器小按钮（PlayerModal 与 PlayerSettings 共用） */
-.pd-mini { font-size: 0.75rem; padding: 3px 10px; }
-.pd-mini.on { background: #2b6cb0; border-color: #2b6cb0; color: #fff; }
+/* 播放器共用控件，作用域限制在播放器内。 */
+.player-dlg .player-icon-btn { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: #e5e5e7;
+  cursor: pointer; transition: background .15s, color .15s; }
+.player-dlg .player-icon-btn:hover { color: #fff; background: #ffffff14; }
+.player-dlg .player-icon-btn:disabled { opacity: .35; cursor: default; }
+.player-dlg .player-action { display: inline-flex; align-items: center; justify-content: center; padding: 7px 12px;
+  border: 1px solid #ffffff20; border-radius: 7px; background: #ffffff08; color: #eee; font-size: .75rem; cursor: pointer; }
+.player-dlg .player-action:hover { background: #ffffff18; }
+.player-dlg .player-action.primary { border-color: transparent; background: var(--player-accent); color: #fff; }
+.player-dlg .player-action.primary:hover { filter: brightness(1.15); }
+.player-dlg :is(button, input, select, summary):focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+@media (max-width: 420px) {
+  .player-dlg .player-icon-btn { width: 30px; height: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-dlg .player-icon-btn { transition: none; }
+}

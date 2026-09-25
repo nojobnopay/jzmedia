@@ -1,76 +1,98 @@
 <template>
-  <div class="dlg-mask" @click.self="$emit('close')">
-    <div ref="dlgRef" class="player-dlg" role="dialog" aria-modal="true">
-      <div class="pd-head">
-        <h3>{{ title || ('版本 ' + versionId) }}</h3>
-        <span v-if="methodLine" class="play-method">{{ methodLine }}</span>
-        <span v-if="qualityLine" class="play-quality">{{ qualityLine }}</span>
-        <span v-if="reasonLine" class="play-reason">{{ reasonLine }}</span>
-        <span v-if="sessStatus" class="sess-status">{{ sessStatus }}</span>
-        <span class="pd-spacer"></span>
-        <div class="pd-set-host">
-          <!-- 窗口态：设置入口在标题栏；全屏态由 .pv-top 的条件实例承载（不再用 Teleport） -->
-          <PlayerSettings v-if="!isFull" v-bind="settingsProps" v-on="settingsEvents" />
+  <div class="dlg-mask player-mask" @click.self="$emit('close')">
+    <div ref="dlgRef" class="player-dlg" role="dialog" aria-modal="true" :aria-label="title || '视频播放器'">
+      <header class="pd-head">
+        <div class="pd-heading">
+          <span class="pd-eyebrow">{{ isEpisode ? '剧集' : isExtra ? '花絮' : '电影' }}</span>
+          <h3>{{ title || ('版本 ' + versionId) }}</h3>
         </div>
-        <button class="pd-mini" @click="copyDebug">调试</button>
-        <button class="pd-mini" @click="$emit('close')">关闭</button>
-      </div>
-      <div v-if="resumeOffer" class="resume-bar">
-        <span>上次看到 {{ resumeOffer }}</span>
-        <button @click="resumePlay">继续播放</button>
-        <button @click="restartPlay">从头开始</button>
-      </div>
-      <!-- 播放容器：全屏目标；内含视频/冻结帧/提示/顶部标题/底部控件 -->
+        <span v-if="qualityBadge" class="quality-badge" :title="qualityLine">{{ qualityBadge }}</span>
+        <button class="player-icon-btn pd-close" @click="$emit('close')" aria-label="关闭播放器" title="关闭（Esc）">
+          <PlayerIcon name="close" />
+        </button>
+      </header>
       <div ref="pvWrapEl" class="pv-wrap has-bar"
         :class="{ 'hide-cursor': isFull && !overlayVisible }"
         :style="videoPadding ? { paddingTop: videoPadding } : {}"
-        @mousemove="onMouseMove" @dblclick="toggleFull">
+        @pointermove="onMouseMove" @pointerdown="showOverlay" @dblclick="onSurfaceDoubleClick"
+        @focusin="onControlFocus" @focusout="controlsFocused = false">
         <video ref="videoEl" :key="videoKey" autoplay playsinline preload="metadata" class="player-video"
-          @error="onVideoError"></video>
+          @click="onSurfaceClick" @error="onVideoError"></video>
         <img v-if="freezeFrame" :src="freezeFrame" class="freeze-frame" alt="" />
-        <div v-if="seekPending || booting" class="seek-ov">
-          <Spinner :size="18" />
-          <span>{{ seekPending ? ('正在转码到 ' + fmt(seekPos) + '…') : (sessStatus || '正在准备播放…') }}</span>
+        <div v-if="(seekPending || booting) && !err" class="stage-state seek-ov" role="status" aria-live="polite">
+          <Spinner :size="36" />
+          <strong>{{ seekPending ? ('正在跳转到 ' + fmt(seekPos)) : '正在准备播放' }}</strong>
+          <span>正在加载视频，请稍候</span>
         </div>
-        <p v-if="err" class="pv-err">{{ err }}</p>
-        <div class="pv-top" :class="{ show: overlayVisible }">
-          <span class="pv-title">{{ title || ('版本 ' + versionId) }}</span>
-          <span v-if="sessStatus" class="pv-status">{{ sessStatus }}</span>
-          <span class="pd-spacer"></span>
-          <div class="pd-set-host">
-            <PlayerSettings v-if="isFull" v-bind="settingsProps" v-on="settingsEvents" />
+        <div v-else-if="err" class="stage-state" @dblclick.stop>
+          <div class="status-card error-card" role="alert">
+            <PlayerIcon name="info" :size="30" />
+            <strong>播放遇到问题</strong>
+            <p>{{ err }}</p>
+            <button class="player-action primary" @click="reload">重新加载</button>
           </div>
-          <button class="pd-mini" @click="toggleFull" title="退出全屏（Esc）">⤡ 退出全屏</button>
         </div>
-        <!-- 自绘控件条（HLS 与原文件直发统一使用：直发不再用原生控件遮挡画面） -->
+        <div v-else-if="needGesture || !isPlaying" class="stage-state pause-state" @dblclick.stop>
+          <button class="center-play" @click="needGesture ? userPlay() : togglePlay()" :aria-label="needGesture ? '开始播放' : '继续播放'">
+            <PlayerIcon name="play" :size="38" />
+          </button>
+          <span>{{ needGesture ? '点击开始播放' : '已暂停' }}</span>
+        </div>
+        <div class="pv-top" :class="{ show: overlayVisible }" @dblclick.stop>
+          <div class="pv-heading"><span class="pd-eyebrow">正在播放</span><span class="pv-title">{{ title || ('版本 ' + versionId) }}</span></div>
+          <button class="player-icon-btn" @click="toggleFull" aria-label="退出全屏" title="退出全屏（Esc）">
+            <PlayerIcon name="exitFullscreen" />
+          </button>
+        </div>
+        <div v-if="resumeOffer && !booting && !seekPending" class="resume-bar" @dblclick.stop>
+          <span>上次看到 <strong>{{ resumeOffer }}</strong></span>
+          <button class="player-action primary" @click="resumePlay">继续观看</button>
+          <button class="player-action" @click="restartPlay">从头开始</button>
+        </div>
+        <div v-if="(posHint || sessStatus) && overlayVisible && !booting && !seekPending" class="player-toast" role="status" @dblclick.stop>{{ posHint || sessStatus }}</div>
         <div class="pv-ctl" :class="{ show: overlayVisible }" @dblclick.stop>
-          <button @click="togglePlay" :title="isPlaying ? '暂停（空格）' : '播放（空格）'">{{ isPlaying ? '⏸' : '▶' }}</button>
-          <span class="ctl-time">{{ fmt(seekDragging ? seekPreview : seekPos) }} / {{ fmt(decidedDuration) }}</span>
-          <PlayerSeekbar :duration="decidedDuration" :manifest="previews.manifest.value"
-            :value="seekDragging ? seekPreview : Math.floor(seekPos)"
+          <PlayerSeekbar :duration="decidedDuration" :manifest="previews.manifest.value" :buffered="bufferedSections"
+            :value="seekDragging ? seekPreview : seekPos"
             :disabled="seekPending || !(decidedDuration > 0)"
             @input="onSeekInput" @commit="onSeekCommit" @active="previewActive = $event"
             @cancel="seekDragging = false" />
-          <button @click.stop="toggleSettings" title="播放速度">{{ playbackRate }}×</button>
-          <button @click="toggleMute" :title="muted ? '取消静音' : '静音'">{{ muted ? '🔇' : '🔊' }}</button>
-          <input type="range" min="0" max="100" :value="muted ? 0 : volume * 100"
-            @input="setVolume" @change="blurPick" class="ctl-vol" />
-          <button @click="toggleFull" :title="isFull ? '退出全屏（Esc）' : '全屏（双击画面）'">{{ isFull ? '⤡' : '⛶' }}</button>
+          <div class="ctl-row">
+            <div class="ctl-group">
+              <button class="player-icon-btn main-play" @click="togglePlay" :aria-label="isPlaying ? '暂停' : '播放'"
+                :title="isPlaying ? '暂停（空格）' : '播放（空格）'">
+                <PlayerIcon :name="isPlaying ? 'pause' : 'play'" :size="26" />
+              </button>
+              <button class="player-icon-btn skip-btn" @click="seekBy(-10)" :disabled="!(decidedDuration > 0)" aria-label="快退 10 秒" title="快退 10 秒（←）"><PlayerIcon name="rewind" /></button>
+              <button class="player-icon-btn skip-btn" @click="seekBy(10)" :disabled="!(decidedDuration > 0)" aria-label="快进 10 秒" title="快进 10 秒（→）"><PlayerIcon name="forward" /></button>
+              <div class="volume-group">
+                <button class="player-icon-btn" @click="toggleMute" :aria-label="muted ? '取消静音' : '静音'" :title="muted ? '取消静音' : '静音'">
+                  <PlayerIcon :name="muted || volume === 0 ? 'mute' : 'volume'" />
+                </button>
+                <input type="range" min="0" max="100" :value="muted ? 0 : volume * 100" aria-label="音量"
+                  :style="{ '--volume': (muted ? 0 : volume * 100) + '%' }" @input="setVolume" @change="blurPick" class="ctl-vol" />
+              </div>
+              <span class="ctl-time"><span>{{ fmt(seekDragging ? seekPreview : seekPos) }}</span><span class="time-divider">/</span><span class="time-total">{{ fmt(decidedDuration) }}</span></span>
+            </div>
+            <div class="ctl-group ctl-options">
+              <button class="rate-btn" @click.stop="toggleSettings" :aria-label="'播放速度 ' + playbackRate + ' 倍'" title="播放速度" :aria-expanded="settingsOpen">{{ playbackRate }}<span>×</span></button>
+              <PlayerSettings v-if="!isFull" v-bind="settingsProps" v-on="settingsEvents" />
+              <PlayerSettings v-else v-bind="settingsProps" v-on="settingsEvents" />
+              <button class="player-icon-btn" @click="toggleFull" :aria-label="isFull ? '退出全屏' : '全屏'" :title="isFull ? '退出全屏（Esc）' : '全屏（双击画面）'">
+                <PlayerIcon :name="isFull ? 'exitFullscreen' : 'fullscreen'" />
+              </button>
+            </div>
+          </div>
         </div>
-        <!-- 掉帧浮层询问（窗口/全屏统一，画面居中）：10s 无操作视为放弃（不变），
-             点取消同样保持原画 -->
-        <div v-if="dropHint" class="drop-prompt" @dblclick.stop>
-          <span>检测到原画直通丢帧（30 秒 {{ dropDrops }} 帧），切换到 1080p 转码？</span>
-          <button class="drop-go" @click="switchTo1080">切换</button>
-          <button class="drop-cancel" @click="cancelDropPrompt">取消</button>
-          <span class="drop-count">{{ dropCountdown }}s</span>
+        <div v-if="dropHint" class="drop-prompt status-card" @dblclick.stop role="alert">
+          <PlayerIcon name="info" :size="28" />
+          <strong>播放不够流畅？</strong>
+          <p>过去 30 秒丢失 {{ dropDrops }} 帧，切换至 1080p 可减轻播放负担。</p>
+          <div class="prompt-actions">
+            <button class="player-action primary" @click="switchTo1080">切换至 1080p</button>
+            <button class="player-action" @click="cancelDropPrompt">保持原画 <span class="drop-count">{{ dropCountdown }}s</span></button>
+          </div>
         </div>
       </div>
-      <div v-if="needGesture" class="gesture-bar">
-        <span>片源已就绪，浏览器阻止了自动带声播放</span>
-        <button class="play-now" @click="userPlay">▶ 点击播放</button>
-      </div>
-      <p class="hint-line">{{ hintLine }}</p>
     </div>
   </div>
 </template>
@@ -84,6 +106,7 @@ import Spinner from './Spinner.vue'
 import { useFocusTrap } from '../useFocusTrap.js'
 import { useSubtitles } from '../useSubtitles.js'
 import PlayerSettings from './PlayerSettings.vue'
+import PlayerIcon from './PlayerIcon.vue'
 import PlayerSeekbar from './PlayerSeekbar.vue'
 import { applyPlaybackRate, normalizeRate, reusableSeekTime } from '../playbackControls.js'
 import { usePlaybackPreviews } from '../usePlaybackPreviews.js'
@@ -112,6 +135,27 @@ const videoEl = ref(null)
 const previews = usePlaybackPreviews(() => ({ id: props.versionId, kind: props.kind }))
 const playbackRate = ref(readPlaybackRate())
 const previewActive = ref(false)
+const controlsFocused = ref(false)
+const settingsPanelHeight = ref(300)
+const bufferedSections = ref([])
+let playerResizeObserver = null
+let surfaceClickTimer = 0
+let toastTimer = 0
+function onControlFocus(e) { controlsFocused.value = !!e.target?.matches?.(':focus-visible') }
+function onSurfaceClick() {
+  clearTimeout(surfaceClickTimer)
+  surfaceClickTimer = setTimeout(() => { if (!disposed && !booting.value && !seekPending.value) togglePlay() }, 220)
+}
+function onSurfaceDoubleClick() { clearTimeout(surfaceClickTimer); toggleFull() }
+function observePlayerSize() {
+  const el = pvWrapEl.value
+  if (!el) return
+  const resize = () => { settingsPanelHeight.value = Math.max(120, el.clientHeight - 108) }
+  resize()
+  if (typeof ResizeObserver === 'undefined') return
+  playerResizeObserver = new ResizeObserver(resize)
+  playerResizeObserver.observe(el)
+}
 function readPlaybackRate() {
   try { return normalizeRate(localStorage.getItem('jzmedia.playbackRate')) } catch { return 1 }
 }
@@ -131,7 +175,7 @@ function syncPlaybackRate() {
   if (rate > 0) playbackRate.value = normalizeRate(rate)
 }
 let hls = null
-useFocusTrap(ref(true), dlgRef)
+useFocusTrap(ref(true), computed(() => isFull.value ? pvWrapEl.value : dlgRef.value))
 let saveTimer = 0
 let lastSave = 0
 const quality = ref('auto')
@@ -159,6 +203,10 @@ let activeCaps = null
 const probedCaps = {}
 const err = ref('')
 const posHint = ref('')
+watch(posHint, text => {
+  clearTimeout(toastTimer)
+  if (text) toastTimer = setTimeout(() => { posHint.value = '' }, 7000)
+})
 // 掉帧看门狗：原画直通（视频 copy）且源 >1080p 时持续丢帧 → 提示手点降档。
 // 不自动切、不落 localStorage（仅当次提示）。浮层询问（窗口/全屏统一，10s 超时=不变）。
 let dropGuard = createDropGuard()
@@ -258,7 +306,7 @@ let keyboardSeekTarget = null
 let seekFallbackTimer = 0
 // 冻结帧 + 容器比例（padding-top 撑高，绝对定位铺满：换会话时窗口绝不塌）
 const freezeFrame = ref('')
-const videoPadding = ref('56.25%')
+const videoPadding = ref('calc(min(56.25%, 64vh) + var(--pvb))')
 // 全屏目标 = 播放容器（不是整个弹窗）：画面居中、控件悬浮可隐
 const pvWrapEl = ref(null)
 const mouseActive = ref(false)
@@ -272,7 +320,7 @@ function onMouseMove() {
 // 全屏时控件/标题的显隐：鼠标活跃、暂停、seek 中、设置打开、有错误时常显
 const overlayVisible = computed(() =>
   !isFull.value || mouseActive.value || seekPending.value || !isPlaying.value
-  || settingsOpen.value || previewActive.value || !!err.value)
+  || settingsOpen.value || previewActive.value || controlsFocused.value || !!err.value)
 const isHls = computed(() => ['remux', 'audio_transcode', 'video_transcode']
   .includes(method.value))
 const bufLine = computed(() => {
@@ -283,8 +331,6 @@ const bufLine = computed(() => {
   if (bufSecs.value > 0) s += `（已缓冲 ${Math.floor(bufSecs.value)}s）`
   return s
 })
-// 状态行：缓冲进度 + 操作提示并存（只显示 bufLine 会吞掉「直链已复制」等反馈）
-const hintLine = computed(() => [bufLine.value, posHint.value].filter(Boolean).join(' · '))
 function absPos() {
   const v = videoEl.value
   const cur = (v && Number.isFinite(v.currentTime)) ? v.currentTime : 0
@@ -307,6 +353,7 @@ const planHeight = ref(0)
 const directUrl = ref('')   // 原文件直链（设置弹层「复制直链」给 VLC/Kodi 用）
 const directFailUrl = ref('')
 const srcHeight = ref(0)
+const qualityBadge = computed(() => (planHeight.value || srcHeight.value) ? `${planHeight.value || srcHeight.value}p` : '')
 const qualityLine = computed(() => {
   if (!method.value) return ''
   const h = Number(planHeight.value) || 0
@@ -612,7 +659,7 @@ async function reload() {
   directUrl.value = d.direct_url || ''
   directFailUrl.value = ''
   srcHeight.value = Number(d.media?.height) || 0
-  // 播放器比例：padding-top = min(片源高宽比, 76vh)（16:9 片源按屏幕宽度自适应）；
+  // 播放器比例：padding-top = min(片源高宽比, 64vh)（16:9 片源按屏幕宽度自适应）；
   // HLS 模式底部额外预留控件条高度，视频区不被遮挡。无数据时容器也不塌陷。
   try {
     const w = Number(d.media?.width) || 0
@@ -620,10 +667,10 @@ async function reload() {
     const pct = (w > 0 && h > 0)
       ? (Math.round((h / w) * 10000) / 100) + '%'
       : '56.25%'
-    const box = 'min(' + pct + ', 68vh)'
-    // 统一为底部控件条预留 46px（HLS 与原文件直发一致），避免控件压住画面/字幕
-    videoPadding.value = 'calc(' + box + ' + 46px)'
-  } catch (e) { videoPadding.value = 'calc(min(56.25%, 68vh) + 46px)' }
+    const box = 'min(' + pct + ', 64vh)'
+    // 与 CSS 的两行控件高度同源，视频和字幕都避开控件区。
+    videoPadding.value = 'calc(' + box + ' + var(--pvb))'
+  } catch (e) { videoPadding.value = 'calc(min(56.25%, 64vh) + var(--pvb))' }
   try {
     decidedDuration.value = Number(d.media?.duration) || 0
   const startAt = fromZero ? 0 : (resumePos || 0)
@@ -741,9 +788,11 @@ const {
   logEvt: (kind, detail) => logEvt(kind, detail),
 })
 
-// 设置弹层：窗口态渲染在标题栏、全屏态渲染在 .pv-top（两次条件实例，不再用动态 Teleport
-// 宿主——2026-09 用户反馈全屏找不到设置入口）。open 状态在父组件，切换全屏不丢。
+// 设置放在容器内的底部控件栏，全屏仍可访问；保留条件实例及父级 open 状态。
 const settingsProps = computed(() => ({
+  panelHeight: settingsPanelHeight.value,
+  reasonLine: reasonLine.value,
+  bufferLine: bufLine.value,
   playbackRate: playbackRate.value,
   previewBusy: previews.busy.value,
   previewStatus: previews.status.value,
@@ -767,6 +816,7 @@ const settingsProps = computed(() => ({
   subStyle: subStyle.value,
 }))
 const settingsEvents = {
+  'copy-debug': copyDebug,
   'rate-change': onRateChange,
   'preview-start': previews.start,
   'preview-cancel': previews.cancel,
@@ -871,7 +921,6 @@ async function postProgress(p) {
       timeout: 15000     // 单行 UPSERT：慢/挂起时及时放弃，别拖住关播后的「上次看到」刷新
     })
     lastSave = Date.now()
-    posHint.value = `已记录 ${fmt(p.pos)}`
   } catch (e) { /* 进度上报失败不打扰播放 */ }
 }
 function saveNow() {
@@ -1028,6 +1077,7 @@ function onFullChange() {
   isFull.value = !!document.fullscreenElement
   // 进入全屏视为同意继续播放（用户 2026-09）：立即消条
   if (isFull.value && resumeOffer.value) resumePlay()
+  if (isFull.value) showOverlay()
   if (!isFull.value) {
     mouseActive.value = false
     if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
@@ -1074,7 +1124,9 @@ function onKeydown(e) {
     settingsOpen.value = false
     return
   }
-  if (e.code === 'Space' && !typing) {
+  // 设置里的下拉、折叠项与按钮保留原生键盘行为。
+  if (e.key !== 'Escape' && t.closest?.('.pd-set')) return
+  if (e.code === 'Space' && !typing && !['button', 'summary', 'a'].includes(tag)) {
     e.preventDefault()   // 直发也走自绘控件：空格统一播放/暂停
     showOverlay()
     togglePlay()
@@ -1155,6 +1207,7 @@ async function copyDebug() {
   }
 }
 onMounted(async () => {
+  observePlayerSize()
   try {
     const p = await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`)
     const pos = Number(p.position) || 0
@@ -1188,6 +1241,8 @@ onMounted(async () => {
   bufTimer = setInterval(() => {
     try {
       const v = videoEl.value
+      const offset = method.value === 'direct' ? 0 : startOffset.value
+      bufferedSections.value = bufferedRanges().map(([start, end]) => [start + offset, end + offset])
       if (v && v.buffered && v.buffered.length && Number.isFinite(v.currentTime)) {
         bufSecs.value = Math.max(0, v.buffered.end(v.buffered.length - 1) - v.currentTime)
       } else {
@@ -1413,6 +1468,9 @@ async function recoverStream(forceElement = false) {
   } catch (e) { /* 恢复失败等下次节拍或转 err */ }
 }
 onBeforeUnmount(() => {
+  playerResizeObserver?.disconnect()
+  clearTimeout(surfaceClickTimer)
+  clearTimeout(toastTimer)
   clearTimeout(keyboardSeekTimer)
   clearTimeout(seekFallbackTimer)
   // Vue 在 unmount 阶段先 setRef(null) 再跑 onUnmounted：videoEl 在 onUnmounted 已为 null，
@@ -1452,81 +1510,107 @@ onUnmounted(() => {
 defineExpose({ saveFinal })
 </script>
 <style scoped>
-/* 弹窗自足样式：不再依赖父组件 scoped 的 .dlg；尺寸随屏幕比例自适应 */
+.player-mask { background: rgba(5,5,8,.86); backdrop-filter: blur(12px); padding: 16px; box-sizing: border-box; }
 .player-dlg {
-  background: #161616; border-radius: 12px; padding: 12px 14px 10px;
-  width: min(66vw, 1400px); max-width: min(66vw, 1400px);
-  max-height: 94vh; overflow: auto;
-  display: flex; flex-direction: column; gap: 8px;
-  box-sizing: border-box;
+  --player-accent: var(--jz-accent, #e50914);
+  color: #f5f5f5; background: #161618; border: 1px solid #ffffff15; border-radius: 16px;
+  width: min(1120px, 94vw); max-height: 94vh; max-height: 94dvh; overflow: auto;
+  box-shadow: 0 24px 100px #0009; box-sizing: border-box;
 }
-.pd-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
-.pd-head h3 { margin: 0; font-size: 1.0625rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%; }
-.pd-spacer { flex: 1; }
-
-/* 设置弹层样式随子组件 PlayerSettings.vue + 全局 player.css（R14-Q5 约定） */
-.pd-set-host { display: inline-flex; align-items: center; }
-
-.pv-wrap { --pvb: 0px; position: relative; background: #000; border-radius: 8px; overflow: hidden; width: 100%; }
-.pv-wrap.has-bar { --pvb: 46px; }
+.pd-head { display: flex; gap: 16px; align-items: center; padding: 16px 20px; }
+.pd-heading { flex: 1; min-width: 0; }
+.pd-eyebrow { display: block; font-size: .625rem; letter-spacing: .12em; color: #999; line-height: 1.4; margin-bottom: 4px; }
+.pd-head h3 { margin: 0; font-size: 1rem; font-weight: 500; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quality-badge { padding: 3px 7px; border: 1px solid #ffffff25; border-radius: 5px; font-size: .625rem; font-weight: 600; color: #bbb; }
+.pd-close { color: #aaa; }
+.pv-wrap { position: relative; background: #000; overflow: hidden; width: 100%; }
+.pv-wrap.has-bar { --pvb: 84px; }
 .pv-wrap.hide-cursor { cursor: none; }
-.player-video { position: absolute; top: 0; left: 0; right: 0; bottom: var(--pvb); width: 100%; height: auto; object-fit: contain; background: #000; display: block; }
-.freeze-frame { position: absolute; top: 0; left: 0; right: 0; bottom: var(--pvb); width: 100%; height: auto; object-fit: contain; background: #000; }
-.seek-ov { position: absolute; top: 0; left: 0; right: 0; bottom: var(--pvb); display: flex; gap: 10px; align-items: center; justify-content: center; background: rgba(0, 0, 0, .45); color: #e0a63c; font-size: 0.9375rem; }
-.pv-err { position: absolute; left: 10px; right: 10px; bottom: calc(var(--pvb) + 8px); margin: 0; padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,.72); color: #e0a63c; font-size: 0.8125rem; z-index: 3; }
-
-/* 底部控件：窗口态在视频下方保留条内；全屏态为悬浮层并按鼠标显隐 */
-.pv-ctl { position: absolute; left: 0; right: 0; bottom: 0; height: var(--pvb); display: flex; gap: 8px; align-items: center; padding: 0 10px; box-sizing: border-box; background: #101010; z-index: 2; }
-.pv-ctl button { padding: 4px 10px; }
-.pv-ctl select { max-width: 130px; min-width: 0; background: #262626; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 4px 6px; font-size: 0.75rem; }
-.ctl-time { font-size: 0.75rem; color: #999; white-space: nowrap; }
-.ctl-vol { width: 80px; }
-/* PGS 画布样式在 ensurePgsCanvas 内联设置（动态元素吃不到 scoped 样式） */
-
-/* 顶部标题条：仅全屏显示 */
+.player-video, .freeze-frame { position: absolute; top: 0; left: 0; width: 100%; height: calc(100% - var(--pvb)); object-fit: contain; background: #000; display: block; }
+.freeze-frame { pointer-events: none; }
+.stage-state { position: absolute; inset: 0 0 var(--pvb); display: flex; flex-direction: column; gap: 12px;
+  align-items: center; justify-content: center; background: #0005; font-size: .8125rem; z-index: 4; }
+.stage-state strong { font-weight: 500; font-size: .9375rem; }
+.stage-state > span { color: #bbb; font-size: .75rem; }
+.seek-ov { background: #08080b99; }
+.pause-state { pointer-events: none; background: linear-gradient(transparent, #0003); }
+.center-play { pointer-events: auto; display: grid; place-items: center; width: 76px; height: 76px; padding: 0 0 0 3px;
+  border: 1px solid #ffffff40; border-radius: 50%; color: #fff; background: #16161a99; backdrop-filter: blur(8px);
+  box-shadow: 0 4px 28px #0005; transition: background .2s, transform .2s; }
+.center-play:hover { transform: scale(1.06); background: #ffffff30; }
+.pv-ctl { position: absolute; left: 0; right: 0; bottom: 0; height: 84px; padding: 4px 20px 12px;
+  display: flex; flex-direction: column; box-sizing: border-box; background: #161618; z-index: 6; }
+.ctl-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 40px; }
+.ctl-group, .volume-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ctl-options { flex: none; gap: 6px; }
+.volume-group { margin-left: 4px; }
+.ctl-time { display: flex; gap: 8px; margin-left: 12px; font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; color: #999; }
+.ctl-time > span:first-child { color: #eee; }
+.time-divider { color: #626267; }
+.ctl-vol { width: 68px; height: 4px; margin: 0 8px 0 2px; padding: 0; border: 0; border-radius: 4px;
+  background: linear-gradient(to right, #ddd var(--volume), #ffffff30 var(--volume)); appearance: none; cursor: pointer; }
+.ctl-vol::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; background: #eee; border: 0; border-radius: 50%; }
+.ctl-vol::-moz-range-thumb { width: 10px; height: 10px; background: #eee; border: 0; border-radius: 50%; }
+.rate-btn { height: 36px; min-width: 44px; padding: 0 8px; border: 0; border-radius: 7px; color: #eee; background: transparent;
+  font-size: .8125rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rate-btn span { margin-left: 2px; font-weight: 400; color: #aaa; }
+.rate-btn:hover { background: #ffffff12; }
 .pv-top { display: none; }
-.pv-status { color: #e0a63c; font-size: 0.8125rem; }
-
-/* ===== 全屏（容器全屏：画面居中、控件悬浮可隐） ===== */
-.pv-wrap:fullscreen { padding-top: 0 !important; width: 100vw; height: 100vh; border-radius: 0; --pvb: 0px; }
-.pv-wrap:fullscreen .player-video,
-.pv-wrap:fullscreen .freeze-frame,
-.pv-wrap:fullscreen .seek-ov { bottom: 0; height: 100%; }
-.pv-wrap:fullscreen .pv-err { bottom: 76px; }
-.pv-wrap:fullscreen .pv-ctl {
-  height: auto; padding: 26px 18px 14px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, .88));
-  opacity: 0; pointer-events: none; transition: opacity .25s ease;
-  position: absolute; left: 0; right: 0; bottom: 0; top: auto;
-}
+.pv-heading { flex: 1; min-width: 0; }
+.pv-title { display: block; font-size: 1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resume-bar { position: absolute; left: 20px; bottom: calc(var(--pvb) + 18px); z-index: 5; display: flex; align-items: center; flex-wrap: wrap;
+  gap: 8px; max-width: calc(100% - 40px); box-sizing: border-box; padding: 10px 12px; border: 1px solid #ffffff20; border-radius: 10px;
+  background: #1c1c20ee; box-shadow: 0 6px 20px #0004; font-size: .75rem; color: #ccc; }
+.resume-bar > span { margin-right: 8px; }
+.resume-bar strong { color: #fff; font-weight: 500; font-variant-numeric: tabular-nums; }
+.player-toast { position: absolute; left: 50%; bottom: calc(var(--pvb) + 20px); transform: translateX(-50%); z-index: 7;
+  width: max-content; max-width: calc(100% - 40px); padding: 9px 14px; border: 1px solid #ffffff18; border-radius: 9px;
+  color: #eee; background: #202024ed; font-size: .75rem; line-height: 1.6; box-sizing: border-box; overflow-wrap: anywhere; pointer-events: none; }
+.status-card { display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(380px, calc(100% - 40px));
+  max-height: calc(100% - 24px); overflow: auto; box-sizing: border-box; padding: 24px; border: 1px solid #ffffff20;
+  border-radius: 14px; background: #1c1c20f2; text-align: center; box-shadow: 0 12px 40px #0006; }
+.status-card strong, .status-card > .player-action, .prompt-actions { flex-shrink: 0; }
+.status-card strong { font-size: 1rem; font-weight: 500; }
+.status-card p { min-height: 0; overflow: auto; margin: 0; color: #aaa; font-size: .8125rem; line-height: 1.7; overflow-wrap: anywhere; }
+.drop-prompt { position: absolute; left: 50%; top: calc((100% - var(--pvb)) / 2); transform: translate(-50%, -50%); z-index: 8; }
+.prompt-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.drop-count { margin-left: 4px; color: #999; font-variant-numeric: tabular-nums; }
+/* 窗口态为字幕保留画面区；全屏控件悬浮，视频铺满容器。 */
+.pv-wrap:fullscreen { padding-top: 0 !important; width: 100vw; height: 100vh; --pvb: 0px; }
+.pv-wrap:fullscreen .pv-ctl { height: 108px; padding: 24px 32px 16px; background: linear-gradient(transparent, #000c);
+  opacity: 0; pointer-events: none; transition: opacity .2s; }
 .pv-wrap:fullscreen .pv-ctl.show { opacity: 1; pointer-events: auto; }
-.pv-wrap:fullscreen .pv-top {
-  display: flex; gap: 12px; align-items: center;
-  position: absolute; left: 0; right: 0; top: 0; padding: 12px 18px 30px; box-sizing: border-box;
-  background: linear-gradient(rgba(0, 0, 0, .85), transparent);
-  opacity: 0; pointer-events: none; transition: opacity .25s ease; z-index: 4;
-}
+.pv-wrap:fullscreen .pv-top { display: flex; gap: 20px; align-items: center; position: absolute; inset: 0 0 auto;
+  padding: 24px 32px 44px; background: linear-gradient(#000b, transparent); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 5; }
 .pv-wrap:fullscreen .pv-top.show { opacity: 1; pointer-events: auto; }
-.pv-title { color: #eee; font-size: 0.9375rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.play-method { color: #888; font-size: 0.75rem; }
-.play-quality { color: #7ed321; font-size: 0.75rem; }
-.play-reason { color: #9ecfff; font-size: 0.75rem; }
-.sess-status { color: #e0a63c; font-size: 0.75rem; }
-.gesture-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: #262626; border: 1px solid #2b6cb0; border-radius: 8px; padding: 8px 12px; margin: 4px 0 0; color: #9ecfff; font-size: 0.875rem; }
-.play-now { font-size: 1rem; padding: 6px 22px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }
-.resume-bar { display: flex; gap: 8px; align-items: center; color: #7ed321; font-size: 0.875rem; flex-wrap: wrap; }
-.hint-line { margin: 0; color: #666; font-size: 0.8125rem; overflow-wrap: anywhere; }
-/* 掉帧询问浮层（窗口/全屏统一）：画面居中，控件条/标题显隐都不遮挡 */
-.drop-prompt {
-  position: absolute; z-index: 6; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  display: flex; gap: 10px; align-items: center; max-width: 92vw;
-  padding: 10px 16px; border-radius: 10px; background: rgba(0, 0, 0, .82);
-  color: #eee; font-size: 0.875rem; box-shadow: 0 4px 18px rgba(0, 0, 0, .4);
+.pv-wrap:fullscreen .resume-bar, .pv-wrap:fullscreen .player-toast { bottom: 118px; }
+@media (max-width: 700px) {
+  .player-mask { padding: 10px; }
+  .player-dlg { width: 100%; border-radius: 12px; }
+  .pd-head { padding: 12px 14px; gap: 10px; }
+  .pd-head h3 { font-size: .875rem; }
+  .ctl-vol { display: none; }
+  .volume-group { margin-left: 0; }
+  .ctl-time { margin-left: 6px; gap: 5px; font-size: .6875rem; }
+  .pv-ctl { padding-left: 12px; padding-right: 12px; }
+  .ctl-row { gap: 4px; }
+  .ctl-group, .ctl-options { gap: 2px; }
+  .center-play { width: 60px; height: 60px; }
+  .resume-bar { left: 12px; max-width: calc(100% - 24px); gap: 6px; padding: 8px; }
+  .status-card { padding: 14px; gap: 8px; }
+  .status-card > svg { display: none; }
+  .pv-wrap:fullscreen .pv-ctl { padding-left: 16px; padding-right: 16px; }
+  .pv-wrap:fullscreen .pv-top { padding: 16px 20px 30px; }
 }
-.drop-prompt button { padding: 3px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
-.drop-go { background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; }
-.drop-cancel { background: transparent; border: 1px solid #777; color: #ccc; }
-.drop-count { color: #9ecfff; font-variant-numeric: tabular-nums; }
-.hint.warn { color: #e0a63c; }
+@media (max-width: 420px) {
+  .ctl-time { margin-left: 4px; gap: 4px; font-size: .625rem; }
+  .rate-btn { min-width: 36px; padding: 0 4px; font-size: .75rem; }
+  .quality-badge { display: none; }
+}
+@media (max-width: 360px) {
+  .ctl-time .time-divider, .ctl-time .time-total { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .center-play, .pv-wrap:fullscreen .pv-ctl, .pv-wrap:fullscreen .pv-top { transition: none; }
+}
 </style>
