@@ -1,7 +1,7 @@
 <template>
   <section :id="active ? 'sec-restore' : undefined" class="card-block">
-    <h3>恢复到原始位置 <span class="fhint" v-if="media">作用于「{{ media.name }}」整个媒体库</span></h3>
-    <p class="hint">整理/搬迁后偏离首次入库位置的影片可搬回原处。列表按视频库分表，可逐表勾选恢复；
+    <h3>恢复到原始位置 <span class="fhint" v-if="library">作用于「{{ library.name }}」视频库</span></h3>
+    <p class="hint">整理/搬迁后偏离首次入库位置的影片可搬回原处。勾选恢复；
       目标被占用或源文件缺失会跳过上报、绝不覆盖。</p>
     <div class="bar">
       <button @click="doRestore(checkedAll(), 'all')" :disabled="!!busy || !checkedRestore.length">
@@ -41,15 +41,15 @@
   </section>
 </template>
 <script setup>
-import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, computed, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { api } from '../api.js'
 import { groupByVideoLib, kindText } from '../libraryToolGroups.js'
 
 const COLLAPSE_N = 20
 const props = defineProps({
-  media: { type: Object, default: null },
-  libFilter: { type: Number, default: null },
+  library: { type: Object, default: null },
   active: { type: Boolean, default: false },
+  preselectIds: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['count', 'changed'])
 
@@ -60,11 +60,7 @@ const checkedRestore = ref([])
 const restoreMsg = ref('')
 const armRestore = ref(null)       // null | 'all' | 视频库 key
 const restoreExpand = reactive({})
-const scopeLibs = computed(() => {
-  const libs = props.media ? (props.media.video_libraries || []) : []
-  if (props.libFilter == null) return libs
-  return libs.filter(l => Number(l.id) === Number(props.libFilter))
-})
+const scopeLibs = computed(() => (props.library ? [props.library] : []))
 const restoreGroups = computed(() => groupByVideoLib(restorePlans.value, scopeLibs.value)
   .map(g => ({ ...g, key: String(g.library_id) })))
 function groupTitle(g) {
@@ -114,7 +110,7 @@ async function load(preselect) {
   armRestore.value = null
   const ids = (Array.isArray(preselect) ? preselect : []).map(Number).filter(Number.isFinite)
   try {
-    const q = props.media && props.media.id != null ? '?media_library=' + props.media.id : ''
+    const q = props.library && props.library.id != null ? '?library=' + props.library.id : ''
     const d = await api('/api/files/restore-candidates' + q)
     // 预览接口字段是 file_path/original_file_path，统一映射成 from/to（含标题供展示）
     restorePlans.value = (Array.isArray(d.items) ? d.items : []).map(e => ({
@@ -155,7 +151,7 @@ async function doRestore(ids, key = 'all') {
       body: JSON.stringify({
         ids: list,
         dry_run: false,
-        ...(props.media && props.media.id != null ? { media_library_id: props.media.id } : {}),
+        ...(props.library && props.library.id != null ? { library_id: props.library.id } : {}),
       })
     })
     const doneIds = new Set(list)
@@ -197,12 +193,17 @@ onUnmounted(() => window.removeEventListener('scroll', hideTip, true))
 // 进入区块时自动加载一次（H-UI：原先靠「预览」按钮，按钮语义弱且只做首次加载）
 async function ensure() {
   if (loaded.value) return
-  await load()
+  await load(props.preselectIds)
 }
 // 归档整理改变了路径后，若恢复清单已加载则静默刷新（保留勾选）
 async function reloadIfLoaded() {
   if (loaded.value) await load()
 }
+// 挂载即激活（视频库 Tab 更多工具内）时自动加载；深链 ids 到达后重新预选
+watch(() => props.active, (v) => { if (v) ensure() }, { immediate: true })
+watch(() => props.preselectIds, (ids) => {
+  if (loaded.value && (ids || []).length) load(ids)
+})
 defineExpose({ load, ensure, reloadIfLoaded })
 </script>
 <style scoped>

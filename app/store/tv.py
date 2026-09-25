@@ -419,6 +419,7 @@ def _show_row(r) -> dict:
     d["episode_count"] = int(d.get("episode_count") or 0)
     d["season_count"] = int(d.get("season_count") or 0)
     d["watched_count"] = int(d.get("watched_count") or 0)
+    d["episode_review_count"] = int(d.get("episode_review_count") or 0)
     return d
 
 
@@ -748,17 +749,27 @@ def suggest_tv_people(q: str, limit: int = 5, library_ids=None) -> list[dict]:
             sorted(cc.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
 
 
+def _pending_show_sql(alias: str) -> str:
+    """待处理剧条件：未匹配（无 tmdb_id）或待确认（剧级/集级 needs_review）。
+    alias 为 tv_shows 的表别名（list_shows 用 s，count_shows 用 tv_shows）。"""
+    return (f"({alias}.tmdb_id IS NULL OR {alias}.needs_review=1 OR EXISTS ("
+            f"SELECT 1 FROM tv_episodes e2 WHERE e2.show_id={alias}.id"
+            " AND e2.needs_review=1))")
+
+
 def list_shows(library_ids=None, q: str = "", limit: int = 500,
                offset: int = 0, *, genres=None, regions=None,
                countries=None, years=None, decades=None, tags=None,
                min_rating=None, rating_source=None, watched=None,
-               status=None, sort=None, order=None) -> list[dict]:
+               status=None, pending=None, sort=None, order=None) -> list[dict]:
     """剧集列表（海报墙）：库范围 + 本地搜索 + 结构化筛选 + 排序。
 
     过滤语义与电影墙一致：facet 内 OR、跨维度 AND、tags 多选 AND、
     min_rating 单阈值（>=）；`status` 为连载状态桶
    （continuing/ended/other，见 `tv_status_bucket`）；`watched=1` 为整剧
     已看完（有集且无未看集），`watched=0` 为未看完。
+    `pending=1` 只返回待处理剧（未匹配/剧级待确认/有未匹配集），行上带
+    `episode_review_count`（未匹配集数）。
     `sort=None` 时保持历史默认（sort_title）排序；传 sort 后走白名单排序。
     """
     where, params = [], []
@@ -766,6 +777,8 @@ def list_shows(library_ids=None, q: str = "", limit: int = 500,
     if cond:
         where.append(cond)
         params.extend(cparams)
+    if pending:
+        where.append(_pending_show_sql("s"))
     fwhere, fparams = _tv_structured_where(
         "s", genres=genres, regions=regions, countries=countries,
         years=years, decades=decades, tags=tags, min_rating=min_rating,
@@ -797,7 +810,8 @@ def list_shows(library_ids=None, q: str = "", limit: int = 500,
         rows = c.execute(
             "SELECT s.*, COUNT(e.id) AS episode_count,"
             " COUNT(DISTINCT e.season) AS season_count,"
-            " COALESCE(SUM(e.watched), 0) AS watched_count"
+            " COALESCE(SUM(e.watched), 0) AS watched_count,"
+            " COALESCE(SUM(e.needs_review), 0) AS episode_review_count"
             " FROM tv_shows s LEFT JOIN tv_episodes e ON e.show_id=s.id"
             + wsql +
             " GROUP BY s.id " + order_sql +
@@ -808,13 +822,15 @@ def list_shows(library_ids=None, q: str = "", limit: int = 500,
 def count_shows(library_ids=None, q: str = "", *, genres=None,
                 regions=None, countries=None, years=None, decades=None,
                 tags=None, min_rating=None, rating_source=None,
-                watched=None, status=None) -> int:
+                watched=None, status=None, pending=None) -> int:
     """按同样过滤口径计剧数（分页 total 用；无过滤时退化为旧行为）。"""
     where, params = [], []
     cond, cparams = _lib_cond("tv_shows", library_ids)
     if cond:
         where.append(cond)
         params.extend(cparams)
+    if pending:
+        where.append(_pending_show_sql("tv_shows"))
     fwhere, fparams = _tv_structured_where(
         "tv_shows", genres=genres, regions=regions, countries=countries,
         years=years, decades=decades, tags=tags, min_rating=min_rating,

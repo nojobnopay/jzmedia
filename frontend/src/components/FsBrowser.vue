@@ -106,6 +106,8 @@ const props = defineProps({
   active: { type: Boolean, default: false },
   media: { type: Object, default: null },
   videoLibs: { type: Array, default: () => [] },
+  // 视频库 Tab 的文件浏览：直接以该视频库根为根（不再从媒体库根进入）
+  initialLibId: { type: Number, default: null },
 })
 const emit = defineEmits(['changed', 'scan'])
 
@@ -208,6 +210,11 @@ watch(() => props.media && props.media.id, () => {
   clipboard.value = { mode: 'copy', rels: [] }
   copyJob.value = null
   if (props.active) loadFs('')
+})
+// 视频库 Tab 指定初始根：切库时直接落到该视频库根
+watch(() => props.initialLibId, (id) => {
+  if (id == null || !props.active) return
+  switchToLib(id)
 })
 
 async function doFsMkdir() {
@@ -528,6 +535,9 @@ function onKeydown(e) {
 }
 
 onMounted(() => {
+  if (props.initialLibId != null && libById(props.videoLibs, props.initialLibId)) {
+    ctx.value = { mode: 'lib', libId: Number(props.initialLibId) }
+  }
   loadFs('')
   window.addEventListener('keydown', onKeydown)
 })

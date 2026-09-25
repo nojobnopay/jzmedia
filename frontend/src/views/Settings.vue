@@ -117,7 +117,7 @@
         </div>
       </section>
 
-      <LibraryToolsPanel ref="toolsRef" :media-libs="mediaList" :current-media-id="currentId"
+      <LibraryToolsPanel ref="toolsRef" :libs="libList" :current-media-id="currentId"
         @changed="onToolsChanged" />
     </div>
   </div>
@@ -129,7 +129,7 @@ import LibrariesPanel from '../components/LibrariesPanel.vue'
 import LibraryToolsPanel from '../components/LibraryToolsPanel.vue'
 import { fmtBytes } from '../format.js'
 import { api, setToken } from '../api.js'
-import { currentMediaId, listLibs, loadLibs, buildMediaLibs } from '../libraries.js'
+import { currentMediaId, listLibs, loadLibs } from '../libraries.js'
 import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
 
 const route = useRoute()
@@ -287,10 +287,9 @@ async function loadStats() {
   try { stats.value = await api('/api/jobs/stats') } catch (e) { /* 忽略 */ }
 }
 
-// 媒体库工具（按媒体库标签页）：库列表来自全局状态，库变动后同步
+// 媒体库工具（按视频库标签页）：库列表来自全局状态，库变动后同步
 const toolsRef = ref(null)
 const libList = ref(listLibs())
-const mediaList = computed(() => buildMediaLibs(libList.value))
 const currentId = ref(currentMediaId())
 function syncLibs() {
   libList.value = listLibs()
@@ -306,22 +305,16 @@ async function onToolsChanged() {
 
 const librariesRef = ref(null)
 
-// 左侧导航：通用项 + 每个媒体库一组工具入口
-const navs = computed(() => {
-  const items = [
-    { id: 'sec-status', label: '库状态' },
-    { id: 'sec-libraries', label: '媒体库' },
-    { id: 'sec-tmdb', label: 'TMDB 配置' },
-    { id: 'sec-auth', label: '访问控制' },
-    { id: 'sec-display', label: '显示' },
-    { id: 'sec-index', label: '搜索索引' },
-  ]
-  const libItems = mediaList.value.map(m => ({
-    id: 'lib-' + m.id, label: m.name || ('媒体库 ' + m.id),
-    mediaId: m.id, group: '媒体库工具',
-  }))
-  return [...items, ...libItems]
-})
+// 左侧导航：只列通用区块 + 一个「媒体库工具」入口（视频库选择在工具区内部 Tab）
+const navs = computed(() => [
+  { id: 'sec-status', label: '库状态' },
+  { id: 'sec-libraries', label: '媒体库' },
+  { id: 'sec-tmdb', label: 'TMDB 配置' },
+  { id: 'sec-auth', label: '访问控制' },
+  { id: 'sec-display', label: '显示' },
+  { id: 'sec-index', label: '搜索索引' },
+  { id: 'sec-libtools', label: '媒体库工具' },
+])
 const active = ref('sec-status')
 const _sectionLoaded = { 'sec-libraries': false }
 function ensureSectionData(id) {
@@ -332,10 +325,6 @@ function ensureSectionData(id) {
 }
 function go(n) {
   active.value = n.id
-  if (n.mediaId != null) {
-    toolsRef.value?.select(n.mediaId, { scroll: true })
-    return
-  }
   ensureSectionData(n.id)
   document.getElementById(n.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
@@ -380,7 +369,6 @@ onMounted(async () => {
     }
   }, { rootMargin: '-20% 0px -70% 0px' })
   for (const n of navs.value) {
-    if (n.mediaId != null) continue
     const el = document.getElementById(n.id)
     if (el) observer.observe(el)
   }

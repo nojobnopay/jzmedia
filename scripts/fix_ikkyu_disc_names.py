@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """聪明的一休 Disc01–48：发行组原名 → 统一模板名（纯改名，不碰集号/标题/绑定）。
 
-背景：Disc01–48 是「一碟多集」（每文件 5–6 集），整理器 `_MAX_EP_RANGE=3`
+背景：Disc01–48 是「一碟多集」（每文件 5–6 集），当时整理器 `_MAX_EP_RANGE=3`
 守卫只列 manual 不自动改名，所以一直保留原名
 （如 `聪明的一休.Disc01.Ikkyu.San.1975.S01E001-E006.DVD5.X264.AAC.HALFCD-NORM.mkv`）。
+（2026-09 起整理器已支持整季单文件自动改名/归位，本脚本保留作历史审计与参考。）
 Disc49–53 已由 fix_ikkyu_tail_discs.py 改成模板名，本脚本把前 48 个对齐
 同一风格：`聪明的一休-S01E01-E06-妈妈的布娃娃.mkv`
 （规则与 tv_organize.rename 同源：`_episode_base_title` + `_clean_name`，

@@ -17,7 +17,9 @@
   extras  ：类型目录（Deleted Scenes/…）整目录上移到剧根（仅深度 ≤2）；`Behind The
             Scene` → `Behind The Scenes`；更深层/散文件只报告（需手动整理）
   rename  ：正片 → `剧名-S01E01[-E02]-集名.ext`（同集多版本加 `-V2`；S00 特典同名式；
-            同茎字幕/NFO 跟随；needs_review/未匹配/超长多集区间/绝对集号风险 → 只报告）
+            同茎字幕/NFO 跟随；整季单文件（S01E01-E13）按同一模板正常改名；
+            needs_review/未匹配/绝对集号风险（且确有正片需改名）→ 只报告；
+            local_only 本地集 → `kept`（保持原名，不计需手动））
 """
 import os
 import re
@@ -41,7 +43,6 @@ _SINGULAR_FIX = {"behind the scene": "Behind The Scenes"}
 _MOVE_SIBLING_EXTS = (".srt", ".ass", ".ssa", ".sup", ".nfo", ".sub", ".idx")
 _ILLEGAL_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')   # `/` 必须清洗，否则会建出目录
 _MAX_TITLE_LEN = 80
-_MAX_EP_RANGE = 3          # E01-E02…E04 可自动；更宽的区间（E001-E006/E01-E13）只报告
 _ABS_RISK_RATIO = 0.5      # 绝对集号映射占比 ≥50% → 该剧默认不勾选改名
 _MANUAL_CAP = 30
 
@@ -50,8 +51,7 @@ _SUGGEST = {
                 "确认无误后再勾选该剧执行",
     "unmatched": "先到剧详情页匹配 TMDB，再重新预览",
     "needs_review": "先到剧详情页绑定该集的 TMDB 集号，再重新预览",
-    "local_only": "该集已确认 TMDB 无对应集（本地集），保持原名不改",
-    "range": "单文件覆盖多集且区间过长，建议手动确认命名",
+    "bad_episode": "该行集号缺失或非法，无法生成规范名；请手动确认文件与 TMDB 集号",
     "no_title": "缺少剧名（可能未匹配 TMDB），先匹配后再改名",
     "exists": "目标名已存在（可能已有同名文件），请手动处理",
 }
@@ -263,6 +263,35 @@ def _absolute_risk(episodes: list[dict]) -> bool:
     return abs_n / total >= _ABS_RISK_RATIO
 
 
+def _target_stem(show_title: str, ep: dict, ver: int = 0) -> str | None:
+    """规范名茎（不含扩展名）`剧名[-V2]-S01E01[-E02]-集名`；集号非法返回 None。"""
+    head = _episode_base_title(show_title, ep, ver=ver)
+    if not head:
+        return None
+    ep_title = _clean_name(ep.get("title"))
+    return f"{head}-{ep_title}" if ep_title else head
+
+
+def _strip_part_suffix(stem: str) -> str:
+    pm = re.search(r"-part\d+$", stem, re.I)
+    return stem[:pm.start()] if pm else stem
+
+
+def _abs_rename_pending(episodes: list[dict], show: dict, ver_of: dict) -> bool:
+    """绝对集号风险仅在**确有正片需要改名**时提示/拦截：已全部规范名（既往已整理）
+    的剧不再打扰；local_only/待确认行本来就不改名，不参与判定。"""
+    for e in episodes:
+        if (e.get("local_only") or int(e.get("needs_review") or 0)
+                or not e.get("tmdb_episode_id")):
+            continue
+        stem = os.path.splitext(os.path.basename(str(e.get("file_path") or "")))[0]
+        target = _target_stem(show.get("title") or "", e,
+                              ver=ver_of.get(int(e.get("id")), 0))
+        if target and _strip_part_suffix(stem).casefold() != target.casefold():
+            return True
+    return False
+
+
 def _root_target(show: dict, profile: str) -> str | None:
     if str(profile or "").lower() == "off":
         return None
@@ -292,7 +321,7 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
             "library_id": show.get("library_id"), "show_dir": show_dir,
             "dir_moves": [], "file_moves": [], "dir_renames": [],
             "rmdirs": [], "untouched": [], "manual": [], "manual_more": 0,
-            "rename_count": 0, "absolute_risk": False, "root_move": None,
+            "kept": [], "rename_count": 0, "absolute_risk": False, "root_move": None,
             "conflicts": [], "warnings": [], "blocked": False, "dir_totals": {}}
     if _torrent_present(cache, show_dir) and not allow_torrent:
         plan["blocked"] = True
@@ -391,13 +420,6 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
                 season = int(e.get("season") or 0)
             except (TypeError, ValueError):
                 season = 0
-            try:
-                ep_start = int(e.get("episode") or 0)
-                ep_end = int(e.get("episode_end") or 0)
-            except (TypeError, ValueError):
-                ep_start, ep_end = 0, 0
-            if ep_end > ep_start and (ep_end - ep_start) > _MAX_EP_RANGE:
-                continue          # 多集合并且区间过宽（无法确认）：不强制补 Season
             in_show = d2 == show_dir
             # 已在季目录内（Season NN/Specials/特典…）：重绑后季拆分变化（如平台合集
             # 拼接号 S1~S4）时按库内季号归位；深度 >1 的目录交给 wrapper/untouched。
@@ -428,21 +450,7 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
 
     # ---- 6) 正片统一命名（与移动合并：每个文件只动一次） ----
     rename_on = "rename" in actions
-    if rename_on:
-        plan["absolute_risk"] = _absolute_risk(episodes)
     used: dict[str, set] = {}
-    if plan["absolute_risk"] and rename_on:
-        if allow_absolute:
-            plan["warnings"].append(
-                "绝对集号风险：已显式勾选，按 TMDB 编号改名（Plex 季/集拆分可能不同）")
-        else:
-            plan["manual"].append({"file": show_dir, "scope": "show",
-                                   "reason": "absolute",
-                                   "suggestion": _SUGGEST["absolute"]})
-    rename_abs_ok = bool(allow_absolute) and rename_on
-    if rename_on and not show.get("tmdb_id"):
-        plan["manual"].append({"file": show_dir, "scope": "show", "reason": "unmatched",
-                               "suggestion": _SUGGEST["unmatched"]})
     # 多版本版本号：组内稳定排序（已带 Vn 标记的排后），重复执行不互换
     ver_of: dict[int, int] = {}
     if rename_on:
@@ -469,6 +477,22 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
                     v = nxt_free
                 ver_used.add(v)
                 ver_of[int(e["id"])] = v          # 已带 Vn 标记的原样保留
+    # 绝对集号风险：仅当确有正片需要改名时才提示/拦截；已全部规范名的剧不打扰
+    plan["absolute_risk"] = bool(
+        rename_on and _absolute_risk(episodes)
+        and _abs_rename_pending(episodes, show, ver_of))
+    if plan["absolute_risk"]:
+        if allow_absolute:
+            plan["warnings"].append(
+                "绝对集号风险：已显式勾选，按 TMDB 编号改名（Plex 季/集拆分可能不同）")
+        else:
+            plan["manual"].append({"file": show_dir, "scope": "show",
+                                   "reason": "absolute",
+                                   "suggestion": _SUGGEST["absolute"]})
+    rename_abs_ok = bool(allow_absolute) and rename_on
+    if rename_on and not show.get("tmdb_id"):
+        plan["manual"].append({"file": show_dir, "scope": "show", "reason": "unmatched",
+                               "suggestion": _SUGGEST["unmatched"]})
     # 输出/执行顺序：先版本分组（V1 全部在前，再 V2…），再季/集
     ep_sorted = sorted(episodes, key=lambda e: (
         ver_of.get(int(e["id"]), 1),
@@ -494,25 +518,17 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
             if (plan["absolute_risk"] and not rename_abs_ok) or not show.get("tmdb_id"):
                 new_base = None
             elif e.get("local_only"):
-                _manual(fp, "local_only")
+                plan["kept"].append(fp)          # 已确认本地集：保持原名，不计需手动
             elif int(e.get("needs_review") or 0):
                 _manual(fp, "needs_review")
             elif not e.get("tmdb_episode_id"):
                 _manual(fp, "needs_review")
             else:
-                try:
-                    start = int(e.get("episode") or 0)
-                    end = int(e.get("episode_end") or 0)
-                except (TypeError, ValueError):
-                    start, end = 0, 0
-                head = _episode_base_title(show.get("title") or "", e, ver=idx)
-                if not head:
-                    _manual(fp, "no_title" if not (show.get("title") or "") else "range")
-                elif end and end > start and (end - start) > _MAX_EP_RANGE:
-                    _manual(fp, "range")
+                new_stem = _target_stem(show.get("title") or "", e, ver=idx)
+                if not new_stem:
+                    _manual(fp, "no_title"
+                            if not (show.get("title") or "") else "bad_episode")
                 else:
-                    ep_title = _clean_name(e.get("title"))
-                    new_stem = f"{head}-{ep_title}" if ep_title else head
                     new_base = new_stem + ext
         if new_base and new_stem:
             pm = re.search(r"-part\d+$", stem, re.I)
@@ -624,6 +640,7 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
     plan["rmdirs"].extend(sorted(moved_dirs, key=lambda x: (-len(x), x)))
     plan["rmdirs"] = sorted(set(plan["rmdirs"]), key=lambda x: (-len(x), x))
     plan["untouched"] = sorted(set(plan["untouched"]))
+    plan["kept"] = sorted(set(plan["kept"]))
 
     # ---- 8) 剧根改名（最后执行；必须在所有内部动作之后） ----
     if "root" in actions:
@@ -672,7 +689,8 @@ def plan_tv_organize(library_ids=None, ids=None, actions=TV_ORGANIZE_ACTIONS,
                     "library_id": show.get("library_id"),
                     "dir_moves": [], "file_moves": [], "dir_renames": [],
                     "rmdirs": [], "untouched": [], "manual": [], "manual_more": 0,
-                    "rename_count": 0, "absolute_risk": False, "root_move": None,
+                    "kept": [], "rename_count": 0, "absolute_risk": False,
+                    "root_move": None,
                     "conflicts": [], "blocked": False, "dir_totals": {},
                     "warnings": [f"plan error: {str(e)[:160]}"]}
         if not plan:
@@ -689,13 +707,14 @@ def plan_tv_organize(library_ids=None, ids=None, actions=TV_ORGANIZE_ACTIONS,
             counts["root"] += 1
         if (plan["file_moves"] or plan["dir_moves"] or plan["dir_renames"]
                 or plan.get("root_move") or plan["conflicts"] or plan["warnings"]
-                or plan.get("untouched") or plan.get("manual")):
+                or plan.get("untouched") or plan.get("manual") or plan.get("kept")):
             plans.append(plan)
     return {"plans": plans, "counts": counts, "total": sum(counts.values()),
             "conflicts": sum(len(p["conflicts"]) for p in plans),
             "untouched": sum(len(p.get("untouched") or []) for p in plans),
             "manual": sum(len(p.get("manual") or []) + int(p.get("manual_more") or 0)
                           for p in plans),
+            "kept": sum(len(p.get("kept") or []) for p in plans),
             "absolute": sum(1 for p in plans if p.get("absolute_risk")),
             "blocked": sum(1 for p in plans if p.get("blocked"))}
 
@@ -723,8 +742,13 @@ def summarize_plan(plan: dict, samples: int = 3) -> dict:
             b = buckets[key] = {"action": m.get("action"),
                                 "label": _LABELS.get(m.get("action"), m.get("action")),
                                 "to": os.path.dirname(m["to"]), "count": 0,
+                                "episodes": 0, "files": 0,
                                 "samples": [], "renamed": 0}
         b["count"] += 1
+        if str(m.get("kind") or "") == "file":
+            b["files"] += 1          # 同茎字幕/NFO 等附属文件（跟随正片）
+        else:
+            b["episodes"] += 1
         if os.path.basename(m["to"]) != os.path.basename(m["from"]):
             b["renamed"] += 1
         if len(b["samples"]) < samples:
@@ -746,6 +770,7 @@ def summarize_plan(plan: dict, samples: int = 3) -> dict:
     counts["rename"] = int(plan.get("rename_count") or counts.get("rename", 0))
     dir_totals = [{"dir": d, "count": int(n)}
                   for d, n in sorted((plan.get("dir_totals") or {}).items())]
+    kept = sorted(set(plan.get("kept") or []))
     return {"show_id": plan.get("show_id"), "title": plan.get("title"),
             "library_id": plan.get("library_id"), "show_dir": plan.get("show_dir"),
             "blocked": bool(plan.get("blocked")), "absolute_risk":
@@ -755,6 +780,7 @@ def summarize_plan(plan: dict, samples: int = 3) -> dict:
             "untouched_count": len(plan.get("untouched") or []),
             "manual": plan.get("manual") or [], "manual_more":
             int(plan.get("manual_more") or 0),
+            "kept": kept, "kept_count": len(kept),
             "conflicts": plan.get("conflicts") or []}
 
 

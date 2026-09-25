@@ -176,6 +176,7 @@ def list_shows(library: str | None = None, media_library: int | None = None,
                min_rating: float | None = None,
                rating_source: str = "tmdb",
                watched: int | None = None,
+               pending: int | None = None,
                status: list[str] | None = Query(default=None),
                sort: str | None = None, order: str | None = None):
     """剧集列表：media_library=整个媒体库（其全部剧集类视频库并集）；
@@ -183,8 +184,9 @@ def list_shows(library: str | None = None, media_library: int | None = None,
 
     过滤语义与电影墙一致（facet 内 OR、跨维度 AND、tags 多选 AND；
     选了具体国家时建议前端让大区让位）；`status` 为连载状态桶
-    （continuing/ended/other）；`sort` 白名单 added/updated/year/title/rating
-   （缺省保持历史 sort_title 排序）。"""
+    （continuing/ended/other）；`pending=1` 只返回待处理剧（未匹配/剧级待
+    确认/有未匹配集），行上带 `episode_review_count`；`sort` 白名单
+    added/updated/year/title/rating（缺省保持历史 sort_title 排序）。"""
     libs = _lib_ids(library, media_library)
     try:
         limit = max(1, min(int(limit or 200), 2000))
@@ -199,8 +201,8 @@ def list_shows(library: str | None = None, media_library: int | None = None,
          "min_rating": min_rating, "rating_source": rating_source,
          "watched": watched, "status": store._split_multi(status)}
     items = store.list_shows(libs, q, limit, offset, **f,
-                             sort=sort, order=order)
-    total = store.count_shows(libs, q, **f)
+                             sort=sort, order=order, pending=pending)
+    total = store.count_shows(libs, q, **f, pending=pending)
     return {"items": items, "total": total,
             "has_more": offset + len(items) < total,
             "limit": limit, "offset": offset}
@@ -807,6 +809,7 @@ def show_organize_hint(show_id: int, actions: str | None = None,
                 "absolute_risk": False, "blocked": False, "warnings": [],
                 "counts": {}, "groups": [], "dir_totals": [],
                 "manual": [], "manual_more": 0,
+                "kept": [], "kept_count": 0,
                 "conflicts": [], "untouched": [], "untouched_count": 0}
     summary = tv_organize.summarize_plan(p)
     needs = bool(p.get("file_moves") or p.get("dir_moves")
@@ -836,6 +839,8 @@ def show_organize_hint(show_id: int, actions: str | None = None,
             "dir_totals": summary.get("dir_totals") or [],
             "manual": summary.get("manual") or [],
             "manual_more": int(summary.get("manual_more") or 0),
+            "kept": summary.get("kept") or [],
+            "kept_count": int(summary.get("kept_count") or 0),
             "conflicts": summary.get("conflicts") or [],
             "untouched": summary.get("untouched") or [],
             "untouched_count": int(summary.get("untouched_count") or 0)}

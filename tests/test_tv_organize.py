@@ -287,7 +287,8 @@ def test_rename_special_and_multi_version(tv_lib):
     assert (root / "测试剧.2020/Season 00/测试剧-S00E01-特典.mkv").is_file()
 
 
-def test_rename_skips_needs_review_and_long_range(tv_lib):
+def test_rename_skips_needs_review_and_renames_long_range(tv_lib):
+    """needs_review 只报告；多集区间（含整季单文件）按同一模板正常改名。"""
     lib, root = tv_lib
     _touch(root, "测试剧.2020/Season 01/01.mkv")
     _touch(root, "测试剧.2020/Season 01/02.mkv")
@@ -298,12 +299,13 @@ def test_rename_skips_needs_review_and_long_range(tv_lib):
                               needs_review=1)
     store.update_episode_meta(eps[2]["id"], tmdb_episode_id=800002, title="集2",
                               episode_end=8)
-    plan = tv_organize.plan_tv_organize(library_ids=[lib["id"]], actions=("rename",))
-    assert plan["counts"]["rename"] == 0
+    plan, res = _run(lib, actions=("rename",))
+    assert plan["counts"]["rename"] == 1
     reasons = {m["reason"] for m in plan["plans"][0]["manual"]}
-    assert reasons == {"needs_review", "range"}
+    assert reasons == {"needs_review"}
     assert (root / "测试剧.2020/Season 01/01.mkv").is_file()
-    assert (root / "测试剧.2020/Season 01/02.mkv").is_file()
+    assert (root / "测试剧.2020/Season 01/测试剧-S01E02-E08-集2.mkv").is_file()
+    assert res["failed"] == 0, res
 
 
 def test_rename_skips_absolute_risk_show(tv_lib):
@@ -400,6 +402,7 @@ def test_rename_idempotent_after_execute(tv_lib):
 def test_summarize_plan_groups(tv_lib):
     lib, root = tv_lib
     _touch(root, "测试剧.2020/S01/01.mp4")
+    _touch(root, "测试剧.2020/S01/01.chs.srt")
     scanner.scan_all(library_id=lib["id"])
     show = _match_show(lib, title="测试剧", year=2020)
     _match_episodes(show["id"])
@@ -408,6 +411,9 @@ def test_summarize_plan_groups(tv_lib):
     assert s["counts"]["root"] == 1 and s["counts"]["rename"] == 1
     labels = {g["label"] for g in s["groups"]}
     assert "剧根改名" in labels and "季目录规范化" in labels
+    # 正片与附属文件分开计数（避免"正片 3 / 文件 12"两个口径）
+    ren = next(g for g in s["groups"] if g["action"] == "rename")
+    assert ren["episodes"] == 1 and ren["files"] == 1 and ren["count"] == 2
     assert s["manual"] == [] and s["untouched"] == []
 
 
@@ -423,3 +429,73 @@ def test_rename_keeps_part_files(tv_lib):
     assert plan["total"] == 0 and plan["manual"] == 0, plan
     plan2 = tv_organize.plan_tv_organize(library_ids=[lib["id"]])
     assert plan2["counts"]["rename"] == 0, plan2
+
+
+def test_wide_range_pack_moves_and_renames(tv_lib):
+    """整季单文件（S01E01-E13）按普通集处理：补 Season + 模板改名，不报需手动。"""
+    lib, root = tv_lib
+    _touch(root, "Pack.Show.2020/Usavich.S01E01-E13.WEB.1080p.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    show = _match_show(lib, title="测试剧", year=2020)
+    ep = store.list_episodes(show["id"])[0]
+    store.update_episode_meta(ep["id"], tmdb_episode_id=800001, title="第一话")
+    plan, res = _run(lib, actions=("season", "rename"))
+    assert plan["manual"] == 0, plan
+    assert plan["counts"].get("season") == 1, plan
+    assert plan["plans"][0]["rename_count"] == 1, plan
+    assert res["failed"] == 0, res
+    assert (root / "Pack.Show.2020/Season 01/测试剧-S01E01-E13-第一话.mkv").is_file()
+
+
+def test_wide_range_canonical_name_not_manual(tv_lib):
+    """整季单文件已是规范名 + 目录已就位：无动作、无 manual（一休式误报回归）。"""
+    lib, root = tv_lib
+    _touch(root, "测试剧.2020/Season 01/测试剧-S01E01-E06-集1.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    show = _match_show(lib, title="测试剧", year=2020)
+    ep = store.list_episodes(show["id"])[0]
+    store.update_episode_meta(ep["id"], tmdb_episode_id=800001, title="集1")
+    plan = tv_organize.plan_tv_organize(library_ids=[lib["id"]],
+                                        actions=("season", "rename"))
+    assert plan["total"] == 0 and plan["manual"] == 0, plan
+
+
+def test_absolute_risk_not_reported_when_already_canonical(tv_lib):
+    """绝对集号剧正片已全部规范名：不报风险、不需手动（既往已整理不再打扰）。"""
+    lib, root = tv_lib
+    _touch(root, "测试剧.2020/Season 01/测试剧-S01E01-集1.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    show = _match_show(lib, title="测试剧", year=2020)
+    ep = store.list_episodes(show["id"])[0]
+    store.update_episode_meta(ep["id"], tmdb_episode_id=900001, title="集1",
+                              absolute_number=1)
+    plan = tv_organize.plan_tv_organize(library_ids=[lib["id"]], actions=("rename",))
+    assert plan["absolute"] == 0
+    assert plan["manual"] == 0 and plan["total"] == 0, plan
+    # 非规范名（需改名）仍照旧提示，需显式确认
+    _touch(root, "测试剧.2020/Season 01/02.mkv")
+    scanner.scan_all(library_id=lib["id"], force=True)
+    eps = store.list_episodes(show["id"])
+    for e in eps:
+        store.update_episode_meta(e["id"], tmdb_episode_id=900000 + int(e["episode"]),
+                                  title=f"集{int(e['episode'])}", absolute_number=1)
+    plan2 = tv_organize.plan_tv_organize(library_ids=[lib["id"]], actions=("rename",))
+    assert plan2["absolute"] == 1
+    assert any(m["reason"] == "absolute" for m in plan2["plans"][0]["manual"])
+
+
+def test_local_only_listed_as_kept_not_manual(tv_lib):
+    """已确认本地集：列入 kept（保持原名），不计需手动、不触发改名。"""
+    lib, root = tv_lib
+    _touch(root, "测试剧.2020/Season 01/01.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    show = _match_show(lib, title="测试剧", year=2020)
+    ep = store.list_episodes(show["id"])[0]
+    store.update_episode_meta(ep["id"], title="本地集", local_only=1)
+    plan = tv_organize.plan_tv_organize(library_ids=[lib["id"]], actions=("rename",))
+    assert plan["manual"] == 0 and plan["kept"] == 1, plan
+    p = plan["plans"][0]
+    assert p["manual"] == [] and len(p["kept"]) == 1
+    s = tv_organize.summarize_plan(p)
+    assert s["manual"] == [] and s["kept_count"] == 1
+    assert (root / "测试剧.2020/Season 01/01.mkv").is_file()

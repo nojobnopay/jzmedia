@@ -422,6 +422,7 @@ def _tv_org_worker(jid: str, library_id=None, media_library_id=None, ids=None,
                          "total": plan["total"], "conflicts": plan["conflicts"],
                          "untouched": plan.get("untouched", 0),
                          "manual": plan.get("manual", 0),
+                         "kept": plan.get("kept", 0),
                          "absolute": plan.get("absolute", 0),
                          "blocked": plan["blocked"],
                          "plans": [tv_organize.summarize_plan(p)

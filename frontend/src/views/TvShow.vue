@@ -126,6 +126,10 @@
         <div class="g-title warn-text">需手动处理（{{ orgHint.manual.length }}{{ orgHint.manual_more ? `+${orgHint.manual_more}` : '' }}）</div>
         <div v-for="(m2, i) in (orgHint.manual || []).slice(0, 8)" :key="i" class="g-sample" :title="m2.suggestion">{{ manualText(m2) }}</div>
       </div>
+      <div v-if="(orgHint.kept || []).length" class="manual-block">
+        <div class="g-title">保持原名（已确认本地集，不改名）</div>
+        <div v-for="(k, i) in (orgHint.kept || []).slice(0, 8)" :key="'k' + i" class="g-sample">{{ basename(k) }}</div>
+      </div>
       <p v-if="(orgHint.conflicts || []).length" class="warn-text">另有 {{ orgHint.conflicts.length }} 项冲突（目标已存在，不会自动覆盖）。</p>
       <p v-if="(orgHint.warnings || []).length" class="hint">{{ (orgHint.warnings || []).join('；') }}</p>
       <div class="bar">
@@ -151,8 +155,8 @@ import { api, posterUrl } from '../api.js'
 import { episodeVersion, seasonStats } from '../episodeVersions.js'
 import { useFocusTrap } from '../useFocusTrap.js'
 import {
-  ACTION_LABELS, dirTotalsText, groupText, hintExecBody, hintNeeds, hintReasonText,
-  manualText,
+  ACTION_LABELS, basename, dirTotalsText, groupText, hintExecBody, hintNeeds,
+  hintReasonText, manualText,
 } from '../tvOrganizePlans.js'
 import PlayerModal from '../components/PlayerModal.vue'
 import CastWall from '../components/CastWall.vue'
@@ -432,7 +436,7 @@ async function openOrganize () {
   orgMsg.value = ''
   try {
     const h = await api(`/api/tv/shows/${show.value.id}/organize-hint`)
-    if (hintNeeds(h)) {
+    if (hintNeeds(h) || (h.kept || []).length) {
       orgHint.value = h
       orgAllowAbs.value = false
       for (const k of ORG_ACTIONS) orgActs.value[k] = true

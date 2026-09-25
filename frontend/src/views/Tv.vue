@@ -118,7 +118,7 @@
   </div>
 
   <EmptyState v-if="!items.length && firstLoaded && !loadError"
-    :text="(q.trim() || activeCount) ? '没有符合条件的剧集。' : '当前媒体库还没有剧集。在设置页「媒体库」对应媒体库下添加一个「剧集」类型的视频库并扫描，再到「库工具 → 剧集刮削」补元数据即可。'">
+    :text="(q.trim() || activeCount) ? '没有符合条件的剧集。' : '当前媒体库还没有剧集。先在设置页「媒体库」添加「剧集」类型的视频库，再到「媒体库工具」的剧集标签页点「扫描本视频库」：扫描会自动匹配 TMDB 并拉取元数据。'">
     <button v-if="q.trim() || activeCount" @click="clearAll">清空回到全部</button>
   </EmptyState>
   <EmptyState v-if="loadError" :text="loadError" />
@@ -130,7 +130,8 @@
           :alt="s.title || '剧集'" />
         <div v-else class="no-poster" aria-hidden="true">{{ (s.title || '?').slice(0, 1) }}</div>
         <span v-if="s.watched_count" class="seen">{{ s.watched_count }}/{{ s.episode_count }}</span>
-        <span v-if="s.needs_review" class="review">待确认</span>
+        <span v-if="!s.tmdb_id" class="review">未匹配</span>
+        <span v-else-if="s.needs_review" class="review">待确认</span>
         <ScoreBadge :score="s.tmdb_rating" source="tmdb" />
       </div>
       <div class="t">{{ s.title }}<span v-if="s.year" class="yr"> ({{ s.year }})</span></div>

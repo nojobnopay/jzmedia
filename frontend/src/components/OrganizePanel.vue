@@ -7,8 +7,8 @@
     <div v-show="open" class="pipe-body">
       <p class="hint">
         <b>就地归档</b>：按命名档规范影片自身目录/文件（自建父目录如「周星驰」保留，合集目录不动）；
-        <b>搬到顶层</b>：收敛到各视频库根，平铺为「标题 (年份)/」。
-        列表按视频库分表，可逐表勾选/执行或逐行选动作。先预览，再执行。
+        <b>搬到顶层</b>：收敛到本视频库根，平铺为「标题 (年份)/」。
+        可整体勾选/执行或逐行选动作。先预览，再执行。
       </p>
       <div class="bar">
         <label><input type="radio" value="inplace" v-model="orgMode" /> 就地归档</label>
@@ -111,15 +111,14 @@ import { groupByVideoLib, kindText } from '../libraryToolGroups.js'
 
 const COLLAPSE_N = 20
 const props = defineProps({
-  media: { type: Object, required: true },
-  libFilter: { type: Number, default: null },
+  library: { type: Object, required: true },
   active: { type: Boolean, default: false },
 })
 const emit = defineEmits(['changed'])
 
 const busy = ref(null)
 const open = ref(false)
-const orgMode = ref('inplace')      // inplace=就地归档 | relocate=搬到顶层（各视频库根）
+const orgMode = ref('inplace')      // inplace=就地归档 | relocate=搬到顶层（本视频库根）
 const orgPlans = ref([])
 const orgConflicts = ref([])
 const orgMsg = ref('')
@@ -127,11 +126,7 @@ const planExpand = reactive({})
 const checkedPlans = ref([])
 const planAction = ref({})
 
-const scopeLibs = computed(() => {
-  const libs = props.media.video_libraries || []
-  if (props.libFilter == null) return libs
-  return libs.filter(l => Number(l.id) === Number(props.libFilter))
-})
+const scopeLibs = computed(() => [props.library])
 const planGroups = computed(() => groupByVideoLib(orgPlans.value, scopeLibs.value)
   .map(g => ({ ...g, key: String(g.library_id) })))
 const conflictLibGroups = computed(() => groupByVideoLib(orgConflicts.value, scopeLibs.value)
@@ -236,7 +231,7 @@ async function loadOrgPreview() {
   try {
     const d = await api('/api/files/organize', {
       method: 'POST',
-      body: JSON.stringify({ mode: orgMode.value, dry_run: true, media_library_id: props.media.id })
+      body: JSON.stringify({ mode: orgMode.value, dry_run: true, library_id: props.library.id })
     })
     orgPlans.value = d.plans || []
     orgConflicts.value = d.conflicts || []
@@ -296,7 +291,7 @@ async function execOrganize(chosen) {
     const results = []
     let conflicts = []
     for (const [mode, ids] of byMode) {
-      const body = { mode, dry_run: false, ids: [...ids], media_library_id: props.media.id }
+      const body = { mode, dry_run: false, ids: [...ids], library_id: props.library.id }
       const d = await api('/api/files/organize', { method: 'POST', body: JSON.stringify(body) })
       results.push(...(d.results || []))
       conflicts = d.conflicts || conflicts
@@ -351,7 +346,11 @@ async function refresh(auto = false) {
     open.value = false
   }
 }
-defineExpose({ ensure, refresh })
+// 供父级步骤状态：可归档项数（计划 + 冲突）
+function count() {
+  return orgPlans.value.length + orgConflicts.value.length
+}
+defineExpose({ ensure, refresh, count })
 </script>
 <style scoped>
 .pipe-step { margin: 12px 0 0; border-top: 1px dashed #3a3a3a; padding-top: 10px; }

@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  basename, dirname, planTotal, groupText, groupSamples, untouchedText,
-  manualText, showTotalText, defaultChecked, showFlags, riskShowIds, dirTotalsText,
+  ACTION_HELP, ACTION_LABELS, actionTotals, basename, dirname, planTotal, groupText,
+  groupSamples, untouchedText, manualText, planActionChips, noteText, splitPlans,
+  defaultChecked, showFlags, riskShowIds, dirTotalsText,
 } from '../src/tvOrganizePlans.js'
 
 test('basename/dirname', () => {
@@ -22,6 +23,9 @@ test('groupText for dir and file groups', () => {
     '剧根改名：Breaking.Bad.2008/ → 绝命毒师 (2008)/')
   assert.equal(groupText({ action: 'rename', count: 12, to: 'Show/Season 01' }),
     '正片统一命名：12 项 → Season 01/')
+  // 正片与附属文件分开（避免"正片 3 / 文件 12"两个口径）
+  assert.equal(groupText({ action: 'rename', episodes: 3, files: 9, count: 12, to: 'Show/Season 01' }),
+    '正片统一命名：3 个正片 + 9 个附属 → Season 01/')
 })
 
 test('groupSamples caps at max and reports more', () => {
@@ -38,6 +42,7 @@ test('groupSamples caps at max and reports more', () => {
   assert.equal(lines.length, 3)
   assert.equal(lines[0].from, '01.mp4')
   assert.equal(lines[0].to, '剧-S01E01-一.mp4')
+  assert.equal(lines[0].title, 'a/01.mp4 → b/剧-S01E01-一.mp4')
   assert.equal(more, 2)
 })
 
@@ -48,11 +53,60 @@ test('untouchedText/manualText', () => {
     '01.mp4：待确认集号')
   assert.equal(manualText({ file: 'Show', reason: 'absolute' }),
     'Show：绝对集号风险（Plex 季集拆分可能不同）')
+  assert.equal(manualText({ file: 'Show/01.mp4', reason: 'bad_episode' }),
+    '01.mp4：集号异常（无法生成规范名）')
 })
 
-test('showTotalText lists non-zero actions in canonical order', () => {
-  const text = showTotalText({ counts: { rename: 24, root: 1, extras: 0 } })
-  assert.equal(text, '剧根改名 1，正片统一命名 24')
+test('ACTION_HELP covers all actions with human help', () => {
+  assert.deepEqual(Object.keys(ACTION_HELP),
+    ['root', 'seasondir', 'wrapper', 'season', 'specials', 'extras', 'rename'])
+  for (const [k, v] of Object.entries(ACTION_HELP)) {
+    assert.ok(v.label && v.desc && v.example, k)
+  }
+  assert.equal(ACTION_LABELS.rename, '正片统一命名')
+})
+
+test('planActionChips aggregates groups by action (same source as details)', () => {
+  const plan = { groups: [
+    { action: 'root', dir: true, from: 'a', to: 'b' },
+    { action: 'season', episodes: 2, files: 1, count: 3, to: 'Show/Season 01' },
+    { action: 'rename', episodes: 3, files: 9, count: 12, to: 'Show/Season 01' },
+  ] }
+  assert.deepEqual(planActionChips(plan),
+    ['剧根改名 1', '补 Season 目录 2（+1 附属）', '正片统一命名 3（+9 附属）'])
+  assert.deepEqual(planActionChips(null), [])
+})
+
+test('splitPlans splits action vs note-only', () => {
+  const a = { show_id: 1, counts: { rename: 2 } }
+  const n1 = { show_id: 2, counts: {}, kept_count: 1 }
+  const n2 = { show_id: 3, counts: {}, untouched_count: 5 }
+  const { actionPlans, notePlans } = splitPlans([a, n1, n2])
+  assert.deepEqual(actionPlans.map(p => p.show_id), [1])
+  assert.deepEqual(notePlans.map(p => p.show_id), [2, 3])
+  assert.deepEqual(splitPlans(null), { actionPlans: [], notePlans: [] })
+})
+
+test('noteText explains why a show is listed', () => {
+  assert.equal(noteText({ kept_count: 1 }), '保持原名 1 项（本地集）')
+  assert.equal(noteText({ untouched_count: 245 }), '深层花絮 245 个未整理')
+  assert.equal(noteText({ manual: [{}], manual_more: 2, conflicts: [{}] }),
+    '需手动 3 项；冲突 1 项')
+  assert.equal(noteText({}), '无需操作')
+})
+
+test('actionTotals sums shows/episodes/files and note counts', () => {
+  const t = actionTotals([
+    { groups: [{ action: 'rename', episodes: 3, files: 9, count: 12, to: 'd' }],
+      manual: [], conflicts: [], kept_count: 0, untouched_count: 0 },
+    { groups: [], kept_count: 1, untouched_count: 245, conflicts: [{}] },
+  ])
+  assert.equal(t.shows, 2)
+  assert.equal(t.episodes, 3)
+  assert.equal(t.files, 9)
+  assert.equal(t.kept, 1)
+  assert.equal(t.untouched, 245)
+  assert.equal(t.conflicts, 1)
 })
 
 test('defaultChecked skips blocked/absolute_risk shows', () => {
@@ -85,5 +139,8 @@ test('dirTotalsText shows final per-dir counts (incl. in-place)', () => {
 test('showFlags', () => {
   assert.deepEqual(showFlags({ blocked: true, absolute_risk: true, manual: [{}] }),
     ['做种阻断', '绝对集号风险', '需手动 1'])
+  // manual 列表被后端截断（_MANUAL_CAP）时，徽标必须计入 manual_more
+  assert.deepEqual(showFlags({ manual: [{}, {}], manual_more: 21 }), ['需手动 23'])
+  assert.deepEqual(showFlags({ manual_more: 2 }), ['需手动 2'])
   assert.deepEqual(showFlags({}), [])
 })
