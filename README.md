@@ -139,15 +139,27 @@ TMDB 密钥申请（约 3 分钟）：注册 https://www.themoviedb.org/signup �
 - NFO：独占单版本目录只留 `movie.nfo`（标题/原标题/年份/简介/评分/类型/产地/演职员 + TMDB/IMDb ID），同片多版本（同目录同 `tmdb_id`）才为每个版本补 `<视频文件名>.nfo`，共享混放目录只写当前同名、不碰 `movie.nfo`；Kodi / Jellyfin / Emby 通用，`POST /api/jobs/rebuild-nfo` 可一键全量收敛历史残留
 - 以上全部 gitignored，只在本地与 NAS 上存在
 
+## 倍速与进度预览
+
+播放器「设置 → 速度」支持 0.5 / 0.75 / 1 / 1.25 / 1.5 / 2 倍，保持音调并记住本浏览器的选择；切画质、恢复播放和连播时保持速度。倍速由浏览器控制，在线转码速度或网络不足时仍可能缓冲，可先预缓存再观看。
+
+进度条支持鼠标悬停、拖动和触屏拖动预览。首次使用可在「播放器设置 → 生成预览」生成当前版本，或在「设置 → 媒体库工具 → 对应视频库 → 更多工具 → 高级维护/剧集维护」批量生成。生成过程不阻塞播放，完成一页即可预览；支持取消并从已完成页面继续。未生成的时间段只显示时间。批量任务遇到在线转码会等待，远程库建议空闲时执行。
+
+预览只读片源，图片保存在 `DATA_DIR/previews/`，不写 NAS 视频目录。本地库默认每 10 秒取一帧，SMB/NFS 默认 20 秒；`PREVIEW_INTERVAL` 可覆盖（5～60 秒）。`PREVIEW_CACHE_GB` 默认 2GB，按最近访问回收，正在生成和最近访问的目录受保护，因此可能暂时超过限额。源文件的路径、大小或修改时间变化后缓存失效。HDR 预览需要 FFmpeg 的 zscale/tonemap 支持，无兼容基底的 Dolby Vision 暂不生成预览。
+
+快进/快退优先定位到当前缓冲或已有分片，范围外才重建 HLS 会话；完整预缓存也用于断点续播。方向键连续操作会合并目标位置，字幕和预览都使用原片时间。
+
 ## 播放接口一览
 
 | 方法与路径 | 说明 |
 |---|---|
 | `POST /api/stream/{id}/decide` · `POST /api/stream/versions` | 四档决策与同片多版本聚合（带客户端 `caps`；返回 `method/reasons/plan/media/direct_url`） |
-| `POST /api/stream/{id}/sessions` · `GET /api/stream/sessions/{sid}/master.m3u8` | HLS 渐进式转码会话（前 3 分片即回）/ 主列表；`GET /sessions/{sid}/{name}` 取变体列表/init/分片 |
+| `POST /api/stream/{id}/sessions` · `GET /api/stream/sessions/{sid}/master.m3u8` | HLS 渐进式转码会话（copy 等 1 片，重编等 2 片）；返回 `media_start` 与片内起播位置 `initial_time` / 主列表；`GET /sessions/{sid}/{name}` 取变体列表/init/分片 |
 | `POST /api/stream/sessions/{sid}/ping` · `DELETE /api/stream/sessions/{sid}` | 心跳保活（10min 无心跳回收）/ 关播杀进程 |
 | `GET /api/stream/sessions/{sid}/debug` | 自证口：进程/分片/各 rendition ENDLIST/实际后端/重试次数/caps 摘要/ffmpeg 尾日志 |
 | `GET /api/stream/progress` · `POST` · `DELETE` | 单版本断点续播（读/写/清） |
+| `GET /api/stream/{id}/previews?kind=movie|episode|extra` · `POST` | 预览时间索引 / 生成当前版本预览（GET 不启动生成任务） |
+| `POST /api/stream/previews/jobs {library_id}` · `GET /api/stream/previews/jobs/{job_id}` · `POST /api/stream/previews/jobs/{job_id}/cancel` | 视频库批量预览生成、进度和取消 |
 | `POST /api/stream/prewarm` · `GET /api/stream/prewarm/{job_id}` | 夜间预转码（后台整片转完 → 静态 VOD 秒播）/ 进度 |
 | `GET /api/stream/{id}/sub/{idx}.vtt|.ass|.sup` · `GET /api/stream/{id}/fonts` | 字幕抽取（文本→VTT、ASS/SSA→ASS、PGS→SUP）与字体清单；外挂同名/标题同名 `.srt/.ass/.ssa/.sup` 自动并入（无内嵌时自动选中文本轨；播放器设置可临时加载本地字幕文件） |
 | `GET /api/stream/backends?refresh=1` | 转码后端探测结果（software/vaapi/qsv/nvenc + 判定原因） |

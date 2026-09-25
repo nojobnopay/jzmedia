@@ -46,10 +46,12 @@
         <div class="pv-ctl" :class="{ show: overlayVisible }" @dblclick.stop>
           <button @click="togglePlay" :title="isPlaying ? '暂停（空格）' : '播放（空格）'">{{ isPlaying ? '⏸' : '▶' }}</button>
           <span class="ctl-time">{{ fmt(seekDragging ? seekPreview : seekPos) }} / {{ fmt(decidedDuration) }}</span>
-          <input type="range" min="0" :max="Math.floor(decidedDuration)" step="1"
+          <PlayerSeekbar :duration="decidedDuration" :manifest="previews.manifest.value"
             :value="seekDragging ? seekPreview : Math.floor(seekPos)"
             :disabled="seekPending || !(decidedDuration > 0)"
-            @input="onSeekInput" @change="onSeekCommit" class="ctl-seek" />
+            @input="onSeekInput" @commit="onSeekCommit" @active="previewActive = $event"
+            @cancel="seekDragging = false" />
+          <button @click.stop="toggleSettings" title="播放速度">{{ playbackRate }}×</button>
           <button @click="toggleMute" :title="muted ? '取消静音' : '静音'">{{ muted ? '🔇' : '🔊' }}</button>
           <input type="range" min="0" max="100" :value="muted ? 0 : volume * 100"
             @input="setVolume" @change="blurPick" class="ctl-vol" />
@@ -82,6 +84,9 @@ import Spinner from './Spinner.vue'
 import { useFocusTrap } from '../useFocusTrap.js'
 import { useSubtitles } from '../useSubtitles.js'
 import PlayerSettings from './PlayerSettings.vue'
+import PlayerSeekbar from './PlayerSeekbar.vue'
+import { applyPlaybackRate, normalizeRate, reusableSeekTime } from '../playbackControls.js'
+import { usePlaybackPreviews } from '../usePlaybackPreviews.js'
 import { fmtTime as fmt } from '../playerLabels.js'
 import { pickProgressPosition } from '../progress.js'
 import '../player.css'
@@ -104,6 +109,27 @@ const emit = defineEmits(['close', 'watched', 'ended'])
 
 const dlgRef = ref(null)
 const videoEl = ref(null)
+const previews = usePlaybackPreviews(() => ({ id: props.versionId, kind: props.kind }))
+const playbackRate = ref(readPlaybackRate())
+const previewActive = ref(false)
+function readPlaybackRate() {
+  try { return normalizeRate(localStorage.getItem('jzmedia.playbackRate')) } catch { return 1 }
+}
+function restorePlaybackRate() {
+  try { applyPlaybackRate(videoEl.value, playbackRate.value) }
+  catch (e) { logEvt('rate:error', e.message) }
+}
+function onRateChange(rate) {
+  playbackRate.value = normalizeRate(rate)
+  restorePlaybackRate()
+  try { localStorage.setItem('jzmedia.playbackRate', String(playbackRate.value)) }
+  catch (e) { logEvt('rate:storage', e.message) }
+  if (hls) hls.config.maxBufferLength = 30 * Math.max(1, playbackRate.value)
+}
+function syncPlaybackRate() {
+  const rate = videoEl.value?.playbackRate
+  if (rate > 0) playbackRate.value = normalizeRate(rate)
+}
 let hls = null
 useFocusTrap(ref(true), dlgRef)
 let saveTimer = 0
@@ -227,6 +253,9 @@ let burnOn = false
 // 拖动态本地化：input 期间只改 seekPreview，change(松手) 才提交 → 不被 timeupdate 抬杠
 const seekDragging = ref(false)
 const seekPreview = ref(0)
+let keyboardSeekTimer = 0
+let keyboardSeekTarget = null
+let seekFallbackTimer = 0
 // 冻结帧 + 容器比例（padding-top 撑高，绝对定位铺满：换会话时窗口绝不塌）
 const freezeFrame = ref('')
 const videoPadding = ref('56.25%')
@@ -243,7 +272,7 @@ function onMouseMove() {
 // 全屏时控件/标题的显隐：鼠标活跃、暂停、seek 中、设置打开、有错误时常显
 const overlayVisible = computed(() =>
   !isFull.value || mouseActive.value || seekPending.value || !isPlaying.value
-  || settingsOpen.value || !!err.value)
+  || settingsOpen.value || previewActive.value || !!err.value)
 const isHls = computed(() => ['remux', 'audio_transcode', 'video_transcode']
   .includes(method.value))
 const bufLine = computed(() => {
@@ -361,8 +390,8 @@ async function mountHls(v, url, targetMediaTime, opts) {
   }
   destroyHls()
   manifestReady = false
-  const cfg = { maxBufferLength: 30 }
-  if (opts && opts.fromStart) cfg.startPosition = 0
+  const cfg = { maxBufferLength: 30 * Math.max(1, playbackRate.value), maxLiveSyncPlaybackRate: 1, maxMaxBufferLength: 60, backBufferLength: 30 }
+  if (opts && opts.fromStart) cfg.startPosition = Math.max(0, Number(targetMediaTime) || 0)
   hls = new Hls(cfg)
   hls.on(Hls.Events.ERROR, (_ev, data) => {
     if (data) {
@@ -394,6 +423,7 @@ async function mountHls(v, url, targetMediaTime, opts) {
     tryPlay()
   })
   hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    restorePlaybackRate()
     manifestReady = true
     logEvt('hls:manifest', 'tracks=' + ((hls && hls.audioTracks) ? hls.audioTracks.length : -1) +
       ' want=' + (Number(audioIdx.value) || 0))
@@ -421,6 +451,7 @@ let lastPlayAttempt = 0
 function tryPlay() {
   const v = videoEl.value
   if (!v || disposed) return
+  restorePlaybackRate()
   wantPlaying = true
   lastPlayAttempt = Date.now()
   try {
@@ -517,6 +548,9 @@ async function decidePlayback(subArg, signal) {
   }
 }
 async function reload() {
+  clearTimeout(seekFallbackTimer)
+  clearTimeout(keyboardSeekTimer)
+  keyboardSeekTarget = null
   const gen = ++reloadGen
   // 中止上一轮在飞请求（旧 decide/sessions 即使晚到也会被 gen/disposed 守卫丢弃）
   if (bootCtrl) { try { bootCtrl.abort() } catch (e) { /* 忽略 */ } }
@@ -646,6 +680,7 @@ async function reload() {
       mediaStart = ms
       applySubs()
     }
+    const initialTime = Math.max(0, Number(s.initial_time) || 0)
     startPing()
     const url = s.playlist_url
     lastPlaylistUrl = url
@@ -658,10 +693,12 @@ async function reload() {
       engine = 'native'
       logEvt('engine:native', 'ManagedMediaSource')
       v.src = url
-      // 原生 HLS 对增长型 live 同样默认从直播边缘起：新会话强制回到片内 0；
+      // 原生 HLS 显式定位，避免增长型列表从直播边缘起播；完整缓存按目标时间起播。
       // 音轨选择用 video.audioTracks 应用（Safari 有；没有则维持默认轨）
       const onMeta = () => {
-        try { v.currentTime = 0 } catch (e) { /* 忽略 */ }
+        if (disposed || gen !== reloadGen || videoEl.value !== v) return
+        try { v.currentTime = initialTime } catch (e) { logEvt('seek:init', e.message) }
+        restorePlaybackRate()
         applyNativeAudioTrack(v)
       }
       v.addEventListener('loadedmetadata', onMeta, { once: true })
@@ -669,7 +706,7 @@ async function reload() {
     } else {
       engine = 'hls'
       logEvt('engine:hls', '')
-      await mountHls(v, url, null, { fromStart: true, gen, signal: ctrl.signal })
+      await mountHls(v, url, initialTime, { fromStart: true, gen, signal: ctrl.signal })
     }
     }
   } catch (e) {
@@ -707,6 +744,9 @@ const {
 // 设置弹层：窗口态渲染在标题栏、全屏态渲染在 .pv-top（两次条件实例，不再用动态 Teleport
 // 宿主——2026-09 用户反馈全屏找不到设置入口）。open 状态在父组件，切换全屏不丢。
 const settingsProps = computed(() => ({
+  playbackRate: playbackRate.value,
+  previewBusy: previews.busy.value,
+  previewStatus: previews.status.value,
   open: settingsOpen.value,
   quality: quality.value,
   audios: audios.value,
@@ -727,6 +767,9 @@ const settingsProps = computed(() => ({
   subStyle: subStyle.value,
 }))
 const settingsEvents = {
+  'rate-change': onRateChange,
+  'preview-start': previews.start,
+  'preview-cancel': previews.cancel,
   'toggle-settings': toggleSettings,
   'quality-change': onQualityChange,
   'audio-change': onAudioChange,
@@ -868,13 +911,15 @@ function onTime() {
   if (Date.now() - Math.max(lastSave, lastSaveAttempt) > 10000) saveNow()   // 成功后 10s 间隔；失败也不密集重试
 }
 function onSeekInput(e) {
+  clearTimeout(keyboardSeekTimer)
+  keyboardSeekTarget = null
   // 拖动中：只更新本地预览值（进度条不被播放回调重置），不触发重开会话
   const t = Math.max(0, Math.floor(Number((e.target || {}).value) || 0))
   seekDragging.value = true
   seekPreview.value = t
 }
 function onSeekCommit(e) {
-  // 松手：提交目标秒数 → 关旧会话开新会话；顺带失焦，让方向键回到快捷键
+  // 松手才提交；优先复用当前会话，顺带失焦让方向键回到快捷键
   const raw = Number((e.target || {}).value)
   const t = seekDragging.value ? seekPreview.value
     : Math.max(0, Math.floor(Number.isFinite(raw) ? raw : seekPos.value))
@@ -883,8 +928,10 @@ function onSeekCommit(e) {
   doSeek(t)
 }
 function doSeek(t) {
-  // HLS：拖动即关旧开新（复用 start 参数），新流 playing 后解冻；Direct：直接改 currentTime
-  t = Math.max(0, Math.floor(Number(t) || 0))
+  clearTimeout(keyboardSeekTimer)
+  keyboardSeekTarget = null
+  clearTimeout(seekFallbackTimer)
+  t = Math.max(0, Math.min(Math.max(0, decidedDuration.value - 0.25), Math.floor(Number(t) || 0)))
   if (t === Math.floor(absPos())) return
   clearResumeTimer()   // 用户已 seek：连倒计时一起清，防残留回调把画面拉回断点
   resumeOffer.value = ''
@@ -895,6 +942,22 @@ function doSeek(t) {
     if (v) { try { v.currentTime = t } catch (e) { /* 忽略 */ } }
     return
   }
+  const localTime = reusableSeekTime(videoEl.value, t, mediaStart)
+  if (!seekPending.value && localTime !== null) {
+    const v = videoEl.value
+    try {
+      v.currentTime = localTime
+      logEvt('seek:reuse', fmt(t))
+      const gen = reloadGen
+      seekFallbackTimer = setTimeout(() => {
+        if (!disposed && gen === reloadGen && (v.seeking || Math.abs(absPos() - t) > 5) && v.readyState < 3) restartSeek(t)
+      }, 8000)
+      return
+    } catch (e) { logEvt('seek:reuse-error', e.message) }
+  }
+  restartSeek(t)
+}
+function restartSeek(t) {
   resumePos = t
   seekPending.value = true
   seekPendingSince = Date.now()
@@ -979,14 +1042,18 @@ function showOverlay() {
   hideTimer = setTimeout(() => { mouseActive.value = false }, 3000)
 }
 function seekBy(delta) {
-  const cur = absPos()
+  const cur = keyboardSeekTarget ?? (seekPending.value ? seekPreview.value : absPos())
   const dur = Number(decidedDuration.value) || 0
   let t = Math.floor(cur + delta)
   if (t < 0) t = 0
   if (dur > 0 && t > Math.floor(dur) - 1) t = Math.floor(dur) - 1
   if (t === Math.floor(cur)) return
   logEvt('kbd:seek', fmt(t))
-  doSeek(t)
+  keyboardSeekTarget = t
+  seekPreview.value = t
+  seekDragging.value = true
+  clearTimeout(keyboardSeekTimer)
+  keyboardSeekTimer = setTimeout(() => { seekDragging.value = false; doSeek(t) }, 180)
 }
 function volumeBy(delta) {
   const v = videoEl.value
@@ -1197,10 +1264,12 @@ function onPausePing() {
     .catch(() => { /* 心跳失败不打扰 */ })
 }
 const _evtHandlers = {
+  loadedmetadata: restorePlaybackRate,
+  ratechange: syncPlaybackRate,
   waiting: () => logEvt('video:waiting', 't=' + fmtT(videoEl.value)),
   stalled: () => logEvt('video:stalled', 't=' + fmtT(videoEl.value)),
   seeking: () => logEvt('video:seeking', 'to=' + fmtT(videoEl.value)),
-  seeked: () => { logEvt('video:seeked', 't=' + fmtT(videoEl.value)) },
+  seeked: () => { clearTimeout(seekFallbackTimer); logEvt('video:seeked', 't=' + fmtT(videoEl.value)) },
   emptied: () => logEvt('video:emptied', ''),
   suspend: () => logEvt('video:suspend', ''),
   abort: () => logEvt('video:abort', ''),
@@ -1208,6 +1277,7 @@ const _evtHandlers = {
 }
 function bindVideo(v) {
   if (!v) return
+  restorePlaybackRate()
   v.addEventListener('timeupdate', onTime)
   attachSubtitleVideo(v)
   v.addEventListener('pause', saveNow)
@@ -1262,6 +1332,7 @@ function debugSnapshot() {
   try {
     if (v) {
       info.el = { ready: v.readyState, net: v.networkState, paused: v.paused,
+        rate: v.playbackRate,
         seeking: v.seeking, ended: v.ended, ct: Math.round((Number(v.currentTime) || 0) * 10) / 10,
         err: (v.error && (v.error.code + ':' + (v.error.message || ''))) || '' }
       info.ranges = bufferedRanges()
@@ -1342,6 +1413,8 @@ async function recoverStream(forceElement = false) {
   } catch (e) { /* 恢复失败等下次节拍或转 err */ }
 }
 onBeforeUnmount(() => {
+  clearTimeout(keyboardSeekTimer)
+  clearTimeout(seekFallbackTimer)
   // Vue 在 unmount 阶段先 setRef(null) 再跑 onUnmounted：videoEl 在 onUnmounted 已为 null，
   // 最终进度必须在这里上报（用户 2026-09：拖进度后关闭，重开回到旧断点）。
   // 走 closeStream 关闭时父级已先调过 saveFinal（同一 Promise）；这里覆盖路由切换等直接卸载。
@@ -1407,7 +1480,6 @@ defineExpose({ saveFinal })
 .pv-ctl button { padding: 4px 10px; }
 .pv-ctl select { max-width: 130px; min-width: 0; background: #262626; color: #ddd; border: 1px solid #444; border-radius: 6px; padding: 4px 6px; font-size: 0.75rem; }
 .ctl-time { font-size: 0.75rem; color: #999; white-space: nowrap; }
-.ctl-seek { flex: 1; min-width: 80px; }
 .ctl-vol { width: 80px; }
 /* PGS 画布样式在 ensurePgsCanvas 内联设置（动态元素吃不到 scoped 样式） */
 

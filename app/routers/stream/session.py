@@ -7,7 +7,7 @@ import threading
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, Response
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from ... import caps as _caps
 from ... import playback as _playback
 import uuid
@@ -27,7 +27,7 @@ class SessionBody(BaseModel):
     quality: str = "auto"
     audio: int = 0
     sub: int | None = None
-    start: float = 0
+    start: float = Field(default=0, ge=0, allow_inf_nan=False)
     caps: dict | None = None
     force_burn: bool = False
     kind: str = "movie"   # F：movie|episode
@@ -90,13 +90,22 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         st_key = 0
     plan_key = _plan_marker(d["plan"], audio, st_key)
     skey = _session_key(d["plan"], audio)
-    # 真实媒体起点：客户端字幕（VTT/ASS/PGS）按此平移对齐播放进度
-    d["media_start"] = _media_start_for(int(m["id"]), src.input, start, d["plan"], k)
+    # 续播/跳转优先复用从 0 开始的整片成品；片内起播位置与媒体起点分开返回。
+    # 在关键帧探测之前检查，完整缓存无需为了定位再次读取远程视频。
+    sdir0 = _session_dir(int(m["id"]), skey, 0, k)
+    full_key = _plan_marker(d["plan"], audio, 0)
+    full_hit = st_key > 0 and _session_complete(sdir0, full_key)
+    if full_hit:
+        plan_key = full_key
+        d["media_start"] = 0.0
+    else:
+        sdir0 = _session_dir(int(m["id"]), skey, start, k)
+        d["media_start"] = _media_start_for(int(m["id"]), src.input, start, d["plan"], k)
+    d["initial_time"] = max(0.0, float(start) - d["media_start"])
     seg = d["plan"].get("seg") or "fmp4"
     stime = _playback.seg_time(seg)
-    # 整片已转完（预转码/之前播完）：当静态 VOD 直接播，不起进程——hls.js 最稳形态
-    sdir0 = _session_dir(int(m["id"]), skey, start, k)
-    if _session_complete(sdir0, plan_key):
+    if full_hit or _session_complete(sdir0, plan_key):
+        d["complete"] = True
         sid0 = uuid.uuid4().hex[:16]
         with _sess_lock:
             _sessions[sid0] = {"proc": None, "sdir": sdir0, "vid": int(m["id"]),
@@ -262,6 +271,8 @@ def hls_session_create(version_id: int, body: SessionBody | None = None):
             "playlist_url": f"/api/stream/sessions/{sid}/master.m3u8",
             "method": d["method"], "reasons": d["reasons"], "plan": d["plan"],
             "media_start": float(d.get("media_start") or 0),
+            "initial_time": float(d.get("initial_time") or 0),
+            "complete": bool(d.get("complete")),
             "caps_hash": _caps.caps_hash(caps_n),
             "subtitle_mode": d.get("subtitle_mode") or "none"}
 

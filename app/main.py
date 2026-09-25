@@ -63,6 +63,7 @@ async def _lifespan(_app: FastAPI):
                  app.version, lib_desc, settings.data_dir, settings.env)
     yield
     # 优雅退出：杀掉全部转码进程（防重启/停服后孤儿 ffmpeg 继续烧 CPU 写分片）
+    stream.shutdown_previews()
     stream.shutdown_sessions()
     try:
         from . import mounts as _mounts

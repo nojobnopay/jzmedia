@@ -10,7 +10,7 @@ from .extras import get_extra
 from .movies import get_movie
 from .tv import get_episode, get_show
 
-__all__ = ['get_playable', 'normalize_kind', 'EXTRA_LABELS']
+__all__ = ['get_playable', 'normalize_kind', 'EXTRA_LABELS', 'preview_items']
 
 # 花絮子类型 → 中文标签（前端也可用 /api/tv/shows 返回的 kind）
 EXTRA_LABELS = {"movie": "剧场版", "trailer": "预告", "behindthescenes": "幕后",
@@ -71,3 +71,13 @@ def get_playable(kind, item_id: int) -> dict | None:
     out = dict(m)
     out["kind"] = "movie"
     return out
+
+
+def preview_items(library_id: int) -> list[tuple[str, int]]:
+    """仅返回指定视频库的可播放项，预览批任务不跨库。"""
+    with _lock, _conn() as c:
+        rows = c.execute("SELECT 'movie' AS kind, id FROM movies WHERE library_id=? "
+                         "UNION ALL SELECT 'episode', id FROM tv_episodes WHERE library_id=? "
+                         "UNION ALL SELECT 'extra', id FROM extras WHERE library_id=?",
+                         (int(library_id),) * 3).fetchall()
+        return [(r['kind'], int(r['id'])) for r in rows]

@@ -1,8 +1,20 @@
 <template>
   <div class="pd-setwrap">
       <button class="pd-mini" :class="{ on: open }" @click="$emit('toggle-settings')"
-        title="播放设置（画质/音轨/字幕/延迟）">⚙ 设置</button>
+        title="播放设置（倍速/画质/音轨/字幕/预览）">⚙ 设置</button>
       <div v-if="open" class="pd-set" @click.stop>
+        <div class="set-row">
+          <label>速度</label>
+          <select :value="playbackRate" @change="pick($event, 'rate-change', Number($event.target.value))">
+            <option v-for="rate in PLAYBACK_RATES" :key="rate" :value="rate">{{ rate }}×</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <label>进度预览</label>
+          <button v-if="previewBusy" class="ctl-mini" @click="$emit('preview-cancel')">取消生成</button>
+          <button v-else class="ctl-mini" @click="$emit('preview-start')">生成预览</button>
+        </div>
+        <p class="set-hint">{{ previewStatus }}。远程片源建议空闲时生成，也可在库工具中批量生成。</p>
         <div class="set-row">
           <label>画质</label>
           <select :value="quality" @change="pick($event, 'quality-change', $event.target.value)"
@@ -103,8 +115,12 @@
 <script setup>
 import { ref } from 'vue'
 import { audioLabel, subLabel, subBadge } from '../playerLabels.js'
+import { PLAYBACK_RATES } from '../playbackControls.js'
 
 const props = defineProps({
+  playbackRate: { type: Number, default: 1 },
+  previewBusy: Boolean,
+  previewStatus: { type: String, default: '' },
   open: { type: Boolean, default: false },
   quality: { type: String, default: 'auto' },
   audios: { type: Array, default: () => [] },
@@ -126,7 +142,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['toggle-settings', 'quality-change', 'audio-change', 'sub-change',
   'shift-delay', 'update:sub-style', 'undo-degrade', 'compat-change', 'copy-direct',
-  'load-sub-file', 'remove-local-subs'])
+  'load-sub-file', 'remove-local-subs', 'rate-change', 'preview-start', 'preview-cancel'])
 
 const subFileInput = ref(null)
 function pickSubFile() {

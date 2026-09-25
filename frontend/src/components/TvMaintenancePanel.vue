@@ -25,9 +25,11 @@
     <p class="hint">写 tvshow.nfo + 季 season.nfo 到 NAS；视频库「海报」模式为「NFO+海报」时
       另写 poster.jpg/fanart.jpg/季海报（不改名、不动视频文件）。远程库逐集 NFO 默认关（SMB 单文件写 ~1.6s，
       千集级耗时过长），需要时设 env TV_EPISODE_NFO=1。</p>
+    <PreviewMaintenance :library-id="library.id" :active="active" />
   </section>
 </template>
 <script setup>
+import PreviewMaintenance from './PreviewMaintenance.vue'
 import { onUnmounted, ref } from 'vue'
 import { api } from '../api.js'
 
