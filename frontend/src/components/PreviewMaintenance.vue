@@ -1,8 +1,8 @@
 <template>
   <div class="preview-maintenance">
     <div class="bar">
-      <button @click="start" :disabled="busy">{{ busy ? '生成进度预览中…' : '生成本库进度预览' }}</button>
-      <button v-if="busy && job?.job_id" @click="cancel">取消</button>
+      <button @click="start" :disabled="busy">{{ busy ? '生成缩略图中…' : '生成播放进度缩略图' }}</button>
+      <button v-if="busy && job?.job_id" @click="cancel">取消生成</button>
       <span>{{ message }}</span>
     </div>
     <p class="hint">为电影、剧集和花絮生成进度条缩略图，已有成品自动跳过。只读片源，图片缓存在服务器；远程库建议空闲时执行。</p>

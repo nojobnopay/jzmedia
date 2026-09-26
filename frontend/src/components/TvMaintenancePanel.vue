@@ -1,30 +1,27 @@
 <template>
-  <section class="card-block">
-    <h3>剧集维护 <span class="fhint">作用于「{{ library.name }}」视频库</span></h3>
-    <p class="hint">扫描会自动补新剧元数据；这里用于手动补刮/强制重刮与 NFO/海报落盘，日常无需操作。</p>
+  <section :id="active ? 'sec-meta' : undefined" class="card-block">
+    <h3>剧集资料维护</h3>
+    <p class="hint">以下操作仅作用于「{{ library.name }}」。</p>
 
     <div class="bar">
       <button @click="doTvScrape(false)" :disabled="!!busy">
-        {{ busy === 'tv' ? `剧集刮削中 ${tvDone}/${tvTotal}…` : '剧集刮削（未匹配/未刮）' }}
+        {{ busy === 'tv' ? `剧集刮削中 ${tvDone}/${tvTotal}…` : '补全缺失剧集资料' }}
       </button>
-      <button @click="doTvScrape(true)" :disabled="!!busy">强制重刮</button>
+      <button @click="doTvScrape(true)" :disabled="!!busy">重新获取全部剧集资料</button>
       <button v-if="busy === 'tv'" @click="cancelTv">取消</button>
       <span>{{ tvMsg }}</span>
     </div>
-    <p class="hint">TMDB 拉取剧/季/集元数据与海报；绝对集号按 TMDB 季集数自动映射。
-      只写数据库与 data/posters，不改 NAS 文件；未匹配的剧可在剧集详情页手动匹配。</p>
+    <details class="settings-details"><summary>资料更新会影响哪些内容</summary><p class="hint">获取剧、季、集资料与海报，更新应用内资料。未匹配剧集和不一致的集号可在详情页核对。</p></details>
 
     <div class="bar">
       <button @click="doTvNfo(false)" :disabled="!!busy">
-        {{ busy === 'tvnfo' ? `写 NFO 中 ${tvNfoDone}/${tvNfoTotal}…` : '重建剧集 NFO/海报' }}
+        {{ busy === 'tvnfo' ? `写 NFO 中 ${tvNfoDone}/${tvNfoTotal}…` : '重写剧集 NFO 与海报' }}
       </button>
       <button @click="doTvNfo(true)" :disabled="!!busy">预览写入清单</button>
       <button v-if="busy === 'tvnfo'" @click="cancelTvNfo">取消</button>
       <span>{{ tvNfoMsg }}</span>
     </div>
-    <p class="hint">写 tvshow.nfo + 季 season.nfo 到 NAS；视频库「海报」模式为「NFO+海报」时
-      另写 poster.jpg/fanart.jpg/季海报（不改名、不动视频文件）。远程库逐集 NFO 默认关（SMB 单文件写 ~1.6s，
-      千集级耗时过长），需要时设 env TV_EPISODE_NFO=1。</p>
+    <details class="settings-details"><summary>NFO 与海报写入规则</summary><p class="hint">向媒体目录写入剧集与季 NFO，是否写海报取决于视频库设置。远程库默认不写逐集 NFO；此操作不移动或重命名视频。</p></details>
     <PreviewMaintenance :library-id="library.id" :active="active" />
   </section>
 </template>

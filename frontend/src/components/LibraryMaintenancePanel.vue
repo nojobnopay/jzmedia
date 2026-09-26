@@ -1,66 +1,69 @@
 <template>
   <section :id="active ? 'sec-meta' : undefined" class="card-block">
-    <h3>高级维护 <span class="fhint">作用于「{{ library.name }}」视频库</span></h3>
-    <p class="hint">库级批量修复，日常无需操作：补产地、刷新 TMDB、重写 NFO/海报、清理历史脏行。</p>
+    <h3>电影资料维护</h3>
+    <p class="hint">以下操作仅作用于「{{ library.name }}」。</p>
+    <div class="maintenance-group"><h4>更新影片资料</h4>
 
     <div class="bar">
-      <button @click="doBackfill" :disabled="!!busy">{{ busy === 'backfill' ? '补数据中…' : '补产地信息' }}</button>
+      <button @click="doBackfill" :disabled="!!busy">{{ busy === 'backfill' ? '补数据中…' : '补全产地与人物' }}</button>
       <span>{{ backfillMsg }}</span>
     </div>
 
     <div class="bar">
       <button @click="doRefreshAll" :disabled="!!busy">
-        {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? '确认刷新全部 TMDB' : '刷新全部 TMDB 数据') }}
+        {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? '确认刷新本库资料' : '从 TMDB 更新本库资料') }}
       </button>
+      <button v-if="armRefresh" @click="armRefresh = false" :disabled="!!busy">取消</button>
       <span>{{ refreshMsg }}</span>
     </div>
-    <p v-if="armRefresh" class="hint warn-text">将逐部请求 TMDB（以 limit 截断），无变化的不动，手工标题不受影响。再点一次执行。</p>
+    <p v-if="armRefresh" class="hint warn-text">将联网更新本库已匹配影片的资料（最多 5000 部），保留手工标题。再次点击确认执行。</p>
 
+    </div>
+    <div class="maintenance-group"><h4>重写媒体目录中的资料文件</h4><p class="hint">资料正确但 NFO 或海报文件缺失时使用。</p>
     <div class="bar">
-      <button @click="doRebuildNfo" :disabled="!!busy">{{ busy === 'nfo' ? '重建中…' : '重建全部 NFO' }}</button>
+      <button @click="doRebuildNfo" :disabled="!!busy">{{ busy === 'nfo' ? '重建中…' : '重写 NFO 文件' }}</button>
       <span>{{ nfoMsg }}</span>
     </div>
 
     <div class="bar">
       <button @click="doRebuildMeta" :disabled="!!busy">
-        {{ busy === 'meta' ? `重建元数据中 ${metaDone}/${metaTotal}…` : (armMeta ? '确认重建元数据' : '重建元数据（NFO+海报）') }}
+        {{ busy === 'meta' ? `重写 NFO 与海报中 ${metaDone}/${metaTotal}…` : (armMeta ? '确认重写 NFO 与海报' : '重写 NFO 与海报') }}
       </button>
+      <button v-if="armMeta" @click="armMeta = false" :disabled="!!busy">取消</button>
       <button v-if="busy === 'meta'" @click="cancelMeta">取消</button>
       <span>{{ metaMsg }}</span>
     </div>
-    <p v-if="armMeta" class="hint warn-text">按现有匹配从镜像缓存重写 NFO 与 poster/fanart（不触网、不覆盖手工标题；远程库直接写 NAS）。再点一次执行。</p>
+    <p v-if="armMeta" class="hint warn-text">将按当前匹配结果向媒体目录写入 NFO 和已有海报，保留手工标题。再次点击确认执行。</p>
 
+    </div>
+    <details class="settings-details"><summary>清理误入库记录与挂载残留</summary>
     <div class="bar">
       <button @click="doCleanBdmv" :disabled="!!busy">
-        {{ busy === 'bdmv' ? '清理中…' : (armBdmv ? '确认清理 BDMV 碎片' : '清理 BDMV 碎片') }}
+        {{ busy === 'bdmv' ? '清理中…' : (armBdmv ? '确认移除蓝光碎片记录' : '移除蓝光碎片记录') }}
       </button>
+      <button v-if="armBdmv" @click="armBdmv = false" :disabled="!!busy">取消</button>
       <span>{{ bdmvMsg }}</span>
     </div>
     <p v-if="armBdmv" class="hint warn-text">删除原盘结构（BDMV/VIDEO_TS）里的碎片记录（只删库记录，不动物理文件）。再点一次执行。</p>
 
     <div class="bar">
       <button @click="doCleanSamples" :disabled="!!busy">
-        {{ busy === 'samples' ? '清理中…' : (armSamples ? '确认清理误入库样片' : '清理误入库样片') }}
+        {{ busy === 'samples' ? '清理中…' : (armSamples ? '确认移除样片与花絮误入库记录' : '移除样片与花絮误入库记录') }}
       </button>
+      <button v-if="armSamples" @click="armSamples = false" :disabled="!!busy">取消</button>
       <span>{{ samplesMsg }}</span>
     </div>
     <p v-if="armSamples" class="hint warn-text">删除路径属于 Sample/Screens/Behind The Scenes 等样片/花絮目录的影片记录（只删库记录，不动物理文件）。再点一次执行。</p>
-
-    <div class="bar">
-      <button @click="doCleanCache" :disabled="!!busy">
-        {{ busy === 'cache' ? '清理中…' : (armCache ? '确认清理转码缓存' : '清理转码缓存') }}
-      </button>
-      <span>{{ cacheMsg }}</span>
-    </div>
-    <p v-if="armCache" class="hint warn-text">全局（不限本媒体库）：删除 data/transcode 下可回收的转码/预缓存产物，跳过正在播放的会话；海报/NFO 不动。再点一次执行。</p>
 
     <div v-if="library.source !== 'local'" class="bar">
       <button @click="doCleanMount" :disabled="!!busy">
         {{ busy === 'mount' ? '清理中…' : (armMount ? '确认清理挂载残留' : '清理挂载残留') }}
       </button>
+      <button v-if="armMount" @click="armMount = false" :disabled="!!busy">取消</button>
       <span>{{ mountMsg }}</span>
     </div>
     <p v-if="armMount" class="hint warn-text">清理挂载点目录里被历史误写的 NFO/图片（仅在未真正挂载时执行，绝不动 NAS）。再点一次执行。</p>
+    </details>
     <PreviewMaintenance :library-id="library.id" :active="active" />
   </section>
 </template>
@@ -140,7 +143,7 @@ async function doRebuildNfo() {
   }
 }
 
-// 重建元数据：jobkit 后台任务（进度轮询，可取消）
+// 重写 NFO 与海报：jobkit 后台任务（进度轮询，可取消）
 const armMeta = ref(false)
 const metaDone = ref(0)
 const metaTotal = ref(0)
@@ -240,48 +243,6 @@ async function doCleanSamples() {
     emit('changed')
   } catch (e) {
     samplesMsg.value = '清理失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-
-// 转码缓存手动清理（全局）：dry_run 预览 → 再点执行（删可回收目录，跳过在播会话）
-const armCache = ref(false)
-const cacheMsg = ref('')
-function fmtBytes(n) {
-  const x = Number(n) || 0
-  if (x >= 1 << 30) return (x / (1 << 30)).toFixed(1) + ' GB'
-  if (x >= 1 << 20) return (x / (1 << 20)).toFixed(0) + ' MB'
-  return Math.max(0, Math.round(x / 1024)) + ' KB'
-}
-async function doCleanCache() {
-  if (!armCache.value) {
-    busy.value = 'cache'
-    cacheMsg.value = ''
-    try {
-      const d = await api('/api/stream/cache/clean', {
-        method: 'POST', body: JSON.stringify({ dry_run: true })
-      })
-      armCache.value = true
-      cacheMsg.value = d.candidates
-        ? `可清理 ${d.candidates} 个目录 / ${fmtBytes(d.candidate_bytes)}（缓存共 ${fmtBytes(d.total)}，上限 ${fmtBytes(d.cap)}）——再点一次执行`
-        : `没有可清理的转码缓存（共 ${fmtBytes(d.total)}）`
-    } catch (e) {
-      cacheMsg.value = '预览失败：' + e.message
-    } finally {
-      busy.value = null
-    }
-    return
-  }
-  armCache.value = false
-  busy.value = 'cache'
-  try {
-    const d = await api('/api/stream/cache/clean', {
-      method: 'POST', body: JSON.stringify({ dry_run: false })
-    })
-    cacheMsg.value = `已清理 ${d.removed} 个目录，释放 ${fmtBytes(d.freed)}（剩余 ${fmtBytes(Math.max(0, d.total - d.freed))}）`
-  } catch (e) {
-    cacheMsg.value = '清理失败：' + e.message
   } finally {
     busy.value = null
   }

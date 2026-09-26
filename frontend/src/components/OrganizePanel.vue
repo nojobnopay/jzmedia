@@ -1,23 +1,19 @@
 <template>
   <div :id="active ? 'sec-organize' : undefined" class="pipe-step">
-    <div class="pipe-head pipe-toggle" @click="open = !open">
+    <div v-if="!embedded" class="pipe-head pipe-toggle" @click="open = !open">
       <h4>③ 归档整理 <span v-if="orgPlans.length + orgConflicts.length" class="nav-badge">{{ orgPlans.length + orgConflicts.length }}</span></h4>
       <span class="fhint">{{ open ? '收起' : '展开' }}</span>
     </div>
-    <div v-show="open" class="pipe-body">
-      <p class="hint">
-        <b>就地归档</b>：按命名档规范影片自身目录/文件（自建父目录如「周星驰」保留，合集目录不动）；
-        <b>搬到顶层</b>：收敛到本视频库根，平铺为「标题 (年份)/」。
-        可整体勾选/执行或逐行选动作。先预览，再执行。
-      </p>
+    <div v-show="embedded || open" class="pipe-body">
+      <details class="settings-details"><summary>两种整理方式有什么区别</summary><p class="hint">就地整理：规范影片目录与文件名，保留合集等父目录。移至库根目录：将影片集中到当前视频库根目录下。先核对预览，再执行移动或改名。</p></details>
       <div class="bar">
-        <label><input type="radio" value="inplace" v-model="orgMode" /> 就地归档</label>
-        <label><input type="radio" value="relocate" v-model="orgMode" /> 搬到顶层（视频库根）</label>
+        <label><input type="radio" value="inplace" v-model="orgMode" /> 就地整理</label>
+        <label><input type="radio" value="relocate" v-model="orgMode" /> 移至库根目录</label>
       </div>
       <div class="bar">
         <button @click="loadOrgPreview" :disabled="!!busy">刷新预览</button>
         <button @click="execOrganize(checkedPlanRows())" :disabled="!!busy || !execCount()">
-          {{ busy === 'organize' ? '执行中…' : `执行全部选中 (${execCount()})` }}
+          {{ busy === 'organize' ? '执行中…' : `整理选中 (${execCount()})` }}
         </button>
         <span>{{ orgMsg }}</span>
       </div>
@@ -25,9 +21,9 @@
         <div class="lib-group-head">
           <b>{{ groupTitle(g) }}</b>
           <span class="fhint">{{ g.items.length }} 项</span>
-          <button @click="togglePlans(g)">{{ groupAllChecked(g) ? '全不选本表' : '全选本表' }}</button>
+          <button @click="togglePlans(g)">{{ groupAllChecked(g) ? '取消本组选中' : '选中本组' }}</button>
           <button @click="execOrganize(groupChecked(g))" :disabled="!!busy || !groupChecked(g).length">
-            执行本表选中 ({{ groupChecked(g).length }})
+            整理本组选中 ({{ groupChecked(g).length }})
           </button>
         </div>
         <ul class="plan-list">
@@ -111,10 +107,11 @@ import { groupByVideoLib, kindText } from '../libraryToolGroups.js'
 
 const COLLAPSE_N = 20
 const props = defineProps({
+  embedded: { type: Boolean, default: false },
   library: { type: Object, required: true },
   active: { type: Boolean, default: false },
 })
-const emit = defineEmits(['changed'])
+const emit = defineEmits(['changed', 'status'])
 
 const busy = ref(null)
 const open = ref(false)
@@ -334,18 +331,20 @@ async function ensure(auto = false) {
   await loadOrgPreview()
   if (auto && orgPlans.value.length) {
     open.value = true
-    orgMsg.value = orgMsg.value || `检测到 ${orgPlans.value.length} 项可归档，已为你展开`
+    orgMsg.value = orgMsg.value || `检测到 ${orgPlans.value.length} 项可归档，可在此核对`
   }
 }
 async function refresh(auto = false) {
   await loadOrgPreview()
   if (auto && orgPlans.value.length) {
     open.value = true
-    orgMsg.value = `检测到 ${orgPlans.value.length} 项可归档，「③ 归档整理」已为你展开，点「执行选中」搬迁`
+    orgMsg.value = `检测到 ${orgPlans.value.length} 项可归档，请在「目录整理」中核对后执行`
   } else if (auto) {
     open.value = false
   }
 }
+watch(() => orgPlans.value.length + orgConflicts.value.length, n => emit('status', n))
+
 // 供父级步骤状态：可归档项数（计划 + 冲突）
 function count() {
   return orgPlans.value.length + orgConflicts.value.length

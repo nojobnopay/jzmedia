@@ -1,9 +1,7 @@
 <template>
-      <section id="sec-files" class="card-block">
-        <h3>文件浏览 <span class="fhint" v-if="media">根 = 「{{ media.name }}」媒体库根</span></h3>
-        <p class="hint">类 Windows 操作：单击选中（Ctrl 多选）、双击进入目录/正片进详情；快捷键
-          Ctrl+C 复制 / Ctrl+X 剪切 / Ctrl+V 粘贴到当前目录 / Delete 删除 / Enter 进入 / Backspace 上级 / F5 刷新。
-          复制冲突自动改「(副本)」绝不覆盖；正片复制会登记为同片新版本；目录不支持改名（请用「归档整理」）。</p>
+      <section :id="active ? 'sec-files' : undefined" class="card-block">
+        <h3>文件管理</h3>
+        <details class="settings-details"><summary>文件操作与快捷键</summary><p class="hint">单击选中，Ctrl 多选，双击打开。Ctrl+C 复制、Ctrl+X 剪切、Ctrl+V 粘贴、Delete 删除、Backspace 返回上级、F5 刷新。复制遇到重名会自动添加“副本”；目录改名请使用目录整理。</p></details>
         <p v-if="ctx.mode === 'media'" class="hint">
           媒体库根为只读总览：点进带「电影/剧集」徽章的目录即进入该视频库，之后可改名/删除/复制等（跨视频库移动/复制请用「归档整理」或在 NAS 上操作）。
         </p>
@@ -13,7 +11,7 @@
           <button @click="goRoot()" :disabled="!!busy">返回媒体库根</button>
         </p>
         <div class="bar fs-crumbs">
-          <button @click="goRoot()" :disabled="!!busy">根</button>
+          <button @click="goRoot()" :disabled="!!busy">媒体库根目录</button>
           <span v-for="c in fsCrumbs" :key="c.rel"> / <button @click="loadFs(c.rel)" :disabled="!!busy" class="linklike">{{ c.name }}</button></span>
           <span v-if="fsPath" class="miss-path">{{ fsPath }}</span>
           <span v-if="ctx.mode === 'media' && fsPath && !insideVideoLib" class="fhint warn-text">不在任何视频库内：只读，不能被扫描/归档登记</span>
@@ -27,7 +25,7 @@
             <button @click="paste" :disabled="!!busy || !clipboard.rels.length || copyJob">
               {{ clipboard.mode === 'cut' ? '粘贴（移动）' : '粘贴' }}
             </button>
-            <button @click="deleteSelection" :disabled="!!busy || !selRels.length">删除选中</button>
+            <button @click="deleteSelection" :disabled="!!busy || !selRels.length">删除选中文件…</button>
             <span v-if="selRels.length" class="fhint">已选 {{ selRels.length }} 项</span>
             <span v-else-if="clipboard.rels.length" class="fhint">
               剪贴板：{{ clipboard.mode === 'cut' ? '已剪切' : '已复制' }} {{ clipboard.rels.length }} 项
@@ -35,7 +33,7 @@
           </template>
           <span v-else class="fhint">{{ ctx.mode === 'media'
             ? '媒体库根：仅浏览；进入视频库目录后可操作'
-            : '直读远程库：仅浏览；重命名/移动/删除请用「入库流程 → 归档整理」（或在 NAS 上直接管理）' }}</span>
+            : '当前目录只读，无法修改文件' }}</span>
         </div>
         <div v-if="fsParent !== null && fsParent !== ''" class="bar">
           <button @click="loadFs(fsParent)" :disabled="!!busy">‹ 上级目录</button>

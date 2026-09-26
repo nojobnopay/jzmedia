@@ -1,15 +1,15 @@
 <template>
   <section id="sec-libtools" class="card-block">
-    <h3>媒体库工具 <span class="fhint">每个视频库一个标签页：电影/剧集工具完全分开，按「扫描 → 处理 → 整理」单步引导</span></h3>
+    <h3>选择视频库</h3>
 
-    <p v-if="!tabs.length" class="hint">还没有视频库——请先在上方「媒体库」新建（媒体库下可添加电影/剧集视频库）。</p>
+    <div v-if="!tabs.length" class="hint">还没有视频库。<button @click="emit('add-library')">添加媒体库</button></div>
     <template v-else>
       <div class="lib-tabs">
         <button v-for="t in tabs" :key="t.id"
           :class="{ on: t.id === selectedId, off: !t.enabled }"
-          :title="tabTitle(t)" @click="select(t.id)">
+          :title="tabTitle(t)" :aria-pressed="t.id === selectedId" @click="select(t.id, { sync: true })">
           {{ t.label }}
-          <span class="tab-kind">{{ t.kind_text }}</span>
+          <span v-if="t.name !== t.kind_text" class="tab-kind">{{ t.kind_text }}</span>
           <span v-if="badgeOf(t.id)" class="nav-badge">{{ badgeOf(t.id) }}</span>
         </button>
       </div>
@@ -17,11 +17,11 @@
       <p v-if="selectedTab && !selectedTab.enabled" class="hint warn-text">该视频库已停用：扫描/写入会被跳过，这里仅作查看。</p>
 
       <template v-for="t in tabs" :key="'lt' + t.id">
-        <div v-show="t.id === selectedId">
-          <MovieLibraryTools v-if="t.kind !== 'tv'" :tab="t" :active="t.id === selectedId"
+        <div v-if="openedTabs.has(t.id)" v-show="t.id === selectedId">
+          <MovieLibraryTools v-if="t.kind !== 'tv'" :tab="t" :active="active && t.id === selectedId"
             :request="requests[t.id] || null"
             @changed="onChanged" @status="s => onStatus(t.id, s)" />
-          <TvLibraryTools v-else :tab="t" :active="t.id === selectedId"
+          <TvLibraryTools v-else :tab="t" :active="active && t.id === selectedId"
             :request="requests[t.id] || null"
             @changed="onChanged" @status="s => onStatus(t.id, s)" />
         </div>
@@ -42,9 +42,10 @@ import TvLibraryTools from './TvLibraryTools.vue'
 // 深链：?library=<视频库id> 直选；?media=<媒体库id> 按区块类型偏好选库。
 const props = defineProps({
   libs: { type: Array, default: () => [] },
+  active: { type: Boolean, default: true },
   currentMediaId: { type: Number, default: null },
 })
-const emit = defineEmits(['changed'])
+const emit = defineEmits(['changed', 'add-library'])
 
 const route = useRoute()
 const router = useRouter()
@@ -52,6 +53,7 @@ const router = useRouter()
 const mediaLibs = computed(() => buildMediaLibs(props.libs))
 const tabs = computed(() => buildTabs(mediaLibs.value))
 const selectedId = ref(null)
+const openedTabs = ref(new Set())
 const selectedTab = computed(() => tabs.value.find(t => t.id === selectedId.value) || null)
 const requests = ref({})          // 深链请求：tab id → { sec, ids, nonce }
 const statusByTab = ref({})       // 子组件状态上报：tab id → { pending, ... }
@@ -74,7 +76,8 @@ function tabTitle(t) {
 
 function syncUrl() {
   try {
-    const q = { ...route.query }
+    const q = { ...route.query, sec: 'sec-libtools' }
+    delete q.ids
     const t = selectedTab.value
     if (t) {
       q.library = String(t.id)
@@ -92,8 +95,9 @@ function select(id, opts = {}) {
   const t = tabs.value.find(x => x.id === Number(id))
   if (!t) return
   selectedId.value = t.id
+  openedTabs.value.add(t.id)
   setStoredLibId(t.id)
-  syncUrl()
+  if (opts.sync) syncUrl()
   if (opts.scroll) {
     document.getElementById('sec-libtools')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
@@ -119,7 +123,7 @@ async function focus({ media, library, sec, ids } = {}) {
   for (let i = 0; i < 40 && !tabs.value.length; i++) {
     await new Promise(r => setTimeout(r, 50))
   }
-  const target = resolveFocusTab(tabs.value, { media, library, sec })
+  const target = resolveFocusTab(tabs.value, { media, library, sec }) || selectedTab.value
   if (!target) {
     if (sec) document.getElementById(sec)?.scrollIntoView({ block: 'start' })
     return

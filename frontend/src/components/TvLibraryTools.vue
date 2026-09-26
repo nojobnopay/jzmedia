@@ -1,6 +1,10 @@
 <template>
   <section :id="active ? 'sec-pipeline' : undefined" class="card-block">
-    <h3>剧集库「{{ tab.name }}」 <span class="fhint">单步聚焦：先扫描 → 处理未匹配剧 → 整理目录；低频工具收在底部</span></h3>
+    <div class="tool-views" aria-label="视频库工具">
+      <button v-for="view in toolViews" :key="view.key" :class="{ on: toolView === view.key }"
+        :aria-pressed="toolView === view.key" @click="chooseView(view.key)">{{ view.label }}</button>
+    </div>
+    <div v-show="toolView === 'workflow'">
     <div class="status-line">
       <span v-if="statsReady" class="chip">{{ stats.shows }} 部剧 · {{ stats.episodes }} 集</span>
       <span v-if="unmatchedCount" class="chip warn">未匹配 {{ unmatchedCount }}</span>
@@ -11,42 +15,40 @@
     </div>
 
     <div :id="active ? 'sec-sync' : undefined" class="pipe-step">
-      <div class="pipe-head pipe-toggle" @click="toggleStep('scan')">
-        <h4><span class="step-no">①</span> 扫描入库</h4>
+      <button type="button" class="pipe-head pipe-toggle" :aria-expanded="openStep === 'scan'" @click="toggleStep('scan')">
+        <span class="step-title"><span class="step-no">①</span> 扫描入库</span>
         <span class="fhint">{{ openStep === 'scan' ? '收起' : '展开' }}</span>
         <span class="step-state" :class="{ run: busy === 'scan' }">{{ scanStateText }}</span>
-      </div>
+      </button>
       <div v-show="openStep === 'scan'" class="pipe-body">
-        <p class="hint">新增一部剧：把剧集文件夹（如 <code>剧名 (年份)/Season 01/剧名-S01E01.mkv</code>）拷到 NAS 后点这里。
-          扫描按目录结构识别剧/季/集，并自动匹配 TMDB、拉取元数据与海报；盘上已删的集同步清理。</p>
+        <p class="hint">读取新剧集，自动匹配资料和海报，并移除文件已不存在的记录。</p>
         <div class="bar">
           <button class="primary" @click="startScan" :disabled="!!busy || !tab.enabled">
-            {{ busy === 'scan' ? '扫描中…' : '扫描本视频库' }}
+            {{ busy === 'scan' ? '扫描中…' : '扫描新文件' }}
           </button>
-          <button v-if="busy === 'scan'" @click="cancelScan">取消</button>
+          <button v-if="busy === 'scan'" @click="cancelScan">取消扫描</button>
           <span>{{ scanMsg }}</span>
         </div>
       </div>
     </div>
 
     <div :id="active ? 'sec-pending' : undefined" class="pipe-step">
-      <div class="pipe-head pipe-toggle" @click="toggleStep('match')">
-        <h4><span class="step-no">②</span> 剧集匹配 <span v-if="pendingTotal" class="nav-badge">{{ pendingTotal }}</span></h4>
+      <button type="button" class="pipe-head pipe-toggle" :aria-expanded="openStep === 'match'" @click="toggleStep('match')">
+        <span class="step-title"><span class="step-no">②</span> 核对匹配 <span v-if="pendingTotal" class="nav-badge">{{ pendingTotal }}</span></span>
         <span class="fhint">{{ openStep === 'match' ? '收起' : '展开' }}</span>
         <span class="step-state" :class="{ ok: !pendingTotal && pendingLoaded }">{{ pendingTotal ? `${pendingTotal} 部待处理` : (pendingLoaded ? '✓ 全部已匹配' : '') }}</span>
-      </div>
+      </button>
       <div v-show="openStep === 'match'" class="pipe-body">
-        <p class="hint">扫描没认出对应 TMDB 条目的剧在这里处理：
-          <b>未匹配</b>→ 去详情页搜 TMDB 手动匹配（匹配成功会自动引导整理目录）；
-          <b>待确认</b>→ 模糊命中，核对无误点「确认」；<b>未匹配集号</b>→ 剧内个别集对不上，去详情页逐集指定。</p>
+        <details v-if="pendingTotal" class="settings-details"><summary>如何处理匹配问题</summary><p class="hint">未匹配：选择对应剧集。待确认：核对后点击「匹配正确」。集号待处理：进入详情页指定对应集号。</p></details>
         <div class="bar">
-          <button @click="loadPending()" :disabled="!!busy">刷新</button>
+          <button @click="loadPending()" :disabled="!!busy">刷新列表</button>
           <span v-if="pendingTotal">{{ pendingSummary }}</span>
-          <span v-else>全部已匹配</span>
+          <span v-else-if="pendingLoaded">全部已匹配</span>
           <button v-if="reviewRows.length > 1" :disabled="!!busy" @click="confirmAll">
-            {{ busy === 'confirm' ? '确认中…' : `全部确认（${reviewRows.length}）` }}
+            {{ busy === 'confirm' ? '确认中…' : `确认全部匹配（${reviewRows.length}）` }}
           </button>
         </div>
+        <p v-if="pendingMsg" class="feedback" role="status">{{ pendingMsg }}</p>
         <ul class="miss-list">
           <li v-for="it in visiblePending" :key="'sp' + it.id" class="miss-row">
             <span class="kind-badge" :class="{ bad: !it.tmdb_id }">{{ rowBadge(it) }}</span>
@@ -55,8 +57,8 @@
               {{ it.season_count }} 季 · {{ it.episode_count }} 集
               <span v-if="it.episode_review_count" class="fhint"> · 未匹配集号 {{ it.episode_review_count }}</span>
             </span>
-            <button v-if="it.needs_review" :disabled="!!busy" title="匹配无误，清除待确认" @click="confirmOne(it.id)">确认</button>
-            <button @click="$router.push('/tv/' + it.id)">{{ it.tmdb_id ? '去处理' : '去匹配' }}</button>
+            <button v-if="it.needs_review" :disabled="!!busy" title="匹配无误，清除待确认" @click="confirmOne(it.id)">匹配正确</button>
+            <button @click="$router.push('/tv/' + it.id)">{{ it.tmdb_id ? '核对集号' : '匹配剧集' }}</button>
           </li>
           <li v-if="pendingTotal > COLLAPSE_N" class="miss-row collapse-row">
             <button @click="pendExpand = !pendExpand">{{ pendExpand ? '收起' : `展开全部 (${pendingTotal})` }}</button>
@@ -65,27 +67,24 @@
       </div>
     </div>
 
-    <div :id="active ? 'sec-tvorganize' : undefined" class="pipe-step">
-      <div class="pipe-head pipe-toggle" @click="toggleStep('organize')">
-        <h4><span class="step-no">③</span> 目录整理</h4>
+    <div class="pipe-step">
+      <button type="button" class="pipe-head pipe-toggle" :aria-expanded="openStep === 'organize'" @click="toggleStep('organize')">
+        <span class="step-title"><span class="step-no">③</span> 目录整理</span>
         <span class="fhint">{{ openStep === 'organize' ? '收起' : '展开' }}</span>
         <span class="step-state">{{ orgState }}</span>
-      </div>
+      </button>
       <div v-show="openStep === 'organize'" class="pipe-body">
         <TvOrganizePanel :library="tab" :active="active" @changed="onOrganized" @status="onOrgStatus" />
       </div>
     </div>
 
-    <div class="more-tools">
-      <div class="pipe-head pipe-toggle" @click="advancedOpen = !advancedOpen">
-        <h4>更多工具 <span class="fhint">剧集刮削 / NFO 落盘 / 文件浏览（低频、耗时操作）</span></h4>
-        <span class="fhint">{{ advancedOpen ? '收起' : '展开' }}</span>
-      </div>
-      <template v-if="advancedOpen">
-        <TvMaintenancePanel :library="tab" :active="active" @changed="onOrganized" />
-        <FsBrowser :active="active" :media="tabMedia" :video-libs="[tab]" :initial-lib-id="tab.id"
-          @changed="onOrganized" @scan="startScan" />
-      </template>
+    </div>
+    <div v-if="visitedViews.has('maintenance')" v-show="toolView === 'maintenance'">
+      <TvMaintenancePanel :library="tab" :active="active && toolView === 'maintenance'" @changed="onOrganized" />
+    </div>
+    <div v-if="visitedViews.has('files')" v-show="toolView === 'files'">
+      <FsBrowser :active="active && toolView === 'files'" :media="tabMedia" :video-libs="[tab]" :initial-lib-id="tab.id"
+        @changed="onOrganized" @scan="scanFromFiles" />
     </div>
   </section>
 </template>
@@ -93,7 +92,8 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { api } from '../api.js'
 import { usePolling } from '../usePolling.js'
-import { pickOpenStep, sectionNeedsAdvanced, stepForSection } from '../libraryToolsTabs.js'
+import { toolViewForSection } from '../settingsNavigation.js'
+import { pickOpenStep, stepForSection } from '../libraryToolsTabs.js'
 import TvOrganizePanel from './TvOrganizePanel.vue'
 import TvMaintenancePanel from './TvMaintenancePanel.vue'
 import FsBrowser from './FsBrowser.vue'
@@ -108,7 +108,23 @@ const emit = defineEmits(['changed', 'status'])
 
 const tabMedia = computed(() => ({ id: props.tab.media_id, name: props.tab.media_name }))
 const openStep = ref('scan')
-const advancedOpen = ref(false)
+const toolView = ref('workflow')
+const visitedViews = ref(new Set(['workflow']))
+const toolViews = [
+  { key: 'workflow', label: '入库整理' },
+  { key: 'maintenance', label: '资料维护' },
+  { key: 'files', label: '文件管理' },
+]
+function chooseView(key) {
+  toolView.value = key
+  visitedViews.value.add(key)
+}
+function scanFromFiles() {
+  chooseView('workflow')
+  toggleStep('scan')
+  openStep.value = 'scan'
+  startScan()
+}
 const userToggled = ref(false)
 const busy = ref(null)
 const stats = ref({ shows: 0, episodes: 0 })
@@ -134,6 +150,7 @@ async function loadStats() {
 // ② 待处理剧（未匹配 / 剧级待确认 / 有未匹配集）
 const pending = ref([])
 const pendingLoaded = ref(false)
+const pendingMsg = ref('')
 const pendExpand = ref(false)
 const pendingTotal = computed(() => pending.value.length)
 const unmatchedCount = computed(() => pending.value.filter(it => !it.tmdb_id).length)
@@ -143,30 +160,34 @@ const episodeReviewCount = computed(() => pending.value
   .reduce((a, it) => a + (Number(it.episode_review_count) || 0), 0))
 const reviewRows = computed(() => pending.value.filter(it => it.needs_review))
 const visiblePending = computed(() => pendExpand.value ? pending.value : pending.value.slice(0, COLLAPSE_N))
-const pendingSummary = computed(() =>
-  `未匹配 ${unmatchedCount.value} · 待确认 ${reviewCount.value} · 未匹配集号 ${episodeReviewCount.value}`)
+const pendingSummary = computed(() => [
+  ['未匹配', unmatchedCount.value], ['待确认', reviewCount.value], ['集号待处理', episodeReviewCount.value],
+].filter(([, count]) => count).map(([label, count]) => `${label} ${count}`).join(' · '))
 function rowBadge(it) {
   if (!it.tmdb_id) return '未匹配'
   if (it.needs_review) return '待确认'
   return '集号待处理'
 }
 async function loadPending(silent) {
+  if (!silent) pendingMsg.value = ''
   try {
     const d = await api(`/api/tv/shows?library=${props.tab.id}&pending=1&limit=500`)
     pending.value = d.items || []
     pendingLoaded.value = true
+    pendingMsg.value = ''
   } catch (e) {
-    if (!silent) scanMsg.value = '待处理剧加载失败：' + e.message
+    pendingMsg.value = '待处理剧加载失败：' + e.message
   }
 }
 async function confirmOne(id) {
+  pendingMsg.value = ''
   busy.value = 'confirm'
   try {
     await api(`/api/tv/shows/${id}/confirm-match`, { method: 'POST' })
     pending.value = pending.value.filter(it => it.id !== id)
     emit('changed')
   } catch (e) {
-    scanMsg.value = '确认失败：' + e.message
+    pendingMsg.value = '确认失败：' + e.message
   } finally {
     busy.value = null
   }
@@ -174,6 +195,7 @@ async function confirmOne(id) {
 async function confirmAll() {
   const ids = reviewRows.value.map(it => it.id)
   if (!ids.length) return
+  pendingMsg.value = ''
   busy.value = 'confirm'
   try {
     for (const id of ids) {
@@ -183,7 +205,7 @@ async function confirmAll() {
     pending.value = pending.value.filter(it => !set.has(it.id))
     emit('changed')
   } catch (e) {
-    scanMsg.value = '确认失败：' + e.message
+    pendingMsg.value = '确认失败：' + e.message
   } finally {
     busy.value = null
   }
@@ -286,8 +308,11 @@ watch(stepStates, (st) => {
 watch(() => props.request, async (req) => {
   if (!req || !props.active) return
   const step = stepForSection(req.sec)
-  if (step) openStep.value = step
-  if (sectionNeedsAdvanced(req.sec)) advancedOpen.value = true
+  if (step) {
+    userToggled.value = true
+    openStep.value = step === 'pending' ? 'match' : step
+  }
+  chooseView(toolViewForSection(req.sec))
   await nextTick()
   if (req.sec) document.getElementById(req.sec)?.scrollIntoView({ block: 'start' })
 }, { immediate: true })

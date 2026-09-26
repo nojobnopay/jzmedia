@@ -1,8 +1,8 @@
 <template>
   <section id="sec-libraries" class="card-block">
-    <h3>媒体库 <span class="fhint">媒体库 = 存储连接/根目录，下面可挂多个视频库（电影/剧集）</span></h3>
-    <p v-if="!mediaItems.length" class="hint">还没有媒体库——请在下方新建，或确认服务端 <code>MEDIA_ROOT</code> 已播种默认库。</p>
-    <table v-else class="lib-table">
+    <div class="section-heading"><h3>媒体库列表</h3><button class="primary" @click="showCreate = !showCreate">{{ showCreate ? '收起新建表单' : '添加媒体库' }}</button></div>
+    <p v-if="!mediaItems.length" class="hint">添加存储位置，再选择其中的电影或剧集目录。</p>
+    <div v-else class="table-scroll"><table class="lib-table">
       <thead>
         <tr><th>媒体库</th><th>来源</th><th>地址</th><th>视频库</th><th>状态</th><th></th></tr>
       </thead>
@@ -15,7 +15,7 @@
               </button>
               <b>{{ m.name }}</b>
               <span v-if="m.read_only" class="badge">只读</span>
-              <span class="fhint">{{ m.movie_count }} 片 / {{ m.episode_count }} 集</span>
+              <span class="fhint media-count">{{ m.movie_count }} 片 / {{ m.episode_count }} 集</span>
             </td>
             <td>
               {{ m.source }}
@@ -28,24 +28,24 @@
               <div v-if="m.last_error && m.enabled" class="fhint err" :title="m.last_error">{{ m.last_error }}</div>
             </td>
             <td class="ops">
-              <button class="primary" @click="connect(m)" :disabled="!!busy">
-                {{ busy === 'conn' + m.id ? (m.source === 'local' ? '检查中…' : '连接中…') : (m.source === 'local' ? '检查' : statusKind(m) === 'ok' ? '检查' : '连接') }}
+              <button @click="connect(m)" :disabled="!!busy">
+                {{ busy === 'conn' + m.id ? (m.source === 'local' ? '检查中…' : '连接中…') : (m.source === 'local' ? '检查路径' : statusKind(m) === 'ok' ? '检查连接' : '连接') }}
               </button>
               <button @click="scanAll(m)" :disabled="!!busy || scanning['m:' + m.id]">
-                {{ scanning['m:' + m.id] ? '扫描中…' : '扫描全部' }}
+                {{ scanning['m:' + m.id] ? '扫描中…' : '扫描此媒体库' }}
               </button>
               <button v-if="scanning['m:' + m.id]" @click="cancelScan('m:' + m.id)">取消</button>
               <details class="more">
-                <summary title="更多操作">⋯</summary>
+                <summary title="更多操作">更多</summary>
                 <div class="more-menu">
                   <button @click="addVideoOpen(m); closeMenu($event)">添加视频库</button>
                   <button v-if="m.source !== 'local'" @click="editConn(m); closeMenu($event)">编辑连接</button>
-                  <button v-if="m.source === 'local' && m.movie_count + m.episode_count === 0" @click="editPath(m); closeMenu($event)">改路径</button>
+                  <button v-if="m.source === 'local' && m.movie_count + m.episode_count === 0" @click="editPath(m); closeMenu($event)">修改根目录</button>
                   <button v-if="m.source !== 'local'" @click="mount(m, true); closeMenu($event)">挂载</button>
                   <button v-if="m.source !== 'local'" @click="mount(m, false); closeMenu($event)">卸载</button>
                   <button @click="toggleReadOnly(m); closeMenu($event)">{{ m.read_only ? '取消只读' : '设只读' }}</button>
                   <button @click="toggleEnabled(m); closeMenu($event)">{{ m.enabled ? '停用' : '启用' }}</button>
-                  <button class="danger" @click="armDelete(m); closeMenu($event)">删除媒体库</button>
+                  <button class="danger" @click="armDelete(m); closeMenu($event)">移除媒体库…</button>
                 </div>
               </details>
             </td>
@@ -87,7 +87,6 @@
             <tr class="vid-head">
               <td colspan="6">
                 视频库（{{ m.video_libraries.length }}）
-                <span class="fhint">每个视频库 = 媒体库下的一个子目录，类型为电影或剧集</span>
               </td>
             </tr>
             <tr v-for="v in m.video_libraries" :key="v.id" class="vid-row" :class="{ off: !m.enabled || !v.enabled }">
@@ -108,7 +107,7 @@
                 </button>
                 <button v-if="scanning['v:' + v.id]" @click="cancelScan('v:' + v.id)">取消</button>
                 <button @click="editVideo(v, m)">编辑</button>
-                <button class="danger" @click="armDeleteVideo(v, m)">删除</button>
+                <button class="danger" @click="armDeleteVideo(v, m)">移除视频库…</button>
               </td>
             </tr>
             <tr v-if="videoEdit && videoEdit.mediaId === m.id">
@@ -148,8 +147,9 @@
           </template>
         </template>
       </tbody>
-    </table>
+    </table></div>
 
+    <p v-if="msg" class="feedback" role="status">{{ msg }}</p>
     <div v-if="created" class="created-bar">
       <span class="cb-title">媒体库「{{ created.name }}」已创建 · 下一步</span>
       <span>① <button @click="connect(created)">{{ created.source === 'local' ? '检查路径' : '连接' }}</button></span>
@@ -157,7 +157,7 @@
       <button class="cb-close" @click="created = null">关闭引导</button>
     </div>
 
-    <div v-if="arm && armConfirm" class="danger-box">
+    <div v-if="arm" class="danger-box">
       <p>将删除媒体库「{{ arm.name }}」及其 <b>{{ arm.video_libraries.length }}</b> 个视频库的
         <b>{{ arm.movie_count }}</b> 条影片记录 / <b>{{ arm.episode_count }}</b> 条剧集记录与合集/花絮/缓存索引；
         <b>磁盘文件与远端数据不会被删除</b>（Plex/文件浏览不受影响）。</p>
@@ -167,7 +167,7 @@
       </div>
     </div>
 
-    <div v-if="armVideo && armVideoConfirm" class="danger-box">
+    <div v-if="armVideo" class="danger-box">
       <p>将删除视频库「{{ armVideo.name }}」（{{ armVideo.subpath || '媒体库根' }}）的
         <b>{{ armVideo.movie_count }}</b> 条影片 / <b>{{ armVideo.episode_count }}</b> 条剧集记录；
         <b>磁盘文件不会被删除</b>。媒体库连接保留。</p>
@@ -177,7 +177,8 @@
       </div>
     </div>
 
-    <h4>新建媒体库</h4>
+    <div v-if="showCreate || !mediaItems.length" class="create-library-form">
+    <h4>添加媒体库</h4><p class="hint">一个媒体库对应一个存储位置，可包含多个电影库或剧集库。</p>
     <div class="lib-form">
       <label>名称 <input v-model="form.name" v-bind="NOFILL" name="jz-lib-name" placeholder="如 NAS" /></label>
       <label>来源
@@ -250,15 +251,15 @@
     </div>
 
     <div class="lib-form lib-form-policy">
-      <span class="form-sec-title">默认整理与落盘 <span class="fhint">（新视频库的初始值；可逐个视频库再改）</span></span>
-      <label title="归档整理时如何重命名文件/目录">命名档
+      <span class="form-sec-title">命名与资料文件 <span class="fhint">（新视频库的初始值；可逐个视频库再改）</span></span>
+      <label title="归档整理时如何重命名文件/目录">命名规则
         <select v-model="form.naming_profile">
-          <option value="kodi">kodi（通用模板）</option>
-          <option value="plex">plex（Plex 规范）</option>
-          <option value="off">off（不改名）</option>
+          <option value="kodi">Kodi / 通用命名</option>
+          <option value="plex">Plex 命名</option>
+          <option value="off">保持原名</option>
         </select>
       </label>
-      <label title="是否在影片目录写 NFO / 海报图片">落盘
+      <label title="是否在影片目录写 NFO / 海报图片">保存资料
         <select v-model="form.artwork_mode">
           <option value="nfo">仅 NFO</option>
           <option value="nfo_art">NFO + 本地海报（Plex 推荐）</option>
@@ -269,8 +270,8 @@
       <button @click="create" :disabled="!!busy || !form.name.trim() || (form.source === 'local' && !form.path.trim())">
         {{ busy === 'create' ? '创建中…' : '创建媒体库' }}
       </button>
-      <span class="fhint">{{ msg }}</span>
-      <div class="parse-line">
+
+      <details class="settings-details"><summary>查看命名示例</summary>
         <template v-if="form.naming_profile === 'plex'">
           命名档 <b>plex</b>（Plex 规范，目录+文件名都带剪辑）：
           普通片 <code>标题 (年份)/标题 (年份).ext</code>；
@@ -296,11 +297,11 @@
         <template v-else>
           落盘 <b>仅 NFO</b>：在影片目录写 <code>movie.nfo</code>（Kodi/Jellyfin/Emby 可读；Plex 需启用 NFO Agent 才会读）。
         </template>
-      </div>
+      </details>
     </div>
 
-    <div class="hint-block">
-      <p class="hint-title">路径怎么填</p>
+    <details class="settings-details">
+      <summary>路径填写与连接帮助</summary>
       <ul class="hint-list">
         <li v-if="form.source === 'local'"><b>NAS Docker（推荐）</b>：媒体库根填容器内路径——compose 把宿主
           <code>/volume1/video</code> 挂到容器 <code>/media</code> 后填 <code>/media</code>，视频库子目录填
@@ -314,6 +315,7 @@
         <li><b>安全与限制</b>：远程凭据 Fernet 加密存储、绝不回显；只读库禁止归档/上传/删除/NFO 写入；
           媒体库内视频库子目录不允许互相重叠（含根）。</li>
       </ul>
+    </details>
     </div>
   </section>
 </template>
@@ -329,11 +331,10 @@ const mediaItems = ref([])
 const busy = ref('')
 const msg = ref('')
 const smbDriver = ref('auto')       // 服务端 SMB_DRIVER：auto|direct|mount
+const showCreate = ref(false)
 const expanded = reactive({})       // media_id -> 展开视频库
 const arm = ref(null)
-const armConfirm = ref(false)
 const armVideo = ref(null)
-const armVideoConfirm = ref(false)
 const pathEdit = ref(null)
 const connEdit = ref(null)
 const videoEdit = ref(null)
@@ -353,10 +354,7 @@ const scanning = computed(() => {
 })
 const smbPreview = computed(() => parseSmbInput(form.smb_url))
 const connPreview = computed(() => parseSmbInput(connEdit.value ? connEdit.value.url : ''))
-watch(() => form.smb_url, (v) => {
-  const p = parseSmbInput(v)
-  if (p.username && !form.smb_username) form.smb_username = p.username
-})
+
 const NOFILL = { autocomplete: 'off', 'data-lpignore': 'true', 'data-1p-ignore': '', 'data-bwignore': 'true' }
 const NOFILL_PW = { ...NOFILL, autocomplete: 'new-password' }
 const form = reactive({
@@ -366,6 +364,11 @@ const form = reactive({
   smb_username: '', smb_password: '', smb_connect_host: '',
   nfs_export: '',
   videos: [{ name: '', subpath: '', kind: 'movie' }],
+})
+
+watch(() => form.smb_url, (v) => {
+  const p = parseSmbInput(v)
+  if (p.username && !form.smb_username) form.smb_username = p.username
 })
 
 function setMsg (key, text, kind = 'info', cmd = '', videos = null) {
@@ -423,14 +426,16 @@ function videoCounts (m) {
 }
 
 async function load () {
-  const d = await api('/api/media-libraries')
-  mediaItems.value = d.items || []
-  smbDriver.value = d.smb_driver || 'auto'
-  // 默认展开最近使用的媒体库
-  const cur = mediaItems.value[0]
-  if (cur && expanded[cur.id] === undefined) expanded[cur.id] = true
-  try { await loadLibs(api, { force: true }) } catch (e) { /* 忽略 */ }
-  emit('changed')
+  try {
+    const d = await api('/api/media-libraries')
+    mediaItems.value = d.items || []
+    smbDriver.value = d.smb_driver || 'auto'
+    // 默认展开最近使用的媒体库
+    const cur = mediaItems.value[0]
+    if (cur && expanded[cur.id] === undefined) expanded[cur.id] = true
+    try { await loadLibs(api, { force: true }) } catch (e) { /* 忽略 */ }
+    emit('changed')
+  } catch (e) { msg.value = '媒体库加载失败：' + e.message }
 }
 
 function pathText (m) {
@@ -699,12 +704,8 @@ async function toggleEnabled (m) {
 }
 
 function armDelete (m) {
-  if (arm.value && arm.value.id === m.id) {
-    armConfirm.value = true
-    return
-  }
   arm.value = m
-  armConfirm.value = false
+  armVideo.value = null
 }
 
 async function doDeleteMedia () {
@@ -715,7 +716,6 @@ async function doDeleteMedia () {
     msg.value = `已移除媒体库「${d.library}」：影片 ${d.movies} / 剧集 ${d.tv_episodes} / 合集 ${d.collections}（文件保留）`
     delete rowMsg['m:' + arm.value.id]
     arm.value = null
-    armConfirm.value = false
     await load()
   } catch (e) {
     msg.value = '删除失败：' + e.message
@@ -725,13 +725,9 @@ async function doDeleteMedia () {
 }
 
 function armDeleteVideo (v, m) {
-  if (armVideo.value && armVideo.value.id === v.id) {
-    armVideoConfirm.value = true
-    return
-  }
+  arm.value = null
   armVideo.value = { id: v.id, name: v.name, subpath: v.subpath,
-                     movie_count: v.movie_count, episode_count: v.episode_count, mediaId: m.id }
-  armVideoConfirm.value = false
+    movie_count: v.movie_count, episode_count: v.episode_count, mediaId: m.id }
 }
 
 async function doDeleteVideo () {
@@ -742,7 +738,6 @@ async function doDeleteVideo () {
     msg.value = `已移除视频库「${d.library}」：影片 ${d.movies}（文件保留）`
     delete rowMsg['v:' + armVideo.value.id]
     armVideo.value = null
-    armVideoConfirm.value = false
     await load()
   } catch (e) {
     msg.value = '删除失败：' + e.message
@@ -893,6 +888,7 @@ async function create () {
     form.smb_connect_host = ''
     form.nfs_export = ''
     form.videos = [{ name: '', subpath: '', kind: 'movie' }]
+    showCreate.value = false
     created.value = d
     expanded[d.id] = true
     await load()

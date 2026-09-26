@@ -1,6 +1,10 @@
 <template>
   <section :id="active ? 'sec-pipeline' : undefined" class="card-block">
-    <h3>电影库「{{ tab.name }}」 <span class="fhint">单步聚焦：先扫描 → 处理未匹配 → 归档整理；低频工具收在底部</span></h3>
+    <div class="tool-views" aria-label="视频库工具">
+      <button v-for="view in toolViews" :key="view.key" :class="{ on: toolView === view.key }"
+        :aria-pressed="toolView === view.key" @click="chooseView(view.key)">{{ view.label }}</button>
+    </div>
+    <div v-show="toolView === 'workflow'">
     <div class="status-line">
       <span v-if="pendingTotal" class="chip warn">待处理 {{ pendingTotal }}</span>
       <span v-else-if="pendingLoaded" class="chip ok">✓ 无待匹配</span>
@@ -10,26 +14,25 @@
     </div>
 
     <div :id="active ? 'sec-sync' : undefined" class="pipe-step">
-      <div class="pipe-head pipe-toggle" @click="toggleStep('scan')">
-        <h4><span class="step-no">①</span> 扫描入库</h4>
+      <button type="button" class="pipe-head pipe-toggle" :aria-expanded="openStep === 'scan'" @click="toggleStep('scan')">
+        <span class="step-title"><span class="step-no">①</span> 扫描入库</span>
         <span class="fhint">{{ openStep === 'scan' ? '收起' : '展开' }}</span>
         <span class="step-state" :class="{ run: busy === 'scan' }">{{ scanStateText }}</span>
-      </div>
+      </button>
       <div v-show="openStep === 'scan'" class="pipe-body">
-        <p class="hint">把新影片拷到 NAS / 移动硬盘后点这里：按文件名匹配 TMDB 并入库；
-          扫描自动同步删除盘上已没有的记录（软件外删片/改名后重扫也用它）。</p>
+        <p class="hint">读取新影片并匹配资料，同时移除文件已不存在的记录。</p>
         <div class="bar">
           <button class="primary" @click="startScan" :disabled="!!busy || !tab.enabled">
-            {{ busy === 'scan' ? '扫描中…' : '扫描本视频库' }}
+            {{ busy === 'scan' ? '扫描中…' : '扫描新文件' }}
           </button>
-          <button v-if="busy === 'scan'" @click="cancelScan">取消</button>
+          <button v-if="busy === 'scan'" @click="cancelScan">取消扫描</button>
           <span>{{ scanMsg }}</span>
         </div>
         <div class="bar">
           <button @click="loadMissing()" :disabled="!!busy || missingLoading">{{ missingLoading ? '检查中…' : '检查失效条目' }}</button>
           <button v-if="missing.length" @click="scanOpen = !scanOpen">{{ scanOpen ? '收起清单' : '展开清单' }}</button>
           <span v-if="missing.length">共 {{ missing.length }} 条失效</span>
-          <span v-else class="fhint">扫描已自动同步删除，无失效即为正常</span>
+
           <span>{{ cleanMsg }}</span>
         </div>
         <div v-show="scanOpen && missing.length">
@@ -38,7 +41,7 @@
             <span class="fhint">{{ missing.length }} 条</span>
             <button @click="toggleMissing">{{ allMissingChecked ? '全不选' : '全选' }}</button>
             <button @click="doClean(checkedMissing)" :disabled="!!busy || !checkedMissing.length">
-              {{ busy === 'clean' ? '清理中…' : `删除选中 (${checkedMissing.length})` }}
+              {{ busy === 'clean' ? '清理中…' : `移除失效记录 (${checkedMissing.length})` }}
             </button>
           </div>
           <ul class="miss-list">
@@ -56,60 +59,69 @@
     </div>
 
     <div :id="active ? 'sec-pending' : undefined" class="pipe-step">
-      <div class="pipe-head pipe-toggle" @click="toggleStep('pending')">
-        <h4><span class="step-no">②</span> 待匹配确认 <span v-if="pendingTotal" class="nav-badge">{{ pendingTotal }}</span></h4>
+      <button type="button" class="pipe-head pipe-toggle" :aria-expanded="openStep === 'pending'" @click="toggleStep('pending')">
+        <span class="step-title"><span class="step-no">②</span> 核对匹配 <span v-if="pendingTotal" class="nav-badge">{{ pendingTotal }}</span></span>
         <span class="fhint">{{ openStep === 'pending' ? '收起' : '展开' }}</span>
         <span class="step-state" :class="{ ok: !pendingTotal && pendingLoaded }">{{ pendingTotal ? `${pendingTotal} 项待处理` : (pendingLoaded ? '✓ 全部已匹配' : '') }}</span>
-      </div>
+      </button>
       <div v-show="openStep === 'pending'" class="pipe-body">
-        <p class="hint">扫描/上传后没认出来的片在这里核对。未匹配：TMDB 没找到数据；待确认：模糊命中需人工核对；
-          疑似英文标题：非英语片却显示英文（错配或缺翻译）；未归属花絮：对不上任何影片。点「去处理」到详情页手动绑定。</p>
+        <details v-if="pendingTotal" class="settings-details"><summary>如何处理匹配问题</summary><p class="hint">未匹配或标题可疑：进入详情核对。待确认：核对后点击「匹配正确」。未归属花絮：填写影片 ID，将其关联到正片。</p></details>
         <div class="bar">
-          <button @click="loadUnmatched()" :disabled="!!busy">刷新</button>
+          <button @click="loadUnmatched()" :disabled="!!busy">刷新列表</button>
           <span v-if="pendingTotal">{{ pendingSummary }}</span>
-          <span v-else>全部已匹配</span>
+          <span v-else-if="pendingLoaded">全部已匹配</span>
           <button v-if="needsReview.length > 1" :disabled="!!busy" title="待确认一次性清除" @click="confirmReview(needsReview.map(m => m.id))">
-            全部确认（{{ needsReview.length }}）
+            确认全部匹配（{{ needsReview.length }}）
           </button>
         </div>
+        <p v-if="pendingMsg" class="feedback" role="status">{{ pendingMsg }}</p>
         <ul class="miss-list">
           <li v-for="it in visiblePending" :key="it.category + '-' + it.id" class="miss-row">
             <span class="kind-badge" :class="{ bad: it.category === 'unmatched' }">{{ it.categoryLabel }}</span>
             <span class="miss-title">{{ it.title || (it.category === 'orphan' ? (it.kind || '花絮') : '(未命名)') }}<span v-if="it.year"> ({{ it.year }})</span></span>
-            <span class="miss-path">{{ it.file_path }}<span v-if="it.guessed_title" class="fhint">（猜测：{{ it.guessed_title }}{{ it.guessed_year ? ' ' + it.guessed_year : '' }}）</span></span>
+            <span class="miss-path" :title="it.file_path">{{ it.file_path }}<span v-if="it.guessed_title" class="fhint">（猜测：{{ it.guessed_title }}{{ it.guessed_year ? ' ' + it.guessed_year : '' }}）</span></span>
             <template v-if="it.category === 'orphan'">
               <input v-model="orphanMovie[it.id]" placeholder="影片ID" style="width:80px" />
-              <button @click="attachOrphan(it.id)" :disabled="!!busy">认领</button>
+              <button @click="attachOrphan(it.id)" :disabled="!!busy">关联影片</button>
             </template>
             <template v-else>
-              <button v-if="it.category === 'needs_review'" :disabled="!!busy" title="匹配无误，清除待确认" @click="confirmReview([it.id])">确认</button>
-              <button @click="$router.push('/m/' + it.id)">去处理</button>
+              <button v-if="it.category === 'needs_review'" :disabled="!!busy" title="匹配无误，清除待确认" @click="confirmReview([it.id])">匹配正确</button>
+              <button @click="$router.push('/m/' + it.id)">核对匹配</button>
             </template>
           </li>
           <li v-if="pendingRows.length > COLLAPSE_N" class="miss-row collapse-row">
             <button @click="pendExpand = !pendExpand">{{ pendExpand ? '收起' : `展开全部 (${pendingRows.length})` }}</button>
           </li>
         </ul>
-        <div class="bar">
-          <button @click="doCollectExtras" :disabled="!!busy">{{ busy === 'collect' ? '归位中…' : (armCollect ? '确认归位花絮' : '归位已归属花絮到各片 extras/') }}</button>
-          <span>{{ collectMsg }}</span>
-        </div>
+
       </div>
     </div>
 
-    <OrganizePanel ref="organizeRef" :library="tab" :active="active" @changed="onOrganized" />
+    <div class="pipe-step">
+      <button type="button" class="pipe-head pipe-toggle" :aria-expanded="openStep === 'organize'" @click="toggleStep('organize')">
+        <span class="step-title"><span class="step-no">③</span> 目录整理</span><span class="step-state">{{ orgCount ? `${orgCount} 项可整理` : '' }}</span>
+      </button>
+    </div>
+    <div v-show="openStep === 'organize'">
+    <OrganizePanel ref="organizeRef" :library="tab" :active="active" :embedded="true" @status="orgCount = $event" @changed="onOrganized" />
+      <details class="settings-details"><summary>整理已关联的花絮</summary><p class="hint">将已关联花絮移动到各影片目录的 extras 文件夹。</p>
+        <div class="bar">
+          <button @click="doCollectExtras" :disabled="!!busy">{{ busy === 'collect' ? '归位中…' : (armCollect ? '确认移动花絮' : '整理已关联花絮') }}</button>
+          <span>{{ collectMsg }}</span>
+        </div>
+      </details>
+    </div>
 
-    <div class="more-tools">
-      <div class="pipe-head pipe-toggle" @click="advancedOpen = !advancedOpen">
-        <h4>更多工具 <span class="fhint">高级维护 / 恢复到原始位置 / 文件浏览（低频、破坏性操作）</span></h4>
-        <span class="fhint">{{ advancedOpen ? '收起' : '展开' }}</span>
-      </div>
-      <template v-if="advancedOpen">
-        <LibraryMaintenancePanel :library="tab" :active="active" @changed="onChanged" />
-        <RestorePanel ref="restoreRef" :library="tab" :active="active" :preselect-ids="preselectIds" @count="restoreCount = $event" @changed="onChanged" />
-        <FsBrowser :active="active" :media="tabMedia" :video-libs="[tab]" :initial-lib-id="tab.id"
-          @changed="onChanged" @scan="startScan" />
-      </template>
+    </div>
+    <div v-if="visitedViews.has('maintenance')" v-show="toolView === 'maintenance'">
+      <LibraryMaintenancePanel :library="tab" :active="active && toolView === 'maintenance'" @changed="onChanged" />
+    </div>
+    <div v-if="visitedViews.has('restore')" v-show="toolView === 'restore'">
+      <RestorePanel ref="restoreRef" :library="tab" :active="active && toolView === 'restore'" :preselect-ids="preselectIds" @count="restoreCount = $event" @changed="onChanged" />
+    </div>
+    <div v-if="visitedViews.has('files')" v-show="toolView === 'files'">
+      <FsBrowser :active="active && toolView === 'files'" :media="tabMedia" :video-libs="[tab]" :initial-lib-id="tab.id"
+        @changed="onChanged" @scan="scanFromFiles" />
     </div>
   </section>
 </template>
@@ -117,7 +129,8 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { api } from '../api.js'
 import { usePolling } from '../usePolling.js'
-import { pickOpenStep, sectionNeedsAdvanced, stepForSection } from '../libraryToolsTabs.js'
+import { toolViewForSection } from '../settingsNavigation.js'
+import { pickOpenStep, stepForSection } from '../libraryToolsTabs.js'
 import OrganizePanel from './OrganizePanel.vue'
 import LibraryMaintenancePanel from './LibraryMaintenancePanel.vue'
 import RestorePanel from './RestorePanel.vue'
@@ -133,7 +146,24 @@ const emit = defineEmits(['changed', 'status'])
 
 const tabMedia = computed(() => ({ id: props.tab.media_id, name: props.tab.media_name }))
 const openStep = ref('scan')
-const advancedOpen = ref(false)
+const toolView = ref('workflow')
+const visitedViews = ref(new Set(['workflow']))
+const toolViews = [
+  { key: 'workflow', label: '入库整理' },
+  { key: 'maintenance', label: '资料维护' },
+  { key: 'files', label: '文件管理' },
+  { key: 'restore', label: '还原位置' },
+]
+function chooseView(key) {
+  toolView.value = key
+  visitedViews.value.add(key)
+}
+function scanFromFiles() {
+  chooseView('workflow')
+  toggleStep('scan')
+  openStep.value = 'scan'
+  startScan()
+}
 const preselectIds = ref([])
 const restoreCount = ref(0)
 const userToggled = ref(false)
@@ -204,7 +234,8 @@ async function pollScanJob() {
       finishScanJob()
       emit('changed')
       await Promise.all([loadMissing(true), loadUnmatched(true)])
-      organizeRef.value?.refresh(true)
+      await organizeRef.value?.refresh(true)
+      orgCount.value = organizeRef.value?.count() || 0
     } else if (st.state === 'cancelled') {
       scanMsg.value = `已取消（${st.done}/${st.total}）`
       scanStateText.value = '已取消'
@@ -271,7 +302,7 @@ async function doClean(ids) {
   }
 }
 
-// ② 待匹配确认（单库；类别混排，行上带徽章）
+// ② 核对匹配（单库；类别混排，行上带徽章）
 const unmatched = ref([])
 const needsReview = ref([])
 const suspectHigh = ref([])
@@ -279,6 +310,7 @@ const suspectInfo = ref([])
 const orphans = ref([])
 const orphanMovie = ref({})
 const pendingLoaded = ref(false)
+const pendingMsg = ref('')
 const pendExpand = ref(false)
 const pendingRows = computed(() => {
   const rows = []
@@ -294,9 +326,12 @@ const pendingRows = computed(() => {
 const visiblePending = computed(() => pendExpand.value
   ? pendingRows.value : pendingRows.value.slice(0, COLLAPSE_N))
 const pendingTotal = computed(() => pendingRows.value.length)
-const pendingSummary = computed(() =>
-  `未匹配 ${unmatched.value.length} · 待确认 ${needsReview.value.length} · 疑似英文 ${suspectHigh.value.length + suspectInfo.value.length} · 未归属花絮 ${orphans.value.length}`)
+const pendingSummary = computed(() => [
+  ['未匹配', unmatched.value.length], ['待确认', needsReview.value.length],
+  ['标题待核对', suspectHigh.value.length + suspectInfo.value.length], ['未归属花絮', orphans.value.length],
+].filter(([, count]) => count).map(([label, count]) => `${label} ${count}`).join(' · '))
 async function loadUnmatched(silent) {
+  if (!silent) pendingMsg.value = ''
   try {
     const d = await api('/api/files/unmatched?library=' + props.tab.id)
     unmatched.value = d.unmatched || []
@@ -305,13 +340,15 @@ async function loadUnmatched(silent) {
     suspectInfo.value = d.suspect_title_info || []
     orphans.value = d.orphan_extras || []
     pendingLoaded.value = true
+    pendingMsg.value = ''
   } catch (e) {
-    if (!silent) scanMsg.value = '待处理加载失败：' + e.message
+    pendingMsg.value = '待处理加载失败：' + e.message
   }
 }
 async function confirmReview(ids) {
   const list = (ids || []).slice(0, 500)
   if (!list.length) return
+  pendingMsg.value = ''
   busy.value = 'confirm'
   try {
     await api('/api/movies/batch', {
@@ -322,21 +359,25 @@ async function confirmReview(ids) {
     needsReview.value = needsReview.value.filter(m => !set.has(m.id))
     emit('changed')
   } catch (e) {
-    scanMsg.value = '确认失败：' + e.message
+    pendingMsg.value = '确认失败：' + e.message
   } finally {
     busy.value = null
   }
 }
 async function attachOrphan(id) {
   const mid = Number((orphanMovie.value[id] || '').toString().trim())
-  if (!mid) return
+  if (!Number.isInteger(mid) || mid <= 0) {
+    pendingMsg.value = '请输入有效的影片 ID，可从影片详情页地址中查看'
+    return
+  }
+  pendingMsg.value = ''
   busy.value = 'attach'
   try {
     await api('/api/extras/' + id + '/attach', { method: 'POST', body: JSON.stringify({ movie_id: mid }) })
     orphans.value = orphans.value.filter(e => e.id !== id)
     emit('changed')
   } catch (e) {
-    scanMsg.value = '认领失败：' + e.message
+    pendingMsg.value = '关联失败：' + e.message
   } finally {
     busy.value = null
   }
@@ -402,8 +443,11 @@ watch(stepStates, (st) => {
 watch(() => props.request, async (req) => {
   if (!req || !props.active) return
   const step = stepForSection(req.sec)
-  if (step) openStep.value = step
-  if (sectionNeedsAdvanced(req.sec) || (req.ids || []).length) advancedOpen.value = true
+  if (step) {
+    userToggled.value = true
+    openStep.value = step
+  }
+  chooseView(toolViewForSection(req.sec, req.ids))
   if ((req.ids || []).length) preselectIds.value = req.ids
   await nextTick()
   if (req.sec) document.getElementById(req.sec)?.scrollIntoView({ block: 'start' })
