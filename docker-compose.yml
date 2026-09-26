@@ -12,7 +12,7 @@ services:
     image: jzmedia:${APP_VERSION:-latest}
     # 以宿主 UID/GID 运行（评审 P1-09）：容器建的文件（NFO/海报/转码产物）宿主可直接管理。
     # 缺省 0:0 保持旧的 root 行为；NAS/WSL 都应在 .env 填 `id -u`/`id -g`
-    # （NAS 另需保证 DATA_HOST_PATH 属主为该用户，见 README 部署说明）。
+    # （NAS 另需保证 DATA_HOST_PATH 属主为该用户，见 docs/getting-started/deployment.md）。
     user: "${UID:-0}:${GID:-0}"
     ports:
       - "${APP_PORT:-8080}:8080"
