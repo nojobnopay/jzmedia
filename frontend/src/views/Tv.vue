@@ -1,7 +1,9 @@
 <template>
-  <div class="bar">
+  <div class="browse-page">
+  <header class="browse-heading"><h1>剧集</h1><router-link :to="toolsLink" class="manage-link">管理媒体库 ›</router-link></header>
+  <div class="bar browse-search">
     <div class="q-wrap">
-      <input v-model="q" placeholder="搜剧名 / 演员" autocomplete="off"
+      <input v-model="q" aria-label="搜索剧集" placeholder="搜剧名 / 演员" autocomplete="off"
         @input="onQInput" @compositionstart="composing = true" @compositionend="onCompositionEnd"
         @keyup.enter="onSearchEnter" @keydown.down.prevent="suggestMove(1)"
         @keydown.up.prevent="suggestMove(-1)" @keydown.esc.stop="closeSuggest"
@@ -30,101 +32,97 @@
       </ul>
     </div>
     <button @click="applyAndLoad">搜索</button>
-    <button @click="clearAll">全部</button>
+    <button :aria-expanded="filtersOpen" aria-controls="browse-filters" @click="filtersOpen = !filtersOpen">筛选<span v-if="activeCount"> · {{ activeCount }}</span> {{ filtersOpen ? '⌃' : '⌄' }}</button>
+    <button v-if="q.trim()" @click="clearAll">{{ activeCount ? '重置全部条件' : '清除搜索' }}</button>
   </div>
-  <div v-if="msg" class="bar">{{ msg }}</div>
+  <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
 
-  <div class="filters" v-if="hasFacets">
+  <div v-if="activeCount" class="filter-summary">
+    <span>已选 {{ activeCount }} 项</span><span>{{ selectedSummary }}</span>
+    <button @click="clearFilters">清空筛选</button>
+  </div>
+  <div class="filters" id="browse-filters" v-show="filtersOpen" v-if="hasFacets">
     <div class="frow">
       <span class="flabel">类型</span>
-      <span v-for="g in facets.genres" :key="g.value"
+      <button v-for="g in facets.genres" :key="g.value"
         :class="['chip', { on: sel.genres.includes(g.value) }]"
-        @click="toggle('genres', g.value)">{{ g.value }} {{ g.count }}</span>
+        @click="toggle('genres', g.value)">{{ g.value }} {{ g.count }}</button>
     </div>
     <div class="frow">
       <span class="flabel">产地</span>
-      <span v-for="r in facets.regions" :key="r.value"
+      <button v-for="r in facets.regions" :key="r.value"
         :class="['chip', { on: sel.regions.includes(r.value) }]"
-        @click="toggle('regions', r.value)">{{ r.value }} {{ r.count }}</span>
-      <span class="fhint">facet内OR、跨维度AND；选了具体国家时大区自动让位；计数为「全库口径」，不随筛选变化</span>
+        @click="toggle('regions', r.value)">{{ r.value }} {{ r.count }}</button>
     </div>
     <div class="frow" v-if="facets.countries.length">
       <span class="flabel">国家/地区</span>
-      <span v-for="c in facets.countries" :key="c.code || 'unknown'"
+      <button v-for="c in facets.countries" :key="c.code || 'unknown'"
         :class="['chip', { on: sel.countries.includes(c.code || '未知') }]"
-        @click="toggle('countries', c.code || '未知')">{{ c.name }} {{ c.count }}</span>
+        @click="toggle('countries', c.code || '未知')">{{ c.name }} {{ c.count }}</button>
     </div>
     <div class="frow">
       <span class="flabel">年代</span>
-      <span v-for="d in facets.decades" :key="d.value"
+      <button v-for="d in facets.decades" :key="d.value"
         :class="['chip', { on: sel.decades.includes(String(d.value)) }]"
-        @click="toggle('decades', String(d.value))">{{ d.value }}s {{ d.count }}</span>
-      <select v-model="yearPick" @change="pickYear">
+        @click="toggle('decades', String(d.value))">{{ d.value }}s {{ d.count }}</button>
+      <select aria-label="按年份筛选" v-model="yearPick" @change="pickYear">
         <option value="">年份…</option>
         <option v-for="y in facets.years" :key="y.value" :value="y.value">{{ y.value }} ({{ y.count }})</option>
       </select>
-      <span v-for="y in sel.years" :key="y" class="chip on" @click="toggle('years', y)">{{ y }} ×</span>
-      <span v-if="sel.decades.length" class="fhint">年代与年份叠加为AND（如2020s＋2025＝2025）</span>
+      <button v-for="y in sel.years" :key="y" class="chip on" @click="toggle('years', y)">{{ y }} ×</button>
     </div>
     <div class="frow" v-if="facets.tags.length">
       <span class="flabel">标签</span>
-      <span v-for="t in facets.tags" :key="t.value"
+      <button v-for="t in facets.tags" :key="t.value"
         :class="['chip', 'tag', { on: sel.tags.includes(t.value) }]"
-        @click="toggle('tags', t.value)">{{ t.value }} {{ t.count }}</span>
-      <span class="fhint">标签多选为AND（逐个收窄）</span>
+        @click="toggle('tags', t.value)">{{ t.value }} {{ t.count }}</button>
     </div>
     <div class="frow" v-if="facets.status.length">
       <span class="flabel">状态</span>
-      <span v-for="st in facets.status" :key="st.value"
+      <button v-for="st in facets.status" :key="st.value"
         :class="['chip', { on: sel.status.includes(st.value) }]"
-        @click="toggle('status', st.value)">{{ statusLabel(st.value) }} {{ st.count }}</span>
+        @click="toggle('status', st.value)">{{ statusLabel(st.value) }} {{ st.count }}</button>
     </div>
     <div class="frow">
       <span class="flabel">评分</span>
-      <select v-model="sel.ratingSource" @change="applyAndLoad">
+      <select aria-label="评分来源" v-model="sel.ratingSource" @change="applyAndLoad">
         <option value="tmdb">TMDB</option>
         <option value="custom">自评</option>
       </select>
-      <span v-for="s in [9, 8, 7, 6]" :key="s"
+      <button v-for="s in [9, 8, 7, 6]" :key="s"
         :class="['chip', { on: sel.rating === s, off: ratingCount(s) === 0 }]"
-        @click="pickRating(s)">{{ s }}分以上 {{ ratingCount(s) }}</span>
-      <span class="fhint">单选；未评分的不计入</span>
+        @click="pickRating(s)">{{ s }}分以上 {{ ratingCount(s) }}</button>
     </div>
     <div class="frow">
       <span class="flabel">观看</span>
-      <span :class="['chip', { on: sel.watched === 1 }]" @click="pickWatched(1)">已看完 {{ watchedCounts.watched }}</span>
-      <span :class="['chip', { on: sel.watched === 0 }]" @click="pickWatched(0)">未看完 {{ watchedCounts.unwatched }}</span>
-      <span class="fhint">整剧口径：全部集标已看才算看完</span>
+      <button :class="['chip', { on: sel.watched === 1 }]" @click="pickWatched(1)">已看完 {{ watchedCounts.watched }}</button>
+      <button :class="['chip', { on: sel.watched === 0 }]" @click="pickWatched(0)">未看完 {{ watchedCounts.unwatched }}</button>
     </div>
-    <div class="frow" v-if="activeCount">
-      <span class="fhint">已选 {{ activeCount }} 项 · 已显示 {{ items.length }} 部<span v-if="hasMore">（还有更多）</span></span>
-      <button @click="clearFilters">清空筛选</button>
-    </div>
+    <details class="filter-help"><summary>筛选说明</summary><p>同类条件可多选，标签需全部符合。选择具体国家后以国家为准。计数为当前媒体库的总量。</p></details>
   </div>
 
   <ContinueWatchingRow v-if="showContinue" ref="cwRef" kind="tv" :media-library-id="curMediaId"
     @open="openShow" @resume="resume" />
 
   <div v-if="items.length" class="wall-head">
-    <h3>全部剧集 <span class="wall-count">{{ wallCountText }}</span></h3>
+    <h3>{{ q.trim() || activeCount ? '筛选结果' : '全部剧集' }} <span class="wall-count">{{ wallCountText }}</span></h3>
     <div class="wall-sort">
-      <span class="flabel">排序</span>
-      <span v-for="s in WALL_SORTS" :key="s.key"
-        :class="['chip', { on: sort.key === s.key }]"
-        :title="s.key === 'rating' ? '按上面「评分」来源的分数排序' : `按${s.label}排序`"
-        @click="pickSort(s.key)">{{ s.label }}<template v-if="sort.key === s.key"> {{ sort.order === 'asc' ? '↑' : '↓' }}</template></span>
-      <span class="fhint">默认按入库时间；搜索时仍按所选排序</span>
+      <label>排序 <select :value="sort.key" aria-label="排序方式" @change="pickSort($event.target.value)">
+        <option v-for="s in WALL_SORTS" :key="s.key" :value="s.key">{{ s.key === 'rating' ? s.label + '（' + ({ tmdb: 'TMDB', douban: '豆瓣', custom: '自评' }[sel.ratingSource]) + '）' : s.label }}</option>
+      </select></label>
+      <button @click="pickSort(sort.key)" :aria-label="sort.order === 'asc' ? '当前升序，切换为降序' : '当前降序，切换为升序'">{{ sort.order === 'asc' ? '↑ 升序' : '↓ 降序' }}</button>
     </div>
   </div>
 
   <EmptyState v-if="!items.length && firstLoaded && !loadError"
-    :text="(q.trim() || activeCount) ? '没有符合条件的剧集。' : '当前媒体库还没有剧集。先在设置页「媒体库」添加「剧集」类型的视频库，再到「媒体库工具」的剧集标签页点「扫描本视频库」：扫描会自动匹配 TMDB 并拉取元数据。'">
-    <button v-if="q.trim() || activeCount" @click="clearAll">清空回到全部</button>
+    :text="(q.trim() || activeCount) ? '没有符合条件的剧集。' : '当前媒体库还没有剧集，扫描已有文件后即可观看。'">
+    <button v-if="q.trim() || activeCount" @click="clearAll">重置筛选</button>
+    <router-link v-else :to="toolsLink">扫描与整理 ›</router-link>
   </EmptyState>
   <EmptyState v-if="loadError" :text="loadError" />
 
   <div class="grid">
-    <div v-for="s in items" :key="s.id" class="card show-card" @click="openShow(s.id)">
+    <div v-for="s in items" :key="s.id" class="card show-card" role="link" tabindex="0" @keydown.enter.self="openShow(s.id)" @click="openShow(s.id)">
       <div class="poster-wrap">
         <img v-if="s.poster_path" :src="posterUrl(s.poster_path)" loading="lazy"
           :alt="s.title || '剧集'" />
@@ -149,13 +147,14 @@
 
   <PlayerModal v-if="playing" :key="'episode:' + playing.id" :version-id="playing.id" :title="playing.label"
     kind="episode" @close="playing = null" @watched="onWatched" @ended="onWatched" />
+  </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
-import { currentMediaId, mediaParam, switchLib, switchMedia,
+import { currentMediaId, preferredVideoLibId, mediaParam, switchLib, switchMedia,
          loadLibs, onLibChange } from '../libraries.js'
 import { WALL_SORTS, loadWallSort, normalizeWallSort, saveWallSort,
          toggleWallSort } from '../wallSort.js'
@@ -166,6 +165,18 @@ import PlayerModal from '../components/PlayerModal.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
 
+const filtersOpen = ref(false)
+const toolsLink = computed(() => ({ path: '/settings', query: { sec: 'sec-libtools', ...(curMediaId.value ? { media: curMediaId.value, library: preferredVideoLibId('tv') } : {}) } }))
+const selectedSummary = computed(() => {
+  const v = sel.value
+  const countries = (v.countries || []).map(code => (facets.value.countries || []).find(c => c.code === code)?.name || code)
+  const labels = [...v.genres, ...(v.countries.length ? [] : v.regions), ...countries,
+    ...v.decades.map(d => d + '年代'), ...v.years, ...v.tags,
+    ...(v.status || []).map(value => ({ continuing: '连载中', ended: '已完结', other: '其他' }[value] || value))]
+  if (v.rating != null) labels.push(({ tmdb: 'TMDB', douban: '豆瓣', custom: '自评' }[v.ratingSource] || '') + ' ' + v.rating + '分以上')
+  if (v.watched != null) labels.push(v.watched ? '已看完' : '未看完')
+  return labels.join(' · ')
+})
 const route = useRoute()
 const router = useRouter()
 

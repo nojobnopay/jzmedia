@@ -1,44 +1,55 @@
 <template>
-  <div class="detail" v-if="m">
-    <div class="hero">
-      <div v-if="m.poster_path" class="hero-bg" :style="{ backgroundImage: `url(${posterSrc})` }"></div>
+  <div class="detail media-detail movie-detail" v-if="m">
+    <div class="hero media-hero">
+      <MediaBackdrop :src="m.tmdb_id ? `/api/movies/${m.id}/backdrop?tmdb=${m.tmdb_id}` : ''" />
       <div class="hero-inner">
         <div class="topbar">
-          <button @click="$router.back()">‹ 返回</button>
+          <router-link to="/" class="back-link">‹ 电影</router-link>
           <span class="top-right">
             <span v-if="savedFlash" class="saved-flash">已保存</span>
             <span v-if="regionNote" class="saved-flash" style="color:#e0a63c">{{ regionNote }}</span>
             <span v-if="metaMsg" class="saved-flash" :style="metaErr ? 'color:#e0a63c' : ''">{{ metaMsg }}</span>
-            <span v-if="buildVer" class="ver-tag" :title="'后端构建 ' + buildVer">构建 {{ buildVer }}</span>
-            <button :disabled="metaBusy" title="按当前匹配重写该片 NFO/海报（含 NAS 落盘），用于换绑后落盘缺失"
-              @click="rebuildMeta">{{ metaBusy ? '重写中…' : '重写元数据' }}</button>
-            <button @click="toggleEdit">{{ editing ? '收起' : '编辑' }}</button>
           </span>
         </div>
         <div class="hero-main">
-          <img v-if="m.poster_path" :src="posterSrc" class="poster zoomable" :alt="(m.title || '海报') + ' 海报'" title="查看大图" @click="openPoster" />
-          <div v-else class="poster poster-empty"><Spinner :size="22" /><span>海报补齐中</span></div>
+          <img v-if="m.poster_path" :src="posterSrc" class="poster zoomable" :alt="(m.title || '海报') + ' 海报'" title="查看大图" tabindex="0" role="button" @keydown.enter="openPoster" @keydown.space.prevent="openPoster" @click="openPoster" />
+          <div v-else class="poster poster-empty" aria-hidden="true">{{ (m.title || '?').slice(0, 1) }}</div>
           <div class="hero-info">
-            <h2>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.needs_review" class="needs-review">待确认<button class="nr-btn ok" :disabled="!!nrBusy" title="匹配无误，清除待确认标记（不重刮）" @click="confirmMatch">确认</button><button class="nr-btn" :disabled="!!nrBusy" title="打开匹配面板，重新搜索 TMDB" @click="editing = true">重新匹配</button></span><span v-if="m.watched" class="watched-chip">✓已看</span></h2>
+            <h1>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.watched" class="watched-chip">✓已看</span></h1>
             <HeroRatings :tmdb="m.tmdb_rating" :douban="m.douban_rating" :custom="m.custom_rating" />
             <p v-if="metaLine" class="meta-line">{{ metaLine }}</p>
-            <div v-if="mediaBadge || mediaUnplayable || resumeText || noFfmpeg" class="media-row">
+            <MediaOverview :text="m.overview_display || ''" />
+            <div v-if="m.needs_review" class="review-notice">
+              <span>请确认影片是否匹配正确</span>
+              <button :disabled="!!nrBusy" @click="confirmMatch">匹配正确</button>
+              <button @click="editing = true">重新匹配</button>
+            </div>
+            <div v-if="mediaBadge || mediaUnplayable || noFfmpeg" class="media-row">
               <span v-if="mediaBadge" class="media-badge">{{ mediaBadge }}</span>
               <span v-if="mediaUnplayable" class="media-warn" :title="mediaError">无效文件，无法播放</span>
               <span v-if="noFfmpeg" class="media-warn" title="服务器缺 ffmpeg：转码/重封装不可用，直链与电视播放不受影响">转码不可用（缺 ffmpeg）</span>
-              <span v-if="resumeText" class="resume-hint">{{ resumeText }}</span>
             </div>
             <div v-else-if="mediaLoading" class="media-row"><span class="media-loading">媒体信息探测中…</span></div>
             <div class="play-row">
-              <button class="play-main" :disabled="heroBlocked" :title="heroBlockTip" @click="openHeroPlay">▶ 播放</button>
-              <select v-if="(m.versions || []).length > 1" v-model.number="heroVid" class="ver-sel">
+              <button class="play-main" :disabled="heroBlocked" :title="heroBlockTip" @click="openHeroPlay">▶ {{ heroResume ? '继续观看' : '播放影片' }}</button>
+              <select v-if="(m.versions || []).length > 1" v-model.number="heroVid" class="ver-sel" aria-label="播放版本">
                 <option v-for="v in m.versions" :key="v.id" :value="v.id" :disabled="!!verBlocked[v.id]">
                   {{ verLabel(v) }}{{ verBlocked[v.id] ? '（无效）' : (verFriendly(v.id) ? ' ★浏览器友好' : '') }}
                 </option>
               </select>
               <span v-if="heroResume" class="resume-hint">{{ heroResume }}</span>
-              <span v-if="!heroBlocked && (!verFriendly(heroVid) || (heroRemux && heroRemoteLib))" class="pre-wrap">
-                <select v-model="preQuality" :disabled="!!preJob" class="pre-sel"
+              <button :disabled="watchedBusy" @click="toggleWatched">{{ m.watched ? '标记未看' : '标记已看' }}</button>
+              <ActionMenu>
+                <button @click="toggleEdit">{{ editing ? '收起影片编辑' : '编辑影片与匹配' }}</button>
+                <button @click="contentTab = 'files'">文件与版本</button>
+                <button :disabled="metaBusy" title="按当前匹配重新写入本片的 NFO 和海报" @click="rebuildMeta">{{ metaBusy ? '重写中…' : '重写 NFO 与海报' }}</button>
+              </ActionMenu>
+            </div>
+              <details class="playback-preparation" v-if="!heroBlocked && (!verFriendly(heroVid) || (heroRemux && heroRemoteLib))" >
+                <summary>预缓存与转码</summary>
+                <p class="fhint">提前准备影片可减少下次起播等待，缓存有效期为 24 小时。</p>
+                <div class="pre-wrap"><label for="pre-quality">准备画质</label>
+                <select id="pre-quality" v-model="preQuality" aria-label="预缓存与转码画质" :disabled="!!preJob" class="pre-sel"
                   :title="heroRemux && heroRemoteLib
                     ? '预缓存目标：远程库建议「原画」（无损 copy、几乎不耗 CPU；选 720p/1080p 会真转码）'
                     : '预转码目标：自动=按服务器能力（无硬件转码→720p，有硬件→1080p）'">
@@ -54,18 +65,18 @@
                   @click="startPrewarm">{{ preJob
                     ? (heroRemux && heroRemoteLib ? '预缓存中…' : '预转码中…')
                     : (heroRemux && heroRemoteLib ? '预缓存到服务器' : '开始预转码') }}</button>
-              </span>
-              <span v-if="preMsg" class="resume-hint">{{ preMsg }}</span>
-            </div>
+              </div>
+              </details>
+            <p v-if="preMsg" class="page-feedback" role="status">{{ preMsg }}</p>
             <div v-if="(m.tags || []).length" class="tag-row">
               <span v-for="t in m.tags" :key="t" class="tag-chip">{{ t }}</span>
             </div>
             <div v-if="(m.collections || []).length" class="tag-row">
-              <span v-for="c in m.collections" :key="c.id" class="col-chip" @click="$router.push('/c/' + c.id)">📁 {{ c.name }}</span>
+              <router-link v-for="c in m.collections" :key="c.id" class="col-chip" :to="'/c/' + c.id">{{ c.name }}</router-link>
             </div>
             <div v-if="hint && hint.collection_tmdb_id" class="hint-row">
               TMDB 系列：{{ hint.collection_name }}（库内 {{ hint.in_library_count }} 部）
-              <button v-if="!hint.already_collected" @click="createFromSeries">一键建合集</button>
+              <button v-if="!hint.already_collected" @click="createFromSeries">创建系列合集</button>
               <span v-else class="fhint">已收录</span>
               <span>{{ hintMsg }}</span>
             </div>
@@ -75,21 +86,22 @@
     </div>
 
     <div class="sections">
-      <div class="body-grid">
-        <div class="main-col">
-          <section class="card-block">
-            <h3>剧情简介</h3>
-            <p v-if="m.overview_display" class="overview">{{ m.overview_display }}</p>
-            <p v-else class="empty">暂无简介</p>
-          </section>
+      <p v-if="loadErr" class="page-feedback" role="alert">{{ loadErr }}</p>
+      <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
+      <MovieEditPanel v-if="editing" :movie="m" :movie-id="Number(route.params.id)"
+        @close="editing = false" @saved="onEditSaved" @changed="onEditChanged"
+        @matched="onMatched" @refreshed="onRefreshed" />
+      <nav class="detail-tabs" aria-label="影片内容">
+        <button :class="{ active: contentTab === 'info' }" :aria-pressed="contentTab === 'info'" @click="contentTab = 'info'">影片资料</button>
+        <button :class="{ active: contentTab === 'files' }" :aria-pressed="contentTab === 'files'" @click="contentTab = 'files'">文件与版本 <span>{{ (m.versions || []).length }}</span></button>
+      </nav>
+      <div v-show="contentTab === 'info'" class="body-grid" :class="{ 'facts-only': !actors.length && !directors.length }">
+        <div v-if="actors.length || directors.length" class="main-col">
 
           <CrewRow :directors="directors" />
           <CastWall :cast="actors" :original-language="origLang" />
 
-          <MovieFileManager :movie-id="Number(route.params.id)" :movie="m" :side-files="sideFiles"
-            :ver-blocked="verBlocked" :ver-err="verErr" :ver-method="verMethod" :ver-friendly="verFriendly"
-            @play="openStream" @changed="onFilesChanged" />
-          <MovieUploadPanel :movie-id="Number(route.params.id)" @uploaded="load" />
+
         </div>
 
         <aside class="side-col">
@@ -106,12 +118,17 @@
         </aside>
       </div>
 
-      <SimilarRow :items="similar" title="库中类似" subtitle="按系列 / 影人 / 类型 / 标签推荐"
+      <div v-show="contentTab === 'files'" class="file-sections">
+          <MovieFileManager :movie-id="Number(route.params.id)" :movie="m" :side-files="sideFiles"
+            :ver-blocked="verBlocked" :ver-err="verErr" :ver-method="verMethod" :ver-friendly="verFriendly"
+            @play="openStream" @changed="onFilesChanged" />
+          <MovieUploadPanel :movie-id="Number(route.params.id)" @uploaded="load" />
+      </div>
+
+      <SimilarRow v-if="contentTab === 'info'" :items="similar" title="库中类似" subtitle="按系列 / 影人 / 类型 / 标签推荐"
         @open="(id) => $router.push('/m/' + id)" />
 
-      <MovieEditPanel v-if="editing" :movie="m" :movie-id="Number(route.params.id)"
-        @close="editing = false" @saved="onEditSaved" @changed="onEditChanged"
-        @matched="onMatched" @refreshed="onRefreshed" />
+
     </div>
 
     <PlayerModal v-if="playVid" :key="'movie:' + playVid" ref="playerRef" :versionId="playVid" :title="playTitle"
@@ -164,14 +181,17 @@
       </p>
       <div class="bar">
         <button @click="doArchive" :disabled="archApplying">{{ archApplying ? '归档中…' : '立即归档' }}</button>
-        <button @click="archHint = null" :disabled="archApplying">稍后（可在设置页「入库流程 → ③ 归档整理」处理）</button>
+        <button @click="archHint = null" :disabled="archApplying">稍后整理</button>
         <span>{{ archMsg }}</span>
       </div>
     </div>
   </div>
-  <EmptyState v-else :text="loadErr || '加载中…'" />
+  <EmptyState v-if="!m" :text="loadErr || '加载中…'" />
 </template>
 <script setup>
+import MediaBackdrop from '../components/MediaBackdrop.vue'
+import MediaOverview from '../components/MediaOverview.vue'
+import ActionMenu from '../components/ActionMenu.vue'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
@@ -181,7 +201,6 @@ import HeroRatings from '../components/HeroRatings.vue'
 import SimilarRow from '../components/SimilarRow.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { fmtDate } from '../format.js'
-import Spinner from '../components/Spinner.vue'
 import PlayerModal from '../components/PlayerModal.vue'
 import CastWall from '../components/CastWall.vue'
 import CrewRow from '../components/CrewRow.vue'
@@ -209,7 +228,9 @@ const archHint = ref(null)
 const archApplying = ref(false)
 const archMsg = ref('')
 const editing = ref(false)
+const contentTab = ref('info')
 const savedFlash = ref(false)
+const watchedBusy = ref(false)
 let flashTimer = null
 const actors = computed(() => (m.value?.persons || []).filter(p => p.role === 'actor'))
 const directors = computed(() => (m.value?.persons || []).filter(p => p.role === 'director'))
@@ -231,7 +252,6 @@ const mediaLoading = ref(false)
 const mediaError = ref('')
 const noFfmpeg = ref(false)
 const progressInfo = ref(null)
-const buildVer = ref('')
 const mediaBadge = computed(() => {
   const mi = mediaInfo.value
   if (!mi || !mi.playable) return ''
@@ -461,6 +481,19 @@ async function refreshProgress(vid) {
     progressInfo.value = (p && Number(p.position) > 0) ? p : null
   } catch (e) { /* 忽略 */ }
 }
+async function toggleWatched() {
+  if (watchedBusy.value || !m.value) return
+  watchedBusy.value = true
+  msg.value = ''
+  try {
+    await api('/api/movies/batch', {
+      method: 'POST', body: JSON.stringify({ ids: [m.value.id], ops: { watched: !m.value.watched } }),
+    })
+    m.value = await api('/api/movies/' + route.params.id)
+    flashSaved()
+  } catch (e) { msg.value = '观看状态保存失败：' + e.message }
+  finally { watchedBusy.value = false }
+}
 async function onPlayEnded() {
   // 海报粒度：同片全版本同步标已看（批量接口一次完成，评审 B8/R05-D5）
   try {
@@ -490,7 +523,6 @@ async function load() {
   try {
     const h = await api('/api/health')
     noFfmpeg.value = !h.ffmpeg
-    buildVer.value = h.build || ''
   } catch (e) { /* 健康检查失败不挡详情页 */ }
   await reloadFiles()
   try {
@@ -715,17 +747,10 @@ onUnmounted(() => {
   if (flashTimer) clearTimeout(flashTimer)
   if (posterObjUrl) URL.revokeObjectURL(posterObjUrl)
 })
-watch(() => route.params.id, () => { load() })   // 同组件切片重载（评审 B8/R05-Q3）
+watch(() => route.params.id, () => { contentTab.value = 'info'; editing.value = false; load() })   // 同组件切片重载（评审 B8/R05-Q3）
 </script>
 <style scoped>
-.detail { padding-bottom: 24px; }.hero { position: relative; overflow: hidden; }.hero-bg {
-  position: absolute; inset: 0;
-  background-size: cover; background-position: center 20%;
-  filter: blur(28px) brightness(.45) saturate(1.2);
-  transform: scale(1.15);
-  -webkit-mask-image: linear-gradient(#000 30%, transparent);
-  mask-image: linear-gradient(#000 30%, transparent);
-}.hero-inner { position: relative; width: 100%; box-sizing: border-box; padding: 12px 24px; max-width: min(1600px, 100%); margin: 0 auto; }.topbar { display: flex; justify-content: space-between; align-items: center; }.top-right { display: flex; gap: 8px; align-items: center; }.saved-flash { color: #7ed321; font-size: 0.875rem; }.ver-tag { color: #555; font-size: 0.75rem; }.poster { width: 220px; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.55); }.poster.zoomable { cursor: zoom-in; }.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }.poster-dlg { text-align: center; }.poster-dlg .bar { justify-content: center; }.poster-empty { aspect-ratio: 2/3; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; background: #262626; color: #888; font-size: 0.875rem; box-shadow: none; }.hero-info .year { color: #aaa; font-weight: normal; font-size: 1.3125rem; }.needs-review { color: #ff6b6b; font-size: 0.875rem; border: 1px solid #6e2b2b; border-radius: 999px; padding: 1px 4px 1px 10px; margin-left: 8px; vertical-align: middle; display: inline-flex; align-items: center; gap: 4px; }.needs-review .nr-btn { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; border: 1px solid #6e2b2b; background: transparent; color: #ff8a8a; cursor: pointer; }.needs-review .nr-btn.ok { border-color: #3a5a1e; color: #7ed321; }.needs-review .nr-btn:disabled { opacity: .6; cursor: wait; }.edition-chip { color: #6ab0ff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.edition-chip.spec { color: #7ed321; border-color: #3a5a1e; }.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }.media-badge { color: #9ecfff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; }.media-warn { color: #e0a63c; font-size: 0.8125rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 1px 10px; }.media-loading { color: #666; font-size: 0.8125rem; }.resume-hint { color: #7ed321; font-size: 0.8125rem; }.play-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 2px; }.play-main { font-size: 1rem; padding: 8px 28px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }.play-main:hover:not(:disabled) { background: #3580cc; }.play-main:disabled { background: #333; border-color: #444; color: #777; cursor: not-allowed; }.ver-sel { background: #262626; color: #ccc; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; max-width: 320px; }.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }.pre-sel { background: #262626; color: #ccc; border: 1px solid #6e5426; border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }.pre-btn { background: transparent; border: 1px dashed #6e5426; color: #e0a63c; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 0.8125rem; }.pre-btn:disabled { opacity: 0.6; cursor: wait; }.src { color: #888; font-weight: normal; }.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid #2b4a6e; color: #6ab0ff; cursor: pointer; }.watched-chip { color: #7ed321; font-size: 0.875rem; border: 1px solid #3a5a1e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.hint-row { margin-top: 6px; color: #aaa; font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.hint-row .fhint { color: #777; font-size: 0.75rem; }.sections { width: 100%; box-sizing: border-box; padding: 0 24px; max-width: min(1600px, 100%); display: flex; flex-direction: column; gap: 12px; margin: 12px auto 0; }.body-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 12px; align-items: start; }.main-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }.side-col { min-width: 0; }@media (max-width: 860px) { .body-grid { grid-template-columns: 1fr; }}.crew { margin: 8px 0; font-size: 0.9375rem; }.role { color: #888; margin-right: 8px; font-size: 0.875rem; }.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: #262626; border: 1px solid #3a3a3a; cursor: pointer; font-size: 0.9375rem; }.actor-chip:hover { border-color: #6ab0ff; color: #6ab0ff; }.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }.cast-card { cursor: pointer; min-width: 0; }.cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: #262626; }.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #666; border: 1px solid #3a3a3a; }.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }.facts .fact span:first-child { color: #888; min-width: 48px; flex-shrink: 0; }.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }.facts a { color: #6ab0ff; margin-right: 10px; }.arch-dlg { max-width: 720px; }.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }.arch-list li { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }.arch-from { color: #888; overflow-wrap: anywhere; }.arch-arrow { color: #6ab0ff; }.arch-to { color: #7ed321; overflow-wrap: anywhere; }.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }button.danger { border-color: #6e2b2b; color: #ff8a8a; }.hint.warn { color: #e0a63c; }
+.detail { padding-bottom: 24px; }.hero { position: relative; overflow: hidden; }.hero-inner { position: relative; width: 100%; box-sizing: border-box; padding: 12px 24px; max-width: min(1600px, 100%); margin: 0 auto; }.topbar { display: flex; justify-content: space-between; align-items: center; }.top-right { display: flex; gap: 8px; align-items: center; }.saved-flash { color: #7ed321; font-size: 0.875rem; }.poster { width: 220px; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.55); }.poster.zoomable { cursor: zoom-in; }.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }.poster-dlg { text-align: center; }.poster-dlg .bar { justify-content: center; }.poster-empty { aspect-ratio: 2/3; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; background: #262626; color: #888; font-size: 0.875rem; box-shadow: none; }.hero-info .year { color: #aaa; font-weight: normal; font-size: 1.3125rem; }.needs-review { color: #ff6b6b; font-size: 0.875rem; border: 1px solid #6e2b2b; border-radius: 999px; padding: 1px 4px 1px 10px; margin-left: 8px; vertical-align: middle; display: inline-flex; align-items: center; gap: 4px; }.needs-review .nr-btn { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; border: 1px solid #6e2b2b; background: transparent; color: #ff8a8a; cursor: pointer; }.needs-review .nr-btn.ok { border-color: #3a5a1e; color: #7ed321; }.needs-review .nr-btn:disabled { opacity: .6; cursor: wait; }.edition-chip { color: #6ab0ff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.edition-chip.spec { color: #7ed321; border-color: #3a5a1e; }.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }.media-badge { color: #9ecfff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; }.media-warn { color: #e0a63c; font-size: 0.8125rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 1px 10px; }.media-loading { color: #666; font-size: 0.8125rem; }.resume-hint { color: #7ed321; font-size: 0.8125rem; }.play-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 2px; }.play-main { font-size: 1rem; padding: 8px 28px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }.play-main:hover:not(:disabled) { background: #3580cc; }.play-main:disabled { background: #333; border-color: #444; color: #777; cursor: not-allowed; }.ver-sel { background: #262626; color: #ccc; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; max-width: 320px; }.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }.pre-sel { background: #262626; color: #ccc; border: 1px solid #6e5426; border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }.pre-btn { background: transparent; border: 1px dashed #6e5426; color: #e0a63c; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 0.8125rem; }.pre-btn:disabled { opacity: 0.6; cursor: wait; }.src { color: #888; font-weight: normal; }.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid #2b4a6e; color: #6ab0ff; cursor: pointer; }.watched-chip { color: #7ed321; font-size: 0.875rem; border: 1px solid #3a5a1e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.hint-row { margin-top: 6px; color: #aaa; font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.hint-row .fhint { color: #777; font-size: 0.75rem; }.sections { width: 100%; box-sizing: border-box; padding: 0 24px; max-width: min(1600px, 100%); display: flex; flex-direction: column; gap: 12px; margin: 12px auto 0; }.body-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 12px; align-items: start; }.main-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }.side-col { min-width: 0; }@media (max-width: 860px) { .body-grid { grid-template-columns: 1fr; }}.crew { margin: 8px 0; font-size: 0.9375rem; }.role { color: #888; margin-right: 8px; font-size: 0.875rem; }.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: #262626; border: 1px solid #3a3a3a; cursor: pointer; font-size: 0.9375rem; }.actor-chip:hover { border-color: #6ab0ff; color: #6ab0ff; }.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }.cast-card { cursor: pointer; min-width: 0; }.cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: #262626; }.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #666; border: 1px solid #3a3a3a; }.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }.facts .fact span:first-child { color: #888; min-width: 48px; flex-shrink: 0; }.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }.facts a { color: #6ab0ff; margin-right: 10px; }.arch-dlg { max-width: 720px; }.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }.arch-list li { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }.arch-from { color: #888; overflow-wrap: anywhere; }.arch-arrow { color: #6ab0ff; }.arch-to { color: #7ed321; overflow-wrap: anywhere; }.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }button.danger { border-color: #6e2b2b; color: #ff8a8a; }.hint.warn { color: #e0a63c; }
 /* 推荐行样式单源：SimilarRow.vue */
 .poster-pick-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
 .poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; max-height: 60vh; overflow: auto; padding: 2px; }

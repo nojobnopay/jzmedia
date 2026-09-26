@@ -1,46 +1,46 @@
 <template>
-  <div v-if="s" class="tv-page">
-    <div class="crumbs">
+  <div v-if="s" class="tv-page media-detail season-detail">
+    <nav class="crumbs" aria-label="当前位置">
+      <router-link to="/tv">剧集</router-link><span class="dim"> / </span>
       <router-link :to="'/tv/' + s.show_id">{{ s.show_title }}</router-link>
       <span class="dim"> / </span>
       <span>{{ s.name || seasonLabel(s.season) }}</span>
-    </div>
-    <div class="hero">
+    </nav>
+    <div class="hero media-hero">
+      <MediaBackdrop :src="s.show_backdrop_path ? posterUrl(s.show_backdrop_path) : ''" />
       <div class="hero-inner">
         <img v-if="s.poster_path" class="hero-poster" :src="posterUrl(s.poster_path)"
           :alt="s.name || seasonLabel(s.season)" />
         <div v-else class="hero-poster hero-no-poster">{{ seasonLabel(s.season).slice(0, 1) }}</div>
         <div class="hero-body">
-          <h2>{{ s.show_title }}<span v-if="s.show_year" class="dim"> ({{ s.show_year }})</span></h2>
+          <h1>{{ s.show_title }}<span v-if="s.show_year" class="dim"> ({{ s.show_year }})</span></h1>
           <div class="meta">
             <span>{{ s.name || seasonLabel(s.season) }}</span>
             <span v-if="s.air_date">{{ s.air_date }}</span>
             <span>{{ s.episode_count }} 集</span>
             <span>{{ s.watched_count }}/{{ s.episode_count }} 已看</span>
           </div>
-          <p v-if="s.overview" class="overview">{{ s.overview }}</p>
-          <p v-else class="empty">暂无简介</p>
+          <MediaOverview :text="s.overview || ''" />
           <div class="acts">
             <button v-if="s.next_episode" class="primary" :disabled="!s.next_episode.exists"
               @click="play(s.next_episode)">
-              ▶ {{ s.next_episode.progress ? '继续' : '播放本季' }} {{ epNo(s.next_episode) }}
+              ▶ {{ s.next_episode.progress ? '继续观看' : '播放本季' }} {{ epNo(s.next_episode) }}
             </button>
-            <button v-if="eps.length" @click="toggleSeasonWatched">
+            <button v-if="eps.length" :disabled="busy" @click="toggleSeasonWatched">
               {{ seasonDone ? '标记本季未看' : '标记本季已看' }}
             </button>
-            <button :disabled="verifying" @click="verifyExists" title="触网核验本季存在性（默认只信本地）">
-              {{ verifying ? '校验中…' : '校验存在性' }}
-            </button>
-            <span v-if="s.stale" class="dim small" title="本地态可能过期，点“校验存在性”触网核验">本地态</span>
+            <ActionMenu>
+              <button :disabled="verifying" @click="verifyExists">{{ verifying ? '检查中…' : '检查文件是否可用' }}</button>
+            </ActionMenu>
             <span v-if="busy" class="dim">处理中…</span>
           </div>
+          <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
         </div>
       </div>
     </div>
-    <CastWall :cast="s.cast || []" :original-language="s.original_language || ''"
-      :subtitle="s.cast_source === 'season' ? seasonLabel(s.season) : '全剧'" />
+    <h2 class="section-heading">选择剧集 <span>{{ s.episode_count }} 集</span></h2>
     <div class="grid ep-grid">
-      <div v-for="e in eps" :key="e.id" class="card ep-card" @click="openEpisode(e.id)">
+      <div v-for="e in eps" :key="e.id" class="card ep-card" role="link" tabindex="0" @keydown.enter.self="openEpisode(e.id)" @click="openEpisode(e.id)">
         <div class="still-wrap">
           <img v-if="e.still_path" :src="stillUrl(e)" loading="lazy" alt=""
             @error="e.still_path = ''" />
@@ -71,6 +71,8 @@
       </button>
     </div>
     <div v-else-if="eps.length" class="bar dim small">已加载全部 {{ eps.length }} 集</div>
+    <CastWall :cast="s.cast || []" :original-language="s.original_language || ''"
+      :subtitle="s.cast_source === 'season' ? seasonLabel(s.season) : '全剧'" />
   </div>
   <div v-else class="bar">{{ msg || '加载中…' }}</div>
   <PlayerModal v-if="playing" :key="'episode:' + playing.id"
@@ -79,6 +81,9 @@
 </template>
 
 <script setup>
+import MediaBackdrop from '../components/MediaBackdrop.vue'
+import MediaOverview from '../components/MediaOverview.vue'
+import ActionMenu from '../components/ActionMenu.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'

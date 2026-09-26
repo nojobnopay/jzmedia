@@ -1246,6 +1246,35 @@ def batch_delete_movies(body: dict | None = None):
             "results": results}
 
 
+@router.get("/movies/{movie_id}/backdrop")
+def movie_backdrop(movie_id: int):
+    """Load landscape artwork separately; reuse cache without rescraping the movie."""
+    from fastapi.responses import FileResponse
+    from ... import artwork, posters as _posters
+
+    movie = store.get_movie(movie_id)
+    if not movie:
+        raise HTTPException(404, "movie not found")
+    tid = movie.get("tmdb_id")
+    if not tid:
+        raise HTTPException(404, "movie has no backdrop")
+    dest = artwork._first(_posters.movie_backdrop_rel(int(tid)))
+    if not dest:
+        cached = store.get_tmdb_cached(int(tid)) or {}
+        remote = str(cached.get("backdrop_tmdb_path") or "").strip()
+        if not remote:
+            raise HTTPException(404, "movie has no backdrop")
+        try:
+            dest = artwork._ensure_backdrop(int(tid), remote)
+        except Exception as exc:
+            logger.warning("movie backdrop download failed mid=%s: %s", movie_id, exc)
+            raise HTTPException(502, "backdrop download failed") from exc
+        if not dest:
+            raise HTTPException(502, "backdrop download failed")
+    return FileResponse(dest, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-cache"})
+
+
 @router.get("/movies/{movie_id}/poster-orig")
 def movie_poster_orig(movie_id: int):
     """海报原图（按需缓存）：tmdb_cache.poster_tmdb_path → original 尺寸落盘

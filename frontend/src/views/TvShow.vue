@@ -1,13 +1,14 @@
 <template>
-  <div v-if="show" class="tv-page">
-    <div class="hero" :style="heroStyle">
+  <div v-if="show" class="tv-page media-detail show-detail">
+    <div class="hero media-hero">
+      <MediaBackdrop :src="backdropSrc" />
+      <div class="topbar hero-backbar"><router-link to="/tv" class="back-link">‹ 剧集</router-link></div>
       <div class="hero-inner">
         <img v-if="show.poster_path" class="hero-poster" :src="posterSrc"
           :alt="show.title" />
         <div v-else class="hero-poster hero-no-poster">{{ (show.title || '?').slice(0, 1) }}</div>
         <div class="hero-body">
-          <div class="topbar"><button @click="$router.back()">‹ 返回</button></div>
-          <h2>{{ show.title }}<span v-if="show.year" class="dim"> ({{ show.year }})</span></h2>
+          <h1>{{ show.title }}<span v-if="show.year" class="dim"> ({{ show.year }})</span></h1>
           <HeroRatings :tmdb="show.tmdb_rating" />
           <div class="meta">
             <span v-if="show.status">{{ statusText(show.status) }}</span>
@@ -15,32 +16,39 @@
             <span v-if="show.region">{{ show.region }}</span>
             <span v-if="show.episode_run_time">{{ show.episode_run_time }} 分钟/集</span>
             <span v-if="show.genres && show.genres.length">{{ show.genres.join(' / ') }}</span>
-            <span v-if="show.tmdb_id" class="dim">TMDB {{ show.tmdb_id }}</span>
           </div>
-          <p v-if="show.overview" class="overview">{{ show.overview }}</p>
-          <p v-else class="empty">暂无简介</p>
+          <MediaOverview :text="show.overview || ''" />
           <div class="acts">
             <button v-if="nextEp" class="primary" :disabled="!nextEp.exists" @click="play(nextEp)">
               ▶ {{ nextEp.progress ? '继续观看' : '播放下一集' }} {{ epNo(nextEp) }}
             </button>
-            <button v-if="Number(show.episode_count) > 0" @click="toggleShowWatched">
+            <button v-if="Number(show.episode_count) > 0" :disabled="busy" @click="toggleShowWatched">
               {{ allWatched ? '标记整剧未看' : '标记整剧已看' }}
             </button>
-            <button v-if="show.needs_review" @click="confirmMatch">确认匹配</button>
-            <button :disabled="busy" @click="renameShow">改名</button>
-            <button :disabled="busy" @click="refreshMeta">刷新元数据</button>
-            <button @click="matchOpen = !matchOpen">{{ matchOpen ? '收起匹配' : '手动匹配' }}</button>
-            <button :disabled="busy" @click="openOrganize">整理目录</button>
-            <button :disabled="verifying" @click="verifyExists" title="触网核验花絮/下一集存在性（默认只信本地）">
-              {{ verifying ? '校验中…' : '校验存在性' }}
-            </button>
-            <span v-if="show.stale" class="dim small" title="本地态可能过期，点“校验存在性”触网核验">本地态</span>
+            <ActionMenu>
+              <button :disabled="busy" @click="nameDraft = show.title; renameOpen = !renameOpen">修改剧名</button>
+              <button :disabled="busy" @click="refreshMeta">更新剧集资料</button>
+              <button @click="matchOpen = !matchOpen">{{ matchOpen ? '收起匹配' : '重新匹配剧集' }}</button>
+              <button :disabled="busy" @click="openOrganize">整理剧集目录</button>
+              <button :disabled="verifying" @click="verifyExists">{{ verifying ? '检查中…' : '检查文件是否可用' }}</button>
+            </ActionMenu>
             <span class="dim">{{ show.watched_count }}/{{ show.episode_count }} 已看</span>
             <span v-if="busy" class="dim">处理中…</span>
           </div>
+          <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
+          <div v-if="show.needs_review" class="review-notice">
+            <span>请确认剧集是否匹配正确</span>
+            <button :disabled="busy" @click="confirmMatch">匹配正确</button>
+            <button @click="matchOpen = true">重新匹配</button>
+          </div>
+          <form v-if="renameOpen" class="inline-edit" @submit.prevent="renameShow">
+            <label>剧名 <input v-model="nameDraft" required aria-label="剧名" /></label>
+            <button :disabled="busy || !nameDraft.trim()">保存剧名</button>
+            <button type="button" @click="renameOpen = false">取消</button>
+          </form>
           <div v-if="matchOpen" class="match card-block">
             <div class="bar match-bar">
-              <input v-model="mq" placeholder="搜剧名（TMDB / 无 key 外源）" @keyup.enter="doSearch" />
+              <input v-model="mq" placeholder="输入剧名" aria-label="搜索剧集匹配" @keyup.enter="doSearch" />
               <button :disabled="searching" @click="doSearch">搜索</button>
             </div>
             <div v-for="r in results" :key="r.tmdb_id || r.source + ':' + r.source_id" class="mrow">
@@ -50,17 +58,16 @@
               <button v-if="r.tmdb_id" @click="doMatch(r.tmdb_id)">匹配</button>
               <button v-else-if="isExternal(r)" @click="doMatchExternal(r)">绑定外源</button>
             </div>
-            <div v-if="searched && !results.length" class="dim">没有结果（TMDB 不可用时会自动回退本地/外源）</div>
+            <div v-if="searched && !results.length" class="dim">没有找到相关剧集，请尝试其他名称。</div>
           </div>
         </div>
       </div>
     </div>
-    <CastWall :cast="castList" :original-language="show.original_language || ''" />
     <section v-if="show.seasons && show.seasons.length" class="card-block season-sec">
-      <h3>剧季 <span class="dim">{{ show.seasons.length }}</span></h3>
+      <h3>选择剧季 <span class="dim">{{ show.seasons.length }}</span></h3>
       <div class="season-grid">
         <div v-for="s in show.seasons" :key="s.season" class="season-card"
-          @click="openSeason(s.season)">
+          role="link" tabindex="0" @keydown.enter.self="openSeason(s.season)" @click="openSeason(s.season)">
           <div class="season-poster">
             <img v-if="s.poster_path" :src="posterUrl(s.poster_path, posterVer || undefined)" loading="lazy"
               :alt="seasonLabel(s.season)" />
@@ -75,6 +82,7 @@
         </div>
       </div>
     </section>
+    <CastWall :cast="castList" :original-language="show.original_language || ''" />
     <SimilarRow :items="similar" title="相关节目" subtitle="按电视网 / 类型 / 主创 / 主演推荐"
       @open="openShow" />
     <section v-if="movies.length" class="card-block extras">
@@ -104,7 +112,7 @@
   <!-- 匹配成功后的单剧整理（对标电影归档弹窗）：预览 + 两段确认直接执行本剧 -->
   <div v-if="orgHint" class="dlg-mask" @click.self="cancelOrgDialog">
     <div ref="orgDlgRef" class="dlg org-dlg" role="dialog" aria-modal="true">
-      <h3>已匹配成功，可规范化本剧</h3>
+      <h3>整理剧集目录</h3>
       <p class="hint">{{ hintReasonText(orgHint) }}</p>
       <div class="bar org-acts">
         <label v-for="k in ORG_ACTIONS" :key="k">
@@ -151,6 +159,9 @@
 </template>
 
 <script setup>
+import MediaBackdrop from '../components/MediaBackdrop.vue'
+import MediaOverview from '../components/MediaOverview.vue'
+import ActionMenu from '../components/ActionMenu.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
@@ -172,6 +183,8 @@ const msg = ref('')
 const playing = ref(null)
 const busy = ref(false)
 const matchOpen = ref(false)
+const renameOpen = ref(false)
+const nameDraft = ref('')
 const mq = ref('')
 const results = ref([])
 const searching = ref(false)
@@ -255,12 +268,8 @@ const nextEp = computed(() => {
   if (n) return n
   return (show.value?.episodes || []).find(e => !Number(e.watched)) || null
 })
-const heroStyle = computed(() => {
-  const b = show.value?.backdrop_path
-  if (!b) return {}
-  const v = posterVer.value || show.value?.fetched_at || undefined
-  return { backgroundImage: `linear-gradient(90deg, rgba(10,10,10,.92) 0%, rgba(10,10,10,.55) 60%, rgba(10,10,10,.85) 100%), url(${posterUrl(b, v)})` }
-})
+const backdropSrc = computed(() => show.value?.backdrop_path
+  ? posterUrl(show.value.backdrop_path, posterVer.value || show.value.fetched_at || undefined) : '')
 // 主海报版本化：同 tmdb 重复匹配/重刮会原地覆盖文件，URL 不变时靠 ?v= 取新图
 const posterSrc = computed(() =>
   posterUrl(show.value?.poster_path, posterVer.value || show.value?.fetched_at || undefined))
@@ -303,7 +312,7 @@ async function load (verify = '0') {
   try {
     const q = verify && verify !== '0' ? '?verify=' + encodeURIComponent(verify) : ''
     show.value = await api('/api/tv/shows/' + route.params.id + q)
-    if (!show.value.tmdb_id || show.value.needs_review) matchOpen.value = true
+    if (!show.value.tmdb_id) matchOpen.value = true
     try {
       similar.value = (await api(`/api/tv/shows/${route.params.id}/similar`)).items || []
     } catch (e) { similar.value = [] }  // 相关节目失败不挡详情页
@@ -334,15 +343,16 @@ async function toggleShowWatched () {
 }
 async function renameShow () {
   const cur = show.value.title || ''
-  const next = window.prompt('剧名（手工标题后刷新/重刮不会覆盖）', cur)
-  if (next == null) return
-  const t = next.trim()
-  if (!t || t === cur) return
+  const t = nameDraft.value.trim()
+  if (!t) return
+  if (t === cur) { renameOpen.value = false; return }
   busy.value = true
   try {
     await api(`/api/tv/shows/${show.value.id}`, {
       method: 'PATCH', body: JSON.stringify({ title: t }) })
+    renameOpen.value = false
     await load()
+    msg.value = '剧名已保存'
   } catch (e) { msg.value = '改名失败：' + e.message } finally { busy.value = false }
 }
 async function confirmMatch () {

@@ -119,3 +119,15 @@ def test_episode_detail_cast(two_seasons):
     assert d["cast_source"] == "season"
     assert [x["name"] for x in d["directors"]] == ["导演张"]
     assert d["season_name"] == "第 1 季"
+
+
+def test_season_and_episode_share_show_backdrop(two_seasons):
+    sid, eid = two_seasons["sid"], two_seasons["e11"]
+    urls = [f"/api/tv/shows/{sid}/seasons/1", f"/api/tv/episodes/{eid}"]
+    for url in urls:
+        assert client.get(url).json()["show_backdrop_path"] == ""
+    store.update_show_meta(sid, backdrop_path="posters/backdrops/tv_801.jpg")
+    for url in urls:
+        data = client.get(url).json()
+        assert data["show_backdrop_path"] == "posters/backdrops/tv_801.jpg"
+        assert data["show_title"] == "测试剧"

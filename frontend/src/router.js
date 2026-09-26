@@ -14,6 +14,11 @@ const EpisodeView = () => import('./views/EpisodeView.vue')
 
 export default createRouter({
   history: createWebHistory(),
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) return savedPosition
+    if (to.path !== from.path) return { top: 0 }
+    return false  // 搜索/筛选只更新 query，保留当前浏览位置。
+  },
   routes: [
     { path: '/', component: Library },
     { path: '/m/:id', component: Detail },

@@ -1,18 +1,21 @@
 <template>
-  <div v-if="ep" class="tv-page">
-    <div class="crumbs">
+  <div v-if="ep" class="tv-page media-detail episode-detail">
+    <nav class="crumbs" aria-label="当前位置">
+      <router-link to="/tv">剧集</router-link><span class="dim"> / </span>
       <router-link :to="'/tv/' + ep.show_id">{{ ep.show_title }}</router-link>
       <span class="dim"> / </span>
       <router-link :to="`/tv/${ep.show_id}/s/${ep.season}`">{{ ep.season_name || seasonLabel(ep.season) }}</router-link>
       <span class="dim"> / </span>
       <span>{{ epNo(ep) }}</span>
-    </div>
-    <div class="hero">
+    </nav>
+    <div class="hero media-hero">
+      <MediaBackdrop :src="ep.show_backdrop_path ? posterUrl(ep.show_backdrop_path) : (ep.still_path ? stillUrl(ep) : '')" />
       <div class="hero-inner">
         <img v-if="ep.still_path" class="hero-still" :src="stillUrl(ep)" alt=""
           @error="ep.still_path = ''" />
         <div class="hero-body">
-          <h2>{{ epNo(ep) }}<span v-if="ep.title"> · {{ ep.title }}</span></h2>
+          <p class="eyebrow">{{ ep.show_title }} · {{ epNo(ep) }}</p>
+          <h1>{{ ep.title || epNo(ep) }}</h1>
           <HeroRatings :tmdb="ep.tmdb_rating" />
           <div class="meta">
             <span v-if="ep.air_date">{{ ep.air_date }}</span>
@@ -21,33 +24,40 @@
             <span v-if="ep.needs_review" class="review-badge">未匹配集号</span>
             <span v-if="ep.local_only" class="local-badge">本地集</span>
           </div>
-          <p v-if="ep.overview" class="overview">{{ ep.overview }}</p>
-          <p v-else class="empty">暂无简介</p>
+          <MediaOverview :text="ep.overview || ''" />
           <div class="acts">
             <button v-if="ep.exists" class="primary" @click="play">
               ▶ {{ ep.progress ? '继续播放' : '播放' }}
             </button>
             <span v-else class="dim">文件缺失</span>
-            <button @click="toggleWatched">{{ ep.watched ? '取消已看' : '标已看' }}</button>
-            <button @click="pickOpen = !pickOpen">{{ pickOpen ? '收起' : '指定 TMDB 集' }}</button>
+            <button @click="toggleWatched">{{ ep.watched ? '标记未看' : '标记已看' }}</button>
+            <ActionMenu>
+              <button @click="pickOpen = !pickOpen">{{ pickOpen ? '收起集号匹配' : '修正集号匹配' }}</button>
+            </ActionMenu>
+          </div>
+          <nav v-if="prevEp || nextEp" class="episode-navigation" aria-label="切换剧集">
             <button v-if="prevEp" @click="goEpisode(prevEp.id)">‹ 上一集 {{ epNo(prevEp) }}</button>
             <button v-if="nextEp" @click="goEpisode(nextEp.id)">下一集 {{ epNo(nextEp) }} ›</button>
+          </nav>
+          <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
+          <div v-if="ep.needs_review && !pickOpen" class="review-notice">
+            <span>此集尚未匹配到集名和简介</span><button @click="pickOpen = true">匹配集号</button>
           </div>
           <div v-if="pickOpen" class="match card-block">
             <div class="bar match-bar">
               <span>为 <b>{{ epNo(ep) }}</b> 指定 TMDB 集（本地集号不变，只取元数据）</span>
-              <input v-model.number="pickSeason" type="number" min="0" style="width: 72px" />
+              <label>季号 <input v-model.number="pickSeason" type="number" min="0" style="width: 72px" /></label>
               <button :disabled="searching" @click="loadCandidates">查询该季</button>
             </div>
             <div class="bar match-bar">
               <span class="dim">TMDB 确实没有这一集：</span>
-              <input v-model="localTitle" placeholder="本地集名（可选）" style="width: 220px" />
+              <input v-model="localTitle" aria-label="本地集名" placeholder="本地集名（可选）" style="width: 220px" />
               <button @click="confirmLocal">确认无对应集</button>
             </div>
             <div v-for="c in candidates" :key="c.tmdb_episode_id" class="mrow">
               <span class="mname">S{{ pad(c.season) }}E{{ pad(c.episode) }} · {{ c.title }}</span>
               <span class="dim">{{ c.air_date }}</span>
-              <button @click="bindEpisode(c)">绑定</button>
+              <button @click="bindEpisode(c)">匹配此集</button>
             </div>
             <div v-if="searchedCand && !candidates.length" class="dim">该季没有候选</div>
           </div>
@@ -65,9 +75,12 @@
 </template>
 
 <script setup>
+import MediaBackdrop from '../components/MediaBackdrop.vue'
+import MediaOverview from '../components/MediaOverview.vue'
+import ActionMenu from '../components/ActionMenu.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '../api.js'
+import { api, posterUrl } from '../api.js'
 import { episodeVersion } from '../episodeVersions.js'
 import PlayerModal from '../components/PlayerModal.vue'
 import CastWall from '../components/CastWall.vue'

@@ -22,6 +22,10 @@
 
 当前四档播放由 POST `/api/stream/{id}/decide` 接收 `caps`；GET 兼容变体仅用保守默认。电影、分集、花絮播放时通过 `kind` 隔离媒体探测、进度和会话。文件直链及 HLS 分片读取是 GET，支持断点/Range 的接口不能被通用 JSON 包装破坏。
 
+## 详情图片
+
+`GET /api/movies/{id}/backdrop` 优先返回本地横版背景缓存；缺图时只按已有 TMDB 缓存中的图片路径下载，不重新刮削影片。缺少背景为 404，下载失败为 502，前端保留渐变底色；图片请求独立于电影详情 JSON，避免拖慢资料加载。季和单集详情的 `show_backdrop_path` 沿用所属剧集的本地背景，空字符串表示暂无图片。
+
 ## 认证和安全边界
 
 `app/main.py` 中间件仅在配置令牌时保护 `/api` 下的 POST/PUT/PATCH/DELETE，接收 `X-Api-Token` 或 `Authorization: Bearer`。GET、海报、视频直链继续可读。设置变更立即改变有效令牌。新增写接口须保持 `/api` 路径和写 HTTP 方法，敏感返回避免暴露令牌与 SMB 密码；也不能通过 GET 执行实际变更。

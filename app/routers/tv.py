@@ -373,6 +373,7 @@ def season_detail(show_id: int, season: int, offset: int = 0, limit: int = 100,
         "show_title": show.get("title") or "",
         "show_year": show.get("year"),
         "show_poster": show.get("poster_path") or "",
+        "show_backdrop_path": show.get("backdrop_path") or "",
         "original_language": show.get("original_language") or "",
         "season": sn,
         "name": meta.get("name") or "",
@@ -523,6 +524,7 @@ def episode_detail(episode_id: int, verify: str = "0"):
     out["show_title"] = show.get("title", "")
     out["show_year"] = show.get("year")
     out["show_poster"] = show.get("poster_path") or ""
+    out["show_backdrop_path"] = show.get("backdrop_path") or ""
     out["original_language"] = show.get("original_language") or ""
     season_meta = store.get_season(int(e["show_id"]), int(e.get("season") or 0))
     out["season_name"] = (season_meta or {}).get("name") or ""

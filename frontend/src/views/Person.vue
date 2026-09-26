@@ -1,6 +1,6 @@
 <template>
-  <div class="detail" v-if="p">
-    <div class="hero">
+  <div class="detail media-detail person-detail" v-if="p">
+    <div class="hero media-hero">
       <div class="hero-inner">
         <div class="topbar">
           <button @click="$router.back()">‹ 返回</button>
@@ -9,7 +9,7 @@
           <img v-if="p.avatar && p.avatar !== '-'" :src="posterUrl(p.avatar)" class="person-photo" :alt="(p.name || '人物') + ' 头像'" />
           <div v-else class="person-photo avatar-fallback">{{ (p.name || '?').slice(0, 1) }}</div>
           <div class="hero-info">
-            <h2>{{ p.name }}</h2>
+            <h1>{{ p.name }}</h1>
             <p v-if="countsLine" class="meta-line">{{ countsLine }}</p>
             <p v-if="p.birthday || p.place_of_birth" class="meta-line">{{ [p.birthday, p.place_of_birth].filter(Boolean).join(' · ') }}</p>
           </div>
@@ -19,8 +19,9 @@
 
     <div class="sections">
       <section class="card-block">
-        <h3>简介 <button @click="refreshBio" style="margin-left:8px">{{ bioMsg || '刷新简介' }}</button></h3>
-        <p v-if="(p.biography || '').trim()" class="overview">{{ p.biography }}</p>
+        <div class="section-head"><h3>人物简介</h3><button :disabled="bioLoading || bioRefreshing" @click="refreshBio">{{ bioRefreshing ? '更新中…' : '更新简介' }}</button></div>
+        <p v-if="bioMsg" class="page-feedback" role="status">{{ bioMsg }}</p>
+        <MediaOverview v-if="(p.biography || '').trim()" :text="p.biography" />
         <p v-else-if="bioLoading" class="empty">简介加载中…</p>
         <p v-else class="empty">暂无简介</p>
       </section>
@@ -28,9 +29,10 @@
       <section v-if="p.acting.length" class="card-block">
         <h3>参演 {{ p.acting.length }}</h3>
         <div class="work-wall">
-          <div v-for="w in p.acting" :key="w.id" class="work-card" @click="$router.push('/m/' + w.id)">
+          <div v-for="w in p.acting" :key="w.id" class="work-card" tabindex="0" role="link" @keydown.enter.self="$event.currentTarget.click()" @click="$router.push('/m/' + w.id)">
             <div class="poster-wrap">
               <img v-if="w.poster_path" :src="posterUrl(w.poster_path)" loading="lazy" :alt="w.title || '海报'" />
+              <div v-else class="no-poster" aria-hidden="true">{{ (w.title || '?').slice(0, 1) }}</div>
               <ScoreBadge :score="w.tmdb_rating" source="tmdb" />
             </div>
             <div class="cast-name">{{ w.title }} <span v-if="w.year">({{ w.year }})</span></div>
@@ -42,9 +44,10 @@
       <section v-if="p.directing.length" class="card-block">
         <h3>执导 {{ p.directing.length }}</h3>
         <div class="work-wall">
-          <div v-for="w in p.directing" :key="w.id" class="work-card" @click="$router.push('/m/' + w.id)">
+          <div v-for="w in p.directing" :key="w.id" class="work-card" tabindex="0" role="link" @keydown.enter.self="$event.currentTarget.click()" @click="$router.push('/m/' + w.id)">
             <div class="poster-wrap">
               <img v-if="w.poster_path" :src="posterUrl(w.poster_path)" loading="lazy" :alt="w.title || '海报'" />
+              <div v-else class="no-poster" aria-hidden="true">{{ (w.title || '?').slice(0, 1) }}</div>
               <ScoreBadge :score="w.tmdb_rating" source="tmdb" />
             </div>
             <div class="cast-name">{{ w.title }} <span v-if="w.year">({{ w.year }})</span></div>
@@ -55,7 +58,7 @@
       <section v-if="p.tv_works && p.tv_works.length" class="card-block">
         <h3>参演剧集 {{ p.tv_works.length }}</h3>
         <div class="work-wall">
-          <div v-for="w in p.tv_works" :key="'tv' + w.show_id" class="work-card" @click="$router.push('/tv/' + w.show_id)">
+          <div v-for="w in p.tv_works" :key="'tv' + w.show_id" class="work-card" tabindex="0" role="link" @keydown.enter.self="$event.currentTarget.click()" @click="$router.push('/tv/' + w.show_id)">
             <div class="poster-wrap">
               <img v-if="w.poster_path" :src="posterUrl(w.poster_path)" loading="lazy" :alt="w.title || '海报'" />
               <div v-else class="avatar-fallback">{{ (w.title || '?').slice(0, 1) }}</div>
@@ -74,12 +77,14 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import { mediaParam, onLibChange } from '../libraries.js'
+import MediaOverview from '../components/MediaOverview.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
 
 const route = useRoute()
 const p = ref(null)
 const err = ref('')
 const bioMsg = ref('')
+const bioRefreshing = ref(false)
 const bioLoading = ref(false)
 const ensuring = ref(false)  // TV 跳转建档中（404 承接）：页内 loading，完后刷新显示
 let unsubLib = null
@@ -160,14 +165,15 @@ async function load() {
   }
 }
 async function refreshBio() {
-  bioMsg.value = '刷新中…'
+  if (bioRefreshing.value) return
+  bioRefreshing.value = true
+  bioMsg.value = ''
   try {
     p.value = await api(personUrl(), { method: 'POST' })
     bioMsg.value = (p.value.biography || '').trim() ? '已更新' : '远端暂无简介'
   } catch (e) {
-    bioMsg.value = '刷新失败'
-  }
-  setTimeout(() => { bioMsg.value = '' }, 3000)
+    bioMsg.value = '更新失败：' + e.message
+  } finally { bioRefreshing.value = false }
 }
 onMounted(() => {
   load()

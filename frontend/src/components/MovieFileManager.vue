@@ -1,6 +1,6 @@
 <template>
           <details class="card-block files" open>
-            <summary>文件<span v-if="movie.version_count > 1">（共{{ movie.version_count }}个版本）</span></summary>
+            <summary>文件与版本<span v-if="movie.version_count > 1">（共{{ movie.version_count }}个版本）</span></summary>
             <ul class="ver-list"><li v-for="v in movie.versions" :key="v.id" class="f-row">
               <span class="f-name">{{ baseName(v.file_path) }}<span v-if="v.edition">（{{ v.edition }}）</span><span v-if="v.spec">（{{ v.spec }}）</span></span>
               <span class="f-acts"><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a><button v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'">无效</button><button v-else @click="emit('play', v)">播放</button><span v-if="verFriendly(v.id)" class="friendly-chip" title="浏览器可直播，几乎不占 NAS 算力">★</span><span v-else-if="verMethod[v.id]==='video_transcode'" class="trans-chip" title="浏览器需视频重编码，较耗 NAS 算力">转码</span></span>
@@ -25,7 +25,7 @@
           </details>
 
           <details class="card-block tvplay">
-            <summary>电视播放（Kodi/外部播放器，原盘直通零转码）</summary>
+            <summary>外部播放器直链</summary>
             <ul class="ver-list"><li v-for="v in movie.versions" :key="'tv' + v.id" class="f-row">
               <span class="f-name">{{ baseName(v.file_path) }}</span>
               <span class="f-acts"><button @click="copyTvUrl(v)">复制直链</button></span>
