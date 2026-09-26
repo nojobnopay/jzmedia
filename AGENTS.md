@@ -41,6 +41,7 @@
 - SQLite 以 WAL 运行（`_conn` 带 busy_timeout=5000，R02-D2）；FTS5 `movies_fts` has **no triggers** — after any `movies`/`persons`/`movie_person` write you must call `store.resync_fts(movie_id)` (`update_movie_meta` already does; manual SQL or `link_person` does not). `store.init_db()` + `rebuild_fts()` run at startup and self-heal old trigger schemas (`DROP TRIGGER IF EXISTS movies_ai/ad/au`).
 
 ## Conventions / constraints
+- 单剧整理弹窗（2026-09-26）：`TvOrganizeDialog.vue` 独立对话框，变更前后路径/文件示例先展示，整理范围默认折叠；绝对编号提示单独显示，不再重复列入手动项目。未确认编号时仅执行后端允许的目录整理，保留正片名；勾选后自动重新预览。`useTvOrganizeDialog.js` 管理预览代际/取消、选项变化即时失效、两次确认、单剧作用域、串行轮询与结果保留；执行中不可关闭，完成/失败后保留状态。`tvOrganizeDialog.test.js` 覆盖过期响应、空/失败预览、重复执行、显式编号许可与卸载清理；真实媒体整理仍必须由用户在 UI 确认。
 - 浏览与详情 UI（2026-09-26）：电影/剧集墙默认收起筛选、保留已选摘要和独立排序；“管理媒体库”按当前页面类型定位视频库。详情共用 `MediaBackdrop` / `MediaOverview` / `ActionMenu` 与 `styles/mediaPages.css`；电影 `GET /api/movies/{id}/backdrop` 独立请求横版缓存（缺图按缓存 TMDB 路径懒下载，失败不影响详情、无海报放大兜底），季/集响应带 `show_backdrop_path`。电影“影片资料 / 文件与版本”分栏，编辑/匹配/重写 NFO 收进更多操作；剧/季先选集后演员，手机演员横向滚动；简介按实际溢出折叠，菜单收起恢复焦点并限制在视口内。
 - Auth (optional): 写操作（POST/PUT/PATCH/DELETE 且 path 以 `/api` 开头）在配置了 `JZMEDIA_TOKEN`（env/设置页，DB 优先）时需带 `X-Api-Token` 或 `Authorization: Bearer`；GET/直链永远放行。实现是 `main.py` 的 `_auth_write` 中间件，设置页可写键 `jzmedia_token`（`config.SETTING_MAP` / `store.APP_SETTING_KEYS`）。
 - Logging: 统一走 `app/log.py`（`get_logger`/`setup_logging`，env `LOG_LEVEL`）；失败路径禁止 `except: pass` 静默（至少 `logger.warning/debug` + 关键上下文）。历史静默点按批次改造，新代码直接遵守。

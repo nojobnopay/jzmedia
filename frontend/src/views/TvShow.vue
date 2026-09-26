@@ -109,50 +109,9 @@
     </section>
   </div>
   <div v-else class="bar">{{ msg || '加载中…' }}</div>
-  <!-- 匹配成功后的单剧整理（对标电影归档弹窗）：预览 + 两段确认直接执行本剧 -->
-  <div v-if="orgHint" class="dlg-mask" @click.self="cancelOrgDialog">
-    <div ref="orgDlgRef" class="dlg org-dlg" role="dialog" aria-modal="true">
-      <h3>整理剧集目录</h3>
-      <p class="hint">{{ hintReasonText(orgHint) }}</p>
-      <div class="bar org-acts">
-        <label v-for="k in ORG_ACTIONS" :key="k">
-          <input type="checkbox" v-model="orgActs[k]" /> {{ ACTION_LABELS[k] }}
-        </label>
-        <button @click="previewOrg" :disabled="orgBusy === 'plan' || !orgEnabled.length">
-          {{ orgBusy === 'plan' ? '预览中…' : '预览' }}
-        </button>
-      </div>
-      <ul class="org-list">
-        <li v-for="(g, i) in (orgHint.groups || [])" :key="i">{{ groupText(g) }}</li>
-      </ul>
-      <p v-if="(orgHint.dir_totals || []).length" class="hint">
-        最终分布（正片）：{{ dirTotalsText(orgHint) }}
-      </p>
-      <p v-if="orgHint.absolute_risk" class="warn-text">
-        绝对集号风险：该剧依赖绝对集号映射，Plex 的季/集拆分可能不同。
-        <label><input type="checkbox" v-model="orgAllowAbs" /> 我确认按 TMDB 编号改名</label>
-      </p>
-      <div v-if="(orgHint.manual || []).length" class="manual-block">
-        <div class="g-title warn-text">需手动处理（{{ orgHint.manual.length }}{{ orgHint.manual_more ? `+${orgHint.manual_more}` : '' }}）</div>
-        <div v-for="(m2, i) in (orgHint.manual || []).slice(0, 8)" :key="i" class="g-sample" :title="m2.suggestion">{{ manualText(m2) }}</div>
-      </div>
-      <div v-if="(orgHint.kept || []).length" class="manual-block">
-        <div class="g-title">保持原名（已确认本地集，不改名）</div>
-        <div v-for="(k, i) in (orgHint.kept || []).slice(0, 8)" :key="'k' + i" class="g-sample">{{ basename(k) }}</div>
-      </div>
-      <p v-if="(orgHint.conflicts || []).length" class="warn-text">另有 {{ orgHint.conflicts.length }} 项冲突（目标已存在，不会自动覆盖）。</p>
-      <p v-if="(orgHint.warnings || []).length" class="hint">{{ (orgHint.warnings || []).join('；') }}</p>
-      <div class="bar">
-        <button @click="runOrganize" :disabled="orgBusy === 'exec' || !orgEnabled.length" :class="{ danger: orgArm }">
-          {{ orgBusy === 'exec' ? `整理中 ${orgDone}/${orgTotal}…` : (orgArm ? '确认执行' : '直接执行本剧') }}
-        </button>
-        <button @click="goOrgSettings" :disabled="orgBusy === 'exec'">去设置页整理</button>
-        <button @click="cancelOrgDialog" :disabled="orgBusy === 'exec'">稍后</button>
-        <span>{{ orgMsg }}</span>
-      </div>
-      <p v-if="orgArm" class="hint warn-text">将移动目录/改正片名（花絮文件名不动），执行后自动重写 NFO/海报，可撤销。再点一次执行。</p>
-    </div>
-  </div>
+  <TvOrganizeDialog v-if="orgHint" :key="orgHint.show_id" :initial-plan="orgHint"
+    :title="show?.title || orgHint.title" :year="show?.year || ''"
+    @close="orgHint = null" @settings="goOrgSettings" @finished="onOrganized" />
   <PlayerModal v-if="playing" :key="playing.kind + ':' + playing.id"
     :version-id="playing.id" :title="playing.label" :kind="playing.kind"
     @close="playing = null" @watched="onWatched" @ended="onEnded" />
@@ -162,15 +121,12 @@
 import MediaBackdrop from '../components/MediaBackdrop.vue'
 import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import { episodeVersion, seasonStats } from '../episodeVersions.js'
-import { useFocusTrap } from '../useFocusTrap.js'
-import {
-  ACTION_LABELS, basename, dirTotalsText, groupText, hintExecBody, hintNeeds,
-  hintReasonText, manualText,
-} from '../tvOrganizePlans.js'
+import TvOrganizeDialog from '../components/TvOrganizeDialog.vue'
+import { hintNeeds, hintReasonText } from '../tvOrganizePlans.js'
 import PlayerModal from '../components/PlayerModal.vue'
 import CastWall from '../components/CastWall.vue'
 import HeroRatings from '../components/HeroRatings.vue'
@@ -193,20 +149,8 @@ const similar = ref([])
 const verifying = ref(false)
 // 海报版本（换绑/重刮后原地覆盖同 URL，带版本破浏览器缓存；对标电影 posterVer）
 const posterVer = ref(0)
-// 单剧整理（匹配成功后弹窗 + 两段确认直接执行本剧，对标电影归档引导）
-const ORG_ACTIONS = ['root', 'seasondir', 'wrapper', 'season', 'specials', 'extras', 'rename']
+// 预览与两次确认由独立对话框管理；此处负责入口与整理后的页面刷新。
 const orgHint = ref(null)
-const orgMsg = ref('')
-const orgBusy = ref(null)
-const orgActs = ref(Object.fromEntries(ORG_ACTIONS.map((k) => [k, true])))
-const orgAllowAbs = ref(false)
-const orgArm = ref(false)
-const orgDone = ref(0)
-const orgTotal = ref(0)
-const orgDlgRef = ref(null)
-let orgJob = ''
-let orgTimer = null
-const orgEnabled = computed(() => ORG_ACTIONS.filter((k) => orgActs.value[k]))
 
 const movies = computed(() => (show.value?.extras || []).filter(x => x.kind === 'movie'))
 const features = computed(() => (show.value?.extras || []).filter(x => x.kind !== 'movie'))
@@ -451,15 +395,13 @@ async function doMatchExternal (r) {
 // 匹配成功后查单剧整理预览：有可执行计划或风险/手动项即弹窗（对标电影归档引导）
 async function checkOrgHint () {
   orgHint.value = null
-  orgMsg.value = ''
-  orgArm.value = false
   if (!show.value || !show.value.tmdb_id) return
   try {
-    const h = await api(`/api/tv/shows/${show.value.id}/organize-hint`)
+    const id = show.value.id
+    const h = await api(`/api/tv/shows/${id}/organize-hint`)
+    if (String(route.params.id) !== String(id)) return
     if (hintNeeds(h)) {
       orgHint.value = h
-      orgAllowAbs.value = false
-      for (const k of ORG_ACTIONS) orgActs.value[k] = true
     }
   } catch (e) { /* 预览失败不挡详情页 */ }
 }
@@ -467,79 +409,21 @@ async function checkOrgHint () {
 async function openOrganize () {
   if (!show.value || busy.value) return
   busy.value = true
-  orgMsg.value = ''
   try {
-    const h = await api(`/api/tv/shows/${show.value.id}/organize-hint`)
+    const id = show.value.id
+    const h = await api(`/api/tv/shows/${id}/organize-hint`)
+    if (String(route.params.id) !== String(id)) return
     if (hintNeeds(h) || (h.kept || []).length) {
       orgHint.value = h
-      orgAllowAbs.value = false
-      for (const k of ORG_ACTIONS) orgActs.value[k] = true
     } else {
       msg.value = hintReasonText(h) || '目录已规范，无需整理'
     }
   } catch (e) { msg.value = '获取整理预览失败：' + e.message } finally { busy.value = false }
 }
-async function previewOrg () {
-  if (!show.value || !orgEnabled.value.length) return
-  orgBusy.value = 'plan'
-  orgMsg.value = ''
-  try {
-    const qs = new URLSearchParams({ actions: orgEnabled.value.join(',') })
-    if (orgAllowAbs.value) qs.set('allow_absolute', 'true')
-    orgHint.value = await api(`/api/tv/shows/${show.value.id}/organize-hint?${qs}`)
-  } catch (e) { orgMsg.value = '预览失败：' + e.message } finally { orgBusy.value = null }
-}
-// 直接执行本剧：复用 /api/jobs/tv-organize（审计/撤销链路不变），两段确认
-async function runOrganize () {
-  if (!orgEnabled.value.length || !orgHint.value) return
-  if (!orgArm.value) {
-    orgArm.value = true
-    orgMsg.value = ''
-    return
-  }
-  orgArm.value = false
-  orgBusy.value = 'exec'
-  orgMsg.value = ''
-  orgDone.value = 0
-  orgTotal.value = 0
-  try {
-    const body = hintExecBody(orgHint.value, orgEnabled.value, orgAllowAbs.value)
-    const d = await api('/api/jobs/tv-organize', {
-      method: 'POST', body: JSON.stringify(body),
-    })
-    orgJob = d.job_id
-    clearInterval(orgTimer)
-    orgTimer = setInterval(pollOrg, 1200)
-  } catch (e) {
-    orgMsg.value = '启动失败：' + e.message
-    orgBusy.value = null
-  }
-}
-async function pollOrg () {
-  try {
-    const j = await api('/api/jobs/tv-organize/' + orgJob)
-    orgDone.value = j.done || 0
-    orgTotal.value = j.total || 0
-    if (j.state === 'done') {
-      clearInterval(orgTimer); orgTimer = null; orgBusy.value = null
-      const s = j.summary || {}
-      const moved = (s.moved || 0) + (s.renamed || 0)
-      orgMsg.value = `完成：移动/改名 ${moved}，跳过 ${s.skipped || 0}`
-        + (s.failed ? `，失败 ${s.failed}` : '')
-      orgHint.value = null
-      posterVer.value++
-      await load()
-      await verifyExists()
-    } else if (j.state === 'failed' || j.state === 'cancelled') {
-      clearInterval(orgTimer); orgTimer = null; orgBusy.value = null
-      orgMsg.value = j.error || j.state
-    }
-  } catch (e) { /* 下一轮 */ }
-}
-function cancelOrgDialog () {
-  if (orgBusy.value === 'exec') return
-  orgArm.value = false
-  orgHint.value = null
+async function onOrganized () {
+  posterVer.value++
+  await load()
+  await verifyExists()
 }
 function goOrgSettings () {
   const q = { sec: 'sec-tvorganize' }
@@ -570,10 +454,7 @@ async function onEnded () {
 }
 
 onMounted(() => load())
-watch(() => route.params.id, () => load())
-// 整理弹窗焦点陷阱（与电影归档弹窗同模式）；切剧/关页时停掉整理轮询
-useFocusTrap(computed(() => !!orgHint.value), orgDlgRef)
-onUnmounted(() => { if (orgTimer) clearInterval(orgTimer) })
+watch(() => route.params.id, () => { orgHint.value = null; load() })
 </script>
 
 <style scoped>
@@ -619,18 +500,6 @@ onUnmounted(() => { if (orgTimer) clearInterval(orgTimer) })
 .ex-name { font-size: 0.875rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
 .dim { color: #777; }
 .small { font-size: 0.75rem; margin-top: 2px; }
-/* 单剧整理弹窗（对标电影归档弹窗 .arch-dlg，自足 scoped） */
-.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 60; }
-.dlg { background: #1c1c1c; border: 1px solid #3a3a3a; border-radius: 10px; padding: 16px 18px; max-width: 600px; width: calc(100% - 32px); max-height: 80vh; overflow: auto; }
-.dlg h3 { margin: 0 0 8px; font-size: 1.0625rem; color: #ddd; }
-.hint { color: #777; font-size: 0.8125rem; margin: 0 0 4px; }
-.warn-text { color: #e0a63c; }
-.org-acts { flex-wrap: wrap; padding: 8px 0; font-size: 0.8125rem; }
-.org-list { margin: 8px 0; padding-left: 18px; color: #bbb; font-size: 0.8125rem; }
-.manual-block { margin: 4px 0 8px; }
-.g-title { color: #bbb; font-size: 0.8125rem; }
-.g-sample { color: #8a8a8a; padding-left: 12px; font-size: 0.8125rem; }
-button.danger { border-color: #e50914; color: #ff8a8a; }
 @media (max-width: 700px) {
   .hero-inner { flex-direction: column; align-items: flex-start; }
 }
