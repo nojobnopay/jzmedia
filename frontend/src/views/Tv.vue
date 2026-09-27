@@ -1,6 +1,6 @@
 <template>
   <div class="browse-page">
-  <header class="browse-heading"><h1>剧集</h1><router-link :to="toolsLink" class="manage-link">管理媒体库 ›</router-link></header>
+  <header class="browse-heading"><h1>剧集</h1><router-link :to="toolsLink" class="manage-link">扫描与整理 ›</router-link></header>
   <div class="bar browse-search">
     <div class="q-wrap">
       <input v-model="q" aria-label="搜索剧集" placeholder="搜剧名 / 演员" autocomplete="off"
@@ -34,7 +34,10 @@
     <button @click="applyAndLoad">搜索</button>
     <button :aria-expanded="filtersOpen" aria-controls="browse-filters" @click="filtersOpen = !filtersOpen">筛选<span v-if="activeCount"> · {{ activeCount }}</span> {{ filtersOpen ? '⌃' : '⌄' }}</button>
     <button v-if="q.trim()" @click="clearAll">{{ activeCount ? '重置全部条件' : '清除搜索' }}</button>
+    <ActionMenu label="添加剧集"><button @click="scanOpen = !scanOpen">扫描新文件</button><button @click="upDlg = true">上传文件</button></ActionMenu>
   </div>
+  <ScanAction v-if="scanOpen" kind="tv" @done="onAdded" />
+  <UploadDialog v-if="upDlg" kind="tv" @close="upDlg = false" @done="onAdded" />
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
 
   <div v-if="activeCount" class="filter-summary">
@@ -122,7 +125,7 @@
   <EmptyState v-if="loadError" :text="loadError" />
 
   <div class="grid">
-    <div v-for="s in items" :key="s.id" class="card show-card" role="link" tabindex="0" @keydown.enter.self="openShow(s.id)" @click="openShow(s.id)">
+    <div v-for="s in items" :key="s.id" :data-browse-id="s.id" class="card show-card" role="link" tabindex="0" @keydown.enter.self="openShow(s.id)" @click="openShow(s.id)">
       <div class="poster-wrap">
         <img v-if="s.poster_path" :src="posterUrl(s.poster_path)" loading="lazy"
           :alt="s.title || '剧集'" />
@@ -151,8 +154,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import ActionMenu from '../components/ActionMenu.vue'
+import ScanAction from '../components/ScanAction.vue'
+import UploadDialog from '../components/UploadDialog.vue'
+
+import { browseKey, saveBrowse, readBrowse, captureAnchor, restoreBrowsePosition } from '../browseHistory.js'
+
+import { computed, onMounted, onUnmounted, nextTick, ref, watch } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import { currentMediaId, preferredVideoLibId, mediaParam, switchLib, switchMedia,
          loadLibs, onLibChange } from '../libraries.js'
@@ -165,8 +174,15 @@ import PlayerModal from '../components/PlayerModal.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
 
+const scanOpen = ref(false)
+const upDlg = ref(false)
+async function onAdded() { await loadFacets(); await load() }
 const filtersOpen = ref(false)
-const toolsLink = computed(() => ({ path: '/settings', query: { sec: 'sec-libtools', ...(curMediaId.value ? { media: curMediaId.value, library: preferredVideoLibId('tv') } : {}) } }))
+const toolsLink = computed(() => {
+  const media = curMediaId.value
+  const library = preferredVideoLibId('tv')
+  return { path: '/settings', query: library ? { sec: 'sec-libtools', media, library } : { sec: 'sec-libraries', media } }
+})
 const selectedSummary = computed(() => {
   const v = sel.value
   const countries = (v.countries || []).map(code => (facets.value.countries || []).find(c => c.code === code)?.name || code)
@@ -199,6 +215,7 @@ const hasMore = ref(false)
 const loadingMore = ref(false)
 let loading = false
 let loadSeq = 0
+let disposed = false
 const facets = ref({ genres: [], regions: [], countries: [], years: [], decades: [],
   tags: [], status: [], watched: { watched: 0, unwatched: 0 },
   ratings: { tmdb: [], custom: [] } })
@@ -494,14 +511,66 @@ async function onWatched() {
   await load()
 }
 
+function historyKey() { return browseKey('/tv', currentMediaId(), buildTvParams({ q: q.value, sel: sel.value, sort: sort.value, mediaId: mediaParam() })) }
+onBeforeRouteLeave(() => {
+  if (!firstLoaded.value) return
+  saveBrowse(historyKey(), { path: '/tv', mediaId: currentMediaId(), query: route.query,
+    items: items.value, hasMore: hasMore.value, filtersOpen: filtersOpen.value,
+    anchor: captureAnchor(), scrollTop: window.scrollY })
+})
+async function restoreWall() {
+  const snapshot = readBrowse(historyKey())
+  if (snapshot) {
+    items.value = snapshot.items
+    hasMore.value = snapshot.hasMore
+    filtersOpen.value = snapshot.filtersOpen
+  } else await load()
+  firstLoaded.value = true
+  await nextTick()
+  await cwRef.value?.ready()
+  if (disposed || route.path !== '/tv') return
+  await nextTick()
+  await new Promise(resolve => requestAnimationFrame(resolve))
+  restoreBrowsePosition(snapshot)
+  if (snapshot) refreshSnapshot(snapshot)
+}
+
+// Restore immediately, then refresh the same number of pages so edits/deletions
+// made in detail are visible without discarding the user's browsing position.
+async function refreshSnapshot(snapshot) {
+  const seq = ++loadSeq
+  loading = true
+  try {
+    const fresh = []
+    let more = false
+    for (let offset = 0; offset < snapshot.items.length; offset += PAGE) {
+      const d = await api('/api/tv/shows?' + buildTvParams({
+        q: q.value, sel: sel.value, sort: sort.value, mediaId: mediaParam(), limit: PAGE, offset,
+      }))
+      if (seq !== loadSeq) return
+      fresh.push(...(d.items || []))
+      more = !!d.has_more
+      if (!more || !d.items?.length) break
+    }
+    const position = { anchor: captureAnchor(), scrollTop: window.scrollY }
+    items.value = fresh
+    hasMore.value = more
+    await nextTick()
+    if (seq === loadSeq) restoreBrowsePosition(position)
+  } catch (e) { if (seq === loadSeq) loadError.value = '刷新列表失败：' + e.message }
+  finally { if (seq === loadSeq) loading = false }
+}
+
 let unsubLib = null
 onMounted(async () => {
   try { await loadLibs(api) } catch (e) { /* 后端不可用时按单库旧行为 */ }
+  if (disposed) return
   readUrl()
   await loadFacets()
-  await load()
-  firstLoaded.value = true
-  unsubLib = onLibChange(() => { readUrl(); loadFacets(); load() })
+  if (disposed) return
+  await restoreWall()
+  if (disposed) return
+  unsubLib = onLibChange(() => { if (route.path !== '/tv') return; curMediaId.value = currentMediaId(); loadFacets(); load() })
   try {
     if (window.IntersectionObserver && loadSentinel.value) {
       loadIO = new IntersectionObserver((entries) => {
@@ -512,11 +581,13 @@ onMounted(async () => {
   } catch (e) { /* 不支持则只用按钮 */ }
 })
 onUnmounted(() => {
+  disposed = true
+  loadSeq++
   clearTimeout(suggestTimer)
   if (unsubLib) { try { unsubLib() } catch (e) { /* 忽略 */ } unsubLib = null }
   if (loadIO) { try { loadIO.disconnect() } catch (e) { /* 忽略 */ } loadIO = null }
 })
-watch(() => route.query, () => { readUrl(); load() })
+watch(() => route.query, () => { if (route.path !== '/tv') return; readUrl(); loadFacets(); load() })
 </script>
 
 <style scoped>

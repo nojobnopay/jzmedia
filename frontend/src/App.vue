@@ -1,5 +1,5 @@
 <template>
-  <nav>
+  <nav class="app-nav" aria-label="主导航">
     <router-link to="/" class="brand"><img src="/favicon.svg" alt="jzmedia" width="26" height="26" /><span>jzmedia</span></router-link>
     <router-link to="/">电影</router-link>
     <router-link to="/tv">剧集</router-link>
@@ -12,6 +12,7 @@
     </select>
   </nav>
   <router-view />
+  <BackToTop />
   <div v-if="authAsk" class="auth-mask">
     <div class="auth-dlg">
       <h3>需要访问令牌</h3>
@@ -27,6 +28,7 @@
   </div>
 </template>
 <script setup>
+import BackToTop from './components/BackToTop.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setToken, api } from './api.js'
@@ -57,9 +59,13 @@ function saveAuth() {
   location.reload()   // 简单可靠：带令牌重载，正在失败的请求由页面自行重试
 }
 function onSwitch(e) {
-  // 换媒体库：海报墙/剧集页原地刷新；详情/人物页的 id 属于旧库，回首页
-  switchMedia(Number(e.target.value))
-  if (route.path !== '/' && !route.path.startsWith('/tv')) router.push('/')
+  const id = Number(e.target.value)
+  const path = route.path.startsWith('/tv') ? '/tv'
+    : route.path.startsWith('/c/') || route.path === '/collections' ? '/collections'
+      : route.path === '/settings' ? '/settings' : '/'
+  // URL 先更新，避免旧 query 的 media 参数把选择切回旧库。
+  router.push({ path, query: path === '/settings' ? { sec: 'sec-libtools', media: id } : { media: id } })
+    .then(failure => { if (!failure) switchMedia(id); else e.target.value = currentId.value })
 }
 onMounted(async () => {
   try {
@@ -148,4 +154,15 @@ button { cursor: pointer; }
 .auth-bar { display: flex; gap: 8px; }
 .auth-hint { margin: 0; color: #888; font-size: 0.8125rem; line-height: 1.6; }
 .auth-hint code { color: #9ecfff; }
+</style>
+
+<style>
+.app-nav > a { white-space: nowrap; }
+@media (max-width: 700px) {
+  .app-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 12px 16px; }
+  .app-nav .brand { grid-column: 1 / 3; grid-row: 1; }
+  .app-nav .lib-switch { grid-column: 3 / 5; grid-row: 1; justify-self: end; max-width: 100%; min-width: 0; }
+  .app-nav > a:not(.brand) { text-align: center; padding: 10px 4px; }
+  .app-nav .nav-spacer { display: none; }
+}
 </style>

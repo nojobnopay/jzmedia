@@ -2,7 +2,7 @@
   <div v-if="show" class="tv-page media-detail show-detail">
     <div class="hero media-hero">
       <MediaBackdrop :src="backdropSrc" />
-      <div class="topbar hero-backbar"><router-link to="/tv" class="back-link">‹ 剧集</router-link></div>
+      <div class="topbar hero-backbar"><router-link :to="browseReturn('/tv', currentMediaId())" class="back-link">‹ 剧集</router-link></div>
       <div class="hero-inner">
         <img v-if="show.poster_path" class="hero-poster" :src="posterSrc"
           :alt="show.title" />
@@ -20,7 +20,7 @@
           <MediaOverview :text="show.overview || ''" />
           <div class="acts">
             <button v-if="nextEp" class="primary" :disabled="!nextEp.exists" @click="play(nextEp)">
-              ▶ {{ nextEp.progress ? '继续观看' : '播放下一集' }} {{ epNo(nextEp) }}
+              <PlayerIcon name="play" :size="20" /> {{ nextEp.progress ? '继续观看' : '播放下一集' }} {{ epNo(nextEp) }}
             </button>
             <button v-if="Number(show.episode_count) > 0" :disabled="busy" @click="toggleShowWatched">
               {{ allWatched ? '标记整剧未看' : '标记整剧已看' }}
@@ -118,6 +118,12 @@
 </template>
 
 <script setup>
+import { followingPlayback } from '../episodePlayback.js'
+import { currentMediaId } from '../libraries.js'
+import { browseReturn } from '../browseHistory.js'
+
+import PlayerIcon from '../components/PlayerIcon.vue'
+
 import MediaBackdrop from '../components/MediaBackdrop.vue'
 import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
@@ -456,18 +462,11 @@ async function onWatched () {
 }
 async function onEnded () {
   const cur = playing.value
-  if (!cur || cur.kind !== 'episode') return
+  if (!cur || cur.kind && cur.kind !== 'episode') return
   try {
-    const d = await api(`/api/tv/episodes/${cur.id}/next`)
-    if (d.next) {
-      const dv = Number(d.next.version) || 1
-      playing.value = {
-        id: d.next.id,
-        label: `${show.value.title} S${pad(d.next.season)}E${pad(d.next.episode)}${d.next.title ? ' · ' + d.next.title : ''}`
-          + (dv > 1 ? `（V${dv}）` : ''),
-      }
-    }
-  } catch (e) { /* 连播失败：停在结束画面，用户可关窗 */ }
+    const next = await followingPlayback(cur, show.value.title)
+    if (playing.value === cur) playing.value = next
+  } catch (e) { msg.value = '自动连播失败：' + e.message }
 }
 
 onMounted(() => load())

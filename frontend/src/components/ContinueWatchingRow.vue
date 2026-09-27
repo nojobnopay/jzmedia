@@ -2,7 +2,7 @@
   <section v-if="items.length" class="cw">
     <div class="cw-head">
       <h3>
-        <span class="cw-ico" aria-hidden="true">▶</span>
+        <span class="cw-ico" aria-hidden="true"><PlayerIcon name="play" :size="14" /></span>
         继续观看 <span class="cw-count">{{ items.length }}</span>
         <span class="cw-sub">{{ allMode ? '最近播放 · 含已看完' : '最近播放 · 未看完' }}</span>
       </h3>
@@ -23,7 +23,7 @@
               <div class="cw-bar-in" :style="{ width: progressWidth(m.progress) }"></div>
             </div>
             <button class="poster-play" :aria-label="'继续播放 ' + (m.title || '')" title="继续播放"
-              @click.stop="$emit('resume', m)">▶</button>
+              @click.stop="$emit('resume', m)"><PlayerIcon name="play" :size="24" /></button>
           </div>
           <div class="cw-name" :title="m.title">{{ m.title }}<span v-if="m.year" class="cw-year">({{ m.year }})</span><span v-if="m.version_count > 1" class="cw-year">×{{ m.version_count }}</span></div>
           <div v-if="m.subtitle" class="cw-ep" :title="m.subtitle">{{ m.subtitle }}</div>
@@ -36,6 +36,8 @@
   </section>
 </template>
 <script setup>
+import PlayerIcon from './PlayerIcon.vue'
+
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, posterUrl } from '../api.js'
 import { fmtDate, fmtRemaining } from '../format.js'
@@ -56,7 +58,9 @@ const canRight = ref(false)
 let seq = 0
 let rowIO = null
 
-async function reload() {
+let pending = Promise.resolve()
+function reload() { pending = fetchRecent(); return pending }
+async function fetchRecent() {
   const s = ++seq
   loading.value = true
   try {
@@ -116,10 +120,11 @@ onMounted(async () => {
   } catch (e) { /* 不支持则只在滚动/重载时更新 */ }
 })
 onUnmounted(() => {
+  seq++
   window.removeEventListener('resize', updateScroll)
   if (rowIO) { try { rowIO.disconnect() } catch (e) { /* 忽略 */ } rowIO = null }
 })
-defineExpose({ reload })
+defineExpose({ reload, ready: () => pending })
 </script>
 <style scoped>
 .cw {
@@ -133,7 +138,7 @@ defineExpose({ reload })
 .cw-ico {
   width: 20px; height: 20px; border-radius: 50%; background: #e50914; color: #fff;
   font-size: 0.625rem; display: inline-flex; align-items: center; justify-content: center;
-  padding-left: 2px; box-sizing: border-box;
+  box-sizing: border-box;
 }
 .cw-count { color: #e50914; font-size: 0.875rem; font-weight: bold; }
 .cw-sub { color: #777; font-size: 0.75rem; font-weight: normal; }
@@ -172,4 +177,13 @@ defineExpose({ reload })
 .cw-fade.left { left: 0; background: linear-gradient(90deg, rgba(34,22,24,.95), rgba(34,22,24,0)); }
 .cw-fade.right { right: 0; background: linear-gradient(270deg, rgba(24,24,24,.95), rgba(24,24,24,0)); }
 @media (hover: none) { .cw-nav { display: none; } }
+</style>
+
+<style scoped>
+@media (max-width: 700px) {
+  .cw-head { flex-wrap: wrap; align-items: center; }
+  .cw-head h3 { flex-wrap: wrap; flex: 1 1 100%; }
+  .cw-sub { flex-basis: 100%; padding-left: 26px; }
+  .cw-toggle { margin-left: 26px; min-height: 36px; white-space: nowrap; }
+}
 </style>

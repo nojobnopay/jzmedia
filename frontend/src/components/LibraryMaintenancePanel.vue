@@ -11,7 +11,7 @@
 
     <div class="bar">
       <button @click="doRefreshAll" :disabled="!!busy">
-        {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? '确认刷新本库资料' : '从 TMDB 更新本库资料') }}
+        {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? '确认刷新本库资料' : '更新本库影片资料') }}
       </button>
       <button v-if="armRefresh" @click="armRefresh = false" :disabled="!!busy">取消</button>
       <span>{{ refreshMsg }}</span>
@@ -21,19 +21,14 @@
     </div>
     <div class="maintenance-group"><h4>重写媒体目录中的资料文件</h4><p class="hint">资料正确但 NFO 或海报文件缺失时使用。</p>
     <div class="bar">
-      <button @click="doRebuildNfo" :disabled="!!busy">{{ busy === 'nfo' ? '重建中…' : '重写 NFO 文件' }}</button>
-      <span>{{ nfoMsg }}</span>
+      <label>修复内容 <select v-model="repairMode" :disabled="!!busy" @change="armMeta = false">
+        <option value="both">NFO 与海报</option><option value="nfo">仅 NFO</option><option value="art">仅海报</option>
+      </select></label>
+      <button @click="doRebuildMeta" :disabled="!!busy">{{ busy === 'meta' || busy === 'nfo' ? '修复中…' : armMeta ? '确认修复' : '修复资料文件' }}</button>
+      <button v-if="armMeta" @click="armMeta = false">取消</button>
+      <button v-if="busy === 'meta'" @click="cancelMeta">取消任务</button><span>{{ metaMsg }}</span>
     </div>
-
-    <div class="bar">
-      <button @click="doRebuildMeta" :disabled="!!busy">
-        {{ busy === 'meta' ? `重写 NFO 与海报中 ${metaDone}/${metaTotal}…` : (armMeta ? '确认重写 NFO 与海报' : '重写 NFO 与海报') }}
-      </button>
-      <button v-if="armMeta" @click="armMeta = false" :disabled="!!busy">取消</button>
-      <button v-if="busy === 'meta'" @click="cancelMeta">取消</button>
-      <span>{{ metaMsg }}</span>
-    </div>
-    <p v-if="armMeta" class="hint warn-text">将按当前匹配结果向媒体目录写入 NFO 和已有海报，保留手工标题。再次点击确认执行。</p>
+    <p v-if="armMeta" class="hint warn-text">将按当前匹配结果写入所选资料文件，保留手工标题。再次点击确认执行。</p>
 
     </div>
     <details class="settings-details"><summary>清理误入库记录与挂载残留</summary>
@@ -82,7 +77,7 @@ const emit = defineEmits(['changed'])
 const busy = ref(null)
 const backfillMsg = ref('')
 const refreshMsg = ref('')
-const nfoMsg = ref('')
+const repairMode = ref('both')
 const metaMsg = ref('')
 const bdmvMsg = ref('')
 const mountMsg = ref('')
@@ -131,13 +126,13 @@ async function doRefreshAll() {
 
 async function doRebuildNfo() {
   busy.value = 'nfo'
-  nfoMsg.value = ''
+  metaMsg.value = ''
   try {
     const d = await api('/api/jobs/rebuild-nfo', { method: 'POST', body: libBody() })
-    nfoMsg.value = `完成：重写 ${d.ok}/${d.total}，跳过缺失 ${d.skipped_missing}，失败 ${d.failed.length}`
+    metaMsg.value = `完成：重写 ${d.ok}/${d.total}，跳过缺失 ${d.skipped_missing}，失败 ${d.failed.length}`
     emit('changed')
   } catch (e) {
-    nfoMsg.value = '重建失败：' + e.message
+    metaMsg.value = '重建失败：' + e.message
   } finally {
     busy.value = null
   }
@@ -156,13 +151,14 @@ async function doRebuildMeta() {
     return
   }
   armMeta.value = false
+  if (repairMode.value === 'nfo') return doRebuildNfo()
   busy.value = 'meta'
   metaMsg.value = ''
   metaDone.value = 0
   metaTotal.value = 0
   try {
     const d = await api('/api/jobs/rebuild-meta', {
-      method: 'POST', body: libBody({ dry_run: false, artwork: true, backdrops: false })
+      method: 'POST', body: libBody({ dry_run: false, nfo: repairMode.value !== 'art', artwork: true, backdrops: false })
     })
     metaJobId = d.job_id || ''
     metaTotal.value = d.total || 0

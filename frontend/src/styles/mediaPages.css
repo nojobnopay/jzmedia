@@ -136,3 +136,7 @@
 }
 
 #app .browse-page select, #app .media-detail .media-hero select { color-scheme: dark; background: var(--jz-surface-2); color: var(--jz-text); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s); padding: 8px 10px; font-size: var(--jz-font-m); }
+
+/* Icon and label share a stable center in every playback entry. */
+#app .media-detail .play-main, #app .media-detail .acts > .primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+@media (hover: none) { button, summary { touch-action: manipulation; } }

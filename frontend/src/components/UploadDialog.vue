@@ -1,29 +1,39 @@
 <template>
-  <div class="dlg-mask" @click.self="closeDlg">
+  <div v-if="!tvPlan" class="dlg-mask" @click.self="closeDlg" @keydown.esc.stop.prevent="closeDlg">
     <div ref="dlgRef" class="dlg" role="dialog" aria-modal="true">
-      <h3>{{ upStep === 'organize' ? '归档整理（第 2 步）' : upStep === 'done' ? '完成' : '上传到媒体库（第 1 步）' }}</h3>
+      <h3>{{ upStep === 'organize' ? '归档整理（第 2 步）' : upStep === 'done' ? '完成' : (kind === 'tv' ? '上传剧集' : '上传影片（第 1 步）') }}</h3>
       <template v-if="upStep === 'upload'">
-      <div v-if="upLibCandidates.length > 1" class="bar">
+      <div class="bar upload-target">
         <label>上传到视频库
-          <select v-model.number="upLibId" :disabled="uploading">
+          <select v-model.number="upLibId" :disabled="uploading || tvBusy || uploadCounts.done > 0">
             <option v-for="l in upLibCandidates" :key="l.id" :value="l.id">
-              {{ l.name }}{{ l.subpath ? '（' + l.subpath + '）' : '' }}
+              {{ l.media_name ? l.media_name + ' · ' : '' }}{{ l.name }}{{ l.subpath ? '（' + l.subpath + '）' : '' }}
             </option>
           </select>
         </label>
-        <span class="fhint">当前媒体库有多个电影类视频库，可切换目标</span>
+        <span v-if="!upLibCandidates.length" class="fhint">没有启用且可写的{{ kind === 'tv' ? '剧集' : '电影' }}库。<router-link to="/settings?sec=sec-libraries">添加视频库</router-link></span>
       </div>
       <div class="bar">
-        <label><input type="radio" value="files" v-model="upMode" :disabled="uploading" @change="onUpModeChange" /> 多选文件</label>
-        <label><input type="radio" value="dir" v-model="upMode" :disabled="uploading" @change="onUpModeChange" /> 整个文件夹</label>
+        <label><input type="radio" value="files" v-model="upMode" :disabled="uploading || tvBusy" @change="onUpModeChange" /> 多选文件</label>
+        <label><input type="radio" value="dir" v-model="upMode" :disabled="uploading || tvBusy" @change="onUpModeChange" /> 整个文件夹</label>
+      </div>
+      <div v-if="kind === 'tv' && upMode === 'files'" class="tv-target">
+        <label>所属剧 <select v-model.number="targetShow" :disabled="uploading || tvBusy || uploadCounts.done > 0">
+          <option :value="0">新剧集</option><option v-for="show in availableShows" :key="show.id" :value="show.id">{{ show.title }}</option>
+        </select></label>
+        <label v-if="!targetShow">剧名 <input v-model="targetTitle" maxlength="200" placeholder="用于创建剧集文件夹" :disabled="uploading || tvBusy || uploadCounts.done > 0" /></label>
+        <label>季号 <input v-model.number="targetSeason" type="number" min="0" max="99" :disabled="uploading || tvBusy || uploadCounts.done > 0" /></label>
+        <span class="fhint">0 为特典；保留文件名，文件名季号须与所选季一致。</span>
+        <p v-if="showsError" role="status">{{ showsError }}</p>
       </div>
       <div class="bar">
-        <input v-if="upMode === 'files'" type="file" multiple ref="upFiles" :disabled="uploading" @change="onUpInputChange" />
-        <input v-else type="file" webkitdirectory ref="upDir" :disabled="uploading" @change="onUpInputChange" />
+        <input v-if="upMode === 'files'" type="file" multiple ref="upFiles" :disabled="uploading || tvBusy" @change="onUpInputChange" />
+        <input v-else type="file" webkitdirectory ref="upDir" :disabled="uploading || tvBusy" @change="onUpInputChange" />
       </div>
-      <div class="bar"><span class="fhint">上传到视频库根（文件夹结构原样保留）；字幕/花絮自动归属；同名文件跳过不覆盖；&gt;2GB 建议局域网操作，可随时取消</span></div>
+      <div class="bar"><span class="fhint">{{ kind === 'tv' ? '选择包含剧名的完整文件夹，或指定剧和季上传散文件；无法识别的编号会提示待处理。' : '上传到视频库根，保留文件夹结构；字幕和花絮自动归属。' }}同名文件跳过不覆盖，可取消上传。</span></div>
       <div v-if="upFolderHead" class="bar"><span>已选文件夹：{{ upFolderHead }}</span></div>
-      <div v-if="upQueue.length" class="bar"><span class="fhint">共 {{ upQueue.length }} 个文件 · {{ fmtBytes(upTotalSize) }}{{ upDoneCount ? ` · 已传 ${upDoneCount}` : '' }}{{ upScanning ? ' · 当前已传完 · 刮削中…' : (upCurPct != null ? ` · 当前 ${upCurPct}%` : '') }}</span></div>
+      <div v-if="upQueue.length" class="bar"><span class="fhint">共 {{ upQueue.length }} 个文件 · {{ fmtBytes(upTotalSize) }}{{ upDoneCount ? ` · 已处理 ${upDoneCount}` : '' }}{{ upScanning ? ' · 当前已传完 · 刮削中…' : (upCurPct != null ? ` · 当前 ${upCurPct}%` : '') }}</span></div>
+      <p v-if="upQueue.length" class="fhint">已传输 {{ fmtBytes(transferredBytes) }} / {{ fmtBytes(upTotalSize) }} · 成功 {{ uploadCounts.done }} · 跳过 {{ uploadCounts.skipped }} · 失败 {{ uploadCounts.error }}</p>
       <div v-if="upQueue.length" class="up-progress"><div class="up-progress-fill" :style="{ width: upTotalPct + '%' }"></div></div>
       <div v-if="upScanning" class="bar"><span class="up-scan">{{ upScanHint }}</span></div>
       <ul v-if="upQueue.length" class="collist">
@@ -41,11 +51,23 @@
           </button>
         </li>
       </ul>
+      <p v-if="kind === 'tv' && upNeedsMatch.length"><router-link :to="{path:'/settings', query:{sec:'sec-files', library:upLibId}}">检查本库文件与编号</router-link></p>
+      <section v-if="kind === 'tv' && uploadedShows.length" class="tv-results">
+        <h4>本次上传的剧集</h4><p v-if="tvMessage" role="status">{{ tvMessage }}</p>
+        <div v-for="show in uploadedShows" :key="show.id" class="tv-result">
+          <span>{{ show.title }} · {{ show.status || '已登记，待补全资料' }}</span>
+          <router-link :to="'/tv/' + show.id">核对匹配</router-link>
+          <button :disabled="tvBusy || uploading" @click="previewTv(show.id)">预览目录整理</button>
+        </div>
+        <button v-if="!tvBusy && !uploading" @click="scrapeUploadedShows">补全剧集资料</button>
+        <button v-if="tvBusy" @click="cancelTvMetadata">取消资料补全</button>
+      </section>
       <div class="bar">
         <button v-if="!uploading && !upFinished" @click="startUpload" :disabled="!canStartUpload">开始上传</button>
         <button v-if="uploading" @click="cancelUpload">取消上传</button>
-        <button v-if="upFinished && upOrganizable" @click="goUpOrganize">下一步：归档整理</button>
-        <button v-if="!uploading" @click="closeDlg">{{ upFinished ? '关闭' : '取消' }}</button>
+        <button v-if="!uploading && uploadCounts.error" :disabled="tvBusy" @click="retryFailed">重试失败文件</button>
+        <button v-if="kind === 'movie' && upFinished && upOrganizable" @click="goUpOrganize">下一步：归档整理</button>
+        <button v-if="!uploading" :disabled="tvBusy" @click="closeDlg">{{ upFinished ? '关闭' : '取消' }}</button>
         <span>{{ upMsg }}</span>
       </div>
       </template>
@@ -71,37 +93,48 @@
       </template>
     </div>
   </div>
+  <TvOrganizeDialog v-if="tvPlan" :key="tvPlan.show_id" :initial-plan="tvPlan" :title="tvPlan.title || ''"
+    @close="tvPlan = null" @finished="emit('done')" @settings="openTvTools" />
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { api, apiUpload } from '../api.js'
-import { currentMediaId, currentMediaVideoLibs, preferredVideoLibId } from '../libraries.js'
+import { currentMediaId, currentMediaVideoLibs, uploadLibraries, onLibChange } from '../libraries.js'
 import { fmtBytes, midEllipsis } from '../format.js'
+import { useTvUpload } from '../useTvUpload.js'
+import TvOrganizeDialog from './TvOrganizeDialog.vue'
 import { useFocusTrap } from '../useFocusTrap.js'
 
+const props = defineProps({ kind: { type: String, default: 'movie' } })
 const emit = defineEmits(['close', 'done'])
 const router = useRouter()
 const dlgRef = ref(null)
-useFocusTrap(ref(true), dlgRef)
 
-const upLibCandidates = computed(() => currentMediaVideoLibs('movie'))
+
+const libRevision = ref(0)
+const upLibCandidates = computed(() => { libRevision.value; return uploadLibraries(currentMediaVideoLibs(props.kind), props.kind) })
 const upLibId = ref(_storedUploadLib())
 function _storedUploadLib () {
-  const cands = currentMediaVideoLibs('movie')
+  const cands = upLibCandidates.value
   try {
     const mid = currentMediaId()
-    const v = mid != null ? Number(localStorage.getItem('jzmedia.uploadLib.' + mid)) : NaN
+    const v = mid != null ? Number(localStorage.getItem('jzmedia.uploadLib.' + props.kind + '.' + mid)) : NaN
     if (cands.some((l) => Number(l.id) === v)) return v
   } catch (e) { /* 忽略 */ }
-  return preferredVideoLibId('movie')
+  return cands[0]?.id ?? null
 }
-const upMode = ref('files')
+const upMode = ref(props.kind === 'tv' ? 'dir' : 'files')
 const upFiles = ref(null)
 const upDir = ref(null)
 const upFolderHead = ref('')
 const upQueue = ref([])
+const { targetShow, targetTitle, targetSeason, availableShows, showsError, tvBusy, tvMessage,
+  tvPlan, uploadedShows, scrapeUploadedShows, cancelTvMetadata, previewTv } = useTvUpload({
+  kind: props.kind, libraryId: upLibId, queue: upQueue, done: () => emit('done'),
+})
+useFocusTrap(computed(() => !tvPlan.value), dlgRef)
 const uploading = ref(false)
 const upMsg = ref('')
 const upSummary = ref('')
@@ -111,16 +144,15 @@ let upAbort = null
 let upCancelled = false
 const upTotalSize = computed(() => upQueue.value.reduce((a, t) => a + (t.file.size || 0), 0))
 const upDoneCount = computed(() => upQueue.value.filter(t => t.state === 'done' || t.state === 'skipped' || t.state === 'error').length)
-const upTotalPct = computed(() => {
-  const n = upQueue.value.length
-  if (!n) return 0
-  return Math.min(100, Math.round((upDoneCount.value * 100 + (upCurPct.value || 0)) / n))
-})
+const transferredBytes = computed(() => upQueue.value.reduce((sum, t) => sum + (t.transferred || 0), 0))
+const uploadCounts = computed(() => Object.fromEntries(['done', 'skipped', 'error'].map(state => [state, upQueue.value.filter(t => t.state === state).length])))
+const upTotalPct = computed(() => upTotalSize.value ? Math.min(100, Math.round(transferredBytes.value / upTotalSize.value * 100)) : 0)
 const upFinished = computed(() => upQueue.value.length > 0 && !uploading.value && upQueue.value.every(t => t.state !== 'queued' && t.state !== 'active'))
-const canStartUpload = computed(() => !uploading.value && upQueue.value.some(t => t.state === 'queued'))
+const canStartUpload = computed(() => !uploading.value && !tvBusy.value && upLibCandidates.value.some(l => Number(l.id) === Number(upLibId.value)) && (props.kind !== 'tv' || upMode.value === 'dir' || ((targetShow.value || targetTitle.value.trim()) && Number.isInteger(targetSeason.value) && targetSeason.value >= 0 && targetSeason.value <= 99)) && upQueue.value.some(t => t.state === 'queued'))
 const visibleUpQueue = computed(() => showAllUp.value ? upQueue.value : upQueue.value.slice(0, 50))
 // 状态文案（评审 B9 后续）：失败可重试、未匹配可去匹配，别只丢裸状态码
 const NOTE_TEXT = {
+  tv_ok: '分集已登记', stored: '文件已保存', skipped_tv_unknown: '文件已保存，集号未识别，请核对文件名后扫描', extra_attached: '花絮已关联',
   ok: '已入库', ok_needs_review: '待确认', no_match: 'TMDB 未匹配',
   scan_failed: '刮削失败（可重试）', skipped_cached: '已入库', skipped_unchanged: '未变化',
   skipped_sample: '样片跳过', skipped_episode_v1: '剧集跳过',
@@ -163,7 +195,7 @@ async function rescanTask(t) {
 function upTaskState(t) {
   if (t.state === 'queued') return fmtBytes(t.file.size)
   if (t.state === 'active') {
-    if (t.phase === 'scanning') return '已传完 · 联网刮削中…'
+    if (t.phase === 'scanning') return '已传完 · 识别处理中…'
     return (upCurPct.value != null ? upCurPct.value + '% · ' : '') + '上传中…'
   }
   if (t.state === 'skipped') return '已存在·跳过'
@@ -184,7 +216,7 @@ function stopScanTicker() {
 }
 const upScanning = computed(() => upQueue.value.some(t => t.state === 'active' && t.phase === 'scanning'))
 const upScanHint = computed(() => {
-  const base = `已传完，正在联网匹配 TMDB 元数据并下载海报，请耐心等待（已等待 ${upScanSecs.value}s）`
+  const base = `文件已传完，正在识别文件与补全资料（已等待 ${upScanSecs.value}s）`
   const samples = scanSamples.value
   if (!samples.length) return base   // 本会话还没有样本：不给臆测耗时（评审 R04-Q4）
   const avg = Math.max(1, Math.round(samples.reduce((a, b) => a + b, 0) / samples.length / 1000))
@@ -196,7 +228,7 @@ function stageName(f) {
   return String(rel || f.name || '').replace(/\\/g, '/')
 }
 function closeDlg() {
-  if (uploading.value || upOrgBusy.value) return
+  if (uploading.value || upOrgBusy.value || tvBusy.value) return
   stopScanTicker()
   emit('close')
 }
@@ -240,6 +272,7 @@ function onUpModeChange() {
   showAllUp.value = false
 }
 async function startUpload() {
+  if (!canStartUpload.value) return
   const staged = upQueue.value.length ? upQueue.value : collectStaged()
   if (!staged.length) {
     upMsg.value = upMode.value === 'dir' ? '先选择文件夹' : '先选择文件'
@@ -248,7 +281,7 @@ async function startUpload() {
   try {
     const mid = currentMediaId()
     if (mid != null && upLibId.value != null) {
-      localStorage.setItem('jzmedia.uploadLib.' + mid, String(upLibId.value))
+      localStorage.setItem('jzmedia.uploadLib.' + props.kind + '.' + mid, String(upLibId.value))
     }
   } catch (e) { /* 忽略 */ }
   if (staged.length > 500) {
@@ -268,13 +301,15 @@ async function startUpload() {
     if (upCancelled) break
     if (t.state !== 'queued') continue
     t.state = 'active'
+    t.transferred = 0
     t.phase = 'uploading'
     t.scanStartedAt = 0
     upCurPct.value = 0
     const h = apiUpload('/api/uploads', t.file, {
-      fields: { relpath: t.rel, library_id: upLibId.value },
-      onProgress: (p) => { upCurPct.value = p },
+      fields: { relpath: t.rel, library_id: upLibId.value, media_type: props.kind, mode: upMode.value, ...(props.kind === 'tv' && upMode.value === 'files' ? { show_id: targetShow.value || undefined, show_title: targetShow.value ? '' : targetTitle.value.trim(), season: targetSeason.value } : {}) },
+      onProgress: (p, bytes) => { upCurPct.value = p; t.transferred = bytes ?? Math.round(t.file.size * p / 100) },
       onUploaded: () => {
+        t.transferred = t.file.size
         // 延迟 800ms 再切“刮削中”，字幕/花絮等本地快路径不会闪提示
         if (t._hintTimer) clearTimeout(t._hintTimer)
         t._hintTimer = setTimeout(() => {
@@ -301,6 +336,9 @@ async function startUpload() {
       t.state = 'done'
       t.note = st
       t.movieId = (r && r.movie_id) || null
+      t.showId = r?.show_id || null
+      t.showTitle = r?.show || availableShows.value.find(s => s.id === t.showId)?.title || targetTitle.value || t.rel.split('/')[0]
+      if (r?.error) t.note += ': ' + r.error
       ok++
       if (st === 'ok_needs_review') review++
       else if (st === 'no_match') nomatch++
@@ -315,7 +353,7 @@ async function startUpload() {
       if (m === '已取消' || upCancelled) {
         t.state = 'queued'
         t.note = ''
-      } else if (/^409\b/.test(m)) {
+      } else if (/^409\b.*already exists/.test(m)) {
         t.state = 'skipped'
         skipped++
       } else {
@@ -330,15 +368,20 @@ async function startUpload() {
   uploading.value = false
   upCurPct.value = null
   stopScanTicker()
-  const parts = [`上传完成：成功 ${ok}`]
+  const parts = [`${upCancelled ? '上传已取消' : '上传处理结束'}：成功 ${ok}`]
   if (skipped) parts.push(`跳过 ${skipped}`)
   if (nomatch) parts.push(`未匹配 ${nomatch}`)
   if (review) parts.push(`待确认 ${review}`)
   if (scanfail) parts.push(`刮削失败 ${scanfail}（可重试）`)
   if (failed) parts.push(`失败 ${failed}`)
-  if (upCancelled) parts.push('（已取消）')
+  if (upCancelled) parts.push('已取消；已送达服务器的文件可能仍在入库，可扫描确认')
   upSummary.value = parts.join(' · ')
   emit('done')
+  if (props.kind === 'tv' && !upCancelled && uploadedShows.value.length) await scrapeUploadedShows()
+}
+function retryFailed() {
+  upQueue.value.filter(t => t.state === 'error').forEach(t => { t.state = 'queued'; t.note = ''; t.transferred = 0 })
+  startUpload()
 }
 function cancelUpload() {
   upCancelled = true
@@ -356,7 +399,7 @@ const upNeedsMatch = computed(() => upQueue.value.filter(t => {
   if (t.state !== 'done') return false
   const s = t.note || ''
   return s === 'no_match' || s === 'scan_failed' || s === 'ok_needs_review'
-    || s.startsWith('stored_scan_warn')
+    || s === 'skipped_tv_unknown' || s.startsWith('stored_scan_warn')
 }))
 const upOrganizableIds = computed(() => [...new Set(
   upQueue.value.filter(t => t.movieId).map(t => t.movieId))])
@@ -398,6 +441,27 @@ async function doUpOrganize() {
     upOrgBusy.value = false
   }
 }
+
+function openTvTools() { router.push({ path: '/settings', query: { sec: 'sec-tvorganize', library: upLibId.value } }) }
+function beforeUnload(event) {
+  if (uploading.value) { event.preventDefault(); event.returnValue = '' }
+}
+let unsubscribe
+onBeforeRouteLeave(() => {
+  if (uploading.value || tvBusy.value || upOrgBusy.value) { upMsg.value = '请先取消当前任务，再离开上传窗口。'; return false }
+})
+onMounted(() => {
+  unsubscribe = onLibChange(() => { libRevision.value++; if (!uploading.value && !tvBusy.value) upLibId.value = _storedUploadLib() })
+  window.addEventListener('beforeunload', beforeUnload)
+})
+onUnmounted(() => {
+  upCancelled = true
+  upAbort?.()
+  stopScanTicker()
+  upQueue.value.forEach(t => clearTimeout(t._hintTimer))
+  unsubscribe?.()
+  window.removeEventListener('beforeunload', beforeUnload)
+})
 </script>
 
 <style scoped>
@@ -407,8 +471,22 @@ async function doUpOrganize() {
 .dlg h3 { margin: 0 0 8px; }
 .fhint { color: #777; font-size: 0.75rem; }
 .collist { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 30vh; overflow: auto; }
-.collist li { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: #262626; border-radius: 8px; padding: 6px 10px; }
+.collist li { overflow-wrap: anywhere; display: flex; justify-content: space-between; gap: 8px; align-items: center; background: #262626; border-radius: 8px; padding: 6px 10px; }
 .up-scan { color: #e0a63c; font-size: 0.8125rem; }
 .up-progress { height: 8px; border-radius: 999px; background: #2c2c2c; overflow: hidden; margin: 0 12px; }
 .up-progress-fill { height: 100%; background: #e50914; border-radius: 999px; transition: width .2s; }
+</style>
+
+<style scoped>
+.dlg { box-sizing: border-box; min-width: 0; width: min(640px, calc(100vw - 32px)); }
+.bar, .tv-target, .tv-result { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+label { display: flex; gap: 8px; align-items: center; max-width: 100%; }
+select, input { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.upload-target label { flex: 1; }
+.upload-target select { flex: 1; }
+.tv-target { padding: 12px; }
+.tv-target input[type="number"] { width: 72px; }
+.tv-target .fhint, .tv-result > span { flex-basis: 100%; }
+.tv-results { overflow-wrap: anywhere; padding: 12px; border-top: 1px solid var(--jz-border); }
+a { color: var(--jz-link); }
 </style>

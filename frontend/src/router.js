@@ -15,6 +15,8 @@ const EpisodeView = () => import('./views/EpisodeView.vue')
 export default createRouter({
   history: createWebHistory(),
   scrollBehavior(to, from, savedPosition) {
+    // The wall restores its loaded rows before restoring the anchor.
+    if (to.path === '/' || to.path === '/tv') return false
     if (savedPosition) return savedPosition
     if (to.path !== from.path) return { top: 0 }
     return false  // 搜索/筛选只更新 query，保留当前浏览位置。

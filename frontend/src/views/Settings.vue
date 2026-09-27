@@ -26,13 +26,29 @@
             <div class="stat" :class="{ warn: stats.missing_files }"><b>{{ stats.missing_files }}</b><span>失效记录</span></div>
           </div>
           <p v-else class="hint" role="status">{{ statsError || '正在加载统计…' }}</p>
-          <div v-if="stats && (stats.needs_review || stats.no_match || stats.missing_files)" class="settings-notice">
-            <span>有影片需要核对，进入对应视频库查看。</span><button @click="go('sec-libtools')">处理待办</button>
+          <div v-for="row in (stats?.by_library || []).filter(r => r.pending || r.missing_files)" :key="row.library_id" class="settings-notice">
+            <span>{{ libraryName(row.library_id) }}：{{ row.pending }} 项匹配待办 · {{ row.missing_files }} 个失效文件</span>
+            <router-link :to="{ path: '/settings', query: { sec: row.pending ? 'sec-pending' : 'sec-sync', library: row.library_id } }">处理待办</router-link>
           </div>
           <details v-if="stats" class="settings-details">
             <summary>存储与缓存统计</summary>
             <dl class="info-grid"><dt>数据库</dt><dd>{{ fmtBytes(stats.db_bytes) }}</dd><dt>海报文件</dt><dd>{{ fmtBytes(stats.posters_bytes) }}</dd><dt>资料缓存</dt><dd>{{ stats.tmdb_cache }} 条</dd><dt>人物</dt><dd>{{ stats.persons }} 位</dd></dl>
           </details>
+        </section>
+        <section class="card-block">
+          <h3>剧集库概况</h3>
+          <div v-if="tvStats" class="stat-grid">
+            <div class="stat"><b>{{ tvStats.shows }}</b><span>剧集</span></div>
+            <div class="stat"><b>{{ tvStats.seasons }}</b><span>季</span></div>
+            <div class="stat"><b>{{ tvStats.episodes }}</b><span>分集文件</span></div>
+            <div class="stat" :class="{ warn: tvStats.pending }"><b>{{ tvStats.pending }}</b><span>待处理剧集</span></div>
+            <div class="stat" :class="{ warn: tvStats.episode_review }"><b>{{ tvStats.episode_review }}</b><span>分集待确认</span></div>
+          </div>
+          <p v-else class="hint" role="status">{{ tvStatsError || '正在加载统计…' }}</p>
+          <div v-for="row in (tvStats?.by_library || []).filter(r => r.pending)" :key="row.library_id" class="settings-notice">
+            <span>{{ libraryName(row.library_id) }}：{{ row.pending }} 部剧待处理</span>
+            <router-link :to="{ path: '/settings', query: { sec: 'sec-pending', library: row.library_id } }">处理剧集待办</router-link>
+          </div>
         </section>
         <div class="settings-shortcuts">
           <button @click="go('sec-libraries')"><b>媒体库连接</b><span>添加本地目录或 NAS，检查连接状态</span></button>
@@ -157,6 +173,8 @@ const router = useRouter()
 
 const s = ref(null)
 const stats = ref(null)
+const tvStats = ref(null)
+const tvStatsError = ref('')
 const busy = ref(null) // tmdb|auth|fts
 
 const tmdbMsg = ref('')
@@ -412,10 +430,17 @@ async function cancelImportImdb() {
 }
 
 const statsError = ref('')
+function libraryName(id) {
+  const lib = libList.value.find(l => Number(l.id) === Number(id))
+  return lib ? `${lib.media_name ? lib.media_name + ' / ' : ''}${lib.name}` : `视频库 ${id}`
+}
 async function loadStats() {
   statsError.value = ''
-  try { stats.value = await api('/api/jobs/stats') }
-  catch (e) { statsError.value = '统计加载失败：' + e.message }
+  tvStatsError.value = ''
+  await Promise.all([
+    api('/api/jobs/stats').then(d => { stats.value = d }).catch(e => { statsError.value = '统计加载失败：' + e.message }),
+    api('/api/tv/stats').then(d => { tvStats.value = d }).catch(e => { tvStatsError.value = '统计加载失败：' + e.message }),
+  ])
 }
 
 // 媒体库工具（按视频库标签页）：库列表来自全局状态，库变动后同步

@@ -4,7 +4,7 @@
       <MediaBackdrop :src="m.tmdb_id ? `/api/movies/${m.id}/backdrop?tmdb=${m.tmdb_id}` : ''" />
       <div class="hero-inner">
         <div class="topbar">
-          <router-link to="/" class="back-link">‹ 电影</router-link>
+          <router-link :to="browseReturn('/', currentMediaId())" class="back-link">‹ 电影</router-link>
           <span class="top-right">
             <span v-if="savedFlash" class="saved-flash">已保存</span>
             <span v-if="regionNote" class="saved-flash" style="color:#e0a63c">{{ regionNote }}</span>
@@ -22,7 +22,7 @@
             <div v-if="m.needs_review" class="review-notice">
               <span>请确认影片是否匹配正确</span>
               <button :disabled="!!nrBusy" @click="confirmMatch">匹配正确</button>
-              <button @click="editing = true">重新匹配</button>
+              <button @click="openEdit('match')">重新匹配</button>
             </div>
             <div v-if="mediaBadge || mediaUnplayable || noFfmpeg" class="media-row">
               <span v-if="mediaBadge" class="media-badge">{{ mediaBadge }}</span>
@@ -31,7 +31,7 @@
             </div>
             <div v-else-if="mediaLoading" class="media-row"><span class="media-loading">媒体信息探测中…</span></div>
             <div class="play-row">
-              <button class="play-main" :disabled="heroBlocked" :title="heroBlockTip" @click="openHeroPlay">▶ {{ heroResume ? '继续观看' : '播放影片' }}</button>
+              <button class="play-main" :disabled="heroBlocked" :title="heroBlockTip" @click="openHeroPlay"><PlayerIcon name="play" :size="20" /> {{ heroResume ? '继续观看' : '播放影片' }}</button>
               <select v-if="(m.versions || []).length > 1" v-model.number="heroVid" class="ver-sel" aria-label="播放版本">
                 <option v-for="v in m.versions" :key="v.id" :value="v.id" :disabled="!!verBlocked[v.id]">
                   {{ verLabel(v) }}{{ verBlocked[v.id] ? '（无效）' : (verFriendly(v.id) ? ' ★浏览器友好' : '') }}
@@ -40,10 +40,16 @@
               <span v-if="heroResume" class="resume-hint">{{ heroResume }}</span>
               <button :disabled="watchedBusy" @click="toggleWatched">{{ m.watched ? '标记未看' : '标记已看' }}</button>
               <ActionMenu>
-                <button @click="toggleEdit">{{ editing ? '收起影片编辑' : '编辑影片与匹配' }}</button>
-                <button @click="contentTab = 'files'">文件与版本</button>
-                <button :disabled="metaBusy" title="按当前匹配重新写入本片的 NFO 和海报" @click="rebuildMeta">{{ metaBusy ? '重写中…' : '重写 NFO 与海报' }}</button>
+                <button @click="openEdit('edit')">编辑资料</button>
+                <button @click="openEdit('match')">重新匹配</button>
+                <button @click="refreshMovieInfo" :disabled="refreshBusy">{{ refreshBusy ? '更新中…' : '更新资料' }}</button>
+                <button :disabled="metaBusy" title="选择需要修复的资料文件" @click="repairOpen = !repairOpen">修复资料文件</button>
               </ActionMenu>
+            </div>
+            <div v-if="repairOpen" class="bar" style="flex-wrap:wrap">
+              <label>修复内容 <select v-model="repairMode" :disabled="metaBusy"><option value="both">NFO 与海报</option><option value="nfo">仅 NFO</option><option value="art">仅海报</option></select></label>
+              <button @click="rebuildMeta" :disabled="metaBusy">{{ metaBusy ? '修复中…' : '确认修复本片资料文件' }}</button>
+              <button @click="repairOpen = false" :disabled="metaBusy">收起</button>
             </div>
               <details class="playback-preparation" v-if="!heroBlocked && (!verFriendly(heroVid) || (heroRemux && heroRemoteLib))" >
                 <summary>预缓存与转码</summary>
@@ -71,9 +77,13 @@
             <div v-if="(m.tags || []).length" class="tag-row">
               <span v-for="t in m.tags" :key="t" class="tag-chip">{{ t }}</span>
             </div>
-            <div v-if="(m.collections || []).length" class="tag-row">
+            <div class="tag-row">
+              <button @click="collectionsOpen = !collectionsOpen">所属合集</button>
               <router-link v-for="c in m.collections" :key="c.id" class="col-chip" :to="'/c/' + c.id">{{ c.name }}</router-link>
             </div>
+            <MovieCollectionsPanel v-if="collectionsOpen" :movie-id="m.id" :library-id="m.library_id"
+              @changed="onEditChanged" @close="collectionsOpen = false" />
+            <p v-if="refreshMsg" class="page-feedback" role="status">{{ refreshMsg }}</p>
             <div v-if="hint && hint.collection_tmdb_id" class="hint-row">
               TMDB 系列：{{ hint.collection_name }}（库内 {{ hint.in_library_count }} 部）
               <button v-if="!hint.already_collected" @click="createFromSeries">创建系列合集</button>
@@ -88,9 +98,9 @@
     <div class="sections">
       <p v-if="loadErr" class="page-feedback" role="alert">{{ loadErr }}</p>
       <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
-      <MovieEditPanel v-if="editing" :movie="m" :movie-id="Number(route.params.id)"
-        @close="editing = false" @saved="onEditSaved" @changed="onEditChanged"
-        @matched="onMatched" @refreshed="onRefreshed" />
+      <MovieEditPanel v-if="editing" :key="editing + ':' + route.params.id" :mode="editing" :movie="m" :movie-id="Number(route.params.id)"
+        @close="editing = ''" @saved="onEditSaved"
+        @matched="onMatched" />
       <nav class="detail-tabs" aria-label="影片内容">
         <button :class="{ active: contentTab === 'info' }" :aria-pressed="contentTab === 'info'" @click="contentTab = 'info'">影片资料</button>
         <button :class="{ active: contentTab === 'files' }" :aria-pressed="contentTab === 'files'" @click="contentTab = 'files'">文件与版本 <span>{{ (m.versions || []).length }}</span></button>
@@ -189,6 +199,10 @@
   <EmptyState v-if="!m" :text="loadErr || '加载中…'" />
 </template>
 <script setup>
+import { browseReturn } from '../browseHistory.js'
+
+import PlayerIcon from '../components/PlayerIcon.vue'
+
 import MediaBackdrop from '../components/MediaBackdrop.vue'
 import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
@@ -206,9 +220,10 @@ import CastWall from '../components/CastWall.vue'
 import CrewRow from '../components/CrewRow.vue'
 import MovieUploadPanel from '../components/MovieUploadPanel.vue'
 import MovieFileManager from '../components/MovieFileManager.vue'
+import MovieCollectionsPanel from '../components/MovieCollectionsPanel.vue'
 import MovieEditPanel from '../components/MovieEditPanel.vue'
 import { useFocusTrap } from '../useFocusTrap.js'
-import { isRemoteVideoLib } from '../libraries.js'
+import { currentMediaId, isRemoteVideoLib } from '../libraries.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -227,7 +242,10 @@ const similar = ref([])
 const archHint = ref(null)
 const archApplying = ref(false)
 const archMsg = ref('')
-const editing = ref(false)
+const editing = ref('')
+const collectionsOpen = ref(false)
+const refreshBusy = ref(false)
+const refreshMsg = ref('')
 const contentTab = ref('info')
 const savedFlash = ref(false)
 const watchedBusy = ref(false)
@@ -412,6 +430,8 @@ async function startPrewarm() {
   }
 }
 // 重写元数据（2026-09）：换绑/刷新后 NAS 上 NFO/海报可能没落盘，这里按当前匹配单部重写
+const repairOpen = ref(false)
+const repairMode = ref('both')
 const metaBusy = ref(false)
 const metaMsg = ref('')
 const metaErr = ref(false)
@@ -425,7 +445,7 @@ async function rebuildMeta() {
   try {
     const d = await api('/api/jobs/rebuild-meta', {
       method: 'POST',
-      body: JSON.stringify({ ids: [Number(route.params.id)], dry_run: false, backdrops: false }),
+      body: JSON.stringify({ ids: [Number(route.params.id)], dry_run: false, backdrops: false, nfo: repairMode.value !== 'art', artwork: repairMode.value !== 'nfo' }),
     })
     metaJobId = d.job_id || ''
     if (!metaJobId) {
@@ -456,7 +476,7 @@ async function pollMeta() {
     if (st.state === 'done') {
       const failed = (st.failed || []).length
       metaErr.value = failed > 0
-      metaMsg.value = failed ? `完成，失败 ${failed} 部` : '已重写 NFO / 海报'
+      metaMsg.value = failed ? `完成，失败 ${failed} 部` : '已修复所选资料文件'
       await load()
     } else {
       metaErr.value = true
@@ -517,7 +537,7 @@ async function load() {
   }
   heroVid.value = Number(route.params.id)
   // 未匹配（刮削失败/无结果）自动展开编辑面板，直接可搜 TMDB 重新匹配（评审 B9 后续）
-  if (!m.value.tmdb_id) editing.value = true
+  if (!m.value.tmdb_id) editing.value = 'match'
   loadMedia()
   loadSimilar()
   try {
@@ -639,9 +659,7 @@ async function createFromSeries() {
     hintMsg.value = '创建失败：' + e.message
   }
 }
-function toggleEdit() {
-  editing.value = !editing.value
-}
+function openEdit(mode) { editing.value = editing.value === mode ? '' : mode }
 // 编辑面板回调（R05-Q4：子组件只发信号，重载/闪存/归档引导留在本页）
 async function onFilesChanged() { await reloadFiles() }
 const nrBusy = ref(false)
@@ -659,12 +677,24 @@ async function confirmMatch () {
   }
 }
 
-async function onEditSaved() { editing.value = false; flashSaved(); await load() }
+async function onEditSaved() { editing.value = ''; flashSaved(); await load() }
 async function onEditChanged() { flashSaved(); await load() }
+async function refreshMovieInfo() {
+  if (refreshBusy.value) return
+  refreshBusy.value = true
+  refreshMsg.value = '正在更新资料…'
+  try {
+    const r = await api('/api/movies/' + route.params.id + '/refresh', { method: 'POST' })
+    refreshMsg.value = r.changed ? '影片资料已更新' : '远端资料无变化'
+    if (r.forced) refreshMsg.value += '，已提交 NFO 与海报重写'
+    await onRefreshed()
+  } catch (e) { refreshMsg.value = '更新失败：' + e.message }
+  finally { refreshBusy.value = false }
+}
 async function onRefreshed() { await load(); flashSaved(); await waitForMedia() }
 async function onMatched({ oldRegion = '', background = {} } = {}) {
   await load()
-  editing.value = false
+  editing.value = ''
   checkArchiveHint()
   flashSaved()
   regionNote.value = (m.value?.region && m.value.region !== oldRegion)
@@ -747,7 +777,7 @@ onUnmounted(() => {
   if (flashTimer) clearTimeout(flashTimer)
   if (posterObjUrl) URL.revokeObjectURL(posterObjUrl)
 })
-watch(() => route.params.id, () => { contentTab.value = 'info'; editing.value = false; load() })   // 同组件切片重载（评审 B8/R05-Q3）
+watch(() => route.params.id, () => { contentTab.value = 'info'; editing.value = ''; collectionsOpen.value = false; repairOpen.value = false; refreshMsg.value = ''; load() })   // 同组件切片重载（评审 B8/R05-Q3）
 </script>
 <style scoped>
 .detail { padding-bottom: 24px; }.hero { position: relative; overflow: hidden; }.hero-inner { position: relative; width: 100%; box-sizing: border-box; padding: 12px 24px; max-width: min(1600px, 100%); margin: 0 auto; }.topbar { display: flex; justify-content: space-between; align-items: center; }.top-right { display: flex; gap: 8px; align-items: center; }.saved-flash { color: #7ed321; font-size: 0.875rem; }.poster { width: 220px; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.55); }.poster.zoomable { cursor: zoom-in; }.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }.poster-dlg { text-align: center; }.poster-dlg .bar { justify-content: center; }.poster-empty { aspect-ratio: 2/3; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; background: #262626; color: #888; font-size: 0.875rem; box-shadow: none; }.hero-info .year { color: #aaa; font-weight: normal; font-size: 1.3125rem; }.needs-review { color: #ff6b6b; font-size: 0.875rem; border: 1px solid #6e2b2b; border-radius: 999px; padding: 1px 4px 1px 10px; margin-left: 8px; vertical-align: middle; display: inline-flex; align-items: center; gap: 4px; }.needs-review .nr-btn { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; border: 1px solid #6e2b2b; background: transparent; color: #ff8a8a; cursor: pointer; }.needs-review .nr-btn.ok { border-color: #3a5a1e; color: #7ed321; }.needs-review .nr-btn:disabled { opacity: .6; cursor: wait; }.edition-chip { color: #6ab0ff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.edition-chip.spec { color: #7ed321; border-color: #3a5a1e; }.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }.media-badge { color: #9ecfff; font-size: 0.875rem; border: 1px solid #2b4a6e; border-radius: 999px; padding: 1px 10px; }.media-warn { color: #e0a63c; font-size: 0.8125rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 1px 10px; }.media-loading { color: #666; font-size: 0.8125rem; }.resume-hint { color: #7ed321; font-size: 0.8125rem; }.play-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 2px; }.play-main { font-size: 1rem; padding: 8px 28px; border-radius: 999px; background: #2b6cb0; border: 1px solid #2b6cb0; color: #fff; cursor: pointer; }.play-main:hover:not(:disabled) { background: #3580cc; }.play-main:disabled { background: #333; border-color: #444; color: #777; cursor: not-allowed; }.ver-sel { background: #262626; color: #ccc; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; max-width: 320px; }.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }.pre-sel { background: #262626; color: #ccc; border: 1px solid #6e5426; border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }.pre-btn { background: transparent; border: 1px dashed #6e5426; color: #e0a63c; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 0.8125rem; }.pre-btn:disabled { opacity: 0.6; cursor: wait; }.src { color: #888; font-weight: normal; }.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed #555; color: #ccc; }.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid #2b4a6e; color: #6ab0ff; cursor: pointer; }.watched-chip { color: #7ed321; font-size: 0.875rem; border: 1px solid #3a5a1e; border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.hint-row { margin-top: 6px; color: #aaa; font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.hint-row .fhint { color: #777; font-size: 0.75rem; }.sections { width: 100%; box-sizing: border-box; padding: 0 24px; max-width: min(1600px, 100%); display: flex; flex-direction: column; gap: 12px; margin: 12px auto 0; }.body-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 12px; align-items: start; }.main-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }.side-col { min-width: 0; }@media (max-width: 860px) { .body-grid { grid-template-columns: 1fr; }}.crew { margin: 8px 0; font-size: 0.9375rem; }.role { color: #888; margin-right: 8px; font-size: 0.875rem; }.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: #262626; border: 1px solid #3a3a3a; cursor: pointer; font-size: 0.9375rem; }.actor-chip:hover { border-color: #6ab0ff; color: #6ab0ff; }.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }.cast-card { cursor: pointer; min-width: 0; }.cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: #262626; }.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #666; border: 1px solid #3a3a3a; }.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }.facts .fact span:first-child { color: #888; min-width: 48px; flex-shrink: 0; }.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }.facts a { color: #6ab0ff; margin-right: 10px; }.arch-dlg { max-width: 720px; }.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }.arch-list li { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }.arch-from { color: #888; overflow-wrap: anywhere; }.arch-arrow { color: #6ab0ff; }.arch-to { color: #7ed321; overflow-wrap: anywhere; }.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }button.danger { border-color: #6e2b2b; color: #ff8a8a; }.hint.warn { color: #e0a63c; }

@@ -27,7 +27,7 @@
           <MediaOverview :text="ep.overview || ''" />
           <div class="acts">
             <button v-if="ep.exists" class="primary" @click="play">
-              ▶ {{ ep.progress ? '继续播放' : '播放' }}
+              <PlayerIcon name="play" :size="20" /> {{ ep.progress ? '继续播放' : '播放' }}
             </button>
             <span v-else class="dim">文件缺失</span>
             <button @click="toggleWatched">{{ ep.watched ? '标记未看' : '标记已看' }}</button>
@@ -36,8 +36,8 @@
             </ActionMenu>
           </div>
           <nav v-if="prevEp || nextEp" class="episode-navigation" aria-label="切换剧集">
-            <button v-if="prevEp" @click="goEpisode(prevEp.id)">‹ 上一集 {{ epNo(prevEp) }}</button>
-            <button v-if="nextEp" @click="goEpisode(nextEp.id)">下一集 {{ epNo(nextEp) }} ›</button>
+            <button v-if="prevEp" @click="goEpisode(prevEp)">‹ 上一集 {{ epNo(prevEp) }}</button>
+            <button v-if="nextEp" @click="goEpisode(nextEp)">下一集 {{ epNo(nextEp) }} ›</button>
           </nav>
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
           <div v-if="ep.needs_review && !pickOpen" class="review-notice">
@@ -75,6 +75,9 @@
 </template>
 
 <script setup>
+import { followingPlayback } from '../episodePlayback.js'
+import PlayerIcon from '../components/PlayerIcon.vue'
+
 import MediaBackdrop from '../components/MediaBackdrop.vue'
 import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
@@ -90,7 +93,6 @@ import HeroRatings from '../components/HeroRatings.vue'
 const route = useRoute()
 const router = useRouter()
 const ep = ref(null)
-const siblings = ref([])
 const msg = ref('')
 const playing = ref(null)
 const searching = ref(false)
@@ -101,14 +103,8 @@ const candidates = ref([])
 const searchedCand = ref(false)
 
 const directors = computed(() => ep.value?.directors || [])
-const prevEp = computed(() => {
-  const i = siblings.value.findIndex(e => Number(e.id) === Number(ep.value?.id))
-  return i > 0 ? siblings.value[i - 1] : null
-})
-const nextEp = computed(() => {
-  const i = siblings.value.findIndex(e => Number(e.id) === Number(ep.value?.id))
-  return i >= 0 && i < siblings.value.length - 1 ? siblings.value[i + 1] : null
-})
+const prevEp = computed(() => ep.value?.previous_episode || null)
+const nextEp = computed(() => ep.value?.next_episode || null)
 
 function pad (n) { return String(n).padStart(2, '0') }
 function seasonLabel (n) { return Number(n) === 0 ? '特典' : `第 ${n} 季` }
@@ -126,37 +122,14 @@ function playLabel (e) {
 function play () {
   playing.value = { id: ep.value.id, label: playLabel(ep.value) }
 }
-function goEpisode (id) {
-  router.push(`/tv/${ep.value.show_id}/s/${ep.value.season}/e/${id}`)
+function goEpisode (target) {
+  router.push(`/tv/${ep.value.show_id}/s/${target.season}/e/${target.id}`)
 }
 async function load () {
   msg.value = ''
   try {
     ep.value = await api(`/api/tv/episodes/${route.params.epId}`)
-    pickSeason.value = Number(ep.value.season) || 1
-    try {
-      // 上下集导航：季接口已分页（limit 上限 500），逐页找当前集所在页
-      //（大季才多请求，全本地 DB 开销小；失败不挡集详情）
-      const base = `/api/tv/shows/${ep.value.show_id}/seasons/${ep.value.season}`
-      let offset = 0
-      const step = 500
-      siblings.value = []
-      let prevTail = null
-      for (;;) {
-        const d = await api(`${base}?offset=${offset}&limit=${step}`)
-        const list = d.episodes || []
-        const i = list.findIndex(e => Number(e.id) === Number(ep.value?.id))
-        if (i >= 0) {
-          // 含上一页尾，保证处在分页边界时上一集可用；下一集跨页时缺失可接受
-          //（季页按范围懒加载，集详情只保证本页内导航）
-          siblings.value = (i === 0 && prevTail ? [prevTail] : []).concat(list)
-          break
-        }
-        if (!d.has_more || !list.length || offset > 10000) { siblings.value = list; break }
-        prevTail = list[list.length - 1]
-        offset += step
-      }
-    } catch (e) { siblings.value = [] }  // 上下集导航失败不挡集详情
+    pickSeason.value = Number(ep.value.season) || 0
   } catch (e) {
     msg.value = '加载失败：' + e.message
   }
@@ -210,15 +183,12 @@ async function onWatched () {
   await load()
 }
 async function onEnded () {
-  // 本季连播：标已看后播下一集（取自季列表，季终则停）
   const cur = playing.value
-  await load()
-  const nxt = nextEp.value
-  if (cur && nxt && nxt.exists) {
-    playing.value = { id: nxt.id, label: playLabel({ ...nxt, show_title: ep.value.show_title }) }
-  } else {
-    playing.value = null
-  }
+  if (!cur || cur.kind && cur.kind !== 'episode') return
+  try {
+    const next = await followingPlayback(cur, ep.value.show_title)
+    if (playing.value === cur) playing.value = next
+  } catch (e) { msg.value = '自动连播失败：' + e.message }
 }
 
 onMounted(load)

@@ -35,7 +35,8 @@ export function seasonStats(eps) {
   const keys = new Set()
   const vers = new Set()
   for (const e of eps || []) {
-    keys.add(`${Number(e.season) || 0}:${Number(e.episode) || 0}`)
+    const first = Number(e.episode) || 0
+    for (let n = first; n <= Math.max(first, Number(e.episode_end) || 0); n++) keys.add(`${Number(e.season) || 0}:${n}`)
     vers.add(episodeVersion(e))
   }
   return { distinct: keys.size, versions: vers.size }

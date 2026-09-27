@@ -35,3 +35,11 @@
 `app/jobkit.py` 的注册表保留进程内进行中及近期已完成任务。启动端点通常返回 `job_id`，前端轮询状态并可请求取消。取消属于协作式，worker 要检查停止标志，已完成子操作不自动回滚。单个任务的审计或持久结果（例如 `organize_moves`）仍在 DB，与内存任务状态分开。页面刷新或重启后，旧 job ID 不保证可查询；检查实际库状态再决定是否重启任务。
 
 整理、恢复、缓存清理等接口以 dry-run/预览体现计划，再经显式执行参数确认。应用路由层应验证请求范围，执行层仍需再次校验只读、目标占用及源存在性。[存储设计](storage.md)。
+
+## 上传与浏览体验接口
+
+- `POST /api/uploads` 保持电影返回字段兼容；查询参数新增 `media_type=movie|tv`、`mode=files|dir`。类型必须与目标视频库一致，停用和只读库返回 409。TV 散文件须传 `show_id` 或 `show_title`，以及 `season`；已有剧必须属于目标库。返回 `media_type/library_id/show_id/episode_id/status`，无法识别的文件返回 `skipped_tv_unknown`，写入成功但登记异常为 `stored_scan_warn`，不要当作已成功入库。TV 资料补全另用 `tv-scrape {library_id, ids, force:true}`，整理仍调用预览/确认接口。远程上传使用 `open_write(overwrite=False)` 原子提交，目标并发出现同样返回 409。
+- `GET /api/jobs/scan` 返回正在运行或最近的扫描任务，墙上与设置工具共用状态。扫描和 TV 资料任务仅复用相同作用域/选项；不同范围返回 409，不能把另一库的任务当成本次完成。
+- `GET /api/tv/episodes/{id}` 新增 `previous_episode/next_episode`，与 `/next` 使用相同版本与多集区间规则。季详情支持 `version` 筛选和分页，新增 `versions/distinct_count`；`episode_count/watched_count` 仍为全季文件数。
+- `/api/tv/stats` 保留 `shows/episodes`，增加 `seasons/pending/episode_review/by_library`；电影 `/api/jobs/stats` 增加 `by_library` 待办统计。概览待办深链指定具体 `library`。
+- `rebuild-meta` 新增 `nfo` 开关（默认 true），与 `artwork` 独立，至少选择一项；旧客户端行为不变。单片与全库修复仍分别使用 `ids` 和 `library_id`。

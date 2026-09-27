@@ -17,17 +17,17 @@
           <div class="meta">
             <span>{{ s.name || seasonLabel(s.season) }}</span>
             <span v-if="s.air_date">{{ s.air_date }}</span>
-            <span>{{ s.episode_count }} 集</span>
+            <span>{{ s.distinct_count ?? s.episode_count }} 集 · {{ (s.versions || []).length || 1 }} 版本</span>
             <span>{{ s.watched_count }}/{{ s.episode_count }} 已看</span>
           </div>
           <MediaOverview :text="s.overview || ''" />
           <div class="acts">
             <button v-if="s.next_episode" class="primary" :disabled="!s.next_episode.exists"
               @click="play(s.next_episode)">
-              ▶ {{ s.next_episode.progress ? '继续观看' : '播放本季' }} {{ epNo(s.next_episode) }}
+              <PlayerIcon name="play" :size="20" /> {{ s.next_episode.progress ? '继续观看' : '播放本季' }} {{ epNo(s.next_episode) }}
             </button>
             <button v-if="eps.length" :disabled="busy" @click="toggleSeasonWatched">
-              {{ seasonDone ? '标记本季未看' : '标记本季已看' }}
+              {{ seasonDone ? '标记本季全部版本未看' : '标记本季全部版本已看' }}
             </button>
             <ActionMenu>
               <button :disabled="verifying" @click="verifyExists">{{ verifying ? '检查中…' : '检查文件是否可用' }}</button>
@@ -38,7 +38,10 @@
         </div>
       </div>
     </div>
-    <h2 class="section-heading">选择剧集 <span>{{ s.episode_count }} 集</span></h2>
+    <div class="season-list-heading"><h2 class="section-heading">选择剧集 <span>{{ s.distinct_count ?? s.episode_count }} 集</span></h2>
+      <label v-if="(s.versions || []).length > 1">播放版本 <select v-model="selectedVersion" @change="load">
+        <option value="">全部版本</option><option v-for="v in s.versions" :key="v.version" :value="String(v.version)">V{{ v.version }} · {{ v.distinct }} 集</option>
+      </select></label></div>
     <div class="grid ep-grid">
       <div v-for="e in eps" :key="e.id" class="card ep-card" role="link" tabindex="0" @keydown.enter.self="openEpisode(e.id)" @click="openEpisode(e.id)">
         <div class="still-wrap">
@@ -47,7 +50,7 @@
           <div v-else class="still-none" aria-hidden="true">{{ epNo(e) }}</div>
           <button v-if="e.exists" class="poster-play"
             :aria-label="'播放 ' + epNo(e)" :title="'播放 ' + epNo(e)"
-            @click.stop="play(e)">▶</button>
+            @click.stop="play(e)"><PlayerIcon name="play" :size="24" /></button>
           <span v-if="e.watched" class="ep-done">✓已看</span>
           <span v-else-if="e.progress" class="ep-left">{{ fmtRemaining(e.progress.remaining_sec) }}</span>
           <div v-if="!e.watched && e.progress" class="ep-bar" aria-hidden="true">
@@ -70,7 +73,7 @@
         {{ loadingMore ? '加载中…' : `加载更多（${eps.length}/${s.total || s.episode_count}）` }}
       </button>
     </div>
-    <div v-else-if="eps.length" class="bar dim small">已加载全部 {{ eps.length }} 集</div>
+    <div v-else-if="eps.length" class="bar dim small">已加载全部 {{ eps.length }} 个文件</div>
     <CastWall :cast="s.cast || []" :original-language="s.original_language || ''"
       :subtitle="s.cast_source === 'season' ? seasonLabel(s.season) : '全剧'" />
   </div>
@@ -81,6 +84,9 @@
 </template>
 
 <script setup>
+import { followingPlayback } from '../episodePlayback.js'
+import PlayerIcon from '../components/PlayerIcon.vue'
+
 import MediaBackdrop from '../components/MediaBackdrop.vue'
 import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
@@ -104,6 +110,8 @@ const loadingMore = ref(false)
 const msg = ref('')
 const playing = ref(null)
 const busy = ref(false)
+const selectedVersion = ref('')
+let loadGeneration = 0
 const verifyMode = ref('0')
 const verifying = ref(false)
 const sentinel = ref(null)
@@ -140,35 +148,40 @@ function seasonUrl (offset) {
   const v = verifyMode.value && verifyMode.value !== '0'
     ? '&verify=' + encodeURIComponent(verifyMode.value) : ''
   return `/api/tv/shows/${route.params.showId}/seasons/${route.params.season}`
-    + `?offset=${offset}&limit=${PAGE}${v}`
+    + `?offset=${offset}&limit=${PAGE}${v}${selectedVersion.value ? '&version=' + selectedVersion.value : ''}`
 }
 async function load () {
+  const generation = ++loadGeneration
+  disconnectObserver()
   msg.value = ''
   loadingMore.value = false
   try {
     const d = await api(seasonUrl(0))
+    if (generation !== loadGeneration) return
     s.value = d
     eps.value = d.episodes || []
     hasMore.value = !!d.has_more
     observeSentinel()
   } catch (e) {
-    msg.value = '加载失败：' + e.message
+    if (generation === loadGeneration) msg.value = '加载失败：' + e.message
   }
 }
 async function loadMore () {
   if (loadingMore.value || !hasMore.value || !s.value) return
+  const generation = loadGeneration
   loadingMore.value = true
   try {
     const d = await api(seasonUrl(eps.value.length))
+    if (generation !== loadGeneration) return
     eps.value = eps.value.concat(d.episodes || [])
     hasMore.value = !!d.has_more
     // 表头计数恒为全季：用最新头更新（集行只追加）
     if (d.watched_count !== undefined) s.value.watched_count = d.watched_count
     if (d.episode_count !== undefined) s.value.episode_count = d.episode_count
   } catch (e) {
-    msg.value = '加载失败：' + e.message
+    if (generation === loadGeneration) msg.value = '加载失败：' + e.message
   } finally {
-    loadingMore.value = false
+    if (generation === loadGeneration) loadingMore.value = false
   }
 }
 function observeSentinel () {
@@ -210,16 +223,17 @@ async function onWatched () {
   await load()
 }
 async function onEnded () {
-  // 季内连播：重载后按本季 next 继续（跨季不串，与后端季内规则一致）
-  await load()
-  const nxt = s.value?.next_episode
-  if (nxt && nxt.exists) play(nxt)
-  else playing.value = null
+  const cur = playing.value
+  if (!cur || cur.kind && cur.kind !== 'episode') return
+  try {
+    const next = await followingPlayback(cur, s.value.show_title)
+    if (playing.value === cur) playing.value = next
+  } catch (e) { msg.value = '自动连播失败：' + e.message }
 }
 
 onMounted(() => load())
-onUnmounted(disconnectObserver)
-watch(() => [route.params.showId, route.params.season], () => load())
+onUnmounted(() => { loadGeneration++; disconnectObserver() })
+watch(() => [route.params.showId, route.params.season], () => { selectedVersion.value = ''; load() })
 </script>
 
 <style scoped>
@@ -255,4 +269,9 @@ watch(() => [route.params.showId, route.params.season], () => load())
 @media (max-width: 700px) {
   .hero-inner { flex-direction: column; align-items: flex-start; }
 }
+</style>
+
+<style scoped>
+.season-list-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; justify-content: space-between; }
+.season-list-heading label { display: flex; align-items: center; gap: 8px; }
 </style>

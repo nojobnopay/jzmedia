@@ -18,15 +18,15 @@
       <button type="button" class="pipe-head pipe-toggle" :aria-expanded="openStep === 'scan'" @click="toggleStep('scan')">
         <span class="step-title"><span class="step-no">①</span> 扫描入库</span>
         <span class="fhint">{{ openStep === 'scan' ? '收起' : '展开' }}</span>
-        <span class="step-state" :class="{ run: busy === 'scan' }">{{ scanStateText }}</span>
+        <span class="step-state" :class="{ run: scanRunning }">{{ scanStateText }}</span>
       </button>
       <div v-show="openStep === 'scan'" class="pipe-body">
         <p class="hint">读取新剧集，自动匹配资料和海报，并移除文件已不存在的记录。</p>
         <div class="bar">
-          <button class="primary" @click="startScan" :disabled="!!busy || !tab.enabled">
-            {{ busy === 'scan' ? '扫描中…' : '扫描新文件' }}
+          <button class="primary" @click="startScan" :disabled="!!busy || scanBlocked || !tab.enabled">
+            {{ scanRunning ? '扫描中…' : '扫描新文件' }}
           </button>
-          <button v-if="busy === 'scan'" @click="cancelScan">取消扫描</button>
+          <button v-if="scanRunning" @click="cancelScan">取消扫描</button>
           <span>{{ scanMsg }}</span>
         </div>
       </div>
@@ -91,7 +91,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { api } from '../api.js'
-import { usePolling } from '../usePolling.js'
+import { useLibraryScan } from '../useLibraryScan.js'
 import { toolViewForSection } from '../settingsNavigation.js'
 import { pickOpenStep, stepForSection } from '../libraryToolsTabs.js'
 import TvOrganizePanel from './TvOrganizePanel.vue'
@@ -129,11 +129,8 @@ const userToggled = ref(false)
 const busy = ref(null)
 const stats = ref({ shows: 0, episodes: 0 })
 const statsReady = ref(false)
-const scanMsg = ref('')
-const scanStateText = ref('随时可用')
 const orgState = ref('')
-let scanJobId = ''
-const scanPoll = usePolling(pollScanJob, { interval: 1000 })
+
 
 function toggleStep(key) {
   userToggled.value = true
@@ -211,76 +208,7 @@ async function confirmAll() {
   }
 }
 
-// ① 扫描入库（本视频库；扫描链式自动刮削新剧）
-async function startScan() {
-  if (busy.value || !props.tab.enabled) return
-  busy.value = 'scan'
-  scanMsg.value = ''
-  scanStateText.value = '扫描中…'
-  try {
-    const d = await api('/api/jobs/scan', {
-      method: 'POST', body: JSON.stringify({ library_id: props.tab.id })
-    })
-    scanJobId = d.job_id
-    if (d.resumed) scanMsg.value = '已有扫描在跑，跟踪进度…'
-    scanPoll.start()
-  } catch (e) {
-    scanMsg.value = '扫描启动失败：' + e.message
-    scanStateText.value = '启动失败'
-    busy.value = null
-  }
-}
-function libResultText(c) {
-  if (!c) return ''
-  if (c.library_offline) return '库离线：跳过（未删除任何记录）'
-  const parts = []
-  if (c.tv_ok) parts.push(`新增/更新 ${c.tv_ok}`)
-  if (c.removed_episode) parts.push(`删除失效集 ${c.removed_episode}`)
-  if (c.removed_show) parts.push(`清理空剧 ${c.removed_show}`)
-  if (c.skipped_cached) parts.push(`跳过已同步 ${c.skipped_cached}`)
-  if (c.skipped_tv_unknown) parts.push(`无法解析集 ${c.skipped_tv_unknown}`)
-  if (c.skipped_sidecar) parts.push(`花絮跳过 ${c.skipped_sidecar}`)
-  return parts.length ? parts.join('，') : '无变化'
-}
-async function pollScanJob() {
-  if (!scanJobId) return
-  try {
-    const st = await api('/api/jobs/scan/' + scanJobId)
-    if (st.state === 'running') {
-      if (st.total) scanMsg.value = `扫描中 ${st.done}/${st.total}…`
-      scanStateText.value = st.total ? `扫描中 ${st.done}/${st.total}` : '扫描中…'
-      return
-    }
-    if (st.state === 'done') {
-      const sum = st.summary || {}
-      const by = sum.by_library || {}
-      scanStateText.value = '完成'
-      scanMsg.value = '完成：' + (libResultText(by[props.tab.id] || sum.counts) || '无变化')
-        + (sum.tv_scrape && sum.tv_scrape.skipped ? '；剧集刮削跳过（已有任务在跑）' : '')
-      scanPoll.stop()
-      scanJobId = ''
-      busy.value = null
-      emit('changed')
-      await Promise.all([loadStats(), loadPending(true)])
-    } else if (st.state === 'cancelled') {
-      scanMsg.value = `已取消（${st.done}/${st.total}）`
-      scanStateText.value = '已取消'
-      scanPoll.stop()
-      scanJobId = ''
-      busy.value = null
-    } else {
-      scanMsg.value = '扫描失败：' + (st.error || '未知')
-      scanStateText.value = '失败'
-      scanPoll.stop()
-      scanJobId = ''
-      busy.value = null
-    }
-  } catch (e) { /* 轮询失败下次继续 */ }
-}
-async function cancelScan() {
-  if (!scanJobId) return
-  try { await api('/api/jobs/scan/' + scanJobId + '/cancel', { method: 'POST' }) } catch (e) { /* 忽略 */ }
-}
+const { running: scanRunning, blocked: scanBlocked, message: scanMsg, stateText: scanStateText, start: startScan, cancel: cancelScan } = useLibraryScan(() => props.tab, async () => { emit('changed'); await Promise.all([loadStats(), loadPending(true)]) })
 
 // ③ 目录整理：预览/执行后刷新待处理与状态
 function onOrgStatus(s) {

@@ -1,71 +1,44 @@
 <template>
-  <div class="bar">
-    <input v-model="q" placeholder="搜合集名" @keyup.enter="onSearchEnter" style="flex:1" />
-    <button @click="load">搜索</button>
-    <input v-model="name" placeholder="新建合集名，如 周星驰合集" style="flex:1" />
-    <button @click="create" :disabled="!name.trim()">新建</button>
-    <span>{{ msg }}</span>
-  </div>
-  <section v-if="topups.length" class="topup-sec">
-    <h3>可补齐 <span class="fhint">已有合集的同系列新片，点一次收进合集</span></h3>
+  <div class="browse-page collections-page">
+    <header class="browse-heading"><h1>合集</h1><button :aria-expanded="createOpen" @click="createOpen = !createOpen">新建合集</button></header>
+    <form class="bar collection-search" @submit.prevent="load"><input v-model="q" aria-label="搜索合集" placeholder="搜合集名" /><button>搜索</button></form>
+    <form v-if="createOpen" class="bar collection-create" @submit.prevent="create"><input v-model="name" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><button :disabled="!name.trim()">创建</button><button type="button" @click="createOpen = false">取消</button></form>
+    <p v-if="msg" role="status">{{ msg }}</p>
+    <h2 class="sec-h">我的合集</h2>
     <div class="grid">
-      <div v-for="t in topups" :key="t.collection_id" class="card tp-card">
-        <div class="t">《{{ t.name }}》有 {{ t.new_count }} 部新片</div>
-        <div class="t sub">{{ t.new_members.map(m => m.title + (m.year ? ' ' + m.year : '')).join(' / ') }}</div>
-        <div class="t">
-          <button @click="topUp(t)" :disabled="topping">一键补齐</button>
-          <button @click="$router.push('/c/' + t.collection_id)">看合集</button>
+      <router-link v-for="c in items" :key="c.id" class="card" :to="'/c/' + c.id">
+        <div class="poster-wrap"><img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" :alt="c.name || '合集'" /><div v-else class="cover-empty">📁</div></div>
+        <div class="t">{{ c.name }}（{{ c.member_count }} 部）</div>
+      </router-link>
+    </div>
+    <p v-if="!items.length">{{ q.trim() ? '没有符合条件的合集。' : '还没有合集，可以新建合集，或在海报墙多选影片后加入合集。' }}</p>
+    <details v-if="suggest.length || topups.length" class="collection-section">
+      <summary>推荐与可补齐合集 · {{ suggest.length + topups.length }}</summary>
+      <section v-if="topups.length"><h3>可补齐</h3><div class="grid">
+        <div v-for="t in topups" :key="t.collection_id" class="card tp-card">
+          <div class="t">《{{ t.name }}》有 {{ t.new_count }} 部新片</div><div class="t sub">{{ t.new_members.map(m => m.title).join(' / ') }}</div>
+          <div class="bar"><button @click="topUp(t)" :disabled="topping">补齐合集</button><router-link :to="'/c/' + t.collection_id">查看合集</router-link></div>
         </div>
+      </div></section>
+      <section v-if="suggest.length"><div class="bar"><h3>推荐合集</h3><button @click="acceptAll" :disabled="accepting">全部接受（{{ suggest.length }}）</button></div>
+        <div class="grid"><div v-for="entry in suggest" :key="entry.collection_tmdb_id" class="card sg-card">
+          <div class="poster-wrap"><img v-if="entry.cover" :src="posterUrl(entry.cover)" loading="lazy" :alt="entry.collection_name" /><div v-else class="cover-empty">📁</div></div>
+          <div class="t">{{ entry.collection_name }}（库内 {{ entry.member_count }} 部）</div>
+          <div class="t sub">{{ entry.members.map(m => m.title).join(' / ') }}</div>
+          <div class="bar"><button @click="accept(entry)" :disabled="accepting">接受</button><button @click="dismiss(entry)">忽略</button></div>
+        </div></div>
+      </section>
+    </details>
+    <details class="collection-section" :open="bfRunning">
+      <summary>合集维护<span v-if="bfRunning"> · 资料补全中</span></summary>
+      <p v-if="coverage" class="fhint">{{ coverage.unchecked ?? coverage.without_collection }} 部待排查 · {{ coverage.standalone || 0 }} 部已确认无系列</p>
+      <div class="bar"><button v-if="!bfRunning" @click="backfill(false)" :disabled="backfilling">补全系列信息</button><button v-else @click="cancelBackfill">取消补全</button><button v-if="!bfRunning && coverage?.standalone" @click="backfill(true)" :disabled="backfilling">全部重查</button></div>
+      <p v-if="sgMsg" role="status">{{ sgMsg }}</p>
+      <div v-if="bfRunning || bfProgress.total" class="progress-wrap"><div class="progress"><div class="fill" :style="{ width: bfPct + '%' }"></div></div><p>{{ bfProgress.done }}/{{ bfProgress.total }} · {{ bfProgress.current_title || bfStateText }}</p>
+        <p v-for="failure in (bfProgress.failed || []).slice(0, 5)" :key="failure.tmdb_id" class="fail-list">{{ failure.title || failure.tmdb_id }}：{{ failure.error }}</p>
       </div>
-    </div>
-  </section>
-  <section v-if="suggest.length || coverage" class="suggest-sec">
-    <h3>推荐合集 <span class="fhint">TMDB 系列·库内≥2部才推荐，接受后即从这里消失</span>
-      <button v-if="suggest.length" @click="acceptAll" :disabled="accepting">全部接受（{{ suggest.length }}）</button>
-    </h3>
-    <div v-if="coverage && (coverage.unchecked || coverage.without_collection)" class="bar">
-      <span class="fhint">{{ coverage.unchecked ?? coverage.without_collection }} 部待排查<span v-if="coverage.standalone"> · {{ coverage.standalone }} 部确认无系列（独立片，不再检查）</span>（仅补系列信息，不碰海报）</span>
-      <button v-if="!bfRunning" @click="backfill(false)" :disabled="backfilling">补全系列信息</button>
-      <button v-else @click="cancelBackfill">取消补全</button>
-      <button v-if="!bfRunning && coverage.standalone" @click="backfill(true)" :disabled="backfilling" title="忽略已确认结论，全部重查一遍">全部重查</button>
-      <span>{{ sgMsg }}</span>
-    </div>
-    <div v-if="bfRunning || bfProgress.total" class="progress-wrap">
-      <div class="progress"><div class="fill" :style="{ width: bfPct + '%' }"></div></div>
-      <div class="fhint">{{ bfProgress.done }}/{{ bfProgress.total }} · {{ bfProgress.current_title || bfStateText }}
-        <span v-if="bfProgress.failed && bfProgress.failed.length"> · 失败 {{ bfProgress.failed.length }}</span>
-      </div>
-      <div v-if="bfProgress.failed && bfProgress.failed.length" class="fhint fail-list">
-        <span v-for="f in bfProgress.failed.slice(0, 5)" :key="f.tmdb_id">{{ f.title || f.tmdb_id }}：{{ f.error }}；</span>
-        <span v-if="bfProgress.failed.length > 5">等共 {{ bfProgress.failed.length }} 项</span>
-      </div>
-    </div>
-    <div class="grid">
-      <div v-for="s in suggest" :key="s.collection_tmdb_id" class="card sg-card">
-        <div class="poster-wrap">
-          <img v-if="s.cover" :src="posterUrl(s.cover)" loading="lazy" :alt="s.collection_name || '合集'" />
-          <div v-else class="cover-empty">📁</div>
-        </div>
-        <div class="t">{{ s.collection_name }}（库内 {{ s.member_count }} 部）</div>
-        <div class="t sub">{{ s.members.map(m => m.title + (m.year ? ' ' + m.year : '')).join(' / ') }}</div>
-        <div class="t">
-          <button @click="accept(s)" :disabled="accepting">接受</button>
-          <button @click="dismiss(s)">忽略</button>
-        </div>
-      </div>
-    </div>
-  </section>
-  <h3 class="sec-h">我的合集</h3>
-  <div class="grid">
-    <div v-for="c in items" :key="c.id" class="card" @click="$router.push('/c/' + c.id)">
-      <div class="poster-wrap">
-        <img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" :alt="c.name || '合集'" />
-        <div v-else class="cover-empty">📁</div>
-      </div>
-      <div class="t">{{ c.name }}（{{ c.member_count }} 部）</div>
-    </div>
+    </details>
   </div>
-  <div v-if="!items.length" class="bar">还没有合集：去海报墙多选影片后“新建合集”，或在详情页按 TMDB 系列一键建（如功夫熊猫）。</div>
 </template>
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -73,6 +46,7 @@ import { api, posterUrl } from '../api.js'
 import { currentMediaId, mediaParam, loadLibs, onLibChange } from '../libraries.js'
 import { usePolling } from '../usePolling.js'
 
+const createOpen = ref(false)
 const q = ref('')
 const name = ref('')
 const items = ref([])
@@ -273,10 +247,7 @@ async function load() {
     msg.value = '加载失败：' + e.message
   }
 }
-function onSearchEnter(e) {
-  if (e && (e.isComposing || e.keyCode === 229)) return
-  load()
-}
+
 async function create() {
   const n = name.value.trim()
   if (!n) return
@@ -287,6 +258,7 @@ async function create() {
       body: JSON.stringify({ name: n, media_library_id: currentMediaId() })
     })
     name.value = ''
+    createOpen.value = false
     items.value.unshift({ id: d.id, name: d.name, member_count: 0, cover: d.cover || '' })
   } catch (e) {
     msg.value = '创建失败：' + e.message
@@ -333,4 +305,15 @@ onUnmounted(() => {
 .progress { height: 8px; border-radius: 999px; background: #262626; overflow: hidden; }
 .progress .fill { height: 100%; background: #e50914; border-radius: 999px; transition: width .4s; }
 .fail-list { color: #e0a63c; }
+</style>
+
+<style scoped>
+.bar { flex-wrap: wrap; align-items: center; padding: 12px 0; }
+.collection-search input, .collection-create input { flex: 1 1 180px; min-width: 0; max-width: 560px; }
+button { white-space: nowrap; min-height: 40px; }
+.card { color: inherit; text-decoration: none; min-width: 0; }
+.collection-section { margin-top: 24px; padding: 16px; border: 1px solid var(--jz-border); border-radius: 8px; }
+summary { cursor: pointer; line-height: 1.5; }
+.t, p { overflow-wrap: anywhere; }
+a { color: var(--jz-link); }
 </style>

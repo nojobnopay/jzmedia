@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {
   applyLibs, currentLibId, currentMediaId, currentMediaVideoLibs,
   isRemoteVideoLib, listLibs, listMediaLibs, mediaParam, onLibChange, pickMedia,
-  preferredVideoLibId, resetLibState, switchLib, switchMedia,
+  preferredVideoLibId, uploadLibraries, resetLibState, switchLib, switchMedia,
 } from '../src/libraries.js'
 
 const DATA = {
@@ -59,7 +59,7 @@ test('switchMedia：切换媒体库并通知订阅者；currentLibId 为工具�
   assert.equal(seen, 10)                          // 已退订
 })
 
-test('currentMediaVideoLibs / preferredVideoLibId：按类型过滤，无匹配退回全部', () => {
+test('currentMediaVideoLibs / preferredVideoLibId：按类型过滤，无匹配返回空列表', () => {
   resetLibState()
   applyLibs(DATA)
   switchMedia(10)
@@ -69,7 +69,8 @@ test('currentMediaVideoLibs / preferredVideoLibId：按类型过滤，无匹配�
   assert.equal(preferredVideoLibId('movie'), 1)
   assert.equal(preferredVideoLibId('tv'), 2)
   switchMedia(20)
-  assert.equal(preferredVideoLibId('tv'), 4)      // 无剧集库 → 退回全部里的首个
+  assert.equal(preferredVideoLibId('tv'), null)
+  assert.deepEqual(currentMediaVideoLibs('tv'), [])
 })
 
 test('switchLib：旧视频库 id 映射到所属媒体库', () => {
@@ -99,4 +100,14 @@ test('isRemoteVideoLib：smb/nfs 判远程，local/未知/未加载为 false', (
   assert.equal(isRemoteVideoLib(null), false)
   resetLibState()
   assert.equal(isRemoteVideoLib(1), false)     // 未加载
+})
+
+ test('上传仅选择正确类型、启用且可写的视频库', () => {
+  const libs = [
+    { id: 1, kind: 'tv', enabled: true, media_enabled: true },
+    { id: 2, kind: 'movie' }, { id: 3, kind: 'tv', read_only: true },
+    { id: 4, kind: 'tv', enabled: false }, { id: 5, kind: 'tv', media_enabled: 0 },
+  ]
+  assert.deepEqual(uploadLibraries(libs, 'tv').map(l => l.id), [1])
+  assert.deepEqual(uploadLibraries(libs, 'movie').map(l => l.id), [2])
 })

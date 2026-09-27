@@ -95,12 +95,12 @@ export function mediaParam () {
   return _mediaLibs.length > 1 ? currentMediaId() : null
 }
 
-// 当前媒体库的视频库（可按类型过滤；该类型为空时退回全部视频库）
+// 当前媒体库的视频库：指定类型时严格过滤，禁止跨类型回退。
 export function currentMediaVideoLibs (kind) {
   const all = _current ? _current.video_libraries : []
   if (!kind) return all
   const same = all.filter((l) => (l.kind || 'movie') === kind)
-  return same.length ? same : all
+  return same
 }
 
 // 工具页/上传目标：当前媒体库首选视频库 id（按类型优先，其次默认视频库，最后第一个）
@@ -110,7 +110,7 @@ export function preferredVideoLibId (kind) {
     const def = cands.find((l) => Number(l.id) === Number(_defaultId))
     return Number((def || cands[0]).id)
   }
-  return _defaultId != null ? Number(_defaultId) : null
+  return kind ? null : (_defaultId != null ? Number(_defaultId) : null)
 }
 
 // 兼容旧调用：Settings 工具页初始选中的视频库
@@ -187,4 +187,9 @@ export function resetLibState () {
   _current = null
   _loading = null
   _listeners.clear()
+}
+
+export function uploadLibraries(libs, kind) {
+  return (libs || []).filter(l => (l.kind || 'movie') === kind && !l.read_only
+    && l.enabled !== false && l.enabled !== 0 && l.media_enabled !== false && l.media_enabled !== 0)
 }

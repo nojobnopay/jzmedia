@@ -1,7 +1,7 @@
 <template>
   <svg :width="size" :height="size" viewBox="0 0 24 24" fill="none" stroke="currentColor"
     stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-    <path v-if="name === 'play'" d="M8 5.5v13l10-6.5z" fill="currentColor" stroke="none" />
+    <path v-if="name === 'play'" d="M8.67 5.5v13l10-6.5z" fill="currentColor" stroke="none" />
     <g v-else :transform="name === 'forward' ? 'translate(24 0) scale(-1 1)' : undefined">
       <path v-for="(d, i) in paths[name] || paths.info" :key="i" :d="d" />
     </g>

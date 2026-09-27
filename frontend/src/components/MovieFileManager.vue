@@ -3,7 +3,7 @@
             <summary>文件与版本<span v-if="movie.version_count > 1">（共{{ movie.version_count }}个版本）</span></summary>
             <ul class="ver-list"><li v-for="v in movie.versions" :key="v.id" class="f-row">
               <span class="f-name">{{ baseName(v.file_path) }}<span v-if="v.edition">（{{ v.edition }}）</span><span v-if="v.spec">（{{ v.spec }}）</span></span>
-              <span class="f-acts"><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a><button v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'">无效</button><button v-else @click="emit('play', v)">播放</button><span v-if="verFriendly(v.id)" class="friendly-chip" title="浏览器可直播，几乎不占 NAS 算力">★</span><span v-else-if="verMethod[v.id]==='video_transcode'" class="trans-chip" title="浏览器需视频重编码，较耗 NAS 算力">转码</span></span>
+              <span class="f-acts"><ActionMenu label="更多"><button @click="copyTvUrl(v)">复制直链</button></ActionMenu><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a><button v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'">无效</button><button v-else @click="emit('play', v)">播放</button><span v-if="verFriendly(v.id)" class="friendly-chip" title="浏览器可直播，几乎不占 NAS 算力">★</span><span v-else-if="verMethod[v.id]==='video_transcode'" class="trans-chip" title="浏览器需视频重编码，较耗 NAS 算力">转码</span></span>
             </li></ul>
             <div v-for="g in fileGroups" :key="g.key">
               <p v-if="g.items.length" class="hint">{{ g.label }}</p>
@@ -24,16 +24,9 @@
             <p v-if="delMsg" class="hint warn">{{ delMsg }}</p>
           </details>
 
-          <details class="card-block tvplay">
-            <summary>外部播放器直链</summary>
-            <ul class="ver-list"><li v-for="v in movie.versions" :key="'tv' + v.id" class="f-row">
-              <span class="f-name">{{ baseName(v.file_path) }}</span>
-              <span class="f-acts"><button @click="copyTvUrl(v)">复制直链</button></span>
-            </li></ul>
-            <input v-if="tvUrl" readonly :value="tvUrl" class="copy-url"
-              @focus="$event.target.select()" @click="$event.target.select()" />
-            <p class="hint">电视端 Kodi 打开此链接即播原盘（含杜比视界），不耗 NAS 算力；浏览器在线播请用上方 ▶ 播放。{{ tvMsg }}</p>
-          </details>
+          <p v-if="tvMsg" class="hint" role="status">{{ tvMsg }}</p>
+          <input v-if="tvUrl" readonly :value="tvUrl" aria-label="媒体直链" class="copy-url" @focus="$event.target.select()" @click="$event.target.select()" />
+
 
     <div v-if="pvName" class="dlg-mask" @click.self="closePlayer">
       <div ref="pvDlgRef" class="dlg pv-dlg" role="dialog" aria-modal="true">
@@ -50,6 +43,8 @@
 </template>
 
 <script setup>
+import ActionMenu from './ActionMenu.vue'
+
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api.js'
 import { copyText } from '../clipboard.js'

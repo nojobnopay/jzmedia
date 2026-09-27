@@ -1,6 +1,6 @@
 <template>
       <section class="card-block edit-panel">
-        <h3>手动编辑</h3>
+        <template v-if="mode === 'edit'"><h3>编辑资料</h3>
         <div class="bar"><input v-model="f.edition" placeholder="版本（如 导演剪辑版，留空为普通版）" style="flex:1" /></div>
         <div class="bar"><input v-model="f.spec" placeholder="规格/备注（如 杜比视界/蓝光，留空自动识别）" style="flex:1" /></div>
         <div class="bar">
@@ -9,41 +9,27 @@
         </div>
         <div class="bar"><input v-model="f.tags" placeholder="标签，逗号分隔" style="flex:1" list="taglist" /></div>
         <datalist id="taglist"><option v-for="t in allTags" :key="t.value" :value="t.value" /></datalist>
-        <div class="bar"><label><input type="checkbox" v-model="f.watched" /> 已观看</label></div>
         <div class="bar"><textarea v-model="f.overview_override" placeholder="简介覆盖（留空用刮削简介）" rows="3" style="flex:1"></textarea></div>
         <div class="bar"><button @click="save">保存</button><button @click="cancelEdit">取消</button><span>{{ msg }}</span></div>
-        <h3>所属合集</h3>
-        <div class="bar">
-          <select v-model="joinColId" style="flex:1">
-            <option value="">选择合集…</option>
-            <option v-for="c in colList" :key="c.id" :value="c.id">{{ c.name }}（{{ c.member_count }}）</option>
-          </select>
-          <button @click="joinCol" :disabled="!joinColId">加入</button>
-        </div>
-        <div class="bar">
-          <input v-model="newColName" placeholder="新建合集名（含本片）" style="flex:1" />
-          <button @click="createCol" :disabled="!newColName.trim()">创建</button>
-          <span>{{ colMsg }}</span>
-        </div>
+        </template>
+        <template v-else>
         <h3>手动匹配 <span v-if="movie.tmdb_id">(当前TMDB {{ movie.tmdb_id }})</span></h3>
         <div class="bar">
-          <button @click="refreshTmdb" :disabled="refreshing || !!bindingId"><Spinner v-if="refreshing" />{{ refreshing ? '刷新中…' : '刷新TMDB（有变化才更新）' }}</button>
-          <span>{{ refreshMsg }}</span>
-        </div>
-        <div class="bar">
-          <input v-model="mq" placeholder="TMDB搜关键词" style="flex:1" />
-          <button @click="tmdbSearch" :disabled="searching || !!bindingId"><Spinner v-if="searching" />{{ searching ? '搜索中…' : '搜TMDB' }}</button>
+          <input v-model="mq" placeholder="输入片名查找资料" aria-label="搜索匹配" style="flex:1" />
+          <button @click="tmdbSearch" :disabled="searching || !!bindingId"><Spinner v-if="searching" />{{ searching ? '搜索中…' : '搜索匹配' }}</button>
         </div>
         <ul>
           <li v-for="c in cands" :key="candKey(c)">
-            <span class="src-badge" v-if="c.source && c.source !== 'tmdb'">{{ srcLabel(c.source) }}</span>
+            <span class="src-badge">{{ c.source ? srcLabel(c.source) : 'TMDB' }}</span>
             {{ c.title }} ({{ (c.release_date || c.year || '').toString().slice(0, 4) }})
             <template v-if="c.vote_average != null">★{{ c.vote_average }}</template>
-            <button v-if="c.tmdb_id" @click="bindMatch(c.tmdb_id)" :disabled="!!bindingId || refreshing"><Spinner v-if="bindingId === c.tmdb_id" />{{ bindingId === c.tmdb_id ? '绑定中…' : '绑定' }}</button>
-            <button v-else-if="isExternal(c)" @click="bindExternal(c)" :disabled="!!bindingId || refreshing"><Spinner v-if="bindingId === candKey(c)" />{{ bindingId === candKey(c) ? '绑定中…' : '绑定外源' }}</button>
+            <button v-if="c.tmdb_id" @click="bindMatch(c.tmdb_id)" :disabled="!!bindingId"><Spinner v-if="bindingId === c.tmdb_id" />{{ bindingId === c.tmdb_id ? '绑定中…' : '绑定' }}</button>
+            <button v-else-if="isExternal(c)" @click="bindExternal(c)" :disabled="!!bindingId"><Spinner v-if="bindingId === candKey(c)" />{{ bindingId === candKey(c) ? '绑定中…' : '绑定外源' }}</button>
           </li>
         </ul>
         <p class="fhint">候选来源：TMDB 无凭据/不可用时自动回退本地索引、Wikidata、TVmaze（剧）、Bangumi 与 NFO；外源绑定不依赖 TMDB Token。</p>
+        <p v-if="msg" role="status">{{ msg }}</p><button @click="cancelEdit">收起匹配</button>
+        </template>
       </section>
 </template>
 
@@ -56,26 +42,21 @@ import Spinner from './Spinner.vue'
 // 自身只发改动信号，重载与归档引导由父页处理。
 const props = defineProps({
   movie: { type: Object, required: true },
-  movieId: { type: Number, required: true }
+  movieId: { type: Number, required: true },
+  mode: { type: String, default: 'edit' }
 })
-const emit = defineEmits(['close', 'saved', 'changed', 'matched', 'refreshed'])
+const emit = defineEmits(['close', 'saved', 'matched'])
 
 const f = ref({
   custom_rating: '', douban_rating: '', tags: '', overview_override: '',
-  edition: '', spec: '', watched: false
+  edition: '', spec: ''
 })
 const msg = ref('')
 const allTags = ref([])
 const mq = ref(props.movie.title || '')
 const cands = ref([])
-const refreshMsg = ref('')
 const bindingId = ref(null)
-const refreshing = ref(false)
 const searching = ref(false)
-const colList = ref([])
-const joinColId = ref('')
-const newColName = ref('')
-const colMsg = ref('')
 
 function cancelEdit() {
   emit('close')
@@ -88,8 +69,7 @@ function syncForm() {
     tags: (m.tags || []).join(','),
     overview_override: m.overview_override || '',
     edition: m.edition || '',
-    spec: m.spec || '',
-    watched: !!m.watched
+    spec: m.spec || ''
   }
 }
 function num(v) {
@@ -108,8 +88,7 @@ async function save() {
         tags: f.value.tags.split(/[,，、]/).map(t => t.trim()).filter(Boolean),
         overview_override: f.value.overview_override,
         edition: (f.value.edition || '').trim(),
-        spec: (f.value.spec || '').trim(),
-        watched: !!f.value.watched
+        spec: (f.value.spec || '').trim()
       })
     })
     emit('saved')
@@ -118,44 +97,6 @@ async function save() {
   }
 }
 
-async function refreshCollections() {
-  try {
-    colList.value = (await api('/api/collections')).items || []
-  } catch (e) { /* 忽略 */ }
-}
-async function joinCol() {
-  if (!joinColId.value) return
-  colMsg.value = ''
-  try {
-    await api(`/api/collections/${joinColId.value}/members`, {
-      method: 'POST',
-      body: JSON.stringify({ movie_ids: [props.movieId] })
-    })
-    colMsg.value = '已加入'
-    joinColId.value = ''
-    await refreshCollections()
-    emit('changed')
-  } catch (e) {
-    colMsg.value = '加入失败：' + e.message
-  }
-}
-async function createCol() {
-  const name = newColName.value.trim()
-  if (!name) return
-  colMsg.value = ''
-  try {
-    await api('/api/collections', {
-      method: 'POST',
-      body: JSON.stringify({ name, member_ids: [props.movieId] })
-    })
-    colMsg.value = '已创建'
-    newColName.value = ''
-    await refreshCollections()
-    emit('changed')
-  } catch (e) {
-    colMsg.value = '创建失败：' + e.message
-  }
-}
 async function tmdbSearch() {
   if (searching.value) return
   searching.value = true
@@ -214,28 +155,9 @@ async function bindExternal(c) {
     bindingId.value = null
   }
 }
-async function refreshTmdb() {
-  if (refreshing.value) return
-  refreshing.value = true
-  refreshMsg.value = '刷新中…'
-  try {
-    const r = await api('/api/movies/' + props.movieId + '/refresh', { method: 'POST' })
-    refreshMsg.value = r.changed ? `已更新（${(r.affected_ids || []).length}个版本）` : '远端无变化'
-    if (r.forced) refreshMsg.value = '远端无变化，已按当前匹配重写 NFO/海报'
-    if (r.background && (r.background.poster || r.background.avatars)) {
-      refreshMsg.value += '，图片补齐中…'
-    }
-    emit('refreshed')
-  } catch (e) {
-    refreshMsg.value = '刷新失败：' + e.message
-  } finally {
-    refreshing.value = false
-  }
-}
 
 onMounted(async () => {
   syncForm()
-  await refreshCollections()
   try {
     const d = await api('/api/facets')
     allTags.value = (d.tags || []).map(t => (typeof t === 'object' ? t : { value: t }))
@@ -248,4 +170,9 @@ onMounted(async () => {
 .edit-panel .src-badge { display: inline-block; padding: 0 5px; border-radius: 3px;
   background: #333; border: 1px solid #444; font-size: 0.75rem; margin-right: 4px; }
 .edit-panel .fhint { color: #888; font-size: 0.8125rem; }
+</style>
+
+<style scoped>
+.bar { flex-wrap: wrap; }
+input, textarea { min-width: 0; }
 </style>

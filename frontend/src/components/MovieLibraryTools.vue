@@ -17,15 +17,15 @@
       <button type="button" class="pipe-head pipe-toggle" :aria-expanded="openStep === 'scan'" @click="toggleStep('scan')">
         <span class="step-title"><span class="step-no">①</span> 扫描入库</span>
         <span class="fhint">{{ openStep === 'scan' ? '收起' : '展开' }}</span>
-        <span class="step-state" :class="{ run: busy === 'scan' }">{{ scanStateText }}</span>
+        <span class="step-state" :class="{ run: scanRunning }">{{ scanStateText }}</span>
       </button>
       <div v-show="openStep === 'scan'" class="pipe-body">
         <p class="hint">读取新影片并匹配资料，同时移除文件已不存在的记录。</p>
         <div class="bar">
-          <button class="primary" @click="startScan" :disabled="!!busy || !tab.enabled">
-            {{ busy === 'scan' ? '扫描中…' : '扫描新文件' }}
+          <button class="primary" @click="startScan" :disabled="!!busy || scanBlocked || !tab.enabled">
+            {{ scanRunning ? '扫描中…' : '扫描新文件' }}
           </button>
-          <button v-if="busy === 'scan'" @click="cancelScan">取消扫描</button>
+          <button v-if="scanRunning" @click="cancelScan">取消扫描</button>
           <span>{{ scanMsg }}</span>
         </div>
         <div class="bar">
@@ -128,7 +128,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { api } from '../api.js'
-import { usePolling } from '../usePolling.js'
+import { useLibraryScan } from '../useLibraryScan.js'
 import { toolViewForSection } from '../settingsNavigation.js'
 import { pickOpenStep, stepForSection } from '../libraryToolsTabs.js'
 import OrganizePanel from './OrganizePanel.vue'
@@ -175,82 +175,7 @@ function toggleStep(key) {
 
 // ① 扫描入库（本视频库；后台任务轮询，可取消）
 const busy = ref(null)
-const scanMsg = ref('')
-const scanStateText = ref('随时可用')
-let scanJobId = ''
-const scanPoll = usePolling(pollScanJob, { interval: 1000 })
-function finishScanJob() {
-  scanPoll.stop()
-  scanJobId = ''
-  busy.value = null
-}
-async function startScan() {
-  if (busy.value || !props.tab.enabled) return
-  busy.value = 'scan'
-  scanMsg.value = ''
-  scanStateText.value = '扫描中…'
-  try {
-    const d = await api('/api/jobs/scan', {
-      method: 'POST', body: JSON.stringify({ library_id: props.tab.id })
-    })
-    scanJobId = d.job_id
-    if (d.resumed) scanMsg.value = '已有扫描在跑，跟踪进度…'
-    scanPoll.start()
-  } catch (e) {
-    scanMsg.value = '扫描启动失败：' + e.message
-    scanStateText.value = '启动失败'
-    busy.value = null
-  }
-}
-function libResultText(c) {
-  if (!c) return ''
-  if (c.library_offline) return '库离线：跳过（未删除任何记录）'
-  const parts = []
-  const ok = (c.ok || 0) + (c.ok_needs_review || 0)
-  if (ok) parts.push(`新增/更新 ${ok}`)
-  if (c.removed_movie) parts.push(`删除失效 ${c.removed_movie}`)
-  if (c.skipped_cached) parts.push(`跳过已同步 ${c.skipped_cached}`)
-  if (c.no_match) parts.push(`未匹配 ${c.no_match}`)
-  if (c.scan_failed) parts.push(`刮削失败 ${c.scan_failed}`)
-  if (c.skipped_sidecar) parts.push(`花絮跳过 ${c.skipped_sidecar}`)
-  return parts.length ? parts.join('，') : '无变化'
-}
-async function pollScanJob() {
-  if (!scanJobId) return
-  try {
-    const st = await api('/api/jobs/scan/' + scanJobId)
-    if (st.state === 'running') {
-      if (st.total) scanMsg.value = `扫描中 ${st.done}/${st.total}…`
-      scanStateText.value = st.total ? `扫描中 ${st.done}/${st.total}` : '扫描中…'
-      return
-    }
-    if (st.state === 'done') {
-      const sum = st.summary || {}
-      const c = sum.counts || {}
-      const by = sum.by_library || {}
-      const mine = by[props.tab.id] || c
-      scanStateText.value = '完成'
-      scanMsg.value = '完成：' + libResultText(mine)
-      finishScanJob()
-      emit('changed')
-      await Promise.all([loadMissing(true), loadUnmatched(true)])
-      await organizeRef.value?.refresh(true)
-      orgCount.value = organizeRef.value?.count() || 0
-    } else if (st.state === 'cancelled') {
-      scanMsg.value = `已取消（${st.done}/${st.total}）`
-      scanStateText.value = '已取消'
-      finishScanJob()
-    } else {
-      scanMsg.value = '扫描失败：' + (st.error || '未知')
-      scanStateText.value = '失败'
-      finishScanJob()
-    }
-  } catch (e) { /* 轮询失败下次继续 */ }
-}
-async function cancelScan() {
-  if (!scanJobId) return
-  try { await api('/api/jobs/scan/' + scanJobId + '/cancel', { method: 'POST' }) } catch (e) { /* 忽略 */ }
-}
+const { running: scanRunning, blocked: scanBlocked, message: scanMsg, stateText: scanStateText, start: startScan, cancel: cancelScan } = useLibraryScan(() => props.tab, async () => { emit('changed'); await Promise.all([loadMissing(true), loadUnmatched(true)]); await organizeRef.value?.refresh(true); orgCount.value = organizeRef.value?.count() || 0 })
 
 // ① 失效条目（单库）
 const missing = ref([])

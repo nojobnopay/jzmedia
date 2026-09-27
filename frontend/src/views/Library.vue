@@ -1,6 +1,6 @@
 <template>
   <div class="browse-page">
-  <header class="browse-heading"><h1>电影</h1><router-link :to="toolsLink" class="manage-link">管理媒体库 ›</router-link></header>
+  <header class="browse-heading"><h1>电影</h1><router-link :to="toolsLink" class="manage-link">扫描与整理 ›</router-link></header>
   <div class="bar browse-search">
     <div class="q-wrap">
       <input v-model="q" aria-label="搜索电影" placeholder="搜片名 / 演员 / 标签" autocomplete="off"
@@ -35,11 +35,11 @@
     <button :aria-expanded="filtersOpen" aria-controls="browse-filters" @click="filtersOpen = !filtersOpen">筛选<span v-if="activeCount"> · {{ activeCount }}</span> {{ filtersOpen ? '⌃' : '⌄' }}</button>
     <button v-if="q.trim()" @click="clearAll">{{ activeCount ? '重置全部条件' : '清除搜索' }}</button>
     <ActionMenu label="添加影片">
-      <button @click="doScan" :disabled="scanning">{{ scanning ? '扫描中…' : '扫描当前媒体库' }}</button>
-      <button @click="upDlg = true">上传影片</button>
+      <button @click="scanOpen = !scanOpen">扫描新文件</button>
+      <button @click="upDlg = true">上传文件</button>
     </ActionMenu>
-    <button v-if="scanning" @click="cancelScan">取消扫描</button>
   </div>
+  <ScanAction v-if="scanOpen" kind="movie" @done="onUpDone" />
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
 
   <div v-if="activeCount" class="filter-summary">
@@ -118,7 +118,7 @@
   </div>
 
   <div class="grid">
-    <div v-for="m in items" :key="m.id" :class="['card', { sel: selectedIds.has(m.id) }]"
+    <div v-for="m in items" :key="m.id" :data-browse-id="m.id" :class="['card', { sel: selectedIds.has(m.id) }]"
       tabindex="0" role="link" @keydown.enter.self="onCard(m)" :title="m.added_at ? ('入库 ' + fmtDate(m.added_at)) : ''" @click="onCard(m)">
       <div class="poster-wrap">
         <button :class="['sel-circle', { on: selectedIds.has(m.id) }]"
@@ -132,7 +132,7 @@
           :title="'播放 ' + (m.title || '')" :aria-label="'播放 ' + (m.title || '')"
           @click.stop="playMovie(m)">
           <Spinner v-if="playBusy === m.id" :size="18" />
-          <template v-else>▶</template>
+          <PlayerIcon v-else name="play" :size="24" />
         </button>
         <ScoreBadge :score="m.tmdb_rating" source="tmdb" />
         <span v-if="m.watched" class="watched-badge">✓已看</span>
@@ -144,7 +144,7 @@
   <div v-if="showEmptyGuide" class="empty-guide">
     <p class="eg-title">当前媒体库还没有影片</p>
     <p>扫描已有文件，或上传影片开始观看。</p>
-    <div class="empty-actions"><button @click="doScan" :disabled="scanning">{{ scanning ? '扫描中…' : '扫描当前媒体库' }}</button><router-link :to="pipelineLink">扫描与整理 ›</router-link></div>
+    <div class="empty-actions"><button @click="scanOpen = !scanOpen">扫描新文件</button><router-link :to="pipelineLink">扫描与整理 ›</router-link></div>
   </div>
   <div v-else-if="firstLoaded && !items.length && !loadError" class="empty-guide">
     <p>没有符合条件的影片</p><button @click="clearAll">重置筛选</button>
@@ -244,9 +244,14 @@
   </div>
 </template>
 <script setup>
+import { browseKey, saveBrowse, readBrowse, captureAnchor, restoreBrowsePosition } from '../browseHistory.js'
+
+import PlayerIcon from '../components/PlayerIcon.vue'
+
+import ScanAction from '../components/ScanAction.vue'
 import ActionMenu from '../components/ActionMenu.vue'
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import { currentMediaId, preferredVideoLibId, mediaParam, switchLib, switchMedia,
          loadLibs, onLibChange } from '../libraries.js'
@@ -258,13 +263,16 @@ import PlayerModal from '../components/PlayerModal.vue'
 import { getCaps } from '../caps.js'
 import { fmtBytes, fmtDate } from '../format.js'
 import { hasScore, fmtScore } from '../ratings.js'
-import { usePolling } from '../usePolling.js'
 import { useFocusTrap } from '../useFocusTrap.js'
 import { WALL_SORTS, loadWallSort, normalizeWallSort, saveWallSort,
          toggleWallSort, wallSortParams } from '../wallSort.js'
 
 const filtersOpen = ref(false)
-const toolsLink = computed(() => ({ path: '/settings', query: { sec: 'sec-libtools', ...(curMediaId.value ? { media: curMediaId.value, library: preferredVideoLibId('movie') } : {}) } }))
+const toolsLink = computed(() => {
+  const media = curMediaId.value
+  const library = preferredVideoLibId('movie')
+  return { path: '/settings', query: library ? { sec: 'sec-libtools', media, library } : { sec: 'sec-libraries', media } }
+})
 const selectedSummary = computed(() => {
   const v = sel.value
   const countries = (v.countries || []).map(code => (facets.value.countries || []).find(c => c.code === code)?.name || code)
@@ -291,13 +299,14 @@ const loadSentinel = ref(null)
 let loadIO = null
 const items = ref([])
 const msg = ref('')
-const scanning = ref(false)
+const scanOpen = ref(false)
 const PAGE = 60                 // 每页条数（评审 P1-11：>500 部不再被后端默认截断）
 const hasMore = ref(false)
 const loadingMore = ref(false)
 const loadError = ref('')
 let loading = false
 let loadSeq = 0
+let disposed = false
 const facets = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], collections: [], watched: { watched: 0, unwatched: 0 }, ratings: { tmdb: [], douban: [], custom: [] } })
 function defaultSel() {
   return { genres: [], regions: [], countries: [], years: [], decades: [],
@@ -865,73 +874,69 @@ async function createAndJoin() {
     batching.value = false
   }
 }
-// 扫描后台任务（评审 B9/R04-D6）：立即返回 job_id，进度轮询、可取消
-let scanJobId = ''
-const scanPoll = usePolling(pollScan, { interval: 1000 })
-function finishScan() {
-  scanPoll.stop()
-  scanJobId = ''
-  scanning.value = false
-}
-async function doScan() {
-  scanning.value = true
-  msg.value = ''
-  try {
-    const d = await api('/api/jobs/scan', {
-      method: 'POST',
-      body: JSON.stringify({ media_library_id: currentMediaId() })
-    })
-    scanJobId = d.job_id
-    if (d.resumed) msg.value = '已有扫描在跑，跟踪进度…'
-    scanPoll.start()
-  } catch (e) {
-    msg.value = '扫描启动失败：' + e.message
-    scanning.value = false
-  }
-}
-async function pollScan() {
-  if (!scanJobId) return
-  try {
-    const st = await api('/api/jobs/scan/' + scanJobId)
-    if (st.state === 'running') {
-      if (st.total) msg.value = `刮削中 ${st.done}/${st.total}…`
-      return
-    }
-    if (st.state === 'done') {
-      const sum = st.summary || {}
-      const c = sum.counts || {}
-      const ok = (c.ok || 0) + (c.ok_needs_review || 0)
-      msg.value = `完成：新增/更新 ${ok}，跳过 ${c.skipped_cached || 0}，未匹配 ${c.no_match || 0}`
-        + (c.scan_failed ? `，刮削失败 ${c.scan_failed}（可重试）` : '')
-        + ((sum.errors || []).length ? `，失败 ${sum.errors.length}` : '')
-    } else if (st.state === 'cancelled') {
-      msg.value = `已取消（${st.done}/${st.total}）`
-    } else {
-      msg.value = '扫描失败：' + (st.error || '未知')
-    }
-    finishScan()
-    await loadFacets()
-    await load()
-  } catch (e) { /* 轮询失败下次继续 */ }
-}
-async function cancelScan() {
-  if (!scanJobId) return
-  try { await api('/api/jobs/scan/' + scanJobId + '/cancel', { method: 'POST' }) } catch (e) { /* 忽略 */ }
-}
-
 // 库页上传：多选文件 / 整个文件夹 → POST /api/uploads 逐个顺序上传。
 // 文件夹模式透传 webkitRelativePath，后端原样还原结构；落盘即调 scan_one，
 // 所以完成后只需刷新海报墙，未匹配的走设置页现有流程。
 const upDlg = ref(false)
+function historyKey() { return browseKey('/', currentMediaId(), buildParams()) }
+onBeforeRouteLeave(() => {
+  if (!firstLoaded.value) return
+  saveBrowse(historyKey(), { path: '/', mediaId: currentMediaId(), query: route.query,
+    items: items.value, hasMore: hasMore.value, filtersOpen: filtersOpen.value,
+    anchor: captureAnchor(), scrollTop: window.scrollY })
+})
+async function restoreWall() {
+  const snapshot = readBrowse(historyKey())
+  if (snapshot) {
+    items.value = snapshot.items
+    hasMore.value = snapshot.hasMore
+    filtersOpen.value = snapshot.filtersOpen
+  } else await load()
+  firstLoaded.value = true
+  await nextTick()
+  await cwRef.value?.ready()
+  if (disposed || route.path !== '/') return
+  await nextTick()
+  await new Promise(resolve => requestAnimationFrame(resolve))
+  restoreBrowsePosition(snapshot)
+  if (snapshot) refreshSnapshot(snapshot)
+}
+
+// Restore immediately, then refresh the same number of pages so edits/deletions
+// made in detail are visible without discarding the user's browsing position.
+async function refreshSnapshot(snapshot) {
+  const seq = ++loadSeq
+  loading = true
+  try {
+    const fresh = []
+    let more = false
+    for (let offset = 0; offset < snapshot.items.length; offset += PAGE) {
+      const d = await api('/api/search?' + buildParams(offset))
+      if (seq !== loadSeq) return
+      fresh.push(...(d.items || []))
+      more = !!d.has_more
+      if (!more || !d.items?.length) break
+    }
+    const position = { anchor: captureAnchor(), scrollTop: window.scrollY }
+    items.value = fresh
+    hasMore.value = more
+    await nextTick()
+    if (seq === loadSeq) restoreBrowsePosition(position)
+  } catch (e) { if (seq === loadSeq) loadError.value = '刷新列表失败：' + e.message }
+  finally { if (seq === loadSeq) loading = false }
+}
+
 let unsubLib = null
 onMounted(async () => {
   try { await loadLibs(api) } catch (e) { /* 后端不可用时按单库旧行为 */ }
+  if (disposed) return
   readUrl()
   await loadFacets()
-  await load()
-  firstLoaded.value = true
+  if (disposed) return
+  await restoreWall()
+  if (disposed) return
   window.addEventListener('keydown', escExit)
-  unsubLib = onLibChange(() => { readUrl(); loadFacets(); load() })
+  unsubLib = onLibChange(() => { if (route.path !== '/') return; curMediaId.value = currentMediaId(); loadFacets(); load() })
   // 无限滚动（评审 P1-11）：哨兵进入视口前 600px 自动加载下一页；按钮仍保留作兜底
   try {
     if (window.IntersectionObserver && loadSentinel.value) {
@@ -943,6 +948,8 @@ onMounted(async () => {
   } catch (e) { /* 不支持则只用按钮 */ }
 })
 onUnmounted(() => {
+  disposed = true
+  loadSeq++
   window.removeEventListener('keydown', escExit)
   clearTimeout(suggestTimer)
   if (unsubLib) { try { unsubLib() } catch (e) { /* 忽略 */ } unsubLib = null }
@@ -953,7 +960,7 @@ function escExit(e) {
     clearSelection()
   }
 }
-watch(() => route.query, () => { readUrl(); load() })
+watch(() => route.query, () => { if (route.path !== '/') return; readUrl(); loadFacets(); load() })
 </script>
 <style scoped>
 .filters { padding: 0 12px; display: flex; flex-direction: column; gap: 6px; }

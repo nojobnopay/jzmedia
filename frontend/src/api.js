@@ -106,7 +106,7 @@ export function apiUpload(path, file, { onProgress, onUploaded, subdir = '', fie
       if (onProgress) {
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
-            onProgress(Math.round((e.loaded / e.total) * 100))
+            onProgress(Math.round((e.loaded / e.total) * 100), Math.min(file.size, Math.round(file.size * e.loaded / e.total)))
             if (e.loaded >= e.total) fireUploaded()
           }
         }
