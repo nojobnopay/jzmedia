@@ -118,9 +118,10 @@ class LocalStorageBackend(StorageBackend):
     def iter_tree(self, path: str = "", skip_dirs=(), max_entries: int = 0):
         """os.scandir 递归（本地大库比逐层 list 快），跳过隐藏目录/文件与 skip_dirs。"""
         start = self._abs(path)
+        start_rel = self.norm(path)
         skipped = set(skip_dirs or ())
         n = 0
-        stack = [("", start)]
+        stack = [(start_rel, start)]
         while stack:
             rel_dir, abs_dir = stack.pop()
             try:

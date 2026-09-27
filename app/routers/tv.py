@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from .. import config, library_paths, storage, store, tmdb
+from .. import config, library_paths, scanner, storage, store, tmdb
 from ..log import get_logger
 from ..scanner import tv_match, tv_persist
 from ..scanner.parse import normalize_title
@@ -806,6 +806,35 @@ def _is_tv_lib_read_only(library_id) -> bool:
         return library_paths.is_read_only(int(library_id or 0))
     except Exception:
         return False
+
+
+@router.post("/shows/{show_id}/discover")
+def discover_show_files(show_id: int):
+    """发现当前剧目录中的新增视频，再由详情页生成整理预览。
+
+    只遍历本剧剧根，不触发整库扫描和失效 GC。已缓存的季详情可直接补齐新增集的
+    TMDB 集号与集名；缓存较旧时保留待确认状态，文件本身仍会立即出现在详情页。
+    """
+    show = store.get_show_meta(show_id)
+    if not show:
+        raise HTTPException(404, "show not found")
+    try:
+        result = scanner.scan_tv_show(show_id)
+    except storage.StorageNotFound as e:
+        raise HTTPException(409, f"show directory not found: {e}") from e
+    except storage.StorageOffline as e:
+        raise HTTPException(503, f"library offline: {e}") from e
+    except storage.StorageError as e:
+        raise HTTPException(502, f"library unavailable: {e}") from e
+    filled = 0
+    if result.get("added"):
+        try:
+            filled = tv_persist.backfill_cached_episodes(show_id)
+        except Exception as e:
+            logger.warning("cached episode backfill failed show=%s: %s", show_id, e)
+    result["metadata_filled"] = int(filled)
+    result["episode_count"] = store.count_show_episodes(show_id)
+    return {"ok": True, **result}
 
 
 @router.get("/shows/{show_id}/organize-hint")

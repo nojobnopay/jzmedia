@@ -40,6 +40,10 @@
             <p class="feedback error" role="alert">{{ error }}</p>
           </template>
           <template v-else>
+            <p v-if="discoveredCount || unrecognizedCount" class="discovery-note" role="status">
+              <span v-if="discoveredCount">已发现并纳入 {{ discoveredCount }} 个新分集。</span>
+              <span v-if="unrecognizedCount">另有 {{ unrecognizedCount }} 个视频无法识别集号，将保持原样。</span>
+            </p>
             <div v-if="phase === 'confirm'" class="confirm-notice" role="status">
               <b>即将修改本剧的文件和目录</b>
               <p>请核对下方变更。字幕和 NFO 会随正片移动；整理记录可用于撤销。</p>
@@ -136,6 +140,8 @@ const props = defineProps({ initialPlan: { type: Object, required: true }, title
 const emit = defineEmits(['close', 'finished', 'settings'])
 const dialog = ref(null)
 const body = ref(null)
+const discoveredCount = Number(props.initialPlan.discovery?.added || 0)
+const unrecognizedCount = Number(props.initialPlan.discovery?.unknown || 0)
 const { selected, allowAbsolute, plan, phase, loading, ready, error, pollError, done, total, result,
   running, canProceed, refresh, proceed } = useTvOrganizeDialog(props.initialPlan, { onFinished: (value) => emit('finished', value) })
 const actionKeys = Object.keys(ACTION_HELP)
@@ -231,6 +237,7 @@ input[type='checkbox'] { accent-color: var(--jz-accent); width: 16px; height: 16
 .unchanged-notes ul { padding-left: 20px; color: var(--jz-text-dim); line-height: 1.8; overflow-wrap: anywhere; }
 .confirm-notice { padding: 16px; margin-bottom: 20px; border-radius: var(--jz-radius-m); background: var(--jz-surface-3); line-height: 1.7; }
 .confirm-notice p { color: var(--jz-text-dim); margin-top: 6px; }
+.discovery-note { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; padding: 10px 12px; border-radius: var(--jz-radius-m); background: color-mix(in srgb, var(--jz-green) 8%, var(--jz-surface)); color: var(--jz-text-dim); line-height: 1.7; }
 .empty-plan { padding: 20px; border: 1px dashed var(--jz-border-strong); border-radius: var(--jz-radius-m); color: var(--jz-text-dim); line-height: 1.7; }
 .feedback { margin-top: 12px; padding: 12px; background: var(--jz-surface-2); border-radius: var(--jz-radius-m); line-height: 1.7; overflow-wrap: anywhere; }
 .error { color: var(--jz-danger); }

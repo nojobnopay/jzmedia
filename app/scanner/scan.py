@@ -22,7 +22,7 @@ from ..metadata import local as meta_local
 from ..metadata import nfo_import as meta_nfo
 from ..metadata import external as meta_external
 _EXTERNAL_MATCH_SOURCES = meta_external.EXTERNAL_SOURCES
-__all__ = ['ST_SKIPPED_SAMPLE', 'ST_EXTRA_ATTACHED', 'ST_EXTRA_ORPHAN', 'ST_NO_MATCH', 'ST_EPISODE', 'ST_SCAN_FAILED', 'ST_LIBRARY_OFFLINE', 'ST_EXTERNAL', 'attribute_extra', 'attribute_extra_file', 'scan_one', 'scan_file', 'scan_tv_one', 'scan_tv_file', 'scan_all', 'resolve_tv_numbers', 'tv_plan']
+__all__ = ['ST_SKIPPED_SAMPLE', 'ST_EXTRA_ATTACHED', 'ST_EXTRA_ORPHAN', 'ST_NO_MATCH', 'ST_EPISODE', 'ST_SCAN_FAILED', 'ST_LIBRARY_OFFLINE', 'ST_EXTERNAL', 'attribute_extra', 'attribute_extra_file', 'scan_one', 'scan_file', 'scan_tv_one', 'scan_tv_file', 'scan_tv_show', 'scan_all', 'resolve_tv_numbers', 'tv_plan']
 
 DEFAULT_LIBRARY_ID = library_paths.DEFAULT_LIBRARY_ID
 
@@ -500,7 +500,8 @@ def scan_tv_one(abs_path: str, library_id=None) -> dict:
 
 
 def scan_tv_file(backend, rel: str, entry=None, show_root=None,
-                 episode_hint=None, force: bool = False) -> dict:
+                 episode_hint=None, force: bool = False,
+                 target_show_id: int | None = None) -> dict:
     """TV 入库：规则阶梯解析（tv_parse）→ tv_shows/tv_seasons/tv_episodes。
     - 重扫增量：mtime/size 未变且上次 tv_ok → skipped_unchanged（force=True 强制重解析）；
     - 特典（SP/OVA/OAD）入 Season 0；一文件多集记 episode_end；绝对集号记 absolute_number；
@@ -530,7 +531,8 @@ def scan_tv_file(backend, rel: str, entry=None, show_root=None,
         kind = "movie" if _tv_in_movie_dir(rel) else extra_kind(rel)
         # 归属优先按「剧根已有正片」解析：TMDB 改名后（Breaking Bad → 绝命毒师）
         # 不能按目录名新建重复行；库里还没有集行时才建档，之后正片扫描/刮削复用该行。
-        show_id = store.find_show_by_dir_prefix(show_root, lib_id)
+        show_id = int(target_show_id) if target_show_id is not None else \
+            store.find_show_by_dir_prefix(show_root, lib_id)
         if not show_id:
             sd = tv_parse.parse_show_dir(os.path.basename(show_root))
             title = sd["title"] or os.path.splitext(base)[0]
@@ -561,8 +563,9 @@ def scan_tv_file(backend, rel: str, entry=None, show_root=None,
     if not title:
         store.set_scan_state(rel, mtime, size, "tv_unknown", library_id=lib_id)
         return {"file": rel, "status": "skipped_tv_unknown"}
-    show_id = store.upsert_show(lib_id, title, sd.get("year"),
-                                sort_title=normalize_title(title), hints=sd.get("hints"))
+    show_id = (int(target_show_id) if target_show_id is not None else
+               store.upsert_show(lib_id, title, sd.get("year"),
+                                 sort_title=normalize_title(title), hints=sd.get("hints")))
     ep_title = str((num["guess"] or {}).get("episode_title") or "")
     ep_id = store.upsert_episode(show_id, lib_id, rel, num["season"], num["episode"],
                                  ep_title, episode_end=num["episode_end"],
@@ -571,6 +574,50 @@ def scan_tv_file(backend, rel: str, entry=None, show_root=None,
     return {"file": rel, "status": "tv_ok", "show_id": show_id, "episode_id": ep_id,
             "show": title, "season": num["season"], "episode": num["episode"],
             "episode_end": num["episode_end"]}
+
+
+def scan_tv_show(show_id: int, force: bool = False) -> dict:
+    """只发现一个已入库剧根下的新视频，不扫描整座视频库，也不做失效 GC。
+
+    详情页在生成整理计划前调用本函数。已存在的集走 scan_state 增量短路；新文件
+    显式绑定到当前 show_id，避免剧名被手工修改或 TMDB 本地化后另建重复剧目。
+    遍历仍走 StorageBackend，因此本地、挂载和 SMB 直读使用同一语义。
+    """
+    sid = int(show_id)
+    show = store.get_show_meta(sid)
+    if not show:
+        raise ValueError("show not found")
+    lib_id = int(show.get("library_id") or DEFAULT_LIBRARY_ID)
+    episodes = store.list_episodes(sid)
+    if not episodes:
+        return {"show_id": sid, "library_id": lib_id, "show_dir": "",
+                "scanned": 0, "added": 0, "unknown": 0, "results": []}
+    from .tv_organize import _resolve_show_dir
+    show_dir = _resolve_show_dir(episodes, show_id=sid, library_id=lib_id)
+    if not show_dir:
+        return {"show_id": sid, "library_id": lib_id, "show_dir": "",
+                "scanned": 0, "added": 0, "unknown": 0, "results": []}
+    backend = storage.backend_for(lib_id)
+    storage.clear_meta_cache(lib_id)
+    entries = list(backend.iter_tree(show_dir, skip_dirs=scan_skip_dirs()))
+    vids = _video_entries(entries)
+    hints = _tv_special_hints(vids)
+    known = {str(e.get("file_path") or "") for e in episodes}
+    results: list[dict] = []
+    for entry in vids:
+        result = scan_tv_file(
+            backend, entry.rel, entry=entry, show_root=show_dir,
+            episode_hint=hints.get(entry.rel), force=force,
+            target_show_id=sid,
+        )
+        result["library_id"] = lib_id
+        results.append(result)
+    added = sum(1 for r in results
+                if r.get("status") == "tv_ok" and r.get("file") not in known)
+    unknown = sum(1 for r in results if r.get("status") == "skipped_tv_unknown")
+    return {"show_id": sid, "library_id": lib_id, "show_dir": show_dir,
+            "scanned": len(vids), "added": added, "unknown": unknown,
+            "results": results[:100]}
 
 
 def _scan_libraries(library_id, media_library_id=None) -> list[dict]:

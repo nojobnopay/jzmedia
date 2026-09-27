@@ -29,11 +29,11 @@
               <button :disabled="busy" @click="nameDraft = show.title; renameOpen = !renameOpen">修改剧名</button>
               <button :disabled="busy" @click="refreshMeta">更新剧集资料</button>
               <button @click="matchOpen = !matchOpen">{{ matchOpen ? '收起匹配' : '重新匹配剧集' }}</button>
-              <button :disabled="busy" @click="openOrganize">整理剧集目录</button>
+              <button :disabled="busy" @click="openOrganize">{{ organizing ? '正在发现新增分集…' : '整理剧集目录' }}</button>
               <button :disabled="verifying" @click="verifyExists">{{ verifying ? '检查中…' : '检查文件是否可用' }}</button>
             </ActionMenu>
             <span class="dim">{{ show.watched_count }}/{{ show.episode_count }} 已看</span>
-            <span v-if="busy" class="dim">处理中…</span>
+            <span v-if="busy" class="dim">{{ organizing ? '正在检查本剧目录…' : '处理中…' }}</span>
           </div>
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
           <div v-if="show.needs_review" class="review-notice">
@@ -138,6 +138,7 @@ const show = ref(null)
 const msg = ref('')
 const playing = ref(null)
 const busy = ref(false)
+const organizing = ref(false)
 const matchOpen = ref(false)
 const renameOpen = ref(false)
 const nameDraft = ref('')
@@ -405,20 +406,36 @@ async function checkOrgHint () {
     }
   } catch (e) { /* 预览失败不挡详情页 */ }
 }
-// 详情页手动入口：目录已规范时给行内提示，不弹窗打扰
+// 详情页手动入口：先发现当前剧根的新文件，再基于最新分集清单生成整理预览。
 async function openOrganize () {
   if (!show.value || busy.value) return
   busy.value = true
+  organizing.value = true
+  msg.value = '正在检查本剧目录中的新增分集…'
   try {
     const id = show.value.id
+    const discovery = await api(`/api/tv/shows/${id}/discover`, { method: 'POST' })
+    if (String(route.params.id) !== String(id)) return
+    if (discovery.added) await load()
     const h = await api(`/api/tv/shows/${id}/organize-hint`)
     if (String(route.params.id) !== String(id)) return
+    h.discovery = discovery
     if (hintNeeds(h) || (h.kept || []).length) {
       orgHint.value = h
+      msg.value = ''
     } else {
-      msg.value = hintReasonText(h) || '目录已规范，无需整理'
+      const notes = []
+      if (discovery.added) notes.push(`已发现并加入 ${discovery.added} 个新分集`)
+      if (discovery.unknown) notes.push(`另有 ${discovery.unknown} 个视频无法识别集号`)
+      notes.push(hintReasonText(h) || '目录已规范，无需整理')
+      msg.value = notes.join('；')
     }
-  } catch (e) { msg.value = '获取整理预览失败：' + e.message } finally { busy.value = false }
+  } catch (e) {
+    msg.value = '检查剧集目录失败：' + e.message
+  } finally {
+    organizing.value = false
+    busy.value = false
+  }
 }
 async function onOrganized () {
   posterVer.value++

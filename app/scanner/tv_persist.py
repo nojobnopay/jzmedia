@@ -21,8 +21,9 @@ from .parse import normalize_title
 from .tv_parse import map_absolute
 
 logger = get_logger("scanner.tv_persist")
-__all__ = ['scrape_show', 'scrape_pending', 'apply_tv_detail', 'ensure_episode_still',
-           'wanted_seasons', 'write_media_files', 'tv_poster_name', 'tv_backdrop_name',
+__all__ = ['scrape_show', 'scrape_pending', 'apply_tv_detail', 'backfill_cached_episodes',
+           'ensure_episode_still', 'wanted_seasons', 'write_media_files',
+           'tv_poster_name', 'tv_backdrop_name',
            'tv_season_poster_name', 'episode_still_name', 'backfill_person_names',
            'person_names_from_credits']
 
@@ -119,6 +120,51 @@ def _episode_index(season_details: dict) -> tuple[dict, dict]:
     for n in dup:
         abs_index.pop(n, None)
     return season_index, abs_index
+
+
+def backfill_cached_episodes(show_id: int) -> int:
+    """用已缓存的季详情补齐新发现分集；不联网、不下载图片、不覆盖手工绑定。
+
+    单剧整理入口会先发现磁盘新文件。已刮削剧通常已经缓存整季数据，因此可立即
+    取得集名和 TMDB 集号，让新增分集直接进入重命名计划。缓存尚未包含新集时保留
+    待确认状态，用户仍能看到文件并可通过“更新剧集资料”获取最新数据。
+    """
+    show = store.get_show_meta(int(show_id))
+    try:
+        tmdb_id = int((show or {}).get("tmdb_id") or 0)
+    except (TypeError, ValueError):
+        tmdb_id = 0
+    if not tmdb_id:
+        return 0
+    season_index, _ = _episode_index(store.get_tmdb_cache_seasons(tmdb_id))
+    if not season_index:
+        return 0
+    filled = 0
+    for episode in store.list_episodes(int(show_id)):
+        if episode.get("tmdb_episode_id") or episode.get("local_only"):
+            continue
+        try:
+            key = (int(episode.get("season") or 0),
+                   int(episode.get("episode") or 0))
+        except (TypeError, ValueError):
+            continue
+        match = season_index.get(key)
+        if not isinstance(match, dict):
+            continue
+        try:
+            runtime = int(match.get("runtime") or 0)
+        except (TypeError, ValueError):
+            runtime = 0
+        store.update_episode_meta(
+            int(episode["id"]), tmdb_episode_id=match.get("id"),
+            title=(match.get("name") or "").strip() or episode.get("title") or "",
+            overview=match.get("overview") or "",
+            still_path=match.get("still_path") or "",
+            air_date=str(match.get("air_date") or "")[:10], runtime=runtime,
+            tmdb_rating=match.get("vote_average"), needs_review=0,
+        )
+        filled += 1
+    return filled
 
 
 def _season_counts(detail: dict) -> list[tuple[int, int]]:

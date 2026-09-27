@@ -93,6 +93,90 @@ def test_hint_404():
     assert r.status_code == 404
 
 
+def test_discover_finds_episode_added_after_initial_organize(tv_lib):
+    lib, root = tv_lib
+    show_dir = "滚石爱情故事 (2016)/Season 01"
+    for episode in range(1, 20):
+        _touch(
+            root,
+            f"{show_dir}/滚石爱情故事-S01E{episode:02d}-第{episode}集.mkv",
+        )
+    scanner.scan_all(library_id=lib["id"])
+    show = store.list_shows(lib["id"])[0]
+    assert store.count_show_episodes(show["id"]) == 19
+
+    # 模拟详情页已匹配/改过展示名后，再把最新一集直接放进整理过的 Season 01。
+    store.update_show_meta(show["id"], title="滚石爱情故事（自定义标题）",
+                           title_auto=0)
+    _touch(root, f"{show_dir}/滚石爱情故事.S01E20.第20集.mkv")
+
+    r = client.post(f"/api/tv/shows/{show['id']}/discover")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["added"] == 1
+    assert data["episode_count"] == 20
+    episodes = store.list_episodes(show["id"])
+    assert any(int(e["season"]) == 1 and int(e["episode"]) == 20
+               for e in episodes)
+    assert len(store.list_shows(lib["id"])) == 1
+
+    # 再点一次保持幂等，不重复入库。
+    again = client.post(f"/api/tv/shows/{show['id']}/discover").json()
+    assert again["added"] == 0
+    assert again["episode_count"] == 20
+
+
+def test_discover_uses_cached_season_metadata_in_organize_preview(tv_lib):
+    lib, root = tv_lib
+    show_dir = "滚石爱情故事 (2016)/Season 01"
+    _touch(root, f"{show_dir}/滚石爱情故事-S01E01-第1集.mkv")
+    scanner.scan_all(library_id=lib["id"])
+    show = store.list_shows(lib["id"])[0]
+    tmdb_id = 88100
+    store.update_show_meta(
+        show["id"], title="滚石爱情故事", year=2016,
+        tmdb_id=tmdb_id, fetched_at=1,
+    )
+    store.upsert_tmdb_cache(
+        tmdb_id,
+        {
+            "title": "滚石爱情故事", "original_title": "Rock Records in Love",
+            "year": 2016, "tmdb_id": tmdb_id, "genres": [], "genre_ids": [],
+            "origin_countries": ["TW"], "studios": [], "media_type": "tv",
+        },
+        media_type="tv",
+    )
+    store.set_tmdb_cache_seasons(
+        tmdb_id,
+        {
+            1: {
+                "season_number": 1,
+                "episodes": [{
+                    "id": 88120, "season_number": 1, "episode_number": 20,
+                    "name": "第 20 集", "overview": "最终回",
+                    "air_date": "2016-12-30", "runtime": 45,
+                    "vote_average": 8.0,
+                }],
+            },
+        },
+    )
+    _touch(root, f"{show_dir}/滚石爱情故事.S01E20.最终回.mkv")
+
+    result = client.post(f"/api/tv/shows/{show['id']}/discover").json()
+    assert result["added"] == 1
+    assert result["metadata_filled"] == 1
+    episode = next(e for e in store.list_episodes(show["id"])
+                   if int(e["episode"]) == 20)
+    assert episode["tmdb_episode_id"] == 88120
+    assert episode["title"] == "第 20 集"
+
+    hint = client.get(
+        f"/api/tv/shows/{show['id']}/organize-hint?actions=rename").json()
+    assert hint["needs"] is True
+    rename = next(g for g in hint["groups"] if g["action"] == "rename")
+    assert any("S01E20" in sample["from"] for sample in rename["samples"])
+
+
 def test_hint_absolute_risk_gating(tv_lib):
     lib, root = tv_lib
     _touch(root, "Anime/001.mkv")
