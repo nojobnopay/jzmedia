@@ -80,11 +80,7 @@ def _stream_upload(file, dst: str) -> int:
 
 
 def _stream_upload_backend(file, backend, rel: str) -> int:
-    """远程直读库流式落盘（1MB 分块经 backend.open_write：临时文件 + replace）。
-
-    远程无 O_EXCL：先查存在（409）再写；同名并发极端情况由 replace 保证不写坏，
-    最后一次写入生效（本地路径仍是严格 409 占位）。
-    """
+    """远程流式上传，原子提交时拒绝覆盖，即使同名文件并发出现。"""
     rel = backend.norm(rel)
     try:
         if backend.exists(rel):
@@ -93,13 +89,15 @@ def _stream_upload_backend(file, backend, rel: str) -> int:
         raise HTTPException(503, f"check target failed: {e}")
     size = 0
     try:
-        with backend.open_write(rel) as out:
+        with backend.open_write(rel, overwrite=False) as out:
             while True:
                 chunk = file.file.read(1024 * 1024)
                 if not chunk:
                     break
                 out.write(chunk)
                 size += len(chunk)
+    except storage.StorageExists:
+        raise HTTPException(409, f"already exists: {os.path.basename(rel)!r}")
     except storage.StorageError as e:
         raise HTTPException(500, f"upload failed: {e}")
     return size

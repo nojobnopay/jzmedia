@@ -84,3 +84,28 @@ def test_show_detail_exposes_version(tv_lib):
     nxt = client.get(f"/api/tv/episodes/"
                      f"{next(e['id'] for e in d['episodes'] if e['version'] == 1)}/next")
     assert nxt.status_code == 200
+
+
+def test_navigation_ranges_versions_and_pagination(tv_lib):
+    lib, _ = tv_lib
+    lid = lib['id']
+    sid = store.upsert_show(lid, '长剧')
+    first = store.upsert_episode(sid, lid, '长剧-S01E01-E03.mkv', 1, 1, episode_end=3)
+    store.upsert_episode(sid, lid, '长剧-S01E02.mkv', 1, 2)
+    v2 = store.upsert_episode(sid, lid, '长剧-V2-S01E01.mkv', 1, 1)
+    tail = [store.upsert_episode(sid, lid, f'长剧-S01E{i:03d}.mkv', 1, i) for i in range(4, 507)]
+    cross = store.upsert_episode(sid, lid, '长剧-S02E01.mkv', 2, 1)
+    assert store.episode_after(first)['id'] == tail[0]
+    assert store.episode_neighbors(tail[0])[0]['id'] == first
+    assert store.episode_after(tail[-1])['id'] == cross
+    detail = client.get(f'/api/tv/episodes/{tail[-2]}').json()
+    assert detail['next_episode']['id'] == tail[-1]
+    assert detail['previous_episode']['id'] == tail[-3]
+    assert client.get(f'/api/tv/episodes/{tail[-2]}/next').json()['next']['id'] == tail[-1]
+    store.mark_episode_watched(first, True)
+    assert store.next_episode(sid)['id'] == tail[0]
+    assert store.season_next_episode(sid, 1)['id'] == tail[0]
+    page = client.get(f'/api/tv/shows/{sid}/seasons/1', params={'version': 2}).json()
+    assert page['total'] == 1 and page['episodes'][0]['id'] == v2
+    assert page['distinct_count'] == 506
+    assert store.show_season_stats(sid)[0]['distinct'] == 506

@@ -63,7 +63,7 @@ def test_tv_api_browse(tv_lib):
     one = client.get(f"/api/tv/episodes/{ep['id']}").json()
     assert one["show_title"] == "Another"
     stats = client.get(f"/api/tv/stats?library={lib['id']}").json()
-    assert stats == {"shows": 1, "episodes": 1}
+    assert {k: stats[k] for k in ("shows", "episodes")} == {"shows": 1, "episodes": 1}
     assert client.get("/api/tv/shows/999999").status_code == 404
 
 

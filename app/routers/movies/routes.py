@@ -3,6 +3,7 @@ import hashlib
 import os
 import re
 from urllib.parse import quote
+from typing import Literal
 
 from fastapi import (APIRouter, BackgroundTasks, File, HTTPException, Query,
                      Request, UploadFile)
@@ -613,6 +614,8 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
         raise HTTPException(422, "subdir must be ''|extras")
     rel_dir = os.path.dirname(m["file_path"])
     lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
+    from ..upload_support import upload_library
+    upload_library(lib_id, "movie")
     _require_writable(lib_id)
     from ... import storage
     backend = storage.backend_for(lib_id)
@@ -685,101 +688,86 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
 def library_upload(file: UploadFile = File(...),
                    relpath: str = Query(default=""),
                    target_dir: str = Query(default=""),
-                   library_id: int | None = Query(default=None)):
-    """库页上传：multipart file 字段；relpath 透传浏览器相对路径
-    （文件夹模式为 webkitRelativePath，单文件模式为文件名）。
+                   library_id: int | None = Query(default=None),
+                   media_type: Literal["movie", "tv"] | None = Query(default=None),
+                   mode: Literal["files", "dir"] = Query(default="files"),
+                   show_id: int | None = Query(default=None, ge=1),
+                   show_title: str = Query(default="", max_length=200),
+                   season: int | None = Query(default=None, ge=0, le=99)):
+    """Stream into a validated video library, preserving movie response compatibility.
 
-    目标= target_dir/relpath（逐段清洗并约束在库根内；target_dir 缺省空 =
-    视频库根，本地结构原样保留，2026-09 媒体库级重构：不再默认落 待整理/）。
-    流式落盘（1MB 分块，先写 .part 再原子
-    改名；已存在 409 跳过，绝不覆盖）。落盘后按类型入库：
-    正片→scan_one，花絮→attribute_extra，字幕/周边→仅文件。
-    `library_id` 缺省=默认库（多库 v12）。
+    TV folder uploads keep their structure. Loose files require a show and season;
+    only recognized episodes enter the database. Metadata runs once per uploaded
+    show via the existing tv-scrape job, without renaming any uploaded file.
     """
+    from ... import storage
     from ...scanner import is_feature_video as _is_feat, is_sidecar as _is_side
     from ..files import _check_inside_root, _require_writable, _safe_component
+    from ..upload_support import upload_library, tv_destination, register_tv_upload
+
     lid = library_paths.default_id() if library_id is None else int(library_id)
-    raw = (relpath or "").strip().strip("/") or (file.filename or "").strip()
-    raw_segs = [s for s in raw.replace("\\", "/").split("/")]
-    if any(s == ".." for s in raw_segs):
-        raise HTTPException(422, "illegal path")
-    segs = [s for s in raw_segs if s not in ("", ".", "..")]
-    safe_segs = [_safe_component(s) for s in segs]
-    safe_segs = [s for s in safe_segs if s and s not in (".", "..")]
-    if not safe_segs or safe_segs[-1].startswith("."):
-        raise HTTPException(422, "illegal file name")
-    tmods = [_safe_component(s) for s in
-             (target_dir or "").strip().strip("/").replace("\\", "/").split("/")]
-    tmods = [s for s in tmods if s and s not in (".", "..")]
-    rel = _check_inside_root("/".join([*tmods, *safe_segs]), lid)
+    lib = upload_library(lid, media_type)
+    kind = lib.get("kind") or "movie"
     _require_writable(lid)
-    from ... import storage
+    raw = (relpath or "").strip() or (file.filename or "").strip()
+    raw = raw.replace("\\", "/")
+    target = (target_dir or "").strip().replace("\\", "/")
+    if any(v.startswith("/") or ".." in v.split("/") or "\x00" in v
+           for v in (raw, target)):
+        raise HTTPException(422, "illegal path")
+    segs = [_safe_component(v) for v in raw.split("/") if v not in ("", ".")]
+    if not segs or any(not v or v.startswith(".") for v in segs):
+        raise HTTPException(422, "illegal file name")
+    tmods = [_safe_component(v) for v in target.split("/") if v not in ("", ".")]
+    if any(not v or v.startswith(".") for v in tmods):
+        raise HTTPException(422, "illegal target directory")
+    rel = "/".join([*tmods, *segs])
+    root, target_show = "", None
+    if kind == "tv":
+        if target_dir:
+            raise HTTPException(422, "剧集请使用剧/季选择或完整文件夹指定目标")
+        rel, root, target_show = tv_destination(lid, rel, mode, show_id, show_title, season)
+    rel = _check_inside_root(rel, lid)
     backend = storage.backend_for(lid)
-    if backend.abs_path("") is None:
-        # 直读远程库：目录自动创建 + 流式写入均经 backend（不再写本地挂载点）
-        parent = os.path.dirname(rel)
-        if parent:
-            try:
+    local = backend.abs_path("") is not None
+    try:
+        if local:
+            dst = library_paths.resolve(lid, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            size = _stream_upload(file, dst)
+        else:
+            parent = os.path.dirname(rel)
+            if parent:
                 backend.mkdir(parent, parents=True)
-            except storage.StorageError as e:
-                raise HTTPException(500, f"mkdir failed: {e}")
-        try:
             size = _stream_upload_backend(file, backend, rel)
-        finally:
-            try:
-                file.file.close()
-            except Exception:
-                pass
-        status = "stored"
-        try:
-            if _is_feat(rel, library_id=lid, backend=backend):
-                r = scanner.scan_file(backend, rel)
-                status = r.get("status", "stored")
-            elif _is_side(rel, library_id=lid, backend=backend):
-                r = scanner.attribute_extra_file(backend, rel)
-                status = r.get("status", "stored")
-        except Exception as e:
-            status = f"stored_scan_warn: {e}"
-        movie_id = None
-        try:
-            m = store.get_by_path(rel, library_id=lid)
-            if m:
-                movie_id = m["id"]
-        except Exception:
-            pass
-        return {"name": safe_segs[-1], "rel": rel, "size": size,
-                "status": status, "movie_id": movie_id, "library_id": lid}
-    dst = library_paths.resolve(lid, rel)
-    try:
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-    except OSError as e:
-        raise HTTPException(500, f"mkdir failed: {e}")
-    try:
-        size = _stream_upload(file, dst)
+    except (OSError, storage.StorageError) as e:
+        logger.warning("upload write failed library=%s rel=%s: %s", lid, rel, e)
+        raise HTTPException(500, f"upload failed: {e}")
     finally:
-        try:
-            file.file.close()
-        except Exception:
-            pass
-    status = "stored"
+        file.file.close()
+    result = {"name": segs[-1], "rel": rel, "size": size,
+              "status": "stored", "media_type": kind, "movie_id": None, "library_id": lid}
     try:
-        if _is_feat(rel, library_id=lid):
-            r = scanner.scan_one(dst, library_id=lid)
-            status = r.get("status", "stored")
-        elif _is_side(rel, library_id=lid):
-            r = scanner.attribute_extra(dst, library_id=lid)
-            status = r.get("status", "stored")
+        if kind == "tv":
+            registered = register_tv_upload(backend, rel, root, target_show)
+            result.update({k: v for k, v in registered.items() if k != "file"})
+            result.setdefault("show_id", target_show)
+            result.setdefault("episode_id", None)
+        else:
+            if _is_feat(rel, library_id=lid, backend=backend):
+                registered = scanner.scan_one(dst, library_id=lid) if local else scanner.scan_file(backend, rel)
+                result["status"] = registered.get("status", "stored")
+            elif _is_side(rel, library_id=lid, backend=backend):
+                registered = scanner.attribute_extra(dst, library_id=lid) if local else scanner.attribute_extra_file(backend, rel)
+                result["status"] = registered.get("status", "stored")
+            movie = store.get_by_path(rel, library_id=lid)
+            if movie:
+                result["movie_id"] = movie["id"]
     except Exception as e:
-        status = f"stored_scan_warn: {e}"
-    movie_id = None
-    try:
-        m = store.get_by_path(rel, library_id=lid)
-        if m:
-            movie_id = m["id"]
-    except Exception:
-        pass
-    return {"name": safe_segs[-1], "rel": rel, "size": size,
-            "status": status, "movie_id": movie_id, "library_id": lid}
+        logger.warning("uploaded file registration failed library=%s rel=%s: %s", lid, rel, e)
+        result["status"] = "stored_scan_warn"
+        result["error"] = str(e)[:200]
+    return result
 
 
 @router.delete("/movies/{movie_id}/files")

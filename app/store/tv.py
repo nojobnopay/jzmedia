@@ -13,12 +13,12 @@ from ._base import DEFAULT_LIBRARY_ID, _conn, _like_esc, _lock, logger
 from .search import (_query_terms, _split_ints, _split_multi, normalize_sort)
 
 __all__ = ['upsert_show', 'upsert_episode', 'upsert_season', 'list_shows', 'get_show',
-           'list_episodes', 'get_episode', 'count_shows', 'count_episodes',
+           'list_episodes', 'get_episode', 'tv_library_stats', 'count_shows', 'count_episodes',
            'delete_episode_by_path', 'delete_episodes_not_in', 'prune_empty_shows',
            'update_show_meta', 'update_episode_meta', 'season_offsets',
            'remap_absolute_episodes', 'list_shows_for_scrape', 'set_show_match',
            'mark_episode_watched', 'mark_show_watched', 'next_episode',
-           'episode_after', 'get_show_meta', 'episode_progress_map',
+           'episode_after', 'episode_neighbors', 'season_versions', 'get_show_meta', 'episode_progress_map',
            'list_episode_versions', 'list_seasons',            'get_episode_by_path',
            'find_show_by_dir_prefix', 'reattach_tv_extras', 'move_tv_paths',
            'repath_tv_episodes_prefix', 'episode_version',
@@ -228,22 +228,57 @@ def episode_version(file_path) -> int:
     return v if v >= 1 else 1
 
 
-def episode_after(episode_id: int) -> dict | None:
-    """按播出顺序的下一集（连播用；不跳已看）。
-
-    多版本（V1/V2）**按版本隔离**：看完 V1E01 接 V1E02，不跳到另一版本的同集。"""
+def episode_neighbors(episode_id: int) -> tuple[dict | None, dict | None]:
+    """Version-isolated, non-overlapping neighbors across seasons and page boundaries."""
     ep = get_episode(episode_id)
     if not ep:
-        return None
-    rows = list_episodes(int(ep["show_id"]))
+        return None, None
     ver = episode_version(ep.get("file_path"))
-    for i, e in enumerate(rows):
-        if int(e["id"]) == int(episode_id):
-            for nxt in rows[i + 1:]:
-                if episode_version(nxt.get("file_path")) == ver:
-                    return nxt
-            return None
-    return None
+    start = (int(ep["season"]), int(ep["episode"]))
+    end = (start[0], max(start[1], int(ep.get("episode_end") or 0)))
+    previous, following = None, None
+    for row in list_episodes(int(ep["show_id"])):
+        if episode_version(row.get("file_path")) != ver:
+            continue
+        row_start = (int(row["season"]), int(row["episode"]))
+        row_end = (row_start[0], max(row_start[1], int(row.get("episode_end") or 0)))
+        if row_end < start and (previous is None or row_end > (int(previous["season"]), max(int(previous["episode"]), int(previous.get("episode_end") or 0)))):
+            previous = row
+        elif row_start > end and following is None:
+            following = row
+    return previous, following
+
+
+def episode_after(episode_id: int) -> dict | None:
+    return episode_neighbors(episode_id)[1]
+
+
+def _next_unwatched(rows: list[dict]) -> dict | None:
+    def finished(e):
+        dur, pos = float(e.get("_dur") or 0), float(e.get("_pos") or 0)
+        return bool(e.get("watched")) or (dur > 0 and (pos / dur >= .95 or dur - pos <= 300))
+
+    def start(e):
+        return int(e["season"]), int(e["episode"])
+
+    def end(e):
+        return int(e["season"]), max(int(e["episode"]), int(e.get("episode_end") or 0))
+
+    partial = [e for e in rows if not finished(e) and float(e.get("_pos") or 0) >= 15]
+    if partial:
+        return max(partial, key=lambda e: int(e.get("_played") or 0))
+    viewed = [e for e in rows if finished(e)]
+    # A watched multi-episode file already covers its same-version overlapping rows.
+    remaining = [e for e in rows if not finished(e) and not any(
+        episode_version(e.get("file_path")) == episode_version(v.get("file_path"))
+        and start(e) <= end(v) and end(e) >= start(v) for v in viewed)]
+    if viewed:
+        anchor = viewed[-1]
+        ver = episode_version(anchor.get("file_path"))
+        for e in remaining:
+            if episode_version(e.get("file_path")) == ver and start(e) > end(anchor):
+                return e
+    return remaining[0] if remaining else None
 
 
 def next_episode(show_id: int) -> dict | None:
@@ -256,42 +291,7 @@ def next_episode(show_id: int) -> dict | None:
             " LEFT JOIN playback_progress p ON p.kind='episode' AND p.item_id=e.id"
             " WHERE e.show_id=? ORDER BY e.season, e.episode, e.id",
             (int(show_id),))]
-    if not rows:
-        return None
-
-    def _finished(e: dict) -> bool:
-        if int(e.get("watched") or 0):
-            return True
-        dur = float(e.get("_dur") or 0)
-        pos = float(e.get("_pos") or 0)
-        return dur > 0 and (pos / dur >= 0.95 or dur - pos <= 300)
-
-    partial = [e for e in rows if not _finished(e) and float(e.get("_pos") or 0) >= 15]
-    if partial:
-        return max(partial, key=lambda e: int(e.get("_played") or 0))
-    last_finished = -1
-    for i, e in enumerate(rows):
-        if _finished(e):
-            last_finished = i
-    # 优先同版本（看完 V1E01 → V1E02，不跳 V2）；同版本没有才回退原逻辑
-    if last_finished >= 0:
-        anchor = rows[last_finished]
-        anchor_ver = episode_version(anchor.get("file_path"))
-        anchor_key = (int(anchor.get("season") or 0), int(anchor.get("episode") or 0))
-        for e in rows[last_finished + 1:]:
-            if not _finished(e) and episode_version(e.get("file_path")) == anchor_ver:
-                return e
-        for e in rows[last_finished + 1:]:
-            if _finished(e):
-                continue
-            key = (int(e.get("season") or 0), int(e.get("episode") or 0))
-            if key == anchor_key:
-                continue      # 同一集的另一版本不算「下一集」
-            return e
-    for e in rows:
-        if not _finished(e):
-            return e
-    return None
+    return _next_unwatched(rows)
 
 
 def upsert_show(library_id: int, title: str, year: int | None = None,
@@ -927,20 +927,37 @@ def get_season(show_id: int, season: int) -> dict | None:
         return d
 
 
-def list_season_episodes(show_id: int, season: int,
-                          offset: int = 0, limit: int | None = None) -> list[dict]:
-    """某季集行（播出顺序：集号/文件路径；版本分组与连播由调用方处理）。
+def season_versions(show_id: int, season: int) -> list[dict]:
+    with _lock, _conn() as c:
+        rows = c.execute("SELECT file_path, episode, episode_end FROM tv_episodes"
+                         " WHERE show_id=? AND season=?", (int(show_id), int(season))).fetchall()
+    groups = {}
+    for row in rows:
+        ver = episode_version(row["file_path"])
+        group = groups.setdefault(ver, {"version": ver, "count": 0, "numbers": set()})
+        group["count"] += 1
+        first = int(row["episode"])
+        group["numbers"].update(range(first, max(first, int(row["episode_end"] or 0)) + 1))
+    return [{"version": v, "count": g["count"], "distinct": len(g["numbers"])}
+            for v, g in sorted(groups.items())]
 
-    本地优先改造：支持 offset/limit 分页，季页按显示范围懒加载（默认全量，
-    调用方不传即保持旧行为）。"""
+
+def list_season_episodes(show_id: int, season: int,
+                          offset: int = 0, limit: int | None = None,
+                          version: int | None = None) -> list[dict]:
     sql = ("SELECT * FROM tv_episodes WHERE show_id=? AND season=?"
            " ORDER BY episode, episode_end, file_path")
     params: list = [int(show_id), int(season)]
-    if limit is not None:
+    if limit is not None and version is None:
         sql += " LIMIT ? OFFSET ?"
         params += [max(1, min(int(limit), 500)), max(0, int(offset))]
     with _lock, _conn() as c:
-        return [dict(r) for r in c.execute(sql, params).fetchall()]
+        rows = [dict(r) for r in c.execute(sql, params).fetchall()]
+    if version is not None:
+        rows = [r for r in rows if episode_version(r.get("file_path")) == int(version)]
+        if limit is not None:
+            rows = rows[max(0, offset):max(0, offset) + max(1, min(int(limit), 500))]
+    return rows
 
 
 def count_season_episodes(show_id: int, season: int) -> int:
@@ -996,7 +1013,7 @@ def show_season_stats(show_id: int) -> list[dict]:
     with _lock, _conn() as c:
         rows = [dict(r) for r in c.execute(
             "SELECT e.season AS season, e.episode AS episode,"
-            " e.file_path AS file_path, e.watched AS watched,"
+            " e.file_path AS file_path, e.watched AS watched, e.episode_end AS episode_end,"
             " p.position AS _pos, p.duration AS _dur"
             " FROM tv_episodes e LEFT JOIN playback_progress p"
             " ON p.kind='episode' AND p.item_id=e.id"
@@ -1021,7 +1038,8 @@ def show_season_stats(show_id: int) -> list[dict]:
         has_partial = False
         next_ep = None
         for r in eps:
-            keys.add(int(r.get("episode") or 0))
+            start_ep = int(r.get("episode") or 0)
+            keys.update(range(start_ep, max(start_ep, int(r.get("episode_end") or 0)) + 1))
             vers.add(episode_version(r.get("file_path")))
             if int(r.get("watched") or 0):
                 watched += 1
@@ -1036,7 +1054,7 @@ def show_season_stats(show_id: int) -> list[dict]:
     return out
 
 
-def season_next_episode(show_id: int, season: int) -> dict | None:
+def season_next_episode(show_id: int, season: int, version: int | None = None) -> dict | None:
     """本季下一集（Plex 式季内连播）：① 本季未看完断点的最近一集 →
     ② 本季最后看完的下一集（同版本优先，同集另一版本不算）→ ③ 本季首条未看。
     规则与 `next_episode` 同构，仅作用域限本季。"""
@@ -1047,41 +1065,9 @@ def season_next_episode(show_id: int, season: int) -> dict | None:
             " LEFT JOIN playback_progress p ON p.kind='episode' AND p.item_id=e.id"
             " WHERE e.show_id=? AND e.season=? ORDER BY e.episode, e.episode_end, e.file_path",
             (int(show_id), int(season),))]
-    if not rows:
-        return None
-
-    def _finished(e: dict) -> bool:
-        if int(e.get("watched") or 0):
-            return True
-        dur = float(e.get("_dur") or 0)
-        pos = float(e.get("_pos") or 0)
-        return dur > 0 and (pos / dur >= 0.95 or dur - pos <= 300)
-
-    partial = [e for e in rows if not _finished(e) and float(e.get("_pos") or 0) >= 15]
-    if partial:
-        return max(partial, key=lambda e: int(e.get("_played") or 0))
-    last_finished = -1
-    for i, e in enumerate(rows):
-        if _finished(e):
-            last_finished = i
-    if last_finished >= 0:
-        anchor = rows[last_finished]
-        anchor_ver = episode_version(anchor.get("file_path"))
-        anchor_key = (int(anchor.get("episode") or 0), int(anchor.get("episode_end") or 0))
-        for e in rows[last_finished + 1:]:
-            if not _finished(e) and episode_version(e.get("file_path")) == anchor_ver:
-                return e
-        for e in rows[last_finished + 1:]:
-            if _finished(e):
-                continue
-            key = (int(e.get("episode") or 0), int(e.get("episode_end") or 0))
-            if key == anchor_key:
-                continue
-            return e
-    for e in rows:
-        if not _finished(e):
-            return e
-    return None
+    if version is not None:
+        rows = [e for e in rows if episode_version(e.get("file_path")) == int(version)]
+    return _next_unwatched(rows)
 
 
 def mark_season_watched(show_id: int, season: int, watched: bool = True) -> int:
@@ -1678,3 +1664,24 @@ def prune_empty_shows(library_id=None) -> int:
             c.execute(f"DELETE FROM tv_seasons WHERE show_id IN ({ph})", chunk)
             c.execute(f"DELETE FROM tv_shows WHERE id IN ({ph})", chunk)
         return len(ids)
+
+
+def tv_library_stats(library_ids=None) -> dict:
+    """Overview counts use the same pending condition as the library workflow."""
+    fields = ("shows", "seasons", "episodes", "pending", "episode_review")
+    total = dict.fromkeys(fields, 0)
+    if library_ids == []:
+        return {**total, "by_library": []}
+    with _lock, _conn() as c:
+        ids = [r[0] for r in c.execute("SELECT DISTINCT library_id FROM tv_shows")
+               if library_ids is None or r[0] in library_ids]
+        rows = []
+        for lid in ids:
+            shows = c.execute(f"SELECT COUNT(*), COALESCE(SUM({_pending_show_sql('s')}),0) FROM tv_shows s WHERE library_id=?", (lid,)).fetchone()
+            episodes = c.execute("SELECT COUNT(*), COALESCE(SUM(needs_review!=0),0) FROM tv_episodes WHERE library_id=?", (lid,)).fetchone()
+            seasons = c.execute("SELECT COUNT(*) FROM (SELECT show_id, season FROM tv_seasons WHERE library_id=? UNION SELECT show_id, season FROM tv_episodes WHERE library_id=?)", (lid, lid)).fetchone()[0]
+            row = dict(zip(fields, (shows[0], seasons, episodes[0], shows[1], episodes[1])))
+            rows.append({"library_id": lid, **row})
+            for field in fields:
+                total[field] += row[field]
+    return {**total, "by_library": rows}

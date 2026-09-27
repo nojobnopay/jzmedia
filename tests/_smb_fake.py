@@ -126,6 +126,12 @@ class FakeSmbClient:
         self._wguard()
         self._p(unc).rmdir()
 
+    def rename(self, src, dst, **kwargs):
+        self._wguard()
+        # Emulate SMB's no-replace commit, including a competing writer.
+        os.link(self._p(src), self._p(dst))
+        self._p(src).unlink()
+
     def replace(self, src, dst, **kwargs):
         self._wguard()
         os.replace(self._p(src), self._p(dst))

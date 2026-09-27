@@ -24,7 +24,7 @@ from .. import secrets
 from ..log import get_logger
 from . import httpproxy
 from .base import (
-    StorageBackend, StorageDenied, StorageError, StorageNotFound,
+    StorageBackend, StorageDenied, StorageError, StorageExists, StorageNotFound,
     StorageOffline, StorageStat, StorageUnsupported,
 )
 from .cache import TTLCache
@@ -161,6 +161,8 @@ def _short(v, limit: int = 200) -> str:
 
 def map_smb_error(e: BaseException, what: str) -> StorageError:
     """SMB/网络异常 → 存储层异常（消息脱敏、单行、截断）。"""
+    if isinstance(e, FileExistsError) or getattr(e, "ntstatus", None) == 0xC0000035:
+        return StorageExists(f"已存在: {what}")
     if isinstance(e, StorageError):
         return e
     if smbclient is None:
@@ -432,7 +434,7 @@ class SmbStorageBackend(StorageBackend):
         self._invalidate_meta(path)
 
     @contextmanager
-    def open_write(self, path: str) -> Iterator[BinaryIO]:
+    def open_write(self, path: str, *, overwrite: bool = True) -> Iterator[BinaryIO]:
         """流式原子写：临时文件 + replace；异常清理临时文件并失效元数据缓存。"""
         self._require_writable()
         rel = self.norm(path)
@@ -447,7 +449,10 @@ class SmbStorageBackend(StorageBackend):
         try:
             yield fh
             fh.close()
-            smbclient.replace(tmp, unc)
+            if overwrite:
+                smbclient.replace(tmp, unc)
+            else:
+                smbclient.rename(tmp, unc)  # SMB replace_if_exists=False.
             ok = True
         except Exception as e:
             raise map_smb_error(e, path) from e

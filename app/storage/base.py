@@ -19,7 +19,7 @@ from typing import BinaryIO, Iterator, NamedTuple
 
 __all__ = [
     'StorageBackend', 'StorageStat', 'StorageEntry', 'WalkEntry', 'MediaSource',
-    'StorageError', 'StorageInvalidPath', 'StorageNotFound', 'StorageDenied',
+    'StorageExists', 'StorageError', 'StorageInvalidPath', 'StorageNotFound', 'StorageDenied',
     'StorageReadOnly', 'StorageOffline', 'StorageUnsupported',
 ]
 
@@ -27,6 +27,10 @@ __all__ = [
 class StorageError(RuntimeError):
     """存储层错误基类；code 供 API/诊断映射（永不包含凭据）。"""
     code = "STORAGE_ERROR"
+
+
+class StorageExists(StorageError):
+    code = "ALREADY_EXISTS"
 
 
 class StorageInvalidPath(StorageError):
@@ -189,7 +193,7 @@ class StorageBackend(abc.ABC):
         """原子写（临时文件 + rename），父目录自动创建。"""
 
     @contextmanager
-    def open_write(self, path: str) -> Iterator[BinaryIO]:
+    def open_write(self, path: str, *, overwrite: bool = True) -> Iterator[BinaryIO]:
         """流式原子写（大文件上传/复制）：临时文件 + 关闭时 rename，父目录自动建。
 
         默认不支持，由后端覆写；失败/中断必须清理临时文件。

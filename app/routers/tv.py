@@ -315,7 +315,7 @@ def _season_cast_with_fallback(show_tmdb_id, season_cast: list) -> tuple[list, s
 
 @router.get("/shows/{show_id}/seasons/{season}")
 def season_detail(show_id: int, season: int, offset: int = 0, limit: int = 100,
-                 verify: str = "0"):
+                 verify: str = "0", version: int | None = Query(default=None, ge=1)):
     """季详情（Plex 式季页）：季元数据 + 演职（本季→全剧回退）+ 本季集分页
     （存在性/断点/已看）+ 本季下一集（季内连播）+ 已看计数。
 
@@ -332,7 +332,9 @@ def season_detail(show_id: int, season: int, offset: int = 0, limit: int = 100,
         raise HTTPException(422, "season must be int")
     limit = max(1, min(int(limit or 100), 500))
     offset = max(0, int(offset or 0))
-    total = store.count_season_episodes(show_id, sn)
+    versions = store.season_versions(show_id, sn)
+    all_total = sum(v["count"] for v in versions)
+    total = sum(v["count"] for v in versions if version is None or v["version"] == version)
     meta = store.get_season(show_id, sn)
     if meta is None and total == 0:
         raise HTTPException(404, "season not found")
@@ -340,7 +342,7 @@ def season_detail(show_id: int, season: int, offset: int = 0, limit: int = 100,
         meta = {"show_id": int(show_id), "season": sn, "name": "",
                 "overview": "", "air_date": "", "poster_path": "",
                 "episode_count": total, "cast": []}
-    eps = store.list_season_episodes(show_id, sn, offset=offset, limit=limit)
+    eps = store.list_season_episodes(show_id, sn, offset=offset, limit=limit, version=version)
     progress = store.episode_progress_map(show_id)
     verified, stale, emap = False, False, {}
     mode = str(verify or "0").lower()
@@ -367,7 +369,7 @@ def season_detail(show_id: int, season: int, offset: int = 0, limit: int = 100,
         for e in eps]
     cast, cast_source = _season_cast_with_fallback(
         show.get("tmdb_id"), list(meta.get("cast") or []))
-    nxt = store.season_next_episode(show_id, sn)
+    nxt = store.season_next_episode(show_id, sn, version=version)
     return {
         "show_id": int(show_id),
         "show_title": show.get("title") or "",
@@ -380,7 +382,10 @@ def season_detail(show_id: int, season: int, offset: int = 0, limit: int = 100,
         "overview": meta.get("overview") or "",
         "air_date": meta.get("air_date") or "",
         "poster_path": meta.get("poster_path") or "",
-        "episode_count": total,
+        "episode_count": all_total,
+        "versions": versions,
+        "distinct_count": len({n for e in store.list_season_episodes(show_id, sn)
+                               for n in range(int(e["episode"]), max(int(e["episode"]), int(e.get("episode_end") or 0)) + 1)}),
         "total": total,
         "offset": offset,
         "limit": limit,
@@ -531,6 +536,9 @@ def episode_detail(episode_id: int, verify: str = "0"):
     out["season_poster"] = (season_meta or {}).get("poster_path") or ""
     # 单集演职成品：本季常驻 + 本集客串（去重，客串打标），缺席回退聚合
     out.update(store.episode_cast(episode_id))
+    prev_ep, next_ep = store.episode_neighbors(episode_id)
+    out["previous_episode"] = _episode_payload(prev_ep) if prev_ep else None
+    out["next_episode"] = _episode_payload(next_ep) if next_ep else None
     return out
 
 
@@ -552,7 +560,7 @@ def episode_blob(episode_id: int, request: Request):
 @router.get("/stats")
 def tv_stats(library: str | None = None, media_library: int | None = None):
     libs = _lib_ids(library, media_library)
-    return {"shows": store.count_shows(libs), "episodes": store.count_episodes(libs)}
+    return store.tv_library_stats(libs)
 
 
 @router.get("/recent-played")

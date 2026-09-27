@@ -209,3 +209,22 @@ def test_clean_mount_artifacts(tmp_path):
     assert out["removed"] >= 1
     assert not os.path.exists(stray)
     assert os.path.exists(keep)          # 非媒体产物不碰
+
+
+@pytest.mark.parametrize('nfo,art', [(False, True), (True, False), (True, True)])
+def test_repair_respects_selected_files(smb_lib, monkeypatch, nfo, art):
+    from app.routers import jobs
+    lib, root, _ = smb_lib
+    rel = 'Repair/movie.mkv'
+    p = root / rel; p.parent.mkdir(); p.write_bytes(b'x')
+    mid = store.upsert_movie_by_path(rel, library_id=lib['id'])
+    store.update_movie_meta(mid, title='Repair', tmdb_id=999999)
+    calls = []
+    monkeypatch.setattr(jobs.scanner, 'sync_nfos_for', lambda *a, **k: calls.append('nfo'))
+    monkeypatch.setattr(jobs.artwork, 'write_for_movie', lambda *a, **k: calls.append('art'))
+    job = jobs._META_JOBS.create(ids=[mid])
+    jobs._meta_worker(job['job_id'], {lib['id']}, False, art, False, [mid], nfo)
+    assert jobs._META_JOBS.get(job['job_id'])['state'] == 'done'
+    assert calls == (['nfo'] if nfo else []) + (['art'] if art else [])
+    r = TestClient(app).post('/api/jobs/rebuild-meta', json={'nfo': False, 'artwork': False})
+    assert r.status_code == 422

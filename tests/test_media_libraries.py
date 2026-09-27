@@ -207,7 +207,7 @@ def test_media_level_aggregation_reads(tmp_path, media_root, cleanup):
     assert [s["title"] for s in r.json()["items"]] == ["AggShow"]
     assert r.json()["total"] == 1
     r = client.get("/api/tv/stats", params={"media_library": m["id"]})
-    assert r.json() == {"shows": 1, "episodes": 1}
+    assert {k: r.json()[k] for k in ("shows", "episodes")} == {"shows": 1, "episodes": 1}
     r = client.get("/api/tv/shows", params={"media_library": other["id"]})
     assert r.json()["items"] == []
 

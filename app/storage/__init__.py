@@ -7,7 +7,7 @@
 - `factory`：按库选择后端的唯一入口。
 """
 from .base import (
-    MediaSource, StorageBackend, StorageDenied, StorageError, StorageInvalidPath,
+    MediaSource, StorageBackend, StorageDenied, StorageError, StorageExists, StorageInvalidPath,
     StorageNotFound, StorageOffline, StorageReadOnly, StorageStat,
     StorageUnsupported, WalkEntry,
 )
@@ -17,7 +17,7 @@ from .local import LocalStorageBackend
 
 __all__ = [
     'StorageBackend', 'StorageStat', 'MediaSource', 'WalkEntry', 'LocalStorageBackend',
-    'StorageError', 'StorageInvalidPath', 'StorageNotFound', 'StorageDenied',
+    'StorageExists', 'StorageError', 'StorageInvalidPath', 'StorageNotFound', 'StorageDenied',
     'StorageReadOnly', 'StorageOffline', 'StorageUnsupported',
     'backend_for', 'backend_for_library', 'backend_for_media', 'smb_driver_mode',
     'media_source', 'media_write_path', 'clear_meta_cache',

@@ -17,7 +17,7 @@ from typing import Iterator, BinaryIO
 from .. import fsutil
 from ..log import get_logger
 from .base import (
-    StorageBackend, StorageDenied, StorageError, StorageInvalidPath,
+    StorageBackend, StorageDenied, StorageError, StorageExists, StorageInvalidPath,
     StorageNotFound, StorageStat, StorageUnsupported, WalkEntry, _is_dir_mode,
 )
 
@@ -27,6 +27,8 @@ __all__ = ['LocalStorageBackend']
 
 
 def _map_os_error(e: OSError, path: str) -> StorageError:
+    if isinstance(e, FileExistsError):
+        return StorageExists(f"已存在: {path}")
     if isinstance(e, (FileNotFoundError, NotADirectoryError)):
         return StorageNotFound(f"不存在: {path}")
     if isinstance(e, PermissionError):
@@ -172,7 +174,7 @@ class LocalStorageBackend(StorageBackend):
             raise _map_os_error(e, path) from e
 
     @contextmanager
-    def open_write(self, path: str) -> Iterator[BinaryIO]:
+    def open_write(self, path: str, *, overwrite: bool = True) -> Iterator[BinaryIO]:
         """流式原子写：`.part-<pid>-<ns>` 临时文件，关闭成功后 os.replace 落位；
         异常/中断清理临时文件，绝不留下半成品。"""
         self._require_writable()
@@ -189,7 +191,11 @@ class LocalStorageBackend(StorageBackend):
         try:
             yield fh
             fh.close()
-            os.replace(tmp, dest)
+            if overwrite:
+                os.replace(tmp, dest)
+            else:
+                os.link(tmp, dest)  # Atomic no-replace commit on the same filesystem.
+                os.unlink(tmp)
             ok = True
         except OSError as e:
             raise _map_os_error(e, path) from e

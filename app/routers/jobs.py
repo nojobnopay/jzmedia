@@ -146,6 +146,8 @@ def scan_start(body: ScanBody | None = None):
     force = bool(body.force) if body else False
     running = _SCAN_JOBS.running()
     if running:
+        if (running.get("library_id"), running.get("media_library_id"), bool(running.get("force"))) != (library_id, media_library_id, force):
+            raise HTTPException(409, "另一个范围的扫描正在进行，请等待完成")
         return {"job_id": running["job_id"], "resumed": True,
                 "library_id": running.get("library_id"),
                 "media_library_id": running.get("media_library_id")}
@@ -157,6 +159,12 @@ def scan_start(body: ScanBody | None = None):
                      daemon=True).start()
     return {"job_id": jid, "resumed": False, "library_id": library_id,
             "media_library_id": media_library_id, "force": force}
+
+
+@router.get("/scan")
+def scan_current():
+    """Shared status across entry points, including after a page reload."""
+    return _SCAN_JOBS.running() or _SCAN_JOBS.latest() or {"state": "idle"}
 
 
 @router.get("/scan/{job_id}")
@@ -247,6 +255,8 @@ def tv_scrape_start(body: TvScrapeBody | None = None):
     body = body or TvScrapeBody()
     running = _TV_JOBS.running()
     if running:
+        if (running.get("library_id"), running.get("media_library_id"), sorted(running.get("ids") or []), bool(running.get("force"))) != (body.library_id, body.media_library_id, sorted(body.ids or []), body.force):
+            raise HTTPException(409, "另一个范围的剧集资料任务正在进行，请稍后重试")
         return {"job_id": running["job_id"], "resumed": True}
     job = _TV_JOBS.create(library_id=body.library_id,
                           media_library_id=body.media_library_id,
@@ -797,7 +807,13 @@ def stats(library: str | None = None):
                         or library_paths.DEFAULT_LIBRARY_ID)].get(
                             m["file_path"], True))
     base = store.library_stats(libs[0] if len(libs) == 1 else None)
-    return {**base, "missing_files": missing}
+    by_library = []
+    for lid in groups:
+        subset = [m for m in rows if int(m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID) == lid]
+        by_library.append({"library_id": lid,
+                           "pending": sum(bool(m.get("needs_review") or not m.get("tmdb_id")) for m in subset),
+                           "missing_files": sum(not maps[lid].get(m["file_path"], True) for m in subset)})
+    return {**base, "missing_files": missing, "by_library": by_library}
 
 
 # ===== IMDb 离线数据集导入（E 阶段）：手动触发，离线匹配用 =====
@@ -899,7 +915,7 @@ def _meta_rows(ids: list[int] | None, lib_ids: set[int] | None) -> list[dict]:
 
 def _meta_worker(jid: str, lib_ids: set[int] | None, dry_run: bool,
                  write_art: bool = True, backdrops: bool = True,
-                 ids: list[int] | None = None) -> None:
+                 ids: list[int] | None = None, write_nfo: bool = True) -> None:
     from .files import _is_file
 
     def _stop() -> bool:
@@ -924,8 +940,9 @@ def _meta_worker(jid: str, lib_ids: set[int] | None, dry_run: bool,
                 rel = target.get("rel") or ""
                 if not abs_p and backend is None:
                     raise RuntimeError("no writable target")
-                scanner.sync_nfos_for(m["id"], abs_p, force=True,
-                                      backend=backend, rel=rel)
+                if write_nfo:
+                    scanner.sync_nfos_for(m["id"], abs_p, force=True,
+                                          backend=backend, rel=rel)
                 if write_art:
                     artwork.write_for_movie(m["id"], abs_p, backend=backend,
                                             rel=rel, backdrops=backdrops)
@@ -945,6 +962,7 @@ class RebuildMetaBody(BaseModel):
     media_library_id: int | None = None
     ids: list[int] | None = None   # 单部/少量影片修复（优先于库筛选；上限 500）
     dry_run: bool = True
+    nfo: bool = True
     artwork: bool = True       # 同步 poster（artwork_mode=nfo_art 时）
     backdrops: bool = True     # 缺 fanart 时下载 backdrop（费流量，可关）
 
@@ -956,6 +974,8 @@ def rebuild_meta(body: RebuildMetaBody | None = None):
     或历史误写（挂载点）后补写。dry_run=true 默认只预览。
     body.ids（单部修复）优先；否则 library_id（单库）或 media_library_id（整个媒体库）。"""
     body = body or RebuildMetaBody()
+    if not body.nfo and not body.artwork:
+        raise HTTPException(422, "请选择 NFO 或海报")
     try:
         ids = sorted({int(x) for x in (body.ids or [])})
     except (TypeError, ValueError):
@@ -970,18 +990,23 @@ def rebuild_meta(body: RebuildMetaBody | None = None):
                 "sample": [m.get("file_path") for m in rows[:20]]}
     running = _META_JOBS.running()
     if running:
-        if ids:
-            raise HTTPException(409, "已有重建任务在跑，请等结束后再按影片重建")
+        if (ids or running.get("library_id") != body.library_id
+                or running.get("media_library_id") != body.media_library_id
+                or running.get("nfo", True) != body.nfo
+                or running.get("artwork", True) != body.artwork
+                or running.get("backdrops", True) != body.backdrops):
+            raise HTTPException(409, "已有不同范围或选项的资料修复任务，请等待完成")
         return {"job_id": running["job_id"], "resumed": True,
                 "library_id": running.get("library_id"),
                 "media_library_id": running.get("media_library_id")}
     job = _META_JOBS.create(library_id=body.library_id,
                             media_library_id=body.media_library_id,
-                            ids=ids, total=len(rows), targets=counts)
+                            ids=ids, total=len(rows), targets=counts, nfo=body.nfo,
+                            artwork=body.artwork, backdrops=body.backdrops)
     jid = job["job_id"]
     threading.Thread(target=_meta_worker,
                      args=(jid, lib_ids, False, body.artwork,
-                           body.backdrops, ids), daemon=True).start()
+                           body.backdrops, ids, body.nfo), daemon=True).start()
     return {"job_id": jid, "resumed": False, "library_id": body.library_id,
             "media_library_id": body.media_library_id, "ids": ids,
             "total": len(rows), "targets": counts}

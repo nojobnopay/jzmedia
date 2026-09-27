@@ -86,3 +86,18 @@ def test_pending_count_after_confirm(lib):
     d = client.get(f"/api/tv/shows?library={librow['id']}&pending=1&limit=50").json()
     assert [s["id"] for s in d["items"]] == [ids["episode"]]
     assert d["total"] == 1
+
+
+def test_overview_stats_use_pending_scope_and_count_seasons(lib):
+    row, _ = lib
+    ids = _seed(row['id'])
+    store.upsert_season(ids['ok'], row['id'], 1)
+    store.upsert_season(ids['ok'], row['id'], 2)
+    data = client.get('/api/tv/stats', params={'library': row['id']}).json()
+    assert data['shows'] == 4 and data['pending'] == 3
+    assert data['episodes'] == 2 and data['episode_review'] == 1
+    assert data['seasons'] == 3  # existing metadata and local season union, no double count
+    assert [x['library_id'] for x in data['by_library']] == [row['id']]
+    empty = client.get('/api/tv/stats?media_library=9999999').json()
+    assert empty['shows'] == empty['pending'] == empty['seasons'] == 0
+    assert empty['by_library'] == []
