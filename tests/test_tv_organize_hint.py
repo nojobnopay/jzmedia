@@ -108,7 +108,7 @@ def test_discover_finds_episode_added_after_initial_organize(tv_lib):
     # 模拟详情页已匹配/改过展示名后，再把最新一集直接放进整理过的 Season 01。
     store.update_show_meta(show["id"], title="滚石爱情故事（自定义标题）",
                            title_auto=0)
-    _touch(root, f"{show_dir}/滚石爱情故事.S01E20.第20集.mkv")
+    _touch(root, f"{show_dir}/20祝我幸福.mp4")
 
     r = client.post(f"/api/tv/shows/{show['id']}/discover")
     assert r.status_code == 200, r.text

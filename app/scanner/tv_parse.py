@@ -78,6 +78,12 @@ _SPECIAL_WORD = re.compile(
 
 _TOKEN_SPLIT = re.compile(r"[\s._\-\[\]\(\)【】{}]+")
 _TRAIL_NUM = re.compile(r"(?<=[^\d\s])(0*\d{1,4})$")
+_LEADING_CJK_NUM = re.compile(
+    r"^(0*\d{1,4})(?=[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af])")
+_CJK_RELEASE_PREFIXES = (
+    "高清", "超清", "蓝光", "原盘", "修复", "杜比", "中字",
+    "国语", "粤语", "双语", "合集", "全集", "完结",
+)
 # 括号包裹的尾部数字是集号标记（`蜡笔小新_高清版 (240).flv`）：即使命中分辨率词表
 # （240/360/480/576/720/1080/1440…）也按集号处理；`Show.1080p` 带字母后缀不受影响。
 _PAREN_NUM = re.compile(r"[\(\[【（]\s*(0*\d{1,4})\s*[\)\]】）]\s*$")
@@ -141,11 +147,24 @@ def _range_end(start, end) -> int:
 
 def _bare_number(stem: str) -> int | None:
     """裸数字：① 整名纯数字（`1080.flv`）② 纯数字 token（排除年份/规格）
-    ③ 标题紧贴数字（`黑街01`）④ 括号包裹的尾部数字（`高清版 (240)`，分辨率同值也算集号）。"""
+    ③ 数字紧贴中日韩标题（`20祝我幸福`）④ 标题紧贴数字（`黑街01`）
+    ⑤ 括号包裹的尾部数字（`高清版 (240)`，分辨率同值也算集号）。"""
     s = stem.strip()
     if s.isdigit():
         v = int(s)
         if 0 < v <= 9999:
+            return v
+    m = _LEADING_CJK_NUM.match(s)
+    if m:
+        digits = m.group(1)
+        v = int(digits)
+        suffix = s[m.end():]
+        looks_like_release = (
+            not digits.startswith("0")
+            and v in _RESOLUTIONS
+            and suffix.startswith(_CJK_RELEASE_PREFIXES)
+        )
+        if 0 < v <= 9999 and not (1900 <= v <= 2099) and not looks_like_release:
             return v
     toks = _TOKEN_SPLIT.split(s)
     for i, tok in enumerate(toks):

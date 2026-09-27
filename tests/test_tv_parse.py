@@ -31,6 +31,9 @@ def test_regular_episodes(name, season, episode, end):
     ("0001.flv", 1),
     ("蜡笔小新.0001.flv", 1),
     ("21.mp4", 21),
+    ("20祝我幸福.mp4", 20),
+    ("01神秘的龙珠.mp4", 1),
+    ("12旅立ち.mp4", 12),
     ("01.神秘的龙珠出现 悟空变成了小孩(ED2000.COM).mkv", 1),
     ("黑街01.mp4", 1),
     ("1 残酷.mp4", 1),
@@ -51,6 +54,9 @@ def test_bare_numbers(name, episode):
     "Show.1080p.mkv",
     "Show.2019.mkv",
     "Show.2160p.HEVC.mkv",
+    "2024年度盘点.mkv",
+    "1080高清修复版.mkv",
+    "2160杜比视界.mkv",
     "Show (2019).mkv",
 ])
 def test_no_episode(name):
