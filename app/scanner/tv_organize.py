@@ -338,6 +338,7 @@ def _plan_bound_roots(show, episodes, plan, actions, cache, allow_torrent, profi
         plan['conflicts'].append({'from': '', 'to': target, 'reason': '目标目录属于其他剧集'})
         return plan
     destinations = set()
+    cleanup_parents = set()
     for root in roots:
         rule = rules.get(root)
         local = [e for e in episodes if contains(root, e['file_path'])]
@@ -364,6 +365,11 @@ def _plan_bound_roots(show, episodes, plan, actions, cache, allow_torrent, profi
             continue
         destinations.add(dst)
         plan['dir_moves'].append({'action': 'season', 'kind': 'episode', 'from': root, 'to': dst})
+        parent = os.path.dirname(root)
+        if parent and parent != target:
+            cleanup_parents.add(parent)
+    plan['rmdirs'].extend(sorted(cleanup_parents, key=lambda x: (-len(x), x)))
+    plan['rmdirs'] = sorted(set(plan['rmdirs']), key=lambda x: (-len(x), x))
     if not plan['blocked']:
         totals = {}
         for directory, count in plan['dir_totals'].items():

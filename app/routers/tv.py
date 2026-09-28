@@ -417,6 +417,10 @@ def show_detail(show_id: int, verify: str = "0", include_episodes: int = 0):
     if not show:
         raise HTTPException(404, "show not found")
     d = dict(show)
+    lib = library_paths.get_library(d.get("library_id")) or {}
+    d["library_name"] = lib.get("name") or ""
+    d["media_library_id"] = lib.get("media_library_id")
+    d["media_name"] = lib.get("media_name") or ""
     seasons_meta = store.list_seasons(show_id)
     stats = {s["season"]: s for s in store.show_season_stats(show_id)}
     seasons = []

@@ -1122,10 +1122,13 @@ def similar_shows(show_id: int, limit: int = 12) -> list[dict]:
         lim = 12
     with _lock, _conn() as c:
         rows = c.execute(
-            "SELECT s.*, COUNT(e.id) AS episode_count,"
+            "SELECT s.*, l.name AS library_name, l.media_library_id,"
+            " m.name AS media_name, COUNT(e.id) AS episode_count,"
             " COUNT(DISTINCT e.season) AS season_count,"
             " COALESCE(SUM(e.watched), 0) AS watched_count"
-            " FROM tv_shows s LEFT JOIN tv_episodes e ON e.show_id=s.id"
+            " FROM tv_shows s JOIN libraries l ON l.id=s.library_id"
+            " JOIN media_libraries m ON m.id=l.media_library_id"
+            " LEFT JOIN tv_episodes e ON e.show_id=s.id"
             " WHERE s.id<>? GROUP BY s.id LIMIT 1001",
             (int(show_id),)).fetchall()
     scored = []

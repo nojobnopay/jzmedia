@@ -11,6 +11,7 @@
             <ScoreBadge :score="x.tmdb_rating" source="tmdb" />
           </div>
           <div class="similar-name" :title="x.title">{{ x.title }}<span v-if="x.year" class="similar-year">({{ x.year }})</span><span v-if="x.version_count > 1" class="similar-year">×{{ x.version_count }}</span><span v-if="hasScore(x.custom_rating)" class="similar-custom">♥{{ fmtScore(x.custom_rating) }}</span></div>
+          <div v-if="mediaText(x)" class="similar-library" :title="mediaText(x)">{{ mediaText(x) }}</div>
           <div v-if="x.reason" class="similar-reason" :title="x.reason">{{ x.reason }}</div>
         </div>
       </div>
@@ -36,6 +37,10 @@ defineProps({
   subtitle: { type: String, default: '按系列 / 影人 / 类型 / 标签推荐' },
 })
 defineEmits(['open'])
+
+function mediaText (item) {
+  return [...new Set([item?.media_name, item?.library_name].filter(Boolean))].join(' · ')
+}
 
 const rowRef = ref(null)
 const bar = ref({ show: false, left: 0, width: 100 })
@@ -75,6 +80,7 @@ onUnmounted(() => window.removeEventListener('resize', updateBar))
 .similar-name { font-size: 0.8125rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .similar-year { color: #999; font-size: 0.75rem; margin-left: 4px; }
 .similar-custom { color: #ff6b6b; font-size: 0.75rem; margin-left: 4px; }
+.similar-library { font-size: 0.6875rem; color: #6ab0ff; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .similar-reason { font-size: 0.75rem; color: #888; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .similar-nav { position: absolute; top: 42%; transform: translateY(-50%); z-index: 2; width: 32px; height: 44px; border: none; border-radius: 8px; background: rgba(0,0,0,.62); color: #eee; font-size: 1.5rem; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s; padding: 0; }
 .similar-nav.left { left: 4px; }

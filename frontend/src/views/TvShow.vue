@@ -16,6 +16,8 @@
             <span v-if="show.region">{{ show.region }}</span>
             <span v-if="show.episode_run_time">{{ show.episode_run_time }} 分钟/集</span>
             <span v-if="show.genres && show.genres.length">{{ show.genres.join(' / ') }}</span>
+            <span v-if="show.media_name">媒体库：{{ show.media_name }}<template
+              v-if="show.library_name"> / {{ show.library_name }}</template></span>
           </div>
           <MediaOverview :text="show.overview || ''" />
           <div class="acts">
@@ -123,7 +125,7 @@
 
 <script setup>
 import { followingPlayback } from '../episodePlayback.js'
-import { currentMediaId } from '../libraries.js'
+import { currentMediaId, loadLibs, switchMedia } from '../libraries.js'
 import { browseReturn } from '../browseHistory.js'
 
 import PlayerIcon from '../components/PlayerIcon.vue'
@@ -264,17 +266,32 @@ function playExtra (x) {
 function openSeason (sn) { router.push(`/tv/${show.value.id}/s/${sn}`) }
 function openShow (id) { router.push('/tv/' + id) }
 async function load (verify = '0') {
+  const requestedId = String(route.params.id)
   msg.value = ''
   similar.value = []
   try {
     const q = verify && verify !== '0' ? '?verify=' + encodeURIComponent(verify) : ''
-    show.value = await api('/api/tv/shows/' + route.params.id + q)
-    if (!show.value.tmdb_id) matchOpen.value = true
+    const detail = await api('/api/tv/shows/' + requestedId + q)
+    if (String(route.params.id) !== requestedId) return
+    show.value = detail
+    const mediaId = Number(detail.media_library_id)
+    if (mediaId && mediaId !== currentMediaId()) {
+      if (!switchMedia(mediaId)) {
+        try {
+          await loadLibs(api)
+          if (String(route.params.id) === requestedId) switchMedia(mediaId)
+        } catch (e) { /* 详情内已有媒体库名称，列表刷新失败不阻断页面 */ }
+      }
+    }
+    if (!detail.tmdb_id) matchOpen.value = true
     try {
-      similar.value = (await api(`/api/tv/shows/${route.params.id}/similar`)).items || []
-    } catch (e) { similar.value = [] }  // 相关节目失败不挡详情页
+      const related = await api(`/api/tv/shows/${requestedId}/similar`)
+      if (String(route.params.id) === requestedId) similar.value = related.items || []
+    } catch (e) {
+      if (String(route.params.id) === requestedId) similar.value = []
+    }  // 相关节目失败不挡详情页
   } catch (e) {
-    msg.value = '加载失败：' + e.message
+    if (String(route.params.id) === requestedId) msg.value = '加载失败：' + e.message
   }
 }
 

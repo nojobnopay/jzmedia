@@ -111,6 +111,30 @@ def test_similar(two_seasons):
     assert all(m["id"] != sid for m in items)
 
 
+def test_cross_media_related_show_exposes_library_context(two_seasons, tmp_path):
+    root = tmp_path / "other-tv"
+    root.mkdir()
+    other = store.create_library(name="另一个媒体库", kind="tv", path=str(root))
+    library_paths.invalidate_cache()
+    try:
+        context = store.get_library(other["id"])
+        other_id = _show(other["id"], "跨库同门剧", 2021,
+                         genres=["剧情"], networks=["HBO"])
+        items = client.get(
+            f"/api/tv/shows/{two_seasons['sid']}/similar").json()["items"]
+        item = next(x for x in items if x["id"] == other_id)
+        assert item["media_library_id"] == context["media_library_id"]
+        assert item["media_name"] == context["media_name"]
+        assert item["library_name"] == context["name"]
+        detail = client.get(f"/api/tv/shows/{other_id}").json()
+        assert detail["media_library_id"] == context["media_library_id"]
+        assert detail["media_name"] == context["media_name"]
+        assert detail["library_name"] == context["name"]
+    finally:
+        store.delete_media_library(other["media_library_id"])
+        library_paths.invalidate_cache()
+
+
 def test_episode_detail_cast(two_seasons):
     e11 = two_seasons["e11"]
     d = client.get(f"/api/tv/episodes/{e11}").json()

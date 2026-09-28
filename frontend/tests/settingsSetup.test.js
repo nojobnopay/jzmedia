@@ -27,3 +27,11 @@ test('media library form initializes and renders before any connection is loaded
   assert.match(html, /创建媒体库/)
   assert.match(html, /jz-lib-name/)
 })
+
+test('library action controls keep the table cell layout', () => {
+  const filename = new URL('../src/components/LibrariesPanel.vue', import.meta.url)
+  const source = readFileSync(filename, 'utf8')
+  assert.equal((source.match(/<td class="ops">\s*<div class="ops-wrap">/g) || []).length, 2)
+  assert.match(source, /\.lib-table \.ops-wrap \{ display: flex;/)
+  assert.doesNotMatch(source, /\.lib-table \.ops \{[^}]*display:\s*flex;/)
+})

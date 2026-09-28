@@ -28,26 +28,28 @@
               <div v-if="m.last_error && m.enabled" class="fhint err" :title="m.last_error">{{ m.last_error }}</div>
             </td>
             <td class="ops">
-              <button @click="connect(m)" :disabled="!!busy">
-                {{ busy === 'conn' + m.id ? (m.source === 'local' ? '检查中…' : '连接中…') : (m.source === 'local' ? '检查路径' : statusKind(m) === 'ok' ? '检查连接' : '连接') }}
-              </button>
-              <button @click="scanAll(m)" :disabled="!!busy || scanning['m:' + m.id]">
-                {{ scanning['m:' + m.id] ? '扫描中…' : '扫描此媒体库' }}
-              </button>
-              <button v-if="scanning['m:' + m.id]" @click="cancelScan('m:' + m.id)">取消</button>
-              <details class="more">
-                <summary title="更多操作">更多</summary>
-                <div class="more-menu">
-                  <button @click="addVideoOpen(m); closeMenu($event)">添加视频库</button>
-                  <button v-if="m.source !== 'local'" @click="editConn(m); closeMenu($event)">编辑连接</button>
-                  <button v-if="m.source === 'local' && m.movie_count + m.episode_count === 0" @click="editPath(m); closeMenu($event)">修改根目录</button>
-                  <button v-if="m.source !== 'local'" @click="mount(m, true); closeMenu($event)">挂载</button>
-                  <button v-if="m.source !== 'local'" @click="mount(m, false); closeMenu($event)">卸载</button>
-                  <button @click="toggleReadOnly(m); closeMenu($event)">{{ m.read_only ? '取消只读' : '设只读' }}</button>
-                  <button @click="toggleEnabled(m); closeMenu($event)">{{ m.enabled ? '停用' : '启用' }}</button>
-                  <button class="danger" @click="armDelete(m); closeMenu($event)">移除媒体库…</button>
-                </div>
-              </details>
+              <div class="ops-wrap">
+                <button @click="connect(m)" :disabled="!!busy">
+                  {{ busy === 'conn' + m.id ? (m.source === 'local' ? '检查中…' : '连接中…') : (m.source === 'local' ? '检查路径' : statusKind(m) === 'ok' ? '检查连接' : '连接') }}
+                </button>
+                <button @click="scanAll(m)" :disabled="!!busy || scanning['m:' + m.id]">
+                  {{ scanning['m:' + m.id] ? '扫描中…' : '扫描此媒体库' }}
+                </button>
+                <button v-if="scanning['m:' + m.id]" @click="cancelScan('m:' + m.id)">取消</button>
+                <details class="more">
+                  <summary title="更多操作">更多</summary>
+                  <div class="more-menu">
+                    <button @click="addVideoOpen(m); closeMenu($event)">添加视频库</button>
+                    <button v-if="m.source !== 'local'" @click="editConn(m); closeMenu($event)">编辑连接</button>
+                    <button v-if="m.source === 'local' && m.movie_count + m.episode_count === 0" @click="editPath(m); closeMenu($event)">修改根目录</button>
+                    <button v-if="m.source !== 'local'" @click="mount(m, true); closeMenu($event)">挂载</button>
+                    <button v-if="m.source !== 'local'" @click="mount(m, false); closeMenu($event)">卸载</button>
+                    <button @click="toggleReadOnly(m); closeMenu($event)">{{ m.read_only ? '取消只读' : '设只读' }}</button>
+                    <button @click="toggleEnabled(m); closeMenu($event)">{{ m.enabled ? '停用' : '启用' }}</button>
+                    <button class="danger" @click="armDelete(m); closeMenu($event)">移除媒体库…</button>
+                  </div>
+                </details>
+              </div>
             </td>
           </tr>
           <tr v-if="rowMsg['m:' + m.id]" class="row-msg">
@@ -102,12 +104,14 @@
                 <span v-if="rowMsg['v:' + v.id]" :class="msgClass('v:' + v.id)">{{ rowMsg['v:' + v.id].text }}</span>
               </td>
               <td class="ops">
-                <button @click="scanVideo(v)" :disabled="!!busy || scanning['v:' + v.id]">
-                  {{ scanning['v:' + v.id] ? '扫描中…' : '扫描' }}
-                </button>
-                <button v-if="scanning['v:' + v.id]" @click="cancelScan('v:' + v.id)">取消</button>
-                <button @click="editVideo(v, m)">编辑</button>
-                <button class="danger" @click="armDeleteVideo(v, m)">移除视频库…</button>
+                <div class="ops-wrap">
+                  <button @click="scanVideo(v)" :disabled="!!busy || scanning['v:' + v.id]">
+                    {{ scanning['v:' + v.id] ? '扫描中…' : '扫描' }}
+                  </button>
+                  <button v-if="scanning['v:' + v.id]" @click="cancelScan('v:' + v.id)">取消</button>
+                  <button @click="editVideo(v, m)">编辑</button>
+                  <button class="danger" @click="armDeleteVideo(v, m)">移除视频库…</button>
+                </div>
               </td>
             </tr>
             <tr v-if="videoEdit && videoEdit.mediaId === m.id">
@@ -910,7 +914,8 @@ defineExpose({ ensure: load })
 .lib-table th, .lib-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #333; vertical-align: middle; }
 .lib-table tr.off { opacity: .5; }
 .lib-table .path { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lib-table .ops { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.lib-table .ops { min-width: 260px; }
+.lib-table .ops-wrap { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .badge { margin-left: 6px; font-size: 0.75rem; border: 1px solid #6b5518; color: #e0b34a; border-radius: 999px; padding: 1px 8px; }
 .badge.drv { border-color: #2b4a6e; color: #6ab0ff; }
 .badge.tv { border-color: #4a2b6e; color: #c08aff; }

@@ -32,7 +32,7 @@ import BackToTop from './components/BackToTop.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setToken, api } from './api.js'
-import { listMediaLibs, currentMediaId, loadLibs, switchMedia } from './libraries.js'
+import { listMediaLibs, currentMediaId, loadLibs, onLibChange, switchMedia } from './libraries.js'
 
 const authAsk = ref(false)
 const authInput = ref('')
@@ -40,6 +40,7 @@ const libs = ref([])          // 媒体库列表
 const currentId = ref(null)   // 当前媒体库 id
 const router = useRouter()
 const route = useRoute()
+let offLibChange = null
 
 const showSwitch = computed(() => libs.value.length > 1)
 function optionLabel(m) {
@@ -68,6 +69,7 @@ function onSwitch(e) {
     .then(failure => { if (!failure) switchMedia(id); else e.target.value = currentId.value })
 }
 onMounted(async () => {
+  offLibChange = onLibChange(syncLibs)
   try {
     await loadLibs(api)
     libs.value = listMediaLibs()
@@ -77,6 +79,7 @@ onMounted(async () => {
   window.addEventListener('jzmedia:libraries-changed', syncLibs)
 })
 onUnmounted(() => {
+  if (offLibChange) offLibChange()
   window.removeEventListener('jzmedia:unauthorized', onUnauthorized)
   window.removeEventListener('jzmedia:libraries-changed', syncLibs)
 })

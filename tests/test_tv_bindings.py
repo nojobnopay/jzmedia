@@ -234,6 +234,28 @@ def test_organize_four_directories_and_restore_rules(lib):
     assert {r['path'] for r in store.list_tv_bindings(l['id'])}=={'裂变','纵横','崛起','大秦赋'}
 
 
+def test_organize_removes_empty_old_parent_and_restore_recreates_it(lib):
+    from app.scanner import tv_organize
+    l,root=lib
+    touch(root,'旧目录/裂变/E01.mkv')
+    touch(root,'旧目录/纵横/E01.mkv')
+    token=plan(l,[('旧目录/裂变',1),('旧目录/纵横',2)])['token']
+    sid=tv_bindings.apply(token)['show_id']
+    preview=tv_organize.plan_tv_organize(ids=[sid])
+    item=preview['plans'][0]
+    assert '旧目录' in item['rmdirs']
+    result=tv_organize.execute_tv_organize(preview['plans'])
+    assert result['failed']==0
+    assert not (root/'旧目录').exists()
+    assert (root/'系列剧32231 (2009)/Season 01/E01.mkv').exists()
+    assert (root/'系列剧32231 (2009)/Season 02/E01.mkv').exists()
+    undo=tv_organize.plan_restore(batch_id=result['batch_id'])
+    restored=tv_organize.execute_restore(undo['plans'])
+    assert restored['failed']==0
+    assert (root/'旧目录/裂变/E01.mkv').exists()
+    assert (root/'旧目录/纵横/E01.mkv').exists()
+
+
 def test_organize_conflict_and_torrent_guard(lib):
     from app.scanner import tv_organize
     l,root=lib
