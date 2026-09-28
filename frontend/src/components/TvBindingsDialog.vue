@@ -6,7 +6,8 @@
           <div><h2 id="tv-binding-title">剧集归属与季号</h2><p class="hint">选择本地目录，确认它们属于哪部剧、哪一季。保存后新增分集和重新扫描会沿用。</p></div>
           <button type="button" :disabled="applying" aria-label="关闭" @click="close">✕</button>
         </header>
-        <p v-if="loading" role="status">正在读取目录与现有归属…</p>
+        <p v-if="loading" role="status">正在读取已扫描目录与现有归属…</p>
+        <p v-if="refreshing" role="status" class="hint">已显示数据库中的目录，正在后台刷新磁盘目录…</p>
         <p v-if="error" class="binding-error" role="alert">{{ error }}</p>
         <p v-if="completed" class="binding-success" role="status">
           {{ completed.undone ? '已撤销归属变更，观看记录保留。' : `已保存 ${completed.directories} 个目录的归属，共 ${completed.episodes} 个视频。原目录和文件名保持不变。` }}
@@ -21,7 +22,7 @@
               <input v-model="row.checked" type="checkbox" />
               <span><strong>{{ row.path }}</strong><small>{{ row.files }} 个视频 · {{ row.episodes.length }} 个集号<template v-if="row.binding"> · 已确认归属</template></small></span>
             </label>
-            <p v-if="!loading && !filteredRows.length" class="hint">没有符合条件的剧集目录。</p>
+            <p v-if="!loading && !refreshing && !filteredRows.length" class="hint">没有符合条件的剧集目录。</p>
           </div>
         </fieldset>
         <fieldset :disabled="applying || loading">
@@ -112,7 +113,7 @@ const emit = defineEmits(['close', 'changed'])
 const box = ref(null), filter = ref('')
 useFocusTrap(computed(() => true), box)
 const { rows, shows, history, query, results, candidates, target, plan, undoPlan, completed,
-  error, notes, loading, searching, suggesting, previewing, applying, replaceManual, allowDuplicates,
+  error, notes, loading, refreshing, searching, suggesting, previewing, applying, replaceManual, allowDuplicates,
   selected, canPreview, canApply, load, search, suggest, choose, preview, apply, previewUndo, undo,
   invalidate } = useTvBindings(props.libraryId, props.showId, { onChanged: result => emit('changed', result) })
 const filteredRows = computed(() => rows.value.filter(r => r.path.toLowerCase().includes(filter.value.toLowerCase())))

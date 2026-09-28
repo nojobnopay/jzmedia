@@ -3,11 +3,12 @@ import { api } from './api.js'
 
 export function useTvBindings(libraryId, showId = null, options = {}) {
   const request = options.request || api
+  const pollDelay = options.pollDelay ?? 700
   const rows = ref([]), shows = ref([]), history = ref([])
   const query = ref(''), results = ref([]), candidates = ref([]), target = ref(null)
   const plan = ref(null), undoPlan = ref(null), completed = ref(null)
   const error = ref(''), notes = ref([])
-  const loading = ref(false), searching = ref(false), suggesting = ref(false)
+  const loading = ref(false), refreshing = ref(false), searching = ref(false), suggesting = ref(false)
   const previewing = ref(false), applying = ref(false)
   const replaceManual = ref(false), allowDuplicates = ref(false)
   const selected = computed(() => rows.value.filter(r => r.checked))
@@ -21,7 +22,9 @@ export function useTvBindings(libraryId, showId = null, options = {}) {
   const canApply = computed(() => !!plan.value?.can_apply && !!plan.value?.token &&
     !previewing.value && !applying.value)
   let disposed = false, loadGen = 0, searchGen = 0, suggestGen = 0, previewGen = 0
+  let syncingInventory = false
   const controllers = new Set()
+  const pauseTimers = new Map()
   async function read(url, opts = {}) {
     const controller = new AbortController()
     controllers.add(controller)
@@ -30,14 +33,59 @@ export function useTvBindings(libraryId, showId = null, options = {}) {
   }
   const post = (url, data, cancellable = true) => (cancellable ? read : request)(url,
     { method: 'POST', body: JSON.stringify(data) })
+  function pause(ms) {
+    return new Promise(resolve => {
+      const timer = setTimeout(() => { pauseTimers.delete(timer); resolve() }, ms)
+      pauseTimers.set(timer, resolve)
+    })
+  }
+  async function runJob(url, data, valid = () => true) {
+    const started = await post(url, data)
+    if (started.state === 'done') return started.result
+    if (!started.job_id) throw new Error('后台任务未能启动，请重试')
+    while (!disposed && valid()) {
+      const job = await read(`/api/tv/bindings/jobs/${encodeURIComponent(started.job_id)}`, { timeout: 15000 })
+      if (job.state === 'done') return job.result
+      if (job.state === 'failed' || job.state === 'cancelled') {
+        throw new Error(job.error || (job.state === 'cancelled' ? '任务已取消' : '后台处理失败'))
+      }
+      await pause(pollDelay)
+    }
+    throw new Error('已取消')
+  }
+  function setInventory(data, preserve = false) {
+    const old = new Map(rows.value.map(row => [row.path, row]))
+    const oldBody = preserve ? JSON.stringify(body.value) : ''
+    const oldPaths = preserve ? selected.value.map(row => row.path).join('\n') : ''
+    syncingInventory = true
+    try {
+      rows.value = (data.items || []).map(row => {
+        const previous = preserve ? old.get(row.path) : null
+        return { ...row,
+          checked: previous ? previous.checked : !!row.selected,
+          season: previous ? previous.season : (row.binding?.season ?? ''),
+          override: previous ? previous.override : !!row.binding?.override_season }
+      })
+      shows.value = data.shows || shows.value
+    } finally {
+      syncingInventory = false
+    }
+    if (preserve && oldBody !== JSON.stringify(body.value)) invalidate()
+    if (preserve && oldPaths !== selected.value.map(row => row.path).join('\n')) {
+      ++suggestGen
+      suggesting.value = false
+      candidates.value = []
+    }
+  }
   function invalidate() {
     ++previewGen
     plan.value = null
     undoPlan.value = null
     previewing.value = false
   }
-  watch(body, invalidate, { deep: true, flush: 'sync' })
+  watch(body, () => { if (!syncingInventory) invalidate() }, { deep: true, flush: 'sync' })
   watch(() => selected.value.map(r => r.path).join('\n'), () => {
+    if (syncingInventory) return
     ++suggestGen
     suggesting.value = false
     candidates.value = []
@@ -53,15 +101,32 @@ export function useTvBindings(libraryId, showId = null, options = {}) {
         read(`/api/tv/bindings/history?library_id=${libraryId}`),
       ])
       if (disposed || gen !== loadGen) return
-      rows.value = (data.items || []).map(r => ({ ...r, checked: !!r.selected,
-        season: r.binding?.season ?? '', override: !!r.binding?.override_season }))
-      shows.value = data.shows || []
+      setInventory(data)
       history.value = journal.items || []
       const current = shows.value.find(s => s.id === Number(showId))
       if (current?.tmdb_id) target.value = { ...current, show_id: current.id }
       query.value = selected.value[0]?.query || ''
+      void refreshInventory(gen)
     } catch (e) { if (!disposed && gen === loadGen) error.value = e.message }
     finally { if (!disposed && gen === loadGen) loading.value = false }
+  }
+  async function refreshInventory(loadGeneration = loadGen) {
+    if (disposed) return
+    refreshing.value = true
+    try {
+      const data = await runJob('/api/tv/bindings/directories/refresh', {
+        library_id: Number(libraryId), show_id: showId ? Number(showId) : null,
+      }, () => loadGeneration === loadGen)
+      if (disposed || loadGeneration !== loadGen) return
+      setInventory(data, true)
+      const current = shows.value.find(s => s.id === Number(showId))
+      if (!target.value && current?.tmdb_id) target.value = { ...current, show_id: current.id }
+      if (!query.value) query.value = selected.value[0]?.query || ''
+    } catch (e) {
+      if (!disposed && loadGeneration === loadGen && e.message !== '已取消') {
+        notes.value = [`目录刷新：${e.message}；当前仍可使用已扫描目录`]
+      }
+    } finally { if (!disposed && loadGeneration === loadGen) refreshing.value = false }
   }
   async function search() {
     const term = query.value.trim()
@@ -82,8 +147,8 @@ export function useTvBindings(libraryId, showId = null, options = {}) {
     suggesting.value = true
     error.value = ''
     try {
-      const data = await post('/api/tv/bindings/suggest', { library_id: Number(libraryId),
-        paths: selected.value.map(r => r.path), tmdb_id: tmdbId })
+      const data = await runJob('/api/tv/bindings/suggest/start', { library_id: Number(libraryId),
+        paths: selected.value.map(r => r.path), tmdb_id: tmdbId }, () => gen === suggestGen)
       if (disposed || gen !== suggestGen) return
       candidates.value = data.items || []
       notes.value = data.warnings || []
@@ -115,7 +180,7 @@ export function useTvBindings(libraryId, showId = null, options = {}) {
     previewing.value = true
     const payload = JSON.parse(JSON.stringify(body.value))
     try {
-      const data = await post('/api/tv/bindings/preview', payload)
+      const data = await runJob('/api/tv/bindings/preview/start', payload, () => gen === previewGen)
       if (!disposed && gen === previewGen) plan.value = data
     } catch (e) { if (!disposed && gen === previewGen) error.value = e.message }
     finally { if (!disposed && gen === previewGen) previewing.value = false }
@@ -126,7 +191,7 @@ export function useTvBindings(libraryId, showId = null, options = {}) {
     applying.value = true
     error.value = ''
     try {
-      const result = await post('/api/tv/bindings/apply', { token }, false)
+      const result = await runJob('/api/tv/bindings/apply/start', { token })
       if (disposed) return
       completed.value = result
       target.value = { ...target.value, show_id: result.show_id }
@@ -164,9 +229,14 @@ export function useTvBindings(libraryId, showId = null, options = {}) {
     disposed = true
     ++loadGen; ++searchGen; ++suggestGen; ++previewGen
     for (const controller of controllers) controller.abort()
+    for (const [timer, resolve] of pauseTimers) {
+      clearTimeout(timer)
+      resolve()
+    }
+    pauseTimers.clear()
   })
   return { rows, shows, history, query, results, candidates, target, plan, undoPlan,
-    completed, error, notes, loading, searching, suggesting, previewing, applying,
+    completed, error, notes, loading, refreshing, searching, suggesting, previewing, applying,
     replaceManual, allowDuplicates, selected, canPreview, canApply,
-    load, search, suggest, choose, preview, apply, previewUndo, undo, invalidate }
+    load, refreshInventory, search, suggest, choose, preview, apply, previewUndo, undo, invalidate }
 }

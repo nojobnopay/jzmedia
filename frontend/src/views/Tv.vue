@@ -566,9 +566,9 @@ onMounted(async () => {
   try { await loadLibs(api) } catch (e) { /* 后端不可用时按单库旧行为 */ }
   if (disposed) return
   readUrl()
-  await loadFacets()
+  const initial = Promise.all([loadFacets(), restoreWall()])
   if (disposed) return
-  await restoreWall()
+  await initial
   if (disposed) return
   unsubLib = onLibChange(() => { if (route.path !== '/tv') return; curMediaId.value = currentMediaId(); loadFacets(); load() })
   try {

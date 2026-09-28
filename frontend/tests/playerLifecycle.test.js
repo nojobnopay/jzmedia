@@ -85,6 +85,10 @@ test('api() 支持外部 signal：外部取消与超时区分', () => {
   assert.match(apiSrc, /outer\.aborted/, 'api 必须区分外部取消与超时')
   assert.match(apiSrc, /addEventListener\('abort'/)
 })
+  assert.match(apiSrc, /method\s*===\s*'GET'\s*\?\s*30000\s*:\s*120000/,
+    '只读请求应比写请求更快超时')
+  assert.match(apiSrc, /请求超时，请检查连接后重试/)
+  assert.doesNotMatch(apiSrc, /请求超时，后台可能仍在处理，稍后刷新查看/)
 
 test('播放器遮罩自足：player.css 提供 fixed 居中 .dlg-mask（不依赖父页面 scoped 样式）', () => {
   // 2026-09 用户实测：剧集页（Tv/TvShow/SeasonView/EpisodeView）没有 scoped .dlg-mask，

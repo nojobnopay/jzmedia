@@ -9,6 +9,7 @@ import os
 from collections import defaultdict
 
 from . import library_paths, storage, store, tmdb
+from .library_mutex import library_mutation_lock
 from .log import get_logger
 from .scanner import tv_match, tv_parse, tv_persist
 from .scanner.scan import (_video_entries, _tv_special_hints, resolve_tv_numbers,
@@ -21,13 +22,22 @@ logger = get_logger('tv_bindings')
 _MAX_ENTRIES = 50000
 
 
-def _backend(library_id):
+def _library(library_id):
     lib = library_paths.get_library(library_id)
     if not lib or lib.get('kind') != 'tv':
         raise ValueError('请选择有效的剧集视频库')
     if not lib.get('effective_enabled', lib.get('enabled')):
         raise ValueError('视频库已停用')
-    return storage.backend_for_library(lib)
+    return lib
+
+
+def _backend(library_id):
+    return storage.backend_for_library(_library(library_id))
+
+
+def _public_shows(shows):
+    return [dict(id=s['id'], title=s['title'], tmdb_id=s.get('tmdb_id'),
+                 year=s.get('year')) for s in shows.values()]
 
 
 def _tree(backend, path=''):
@@ -42,6 +52,60 @@ def _tree(backend, path=''):
 def _fingerprint(entries):
     rows = sorted((e.rel, bool(e.is_dir), e.size, e.mtime) for e in entries)
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode()).hexdigest()
+
+
+def catalog_inventory(library_id, show_id=None):
+    """Return known directories from SQLite without touching media storage.
+
+    This is the dialog's first paint. A background refresh can later replace it
+    with `inventory()`, which also discovers files not scanned into the catalog.
+    """
+    _library(library_id)
+    shows = {s['id']: s for s in store.list_shows(library_id)}
+    rules = store.list_tv_bindings(library_id)
+    groups = {}
+
+    def add(root, episode=None, rule=None):
+        if not root:
+            return
+        item = groups.setdefault(root, dict(path=root, files=0, episodes=set(),
+                    seasons=set(), show_ids=set(), samples=[], binding=rule))
+        if rule and not item.get('binding'):
+            item['binding'] = rule
+        if episode:
+            item['files'] += 1
+            start = int(episode['episode'])
+            item['episodes'].update(range(start,
+                max(start, int(episode.get('episode_end') or 0)) + 1))
+            item['seasons'].add(int(episode['season']))
+            item['show_ids'].add(int(episode['show_id']))
+            if len(item['samples']) < 2:
+                item['samples'].append(os.path.basename(episode['file_path']))
+
+    for rule in rules:
+        add(rule['path'], rule=rule)
+    from .scanner.tv_nfo_link import _direct_dirs, show_dir_of
+    for sid in shows:
+        episodes = store.list_episodes(sid)
+        direct = _direct_dirs(episodes)
+        for episode in episodes:
+            rule = binding_for(episode['file_path'], rules)
+            root = rule['path'] if rule else show_dir_of(episode['file_path'], direct)
+            add(root, episode, rule)
+
+    out = []
+    for item in groups.values():
+        for key in ('episodes', 'seasons', 'show_ids'):
+            item[key] = sorted(item[key])
+        item['selected'] = bool(show_id and (int(show_id) in item['show_ids']
+                                or (item.get('binding') or {}).get('show_id') == int(show_id)))
+        item['shows'] = [dict(id=sid, title=shows.get(sid, {}).get('title', ''),
+                              tmdb_id=shows.get(sid, {}).get('tmdb_id'))
+                         for sid in item['show_ids']]
+        item['query'], item['year'] = release_identity(os.path.basename(item['path']))
+        out.append(item)
+    return dict(items=sorted(out, key=lambda item: item['path']),
+                shows=_public_shows(shows), source='catalog')
 
 
 def inventory(library_id, show_id=None):
@@ -83,8 +147,7 @@ def inventory(library_id, show_id=None):
         item['query'], item['year'] = release_identity(os.path.basename(item['path']))
         out.append(item)
     return dict(items=sorted(out, key=lambda i: i['path']),
-                shows=[dict(id=s['id'], title=s['title'], tmdb_id=s.get('tmdb_id'), year=s.get('year'))
-                       for s in shows.values()])
+                shows=_public_shows(shows), source='storage')
 
 
 def target_detail(tmdb_id):
@@ -307,17 +370,18 @@ def apply(token):
     if record['state'] != 'preview':
         raise ValueError('预览已经失效')
     p = record['payload']
-    backend = _backend(p['library_id'])
-    storage.clear_meta_cache(p['library_id'])
-    entries = []
-    for rule in p['rules']:
-        entries.extend(_tree(backend, rule['path']))
-    if _fingerprint(entries) != p['fingerprint']:
-        raise ValueError('目录内容已变化，请重新预览')
-    if p['target']['show_id']:
-        if sorted(e['id'] for e in store.list_episodes(p['target']['show_id'])) != p['target_episode_ids']:
-            raise ValueError('目标剧新增了分集，请重新预览核对重复集号')
-    result = store.apply_tv_binding_plan(token)
+    with library_mutation_lock(p['library_id']):
+        backend = _backend(p['library_id'])
+        storage.clear_meta_cache(p['library_id'])
+        entries = []
+        for rule in p['rules']:
+            entries.extend(_tree(backend, rule['path']))
+        if _fingerprint(entries) != p['fingerprint']:
+            raise ValueError('目录内容已变化，请重新预览')
+        if p['target']['show_id']:
+            if sorted(e['id'] for e in store.list_episodes(p['target']['show_id'])) != p['target_episode_ids']:
+                raise ValueError('目标剧新增了分集，请重新预览核对重复集号')
+        result = store.apply_tv_binding_plan(token)
     _invalidate_stills(store.get_tv_binding_plan(token)['payload']['before']['episodes'])
     # Only application-side cache/artwork. Deliberately do not call
     # match_show/write_media_files: they also write to the media directories.
@@ -377,7 +441,12 @@ def undo(token, dry_run=True):
         payload = store.get_tv_binding_plan(token)['payload']
         before = store.tv_binding_snapshot(payload['library_id'],
                                           [r['path'] for r in payload['rules']])['episodes']
-    result = store.undo_tv_binding_plan(token, dry_run)
+    if dry_run:
+        result = store.undo_tv_binding_plan(token, True)
+    else:
+        payload = store.get_tv_binding_plan(token)['payload']
+        with library_mutation_lock(payload['library_id']):
+            result = store.undo_tv_binding_plan(token, False)
     if not dry_run:
         _invalidate_stills(before)
     return result

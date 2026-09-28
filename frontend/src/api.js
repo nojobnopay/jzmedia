@@ -24,7 +24,9 @@ function _brief(text) {
 
 // opts.signal：调用方取消（关窗/切档）与内部超时合并；外部取消抛「已取消」而非超时文案。
 export async function api(path, opts = {}) {
-  const { timeout = 120000, signal: outer, ...fetchOpts } = opts
+  const { timeout: configuredTimeout, signal: outer, mayContinue = false, ...fetchOpts } = opts
+  const method = String(fetchOpts.method || 'GET').toUpperCase()
+  const timeout = configuredTimeout ?? (method === 'GET' ? 30000 : 120000)
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeout)
   const onOuterAbort = outer ? () => ctrl.abort() : null
@@ -50,7 +52,9 @@ export async function api(path, opts = {}) {
   } catch (e) {
     if (e && e.name === 'AbortError') {
       if (outer && outer.aborted) throw new Error('已取消')
-      throw new Error('请求超时，后台可能仍在处理，稍后刷新查看')
+      if (mayContinue) throw new Error('请求超时，后台任务可能仍在处理，可稍后刷新查看')
+      if (method === 'GET') throw new Error('请求超时，请检查连接后重试')
+      throw new Error('请求超时，操作结果未知，请刷新后核对')
     }
     throw e
   } finally {

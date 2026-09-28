@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   applyLibs, currentLibId, currentMediaId, currentMediaVideoLibs,
-  isRemoteVideoLib, listLibs, listMediaLibs, mediaParam, onLibChange, pickMedia,
+  isRemoteVideoLib, listLibs, listMediaLibs, loadLibs, mediaParam, onLibChange, pickMedia,
   preferredVideoLibId, uploadLibraries, resetLibState, switchLib, switchMedia,
 } from '../src/libraries.js'
 
@@ -100,6 +100,21 @@ test('isRemoteVideoLib：smb/nfs 判远程，local/未知/未加载为 false', (
   assert.equal(isRemoteVideoLib(null), false)
   resetLibState()
   assert.equal(isRemoteVideoLib(1), false)     // 未加载
+})
+
+test('loadLibs reuses the warm cache and force still performs an explicit refresh', async () => {
+  resetLibState()
+  let calls = 0
+  const request = async path => {
+    assert.equal(path, '/api/libraries')
+    calls++
+    return DATA
+  }
+  await loadLibs(request)
+  await loadLibs(request)
+  assert.equal(calls, 1)
+  await loadLibs(request, { force: true })
+  assert.equal(calls, 2)
 })
 
  test('上传仅选择正确类型、启用且可写的视频库', () => {

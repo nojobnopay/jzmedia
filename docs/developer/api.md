@@ -50,10 +50,12 @@ Schema v28：`tv_directory_bindings` 持久化 `(library_id, path) → (show_id,
 
 | 接口（前缀 `/api/tv/bindings`） | 用途 |
 |---|---|
-| `GET /directories?library_id=&show_id=` | 只读盘点；`show_id` 可选，用于预选本剧目录 |
-| `POST /suggest` | `{library_id, paths, tmdb_id?}`；最多 12 个目录，返回目标候选、季号建议和依据 |
-| `POST /preview` | `{library_id, tmdb_id, target_show_id?, directories:[{path, season?, override_season?}], replace_manual?, allow_duplicates?}`；最多 50 个非嵌套目录 |
-| `POST /apply` | `{token}`；执行服务器保存的预览，15 分钟有效，同 token 重试幂等 |
+| `GET /directories?library_id=&show_id=` | 仅从 SQLite 返回已扫描目录与绑定，首屏不访问媒体存储；`show_id` 可选 |
+| `POST /directories/refresh` | `{library_id, show_id?}`；启动实体目录盘点，发现尚未扫描的目录 |
+| `POST /suggest`、`POST /suggest/start` | `{library_id, paths, tmdb_id?}`；最多 12 个目录，`/start` 为后台任务版本 |
+| `POST /preview`、`POST /preview/start` | `{library_id, tmdb_id, target_show_id?, directories:[{path, season?, override_season?}], replace_manual?, allow_duplicates?}`；最多 50 个非嵌套目录 |
+| `POST /apply`、`POST /apply/start` | `{token}`；执行服务器保存的预览，15 分钟有效，同 token 重试幂等 |
+| `GET /jobs/{job_id}` | 查询盘点、建议、预览或执行任务；结果位于完成态的 `result` |
 | `GET /history?library_id=` | 最近 30 条已执行/已撤销记录 |
 | `POST /undo` | `{token, dry_run:true}` 预览；`dry_run:false` 撤销 |
 

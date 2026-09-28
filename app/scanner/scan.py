@@ -502,7 +502,12 @@ def scan_tv_one(abs_path: str, library_id=None) -> dict:
 
 def scan_tv_file(*args, **kwargs):
     # A confirmation cannot land between reading a rule and updating its episode.
-    with store._base._lock:
+    # Never use the global store lock here: classification can touch a slow
+    # SMB/NFS directory and would stall unrelated database-only pages.
+    from ..library_mutex import library_mutation_lock
+    backend = args[0] if args else kwargs.get("backend")
+    lib_id = int(getattr(backend, "library_id", 0) or DEFAULT_LIBRARY_ID)
+    with library_mutation_lock(lib_id):
         return _scan_tv_file(*args, **kwargs)
 
 

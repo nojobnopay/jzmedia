@@ -8,6 +8,7 @@ let _mediaLibs = []     // 媒体库（由视频库按 media_library_id 分组�
 let _defaultId = null   // 默认视频库 id（服务端 default_id）
 let _current = null     // 当前媒体库
 let _loading = null
+let _loadedAt = 0
 const _listeners = new Set()
 
 function _readKey (key) {
@@ -129,6 +130,7 @@ function _notify () {
 
 export function applyLibs (data) {
   _libs = (data && data.items) || []
+  _loadedAt = Date.now()
   _defaultId = data ? data.default_id : null
   _mediaLibs = buildMediaLibs(_libs)
   // 回退优先级：旧 localStorage 视频库 → 其媒体库；默认视频库 → 其媒体库
@@ -152,11 +154,17 @@ export function applyLibs (data) {
   return _current
 }
 
-export async function loadLibs (apiFn, { force = false } = {}) {
-  if (_loading && !force) return _loading
-  _loading = apiFn('/api/libraries')
-    .then((data) => applyLibs(data))
-    .finally(() => { _loading = null })
+export async function loadLibs (apiFn, { force = false, maxAge = 30000 } = {}) {
+  const hasCache = _libs.length > 0
+  if (_loading) return hasCache && !force ? _current : _loading
+  const fresh = hasCache && Date.now() - _loadedAt < maxAge
+  if (fresh && !force) return _current
+  const refresh = apiFn('/api/libraries').then((data) => applyLibs(data))
+  if (hasCache && !force) {
+    _loading = refresh.catch(() => _current).finally(() => { _loading = null })
+    return _current
+  }
+  _loading = refresh.finally(() => { _loading = null })
   return _loading
 }
 
@@ -184,6 +192,7 @@ export function resetLibState () {
   _libs = []
   _mediaLibs = []
   _defaultId = null
+  _loadedAt = 0
   _current = null
   _loading = null
   _listeners.clear()

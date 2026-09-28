@@ -264,12 +264,7 @@ async function create() {
     msg.value = '创建失败：' + e.message
   }
 }
-let unsubLib = null
-onMounted(async () => {
-  try { await loadLibs(api) } catch (e) { /* 忽略 */ }
-  await load()
-  await loadSuggest()
-  unsubLib = onLibChange(() => { load(); loadSuggest() })
+async function resumeBackfill() {
   // 续跑：刷新页面后后台若还在补全，自动续上进度条
   try {
     const d = await api('/api/collections/suggest/backfill/status')
@@ -285,6 +280,12 @@ onMounted(async () => {
       startPoll()
     }
   } catch (e) { /* 无后台任务时静默 */ }
+}
+let unsubLib = null
+onMounted(async () => {
+  try { await loadLibs(api) } catch (e) { /* 忽略 */ }
+  await Promise.all([load(), loadSuggest(), resumeBackfill()])
+  unsubLib = onLibChange(() => { load(); loadSuggest() })
 })
 onUnmounted(() => {
   stopPoll()

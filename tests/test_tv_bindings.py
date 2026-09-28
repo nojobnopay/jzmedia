@@ -1,5 +1,7 @@
 """Directory ownership is explicit, persistent, reversible, and catalogue-only."""
 import json
+import threading
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -381,3 +383,109 @@ def test_standard_rebind_endpoints_cannot_bypass_directory_preview(lib):
         response = client.post(f'/api/tv/shows/{sid}/{suffix}', json=body)
         assert response.status_code == 409
     assert store.get_show_meta(sid)['tmdb_id'] == 32231
+
+def test_catalog_inventory_and_endpoint_never_touch_storage(lib, monkeypatch):
+    l, root = lib
+    touch(root, '纵横/E01.mkv')
+    scanner.scan_all(library_id=l['id'])
+
+    def storage_forbidden(_library_id):
+        raise AssertionError('catalog inventory touched storage')
+
+    monkeypatch.setattr(tv_bindings, '_backend', storage_forbidden)
+    data = tv_bindings.catalog_inventory(l['id'])
+    assert data['source'] == 'catalog'
+    assert data['items'][0]['path'] == '纵横'
+    response = client.get(f"/api/tv/bindings/directories?library_id={l['id']}")
+    assert response.status_code == 200
+    assert response.json()['source'] == 'catalog'
+
+
+def test_storage_inventory_runs_as_a_deduplicated_background_job(lib, monkeypatch):
+    l, _root = lib
+    started, release = threading.Event(), threading.Event()
+
+    def slow_inventory(library_id, show_id=None):
+        assert library_id == l['id'] and show_id is None
+        started.set()
+        if not release.wait(3):
+            raise RuntimeError('test inventory was not released')
+        return {'items': [], 'shows': [], 'source': 'storage'}
+
+    monkeypatch.setattr(tv_bindings, 'inventory', slow_inventory)
+    first = client.post('/api/tv/bindings/directories/refresh',
+                        json={'library_id': l['id'], 'show_id': None})
+    assert first.status_code == 200 and first.json()['state'] == 'running'
+    assert started.wait(1)
+    second = client.post('/api/tv/bindings/directories/refresh',
+                         json={'library_id': l['id'], 'show_id': None})
+    assert second.json()['job_id'] == first.json()['job_id']
+    assert second.json()['resumed'] is True
+    # The DB-only first paint remains available while storage is blocked.
+    assert client.get(f"/api/tv/bindings/directories?library_id={l['id']}").status_code == 200
+    release.set()
+    job_id = first.json()['job_id']
+    for _ in range(100):
+        status = client.get(f'/api/tv/bindings/jobs/{job_id}').json()
+        if status['state'] != 'running':
+            break
+        time.sleep(0.01)
+    assert status['state'] == 'done'
+    assert status['result']['source'] == 'storage'
+
+
+def test_slow_tv_scan_does_not_hold_the_global_database_lock(lib, monkeypatch):
+    from app.scanner import scan as scan_module
+    l, _root = lib
+    entered, release, query_done = threading.Event(), threading.Event(), threading.Event()
+
+    def slow_scan(*_args, **_kwargs):
+        entered.set()
+        release.wait(3)
+        return {'status': 'ok'}
+
+    class Backend:
+        library_id = l['id']
+
+    monkeypatch.setattr(scan_module, '_scan_tv_file', slow_scan)
+    worker = threading.Thread(target=scan_module.scan_tv_file, args=(Backend(), 'E01.mkv'))
+    reader = threading.Thread(target=lambda: (store.list_shows(l['id']), query_done.set()))
+    try:
+        worker.start()
+        assert entered.wait(1)
+        reader.start()
+        assert query_done.wait(0.5), 'a slow storage scan blocked a DB-only page query'
+    finally:
+        release.set()
+        worker.join(2)
+        reader.join(2)
+    assert not worker.is_alive() and not reader.is_alive()
+
+def test_preview_and_apply_background_endpoints(lib):
+    l, root = lib
+    touch(root, '纵横/E01.mkv')
+    payload = dict(
+        library_id=l['id'], tmdb_id=32231,
+        directories=[dict(path='纵横', season=2)],
+    )
+    started = client.post('/api/tv/bindings/preview/start', json=payload)
+    assert started.status_code == 200 and started.json()['job_id']
+    preview_id = started.json()['job_id']
+    for _ in range(100):
+        status = client.get(f'/api/tv/bindings/jobs/{preview_id}').json()
+        if status['state'] != 'running':
+            break
+        time.sleep(0.01)
+    assert status['state'] == 'done' and status['result']['can_apply']
+    token = status['result']['token']
+    applied = client.post('/api/tv/bindings/apply/start', json={'token': token})
+    assert applied.status_code == 200 and applied.json()['job_id']
+    apply_id = applied.json()['job_id']
+    for _ in range(100):
+        status = client.get(f'/api/tv/bindings/jobs/{apply_id}').json()
+        if status['state'] != 'running':
+            break
+        time.sleep(0.01)
+    assert status['state'] == 'done'
+    episode = store.get_episode_by_path('纵横/E01.mkv', l['id'])
+    assert episode['show_id'] == status['result']['show_id'] and episode['season'] == 2
