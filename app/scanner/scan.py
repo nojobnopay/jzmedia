@@ -475,7 +475,8 @@ def resolve_tv_numbers(base: str, parent: str, show_root: str,
             "season": season, "episode": episode,
             "episode_end": int(parsed.get("episode_end") or 0),
             "absolute": absolute, "special": bool(parsed.get("special")),
-            "source": parsed.get("source") or "", "guess": guess, "parsed": parsed}
+            "source": parsed.get("source") or "", "guess": guess, "parsed": parsed,
+            "explicit_season": parsed.get("season") if parsed.get("season") is not None else from_dir}
 
 
 def tv_plan(entries, vids) -> dict:
@@ -499,7 +500,13 @@ def scan_tv_one(abs_path: str, library_id=None) -> dict:
     return scan_tv_file(storage.backend_for(lib_id), rel)
 
 
-def scan_tv_file(backend, rel: str, entry=None, show_root=None,
+def scan_tv_file(*args, **kwargs):
+    # A confirmation cannot land between reading a rule and updating its episode.
+    with store._base._lock:
+        return _scan_tv_file(*args, **kwargs)
+
+
+def _scan_tv_file(backend, rel: str, entry=None, show_root=None,
                  episode_hint=None, force: bool = False,
                  target_show_id: int | None = None) -> dict:
     """TV 入库：规则阶梯解析（tv_parse）→ tv_shows/tv_seasons/tv_episodes。
@@ -510,6 +517,14 @@ def scan_tv_file(backend, rel: str, entry=None, show_root=None,
     lib_id = backend.library_id or DEFAULT_LIBRARY_ID
     rel = backend.norm(rel)
     base = os.path.basename(rel)
+    from ..tv_binding_rules import bound_numbers
+    rule = store.tv_binding_for(lib_id, rel)
+    if rule:
+        target_show_id = int(rule['show_id'])
+        show_root = rule['path']
+    old_episode = store.get_episode_by_path(rel, lib_id)
+    if old_episode and target_show_id is None:
+        target_show_id = int(old_episode['show_id'])
     if entry is not None:
         mtime, size = int(entry.mtime), int(entry.size)
     else:
@@ -553,6 +568,7 @@ def scan_tv_file(backend, rel: str, entry=None, show_root=None,
         show_root = _tv_show_root(rel)
     num = resolve_tv_numbers(base, os.path.basename(os.path.dirname(rel)),
                              show_root, episode_hint)
+    num = bound_numbers(num, rule)
     if not num["ok"]:
         store.set_scan_state(rel, mtime, size, "tv_unknown", library_id=lib_id)
         return {"file": rel, "status": "skipped_tv_unknown", "parsed": num["parsed"]}
@@ -566,10 +582,22 @@ def scan_tv_file(backend, rel: str, entry=None, show_root=None,
     show_id = (int(target_show_id) if target_show_id is not None else
                store.upsert_show(lib_id, title, sd.get("year"),
                                  sort_title=normalize_title(title), hints=sd.get("hints")))
+    # A keep-numbering rule also protects existing absolute/manual mappings.
+    if rule and rule.get('season') is None and old_episode:
+        num.update(season=old_episode['season'], episode=old_episode['episode'],
+                   episode_end=old_episode['episode_end'], absolute=old_episode['absolute_number'])
     ep_title = str((num["guess"] or {}).get("episode_title") or "")
     ep_id = store.upsert_episode(show_id, lib_id, rel, num["season"], num["episode"],
                                  ep_title, episode_end=num["episode_end"],
                                  absolute_number=num["absolute"])
+    if rule:
+        conflict = bool(num.get('binding_conflict'))
+        store.update_episode_meta(ep_id, absolute_number=num['absolute'],
+                                  binding_conflict=int(conflict))
+        if conflict:
+            store.update_episode_meta(ep_id, needs_review=1)
+        elif not old_episode:
+            store.update_episode_meta(ep_id, needs_review=1)
     store.set_scan_state(rel, mtime, size, "tv_ok", library_id=lib_id)
     return {"file": rel, "status": "tv_ok", "show_id": show_id, "episode_id": ep_id,
             "show": title, "season": num["season"], "episode": num["episode"],
@@ -589,17 +617,23 @@ def scan_tv_show(show_id: int, force: bool = False) -> dict:
         raise ValueError("show not found")
     lib_id = int(show.get("library_id") or DEFAULT_LIBRARY_ID)
     episodes = store.list_episodes(sid)
-    if not episodes:
+    rules = store.list_tv_bindings(lib_id, sid)
+    if not episodes and not rules:
         return {"show_id": sid, "library_id": lib_id, "show_dir": "",
                 "scanned": 0, "added": 0, "unknown": 0, "results": []}
     from .tv_organize import _resolve_show_dir
-    show_dir = _resolve_show_dir(episodes, show_id=sid, library_id=lib_id)
-    if not show_dir:
+    from .tv_nfo_link import show_dirs_for
+    show_dir = _resolve_show_dir(episodes, show_id=sid, library_id=lib_id) if episodes else ''
+    raw_roots = (set(show_dirs_for(sid, episodes)) | {r['path'] for r in rules}) if rules else {show_dir}
+    roots = [p for p in sorted(raw_roots) if not any(p.startswith(other + '/') for other in raw_roots if other != p)]
+    if not roots:
         return {"show_id": sid, "library_id": lib_id, "show_dir": "",
                 "scanned": 0, "added": 0, "unknown": 0, "results": []}
     backend = storage.backend_for(lib_id)
     storage.clear_meta_cache(lib_id)
-    entries = list(backend.iter_tree(show_dir, skip_dirs=scan_skip_dirs()))
+    entries = []
+    for root in roots:
+        entries.extend(backend.iter_tree(root, skip_dirs=scan_skip_dirs()))
     vids = _video_entries(entries)
     hints = _tv_special_hints(vids)
     known = {str(e.get("file_path") or "") for e in episodes}
@@ -615,7 +649,9 @@ def scan_tv_show(show_id: int, force: bool = False) -> dict:
     added = sum(1 for r in results
                 if r.get("status") == "tv_ok" and r.get("file") not in known)
     unknown = sum(1 for r in results if r.get("status") == "skipped_tv_unknown")
-    return {"show_id": sid, "library_id": lib_id, "show_dir": show_dir,
+    from .tv_persist import backfill_cached_episodes
+    filled = backfill_cached_episodes(sid) if rules else 0
+    return {"show_id": sid, "library_id": lib_id, "show_dir": show_dir, "directories": roots, "metadata_filled": filled,
             "scanned": len(vids), "added": added, "unknown": unknown,
             "results": results[:100]}
 
@@ -763,6 +799,11 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
                                 "status": "removed_show", "count": int(pruned)})
             except Exception as ex:
                 logger.warning("TV GC failed lib=%s: %s", lib_id, ex)
+            # Confirmed shows may already have cached metadata; fill only newly
+            # discovered episodes, without a whole-show refresh or NAS writes.
+            from .tv_persist import backfill_cached_episodes
+            for sid in {r['show_id'] for r in store.list_tv_bindings(lib_id)}:
+                backfill_cached_episodes(sid)
             continue
         # 电影正片 GC（Plex 式删除识别，仅在一次完整遍历后执行）：磁盘已不存在的行
         # 立刻 purge（含断点/探测/人物关联；海报与 tmdb_cache 保留供重扫复用）。

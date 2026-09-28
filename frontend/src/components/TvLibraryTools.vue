@@ -5,6 +5,8 @@
         :aria-pressed="toolView === view.key" @click="chooseView(view.key)">{{ view.label }}</button>
     </div>
     <div v-show="toolView === 'workflow'">
+    <div class="bar"><button :disabled="!tab.enabled" @click="bindingsOpen = true">剧集归属与季号</button>
+      <span class="hint">多部曲、某一季或多个目录，可先确认归属再扫描。</span></div>
     <div class="status-line">
       <span v-if="statsReady" class="chip">{{ stats.shows }} 部剧 · {{ stats.episodes }} 集</span>
       <span v-if="unmatchedCount" class="chip warn">未匹配 {{ unmatchedCount }}</span>
@@ -87,6 +89,8 @@
         @changed="onOrganized" @scan="scanFromFiles" />
     </div>
   </section>
+  <TvBindingsDialog v-if="bindingsOpen && active" :library-id="Number(tab.id)"
+    @close="bindingsOpen = false" @changed="onBindingsChanged" />
 </template>
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
@@ -95,9 +99,11 @@ import { useLibraryScan } from '../useLibraryScan.js'
 import { toolViewForSection } from '../settingsNavigation.js'
 import { pickOpenStep, stepForSection } from '../libraryToolsTabs.js'
 import TvOrganizePanel from './TvOrganizePanel.vue'
+import TvBindingsDialog from './TvBindingsDialog.vue'
 import TvMaintenancePanel from './TvMaintenancePanel.vue'
 import FsBrowser from './FsBrowser.vue'
 
+const bindingsOpen = ref(false)
 const COLLAPSE_N = 20
 const props = defineProps({
   tab: { type: Object, required: true },
@@ -135,6 +141,11 @@ const orgState = ref('')
 function toggleStep(key) {
   userToggled.value = true
   openStep.value = openStep.value === key ? '' : key
+}
+
+async function onBindingsChanged() {
+  await Promise.all([loadStats(), loadPending()])
+  emit('changed')
 }
 
 async function loadStats() {

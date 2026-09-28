@@ -136,12 +136,15 @@ def backfill_cached_episodes(show_id: int) -> int:
         tmdb_id = 0
     if not tmdb_id:
         return 0
+    from ..tv_binding_rules import binding_for
+    rules = store.list_tv_bindings(show_id=show_id)
     season_index, _ = _episode_index(store.get_tmdb_cache_seasons(tmdb_id))
     if not season_index:
         return 0
     filled = 0
     for episode in store.list_episodes(int(show_id)):
-        if episode.get("tmdb_episode_id") or episode.get("local_only"):
+        if (episode.get("tmdb_episode_id") or episode.get("local_only")
+                or episode.get("binding_conflict") or episode.get("match_source") == "manual"):
             continue
         try:
             key = (int(episode.get("season") or 0),
@@ -150,6 +153,10 @@ def backfill_cached_episodes(show_id: int) -> int:
             continue
         match = season_index.get(key)
         if not isinstance(match, dict):
+            continue
+        if binding_for(episode['file_path'], rules) and any(
+                (key[0], n) not in season_index for n in range(key[1],
+                max(key[1], episode.get('episode_end') or 0) + 1)):
             continue
         try:
             runtime = int(match.get("runtime") or 0)
@@ -426,6 +433,8 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
         claimed: set = set()
         pending: list = []
         rows = store.list_episodes(show_id)
+        from ..tv_binding_rules import binding_for
+        rules = store.list_tv_bindings(show_id=show_id)
         local_counts: dict[int, int] = {}
         for e in rows:
             try:
@@ -435,13 +444,21 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
                 continue
             local_counts[s0] = max(local_counts.get(s0, 0), e0)
         for e in rows:
-            if e.get("local_only"):
+            if e.get("local_only") or e.get("binding_conflict") or e.get("match_source") == "manual":
                 continue          # 已确认「TMDB 无对应集」：不参与自动匹配
             try:
                 key = (int(e.get("season") or 0), int(e.get("episode") or 0))
             except (TypeError, ValueError):
                 continue
             t = season_index.get(key)
+            if binding_for(e['file_path'], rules):
+                if t is not None and all((key[0], n) in season_index for n in range(
+                        key[1], max(key[1], e.get('episode_end') or 0) + 1)):
+                    claimed.add(key)
+                    _apply(e, t)
+                elif not e.get('tmdb_episode_id'):
+                    store.update_episode_meta(int(e['id']), needs_review=1)
+                continue  # No absolute/cross-season fallback for confirmed directories.
             if t is not None:
                 claimed.add(key)
                 _apply(e, t)
@@ -703,7 +720,8 @@ def scrape_show(show: dict, force: bool = False, download_art: bool = True) -> d
                             library_id=show.get("library_id"),
                             aggregate=aggregate)
     status = "ok_offline" if offline_reason else "ok"
-    media = write_media_files(show_id, show.get("library_id"))
+    media = ({} if store.list_tv_bindings(show_id=show_id)
+             else write_media_files(show_id, show.get("library_id")))
     return {"show_id": show_id, "status": status, "title": title,
             "tmdb_id": int(tmdb_id), "match_source": source,
             "needs_review": needs_review, "media": media,

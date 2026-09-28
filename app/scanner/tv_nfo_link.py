@@ -41,6 +41,21 @@ def show_dir_of(rel_file: str, direct_dirs=None) -> str:
     return "/".join(parts)
 
 
+def show_dirs_for(show_id: int, episodes: list[dict]) -> list[str]:
+    """All physical roots; confirmed seasonal roots are legitimate media roots."""
+    rules = store.list_tv_bindings(show_id=show_id)
+    direct = _direct_dirs(episodes)
+    if not rules:
+        return [show_dir_of(episodes[0]['file_path'], direct)] if episodes else []
+    from ..tv_binding_rules import binding_for
+    roots = set()
+    for e in episodes:
+        rule = binding_for(e['file_path'], rules)
+        roots.add(rule['path'] if rule and season_from_dir(os.path.basename(rule['path'])) is None
+                  else show_dir_of(e['file_path'], direct))
+    return sorted(p for p in roots if p)
+
+
 def _direct_dirs(episodes) -> set[str]:
     """直接含集文件的目录集合（剧根/子剧判定用）。"""
     out: set[str] = set()
@@ -140,21 +155,23 @@ def sync_tv_nfos_for(show_id: int, backend=None, dry_run: bool = False,
         if backend is None:
             result["failed"].append("no_backend")
             return result
-        direct = _direct_dirs(episodes)
-        show_dir = show_dir_of(episodes[0]["file_path"], direct)
-        result["dir"] = show_dir
-        show_fs = _BackendDirFS(backend, show_dir)
+        roots = show_dirs_for(int(show_id), episodes)
+        result['directories'] = roots
+        result['dir'] = roots[0] if roots else ''
         show_payload = render_tvshow_nfo_bytes(show, seasons, _credits_for(show))
-        if dry_run:
-            result["wrote"].append("tvshow.nfo")
-        else:
-            st = _write_owned(show_fs, "tvshow.nfo", show_payload,
-                              str(show.get("nfo_hash") or ""), force)
-            _record(result, "tvshow.nfo", st)
-            if st in ("written", "unchanged"):
-                new_hash = _sha1(show_payload)
-                if str(show.get("nfo_hash") or "") != new_hash:
-                    store.update_show_meta(int(show_id), nfo_hash=new_hash)
+        for show_dir in roots:
+            show_fs = _BackendDirFS(backend, show_dir)
+            label = f'{show_dir}/tvshow.nfo' if len(roots) > 1 else 'tvshow.nfo'
+            if dry_run:
+                result['wrote'].append(label)
+            else:
+                st = _write_owned(show_fs, 'tvshow.nfo', show_payload,
+                                  str(show.get('nfo_hash') or ''), force)
+                _record(result, label, st)
+                if st in ('written', 'unchanged'):
+                    new_hash = _sha1(show_payload)
+                    if str(show.get('nfo_hash') or '') != new_hash:
+                        store.update_show_meta(int(show_id), nfo_hash=new_hash)
         # 季 NFO：每季目录一份（Jellyfin/Emby 读季名/简介）
         seen_dirs: set[str] = set()
         for s in seasons:
@@ -162,28 +179,26 @@ def sync_tv_nfos_for(show_id: int, backend=None, dry_run: bool = False,
                 sn = int(s.get("season") or 0)
             except (TypeError, ValueError):
                 continue
-            rep = next((e for e in episodes
-                        if int(e.get("season") or 0) == sn), None)
-            if not rep:
-                continue
-            sdir = season_dir_of(rep["file_path"])
-            if not sdir or sdir in seen_dirs:
-                continue
-            seen_dirs.add(sdir)
-            name = "season.nfo"
-            if dry_run:
-                result["wrote"].append(f"{sdir}/{name}")
-                continue
-            st = _write_plain(_BackendDirFS(backend, sdir), name,
-                              render_season_nfo_bytes(s))
-            _record(result, f"{sdir}/{name}", st)
+            dirs = sorted({season_dir_of(e['file_path']) for e in episodes
+                           if int(e.get('season') or 0) == sn})
+            for sdir in dirs:
+                if not sdir or sdir in seen_dirs:
+                    continue
+                seen_dirs.add(sdir)
+                name = "season.nfo"
+                if dry_run:
+                    result["wrote"].append(f"{sdir}/{name}")
+                    continue
+                st = _write_plain(_BackendDirFS(backend, sdir), name,
+                                  render_season_nfo_bytes(s))
+                _record(result, f"{sdir}/{name}", st)
         # 清理历史误放：包装目录里的 tvshow.nfo（旧 show_dir_of 推导），仅当哈希匹配
         if not dry_run:
             checked: set[str] = set()
             for e in episodes:
                 sdir = season_dir_of(e["file_path"])
                 parent = os.path.dirname(sdir)
-                if not parent or parent == show_dir or parent in checked:
+                if not parent or parent in roots or parent in checked:
                     continue
                 checked.add(parent)
                 pfs = _BackendDirFS(backend, parent)

@@ -729,6 +729,8 @@ def match_show(show_id: int, body: MatchBody):
     show = store.get_show_meta(show_id)
     if not show:
         raise HTTPException(404, "show not found")
+    if store.list_tv_bindings(show_id=show_id) and show.get('tmdb_id') != tmdb_id:
+        raise HTTPException(409, '这部剧已有目录归属，请通过“归属与季号”预览并调整')
     try:
         detail = tmdb.tv_detail(tmdb_id)
     except Exception as e:
@@ -795,6 +797,8 @@ def bind_external_show(show_id: int, body: dict):
     show = store.get_show_meta(show_id)
     if not show:
         raise HTTPException(404, "show not found")
+    if store.list_tv_bindings(show_id=show_id):
+        raise HTTPException(409, '这部剧已有目录归属，请通过“归属与季号”预览并调整')
     source = str((body or {}).get("source") or "").strip()
     source_id = str((body or {}).get("source_id") or "").strip()
     if not source or not source_id:
@@ -840,7 +844,7 @@ def discover_show_files(show_id: int):
             filled = tv_persist.backfill_cached_episodes(show_id)
         except Exception as e:
             logger.warning("cached episode backfill failed show=%s: %s", show_id, e)
-    result["metadata_filled"] = int(filled)
+    result["metadata_filled"] = int(filled) + int(result.get("metadata_filled") or 0)
     result["episode_count"] = store.count_show_episodes(show_id)
     return {"ok": True, **result}
 
@@ -1117,6 +1121,7 @@ def match_episode(episode_id: int, body: EpisodeMatchBody):
     store.update_episode_meta(
         episode_id,
         tmdb_episode_id=found.get("id"),
+        match_source="manual", binding_conflict=0,
         title=(found.get("name") or "").strip() or e.get("title") or "",
         overview=found.get("overview") or "",
         still_path=found.get("still_path") or "",

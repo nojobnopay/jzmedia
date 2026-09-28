@@ -560,7 +560,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "metadata_provider_state"}
 
 
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 28
 
 
 def _columns(c, table: str) -> set:
@@ -1257,12 +1257,40 @@ def _m27(c) -> None:
     ])
 
 
+def _m28(c) -> None:
+    """Confirmed directory ownership survives scans; previews form the undo journal."""
+    c.executescript("""
+CREATE TABLE IF NOT EXISTS tv_directory_bindings (
+  library_id INTEGER NOT NULL,
+  path TEXT NOT NULL,
+  show_id INTEGER NOT NULL,
+  season INTEGER,
+  override_season INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(library_id, path)
+);
+CREATE INDEX IF NOT EXISTS idx_tv_directory_show ON tv_directory_bindings(show_id);
+CREATE TABLE IF NOT EXISTS tv_binding_history (
+  id TEXT PRIMARY KEY,
+  library_id INTEGER NOT NULL,
+  state TEXT NOT NULL DEFAULT 'preview',
+  payload TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+""")
+    _ensure_columns(c, "tv_episodes", [
+        ("match_source", "ALTER TABLE tv_episodes ADD COLUMN match_source TEXT DEFAULT ''"),
+        ("binding_conflict", "ALTER TABLE tv_episodes ADD COLUMN binding_conflict INTEGER DEFAULT 0"),
+    ])
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
                     (17, _m17), (18, _m18), (19, _m19), (20, _m20), (21, _m21),
                     (22, _m22), (23, _m23),                      (24, _m24), (25, _m25),
-                    (26, _m26), (27, _m27)]
+                    (26, _m26), (27, _m27), (28, _m28)]
 
 
 def init_db() -> None:

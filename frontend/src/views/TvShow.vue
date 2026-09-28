@@ -28,6 +28,7 @@
             <ActionMenu>
               <button :disabled="busy" @click="nameDraft = show.title; renameOpen = !renameOpen">修改剧名</button>
               <button :disabled="busy" @click="refreshMeta">更新剧集资料</button>
+              <button :disabled="busy" @click="bindingsOpen = true">归属与季号</button>
               <button @click="matchOpen = !matchOpen">{{ matchOpen ? '收起匹配' : '重新匹配剧集' }}</button>
               <button :disabled="busy" @click="openOrganize">{{ organizing ? '正在发现新增分集…' : '整理剧集目录' }}</button>
               <button :disabled="verifying" @click="verifyExists">{{ verifying ? '检查中…' : '检查文件是否可用' }}</button>
@@ -47,6 +48,7 @@
             <button type="button" @click="renameOpen = false">取消</button>
           </form>
           <div v-if="matchOpen" class="match card-block">
+            <p class="hint">只匹配其中一季或合并多个目录，可使用 <button @click="bindingsOpen = true">归属与季号</button>。</p>
             <div class="bar match-bar">
               <input v-model="mq" placeholder="输入剧名" aria-label="搜索剧集匹配" @keyup.enter="doSearch" />
               <button :disabled="searching" @click="doSearch">搜索</button>
@@ -109,6 +111,8 @@
     </section>
   </div>
   <div v-else class="bar">{{ msg || '加载中…' }}</div>
+  <TvBindingsDialog v-if="bindingsOpen && show" :library-id="Number(show.library_id)" :show-id="Number(show.id)"
+    @close="bindingsOpen = false" @changed="onBindingChanged" />
   <TvOrganizeDialog v-if="orgHint" :key="orgHint.show_id" :initial-plan="orgHint"
     :title="show?.title || orgHint.title" :year="show?.year || ''"
     @close="orgHint = null" @settings="goOrgSettings" @finished="onOrganized" />
@@ -132,6 +136,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import { episodeVersion, seasonStats } from '../episodeVersions.js'
 import TvOrganizeDialog from '../components/TvOrganizeDialog.vue'
+import TvBindingsDialog from '../components/TvBindingsDialog.vue'
 import { hintNeeds, hintReasonText } from '../tvOrganizePlans.js'
 import PlayerModal from '../components/PlayerModal.vue'
 import CastWall from '../components/CastWall.vue'
@@ -158,6 +163,7 @@ const verifying = ref(false)
 const posterVer = ref(0)
 // 预览与两次确认由独立对话框管理；此处负责入口与整理后的页面刷新。
 const orgHint = ref(null)
+const bindingsOpen = ref(false)
 
 const movies = computed(() => (show.value?.extras || []).filter(x => x.kind === 'movie'))
 const features = computed(() => (show.value?.extras || []).filter(x => x.kind !== 'movie'))
@@ -443,6 +449,15 @@ async function openOrganize () {
     busy.value = false
   }
 }
+async function onBindingChanged(result) {
+  bindingsOpen.value = false
+  if (result.show_id && Number(result.show_id) !== Number(route.params.id)) {
+    await router.replace('/tv/' + result.show_id)
+  } else {
+    await load()
+  }
+}
+
 async function onOrganized () {
   posterVer.value++
   await load()
@@ -470,7 +485,7 @@ async function onEnded () {
 }
 
 onMounted(() => load())
-watch(() => route.params.id, () => { orgHint.value = null; load() })
+watch(() => route.params.id, () => { orgHint.value = null; bindingsOpen.value = false; load() })
 </script>
 
 <style scoped>

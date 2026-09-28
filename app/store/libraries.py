@@ -412,6 +412,9 @@ def _delete_video_rows(c, lid: int, name: str = "") -> dict:
         "DELETE FROM scan_state WHERE library_id=?", (lid,)).rowcount or 0)
     stats["tv_episodes"] = int(c.execute(
         "DELETE FROM tv_episodes WHERE library_id=?", (lid,)).rowcount or 0)
+    c.execute("DELETE FROM tv_directory_bindings WHERE library_id=?", (lid,))
+    c.execute("DELETE FROM tv_binding_history WHERE library_id=?", (lid,))
+    c.execute("DELETE FROM tv_seasons WHERE library_id=?", (lid,))
     stats["tv_shows"] = int(c.execute(
         "DELETE FROM tv_shows WHERE library_id=?", (lid,)).rowcount or 0)
     return stats

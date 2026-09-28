@@ -307,6 +307,72 @@ def _root_target(show: dict, profile: str) -> str | None:
     return f"{title} ({year})" if year else title
 
 
+def _plan_bound_roots(show, episodes, plan, actions, cache, allow_torrent, profile):
+    """Consolidate separately confirmed flat season directories via audited renames.
+
+    Complex/mixed roots remain explicitly manual. Never pick the first physical
+    root as the destination for an entire multi-root show.
+    """
+    from .tv_nfo_link import show_dirs_for
+    from ..tv_binding_rules import contains
+    if not store.list_tv_bindings(show_id=show['id']):
+        return None
+    roots = show_dirs_for(show['id'], episodes)
+    if len(roots) <= 1:
+        return None
+    if (len({os.path.dirname(r) for r in roots}) == 1
+            and all(season_from_dir(os.path.basename(r)) is not None for r in roots)):
+        return None
+    target = _root_target(show, profile)
+    plan['show_dir'] = target or ''
+    for e in episodes:
+        directory = os.path.dirname(e['file_path'])
+        plan['dir_totals'][directory] = plan['dir_totals'].get(directory, 0) + 1
+    plan['warnings'].append('本剧分布在多个目录；先归并季目录，完成后可再次预览统一文件名。')
+    rules = {r['path']: r for r in store.list_tv_bindings(show_id=show['id'])}
+    if not target or not {'root', 'season'}.issubset(actions):
+        plan['manual'].append({'file': '', 'reason': 'multi_root',
+            'suggestion': '归并多目录需要启用“剧根改名”和“补 Season 目录”，并先确认各目录季号'})
+        return plan
+    if _has_other_shows(target, show.get('library_id'), show['id']):
+        plan['conflicts'].append({'from': '', 'to': target, 'reason': '目标目录属于其他剧集'})
+        return plan
+    destinations = set()
+    for root in roots:
+        rule = rules.get(root)
+        local = [e for e in episodes if contains(root, e['file_path'])]
+        sn = rule.get('season') if rule else None
+        if (sn is None or not local or any(e['season'] != sn or os.path.dirname(e['file_path']) != root
+                                           or e.get('binding_conflict') for e in local)
+                or _has_other_shows(root, show.get('library_id'), show['id'])):
+            plan['manual'].append({'file': root, 'reason': 'multi_root',
+                'suggestion': '该目录含嵌套季、特典或其他归属，请先核对目录范围；暂不整体搬迁'})
+            continue
+        dst = _join(target, _season_dir_name(sn))
+        if root == dst:
+            continue
+        if _torrent_present(cache, root) and not allow_torrent:
+            plan['blocked'] = True
+            plan['warnings'].append(f'{root} 存在 .torrent，默认跳过整理')
+        if dst in destinations or cache.backend.exists(dst):
+            plan['conflicts'].append({'from': root, 'to': dst, 'reason': '目标季目录已存在，不覆盖或合并'})
+            continue
+        # Avoid nesting a directory inside itself and moving a target containing
+        # source material. Only sibling independent roots can be consolidated.
+        if contains(root, target):
+            plan['conflicts'].append({'from': root, 'to': dst, 'reason': '目标位于源目录内部'})
+            continue
+        destinations.add(dst)
+        plan['dir_moves'].append({'action': 'season', 'kind': 'episode', 'from': root, 'to': dst})
+    if not plan['blocked']:
+        totals = {}
+        for directory, count in plan['dir_totals'].items():
+            final = _project(directory, plan['dir_moves'])
+            totals[final] = totals.get(final, 0) + count
+        plan['dir_totals'] = totals
+    return plan
+
+
 def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
                profile: str = "kodi", claimed: dict | None = None,
                allow_absolute: bool = False) -> dict | None:
@@ -323,6 +389,9 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
             "rmdirs": [], "untouched": [], "manual": [], "manual_more": 0,
             "kept": [], "rename_count": 0, "absolute_risk": False, "root_move": None,
             "conflicts": [], "warnings": [], "blocked": False, "dir_totals": {}}
+    multi = _plan_bound_roots(show, episodes, plan, actions, cache, allow_torrent, profile)
+    if multi is not None:
+        return multi
     if _torrent_present(cache, show_dir) and not allow_torrent:
         plan["blocked"] = True
         plan["warnings"].append("存在 .torrent（移动/改名会破坏做种，执行时默认跳过）")
@@ -859,6 +928,9 @@ def execute_tv_organize(plans: list[dict], should_stop=None, progress_cb=None,
                 return "skipped"
             if backend.exists(to_rel):
                 return "skipped"
+            parent = os.path.dirname(to_rel)
+            if parent:
+                backend.mkdir(parent, parents=True)
             backend.rename(from_rel, to_rel)
             return "done"
 

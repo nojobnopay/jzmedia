@@ -53,7 +53,7 @@ EPISODE_META_FIELDS = {"title", "overview", "still_path", "air_date", "runtime",
                        "tmdb_rating", "tmdb_episode_id", "season", "episode",
                        "episode_end", "absolute_number", "watched", "watched_at",
                        "missing", "needs_review", "local_only", "nfo_hash",
-                       "episode_credits"}
+                       "episode_credits", "match_source", "binding_conflict"}
 
 _LIST_COLS = {"genres", "genre_ids", "tags", "origin_countries", "networks", "created_by"}
 
@@ -110,16 +110,21 @@ def season_offsets(show_id: int) -> list[tuple[int, int]]:
 def remap_absolute_episodes(show_id: int) -> int:
     """按季集数偏移把绝对集号映射为 (season, episode)（幂等；无偏移不动）。"""
     from ..scanner.tv_parse import map_absolute
+    from .tv_bindings import list_tv_bindings
+    from ..tv_binding_rules import binding_for
+    rules = list_tv_bindings(show_id=show_id)
     offsets = season_offsets(show_id)
     if not offsets:
         return 0
     changed = 0
     with _lock, _conn() as c:
-        rows = c.execute("SELECT id, season, episode, absolute_number FROM tv_episodes"
+        rows = c.execute("SELECT id, file_path, season, episode, absolute_number FROM tv_episodes"
                          " WHERE show_id=? AND absolute_number IS NOT NULL",
                          (int(show_id),)).fetchall()
         now = int(time.time())
         for r in rows:
+            if binding_for(r['file_path'], rules):
+                continue  # Confirmed directory numbering takes precedence over inference.
             m = map_absolute(int(r["absolute_number"]), offsets)
             if not m:
                 continue
@@ -1353,6 +1358,8 @@ def repath_tv_episodes_prefix(library_id, old_dir: str, new_dir: str) -> int:
     like = old.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/%"
     lib_id = int(library_id)
     with _lock, _conn() as c:
+        from .tv_bindings import repath_tv_bindings
+        repath_tv_bindings(c, lib_id, old, new)
         rows = [str(r["file_path"]) for r in c.execute(
             "SELECT file_path FROM tv_episodes WHERE library_id=? AND file_path LIKE ?"
             " ESCAPE '\\'", (lib_id, like))]
@@ -1541,6 +1548,10 @@ def backfill_legacy_organize_moves() -> int:
 def find_show_by_dir_prefix(show_dir: str, library_id=None) -> int | None:
     """按剧根目录找已拥有正片的剧行（花絮归属优先用它，避免 TMDB 改名后按目录名
     新建重复剧行——如 `Breaking.Bad.2008` 下花絮挂到 `绝命毒师` 而非新行）。"""
+    from .tv_bindings import tv_binding_for
+    rule = tv_binding_for(library_id or DEFAULT_LIBRARY_ID, show_dir)
+    if rule:
+        return int(rule['show_id'])
     d = str(show_dir or "").replace("\\", "/").strip("/")
     if not d:
         return None
@@ -1582,13 +1593,17 @@ def reattach_tv_extras(library_id=None) -> int:
         rows = c.execute("SELECT id, file_path, show_id FROM extras"
                          " WHERE library_id=? AND show_id IS NOT NULL",
                          (lib_id,)).fetchall()
+        from .tv_bindings import list_tv_bindings
+        from ..tv_binding_rules import binding_for
+        rules = list_tv_bindings(lib_id)
         for x in rows:
             path = str(x["file_path"])
             best = ""
             for root in target:
                 if path.startswith(root + "/") and len(root) > len(best):
                     best = root
-            want = target.get(best)
+            rule = binding_for(path, rules)
+            want = rule['show_id'] if rule else target.get(best)
             if want and int(x["show_id"]) != int(want):
                 c.execute("UPDATE extras SET show_id=?, updated_at=? WHERE id=?",
                           (int(want), int(time.time()), int(x["id"])))
@@ -1657,7 +1672,8 @@ def prune_empty_shows(library_id=None) -> int:
             "SELECT id FROM tv_shows WHERE library_id=? AND id NOT IN"
             " (SELECT DISTINCT show_id FROM tv_episodes)"
             " AND id NOT IN (SELECT DISTINCT show_id FROM extras"
-            "                WHERE show_id IS NOT NULL)", (lib_id,))]
+            "                WHERE show_id IS NOT NULL)"
+            " AND id NOT IN (SELECT show_id FROM tv_directory_bindings)", (lib_id,))]
         for i in range(0, len(ids), 400):
             chunk = ids[i:i + 400]
             ph = ",".join("?" for _ in chunk)

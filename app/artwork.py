@@ -326,29 +326,30 @@ def write_for_show(show_id: int, backend=None, thumbs: bool = False) -> dict:
         tmdb_id = int(show["tmdb_id"])
         if backend is None:
             backend = storage.backend_for(int(lid))
-        show_dir = tv_nfo_link.show_dir_of(episodes[0]["file_path"],
-                                           tv_nfo_link._direct_dirs(episodes))
+        roots = tv_nfo_link.show_dirs_for(int(show_id), episodes)
         wrote: list[str] = []
         poster = _read_bytes(_tv_poster_src(show, tmdb_id))
-        if poster and _backend_put(backend, _backend_join(show_dir, "poster.jpg"), poster):
-            wrote.append("poster.jpg")
         backdrop = _read_bytes(_tv_backdrop_src(show, tmdb_id))
-        if backdrop and _backend_put(backend, _backend_join(show_dir, "fanart.jpg"), backdrop):
-            wrote.append("fanart.jpg")
-        try:
-            _cleanup_tv_wrapper_art(backend, show_dir, poster, backdrop)
-        except Exception as e:
-            logger.debug("tv wrapper art cleanup failed show=%s: %s", show_id, e)
+        for show_dir in roots:
+            if poster and _backend_put(backend, _backend_join(show_dir, "poster.jpg"), poster):
+                wrote.append("poster.jpg")
+            if backdrop and _backend_put(backend, _backend_join(show_dir, "fanart.jpg"), backdrop):
+                wrote.append("fanart.jpg")
+            try:
+                _cleanup_tv_wrapper_art(backend, show_dir, poster, backdrop)
+            except Exception as e:
+                logger.debug("tv wrapper art cleanup failed show=%s: %s", show_id, e)
         season_rows = {int(s.get("season") or 0): s for s in store.list_seasons(int(show_id))}
-        seen: set[int] = set()
+        seen: set[tuple] = set()
         for e in episodes:
             try:
                 sn = int(e.get("season") or 0)
             except (TypeError, ValueError):
                 continue
-            if sn <= 0 or sn in seen:
+            sdir = tv_nfo_link.season_dir_of(e['file_path'])
+            if sn <= 0 or (sn, sdir) in seen:
                 continue
-            seen.add(sn)
+            seen.add((sn, sdir))
             src = _tv_season_poster_src(season_rows.get(sn), tmdb_id, sn)
             data = _read_bytes(src) if src else b""
             if not data:

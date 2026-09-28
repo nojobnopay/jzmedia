@@ -43,3 +43,18 @@
 - `GET /api/tv/episodes/{id}` 新增 `previous_episode/next_episode`，与 `/next` 使用相同版本与多集区间规则。季详情支持 `version` 筛选和分页，新增 `versions/distinct_count`；`episode_count/watched_count` 仍为全季文件数。
 - `/api/tv/stats` 保留 `shows/episodes`，增加 `seasons/pending/episode_review/by_library`；电影 `/api/jobs/stats` 增加 `by_library` 待办统计。概览待办深链指定具体 `library`。
 - `rebuild-meta` 新增 `nfo` 开关（默认 true），与 `artwork` 独立，至少选择一项；旧客户端行为不变。单片与全库修复仍分别使用 `ids` 和 `library_id`。
+
+## 剧集目录归属
+
+Schema v28：`tv_directory_bindings` 持久化 `(library_id, path) → (show_id, season, override_season)`；`tv_binding_history` 保存预览、执行快照与撤销状态。分集增加 `match_source` 和 `binding_conflict`。扫描按最长路径前缀应用规则，目录整理/恢复同步改写规则路径；已确认目录的资料刷新只按精确季集匹配。
+
+| 接口（前缀 `/api/tv/bindings`） | 用途 |
+|---|---|
+| `GET /directories?library_id=&show_id=` | 只读盘点；`show_id` 可选，用于预选本剧目录 |
+| `POST /suggest` | `{library_id, paths, tmdb_id?}`；最多 12 个目录，返回目标候选、季号建议和依据 |
+| `POST /preview` | `{library_id, tmdb_id, target_show_id?, directories:[{path, season?, override_season?}], replace_manual?, allow_duplicates?}`；最多 50 个非嵌套目录 |
+| `POST /apply` | `{token}`；执行服务器保存的预览，15 分钟有效，同 token 重试幂等 |
+| `GET /history?library_id=` | 最近 30 条已执行/已撤销记录 |
+| `POST /undo` | `{token, dry_run:true}` 预览；`dry_run:false` 撤销 |
+
+预览返回 `groups/conflicts/warnings/duplicates/can_apply`；只有无冲突才返回 `token`。确认重新校验磁盘指纹、源目录快照、目标剧与分集签名，在 SQLite 事务内变更归属和季号，沿用现有 episode ID。观看状态不参与过期校验、不随撤销回滚。规则/路径/新增分集变化会拒绝旧预览或撤销（409）；存储不可读返回 503，资料请求 HTTP 错误返回 502。接口不移动或写入媒体文件，可用于只读媒体库。规则绑定的剧在普通重新匹配入口禁止直接换成其他条目，改用归属弹窗。
