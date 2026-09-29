@@ -11,9 +11,16 @@
 
 普通用户从部署教程开始；已安装用户直接查用户手册；修改代码前先看开发者文档。开发计划描述未来工作，不代表当前已经支持。
 
+| 你现在想做什么 | 最短路径 |
+|---|---|
+| 第一次安装 | [入门与部署](getting-started/README.md)：准备条件 → 安装 → 首次入库 |
+| 已经在用，想完成某个操作 | [用户手册](user-guide/README.md)：按任务找入口、步骤与结果 |
+| 出了问题 | 先看[功能排障](user-guide/troubleshooting.md)，部署类问题看[部署排障](getting-started/troubleshooting.md) |
+| 参与开发 | [开发者文档](developer/README.md)，再看[开发计划](roadmap/README.md) 确认范围 |
+
 ## 文档基线与维护
 
-- 核对日期：2026-09-26；应用版本 `0.19.0`，数据库 schema `27`，另含该版本后的播放器功能及 UI 改动。
+- 核对日期：2026-09-28；应用版本 `0.19.0`，数据库 schema `28`（含剧集目录归属 `tv_directory_bindings` 与归属历史 `tv_binding_history`，及分集 `match_source`/`binding_conflict`）。
 - 界面入口以当前 Vue 组件为准，接口参数以运行实例的 `/docs` 和后端模型为准。
 - 部署说明不包含私有环境地址、真实媒体清单或凭据。`docs/private/` 是本地资料，不属于公共文档。
 - 已完成能力写入手册/设计；未完成事项集中在开发计划。旧 [BACKLOG](BACKLOG.md) 仅保留兼容入口。

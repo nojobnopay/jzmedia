@@ -15,6 +15,19 @@
 
 画质 `auto/source/1080p/720p` 会影响输出尺寸和会话复用；“原画”只取消自动封顶，不保证不会重编。hls.js 音频 copy 默认仅 AAC/MP3；Safari 原生 HLS 可支持更多 Dolby 格式。HDR10/HLG、带 HDR10 基底的 DV P8.1 在客户端可解 PQ 时可直通；DV P5 无兼容基底阻止直通。硬件后端可 tone map，软件退化路径会给原因提示。
 
+```mermaid
+flowchart TD
+    C[caps 与片源探测] --> D{浏览器能直接放容器/编码?}
+    D -->|是| DR[direct: 原文件直发]
+    D -->|否| R{HLS 封装可解?}
+    R -->|视频可解| A{音频在安全 copy 集?}
+    A -->|是| RM[remux: 视频 copy]
+    A -->|否| AT[audio_transcode: 转 AAC]
+    R -->|否| VT[video_transcode: 重编]
+```
+
+数值例子：某片从 125.5 秒续播，目标前最近关键帧在 124.0 秒。copy 会话返回 `media_start=124.0`、`initial_time=1.5`：播放器片内 0 对应原片 124.0 秒，起播落在片内 1.5 秒处。字幕 cue 存的是原片时间，逐帧用 `media_start + 片内时间` 判定是否显示，再叠加用户设置的延迟。
+
 ## HLS 与 FFmpeg
 
 `playback/cmd.py` 组命令，`transcode.py` 检测 VAAPI → QSV → NVENC → 软件，首轮硬件不出片时软件重试。默认 fMP4 HLS，每片目标 4 秒，`HLS_SEGMENT_TYPE=ts` 回退旧 TS。fMP4 单 FFmpeg 进程产生视频和最多 8 条音轨 rendition；服务端写 `master.m3u8`，ffmpeg 继续增长的 `out_*.m3u8` 应按内容快照返回，不能直接用按旧长度计算 Content-Length 的 `FileResponse`。FFmpeg 工作目录必须是 session 目录，因为分片输出文件名是相对路径。

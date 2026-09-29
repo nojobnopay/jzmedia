@@ -8,6 +8,18 @@
 
 `app/storage/base.py` 定义后端操作；`factory.py` 按库来源和 `SMB_DRIVER` 分流：本地/已挂载 NFS 使用本地后端，SMB 可直读或经挂载点。直读 SMB 的视频流通过只监听回环的内部 HTTP Range 代理交给 FFmpeg，而非假设 FFmpeg 自带 SMB 凭据。远程库离线或直读初始化失败时不能退到未挂载的空目录，否则清理工具会把“暂时不可读”误判为“文件已删除”。
 
+```mermaid
+flowchart LR
+    subgraph 读
+        R1[本地/NFS 挂载] -->|直接路径| FF[ffprobe / FFmpeg / FileResponse]
+        R2[SMB 直读] -->|回环 Range 代理| FF
+    end
+    subgraph 写
+        W[改名/上传/落盘] -->|原子提交| L[本地 .part + replace]
+        W -->|临时文件 + replace| S[SMB 远端]
+    end
+```
+
 媒体库根浏览使用只读伪库，进入具体视频库才开放该库内操作；跨视频库移动/复制不提供。后端必须验证目标仍在该库范围。媒体库只读、源文件缺失、目标被占、目录符号链接及 SMB 与本地的 rename 语义，需要在后端层统一处理，不能只依赖前端禁用按钮。
 
 ## 缓存与写操作

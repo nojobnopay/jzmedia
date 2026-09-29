@@ -2,20 +2,38 @@
 
 [开发者文档](README.md)
 
-数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。当前 `SCHEMA_VERSION=27`；启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
+数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。当前 `SCHEMA_VERSION=28`；启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
 
 ## 主要实体
+
+```mermaid
+erDiagram
+    media_libraries ||--o{ libraries : "一个媒体库多个视频库"
+    libraries ||--o{ movies : "按视频库归属"
+    libraries ||--o{ tv_shows : "按视频库归属"
+    tv_shows ||--o{ tv_seasons : "剧含多季"
+    tv_seasons ||--o{ tv_episodes : "季含多集"
+    movies ||--o{ extras : "movie_id 归属"
+    tv_shows ||--o{ extras : "show_id 归属"
+    movies }o--o{ persons : "movie_person 关联"
+    movies }o--o{ collections : "海报粒度成员"
+    libraries ||--o{ tv_directory_bindings : "目录归属规则"
+```
+
+外键只表达归属方向；`media_info`、`playback_progress` 按 `(kind, item_id)` 键隔离电影/分集/花絮，不做硬外键。`tmdb_cache` 主键是 `(media_type, tmdb_id)`，电影与剧集的数值 id 空间独立。合集成员按海报粒度（同 `tmdb_id` 全版本）归并，不是按单个文件行。
 
 | 表 | 作用/关键关联 |
 |---|---|
 | `media_libraries` | 存储连接/根目录、凭据、只读、健康状态；一个媒体库有多个视频库 |
 | `libraries` | 视频库类型 `movie/tv`、`media_library_id`、子路径、命名档、落盘策略及来源链 |
 | `movies` | 文件版本行，`UNIQUE(library_id,file_path)`；同片多个文件经匹配关系归并展示 |
-| `tv_shows` / `tv_seasons` / `tv_episodes` | 剧、季、集镜像；分集含本地匹配/观看等字段 |
+| `tv_shows` / `tv_seasons` / `tv_episodes` | 剧、季、集镜像；分集含本地匹配/观看等字段，另有 `match_source`（归属来源）与 `binding_conflict`（归属冲突标记） |
+| `tv_directory_bindings` | 目录归属规则：主键 `(library_id, path)` → `(show_id, season, override_season)`；扫描与重扫沿用，整理/恢复同步改写路径 |
 | `extras` | 电影/剧集花絮，分别通过 `movie_id`/`show_id` 归属 |
 | `media_info` | 按 `(kind,item_id)` 缓存 ffprobe 结果与 `probe_ver` |
 | `playback_progress` | 按 `(kind,item_id)` 隔离电影、分集、花絮续播 |
 | `scan_state` | 文件大小/mtime/扫描状态，用于增量与整理后的路径同步 |
+| `tv_binding_history` | 归属变更的预览/执行快照与撤销状态机（`preview` → 已执行/已撤销），预览 token 15 分钟有效 |
 | `organize_moves` | 剧集整理逐步审计：批次、源/目标、文件或目录、撤销时间 |
 | `tmdb_cache`、`external_meta`、`match_index` | 已获取的来源详情和可离线检索索引 |
 | `persons`、`movie_person`、`collections`、`collection_members` | 演职员关联和媒体库级合集 |

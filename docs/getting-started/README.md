@@ -11,6 +11,14 @@ jzmedia 管理你已经拥有的媒体文件：扫描目录，识别电影与剧
 3. [升级、备份与迁移](operations.md)：保护数据库、凭据密钥和媒体文件。
 4. [部署排障](troubleshooting.md)：启动、权限、连接和页面更新问题。
 
+| 情况 | 读哪一篇 |
+|---|---|
+| 家用电脑或 NAS 上首次安装 | 先看本页准备条件，再跟 [安装与首次使用](deployment.md) 走到首播 |
+| Linux/WSL 想直接跑源码 | [安装与首次使用](deployment.md) 的宿主直跑节 |
+| 要改 TMDB、代理、转码、缓存 | [配置参考](configuration.md)，对照 `.env.example` 改 |
+| 升级、换机、备份恢复 | [升级、备份与迁移](operations.md)，先备份再动手 |
+| 起不来、连不上、播不了 | [部署排障](troubleshooting.md) 按症状查 |
+
 ## 运行前准备
 
 - 一台能运行 Docker Compose 的设备；或具备 Python、Node.js 和 FFmpeg 的 Linux/WSL 开发环境。

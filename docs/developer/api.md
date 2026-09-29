@@ -22,6 +22,46 @@
 
 当前四档播放由 POST `/api/stream/{id}/decide` 接收 `caps`；GET 兼容变体仅用保守默认。电影、分集、花絮播放时通过 `kind` 隔离媒体探测、进度和会话。文件直链及 HLS 分片读取是 GET，支持断点/Range 的接口不能被通用 JSON 包装破坏。
 
+## 客户端例子
+
+以下 id 均为示例值，演示用隔离环境或只读查询，不要对真实库执行写操作。
+
+范围过滤（`library` 视频库，`media_library` 媒体库聚合；未知媒体库返回空集合）：
+
+```http
+GET /api/movies?media_library=2&limit=1
+→ {"items": [{"id": 875, "title": "古董局中局", "library_id": 2, ...}]}
+
+GET /api/movies?media_library=9999&limit=1
+→ {"items": [], "has_more": false, ...}
+```
+
+任务启动/查询/取消（扫描示例；响应 `state` 含 `idle/running/done`）：
+
+```http
+POST /api/jobs/scan {"library_id": 2}
+→ {"job_id": "…", "resumed": false, ...}
+
+GET /api/jobs/scan
+→ {"state": "idle"}              # 无任务时
+→ {"job_id": "…", "state": "running", "done": 12, "total": 300, ...}
+
+POST /api/jobs/scan/{job_id}/cancel   # 协作式取消，已完成项保留
+# 不同范围的扫描并发启动返回 409（“另一个范围的扫描正在进行”），同范围返回 resumed:true 复用。
+```
+
+归属预览/执行（token 15 分钟有效；磁盘或规则变化后确认返回 409，需重新预览）：
+
+```http
+POST /api/tv/bindings/preview {"library_id": 3, "target_show_id": 72, "directories": [{"path": "Season 01"}]}
+→ {"groups": [...], "conflicts": [...], "can_apply": true, "token": "…"}
+
+POST /api/tv/bindings/apply {"token": "…", "dry_run": true}   # 先预览
+POST /api/tv/bindings/apply {"token": "…"}                    # 再执行
+```
+
+`kind` 隔离播放：电影 `m{id}`、分集 `e{id}`、花絮 `x{id}` 的探测、断点、会话目录互相隔离；`kind=episode` 的版本接口只返回同剧同季同集的多版本。`library_id` 指视频库，`media_library_id` 指媒体库，写任务优先显式传视频库 id。
+
 ## 详情图片
 
 `GET /api/movies/{id}/backdrop` 优先返回本地横版背景缓存；缺图时只按已有 TMDB 缓存中的图片路径下载，不重新刮削影片。缺少背景为 404，下载失败为 502，前端保留渐变底色；图片请求独立于电影详情 JSON，避免拖慢资料加载。季和单集详情的 `show_backdrop_path` 沿用所属剧集的本地背景，空字符串表示暂无图片。

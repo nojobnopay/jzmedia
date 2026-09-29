@@ -23,6 +23,10 @@ flowchart LR
 
 ## 请求路径
 
+端到端以一次海报墙访问为例：浏览器 `GET /` 拿到 SPA → `GET /api/movies?media_library=2` 读库 → `store` 联表 + FTS → JSON 回海报与继续观看 → 图片走 `/posters/...` 静态。详情、人物、合集同理，只是换路由与联表；筛选条件在 SQL 层按“维度内 OR、维度间 AND”拼装（标签多选除外）。
+
+扫描入库另走后台：`POST /api/jobs/scan` 只建任务即返回 `job_id`，`scanner` 线程经 `StorageBackend.iter_tree` 遍历 → 分类/匹配/持久化 → `scan_state` 记增量；前端轮询同一 `GET /api/jobs/scan` 看进度。整理、重建 NFO、缩略图生成同为“预览/计划先行、确认再执行”的 jobkit 任务，取消只停后续步骤。
+
 1. 浏览器通过 `caps.js` 检测格式/显示能力，经 `POST /api/stream/{id}/decide` 上报候选能力。
 2. FastAPI 从 `store` 找对应电影、集或花絮，使用 `StorageBackend` 生成可读媒体源；`media.py` 对必要源做 ffprobe 探测，结果存 `media_info`。
 3. `playback.plan` 给出 direct/remux/audio_transcode/video_transcode 决策；直发走支持 Range 的 blob，其他路径建 HLS 会话。浏览器 hls.js 或原生 HLS 消费结果。

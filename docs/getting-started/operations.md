@@ -53,6 +53,14 @@ docker compose -f docker-compose.yml up -d
 
 停止目标服务，把备份恢复到一个单独、可检查的数据目录，再让新实例挂载该目录。保留 `secret.key`；校正 UID/GID 和硬件设备组。尽量维持容器内路径及媒体目录结构，避免已有相对路径失配。
 
+隔离演练示例（不碰线上数据目录）：
+
+```bash
+mkdir -p /tmp/restore-check && tar -xzf backups/jzmedia-data-20260928-120000.tar.gz -C /tmp/restore-check
+DATA_HOST_PATH=/tmp/restore-check docker compose -f docker-compose.yml up -d
+# 打开页面核对库与海报正常后停掉，删掉 /tmp/restore-check
+```
+
 先检查连接，再扫描/校验存在性。不要因为暂时离线而删除媒体库重建；删库会删除库记录。不要在恢复前运行文件整理来“修复”路径。
 
 媒体文件恢复和数据库恢复是两条链路。撤销整理依赖原位置空闲、文件存在及审计记录，不等同于备份或回收站。[整理与撤销](../user-guide/organizing.md)。

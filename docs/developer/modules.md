@@ -10,6 +10,7 @@
 | `app/config.py`、`app/log.py`、`app/db.py` | 配置优先级、统一日志、运行目录 | 区分宿主/容器路径；脱敏秘密 |
 | `app/store/` | SQLite schema/迁移、电影/剧集/合集/进度/搜索/来源索引 | 手写 SQL 写电影等后同步 FTS；迁移幂等 |
 | `app/library_paths.py`、`app/storage/`、`app/mounts.py` | 视频库路径、Local/SMB/NFS 后端、挂载、缓存和 Range 代理 | 跨库范围、只读、写缓存失效、离线不能当“文件不存在” |
+| `app/tv_bindings.py`、`app/tv_binding_rules.py`、`app/store/tv_bindings.py` | 剧集目录归属规则、纯规则判定、归属表与历史表的读写 | 预览 token 有效期、事务内应用、规则路径随整理/恢复改写 |
 | `app/scanner/` | 文件分类、电影和剧集扫描、匹配、NFO 同步与目录整理 | 分类/解析优先纯函数，整理先计划后执行 |
 | `app/metadata/`、`app/tmdb.py` | 来源链、外源候选/详情、NFO 导入、TMDB 客户端 | 来源缺省与冷却状态；保守匹配门 |
 | `app/nfo.py`、`app/artwork.py`、`app/posters.py` | NFO 格式、媒体目录图片、数据目录图片路径 | 遵守库的落盘策略与已有文件所有权 |
