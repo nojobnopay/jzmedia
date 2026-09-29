@@ -30,6 +30,6 @@
 ## 注意事项
 
 - `library-connection.webp` 保留了局域网 NAS 名（`\\Joey-DS425\video`），理解 SMB 地址栏需要该上下文；无凭据、无公网地址。重拍时沿用同一原则。
-- 移动端两张为 Chromium 移动模拟（390×844、mobile UA、touch），无手机外框装饰；真机未验证，见验收记录。
+- 移动端两张为 Chromium 移动模拟（390×844、mobile UA、touch），无手机外框装饰；真机未验证，见 [验收记录](../roadmap/backlog.md#文档改版验收记录)。
 - 原理图优先用正文内嵌 Mermaid，不存静态图；若渲染器不支持 Mermaid，再导出静态并保留源定义。代码围栏必须独立成行（`scripts/check_docs_links.py` 会检查）。
-- 复现：主实例 `./start.sh` 启动后，用 Playwright 无头 Chromium 按上表「拍摄入口」逐张重拍（视口/密度/质量见拍摄基线）；截图脚本属本地临时工具，未随仓库提交。演示实例（S07/S08）搭建与拆除步骤见验收记录。
+- 复现：主实例 `./start.sh` 启动后，用 Playwright 无头 Chromium 按上表「拍摄入口」逐张重拍（视口/密度/质量见拍摄基线）；截图脚本属本地临时工具，未随仓库提交。演示实例（S07/S08）为临时 `DATA_DIR` + 2 秒合成测试片，拍完即弃，详见 [验收记录](../roadmap/backlog.md#文档改版验收记录)。

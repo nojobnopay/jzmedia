@@ -7,7 +7,7 @@
 | [getting-started](getting-started/README.md) | 普通用户、部署者 | 项目定位、安装、配置、首次入库、升级备份和部署排障 |
 | [user-guide](user-guide/README.md) | 深度使用者 | 按功能讲解入口、步骤、结果、限制和常见误区 |
 | [developer](developer/README.md) | 开发人员 | 系统结构、模块、数据模型、存储、扫描、播放、接口与开发验证 |
-| [roadmap](roadmap/README.md) | 开发人员、维护者 | 当前计划、优先级建议、验收条件、完成记录和历史索引 |
+| [roadmap](roadmap/README.md) | 开发人员、维护者 | 当前计划、优先级建议、验收条件、已完成记录与历史回溯说明 |
 
 普通用户从部署教程开始；已安装用户直接查用户手册；修改代码前先看开发者文档。开发计划描述未来工作，不代表当前已经支持。
 
