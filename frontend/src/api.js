@@ -17,6 +17,12 @@ function _authHeaders() {
 }
 
 function _brief(text) {
+  // FastAPI 的字符串 detail 是给用户看的原因，不把 JSON 包装显示在反馈中。
+  try {
+    const data = JSON.parse(text)
+    if (typeof data?.detail === 'string') text = data.detail
+    else if (typeof data?.message === 'string') text = data.message
+  } catch { /* 网关和连接错误也可能返回纯文本，沿用原文。 */ }
   // 错误体截断（评审 B8/R05-Q6/R14-Q4）：HTTP body 直出 UI 会撑破布局
   const t = String(text || '').replace(/\s+/g, ' ').trim()
   return t.length > 300 ? t.slice(0, 300) + '…' : t
