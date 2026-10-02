@@ -38,8 +38,10 @@
       </ul>
     </div>
     <button @click="applyAndLoad">搜索</button>
+    <button :aria-expanded="aiSearchOpen" @click="aiSearchOpen = !aiSearchOpen">智能搜索</button>
     <button :aria-expanded="filtersOpen" aria-controls="browse-filters" @click="filtersOpen = !filtersOpen">筛选<span v-if="activeCount"> · {{ activeCount }}</span> {{ filtersOpen ? '⌃' : '⌄' }}</button>
   </div>
+  <AiSearchPanel v-if="aiSearchOpen" kind="tv" :query="q" :media-library-id="curMediaId" @apply="applyAiSearch" @close="aiSearchOpen = false" />
   <ScanAction v-if="scanOpen" kind="tv" @done="onAdded" />
   <UploadDialog v-if="upDlg" kind="tv" @close="upDlg = false" @done="onAdded" />
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
@@ -159,6 +161,7 @@
 </template>
 
 <script setup>
+import AiSearchPanel from '../components/AiSearchPanel.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import ScanAction from '../components/ScanAction.vue'
 import UploadDialog from '../components/UploadDialog.vue'
@@ -183,6 +186,17 @@ const scanOpen = ref(false)
 const upDlg = ref(false)
 async function onAdded() { await loadFacets(); await load() }
 const filtersOpen = ref(false)
+const aiSearchOpen = ref(false)
+function applyAiSearch(value) {
+  q.value = value.q
+  sel.value = value.sel
+  sort.value = value.sort
+  saveWallSort(localStorage, sort.value)
+  closeSuggest()
+  filtersOpen.value = true
+  aiSearchOpen.value = false
+  applyAndLoad()
+}
 const toolsLink = computed(() => {
   const media = curMediaId.value
   const library = preferredVideoLibId('tv')

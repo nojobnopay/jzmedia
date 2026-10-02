@@ -14,7 +14,7 @@ from .config import settings
 from .db import POSTER_DIR, ensure_dirs
 from .log import get_logger, setup_logging
 from .help_site import HelpFiles
-from .routers import (collections, extras, files, fs, health, jobs, libraries,
+from .routers import (ai, ai_settings, collections, extras, files, fs, health, jobs, libraries,
                       media_libraries, metadata, movies, onboarding, persons, stream, tv, tv_bindings)
 
 setup_logging()
@@ -103,6 +103,8 @@ async def _auth_write(request, call_next):
     return await call_next(request)
 
 app.include_router(health.router)
+app.include_router(ai_settings.router)
+app.include_router(ai.router)
 app.include_router(onboarding.router)
 app.include_router(media_libraries.router)
 app.include_router(libraries.router)

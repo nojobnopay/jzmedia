@@ -939,9 +939,9 @@ def bind_external(movie_id: int, body: dict):
         raise HTTPException(422, "source/source_id required")
     from ...metadata import chain as meta_chain
     from ...metadata import external as meta_external
-    from ...metadata.base import Candidate
-    cand = Candidate(source=source, source_id=source_id,
-                     title=m.get("title") or "", year=m.get("year"))
+    cand = meta_chain.candidate_for(source, source_id, "movie")
+    if cand is None:
+        raise HTTPException(422, "候选暂无可绑定的资料，或媒体类型不匹配")
     detail = meta_chain.detail_for(cand)
     if not detail or not detail.get("title"):
         raise HTTPException(502, "外部详情获取失败")
@@ -1431,4 +1431,3 @@ def movie_poster_set(movie_id: int, body: dict | None = None):
             logger.debug("rewrite media poster failed mid=%s: %s", mid, e)
     return {"ok": True, "poster_path": poster_rel, "file_path": fp,
             "original_ok": original_ok, "wrote": sorted(set(wrote))}
-

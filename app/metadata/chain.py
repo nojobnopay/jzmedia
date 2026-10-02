@@ -6,7 +6,7 @@
 """
 import json
 
-from .. import config, library_paths
+from .. import config, library_paths, store
 from ..log import get_logger
 from . import bangumi, douban, local, state, tvmaze, wikidata
 from .base import Candidate
@@ -35,17 +35,19 @@ def chain_for(library_id=None) -> list[str]:
     return list(DEFAULT_CHAIN)
 
 
-def _tmdb(title: str, year, limit: int) -> list[Candidate]:
+def _tmdb(title: str, year, limit: int, kind: str = "movie") -> list[Candidate]:
     if not (config.effective_tmdb_read_token() or config.effective_tmdb_api_key()):
         return []
     from .. import tmdb as tmdb_client
     # 失败不吞：由 search 统一记失败/冷却（返回空列表=正常无结果，不计失败）
-    rows = tmdb_client.search_movie(title, year)
+    is_tv = kind == "tv"
+    rows = (tmdb_client.search_tv if is_tv else tmdb_client.search_movie)(title, year)
     out: list[Candidate] = []
     for r in (rows or [])[:limit]:
-        rd = (r.get("release_date") or "")[:4]
+        rd = (r.get("first_air_date" if is_tv else "release_date") or "")[:4]
         out.append(Candidate(
-            title=r.get("title") or "", original_title=r.get("original_title") or "",
+            title=r.get("name" if is_tv else "title") or "",
+            original_title=r.get("original_name" if is_tv else "original_title") or "",
             year=int(rd) if rd.isdigit() else None,
             tmdb_id=r.get("id"), source="tmdb", source_id=str(r.get("id") or ""),
             score=50.0))
@@ -55,7 +57,7 @@ def _tmdb(title: str, year, limit: int) -> list[Candidate]:
 # provider 名 → 调用（唯一分发点；链外名字直接跳过）
 _SEARCHERS = {
     "local": lambda term, year, kind, limit: local.search(term, year, kind, limit),
-    "tmdb": lambda term, year, kind, limit: _tmdb(term, year, min(int(limit), 20)),
+    "tmdb": lambda term, year, kind, limit: _tmdb(term, year, min(int(limit), 20), kind),
     "wikidata": lambda term, year, kind, limit: wikidata.search(term, year, kind, limit),
     "douban": lambda term, year, kind, limit: douban.search(term, year, kind, limit),
     "tvmaze": lambda term, year, kind, limit: tvmaze.search(term, year, kind, limit),
@@ -68,6 +70,37 @@ _DETAILERS = {
     "tvmaze": tvmaze.detail,
     "bgm": bangumi.detail,
 }
+
+
+def candidate_for(source: str, source_id: str, kind: str = "movie") -> Candidate | None:
+    """Restore a bindable candidate from trusted detail storage, without a network call.
+
+    A search-index title alone does not prove that a provider can supply metadata.
+    Remote-only candidates deliberately have no title: failed detail retrieval must
+    not silently confirm the current item's previous title as a new match.
+    """
+    source, source_id = str(source or "").strip(), str(source_id or "").strip()
+    if not source or not source_id or kind not in ("movie", "tv"):
+        return None
+    if source == "tvmaze" and kind != "tv":
+        return None
+    cached = store.get_external(source, source_id)
+    if cached:
+        if cached.get("kind") != kind:
+            return None
+        payload = dict(cached.get("payload") or {})
+        for name in ("title", "original_title", "year", "tmdb_id", "imdb_id", "tvdb_id",
+                     "poster_url", "backdrop_url"):
+            if not payload.get(name) and cached.get(name):
+                payload[name] = cached[name]
+        if payload.get("title"):
+            return Candidate(source=source, source_id=source_id, title=payload["title"],
+                             original_title=payload.get("original_title") or "",
+                             year=payload.get("year"), tmdb_id=payload.get("tmdb_id"),
+                             imdb_id=payload.get("imdb_id") or "", payload={"detail": payload})
+    if source in _DETAILERS:
+        return Candidate(source=source, source_id=source_id)
+    return None
 
 
 def search(title: str, year: int | None = None, kind: str = "movie",
@@ -130,4 +163,4 @@ def detail_for(cand: Candidate, fetch: bool = True) -> dict:
     return d
 
 
-__all__ = ['search', 'detail_for', 'chain_for', 'DEFAULT_CHAIN', 'KNOWN_PROVIDERS']
+__all__ = ['search', 'detail_for', 'candidate_for', 'chain_for', 'DEFAULT_CHAIN', 'KNOWN_PROVIDERS']

@@ -2,8 +2,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app import library_paths, store
+from app import library_paths, store, tmdb
 from app.main import app
+from app.metadata import chain
 
 client = TestClient(app)
 
@@ -68,9 +69,13 @@ def test_organize_scoped_to_library(media_root, second_library):
     assert (media_root / new_rel).exists() is False   # 默认库不应出现该文件
 
 
-def test_fs_copy_scoped(media_root, second_library):
+def test_fs_copy_scoped(media_root, second_library, monkeypatch):
     import time as _t
+    # Exercise the real copy + scanner path without TMDB or external-provider I/O.
+    monkeypatch.setattr(tmdb, "search_movie", lambda *args, **kwargs: [])
+    monkeypatch.setattr(chain, "search", lambda *args, **kwargs: [])
     lib, root = second_library
+    default_before = store.get_by_path("dst/a.mkv")
     _touch(root, "src/a.mkv")
     r = client.post("/api/fs/copy", json={"from": ["src/a.mkv"], "to_dir": "dst",
                                           "dry_run": False,
@@ -83,3 +88,6 @@ def test_fs_copy_scoped(media_root, second_library):
         _t.sleep(0.05)
     assert st.get("state") == "done", st
     assert (root / "dst" / "a.mkv").is_file()
+    copied = store.get_by_path("dst/a.mkv", library_id=lib["id"])
+    assert copied and copied["library_id"] == lib["id"]
+    assert store.get_by_path("dst/a.mkv") == default_before

@@ -28,6 +28,7 @@
             <button v-else-if="isExternal(c)" @click="bindExternal(c)" :disabled="!!bindingId"><Spinner v-if="bindingId === candKey(c)" />{{ bindingId === candKey(c) ? '绑定中…' : '绑定外源' }}</button>
           </li>
         </ul>
+        <AiMatchSuggestions kind="movie" :item-id="movieId" :disabled="searching || !!bindingId" :already-matched="!!movie.tmdb_id || !!movie.match_source" @select="selectAiMatch" />
         <p class="fhint">候选来源：TMDB 无凭据/不可用时自动回退本地索引、Wikidata、TVmaze（剧）、Bangumi 与 NFO；外源绑定不依赖 TMDB Token。</p>
         <p v-if="msg" role="status">{{ msg }}</p><button @click="cancelEdit">收起匹配</button>
         </template>
@@ -35,6 +36,8 @@
 </template>
 
 <script setup>
+import AiMatchSuggestions from './AiMatchSuggestions.vue'
+import { isAiExternalCandidate } from '../aiMatch.js'
 import HelpLink from './HelpLink.vue'
 import { onMounted, ref } from 'vue'
 import { api } from '../api.js'
@@ -59,6 +62,10 @@ const mq = ref(props.movie.title || '')
 const cands = ref([])
 const bindingId = ref(null)
 const searching = ref(false)
+function selectAiMatch(candidate) {
+  if (candidate.tmdb_id) return bindMatch(candidate.tmdb_id)
+  if (isAiExternalCandidate(candidate)) return bindExternal(candidate)
+}
 
 function cancelEdit() {
   emit('close')

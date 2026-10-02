@@ -807,9 +807,10 @@ def bind_external_show(show_id: int, body: dict):
     source_id = str((body or {}).get("source_id") or "").strip()
     if not source or not source_id:
         raise HTTPException(422, "source/source_id required")
-    from ..metadata.base import Candidate
-    cand = Candidate(source=source, source_id=source_id,
-                     title=show.get("title") or "", year=show.get("year"))
+    from ..metadata import chain as meta_chain
+    cand = meta_chain.candidate_for(source, source_id, "tv")
+    if cand is None:
+        raise HTTPException(422, "候选暂无可绑定的资料，或媒体类型不匹配")
     out = tv_persist._apply_external_candidate(show, cand, 0)
     if out is None:
         raise HTTPException(502, "外部详情获取失败")

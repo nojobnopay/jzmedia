@@ -65,6 +65,7 @@
               <button v-else-if="isExternal(r)" @click="doMatchExternal(r)">绑定外源</button>
             </div>
             <div v-if="searched && !results.length" class="dim">没有找到相关剧集，请尝试其他名称。</div>
+            <AiMatchSuggestions kind="tv" :item-id="show.id" :disabled="busy || searching" :already-matched="!!show.tmdb_id || !!show.match_source" @select="selectAiMatch" />
           </div>
         </div>
       </div>
@@ -126,6 +127,8 @@
 </template>
 
 <script setup>
+import AiMatchSuggestions from '../components/AiMatchSuggestions.vue'
+import { isAiExternalCandidate } from '../aiMatch.js'
 import { followingPlayback } from '../episodePlayback.js'
 import { currentMediaId, loadLibs, switchMedia } from '../libraries.js'
 import { browseReturn } from '../browseHistory.js'
@@ -387,6 +390,7 @@ async function doSearch () {
   } catch (e) { msg.value = '搜索失败：' + e.message } finally { searching.value = false }
 }
 async function doMatch (tmdbId) {
+  if (busy.value) return
   busy.value = true
   try {
     const res = await api(`/api/tv/shows/${show.value.id}/match`, {
@@ -411,6 +415,7 @@ const SOURCE_LABELS = {
 function srcLabel (s) { return SOURCE_LABELS[s] || s }
 function isExternal (r) { return !r.tmdb_id && EXTERNAL_SOURCES.includes(r.source) }
 async function doMatchExternal (r) {
+  if (busy.value) return
   busy.value = true
   try {
     const res = await api(`/api/tv/shows/${show.value.id}/bind-external`, {
@@ -423,6 +428,10 @@ async function doMatchExternal (r) {
     msg.value = '已绑定外源元数据（无 TMDB ID，后续可手动匹配 TMDB 升级）'
     if (res && res.episodes_filled) msg.value += `，回填 ${res.episodes_filled} 集`
   } catch (e) { msg.value = '绑定失败：' + e.message } finally { busy.value = false }
+}
+function selectAiMatch(candidate) {
+  if (candidate.tmdb_id) return doMatch(candidate.tmdb_id)
+  if (isAiExternalCandidate(candidate)) return doMatchExternal(candidate)
 }
 // 匹配成功后查单剧整理预览：有可执行计划或风险/手动项即弹窗（对标电影归档引导）
 async function checkOrgHint () {

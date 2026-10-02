@@ -556,6 +556,8 @@ LOCAL_FIELDS = {"file_path", "title", "title_auto", "overview_override",
 # 设置页可写的配置键白名单（与 config.effective_* 对应）
 APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "tmdb_language", "tmdb_image_base", "jzmedia_token",
+                    "ai_enabled", "ai_provider", "ai_base_url", "ai_model", "ai_api_key",
+                    "ai_timeout_seconds", "ai_daily_limit",
                     # 内部状态（不经 /api/settings 暴露，由各业务服务读写）
                     "metadata_provider_state", "onboarding_state"}
 

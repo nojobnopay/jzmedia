@@ -62,6 +62,7 @@
 
       <div v-show="active === 'sec-tmdb'" id="sec-tmdb">
         <TmdbSettingsPanel :settings="s" @saved="s = $event" />
+        <AiSettingsPanel />
         <div class="bar"><button @click="testTmdb" :disabled="testingTmdb">{{ testingTmdb ? '测试中…' : '测试资料搜索' }}</button><span role="status">{{ tmdbMsg }}</span></div>
         <section class="card-block">
           <h3>匹配来源</h3>
@@ -133,6 +134,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TmdbSettingsPanel from '../components/TmdbSettingsPanel.vue'
+import AiSettingsPanel from '../components/AiSettingsPanel.vue'
 import LibrariesPanel from '../components/LibrariesPanel.vue'
 import LibraryToolsPanel from '../components/LibraryToolsPanel.vue'
 import { fmtBytes } from '../format.js'

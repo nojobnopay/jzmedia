@@ -21,6 +21,7 @@ reviewed: 2026-10-02
 | `/api/jobs` | 扫描、刮削、整理、重建 NFO/索引/元数据等任务 |
 | `/api/stream` | 能力决策、会话/HLS、字幕、断点、预缓存和缩略图 |
 | `/api/metadata` | 外部来源状态及诊断 |
+| `/api/ai` | 智能辅助配置、连接检查、搜索条件与匹配建议 |
 
 ## 库作用域
 
@@ -116,3 +117,27 @@ POST /api/tv/bindings/apply {"token": "…"}                    # 再执行
 - 向导沿用 `/api/settings`、媒体库／视频库接口、`/api/jobs/scan` 与 `/api/uploads`，所有操作显式指定目标视频库。`UploadDialog.libraryId` 可固定上传目标；`busy` 和 `result` 事件支持页面离开保护和结果展示，原 `done/close` 保持兼容。
 
 TMDB／存储凭据不保存到引导公开状态；内部验证指纹不返回客户端。升级安装已有电影或分集时不自动展示欢迎卡片，自动生成的空默认库则仍需引导。
+
+## 智能辅助
+
+AI 服务默认关闭。所有产生外部调用的入口使用 POST，沿用应用写操作鉴权；GET 设置只返回公开配置与用量，不触发模型请求。
+
+| 接口 | 请求与行为 |
+|---|---|
+| `GET /api/ai/settings` | 返回启用状态、服务商、地址、模型、超时、每日上限、`api_key_set/api_key_masked/api_key_source` 和当日 `usage`，不返回完整 Key |
+| `PATCH /api/ai/settings` | 部分更新 `enabled/provider/base_url/model/api_key/timeout_seconds/daily_limit`；完整校验成功才保存，保存后清空 AI 结果缓存 |
+| `POST /api/ai/check` | 使用已保存的有效配置做一次真实 JSON 输出检查；关闭智能辅助时也可显式测试，不使用缓存，计入当日次数 |
+| `POST /api/ai/search` | `{q, kind:"movie"\|"tv", media_library_id?, library_id?}`；`q` 最多 500 字符，返回 `filters/summary/warnings` 供用户核对，不执行本地查询 |
+| `POST /api/ai/match` | `{kind:"movie"\|"tv", id}`；按该行所属视频库查候选，返回 `query/year/candidates/summary/warnings`，不更改绑定或媒体文件 |
+
+配置 `provider` 为 `deepseek` 或 `compatible`。地址是 API 根目录，客户端追加 `/chat/completions`，不跟随重定向；不继承 TMDB 代理或系统代理。自定义兼容服务允许空 Key，DeepSeek 要求 Key。`api_key` 空串表示保留；`clear_api_key:true` 明确删除 DB 密钥并恢复环境值，不可与新 Key 同时提交。配置错误返回 400，请求体不符合业务 schema 返回 422。
+
+有效配置按 DB → 对应环境变量 → 默认值解析，环境变量为 `AI_ENABLED/AI_PROVIDER/AI_BASE_URL/AI_MODEL/AI_API_KEY/AI_TIMEOUT_SECONDS/AI_DAILY_LIMIT`。默认关闭、超时 12 秒、每日上限 100 次；超时可设 2–60 秒，每日上限为 1–10000 次。设置存在数据库中，脱敏回显不等于加密存储。
+
+`usage` 含 UTC `date`、`requests/input_tokens/output_tokens`。每次实际尝试在网络请求前原子预占次数，失败也计次；本地输入校验失败、未启用、缺少必需 Key 或缓存命中不计次。Token 按上游返回的有效使用量累加，未报告时不推算费用。匹配最多调用两次模型；第二次失败时仍可返回来源已验证的候选，但注明尚未完成 AI 核对。
+
+搜索范围由请求上下文在服务器解析，显式不存在或无对应类型的视频库返回 `empty_scope`，不会扩为全库。允许的输出只有关键词、类型、产地、国家、年份/年代、标签、最低评分与来源、观看状态、排序和剧集连载状态；模型不能返回库 ID、影片 ID、SQL 或额外字段。电影关键词搜索仍按相关度，TV 不支持豆瓣评分。当前接口不支持时长、排除类型、年龄适宜性或向量相似搜索，无法表达的要求应列为提示，不能伪造已实现的条件。
+
+匹配候选的 `bindable` 由服务器根据 TMDB 标识、详情来源、可信外源缓存及既有目录归属确定；`false` 时前端不展示绑定按钮，显示 `bind_reason`。原因可能是仅有索引线索，也可能是剧集已有目录绑定、需要通过“归属与季号”调整；已有目录绑定仍允许确认当前同一 TMDB 作品。外源确认通过既有 `/bind-external` 接口按来源和 ID 恢复可信缓存或取得详情，缺失详情不能用当前旧标题冒充新绑定。业务校验拒绝的模型结果会移出 AI 缓存，重试可重新请求。
+
+连接检查及业务请求遇模型不可用时返回 HTTP 200 与 `{ok:false, code, message}`，包括 `disabled/not_configured/invalid_credentials/rate_limited/timeout/daily_limit/invalid_result` 等；上游 401 不转换成应用令牌提示。条目不存在返回 404，应用自身鉴权失败仍为 401。前端保留普通搜索与手动匹配，只有用户确认建议后才调用原有查询或绑定接口。[架构与验收边界](metadata.md#智能辅助的边界)。

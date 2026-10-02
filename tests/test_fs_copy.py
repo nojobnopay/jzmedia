@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app import scanner, store
 from app.main import app
+from app.metadata import chain
 
 client = TestClient(app)
 
@@ -27,7 +28,10 @@ def _wait_copy(job_id: str, timeout: float = 10.0) -> dict:
     raise AssertionError(f"copy job timeout: {st}")
 
 
-def test_copy_file_conflict_autoname(media_root):
+def test_copy_file_conflict_autoname(media_root, monkeypatch):
+    # Keep real copying and scan registration; metadata services are outside this test.
+    monkeypatch.setattr(scanner.tmdb, "search_movie", lambda *args, **kwargs: [])
+    monkeypatch.setattr(chain, "search", lambda *args, **kwargs: [])
     _mk(media_root, "src/待整理/Movie.mkv", b"AAA")
     _mk(media_root, "dst/Movie.mkv", b"BBB")
     d = client.post("/api/fs/copy", json={"from": ["src/待整理/Movie.mkv"], "to_dir": "dst"}).json()
@@ -37,10 +41,12 @@ def test_copy_file_conflict_autoname(media_root):
     assert st["state"] == "done" and st["renamed"] == 1
     assert (media_root / "dst/Movie.mkv").read_bytes() == b"BBB"          # 原文件不动
     assert (media_root / "dst/Movie (副本).mkv").read_bytes() == b"AAA"
+    assert store.get_by_path("dst/Movie (副本).mkv") is not None
     # 再复制一次 → (副本 2)
     r2 = client.post("/api/fs/copy", json={"from": ["src/待整理/Movie.mkv"], "to_dir": "dst", "dry_run": False}).json()
     _wait_copy(r2["job_id"])
     assert (media_root / "dst/Movie (副本 2).mkv").exists()
+    assert store.get_by_path("dst/Movie (副本 2).mkv") is not None
 
 
 def test_copy_dir_recursive_and_nested_reject(media_root):
