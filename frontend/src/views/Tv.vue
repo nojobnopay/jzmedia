@@ -7,41 +7,14 @@
       <ActionMenu label="添加剧集"><button @click="scanOpen = !scanOpen">扫描新文件</button><button @click="upDlg = true">上传文件</button></ActionMenu>
     </div>
   </header>
-  <div class="bar browse-search">
-    <div class="q-wrap">
-      <input v-model="q" aria-label="搜索剧集" placeholder="搜剧名 / 演员" autocomplete="off"
-        @input="onQInput" @compositionstart="composing = true" @compositionend="onCompositionEnd"
-        @keyup.enter="onSearchEnter" @keydown.down.prevent="suggestMove(1)"
-        @keydown.up.prevent="suggestMove(-1)" @keydown.esc.stop="closeSuggest"
-        @blur="onQBlur" />
-      <ul v-if="suggestOpen" class="suggest">
-        <li v-if="suggestNoMatch" class="s-empty">无匹配</li>
-        <template v-if="suggestItems.length">
-          <li class="s-head">剧集</li>
-          <li v-for="(s, i) in suggestItems" :key="'s' + s.id"
-            :class="{ on: suggestIdx === i }"
-            @mousedown.prevent="pickShow(s)" @mouseenter="suggestIdx = i">
-            <span class="s-title">{{ s.title }}</span>
-            <span v-if="s.year" class="s-year">({{ s.year }})</span>
-          </li>
-        </template>
-        <template v-if="suggestPersons.length">
-          <li class="s-head">演员（按人名搜剧）</li>
-          <li v-for="(p, j) in suggestPersons" :key="'p' + p.name"
-            :class="{ on: suggestIdx === suggestItems.length + j }"
-            @mousedown.prevent="pickPerson(p)"
-            @mouseenter="suggestIdx = suggestItems.length + j">
-            <span class="s-title">{{ p.name }}</span>
-            <span class="s-year">{{ p.count }} 部</span>
-          </li>
-        </template>
-      </ul>
-    </div>
-    <button @click="applyAndLoad">搜索</button>
-    <button :aria-expanded="aiSearchOpen" @click="aiSearchOpen = !aiSearchOpen">智能搜索</button>
-    <button :aria-expanded="filtersOpen" aria-controls="browse-filters" @click="filtersOpen = !filtersOpen">筛选<span v-if="activeCount"> · {{ activeCount }}</span> {{ filtersOpen ? '⌃' : '⌄' }}</button>
-  </div>
-  <AiSearchPanel v-if="aiSearchOpen" kind="tv" :query="q" :media-library-id="curMediaId" @apply="applyAiSearch" @close="aiSearchOpen = false" />
+  <BrowseToolbar id="tv-browse" v-model="q" label="搜索剧集" placeholder="搜剧名 / 演员"
+    item-heading="剧集" :suggest-open="suggestOpen" :suggest-no-match="suggestNoMatch"
+    :suggest-items="suggestItems" :suggest-persons="suggestPersons" :suggest-idx="suggestIdx"
+    v-model:filters-open="filtersOpen" v-model:ai-open="aiSearchOpen" :active-count="activeCount" :filters-disabled="!hasFacets"
+    @input="onQInput" @compositionstart="composing = true" @compositionend="onCompositionEnd"
+    @enter="onSearchEnter" @move="suggestMove" @close="closeSuggest" @blur="onQBlur"
+    @pick-item="pickShow" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="applyAndLoad" />
+  <div id="tv-browse-ai"><AiSearchPanel v-if="aiSearchOpen" kind="tv" :query="q" :media-library-id="curMediaId" @apply="applyAiSearch" @close="aiSearchOpen = false" /></div>
   <ScanAction v-if="scanOpen" kind="tv" @done="onAdded" />
   <UploadDialog v-if="upDlg" kind="tv" @close="upDlg = false" @done="onAdded" />
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
@@ -51,46 +24,46 @@
     <button v-if="activeCount" @click="clearFilters">清空筛选</button>
     <button v-if="q.trim()" @click="clearAll">{{ activeCount ? '重置全部条件' : '清除搜索' }}</button>
   </div>
-  <div class="filters" id="browse-filters" v-show="filtersOpen" v-if="hasFacets">
+  <div class="filters" id="browse-filters" v-show="filtersOpen && hasFacets">
     <div class="frow">
       <span class="flabel">类型</span>
       <button v-for="g in facets.genres" :key="g.value"
-        :class="['chip', { on: sel.genres.includes(g.value) }]"
+        :class="['chip', { on: sel.genres.includes(g.value) }]" :aria-pressed="sel.genres.includes(g.value)"
         @click="toggle('genres', g.value)">{{ g.value }} {{ g.count }}</button>
     </div>
     <div class="frow">
       <span class="flabel">产地</span>
       <button v-for="r in facets.regions" :key="r.value"
-        :class="['chip', { on: sel.regions.includes(r.value) }]"
+        :class="['chip', { on: sel.regions.includes(r.value) }]" :aria-pressed="sel.regions.includes(r.value)"
         @click="toggle('regions', r.value)">{{ r.value }} {{ r.count }}</button>
     </div>
     <div class="frow" v-if="facets.countries.length">
       <span class="flabel">国家/地区</span>
       <button v-for="c in facets.countries" :key="c.code || 'unknown'"
-        :class="['chip', { on: sel.countries.includes(c.code || '未知') }]"
+        :class="['chip', { on: sel.countries.includes(c.code || '未知') }]" :aria-pressed="sel.countries.includes(c.code || '未知')"
         @click="toggle('countries', c.code || '未知')">{{ c.name }} {{ c.count }}</button>
     </div>
     <div class="frow">
       <span class="flabel">年代</span>
       <button v-for="d in facets.decades" :key="d.value"
-        :class="['chip', { on: sel.decades.includes(String(d.value)) }]"
+        :class="['chip', { on: sel.decades.includes(String(d.value)) }]" :aria-pressed="sel.decades.includes(String(d.value))"
         @click="toggle('decades', String(d.value))">{{ d.value }}s {{ d.count }}</button>
       <select aria-label="按年份筛选" v-model="yearPick" @change="pickYear">
         <option value="">年份…</option>
         <option v-for="y in facets.years" :key="y.value" :value="y.value">{{ y.value }} ({{ y.count }})</option>
       </select>
-      <button v-for="y in sel.years" :key="y" class="chip on" @click="toggle('years', y)">{{ y }} ×</button>
+      <button v-for="y in sel.years" :key="y" class="chip on" :aria-pressed="true" @click="toggle('years', y)">{{ y }} ×</button>
     </div>
     <div class="frow" v-if="facets.tags.length">
       <span class="flabel">标签</span>
       <button v-for="t in facets.tags" :key="t.value"
-        :class="['chip', 'tag', { on: sel.tags.includes(t.value) }]"
+        :class="['chip', 'tag', { on: sel.tags.includes(t.value) }]" :aria-pressed="sel.tags.includes(t.value)"
         @click="toggle('tags', t.value)">{{ t.value }} {{ t.count }}</button>
     </div>
     <div class="frow" v-if="facets.status.length">
       <span class="flabel">状态</span>
       <button v-for="st in facets.status" :key="st.value"
-        :class="['chip', { on: sel.status.includes(st.value) }]"
+        :class="['chip', { on: sel.status.includes(st.value) }]" :aria-pressed="sel.status.includes(st.value)"
         @click="toggle('status', st.value)">{{ statusLabel(st.value) }} {{ st.count }}</button>
     </div>
     <div class="frow">
@@ -100,13 +73,13 @@
         <option value="custom">自评</option>
       </select>
       <button v-for="s in [9, 8, 7, 6]" :key="s"
-        :class="['chip', { on: sel.rating === s, off: ratingCount(s) === 0 }]"
+        :class="['chip', { on: sel.rating === s, off: ratingCount(s) === 0 }]" :aria-pressed="sel.rating === s"
         @click="pickRating(s)">{{ s }}分以上 {{ ratingCount(s) }}</button>
     </div>
     <div class="frow">
       <span class="flabel">观看</span>
-      <button :class="['chip', { on: sel.watched === 1 }]" @click="pickWatched(1)">已看完 {{ watchedCounts.watched }}</button>
-      <button :class="['chip', { on: sel.watched === 0 }]" @click="pickWatched(0)">未看完 {{ watchedCounts.unwatched }}</button>
+      <button :class="['chip', { on: sel.watched === 1 }]" :aria-pressed="sel.watched === 1" @click="pickWatched(1)">已看完 {{ watchedCounts.watched }}</button>
+      <button :class="['chip', { on: sel.watched === 0 }]" :aria-pressed="sel.watched === 0" @click="pickWatched(0)">未看完 {{ watchedCounts.unwatched }}</button>
     </div>
     <details class="filter-help"><summary>筛选说明</summary><p>同类条件可多选，标签需全部符合。选择具体国家后以国家为准。计数为当前媒体库的总量。</p></details>
   </div>
@@ -124,14 +97,16 @@
     </div>
   </div>
 
-  <EmptyState v-if="!items.length && firstLoaded && !loadError"
-    :text="(q.trim() || activeCount) ? '没有符合条件的剧集。' : '当前媒体库还没有剧集，扫描已有文件后即可观看。'">
+  <EmptyState v-if="loading && !items.length || !firstLoaded && !loadError" state="loading" title="正在加载剧集" text="请稍候…" />
+  <EmptyState v-else-if="loadError" state="error" title="剧集加载失败" :text="loadError" retry @retry="retryLoad" />
+  <EmptyState v-else-if="firstLoaded && !items.length" :state="q.trim() || activeCount ? 'no-results' : 'empty'"
+    :title="q.trim() || activeCount ? '没有符合条件的剧集' : '当前媒体库还没有剧集'"
+    :text="q.trim() || activeCount ? '试试其他剧名，或重置筛选条件。' : '扫描已有文件，或上传剧集开始观看。'">
     <button v-if="q.trim() || activeCount" @click="clearAll">重置筛选</button>
     <router-link v-else :to="toolsLink">扫描与整理 ›</router-link>
   </EmptyState>
-  <EmptyState v-if="loadError" :text="loadError" />
 
-  <div class="grid">
+  <div class="grid" :aria-busy="loading">
     <div v-for="s in items" :key="s.id" :data-browse-id="s.id" class="card show-card" role="link" tabindex="0" @keydown.enter.self="openShow(s.id)" @click="openShow(s.id)">
       <div class="poster-wrap">
         <img v-if="s.poster_path" :src="posterUrl(s.poster_path)" loading="lazy"
@@ -161,6 +136,7 @@
 </template>
 
 <script setup>
+import BrowseToolbar from '../components/BrowseToolbar.vue'
 import AiSearchPanel from '../components/AiSearchPanel.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import ScanAction from '../components/ScanAction.vue'
@@ -232,7 +208,8 @@ const loadError = ref('')
 const PAGE = 60
 const hasMore = ref(false)
 const loadingMore = ref(false)
-let loading = false
+const loading = ref(false)
+const loadErrorMore = ref(false)
 let loadSeq = 0
 let disposed = false
 const facets = ref({ genres: [], regions: [], countries: [], years: [], decades: [],
@@ -371,7 +348,10 @@ function readUrl() {
 }
 async function load() {
   const seq = ++loadSeq
-  loading = true
+  loading.value = true
+  loadingMore.value = false
+  loadError.value = ''
+  loadErrorMore.value = false
   msg.value = ''
   try {
     const d = await api('/api/tv/shows?' + buildTvParams({
@@ -385,14 +365,15 @@ async function load() {
   } catch (e) {
     if (seq === loadSeq) loadError.value = '加载失败：' + e.message
   } finally {
-    if (seq === loadSeq) loading = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 async function loadMore() {
-  if (!hasMore.value || loading) return
+  if (!hasMore.value || loading.value) return
   const seq = ++loadSeq
-  loading = true
+  loading.value = true
   loadingMore.value = true
+  loadError.value = ''
   try {
     const d = await api('/api/tv/shows?' + buildTvParams({
       q: q.value, sel: sel.value, sort: sort.value,
@@ -406,11 +387,12 @@ async function loadMore() {
     hasMore.value = !!d.has_more
     loadError.value = ''
   } catch (e) {
-    if (seq === loadSeq) loadError.value = '加载更多失败：' + e.message
+    if (seq === loadSeq) { loadError.value = '加载更多失败：' + e.message; loadErrorMore.value = true }
   } finally {
-    if (seq === loadSeq) { loading = false; loadingMore.value = false }
+    if (seq === loadSeq) { loading.value = false; loadingMore.value = false }
   }
 }
+function retryLoad() { return loadErrorMore.value ? loadMore() : load() }
 async function applyAndLoad() {
   // URL 变了 → route.query watcher 统一加载；没变才显式刷新（与电影墙同逻辑，防双发）
   if (!syncUrl()) await load()
@@ -558,7 +540,7 @@ async function restoreWall() {
 // made in detail are visible without discarding the user's browsing position.
 async function refreshSnapshot(snapshot) {
   const seq = ++loadSeq
-  loading = true
+  loading.value = true
   try {
     const fresh = []
     let more = false
@@ -574,10 +556,11 @@ async function refreshSnapshot(snapshot) {
     const position = { anchor: captureAnchor(), scrollTop: window.scrollY }
     items.value = fresh
     hasMore.value = more
+    loadError.value = ''
     await nextTick()
     if (seq === loadSeq) restoreBrowsePosition(position)
   } catch (e) { if (seq === loadSeq) loadError.value = '刷新列表失败：' + e.message }
-  finally { if (seq === loadSeq) loading = false }
+  finally { if (seq === loadSeq) loading.value = false }
 }
 
 let unsubLib = null
@@ -613,43 +596,30 @@ watch(() => route.query, () => { if (route.path !== '/tv') return; readUrl(); lo
 .show-card { cursor: pointer; }
 .wall-head {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  margin: 16px 12px 0; padding-top: 12px; border-top: 1px solid #2e2e2e;
+  margin: 16px 12px 0; padding-top: 12px; border-top: 1px solid var(--jz-border);
 }
-.wall-head h3 { margin: 0; font-size: 1.0625rem; color: #ddd; }
-.wall-count { color: #777; font-size: 0.8125rem; font-weight: normal; margin-left: 4px; }
+.wall-head h3 { margin: 0; font-size: 1.0625rem; color: var(--jz-text); }
+.wall-count { color: var(--jz-text-faint); font-size: 0.8125rem; font-weight: normal; margin-left: 4px; }
 .wall-sort { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .wall-sort .flabel { min-width: 0; }
 .filters { padding: 0 12px; display: flex; flex-direction: column; gap: 6px; }
 .frow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.flabel { color: #888; font-size: 0.8125rem; min-width: 56px; }
-.chip { font-size: 0.8125rem; padding: 4px 10px; border: 1px solid #444; border-radius: 999px; cursor: pointer; background: #1c1c1c; }
-.chip.on { border-color: #e50914; color: #ff8a8a; }
+.flabel { color: var(--jz-text-dim); font-size: 0.8125rem; min-width: 56px; }
+.chip { font-size: 0.8125rem; padding: 4px 10px; border: 1px solid var(--jz-border-strong); border-radius: 999px; cursor: pointer; background: var(--jz-surface); }
+.chip.on { border-color: var(--jz-accent); color: var(--jz-danger); }
 .chip.tag { border-style: dashed; }
 .chip.off { opacity: .45; }
-.fhint { color: #777; font-size: 0.75rem; }
-.q-wrap { position: relative; flex: 0 1 260px; }
-.q-wrap input { width: 100%; box-sizing: border-box; }
-.suggest {
-  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 60;
-  list-style: none; margin: 0; padding: 4px 0; max-height: 320px; overflow: auto;
-  background: #1c1c1c; border: 1px solid #444; border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.55);
-}
-.suggest li { padding: 6px 12px; cursor: pointer; display: flex; gap: 6px; align-items: baseline; }
-.suggest li.on { background: #333; }
-.suggest .s-head { color: #777; font-size: 0.75rem; padding: 6px 12px 2px; cursor: default; }
-.suggest .s-title { color: #eee; }
-.suggest .s-year { color: #888; font-size: 0.8125rem; }
-.suggest .s-empty { color: #777; cursor: default; }
-.no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: #242424; color: #555; font-size: 2.5rem; font-weight: bold; user-select: none; }
+.fhint { color: var(--jz-text-faint); font-size: 0.75rem; }
+
+.no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 2.5rem; font-weight: bold; user-select: none; }
 .seen, .review {
   position: absolute; top: 6px; font-size: 0.75rem; padding: 2px 8px;
-  border-radius: 999px; background: rgba(0,0,0,.72); color: #7ed321;
+  border-radius: 999px; background: var(--jz-overlay); color: var(--jz-green);
 }
 .seen { left: 6px; }
-.review { right: 6px; color: #ffb300; }
-.yr { color: #888; font-size: 0.75rem; }
-.fhint { color: #777; font-size: 0.8125rem; }
+.review { right: 6px; color: var(--jz-warn); }
+.yr { color: var(--jz-text-dim); font-size: 0.75rem; }
+.fhint { color: var(--jz-text-faint); font-size: 0.8125rem; }
 .load-more { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 12px 22px; }
-.warn-text { color: #e0a63c; }
+.warn-text { color: var(--jz-warn); }
 </style>

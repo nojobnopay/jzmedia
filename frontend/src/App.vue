@@ -1,4 +1,5 @@
 <template>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
   <nav class="app-nav" aria-label="主导航">
     <router-link to="/" class="brand"><img src="/favicon.svg" alt="jzmedia" width="26" height="26" /><span>jzmedia</span></router-link>
     <router-link to="/">电影</router-link>
@@ -12,27 +13,29 @@
       <option v-for="m in libs" :key="m.id" :value="m.id">{{ optionLabel(m) }}</option>
     </select>
   </nav>
-  <SetupWelcome v-if="route.path === '/' || route.path === '/tv'" />
-  <router-view />
-  <BackToTop />
-  <div v-if="authAsk" class="auth-mask">
-    <div class="auth-dlg">
-      <h3>需要访问令牌</h3>
-      <p class="auth-hint">服务端已启用写操作鉴权：粘贴访问令牌（.env 的 <code>JZMEDIA_TOKEN</code> 或设置页里设的值）。电视/Kodi 直链读取不受影响。</p>
-      <input v-model="authInput" type="password" placeholder="访问令牌" autocomplete="off"
-        @keyup.enter="saveAuth" />
-      <div class="auth-bar">
-        <button @click="saveAuth" :disabled="!authInput.trim()">保存并重试</button>
-        <button @click="authAsk = false">取消</button>
-      </div>
-      <p class="auth-hint">保存后仅存于本浏览器 localStorage，不会上传。</p>
-    </div>
+  <div id="main-content" class="app-content" tabindex="-1">
+    <SetupWelcome v-if="route.path === '/' || route.path === '/tv'" />
+    <router-view />
   </div>
+  <BackToTop />
+  <JzDialog v-if="authAsk" title="需要访问令牌" size="small" layer="auth" class="auth-dlg" mask-class="auth-mask" @close="authAsk = false">
+    <p class="auth-hint">请输入此服务设置的访问令牌，继续当前操作。</p>
+    <label for="access-token">访问令牌
+      <input id="access-token" v-model="authInput" name="access-token" type="password" placeholder="粘贴访问令牌…" autocomplete="off" :spellcheck="false" @keyup.enter="saveAuth" />
+    </label>
+    <p class="auth-hint">令牌仅保存在当前浏览器，用于向此服务验证身份。</p>
+    <template #footer>
+      <JzButton @click="authAsk = false">取消</JzButton>
+      <JzButton variant="primary" @click="saveAuth" :disabled="!authInput.trim()">保存并重试</JzButton>
+    </template>
+  </JzDialog>
 </template>
 <script setup>
 import HelpLink from './components/HelpLink.vue'
 import SetupWelcome from './components/SetupWelcome.vue'
 import BackToTop from './components/BackToTop.vue'
+import JzDialog from './components/JzDialog.vue'
+import JzButton from './components/JzButton.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setToken, api } from './api.js'
@@ -96,85 +99,3 @@ function syncLibs() {
   currentId.value = currentMediaId()
 }
 </script>
-<style>
-body { font-family: system-ui, sans-serif; margin: 0; background: #141414; color: #eee; }
-nav { padding: 12px; background: #1f1f1f; display: flex; gap: 16px; align-items: center; }
-nav a { color: #eee; text-decoration: none; }
-nav a.router-link-active { color: #e50914; font-weight: bold; }
-nav .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; letter-spacing: 0.5px; }
-nav .brand img { border-radius: 6px; display: block; }
-nav .brand.router-link-active { color: #eee; font-weight: 800; }
-.nav-spacer { flex: 1; }
-.lib-switch { background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 6px 10px; font-size: 0.875rem; max-width: 260px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--poster-min, 150px), 1fr)); gap: 12px; padding: 12px; }
-.card { background: #222; border-radius: 8px; overflow: hidden; cursor: pointer; }
-.card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
-.card .t { padding: 8px; font-size: 0.875rem; }
-/* 共享页面块（评审 R07-Q3 样式单源）：Detail/Person 等页面卡片与头部；
-   页面可在 scoped 样式里覆盖特化属性（如 Settings 的 margin-bottom、Person 的 .hero-inner 宽度） */
-.card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; }
-.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.hero-main { display: flex; gap: 20px; margin-top: 12px; align-items: flex-start; }
-.hero-info { min-width: 0; }
-.hero-info h2 { margin: 0 0 8px; font-size: 1.875rem; }
-.meta-line { color: #aaa; font-size: 1rem; margin: 8px 0; }
-.overview { margin: 0; line-height: 1.8; color: #e6e6e6; font-size: 1rem; white-space: pre-wrap; }
-.empty { margin: 0; color: #777; font-size: 0.9375rem; }
-.cast-name { font-size: 0.875rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cast-char { font-size: 0.75rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bar { padding: 12px; display: flex; gap: 8px; }
-input, button, textarea { font-size: 0.875rem; padding: 6px 10px; border-radius: 6px; border: 1px solid #444; background: #222; color: #eee; }
-input[type="range"] { padding: 0; }
-button { cursor: pointer; }
-.page { padding: 12px; max-width: 900px; }
-.actor { cursor: pointer; color: #6ab0ff; }
-.poster-wrap { position: relative; }
-.poster-wrap img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
-/* 海报悬浮播放键（海报墙/继续观看/季集卡共用单源）：hover 海报显形，hover 按钮本身放大变红（Plex 式） */
-.poster-play {
-  position: absolute; inset: 0; margin: auto; z-index: 2;
-  width: 52px; height: 52px; padding: 0; border-radius: 50%;
-  border: 2px solid rgba(255,255,255,.85); background: rgba(0,0,0,.62); color: #fff;
-  font-size: 1.25rem; line-height: 1;
-  display: flex; align-items: center; justify-content: center;
-  opacity: 0; cursor: pointer;
-  transition: opacity .15s, transform .15s, background .15s, border-color .15s, box-shadow .15s;
-}
-.poster-wrap:hover .poster-play, .still-wrap:hover .poster-play, .poster-play:focus-visible { opacity: 1; }
-.poster-play:hover {
-  transform: scale(1.12);
-  background: #e50914; border-color: #e50914;
-  box-shadow: 0 6px 18px rgba(0,0,0,.55);
-}
-.poster-play:active { transform: scale(1); }
-.poster-play:disabled { cursor: wait; opacity: .85; }
-@media (hover: none) { .poster-play { opacity: 1; width: 44px; height: 44px; } }
-.score-badge { position: absolute; top: 6px; right: 6px; font-size: 0.75rem; font-weight: bold; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #ffc107; white-space: nowrap; }
-.score-badge.douban { color: #7ed321; }
-.score-badge.custom { color: #ff6b6b; }
-.stars { color: #ffc107; letter-spacing: 1px; }
-.rate-chip { display: inline-block; font-size: 0.9375rem; padding: 4px 14px; border-radius: 999px; border: 1px solid #444; margin-right: 6px; }
-.rate-chip.tmdb { color: #ffc107; border-color: #6b5518; }
-.rate-chip.douban { color: #7ed321; border-color: #3a5a1e; }
-.rate-chip.custom { color: #ff6b6b; border-color: #6e2b2b; }
-.rating-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
-.auth-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 90; }
-.auth-dlg { background: #1c1c1c; border: 1px solid #444; border-radius: 10px; padding: 16px; width: min(420px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 10px; }
-.auth-dlg h3 { margin: 0; }
-.auth-dlg input { width: 100%; box-sizing: border-box; }
-.auth-bar { display: flex; gap: 8px; }
-.auth-hint { margin: 0; color: #888; font-size: 0.8125rem; line-height: 1.6; }
-.auth-hint code { color: #9ecfff; }
-</style>
-
-<style>
-.app-nav > a { white-space: nowrap; }
-@media (max-width: 700px) {
-  .app-nav { display: grid; grid-template-columns: 32px repeat(5, minmax(0, 1fr)); gap: 0 4px; padding: 4px var(--jz-mobile-gutter); }
-  .app-nav .brand { justify-content: center; min-height: var(--jz-touch-target); }
-  .app-nav .brand span { display: none; }
-  .app-nav .lib-switch { grid-column: 1 / -1; width: 100%; max-width: none; min-width: 0; min-height: 40px; margin-bottom: 4px; font-size: 1rem; }
-  .app-nav > a:not(.brand) { display: flex; align-items: center; justify-content: center; min-height: var(--jz-touch-target); padding: 0 4px; }
-  .app-nav .nav-spacer { display: none; }
-}
-</style>

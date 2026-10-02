@@ -23,7 +23,7 @@
       </nav>
       <div class="fs-main">
         <div class="fs-location">
-          <div class="fs-navigation"><button title="返回" aria-label="返回" :disabled="busy || historyIndex <= 0" @click="historyMove(-1)">←</button><button title="前进" aria-label="前进" :disabled="busy || historyIndex >= history.length - 1" @click="historyMove(1)">→</button><button title="上级目录" aria-label="上级目录" :disabled="busy || !path" @click="up">↑</button><button title="刷新目录" aria-label="刷新目录" :disabled="busy || loading" @click="load(loadError ? loadTarget : path)">↻</button></div>
+          <div class="fs-navigation"><button title="返回" aria-label="返回" :disabled="busy || historyIndex <= 0" @click="historyMove(-1)"><AppIcon name="back" /></button><button title="前进" aria-label="前进" :disabled="busy || historyIndex >= history.length - 1" @click="historyMove(1)"><AppIcon name="forward" /></button><button title="上级目录" aria-label="上级目录" :disabled="busy || !path" @click="up"><AppIcon name="back" class="fs-up-icon" /></button><button title="刷新目录" aria-label="刷新目录" :disabled="busy || loading" @click="load(loadError ? loadTarget : path)"><AppIcon name="refresh" /></button></div>
           <nav class="fs-crumbs" aria-label="当前位置"><button :disabled="busy" @click="navigate('')">{{ library?.name || '选择视频库' }}</button><template v-for="crumb in crumbs" :key="crumb.rel"><span aria-hidden="true">/</span><button :disabled="busy" @click="navigate(crumb.rel)">{{ crumb.name }}</button></template></nav>
           <input v-model="query" class="fs-search" type="search" aria-label="搜索当前目录" placeholder="搜索当前目录" :disabled="loading || !!loadError || !hasLoaded" />
         </div>
@@ -40,7 +40,7 @@
         </div>
         <p v-if="message" class="fs-message" role="status">{{ message }}</p>
         <div v-if="prompt" ref="promptEl" class="fs-prompt" role="region" aria-label="文件操作确认">
-          <div class="fs-prompt-heading"><strong>{{ promptTitle }}</strong><button :disabled="busy" aria-label="取消操作" @click="prompt = null">×</button></div>
+          <div class="fs-prompt-heading"><strong>{{ promptTitle }}</strong><button :disabled="busy" aria-label="取消操作" @click="prompt = null"><AppIcon name="close" /></button></div>
           <p class="fs-target">{{ library?.name }} / {{ (prompt.to_dir ?? prompt.path ?? path) || '根目录' }}</p>
           <form v-if="prompt.type === 'rename' || prompt.type === 'mkdir'" @submit.prevent="submitName">
             <label :for="inputId">{{ prompt.type === 'rename' ? '新文件名' : '文件夹名称' }}</label><input :id="inputId" ref="nameInput" v-model="inputName" :disabled="busy" autocomplete="off" />
@@ -95,6 +95,7 @@
 </template>
 
 <script setup>
+import AppIcon from './AppIcon.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, useId } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api.js'
@@ -224,94 +225,101 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 </script>
 
 <style scoped>
-.fs-browser { color: #d6d9df; background: #1c1e23; border: 1px solid #343840; border-radius: 12px; overflow: hidden; outline: none; }
-.fs-browser:focus-visible { outline: 2px solid #7daced; outline-offset: 2px; }
+.fs-browser { --jz-control-current: var(--jz-control-compact); color: var(--jz-text); background: var(--jz-surface); border: 1px solid var(--jz-border); border-radius: var(--jz-radius-l); overflow: hidden; outline: none; }
+.fs-browser:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 2px; }
 .fs-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 18px 20px; }
-.fs-heading h3 { margin: 0 0 6px; font-size: 1.08rem; color: #f0f1f4; }
-.fs-heading p { color: #a7aeba; margin: 0; font-size: .82rem; line-height: 1.6; }
-.fs-help { max-width: 420px; font-size: .8rem; color: #aeb6c3; }
+.fs-heading h3 { margin: 0 0 6px; font-size: 1.08rem; color: var(--jz-text); }
+.fs-heading p { color: var(--jz-text-dim); margin: 0; font-size: .82rem; line-height: 1.6; }
+.fs-help { max-width: 420px; font-size: .8rem; color: var(--jz-text-dim); }
 .fs-help summary { cursor: pointer; white-space: nowrap; }
 .fs-help p { padding-top: 8px; }
-.fs-pending { margin: 0 16px 14px; padding: 12px 14px; background: #3b3020; border: 1px solid #68512e; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: .87rem; }
-.fs-pending small { display: block; margin-top: 4px; color: #c7bba5; }
-.fs-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); border-top: 1px solid #343840; }
-.fs-tree { display: block; background: #191b20; border-right: 1px solid #343840; padding: 14px 8px; overflow: auto; max-height: 680px; }
-.fs-tree-title { display: block; margin: 0 8px 12px; font-size: .8rem; color: #aab3c1; font-weight: 600; }
-.fs-tree-line { display: flex; align-items: center; min-height: 36px; border-radius: 5px; }
-.fs-tree-line.current { background: #2a3443; }
-.fs-tree-line .fs-expander { width: 22px; min-width: 22px; padding: 4px 2px; border: 0; background: none; color: #aab4c2; }
-.fs-tree-name { background: none; border: 0; border-radius: 0; padding: 8px 3px; color: #d0d7e2; font-size: .82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; flex: 1; }
-.fs-tree-name small { margin-left: 8px; font-size: .67rem; color: #8997aa; }
+.fs-pending { margin: 0 16px 14px; padding: 12px 14px; background: var(--jz-warn-soft); border: 1px solid var(--jz-warn-border); border-radius: var(--jz-radius-m); display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: .87rem; }
+.fs-pending small { display: block; margin-top: 4px; color: var(--jz-text-dim); }
+.fs-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); border-top: 1px solid var(--jz-border); }
+.fs-tree { display: block; background: var(--jz-bg); border-right: 1px solid var(--jz-border); padding: 14px 8px; overflow: auto; max-height: 680px; }
+.fs-tree-title { display: block; margin: 0 8px 12px; font-size: .8rem; color: var(--jz-text-dim); font-weight: 600; }
+.fs-tree-line { display: flex; align-items: center; min-height: 36px; border-radius: var(--jz-radius-s); }
+.fs-tree-line.current { background: var(--jz-selected); }
+.fs-tree-line .fs-expander { width: 22px; min-width: 22px; padding: 4px 2px; border: 0; background: none; color: var(--jz-text-dim); }
+.fs-tree-name { background: none; border: 0; border-radius: 0; padding: 8px 3px; color: var(--jz-text); font-size: .82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; flex: 1; }
+.fs-tree-name small { margin-left: 8px; font-size: .67rem; color: var(--jz-text-faint); }
 .fs-main { min-width: 0; display: flex; flex-direction: column; }
-.fs-location { padding: 10px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-bottom: 1px solid #343840; }
+.fs-location { padding: 10px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-bottom: 1px solid var(--jz-border); }
 .fs-navigation { display: flex; gap: 3px; }
-.fs-navigation button { width: 30px; padding: 4px 0; font-size: 1rem; }
-.fs-crumbs { padding: 0; background: transparent; flex: 1; min-width: 140px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: #747f90; }
-.fs-crumbs button { background: transparent; border: 0; padding: 3px 4px; color: #c2d1e5; font-size: .8rem; overflow-wrap: anywhere; }
+.fs-navigation button { width: var(--jz-control-compact); padding: 4px; display: inline-flex; justify-content: center; align-items: center; }
+.fs-up-icon { transform: rotate(90deg); }
+.fs-crumbs { padding: 0; background: transparent; flex: 1; min-width: 140px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--jz-text-faint); }
+.fs-crumbs button { background: transparent; border: 0; padding: 3px 4px; color: var(--jz-text-dim); font-size: .8rem; overflow-wrap: anywhere; }
 .fs-search { width: 166px; min-width: 0; font-size: .8rem; padding: 7px 9px; }
 .fs-toolbar { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 12px; align-items: center; }
 .fs-browser button { cursor: pointer; }
 .fs-browser button:disabled { cursor: default; opacity: .42; }
 .fs-toolbar button, .fs-confirm-actions button, .fs-pending button, .fs-task button { padding: 6px 10px; font-size: .78rem; }
-.fs-readonly { margin-left: auto; font-size: .75rem; color: #b8a072; }
-.fs-message { margin: 0; padding: 9px 14px; color: #becbda; background: #25303e; font-size: .8rem; overflow-wrap: anywhere; }
-.fs-prompt { border: 1px solid #536477; background: #242a33; margin: 10px 12px; border-radius: 8px; padding: 12px; font-size: .83rem; }
+.fs-readonly { margin-left: auto; font-size: .75rem; color: var(--jz-warn); }
+.fs-message { margin: 0; padding: 9px 14px; color: var(--jz-text-dim); background: var(--jz-info-soft); font-size: .8rem; overflow-wrap: anywhere; }
+.fs-prompt { border: 1px solid var(--jz-border-strong); background: var(--jz-surface); margin: 10px 12px; border-radius: var(--jz-radius-m); padding: 12px; font-size: .83rem; }
 .fs-prompt-heading { display: flex; justify-content: space-between; align-items: center; }
-.fs-prompt-heading button { background: none; border: 0; font-size: 1.2rem; padding: 0 5px; }
-.fs-target { color: #9dadc1; font-size: .76rem; overflow-wrap: anywhere; }
+.fs-prompt-heading button { min-width: var(--jz-control-current); min-height: var(--jz-control-current); background: none; border: 0; font-size: 1.2rem; padding: 0 5px; }
+.fs-target { color: var(--jz-text-dim); font-size: .76rem; overflow-wrap: anywhere; }
 .fs-prompt label { display: block; margin: 10px 0 6px; }
 .fs-prompt input { box-sizing: border-box; width: 100%; max-width: 540px; }
 .fs-confirm-actions { display: flex; gap: 8px; margin-top: 12px; }
-.fs-warning { color: #efb787; line-height: 1.6; }
+.fs-warning { color: var(--jz-warn); line-height: 1.6; }
 .fs-plan, .fs-plan-list { overflow-wrap: anywhere; line-height: 1.7; }
-.fs-follower { color: #a3b5ca; font-size: .78rem; }
+.fs-follower { color: var(--jz-text-dim); font-size: .78rem; }
 .fs-plan-list { max-height: 200px; overflow: auto; padding-left: 22px; }
-.fs-plan-list small { display: block; color: #9dadc1; }
+.fs-plan-list small { display: block; color: var(--jz-text-dim); }
 .fs-table-area { position: relative; display: flex; flex-direction: column; min-height: 260px; flex: 1; }
-.fs-directory-state { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; box-sizing: border-box; background: #1c1e23f2; color: #aebfd5; text-align: center; font-size: .85rem; }
-.fs-directory-state strong { color: #e0e7f0; font-size: .96rem; }
+.fs-directory-state { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; box-sizing: border-box; background: var(--jz-surface); color: var(--jz-text-dim); text-align: center; font-size: .85rem; }
+.fs-directory-state strong { color: var(--jz-text); font-size: .96rem; }
 .fs-directory-state span, .fs-directory-state p { overflow-wrap: anywhere; max-width: 100%; margin: 0; }
-.fs-directory-state progress { width: min(240px, 80%); height: 6px; accent-color: #7398d6; }
-.fs-directory-error p { color: #e6b885; max-height: 100px; overflow: auto; }
+.fs-directory-state progress { width: min(240px, 80%); height: 6px; accent-color: var(--jz-accent); }
+.fs-directory-error p { color: var(--jz-warn); max-height: 100px; overflow: auto; }
 .fs-directory-error button { padding: 8px 14px; }
-.fs-table-wrap { overflow: auto; position: relative; min-height: 260px; max-height: 540px; flex: 1; border-top: 1px solid #343840; }
+.fs-table-wrap { overflow: auto; position: relative; min-height: 260px; max-height: 540px; flex: 1; border-top: 1px solid var(--jz-border); }
 .fs-table { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: .79rem; }
-.fs-table th { text-align: left; position: sticky; top: 0; background: #23262d; z-index: 1; border-bottom: 1px solid #3e434e; font-weight: 500; }
-.fs-table th button { border: 0; background: none; padding: 10px 6px; color: #b7c1d0; font: inherit; white-space: nowrap; }
-.fs-table td { padding: 10px 6px; border-bottom: 1px solid #292d35; color: #b7bfca; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fs-table th { text-align: left; position: sticky; top: 0; background: var(--jz-surface-2); z-index: 1; border-bottom: 1px solid var(--jz-border-strong); font-weight: 500; }
+.fs-table th button { border: 0; background: none; padding: 10px 6px; color: var(--jz-text-dim); font: inherit; white-space: nowrap; }
+.fs-table td { padding: 10px 6px; border-bottom: 1px solid var(--jz-border); color: var(--jz-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fs-table .fs-check { width: 32px; padding: 0 5px 0 10px; }
-.fs-check input { margin: 0; accent-color: #729dd9; }
+.fs-check input { margin: 0; accent-color: var(--jz-accent); }
 .fs-table .fs-col-name { min-width: 160px; }
 .fs-table .fs-col-size { width: 82px; }
 .fs-table .fs-col-mtime { width: 142px; }
 .fs-table .fs-col-type { width: 60px; }
 .fs-table .fs-col-status { width: 86px; }
-.fs-table td.fs-name { color: #e0e5ed; }
-.fs-file-icon { margin-right: 9px; color: #8498b5; font-size: 1rem; }
-.fs-file-icon.folder { color: #d7b26c; }
+.fs-table td.fs-name { color: var(--jz-text); }
+.fs-file-icon { margin-right: 9px; color: var(--jz-link); font-size: 1rem; }
+.fs-file-icon.folder { color: var(--jz-warn); }
 .fs-row { cursor: default; user-select: none; outline: none; }
-.fs-row:hover { background: #252b35; }
-.fs-row.selected { background: #293b55; }
-.fs-row:focus-visible { outline: 1px solid #85acd9; outline-offset: -1px; }
+.fs-row:hover { background: var(--jz-surface-2); }
+.fs-row.selected { background: var(--jz-selected); }
+.fs-row:focus-visible { outline: 1px solid var(--jz-link); outline-offset: -1px; }
 .fs-row.cut { opacity: .5; }
-.fs-unmatched { color: #e0b574; }
-.fs-unregistered { color: #bba8e2; }
-.fs-empty { text-align: center; padding: 64px 16px; font-size: .85rem; color: #93a0b1; }
-.fs-status { padding: 10px 14px; display: flex; justify-content: space-between; gap: 12px; color: #9ba7b8; font-size: .75rem; border-top: 1px solid #343840; }
-.fs-tasks { padding: 12px 16px; border-top: 1px solid #343840; background: #212630; }
+.fs-unmatched { color: var(--jz-warn); }
+.fs-unregistered { color: var(--jz-blue-chip); }
+.fs-empty { text-align: center; padding: 64px 16px; font-size: .85rem; color: var(--jz-text-faint); }
+.fs-status { padding: 10px 14px; display: flex; justify-content: space-between; gap: 12px; color: var(--jz-text-dim); font-size: .75rem; border-top: 1px solid var(--jz-border); }
+.fs-tasks { padding: 12px 16px; border-top: 1px solid var(--jz-border); background: var(--jz-surface); }
 .fs-task { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 6px 0; font-size: .8rem; }
 .fs-task span { flex: 1; min-width: 150px; }
-.fs-task small { display: block; color: #93a3b9; margin-top: 4px; }
-.fs-task-issues { flex-basis: 100%; color: #e0b574; overflow-wrap: anywhere; }
+.fs-task small { display: block; color: var(--jz-text-dim); margin-top: 4px; }
+.fs-task-issues { flex-basis: 100%; color: var(--jz-warn); overflow-wrap: anywhere; }
 .fs-task-issues summary { cursor: pointer; }
 .fs-task-issues ul { max-height: 200px; overflow: auto; padding-left: 20px; }
-.fs-task progress { height: 7px; width: 140px; accent-color: #7398d6; }
-.fs-context-menu { position: fixed; z-index: 10050; width: 220px; box-sizing: border-box; max-height: calc(100vh - 16px); overflow-y: auto; padding: 6px; background: #292e38; border: 1px solid #586376; box-shadow: 0 12px 32px #0008; border-radius: 8px; }
-.fs-context-menu button { width: 100%; background: none; border: 0; border-radius: 4px; display: flex; justify-content: space-between; gap: 10px; padding: 9px 10px; color: #e1e7ef; font-size: .8rem; text-align: left; cursor: pointer; }
-.fs-context-menu button:hover:not(:disabled), .fs-context-menu button:focus-visible { background: #3e4c61; outline: none; }
-.fs-context-menu button:disabled { color: #697485; cursor: default; }
-.fs-context-menu small { color: #a1afc3; font-size: .7rem; }
-.danger { color: #ffabab; border-color: #844545; }
+.fs-task progress { height: 7px; width: 140px; accent-color: var(--jz-accent); }
+.fs-context-menu { position: fixed; z-index: var(--jz-z-menu); width: 220px; box-sizing: border-box; max-height: calc(100vh - 16px); overflow-y: auto; padding: 6px; background: var(--jz-surface-2); border: 1px solid var(--jz-border-strong); box-shadow: var(--jz-shadow-menu); border-radius: var(--jz-radius-m); }
+.fs-context-menu button { width: 100%; background: none; border: 0; border-radius: 4px; display: flex; justify-content: space-between; gap: 10px; padding: 9px 10px; color: var(--jz-text); font-size: .8rem; text-align: left; cursor: pointer; }
+.fs-context-menu button:hover:not(:disabled), .fs-context-menu button:focus-visible { background: var(--jz-surface-3); outline: none; }
+.fs-context-menu button:disabled { color: var(--jz-text-faint); cursor: default; }
+.fs-context-menu small { color: var(--jz-text-dim); font-size: .7rem; }
+.danger { color: var(--jz-danger); border-color: var(--jz-danger-border); }
 @media (max-width: 1100px) { .fs-shell { grid-template-columns: 170px minmax(0, 1fr); } .fs-table .fs-col-mtime { width: 116px; } .fs-table .fs-col-type { display: none; } .fs-search { width: 140px; } }
-@media (max-width: 760px) { .fs-heading { padding: 14px; } .fs-heading p { max-width: 230px; } .fs-shell { display: block; } .fs-tree { display: flex; align-items: center; gap: 5px; max-height: 110px; overflow: auto; border-right: 0; border-bottom: 1px solid #343840; padding: 8px; } .fs-tree-title, .fs-tree .fs-expander, .fs-tree-line[style] { display: none; } .fs-tree-line { flex-shrink: 0; } .fs-tree-name { padding: 7px 10px; } .fs-location { gap: 6px; } .fs-search { width: 100%; } .fs-toolbar { gap: 5px; } .fs-secondary-action { display: none; } .fs-toolbar button { padding: 7px 8px; } .fs-table .fs-col-mtime, .fs-table .fs-col-type { display: none; } .fs-table .fs-col-size { width: 74px; } .fs-table .fs-col-status { width: 70px; } .fs-table .fs-check { width: 27px; padding-left: 6px; } .fs-table td { padding: 12px 4px; } .fs-file-icon { margin-right: 5px; } .fs-help[open] { position: absolute; background: #292e38; padding: 12px; left: 20px; right: 20px; z-index: 3; max-width: none; } .fs-pending { margin: 0 10px 12px; padding: 10px; } .fs-status { flex-wrap: wrap; } }
+@media (max-width: 760px) { .fs-heading { padding: 14px; } .fs-heading p { max-width: 230px; } .fs-shell { display: block; } .fs-tree { display: flex; align-items: center; gap: 5px; max-height: 110px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--jz-border); padding: 8px; } .fs-tree-title, .fs-tree .fs-expander, .fs-tree-line[style] { display: none; } .fs-tree-line { flex-shrink: 0; } .fs-tree-name { padding: 7px 10px; } .fs-location { gap: 6px; } .fs-search { width: 100%; } .fs-toolbar { gap: 5px; } .fs-secondary-action { display: none; } .fs-toolbar button { padding: 7px 8px; } .fs-table .fs-col-mtime, .fs-table .fs-col-type { display: none; } .fs-table .fs-col-size { width: 74px; } .fs-table .fs-col-status { width: 70px; } .fs-table .fs-check { width: 27px; padding-left: 6px; } .fs-table td { padding: 12px 4px; } .fs-file-icon { margin-right: 5px; } .fs-help[open] { position: absolute; background: var(--jz-surface-2); padding: 12px; left: 20px; right: 20px; z-index: 3; max-width: none; } .fs-pending { margin: 0 10px 12px; padding: 10px; } .fs-status { flex-wrap: wrap; } }
+.fs-table .fs-col-size, .fs-table .fs-col-mtime, .fs-status { font-variant-numeric: tabular-nums; }
+@media (max-width: 700px), (pointer: coarse) {
+  .fs-browser { --jz-control-current: var(--jz-touch-target); }
+  .fs-navigation button { width: var(--jz-touch-target); }
+  .fs-toolbar button, .fs-context-menu button, .fs-tree-name { min-height: var(--jz-touch-target); }
+}
 </style>

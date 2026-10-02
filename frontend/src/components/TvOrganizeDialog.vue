@@ -4,13 +4,13 @@
       <section ref="dialog" class="organize-dialog" role="dialog" aria-modal="true"
         aria-labelledby="organize-title" aria-describedby="organize-subtitle">
         <header class="dialog-header">
-          <div class="header-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7V5h6l2 2h10v12H3z" /></svg></div>
+          <div class="header-mark" aria-hidden="true"><AppIcon name="folder" :size="24" /></div>
           <div class="header-copy">
             <h2 id="organize-title">{{ heading }}</h2>
             <p id="organize-subtitle">{{ title }}<span v-if="year">（{{ year }}）</span></p>
             <HelpLink page="user-guide/tv-organizing" label="剧集整理图解" />
           </div>
-          <button class="close-button" aria-label="关闭整理对话框" :disabled="running" @click="close">×</button>
+          <JzButton class="close-button" variant="ghost" aria-label="关闭整理对话框" :disabled="running" @click="close"><AppIcon name="close" /></JzButton>
         </header>
 
         <div ref="body" class="dialog-body">
@@ -57,7 +57,7 @@
               <span v-else-if="groups.length">{{ groups.length }} 项整理</span>
             </div>
             <p v-if="!selected.length" class="empty-plan">请在下方选择至少一个整理项目。</p>
-            <p v-else-if="error" class="feedback error" role="alert">{{ error }} <button @click="refresh">重试预览</button></p>
+            <p v-else-if="error" class="feedback error" role="alert">{{ error }} <JzButton @click="refresh">重试预览</JzButton></p>
             <div v-else-if="groups.length" :class="['changes', { pending: loading }]" :aria-busy="loading">
               <article v-for="(g, index) in groups" :key="index" class="change-card">
                 <div class="change-heading"><span class="change-number" aria-hidden="true">{{ index + 1 }}</span><h4>{{ actionTitle(g.action) }}</h4><span v-if="!g.dir" class="change-count">{{ fileCount(g) }}</span></div>
@@ -112,17 +112,17 @@
         </div>
 
         <footer class="dialog-footer">
-          <button class="settings-link" :disabled="running" @click="emit('settings')">整理历史与批量操作 ↗</button>
+          <JzButton class="settings-link" variant="ghost" :disabled="running" @click="emit('settings')">整理历史与批量操作 ↗</JzButton>
           <div class="footer-actions">
             <template v-if="phase === 'done'">
-              <button v-if="result.failed" @click="refresh">重新预览</button><button class="primary" @click="close">完成</button>
+              <JzButton v-if="result.failed" @click="refresh">重新预览</JzButton><JzButton class="primary" variant="primary" @click="close">完成</JzButton>
             </template>
-            <template v-else-if="phase === 'failed'"><button @click="close">关闭</button><button class="primary" @click="refresh">重新预览</button></template>
-            <template v-else-if="running"><button class="primary" disabled>正在整理…</button></template>
+            <template v-else-if="phase === 'failed'"><JzButton @click="close">关闭</JzButton><JzButton class="primary" variant="primary" @click="refresh">重新预览</JzButton></template>
+            <template v-else-if="running"><JzButton class="primary" variant="primary" disabled>正在整理…</JzButton></template>
             <template v-else>
-              <button v-if="phase === 'confirm'" @click="phase = 'preview'">返回预览</button>
-              <button v-else @click="close">取消</button>
-              <button class="primary" :disabled="!canProceed" @click="proceed">{{ loading ? '更新预览中…' : phase === 'confirm' ? '确认并开始' : '下一步：确认整理' }}</button>
+              <JzButton v-if="phase === 'confirm'" @click="phase = 'preview'">返回预览</JzButton>
+              <JzButton v-else @click="close">取消</JzButton>
+              <JzButton class="primary" variant="primary" :disabled="!canProceed" @click="proceed">{{ loading ? '更新预览中…' : phase === 'confirm' ? '确认并开始' : '下一步：确认整理' }}</JzButton>
             </template>
           </div>
         </footer>
@@ -133,6 +133,8 @@
 
 <script setup>
 import HelpLink from './HelpLink.vue'
+import JzButton from './JzButton.vue'
+import AppIcon from './AppIcon.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import Spinner from './Spinner.vue'
 import { ACTION_HELP, basename, hintReasonText, manualText, untouchedText } from '../tvOrganizePlans.js'
@@ -179,17 +181,14 @@ watch(phase, async () => { await nextTick(); body.value?.scrollTo({ top: 0 }) })
 </script>
 
 <style scoped>
-.organize-mask { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: 24px; background: #000a; backdrop-filter: blur(5px); box-sizing: border-box; }
-.organize-dialog { width: min(760px, 100%); max-height: min(880px, calc(100dvh - 48px)); display: flex; flex-direction: column; background: var(--jz-surface); color: var(--jz-text); border: 1px solid var(--jz-border-strong); border-radius: 16px; box-shadow: 0 24px 80px #0008; overflow: hidden; font-size: var(--jz-font-m); }
+.organize-mask { position: fixed; inset: 0; z-index: var(--jz-z-dialog); display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--jz-overlay); box-sizing: border-box; }
+.organize-dialog { width: min(760px, 100%); max-height: min(880px, calc(100dvh - 48px)); display: flex; flex-direction: column; background: var(--jz-surface); color: var(--jz-text); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-dialog); box-shadow: var(--jz-shadow-dialog); overflow: hidden; font-size: var(--jz-font-m); }
 .dialog-header { display: flex; align-items: center; gap: 14px; padding: 24px 28px 20px; border-bottom: 1px solid var(--jz-border); flex-shrink: 0; }
 .header-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: var(--jz-radius-l); background: var(--jz-surface-3); color: var(--jz-text-dim); flex-shrink: 0; }
-.header-mark svg { width: 24px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
 .header-copy { flex: 1; min-width: 0; }
-.header-copy h2 { margin: 0 0 5px; font-size: 1.2rem; line-height: 1.4; }
+.header-copy h2 { margin: 0 0 5px; font-size: var(--jz-font-xl); line-height: 1.4; }
 .header-copy p { margin: 0; color: var(--jz-text-dim); line-height: 1.5; overflow-wrap: anywhere; }
-button { cursor: pointer; }
-button:disabled { cursor: default; opacity: .45; }
-.close-button { width: 32px; height: 32px; border: 0; padding: 0; background: transparent; color: var(--jz-text-dim); font-size: 1.5rem; flex-shrink: 0; }
+.close-button { width: var(--jz-control-current); padding: 8px; flex-shrink: 0; }
 .dialog-body { padding: 24px 28px; overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
 h3, h4, p { margin: 0; }
 .section-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
@@ -255,12 +254,11 @@ input[type='checkbox'] { accent-color: var(--jz-accent); width: 16px; height: 16
 .dialog-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 28px; border-top: 1px solid var(--jz-border); background: var(--jz-surface); flex-shrink: 0; }
 .settings-link { border: 0; background: transparent; padding: 6px 0; font-size: var(--jz-font-s); color: var(--jz-text-dim); }
 .footer-actions { display: flex; gap: 10px; }
-.footer-actions button { min-height: 40px; padding: 9px 16px; white-space: nowrap; }
-.footer-actions .primary { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-text); font-weight: 600; }
+.footer-actions button { white-space: nowrap; }
 button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 3px; }
 @media (max-width: 600px) {
   .organize-mask { padding: 12px; }
-  .organize-dialog { max-height: calc(100dvh - 24px); border-radius: 12px; }
+  .organize-dialog { max-height: calc(100dvh - 24px); border-radius: var(--jz-radius-dialog); }
   .dialog-header { padding: 18px 16px; gap: 10px; }
   .header-mark { display: none; }
   .dialog-body { padding: 18px 16px; }

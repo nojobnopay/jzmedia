@@ -62,7 +62,7 @@
       <section v-else class="setup-card">
         <h2>{{ state.status === 'completed' ? '基本配置已完成' : '内容已入库，请核对结果' }}</h2>
         <p>{{ target?.media_name }} / {{ target?.name }}：已登记 {{ state.content.count }} {{ state.kind === 'tv' ? '个分集文件' : '个电影文件' }}。</p>
-        <p v-if="state.tmdb_skipped" class="hint">TMDB 已跳过，可在“设置 → 资料来源”中补配。</p>
+        <p v-if="state.tmdb_skipped" class="hint">TMDB 已跳过，可在“设置 → 在线资料服务”中补配。</p>
         <p v-if="lastUpload" role="status">{{ uploadSummary(lastUpload) }}</p>
         <p role="status">{{ scan.message.value }}</p>
         <p v-if="state.content.pending">{{ state.content.pending }} 项资料或匹配待处理。已入库不代表资料已匹配，请进入详情核对。</p>

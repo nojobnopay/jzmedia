@@ -1,5 +1,5 @@
 /* Settings-only layout; shared application surfaces and controls keep their tokens. */
-.settings-layout { display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 36px; max-width: 1440px; margin: 0 auto; padding: 32px; box-sizing: border-box; align-items: start; }
+.settings-layout { --jz-control-current: var(--jz-control-compact); display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 36px; max-width: var(--jz-content-width); margin: 0 auto; padding: 32px; box-sizing: border-box; align-items: start; }
 .settings-layout .side-nav { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 4px; max-height: calc(100dvh - 48px); overflow-y: auto; }
 .settings-layout .side-nav h1 { margin: 0 12px 12px; font-size: 1.5rem; }
 .settings-layout .desktop-categories { display: block; padding: 0; background: transparent; }
@@ -21,16 +21,12 @@
 .settings-layout .hint, .settings-layout .fhint { color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.7; }
 .settings-layout .hint { margin: 0 0 12px; }
 .settings-layout .warn-text { color: var(--jz-warn); }
-.settings-layout button, .settings-layout select, .settings-layout input { min-height: 36px; box-sizing: border-box; }
+.settings-layout button, .settings-layout select, .settings-layout input { min-height: var(--jz-control-current); box-sizing: border-box; }
 .settings-layout input[type="checkbox"], .settings-layout input[type="range"] { min-height: auto; accent-color: var(--jz-accent); }
 .settings-layout select { color: var(--jz-text); background: var(--jz-surface-2); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s); padding: 6px 10px; max-width: 100%; }
-.settings-layout button:disabled { opacity: .45; cursor: not-allowed; }
-.settings-layout button.primary { background: var(--jz-accent); border-color: var(--jz-accent); color: white; }
-.settings-layout button.danger { color: var(--jz-danger); }
-.settings-layout :is(button, input, select, summary):focus-visible { outline: 2px solid var(--jz-link); outline-offset: 3px; }
 .settings-layout .bar { padding: 12px 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-s); font-size: var(--jz-font-m); }
 .settings-layout .bar > span { overflow-wrap: anywhere; }
-.settings-layout .settings-form { max-width: 760px; }
+.settings-layout .settings-form { max-width: var(--jz-form-width); }
 .settings-layout .settings-form > label, .settings-layout .field-label { display: block; font-size: var(--jz-font-m); margin: 16px 0 8px; }
 .settings-layout .settings-form input:not([type="checkbox"]), .settings-layout .wide-input { width: 100%; }
 .settings-layout .form-columns { display: grid; grid-template-columns: 1fr 1fr; gap: var(--jz-gap-l); margin: 16px 0; }
@@ -66,7 +62,7 @@
 .settings-layout .provider-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-m); padding: 10px 0; font-size: var(--jz-font-m); }
 .settings-layout .p-name { min-width: 100px; }
 .settings-layout .provider-error { width: 100%; overflow-wrap: anywhere; }
-.settings-layout .slider-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); align-items: center; gap: var(--jz-gap-l); padding: 20px 0; max-width: 760px; border-bottom: 1px solid var(--jz-border); }
+.settings-layout .slider-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); align-items: center; gap: var(--jz-gap-l); padding: 20px 0; max-width: var(--jz-form-width); border-bottom: 1px solid var(--jz-border); }
 .settings-layout .slider-row label { display: flex; flex-direction: column; gap: 6px; font-size: var(--jz-font-m); }
 .settings-layout .slider-row b { color: var(--jz-text-dim); font-weight: normal; font-size: var(--jz-font-s); }
 .settings-layout .slider-row .hint { grid-column: 2; margin: -10px 0 0; }
@@ -99,7 +95,7 @@
   .settings-layout .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {
-  .settings-layout { display: block; padding: 12px; }
+  .settings-layout { --jz-control-current: var(--jz-touch-target); display: block; padding: 12px; }
   .settings-layout .side-nav { position: static; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 16px; max-height: none; overflow: visible; }
   .settings-layout .side-nav h1 { margin: 0; font-size: 1.25rem; align-self: center; }
   .settings-layout .desktop-categories { display: none; }
@@ -132,3 +128,7 @@
 }
 
 .settings-layout .setup-link { display: block; flex-shrink: 0; padding: 10px 12px; color: var(--jz-link); font-size: var(--jz-font-m); white-space: nowrap; }
+
+.settings-layout .stat b { font-variant-numeric: tabular-nums; }
+.settings-scope { display: inline-block; margin-top: var(--jz-gap-s); color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+@media (pointer: coarse) { .settings-layout { --jz-control-current: var(--jz-touch-target); } }

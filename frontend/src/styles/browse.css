@@ -9,9 +9,6 @@
 #app .browse-page .browse-heading { display: flex; gap: 20px; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 #app .browse-page .browse-heading h1 { margin: 0; font-size: 1.75rem; }
 #app .browse-page .browse-search { padding: 0; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-#app .browse-page .q-wrap { min-width: 180px; max-width: 560px; flex: 1; }
-#app .browse-page .q-wrap input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 40px; }
-#app .browse-page .browse-search > button { min-height: 40px; }
 #app .browse-page .filters { margin: 0 0 24px; padding: 18px 20px; border: 1px solid var(--jz-border); border-radius: var(--jz-radius-l); background: var(--jz-surface); }
 #app .browse-page .frow { align-items: center; gap: 8px; padding: 8px 0; }
 #app .browse-page .chip { border-radius: var(--jz-radius-s); font: inherit; font-size: var(--jz-font-m); padding: 5px 10px; }
@@ -44,9 +41,6 @@
   #app .browse-page .manage-link { display: inline-flex; align-items: center; min-height: var(--jz-touch-target); white-space: nowrap; }
   #app .browse-page .browse-actions summary { box-sizing: border-box; min-height: var(--jz-touch-target); padding: var(--jz-gap-xs) var(--jz-gap-s); gap: var(--jz-gap-xs); }
   #app .browse-page .browse-search { gap: var(--jz-gap-xs); margin-bottom: var(--jz-gap-m); }
-  #app .browse-page .browse-search .q-wrap { flex: 1; min-width: 0; max-width: none; }
-  #app .browse-page .browse-search input { font-size: max(16px, 1rem); min-height: var(--jz-touch-target); }
-  #app .browse-page .browse-search > button { min-height: var(--jz-touch-target); white-space: nowrap; padding-inline: var(--jz-gap-s); }
   #app .browse-page .filters { padding: var(--jz-gap-s) var(--jz-gap-m); margin-bottom: var(--jz-gap-m); }
   #app .browse-page .frow { gap: var(--jz-gap-xs); padding-block: var(--jz-gap-xs); }
   #app .browse-page .flabel { flex-basis: 100%; }

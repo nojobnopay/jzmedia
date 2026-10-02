@@ -18,6 +18,7 @@ search: false
 | [播放设计](playback.md) | 能力决策、FFmpeg/HLS、字幕、缓存、会话生命周期 |
 | [API 与任务](api.md) | 路由、鉴权、异步任务与响应约定 |
 | [开发与验证](development.md) | 环境、测试、变更步骤和排障入口 |
+| [界面规范与验收](design-system.md) | 设计变量、共享控件、组件目录和隔离浏览器检查 |
 | [文档制作与发布](documentation.md) | 任务教程、媒体素材、站点构建与验证 |
 
 计划中的工作保留在仓库 `docs/roadmap/`，不进入帮助发布包，也不代表现有接口。贡献前检查仓库根目录 `AGENTS.md`。[返回文档导航](../README.md)。

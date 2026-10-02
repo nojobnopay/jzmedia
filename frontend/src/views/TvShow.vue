@@ -40,6 +40,7 @@
             <span class="dim">{{ show.watched_count }}/{{ show.episode_count }} 已看</span>
             <span v-if="busy" class="dim">{{ organizing ? '正在检查本剧目录…' : '处理中…' }}</span>
           </div>
+          <EmptyState v-if="loadError" state="error" title="剧集刷新失败" :text="loadError" retry @retry="load()" />
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
           <div v-if="show.needs_review" class="review-notice">
             <span>请确认剧集是否匹配正确</span>
@@ -89,6 +90,7 @@
         </div>
       </div>
     </section>
+    <EmptyState v-if="!show.seasons?.length" state="empty" title="暂时没有剧季" text="扫描本剧所在的视频库后，已入库的剧季会显示在这里。" />
     <CastWall :cast="castList" :original-language="show.original_language || ''" />
     <SimilarRow :items="similar" title="相关节目" subtitle="按电视网 / 类型 / 主创 / 主演推荐"
       @open="openShow" />
@@ -115,7 +117,10 @@
       </div>
     </section>
   </div>
-  <div v-else class="bar">{{ msg || '加载中…' }}</div>
+  <EmptyState v-else :state="loadError ? 'error' : 'loading'" :title="loadError ? '剧集加载失败' : '正在加载剧集'"
+    :text="loadError || '请稍候…'" :retry="!!loadError" @retry="load()">
+    <router-link v-if="loadError" to="/tv">返回剧集列表</router-link>
+  </EmptyState>
   <TvBindingsDialog v-if="bindingsOpen && show" :library-id="Number(show.library_id)" :show-id="Number(show.id)"
     @close="bindingsOpen = false" @changed="onBindingChanged" />
   <TvOrganizeDialog v-if="orgHint" :key="orgHint.show_id" :initial-plan="orgHint"
@@ -127,6 +132,7 @@
 </template>
 
 <script setup>
+import EmptyState from '../components/EmptyState.vue'
 import AiMatchSuggestions from '../components/AiMatchSuggestions.vue'
 import { isAiExternalCandidate } from '../aiMatch.js'
 import { followingPlayback } from '../episodePlayback.js'
@@ -138,7 +144,7 @@ import PlayerIcon from '../components/PlayerIcon.vue'
 import MediaBackdrop from '../components/MediaBackdrop.vue'
 import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import { episodeVersion, seasonStats } from '../episodeVersions.js'
@@ -153,6 +159,8 @@ import SimilarRow from '../components/SimilarRow.vue'
 const route = useRoute()
 const router = useRouter()
 const show = ref(null)
+const loadError = ref('')
+let loadSeq = 0
 const msg = ref('')
 const playing = ref(null)
 const busy = ref(false)
@@ -272,31 +280,36 @@ function openSeason (sn) { router.push(`/tv/${show.value.id}/s/${sn}`) }
 function openShow (id) { router.push('/tv/' + id) }
 async function load (verify = '0') {
   const requestedId = String(route.params.id)
+  const seq = ++loadSeq
+  const isCurrent = () => seq === loadSeq && String(route.params.id) === requestedId
+  if (show.value && String(show.value.id) !== requestedId) show.value = null
+  loadError.value = ''
   msg.value = ''
   similar.value = []
   try {
     const q = verify && verify !== '0' ? '?verify=' + encodeURIComponent(verify) : ''
     const detail = await api('/api/tv/shows/' + requestedId + q)
-    if (String(route.params.id) !== requestedId) return
+    if (!isCurrent()) return
     show.value = detail
     const mediaId = Number(detail.media_library_id)
     if (mediaId && mediaId !== currentMediaId()) {
       if (!switchMedia(mediaId)) {
         try {
           await loadLibs(api)
-          if (String(route.params.id) === requestedId) switchMedia(mediaId)
+          if (isCurrent()) switchMedia(mediaId)
         } catch (e) { /* 详情内已有媒体库名称，列表刷新失败不阻断页面 */ }
       }
     }
+    if (!isCurrent()) return
     if (!detail.tmdb_id) matchOpen.value = true
     try {
       const related = await api(`/api/tv/shows/${requestedId}/similar`)
-      if (String(route.params.id) === requestedId) similar.value = related.items || []
+      if (isCurrent()) similar.value = related.items || []
     } catch (e) {
-      if (String(route.params.id) === requestedId) similar.value = []
+      if (isCurrent()) similar.value = []
     }  // 相关节目失败不挡详情页
   } catch (e) {
-    if (String(route.params.id) === requestedId) msg.value = '加载失败：' + e.message
+    if (isCurrent()) loadError.value = e.message
   }
 }
 
@@ -513,51 +526,52 @@ async function onEnded () {
 }
 
 onMounted(() => load())
+onUnmounted(() => { loadSeq++ })
 watch(() => route.params.id, () => { orgHint.value = null; bindingsOpen.value = false; load() })
 </script>
 
 <style scoped>
 .tv-page { padding-bottom: 24px; }
-.hero { background-size: cover; background-position: center 20%; border-bottom: 1px solid #2c2c2c; }
+.hero { background-size: cover; background-position: center 20%; border-bottom: 1px solid var(--jz-border); }
 .hero-inner { display: flex; gap: 18px; padding: 18px 16px; align-items: flex-end; }
 .hero-poster { width: 150px; aspect-ratio: 2/3; object-fit: cover; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.6); flex: 0 0 auto; }
-.hero-no-poster { display: flex; align-items: center; justify-content: center; background: #242424; color: #555; font-size: 2.5rem; font-weight: bold; }
+.hero-no-poster { display: flex; align-items: center; justify-content: center; background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 2.5rem; font-weight: bold; }
 .hero-body { min-width: 0; flex: 1; }
 .hero-body h2 { margin: 0 0 6px; font-size: 1.5rem; }
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.meta { display: flex; flex-wrap: wrap; gap: 10px; color: #aaa; font-size: 0.8125rem; margin-bottom: 8px; }
+.meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--jz-text-dim); font-size: 0.8125rem; margin-bottom: 8px; }
 /* 简介与空态走 App.vue 全局 .overview/.empty 单源（与电影 Detail 同形态） */
 .overview { max-width: 900px; }
 .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.acts .primary { background: #e50914; border-color: #e50914; color: #fff; }
+.acts .primary { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); }
 .match { margin-top: 10px; max-width: 720px; }
 .match-bar { padding: 0; gap: 6px; }
 .match-bar input { flex: 1; }
-.mrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #2c2c2c; font-size: 0.875rem; }
+.mrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--jz-border); font-size: 0.875rem; }
 .mrow .mname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mrow .src-badge { padding: 1px 6px; border-radius: 3px; background: #333; border: 1px solid #444; font-size: 0.75rem; color: #bbb; }
+.mrow .src-badge { padding: 1px 6px; border-radius: 3px; background: var(--jz-border); border: 1px solid var(--jz-border-strong); font-size: 0.75rem; color: var(--jz-text-dim); }
 .season-sec { margin: 12px; }
-.season-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.season-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: var(--jz-text); }
 .season-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-.season-card { background: #1f1f1f; border: 1px solid #333; border-radius: 8px; overflow: hidden; cursor: pointer; }
-.season-card:hover { border-color: #e50914; }
-.season-poster { position: relative; background: #222; }
+.season-card { background: var(--jz-surface); border: 1px solid var(--jz-border); border-radius: 8px; overflow: hidden; cursor: pointer; }
+.season-card:hover { border-color: var(--jz-accent); }
+.season-poster { position: relative; background: var(--jz-surface-2); }
 .season-poster img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
-.season-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: #242424; color: #555; font-size: 2rem; font-weight: bold; }
-.season-done { position: absolute; top: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #7ed321; }
-.season-name { padding: 8px 8px 0; font-size: 0.875rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.season-ct { padding: 2px 8px 8px; font-size: 0.75rem; color: #9ecfff; }
+.season-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 2rem; font-weight: bold; }
+.season-done { position: absolute; top: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: var(--jz-overlay); color: var(--jz-green); }
+.season-name { padding: 8px 8px 0; font-size: 0.875rem; color: var(--jz-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.season-ct { padding: 2px 8px 8px; font-size: 0.75rem; color: var(--jz-link); }
 /* 推荐行样式单源：SimilarRow.vue */
-.review-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(255, 179, 0, .16); color: #ffb300; border: 1px solid rgba(255, 179, 0, .4); }
-.local-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(120, 170, 255, .14); color: #7aaaff; border: 1px solid rgba(120, 170, 255, .4); }
-.ver-badge { margin-left: 6px; font-size: 0.6875rem; padding: 0 5px; border-radius: 3px; color: #b98a00; border: 1px solid #6b5410; }
+.review-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--jz-warn-soft); color: var(--jz-warn); border: 1px solid var(--jz-warn-border); }
+.local-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--jz-info-soft); color: var(--jz-blue-chip); border: 1px solid var(--jz-info-border); }
+.ver-badge { margin-left: 6px; font-size: 0.6875rem; padding: 0 5px; border-radius: 3px; color: var(--jz-warn); border: 1px solid var(--jz-warn-border); }
 .extras { margin: 12px; }
-.extras h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.extras h3 { margin: 0 0 10px; font-size: 1.0625rem; color: var(--jz-text); }
 /* 演职员样式单源：CastWall.vue（此处不再重复定义 cast-wall/cast-card） */
 .ex-row { display: flex; gap: 10px; flex-wrap: wrap; }
-.ex-card { width: 220px; padding: 8px 10px; background: #1f1f1f; border: 1px solid #333; border-radius: 8px; }
-.ex-name { font-size: 0.875rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
-.dim { color: #777; }
+.ex-card { width: 220px; padding: 8px 10px; background: var(--jz-surface); border: 1px solid var(--jz-border); border-radius: 8px; }
+.ex-name { font-size: 0.875rem; color: var(--jz-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
+.dim { color: var(--jz-text-faint); }
 .small { font-size: 0.75rem; margin-top: 2px; }
 @media (max-width: 700px) {
   .hero-inner { flex-direction: column; align-items: flex-start; }

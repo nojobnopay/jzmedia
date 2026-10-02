@@ -41,6 +41,7 @@
             <button v-if="prevEp" @click="goEpisode(prevEp)">‹ 上一集 {{ epNo(prevEp) }}</button>
             <button v-if="nextEp" @click="goEpisode(nextEp)">下一集 {{ epNo(nextEp) }} ›</button>
           </nav>
+          <EmptyState v-if="loadError" state="error" title="分集刷新失败" :text="loadError" retry @retry="load" />
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
           <div v-if="ep.needs_review && !pickOpen" class="review-notice">
             <span>此集尚未匹配到集名和简介</span><button @click="pickOpen = true">匹配集号</button>
@@ -70,20 +71,24 @@
     <CastWall :cast="ep.cast || []" :original-language="ep.original_language || ''"
       :subtitle="ep.cast_source === 'season' ? '本季' : ep.cast_source === 'aggregate' ? '全剧' : ''" />
   </div>
-  <div v-else class="bar">{{ msg || '加载中…' }}</div>
+  <EmptyState v-else :state="loadError ? 'error' : 'loading'" :title="loadError ? '分集加载失败' : '正在加载分集'"
+    :text="loadError || '请稍候…'" :retry="!!loadError" @retry="load">
+    <router-link v-if="loadError" to="/tv">返回剧集列表</router-link>
+  </EmptyState>
   <PlayerModal v-if="playing" :key="'episode:' + playing.id"
     :version-id="playing.id" :title="playing.label" kind="episode"
     @close="playing = null" @watched="onWatched" @ended="onEnded" />
 </template>
 
 <script setup>
+import EmptyState from '../components/EmptyState.vue'
 import { followingPlayback } from '../episodePlayback.js'
 import PlayerIcon from '../components/PlayerIcon.vue'
 
 import MediaBackdrop from '../components/MediaBackdrop.vue'
 import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import { episodeVersion } from '../episodeVersions.js'
@@ -95,6 +100,8 @@ import HeroRatings from '../components/HeroRatings.vue'
 const route = useRoute()
 const router = useRouter()
 const ep = ref(null)
+const loadError = ref('')
+let loadSeq = 0
 const msg = ref('')
 const playing = ref(null)
 const searching = ref(false)
@@ -128,12 +135,18 @@ function goEpisode (target) {
   router.push(`/tv/${ep.value.show_id}/s/${target.season}/e/${target.id}`)
 }
 async function load () {
+  const seq = ++loadSeq
+  const id = route.params.epId
+  if (ep.value && String(ep.value.id) !== String(id)) ep.value = null
+  loadError.value = ''
   msg.value = ''
   try {
-    ep.value = await api(`/api/tv/episodes/${route.params.epId}`)
+    const data = await api(`/api/tv/episodes/${id}`)
+    if (seq !== loadSeq) return
+    ep.value = data
     pickSeason.value = Number(ep.value.season) || 0
   } catch (e) {
-    msg.value = '加载失败：' + e.message
+    if (seq === loadSeq) loadError.value = e.message
   }
 }
 async function markWatched (watched) {
@@ -194,32 +207,33 @@ async function onEnded () {
 }
 
 onMounted(load)
+onUnmounted(() => { loadSeq++ })
 watch(() => route.params.epId, load)
 </script>
 
 <style scoped>
 .tv-page { padding-bottom: 24px; }
-.crumbs { padding: 12px 12px 0; font-size: 0.875rem; color: #aaa; }
-.crumbs a { color: #9ecfff; text-decoration: none; }
+.crumbs { padding: 12px 12px 0; font-size: 0.875rem; color: var(--jz-text-dim); }
+.crumbs a { color: var(--jz-link); text-decoration: none; }
 .hero-inner { display: flex; gap: 18px; padding: 18px 16px; align-items: flex-start; }
-.hero-still { width: min(420px, 100%); aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.6); flex: 0 0 auto; background: #222; }
+.hero-still { width: min(420px, 100%); aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.6); flex: 0 0 auto; background: var(--jz-surface-2); }
 .hero-body { min-width: 0; }
 .hero-body h2 { margin: 0 0 6px; font-size: 1.5rem; }
-.meta { display: flex; flex-wrap: wrap; gap: 10px; color: #aaa; font-size: 0.8125rem; margin-bottom: 8px; }
+.meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--jz-text-dim); font-size: 0.8125rem; margin-bottom: 8px; }
 /* 简介与空态走 App.vue 全局 .overview/.empty 单源（与电影/剧详情同形态） */
 .overview { max-width: 900px; }
 .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.acts .primary { background: #e50914; border-color: #e50914; color: #fff; }
+.acts .primary { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); }
 .match { margin-top: 10px; max-width: 720px; }
 .match-bar { padding: 0; gap: 6px; }
 .match-bar input { flex: 1; }
-.mrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #2c2c2c; font-size: 0.875rem; }
+.mrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--jz-border); font-size: 0.875rem; }
 .mrow .mname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 演职员/导演样式单源：CastWall.vue / CrewRow.vue */
-.seen-tag { color: #7ed321; }
-.review-badge { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(255, 179, 0, .16); color: #ffb300; border: 1px solid rgba(255, 179, 0, .4); }
-.local-badge { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(120, 170, 255, .14); color: #7aaaff; border: 1px solid rgba(120, 170, 255, .4); }
-.dim { color: #777; }
+.seen-tag { color: var(--jz-green); }
+.review-badge { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--jz-warn-soft); color: var(--jz-warn); border: 1px solid var(--jz-warn-border); }
+.local-badge { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--jz-info-soft); color: var(--jz-blue-chip); border: 1px solid var(--jz-info-border); }
+.dim { color: var(--jz-text-faint); }
 @media (max-width: 700px) {
   .hero-inner { flex-direction: column; align-items: flex-start; }
 }

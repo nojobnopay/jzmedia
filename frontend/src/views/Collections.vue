@@ -1,17 +1,24 @@
 <template>
   <div class="browse-page collections-page">
-    <header class="browse-heading"><h1>合集</h1><button :aria-expanded="createOpen" @click="createOpen = !createOpen">新建合集</button></header>
-    <form class="bar collection-search" @submit.prevent="load"><input v-model="q" aria-label="搜索合集" placeholder="搜合集名" /><button>搜索</button></form>
-    <form v-if="createOpen" class="bar collection-create" @submit.prevent="create"><input v-model="name" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><button :disabled="!name.trim()">创建</button><button type="button" @click="createOpen = false">取消</button></form>
+    <header class="browse-heading"><h1>合集</h1><JzButton variant="primary" :aria-expanded="createOpen" aria-controls="collection-create" @click="createOpen = !createOpen">新建合集</JzButton></header>
+    <form class="bar collection-search" role="search" aria-label="搜索合集" @submit.prevent="load"><input v-model="q" aria-label="搜索合集" placeholder="搜合集名" /><button>搜索</button></form>
+    <form v-show="createOpen" id="collection-create" class="bar collection-create" @submit.prevent="create"><input v-model="name" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><button :disabled="!name.trim()">创建</button><button type="button" @click="createOpen = false">取消</button></form>
     <p v-if="msg" role="status">{{ msg }}</p>
     <h2 class="sec-h">我的合集</h2>
-    <div class="grid">
+    <EmptyState v-if="loading" state="loading" title="正在加载合集" text="请稍候…" />
+    <EmptyState v-else-if="loadError" state="error" title="合集加载失败" :text="loadError" retry @retry="load" />
+    <EmptyState v-else-if="!items.length" :state="loadedQuery ? 'no-results' : 'empty'"
+      :title="loadedQuery ? '没有符合条件的合集' : '还没有合集'"
+      :text="loadedQuery ? '试试其他合集名，或清除搜索条件。' : '创建一个合集，或在海报墙多选影片后加入合集。'">
+      <JzButton v-if="loadedQuery" @click="clearSearch">清除搜索</JzButton>
+      <JzButton v-else variant="primary" @click="createOpen = true">新建合集</JzButton>
+    </EmptyState>
+    <div v-else class="grid">
       <router-link v-for="c in items" :key="c.id" class="card" :to="'/c/' + c.id">
-        <div class="poster-wrap"><img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" :alt="c.name || '合集'" /><div v-else class="cover-empty">📁</div></div>
+        <div class="poster-wrap"><img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" :alt="c.name || '合集'" /><div v-else class="cover-empty" aria-hidden="true">合</div></div>
         <div class="t">{{ c.name }}（{{ c.member_count }} 部）</div>
       </router-link>
     </div>
-    <p v-if="!items.length">{{ q.trim() ? '没有符合条件的合集。' : '还没有合集，可以新建合集，或在海报墙多选影片后加入合集。' }}</p>
     <details v-if="suggest.length || topups.length" class="collection-section">
       <summary>推荐与可补齐合集 · {{ suggest.length + topups.length }}</summary>
       <section v-if="topups.length"><h3>可补齐</h3><div class="grid collection-action-grid">
@@ -22,7 +29,7 @@
       </div></section>
       <section v-if="suggest.length"><div class="bar"><h3>推荐合集</h3><button @click="acceptAll" :disabled="accepting">全部接受（{{ suggest.length }}）</button></div>
         <div class="grid collection-action-grid"><div v-for="entry in suggest" :key="entry.collection_tmdb_id" class="card sg-card">
-          <div class="poster-wrap"><img v-if="entry.cover" :src="posterUrl(entry.cover)" loading="lazy" :alt="entry.collection_name" /><div v-else class="cover-empty">📁</div></div>
+          <div class="poster-wrap"><img v-if="entry.cover" :src="posterUrl(entry.cover)" loading="lazy" :alt="entry.collection_name" /><div v-else class="cover-empty" aria-hidden="true">合</div></div>
           <div class="t">{{ entry.collection_name }}（库内 {{ entry.member_count }} 部）</div>
           <div class="t sub">{{ entry.members.map(m => m.title).join(' / ') }}</div>
           <div class="bar"><button @click="accept(entry)" :disabled="accepting">接受</button><button @click="dismiss(entry)">忽略</button></div>
@@ -41,6 +48,8 @@
   </div>
 </template>
 <script setup>
+import EmptyState from '../components/EmptyState.vue'
+import JzButton from '../components/JzButton.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api, posterUrl } from '../api.js'
 import { currentMediaId, mediaParam, loadLibs, onLibChange } from '../libraries.js'
@@ -50,6 +59,11 @@ const createOpen = ref(false)
 const q = ref('')
 const name = ref('')
 const items = ref([])
+const loading = ref(true)
+const loadError = ref('')
+const loadedQuery = ref('')
+let loadSeq = 0
+let disposed = false
 const msg = ref('')
 const suggest = ref([])
 const topups = ref([])
@@ -235,18 +249,27 @@ async function topUp(t) {
 }
 
 async function load() {
+  const seq = ++loadSeq
+  const query = q.value.trim()
+  loading.value = true
+  loadError.value = ''
   msg.value = ''
   try {
     const p = new URLSearchParams()
-    if (q.value.trim()) p.set('q', q.value.trim())
+    if (query) p.set('q', query)
     if (mediaParam() != null) p.set('media_library', String(mediaParam()))
     const qs = p.toString()
     const d = await api('/api/collections' + (qs ? '?' + qs : ''))
+    if (seq !== loadSeq || disposed) return
     items.value = d.items || []
+    loadedQuery.value = query
   } catch (e) {
-    msg.value = '加载失败：' + e.message
+    if (seq === loadSeq && !disposed) loadError.value = e.message
+  } finally {
+    if (seq === loadSeq && !disposed) loading.value = false
   }
 }
+function clearSearch() { q.value = ''; load() }
 
 async function create() {
   const n = name.value.trim()
@@ -284,28 +307,31 @@ async function resumeBackfill() {
 let unsubLib = null
 onMounted(async () => {
   try { await loadLibs(api) } catch (e) { /* 忽略 */ }
-  await Promise.all([load(), loadSuggest(), resumeBackfill()])
+  if (disposed) return
   unsubLib = onLibChange(() => { load(); loadSuggest() })
+  await Promise.all([load(), loadSuggest(), resumeBackfill()])
 })
 onUnmounted(() => {
+  disposed = true
+  loadSeq++
   stopPoll()
   if (unsubLib) { try { unsubLib() } catch (e) { /* 忽略 */ } unsubLib = null }
 })
 </script>
 <style scoped>
-.cover-empty { aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; background: #262626; }
-.suggest-sec { border-bottom: 1px dashed #3a3a3a; margin-bottom: 8px; }
-.suggest-sec h3, .sec-h { padding: 0 12px; font-size: 1rem; color: #ddd; }
-.fhint { color: #777; font-size: 0.75rem; font-weight: normal; }
-.sg-card { border: 1px dashed #6b5518; }
-.topup-sec { border-bottom: 1px dashed #3a3a3a; margin-bottom: 8px; }
-.topup-sec h3 { padding: 0 12px; font-size: 1rem; color: #ddd; }
-.tp-card { border: 1px solid #2b4a6e; }
-.t.sub { color: #888; font-size: 0.75rem; }
+.cover-empty { aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; background: var(--jz-surface-3); }
+.suggest-sec { border-bottom: 1px dashed var(--jz-border); margin-bottom: 8px; }
+.suggest-sec h3, .sec-h { padding: 0 12px; font-size: 1rem; color: var(--jz-text); }
+.fhint { color: var(--jz-text-dim); font-size: 0.75rem; font-weight: normal; }
+.sg-card { border: 1px dashed var(--jz-border-strong); }
+.topup-sec { border-bottom: 1px dashed var(--jz-border); margin-bottom: 8px; }
+.topup-sec h3 { padding: 0 12px; font-size: 1rem; color: var(--jz-text); }
+.tp-card { border: 1px solid var(--jz-border-strong); }
+.t.sub { color: var(--jz-text-dim); font-size: 0.75rem; }
 .progress-wrap { padding: 0 12px 8px; display: flex; flex-direction: column; gap: 4px; }
-.progress { height: 8px; border-radius: 999px; background: #262626; overflow: hidden; }
-.progress .fill { height: 100%; background: #e50914; border-radius: 999px; transition: width .4s; }
-.fail-list { color: #e0a63c; }
+.progress { height: 8px; border-radius: 999px; background: var(--jz-surface-3); overflow: hidden; }
+.progress .fill { height: 100%; background: var(--jz-accent); border-radius: 999px; transition: width .4s; }
+.fail-list { color: var(--jz-warn); }
 </style>
 
 <style scoped>

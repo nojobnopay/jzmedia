@@ -19,7 +19,7 @@
     </aside>
     <main class="settings-main">
       <header class="settings-heading">
-        <div><h2>{{ currentPage.label }}</h2><p>{{ currentPage.description }}</p></div>
+        <div><h2>{{ currentPage.label }}</h2><p>{{ currentPage.description }}</p><span class="settings-scope">{{ settingsScope }}</span></div>
         <span v-if="busy" class="activity-label" role="status">任务进行中</span>
       </header>
       <p v-if="loadError" class="settings-notice" role="alert">{{ loadError }} <button @click="loadSettings">重新加载</button></p>
@@ -369,6 +369,12 @@ const navs = SETTINGS_PAGES
 const navGroups = [...new Set(navs.map(n => n.group))].map(name => ({ name, pages: navs.filter(n => n.group === name) }))
 const active = ref(settingsTarget(route.query).page)
 const currentPage = computed(() => navs.find(n => n.id === active.value) || navs[0])
+const settingsScope = computed(() => {
+  if (active.value === 'sec-display') return '作用范围：当前浏览器'
+  if (['sec-libtools', 'sec-files', 'sec-matching'].includes(active.value)) return '作用范围：下方选中的视频库'
+  if (active.value === 'sec-status') return '统计范围：全部媒体库'
+  return '作用范围：此服务的全部媒体库'
+})
 const visited = ref(new Set([active.value]))
 const ready = ref(false)
 const librariesError = ref('')

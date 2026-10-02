@@ -7,41 +7,14 @@
       <ActionMenu label="添加影片"><button @click="scanOpen = !scanOpen">扫描新文件</button><button @click="upDlg = true">上传文件</button></ActionMenu>
     </div>
   </header>
-  <div class="bar browse-search">
-    <div class="q-wrap">
-      <input v-model="q" aria-label="搜索电影" placeholder="搜片名 / 演员 / 标签" autocomplete="off"
-        @input="onQInput" @compositionstart="composing = true" @compositionend="onCompositionEnd"
-        @keyup.enter="onSearchEnter" @keydown.down.prevent="suggestMove(1)"
-        @keydown.up.prevent="suggestMove(-1)" @keydown.esc.stop="closeSuggest"
-        @blur="onQBlur" />
-      <ul v-if="suggestOpen" class="suggest">
-        <li v-if="suggestNoMatch" class="s-empty">无匹配</li>
-        <template v-if="suggestItems.length">
-          <li class="s-head">影片</li>
-          <li v-for="(s, i) in suggestItems" :key="'m' + s.id"
-            :class="{ on: suggestIdx === i }"
-            @mousedown.prevent="pickMovie(s)" @mouseenter="suggestIdx = i">
-            <span class="s-title">{{ s.title }}</span>
-            <span v-if="s.year" class="s-year">({{ s.year }})</span>
-          </li>
-        </template>
-        <template v-if="suggestPersons.length">
-          <li class="s-head">演员</li>
-          <li v-for="(p, j) in suggestPersons" :key="'p' + p.tmdb_id"
-            :class="{ on: suggestIdx === suggestItems.length + j }"
-            @mousedown.prevent="pickPerson(p)"
-            @mouseenter="suggestIdx = suggestItems.length + j">
-            <span class="s-title">{{ p.name }}</span>
-            <span class="s-year">库内 {{ p.count }} 部</span>
-          </li>
-        </template>
-      </ul>
-    </div>
-    <button @click="applyAndLoad">搜索</button>
-    <button :aria-expanded="aiSearchOpen" @click="aiSearchOpen = !aiSearchOpen">智能搜索</button>
-    <button :aria-expanded="filtersOpen" aria-controls="browse-filters" @click="filtersOpen = !filtersOpen">筛选<span v-if="activeCount"> · {{ activeCount }}</span> {{ filtersOpen ? '⌃' : '⌄' }}</button>
-  </div>
-  <AiSearchPanel v-if="aiSearchOpen" kind="movie" :query="q" :media-library-id="curMediaId" @apply="applyAiSearch" @close="aiSearchOpen = false" />
+  <BrowseToolbar id="movie-browse" v-model="q" label="搜索电影" placeholder="搜片名 / 演员 / 标签"
+    item-heading="电影" :suggest-open="suggestOpen" :suggest-no-match="suggestNoMatch"
+    :suggest-items="suggestItems" :suggest-persons="suggestPersons" :suggest-idx="suggestIdx"
+    v-model:filters-open="filtersOpen" v-model:ai-open="aiSearchOpen" :active-count="activeCount" :filters-disabled="!hasFacets"
+    @input="onQInput" @compositionstart="composing = true" @compositionend="onCompositionEnd"
+    @enter="onSearchEnter" @move="suggestMove" @close="closeSuggest" @blur="onQBlur"
+    @pick-item="pickMovie" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="applyAndLoad" />
+  <div id="movie-browse-ai"><AiSearchPanel v-if="aiSearchOpen" kind="movie" :query="q" :media-library-id="curMediaId" @apply="applyAiSearch" @close="aiSearchOpen = false" /></div>
   <ScanAction v-if="scanOpen" kind="movie" @done="onUpDone" />
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
 
@@ -50,40 +23,40 @@
     <button v-if="activeCount" @click="clearFilters">清空筛选</button>
     <button v-if="q.trim()" @click="clearAll">{{ activeCount ? '重置全部条件' : '清除搜索' }}</button>
   </div>
-  <div class="filters" id="browse-filters" v-show="filtersOpen" v-if="hasFacets">
+  <div class="filters" id="browse-filters" v-show="filtersOpen && hasFacets">
     <div class="frow">
       <span class="flabel">类型</span>
       <button v-for="g in facets.genres" :key="g.value"
-        :class="['chip', { on: sel.genres.includes(g.value) }]"
+        :class="['chip', { on: sel.genres.includes(g.value) }]" :aria-pressed="sel.genres.includes(g.value)"
         @click="toggle('genres', g.value)">{{ g.value }} {{ g.count }}</button>
     </div>
     <div class="frow">
       <span class="flabel">产地</span>
       <button v-for="r in facets.regions" :key="r.value"
-        :class="['chip', { on: sel.regions.includes(r.value) }]"
+        :class="['chip', { on: sel.regions.includes(r.value) }]" :aria-pressed="sel.regions.includes(r.value)"
         @click="toggle('regions', r.value)">{{ r.value }} {{ r.count }}</button>
     </div>
     <div class="frow" v-if="facets.countries.length">
       <span class="flabel">国家/地区</span>
       <button v-for="c in facets.countries" :key="c.code || 'unknown'"
-        :class="['chip', { on: sel.countries.includes(c.code || '未知') }]"
+        :class="['chip', { on: sel.countries.includes(c.code || '未知') }]" :aria-pressed="sel.countries.includes(c.code || '未知')"
         @click="toggle('countries', c.code || '未知')">{{ c.name }} {{ c.count }}</button>
     </div>
     <div class="frow">
       <span class="flabel">年代</span>
       <button v-for="d in facets.decades" :key="d.value"
-        :class="['chip', { on: sel.decades.includes(String(d.value)) }]"
+        :class="['chip', { on: sel.decades.includes(String(d.value)) }]" :aria-pressed="sel.decades.includes(String(d.value))"
         @click="toggle('decades', String(d.value))">{{ d.value }}s {{ d.count }}</button>
       <select aria-label="按年份筛选" v-model="yearPick" @change="pickYear">
         <option value="">年份…</option>
         <option v-for="y in facets.years" :key="y.value" :value="y.value">{{ y.value }} ({{ y.count }})</option>
       </select>
-      <button v-for="y in sel.years" :key="y" class="chip on" @click="toggle('years', y)">{{ y }} ×</button>
+      <button v-for="y in sel.years" :key="y" class="chip on" :aria-pressed="true" @click="toggle('years', y)">{{ y }} ×</button>
     </div>
     <div class="frow" v-if="facets.tags.length">
       <span class="flabel">标签</span>
       <button v-for="t in facets.tags" :key="t.value"
-        :class="['chip', 'tag', { on: sel.tags.includes(t.value) }]"
+        :class="['chip', 'tag', { on: sel.tags.includes(t.value) }]" :aria-pressed="sel.tags.includes(t.value)"
         @click="toggle('tags', t.value)">{{ t.value }} {{ t.count }}</button>
     </div>
     <div class="frow">
@@ -94,13 +67,13 @@
         <option value="custom">自评</option>
       </select>
       <button v-for="s in [9, 8, 7, 6]" :key="s"
-        :class="['chip', { on: sel.rating === s, off: ratingCount(s) === 0 }]"
+        :class="['chip', { on: sel.rating === s, off: ratingCount(s) === 0 }]" :aria-pressed="sel.rating === s"
         @click="pickRating(s)">{{ s }}分以上 {{ ratingCount(s) }}</button>
     </div>
     <div class="frow">
       <span class="flabel">观看</span>
-      <button :class="['chip', { on: sel.watched === 1 }]" @click="pickWatched(1)">已看 {{ watchedCounts.watched }}</button>
-      <button :class="['chip', { on: sel.watched === 0 }]" @click="pickWatched(0)">未看 {{ watchedCounts.unwatched }}</button>
+      <button :class="['chip', { on: sel.watched === 1 }]" :aria-pressed="sel.watched === 1" @click="pickWatched(1)">已看 {{ watchedCounts.watched }}</button>
+      <button :class="['chip', { on: sel.watched === 0 }]" :aria-pressed="sel.watched === 0" @click="pickWatched(0)">未看 {{ watchedCounts.unwatched }}</button>
     </div>
     <details class="filter-help"><summary>筛选说明</summary><p>同类条件可多选，标签需全部符合。选择具体国家后以国家为准。计数为当前媒体库的总量。</p></details>
   </div>
@@ -121,7 +94,7 @@
     </div>
   </div>
 
-  <div class="grid">
+  <div class="grid" :aria-busy="loading">
     <div v-for="m in items" :key="m.id" :data-browse-id="m.id" :class="['card', { sel: selectedIds.has(m.id) }]"
       tabindex="0" role="link" @keydown.enter.self="onCard(m)" :title="m.added_at ? ('入库 ' + fmtDate(m.added_at)) : ''" @click="onCard(m)">
       <div class="poster-wrap">
@@ -145,19 +118,18 @@
       <div class="t"><span class="card-title" :title="m.title">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span><span v-if="hasScore(m.custom_rating)" class="custom-mini">♥{{ fmtScore(m.custom_rating) }}</span></span><span v-if="m.region || (m.genres || []).length" class="card-meta meta">{{ [m.region, (m.genres || []).slice(0, 2).join('/')].filter(Boolean).join(' · ') }}</span></div>
     </div>
   </div>
-  <div v-if="showEmptyGuide" class="empty-guide">
-    <p class="eg-title">当前媒体库还没有影片</p>
-    <p>扫描已有文件，或上传影片开始观看。</p>
-    <div class="empty-actions"><button @click="scanOpen = !scanOpen">扫描新文件</button><router-link :to="pipelineLink">扫描与整理 ›</router-link></div>
-  </div>
-  <div v-else-if="firstLoaded && !items.length && !loadError" class="empty-guide">
-    <p>没有符合条件的影片</p><button @click="clearAll">重置筛选</button>
-  </div>
+  <EmptyState v-if="loading && !items.length || !firstLoaded && !loadError" state="loading" title="正在加载影片" text="请稍候…" />
+  <EmptyState v-else-if="loadError" state="error" title="影片加载失败" :text="loadError" retry @retry="retryLoad" />
+  <EmptyState v-else-if="showEmptyGuide" state="empty" title="当前媒体库还没有影片" text="扫描已有文件，或上传影片开始观看。">
+    <button @click="scanOpen = !scanOpen">扫描新文件</button><router-link :to="pipelineLink">扫描与整理 ›</router-link>
+  </EmptyState>
+  <EmptyState v-else-if="firstLoaded && !items.length" state="no-results" title="没有符合条件的影片" text="试试其他片名，或重置筛选条件。">
+    <button @click="clearAll">重置筛选</button>
+  </EmptyState>
 
   <div ref="loadSentinel" class="load-more">
     <button v-if="hasMore" @click="loadMore" :disabled="loadingMore">{{ loadingMore ? '加载中…' : '加载更多' }}</button>
     <span v-else-if="items.length" class="fhint">已全部加载（{{ items.length }} 部）</span>
-    <span v-if="loadError" class="fhint warn-text">{{ loadError }}</span>
   </div>
 
   <div v-if="selecting" class="floatbar" role="toolbar" aria-label="多选操作">
@@ -248,6 +220,8 @@
   </div>
 </template>
 <script setup>
+import EmptyState from '../components/EmptyState.vue'
+import BrowseToolbar from '../components/BrowseToolbar.vue'
 import AiSearchPanel from '../components/AiSearchPanel.vue'
 import { browseKey, saveBrowse, readBrowse, captureAnchor, restoreBrowsePosition } from '../browseHistory.js'
 
@@ -320,7 +294,8 @@ const PAGE = 60                 // 每页条数（评审 P1-11：>500 部不再�
 const hasMore = ref(false)
 const loadingMore = ref(false)
 const loadError = ref('')
-let loading = false
+const loading = ref(false)
+const loadErrorMore = ref(false)
 let loadSeq = 0
 let disposed = false
 const facets = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], collections: [], watched: { watched: 0, unwatched: 0 }, ratings: { tmdb: [], douban: [], custom: [] } })
@@ -525,7 +500,10 @@ function buildParams(offset = 0) {
 }
 async function load() {
   const seq = ++loadSeq
-  loading = true
+  loading.value = true
+  loadingMore.value = false
+  loadError.value = ''
+  loadErrorMore.value = false
   try {
     const d = await api('/api/search?' + buildParams(0))
     if (seq !== loadSeq) return          // 更新的筛选已接管，丢弃过期回包
@@ -535,14 +513,15 @@ async function load() {
   } catch (e) {
     if (seq === loadSeq) loadError.value = '加载失败：' + e.message
   } finally {
-    if (seq === loadSeq) loading = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 async function loadMore() {
-  if (!hasMore.value || loading) return
+  if (!hasMore.value || loading.value) return
   const seq = ++loadSeq
-  loading = true
+  loading.value = true
   loadingMore.value = true
+  loadError.value = ''
   try {
     const d = await api('/api/search?' + buildParams(items.value.length))
     if (seq !== loadSeq) return
@@ -553,11 +532,12 @@ async function loadMore() {
     hasMore.value = !!d.has_more
     loadError.value = ''
   } catch (e) {
-    if (seq === loadSeq) loadError.value = '加载更多失败：' + e.message
+    if (seq === loadSeq) { loadError.value = '加载更多失败：' + e.message; loadErrorMore.value = true }
   } finally {
-    if (seq === loadSeq) { loading = false; loadingMore.value = false }
+    if (seq === loadSeq) { loading.value = false; loadingMore.value = false }
   }
 }
+function retryLoad() { return loadErrorMore.value ? loadMore() : load() }
 async function applyAndLoad() {
   // URL 变了 → route.query watcher 统一加载；没变（如回车搜索词未改）才显式刷新。
   // 修复评审 B5a-9/R04-D3：此前这里与 watcher 各发一次完全相同的 /api/search
@@ -922,7 +902,7 @@ async function restoreWall() {
 // made in detail are visible without discarding the user's browsing position.
 async function refreshSnapshot(snapshot) {
   const seq = ++loadSeq
-  loading = true
+  loading.value = true
   try {
     const fresh = []
     let more = false
@@ -936,10 +916,11 @@ async function refreshSnapshot(snapshot) {
     const position = { anchor: captureAnchor(), scrollTop: window.scrollY }
     items.value = fresh
     hasMore.value = more
+    loadError.value = ''
     await nextTick()
     if (seq === loadSeq) restoreBrowsePosition(position)
   } catch (e) { if (seq === loadSeq) loadError.value = '刷新列表失败：' + e.message }
-  finally { if (seq === loadSeq) loading = false }
+  finally { if (seq === loadSeq) loading.value = false }
 }
 
 let unsubLib = null
@@ -981,86 +962,69 @@ watch(() => route.query, () => { if (route.path !== '/') return; readUrl(); load
 <style scoped>
 .filters { padding: 0 12px; display: flex; flex-direction: column; gap: 6px; }
 .frow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.flabel { color: #888; font-size: 0.8125rem; min-width: 56px; }
-.chip { font-size: 0.8125rem; padding: 4px 10px; border: 1px solid #444; border-radius: 999px; cursor: pointer; background: #1c1c1c; }
-.chip.on { border-color: #e50914; color: #ff8a8a; }
+.flabel { color: var(--jz-text-dim); font-size: 0.8125rem; min-width: 56px; }
+.chip { font-size: 0.8125rem; padding: 4px 10px; border: 1px solid var(--jz-border-strong); border-radius: 999px; cursor: pointer; background: var(--jz-surface); }
+.chip.on { border-color: var(--jz-accent); color: var(--jz-danger); }
 .chip.tag { border-style: dashed; }
 .chip.off { opacity: .45; }
-.fhint { color: #777; font-size: 0.75rem; }
+.fhint { color: var(--jz-text-faint); font-size: 0.75rem; }
 .wall-head {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  margin: 16px 12px 0; padding-top: 12px; border-top: 1px solid #2e2e2e;
+  margin: 16px 12px 0; padding-top: 12px; border-top: 1px solid var(--jz-border);
 }
-.wall-head h3 { margin: 0; font-size: 1.0625rem; color: #ddd; }
-.wall-count { color: #777; font-size: 0.8125rem; font-weight: normal; margin-left: 4px; }
+.wall-head h3 { margin: 0; font-size: 1.0625rem; color: var(--jz-text); }
+.wall-count { color: var(--jz-text-faint); font-size: 0.8125rem; font-weight: normal; margin-left: 4px; }
 .wall-sort { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .wall-sort .flabel { min-width: 0; }
-.q-wrap { position: relative; flex: 0 1 260px; }
-.q-wrap input { width: 100%; box-sizing: border-box; }
-.suggest {
-  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 60;
-  list-style: none; margin: 0; padding: 4px 0; max-height: 320px; overflow: auto;
-  background: #1c1c1c; border: 1px solid #444; border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.55);
-}
-.suggest li { padding: 6px 12px; cursor: pointer; display: flex; gap: 6px; align-items: baseline; }
-.suggest li.on { background: #333; }
-.suggest .s-head { color: #777; font-size: 0.75rem; padding: 6px 12px 2px; cursor: default; }
-.suggest .s-title { color: #eee; }
-.suggest .s-year { color: #888; font-size: 0.8125rem; }
-.suggest .s-empty { color: #777; cursor: default; }
-.meta { color: #888; font-size: 0.75rem; }
-.custom-mini { color: #ff6b6b; font-size: 0.75rem; }
-.card.sel { outline: 2px solid #e50914; }
+
+.meta { color: var(--jz-text-dim); font-size: 0.75rem; }
+.custom-mini { color: var(--jz-danger); font-size: 0.75rem; }
+.card.sel { outline: 2px solid var(--jz-accent); }
 .card.sel img { filter: brightness(.75); }
 .sel-circle {
   position: absolute; top: 6px; left: 6px; z-index: 2;
   width: 26px; height: 26px; padding: 0; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  border: 2px solid rgba(255,255,255,.85); background: rgba(0,0,0,.55); color: transparent;
+  border: 2px solid rgba(255,255,255,.85); background: var(--jz-overlay-soft); color: transparent;
   opacity: 0; transition: opacity .15s; cursor: pointer;
 }
 .poster-wrap:hover .sel-circle, .sel-circle.on { opacity: 1; }
-.sel-circle.on { background: #e50914; border-color: #e50914; color: #fff; }
+.sel-circle.on { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); }
 @media (hover: none) { .sel-circle { opacity: 1; } }
 .floatbar {
   position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 40;
   display: flex; gap: 4px; align-items: center;
-  background: rgba(28,28,28,.96); border: 1px solid #e50914; border-radius: 999px;
+  background: rgba(28,28,28,.96); border: 1px solid var(--jz-accent); border-radius: 999px;
   padding: 8px 14px; box-shadow: 0 8px 28px rgba(0,0,0,.6);
   max-width: calc(100vw - 24px); overflow-x: auto;
 }
 .floatbar .count {
   min-width: 26px; height: 26px; border-radius: 50%;
-  background: #e50914; color: #fff; font-weight: bold; font-size: 0.8125rem;
+  background: var(--jz-accent); color: var(--jz-on-accent); font-weight: bold; font-size: 0.8125rem;
   display: flex; align-items: center; justify-content: center; padding: 0 6px;
 }
 .floatbar button {
   display: flex; gap: 5px; align-items: center; border: none; background: transparent;
-  color: #eee; white-space: nowrap; font-size: 0.8125rem; padding: 6px 8px;
+  color: var(--jz-text); white-space: nowrap; font-size: 0.8125rem; padding: 6px 8px;
 }
-.floatbar button:hover:not(:disabled) { color: #ff8a8a; }
+.floatbar button:hover:not(:disabled) { color: var(--jz-danger); }
 .floatbar button svg { width: 16px; height: 16px; flex-shrink: 0; }
 .floatbar button:disabled { opacity: .4; cursor: default; }
-.floatbar .fmsg { color: #7ed321; font-size: 0.75rem; white-space: nowrap; }
+.floatbar .fmsg { color: var(--jz-green); font-size: 0.75rem; white-space: nowrap; }
 .no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center;
-  background: #242424; color: #555; font-size: 2.5rem; font-weight: bold; user-select: none; }
+  background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 2.5rem; font-weight: bold; user-select: none; }
 .unmatched-badge { position: absolute; bottom: 6px; right: 6px; font-size: 0.75rem; padding: 2px 8px;
-  border-radius: 999px; background: rgba(224, 166, 60, .92); color: #1c1c1c; font-weight: bold; }
-.watched-badge { position: absolute; bottom: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: #7ed321; }
-.empty-guide { margin: 28px auto; max-width: 620px; padding: 18px 20px; border: 1px solid #333; border-radius: 10px; background: #191919; }
-.empty-guide .eg-title { margin: 0 0 10px; font-size: 1.125rem; font-weight: 600; }
-.empty-guide .eg-step { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; color: #bbb; font-size: 0.875rem; }
-.empty-guide a { color: #9ecfff; }
+  border-radius: 999px; background: rgba(224, 166, 60, .92); color: var(--jz-surface); font-weight: bold; }
+.watched-badge { position: absolute; bottom: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: var(--jz-overlay); color: var(--jz-green); }
 .load-more { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 12px 22px; }
-.warn-text { color: #e0a63c; }
+.warn-text { color: var(--jz-warn); }
 .dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 560px; max-height: 80vh; overflow: auto; }
+.dlg { background: var(--jz-surface); border-radius: 10px; padding: 16px; min-width: 320px; max-width: 560px; max-height: 80vh; overflow: auto; }
 .dlg h3 { margin: 0 0 8px; }
 .taglist { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 12px; max-height: 30vh; overflow: auto; }
 .collist { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 30vh; overflow: auto; }
-.collist li { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: #262626; border-radius: 8px; padding: 6px 10px; }
-.del-warn { color: #ff8a8a; font-size: 0.875rem; margin: 0 0 8px; }
-.del-sum { color: #e0a63c; font-size: 0.9375rem; margin: 0 0 8px; font-weight: bold; }
-.danger-btn { border-color: #6e2b2b !important; color: #ff8a8a !important; }
+.collist li { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: var(--jz-surface-3); border-radius: 8px; padding: 6px 10px; }
+.del-warn { color: var(--jz-danger); font-size: 0.875rem; margin: 0 0 8px; }
+.del-sum { color: var(--jz-warn); font-size: 0.9375rem; margin: 0 0 8px; font-weight: bold; }
+.danger-btn { border-color: var(--jz-danger-border) !important; color: var(--jz-danger) !important; }
 </style>

@@ -209,92 +209,12 @@
       "sha256": "d435cbb37ff3669abfca1daf318adc89fbfd9a99b0d30a3aceeb565b084a004f"
     },
     {
-      "file": "screenshots/ai-settings-go.webp",
-      "page": "user-guide/settings.md",
-      "scene": "OpenCode Go 预设、用途限制与明确标注的模拟测试响应；密钥是虚构值",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "57b71a7",
-      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
-      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
-      "format": "WebP q86",
-      "bytes": 76648,
-      "sha256": "54f523084edc0c5782f247e0d127198a5379d1ad536b931bd33f0c712b4c22c7"
-    },
-    {
-      "file": "screenshots/ai-search-preview.webp",
-      "page": "user-guide/find-movies.md",
-      "scene": "模拟解析结果可编辑；确认前未应用到当前库",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "57b71a7",
-      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
-      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
-      "format": "WebP q86",
-      "bytes": 47868,
-      "sha256": "42d4a1eaa7f549e165c38faf8244637424d997b46dc6d1c2cd650c1a717a56d5"
-    },
-    {
-      "file": "screenshots/ai-match-movie.webp",
-      "page": "user-guide/metadata.md",
-      "scene": "模拟电影候选与二次确认；未执行绑定",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "57b71a7",
-      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
-      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
-      "format": "WebP q86",
-      "bytes": 44838,
-      "sha256": "2d98cadc94d9a5c30818fed5f15b8f1a7841663f75bfc85b6b54ef112a2fca4b"
-    },
-    {
-      "file": "screenshots/ai-match-tv.webp",
-      "page": "user-guide/tv-matching.md",
-      "scene": "模拟整剧建议与二次确认；展示目录归属限制",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "57b71a7",
-      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
-      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
-      "format": "WebP q86",
-      "bytes": 45448,
-      "sha256": "348811cad6fee57ad7f041c6104f3385e3b69188b9eb66f0dff1a58c517e7838"
-    },
-    {
       "file": "screenshots/file-browser-loading.webp",
       "page": "user-guide/files.md",
       "scene": "延迟模拟目录响应，展示首次进入文件管理的加载动画和提示",
       "verified_at": "2026-10-02",
       "app_version": "0.19.0",
-      "source_commit": "57b71a7",
+      "source_commit": "c0b2b64",
       "source_state": "设置导航与文件管理工作区改造",
       "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
       "viewport": {
@@ -304,8 +224,8 @@
       },
       "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 40514,
-      "sha256": "62911f0ee4ab98dd7f72b57b38a87f18186c218a9a239944456fd9da063cfaa5"
+      "bytes": 40742,
+      "sha256": "0aec4658ffd20cbf4626ae5b3af1b9b82ed7d3815938ae73961bf6fb3137d33f"
     },
     {
       "file": "screenshots/settings-navigation.webp",
@@ -313,7 +233,7 @@
       "scene": "三组设置导航、独立文件管理及概览",
       "verified_at": "2026-10-02",
       "app_version": "0.19.0",
-      "source_commit": "57b71a7",
+      "source_commit": "c0b2b64",
       "source_state": "设置导航与文件管理工作区改造",
       "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
       "viewport": {
@@ -323,8 +243,8 @@
       },
       "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 34088,
-      "sha256": "82221c1aefa96ea45e5742cfbcc78eebd8a38511b965fc54daeef1772c9c5b60"
+      "bytes": 35180,
+      "sha256": "c15165e11018f914756f3b76eb1d47abcd5f8e90f5b3d1d688a3ed3762264b19"
     },
     {
       "file": "screenshots/settings-sources.webp",
@@ -332,7 +252,7 @@
       "scene": "在线资料服务：TMDB连接与来源状态",
       "verified_at": "2026-10-02",
       "app_version": "0.19.0",
-      "source_commit": "57b71a7",
+      "source_commit": "c0b2b64",
       "source_state": "设置导航与文件管理工作区改造",
       "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
       "viewport": {
@@ -342,8 +262,8 @@
       },
       "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 54126,
-      "sha256": "764fdf32364fd063d5507a8b63190a92b115827c9081317daaf1476233388f24"
+      "bytes": 55452,
+      "sha256": "476110ed21106e3fa9b9112b6f76d4b2e03b94ec60bcc8a5575872af90102d4a"
     },
     {
       "file": "screenshots/settings-matching.webp",
@@ -351,7 +271,7 @@
       "scene": "按视频库设置来源顺序、保留草稿并测试匹配",
       "verified_at": "2026-10-02",
       "app_version": "0.19.0",
-      "source_commit": "57b71a7",
+      "source_commit": "c0b2b64",
       "source_state": "设置导航与文件管理工作区改造",
       "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
       "viewport": {
@@ -361,8 +281,8 @@
       },
       "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 50336,
-      "sha256": "a9645a0807b365541a2178a481412060fa746aa9160270030d0a656e668ccf2e"
+      "bytes": 49334,
+      "sha256": "54d37a57f83c680f7695c879abe613c90e14b35cb7958c816d0bb66590f3ee4a"
     },
     {
       "file": "screenshots/settings-offline.webp",
@@ -370,7 +290,7 @@
       "scene": "独立 IMDb 离线资料导入入口",
       "verified_at": "2026-10-02",
       "app_version": "0.19.0",
-      "source_commit": "57b71a7",
+      "source_commit": "c0b2b64",
       "source_state": "设置导航与文件管理工作区改造",
       "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
       "viewport": {
@@ -380,8 +300,8 @@
       },
       "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 35442,
-      "sha256": "e91c233c87d07de1bbc61421037e63e1f6cbb23efae21c9452c76a7961c51233"
+      "bytes": 35498,
+      "sha256": "bcfed96b659f8a2662c255aba6033f2f8b27f612404823f5f1f038303e870f3e"
     },
     {
       "file": "screenshots/file-tools-entry.webp",
@@ -389,7 +309,7 @@
       "scene": "独立“管理文件”入口；工具标签只切换页内内容",
       "verified_at": "2026-10-02",
       "app_version": "0.19.0",
-      "source_commit": "57b71a7",
+      "source_commit": "c0b2b64",
       "source_state": "设置导航与文件管理工作区改造",
       "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
       "viewport": {
@@ -399,8 +319,8 @@
       },
       "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 40772,
-      "sha256": "bcf47c10ace0c1b012e062a60963972e93f30063cd4bdc645088eeab558df56c"
+      "bytes": 41452,
+      "sha256": "2f732ed148b6306caf085222e1ba9fdc6d4379af505f24379f470eb2100be12b"
     },
     {
       "file": "screenshots/file-preview-video.webp",
@@ -408,7 +328,7 @@
       "scene": "选中电影版本使用完整播放器预览，不记录观看进度；画面为合成视频",
       "verified_at": "2026-10-02",
       "app_version": "0.19.0",
-      "source_commit": "57b71a7",
+      "source_commit": "c0b2b64",
       "source_state": "设置导航与文件管理工作区改造",
       "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
       "viewport": {
@@ -418,8 +338,8 @@
       },
       "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 25340,
-      "sha256": "e0e2d2dab16ab5b4984bcb2353e346f7b8cffd08bc456166aa8852bd8e39cc01"
+      "bytes": 25064,
+      "sha256": "54b19bf060a77819a8c3d1a6e3261d5ced51367d29f084cf418ac459bbbbe085"
     },
     {
       "file": "screenshots/file-preview-text.webp",
@@ -427,7 +347,7 @@
       "scene": "文件管理内原地预览合成字幕，关闭保留原目录与选中行",
       "verified_at": "2026-10-02",
       "app_version": "0.19.0",
-      "source_commit": "57b71a7",
+      "source_commit": "c0b2b64",
       "source_state": "设置导航与文件管理工作区改造",
       "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
       "viewport": {
@@ -437,8 +357,8 @@
       },
       "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 21078,
-      "sha256": "3d834583f161a1b7e83d90ac31d3f6f72966fcf3685bfc0e1e710dd0da668271"
+      "bytes": 19810,
+      "sha256": "2e4ccd0583b632e3cf7716857aaf59f0539c002e5165877d0e4128f4a8d4494e"
     },
     {
       "file": "screenshots/file-browser.webp",
@@ -446,7 +366,7 @@
       "scene": "目录树、文件表格、工具栏与持久待扫描提示",
       "verified_at": "2026-10-02",
       "app_version": "0.19.0",
-      "source_commit": "57b71a7",
+      "source_commit": "c0b2b64",
       "source_state": "设置导航与文件管理工作区改造",
       "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
       "viewport": {
@@ -456,8 +376,8 @@
       },
       "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 54398,
-      "sha256": "07f08b692d4ffb3cb37e9e399d0d9b27e673b1b97301c974294f42b7e634d00d"
+      "bytes": 55286,
+      "sha256": "e30a2c5cf57407bae2a0c6fe17ca86d163b0cfa6d7cbff91bac93e50e15d923e"
     },
     {
       "file": "screenshots/file-review.webp",
@@ -465,7 +385,7 @@
       "scene": "离开文件管理前选择扫描核对、稍后处理或继续管理",
       "verified_at": "2026-10-02",
       "app_version": "0.19.0",
-      "source_commit": "57b71a7",
+      "source_commit": "c0b2b64",
       "source_state": "设置导航与文件管理工作区改造",
       "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
       "viewport": {
@@ -475,8 +395,8 @@
       },
       "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 41686,
-      "sha256": "ac154e2a98e453be1b78435d1e89af136efc36da4f4ca940a51a17a6dbab9f5a"
+      "bytes": 38774,
+      "sha256": "5a79e7711a0611af0761eaadedef0330d34d573ec21e54e7f99bcd91c6aff8be"
     },
     {
       "file": "screenshots/file-browser-mobile.webp",
@@ -484,7 +404,7 @@
       "scene": "手机文件管理及更多操作菜单",
       "verified_at": "2026-10-02",
       "app_version": "0.19.0",
-      "source_commit": "57b71a7",
+      "source_commit": "c0b2b64",
       "source_state": "设置导航与文件管理工作区改造",
       "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
       "viewport": {
@@ -494,8 +414,88 @@
       },
       "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 28828,
-      "sha256": "ff9d1ea22b3234c7f5885e316f087c2b856fa64170a8239a1a1d84547b034f41"
+      "bytes": 28506,
+      "sha256": "bc95f86b27d65ec5f640638d10692bdf2abdad22bc81de1b9c3a6f8f8f37f9bd"
+    },
+    {
+      "file": "screenshots/ai-settings-go.webp",
+      "page": "user-guide/settings.md",
+      "scene": "OpenCode Go 预设、用途限制与明确标注的模拟测试响应；密钥是虚构值",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "c0b2b64",
+      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
+      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
+      "format": "WebP q86",
+      "bytes": 78748,
+      "sha256": "44c67a80c779e4f1c433af747e83cee022f774c202f68f7c652034bb07472bf4"
+    },
+    {
+      "file": "screenshots/ai-search-preview.webp",
+      "page": "user-guide/find-movies.md",
+      "scene": "模拟解析结果可编辑；确认前未应用到当前库",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "c0b2b64",
+      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
+      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
+      "format": "WebP q86",
+      "bytes": 48024,
+      "sha256": "77c02a95b538231bfa0ff9d6ee5f05ecb6ae5348886c63c27441c0ebcbeeaf97"
+    },
+    {
+      "file": "screenshots/ai-match-movie.webp",
+      "page": "user-guide/metadata.md",
+      "scene": "模拟电影候选与二次确认；未执行绑定",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "c0b2b64",
+      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
+      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
+      "format": "WebP q86",
+      "bytes": 45602,
+      "sha256": "c0306296b6ac298cec4cd85d7eb8e8543243f15569da0a0a5e479e9e0038f143"
+    },
+    {
+      "file": "screenshots/ai-match-tv.webp",
+      "page": "user-guide/tv-matching.md",
+      "scene": "模拟整剧建议与二次确认；展示目录归属限制",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "c0b2b64",
+      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
+      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
+      "format": "WebP q86",
+      "bytes": 45554,
+      "sha256": "737a4c65b81d2c16a35cc102436c35a7619db29200af6a16ddc9a699d4c14d59"
     }
   ]
 }

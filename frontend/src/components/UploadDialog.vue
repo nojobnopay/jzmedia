@@ -1,7 +1,6 @@
 <template>
-  <div v-if="!tvPlan" class="dlg-mask" @click.self="closeDlg" @keydown.esc.stop.prevent="closeDlg">
-    <div ref="dlgRef" class="dlg" role="dialog" aria-modal="true">
-      <h3>{{ upStep === 'organize' ? '归档整理（第 2 步）' : upStep === 'done' ? '完成' : (kind === 'tv' ? '上传剧集' : '上传影片（第 1 步）') }}</h3>
+  <JzDialog v-if="!tvPlan" class="upload-dialog" mask-class="upload-mask" :busy="uploading || upOrgBusy || tvBusy" close-label="关闭上传窗口"
+    :title="upStep === 'organize' ? '归档整理（第 2 步）' : upStep === 'done' ? '完成' : (kind === 'tv' ? '上传剧集' : '上传影片（第 1 步）')" @close="closeDlg">
       <template v-if="upStep === 'upload'">
       <div class="bar upload-target">
         <label>上传到视频库
@@ -27,8 +26,8 @@
         <p v-if="showsError" role="status">{{ showsError }}</p>
       </div>
       <div class="bar">
-        <input v-if="upMode === 'files'" type="file" multiple ref="upFiles" :disabled="uploading || tvBusy" @change="onUpInputChange" />
-        <input v-else type="file" webkitdirectory ref="upDir" :disabled="uploading || tvBusy" @change="onUpInputChange" />
+        <input v-if="upMode === 'files'" type="file" multiple ref="upFiles" aria-label="选择要上传的文件" :disabled="uploading || tvBusy" @change="onUpInputChange" />
+        <input v-else type="file" webkitdirectory ref="upDir" aria-label="选择要上传的文件夹" :disabled="uploading || tvBusy" @change="onUpInputChange" />
       </div>
       <div class="bar"><span class="fhint">{{ kind === 'tv' ? '选择包含剧名的完整文件夹，或指定剧和季上传散文件；无法识别的编号会提示待处理。' : '上传到视频库根，保留文件夹结构；字幕和花絮自动归属。' }}同名文件跳过不覆盖，可取消上传。</span></div>
       <div v-if="upFolderHead" class="bar"><span>已选文件夹：{{ upFolderHead }}</span></div>
@@ -39,16 +38,16 @@
       <ul v-if="upQueue.length" class="collist">
         <li v-for="(t, i) in visibleUpQueue" :key="i"><span :title="t.rel">{{ midEllipsis(t.rel) }}</span><span class="fhint">{{ upTaskState(t) }}</span></li>
       </ul>
-      <p v-if="upQueue.length > 50" class="fhint">等共 {{ upQueue.length }} 个<span v-if="!showAllUp">（仅列前 50）</span> <button v-if="!showAllUp" @click="showAllUp = true">展开全部</button></p>
+      <p v-if="upQueue.length > 50" class="fhint">等共 {{ upQueue.length }} 个<span v-if="!showAllUp">（仅列前 50）</span> <JzButton v-if="!showAllUp" @click="showAllUp = true">展开全部</JzButton></p>
       <div v-if="upSummary" class="bar"><span class="fhint">{{ upSummary }}</span></div>
       <div v-if="upNeedsMatch.length" class="bar"><span class="fhint">以下需处理（共 {{ upNeedsMatch.length }} 部）：</span></div>
       <ul v-if="upNeedsMatch.length" class="collist">
         <li v-for="t in upNeedsMatch" :key="t.rel">
           <span :title="t.rel">{{ midEllipsis(t.rel) }}（{{ noteText(t) }}）</span>
-          <button v-if="t.movieId" @click="router.push('/m/' + t.movieId)">去详情匹配</button>
-          <button v-if="t.movieId && canRetry(t)" @click="rescanTask(t)" :disabled="t._rescuing">
+          <JzButton v-if="t.movieId" @click="router.push('/m/' + t.movieId)">去详情匹配</JzButton>
+          <JzButton v-if="t.movieId && canRetry(t)" @click="rescanTask(t)" :disabled="t._rescuing">
             {{ t._rescuing ? '重试中…' : '重试刮削' }}
-          </button>
+          </JzButton>
         </li>
       </ul>
       <p v-if="kind === 'tv' && upNeedsMatch.length"><router-link :to="{path:'/settings', query:{sec:'sec-files', library:upLibId}}">检查本库文件与编号</router-link></p>
@@ -57,17 +56,17 @@
         <div v-for="show in uploadedShows" :key="show.id" class="tv-result">
           <span>{{ show.title }} · {{ show.status || '已登记，待补全资料' }}</span>
           <router-link :to="'/tv/' + show.id">核对匹配</router-link>
-          <button :disabled="tvBusy || uploading" @click="previewTv(show.id)">预览目录整理</button>
+          <JzButton :disabled="tvBusy || uploading" @click="previewTv(show.id)">预览目录整理</JzButton>
         </div>
-        <button v-if="!tvBusy && !uploading" @click="scrapeUploadedShows">补全剧集资料</button>
-        <button v-if="tvBusy" @click="cancelTvMetadata">取消资料补全</button>
+        <JzButton v-if="!tvBusy && !uploading" @click="scrapeUploadedShows">补全剧集资料</JzButton>
+        <JzButton v-if="tvBusy" @click="cancelTvMetadata">取消资料补全</JzButton>
       </section>
       <div class="bar">
-        <button v-if="!uploading && !upFinished" @click="startUpload" :disabled="!canStartUpload">开始上传</button>
-        <button v-if="uploading" @click="cancelUpload">取消上传</button>
-        <button v-if="!uploading && uploadCounts.error" :disabled="tvBusy" @click="retryFailed">重试失败文件</button>
-        <button v-if="kind === 'movie' && upFinished && upOrganizable" @click="goUpOrganize">下一步：归档整理</button>
-        <button v-if="!uploading" :disabled="tvBusy" @click="closeDlg">{{ upFinished ? '关闭' : '取消' }}</button>
+        <JzButton v-if="!uploading && !upFinished" variant="primary" @click="startUpload" :disabled="!canStartUpload">开始上传</JzButton>
+        <JzButton v-if="uploading" @click="cancelUpload">取消上传</JzButton>
+        <JzButton v-if="!uploading && uploadCounts.error" :disabled="tvBusy" @click="retryFailed">重试失败文件</JzButton>
+        <JzButton v-if="kind === 'movie' && upFinished && upOrganizable" variant="primary" @click="goUpOrganize">下一步：归档整理</JzButton>
+        <JzButton v-if="!uploading" :disabled="tvBusy" @click="closeDlg">{{ upFinished ? '关闭' : '取消' }}</JzButton>
         <span>{{ upMsg }}</span>
       </div>
       </template>
@@ -79,20 +78,19 @@
       </ul>
       <div v-if="upOrgConflicts.length" class="bar"><span class="fhint">冲突 {{ upOrgConflicts.length }} 项，需先去详情匹配：</span></div>
       <ul v-if="upOrgConflicts.length" class="collist">
-        <li v-for="c in upOrgConflicts" :key="'c' + c.id"><span :title="(c.title || '') + ' ' + c.from">{{ midEllipsis(c.title || c.from) }}（{{ c.status }}）</span><button @click="router.push('/m/' + c.id)">去详情匹配</button></li>
+        <li v-for="c in upOrgConflicts" :key="'c' + c.id"><span :title="(c.title || '') + ' ' + c.from">{{ midEllipsis(c.title || c.from) }}（{{ c.status }}）</span><JzButton @click="router.push('/m/' + c.id)">去详情匹配</JzButton></li>
       </ul>
       <div class="bar">
-        <button v-if="!upOrgDone" @click="doUpOrganize" :disabled="upOrgBusy || !upOrgPlans.length">{{ upOrgBusy ? '执行中…' : '确认搬迁' }}</button>
-        <button @click="closeDlg" :disabled="upOrgBusy">{{ upOrgDone ? '完成' : '稍后整理' }}</button>
+        <JzButton v-if="!upOrgDone" variant="primary" :loading="upOrgBusy" @click="doUpOrganize" :disabled="upOrgBusy || !upOrgPlans.length">{{ upOrgBusy ? '执行中…' : '确认搬迁' }}</JzButton>
+        <JzButton @click="closeDlg" :disabled="upOrgBusy">{{ upOrgDone ? '完成' : '稍后整理' }}</JzButton>
         <span>{{ upOrgMsg }}</span>
       </div>
       </template>
       <template v-if="upStep === 'done'">
       <div class="bar"><span class="fhint">{{ upDoneSummary }}</span></div>
-      <div class="bar"><button @click="closeDlg">关闭</button></div>
+      <div class="bar"><JzButton @click="closeDlg">关闭</JzButton></div>
       </template>
-    </div>
-  </div>
+  </JzDialog>
   <TvOrganizeDialog v-if="tvPlan" :key="tvPlan.show_id" :initial-plan="tvPlan" :title="tvPlan.title || ''"
     @close="tvPlan = null" @finished="emit('done')" @settings="openTvTools" />
 </template>
@@ -105,12 +103,12 @@ import { currentMediaId, currentMediaVideoLibs, listLibs, uploadTargets, onLibCh
 import { fmtBytes, midEllipsis } from '../format.js'
 import { useTvUpload } from '../useTvUpload.js'
 import TvOrganizeDialog from './TvOrganizeDialog.vue'
-import { useFocusTrap } from '../useFocusTrap.js'
+import JzButton from './JzButton.vue'
+import JzDialog from './JzDialog.vue'
 
 const props = defineProps({ kind: { type: String, default: 'movie' }, libraryId: { type: Number, default: null } })
 const emit = defineEmits(['close', 'done', 'result', 'busy'])
 const router = useRouter()
-const dlgRef = ref(null)
 
 
 const libRevision = ref(0)
@@ -135,7 +133,6 @@ const { targetShow, targetTitle, targetSeason, availableShows, showsError, tvBus
   tvPlan, uploadedShows, scrapeUploadedShows, cancelTvMetadata, previewTv } = useTvUpload({
   kind: props.kind, libraryId: upLibId, queue: upQueue, done: () => emit('done'),
 })
-useFocusTrap(computed(() => !tvPlan.value), dlgRef)
 const uploading = ref(false)
 const upMsg = ref('')
 const upSummary = ref('')
@@ -475,20 +472,16 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 对话框基础样式（R14-Q5 待统一：与 Library/Detail/CollectionDetail 的同名 scoped 规则一致） */
-.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 320px; max-width: 560px; max-height: 80vh; overflow: auto; }
-.dlg h3 { margin: 0 0 8px; }
-.fhint { color: #777; font-size: 0.75rem; }
+.fhint { color: var(--jz-text-dim); font-size: 0.75rem; }
 .collist { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 30vh; overflow: auto; }
-.collist li { overflow-wrap: anywhere; display: flex; justify-content: space-between; gap: 8px; align-items: center; background: #262626; border-radius: 8px; padding: 6px 10px; }
-.up-scan { color: #e0a63c; font-size: 0.8125rem; }
-.up-progress { height: 8px; border-radius: 999px; background: #2c2c2c; overflow: hidden; margin: 0 12px; }
-.up-progress-fill { height: 100%; background: #e50914; border-radius: 999px; transition: width .2s; }
+.collist li { overflow-wrap: anywhere; display: flex; justify-content: space-between; gap: 8px; align-items: center; background: var(--jz-surface-2); border-radius: var(--jz-radius-s); padding: 6px 10px; }
+.up-scan { color: var(--jz-warn); font-size: 0.8125rem; }
+.up-progress { height: 8px; border-radius: 999px; background: var(--jz-surface-3); overflow: hidden; margin: 0 12px; }
+.up-progress-fill { height: 100%; background: var(--jz-accent); border-radius: 999px;  }
 </style>
 
 <style scoped>
-.dlg { box-sizing: border-box; min-width: 0; width: min(640px, calc(100vw - 32px)); }
+.bar { padding: 10px 0; }
 .bar, .tv-target, .tv-result { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 label { display: flex; gap: 8px; align-items: center; max-width: 100%; }
 select, input { min-width: 0; max-width: 100%; box-sizing: border-box; }

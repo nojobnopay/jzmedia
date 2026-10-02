@@ -11,7 +11,7 @@ const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src')
 const library = readFileSync(path.join(SRC, 'views/Library.vue'), 'utf-8')
 const season = readFileSync(path.join(SRC, 'views/SeasonView.vue'), 'utf-8')
 const cw = readFileSync(path.join(SRC, 'components/ContinueWatchingRow.vue'), 'utf-8')
-const app = readFileSync(path.join(SRC, 'App.vue'), 'utf-8')
+const app = readFileSync(path.join(SRC, 'styles/base.css'), 'utf-8')
 
 test('海报墙播放键：stop 冒泡只播放，多选态隐藏', () => {
   assert.match(library, /class="poster-play"[\s\S]{0,300}@click\.stop="playMovie\(m\)"/,
@@ -59,6 +59,6 @@ test('季集卡 hover 显形：still-wrap 与 poster-wrap 同规则（桌面端�
 test('共享 poster-play 样式：hover 海报显形 + hover 按钮放大变红（Plex 式）', () => {
   assert.match(app, /\.poster-wrap:hover \.poster-play/)
   assert.match(app, /\.poster-play:hover \{[\s\S]{0,220}scale\(1\.12\)/)
-  assert.match(app, /\.poster-play:hover \{[\s\S]{0,220}background: #e50914/)
+  assert.match(app, /\.poster-play:hover \{[\s\S]{0,220}background: var\(--jz-accent\)/)
   assert.match(app, /@media \(hover: none\) \{ \.poster-play/, '触屏需常显播放键')
 })

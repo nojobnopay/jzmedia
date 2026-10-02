@@ -44,6 +44,10 @@
       <label v-if="(s.versions || []).length > 1">播放版本 <select v-model="selectedVersion" @change="load">
         <option value="">全部版本</option><option v-for="v in s.versions" :key="v.version" :value="String(v.version)">V{{ v.version }} · {{ v.distinct }} 集</option>
       </select></label></div>
+    <EmptyState v-if="loadError" state="error" title="剧季加载失败" :text="loadError" retry @retry="retryLoad" />
+    <EmptyState v-else-if="loading" state="loading" title="正在加载分集" text="请稍候…" />
+    <EmptyState v-else-if="!eps.length" :state="selectedVersion ? 'no-results' : 'empty'"
+      :title="selectedVersion ? '这个版本还没有分集' : '本季还没有分集'" text="可选择其他版本，或扫描视频库更新分集列表。" />
     <div class="grid ep-grid">
       <div v-for="e in eps" :key="e.id" class="card ep-card" role="link" tabindex="0" @keydown.enter.self="openEpisode(e.id)" @click="openEpisode(e.id)">
         <div class="still-wrap">
@@ -81,13 +85,17 @@
     <CastWall :cast="s.cast || []" :original-language="s.original_language || ''"
       :subtitle="s.cast_source === 'season' ? seasonLabel(s.season) : '全剧'" />
   </div>
-  <div v-else class="bar">{{ msg || '加载中…' }}</div>
+  <EmptyState v-else :state="loadError ? 'error' : 'loading'" :title="loadError ? '剧季加载失败' : '正在加载剧季'"
+    :text="loadError || '请稍候…'" :retry="!!loadError" @retry="load">
+    <router-link v-if="loadError" to="/tv">返回剧集列表</router-link>
+  </EmptyState>
   <PlayerModal v-if="playing" :key="'episode:' + playing.id"
     :version-id="playing.id" :title="playing.label" kind="episode"
     @close="playing = null" @watched="onWatched" @ended="onEnded" />
 </template>
 
 <script setup>
+import EmptyState from '../components/EmptyState.vue'
 import { followingPlayback } from '../episodePlayback.js'
 import PlayerIcon from '../components/PlayerIcon.vue'
 
@@ -108,6 +116,9 @@ const PAGE = 100  // 与后端季分页 limit 默认对齐
 const route = useRoute()
 const router = useRouter()
 const s = ref(null)
+const loading = ref(true)
+const loadError = ref('')
+const loadErrorMore = ref(false)
 const eps = ref([])  // 按显示范围懒加载的集（s.episodes 只含首屏，不再全量）
 const hasMore = ref(false)
 const loadingMore = ref(false)
@@ -156,6 +167,10 @@ function seasonUrl (offset) {
 }
 async function load () {
   const generation = ++loadGeneration
+  if (s.value && (String(s.value.show_id) !== String(route.params.showId) || String(s.value.season) !== String(route.params.season))) { s.value = null; eps.value = [] }
+  loading.value = true
+  loadError.value = ''
+  loadErrorMore.value = false
   disconnectObserver()
   msg.value = ''
   loadingMore.value = false
@@ -167,13 +182,17 @@ async function load () {
     hasMore.value = !!d.has_more
     observeSentinel()
   } catch (e) {
-    if (generation === loadGeneration) msg.value = '加载失败：' + e.message
+    if (generation === loadGeneration) loadError.value = e.message
+  } finally {
+    if (generation === loadGeneration) loading.value = false
   }
 }
+function retryLoad () { return loadErrorMore.value ? loadMore() : load() }
 async function loadMore () {
-  if (loadingMore.value || !hasMore.value || !s.value) return
+  if (loading.value || loadingMore.value || !hasMore.value || !s.value) return
   const generation = loadGeneration
   loadingMore.value = true
+  loadError.value = ''
   try {
     const d = await api(seasonUrl(eps.value.length))
     if (generation !== loadGeneration) return
@@ -183,7 +202,7 @@ async function loadMore () {
     if (d.watched_count !== undefined) s.value.watched_count = d.watched_count
     if (d.episode_count !== undefined) s.value.episode_count = d.episode_count
   } catch (e) {
-    if (generation === loadGeneration) msg.value = '加载失败：' + e.message
+    if (generation === loadGeneration) { loadError.value = e.message; loadErrorMore.value = true }
   } finally {
     if (generation === loadGeneration) loadingMore.value = false
   }
@@ -242,34 +261,34 @@ watch(() => [route.params.showId, route.params.season], () => { selectedVersion.
 
 <style scoped>
 .tv-page { padding-bottom: 24px; }
-.crumbs { padding: 12px 12px 0; font-size: 0.875rem; color: #aaa; }
-.crumbs a { color: #9ecfff; text-decoration: none; }
+.crumbs { padding: 12px 12px 0; font-size: 0.875rem; color: var(--jz-text-dim); }
+.crumbs a { color: var(--jz-link); text-decoration: none; }
 .hero-inner { display: flex; gap: 18px; padding: 18px 16px; align-items: flex-end; }
 .hero-poster { width: 150px; aspect-ratio: 2/3; object-fit: cover; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.6); flex: 0 0 auto; }
-.hero-no-poster { display: flex; align-items: center; justify-content: center; background: #242424; color: #555; font-size: 2.5rem; font-weight: bold; }
+.hero-no-poster { display: flex; align-items: center; justify-content: center; background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 2.5rem; font-weight: bold; }
 .hero-body { min-width: 0; }
 .hero-body h2 { margin: 0 0 6px; font-size: 1.5rem; }
-.meta { display: flex; flex-wrap: wrap; gap: 10px; color: #aaa; font-size: 0.8125rem; margin-bottom: 8px; }
+.meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--jz-text-dim); font-size: 0.8125rem; margin-bottom: 8px; }
 /* 简介与空态走 App.vue 全局 .overview/.empty 单源（与电影/剧详情同形态）；季无评分，不渲染 HeroRatings */
 .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.acts .primary { background: #e50914; border-color: #e50914; color: #fff; }
+.acts .primary { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); }
 /* 演职员样式单源：CastWall.vue */
 .ep-grid { --poster-min: 220px; }
 .ep-card { cursor: pointer; }
-.still-wrap { position: relative; background: #222; }
+.still-wrap { position: relative; background: var(--jz-surface-2); }
 .still-wrap img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }
-.still-none { width: 100%; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; background: #242424; color: #555; font-size: 0.875rem; }
-.ep-done, .ep-left { position: absolute; top: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); }
-.ep-done { color: #7ed321; }
-.ep-left { color: #ddd; }
-.ep-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,.55); }
-.ep-bar-in { height: 100%; background: #e50914; }
-.ep-no { color: #9ecfff; }
-.meta { color: #888; font-size: 0.75rem; }
-.review-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(255, 179, 0, .16); color: #ffb300; border: 1px solid rgba(255, 179, 0, .4); }
-.local-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: rgba(120, 170, 255, .14); color: #7aaaff; border: 1px solid rgba(120, 170, 255, .4); }
-.ver-badge { margin-left: 6px; font-size: 0.6875rem; padding: 0 5px; border-radius: 3px; color: #b98a00; border: 1px solid #6b5410; }
-.dim { color: #777; }
+.still-none { width: 100%; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 0.875rem; }
+.ep-done, .ep-left { position: absolute; top: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: var(--jz-overlay); }
+.ep-done { color: var(--jz-green); }
+.ep-left { color: var(--jz-text); }
+.ep-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--jz-overlay-soft); }
+.ep-bar-in { height: 100%; background: var(--jz-accent); }
+.ep-no { color: var(--jz-link); }
+.meta { color: var(--jz-text-dim); font-size: 0.75rem; }
+.review-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--jz-warn-soft); color: var(--jz-warn); border: 1px solid var(--jz-warn-border); }
+.local-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--jz-info-soft); color: var(--jz-blue-chip); border: 1px solid var(--jz-info-border); }
+.ver-badge { margin-left: 6px; font-size: 0.6875rem; padding: 0 5px; border-radius: 3px; color: var(--jz-warn); border: 1px solid var(--jz-warn-border); }
+.dim { color: var(--jz-text-faint); }
 @media (max-width: 700px) {
   .hero-inner { flex-direction: column; align-items: flex-start; }
 }

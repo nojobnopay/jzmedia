@@ -3,20 +3,24 @@
 import { nextTick, onMounted, onUnmounted, watch } from 'vue'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), ' +
-  'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  'select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+
+// A child dialog owns the keyboard until it closes; the underlying dialog stays mounted.
+const traps = []
 
 export function useFocusTrap(active, containerRef) {
   let prevActive = null
+  const trap = { containerRef, nodes }
 
   function nodes() {
     const root = containerRef.value
     if (!root) return []
     return [...root.querySelectorAll(FOCUSABLE)]
-      .filter(n => n.offsetWidth > 0 || n.offsetHeight > 0)
+      .filter(n => !n.matches?.(':disabled') && (n.offsetWidth > 0 || n.offsetHeight > 0))
   }
 
   function onKeydown(e) {
-    if (e.key !== 'Tab' || !active.value) return
+    if (e.key !== 'Tab' || !active.value || traps.at(-1) !== trap || e.defaultPrevented) return
     const root = containerRef.value
     if (!root) return
     const list = nodes()
@@ -42,9 +46,12 @@ export function useFocusTrap(active, containerRef) {
   }
 
   function activate() {
+    if (traps.includes(trap)) return
     prevActive = document.activeElement
+    traps.push(trap)
     document.addEventListener('keydown', onKeydown, true)
     nextTick(() => {
+      if (!active.value || traps.at(-1) !== trap) return
       const list = nodes()
       if (list.length) list[0].focus()
       else if (containerRef.value) {
@@ -56,7 +63,16 @@ export function useFocusTrap(active, containerRef) {
 
   function deactivate() {
     document.removeEventListener('keydown', onKeydown, true)
-    try { if (prevActive && prevActive.focus) prevActive.focus() } catch (e) { /* 忽略 */ }
+    const index = traps.indexOf(trap)
+    if (index === -1) return
+    const wasTop = traps.at(-1) === trap
+    traps.splice(index, 1)
+    const parent = traps.at(-1)
+    if (wasTop) {
+      // Removing an underlying dialog must never take focus from its child.
+      if (prevActive?.isConnected !== false && prevActive?.focus && (!parent || parent.containerRef.value?.contains(prevActive))) prevActive.focus()
+      else if (parent) (parent.nodes()[0] || parent.containerRef.value)?.focus()
+    }
     prevActive = null
   }
 
@@ -64,4 +80,5 @@ export function useFocusTrap(active, containerRef) {
   watch(active, (v) => { v ? activate() : deactivate() })
   onMounted(() => { if (active.value) activate() })
   onUnmounted(deactivate)
+  return { isTop: () => traps.at(-1) === trap }
 }

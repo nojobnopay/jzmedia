@@ -1,0 +1,107 @@
+/* Application foundations. Shared tokens live in tokens.css; page layout stays in styles/. */
+body { font-family: var(--jz-font-family); margin: 0; background: var(--jz-bg); color: var(--jz-text); }
+.app-nav { padding: 12px; background: var(--jz-surface); display: flex; gap: 16px; align-items: center; }
+.app-nav a { color: var(--jz-text); text-decoration: none; }
+.app-nav a.router-link-active { color: var(--jz-accent); font-weight: bold; }
+.app-nav .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; letter-spacing: 0.5px; }
+.app-nav .brand img { border-radius: var(--jz-radius-s); display: block; }
+.app-nav .brand.router-link-active { color: var(--jz-text); font-weight: 800; }
+.nav-spacer { flex: 1; }
+.lib-switch { background: var(--jz-surface-2); color: var(--jz-text); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s); padding: 6px 10px; font-size: var(--jz-font-m); max-width: 260px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--poster-min, 150px), 1fr)); gap: 12px; padding: 12px; }
+.card { background: var(--jz-surface-2); border-radius: var(--jz-radius-m); overflow: hidden; cursor: pointer; }
+.card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
+.card .t { padding: 8px; font-size: var(--jz-font-m); }
+/* 共享页面块（评审 R07-Q3 样式单源）：Detail/Person 等页面卡片与头部；
+  页面可在 scoped 样式里覆盖特化属性（如 Settings 的 margin-bottom、Person 的 .hero-inner 宽度） */
+.card-block { background: var(--jz-surface); border-radius: var(--jz-radius-l); padding: 14px 16px; }
+.card-block h3 { margin: 0 0 10px; font-size: var(--jz-font-xl); color: var(--jz-text); }
+.hero-main { display: flex; gap: 20px; margin-top: 12px; align-items: flex-start; }
+.hero-info { min-width: 0; }
+.hero-info h2 { margin: 0 0 8px; font-size: 1.875rem; }
+.meta-line { color: var(--jz-text-dim); font-size: 1rem; margin: 8px 0; }
+.overview { margin: 0; line-height: 1.8; color: var(--jz-text); font-size: 1rem; white-space: pre-wrap; }
+.empty { margin: 0; color: var(--jz-text-faint); font-size: var(--jz-font-l); }
+.cast-name { font-size: var(--jz-font-m); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cast-char { font-size: var(--jz-font-s); color: var(--jz-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar { padding: 12px; display: flex; gap: 8px; }
+/* Low specificity lets specialized player/file controls retain their geometry. */
+:where(input, button, textarea, select) { font-family: inherit; font-size: var(--jz-font-m); line-height: 1.4; padding: 8px 12px; border-radius: var(--jz-radius-s); border: 1px solid var(--jz-border-strong); background: var(--jz-surface-2); color: var(--jz-text); box-sizing: border-box; }
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select):not(:where(.player-dlg *)) { min-height: var(--jz-control-current); }
+:where(.bar button, .play-row button, .settings-layout button, .fs-toolbar button, .acts button):not(:where(.player-dlg *)) { min-height: var(--jz-control-current); }
+:where(input, select, textarea) { max-width: 100%; }
+:where(input[type="checkbox"], input[type="radio"], input[type="range"]) { accent-color: var(--jz-accent); }
+:where(input, textarea)::placeholder { color: var(--jz-text-faint); opacity: 1; }
+:where(button) { transition: background-color var(--jz-motion-fast), border-color var(--jz-motion-fast); touch-action: manipulation; }
+:where(button:not(:disabled)):hover { background-color: var(--jz-surface-3); border-color: var(--jz-text-faint); }
+:where(button:disabled) { opacity: .5; cursor: not-allowed; }
+:where(a) { color: var(--jz-link); text-underline-offset: 3px; }
+:where(button, a, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--jz-link); outline-offset: 3px; }
+:where(button.primary) { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); font-weight: 600; }
+:where(button.primary:not(:disabled)):hover { background: var(--jz-accent-hover); border-color: var(--jz-accent-hover); }
+:where(button.danger) { color: var(--jz-danger); }
+:where(h1, h2, h3) { text-wrap: balance; }
+:where(button, summary, a) { -webkit-tap-highlight-color: transparent; }
+:where(summary) { cursor: pointer; }
+:where(progress) { accent-color: var(--jz-accent); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.skip-link { position: fixed; left: 16px; top: -80px; z-index: 2000; padding: 12px 16px; background: var(--jz-surface-2); color: var(--jz-text); border: 1px solid var(--jz-link); border-radius: var(--jz-radius-s); }
+.skip-link:focus { top: 12px; }
+.app-content:focus { outline: none; }
+input[type="range"] { padding: 0; }
+:where(button:not(:disabled)) { cursor: pointer; }
+.page { padding: 12px; max-width: 900px; }
+.actor { cursor: pointer; color: var(--jz-blue-chip); }
+.poster-wrap { position: relative; }
+.poster-wrap img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
+/* 海报悬浮播放键（海报墙/继续观看/季集卡共用单源）：hover 海报显形，hover 按钮本身放大变红（Plex 式） */
+.poster-play {
+ position: absolute; inset: 0; margin: auto; z-index: 2;
+ width: 52px; height: 52px; padding: 0; border-radius: 50%;
+ border: 2px solid rgba(255,255,255,.85); background: rgba(0,0,0,.62); color: var(--jz-on-accent);
+ font-size: 1.25rem; line-height: 1;
+ display: flex; align-items: center; justify-content: center;
+ opacity: 0; cursor: pointer;
+ transition: opacity .15s, transform .15s, background .15s, border-color .15s, box-shadow .15s;
+}
+.poster-wrap:hover .poster-play, .still-wrap:hover .poster-play, .poster-play:focus-visible { opacity: 1; }
+.poster-play:hover {
+ transform: scale(1.12);
+ background: var(--jz-accent); border-color: var(--jz-accent);
+ box-shadow: 0 6px 18px rgba(0,0,0,.55);
+}
+.poster-play:active { transform: scale(1); }
+.poster-play:disabled { cursor: wait; opacity: .85; }
+@media (hover: none) { .poster-play { opacity: 1; width: 44px; height: 44px; } }
+.score-badge { position: absolute; top: 6px; right: 6px; font-size: var(--jz-font-s); font-weight: bold; padding: 2px 8px; border-radius: 999px; background: rgba(0,0,0,.72); color: var(--jz-star); white-space: nowrap; }
+.score-badge.douban { color: var(--jz-green); }
+.score-badge.custom { color: var(--jz-danger); }
+.stars { color: var(--jz-star); letter-spacing: 1px; }
+.rate-chip { display: inline-block; font-size: var(--jz-font-l); padding: 4px 14px; border-radius: 999px; border: 1px solid var(--jz-border-strong); margin-right: 6px; }
+.rate-chip.tmdb { color: var(--jz-star); border-color: var(--jz-warn-border); }
+.rate-chip.douban { color: var(--jz-green); border-color: var(--jz-success-border); }
+.rate-chip.custom { color: var(--jz-danger); border-color: var(--jz-danger-border); }
+.rating-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.auth-dlg label { display: grid; gap: var(--jz-gap-s); margin-block: var(--jz-gap-l); font-size: var(--jz-font-m); }
+.auth-dlg input { width: 100%; box-sizing: border-box; }
+.auth-bar { display: flex; gap: 8px; }
+.auth-hint { margin: 0; color: var(--jz-text-faint); font-size: 0.8125rem; line-height: 1.6; }
+.auth-hint code { color: var(--jz-link); }
+
+.app-nav > a { white-space: nowrap; }
+@media (max-width: 700px) {
+ .app-nav { display: grid; grid-template-columns: 32px repeat(5, minmax(0, 1fr)); gap: 0 4px; padding: 4px var(--jz-mobile-gutter); }
+ .app-nav .brand { justify-content: center; min-height: var(--jz-touch-target); }
+ .app-nav .brand span { display: none; }
+ .app-nav .lib-switch { grid-column: 1 / -1; width: 100%; max-width: none; min-width: 0; min-height: 40px; margin-bottom: 4px; font-size: 1rem; }
+ .app-nav > a:not(.brand) { display: flex; align-items: center; justify-content: center; min-height: var(--jz-touch-target); padding: 0 4px; }
+ .app-nav .nav-spacer { display: none; }
+}
+
+@media (max-width: 700px) {
+  :where(input:not([type="checkbox"]):not([type="radio"]), textarea, select):not(:where(.player-dlg *)) { font-size: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .poster-play { transition: none; }
+  .poster-play:hover { transform: none; }
+}

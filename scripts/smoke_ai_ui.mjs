@@ -119,6 +119,8 @@ async function mockApi(route) {
   if (key === '/api/facets' || key === '/api/tv/facets') return response(route, facets)
   if (key === '/api/search') return response(route, list([movie]))
   if (key === '/api/tv/shows') return response(route, list([show]))
+  if (key === '/api/collections/suggest') return response(route, { items: [], topups: [], coverage: { unchecked: 0, standalone: 0 } })
+  if (key === '/api/collections/suggest/backfill/status') return response(route, { state: 'idle', done: 0, total: 0, failed: [] })
   if (key === '/api/collections' || /\/(recent-played|similar)$/.test(key)) return response(route, list([]))
   if (key === '/api/search/suggest' || key === '/api/tv/suggest') return response(route, { items: [], persons: [] })
   if (key === '/api/movies/101') return response(route, movie)
@@ -402,7 +404,7 @@ try {
   await panel.getByText(/模拟智能搜索不可用/).waitFor()
   assert.equal(await panel.getByRole('button', { name: '确认应用条件' }).count(), 0)
   const localSearch = page.waitForRequest(r => new URL(r.url()).pathname === '/api/search' && new URL(r.url()).searchParams.get('q') === '普通查找')
-  await page.getByRole('textbox', { name: '搜索电影', exact: true }).fill('普通查找')
+  await page.getByRole('combobox', { name: '搜索电影', exact: true }).fill('普通查找')
   await page.getByRole('button', { name: '搜索', exact: true }).click()
   await localSearch
   searchFailure = null

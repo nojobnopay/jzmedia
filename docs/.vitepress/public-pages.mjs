@@ -59,7 +59,7 @@ export const sidebar = [
     item('模块与数据', 'modules', 'developer'), item('数据模型', 'data', 'developer'),
     item('存储', 'storage', 'developer'), item('资料匹配', 'metadata', 'developer'),
     item('播放链路', 'playback', 'developer'), item('API', 'api', 'developer'),
-    item('开发与验证', 'development', 'developer'), item('文档维护', 'documentation', 'developer'),
+    item('开发与验证', 'development', 'developer'), item('界面规范', 'design-system', 'developer'), item('文档维护', 'documentation', 'developer'),
   ] },
 ]
 

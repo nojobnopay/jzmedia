@@ -1,8 +1,8 @@
 <template>
-  <div v-if="!c" class="page">
-    <p class="msg">{{ loadErr || '加载中…' }}</p>
-    <p v-if="loadErr" class="msg"><button @click="$router.push('/collections')">返回合集列表</button></p>
-  </div>
+  <EmptyState v-if="!c" :state="loadErr ? 'error' : 'loading'"
+    :title="loadErr ? '合集加载失败' : '正在加载合集'" :text="loadErr || '请稍候…'" :retry="!!loadErr" @retry="load">
+    <router-link v-if="loadErr" to="/collections">返回合集列表</router-link>
+  </EmptyState>
   <div v-else class="page media-detail collection-detail">
     <header class="collection-heading">
       <router-link to="/collections" class="back-link">‹ 合集</router-link>
@@ -11,6 +11,7 @@
         <button @click="armDel = true" :disabled="!!busy">删除合集</button>
       </ActionMenu>
     </header>
+    <EmptyState v-if="loadErr" state="error" title="合集刷新失败" :text="loadErr" retry @retry="load" />
     <h1>{{ c.name }} <span class="heading-count">{{ c.member_count }} 部影片</span></h1>
     <MediaOverview :text="c.overview || ''" />
     <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
@@ -30,7 +31,9 @@
         </div>
       </div>
     </div>
-    <div v-if="!c.members.length" class="bar">空合集：去海报墙多选影片后“加入合集”，或从影片详情页加入。</div>
+    <EmptyState v-if="!c.members.length" state="empty" title="合集中还没有影片" text="去海报墙多选影片后“加入合集”，或从影片详情页加入。">
+      <router-link to="/">浏览电影</router-link>
+    </EmptyState>
     <div v-if="armDel" class="dlg-mask" @click.self="armDel = false">
       <div ref="delDlgRef" class="dlg" role="dialog" aria-modal="true">
         <h3>删除合集</h3>
@@ -44,9 +47,10 @@
   </div>
 </template>
 <script setup>
+import EmptyState from '../components/EmptyState.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import MediaOverview from '../components/MediaOverview.vue'
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import { useFocusTrap } from '../useFocusTrap.js'
@@ -57,18 +61,24 @@ const c = ref(null)
 const msg = ref('')
 const editing = ref(false)
 const loadErr = ref('')
+let loadSeq = 0
 const delDlgRef = ref(null)
 const busy = ref(false)
 const armDel = ref(false)
 const f = ref({ name: '', overview: '' })
 
 async function load() {
+  const seq = ++loadSeq
+  const id = route.params.id
+  if (c.value && String(c.value.id) !== String(id)) c.value = null
   loadErr.value = ''
   try {
-    c.value = await api('/api/collections/' + route.params.id)
+    const data = await api('/api/collections/' + id)
+    if (seq !== loadSeq) return
+    c.value = data
     f.value = { name: c.value.name || '', overview: c.value.overview || '' }
   } catch (e) {
-    c.value = null
+    if (seq !== loadSeq) return
     loadErr.value = e && /404/.test(String(e.message)) ? '合集不存在或已删除' : ('加载失败：' + e.message)
   }
 }
@@ -114,14 +124,16 @@ async function removeCol() {
 }
 useFocusTrap(computed(() => !!armDel.value), delDlgRef)
 onMounted(load)
+watch(() => route.params.id, load)
+onUnmounted(() => { loadSeq++ })
 </script>
 <style scoped>
 .page { padding-bottom: 24px; }
 .dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.dlg { background: #1c1c1c; border-radius: 10px; padding: 16px; min-width: 300px; max-width: 480px; }
+.dlg { background: var(--jz-surface); border-radius: 10px; padding: 16px; min-width: 300px; max-width: 480px; }
 .dlg h3 { margin: 0 0 8px; }
 .dlg .bar { padding: 8px 0 0; }
-.danger-btn { border-color: #6e2b2b; color: #ff8a8a; }
-.overview { color: #aaa; padding: 0 12px; }
-.card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; margin: 0 12px 12px; }
+.danger-btn { border-color: var(--jz-danger-border); color: var(--jz-danger); }
+.overview { color: var(--jz-text-dim); padding: 0 12px; }
+.card-block { background: var(--jz-surface); border-radius: 10px; padding: 14px 16px; margin: 0 12px 12px; }
 </style>
