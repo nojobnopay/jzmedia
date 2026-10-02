@@ -1,6 +1,7 @@
 <template>
   <section id="sec-libraries" class="card-block">
     <div class="section-heading"><h3>媒体库列表</h3><button class="primary" :disabled="createBusy" @click="showCreate = !showCreate">{{ showCreate ? '收起新建表单' : '添加媒体库' }}</button></div>
+    <HelpLink page="user-guide/libraries" label="连接本地目录或 NAS 的图解" />
     <p v-if="!mediaItems.length" class="hint">添加存储位置，再选择其中的电影或剧集目录。</p>
     <div v-else class="table-scroll"><table class="lib-table">
       <thead>
@@ -181,6 +182,7 @@
 </template>
 
 <script setup>
+import HelpLink from './HelpLink.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import MediaLibraryCreateForm from './MediaLibraryCreateForm.vue'
 import VideoLibraryForm from './VideoLibraryForm.vue'

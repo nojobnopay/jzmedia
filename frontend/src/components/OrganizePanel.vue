@@ -5,6 +5,7 @@
       <span class="fhint">{{ open ? '收起' : '展开' }}</span>
     </div>
     <div v-show="embedded || open" class="pipe-body">
+      <HelpLink page="user-guide/organizing" label="整理前先看预览与撤销图解" />
       <details class="settings-details"><summary>两种整理方式有什么区别</summary><p class="hint">就地整理：规范影片目录与文件名，保留合集等父目录。移至库根目录：将影片集中到当前视频库根目录下。先核对预览，再执行移动或改名。</p></details>
       <div class="bar">
         <label><input type="radio" value="inplace" v-model="orgMode" /> 就地整理</label>
@@ -100,6 +101,7 @@
   </div>
 </template>
 <script setup>
+import HelpLink from './HelpLink.vue'
 import { ref, computed, reactive, watch, onUnmounted } from 'vue'
 import { api } from '../api.js'
 import { dirBadge, dirFileLines, projectPlan } from '../organizePlans.js'

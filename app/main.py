@@ -6,13 +6,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config, store
 from .config import settings
 from .db import POSTER_DIR, ensure_dirs
 from .log import get_logger, setup_logging
+from .help_site import HelpFiles
 from .routers import (collections, extras, files, fs, health, jobs, libraries,
                       media_libraries, metadata, movies, onboarding, persons, stream, tv, tv_bindings)
 
@@ -125,6 +126,15 @@ if os.path.isdir(ASSETS):
     app.mount("/assets", StaticFiles(directory=ASSETS), name="assets")
 
 
+@app.get("/help", include_in_schema=False)
+def help_redirect():
+    return RedirectResponse("/help/", status_code=308)
+
+
+help_site = HelpFiles()
+app.mount("/help", help_site, name="help")
+
+
 # 安全响应头（评审 B6/R01-B8+R14-B5）：CSP 需放行自绘字幕/worker/wasm 场景；
 # 出问题时可用 JZMEDIA_CSP=off 应急关闭（其余头保留）
 _CSP = ("default-src 'self'; "
@@ -154,7 +164,10 @@ async def _security_headers(request, call_next):
     if _POSTER_MUTABLE_RE.match(request.url.path):
         resp.headers.setdefault("Cache-Control", "no-cache")
     if os.getenv("JZMEDIA_CSP", "").strip().lower() not in ("off", "0", "no"):
-        resp.headers.setdefault("Content-Security-Policy", _CSP)
+        csp = _CSP
+        if request.url.path.startswith("/help/") and resp.headers.get("content-type", "").startswith("text/html"):
+            csp = await run_in_threadpool(help_site.csp, _CSP)
+        resp.headers.setdefault("Content-Security-Policy", csp)
     return resp
 
 

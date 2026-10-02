@@ -1,8 +1,13 @@
+---
+version: 0.19.0
+reviewed: 2026-10-02
+---
+
 # 配置参考
 
 [本目录首页](README.md) · [部署教程](deployment.md)
 
-环境变量模板是仓库的 [.env.example](../../.env.example)。首次复制为 `.env` 后，Docker Compose 和宿主启动脚本才会读取配置。修改 `.env` 后需重建容器或重启宿主进程；仅修改环境变量通常不必重新构建镜像，可用 `docker compose -f docker-compose.yml up -d --force-recreate`。
+环境变量模板是仓库的 `.env.example`（仓库根目录）。首次复制为 `.env` 后，Docker Compose 和宿主启动脚本才会读取配置。修改 `.env` 后需重建容器或重启宿主进程；仅修改环境变量通常不必重新构建镜像，可用 `docker compose -f docker-compose.yml up -d --force-recreate`。
 
 ## 配置优先级
 

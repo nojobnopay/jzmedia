@@ -6,16 +6,23 @@ import { renderToString } from '@vue/server-renderer'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import { useTvBindings } from '../src/useTvBindings.js'
 
-test('directory binding dialog initializes and renders with its real composable', async () => {
-  const filename = new URL('../src/components/TvBindingsDialog.vue', import.meta.url)
+function componentFromFile(filename, imports) {
   const { descriptor } = parse(readFileSync(filename, 'utf8'))
   const compiled = compileScript(descriptor, { id: 'tv-bindings-setup', inlineTemplate: true,
     genDefaultAs: 'component' })
   const code = compiled.content.replace(/import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g,
     (_, names, source) => `const {${names.replace(/\bas\b/g, ':')}} = imports[${JSON.stringify(source)}]`)
+    .replace(/import\s+(\w+)\s+from\s*['"]([^'"]+)['"]/g,
+      (_, name, source) => `const ${name} = imports[${JSON.stringify(source)}].default`)
+  return new Function('imports', code + '\nreturn component')(imports)
+}
+
+test('directory binding dialog initializes and renders with its real composable', async () => {
+  const filename = new URL('../src/components/TvBindingsDialog.vue', import.meta.url)
+  const help = componentFromFile(new URL('../src/components/HelpLink.vue', import.meta.url), { vue: Vue })
   const imports = { vue: Vue, '../useTvBindings.js': { useTvBindings },
-    '../useFocusTrap.js': { useFocusTrap() {} } }
-  const component = new Function('imports', code + '\nreturn component')(imports)
+    '../useFocusTrap.js': { useFocusTrap() {} }, './HelpLink.vue': { default: help } }
+  const component = componentFromFile(filename, imports)
   const app = Vue.createSSRApp(component, { libraryId: 3 })
   app.component('RouterLink', { template: '<a><slot /></a>' })
   const context = {}

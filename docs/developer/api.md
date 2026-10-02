@@ -1,3 +1,8 @@
+---
+version: 0.19.0
+reviewed: 2026-10-02
+---
+
 # API 与后台任务
 
 [开发者文档](README.md)

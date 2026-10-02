@@ -1,3 +1,8 @@
+---
+version: 0.19.0
+reviewed: 2026-10-02
+---
+
 # 播放核心设计
 
 [开发者文档](README.md)
@@ -45,3 +50,11 @@ flowchart TD
 `useSubtitles.js` 自绘文本 VTT，JASSUB 渲染 ASS/SSA，libpgs 渲染 PGS；VobSub 或必要降级烧录。字幕源时间相对 HLS 会话应叠加 `media_start + subDelay`。外挂轨从 `scanner.classify` 归属，临时本地字幕仅浏览器持有，关闭失效。
 
 六档倍速由浏览器 `playbackRate` 实现，保持音调；换元素/会话需恢复。`usePlaybackPreviews.js` 与 `stream/previews.py` 管理逐页拼图，GET 只查状态，POST 才生成；缓存按源标识、大小、mtime 和规则失效，与 24 小时转码缓存分开。远程适用版本通过 prewarm 预缓存 start=0 的 HLS 成品，质量计划一致才复用。字幕、预览、seek 的所有 UI 时间都以原片时间表示。
+
+## 用户操作背后的兼容边界
+
+音轨：默认 fMP4 HLS 通过 rendition 切换，一般不重开会话；原文件直发只能播放默认音轨，非原生 HLS 客户端选择其他轨时转为 remux。hls.js 默认将 EAC3/AC3 转 AAC；`AUDIO_COPY_SAFE` 只应在目标设备实测后放宽。
+
+字幕：SRT/VTT 使用自绘 DOM 文本层，失败回退原生 track；ASS/SSA 由 JASSUB 尽量保留样式；PGS 由 libpgs 渲染，失败可降级烧录；VobSub 走烧录。字幕延迟按版本保存，外观按浏览器保存。自绘文本层在画中画中不可见；ASS 缺 CJK 字体可补 `DATA_DIR/fonts/` 内有权使用的字体，或降级 VTT（丢失原样式）。
+
+原画取消分辨率封顶，但格式不兼容仍会转换；切换画质可能重开会话，不属于无缝 ABR。HDR/DV 直通依据兼容基底与 PQ 解码能力，具体矩阵见本页能力决策。面向普通用户的步骤与效果说明见[播放器任务教程](../user-guide/player.md)。

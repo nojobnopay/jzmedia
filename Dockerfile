@@ -8,6 +8,16 @@ RUN if [ -n "$HTTP_PROXY" ]; then npm config set proxy "$HTTP_PROXY" && npm conf
 COPY frontend/ ./
 RUN npm run build
 
+FROM node:25-slim AS help
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+WORKDIR /help
+COPY docs/package.json docs/package-lock.json ./
+RUN if [ -n "$HTTP_PROXY" ]; then npm config set proxy "$HTTP_PROXY" && npm config set https-proxy "$HTTPS_PROXY"; fi \
+ && npm ci --no-audit --no-fund
+COPY docs/ ./
+RUN npm run build
+
 FROM python:3.12-slim
 
 # 构建期代理（NAS直连留空；WSL经Docker Desktop时在compose里填BUILD_HTTP_PROXY）
@@ -36,6 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY app ./app
 COPY --from=web /web/dist ./frontend/dist
+COPY --from=help /help/.vitepress/dist ./docs/.vitepress/dist
 
 EXPOSE 8080
 

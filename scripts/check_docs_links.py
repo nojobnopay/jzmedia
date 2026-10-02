@@ -100,7 +100,9 @@ def main() -> int:
     root = (repo / args.root).resolve()
     files = sorted(root.rglob("*.md")) if root.is_dir() else [root]
     # 跳过私有本地资料与 node_modules
-    files = [f for f in files if "docs/private" not in f.parts and "node_modules" not in f.parts]
+    private = (repo / "docs/private").resolve()
+    files = [f for f in files if not f.resolve().is_relative_to(private)
+             and not {"node_modules", ".vitepress", ".artifacts"}.intersection(f.parts)]
     errors: list[str] = []
     for f in files:
         errors.extend(check_file(f, repo))

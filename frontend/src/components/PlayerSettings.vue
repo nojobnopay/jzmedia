@@ -5,6 +5,7 @@
     <section v-if="open" class="pd-set" :style="{ maxHeight: panelHeight + 'px' }" aria-label="播放设置" @click.stop>
       <header class="set-header">
         <strong>播放设置</strong>
+        <HelpLink page="user-guide/playback-controls" label="帮助" />
         <button class="player-icon-btn" @click="$emit('toggle-settings')" aria-label="关闭设置" title="关闭设置"><PlayerIcon name="close" :size="18" /></button>
       </header>
       <div class="set-section">
@@ -37,6 +38,7 @@
         </select>
         <p v-else class="set-hint">暂无字幕，可加载本地字幕文件。</p>
         <div class="sub-file-actions">
+          <HelpLink page="user-guide/subtitles" label="音轨与字幕图解" />
           <button class="set-button" @click="pickSubFile" title="临时加载 SRT、VTT、ASS 或 SSA 字幕，仅本次播放有效"><PlayerIcon name="subtitles" :size="16" />加载字幕文件</button>
           <button v-if="hasLocalSub" class="set-button" @click="$emit('remove-local-subs')">移除本地字幕</button>
           <input ref="subFileInput" type="file" accept=".srt,.vtt,.ass,.ssa" class="sub-file" @change="onSubFile" />
@@ -102,6 +104,7 @@
 </template>
 
 <script setup>
+import HelpLink from './HelpLink.vue'
 import { ref } from 'vue'
 import PlayerIcon from './PlayerIcon.vue'
 import { audioLabel, subLabel, subBadge } from '../playerLabels.js'

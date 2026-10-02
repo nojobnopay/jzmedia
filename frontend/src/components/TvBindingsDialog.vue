@@ -3,7 +3,7 @@
     <div class="binding-mask" @click.self="close" @keydown.esc.stop.prevent="close">
       <section ref="box" class="binding-dialog" role="dialog" aria-modal="true" aria-labelledby="tv-binding-title">
         <header class="binding-header">
-          <div><h2 id="tv-binding-title">剧集归属与季号</h2><p class="hint">选择本地目录，确认它们属于哪部剧、哪一季。保存后新增分集和重新扫描会沿用。</p></div>
+          <div><h2 id="tv-binding-title">剧集归属与季号</h2><p class="hint">选择本地目录，确认它们属于哪部剧、哪一季。保存后新增分集和重新扫描会沿用。</p><HelpLink page="user-guide/tv-bindings" label="目录归属与季号图解" /></div>
           <button type="button" :disabled="applying" aria-label="关闭" @click="close">✕</button>
         </header>
         <p v-if="loading" role="status">正在读取已扫描目录与现有归属…</p>
@@ -105,6 +105,7 @@
 </template>
 
 <script setup>
+import HelpLink from './HelpLink.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useFocusTrap } from '../useFocusTrap.js'
 import { useTvBindings } from '../useTvBindings.js'

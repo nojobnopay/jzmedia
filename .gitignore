@@ -13,6 +13,11 @@ data/mounts/
 node_modules/
 frontend/node_modules/
 frontend/dist/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+docs/.vitepress/.temp/
+docs/.vitepress/generated/
+docs/.artifacts/
 dist/
 media/*
 !media/.gitkeep

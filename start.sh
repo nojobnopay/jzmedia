@@ -13,6 +13,9 @@ else
   echo "[start] frontend dist is fresh, skip build."
 fi
 
+# 文档独立构建：正文、主题、素材及锁文件变化（包括删除）都会触发。
+python3 scripts/build_docs.py
+
 # 2) 后端路径：宿主直跑必须用宿主路径（.env 里是容器内路径 /media、/app/data，不能直接用）；
 #    TMDB_* 从 .env 取（已导出的环境变量优先）。
 export DATA_DIR="${DATA_DIR:-./data}"

@@ -14,6 +14,7 @@
         </template>
         <template v-else>
         <h3>手动匹配 <span v-if="movie.tmdb_id">(当前TMDB {{ movie.tmdb_id }})</span></h3>
+        <HelpLink page="user-guide/metadata" label="修正影片资料的图解" />
         <div class="bar">
           <input v-model="mq" placeholder="输入片名查找资料" aria-label="搜索匹配" style="flex:1" />
           <button @click="tmdbSearch" :disabled="searching || !!bindingId"><Spinner v-if="searching" />{{ searching ? '搜索中…' : '搜索匹配' }}</button>
@@ -34,6 +35,7 @@
 </template>
 
 <script setup>
+import HelpLink from './HelpLink.vue'
 import { onMounted, ref } from 'vue'
 import { api } from '../api.js'
 import Spinner from './Spinner.vue'

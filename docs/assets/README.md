@@ -1,10 +1,49 @@
-# 文档图片资源
+# 文档图片与视频资源
 
 截图统一存 `docs/assets/screenshots/`，正文用仓库相对路径引用（如用户手册页用 `../assets/screenshots/xxx.webp`）。同一画面不复制多份。
+
+## 2026-10-02 帮助站素材
+
+本批新手、字幕和电影整理素材使用 `0.19.0` 的当前工作区（基准提交 `ee5dbcc`，包含新手向导和移动布局更新）。所有操作发生在 `scripts/preview_onboarding.py --docs-demo` 创建的独立本机服务、临时数据库和 `/tmp` 媒体目录；没有读取 `.env`、访问真实片库或复用真实影片。拍摄时全局帮助入口尚未加入，任务内的操作与当前界面一致。
+
+`星海漫游（演示短片）` 为虚构资料，`999900001` 为仅在临时库使用的演示缓存编号；180 秒片源由 FFmpeg 的 `testsrc2` 和静音音轨生成。中文、英文及临时 SRT 都由脚本生成。API、扫描、播放、字幕和文件整理使用真实应用代码，未拦截替换浏览器 API 响应。电影/剧集联网搜索仅在临时应用副本中停用，扫描采用固定 NFO 和本地镜像。
+
+| 文件 | 场景及正文 | 规格 |
+|---|---|---|
+| `previews/onboarding/00-welcome.webp`–`05-complete.webp` | 欢迎页与四步向导；[新手教程](../user-guide/onboarding.md) | 1440×1000，WebP q86 |
+| `previews/onboarding/06-mobile.webp` | 手机宽度完成页；同上 | 407×904 CSS，2x，Chromium 模拟 |
+| `previews/onboarding/07-play.webp` | 扫描成功后的首次播放；同上 | 1440×1000，WebP q86 |
+| `screenshots/demo-subtitles.webp` | 换轨、延迟和已加载的本地字幕；[字幕](../user-guide/subtitles.md) | 1440×1000，WebP q86 |
+| `screenshots/demo-organize-preview.webp` / `demo-organize-result.webp` | 整理前预览与已移动结果；[电影整理](../user-guide/organizing.md) | 1440×1000，WebP q86 |
+| `videos/onboarding.mp4` | 欢迎 → 跳过 TMDB → 检查目标库 → 扫描 → 完成 → 播放 | 50.5 秒，1.15 MB |
+| `videos/subtitles.mp4` | 播放 → 齿轮换轨 → 延后 0.5 秒 → 文件选择器加载 SRT | 35.9 秒，2.27 MB |
+| `videos/organizing.mp4` | 目录整理 → 核对预览 → 整理选中确认 → 结果 → 文件管理 | 33.7 秒，0.33 MB |
+| `diagrams/libraries.svg` / `ingestion.svg` / `organizing.svg` | 两层库关系、入库流程和整理前后示例 | 保留可编辑 SVG；生成源为 `scripts/capture_docs_diagrams.py` |
+
+三段视频为连续真实 UI 操作录屏，无静态幻灯片拼接、无倍速处理，使用 H.264、20 fps、1440×1000、`faststart`，每段小于 10 MB。不包含旁白音轨；同名 `.vtt` 为中文字幕，`.webp` 为第 4 秒封面。原始 WebM 和运行校验文件保留在拍摄器打印的 `/tmp/jzmedia-docs-capture-*`，不随仓库发布。完整文件大小、时长、SHA-256、关联页面和日期见 [manifest.json](manifest.json)。原新手 PNG 留作历史原件，正式教程引用 WebP；`previews/onboarding/index.html` 跳转正式 HTML 帮助页。
+
+### 复现
+
+应用环境需要安装后端及前端依赖，准备可用的 FFmpeg/ffprobe（PATH 或项目 `.venv` 中的 `static-ffmpeg`）。拍摄环境安装 `playwright` 并运行 `python -m playwright install chromium`，可以使用独立 Python 虚拟环境。
+
+```sh
+# 终端一：打印全新的临时目录，保持服务运行。
+.venv/bin/python scripts/preview_onboarding.py --port 18128 --docs-demo
+
+# 终端二：将路径替换为终端一打印的目录；用装有 Playwright 的 Python。
+python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
+
+# 图表和清单可以独立更新（无需 Playwright）。
+.venv/bin/python scripts/capture_docs_diagrams.py
+.venv/bin/python scripts/capture_docs_manifest.py
+```
+
+每次完整重拍应启动全新的演示实例。`--only subtitles` 可重拍已入库影片；`--only organizing` 要求临时片源尚未整理。脚本限制为 `/tmp/jzmedia-preview-*` 且拒绝主服务端口，自动校验视频编码、30–90 秒时长和 10 MB 大小上限。演示启动器会复制已构建的纯静态帮助站到临时服务，旧 `/preview/index.html` 可直接进入教程；若尚未构建，则该入口展示构建命令和继续配置链接，不自动跳到失效页面。完成后 Ctrl+C 停止演示服务；临时文件保留供核对。下面历史批次使用过真实库，来源说明保留，不属于本次拍摄范围。
 
 ## 拍摄基线
 
 - 日期：2026-09-28；代码 `86a7143`（应用 `0.19.0`，schema `28`）。2026-09-29 终检重拍 14 张基线图（2x/3x + q90），并第二批补拍 25 张功能图（下表新增行，规格相同：桌面 1440×900 @2x、WebP q90、单图 <500 KB）。
+- 2026-10-02 仅重拍 `mobile-library.webp`，使用当前移动端布局及隔离的前端演示数据；API 与海报请求均拦截为模拟响应，海报为占位图，未访问实际媒体库。视口 407×904 CSS、3x、WebP q90；正文图注注明演示数据。其余图片仍沿用上次拍摄基线。
 - 视口：桌面 1440×900 CSS（2x 像素密度，2880×1800 像素），移动按红米 K50 Ultra（407×904 CSS，3x，1221×2712 像素）；浏览器 100% 缩放，深色主题默认。Playwright 无头 Chromium 全视口截图，不含浏览器地址栏。WebP q90（主墙海报图 q85，440 KB，单图均 <500 KB）。
 - S01–S06、S09–S10 及第二批功能图取自主实例 `http://localhost:8080`（`./start.sh` 启动）的真实媒体库：`media`（本地）与 `NAS`（SMB 直读）。未执行整理、删除、换绑或重扫；整理面板预览为 dry-run 只读；播放截图产生的观看进度已获允许。
 - S07、S08、`match-review.webp`、`rematch-candidates.webp` 取自隔离演示实例 `http://127.0.0.1:8081`（临时 `DATA_DIR`、临时媒体目录，2 秒合成测试片，TMDB 正常匹配；拍完即弃，不影响真实库）。正文引用这些图时须注明演示环境。
@@ -50,12 +89,12 @@
 | `upload-movie.webp` | 上传影片目标库、文件与开始上传 | `/?media=1` 添加影片 → 上传文件（临时文件仅选定未上传；目标选中 `上传演示` 测试库） | 真实库（本地） |
 | `upload-tv.webp` | 上传剧集多选文件模式与季号 | `/tv?media=1` 添加剧集 → 上传文件 | 真实库（本地测试库，未实际上传） |
 | `settings-navigation.webp` | 七个分区与概览内容 | `/settings` | 真实库 |
-| `mobile-library.webp` | 手机宽度下的导航、海报和观看入口 | `/?media=2`（红米 K50 Ultra：407×904 CSS，3x） | 真实库，模拟环境 |
-| `mobile-player.webp` | 手机宽度下的播放控件 | `/m/405?media=1` 播放（同上） | 真实库，模拟环境 |
+| `mobile-library.webp` | 手机导航、紧凑继续观看与三列海报墙 | `/`（407×904 CSS，3x） | 隔离演示数据，Chromium 移动模拟，2026-10-02 |
+| `mobile-player.webp` | 手机宽度下的播放控件 | `/m/405?media=1` 播放（红米 K50 Ultra：407×904 CSS，3x） | 真实库，模拟环境 |
 
 ## 注意事项
 
 - `library-connection.webp` 保留了局域网 NAS 名（`\\Joey-DS425\video`），理解 SMB 地址栏需要该上下文；无凭据、无公网地址。重拍时沿用同一原则。
-- 移动端两张为 Chromium 移动模拟（390×844、mobile UA、touch），无手机外框装饰；真机未验证，见 [验收记录](../roadmap/backlog.md#文档改版验收记录)。
+- 移动端两张为 Chromium 移动模拟（407×904 CSS、mobile UA、touch，输出 1221×2712 像素），无手机外框装饰；数据来源和拍摄批次见上表，不能据此视作真机验证。历史记录见 [验收记录](../roadmap/backlog.md#文档改版验收记录)。
 - 原理图优先用正文内嵌 Mermaid，不存静态图；若渲染器不支持 Mermaid，再导出静态并保留源定义。代码围栏必须独立成行（`scripts/check_docs_links.py` 会检查）。
 - 复现：主实例 `./start.sh` 启动后，用 Playwright 无头 Chromium 按上表「拍摄入口」逐张重拍（视口/密度/质量见拍摄基线）；截图脚本属本地临时工具，未随仓库提交。演示实例（S07/S08）为临时 `DATA_DIR` + 2 秒合成测试片，拍完即弃，详见 [验收记录](../roadmap/backlog.md#文档改版验收记录)。

@@ -5,6 +5,7 @@
     <router-link to="/tv">剧集</router-link>
     <router-link to="/collections">合集</router-link>
     <router-link to="/settings">设置</router-link>
+    <HelpLink label="帮助" />
     <span class="nav-spacer"></span>
     <select v-if="showSwitch" class="lib-switch" :value="currentId" title="切换媒体库" aria-label="切换媒体库"
       @change="onSwitch">
@@ -29,6 +30,7 @@
   </div>
 </template>
 <script setup>
+import HelpLink from './components/HelpLink.vue'
 import SetupWelcome from './components/SetupWelcome.vue'
 import BackToTop from './components/BackToTop.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
@@ -164,7 +166,7 @@ button { cursor: pointer; }
 <style>
 .app-nav > a { white-space: nowrap; }
 @media (max-width: 700px) {
-  .app-nav { display: grid; grid-template-columns: 32px repeat(4, minmax(0, 1fr)); gap: 0 4px; padding: 4px var(--jz-mobile-gutter); }
+  .app-nav { display: grid; grid-template-columns: 32px repeat(5, minmax(0, 1fr)); gap: 0 4px; padding: 4px var(--jz-mobile-gutter); }
   .app-nav .brand { justify-content: center; min-height: var(--jz-touch-target); }
   .app-nav .brand span { display: none; }
   .app-nav .lib-switch { grid-column: 1 / -1; width: 100%; max-width: none; min-width: 0; min-height: 40px; margin-bottom: 4px; font-size: 1rem; }

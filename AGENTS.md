@@ -32,6 +32,13 @@
 - Frontend dev: `npm run lint`（eslint 最小集：未定义/未用变量/console 警告）、`npm test`（node --test；含 `tests/templateBindings.test.js` 模板标识符绑定检查，防拆分后残留父级引用；`tests/useSubtitles.test.js` composable 初始化冒烟，防 setup 期异常导致"点播放无反应"——lint/build 不执行 setup，这类回归必须靠它）in `frontend/`；`npm run build` 产出 `frontend/dist`。`npm run dev` (5173, proxies `/api`,`/posters` → 8080). Prod build: `npm run build` → `frontend/dist`, served by FastAPI at `/` + `/assets`.
 - 验证命令：`.venv/bin/python -m pytest -q`（400+ 用例，含迁移/多库/媒体库聚合/离线匹配/TV/存储层；`pytest.ini` 默认 120s/用例熔断，hang 转失败+堆栈，`--timeout=N` 临时覆盖）；`.venv/bin/python -m pyflakes app`；冒烟 `scripts/smoke_multi_library.py`、`scripts/smoke_metadata_offline.py`（临时目录、不触网）；线上自检 `/api/health` + docs/developer/api.md。
 
+## Documentation
+- HTML 帮助站使用独立 `docs/` npm 包（VitePress 1.6.4），正文单源，图文组件位于 `docs/.vitepress/theme/`；普通教程按任务组织，开发参考继续 Markdown。`/help/` 与 FastAPI `/docs` 分开，应用内帮助链接使用 `HelpLink` 新标签页打开。
+- 构建/检查：`npm --prefix docs ci`、`npm --prefix docs run build`、`npm --prefix docs run check`、`npm --prefix docs test`；浏览器冒烟 `npm --prefix docs run test:browser`，可加 `-- --url http://127.0.0.1:8080/help/` 验证应用托管。独立站 `npm --prefix docs run preview`，发行包 `npm --prefix docs run package`。维护入口 `docs/developer/documentation.md`。
+- 公开页面与导航统一由 `.vitepress/public-pages.mjs` 管理；`docs/private/`、roadmap、维护报告不可进入站点或搜索索引，禁止整目录静态发布 docs。Mermaid 修改后运行 `npm --prefix docs run diagrams`，提交图表缓存；普通 build 不下载浏览器。
+- `app/help_site.py` 只托管 `.vitepress/dist`，未构建返回 503，缺页返回 404；构建生成 `csp-hashes.json`，仅帮助 HTML 的 CSP 加入哈希。Docker 复制静态产物，`start.sh` 经 `scripts/build_docs.py` 按输入内容检测更新。
+- 图解/录屏用隔离演示实例和合成媒体，脚本与素材元信息一起维护；不能为拍摄对真实媒体执行扫描、整理或删除。界面变更同步检查对应教程及素材，记录适用版本与核对日期。
+
 ## Env / paths (gotchas)
 - Config is `os.getenv` in `app/config.py`; compose sets `MEDIA_ROOT=/media`, `DATA_DIR=/app/data` inside container. In code always use `settings.media_root` / `settings.data_dir`, never host paths (`MEDIA_HOST_PATH` is compose-only volume mapping).
 - `TMDB_PROXY` is runtime httpx proxy for API + poster/avatar download; `BUILD_HTTP_PROXY` is build-time only (pip/npm in Dockerfile/compose args). `TMDB_READ_TOKEN` (Bearer) takes precedence over `TMDB_API_KEY`.

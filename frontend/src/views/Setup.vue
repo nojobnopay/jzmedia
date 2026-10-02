@@ -1,7 +1,7 @@
 <template>
   <main ref="pageRef" class="setup-page">
     <header class="setup-heading">
-      <div><p class="eyebrow">首次使用</p><h1>让第一部内容进入媒体库</h1><p class="setup-description">配置资料来源，确认文件位置，然后扫描或上传。进度会保存在这台服务器。</p></div>
+      <div><p class="eyebrow">首次使用</p><h1>让第一部内容进入媒体库</h1><p class="setup-description">配置资料来源，确认文件位置，然后扫描或上传。进度会保存在这台服务器。</p><HelpLink page="user-guide/onboarding" label="跟着图解完成首次入库" /></div>
       <router-link v-if="state?.status === 'completed'" :to="wallLink">返回媒体库</router-link>
       <button v-else @click="defer" :disabled="blocked || !state">稍后继续</button>
     </header>
@@ -94,6 +94,7 @@
   </main>
 </template>
 <script setup>
+import HelpLink from '../components/HelpLink.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { api } from '../api.js'

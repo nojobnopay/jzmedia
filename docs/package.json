@@ -1,0 +1,25 @@
+{
+  "name": "jzmedia-docs",
+  "private": true,
+  "version": "0.19.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev --host 127.0.0.1",
+    "diagrams": "node scripts/diagrams.mjs",
+    "build": "node scripts/diagrams.mjs --check && vitepress build",
+    "check": "node scripts/check.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node scripts/browser-check.mjs",
+    "preview": "node scripts/serve.mjs",
+    "package": "npm run build && npm run check && node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@vue/server-renderer": "3.5.32",
+    "mermaid": "12.0.0",
+    "minisearch": "7.2.0",
+    "parse5": "8.0.0",
+    "playwright": "1.63.0",
+    "vitepress": "1.6.4",
+    "vue": "3.5.32"
+  }
+}

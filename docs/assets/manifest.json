@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "app_version": "0.19.0",
+  "source_commit": "ee5dbcc",
+  "source_state": "包含 2026-10-02 工作区新手向导和移动端更新；以拍摄时实际 UI 为准",
+  "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+  "viewport": {
+    "desktop": "1440×1000 CSS，1x",
+    "mobile": "407×904 CSS，2x，Chromium 模拟"
+  },
+  "recording_script": "scripts/capture_docs.py",
+  "fixtures": "scripts/preview_onboarding.py --docs-demo",
+  "legacy_sources": "docs/assets/README.md",
+  "assets": [
+    {
+      "file": "previews/onboarding/00-welcome.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "verified_at": "2026-10-02",
+      "bytes": 22300,
+      "sha256": "a3f6ffcbbc1f4d6969ae6b66e6099ffecaa911d3f11d9492a93a721becef556e"
+    },
+    {
+      "file": "previews/onboarding/01-source.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "verified_at": "2026-10-02",
+      "bytes": 49116,
+      "sha256": "8afdae08850612718d449311da884157e6da96badeb52b008c36728fbfef066e"
+    },
+    {
+      "file": "previews/onboarding/02-library.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "verified_at": "2026-10-02",
+      "bytes": 52980,
+      "sha256": "727f309eb6e3215798c041edd1c72d14bd35da3d9b8734dc80d8344a448fcb62"
+    },
+    {
+      "file": "previews/onboarding/03-import.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "verified_at": "2026-10-02",
+      "bytes": 53286,
+      "sha256": "0b5a6a6e7656e6359071c48c7f6bfccf10adca0f8d22770397f0ad06371c63e8"
+    },
+    {
+      "file": "previews/onboarding/04-result.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "verified_at": "2026-10-02",
+      "bytes": 46790,
+      "sha256": "d2a742941bd7b3911b1d5710e85eef3601a8ffc5b183a94f1a957cf5ec6ebbb6"
+    },
+    {
+      "file": "previews/onboarding/05-complete.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "verified_at": "2026-10-02",
+      "bytes": 46202,
+      "sha256": "ea15ab66d02482977aa4af97cf51f0f064cdabfe48f964d672ab2c52bace15ce"
+    },
+    {
+      "file": "previews/onboarding/06-mobile.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "verified_at": "2026-10-02",
+      "bytes": 96470,
+      "sha256": "fe90e764a8d1f26c7e649af2db66788ca327a10bbb86c0b8403001e2829aee0f"
+    },
+    {
+      "file": "previews/onboarding/07-play.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
+      "verified_at": "2026-10-02",
+      "bytes": 37390,
+      "sha256": "8b6eca18c0ef772582cb79d8d1c353078ade0440709f06a920c7b26a2b8298c6"
+    },
+    {
+      "file": "screenshots/demo-subtitles.webp",
+      "page": "user-guide/subtitles.md",
+      "scene": "真实播放器：换字幕、调整延迟、加载本地 SRT",
+      "verified_at": "2026-10-02",
+      "bytes": 36344,
+      "sha256": "709b1aae2bae2a8b678ba04163c7d916c2099a63a45f59017bf2855fada29030"
+    },
+    {
+      "file": "screenshots/demo-organize-preview.webp",
+      "page": "user-guide/organizing.md",
+      "scene": "真实整理预览及执行结果；仅临时合成文件",
+      "verified_at": "2026-10-02",
+      "bytes": 40588,
+      "sha256": "3b42a1a0b7954d6d6288a8f472bd45ce9efe272b32632d51448ca177a37030a9"
+    },
+    {
+      "file": "screenshots/demo-organize-result.webp",
+      "page": "user-guide/organizing.md",
+      "scene": "真实整理预览及执行结果；仅临时合成文件",
+      "verified_at": "2026-10-02",
+      "bytes": 41580,
+      "sha256": "7cbdb5305e12285581c062816024aa8e1d856373df32835c2afd0ad05dcb5658"
+    },
+    {
+      "file": "videos/onboarding.mp4",
+      "page": "user-guide/onboarding.md",
+      "scene": "四步向导 → 真实扫描入库 → 完成 → 首播，未经速度变更的真实 UI 录屏",
+      "verified_at": "2026-10-02",
+      "bytes": 1145118,
+      "sha256": "6005a896ff80c98b04538048b94c2a50ae6f7bc784ab308ef8196fad0d9b311a",
+      "duration_seconds": 50.5,
+      "codec_name": "h264",
+      "width": 1440,
+      "height": 1000
+    },
+    {
+      "file": "videos/onboarding.vtt",
+      "page": "user-guide/onboarding.md",
+      "scene": "四步向导 → 真实扫描入库 → 完成 → 首播，未经速度变更的真实 UI 录屏",
+      "verified_at": "2026-10-02",
+      "bytes": 978,
+      "sha256": "33d69b912435cccba6fd650b448f2fa322adbe5e1dd3841c0a1b9422b4308130"
+    },
+    {
+      "file": "videos/onboarding.webp",
+      "page": "user-guide/onboarding.md",
+      "scene": "四步向导 → 真实扫描入库 → 完成 → 首播，未经速度变更的真实 UI 录屏",
+      "verified_at": "2026-10-02",
+      "bytes": 44764,
+      "sha256": "dcdbc8804335c21ac4e7e505014d7d83be618be37a0e1eb08abe5040bff225c9"
+    },
+    {
+      "file": "videos/subtitles.mp4",
+      "page": "user-guide/subtitles.md",
+      "scene": "换字幕 → 延后 0.5 秒 → 文件选择器加载本地 SRT，真实 UI 录屏",
+      "verified_at": "2026-10-02",
+      "bytes": 2269213,
+      "sha256": "61dfd74671d8cf9af1f10e041a5eae789b4cda07ec92fd7fd437fba2ef07dc7a",
+      "duration_seconds": 35.9,
+      "codec_name": "h264",
+      "width": 1440,
+      "height": 1000
+    },
+    {
+      "file": "videos/subtitles.vtt",
+      "page": "user-guide/subtitles.md",
+      "scene": "换字幕 → 延后 0.5 秒 → 文件选择器加载本地 SRT，真实 UI 录屏",
+      "verified_at": "2026-10-02",
+      "bytes": 588,
+      "sha256": "6d864e5d1be2340ef40233b2bb82458f9d0976b11ad482e379da230e0696a8f7"
+    },
+    {
+      "file": "videos/subtitles.webp",
+      "page": "user-guide/subtitles.md",
+      "scene": "换字幕 → 延后 0.5 秒 → 文件选择器加载本地 SRT，真实 UI 录屏",
+      "verified_at": "2026-10-02",
+      "bytes": 35600,
+      "sha256": "de390f591c33b769a122c7e190defb909540a841f7237c53b4a8d81ee81cdc38"
+    },
+    {
+      "file": "videos/organizing.mp4",
+      "page": "user-guide/organizing.md",
+      "scene": "预览 → 点击整理选中确认执行 → 结果核对 → 文件管理，真实 UI 录屏",
+      "verified_at": "2026-10-02",
+      "bytes": 330419,
+      "sha256": "77ef1a45320055b4f436cce917568c871946fc5a07ddb1b6f90361c2db344486",
+      "duration_seconds": 33.7,
+      "codec_name": "h264",
+      "width": 1440,
+      "height": 1000
+    },
+    {
+      "file": "videos/organizing.vtt",
+      "page": "user-guide/organizing.md",
+      "scene": "预览 → 点击整理选中确认执行 → 结果核对 → 文件管理，真实 UI 录屏",
+      "verified_at": "2026-10-02",
+      "bytes": 636,
+      "sha256": "5e629839f4ea46c3dfc3e1dc7b6ef548e6fca64c90463e3d56c5cdcb8b193495"
+    },
+    {
+      "file": "videos/organizing.webp",
+      "page": "user-guide/organizing.md",
+      "scene": "预览 → 点击整理选中确认执行 → 结果核对 → 文件管理，真实 UI 录屏",
+      "verified_at": "2026-10-02",
+      "bytes": 44230,
+      "sha256": "bdb09d85c3ef4e155fdf475b808e6d4a15adb6ece9657ceac98070077dc27f88"
+    },
+    {
+      "file": "diagrams/libraries.svg",
+      "page": "user-guide/libraries.md",
+      "scene": "媒体库与视频库关系；代码生成 SVG，可编辑源为 scripts/capture_docs_diagrams.py",
+      "verified_at": "2026-10-02",
+      "bytes": 2703,
+      "sha256": "2dd03598f5a85f9ed83d9e113ff21d21d284e131f984d79a6c1bdce335191c1d"
+    },
+    {
+      "file": "diagrams/ingestion.svg",
+      "page": "user-guide/onboarding.md",
+      "scene": "入库任务流；代码生成 SVG，可编辑源为 scripts/capture_docs_diagrams.py",
+      "verified_at": "2026-10-02",
+      "bytes": 2808,
+      "sha256": "98d8ae6d0f939160867d2146c7c50828d370dafd7e87f4ab4eb8700b44224707"
+    },
+    {
+      "file": "diagrams/organizing.svg",
+      "page": "user-guide/organizing.md",
+      "scene": "就地整理前后路径示例；代码生成 SVG，可编辑源为 scripts/capture_docs_diagrams.py",
+      "verified_at": "2026-10-02",
+      "bytes": 2470,
+      "sha256": "d435cbb37ff3669abfca1daf318adc89fbfd9a99b0d30a3aceeb565b084a004f"
+    }
+  ]
+}

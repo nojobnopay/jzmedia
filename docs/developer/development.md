@@ -1,3 +1,8 @@
+---
+version: 0.19.0
+reviewed: 2026-10-02
+---
+
 # 开发与验证
 
 [开发者文档](README.md)
@@ -46,4 +51,4 @@ npm run build --prefix frontend
 
 ## 文档同步
 
-修改部署变量同步 [配置参考](../getting-started/configuration.md)；改变页面流程同步 [用户手册](../user-guide/README.md)；改变模块/关键不变量同步本目录；未实施计划才进入 [开发计划](../roadmap/README.md)。根 README 保持入口作用，避免重新堆入完整 API 与历史实施日志。
+修改部署变量同步 [配置参考](../getting-started/configuration.md)；改变页面流程同步 [用户手册](../user-guide/README.md)；改变模块/关键不变量同步本目录；未实施计划才进入 仓库 `docs/roadmap/`。根 README 保持入口作用，避免重新堆入完整 API 与历史实施日志。页面、媒体素材与构建规范见[文档制作与发布](documentation.md)。

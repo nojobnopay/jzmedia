@@ -1,0 +1,16 @@
+.git
+.venv
+**/node_modules
+**/__pycache__
+.pytest_cache
+.env
+data
+media
+frontend/dist
+docs/private
+docs/.vitepress/dist
+docs/.vitepress/cache
+docs/.vitepress/.temp
+docs/.vitepress/generated
+docs/.artifacts
+dist

@@ -8,6 +8,7 @@
           <div class="header-copy">
             <h2 id="organize-title">{{ heading }}</h2>
             <p id="organize-subtitle">{{ title }}<span v-if="year">（{{ year }}）</span></p>
+            <HelpLink page="user-guide/tv-organizing" label="剧集整理图解" />
           </div>
           <button class="close-button" aria-label="关闭整理对话框" :disabled="running" @click="close">×</button>
         </header>
@@ -131,6 +132,7 @@
 </template>
 
 <script setup>
+import HelpLink from './HelpLink.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import Spinner from './Spinner.vue'
 import { ACTION_HELP, basename, hintReasonText, manualText, untouchedText } from '../tvOrganizePlans.js'

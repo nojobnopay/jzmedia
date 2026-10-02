@@ -1,3 +1,8 @@
+---
+version: 0.19.0
+reviewed: 2026-10-02
+---
+
 # 部署排障
 
 [本目录首页](README.md)
@@ -18,7 +23,9 @@
 | 写操作提示鉴权失败 | 设置正确访问令牌；GET 能打开不表示写令牌有效 |
 
 
-### WSL / Docker Desktop 代理故障
+#<span id="wsl--docker-desktop-代理故障"></span>
+
+## WSL / Docker Desktop 代理故障
 
 若宿主 `curl` 正常，而 Docker 拉基础镜像报 HTTPS proxy 或 timeout，先区分 **Docker daemon 拉镜像** 与 **镜像构建中的 pip/npm 下载**。前者需要修复 Docker Desktop 的代理配置；`BUILD_HTTP_PROXY` 只传入构建阶段，不能修复 daemon 拉取。
 

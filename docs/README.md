@@ -1,29 +1,26 @@
+---
+version: 0.19.0
+reviewed: 2026-10-02
+---
+
 # 文档导航
 
-文档按读者和任务分成四个独立目录。每个目录都有自己的入口、阅读顺序和上下文；不必先阅读开发记录才能使用软件。
+[打开图文帮助首页](index.md)，从当前要完成的任务开始。应用内入口为“帮助”；已安装实例的帮助站点位于 `/help/`，API 调试文档仍在 `/docs`。
 
-| 目录 | 读者 | 覆盖内容 |
-|---|---|---|
-| [getting-started](getting-started/README.md) | 普通用户、部署者 | 项目定位、安装、配置、首次入库、升级备份和部署排障 |
-| [user-guide](user-guide/README.md) | 深度使用者 | 按功能讲解入口、步骤、结果、限制和常见误区 |
-| [developer](developer/README.md) | 开发人员 | 系统结构、模块、数据模型、存储、扫描、播放、接口与开发验证 |
-| [roadmap](roadmap/README.md) | 开发人员、维护者 | 当前计划、优先级建议、验收条件、已完成记录与历史回溯说明 |
-
-普通用户从部署教程开始；已安装用户直接查用户手册；修改代码前先看开发者文档。开发计划描述未来工作，不代表当前已经支持。
-
-| 你现在想做什么 | 最短路径 |
+| 现在要做什么 | 直接阅读 |
 |---|---|
-| 第一次安装 | [入门与部署](getting-started/README.md)：准备条件 → 安装 → 首次入库 |
-| 已经在用，想完成某个操作 | [用户手册](user-guide/README.md)：按任务找入口、步骤与结果 |
-| 出了问题 | 先看[功能排障](user-guide/troubleshooting.md)，部署类问题看[部署排障](getting-started/troubleshooting.md) |
-| 参与开发 | [开发者文档](developer/README.md)，再看[开发计划](roadmap/README.md) 确认范围 |
+| 还没安装 | [安装与部署](getting-started/deployment.md) |
+| 添加第一部电影或剧集 | [首次入库图解](user-guide/onboarding.md) |
+| 找片与观看 | [找到电影](user-guide/find-movies.md) · [选集与连播](user-guide/watch-tv.md) |
+| 调整播放 | [控件与画质](user-guide/playback-controls.md) · [音轨与字幕](user-guide/subtitles.md) |
+| 管理自己的片库 | [连接媒体库](user-guide/libraries.md) · [扫描与匹配](user-guide/metadata.md) · [上传文件](user-guide/files.md) |
+| 规范目录 | [整理电影](user-guide/organizing.md) · [整理剧集](user-guide/tv-organizing.md) |
+| 遇到问题 | [功能排障](user-guide/troubleshooting.md) · [部署排障](getting-started/troubleshooting.md) |
+| 升级或换机器 | [备份、升级与迁移](getting-started/operations.md) |
+| 修改程序或文档 | [开发者文档](developer/README.md) · [文档制作](developer/documentation.md) |
 
 ## 文档基线与维护
 
-- 核对日期：2026-09-28；应用版本 `0.19.0`，数据库 schema `28`（含剧集目录归属 `tv_directory_bindings` 与归属历史 `tv_binding_history`，及分集 `match_source`/`binding_conflict`）。
-- 界面入口以当前 Vue 组件为准，接口参数以运行实例的 `/docs` 和后端模型为准。
-- 部署说明不包含私有环境地址、真实媒体清单或凭据。`docs/private/` 是本地资料，不属于公共文档。
-- 已完成能力写入手册/设计；未完成事项集中在开发计划。旧 [BACKLOG](BACKLOG.md) 仅保留兼容入口。
-- 修改功能时同步对应文档，并检查相对链接。开发约束仍以仓库根目录的 [AGENTS.md](../AGENTS.md) 为准。
+适用版本 `0.19.0`，数据库 schema `28`；本次核对日期 2026-10-02。页面显示各篇适用版本与核对日期，截图和视频另有独立拍摄记录。
 
-[返回项目首页](../README.md)
+已实现功能进入用户手册与开发参考；开发计划保留在仓库 `docs/roadmap/`，不进入公开帮助站点。`docs/private/` 和实际运行数据同样不发布。代码约束仍以仓库根 `AGENTS.md` 为准。
