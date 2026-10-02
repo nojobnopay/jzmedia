@@ -1,8 +1,8 @@
 <template>
   <section :id="active ? 'sec-files' : undefined" ref="root" class="fs-browser" tabindex="0" aria-label="文件管理器" @keydown="onKeydown" @pointerdown="closeOutsideMenu">
     <header class="fs-heading">
-      <div><h3>文件管理</h3><p>浏览、复制和整理文件；变更后扫描核对入库与匹配结果。</p></div>
-      <details class="fs-help"><summary>操作说明</summary><p>双击打开，Ctrl / ⌘ 多选，Shift 连选。Ctrl / ⌘ + A 全选、C 复制、X 剪切、V 粘贴；F2 改名、Delete 删除、Backspace 上级、F5 刷新。快捷键仅在文件管理器内生效。目录仅支持复制、删除空目录；改名或移动目录请使用归档整理。</p></details>
+      <p>单击定位 · 双击打开 · 勾选后批量操作</p>
+      <details class="fs-help"><summary>操作说明</summary><p>点击左侧复选框勾选，Shift + 点击复选框连选。方向键定位，空格勾选，Enter 打开。Ctrl / ⌘ + A 全选、C 复制、X 剪切、V 粘贴；F2 改名、Delete 删除仅操作勾选项，Esc 清除。右键菜单会显示操作对象，不改变勾选。Backspace 上级、F5 刷新。快捷键仅在文件管理器内生效。目录仅支持复制、删除空目录；改名或移动目录请使用归档整理。</p></details>
     </header>
     <div v-if="pending" class="fs-pending" role="status"><span><strong>{{ pendingChanges.count || 1 }} 项文件变更待扫描</strong><small>{{ library?.name }} · 扫描后继续核对匹配结果</small></span><button :disabled="hasPendingOperation" @click="scan">扫描并核对</button></div>
     <div class="fs-shell">
@@ -28,13 +28,13 @@
           <input v-model="query" class="fs-search" type="search" aria-label="搜索当前目录" placeholder="搜索当前目录" :disabled="loading || !!loadError || !hasLoaded" />
         </div>
         <div class="fs-toolbar" role="toolbar" aria-label="文件操作">
-          <button :disabled="!one || busy || loading || !!loadError" @click="open()">{{ one?.isDir ? '打开文件夹' : '预览' }}</button>
+          <button :disabled="!currentRow || busy || loading || !!loadError" @click="open()">{{ currentRow?.isDir ? '打开文件夹' : '预览' }}</button>
           <button :disabled="!writable || busy || loading || !!loadError" @click="beginMkdir">新建文件夹</button>
           <button :disabled="!selection.length || busy || loading || !!loadError" @click="copy('copy')">复制</button>
           <button :disabled="!canCut" :title="selectedRows.some(r => r.isDir) ? '目录移动请使用归档整理' : '剪切选中文件'" @click="copy('cut')">剪切</button>
           <button :disabled="!canPaste" @click="paste">粘贴{{ clipboard.mode === 'cut' ? '（移动）' : '' }}</button>
-          <button class="fs-secondary-action" :disabled="!canRename" :title="one?.isDir ? '目录改名请使用归档整理' : '重命名（F2）'" @click="beginRename">重命名</button>
-          <button class="fs-secondary-action" :disabled="!writable || !selection.length || busy || loading || !!loadError" @click="beginDelete">删除…</button>
+          <button class="fs-secondary-action" :disabled="!canRename" :title="one?.isDir ? '目录改名请使用归档整理' : '重命名（F2）'" @click="beginRename()">重命名</button>
+          <button class="fs-secondary-action" :disabled="!writable || !selection.length || busy || loading || !!loadError" @click="beginDelete()">删除…</button>
           <button ref="moreButton" aria-label="更多文件操作" :aria-expanded="!!menu" @click="openMore">更多 ⋯</button>
           <span v-if="!writable && hasLoaded && !loading && !loadError && libraryId" class="fs-readonly">只读</span>
         </div>
@@ -64,11 +64,11 @@
           </template>
         </div>
         <div class="fs-table-area">
-        <div class="fs-table-wrap" :aria-busy="loading" @contextmenu.prevent="openContext($event)" @click.self="resetSelection">
+        <div class="fs-table-wrap" :aria-busy="loading" @contextmenu.prevent="openContext($event)" @click.self="resetSelection(); root?.focus()">
           <table class="fs-table" :inert="loading || !!loadError || !hasLoaded" aria-label="当前目录文件" aria-multiselectable="true">
-            <thead><tr><th class="fs-check"><input type="checkbox" aria-label="全选当前目录" :checked="!!rows.length && selection.length === rows.length" :disabled="loading || !!loadError || !hasLoaded" @change="$event.target.checked ? selectAll() : resetSelection()" /></th><th v-for="col in columns" :key="col.key" :class="'fs-col-' + col.key" :aria-sort="sort === col.key ? (direction === 1 ? 'ascending' : 'descending') : 'none'"><button @click="setSort(col.key)">{{ col.label }}<span v-if="sort === col.key" aria-hidden="true"> {{ direction === 1 ? '↑' : '↓' }}</span></button></th></tr></thead>
-            <tbody><tr v-for="row in rows" :key="row.rel" class="fs-row" :class="{ selected: selection.includes(row.rel), focused: focused === row.rel, cut: clipboard.mode === 'cut' && clipboard.library_id === libraryId && clipboard.rels.includes(row.rel) }" :data-fs-rel="row.rel" tabindex="-1" :aria-selected="selection.includes(row.rel)" @click="rowClick($event, row)" @dblclick="open(row)" @contextmenu.stop.prevent="openContext($event, row)">
-              <td class="fs-check"><input type="checkbox" :aria-label="'选择 ' + row.name" :checked="selection.includes(row.rel)" :disabled="loading || !!loadError || !hasLoaded" @click.stop="select(row, { ctrlKey: true })" @dblclick.stop /></td>
+            <thead><tr><th class="fs-check"><label class="fs-check-target"><input type="checkbox" aria-label="全选当前目录" :checked="!!rows.length && selection.length === rows.length" :indeterminate="selection.length > 0 && selection.length < rows.length" :disabled="loading || !!loadError || !hasLoaded || !rows.length" @change="$event.target.checked ? selectAll() : clearSelection()" /></label></th><th v-for="col in columns" :key="col.key" :class="'fs-col-' + col.key" :aria-sort="sort === col.key ? (direction === 1 ? 'ascending' : 'descending') : 'none'"><button @click="setSort(col.key)">{{ col.label }}<span v-if="sort === col.key" aria-hidden="true"> {{ direction === 1 ? '↑' : '↓' }}</span></button></th></tr></thead>
+            <tbody><tr v-for="row in rows" :key="row.rel" class="fs-row" :class="{ selected: selection.includes(row.rel), focused: focused === row.rel, cut: clipboard.mode === 'cut' && clipboard.library_id === libraryId && clipboard.rels.includes(row.rel) }" :data-fs-rel="row.rel" tabindex="-1" :aria-current="focused === row.rel ? 'true' : undefined" :aria-selected="selection.includes(row.rel)" @click="rowClick($event, row)" @dblclick="open(row)" @contextmenu.stop.prevent="openContext($event, row)">
+              <td class="fs-check" @click.stop @dblclick.stop><label class="fs-check-target"><input type="checkbox" :aria-label="'选择 ' + row.name" :checked="selection.includes(row.rel)" :disabled="loading || !!loadError || !hasLoaded" @focus="focusRow(row)" @click="checkboxClick($event, row)" /></label></td>
               <td class="fs-name" :title="row.name"><span class="fs-file-icon" :class="{ folder: row.isDir }" aria-hidden="true">{{ row.isDir ? '▱' : '▤' }}</span><span>{{ row.name }}</span></td>
               <td class="fs-col-size">{{ row.isDir ? '—' : fmtBytes(row.size) }}</td><td class="fs-col-mtime">{{ formatDate(row.mtime) }}</td><td class="fs-col-type">{{ fsType(row) }}</td><td class="fs-col-status"><span :class="{ 'fs-unmatched': fsMatchStatus(row) === '待匹配', 'fs-unregistered': fsMatchStatus(row) === '待扫描' }">{{ fsMatchStatus(row) }}</span></td>
             </tr></tbody>
@@ -85,12 +85,12 @@
         </div>
         <div v-else-if="loadState === 'unselected'" class="fs-directory-state"><p>请先选择一个视频库</p></div>
         </div>
-        <footer class="fs-status"><span v-if="loadState === 'loading'">正在加载目录…</span><span v-else-if="loadState === 'error'">目录未能加载</span><span v-else-if="loadState !== 'ready'">等待读取目录</span><span v-else>{{ rows.length }} 项{{ query ? `（共 ${dirs.length + files.length} 项）` : '' }}<template v-if="selection.length"> · 已选 {{ selection.length }} 项</template></span><span v-if="clipboard.rels.length">{{ clipboard.mode === 'cut' ? '已剪切' : '已复制' }} {{ clipboard.rels.length }} 项{{ clipboard.library_id !== libraryId ? '（其他视频库）' : '' }}</span></footer>
+        <footer class="fs-status fs-selection-summary" role="status"><span v-if="loadState === 'loading'">正在加载目录…</span><span v-else-if="loadState === 'error'">目录未能加载</span><span v-else-if="loadState !== 'ready'">等待读取目录</span><span v-else>{{ rows.length }} 项{{ query ? `（共 ${dirs.length + files.length} 项）` : '' }}<strong v-if="selection.length"> · 已勾选 {{ selection.length }} 项</strong></span><button v-if="selection.length" @click="clearSelection">清除勾选</button><span v-if="clipboard.rels.length">{{ clipboard.mode === 'cut' ? '已剪切' : '已复制' }} {{ clipboard.rels.length }} 项{{ clipboard.library_id !== libraryId ? '（其他视频库）' : '' }}</span></footer>
       </div>
     </div>
     <div v-if="jobs.length" class="fs-tasks" aria-label="文件任务"><div v-for="job in jobs" :key="job.job_id" class="fs-task"><span>{{ jobText(job) }}<small>目标：{{ libraryName(job.library_id) }} / {{ job.to_dir || '根目录' }}</small></span><progress :value="jobProgress(job)" max="100" :aria-label="jobText(job)"></progress><button v-if="jobRunning(job)" :disabled="job.state === 'cancelled'" @click="cancelCopy(job)">{{ job.state === 'cancelled' ? '正在取消…' : '取消复制' }}</button><button v-else @click="jobs = jobs.filter(j => j.job_id !== job.job_id)">收起</button><details v-if="jobIssues(job).length" class="fs-task-issues"><summary>查看需核对项目（{{ jobIssues(job).length }}）</summary><ul><li v-for="item in jobIssues(job)" :key="item.from">{{ item.from }} → {{ item.to }}<small>{{ jobIssueText(item) }}</small></li></ul></details></div></div>
     <FilePreviewHost :file="previewFile" :active="active" @close="closeFilePreview" />
-    <Teleport to="body"><div v-if="menu" ref="menuEl" class="fs-context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" role="menu" aria-label="文件菜单" @keydown="onMenuKeydown" @contextmenu.prevent><button v-for="item in menuItems" :key="item.id" role="menuitem" :disabled="item.disabled" :title="item.hint || ''" @click="runMenu(item)"><span>{{ item.label }}</span><small>{{ item.shortcut }}</small></button></div></Teleport>
+    <Teleport to="body"><div v-if="menu" ref="menuEl" class="fs-context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" role="menu" aria-label="文件菜单" @keydown="onMenuKeydown" @contextmenu.prevent><div class="fs-menu-target">{{ menu.targetLabel }}</div><button v-for="item in menuItems" :key="item.id" role="menuitem" :disabled="item.disabled" :title="item.hint || ''" @click="runMenu(item)"><span>{{ item.label }}</span><small>{{ item.shortcut }}</small></button></div></Teleport>
   </section>
 </template>
 
@@ -109,9 +109,9 @@ const props = defineProps({ active: { type: Boolean, default: false }, media: { 
 const emit = defineEmits(['changed', 'scan', 'library-change'])
 const {
   libraryId, library, path, dirs, files, crumbs, writable, loading, hasLoaded, loadError, loadTarget, loadState, loadedCount, totalCount, message, busy, query, sort, direction,
-  selection, focused, clipboard, prompt, previewFile, inputName, jobs, history, historyIndex, treeExpanded, treeLoading, rows, one, selectedRows,
+  selection, focused, clipboard, prompt, previewFile, inputName, jobs, history, historyIndex, treeExpanded, treeLoading, rows, one, currentRow, selectedRows,
   canRename, canCut, canPaste, pending, hasRunningTask, hasPendingOperation, treeRows,
-  scan, switchLibrary, navigate, load, retryLoad, historyMove, up, toggleTree, select, selectAll, moveFocus, open, viewDetails, closePreview, setSort, copy, copyPath,
+  scan, switchLibrary, navigate, load, retryLoad, historyMove, up, toggleTree, selectAll, focusRow, toggleSelection, clearSelection, moveFocus, open, viewDetails, closePreview, setSort, copy, copyPath,
   beginRename, beginMkdir, submitName, beginDelete, confirmDelete, paste, confirmPaste, cancelCopy, jobProgress, jobText, jobRunning, jobIssues, resetSelection,
 } = useFsBrowser(props, emit, api, useRouter())
 const root = ref(null)
@@ -123,18 +123,21 @@ const menu = ref(null)
 const inputId = 'fs-name-' + useId()
 const columns = [{ key: 'name', label: '名称' }, { key: 'size', label: '大小' }, { key: 'mtime', label: '修改时间' }, { key: 'type', label: '类型' }, { key: 'status', label: '入库 / 匹配' }]
 const promptTitle = computed(() => ({ rename: '重命名文件', mkdir: '新建文件夹', delete: '删除确认', copy: '复制确认', move: '移动确认' }[prompt.value?.type] || '确认操作'))
+const menuRows = computed(() => rows.value.filter(row => menu.value?.rels.includes(row.rel)))
+const menuOne = computed(() => menuRows.value.length === 1 ? menuRows.value[0] : null)
+const menuBlocked = computed(() => busy.value || loading.value || !!loadError.value)
 const menuItems = computed(() => [
-  { id: 'open', label: one.value?.isDir ? '打开文件夹' : '预览', disabled: !one.value || busy.value || loading.value || !!loadError.value, shortcut: 'Enter', run: () => open() },
-  { id: 'details', label: '查看媒体详情', disabled: !one.value || one.value.isDir || (!one.value.movie_id && !one.value.show_id) || busy.value || loading.value || !!loadError.value, run: () => viewDetails() },
-  { id: 'cut', label: '剪切', disabled: !canCut.value, hint: selectedRows.value.some(r => r.isDir) ? '目录移动请使用归档整理' : '', shortcut: 'Ctrl+X', run: () => copy('cut') },
-  { id: 'copy', label: '复制', disabled: !selection.value.length || busy.value || loading.value || !!loadError.value, shortcut: 'Ctrl+C', run: () => copy('copy') },
+  { id: 'open', label: menuOne.value?.isDir ? '打开文件夹' : '预览', disabled: !menuOne.value || menuBlocked.value, shortcut: 'Enter', run: () => open(menuOne.value) },
+  { id: 'details', label: '查看媒体详情', disabled: !menuOne.value || menuOne.value.isDir || (!menuOne.value.movie_id && !menuOne.value.show_id) || menuBlocked.value, run: () => viewDetails(menuOne.value) },
+  { id: 'cut', label: '剪切', disabled: !writable.value || !menuRows.value.length || menuRows.value.some(r => r.isDir) || menuBlocked.value, hint: menuRows.value.some(r => r.isDir) ? '目录移动请使用归档整理' : '', shortcut: 'Ctrl+X', run: () => copy('cut', menu.value.rels) },
+  { id: 'copy', label: '复制', disabled: !menuRows.value.length || menuBlocked.value, shortcut: 'Ctrl+C', run: () => copy('copy', menu.value.rels) },
   { id: 'paste', label: clipboard.value.mode === 'cut' ? '粘贴（移动）' : '粘贴', disabled: !canPaste.value, shortcut: 'Ctrl+V', run: paste },
-  { id: 'rename', label: '重命名', disabled: !canRename.value, hint: one.value?.isDir ? '目录改名请使用归档整理' : '', shortcut: 'F2', run: beginRename },
-  { id: 'delete', label: '删除…', disabled: !writable.value || !selection.value.length || busy.value || loading.value || !!loadError.value, shortcut: 'Delete', run: beginDelete },
+  { id: 'rename', label: '重命名', disabled: !writable.value || !menuOne.value || menuOne.value.isDir || menuBlocked.value, hint: menuOne.value?.isDir ? '目录改名请使用归档整理' : '', shortcut: 'F2', run: () => beginRename(menuOne.value) },
+  { id: 'delete', label: '删除…', disabled: !writable.value || !menuRows.value.length || menuBlocked.value, shortcut: 'Delete', run: () => beginDelete(menu.value.rels) },
   { id: 'mkdir', label: '新建文件夹', disabled: !writable.value || busy.value || loading.value || !!loadError.value, run: beginMkdir },
-  { id: 'path', label: '复制库内路径', disabled: libraryId.value == null, run: copyPath },
+  { id: 'path', label: '复制库内路径', disabled: libraryId.value == null, run: () => copyPath(menu.value.rels) },
   { id: 'refresh', label: '刷新', disabled: busy.value || loading.value, shortcut: 'F5', run: () => load(loadError.value ? loadTarget.value : path.value) },
-].filter(item => selection.value.length || ['paste', 'mkdir', 'path', 'refresh'].includes(item.id)))
+].filter(item => menuRows.value.length || ['paste', 'mkdir', 'path', 'refresh'].includes(item.id)))
 function jobIssueText(item) {
   return item.status.startsWith('copied_scan_warn:') ? '文件已复制，入库失败：' + item.status.slice(17) : '复制失败：' + item.status.replace(/^error:\s*/, '')
 }
@@ -149,7 +152,12 @@ function libraryName(id) {
   return multipleMedia && lib.media_name ? `${lib.media_name} · ${lib.name}` : lib.name
 }
 function statusText(status) { return ({ conflict_disk_exists: '目标已存在', conflict_db_occupied: '目标已有媒体记录，请先扫描核对', dir_not_empty: '目录非空，跳过', skipped_missing_src: '文件已不存在' }[status] || status) }
-function rowClick(event, row) { if (loading.value) return; select(row, event); event.currentTarget.focus() }
+function rowClick(event, row) { if (loading.value) return; focusRow(row); event.currentTarget.focus() }
+function checkboxClick(event, row) {
+  toggleSelection(row, event)
+  // Shift ranges can keep an already checked item; restore the native click's toggle.
+  event.currentTarget.checked = selection.value.includes(row.rel)
+}
 function focusCurrent(options) { nextTick(() => [...(root.value?.querySelectorAll('[data-fs-rel]') || [])].find(el => el.getAttribute('data-fs-rel') === focused.value)?.focus(options)) }
 let previewScroll = null
 watch(previewFile, (file, previous) => {
@@ -165,8 +173,11 @@ watch(previewFile, (file, previous) => {
   }
 })
 function closeFilePreview() { closePreview() }
-async function showMenu(x, y) {
-  menu.value = { x: Math.max(8, Math.min(x, window.innerWidth - 230)), y: Math.max(8, y) }
+async function showMenu(x, y, row = null, background = false) {
+  const checked = !background && (!row || selection.value.includes(row.rel))
+  const rels = checked ? [...selection.value] : row ? [row.rel] : []
+  const targetLabel = checked && rels.length ? `已勾选 ${rels.length} 项` : row?.name || '当前目录'
+  menu.value = { x: Math.max(8, Math.min(x, window.innerWidth - 230)), y: Math.max(8, y), rels, targetLabel }
   await nextTick()
   if (!menu.value || !menuEl.value) return
   const rect = menuEl.value.getBoundingClientRect()
@@ -174,9 +185,8 @@ async function showMenu(x, y) {
   menuEl.value.querySelector('button:not(:disabled)')?.focus()
 }
 function openContext(event, row = null) {
-  if (row && !selection.value.includes(row.rel)) select(row)
-  if (!row) resetSelection()
-  showMenu(event.clientX, event.clientY)
+  if (row) focusRow(row)
+  showMenu(event.clientX, event.clientY, row, !row)
 }
 function openMore() {
   if (menu.value) { menu.value = null; return }
@@ -184,7 +194,7 @@ function openMore() {
   showMenu(rect.left, rect.bottom + 4)
 }
 function closeOutsideMenu(event) { if (menu.value && !menuEl.value?.contains(event.target) && event.target !== moreButton.value) menu.value = null }
-function runMenu(item) { if (item.disabled) return; menu.value = null; root.value?.focus(); item.run() }
+function runMenu(item) { if (item.disabled) return; item.run(); menu.value = null; root.value?.focus() }
 function onMenuKeydown(event) {
   if (event.key === 'Escape') { event.preventDefault(); menu.value = null; root.value?.focus() }
   else if (event.key === 'Tab') menu.value = null
@@ -212,9 +222,10 @@ function onKeydown(event) {
   else if (event.key === 'F5') { handled(); load(loadError.value ? loadTarget.value : path.value) }
   else if (event.key === 'Backspace') { handled(); up() }
   else if (event.key === 'Enter') { handled(); open() }
-  else if (event.key === 'Escape') { handled(); resetSelection() }
+  else if (event.key === 'Escape') { handled(); clearSelection() }
+  else if (event.key === ' ' && event.target.matches('.fs-row')) { handled(); if (currentRow.value) toggleSelection(currentRow.value, event) }
   else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { handled(); moveFocus(event.key === 'ArrowDown' ? 1 : -1, event); focusCurrent() }
-  else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { handled(); const rect = root.value.getBoundingClientRect(); showMenu(rect.left + Math.min(rect.width / 2, 280), rect.top + 180) }
+  else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { handled(); const rect = event.target.getBoundingClientRect(); showMenu(rect.left, rect.bottom, currentRow.value) }
 }
 watch(prompt, async value => { if (value) { await nextTick(); nameInput.value?.focus(); promptEl.value?.scrollIntoView?.({ block: 'nearest' }) } })
 watch(() => props.active, active => { if (!active) menu.value = null })
@@ -227,8 +238,7 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 <style scoped>
 .fs-browser { --jz-control-current: var(--jz-control-compact); color: var(--jz-text); background: var(--jz-surface); border: 1px solid var(--jz-border); border-radius: var(--jz-radius-l); overflow: hidden; outline: none; }
 .fs-browser:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 2px; }
-.fs-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 18px 20px; }
-.fs-heading h3 { margin: 0 0 6px; font-size: 1.08rem; color: var(--jz-text); }
+.fs-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 12px 16px; }
 .fs-heading p { color: var(--jz-text-dim); margin: 0; font-size: .82rem; line-height: 1.6; }
 .fs-help { max-width: 420px; font-size: .8rem; color: var(--jz-text-dim); }
 .fs-help summary { cursor: pointer; white-space: nowrap; }
@@ -256,6 +266,8 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 .fs-browser button:disabled { cursor: default; opacity: .42; }
 .fs-toolbar button, .fs-confirm-actions button, .fs-pending button, .fs-task button { padding: 6px 10px; font-size: .78rem; }
 .fs-readonly { margin-left: auto; font-size: .75rem; color: var(--jz-warn); }
+.fs-selection-summary strong { color: var(--jz-text); }
+.fs-selection-summary button { margin-left: auto; padding: 4px 8px; font-size: inherit; background: none; border-color: transparent; }
 .fs-message { margin: 0; padding: 9px 14px; color: var(--jz-text-dim); background: var(--jz-info-soft); font-size: .8rem; overflow-wrap: anywhere; }
 .fs-prompt { border: 1px solid var(--jz-border-strong); background: var(--jz-surface); margin: 10px 12px; border-radius: var(--jz-radius-m); padding: 12px; font-size: .83rem; }
 .fs-prompt-heading { display: flex; justify-content: space-between; align-items: center; }
@@ -281,8 +293,9 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 .fs-table th { text-align: left; position: sticky; top: 0; background: var(--jz-surface-2); z-index: 1; border-bottom: 1px solid var(--jz-border-strong); font-weight: 500; }
 .fs-table th button { border: 0; background: none; padding: 10px 6px; color: var(--jz-text-dim); font: inherit; white-space: nowrap; }
 .fs-table td { padding: 10px 6px; border-bottom: 1px solid var(--jz-border); color: var(--jz-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fs-table .fs-check { width: 32px; padding: 0 5px 0 10px; }
-.fs-check input { margin: 0; accent-color: var(--jz-accent); }
+.fs-table .fs-check { width: 44px; padding: 0; }
+.fs-check-target { display: flex; align-items: center; justify-content: center; width: 44px; min-height: 40px; margin: 0; cursor: pointer; user-select: none; }
+.fs-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--jz-accent); cursor: pointer; }
 .fs-table .fs-col-name { min-width: 160px; }
 .fs-table .fs-col-size { width: 82px; }
 .fs-table .fs-col-mtime { width: 142px; }
@@ -293,13 +306,14 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 .fs-file-icon.folder { color: var(--jz-warn); }
 .fs-row { cursor: default; user-select: none; outline: none; }
 .fs-row:hover { background: var(--jz-surface-2); }
+.fs-row.focused { background: var(--jz-surface-3); }
 .fs-row.selected { background: var(--jz-selected); }
 .fs-row:focus-visible { outline: 1px solid var(--jz-link); outline-offset: -1px; }
 .fs-row.cut { opacity: .5; }
 .fs-unmatched { color: var(--jz-warn); }
 .fs-unregistered { color: var(--jz-blue-chip); }
 .fs-empty { text-align: center; padding: 64px 16px; font-size: .85rem; color: var(--jz-text-faint); }
-.fs-status { padding: 10px 14px; display: flex; justify-content: space-between; gap: 12px; color: var(--jz-text-dim); font-size: .75rem; border-top: 1px solid var(--jz-border); }
+.fs-status { padding: 4px 14px; min-height: var(--jz-control-current); display: flex; align-items: center; gap: 12px; color: var(--jz-text-dim); font-size: .75rem; border-top: 1px solid var(--jz-border); }
 .fs-tasks { padding: 12px 16px; border-top: 1px solid var(--jz-border); background: var(--jz-surface); }
 .fs-task { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 6px 0; font-size: .8rem; }
 .fs-task span { flex: 1; min-width: 150px; }
@@ -313,13 +327,15 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 .fs-context-menu button:hover:not(:disabled), .fs-context-menu button:focus-visible { background: var(--jz-surface-3); outline: none; }
 .fs-context-menu button:disabled { color: var(--jz-text-faint); cursor: default; }
 .fs-context-menu small { color: var(--jz-text-dim); font-size: .7rem; }
+.fs-menu-target { padding: 6px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--jz-border); color: var(--jz-text-dim); font-size: .75rem; overflow-wrap: anywhere; }
 .danger { color: var(--jz-danger); border-color: var(--jz-danger-border); }
 @media (max-width: 1100px) { .fs-shell { grid-template-columns: 170px minmax(0, 1fr); } .fs-table .fs-col-mtime { width: 116px; } .fs-table .fs-col-type { display: none; } .fs-search { width: 140px; } }
-@media (max-width: 760px) { .fs-heading { padding: 14px; } .fs-heading p { max-width: 230px; } .fs-shell { display: block; } .fs-tree { display: flex; align-items: center; gap: 5px; max-height: 110px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--jz-border); padding: 8px; } .fs-tree-title, .fs-tree .fs-expander, .fs-tree-line[style] { display: none; } .fs-tree-line { flex-shrink: 0; } .fs-tree-name { padding: 7px 10px; } .fs-location { gap: 6px; } .fs-search { width: 100%; } .fs-toolbar { gap: 5px; } .fs-secondary-action { display: none; } .fs-toolbar button { padding: 7px 8px; } .fs-table .fs-col-mtime, .fs-table .fs-col-type { display: none; } .fs-table .fs-col-size { width: 74px; } .fs-table .fs-col-status { width: 70px; } .fs-table .fs-check { width: 27px; padding-left: 6px; } .fs-table td { padding: 12px 4px; } .fs-file-icon { margin-right: 5px; } .fs-help[open] { position: absolute; background: var(--jz-surface-2); padding: 12px; left: 20px; right: 20px; z-index: 3; max-width: none; } .fs-pending { margin: 0 10px 12px; padding: 10px; } .fs-status { flex-wrap: wrap; } }
+@media (max-width: 760px) { .fs-heading { padding: 14px; } .fs-heading p { max-width: 230px; } .fs-shell { display: block; } .fs-tree { display: flex; align-items: center; gap: 5px; max-height: 110px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--jz-border); padding: 8px; } .fs-tree-title, .fs-tree .fs-expander, .fs-tree-line[style] { display: none; } .fs-tree-line { flex-shrink: 0; } .fs-tree-name { padding: 7px 10px; } .fs-location { gap: 6px; } .fs-search { width: 100%; } .fs-toolbar { gap: 5px; } .fs-secondary-action { display: none; } .fs-toolbar button { padding: 7px 8px; } .fs-table .fs-col-mtime, .fs-table .fs-col-type { display: none; } .fs-table .fs-col-size { width: 74px; } .fs-table .fs-col-status { width: 70px; } .fs-table .fs-check { width: 44px; padding: 0; } .fs-table td { padding: 12px 4px; } .fs-file-icon { margin-right: 5px; } .fs-help[open] { position: absolute; background: var(--jz-surface-2); padding: 12px; left: 20px; right: 20px; z-index: 3; max-width: none; } .fs-pending { margin: 0 10px 12px; padding: 10px; } .fs-status { flex-wrap: wrap; } }
 .fs-table .fs-col-size, .fs-table .fs-col-mtime, .fs-status { font-variant-numeric: tabular-nums; }
 @media (max-width: 700px), (pointer: coarse) {
   .fs-browser { --jz-control-current: var(--jz-touch-target); }
   .fs-navigation button { width: var(--jz-touch-target); }
   .fs-toolbar button, .fs-context-menu button, .fs-tree-name { min-height: var(--jz-touch-target); }
+  .fs-check-target { min-height: var(--jz-touch-target); }
 }
 </style>

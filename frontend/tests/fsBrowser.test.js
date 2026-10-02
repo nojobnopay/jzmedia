@@ -89,6 +89,84 @@ test('paste captures immutable source and destination and rejects cross-library 
   assert.throws(() => fsPasteSnapshot(clipboard, 7, ''), /跨视频库/)
 })
 
+test('file focus, checkbox selection and preview are independent', async t => {
+  const { state } = fixture(t, async () => listing())
+  state.files.value = ['a.mkv', 'b.mkv', 'c.mkv'].map(rel => ({ rel, name: rel, kind: 'feature' }))
+  state.writable.value = true
+  await nextTick()
+  const [a, b, c] = state.rows.value
+  state.focusRow(a)
+  assert.deepEqual(state.selection.value, [])
+  assert.equal(state.currentRow.value.rel, a.rel)
+  state.copy()
+  assert.deepEqual(state.clipboard.value.rels, [], 'focusing alone does not copy a file')
+  state.beginRename()
+  assert.equal(state.prompt.value, null, 'F2 requires an explicit checkbox')
+  state.toggleSelection(a)
+  state.moveFocus(1)
+  assert.equal(state.currentRow.value.rel, b.rel)
+  assert.deepEqual(state.selection.value, [a.rel])
+  state.open()
+  assert.equal(state.previewFile.value.rel, b.rel, 'Enter previews the current row, not the checked row')
+  state.closePreview()
+  assert.deepEqual(state.selection.value, [a.rel])
+  state.copy()
+  assert.deepEqual(state.clipboard.value.rels, [a.rel], 'toolbar actions still use the checked list')
+  state.beginRename()
+  assert.equal(state.prompt.value.from, a.rel)
+  state.prompt.value = null
+  state.toggleSelection(c, { shiftKey: true })
+  assert.deepEqual(state.selection.value, [a.rel, b.rel, c.rel])
+  state.toggleSelection(b)
+  assert.deepEqual(state.selection.value, [a.rel, c.rel])
+  state.clearSelection()
+  assert.deepEqual(state.selection.value, [])
+  assert.equal(state.currentRow.value.rel, b.rel, 'clearing checkboxes retains the current row')
+})
+
+test('context actions capture their explicit target without changing checked files', async t => {
+  const requests = []
+  const { state } = fixture(t, async (url, options) => {
+    const body = JSON.parse(options.body)
+    requests.push({ url, body })
+    return { plans: body.paths.map(rel => ({ rel, kind: 'subtitle' })) }
+  })
+  state.files.value = ['checked.srt', 'context.srt'].map(rel => ({ rel, name: rel, kind: 'subtitle' }))
+  state.writable.value = true
+  await nextTick()
+  const [checked, context] = state.rows.value
+  state.toggleSelection(checked)
+  state.focusRow(context)
+  state.copy('copy', [context.rel])
+  assert.deepEqual(state.clipboard.value.rels, [context.rel])
+  state.beginRename(context)
+  assert.equal(state.prompt.value.from, context.rel)
+  state.prompt.value = null
+  await state.beginDelete([context.rel])
+  assert.deepEqual(requests[0].body.paths, [context.rel])
+  assert.equal(requests[0].body.dry_run, true)
+  assert.deepEqual(state.prompt.value.paths, [context.rel])
+  assert.deepEqual(state.selection.value, [checked.rel])
+})
+
+test('filter and library changes discard invisible focus and checkbox targets', async t => {
+  const { state, props } = fixture(t, async () => listing())
+  state.files.value = ['a.mkv', 'b.mkv'].map(rel => ({ rel, name: rel, kind: 'feature' }))
+  await nextTick()
+  state.toggleSelection(state.rows.value[0])
+  state.query.value = 'b.mkv'
+  await nextTick()
+  assert.deepEqual(state.selection.value, [])
+  assert.equal(state.focused.value, null)
+  state.open()
+  assert.equal(state.previewFile.value, null)
+  state.toggleSelection(state.rows.value[0])
+  props.initialLibId = 8
+  await nextTick()
+  assert.deepEqual(state.selection.value, [])
+  assert.equal(state.focused.value, null)
+})
+
 test('copy confirmation executes its previewed directory even if the displayed path changes', async t => {
   const requests = []
   const { state, events } = fixture(t, async (url, options) => {

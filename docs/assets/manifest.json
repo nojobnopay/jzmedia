@@ -209,215 +209,6 @@
       "sha256": "d435cbb37ff3669abfca1daf318adc89fbfd9a99b0d30a3aceeb565b084a004f"
     },
     {
-      "file": "screenshots/file-browser-loading.webp",
-      "page": "user-guide/files.md",
-      "scene": "延迟模拟目录响应，展示首次进入文件管理的加载动画和提示",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "c0b2b64",
-      "source_state": "设置导航与文件管理工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 40742,
-      "sha256": "0aec4658ffd20cbf4626ae5b3af1b9b82ed7d3815938ae73961bf6fb3137d33f"
-    },
-    {
-      "file": "screenshots/settings-navigation.webp",
-      "page": "user-guide/settings.md",
-      "scene": "三组设置导航、独立文件管理及概览",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "c0b2b64",
-      "source_state": "设置导航与文件管理工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 35180,
-      "sha256": "c15165e11018f914756f3b76eb1d47abcd5f8e90f5b3d1d688a3ed3762264b19"
-    },
-    {
-      "file": "screenshots/settings-sources.webp",
-      "page": "user-guide/settings.md",
-      "scene": "在线资料服务：TMDB连接与来源状态",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "c0b2b64",
-      "source_state": "设置导航与文件管理工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 55452,
-      "sha256": "476110ed21106e3fa9b9112b6f76d4b2e03b94ec60bcc8a5575872af90102d4a"
-    },
-    {
-      "file": "screenshots/settings-matching.webp",
-      "page": "user-guide/settings.md",
-      "scene": "按视频库设置来源顺序、保留草稿并测试匹配",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "c0b2b64",
-      "source_state": "设置导航与文件管理工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 49334,
-      "sha256": "54d37a57f83c680f7695c879abe613c90e14b35cb7958c816d0bb66590f3ee4a"
-    },
-    {
-      "file": "screenshots/settings-offline.webp",
-      "page": "user-guide/settings.md",
-      "scene": "独立 IMDb 离线资料导入入口",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "c0b2b64",
-      "source_state": "设置导航与文件管理工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 35498,
-      "sha256": "bcfed96b659f8a2662c255aba6033f2f8b27f612404823f5f1f038303e870f3e"
-    },
-    {
-      "file": "screenshots/file-tools-entry.webp",
-      "page": "user-guide/settings.md",
-      "scene": "独立“管理文件”入口；工具标签只切换页内内容",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "c0b2b64",
-      "source_state": "设置导航与文件管理工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 41452,
-      "sha256": "2f732ed148b6306caf085222e1ba9fdc6d4379af505f24379f470eb2100be12b"
-    },
-    {
-      "file": "screenshots/file-preview-video.webp",
-      "page": "user-guide/files.md",
-      "scene": "选中电影版本使用完整播放器预览，不记录观看进度；画面为合成视频",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "c0b2b64",
-      "source_state": "设置导航与文件管理工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 25064,
-      "sha256": "54b19bf060a77819a8c3d1a6e3261d5ced51367d29f084cf418ac459bbbbe085"
-    },
-    {
-      "file": "screenshots/file-preview-text.webp",
-      "page": "user-guide/files.md",
-      "scene": "文件管理内原地预览合成字幕，关闭保留原目录与选中行",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "c0b2b64",
-      "source_state": "设置导航与文件管理工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 19810,
-      "sha256": "2e4ccd0583b632e3cf7716857aaf59f0539c002e5165877d0e4128f4a8d4494e"
-    },
-    {
-      "file": "screenshots/file-browser.webp",
-      "page": "user-guide/files.md",
-      "scene": "目录树、文件表格、工具栏与持久待扫描提示",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "c0b2b64",
-      "source_state": "设置导航与文件管理工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 55286,
-      "sha256": "e30a2c5cf57407bae2a0c6fe17ca86d163b0cfa6d7cbff91bac93e50e15d923e"
-    },
-    {
-      "file": "screenshots/file-review.webp",
-      "page": "user-guide/files.md",
-      "scene": "离开文件管理前选择扫描核对、稍后处理或继续管理",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "c0b2b64",
-      "source_state": "设置导航与文件管理工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 38774,
-      "sha256": "5a79e7711a0611af0761eaadedef0330d34d573ec21e54e7f99bcd91c6aff8be"
-    },
-    {
-      "file": "screenshots/file-browser-mobile.webp",
-      "page": "user-guide/files.md",
-      "scene": "手机文件管理及更多操作菜单",
-      "verified_at": "2026-10-02",
-      "app_version": "0.19.0",
-      "source_commit": "c0b2b64",
-      "source_state": "设置导航与文件管理工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 390,
-        "height": 844,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 28506,
-      "sha256": "bc95f86b27d65ec5f640638d10692bdf2abdad22bc81de1b9c3a6f8f8f37f9bd"
-    },
-    {
       "file": "screenshots/ai-settings-go.webp",
       "page": "user-guide/settings.md",
       "scene": "OpenCode Go 预设、用途限制与明确标注的模拟测试响应；密钥是虚构值",
@@ -496,6 +287,215 @@
       "format": "WebP q86",
       "bytes": 45554,
       "sha256": "737a4c65b81d2c16a35cc102436c35a7619db29200af6a16ddc9a699d4c14d59"
+    },
+    {
+      "file": "screenshots/file-browser-loading.webp",
+      "page": "user-guide/files.md",
+      "scene": "延迟模拟目录响应，展示首次进入文件管理的加载动画和提示",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "611748e",
+      "source_state": "设置导航与文件管理工作区改造",
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "bytes": 39354,
+      "sha256": "850ef3f8a6ca4dde892c3f6748e5a476cea2929f877a45b8c0aad1e08794e624"
+    },
+    {
+      "file": "screenshots/settings-navigation.webp",
+      "page": "user-guide/settings.md",
+      "scene": "三组设置导航、独立文件管理及概览",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "611748e",
+      "source_state": "设置导航与文件管理工作区改造",
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "bytes": 35180,
+      "sha256": "c15165e11018f914756f3b76eb1d47abcd5f8e90f5b3d1d688a3ed3762264b19"
+    },
+    {
+      "file": "screenshots/settings-sources.webp",
+      "page": "user-guide/settings.md",
+      "scene": "在线资料服务：TMDB连接与来源状态",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "611748e",
+      "source_state": "设置导航与文件管理工作区改造",
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "bytes": 55452,
+      "sha256": "476110ed21106e3fa9b9112b6f76d4b2e03b94ec60bcc8a5575872af90102d4a"
+    },
+    {
+      "file": "screenshots/settings-matching.webp",
+      "page": "user-guide/settings.md",
+      "scene": "按视频库设置来源顺序、保留草稿并测试匹配",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "611748e",
+      "source_state": "设置导航与文件管理工作区改造",
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "bytes": 49332,
+      "sha256": "52eb9b3e3375038474ac74170e71296b6da2e6480274a7e5f8d321be4148d371"
+    },
+    {
+      "file": "screenshots/settings-offline.webp",
+      "page": "user-guide/settings.md",
+      "scene": "独立 IMDb 离线资料导入入口",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "611748e",
+      "source_state": "设置导航与文件管理工作区改造",
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "bytes": 35498,
+      "sha256": "bcfed96b659f8a2662c255aba6033f2f8b27f612404823f5f1f038303e870f3e"
+    },
+    {
+      "file": "screenshots/file-tools-entry.webp",
+      "page": "user-guide/settings.md",
+      "scene": "独立“管理文件”入口；工具标签只切换页内内容",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "611748e",
+      "source_state": "设置导航与文件管理工作区改造",
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "bytes": 41452,
+      "sha256": "2f732ed148b6306caf085222e1ba9fdc6d4379af505f24379f470eb2100be12b"
+    },
+    {
+      "file": "screenshots/file-preview-video.webp",
+      "page": "user-guide/files.md",
+      "scene": "选中电影版本使用完整播放器预览，不记录观看进度；画面为合成视频",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "611748e",
+      "source_state": "设置导航与文件管理工作区改造",
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "bytes": 25078,
+      "sha256": "a1e6b278835794ec29f709c862af4e9df50edd69e346dbe42abdfa6752308bd1"
+    },
+    {
+      "file": "screenshots/file-preview-text.webp",
+      "page": "user-guide/files.md",
+      "scene": "文件管理内原地预览合成字幕，关闭保留原目录与当前行，不自动勾选",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "611748e",
+      "source_state": "设置导航与文件管理工作区改造",
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "bytes": 19952,
+      "sha256": "f7d31b49abb474627a19fc322c8600f43145691a90ccaa618a2413d8786937b5"
+    },
+    {
+      "file": "screenshots/file-browser.webp",
+      "page": "user-guide/files.md",
+      "scene": "目录树、待扫描提醒、当前电影行与独立勾选的海报文件，批量操作只针对勾选项",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "611748e",
+      "source_state": "设置导航与文件管理工作区改造",
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "bytes": 56730,
+      "sha256": "59784911bc660f9ea3e73b093a4c9906fa932ff8251f9d25863f48ec85f20b53"
+    },
+    {
+      "file": "screenshots/file-review.webp",
+      "page": "user-guide/files.md",
+      "scene": "离开文件管理前选择扫描核对、稍后处理或继续管理",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "611748e",
+      "source_state": "设置导航与文件管理工作区改造",
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "bytes": 38096,
+      "sha256": "105b37a9992b7a1811c54d81ca8b7a42a69e108b0909780dfeed6e7854e141e5"
+    },
+    {
+      "file": "screenshots/file-browser-mobile.webp",
+      "page": "user-guide/files.md",
+      "scene": "手机文件管理及更多操作菜单",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "611748e",
+      "source_state": "设置导航与文件管理工作区改造",
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "bytes": 27384,
+      "sha256": "d687426d42c5f04c0a53c2e67ff651ac56177eaa58fa676d2e623466364ab270"
     }
   ]
 }

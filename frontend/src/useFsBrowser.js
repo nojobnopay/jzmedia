@@ -45,6 +45,7 @@ export function useFsBrowser(props, emit, api, router) {
   const rows = computed(() => fsVisibleRows(dirs.value, files.value, query.value, sort.value, direction.value))
   const selectedRows = computed(() => rows.value.filter(r => selection.value.includes(r.rel)))
   const one = computed(() => selectedRows.value.length === 1 ? selectedRows.value[0] : null)
+  const currentRow = computed(() => rows.value.find(row => row.rel === focused.value) || one.value)
   const canRename = computed(() => writable.value && one.value && !one.value.isDir && !busy.value && !loading.value && !loadError.value)
   const canCut = computed(() => writable.value && selectedRows.value.length && selectedRows.value.every(r => !r.isDir) && !busy.value && !loading.value && !loadError.value)
   const canPaste = computed(() => writable.value && clipboard.value.rels.length && clipboard.value.library_id === libraryId.value && !busy.value && !loading.value && !loadError.value)
@@ -74,7 +75,8 @@ export function useFsBrowser(props, emit, api, router) {
     if (Number(id) !== libraryId.value) emit('library-change', { library_id: Number(id) })
     else navigate('')
   }
-  function resetSelection() { selection.value = []; anchor.value = null; focused.value = null }
+  function clearSelection() { selection.value = []; anchor.value = null }
+  function resetSelection() { clearSelection(); focused.value = null }
   async function load(target = path.value, { record = true, clearMessage = true } = {}) {
     if (libraryId.value == null) return
     const id = libraryId.value
@@ -157,13 +159,18 @@ export function useFsBrowser(props, emit, api, router) {
     focused.value = row.rel
   }
   function selectAll() { selection.value = rows.value.map(r => r.rel) }
-  function moveFocus(delta, event) {
+  function focusRow(row) { focused.value = row.rel }
+  function toggleSelection(row, event = {}) { select(row, { ctrlKey: true, shiftKey: event.shiftKey }) }
+  function moveFocus(delta, event = {}) {
     if (!rows.value.length) return
     const index = rows.value.findIndex(r => r.rel === focused.value)
     const next = index < 0 ? 0 : Math.max(0, Math.min(rows.value.length - 1, index + delta))
-    select(rows.value[next], event)
+    if (event.shiftKey) {
+      if (!anchor.value) anchor.value = focused.value || rows.value[next].rel
+      select(rows.value[next], { shiftKey: true, ctrlKey: true })
+    } else focusRow(rows.value[next])
   }
-  function open(row = one.value) {
+  function open(row = currentRow.value) {
     if (!row || busy.value || loading.value || loadError.value) return
     if (row.isDir) navigate(row.rel)
     else previewFile.value = { ...row, library_id: libraryId.value, url: fsBlobUrl(libraryId.value, row.rel) }
@@ -178,23 +185,23 @@ export function useFsBrowser(props, emit, api, router) {
     if (sort.value === key) direction.value *= -1
     else { sort.value = key; direction.value = 1 }
   }
-  function copy(mode = 'copy') {
-    if (!selection.value.length || busy.value || loading.value || loadError.value) return
-    if (mode === 'cut' && !canCut.value) { message.value = '目录不支持剪切移动，请使用目录整理'; return }
-    clipboard.value = { mode, library_id: libraryId.value, rels: [...selection.value] }
-    message.value = `已${mode === 'cut' ? '剪切' : '复制'} ${selection.value.length} 项，在此视频库的目标目录粘贴`
+  function copy(mode = 'copy', rels = selection.value) {
+    if (!rels.length || busy.value || loading.value || loadError.value) return
+    if (mode === 'cut' && (!writable.value || rows.value.some(row => rels.includes(row.rel) && row.isDir))) { message.value = '只读库或目录不支持剪切移动'; return }
+    clipboard.value = { mode, library_id: libraryId.value, rels: [...rels] }
+    message.value = `已${mode === 'cut' ? '剪切' : '复制'} ${rels.length} 项，在此视频库的目标目录粘贴`
   }
-  async function copyPath() {
+  async function copyPath(rels = selection.value) {
     try {
-      const paths = selection.value.length ? selection.value : [path.value || '/']
+      const paths = rels.length ? rels : [path.value || '/']
       await navigator.clipboard.writeText(paths.join('\n'))
       message.value = '已复制库内路径'
     } catch (e) { message.value = '无法复制路径：' + e.message }
   }
-  function beginRename() {
-    if (!canRename.value) return
-    inputName.value = one.value.name
-    prompt.value = { type: 'rename', library_id: libraryId.value, from: one.value.rel, original: one.value.name, path: path.value, plans: null }
+  function beginRename(row = one.value) {
+    if (!writable.value || !row || row.isDir || busy.value || loading.value || loadError.value) return
+    inputName.value = row.name
+    prompt.value = { type: 'rename', library_id: libraryId.value, from: row.rel, original: row.name, path: path.value, plans: null }
   }
   function beginMkdir() {
     if (!writable.value || busy.value || loading.value || loadError.value) return
@@ -253,10 +260,10 @@ export function useFsBrowser(props, emit, api, router) {
       }
     }, '操作失败')
   }
-  async function beginDelete() {
-    if (!writable.value || !selection.value.length || loading.value || loadError.value) return
-    if (selection.value.length > 100) { message.value = '每次最多删除 100 项，请缩小选择范围'; return }
-    const snapshot = { library_id: libraryId.value, paths: [...selection.value] }
+  async function beginDelete(rels = selection.value) {
+    if (!writable.value || !rels.length || loading.value || loadError.value) return
+    if (rels.length > 100) { message.value = '每次最多删除 100 项，请缩小选择范围'; return }
+    const snapshot = { library_id: libraryId.value, paths: [...rels] }
     await runBusy(async () => {
       const data = await post('delete', { ...snapshot, dry_run: true })
       prompt.value = { type: 'delete', ...snapshot, plans: data.plans || [] }
@@ -387,17 +394,23 @@ export function useFsBrowser(props, emit, api, router) {
     treeCache.value = {}
     treeExpanded.value = new Set([''])
     treeLoading.value = new Set()
+    resetSelection()
     if (props.active) load('')
   }, { immediate: true })
   watch(() => props.active, active => {
     if (active) load(path.value, { record: false })
     else closePreview()
   }, { flush: 'sync' })
-  watch(rows, current => { const visible = new Set(current.map(r => r.rel)); selection.value = selection.value.filter(rel => visible.has(rel)) })
+  watch(rows, current => {
+    const visible = new Set(current.map(r => r.rel))
+    selection.value = selection.value.filter(rel => visible.has(rel))
+    if (!visible.has(focused.value)) focused.value = null
+    if (!visible.has(anchor.value)) anchor.value = null
+  })
   onUnmounted(() => { closePreview(); disposed = true; loadGeneration++; loader.cancel(); copyPoll.stop() })
   return { libraryId, library, path, dirs, files, crumbs, writable, loading, hasLoaded, loadError, loadTarget, loadState, loadedCount, totalCount, message, busy, query, sort, direction,
-    selection, focused, clipboard, prompt, previewFile, inputName, jobs, history, historyIndex, treeExpanded, treeLoading, rows, one, selectedRows,
+    selection, focused, clipboard, prompt, previewFile, inputName, jobs, history, historyIndex, treeExpanded, treeLoading, rows, one, currentRow, selectedRows,
     canRename, canCut, canPaste, pending, hasRunningTask, hasPendingOperation, treeRows,
-    scan, switchLibrary, navigate, load, retryLoad, historyMove, up, toggleTree, select, selectAll, moveFocus, open, viewDetails, closePreview, setSort, copy, copyPath,
+    scan, switchLibrary, navigate, load, retryLoad, historyMove, up, toggleTree, select, selectAll, focusRow, toggleSelection, clearSelection, moveFocus, open, viewDetails, closePreview, setSort, copy, copyPath,
     beginRename, beginMkdir, submitName, beginDelete, confirmDelete, paste, confirmPaste, cancelCopy, jobProgress, jobText, jobRunning: fsJobRunning, jobIssues: fsCopyIssues, resetSelection }
 }

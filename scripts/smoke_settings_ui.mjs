@@ -2,7 +2,7 @@
 // Run: node scripts/smoke_settings_ui.mjs [--capture-docs]
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import os from 'node:os'
@@ -120,6 +120,10 @@ function mock(url, method, body) {
     assert.ok(file); file.name = body.name; mark(id, 'rename', body.name)
     return { moved: 1, results: [{ from: body.from, to: body.name, status: 'moved', followed: 0 }] }
   }
+  if (key === '/api/fs/copy') {
+    assert.equal(body.dry_run, true, 'selection checks must stop at the copy preview')
+    return { total: body.from.length, files: body.from.length, bytes: 100, needs_confirm: true, conflicts: [] }
+  }
   if (/^\/api\/stream\/\d+\/previews$/.test(key)) return { state: 'missing', pages: [] }
   if (/^\/api\/stream\/\d+\/decide$/.test(key)) return { method: 'direct', direct_url: '/fixtures/video.mp4', reasons: [],
     media: { width: 320, height: 180, duration: 1200, audio: [], subs: [] }, plan: {} }
@@ -153,6 +157,13 @@ async function screenshot(page, name, doc, scene, { animations = 'disabled' } = 
     source_state: '设置导航与文件管理工作区改造', source: '真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体',
     viewport: { ...page.viewportSize(), device_scale_factor: 1 }, recording_script: 'scripts/smoke_settings_ui.mjs --capture-docs',
     fixtures: 'scripts/smoke_settings_ui.mjs 内置内存数据', bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
+}
+async function selectionScreenshot(page, name) {
+  if (!capture) return
+  const directory = path.join(root, 'output/playwright/file-selection')
+  await mkdir(directory, { recursive: true })
+  await page.evaluate(() => { window.scrollTo(0, 0); window.getSelection()?.removeAllRanges() })
+  await page.screenshot({ path: path.join(directory, name + '.png'), animations: 'disabled', fullPage: true })
 }
 async function checkFileLoading(browser, base) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
@@ -376,6 +387,87 @@ try {
   const progressBeforeFiles = requests.filter(r => r.key === '/api/stream/progress').length
   const currentLocation = page.url()
   const movieRow = table.locator('tr').filter({ hasText: '模拟电影 (2020).mkv' })
+  const posterRow = table.locator('tr').filter({ hasText: 'poster.jpg' })
+  const fileToolbar = page.getByRole('toolbar', { name: '文件操作', exact: true })
+  const allFiles = table.getByRole('checkbox', { name: '全选当前目录', exact: true })
+  const checkedFiles = () => table.locator('tbody input[type="checkbox"]:checked').evaluateAll(inputs => inputs.map(input => input.closest('tr').dataset.fsRel).sort())
+  const expectChecked = async expected => {
+    const sorted = [...expected].sort()
+    assert.deepEqual(await checkedFiles(), sorted, 'native checkbox state matches expected checks')
+    const selected = await table.locator('tbody tr[aria-selected="true"]').evaluateAll(rows => rows.map(row => row.dataset.fsRel).sort())
+    assert.deepEqual(selected, sorted, 'row selection state matches native checkboxes')
+  }
+  const rowRels = await table.locator('tbody tr').evaluateAll(rows => rows.map(row => row.dataset.fsRel))
+  await movieRow.click()
+  assert.equal(await movieRow.getAttribute('aria-current'), 'true', 'row clicks identify the current file')
+  assert.equal(await movieRow.getAttribute('aria-selected'), 'false', 'row clicks do not check files')
+  await expectChecked([])
+  for (const name of ['复制', '剪切', '删除…']) assert.equal(await fileToolbar.getByRole('button', { name, exact: true }).isDisabled(), true)
+  await movieRow.press('ArrowUp')
+  await expectChecked([])
+  assert.notEqual(await movieRow.getAttribute('aria-current'), 'true', 'ordinary arrows move focus without checking files')
+  await movieRow.click()
+  await movieRow.press('Space')
+  await expectChecked(['模拟电影 (2020).mkv'])
+  assert.equal(await allFiles.evaluate(input => input.indeterminate), true, 'some checked files give the header a mixed state')
+  await movieRow.press('Space')
+  await expectChecked([])
+  await movieRow.press('Control+a')
+  await expectChecked(rowRels)
+  assert.equal(await allFiles.isChecked(), true)
+  assert.equal(await allFiles.evaluate(input => input.indeterminate), false)
+  await movieRow.press('Escape')
+  await expectChecked([])
+  assert.equal(await allFiles.isChecked(), false)
+  assert.equal(await allFiles.evaluate(input => input.indeterminate), false)
+  assert.equal(await movieRow.getAttribute('aria-current'), 'true', 'Escape clears checks but keeps the current row')
+  await movieRow.press('Space')
+  await expectChecked(['模拟电影 (2020).mkv'])
+  await movieRow.press('Escape')
+  // The surrounding label, not just the small checkbox, is an explicit target.
+  const checkTarget = posterRow.locator('.fs-check-target')
+  const targetSize = await checkTarget.boundingBox()
+  assert.ok(targetSize.width >= 40 && targetSize.height >= 40, 'desktop checkbox hit area is at least 40px')
+  await checkTarget.click({ position: { x: 3, y: targetSize.height / 2 } })
+  await expectChecked(['poster.jpg'])
+  await checkTarget.dblclick({ position: { x: 3, y: targetSize.height / 2 } })
+  assert.equal(await page.locator('.file-preview-dialog, .player-dlg').count(), 0, 'double-clicking a checkbox target never previews the file')
+  await posterRow.getByRole('checkbox').check()
+  await movieRow.click()
+  await selectionScreenshot(page, 'desktop-focus-and-checkbox')
+  await movieRow.press('Escape')
+  await table.locator('tbody tr').nth(0).locator('.fs-check-target').click()
+  await table.locator('tbody tr').nth(2).locator('.fs-check-target').click({ modifiers: ['Shift'] })
+  await expectChecked(rowRels.slice(0, 3))
+  await table.locator('tbody tr').nth(2).locator('.fs-check-target').click({ modifiers: ['Shift'] })
+  await expectChecked(rowRels.slice(0, 3))
+  await movieRow.press('Escape')
+  const firstRow = table.locator('tbody tr').first()
+  await firstRow.click()
+  await firstRow.press('Space')
+  await firstRow.press('Shift+ArrowDown')
+  await expectChecked(rowRels.slice(0, 2))
+  await movieRow.press('Escape')
+  await checkTarget.click()
+  await table.locator('tr').filter({ hasText: '模拟电影.zh.srt' }).locator('.fs-check-target').click()
+  const checkedGroup = ['poster.jpg', '模拟电影.zh.srt']
+  const verifyMenuCopy = async (row, title, expected) => {
+    await row.click({ button: 'right' })
+    const menu = page.getByRole('menu', { name: '文件菜单', exact: true })
+    assert.equal(await menu.locator('.fs-menu-target').textContent(), title)
+    await expectChecked(checkedGroup)
+    await menu.getByRole('menuitem', { name: /^复制\s/ }).click()
+    await fileToolbar.getByRole('button', { name: '粘贴', exact: true }).click()
+    const confirm = page.getByRole('region', { name: '文件操作确认', exact: true })
+    await confirm.getByRole('button', { name: '确认复制到此目录', exact: true }).waitFor()
+    assert.deepEqual([...requests.filter(request => request.key === '/api/fs/copy').at(-1).body.from].sort(), [...expected].sort())
+    await expectChecked(checkedGroup)
+    await confirm.getByRole('button', { name: '取消', exact: true }).click()
+  }
+  await verifyMenuCopy(movieRow, '模拟电影 (2020).mkv', ['模拟电影 (2020).mkv'])
+  await verifyMenuCopy(posterRow, '已勾选 2 项', checkedGroup)
+  await table.locator('tr').filter({ hasText: '模拟电影.zh.srt' }).locator('.fs-check-target').click()
+  await movieRow.click()
   await movieRow.dblclick()
   await page.getByText('文件预览 · 不记录观看进度', { exact: true }).waitFor()
   await page.waitForFunction(() => document.querySelector('.player-dlg video')?.readyState >= 2)
@@ -384,7 +476,9 @@ try {
   await page.getByRole('button', { name: '关闭播放器', exact: true }).click()
   await page.locator('.player-dlg').waitFor({ state: 'hidden' })
   assert.equal(page.url(), currentLocation)
-  assert.equal(await movieRow.getAttribute('aria-selected'), 'true')
+  assert.equal(await movieRow.getAttribute('aria-current'), 'true')
+  assert.equal(await movieRow.getAttribute('aria-selected'), 'false')
+  await expectChecked(['poster.jpg'])
   await table.locator('tr').filter({ hasText: '预览样本' }).dblclick()
   await table.getByText('未知格式.bin', { exact: true }).waitFor()
   const previewDialog = name => page.getByRole('dialog', { name: '文件预览：' + name, exact: true })
@@ -401,10 +495,12 @@ try {
   const subtitleRow = table.locator('tbody tr').first()
   await subtitleRow.click(); await subtitleRow.press('Enter')
   await previewDialog('字幕.vtt').getByText(/用于核对的合成字幕/).waitFor()
-  await screenshot(page, 'file-preview-text', 'user-guide/files.md', '文件管理内原地预览合成字幕，关闭保留原目录与选中行')
+  await screenshot(page, 'file-preview-text', 'user-guide/files.md', '文件管理内原地预览合成字幕，关闭保留原目录与当前行，不自动勾选')
   await closePreview()
   assert.equal(await page.getByLabel('搜索当前目录', { exact: true }).inputValue(), '字幕')
-  assert.equal(await subtitleRow.getAttribute('aria-selected'), 'true')
+  assert.equal(await subtitleRow.getAttribute('aria-current'), 'true')
+  assert.equal(await subtitleRow.getAttribute('aria-selected'), 'false')
+  await expectChecked([])
   assert.equal(await subtitleRow.evaluate(el => el === document.activeElement), true)
   await page.getByLabel('搜索当前目录', { exact: true }).fill('')
   await openPreview('movie.nfo')
@@ -457,7 +553,9 @@ try {
   await page.getByRole('button', { name: '确认改名', exact: true }).click()
   await table.getByText('poster-new.jpg', { exact: true }).waitFor()
   await page.getByText('1 项文件变更待扫描', { exact: true }).waitFor()
-  await screenshot(page, 'file-browser', 'user-guide/files.md', '目录树、文件表格、工具栏与持久待扫描提示')
+  await table.locator('tr').filter({ hasText: 'poster-new.jpg' }).locator('.fs-check-target').click()
+  await movieRow.click()
+  await screenshot(page, 'file-browser', 'user-guide/files.md', '目录树、待扫描提醒、当前电影行与独立勾选的海报文件，批量操作只针对勾选项')
   await page.locator('.side-nav').getByRole('button', { name: '界面显示', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '文件变更尚未核对' })
   await dialog.waitFor()
@@ -509,6 +607,7 @@ try {
   assert.equal(requests.filter(r => /\/decide$/.test(r.key)).at(-1).body.kind, 'episode')
   await page.getByRole('button', { name: '关闭播放器', exact: true }).click()
   const tvPoster = table.locator('tr').filter({ hasText: 'poster.jpg' })
+  await tvPoster.locator('.fs-check-target').click()
   await tvPoster.click(); await tvPoster.press('F2')
   await page.getByLabel('新文件名', { exact: true }).fill('tv-poster.jpg')
   await page.getByRole('button', { name: '预览改名', exact: true }).click()
@@ -524,7 +623,15 @@ try {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByLabel('搜索当前目录', { exact: true }).fill('poster')
   assert.equal(await table.locator('tbody tr').count(), 1)
-  await table.locator('tbody tr').first().click()
+  const mobileRow = table.locator('tbody tr').first()
+  await mobileRow.click()
+  await expectChecked([])
+  const mobileTarget = mobileRow.locator('.fs-check-target')
+  const mobileTargetSize = await mobileTarget.boundingBox()
+  assert.ok(mobileTargetSize.width >= 44 && mobileTargetSize.height >= 44, 'mobile checkbox hit area is at least 44px')
+  await mobileTarget.click({ position: { x: 3, y: mobileTargetSize.height / 2 } })
+  await expectChecked(['tv-poster.jpg'])
+  await selectionScreenshot(page, 'mobile-checkbox')
   await page.getByRole('button', { name: '更多文件操作', exact: true }).click()
   await page.getByRole('menu', { name: '文件菜单' }).waitFor()
   await screenshot(page, 'file-browser-mobile', 'user-guide/files.md', '手机文件管理及更多操作菜单')
@@ -611,7 +718,7 @@ try {
     manifest.assets = manifest.assets.filter(entry => !names.has(entry.file)).concat(captured)
     await writeFile(filename, JSON.stringify(manifest, null, 2) + '\n')
   }
-  console.log('PASS settings: startup loading/error/retry/empty states, independent directory loading, navigation, matching drafts/order/search, complete file listing, context menu, rename, leave guard, accepted cross-media navigation, scoped scan, mobile menu, real player preview/normal progress lifecycle')
+  console.log('PASS settings: startup loading/error/retry/empty states, independent directory loading, navigation, matching drafts/order/search, complete file listing, independent row focus and explicit checkbox selection, 40px/44px checkbox targets, keyboard/range/mixed selection, context menu copy targets, preview selection preservation, rename, leave guard, accepted cross-media navigation, scoped scan, mobile menu, real player preview/normal progress lifecycle')
 } finally {
   if (browser) await browser.close()
   if (server) await new Promise(resolve => server.close(resolve))
