@@ -81,18 +81,9 @@
   <ContinueWatchingRow v-if="showContinue" ref="cwRef" :media-library-id="curMediaId"
     @open="openMovie" @resume="resumeMovie" />
 
-  <div v-if="items.length" class="wall-head">
-    <h3>{{ q.trim() || activeCount ? '筛选结果' : '全部影片' }} <span class="wall-count">{{ wallCountText }}</span></h3>
-    <div class="wall-sort">
-      <span v-if="q.trim()" class="fhint">按搜索相关度排序</span>
-      <template v-else>
-      <label><span class="sort-label">排序</span><select :value="sort.key" aria-label="排序方式" @change="pickSort($event.target.value)">
-        <option v-for="s in WALL_SORTS" :key="s.key" :value="s.key">{{ s.key === 'rating' ? s.label + '（' + ({ tmdb: 'TMDB', douban: '豆瓣', custom: '自评' }[sel.ratingSource]) + '）' : s.label }}</option>
-      </select></label>
-      <button @click="pickSort(sort.key)" :aria-label="sort.order === 'asc' ? '当前升序，切换为降序' : '当前降序，切换为升序'"><span aria-hidden="true">{{ sort.order === 'asc' ? '↑' : '↓' }}</span><span class="sort-label"> {{ sort.order === 'asc' ? '升序' : '降序' }}</span></button>
-      </template>
-    </div>
-  </div>
+  <BrowseResultsHeader v-if="items.length" :title="q.trim() || activeCount ? '筛选结果' : '全部影片'"
+    :count="wallCountText" :sort="sort" :options="WALL_SORTS" :rating-source="sel.ratingSource"
+    :relevance="!!q.trim()" @sort="pickSort" />
 
   <div class="grid" :aria-busy="loading">
     <div v-for="m in items" :key="m.id" :data-browse-id="m.id" :class="['card', { sel: selectedIds.has(m.id) }]"
@@ -220,6 +211,7 @@
   </div>
 </template>
 <script setup>
+import BrowseResultsHeader from '../components/BrowseResultsHeader.vue'
 import EmptyState from '../components/EmptyState.vue'
 import BrowseToolbar from '../components/BrowseToolbar.vue'
 import AiSearchPanel from '../components/AiSearchPanel.vue'
@@ -960,22 +952,6 @@ function escExit(e) {
 watch(() => route.query, () => { if (route.path !== '/') return; readUrl(); loadFacets(); load() })
 </script>
 <style scoped>
-.filters { padding: 0 12px; display: flex; flex-direction: column; gap: 6px; }
-.frow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.flabel { color: var(--jz-text-dim); font-size: 0.8125rem; min-width: 56px; }
-.chip { font-size: 0.8125rem; padding: 4px 10px; border: 1px solid var(--jz-border-strong); border-radius: 999px; cursor: pointer; background: var(--jz-surface); }
-.chip.on { border-color: var(--jz-accent); color: var(--jz-danger); }
-.chip.tag { border-style: dashed; }
-.chip.off { opacity: .45; }
-.fhint { color: var(--jz-text-faint); font-size: 0.75rem; }
-.wall-head {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  margin: 16px 12px 0; padding-top: 12px; border-top: 1px solid var(--jz-border);
-}
-.wall-head h3 { margin: 0; font-size: 1.0625rem; color: var(--jz-text); }
-.wall-count { color: var(--jz-text-faint); font-size: 0.8125rem; font-weight: normal; margin-left: 4px; }
-.wall-sort { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.wall-sort .flabel { min-width: 0; }
 
 .meta { color: var(--jz-text-dim); font-size: 0.75rem; }
 .custom-mini { color: var(--jz-danger); font-size: 0.75rem; }
@@ -1011,12 +987,11 @@ watch(() => route.query, () => { if (route.path !== '/') return; readUrl(); load
 .floatbar button svg { width: 16px; height: 16px; flex-shrink: 0; }
 .floatbar button:disabled { opacity: .4; cursor: default; }
 .floatbar .fmsg { color: var(--jz-green); font-size: 0.75rem; white-space: nowrap; }
-.no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center;
-  background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 2.5rem; font-weight: bold; user-select: none; }
+
 .unmatched-badge { position: absolute; bottom: 6px; right: 6px; font-size: 0.75rem; padding: 2px 8px;
   border-radius: 999px; background: rgba(224, 166, 60, .92); color: var(--jz-surface); font-weight: bold; }
 .watched-badge { position: absolute; bottom: 6px; left: 6px; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: var(--jz-overlay); color: var(--jz-green); }
-.load-more { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 12px 22px; }
+
 .warn-text { color: var(--jz-warn); }
 .dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .dlg { background: var(--jz-surface); border-radius: 10px; padding: 16px; min-width: 320px; max-width: 560px; max-height: 80vh; overflow: auto; }

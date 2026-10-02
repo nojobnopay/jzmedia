@@ -11,7 +11,7 @@
       <div class="hero-inner">
         <img v-if="s.poster_path" class="hero-poster" :src="posterUrl(s.poster_path)"
           :alt="s.name || seasonLabel(s.season)" />
-        <div v-else class="hero-poster hero-no-poster">{{ seasonLabel(s.season).slice(0, 1) }}</div>
+        <div v-else class="hero-poster hero-no-poster" aria-hidden="true">{{ seasonLabel(s.season).slice(0, 1) }}</div>
         <div class="hero-body">
           <div class="hero-heading">
             <h1>{{ s.show_title }}<span v-if="s.show_year" class="dim"> ({{ s.show_year }})</span></h1>
@@ -22,7 +22,6 @@
               <span>{{ s.watched_count }}/{{ s.episode_count }} 已看</span>
             </div>
           </div>
-          <MediaOverview :text="s.overview || ''" />
           <div class="acts">
             <button v-if="s.next_episode" class="primary" :disabled="!s.next_episode.exists"
               @click="play(s.next_episode)">
@@ -36,6 +35,7 @@
             </ActionMenu>
             <span v-if="busy" class="dim">处理中…</span>
           </div>
+          <MediaOverview :text="s.overview || ''" />
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
         </div>
       </div>
@@ -260,18 +260,9 @@ watch(() => [route.params.showId, route.params.season], () => { selectedVersion.
 </script>
 
 <style scoped>
-.tv-page { padding-bottom: 24px; }
-.crumbs { padding: 12px 12px 0; font-size: 0.875rem; color: var(--jz-text-dim); }
-.crumbs a { color: var(--jz-link); text-decoration: none; }
-.hero-inner { display: flex; gap: 18px; padding: 18px 16px; align-items: flex-end; }
-.hero-poster { width: 150px; aspect-ratio: 2/3; object-fit: cover; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.6); flex: 0 0 auto; }
-.hero-no-poster { display: flex; align-items: center; justify-content: center; background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 2.5rem; font-weight: bold; }
-.hero-body { min-width: 0; }
-.hero-body h2 { margin: 0 0 6px; font-size: 1.5rem; }
-.meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--jz-text-dim); font-size: 0.8125rem; margin-bottom: 8px; }
+
 /* 简介与空态走 App.vue 全局 .overview/.empty 单源（与电影/剧详情同形态）；季无评分，不渲染 HeroRatings */
-.acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.acts .primary { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); }
+
 /* 演职员样式单源：CastWall.vue */
 .ep-grid { --poster-min: 220px; }
 .ep-card { cursor: pointer; }
@@ -284,14 +275,12 @@ watch(() => [route.params.showId, route.params.season], () => { selectedVersion.
 .ep-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--jz-overlay-soft); }
 .ep-bar-in { height: 100%; background: var(--jz-accent); }
 .ep-no { color: var(--jz-link); }
-.meta { color: var(--jz-text-dim); font-size: 0.75rem; }
+
 .review-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--jz-warn-soft); color: var(--jz-warn); border: 1px solid var(--jz-warn-border); }
 .local-badge { margin-left: 8px; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--jz-info-soft); color: var(--jz-blue-chip); border: 1px solid var(--jz-info-border); }
 .ver-badge { margin-left: 6px; font-size: 0.6875rem; padding: 0 5px; border-radius: 3px; color: var(--jz-warn); border: 1px solid var(--jz-warn-border); }
 .dim { color: var(--jz-text-faint); }
-@media (max-width: 700px) {
-  .hero-inner { flex-direction: column; align-items: flex-start; }
-}
+
 </style>
 
 <style scoped>

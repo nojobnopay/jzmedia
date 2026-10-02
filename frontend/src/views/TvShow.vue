@@ -6,7 +6,7 @@
       <div class="hero-inner">
         <img v-if="show.poster_path" class="hero-poster" :src="posterSrc"
           :alt="show.title" />
-        <div v-else class="hero-poster hero-no-poster">{{ (show.title || '?').slice(0, 1) }}</div>
+        <div v-else class="hero-poster hero-no-poster" aria-hidden="true">{{ (show.title || '?').slice(0, 1) }}</div>
         <div class="hero-body">
           <div class="hero-heading">
             <h1>{{ show.title }}<span v-if="show.year" class="dim"> ({{ show.year }})</span></h1>
@@ -21,7 +21,6 @@
                 v-if="show.library_name"> / {{ show.library_name }}</template></span>
             </div>
           </div>
-          <MediaOverview :text="show.overview || ''" />
           <div class="acts">
             <button v-if="nextEp" class="primary" :disabled="!nextEp.exists" @click="play(nextEp)">
               <PlayerIcon name="play" :size="20" /> {{ nextEp.progress ? '继续观看' : '播放下一集' }} {{ epNo(nextEp) }}
@@ -40,12 +39,13 @@
             <span class="dim">{{ show.watched_count }}/{{ show.episode_count }} 已看</span>
             <span v-if="busy" class="dim">{{ organizing ? '正在检查本剧目录…' : '处理中…' }}</span>
           </div>
+          <MediaOverview :text="show.overview || ''" />
           <EmptyState v-if="loadError" state="error" title="剧集刷新失败" :text="loadError" retry @retry="load()" />
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
-          <div v-if="show.needs_review" class="review-notice">
-            <span>请确认剧集是否匹配正确</span>
-            <button :disabled="busy" @click="confirmMatch">匹配正确</button>
-            <button @click="matchOpen = true">重新匹配</button>
+          <div v-if="(!show.tmdb_id && !show.match_source) || show.needs_review" class="review-notice">
+            <span>{{ !show.tmdb_id && !show.match_source ? '剧集资料尚未匹配' : '请确认剧集是否匹配正确' }}</span>
+            <button v-if="show.tmdb_id || show.match_source" :disabled="busy" @click="confirmMatch">匹配正确</button>
+            <button :aria-expanded="matchOpen" @click="matchOpen = !matchOpen">{{ !show.tmdb_id && !show.match_source ? '匹配资料' : '重新匹配' }}</button>
           </div>
           <form v-if="renameOpen" class="inline-edit" @submit.prevent="renameShow">
             <label>剧名 <input v-model="nameDraft" required aria-label="剧名" /></label>
@@ -301,7 +301,6 @@ async function load (verify = '0') {
       }
     }
     if (!isCurrent()) return
-    if (!detail.tmdb_id) matchOpen.value = true
     try {
       const related = await api(`/api/tv/shows/${requestedId}/similar`)
       if (isCurrent()) similar.value = related.items || []
@@ -531,26 +530,21 @@ watch(() => route.params.id, () => { orgHint.value = null; bindingsOpen.value = 
 </script>
 
 <style scoped>
-.tv-page { padding-bottom: 24px; }
-.hero { background-size: cover; background-position: center 20%; border-bottom: 1px solid var(--jz-border); }
-.hero-inner { display: flex; gap: 18px; padding: 18px 16px; align-items: flex-end; }
-.hero-poster { width: 150px; aspect-ratio: 2/3; object-fit: cover; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.6); flex: 0 0 auto; }
-.hero-no-poster { display: flex; align-items: center; justify-content: center; background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 2.5rem; font-weight: bold; }
-.hero-body { min-width: 0; flex: 1; }
-.hero-body h2 { margin: 0 0 6px; font-size: 1.5rem; }
+
+
+
 .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--jz-text-dim); font-size: 0.8125rem; margin-bottom: 8px; }
+
 /* 简介与空态走 App.vue 全局 .overview/.empty 单源（与电影 Detail 同形态） */
 .overview { max-width: 900px; }
-.acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.acts .primary { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); }
+
 .match { margin-top: 10px; max-width: 720px; }
 .match-bar { padding: 0; gap: 6px; }
 .match-bar input { flex: 1; }
 .mrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--jz-border); font-size: 0.875rem; }
 .mrow .mname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mrow .src-badge { padding: 1px 6px; border-radius: 3px; background: var(--jz-border); border: 1px solid var(--jz-border-strong); font-size: 0.75rem; color: var(--jz-text-dim); }
-.season-sec { margin: 12px; }
+
 .season-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: var(--jz-text); }
 .season-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .season-card { background: var(--jz-surface); border: 1px solid var(--jz-border); border-radius: 8px; overflow: hidden; cursor: pointer; }
@@ -573,7 +567,5 @@ watch(() => route.params.id, () => { orgHint.value = null; bindingsOpen.value = 
 .ex-name { font-size: 0.875rem; color: var(--jz-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
 .dim { color: var(--jz-text-faint); }
 .small { font-size: 0.75rem; margin-top: 2px; }
-@media (max-width: 700px) {
-  .hero-inner { flex-direction: column; align-items: flex-start; }
-}
+
 </style>

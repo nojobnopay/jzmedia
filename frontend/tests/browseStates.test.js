@@ -172,3 +172,23 @@ test('episode detail retry recovers, and navigating between episodes cannot expo
   assert.match(ui.text(), /示例分集3/)
   assert.doesNotMatch(ui.text(), /旧分集加载失败|示例分集1/)
 })
+
+test('shared result header preserves sort selection, direction toggling and movie search relevance mode', async t => {
+  const component = await loadSfc(new URL('../src/components/BrowseResultsHeader.vue', import.meta.url), { vue })
+  const selected = []
+  const props = Vue.reactive({ title: '全部影片', count: '共 13 部', sort: { key: 'added', order: 'desc' },
+    options: [{ key: 'added', label: '最近添加' }, { key: 'rating', label: '评分' }], ratingSource: 'douban',
+    relevance: false, onSort: key => selected.push(key) })
+  const ui = renderHarness(component, props)
+  t.after(() => ui.app.unmount())
+  assert.match(ui.text(), /全部影片.*共 13 部/)
+  assert.equal(ui.find(node => node.type === 'option' && node.props.value === 'rating').text, '评分（豆瓣）')
+  ui.find(node => node.type === 'select').props.onChange({ target: { value: 'rating' } })
+  ui.find(node => node.type === 'button').props.onClick()
+  assert.deepEqual(selected, ['rating', 'added'])
+  assert.equal(ui.find(node => node.type === 'button').props['aria-label'], '当前降序，切换为升序')
+  props.relevance = true
+  await flush()
+  assert.equal(ui.find(node => node.type === 'select'), undefined)
+  assert.match(ui.text(), /按搜索相关度排序/)
+})

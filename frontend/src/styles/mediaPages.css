@@ -1,152 +1,112 @@
-/* Detail layout shared by movies, TV, people and collections.
-   Keep rules under page roots so settings, dialogs and the player keep their own layout. */
-#app .media-detail { margin: 0 auto; padding: 24px 32px 48px; box-sizing: border-box; min-width: 0; }
-#app .media-detail { max-width: var(--jz-content-width); }
-#app .media-detail h1 { margin: 0 0 12px; font-size: var(--jz-font-title); line-height: 1.3; letter-spacing: -.02em; overflow-wrap: anywhere; }
-#app .media-detail h1 .dim, #app .media-detail h1 .year { color: var(--jz-text-dim); font-size: .65em; font-weight: 400; }
-#app .media-detail .media-hero { position: relative; isolation: isolate; z-index: 1; overflow: visible; border: 0; border-radius: var(--jz-radius-l); background: var(--jz-surface); margin: 0 0 24px; }
-#app .media-detail .media-backdrop { border-radius: inherit; }
-#app .media-detail .hero-inner { position: relative; box-sizing: border-box; max-width: none; padding: 28px; margin: 0; gap: 28px; }
-#app .media-detail .hero-main { gap: 28px; margin-top: 20px; }
-#app .media-detail .hero-body, #app .media-detail .hero-info { min-width: 0; flex: 1; }
-#app .media-detail .hero-poster, #app .media-detail .hero-main > .poster { width: 190px; flex: 0 0 190px; height: auto; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--jz-radius-m); box-shadow: 0 12px 32px #0006; align-self: flex-start; }
-#app .media-detail .hero-no-poster, #app .media-detail .poster-empty { display: flex; align-items: center; justify-content: center; font-size: 3rem; background: var(--jz-surface-3); color: var(--jz-text-faint); }
-#app .media-detail .hero-still { width: 38%; max-width: 440px; aspect-ratio: 16 / 9; object-fit: cover; align-self: flex-start; border-radius: var(--jz-radius-m); }
-#app .media-detail .topbar { align-items: center; margin: 0 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; }
-#app .media-detail .back-link { display: inline-flex; align-items: center; gap: var(--jz-gap-xs); color: var(--jz-text-dim); text-decoration: none; font-size: var(--jz-font-m); }
-#app .media-detail .back-link:hover { color: var(--jz-text); }
-#app .media-detail .sections { max-width: none; margin: 0; padding: 0; }
-#app .media-detail .acts, #app .media-detail .play-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 20px 0 0; }
-#app .media-detail .acts > button, #app .media-detail .play-row > button { min-height: var(--jz-control-current); padding: 9px 16px; border-radius: var(--jz-radius-m); }
-#app .media-detail .acts > .primary { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-text); font-size: var(--jz-font-l); font-weight: 600; border-radius: var(--jz-radius-m); box-shadow: none; }
-#app .media-detail .meta, #app .media-detail .meta-line { color: var(--jz-text-dim); line-height: 1.7; font-size: var(--jz-font-m); }
-#app .media-detail .meta { flex-wrap: wrap; }
-#app .media-detail .ver-sel { min-height: var(--jz-control-current); max-width: 100%; }
-#app .media-detail .playback-preparation { margin-top: 16px; color: var(--jz-text-dim); font-size: var(--jz-font-m); }
-#app .media-detail .playback-preparation summary { cursor: pointer; width: fit-content; }
-#app .media-detail .pre-wrap { margin-top: 8px; flex-wrap: wrap; }
-#app .media-detail .detail-tabs { display: flex; padding: 0; background: transparent; border-bottom: 1px solid var(--jz-border); gap: 24px; margin-bottom: 24px; flex-wrap: wrap; }
-#app .media-detail .detail-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 12px 0; color: var(--jz-text-dim); font-size: var(--jz-font-l); }
-#app .media-detail .detail-tabs button.active { color: var(--jz-text); border-bottom-color: var(--jz-accent); }
-#app .media-detail .detail-tabs span { color: var(--jz-text-faint); margin-left: 4px; }
-#app .media-detail .body-grid { grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
-#app .media-detail .body-grid.facts-only { grid-template-columns: 1fr; }
-#app .media-detail .file-sections { display: grid; gap: 20px; }
-#app .media-detail .section-heading { font-size: var(--jz-font-xl); margin: 28px 0 16px; }
-#app .media-detail .section-heading span, #app .media-detail .heading-count { font-size: var(--jz-font-m); font-weight: 400; color: var(--jz-text-dim); margin-left: 8px; }
-#app .media-detail .section-head, #app .media-detail .collection-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
-#app .media-detail .section-head h3 { margin: 0; }
-#app .media-detail .episode-navigation { display: flex; flex-wrap: wrap; background: transparent; gap: 20px; padding: 16px 0 0; }
-#app .media-detail .episode-navigation button { border: 0; background: transparent; color: var(--jz-text-dim); padding: 6px 0; }
-#app .media-detail .crumbs { display: flex; background: transparent; padding: 0; gap: 8px; flex-wrap: wrap; margin: 0 0 20px; font-size: var(--jz-font-m); line-height: 1.7; }
-#app .media-detail .crumbs a { color: var(--jz-text-dim); font-weight: 400; }
-#app .media-detail .eyebrow { margin: 0 0 12px; color: var(--jz-text-dim); font-size: var(--jz-font-m); }
-#app .media-detail .review-notice { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; border-left: 2px solid var(--jz-warn); padding: 10px 14px; margin: 16px 0; color: var(--jz-warn); background: var(--jz-surface); font-size: var(--jz-font-m); }
-#app .media-detail .inline-edit { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; align-items: center; }
-#app .media-detail .inline-edit label { display: flex; gap: 8px; align-items: center; max-width: 100%; }
-#app .media-detail .inline-edit input { min-width: 0; }
-#app .media-detail .match-bar { flex-wrap: wrap; }
-#app .media-detail .match-bar input { min-width: 0; max-width: 100%; box-sizing: border-box; }
-#app .media-detail .page-feedback { border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); background: var(--jz-surface-2); padding: 10px 14px; margin: 12px 0; color: var(--jz-text); font-size: var(--jz-font-m); line-height: 1.7; overflow-wrap: anywhere; }
-#app .media-detail .grid { padding: 0; gap: 20px; }
-#app .media-detail .season-sec { margin-top: 0; }
-#app .media-detail .season-grid { gap: 20px; }
-#app .media-detail .work-wall { gap: 20px; }
-#app .media-detail .no-poster { aspect-ratio: 2 / 3; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: var(--jz-text-faint); background: var(--jz-surface-3); }
-#app .media-detail .work-card:focus-visible, #app .media-detail .season-card:focus-visible, #app .media-detail .card:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 4px; }
-#app .media-detail .edition-chip, #app .media-detail .watched-chip { vertical-align: middle; font-size: var(--jz-font-s); letter-spacing: 0; }
-#app .collection-detail > .card-block { margin: 16px 0; }
+/* Artwork, title and playback first; supporting information follows one rhythm. */
+.media-detail { width: 100%; max-width: var(--jz-content-width); margin: 0 auto; padding: var(--jz-gap-2xl) clamp(20px, 3vw, 48px) var(--jz-gap-4xl); box-sizing: border-box; min-width: 0; }
+.media-detail h1 { margin: 0 0 var(--jz-gap-s); font-size: clamp(1.75rem, 2.8vw, 2.5rem); line-height: 1.25; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.media-detail h1 .dim, .media-detail h1 .year { font-size: .56em; font-weight: 400; color: var(--jz-text-dim); letter-spacing: 0; white-space: nowrap; }
+.media-detail .media-hero { position: relative; isolation: isolate; z-index: 1; overflow: visible; border: 0; border-radius: var(--jz-radius-l); margin-bottom: var(--jz-gap-3xl); background: var(--jz-bg); }
+.media-detail .media-backdrop { border-radius: inherit; }
+.media-detail .hero-inner { display: flex; gap: var(--jz-gap-3xl); padding: var(--jz-gap-3xl); align-items: flex-start; }
+.movie-detail .hero-inner { display: block; }
+.media-detail .hero-main { display: flex; gap: var(--jz-gap-3xl); margin-top: var(--jz-gap-2xl); align-items: flex-start; }
+.media-detail .hero-body, .media-detail .hero-info { min-width: 0; flex: 1; }
+.media-detail .hero-poster, .media-detail .hero-main > .poster { width: 200px; flex: 0 0 200px; height: auto; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--jz-radius-m); align-self: flex-start; box-shadow: var(--jz-shadow-menu); }
+.media-detail img.hero-poster, .media-detail img.poster, .media-detail img.hero-still { display: block; }
+.media-detail .hero-no-poster, .media-detail .poster-empty, .media-detail .hero-no-still { display: flex; align-items: center; justify-content: center; background: var(--jz-surface-3); color: var(--jz-text-faint); font-family: inherit; font-size: 3rem; font-weight: 600; line-height: 1; text-align: center; }
+.media-detail .hero-still { width: 36%; max-width: 400px; aspect-ratio: 16 / 9; height: auto; object-fit: cover; border-radius: var(--jz-radius-m); }
+.media-detail .topbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--jz-gap-m); margin: 0; padding: 0; }
+.media-detail .hero-backbar { padding: var(--jz-gap-l) var(--jz-gap-3xl) 0; }
+.media-detail .back-link { display: inline-flex; align-items: center; gap: var(--jz-gap-xs); min-height: 32px; color: var(--jz-text-dim); text-decoration: none; font-size: var(--jz-font-m); }
+.media-detail .back-link:hover { color: var(--jz-text); }
+.media-detail .acts, .media-detail .play-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--jz-gap-s); margin: var(--jz-gap-xl) 0 var(--jz-gap-l); }
+.media-detail .acts > button, .media-detail .play-row > button { min-height: 44px; padding: var(--jz-gap-m) var(--jz-gap-xl); border-radius: var(--jz-radius-s); }
+.media-detail .play-main, .media-detail .acts > .primary { display: inline-flex; align-items: center; justify-content: center; gap: var(--jz-gap-s); min-width: 138px; background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); font-weight: 600; }
+.media-detail .play-main:hover:not(:disabled), .media-detail .acts > .primary:hover:not(:disabled) { background: var(--jz-accent-hover); }
+.media-detail .meta, .media-detail .meta-line { display: flex; flex-wrap: wrap; gap: 4px var(--jz-gap-m); margin: var(--jz-gap-s) 0 0; color: var(--jz-text-dim); font-size: var(--jz-font-m); line-height: 1.65; }
+.media-detail .ver-sel { min-height: 44px; max-width: 320px; }
+.media-detail .play-options { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-s); margin: 0 0 var(--jz-gap-l); }
+.media-detail .play-options .ver-sel { min-width: 0; }
+.media-detail .detail-badges { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-xs); margin: var(--jz-gap-s) 0; }
+.media-detail .edition-chip, .media-detail .watched-chip { margin: 0; font-size: var(--jz-font-s); font-weight: 400; line-height: 1.6; padding: 1px var(--jz-gap-s); border-radius: var(--jz-radius-s); }
+.media-detail .playback-preparation { margin-top: var(--jz-gap-m); color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+.media-detail .playback-preparation summary { width: fit-content; min-height: 32px; align-content: center; }
+.media-detail .pre-wrap { margin-top: var(--jz-gap-s); flex-wrap: wrap; }
+.media-detail .sections { display: flex; flex-direction: column; gap: var(--jz-gap-xl); max-width: none; margin: 0; padding: 0; }
+.media-detail .detail-tabs { display: flex; flex-wrap: wrap; gap: var(--jz-gap-2xl); padding: 0; margin: 0; background: transparent; border-bottom: 1px solid var(--jz-border); }
+.media-detail .detail-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: var(--jz-gap-m) 0; color: var(--jz-text-dim); font-size: var(--jz-font-m); min-height: 44px; }
+.media-detail .detail-tabs button.active { color: var(--jz-text); border-bottom-color: var(--jz-accent); }
+.media-detail .detail-tabs span { color: var(--jz-text-faint); margin-left: var(--jz-gap-xs); }
+.media-detail .body-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; align-items: start; gap: var(--jz-gap-3xl); }
+.media-detail .body-grid.facts-only { grid-template-columns: 1fr; }
+.media-detail .main-col { display: flex; flex-direction: column; gap: var(--jz-gap-xl); min-width: 0; }
+.media-detail .side-col { min-width: 0; }
+.media-detail .file-sections { display: grid; gap: var(--jz-gap-xl); }
+.media-detail .section-heading { margin: var(--jz-gap-2xl) 0 var(--jz-gap-l); font-size: 1.125rem; }
+.media-detail .section-heading span, .media-detail .heading-count { font-size: var(--jz-font-s); font-weight: 400; color: var(--jz-text-dim); margin-left: var(--jz-gap-s); }
+.media-detail .section-head, .media-detail .collection-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--jz-gap-l); margin-bottom: var(--jz-gap-xl); }
+.media-detail .section-head h3 { margin: 0; }
+.media-detail .episode-navigation { display: flex; flex-wrap: wrap; background: transparent; gap: var(--jz-gap-xl); padding: var(--jz-gap-s) 0 0; }
+.media-detail .episode-navigation button { border: 0; background: transparent; color: var(--jz-text-dim); padding: var(--jz-gap-xs) 0; }
+.media-detail .crumbs { display: flex; flex-wrap: wrap; gap: var(--jz-gap-s); margin: 0 0 var(--jz-gap-l); padding: 0; background: transparent; font-size: var(--jz-font-s); color: var(--jz-text-dim); line-height: 1.7; }
+.media-detail .crumbs a { color: var(--jz-text-dim); text-decoration: none; }
+.media-detail .eyebrow { margin: 0 0 var(--jz-gap-s); color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+.media-detail .review-notice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-s); border-left: 2px solid var(--jz-warn); padding: var(--jz-gap-s) var(--jz-gap-m); margin: var(--jz-gap-l) 0; background: var(--jz-surface); color: var(--jz-warn); font-size: var(--jz-font-s); }
+.media-detail .inline-edit { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-s); margin-top: var(--jz-gap-l); }
+.media-detail .inline-edit label { display: flex; align-items: center; gap: var(--jz-gap-s); max-width: 100%; }
+.media-detail .inline-edit input, .media-detail .match-bar input { min-width: 0; max-width: 100%; }
+.media-detail .match-bar { flex-wrap: wrap; }
+.media-detail .page-feedback { border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); background: var(--jz-surface); padding: var(--jz-gap-m) var(--jz-gap-l); margin: var(--jz-gap-m) 0; font-size: var(--jz-font-m); line-height: 1.6; overflow-wrap: anywhere; }
+.media-detail .grid { padding: 0; gap: var(--jz-gap-xl); }
+.media-detail .season-sec { background: transparent; padding: 0; margin: var(--jz-gap-2xl) 0; }
+.media-detail .season-grid, .media-detail .work-wall { gap: var(--jz-gap-l); }
+.media-detail .no-poster { aspect-ratio: 2 / 3; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: var(--jz-text-faint); background: var(--jz-surface-3); }
+.media-detail .work-card:focus-visible, .media-detail .season-card:focus-visible, .media-detail .card:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 4px; }
+.media-detail .col-chip { text-decoration: none; }
+.collection-detail > .card-block { margin: var(--jz-gap-l) 0; }
+.collection-detail .grid > .card { background: transparent; }
+.collection-detail .grid > .card .t { padding-inline: 0; }
 @media (max-width: 1000px) {
-  #app .media-detail .body-grid { grid-template-columns: 1fr; }
-  #app .media-detail .hero-poster, #app .media-detail .hero-main > .poster { width: 150px; flex-basis: 150px; }
-  #app .media-detail .hero-inner, #app .media-detail .hero-main { gap: 22px; }
+  .media-detail .body-grid { grid-template-columns: 1fr; }
+  .media-detail .hero-poster, .media-detail .hero-main > .poster { width: 160px; flex-basis: 160px; }
+  .media-detail .hero-inner, .media-detail .hero-main { gap: var(--jz-gap-2xl); }
 }
 @media (max-width: 700px) {
-  #app .media-detail { padding: 12px 12px 28px; }
-  #app .media-detail h1 { font-size: 1.25rem; line-height: 1.35; margin-bottom: 6px; }
-  #app .media-detail .media-hero { margin-bottom: 16px; }
-  #app .media-detail .hero-inner { padding: 12px; }
-  #app .media-detail .hero-main { margin-top: 8px; }
-  #app .media-detail .meta, #app .media-detail .meta-line { gap: 2px 8px; font-size: var(--jz-font-s); line-height: 1.55; margin: 4px 0 0; overflow-wrap: anywhere; }
-  #app .media-detail .topbar { margin-bottom: 8px; }
-  #app .media-detail .back-link { display: inline-flex; align-items: center; min-height: 36px; }
-  #app .media-detail .acts, #app .media-detail .play-row { gap: 8px; }
-  #app .media-detail .acts > button, #app .media-detail .play-row > button { padding: 9px 12px; }
-  #app .media-detail .detail-tabs { gap: 20px; margin-bottom: 12px; }
-  #app .media-detail .detail-tabs button { min-height: 44px; padding-block: 8px; font-size: var(--jz-font-m); }
-  #app .media-detail .body-grid, #app .media-detail .file-sections { gap: 12px; }
-  #app .media-detail .section-heading { margin: 16px 0 12px; font-size: var(--jz-font-l); }
-  #app .media-detail .section-head, #app .media-detail .collection-heading { gap: 8px; margin-bottom: 12px; }
-  #app .media-detail .card-block { padding: 12px; }
-  #app .media-detail .crumbs { gap: 4px; margin-bottom: 10px; font-size: var(--jz-font-s); }
-  #app .media-detail .eyebrow { margin-bottom: 4px; font-size: var(--jz-font-s); }
-  #app .media-detail .episode-navigation { gap: 12px; padding-top: 0; }
-  #app .media-detail .episode-navigation button { min-height: var(--jz-control-current); }
+  .media-detail { padding: var(--jz-gap-m) var(--jz-mobile-gutter) var(--jz-gap-3xl); }
+  .media-detail h1 { font-size: 1.5rem; line-height: 1.3; margin-bottom: var(--jz-gap-xs); }
+  .media-detail .media-hero { margin-bottom: var(--jz-gap-xl); }
+  .media-detail .hero-inner { padding: var(--jz-gap-m); }
+  .media-detail .hero-backbar { padding: 0 var(--jz-gap-m); }
+  .media-detail .back-link { min-height: var(--jz-touch-target); }
+  .media-detail .hero-main { margin-top: var(--jz-gap-s); }
+  .media-detail .hero-main, .show-detail .hero-inner, .season-detail .hero-inner, .episode-detail .hero-inner { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: var(--jz-gap-m); align-items: start; }
+  .media-detail .hero-info, .show-detail .hero-body, .season-detail .hero-body, .episode-detail .hero-body { display: contents; }
+  .media-detail .hero-info > *, .show-detail .hero-body > *, .season-detail .hero-body > *, .episode-detail .hero-body > * { grid-column: 1 / -1; min-width: 0; margin-top: 0; margin-bottom: 0; }
+  .media-detail .hero-info > .hero-heading, .show-detail .hero-body > .hero-heading, .season-detail .hero-body > .hero-heading, .episode-detail .hero-body > .hero-heading { grid-column: 2; grid-row: 1; align-self: center; }
+  .media-detail .hero-poster, .media-detail .hero-main > .poster, .media-detail .person-photo { grid-column: 1; grid-row: 1; width: 88px; flex: none; height: auto; aspect-ratio: 2 / 3; }
+  .media-detail .hero-no-poster, .media-detail .poster-empty, .media-detail .hero-no-still { font-size: 2rem; }
+  .media-detail .meta, .media-detail .meta-line { font-size: var(--jz-font-s); gap: 2px var(--jz-gap-s); line-height: 1.6; margin-top: var(--jz-gap-xs); }
+  .media-detail .acts, .media-detail .play-row { gap: var(--jz-gap-s); }
+  .media-detail .acts > button, .media-detail .play-row > button { padding: var(--jz-gap-s) var(--jz-gap-m); }
+  .media-detail .play-main, .media-detail .acts > .primary { min-width: 112px; }
+  .media-detail .ver-sel { flex: 1 1 150px; max-width: 100%; }
+  .media-detail .detail-tabs { gap: var(--jz-gap-xl); }
+  .media-detail .body-grid, .media-detail .file-sections, .media-detail .sections { gap: var(--jz-gap-l); }
+  .media-detail .card-block { padding: var(--jz-gap-m); }
+  .media-detail .season-sec, .media-detail .cast-sec, .media-detail .crew-sec, .media-detail .similar-block { padding: 0; }
+  .media-detail .season-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--jz-gap-m); }
+  .media-detail .section-heading { margin: var(--jz-gap-l) 0 var(--jz-gap-m); font-size: 1rem; }
+  .media-detail .section-head, .media-detail .collection-heading { gap: var(--jz-gap-s); margin-bottom: var(--jz-gap-m); }
+  .media-detail .crumbs { margin-bottom: var(--jz-gap-s); gap: 4px; }
+  .media-detail .episode-navigation { gap: var(--jz-gap-l); padding-top: 0; }
+  .media-detail .episode-navigation button { min-height: var(--jz-touch-target); }
+  .episode-detail .hero-inner { grid-template-columns: 104px minmax(0, 1fr); }
+  .episode-detail .hero-still { grid-column: 1; grid-row: 1; width: 104px; align-self: center; }
+  .season-detail .ep-grid { grid-template-columns: 1fr; }
+  .season-detail .ep-card { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: var(--jz-gap-s); }
+  .season-detail .ep-card .t { padding: var(--jz-gap-s); min-width: 0; }
+  .season-detail .ep-card .still-wrap { align-self: start; }
+  .season-detail .ep-card .episode-title { font-size: var(--jz-font-m); line-height: 1.5; }
+  .season-detail .ep-card .episode-date { display: block; margin: 3px 0 0; font-size: var(--jz-font-s); }
+  .season-detail .ep-card .episode-summary { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; margin: 2px 0 0; font-size: var(--jz-font-s); }
+  .season-detail .season-list-heading { gap: var(--jz-gap-s); margin-bottom: var(--jz-gap-s); }
+  .season-detail .season-list-heading label { font-size: var(--jz-font-s); max-width: 100%; }
+  .season-detail .season-list-heading select { min-width: 0; max-width: 100%; }
 }
-
-#app .media-detail .hero-backbar { padding: 24px 28px 0; margin: 0; }
-#app .media-detail .cast-sec { margin: 0 0 24px; }
-#app .media-detail > .cast-sec { margin-top: 24px; }
-#app .media-detail .season-sec { padding: 0; margin: 24px 0; background: transparent; }
-#app .media-detail .col-chip { text-decoration: none; }
-@media (max-width: 700px) {
-  #app .media-detail .hero-backbar { padding: 4px 12px 0; }
-  /* Keep title, ratings and metadata beside the artwork; actions and overview
-     use the full width below, without retaining the desktop poster height. */
-  #app .media-detail .hero-main,
-  #app .show-detail .hero-inner,
-  #app .season-detail .hero-inner,
-  #app .episode-detail .hero-inner { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 10px 12px; align-items: start; }
-  #app .media-detail .hero-info,
-  #app .show-detail .hero-body,
-  #app .season-detail .hero-body,
-  #app .episode-detail .hero-body { display: contents; }
-  #app .media-detail .hero-info > *,
-  #app .show-detail .hero-body > *,
-  #app .season-detail .hero-body > *,
-  #app .episode-detail .hero-body > * { grid-column: 1 / -1; margin-top: 0; margin-bottom: 0; min-width: 0; }
-  #app .media-detail .hero-info > .hero-heading,
-  #app .show-detail .hero-body > .hero-heading,
-  #app .season-detail .hero-body > .hero-heading,
-  #app .episode-detail .hero-body > .hero-heading { grid-column: 2; grid-row: 1; align-self: center; }
-  #app .media-detail .hero-heading .rating-row { gap: 4px; margin: 6px 0; }
-  #app .media-detail .hero-heading .rate-chip { font-size: var(--jz-font-s); padding: 2px 6px; margin: 0; }
-  #app .media-detail .hero-heading .rate-chip .stars { display: none; }
-  #app .media-detail .hero-poster,
-  #app .media-detail .hero-main > .poster,
-  #app .media-detail .person-photo { grid-column: 1; grid-row: 1; width: 80px; flex: 0 0 auto; }
-  #app .media-detail .person-photo { height: auto; aspect-ratio: 2 / 3; }
-  #app .episode-detail .hero-inner { grid-template-columns: 104px minmax(0, 1fr); }
-  #app .episode-detail .hero-still { grid-column: 1; grid-row: 1; width: 104px; align-self: center; }
-  #app .episode-detail .hero-body:first-child > .hero-heading { grid-column: 1 / -1; }
-  #app .media-detail .season-sec, #app .media-detail > .cast-sec { margin-block: 16px; }
-  #app .media-detail .cast-wall { display: flex; overflow-x: auto; gap: 12px; padding: 4px 0 8px; scrollbar-width: thin; }
-  #app .media-detail .cast-card { flex: 0 0 80px; --jz-cast-size: 76px; }
-  #app .media-detail .season-grid,
-  #app .media-detail .work-wall,
-  #app .collection-detail .grid { grid-template-columns: repeat(auto-fill, minmax(min(var(--jz-mobile-poster-min, 99px), 100%), 1fr)); gap: 12px 8px; }
-  #app .media-detail .season-card { min-width: 0; }
-  #app .media-detail .season-card > .small { padding-inline: 8px; }
-  #app .media-detail .season-card > :last-child { padding-bottom: 8px; }
-  #app .collection-detail .card .t { padding: 6px; font-size: var(--jz-font-s); }
-  #app .season-detail .ep-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  #app .season-detail .ep-card { display: grid; grid-template-columns: clamp(104px, 30vw, 152px) minmax(0, 1fr); align-items: center; }
-  #app .season-detail .ep-card .t { min-width: 0; padding: 8px; font-size: var(--jz-font-m); }
-  #app .season-detail .ep-card .episode-title { overflow-wrap: anywhere; }
-  #app .season-detail .ep-card .episode-date { display: block; margin: 3px 0 0; font-size: var(--jz-font-s); }
-  #app .season-detail .ep-card .episode-summary { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; margin: 2px 0 0; font-size: var(--jz-font-s); }
-  #app .season-detail .season-list-heading { gap: 8px; margin-bottom: 8px; }
-  #app .season-detail .season-list-heading .section-heading { margin-bottom: 4px; }
-  #app .season-detail .season-list-heading label { font-size: var(--jz-font-s); max-width: 100%; }
-  #app .season-detail .season-list-heading select { min-width: 0; max-width: 100%; min-height: var(--jz-control-current); }
-}
-
-#app .media-detail .media-hero select, #app .media-detail .season-list-heading select { color-scheme: dark; background: var(--jz-surface-2); color: var(--jz-text); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s); padding: 8px 10px; font-size: var(--jz-font-m); }
-
-/* Icon and label share a stable center in every playback entry. */
-#app .media-detail .play-main, #app .media-detail .acts > .primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-@media (hover: none) { button, summary { touch-action: manipulation; } }
-
-#app .media-detail .media-overview { max-width: 72ch; }
-#app .collection-detail .grid > .card { background: transparent; }
-#app .collection-detail .grid > .card .t { padding-inline: 0; }

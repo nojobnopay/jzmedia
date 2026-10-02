@@ -4,7 +4,7 @@
     <form class="bar collection-search" role="search" aria-label="搜索合集" @submit.prevent="load"><input v-model="q" aria-label="搜索合集" placeholder="搜合集名" /><button>搜索</button></form>
     <form v-show="createOpen" id="collection-create" class="bar collection-create" @submit.prevent="create"><input v-model="name" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><button :disabled="!name.trim()">创建</button><button type="button" @click="createOpen = false">取消</button></form>
     <p v-if="msg" role="status">{{ msg }}</p>
-    <h2 class="sec-h">我的合集</h2>
+    <div class="collections-heading"><h2 class="sec-h">我的合集</h2><span v-if="!loading && !loadError">{{ items.length }} 个合集</span></div>
     <EmptyState v-if="loading" state="loading" title="正在加载合集" text="请稍候…" />
     <EmptyState v-else-if="loadError" state="error" title="合集加载失败" :text="loadError" retry @retry="load" />
     <EmptyState v-else-if="!items.length" :state="loadedQuery ? 'no-results' : 'empty'"
@@ -13,10 +13,10 @@
       <JzButton v-if="loadedQuery" @click="clearSearch">清除搜索</JzButton>
       <JzButton v-else variant="primary" @click="createOpen = true">新建合集</JzButton>
     </EmptyState>
-    <div v-else class="grid">
-      <router-link v-for="c in items" :key="c.id" class="card" :to="'/c/' + c.id">
-        <div class="poster-wrap"><img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" :alt="c.name || '合集'" /><div v-else class="cover-empty" aria-hidden="true">合</div></div>
-        <div class="t">{{ c.name }}（{{ c.member_count }} 部）</div>
+    <div v-else class="grid collections-grid">
+      <router-link v-for="c in items" :key="c.id" class="card collection-card" :to="'/c/' + c.id">
+        <div class="poster-wrap"><img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" :alt="c.name || '合集'" /><div v-else class="cover-empty" aria-hidden="true"><AppIcon name="folder" :size="40" /></div></div>
+        <div class="collection-card-body"><h3>{{ c.name }}</h3><span>{{ c.member_count }} 部影片</span></div>
       </router-link>
     </div>
     <details v-if="suggest.length || topups.length" class="collection-section">
@@ -28,9 +28,9 @@
         </div>
       </div></section>
       <section v-if="suggest.length"><div class="bar"><h3>推荐合集</h3><button @click="acceptAll" :disabled="accepting">全部接受（{{ suggest.length }}）</button></div>
-        <div class="grid collection-action-grid"><div v-for="entry in suggest" :key="entry.collection_tmdb_id" class="card sg-card">
-          <div class="poster-wrap"><img v-if="entry.cover" :src="posterUrl(entry.cover)" loading="lazy" :alt="entry.collection_name" /><div v-else class="cover-empty" aria-hidden="true">合</div></div>
-          <div class="t">{{ entry.collection_name }}（库内 {{ entry.member_count }} 部）</div>
+        <div class="grid collection-action-grid"><div v-for="entry in suggest" :key="entry.collection_tmdb_id" class="card collection-card sg-card">
+          <div class="poster-wrap"><img v-if="entry.cover" :src="posterUrl(entry.cover)" loading="lazy" :alt="entry.collection_name" /><div v-else class="cover-empty" aria-hidden="true"><AppIcon name="folder" :size="40" /></div></div>
+          <div class="collection-card-body"><h3>{{ entry.collection_name }}</h3><span>库内 {{ entry.member_count }} 部影片</span></div>
           <div class="t sub">{{ entry.members.map(m => m.title).join(' / ') }}</div>
           <div class="bar"><button @click="accept(entry)" :disabled="accepting">接受</button><button @click="dismiss(entry)">忽略</button></div>
         </div></div>
@@ -48,6 +48,7 @@
   </div>
 </template>
 <script setup>
+import AppIcon from '../components/AppIcon.vue'
 import EmptyState from '../components/EmptyState.vue'
 import JzButton from '../components/JzButton.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -319,28 +320,37 @@ onUnmounted(() => {
 })
 </script>
 <style scoped>
-.cover-empty { aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; background: var(--jz-surface-3); }
-.suggest-sec { border-bottom: 1px dashed var(--jz-border); margin-bottom: 8px; }
-.suggest-sec h3, .sec-h { padding: 0 12px; font-size: 1rem; color: var(--jz-text); }
-.fhint { color: var(--jz-text-dim); font-size: 0.75rem; font-weight: normal; }
-.sg-card { border: 1px dashed var(--jz-border-strong); }
-.topup-sec { border-bottom: 1px dashed var(--jz-border); margin-bottom: 8px; }
-.topup-sec h3 { padding: 0 12px; font-size: 1rem; color: var(--jz-text); }
-.tp-card { border: 1px solid var(--jz-border-strong); }
-.t.sub { color: var(--jz-text-dim); font-size: 0.75rem; }
-.progress-wrap { padding: 0 12px 8px; display: flex; flex-direction: column; gap: 4px; }
-.progress { height: 8px; border-radius: 999px; background: var(--jz-surface-3); overflow: hidden; }
-.progress .fill { height: 100%; background: var(--jz-accent); border-radius: 999px; transition: width .4s; }
+.bar { flex-wrap: wrap; align-items: center; padding: var(--jz-gap-m) 0; }
+.collection-search { max-width: 640px; padding: 0; margin: 0 0 var(--jz-gap-xl); }
+.collection-search input, .collection-create input { flex: 1 1 180px; min-width: 0; }
+.collection-create { padding: var(--jz-gap-l); border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); background: var(--jz-surface); }
+.collections-heading { display: flex; align-items: baseline; gap: var(--jz-gap-s); margin: var(--jz-gap-2xl) 0 var(--jz-gap-l); }
+.sec-h { margin: 0; font-size: 1.125rem; font-weight: 600; }
+.collections-heading > span { color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+.collections-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.collection-card { color: inherit; text-decoration: none; min-width: 0; }
+.collection-card .poster-wrap { aspect-ratio: 2 / 3; border: 1px solid var(--jz-border); }
+.cover-empty { height: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; color: var(--jz-text-faint); background: var(--jz-surface-2); }
+.collection-card-body { padding-top: var(--jz-gap-m); }
+.collection-card-body h3 { font-size: var(--jz-font-l); font-weight: 600; line-height: 1.5; margin: 0 0 4px; overflow-wrap: anywhere; }
+.collection-card-body > span { color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+.collection-section { margin-top: var(--jz-gap-3xl); padding-top: var(--jz-gap-xl); border-top: 1px solid var(--jz-border); }
+.collection-section summary { cursor: pointer; font-size: var(--jz-font-m); font-weight: 500; line-height: 1.6; }
+.collection-section h3 { font-size: var(--jz-font-m); }
+.collection-action-grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.tp-card { padding: var(--jz-gap-l); border: 1px solid var(--jz-border); }
+.t.sub, .fhint { color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.6; }
+.progress-wrap { display: grid; gap: var(--jz-gap-xs); margin-block: var(--jz-gap-m); }
+.progress { height: 6px; border-radius: var(--jz-radius-pill); background: var(--jz-surface-3); overflow: hidden; }
+.progress .fill { height: 100%; background: var(--jz-accent); }
 .fail-list { color: var(--jz-warn); }
-</style>
-
-<style scoped>
-.bar { flex-wrap: wrap; align-items: center; padding: 12px 0; }
-.collection-search input, .collection-create input { flex: 1 1 180px; min-width: 0; max-width: 560px; }
-button { white-space: nowrap; min-height: 40px; }
-.card { color: inherit; text-decoration: none; min-width: 0; }
-.collection-section { margin-top: 24px; padding: 16px; border: 1px solid var(--jz-border); border-radius: 8px; }
-summary { cursor: pointer; line-height: 1.5; }
-.t, p { overflow-wrap: anywhere; }
+button { white-space: nowrap; min-height: var(--jz-control-current); }
 a { color: var(--jz-link); }
+@media (max-width: 700px) {
+  .collection-search { margin-bottom: var(--jz-gap-m); }
+  .collections-heading { margin-block: var(--jz-gap-l) var(--jz-gap-m); }
+  .collections-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .collection-card-body h3 { font-size: var(--jz-font-m); }
+  .collection-section { margin-top: var(--jz-gap-2xl); padding-top: var(--jz-gap-l); }
+}
 </style>

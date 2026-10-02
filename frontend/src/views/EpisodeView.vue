@@ -13,6 +13,7 @@
       <div class="hero-inner">
         <img v-if="ep.still_path" class="hero-still" :src="stillUrl(ep)" alt=""
           @error="ep.still_path = ''" />
+        <div v-else class="hero-still hero-no-still" aria-hidden="true">{{ (ep.title || ep.show_title || '?').slice(0, 1) }}</div>
         <div class="hero-body">
           <div class="hero-heading">
             <p class="eyebrow">{{ ep.show_title }} · {{ epNo(ep) }}</p>
@@ -26,7 +27,6 @@
               <span v-if="ep.local_only" class="local-badge">本地集</span>
             </div>
           </div>
-          <MediaOverview :text="ep.overview || ''" />
           <div class="acts">
             <button v-if="ep.exists" class="primary" @click="play">
               <PlayerIcon name="play" :size="20" /> {{ ep.progress ? '继续播放' : '播放' }}
@@ -37,6 +37,7 @@
               <button @click="pickOpen = !pickOpen">{{ pickOpen ? '收起集号匹配' : '修正集号匹配' }}</button>
             </ActionMenu>
           </div>
+          <MediaOverview :text="ep.overview || ''" />
           <nav v-if="prevEp || nextEp" class="episode-navigation" aria-label="切换剧集">
             <button v-if="prevEp" @click="goEpisode(prevEp)">‹ 上一集 {{ epNo(prevEp) }}</button>
             <button v-if="nextEp" @click="goEpisode(nextEp)">下一集 {{ epNo(nextEp) }} ›</button>
@@ -212,18 +213,10 @@ watch(() => route.params.epId, load)
 </script>
 
 <style scoped>
-.tv-page { padding-bottom: 24px; }
-.crumbs { padding: 12px 12px 0; font-size: 0.875rem; color: var(--jz-text-dim); }
-.crumbs a { color: var(--jz-link); text-decoration: none; }
-.hero-inner { display: flex; gap: 18px; padding: 18px 16px; align-items: flex-start; }
-.hero-still { width: min(420px, 100%); aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.6); flex: 0 0 auto; background: var(--jz-surface-2); }
-.hero-body { min-width: 0; }
-.hero-body h2 { margin: 0 0 6px; font-size: 1.5rem; }
-.meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--jz-text-dim); font-size: 0.8125rem; margin-bottom: 8px; }
+
 /* 简介与空态走 App.vue 全局 .overview/.empty 单源（与电影/剧详情同形态） */
 .overview { max-width: 900px; }
-.acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.acts .primary { background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); }
+
 .match { margin-top: 10px; max-width: 720px; }
 .match-bar { padding: 0; gap: 6px; }
 .match-bar input { flex: 1; }
@@ -234,7 +227,5 @@ watch(() => route.params.epId, load)
 .review-badge { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--jz-warn-soft); color: var(--jz-warn); border: 1px solid var(--jz-warn-border); }
 .local-badge { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; background: var(--jz-info-soft); color: var(--jz-blue-chip); border: 1px solid var(--jz-info-border); }
 .dim { color: var(--jz-text-faint); }
-@media (max-width: 700px) {
-  .hero-inner { flex-direction: column; align-items: flex-start; }
-}
+
 </style>

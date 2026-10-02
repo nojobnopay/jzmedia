@@ -8,12 +8,15 @@
       <router-link to="/collections" class="back-link">‹ 合集</router-link>
       <ActionMenu label="管理合集">
         <button @click="toggleEdit">{{ editing ? '结束编辑' : '编辑合集与成员' }}</button>
-        <button @click="armDel = true" :disabled="!!busy">删除合集</button>
+        <button @click="openDelete" :disabled="busy">删除合集</button>
       </ActionMenu>
     </header>
     <EmptyState v-if="loadErr" state="error" title="合集刷新失败" :text="loadErr" retry @retry="load" />
-    <h1>{{ c.name }} <span class="heading-count">{{ c.member_count }} 部影片</span></h1>
-    <MediaOverview :text="c.overview || ''" />
+    <div class="collection-intro">
+      <h1>{{ c.name }}</h1>
+      <p class="collection-count">{{ c.member_count }} 部影片</p>
+      <MediaOverview :text="c.overview || ''" :lines="2" />
+    </div>
     <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
     <div v-if="editing" class="card-block">
       <div class="bar"><input v-model="f.name" aria-label="合集名称" placeholder="合集名" style="flex:1" /></div>
@@ -22,10 +25,10 @@
     </div>
     <div class="grid">
       <div v-for="m in c.members" :key="m.id" class="card">
-        <div class="poster-wrap" role="link" tabindex="0" @keydown.enter.self="$router.push('/m/' + m.id)" @click="$router.push('/m/' + m.id)">
+        <router-link class="poster-wrap" :to="'/m/' + m.id">
           <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" :alt="m.title || '海报'" />
           <div v-else class="no-poster" aria-hidden="true">{{ (m.title || '?').slice(0, 1) }}</div>
-        </div>
+        </router-link>
         <div class="t">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span>
           <button v-if="editing" @click="kick(m.id)">移出合集</button>
         </div>
@@ -34,26 +37,25 @@
     <EmptyState v-if="!c.members.length" state="empty" title="合集中还没有影片" text="去海报墙多选影片后“加入合集”，或从影片详情页加入。">
       <router-link to="/">浏览电影</router-link>
     </EmptyState>
-    <div v-if="armDel" class="dlg-mask" @click.self="armDel = false">
-      <div ref="delDlgRef" class="dlg" role="dialog" aria-modal="true">
-        <h3>删除合集</h3>
-        <p class="hint">将删除合集「{{ c.name }}」（{{ c.member_count }} 部），只删合集，影片保留。不可恢复。</p>
-        <div class="bar">
-          <button @click="removeCol" :disabled="!!busy" class="danger-btn">{{ busy ? '删除中…' : '确认删除' }}</button>
-          <button @click="armDel = false">取消</button>
-        </div>
-      </div>
-    </div>
+    <JzDialog :open="armDel" title="删除合集" size="small" :busy="busy" @close="armDel = false">
+      <p>将删除合集「{{ c.name }}」（{{ c.member_count }} 部），影片仍会保留。此操作不可恢复。</p>
+      <p v-if="deleteError" class="delete-error" role="alert">{{ deleteError }}</p>
+      <template #footer>
+        <JzButton :disabled="busy" @click="armDel = false">取消</JzButton>
+        <JzButton variant="danger" :loading="busy" @click="removeCol">{{ busy ? '删除中…' : '确认删除' }}</JzButton>
+      </template>
+    </JzDialog>
   </div>
 </template>
 <script setup>
 import EmptyState from '../components/EmptyState.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import MediaOverview from '../components/MediaOverview.vue'
-import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
+import JzButton from '../components/JzButton.vue'
+import JzDialog from '../components/JzDialog.vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
-import { useFocusTrap } from '../useFocusTrap.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -62,9 +64,9 @@ const msg = ref('')
 const editing = ref(false)
 const loadErr = ref('')
 let loadSeq = 0
-const delDlgRef = ref(null)
 const busy = ref(false)
 const armDel = ref(false)
+const deleteError = ref('')
 const f = ref({ name: '', overview: '' })
 
 async function load() {
@@ -110,30 +112,37 @@ async function kick(mid) {
     msg.value = '移出失败：' + e.message
   }
 }
+function openDelete() {
+  deleteError.value = ''
+  armDel.value = true
+}
 async function removeCol() {
-  // 自定义弹层确认（评审 B8/R06-D6：与全站一致，不用原生 confirm）
+  if (busy.value) return
   busy.value = true
+  deleteError.value = ''
   try {
     await api('/api/collections/' + route.params.id, { method: 'DELETE' })
-    router.push('/collections')
+    armDel.value = false
+    await router.push('/collections')
   } catch (e) {
-    msg.value = '删除失败：' + e.message
+    deleteError.value = '删除失败：' + e.message
   } finally {
     busy.value = false
   }
 }
-useFocusTrap(computed(() => !!armDel.value), delDlgRef)
 onMounted(load)
 watch(() => route.params.id, load)
 onUnmounted(() => { loadSeq++ })
 </script>
 <style scoped>
+.collection-intro { max-width: 850px; margin-bottom: var(--jz-gap-2xl); }
+.collection-count { margin: var(--jz-gap-s) 0 0; font-size: var(--jz-font-m); color: var(--jz-text-dim); }
+.poster-wrap { display: block; border-radius: var(--jz-radius-m); overflow: hidden; }
+.card .t { line-height: 1.6; font-weight: 500; }
+.card .t button { display: block; margin-top: var(--jz-gap-s); }
+@media (max-width: 700px) { .collection-intro { margin-bottom: var(--jz-gap-l); }.collection-detail .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--jz-gap-l) var(--jz-gap-s); } }
+
 .page { padding-bottom: 24px; }
-.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.dlg { background: var(--jz-surface); border-radius: 10px; padding: 16px; min-width: 300px; max-width: 480px; }
-.dlg h3 { margin: 0 0 8px; }
-.dlg .bar { padding: 8px 0 0; }
-.danger-btn { border-color: var(--jz-danger-border); color: var(--jz-danger); }
-.overview { color: var(--jz-text-dim); padding: 0 12px; }
+.delete-error { color: var(--jz-danger); }
 .card-block { background: var(--jz-surface); border-radius: 10px; padding: 14px 16px; margin: 0 12px 12px; }
 </style>

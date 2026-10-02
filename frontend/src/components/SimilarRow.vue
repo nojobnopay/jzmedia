@@ -4,7 +4,7 @@
     <div class="similar-wrap">
       <button v-if="items.length > 4" class="similar-nav left" aria-label="向左滚动" @click="scroll(-1)">‹</button>
       <div ref="rowRef" class="similar-row" @scroll="onScroll">
-        <div v-for="x in items" :key="x.id" class="similar-card" @click="$emit('open', x.id)">
+        <div v-for="x in items" :key="x.id" class="similar-card" role="link" tabindex="0" @keydown.enter="$emit('open', x.id)" @click="$emit('open', x.id)">
           <div class="poster-wrap">
             <img v-if="x.poster_path" :src="posterUrl(x.poster_path)" loading="lazy" :alt="(x.title || '影片') + ' 海报'" />
             <div v-else class="similar-no-poster" aria-hidden="true">{{ (x.title || '?').slice(0, 1) }}</div>
@@ -65,27 +65,31 @@ onMounted(() => {
 onUnmounted(() => window.removeEventListener('resize', updateBar))
 </script>
 <style scoped>
-.similar-block { position: relative; }
-.similar-sub { color: #777; font-size: 0.75rem; font-weight: normal; margin-left: 6px; }
+.similar-block { position: relative; padding: 0; margin-top: var(--jz-gap-xl); background: transparent; }
+.similar-block h3 { font-size: 1.125rem; margin-bottom: var(--jz-gap-l); }
+.similar-card:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 2px; border-radius: var(--jz-radius-s); }
+.similar-sub { display: block; margin-top: var(--jz-gap-xs); color: var(--jz-text-dim); font-size: 0.75rem; font-weight: normal; }
 .similar-wrap { position: relative; }
 .similar-row { display: flex; gap: 12px; overflow-x: auto; padding: 2px 2px 10px; scroll-behavior: smooth; scrollbar-width: none; }
 .similar-row::-webkit-scrollbar { display: none; }
 .similar-bar { position: relative; height: 3px; margin: 0 2px; }
 .similar-bar-thumb { position: absolute; top: 0; height: 100%; border-radius: 999px; background: rgba(255,255,255,.18); transition: background .15s; }
 .similar-wrap:hover .similar-bar-thumb { background: rgba(255,255,255,.32); }
-.similar-card { flex: 0 0 140px; width: 140px; cursor: pointer; min-width: 0; }
+.similar-card { flex: 0 0 148px; width: 148px; cursor: pointer; min-width: 0; }
 .similar-card .poster-wrap img { border-radius: 8px; transition: filter .15s; }
 .similar-card:hover .poster-wrap img { filter: brightness(1.1); }
-.similar-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: #242424; color: #555; font-size: 2rem; font-weight: bold; border-radius: 8px; user-select: none; }
+.similar-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 2rem; font-weight: bold; border-radius: 8px; user-select: none; }
 .similar-name { font-size: 0.8125rem; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.similar-year { color: #999; font-size: 0.75rem; margin-left: 4px; }
-.similar-custom { color: #ff6b6b; font-size: 0.75rem; margin-left: 4px; }
-.similar-library { font-size: 0.6875rem; color: #6ab0ff; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.similar-reason { font-size: 0.75rem; color: #888; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.similar-nav { position: absolute; top: 42%; transform: translateY(-50%); z-index: 2; width: 32px; height: 44px; border: none; border-radius: 8px; background: rgba(0,0,0,.62); color: #eee; font-size: 1.5rem; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s; padding: 0; }
+.similar-year { color: var(--jz-text-dim); font-size: 0.75rem; margin-left: 4px; }
+.similar-custom { color: var(--jz-danger); font-size: 0.75rem; margin-left: 4px; }
+.similar-library { font-size: 0.6875rem; color: var(--jz-text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.similar-reason { font-size: 0.75rem; color: var(--jz-text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.similar-nav { position: absolute; top: 42%; transform: translateY(-50%); z-index: 2; width: 32px; height: 44px; border: none; border-radius: 8px; background: rgba(0,0,0,.62); color: var(--jz-text); font-size: 1.5rem; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s; padding: 0; }
 .similar-nav.left { left: 4px; }
 .similar-nav.right { right: 4px; }
-.similar-block:hover .similar-nav { opacity: 1; }
+.similar-block:hover .similar-nav, .similar-nav:focus-visible { opacity: 1; }
 .similar-nav:hover { background: rgba(0,0,0,.85); }
 @media (hover: none) { .similar-nav { display: none; } }
+@media (max-width: 700px) { .similar-block { padding: 0; }.similar-card { flex-basis: 120px; width: 120px; } }
+@media (prefers-reduced-motion: reduce) { .similar-row { scroll-behavior: auto; }.similar-card .poster-wrap img { transition: none; } }
 </style>

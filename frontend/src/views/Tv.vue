@@ -87,15 +87,9 @@
   <ContinueWatchingRow v-if="showContinue" ref="cwRef" kind="tv" :media-library-id="curMediaId"
     @open="openShow" @resume="resume" />
 
-  <div v-if="items.length" class="wall-head">
-    <h3>{{ q.trim() || activeCount ? '筛选结果' : '全部剧集' }} <span class="wall-count">{{ wallCountText }}</span></h3>
-    <div class="wall-sort">
-      <label><span class="sort-label">排序</span><select :value="sort.key" aria-label="排序方式" @change="pickSort($event.target.value)">
-        <option v-for="s in WALL_SORTS" :key="s.key" :value="s.key">{{ s.key === 'rating' ? s.label + '（' + ({ tmdb: 'TMDB', douban: '豆瓣', custom: '自评' }[sel.ratingSource]) + '）' : s.label }}</option>
-      </select></label>
-      <button @click="pickSort(sort.key)" :aria-label="sort.order === 'asc' ? '当前升序，切换为降序' : '当前降序，切换为升序'"><span aria-hidden="true">{{ sort.order === 'asc' ? '↑' : '↓' }}</span><span class="sort-label"> {{ sort.order === 'asc' ? '升序' : '降序' }}</span></button>
-    </div>
-  </div>
+  <BrowseResultsHeader v-if="items.length" :title="q.trim() || activeCount ? '筛选结果' : '全部剧集'"
+    :count="wallCountText" :sort="sort" :options="WALL_SORTS" :rating-source="sel.ratingSource"
+    @sort="pickSort" />
 
   <EmptyState v-if="loading && !items.length || !firstLoaded && !loadError" state="loading" title="正在加载剧集" text="请稍候…" />
   <EmptyState v-else-if="loadError" state="error" title="剧集加载失败" :text="loadError" retry @retry="retryLoad" />
@@ -136,6 +130,7 @@
 </template>
 
 <script setup>
+import BrowseResultsHeader from '../components/BrowseResultsHeader.vue'
 import BrowseToolbar from '../components/BrowseToolbar.vue'
 import AiSearchPanel from '../components/AiSearchPanel.vue'
 import ActionMenu from '../components/ActionMenu.vue'
@@ -594,24 +589,7 @@ watch(() => route.query, () => { if (route.path !== '/tv') return; readUrl(); lo
 
 <style scoped>
 .show-card { cursor: pointer; }
-.wall-head {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  margin: 16px 12px 0; padding-top: 12px; border-top: 1px solid var(--jz-border);
-}
-.wall-head h3 { margin: 0; font-size: 1.0625rem; color: var(--jz-text); }
-.wall-count { color: var(--jz-text-faint); font-size: 0.8125rem; font-weight: normal; margin-left: 4px; }
-.wall-sort { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.wall-sort .flabel { min-width: 0; }
-.filters { padding: 0 12px; display: flex; flex-direction: column; gap: 6px; }
-.frow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.flabel { color: var(--jz-text-dim); font-size: 0.8125rem; min-width: 56px; }
-.chip { font-size: 0.8125rem; padding: 4px 10px; border: 1px solid var(--jz-border-strong); border-radius: 999px; cursor: pointer; background: var(--jz-surface); }
-.chip.on { border-color: var(--jz-accent); color: var(--jz-danger); }
-.chip.tag { border-style: dashed; }
-.chip.off { opacity: .45; }
-.fhint { color: var(--jz-text-faint); font-size: 0.75rem; }
 
-.no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 2.5rem; font-weight: bold; user-select: none; }
 .seen, .review {
   position: absolute; top: 6px; font-size: 0.75rem; padding: 2px 8px;
   border-radius: 999px; background: var(--jz-overlay); color: var(--jz-green);
@@ -619,7 +597,6 @@ watch(() => route.query, () => { if (route.path !== '/tv') return; readUrl(); lo
 .seen { left: 6px; }
 .review { right: 6px; color: var(--jz-warn); }
 .yr { color: var(--jz-text-dim); font-size: 0.75rem; }
-.fhint { color: var(--jz-text-faint); font-size: 0.8125rem; }
-.load-more { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px 12px 22px; }
+
 .warn-text { color: var(--jz-warn); }
 </style>
