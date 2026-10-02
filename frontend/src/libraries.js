@@ -202,3 +202,10 @@ export function uploadLibraries(libs, kind) {
   return (libs || []).filter(l => (l.kind || 'movie') === kind && !l.read_only
     && l.enabled !== false && l.enabled !== 0 && l.media_enabled !== false && l.media_enabled !== 0)
 }
+
+
+// A guided upload pins its target independently of the global media switch.
+export function uploadTargets(allLibraries, currentLibraries, kind, libraryId = null) {
+  const candidates = uploadLibraries(libraryId == null ? currentLibraries : allLibraries, kind)
+  return libraryId == null ? candidates : candidates.filter(l => Number(l.id) === Number(libraryId))
+}

@@ -81,6 +81,8 @@ DATA_DIR=./data MEDIA_ROOT=./media APP_PORT=8080 ./start.sh
 
 ## 第一次入库与播放
 
+首次打开空库时，点击欢迎卡片“开始配置”，可跟随四步向导完成 TMDB、视频库和扫描／上传。也可随时从“设置 → 新手配置”进入。[向导详细说明](../user-guide/onboarding.md)。以下为手动配置流程。
+
 ![媒体库连接：先建媒体库，再加视频库](../assets/screenshots/library-connection.webp)
 *媒体库存连接（本地路径/SMB/NFS），视频库是其下按电影或剧集划分的子目录；扫描与整理按视频库执行。*
 

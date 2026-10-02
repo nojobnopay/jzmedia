@@ -7,6 +7,7 @@
 | 前缀 | 主要功能 |
 |---|---|
 | `/api/health`、`/api/settings` | 健康、设置来源及保存 |
+| `/api/onboarding`、`/api/tmdb/check` | 新手配置进度、TMDB 凭据直连验证 |
 | `/api/media-libraries`、`/api/libraries` | 媒体库连接和视频库 CRUD/检查 |
 | `/api/movies`、`/api/search`、`/api/facets` | 电影、搜索筛选、详情、匹配、批量操作 |
 | `/api/tv` | 剧/季/集、待确认、手工绑定、观看和播放文件 |
@@ -100,3 +101,13 @@ Schema v28：`tv_directory_bindings` 持久化 `(library_id, path) → (show_id,
 | `POST /undo` | `{token, dry_run:true}` 预览；`dry_run:false` 撤销 |
 
 预览返回 `groups/conflicts/warnings/duplicates/can_apply`；只有无冲突才返回 `token`。确认重新校验磁盘指纹、源目录快照、目标剧与分集签名，在 SQLite 事务内变更归属和季号，沿用现有 episode ID。观看状态不参与过期校验、不随撤销回滚。规则/路径/新增分集变化会拒绝旧预览或撤销（409）；存储不可读返回 503，资料请求 HTTP 错误返回 502。接口不移动或写入媒体文件，可用于只读媒体库。规则绑定的剧在普通重新匹配入口禁止直接换成其他条目，改用归属弹窗。
+
+## 新手配置
+
+- `GET /api/onboarding` 仅查询本地数据，返回 `version/status/step/library_id/kind/import_mode/tmdb_skipped`、最近一次 `upload_result` 和派生的 `target_valid/library_verified/tmdb_verified/upload_allowed/max_step/can_complete/show_welcome/content`。`content` 含全局记录数、目标库入库数、待处理数和最多 5 条详情入口数据；读取不触发网络诊断、媒体盘点或任务。
+- `PATCH /api/onboarding` 部分更新步骤（1–4）、目标、导入方式及 `status=active|deferred|completed`。目标可以清空。初始状态为 `not_started`；进度按实例保存至 `app_settings.onboarding_state`，无需新增表或迁移。客户端报告的上传数量仅供展示，不作为入库完成证据；完成条件不足返回 409，非法字段返回 422。
+- `POST /api/tmdb/check` 不接收临时凭据，使用已保存的有效配置和代理直接访问 TMDB `/3/authentication`。单请求短超时、不重试，不查缓存或备用来源。诊断成功或上游错误均返回 200 和 `{ok, code, message, elapsed_ms}`；上游 401 映射为 `invalid_credentials`，不冒充应用鉴权错误。应用自身未授权仍由中间件返回 401。
+- `POST /api/libraries/{id}/check` 沿用原响应，记录与当前库配置关联的检查结果。配置变化后旧检查失效。只读不妨碍扫描和完成入库。
+- 向导沿用 `/api/settings`、媒体库／视频库接口、`/api/jobs/scan` 与 `/api/uploads`，所有操作显式指定目标视频库。`UploadDialog.libraryId` 可固定上传目标；`busy` 和 `result` 事件支持页面离开保护和结果展示，原 `done/close` 保持兼容。
+
+TMDB／存储凭据不保存到引导公开状态；内部验证指纹不返回客户端。升级安装已有电影或分集时不自动展示欢迎卡片，自动生成的空默认库则仍需引导。

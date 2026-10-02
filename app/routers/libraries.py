@@ -146,19 +146,25 @@ def check_library(library_id: int):
     media = store.get_media_library(lib.get("media_library_id"))
     if not media:
         raise HTTPException(404, "media library not found")
+    from .. import onboarding
+    signature = onboarding.library_signature(lib)
+    onboarding.record_check("library", signature, False, library_id=library_id)
     if str(media.get("source")) == "smb" and storage.smb_driver_mode() != "mount":
         out = _check_smb_direct(media)
     else:
         out = mounts.check_library(media)
     ok, err = True, ""
     try:
-        storage.backend_for(library_id).stat("")
+        if not storage.backend_for(library_id).stat("").is_dir:
+            ok, err = False, "目标路径不是目录"
     except storage.StorageError as e:
         ok, err = False, str(e)[:200]
     out["video"] = {"id": library_id, "name": lib.get("name"),
                     "subpath": lib.get("subpath") or "", "ok": ok, "error": err}
     out["movie_count"] = store.library_movie_count(library_id)
     out["episode_count"] = store.library_tv_count(library_id)
+    onboarding.record_check("library", signature, out.get("readable") and ok,
+                            library_id=library_id, writable=out.get("writable", False))
     return out
 
 

@@ -32,6 +32,7 @@ export default createRouter({
     { path: '/tv/:showId/s/:season', component: SeasonView },
     { path: '/tv/:showId/s/:season/e/:epId', component: EpisodeView },
     { path: '/settings', component: Settings },
+    { path: '/setup', component: () => import('./views/Setup.vue') },
     // 未知路径统一回首页（此前空 router-view + 导航残影；评审 R14-D5）
     { path: '/:pathMatch(.*)*', redirect: '/' }
   ]

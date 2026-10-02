@@ -185,3 +185,32 @@ def download_image(image_path: str, dest: str, size: str = "w500") -> bool:
 def download_poster(poster_path: str, dest: str, size: str = "w500") -> bool:
     """poster_path如/p1.jpg；图片走TMDB_IMAGE_BASE（可配代理域名）。size如w500/w185。"""
     return download_image(poster_path, dest, size)
+
+
+def check_connection() -> dict:
+    """Direct validation; exception text may contain credentials and is never returned."""
+    started = time.monotonic()
+    code, message = "ok", "凭据与 API 连接通过（未验证海报下载）"
+    if not (config.effective_tmdb_read_token() or config.effective_tmdb_api_key()):
+        return {"ok": False, "code": "not_configured", "message": "尚未配置 TMDB 凭据", "elapsed_ms": 0}
+    try:
+        with _client() as client:
+            response = client.get("/authentication", params=_params(), timeout=8.0)
+            response.raise_for_status()
+            if response.json().get("success") is not True:
+                code, message = "upstream_error", "TMDB 返回了无效的验证结果"
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (401, 403):
+            code, message = "invalid_credentials", "TMDB 凭据无效，请检查读取令牌或 API Key"
+        else:
+            code, message = "upstream_error", "TMDB 暂时不可用，请稍后重试"
+    except httpx.TimeoutException:
+        code, message = "timeout", "连接 TMDB 超时，请检查服务器网络或代理"
+    except httpx.TransportError:
+        code, message = "connection_error", "无法连接 TMDB，请检查服务器网络或代理"
+    except (ValueError, TypeError, AttributeError):
+        code, message = "invalid_response", "TMDB 配置或响应异常，请检查配置后重试"
+    if code != "ok":
+        logger.warning("TMDB connection check failed: %s", code)
+    return {"ok": code == "ok", "code": code, "message": message,
+            "elapsed_ms": round((time.monotonic() - started) * 1000)}

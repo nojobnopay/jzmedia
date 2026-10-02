@@ -63,7 +63,9 @@ class JobRegistry:
         with self._lock:
             if not self._jobs:
                 return None
-            jid = max(self._jobs, key=lambda k: self._jobs[k].get("started_at", 0))
+            # Several short scans can finish within the same timestamp second.
+            # Dict insertion order breaks ties in favor of the newest task.
+            jid = max(reversed(self._jobs), key=lambda k: self._jobs[k].get("started_at", 0))
             return dict(self._jobs[jid])
 
     def _trim_locked(self) -> None:

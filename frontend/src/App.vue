@@ -11,6 +11,7 @@
       <option v-for="m in libs" :key="m.id" :value="m.id">{{ optionLabel(m) }}</option>
     </select>
   </nav>
+  <SetupWelcome v-if="route.path === '/' || route.path === '/tv'" />
   <router-view />
   <BackToTop />
   <div v-if="authAsk" class="auth-mask">
@@ -28,6 +29,7 @@
   </div>
 </template>
 <script setup>
+import SetupWelcome from './components/SetupWelcome.vue'
 import BackToTop from './components/BackToTop.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -63,7 +65,7 @@ function onSwitch(e) {
   const id = Number(e.target.value)
   const path = route.path.startsWith('/tv') ? '/tv'
     : route.path.startsWith('/c/') || route.path === '/collections' ? '/collections'
-      : route.path === '/settings' ? '/settings' : '/'
+      : route.path === '/setup' ? '/setup' : route.path === '/settings' ? '/settings' : '/'
   // URL 先更新，避免旧 query 的 media 参数把选择切回旧库。
   router.push({ path, query: path === '/settings' ? { sec: 'sec-libtools', media: id } : { media: id } })
     .then(failure => { if (!failure) switchMedia(id); else e.target.value = currentId.value })

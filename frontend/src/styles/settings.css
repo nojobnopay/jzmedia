@@ -101,3 +101,5 @@
   .settings-layout .tool-views button { padding: 10px; }
   .settings-layout .pipe-head { flex-wrap: wrap; }
 }
+
+.settings-layout .setup-link { display: block; flex-shrink: 0; padding: 10px 12px; color: var(--jz-link); font-size: var(--jz-font-m); white-space: nowrap; }

@@ -1,7 +1,7 @@
 <template>
   <div class="settings-layout">
     <aside class="side-nav" aria-label="设置分类">
-      <h1>设置</h1>
+      <h1>设置</h1><router-link class="setup-link" to="/setup">新手配置</router-link>
       <template v-for="(n, i) in navs" :key="n.id">
         <div v-if="i === 0 || navs[i - 1].group !== n.group" class="nav-group">{{ n.group }}</div>
         <button :class="{ on: active === n.id }" :aria-current="active === n.id ? 'page' : undefined"
@@ -61,33 +61,8 @@
       </div>
 
       <div v-show="active === 'sec-tmdb'" id="sec-tmdb">
-        <section class="card-block">
-          <div class="section-heading"><h3>TMDB 连接</h3><span class="status-label">{{ s?.tmdb_configured ? '已配置凭据' : '未配置凭据' }}</span></div>
-          <div class="settings-form">
-            <label for="tmdb-token">读取令牌（Read Token） <span class="fhint">{{ s?.tmdb_read_token_masked || '未设置' }}</span></label>
-            <input id="tmdb-token" v-model="tmdbForm.readToken" type="password" placeholder="粘贴新的令牌；留空保留现有令牌" autocomplete="off" />
-            <details class="settings-details">
-              <summary>使用 API Key</summary>
-              <label for="tmdb-key">API Key <span class="fhint">{{ s?.tmdb_api_key_masked || '未设置' }}</span></label>
-              <input id="tmdb-key" v-model="tmdbForm.apiKey" type="password" placeholder="没有 Read Token 时使用；留空保留现有密钥" autocomplete="off" />
-            </details>
-            <div class="form-columns">
-              <label>资料语言<input v-model="tmdbForm.language" placeholder="zh-CN" /></label>
-              <label>网络代理<input v-model="tmdbForm.proxy" placeholder="http://服务器:端口" autocomplete="off" /></label>
-            </div>
-            <details class="settings-details">
-              <summary>图片地址与配置来源</summary>
-              <label for="tmdb-images">图片服务地址</label><input id="tmdb-images" v-model="tmdbForm.imageBase" placeholder="https://image.tmdb.org" />
-              <p class="hint">在此保存的配置优先于服务器环境配置，立即生效。清空代理或图片地址会恢复服务器配置或默认值。</p>
-              <dl class="info-grid"><dt>读取令牌</dt><dd>{{ srcText(s?.tmdb_read_token_source) }}</dd><dt>API Key</dt><dd>{{ srcText(s?.tmdb_api_key_source) }}</dd><dt>代理</dt><dd>{{ srcText(s?.tmdb_proxy_source) }}</dd><dt>语言</dt><dd>{{ srcText(s?.tmdb_language_source) }}</dd><dt>图片地址</dt><dd>{{ srcText(s?.tmdb_image_base_source) }}</dd></dl>
-              <button @click="clearTmdb" :disabled="!!busy || !s">{{ armClearTmdb ? '确认恢复服务器配置' : '恢复服务器配置' }}</button>
-              <button v-if="armClearTmdb" @click="armClearTmdb = false">取消恢复</button>
-              <p v-if="armClearTmdb" class="hint warn-text">将移除在此保存的五项 TMDB 配置，改用服务器环境配置或默认值。</p>
-            </details>
-          </div>
-          <div class="bar"><button class="primary" @click="saveTmdb" :disabled="!!busy || !s">{{ busy === 'tmdb' ? '保存中…' : '保存 TMDB 配置' }}</button><button @click="testTmdb" :disabled="!!busy || testingTmdb">{{ testingTmdb ? '测试中…' : '测试资料搜索' }}</button></div>
-          <p v-if="tmdbCfgMsg || tmdbMsg" class="feedback" role="status">{{ tmdbCfgMsg || tmdbMsg }}</p>
-        </section>
+        <TmdbSettingsPanel :settings="s" @saved="s = $event" />
+        <div class="bar"><button @click="testTmdb" :disabled="testingTmdb">{{ testingTmdb ? '测试中…' : '测试资料搜索' }}</button><span role="status">{{ tmdbMsg }}</span></div>
         <section class="card-block">
           <h3>匹配来源</h3>
           <p class="hint">按下方顺序查找影片资料，可为每个视频库分别设置。</p>
@@ -157,6 +132,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import TmdbSettingsPanel from '../components/TmdbSettingsPanel.vue'
 import LibrariesPanel from '../components/LibrariesPanel.vue'
 import LibraryToolsPanel from '../components/LibraryToolsPanel.vue'
 import { fmtBytes } from '../format.js'
@@ -175,71 +151,9 @@ const s = ref(null)
 const stats = ref(null)
 const tvStats = ref(null)
 const tvStatsError = ref('')
-const busy = ref(null) // tmdb|auth|fts
+const busy = ref(null) // auth|fts|providers|imdb
 
 const tmdbMsg = ref('')
-const tmdbCfgMsg = ref('')
-const armClearTmdb = ref(false)
-const tmdbForm = ref({ readToken: '', apiKey: '', proxy: '', language: '', imageBase: '' })
-function srcText(src) {
-  return { db: '设置页', env: '服务器环境配置', default: '系统默认', unset: '未设置' }[src] || ''
-}
-function syncTmdbForm() {
-  tmdbForm.value.proxy = s.value?.tmdb_proxy ?? ''
-  tmdbForm.value.language = s.value?.tmdb_language ?? ''
-  tmdbForm.value.imageBase = s.value?.tmdb_image_base ?? ''
-}
-async function saveTmdb() {
-  const payload = {}
-  if (tmdbForm.value.readToken.trim()) payload.tmdb_read_token = tmdbForm.value.readToken.trim()
-  if (tmdbForm.value.apiKey.trim()) payload.tmdb_api_key = tmdbForm.value.apiKey.trim()
-  if (tmdbForm.value.proxy.trim() !== (s.value?.tmdb_proxy || '')) payload.tmdb_proxy = tmdbForm.value.proxy.trim()
-  if (tmdbForm.value.language.trim() !== (s.value?.tmdb_language || '')) payload.tmdb_language = tmdbForm.value.language.trim()
-  if (tmdbForm.value.imageBase.trim().replace(/\/+$/, '') !== (s.value?.tmdb_image_base || '')) payload.tmdb_image_base = tmdbForm.value.imageBase.trim()
-  if (!Object.keys(payload).length) {
-    tmdbCfgMsg.value = '没有改动'
-    return
-  }
-  busy.value = 'tmdb'
-  tmdbCfgMsg.value = ''
-  try {
-    s.value = await api('/api/settings', { method: 'PUT', body: JSON.stringify(payload) })
-    tmdbForm.value.readToken = ''
-    tmdbForm.value.apiKey = ''
-    syncTmdbForm()
-    tmdbCfgMsg.value = 'TMDB 配置已保存'
-    tmdbMsg.value = ''
-  } catch (e) {
-    tmdbCfgMsg.value = '保存失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-async function clearTmdb() {
-  if (!armClearTmdb.value) {
-    armClearTmdb.value = true
-    tmdbCfgMsg.value = ''
-    return
-  }
-  armClearTmdb.value = false
-  busy.value = 'tmdb'
-  tmdbCfgMsg.value = ''
-  try {
-    s.value = await api('/api/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ tmdb_read_token: '', tmdb_api_key: '', tmdb_proxy: '', tmdb_language: '', tmdb_image_base: '' })
-    })
-    tmdbForm.value.readToken = ''
-    tmdbForm.value.apiKey = ''
-    syncTmdbForm()
-    tmdbCfgMsg.value = '已恢复服务器配置或默认值'
-  } catch (e) {
-    tmdbCfgMsg.value = '恢复失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-
 const authForm = ref({ token: '' })
 const authMsg = ref('')
 const armDisableAuth = ref(false)
@@ -292,7 +206,6 @@ function resetDisplay() {
 const testingTmdb = ref(false)
 async function testTmdb() {
   testingTmdb.value = true
-  tmdbCfgMsg.value = ''
   tmdbMsg.value = '测试中…'
   const t0 = performance.now()
   try {
@@ -494,7 +407,6 @@ async function loadSettings() {
   loadError.value = ''
   try {
     s.value = await api('/api/settings')
-    syncTmdbForm()
   } catch (e) { loadError.value = '设置加载失败：' + e.message }
 }
 onMounted(async () => {

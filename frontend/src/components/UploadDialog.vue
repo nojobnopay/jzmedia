@@ -5,7 +5,7 @@
       <template v-if="upStep === 'upload'">
       <div class="bar upload-target">
         <label>上传到视频库
-          <select v-model.number="upLibId" :disabled="uploading || tvBusy || uploadCounts.done > 0">
+          <select v-model.number="upLibId" :disabled="libraryId != null || uploading || tvBusy || uploadCounts.done > 0">
             <option v-for="l in upLibCandidates" :key="l.id" :value="l.id">
               {{ l.media_name ? l.media_name + ' · ' : '' }}{{ l.name }}{{ l.subpath ? '（' + l.subpath + '）' : '' }}
             </option>
@@ -98,26 +98,27 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { api, apiUpload } from '../api.js'
-import { currentMediaId, currentMediaVideoLibs, uploadLibraries, onLibChange } from '../libraries.js'
+import { currentMediaId, currentMediaVideoLibs, listLibs, uploadTargets, onLibChange } from '../libraries.js'
 import { fmtBytes, midEllipsis } from '../format.js'
 import { useTvUpload } from '../useTvUpload.js'
 import TvOrganizeDialog from './TvOrganizeDialog.vue'
 import { useFocusTrap } from '../useFocusTrap.js'
 
-const props = defineProps({ kind: { type: String, default: 'movie' } })
-const emit = defineEmits(['close', 'done'])
+const props = defineProps({ kind: { type: String, default: 'movie' }, libraryId: { type: Number, default: null } })
+const emit = defineEmits(['close', 'done', 'result', 'busy'])
 const router = useRouter()
 const dlgRef = ref(null)
 
 
 const libRevision = ref(0)
-const upLibCandidates = computed(() => { libRevision.value; return uploadLibraries(currentMediaVideoLibs(props.kind), props.kind) })
+const upLibCandidates = computed(() => { libRevision.value; return uploadTargets(listLibs(), currentMediaVideoLibs(props.kind), props.kind, props.libraryId) })
 const upLibId = ref(_storedUploadLib())
 function _storedUploadLib () {
   const cands = upLibCandidates.value
+  if (props.libraryId != null) return cands[0]?.id ?? null
   try {
     const mid = currentMediaId()
     const v = mid != null ? Number(localStorage.getItem('jzmedia.uploadLib.' + props.kind + '.' + mid)) : NaN
@@ -280,7 +281,7 @@ async function startUpload() {
   }
   try {
     const mid = currentMediaId()
-    if (mid != null && upLibId.value != null) {
+    if (props.libraryId == null && mid != null && upLibId.value != null) {
       localStorage.setItem('jzmedia.uploadLib.' + props.kind + '.' + mid, String(upLibId.value))
     }
   } catch (e) { /* 忽略 */ }
@@ -336,6 +337,7 @@ async function startUpload() {
       t.state = 'done'
       t.note = st
       t.movieId = (r && r.movie_id) || null
+      t.episodeId = r?.episode_id || null
       t.showId = r?.show_id || null
       t.showTitle = r?.show || availableShows.value.find(s => s.id === t.showId)?.title || targetTitle.value || t.rel.split('/')[0]
       if (r?.error) t.note += ': ' + r.error
@@ -378,6 +380,13 @@ async function startUpload() {
   upSummary.value = parts.join(' · ')
   emit('done')
   if (props.kind === 'tv' && !upCancelled && uploadedShows.value.length) await scrapeUploadedShows()
+  window.dispatchEvent(new CustomEvent('jzmedia:content-changed'))
+  emit('result', {
+    library_id: upLibId.value, kind: props.kind, uploaded: uploadCounts.value.done,
+    skipped: uploadCounts.value.skipped, failed: uploadCounts.value.error, cancelled: upCancelled,
+    movie_ids: upQueue.value.map(t => t.movieId).filter(Boolean),
+    episode_ids: upQueue.value.map(t => t.episodeId).filter(Boolean),
+  })
 }
 function retryFailed() {
   upQueue.value.filter(t => t.state === 'error').forEach(t => { t.state = 'queued'; t.note = ''; t.transferred = 0 })
@@ -443,8 +452,9 @@ async function doUpOrganize() {
 }
 
 function openTvTools() { router.push({ path: '/settings', query: { sec: 'sec-tvorganize', library: upLibId.value } }) }
+watch(() => uploading.value || tvBusy.value || upOrgBusy.value, value => emit('busy', value), { flush: 'sync' })
 function beforeUnload(event) {
-  if (uploading.value) { event.preventDefault(); event.returnValue = '' }
+  if (uploading.value || tvBusy.value || upOrgBusy.value) { event.preventDefault(); event.returnValue = '' }
 }
 let unsubscribe
 onBeforeRouteLeave(() => {

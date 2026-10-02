@@ -55,6 +55,7 @@ export function useLibraryScan(library, onDone = () => {}) {
     if (job.state === 'running') observed = job.job_id
     else if (observed === job.job_id) {
       observed = ''
+      window.dispatchEvent(new CustomEvent('jzmedia:content-changed'))
       Promise.resolve(onDone()).catch(e => { shared.error = '刷新扫描结果失败：' + e.message })
     }
   }, { immediate: true })
