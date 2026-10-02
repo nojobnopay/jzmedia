@@ -15,6 +15,7 @@ const paths = {
   search: ['M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0', 'm15 15 6 6'],
   more: ['M5 12h.01M12 12h.01M19 12h.01'],
   folder: ['M3 7V5h6l2 2h10v12H3z'],
+  file: ['M5 3h9l5 5v13H5z', 'M14 3v6h5M8 13h8M8 17h6'],
   'chevron-down': ['m5 9 7 7 7-7'],
   check: ['m5 12 4 4L19 6'],
   warning: ['m12 3 10 18H2z', 'M12 9v5m0 3v.01'],

@@ -30,8 +30,8 @@
         <div class="fs-toolbar" role="toolbar" aria-label="文件操作">
           <button :disabled="!currentRow || busy || loading || !!loadError" @click="open()">{{ currentRow?.isDir ? '打开文件夹' : '预览' }}</button>
           <button :disabled="!writable || busy || loading || !!loadError" @click="beginMkdir">新建文件夹</button>
-          <button :disabled="!selection.length || busy || loading || !!loadError" @click="copy('copy')">复制</button>
-          <button :disabled="!canCut" :title="selectedRows.some(r => r.isDir) ? '目录移动请使用归档整理' : '剪切选中文件'" @click="copy('cut')">剪切</button>
+          <button class="fs-secondary-action" :disabled="!selection.length || busy || loading || !!loadError" @click="copy('copy')">复制</button>
+          <button class="fs-secondary-action" :disabled="!canCut" :title="selectedRows.some(r => r.isDir) ? '目录移动请使用归档整理' : '剪切选中文件'" @click="copy('cut')">剪切</button>
           <button :disabled="!canPaste" @click="paste">粘贴{{ clipboard.mode === 'cut' ? '（移动）' : '' }}</button>
           <button class="fs-secondary-action" :disabled="!canRename" :title="one?.isDir ? '目录改名请使用归档整理' : '重命名（F2）'" @click="beginRename()">重命名</button>
           <button class="fs-secondary-action" :disabled="!writable || !selection.length || busy || loading || !!loadError" @click="beginDelete()">删除…</button>
@@ -66,10 +66,10 @@
         <div class="fs-table-area">
         <div class="fs-table-wrap" :aria-busy="loading" @contextmenu.prevent="openContext($event)" @click.self="resetSelection(); root?.focus()">
           <table class="fs-table" :inert="loading || !!loadError || !hasLoaded" aria-label="当前目录文件" aria-multiselectable="true">
-            <thead><tr><th class="fs-check"><label class="fs-check-target"><input type="checkbox" aria-label="全选当前目录" :checked="!!rows.length && selection.length === rows.length" :indeterminate="selection.length > 0 && selection.length < rows.length" :disabled="loading || !!loadError || !hasLoaded || !rows.length" @change="$event.target.checked ? selectAll() : clearSelection()" /></label></th><th v-for="col in columns" :key="col.key" :class="'fs-col-' + col.key" :aria-sort="sort === col.key ? (direction === 1 ? 'ascending' : 'descending') : 'none'"><button @click="setSort(col.key)">{{ col.label }}<span v-if="sort === col.key" aria-hidden="true"> {{ direction === 1 ? '↑' : '↓' }}</span></button></th></tr></thead>
+            <thead><tr><th class="fs-check"><label class="fs-check-target"><input type="checkbox" aria-label="全选当前目录" :checked="!!rows.length && selection.length === rows.length" :indeterminate="selection.length > 0 && selection.length < rows.length" :disabled="loading || !!loadError || !hasLoaded || !rows.length" @change="$event.target.checked ? selectAll() : clearSelection()" /></label></th><th v-for="col in columns" :key="col.key" :class="'fs-col-' + col.key" :aria-sort="sort === col.key ? (direction === 1 ? 'ascending' : 'descending') : 'none'"><button @click="setSort(col.key)">{{ col.label }}<span v-if="sort === col.key" aria-hidden="true"> {{ direction === 1 ? '↑' : '↓' }}</span></button><span v-if="col.key === 'name'" class="fs-mobile-sort"><select :value="sort" aria-label="文件排序" @change="setSort($event.target.value)"><option v-for="option in columns" :key="option.key" :value="option.key">按{{ option.label }}</option></select><button :aria-label="direction === 1 ? '切换为降序' : '切换为升序'" @click="setSort(sort)">{{ direction === 1 ? '↑' : '↓' }}</button></span></th></tr></thead>
             <tbody><tr v-for="row in rows" :key="row.rel" class="fs-row" :class="{ selected: selection.includes(row.rel), focused: focused === row.rel, cut: clipboard.mode === 'cut' && clipboard.library_id === libraryId && clipboard.rels.includes(row.rel) }" :data-fs-rel="row.rel" tabindex="-1" :aria-current="focused === row.rel ? 'true' : undefined" :aria-selected="selection.includes(row.rel)" @click="rowClick($event, row)" @dblclick="open(row)" @contextmenu.stop.prevent="openContext($event, row)">
               <td class="fs-check" @click.stop @dblclick.stop><label class="fs-check-target"><input type="checkbox" :aria-label="'选择 ' + row.name" :checked="selection.includes(row.rel)" :disabled="loading || !!loadError || !hasLoaded" @focus="focusRow(row)" @click="checkboxClick($event, row)" /></label></td>
-              <td class="fs-name" :title="row.name"><span class="fs-file-icon" :class="{ folder: row.isDir }" aria-hidden="true">{{ row.isDir ? '▱' : '▤' }}</span><span>{{ row.name }}</span></td>
+              <td class="fs-name" :title="row.name"><div class="fs-file-caption"><AppIcon :name="row.isDir ? 'folder' : 'file'" :size="18" class="fs-file-icon" :class="{ folder: row.isDir }" /><div><span class="fs-file-label">{{ row.name }}</span><small class="fs-mobile-meta">{{ row.isDir ? '文件夹' : fmtBytes(row.size) + ' · ' + fsType(row) }}<template v-if="fsMatchStatus(row) !== '—'"> · {{ fsMatchStatus(row) }}</template></small></div></div></td>
               <td class="fs-col-size">{{ row.isDir ? '—' : fmtBytes(row.size) }}</td><td class="fs-col-mtime">{{ formatDate(row.mtime) }}</td><td class="fs-col-type">{{ fsType(row) }}</td><td class="fs-col-status"><span :class="{ 'fs-unmatched': fsMatchStatus(row) === '待匹配', 'fs-unregistered': fsMatchStatus(row) === '待扫描' }">{{ fsMatchStatus(row) }}</span></td>
             </tr></tbody>
           </table>
@@ -302,7 +302,11 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 .fs-table .fs-col-type { width: 60px; }
 .fs-table .fs-col-status { width: 86px; }
 .fs-table td.fs-name { color: var(--jz-text); }
-.fs-file-icon { margin-right: 9px; color: var(--jz-link); font-size: 1rem; }
+.fs-file-caption { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.fs-file-caption > div { min-width: 0; flex: 1; }
+.fs-file-label { display: block; overflow: hidden; text-overflow: ellipsis; }
+.fs-file-icon { color: var(--jz-link); }
+.fs-mobile-meta, .fs-mobile-sort { display: none; }
 .fs-file-icon.folder { color: var(--jz-warn); }
 .fs-row { cursor: default; user-select: none; outline: none; }
 .fs-row:hover { background: var(--jz-surface-2); }
@@ -330,9 +334,10 @@ defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.val
 .fs-menu-target { padding: 6px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--jz-border); color: var(--jz-text-dim); font-size: .75rem; overflow-wrap: anywhere; }
 .danger { color: var(--jz-danger); border-color: var(--jz-danger-border); }
 @media (max-width: 1100px) { .fs-shell { grid-template-columns: 170px minmax(0, 1fr); } .fs-table .fs-col-mtime { width: 116px; } .fs-table .fs-col-type { display: none; } .fs-search { width: 140px; } }
-@media (max-width: 760px) { .fs-heading { padding: 14px; } .fs-heading p { max-width: 230px; } .fs-shell { display: block; } .fs-tree { display: flex; align-items: center; gap: 5px; max-height: 110px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--jz-border); padding: 8px; } .fs-tree-title, .fs-tree .fs-expander, .fs-tree-line[style] { display: none; } .fs-tree-line { flex-shrink: 0; } .fs-tree-name { padding: 7px 10px; } .fs-location { gap: 6px; } .fs-search { width: 100%; } .fs-toolbar { gap: 5px; } .fs-secondary-action { display: none; } .fs-toolbar button { padding: 7px 8px; } .fs-table .fs-col-mtime, .fs-table .fs-col-type { display: none; } .fs-table .fs-col-size { width: 74px; } .fs-table .fs-col-status { width: 70px; } .fs-table .fs-check { width: 44px; padding: 0; } .fs-table td { padding: 12px 4px; } .fs-file-icon { margin-right: 5px; } .fs-help[open] { position: absolute; background: var(--jz-surface-2); padding: 12px; left: 20px; right: 20px; z-index: 3; max-width: none; } .fs-pending { margin: 0 10px 12px; padding: 10px; } .fs-status { flex-wrap: wrap; } }
+@media (max-width: 760px) { .fs-heading { padding: 14px; } .fs-heading p { max-width: 230px; } .fs-shell { display: block; } .fs-tree { display: flex; align-items: center; gap: 5px; max-height: 110px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--jz-border); padding: 8px; } .fs-tree-title, .fs-tree .fs-expander, .fs-tree-line[style] { display: none; } .fs-tree-line { flex-shrink: 0; } .fs-tree-name { padding: 7px 10px; } .fs-location { gap: 6px; } .fs-search { width: 100%; } .fs-toolbar { gap: 5px; } .fs-secondary-action { display: none; } .fs-toolbar button { padding: 7px 8px; } .fs-table .fs-col-mtime, .fs-table .fs-col-type, .fs-table .fs-col-size, .fs-table .fs-col-status { display: none; } .fs-table .fs-check { width: 44px; padding: 0; } .fs-table td { padding: 12px 4px; } .fs-file-caption { gap: 8px; } .fs-file-label { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; } .fs-mobile-meta { display: block; margin-top: 4px; font-size: .75rem; color: var(--jz-text-dim); } .fs-col-name > button { display: none; } .fs-mobile-sort { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 4px 0; gap: 8px; } .fs-mobile-sort select { flex: 1; min-width: 0; border: 0; background: transparent; } .fs-help[open] { position: absolute; background: var(--jz-surface-2); padding: 12px; left: 20px; right: 20px; z-index: 3; max-width: none; } .fs-pending { margin: 0 10px 12px; padding: 10px; } .fs-status { flex-wrap: wrap; } }
 .fs-table .fs-col-size, .fs-table .fs-col-mtime, .fs-status { font-variant-numeric: tabular-nums; }
 @media (max-width: 700px), (pointer: coarse) {
+  .fs-crumbs { min-width: 0; }
   .fs-browser { --jz-control-current: var(--jz-touch-target); }
   .fs-navigation button { width: var(--jz-touch-target); }
   .fs-toolbar button, .fs-context-menu button, .fs-tree-name { min-height: var(--jz-touch-target); }

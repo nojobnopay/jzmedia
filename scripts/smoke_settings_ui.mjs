@@ -89,7 +89,8 @@ function mock(url, method, body) {
   if (key === '/api/onboarding') return { show_welcome: false, status: 'completed' }
   if (key === '/api/settings') return { tmdb_configured: false, tmdb_language: 'zh-CN', jzmedia_token_source: 'unset' }
   if (key === '/api/ai/settings') return { enabled: false, provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'demo', daily_limit: 100, timeout_seconds: 12, usage: { requests: 0, input_tokens: 0, output_tokens: 0 } }
-  if (key === '/api/jobs/stats') return { grouped: 10, versions: 12, no_match: 1, needs_review: 2, missing_files: 0, by_library: [] }
+  if (key === '/api/jobs/stats') return { grouped: 10, versions: 12, no_match: 1, needs_review: 2, missing_files: 0,
+    by_library: [{ library_id: 1, pending: 3, missing_files: 0 }] }
   if (key === '/api/tv/stats') return { shows: 3, seasons: 5, episodes: 60, pending: 0, episode_review: 0, by_library: [] }
   if (key === '/api/metadata/providers') return { providers: [{ name: 'local', label: '本地索引', available: true }, { name: 'tmdb', label: 'TMDB', available: true }] }
   if (key === '/api/metadata/test-search') return { library_id: id, kind: libs.find(l => l.id === id)?.kind, items: [], source: null, elapsed_ms: 1 }
@@ -621,6 +622,13 @@ try {
   await page.locator('.side-nav').getByRole('button', { name: '文件管理', exact: true }).click()
   await table.locator('tbody tr').first().waitFor()
   await page.setViewportSize({ width: 390, height: 844 })
+  const mobileSort = page.getByRole('combobox', { name: '文件排序', exact: true })
+  await mobileSort.selectOption('size')
+  assert.equal(await table.locator('th.fs-col-size').getAttribute('aria-sort'), 'ascending')
+  await page.getByRole('button', { name: '切换为降序', exact: true }).click()
+  assert.equal(await table.locator('th.fs-col-size').getAttribute('aria-sort'), 'descending')
+  await mobileSort.selectOption('name')
+  assert.equal(await table.locator('th.fs-col-name').getAttribute('aria-sort'), 'ascending')
   await page.getByLabel('搜索当前目录', { exact: true }).fill('poster')
   assert.equal(await table.locator('tbody tr').count(), 1)
   const mobileRow = table.locator('tbody tr').first()

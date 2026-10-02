@@ -7,6 +7,8 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), ' +
 
 // A child dialog owns the keyboard until it closes; the underlying dialog stays mounted.
 const traps = []
+let scrollBody = null
+let previousOverflow = ''
 
 export function useFocusTrap(active, containerRef) {
   let prevActive = null
@@ -48,6 +50,11 @@ export function useFocusTrap(active, containerRef) {
   function activate() {
     if (traps.includes(trap)) return
     prevActive = document.activeElement
+    if (!traps.length && document.body?.style) {
+      scrollBody = document.body
+      previousOverflow = scrollBody.style.overflow
+      scrollBody.style.overflow = 'hidden'
+    }
     traps.push(trap)
     document.addEventListener('keydown', onKeydown, true)
     nextTick(() => {
@@ -67,6 +74,10 @@ export function useFocusTrap(active, containerRef) {
     if (index === -1) return
     const wasTop = traps.at(-1) === trap
     traps.splice(index, 1)
+    if (!traps.length && scrollBody) {
+      scrollBody.style.overflow = previousOverflow
+      scrollBody = null
+    }
     const parent = traps.at(-1)
     if (wasTop) {
       // Removing an underlying dialog must never take focus from its child.

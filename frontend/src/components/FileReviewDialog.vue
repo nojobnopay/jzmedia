@@ -8,9 +8,9 @@
     <p v-if="error" class="file-review-error" role="alert">{{ error }}</p>
     <p class="hint">改名、移动保留已有匹配与观看记录；扫描结果中的未匹配和集号待办仍需核对。</p>
     <template #footer>
-      <JzButton variant="primary" :disabled="working || scanBlocked" :loading="scanning" @click="emit('scan')">{{ scanning ? '正在启动扫描…' : '扫描并核对' }}</JzButton>
-      <JzButton :disabled="scanning" @click="emit('later')">稍后处理</JzButton>
       <JzButton :disabled="scanning" @click="emit('stay')">继续管理</JzButton>
+      <JzButton :disabled="scanning" @click="emit('later')">稍后处理</JzButton>
+      <JzButton variant="primary" :disabled="working || scanBlocked" :loading="scanning" @click="emit('scan')">{{ scanning ? '正在启动扫描…' : '扫描并核对' }}</JzButton>
     </template>
   </JzDialog>
 </template>

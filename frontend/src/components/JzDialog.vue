@@ -65,12 +65,13 @@ defineExpose({ element: dialog })
 .jz-dialog-heading { flex: 1; min-width: 0; }
 .jz-dialog-heading :deep(h2) { margin: 0; font-size: var(--jz-font-xl); line-height: 1.5; overflow-wrap: anywhere; }
 .jz-dialog-close { flex: none; width: var(--jz-control-current); min-width: var(--jz-control-current); padding: 8px; margin: -4px -8px -4px 0; }
-.jz-dialog-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px; line-height: 1.6; }
+.jz-dialog-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px; line-height: 1.6; overflow-wrap: anywhere; }
 .jz-dialog-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; flex: none; border-top: 1px solid var(--jz-border); padding: 16px 24px; }
 @media (max-width: 600px) {
-  .jz-dialog-mask { padding: 12px; }
+  .jz-dialog-mask { padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
   .jz-dialog { max-height: calc(100dvh - 24px); }
   .jz-dialog-header, .jz-dialog-body { padding: 16px; }
   .jz-dialog-footer { padding: 14px 16px; }
+  .jz-dialog-footer :deep(.jz-button--primary) { flex: 1; }
 }
 </style>

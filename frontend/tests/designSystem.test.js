@@ -36,6 +36,8 @@ function harness(t) {
     },
   })
   const body = makeNode('body')
+  body.style = { overflow: 'auto' }
+  doc.body = body
   const renderer = createRenderer({
     createElement: makeNode, createText: () => makeNode('text'), createComment: () => makeNode('comment'),
     setText(node, value) { node.text = value }, setElementText(node, value) { node.text = value },
@@ -89,6 +91,7 @@ test('nested dialogs keep Tab in the top dialog and return focus to its trigger'
   const external = ui.makeNode('button')
   external.focus()
   const parent = await ui.mount({ title: '父弹窗' }, { default: () => h('button', { id: 'open-child' }, '打开子弹窗') })
+  assert.equal(ui.body.style.overflow, 'hidden')
   const parentMask = ui.body.children.find(node => node.props.class?.includes('jz-dialog-mask'))
   const trigger = parentMask.querySelectorAll().find(node => node.props.id === 'open-child')
   trigger.focus()
@@ -104,8 +107,10 @@ test('nested dialogs keep Tab in the top dialog and return focus to its trigger'
   child.value = { ...child.value, open: false }
   await nextTick()
   assert.equal(ui.doc.activeElement, trigger)
+  assert.equal(ui.body.style.overflow, 'hidden', 'closing a child keeps the page locked behind its parent')
   parent.value = { ...parent.value, open: false }
   await nextTick()
   assert.equal(ui.doc.activeElement, external)
+  assert.equal(ui.body.style.overflow, 'auto', 'closing the last dialog restores the previous page overflow')
   assert.equal(ui.listeners.size, 2, 'hidden dialogs remove their traps; mounted document Escape listeners stay inert')
 })

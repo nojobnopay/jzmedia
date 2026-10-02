@@ -1,8 +1,11 @@
 /* Application foundations. Shared tokens live in tokens.css; page layout stays in styles/. */
+@media (min-width: 701px) { html { scrollbar-gutter: stable; } }
 body { font-family: var(--jz-font-family); margin: 0; background: var(--jz-bg); color: var(--jz-text); }
-.app-nav { padding: 12px; background: var(--jz-surface); display: flex; gap: 16px; align-items: center; }
+.app-nav { padding: 8px max(24px, calc((100vw - 1392px) / 2)); background: var(--jz-surface); display: flex; gap: 20px; align-items: center; border-bottom: 1px solid var(--jz-border); }
 .app-nav a { color: var(--jz-text); text-decoration: none; }
-.app-nav a.router-link-active { color: var(--jz-accent); font-weight: bold; }
+.app-nav a.router-link-active { color: var(--jz-text); font-weight: 600; }
+.app-nav > a:not(.brand) { display: inline-flex; align-items: center; min-height: 44px; position: relative; }
+.app-nav > a.router-link-active:not(.brand)::after { content: ''; position: absolute; bottom: -9px; left: 0; right: 0; height: 2px; background: var(--jz-accent); }
 .app-nav .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; letter-spacing: 0.5px; }
 .app-nav .brand img { border-radius: var(--jz-radius-s); display: block; }
 .app-nav .brand.router-link-active { color: var(--jz-text); font-weight: 800; }
@@ -90,10 +93,11 @@ input[type="range"] { padding: 0; }
 
 .app-nav > a { white-space: nowrap; }
 @media (max-width: 700px) {
- .app-nav { display: grid; grid-template-columns: 32px repeat(5, minmax(0, 1fr)); gap: 0 4px; padding: 4px var(--jz-mobile-gutter); }
+ .app-nav { display: grid; grid-template-columns: 32px repeat(5, minmax(0, 1fr)); gap: 0 4px; padding: 4px max(var(--jz-mobile-gutter), env(safe-area-inset-right)) 4px max(var(--jz-mobile-gutter), env(safe-area-inset-left)); }
+ .app-nav > a.router-link-active:not(.brand)::after { bottom: 2px; left: 10px; right: 10px; }
  .app-nav .brand { justify-content: center; min-height: var(--jz-touch-target); }
  .app-nav .brand span { display: none; }
- .app-nav .lib-switch { grid-column: 1 / -1; width: 100%; max-width: none; min-width: 0; min-height: 40px; margin-bottom: 4px; font-size: 1rem; }
+ .app-nav .lib-switch { grid-column: 1 / -1; width: 100%; max-width: none; min-width: 0; min-height: var(--jz-touch-target); margin-bottom: 4px; font-size: 1rem; }
  .app-nav > a:not(.brand) { display: flex; align-items: center; justify-content: center; min-height: var(--jz-touch-target); padding: 0 4px; }
  .app-nav .nav-spacer { display: none; }
 }

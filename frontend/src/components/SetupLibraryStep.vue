@@ -1,7 +1,7 @@
 <template>
   <section>
     <h2>设置视频库</h2>
-    <p>先选择文件存放位置，再指定其中的电影或剧集目录。一个存储位置可以包含多个视频库。</p>
+    <p class="hint">选择文件位置，再指定电影或剧集目录。</p>
     <fieldset :disabled="working">
       <label>这次添加什么内容？
         <select v-model="kind"><option value="movie">电影</option><option value="tv">剧集</option></select>
@@ -11,6 +11,7 @@
         <label><input v-model="mode" type="radio" value="video" /> 在已有位置添加视频库</label>
         <label><input v-model="mode" type="radio" value="media" /> 添加文件存放位置</label>
       </div>
+      <label class="choice-picker">添加方式<select v-model="mode"><option value="existing">使用已有视频库</option><option value="video">在已有位置添加视频库</option><option value="media">添加文件存放位置</option></select></label>
       <template v-if="mode === 'existing'">
         <label v-if="candidates.length">目标视频库
           <select v-model.number="selected" @change="edit = false; message = ''">
@@ -145,8 +146,10 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 label { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
 input, select { max-width: 100%; min-width: 0; box-sizing: border-box; }
 .choices { display: flex; flex-wrap: wrap; gap: 12px; }
-.choices label { flex-direction: row; align-items: center; }
-dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; padding: 16px; background: var(--jz-surface); border: 1px solid var(--jz-border); border-radius: 10px; }
+.choices label { flex-direction: row; align-items: center; min-height: 44px; margin-block: 6px; cursor: pointer; }
+.choice-picker { display: none; }
+dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; padding: 16px 0; border-block: 1px solid var(--jz-border); }
+dt { color: var(--jz-text-dim); }
 dd { margin: 0; overflow-wrap: anywhere; }
 .hint { color: var(--jz-text-dim); }
 details { margin: 16px 0; }
@@ -155,9 +158,9 @@ summary { cursor: pointer; }
 @media (max-width: 650px) {
   section { font-size: var(--jz-font-m); }
   label { gap: var(--jz-gap-xs); margin: 8px 0; }
-  .choices { gap: 0 var(--jz-gap-m); }
-  .choices label { min-height: 36px; margin: 0; }
-  dl { padding: 10px; gap: 6px 12px; margin: 12px 0; }
+  .choices { display: none; }
+  .choice-picker { display: flex; }
+  dl { padding: 12px 0; gap: 6px 12px; margin: 12px 0; }
   details { margin: 12px 0; }
   summary { min-height: 40px; box-sizing: border-box; padding: 8px 0; }
   p[role="status"]:empty { margin: 0; }

@@ -120,7 +120,7 @@ def onboarding(browser, base, work):
     r.say("首次使用：从欢迎卡片进入四步配置。演示数据和视频均为虚构。")
     r.hold(3)
     r.screenshot("previews/onboarding/00-welcome.webp")
-    r.click(p.get_by_role("link", name="开始配置 →"))
+    r.click(p.get_by_role("link", name="开始配置", exact=True))
     p.get_by_role("button", name="稍后配置 TMDB", exact=True).wait_for()
     r.say("第一步：配置资料来源。本次使用本地 NFO，选择稍后配置 TMDB。")
     r.hold(4)

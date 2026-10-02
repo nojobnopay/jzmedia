@@ -1,15 +1,15 @@
 <template>
   <main ref="pageRef" class="setup-page">
     <header class="setup-heading">
-      <div><p class="eyebrow">首次使用</p><h1>让第一部内容进入媒体库</h1><p class="setup-description">配置资料来源，确认文件位置，然后扫描或上传。进度会保存在这台服务器。</p><HelpLink page="user-guide/onboarding" label="跟着图解完成首次入库" /></div>
+      <div><p class="eyebrow">新手配置<span v-if="state">第 {{ state.step }} / {{ SETUP_STEPS.length }} 步</span></p><h1>让第一部内容进入媒体库</h1><p class="setup-description">确认文件位置，扫描或上传。配置进度会自动保存。</p></div>
       <router-link v-if="state?.status === 'completed'" :to="wallLink">返回媒体库</router-link>
       <button v-else @click="defer" :disabled="blocked || !state">稍后继续</button>
     </header>
     <ol class="setup-steps" aria-label="配置步骤">
-      <li v-for="(label, index) in SETUP_STEPS" :key="label" :class="{ current: state?.step === index + 1 }">
+      <li v-for="(label, index) in SETUP_STEPS" :key="label" :class="{ current: state?.step === index + 1, done: state?.step > index + 1 || state?.status === 'completed' }">
         <button :aria-current="state?.step === index + 1 ? 'step' : undefined"
           :disabled="blocked || scan.running.value || !state || index + 1 > state.step"
-          @click="go(index + 1)"><span>{{ index + 1 }}</span>{{ label }}</button>
+          @click="go(index + 1)"><span aria-hidden="true"><AppIcon v-if="state?.step > index + 1 || state?.status === 'completed'" name="check" :size="16" /><template v-else>{{ index + 1 }}</template></span>{{ label }}</button>
       </li>
     </ol>
     <p v-if="loadError || error" class="setup-error" role="alert">{{ loadError || error }} <button @click="load" :disabled="blocked">重试加载</button></p>
@@ -19,7 +19,7 @@
         <TmdbSettingsPanel :settings="settings" @saved="settings = $event" @validated="tmdbReady = $event" @busy="childBusy = $event" />
         <p v-if="state.tmdb_verified && tmdbReady" class="hint">当前配置已验证，可继续设置视频库。</p>
         <p v-if="state.tmdb_skipped" class="hint">已选择稍后配置 TMDB；本地资料和已启用的备用来源仍可使用。</p>
-        <div class="setup-actions">
+        <div class="setup-actions setup-next">
           <button @click="skipTmdb" :disabled="blocked">稍后配置 TMDB</button>
           <button class="primary" @click="nextSource" :disabled="blocked || !tmdbReady">下一步：设置视频库</button>
         </div>
@@ -30,10 +30,10 @@
       </section>
       <section v-else-if="state.step === 3" class="setup-card">
         <h2>添加首部{{ state.kind === 'tv' ? '剧集' : '电影' }}</h2>
-        <p>目标：<strong>{{ target?.media_name }} / {{ target?.name }}</strong></p>
-        <div class="setup-choices">
-          <label><input type="radio" :checked="state.import_mode === 'scan'" @change="setMode('scan')" :disabled="blocked || scan.running.value" />扫描服务器已有文件</label>
-          <label><input type="radio" :checked="state.import_mode === 'upload'" @change="setMode('upload')" :disabled="blocked || scan.running.value || !state.upload_allowed" />从当前设备上传</label>
+        <p class="setup-target">目标视频库<strong>{{ target?.media_name }} / {{ target?.name }}</strong></p>
+        <div class="setup-choices" role="group" aria-label="添加内容的方式">
+          <label :class="{ chosen: state.import_mode === 'scan' }"><input type="radio" name="import-mode" :checked="state.import_mode === 'scan'" @change="setMode('scan')" :disabled="blocked || scan.running.value" /><span>扫描服务器已有文件<small>文件已在 NAS 或服务器上</small></span></label>
+          <label :class="{ chosen: state.import_mode === 'upload', unavailable: !state.upload_allowed }"><input type="radio" name="import-mode" :checked="state.import_mode === 'upload'" @change="setMode('upload')" :disabled="blocked || scan.running.value || !state.upload_allowed" /><span>从当前设备上传<small>把电脑或手机中的文件添加到库中</small></span></label>
         </div>
         <p v-if="!state.upload_allowed" class="hint">此库可扫描和播放；当前未确认写入权限，上传需要可写的视频库。</p>
         <template v-if="state.import_mode === 'scan'">
@@ -54,30 +54,29 @@
           <p v-else-if="state.content.pending">{{ state.content.pending }} 项资料或匹配待处理，入库结果中可继续核对。</p>
           <button @click="refresh" :disabled="blocked">刷新入库结果</button>
         </div>
-        <div class="setup-actions">
+        <div class="setup-actions setup-next">
           <button @click="defer" :disabled="blocked">稍后导入</button>
           <button class="primary" @click="go(4)" :disabled="blocked || scan.running.value || !state.content.count">查看入库结果</button>
         </div>
       </section>
       <section v-else class="setup-card">
-        <h2>{{ state.status === 'completed' ? '基本配置已完成' : '内容已入库，请核对结果' }}</h2>
-        <p>{{ target?.media_name }} / {{ target?.name }}：已登记 {{ state.content.count }} {{ state.kind === 'tv' ? '个分集文件' : '个电影文件' }}。</p>
+        <div class="setup-complete-heading"><span class="setup-complete-mark"><AppIcon name="check" :size="26" /></span><div><h2>{{ state.status === 'completed' ? '基本配置已完成' : '内容已入库，请核对结果' }}</h2><p>{{ target?.media_name }} / {{ target?.name }}：已登记 {{ state.content.count }} {{ state.kind === 'tv' ? '个分集文件' : '个电影文件' }}。</p></div></div>
         <p v-if="state.tmdb_skipped" class="hint">TMDB 已跳过，可在“设置 → 在线资料服务”中补配。</p>
         <p v-if="lastUpload" role="status">{{ uploadSummary(lastUpload) }}</p>
         <p role="status">{{ scan.message.value }}</p>
-        <p v-if="state.content.pending">{{ state.content.pending }} 项资料或匹配待处理。已入库不代表资料已匹配，请进入详情核对。</p>
+        <p v-if="state.content.pending" class="setup-pending">{{ state.content.pending }} 项资料或匹配待处理。已入库不代表资料已匹配，请进入详情核对。</p>
         <ul class="setup-items">
           <li v-for="item in state.content.items" :key="item.id">
-            <router-link :to="itemLink(item, state.kind)">{{ state.kind === 'tv' ? item.show_title + ' · ' : '' }}{{ item.title || (state.kind === 'tv' ? '第 ' + item.episode + ' 集' : '查看影片') }} · 查看详情与播放</router-link>
+            <router-link :to="itemLink(item, state.kind)"><strong>{{ state.kind === 'tv' ? item.show_title + ' · ' : '' }}{{ item.title || (state.kind === 'tv' ? '第 ' + item.episode + ' 集' : '查看影片') }}</strong><small>查看详情与播放</small></router-link>
             <span v-if="item.pending">待匹配／待确认</span>
           </li>
         </ul>
         <p class="hint">这里显示最近登记的最多 5 项。目录整理可稍后在库工具中预览、确认。</p>
-        <div class="setup-actions">
+        <div class="setup-actions setup-related">
           <router-link :to="pendingLink">处理匹配待办</router-link>
           <router-link :to="toolsLink">目录整理与库工具</router-link>
         </div>
-        <div class="setup-actions">
+        <div class="setup-actions setup-next">
           <button v-if="state.status !== 'completed'" class="primary" @click="complete" :disabled="blocked || !state.can_complete">完成引导</button>
           <router-link :to="wallLink">前往{{ state.kind === 'tv' ? '剧集' : '电影' }}库</router-link>
           <button v-if="state.status === 'completed'" @click="addAnother" :disabled="blocked">继续添加另一视频库</button>
@@ -85,7 +84,7 @@
       </section>
       <footer class="setup-actions">
         <button v-if="state.step > 1 && state.status !== 'completed'" @click="go(state.step - 1)" :disabled="blocked || scan.running.value">上一步</button>
-        <span class="hint">修改已保存的配置会保留；“稍后继续”不会删除媒体库或文件。</span>
+        <span class="hint">稍后继续会保留已保存的配置。</span><HelpLink page="user-guide/onboarding" label="配置帮助" />
       </footer>
     </template>
     <UploadDialog v-if="uploadOpen && target" :kind="state.kind" :library-id="target.id"
@@ -95,6 +94,7 @@
 </template>
 <script setup>
 import HelpLink from '../components/HelpLink.vue'
+import AppIcon from '../components/AppIcon.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { api } from '../api.js'
