@@ -115,7 +115,7 @@ const overrides = request => ({
 })
 const link = { props: ['to'], setup: (_props, { slots }) => () => Vue.h('a', slots.default?.()) }
 for (const [name, props, expected] of [
-  ['AiSettingsPanel', {}, /智能辅助（可选）/],
+  ['AiSettingsPanel', {}, /搜索与匹配建议/],
   ['AiSearchPanel', { kind: 'movie', mediaLibraryId: 7 }, /解析条件/],
   ['AiMatchSuggestions', { kind: 'tv', itemId: 12 }, /AI 匹配建议/],
 ]) {
@@ -168,7 +168,7 @@ async function mount(t, name, initialProps, request) {
     walk(app._instance.subTree)
     return out
   }
-  const textOf = node => typeof node?.children === 'string' ? node.children : Array.isArray(node?.children) ? node.children.map(textOf).join('') : ''
+  const textOf = node => node?.type === Vue.Comment ? '' : typeof node?.children === 'string' ? node.children : Array.isArray(node?.children) ? node.children.map(textOf).join('') : ''
   const button = text => nodes().find(n => n.type === 'button' && textOf(n) === text)
   return { props, nodes, button, app, text: () => nodes().map(textOf).join(' ') }
 }
@@ -308,8 +308,8 @@ test('selecting Go fills its official preset without a request, permits edits, a
   const model = fieldByValue(ui, 'glm-5.3-flash')
   assert.ok(model)
   assert.match(ui.text(), /影视用途尚未验证/)
-  assert.match(ui.text(), /不按服务商分别保存密钥/)
-  assert.match(ui.text(), /留空会沿用当前密钥/)
+  assert.match(ui.text(), /这里只保存一套配置/)
+  assert.match(ui.text(), /留空沿用当前密钥/)
   assert.match(ui.text(), /不加 opencode-go\/ 前缀/)
   const official = ui.nodes().find(n => n.type === 'a' && n.props?.href === 'https://opencode.ai/docs/go/#where-can-i-use-it')
   assert.equal(official.props.target, '_blank')

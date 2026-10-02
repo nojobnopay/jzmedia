@@ -19,48 +19,47 @@
     </aside>
     <main class="settings-main">
       <header class="settings-heading">
-        <div><h2>{{ currentPage.label }}</h2><p>{{ currentPage.description }}</p><span class="settings-scope">{{ settingsScope }}</span></div>
+        <div><div class="settings-title-line"><h2>{{ currentPage.label }}</h2><span class="settings-scope">{{ settingsScope }}</span></div><p>{{ currentPage.description }}</p></div>
         <span v-if="busy" class="activity-label" role="status">任务进行中</span>
       </header>
       <p v-if="loadError" class="settings-notice" role="alert">{{ loadError }} <button @click="loadSettings">重新加载</button></p>
 
       <div v-show="active === 'sec-status'" id="sec-status">
-        <section class="card-block">
-          <div class="section-heading"><h3>电影库概况</h3><button @click="loadStats">刷新统计</button></div>
-          <div v-if="stats" class="stat-grid">
-            <div class="stat"><b>{{ stats.grouped }}</b><span>电影</span></div>
-            <div class="stat"><b>{{ stats.versions }}</b><span>文件版本</span></div>
-            <div class="stat" :class="{ warn: stats.needs_review }"><b>{{ stats.needs_review }}</b><span>匹配待确认</span></div>
-            <div class="stat" :class="{ warn: stats.no_match }"><b>{{ stats.no_match }}</b><span>未匹配</span></div>
-            <div class="stat" :class="{ warn: stats.missing_files }"><b>{{ stats.missing_files }}</b><span>失效记录</span></div>
-          </div>
-          <p v-else class="hint" role="status">{{ statsError || '正在加载统计…' }}</p>
-          <div v-for="row in (stats?.by_library || []).filter(r => r.pending || r.missing_files)" :key="row.library_id" class="settings-notice">
-            <span>{{ libraryName(row.library_id) }}：{{ row.pending }} 项匹配待办 · {{ row.missing_files }} 个失效文件</span>
+        <section class="card-block overview-tasks">
+          <div class="section-heading"><div><h3>需要处理</h3><p class="hint">按视频库核对匹配与失效文件。</p></div><button @click="loadStats">刷新统计</button></div>
+          <div v-for="row in movieTodos" :key="'movie-' + row.library_id" class="overview-task">
+            <div><strong>{{ libraryName(row.library_id) }}</strong><span>{{ row.pending }} 项匹配待办 · {{ row.missing_files }} 个失效文件</span></div>
             <router-link :to="{ path: '/settings', query: { sec: row.pending ? 'sec-pending' : 'sec-sync', library: row.library_id } }">处理待办</router-link>
           </div>
-          <details v-if="stats" class="settings-details">
-            <summary>存储与缓存统计</summary>
-            <dl class="info-grid"><dt>数据库</dt><dd>{{ fmtBytes(stats.db_bytes) }}</dd><dt>海报文件</dt><dd>{{ fmtBytes(stats.posters_bytes) }}</dd><dt>资料缓存</dt><dd>{{ stats.tmdb_cache }} 条</dd><dt>人物</dt><dd>{{ stats.persons }} 位</dd></dl>
-          </details>
-        </section>
-        <section class="card-block">
-          <h3>剧集库概况</h3>
-          <div v-if="tvStats" class="stat-grid">
-            <div class="stat"><b>{{ tvStats.shows }}</b><span>剧集</span></div>
-            <div class="stat"><b>{{ tvStats.seasons }}</b><span>季</span></div>
-            <div class="stat"><b>{{ tvStats.episodes }}</b><span>分集文件</span></div>
-            <div class="stat" :class="{ warn: tvStats.pending }"><b>{{ tvStats.pending }}</b><span>待处理剧集</span></div>
-            <div class="stat" :class="{ warn: tvStats.episode_review }"><b>{{ tvStats.episode_review }}</b><span>分集待确认</span></div>
-          </div>
-          <p v-else class="hint" role="status">{{ tvStatsError || '正在加载统计…' }}</p>
-          <div v-for="row in (tvStats?.by_library || []).filter(r => r.pending)" :key="row.library_id" class="settings-notice">
-            <span>{{ libraryName(row.library_id) }}：{{ row.pending }} 部剧待处理</span>
+          <div v-for="row in tvTodos" :key="'tv-' + row.library_id" class="overview-task">
+            <div><strong>{{ libraryName(row.library_id) }}</strong><span>{{ row.pending }} 部剧待处理</span></div>
             <router-link :to="{ path: '/settings', query: { sec: 'sec-pending', library: row.library_id } }">处理剧集待办</router-link>
           </div>
+          <p v-if="stats && tvStats && !movieTodos.length && !tvTodos.length" class="overview-clear">当前没有匹配或失效文件待办。</p>
+          <p v-else-if="!stats || !tvStats" class="hint" role="status">{{ statsError || tvStatsError || '正在加载待办…' }}</p>
         </section>
+        <div class="overview-collections">
+          <section class="card-block"><h3>电影库概况</h3>
+            <div v-if="stats" class="stat-grid">
+              <div class="stat"><b>{{ stats.grouped }}</b><span>电影</span></div>
+              <div class="stat"><b>{{ stats.versions }}</b><span>文件版本</span></div>
+            </div>
+            <p v-else class="hint" role="status">{{ statsError || '正在加载统计…' }}</p>
+            <p v-if="stats" class="overview-detail">{{ stats.needs_review }} 项匹配待确认 · {{ stats.no_match }} 项未匹配 · {{ stats.missing_files }} 个失效记录</p>
+          </section>
+          <section class="card-block"><h3>剧集库概况</h3>
+            <div v-if="tvStats" class="stat-grid">
+              <div class="stat"><b>{{ tvStats.shows }}</b><span>剧集</span></div>
+              <div class="stat"><b>{{ tvStats.seasons }}</b><span>季</span></div>
+              <div class="stat"><b>{{ tvStats.episodes }}</b><span>分集文件</span></div>
+            </div>
+            <p v-else class="hint" role="status">{{ tvStatsError || '正在加载统计…' }}</p>
+            <p v-if="tvStats" class="overview-detail">{{ tvStats.pending }} 部待处理 · {{ tvStats.episode_review }} 个分集待确认</p>
+          </section>
+        </div>
+        <details v-if="stats" class="settings-details overview-storage"><summary>存储与缓存统计</summary><dl class="info-grid"><dt>数据库</dt><dd>{{ fmtBytes(stats.db_bytes) }}</dd><dt>海报文件</dt><dd>{{ fmtBytes(stats.posters_bytes) }}</dd><dt>资料缓存</dt><dd>{{ stats.tmdb_cache }} 条</dd><dt>人物</dt><dd>{{ stats.persons }} 位</dd></dl></details>
         <div class="settings-shortcuts">
-          <button @click="go('sec-libraries')"><b>媒体库连接</b><span>添加本地目录或 NAS，检查连接状态</span></button>
+          <button @click="go('sec-libraries')"><b>媒体库连接</b><span>添加存储位置或检查连接</span></button>
           <button @click="go('sec-libtools')"><b>扫描与整理</b><span>导入新文件，核对匹配，整理目录</span></button>
         </div>
       </div>
@@ -71,9 +70,9 @@
 
       <div v-show="active === 'sec-tmdb'" id="sec-tmdb">
         <TmdbSettingsPanel :settings="s" @saved="s = $event" />
-        <section class="card-block">
+        <section class="card-block provider-status">
           <div class="section-heading"><h3>来源运行状态</h3><button @click="loadProviders">刷新状态</button></div>
-          <p class="hint">连续失败 {{ providerInfo?.fail_threshold ?? 3 }} 次后暂停使用，约 {{ Math.round((providerInfo?.cooldown_sec ?? 600) / 60) }} 分钟后重试。状态在全部视频库之间共享。</p>
+          <p class="hint">各视频库共享连接状态。暂不可用的来源会自动重试。</p>
           <p v-if="unavailableProviders" class="warn-text">{{ unavailableProviders }} 个来源暂不可用</p>
           <div class="provider-row" v-for="p in providers" :key="p.name">
             <span class="p-name">{{ p.label }}</span><span :class="{ 'warn-text': !p.available }">{{ providerStateText(p) }}</span>
@@ -81,7 +80,8 @@
             <details v-if="p.last_error" class="provider-error"><summary>错误详情</summary><p>{{ p.last_error }}</p></details>
           </div>
           <p v-if="providerMsg" class="feedback" role="status">{{ providerMsg }}</p>
-          <button @click="go('sec-matching')">设置视频库匹配规则</button>
+          <details class="settings-details"><summary>自动重试机制</summary><p class="hint">连续失败 {{ providerInfo?.fail_threshold ?? 3 }} 次后暂停使用，约 {{ Math.round((providerInfo?.cooldown_sec ?? 600) / 60) }} 分钟后重试。</p></details>
+          <div class="bar"><button @click="go('sec-matching')">设置视频库匹配规则</button></div>
         </section>
       </div>
 
@@ -153,7 +153,7 @@
       </section>
 
       <div v-show="active === 'sec-index'" id="sec-index">
-        <section class="card-block"><h3>搜索索引</h3><p class="hint">搜索结果缺失或与资料不一致时，可重建全部媒体库的搜索索引。</p><div class="bar"><button @click="doRebuildFts" :disabled="!!busy">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</button></div><p v-if="ftsMsg" class="feedback" role="status">{{ ftsMsg }}</p></section>
+        <section class="card-block maintenance-action"><div><h3>搜索索引</h3><p class="hint">搜索结果缺失或与资料不一致时，重建全部媒体库的索引。</p></div><div class="bar"><button @click="doRebuildFts" :disabled="!!busy">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</button></div><p v-if="ftsMsg" class="feedback" role="status">{{ ftsMsg }}</p></section>
         <TranscodeCachePanel />
       </div>
 
@@ -188,6 +188,8 @@ const s = ref(null)
 const stats = ref(null)
 const tvStats = ref(null)
 const tvStatsError = ref('')
+const movieTodos = computed(() => (stats.value?.by_library || []).filter(row => row.pending || row.missing_files))
+const tvTodos = computed(() => (tvStats.value?.by_library || []).filter(row => row.pending))
 const busy = ref(null) // auth|fts|providers|imdb
 
 const authForm = ref({ token: '' })

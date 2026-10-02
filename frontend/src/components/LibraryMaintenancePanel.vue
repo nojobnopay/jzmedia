@@ -1,6 +1,6 @@
 <template>
-  <section :id="active ? 'sec-meta' : undefined" class="card-block">
-    <h3>电影资料维护</h3>
+  <section :id="active ? 'sec-meta' : undefined" class="card-block library-maintenance">
+    <h3>影片资料</h3>
     <p class="hint">以下操作仅作用于「{{ library.name }}」。</p>
     <div class="maintenance-group"><h4>更新影片资料</h4>
 
@@ -266,9 +266,9 @@ async function doCleanMount() {
 }
 </script>
 <style scoped>
-.card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
-.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.hint { color: #777; font-size: 0.8125rem; margin: 0 0 4px; }
-.warn-text { color: #e0a63c; }
-.fhint { font-size: 0.75rem; color: #888; font-weight: normal; }
+
+.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: var(--jz-text); }
+.hint { color: var(--jz-text-dim); font-size: 0.8125rem; margin: 0 0 4px; }
+.warn-text { color: var(--jz-warn); }
+.fhint { font-size: 0.75rem; color: var(--jz-text-dim); font-weight: normal; }
 </style>

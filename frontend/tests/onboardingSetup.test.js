@@ -21,9 +21,9 @@ test('TMDB form renders saved environment credentials without exposing a token f
     tmdb_configured: true, tmdb_read_token_source: 'env', tmdb_read_token_masked: '***1234',
     tmdb_language: 'zh-CN', tmdb_image_base: 'https://image.tmdb.org',
   } })
-  assert.match(html, /已配置凭据 · 服务器环境配置/)
+  assert.match(html, /凭据已配置/)
   assert.match(html, /保存并测试 TMDB 连接/)
-  assert.match(html, /留空保留现有配置/)
+  assert.match(html, /留空保留现有凭据 · 服务器环境配置/)
   assert.doesNotMatch(html, /value="\*\*\*1234"/)
 })
 test('empty video library editor and setup library step initialize with their actual shared forms', async () => {

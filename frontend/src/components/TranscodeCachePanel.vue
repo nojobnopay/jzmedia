@@ -1,7 +1,7 @@
 <template>
-  <section class="card-block">
-    <h3>播放缓存</h3>
-    <p class="hint">清理全部媒体库的可回收转码与预缓存文件，正在播放的会话会保留。</p>
+  <section class="card-block maintenance-action">
+    <div><h3>播放缓存</h3>
+    <p class="hint">清理全部媒体库的可回收转码与预缓存文件，正在播放的会话会保留。</p></div>
     <div class="bar">
       <button @click="preview" :disabled="busy">{{ busy ? '处理中…' : '检查可清理空间' }}</button>
     </div>

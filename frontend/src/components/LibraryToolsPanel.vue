@@ -1,6 +1,6 @@
 <template>
-  <section id="sec-libtools" class="card-block" :class="{ 'files-workspace': filesPage }">
-    <h3 v-if="!filesPage">选择视频库</h3>
+  <section id="sec-libtools" class="library-workspace" :class="{ 'files-workspace': filesPage }">
+    <h3 v-if="!filesPage" class="library-selector-label">选择视频库</h3>
 
     <div v-if="!tabs.length && librariesError" class="library-load-state" role="alert">
       <strong>视频库加载失败</strong>
@@ -352,21 +352,23 @@ onUnmounted(() => {
 defineExpose({ select, focus })
 </script>
 <style scoped>
-.card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
-.card-block.files-workspace { background: transparent; border: 0; padding: 0; }
+.library-workspace { padding: 24px 0 0; }
+.library-selector-label { font-size: var(--jz-font-m); color: var(--jz-text-dim); margin: 0 0 12px; font-weight: 500; }
+.library-workspace.files-workspace { padding: 20px 0 0; }
 .library-load-state { min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; color: var(--jz-text-dim); }
 .library-load-state strong { color: var(--jz-text); font-size: var(--jz-font-m); font-weight: 500; }
 .library-load-state > span { font-size: var(--jz-font-s); overflow-wrap: anywhere; }
 .file-return-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
 .file-return-bar span { color: var(--jz-text-dim); font-size: var(--jz-font-m); }
-.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.hint { color: #777; font-size: 0.8125rem; margin: 0 0 4px; }
-.warn-text { color: #e0a63c; }
-.fhint { font-size: 0.75rem; color: #888; font-weight: normal; }
-.lib-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+
+.hint { color: var(--jz-text-dim); font-size: 0.8125rem; margin: 0 0 4px; }
+.warn-text { color: var(--jz-warn); }
+.fhint { font-size: 0.75rem; color: var(--jz-text-dim); font-weight: normal; }
+.lib-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 24px; }
 .lib-tabs button { display: inline-flex; align-items: center; gap: 6px; }
-.lib-tabs button.on { border-color: #e50914; color: #ff8a8a; }
+.lib-tabs button.on { border-color: var(--jz-text-dim); background: var(--jz-surface-3); color: var(--jz-text); }
 .lib-tabs button.off { opacity: 0.6; }
-.tab-kind { font-size: 0.6875rem; color: #888; border: 1px solid #444; border-radius: 999px; padding: 0 6px; }
-.nav-badge { font-size: 0.75rem; color: #e0a63c; }
+.tab-kind { font-size: 0.6875rem; color: var(--jz-text-dim); border: 1px solid var(--jz-border-strong); border-radius: 999px; padding: 0 6px; }
+.nav-badge { font-size: 0.75rem; color: var(--jz-warn); }
+@media (max-width: 700px) { .lib-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px; } .lib-tabs button { flex-shrink: 0; } }
 </style>

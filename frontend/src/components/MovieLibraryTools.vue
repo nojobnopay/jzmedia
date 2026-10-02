@@ -1,5 +1,5 @@
 <template>
-  <section :id="active ? 'sec-pipeline' : undefined" class="card-block">
+  <section :id="active ? 'sec-pipeline' : undefined" class="workflow-panel">
     <div class="library-tools-header"><div class="tool-views" aria-label="视频库工具">
       <button v-for="view in toolViews" :key="view.key" :class="{ on: toolView === view.key }"
         :aria-pressed="toolView === view.key" @click="chooseView(view.key)">{{ view.label }}</button>
@@ -404,33 +404,33 @@ watch([pendingTotal, orgCount, missing], () => {
 }, { immediate: true, deep: true })
 </script>
 <style scoped>
-.card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
-.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
+.workflow-panel { min-width: 0; }
+
 .status-line { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
-.chip { font-size: 0.75rem; border: 1px solid #444; border-radius: 999px; padding: 1px 10px; color: #aaa; }
-.chip.warn { color: #e0a63c; border-color: #6b5410; }
-.chip.ok { color: #7ed321; border-color: #3a5a1e; }
-.pipe-step { margin: 12px 0 0; border-top: 1px dashed #3a3a3a; padding-top: 10px; }
+.chip { font-size: 0.75rem; border: 1px solid var(--jz-border-strong); border-radius: 999px; padding: 1px 10px; color: var(--jz-text-dim); }
+.chip.warn { color: var(--jz-warn); border-color: var(--jz-warn-border); }
+.chip.ok { color: var(--jz-success); border-color: var(--jz-success-border); }
+.pipe-step { margin-top: 12px; border-top: 1px solid var(--jz-border); }
 .pipe-head { display: flex; gap: 8px; align-items: baseline; }
-.pipe-head h4 { margin: 0; font-size: 0.9375rem; color: #ccc; }
-.step-no { color: #e50914; margin-right: 2px; }
-.step-state { margin-left: auto; font-size: 0.75rem; color: #888; }
-.step-state.run { color: #e0a63c; }
-.step-state.ok { color: #7ed321; }
+.pipe-head h4 { margin: 0; font-size: 0.9375rem; color: var(--jz-text); }
+.step-no { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-right: 8px; background: var(--jz-surface-3); color: var(--jz-text-dim); border-radius: 50%; }
+.step-state { margin-left: auto; font-size: 0.75rem; color: var(--jz-text-dim); }
+.step-state.run { color: var(--jz-warn); }
+.step-state.ok { color: var(--jz-success); }
 .pipe-toggle { cursor: pointer; user-select: none; }
-.pipe-toggle:hover h4 { color: #fff; }
+.pipe-toggle:hover h4 { color: var(--jz-text); }
 .pipe-body { margin-top: 6px; }
-.hint { color: #777; font-size: 0.8125rem; margin: 0 0 4px; }
-.fhint { font-size: 0.75rem; color: #888; font-weight: normal; }
-.nav-badge { margin-left: 6px; font-size: 0.75rem; color: #e0a63c; }
-.lib-group-head { display: flex; gap: 8px; align-items: center; font-size: 0.8125rem; color: #ccc; margin-bottom: 4px; }
+.hint { color: var(--jz-text-dim); font-size: 0.8125rem; margin: 0 0 4px; }
+.fhint { font-size: 0.75rem; color: var(--jz-text-dim); font-weight: normal; }
+.nav-badge { margin-left: 6px; font-size: 0.75rem; color: var(--jz-warn); }
+.lib-group-head { display: flex; gap: 8px; align-items: center; font-size: 0.8125rem; color: var(--jz-text); margin-bottom: 4px; }
 .miss-list { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.miss-row { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; }
+.miss-row { display: flex; gap: 8px; align-items: center; background: var(--jz-surface-2); border: 1px solid var(--jz-border); border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; }
 .miss-title { white-space: nowrap; }
-.miss-path { color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.kind-badge { font-size: 0.75rem; border: 1px solid #444; border-radius: 999px; padding: 1px 10px; color: #aaa; white-space: nowrap; }
-.kind-badge.bad { color: #ff8a8a; border-color: #6e2b2b; }
+.miss-path { color: var(--jz-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.kind-badge { font-size: 0.75rem; border: 1px solid var(--jz-border-strong); border-radius: 999px; padding: 1px 10px; color: var(--jz-text-dim); white-space: nowrap; }
+.kind-badge.bad { color: var(--jz-danger); border-color: var(--jz-danger-border); }
 .collapse-row { background: transparent; border: none; padding: 0; }
-.more-tools { margin: 14px 0 0; border-top: 1px solid #2c2c2c; padding-top: 10px; }
+.more-tools { margin: 14px 0 0; border-top: 1px solid var(--jz-border); padding-top: 10px; }
 .more-tools .pipe-head h4 { font-size: 0.875rem; }
 </style>

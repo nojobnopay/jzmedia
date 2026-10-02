@@ -1,11 +1,12 @@
 <template>
   <div class="preview-maintenance">
+    <div><h4>播放进度缩略图</h4><p class="hint">为电影、剧集和花絮生成进度预览，已有成品自动跳过。远程库建议空闲时执行。</p></div>
     <div class="bar">
       <button @click="start" :disabled="busy">{{ busy ? '生成缩略图中…' : '生成播放进度缩略图' }}</button>
       <button v-if="busy && job?.job_id" @click="cancel">取消生成</button>
       <span>{{ message }}</span>
     </div>
-    <p class="hint">为电影、剧集和花絮生成进度条缩略图，已有成品自动跳过。只读片源，图片缓存在服务器；远程库建议空闲时执行。</p>
+
   </div>
 </template>
 
@@ -63,7 +64,8 @@ onBeforeUnmount(() => { disposed = true; ctrl.abort(); clearTimeout(timer) })
 </script>
 
 <style scoped>
-.preview-maintenance { margin-top: 16px; }
-.hint { color: #888; font-size: 0.8125rem; }
+.preview-maintenance { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--jz-border); }
+h4 { margin: 0 0 8px; font-size: var(--jz-font-m); }
+.hint { color: var(--jz-text-dim); font-size: 0.8125rem; }
 .bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 </style>

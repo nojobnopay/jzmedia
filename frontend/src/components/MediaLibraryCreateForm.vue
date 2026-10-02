@@ -23,8 +23,8 @@
           <template v-else>
             主机 <b>{{ smbPreview.host }}</b> · 共享 <b>{{ smbPreview.share }}</b>
             · 根目录 <b>{{ smbPreview.subpath || '（共享根）' }}</b>
-            <br /><template v-if="smbDriver === 'mount'">→ 自动挂载到 <code>data/mounts/lib_N</code>（无需填写）</template>
-            <template v-else>→ 直读模式（<code>SMB_DRIVER={{ smbDriver }}</code>，免挂载），点「测试连接」检测</template>
+            <br /><template v-if="smbDriver === 'mount'">连接后自动挂载，无需填写挂载路径。</template>
+            <template v-else>直接读取远程文件，可先测试连接。</template>
           </template>
         </div>
         <template v-if="advSplitting">
@@ -53,7 +53,7 @@
       <template v-if="form.source === 'nfs'">
         <label>导出路径 <input v-model="form.nfs_export" v-bind="NOFILL" name="jz-nfs-export" placeholder="ServerName:/volume1/video" style="min-width:260px" /></label>
         <div class="parse-line">
-          → 自动挂载到 <code>data/mounts/lib_N</code>（无需填写），NFS 服务器需已导出该路径
+          连接后自动挂载。请确认 NFS 服务器已导出该路径。
         </div>
       </template>
     </div>
@@ -122,9 +122,9 @@
 
     </details>
     <p class="hint">扫描可能按设置向媒体目录写入 NFO；目录整理仍需另行预览确认。</p>
-      <button @click="create" :disabled="!!busy || !form.name.trim() || (form.source === 'local' && !form.path.trim())">
+      <JzButton variant="primary" @click="create" :disabled="!!busy || !form.name.trim() || (form.source === 'local' && !form.path.trim())">
         {{ busy === 'create' ? '创建中…' : '创建媒体库' }}
-      </button>
+      </JzButton>
     <p role="status">{{ msg }}</p>
     <details class="settings-details">
       <summary>路径填写与连接帮助</summary>
@@ -148,6 +148,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from '../api.js'
 import { parseSmbInput } from '../smb.js'
+import JzButton from './JzButton.vue'
 const props = defineProps({
   kind: { type: String, default: 'movie' }, compact: Boolean, disabled: Boolean,
   smbDriver: { type: String, default: 'auto' },
@@ -250,41 +251,40 @@ async function create () {
 
 </script>
 <style scoped>
+.create-library-form { max-width: var(--jz-form-width); margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--jz-border); }
 fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-.policy-details { margin: 18px 0; }
-summary { cursor: pointer; }
-input { min-width: 0 !important; max-width: 100%; box-sizing: border-box; }
-label { max-width: 100%; }
-.lib-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-.lib-form label { display: inline-flex; gap: 6px; align-items: center; }
-.lib-form label.ck { gap: 4px; }
-.lib-form-policy { border-top: 1px dashed #333; padding-top: 10px; margin-top: 12px; }
-.vid-form { border-top: 1px dashed #333; padding-top: 10px; }
-.vid-line { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.form-sec-title { flex-basis: 100%; color: #999; font-size: 0.8125rem; font-weight: 600; }
-.form-sec-title .fhint { font-weight: normal; }
-.parse-line { flex-basis: 100%; color: #888; font-size: 0.8125rem; line-height: 1.8; padding-left: 6px; }
-.test-result { border-left: 2px solid #3a5a3a; }
-.test-result.warn-text { border-left-color: #6e2b2b; }
-.stage-line { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-.stage-chip { font-size: 0.6875rem; border: 1px solid #3a5a3a; color: #7fd18b; border-radius: 999px; padding: 0 6px; }
-.stage-chip.bad { border-color: #6e2b2b; color: #ff8a8a; }
-.stage-chip.skip { border-color: #444; color: #777; }
-.parse-line b { color: #ccc; font-weight: 600; }
-.parse-line code { color: #9ecfff; }
-.hint-block { flex-basis: 100%; margin-top: 10px; }
-.hint-title { margin: 0 0 2px; color: #999; font-size: 0.8125rem; font-weight: 600; }
-.hint-list { margin: 0; padding-left: 20px; color: #888; font-size: 0.8125rem; line-height: 1.9; }
-.hint-list li { margin: 2px 0; }
-.hint-list code { color: #9ecfff; }
-.fhint { color: #777; font-size: 0.75rem; font-weight: normal; }
-.hint { color: #888; font-size: 0.8125rem; line-height: 1.6; }
-
+h4 { margin: 0 0 8px; font-size: var(--jz-font-xl); }
+.policy-details { margin: 20px 0; padding: 12px 0; border-top: 1px solid var(--jz-border); border-bottom: 1px solid var(--jz-border); }
+summary { cursor: pointer; font-size: var(--jz-font-m); }
+input, select { min-width: 0 !important; width: 100%; max-width: 100%; box-sizing: border-box; }
+.lib-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; margin-top: 20px; }
+.lib-form label { display: flex; flex-direction: column; gap: 8px; font-size: var(--jz-font-m); }
+.lib-form label.ck { grid-column: 1 / -1; flex-direction: row; align-items: center; min-height: 40px; }
+.lib-form label.ck input { width: 16px; height: 16px; }
+.lib-form > button { justify-self: start; }
+.vid-form { border-top: 1px solid var(--jz-border); padding-top: 20px; }
+.vid-line { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr 100px auto; gap: 10px; align-items: center; }
+.form-sec-title { grid-column: 1 / -1; color: var(--jz-text); font-size: var(--jz-font-m); font-weight: 600; }
+.form-sec-title .fhint { display: block; margin-top: 4px; font-weight: normal; }
+.parse-line { grid-column: 1 / -1; color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.8; }
+.test-result { padding: 10px 14px; background: var(--jz-success-soft); border-left: 3px solid var(--jz-success-border); }
+.test-result.warn-text { background: var(--jz-danger-soft); border-color: var(--jz-danger-border); }
+.stage-line { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+.stage-chip { font-size: var(--jz-font-s); border: 1px solid var(--jz-success-border); color: var(--jz-success); border-radius: 4px; padding: 0 6px; }
+.stage-chip.bad { border-color: var(--jz-danger-border); color: var(--jz-danger); }
+.stage-chip.skip { border-color: var(--jz-border-strong); color: var(--jz-text-dim); }
+.parse-line b { color: var(--jz-text); font-weight: 600; }
+.parse-line code, .hint-list code { color: var(--jz-link); }
+.hint-list { margin: 0; padding-left: 20px; color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.9; }
+.hint-list li { margin: 8px 0; }
+.fhint { color: var(--jz-text-dim); font-size: var(--jz-font-s); font-weight: normal; }
+.hint { color: var(--jz-text-dim); font-size: var(--jz-font-m); line-height: 1.6; }
+.settings-details { grid-column: 1 / -1; }
 @media (max-width: 700px) {
-  .lib-form label { width: 100%; flex-direction: column; align-items: stretch; }
-  .lib-form label.ck { flex-direction: row; }
-  .lib-form input, .lib-form select { width: 100%; }
-  .lib-form input[type="checkbox"] { width: auto; }
-  .vid-line { width: 100%; }
+  .lib-form { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .vid-line { grid-template-columns: minmax(0, 1fr) auto; }
+  .vid-line > input { grid-column: 1 / -1; }
+  summary { min-height: 44px; box-sizing: border-box; padding: 10px 0; }
+  .policy-details { padding: 0; }
 }
 </style>

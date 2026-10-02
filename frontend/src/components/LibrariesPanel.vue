@@ -3,58 +3,34 @@
     <div class="section-heading"><h3>媒体库列表</h3><button class="primary" :disabled="createBusy" @click="showCreate = !showCreate">{{ showCreate ? '收起新建表单' : '添加媒体库' }}</button></div>
     <HelpLink page="user-guide/libraries" label="连接本地目录或 NAS 的图解" />
     <p v-if="!mediaItems.length" class="hint">添加存储位置，再选择其中的电影或剧集目录。</p>
-    <div v-else class="table-scroll"><table class="lib-table">
-      <thead>
-        <tr><th>媒体库</th><th>来源</th><th>地址</th><th>视频库</th><th>状态</th><th></th></tr>
-      </thead>
-      <tbody>
-        <template v-for="m in mediaItems" :key="m.id">
-          <tr :class="{ off: !m.enabled }">
-            <td>
-              <button class="expander" :title="expanded[m.id] ? '收起视频库' : '展开视频库'" @click="expanded[m.id] = !expanded[m.id]">
-                {{ expanded[m.id] ? '▾' : '▸' }}
-              </button>
-              <b>{{ m.name }}</b>
-              <span v-if="m.read_only" class="badge">只读</span>
-              <span class="fhint media-count">{{ m.movie_count }} 片 / {{ m.episode_count }} 集</span>
-            </td>
-            <td>
-              {{ m.source }}
-              <span v-if="driverText(m)" class="badge drv" :class="{ direct: m.driver !== 'mount' }">{{ driverText(m) }}</span>
-            </td>
-            <td class="path" :title="pathTitle(m)">{{ pathText(m) }}</td>
-            <td class="vid-counts">{{ videoCounts(m) }}</td>
-            <td>
-              <span class="status-pill" :class="'st-' + statusKind(m)">{{ statusText(m) }}</span>
-              <div v-if="m.last_error && m.enabled" class="fhint err" :title="m.last_error">{{ m.last_error }}</div>
-            </td>
-            <td class="ops">
-              <div class="ops-wrap">
-                <button @click="connect(m)" :disabled="!!busy">
-                  {{ busy === 'conn' + m.id ? (m.source === 'local' ? '检查中…' : '连接中…') : (m.source === 'local' ? '检查路径' : statusKind(m) === 'ok' ? '检查连接' : '连接') }}
-                </button>
-                <button @click="scanAll(m)" :disabled="!!busy || scanning['m:' + m.id]">
-                  {{ scanning['m:' + m.id] ? '扫描中…' : '扫描此媒体库' }}
-                </button>
-                <button v-if="scanning['m:' + m.id]" @click="cancelScan('m:' + m.id)">取消</button>
-                <details class="more">
-                  <summary title="更多操作">更多</summary>
-                  <div class="more-menu">
-                    <button @click="addVideoOpen(m); closeMenu($event)">添加视频库</button>
-                    <button v-if="m.source !== 'local'" @click="editConn(m); closeMenu($event)">编辑连接</button>
-                    <button v-if="m.source === 'local' && m.movie_count + m.episode_count === 0" @click="editPath(m); closeMenu($event)">修改根目录</button>
-                    <button v-if="m.source !== 'local'" @click="mount(m, true); closeMenu($event)">挂载</button>
-                    <button v-if="m.source !== 'local'" @click="mount(m, false); closeMenu($event)">卸载</button>
-                    <button @click="toggleReadOnly(m); closeMenu($event)">{{ m.read_only ? '取消只读' : '设只读' }}</button>
-                    <button @click="toggleEnabled(m); closeMenu($event)">{{ m.enabled ? '停用' : '启用' }}</button>
-                    <button class="danger" @click="armDelete(m); closeMenu($event)">移除媒体库…</button>
-                  </div>
-                </details>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="rowMsg['m:' + m.id]" class="row-msg">
-            <td colspan="6">
+    <div v-else class="media-connections">
+      <article v-for="m in mediaItems" :key="m.id" class="media-connection" :class="{ off: !m.enabled }">
+        <header class="connection-heading">
+          <button class="connection-title" :aria-expanded="!!expanded[m.id]" @click="expanded[m.id] = !expanded[m.id]">
+            <AppIcon name="chevron-down" :class="{ collapsed: !expanded[m.id] }" /><strong>{{ m.name }}</strong><span v-if="m.read_only" class="badge">只读</span>
+          </button>
+          <span class="status-pill" :class="'st-' + statusKind(m)">{{ statusText(m) }}</span>
+        </header>
+        <p class="connection-path" :title="pathTitle(m)"><span>{{ m.source === 'local' ? '本地' : m.source.toUpperCase() }}</span><span v-if="driverText(m)">{{ driverText(m) }}</span><code>{{ pathText(m) }}</code></p>
+        <div class="connection-meta"><span>{{ videoCounts(m) }}</span><span>{{ m.movie_count }} 片 / {{ m.episode_count }} 集</span></div>
+        <p v-if="m.last_error && m.enabled" class="connection-error">{{ m.last_error }}</p>
+        <div class="ops-wrap connection-actions">
+          <button @click="connect(m)" :disabled="!!busy">{{ busy === 'conn' + m.id ? (m.source === 'local' ? '检查中…' : '连接中…') : (m.source === 'local' ? '检查路径' : statusKind(m) === 'ok' ? '检查连接' : '连接') }}</button>
+          <button @click="scanAll(m)" :disabled="!!busy || scanning['m:' + m.id]">{{ scanning['m:' + m.id] ? '扫描中…' : '扫描此媒体库' }}</button>
+          <button v-if="scanning['m:' + m.id]" @click="cancelScan('m:' + m.id)">取消</button>
+          <details class="more"><summary title="更多操作">更多</summary><div class="more-menu">
+            <button @click="addVideoOpen(m); closeMenu($event)">添加视频库</button>
+            <button v-if="m.source !== 'local'" @click="editConn(m); closeMenu($event)">编辑连接</button>
+            <button v-if="m.source === 'local' && m.movie_count + m.episode_count === 0" @click="editPath(m); closeMenu($event)">修改根目录</button>
+            <button v-if="m.source !== 'local'" @click="mount(m, true); closeMenu($event)">挂载</button>
+            <button v-if="m.source !== 'local'" @click="mount(m, false); closeMenu($event)">卸载</button>
+            <button @click="toggleReadOnly(m); closeMenu($event)">{{ m.read_only ? '取消只读' : '设只读' }}</button>
+            <button @click="toggleEnabled(m); closeMenu($event)">{{ m.enabled ? '停用' : '启用' }}</button>
+            <button class="danger" @click="armDelete(m); closeMenu($event)">移除媒体库…</button>
+          </div></details>
+        </div>
+          <div v-if="rowMsg['m:' + m.id]" class="row-msg">
+            <div>
               <span :class="msgClass('m:' + m.id)">{{ rowMsg['m:' + m.id].text }}</span>
               <button v-if="rowMsg['m:' + m.id].cmd" @click="copyCmd('m:' + m.id)">复制宿主挂载命令</button>
               <button v-if="rowMsg['m:' + m.id].cmd" @click="showCmd['m:' + m.id] = !showCmd['m:' + m.id]">{{ showCmd['m:' + m.id] ? '收起命令' : '查看命令' }}</button>
@@ -64,88 +40,53 @@
                   {{ v.name }}（{{ v.subpath || '根' }}）{{ v.ok ? '✓' : '✗ ' + (v.error || '不可达') }}
                 </li>
               </ul>
-            </td>
-          </tr>
-          <tr v-if="connEdit && connEdit.id === m.id">
-            <td colspan="6" class="path-edit">
-              <input v-model="connEdit.url" v-bind="NOFILL" name="jz-conn-url" placeholder="\\ServerName\ShareName\Folder" style="min-width:300px" />
-              <input v-model="connEdit.username" v-bind="NOFILL" name="jz-conn-user" placeholder="SMB 登录用户名" />
-              <input v-model="connEdit.password" v-bind="NOFILL_PW" name="jz-conn-pass" type="password" placeholder="SMB 密码（留空不改）" />
-              <input v-model="connEdit.connect_host" v-bind="NOFILL" name="jz-conn-connect" placeholder="连接地址（可选，Tailscale IP）" />
+            </div>
+          </div>
+          <div v-if="connEdit && connEdit.id === m.id">
+            <div class="path-edit">
+              <label>SMB 共享路径<input v-model="connEdit.url" v-bind="NOFILL" name="jz-conn-url" placeholder="\\ServerName\ShareName\Folder" /></label>
+              <label>SMB 用户名<input v-model="connEdit.username" v-bind="NOFILL" name="jz-conn-user" placeholder="SMB 登录用户名" /></label>
+              <label>SMB 密码<input v-model="connEdit.password" v-bind="NOFILL_PW" name="jz-conn-pass" type="password" placeholder="SMB 密码（留空不改）" /></label>
+              <label>连接地址<input v-model="connEdit.connect_host" v-bind="NOFILL" name="jz-conn-connect" placeholder="连接地址（可选，Tailscale IP）" /></label>
               <button @click="saveConn(m)" :disabled="!!busy">{{ busy === 'conn' ? '保存中…' : '保存并连接' }}</button>
               <button @click="connEdit = null">取消</button>
               <span class="fhint" :class="{ 'warn-text': connPreview.error }">{{ connPreview.error || `→ ${connPreview.host}/${connPreview.share}/${connPreview.subpath}` }}</span>
-            </td>
-          </tr>
-          <tr v-if="pathEdit && pathEdit.id === m.id">
-            <td colspan="6" class="path-edit">
-              <input v-model="pathEdit.value" v-bind="NOFILL" name="jz-path-edit" placeholder="/media（容器内路径）" style="min-width:320px" />
+            </div>
+          </div>
+          <div v-if="pathEdit && pathEdit.id === m.id">
+            <div class="path-edit">
+              <label>媒体库根目录<input v-model="pathEdit.value" v-bind="NOFILL" name="jz-path-edit" placeholder="/media（容器内路径）" /></label>
               <button @click="savePath(m)" :disabled="!!busy">{{ busy === 'path' ? '保存中…' : '保存并检查' }}</button>
               <button @click="pathEdit = null">取消</button>
               <span class="fhint">媒体库根；仅当库内 0 记录时可改。NAS Docker 里填 /media 这类容器路径</span>
-            </td>
-          </tr>
+            </div>
+          </div>
 
-          <template v-if="expanded[m.id]">
-            <tr class="vid-head">
-              <td colspan="6">
-                视频库（{{ m.video_libraries.length }}）
-              </td>
-            </tr>
-            <tr v-for="v in m.video_libraries" :key="v.id" class="vid-row" :class="{ off: !m.enabled || !v.enabled }">
-              <td>
-                <b>{{ v.name }}</b>
-                <span class="badge" :class="{ tv: v.kind === 'tv' }">{{ kindText(v.kind) }}</span>
-                <span v-if="!v.enabled" class="badge">停用</span>
-              </td>
-              <td class="fhint">子目录：{{ v.subpath || '（媒体库根）' }}</td>
-              <td class="fhint">{{ v.movie_count }} 片 / {{ v.episode_count }} 集</td>
-              <td class="path" :title="v.path">{{ v.path }}</td>
-              <td>
-                <span v-if="rowMsg['v:' + v.id]" :class="msgClass('v:' + v.id)">{{ rowMsg['v:' + v.id].text }}</span>
-              </td>
-              <td class="ops">
-                <div class="ops-wrap">
-                  <button @click="scanVideo(v)" :disabled="!!busy || scanning['v:' + v.id]">
-                    {{ scanning['v:' + v.id] ? '扫描中…' : '扫描' }}
-                  </button>
-                  <button v-if="scanning['v:' + v.id]" @click="cancelScan('v:' + v.id)">取消</button>
-                  <button @click="editVideo(v, m)">编辑</button>
-                  <button class="danger" @click="armDeleteVideo(v, m)">移除视频库…</button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="videoEdit && videoEdit.mediaId === m.id">
-              <td colspan="6" class="path-edit">
-                <VideoLibraryForm :library="videoEdit" :disabled="!!busy"
-                  @saved="onVideoSaved" @cancel="videoEdit = null" />
-              </td>
-            </tr>
-            <tr v-if="newVideo[m.id]" class="path-edit">
-              <td colspan="6">
-                <input v-model="newVideo[m.id].name" v-bind="NOFILL" name="jz-nv-name" placeholder="名称（如 TV Shows，留空按子目录名）" />
-                <input v-model="newVideo[m.id].subpath" v-bind="NOFILL" name="jz-nv-sub" placeholder="子目录（相对媒体库根，空=根）" />
-                <select v-model="newVideo[m.id].kind">
-                  <option value="movie">电影</option>
-                  <option value="tv">剧集</option>
-                </select>
-                <button @click="createVideo(m)" :disabled="!!busy">{{ busy === 'video' ? '创建中…' : '创建视频库' }}</button>
-                <button @click="newVideo[m.id] = null">取消</button>
-                <button @click="detectSubdirs(m)" :disabled="subdirLoading[m.id]">
-                  {{ subdirLoading[m.id] ? '读取中…' : '检测子目录' }}
-                </button>
-                <div v-if="subdirs[m.id] && subdirs[m.id].length" class="subdir-chips">
-                  <button v-for="d in subdirs[m.id]" :key="d.rel" class="chip" @click="pickSubdir(m, d)">
-                    {{ d.rel }}
-                  </button>
-                </div>
-                <span v-else-if="subdirs[m.id]" class="fhint">没有可用子目录</span>
-              </td>
-            </tr>
-          </template>
-        </template>
-      </tbody>
-    </table></div>
+        <div v-if="expanded[m.id]" class="video-libraries">
+          <h4>视频库 <span>{{ m.video_libraries.length }}</span></h4>
+          <div v-for="v in m.video_libraries" :key="v.id" class="video-library-row" :class="{ off: !m.enabled || !v.enabled }">
+            <div class="video-library-info"><div><strong>{{ v.name }}</strong><span class="badge" :class="{ tv: v.kind === 'tv' }">{{ kindText(v.kind) }}</span><span v-if="!v.enabled" class="badge">停用</span></div><p :title="v.path">{{ v.subpath || '媒体库根目录' }}</p><span class="fhint">{{ v.movie_count }} 片 / {{ v.episode_count }} 集</span><p v-if="rowMsg['v:' + v.id]" :class="msgClass('v:' + v.id)" role="status">{{ rowMsg['v:' + v.id].text }}</p></div>
+            <div class="ops-wrap">
+              <button @click="scanVideo(v)" :disabled="!!busy || scanning['v:' + v.id]">{{ scanning['v:' + v.id] ? '扫描中…' : '扫描' }}</button>
+              <button v-if="scanning['v:' + v.id]" @click="cancelScan('v:' + v.id)">取消</button>
+              <button @click="editVideo(v, m)">编辑</button>
+              <button class="danger" @click="armDeleteVideo(v, m)">移除视频库…</button>
+            </div>
+          </div>
+          <div v-if="videoEdit && videoEdit.mediaId === m.id" class="path-edit">
+            <VideoLibraryForm :library="videoEdit" :disabled="!!busy" @saved="onVideoSaved" @cancel="videoEdit = null" />
+          </div>
+          <div v-if="newVideo[m.id]" class="path-edit">
+            <label>视频库名称<input v-model="newVideo[m.id].name" v-bind="NOFILL" name="jz-nv-name" placeholder="留空按子目录命名" /></label>
+            <label>子目录<input v-model="newVideo[m.id].subpath" v-bind="NOFILL" name="jz-nv-sub" placeholder="相对媒体库根目录，留空使用根目录" /></label>
+            <label>内容类型<select v-model="newVideo[m.id].kind"><option value="movie">电影</option><option value="tv">剧集</option></select></label>
+            <div class="ops-wrap"><button @click="createVideo(m)" :disabled="!!busy">{{ busy === 'video' ? '创建中…' : '创建视频库' }}</button><button @click="newVideo[m.id] = null">取消</button><button @click="detectSubdirs(m)" :disabled="subdirLoading[m.id]">{{ subdirLoading[m.id] ? '读取中…' : '检测子目录' }}</button></div>
+            <div v-if="subdirs[m.id] && subdirs[m.id].length" class="subdir-chips"><button v-for="d in subdirs[m.id]" :key="d.rel" class="chip" @click="pickSubdir(m, d)">{{ d.rel }}</button></div>
+            <span v-else-if="subdirs[m.id]" class="fhint">没有可用子目录</span>
+          </div>
+        </div>
+      </article>
+    </div>
 
     <p v-if="msg" class="feedback" role="status">{{ msg }}</p>
     <div v-if="created" class="created-bar">
@@ -183,6 +124,7 @@
 
 <script setup>
 import HelpLink from './HelpLink.vue'
+import AppIcon from './AppIcon.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import MediaLibraryCreateForm from './MediaLibraryCreateForm.vue'
 import VideoLibraryForm from './VideoLibraryForm.vue'
@@ -647,70 +589,64 @@ defineExpose({ ensure: load })
 </script>
 
 <style scoped>
-.lib-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.lib-table th, .lib-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #333; vertical-align: middle; }
-.lib-table tr.off { opacity: .5; }
-.lib-table .path { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lib-table .ops { min-width: 260px; }
-.lib-table .ops-wrap { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.badge { margin-left: 6px; font-size: 0.75rem; border: 1px solid #6b5518; color: #e0b34a; border-radius: 999px; padding: 1px 8px; }
-.badge.drv { border-color: #2b4a6e; color: #6ab0ff; }
-.badge.tv { border-color: #4a2b6e; color: #c08aff; }
-.danger { border-color: #6e2b2b; color: #ff8a8a; }
-.danger-box { border: 1px solid #6e2b2b; border-radius: 8px; padding: 10px; margin: 10px 0; }
-.status-pill { display: inline-block; font-size: 0.75rem; border-radius: 999px; padding: 1px 8px; border: 1px solid #444; color: #aaa; }
-.status-pill.st-ok { border-color: #2f6b3a; color: #7fd18b; }
-.status-pill.st-err { border-color: #6e2b2b; color: #ff8a8a; }
-.status-pill.st-idle { border-color: #6b5518; color: #e0b34a; }
-.status-pill.st-off { border-color: #444; color: #777; }
-.fhint.err { color: #d97b7b; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-msg td { background: #202020; color: #bbb; font-size: 0.8125rem; }
-.row-msg .msg-ok { color: #7fd18b; }
-.row-msg .msg-err { color: #ff8a8a; }
-.row-msg .msg-warn { color: #e0b34a; }
+.media-connections { margin-top: 24px; }
+.media-connection { padding: 24px 0; border-top: 1px solid var(--jz-border); }
+.media-connection:first-child { padding-top: 0; border-top: 0; }
+.off { opacity: .55; }
+.connection-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.connection-title { display: inline-flex; align-items: center; gap: 10px; min-width: 0; padding: 0; background: none; border: 0; text-align: left; font-size: var(--jz-font-xl); }
+.connection-title strong { overflow-wrap: anywhere; }
+.connection-title svg { flex-shrink: 0; width: 18px; }
+.connection-title .collapsed { transform: rotate(-90deg); }
+.connection-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; margin: 10px 0 8px 28px; font-size: var(--jz-font-s); color: var(--jz-text-dim); }
+.connection-path code { font-family: inherit; font-size: var(--jz-font-m); overflow-wrap: anywhere; color: var(--jz-text); }
+.connection-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-left: 28px; color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+.connection-error { color: var(--jz-danger); font-size: var(--jz-font-s); overflow-wrap: anywhere; }
+.ops-wrap { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.connection-actions { margin: 18px 0 0 28px; }
+.badge { display: inline-block; margin-left: 8px; font-size: var(--jz-font-s); color: var(--jz-text-dim); border: 1px solid var(--jz-border-strong); border-radius: 4px; padding: 1px 6px; font-weight: 400; }
+.danger { border-color: var(--jz-danger-border); color: var(--jz-danger); }
+.danger-box { border: 1px solid var(--jz-danger-border); background: var(--jz-danger-soft); border-radius: var(--jz-radius-m); padding: 16px; margin: 16px 0; }
+.status-pill { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; font-size: var(--jz-font-s); color: var(--jz-text-dim); }
+.status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.status-pill.st-ok, .msg-ok { color: var(--jz-success); }
+.status-pill.st-err, .msg-err { color: var(--jz-danger); }
+.status-pill.st-idle, .msg-warn { color: var(--jz-warn); }
+.row-msg { background: var(--jz-surface-2); padding: 12px 16px; margin-top: 16px; font-size: var(--jz-font-m); }
 .row-msg button { margin-left: 8px; }
-.row-msg .cmd-text { display: block; margin-top: 6px; padding: 6px 8px; background: #151515; border: 1px solid #333; border-radius: 6px; color: #9ecfff; white-space: pre-wrap; word-break: break-all; }
-.vid-check { margin: 6px 0 0; padding-left: 20px; color: #7fd18b; }
-.vid-check li.bad { color: #ff8a8a; }
-.vid-head td { background: #1b1b1b; color: #999; font-size: 0.8125rem; border-bottom: 1px solid #333; }
-.vid-row td { background: #191919; }
-.vid-row .fhint { margin-right: 10px; }
-.vid-counts { color: #bbb; white-space: nowrap; }
-.expander { background: none; border: none; color: #bbb; cursor: pointer; padding: 0 6px 0 0; font-size: 0.875rem; }
+.cmd-text { display: block; margin-top: 8px; padding: 8px; background: var(--jz-bg); color: var(--jz-link); white-space: pre-wrap; overflow-wrap: anywhere; }
+.vid-check { margin: 8px 0 0; padding-left: 20px; color: var(--jz-success); }
+.vid-check li.bad { color: var(--jz-danger); }
+.video-libraries { margin: 20px 0 0 28px; padding: 16px 20px; background: var(--jz-surface); border-radius: var(--jz-radius-m); }
+.video-libraries h4 { margin: 0 0 8px; color: var(--jz-text-dim); font-size: var(--jz-font-s); font-weight: 500; }
+.video-libraries h4 span { margin-left: 6px; }
+.video-library-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 0; font-size: var(--jz-font-m); }
+.video-library-row + .video-library-row { border-top: 1px solid var(--jz-border); }
+.video-library-info { min-width: 0; }
+.video-library-info p { margin: 6px 0; color: var(--jz-text-dim); overflow-wrap: anywhere; }
 .more { position: relative; display: inline-block; }
-.more > summary { list-style: none; cursor: pointer; padding: 2px 10px; border: 1px solid #444; border-radius: 6px; color: #bbb; font-size: 0.8125rem; }
+.more > summary { list-style: none; cursor: pointer; padding: 6px 10px; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s); font-size: var(--jz-font-m); }
 .more > summary::-webkit-details-marker { display: none; }
-.more[open] > summary { border-color: #666; color: #eee; }
-.more-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; display: flex; flex-direction: column; gap: 4px; min-width: 140px; padding: 6px; background: #1e1e1e; border: 1px solid #444; border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, .45); }
+.more[open] > summary { border-color: var(--jz-text-dim); }
+.more-menu { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 0; }
 .more-menu button { text-align: left; }
-.created-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; padding: 8px 10px; border: 1px solid #2f4a6b; background: #17202b; border-radius: 8px; font-size: 0.8125rem; }
-.created-bar .cb-title { color: #9ecfff; font-weight: 600; }
+.created-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 16px 0; padding: 14px 16px; border: 1px solid var(--jz-info-border); background: var(--jz-info-soft); border-radius: var(--jz-radius-m); font-size: var(--jz-font-m); }
+.created-bar .cb-title { color: var(--jz-link); font-weight: 600; }
 .created-bar .cb-close { margin-left: auto; }
-.lib-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-.lib-form label { display: inline-flex; gap: 6px; align-items: center; }
-.lib-form label.ck { gap: 4px; }
-.lib-form-policy { border-top: 1px dashed #333; padding-top: 10px; margin-top: 12px; }
-.vid-form { border-top: 1px dashed #333; padding-top: 10px; }
-.vid-line { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.form-sec-title { flex-basis: 100%; color: #999; font-size: 0.8125rem; font-weight: 600; }
-.form-sec-title .fhint { font-weight: normal; }
-.parse-line { flex-basis: 100%; color: #888; font-size: 0.8125rem; line-height: 1.8; padding-left: 6px; }
-.test-result { border-left: 2px solid #3a5a3a; }
-.test-result.warn-text { border-left-color: #6e2b2b; }
-.stage-line { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-.stage-chip { font-size: 0.6875rem; border: 1px solid #3a5a3a; color: #7fd18b; border-radius: 999px; padding: 0 6px; }
-.stage-chip.bad { border-color: #6e2b2b; color: #ff8a8a; }
-.stage-chip.skip { border-color: #444; color: #777; }
-.parse-line b { color: #ccc; font-weight: 600; }
-.parse-line code { color: #9ecfff; }
-.hint-block { flex-basis: 100%; margin-top: 10px; }
-.hint-title { margin: 0 0 2px; color: #999; font-size: 0.8125rem; font-weight: 600; }
-.hint-list { margin: 0; padding-left: 20px; color: #888; font-size: 0.8125rem; line-height: 1.9; }
-.hint-list li { margin: 2px 0; }
-.hint-list code { color: #9ecfff; }
-.fhint { color: #777; font-size: 0.75rem; font-weight: normal; }
-.hint { color: #888; font-size: 0.8125rem; line-height: 1.6; }
-.path-edit { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.subdir-chips { flex-basis: 100%; display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
-.subdir-chips .chip { font-size: 0.75rem; padding: 1px 8px; }
+.fhint { color: var(--jz-text-dim); font-size: var(--jz-font-s); font-weight: normal; }
+.hint { color: var(--jz-text-dim); font-size: var(--jz-font-m); line-height: 1.6; }
+.path-edit { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin: 16px 0; padding-top: 16px; border-top: 1px solid var(--jz-border); }
+.path-edit label { display: flex; flex-direction: column; gap: 8px; flex: 1 1 220px; font-size: var(--jz-font-m); }
+.path-edit input { width: 100%; min-width: 0; box-sizing: border-box; }
+.path-edit .ops-wrap { flex-basis: 100%; }
+.subdir-chips { flex-basis: 100%; display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 700px) {
+  .media-connections { margin-top: 20px; }
+  .connection-actions, .connection-path, .connection-meta { margin-left: 0; }
+  .video-libraries { margin-left: 0; padding: 14px; }
+  .video-library-row { display: block; }
+  .video-library-row .ops-wrap { margin-top: 12px; }
+  .path-edit { align-items: stretch; }
+  .path-edit > button, .more > summary { min-height: 44px; }
+}
 </style>
