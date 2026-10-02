@@ -53,7 +53,21 @@ reviewed: 2026-10-02
 
 ## 智能辅助
 
-入口：“设置 → 资料来源 → 智能辅助”。默认关闭，可选择 DeepSeek 或自定义兼容 Chat Completions 的服务，填写 API 基础地址、模型名称和 API Key。模型名称以服务商实际提供的名称为准。设置由服务器保存，整个实例共用；浏览器只显示密钥尾号，不会取回完整密钥。
+入口：“设置 → 资料来源 → 智能辅助”。默认关闭，可选择 DeepSeek、OpenCode Go 或自定义兼容 Chat Completions 的服务，填写 API 基础地址、模型名称和 API Key。设置由服务器保存，整个实例共用；浏览器只显示密钥尾号，不会取回完整密钥。
+
+| 服务商 | 选择后预填的 API 地址 | 模型示例 |
+|---|---|---|
+| DeepSeek | `https://api.deepseek.com` | `deepseek-flash` |
+| OpenCode Go | `https://opencode.ai/zen/go/v1` | `glm-5.3-flash` |
+| 自定义兼容接口 | 保留当前地址，按服务商要求修改 | 填写该接口支持的模型 ID |
+
+选择 OpenCode Go 后，检查预填地址与模型，填写对应的 Go API Key，再保存并测试。这里只保存一套当前配置；切换服务商不会分别保管各家的密钥，Key 留空仍沿用现有值，因此切换后应填写对应服务的 Key。再次打开页面会保留已保存的模型，不会重新套用示例。
+
+OpenCode Go 的模型 ID 直接填写 `glm-5.3-flash` 这类名称，不加 `opencode-go/` 前缀。只选择官方列为 `/chat/completions` 的模型；本版不支持 Go 的 `/messages` 或 `/responses` 模型。模型清单会变化，以[官方接口表](https://opencode.ai/docs/go/#endpoints)为准。
+
+2026-10-02 核对时，Go 官方将其定位为编程代理服务；jzmedia 的影视搜索与匹配用途尚未完成真实服务验证，不能保证订阅和 Key 可用于此场景。详见[官方使用范围](https://opencode.ai/docs/go/#where-can-i-use-it)。被拒绝时检查凭据、订阅及服务商的用途要求，仍可改用 DeepSeek 或其他兼容服务。
+
+<DocFigure src="../assets/screenshots/ai-settings-go.webp" alt="智能辅助设置中选择 OpenCode Go，显示预填地址、模型和用途提示" caption="v0.19.0，2026-10-02：真实设置界面配合模拟 API，无真实 Key。图中测试结果仅演示交互，不代表 OpenCode Go 已连通。" />
 
 点击“保存智能辅助配置”后，再点“测试已保存连接”。可以先测试连接再启用；修改地址、模型或 Key 后要先保存。API 基础地址填写到接口根目录，不包含 `/chat/completions`；例如 DeepSeek 的 `https://api.deepseek.com`，或本地兼容服务的 `http://localhost:11434/v1`。本地地址由 jzmedia 服务器访问，容器中的 `localhost` 指容器自身。
 
@@ -63,7 +77,7 @@ API Key 留空表示保留已有值。明确移除已保存的 Key 后，若服�
 
 智能搜索会把输入文字和当前库的可用筛选项发给所选服务；匹配辅助会发送用于辨认作品的名称与真实候选资料。它不上传视频。先检查输入内容及服务地址，再启用需要的服务。连接测试通过只说明接口可用，不代表所有中文表达或影片候选都能判断正确。
 
-使用步骤见[智能搜索](find-movies.md#智能搜索)和[辅助核对匹配](metadata.md#辅助核对匹配)。智能辅助不会接管普通扫描，建议仍需核对后应用。
+使用步骤见[智能搜索](find-movies.md#智能搜索)和[辅助核对匹配](metadata.md#辅助核对匹配)。智能辅助不会接管普通扫描，建议仍需核对后应用。制作教程或体验页面无需真实模型 Key，可使用[无 Key 演示与截图](../developer/documentation.md#智能辅助的无-key-演示与截图)；该演示中的解析、候选和连接结果均为固定模拟数据。
 
 ## 界面显示与系统维护
 

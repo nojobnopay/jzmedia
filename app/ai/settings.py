@@ -22,6 +22,8 @@ DEFAULTS = {
     "daily_limit": 100,
 }
 
+OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
+
 
 @dataclass(frozen=True)
 class AiConfig:
@@ -57,8 +59,8 @@ def _validate(values: dict) -> AiConfig:
     result = dict(values)
     if type(result["enabled"]) is not bool:
         raise ValueError("启用状态须为布尔值")
-    if result["provider"] not in ("deepseek", "compatible"):
-        raise ValueError("请选择 DeepSeek 或兼容接口")
+    if result["provider"] not in ("deepseek", "opencode_go", "compatible"):
+        raise ValueError("请选择 DeepSeek、OpenCode Go 或兼容接口")
     for name in ("base_url", "model", "api_key"):
         if not isinstance(result[name], str):
             raise ValueError("地址、模型和密钥须为文本")
@@ -68,6 +70,8 @@ def _validate(values: dict) -> AiConfig:
         "https://api.deepseek.com", "https://api.deepseek.com/v1",
     ):
         raise ValueError("自定义 API 地址请使用兼容接口")
+    if result["provider"] == "opencode_go" and result["base_url"] != OPENCODE_GO_BASE_URL:
+        raise ValueError("OpenCode Go 请使用官方 Go 基础地址；自定义地址请使用兼容接口")
     if not result["model"] or len(result["model"]) > 128 or re.search(
         r"[\x00-\x1f\x7f]", result["model"],
     ):

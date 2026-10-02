@@ -13,10 +13,12 @@ import pytest
 from app import store
 from app.ai import client as ai
 from app.ai import settings
+from app.routers import ai as ai_routes
 from app.routers.ai_settings import router
 
 api_app = FastAPI()
 api_app.include_router(router)
+api_app.include_router(ai_routes.router)
 api = TestClient(api_app)
 
 
@@ -270,3 +272,137 @@ def test_busy_and_large_input_do_not_consume_quota(monkeypatch):
         ai._slots.release()
         ai._slots.release()
     assert settings.usage()["requests"] == 0
+
+
+def configure_go(**changes):
+    return configure(provider="opencode_go", base_url=settings.OPENCODE_GO_BASE_URL,
+                     model="glm-5.3-flash", **changes)
+
+
+def test_opencode_go_saved_settings_are_explicit_and_masked():
+    data = configure_go()
+    assert data["provider"] == "opencode_go" and data["model"] == "glm-5.3-flash"
+    assert data["base_url"] == "https://opencode.ai/zen/go/v1"
+    assert data["api_key_set"] and data["api_key_source"] == "db"
+    assert "private-api-secret" not in json.dumps(data)
+    # Provider-only writes do not silently replace an existing address or model.
+    result = api.patch("/api/ai/settings", json={"provider": "deepseek"})
+    assert result.status_code == 400 and settings.effective().provider == "opencode_go"
+
+
+@pytest.mark.parametrize("base", ["https://opencode.ai/zen/v1", "https://api.deepseek.com",
+                                 "http://opencode.ai/zen/go/v1", "https://other.example/v1"])
+def test_opencode_go_requires_its_exact_official_endpoint(base):
+    configure()
+    result = api.patch("/api/ai/settings", json={"provider": "opencode_go", "base_url": base})
+    assert result.status_code == 400 and settings.effective().provider == "deepseek"
+
+
+def test_opencode_go_missing_key_never_calls_network(monkeypatch):
+    settings.update({"provider": "opencode_go", "base_url": settings.OPENCODE_GO_BASE_URL,
+                     "model": "glm-5.3-flash"})
+    fake_network(monkeypatch, lambda request: pytest.fail("missing key must stay local"))
+    result = api.post("/api/ai/check")
+    assert result.status_code == 200 and result.json()["code"] == "not_configured"
+    assert "OpenCode Go" in result.json()["message"] and settings.usage()["requests"] == 0
+
+
+def test_opencode_go_uses_honest_headers_and_preserves_media_payload(monkeypatch):
+    configure_go()
+    seen = []
+    def handler(request):
+        seen.append(request)
+        body = json.loads(request.content)
+        assert str(request.url) == "https://opencode.ai/zen/go/v1/chat/completions"
+        assert request.headers["Authorization"] == "Bearer private-api-secret"
+        assert request.headers["User-Agent"] == "jzmedia-media-assistant"
+        assert len(request.headers["x-opencode-session"]) == 32
+        assert body["model"] == "glm-5.3-flash" and "thinking" not in body
+        assert body["response_format"] == {"type": "json_object"}
+        assert json.loads(body["messages"][1]["content"]) == {"query": "香港喜剧"}
+        assert "编程" not in body["messages"][0]["content"] and "coding" not in body["messages"][0]["content"]
+        return response()
+    fake_network(monkeypatch, handler)
+    assert ai.call_json("search", {"query": "香港喜剧"}, "解析影视搜索条件，输出 JSON") == {"ok": True}
+    assert len(seen) == 1 and ai._operation_id.get() is None
+
+
+def test_operation_session_reuses_nested_context_and_cleans_up_after_errors():
+    with pytest.raises(RuntimeError):
+        with ai.operation_session() as first:
+            with ai.operation_session() as nested:
+                assert first == nested == ai._operation_id.get()
+            raise RuntimeError("business failure")
+    assert ai._operation_id.get() is None
+    with ai.operation_session() as second:
+        assert second != first
+
+
+def test_opencode_go_routes_group_match_calls_and_separate_operations(monkeypatch):
+    configure_go()
+    seen = []
+    fake_network(monkeypatch, lambda request: (seen.append(request), response())[1])
+    monkeypatch.setattr(ai_routes.store, "list_libraries", lambda: [{"id": 1, "kind": "movie"}])
+    monkeypatch.setattr(ai_routes.store, "get_movie", lambda mid: {"id": mid, "library_id": 1})
+    monkeypatch.setattr(ai_routes.store, "get_library", lambda lid: {"id": lid, "kind": "movie"})
+    def suggest(row, kind):
+        ai.call_json("match_identity", {"id": row["id"]}, "identity JSON")
+        return ai.call_json("match_rank", {"id": row["id"]}, "ranking JSON")
+    monkeypatch.setattr(ai_routes, "suggest_match", suggest)
+    monkeypatch.setattr(ai_routes, "propose_search", lambda query, kind, libs:
+                        ai.call_json("search", {"query": query}, "search JSON"))
+    assert api.post("/api/ai/match", json={"id": 1}).json()["ok"]
+    assert api.post("/api/ai/match", json={"id": 2}).json()["ok"]
+    assert api.post("/api/ai/search", json={"q": "喜剧"}).json()["ok"]
+    assert api.post("/api/ai/check").json()["ok"]
+    sessions = [request.headers["x-opencode-session"] for request in seen]
+    assert len(sessions) == 6 and sessions[0] == sessions[1] and sessions[2] == sessions[3]
+    assert len({sessions[0], sessions[2], sessions[4], sessions[5]}) == 4
+    # A cached operation does not become another paid request just to create a session.
+    assert api.post("/api/ai/match", json={"id": 1}).json()["ok"]
+    assert len(seen) == 6 and ai._operation_id.get() is None
+
+
+def test_opencode_go_concurrent_operations_have_separate_stable_sessions(monkeypatch):
+    configure_go()
+    seen = {}
+    def handler(request):
+        body = json.loads(request.content)
+        payload = json.loads(body["messages"][1]["content"])
+        seen[payload["call"]] = request.headers["x-opencode-session"]
+        return response()
+    fake_network(monkeypatch, handler)
+    def operation(index):
+        with ai.operation_session():
+            for step in range(2):
+                ai.call_json("match", {"call": f"{index}-{step}"}, "JSON")
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        list(executor.map(operation, range(2)))
+    assert seen["0-0"] == seen["0-1"] and seen["1-0"] == seen["1-1"]
+    assert seen["0-0"] != seen["1-0"]
+
+
+@pytest.mark.parametrize("provider", ["deepseek", "compatible"])
+def test_other_providers_do_not_receive_opencode_headers(monkeypatch, provider):
+    configure(provider=provider)
+    seen = []
+    fake_network(monkeypatch, lambda request: (seen.append(request), response())[1])
+    with ai.operation_session():
+        ai.call_json("search", {}, "JSON")
+    assert "x-opencode-session" not in seen[0].headers
+    assert seen[0].headers["User-Agent"] != ai.USER_AGENT
+
+
+@pytest.mark.parametrize("status,code", [(401, "invalid_credentials"), (403, "invalid_credentials"),
+                                        (400, "upstream_error"), (200, "invalid_response")])
+def test_opencode_go_rejection_or_incompatible_output_fails_without_workarounds(monkeypatch, status, code):
+    configure_go()
+    seen = []
+    fake_network(monkeypatch, lambda request: (seen.append(request), httpx.Response(
+        status, text="private-upstream-body private-api-secret"))[1])
+    result = api.post("/api/ai/check")
+    assert result.status_code == 200 and result.json()["code"] == code
+    assert len(seen) == 1 and settings.usage()["requests"] == 1
+    assert "private-api-secret" not in result.text and "private-upstream-body" not in result.text
+    if status in (401, 403):
+        assert "订阅权限" in result.json()["message"] and "客户端用途" in result.json()["message"]

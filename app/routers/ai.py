@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import store
-from ..ai.client import AiUnavailable
+from ..ai.client import AiUnavailable, operation_session
 from ..ai.match import suggest_match
 from ..ai.search import propose_search, scope_libraries
 
@@ -35,7 +35,8 @@ def smart_search(body: SearchRequest):
     if libraries == [-1]:
         return {"ok": False, "code": "empty_scope", "message": "当前范围没有对应的视频库，请先选择媒体库。"}
     try:
-        return propose_search(query, body.kind, libraries)
+        with operation_session():
+            return propose_search(query, body.kind, libraries)
     except AiUnavailable as exc:
         return {"ok": False, "code": exc.code, "message": exc.message}
 
@@ -49,6 +50,7 @@ def smart_match(body: MatchRequest):
     if not lib or lib.get("kind") != body.kind:
         raise HTTPException(422, "条目所属视频库类型不符。")
     try:
-        return suggest_match(row, body.kind)
+        with operation_session():
+            return suggest_match(row, body.kind)
     except AiUnavailable as exc:
         return {"ok": False, "code": exc.code, "message": exc.message}

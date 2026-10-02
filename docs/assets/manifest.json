@@ -207,6 +207,86 @@
       "verified_at": "2026-10-02",
       "bytes": 2470,
       "sha256": "d435cbb37ff3669abfca1daf318adc89fbfd9a99b0d30a3aceeb565b084a004f"
+    },
+    {
+      "file": "screenshots/ai-settings-go.webp",
+      "page": "user-guide/settings.md",
+      "scene": "OpenCode Go 预设、用途限制与明确标注的模拟测试响应；密钥是虚构值",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "9cc2abb",
+      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
+      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
+      "format": "WebP q86",
+      "bytes": 68112,
+      "sha256": "eb547d74e576b308b965b411de0eb2d1b25363d4f2a1ace2dc84eedc60d8facf"
+    },
+    {
+      "file": "screenshots/ai-search-preview.webp",
+      "page": "user-guide/find-movies.md",
+      "scene": "模拟解析结果可编辑；确认前未应用到当前库",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "9cc2abb",
+      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
+      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
+      "format": "WebP q86",
+      "bytes": 47868,
+      "sha256": "42d4a1eaa7f549e165c38faf8244637424d997b46dc6d1c2cd650c1a717a56d5"
+    },
+    {
+      "file": "screenshots/ai-match-movie.webp",
+      "page": "user-guide/metadata.md",
+      "scene": "模拟电影候选与二次确认；未执行绑定",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "9cc2abb",
+      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
+      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
+      "format": "WebP q86",
+      "bytes": 44838,
+      "sha256": "2d98cadc94d9a5c30818fed5f15b8f1a7841663f75bfc85b6b54ef112a2fca4b"
+    },
+    {
+      "file": "screenshots/ai-match-tv.webp",
+      "page": "user-guide/tv-matching.md",
+      "scene": "模拟整剧建议与二次确认；展示目录归属限制",
+      "verified_at": "2026-10-02",
+      "app_version": "0.19.0",
+      "source_commit": "9cc2abb",
+      "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
+      "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
+      "format": "WebP q86",
+      "bytes": 45448,
+      "sha256": "348811cad6fee57ad7f041c6104f3385e3b69188b9eb66f0dff1a58c517e7838"
     }
   ]
 }

@@ -2,6 +2,19 @@
 
 截图统一存 `docs/assets/screenshots/`，正文用仓库相对路径引用（如用户手册页用 `../assets/screenshots/xxx.webp`）。同一画面不复制多份。
 
+## 2026-10-02 智能辅助与 OpenCode Go
+
+本批四张图片使用应用 `0.19.0` 的真实 Vue 页面，所有 API 与资料均由 `scripts/smoke_ai_ui.mjs` 模拟；未加载 `.env`，未读取真实密钥、数据库或媒体，未连接应用后端、NAS、TMDB 或模型服务。图中密钥为虚构测试值，底部横幅与连接测试结果明确标注模拟；不能据此证明 OpenCode Go 可用于影视请求或已真实连通。Go 的用途限制提示来自实际产品界面。
+
+| 文件 | 场景及正文 | 规格 |
+|---|---|---|
+| `screenshots/ai-settings-go.webp` | Go 预设、用途限制与模拟连接结果；[设置](../user-guide/settings.md) | 1440×1000 CSS、1x，WebP q86 |
+| `screenshots/ai-search-preview.webp` | 可编辑解析条件、确认后才应用；[查找电影](../user-guide/find-movies.md) | 同上 |
+| `screenshots/ai-match-movie.webp` | 选择电影候选后的独立确认；[资料匹配](../user-guide/metadata.md) | 同上 |
+| `screenshots/ai-match-tv.webp` | 整剧建议及目录归属限制；[剧集匹配](../user-guide/tv-matching.md) | 同上 |
+
+重拍与持续演示命令见[无 Key 演示与截图](../developer/documentation.md#智能辅助的无-key-演示与截图)。各图的日期、工作区基线、体积与 SHA-256 单独记入 [manifest.json](manifest.json)；这些逐项来源覆盖该文件的旧批次默认来源，下面的新手素材和历史截图仍保留各自拍摄记录。
+
 ## 2026-10-02 帮助站素材
 
 本批新手、字幕和电影整理素材使用 `0.19.0` 的当前工作区（基准提交 `ee5dbcc`，包含新手向导和移动布局更新）。所有操作发生在 `scripts/preview_onboarding.py --docs-demo` 创建的独立本机服务、临时数据库和 `/tmp` 媒体目录；没有读取 `.env`、访问真实片库或复用真实影片。拍摄时全局帮助入口尚未加入，任务内的操作与当前界面一致。

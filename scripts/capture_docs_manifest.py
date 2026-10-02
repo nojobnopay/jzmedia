@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""更新本批帮助站素材来源清单；已有历史截图的来源继续见 assets/README.md。"""
+"""更新帮助站素材清单，保留其他拍摄批次和未变化素材的原始来源。"""
+from datetime import date
 import hashlib
 import json
 from pathlib import Path
@@ -12,6 +13,9 @@ ASSETS = ROOT / "docs/assets"
 
 
 def main():
+    manifest = ASSETS / "manifest.json"
+    previous = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {}
+    previous_assets = {entry["file"]: entry for entry in previous.get("assets", [])}
     groups = [
         ("previews/onboarding/*.webp", "user-guide/onboarding.md", "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源"),
         ("screenshots/demo-subtitles.webp", "user-guide/subtitles.md", "真实播放器：换字幕、调整延迟、加载本地 SRT"),
@@ -33,11 +37,24 @@ def main():
             entry = {"file": path.relative_to(ASSETS).as_posix(), "page": page,
                      "scene": scene, "verified_at": "2026-10-02", "bytes": path.stat().st_size,
                      "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            old = previous_assets.get(entry["file"])
+            if old and old.get("sha256") == entry["sha256"]:
+                # A metadata refresh does not turn an old screenshot into a new capture.
+                entries.append(old)
+                continue
             if path.suffix == ".mp4" and probe:
                 media = json.loads(subprocess.check_output([probe, "-v", "error", "-show_entries",
                     "format=duration:stream=codec_name,width,height", "-of", "json", str(path)]))
                 entry["duration_seconds"] = float(media["format"]["duration"])
                 entry.update(media["streams"][0])
+            entry.update({
+                "verified_at": date.today().isoformat(),
+                "app_version": json.loads((ROOT / "frontend/package.json").read_text())["version"],
+                "source_commit": subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True).strip(),
+                "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+                "recording_script": "scripts/capture_docs.py",
+                "fixtures": "scripts/preview_onboarding.py --docs-demo",
+            })
             entries.append(entry)
     data = {"schema_version": 1, "app_version": json.loads((ROOT / "frontend/package.json").read_text())["version"],
             "source_commit": subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, text=True).strip(),
@@ -46,7 +63,14 @@ def main():
             "viewport": {"desktop": "1440×1000 CSS，1x", "mobile": "407×904 CSS，2x，Chromium 模拟"},
             "recording_script": "scripts/capture_docs.py", "fixtures": "scripts/preview_onboarding.py --docs-demo",
             "legacy_sources": "docs/assets/README.md", "assets": entries}
-    (ASSETS / "manifest.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if previous:
+        # Top-level provenance belongs to the historic onboarding batch. AI screenshots
+        # carry per-entry overrides and must survive rerunning this older capture tool.
+        data = previous
+    regenerated = {entry["file"] for entry in entries}
+    data["assets"] = entries + [entry for entry in previous.get("assets", [])
+                               if entry["file"] not in regenerated]
+    manifest.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

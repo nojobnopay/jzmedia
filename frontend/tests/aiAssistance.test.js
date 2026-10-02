@@ -6,6 +6,7 @@ import { loadSfc } from './helpers/loadSfc.js'
 import { useAiRequest } from '../src/useAiRequest.js'
 import { aiFilterDraft, aiFilterError, aiFiltersToWall } from '../src/aiSearch.js'
 import { canBindAiCandidate, isAiExternalCandidate } from '../src/aiMatch.js'
+import { aiProviderPreset } from '../src/aiProviders.js'
 
 const deferred = () => {
   let resolve
@@ -264,4 +265,86 @@ test('settings persist key only on save, independently test saved config, and ex
   await flush()
   assert.deepEqual(requests[3].body, { clear_api_key: true })
   assert.match(ui.text(), /现使用服务器环境密钥/)
+})
+
+const savedAiSettings = overrides => ({ enabled: false, provider: 'deepseek',
+  base_url: 'https://api.deepseek.com', model: 'deepseek-flash', timeout_seconds: 12,
+  daily_limit: 100, api_key_set: true, api_key_source: 'db', api_key_masked: '****1234',
+  usage: { date: '2026-10-02', requests: 0, input_tokens: 0, output_tokens: 0 }, ...overrides })
+const providerSelect = ui => ui.nodes().find(n => n.type === 'select')
+const fieldByValue = (ui, value) => ui.nodes().find(n => n.type === 'input' && n.dirs?.[0]?.value === value)
+async function chooseProvider(ui, provider) {
+  const select = providerSelect(ui)
+  select.props['onUpdate:modelValue'](provider)
+  select.props.onChange()
+  await flush()
+}
+test('provider presets return only endpoint/model defaults and leave compatible settings editable', () => {
+  assert.deepEqual(aiProviderPreset('opencode_go'), { base_url: 'https://opencode.ai/zen/go/v1', model: 'glm-5.3-flash' })
+  const deepseek = aiProviderPreset('deepseek')
+  assert.deepEqual(deepseek, { base_url: 'https://api.deepseek.com', model: 'deepseek-flash' })
+  deepseek.model = 'edited'
+  assert.equal(aiProviderPreset('deepseek').model, 'deepseek-flash')
+  assert.deepEqual(aiProviderPreset('compatible'), {})
+})
+test('selecting Go fills its official preset without a request, permits edits, and saves the chosen key in the single config', async t => {
+  const requests = []
+  let saved = savedAiSettings()
+  const ui = await mount(t, 'AiSettingsPanel', {}, async (path, opts) => {
+    const body = opts.body && JSON.parse(opts.body)
+    requests.push({ path, method: opts.method, body })
+    if (body) saved = { ...saved, ...Object.fromEntries(Object.entries(body).filter(([key]) => key !== 'api_key')) }
+    return { ...saved }
+  })
+  await flush()
+  await chooseProvider(ui, 'opencode_go')
+  assert.equal(requests.length, 1)
+  assert.ok(fieldByValue(ui, 'https://opencode.ai/zen/go/v1'))
+  const model = fieldByValue(ui, 'glm-5.3-flash')
+  assert.ok(model)
+  assert.match(ui.text(), /影视用途尚未验证/)
+  assert.match(ui.text(), /不按服务商分别保存密钥/)
+  assert.match(ui.text(), /留空会沿用当前密钥/)
+  assert.match(ui.text(), /不加 opencode-go\/ 前缀/)
+  const official = ui.nodes().find(n => n.type === 'a' && n.props?.href === 'https://opencode.ai/docs/go/#where-can-i-use-it')
+  assert.equal(official.props.target, '_blank')
+  assert.equal(official.props.rel, 'noopener noreferrer')
+  model.props['onUpdate:modelValue']('glm-5.3')
+  ui.nodes().find(n => n.type === 'input' && n.props.type === 'password').props['onUpdate:modelValue']('go-test-secret')
+  await ui.button('保存智能辅助配置').props.onClick()
+  await flush()
+  assert.deepEqual(requests[1], { path: '/api/ai/settings', method: 'PATCH', body: {
+    enabled: false, provider: 'opencode_go', base_url: 'https://opencode.ai/zen/go/v1', model: 'glm-5.3',
+    timeout_seconds: 12, daily_limit: 100, api_key: 'go-test-secret',
+  } })
+  assert.ok(fieldByValue(ui, 'glm-5.3'), 'The save response must not restore the example model')
+  assert.equal(ui.nodes().find(n => n.type === 'input' && n.props.type === 'password').dirs[0].value, '')
+  assert.equal(requests.some(r => r.path === '/api/ai/check'), false)
+})
+test('loading a saved custom Go model does not apply presets; compatible preserves edits and explicit DeepSeek restores its preset', async t => {
+  const requests = []
+  const saved = savedAiSettings({ provider: 'opencode_go', model: 'kimi-k3', base_url: 'https://opencode.ai/zen/go/v1' })
+  const ui = await mount(t, 'AiSettingsPanel', {}, async (path, opts) => {
+    requests.push({ path, body: opts.body && JSON.parse(opts.body) })
+    return { ...saved }
+  })
+  await flush()
+  assert.equal(providerSelect(ui).dirs[0].value, 'opencode_go')
+  assert.ok(fieldByValue(ui, 'kimi-k3'))
+  assert.equal(ui.button('测试已保存连接').props.disabled, false)
+  await chooseProvider(ui, 'compatible')
+  assert.ok(fieldByValue(ui, 'kimi-k3'))
+  assert.ok(fieldByValue(ui, 'https://opencode.ai/zen/go/v1'))
+  fieldByValue(ui, 'https://opencode.ai/zen/go/v1').props['onUpdate:modelValue']('http://localhost:11434/v1')
+  fieldByValue(ui, 'kimi-k3').props['onUpdate:modelValue']('local-custom')
+  await flush()
+  assert.ok(fieldByValue(ui, 'local-custom'))
+  assert.ok(fieldByValue(ui, 'http://localhost:11434/v1'))
+  await chooseProvider(ui, 'deepseek')
+  assert.ok(fieldByValue(ui, 'deepseek-flash'))
+  assert.ok(fieldByValue(ui, 'https://api.deepseek.com'))
+  assert.equal(requests.length, 1)
+  await ui.button('保存智能辅助配置').props.onClick()
+  assert.equal(requests[1].body.provider, 'deepseek')
+  assert.equal('api_key' in requests[1].body, false, 'Blank key keeps the one existing server key')
 })

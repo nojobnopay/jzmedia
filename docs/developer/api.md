@@ -130,7 +130,11 @@ AI 服务默认关闭。所有产生外部调用的入口使用 POST，沿用应
 | `POST /api/ai/search` | `{q, kind:"movie"\|"tv", media_library_id?, library_id?}`；`q` 最多 500 字符，返回 `filters/summary/warnings` 供用户核对，不执行本地查询 |
 | `POST /api/ai/match` | `{kind:"movie"\|"tv", id}`；按该行所属视频库查候选，返回 `query/year/candidates/summary/warnings`，不更改绑定或媒体文件 |
 
-配置 `provider` 为 `deepseek` 或 `compatible`。地址是 API 根目录，客户端追加 `/chat/completions`，不跟随重定向；不继承 TMDB 代理或系统代理。自定义兼容服务允许空 Key，DeepSeek 要求 Key。`api_key` 空串表示保留；`clear_api_key:true` 明确删除 DB 密钥并恢复环境值，不可与新 Key 同时提交。配置错误返回 400，请求体不符合业务 schema 返回 422。
+配置 `provider` 为 `deepseek`、`opencode_go` 或 `compatible`。地址是 API 根目录，客户端追加 `/chat/completions`，不跟随重定向；不继承 TMDB 代理或系统代理。`opencode_go` 只接受 `https://opencode.ai/zen/go/v1`，UI 预填模型 `glm-5.3-flash`，直接传模型 ID、不加 `opencode-go/` 前缀；仅支持 Chat Completions，不切换到 Messages 或 Responses 协议。自定义兼容服务允许空 Key，DeepSeek 与 OpenCode Go 要求 Key。API 部分更新不会因仅修改 `provider` 就自动重置地址或模型，应一并提交完整有效组合。
+
+`api_key` 空串表示保留；`clear_api_key:true` 明确删除 DB 密钥并恢复环境值，不可与新 Key 同时提交。只有一套有效配置，切换服务商时由操作者填写对应 Key，不存在分服务商密钥槽位。配置错误返回 400，请求体不符合业务 schema 返回 422。
+
+OpenCode Go 请求使用真实 jzmedia User-Agent 和每次业务操作的 `x-opencode-session`；一次匹配的标题提取与排序共享会话，不同操作独立。会话不含媒体路径或凭据，不进入结果缓存键。官方目前面向编程代理，本接口不伪装编程任务，也不绕过用途限制；影视用途及真实连通性未验证。参见[官方使用范围](https://opencode.ai/docs/go/#where-can-i-use-it)。
 
 有效配置按 DB → 对应环境变量 → 默认值解析，环境变量为 `AI_ENABLED/AI_PROVIDER/AI_BASE_URL/AI_MODEL/AI_API_KEY/AI_TIMEOUT_SECONDS/AI_DAILY_LIMIT`。默认关闭、超时 12 秒、每日上限 100 次；超时可设 2–60 秒，每日上限为 1–10000 次。设置存在数据库中，脱敏回显不等于加密存储。
 

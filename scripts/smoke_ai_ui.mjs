@@ -1,18 +1,27 @@
-// Run: node scripts/smoke_ai_ui.mjs
-// Browser integration smoke using the real Vue pages and entirely mocked APIs.
-// No backend, .env, data directory, NAS, or model service is opened. Vite's config
-// and env-file loading are disabled; every API request and external URL is routed.
+// Run: node scripts/smoke_ai_ui.mjs [--capture-docs | --demo]
+// Build the real Vue pages into /tmp, serve local static assets and mock every API.
+// --capture-docs also saves documented screenshots; --demo keeps the loopback UI open.
+// No backend, .env, data directory, NAS, or model service is opened. Vite config/env
+// loading is disabled, and a restrictive CSP blocks external requests in ordinary browsers.
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { createServer as createHttpServer } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createServer } from '../frontend/node_modules/vite/dist/node/index.js'
+import { build } from '../frontend/node_modules/vite/dist/node/index.js'
 import vue from '../frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
+const args = process.argv.slice(2)
+assert.ok(args.every(arg => ['--capture-docs', '--demo'].includes(arg)), 'Usage: node scripts/smoke_ai_ui.mjs [--capture-docs | --demo]')
+assert.ok(args.length <= 1, 'Choose one mode per run')
+const capture = args.includes('--capture-docs'), demo = args.includes('--demo')
+const simulatedConnection = '模拟响应：未连接 OpenCode Go 或其他模型服务'
+const desktop = { width: 1440, height: 1000 }
 const temporary = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-ai-ui-'))
 const libraries = [
   { id: 1, kind: 'movie', name: '电影', media_library_id: 1, media_name: '模拟媒体库甲' },
@@ -44,7 +53,7 @@ const settings = { enabled: false, provider: 'deepseek', base_url: 'https://api.
 const requests = [], unexpected = [], errors = []
 let searchFailure = null, matchFailure = null, delayedSearch = null
 let delayedResolve
-let server, httpServer, browser, page
+let httpServer, browser, page
 const list = items => ({ items, has_more: false })
 const response = (route, body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
 const paid = () => requests.filter(r => /^\/api\/ai\/(check|search|match)$/.test(r.path))
@@ -70,10 +79,10 @@ async function mockApi(route) {
   }
   if (key === '/api/ai/check') {
     settings.usage.requests++
-    return response(route, { ok: true, code: 'ok', message: '模拟连接成功', usage: settings.usage })
+    return response(route, { ok: true, code: 'ok', message: simulatedConnection, usage: settings.usage })
   }
   if (key === '/api/ai/search') {
-    if (body.q === '旧库晚到') { delayedSearch = route; delayedResolve(); return }
+    if (body.q === '旧库晚到' && delayedResolve) { delayedSearch = route; delayedResolve(); return }
     if (searchFailure) return response(route, { ok: false, code: searchFailure, message: '模拟智能搜索不可用' })
     return response(route, proposal(body.kind, body.q))
   }
@@ -123,28 +132,173 @@ async function mockApi(route) {
   return route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"Unmocked API in isolated smoke"}' })
 }
 
+// HTTP mocks also serve ordinary browsers in --demo. No request is proxied.
+async function serveMock(req, res, base) {
+  const pathname = new URL(req.url, base).pathname
+  if (pathname.startsWith('/posters/')) {
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml' })
+    res.end('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="30"/>')
+    return true
+  }
+  if (!pathname.startsWith('/api/')) return false
+  const chunks = []
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > 65536) { res.writeHead(413); res.end(); return true }
+    chunks.push(chunk)
+  }
+  const body = Buffer.concat(chunks).toString('utf8')
+  const adapter = {
+    request: () => ({ url: () => new URL(req.url, base).href, method: () => req.method,
+      postData: () => body, postDataJSON: () => JSON.parse(body) }),
+    fulfill: async ({ status, contentType, body: result }) => {
+      if (!res.destroyed) { res.writeHead(status, { 'Content-Type': contentType }); res.end(result) }
+    },
+  }
+  await mockApi(adapter)
+  return true
+}
+
+async function ffmpegBinary() {
+  try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return 'ffmpeg' } catch { /* Try the existing app dependency next. */ }
+  const lib = path.join(project, '.venv/lib')
+  for (const python of await readdir(lib)) {
+    const binaries = path.join(lib, python, 'site-packages/static_ffmpeg/bin')
+    let platforms
+    try { platforms = await readdir(binaries) } catch { continue }
+    for (const platform of platforms) {
+      const binary = path.join(binaries, platform, 'ffmpeg')
+      try { execFileSync(binary, ['-version'], { stdio: 'ignore' }); return binary } catch { /* Try another installed platform. */ }
+    }
+  }
+  throw new Error('Install FFmpeg or prepare the existing static-ffmpeg app dependency before --capture-docs')
+}
+
+async function captureDocs(go) {
+  const binary = await ffmpegBinary(), assets = path.join(project, 'docs/assets')
+  await mkdir(path.join(assets, 'screenshots'), { recursive: true })
+  const appVersion = JSON.parse(await readFile(path.join(project, 'frontend/package.json'), 'utf8')).version
+  const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: project, encoding: 'utf8' }).trim()
+  const manifestFile = path.join(assets, 'manifest.json')
+  const manifest = JSON.parse(await readFile(manifestFile, 'utf8'))
+  const entries = []
+  async function screenshot(name, doc, scene, target) {
+    await target.evaluate(element => window.scrollTo(0, Math.max(0, element.getBoundingClientRect().top + window.scrollY - 90)))
+    await page.evaluate(() => document.fonts.ready)
+    const file = `screenshots/${name}.webp`, png = path.join(temporary, `${name}.png`)
+    await page.screenshot({ path: png, animations: 'disabled' })
+    execFileSync(binary, ['-hide_banner', '-loglevel', 'error', '-y', '-i', png, '-quality', '86', path.join(assets, file)])
+    const bytes = await readFile(path.join(assets, file))
+    entries.push({ file, page: doc, scene, verified_at: new Date().toISOString().slice(0, 10),
+      app_version: appVersion, source_commit: commit, source_state: '当前工作区 OpenCode Go 与智能辅助界面',
+      source: '真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果',
+      viewport: { width: desktop.width, height: desktop.height, device_scale_factor: 1 },
+      recording_script: 'scripts/smoke_ai_ui.mjs --capture-docs', fixtures: 'scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应',
+      format: 'WebP q86', bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
+    console.log('CAPTURE ' + file)
+  }
+  await page.setViewportSize(desktop)
+  Object.assign(settings, { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-flash',
+    enabled: false, api_key_set: false, api_key_source: 'unset', api_key_masked: '',
+    usage: { date: new Date().toISOString().slice(0, 10), requests: 0, input_tokens: 0, output_tokens: 0 } })
+  Object.assign(movie, { title: '模拟电影', tmdb_id: null })
+  Object.assign(show, { title: '模拟剧集', tmdb_id: null, poster_path: null })
+  await go('/settings?sec=sec-tmdb')
+  const config = page.locator('.ai-settings')
+  await config.getByLabel(/^服务商/).selectOption('opencode_go')
+  assert.equal(await config.getByLabel('API 基础地址', { exact: true }).inputValue(), 'https://opencode.ai/zen/go/v1')
+  assert.equal(await config.getByLabel('模型名称', { exact: true }).inputValue(), 'glm-5.3-flash')
+  await config.getByText(/OpenCode Go 官方面向编码代理/).waitFor()
+  await config.getByLabel('API Key', { exact: true }).fill('mock-docs-not-a-real-key-demo')
+  await config.getByLabel('启用智能辅助', { exact: true }).check()
+  await config.getByRole('button', { name: '保存智能辅助配置' }).click()
+  await config.getByText('配置已保存，智能辅助已开启', { exact: true }).waitFor()
+  await config.getByRole('button', { name: '测试已保存连接' }).click()
+  await config.getByText(simulatedConnection, { exact: true }).waitFor()
+  await screenshot('ai-settings-go', 'user-guide/settings.md', 'OpenCode Go 预设、用途限制与明确标注的模拟测试响应；密钥是虚构值', config)
+  await go('/?media=1')
+  await page.getByRole('button', { name: '智能搜索', exact: true }).click()
+  const search = page.getByRole('region', { name: '智能搜索', exact: true })
+  await search.getByLabel('想看什么').fill('没看过的 90 年代香港喜剧，TMDB 7 分以上')
+  await search.getByRole('button', { name: '解析条件', exact: true }).click()
+  await search.getByRole('button', { name: '确认应用条件' }).waitFor()
+  await screenshot('ai-search-preview', 'user-guide/find-movies.md', '模拟解析结果可编辑；确认前未应用到当前库', search)
+  for (const kind of ['movie', 'tv']) {
+    if (kind === 'tv') show.tmdb_id = 777 // A directory-locked show can only refresh its current TMDB identity.
+    await go(kind === 'movie' ? '/m/101' : '/tv/201')
+    if (kind === 'tv') {
+      await page.locator('summary').filter({ hasText: '更多操作' }).click()
+      await page.getByRole('button', { name: '重新匹配剧集', exact: true }).click()
+    }
+    const suggestions = page.getByRole('region', { name: 'AI 匹配建议', exact: true })
+    await suggestions.getByRole('button', { name: 'AI 匹配建议', exact: true }).click()
+    await suggestions.getByRole('button', { name: '选择此候选', exact: true }).click()
+    await suggestions.getByRole('button', { name: '确认绑定此候选' }).waitFor()
+    await screenshot(`ai-match-${kind}`, kind === 'tv' ? 'user-guide/tv-matching.md' : 'user-guide/metadata.md',
+      kind === 'tv' ? '模拟整剧建议与二次确认；展示目录归属限制' : '模拟电影候选与二次确认；未执行绑定', suggestions)
+  }
+  assert.deepEqual(unexpected, [], 'Capture must remain entirely mocked')
+  assert.deepEqual(errors, [], 'Capture browser errors')
+  // Preserve every historic batch field and asset; new entries carry their own provenance.
+  const captured = new Set(entries.map(entry => entry.file))
+  manifest.assets = [...manifest.assets.filter(entry => !captured.has(entry.file)), ...entries]
+  await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + '\n')
+  console.log('Updated AI entries only: docs/assets/manifest.json; raw PNGs: ' + temporary)
+}
+
 try {
-  server = await createServer({ root: path.join(project, 'frontend'), configFile: false, envFile: false,
-    cacheDir: path.join(temporary, 'vite-cache'), plugins: [vue()], worker: { format: 'es' },
-    logLevel: 'error', server: { middlewareMode: true, hmr: false, proxy: {} } })
-  httpServer = createHttpServer(server.middlewares)
+  const demoLabel = { name: 'isolated-demo-label', transformIndexHtml: () => [{ tag: 'div',
+    attrs: { id: 'isolated-demo-label', style: 'position:fixed;bottom:0;left:0;right:0;z-index:99999;padding:9px 16px;background:#25384a;color:#e5efff;text-align:center;font:14px/1.4 sans-serif;border-top:1px solid #698baa;pointer-events:none' },
+    children: '隔离演示 · 真实界面 + 模拟 API · 无真实 Key · 不代表 OpenCode Go 连通或影视效果', injectTo: 'body' }] }
+  const output = path.join(temporary, 'frontend')
+  // Use a fresh production build so ordinary demo browsers need no HMR/WebSocket connection.
+  await build({ root: path.join(project, 'frontend'), configFile: false, envFile: false,
+    cacheDir: path.join(temporary, 'vite-cache'), plugins: [vue(), ...(capture || demo ? [demoLabel] : [])], worker: { format: 'es' },
+    logLevel: 'error', build: { outDir: output, emptyOutDir: true, reportCompressedSize: false } })
+  httpServer = createHttpServer(async (req, res) => {
+    res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'")
+    try {
+      const base = `http://127.0.0.1:${httpServer.address().port}`
+      if (await serveMock(req, res, base)) return
+      const pathname = decodeURIComponent(new URL(req.url, base).pathname)
+      let file
+      if (/^\/assets\/[\w.-]+$/.test(pathname)) file = path.join(output, pathname)
+      else if (['/favicon.svg', '/favicon.ico', '/favicon-16x16.png', '/favicon-32x32.png',
+        '/apple-touch-icon.png', '/logo.svg', '/icon-512.png'].includes(pathname)) file = path.join(output, pathname)
+      else if (/^\/(?:settings|tv(?:\/\d+)?|m\/\d+)?\/?$/.test(pathname)) file = path.join(output, 'index.html')
+      else { res.writeHead(404); res.end('This isolated demo only serves its UI fixtures'); return }
+      const contentType = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
+        '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2' }[path.extname(file)] || 'application/octet-stream'
+      try { const content = await readFile(file); res.writeHead(200, { 'Content-Type': contentType }); res.end(content) }
+      catch { res.writeHead(404); res.end('Missing fixture asset') }
+    } catch (error) { console.error('Mock request failed:', error.message); res.writeHead(500); res.end('Isolated mock failed') }
+  })
   await new Promise((resolve, reject) => {
     httpServer.once('error', reject)
     httpServer.listen(0, '127.0.0.1', resolve)
   })
   const base = `http://127.0.0.1:${httpServer.address().port}`
+  if (demo) {
+    Object.assign(settings, { enabled: true, provider: 'opencode_go', base_url: 'https://opencode.ai/zen/go/v1',
+      model: 'glm-5.3-flash', api_key_set: true, api_key_source: 'db', api_key_masked: '****demo' })
+    show.tmdb_id = 777
+    console.log(`隔离演示（全 API 模拟，无真实 Key）：${base}/settings?sec=sec-tmdb`)
+    console.log(`搜索：${base}/?media=1\n电影匹配：${base}/m/101\n剧集匹配：${base}/tv/201`)
+    console.log('不加载 .env，不连接后端、NAS 或模型；仅演示这些页面。Ctrl+C 停止并丢弃内存状态。')
+    await new Promise(resolve => { process.once('SIGINT', resolve); process.once('SIGTERM', resolve) })
+  } else {
   browser = await chromium.launch({ headless: true })
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
+  const context = await browser.newContext({ viewport: desktop, serviceWorkers: 'block' })
   await context.route('**/*', route => {
     const url = new URL(route.request().url())
     if (url.origin !== base) { unexpected.push('External request blocked: ' + url.origin); return route.abort() }
-    if (url.pathname.startsWith('/api/')) return mockApi(route)
-    if (url.pathname.startsWith('/posters/')) return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="30"/>' })
     return route.continue()
   })
   page = await context.newPage()
   page.setDefaultTimeout(15000)
   page.on('pageerror', e => errors.push(String(e)))
+  page.on('response', r => { if (r.status() >= 400) errors.push(`${r.status()} ${new URL(r.url()).pathname}`) })
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
   const go = async pathname => {
     await page.goto(base + pathname)
@@ -163,7 +317,7 @@ try {
   assert.equal(await config.getByLabel('API Key', { exact: true }).inputValue(), '')
   assert.equal(paid().length, 0, 'Saving configuration must not test the model implicitly')
   await config.getByRole('button', { name: '测试已保存连接' }).click()
-  await config.getByText('模拟连接成功', { exact: true }).waitFor()
+  await config.getByText(simulatedConnection, { exact: true }).waitFor()
   assert.equal(paid().length, 1)
   const writesBeforeClear = requests.filter(r => r.path === '/api/ai/settings' && r.method === 'PATCH').length
   await config.getByRole('button', { name: '移除已保存密钥', exact: true }).click()
@@ -278,6 +432,8 @@ try {
   assert.deepEqual(errors, [], 'Browser runtime or console errors')
   assert.equal(requests.some(r => r.method !== 'GET' && /organize|scan|delete/.test(r.path)), false)
   console.log('PASS 390px 布局与运行时；所有 API/模型响应均为模拟，未访问真实后端、媒体或云服务')
+  if (capture) await captureDocs(go)
+  }
 } catch (error) {
   if (page && !page.isClosed()) {
     const screenshot = path.join(temporary, 'failure.png')
@@ -292,7 +448,7 @@ try {
 } finally {
   await browser?.close()
   if (httpServer) await new Promise(resolve => httpServer.close(resolve))
-  await server?.close()
   // Keep failure screenshots for inspection; generated Vite state is disposable.
   await rm(path.join(temporary, 'vite-cache'), { recursive: true, force: true })
+  await rm(path.join(temporary, 'frontend'), { recursive: true, force: true })
 }

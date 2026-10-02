@@ -28,4 +28,5 @@ def update_settings(body: dict):
 
 @router.post("/check")
 def check():
-    return client.check_connection()
+    with client.operation_session():
+        return client.check_connection()

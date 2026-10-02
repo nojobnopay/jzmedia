@@ -89,6 +89,31 @@ python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
 
 仓库 `docs/assets/manifest.json` 保存素材关联信息、时长、体积与校验值，`docs/assets/README.md` 记录基线。拍摄成功后自动更新清单，也可单独运行 `scripts/capture_docs_manifest.py`。三段视频保留真实操作时长、无旁白，中文说明由 WebVTT 字幕提供。用户概念图由 `scripts/capture_docs_diagrams.py` 生成，图表源可维护，不依赖截图中的文字。
 
+### 智能辅助的无 Key 演示与截图
+
+智能辅助使用真实 Vue 页面与完全模拟的 API，不需要真实 API Key。脚本不加载项目 `.env`，不启动应用后端，不读取数据库、媒体或 NAS。Vite 将当前前端独立构建到 `/tmp`，临时 HTTP 服务仅监听 `127.0.0.1`，只提供构建资源和显式模拟的 API；浏览器策略阻止外部请求。页面底部始终标明模拟来源，连接测试返回“模拟响应：未连接 OpenCode Go 或其他模型服务”。这些画面用于说明操作，不能证明 Go 支持影视请求、实际连通或中文效果。
+
+先安装前端与文档依赖；截图还需要文档 Playwright 的 Chromium，以及 PATH 中的 FFmpeg 或项目已准备的 `static-ffmpeg`：
+
+```bash
+npm ci --prefix frontend
+npm ci --prefix docs
+node docs/node_modules/playwright/cli.js install chromium
+node scripts/smoke_ai_ui.mjs --demo
+```
+
+打开启动时打印的本机地址，可以操作 Go 设置、电影与剧集智能搜索、匹配建议及二次确认；示例标题、密钥状态和返回候选都是内存中的虚构值，请勿输入真实密钥。此演示仅覆盖列出的页面，其他 API 返回明确的模拟缺失错误。`Ctrl+C` 停止服务、清除临时构建并丢弃内存修改。
+
+重新拍摄四张教程图：
+
+```bash
+node scripts/smoke_ai_ui.mjs --capture-docs
+```
+
+拍摄前先运行同一脚本的浏览器冒烟，随后保存 Go 设置与模拟测试提示、可编辑搜索条件、电影确认候选和剧集目录归属限制。Playwright 在 1440×1000 CSS、1x 视口生成原始 PNG，FFmpeg 转为 WebP q86，写入 `docs/assets/screenshots/ai-*.webp`；原图留在命令打印的 `/tmp/jzmedia-ai-ui-*` 供核对。默认不传参数只执行冒烟，不更新教程图片。
+
+截图成功后只更新素材清单内对应 AI 条目，每项分别记录版本、日期、代码基线、视口、哈希及“真实界面 + 模拟 API”的来源；旧批次全局来源和其他素材记录保留。`scripts/capture_docs_manifest.py` 同样保留已有 AI 条目及未变化历史素材的来源。更新后查看实际图片，确保 Go 用途提示、确认按钮和目录锁原因可读，再执行文档构建与检查。
+
 ## 构建与检查
 
 在项目根安装依赖并运行：
