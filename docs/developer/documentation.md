@@ -45,7 +45,7 @@ reviewed: 2026-10-02
 组件在主题中全局注册。资源路径相对当前 Markdown 文件解析；文件名使用稳定的场景名，不把时间或影片数据库 ID 当成公开资源名。
 
 - `DocStep` 使用 `number`、`title`，文字放默认 slot，图放 `#image` slot；桌面并排，手机按顺序排列。标签前后保留空行，让 Markdown 正常解析。
-- `DocFigure` 使用 `src`、具体描述的 `alt`、`caption`，支持查看原图；`marks` 可按图片百分比坐标标注控件，必须核对实际截图。不要让图注承担唯一操作说明。
+- `DocFigure` 使用 `src`、具体描述的 `alt`、`caption`，支持查看原图；`marks` 可按图片百分比坐标标注控件，必须核对实际截图。重拍后未经重新核对的旧坐标先移除，正文用实际按钮名称说明操作。不要让图注承担唯一操作说明。
 - `DocDiagram` 与图片使用相同字段。适合两层媒体库关系、扫描与整理区别、系统架构等。
 - `DocVideo` 使用 `src`、`poster`、`captions`、`title`；slot 放等价文字步骤。视频手动播放，必须有 WebVTT 字幕和封面。
 
@@ -88,6 +88,24 @@ python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
 脚本限制目标为 `/tmp/jzmedia-preview-*`，拒绝主服务端口，并校验视频编码、30–90 秒时长及 10 MB 大小上限。演示启动器复制已构建的帮助站供本地预览；尚未构建时，旧 `/preview/index.html` 展示构建命令和继续配置链接。原始 WebM 与运行校验文件留在拍摄器打印的 `/tmp/jzmedia-docs-capture-*`，不随仓库发布。
 
 仓库 `docs/assets/manifest.json` 保存素材关联信息、时长、体积与校验值，`docs/assets/README.md` 记录基线。拍摄成功后自动更新清单，也可单独运行 `scripts/capture_docs_manifest.py`。三段视频保留真实操作时长、无旁白，中文说明由 WebVTT 字幕提供。用户概念图由 `scripts/capture_docs_diagrams.py` 生成，图表源可维护，不依赖截图中的文字。
+
+### 同数据的整页审查与教程截图
+
+跨页面改版先冻结改前源码，再用同一份完整模拟资料比较；旧教程截图只能说明历史界面，不能当作同数据基线。`scripts/ui_visual_review.mjs` 使用 `scripts/fixtures/uiReviewData.mjs` 的虚构影片、剧集、合集、文件和设置，以及原创 SVG 海报；真实 Vue 页面独立构建到临时目录，不读取项目 `.env`、数据库、媒体或 NAS，不连接外网。
+
+```bash
+node scripts/ui_visual_review.mjs --demo
+node scripts/ui_visual_review.mjs --source /tmp/jzmedia-goal-before --label goal-before
+node scripts/ui_visual_review.mjs --label goal-after
+node scripts/ui_visual_review.mjs --only settings-tmdb,settings-libraries --label settings-check
+node scripts/ui_visual_review.mjs --capture-docs
+```
+
+`--source` 指向包含 `frontend/` 的冻结源码目录；fixture 始终来自当前脚本，改前和改后的 fixture 哈希必须一致。`--demo` 打印独立本机地址供手动体验，输入与操作只修改内存模拟状态。完整审查覆盖电影/剧集/合集浏览与详情、设置、四步向导、筛选、勾选、上传与删除弹窗，以及加载、空、无结果和失败状态。`--core` 只保留主要页面，适合局部布局迭代，不能代替完整验收。
+
+脚本保存 1440×1000 和 390×844 CSS 视口截图，另在 375×812 检查窄屏。`output/playwright/goal-before/manifest.json` 和 `goal-after/manifest.json` 记录源码与 fixture 哈希、场景、页面错误和布局测量；`output/playwright/ui-review/index.html` 展示成对图片，`comparisons.json` 的 `comparable` 标记两组 fixture 是否一致。拍摄过程中不要修改前端源码；脚本会核对拍摄前后的源码哈希。局部重拍仅在源码与 fixture 均一致时合并旧结果，避免一组截图混入多个实现版本。
+
+`--capture-docs` 必须使用当前工作区的完整审查，不与 `--source`、`--only`、`--core` 或 `--demo` 混用。脚本从通过检查的场景生成 WebP q86，只更新对应教程图和素材清单条目，保留其他来源记录；需要现有 FFmpeg。新增或调整教程图映射时同步检查实际图片、正文、替代文字和图注。设置/文件与 AI 的专门拍摄脚本仍负责其操作场景，见下文；截图通过不代表真实 NAS、TMDB 或模型服务已验证。
 
 ### 智能辅助的无 Key 演示与截图
 

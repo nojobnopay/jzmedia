@@ -248,6 +248,7 @@ async function captureDocs(go) {
       await page.locator('summary').filter({ hasText: '更多操作' }).click()
       await page.getByRole('button', { name: '重新匹配剧集', exact: true }).click()
     }
+    if (kind === 'movie' || !show.tmdb_id) await page.getByRole('button', { name: '匹配资料', exact: true }).click()
     const suggestions = page.getByRole('region', { name: 'AI 匹配建议', exact: true })
     await suggestions.getByRole('button', { name: 'AI 匹配建议', exact: true }).click()
     await suggestions.getByRole('button', { name: '选择此候选', exact: true }).click()
@@ -346,6 +347,7 @@ try {
   await config.getByText(simulatedConnection, { exact: true }).waitFor()
   assert.equal(paid().length, 1)
   const writesBeforeClear = requests.filter(r => r.path === '/api/ai/settings' && r.method === 'PATCH').length
+  await config.locator('summary').filter({ hasText: '调用限额、超时与密钥管理' }).click()
   await config.getByRole('button', { name: '移除已保存密钥', exact: true }).click()
   assert.equal(requests.filter(r => r.path === '/api/ai/settings' && r.method === 'PATCH').length, writesBeforeClear)
   await config.getByRole('button', { name: '确认移除已保存密钥', exact: true }).click()
@@ -405,13 +407,14 @@ try {
   assert.equal(await panel.getByRole('button', { name: '确认应用条件' }).count(), 0)
   const localSearch = page.waitForRequest(r => new URL(r.url()).pathname === '/api/search' && new URL(r.url()).searchParams.get('q') === '普通查找')
   await page.getByRole('combobox', { name: '搜索电影', exact: true }).fill('普通查找')
-  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await page.getByRole('button', { name: '搜索电影', exact: true }).click()
   await localSearch
   searchFailure = null
   console.log('PASS 智能搜索停用或失败时原搜索仍可用')
 
   for (const kind of ['movie', 'tv']) {
     await go(kind === 'movie' ? '/m/101' : '/tv/201')
+    if (kind === 'movie' || !show.tmdb_id) await page.getByRole('button', { name: '匹配资料', exact: true }).click()
     const suggestions = page.getByRole('region', { name: 'AI 匹配建议', exact: true })
     await suggestions.getByRole('button', { name: 'AI 匹配建议', exact: true }).waitFor()
     matchFailure = 'timeout'

@@ -2,6 +2,14 @@
 
 截图统一存 `docs/assets/screenshots/`，正文用仓库相对路径引用（如用户手册页用 `../assets/screenshots/xxx.webp`）。同一画面不复制多份。
 
+## 2026-10-02 系统性 UI 优化复拍
+
+本轮更新电影墙与筛选、手机电影墙、电影/剧/季详情、合集详情、媒体库连接/新建、系统维护和电影/剧集上传共 12 张教程图。来源是 `scripts/ui_visual_review.mjs --capture-docs`：真实 Vue 页面、完整虚构资料与原创 SVG 海报，所有 API 模拟。桌面视口 1440×1000、手机 390×844 CSS，1x；长页面保存全页，对话框保存视口。逐项来源、源码/数据哈希与尺寸以 [manifest.json](manifest.json) 为准，覆盖下方同名历史资源的来源说明。
+
+同时用各自隔离脚本重拍设置/文件管理与 AI 操作图；新手四步及首播图、视频和字幕则通过新的临时数据库与合成短片实走重拍。没有操作真实媒体或使用真实模型凭据。未涉及的字幕和整理录屏保留原批次记录。
+
+同数据改前/改后对照与审查结果在被 Git 忽略的 `output/playwright/`，可按[整页审查流程](../developer/documentation.md#同数据的整页审查与教程截图)重新生成。
+
 ## 2026-10-02 设置与文件管理改造
 
 `scripts/smoke_settings_ui.mjs --capture-docs` 使用真实 Vue 页面和完全模拟的内存 API，未读取实际配置、数据库或媒体。以下截图替代历史同名图，逐图版本、日期与哈希以 [manifest.json](manifest.json) 为准；不能据此证明真实 NAS 文件操作或外部服务连通。

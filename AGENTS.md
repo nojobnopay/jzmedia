@@ -49,7 +49,9 @@
 
 ## Conventions / constraints
 
-- UI 设计系统（2026-10-02）：`styles/tokens.css` 定义语义变量，`styles/base.css` 承载原 App 全局基础样式；通用控件 `JzButton/JzField/JzDialog/AppIcon`，浏览页 `BrowseToolbar/EmptyState`。弹窗 Teleport 后主按钮仍独立生效，焦点陷阱按最上层处理；复杂播放器/文件预览保留专门生命周期。项目 skill `.agents/skills/jzmedia-ui/SKILL.md` 与 `docs/developer/design-system.md` 说明使用边界；`node scripts/smoke_design_system.mjs [--demo|--capture]` 为隔离组件目录及浏览器检查，不接真实 API/媒体，输出 `output/playwright/` 不提交。
+- UI 设计系统（2026-10-02）：`styles/tokens.css` 定义语义变量，`styles/base.css` 承载原 App 全局基础样式；通用控件 `JzButton/JzField/JzDialog/AppIcon`，浏览页 `BrowseToolbar/BrowseResultsHeader/EmptyState`。弹窗 Teleport 后主按钮仍独立生效，焦点陷阱按最上层处理；复杂播放器/文件预览保留专门生命周期。项目 skill `.agents/skills/jzmedia-ui/SKILL.md` 与 `docs/developer/design-system.md` 说明使用边界；`node scripts/smoke_design_system.mjs [--demo|--capture]` 为隔离组件目录及浏览器检查，不接真实 API/媒体，输出 `output/playwright/` 不提交。
+
+- UI 信息层级（2026-10-02）：设置用分区标题/范围与扁平表单，概览待办优先、媒体连接可展开、TMDB 凭据/可选配置/真实验证结果分组；手机分类入口紧凑。浏览页统一结果数量/排序，继续观看为横向紧凑卡片；手机详情小海报与标题并排、操作先于简介，未匹配电影/剧先点“匹配资料”展开原表单。手机文件名下显示元信息，保留五项排序与“更多”操作。四步引导显示进度和明确导入目标；`useFocusTrap` 嵌套锁背景滚动、菜单打开弹窗前恢复可见触发器，上传操作常驻 footer。`node scripts/ui_visual_review.mjs` 用完整模拟 API/原创海报审查 1440/390/375px，`--source` 冻结改前源码，同 fixture 哈希才可比较；`--capture-docs` 更新对应教程图，详见 `docs/developer/documentation.md`。
 
 - 文件入口与预览（2026-10-02）：扫描与整理只保留页内工具标签，独立次要按钮“管理文件”通过 `fileNavigation.js` 保存 `sessionStorage jzmedia.files.origin.v1` 来源（视频库/工具标签/展开步骤/滚动/还原勾选），URL `files_from` 绑定来源，`files_return` 一次恢复；刷新及文件页切库保留，侧栏直接进入/成功离开/转扫描清理，失败导航不丢来源。返回仍经原文件变更守卫，展示守卫前关闭预览。`FilePreviewHost/FilePreviewDialog` + `filePreview/useFilePreview` 供 FsBrowser 和 MovieFileManager 共用；双击/Enter 原地预览，详情为独立动作。已入库视频按具体 episode/extra/feature movie ID 使用 `PlayerModal.preview=true`（默认 false），不读写/删除观看进度、不发已看/连播事件；未入库原文件预览，不临时造行。`GET /api/fs/blob?library=&path=` 必须显式精确库和规范相对路径，支持只读/本地/SMB Range；inline 图片/PDF/视频白名单，文本前 64KiB 且 `X-Preview-Truncated/Limit`，纯文本显示。关闭/切库取消请求及晚响应，卸载前停播断源；错误预览区分404/403/503。回归 `test_fs_preview.py`、`fileNavigation/libraryFileEntry/filePreview/fsBrowser`，`smoke_settings_ui.mjs` 使用临时 FFmpeg 合成媒体和真实 PlayerModal 验证预览与普通播放的进度隔离（不接真实 NAS）。
 
