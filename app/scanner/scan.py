@@ -11,6 +11,7 @@ from .. import store
 from .. import tmdb
 from ..db import ensure_dirs
 from ..log import get_logger
+from ..library_mutex import library_mutation_lock
 logger = get_logger("scanner.scan")
 from .classify import (is_sample, is_sidecar, is_extras_dir, extra_kind,
                        strip_kind_affix, scan_skip_dirs, VIDEO_EXTS)
@@ -705,6 +706,7 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
             out.append({"file": "", "library_id": lib_id,
                         "status": f"error: library unavailable: {e}"})
             continue
+        change_revision = store.fs_change_summary(lib_id)["revision"]
         storage.clear_meta_cache(lib_id)   # 扫描必须看到磁盘当前状态（不吃 TTL 缓存）
         try:
             backend.stat("")
@@ -724,7 +726,7 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
         # TV：子剧目录（七龙珠.Z）+ 无编号特典顺序号，一次遍历内预计算
         ctx = (tv_plan(entries, vids)
                if str(lib.get("kind") or "movie") == "tv" else None)
-        plans.append((lib, backend, vids, tree_files, ctx))
+        plans.append((lib, backend, vids, tree_files, ctx, change_revision))
         grand += len(vids)
     if progress_cb:
         try:
@@ -743,7 +745,7 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
         logger.debug("list extras failed: %s", e)
         all_extras = []
     done = 0
-    for lib, backend, vids, tree_files, ctx in plans:
+    for lib, backend, vids, tree_files, ctx, change_revision in plans:
         lib_id = _lib_id(lib.get("id"))
         is_tv = str(lib.get("kind") or "movie") == "tv"
         seen_extras: set[str] = set()
@@ -778,59 +780,67 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
         if should_stop and should_stop():
             logger.info("scan cancelled before GC: lib=%s", lib_id)
             return out
-        if is_tv:
-            # TV 失效 GC（仅在一次完整遍历后执行）：删掉磁盘上已不存在的集行/空剧，
-            # 级联清理播放断点与探测缓存（库离线在 iter_tree 已整库跳过，绝不误删）。
+        with library_mutation_lock(lib_id):
+            if store.fs_change_summary(lib_id)["revision"] != change_revision:
+                out.append({"file": "", "library_id": lib_id,
+                            "status": "error: files changed during scan; scan again"})
+                continue
+            if is_tv:
+                # TV 失效 GC（仅在一次完整遍历后执行）：删掉磁盘上已不存在的集行/空剧，
+                # 级联清理播放断点与探测缓存（库离线在 iter_tree 已整库跳过，绝不误删）。
+                try:
+                    removed = store.delete_episodes_not_in(tree_files, lib_id)
+                    extra_removed = 0   # 剧集花絮/剧场版行 GC
+                    for row in all_extras:
+                        if int(row.get("library_id") or DEFAULT_LIBRARY_ID) != lib_id:
+                            continue
+                        if not row.get("show_id") or row["file_path"] in tree_files:
+                            continue
+                        if store.delete_extra_by_path(row["file_path"], library_id=lib_id):
+                            extra_removed += 1
+                    repaired = store.reattach_tv_extras(lib_id)
+                    pruned = store.prune_empty_shows(lib_id)
+                    if removed or pruned or extra_removed or repaired:
+                        logger.info("TV GC lib=%s: 失效集 %s / 花絮 %s / 重挂 %s / 空剧 %s",
+                                    lib_id, removed, extra_removed, repaired, pruned)
+                    if removed:
+                        out.append({"file": "", "library_id": lib_id,
+                                    "status": "removed_episode", "count": int(removed)})
+                    if pruned:
+                        out.append({"file": "", "library_id": lib_id,
+                                    "status": "removed_show", "count": int(pruned)})
+                except Exception as ex:
+                    logger.warning("TV GC failed lib=%s: %s", lib_id, ex)
+                    out.append({'file': '', 'library_id': lib_id, 'status': f'error: TV reconciliation failed: {ex}'})
+                # Confirmed shows may already have cached metadata; fill only newly
+                # discovered episodes, without a whole-show refresh or NAS writes.
+                from .tv_persist import backfill_cached_episodes
+                for sid in {r['show_id'] for r in store.list_tv_bindings(lib_id)}:
+                    backfill_cached_episodes(sid)
+                continue
+            # 电影正片 GC（Plex 式删除识别，仅在一次完整遍历后执行）：磁盘已不存在的行
+            # 立刻 purge（含断点/探测/人物关联；海报与 tmdb_cache 保留供重扫复用）。
+            # 库离线在上面的 iter_tree 已整库跳过，绝不误删；取消扫描直接 return，不到这里。
             try:
-                removed = store.delete_episodes_not_in(tree_files, lib_id)
-                extra_removed = 0   # 剧集花絮/剧场版行 GC
+                removed_movies = store.delete_movies_not_in(tree_files, lib_id)
+                if removed_movies:
+                    logger.info("movie GC lib=%s: 失效影片 %s", lib_id, removed_movies)
+                    out.append({"file": "", "library_id": lib_id,
+                                "status": "removed_movie", "count": int(removed_movies)})
+            except Exception as ex:
+                logger.warning("movie GC failed lib=%s: %s", lib_id, ex)
+                out.append({'file': '', 'library_id': lib_id, 'status': f'error: movie reconciliation failed: {ex}'})
+            # 花絮行 GC（按库分区，仅在一次完整遍历后执行）：文件已不存在的归属记录清掉；
+            # 用本次树遍历快照成员判定，免逐行 stat 往返
+            # （遍历成功即代表磁盘当前状态；库离线在上面的 iter_tree 已跳过整库）。
+            try:
                 for row in all_extras:
                     if int(row.get("library_id") or DEFAULT_LIBRARY_ID) != lib_id:
                         continue
-                    if not row.get("show_id") or row["file_path"] in tree_files:
+                    if row["file_path"] in seen_extras or row["file_path"] in tree_files:
                         continue
-                    if store.delete_extra_by_path(row["file_path"], library_id=lib_id):
-                        extra_removed += 1
-                repaired = store.reattach_tv_extras(lib_id)
-                pruned = store.prune_empty_shows(lib_id)
-                if removed or pruned or extra_removed or repaired:
-                    logger.info("TV GC lib=%s: 失效集 %s / 花絮 %s / 重挂 %s / 空剧 %s",
-                                lib_id, removed, extra_removed, repaired, pruned)
-                if removed:
-                    out.append({"file": "", "library_id": lib_id,
-                                "status": "removed_episode", "count": int(removed)})
-                if pruned:
-                    out.append({"file": "", "library_id": lib_id,
-                                "status": "removed_show", "count": int(pruned)})
+                    store.delete_extra_by_path(row["file_path"], library_id=lib_id)
             except Exception as ex:
-                logger.warning("TV GC failed lib=%s: %s", lib_id, ex)
-            # Confirmed shows may already have cached metadata; fill only newly
-            # discovered episodes, without a whole-show refresh or NAS writes.
-            from .tv_persist import backfill_cached_episodes
-            for sid in {r['show_id'] for r in store.list_tv_bindings(lib_id)}:
-                backfill_cached_episodes(sid)
-            continue
-        # 电影正片 GC（Plex 式删除识别，仅在一次完整遍历后执行）：磁盘已不存在的行
-        # 立刻 purge（含断点/探测/人物关联；海报与 tmdb_cache 保留供重扫复用）。
-        # 库离线在上面的 iter_tree 已整库跳过，绝不误删；取消扫描直接 return，不到这里。
-        try:
-            removed_movies = store.delete_movies_not_in(tree_files, lib_id)
-            if removed_movies:
-                logger.info("movie GC lib=%s: 失效影片 %s", lib_id, removed_movies)
-                out.append({"file": "", "library_id": lib_id,
-                            "status": "removed_movie", "count": int(removed_movies)})
-        except Exception as ex:
-            logger.warning("movie GC failed lib=%s: %s", lib_id, ex)
-        # 花絮行 GC（按库分区，仅在一次完整遍历后执行）：文件已不存在的归属记录清掉；
-        # 用本次树遍历快照成员判定，免逐行 stat 往返
-        # （遍历成功即代表磁盘当前状态；库离线在上面的 iter_tree 已跳过整库）。
-        try:
-            for row in all_extras:
-                if int(row.get("library_id") or DEFAULT_LIBRARY_ID) != lib_id:
-                    continue
-                if row["file_path"] in seen_extras or row["file_path"] in tree_files:
-                    continue
-                store.delete_extra_by_path(row["file_path"], library_id=lib_id)
-        except Exception as ex:
-            logger.debug("extras gc failed lib=%s: %s", lib_id, ex)
+                logger.debug("extras gc failed lib=%s: %s", lib_id, ex)
+                out.append({'file': '', 'library_id': lib_id, 'status': f'error: extras reconciliation failed: {ex}'})
     return out

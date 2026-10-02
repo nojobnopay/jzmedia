@@ -243,6 +243,9 @@ test('settings persist key only on save, independently test saved config, and ex
     return { ...saved }
   })
   await flush()
+  assert.equal(ui.nodes().some(n => n.type === 'input' && n.props.type === 'password'), false, 'Disabled AI keeps optional service fields collapsed')
+  await ui.button('配置与测试服务').props.onClick()
+  await flush()
   const password = ui.nodes().find(n => n.type === 'input' && n.props.type === 'password')
   assert.equal(password.dirs[0].value, '')
   assert.equal(requests.length, 1)
@@ -297,6 +300,8 @@ test('selecting Go fills its official preset without a request, permits edits, a
     return { ...saved }
   })
   await flush()
+  await ui.button('配置与测试服务').props.onClick()
+  await flush()
   await chooseProvider(ui, 'opencode_go')
   assert.equal(requests.length, 1)
   assert.ok(fieldByValue(ui, 'https://opencode.ai/zen/go/v1'))
@@ -328,6 +333,8 @@ test('loading a saved custom Go model does not apply presets; compatible preserv
     requests.push({ path, body: opts.body && JSON.parse(opts.body) })
     return { ...saved }
   })
+  await flush()
+  await ui.button('配置与测试服务').props.onClick()
   await flush()
   assert.equal(providerSelect(ui).dirs[0].value, 'opencode_go')
   assert.ok(fieldByValue(ui, 'kimi-k3'))

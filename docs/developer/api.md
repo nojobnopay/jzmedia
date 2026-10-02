@@ -31,6 +31,28 @@ reviewed: 2026-10-02
 
 ## 客户端例子
 
+### 文件管理变更与扫描
+
+`GET /api/fs/changes?library=<id>` 返回该视频库的 `{library_id,pending,count,revision,actions,last_changed_at,paths,active_jobs}`；省略 `library` 返回 `{items,count}`。变更按成功物理操作写入持久日志（schema v29）；预览和未落盘的失败不记入，部分成功保留。`paths` 仅展示最近至多 20 个路径。
+
+`active_jobs` 包括收到取消请求但 `worker_finished:false` 的复制任务；客户端不能仅凭 `state:cancelled` 判断后台写入已经结束。同库仍在复制时启动扫描返回 409。成功完整扫描只清除开始时的变更水位；失败、取消、离线或扫描过程中新增的变更仍待核对。扫描结果 `summary.fs_changes` 提供已清除数量及剩余摘要。
+
+电影与分集的改名/移动保留原记录 ID 和播放断点；删除立即同步记录。`rename/move` 预览中的 `followers` 列出同茎关联文件及冲突。`GET /api/fs/list` 的 `limit/offset/has_more/total_files` 需要完整处理，不能只显示默认第一页。
+
+### 文件内容预览与下载
+
+`GET /api/fs/blob?library=<id>&path=<库内相对路径>` 精确读取指定视频库的文件，`library` 和 `path` 必填；未知库/缺失文件/目录返回 404，非法或越界路径返回 422，拒读返回 403，离线返回 503。只读库可读取；不回退默认库、不猜同名文件、不创建媒体记录或待扫描变更。
+
+默认下载原文件，支持本地与远程 Range（206 / 416）；`inline=1` 仅对允许的图片、PDF、视频类型内嵌显示，其他类型仍按附件下载。`mode=text` 仅返回前 65536 源字节解码后的纯文本，响应头 `X-Preview-Truncated: true|false`、`X-Preview-Limit: 65536` 说明截断情况。HTML/SVG 不作为页面执行。
+
+已入库视频预览仍使用现有电影/分集/花絮播放接口；前端 `PlayerModal.preview` 默认 `false`，文件预览设为 `true` 后禁用观看进度读写、清除、已看和连播事件。未入库视频仅原文件预览，不新增临时入库身份。
+
+### 匹配规则测试
+
+`GET /api/metadata/test-search?library=<id>&q=<片名>` 必须指定存在的视频库和非空片名。服务端根据库类型选择电影或剧集，并严格按该库保存的来源顺序查找；响应为 `{library_id,kind,chain,items,source,elapsed_ms}`。空结果的 `source` 为 `null`，不能视为连接检测成功。此接口不调用 AI，也不绑定媒体；TMDB 凭据直连验证仍使用 `POST /api/tmdb/check`。
+
+### 常用调用
+
 以下 id 均为示例值，演示用隔离环境或只读查询，不要对真实库执行写操作。
 
 范围过滤（`library` 视频库，`media_library` 媒体库聚合；未知媒体库返回空集合）：

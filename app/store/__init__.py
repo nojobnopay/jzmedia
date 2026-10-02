@@ -31,12 +31,16 @@ from .similar import *
 from .media_info import *
 from .progress import *
 from .items import *
+from .fs_changes import (record_fs_change as record_fs_change,
+                         fs_change_summary as fs_change_summary,
+                         clear_fs_changes as clear_fs_changes)
 from ..db import DB_PATH  # 兼容历史导入（tests 等使用 store.DB_PATH）
 
 __all__ = ['DB_PATH', 'tv_bindings', 'list_tv_bindings', 'tv_binding_for',
            'tv_binding_snapshot', 'save_tv_binding_preview', 'get_tv_binding_plan',
            'apply_tv_binding_plan', 'undo_tv_binding_plan', 'list_tv_binding_history',
-           'repath_tv_bindings', 'tv_binding_digest']
+           'repath_tv_bindings', 'tv_binding_digest',
+           'record_fs_change', 'fs_change_summary', 'clear_fs_changes']
 __all__ += list(_base.__all__)
 __all__ += list(libraries.__all__)
 __all__ += list(media_libraries.__all__)

@@ -70,7 +70,11 @@ function onSwitch(e) {
       : route.path === '/setup' ? '/setup' : route.path === '/settings' ? '/settings' : '/'
   // URL 先更新，避免旧 query 的 media 参数把选择切回旧库。
   router.push({ path, query: path === '/settings' ? { sec: 'sec-libtools', media: id } : { media: id } })
-    .then(failure => { if (!failure) switchMedia(id); else e.target.value = currentId.value })
+    .then(failure => {
+      // A file-review guard may redirect back to scan the original library.
+      if (!failure && Number(router.currentRoute.value.query.media) === id) switchMedia(id)
+      else e.target.value = currentId.value
+    })
 }
 onMounted(async () => {
   offLibChange = onLibChange(syncLibs)

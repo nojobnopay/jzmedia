@@ -562,7 +562,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "metadata_provider_state", "onboarding_state"}
 
 
-SCHEMA_VERSION = 28
+SCHEMA_VERSION = 29
 
 
 def _columns(c, table: str) -> set:
@@ -1287,12 +1287,26 @@ CREATE TABLE IF NOT EXISTS tv_binding_history (
     ])
 
 
+def _m29(c) -> None:
+    """File changes survive navigation/restart until a complete scan covers them."""
+    c.executescript("""
+CREATE TABLE IF NOT EXISTS fs_changes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  library_id INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  path TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fs_changes_library ON fs_changes(library_id, id);
+""")
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
                     (17, _m17), (18, _m18), (19, _m19), (20, _m20), (21, _m21),
                     (22, _m22), (23, _m23),                      (24, _m24), (25, _m25),
-                    (26, _m26), (27, _m27), (28, _m28)]
+                    (26, _m26), (27, _m27), (28, _m28), (29, _m29)]
 
 
 def init_db() -> None:

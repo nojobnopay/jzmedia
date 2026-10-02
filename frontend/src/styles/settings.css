@@ -1,9 +1,12 @@
 /* Settings-only layout; shared application surfaces and controls keep their tokens. */
 .settings-layout { display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 36px; max-width: 1440px; margin: 0 auto; padding: 32px; box-sizing: border-box; align-items: start; }
-.settings-layout .side-nav { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 4px; }
-.settings-layout .side-nav h1 { margin: 0 12px 24px; font-size: 1.5rem; }
-.settings-layout .nav-group { margin: 20px 12px 8px; color: var(--jz-text-faint); font-size: var(--jz-font-s); }
-.settings-layout .side-nav button { border-color: transparent; background: transparent; text-align: left; padding: 11px 12px; color: var(--jz-text-dim); }
+.settings-layout .side-nav { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 4px; max-height: calc(100dvh - 48px); overflow-y: auto; }
+.settings-layout .side-nav h1 { margin: 0 12px 12px; font-size: 1.5rem; }
+.settings-layout .desktop-categories { display: block; padding: 0; background: transparent; }
+.settings-layout .desktop-categories section + section { border-top: 1px solid var(--jz-border-strong); margin-top: 20px; padding-top: 16px; }
+.settings-layout .nav-group { margin: 14px 12px 8px; color: var(--jz-text); font-size: var(--jz-font-l); font-weight: 600; }
+.settings-layout .side-nav button { display: block; width: 100%; border-color: transparent; background: transparent; text-align: left; padding: 10px 12px 10px 20px; color: var(--jz-text-dim); }
+.settings-layout .mobile-categories { display: none; }
 .settings-layout .side-nav button:hover { background: var(--jz-surface-2); color: var(--jz-text); }
 .settings-layout .side-nav button.on { background: var(--jz-surface-3); color: var(--jz-text); box-shadow: inset 3px 0 var(--jz-accent); }
 .settings-layout .settings-main { min-width: 0; }
@@ -55,6 +58,11 @@
 .settings-layout .status-label, .settings-layout .activity-label { color: var(--jz-text-dim); font-size: var(--jz-font-s); white-space: nowrap; }
 .settings-layout .source-options { display: flex; flex-wrap: wrap; gap: 12px 20px; margin: 20px 0 12px; }
 .settings-layout .source-options label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--jz-font-m); }
+.settings-layout .source-order { list-style: none; margin: 16px 0; padding: 0; border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); }
+.settings-layout .source-order li { display: flex; align-items: center; justify-content: space-between; gap: var(--jz-gap-s); padding: 8px 12px; }
+.settings-layout .source-order li + li { border-top: 1px solid var(--jz-border); }
+.settings-layout .source-order li > div { display: flex; flex-shrink: 0; gap: var(--jz-gap-xs); }
+.settings-layout .matching-results { padding-left: 20px; line-height: 1.8; }
 .settings-layout .provider-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-m); padding: 10px 0; font-size: var(--jz-font-m); }
 .settings-layout .p-name { min-width: 100px; }
 .settings-layout .provider-error { width: 100%; overflow-wrap: anywhere; }
@@ -63,6 +71,9 @@
 .settings-layout .slider-row b { color: var(--jz-text-dim); font-weight: normal; font-size: var(--jz-font-s); }
 .settings-layout .slider-row .hint { grid-column: 2; margin: -10px 0 0; }
 .settings-layout .tool-views { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--jz-border); margin: 12px 0 20px; }
+.settings-layout .library-tools-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
+.settings-layout .library-tools-header .tool-views { flex: 1; margin: 0; min-width: 0; }
+.settings-layout .open-library-files { flex-shrink: 0; white-space: nowrap; }
 .settings-layout .tool-views button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 12px 16px; color: var(--jz-text-dim); }
 .settings-layout .tool-views button.on { border-bottom-color: var(--jz-accent); color: var(--jz-text); }
 .settings-layout .pipe-head.pipe-toggle { width: 100%; text-align: left; background: transparent; border: 0; padding: 10px 0; align-items: center; color: var(--jz-text); }
@@ -89,10 +100,11 @@
 }
 @media (max-width: 700px) {
   .settings-layout { display: block; padding: 12px; }
-  .settings-layout .side-nav { position: static; flex-direction: row; overflow-x: auto; gap: 4px; padding-bottom: 6px; margin-bottom: 12px; }
-  .settings-layout .side-nav h1, .settings-layout .nav-group { display: none; }
-  .settings-layout .side-nav button { flex-shrink: 0; padding: 8px 10px; min-height: 40px; }
-  .settings-layout .side-nav button.on { box-shadow: inset 0 -2px var(--jz-accent); }
+  .settings-layout .side-nav { position: static; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 16px; max-height: none; overflow: visible; }
+  .settings-layout .side-nav h1 { margin: 0; font-size: 1.25rem; align-self: center; }
+  .settings-layout .desktop-categories { display: none; }
+  .settings-layout .mobile-categories { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; font-size: var(--jz-font-m); color: var(--jz-text-dim); }
+  .settings-layout .mobile-categories select { flex: 1; min-width: 0; min-height: 44px; font: inherit; }
   .settings-layout .settings-heading { gap: var(--jz-gap-s); margin-bottom: 12px; }
   .settings-layout .settings-heading h2 { font-size: 1.25rem; margin-bottom: 4px; }
   .settings-layout .settings-heading p { line-height: 1.5; }

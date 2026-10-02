@@ -2,7 +2,7 @@
   <section class="ai-match" aria-label="AI 匹配建议">
     <div class="bar"><button :disabled="busy || disabled" @click="suggest">{{ busy ? '正在分析候选…' : 'AI 匹配建议' }}</button><button v-if="busy" @click="reset">取消等待</button></div>
     <p class="hint">点击后发送片名、文件名等必要线索，结合真实资料候选给出建议。请核对年份、标题与来源后确认绑定。</p>
-    <p v-if="error" role="status">{{ error }} 可继续用上方搜索手动匹配。<router-link :to="{ path: '/settings', query: { sec: 'sec-tmdb' } }">配置智能辅助</router-link></p>
+    <p v-if="error" role="status">{{ error }} 可继续用上方搜索手动匹配。<router-link :to="{ path: '/settings', query: { sec: 'sec-ai' } }">配置智能辅助</router-link></p>
     <template v-if="result">
       <p>{{ result.summary }}</p>
       <p v-if="result.query" class="hint">建议查询：{{ result.query }} {{ result.year || '' }}</p>

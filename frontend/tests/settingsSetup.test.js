@@ -27,3 +27,28 @@ test('library action controls keep the table cell layout', () => {
   assert.match(source, /\.lib-table \.ops-wrap \{ display: flex;/)
   assert.doesNotMatch(source, /\.lib-table \.ops \{[^}]*display:\s*flex;/)
 })
+
+test('settings initializes matching drafts and grouped navigation without setup requests', async () => {
+  const blank = { setup: () => () => Vue.h('div') }
+  const filename = new URL('../src/views/Settings.vue', import.meta.url)
+  const component = await loadSfc(filename, {
+    'vue-router': { useRoute: () => ({ query: { sec: 'sec-matching', library: '7' } }), useRouter: () => ({}) },
+    '../api.js': { api: () => { throw new Error('Rendering must not send API requests') }, setToken: () => {} },
+    '../libraries.js': { currentMediaId: () => 2, listLibs: () => [
+      { id: 7, name: '电影库', kind: 'movie', metadata_providers: '["tmdb","local"]' },
+    ], loadLibs: async () => {} },
+    '../components/TmdbSettingsPanel.vue': { default: blank },
+    '../components/AiSettingsPanel.vue': { default: blank },
+    '../components/LibrariesPanel.vue': { default: blank },
+    '../components/LibraryToolsPanel.vue': { default: blank },
+    '../components/TranscodeCachePanel.vue': { default: blank },
+  })
+  const app = Vue.createSSRApp(component)
+  app.component('RouterLink', { setup: (_props, { slots }) => () => Vue.h('a', slots.default?.()) })
+  const html = await renderToString(app)
+  assert.match(html, /<h2[^>]*class="nav-group"[^>]*>媒体管理<\/h2>/)
+  assert.match(html, /<optgroup label="资料与智能">/)
+  assert.match(html, /测试当前视频库匹配/)
+  assert.match(html, /TMDB → 本地索引/)
+  assert.match(html, /文件管理/)
+})

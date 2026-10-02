@@ -1,12 +1,21 @@
 <template>
   <div class="settings-layout">
-    <aside class="side-nav" aria-label="设置分类">
+    <aside class="side-nav" aria-label="设置导航">
       <h1>设置</h1><router-link class="setup-link" to="/setup">新手配置</router-link>
-      <template v-for="(n, i) in navs" :key="n.id">
-        <div v-if="i === 0 || navs[i - 1].group !== n.group" class="nav-group">{{ n.group }}</div>
-        <button :class="{ on: active === n.id }" :aria-current="active === n.id ? 'page' : undefined"
-          @click="go(n.id)">{{ n.label }}</button>
-      </template>
+      <nav class="desktop-categories" aria-label="设置分区">
+        <section v-for="(group, i) in navGroups" :key="group.name" :aria-labelledby="'settings-group-' + i">
+          <h2 :id="'settings-group-' + i" class="nav-group">{{ group.name }}</h2>
+          <button v-for="n in group.pages" :key="n.id" :class="{ on: active === n.id }" :aria-current="active === n.id ? 'page' : undefined"
+            @click="go(n.id)">{{ n.label }}</button>
+        </section>
+      </nav>
+      <div class="mobile-categories"><label for="settings-category">设置分类</label>
+        <select id="settings-category" :value="active" @change="changeCategory">
+          <optgroup v-for="group in navGroups" :key="group.name" :label="group.name">
+            <option v-for="n in group.pages" :key="n.id" :value="n.id">{{ n.label }}</option>
+          </optgroup>
+        </select>
+      </div>
     </aside>
     <main class="settings-main">
       <header class="settings-heading">
@@ -62,41 +71,65 @@
 
       <div v-show="active === 'sec-tmdb'" id="sec-tmdb">
         <TmdbSettingsPanel :settings="s" @saved="s = $event" />
-        <AiSettingsPanel />
-        <div class="bar"><button @click="testTmdb" :disabled="testingTmdb">{{ testingTmdb ? '测试中…' : '测试资料搜索' }}</button><span role="status">{{ tmdbMsg }}</span></div>
         <section class="card-block">
-          <h3>匹配来源</h3>
-          <p class="hint">按下方顺序查找影片资料，可为每个视频库分别设置。</p>
+          <div class="section-heading"><h3>来源运行状态</h3><button @click="loadProviders">刷新状态</button></div>
+          <p class="hint">连续失败 {{ providerInfo?.fail_threshold ?? 3 }} 次后暂停使用，约 {{ Math.round((providerInfo?.cooldown_sec ?? 600) / 60) }} 分钟后重试。状态在全部视频库之间共享。</p>
+          <p v-if="unavailableProviders" class="warn-text">{{ unavailableProviders }} 个来源暂不可用</p>
+          <div class="provider-row" v-for="p in providers" :key="p.name">
+            <span class="p-name">{{ p.label }}</span><span :class="{ 'warn-text': !p.available }">{{ providerStateText(p) }}</span>
+            <button v-if="!p.available" @click="resetProvider(p.name)" :disabled="!!busy">立即允许重试</button>
+            <details v-if="p.last_error" class="provider-error"><summary>错误详情</summary><p>{{ p.last_error }}</p></details>
+          </div>
+          <p v-if="providerMsg" class="feedback" role="status">{{ providerMsg }}</p>
+          <button @click="go('sec-matching')">设置视频库匹配规则</button>
+        </section>
+      </div>
+
+      <div v-show="active === 'sec-matching'" id="sec-matching">
+        <section class="card-block">
+          <h3>来源与优先级</h3>
+          <p class="hint">依次尝试已启用的来源，找到候选后停止。规则保存后仅对选中的视频库生效。</p>
           <div v-if="libList.length" class="settings-form">
             <label for="source-library">视频库</label>
-            <select id="source-library" v-model.number="chainLibId" @change="loadChainFor"><option v-for="l in libList" :key="l.id" :value="l.id">{{ l.media_name ? l.media_name + ' · ' : '' }}{{ l.name }}</option></select>
-            <div class="source-options"><label v-for="name in CHAIN_PROVIDERS" :key="name"><input type="checkbox" :value="name" v-model="chainSel" />{{ CHAIN_LABELS[name] }}</label></div>
+            <select id="source-library" v-model.number="chainLibId"><option v-for="l in libList" :key="l.id" :value="l.id">{{ l.media_name ? l.media_name + ' · ' : '' }}{{ l.name }} · {{ l.kind === 'tv' ? '剧集' : '电影' }}</option></select>
+            <div class="source-options"><label v-for="name in CHAIN_PROVIDERS" :key="name"><input type="checkbox" :checked="chainSel.includes(name)" @change="toggleChain(name, $event.target.checked)" />{{ CHAIN_LABELS[name] }}</label></div>
+            <ol class="source-order" aria-label="已启用来源的匹配顺序">
+              <li v-for="(name, index) in chainSel" :key="name">
+                <span>{{ index + 1 }}. {{ CHAIN_LABELS[name] }}</span>
+                <div><button :disabled="index === 0" :aria-label="'上移 ' + CHAIN_LABELS[name]" @click="moveChain(index, -1)">上移</button><button :disabled="index === chainSel.length - 1" :aria-label="'下移 ' + CHAIN_LABELS[name]" @click="moveChain(index, 1)">下移</button></div>
+              </li>
+            </ol>
             <p class="hint">{{ chainSel.length ? chainOrderText : '至少选择一个来源。' }}</p>
-            <div class="bar"><button @click="saveChain" :disabled="!!busy || chainLibId == null || !chainSel.length">保存匹配来源</button><button @click="chainSel = [...DEFAULT_CHAIN]">使用默认选择</button></div>
+            <p v-if="chainDraftCount" class="hint" role="status">{{ chainDraftCount }} 个视频库有未保存修改。切换视频库保留草稿；离开设置页前请保存。</p>
+            <div class="bar"><button class="primary" @click="saveChain" :disabled="savingChain || chainLibId == null || !chainSel.length">{{ savingChain ? '保存中…' : '保存匹配规则' }}</button><button @click="chainSel = [...DEFAULT_CHAIN]">恢复默认选择</button><button v-if="chainDirty" @click="discardChain">放弃本库修改</button></div>
             <p v-if="chainMsg" class="feedback" role="status">{{ chainMsg }}</p>
           </div>
           <p v-else class="hint">添加视频库后即可设置匹配来源。<button @click="go('sec-libraries')">添加媒体库</button></p>
-          <details class="settings-details">
-            <summary>来源运行状态<span v-if="unavailableProviders" class="warn-text"> · {{ unavailableProviders }} 个来源暂不可用</span></summary>
-            <p class="hint">连续失败 {{ providerInfo?.fail_threshold ?? 3 }} 次后暂停使用，约 {{ Math.round((providerInfo?.cooldown_sec ?? 600) / 60) }} 分钟后重试。</p>
-            <div class="provider-row" v-for="p in providers" :key="p.name">
-              <span class="p-name">{{ p.label }}</span><span :class="{ 'warn-text': !p.available }">{{ providerStateText(p) }}</span>
-              <button v-if="!p.available" @click="resetProvider(p.name)" :disabled="!!busy">立即允许重试</button>
-              <details v-if="p.last_error" class="provider-error"><summary>错误详情</summary><p>{{ p.last_error }}</p></details>
-            </div>
-            <p v-if="providerMsg" class="feedback" role="status">{{ providerMsg }}</p>
-          </details>
         </section>
-        <section class="card-block">
-          <details class="settings-details standalone">
-            <summary>IMDb 离线数据</summary>
-            <p class="hint">用于离线查找标题、年份与 IMDb 编号。先将 title.basics.tsv 或 .gz 文件放到服务器可读目录。</p>
-            <label class="field-label" for="imdb-path">服务器文件路径</label><input id="imdb-path" v-model="imdbPath" class="wide-input" placeholder="留空使用服务器预设路径" />
-            <div class="bar"><button @click="doImportImdb" :disabled="!!busy">{{ busy === 'imdb' ? '导入中…' : '导入离线数据' }}</button><button v-if="busy === 'imdb'" @click="cancelImportImdb">取消导入</button></div>
-          </details>
-          <p v-if="imdbMsg" class="feedback" role="status">{{ imdbMsg }}</p>
+        <section v-if="chainLibrary" class="card-block">
+          <h3>测试当前视频库匹配</h3>
+          <p class="hint">{{ libraryName(chainLibId) }} · {{ chainLibrary.kind === 'tv' ? '剧集' : '电影' }}。使用本库已保存的来源顺序查找候选，不会修改媒体资料。</p>
+          <form class="settings-form" @submit.prevent="testChain">
+            <label for="matching-query">{{ chainLibrary.kind === 'tv' ? '剧集名称' : '电影名称' }}</label>
+            <input id="matching-query" v-model="chainQuery" :placeholder="chainLibrary.kind === 'tv' ? '例如：三体' : '例如：阿凡达'" />
+            <p v-if="chainDirty" class="hint">本库规则有修改，请保存后再测试。</p>
+            <div class="bar"><button :disabled="chainDirty || savingChain || testingChain || !chainQuery.trim()">{{ testingChain ? '查找中…' : '测试已保存规则' }}</button><button type="button" @click="go('sec-tmdb')">查看来源状态</button></div>
+          </form>
+          <p v-if="chainTestMsg" class="feedback" role="status">{{ chainTestMsg }}</p>
+          <ul v-if="chainTestResult?.items?.length" class="matching-results"><li v-for="(item, index) in chainTestResult.items.slice(0, 5)" :key="index">{{ item.title || item.name }} <span class="hint">{{ item.year || item.release_date?.slice(0, 4) }} · {{ CHAIN_LABELS[item.source] || item.source || '未标注来源' }}</span></li></ul>
         </section>
       </div>
+
+      <div v-if="visited.has('sec-ai')" v-show="active === 'sec-ai'" id="sec-ai"><AiSettingsPanel /></div>
+
+      <section v-show="active === 'sec-offline'" id="sec-offline" class="card-block">
+        <h3>IMDb 离线数据</h3>
+        <p class="hint">用于离线查找标题、年份与 IMDb 编号。先将 title.basics.tsv 或 .gz 文件放到服务器可读目录；容器部署时填写容器内的挂载路径。</p>
+        <label class="field-label" for="imdb-path">服务器文件路径</label><input id="imdb-path" v-model="imdbPath" class="wide-input" placeholder="留空使用服务器预设路径" />
+        <div class="bar"><button @click="doImportImdb" :disabled="!!busy">{{ busy === 'imdb' ? '导入中…' : '导入离线数据' }}</button><button v-if="busy === 'imdb'" @click="cancelImportImdb">取消导入</button></div>
+        <p v-if="imdbMsg" class="feedback" role="status">{{ imdbMsg }}</p>
+        <p class="hint">导入后，在“匹配规则”中启用“本地索引”，即可用于该视频库的资料查找。</p>
+      </section>
 
       <section v-show="active === 'sec-auth'" id="sec-auth" class="card-block">
         <div class="section-heading"><h3>写操作保护</h3><span class="status-label">{{ s?.jzmedia_token_masked ? '已启用' : '未启用' }}</span></div>
@@ -124,8 +157,9 @@
         <TranscodeCachePanel />
       </div>
 
-      <div v-if="visited.has('sec-libtools')" v-show="active === 'sec-libtools'">
-        <LibraryToolsPanel ref="toolsRef" :libs="libList" :current-media-id="currentId" :active="active === 'sec-libtools'" @changed="onToolsChanged" @add-library="go('sec-libraries')" />
+      <div v-if="visited.has('sec-libtools') || visited.has('sec-files')" v-show="active === 'sec-libtools' || active === 'sec-files'">
+        <LibraryToolsPanel ref="toolsRef" :libs="libList" :current-media-id="currentId" :libraries-ready="ready" :libraries-error="librariesError"
+          :active="active === 'sec-libtools' || active === 'sec-files'" @changed="onToolsChanged" @add-library="go('sec-libraries')" @retry-libraries="loadLibraries(true)" />
       </div>
     </main>
   </div>
@@ -144,6 +178,7 @@ import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
 
 import TranscodeCachePanel from '../components/TranscodeCachePanel.vue'
 import { SETTINGS_PAGES, settingsTarget } from '../settingsNavigation.js'
+import { CHAIN_PROVIDERS, CHAIN_LABELS, DEFAULT_CHAIN, useMatchingSettings } from '../useMatchingSettings.js'
 import '../styles/settings.css'
 
 const route = useRoute()
@@ -155,7 +190,6 @@ const tvStats = ref(null)
 const tvStatsError = ref('')
 const busy = ref(null) // auth|fts|providers|imdb
 
-const tmdbMsg = ref('')
 const authForm = ref({ token: '' })
 const authMsg = ref('')
 const armDisableAuth = ref(false)
@@ -205,21 +239,6 @@ function resetDisplay() {
   displayMsg.value = '已恢复默认显示'
 }
 
-const testingTmdb = ref(false)
-async function testTmdb() {
-  testingTmdb.value = true
-  tmdbMsg.value = '测试中…'
-  const t0 = performance.now()
-  try {
-    await api('/api/tmdb/search?q=' + encodeURIComponent('阿凡达'))
-    tmdbMsg.value = `资料搜索可用（${Math.round(performance.now() - t0)} ms，可能使用本地或备用来源）`
-  } catch (e) {
-    tmdbMsg.value = '资料搜索失败：' + e.message
-  }
-  testingTmdb.value = false
-  loadProviders()   // 测试会经过降级链：顺带刷新 provider 冷却状态
-}
-
 // 元数据降级链状态（E 阶段补全）：provider 冷却/最近错误 + 重置
 const providerInfo = ref(null)
 const providerMsg = ref('')
@@ -245,51 +264,6 @@ async function resetProvider(name) {
       method: 'POST', body: JSON.stringify({ name }) })
   } catch (e) { providerMsg.value = '操作失败：' + e.message }
   finally { busy.value = null }
-}
-
-// 库级降级链（P2.5）：视频库为单位配置 provider 顺序（后端 metadata_providers JSON）
-const CHAIN_PROVIDERS = ['local', 'tmdb', 'wikidata', 'tvmaze', 'bgm', 'douban', 'nfo']
-const CHAIN_LABELS = {
-  local: '本地索引', tmdb: 'TMDB', wikidata: 'Wikidata', tvmaze: 'TVmaze',
-  bgm: 'Bangumi', douban: '豆瓣（需服务器配置）', nfo: 'NFO 导入'
-}
-const DEFAULT_CHAIN = ['local', 'tmdb', 'wikidata']
-const chainLibId = ref(null)
-const chainSel = ref([...DEFAULT_CHAIN])
-const chainMsg = ref('')
-const chainOrderText = computed(() => CHAIN_PROVIDERS.filter(n => chainSel.value.includes(n)).map(n => CHAIN_LABELS[n]).join(' → '))
-function loadChainFor() {
-  chainMsg.value = ''
-  const lib = libList.value.find(l => l.id === chainLibId.value)
-  let arr = []
-  try { arr = JSON.parse(lib?.metadata_providers || '[]') } catch (e) { arr = [] }
-  const valid = Array.isArray(arr) ? arr.filter(x => CHAIN_PROVIDERS.includes(x)) : []
-  chainSel.value = valid.length ? valid : [...DEFAULT_CHAIN]
-}
-function initChain() {
-  if (!libList.value.some(l => l.id === chainLibId.value) && libList.value.length) {
-    chainLibId.value = libList.value[0].id
-  }
-  loadChainFor()
-}
-async function saveChain() {
-  if (chainLibId.value == null || !chainSel.value.length) return
-  busy.value = 'chain'
-  chainMsg.value = ''
-  try {
-    const arr = CHAIN_PROVIDERS.filter(n => chainSel.value.includes(n))
-    await api('/api/libraries/' + chainLibId.value, {
-      method: 'PATCH',
-      body: JSON.stringify({ metadata_providers: arr.length ? JSON.stringify(arr) : '' })
-    })
-    await loadLibs(api)
-    syncLibs()
-    chainMsg.value = `已保存：${arr.map(n => CHAIN_LABELS[n]).join(' → ')}`
-  } catch (e) {
-    chainMsg.value = '保存失败：' + e.message
-  } finally {
-    busy.value = null
-  }
 }
 
 // IMDb 离线数据集导入（P2.5）：后台任务 + 轮询进度
@@ -362,14 +336,27 @@ async function loadStats() {
 const toolsRef = ref(null)
 const libList = ref(listLibs())
 const currentId = ref(currentMediaId())
+const {
+  libraryId: chainLibId, library: chainLibrary, selection: chainSel,
+  dirty: chainDirty, draftCount: chainDraftCount, message: chainMsg, orderText: chainOrderText,
+  saving: savingChain, testing: testingChain, query: chainQuery,
+  testMessage: chainTestMsg, testResult: chainTestResult,
+  toggle: toggleChain, move: moveChain, discard: discardChain, save: saveChain, testSearch: testChain,
+} = useMatchingSettings(libList, api, async () => { await loadLibs(api); syncLibs() })
 function syncLibs() {
   libList.value = listLibs()
   currentId.value = currentMediaId()
-  initChain()
 }
 async function onLibrariesChanged() {
   syncLibs()
   await loadStats()
+}
+async function onLibrariesLoaded() {
+  syncLibs()
+  const firstLoad = !ready.value
+  ready.value = true
+  librariesError.value = ''
+  await Promise.all([loadStats(), firstLoad ? activate(route.query) : Promise.resolve()])
 }
 async function onToolsChanged() {
   await loadStats()
@@ -379,12 +366,15 @@ const librariesRef = ref(null)
 
 // Panels stay mounted after first use so switching pages retains forms and job progress.
 const navs = SETTINGS_PAGES
+const navGroups = [...new Set(navs.map(n => n.group))].map(name => ({ name, pages: navs.filter(n => n.group === name) }))
 const active = ref(settingsTarget(route.query).page)
 const currentPage = computed(() => navs.find(n => n.id === active.value) || navs[0])
 const visited = ref(new Set([active.value]))
 const ready = ref(false)
+const librariesError = ref('')
 const loadError = ref('')
 let navigationGeneration = 0
+let disposed = false
 async function activate(query) {
   const generation = ++navigationGeneration
   const target = settingsTarget(query)
@@ -393,15 +383,22 @@ async function activate(query) {
   await nextTick()
   if (generation !== navigationGeneration) return
   if (target.page === 'sec-libraries') librariesRef.value?.ensure()
-  if (target.page === 'sec-libtools' && ready.value) {
+  if ((target.page === 'sec-libtools' || target.page === 'sec-files') && ready.value) {
     await toolsRef.value?.focus(target)
+  }
+  if (target.page === 'sec-matching' && target.library && libList.value.some(lib => lib.id === target.library)) {
+    chainLibId.value = target.library
   }
 }
 async function go(id) {
   const query = { ...route.query, sec: id }
-  for (const key of ['ids', 'library', 'media']) delete query[key]
-  await router.push({ path: '/settings', query })
-  window.scrollTo({ top: 0 })
+  for (const key of ['ids', 'library', 'media', 'files_from', 'files_return']) delete query[key]
+  const failure = await router.push({ path: '/settings', query })
+  if (!failure) window.scrollTo({ top: 0 })
+}
+async function changeCategory(event) {
+  try { await go(event.target.value) }
+  finally { event.target.value = active.value }
 }
 watch(() => route.query, activate)
 
@@ -411,19 +408,32 @@ async function loadSettings() {
     s.value = await api('/api/settings')
   } catch (e) { loadError.value = '设置加载失败：' + e.message }
 }
+async function loadLibraries(force = false) {
+  librariesError.value = ''
+  try {
+    await loadLibs(api, { force })
+    if (disposed) return
+    syncLibs()
+    if (!ready.value) {
+      ready.value = true
+      await activate(route.query)
+    }
+  } catch (e) {
+    if (!disposed) librariesError.value = e.message
+  }
+}
 onMounted(async () => {
-  window.addEventListener('jzmedia:libraries-changed', onLibrariesChanged)
+  window.addEventListener('jzmedia:libraries-changed', onLibrariesLoaded)
   await Promise.all([
     loadSettings(),
-    loadLibs(api).then(syncLibs).catch(e => { loadError.value = '媒体库加载失败：' + e.message }),
+    loadLibraries(),
     loadStats(), loadProviders(),
   ])
-  ready.value = true
-  await activate(route.query)
 })
 onUnmounted(() => {
+  disposed = true
   navigationGeneration++
   stopImportImdbTimer()
-  window.removeEventListener('jzmedia:libraries-changed', onLibrariesChanged)
+  window.removeEventListener('jzmedia:libraries-changed', onLibrariesLoaded)
 })
 </script>

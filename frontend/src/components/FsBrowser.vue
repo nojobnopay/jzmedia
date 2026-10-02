@@ -1,572 +1,317 @@
 <template>
-      <section :id="active ? 'sec-files' : undefined" class="card-block">
-        <h3>文件管理</h3>
-        <details class="settings-details"><summary>文件操作与快捷键</summary><p class="hint">单击选中，Ctrl 多选，双击打开。Ctrl+C 复制、Ctrl+X 剪切、Ctrl+V 粘贴、Delete 删除、Backspace 返回上级、F5 刷新。复制遇到重名会自动添加“副本”；目录改名请使用目录整理。</p></details>
-        <p v-if="ctx.mode === 'media'" class="hint">
-          媒体库根为只读总览：点进带「电影/剧集」徽章的目录即进入该视频库，之后可改名/删除/复制等（跨视频库移动/复制请用「归档整理」或在 NAS 上操作）。
-        </p>
-        <p v-else class="hint">
-          当前视频库：<b>{{ ctxLib ? ctxLib.name : ctx.libId }}</b>
-          <span class="tab-kind">{{ ctxLib ? kindText(ctxLib.kind) : '' }}</span>
-          <button @click="goRoot()" :disabled="!!busy">返回媒体库根</button>
-        </p>
-        <div class="bar fs-crumbs">
-          <button @click="goRoot()" :disabled="!!busy">媒体库根目录</button>
-          <span v-for="c in fsCrumbs" :key="c.rel"> / <button @click="loadFs(c.rel)" :disabled="!!busy" class="linklike">{{ c.name }}</button></span>
-          <span v-if="fsPath" class="miss-path">{{ fsPath }}</span>
-          <span v-if="ctx.mode === 'media' && fsPath && !insideVideoLib" class="fhint warn-text">不在任何视频库内：只读，不能被扫描/归档登记</span>
-        </div>
-        <div class="bar">
-          <template v-if="fsWritable">
-            <input v-model="fsMkdirName" placeholder="新子目录名" style="width:160px" />
-            <button @click="doFsMkdir" :disabled="!!busy || !fsMkdirName.trim()">新建目录</button>
-            <button @click="copySelection" :disabled="!!busy || !selRels.length">复制</button>
-            <button @click="cutSelection" :disabled="!!busy || !selRels.length">剪切</button>
-            <button @click="paste" :disabled="!!busy || !clipboard.rels.length || copyJob">
-              {{ clipboard.mode === 'cut' ? '粘贴（移动）' : '粘贴' }}
-            </button>
-            <button @click="deleteSelection" :disabled="!!busy || !selRels.length">删除选中文件…</button>
-            <span v-if="selRels.length" class="fhint">已选 {{ selRels.length }} 项</span>
-            <span v-else-if="clipboard.rels.length" class="fhint">
-              剪贴板：{{ clipboard.mode === 'cut' ? '已剪切' : '已复制' }} {{ clipboard.rels.length }} 项
-            </span>
+  <section :id="active ? 'sec-files' : undefined" ref="root" class="fs-browser" tabindex="0" aria-label="文件管理器" @keydown="onKeydown" @pointerdown="closeOutsideMenu">
+    <header class="fs-heading">
+      <div><h3>文件管理</h3><p>浏览、复制和整理文件；变更后扫描核对入库与匹配结果。</p></div>
+      <details class="fs-help"><summary>操作说明</summary><p>双击打开，Ctrl / ⌘ 多选，Shift 连选。Ctrl / ⌘ + A 全选、C 复制、X 剪切、V 粘贴；F2 改名、Delete 删除、Backspace 上级、F5 刷新。快捷键仅在文件管理器内生效。目录仅支持复制、删除空目录；改名或移动目录请使用归档整理。</p></details>
+    </header>
+    <div v-if="pending" class="fs-pending" role="status"><span><strong>{{ pendingChanges.count || 1 }} 项文件变更待扫描</strong><small>{{ library?.name }} · 扫描后继续核对匹配结果</small></span><button :disabled="hasPendingOperation" @click="scan">扫描并核对</button></div>
+    <div class="fs-shell">
+      <nav class="fs-tree" aria-label="视频库目录">
+        <span class="fs-tree-title">视频库</span>
+        <template v-for="lib in videoLibs" :key="lib.id">
+          <div :class="['fs-tree-line', { current: libraryId === Number(lib.id) && !path }]">
+            <button v-if="libraryId === Number(lib.id)" class="fs-expander" :aria-label="treeExpanded.has('') ? '收起目录' : '展开目录'" :aria-expanded="treeExpanded.has('')" @click="toggleTree('')">{{ treeExpanded.has('') ? '▾' : '▸' }}</button><span v-else class="fs-expander"></span>
+            <button class="fs-tree-name" :disabled="busy" @click="switchLibrary(lib.id)"><span aria-hidden="true">▣</span> {{ libraryName(lib.id) }}<small>{{ lib.kind === 'tv' ? '剧集' : '电影' }}</small></button>
+          </div>
+          <template v-if="libraryId === Number(lib.id)">
+            <div v-for="dir in treeRows" :key="dir.rel" :class="['fs-tree-line', { current: path === dir.rel }]" :style="{ paddingLeft: (dir.depth * 13) + 'px' }">
+              <button class="fs-expander" :aria-label="(treeExpanded.has(dir.rel) ? '收起 ' : '展开 ') + dir.name" :aria-expanded="treeExpanded.has(dir.rel)" :disabled="treeLoading.has(dir.rel)" @click="toggleTree(dir.rel)"><Spinner v-if="treeLoading.has(dir.rel)" :size="12" /><template v-else>{{ treeExpanded.has(dir.rel) ? '▾' : '▸' }}</template></button>
+              <button class="fs-tree-name" :title="dir.rel" :disabled="busy" @click="navigate(dir.rel)"><span aria-hidden="true">▱</span> {{ dir.name }}</button>
+            </div>
           </template>
-          <span v-else class="fhint">{{ ctx.mode === 'media'
-            ? '媒体库根：仅浏览；进入视频库目录后可操作'
-            : '当前目录只读，无法修改文件' }}</span>
+        </template>
+      </nav>
+      <div class="fs-main">
+        <div class="fs-location">
+          <div class="fs-navigation"><button title="返回" aria-label="返回" :disabled="busy || historyIndex <= 0" @click="historyMove(-1)">←</button><button title="前进" aria-label="前进" :disabled="busy || historyIndex >= history.length - 1" @click="historyMove(1)">→</button><button title="上级目录" aria-label="上级目录" :disabled="busy || !path" @click="up">↑</button><button title="刷新目录" aria-label="刷新目录" :disabled="busy || loading" @click="load(loadError ? loadTarget : path)">↻</button></div>
+          <nav class="fs-crumbs" aria-label="当前位置"><button :disabled="busy" @click="navigate('')">{{ library?.name || '选择视频库' }}</button><template v-for="crumb in crumbs" :key="crumb.rel"><span aria-hidden="true">/</span><button :disabled="busy" @click="navigate(crumb.rel)">{{ crumb.name }}</button></template></nav>
+          <input v-model="query" class="fs-search" type="search" aria-label="搜索当前目录" placeholder="搜索当前目录" :disabled="loading || !!loadError || !hasLoaded" />
         </div>
-        <div v-if="fsParent !== null && fsParent !== ''" class="bar">
-          <button @click="loadFs(fsParent)" :disabled="!!busy">‹ 上级目录</button>
-          <span>{{ fsMsg }}</span>
+        <div class="fs-toolbar" role="toolbar" aria-label="文件操作">
+          <button :disabled="!one || busy || loading || !!loadError" @click="open()">{{ one?.isDir ? '打开文件夹' : '预览' }}</button>
+          <button :disabled="!writable || busy || loading || !!loadError" @click="beginMkdir">新建文件夹</button>
+          <button :disabled="!selection.length || busy || loading || !!loadError" @click="copy('copy')">复制</button>
+          <button :disabled="!canCut" :title="selectedRows.some(r => r.isDir) ? '目录移动请使用归档整理' : '剪切选中文件'" @click="copy('cut')">剪切</button>
+          <button :disabled="!canPaste" @click="paste">粘贴{{ clipboard.mode === 'cut' ? '（移动）' : '' }}</button>
+          <button class="fs-secondary-action" :disabled="!canRename" :title="one?.isDir ? '目录改名请使用归档整理' : '重命名（F2）'" @click="beginRename">重命名</button>
+          <button class="fs-secondary-action" :disabled="!writable || !selection.length || busy || loading || !!loadError" @click="beginDelete">删除…</button>
+          <button ref="moreButton" aria-label="更多文件操作" :aria-expanded="!!menu" @click="openMore">更多 ⋯</button>
+          <span v-if="!writable && hasLoaded && !loading && !loadError && libraryId" class="fs-readonly">只读</span>
         </div>
-        <div v-else class="bar"><span>{{ fsMsg }}</span></div>
-        <div v-if="pendCopy" class="bar fs-prompt">
-          <span class="warn-text">复制确认：{{ pendCopy.hint }}。继续？</span>
-          <button @click="confirmCopy" :disabled="!!busy">确认复制</button>
-          <button @click="pendCopy = null">取消</button>
+        <p v-if="message" class="fs-message" role="status">{{ message }}</p>
+        <div v-if="prompt" ref="promptEl" class="fs-prompt" role="region" aria-label="文件操作确认">
+          <div class="fs-prompt-heading"><strong>{{ promptTitle }}</strong><button :disabled="busy" aria-label="取消操作" @click="prompt = null">×</button></div>
+          <p class="fs-target">{{ library?.name }} / {{ (prompt.to_dir ?? prompt.path ?? path) || '根目录' }}</p>
+          <form v-if="prompt.type === 'rename' || prompt.type === 'mkdir'" @submit.prevent="submitName">
+            <label :for="inputId">{{ prompt.type === 'rename' ? '新文件名' : '文件夹名称' }}</label><input :id="inputId" ref="nameInput" v-model="inputName" :disabled="busy" autocomplete="off" />
+            <template v-if="prompt.plans"><p v-for="plan in prompt.plans" :key="plan.from" class="fs-plan">{{ plan.from }} → {{ plan.to }}<strong v-if="plan.status !== 'planned'"> · {{ statusText(plan.status) }}</strong></p><template v-for="plan in prompt.plans" :key="'followers-' + plan.from"><p v-for="follower in plan.followers || []" :key="follower.from" class="fs-plan fs-follower">关联文件：{{ follower.from }} → {{ follower.to }}<span v-if="follower.status !== 'planned'"> · {{ statusText(follower.status) }}，保留原文件</span></p></template></template>
+            <div class="fs-confirm-actions"><button :disabled="busy || !inputName.trim() || (prompt.plans && (!prompt.plans.length || !prompt.plans.every(p => p.status === 'planned')))" type="submit">{{ prompt.type === 'mkdir' ? '创建文件夹' : prompt.plans ? '确认改名' : '预览改名' }}</button><button type="button" :disabled="busy" @click="prompt = null">取消</button></div>
+          </form>
+          <template v-else-if="prompt.type === 'delete'">
+            <p class="fs-warning">文件会被物理删除，无法恢复。正片的入库记录和播放进度也会清理；非空目录不会删除。</p>
+            <ul class="fs-plan-list"><li v-for="plan in prompt.plans" :key="plan.rel"><strong v-if="plan.requires_confirm">正片 · </strong>{{ plan.title || plan.name || plan.rel }}<small>{{ plan.rel }}</small><span v-if="plan.version_count > 1"> · {{ plan.version_count }} 个版本中的 1 个</span><span v-if="plan.status && plan.status !== 'planned_rmdir'"> · {{ statusText(plan.status) }}</span></li></ul>
+            <div class="fs-confirm-actions"><button class="danger" :disabled="busy || !prompt.plans.some(p => !p.status || p.status === 'planned_rmdir')" @click="confirmDelete">确认永久删除</button><button :disabled="busy" @click="prompt = null">取消</button></div>
+          </template>
+          <template v-else-if="prompt.type === 'copy'">
+            <p>共 {{ prompt.preview.total }} 项 / {{ prompt.preview.files }} 个文件 / {{ fmtBytes(prompt.preview.bytes) }}。同名项目自动添加“(副本)”，保留已有文件。</p>
+            <p v-if="prompt.preview.conflicts?.length">{{ prompt.preview.conflicts.length }} 项同名冲突将自动改名。</p>
+            <div class="fs-confirm-actions"><button :disabled="busy" @click="confirmPaste">确认复制到此目录</button><button :disabled="busy" @click="prompt = null">取消</button></div>
+          </template>
+          <template v-else-if="prompt.type === 'move'">
+            <ul class="fs-plan-list"><li v-for="plan in prompt.plans" :key="plan.from">{{ plan.from }} → {{ plan.to || prompt.to_dir || '根目录' }}<strong v-if="plan.status !== 'planned'"> · {{ statusText(plan.status) }}</strong><small v-for="follower in plan.followers || []" :key="follower.from">关联文件：{{ follower.from }} → {{ follower.to }}{{ follower.status !== 'planned' ? ' · 冲突，保留原文件' : '' }}</small></li></ul>
+            <p>匹配结果保持不变；完成后扫描核对。目标已存在的项目会跳过。</p>
+            <div class="fs-confirm-actions"><button :disabled="busy || !prompt.plans.some(p => p.status === 'planned')" @click="confirmPaste">确认移动</button><button :disabled="busy" @click="prompt = null">取消</button></div>
+          </template>
         </div>
-        <div v-if="copyJob" class="up-progress"><div class="up-progress-fill" :style="{ width: copyPct + '%' }"></div></div>
-        <div v-if="copyJob" class="bar">
-          <span class="fhint">复制中 {{ copyJob.done }}/{{ copyJob.total }}（{{ fmtBytes(copyJob.bytesDone || 0) }}/{{ fmtBytes(copyJob.bytesTotal || 0) }}）</span>
-          <button @click="cancelCopy">取消复制</button>
+        <div class="fs-table-area">
+        <div class="fs-table-wrap" :aria-busy="loading" @contextmenu.prevent="openContext($event)" @click.self="resetSelection">
+          <table class="fs-table" :inert="loading || !!loadError || !hasLoaded" aria-label="当前目录文件" aria-multiselectable="true">
+            <thead><tr><th class="fs-check"><input type="checkbox" aria-label="全选当前目录" :checked="!!rows.length && selection.length === rows.length" :disabled="loading || !!loadError || !hasLoaded" @change="$event.target.checked ? selectAll() : resetSelection()" /></th><th v-for="col in columns" :key="col.key" :class="'fs-col-' + col.key" :aria-sort="sort === col.key ? (direction === 1 ? 'ascending' : 'descending') : 'none'"><button @click="setSort(col.key)">{{ col.label }}<span v-if="sort === col.key" aria-hidden="true"> {{ direction === 1 ? '↑' : '↓' }}</span></button></th></tr></thead>
+            <tbody><tr v-for="row in rows" :key="row.rel" class="fs-row" :class="{ selected: selection.includes(row.rel), focused: focused === row.rel, cut: clipboard.mode === 'cut' && clipboard.library_id === libraryId && clipboard.rels.includes(row.rel) }" :data-fs-rel="row.rel" tabindex="-1" :aria-selected="selection.includes(row.rel)" @click="rowClick($event, row)" @dblclick="open(row)" @contextmenu.stop.prevent="openContext($event, row)">
+              <td class="fs-check"><input type="checkbox" :aria-label="'选择 ' + row.name" :checked="selection.includes(row.rel)" :disabled="loading || !!loadError || !hasLoaded" @click.stop="select(row, { ctrlKey: true })" @dblclick.stop /></td>
+              <td class="fs-name" :title="row.name"><span class="fs-file-icon" :class="{ folder: row.isDir }" aria-hidden="true">{{ row.isDir ? '▱' : '▤' }}</span><span>{{ row.name }}</span></td>
+              <td class="fs-col-size">{{ row.isDir ? '—' : fmtBytes(row.size) }}</td><td class="fs-col-mtime">{{ formatDate(row.mtime) }}</td><td class="fs-col-type">{{ fsType(row) }}</td><td class="fs-col-status"><span :class="{ 'fs-unmatched': fsMatchStatus(row) === '待匹配', 'fs-unregistered': fsMatchStatus(row) === '待扫描' }">{{ fsMatchStatus(row) }}</span></td>
+            </tr></tbody>
+          </table>
+          <p v-if="loadState === 'ready' && !rows.length" class="fs-empty">{{ query ? '当前目录没有符合搜索的项目' : '此文件夹为空' }}</p>
         </div>
-        <div v-for="(p, i) in fsPrompts" :key="'p' + i" class="bar fs-prompt">
-          <span class="warn-text">{{ p.text }}</span>
-          <button v-if="p.movieId" @click="router.push('/m/' + p.movieId)">{{ p.label || '去详情匹配' }}</button>
-          <button v-else-if="p.kind === 'scan'" @click="emit('scan')">立即扫描新文件</button>
-          <button @click="fsPrompts = fsPrompts.filter((_, j) => j !== i)">知道了</button>
+        <div v-if="loadState === 'loading' || loadState === 'waiting'" class="fs-directory-state" role="status" aria-live="polite">
+          <Spinner :size="34" /><strong>{{ loadState === 'waiting' ? '正在准备目录…' : '正在加载目录…' }}</strong>
+          <template v-if="totalCount > 0"><span>已读取 {{ loadedCount }} / {{ totalCount }} 个文件</span><progress :value="loadedCount" :max="totalCount" aria-label="目录加载进度"></progress></template>
+          <span v-else>正在连接并读取文件列表，请稍候。</span>
         </div>
-        <ul v-if="fsDirs.length" class="miss-list">
-          <li v-for="d in fsDirs" :key="'d' + d.rel"
-            :class="['miss-row', 'fs-row', { sel: selRels.includes(d.rel) }]"
-            @click="onRowClick($event, d.rel)" @dblclick="enterDir(d)">
-            <span v-if="d.video_library_id" class="kind-badge" :class="{ tv: d.kind === 'tv' }">{{ kindText(d.kind) }}库</span>
-            <span v-else-if="d.contains_video_library" class="kind-badge">含视频库</span>
-            <span class="miss-title">📁 {{ d.name }}</span>
-            <span class="miss-path">{{ d.children == null ? '目录' : d.children + ' 项' }}</span>
-            <button @click.stop="enterDir(d)" :disabled="!!busy">进入</button>
-            <button v-if="fsWritable" @click.stop="doFsDelete(d.rel)" :disabled="!!busy">删空目录</button>
-          </li>
-        </ul>
-        <ul v-if="fsFiles.length" class="miss-list">
-          <li v-for="f in fsFiles" :key="'f' + f.rel"
-            :class="['miss-row', 'fs-file-row', 'fs-row', { sel: selRels.includes(f.rel) }]"
-            @click="onRowClick($event, f.rel)" @dblclick="openFile(f)">
-            <span v-if="f.kind === 'feature'" class="kind-badge bad">正片</span>
-            <span v-else-if="f.kind === 'sidecar'" class="kind-badge">花絮</span>
-            <span v-else-if="f.kind === 'subtitle'" class="kind-badge">字幕</span>
-            <span v-else-if="f.kind === 'nfo'" class="kind-badge">NFO</span>
-            <span v-else class="kind-badge">其他</span>
-            <span class="miss-title">{{ f.name }}</span>
-            <span class="miss-path">{{ fmtBytes(f.size) }}{{ f.title ? ` · ${f.title}` : '' }}</span>
-            <input v-if="fsWritable" v-model="fsRenameEdits[f.rel]" placeholder="新文件名" style="width:140px" @click.stop />
-            <button v-if="fsWritable" @click.stop="doFsRename(f.rel)" :disabled="!!busy">{{ fsArmAction('rename', f.rel) ? '确认改名' : '改名' }}</button>
-            <button v-if="fsWritable && !fsArmDelete[f.rel]" @click.stop="doFsDelete(f.rel)" :disabled="!!busy">删除</button>
-            <button v-else-if="fsWritable" @click.stop="doFsDeleteConfirm(f.rel)" :disabled="!!busy" class="danger">确认删除正片</button>
-          </li>
-        </ul>
-        <p v-if="fsArmHint" class="hint warn-text">{{ fsArmHint }}</p>
-        <p v-if="!fsDirs.length && !fsFiles.length" class="hint">空目录</p>
-      </section>
+        <div v-else-if="loadState === 'error'" class="fs-directory-state fs-directory-error" role="alert">
+          <strong>目录加载失败</strong><span>{{ library?.name }} / {{ loadTarget || '根目录' }}</span><p>{{ loadError }}</p><button :disabled="busy" @click="retryLoad">重试加载目录</button>
+        </div>
+        <div v-else-if="loadState === 'unselected'" class="fs-directory-state"><p>请先选择一个视频库</p></div>
+        </div>
+        <footer class="fs-status"><span v-if="loadState === 'loading'">正在加载目录…</span><span v-else-if="loadState === 'error'">目录未能加载</span><span v-else-if="loadState !== 'ready'">等待读取目录</span><span v-else>{{ rows.length }} 项{{ query ? `（共 ${dirs.length + files.length} 项）` : '' }}<template v-if="selection.length"> · 已选 {{ selection.length }} 项</template></span><span v-if="clipboard.rels.length">{{ clipboard.mode === 'cut' ? '已剪切' : '已复制' }} {{ clipboard.rels.length }} 项{{ clipboard.library_id !== libraryId ? '（其他视频库）' : '' }}</span></footer>
+      </div>
+    </div>
+    <div v-if="jobs.length" class="fs-tasks" aria-label="文件任务"><div v-for="job in jobs" :key="job.job_id" class="fs-task"><span>{{ jobText(job) }}<small>目标：{{ libraryName(job.library_id) }} / {{ job.to_dir || '根目录' }}</small></span><progress :value="jobProgress(job)" max="100" :aria-label="jobText(job)"></progress><button v-if="jobRunning(job)" :disabled="job.state === 'cancelled'" @click="cancelCopy(job)">{{ job.state === 'cancelled' ? '正在取消…' : '取消复制' }}</button><button v-else @click="jobs = jobs.filter(j => j.job_id !== job.job_id)">收起</button><details v-if="jobIssues(job).length" class="fs-task-issues"><summary>查看需核对项目（{{ jobIssues(job).length }}）</summary><ul><li v-for="item in jobIssues(job)" :key="item.from">{{ item.from }} → {{ item.to }}<small>{{ jobIssueText(item) }}</small></li></ul></details></div></div>
+    <FilePreviewHost :file="previewFile" :active="active" @close="closeFilePreview" />
+    <Teleport to="body"><div v-if="menu" ref="menuEl" class="fs-context-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" role="menu" aria-label="文件菜单" @keydown="onMenuKeydown" @contextmenu.prevent><button v-for="item in menuItems" :key="item.id" role="menuitem" :disabled="item.disabled" :title="item.hint || ''" @click="runMenu(item)"><span>{{ item.label }}</span><small>{{ item.shortcut }}</small></button></div></Teleport>
+  </section>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, useId } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { fmtBytes } from '../format.js'
-import { usePolling } from '../usePolling.js'
-import { kindText, libById } from '../libraryToolGroups.js'
+import { fsMatchStatus, fsType } from '../fsBrowser.js'
+import { useFsBrowser } from '../useFsBrowser.js'
+import FilePreviewHost from './FilePreviewHost.vue'
+import Spinner from './Spinner.vue'
 
-// 文件浏览（2026-09 媒体库级）：根 = 媒体库根（只读总览，带视频库徽章）；
-// 进入视频库目录后切换上下文回原 per-library 逻辑（分类/改名/删除/正片跳转全可用）。
-const props = defineProps({
-  active: { type: Boolean, default: false },
-  media: { type: Object, default: null },
-  videoLibs: { type: Array, default: () => [] },
-  // 视频库 Tab 的文件浏览：直接以该视频库根为根（不再从媒体库根进入）
-  initialLibId: { type: Number, default: null },
-})
-const emit = defineEmits(['changed', 'scan'])
-
-const router = useRouter()
-const busy = ref(null)
-// 上下文：media=媒体库根只读；lib=某视频库（可写）
-const ctx = ref({ mode: 'media', libId: null })
-const ctxLib = computed(() => libById(props.videoLibs, ctx.value.libId))
-// 媒体根下当前路径是否已在某视频库子树内（用于“库外目录只读”提示）
-const insideVideoLib = computed(() => {
-  if (ctx.value.mode !== 'media') return true
-  const norm = String(fsPath.value || '').replace(/^\/+|\/+$/g, '')
-  if (!norm) return false
-  return (props.videoLibs || []).some(l => {
-    const sub = String(l.subpath || '').replace(/^\/+|\/+$/g, '')
-    return !!sub && norm.startsWith(sub + '/')
-  })
-})
-
-const fsPath = ref('')
-const fsParent = ref('')
-const fsCrumbs = ref([])
-const fsDirs = ref([])
-const fsFiles = ref([])
-const fsMsg = ref('')
-const fsMkdirName = ref('')
-const fsRenameEdits = ref({})
-const fsArmDelete = ref({})
-const fsArmHint = ref('')
-const selRels = ref([])
-const clipboard = ref({ mode: 'copy', rels: [] })
-const pendCopy = ref(null)
-const fsPrompts = ref([])
-const copyJob = ref(null)
-const fsWritable = ref(false)
-
-const copyPct = computed(() => {
-  const j = copyJob.value
-  if (!j) return 0
-  if (j.bytesTotal) return Math.min(100, Math.round((j.bytesDone || 0) * 100 / j.bytesTotal))
-  return j.total ? Math.min(100, Math.round((j.done || 0) * 100 / j.total)) : 0
-})
-
-function fsKindText(k) {
-  return { feature: '正片', sidecar: '花絮', subtitle: '字幕', nfo: 'NFO', other: '其他', dir: '目录' }[k] || k
+const props = defineProps({ active: { type: Boolean, default: false }, media: { type: Object, default: null }, videoLibs: { type: Array, default: () => [] }, initialLibId: { type: Number, default: null }, pendingChanges: { type: Object, default: null } })
+const emit = defineEmits(['changed', 'scan', 'library-change'])
+const {
+  libraryId, library, path, dirs, files, crumbs, writable, loading, hasLoaded, loadError, loadTarget, loadState, loadedCount, totalCount, message, busy, query, sort, direction,
+  selection, focused, clipboard, prompt, previewFile, inputName, jobs, history, historyIndex, treeExpanded, treeLoading, rows, one, selectedRows,
+  canRename, canCut, canPaste, pending, hasRunningTask, hasPendingOperation, treeRows,
+  scan, switchLibrary, navigate, load, retryLoad, historyMove, up, toggleTree, select, selectAll, moveFocus, open, viewDetails, closePreview, setSort, copy, copyPath,
+  beginRename, beginMkdir, submitName, beginDelete, confirmDelete, paste, confirmPaste, cancelCopy, jobProgress, jobText, jobRunning, jobIssues, resetSelection,
+} = useFsBrowser(props, emit, api, useRouter())
+const root = ref(null)
+const menuEl = ref(null)
+const moreButton = ref(null)
+const nameInput = ref(null)
+const promptEl = ref(null)
+const menu = ref(null)
+const inputId = 'fs-name-' + useId()
+const columns = [{ key: 'name', label: '名称' }, { key: 'size', label: '大小' }, { key: 'mtime', label: '修改时间' }, { key: 'type', label: '类型' }, { key: 'status', label: '入库 / 匹配' }]
+const promptTitle = computed(() => ({ rename: '重命名文件', mkdir: '新建文件夹', delete: '删除确认', copy: '复制确认', move: '移动确认' }[prompt.value?.type] || '确认操作'))
+const menuItems = computed(() => [
+  { id: 'open', label: one.value?.isDir ? '打开文件夹' : '预览', disabled: !one.value || busy.value || loading.value || !!loadError.value, shortcut: 'Enter', run: () => open() },
+  { id: 'details', label: '查看媒体详情', disabled: !one.value || one.value.isDir || (!one.value.movie_id && !one.value.show_id) || busy.value || loading.value || !!loadError.value, run: () => viewDetails() },
+  { id: 'cut', label: '剪切', disabled: !canCut.value, hint: selectedRows.value.some(r => r.isDir) ? '目录移动请使用归档整理' : '', shortcut: 'Ctrl+X', run: () => copy('cut') },
+  { id: 'copy', label: '复制', disabled: !selection.value.length || busy.value || loading.value || !!loadError.value, shortcut: 'Ctrl+C', run: () => copy('copy') },
+  { id: 'paste', label: clipboard.value.mode === 'cut' ? '粘贴（移动）' : '粘贴', disabled: !canPaste.value, shortcut: 'Ctrl+V', run: paste },
+  { id: 'rename', label: '重命名', disabled: !canRename.value, hint: one.value?.isDir ? '目录改名请使用归档整理' : '', shortcut: 'F2', run: beginRename },
+  { id: 'delete', label: '删除…', disabled: !writable.value || !selection.value.length || busy.value || loading.value || !!loadError.value, shortcut: 'Delete', run: beginDelete },
+  { id: 'mkdir', label: '新建文件夹', disabled: !writable.value || busy.value || loading.value || !!loadError.value, run: beginMkdir },
+  { id: 'path', label: '复制库内路径', disabled: libraryId.value == null, run: copyPath },
+  { id: 'refresh', label: '刷新', disabled: busy.value || loading.value, shortcut: 'F5', run: () => load(loadError.value ? loadTarget.value : path.value) },
+].filter(item => selection.value.length || ['paste', 'mkdir', 'path', 'refresh'].includes(item.id)))
+function jobIssueText(item) {
+  return item.status.startsWith('copied_scan_warn:') ? '文件已复制，入库失败：' + item.status.slice(17) : '复制失败：' + item.status.replace(/^error:\s*/, '')
 }
-
-// 库上下文写操作 body（媒体根模式只读，不会走到这里）
-function fsBody(obj) {
-  return ctx.value.mode === 'lib'
-    ? { ...obj, library_id: ctx.value.libId }
-    : { ...obj, media_library_id: props.media ? props.media.id : null }
+function formatDate(seconds) {
+  if (!seconds) return '—'
+  return new Date(Number(seconds) * 1000).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
 }
-function listUrl(path) {
-  if (ctx.value.mode === 'media' && props.media && props.media.id != null) {
-    return '/api/fs/list?media_library=' + props.media.id + '&path=' + encodeURIComponent(path || '')
-  }
-  return '/api/fs/list?path=' + encodeURIComponent(path || '') + '&library=' + ctx.value.libId
+function libraryName(id) {
+  const lib = props.videoLibs.find(item => Number(item.id) === Number(id))
+  if (!lib) return '视频库 ' + id
+  const multipleMedia = new Set(props.videoLibs.map(item => item.media_library_id ?? item.media_id)).size > 1
+  return multipleMedia && lib.media_name ? `${lib.media_name} · ${lib.name}` : lib.name
 }
-
-async function loadFs(path) {
-  fsMsg.value = ''
-  fsArmHint.value = ''
-  fsArmDelete.value = {}
-  selRels.value = []
-  try {
-    const d = await api(listUrl(path))
-    fsPath.value = d.path || ''
-    fsParent.value = d.parent ?? ''
-    fsCrumbs.value = d.crumbs || []
-    fsDirs.value = d.dirs || []
-    fsFiles.value = d.files || []
-    if (d.root_kind === 'media') ctx.value = { mode: 'media', libId: null }
-    fsWritable.value = ctx.value.mode === 'lib' && d.fs_writable !== false
-    for (const f of fsFiles.value) {
-      if (!(f.rel in fsRenameEdits.value)) fsRenameEdits.value[f.rel] = ''
-    }
-  } catch (e) {
-    fsMsg.value = '加载失败：' + e.message
-  }
-}
-
-function switchToLib(libId) {
-  ctx.value = { mode: 'lib', libId: Number(libId) }
-  clipboard.value = { mode: 'copy', rels: [] }
-  loadFs('')
-}
-function goRoot() {
-  if (ctx.value.mode === 'lib') {
-    ctx.value = { mode: 'media', libId: null }
-    clipboard.value = { mode: 'copy', rels: [] }
-  }
-  loadFs('')
-}
-
-// 换媒体库（工具页标签）：回到媒体根重载
-watch(() => props.media && props.media.id, () => {
-  ctx.value = { mode: 'media', libId: null }
-  fsPath.value = ''
-  clipboard.value = { mode: 'copy', rels: [] }
-  copyJob.value = null
-  if (props.active) loadFs('')
-})
-// 视频库 Tab 指定初始根：切库时直接落到该视频库根
-watch(() => props.initialLibId, (id) => {
-  if (id == null || !props.active) return
-  switchToLib(id)
-})
-
-async function doFsMkdir() {
-  const name = fsMkdirName.value.trim()
-  if (!name || !fsWritable.value) return
-  busy.value = 'fs'
-  try {
-    await api('/api/fs/mkdir', { method: 'POST', body: JSON.stringify(fsBody({ path: fsPath.value, name })) })
-    fsMkdirName.value = ''
-    fsMsg.value = `已在当前目录创建「${name}」`
-    await loadFs(fsPath.value)
-  } catch (e) {
-    fsMsg.value = '创建失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-
-function fsArmAction(kind, rel) {
-  return fsArmDelete.value[kind + ':' + rel] || null
-}
-
-async function doFsRename(rel) {
-  if (!fsWritable.value) return
-  const name = (fsRenameEdits.value[rel] || '').trim()
-  if (!name) {
-    fsMsg.value = '先填新文件名'
-    return
-  }
-  const armedKey = 'rename:' + rel
-  if (!fsArmAction('rename', rel)) {
-    // 两步确认（评审 B8/R14-D2：与删除一致，先预览再执行）
-    busy.value = 'fs'
-    try {
-      const d = await api('/api/fs/rename', { method: 'POST', body: JSON.stringify(fsBody({ from: rel, name, dry_run: true })) })
-      const p = (d.plans || [])[0] || {}
-      fsArmDelete.value = { ...fsArmDelete.value, [armedKey]: p }
-      fsArmHint.value = p.status === 'conflict_disk_exists'
-        ? `目标已存在：${p.to || name}`
-        : `将改名：${rel} → ${p.to || name}。再点「确认改名」执行`
-    } catch (e) {
-      fsMsg.value = '改名预览失败：' + e.message
-    } finally {
-      busy.value = null
-    }
-    return
-  }
-  delete fsArmDelete.value[armedKey]
-  busy.value = 'fs'
-  try {
-    const d = await api('/api/fs/rename', { method: 'POST', body: JSON.stringify(fsBody({ from: rel, name, dry_run: false })) })
-    const r = (d.results || [])[0] || {}
-    fsMsg.value = r.status === 'moved' ? `已改名${r.followed ? `（跟随 ${r.followed} 个）` : ''}` : ('改名：' + (r.status || '失败'))
-    await loadFs(fsPath.value)
-    emit('changed')
-  } catch (e) {
-    fsMsg.value = '改名失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-
-async function doFsDelete(rel) {
-  if (!fsWritable.value) return
-  busy.value = 'fs'
-  fsArmHint.value = ''
-  try {
-    const d = await api('/api/fs/delete', { method: 'POST', body: JSON.stringify(fsBody({ paths: [rel], dry_run: true })) })
-    const p = (d.plans || [])[0] || {}
-    if (p.status === 'dir_not_empty') {
-      fsMsg.value = '目录非空，先清空再删（不做递归删）'
-      return
-    }
-    if (p.requires_confirm) {
-      fsArmDelete.value[rel] = p
-      const vers = p.version_count > 1 ? `（共 ${p.version_count} 个版本中的 1 个）` : ''
-      fsArmHint.value = `警告：将删除正片《${p.title || p.name}》${vers}，海报墙同步移除，关联与索引清理。再点「确认删除正片」执行`
-      return
-    }
-    const d2 = await api('/api/fs/delete', { method: 'POST', body: JSON.stringify(fsBody({ paths: [rel], dry_run: false })) })
-    const r = (d2.results || [])[0] || {}
-    fsMsg.value = r.status === 'deleted' ? `已物理删除（${fsKindText(p.kind)}，不可恢复）` : ('删除：' + (r.status || '失败'))
-    await loadFs(fsPath.value)
-    emit('changed')
-  } catch (e) {
-    fsMsg.value = '删除失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-
-async function doFsDeleteConfirm(rel) {
-  busy.value = 'fs'
-  try {
-    const d = await api('/api/fs/delete', { method: 'POST', body: JSON.stringify(fsBody({ paths: [rel], dry_run: false, confirm: true })) })
-    const r = (d.results || [])[0] || {}
-    fsMsg.value = r.status === 'deleted' ? '正片已删除，库已同步清理（不可恢复）' : ('删除：' + (r.status || '失败'))
-    delete fsArmDelete.value[rel]
-    fsArmHint.value = ''
-    await loadFs(fsPath.value)
-    emit('changed')
-  } catch (e) {
-    fsMsg.value = '删除失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-
-// ---------- 选中 / 双击 / 快捷键 ----------
-
-function isTextTarget(e) {
-  const t = e && e.target
-  if (!t) return false
-  const tag = (t.tagName || '').toUpperCase()
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable
-}
-function onRowClick(e, rel) {
-  if (e.ctrlKey || e.metaKey) {
-    const i = selRels.value.indexOf(rel)
-    if (i >= 0) selRels.value.splice(i, 1)
-    else selRels.value.push(rel)
-  } else {
-    selRels.value = [rel]
-  }
-}
-function enterDir(d) {
-  if (busy.value) return
-  if (ctx.value.mode === 'media' && d.video_library_id) {
-    switchToLib(d.video_library_id)
-    return
-  }
-  loadFs(d.rel)
-}
-function openFile(f) {
-  if (!f || f.kind !== 'feature') return
-  if (f.show_id) { router.push('/tv/' + f.show_id); return }   // 剧库：进剧详情
-  if (f.movie_id) router.push('/m/' + f.movie_id)
-}
-function fileInfo(rel) { return fsFiles.value.find(f => f.rel === rel) || null }
-function dirInfo(rel) { return fsDirs.value.find(d => d.rel === rel) || null }
-
-function copySelection() {
-  if (!selRels.value.length) return
-  clipboard.value = { mode: 'copy', rels: [...selRels.value] }
-  fsMsg.value = `已复制 ${selRels.value.length} 项到剪贴板，进入目标目录 Ctrl+V 粘贴`
-}
-function cutSelection() {
-  if (!fsWritable.value || !selRels.value.length) return
-  const dirs = selRels.value.filter(r => dirInfo(r))
-  const files = selRels.value.filter(r => !dirInfo(r))
-  clipboard.value = { mode: 'cut', rels: files }
-  fsMsg.value = dirs.length
-    ? `已剪切 ${files.length} 个文件（目录不支持移动，${dirs.length} 项已忽略）`
-    : `已剪切 ${files.length} 项，进入目标目录 Ctrl+V 粘贴`
-}
-
-function paste() {
-  if (!fsWritable.value) {
-    fsMsg.value = '媒体库根为只读，请先进入某个视频库目录'
-    return
-  }
-  if (!clipboard.value.rels.length || copyJob.value) return
-  if (clipboard.value.mode === 'cut') doPasteMove()
-  else doPasteCopy()
-}
-
-function _promptUnmatched(rels) {
-  const bad = rels.map(fileInfo).filter(f => f && f.kind === 'feature' && !f.tmdb_id)
-  if (bad.length) {
-    fsPrompts.value.push({
-      text: `${bad.length} 个未匹配正片已移动/复制，建议去匹配：${bad[0].name}`,
-      movieId: bad[0].movie_id
+function statusText(status) { return ({ conflict_disk_exists: '目标已存在', conflict_db_occupied: '目标已有媒体记录，请先扫描核对', dir_not_empty: '目录非空，跳过', skipped_missing_src: '文件已不存在' }[status] || status) }
+function rowClick(event, row) { if (loading.value) return; select(row, event); event.currentTarget.focus() }
+function focusCurrent(options) { nextTick(() => [...(root.value?.querySelectorAll('[data-fs-rel]') || [])].find(el => el.getAttribute('data-fs-rel') === focused.value)?.focus(options)) }
+let previewScroll = null
+watch(previewFile, (file, previous) => {
+  const table = root.value?.querySelector('.fs-table-wrap')
+  if (file && !previous) previewScroll = { top: table?.scrollTop || 0, left: table?.scrollLeft || 0, pageX: window.scrollX, pageY: window.scrollY }
+  if (!file && previous && props.active) {
+    const saved = previewScroll
+    nextTick(() => {
+      if (table && saved) { table.scrollTop = saved.top; table.scrollLeft = saved.left }
+      if (saved) window.scrollTo({ left: saved.pageX, top: saved.pageY, behavior: 'instant' })
+      if (!document.querySelector('[role="dialog"][aria-modal="true"]')) focusCurrent({ preventScroll: true })
     })
   }
-}
-
-async function doPasteMove() {
-  const rels = [...clipboard.value.rels]
-  busy.value = 'fs'
-  let moved = 0
-  const skipped = []
-  try {
-    for (const rel of rels) {
-      const pv = await api('/api/fs/move', { method: 'POST', body: JSON.stringify(fsBody({ from: rel, to_dir: fsPath.value, dry_run: true })) })
-      const p = (pv.plans || [])[0] || {}
-      if (p.status === 'conflict_disk_exists') { skipped.push(rel); continue }
-      const d = await api('/api/fs/move', { method: 'POST', body: JSON.stringify(fsBody({ from: rel, to_dir: fsPath.value, dry_run: false })) })
-      const r = (d.results || [])[0] || {}
-      if (r.status === 'moved') moved++
-      else skipped.push(rel)
-    }
-    fsMsg.value = `已移动 ${moved} 项` + (skipped.length ? `，跳过 ${skipped.length} 项（同名冲突或不支持）` : '')
-    if (fileInfo(rels[0]) && fileInfo(rels[0]).kind === 'feature') {
-      fsPrompts.value.push({ text: '提示：分区不会随移动变化；如需按大区归位请用「入库流程 → ③ 归档整理」。' })
-    }
-    _promptUnmatched(rels)
-    clipboard.value = { mode: 'copy', rels: [] }
-    await loadFs(fsPath.value)
-    emit('changed')
-  } catch (e) {
-    fsMsg.value = '粘贴（移动）失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-
-async function doPasteCopy() {
-  const rels = [...clipboard.value.rels]
-  busy.value = 'fs'
-  try {
-    const pv = await api('/api/fs/copy', {
-      method: 'POST',
-      body: JSON.stringify(fsBody({ from: rels, to_dir: fsPath.value, dry_run: true }))
-    })
-    if (pv.needs_confirm || (pv.conflicts || []).length) {
-      pendCopy.value = {
-        rels,
-        hint: `共 ${pv.total} 项 / ${pv.files} 个文件 / ${fmtBytes(pv.bytes)}`
-          + ((pv.conflicts || []).length ? `，${pv.conflicts.length} 项同名将自动改「(副本)」` : '')
-      }
-      fsMsg.value = ''
-      return
-    }
-    await startCopy(rels)
-  } catch (e) {
-    fsMsg.value = '复制预览失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-
-async function confirmCopy() {
-  const p = pendCopy.value
-  pendCopy.value = null
-  if (!p) return
-  busy.value = 'fs'
-  try {
-    await startCopy(p.rels)
-  } catch (e) {
-    fsMsg.value = '复制失败：' + e.message
-  } finally {
-    busy.value = null
-  }
-}
-
-async function startCopy(rels) {
-  const d = await api('/api/fs/copy', {
-    method: 'POST',
-    body: JSON.stringify(fsBody({ from: rels, to_dir: fsPath.value, dry_run: false }))
-  })
-  copyJob.value = { jobId: d.job_id, total: d.total, bytesTotal: d.bytes, done: 0, bytesDone: 0,
-                    hadDirs: rels.some(r => dirInfo(r)) }
-  fsMsg.value = '复制中…（大文件可继续操作，进度见上方）'
-  copyPoll.start()
-}
-
-async function pollCopy() {
-  const j = copyJob.value
-  if (!j) return
-  try {
-    const st = await api('/api/fs/copy/' + j.jobId)
-    copyJob.value = { ...j, ...st, bytesTotal: st.bytes_total || j.bytesTotal, bytesDone: st.bytes_done || 0 }
-    if (st.state === 'running') return
-    copyPoll.stop()
-    const renamed = st.renamed || 0
-    const registered = st.registered || 0
-    if (st.state === 'done') {
-      fsMsg.value = `已粘贴 ${st.done}/${st.total} 项` + (renamed ? `，${renamed} 项改名「(副本)」` : '')
-        + (registered ? `，${registered} 部正片已登记为新版本` : '')
-    } else if (st.state === 'cancelled') {
-      fsMsg.value = '复制已取消'
-    } else {
-      fsMsg.value = '复制失败：' + (st.error || '未知错误')
-    }
-    if (st.state === 'done' && (j.hadDirs || registered === 0)) {
-      fsPrompts.value.push({ text: '复制完成：新文件尚未入库，建议扫描新增。', kind: 'scan' })
-    }
-    _promptUnmatched([...clipboard.value.rels])
-    copyJob.value = null
-    await loadFs(fsPath.value)
-    emit('changed')
-  } catch (e) { /* 轮询失败下次继续 */ }
-}
-const copyPoll = usePolling(pollCopy, { interval: 700 })
-
-function cancelCopy() {
-  const j = copyJob.value
-  if (!j) return
-  api('/api/fs/copy/' + j.jobId + '/cancel', { method: 'POST' }).catch(() => {})
-}
-
-async function deleteSelection() {
-  if (!fsWritable.value || !selRels.value.length) return
-  const rels = [...selRels.value]
-  const feats = rels.filter(r => { const f = fileInfo(r); return f && f.kind === 'feature' })
-  for (const rel of rels) await doFsDelete(rel)
-  if (feats.length) fsMsg.value = `含 ${feats.length} 部正片，需逐项两次确认（不可恢复）`
-}
-
-function onKeydown(e) {
-  if (!props.active || isTextTarget(e)) return
-  const mod = e.ctrlKey || e.metaKey
-  if (mod && e.key.toLowerCase() === 'c') { copySelection(); e.preventDefault(); return }
-  if (mod && e.key.toLowerCase() === 'x') { cutSelection(); e.preventDefault(); return }
-  if (mod && e.key.toLowerCase() === 'v') { paste(); e.preventDefault(); return }
-  if (e.key === 'Delete') { deleteSelection(); e.preventDefault(); return }
-  if (e.key === 'Escape') { selRels.value = []; return }
-  if (e.key === 'Enter') {
-    const d = selRels.value.length === 1 ? dirInfo(selRels.value[0]) : null
-    if (d) { enterDir(d); e.preventDefault() }
-    return
-  }
-  if (e.key === 'Backspace') {
-    if (fsParent.value !== null && fsParent.value !== '') { loadFs(fsParent.value); e.preventDefault() }
-    return
-  }
-  if (e.key === 'F5') { loadFs(fsPath.value); e.preventDefault() }
-}
-
-onMounted(() => {
-  if (props.initialLibId != null && libById(props.videoLibs, props.initialLibId)) {
-    ctx.value = { mode: 'lib', libId: Number(props.initialLibId) }
-  }
-  loadFs('')
-  window.addEventListener('keydown', onKeydown)
 })
-onUnmounted(() => {
-  window.removeEventListener('keydown', onKeydown)
-  copyPoll.stop()
-})
+function closeFilePreview() { closePreview() }
+async function showMenu(x, y) {
+  menu.value = { x: Math.max(8, Math.min(x, window.innerWidth - 230)), y: Math.max(8, y) }
+  await nextTick()
+  if (!menu.value || !menuEl.value) return
+  const rect = menuEl.value.getBoundingClientRect()
+  menu.value.y = Math.max(8, Math.min(menu.value.y, window.innerHeight - rect.height - 8))
+  menuEl.value.querySelector('button:not(:disabled)')?.focus()
+}
+function openContext(event, row = null) {
+  if (row && !selection.value.includes(row.rel)) select(row)
+  if (!row) resetSelection()
+  showMenu(event.clientX, event.clientY)
+}
+function openMore() {
+  if (menu.value) { menu.value = null; return }
+  const rect = moreButton.value.getBoundingClientRect()
+  showMenu(rect.left, rect.bottom + 4)
+}
+function closeOutsideMenu(event) { if (menu.value && !menuEl.value?.contains(event.target) && event.target !== moreButton.value) menu.value = null }
+function runMenu(item) { if (item.disabled) return; menu.value = null; root.value?.focus(); item.run() }
+function onMenuKeydown(event) {
+  if (event.key === 'Escape') { event.preventDefault(); menu.value = null; root.value?.focus() }
+  else if (event.key === 'Tab') menu.value = null
+  else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault()
+    const buttons = [...menuEl.value.querySelectorAll('button:not(:disabled)')]
+    const current = buttons.indexOf(document.activeElement)
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
+    buttons[next]?.focus()
+  }
+}
+function onKeydown(event) {
+  if (!props.active || previewFile.value || menu.value || prompt.value || event.target.closest('textarea,select,[contenteditable="true"]')) return
+  if (event.target.tagName === 'INPUT' && !['checkbox', 'radio', 'button'].includes(event.target.type)) return
+  if (event.target.closest('button') && !['Escape', 'F2', 'F5'].includes(event.key)) return
+  const key = event.key.toLowerCase()
+  const mod = event.ctrlKey || event.metaKey
+  const handled = () => event.preventDefault()
+  if (mod && key === 'a') { handled(); selectAll() }
+  else if (mod && key === 'c') { handled(); copy('copy') }
+  else if (mod && key === 'x') { handled(); copy('cut') }
+  else if (mod && key === 'v') { handled(); paste() }
+  else if (event.key === 'Delete') { handled(); beginDelete() }
+  else if (event.key === 'F2') { handled(); beginRename() }
+  else if (event.key === 'F5') { handled(); load(loadError.value ? loadTarget.value : path.value) }
+  else if (event.key === 'Backspace') { handled(); up() }
+  else if (event.key === 'Enter') { handled(); open() }
+  else if (event.key === 'Escape') { handled(); resetSelection() }
+  else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { handled(); moveFocus(event.key === 'ArrowDown' ? 1 : -1, event); focusCurrent() }
+  else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { handled(); const rect = root.value.getBoundingClientRect(); showMenu(rect.left + Math.min(rect.width / 2, 280), rect.top + 180) }
+}
+watch(prompt, async value => { if (value) { await nextTick(); nameInput.value?.focus(); promptEl.value?.scrollIntoView?.({ block: 'nearest' }) } })
+watch(() => props.active, active => { if (!active) menu.value = null })
+watch(libraryId, () => { menu.value = null })
+onMounted(() => window.addEventListener('pointerdown', closeOutsideMenu))
+onUnmounted(() => window.removeEventListener('pointerdown', closeOutsideMenu))
+defineExpose({ closePreview: closeFilePreview, refresh: () => load(loadError.value ? loadTarget.value : path.value), hasRunningTask: () => hasRunningTask.value, hasPendingOperation: () => hasPendingOperation.value, currentLibraryId: () => libraryId.value })
 </script>
 
 <style scoped>
-/* 对话框/列表基础样式（R14-Q5 待统一：与 Settings 父级同名 scoped 规则一致） */
-.card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
-.card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
-.hint { color: #777; font-size: 0.8125rem; margin: 0 0 4px; }
-.warn-text { color: #e0a63c; }
-.fhint { color: #777; font-size: 0.75rem; }
-.miss-list { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.miss-row { display: flex; gap: 8px; align-items: center; background: #262626; border: 1px solid #3a3a3a; border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; }
-.miss-title { white-space: nowrap; }
-.miss-path { color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.kind-badge { font-size: 0.75rem; border: 1px solid #444; border-radius: 999px; padding: 1px 10px; margin-left: 8px; color: #aaa; }
-.kind-badge.bad { color: #ff8a8a; border-color: #6e2b2b; }
-.kind-badge.tv { color: #c08aff; border-color: #4a2b6e; }
-.fs-crumbs { flex-wrap: wrap; }
-.linklike { background: none; border: none; color: #6ab0ff; cursor: pointer; padding: 0 2px; }
-button.danger { border-color: #6e2b2b; color: #ff8a8a; }
-.fs-file-row { flex-wrap: wrap; }
-.fs-row { cursor: pointer; }
-.fs-row.sel { border-color: #e50914; background: #2e2222; }
-.fs-prompt { border: 1px dashed #6e2b2b; border-radius: 8px; padding: 6px 10px; }
-.up-progress { height: 8px; border-radius: 999px; background: #2c2c2c; overflow: hidden; margin: 4px 0; }
-.up-progress-fill { height: 100%; background: #e50914; border-radius: 999px; transition: width .2s; }
-.tab-kind { margin-left: 6px; font-size: 0.6875rem; color: #888; border: 1px solid #444; border-radius: 999px; padding: 0 6px; }
+.fs-browser { color: #d6d9df; background: #1c1e23; border: 1px solid #343840; border-radius: 12px; overflow: hidden; outline: none; }
+.fs-browser:focus-visible { outline: 2px solid #7daced; outline-offset: 2px; }
+.fs-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 18px 20px; }
+.fs-heading h3 { margin: 0 0 6px; font-size: 1.08rem; color: #f0f1f4; }
+.fs-heading p { color: #a7aeba; margin: 0; font-size: .82rem; line-height: 1.6; }
+.fs-help { max-width: 420px; font-size: .8rem; color: #aeb6c3; }
+.fs-help summary { cursor: pointer; white-space: nowrap; }
+.fs-help p { padding-top: 8px; }
+.fs-pending { margin: 0 16px 14px; padding: 12px 14px; background: #3b3020; border: 1px solid #68512e; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: .87rem; }
+.fs-pending small { display: block; margin-top: 4px; color: #c7bba5; }
+.fs-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); border-top: 1px solid #343840; }
+.fs-tree { display: block; background: #191b20; border-right: 1px solid #343840; padding: 14px 8px; overflow: auto; max-height: 680px; }
+.fs-tree-title { display: block; margin: 0 8px 12px; font-size: .8rem; color: #aab3c1; font-weight: 600; }
+.fs-tree-line { display: flex; align-items: center; min-height: 36px; border-radius: 5px; }
+.fs-tree-line.current { background: #2a3443; }
+.fs-tree-line .fs-expander { width: 22px; min-width: 22px; padding: 4px 2px; border: 0; background: none; color: #aab4c2; }
+.fs-tree-name { background: none; border: 0; border-radius: 0; padding: 8px 3px; color: #d0d7e2; font-size: .82rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; flex: 1; }
+.fs-tree-name small { margin-left: 8px; font-size: .67rem; color: #8997aa; }
+.fs-main { min-width: 0; display: flex; flex-direction: column; }
+.fs-location { padding: 10px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-bottom: 1px solid #343840; }
+.fs-navigation { display: flex; gap: 3px; }
+.fs-navigation button { width: 30px; padding: 4px 0; font-size: 1rem; }
+.fs-crumbs { padding: 0; background: transparent; flex: 1; min-width: 140px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: #747f90; }
+.fs-crumbs button { background: transparent; border: 0; padding: 3px 4px; color: #c2d1e5; font-size: .8rem; overflow-wrap: anywhere; }
+.fs-search { width: 166px; min-width: 0; font-size: .8rem; padding: 7px 9px; }
+.fs-toolbar { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 12px; align-items: center; }
+.fs-browser button { cursor: pointer; }
+.fs-browser button:disabled { cursor: default; opacity: .42; }
+.fs-toolbar button, .fs-confirm-actions button, .fs-pending button, .fs-task button { padding: 6px 10px; font-size: .78rem; }
+.fs-readonly { margin-left: auto; font-size: .75rem; color: #b8a072; }
+.fs-message { margin: 0; padding: 9px 14px; color: #becbda; background: #25303e; font-size: .8rem; overflow-wrap: anywhere; }
+.fs-prompt { border: 1px solid #536477; background: #242a33; margin: 10px 12px; border-radius: 8px; padding: 12px; font-size: .83rem; }
+.fs-prompt-heading { display: flex; justify-content: space-between; align-items: center; }
+.fs-prompt-heading button { background: none; border: 0; font-size: 1.2rem; padding: 0 5px; }
+.fs-target { color: #9dadc1; font-size: .76rem; overflow-wrap: anywhere; }
+.fs-prompt label { display: block; margin: 10px 0 6px; }
+.fs-prompt input { box-sizing: border-box; width: 100%; max-width: 540px; }
+.fs-confirm-actions { display: flex; gap: 8px; margin-top: 12px; }
+.fs-warning { color: #efb787; line-height: 1.6; }
+.fs-plan, .fs-plan-list { overflow-wrap: anywhere; line-height: 1.7; }
+.fs-follower { color: #a3b5ca; font-size: .78rem; }
+.fs-plan-list { max-height: 200px; overflow: auto; padding-left: 22px; }
+.fs-plan-list small { display: block; color: #9dadc1; }
+.fs-table-area { position: relative; display: flex; flex-direction: column; min-height: 260px; flex: 1; }
+.fs-directory-state { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; box-sizing: border-box; background: #1c1e23f2; color: #aebfd5; text-align: center; font-size: .85rem; }
+.fs-directory-state strong { color: #e0e7f0; font-size: .96rem; }
+.fs-directory-state span, .fs-directory-state p { overflow-wrap: anywhere; max-width: 100%; margin: 0; }
+.fs-directory-state progress { width: min(240px, 80%); height: 6px; accent-color: #7398d6; }
+.fs-directory-error p { color: #e6b885; max-height: 100px; overflow: auto; }
+.fs-directory-error button { padding: 8px 14px; }
+.fs-table-wrap { overflow: auto; position: relative; min-height: 260px; max-height: 540px; flex: 1; border-top: 1px solid #343840; }
+.fs-table { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: .79rem; }
+.fs-table th { text-align: left; position: sticky; top: 0; background: #23262d; z-index: 1; border-bottom: 1px solid #3e434e; font-weight: 500; }
+.fs-table th button { border: 0; background: none; padding: 10px 6px; color: #b7c1d0; font: inherit; white-space: nowrap; }
+.fs-table td { padding: 10px 6px; border-bottom: 1px solid #292d35; color: #b7bfca; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fs-table .fs-check { width: 32px; padding: 0 5px 0 10px; }
+.fs-check input { margin: 0; accent-color: #729dd9; }
+.fs-table .fs-col-name { min-width: 160px; }
+.fs-table .fs-col-size { width: 82px; }
+.fs-table .fs-col-mtime { width: 142px; }
+.fs-table .fs-col-type { width: 60px; }
+.fs-table .fs-col-status { width: 86px; }
+.fs-table td.fs-name { color: #e0e5ed; }
+.fs-file-icon { margin-right: 9px; color: #8498b5; font-size: 1rem; }
+.fs-file-icon.folder { color: #d7b26c; }
+.fs-row { cursor: default; user-select: none; outline: none; }
+.fs-row:hover { background: #252b35; }
+.fs-row.selected { background: #293b55; }
+.fs-row:focus-visible { outline: 1px solid #85acd9; outline-offset: -1px; }
+.fs-row.cut { opacity: .5; }
+.fs-unmatched { color: #e0b574; }
+.fs-unregistered { color: #bba8e2; }
+.fs-empty { text-align: center; padding: 64px 16px; font-size: .85rem; color: #93a0b1; }
+.fs-status { padding: 10px 14px; display: flex; justify-content: space-between; gap: 12px; color: #9ba7b8; font-size: .75rem; border-top: 1px solid #343840; }
+.fs-tasks { padding: 12px 16px; border-top: 1px solid #343840; background: #212630; }
+.fs-task { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 6px 0; font-size: .8rem; }
+.fs-task span { flex: 1; min-width: 150px; }
+.fs-task small { display: block; color: #93a3b9; margin-top: 4px; }
+.fs-task-issues { flex-basis: 100%; color: #e0b574; overflow-wrap: anywhere; }
+.fs-task-issues summary { cursor: pointer; }
+.fs-task-issues ul { max-height: 200px; overflow: auto; padding-left: 20px; }
+.fs-task progress { height: 7px; width: 140px; accent-color: #7398d6; }
+.fs-context-menu { position: fixed; z-index: 10050; width: 220px; box-sizing: border-box; max-height: calc(100vh - 16px); overflow-y: auto; padding: 6px; background: #292e38; border: 1px solid #586376; box-shadow: 0 12px 32px #0008; border-radius: 8px; }
+.fs-context-menu button { width: 100%; background: none; border: 0; border-radius: 4px; display: flex; justify-content: space-between; gap: 10px; padding: 9px 10px; color: #e1e7ef; font-size: .8rem; text-align: left; cursor: pointer; }
+.fs-context-menu button:hover:not(:disabled), .fs-context-menu button:focus-visible { background: #3e4c61; outline: none; }
+.fs-context-menu button:disabled { color: #697485; cursor: default; }
+.fs-context-menu small { color: #a1afc3; font-size: .7rem; }
+.danger { color: #ffabab; border-color: #844545; }
+@media (max-width: 1100px) { .fs-shell { grid-template-columns: 170px minmax(0, 1fr); } .fs-table .fs-col-mtime { width: 116px; } .fs-table .fs-col-type { display: none; } .fs-search { width: 140px; } }
+@media (max-width: 760px) { .fs-heading { padding: 14px; } .fs-heading p { max-width: 230px; } .fs-shell { display: block; } .fs-tree { display: flex; align-items: center; gap: 5px; max-height: 110px; overflow: auto; border-right: 0; border-bottom: 1px solid #343840; padding: 8px; } .fs-tree-title, .fs-tree .fs-expander, .fs-tree-line[style] { display: none; } .fs-tree-line { flex-shrink: 0; } .fs-tree-name { padding: 7px 10px; } .fs-location { gap: 6px; } .fs-search { width: 100%; } .fs-toolbar { gap: 5px; } .fs-secondary-action { display: none; } .fs-toolbar button { padding: 7px 8px; } .fs-table .fs-col-mtime, .fs-table .fs-col-type { display: none; } .fs-table .fs-col-size { width: 74px; } .fs-table .fs-col-status { width: 70px; } .fs-table .fs-check { width: 27px; padding-left: 6px; } .fs-table td { padding: 12px 4px; } .fs-file-icon { margin-right: 5px; } .fs-help[open] { position: absolute; background: #292e38; padding: 12px; left: 20px; right: 20px; z-index: 3; max-width: none; } .fs-pending { margin: 0 10px 12px; padding: 10px; } .fs-status { flex-wrap: wrap; } }
 </style>

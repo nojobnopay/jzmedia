@@ -1,9 +1,9 @@
 <template>
   <section :id="active ? 'sec-pipeline' : undefined" class="card-block">
-    <div class="tool-views" aria-label="视频库工具">
+    <div class="library-tools-header"><div class="tool-views" aria-label="视频库工具">
       <button v-for="view in toolViews" :key="view.key" :class="{ on: toolView === view.key }"
         :aria-pressed="toolView === view.key" @click="chooseView(view.key)">{{ view.label }}</button>
-    </div>
+    </div><button type="button" class="open-library-files" @click="openFiles">管理文件</button></div>
     <div v-show="toolView === 'workflow'">
     <div class="bar"><button :disabled="!tab.enabled" @click="bindingsOpen = true">剧集归属与季号</button>
       <span class="hint">多部曲、某一季或多个目录，可先确认归属再扫描。</span></div>
@@ -30,6 +30,7 @@
           </button>
           <button v-if="scanRunning" @click="cancelScan">取消扫描</button>
           <span>{{ scanMsg }}</span>
+          <button v-if="scanStateText === '完成'" @click="toggleStep('match')">核对匹配结果 →</button>
         </div>
       </div>
     </div>
@@ -84,10 +85,6 @@
     <div v-if="visitedViews.has('maintenance')" v-show="toolView === 'maintenance'">
       <TvMaintenancePanel :library="tab" :active="active && toolView === 'maintenance'" @changed="onOrganized" />
     </div>
-    <div v-if="visitedViews.has('files')" v-show="toolView === 'files'">
-      <FsBrowser :active="active && toolView === 'files'" :media="tabMedia" :video-libs="[tab]" :initial-lib-id="tab.id"
-        @changed="onOrganized" @scan="scanFromFiles" />
-    </div>
   </section>
   <TvBindingsDialog v-if="bindingsOpen && active" :library-id="Number(tab.id)"
     @close="bindingsOpen = false" @changed="onBindingsChanged" />
@@ -101,7 +98,6 @@ import { pickOpenStep, stepForSection } from '../libraryToolsTabs.js'
 import TvOrganizePanel from './TvOrganizePanel.vue'
 import TvBindingsDialog from './TvBindingsDialog.vue'
 import TvMaintenancePanel from './TvMaintenancePanel.vue'
-import FsBrowser from './FsBrowser.vue'
 
 const bindingsOpen = ref(false)
 const COLLAPSE_N = 20
@@ -110,28 +106,23 @@ const props = defineProps({
   active: { type: Boolean, default: false },
   request: { type: Object, default: null },
 })
-const emit = defineEmits(['changed', 'status'])
+const emit = defineEmits(['changed', 'status', 'open-files'])
 
-const tabMedia = computed(() => ({ id: props.tab.media_id, name: props.tab.media_name }))
 const openStep = ref('scan')
 const toolView = ref('workflow')
 const visitedViews = ref(new Set(['workflow']))
 const toolViews = [
   { key: 'workflow', label: '入库整理' },
   { key: 'maintenance', label: '资料维护' },
-  { key: 'files', label: '文件管理' },
 ]
 function chooseView(key) {
   toolView.value = key
   visitedViews.value.add(key)
 }
-function scanFromFiles() {
-  chooseView('workflow')
-  toggleStep('scan')
-  openStep.value = 'scan'
-  startScan()
-}
 const userToggled = ref(false)
+function openFiles() {
+  emit('open-files', { view: toolView.value, step: openStep.value, scrollTop: window.scrollY, ids: [] })
+}
 const busy = ref(null)
 const stats = ref({ shows: 0, episodes: 0 })
 const statsReady = ref(false)
@@ -246,6 +237,16 @@ watch(stepStates, (st) => {
 // 深链：打开目标步骤/更多工具并定位
 watch(() => props.request, async (req) => {
   if (!req || !props.active) return
+  if (req.restore) {
+    userToggled.value = true
+    openStep.value = req.restore.step
+    chooseView(req.restore.view)
+    await nextTick()
+    await ensure()
+    await nextTick()
+    if (props.active && props.request === req) window.scrollTo({ top: req.restore.scrollTop, behavior: 'instant' })
+    return
+  }
   const step = stepForSection(req.sec)
   if (step) {
     userToggled.value = true
@@ -258,10 +259,13 @@ watch(() => props.request, async (req) => {
 
 // 首次激活加载（每个 Tab 一个实例，懒加载）
 const loaded = ref(false)
+let ensurePending = null
 async function ensure() {
+  if (ensurePending) return ensurePending
   if (loaded.value) return
   loaded.value = true
-  await Promise.all([loadStats(), loadPending(true)])
+  ensurePending = Promise.all([loadStats(), loadPending(true)])
+  try { await ensurePending } finally { ensurePending = null }
 }
 onMounted(() => { if (props.active) ensure() })
 watch(() => props.active, (v) => { if (v) ensure() })

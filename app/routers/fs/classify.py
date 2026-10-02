@@ -27,7 +27,7 @@ def _classify(rel: str, extras_map: dict | None = None,
         except OSError:
             pass
     base = {"rel": rel, "name": os.path.basename(rel),
-            "size": size, "mtime": mtime}
+            "size": size, "mtime": mtime, "registered": False, "match_status": None}
     m = store.get_by_path(rel, library_id=lid)
     if m:
         vers = []
@@ -37,6 +37,7 @@ def _classify(rel: str, extras_map: dict | None = None,
         except Exception:
             vers = []
         return {**base, "kind": "feature", "movie_id": m["id"],
+                "registered": True, "match_status": "matched" if m.get('tmdb_id') or m.get('match_source') in ('nfo', 'wikidata', 'tvmaze', 'bgm', 'douban', 'imdb') else "unmatched",
                 "title": m.get("title", ""), "year": m.get("year"),
                 "tmdb_id": m.get("tmdb_id"),
                 "version_count": len(vers) or 1}
@@ -48,6 +49,7 @@ def _classify(rel: str, extras_map: dict | None = None,
     if ep:
         show = store.get_show_meta(ep.get("show_id")) or {}
         return {**base, "kind": "feature", "episode_id": ep["id"],
+                "registered": True, "match_status": "matched" if show.get('tmdb_id') or show.get('match_source') in ('nfo', 'wikidata', 'tvmaze', 'bgm', 'douban', 'imdb') else "unmatched",
                 "show_id": ep["show_id"], "movie_id": None,
                 "title": show.get("title") or "", "year": show.get("year"),
                 "season": ep.get("season"), "episode": ep.get("episode"),
@@ -56,12 +58,12 @@ def _classify(rel: str, extras_map: dict | None = None,
         e = extras_map.get(rel)
         if e:
             return {**base, "kind": "sidecar",
-                    "extra_id": e["id"], "movie_id": e.get("movie_id")}
+                    "registered": True, "extra_id": e["id"], "movie_id": e.get("movie_id"), "show_id": e.get('show_id')}
     else:
         for e in store.list_all_extras():
-            if e["file_path"] == rel:
+            if e["file_path"] == rel and int(e.get('library_id') or 0) == lid:
                 return {**base, "kind": "sidecar",
-                        "extra_id": e["id"], "movie_id": e.get("movie_id")}
+                        "registered": True, "extra_id": e["id"], "movie_id": e.get("movie_id"), "show_id": e.get('show_id')}
     _, ex = os.path.splitext(rel)
     ex = ex.lower()
     if is_sidecar(rel, library_id=lid, backend=backend):
@@ -73,6 +75,7 @@ def _classify(rel: str, extras_map: dict | None = None,
     if is_feature_video(rel, library_id=lid, backend=backend):
         # 库无行但形态是正片（多为未扫描）：按 feature 对待，删时提醒
         return {**base, "kind": "feature", "movie_id": None,
+                "match_status": "unregistered",
                 "version_count": 1}
     return {**base, "kind": "other"}
 
@@ -91,5 +94,4 @@ def _impact_for_delete(rel: str, library_id=None, backend=None) -> dict:
                 "attached_extras": attached,
                 "warn": "正片文件：删除后将从海报墙移除，关联与索引一并清理，海报/镜像缓存保留"}
     return {**info, "requires_confirm": False}
-
 

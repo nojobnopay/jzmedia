@@ -61,7 +61,7 @@ export function useLibraryScan(library, onDone = () => {}) {
   }, { immediate: true })
   async function start() {
     const lib = library()
-    if (!lib || lib.enabled === false || lib.enabled === 0 || blocked.value) return
+    if (!lib || lib.enabled === false || lib.enabled === 0 || blocked.value) return false
     shared.starting = true
     shared.error = ''
     try {
@@ -69,7 +69,8 @@ export function useLibraryScan(library, onDone = () => {}) {
       const result = await api('/api/jobs/scan', { method: 'POST', body: JSON.stringify({ library_id: lib.id }) })
       shared.job = { ...result, state: 'running', done: 0, total: 0 }
       await refresh()
-    } catch (e) { shared.error = '扫描启动失败：' + e.message }
+      return true
+    } catch (e) { shared.error = '扫描启动失败：' + e.message; return false }
     finally { shared.starting = false }
   }
   async function cancel() {

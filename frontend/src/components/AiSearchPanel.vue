@@ -3,7 +3,7 @@
     <div class="ai-heading"><h3>智能搜索</h3><button @click="$emit('close')">收起</button></div>
     <p class="hint">描述想看的内容，解析后核对筛选条件。仅点击“解析条件”时调用模型；结果仍来自当前媒体库。</p>
     <label>想看什么<textarea v-model="term" rows="2" maxlength="500" placeholder="例如：没看过的、90 年代香港喜剧，TMDB 7 分以上" /></label>
-    <div class="bar"><button :disabled="busy || !term.trim()" @click="parse">{{ busy ? '正在解析…' : '解析条件' }}</button><button v-if="busy" @click="reset">取消等待</button><router-link :to="{ path: '/settings', query: { sec: 'sec-tmdb' } }">配置智能辅助</router-link></div>
+    <div class="bar"><button :disabled="busy || !term.trim()" @click="parse">{{ busy ? '正在解析…' : '解析条件' }}</button><button v-if="busy" @click="reset">取消等待</button><router-link :to="{ path: '/settings', query: { sec: 'sec-ai' } }">配置智能辅助</router-link></div>
     <p v-if="error" role="status">{{ error }} 普通搜索仍可使用。</p>
     <div v-if="result && draft">
       <p>{{ result.summary }}</p>

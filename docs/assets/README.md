@@ -2,6 +2,26 @@
 
 截图统一存 `docs/assets/screenshots/`，正文用仓库相对路径引用（如用户手册页用 `../assets/screenshots/xxx.webp`）。同一画面不复制多份。
 
+## 2026-10-02 设置与文件管理改造
+
+`scripts/smoke_settings_ui.mjs --capture-docs` 使用真实 Vue 页面和完全模拟的内存 API，未读取实际配置、数据库或媒体。以下截图替代历史同名图，逐图版本、日期与哈希以 [manifest.json](manifest.json) 为准；不能据此证明真实 NAS 文件操作或外部服务连通。
+
+| 文件 | 场景 | 规格 |
+|---|---|---|
+| `settings-navigation.webp` | 三组导航与概览 | 1440×1000 CSS、1x，WebP q86 |
+| `settings-sources.webp` | 在线资料服务 | 同上 |
+| `settings-matching.webp` | 按库匹配规则、顺序和试搜 | 同上 |
+| `settings-offline.webp` | 独立离线资料入口 | 同上 |
+| `file-browser.webp` | 目录树、文件列表和待扫描提示 | 同上 |
+| `file-browser-loading.webp` | 延迟模拟响应下的目录加载动画与提示 | 同上 |
+| `file-tools-entry.webp` | 独立“管理文件”入口 | 同上 |
+| `file-preview-text.webp` | 原地查看合成字幕，关闭后保留目录与选择 | 同上 |
+| `file-preview-video.webp` | 合成视频预览，不记录观看进度 | 同上 |
+| `file-review.webp` | 离开前的扫描核对提示 | 同上 |
+| `file-browser-mobile.webp` | 手机更多操作菜单 | 390×844 CSS、1x，WebP q86 |
+
+文件预览示例中的视频、图片由已安装的 FFmpeg 在临时目录生成；字幕、NFO、PDF 由脚本合成。源媒体不作为真实片源验收，也不导入应用数据库。
+
 ## 2026-10-02 智能辅助与 OpenCode Go
 
 本批四张图片使用应用 `0.19.0` 的真实 Vue 页面，所有 API 与资料均由 `scripts/smoke_ai_ui.mjs` 模拟；未加载 `.env`，未读取真实密钥、数据库或媒体，未连接应用后端、NAS、TMDB 或模型服务。图中密钥为虚构测试值，底部横幅与连接测试结果明确标注模拟；不能据此证明 OpenCode Go 可用于影视请求或已真实连通。Go 的用途限制提示来自实际产品界面。
@@ -59,7 +79,7 @@
 | `scan-review.webp` | 视频库标签、入库三步 | `/settings?sec=sec-libtools&library=2` | 真实库 |
 | `organize-preview.webp` | 就地整理预览与目标路径 | 演示实例同页（`library=2`） | 演示环境 |
 | `tv-bindings-preview.webp` | 归属变更预览与集号重叠冲突 | 演示实例剧详情归属弹窗 | 演示环境 |
-| `file-browser.webp` | 文件管理、目录与操作入口 | `?sec=sec-libtools&library=2` → 「文件管理」标签 | 真实库 |
+| `file-browser.webp` | 已由 2026-10-02 文件管理器截图替代 | `?sec=sec-files` | 模拟 API，见上方新批次 |
 | `movie-filters.webp` | 电影墙筛选展开与维度计数 | `/?media=2` → 筛选 | 真实库 NAS |
 | `movie-cast.webp` | 详情下半：演职员与影片信息 | `/m/875?media=2` 滚动至演职员 | 真实库 NAS |
 | `movie-similar.webp` | 详情下部：库中类似推荐行 | `/m/875?media=2` 滚动至库中类似 | 真实库 NAS |
@@ -82,12 +102,12 @@
 | `organize-history.webp` | 整理历史/撤销批次 | 同页历史区展开 | 真实库 NAS |
 | `restore-panel.webp` | 恢复到原始位置候选 | `?sec=sec-libtools&library=1` 还原位置 | 真实库本地 |
 | `library-new.webp` | 新建媒体库表单 | `?sec=sec-libraries` 添加媒体库 | 真实库 |
-| `settings-sources.webp` | 资料来源页（代理字段已遮盖） | `?sec=sec-tmdb` | 真实库 |
+| `settings-sources.webp` | 已由 2026-10-02 在线资料服务截图替代 | `?sec=sec-tmdb` | 模拟 API，见上方新批次 |
 | `tv-maint.webp` | 剧集资料维护面板 | `?sec=sec-libtools&library=3` 资料维护 | 真实库 NAS |
 | `settings-index.webp` | 系统维护分区 | `?sec=sec-index` | 真实库 |
 | `upload-movie.webp` | 上传影片目标库、文件与开始上传 | `/?media=1` 添加影片 → 上传文件（临时文件仅选定未上传；目标选中 `上传演示` 测试库） | 真实库（本地） |
 | `upload-tv.webp` | 上传剧集多选文件模式与季号 | `/tv?media=1` 添加剧集 → 上传文件 | 真实库（本地测试库，未实际上传） |
-| `settings-navigation.webp` | 七个分区与概览内容 | `/settings` | 真实库 |
+| `settings-navigation.webp` | 已由 2026-10-02 分组导航截图替代 | `/settings` | 模拟 API，见上方新批次 |
 | `mobile-library.webp` | 手机导航、紧凑继续观看与三列海报墙 | `/`（407×904 CSS，3x） | 隔离演示数据，Chromium 移动模拟，2026-10-02 |
 | `mobile-player.webp` | 手机宽度下的播放控件 | `/m/405?media=1` 播放（红米 K50 Ultra：407×904 CSS，3x） | 真实库，模拟环境 |
 

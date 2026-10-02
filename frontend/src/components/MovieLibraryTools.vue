@@ -1,9 +1,9 @@
 <template>
   <section :id="active ? 'sec-pipeline' : undefined" class="card-block">
-    <div class="tool-views" aria-label="视频库工具">
+    <div class="library-tools-header"><div class="tool-views" aria-label="视频库工具">
       <button v-for="view in toolViews" :key="view.key" :class="{ on: toolView === view.key }"
         :aria-pressed="toolView === view.key" @click="chooseView(view.key)">{{ view.label }}</button>
-    </div>
+    </div><button type="button" class="open-library-files" @click="openFiles">管理文件</button></div>
     <div v-show="toolView === 'workflow'">
     <div class="status-line">
       <span v-if="pendingTotal" class="chip warn">待处理 {{ pendingTotal }}</span>
@@ -27,6 +27,7 @@
           </button>
           <button v-if="scanRunning" @click="cancelScan">取消扫描</button>
           <span>{{ scanMsg }}</span>
+          <button v-if="scanStateText === '完成'" @click="toggleStep('pending')">核对匹配结果 →</button>
         </div>
         <div class="bar">
           <button @click="loadMissing()" :disabled="!!busy || missingLoading">{{ missingLoading ? '检查中…' : '检查失效条目' }}</button>
@@ -119,10 +120,6 @@
     <div v-if="visitedViews.has('restore')" v-show="toolView === 'restore'">
       <RestorePanel ref="restoreRef" :library="tab" :active="active && toolView === 'restore'" :preselect-ids="preselectIds" @count="restoreCount = $event" @changed="onChanged" />
     </div>
-    <div v-if="visitedViews.has('files')" v-show="toolView === 'files'">
-      <FsBrowser :active="active && toolView === 'files'" :media="tabMedia" :video-libs="[tab]" :initial-lib-id="tab.id"
-        @changed="onChanged" @scan="scanFromFiles" />
-    </div>
   </section>
 </template>
 <script setup>
@@ -134,7 +131,6 @@ import { pickOpenStep, stepForSection } from '../libraryToolsTabs.js'
 import OrganizePanel from './OrganizePanel.vue'
 import LibraryMaintenancePanel from './LibraryMaintenancePanel.vue'
 import RestorePanel from './RestorePanel.vue'
-import FsBrowser from './FsBrowser.vue'
 
 const COLLAPSE_N = 20
 const props = defineProps({
@@ -142,31 +138,27 @@ const props = defineProps({
   active: { type: Boolean, default: false },
   request: { type: Object, default: null },
 })
-const emit = defineEmits(['changed', 'status'])
+const emit = defineEmits(['changed', 'status', 'open-files'])
 
-const tabMedia = computed(() => ({ id: props.tab.media_id, name: props.tab.media_name }))
 const openStep = ref('scan')
 const toolView = ref('workflow')
 const visitedViews = ref(new Set(['workflow']))
 const toolViews = [
   { key: 'workflow', label: '入库整理' },
   { key: 'maintenance', label: '资料维护' },
-  { key: 'files', label: '文件管理' },
   { key: 'restore', label: '还原位置' },
 ]
 function chooseView(key) {
   toolView.value = key
   visitedViews.value.add(key)
 }
-function scanFromFiles() {
-  chooseView('workflow')
-  toggleStep('scan')
-  openStep.value = 'scan'
-  startScan()
-}
 const preselectIds = ref([])
 const restoreCount = ref(0)
 const userToggled = ref(false)
+function openFiles() {
+  emit('open-files', { view: toolView.value, step: openStep.value,
+    scrollTop: window.scrollY, ids: restoreRef.value?.selectedIds?.() || [...preselectIds.value] })
+}
 
 function toggleStep(key) {
   userToggled.value = true
@@ -367,6 +359,18 @@ watch(stepStates, (st) => {
 // 深链：打开目标步骤/更多工具并定位（?sec=… / ?ids=…）
 watch(() => props.request, async (req) => {
   if (!req || !props.active) return
+  if (req.restore) {
+    userToggled.value = true
+    openStep.value = req.restore.step
+    chooseView(req.restore.view)
+    preselectIds.value = [...req.restore.ids]
+    await nextTick()
+    await ensure()
+    if (req.restore.view === 'restore') await restoreRef.value?.ensure()
+    await nextTick()
+    if (props.active && props.request === req) window.scrollTo({ top: req.restore.scrollTop, behavior: 'instant' })
+    return
+  }
   const step = stepForSection(req.sec)
   if (step) {
     userToggled.value = true
@@ -380,11 +384,16 @@ watch(() => props.request, async (req) => {
 
 // 首次激活加载（每个 Tab 一个实例，懒加载）
 const loaded = ref(false)
+let ensurePending = null
 async function ensure() {
+  if (ensurePending) return ensurePending
   if (loaded.value) return
   loaded.value = true
-  await Promise.all([loadMissing(true), loadUnmatched(true), organizeRef.value?.ensure(true)])
-  orgCount.value = organizeRef.value?.count() || 0
+  ensurePending = (async () => {
+    await Promise.all([loadMissing(true), loadUnmatched(true), organizeRef.value?.ensure(true)])
+    orgCount.value = organizeRef.value?.count() || 0
+  })()
+  try { await ensurePending } finally { ensurePending = null }
 }
 onMounted(() => { if (props.active) ensure() })
 watch(() => props.active, (v) => { if (v) ensure() })

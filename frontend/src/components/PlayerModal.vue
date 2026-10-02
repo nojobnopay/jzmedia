@@ -3,7 +3,7 @@
     <div ref="dlgRef" class="player-dlg" role="dialog" aria-modal="true" :aria-label="title || '视频播放器'">
       <header class="pd-head">
         <div class="pd-heading">
-          <span class="pd-eyebrow">{{ isEpisode ? '剧集' : isExtra ? '花絮' : '电影' }}</span>
+          <span class="pd-eyebrow">{{ preview ? '文件预览 · 不记录观看进度' : isEpisode ? '剧集' : isExtra ? '花絮' : '电影' }}</span>
           <h3>{{ title || ('版本 ' + versionId) }}</h3>
         </div>
         <span v-if="qualityBadge" class="quality-badge" :title="qualityLine">{{ qualityBadge }}</span>
@@ -121,7 +121,7 @@ async function ensureHls() {
 }
 
 const props = defineProps({ versionId: { type: Number, required: true }, title: { type: String, default: '' },
-  kind: { type: String, default: 'movie' } })
+  kind: { type: String, default: 'movie' }, preview: { type: Boolean, default: false } })
 const isEpisode = computed(() => props.kind === 'episode')
 const isExtra = computed(() => props.kind === 'extra')
 const kindParam = computed(() => isEpisode.value ? '?kind=episode'
@@ -914,6 +914,7 @@ function progressPayload(v) {
   return pos == null ? null : { pos, dur: mediaDuration(v) }
 }
 async function postProgress(p) {
+  if (props.preview) return
   try {
     await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`, {
       method: 'POST', body: JSON.stringify({ position: p.pos, duration: p.dur || 0 }),
@@ -924,6 +925,7 @@ async function postProgress(p) {
   } catch (e) { /* 进度上报失败不打扰播放 */ }
 }
 function saveNow() {
+  if (props.preview) return Promise.resolve()
   if (savePromise) return savePromise
   lastSaveAttempt = Date.now()
   const v = videoEl.value
@@ -935,6 +937,7 @@ function saveNow() {
 // 幂等：父级关窗时先调一次、卸载钩子再调返回同一 Promise，不会双发。
 let finalSavePromise = null
 function saveFinal() {
+  if (props.preview) return Promise.resolve()
   if (finalSavePromise) return finalSavePromise
   const v = videoEl.value
   const p = v ? progressPayload(v) : null
@@ -946,7 +949,7 @@ function onTime() {
   if (!seekPending.value && !seekDragging.value) seekPos.value = absPos()
   // 播放状态自愈：play/pause 事件若在监听绑定前/元素替换间隙丢失，timeupdate 低频校正
   if (v && isPlaying.value !== (!v.paused && !v.ended)) onPlayState()
-  if (v && !doneWatched) {
+  if (!props.preview && v && !doneWatched) {
     const dur = mediaDuration(v)
     const pos = absPos()
     const remain = dur - pos
@@ -957,7 +960,7 @@ function onTime() {
       emit('watched')
     }
   }
-  if (Date.now() - Math.max(lastSave, lastSaveAttempt) > 10000) saveNow()   // 成功后 10s 间隔；失败也不密集重试
+  if (!props.preview && Date.now() - Math.max(lastSave, lastSaveAttempt) > 10000) saveNow()   // 成功后 10s 间隔；失败也不密集重试
 }
 function onSeekInput(e) {
   clearTimeout(keyboardSeekTimer)
@@ -1015,6 +1018,7 @@ function restartSeek(t) {
   reload()
 }
 async function onEnded() {
+  if (props.preview) return
   await saveNow()
   emit('watched')
   emit('ended')   // 剧集连播：父级据此切下一集（watched 可能在片尾前 5% 触发，不可用于连播）
@@ -1039,9 +1043,11 @@ async function restartPlay() {
   startFromZero = true
   startOffset.value = 0
   seekPos.value = 0
-  try {
-    await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`, { method: 'DELETE' })
-  } catch (e) { /* 忽略 */ }
+  if (!props.preview) {
+    try {
+      await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`, { method: 'DELETE' })
+    } catch (e) { /* 忽略 */ }
+  }
   reload()
 }
 function onVideoError() {
@@ -1208,21 +1214,23 @@ async function copyDebug() {
 }
 onMounted(async () => {
   observePlayerSize()
-  try {
-    const p = await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`)
-    const pos = Number(p.position) || 0
-    let dur = Number(p.duration) || 0
-    // 旧版本用 HLS 增长清单时长（如 30s）写坏过存档：dur < pos 视为不可信，按未看完处理
-    if (dur > 0 && dur < pos) dur = 0
-    const remain = dur - pos
-    if (pos > 15 && (dur === 0 || !(remain / dur < 0.05 || remain < 300))) {
-      resumePos = pos
-      resumeOffer.value = p.position_text || fmt(pos)
-      // 弹窗打开即计时：10s 内未点任一按钮 = 同意续播，自动消条（direct 缺 #t 会在到点时补跳）
-      clearResumeTimer()
-      resumeTimer = setTimeout(() => { resumeTimer = 0; resumePlay() }, 10000)
-    }
-  } catch (e) { /* 无断点直接播 */ }
+  if (!props.preview) {
+    try {
+      const p = await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`)
+      const pos = Number(p.position) || 0
+      let dur = Number(p.duration) || 0
+      // 旧版本用 HLS 增长清单时长（如 30s）写坏过存档：dur < pos 视为不可信，按未看完处理
+      if (dur > 0 && dur < pos) dur = 0
+      const remain = dur - pos
+      if (pos > 15 && (dur === 0 || !(remain / dur < 0.05 || remain < 300))) {
+        resumePos = pos
+        resumeOffer.value = p.position_text || fmt(pos)
+        // 弹窗打开即计时：10s 内未点任一按钮 = 同意续播，自动消条（direct 缺 #t 会在到点时补跳）
+        clearResumeTimer()
+        resumeTimer = setTimeout(() => { resumeTimer = 0; resumePlay() }, 10000)
+      }
+    } catch (e) { /* 无断点直接播 */ }
+  }
   if (disposed) return
   await reload()
   // 进度请求/reload 期间可能已关窗：此时不能再绑监听/起定时器（onUnmounted 已经清理过）
@@ -1230,7 +1238,7 @@ onMounted(async () => {
   bindVideo(videoEl.value)
   document.addEventListener('fullscreenchange', onFullChange)
   document.addEventListener('click', onDocClick)
-  window.addEventListener('beforeunload', saveNow)
+  if (!props.preview) window.addEventListener('beforeunload', saveNow)
   window.addEventListener('keydown', onKeydown)
   try {
     // 调试口收进命名空间（评审 B8/R14-D4）；__jzPlayerDebug 保留兼容

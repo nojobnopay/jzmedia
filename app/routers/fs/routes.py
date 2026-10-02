@@ -1,17 +1,75 @@
 """routers.fs.routes（自 app/routers/fs.py 拆分，评审 R01-Q4；经 fs 门面使用）。"""
 import os
+import re
+from functools import wraps
+from typing import Literal
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Query, Request
 
 from ... import library_paths, storage, store
+from ...library_mutex import library_mutation_lock
+from ..blob import guess_media_type, media_response, text_response
 from ..files import _require_writable, _safe_component
 from .classify import _classify
 from .common import logger, router
 from .classify import _impact_for_delete
-from .ops import (_exec_delete_one, _exec_delete_one_remote, _exec_move_one,
+from .ops import (_exec_delete_one, _exec_delete_one_remote, _exec_move_one, _follow_plan, _db_path_occupied,
                   _exec_move_one_remote)
 from .paths import _check_inside_root, _resolve_dir
-__all__ = ['fs_list', 'fs_mkdir', 'fs_rename', 'fs_move', 'fs_delete']
+__all__ = ['fs_list', 'fs_blob', 'fs_mkdir', 'fs_rename', 'fs_move', 'fs_delete', 'fs_changes']
+
+# Explicit MIME values also apply to remote streams; SVG/HTML are deliberately
+# excluded so user files cannot execute in the application's origin.
+_PREVIEW_TYPES = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+    '.webp': 'image/webp', '.gif': 'image/gif', '.pdf': 'application/pdf',
+    '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mkv': 'video/x-matroska',
+    '.webm': 'video/webm', '.mov': 'video/quicktime', '.avi': 'video/x-msvideo',
+    '.ts': 'video/mp2t', '.m2ts': 'video/mp2t', '.flv': 'video/x-flv',
+}
+
+
+@router.get('/blob')
+def fs_blob(request: Request, library: int = Query(..., gt=0),
+            path: str = Query(..., min_length=1), mode: Literal['raw', 'text'] = 'raw',
+            inline: bool = False):
+    """Read an exact library-relative file without requiring a catalogue record."""
+    # backend_for() intentionally falls back to the default library elsewhere;
+    # previews must never reinterpret a missing or stale library id that way.
+    lib = store.get_library(library)
+    if lib is None:
+        raise HTTPException(404, 'library not found')
+    if ('\\' in path or '\x00' in path or path != path.strip()
+            or any(part in ('', '.', '..') for part in path.split('/'))
+            or re.match(r'^[A-Za-z][A-Za-z0-9+.-]*:', path)):
+        raise HTTPException(422, 'path must be a relative file path')
+    try:
+        backend = storage.backend_for_library(lib)
+        if backend.driver == 'mount':
+            mount_root = lib.get('media_mount_point') or lib.get('media_path') or backend.root
+            if not os.path.ismount(mount_root):
+                raise storage.StorageOffline('source is not mounted')
+        rel = backend.norm(path)
+        if not rel or rel != path:
+            raise storage.StorageInvalidPath('path must be a canonical relative file path')
+        # Local stat is intentionally lax for browsing. Content access must
+        # resolve symlinks against this exact library root before stat/response.
+        backend.abs_path(rel)
+    except storage.StorageInvalidPath as e:
+        raise HTTPException(422, 'invalid file path') from e
+    except storage.StorageNotFound as e:
+        raise HTTPException(404, 'file missing') from e
+    except storage.StorageDenied as e:
+        raise HTTPException(403, 'file access denied') from e
+    except storage.StorageError as e:
+        raise HTTPException(503, 'library unavailable') from e
+    _stat_file_or_404(backend, rel)
+    if mode == 'text':
+        return text_response(backend, rel)
+    preview_type = _PREVIEW_TYPES.get(os.path.splitext(rel)[1].lower())
+    return media_response(request, backend, rel, filename=os.path.basename(rel),
+                          media_type=preview_type or guess_media_type(rel),
+                          inline=inline and preview_type is not None)
 
 
 def _lib_param(v) -> int | None:
@@ -20,6 +78,17 @@ def _lib_param(v) -> int | None:
         return int(v) if v not in (None, "") else None
     except (TypeError, ValueError):
         raise HTTPException(422, "library must be int")
+
+
+def _locked_write(fn):
+    @wraps(fn)
+    def run(body: dict | None = None):
+        value = body or {}
+        lid = _lib_param(value.get('library_id', value.get('library')))
+        lid = library_paths.default_id() if lid is None else lid
+        with library_mutation_lock(lid):
+            return fn(body)
+    return run
 
 
 def _backend(lid: int):
@@ -90,7 +159,7 @@ def _list_remote(backend, norm: str, lid: int, extras_map: dict,
             continue
         rel = os.path.join(norm, n) if norm else n
         if e["is_dir"]:
-            dirs.append({"name": n, "rel": rel, "children": None})
+            dirs.append({"name": n, "rel": rel, "children": None, "mtime": e.get('mtime')})
         else:
             files.append(_classify(rel, extras_map, library_id=lid,
                                    entry=e, backend=backend))
@@ -164,7 +233,7 @@ def _list_media_root(mid: int, path: str, limit: int, offset: int) -> dict:
             continue
         rel = f"{norm}/{n}" if norm else n
         if e.get("is_dir"):
-            item = {"name": n, "rel": rel, "children": None}
+            item = {"name": n, "rel": rel, "children": None, "mtime": e.get('mtime')}
             v = exact.get(rel)
             if v:
                 item["video_library_id"] = v.get("id")
@@ -177,7 +246,7 @@ def _list_media_root(mid: int, path: str, limit: int, offset: int) -> dict:
             files.append({"rel": rel, "name": n,
                           "size": int(e.get("size") or 0),
                           "mtime": float(e.get("mtime") or 0),
-                          "kind": "other"})
+                          "kind": "other", "registered": False, "match_status": None})
     parent = os.path.dirname(norm) if norm else ""
     crumbs = []
     if norm:
@@ -245,7 +314,7 @@ def fs_list(path: str = "", limit: int = 1000, offset: int = 0,
                     c = len(os.listdir(full))
                 except OSError:
                     c = 0
-                dirs.append({"name": n, "rel": rel, "children": c})
+                dirs.append({"name": n, "rel": rel, "children": c, "mtime": os.stat(full).st_mtime})
             elif os.path.isfile(full):
                 files.append(_classify(rel, extras_map, library_id=lid))
         except OSError:
@@ -263,10 +332,28 @@ def fs_list(path: str = "", limit: int = 1000, offset: int = 0,
             "dirs": dirs, "files": files[offset:offset + limit],
             "total_dirs": len(dirs), "total_files": total_files,
             "has_more": has_more, "limit": limit, "offset": offset,
-            "fs_writable": True, "driver": backend.driver}
+            "fs_writable": not backend.read_only, "driver": backend.driver}
+
+
+@router.get('/changes')
+def fs_changes(library: int | None = None):
+    """Pending physical changes and recoverable copy jobs, scoped by video library."""
+    from .copy import active_copy_jobs
+    libs = [store.get_library(library)] if library is not None else store.list_libraries()
+    if library is not None and not libs[0]:
+        raise HTTPException(404, 'library not found')
+    jobs = active_copy_jobs()
+    items = []
+    for lib in libs:
+        item = store.fs_change_summary(lib['id'])
+        item.update(library_name=lib['name'], kind=lib['kind'],
+                    active_jobs=[j for j in jobs if j.get('library_id') == lib['id']])
+        items.append(item)
+    return items[0] if library is not None else {'items': items, 'count': sum(i['count'] for i in items)}
 
 
 @router.post("/mkdir")
+@_locked_write
 def fs_mkdir(body: dict | None = None):
     """新建子目录：{path, name, library?}，name 为单段目录名。直接执行（可逆、无 DB 影响）。"""
     body = body or {}
@@ -287,6 +374,7 @@ def fs_mkdir(body: dict | None = None):
             backend.mkdir(rel)
         except storage.StorageError as e:
             raise _http_storage(e, "mkdir failed")
+        store.record_fs_change(lid, 'mkdir', rel)
         return {"rel": rel, "status": "created"}
     abs_p = library_paths.resolve(lid, rel)
     try:
@@ -295,10 +383,12 @@ def fs_mkdir(body: dict | None = None):
         raise HTTPException(409, f"already exists: {rel!r}")
     except OSError as e:
         raise HTTPException(500, f"mkdir failed: {e}")
+    store.record_fs_change(lid, 'mkdir', rel)
     return {"rel": rel, "status": "created"}
 
 
 @router.post("/rename")
+@_locked_write
 def fs_rename(body: dict | None = None):
     """文件改名（同目录）：{from, name, dry_run, library?}。改名正片会跟随字幕/花絮兄弟。"""
     body = body or {}
@@ -320,9 +410,12 @@ def fs_rename(body: dict | None = None):
         raise HTTPException(422, "name unchanged")
     info = _classify(fr, library_id=lid, backend=backend if remote else None)
     if dry_run:
-        preview = {**info, "from": fr, "to": to, "status": "planned"}
+        preview = {**info, "from": fr, "to": to, "status": "planned",
+                   "followers": _follow_plan(backend, fr, to, info)}
         if _rel_exists(backend, to):
             preview["status"] = "conflict_disk_exists"
+        elif _db_path_occupied(lid, to):
+            preview['status'] = 'conflict_db_occupied'
         return {"dry_run": True, "plans": [preview]}
     _require_writable(lid)
     r = (_exec_move_one_remote(fr, to, lid, backend) if remote
@@ -332,6 +425,7 @@ def fs_rename(body: dict | None = None):
 
 
 @router.post("/move")
+@_locked_write
 def fs_move(body: dict | None = None):
     """文件移动：{from, to_dir, dry_run, library?}，to_dir 不存在自动建。"""
     body = body or {}
@@ -341,7 +435,8 @@ def fs_move(body: dict | None = None):
     backend = _backend(lid)
     remote = _is_remote(backend)
     fr = _check_inside_root(str(body.get("from") or ""), lid)
-    to_dir = _check_inside_root(str(body.get("to_dir") or ""), lid)
+    raw_to_dir = str(body.get("to_dir") or "").strip()
+    to_dir = _check_inside_root(raw_to_dir, lid) if raw_to_dir else ''
     _stat_file_or_404(backend, fr)
     to = os.path.join(to_dir, os.path.basename(fr))
     to = _check_inside_root(to, lid)
@@ -349,9 +444,12 @@ def fs_move(body: dict | None = None):
         raise HTTPException(422, "already there")
     info = _classify(fr, library_id=lid, backend=backend if remote else None)
     if dry_run:
-        preview = {**info, "from": fr, "to": to, "status": "planned"}
+        preview = {**info, "from": fr, "to": to, "status": "planned",
+                   "followers": _follow_plan(backend, fr, to, info)}
         if _rel_exists(backend, to):
             preview["status"] = "conflict_disk_exists"
+        elif _db_path_occupied(lid, to):
+            preview['status'] = 'conflict_db_occupied'
         return {"dry_run": True, "plans": [preview]}
     _require_writable(lid)
     r = (_exec_move_one_remote(fr, to, lid, backend) if remote
@@ -361,6 +459,7 @@ def fs_move(body: dict | None = None):
 
 
 @router.post("/delete")
+@_locked_write
 def fs_delete(body: dict | None = None):
     """删除文件：{paths[], dry_run, confirm}。
 
@@ -434,6 +533,7 @@ def fs_delete(body: dict | None = None):
                     backend.delete(p["rel"])
                 else:
                     os.rmdir(library_paths.resolve(lid, p["rel"]))
+                store.record_fs_change(lid, 'delete', p['rel'])
                 done.append({**p, "status": "deleted"})
             except storage.StorageError as e:
                 done.append({**p, "status": f"error: {e}"})
@@ -451,4 +551,3 @@ def fs_delete(body: dict | None = None):
 
 
 # ===== 复制（评审 B9 后续）：目录递归 + 冲突自动副本命名 + 后台 job 进度/取消 =====
-

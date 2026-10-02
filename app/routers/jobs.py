@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/jobs")
 
 # 扫描后台任务（评审 B9/R04-D6）：立即返回 job_id，进度/摘要轮询，可取消
 _SCAN_JOBS = JobRegistry(prefix="scan")
+_SCAN_FINISH_LOCK = threading.Lock()
 
 
 def _scan_summary(results: list) -> dict:
@@ -96,6 +97,12 @@ def _scan_worker(jid: str, library_id: int | None = None,
         _SCAN_JOBS.update(jid, done=int(done), total=int(total))
 
     try:
+        from ..scanner.scan import _scan_libraries
+        from .fs.copy import active_copy_jobs
+        scan_libs = _scan_libraries(library_id, media_library_id)
+        watermarks = {int(lib['id']): store.fs_change_summary(lib['id'])['revision']
+                      for lib in scan_libs}
+        copying_at_start = {int(j['library_id']) for j in active_copy_jobs()}
         kwargs = {"progress_cb": _cb, "should_stop": _stop, "force": bool(force)}
         if library_id is not None:
             kwargs["library_id"] = library_id
@@ -125,8 +132,31 @@ def _scan_worker(jid: str, library_id: int | None = None,
             except Exception as e:
                 logger.warning("chained tv scrape failed: %s", e)
                 summary["tv_scrape"] = {"error": str(e)[:200]}
-        _SCAN_JOBS.update(jid, state="done", done=len(res), total=len(res),
-                          **{"summary": summary})
+        if _stop():
+            _SCAN_JOBS.update(jid, done=len(res), summary=summary)
+            return
+        # Successful enumeration and reconciliation acknowledge only pre-scan changes.
+        # Partial errors, offline libraries and cancelled copy/scan work remain pending.
+        failed_libs = {int(r['library_id']) for r in res if r.get('library_id') is not None
+                       and (str(r.get('status') or '').startswith('error')
+                            or r.get('status') in ('scan_failed', 'library_offline'))}
+        scrape = summary.get('tv_scrape') or {}
+        if scrape.get('error') or scrape.get('errors') or scrape.get('skipped'):
+            failed_libs.update(tv_libs)
+        failed_libs.update(copying_at_start)
+        failed_libs.update(int(j['library_id']) for j in active_copy_jobs())
+        with _SCAN_FINISH_LOCK:
+            if _stop():
+                _SCAN_JOBS.update(jid, done=len(res), summary=summary)
+                return
+            cleared = {}
+            for lid, revision in watermarks.items():
+                if lid not in failed_libs and revision:
+                    cleared[lid] = store.clear_fs_changes(lid, revision)
+            summary['fs_changes'] = {'cleared': cleared,
+                                    'pending': [store.fs_change_summary(lid) for lid in watermarks]}
+            _SCAN_JOBS.update(jid, state="done", done=len(res), total=len(res),
+                              **{"summary": summary})
     except Exception as e:
         _SCAN_JOBS.update(jid, state="failed", error=str(e)[:300])
 
@@ -144,6 +174,11 @@ def scan_start(body: ScanBody | None = None):
     library_id = body.library_id if body else None
     media_library_id = body.media_library_id if body else None
     force = bool(body.force) if body else False
+    from ..scanner.scan import _scan_libraries
+    from .fs.copy import active_copy_jobs
+    target_ids = {int(lib['id']) for lib in _scan_libraries(library_id, media_library_id)}
+    if any(int(j['library_id']) in target_ids for j in active_copy_jobs()):
+        raise HTTPException(409, '该视频库仍在复制文件，请等待复制结束后扫描')
     running = _SCAN_JOBS.running()
     if running:
         if (running.get("library_id"), running.get("media_library_id"), bool(running.get("force"))) != (library_id, media_library_id, force):
@@ -182,7 +217,8 @@ def scan_cancel(job_id: str = ""):
     if not job_id:
         running = _SCAN_JOBS.running()
         job_id = running["job_id"] if running else ""
-    return {"job_id": job_id, "state": _SCAN_JOBS.cancel(job_id)}
+    with _SCAN_FINISH_LOCK:
+        return {"job_id": job_id, "state": _SCAN_JOBS.cancel(job_id)}
 
 
 # ---- TV 刮削（T2）：未匹配/未刮过的剧 → TMDB 元数据 + 海报 ----

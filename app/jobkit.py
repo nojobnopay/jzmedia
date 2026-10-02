@@ -59,6 +59,15 @@ class JobRegistry:
                     return dict(job)
         return None
 
+    def active(self) -> list[dict]:
+        """Snapshot all running tasks, for scoped task recovery after navigation."""
+        with self._lock:
+            return [dict(job) for job in self._jobs.values() if job['state'] == 'running']
+
+    def snapshot(self) -> list[dict]:
+        with self._lock:
+            return [dict(job) for job in self._jobs.values()]
+
     def latest(self) -> dict | None:
         with self._lock:
             if not self._jobs:
@@ -69,7 +78,8 @@ class JobRegistry:
             return dict(self._jobs[jid])
 
     def _trim_locked(self) -> None:
-        finished = [(k, j) for k, j in self._jobs.items() if j["state"] != "running"]
+        finished = [(k, j) for k, j in self._jobs.items()
+                    if j["state"] != "running" and j.get('worker_finished') is not False]
         if len(finished) <= self._max_finished:
             return
         finished.sort(key=lambda kv: kv[1].get("finished_at") or kv[1].get("started_at") or 0)

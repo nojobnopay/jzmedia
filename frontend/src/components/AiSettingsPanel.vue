@@ -6,6 +6,9 @@
     <p v-if="!settings && busy" role="status">正在加载智能辅助配置…</p>
     <fieldset :disabled="busy || !settings">
       <label class="check"><input v-model="form.enabled" type="checkbox" />启用智能辅助</label>
+      <p v-if="!form.enabled" class="hint">修改启用状态后需保存。也可以先配置并测试服务，准备好后再启用。</p>
+      <button v-if="!form.enabled" type="button" :aria-expanded="configure" aria-controls="ai-service-fields" @click="configure = !configure">{{ configure ? '收起服务配置' : '配置与测试服务' }}</button>
+      <div v-if="form.enabled || configure" id="ai-service-fields">
       <div class="ai-fields">
         <label>服务商<select v-model="form.provider" @change="selectProvider"><option value="deepseek">DeepSeek</option><option value="opencode_go">OpenCode Go</option><option value="compatible">自定义兼容接口</option></select></label>
         <label>模型名称<input v-model="form.model" autocomplete="off" :placeholder="preset.model || '模型 ID'" /></label>
@@ -21,13 +24,14 @@
         <p class="hint">本版仅使用 Chat Completions。模型填写官方对应的 ID，例如 glm-5.3-flash，不加 opencode-go/ 前缀；可修改为其他支持该接口的模型。</p>
       </template>
       <p v-else class="hint">地址填写到 API 根目录，例如 https://api.deepseek.com 或 http://localhost:11434/v1。自定义服务需提供兼容 Chat Completions 的地址与模型。</p>
-      <div class="bar"><button :disabled="!valid" @click="save">保存智能辅助配置</button><button :disabled="dirty" @click="check">测试已保存连接</button></div>
-      <p v-if="dirty" class="hint">配置有修改，请先保存再测试连接。</p>
       <template v-if="settings?.api_key_source === 'db'">
         <button @click="clearKey">{{ armClear ? '确认移除已保存密钥' : '移除已保存密钥' }}</button>
         <button v-if="armClear" @click="armClear = false">取消</button>
         <p v-if="armClear" class="hint">将移除此处保存的密钥；服务器环境中已有密钥时会恢复使用它。</p>
       </template>
+      </div>
+      <div v-if="form.enabled || configure || dirty" class="bar"><button :disabled="!valid" @click="save">保存智能辅助配置</button><button v-if="form.enabled || configure" :disabled="dirty" @click="check">测试已保存连接</button></div>
+      <p v-if="dirty" class="hint">配置有修改，请先保存再测试连接。</p>
     </fieldset>
     <p v-if="settings?.usage" class="hint">今日 {{ settings.usage.requests }} / {{ settings.daily_limit }} 次 · 输入 {{ settings.usage.input_tokens }}、输出 {{ settings.usage.output_tokens }} tokens。按 UTC 日重置；失败和连接测试计次，缓存命中不计。费用以服务商账单为准。</p>
     <p v-if="busy || error || message" role="status">{{ busy ? '正在处理…' : error || message }}</p>
@@ -44,6 +48,7 @@ const form = reactive({ enabled: false, provider: 'deepseek', base_url: 'https:/
 const apiKey = ref('')
 const message = ref('')
 const armClear = ref(false)
+const configure = ref(false)
 const { busy, error, run } = useAiRequest()
 const preset = computed(() => aiProviderPreset(form.provider))
 const dirty = computed(() => !!apiKey.value || fields.some(key => form[key] !== settings.value?.[key]))

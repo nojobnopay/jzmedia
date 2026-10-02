@@ -55,6 +55,7 @@ const emit = defineEmits(['count', 'changed'])
 
 const busy = ref(null)
 const loaded = ref(false)
+let ensurePending = null
 const restorePlans = ref([])
 const checkedRestore = ref([])
 const restoreMsg = ref('')
@@ -192,8 +193,10 @@ onUnmounted(() => window.removeEventListener('scroll', hideTip, true))
 
 // 进入区块时自动加载一次（H-UI：原先靠「预览」按钮，按钮语义弱且只做首次加载）
 async function ensure() {
+  if (ensurePending) return ensurePending
   if (loaded.value) return
-  await load(props.preselectIds)
+  ensurePending = load(props.preselectIds)
+  try { await ensurePending } finally { ensurePending = null }
 }
 // 归档整理改变了路径后，若恢复清单已加载则静默刷新（保留勾选）
 async function reloadIfLoaded() {
@@ -204,7 +207,7 @@ watch(() => props.active, (v) => { if (v) ensure() }, { immediate: true })
 watch(() => props.preselectIds, (ids) => {
   if (loaded.value && (ids || []).length) load(ids)
 })
-defineExpose({ load, ensure, reloadIfLoaded })
+defineExpose({ load, ensure, reloadIfLoaded, selectedIds: checkedAll })
 </script>
 <style scoped>
 .card-block { background: #1c1c1c; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }

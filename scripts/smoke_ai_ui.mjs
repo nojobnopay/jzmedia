@@ -96,6 +96,20 @@ async function mockApi(route) {
         bind_reason: '已有目录归属，请通过“归属与季号”预览并调整', reason: '须保留已有目录归属。' }] : [])] })
   }
   if (key === '/api/libraries') return response(route, { items: libraries, default_id: 1 })
+  if (/^\/api\/libraries\/\d+$/.test(key) && method === 'PATCH') {
+    const library = libraries.find(item => item.id === Number(key.split('/').at(-1)))
+    assert.ok(library, 'Mock update must name an existing fixture library')
+    assert.deepEqual(Object.keys(body), ['metadata_providers'])
+    library.metadata_providers = body.metadata_providers
+    return response(route, library)
+  }
+  if (key === '/api/metadata/test-search') {
+    const library = libraries.find(item => item.id === Number(url.searchParams.get('library')))
+    assert.ok(library, 'Mock search must name an existing fixture library')
+    const items = url.searchParams.get('q') === '无结果' ? [] : [{ title: '模拟匹配候选', year: 2020, source: 'local' }]
+    return response(route, { items, source: items.length ? 'local' : null, kind: library.kind,
+      library_id: library.id, chain: JSON.parse(library.metadata_providers), elapsed_ms: 12 })
+  }
   if (key === '/api/onboarding') return response(route, { show_welcome: false, status: 'completed' })
   if (key === '/api/settings') return response(route, { tmdb_configured: false, tmdb_language: 'zh-CN', libraries: [] })
   if (key === '/api/jobs/stats') return response(route, { total: 1, by_library: [] })
@@ -204,8 +218,9 @@ async function captureDocs(go) {
     usage: { date: new Date().toISOString().slice(0, 10), requests: 0, input_tokens: 0, output_tokens: 0 } })
   Object.assign(movie, { title: '模拟电影', tmdb_id: null })
   Object.assign(show, { title: '模拟剧集', tmdb_id: null, poster_path: null })
-  await go('/settings?sec=sec-tmdb')
+  await go('/settings?sec=sec-ai')
   const config = page.locator('.ai-settings')
+  await config.getByRole('button', { name: '配置与测试服务' }).click()
   await config.getByLabel(/^服务商/).selectOption('opencode_go')
   assert.equal(await config.getByLabel('API 基础地址', { exact: true }).inputValue(), 'https://opencode.ai/zen/go/v1')
   assert.equal(await config.getByLabel('模型名称', { exact: true }).inputValue(), 'glm-5.3-flash')
@@ -283,7 +298,7 @@ try {
     Object.assign(settings, { enabled: true, provider: 'opencode_go', base_url: 'https://opencode.ai/zen/go/v1',
       model: 'glm-5.3-flash', api_key_set: true, api_key_source: 'db', api_key_masked: '****demo' })
     show.tmdb_id = 777
-    console.log(`隔离演示（全 API 模拟，无真实 Key）：${base}/settings?sec=sec-tmdb`)
+    console.log(`隔离演示（全 API 模拟，无真实 Key）：${base}/settings?sec=sec-ai`)
     console.log(`搜索：${base}/?media=1\n电影匹配：${base}/m/101\n剧集匹配：${base}/tv/201`)
     console.log('不加载 .env，不连接后端、NAS 或模型；仅演示这些页面。Ctrl+C 停止并丢弃内存状态。')
     await new Promise(resolve => { process.once('SIGINT', resolve); process.once('SIGTERM', resolve) })
@@ -305,9 +320,18 @@ try {
     await page.getByRole('combobox', { name: '切换媒体库' }).waitFor()
   }
 
-  await go('/settings?sec=sec-tmdb')
+  await go('/settings?sec=sec-ai')
   const config = page.locator('.ai-settings')
+  await config.getByRole('button', { name: '配置与测试服务' }).click()
   await config.getByRole('button', { name: '保存智能辅助配置' }).waitFor()
+  const desktopGroups = await page.locator('.desktop-categories > section').evaluateAll(groups => groups.map(group => {
+    const box = group.getBoundingClientRect(), heading = group.querySelector('.nav-group').getBoundingClientRect()
+    return { x: box.x, y: box.y, width: box.width, height: heading.height }
+  }))
+  assert.equal(desktopGroups.length, 3)
+  assert.ok(desktopGroups.every((group, index) => group.width >= 150 && group.height < 35
+    && (!index || (group.y > desktopGroups[index - 1].y && group.x === desktopGroups[index - 1].x))),
+  'Desktop navigation groups must stack vertically with single-line headings')
   assert.equal(paid().length, 0, 'Opening settings must not make a paid call')
   await config.getByLabel('API Key', { exact: true }).fill('mock-secret-never-a-real-key')
   await config.getByLabel('启用智能辅助', { exact: true }).check()
@@ -417,11 +441,40 @@ try {
   }
   console.log('PASS 电影与剧集匹配先选择再确认、仅绑定真实候选，失败仍可手动搜索')
 
+  await go('/settings?sec=sec-matching')
+  const rules = page.locator('#sec-matching')
+  await rules.getByLabel('视频库', { exact: true }).selectOption('1')
+  await rules.getByLabel('TMDB', { exact: true }).check()
+  await rules.getByRole('button', { name: '上移 TMDB', exact: true }).click()
+  await rules.getByLabel('视频库', { exact: true }).selectOption('2')
+  await rules.getByLabel('TVmaze', { exact: true }).check()
+  await rules.getByLabel('视频库', { exact: true }).selectOption('1')
+  assert.match(await rules.getByRole('list', { name: '已启用来源的匹配顺序' }).innerText(), /^1\. TMDB/)
+  await rules.getByRole('button', { name: '保存匹配规则', exact: true }).click()
+  await rules.getByText('已保存：TMDB → 本地索引', { exact: true }).waitFor()
+  await rules.getByLabel('电影名称', { exact: true }).fill('无结果')
+  await rules.getByRole('button', { name: '测试已保存规则', exact: true }).click()
+  await rules.getByText(/未找到候选/).waitFor()
+  await rules.getByLabel('视频库', { exact: true }).selectOption('2')
+  assert.equal(await rules.getByLabel('TVmaze', { exact: true }).isChecked(), true)
+  await rules.getByRole('button', { name: '保存匹配规则', exact: true }).click()
+  await rules.getByText('已保存：本地索引 → TVmaze', { exact: true }).waitFor()
+  await rules.getByLabel('剧集名称', { exact: true }).fill('模拟剧集')
+  await rules.getByRole('button', { name: '测试已保存规则', exact: true }).click()
+  await rules.getByText(/找到 1 个候选/).waitFor()
+  const matchingRequest = requests.filter(r => r.path === '/api/metadata/test-search').at(-1)
+  assert.equal(matchingRequest.query.library, '2')
+  assert.equal(matchingRequest.query.kind, 'tv')
+  console.log('PASS 设置匹配规则按库保留草稿、优先级保存、电影空结果和剧集作用域测试')
+
   await page.setViewportSize({ width: 390, height: 844 })
-  await go('/settings?sec=sec-tmdb')
+  await go('/settings?sec=sec-ai')
   await config.getByRole('button', { name: '保存智能辅助配置' }).waitFor()
   await config.scrollIntoViewIfNeeded()
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Settings overflow on a 390px viewport')
+  await page.getByLabel('设置分类', { exact: true }).selectOption('sec-offline')
+  await page.locator('.settings-heading h2').filter({ hasText: '离线资料' }).waitFor()
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Settings category selector must fit the viewport')
   await go('/?media=1')
   await page.getByRole('button', { name: '智能搜索', exact: true }).click()
   await page.getByRole('region', { name: '智能搜索', exact: true }).getByLabel('想看什么').fill('手机搜索')

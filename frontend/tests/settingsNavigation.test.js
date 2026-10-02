@@ -30,3 +30,12 @@ test('hidden tool pages open for their deep links', () => {
     assert.equal(settingsTarget({ sec }).page, 'sec-libtools')
   }
 })
+
+test('file management keeps its own navigation while preserving library scope', () => {
+  assert.deepEqual(settingsTarget({ sec: 'sec-files', library: '9', media: '2' }), {
+    page: 'sec-files', sec: 'sec-files', library: 9, media: 2, ids: [],
+  })
+  assert.equal(settingsTarget({ sec: 'sec-tmdb' }).page, 'sec-tmdb')
+  assert.deepEqual(SETTINGS_PAGES.filter(page => page.group === '资料与智能').map(page => page.id),
+    ['sec-tmdb', 'sec-matching', 'sec-ai', 'sec-offline'])
+})

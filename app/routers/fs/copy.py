@@ -7,12 +7,13 @@ from fastapi import HTTPException
 
 from ... import library_paths, scanner, storage, store
 from ...jobkit import JobRegistry
+from ...library_mutex import library_mutation_lock
 from ...scanner import is_feature_video
 from ..files import _require_writable
 from .classify import _classify
 from .common import logger, router
 from .paths import _check_inside_root
-__all__ = ['fs_copy', 'fs_copy_status', 'fs_copy_cancel']
+__all__ = ['fs_copy', 'fs_copy_status', 'fs_copy_cancel', 'active_copy_jobs']
 
 
 class _CopyCancelled(Exception):
@@ -20,6 +21,12 @@ class _CopyCancelled(Exception):
 
 
 _COPY_JOBS = JobRegistry(prefix="copy")
+
+
+def active_copy_jobs(library_id=None) -> list[dict]:
+    return [j for j in _COPY_JOBS.snapshot()
+            if (j['state'] == 'running' or (j['state'] == 'cancelled' and not j.get('worker_finished', True)))
+            and (library_id is None or int(j.get('library_id') or 0) == int(library_id))]
 
 #: 超过该体积/数量时 dry_run 提示前端需要二次确认（复制很贵，别误触）
 COPY_CONFIRM_BYTES = 2 * 1024 * 1024 * 1024
@@ -41,7 +48,7 @@ def _unique_dst(path: str) -> tuple[str, bool]:
 
 def _copy_file(src: str, dst: str, on_bytes, should_stop) -> bool:
     """分块复制（1MB：可报进度、可协作取消）。成功 True；取消时删除半成品。"""
-    with open(src, "rb") as fr, open(dst, "wb") as fw:
+    with open(src, "rb") as fr, open(dst, "xb") as fw:
         while True:
             if should_stop and should_stop():
                 try:
@@ -60,6 +67,42 @@ def _copy_file(src: str, dst: str, on_bytes, should_stop) -> bool:
     except OSError:
         pass
     return True
+
+
+def _copy_file_tracked(src, dst, library_id, on_bytes, should_stop):
+    """Retained partial files count as changes even when an item later fails."""
+    with library_mutation_lock(library_id):
+        return _copy_file_tracked_locked(src, dst, library_id, on_bytes, should_stop)
+
+
+def _copy_file_tracked_locked(src, dst, library_id, on_bytes, should_stop):
+    existed = os.path.lexists(dst)
+    try:
+        return _copy_file(src, dst, on_bytes, should_stop)
+    except FileExistsError:
+        existed = True
+        raise
+    finally:
+        if not existed and os.path.lexists(dst):
+            rel = os.path.relpath(dst, library_paths.library_root(library_id))
+            store.record_fs_change(library_id, 'copy', rel)
+
+
+def _mkdir_tracked(library_id, path, backend=None):
+    with library_mutation_lock(library_id):
+        if backend is not None:
+            if not backend.exists(path):
+                backend.mkdir(path, parents=True)
+                store.record_fs_change(library_id, 'copy', path)
+        elif not os.path.isdir(path):
+            os.makedirs(path, exist_ok=True)
+            store.record_fs_change(library_id, 'copy', os.path.relpath(path, library_paths.library_root(library_id)))
+
+
+def _symlink_tracked(src, dst, library_id):
+    with library_mutation_lock(library_id):
+        os.symlink(os.readlink(src), dst)
+        store.record_fs_change(library_id, 'copy', os.path.relpath(dst, library_paths.library_root(library_id)))
 
 
 def _measure(items: list[str], library_id=None) -> tuple[int, int, int]:
@@ -141,8 +184,13 @@ def _copy_file_remote(backend, src_rel: str, dst_rel: str,
                       on_bytes, should_stop) -> bool:
     """远程分块复制（1MB：进度/取消）；取消返回 False（临时文件由 open_write 清理），
     存储错误上抛由 worker 按项记 error。"""
+    with library_mutation_lock(backend.library_id):
+        return _copy_file_remote_locked(backend, src_rel, dst_rel, on_bytes, should_stop)
+
+
+def _copy_file_remote_locked(backend, src_rel, dst_rel, on_bytes, should_stop):
     try:
-        with backend.open_read(src_rel) as fr, backend.open_write(dst_rel) as fw:
+        with backend.open_read(src_rel) as fr, backend.open_write(dst_rel, overwrite=False) as fw:
             while True:
                 if should_stop and should_stop():
                     raise _CopyCancelled()
@@ -152,6 +200,7 @@ def _copy_file_remote(backend, src_rel: str, dst_rel: str,
                 fw.write(chunk)
                 if on_bytes:
                     on_bytes(len(chunk))
+        store.record_fs_change(backend.library_id, 'copy', dst_rel)
         return True
     except _CopyCancelled:
         return False
@@ -161,6 +210,7 @@ def _copy_worker_remote(jid: str, items: list[str], to_dir: str, hints: dict,
                         library_id=None) -> None:
     """远程直读库复制后台任务：目录递归经 iter_tree，文件 1MB 分块流式复制。"""
     lid = int(library_id or library_paths.DEFAULT_LIBRARY_ID)
+    is_tv = (store.get_library(lid) or {}).get('kind') == 'tv'
 
     def _stop() -> bool:
         job = _COPY_JOBS.get(jid)
@@ -190,13 +240,13 @@ def _copy_worker_remote(jid: str, items: list[str], to_dir: str, hints: dict,
                 st = backend.stat(rel)
                 if st.is_dir:
                     # 目录递归：远程无 POSIX 符号链接语义（服务器侧链接按普通项处理）
-                    backend.mkdir(dst_rel, parents=True)
+                    _mkdir_tracked(lid, dst_rel, backend)
                     prefix = rel.rstrip("/") + "/"
                     for e in backend.iter_tree(rel):
                         sub = e.rel[len(prefix):] if e.rel.startswith(prefix) else e.name
                         target = f"{dst_rel}/{sub}"
                         if e.is_dir:
-                            backend.mkdir(target, parents=True)
+                            _mkdir_tracked(lid, target, backend)
                         else:
                             if _stop():
                                 return
@@ -206,9 +256,11 @@ def _copy_worker_remote(jid: str, items: list[str], to_dir: str, hints: dict,
                 else:
                     if _stop():
                         return
+                    if to_dir:
+                        _mkdir_tracked(lid, to_dir, backend)
                     if not _copy_file_remote(backend, rel, dst_rel, _on_bytes, _stop):
                         return
-                    if is_feature_video(dst_rel, library_id=lid, backend=backend):
+                    if not is_tv and is_feature_video(dst_rel, library_id=lid, backend=backend):
                         # 正片复制 → 登记（源已匹配则直绑 tmdb，避免重搜/误配）
                         hint = hints.get(rel)
                         try:
@@ -233,11 +285,14 @@ def _copy_worker_remote(jid: str, items: list[str], to_dir: str, hints: dict,
     except Exception as e:
         logger.warning("remote copy job failed jid=%s: %s", jid, e)
         _COPY_JOBS.update(jid, state="failed", error=str(e)[:300])
+    finally:
+        _COPY_JOBS.update(jid, worker_finished=True)
 
 
 def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict,
                  library_id=None) -> None:
     lid = int(library_id or library_paths.DEFAULT_LIBRARY_ID)
+    is_tv = (store.get_library(lid) or {}).get('kind') == 'tv'
     def _stop() -> bool:
         job = _COPY_JOBS.get(jid)
         return job is None or job.get("state") != "running"
@@ -270,11 +325,11 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict,
                     for root, dnames, fnames in os.walk(src_abs):
                         rel_root = os.path.relpath(root, src_abs)
                         target = dst_abs if rel_root == "." else os.path.join(dst_abs, rel_root)
-                        os.makedirs(target, exist_ok=True)
+                        _mkdir_tracked(lid, target)
                         for d in list(dnames):
                             p = os.path.join(root, d)
                             if os.path.islink(p):
-                                os.symlink(os.readlink(p), os.path.join(target, d))
+                                _symlink_tracked(p, os.path.join(target, d), lid)
                                 dnames.remove(d)
                         for f in fnames:
                             if _stop():
@@ -282,10 +337,10 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict,
                             fp = os.path.join(root, f)
                             tp = os.path.join(target, f)
                             if os.path.islink(fp):
-                                os.symlink(os.readlink(fp), tp)
+                                _symlink_tracked(fp, tp, lid)
                                 continue
-                            os.makedirs(os.path.dirname(tp), exist_ok=True)
-                            if not _copy_file(fp, tp, _on_bytes, _stop):
+                            _mkdir_tracked(lid, os.path.dirname(tp))
+                            if not _copy_file_tracked(fp, tp, lid, _on_bytes, _stop):
                                 return
                 except OSError as e:
                     item_status = f"error: {e}"
@@ -293,13 +348,14 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict,
                 # 单文件（含符号链接）
                 try:
                     if os.path.islink(src_abs):
-                        os.symlink(os.readlink(src_abs), dst_abs)
+                        _mkdir_tracked(lid, os.path.dirname(dst_abs))
+                        _symlink_tracked(src_abs, dst_abs, lid)
                     else:
-                        os.makedirs(os.path.dirname(dst_abs), exist_ok=True)
-                        if not _copy_file(src_abs, dst_abs, _on_bytes, _stop):
+                        _mkdir_tracked(lid, os.path.dirname(dst_abs))
+                        if not _copy_file_tracked(src_abs, dst_abs, lid, _on_bytes, _stop):
                             return
                     rel_dst = os.path.relpath(dst_abs, library_paths.library_root(lid))
-                    if is_feature_video(rel_dst, library_id=lid):
+                    if not is_tv and is_feature_video(rel_dst, library_id=lid):
                         # 正片复制 → 登记（源已匹配则直绑 tmdb，避免重搜/误配）
                         hint = hints.get(rel)
                         try:
@@ -324,6 +380,8 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict,
     except Exception as e:
         logger.warning("copy job failed jid=%s: %s", jid, e)
         _COPY_JOBS.update(jid, state="failed", error=str(e)[:300])
+    finally:
+        _COPY_JOBS.update(jid, worker_finished=True)
 
 
 @router.post("/copy")
@@ -419,7 +477,7 @@ def fs_copy(body: dict | None = None):
                          + ("，同名的会自动改「(副本)」" if conflicts else ""))}
     _require_writable(lid)
     job = _COPY_JOBS.create(total=len(items), bytes_total=total_bytes,
-                            library_id=lid)
+                            library_id=lid, to_dir=to_dir, worker_finished=False)
     jid = job["job_id"]
     worker = _copy_worker_remote if remote else _copy_worker
     threading.Thread(target=worker, args=(jid, items, to_dir, hints, lid),
