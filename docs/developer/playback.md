@@ -7,6 +7,8 @@ reviewed: 2026-10-02
 
 [开发者文档](README.md)
 
+<span id="用户操作背后的兼容边界"></span>
+
 ## 从能力到播放计划
 
 `app/media.py` 用 ffprobe 得到容器、编码、音字幕轨、HDR/DV 等，结果在 `media_info` 按 `(kind,item_id)` 缓存，探测版本落后时在播放前重新探测。前端 `caps.js` 检测浏览器格式能力，`POST /api/stream/{id}/decide` 上传 caps；不带 caps 的 GET 兼容口使用保守默认。`app/caps.py` 规范/哈希能力，`app/playback/plan.py` 决定：
@@ -18,7 +20,7 @@ reviewed: 2026-10-02
 | `audio_transcode` | copy | 转 AAC | 视频可解，音频不在安全 copy 集合 |
 | `video_transcode` | 重编 | 按需 copy/重编 | 视频编码、尺寸或 HDR 路径不适合直通 |
 
-画质 `auto/source/1080p/720p` 会影响输出尺寸和会话复用；“原画”只取消自动封顶，不保证不会重编。hls.js 音频 copy 默认仅 AAC/MP3；Safari 原生 HLS 可支持更多 Dolby 格式。HDR10/HLG、带 HDR10 基底的 DV P8.1 在客户端可解 PQ 时可直通；DV P5 无兼容基底阻止直通。硬件后端可 tone map，软件退化路径会给原因提示。
+画质 `auto/source/1080p/720p` 会影响输出尺寸和会话复用；“原画”只取消自动封顶，格式不兼容仍需转换，不能保证免重编。切换画质可能重开会话，不属于无缝 ABR。HDR10/HLG、带 HDR10 基底的 DV P8.1 在客户端可解 PQ 时可直通；DV P5 无兼容基底阻止直通。硬件后端可 tone map，软件退化路径会给原因提示。
 
 ```mermaid
 flowchart TD
@@ -37,6 +39,8 @@ flowchart TD
 
 `playback/cmd.py` 组命令，`transcode.py` 检测 VAAPI → QSV → NVENC → 软件，首轮硬件不出片时软件重试。默认 fMP4 HLS，每片目标 4 秒，`HLS_SEGMENT_TYPE=ts` 回退旧 TS。fMP4 单 FFmpeg 进程产生视频和最多 8 条音轨 rendition；服务端写 `master.m3u8`，ffmpeg 继续增长的 `out_*.m3u8` 应按内容快照返回，不能直接用按旧长度计算 Content-Length 的 `FileResponse`。FFmpeg 工作目录必须是 session 目录，因为分片输出文件名是相对路径。
 
+fMP4 HLS 音轨通过 rendition 切换，一般不重开会话；原文件直发只能播放默认轨，非原生 HLS 客户端选择其他轨时转为 remux。hls.js 音频 copy 默认仅 AAC/MP3，EAC3/AC3 转 AAC；Safari 原生 HLS 可支持更多 Dolby 格式。`AUDIO_COPY_SAFE` 只应在目标设备实测后放宽。
+
 音轨切换在 hls.js `MANIFEST_PARSED` 和 `AUDIO_TRACKS_UPDATED` 后应用，前者触发时列表可能尚空。源轨 default 与用户 UI 选择分离，非烧录字幕切换不应让音视频重新编码。会话复用以实际 plan 标记和质量目录键判断；烧录另有键防冲突。copy 首屏等一个视频分片，视频重编/烧录等两个，不能把音频片计入视频可播放判断。
 
 ## 会话时间轴与清理
@@ -47,14 +51,10 @@ flowchart TD
 
 ## 字幕、预览与预缓存
 
-`useSubtitles.js` 自绘文本 VTT，JASSUB 渲染 ASS/SSA，libpgs 渲染 PGS；VobSub 或必要降级烧录。字幕源时间相对 HLS 会话应叠加 `media_start + subDelay`。外挂轨从 `scanner.classify` 归属，临时本地字幕仅浏览器持有，关闭失效。
+`useSubtitles.js` 用自绘 DOM 层显示 SRT/VTT，失败回退原生 track；JASSUB 渲染 ASS/SSA 并尽量保留样式，libpgs 渲染 PGS，失败可降级烧录；VobSub 走烧录。自绘文本层在画中画中不可见；ASS 缺 CJK 字体可补 `DATA_DIR/fonts/` 内有权使用的字体，或降级 VTT（丢失原样式）。
+
+字幕源时间相对 HLS 会话应叠加 `media_start + subDelay`；延迟按版本保存，外观按浏览器保存。外挂轨从 `scanner.classify` 归属，临时本地字幕仅浏览器持有，关闭失效。
 
 六档倍速由浏览器 `playbackRate` 实现，保持音调；换元素/会话需恢复。`usePlaybackPreviews.js` 与 `stream/previews.py` 管理逐页拼图，GET 只查状态，POST 才生成；缓存按源标识、大小、mtime 和规则失效，与 24 小时转码缓存分开。远程适用版本通过 prewarm 预缓存 start=0 的 HLS 成品，质量计划一致才复用。字幕、预览、seek 的所有 UI 时间都以原片时间表示。
 
-## 用户操作背后的兼容边界
-
-音轨：默认 fMP4 HLS 通过 rendition 切换，一般不重开会话；原文件直发只能播放默认音轨，非原生 HLS 客户端选择其他轨时转为 remux。hls.js 默认将 EAC3/AC3 转 AAC；`AUDIO_COPY_SAFE` 只应在目标设备实测后放宽。
-
-字幕：SRT/VTT 使用自绘 DOM 文本层，失败回退原生 track；ASS/SSA 由 JASSUB 尽量保留样式；PGS 由 libpgs 渲染，失败可降级烧录；VobSub 走烧录。字幕延迟按版本保存，外观按浏览器保存。自绘文本层在画中画中不可见；ASS 缺 CJK 字体可补 `DATA_DIR/fonts/` 内有权使用的字体，或降级 VTT（丢失原样式）。
-
-原画取消分辨率封顶，但格式不兼容仍会转换；切换画质可能重开会话，不属于无缝 ABR。HDR/DV 直通依据兼容基底与 PQ 解码能力，具体矩阵见本页能力决策。面向普通用户的步骤与效果说明见[播放器任务教程](../user-guide/player.md)。
+面向普通用户的步骤与效果说明见[播放器任务教程](../user-guide/player.md)。

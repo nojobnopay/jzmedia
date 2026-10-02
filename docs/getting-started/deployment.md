@@ -9,9 +9,16 @@ reviewed: 2026-10-02
 
 以下命令均从项目根目录执行。默认端口为 `8080`；浏览器访问远程服务器时，把 `localhost` 换成服务器地址。
 
+## 安装前准备
+
+- 能运行 Docker Compose 的家用电脑或 NAS；直接运行源码则需 Linux/WSL、Python、Node.js 与 FFmpeg。
+- 一个可读取的媒体目录和一个可写的数据目录。仅浏览和播放时可将媒体库设为只读。
+- 能访问服务器的浏览器。转码能力取决于片源、CPU/GPU 和网络。
+- 可先使用已有 NFO 与本地资料，无需为启动服务提前申请 TMDB 凭据；资料来源在[首次配置](../user-guide/onboarding.md)中选择。
+
 ## Docker Compose
 
-镜像由仓库里的 Dockerfile 本地构建，前端构建产物也会打进镜像，无需在 NAS 上另装 Node.js。
+镜像由仓库里的 Dockerfile 本地构建，前端与帮助站的静态产物都会打进镜像，无需在 NAS 上另装 Node.js。
 
 1. 将项目源码放到部署目录。首次复制配置；已有配置时不要覆盖：
 
@@ -76,7 +83,7 @@ cp .env.example .env
 
 已有 `.env` 时跳过复制。系统 FFmpeg/ffprobe 优先；开发依赖提供静态二进制兜底，首次使用可能需要下载。离线设备应提前准备可用二进制。
 
-`start.sh` 会在需要时构建前端，以单进程启动后端；宿主默认使用 `./data`、`./media`，不会直接采用 `.env` 中的容器数据路径。可这样明确覆盖：
+`start.sh` 会在需要时安装帮助站依赖、构建前端与帮助站，再以单进程启动后端；宿主默认使用 `./data`、`./media`，不会直接采用 `.env` 中的容器数据路径。可这样明确覆盖：
 
 ```bash
 DATA_DIR=./data MEDIA_ROOT=./media APP_PORT=8080 ./start.sh

@@ -1,6 +1,7 @@
 ---
 version: 0.19.0
 reviewed: 2026-10-02
+search: false
 ---
 
 # 播放器
@@ -9,23 +10,23 @@ reviewed: 2026-10-02
 
 ## 控件与快捷键
 
-[播放、暂停、快进退与快捷键](playback-controls.md)。
+[播放、暂停、快进退与快捷键](playback-controls.md)
 
 ## 倍速和画质
 
-[选择倍速与画质](playback-controls.md#选择倍速与画质)。画质请求与实际输出可能不同，结果看播放信息。
+[选择倍速与画质](playback-controls.md#选择倍速与画质)
 
 ## 快进与缩略图
 
-[生成并使用进度缩略图](playback-previews.md)。
+[生成并使用进度缩略图](playback-previews.md)
 
 ## 音轨
 
-[切换音轨](subtitles.md)。
+[切换音轨](subtitles.md)
 
 ## 字幕
 
-[选择、加载与调整字幕](subtitles.md)。
+[选择、加载与调整字幕](subtitles.md)
 
 ## 续播与预缓存
 

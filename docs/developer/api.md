@@ -92,7 +92,7 @@ POST /api/tv/bindings/apply {"token": "…"}                    # 再执行
 
 ## 剧集目录归属
 
-Schema v28：`tv_directory_bindings` 持久化 `(library_id, path) → (show_id, season, override_season)`；`tv_binding_history` 保存预览、执行快照与撤销状态。分集增加 `match_source` 和 `binding_conflict`。扫描按最长路径前缀应用规则，目录整理/恢复同步改写规则路径；已确认目录的资料刷新只按精确季集匹配。
+归属规则、历史记录及分集字段见[数据模型](data.md#主要实体)。扫描按最长路径前缀应用规则，目录整理/恢复同步改写规则路径；已确认目录的资料刷新只按精确季集匹配。
 
 | 接口（前缀 `/api/tv/bindings`） | 用途 |
 |---|---|

@@ -1,13 +1,14 @@
 ---
 version: 0.19.0
 reviewed: 2026-10-02
+search: false
 ---
 
 # 按任务使用 jzmedia
 
 <span id="详细用户手册"></span>
 
-第一次使用，从[添加第一部影片](onboarding.md)开始；只想观看，无需先学会整理和维护。媒体库是存储连接，视频库是其下独立的电影或剧集目录。
+第一次使用，从[添加第一部影片](onboarding.md)开始；只想观看，无需先学会整理和维护。连接与目录的区别见[媒体库与视频库](libraries.md#两层结构)。
 
 ## 开始使用
 
@@ -41,6 +42,4 @@ reviewed: 2026-10-02
 
 [功能排障](troubleshooting.md)按症状开始；服务启动、权限和网络问题看[部署排障](../getting-started/troubleshooting.md)。升级换机前看[备份与迁移](../getting-started/operations.md)。
 
-预览仅展示操作，确认执行才修改文件；取消任务通常只停止后续步骤。删除库记录、清理失效记录和删除实际文件影响不同，应以确认页列出的目标为准。
-
-[帮助首页](../index.md) · 旧章节入口：[电影](movies.md) / [剧集](tv.md) / [播放器](player.md)
+[帮助首页](../index.md)

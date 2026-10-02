@@ -15,30 +15,16 @@
 | `previews/onboarding/07-play.webp` | 扫描成功后的首次播放；同上 | 1440×1000，WebP q86 |
 | `screenshots/demo-subtitles.webp` | 换轨、延迟和已加载的本地字幕；[字幕](../user-guide/subtitles.md) | 1440×1000，WebP q86 |
 | `screenshots/demo-organize-preview.webp` / `demo-organize-result.webp` | 整理前预览与已移动结果；[电影整理](../user-guide/organizing.md) | 1440×1000，WebP q86 |
-| `videos/onboarding.mp4` | 欢迎 → 跳过 TMDB → 检查目标库 → 扫描 → 完成 → 播放 | 50.5 秒，1.15 MB |
-| `videos/subtitles.mp4` | 播放 → 齿轮换轨 → 延后 0.5 秒 → 文件选择器加载 SRT | 35.9 秒，2.27 MB |
-| `videos/organizing.mp4` | 目录整理 → 核对预览 → 整理选中确认 → 结果 → 文件管理 | 33.7 秒，0.33 MB |
+| `videos/onboarding.mp4` | 欢迎 → 跳过 TMDB → 检查目标库 → 扫描 → 完成 → 播放 | 规格见素材清单 |
+| `videos/subtitles.mp4` | 播放 → 齿轮换轨 → 延后 0.5 秒 → 文件选择器加载 SRT | 规格见素材清单 |
+| `videos/organizing.mp4` | 目录整理 → 核对预览 → 整理选中确认 → 结果 → 文件管理 | 规格见素材清单 |
 | `diagrams/libraries.svg` / `ingestion.svg` / `organizing.svg` | 两层库关系、入库流程和整理前后示例 | 保留可编辑 SVG；生成源为 `scripts/capture_docs_diagrams.py` |
 
-三段视频为连续真实 UI 操作录屏，无静态幻灯片拼接、无倍速处理，使用 H.264、20 fps、1440×1000、`faststart`，每段小于 10 MB。不包含旁白音轨；同名 `.vtt` 为中文字幕，`.webp` 为第 4 秒封面。原始 WebM 和运行校验文件保留在拍摄器打印的 `/tmp/jzmedia-docs-capture-*`，不随仓库发布。完整文件大小、时长、SHA-256、关联页面和日期见 [manifest.json](manifest.json)。原新手 PNG 留作历史原件，正式教程引用 WebP；`previews/onboarding/index.html` 跳转正式 HTML 帮助页。
+三段视频为连续真实 UI 操作录屏，无静态幻灯片拼接、无倍速处理，使用 H.264、20 fps、1440×1000、`faststart`。同名 `.vtt` 为中文字幕，`.webp` 为第 4 秒封面。逐文件大小、时长、SHA-256、关联页面和日期以 [manifest.json](manifest.json) 为准，不另抄写。原新手 PNG 留作历史原件，正式教程引用 WebP；`previews/onboarding/index.html` 跳转正式 HTML 帮助页。
 
 ### 复现
 
-应用环境需要安装后端及前端依赖，准备可用的 FFmpeg/ffprobe（PATH 或项目 `.venv` 中的 `static-ffmpeg`）。拍摄环境安装 `playwright` 并运行 `python -m playwright install chromium`，可以使用独立 Python 虚拟环境。
-
-```sh
-# 终端一：打印全新的临时目录，保持服务运行。
-.venv/bin/python scripts/preview_onboarding.py --port 18128 --docs-demo
-
-# 终端二：将路径替换为终端一打印的目录；用装有 Playwright 的 Python。
-python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
-
-# 图表和清单可以独立更新（无需 Playwright）。
-.venv/bin/python scripts/capture_docs_diagrams.py
-.venv/bin/python scripts/capture_docs_manifest.py
-```
-
-每次完整重拍应启动全新的演示实例。`--only subtitles` 可重拍已入库影片；`--only organizing` 要求临时片源尚未整理。脚本限制为 `/tmp/jzmedia-preview-*` 且拒绝主服务端口，自动校验视频编码、30–90 秒时长和 10 MB 大小上限。演示启动器会复制已构建的纯静态帮助站到临时服务，旧 `/preview/index.html` 可直接进入教程；若尚未构建，则该入口展示构建命令和继续配置链接，不自动跳到失效页面。完成后 Ctrl+C 停止演示服务；临时文件保留供核对。下面历史批次使用过真实库，来源说明保留，不属于本次拍摄范围。
+依赖、隔离实例、重拍命令与校验规则统一见[重新拍摄素材](../developer/documentation.md#重新拍摄素材)。这里仅记录来源与拍摄基线；下面历史批次使用过真实库，不属于当前自动录制流程。
 
 ## 拍摄基线
 
@@ -96,5 +82,5 @@ python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
 
 - `library-connection.webp` 保留了局域网 NAS 名（`\\Joey-DS425\video`），理解 SMB 地址栏需要该上下文；无凭据、无公网地址。重拍时沿用同一原则。
 - 移动端两张为 Chromium 移动模拟（407×904 CSS、mobile UA、touch，输出 1221×2712 像素），无手机外框装饰；数据来源和拍摄批次见上表，不能据此视作真机验证。历史记录见 [验收记录](../roadmap/backlog.md#文档改版验收记录)。
-- 原理图优先用正文内嵌 Mermaid，不存静态图；若渲染器不支持 Mermaid，再导出静态并保留源定义。代码围栏必须独立成行（`scripts/check_docs_links.py` 会检查）。
-- 复现：主实例 `./start.sh` 启动后，用 Playwright 无头 Chromium 按上表「拍摄入口」逐张重拍（视口/密度/质量见拍摄基线）；截图脚本属本地临时工具，未随仓库提交。演示实例（S07/S08）为临时 `DATA_DIR` + 2 秒合成测试片，拍完即弃，详见 [验收记录](../roadmap/backlog.md#文档改版验收记录)。
+- 上表历史批次使用的临时截图工具未提交；当前拍摄脚本已纳入仓库，按[隔离演示流程](../developer/documentation.md#重新拍摄素材)重拍，不能对真实媒体执行扫描、整理或删除。
+- 图表源与 SVG 发布规则统一见[文档构建与检查](../developer/documentation.md#构建与检查)。

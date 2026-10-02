@@ -9,16 +9,9 @@ reviewed: 2026-10-02
 
 ## 环境
 
-Docker 路径见 [部署教程](../getting-started/deployment.md)。宿主开发可在项目根目录安装：
+依赖安装、路径配置与后端启动统一见 [宿主直接运行](../getting-started/deployment.md#宿主直接运行)；Docker 方式见同页 [Docker Compose](../getting-started/deployment.md#docker-compose)。
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-npm ci --prefix frontend
-./start.sh
-```
-
-`start.sh` 根据前端源文件时间决定是否重建 `frontend/dist`，按宿主路径使用 `./data`、`./media`，再启动单进程 uvicorn。前端开发服务器可在 `frontend/` 执行 `npm run dev`（5173 代理 API/海报到 8080），后端服务仍须运行。Docker 本机热重载 override 文件不适用于 NAS 部署。
+前端开发服务器在 `frontend/` 执行 `npm run dev`，监听 5173，将 `/api`、`/posters`、`/help` 代理到 8080；后端服务仍须运行。帮助站独立开发与构建见[文档制作与发布](documentation.md#构建与检查)。Docker 本机热重载 override 文件不适用于 NAS 部署。
 
 ## 修改功能的最短路径
 

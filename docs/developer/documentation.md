@@ -15,6 +15,24 @@ reviewed: 2026-10-02
 
 电影、剧集、播放器旧综合页保留原章节标题作为兼容入口，链接到新任务页。改标题或拆页时保留原锚点，并更新站点导航和应用内帮助目标。站点外的仓库文件使用代码路径说明，不创建无法在发布包解析的相对链接。
 
+### 内容归属与去重
+
+`developer/`、`getting-started/`、`user-guide/` 是正文源目录；`.vitepress/dist/` 和 `.artifacts/` 是可重新生成的发布产物。已有 HTML 不代表对应 Markdown 可以删除。
+
+| 内容 | 唯一维护位置 |
+|---|---|
+| 安装依赖、启动命令与路径 | [安装教程](../getting-started/deployment.md)；开发环境文档只补充开发专用步骤 |
+| 首次配置到首播 | [首次入库](../user-guide/onboarding.md)；部署与设置页只指向此流程 |
+| 设置入口、来源选择、界面偏好 | [设置与维护](../user-guide/settings.md)；来源能力另见[扫描与元数据](../user-guide/metadata.md) |
+| 匹配、编辑、整理与撤销 | 各任务页；前置任务完成后链接下一步，不复制整段后续操作 |
+| 控件与续播、字幕、预览缓存 | 对应播放任务页；实现与兼容决策集中在[播放链路](playback.md) |
+| 数据表、字段与迁移 | [数据模型](data.md)；API 文档说明请求与行为，不重复字段定义 |
+| 拍摄方法、检查与打包命令 | 本页；素材清单记录逐文件信息，资源 README 保留批次来源与历史说明 |
+
+目录 README 只提供入口；旧综合页只保留标题、旧锚点和任务链接，不再追加功能说明。纯导航和兼容页设置 `search: false`，让搜索结果直接定位正文。复用图片引用同一资源路径，不复制文件。
+
+删除重复段落前，先将独有信息并入对应正文，并核对旧锚点；删除页面前还需检查公开清单、应用帮助链接及仓库引用。只读限制、文件变更范围等与当前操作直接相关的短提示仍放在步骤旁。历史验收记录按当时事实保留，不跟随现行教程更新，也不进入公开站点。
+
 每个公开页面包含以下元信息；`reviewed` 表示核对内容的日期，不能仅因构建成功就修改：
 
 ```yaml
@@ -33,7 +51,7 @@ reviewed: 2026-10-02
 
 先用截图定位控件，再用短句说明点击后的结果。连续交互使用短视频，选路和关系使用图表；命令、参数与详细限制仍以可检索和复制的文字呈现。图上需要标注时保留可修改源，避免只存不可编辑的合成图。
 
-资源目录为仓库 `docs/assets/screenshots/`、`docs/assets/videos/`、`docs/assets/diagrams/`；新手图位于 `docs/assets/previews/onboarding/`。拍摄来源、版本、视口、更新日期和对应教程记录在仓库 `docs/assets/README.md`。历史真实库截图与新隔离演示截图分别标明，不将移动模拟当作真机测试。
+资源目录为仓库 `docs/assets/screenshots/`、`docs/assets/videos/`、`docs/assets/diagrams/`；新手图位于 `docs/assets/previews/onboarding/`。新素材逐文件信息记录在仓库 `docs/assets/manifest.json`，批次来源和旧素材基线保留在 `docs/assets/README.md`。历史真实库截图与新隔离演示截图分别标明，不将移动模拟当作真机测试。
 
 ## 隔离演示
 
@@ -66,6 +84,8 @@ python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
 ```
 
 拍摄脚本真实操作隔离实例，生成新手、字幕、整理三段视频及对应截图；从系统 PATH 或项目静态 FFmpeg 依赖中寻找 FFmpeg/ffprobe。需先安装前端依赖。完整重拍必须使用全新 `--docs-demo` 实例；`--only subtitles` 或 `--only organizing` 用于已经完成入库、尚未整理的演示重拍。
+
+脚本限制目标为 `/tmp/jzmedia-preview-*`，拒绝主服务端口，并校验视频编码、30–90 秒时长及 10 MB 大小上限。演示启动器复制已构建的帮助站供本地预览；尚未构建时，旧 `/preview/index.html` 展示构建命令和继续配置链接。原始 WebM 与运行校验文件留在拍摄器打印的 `/tmp/jzmedia-docs-capture-*`，不随仓库发布。
 
 仓库 `docs/assets/manifest.json` 保存素材关联信息、时长、体积与校验值，`docs/assets/README.md` 记录基线。拍摄成功后自动更新清单，也可单独运行 `scripts/capture_docs_manifest.py`。三段视频保留真实操作时长、无旁白，中文说明由 WebVTT 字幕提供。用户概念图由 `scripts/capture_docs_diagrams.py` 生成，图表源可维护，不依赖截图中的文字。
 
