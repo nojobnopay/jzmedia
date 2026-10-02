@@ -11,8 +11,8 @@
     <div class="cw-strip">
       <button v-if="canLeft" class="cw-nav left" aria-label="向左滚动" @click="scrollByDir(-1)">‹</button>
       <div ref="rowRef" class="cw-row" @scroll="onScroll">
-        <div v-for="m in items" :key="m.id" class="cw-card"
-          :title="m.added_at ? ('入库 ' + fmtDate(m.added_at)) : ''" @click="$emit('open', m.id)">
+        <div v-for="m in items" :key="m.id" class="cw-card" role="link" tabindex="0"
+          :title="m.added_at ? ('入库 ' + fmtDate(m.added_at)) : ''" @click="$emit('open', m.id)" @keydown.enter.self="$emit('open', m.id)">
           <div class="poster-wrap">
             <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy"
               :alt="(m.title || '影片') + ' 海报'" />
@@ -27,6 +27,7 @@
           </div>
           <div class="cw-name" :title="m.title">{{ m.title }}<span v-if="m.year" class="cw-year">({{ m.year }})</span><span v-if="m.version_count > 1" class="cw-year">×{{ m.version_count }}</span></div>
           <div v-if="m.subtitle" class="cw-ep" :title="m.subtitle">{{ m.subtitle }}</div>
+          <div class="cw-progress-text">{{ m.watched ? '✓ 已看完' : fmtRemaining(m.progress && m.progress.remaining_sec) }}</div>
         </div>
       </div>
       <button v-if="canRight" class="cw-nav right" aria-label="向右滚动" @click="scrollByDir(1)">›</button>
@@ -164,6 +165,8 @@ defineExpose({ reload, ready: () => pending })
 .cw-name { padding: 6px 2px 0; font-size: 0.8125rem; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cw-year { color: #888; font-size: 0.75rem; margin-left: 4px; }
 .cw-ep { padding: 1px 2px 0; font-size: 0.6875rem; color: #9ecfff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cw-progress-text { display: none; }
+.cw-card:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 2px; }
 .cw-nav {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
   width: 30px; height: 52px; border-radius: 8px; cursor: pointer;
@@ -181,9 +184,17 @@ defineExpose({ reload, ready: () => pending })
 
 <style scoped>
 @media (max-width: 700px) {
-  .cw-head { flex-wrap: wrap; align-items: center; }
-  .cw-head h3 { flex-wrap: wrap; flex: 1 1 100%; }
-  .cw-sub { flex-basis: 100%; padding-left: 26px; }
-  .cw-toggle { margin-left: 26px; min-height: 36px; white-space: nowrap; }
+  .cw { margin: 0; padding: var(--jz-gap-s); border-radius: var(--jz-radius-m); box-shadow: none; }
+  .cw-head { align-items: center; gap: var(--jz-gap-xs); margin-bottom: var(--jz-gap-xs); }
+  .cw-head h3 { font-size: var(--jz-font-l); gap: var(--jz-gap-xs); white-space: nowrap; }
+  .cw-ico, .cw-sub { display: none; }
+  .cw-toggle { margin-left: auto; min-height: 40px; padding-inline: var(--jz-gap-s); white-space: nowrap; }
+  .cw-row { gap: var(--jz-gap-s); }
+  .cw-card { box-sizing: border-box; flex: 0 0 224px; width: 224px; display: grid; grid-template-columns: 64px minmax(0, 1fr); grid-template-rows: 1fr auto auto; gap: 0 var(--jz-gap-s); padding: var(--jz-gap-xs); box-shadow: none; }
+  .cw-card .poster-wrap { grid-column: 1; grid-row: 1 / 4; }
+  .cw-name { grid-column: 2; grid-row: 1; align-self: center; padding: 0; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: var(--jz-font-m); line-height: 1.5; }
+  .cw-ep { grid-column: 2; grid-row: 2; padding: 0; font-size: var(--jz-font-s); }
+  .cw-progress-text { display: block; grid-column: 2; grid-row: 3; padding-top: var(--jz-gap-xs); font-size: var(--jz-font-s); color: var(--jz-text-dim); }
+  .cw-left, .cw-done { display: none; }
 }
 </style>

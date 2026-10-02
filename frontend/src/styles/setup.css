@@ -25,10 +25,25 @@
 .setup-error { color: #ffb4b4; overflow-wrap: anywhere; }
 .setup-page button:focus-visible, .setup-page a:focus-visible, .setup-page summary:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 3px; }
 @media (max-width: 650px) {
-  .setup-page { padding: 20px 12px 40px; }
-  .setup-heading { flex-direction: column; gap: 12px; }
-  .setup-heading h1 { font-size: 1.4rem; }
-  .setup-card { padding: 18px 14px; }
-  .setup-steps { gap: 4px; }
-  .setup-steps button { flex-direction: column; gap: 4px; font-size: .8125rem; padding: 8px 2px; }
+  .setup-page { padding: 12px 12px 32px; line-height: 1.6; }
+  .setup-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; margin-bottom: 16px; }
+  .setup-heading > div { display: contents; }
+  .setup-heading .eyebrow { grid-column: 1; grid-row: 1; align-self: center; }
+  .setup-heading > :is(button, a) { grid-column: 2; grid-row: 1; align-self: center; }
+  .setup-heading h1 { grid-column: 1 / -1; font-size: 1.25rem; margin: 0; }
+  .setup-heading .setup-description { grid-column: 1 / -1; font-size: var(--jz-font-m); }
+  .setup-page button { min-height: 40px; }
+  .setup-page input:not([type="checkbox"]):not([type="radio"]), .setup-page select { min-height: 40px; }
+  .setup-card { padding: 14px 12px; }
+  .setup-card h2 { font-size: 1.125rem; margin-bottom: 12px; }
+  .setup-card p { margin: 8px 0; }
+  .setup-card > .card-block { padding: 0; }
+  .setup-steps { gap: 4px; margin-bottom: 12px; }
+  .setup-steps button { justify-content: center; gap: 4px; font-size: var(--jz-font-m); padding: 8px 2px; }
+  .setup-steps span { display: none; }
+  .setup-actions { gap: var(--jz-gap-s); margin-top: 16px; }
+  .setup-choices { gap: var(--jz-gap-s); }
+  .setup-choices label { min-height: 36px; font-size: var(--jz-font-m); }
+  .setup-result-count { margin-top: 16px; padding-top: 12px; }
+  .setup-items li { padding: 8px 0; gap: var(--jz-gap-s); }
 }

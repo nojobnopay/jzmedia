@@ -14,15 +14,17 @@
         <img v-if="ep.still_path" class="hero-still" :src="stillUrl(ep)" alt=""
           @error="ep.still_path = ''" />
         <div class="hero-body">
-          <p class="eyebrow">{{ ep.show_title }} · {{ epNo(ep) }}</p>
-          <h1>{{ ep.title || epNo(ep) }}</h1>
-          <HeroRatings :tmdb="ep.tmdb_rating" />
-          <div class="meta">
-            <span v-if="ep.air_date">{{ ep.air_date }}</span>
-            <span v-if="ep.runtime">{{ ep.runtime }} 分钟</span>
-            <span v-if="ep.watched" class="seen-tag">✓已看</span>
-            <span v-if="ep.needs_review" class="review-badge">未匹配集号</span>
-            <span v-if="ep.local_only" class="local-badge">本地集</span>
+          <div class="hero-heading">
+            <p class="eyebrow">{{ ep.show_title }} · {{ epNo(ep) }}</p>
+            <h1>{{ ep.title || epNo(ep) }}</h1>
+            <HeroRatings :tmdb="ep.tmdb_rating" />
+            <div class="meta">
+              <span v-if="ep.air_date">{{ ep.air_date }}</span>
+              <span v-if="ep.runtime">{{ ep.runtime }} 分钟</span>
+              <span v-if="ep.watched" class="seen-tag">✓已看</span>
+              <span v-if="ep.needs_review" class="review-badge">未匹配集号</span>
+              <span v-if="ep.local_only" class="local-badge">本地集</span>
+            </div>
           </div>
           <MediaOverview :text="ep.overview || ''" />
           <div class="acts">

@@ -36,6 +36,9 @@
 
   --jz-cast-size: 150px;
   --jz-poster-min: 150px;
+  --jz-mobile-gutter: 12px;
+  --jz-touch-target: 44px;
+  --jz-mobile-poster-min: clamp(96px, calc(var(--poster-min, 150px) * .66), 132px);
 
   --jz-break-sm: 700px;
 }

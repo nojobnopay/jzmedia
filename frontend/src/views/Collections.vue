@@ -14,14 +14,14 @@
     <p v-if="!items.length">{{ q.trim() ? '没有符合条件的合集。' : '还没有合集，可以新建合集，或在海报墙多选影片后加入合集。' }}</p>
     <details v-if="suggest.length || topups.length" class="collection-section">
       <summary>推荐与可补齐合集 · {{ suggest.length + topups.length }}</summary>
-      <section v-if="topups.length"><h3>可补齐</h3><div class="grid">
+      <section v-if="topups.length"><h3>可补齐</h3><div class="grid collection-action-grid">
         <div v-for="t in topups" :key="t.collection_id" class="card tp-card">
           <div class="t">《{{ t.name }}》有 {{ t.new_count }} 部新片</div><div class="t sub">{{ t.new_members.map(m => m.title).join(' / ') }}</div>
           <div class="bar"><button @click="topUp(t)" :disabled="topping">补齐合集</button><router-link :to="'/c/' + t.collection_id">查看合集</router-link></div>
         </div>
       </div></section>
       <section v-if="suggest.length"><div class="bar"><h3>推荐合集</h3><button @click="acceptAll" :disabled="accepting">全部接受（{{ suggest.length }}）</button></div>
-        <div class="grid"><div v-for="entry in suggest" :key="entry.collection_tmdb_id" class="card sg-card">
+        <div class="grid collection-action-grid"><div v-for="entry in suggest" :key="entry.collection_tmdb_id" class="card sg-card">
           <div class="poster-wrap"><img v-if="entry.cover" :src="posterUrl(entry.cover)" loading="lazy" :alt="entry.collection_name" /><div v-else class="cover-empty">📁</div></div>
           <div class="t">{{ entry.collection_name }}（库内 {{ entry.member_count }} 部）</div>
           <div class="t sub">{{ entry.members.map(m => m.title).join(' / ') }}</div>

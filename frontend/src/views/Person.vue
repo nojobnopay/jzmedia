@@ -9,9 +9,11 @@
           <img v-if="p.avatar && p.avatar !== '-'" :src="posterUrl(p.avatar)" class="person-photo" :alt="(p.name || '人物') + ' 头像'" />
           <div v-else class="person-photo avatar-fallback">{{ (p.name || '?').slice(0, 1) }}</div>
           <div class="hero-info">
-            <h1>{{ p.name }}</h1>
-            <p v-if="countsLine" class="meta-line">{{ countsLine }}</p>
-            <p v-if="p.birthday || p.place_of_birth" class="meta-line">{{ [p.birthday, p.place_of_birth].filter(Boolean).join(' · ') }}</p>
+            <div class="hero-heading">
+              <h1>{{ p.name }}</h1>
+              <p v-if="countsLine" class="meta-line">{{ countsLine }}</p>
+              <p v-if="p.birthday || p.place_of_birth" class="meta-line">{{ [p.birthday, p.place_of_birth].filter(Boolean).join(' · ') }}</p>
+            </div>
           </div>
         </div>
       </div>

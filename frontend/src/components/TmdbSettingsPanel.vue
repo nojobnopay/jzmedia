@@ -107,4 +107,15 @@ dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
 dd { margin: 0; }
 .bar { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
 a { color: var(--jz-link); }
+@media (max-width: 700px) {
+  .tmdb-settings { font-size: var(--jz-font-m); line-height: 1.6; }
+  p { margin: 8px 0; }
+  label { margin: 8px 0; }
+  input { min-height: 40px; }
+  details { margin: 8px 0; }
+  summary { min-height: 40px; box-sizing: border-box; padding: 8px 0; }
+  .bar { gap: var(--jz-gap-s); margin: 8px 0; padding: 0; }
+  button { min-height: 40px; }
+  p[role="status"]:empty { margin: 0; }
+}
 </style>

@@ -38,4 +38,9 @@ onUnmounted(() => observer?.disconnect())
 .overview { margin: 0; color: var(--jz-text-dim); font-size: var(--jz-font-l); line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
 .clamped { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .overview-toggle { margin-top: 6px; border: 0; background: transparent; padding: 4px 0; color: var(--jz-link); font-size: var(--jz-font-s); }
+@media (max-width: 700px) {
+  .media-overview { margin: 12px 0; }
+  .overview { font-size: var(--jz-font-m); line-height: 1.65; }
+  .overview-toggle { min-height: 36px; margin-top: 2px; }
+}
 </style>

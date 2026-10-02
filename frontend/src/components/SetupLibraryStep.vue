@@ -152,4 +152,14 @@ dd { margin: 0; overflow-wrap: anywhere; }
 details { margin: 16px 0; }
 summary { cursor: pointer; }
 .primary { margin-top: 12px; }
+@media (max-width: 650px) {
+  section { font-size: var(--jz-font-m); }
+  label { gap: var(--jz-gap-xs); margin: 8px 0; }
+  .choices { gap: 0 var(--jz-gap-m); }
+  .choices label { min-height: 36px; margin: 0; }
+  dl { padding: 10px; gap: 6px 12px; margin: 12px 0; }
+  details { margin: 12px 0; }
+  summary { min-height: 40px; box-sizing: border-box; padding: 8px 0; }
+  p[role="status"]:empty { margin: 0; }
+}
 </style>

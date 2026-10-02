@@ -15,9 +15,11 @@
           <img v-if="m.poster_path" :src="posterSrc" class="poster zoomable" :alt="(m.title || '海报') + ' 海报'" title="查看大图" tabindex="0" role="button" @keydown.enter="openPoster" @keydown.space.prevent="openPoster" @click="openPoster" />
           <div v-else class="poster poster-empty" aria-hidden="true">{{ (m.title || '?').slice(0, 1) }}</div>
           <div class="hero-info">
-            <h1>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.watched" class="watched-chip">✓已看</span></h1>
-            <HeroRatings :tmdb="m.tmdb_rating" :douban="m.douban_rating" :custom="m.custom_rating" />
-            <p v-if="metaLine" class="meta-line">{{ metaLine }}</p>
+            <div class="hero-heading">
+              <h1>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.watched" class="watched-chip">✓已看</span></h1>
+              <HeroRatings :tmdb="m.tmdb_rating" :douban="m.douban_rating" :custom="m.custom_rating" />
+              <p v-if="metaLine" class="meta-line">{{ metaLine }}</p>
+            </div>
             <MediaOverview :text="m.overview_display || ''" />
             <div v-if="m.needs_review" class="review-notice">
               <span>请确认影片是否匹配正确</span>
@@ -44,6 +46,7 @@
                 <button @click="openEdit('match')">重新匹配</button>
                 <button @click="refreshMovieInfo" :disabled="refreshBusy">{{ refreshBusy ? '更新中…' : '更新资料' }}</button>
                 <button :disabled="metaBusy" title="选择需要修复的资料文件" @click="repairOpen = !repairOpen">修复资料文件</button>
+                <button @click="collectionsOpen = !collectionsOpen">管理所属合集</button>
               </ActionMenu>
             </div>
             <div v-if="repairOpen" class="bar" style="flex-wrap:wrap">
@@ -77,8 +80,7 @@
             <div v-if="(m.tags || []).length" class="tag-row">
               <span v-for="t in m.tags" :key="t" class="tag-chip">{{ t }}</span>
             </div>
-            <div class="tag-row">
-              <button @click="collectionsOpen = !collectionsOpen">所属合集</button>
+            <div v-if="(m.collections || []).length" class="tag-row">
               <router-link v-for="c in m.collections" :key="c.id" class="col-chip" :to="'/c/' + c.id">{{ c.name }}</router-link>
             </div>
             <MovieCollectionsPanel v-if="collectionsOpen" :movie-id="m.id" :library-id="m.library_id"

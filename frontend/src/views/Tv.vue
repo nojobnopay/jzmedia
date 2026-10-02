@@ -1,6 +1,12 @@
 <template>
   <div class="browse-page">
-  <header class="browse-heading"><h1>剧集</h1><router-link :to="toolsLink" class="manage-link">扫描与整理 ›</router-link></header>
+  <header class="browse-heading">
+    <h1>剧集</h1>
+    <div class="browse-actions">
+      <router-link :to="toolsLink" class="manage-link">扫描与整理 ›</router-link>
+      <ActionMenu label="添加剧集"><button @click="scanOpen = !scanOpen">扫描新文件</button><button @click="upDlg = true">上传文件</button></ActionMenu>
+    </div>
+  </header>
   <div class="bar browse-search">
     <div class="q-wrap">
       <input v-model="q" aria-label="搜索剧集" placeholder="搜剧名 / 演员" autocomplete="off"
@@ -33,16 +39,15 @@
     </div>
     <button @click="applyAndLoad">搜索</button>
     <button :aria-expanded="filtersOpen" aria-controls="browse-filters" @click="filtersOpen = !filtersOpen">筛选<span v-if="activeCount"> · {{ activeCount }}</span> {{ filtersOpen ? '⌃' : '⌄' }}</button>
-    <button v-if="q.trim()" @click="clearAll">{{ activeCount ? '重置全部条件' : '清除搜索' }}</button>
-    <ActionMenu label="添加剧集"><button @click="scanOpen = !scanOpen">扫描新文件</button><button @click="upDlg = true">上传文件</button></ActionMenu>
   </div>
   <ScanAction v-if="scanOpen" kind="tv" @done="onAdded" />
   <UploadDialog v-if="upDlg" kind="tv" @close="upDlg = false" @done="onAdded" />
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
 
-  <div v-if="activeCount" class="filter-summary">
-    <span>已选 {{ activeCount }} 项</span><span>{{ selectedSummary }}</span>
-    <button @click="clearFilters">清空筛选</button>
+  <div v-if="activeCount || q.trim()" class="filter-summary">
+    <template v-if="activeCount"><span>已选 {{ activeCount }} 项</span><span>{{ selectedSummary }}</span></template>
+    <button v-if="activeCount" @click="clearFilters">清空筛选</button>
+    <button v-if="q.trim()" @click="clearAll">{{ activeCount ? '重置全部条件' : '清除搜索' }}</button>
   </div>
   <div class="filters" id="browse-filters" v-show="filtersOpen" v-if="hasFacets">
     <div class="frow">
@@ -110,10 +115,10 @@
   <div v-if="items.length" class="wall-head">
     <h3>{{ q.trim() || activeCount ? '筛选结果' : '全部剧集' }} <span class="wall-count">{{ wallCountText }}</span></h3>
     <div class="wall-sort">
-      <label>排序 <select :value="sort.key" aria-label="排序方式" @change="pickSort($event.target.value)">
+      <label><span class="sort-label">排序</span><select :value="sort.key" aria-label="排序方式" @change="pickSort($event.target.value)">
         <option v-for="s in WALL_SORTS" :key="s.key" :value="s.key">{{ s.key === 'rating' ? s.label + '（' + ({ tmdb: 'TMDB', douban: '豆瓣', custom: '自评' }[sel.ratingSource]) + '）' : s.label }}</option>
       </select></label>
-      <button @click="pickSort(sort.key)" :aria-label="sort.order === 'asc' ? '当前升序，切换为降序' : '当前降序，切换为升序'">{{ sort.order === 'asc' ? '↑ 升序' : '↓ 降序' }}</button>
+      <button @click="pickSort(sort.key)" :aria-label="sort.order === 'asc' ? '当前升序，切换为降序' : '当前降序，切换为升序'"><span aria-hidden="true">{{ sort.order === 'asc' ? '↑' : '↓' }}</span><span class="sort-label"> {{ sort.order === 'asc' ? '升序' : '降序' }}</span></button>
     </div>
   </div>
 
@@ -135,8 +140,8 @@
         <span v-else-if="s.needs_review" class="review">待确认</span>
         <ScoreBadge :score="s.tmdb_rating" source="tmdb" />
       </div>
-      <div class="t">{{ s.title }}<span v-if="s.year" class="yr"> ({{ s.year }})</span></div>
-      <div class="t fhint">
+      <div class="t"><span class="card-title" :title="s.title">{{ s.title }}<span v-if="s.year" class="yr"> ({{ s.year }})</span></span></div>
+      <div class="t fhint card-meta">
         {{ s.season_count }} 季 · {{ s.episode_count }} 集
         <span v-if="s.status"> · {{ statusText(s.status) }}</span>
       </div>

@@ -6,7 +6,7 @@
     <router-link to="/collections">合集</router-link>
     <router-link to="/settings">设置</router-link>
     <span class="nav-spacer"></span>
-    <select v-if="showSwitch" class="lib-switch" :value="currentId" title="切换媒体库"
+    <select v-if="showSwitch" class="lib-switch" :value="currentId" title="切换媒体库" aria-label="切换媒体库"
       @change="onSwitch">
       <option v-for="m in libs" :key="m.id" :value="m.id">{{ optionLabel(m) }}</option>
     </select>
@@ -164,10 +164,11 @@ button { cursor: pointer; }
 <style>
 .app-nav > a { white-space: nowrap; }
 @media (max-width: 700px) {
-  .app-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 12px 16px; }
-  .app-nav .brand { grid-column: 1 / 3; grid-row: 1; }
-  .app-nav .lib-switch { grid-column: 3 / 5; grid-row: 1; justify-self: end; max-width: 100%; min-width: 0; }
-  .app-nav > a:not(.brand) { text-align: center; padding: 10px 4px; }
+  .app-nav { display: grid; grid-template-columns: 32px repeat(4, minmax(0, 1fr)); gap: 0 4px; padding: 4px var(--jz-mobile-gutter); }
+  .app-nav .brand { justify-content: center; min-height: var(--jz-touch-target); }
+  .app-nav .brand span { display: none; }
+  .app-nav .lib-switch { grid-column: 1 / -1; width: 100%; max-width: none; min-width: 0; min-height: 40px; margin-bottom: 4px; font-size: 1rem; }
+  .app-nav > a:not(.brand) { display: flex; align-items: center; justify-content: center; min-height: var(--jz-touch-target); padding: 0 4px; }
   .app-nav .nav-spacer { display: none; }
 }
 </style>

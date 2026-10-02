@@ -89,16 +89,33 @@
 }
 @media (max-width: 700px) {
   .settings-layout { display: block; padding: 12px; }
-  .settings-layout .side-nav { position: static; flex-direction: row; overflow-x: auto; gap: 4px; padding-bottom: 12px; margin-bottom: 16px; }
+  .settings-layout .side-nav { position: static; flex-direction: row; overflow-x: auto; gap: 4px; padding-bottom: 6px; margin-bottom: 12px; }
   .settings-layout .side-nav h1, .settings-layout .nav-group { display: none; }
-  .settings-layout .side-nav button { flex-shrink: 0; padding: 10px 12px; }
+  .settings-layout .side-nav button { flex-shrink: 0; padding: 8px 10px; min-height: 40px; }
   .settings-layout .side-nav button.on { box-shadow: inset 0 -2px var(--jz-accent); }
-  .settings-layout .settings-heading { margin-bottom: 20px; }
-  .settings-layout .card-block { padding: 16px; }
-  .settings-layout .settings-shortcuts, .settings-layout .form-columns { grid-template-columns: 1fr; }
-  .settings-layout .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .settings-layout .slider-row { grid-template-columns: 120px minmax(0, 1fr); gap: 12px; }
-  .settings-layout .tool-views button { padding: 10px; }
+  .settings-layout .settings-heading { gap: var(--jz-gap-s); margin-bottom: 12px; }
+  .settings-layout .settings-heading h2 { font-size: 1.25rem; margin-bottom: 4px; }
+  .settings-layout .settings-heading p { line-height: 1.5; }
+  .settings-layout .card-block { padding: 12px; margin-bottom: 12px; }
+  .settings-layout .card-block .card-block { padding-top: 12px; }
+  .settings-layout .section-heading { gap: var(--jz-gap-s); margin-bottom: 12px; }
+  .settings-layout .card-block h3 { margin-bottom: 12px; }
+  .settings-layout .section-heading h3 { margin-bottom: 0; }
+  .settings-layout .form-columns { grid-template-columns: 1fr; gap: var(--jz-gap-m); }
+  .settings-layout .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--jz-gap-s); }
+  .settings-layout .stat { padding: 10px 8px; }
+  .settings-layout .stat b { font-size: 1.25rem; margin-bottom: 4px; overflow-wrap: anywhere; }
+  .settings-layout .settings-shortcuts { gap: var(--jz-gap-s); }
+  .settings-layout .settings-shortcuts button { padding: 12px; }
+  .settings-layout .settings-shortcuts span { margin-top: 4px; line-height: 1.5; }
+  .settings-layout .settings-details { margin-top: 12px; padding-top: 8px; }
+  .settings-layout .settings-details summary { min-height: 40px; box-sizing: border-box; padding: 8px 0; }
+  .settings-layout .settings-details[open] > summary { margin-bottom: 8px; }
+  .settings-layout .settings-notice { padding: 10px 12px; gap: var(--jz-gap-s); margin: 12px 0; line-height: 1.5; }
+  .settings-layout .bar { padding: 8px 0; }
+  .settings-layout .slider-row { grid-template-columns: 108px minmax(0, 1fr); gap: 12px; padding: 12px 0; }
+  .settings-layout .tool-views { flex-wrap: nowrap; overflow-x: auto; margin: 8px 0 12px; }
+  .settings-layout .tool-views button { flex-shrink: 0; padding: 8px 10px; min-height: 40px; }
   .settings-layout .pipe-head { flex-wrap: wrap; }
 }
 

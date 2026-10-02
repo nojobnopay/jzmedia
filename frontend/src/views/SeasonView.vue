@@ -13,12 +13,14 @@
           :alt="s.name || seasonLabel(s.season)" />
         <div v-else class="hero-poster hero-no-poster">{{ seasonLabel(s.season).slice(0, 1) }}</div>
         <div class="hero-body">
-          <h1>{{ s.show_title }}<span v-if="s.show_year" class="dim"> ({{ s.show_year }})</span></h1>
-          <div class="meta">
-            <span>{{ s.name || seasonLabel(s.season) }}</span>
-            <span v-if="s.air_date">{{ s.air_date }}</span>
-            <span>{{ s.distinct_count ?? s.episode_count }} 集 · {{ (s.versions || []).length || 1 }} 版本</span>
-            <span>{{ s.watched_count }}/{{ s.episode_count }} 已看</span>
+          <div class="hero-heading">
+            <h1>{{ s.show_title }}<span v-if="s.show_year" class="dim"> ({{ s.show_year }})</span></h1>
+            <div class="meta">
+              <span>{{ s.name || seasonLabel(s.season) }}</span>
+              <span v-if="s.air_date">{{ s.air_date }}</span>
+              <span>{{ s.distinct_count ?? s.episode_count }} 集 · {{ (s.versions || []).length || 1 }} 版本</span>
+              <span>{{ s.watched_count }}/{{ s.episode_count }} 已看</span>
+            </div>
           </div>
           <MediaOverview :text="s.overview || ''" />
           <div class="acts">
@@ -58,12 +60,14 @@
           </div>
         </div>
         <div class="t">
-          <span class="ep-no">{{ epNo(e) }}</span><span v-if="episodeVersion(e) > 1" class="ver-badge">V{{ episodeVersion(e) }}</span>
-          {{ e.title || '（未匹配集名）' }}
-          <span v-if="e.needs_review" class="review-badge">未匹配</span>
-          <span v-if="e.local_only" class="local-badge">本地集</span>
-          <br /><span v-if="e.air_date" class="meta">{{ e.air_date }}</span>
-          <span v-if="e.overview" class="meta"> {{ e.overview.slice(0, 60) }}</span>
+          <div class="episode-title">
+            <span class="ep-no">{{ epNo(e) }}</span><span v-if="episodeVersion(e) > 1" class="ver-badge">V{{ episodeVersion(e) }}</span>
+            {{ e.title || '（未匹配集名）' }}
+            <span v-if="e.needs_review" class="review-badge">未匹配</span>
+            <span v-if="e.local_only" class="local-badge">本地集</span>
+          </div>
+          <span v-if="e.air_date" class="meta episode-date">{{ e.air_date }}</span>
+          <span v-if="e.overview" class="meta episode-summary"> {{ e.overview.slice(0, 60) }}</span>
         </div>
       </div>
     </div>

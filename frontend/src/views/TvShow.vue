@@ -8,16 +8,18 @@
           :alt="show.title" />
         <div v-else class="hero-poster hero-no-poster">{{ (show.title || '?').slice(0, 1) }}</div>
         <div class="hero-body">
-          <h1>{{ show.title }}<span v-if="show.year" class="dim"> ({{ show.year }})</span></h1>
-          <HeroRatings :tmdb="show.tmdb_rating" />
-          <div class="meta">
-            <span v-if="show.status">{{ statusText(show.status) }}</span>
-            <span v-if="show.first_air_date">{{ show.first_air_date }}</span>
-            <span v-if="show.region">{{ show.region }}</span>
-            <span v-if="show.episode_run_time">{{ show.episode_run_time }} 分钟/集</span>
-            <span v-if="show.genres && show.genres.length">{{ show.genres.join(' / ') }}</span>
-            <span v-if="show.media_name">媒体库：{{ show.media_name }}<template
-              v-if="show.library_name"> / {{ show.library_name }}</template></span>
+          <div class="hero-heading">
+            <h1>{{ show.title }}<span v-if="show.year" class="dim"> ({{ show.year }})</span></h1>
+            <HeroRatings :tmdb="show.tmdb_rating" />
+            <div class="meta">
+              <span v-if="show.status">{{ statusText(show.status) }}</span>
+              <span v-if="show.first_air_date">{{ show.first_air_date }}</span>
+              <span v-if="show.region">{{ show.region }}</span>
+              <span v-if="show.episode_run_time">{{ show.episode_run_time }} 分钟/集</span>
+              <span v-if="show.genres && show.genres.length">{{ show.genres.join(' / ') }}</span>
+              <span v-if="show.media_name">媒体库：{{ show.media_name }}<template
+                v-if="show.library_name"> / {{ show.library_name }}</template></span>
+            </div>
           </div>
           <MediaOverview :text="show.overview || ''" />
           <div class="acts">
