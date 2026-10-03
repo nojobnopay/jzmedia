@@ -27,6 +27,12 @@ class BrowseFixtureTests(unittest.TestCase):
     def season(self, **params):
         return self.request("/api/tv/shows/100/seasons/1", **params)
 
+    def actors(self, **params):
+        return self.request("/api/tv-client/actors", **params)
+
+    def actor_works(self, **params):
+        return self.request("/api/tv-client/actor-works", **params)
+
     def test_search_chinese_initials_full_pinyin_and_partial_query(self):
         for query in ("SQ", "sqhs", "ＳＱ", "沙丘", "shaqiuhuisheng"):
             with self.subTest(query=query):
@@ -115,6 +121,96 @@ class BrowseFixtureTests(unittest.TestCase):
         self.assertIsNone(self.season()["next_episode"])
         self.fixtures.handle("POST", "/api/tv/shows/100/seasons/1/watched", {}, {"watched": False})
         self.assertEqual(self.season()["watched_count"], 0)
+
+    def test_actor_candidates_match_initials_full_pinyin_and_names(self):
+        for query in ("ZXH", "zxh", "ＺＸＨ", "周"):
+            with self.subTest(query=query):
+                result = self.actors(q=query)
+                self.assertEqual([row["name"] for row in result["items"]], ["周星河", "周晓河"])
+                self.assertEqual(result["total"], 2)
+        for query in ("zhouxinghe", "周星河"):
+            self.assertEqual(self.actors(q=query)["items"][0]["key"], "tmdb:9001")
+            self.assertEqual(self.actors(q=query)["total"], 1)
+        self.assertEqual(self.actors(q="zhouxiaohe")["items"][0]["key"], "tmdb:9002")
+        self.assertEqual(self.actors(q="nonexistent")["total"], 0)
+
+    def test_empty_actor_query_browses_paginated_local_people(self):
+        first = self.actors(limit=24)
+        second = self.actors(q="", limit=24, offset=24)
+        self.assertEqual((first["total"], second["total"]), (37, 37))
+        self.assertEqual((len(first["items"]), len(second["items"])), (24, 13))
+        self.assertEqual((first["has_more"], second["has_more"]), (True, False))
+        self.assertEqual(len({row["key"] for row in first["items"] + second["items"]}), 37)
+        self.assertEqual(self.actors(q="---")["total"], 0)
+
+    def test_actor_counts_follow_current_library_scope(self):
+        all_libraries = self.actors(q="zhouxinghe")["items"][0]
+        first_library = self.actors(q="zhouxinghe", media_library=1)["items"][0]
+        second_library = self.actors(q="zhouxinghe", media_library=2)["items"][0]
+        self.assertEqual((all_libraries["movie_count"], all_libraries["show_count"], all_libraries["work_count"]), (32, 1, 33))
+        self.assertEqual((first_library["movie_count"], first_library["show_count"], first_library["work_count"]), (31, 1, 32))
+        self.assertEqual((second_library["movie_count"], second_library["show_count"], second_library["work_count"]), (1, 0, 1))
+        self.assertEqual(self.actors(media_library=1)["total"], 36)
+        self.assertEqual({row["name"] for row in self.actors(media_library=2)["items"]}, {"周星河", "顾远舟"})
+        self.assertEqual(self.actors(q="GYZ", media_library=1)["items"], [])
+        self.assertEqual(self.actors(media_library=999)["total"], 0)
+
+    def test_actor_name_identity_and_missing_avatar_tv_only(self):
+        actor = self.actors(q="LWT")["items"][0]
+        self.assertEqual(actor["key"], "name:林雾汀")
+        self.assertEqual(actor["avatar_path"], "")
+        self.assertEqual((actor["movie_count"], actor["show_count"]), (0, 1))
+        works = self.actor_works(actor=actor["key"])
+        self.assertEqual([(row["kind"], row["id"]) for row in works["items"]], [("show", 100)])
+        self.assertEqual(self.actor_works(actor=actor["key"], kind="movie")["total"], 0)
+        self.assertEqual(self.actor_works(actor=actor["key"], kind="movie")["actor"], actor)
+
+    def test_same_name_does_not_merge_different_actor_keys(self):
+        people = self.actors(q="HCTMYY")["items"]
+        self.assertEqual({row["key"] for row in people}, {"tmdb:9201", "tmdb:9202", "name:合成同名演员"})
+        self.assertEqual({row["name"] for row in people}, {"合成同名演员"})
+        work_ids = {self.actor_works(actor=person["key"])["items"][0]["id"] for person in people}
+        self.assertEqual(work_ids, {1, 2, 3})
+
+    def test_actor_work_pages_deduplicate_movie_versions_and_keep_types(self):
+        first = self.actor_works(actor="tmdb:9001", limit=24)
+        second = self.actor_works(actor="tmdb:9001", limit=24, offset=24)
+        self.assertEqual((first["total"], second["total"]), (33, 33))
+        self.assertEqual((len(first["items"]), len(second["items"])), (24, 9))
+        self.assertEqual((first["has_more"], second["has_more"]), (True, False))
+        self.assertEqual(first["actor"], second["actor"])
+        self.assertEqual(first["items"][0]["version_count"], 2)
+        identities = [(row["kind"], row["id"]) for row in first["items"] + second["items"]]
+        self.assertEqual(len(set(identities)), 33)
+        self.assertIn(("movie", 46), identities)
+        self.assertIn(("show", 100), identities)
+        self.assertEqual(self.actor_works(actor="tmdb:9001", kind="movie")["total"], 32)
+        self.assertEqual(self.actor_works(actor="tmdb:9001", kind="show")["total"], 1)
+        scoped = self.actor_works(actor="tmdb:9001", media_library=2)
+        self.assertEqual([row["id"] for row in scoped["items"]], [45])
+        self.assertEqual(scoped["actor"]["work_count"], 1)
+
+    def test_actor_work_missing_or_outside_scope_is_not_found(self):
+        for params in ({"actor": "tmdb:1"}, {"actor": "name:不存在"}, {"actor": "tmdb:9004", "media_library": 1},
+                       {"actor": "name:林雾汀", "media_library": 2}):
+            with self.subTest(params=params), self.assertRaises(KeyError):
+                self.actor_works(**params)
+
+    def test_actor_parameter_validation_and_feature_flag(self):
+        for params in ({"limit": 0}, {"limit": 61}, {"offset": -1}, {"q": "x" * 81}):
+            with self.subTest(params=params), self.assertRaises(ValueError):
+                self.actors(**params)
+        with self.assertRaises(ValueError):
+            self.actor_works(actor="tmdb:9001", kind="collection")
+        self.assertIn("tv_actor_search", self.request("/api/stream/client-info")["features"])
+
+    def test_actor_work_details_show_consistent_synthetic_cast(self):
+        movie = self.request("/api/movies/46")
+        self.assertEqual({row["name"] for row in movie["persons"]}, {"周星河", "周晓河"})
+        show = self.request("/api/tv/shows/100")
+        self.assertEqual({row["name"] for row in show["cast"]}, {"周星河", "周晓河", "林雾汀"})
+        anonymous = next(row for row in show["cast"] if row["name"] == "林雾汀")
+        self.assertIsNone(anonymous["tmdb_id"])
 
 
 if __name__ == "__main__":

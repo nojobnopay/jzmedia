@@ -48,10 +48,10 @@ import org.jzmedia.tv.playback.TvPlayer
 import org.json.JSONObject
 import java.util.UUID
 
-data class TvRoute(val kind: String, val id: Long = 0, val season: Int = 0, val title: String = "", val key: String = UUID.randomUUID().toString()) {
-    fun encode(): String = JSONObject().put("kind", kind).put("id", id).put("season", season).put("title", title).put("key", key).toString()
+data class TvRoute(val kind: String, val id: Long = 0, val season: Int = 0, val title: String = "", val key: String = UUID.randomUUID().toString(), val actorKey: String = "") {
+    fun encode(): String = JSONObject().put("kind", kind).put("id", id).put("season", season).put("title", title).put("key", key).put("actor_key", actorKey).toString()
     companion object {
-        fun decode(value: String): TvRoute = JSONObject(value).let { TvRoute(it.getString("kind"), it.optLong("id"), it.optInt("season"), it.text("title"), it.getString("key")) }
+        fun decode(value: String): TvRoute = JSONObject(value).let { TvRoute(it.getString("kind"), it.optLong("id"), it.optInt("season"), it.text("title"), it.getString("key"), it.text("actor_key")) }
     }
 }
 
@@ -125,11 +125,12 @@ fun TvApp(onExit: () -> Unit) {
                 item { TvAction(libraryName, { open(TvRoute("libraries")) }, Modifier.focusMemory(memory, "nav:libraries")) }
                 item { TvAction("设置", { open(TvRoute("settings")) }, Modifier.focusMemory(memory, "nav:settings")) }
             }
-            if (routes.size > 1 && route.kind != "search") TvAction("‹ 返回", { back() }, Modifier.focusMemory(memory, "back"))
+            if (routes.size > 1 && route.kind !in listOf("search", "actor-works")) TvAction("‹ 返回", { back() }, Modifier.focusMemory(memory, "back"))
             when (route.kind) {
                 "home" -> HomeScreen(server, library, refresh, memory, ::open, ::play)
                 "movies", "shows", "collections" -> BrowseScreen(server, route.kind, library, refresh, memory, ::open)
                 "search" -> SearchScreen(server, library, route.title, memory, ::open, ::back)
+                "actor-works" -> ActorWorksScreen(server, library, route, memory, ::open, ::back)
                 "movie", "show", "season", "episode", "collection" -> DetailScreen(server, route, refresh, memory, ::open, ::play)
                 "libraries" -> LibrariesScreen(server, library, memory) { id, name ->
                     library = id; libraryName = name; routes = listOf(TvRoute("home", key = "root:home"))

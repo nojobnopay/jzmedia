@@ -9,7 +9,7 @@
 ```json
 {
   "protocol_version": 1,
-  "features": ["android_tv", "independent_sessions", "tv_search"],
+  "features": ["android_tv", "independent_sessions", "tv_search", "tv_actor_search"],
   "auth_required": false
 }
 ```
@@ -19,6 +19,8 @@
 APK 当前使用 `X-Api-Token`，仅发往保存的服务器 origin 和路径范围，拒绝携带凭据跨 origin 重定向。API 连接使用可取消请求；连接改变、退出和过期响应不得重新进入旧页面或启动旧播放器。
 
 `tv_search` 是新增的可选能力，不提高播放协议版本。`GET /api/tv-client/search` 提供完整片库的首字母/全拼/原文检索与实时片名候选，参数及兼容边界见 [选集与搜索设计](search-design.md#服务端与兼容)。旧服务端缺少接口时电视搜索提示升级，原有浏览与播放仍可用。
+
+`tv_actor_search` 为独立可选能力：`GET /api/tv-client/actors` 提供本库演员候选，`GET /api/tv-client/actor-works` 返回所选演员的库内参演作品。演员 `key` 为不透明字符串，客户端原样编码到 `actor` 查询参数，不用姓名猜测人物 ID。两个接口均只读、分页并遵循当前媒体库；参数和资料范围见 [演员搜索](search-design.md#演员搜索)。
 
 以下 POST 请求显式传 `client: "android_tv"` 和 `caps`：
 

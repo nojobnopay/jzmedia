@@ -56,6 +56,7 @@ import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.SEARCH_QUERY_LIMIT
 import org.jzmedia.tv.data.TV_SEARCH_KEYS
 import org.jzmedia.tv.data.appendSearchInput
+import org.jzmedia.tv.data.actorSearchPath
 import org.jzmedia.tv.data.deleteSearchInput
 import org.jzmedia.tv.data.rows
 import org.jzmedia.tv.data.searchKind
@@ -66,7 +67,11 @@ import org.json.JSONObject
 /** The keyboard is part of the app, so ordinary TV search never requires a system IME. */
 @Composable
 fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMemory, navigate: (TvRoute) -> Unit, back: () -> Unit) {
-    var query by rememberSaveable { mutableStateOf("") }
+    var mode by rememberSaveable { mutableStateOf("title") }
+    var titleQuery by rememberSaveable { mutableStateOf("") }
+    var actorQuery by rememberSaveable { mutableStateOf("") }
+    val actorsMode = mode == "actor"
+    val query = if (actorsMode) actorQuery else titleQuery
     var kind by rememberSaveable { mutableStateOf(searchKind(initialKind)) }
     var page by rememberSaveable { mutableStateOf(0) }
     var lastKey by rememberSaveable { mutableStateOf("A") }
@@ -90,7 +95,7 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
         val normalized = appendSearchInput("", value)
         if (normalized == query && page == 0) return
         if (memory.key.startsWith("result:")) keys.getValue(lastKey).requestFocus()
-        query = normalized
+        if (actorsMode) actorQuery = normalized else titleQuery = normalized
         page = 0
         data = null
         error = ""
@@ -105,18 +110,18 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
         }
     }
 
-    LaunchedEffect(api, library, query, kind, page, attempt) {
-        data = null; error = ""; loading = query.isNotBlank()
-        if (query.isBlank()) return@LaunchedEffect
+    LaunchedEffect(api, library, query, mode, kind, page, attempt) {
+        data = null; error = ""; loading = actorsMode || query.isNotBlank()
+        if (!actorsMode && query.isBlank()) return@LaunchedEffect
         try {
             delay(250)
-            val response = api.get(tvSearchPath(query, kind, library, page))
+            val response = api.get(if (actorsMode) actorSearchPath(query, library, page) else tvSearchPath(query, kind, library, page))
             coroutineContext.ensureActive()
             data = response
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
             error = if (e is ApiException && e.status == 404)
-                "服务器尚不支持首字母搜索，请更新服务器后重试。"
+                if (actorsMode) "服务器尚不支持演员搜索，请更新服务器后重试。" else "服务器尚不支持首字母搜索，请更新服务器后重试。"
             else e.message ?: "搜索失败，请重试"
         } finally { loading = false }
     }
@@ -145,10 +150,12 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
             TvAction("‹ 返回", back, Modifier.focusMemory(memory, "back"))
             Text("搜索", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(end = 12.dp))
-            listOf("all" to "全部", "movie" to "电影", "show" to "电视剧", "collection" to "合集").forEach { (value, label) ->
+            listOf("title" to "片名", "actor" to "演员").forEach { (value, label) ->
                 TvAction(label, {
-                    if (kind != value || page != 0) { kind = value; page = 0; data = null; focusResults = false; resetResults = true }
-                }, Modifier.focusMemory(memory, "scope:$value"), selected = kind == value)
+                    if (mode != value) {
+                        mode = value; page = 0; data = null; error = ""; focusResults = false; resetResults = true
+                    }
+                }, Modifier.focusMemory(memory, "mode:$value"), selected = mode == value)
             }
         }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
@@ -157,10 +164,11 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                 Column(Modifier.width(keyboardWidth).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.fillMaxWidth().height(48.dp).background(Panel, RoundedCornerShape(8.dp)).padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
-                        Text(query.ifEmpty { "输入片名首字母" }, color = if (query.isEmpty()) Muted else Color.White,
+                        Text(query.ifEmpty { if (actorsMode) "输入姓名首字母" else "输入片名首字母" }, color = if (query.isEmpty()) Muted else Color.White,
                             style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Text("首字母 / 全拼 / 英文 · 例如 SQ 找沙丘", style = MaterialTheme.typography.labelMedium, color = Muted)
+                    Text(if (actorsMode) "首字母 / 全拼 / 英文 · ZXC 找周星驰" else "首字母 / 全拼 / 英文 · 例如 SQ 找沙丘",
+                        style = MaterialTheme.typography.labelMedium, color = Muted)
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(4.dp)) {
                         TV_SEARCH_KEYS.chunked(6).forEachIndexed { rowIndex, group ->
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -195,26 +203,41 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                         style = MaterialTheme.typography.labelMedium, color = Muted)
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(if (data == null) "片名联想" else "找到 ${data!!.optInt("total")} 项 · 第 ${page + 1} 页",
-                        style = MaterialTheme.typography.titleLarge)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (data == null) { if (actorsMode) "本库演员" else "片名联想" }
+                            else "${data!!.optInt("total")} ${if (actorsMode) "位演员" else "项"} · 第 ${page + 1} 页",
+                            style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (!actorsMode) listOf("all" to "全部", "movie" to "电影", "show" to "电视剧", "collection" to "合集").forEach { (value, label) ->
+                            TvAction(label, {
+                                if (kind != value || page != 0) { kind = value; page = 0; data = null; focusResults = false; resetResults = true }
+                            }, Modifier.focusMemory(memory, "scope:$value"), selected = kind == value)
+                        }
+                    }
                     when {
                         error.isNotBlank() -> Status(error, { attempt++ })
-                        query.isBlank() -> Status("输入几个首字母，就能查看当前媒体库中的候选片名。")
+                        !actorsMode && query.isBlank() -> Status("输入几个首字母，就能查看当前媒体库中的候选片名。")
                         loading || data == null -> Status("正在搜索…")
-                        rows.isEmpty() -> Status("没有找到相关内容，试试更短的首字母或其他片名。")
+                        rows.isEmpty() -> Status(if (actorsMode) {
+                            if (query.isBlank()) "当前媒体库中还没有可浏览的演员。" else "没有找到相关演员，试试更短的首字母或其他姓名。"
+                        } else "没有找到相关内容，试试更短的首字母或其他片名。")
                         else -> {
                             BoxWithConstraints(Modifier.weight(1f)) {
-                                val columns = ((maxWidth + 18.dp) / 168.dp).toInt().coerceAtLeast(1)
+                                val columns = ((maxWidth + 2.dp) / (if (actorsMode) 244.dp else 168.dp)).toInt().coerceAtLeast(1)
                                 LazyVerticalGrid(columns = GridCells.Fixed(columns), state = grid,
                                     contentPadding = PaddingValues(8.dp), horizontalArrangement = Arrangement.spacedBy(18.dp),
                                     verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                                    itemsIndexed(rows, key = { _, row -> "${row.text("kind")}:${row.optLong("id")}" }) { index, row ->
-                                        val resultKind = row.text("kind")
-                                        val key = "result:$resultKind:${row.optLong("id")}"
-                                        MediaCard(api, row, { navigate(TvRoute(resultKind, row.optLong("id"))) },
-                                            Modifier.focusProperties { if (index % columns == 0) left = keys.getValue(lastKey) }
-                                                .focusMemory(memory, key, if (index == resultEntryIndex) firstResult else null),
-                                            listOf(when (resultKind) { "movie" -> "电影"; "show" -> "电视剧"; else -> "合集" }, row.text("year")).filter { it.isNotBlank() }.joinToString(" · "))
+                                    itemsIndexed(rows, key = { _, row -> if (actorsMode) "actor:${row.text("key")}" else "${row.text("kind")}:${row.optLong("id")}" }) { index, row ->
+                                        val resultKey = if (actorsMode) "result:actor:${row.text("key")}" else "result:${row.text("kind")}:${row.optLong("id")}"
+                                        val modifier = Modifier.focusProperties { if (index % columns == 0) left = keys.getValue(lastKey) }
+                                            .focusMemory(memory, resultKey, if (index == resultEntryIndex) firstResult else null)
+                                        if (actorsMode) ActorCard(api, row, {
+                                            navigate(TvRoute("actor-works", title = row.text("name"), actorKey = row.text("key")))
+                                        }, modifier)
+                                        else {
+                                            val resultKind = row.text("kind")
+                                            MediaCard(api, row, { navigate(TvRoute(resultKind, row.optLong("id"))) }, modifier,
+                                                listOf(when (resultKind) { "movie" -> "电影"; "show" -> "电视剧"; else -> "合集" }, row.text("year")).filter { it.isNotBlank() }.joinToString(" · "))
+                                        }
                                     }
                                 }
                             }
@@ -235,7 +258,7 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
         Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             LaunchedEffect(Unit) { withFrameNanos { }; dialogInput.requestFocus() }
             Column(Modifier.width(640.dp).background(Panel, RoundedCornerShape(16.dp)).padding(28.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                Text("输入片名", style = MaterialTheme.typography.headlineSmall)
+                Text(if (actorsMode) "输入演员姓名" else "输入片名", style = MaterialTheme.typography.headlineSmall)
                 TvInput("支持中文、英文或拼音", draft, { draft = appendSearchInput("", it) }, Modifier.focusRequester(dialogInput))
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     TvAction("搜索", { changeQuery(draft); close() })

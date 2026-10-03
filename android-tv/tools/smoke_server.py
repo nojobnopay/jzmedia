@@ -57,6 +57,32 @@ def make_fixtures(directory, hls, binary=None):
     (directory / "demo.vtt").write_text("WEBVTT\n\n00:00:00.000 --> 00:00:08.000\njzmedia 电视客户端 · 合成演示媒体\n\n00:00:08.000 --> 00:00:20.000\n遥控器方向键、暂停、音轨与字幕测试\n\n00:00:40.000 --> 00:01:00.000\n续播时间轴：40–60 秒\n", encoding="utf-8")
 
 
+def _search_text(value):
+    return "".join(c for c in unicodedata.normalize("NFKC", str(value)).casefold() if c.isalnum())
+
+
+def _actor_catalog():
+    """Invented people and local work relations; TMDB-shaped keys never leave this server."""
+    rows = [
+        {"key": "tmdb:9001", "name": "周星河", "avatar_path": "posters/persons/poster0.png",
+         "phonetic": ("zxh", "zhouxinghe"), "works": [("movie", i) for i in range(1, 31)] + [("movie", 45), ("movie", 46), ("show", 100)]},
+        {"key": "tmdb:9002", "name": "周晓河", "avatar_path": "persons/poster1.png",
+         "phonetic": ("zxh", "zhouxiaohe"), "works": [("movie", 2), ("movie", 4), ("movie", 46), ("show", 100)]},
+        {"key": "name:林雾汀", "name": "林雾汀", "avatar_path": "",
+         "phonetic": ("lwt", "linwuting"), "works": [("show", 100)]},
+        {"key": "tmdb:9004", "name": "顾远舟", "avatar_path": "",
+         "phonetic": ("gyz", "guyuanzhou"), "works": [("movie", 45)]},
+    ]
+    rows.extend({"key": f"tmdb:{9100 + i}", "name": f"合成演员{i:02d}", "avatar_path": "",
+                 "phonetic": (f"hcyy{i:02d}", f"hechengyanyuan{i:02d}"), "works": [("movie", i)]}
+                for i in range(1, 31))
+    # A shared spelling is not a shared identity. Exercise both numeric and name keys.
+    rows.extend({"key": key, "name": "合成同名演员", "avatar_path": "",
+                 "phonetic": ("hctmyy", "hechengtongmingyanyuan"), "works": [("movie", i)]}
+                for i, key in enumerate(("tmdb:9201", "tmdb:9202", "name:合成同名演员"), 1))
+    return rows
+
+
 class Fixtures:
     def __init__(self, directory, hls=False, require_token=False, browse_stress=False):
         self.directory, self.hls, self.require_token = directory, hls, require_token
@@ -78,7 +104,7 @@ class Fixtures:
                 "watched": int(("movie", mid) in self.watched), "version_count": 2 if mid == 1 else 1,
                 "updated_at": 1000 + mid, "added_at": 1000 + mid,
                 "overview": "原创合成影片，用于验证电视界面的浏览、中文、遥控器和播放。" * 8,
-                "persons": [{"name": "演示演员", "character": "探索者", "role": "actor"}],
+                "persons": self.cast("movie", mid),
                 "versions": [{"id": mid, "file_path": f"film{mid}.mp4", "spec": "H.264 · AAC · 360p", "edition": "演示版"}] +
                             ([{"id": 101, "file_path": "film1-alt.mp4", "spec": "H.264 · AAC", "edition": "另一版本"}] if mid == 1 else []),
                 "collections": [{"id": 1, "name": "科幻时光"}], "extras": [{"id": 301, "title": "幕后片段", "kind": "trailer"}]}
@@ -106,7 +132,7 @@ class Fixtures:
                 "show_poster": "tv/poster2.png", "poster_path": "tv/poster2.png", "exists": not offline, "missing": int(offline),
                 "file_path": f"演示剧集/S01E{number:02d}{'-E06' if merged else ''}{'.v2' if version == 2 else ''}.mp4", "version": version,
                 "watched": int(("episode", eid) in self.watched), "progress": self.progress.get(("episode", eid), {}),
-                "overview": "旅程继续，信号终于从远方传来。", "cast": [{"name": "演示演员", "character": "守塔人"}],
+                "overview": "旅程继续，信号终于从远方传来。", "cast": self.cast("show", 100),
                 "previous_episode": {"id": previous_id} if previous_id is not None else None,
                 "next_episode": {"id": next_id, "season": 1, "episode": next_id - 200, "title": "下一集"} if next_id is not None else None}
 
@@ -117,15 +143,14 @@ class Fixtures:
         return {"id": 100, "title": "遥远的灯塔", "year": 2026, "poster_path": "tv/poster2.png", "episode_count": count,
                 "library_id": 2, "media_library_id": 1, "watched_count": watched,
                 "overview": "一百二十集的合成长季，用于验证选集与分页。" if self.browse_stress else "三个短篇故事，寻找夜色中的灯塔。",
-                "cast": [{"name": "演示演员", "character": "守塔人"}], "next_episode": self.episode(201),
+                "cast": self.cast("show", 100), "next_episode": self.episode(201),
                 "seasons": [{"season": 1, "name": "第一季", "total": count, "watched_count": watched}],
                 "extras": [{"id": 301, "title": "幕后片段", "label": "花絮", "kind": "trailer", "exists": True}]}
 
     def search(self, query):
         """Deterministic phonetic fixtures; deliberately independent of production search."""
         q = lambda name, default="": query.get(name, [default])[0]
-        normalize = lambda text: "".join(c for c in unicodedata.normalize("NFKC", str(text)).casefold() if c.isalnum())
-        term, kind, scope = normalize(q("q")), q("kind", "all"), q("media_library")
+        term, kind, scope = _search_text(q("q")), q("kind", "all"), q("media_library")
         limit, offset = int(q("limit", "24")), int(q("offset", "0"))
         if len(q("q")) > 80 or kind not in ("all", "movie", "show", "collection") or not 1 <= limit <= 60 or offset < 0:
             raise ValueError("Invalid fixture search query")
@@ -142,9 +167,53 @@ class Fixtures:
                             "poster_path": "posters/poster1.png", "media_library_id": 1, "member_count": 8}, ("khsg", "kehuanshiguang")))
         rows = [row for row, phonetic in candidates if term and (kind == "all" or row["kind"] == kind)
                 and (not scope or str(row["media_library_id"]) == scope)
-                and any(term in normalize(value) for value in (row["title"], *phonetic))]
+                and any(term in _search_text(value) for value in (row["title"], *phonetic))]
         return {"items": rows[offset:offset + limit], "total": len(rows), "has_more": offset + limit < len(rows),
                 "limit": limit, "offset": offset}
+
+    def cast(self, kind, item_id):
+        return [{"name": row["name"], "tmdb_id": int(row["key"].split(":", 1)[1]) if row["key"].startswith("tmdb:") else None,
+                 "avatar": row["avatar_path"], "character": "合成角色", "role": "actor"}
+                for row in _actor_catalog() if (kind, item_id) in row["works"]]
+
+    def actors(self, query, works=False):
+        q = lambda name, default="": query.get(name, [default])[0]
+        raw_query, scope, kind = q("q"), q("media_library"), q("kind", "all")
+        limit, offset = int(q("limit", "24")), int(q("offset", "0"))
+        if len(raw_query) > 80 or not 1 <= limit <= 60 or offset < 0 or (works and kind not in ("all", "movie", "show")):
+            raise ValueError("Invalid fixture actor query")
+        candidates = []
+        for row in _actor_catalog():
+            scoped_works = [(work_kind, item_id) for work_kind, item_id in row["works"]
+                            if not scope or scope == ("2" if work_kind == "movie" and item_id == 45 else "1")]
+            if not scoped_works:
+                continue
+            movie_count = sum(work_kind == "movie" for work_kind, _ in scoped_works)
+            profile = {key: row[key] for key in ("key", "name", "avatar_path")}
+            profile.update(movie_count=movie_count, show_count=len(scoped_works) - movie_count, work_count=len(scoped_works))
+            candidates.append((profile, row["phonetic"], scoped_works))
+        actor = None
+        if works:
+            chosen = next((row for row in candidates if row[0]["key"] == q("actor")), None)
+            if chosen is None:
+                raise KeyError("Unknown fixture actor")
+            actor, _, links = chosen
+            rows = []
+            for work_kind, item_id in links:
+                if kind != "all" and kind != work_kind:
+                    continue
+                item = self.movie(item_id) if work_kind == "movie" else self.show()
+                rows.append({**item, "kind": work_kind})
+        else:
+            term = _search_text(raw_query)
+            rows = [profile for profile, phonetic, _ in candidates
+                    if not raw_query.strip() or (term and any(term in _search_text(value) for value in (profile["name"], *phonetic)))]
+            rows.sort(key=lambda row: (-row["work_count"], row["name"], row["key"]))
+        result = {"items": rows[offset:offset + limit], "total": len(rows), "has_more": offset + limit < len(rows),
+                  "limit": limit, "offset": offset}
+        if actor is not None:
+            result["actor"] = actor
+        return result
 
     def media(self, mid):
         return {"version_id": mid, "title": "合成演示", "duration": 660, "width": 640, "height": 360, "vcodec": "h264", "fps": 24,
@@ -155,12 +224,15 @@ class Fixtures:
     def handle(self, method, path, query, body):
         q = lambda name, default="": query.get(name, [default])[0]
         if path in ("/api/stream/client-info", "/api/stream/client-check"):
-            return {"protocol_version": 1, "auth_required": self.require_token, "features": ["android_tv", "independent_sessions", "tv_search"]}
+            return {"protocol_version": 1, "auth_required": self.require_token,
+                    "features": ["android_tv", "independent_sessions", "tv_search", "tv_actor_search"]}
         if path == "/api/media-libraries":
             return {"items": [{"id": 1, "name": "家庭演示库", "enabled": True},
                               {"id": 2, "name": "备用演示库", "enabled": True}], "default_id": 1}
         if path == "/api/tv-client/search":
             return self.search(query)
+        if path in ("/api/tv-client/actors", "/api/tv-client/actor-works"):
+            return self.actors(query, works=path.endswith("/actor-works"))
         if path in ("/api/movies", "/api/search"):
             rows = [self.movie(i) for i in range(1, 47)]
             rows = [r for r in rows if q("q").lower() in r["title"].lower() and (not q("genre") or q("genre") in r["genres"])
@@ -270,7 +342,7 @@ class Handler(BaseHTTPRequestHandler):
             content_type = "application/octet-stream"
             if parsed.path == "/fixture/demo.mp4":
                 file, content_type = fixtures.directory / "demo.mp4", "video/mp4"
-            elif re.fullmatch(r"/posters/(?:tv/)?poster[0-3]\.png", parsed.path):
+            elif re.fullmatch(r"/posters/(?:(?:tv|persons)/)?poster[0-3]\.png", parsed.path):
                 file, content_type = fixtures.directory / parsed.path.rsplit("/", 1)[1], "image/png"
             elif re.fullmatch(r"/api/stream/\d+/sub/0\.vtt", parsed.path):
                 file, content_type = fixtures.directory / "demo.vtt", "text/vtt; charset=utf-8"

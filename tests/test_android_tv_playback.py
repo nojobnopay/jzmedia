@@ -188,7 +188,7 @@ def test_client_handshake_is_read_only_and_validates_existing_token(monkeypatch)
     result = client.get("/api/stream/client-info")
     assert result.status_code == 200
     assert result.json() == {"protocol_version": 1,
-                             "features": ["android_tv", "independent_sessions", "tv_search"],
+                             "features": ["android_tv", "independent_sessions", "tv_search", "tv_actor_search"],
                              "auth_required": True}
     assert "test-token" not in result.text
     assert client.post("/api/stream/client-check").status_code == 401
