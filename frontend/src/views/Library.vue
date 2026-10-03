@@ -10,73 +10,23 @@
   <BrowseToolbar id="movie-browse" v-model="q" label="搜索电影" placeholder="搜片名 / 演员 / 标签"
     item-heading="电影" :suggest-open="suggestOpen" :suggest-no-match="suggestNoMatch"
     :suggest-items="suggestItems" :suggest-persons="suggestPersons" :suggest-idx="suggestIdx"
-    v-model:filters-open="filtersOpen" v-model:ai-open="aiSearchOpen" :active-count="activeCount" :filters-disabled="!hasFacets"
+    v-model:ai-open="aiSearchOpen"
     @input="onQInput" @compositionstart="composing = true" @compositionend="onCompositionEnd"
     @enter="onSearchEnter" @move="suggestMove" @close="closeSuggest" @blur="onQBlur"
-    @pick-item="pickMovie" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="applyAndLoad" />
+    @pick-item="pickMovie" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="applyAndLoad">
+    <template #filters>
+      <BrowseFilters :model-value="sel" :facets="facets" kind="movie" v-model:open="filtersOpen"
+        :scope-label="filterScope" :scope-key="curMediaId" :context-key="route.fullPath"
+        :loading="facetsLoading" :error="facetsError" @retry="loadFacets"
+        @open="closeSuggest" @apply="applyFilters" />
+    </template>
+  </BrowseToolbar>
   <div id="movie-browse-ai"><AiSearchPanel v-if="aiSearchOpen" kind="movie" :query="q" :media-library-id="curMediaId" @apply="applyAiSearch" @close="aiSearchOpen = false" /></div>
   <ScanAction v-if="scanOpen" kind="movie" @done="onUpDone" />
   <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
 
-  <div v-if="activeCount || q.trim()" class="filter-summary">
-    <template v-if="activeCount"><span>已选 {{ activeCount }} 项</span><span>{{ selectedSummary }}</span></template>
-    <button v-if="activeCount" @click="clearFilters">清空筛选</button>
-    <button v-if="q.trim()" @click="clearAll">{{ activeCount ? '重置全部条件' : '清除搜索' }}</button>
-  </div>
-  <div class="filters" id="browse-filters" v-show="filtersOpen && hasFacets">
-    <div class="frow">
-      <span class="flabel">类型</span>
-      <button v-for="g in facets.genres" :key="g.value"
-        :class="['chip', { on: sel.genres.includes(g.value) }]" :aria-pressed="sel.genres.includes(g.value)"
-        @click="toggle('genres', g.value)">{{ g.value }} {{ g.count }}</button>
-    </div>
-    <div class="frow">
-      <span class="flabel">产地</span>
-      <button v-for="r in facets.regions" :key="r.value"
-        :class="['chip', { on: sel.regions.includes(r.value) }]" :aria-pressed="sel.regions.includes(r.value)"
-        @click="toggle('regions', r.value)">{{ r.value }} {{ r.count }}</button>
-    </div>
-    <div class="frow" v-if="facets.countries.length">
-      <span class="flabel">国家/地区</span>
-      <button v-for="c in facets.countries" :key="c.code || 'unknown'"
-        :class="['chip', { on: sel.countries.includes(c.code || '未知') }]" :aria-pressed="sel.countries.includes(c.code || '未知')"
-        @click="toggle('countries', c.code || '未知')">{{ c.name }} {{ c.count }}</button>
-    </div>
-    <div class="frow">
-      <span class="flabel">年代</span>
-      <button v-for="d in facets.decades" :key="d.value"
-        :class="['chip', { on: sel.decades.includes(String(d.value)) }]" :aria-pressed="sel.decades.includes(String(d.value))"
-        @click="toggle('decades', String(d.value))">{{ d.value }}s {{ d.count }}</button>
-      <select aria-label="按年份筛选" v-model="yearPick" @change="pickYear">
-        <option value="">年份…</option>
-        <option v-for="y in facets.years" :key="y.value" :value="y.value">{{ y.value }} ({{ y.count }})</option>
-      </select>
-      <button v-for="y in sel.years" :key="y" class="chip on" :aria-pressed="true" @click="toggle('years', y)">{{ y }} ×</button>
-    </div>
-    <div class="frow" v-if="facets.tags.length">
-      <span class="flabel">标签</span>
-      <button v-for="t in facets.tags" :key="t.value"
-        :class="['chip', 'tag', { on: sel.tags.includes(t.value) }]" :aria-pressed="sel.tags.includes(t.value)"
-        @click="toggle('tags', t.value)">{{ t.value }} {{ t.count }}</button>
-    </div>
-    <div class="frow">
-      <span class="flabel">评分</span>
-      <select aria-label="评分来源" v-model="sel.ratingSource" @change="applyAndLoad">
-        <option value="tmdb">TMDB</option>
-        <option value="douban">豆瓣</option>
-        <option value="custom">自评</option>
-      </select>
-      <button v-for="s in [9, 8, 7, 6]" :key="s"
-        :class="['chip', { on: sel.rating === s, off: ratingCount(s) === 0 }]" :aria-pressed="sel.rating === s"
-        @click="pickRating(s)">{{ s }}分以上 {{ ratingCount(s) }}</button>
-    </div>
-    <div class="frow">
-      <span class="flabel">观看</span>
-      <button :class="['chip', { on: sel.watched === 1 }]" :aria-pressed="sel.watched === 1" @click="pickWatched(1)">已看 {{ watchedCounts.watched }}</button>
-      <button :class="['chip', { on: sel.watched === 0 }]" :aria-pressed="sel.watched === 0" @click="pickWatched(0)">未看 {{ watchedCounts.unwatched }}</button>
-    </div>
-    <details class="filter-help"><summary>筛选说明</summary><p>同类条件可多选，标签需全部符合。选择具体国家后以国家为准。计数为当前媒体库的总量。</p></details>
-  </div>
+  <BrowseFilterSummary :chips="selectedChips" :query="appliedQuery" fallback-id="movie-browse-input"
+    @remove="removeFilter" @clear="clearFilters" @clear-query="clearQuery" />
 
   <ContinueWatchingRow v-if="showContinue" ref="cwRef" :media-library-id="curMediaId"
     @open="openMovie" @resume="resumeMovie" />
@@ -214,6 +164,9 @@
 import BrowseResultsHeader from '../components/BrowseResultsHeader.vue'
 import EmptyState from '../components/EmptyState.vue'
 import BrowseToolbar from '../components/BrowseToolbar.vue'
+import BrowseFilters from '../components/BrowseFilters.vue'
+import BrowseFilterSummary from '../components/BrowseFilterSummary.vue'
+import { defaultBrowseFilters, normalizeBrowseFilters, filterChips, countBrowseFilters, removeBrowseFilter } from '../browseFilters.js'
 import AiSearchPanel from '../components/AiSearchPanel.vue'
 import { browseKey, saveBrowse, readBrowse, captureAnchor, restoreBrowsePosition } from '../browseHistory.js'
 
@@ -225,7 +178,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import { currentMediaId, preferredVideoLibId, mediaParam, switchLib, switchMedia,
-         loadLibs, onLibChange } from '../libraries.js'
+         loadLibs, onLibChange, listMediaLibs } from '../libraries.js'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import Spinner from '../components/Spinner.vue'
 import UploadDialog from '../components/UploadDialog.vue'
@@ -242,11 +195,11 @@ const filtersOpen = ref(false)
 const aiSearchOpen = ref(false)
 function applyAiSearch(value) {
   q.value = value.q
-  sel.value = value.sel
+  sel.value = normalizeBrowseFilters(value.sel, 'movie')
   sort.value = value.sort
   saveWallSort(localStorage, sort.value)
   closeSuggest()
-  filtersOpen.value = true
+  filtersOpen.value = false
   aiSearchOpen.value = false
   applyAndLoad()
 }
@@ -255,18 +208,22 @@ const toolsLink = computed(() => {
   const library = preferredVideoLibId('movie')
   return { path: '/settings', query: library ? { sec: 'sec-libtools', media, library } : { sec: 'sec-libraries', media } }
 })
-const selectedSummary = computed(() => {
-  const v = sel.value
-  const countries = (v.countries || []).map(code => (facets.value.countries || []).find(c => c.code === code)?.name || code)
-  const labels = [...v.genres, ...(v.countries.length ? [] : v.regions), ...countries,
-    ...v.decades.map(d => d + '年代'), ...v.years, ...v.tags,
-    ...(v.status || []).map(value => ({ continuing: '连载中', ended: '已完结', other: '其他' }[value] || value))]
-  if (v.rating != null) labels.push(({ tmdb: 'TMDB', douban: '豆瓣', custom: '自评' }[v.ratingSource] || '') + ' ' + v.rating + '分以上')
-  if (v.watched != null) labels.push(v.watched ? '已看' : '未看')
-  return labels.join(' · ')
-})
 const route = useRoute()
 const router = useRouter()
+const appliedQuery = computed(() => String(route.query.q || ''))
+const filterScope = computed(() => listMediaLibs().find(m => Number(m.id) === curMediaId.value)?.name || '当前媒体库')
+const selectedChips = computed(() => filterChips(sel.value, facets.value, 'movie'))
+function applyFilters(value) {
+  sel.value = normalizeBrowseFilters(value, 'movie')
+  closeSuggest()
+  applyAndLoad()
+}
+function removeFilter(chip) { applyFilters(removeBrowseFilter(sel.value, chip, 'movie')) }
+function clearQuery() {
+  q.value = ''
+  closeSuggest()
+  applyAndLoad()
+}
 
 const q = ref('')
 const suggestOpen = ref(false)
@@ -290,13 +247,14 @@ const loading = ref(false)
 const loadErrorMore = ref(false)
 let loadSeq = 0
 let disposed = false
-const facets = ref({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], collections: [], watched: { watched: 0, unwatched: 0 }, ratings: { tmdb: [], douban: [], custom: [] } })
-function defaultSel() {
-  return { genres: [], regions: [], countries: [], years: [], decades: [],
-           tags: [], watched: null, rating: null, ratingSource: 'tmdb' }
-}
-const sel = ref(defaultSel())
-const yearPick = ref('')
+const emptyFacets = () => ({ genres: [], regions: [], countries: [], years: [], decades: [], tags: [], collections: [], watched: { watched: 0, unwatched: 0 }, ratings: { tmdb: [], douban: [], custom: [] } })
+const facets = ref(emptyFacets())
+const facetsLoading = ref(false)
+const facetsError = ref('')
+let facetsSeq = 0
+let facetsScope
+
+const sel = ref(defaultBrowseFilters())
 
 // 海报墙排序：默认按入库时间倒序（localStorage 记忆 + URL ?sort=&order= 可分享）
 const sort = ref(loadWallSort(localStorage))
@@ -360,47 +318,12 @@ const filteredCols = computed(() => {
   return src.filter(c => (c.name || '').includes(q))
 })
 
-function ratingCount(s) {
-  const arr = (facets.value.ratings || {})[sel.value.ratingSource] || []
-  const hit = arr.find(x => x.min === s)
-  return hit ? hit.count : 0
-}
-function pickRating(s) {
-  sel.value.rating = (sel.value.rating === s) ? null : s
-  applyAndLoad()
-}
-
-const hasFacets = computed(() =>
-  facets.value.genres.length || facets.value.regions.length || facets.value.years.length)
-const activeCount = computed(() =>
-  sel.value.genres.length + sel.value.regions.length + sel.value.countries.length +
-  sel.value.years.length + sel.value.decades.length + sel.value.tags.length +
-  (sel.value.watched == null ? 0 : 1) +
-  (sel.value.rating == null ? 0 : 1))
+const activeCount = computed(() => countBrowseFilters(sel.value))
 const firstLoaded = ref(false)
 const showEmptyGuide = computed(() =>
   firstLoaded.value && !items.value.length && !activeCount.value &&
   !q.value.trim() && !loadError.value)
 
-function pickWatched(v) {
-  sel.value.watched = (sel.value.watched === v) ? null : v
-  applyAndLoad()
-}
-
-function toggle(key, v) {
-  const a = sel.value[key]
-  const i = a.indexOf(v)
-  if (i >= 0) a.splice(i, 1)
-  else a.push(v)
-  applyAndLoad()
-}
-function pickYear() {
-  if (yearPick.value && !sel.value.years.includes(String(yearPick.value))) {
-    sel.value.years.push(String(yearPick.value))
-  }
-  yearPick.value = ''
-  applyAndLoad()
-}
 function _qNorm(query) {
   const parts = []
   for (const k of Object.keys(query || {}).sort()) {
@@ -454,7 +377,7 @@ function readUrl() {
   } else {
     sort.value = loadWallSort(localStorage)
   }
-  sel.value = {
+  sel.value = normalizeBrowseFilters({
     genres: s(route.query.genre),
     regions: s(route.query.region),
     countries: s(route.query.country),
@@ -463,8 +386,8 @@ function readUrl() {
     tags: s(route.query.tag),
     watched: wq != null && wq !== '' ? Number(wq) : null,
     rating: route.query.min_rating != null && route.query.min_rating !== '' ? Number(route.query.min_rating) : null,
-    ratingSource: ['tmdb', 'douban', 'custom'].includes(src) ? src : 'tmdb',
-  }
+    ratingSource: src,
+  })
   curMediaId.value = currentMediaId()
 }
 function buildParams(offset = 0) {
@@ -625,21 +548,44 @@ function onSearchEnter(e) {
 }
 async function showAll() {
   q.value = ''
-  sel.value = defaultSel()
+  sel.value = defaultBrowseFilters()
   if (!syncUrl()) await load()
 }
 async function clearFilters() {
-  sel.value = defaultSel()
+  closeSuggest()
+  sel.value = defaultBrowseFilters()
   await applyAndLoad()
 }
 async function clearAll() { await showAll() }
 // 上传/归档完成后刷新海报墙与 facets（UploadDialog 内部只发信号）
 async function onUpDone() { await loadFacets(); await load() }
 async function loadFacets() {
+  const seq = ++facetsSeq
+  const scope = currentMediaId()
+  if (facetsScope !== scope) {
+    facets.value = emptyFacets()
+    colItems.value = []
+    facetsScope = scope
+  }
+  facetsLoading.value = true
+  facetsError.value = ''
   const lq = mediaParam() != null ? ('?media_library=' + mediaParam()) : ''
-  try { facets.value = await api('/api/facets' + lq) } catch (e) { /* 库空时忽略 */ }
-  try { colItems.value = (await api('/api/collections' + lq)).items || [] } catch (e) { /* 忽略 */ }
+  try {
+    const [facetResult, collectionsResult] = await Promise.allSettled([
+      api('/api/facets' + lq), api('/api/collections' + lq),
+    ])
+    if (disposed || seq !== facetsSeq) return
+    if (facetResult.status === 'fulfilled') facets.value = facetResult.value
+    else facetsError.value = '筛选选项加载失败：' + facetResult.reason.message
+    if (collectionsResult.status === 'fulfilled') colItems.value = collectionsResult.value.items || []
+    else msg.value = '合集列表加载失败：' + collectionsResult.reason.message
+  } catch (e) {
+    if (!disposed && seq === facetsSeq) facetsError.value = '筛选选项加载失败：' + e.message
+  } finally {
+    if (!disposed && seq === facetsSeq) facetsLoading.value = false
+  }
 }
+
 function onCard(m) {
   if (selecting.value) toggleSelect(m.id)
   else router.push('/m/' + m.id)
@@ -870,7 +816,7 @@ function historyKey() { return browseKey('/', currentMediaId(), buildParams()) }
 onBeforeRouteLeave(() => {
   if (!firstLoaded.value) return
   saveBrowse(historyKey(), { path: '/', mediaId: currentMediaId(), query: route.query,
-    items: items.value, hasMore: hasMore.value, filtersOpen: filtersOpen.value,
+    items: items.value, hasMore: hasMore.value, filtersOpen: false,
     anchor: captureAnchor(), scrollTop: window.scrollY })
 })
 async function restoreWall() {
@@ -878,7 +824,7 @@ async function restoreWall() {
   if (snapshot) {
     items.value = snapshot.items
     hasMore.value = snapshot.hasMore
-    filtersOpen.value = snapshot.filtersOpen
+    filtersOpen.value = false
   } else await load()
   firstLoaded.value = true
   await nextTick()
@@ -939,17 +885,24 @@ onMounted(async () => {
 onUnmounted(() => {
   disposed = true
   loadSeq++
+  facetsSeq++
   window.removeEventListener('keydown', escExit)
   clearTimeout(suggestTimer)
   if (unsubLib) { try { unsubLib() } catch (e) { /* 忽略 */ } unsubLib = null }
   if (loadIO) { try { loadIO.disconnect() } catch (e) { /* 忽略 */ } loadIO = null }
 })
 function escExit(e) {
-  if (e.key === 'Escape' && selecting.value && !suggestOpen.value && !tagDlg.value && !colDlg.value && !delDlg.value && !upDlg.value) {
+  if (e.key === 'Escape' && !e.defaultPrevented && !filtersOpen.value && selecting.value && !suggestOpen.value && !tagDlg.value && !colDlg.value && !delDlg.value && !upDlg.value) {
     clearSelection()
   }
 }
-watch(() => route.query, () => { if (route.path !== '/') return; readUrl(); loadFacets(); load() })
+watch(() => route.query, () => {
+  if (route.path !== '/') return
+  readUrl()
+  // Facets describe the whole media library, so applying filters need not reload them.
+  if (facetsScope !== currentMediaId()) loadFacets()
+  load()
+})
 </script>
 <style scoped>
 

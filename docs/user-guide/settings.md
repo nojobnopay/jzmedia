@@ -92,7 +92,7 @@ OpenCode Go 的模型 ID 直接填写 `glm-5.3-flash` 这类名称，不加 `ope
 
 2026-10-02 核对时，Go 官方将其定位为编程代理服务；jzmedia 的影视搜索与匹配用途尚未完成真实服务验证，不能保证订阅和 Key 可用于此场景。详见[官方使用范围](https://opencode.ai/docs/go/#where-can-i-use-it)。被拒绝时检查凭据、订阅及服务商的用途要求，仍可改用 DeepSeek 或其他兼容服务。
 
-<DocFigure src="../assets/screenshots/ai-settings-go.webp" alt="智能辅助设置中选择 OpenCode Go，显示预填地址、模型和用途提示" caption="v0.19.0，2026-10-02：真实设置界面配合模拟 API，无真实 Key。图中测试结果仅演示交互，不代表 OpenCode Go 已连通。" />
+<DocFigure src="../assets/screenshots/ai-settings-go.webp" alt="智能辅助设置中选择 OpenCode Go，显示预填地址、模型和用途提示" caption="v0.19.0，2026-10-03：真实设置界面配合模拟 API，无真实 Key。图中测试结果仅演示交互，不代表 OpenCode Go 已连通。" />
 
 点击“保存智能辅助配置”后，再点“测试已保存连接”。可以先测试连接再启用；修改地址、模型或 Key 后要先保存。API 基础地址填写到接口根目录，不包含 `/chat/completions`；例如 DeepSeek 的 `https://api.deepseek.com`，或本地兼容服务的 `http://localhost:11434/v1`。本地地址由 jzmedia 服务器访问，容器中的 `localhost` 指容器自身。
 

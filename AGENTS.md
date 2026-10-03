@@ -50,6 +50,8 @@
 
 ## Conventions / constraints
 
+- Web 筛选（2026-10-03）：电影/剧集墙共用 `BrowseFilters` 快捷面板和全部筛选抽屉，`BrowseFilterSummary` 显示可移除的已选条件；面板草稿在“应用筛选”时才生效，关闭/Escape 丢弃，重置只改草稿。手机全部筛选为全屏。`browseFilters.js` 统一规范化/计数/标签，国家选择清除大区，年份与年代取交集；选项计数为本库总量，不是组合结果预估。媒体库/路由变化丢弃草稿，facets 请求代际防旧库回包；返回详情恢复列表位置，不恢复打开的面板。回归 `browseFilters.test.js` / `browseFilterPages.test.js`、隔离浏览器 `scripts/smoke_browse_filters.mjs`；说明 `docs/user-guide/find-movies.md`。
+
 - UI 设计系统（2026-10-02）：`styles/tokens.css` 定义语义变量，`styles/base.css` 承载原 App 全局基础样式；通用控件 `JzButton/JzField/JzDialog/AppIcon`，浏览页 `BrowseToolbar/BrowseResultsHeader/EmptyState`。弹窗 Teleport 后主按钮仍独立生效，焦点陷阱按最上层处理；复杂播放器/文件预览保留专门生命周期。项目 skill `.agents/skills/jzmedia-ui/SKILL.md` 与 `docs/developer/design-system.md` 说明使用边界；`node scripts/smoke_design_system.mjs [--demo|--capture]` 为隔离组件目录及浏览器检查，不接真实 API/媒体，输出 `output/playwright/` 不提交。
 
 - UI 信息层级（2026-10-02）：设置用分区标题/范围与扁平表单，概览待办优先、媒体连接可展开、TMDB 凭据/可选配置/真实验证结果分组；手机分类入口紧凑。浏览页统一结果数量/排序，继续观看为横向紧凑卡片；手机详情小海报与标题并排、操作先于简介，未匹配电影/剧先点“匹配资料”展开原表单。手机文件名下显示元信息，保留五项排序与“更多”操作。四步引导显示进度和明确导入目标；`useFocusTrap` 嵌套锁背景滚动、菜单打开弹窗前恢复可见触发器，上传操作常驻 footer。`node scripts/ui_visual_review.mjs` 用完整模拟 API/原创海报审查 1440/390/375px，`--source` 冻结改前源码，同 fixture 哈希才可比较；`--capture-docs` 更新对应教程图，详见 `docs/developer/documentation.md`。

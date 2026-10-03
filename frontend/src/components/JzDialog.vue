@@ -1,8 +1,8 @@
 <template>
   <Teleport to="body">
-    <div v-if="open" :class="['jz-dialog-mask', `jz-dialog-mask--${layer}`, maskClass]"
+    <div v-if="open" :class="['jz-dialog-mask', `jz-dialog-mask--${layer}`, `jz-dialog-mask--${presentation}`, maskClass]"
       @click.self="onBackdrop">
-      <section ref="dialog" v-bind="$attrs" :class="['jz-dialog', `jz-dialog--${size}`]"
+      <section ref="dialog" v-bind="$attrs" :class="['jz-dialog', `jz-dialog--${size}`, `jz-dialog--${presentation}`]"
         role="dialog" aria-modal="true" :aria-labelledby="labelledby || $attrs['aria-labelledby'] || (title ? titleId : undefined)" tabindex="-1">
         <header class="jz-dialog-header">
           <div class="jz-dialog-heading"><slot name="header" :title-id="titleId"><h2 :id="titleId">{{ title }}</h2></slot></div>
@@ -27,6 +27,7 @@ const props = defineProps({
   title: { type: String, default: '' },
   labelledby: { type: String, default: '' },
   size: { type: String, default: 'medium', validator: value => ['small', 'medium', 'large'].includes(value) },
+  presentation: { type: String, default: 'default', validator: value => ['default', 'drawer', 'popover'].includes(value) },
   layer: { type: String, default: 'dialog', validator: value => ['dialog', 'preview', 'auth'].includes(value) },
   busy: Boolean,
   closeOnBackdrop: { type: Boolean, default: true },
@@ -67,9 +68,20 @@ defineExpose({ element: dialog })
 .jz-dialog-close { flex: none; width: var(--jz-control-current); min-width: var(--jz-control-current); padding: 8px; margin: -4px -8px -4px 0; }
 .jz-dialog-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px; line-height: 1.6; overflow-wrap: anywhere; }
 .jz-dialog-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; flex: none; border-top: 1px solid var(--jz-border); padding: 16px 24px; }
+.jz-dialog-mask--drawer { justify-content: flex-end; align-items: stretch; padding: 0; }
+.jz-dialog--drawer { width: min(440px, 100%); height: 100dvh; max-height: 100dvh; border-radius: 0; border-width: 0 0 0 1px; }
+.jz-dialog--drawer .jz-dialog-body { flex: 1; }
+.jz-dialog-mask--popover { background: var(--jz-overlay-soft); }
+.jz-dialog--popover { position: absolute; left: var(--jz-popover-left, 24px); top: var(--jz-popover-top, 24px); width: min(380px, calc(100vw - 24px)); max-height: var(--jz-popover-max-height, calc(100dvh - 48px)); }
+@media (max-width: 700px) {
+  .jz-dialog-mask--drawer { padding: 0; }
+  .jz-dialog--drawer { width: 100%; max-height: 100dvh; border: 0; }
+  .jz-dialog--drawer .jz-dialog-footer { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+  .jz-dialog--popover { inset: auto 12px max(12px, env(safe-area-inset-bottom)); width: auto; max-height: calc(100dvh - 48px); }
+}
 @media (max-width: 600px) {
-  .jz-dialog-mask { padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
-  .jz-dialog { max-height: calc(100dvh - 24px); }
+  .jz-dialog-mask--default, .jz-dialog-mask--popover { padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .jz-dialog--default { max-height: calc(100dvh - 24px); }
   .jz-dialog-header, .jz-dialog-body { padding: 16px; }
   .jz-dialog-footer { padding: 14px 16px; }
   .jz-dialog-footer :deep(.jz-button--primary) { flex: 1; }

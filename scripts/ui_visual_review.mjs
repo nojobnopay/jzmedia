@@ -36,7 +36,7 @@ const coreScenes=[
 ]
 const scenes=[...coreScenes,...(core?[]:[
   ...[1,2,3,4].map(step=>({name:'setup-'+step,route:'/setup',step})),
-  {name:'movie-filters',route:'/',action:async page=>{await page.getByRole('button',{name:/^筛选/}).click();await page.locator('#browse-filters').waitFor()}},
+  {name:'movie-filters',route:'/',overlay:true,action:async page=>{await page.getByRole('button',{name:/^全部筛选/}).click();await page.getByRole('dialog',{name:'全部筛选',exact:true}).waitFor()}},
   {name:'file-checkbox-selection',route:'/settings?sec=sec-files&library=1',action:async page=>{const row=page.locator('.fs-row').filter({hasText:'远山来信.mkv'});await row.locator('.fs-name').click();assert.equal(await row.locator('input').isChecked(),false);await page.getByRole('checkbox',{name:'选择 远山来信.mkv',exact:true}).check();await page.locator('.fs-row').filter({hasText:'最后一班夜航.mkv'}).locator('.fs-name').click();assert.equal(await page.locator('.fs-row.selected').count(),1);assert.equal(await page.locator('.fs-row.focused input').isChecked(),false)}},
   {name:'movie-empty',route:'/',mode:'empty'}, {name:'movie-no-results',route:'/?q='+encodeURIComponent('没有这部影片')},
   {name:'tv-empty',route:'/tv',mode:'empty'},
@@ -95,7 +95,7 @@ async function captureDocs() {
   const sourceCommit=execFileSync('git',['rev-parse','--short','HEAD'],{cwd:root,encoding:'utf8'}).trim()
   const samples=[
     ['movie-library','movie-wall',1440,'user-guide/find-movies.md','紧凑继续观看、完整虚构海报墙与独立排序'],
-    ['movie-filters','movie-filters',1440,'user-guide/find-movies.md','展开的多维筛选与完整虚构电影资料'],
+    ['movie-filters','movie-filters',1440,'user-guide/find-movies.md','电影墙右侧的全部筛选面板、分组条件与固定应用操作'],
     ['mobile-library','movie-wall',390,'user-guide/find-movies.md','390px 手机的搜索、继续观看、排序与三列海报墙'],
     ['collections','collection-detail',1440,'user-guide/collections.md','虚构合集详情及成员海报'],
     ['library-connection','settings-libraries',1440,'user-guide/libraries.md','媒体库连接及分组视频库条目'],
@@ -183,11 +183,11 @@ try {
           if(scene.name==='movie-unmatched')metrics.posterFallback=await page.locator('.poster-empty').evaluate(element=>{const s=getComputedStyle(element);return {display:s.display,align:s.alignItems,justify:s.justifyContent,font:parseFloat(s.fontSize)}})
           if(scene.name.endsWith('-dialog'))metrics.dialog=await page.getByRole('dialog').last().evaluate(element=>{const r=element.getBoundingClientRect(),f=element.querySelector('.jz-dialog-footer')?.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,footerBottom:f?.bottom??null,scrollLocked:document.body.style.overflow==='hidden',focusInside:element.contains(document.activeElement),activeTag:document.activeElement?.tagName,activeText:document.activeElement?.textContent?.trim().slice(0,90)}})
           const file=`${scene.name}-${viewport.width}.png`
-          if(viewport.width!==375)await page.screenshot({path:path.join(output,file),fullPage:!scene.name.endsWith('-dialog'),animations:'disabled'})
+          if(viewport.width!==375)await page.screenshot({path:path.join(output,file),fullPage:!scene.name.endsWith('-dialog')&&!scene.overlay,animations:'disabled'})
           const expectedError=scene.mode==='error'
           const actualErrors=expectedError?errors.filter(e=>!e.includes('503')):errors
           const actualFailures=failedRequests.filter(r=>!(expectedError&&r.status===503&&r.url===(scene.apiPath||'/api/search')))
-          const entry={name:scene.name,route:scene.route,viewport,file:viewport.width===375?null:file,screenshot_mode:scene.name.endsWith('-dialog')?'viewport':'full-page',metrics,errors:actualErrors,failedRequests:actualFailures,unexpected:[...fixture.state.unexpected],expectedFailure:expectedError?failedRequests:[]}
+          const entry={name:scene.name,route:scene.route,viewport,file:viewport.width===375?null:file,screenshot_mode:scene.name.endsWith('-dialog')||scene.overlay?'viewport':'full-page',metrics,errors:actualErrors,failedRequests:actualFailures,unexpected:[...fixture.state.unexpected],expectedFailure:expectedError?failedRequests:[]}
           if(scene.name==='movie-unmatched'&&!label.includes('before')){const f=metrics.posterFallback;assert.equal(f.display,'flex');assert.equal(f.align,'center');assert.equal(f.justify,'center');assert.ok(f.font>=(viewport.width<=700?32:48),'Missing-poster initial remains legible')}
           if(scene.name.endsWith('-dialog')&&!label.includes('before')){
             assert.ok(metrics.dialog.x>=0&&metrics.dialog.y>=0&&metrics.dialog.right<=viewport.width+1&&metrics.dialog.bottom<=viewport.height+1,'Dialog fits viewport')

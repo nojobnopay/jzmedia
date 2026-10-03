@@ -26,9 +26,11 @@
         </li>
       </ul>
     </div>
-    <JzButton class="browse-tool" :aria-expanded="filtersOpen && !filtersDisabled" :aria-controls="filtersId" :disabled="filtersDisabled" @click="$emit('update:filtersOpen', !filtersOpen)">
-      筛选<span v-if="activeCount"> · {{ activeCount }}</span><span aria-hidden="true">{{ filtersOpen ? '⌃' : '⌄' }}</span>
-    </JzButton>
+    <slot name="filters">
+      <JzButton class="browse-tool" :aria-expanded="filtersOpen && !filtersDisabled" :aria-controls="filtersId" :disabled="filtersDisabled" @click="$emit('update:filtersOpen', !filtersOpen)">
+        筛选<span v-if="activeCount"> · {{ activeCount }}</span><span aria-hidden="true">{{ filtersOpen ? '⌃' : '⌄' }}</span>
+      </JzButton>
+    </slot>
     <JzButton class="browse-tool" variant="ghost" :aria-expanded="aiOpen" :aria-controls="id + '-ai'" @click="$emit('update:aiOpen', !aiOpen)">智能搜索</JzButton>
     <slot />
   </div>

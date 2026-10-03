@@ -6,17 +6,8 @@
 .browse-page .manage-link { color: var(--jz-text-dim); text-decoration: none; font-size: var(--jz-font-s); white-space: nowrap; }
 .browse-page .manage-link:hover { color: var(--jz-text); text-decoration: underline; }
 .browse-page .page-feedback { border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); background: var(--jz-surface); padding: var(--jz-gap-m) var(--jz-gap-l); margin: var(--jz-gap-m) 0; font-size: var(--jz-font-m); line-height: 1.6; overflow-wrap: anywhere; }
-.browse-page .filters { display: flex; flex-direction: column; margin: 0 0 var(--jz-gap-xl); padding: var(--jz-gap-m) var(--jz-gap-l); border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); background: var(--jz-surface); }
-.browse-page .frow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-s); padding: var(--jz-gap-xs) 0; }
-.browse-page .flabel { min-width: 64px; color: var(--jz-text-dim); font-size: var(--jz-font-s); }
 .browse-page .chip { min-height: 32px; border: 1px solid var(--jz-border); border-radius: var(--jz-radius-s); background: transparent; font-size: var(--jz-font-s); padding: var(--jz-gap-xs) var(--jz-gap-m); }
 .browse-page .chip.on { border-color: var(--jz-accent); color: var(--jz-text); background: var(--jz-selected); }
-.browse-page .chip.off { color: var(--jz-text-faint); }
-.browse-page .chip.tag { border-style: dashed; }
-.browse-page .filter-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-s); margin: 0 0 var(--jz-gap-l); color: var(--jz-text-dim); font-size: var(--jz-font-s); }
-.browse-page .filter-summary > span:nth-child(2) { overflow-wrap: anywhere; }
-.browse-page .filter-summary button { background: transparent; border-color: transparent; padding: var(--jz-gap-xs); color: var(--jz-link); }
-.browse-page .filter-help { color: var(--jz-text-dim); font-size: var(--jz-font-s); margin-top: var(--jz-gap-s); line-height: 1.6; }
 .browse-page .grid { padding: 0; gap: var(--jz-gap-2xl) var(--jz-gap-l); }
 .browse-page .grid > .card { min-width: 0; background: transparent; overflow: visible; border-radius: var(--jz-radius-m); }
 .browse-page .card .poster-wrap { border-radius: var(--jz-radius-m); overflow: hidden; background: var(--jz-surface-2); }
@@ -38,11 +29,7 @@
   .browse-actions { gap: var(--jz-gap-s); }
   .browse-page .manage-link { display: inline-flex; align-items: center; min-height: var(--jz-touch-target); }
   .browse-actions summary { min-height: var(--jz-touch-target); padding: var(--jz-gap-s); }
-  .browse-page .filters { padding: var(--jz-gap-s) var(--jz-gap-m); margin-bottom: var(--jz-gap-m); }
-  .browse-page .frow { gap: var(--jz-gap-xs); }
-  .browse-page .flabel { flex-basis: 100%; }
   .browse-page .chip { min-height: var(--jz-touch-target); }
-  .browse-page .filter-summary button { min-height: var(--jz-touch-target); }
   .browse-page .grid { grid-template-columns: repeat(auto-fill, minmax(min(var(--jz-mobile-poster-min), 100%), 1fr)); gap: var(--jz-gap-l) var(--jz-gap-s); }
   .browse-page .grid .score-badge { padding-inline: var(--jz-gap-xs); }
   .browse-page .show-card .seen, .browse-page .show-card .review { top: auto; bottom: var(--jz-gap-xs); }

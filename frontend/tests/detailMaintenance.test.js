@@ -2,13 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as Vue from 'vue'
 import { loadSfc } from './helpers/loadSfc.js'
-import { renderHarness, flush, nodeText } from './helpers/renderHarness.js'
+import { renderHarness, flush, nodeText, deferred } from './helpers/renderHarness.js'
 
 const vue = { ...Vue, vShow: {}, vModelText: {}, vModelSelect: {}, vModelCheckbox: {} }
 const blank = { setup: () => () => Vue.h('div') }
 const button = (ui, label) => ui.find(node => node.type === 'button' && nodeText(node).trim() === label)
 
-async function detail(t, kind, metadata = {}) {
+async function detail(t, kind, metadata = {}, responses = {}) {
   // Only native listener targets are replaced. The page, menu, notice and their
   // event handlers still run through the real Vue setup/template and renderer.
   const descriptors = new Map(['window', 'document'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
@@ -32,7 +32,7 @@ async function detail(t, kind, metadata = {}) {
     genres: [], persons: [], versions: [], seasons: [], episodes: [], extras: [],
     watched_count: 0, episode_count: 0, ...metadata,
   }
-  const route = Vue.reactive({ params: { id: String(item.id) }, query: {} })
+  const route = Vue.reactive({ path: kind === 'movie' ? `/m/${item.id}` : `/tv/${item.id}`, params: { id: String(item.id) }, query: {} })
   const requests = [], editorMounts = []
   const editor = {
     props: ['mode', 'movie', 'movieId'], emits: ['close'],
@@ -49,6 +49,8 @@ async function detail(t, kind, metadata = {}) {
     'vue-router': { useRoute: () => route, useRouter: () => ({ push() {} }) },
     '../api.js': { posterUrl: path => path, api: async (path, options) => {
       requests.push({ path, options })
+      const response = responses.api?.(path, options, item)
+      if (response !== undefined) return response
       if (path === mainPath) return item
       if (path === '/api/health') return { ffmpeg: true }
       if (path === '/api/stream/versions') return { versions: [], best_version_id: item.id }
@@ -73,7 +75,7 @@ async function detail(t, kind, metadata = {}) {
   await flush()
   assert.match(ui.text(), new RegExp(item.title))
   assert.ok(ui.find(node => node.type === 'summary' && nodeText(node).includes('更多操作')))
-  return { ...ui, item, editorMounts, requests }
+  return { ...ui, item, editorMounts, requests, route }
 }
 
 test('unmatched movie keeps its editor closed until requested and preserves matching/editing menu actions', async t => {
@@ -151,3 +153,76 @@ for (const kind of ['movie', 'tv']) {
     })
   }
 }
+
+test('leaving movie detail invalidates the pending load before files and collection hints are requested', async t => {
+  const health = deferred()
+  const ui = await detail(t, 'movie', {}, { api: path => path === '/api/health' ? health.promise : undefined })
+  assert.ok(!ui.requests.some(request => request.path.endsWith('/files')))
+  ui.route.path = '/'
+  ui.route.params = {}
+  await flush()
+  const count = ui.requests.length
+  health.resolve({ ffmpeg: true })
+  await flush()
+  assert.equal(ui.requests.length, count)
+  assert.ok(ui.requests.every(request => !request.path.includes('undefined')))
+})
+
+test('movie detail does not continue reading when the next route has the same numeric id', async t => {
+  const health = deferred()
+  const ui = await detail(t, 'movie', {}, { api: path => path === '/api/health' ? health.promise : undefined })
+  ui.route.path = '/tv/41'
+  const count = ui.requests.length
+  health.resolve({ ffmpeg: true })
+  await flush()
+  assert.equal(ui.requests.length, count)
+})
+
+test('late movie metadata cannot overwrite a newer detail or start its follow-up requests', async t => {
+  const previous = deferred()
+  const ui = await detail(t, 'movie', {}, { api: (path, _options, item) => {
+    if (path === '/api/movies/42') return previous.promise
+    if (path === '/api/movies/43') return { ...item, id: 43, title: '当前影片' }
+    if (path.startsWith('/api/movies/43/')) return path.includes('/similar') ? { items: [] } : null
+  } })
+  ui.route.path = '/m/42'; ui.route.params.id = '42'
+  await flush()
+  ui.route.path = '/m/43'; ui.route.params.id = '43'
+  await flush()
+  assert.match(ui.text(), /当前影片/)
+  previous.resolve({ ...ui.item, id: 42, title: '过期影片' })
+  await flush()
+  assert.match(ui.text(), /当前影片/)
+  assert.doesNotMatch(ui.text(), /过期影片/)
+  assert.ok(!ui.requests.some(request => request.path.startsWith('/api/movies/42/')))
+})
+
+test('late version probing cannot replace a new movie or request progress for the old one', async t => {
+  const previous = deferred()
+  const ui = await detail(t, 'movie', {}, { api: (path, options, item) => {
+    if (path === '/api/stream/versions') {
+      const id = JSON.parse(options.body).movie_id
+      return id === 41 ? previous.promise : { versions: [], best_version_id: id }
+    }
+    if (path === '/api/movies/42') return { ...item, id: 42, title: '新影片' }
+    if (path.startsWith('/api/movies/42/')) return path.includes('/similar') ? { items: [] } : null
+  } })
+  ui.route.path = '/m/42'; ui.route.params.id = '42'
+  await flush()
+  previous.resolve({ versions: [{ version_id: 41, playable: true, duration_text: '过期时长', audio_count: 0, sub_count: 0 }], best_version_id: 41 })
+  await flush()
+  assert.match(ui.text(), /新影片/)
+  assert.doesNotMatch(ui.text(), /过期时长/)
+  assert.ok(!ui.requests.some(request => request.path === '/api/stream/progress?version_id=41'))
+  assert.ok(ui.requests.some(request => request.path === '/api/stream/progress?version_id=42'))
+})
+
+test('unmounting movie detail stops the pending load chain even before the route changes', async t => {
+  const health = deferred()
+  const ui = await detail(t, 'movie', {}, { api: path => path === '/api/health' ? health.promise : undefined })
+  ui.app.unmount()
+  const count = ui.requests.length
+  health.resolve({ ffmpeg: true })
+  await flush()
+  assert.equal(ui.requests.length, count)
+})

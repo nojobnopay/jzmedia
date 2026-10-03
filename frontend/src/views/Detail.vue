@@ -213,7 +213,7 @@ import AppIcon from '../components/AppIcon.vue'
 import MediaBackdrop from '../components/MediaBackdrop.vue'
 import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl } from '../api.js'
 import { usePolling } from '../usePolling.js'
@@ -235,6 +235,20 @@ import { currentMediaId, isRemoteVideoLib } from '../libraries.js'
 
 const route = useRoute()
 const router = useRouter()
+let disposed = false
+let loadGeneration = 0
+let mediaGeneration = 0
+function currentMovieId() {
+  const id = String(route.params.id || '')
+  // The route updates before this component unmounts when returning to a wall.
+  if (!/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id))) return null
+  if (route.path && !/^\/m\/[1-9]\d*\/?$/.test(route.path)) return null
+  return id
+}
+function loadContext() { return { id: currentMovieId(), generation: loadGeneration } }
+function currentLoad(context) {
+  return !disposed && context.id != null && context.id === currentMovieId() && context.generation === loadGeneration
+}
 const m = ref(null)
 const sideFiles = ref(null)
 const msg = ref('')
@@ -311,19 +325,24 @@ const resumeText = computed(() => {
   if (isPlaybackComplete(pos, dur)) return ''
   return `上次看到 ${p.position_text || ''}`
 })
-async function loadMedia() {
+async function loadMedia(context = loadContext()) {
+  if (!currentLoad(context)) return
+  const generation = ++mediaGeneration
+  const current = () => currentLoad(context) && generation === mediaGeneration
   mediaLoading.value = true
   mediaError.value = ''
   // P1：一次取齐全版本（媒体+四档决策+最优版），带客户端实测 caps（打分随能力变化）
   try {
     const caps = await getCaps()
+    if (!current()) return
     const agg = await api('/api/stream/versions', {
       method: 'POST',
-      body: JSON.stringify({ movie_id: Number(route.params.id), quality: 'auto', caps }),
+      body: JSON.stringify({ movie_id: Number(context.id), quality: 'auto', caps }),
     })
+    if (!current()) return
     verList.value = agg.versions || []
     bestVid.value = agg.best_version_id || null
-    const cur = verList.value.find(x => Number(x.version_id) === Number(route.params.id))
+    const cur = verList.value.find(x => Number(x.version_id) === Number(context.id))
     mediaInfo.value = cur && cur.playable
       ? { playable: true, duration_text: cur.duration_text, duration: cur.duration,
           height: cur.height, vcodec: cur.vcodec, acodec: '',
@@ -342,18 +361,21 @@ async function loadMedia() {
       verMethod.value[x.version_id] = x.method
     }
     // hero 默认选中浏览器最优版（无效时回落当前行）
-    heroVid.value = bestVid.value || Number(route.params.id)
+    heroVid.value = bestVid.value || Number(context.id)
   } catch (e) {
+    if (!current()) return
     mediaInfo.value = null
     mediaError.value = String(e.message || e)
-    heroVid.value = Number(route.params.id)
+    heroVid.value = Number(context.id)
   } finally {
-    mediaLoading.value = false
+    if (current()) mediaLoading.value = false
   }
+  if (!current()) return
   try {
     const p = await api(`/api/stream/progress?version_id=${heroVid.value}`)
+    if (!current()) return
     progressInfo.value = (p && Number(p.position) > 0) ? p : null
-  } catch (e) { progressInfo.value = null }
+  } catch (e) { if (current()) progressInfo.value = null }
 }
 // 在线播放 P1：版本选播弹窗（播放单位=版本行 id）+ 播完标已看（阈值逻辑 P3 进弹窗内）
 const playVid = ref(null)
@@ -534,44 +556,69 @@ async function onPlayEnded() {
 }
 
 async function load() {
+  const context = { id: currentMovieId(), generation: ++loadGeneration }
+  if (!currentLoad(context)) return
   regionNote.value = ''
   loadErr.value = ''
+  if (m.value && String(m.value.id) !== context.id) {
+    m.value = null
+    sideFiles.value = null
+    hint.value = null
+    mediaInfo.value = null
+    progressInfo.value = null
+    verBlocked.value = {}
+    verErr.value = {}
+    verMethod.value = {}
+  }
   try {
-    m.value = await api('/api/movies/' + route.params.id)
+    const movie = await api('/api/movies/' + context.id)
+    if (!currentLoad(context)) return
+    m.value = movie
   } catch (e) {
+    if (!currentLoad(context)) return
     loadErr.value = '加载失败：' + e.message
     return
   }
-  heroVid.value = Number(route.params.id)
+  heroVid.value = Number(context.id)
   // The visible review notice opens matching on demand; loading metadata must
   // not replace the viewing page with an automatically expanded maintenance form.
-  loadMedia()
-  loadSimilar()
+  loadMedia(context)
+  loadSimilar(context)
   try {
     const h = await api('/api/health')
+    if (!currentLoad(context)) return
     noFfmpeg.value = !h.ffmpeg
   } catch (e) { /* 健康检查失败不挡详情页 */ }
-  await reloadFiles()
+  if (!currentLoad(context)) return
+  await reloadFiles(context)
+  if (!currentLoad(context)) return
   try {
-    hint.value = await api('/api/movies/' + route.params.id + '/collection-hint')
+    const result = await api('/api/movies/' + context.id + '/collection-hint')
+    if (!currentLoad(context)) return
+    hint.value = result
     if (!hint.value?.collection_tmdb_id) hint.value = null
-  } catch (e) { hint.value = null }
+  } catch (e) { if (currentLoad(context)) hint.value = null }
 }
-async function loadSimilar() {
-  const mid = route.params.id
+async function loadSimilar(context = loadContext()) {
+  if (!currentLoad(context)) return
   similar.value = []
   try {
-    const d = await api(`/api/movies/${mid}/similar?limit=18`)
+    const d = await api(`/api/movies/${context.id}/similar?limit=18`)
     // 路由已切走则丢弃过期回包（同组件切片）
-    if (String(route.params.id) === String(mid)) similar.value = d.items || []
+    if (currentLoad(context)) similar.value = d.items || []
   } catch (e) { /* 推荐失败不挡详情页 */ }
 }
-async function reloadFiles() {
+async function reloadFiles(context = loadContext()) {
+  if (!currentLoad(context)) return
   try {
-    sideFiles.value = await api('/api/movies/' + route.params.id + '/files')
-  } catch (e) { sideFiles.value = null }
+    const files = await api('/api/movies/' + context.id + '/files')
+    if (!currentLoad(context)) return
+    sideFiles.value = files
+  } catch (e) { if (currentLoad(context)) sideFiles.value = null }
+  if (!currentLoad(context)) return
   try {
-    m.value = await api('/api/movies/' + route.params.id)
+    const movie = await api('/api/movies/' + context.id)
+    if (currentLoad(context)) m.value = movie
   } catch (e) { /* 忽略 */ }
 }
 
@@ -778,13 +825,18 @@ onMounted(() => {
   load()
   window.addEventListener('keydown', escPlayer)
 })
+onBeforeUnmount(() => { disposed = true; loadGeneration++ })
 onUnmounted(() => {
   window.removeEventListener('keydown', escPlayer)
   // 上传中止/计时由 MovieUploadPanel 自身卸载时处理（评审 B8/R05-B5）
   if (flashTimer) clearTimeout(flashTimer)
   if (posterObjUrl) URL.revokeObjectURL(posterObjUrl)
 })
-watch(() => route.params.id, () => { contentTab.value = 'info'; editing.value = ''; collectionsOpen.value = false; repairOpen.value = false; refreshMsg.value = ''; load() })   // 同组件切片重载（评审 B8/R05-Q3）
+watch(() => route.params.id, () => {
+  if (!currentMovieId()) { loadGeneration++; return }
+  contentTab.value = 'info'; editing.value = ''; collectionsOpen.value = false; repairOpen.value = false; refreshMsg.value = ''
+  load()
+})   // 同组件切片重载（评审 B8/R05-Q3）
 </script>
 <style scoped>
 .top-right { display: flex; gap: 8px; align-items: center; }.saved-flash { color: var(--jz-success); font-size: 0.875rem; }.poster.zoomable { cursor: zoom-in; }.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }.poster-dlg { text-align: center; }.poster-dlg .bar { justify-content: center; }.needs-review { color: var(--jz-danger); font-size: 0.875rem; border: 1px solid var(--jz-danger-border); border-radius: 999px; padding: 1px 4px 1px 10px; margin-left: 8px; vertical-align: middle; display: inline-flex; align-items: center; gap: 4px; }.needs-review .nr-btn { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--jz-danger-border); background: transparent; color: var(--jz-danger); cursor: pointer; }.needs-review .nr-btn.ok { border-color: var(--jz-success-border); color: var(--jz-success); }.needs-review .nr-btn:disabled { opacity: .6; cursor: wait; }.edition-chip { color: var(--jz-blue-chip); font-size: 0.875rem; border: 1px solid var(--jz-info-border); border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.edition-chip.spec { color: var(--jz-success); border-color: var(--jz-success-border); }.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }.media-badge { color: var(--jz-link); font-size: 0.875rem; border: 1px solid var(--jz-info-border); border-radius: 999px; padding: 1px 10px; }.media-warn { color: var(--jz-warn); font-size: 0.8125rem; border: 1px dashed var(--jz-warn-border); border-radius: 999px; padding: 1px 10px; }.media-loading { color: var(--jz-text-faint); font-size: 0.8125rem; }.resume-hint { color: var(--jz-text-dim); font-size: 0.8125rem; }.ver-sel { background: var(--jz-surface-3); color: var(--jz-text-dim); border: 1px solid var(--jz-border-strong); border-radius: 8px; padding: 6px 8px; max-width: 320px; }.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }.pre-sel { background: var(--jz-surface-3); color: var(--jz-text-dim); border: 1px solid var(--jz-warn-border); border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }.pre-btn { background: transparent; border: 1px dashed var(--jz-warn-border); color: var(--jz-warn); border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 0.8125rem; }.pre-btn:disabled { opacity: 0.6; cursor: wait; }.src { color: var(--jz-text-faint); font-weight: normal; }.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed var(--jz-border-strong); color: var(--jz-text-dim); }.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--jz-info-border); color: var(--jz-blue-chip); cursor: pointer; }.watched-chip { color: var(--jz-success); font-size: 0.875rem; border: 1px solid var(--jz-success-border); border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.hint-row { margin-top: 6px; color: var(--jz-text-dim); font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.hint-row .fhint { color: var(--jz-text-faint); font-size: 0.75rem; }.crew { margin: 8px 0; font-size: 0.9375rem; }.role { color: var(--jz-text-faint); margin-right: 8px; font-size: 0.875rem; }.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: var(--jz-surface-3); border: 1px solid var(--jz-border); cursor: pointer; font-size: 0.9375rem; }.actor-chip:hover { border-color: var(--jz-blue-chip); color: var(--jz-blue-chip); }.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }.cast-card { cursor: pointer; min-width: 0; }.cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: var(--jz-surface-3); }.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: var(--jz-text-faint); border: 1px solid var(--jz-border); }.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }.facts .fact span:first-child { color: var(--jz-text-faint); min-width: 48px; flex-shrink: 0; }.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }.facts a { color: var(--jz-blue-chip); margin-right: 10px; }.arch-dlg { max-width: 720px; }.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }.arch-list li { display: flex; gap: 8px; align-items: center; background: var(--jz-surface-3); border: 1px solid var(--jz-border); border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }.arch-from { color: var(--jz-text-faint); overflow-wrap: anywhere; }.arch-arrow { color: var(--jz-blue-chip); }.arch-to { color: var(--jz-success); overflow-wrap: anywhere; }.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }.dlg { background: var(--jz-surface); border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }button.danger { border-color: var(--jz-danger-border); color: var(--jz-danger); }.hint.warn { color: var(--jz-warn); }
