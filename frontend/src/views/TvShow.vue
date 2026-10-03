@@ -12,7 +12,7 @@
             <h1>{{ show.title }}<span v-if="show.year" class="dim"> ({{ show.year }})</span></h1>
             <HeroRatings :tmdb="show.tmdb_rating" />
             <div class="meta">
-              <span v-if="show.status">{{ statusText(show.status) }}</span>
+              <span v-if="collection?.status_text || show.status">{{ collection?.status_text || statusText(show.status) }}</span>
               <span v-if="show.first_air_date">{{ show.first_air_date }}</span>
               <span v-if="show.region">{{ show.region }}</span>
               <span v-if="show.episode_run_time">{{ show.episode_run_time }} 分钟/集</span>
@@ -39,6 +39,9 @@
             <span class="dim">{{ show.watched_count }}/{{ show.episode_count }} 已看</span>
             <span v-if="busy" class="dim">{{ organizing ? '正在检查本剧目录…' : '处理中…' }}</span>
           </div>
+          <TvCollectionStatus v-if="show.tmdb_id" :snapshot="collection" :matched="!!show.tmdb_id && !show.needs_review"
+            :loading="collectionLoading" :checking="collectionChecking" :error="collectionError" :notice="collectionNotice"
+            :scope-label="show.media_name" @check="checkCollection" @retry="reloadCollection" />
           <MediaOverview :text="show.overview || ''" />
           <EmptyState v-if="loadError" state="error" title="剧集刷新失败" :text="loadError" retry @retry="load()" />
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
@@ -71,26 +74,34 @@
         </div>
       </div>
     </div>
-    <section v-if="show.seasons && show.seasons.length" class="card-block season-sec">
-      <h3>选择剧季 <span class="dim">{{ show.seasons.length }}</span></h3>
+    <section v-if="seasonCards.length" class="card-block season-sec">
+      <h3>选择剧季 <span class="dim">{{ seasonCards.length }}</span></h3>
+      <p v-if="collection" class="season-scope">收藏按当前媒体库统计；已看和继续观看对应当前视频库的本地文件。</p>
+      <p v-for="note in collectionNotes" :key="note" class="season-scope collection-explanation">{{ note }}</p>
       <div class="season-grid">
-        <div v-for="s in show.seasons" :key="s.season" class="season-card"
-          role="link" tabindex="0" @keydown.enter.self="openSeason(s.season)" @click="openSeason(s.season)">
+        <article v-for="s in seasonCards" :key="s.season" class="season-card">
+          <router-link :to="`/tv/${show.id}/s/${s.season}`" class="season-card-main">
           <div class="season-poster">
-            <img v-if="s.poster_path" :src="posterUrl(s.poster_path, posterVer || undefined)" loading="lazy"
-              :alt="seasonLabel(s.season)" />
+            <img v-if="seasonPoster(s) && !failedSeasonPosters.has(s.season)" :src="seasonPoster(s)" loading="lazy"
+              :class="{ 'season-uncollected-image': s.collection_state === 'uncollected' }"
+              :alt="seasonLabel(s.season)" @error="failedSeasonPosters.add(s.season)" />
             <ArtworkPlaceholder v-else class="season-no-poster" kind="poster" :label="seasonLabel(s.season)" />
+            <span v-if="collectionBadge(s)" class="season-collection-badge">{{ collectionBadge(s) }}</span>
             <span v-if="seasonProgress(s.season).done" class="season-done"><AppIcon name="check" :size="14" />已看</span>
           </div>
           <div class="season-name">{{ s.name || seasonLabel(s.season) }}</div>
-          <div class="dim small">{{ seasonStat(s.season).distinct }} 集<template
-            v-if="seasonStat(s.season).versions > 1"> · {{ seasonStat(s.season).versions }} 版本</template>
-            · {{ seasonProgress(s.season).watched }}/{{ seasonProgress(s.season).total }} 已看</div>
+          <div class="season-card-meta">{{ s.collection_state ? collectionCountText(s) : `已收藏 ${seasonStat(s.season).distinct} 集` }}</div>
+          <div v-if="s.airing_state" class="season-card-meta">{{ airingLabel(s) }}<template v-if="s.airing_state === 'upcoming' && s.air_date"> · {{ s.air_date }}</template></div>
+          <div v-if="seasonStat(s.season).distinct > 0" class="season-card-meta">本地 {{ seasonProgress(s.season).watched }}/{{ seasonProgress(s.season).total }} 已看<template v-if="seasonStat(s.season).versions > 1"> · {{ seasonStat(s.season).versions }} 版本</template></div>
           <div v-if="seasonContinue(s.season)" class="season-ct">{{ seasonContinue(s.season) }}</div>
-        </div>
+          </router-link>
+          <div v-if="otherSources(s).length" class="season-sources">
+            <router-link v-for="source in otherSources(s)" :key="sourceSeasonPath(source)" :to="sourceSeasonPath(source)">在 {{ source.library_name || '其他视频库' }} 中查看</router-link>
+          </div>
+        </article>
       </div>
     </section>
-    <EmptyState v-if="!show.seasons?.length" state="empty" title="暂时没有剧季" text="扫描本剧所在的视频库后，已入库的剧季会显示在这里。" />
+    <EmptyState v-if="!seasonCards.length" :state="collectionLoading ? 'loading' : 'empty'" :title="collectionLoading ? '正在读取剧季资料' : '暂时没有剧季'" text="已入库的剧季与可用的播出资料会显示在这里。" />
     <CastWall :cast="castList" :original-language="show.original_language || ''" />
     <SimilarRow :items="similar" title="相关节目" subtitle="按电视网 / 类型 / 主创 / 主演推荐"
       @open="openShow" />
@@ -161,10 +172,24 @@ import PlayerModal from '../components/PlayerModal.vue'
 import CastWall from '../components/CastWall.vue'
 import HeroRatings from '../components/HeroRatings.vue'
 import SimilarRow from '../components/SimilarRow.vue'
+import TvCollectionStatus from '../components/TvCollectionStatus.vue'
+import { useTvCollection } from '../useTvCollection.js'
+import { airingLabel, collectionBadge, collectionCountText, collectionExplanation, mergeTvSeasons, sourceSeasonPath, tvSeasonLabel, uniqueSeasonSources } from '../tvCollection.js'
 
 const route = useRoute()
 const router = useRouter()
 const show = ref(null)
+const { data: collection, error: collectionError, notice: collectionNotice, loading: collectionLoading,
+  checking: collectionChecking, reload: reloadCollection, check: checkCollection } = useTvCollection(() => show.value, api)
+const seasonCards = computed(() => mergeTvSeasons(show.value?.seasons, collection.value?.seasons))
+const collectionNotes = computed(() => [...new Set(seasonCards.value.map(collectionExplanation).filter(Boolean))])
+const failedSeasonPosters = ref(new Set())
+function seasonPoster(season) {
+  return season.poster_path ? posterUrl(season.poster_path, posterVer.value || undefined) : season.poster_url || ''
+}
+function otherSources(season) {
+  return uniqueSeasonSources(season.sources).filter(source => Number(source.show_id) !== Number(show.value?.id) || Number(source.season) !== Number(season.season))
+}
 const loadError = ref('')
 let loadSeq = 0
 const msg = ref('')
@@ -197,8 +222,8 @@ function seasonStat (sn) {
   // 本地优先：剧详情不再带全量 episodes，季卡聚合由后端 seasons[] 直接给出；
   // 兼容旧响应（include_episodes=1）时回退 episodes 计算。
   const e = seasonEntry(sn)
-  if (e && (e.distinct || e.versions || e.total)) {
-    return { distinct: Number(e.distinct) || Number(e.total) || 0,
+  if (e && e.distinct != null) {
+    return { distinct: Number(e.distinct) || 0,
              versions: Number(e.versions) || 1 }
   }
   return seasonStats((show.value?.episodes || [])
@@ -253,7 +278,7 @@ const posterSrc = computed(() =>
   posterUrl(show.value?.poster_path, posterVer.value || show.value?.fetched_at || undefined))
 
 function pad (n) { return String(n).padStart(2, '0') }
-function seasonLabel (n) { return Number(n) === 0 ? '特典' : `第 ${n} 季` }
+function seasonLabel (n) { return tvSeasonLabel(n) }
 function epNo (e) {
   const base = `S${pad(e.season)}E${pad(e.episode)}`
   const end = Number(e.episode_end) > 0 ? `-E${pad(e.episode_end)}` : ''
@@ -282,7 +307,6 @@ function playExtra (x) {
     label: `${show.value.title} · ${x.label} · ${baseName(x.file_path)}`,
   }
 }
-function openSeason (sn) { router.push(`/tv/${show.value.id}/s/${sn}`) }
 function openShow (id) { router.push('/tv/' + id) }
 async function load (verify = '0') {
   const requestedId = String(route.params.id)
@@ -296,7 +320,10 @@ async function load (verify = '0') {
     const q = verify && verify !== '0' ? '?verify=' + encodeURIComponent(verify) : ''
     const detail = await api('/api/tv/shows/' + requestedId + q)
     if (!isCurrent()) return
+    const sameCollection = show.value && ['id', 'tmdb_id', 'media_library_id', 'needs_review']
+      .every(field => (Number(show.value[field]) || 0) === (Number(detail[field]) || 0))
     show.value = detail
+    if (sameCollection) reloadCollection()
     const mediaId = Number(detail.media_library_id)
     if (mediaId && mediaId !== currentMediaId()) {
       if (!switchMedia(mediaId)) {
@@ -533,6 +560,7 @@ async function onEnded () {
 onMounted(() => load())
 onUnmounted(() => { loadSeq++ })
 watch(() => route.params.id, () => { orgHint.value = null; bindingsOpen.value = false; load() })
+watch(() => show.value?.tmdb_id, () => { failedSeasonPosters.value = new Set() })
 </script>
 
 <style scoped>
@@ -553,8 +581,16 @@ watch(() => route.params.id, () => { orgHint.value = null; bindingsOpen.value = 
 
 .season-sec h3 { margin: 0 0 10px; font-size: 1.0625rem; color: var(--jz-text); }
 .season-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-.season-card { background: var(--jz-surface); border: 1px solid var(--jz-border); border-radius: 8px; overflow: hidden; cursor: pointer; }
-.season-card:hover { border-color: var(--jz-accent); }
+.season-card { background: var(--jz-surface); border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); overflow: hidden; min-width: 0; }
+.season-card:hover, .season-card:focus-within { border-color: var(--jz-accent); }
+.season-card-main { display: block; color: inherit; text-decoration: none; padding-bottom: var(--jz-gap-s); }
+.season-card-main:focus-visible { outline: 2px solid var(--jz-link); outline-offset: -3px; }
+.season-scope { color: var(--jz-text-dim); font-size: var(--jz-font-s); margin: 0 0 var(--jz-gap-m); line-height: 1.6; }
+.season-card-meta { padding: 2px var(--jz-gap-s); color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.6; overflow-wrap: anywhere; }
+.season-uncollected-image { filter: grayscale(.8) brightness(.7); }
+.season-collection-badge { position: absolute; top: var(--jz-gap-s); right: var(--jz-gap-s); background: var(--jz-overlay); color: var(--jz-text); padding: 3px var(--jz-gap-s); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s); font-size: var(--jz-font-s); }
+.season-sources { padding: 0 var(--jz-gap-s) var(--jz-gap-s); display: flex; flex-direction: column; }
+.season-sources a { font-size: var(--jz-font-s); min-height: var(--jz-touch-target); align-content: center; overflow-wrap: anywhere; }
 .season-poster { position: relative; background: var(--jz-surface-2); }
 .season-poster img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
 .season-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: var(--jz-surface-3); color: var(--jz-text-faint); font-size: 2rem; font-weight: bold; }

@@ -31,6 +31,8 @@
 
   <ContinueWatchingRow v-if="showContinue" ref="cwRef" kind="tv" :media-library-id="curMediaId"
     @open="openShow" @resume="resume" />
+  <TvUpdatesRow v-if="firstLoaded" ref="updatesRef" :active="showContinue" :media-library-id="curMediaId"
+    :mode="updatesMode" :initial-snapshot="updatesSnapshot" />
 
   <BrowseResultsHeader v-if="items.length" :title="q.trim() || activeCount ? '筛选结果' : '全部剧集'"
     :count="wallCountText" :sort="sort" :options="WALL_SORTS" :rating-source="sel.ratingSource"
@@ -102,6 +104,8 @@ import { WALL_SORTS, loadWallSort, normalizeWallSort, saveWallSort,
          toggleWallSort } from '../wallSort.js'
 import { buildTvParams, statusText } from '../tvWall.js'
 import ContinueWatchingRow from '../components/ContinueWatchingRow.vue'
+import TvUpdatesRow from '../components/TvUpdatesRow.vue'
+import { loadPrefs } from '../prefs.js'
 import PlayerModal from '../components/PlayerModal.vue'
 import ScoreBadge from '../components/ScoreBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -181,6 +185,10 @@ const curMediaId = ref(currentMediaId())
 const showContinue = computed(() => !activeCount.value && !q.value.trim())
 const playing = ref(null)
 const cwRef = ref(null)
+const updatesRef = ref(null)
+const updatesSnapshot = ref(null)
+const updatesMode = loadPrefs().tvUpdates
+watch(curMediaId, () => { updatesSnapshot.value = null }, { flush: 'sync' })
 const firstLoaded = ref(false)
 
 function pickSort(key) {
@@ -455,14 +463,16 @@ async function onWatched() {
 }
 
 function historyKey() { return browseKey('/tv', currentMediaId(), buildTvParams({ q: q.value, sel: sel.value, sort: sort.value, mediaId: mediaParam() })) }
-onBeforeRouteLeave(() => {
+onBeforeRouteLeave(to => {
   if (!firstLoaded.value) return
   saveBrowse(historyKey(), { path: '/tv', mediaId: currentMediaId(), query: route.query,
     items: items.value, hasMore: hasMore.value, filtersOpen: false,
-    anchor: captureAnchor(), scrollTop: window.scrollY })
+    anchor: captureAnchor(), scrollTop: window.scrollY,
+    updates: to?.path?.startsWith('/tv/') ? updatesRef.value?.snapshot?.() || null : null })
 })
 async function restoreWall() {
   const snapshot = readBrowse(historyKey())
+  updatesSnapshot.value = snapshot?.updates || null
   if (snapshot) {
     items.value = snapshot.items
     hasMore.value = snapshot.hasMore
@@ -471,6 +481,7 @@ async function restoreWall() {
   firstLoaded.value = true
   await nextTick()
   await cwRef.value?.ready()
+  await updatesRef.value?.ready()
   if (disposed || route.path !== '/tv') return
   await nextTick()
   await new Promise(resolve => requestAnimationFrame(resolve))

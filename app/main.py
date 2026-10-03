@@ -16,7 +16,7 @@ from .log import get_logger, setup_logging
 from .help_site import HelpFiles
 from .routers import (ai, ai_settings, collections, extras, files, fs, health, jobs, libraries,
                       media_libraries, metadata, movies, onboarding, persons, stream, tv,
-                      tv_bindings, tv_client)
+                      tv_airing as tv_airing_router, tv_bindings, tv_client)
 
 setup_logging()
 _logger = get_logger("main")
@@ -27,6 +27,8 @@ async def _lifespan(_app: FastAPI):
     # 启动初始化（评审 R01-Q1）：此前在模块导入期执行，测试无法隔离/导入即写盘
     ensure_dirs()
     store.init_db()
+    from . import tv_airing
+    tv_airing.start()
     # posters 子目录迁移（根部旧文件 → 功能子目录 + DB 旧值改写；幂等可重入）
     try:
         from . import posters as _posters
@@ -64,6 +66,7 @@ async def _lifespan(_app: FastAPI):
     _logger.info("jzmedia %s 启动：media=[%s] DATA_DIR=%s ENV=%s",
                  app.version, lib_desc, settings.data_dir, settings.env)
     yield
+    tv_airing.shutdown()
     # 优雅退出：杀掉全部转码进程（防重启/停服后孤儿 ffmpeg 继续烧 CPU 写分片）
     stream.shutdown_previews()
     stream.shutdown_sessions()
@@ -119,6 +122,7 @@ app.include_router(jobs.router)
 app.include_router(persons.router)
 app.include_router(stream.router)
 app.include_router(tv.router)
+app.include_router(tv_airing_router.router)
 app.include_router(tv_bindings.router)
 app.include_router(tv_client.router)
 # check_dir=False：目录由 lifespan ensure_dirs 创建，导入期不再有副作用（评审 R01-Q1）

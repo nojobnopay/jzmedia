@@ -20,6 +20,32 @@ for (const movie of movies) movie.versions=[{id:movie.id,file_path:movie.file_pa
 export const episodes = Array.from({length:8},(_,i)=>({id:401+i,show_id:201,show_title:tvTitles[0],show_year:2023,season:1,season_name:'第一季',episode:i+1,title:['潮汐带来的消息','第一班渡轮','无人接听的电话','雨落在旧码头','一起等到天亮','岛屿的另一边','风暴来临之前','我们终将再次相遇'][i],air_date:`2023-06-${String(1+i).padStart(2,'0')}`,overview,still_path:`posters/still-${i}.svg`,show_backdrop_path:'posters/backdrop-2.svg',exists:true,watched:i<2?1:0,progress:i===2?{...progress,duration:2700,position:820,remaining_sec:1880}:null,runtime:45,tmdb_rating:8.3,cast,season_count:2,file_path:`群岛之间/Season 01/S01E${String(i+1).padStart(2,'0')}.mkv`,library_id:2}))
 const allEpisodes=[...episodes,...episodes.map(e=>({...e,id:e.id+20,season:2,season_name:'第二季',watched:0,progress:null}))]
 export const shows = tvTitles.map((title,i)=>({id:201+i,title,year:2023-i,tmdb_id:9001+i,poster_path:`posters/show-${i}.svg`,backdrop_path:`posters/backdrop-${i+2}.svg`,library_id:2,library_name:'剧集',media_library_id:1,media_name:'客厅影库',genres:['剧情','悬疑'],tags:[],region:'华语',status:i%2?'Ended':'Returning Series',episode_run_time:45,first_air_date:'2023-06-01',original_language:'zh',tmdb_rating:8.7-i*.2,overview,watched_count:2,episode_count:16,season_count:2,seasons:[1,2].map(s=>({season:s,name:`第${s===1?'一':'二'}季`,poster_path:`posters/show-${i}-s${s}.svg`,episode_count:8,watched_count:s===1?2:0})),episodes:allEpisodes,cast,extras:[],next_episode:episodes[2]}))
+export function tvCollectionFixture(id = 201) {
+  const show = shows.find(item => item.id === Number(id)) || shows[0]
+  return { show_id: Number(id), tmdb_id: show.tmdb_id, media_library_id: 1, confirmed: true,
+    status: show.status, status_text: show.status === 'Ended' ? '已完结' : '连载中',
+    checked_at: 1790985600, next_check_at: 1791590400, error: '', missing_seasons: [],
+    latest_episode: { season: 2, episode: 8, title: '再次相遇', air_date: '2026-10-02', airing_state: 'aired', collection_state: 'collected' },
+    seasons: [0, 1, 2, 3].map(season => ({ season, name: season === 0 ? '特别篇（SP）' : `第 ${season} 季`,
+      overview, air_date: season === 0 ? '' : season === 3 ? '2027-01-01' : '2023-06-01',
+      airing_state: season === 0 ? 'unknown' : season === 3 ? 'upcoming' : 'aired',
+      poster_path: `posters/show-${show.id - 201}-s${season}.svg`, poster_url: '', official_count: season === 0 ? 2 : 8,
+      collected_count: season === 1 || season === 2 ? 8 : 0, local_count: season === 1 || season === 2 ? 8 : 0,
+      collection_state: season === 1 || season === 2 ? 'collected' : 'uncollected',
+      sources: season === 1 || season === 2 ? [{ show_id: Number(id), library_id: 2, library_name: '剧集', season, count: 8 }] : [] })) }
+}
+export function tvCatalogFixture(id = 201, season = 1) {
+  const collection = tvCollectionFixture(id), card = collection.seasons.find(item => item.season === Number(season))
+  if (!card) return { show_id: Number(id), tmdb_id: collection.tmdb_id, season: Number(season), items: [], sources: [], error: 'not_found' }
+  return { ...card, show_id: Number(id), tmdb_id: collection.tmdb_id, checked_at: collection.checked_at, stale: false, error: '',
+    items: Array.from({ length: card.official_count }, (_, index) => ({
+      tmdb_episode_id: 940000 + Number(id) * 100 + Number(season) * 10 + index,
+      season: Number(season), episode: index + 1, title: episodes[index]?.title || '特别篇 ' + (index + 1), overview,
+      air_date: card.air_date, airing_state: card.airing_state, collection_state: card.collection_state,
+      sources: card.collection_state === 'collected' ? [{ show_id: Number(id), library_id: 2, library_name: '剧集',
+        season: Number(season), episode_id: 401 + index + (Number(season) === 2 ? 20 : 0), episode: index + 1 }] : [],
+    })) }
+}
 export const collections = ['沿途风景 · 慢电影精选','周末悬疑放映室','在星河与城市之间的夜晚','给未来的一封信'].map((name,i)=>({id:301+i,name,overview,cover:movies[i*2].poster_path,member_count:4,members:movies.slice(i*2,i*2+4)}))
 export const libraries=[{id:1,name:'电影',kind:'movie',subpath:'电影'},{id:2,name:'剧集',kind:'tv',subpath:'剧集'},{id:3,name:'家庭录像与长标题纪录片收藏',kind:'movie',subpath:'家庭录像'}].map(l=>({...l,movie_count:l.id===1?13:0,episode_count:l.id===2?96:0,media_library_id:1,media_name:'客厅影库',source:'local',enabled:true,effective_enabled:true,media_enabled:true,read_only:false,metadata_providers:'["local","tmdb"]'}))
 export const facets={genres:[{value:'剧情',count:12},{value:'悬疑',count:6},{value:'冒险',count:6}],regions:[{value:'华语',count:13}],countries:[{code:'CN',name:'中国',count:13}],years:[{value:2023,count:4},{value:2020,count:3}],decades:[{value:2020,count:8},{value:2010,count:5}],tags:[{value:'周末片单',count:4},{value:'值得重看',count:4}],collections:[],watched:{watched:3,unwatched:10},ratings:{tmdb:[{min:8,count:7},{min:7,count:13}],douban:[],custom:[]},status:[{value:'ended',count:3},{value:'continuing',count:3}]}
@@ -40,6 +66,10 @@ export function createFixture() {
   function api(url,method,body){
     const key=url.pathname;state.requests.push({key,method,query:Object.fromEntries(url.searchParams)})
     const id=Number(key.match(/\/(\d+)(?:\/|$)/)?.[1])
+    if (/^\/api\/tv\/shows\/\d+\/collection$/.test(key)) return tvCollectionFixture(id)
+    if (/^\/api\/tv\/shows\/\d+\/seasons\/\d+\/catalog$/.test(key)) return tvCatalogFixture(id, Number(key.match(/\/seasons\/(\d+)/)[1]))
+    if (key === '/api/tv/updates') return { media_library_id: Number(url.searchParams.get('media_library') || 1), items: [], error: '' }
+    if (key === '/api/tv/airing/status' || key === '/api/tv/airing/check') return { configured: true, total: 6, checked: 6, pending: 0, failed: 0, running: false, current: 0, last_checked_at: 1790985600, next_check_at: 1791590400, error: '' }
     if(/^\/api\/persons\/\d+$/.test(key))return {...cast[0],biography:'演示人物陈予安：虚构电影演员与导演，作品关注人与地方的联系。此资料仅用于教程。',birthday:'1986-05-14',place_of_birth:'海边小城（虚构）',acting:movies.slice(0,3),directing:movies.slice(3,7),tv_works:[]}
     if(/^\/api\/movies\/\d+\/posters$/.test(key))return {items:Array.from({length:6},(_,i)=>({file_path:'/demo-poster-'+i+'.jpg',thumb_url:'/posters/movie-'+i+'.svg',width:1000,height:1500,current:i===0,lang:'zh'}))}
     if(/^\/api\/tv\/shows\/\d+\/tmdb-episodes$/.test(key))return {items:episodes.map((e,i)=>({...e,tmdb_episode_id:9401+i}))}

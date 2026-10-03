@@ -1,11 +1,13 @@
 // 显示偏好：localStorage 持久化，main.js 启动即应用，设置页滑杆实时改。
 const KEY = 'jz.prefs'
 
-export const PREF_DEFAULTS = { fontSize: 16, posterMin: 150 }
+export const PREF_DEFAULTS = { fontSize: 16, posterMin: 150, tvUpdates: 'weekly' }
 
 export function loadPrefs() {
   try {
-    return { ...PREF_DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }
+    const prefs = { ...PREF_DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }
+    prefs.tvUpdates = prefs.tvUpdates === 'off' ? 'off' : 'weekly'
+    return prefs
   } catch (e) {
     return { ...PREF_DEFAULTS }
   }

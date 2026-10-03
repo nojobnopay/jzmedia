@@ -25,6 +25,7 @@
 | [smoke_settings_ui.mjs](smoke_settings_ui.mjs) | 设置草稿离开保护、文件操作与预览；播放器使用临时 FFmpeg 合成片源。`--drafts-only` 限定设置草稿验证，`--player-only` 限定播放器验证，`--capture-docs` 更新教程截图。 |
 | [smoke_ai_ui.mjs](smoke_ai_ui.mjs) | 智能设置、搜索和匹配，模型及 API 均为模拟；`--demo` 保留演示服务，`--capture-docs` 更新教程截图。 |
 | [smoke_browse_filters.mjs](smoke_browse_filters.mjs) | 电影/剧集筛选的真实 Vue 页面与模拟 API。 |
+| [smoke_tv_airing.mjs](smoke_tv_airing.mjs) | 剧集播出/收藏、官方分集目录、当前媒体库来源、每周推荐与维护状态的真实 Vue 页面检查；使用虚构剧集和模拟 API，`--capture-docs` 更新对应教程截图。 |
 | [smoke_design_system.mjs](smoke_design_system.mjs) | 组件和资产目录；`--capture` 保存截图，`--demo` 启动可交互图鉴。 |
 | [ui_visual_review.mjs](ui_visual_review.mjs) | 多视口页面审查与改前/改后比较；`--source` 指定源码快照，`--capture-docs` 更新教程图。比较要求相同 fixture 哈希。 |
 | [capture_ui_pages.mjs](capture_ui_pages.mjs) | 自动启动模拟演示，截取桌面/手机主要页面，并检查溢出、浏览器错误及控件尺寸；`--label` 命名输出批次。 |

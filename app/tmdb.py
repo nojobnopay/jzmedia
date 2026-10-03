@@ -101,6 +101,25 @@ def tv_season(tmdb_id: int, season_number: int) -> dict:
                     params=_params(append_to_response="credits")).json()
 
 
+def _tv_light(path: str) -> dict:
+    """One bounded attempt for the airing queue; retries belong to its durable clock."""
+    with _client() as client:
+        response = client.get(path, params=_params(), timeout=8.0)
+        response.raise_for_status()
+        value = response.json()
+        if not isinstance(value, dict):
+            raise ValueError("invalid TMDB response")
+        return value
+
+
+def tv_airing_detail(tmdb_id: int) -> dict:
+    return _tv_light(f"/tv/{int(tmdb_id)}")
+
+
+def tv_season_catalog(tmdb_id: int, season_number: int) -> dict:
+    return _tv_light(f"/tv/{int(tmdb_id)}/season/{int(season_number)}")
+
+
 def tv_aggregate_credits(tmdb_id: int) -> dict:
     """全剧聚合演职员（`/tv/{id}/aggregate_credits`，网站 Series Cast 同源）。
 

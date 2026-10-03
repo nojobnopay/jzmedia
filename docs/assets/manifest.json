@@ -1056,50 +1056,6 @@
       "sha256": "f62c0c2466656648d9680f29badd473f0517d84c412cf4057d05ea811b7c2f6b"
     },
     {
-      "file": "screenshots/tv-show.webp",
-      "page": "user-guide/watch-tv.md",
-      "scene": "剧集详情与两季各八集的虚构数据",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "cd28631",
-      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "full-page",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
-      "format": "WebP q86",
-      "bytes": 75956,
-      "sha256": "de63bea374a3dbeb3adfc606b523e40f2abdf6cff545e9b18814c99ed9e090ea"
-    },
-    {
-      "file": "screenshots/tv-season.webp",
-      "page": "user-guide/watch-tv.md",
-      "scene": "季页分集、剧照和播放状态",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "cd28631",
-      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
-      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "capture_mode": "full-page",
-      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
-      "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
-      "format": "WebP q86",
-      "bytes": 129930,
-      "sha256": "f9da9f967cb214f52922ae73478c2e5ce8825c98538752e1d8b4830e792f9f10"
-    },
-    {
       "file": "screenshots/upload-movie.webp",
       "page": "user-guide/files.md",
       "scene": "电影上传目标与固定底部操作",
@@ -1952,6 +1908,72 @@
       "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
       "bytes": 10796,
       "sha256": "6c77ae2f8041ded9510eac6565d71e8ac943f3e7779ff69b3a12539f52271948"
+    },
+    {
+      "file": "screenshots/tv-show.webp",
+      "page": "user-guide/watch-tv.md",
+      "scene": "虚构剧集详情：SP、部分收藏、未收藏正季与未播出新季；收藏范围为当前媒体库",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "c3110c1",
+      "source_state": "当前工作区剧集播出与收藏界面",
+      "source": "真实 Vue 界面与全模拟 API；虚构剧集及原创 SVG 海报，不连接真实媒体、数据库或外网；不证明 TMDB 实际可用性",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "full-page",
+      "recording_script": "node scripts/smoke_tv_airing.mjs --capture-docs",
+      "fixtures": "scripts/smoke_tv_airing.mjs + scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "bdf7552f9996bf4844794d738de2955c21bcd22a0d02a063fe7891069808afdf",
+      "format": "WebP q86",
+      "bytes": 94940,
+      "sha256": "eee132ed7117c410671d50b7b6434a86e14a399c3df58e8cbf4bd971f2af123c"
+    },
+    {
+      "file": "screenshots/tv-airing-catalog.webp",
+      "page": "user-guide/watch-tv.md",
+      "scene": "未收藏新季的只读官方分集目录：尚未播出与未收藏分别标注，无播放或已看操作",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "c3110c1",
+      "source_state": "当前工作区剧集播出与收藏界面",
+      "source": "真实 Vue 界面与全模拟 API；虚构剧集及原创 SVG 海报，不连接真实媒体、数据库或外网；不证明 TMDB 实际可用性",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "full-page",
+      "recording_script": "node scripts/smoke_tv_airing.mjs --capture-docs",
+      "fixtures": "scripts/smoke_tv_airing.mjs + scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "bdf7552f9996bf4844794d738de2955c21bcd22a0d02a063fe7891069808afdf",
+      "format": "WebP q86",
+      "bytes": 68554,
+      "sha256": "1fad27545d33006b87ad47a27d138d083722adc1c2c754067bdaf6a1a9fa90b7"
+    },
+    {
+      "file": "screenshots/tv-season.webp",
+      "page": "user-guide/watch-tv.md",
+      "scene": "季页保留本地分集与播放作用域，可切换全部分集查看缺集及其他视频库来源",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "c3110c1",
+      "source_state": "当前工作区剧集播出与收藏界面",
+      "source": "真实 Vue 界面与全模拟 API；虚构剧集及原创 SVG 海报，不连接真实媒体、数据库或外网；不证明 TMDB 实际可用性",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "full-page",
+      "recording_script": "node scripts/smoke_tv_airing.mjs --capture-docs",
+      "fixtures": "scripts/smoke_tv_airing.mjs + scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "bdf7552f9996bf4844794d738de2955c21bcd22a0d02a063fe7891069808afdf",
+      "format": "WebP q86",
+      "bytes": 62864,
+      "sha256": "f1a400a290437d62c810ba40d3ffe033dcca931f8f64fea9e0ecbd2b7aa558f9"
     }
   ],
   "provenance_scope": "per_asset",

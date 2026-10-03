@@ -15,7 +15,7 @@ reviewed: 2026-10-03
 | `/api/onboarding`、`/api/tmdb/check` | 新手配置进度、TMDB 凭据直连验证 |
 | `/api/media-libraries`、`/api/libraries` | 媒体库连接和视频库 CRUD/检查 |
 | `/api/movies`、`/api/search`、`/api/facets` | 电影、搜索筛选、详情、匹配、批量操作 |
-| `/api/tv` | 剧/季/集、待确认、手工绑定、观看和播放文件 |
+| `/api/tv` | 剧/季/集、播出与收藏对照、待确认、手工绑定、观看和播放文件 |
 | `/api/tv-client` | TV 客户端的片名/拼音搜索、本库演员候选和参演作品 |
 | `/api/collections`、`/api/persons` | 合集、人物作品 |
 | `/api/files`、`/api/fs`、`/api/extras` | 归档预览/执行、文件操作、花絮 |
@@ -134,6 +134,33 @@ TV 客户端对 `versions/decide/sessions/prewarm` 显式传 `client:"android_tv
 - `GET /api/tv/episodes/{id}` 新增 `previous_episode/next_episode`，与 `/next` 使用相同版本与多集区间规则。季详情支持 `version` 筛选和分页，新增 `versions/distinct_count`；`episode_count/watched_count` 仍为全季文件数。
 - `/api/tv/stats` 保留 `shows/episodes`，增加 `seasons/pending/episode_review/by_library`；电影 `/api/jobs/stats` 增加 `by_library` 待办统计。概览待办深链指定具体 `library`。
 - `rebuild-meta` 新增 `nfo` 开关（默认 true），与 `artwork` 独立，至少选择一项；旧客户端行为不变。单片与全库修复仍分别使用 `ids` 和 `library_id`。
+
+## 剧集播出与收藏对照
+
+网页端使用以下增量接口，现有 `/shows/{id}`、季/集详情、播放、版本筛选和观看进度接口保持原有本地文件语义。收藏对照按当前剧所属媒体库内启用的 TV 视频库合并同一已确认 TMDB 作品，不能跨媒体库借用收藏；官方目录项不代表可播放文件。
+
+| 接口 | 行为 |
+|---|---|
+| `GET /api/tv/shows/{show_id}/collection` | 仅读本地 DB；返回 `status/status_text`、`checked_at/next_check_at/error`、`latest_episode`、`seasons`、`missing_seasons` 与 `confirmed/media_library_id`。不请求 TMDB、不核验 NAS 文件。 |
+| `GET /api/tv/shows/{show_id}/seasons/{season}/catalog` | 按需读取官方季目录，命中有效缓存时不联网；缺失/过期时受租约与冷却约束获取。返回季信息及 `items`、`checked_at/stale/refreshing/error`。 |
+| `GET /api/tv/shows/{show_id}/seasons/{season}/poster?tmdb_id=<id>` | 只按已缓存官方季海报路径按需下载到应用图片缓存；显式 TMDB ID 必须仍与本剧匹配。已有文件直接返回，缺图/身份不符为 404，下载失败为 503 并有短期冷却。 |
+| `GET /api/tv/updates?media_library=<id>` | 必须指定正整数媒体库 ID；仅读本地播出事件及收藏记录，返回 `{items,checked_at,error}`。每部剧一条，含本地详情入口与尚未收藏的 `events`；未知媒体库返回空集合。 |
+| `GET /api/tv/airing/status` | 仅读状态，返回 `configured,total,checked,pending,failed,catalog_pending,catalog_failed,last_checked_at,next_check_at,running,current,error,retry_at`。剧级计数按启用库中已确认 TMDB 剧去重。 |
+| `POST /api/tv/airing/check` | `{}` 检查全部合格剧，或 `{show_id}` 检查指定本地剧对应的 TMDB 作品；沿用写操作鉴权，返回状态快照及 `status:"queued"`，不等待联网完成。手动操作不绕过失败冷却。 |
+
+季卡的 `official_count` 是来源集数，`collected_count` 是可确认的去重收藏数，`local_count` 仅指当前本地剧的有效编号数。`collection_state` 为 `collected|uncollected|uncertain`；客户端遇 `uncertain` 不应把未能对照的条目算成缺集。`airing_state` 独立为 `aired|upcoming|unknown`，日期按 UTC 日比较。`missing_seasons` 只含已播、完全未收藏的正季，不含特别篇和未来季。
+
+`collection_reason` 为 `''|catalog_missing|numbering_unresolved|coverage_incomplete|match_review|show_unconfirmed`，将资料缺失与人工处理区分。`catalog_missing` 表示缓存缺少足够的官方目录信息，不否定已有 TMDB 匹配，也不表示后台进度；客户端不显示人工待核对徽标，有 `local_count` 时显示“已收藏 N 集”，否则有 `collected_count` 时显示“已确认收藏 N 集”，均省略官方分母。`numbering_unresolved` 表示本地季或已知官方目标季的编号暂不能可靠对照；其他季因跨季覆盖范围不明而无法断言缺集时使用中性的 `coverage_incomplete`，不显示人工核对徽标。`match_review` 只用于分集实际 `needs_review/binding_conflict`，并限定受影响的季或分集；`show_unconfirmed` 表示整剧尚无 TMDB ID 或剧级匹配待确认。状态仍保守保留 `uncertain`，不能因改善文案而放开缺集推荐；已经可靠确认的单集可独立返回 `collected` 和空原因。此字段不触发额外周期请求。
+
+状态中的 `checked` 表示至少成功取得过一次剧级快照的数量，不等同于全部资料当前均有效；`pending/failed` 包含有待处理或失败季目录的剧，`catalog_pending/catalog_failed` 另列季目录数量。`last_checked_at` 是最近一次剧级成功时间。墙响应的 `checked_at` 同样不能代替全库覆盖率，完整检查状态应读取 `/airing/status`。
+
+分集目录与最近播出条目的 `sources` 指向真实本地来源，含 `show_id/library_id/library_name/season/episode/episode_id`；跨季手工匹配时必须使用这里的本地编号导航或播放，不把官方条目 ID 当作本地集 ID。季卡来源按实际本地剧与季聚合。多版本只计一个官方集，跨季多集或绝对编号无法验证时保守返回待核对。
+
+服务启动后先补齐启用库的播出基线，再按独立时钟维护：非结束剧每 7 天，已完结/取消剧每 90 天；季目录通常缓存 7 天，结束剧目录缓存 30 天。无有效凭据时不联网。首次基线只产生近 7 天的播出候选，后续保留最近 30 天；推荐资格按真实播出日期和当前收藏实时计算，不以发现时间冒充新播出。网页每周展开和事件去重属于当前浏览器偏好，不能用来调整服务端检查时间。
+
+后续来源修正会同步事件的季集号、标题和播出日期，保留原 `event_id` 与首次发现时间。改为未来/无效日期的事件或在完整季目录中被撤回的分集会停用，不再进入推荐；再次恢复有效时沿用身份，避免重新当作新事件。
+
+上游失败返回缓存及业务 `error` 码，包括 `not_configured/invalid_credentials/rate_limited/timeout/unavailable/invalid_response/not_found`；失败不覆盖上次成功时间。上游认证失败不能转换为应用 401，只有应用写令牌未通过时才返回 401。剧不存在为 404，尚未确认 TMDB 匹配的目录/手动检查为 422，目录获取期间换绑为 409。客户端需保留旧内容、显示资料时间，取消或作废切剧/切库后的晚响应。维护面板应同时识别 POST 的排队状态和状态接口的 `running`，只在面板可见时轮询进度。
 
 ## 剧集目录归属
 

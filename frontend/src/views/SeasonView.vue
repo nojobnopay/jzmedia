@@ -9,8 +9,8 @@
     <div class="hero media-hero">
       <MediaBackdrop :src="s.show_backdrop_path ? posterUrl(s.show_backdrop_path) : ''" />
       <div class="hero-inner">
-        <img v-if="s.poster_path" class="hero-poster" :src="posterUrl(s.poster_path)"
-          :alt="s.name || seasonLabel(s.season)" />
+        <img v-if="seasonPoster && !posterFailed" class="hero-poster" :src="seasonPoster"
+          :alt="s.name || seasonLabel(s.season)" @error="posterFailed = true" />
         <ArtworkPlaceholder v-else class="hero-poster hero-no-poster" kind="poster" :label="seasonLabel(s.season)" />
         <div class="hero-body">
           <div class="hero-heading">
@@ -18,11 +18,13 @@
             <div class="meta">
               <span>{{ s.name || seasonLabel(s.season) }}</span>
               <span v-if="s.air_date">{{ s.air_date }}</span>
-              <span>{{ s.distinct_count ?? s.episode_count }} 集 · {{ (s.versions || []).length || 1 }} 版本</span>
-              <span>{{ s.watched_count }}/{{ s.episode_count }} 已看</span>
+              <span v-if="collectionSeason">{{ collectionCountText(collectionSeason) }}</span>
+              <span v-if="collectionSeason">{{ airingLabel(collectionSeason) }}</span>
+              <span v-if="hasLocalFiles">本页 {{ s.distinct_count ?? s.episode_count }} 集 · {{ (s.versions || []).length || 1 }} 版本</span>
+              <span v-if="hasLocalFiles">本页 {{ s.watched_count }}/{{ s.episode_count }} 已看</span>
             </div>
           </div>
-          <div class="acts">
+          <div v-if="hasLocalFiles" class="acts">
             <JzButton v-if="s.next_episode" class="primary" :disabled="!s.next_episode.exists"
               @click="play(s.next_episode)" type="button" variant="primary">
               <PlayerIcon name="play" :size="20" /> {{ s.next_episode.progress ? '继续观看' : '播放本季' }} {{ epNo(s.next_episode) }}
@@ -35,15 +37,27 @@
             </ActionMenu>
             <span v-if="busy" class="dim">处理中…</span>
           </div>
-          <MediaOverview :text="s.overview || ''" />
+          <p v-if="!hasLocalFiles" class="season-collection-note">当前视频库尚未收藏本季，可查看分集资料或其他视频库中的文件。</p>
+          <p v-if="collectionExplanation(collectionSeason)" class="season-collection-note collection-explanation">{{ collectionExplanation(collectionSeason) }}</p>
+          <div v-if="otherSeasonSources.length" class="season-source-links">
+            <router-link v-for="source in otherSeasonSources" :key="sourceSeasonPath(source)" :to="sourceSeasonPath(source)">在 {{ source.library_name || '其他视频库' }} 中查看 · {{ seasonLabel(source.season) }}</router-link>
+          </div>
+          <MediaOverview :text="s.overview || collectionSeason?.overview || catalog?.overview || ''" />
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
         </div>
       </div>
     </div>
-    <div class="season-list-heading"><h2 class="section-heading">选择剧集 <span>{{ s.distinct_count ?? s.episode_count }} 集</span></h2>
-      <label v-if="(s.versions || []).length > 1">播放版本 <select v-model="selectedVersion" @change="load">
+    <div class="season-list-heading"><h2 class="section-heading">{{ seasonTab === 'local' ? '选择剧集' : '全部分集' }} <span v-if="seasonTab === 'local'">{{ s.distinct_count ?? s.episode_count }} 集</span></h2>
+      <label v-if="seasonTab === 'local' && (s.versions || []).length > 1">播放版本 <select v-model="selectedVersion" @change="load">
         <option value="">全部版本</option><option v-for="v in s.versions" :key="v.version" :value="String(v.version)">V{{ v.version }} · {{ v.distinct }} 集</option>
       </select></label></div>
+    <div class="season-list-views" role="group" aria-label="分集显示范围">
+      <JzButton :aria-pressed="seasonTab === 'local'" @click="seasonTab = 'local'">已收藏</JzButton>
+      <JzButton :aria-pressed="seasonTab === 'catalog'" @click="showCatalog">全部分集</JzButton>
+    </div>
+    <TvSeasonCatalog v-if="seasonTab === 'catalog'" :data="catalog" :loading="catalogLoading" :error="catalogError" @retry="loadCatalog(true)" />
+    <template v-else>
+    <p class="season-collection-note">本页只播放和标记当前剧集记录中的文件；其他视频库的收藏可从上方来源入口查看。</p>
     <EmptyState v-if="loadError" state="error" title="剧季加载失败" :text="loadError" retry @retry="retryLoad" />
     <EmptyState v-else-if="loading" state="loading" title="正在加载分集" text="请稍候…" />
     <EmptyState v-else-if="!eps.length" :state="selectedVersion ? 'no-results' : 'empty'"
@@ -82,6 +96,7 @@
       </JzButton>
     </div>
     <div v-else-if="eps.length" class="bar dim small">已加载全部 {{ eps.length }} 个文件</div>
+    </template>
     <CastWall :cast="s.cast || []" :original-language="s.original_language || ''"
       :subtitle="s.cast_source === 'season' ? seasonLabel(s.season) : '全剧'" />
   </div>
@@ -116,12 +131,37 @@ import { fmtRemaining } from '../format.js'
 import { progressWidth } from '../recentPlayed.js'
 import PlayerModal from '../components/PlayerModal.vue'
 import CastWall from '../components/CastWall.vue'
+import TvSeasonCatalog from '../components/TvSeasonCatalog.vue'
+import { useTvCollection } from '../useTvCollection.js'
+import { airingLabel, collectionCountText, collectionExplanation, sourceSeasonPath, tvSeasonLabel, uniqueSeasonSources } from '../tvCollection.js'
 
 const PAGE = 100  // 与后端季分页 limit 默认对齐
 
 const route = useRoute()
 const router = useRouter()
 const s = ref(null)
+const { data: collection } = useTvCollection(() => ({ id: Number(route.params.showId) }), api)
+const seasonTab = ref('local')
+let tabInitialized = false
+const catalog = ref(null), catalogLoading = ref(false), catalogError = ref('')
+const collectionSeason = computed(() => {
+  const snapshot = collection.value?.seasons?.find(value => Number(value.season) === Number(route.params.season)) || null
+  const detail = catalog.value
+  if (detail && Number(detail.show_id) === Number(route.params.showId) && Number(detail.season) === Number(route.params.season)
+      && (!collection.value?.tmdb_id || Number(detail.tmdb_id) === Number(collection.value.tmdb_id))) return { ...snapshot, ...detail }
+  return snapshot
+})
+let catalogGeneration = 0, catalogController = null, catalogPromise = null
+let disposed = false
+const posterFailed = ref(false)
+const hasLocalFiles = computed(() => Number(s.value?.episode_count) > 0)
+const seasonPoster = computed(() => {
+  const path = s.value?.poster_path || collectionSeason.value?.poster_path || catalog.value?.poster_path
+  return path ? posterUrl(path) : collectionSeason.value?.poster_url || catalog.value?.poster_url || ''
+})
+const otherSeasonSources = computed(() => uniqueSeasonSources([
+  ...(collectionSeason.value?.sources || []), ...(catalog.value?.sources || []),
+]).filter(source => Number(source.show_id) !== Number(route.params.showId) || Number(source.season) !== Number(route.params.season)))
 const loading = ref(true)
 const loadError = ref('')
 const loadErrorMore = ref(false)
@@ -147,7 +187,7 @@ const seasonDone = computed(() => {
   return list.length > 0 && list.every(e => Number(e.watched))
 })
 function pad (n) { return String(n).padStart(2, '0') }
-function seasonLabel (n) { return Number(n) === 0 ? '特典' : `第 ${n} 季` }
+function seasonLabel (n) { return tvSeasonLabel(n) }
 function epNo (e) {
   const base = `S${pad(e.season)}E${pad(e.episode)}`
   const end = Number(e.episode_end) > 0 ? `-E${pad(e.episode_end)}` : ''
@@ -181,17 +221,76 @@ async function load () {
   msg.value = ''
   loadingMore.value = false
   try {
-    const d = await api(seasonUrl(0))
-    if (generation !== loadGeneration) return
+    let d
+    try { d = await api(seasonUrl(0)) }
+    catch (e) {
+      if (!/^404\b/.test(e.message) || generation !== loadGeneration) throw e
+      // A newly announced season may exist only in the airing cache. It remains
+      // a read-only catalog, without creating fake local episode records.
+      const [show, official] = await Promise.all([
+        api(`/api/tv/shows/${route.params.showId}`), loadCatalog(),
+      ])
+      if (generation !== loadGeneration) return
+      const metadata = official || collectionSeason.value || show.seasons?.find(value => Number(value.season) === Number(route.params.season))
+      if (!metadata) throw e
+      d = { show_id: show.id, show_title: show.title, show_year: show.year,
+        show_backdrop_path: show.backdrop_path, original_language: show.original_language,
+        season: Number(route.params.season), name: metadata.name, overview: metadata.overview,
+        air_date: metadata.air_date, poster_path: metadata.poster_path,
+        episode_count: 0, distinct_count: 0, watched_count: 0,
+        episodes: [], versions: [], next_episode: null, total: 0, has_more: false, cast: [] }
+    }
+    if (generation !== loadGeneration || disposed) return
     s.value = d
     eps.value = d.episodes || []
     hasMore.value = !!d.has_more
-    observeSentinel()
+    if (!tabInitialized) {
+      tabInitialized = true
+      seasonTab.value = Number(d.episode_count) > 0 ? 'local' : 'catalog'
+    }
+    if (seasonTab.value === 'catalog') loadCatalog()
+    else observeSentinel()
   } catch (e) {
     if (generation === loadGeneration) loadError.value = e.message
   } finally {
     if (generation === loadGeneration) loading.value = false
   }
+}
+function showCatalog() { seasonTab.value = 'catalog'; loadCatalog() }
+function loadCatalog(force = false) {
+  if (disposed) return Promise.resolve(null)
+  if (catalogPromise && !force) return catalogPromise
+  if (catalog.value && !force) return Promise.resolve(catalog.value)
+  if (collection.value && !collection.value.tmdb_id) {
+    catalogError.value = '该剧尚未匹配 TMDB，暂时没有官方分集资料。'
+    return Promise.resolve(null)
+  }
+  const showId = String(route.params.showId), season = String(route.params.season)
+  const generation = ++catalogGeneration
+  catalogController?.abort()
+  const controller = new AbortController()
+  catalogController = controller
+  catalogLoading.value = true
+  catalogError.value = ''
+  const current = () => !disposed && generation === catalogGeneration && showId === String(route.params.showId) && season === String(route.params.season)
+  catalogPromise = (async () => {
+    try {
+      const data = await api(`/api/tv/shows/${showId}/seasons/${season}/catalog`, { signal: controller.signal })
+      if (!current()) return null
+      if (Number(data?.show_id) !== Number(showId) || Number(data?.season) !== Number(season)) {
+        throw new Error('分集资料与当前剧季不一致，请重新读取。')
+      }
+      if (data?.tmdb_id && collection.value?.tmdb_id && Number(data.tmdb_id) !== Number(collection.value.tmdb_id)) {
+        throw new Error('剧集匹配已变化，请重新读取分集资料。')
+      }
+      if (!Array.isArray(data?.items)) throw new Error('暂时没有可用的分集资料。')
+      catalog.value = data
+      return data
+    } catch (e) { if (current()) catalogError.value = e.message }
+    finally { if (current()) { catalogLoading.value = false; catalogPromise = null } }
+    return null
+  })()
+  return catalogPromise
 }
 function retryLoad () { return loadErrorMore.value ? loadMore() : load() }
 async function loadMore () {
@@ -215,7 +314,7 @@ async function loadMore () {
 }
 function observeSentinel () {
   disconnectObserver()
-  if (typeof IntersectionObserver === 'undefined') return
+  if (seasonTab.value !== 'local' || typeof IntersectionObserver === 'undefined') return
   observer = new IntersectionObserver((entries) => {
     if (entries.some(en => en.isIntersecting)) loadMore()
   }, { rootMargin: '600px' })
@@ -261,8 +360,21 @@ async function onEnded () {
 }
 
 onMounted(() => load())
-onUnmounted(() => { loadGeneration++; disconnectObserver() })
-watch(() => [route.params.showId, route.params.season], () => { selectedVersion.value = ''; load() })
+onUnmounted(() => { disposed = true; loadGeneration++; catalogGeneration++; catalogController?.abort(); disconnectObserver() })
+watch(() => [route.params.showId, route.params.season], () => {
+  playing.value = null
+  selectedVersion.value = ''; tabInitialized = false; seasonTab.value = 'local'; posterFailed.value = false
+  catalogGeneration++; catalogController?.abort(); catalogPromise = null; catalog.value = null; catalogError.value = ''; catalogLoading.value = false
+  load()
+})
+watch(seasonTab, value => { if (value === 'catalog') disconnectObserver(); else observeSentinel() }, { flush: 'post' })
+watch(() => collection.value?.tmdb_id, (value, previous) => {
+  if ((previous && value !== previous) || (value && catalog.value?.tmdb_id && Number(value) !== Number(catalog.value.tmdb_id))) {
+    catalogGeneration++; catalogController?.abort(); catalogPromise = null; catalog.value = null; catalogError.value = ''; catalogLoading.value = false
+    if (seasonTab.value === 'catalog') loadCatalog()
+  }
+})
+watch(seasonPoster, () => { posterFailed.value = false })
 </script>
 
 <style scoped>
@@ -292,4 +404,8 @@ watch(() => [route.params.showId, route.params.season], () => { selectedVersion.
 <style scoped>
 .season-list-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; justify-content: space-between; }
 .season-list-heading label { display: flex; align-items: center; gap: 8px; }
+.season-list-views { display: flex; gap: var(--jz-gap-s); margin: 0 0 var(--jz-gap-l); }
+.season-collection-note { color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.7; margin: var(--jz-gap-m) 0; }
+.season-source-links { display: flex; flex-wrap: wrap; gap: var(--jz-gap-m); margin: var(--jz-gap-s) 0; }
+.season-source-links a { min-height: var(--jz-touch-target); align-content: center; font-size: var(--jz-font-s); }
 </style>

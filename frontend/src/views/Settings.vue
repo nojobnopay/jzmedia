@@ -70,6 +70,7 @@
 
       <div v-show="active === 'sec-tmdb'" id="sec-tmdb">
         <TmdbSettingsPanel :settings="s" @saved="s = $event" />
+        <TvAiringMaintenance :active="active === 'sec-tmdb'" />
         <section class="card-block provider-status">
           <div class="section-heading"><h3>来源运行状态</h3><JzButton @click="loadProviders" type="button" icon="refresh">刷新状态</JzButton></div>
           <p class="hint">各视频库共享连接状态。暂不可用的来源会自动重试。</p>
@@ -149,6 +150,7 @@
         <h3>显示偏好</h3>
         <div class="slider-row"><label for="font-size">字体大小 <b>{{ prefs.fontSize }} px</b></label><input id="font-size" type="range" min="13" max="20" step="1" v-model.number="prefs.fontSize" @input="saveDisplay" /></div>
         <div class="slider-row"><label for="poster-size">海报大小 <b>{{ prefs.posterMin }} px</b></label><input id="poster-size" type="range" min="120" max="200" step="10" v-model.number="prefs.posterMin" @input="saveDisplay" /><span class="hint">越小，每行显示越多</span></div>
+        <div class="settings-form"><label for="tv-updates-preference">剧集更新推荐</label><select id="tv-updates-preference" v-model="prefs.tvUpdates" @change="saveDisplay"><option value="weekly">每周提醒一次</option><option value="off">关闭推荐</option></select><p class="hint">仅影响当前浏览器。剧集海报页推荐已播但尚未收藏的新集；关闭后仍可在详情页查看播出资料。</p></div>
         <div class="bar"><JzButton @click="resetDisplay" type="button" icon="undo">恢复默认显示</JzButton><span v-if="displayMsg" role="status">{{ displayMsg }}</span></div>
       </section>
 
@@ -175,6 +177,7 @@ import { SETTINGS_DRAFTS, createSettingsDraftGuard } from '../settingsDrafts.js'
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, provide } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import TmdbSettingsPanel from '../components/TmdbSettingsPanel.vue'
+import TvAiringMaintenance from '../components/TvAiringMaintenance.vue'
 import AiSettingsPanel from '../components/AiSettingsPanel.vue'
 import LibrariesPanel from '../components/LibrariesPanel.vue'
 import LibraryToolsPanel from '../components/LibraryToolsPanel.vue'
