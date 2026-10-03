@@ -15,8 +15,13 @@ fun queryPath(path: String, values: Map<String, Any?>): String {
 }
 
 fun mediaTitle(row: JSONObject): String = row.text("title").ifBlank { row.text("name").ifBlank { row.text("file_path").substringAfterLast('/').ifBlank { "未命名影片" } } }
-fun posterPath(row: JSONObject): String = sequenceOf("poster_path", "show_poster", "cover", "season_poster")
-    .map { row.text(it) }.firstOrNull { it.isNotBlank() }.orEmpty().let { if (it.isBlank()) "" else "/" + it.trimStart('/') }
+fun posterPath(row: JSONObject): String {
+    val stored = sequenceOf("poster_path", "show_poster", "cover", "season_poster")
+        .map { row.text(it) }.firstOrNull { it.isNotBlank() } ?: return ""
+    // Movie paths commonly include posters/; TV paths are relative to that directory.
+    val relative = stored.trimStart('/').removePrefix("posters/")
+    return "/posters/$relative"
+}
 fun episodeTitle(row: JSONObject): String {
     val end = row.optInt("episode_end")
     val start = row.optInt("episode")

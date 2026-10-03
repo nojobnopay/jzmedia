@@ -48,6 +48,8 @@ fMP4 master 的 `CODECS` 必须包含整个音频组的实际输出编码并集�
 
 播放、进度等接口均需带真实 `kind: movie|episode|extra`；三种 ID 空间相互独立，不能只根据整数 ID 判断归属。源文件/海报/字幕地址使用服务器返回值并按当前连接解析，不能将 NAS 路径当成电视本地路径。
 
+海报字段 `poster_path`、`show_poster`、`cover`、`season_poster` 可能带 `posters/` 前缀，也可能相对于海报目录（剧/季常为 `tv/123.jpg`、`tv/123_s1.jpg`，旧数据可为裸文件名）。客户端统一去掉开头 `/` 和已有的 `posters/`，再拼接 `/posters/`；例如 `tv/123.jpg` 与 `posters/tv/123.jpg` 都请求 `/posters/tv/123.jpg`。保留子目录及旧文件名，与网页一致，不在客户端推断新版文件名；有部署前缀时再按连接基址解析。空海报字段只显示占位。
+
 HLS 创建请求示意（`caps` 必须来自当前设备检测）：
 
 ```json
@@ -103,7 +105,7 @@ HLS 创建请求示意（`caps` 必须来自当前设备检测）：
 
 - 服务端：`test_android_tv_playback.py`、`test_stream_multiclient.py`、`test_stream_cache_seek.py`、`test_stream_sessions.py`、既有播放/远程源/转码参数回归。
 - 多设备用例覆盖并发原子创建、独立 sid、最后引用退出、不同输出隔离、满额、完成后释放名额、预缓存持有者、源替换、kind、TTL、失败传播、停服竞态，以及合成媒体的真实 FFmpeg 产物。
-- Android 单元测试覆盖服务器地址/认证边界、错误与取消、WebVTT 和源时间计算；Compose 焦点、真实中文键盘、Home/待机、解码和多电视实播须另外验收。
+- Android 单元测试覆盖服务器地址/认证边界、错误与取消、海报字段回退及路径/部署前缀、WebVTT 和源时间计算；Compose 焦点、真实中文键盘、Home/待机、解码和多电视实播须另外验收。
 - 构建与模拟器通过不能代替红米真机，也不能证明所有 4K/HDR/Dolby 格式可用。真实片源验收不应触发媒体扫描、整理或删除。
 
 操作与发布说明见 [工程 README](../README.md)，里程碑见 [开发计划](../../docs/roadmap/android-tv.md)。

@@ -80,7 +80,7 @@ class Fixtures:
     def episode(self, eid):
         return {"id": eid, "title": ["启程", "新的信号", "回家"][max(0, eid - 201) % 3], "show_id": 100,
                 "show_title": "遥远的灯塔", "season": 1, "episode": eid - 200, "episode_end": None,
-                "show_poster": "posters/poster2.png", "poster_path": "posters/poster2.png", "exists": True,
+                "show_poster": "tv/poster2.png", "poster_path": "tv/poster2.png", "exists": True,
                 "file_path": f"演示剧集/S01E{eid - 200:02d}.mp4", "version": 1,
                 "watched": int(("episode", eid) in self.watched), "progress": self.progress.get(("episode", eid), {}),
                 "overview": "旅程继续，信号终于从远方传来。", "cast": [{"name": "演示演员", "character": "守塔人"}],
@@ -88,7 +88,8 @@ class Fixtures:
                 "next_episode": {"id": eid + 1, "season": 1, "episode": eid - 199, "title": "下一集"} if eid < 203 else None}
 
     def show(self):
-        return {"id": 100, "title": "遥远的灯塔", "year": 2026, "poster_path": "posters/poster2.png", "episode_count": 3,
+        # Match the scanner's POSTER_DIR-relative TV paths, alongside DATA_DIR-relative movies.
+        return {"id": 100, "title": "遥远的灯塔", "year": 2026, "poster_path": "tv/poster2.png", "episode_count": 3,
                 "watched_count": sum(("episode", i) in self.watched for i in range(201, 204)), "overview": "三个短篇故事，寻找夜色中的灯塔。",
                 "cast": [{"name": "演示演员", "character": "守塔人"}], "next_episode": self.episode(201),
                 "seasons": [{"season": 1, "name": "第一季", "total": 3, "watched_count": 0}],
@@ -127,7 +128,7 @@ class Fixtures:
         if path == "/api/tv/shows/100":
             return self.show()
         if path == "/api/tv/shows/100/seasons/1":
-            return {**self.show(), "show_title": "遥远的灯塔", "show_poster": "posters/poster2.png", "name": "第一季", "season": 1,
+            return {**self.show(), "show_title": "遥远的灯塔", "show_poster": "tv/poster2.png", "name": "第一季", "season": 1,
                     "total": 3, "has_more": False, "episodes": [self.episode(i) for i in range(201, 204)], "versions": [{"version": 1, "count": 3}]}
         if path == "/api/collections":
             return {"items": [{"id": 1, "name": "科幻时光", "member_count": 8, "cover": "posters/poster1.png", "updated_at": 1000}] if q("q") in "科幻时光" else []}
@@ -207,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
             content_type = "application/octet-stream"
             if parsed.path == "/fixture/demo.mp4":
                 file, content_type = fixtures.directory / "demo.mp4", "video/mp4"
-            elif re.fullmatch(r"/posters/poster[0-3]\.png", parsed.path):
+            elif re.fullmatch(r"/posters/(?:tv/)?poster[0-3]\.png", parsed.path):
                 file, content_type = fixtures.directory / parsed.path.rsplit("/", 1)[1], "image/png"
             elif re.fullmatch(r"/api/stream/\d+/sub/0\.vtt", parsed.path):
                 file, content_type = fixtures.directory / "demo.vtt", "text/vtt; charset=utf-8"
