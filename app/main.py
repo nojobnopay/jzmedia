@@ -15,7 +15,8 @@ from .db import POSTER_DIR, ensure_dirs
 from .log import get_logger, setup_logging
 from .help_site import HelpFiles
 from .routers import (ai, ai_settings, collections, extras, files, fs, health, jobs, libraries,
-                      media_libraries, metadata, movies, onboarding, persons, stream, tv, tv_bindings)
+                      media_libraries, metadata, movies, onboarding, persons, stream, tv,
+                      tv_bindings, tv_client)
 
 setup_logging()
 _logger = get_logger("main")
@@ -119,6 +120,7 @@ app.include_router(persons.router)
 app.include_router(stream.router)
 app.include_router(tv.router)
 app.include_router(tv_bindings.router)
+app.include_router(tv_client.router)
 # check_dir=False：目录由 lifespan ensure_dirs 创建，导入期不再有副作用（评审 R01-Q1）
 app.mount("/posters", StaticFiles(directory=POSTER_DIR, check_dir=False), name="posters")
 

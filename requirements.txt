@@ -4,6 +4,8 @@ uvicorn[standard]==0.52.4
 pydantic==2.13.5
 httpx==0.28.1
 guessit==4.4.0
+# 电视客户端标题全拼/首字母搜索（本地词组词典，无联网服务）
+pypinyin==0.55.0
 cryptography==50.0.1
 python-multipart==0.0.32
 # 用户态 SMB2/3 直读（远程库免挂载）

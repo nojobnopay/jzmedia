@@ -104,24 +104,32 @@ fun TvApp(onExit: () -> Unit) {
     BackHandler { back() }
     fun navigate(next: TvRoute) { routes = routes + next }
     holder.SaveableStateProvider("${server.baseUrl}:$library:${route.key}") {
-        val memory = rememberFocusMemory(if (route.kind in listOf("home", "movies", "shows", "collections")) "nav:${route.kind}" else "back")
+        val memory = rememberFocusMemory(when (route.kind) {
+            "search" -> "key:A"
+            "home", "movies", "shows", "collections" -> "nav:${route.kind}"
+            else -> "back"
+        })
         fun open(next: TvRoute) { memory.leaving = true; navigate(next) }
         fun play(request: PlaybackRequest) { memory.leaving = true; playback = request }
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 40.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 item { Text("jzmedia", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(end = 16.dp, top = 5.dp)) }
-                items(listOf("home" to "首页", "movies" to "电影", "shows" to "电视剧", "collections" to "合集")) { (kind, label) ->
-                    TvAction(label, { if (route.key != "root:$kind") memory.leaving = true; routes = listOf(TvRoute(kind, key = "root:$kind")) },
+                items(listOf("home" to "首页", "movies" to "电影", "shows" to "电视剧", "collections" to "合集", "search" to "搜索")) { (kind, label) ->
+                    TvAction(label, {
+                        if (kind == "search") { if (route.kind != "search") open(TvRoute("search")) }
+                        else { if (route.key != "root:$kind") memory.leaving = true; routes = listOf(TvRoute(kind, key = "root:$kind")) }
+                    },
                         Modifier.focusMemory(memory, "nav:$kind"), selected = route.kind == kind)
                 }
                 item { TvAction(libraryName, { open(TvRoute("libraries")) }, Modifier.focusMemory(memory, "nav:libraries")) }
                 item { TvAction("设置", { open(TvRoute("settings")) }, Modifier.focusMemory(memory, "nav:settings")) }
             }
-            if (routes.size > 1) TvAction("‹ 返回", { back() }, Modifier.focusMemory(memory, "back"))
+            if (routes.size > 1 && route.kind != "search") TvAction("‹ 返回", { back() }, Modifier.focusMemory(memory, "back"))
             when (route.kind) {
                 "home" -> HomeScreen(server, library, refresh, memory, ::open, ::play)
                 "movies", "shows", "collections" -> BrowseScreen(server, route.kind, library, refresh, memory, ::open)
+                "search" -> SearchScreen(server, library, route.title, memory, ::open, ::back)
                 "movie", "show", "season", "episode", "collection" -> DetailScreen(server, route, refresh, memory, ::open, ::play)
                 "libraries" -> LibrariesScreen(server, library, memory) { id, name ->
                     library = id; libraryName = name; routes = listOf(TvRoute("home", key = "root:home"))

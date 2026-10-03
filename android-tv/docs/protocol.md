@@ -9,7 +9,7 @@
 ```json
 {
   "protocol_version": 1,
-  "features": ["android_tv", "independent_sessions"],
+  "features": ["android_tv", "independent_sessions", "tv_search"],
   "auth_required": false
 }
 ```
@@ -17,6 +17,8 @@
 `POST /api/stream/client-check` 返回相同内容，不修改配置或媒体。它走已有写操作认证中间件，用于验证当前连接的令牌：未配置令牌可直接通过；已配置时使用 `X-Api-Token` 或 `Authorization: Bearer`，错误令牌返回 401。GET 握手成功不等于写操作令牌通过。响应绝不包含服务器令牌。
 
 APK 当前使用 `X-Api-Token`，仅发往保存的服务器 origin 和路径范围，拒绝携带凭据跨 origin 重定向。API 连接使用可取消请求；连接改变、退出和过期响应不得重新进入旧页面或启动旧播放器。
+
+`tv_search` 是新增的可选能力，不提高播放协议版本。`GET /api/tv-client/search` 提供完整片库的首字母/全拼/原文检索与实时片名候选，参数及兼容边界见 [选集与搜索设计](search-design.md#服务端与兼容)。旧服务端缺少接口时电视搜索提示升级，原有浏览与播放仍可用。
 
 以下 POST 请求显式传 `client: "android_tv"` 和 `caps`：
 

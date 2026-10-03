@@ -20,7 +20,7 @@ __all__ = ['stream_client_info', 'stream_client_check', 'stream_media', '_media_
 def stream_client_info():
     """Read-only native client handshake; exposes no credentials or media data."""
     return {"protocol_version": 1,
-            "features": ["android_tv", "independent_sessions"],
+            "features": ["android_tv", "independent_sessions", "tv_search"],
             "auth_required": bool(config.effective_jzmedia_token())}
 
 

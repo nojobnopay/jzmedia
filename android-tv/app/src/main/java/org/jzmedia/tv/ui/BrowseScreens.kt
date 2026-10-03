@@ -139,7 +139,8 @@ fun BrowseScreen(api: JzApi, kind: String, library: Long, refresh: Int, memory: 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.fillMaxWidth()) {
             Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-            TvAction("搜索 / 筛选 / 排序", { filtering = true }, Modifier.focusMemory(memory, "filter"))
+            TvAction("搜索", { navigate(TvRoute("search", title = kind)) }, Modifier.focusMemory(memory, "search"))
+            TvAction("筛选 / 排序", { filtering = true }, Modifier.focusMemory(memory, "filter"))
             TvAction("刷新", { attempt++ }, Modifier.focusMemory(memory, "refresh"))
         }
         val summary = listOf(query.takeIf { it.isNotBlank() }?.let { "搜索：$it" }, genre, region, year,
@@ -204,9 +205,9 @@ private fun FilterDialog(api: JzApi, kind: String, library: Long, current: List<
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxWidth(.88f).heightIn(max = 540.dp).background(Panel, RoundedCornerShape(16.dp)).padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            Text("搜索与筛选", style = MaterialTheme.typography.headlineSmall)
+            Text("筛选与排序", style = MaterialTheme.typography.headlineSmall)
             LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                item { TvInput(if (kind == "collections") "合集名称" else "片名或演员", query, { query = it }) }
+                item { TvInput(if (kind == "collections") "合集名称（原文，可选）" else "片名或演员（原文，可选）", query, { query = it }) }
                 if (error.isNotBlank()) item { Status(error, { attempt++ }) }
                 items((if (kind == "collections") listOf(5, 6) else (0..6).toList())) { index ->
                     val label = options[index].firstOrNull { it.first == values[index] }?.second ?: values[index]
