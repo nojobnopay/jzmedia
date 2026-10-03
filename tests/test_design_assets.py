@@ -109,13 +109,15 @@ def test_android_colors_resolve_the_same_semantic_tokens_as_web():
 def test_export_revisions_include_each_optical_master():
     manifest = design.read_json('assets.json')
     for asset in manifest['assets']:
-        if asset['id'] == 'brand-mark': asset['revision'] = 7
-        if asset['id'] == 'brand-favicon-16': asset['revision'] = 3
+        if asset['id'] == 'brand-mark': asset['revision'] += 6
+        if asset['id'] == 'brand-favicon-16': asset['revision'] += 2
+    revisions = {asset['id']: asset['revision'] for asset in manifest['assets']}
+    source_assets = ['brand-favicon-16', 'brand-favicon-32', 'brand-mark']
     exports = design.brand_outputs(manifest)
     ico = next(item for item in exports if item['path'] == 'frontend/public/favicon.ico')
-    assert ico['master_revision'] == 7
-    assert ico['source_revisions'] == {'brand-favicon-16': 3, 'brand-favicon-32': 1, 'brand-mark': 7}
-    assert ico['source_assets'] == ['brand-favicon-16', 'brand-favicon-32', 'brand-mark']
+    assert ico['master_revision'] == revisions['brand-mark']
+    assert ico['source_revisions'] == {name: revisions[name] for name in source_assets}
+    assert ico['source_assets'] == source_assets
 
 
 @pytest.mark.parametrize('symbol', ['🏠', '&#9881;', '&#x2699;', r'\u2699', r'\u{1F3E0}', r'\U0001F3E0', r'\1F3E0 '])

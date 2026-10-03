@@ -12,6 +12,8 @@
 | `diagrams/` | 媒体库关系、入库流程、整理路径三个 SVG 概念图 | `scripts/capture_docs_diagrams.py` |
 | `design/` | 帮助站使用的品牌 SVG、favicon 及位图 | `design/` 母版与 `scripts/build_design.py`；不直接修改生成物 |
 
+2026-10-03 品牌修订 2 改为红白 J/播放一体轮廓，帮助站导航与 favicon 已同步。既有教程截图与录屏可能显示旧版黄色三角；本次未改变页面入口或操作步骤，保留各素材实际拍摄记录，不标记为重新拍摄。
+
 正文通过 `DocFigure`、`DocVideo`、`DocDiagram` 引用相对路径；同一画面复用同一文件。Mermaid 渲染缓存位于 `docs/.vitepress/diagrams/`，由 `npm --prefix docs run diagrams` 管理，和这里的业务概念图分开。
 
 ## 当前拍摄流程

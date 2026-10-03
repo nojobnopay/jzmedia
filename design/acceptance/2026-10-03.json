@@ -1,8 +1,24 @@
 {
   "schema_version": 1,
   "date": "2026-10-03",
-  "revision": 2,
+  "revision": 3,
   "checks": [
+    {
+      "target": "Brand revision 2: unified J/play silhouette and actual small sizes",
+      "environment": "Chromium / isolated asset comparison and Vue catalogue; CairoSVG 2.9.1 / Pillow 12.3.0",
+      "density": "16/20/24/26/32/48 CSS px at deviceScaleFactor=1 and 2; catalogue at 1440/390/375 CSS px, deviceScaleFactor=1",
+      "status": "passed",
+      "command": ".venv/bin/python scripts/build_design.py --check --render-brand; .venv/bin/python -m pytest tests/test_design_assets.py -q; node scripts/smoke_design_system.mjs --capture; npm --prefix frontend test; npm --prefix frontend run lint; npm --prefix frontend run build; npm --prefix docs run build; npm --prefix docs run check",
+      "result": "红白一体轮廓替代黄色叠加三角与外描边；SVG favicon 使用16px光学版，深浅背景原尺寸与1x/2x截图核对通过。主版、16px PNG及TV横幅静态目视核对通过。29项资产回归、55个前端测试文件、生成一致性、图鉴浏览器检查和Web/帮助站构建检查通过；lint无错误，保留2项既有console警告。",
+      "screenshots": [
+        "output/playwright/brand-review/before-after.png",
+        "output/playwright/brand-review/before-after-2x.png",
+        "output/playwright/brand-review/checks.json",
+        "output/playwright/design-system/manifest.json",
+        "android-tv/app/src/main/res/drawable-xhdpi/tv_banner.png"
+      ],
+      "limitations": "新旧对比为本次本地预览，旧图取改前Git母版，新图取当前母版与实际favicon.svg，输出不提交；长期复查使用图鉴原尺寸展示。本次未重建APK或验证真实电视远距离显示；教程截图/录屏保留真实历史拍摄记录，未全量复拍。"
+    },
     {
       "target": "repository design masters and exports",
       "environment": "Python 3 / locked CairoSVG 2.9.1 and Pillow 12.3.0",

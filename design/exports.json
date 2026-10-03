@@ -3,23 +3,23 @@
   "exports": [
     {
       "path": "frontend/public/favicon.svg",
-      "asset": "brand-mark",
+      "asset": "brand-favicon-16",
       "format": "svg",
       "dimensions": [
-        64,
-        64
+        16,
+        16
       ],
       "units": "viewBox",
       "density": "vector",
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
-        "brand-mark"
+        "brand-favicon-16"
       ],
       "source_revisions": {
-        "brand-mark": 1
+        "brand-favicon-16": 2
       }
     },
     {
@@ -35,12 +35,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-wordmark"
       ],
       "source_revisions": {
-        "brand-wordmark": 1
+        "brand-wordmark": 2
       }
     },
     {
@@ -56,12 +56,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-favicon-16"
       ],
       "source_revisions": {
-        "brand-favicon-16": 1
+        "brand-favicon-16": 2
       }
     },
     {
@@ -77,12 +77,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-favicon-32"
       ],
       "source_revisions": {
-        "brand-favicon-32": 1
+        "brand-favicon-32": 2
       }
     },
     {
@@ -98,12 +98,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-mark": 1
+        "brand-mark": 2
       }
     },
     {
@@ -129,37 +129,37 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-favicon-16",
         "brand-favicon-32",
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-favicon-16": 1,
-        "brand-favicon-32": 1,
-        "brand-mark": 1
+        "brand-favicon-16": 2,
+        "brand-favicon-32": 2,
+        "brand-mark": 2
       }
     },
     {
       "path": "docs/assets/design/favicon.svg",
-      "asset": "brand-mark",
+      "asset": "brand-favicon-16",
       "format": "svg",
       "dimensions": [
-        64,
-        64
+        16,
+        16
       ],
       "units": "viewBox",
       "density": "vector",
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
-        "brand-mark"
+        "brand-favicon-16"
       ],
       "source_revisions": {
-        "brand-mark": 1
+        "brand-favicon-16": 2
       }
     },
     {
@@ -175,12 +175,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-wordmark"
       ],
       "source_revisions": {
-        "brand-wordmark": 1
+        "brand-wordmark": 2
       }
     },
     {
@@ -196,12 +196,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-favicon-16"
       ],
       "source_revisions": {
-        "brand-favicon-16": 1
+        "brand-favicon-16": 2
       }
     },
     {
@@ -217,12 +217,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-favicon-32"
       ],
       "source_revisions": {
-        "brand-favicon-32": 1
+        "brand-favicon-32": 2
       }
     },
     {
@@ -238,12 +238,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-mark": 1
+        "brand-mark": 2
       }
     },
     {
@@ -269,16 +269,16 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-favicon-16",
         "brand-favicon-32",
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-favicon-16": 1,
-        "brand-favicon-32": 1,
-        "brand-mark": 1
+        "brand-favicon-16": 2,
+        "brand-favicon-32": 2,
+        "brand-mark": 2
       }
     },
     {
@@ -294,12 +294,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-mark": 1
+        "brand-mark": 2
       }
     },
     {
@@ -315,12 +315,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-mark": 1
+        "brand-mark": 2
       }
     },
     {
@@ -336,12 +336,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-mark": 1
+        "brand-mark": 2
       }
     },
     {
@@ -357,12 +357,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-wordmark"
       ],
       "source_revisions": {
-        "brand-wordmark": 1
+        "brand-wordmark": 2
       },
       "default_dp": [
         106,
@@ -382,12 +382,12 @@
       "transparent": false,
       "safe_area": "居中组合宽240px，四周至少40px",
       "generator_version": 1,
-      "master_revision": 1,
+      "master_revision": 2,
       "source_assets": [
         "brand-wordmark"
       ],
       "source_revisions": {
-        "brand-wordmark": 1
+        "brand-wordmark": 2
       }
     },
     {

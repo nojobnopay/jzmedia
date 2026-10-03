@@ -12,7 +12,19 @@
         <div v-if="isIcon(asset.id)" class="size-preview">
           <span v-for="size in [16, 20, 24, 32]" :key="size"><AppIcon :name="asset.id" :size="size" /><small>{{ size }}px</small></span>
         </div>
-        <img v-else :src="brandImages[asset.id]" :alt="asset.name" class="brand-preview" />
+        <div v-else class="brand-preview" :data-brand-preview="asset.id">
+          <div v-for="background in (asset.id === 'brand-wordmark' ? ['dark'] : ['dark', 'light'])" :key="background"
+            class="brand-surface" :data-brand-background="background">
+            <small class="brand-surface-label">{{ background === 'dark' ? '深色背景' : '浅色背景' }} · 原尺寸</small>
+            <div class="brand-sizes">
+              <span v-for="size in (asset.id === 'brand-wordmark' ? [23, 32] : [16, 20, 24, 26, 32, 48])" :key="size" class="brand-sample">
+                <img :src="brandImages[asset.id]" :alt="`${asset.name}，${size}px`" :data-brand-size="size"
+                  :style="{ width: `${size * asset.grid[0] / asset.grid[1]}px`, height: `${size}px` }" />
+                <small>{{ size }}px</small>
+              </span>
+            </div>
+          </div>
+        </div>
         <h3>{{ asset.name }}</h3><code>{{ asset.id }}</code>
         <p class="asset-meta">{{ asset.grid.join(' × ') }} · {{ asset.style || asset.category }} · 修订 {{ asset.revision }}</p>
         <details><summary>来源与使用位置</summary>
@@ -74,7 +86,7 @@ const visibleAssets = computed(() => catalog.assets.filter(asset => (!platform.v
 .catalogue-filters { display: flex; flex-wrap: wrap; gap: 16px; }
 .catalogue-filters label { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: min(220px, 100%); }
 .catalogue-filters input, .catalogue-filters select { width: 100%; }
-.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 12px; }
 .asset-grid article { min-width: 0; padding: 16px; border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); }
 .asset-grid h3 { margin: 12px 0 6px; font-size: var(--jz-font-m); }
 .asset-catalogue code, .asset-catalogue li, .asset-catalogue details p { overflow-wrap: anywhere; font-size: var(--jz-font-s); }
@@ -82,7 +94,14 @@ const visibleAssets = computed(() => catalog.assets.filter(asset => (!platform.v
 .size-preview { display: flex; gap: 16px; min-height: 52px; align-items: end; }
 .size-preview span { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .size-preview small { color: var(--jz-text-faint); }
-.brand-preview { max-width: 100%; height: 52px; object-fit: contain; }
+.brand-preview { display: grid; gap: 8px; }
+.brand-surface { min-width: 0; padding: 10px; border-radius: 6px; background: #141414; color: #eee; }
+.brand-surface[data-brand-background="light"] { background: #f4f4f4; color: #333; }
+.brand-surface-label { display: block; margin-bottom: 12px; font-size: 11px; }
+.brand-sizes { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 8px; }
+.brand-sample { display: flex; min-width: 48px; flex-direction: column; align-items: center; gap: 6px; }
+.brand-sample img { display: block; max-width: none; flex-shrink: 0; }
+.brand-sample small { font-size: 11px; }
 .asset-catalogue summary { color: var(--jz-link); padding: 8px 0; }
 .asset-catalogue ul, .asset-catalogue ol { padding-left: 18px; }
 .requirements li { padding-bottom: 16px; }

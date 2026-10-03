@@ -160,7 +160,8 @@ def brand_outputs(manifest=None):
                         'generator_version': GENERATOR_VERSION, 'master_revision': assets[asset]['revision'],
                         'source_assets': sources, 'source_revisions': {name: assets[name]['revision'] for name in sources}})
     for folder in ['frontend/public', 'docs/assets/design']:
-        add(folder + '/favicon.svg', 'brand-mark', 'svg', assets['brand-mark']['grid'], 'vector')
+        # Browsers may prefer SVG even on 1x displays; use the small optical master.
+        add(folder + '/favicon.svg', 'brand-favicon-16', 'svg', assets['brand-favicon-16']['grid'], 'vector')
         add(folder + '/logo.svg', 'brand-wordmark', 'svg', assets['brand-wordmark']['grid'], 'vector')
         for size in [16, 32, 48]:
             add(f'{folder}/favicon-{size}x{size}.png', f'brand-favicon-{size}' if size != 48 else 'brand-mark', 'png', [size, size])
@@ -589,13 +590,13 @@ def inventory(manifest, registry, contracts):
                         if contract:asset_ids=[canonical(n,manifest) for n in contract['assets']]
                         elif literals is not None:asset_ids=[canonical(n,manifest) for n in literals if n]
                         else:errors.append(f'{rel}:{line}: register dynamic button icon {dynamic!r}')
-                elif tag=='img' and any('favicon' in a or 'logo.svg' in a for a in attrs.values()): asset_ids=['brand-wordmark' if any('logo.svg' in a for a in attrs.values()) else 'brand-mark']
+                elif tag=='img' and any('favicon' in a or 'logo.svg' in a for a in attrs.values()): asset_ids=['brand-wordmark' if any('logo.svg' in a for a in attrs.values()) else 'brand-favicon-16']
                 if tag=='svg' and path.name not in ('AppIcon.vue','PlayerIcon.vue'):
                     errors.append(f'{rel}:{line}: inline business SVG must use a registered master')
                 if tag in ('AppIcon','PlayerIcon','Spinner','ArtworkPlaceholder') and purpose == tag:
                     purpose = ' / '.join(a['name'] for a in manifest['assets'] if a['id'] in asset_ids) or '共享图标渲染器'
                 for name in asset_ids:
-                    if name not in registry and not (tag == 'img' and name in ('brand-mark','brand-wordmark')):
+                    if name not in registry and not (tag == 'img' and name in ('brand-favicon-16','brand-wordmark')):
                         errors.append(f'{rel}:{line}: unknown icon {name}')
                 if tag=='button' and not any(selector in markup for selector in native_map.get(rel,{}).get('selectors',[])):
                     errors.append(f'{rel}:{line}: native button needs documented specialized control contract')

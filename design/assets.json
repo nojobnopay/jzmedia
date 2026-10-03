@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "revision": 1,
+  "revision": 2,
   "reviewed": "2026-10-03",
   "language": {
     "grid": [
@@ -2037,14 +2037,14 @@
       "name": "J 与播放标记",
       "category": "brand",
       "master": "design/brand/mark.svg",
-      "revision": 1,
+      "revision": 2,
       "grid": [
         64,
         64
       ],
       "style": "filled",
-      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
-      "theme": "固定品牌红/白/黄；字标适用深色背景",
+      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓",
+      "theme": "固定品牌红/白；字标适用深色背景",
       "optical_variants": [
         "brand-favicon-16",
         "brand-favicon-32"
@@ -2054,6 +2054,11 @@
           "revision": 1,
           "date": "2026-10-03",
           "change": "保留J+play母版；移除变换；固定字标转路径；集中管理"
+        },
+        {
+          "revision": 2,
+          "date": "2026-10-03",
+          "change": "红/白双色，播放三角融入J的竖干，去除黄色与外描边；16px版加粗并对齐主要竖边，SVG favicon也使用16px光学版"
         }
       ],
       "deprecated": false,
@@ -2064,20 +2069,25 @@
       "name": "固定字标组合",
       "category": "brand",
       "master": "design/brand/wordmark.svg",
-      "revision": 1,
+      "revision": 2,
       "grid": [
         212,
         64
       ],
       "style": "filled",
-      "source": "迁自仓库 frontend/icon-src/logo.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；字标由 DejaVu Sans Bold 转为固定轮廓，许可证见design/brand/DEJAVU-LICENSE.txt",
-      "theme": "固定品牌红/白/黄；字标适用深色背景",
+      "source": "迁自仓库 frontend/icon-src/logo.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；字标由 DejaVu Sans Bold 转为固定轮廓，许可证见design/brand/DEJAVU-LICENSE.txt；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓",
+      "theme": "固定品牌红/白；字标适用深色背景",
       "optical_variants": [],
       "history": [
         {
           "revision": 1,
           "date": "2026-10-03",
           "change": "保留J+play母版；移除变换；固定字标转路径；集中管理"
+        },
+        {
+          "revision": 2,
+          "date": "2026-10-03",
+          "change": "红/白双色，播放三角融入J的竖干，去除黄色与外描边；16px版加粗并对齐主要竖边，SVG favicon也使用16px光学版"
         }
       ],
       "deprecated": false,
@@ -2088,20 +2098,25 @@
       "name": "16px 光学标记",
       "category": "brand",
       "master": "design/brand/favicon-16.svg",
-      "revision": 1,
+      "revision": 2,
       "grid": [
         16,
         16
       ],
       "style": "filled",
-      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
-      "theme": "固定品牌红/白/黄；字标适用深色背景",
+      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓",
+      "theme": "固定品牌红/白；字标适用深色背景",
       "optical_variants": [],
       "history": [
         {
           "revision": 1,
           "date": "2026-10-03",
           "change": "保留J+play母版；移除变换；固定字标转路径；集中管理"
+        },
+        {
+          "revision": 2,
+          "date": "2026-10-03",
+          "change": "红/白双色，播放三角融入J的竖干，去除黄色与外描边；16px版加粗并对齐主要竖边，SVG favicon也使用16px光学版"
         }
       ],
       "deprecated": false,
@@ -2112,20 +2127,25 @@
       "name": "32px 光学标记",
       "category": "brand",
       "master": "design/brand/favicon-32.svg",
-      "revision": 1,
+      "revision": 2,
       "grid": [
         32,
         32
       ],
       "style": "filled",
-      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
-      "theme": "固定品牌红/白/黄；字标适用深色背景",
+      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓",
+      "theme": "固定品牌红/白；字标适用深色背景",
       "optical_variants": [],
       "history": [
         {
           "revision": 1,
           "date": "2026-10-03",
           "change": "保留J+play母版；移除变换；固定字标转路径；集中管理"
+        },
+        {
+          "revision": 2,
+          "date": "2026-10-03",
+          "change": "红/白双色，播放三角融入J的竖干，去除黄色与外描边；16px版加粗并对齐主要竖边，SVG favicon也使用16px光学版"
         }
       ],
       "deprecated": false,
