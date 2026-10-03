@@ -90,8 +90,9 @@ fun rememberFocusMemory(first: String): FocusMemory = rememberSaveable(saver = S
     save = { it.key }, restore = { FocusMemory(it) },
 )) { FocusMemory(first) }
 
-fun Modifier.focusMemory(memory: FocusMemory, key: String): Modifier = composed {
-    val requester = remember { FocusRequester() }
+fun Modifier.focusMemory(memory: FocusMemory, key: String, focusRequester: FocusRequester? = null): Modifier = composed {
+    val fallback = remember { FocusRequester() }
+    val requester = focusRequester ?: fallback
     LaunchedEffect(Unit) {
         if (!memory.restored && memory.restoreKey == key) {
             withFrameNanos { }

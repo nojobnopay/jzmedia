@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,9 +60,14 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
     var page by rememberSaveable { mutableStateOf(0) }
     var selectedVersion by rememberSaveable { mutableStateOf(0L) }
     var seasonVersion by rememberSaveable { mutableStateOf("") }
+    var focusedEpisodeId by rememberSaveable { mutableStateOf(0L) }
+    var focusEpisodesAfterLoad by remember { mutableStateOf(false) }
+    var requestEpisodeFocus by remember { mutableStateOf(false) }
     var choosingVersion by remember { mutableStateOf(false) }
     var textDialog by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
     val scope = rememberCoroutineScope()
+    // Keep scroll state while data is reloaded and when returning from a child episode.
+    val listState = rememberLazyListState()
     val collectionColumns = ((LocalConfiguration.current.screenWidthDp - 80) / 168).coerceAtLeast(1)
     LaunchedEffect(api, route, refresh, attempt, page, seasonVersion) {
         error = ""; data = null
@@ -73,6 +79,10 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                 "episode" -> "/api/tv/episodes/${route.id}"
                 else -> "/api/collections/${route.id}"
             })
+            if (route.kind == "season" && focusEpisodesAfterLoad) {
+                requestEpisodeFocus = true
+                focusEpisodesAfterLoad = false
+            }
             if (route.kind == "movie" && data!!.rows("versions").none { it.optLong("id") == selectedVersion }) {
                 selectedVersion = data!!.rows("versions").firstOrNull()?.optLong("id") ?: route.id
             }
@@ -102,6 +112,12 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
         "show", "season" -> row.optInt("episode_count") > 0 && row.optInt("watched_count") >= row.optInt("episode_count")
         else -> row.optInt("watched") == 1
     }
+    LaunchedEffect(row, requestEpisodeFocus) {
+        if (route.kind == "season" && requestEpisodeFocus) {
+            // Hero, actions, optional error, then the heading and compact grid.
+            listState.scrollToItem(if (actionError.isBlank()) 2 else 3)
+        }
+    }
     fun markWatched() {
         if (actionBusy) return
         actionBusy = true; actionError = ""
@@ -119,7 +135,7 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
             finally { actionBusy = false }
         }
     }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 Poster(api, posterPath(row), title, Modifier.width(144.dp).height(202.dp))
@@ -170,16 +186,15 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
         }
         if (route.kind == "season") {
             item { SectionHeading("选集", "共 ${row.optInt("total")} 项 · 第 ${page + 1} 页") }
-            items(row.rows("episodes"), key = { "episode:${it.optLong("id")}" }) { episode ->
-                val label = episodeTitle(episode) + (if (episode.optInt("version", 1) > 1) " · 版本 ${episode.optInt("version")}" else "") +
-                    (if (episode.optInt("watched") == 1) " · 已看" else if ((episode.optJSONObject("progress")?.optDouble("position") ?: 0.0) > 0) " · 可续播" else "") +
-                    if (!episode.optBoolean("exists", true)) " · 离线" else ""
-                TvAction(label, { navigate(TvRoute("episode", episode.optLong("id"))) }, Modifier.fillMaxWidth().focusMemory(memory, "episode:${episode.optLong("id")}"))
+            item(key = "episodes:$page:$seasonVersion") {
+                val episodes = row.rows("episodes").map { episodeButtonModel(it, versions.size > 1 && seasonVersion.isBlank()) }
+                EpisodeGrid(episodes, memory, focusedEpisodeId, { focusedEpisodeId = it },
+                    { navigate(TvRoute("episode", it)) }, requestEpisodeFocus, { requestEpisodeFocus = false })
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    if (page > 0) TvAction("上一页", { page-- }, Modifier.focusMemory(memory, "previous-page"))
-                    if (row.optBoolean("has_more")) TvAction("下一页", { page++ }, Modifier.focusMemory(memory, "next-page"))
+                    if (page > 0) TvAction("上一页", { focusEpisodesAfterLoad = true; page-- }, Modifier.focusMemory(memory, "previous-page"))
+                    if (row.optBoolean("has_more")) TvAction("下一页", { focusEpisodesAfterLoad = true; page++ }, Modifier.focusMemory(memory, "next-page"))
                 }
             }
         }
@@ -243,7 +258,9 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
         val choices = if (route.kind == "movie") versions.map { it.optLong("id").toString() to versionLabel(it) }
             else listOf("" to "全部版本") + versions.map { it.optInt("version").toString() to "版本 ${it.optInt("version")} · ${it.optInt("count")} 集" }
         ChoiceDialog("选择版本", choices, if (route.kind == "movie") selectedVersion.toString() else seasonVersion, { choosingVersion = false }) { chosen ->
-            if (route.kind == "movie") selectedVersion = chosen.toLong() else { seasonVersion = chosen; page = 0 }
+            if (route.kind == "movie") selectedVersion = chosen.toLong() else if (seasonVersion != chosen) {
+                focusEpisodesAfterLoad = true; seasonVersion = chosen; page = 0
+            }
             choosingVersion = false
         }
     }
