@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { pickProgressPosition } from '../src/progress.js'
+import { isPlaybackComplete, pickProgressPosition } from '../src/progress.js'
 
 test('pickProgressPosition：seek 重开中存目标位置（含拖到 0:00）', () => {
   // 用户 2026-09 bug：从 30:28 拖到 14:30 立即关闭，暂停回调/卸载存档曾写回旧 absPos
@@ -28,4 +28,20 @@ test('pickProgressPosition：未起播/无有效时间不存档（防 0:00 覆�
   assert.equal(pickProgressPosition({
     seekPending: false, seekPreview: 0, absPos: 0, currentTime: -1
   }), null)
+})
+
+test('完成判定：短片必须看足80%，长片兼容95%与片尾五分钟', () => {
+  for (const [position, duration, expected] of [
+    [0, 180, false], [10, 180, false], [143.9, 180, false], [144, 180, true],
+    [800, 1200, false], [960, 1200, true], [4800, 6000, false],
+    [5699, 6000, false], [5700, 6000, true], [180, 180, true], [181, 180, true],
+  ]) assert.equal(isPlaybackComplete(position, duration), expected, `${position}/${duration}`)
+})
+
+test('完成判定：未知、负值与非有限进度不算已看', () => {
+  for (const bad of [NaN, Infinity, -Infinity, -1, null, undefined]) {
+    assert.equal(isPlaybackComplete(bad, 180), false)
+    assert.equal(isPlaybackComplete(150, bad), false)
+  }
+  assert.equal(isPlaybackComplete(150, 0), false)
 })

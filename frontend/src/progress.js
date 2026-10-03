@@ -7,3 +7,10 @@ export function pickProgressPosition({ seekPending, seekPreview, absPos, current
   if (!Number.isFinite(currentTime) || currentTime <= 0) return null
   return absPos
 }
+
+// Keep this rule aligned with app/playback_completion.py and Android PlaybackModels.
+export function isPlaybackComplete(position, duration) {
+  if (!Number.isFinite(position) || !Number.isFinite(duration) || position < 0 || duration <= 0) return false
+  const ratio = position / duration
+  return ratio >= 0.95 || (ratio >= 0.80 && duration - position <= 300)
+}

@@ -35,7 +35,7 @@ def test_recent_played_filters_thresholds_and_order():
     a = _mk("rp/A.mkv", 991001, "RP 在看", watched=0)
     _progress(a, 600, 7200, played_at=1000)
     b = _mk("rp/B.mkv", 991002, "RP 快完", watched=0)
-    _progress(b, 7000, 7200, played_at=2000)      # 剩余 200s <300 → 视为看完
+    _progress(b, 7000, 7200, played_at=2000)      # 已看超过95%，且剩余200s → 已完成
     c = _mk("rp/C.mkv", 991003, "RP 刚点开", watched=0)
     _progress(c, 10, 7200, played_at=3000)        # <15s 不算开看
     d = _mk("rp/D.mkv", 991004, "RP 已看", watched=1)

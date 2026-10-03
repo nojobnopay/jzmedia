@@ -24,8 +24,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,6 +40,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
 import org.jzmedia.tv.data.ApiException
 import org.jzmedia.tv.data.JzApi
+import org.jzmedia.tv.data.RecentActor
+import org.jzmedia.tv.data.SearchHistoryStore
 import org.jzmedia.tv.data.actorAvatarPath
 import org.jzmedia.tv.data.actorWorkSummary
 import org.jzmedia.tv.data.actorWorksPath
@@ -76,6 +80,10 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
     val grid = rememberLazyGridState()
     val firstResult = remember { FocusRequester() }
     val returnButton = remember { FocusRequester() }
+    val previousButton = remember { FocusRequester() }
+    val retryButton = remember { FocusRequester() }
+    val context = LocalContext.current
+    val history = remember(context) { SearchHistoryStore(context.applicationContext) }
     val rows = data?.rows().orEmpty()
     LaunchedEffect(api, library, route.actorKey, kind, page, attempt) {
         data = null; error = ""
@@ -83,24 +91,43 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
             val response = api.get(actorWorksPath(route.actorKey, kind, library, page))
             coroutineContext.ensureActive()
             data = response
+            val actorName = response.optJSONObject("actor")?.text("name").orEmpty().ifBlank { route.title }
+            history.recordActor(api.baseUrl, library, RecentActor(route.actorKey, actorName))
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
+            coroutineContext.ensureActive()
             error = if (e is ApiException && e.status == 404)
                 "演员资料已失效，或服务器尚不支持演员作品。请返回重新选择；旧版服务器请先更新。"
             else e.message ?: "演员作品读取失败，请重试"
         }
     }
-    LaunchedEffect(data) {
-        if (data != null && (resetResults || focusResults)) {
-            if (rows.isNotEmpty()) {
-                grid.scrollToItem(0)
+    LaunchedEffect(data, error) {
+        if (memory.leaving) return@LaunchedEffect
+        val restoringResult = !memory.restored && memory.restoreKey.startsWith("work:")
+        if (error.isNotBlank()) {
+            if (focusResults || restoringResult) {
                 withFrameNanos { }
-                if (focusResults) firstResult.requestFocus()
-            } else if (focusResults) returnButton.requestFocus()
-            resetResults = false; focusResults = false
+                if (retryButton.requestFocus(FocusDirection.Enter)) memory.restored = true
+            }
+            focusResults = false
+            return@LaunchedEffect
         }
+        if (data == null) return@LaunchedEffect
+        val savedIndex = rows.indexOfFirst { "work:${it.text("kind")}:${it.optLong("id")}" == memory.restoreKey }
+        if (restoringResult && savedIndex >= 0 && !focusResults && !resetResults) {
+            withFrameNanos { }
+            if (!memory.restored && grid.layoutInfo.visibleItemsInfo.none { it.index == savedIndex }) grid.scrollToItem(savedIndex)
+        } else if (focusResults || resetResults || restoringResult) {
+            if (rows.isNotEmpty()) grid.scrollToItem(0)
+            withFrameNanos { }
+            if (focusResults || restoringResult) {
+                val target = if (rows.isNotEmpty()) firstResult else if (page > 0) previousButton else returnButton
+                if (target.requestFocus(FocusDirection.Enter)) memory.restored = true
+            }
+        }
+        resetResults = false; focusResults = false
     }
-    fun turnPage(next: Int) { page = next; focusResults = true }
+    fun turnPage(next: Int) { if (next != page) { data = null; error = ""; page = next; focusResults = true } }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
             TvAction("‹ 返回", back, Modifier.focusMemory(memory, "back", returnButton))
@@ -110,16 +137,19 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
             listOf("all" to "全部", "movie" to "电影", "show" to "电视剧").forEach { (value, label) ->
                 TvAction(label, {
                     if (kind != value || page != 0) {
-                        kind = value; page = 0; data = null; resetResults = true; focusResults = false
+                        kind = value; page = 0; data = null; error = ""; resetResults = true; focusResults = false
                     }
                 }, Modifier.focusMemory(memory, "works-scope:$value"), selected = kind == value)
             }
         }
         Text(data?.let { "本库 ${it.optInt("total")} 部作品 · 第 ${page + 1} 页" } ?: "本库作品", color = Muted)
         when {
-            error.isNotBlank() -> Status(error, { focusResults = true; attempt++ })
+            error.isNotBlank() -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Status(error)
+                TvAction("重试", { focusResults = true; attempt++ }, Modifier.focusMemory(memory, "retry-works", retryButton))
+            }
             data == null -> Status("正在读取演员作品…")
-            rows.isEmpty() -> Status("当前媒体库中没有这一类型的作品。")
+            rows.isEmpty() -> Status(if (page > 0) "这一页已没有作品，请返回上一页。" else "当前媒体库中没有这一类型的作品。")
             else -> {
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                     val columns = ((maxWidth + 2.dp) / 168.dp).toInt().coerceAtLeast(1)
@@ -134,11 +164,11 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous-works"))
-                    if (data!!.optBoolean("has_more")) TvAction("下一页", { turnPage(page + 1) }, Modifier.focusMemory(memory, "next-works"))
-                }
             }
+        }
+        if (page > 0 || data?.optBoolean("has_more") == true) Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous-works", previousButton))
+            if (data?.optBoolean("has_more") == true) TvAction("下一页", { turnPage(page + 1) }, Modifier.focusMemory(memory, "next-works"))
         }
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -71,12 +72,19 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
     var preview by remember(controller) { mutableStateOf<Double?>(null) }
     var interaction by remember(controller) { mutableIntStateOf(0) }
     var countdown by remember(controller) { mutableIntStateOf(10) }
+    var cancelThisNext by remember(controller) { mutableStateOf(false) }
     var controlsHeightPx by remember(controller) { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val rootFocus = remember(controller) { FocusRequester() }
     val playFocus = remember(controller) { FocusRequester() }
     val menuFocus = remember(controller) { FocusRequester() }
     val errorFocus = remember(controller) { FocusRequester() }
+
+    fun startNext() {
+        val next = controller.nextRequest() ?: return
+        controller.close()
+        playNext(next)
+    }
 
     DisposableEffect(controller) {
         val lifecycle = context.activity()?.lifecycle
@@ -86,7 +94,7 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
         lifecycle?.addObserver(observer)
         onDispose { lifecycle?.removeObserver(observer); controller.close() }
     }
-    LaunchedEffect(controller, controls, menu, state.error) {
+    LaunchedEffect(controller, controls, menu, state.error, cancelThisNext) {
         withFrameNanos { }
         when {
             state.error != null -> errorFocus.requestFocus()
@@ -101,13 +109,15 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
             controls = false
         }
     }
-    LaunchedEffect(controller, state.ended, state.autoNext, state.next) {
+    LaunchedEffect(controller, state.ended) {
         countdown = 10
+        cancelThisNext = false
         if (state.ended) controls = true
-        if (state.ended && state.autoNext && state.next != null) {
+    }
+    LaunchedEffect(controller, state.ended, state.autoNext, state.next, menu, cancelThisNext, state.error) {
+        if (shouldCountDownNext(state.ended, state.autoNext, state.next != null, menu != null, cancelThisNext, state.error != null)) {
             while (countdown > 0) { delay(1000); countdown-- }
-            controller.close()
-            playNext(state.next)
+            startNext()
         }
     }
     BackHandler {
@@ -115,6 +125,7 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
         when {
             menu != null -> menu = null
             preview != null -> preview = null
+            state.ended && state.autoNext && state.next != null && !cancelThisNext -> cancelThisNext = true
             controls && state.error == null -> controls = false
             else -> { controller.close(); close() }
         }
@@ -125,8 +136,8 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
         interaction++
         when (native.keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { controller.toggle(); controls = true; true }
-            KeyEvent.KEYCODE_MEDIA_PLAY -> { controller.player.play(); true }
-            KeyEvent.KEYCODE_MEDIA_PAUSE -> { controller.player.pause(); controls = true; true }
+            KeyEvent.KEYCODE_MEDIA_PLAY -> { controller.setPlaying(true); true }
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> { controller.setPlaying(false); controls = true; true }
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { controller.skip(30.0); true }
             KeyEvent.KEYCODE_MEDIA_REWIND -> { controller.skip(-30.0); true }
             else -> if (!controls && menu == null && state.error == null) {
@@ -178,19 +189,24 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
             .background(Color.Black.copy(alpha = .88f)).padding(horizontal = 32.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(request.title, style = MaterialTheme.typography.titleLarge, maxLines = 1)
             if (state.notice != null) Text(state.notice, color = Muted, style = MaterialTheme.typography.bodySmall)
-            if (state.ended) Text(if (state.autoNext && state.next != null) "播放结束，${countdown} 秒后播放下一集" else "播放结束")
+            if (state.nextUnavailable) Text("下一集文件离线，请返回选集", color = Muted, style = MaterialTheme.typography.bodySmall)
+            if (state.ended) Text(when {
+                state.autoNext && state.next != null && !cancelThisNext -> "播放结束，${countdown} 秒后播放下一集 · 返回键取消本次连播"
+                cancelThisNext -> "播放结束 · 已取消本次连播"
+                else -> "播放结束"
+            })
             Progress(state.position, state.duration, state.buffered)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("${playbackTime(state.position)} / ${playbackTime(state.duration)}")
                 Text("${state.rate}× · ${state.output}", color = Muted)
             }
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                item { TvAction(if (state.ended) "重新播放" else if (state.playing) "暂停" else "播放", { controller.toggle(); interaction++ }, Modifier.focusRequester(playFocus)) }
+            LazyRow(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                item { TvAction(if (state.ended) "重新播放" else if (state.playWhenReady) "暂停" else "播放", { controller.toggle(); interaction++ }, Modifier.focusRequester(playFocus)) }
                 item { TvAction("后退 10 秒", { controller.skip(-10.0); interaction++ }) }
                 item { TvAction("前进 10 秒", { controller.skip(10.0); interaction++ }) }
                 item { TvAction("播放设置", { menu = "settings" }) }
-                if (state.ended && state.autoNext && state.next != null) item { TvAction("取消自动连播", { controller.toggleAutoNext() }) }
-                if (state.next != null) item { TvAction("下一集", { controller.close(); playNext(state.next) }) }
+                if (state.ended && state.autoNext && state.next != null && !cancelThisNext) item { TvAction("取消本次连播", { cancelThisNext = true }) }
+                if (state.next != null) item { TvAction("下一集", ::startNext) }
                 item { TvAction("退出播放", { controller.close(); close() }) }
             }
         }

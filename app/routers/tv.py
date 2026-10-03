@@ -1048,6 +1048,7 @@ def episode_next(episode_id: int):
                      "episode": int(nxt["episode"] or 0),
                      "episode_end": int(nxt["episode_end"] or 0),
                      "version": store.episode_version(nxt.get("file_path")),
+                     "exists": _local_exists(nxt), "missing": int(nxt.get("missing") or 0),
                      "title": nxt.get("title") or ""}}
 
 

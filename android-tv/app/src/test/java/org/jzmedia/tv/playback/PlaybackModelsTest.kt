@@ -28,11 +28,33 @@ class PlaybackModelsTest {
 
     @Test fun progressNearEndDoesNotRepresentPlaybackEnded() {
         assertTrue(shouldMarkWatched(5701.0, 6000.0))
-        assertFalse(shouldMarkWatched(5700.0, 6000.0))
+        assertTrue(shouldMarkWatched(5700.0, 6000.0))
+        assertFalse(shouldMarkWatched(5699.0, 6000.0))
         assertFalse(shouldMarkWatched(100.0, 6000.0))
         assertFalse(shouldMarkWatched(0.0, 0.0))
         val state = PlaybackState(position = 5900.0, duration = 6000.0)
         assertFalse(state.ended)
+    }
+
+    @Test fun shortMediaNeedsTheSameMinimumWatchedRatioAsOtherClients() {
+        assertFalse(shouldMarkWatched(0.0, 180.0))
+        assertFalse(shouldMarkWatched(10.0, 180.0))
+        assertFalse(shouldMarkWatched(143.9, 180.0))
+        assertTrue(shouldMarkWatched(144.0, 180.0))
+        assertFalse(shouldMarkWatched(800.0, 1200.0))
+        assertTrue(shouldMarkWatched(960.0, 1200.0))
+        assertFalse(shouldMarkWatched(4800.0, 6000.0))
+        assertTrue(shouldMarkWatched(5700.0, 6000.0))
+        assertTrue(shouldMarkWatched(180.0, 180.0))
+        assertTrue(shouldMarkWatched(181.0, 180.0))
+    }
+
+    @Test fun invalidCompletionInputsNeverMarkWatched() {
+        listOf(-1.0, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY).forEach {
+            assertFalse(shouldMarkWatched(it, 180.0))
+            assertFalse(shouldMarkWatched(150.0, it))
+        }
+        assertFalse(shouldMarkWatched(150.0, 0.0))
     }
 
     @Test fun displayTimeHandlesUnknownAndLongMedia() {

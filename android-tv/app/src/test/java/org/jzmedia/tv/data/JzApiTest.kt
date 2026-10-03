@@ -98,4 +98,23 @@ class JzApiTest {
     @Test fun queryEncodingDoesNotTurnSearchInputIntoNewParameters() {
         assertEquals("/api/search?q=A%26watched%3D1&limit=36", queryPath("/api/search", linkedMapOf("q" to "A&watched=1", "limit" to 36, "genre" to "", "year" to null)))
     }
+
+    @Test fun slowBrowseTimesOutWhilePlaybackPreparationCanFinish() = runBlocking {
+        MockWebServer().use { server ->
+            server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+                override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse =
+                    MockResponse().setHeadersDelay(16, TimeUnit.SECONDS).setBody("{\"ready\":true}")
+            }
+            val api = JzApi(server.url("/").toString())
+            val browse = async {
+                try { api.get("/api/movies"); fail("Browsing should time out promptly") }
+                catch (e: ApiException) { assertTrue(e.message!!.contains("超时")) }
+            }
+            val preparing = async { api.postPlayback("/api/stream/1/sessions") }
+            withTimeout(25_000) {
+                browse.await()
+                assertTrue(preparing.await().getBoolean("ready"))
+            }
+        }
+    }
 }

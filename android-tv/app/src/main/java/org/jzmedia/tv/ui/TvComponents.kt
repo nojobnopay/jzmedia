@@ -61,12 +61,17 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.mediaTitle
@@ -159,6 +164,32 @@ private object Posters {
     val cache = object : LruCache<String, Bitmap>(20 * 1024 * 1024) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
+    private val loads = SharedImageLoads<Pair<JzApi, String>, Bitmap?>()
+    private val slots = Semaphore(4)
+
+    suspend fun load(api: JzApi, path: String): Bitmap? {
+        val url = api.absoluteUrl(path)
+        cache.get(url)?.let { return it }
+        return loads.get(api to url) {
+            slots.withPermit {
+                cache.get(url) ?: withContext(Dispatchers.IO) {
+                    val bytes = api.getBytes(path)
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+                    val options = BitmapFactory.Options().apply {
+                        inSampleSize = 1
+                        while (maxOf(bounds.outWidth, bounds.outHeight) / inSampleSize > 640) inSampleSize *= 2
+                    }
+                    currentCoroutineContext().ensureActive()
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.also {
+                        currentCoroutineContext().ensureActive()
+                        cache.put(url, it)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -172,16 +203,7 @@ fun Poster(api: JzApi, path: String, title: String, modifier: Modifier = Modifie
                 // Do not log URLs, response messages or credentials.
                 Log.d("JzPoster", "Image attempt ${attempt + 1} failed (${error?.javaClass?.simpleName ?: "invalid image"})")
             }) { candidate ->
-                val url = api.absoluteUrl(candidate)
-                Posters.cache.get(url) ?: withContext(Dispatchers.IO) {
-                    val bytes = api.getBytes(candidate)
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                    val options = BitmapFactory.Options().apply {
-                        inSampleSize = (maxOf(bounds.outWidth, bounds.outHeight) / 640).coerceAtLeast(1)
-                    }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.also { Posters.cache.put(url, it) }
-                }
+                Posters.load(api, candidate)
             }
         }
     }
@@ -193,7 +215,8 @@ fun Poster(api: JzApi, path: String, title: String, modifier: Modifier = Modifie
 
 @Composable
 fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifier = Modifier, subtitle: String = "",
-              fallbackPosterPath: String = "", posterPlaceholder: String = "") {
+              fallbackPosterPath: String = "", posterPlaceholder: String = "", progressFraction: Float? = null,
+              posterHeight: Dp = 180.dp) {
     val title = mediaTitle(row)
     Button(
         onClick = onClick, modifier = modifier.width(150.dp),
@@ -203,8 +226,15 @@ fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifi
             focusedContainerColor = Color.White, focusedContentColor = Color.Black),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Poster(api, posterPath(row), title, Modifier.fillMaxWidth().height(180.dp),
-                fallbackPosterPath = fallbackPosterPath, posterPlaceholder = posterPlaceholder)
+            Box(Modifier.fillMaxWidth().height(posterHeight)) {
+                Poster(api, posterPath(row), title, Modifier.fillMaxSize(),
+                    fallbackPosterPath = fallbackPosterPath, posterPlaceholder = posterPlaceholder)
+                progressFraction?.takeIf { it.isFinite() }?.let { fraction ->
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color.Black.copy(alpha = .6f))) {
+                        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(4.dp).background(Accent))
+                    }
+                }
+            }
             Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall, modifier = Modifier.height(42.dp))
             Text(subtitle.ifBlank {
                 listOf(row.text("year"), row.text("vote_average").takeIf { it != "0" }.orEmpty(), if (row.optInt("watched") == 1) "已看" else "")

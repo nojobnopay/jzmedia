@@ -12,12 +12,14 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -27,15 +29,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.mediaTitle
 import org.jzmedia.tv.data.queryPath
@@ -45,60 +49,158 @@ import org.jzmedia.tv.playback.PlaybackRequest
 import org.jzmedia.tv.playback.playbackTime
 import org.json.JSONObject
 
+private data class HomePart(val rows: List<JSONObject> = emptyList(), val loading: Boolean = true, val error: String = "")
+private fun continuingKey(row: JSONObject): String =
+    "continue:${row.text("kind", "movie")}:${row.optJSONObject("progress")?.optLong("version_id", row.optLong("id")) ?: row.optLong("id")}"
+
 @Composable
 fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, navigate: (TvRoute) -> Unit, play: (PlaybackRequest) -> Unit) {
-    var data by remember { mutableStateOf<List<JSONObject>?>(null) }
-    var error by remember { mutableStateOf("") }
-    var attempt by remember { mutableStateOf(0) }
+    val paths = listOf("/api/movies/recent-played", "/api/tv/recent-played", "/api/movies", "/api/tv/shows")
+    val labels = listOf("电影续播", "剧集续播", "最近加入的电影", "最近加入的电视剧")
+    var parts by remember(api, library) { mutableStateOf(List(4) { HomePart() }) }
+    var attempts by remember { mutableStateOf(List(4) { 0 }) }
+    var retrying by remember { mutableStateOf<Int?>(null) }
+    val retryFocus = remember { List(4) { FocusRequester() } }
+    val firstFocus = remember { List(3) { FocusRequester() } }
+    val refreshFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
-    LaunchedEffect(api, library, refresh, attempt) {
-        error = ""
-        try {
-            data = coroutineScope {
-                listOf("/api/movies/recent-played", "/api/tv/recent-played", "/api/movies", "/api/tv/shows").map { path ->
-                    async { api.get(queryPath(path, mapOf("media_library" to library.takeIf { it > 0 }, "limit" to 18, "sort" to "added", "order" to "desc"))) }
-                }.map { it.await() }
+    val continueState = rememberLazyListState()
+    val movieState = rememberLazyListState()
+    val showState = rememberLazyListState()
+    val railStates = listOf(continueState, movieState, showState)
+    for (index in paths.indices) {
+        LaunchedEffect(api, library, refresh, attempts[index]) {
+            parts = parts.toMutableList().also { it[index] = it[index].copy(loading = true, error = "") }
+            try {
+                val response = api.get(queryPath(paths[index], mapOf("media_library" to library.takeIf { it > 0 }, "limit" to 18, "sort" to "added", "order" to "desc")))
+                coroutineContext.ensureActive()
+                parts = parts.toMutableList().also { it[index] = HomePart(response.rows(), loading = false) }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                coroutineContext.ensureActive()
+                parts = parts.toMutableList().also { it[index] = it[index].copy(loading = false, error = e.message ?: "读取失败") }
             }
-        } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { error = e.message ?: "首页加载失败" }
+        }
     }
-    LaunchedEffect(data) {
-        val loaded = data ?: return@LaunchedEffect
-        if (!memory.restored) {
-            val continues = loaded[0].rows().isNotEmpty() || loaded[1].rows().isNotEmpty()
-            val target = when {
-                memory.restoreKey.startsWith("newmovie:") -> if (continues) 2 else 1
-                memory.restoreKey.startsWith("newshow:") -> if (continues) 3 else 2
-                memory.restoreKey.startsWith("continue:") -> 1
-                else -> null
+    val continuing = (parts[0].rows + parts[1].rows).sortedByDescending { it.optJSONObject("progress")?.optLong("last_played_at") ?: 0 }
+    val groups = listOf(continuing, parts[2].rows, parts[3].rows)
+    val groupKeys = listOf(continuing.map(::continuingKey), parts[2].rows.map { "newmovie:${it.optLong("id")}" }, parts[3].rows.map { "newshow:${it.optLong("id")}" })
+    LaunchedEffect(parts, retrying) {
+        if (memory.leaving) return@LaunchedEffect
+        val retry = retrying
+        if (retry != null) {
+            if (parts[retry].loading) return@LaunchedEffect
+            val group = if (retry < 2) 0 else retry - 1
+            when {
+                parts[retry].error.isNotBlank() -> { listState.scrollToItem(group + 1); withFrameNanos { }; retryFocus[retry].requestFocus() }
+                groups[group].isNotEmpty() -> { listState.scrollToItem(group + 1); railStates[group].scrollToItem(0); withFrameNanos { }; firstFocus[group].requestFocus() }
+                else -> { listState.scrollToItem(0); withFrameNanos { }; refreshFocus.requestFocus() }
             }
-            if (target != null) listState.scrollToItem(target)
+            retrying = null
+            return@LaunchedEffect
+        }
+        if (memory.restored || memory.leaving) return@LaunchedEffect
+        val restoredRetry = memory.restoreKey.removePrefix("home-retry:").toIntOrNull()?.takeIf { memory.restoreKey.startsWith("home-retry:") && it in 0..3 }
+        if (restoredRetry != null) {
+            if (parts[restoredRetry].loading) return@LaunchedEffect
+            val group = if (restoredRetry < 2) 0 else restoredRetry - 1
+            if (parts[restoredRetry].error.isNotBlank()) {
+                listState.scrollToItem(group + 1)
+                withFrameNanos { }
+                if (retryFocus[restoredRetry].requestFocus(FocusDirection.Enter)) memory.restored = true
+            } else if (groups[group].isNotEmpty()) {
+                listState.scrollToItem(group + 1); railStates[group].scrollToItem(0); withFrameNanos { }
+                if (firstFocus[group].requestFocus(FocusDirection.Enter)) memory.restored = true
+            } else { listState.scrollToItem(0); withFrameNanos { }; if (refreshFocus.requestFocus(FocusDirection.Enter)) memory.restored = true }
+            return@LaunchedEffect
+        }
+        val group = when {
+            memory.restoreKey.startsWith("continue:") -> 0
+            memory.restoreKey.startsWith("newmovie:") -> 1
+            memory.restoreKey.startsWith("newshow:") -> 2
+            else -> return@LaunchedEffect
+        }
+        val sources = if (group == 0) listOf(0, 1) else listOf(group + 1)
+        // Do not decide that a saved card disappeared before its section finishes.
+        if (sources.any { parts[it].loading }) return@LaunchedEffect
+        val savedIndex = groupKeys[group].indexOf(memory.restoreKey)
+        if (savedIndex >= 0) {
+            listState.scrollToItem(group + 1)
+            railStates[group].scrollToItem(savedIndex)
+            return@LaunchedEffect
+        }
+        val failed = sources.firstOrNull { parts[it].error.isNotBlank() }
+        val fallback = if (groups[group].isNotEmpty()) group else groups.indexOfFirst { it.isNotEmpty() }
+        when {
+            failed != null -> { listState.scrollToItem(group + 1); withFrameNanos { }; if (retryFocus[failed].requestFocus(FocusDirection.Enter)) memory.restored = true }
+            fallback >= 0 -> { listState.scrollToItem(fallback + 1); railStates[fallback].scrollToItem(0); withFrameNanos { }; if (firstFocus[fallback].requestFocus(FocusDirection.Enter)) memory.restored = true }
+            else -> { listState.scrollToItem(0); withFrameNanos { }; if (refreshFocus.requestFocus(FocusDirection.Enter)) memory.restored = true }
+        }
+    }
+    fun retry(index: Int) {
+        parts = parts.toMutableList().also { it[index] = it[index].copy(loading = true, error = "") }
+        retrying = index
+        attempts = attempts.toMutableList().also { it[index]++ }
+    }
+    @Composable fun Feedback(index: Int) {
+        val part = parts[index]
+        if (part.loading) Text(if (part.rows.isEmpty()) "正在读取${labels[index]}…" else "正在更新${labels[index]}…", color = Muted)
+        if (part.error.isNotBlank()) {
+            Text("${labels[index]}：${part.error}", color = Muted)
+            TvAction("重试${labels[index]}", { retry(index) }, Modifier.focusMemory(memory, "home-retry:$index", retryFocus[index]))
         }
     }
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(28.dp), contentPadding = PaddingValues(bottom = 30.dp)) {
-        item(key = "heading") { SectionHeading("今晚看什么", "遥控器方向键浏览，确定键打开") }
-        if (error.isNotBlank()) item(key = "error") { Status(error, { attempt++ }) }
-        if (data == null && error.isBlank()) item(key = "loading") { Status("正在读取影片…") }
-        data?.let { loaded ->
-            val continuing = (loaded[0].rows() + loaded[1].rows()).sortedByDescending { it.optJSONObject("progress")?.optLong("last_played_at") ?: 0 }
-            if (continuing.isNotEmpty()) item(key = "continue") {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item(key = "heading") {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("今晚看什么", style = MaterialTheme.typography.headlineSmall)
+                TvAction("刷新", { attempts = attempts.map { it + 1 } }, Modifier.focusMemory(memory, "home-refresh", refreshFocus))
+            }
+        }
+        item(key = "continue") {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (continuing.isNotEmpty()) {
                     Text("继续观看", style = MaterialTheme.typography.headlineSmall)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(8.dp)) {
-                        items(continuing, key = { "${it.text("kind", "movie")}:${it.optJSONObject("progress")?.optLong("version_id")}" }) { row ->
+                    LazyRow(state = continueState, horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(16.dp)) {
+                        itemsIndexed(continuing, key = { _, row -> continuingKey(row) }) { index, row ->
                             val kind = row.text("kind", "movie")
                             val progress = row.optJSONObject("progress") ?: JSONObject()
                             val id = progress.optLong("version_id", row.optLong("id"))
+                            val position = progress.optDouble("position", 0.0).takeIf { it.isFinite() && it >= 0 } ?: 0.0
+                            val duration = progress.optDouble("duration", 0.0).takeIf { it.isFinite() && it > 0 }
+                            val remaining = if (duration != null) "剩余 ${playbackTime((duration - position).coerceAtLeast(0.0))}" else "已看 ${playbackTime(position)}"
+                            val caption = listOf(if (kind == "episode") row.text("subtitle").substringBefore(" · ") else "", remaining).filter { it.isNotBlank() }.joinToString(" · ")
                             MediaCard(api, row, { play(PlaybackRequest(kind, id, mediaTitle(row), true)) },
-                                Modifier.focusMemory(memory, "continue:$kind:$id"),
-                                row.text("subtitle").ifBlank { "已看 ${playbackTime(progress.optDouble("position", 0.0))}" })
+                                Modifier.focusMemory(memory, continuingKey(row), if (index == 0) firstFocus[0] else null), caption,
+                                progressFraction = duration?.let { (position / it).coerceIn(0.0, 1.0).toFloat() })
                         }
                     }
                 }
+                Feedback(0); Feedback(1)
             }
-            item(key = "newmovies") { MediaRail("最近加入的电影", loaded[2].rows(), api, memory, "newmovie") { navigate(TvRoute("movie", it.optLong("id"))) } }
-            item(key = "newshows") { MediaRail("最近加入的电视剧", loaded[3].rows(), api, memory, "newshow") { navigate(TvRoute("show", it.optLong("id"))) } }
-            if (loaded.all { it.rows().isEmpty() }) item(key = "empty") { Status("这个媒体库还没有影片。请先在网页端连接媒体库并扫描入库。") }
+        }
+        for (index in 2..3) item(key = if (index == 2) "newmovies" else "newshows") {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                HomeRail(labels[index], parts[index].rows, api, memory, if (index == 2) "newmovie" else "newshow", railStates[index - 1], firstFocus[index - 1]) {
+                    navigate(TvRoute(if (index == 2) "movie" else "show", it.optLong("id")))
+                }
+                Feedback(index)
+            }
+        }
+        if (parts.all { !it.loading && it.error.isBlank() && it.rows.isEmpty() }) item(key = "empty") {
+            Status("这个媒体库还没有影片。请先在网页端连接媒体库并扫描入库。")
+        }
+    }
+}
+
+@Composable
+private fun HomeRail(title: String, rows: List<JSONObject>, api: JzApi, memory: FocusMemory, prefix: String,
+                     state: LazyListState, first: FocusRequester, open: (JSONObject) -> Unit) {
+    if (rows.isEmpty()) return
+    Text(title, style = MaterialTheme.typography.headlineSmall)
+    LazyRow(state = state, horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(16.dp)) {
+        itemsIndexed(rows, key = { _, row -> row.optLong("id") }) { index, row ->
+            MediaCard(api, row, { open(row) }, Modifier.focusMemory(memory, "$prefix:${row.optLong("id")}", if (index == 0) first else null))
         }
     }
 }
@@ -118,6 +220,11 @@ fun BrowseScreen(api: JzApi, kind: String, library: Long, refresh: Int, memory: 
     var data by remember { mutableStateOf<JSONObject?>(null) }
     var error by remember { mutableStateOf("") }
     var attempt by remember { mutableStateOf(0) }
+    var focusResults by remember { mutableStateOf(false) }
+    val firstResult = remember { FocusRequester() }
+    val filterFocus = remember { FocusRequester() }
+    val retryFocus = remember { FocusRequester() }
+    val previousFocus = remember { FocusRequester() }
     val title = when (kind) { "movies" -> "电影"; "shows" -> "电视剧"; else -> "合集" }
     val filters = listOf(query, genre, region, year, watched, rating, sort, order)
     val gridState = rememberLazyGridState()
@@ -125,10 +232,12 @@ fun BrowseScreen(api: JzApi, kind: String, library: Long, refresh: Int, memory: 
         data = null; error = ""
         try {
             val path = when (kind) { "movies" -> if (query.isBlank()) "/api/movies" else "/api/search"; "shows" -> "/api/tv/shows"; else -> "/api/collections" }
-            data = api.get(queryPath(path, mapOf("media_library" to library.takeIf { it > 0 }, "limit" to 36, "offset" to page * 36,
+            val response = api.get(queryPath(path, mapOf("media_library" to library.takeIf { it > 0 }, "limit" to 36, "offset" to page * 36,
                 "q" to query, "genre" to genre, "region" to region, "year" to year, "watched" to watched, "min_rating" to rating, "sort" to sort, "order" to order)))
+            coroutineContext.ensureActive()
+            data = response
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { error = e.message ?: "读取失败" }
+        catch (e: Exception) { coroutineContext.ensureActive(); error = e.message ?: "读取失败" }
     }
     val source = data?.rows().orEmpty()
     val rows = if (kind == "collections") {
@@ -136,34 +245,63 @@ fun BrowseScreen(api: JzApi, kind: String, library: Long, refresh: Int, memory: 
         (if (order == "desc") sorted.reversed() else sorted).drop(page * 36).take(36)
     } else source
     val hasMore = if (kind == "collections") source.size > (page + 1) * 36 else data?.optBoolean("has_more") == true
+    LaunchedEffect(data, error) {
+        if (memory.leaving) return@LaunchedEffect
+        val restoringCard = !memory.restored && memory.restoreKey.startsWith("card:")
+        if (error.isNotBlank()) {
+            if (focusResults || restoringCard) {
+                withFrameNanos { }
+                if (retryFocus.requestFocus(FocusDirection.Enter)) memory.restored = true
+            }
+            focusResults = false
+            return@LaunchedEffect
+        }
+        if (data == null) return@LaunchedEffect
+        val savedIndex = rows.indexOfFirst { "card:${it.optLong("id")}" == memory.restoreKey }
+        if (restoringCard && savedIndex >= 0 && !focusResults) {
+            withFrameNanos { }
+            if (!memory.restored && gridState.layoutInfo.visibleItemsInfo.none { it.index == savedIndex }) gridState.scrollToItem(savedIndex)
+        } else if (focusResults || restoringCard) {
+            if (rows.isNotEmpty()) gridState.scrollToItem(0)
+            withFrameNanos { }
+            val target = if (rows.isNotEmpty()) firstResult else if (page > 0) previousFocus else filterFocus
+            if (target.requestFocus(FocusDirection.Enter)) memory.restored = true
+            focusResults = false
+        }
+    }
+    fun turnPage(next: Int) { if (next != page) { data = null; error = ""; page = next; focusResults = true } }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.fillMaxWidth()) {
             Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
             TvAction("搜索", { navigate(TvRoute("search", title = kind)) }, Modifier.focusMemory(memory, "search"))
-            TvAction("筛选 / 排序", { filtering = true }, Modifier.focusMemory(memory, "filter"))
+            TvAction("筛选 / 排序", { filtering = true }, Modifier.focusMemory(memory, "filter", filterFocus))
             TvAction("刷新", { attempt++ }, Modifier.focusMemory(memory, "refresh"))
         }
         val summary = listOf(query.takeIf { it.isNotBlank() }?.let { "搜索：$it" }, genre, region, year,
             when (watched) { "1" -> "已看"; "0" -> "未看"; else -> "" }, rating.takeIf { it.isNotBlank() }?.let { "评分 ≥ $it" }).filterNotNull().filter { it.isNotBlank() }
         Text((if (summary.isEmpty()) "全部$title" else summary.joinToString(" · ")) + " · 第 ${page + 1} 页", color = Muted)
         when {
-            error.isNotBlank() -> Status(error, { attempt++ })
+            error.isNotBlank() -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Status(error)
+                TvAction("重试", { focusResults = true; attempt++ }, Modifier.focusMemory(memory, "retry-browse", retryFocus))
+                if (page > 0) TvAction("返回上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous", previousFocus))
+            }
             data == null -> Status("正在读取$title…")
             rows.isEmpty() -> {
-                Status(if (filters.take(6).any { it.isNotBlank() }) "没有符合条件的$title，请调整搜索或筛选。" else "暂无$title，请先在网页端导入。")
-                if (page > 0) TvAction("返回上一页", { page-- })
+                Status(if (page > 0) "这一页已没有内容，请返回上一页。" else if (filters.take(6).any { it.isNotBlank() }) "没有符合条件的$title，请调整搜索或筛选。" else "暂无$title，请先在网页端导入。")
+                if (page > 0) TvAction("返回上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous", previousFocus))
             }
             else -> LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(150.dp), contentPadding = PaddingValues(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                items(rows, key = { it.optLong("id") }) { row ->
+                itemsIndexed(rows, key = { _, row -> row.optLong("id") }) { index, row ->
                     MediaCard(api, row, { navigate(TvRoute(when (kind) { "movies" -> "movie"; "shows" -> "show"; else -> "collection" }, row.optLong("id"))) },
-                        Modifier.focusMemory(memory, "card:${row.optLong("id")}"),
+                        Modifier.focusMemory(memory, "card:${row.optLong("id")}", if (index == 0) firstResult else null),
                         if (kind == "collections") "${row.optInt("member_count")} 部影片" else "")
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(vertical = 10.dp)) {
-                        if (page > 0) TvAction("上一页", { page-- }, Modifier.focusMemory(memory, "previous"))
-                        if (hasMore) TvAction("下一页", { page++ }, Modifier.focusMemory(memory, "next"))
+                        if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous", previousFocus))
+                        if (hasMore) TvAction("下一页", { turnPage(page + 1) }, Modifier.focusMemory(memory, "next"))
                         Text("本页 ${rows.size} 项" + if (data?.has("total") == true) " / 共 ${data?.optInt("total")} 项" else "", color = Muted, modifier = Modifier.padding(12.dp))
                     }
                 }
@@ -171,6 +309,7 @@ fun BrowseScreen(api: JzApi, kind: String, library: Long, refresh: Int, memory: 
         }
     }
     if (filtering) FilterDialog(api, kind, library, filters, onClose = { filtering = false }) { chosen ->
+        if (chosen != filters || page != 0) { data = null; focusResults = true }
         query = chosen[0]; genre = chosen[1]; region = chosen[2]; year = chosen[3]; watched = chosen[4]; rating = chosen[5]; sort = chosen[6]; order = chosen[7]
         page = 0; filtering = false
     }

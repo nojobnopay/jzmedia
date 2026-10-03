@@ -73,6 +73,7 @@ fun TvApp(onExit: () -> Unit) {
         save = { rows -> rows.map { it.encode() } }, restore = { rows -> rows.map(TvRoute::decode) },
     )) { mutableStateOf(listOf(TvRoute("home", key = "root:home"))) }
     val holder = rememberSaveableStateHolder()
+    var savedPageKeys by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -96,6 +97,14 @@ fun TvApp(onExit: () -> Unit) {
         return
     }
     val server = api!!
+    val pagePrefix = "${server.baseUrl}:$library:"
+    val pageKey = pagePrefix + routes.last().key
+    LaunchedEffect(pagePrefix, routes) {
+        val active = routes.map { pagePrefix + it.key }.toSet()
+        val obsolete = savedPageKeys.filter { it !in active && !it.startsWith(pagePrefix + "root:") }
+        obsolete.forEach(holder::removeState)
+        savedPageKeys = ((savedPageKeys - obsolete.toSet()) + pageKey).distinct()
+    }
     if (playback != null) {
         TvPlayer(server, playback!!, onClose = { playback = null; refresh++ }, onPlayNext = { playback = it })
         return
@@ -104,10 +113,11 @@ fun TvApp(onExit: () -> Unit) {
     fun back() { if (routes.size > 1) routes = routes.dropLast(1) else onExit() }
     BackHandler { back() }
     fun navigate(next: TvRoute) { routes = routes + next }
-    holder.SaveableStateProvider("${server.baseUrl}:$library:${route.key}") {
+    holder.SaveableStateProvider(pageKey) {
         val memory = rememberFocusMemory(when (route.kind) {
             "search" -> "key:A"
             "home", "movies", "shows", "collections" -> "nav:${route.kind}"
+            "movie", "show", "season", "episode", "collection" -> "detail:primary"
             else -> "back"
         })
         fun open(next: TvRoute) { memory.leaving = true; navigate(next) }

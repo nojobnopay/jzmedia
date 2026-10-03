@@ -2,7 +2,9 @@
 
 多库 v13：断点键为 `(kind, item_id)`（movie|episode），与 media_info 一致。
 """
+import math
 import time
+from ..playback_completion import is_playback_complete
 from ._base import _attach_versions, _conn, _lock, _row_to_dict
 from .search import _split_ints
 __all__ = ['get_progress', 'save_progress', 'clear_progress', 'list_recent_played',
@@ -11,10 +13,18 @@ __all__ = ['get_progress', 'save_progress', 'clear_progress', 'list_recent_playe
 
 # 「继续观看」判定（与 PlayerModal 断点/自动标看阈值对齐）：
 # - position < 15s 不算开看（PlayerModal 也只对 >15s 的断点提示续播）
-# - 剩余 <5% 或 <300s 视为已看完（PlayerModal 在这一刻会自动标 watched）
+# - 已看 >=95%，或已看 >=80% 且剩余 <=300s，视为已看完。
 CONTINUE_MIN_POSITION = 15.0
 CONTINUE_MAX_PERCENT = 0.95
 CONTINUE_MIN_REMAIN = 300.0
+
+
+def _seconds(value) -> float:
+    try:
+        seconds = float(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    return max(0.0, seconds) if math.isfinite(seconds) else 0.0
 
 
 def get_progress(item_id: int, kind: str = "movie") -> dict | None:
@@ -32,14 +42,7 @@ def save_progress(item_id: int, position: float, duration: float,
                   kind: str = "movie") -> dict:
     """写单项断点（position/duration 秒，钳制 0<=position<=duration）。返回行。"""
     kind = str(kind or "movie")
-    try:
-        dur = max(0.0, float(duration or 0))
-    except (TypeError, ValueError):
-        dur = 0.0
-    try:
-        pos = max(0.0, float(position or 0))
-    except (TypeError, ValueError):
-        pos = 0.0
+    dur, pos = _seconds(duration), _seconds(position)
     if dur > 0:
         pos = min(pos, dur)
     now = int(time.time())
@@ -74,7 +77,7 @@ def list_recent_played(limit: int = 20, library_ids=None,
     """最近播放（海报粒度，按最后播放时间倒序）。
 
     默认只返回「未看完」：`movies.watched=0` 且未到自动标看阈值
-    （剩余 <5% 或 <300s）；include_finished=True 时含已看完（供“全部最近播放”）。
+    （已看 >=95%，或已看 >=80% 且剩余 <=300s）；include_finished=True 时含已看完。
     每个影片（library_id + COALESCE(tmdb_id,-id)）只留最近播放的那个版本，
     返回项带 `progress:{version_id, position, duration, percent, remaining_sec,
     last_played_at}`，version_id 即 stream 接口的 version_id（可直接续播）。
@@ -88,11 +91,10 @@ def list_recent_played(limit: int = 20, library_ids=None,
         params.extend(libs)
     if not include_finished:
         conds.append("COALESCE(m.watched, 0)=0")
-        conds.append("NOT (p.duration > 0 AND (p.position / p.duration >= ?"
-                     " OR p.duration - p.position <= ?))")
-        params.extend([CONTINUE_MAX_PERCENT, CONTINUE_MIN_REMAIN])
+        conds.append("NOT playback_complete(p.position, p.duration)")
     where = " AND ".join(conds)
     with _lock, _conn() as c:
+        c.create_function("playback_complete", 2, is_playback_complete, deterministic=True)
         rows = c.execute(
             "SELECT m.*, p.item_id AS _pvid, p.position AS _ppos,"
             " p.duration AS _pdur, p.updated_at AS _pplayed"
@@ -107,8 +109,8 @@ def list_recent_played(limit: int = 20, library_ids=None,
             seen.add(key)
             d = _row_to_dict(r)
             vid = int(d.pop("_pvid"))
-            pos = float(d.pop("_ppos") or 0)
-            dur = float(d.pop("_pdur") or 0)
+            pos = _seconds(d.pop("_ppos"))
+            dur = _seconds(d.pop("_pdur"))
             played = int(d.pop("_pplayed") or 0)
             d["progress"] = {
                 "version_id": vid,
@@ -141,11 +143,10 @@ def list_recent_played_tv(limit: int = 20, library_ids=None,
         params.extend(libs)
     if not include_finished:
         conds.append("COALESCE(e.watched, 0)=0")
-        conds.append("NOT (p.duration > 0 AND (p.position / p.duration >= ?"
-                     " OR p.duration - p.position <= ?))")
-        params.extend([CONTINUE_MAX_PERCENT, CONTINUE_MIN_REMAIN])
+        conds.append("NOT playback_complete(p.position, p.duration)")
     where = " AND ".join(conds)
     with _lock, _conn() as c:
+        c.create_function("playback_complete", 2, is_playback_complete, deterministic=True)
         rows = c.execute(
             "SELECT e.*, s.title AS _show_title, s.year AS _show_year,"
             " s.poster_path AS _show_poster, s.library_id AS _show_lib,"
@@ -162,8 +163,8 @@ def list_recent_played_tv(limit: int = 20, library_ids=None,
                 continue
             seen.add(key)
             vid = int(r["_pvid"])
-            pos = float(r["_ppos"] or 0)
-            dur = float(r["_pdur"] or 0)
+            pos = _seconds(r["_ppos"])
+            dur = _seconds(r["_pdur"])
             played = int(r["_pplayed"] or 0)
             season = int(r["season"] or 0)
             episode = int(r["episode"] or 0)

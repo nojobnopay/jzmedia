@@ -1,8 +1,11 @@
 package org.jzmedia.tv.playback
 
-data class PlaybackRequest(val kind: String, val id: Long, val title: String, val resume: Boolean = true)
+data class PlaybackRequest(val kind: String, val id: Long, val title: String, val resume: Boolean = true,
+                           val continuation: ContinuationPreferences? = null)
 
-data class MediaTrack(val index: Int, val label: String, val image: Boolean = false, val ffIndex: Int = -1)
+data class MediaTrack(val index: Int, val label: String, val image: Boolean = false, val ffIndex: Int = -1,
+                      val language: String = "", val title: String = "", val codec: String = "",
+                      val channels: Int = 0, val forced: Boolean = false)
 
 /** Extractor IDs are container-specific (Matroska TrackNumber is not ffprobe ff_index). */
 data class AudioCandidate(val id: String?, val label: String?, val supported: Boolean)
@@ -21,6 +24,7 @@ fun audioCandidateIndex(candidates: List<AudioCandidate>, selected: Int, sourceC
 data class PlaybackState(
     val loading: Boolean = true,
     val playing: Boolean = false,
+    val playWhenReady: Boolean = true,
     val ended: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
@@ -40,6 +44,7 @@ data class PlaybackState(
     val subtitleSize: Int = 1,
     val autoNext: Boolean = true,
     val next: PlaybackRequest? = null,
+    val nextUnavailable: Boolean = false,
 )
 
 val PLAYBACK_RATES = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
@@ -57,6 +62,7 @@ fun sourcePosition(playerMillis: Long, mediaStart: Double, duration: Double): Do
 }
 
 fun shouldMarkWatched(position: Double, duration: Double): Boolean {
-    val remaining = duration - position
-    return duration > 0 && remaining > 0 && (remaining / duration < 0.05 || remaining < 300)
+    if (!position.isFinite() || !duration.isFinite() || position < 0 || duration <= 0) return false
+    val ratio = position / duration
+    return ratio >= .95 || (ratio >= .80 && duration - position <= 300)
 }

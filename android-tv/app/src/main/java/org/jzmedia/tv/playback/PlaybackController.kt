@@ -49,11 +49,14 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
     private val writes = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val saveLock = Mutex()
     private val preferences = appContext.getSharedPreferences("playback", Context.MODE_PRIVATE)
+    private val intent = PlaybackIntent()
+    private var selectionNotice: String? = null
     private val delayKey = "delay.${api.baseUrl}.${request.kind}.${request.id}"
     var state by mutableStateOf(PlaybackState(
         subtitleDelay = preferences.getFloat(delayKey, 0f).toDouble(),
         subtitleSize = preferences.getInt("subtitleSize", 1),
         autoNext = preferences.getBoolean("autoNext", true),
+        rate = request.continuation?.rate?.takeIf { it in PLAYBACK_RATES } ?: 1f,
     ))
         private set
     private var media = JSONObject()
@@ -116,7 +119,8 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                     // and keep playback paused until this explicit source-relative seek.
                     initialHlsSeek = null
                     player.seekTo(pending.second)
-                    player.play()
+                    intent.prepared()
+                    player.playWhenReady = intent.playerShouldPlay
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
@@ -133,6 +137,13 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     if (!disposed) state = state.copy(playing = isPlaying)
+                }
+
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    if (!disposed && state.error == null) {
+                        intent.observePlayer(playWhenReady)
+                        state = state.copy(playWhenReady = intent.wantsPlay)
+                    }
                 }
 
                 override fun onTracksChanged(tracks: Tracks) {
@@ -186,7 +197,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         state = state.copy(loading = true, error = null)
         initialization = scope.launch {
             try {
-                media = api.get("/api/stream/${request.id}/media?kind=${request.kind}")
+                media = api.getPlayback("/api/stream/${request.id}/media?kind=${request.kind}")
                 ensureActive()
                 capabilities = withContext(Dispatchers.Default) { NativeCapabilities.detect(appContext, media) }
                 val audios = media.optJSONArray("audio") ?: JSONArray()
@@ -196,15 +207,19 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                     val item = subs.optJSONObject(it)
                     item?.optInt("default") == 1 && item.optInt("image") != 1
                 }
-                state = state.copy(duration = media.optDouble("duration", 0.0).finiteOrZero(), audio = audio, subtitle = sub,
-                    audios = trackList(audios), subtitles = trackList(subs))
+                val audioTracks = trackList(audios)
+                val subtitleTracks = trackList(subs)
+                val selection = continuationSelection(audioTracks, subtitleTracks, audio, sub, request.continuation)
+                selectionNotice = selection.notice
+                state = state.copy(duration = media.optDouble("duration", 0.0).finiteOrZero(), audio = selection.audio,
+                    subtitle = selection.subtitle, audios = audioTracks, subtitles = subtitleTracks)
                 val progress = if (request.resume) api.get(progressPath()) else {
                     api.delete(progressPath())
                     JSONObject()
                 }
                 ensureActive()
                 val position = progress.optDouble("position", 0.0).finiteOrZero().coerceAtLeast(0.0)
-                val start = if (position > 15 && (state.duration <= 0 || position < state.duration)) position else 0.0
+                val start = if (position > 15 && !shouldMarkWatched(position, state.duration)) position else 0.0
                 initialized = true
                 if (compatible) useCompatibleCapabilities()
                 open(start)
@@ -223,7 +238,11 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         val item = items.optJSONObject(i) ?: JSONObject()
         val title = listOf(item.optString("lang"), item.optString("title"), item.optString("codec"))
             .filter { it.isNotBlank() && it != "null" && it != "und" }.distinct().joinToString(" · ")
-        MediaTrack(i, "${i + 1}. ${title.ifEmpty { "未标注" }}", item.optInt("image") == 1, item.optInt("ff_index", -1))
+        MediaTrack(i, "${i + 1}. ${title.ifEmpty { "未标注" }}", item.optInt("image") == 1, item.optInt("ff_index", -1),
+            language = item.optString("lang").takeUnless { it == "null" }.orEmpty(),
+            title = item.optString("title").takeUnless { it == "null" }.orEmpty(),
+            codec = item.optString("codec").takeUnless { it == "null" }.orEmpty(),
+            channels = item.optInt("channels"), forced = item.optInt("forced") == 1)
     }
 
     private fun body(start: Double) = JSONObject().put("client", "android_tv").put("kind", request.kind)
@@ -235,6 +254,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         val current = ++generation
         reload?.cancel()
         initialHlsSeek = null
+        intent.beginPreparation()
         player.pause()
         player.stop()
         ready = false
@@ -245,7 +265,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         reload = scope.launch {
             var createdSession: String? = null
             try {
-                val decision = api.post("/api/stream/${request.id}/decide", body(start))
+                val decision = api.postPlayback("/api/stream/${request.id}/decide", body(start))
                 ensureActive()
                 if (disposed || current != generation) return@launch
                 val method = decision.optString("method")
@@ -261,7 +281,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                     initial = start
                     complete = true
                 } else {
-                    val session = api.post("/api/stream/${request.id}/sessions", body(start))
+                    val session = api.postPlayback("/api/stream/${request.id}/sessions", body(start))
                     createdSession = session.getString("session_id")
                     ensureActive()
                     if (disposed || current != generation) return@launch
@@ -276,10 +296,11 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 if (method != "direct") item.setMimeType(MimeTypes.APPLICATION_M3U8)
                 val size = if (plan.optInt("height") > 0) "${plan.optInt("height")}p" else "${media.optInt("height")}p"
                 state = state.copy(method = method, output = "$size · ${if (method == "direct" || plan.optBoolean("vcopy")) "原视频" else "视频转码"}",
-                    notice = reasons(decision.optJSONArray("reasons")))
+                    notice = listOfNotNull(selectionNotice, reasons(decision.optJSONArray("reasons"))).joinToString("；").ifEmpty { null })
                 val initialMs = (initial * 1000).toLong()
                 initialHlsSeek = if (method == "direct") null else itemId to initialMs
-                player.playWhenReady = method == "direct"
+                if (method == "direct") intent.prepared()
+                player.playWhenReady = intent.playerShouldPlay
                 player.setMediaItem(item.build(), initialMs)
                 player.setPlaybackSpeed(state.rate)
                 player.prepare()
@@ -317,8 +338,16 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
     }
 
     fun toggle() {
-        if (state.ended) { seek(0.0); return }
-        if (player.isPlaying) { player.pause(); queueSave() } else player.play()
+        if (state.ended) { setPlaying(true); seek(0.0); return }
+        setPlaying(!intent.wantsPlay)
+    }
+
+    fun setPlaying(play: Boolean) {
+        if (disposed) return
+        intent.request(play)
+        state = state.copy(playWhenReady = play)
+        player.playWhenReady = intent.playerShouldPlay
+        if (!play) queueSave()
     }
 
     fun seek(target: Double) {
@@ -330,7 +359,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         if (ready && relative >= 0 && player.isCurrentMediaItemSeekable &&
             ((complete && player.duration > 0 && relative * 1000 < player.duration) || relative * 1000 <= player.bufferedPosition)) {
             player.seekTo((relative * 1000).toLong())
-            player.play()
+            player.playWhenReady = intent.playerShouldPlay
         } else open(value)
     }
 
@@ -390,8 +419,8 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
             capabilities.put("probes", probes)
             open(state.position)
         } else {
-            player.pause()
             state = state.copy(loading = false, error = "无法选择该音轨，请返回选择其他版本或重试")
+            player.pause()
         }
     }
 
@@ -443,11 +472,13 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
     private suspend fun fetchNext() {
         try {
             val next = api.get("/api/tv/episodes/${request.id}/next").optJSONObject("next")
-            if (!disposed && next != null) state = state.copy(next = PlaybackRequest("episode", next.getLong("id"),
-                "第${next.optInt("season")}季 第${next.optInt("episode")}集 ${next.optString("title")}", false))
+            if (!disposed) state = state.copy(next = nextPlaybackRequest(next),
+                nextUnavailable = next != null && (!next.optBoolean("exists", true) || next.optInt("missing") != 0))
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) { if (!disposed) state = state.copy(notice = "下一集信息暂不可用，可返回选集") }
     }
+
+    fun nextRequest(): PlaybackRequest? = nextRequestWithPreferences(state)
 
     private fun markWatched() {
         if (markedWatched || request.kind == "extra") return

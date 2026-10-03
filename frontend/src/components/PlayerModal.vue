@@ -111,7 +111,7 @@ import PlayerSeekbar from './PlayerSeekbar.vue'
 import { applyPlaybackRate, normalizeRate, reusableSeekTime } from '../playbackControls.js'
 import { usePlaybackPreviews } from '../usePlaybackPreviews.js'
 import { fmtTime as fmt } from '../playerLabels.js'
-import { pickProgressPosition } from '../progress.js'
+import { isPlaybackComplete, pickProgressPosition } from '../progress.js'
 import '../player.css'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
@@ -952,10 +952,8 @@ function onTime() {
   if (!props.preview && v && !doneWatched) {
     const dur = mediaDuration(v)
     const pos = absPos()
-    const remain = dur - pos
-    // 阈值标已看：剩余<5%或<300s（含片尾曲场景），只触发一次；
-    // remain>0 防“时长未知/播放列表时长偏小”时的误判。
-    if (dur > 0 && remain > 0 && (remain / dur < 0.05 || remain < 300)) {
+    // 短片也必须先看足比例；真正结束仍由 ended 事件处理连播。
+    if (isPlaybackComplete(pos, dur)) {
       doneWatched = true
       emit('watched')
     }
@@ -1221,8 +1219,7 @@ onMounted(async () => {
       let dur = Number(p.duration) || 0
       // 旧版本用 HLS 增长清单时长（如 30s）写坏过存档：dur < pos 视为不可信，按未看完处理
       if (dur > 0 && dur < pos) dur = 0
-      const remain = dur - pos
-      if (pos > 15 && (dur === 0 || !(remain / dur < 0.05 || remain < 300))) {
+      if (pos > 15 && !isPlaybackComplete(pos, dur)) {
         resumePos = pos
         resumeOffer.value = p.position_text || fmt(pos)
         // 弹窗打开即计时：10s 内未点任一按钮 = 同意续播，自动消条（direct 缺 #t 会在到点时补跳）

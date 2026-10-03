@@ -11,6 +11,7 @@ import time
 
 from ._base import DEFAULT_LIBRARY_ID, _conn, _like_esc, _lock, logger
 from .search import (_query_terms, _split_ints, _split_multi, normalize_sort)
+from ..playback_completion import is_playback_complete
 
 __all__ = ['upsert_show', 'upsert_episode', 'upsert_season', 'list_shows', 'get_show',
            'list_episodes', 'get_episode', 'tv_library_stats', 'count_shows', 'count_episodes',
@@ -260,8 +261,7 @@ def episode_after(episode_id: int) -> dict | None:
 
 def _next_unwatched(rows: list[dict]) -> dict | None:
     def finished(e):
-        dur, pos = float(e.get("_dur") or 0), float(e.get("_pos") or 0)
-        return bool(e.get("watched")) or (dur > 0 and (pos / dur >= .95 or dur - pos <= 300))
+        return bool(e.get("watched")) or is_playback_complete(e.get("_pos"), e.get("_dur"))
 
     def start(e):
         return int(e["season"]), int(e["episode"])
@@ -1030,9 +1030,7 @@ def show_season_stats(show_id: int) -> list[dict]:
     def _finished(r: dict) -> bool:
         if int(r.get("watched") or 0):
             return True
-        dur = float(r.get("_dur") or 0)
-        pos = float(r.get("_pos") or 0)
-        return dur > 0 and (pos / dur >= 0.95 or dur - pos <= 300)
+        return is_playback_complete(r.get("_pos"), r.get("_dur"))
 
     out = []
     for sn in sorted(by_season):
