@@ -212,6 +212,85 @@ class BrowseFixtureTests(unittest.TestCase):
         anonymous = next(row for row in show["cast"] if row["name"] == "林雾汀")
         self.assertIsNone(anonymous["tmdb_id"])
 
+    def test_season_stress_exposes_real_summary_fields_and_varied_states(self):
+        self.fixtures = Fixtures(Path(self.temp.name), season_stress=True)
+        show = self.request("/api/tv/shows/100")
+        seasons = show["seasons"]
+        self.assertEqual([row["season"] for row in seasons], list(range(8)))
+        self.assertEqual(show["season_count"], 8)
+        self.assertEqual((show["episode_count"], show["watched_count"]), (75, 45))
+        self.assertEqual(seasons[0]["name"], "特别篇")
+        self.assertGreater(len(seasons[2]["name"]), 20)
+        self.assertEqual(seasons[3]["name"], "")
+        self.assertEqual(seasons[7]["name"], "")
+        self.assertTrue(seasons[0]["done"])
+        self.assertTrue(seasons[4]["done"])
+        self.assertTrue(seasons[5]["has_partial"])
+        self.assertEqual((seasons[5]["total"], seasons[5]["watched_count"], seasons[5]["next_episode_num"]), (6, 2, 3))
+        self.assertEqual(seasons[3]["watched_count"], 0)
+        expected_fields = {"season", "episode_count", "total", "watched_count", "distinct", "versions", "done",
+                           "has_partial", "next_episode_num", "name", "overview", "air_date", "poster_path", "cast"}
+        for row in seasons:
+            self.assertEqual(set(row), expected_fields)
+
+    def test_season_stress_detail_episode_and_next_routes_keep_season_identity(self):
+        self.fixtures = Fixtures(Path(self.temp.name), season_stress=True)
+        identities = set()
+        for summary in self.request("/api/tv/shows/100")["seasons"]:
+            number = summary["season"]
+            detail = self.request(f"/api/tv/shows/100/seasons/{number}")
+            self.assertEqual((detail["season"], detail["name"]), (number, summary["name"]))
+            self.assertEqual((detail["total"], detail["watched_count"]), (summary["total"], summary["watched_count"]))
+            self.assertEqual(detail["versions"], [{"version": 1, "count": detail["total"]}])
+            for expected in detail["episodes"]:
+                row = self.request(f"/api/tv/episodes/{expected['id']}")
+                self.assertEqual(row["season"], number)
+                self.assertEqual(row["episode"], expected["episode"])
+                self.assertIn(f"/S{number:02d}E", row["file_path"])
+                self.assertNotIn(row["id"], identities)
+                identities.add(row["id"])
+                next_row = self.request(f"/api/tv/episodes/{row['id']}/next")["next"]
+                if next_row is not None:
+                    self.assertEqual((next_row["season"], next_row["episode"]), (number, row["episode"] + 1))
+            self.assertIsNone(detail["episodes"][-1]["next_episode"])
+        self.assertEqual(len(identities), 75)
+
+    def test_season_stress_paging_and_watch_mutations_are_scoped_to_chosen_season(self):
+        self.fixtures = Fixtures(Path(self.temp.name), season_stress=True)
+        pages = [self.request("/api/tv/shows/100/seasons/6", limit=10, offset=offset) for offset in (0, 10, 20)]
+        self.assertEqual([len(row["episodes"]) for row in pages], [10, 10, 4])
+        self.assertEqual([row["has_more"] for row in pages], [True, True, False])
+        self.assertEqual([row["total"] for row in pages], [24, 24, 24])
+        self.assertEqual(self.request("/api/tv/shows/100/seasons/6", version=2)["total"], 0)
+        self.fixtures.handle("POST", "/api/tv/shows/100/seasons/3/watched", {}, {"watched": True})
+        seasons = self.request("/api/tv/shows/100")["seasons"]
+        self.assertEqual((seasons[3]["watched_count"], seasons[2]["watched_count"]), (8, 4))
+        self.fixtures.handle("POST", "/api/tv/shows/100/seasons/0/watched", {}, {"watched": False})
+        self.assertEqual(self.request("/api/tv/shows/100/seasons/0")["watched_count"], 0)
+        self.fixtures.handle("POST", "/api/tv/shows/100/watched", {}, {"watched": True})
+        self.assertEqual(self.request("/api/tv/shows/100")["watched_count"], 75)
+
+    def test_season_and_episode_stress_can_combine_without_changing_actor_relations(self):
+        self.fixtures = Fixtures(Path(self.temp.name), browse_stress=True, season_stress=True)
+        show = self.request("/api/tv/shows/100")
+        self.assertEqual((show["episode_count"], show["watched_count"]), (192, 48))
+        first = self.season()
+        self.assertEqual(first["total"], 120)
+        self.assertEqual(first["versions"], [{"version": 1, "count": 119}, {"version": 2, "count": 1}])
+        self.assertEqual(self.request("/api/tv/shows/100/seasons/2")["total"], 12)
+        self.assertEqual(self.request("/api/tv/episodes/1210")["season"], 1)
+        self.assertEqual(self.actor_works(actor="name:林雾汀")["total"], 1)
+        self.assertEqual(self.actor_works(actor="tmdb:9001")["actor"]["work_count"], 33)
+
+    def test_extra_seasons_require_flag_and_unknown_seasons_are_not_found(self):
+        with self.assertRaises(KeyError):
+            self.request("/api/tv/shows/100/seasons/0")
+        self.fixtures = Fixtures(Path(self.temp.name), season_stress=True)
+        with self.assertRaises(KeyError):
+            self.request("/api/tv/shows/100/seasons/8")
+        with self.assertRaises(KeyError):
+            self.request("/api/tv/episodes/10003")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

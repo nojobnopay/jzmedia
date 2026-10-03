@@ -80,7 +80,9 @@ internal fun EpisodeGrid(
                                         focusedContentColor = Color(0xFF141414),
                                     ),
                                 ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp)) {
                                         Text(episode.number, fontSize = if (episode.number.length > 7) 16.sp else 19.sp, lineHeight = 22.sp, maxLines = 1)
                                         if (episode.badge.isNotBlank()) Text(episode.badge, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }

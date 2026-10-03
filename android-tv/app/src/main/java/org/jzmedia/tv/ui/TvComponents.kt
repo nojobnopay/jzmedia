@@ -57,6 +57,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
@@ -104,7 +105,8 @@ fun Modifier.focusMemory(memory: FocusMemory, key: String, focusRequester: Focus
 }
 
 @Composable
-fun TvAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true) {
+fun TvAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true,
+             centerLabel: Boolean = false) {
     Button(
         onClick = onClick, enabled = enabled, modifier = modifier,
         colors = ButtonDefaults.colors(
@@ -113,7 +115,13 @@ fun TvAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, s
             focusedContainerColor = Color.White,
             focusedContentColor = Color(0xFF141414),
         ),
-    ) { Text(text, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+    ) {
+        // Only explicitly sized actions fill their label; natural-width buttons and
+        // full-width list entries retain their existing width/alignment contract.
+        Text(text, modifier = if (centerLabel) Modifier.fillMaxWidth() else Modifier,
+            textAlign = if (centerLabel) TextAlign.Center else TextAlign.Start,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 @Composable

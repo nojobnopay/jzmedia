@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -113,7 +114,9 @@ fun TvApp(onExit: () -> Unit) {
         fun play(request: PlaybackRequest) { memory.leaving = true; playback = request }
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 40.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            // Keep the last item's focused scale inside the row's scroll viewport.
+            LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(end = 12.dp, top = 6.dp, bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 item { Text("jzmedia", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(end = 16.dp, top = 5.dp)) }
                 items(listOf("home" to "首页", "movies" to "电影", "shows" to "电视剧", "collections" to "合集", "search" to "搜索")) { (kind, label) ->
                     TvAction(label, {

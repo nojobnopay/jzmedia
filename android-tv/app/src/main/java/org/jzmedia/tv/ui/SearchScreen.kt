@@ -195,9 +195,9 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TvAction("删除", { changeQuery(deleteSearchInput(query)) }, Modifier.weight(1f).focusMemory(memory, "delete"))
-                        TvAction("清空", { changeQuery("") }, Modifier.weight(1f).focusMemory(memory, "clear"))
-                        TvAction("中文输入", { editing = true }, Modifier.weight(1.5f).focusMemory(memory, "input", inputButton))
+                        TvAction("删除", { changeQuery(deleteSearchInput(query)) }, Modifier.weight(1f).focusMemory(memory, "delete"), centerLabel = true)
+                        TvAction("清空", { changeQuery("") }, Modifier.weight(1f).focusMemory(memory, "clear"), centerLabel = true)
+                        TvAction("中文输入", { editing = true }, Modifier.weight(1.5f).focusMemory(memory, "input", inputButton), centerLabel = true)
                     }
                     Text(if (query.codePointCount(0, query.length) >= SEARCH_QUERY_LIMIT) "最多输入 $SEARCH_QUERY_LIMIT 个字符" else "方向键选字母 · 右移查看候选",
                         style = MaterialTheme.typography.labelMedium, color = Muted)

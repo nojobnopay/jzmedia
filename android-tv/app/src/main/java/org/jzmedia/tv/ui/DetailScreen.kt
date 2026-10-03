@@ -176,11 +176,8 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
         if (actionError.isNotBlank()) item { Status(actionError, ::markWatched) }
         if (route.kind == "show") {
             item { SectionHeading("选季", "${row.optInt("episode_count")} 集 · 已看 ${row.optInt("watched_count")} 集") }
-            items(row.rows("seasons"), key = { "season:${it.optInt("season")}" }) { season ->
-                val number = season.optInt("season")
-                TvAction("${season.text("name").ifBlank { if (number == 0) "特别篇" else "第 $number 季" }}  ·  ${season.optInt("total")} 集  ·  已看 ${season.optInt("watched_count")} 集", {
-                    navigate(TvRoute("season", route.id, number, title))
-                }, Modifier.fillMaxWidth().focusMemory(memory, "season:$number"))
+            if (row.rows("seasons").isNotEmpty()) item(key = "seasons") {
+                SeasonGrid(row.rows("seasons"), memory) { number -> navigate(TvRoute("season", route.id, number, title)) }
             }
             if (row.rows("seasons").isEmpty()) item { Status("暂时没有已入库的分集") }
         }

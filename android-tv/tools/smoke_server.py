@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Isolated TV fixture server. No app imports, live credentials, database or NAS access.
 
-Run: python android-tv/tools/smoke_server.py --port 18888 [--hls] [--browse-stress]
+Run: python android-tv/tools/smoke_server.py --port 18888 [--hls] [--browse-stress] [--season-stress]
 Then adb reverse tcp:18888 tcp:18888, and enter http://127.0.0.1:18888 on TV.
 Use --require-token to exercise the fixed fixture token ``demo-tv-token``.
 Use --browse-stress for 120 episode numbers, merged episodes and duplicate versions.
+Use --season-stress for eight seasons, including specials, long names and empty names.
 All media and state are synthetic; request traces omit credentials and request bodies.
 """
 from __future__ import annotations
@@ -83,16 +84,33 @@ def _actor_catalog():
     return rows
 
 
+# Extra seasons use separate synthetic IDs; season 1 retains the playback fixtures.
+_EXTRA_SEASONS = {
+    0: ("特别篇", 2, 2),
+    2: ("远方归来的灯塔守望者与沿海小镇跨越四季的漫长重逢", 12, 4),
+    3: ("", 8, 0),
+    4: ("第四季", 16, 16),
+    5: ("迷雾群岛", 6, 2),
+    6: ("第六季", 24, 20),
+    7: ("", 4, 1),
+}
+
+
 class Fixtures:
-    def __init__(self, directory, hls=False, require_token=False, browse_stress=False):
+    def __init__(self, directory, hls=False, require_token=False, browse_stress=False, season_stress=False):
         self.directory, self.hls, self.require_token = directory, hls, require_token
-        self.browse_stress = browse_stress
+        self.browse_stress, self.season_stress = browse_stress, season_stress
         self.lock = threading.Lock()
         self.progress = {("movie", 1): {"position": 45, "duration": 660}, ("episode", 201): {"position": 46, "duration": 660}}
         self.watched = set()
         if browse_stress:
             self.watched.update(("episode", eid) for eid in (203, 204, 207))
             self.progress[("episode", 208)] = {"position": 135, "duration": 660}
+        if season_stress:
+            for season, (_, _, watched) in _EXTRA_SEASONS.items():
+                self.watched.update(("episode", 10000 + season * 1000 + number)
+                                    for number in range(1, watched + 1))
+            self.progress[("episode", 15003)] = {"position": 90, "duration": 660}
         self.sessions = 0
         self.trace = directory / "requests.jsonl"
 
@@ -109,7 +127,14 @@ class Fixtures:
                             ([{"id": 101, "file_path": "film1-alt.mp4", "spec": "H.264 · AAC", "edition": "另一版本"}] if mid == 1 else []),
                 "collections": [{"id": 1, "name": "科幻时光"}], "extras": [{"id": 301, "title": "幕后片段", "kind": "trailer"}]}
 
-    def episode_ids(self):
+    def season_numbers(self):
+        return sorted([1, *_EXTRA_SEASONS]) if self.season_stress else [1]
+
+    def episode_ids(self, season=1):
+        if season != 1:
+            if not self.season_stress or season not in _EXTRA_SEASONS:
+                raise KeyError("Unknown fixture season")
+            return [10000 + season * 1000 + number for number in range(1, _EXTRA_SEASONS[season][1] + 1)]
         if not self.browse_stress:
             return [201, 202, 203]
         # E05 covers E06; E10 has an additional physical version. There are 120 files.
@@ -117,34 +142,62 @@ class Fixtures:
                 for eid in ([200 + number, 1210] if number == 10 else [200 + number])]
 
     def episode(self, eid):
-        number, version = (10, 2) if self.browse_stress and eid == 1210 else (eid - 200, 1)
-        merged = self.browse_stress and number == 5
-        offline = self.browse_stress and number == 12
-        peers = [i for i in self.episode_ids() if (i == 1210) == (version == 2)]
+        season = (eid - 10000) // 1000 if self.season_stress and eid >= 10000 else 1
+        number = (eid - 10000) % 1000 if self.season_stress and eid >= 10000 else eid - 200
+        version = 1
+        if self.browse_stress and eid == 1210:
+            number, version = 10, 2
+        stress_episode = self.browse_stress and season == 1
+        merged = stress_episode and number == 5
+        offline = stress_episode and number == 12
+        peers = [i for i in self.episode_ids(season) if (i == 1210) == (version == 2)]
+        if self.season_stress and eid >= 10000 and eid not in peers:
+            raise KeyError("Unknown fixture episode")
         index = peers.index(eid) if eid in peers else -1
         previous_id = peers[index - 1] if index > 0 else None
         next_id = peers[index + 1] if 0 <= index < len(peers) - 1 else None
         title = ["启程", "新的信号", "回家"][max(0, number - 1) % 3]
-        if self.browse_stress and number == 7:
+        if stress_episode and number == 7:
             title = "当遥远灯塔的信号再次亮起，我们终于听见了来自星海尽头的漫长回声"
         return {"id": eid, "title": title, "show_id": 100, "library_id": 2, "media_library_id": 1,
-                "show_title": "遥远的灯塔", "season": 1, "episode": number, "episode_end": 6 if merged else None,
+                "show_title": "遥远的灯塔", "season": season, "episode": number, "episode_end": 6 if merged else None,
                 "show_poster": "tv/poster2.png", "poster_path": "tv/poster2.png", "exists": not offline, "missing": int(offline),
-                "file_path": f"演示剧集/S01E{number:02d}{'-E06' if merged else ''}{'.v2' if version == 2 else ''}.mp4", "version": version,
+                "file_path": f"演示剧集/S{season:02d}E{number:02d}{'-E06' if merged else ''}{'.v2' if version == 2 else ''}.mp4", "version": version,
                 "watched": int(("episode", eid) in self.watched), "progress": self.progress.get(("episode", eid), {}),
                 "overview": "旅程继续，信号终于从远方传来。", "cast": self.cast("show", 100),
                 "previous_episode": {"id": previous_id} if previous_id is not None else None,
-                "next_episode": {"id": next_id, "season": 1, "episode": next_id - 200, "title": "下一集"} if next_id is not None else None}
+                "next_episode": {"id": next_id, "season": season,
+                                 "episode": next_id - 200 if season == 1 else (next_id - 10000) % 1000,
+                                 "title": "下一集"} if next_id is not None else None}
+
+    def season_summary(self, season):
+        rows = [self.episode(eid) for eid in self.episode_ids(season)]
+        watched = sum(row["watched"] for row in rows)
+        numbers = {number for row in rows for number in range(row["episode"], (row["episode_end"] or row["episode"]) + 1)}
+        def finished(row):
+            position = row["progress"].get("position", 0)
+            duration = row["progress"].get("duration", 0)
+            return row["watched"] or (duration > 0 and (position / duration >= .95 or duration - position <= 300))
+        return {"season": season, "name": "第一季" if season == 1 else _EXTRA_SEASONS[season][0],
+                "episode_count": len(rows), "total": len(rows), "watched_count": watched,
+                "distinct": len(numbers), "versions": len({row["version"] for row in rows}),
+                "done": bool(rows) and watched == len(rows),
+                "has_partial": any(not finished(row) and row["progress"].get("position", 0) >= 15 for row in rows),
+                "next_episode_num": next((row["episode"] for row in rows if not finished(row)), None),
+                "overview": "原创合成季，用于验证选季和遥控器焦点。",
+                "air_date": f"{2018 + season}-01-01", "poster_path": f"tv/poster{(season + 1) % 4}.png", "cast": self.cast("show", 100)}
 
     def show(self):
         # Match the scanner's POSTER_DIR-relative TV paths, alongside DATA_DIR-relative movies.
-        count = len(self.episode_ids())
-        watched = sum(("episode", i) in self.watched for i in self.episode_ids())
+        seasons = [self.season_summary(season) for season in self.season_numbers()]
+        count = sum(season["total"] for season in seasons)
+        watched = sum(season["watched_count"] for season in seasons)
         return {"id": 100, "title": "遥远的灯塔", "year": 2026, "poster_path": "tv/poster2.png", "episode_count": count,
                 "library_id": 2, "media_library_id": 1, "watched_count": watched,
-                "overview": "一百二十集的合成长季，用于验证选集与分页。" if self.browse_stress else "三个短篇故事，寻找夜色中的灯塔。",
+                "overview": ("跨越八季的合成灯塔故事，包含特别篇。" if self.season_stress else
+                             "一百二十集的合成长季，用于验证选集与分页。" if self.browse_stress else "三个短篇故事，寻找夜色中的灯塔。"),
                 "cast": self.cast("show", 100), "next_episode": self.episode(201),
-                "seasons": [{"season": 1, "name": "第一季", "total": count, "watched_count": watched}],
+                "seasons": seasons, "season_count": len(seasons),
                 "extras": [{"id": 301, "title": "幕后片段", "label": "花絮", "kind": "trailer", "exists": True}]}
 
     def search(self, query):
@@ -254,14 +307,19 @@ class Fixtures:
             return {"items": rows, "total": len(rows), "has_more": False}
         if path == "/api/tv/shows/100":
             return self.show()
-        if path == "/api/tv/shows/100/seasons/1":
-            rows = [self.episode(i) for i in self.episode_ids()]
+        match = re.fullmatch(r"/api/tv/shows/100/seasons/(\d+)", path)
+        if match:
+            season = int(match[1])
+            summary = self.season_summary(season)
+            rows = [self.episode(i) for i in self.episode_ids(season)]
             versions = [{"version": version, "count": sum(row["version"] == version for row in rows)}
                         for version in sorted({row["version"] for row in rows})]
             rows = [row for row in rows if not q("version") or str(row["version"]) == q("version")]
             offset, limit = max(0, int(q("offset", "0"))), max(1, min(500, int(q("limit", "100"))))
-            return {**self.show(), "show_title": "遥远的灯塔", "show_poster": "tv/poster2.png", "name": "第一季", "season": 1,
-                    "total": len(rows), "offset": offset, "limit": limit, "distinct_count": 120 if self.browse_stress else 3,
+            return {"show_id": 100, "show_title": "遥远的灯塔", "show_year": 2026, "show_poster": "tv/poster2.png",
+                    "name": summary["name"], "season": season, "overview": summary["overview"], "poster_path": summary["poster_path"],
+                    "episode_count": summary["total"], "watched_count": summary["watched_count"], "cast": summary["cast"],
+                    "total": len(rows), "offset": offset, "limit": limit, "distinct_count": summary["distinct"],
                     "has_more": offset + limit < len(rows), "episodes": rows[offset:offset + limit], "versions": versions,
                     "next_episode": next((row for row in rows if not row["watched"] and row["exists"]), None)}
         if path == "/api/collections":
@@ -281,9 +339,11 @@ class Fixtures:
             for mid in body.get("ids", []):
                 self.set_watched("movie", mid, body.get("ops", {}).get("watched"))
             return {"ok": True}
-        match = re.fullmatch(r"/api/tv/(episodes|shows)/(\d+)(?:/seasons/1)?/watched", path)
+        match = re.fullmatch(r"/api/tv/(episodes|shows)/(\d+)(?:/seasons/(\d+))?/watched", path)
         if match:
-            for eid in ([int(match[2])] if match[1] == "episodes" else self.episode_ids()):
+            seasons = [int(match[3])] if match[3] is not None else self.season_numbers()
+            ids = [int(match[2])] if match[1] == "episodes" else [eid for season in seasons for eid in self.episode_ids(season)]
+            for eid in ids:
                 self.set_watched("episode", eid, body.get("watched", True))
             return {"ok": True}
         if path == "/api/stream/progress":
@@ -409,6 +469,7 @@ def main():
     parser.add_argument("--hls", action="store_true")
     parser.add_argument("--require-token", action="store_true")
     parser.add_argument("--browse-stress", action="store_true", help="Synthetic 120-episode season with merged ranges and duplicate versions")
+    parser.add_argument("--season-stress", action="store_true", help="Synthetic eight-season show including specials and long/empty names")
     parser.add_argument("--ffmpeg", help="Explicit FFmpeg binary; no automatic downloads")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="jzmedia-tv-fixture-") as temp:
@@ -416,9 +477,9 @@ def main():
         make_fixtures(directory, args.hls, args.ffmpeg)
         server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
         server.daemon_threads = True
-        server.fixtures = Fixtures(directory, args.hls, args.require_token, args.browse_stress)
+        server.fixtures = Fixtures(directory, args.hls, args.require_token, args.browse_stress, args.season_stress)
         print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}", "fixtures": str(directory), "synthetic": True,
-                          "hls": args.hls, "browse_stress": args.browse_stress}), flush=True)
+                          "hls": args.hls, "browse_stress": args.browse_stress, "season_stress": args.season_stress}), flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:
