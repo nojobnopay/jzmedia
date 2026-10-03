@@ -120,7 +120,7 @@ def main():
     help_ready = prepare_help_preview(runtime)
     subprocess.run([
         str(ffmpeg), "-hide_banner", "-loglevel", "error", "-nostdin",
-        "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24",
+        "-f", "lavfi", "-i", f"testsrc2=size={'1920x1080' if args.docs_demo else '640x360'}:rate=24",
         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "180" if args.docs_demo else "6",
         "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
         "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart",

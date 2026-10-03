@@ -148,6 +148,7 @@
 import AppIcon from './AppIcon.vue'
 
 import { computed, reactive, ref, watch } from 'vue'
+import { useSettingsDraft } from '../settingsDrafts.js'
 import { api } from '../api.js'
 import { parseSmbInput } from '../smb.js'
 import JzButton from './JzButton.vue'
@@ -171,6 +172,17 @@ const form = reactive({
   nfs_export: '',
   videos: [{ name: '', subpath: '', kind: props.kind }],
 })
+
+const emptyForm = JSON.stringify(form)
+const dirty = computed(() => JSON.stringify(form) !== emptyForm)
+function discard() {
+  Object.assign(form, JSON.parse(emptyForm))
+  advSplitting.value = false
+  msg.value = ''
+  test.text = ''; test.ok = null; test.suggestions = []; test.stages = []
+}
+useSettingsDraft({ section: 'sec-libraries', label: '新建媒体库', dirty: () => dirty.value,
+  busy: () => !!busy.value || test.busy, discard })
 
 watch(() => form.smb_url, (v) => {
   const p = parseSmbInput(v)
@@ -244,7 +256,7 @@ async function create () {
     const d = await api('/api/media-libraries', {
       method: 'POST', body: JSON.stringify(body),
     })
-    form.smb_password = ''
+    discard()
     emit('created', d)
   } catch (e) {
     msg.value = '创建失败：' + e.message

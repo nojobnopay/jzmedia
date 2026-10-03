@@ -1,5 +1,5 @@
 // Real Vue UI + in-memory API fixtures. Never opens .env, backend, DB or media.
-// Run: node scripts/smoke_settings_ui.mjs [--capture-docs] [--player-only]
+// Run: node scripts/smoke_settings_ui.mjs [--capture-docs] [--player-only|--drafts-only]
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
@@ -14,9 +14,28 @@ import { chromium } from '../docs/node_modules/playwright/index.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
-assert.ok(args.every(arg => ['--capture-docs', '--player-only'].includes(arg)))
+assert.ok(args.every(arg => ['--capture-docs', '--player-only', '--drafts-only'].includes(arg)))
 const capture = args.includes('--capture-docs')
 const playerOnly = args.includes('--player-only')
+const draftsOnly = args.includes('--drafts-only')
+assert.ok(!(playerOnly && draftsOnly), 'Choose one focused regression scope')
+assert.ok(!(capture && draftsOnly), 'Documentation capture requires the complete settings regression')
+async function frontendFingerprint() {
+  const hash = createHash('sha256')
+  async function walk(directory) {
+    for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+      const file = path.join(directory, entry.name)
+      if (entry.isDirectory()) await walk(file)
+      else if (entry.isFile()) { hash.update(path.relative(root, file)); hash.update(await readFile(file)) }
+    }
+  }
+  for (const directory of ['frontend/src', 'frontend/public']) await walk(path.join(root, directory))
+  for (const file of ['frontend/index.html', 'frontend/package.json', 'frontend/package-lock.json']) {
+    hash.update(file); hash.update(await readFile(path.join(root, file)))
+  }
+  return hash.digest('hex')
+}
+const sourceSha256 = capture ? await frontendFingerprint() : null
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-settings-ui-'))
 const dist = path.join(work, 'dist')
 const libs = [{ id: 1, name: '电影', kind: 'movie', subpath: '电影' }, { id: 2, name: '剧集', kind: 'tv', subpath: '剧集' }]
@@ -62,6 +81,8 @@ const files = Object.fromEntries(libs.map(l => [l.id, [
 const changes = new Map()
 let revision = 0, scanJob = null, scanPolls = 0, browser, server, harnessEntry
 let videoFixture, imageFixture
+const directFixturePath = '中文目录/合成视频 100% & #.mp4'
+const directFixtureUrl = '/fixtures/video.mp4?' + new URLSearchParams({ name: directFixturePath })
 function syntheticPdf() {
   const text = 'BT /F1 18 Tf 45 220 Td (JZMedia synthetic file preview) Tj ET'
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -127,7 +148,7 @@ function mock(url, method, body) {
     return { total: body.from.length, files: body.from.length, bytes: 100, needs_confirm: true, conflicts: [] }
   }
   if (/^\/api\/stream\/\d+\/previews$/.test(key)) return { state: 'missing', pages: [] }
-  if (/^\/api\/stream\/\d+\/decide$/.test(key)) return { method: 'direct', direct_url: '/fixtures/video.mp4', reasons: [],
+  if (/^\/api\/stream\/\d+\/decide$/.test(key)) return { method: 'direct', direct_url: directFixtureUrl, reasons: [],
     media: { width: 320, height: 180, duration: 1200, audio: [], subs: [] }, plan: {} }
   if (key === '/api/stream/progress') return method === 'GET' ? { position: 25, duration: 1200, position_text: '00:25' } : { ok: true }
   if (key === '/api/stream/previews/jobs/latest') return { state: 'idle' }
@@ -156,9 +177,12 @@ async function screenshot(page, name, doc, scene, { animations = 'disabled' } = 
   captured.push({ file, page: doc, scene, verified_at: new Date().toISOString().slice(0, 10),
     app_version: JSON.parse(await readFile(path.join(root, 'frontend/package.json'))).version,
     source_commit: execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
-    source_state: '跨端统一图标、按钮、文件管理与播放器工作区改造', source: '真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体',
+    source_state: '当前工作区设置、文件管理与播放器回归', source_sha256: sourceSha256,
+    source_digest_scope: ['frontend/src/**/*', 'frontend/public/**/*', 'frontend/index.html', 'frontend/package.json', 'frontend/package-lock.json'],
+    source: '真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体',
     viewport: { ...page.viewportSize(), device_scale_factor: 1 }, recording_script: 'scripts/smoke_settings_ui.mjs --capture-docs',
-    fixtures: 'scripts/smoke_settings_ui.mjs 内置内存数据', bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
+    fixtures: 'scripts/smoke_settings_ui.mjs 内置内存数据', fixture_sha256: createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex'),
+    bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
 }
 async function selectionScreenshot(page, name) {
   if (!capture) return
@@ -260,6 +284,298 @@ async function checkFileLoading(browser, base) {
     await context.close()
   }
 }
+async function checkSettingsDrafts(browser, base) {
+  // This context owns its settings and libraries. Failed/delayed writes must not
+  // leak into the existing file-management and playback lifecycle fixtures.
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
+  const localLibs = structuredClone(libs)
+  const settings = { tmdb_configured: false, tmdb_language: 'zh-CN', tmdb_proxy: '', tmdb_image_base: '', jzmedia_token_source: 'unset' }
+  const ai = { enabled: false, provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'demo', daily_limit: 100, timeout_seconds: 12,
+    api_key_set: false, usage: { requests: 0, input_tokens: 0, output_tokens: 0 } }
+  const media = [
+    { id: 1, name: '演示媒体库', source: 'local', path: '/demo/media', enabled: true, read_only: false, movie_count: 0, episode_count: 0 },
+    { id: 2, name: '演示媒体库乙', source: 'smb', path: '/demo/remote', smb_host: 'demo.invalid', smb_share: 'videos', smb_username: 'demo', smb_subpath: '', smb_connect_host: '',
+      enabled: true, read_only: false, movie_count: 0, episode_count: 0 },
+  ]
+  const writes = [], checks = [], releases = []
+  let failSettings = false, settingsGate = null
+  const gate = () => {
+    let release, started
+    const promise = new Promise(resolve => { release = resolve })
+    const received = new Promise(resolve => { started = resolve })
+    releases.push(release)
+    return { promise, received, release, started }
+  }
+  await context.route('**/*', async route => {
+    const request = route.request(), url = new URL(request.url()), key = url.pathname, method = request.method()
+    if (url.origin !== base) { errors.push('Unexpected settings-draft external request: ' + url.origin); return route.abort() }
+    if (key === '/api/settings') {
+      if (method === 'PUT') {
+        const body = request.postDataJSON()
+        writes.push({ key, body })
+        if (settingsGate) { const current = settingsGate; current.started(); await current.promise }
+        if (failSettings) return route.fulfill({ status: 503, json: { detail: '模拟设置保存失败' } })
+        Object.assign(settings, body)
+        if (body.tmdb_read_token) { settings.tmdb_configured = true; settings.tmdb_read_token_masked = 'demo…token'; delete settings.tmdb_read_token }
+        if (body.jzmedia_token) { settings.jzmedia_token_source = 'db'; settings.jzmedia_token_masked = 'demo…token'; delete settings.jzmedia_token }
+      }
+      return route.fulfill({ json: settings })
+    }
+    if (key === '/api/ai/settings') {
+      if (method === 'PATCH') { const body = request.postDataJSON(); writes.push({ key, body }); Object.assign(ai, body) }
+      return route.fulfill({ json: ai })
+    }
+    if (key === '/api/libraries') return route.fulfill({ json: { items: localLibs, default_id: 1 } })
+    if (/^\/api\/libraries\/\d+$/.test(key) && method === 'PATCH') {
+      const body = request.postDataJSON(), library = localLibs.find(l => l.id === Number(key.split('/').at(-1)))
+      writes.push({ key, body }); Object.assign(library, body)
+      return route.fulfill({ json: library })
+    }
+    if (key === '/api/media-libraries') return route.fulfill({ json: { smb_driver: 'direct', items: media.map(m => ({ ...m, video_libraries: localLibs.filter(l => l.media_library_id === m.id) })) } })
+    if (key === '/api/collections' || key === '/api/collections/suggest') return route.fulfill({ json: { items: [] } })
+    if (key === '/api/collections/suggest/backfill/status') return route.fulfill({ json: { state: 'idle' } })
+    return route.continue()
+  })
+  const page = await context.newPage()
+  page.setDefaultTimeout(12000)
+  page.on('pageerror', error => errors.push(String(error)))
+  const unsaved = page.getByRole('dialog', { name: '设置尚未保存', exact: true })
+  const busy = page.getByRole('dialog', { name: '设置操作尚未完成', exact: true })
+  const token = page.getByLabel('读取令牌（Read Token）', { exact: true })
+  const nav = label => page.locator('.desktop-categories').getByRole('button', { name: label, exact: true })
+  const section = () => new URL(page.url()).searchParams.get('sec')
+  const unloadBlocked = () => page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  const stay = async () => { await unsaved.getByRole('button', { name: '继续编辑', exact: true }).click(); await unsaved.waitFor({ state: 'hidden' }) }
+  const discard = async () => { await unsaved.getByRole('button', { name: '放弃修改并离开', exact: true }).click(); await unsaved.waitFor({ state: 'hidden' }) }
+  const go = async (label, sec) => { await nav(label).click(); await page.waitForURL(url => url.searchParams.get('sec') === sec) }
+  const collectionsLink = () => page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '合集', exact: true })
+  try {
+    await page.goto(base + '/settings?sec=sec-tmdb')
+    await token.waitFor()
+    assert.equal(await unloadBlocked(), false, 'loaded settings are initially clean')
+    await token.fill('synthetic-unsaved-token')
+    assert.equal(await unloadBlocked(), true, 'editing credentials protects browser refresh')
+    await nav('智能辅助').click()
+    await unsaved.waitFor()
+    await page.waitForFunction(() => document.activeElement?.textContent?.trim() === '继续编辑')
+    assert.equal(section(), 'sec-tmdb', 'a proposed section change leaves the source route intact')
+    await screenshot(page, 'settings-unsaved', 'user-guide/settings.md', '未保存的 TMDB 草稿触发离开确认；默认继续编辑，可明确放弃修改后离开')
+    await stay()
+    assert.equal(await token.inputValue(), 'synthetic-unsaved-token')
+    await nav('智能辅助').click()
+    await unsaved.waitFor()
+    await page.keyboard.press('Escape')
+    await unsaved.waitFor({ state: 'hidden' })
+    assert.equal(await nav('智能辅助').evaluate(el => el === document.activeElement), true, 'Escape restores the navigation trigger')
+    assert.equal(section(), 'sec-tmdb')
+    checks.push('section change: stay, Escape and trigger focus preserve draft')
+
+    // Exercise Chromium's actual refresh dialog in addition to the cancelable
+    // event used below to check whether the beforeunload listener was removed.
+    const nativeDialog = page.waitForEvent('dialog')
+    const reloading = page.reload({ waitUntil: 'domcontentloaded' }).catch(error => error)
+    const refresh = await nativeDialog
+    assert.equal(refresh.type(), 'beforeunload')
+    await refresh.dismiss()
+    await reloading
+    assert.equal(await token.inputValue(), 'synthetic-unsaved-token', 'dismissed refresh keeps the live input')
+    checks.push('native refresh cancellation preserves draft')
+
+    await collectionsLink().click()
+    await unsaved.waitFor()
+    await stay()
+    assert.equal(new URL(page.url()).pathname, '/settings')
+    await collectionsLink().click()
+    await unsaved.waitFor()
+    await discard()
+    await page.waitForURL(url => url.pathname === '/collections')
+    await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '设置', exact: true }).click()
+    await go('在线资料服务', 'sec-tmdb')
+    assert.equal(await token.inputValue(), '', 'accepted route leave discards the credentials draft')
+    checks.push('route leave: stay and explicit discard')
+
+    await token.fill('synthetic-retry-token')
+    failSettings = true
+    settingsGate = gate()
+    await page.getByRole('button', { name: '保存配置', exact: true }).click()
+    await settingsGate.received
+    await nav('智能辅助').click()
+    await busy.waitFor()
+    settingsGate.release(); settingsGate = null
+    await page.getByText('操作失败：503 模拟设置保存失败', { exact: true }).waitFor()
+    await unsaved.waitFor()
+    assert.equal(section(), 'sec-tmdb', 'a failed save keeps the pending leave blocked')
+    assert.equal(await token.inputValue(), 'synthetic-retry-token')
+    assert.equal(await unloadBlocked(), true, 'failed save must not clear dirty state')
+    await stay()
+    failSettings = false
+    settingsGate = gate()
+    await page.getByRole('button', { name: '保存配置', exact: true }).click()
+    await settingsGate.received
+    await nav('智能辅助').click()
+    await busy.waitFor()
+    assert.equal(await busy.getByRole('button', { name: '放弃修改并离开', exact: true }).count(), 0)
+    assert.equal(await unloadBlocked(), true)
+    assert.equal(section(), 'sec-tmdb')
+    await busy.getByRole('button', { name: '留在设置', exact: true }).click()
+    await busy.waitFor({ state: 'hidden' })
+    await collectionsLink().click()
+    await busy.waitFor()
+    assert.equal(new URL(page.url()).pathname, '/settings', 'route links cannot bypass an in-flight save')
+    settingsGate.release(); settingsGate = null
+    await page.getByText('配置已保存', { exact: true }).waitFor()
+    await page.getByTestId('settings-leave-dialog').waitFor({ state: 'hidden' })
+    assert.equal(new URL(page.url()).pathname, '/settings', 'completing a save cancels the pending leave')
+    assert.equal(section(), 'sec-tmdb')
+    assert.equal(await token.inputValue(), '')
+    assert.equal(await unloadBlocked(), false, 'successful save unlocks navigation and refresh')
+    await go('智能辅助', 'sec-ai')
+    checks.push('save failure preserves draft and updates the open dialog; in-flight save blocks both navigation paths; success closes the dialog and unlocks a new navigation')
+
+    await page.getByRole('button', { name: '配置与测试服务', exact: true }).click()
+    await page.getByLabel('模型名称', { exact: true }).fill('isolated-draft-model')
+    await nav('离线资料').click()
+    await unsaved.waitFor()
+    await stay()
+    assert.equal(await page.getByLabel('模型名称', { exact: true }).inputValue(), 'isolated-draft-model')
+    await page.getByRole('button', { name: '保存智能辅助配置', exact: true }).click()
+    await page.getByText('配置已保存，智能辅助已关闭', { exact: true }).waitFor()
+    assert.equal(ai.model, 'isolated-draft-model')
+    await go('匹配规则', 'sec-matching')
+    checks.push('AI draft is guarded; successful save unlocks')
+
+    await page.locator('#source-library').selectOption('1')
+    await page.getByLabel('NFO 导入', { exact: true }).check()
+    await page.locator('#source-library').selectOption('2')
+    await page.getByLabel('NFO 导入', { exact: true }).check()
+    await page.locator('#source-library').selectOption('1')
+    assert.equal(await page.getByLabel('NFO 导入', { exact: true }).isChecked(), true)
+    await page.getByRole('button', { name: '保存匹配规则', exact: true }).click()
+    await page.getByText(/^已保存：/).waitFor()
+    await nav('在线资料服务').click()
+    await unsaved.waitFor()
+    assert.match(await unsaved.innerText(), /剧集/, 'the unsaved second library is named in the leave dialog')
+    await stay()
+    await page.locator('#source-library').selectOption('2')
+    assert.equal(await page.getByLabel('NFO 导入', { exact: true }).isChecked(), true)
+    await nav('在线资料服务').click()
+    await unsaved.waitFor()
+    await discard()
+    await page.waitForURL(/sec=sec-tmdb/)
+    await go('匹配规则', 'sec-matching')
+    await page.locator('#source-library').selectOption('2')
+    assert.equal(await page.getByLabel('NFO 导入', { exact: true }).isChecked(), false, 'discard resets the unsaved library')
+    await page.locator('#source-library').selectOption('1')
+    assert.equal(await page.getByLabel('NFO 导入', { exact: true }).isChecked(), true, 'discard keeps the separately saved library')
+    assert.equal(await unloadBlocked(), false)
+    checks.push('multiple library drafts: switching preserves both; saving one does not hide the other; discard only removes unsaved values')
+
+    await go('访问保护', 'sec-auth')
+    await page.locator('#access-token').fill('isolated-access-token')
+    await nav('概览').click()
+    await unsaved.waitFor()
+    await stay()
+    await page.getByRole('button', { name: '保存并启用保护', exact: true }).click()
+    await page.getByText('已启用保护，当前浏览器已记住令牌', { exact: true }).waitFor()
+    await go('媒体库连接', 'sec-libraries')
+    checks.push('access-token draft is guarded and save clears it')
+
+    await page.getByRole('button', { name: '添加媒体库', exact: true }).click()
+    const create = page.locator('.create-library-form')
+    await create.getByRole('textbox', { name: '名称', exact: true }).fill('未保存的演示媒体库')
+    await create.getByRole('textbox', { name: '根路径', exact: true }).fill('/demo/unsaved')
+    await nav('概览').click()
+    await unsaved.waitFor()
+    await stay()
+    assert.equal(await create.getByRole('textbox', { name: '名称', exact: true }).inputValue(), '未保存的演示媒体库')
+    await nav('概览').click()
+    await unsaved.waitFor()
+    await discard()
+    await page.waitForURL(/sec=sec-status/)
+    await go('媒体库连接', 'sec-libraries')
+    if (!await create.isVisible()) await page.getByRole('button', { name: '添加媒体库', exact: true }).click()
+    assert.equal(await create.getByRole('textbox', { name: '名称', exact: true }).inputValue(), '')
+    await page.getByRole('button', { name: '收起新建表单', exact: true }).click()
+    const firstMedia = page.locator('.media-connection').filter({ hasText: '演示媒体库' }).first()
+    const firstTitle = firstMedia.locator('.connection-title')
+    if (await firstTitle.getAttribute('aria-expanded') !== 'true') await firstTitle.click()
+    await firstMedia.locator('.video-library-row').first().getByRole('button', { name: '编辑', exact: true }).click()
+    const edit = firstMedia.locator('.video-form')
+    await edit.getByRole('textbox', { name: '视频库名称', exact: true }).fill('未保存的视频库名称')
+    await nav('概览').click()
+    await unsaved.waitFor()
+    await stay()
+    assert.equal(await edit.getByRole('textbox', { name: '视频库名称', exact: true }).inputValue(), '未保存的视频库名称')
+    await edit.getByRole('button', { name: '保存视频库', exact: true }).click()
+    await edit.waitFor({ state: 'hidden' })
+    await go('概览', 'sec-status')
+    assert.equal(localLibs[0].name, '未保存的视频库名称')
+    await go('媒体库连接', 'sec-libraries')
+    const remoteMedia = page.locator('.media-connection').filter({ hasText: '演示媒体库乙' })
+    await remoteMedia.locator('summary').filter({ hasText: '更多' }).click()
+    await remoteMedia.getByRole('button', { name: '编辑连接', exact: true }).click()
+    await remoteMedia.getByLabel('SMB 用户名', { exact: true }).fill('unsaved-demo-user')
+    await nav('概览').click()
+    await unsaved.waitFor()
+    await discard()
+    await page.waitForURL(/sec=sec-status/)
+    await go('媒体库连接', 'sec-libraries')
+    await remoteMedia.locator('summary').filter({ hasText: '更多' }).click()
+    await remoteMedia.getByRole('button', { name: '编辑连接', exact: true }).click()
+    assert.equal(await remoteMedia.getByLabel('SMB 用户名', { exact: true }).inputValue(), 'demo', 'discard restores saved connection values')
+    await remoteMedia.locator('.path-edit').getByRole('button', { name: '取消', exact: true }).click()
+    checks.push('media-library creation, video-library editing and connection editing are protected')
+
+    await go('在线资料服务', 'sec-tmdb')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await token.fill('isolated-mobile-draft')
+    const category = page.getByLabel('设置分类', { exact: true })
+    // selectOption dispatches change without focusing like a real interaction.
+    await category.focus()
+    await category.selectOption('sec-ai')
+    await unsaved.waitFor()
+    await page.waitForFunction(() => document.activeElement?.textContent?.trim() === '继续编辑')
+    const bounds = await unsaved.evaluate(el => {
+      const rect = el.getBoundingClientRect()
+      return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, innerWidth, innerHeight,
+        overflow: el.scrollWidth > el.clientWidth + 1 || document.documentElement.scrollWidth > innerWidth + 1 }
+    })
+    assert.ok(bounds.x >= 0 && bounds.y >= 0 && bounds.right <= bounds.innerWidth + 1 && bounds.bottom <= bounds.innerHeight + 1)
+    assert.equal(bounds.overflow, false)
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press('Tab')
+      assert.equal(await unsaved.evaluate(el => el.contains(document.activeElement)), true, 'Tab remains inside the mobile leave dialog')
+    }
+    await page.keyboard.press('Escape')
+    await unsaved.waitFor({ state: 'hidden' })
+    assert.equal(await category.inputValue(), 'sec-tmdb', 'cancel restores the mobile category selector')
+    assert.equal(await category.evaluate(el => el === document.activeElement), true)
+    assert.equal(await token.inputValue(), 'isolated-mobile-draft')
+    await category.selectOption('sec-ai')
+    await unsaved.waitFor()
+    await discard()
+    await page.waitForURL(/sec=sec-ai/)
+    assert.equal(await unloadBlocked(), false)
+    checks.push('390px category cancellation, safe default focus, Tab trap, Escape restore and no overflow')
+    const report = path.join(root, 'output/playwright/settings-drafts')
+    await mkdir(report, { recursive: true })
+    await writeFile(path.join(report, 'checks.json'), JSON.stringify({ mocked: true, realVue: true, checks, writes: writes.map(({ key }) => key) }, null, 2) + '\n')
+    console.log('PASS settings drafts: ' + checks.join('; '))
+  } catch (error) {
+    const report = path.join(root, 'output/playwright/settings-drafts')
+    await mkdir(report, { recursive: true })
+    await page.screenshot({ path: path.join(report, 'failure.png'), fullPage: true }).catch(() => {})
+    console.error('Settings draft checks completed before failure:', checks)
+    throw error
+  } finally {
+    for (const release of releases) release()
+    await context.close()
+  }
+}
 try {
   const ffmpegPath = await ffmpeg()
   execFileSync(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=10', '-t', '40', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', path.join(work, 'video.mp4')])
@@ -282,6 +598,10 @@ try {
         res.end('<!doctype html><html><head>' + styles.map(name => '<link rel="stylesheet" href="/assets/' + name + '">').join('') + '</head><body><div id="app"></div><script type="module" src="/' + harnessEntry + '"></script></body></html>'); return
       }
       if (url.pathname === '/api/fs/blob' || url.pathname === '/fixtures/video.mp4') {
+        // Match the decoded filename just as the backend does. Double-encoded URLs must fail.
+        if (url.pathname === '/fixtures/video.mp4' && url.searchParams.get('name') !== directFixturePath) {
+          res.writeHead(404); res.end('invalid encoded media path'); return
+        }
         const file = url.searchParams.get('path') || 'video.mp4'
         if (url.pathname.startsWith('/api/')) requests.push({ key: url.pathname, method: req.method, query: Object.fromEntries(url.searchParams) })
         if (file.includes('已消失') || file.includes('离线')) {
@@ -314,7 +634,9 @@ try {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
   const base = `http://127.0.0.1:${server.address().port}`
   browser = await chromium.launch({ headless: true })
-  if (!playerOnly) await checkFileLoading(browser, base)
+  if (!playerOnly) await checkSettingsDrafts(browser, base)
+  if (!playerOnly && !draftsOnly) await checkFileLoading(browser, base)
+  if (!draftsOnly) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
   await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort())
   if (!playerOnly) {
@@ -802,16 +1124,18 @@ try {
   assert.ok(progressRequests().some(r => r.method === 'POST' && r.body.position === 1140), 'ordinary playback saves progress')
   await playerPage.close()
   await context.close()
+  }
   assert.deepEqual(unexpected, [], 'all API calls must be mocked explicitly')
   assert.deepEqual(errors, [], 'no browser or fixture errors')
   if (capture) {
+    assert.equal(await frontendFingerprint(), sourceSha256, 'Frontend source changed during capture; rerun after it is stable')
     const filename = path.join(root, 'docs/assets/manifest.json')
     const manifest = JSON.parse(await readFile(filename, 'utf8'))
     const names = new Set(captured.map(entry => entry.file))
     manifest.assets = manifest.assets.filter(entry => !names.has(entry.file)).concat(captured)
     await writeFile(filename, JSON.stringify(manifest, null, 2) + '\n')
   }
-  console.log(playerOnly ? 'PASS player: 1440/390/375/320px controls, 44px targets, settings/rate, fullscreen, preview/normal progress lifecycle' : 'PASS settings: startup loading/error/retry/empty states, independent directory loading, navigation, matching drafts/order/search, complete file listing, independent row focus and explicit checkbox selection, 40px/44px checkbox targets, keyboard/range/mixed selection, context menu copy targets, preview selection preservation, rename, leave guard, accepted cross-media navigation, scoped scan, mobile menu, real player preview/normal progress lifecycle')
+  console.log(draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: 1440/390/375/320px controls, 44px targets, settings/rate, fullscreen, preview/normal progress lifecycle' : 'PASS settings: draft leave/refresh/save lifecycle, startup loading/error/retry/empty states, independent directory loading, navigation, matching drafts/order/search, complete file listing, independent row focus and explicit checkbox selection, 40px/44px checkbox targets, keyboard/range/mixed selection, context menu copy targets, preview selection preservation, rename, leave guard, accepted cross-media navigation, scoped scan, mobile menu, real player preview/normal progress lifecycle')
 } finally {
   if (browser) await browser.close()
   if (server) await new Promise(resolve => server.close(resolve))

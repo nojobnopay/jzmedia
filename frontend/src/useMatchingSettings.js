@@ -33,7 +33,8 @@ export function useMatchingSettings(libraries, request, refreshLibraries) {
     set: value => { if (library.value) drafts[libraryId.value] = [...value] },
   })
   const dirty = computed(() => !!library.value && !same(selection.value, librarySourceOrder(library.value)))
-  const draftCount = computed(() => libraries.value.filter(item => drafts[item.id] && !same(drafts[item.id], librarySourceOrder(item))).length)
+  const dirtyLibraries = computed(() => libraries.value.filter(item => drafts[item.id] && !same(drafts[item.id], librarySourceOrder(item))))
+  const draftCount = computed(() => dirtyLibraries.value.length)
   const message = computed(() => messages[libraryId.value] || '')
   const orderText = computed(() => selection.value.map(name => CHAIN_LABELS[name]).join(' → '))
   function resetTest() {
@@ -64,6 +65,10 @@ export function useMatchingSettings(libraries, request, refreshLibraries) {
     delete drafts[libraryId.value]
     messages[libraryId.value] = ''
   }
+  function discardAll() {
+    for (const id of Object.keys(drafts)) { delete drafts[id]; delete messages[id] }
+    resetTest()
+  }
   async function save() {
     if (disposed || saving.value || !library.value || !selection.value.length) return
     const id = libraryId.value
@@ -78,6 +83,9 @@ export function useMatchingSettings(libraries, request, refreshLibraries) {
       })
       if (disposed) return
       target.metadata_providers = JSON.stringify(names)
+      // A concurrent list refresh can replace the original object during PATCH.
+      const current = libraries.value.find(item => item.id === id)
+      if (current) current.metadata_providers = JSON.stringify(names)
       if (same(drafts[id], names)) delete drafts[id]
       messages[id] = '已保存：' + names.map(name => CHAIN_LABELS[name]).join(' → ')
       try { await refreshLibraries() } catch { messages[id] += '。列表刷新失败，规则已保存。' }
@@ -114,5 +122,5 @@ export function useMatchingSettings(libraries, request, refreshLibraries) {
     }
   }
   onScopeDispose(() => { disposed = true; resetTest() })
-  return { libraryId, library, selection, dirty, draftCount, message, orderText, saving, testing, query, testMessage, testResult, toggle, move, discard, save, testSearch }
+  return { libraryId, library, selection, dirty, dirtyLibraries, discardAll, draftCount, message, orderText, saving, testing, query, testMessage, testResult, toggle, move, discard, save, testSearch }
 }

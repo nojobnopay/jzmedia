@@ -1,6 +1,6 @@
 """在线播放：ffprobe 探测（MediaInfo）+ 二进制解析。
 
-决策/命令构造已迁至 app/playback.py（ClientCapabilities + 四档 PlaybackPlan）。
+决策/命令构造位于 app/playback/（ClientCapabilities + 四档 PlaybackPlan）。
 本模块只负责：
 - probe()：ffprobe 单文件 → media_info 行（含 HDR/DV/位深/轨道 disposition/附件），
   并给客户端能力实测生成候选码串（decorate()：vcaps + 每音轨 caps）。

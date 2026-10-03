@@ -1,6 +1,6 @@
 ---
 version: 0.19.0
-reviewed: 2026-10-02
+reviewed: 2026-10-03
 ---
 
 # jzmedia
@@ -28,12 +28,27 @@ reviewed: 2026-10-02
 | 安装、配置、升级与备份 | [部署与维护](docs/getting-started/README.md) |
 | 系统架构、API 与开发 | [开发者参考](docs/developer/README.md) |
 | 制作文档、截图与演示 | [文档制作与发布](docs/developer/documentation.md) |
-| 查看未来计划 | 仓库 `docs/roadmap/`（不随公开帮助发布） |
+| 开发计划与待验收 | 仓库 `docs/roadmap/`（不随公开帮助发布） |
 
 安卓电视客户端位于独立工程 [android-tv/](android-tv/README.md)，与服务端同仓管理、分别构建和发布。已接入连接、媒体浏览和原生播放，当前为待验收的开发版本，红米真机及正式签名分发尚未完成；范围与验收见 [电视端开发计划](docs/roadmap/android-tv.md)。
 
+## 仓库目录
+
+| 目录 | 维护内容 |
+|---|---|
+| `app/`、`tests/` | FastAPI 服务、SQLite 存储及后端回归测试 |
+| `frontend/` | Vue 应用、前端单元测试与构建配置 |
+| [android-tv/](android-tv/README.md) | 独立 Android TV 工程、客户端文档与验证工具 |
+| [design/](design/README.md) | 跨端图标和品牌母版、语义令牌、资源清单及验收记录 |
+| [docs/](docs/README.md) | 帮助站正文、教程素材、站点工具和测试；素材规则见 [docs/assets/](docs/assets/README.md) |
+| [docs/roadmap/](docs/roadmap/README.md) | 开发计划、完成状态与待验收事项，不随公开帮助发布 |
+| [scripts/](scripts/README.md) | 构建、文档制作、隔离冒烟与诊断工具 |
+| `data/`、`media/`、`output/` | 本机运行数据、用户媒体与验证产物，Git 忽略；私有操作记录放 `docs/private/` |
+
+新增文件按用途归入上述目录。教程图片和录屏连同来源清单保存在 `docs/assets/`；跨端设计产物由 `scripts/build_design.py` 生成并提交。构建目录、缓存和临时验证输出不提交；已有验收证据不因可以重新生成就直接清除。完成的一次性修复脚本从工作树删除，通过 Git 历史追溯。阶段性实施与测试总结写入提交或 PR 说明；长期有效的约束维护在对应技术文档，素材来源维护在素材清单。
+
 ## 运行边界与参与方式
 
-面向家庭或受信任网络中的单实例部署。可选令牌只保护 API 写操作，浏览、播放和媒体直链仍开放；它不是多用户登录与完整权限系统。转码能力取决于片源、CPU/GPU 和网络。
+面向家庭或受信任网络中的单实例部署。可选令牌保护 API 的 POST、PUT、PATCH、DELETE 请求，包括网页播放的启动和进度保存；浏览列表及媒体直链仍开放。它不是多用户登录与完整权限系统。转码能力取决于片源、CPU/GPU 和网络。
 
 仓库当前没有 `LICENSE`、公开镜像仓库、下载站或问题追踪平台，对外分发由维护者确定。修改代码前阅读仓库 [AGENTS.md](AGENTS.md) 和开发者参考。运行数据、媒体、凭据与 `docs/private/` 不进入文档发布包。

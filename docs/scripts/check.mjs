@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { docsRoot, publicPages, walkFiles } from '../.vitepress/public-pages.mjs'
@@ -81,15 +82,53 @@ export function checkSources(root = docsRoot) {
   return errors
 }
 
+export function checkAssetManifest(root = docsRoot) {
+  const referenced = new Map()
+  const assetRoot = path.resolve(root, 'assets')
+  for (const file of publicPages(root)) {
+    const source = readFileSync(path.join(root, file), 'utf8').replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, '')
+    for (const match of source.matchAll(/<Doc(?:Figure|Video|Diagram)\b[^>]*>/g)) {
+      for (const asset of match[0].matchAll(/\b(?:src|poster|captions)=["']([^"']+)["']/g)) {
+        const raw = asset[1].split(/[?#]/)[0]
+        if (/^(?:https?:)?\/\//.test(raw)) continue
+        const target = raw.startsWith('/') ? path.join(root, raw) : path.resolve(root, path.dirname(file), raw)
+        if (target.startsWith(assetRoot + path.sep)) referenced.set(path.relative(assetRoot, target).split(path.sep).join('/'), file)
+      }
+    }
+  }
+  if (!referenced.size) return []
+  let manifest
+  try { manifest = JSON.parse(readFileSync(path.join(assetRoot, 'manifest.json'), 'utf8')) }
+  catch { return ['assets/manifest.json: 素材清单不存在或不是有效 JSON'] }
+  if (!Array.isArray(manifest.assets)) return ['assets/manifest.json: 缺少 assets 列表']
+  const errors = []
+  const entries = new Map()
+  for (const entry of manifest.assets) {
+    if (!entry || typeof entry.file !== 'string') { errors.push('assets/manifest.json: 素材记录缺少 file'); continue }
+    if (entries.has(entry.file)) errors.push(`assets/manifest.json: 重复素材记录 ${entry.file}`)
+    entries.set(entry.file, entry)
+  }
+  for (const [file, page] of referenced) {
+    const entry = entries.get(file)
+    if (!entry) { errors.push(`${page}: 组件素材未登记 assets/${file}`); continue }
+    if (!existsSync(path.join(assetRoot, file))) { errors.push(`${page}: 清单素材不存在 assets/${file}`); continue }
+    const bytes = readFileSync(path.join(assetRoot, file))
+    if (entry.bytes !== bytes.length || entry.sha256 !== createHash('sha256').update(bytes).digest('hex')) {
+      errors.push(`${page}: 素材字节数或 SHA-256 与清单不符 assets/${file}；请通过对应拍摄或生成流程登记来源`)
+    }
+  }
+  return errors
+}
+
 export function checkAll() {
   checkDiagrams()
   assertPublicOutput(defaultDist, publicPages())
   const actual = JSON.parse(readFileSync(path.join(defaultDist, 'csp-hashes.json'), 'utf8')).scriptHashes
   const expected = collectScriptHashes(defaultDist)
-  const errors = [...checkSources(), ...checkOutput(), ...checkAppHelpLinks()]
+  const errors = [...checkSources(), ...checkAssetManifest(), ...checkOutput(), ...checkAppHelpLinks()]
   if (JSON.stringify(actual) !== JSON.stringify(expected)) errors.push('CSP 哈希与最终 HTML 不一致')
   if (errors.length) throw new Error(errors.join('\n'))
-  console.log(`文档检查通过：${publicPages().length} 页；链接、锚点、素材、公开边界、SSR、CSP 与应用帮助入口有效。`)
+  console.log(`文档检查通过：${publicPages().length} 页；链接、锚点、素材与清单、公开边界、SSR、CSP 与应用帮助入口有效。`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) checkAll()

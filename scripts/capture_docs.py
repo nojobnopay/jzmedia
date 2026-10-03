@@ -23,6 +23,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "docs/assets"
+CAPTURED = set()
 
 
 def timestamp(seconds):
@@ -38,6 +39,16 @@ def binary(name):
     if candidates:
         return str(candidates[0])
     raise SystemExit(f"请先安装 {name}，或在应用 .venv 中安装并准备 static-ffmpeg。")
+
+
+def screenshot(page, rel, work):
+    destination = ASSETS / rel
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    png = work / (destination.stem + ".png")
+    page.screenshot(path=str(png))
+    subprocess.run([binary("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", str(png), "-quality", "86", str(destination)], check=True)
+    CAPTURED.add(rel)
 
 
 class Recording:
@@ -65,12 +76,7 @@ class Recording:
         locator.click()
 
     def screenshot(self, rel):
-        destination = ASSETS / rel
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        png = self.work / (destination.stem + ".png")
-        self.page.screenshot(path=str(png))
-        subprocess.run([binary("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y",
-                        "-i", str(png), "-quality", "86", str(destination)], check=True)
+        screenshot(self.page, rel, self.work)
 
     def finish(self):
         duration = time.monotonic() - self.started
@@ -93,6 +99,7 @@ class Recording:
             end = self.cues[index + 1][0] if index + 1 < len(self.cues) else duration
             lines += [str(index + 1), f"{timestamp(start)} --> {timestamp(end)}", line, ""]
         dest.with_suffix(".vtt").write_text("\n".join(lines), encoding="utf-8")
+        CAPTURED.update(f"videos/{self.name}.{ext}" for ext in ("mp4", "webp", "vtt"))
         info = json.loads(subprocess.check_output([binary("ffprobe"), "-v", "error",
             "-show_entries", "format=duration,size:stream=codec_name,width,height", "-of", "json",
             str(dest.with_suffix(".mp4"))]))
@@ -109,6 +116,10 @@ def play(recording, base):
     button = page.locator(".play-main")
     button.wait_for(state="visible")
     recording.click(button)
+    page.wait_for_function("() => document.querySelector('video')?.readyState >= 2 || document.querySelector('.resume-bar')")
+    restart = page.get_by_role("button", name="从头开始", exact=True)
+    if restart.is_visible():
+        recording.click(restart)
     page.wait_for_function("() => { const v = document.querySelector('video'); return v && v.readyState >= 2 && !v.paused }")
 
 
@@ -180,6 +191,7 @@ def subtitles(browser, base, preview, work):
     r.hold(4)
     p.get_by_role("combobox", name="字幕轨道").select_option(index=1)
     r.hold(3)
+    r.screenshot("screenshots/player-subtitles.webp")
     r.say("字幕与声音不同步时，展开字幕调整；每次提前或延后 0.5 秒。")
     r.click(p.get_by_text("字幕调整", exact=True))
     r.click(p.get_by_role("button", name="字幕延后 0.5 秒", exact=True))
@@ -220,17 +232,44 @@ def organizing(browser, base, work):
     r.say("等待执行结束，核对已移动的数量和结果。预览后才会实际移动文件。")
     r.hold(5)
     r.screenshot("screenshots/demo-organize-result.webp")
-    r.click(p.get_by_role("button", name="文件管理", exact=True))
+    r.click(p.get_by_role("button", name="管理文件", exact=True))
     p.get_by_role("heading", name="文件管理", exact=True).wait_for()
-    r.say("切到文件管理，检查规范后的电影目录。需要撤回时使用还原位置。")
+    r.say("打开管理文件，检查规范后的电影目录。需要撤回时使用还原位置。")
     r.hold(7)
     return r.finish()
+
+
+def player_details(browser, base, work):
+    context = browser.new_context(viewport={"width": 1440, "height": 1000}, locale="zh-CN")
+    try:
+        page = context.new_page()
+        page.goto(base + "/m/1")
+        page.locator(".play-main").click()
+        page.wait_for_function("() => document.querySelector('video')?.readyState >= 2 || document.querySelector('.resume-bar')")
+        restart = page.get_by_role("button", name="从头开始", exact=True)
+        if restart.is_visible():
+            restart.click()
+        page.wait_for_function("() => document.querySelector('video')?.readyState >= 2")
+        page.get_by_role("button", name="播放设置", exact=True).click()
+        page.locator("summary").filter(has_text="更多选项").click()
+        page.get_by_role("button", name="复制诊断信息", exact=True).scroll_into_view_if_needed()
+        page.wait_for_timeout(1000)
+        screenshot(page, "screenshots/player-info.webp", work)
+        page.get_by_label("画质", exact=True).select_option("720p")
+        page.wait_for_function("() => document.querySelector('video')?.readyState >= 2 && document.querySelector('.quality-badge')?.textContent === '720p'", timeout=60000)
+        page.get_by_text("实际输出 720p", exact=True).wait_for()
+        page.get_by_role("button", name="复制诊断信息", exact=True).scroll_into_view_if_needed()
+        page.wait_for_timeout(1000)
+        screenshot(page, "screenshots/player-transcode.webp", work)
+        page.get_by_role("button", name="关闭播放器", exact=True).click()
+    finally:
+        context.close()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("preview", type=Path)
-    parser.add_argument("--only", choices=["onboarding", "subtitles", "organizing"])
+    parser.add_argument("--only", choices=["onboarding", "subtitles", "organizing", "player"])
     args = parser.parse_args()
     preview = args.preview.resolve()
     if preview.parent != Path("/tmp") or not preview.name.startswith("jzmedia-preview-"):
@@ -260,16 +299,19 @@ def main():
                 page.screenshot(path=str(work / "mobile.png"))
                 subprocess.run([binary("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y", "-i",
                     str(work / "mobile.png"), "-quality", "86", str(ASSETS / "previews/onboarding/06-mobile.webp")], check=True)
+                CAPTURED.add("previews/onboarding/06-mobile.webp")
                 mobile.close()
             if args.only in (None, "subtitles"):
                 results["subtitles"] = subtitles(browser, base, preview, work)
             if args.only in (None, "organizing"):
                 results["organizing"] = organizing(browser, base, work)
+            if args.only in (None, "player"):
+                player_details(browser, base, work)
         finally:
             browser.close()
     (work / "verification.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     from capture_docs_manifest import main as update_manifest
-    update_manifest()
+    update_manifest(captured=CAPTURED)
     print(f"录屏原件及验证记录：{work}")
 
 

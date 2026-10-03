@@ -1,29 +1,31 @@
+# Local configuration and Python caches
 .env
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-data/*.db*
-data/*.log
-data/posters/
-data/transcode/
-data/fonts/
-data/secret.key
-data/mounts/
+
+# Runtime state and user media (keep only directory placeholders)
+/data/*
+!/data/.gitkeep
+/media/*
+!/media/.gitkeep
+
+# Dependencies and rebuildable web/documentation output
 node_modules/
-frontend/node_modules/
 frontend/dist/
-output/playwright/
-output/android-tv/
-.playwright-cli/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 docs/.vitepress/.temp/
 docs/.vitepress/generated/
 docs/.artifacts/
 dist/
-media/*
-!media/.gitkeep
+
+# Local screenshots, validation reports, APKs and browser session artifacts
+/output/
+.playwright-cli/
+
+# Private operational records, including legacy report locations
 docs/private/
 docs/tv-organize-moves-*.json
 docs/tv-fix-and-pending-*.md

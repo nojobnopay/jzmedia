@@ -1,13 +1,74 @@
 import os
 import re
+import stat
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import config, storage, store
 from ..config import settings
+from ..db import TRANSCODE_DIR
+from ..log import get_logger
 
 router = APIRouter(prefix="/api")
+logger = get_logger("health")
+
+
+def _disk_error(exc: Exception) -> dict:
+    """Keep filesystem errors useful without returning exception strings or paths."""
+    if isinstance(exc, FileNotFoundError):
+        code, message = "not_found", "目录尚未创建或已不可达"
+    elif isinstance(exc, PermissionError):
+        code, message = "permission_denied", "没有读取目录或文件系统容量的权限"
+    elif isinstance(exc, NotADirectoryError):
+        code, message = "not_directory", "配置的存储位置不是目录"
+    elif isinstance(exc, ValueError):
+        code, message = "invalid_path", "配置的存储位置无效"
+    elif isinstance(exc, NotImplementedError):
+        code, message = "unsupported", "当前平台不支持文件系统容量查询"
+    else:
+        code, message = "unavailable", "暂时无法读取文件系统容量"
+    return {"code": code, "message": message}
+
+
+def _disk_space() -> dict:
+    """Read only the configured data/cache directories; never walk media or probe NAS.
+
+    st_dev identifies a filesystem in this server's mount namespace, not a physical
+    disk. Bind mounts/symlinks on one filesystem share one capacity snapshot. Used
+    excludes free blocks; available excludes blocks reserved from ordinary users.
+    A missing directory is an error, rather than a guess based on its parent.
+    """
+    targets = {}
+    filesystems = {}
+    for name, path in (("data", settings.data_dir), ("transcode", TRANSCODE_DIR)):
+        target = {"ok": False, "filesystem_id": None}
+        try:
+            info = os.stat(path)
+            if not stat.S_ISDIR(info.st_mode):
+                raise NotADirectoryError()
+            filesystem_id = f"dev:{info.st_dev}"
+            target["filesystem_id"] = filesystem_id
+            if filesystem_id not in filesystems:
+                if not hasattr(os, "statvfs"):
+                    raise NotImplementedError()
+                usage = os.statvfs(path)
+                block_size = usage.f_frsize or usage.f_bsize
+                filesystems[filesystem_id] = {
+                    "id": filesystem_id,
+                    "total_bytes": max(0, usage.f_blocks * block_size),
+                    "used_bytes": max(0, (usage.f_blocks - usage.f_bfree) * block_size),
+                    "available_bytes": max(0, usage.f_bavail * block_size),
+                }
+            target["ok"] = True
+        except (OSError, ValueError, NotImplementedError) as exc:
+            target["error"] = _disk_error(exc)
+            logger.warning("disk capacity unavailable target=%s code=%s", name, target["error"]["code"])
+        targets[name] = target
+    data_id, transcode_id = (targets[name]["filesystem_id"] for name in ("data", "transcode"))
+    return {"ok": all(target["ok"] for target in targets.values()),
+            "same_filesystem": data_id == transcode_id if data_id and transcode_id else None,
+            **targets, "filesystems": list(filesystems.values())}
 
 
 @router.get("/health")
@@ -60,6 +121,8 @@ def health():
                       "libraries": libs},
             "ffmpeg": bool(bins.get("ffmpeg")), "ffprobe": bool(bins.get("ffprobe")),
             "transcoder": tw,
+            # Capacity collection is independent of the existing DB/media status.
+            "disks": _disk_space(),
             "build": _build_commit()}
 
 

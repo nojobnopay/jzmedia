@@ -35,7 +35,8 @@
 <script setup>
 import AppIcon from './AppIcon.vue'
 
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { useSettingsDraft } from '../settingsDrafts.js'
 import { api } from '../api.js'
 import JzButton from './JzButton.vue'
 import JzField from './JzField.vue'
@@ -50,13 +51,22 @@ const resultKind = ref('saved')
 const armClear = ref(false)
 let generation = 0
 const sourceText = source => ({ db: '设置页', env: '服务器环境配置', default: '系统默认', unset: '未设置' }[source] || '')
-function sync(value) {
+const baseline = ref('')
+const dirty = computed(() => !!s.value && JSON.stringify(form) !== baseline.value)
+function sync(value, preserveDraft = false) {
+  const previous = baseline.value ? JSON.parse(baseline.value) : {}
+  const next = { readToken: '', apiKey: '', proxy: value?.tmdb_proxy || '',
+    language: value?.tmdb_language || '', imageBase: value?.tmdb_image_base || '' }
+  for (const key of Object.keys(next)) {
+    if (!preserveDraft || form[key] === previous[key]) form[key] = next[key]
+  }
   s.value = value
-  form.proxy = value?.tmdb_proxy || ''
-  form.language = value?.tmdb_language || ''
-  form.imageBase = value?.tmdb_image_base || ''
+  baseline.value = JSON.stringify(next)
 }
-watch(() => props.settings, sync, { immediate: true })
+function discard() { sync(s.value); armClear.value = false; message.value = '' }
+useSettingsDraft({ section: 'sec-tmdb', label: 'TMDB 连接配置', dirty: () => dirty.value,
+  busy: () => busy.value, discard })
+watch(() => props.settings, value => sync(value, dirty.value), { immediate: true })
 watch(form, () => { generation++; message.value = ''; emit('validated', false) }, { flush: 'sync' })
 watch(busy, value => emit('busy', value), { flush: 'sync' })
 function payload() {
@@ -80,6 +90,8 @@ async function save(test) {
       form.readToken = ''; form.apiKey = ''
       sync(value); emit('saved', value)
     }
+    // Whitespace-only edits also return to the saved values.
+    sync(s.value)
     message.value = '配置已保存'
     resultKind.value = 'saved'
     if (test) {

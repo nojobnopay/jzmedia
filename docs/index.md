@@ -2,7 +2,7 @@
 layout: home
 markdownStyles: false
 version: 0.19.0
-reviewed: 2026-10-02
+reviewed: 2026-10-03
 hero:
   name: jzmedia 帮助中心
   text: 从第一部影片开始
@@ -37,7 +37,7 @@ features:
 
 ## 先看到结果，再按需深入
 
-<DocFigure src="./assets/screenshots/movie-library.webp" alt="电影海报墙中显示继续观看与电影海报" caption="连接自己的本地目录或 NAS，扫描后即可按海报找片；截图采用已有界面基线。" />
+<DocFigure src="./assets/screenshots/movie-library.webp" alt="电影海报墙中显示继续观看与电影海报" caption="连接自己的本地目录或 NAS，扫描后即可按海报找片；截图为当前界面的隔离演示，使用虚构媒体与原创海报。" />
 
 jzmedia 管理你已经拥有的媒体文件，不提供下载源。首次配置完成后，能够找到内容并播放就已经可以开始使用；目录整理可稍后单独预览与确认。
 

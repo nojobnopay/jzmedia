@@ -1,243 +1,755 @@
 {
   "schema_version": 1,
-  "app_version": "0.19.0",
-  "source_commit": "ee5dbcc",
-  "source_state": "包含 2026-10-02 工作区新手向导和移动端更新；以拍摄时实际 UI 为准",
-  "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
-  "viewport": {
-    "desktop": "1440×1000 CSS，1x",
-    "mobile": "407×904 CSS，2x，Chromium 模拟"
-  },
-  "recording_script": "scripts/capture_docs.py",
-  "fixtures": "scripts/preview_onboarding.py --docs-demo",
+  "source": "混合拍摄与生成批次；版本、日期、来源、脚本和视口均以 assets 中的逐项记录为准。",
   "legacy_sources": "docs/assets/README.md",
   "assets": [
     {
       "file": "previews/onboarding/00-welcome.webp",
       "page": "user-guide/onboarding.md",
       "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
-      "verified_at": "2026-10-02",
-      "bytes": 22790,
-      "sha256": "359d5db40e1853ef0b4b81345fc2edcb28d6125ee32740e70bb0a8872264d7a1",
+      "bytes": 26566,
+      "sha256": "b597d0aaa72df78106f152d37b3f017ea76411b857d8f776a7dfcab02704028e",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "06b2a4f",
+      "source_commit": "cd28631",
       "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
       "recording_script": "scripts/capture_docs.py",
-      "fixtures": "scripts/preview_onboarding.py --docs-demo"
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "previews/onboarding/01-source.webp",
       "page": "user-guide/onboarding.md",
       "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
-      "verified_at": "2026-10-02",
-      "bytes": 36298,
-      "sha256": "e33adb020751a8598c0aefef14af77084af116cb3545e78e5f5c8ba1e37bb276",
+      "bytes": 37248,
+      "sha256": "83e9a3586162067c7fa0cde63b0b5e008a8ebd863f4dc05ca0e883ed3e4608af",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "06b2a4f",
+      "source_commit": "cd28631",
       "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
       "recording_script": "scripts/capture_docs.py",
-      "fixtures": "scripts/preview_onboarding.py --docs-demo"
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "previews/onboarding/02-library.webp",
       "page": "user-guide/onboarding.md",
       "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
-      "verified_at": "2026-10-02",
-      "bytes": 46080,
-      "sha256": "f3cbc59bf687b948f732e3e2536589725bad37613fbc639d63ecb05c363b61c9",
+      "bytes": 46678,
+      "sha256": "d701e409455c750cd0aad61c4b97feb984e783425dac020a0ba8f0581329bb36",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "06b2a4f",
+      "source_commit": "cd28631",
       "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
       "recording_script": "scripts/capture_docs.py",
-      "fixtures": "scripts/preview_onboarding.py --docs-demo"
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "previews/onboarding/03-import.webp",
       "page": "user-guide/onboarding.md",
       "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
-      "verified_at": "2026-10-02",
-      "bytes": 50850,
-      "sha256": "007865a0909b0c4951fe2c6a4958ba7f0c1084cbe6780241ca0d2230661263fa",
+      "bytes": 50288,
+      "sha256": "cc929a44737b3eb79864c8c8d705aad746aed9a3eb3514f7a9add40c0040f270",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "06b2a4f",
+      "source_commit": "cd28631",
       "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
       "recording_script": "scripts/capture_docs.py",
-      "fixtures": "scripts/preview_onboarding.py --docs-demo"
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "previews/onboarding/04-result.webp",
       "page": "user-guide/onboarding.md",
       "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
-      "verified_at": "2026-10-02",
-      "bytes": 43206,
-      "sha256": "b55f88b64ceec2e2e42d5e7ac4ab163a292977c9a34d8ff1da5f9e0485178366",
+      "bytes": 43994,
+      "sha256": "123e9a53bbe6acc024dd1d75bcb176b6d8984f47ea89d81872b5c6f605a57552",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "06b2a4f",
+      "source_commit": "cd28631",
       "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
       "recording_script": "scripts/capture_docs.py",
-      "fixtures": "scripts/preview_onboarding.py --docs-demo"
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "previews/onboarding/05-complete.webp",
       "page": "user-guide/onboarding.md",
       "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
-      "verified_at": "2026-10-02",
-      "bytes": 42220,
-      "sha256": "dc0ca39cffa343d890e2788d02ac39a8a5a99a51e4721b19713c8358b5476ce4",
+      "bytes": 43322,
+      "sha256": "2060d4a29cb0fd439821ed7a6189c5a64e4e5d234f8f9d1f27ec61af85a6c5f0",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "06b2a4f",
+      "source_commit": "cd28631",
       "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
       "recording_script": "scripts/capture_docs.py",
-      "fixtures": "scripts/preview_onboarding.py --docs-demo"
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "previews/onboarding/06-mobile.webp",
       "page": "user-guide/onboarding.md",
       "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
-      "verified_at": "2026-10-02",
-      "bytes": 89654,
-      "sha256": "cfc26fd071a05de778d656122d3aed7b06a9ac58d179996f7e17c6cce832513a",
+      "bytes": 90926,
+      "sha256": "926519243c8bbea54444a42e0f834eda20426855175c632f664bdfa1f1717d4f",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "06b2a4f",
+      "source_commit": "cd28631",
       "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
       "recording_script": "scripts/capture_docs.py",
-      "fixtures": "scripts/preview_onboarding.py --docs-demo"
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 407,
+        "height": 904,
+        "device_scale_factor": 2
+      }
     },
     {
       "file": "previews/onboarding/07-play.webp",
       "page": "user-guide/onboarding.md",
       "scene": "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源",
-      "verified_at": "2026-10-02",
-      "bytes": 37296,
-      "sha256": "722b5c6e732ed5a7d508e62b6efbba2d91021f77db9dcb944899e1e3ed4f8eb5",
+      "bytes": 41654,
+      "sha256": "9d5e2f8cf40f850ac157ba963f9c3aee5bf47058636f26a72f085bb989880206",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "06b2a4f",
+      "source_commit": "cd28631",
       "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
       "recording_script": "scripts/capture_docs.py",
-      "fixtures": "scripts/preview_onboarding.py --docs-demo"
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "screenshots/demo-subtitles.webp",
       "page": "user-guide/subtitles.md",
       "scene": "真实播放器：换字幕、调整延迟、加载本地 SRT",
-      "verified_at": "2026-10-02",
-      "bytes": 36344,
-      "sha256": "709b1aae2bae2a8b678ba04163c7d916c2099a63a45f59017bf2855fada29030"
+      "bytes": 38148,
+      "sha256": "72ff9ad20ee7a56edad75b085ca2fd37c3a2aa515719701aaac7e4f839c7e542",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
+    },
+    {
+      "file": "screenshots/player-subtitles.webp",
+      "page": "user-guide/subtitles.md",
+      "scene": "真实播放器选择合成片源的中英文外挂字幕",
+      "bytes": 35772,
+      "sha256": "1d29633baa4200a208e570bce6c77221c333db077775c57e808595afba835992",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
+    },
+    {
+      "file": "screenshots/player-info.webp",
+      "page": "user-guide/playback-previews.md",
+      "scene": "真实播放器的预览入口、播放信息与诊断；1080p 合成片源",
+      "bytes": 40746,
+      "sha256": "2fd376c50cb2e1174129e21f8bff877c689b55b8cb7f6f2f0ee3feae60625524",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
+    },
+    {
+      "file": "screenshots/player-transcode.webp",
+      "page": "user-guide/playback-controls.md",
+      "scene": "1080p H.264 合成片源实际转码为 720p；隔离软件转码会话",
+      "bytes": 41150,
+      "sha256": "65ed4c39cfe69a23c5a0d95a1a35cf067ff3fc46dcfc470876b0ba8cfa658606",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "screenshots/demo-organize-preview.webp",
       "page": "user-guide/organizing.md",
       "scene": "真实整理预览及执行结果；仅临时合成文件",
-      "verified_at": "2026-10-02",
-      "bytes": 40588,
-      "sha256": "3b42a1a0b7954d6d6288a8f472bd45ce9efe272b32632d51448ca177a37030a9"
+      "bytes": 46772,
+      "sha256": "d7c3c6a5691a391b098f05140421269fd7710a1e9cc6b0958079843175835313",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "screenshots/demo-organize-result.webp",
       "page": "user-guide/organizing.md",
       "scene": "真实整理预览及执行结果；仅临时合成文件",
-      "verified_at": "2026-10-02",
-      "bytes": 41580,
-      "sha256": "7cbdb5305e12285581c062816024aa8e1d856373df32835c2afd0ad05dcb5658"
+      "bytes": 47494,
+      "sha256": "05e5075a7b838300cb801d69211ec30a7aeec1ad60595cef90c24f7ddf118b00",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "videos/onboarding.mp4",
       "page": "user-guide/onboarding.md",
       "scene": "四步向导 → 真实扫描入库 → 完成 → 首播，未经速度变更的真实 UI 录屏",
-      "verified_at": "2026-10-02",
-      "bytes": 1230737,
-      "sha256": "ea2a382537a92294be25f144abf9db1340635dd63d878c8ae9cb8c256abd5715",
+      "bytes": 1222189,
+      "sha256": "e5e0fd1c00f09cebfd0ee147cf088a2009107f5e3d2e2b1e694fd167e4dc9479",
       "duration_seconds": 50.35,
       "codec_name": "h264",
       "width": 1440,
       "height": 1000,
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "06b2a4f",
+      "source_commit": "cd28631",
       "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
       "recording_script": "scripts/capture_docs.py",
-      "fixtures": "scripts/preview_onboarding.py --docs-demo"
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "videos/onboarding.vtt",
       "page": "user-guide/onboarding.md",
       "scene": "四步向导 → 真实扫描入库 → 完成 → 首播，未经速度变更的真实 UI 录屏",
-      "verified_at": "2026-10-02",
       "bytes": 978,
-      "sha256": "675a1cfe6d4bbb238c45488e8c93e0f48274082b88556667ee0f814b12e3d7d4",
+      "sha256": "9b1190938cc4004d4315a419e3c29f94fe09a8737fc0b94e23a146b198849c63",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "06b2a4f",
+      "source_commit": "cd28631",
       "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
       "recording_script": "scripts/capture_docs.py",
-      "fixtures": "scripts/preview_onboarding.py --docs-demo"
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "videos/onboarding.webp",
       "page": "user-guide/onboarding.md",
       "scene": "四步向导 → 真实扫描入库 → 完成 → 首播，未经速度变更的真实 UI 录屏",
-      "verified_at": "2026-10-02",
-      "bytes": 24154,
-      "sha256": "a6b18e584fd974981d0f0b8675b618a63e974e277d9ce89f7a6994369035fe1d",
+      "bytes": 28312,
+      "sha256": "16fd093713a26d42fbbff1a26cda558e49958a151b5dacd3eaaf6e62eebda90a",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "06b2a4f",
+      "source_commit": "cd28631",
       "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
       "recording_script": "scripts/capture_docs.py",
-      "fixtures": "scripts/preview_onboarding.py --docs-demo"
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "videos/subtitles.mp4",
       "page": "user-guide/subtitles.md",
       "scene": "换字幕 → 延后 0.5 秒 → 文件选择器加载本地 SRT，真实 UI 录屏",
-      "verified_at": "2026-10-02",
-      "bytes": 2269213,
-      "sha256": "61dfd74671d8cf9af1f10e041a5eae789b4cda07ec92fd7fd437fba2ef07dc7a",
-      "duration_seconds": 35.9,
+      "bytes": 2322089,
+      "sha256": "e3695e7e16c93f719bf2e9e5f9ac0e9780f8b09c88c03b9ab93e82510bed5c2a",
+      "duration_seconds": 35.75,
       "codec_name": "h264",
       "width": 1440,
-      "height": 1000
+      "height": 1000,
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "videos/subtitles.vtt",
       "page": "user-guide/subtitles.md",
       "scene": "换字幕 → 延后 0.5 秒 → 文件选择器加载本地 SRT，真实 UI 录屏",
-      "verified_at": "2026-10-02",
       "bytes": 588,
-      "sha256": "6d864e5d1be2340ef40233b2bb82458f9d0976b11ad482e379da230e0696a8f7"
+      "sha256": "3b68fbc2a8ee5842e918670757ce33236225dfe06a19a6084dd23e8e68390c9d",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "videos/subtitles.webp",
       "page": "user-guide/subtitles.md",
       "scene": "换字幕 → 延后 0.5 秒 → 文件选择器加载本地 SRT，真实 UI 录屏",
-      "verified_at": "2026-10-02",
-      "bytes": 35600,
-      "sha256": "de390f591c33b769a122c7e190defb909540a841f7237c53b4a8d81ee81cdc38"
+      "bytes": 38830,
+      "sha256": "b164eab844e47dad36fdb25d10c51da76f0184301f2ff7771f749c1942fb3eec",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "videos/organizing.mp4",
       "page": "user-guide/organizing.md",
       "scene": "预览 → 点击整理选中确认执行 → 结果核对 → 文件管理，真实 UI 录屏",
-      "verified_at": "2026-10-02",
-      "bytes": 330419,
-      "sha256": "77ef1a45320055b4f436cce917568c871946fc5a07ddb1b6f90361c2db344486",
-      "duration_seconds": 33.7,
+      "bytes": 413689,
+      "sha256": "9c401c9a9dbaef0b2f912fc57c5e3f9d5758c84370b3e1ac7e68f4ec8cedf9b1",
+      "duration_seconds": 32.85,
       "codec_name": "h264",
       "width": 1440,
-      "height": 1000
+      "height": 1000,
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "videos/organizing.vtt",
       "page": "user-guide/organizing.md",
       "scene": "预览 → 点击整理选中确认执行 → 结果核对 → 文件管理，真实 UI 录屏",
-      "verified_at": "2026-10-02",
       "bytes": 636,
-      "sha256": "5e629839f4ea46c3dfc3e1dc7b6ef548e6fca64c90463e3d56c5cdcb8b193495"
+      "sha256": "11c655d9d322534739fc2e51ca8bcea389532e2fe1a34f1dd015412740e86e31",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "videos/organizing.webp",
       "page": "user-guide/organizing.md",
       "scene": "预览 → 点击整理选中确认执行 → 结果核对 → 文件管理，真实 UI 录屏",
-      "verified_at": "2026-10-02",
-      "bytes": 44230,
-      "sha256": "bdb09d85c3ef4e155fdf475b808e6d4a15adb6ece9657ceac98070077dc27f88"
+      "bytes": 53430,
+      "sha256": "69acaca8029b456f9d6d53cbcb91d54e8878821adc763177ccb8143fe77e22d3",
+      "verified_at": "2026-10-03",
+      "captured_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source": "Chromium + Playwright 操作隔离演示实例；无真实片库、无 API 响应模拟；合成视频和虚构资料",
+      "recording_script": "scripts/capture_docs.py",
+      "fixtures": "scripts/preview_onboarding.py --docs-demo",
+      "source_state": "拍摄完成后登记时的工作区；真实应用与临时数据库、1080p 合成片源",
+      "source_sha256": "333ecfac8ace3a901ac5edafe732b69dc4dc0c9671fd0bd13b6534e056a7c768",
+      "source_digest_scope": [
+        "app/**/*.py",
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package*.json",
+        "frontend/vite.config.*",
+        "requirements*.txt",
+        "scripts/capture_docs.py",
+        "scripts/preview_onboarding.py"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      }
     },
     {
       "file": "diagrams/libraries.svg",
@@ -245,7 +757,15 @@
       "scene": "媒体库与视频库关系；代码生成 SVG，可编辑源为 scripts/capture_docs_diagrams.py",
       "verified_at": "2026-10-02",
       "bytes": 2703,
-      "sha256": "2dd03598f5a85f9ed83d9e113ff21d21d284e131f984d79a6c1bdce335191c1d"
+      "sha256": "2dd03598f5a85f9ed83d9e113ff21d21d284e131f984d79a6c1bdce335191c1d",
+      "app_version": "0.19.0",
+      "source_commit": "ee5dbcc",
+      "source": "可编辑业务概念图，由仓库脚本生成 SVG",
+      "recording_script": "scripts/capture_docs_diagrams.py",
+      "fixtures": "无媒体数据",
+      "provenance_note": "来源由旧清单顶层默认迁入；没有因此重新拍摄或核对。",
+      "reviewed_at": "2026-10-03",
+      "review_basis": "2026-10-03 对照 app/routers/media_libraries.py 与 app/routers/libraries.py：媒体库存连接，电影/剧集视频库选择其子目录；三个 SVG 在 /tmp 重生成后与现文件逐字节一致。"
     },
     {
       "file": "diagrams/ingestion.svg",
@@ -253,7 +773,15 @@
       "scene": "入库任务流；代码生成 SVG，可编辑源为 scripts/capture_docs_diagrams.py",
       "verified_at": "2026-10-02",
       "bytes": 2808,
-      "sha256": "98d8ae6d0f939160867d2146c7c50828d370dafd7e87f4ab4eb8700b44224707"
+      "sha256": "98d8ae6d0f939160867d2146c7c50828d370dafd7e87f4ab4eb8700b44224707",
+      "app_version": "0.19.0",
+      "source_commit": "ee5dbcc",
+      "source": "可编辑业务概念图，由仓库脚本生成 SVG",
+      "recording_script": "scripts/capture_docs_diagrams.py",
+      "fixtures": "无媒体数据",
+      "provenance_note": "来源由旧清单顶层默认迁入；没有因此重新拍摄或核对。",
+      "reviewed_at": "2026-10-03",
+      "review_basis": "2026-10-03 对照 frontend/src/views/Setup.vue、frontend/src/components/SetupLibraryStep.vue、frontend/src/components/LibraryToolsPanel.vue：扫描和上传按选定视频库入库，整理仍单独预览确认；三个 SVG 在 /tmp 重生成后与现文件逐字节一致。"
     },
     {
       "file": "diagrams/organizing.svg",
@@ -261,7 +789,15 @@
       "scene": "就地整理前后路径示例；代码生成 SVG，可编辑源为 scripts/capture_docs_diagrams.py",
       "verified_at": "2026-10-02",
       "bytes": 2470,
-      "sha256": "d435cbb37ff3669abfca1daf318adc89fbfd9a99b0d30a3aceeb565b084a004f"
+      "sha256": "d435cbb37ff3669abfca1daf318adc89fbfd9a99b0d30a3aceeb565b084a004f",
+      "app_version": "0.19.0",
+      "source_commit": "ee5dbcc",
+      "source": "可编辑业务概念图，由仓库脚本生成 SVG",
+      "recording_script": "scripts/capture_docs_diagrams.py",
+      "fixtures": "无媒体数据",
+      "provenance_note": "来源由旧清单顶层默认迁入；没有因此重新拍摄或核对。",
+      "reviewed_at": "2026-10-03",
+      "review_basis": "2026-10-03 对照 app/routers/files/planner.py:_target_for、executor.py:_move_one 及 routes.py:_restore_one：就地整理保留自建父目录、正片与同茎字幕随行、目标存在时拒绝覆盖、支持还原原始位置；临时重生成与现文件逐字节一致。"
     },
     {
       "file": "screenshots/ai-settings-go.webp",
@@ -269,7 +805,7 @@
       "scene": "OpenCode Go 预设、用途限制与明确标注的模拟测试响应；密钥是虚构值",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "8884427",
+      "source_commit": "cd28631",
       "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
       "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
       "viewport": {
@@ -280,8 +816,8 @@
       "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
       "format": "WebP q86",
-      "bytes": 58986,
-      "sha256": "17cd841a76c603e2eaf14408f295a113aec5235ce9c70d5e0736ba766bee45a2"
+      "bytes": 60464,
+      "sha256": "cbccd3ed9b5913aac545e261634061964734243afe630f013e6a62c0657f7d5d"
     },
     {
       "file": "screenshots/ai-search-preview.webp",
@@ -289,7 +825,7 @@
       "scene": "模拟解析结果可编辑；确认前未应用到当前库",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "8884427",
+      "source_commit": "cd28631",
       "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
       "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
       "viewport": {
@@ -300,8 +836,8 @@
       "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
       "format": "WebP q86",
-      "bytes": 50674,
-      "sha256": "b49f65578cd96dc125c2c5497199a7bbf17c693dc0be11b53c8ebd68d221a38c"
+      "bytes": 50794,
+      "sha256": "34774d1317375490426cf04beb18b5bb55b230fd713b9bfba3e2ae973fbd9c59"
     },
     {
       "file": "screenshots/ai-match-movie.webp",
@@ -309,7 +845,7 @@
       "scene": "模拟电影候选与二次确认；未执行绑定",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "8884427",
+      "source_commit": "cd28631",
       "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
       "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
       "viewport": {
@@ -320,8 +856,8 @@
       "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
       "format": "WebP q86",
-      "bytes": 45522,
-      "sha256": "38b7ece63c947284f3a43e9736c798108991eea021d49c01b32d346e275b8996"
+      "bytes": 45760,
+      "sha256": "192bd66df491178272beb6baa891595e75d032a5772e9d8df9622803faebbdc7"
     },
     {
       "file": "screenshots/ai-match-tv.webp",
@@ -329,7 +865,7 @@
       "scene": "模拟整剧建议与二次确认；展示目录归属限制",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "8884427",
+      "source_commit": "cd28631",
       "source_state": "当前工作区 OpenCode Go 与智能辅助界面",
       "source": "真实 Vue 界面 + 全 API 模拟；无真实 Key、数据库或媒体；不证明 Go 连通或影视效果",
       "viewport": {
@@ -340,255 +876,8 @@
       "recording_script": "scripts/smoke_ai_ui.mjs --capture-docs",
       "fixtures": "scripts/smoke_ai_ui.mjs 内置虚构资料与模拟响应",
       "format": "WebP q86",
-      "bytes": 45398,
-      "sha256": "8110add9e67fa981e9496af29217a604a27a33b9d074920f95d75529037cfaca"
-    },
-    {
-      "file": "screenshots/file-browser-loading.webp",
-      "page": "user-guide/files.md",
-      "scene": "延迟模拟目录响应，展示首次进入文件管理的加载动画和提示",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 42766,
-      "sha256": "a92ed024f24532da5e864a259fee7c8d4ce9471c21d2c0bd6854a80b11712bb8"
-    },
-    {
-      "file": "screenshots/settings-navigation.webp",
-      "page": "user-guide/settings.md",
-      "scene": "三组设置导航、独立文件管理及概览",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 41996,
-      "sha256": "c2c8d3600c8f3c200de362d8b2ed9b58a44368e149685fb8f1aa61f52c7aa272"
-    },
-    {
-      "file": "screenshots/settings-sources.webp",
-      "page": "user-guide/settings.md",
-      "scene": "在线资料服务：TMDB连接与来源状态",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 46768,
-      "sha256": "769854926fed5d61380ea0192ccf4500ed34f10f9adff57978a057609e76c191"
-    },
-    {
-      "file": "screenshots/settings-matching.webp",
-      "page": "user-guide/settings.md",
-      "scene": "按视频库设置来源顺序、保留草稿并测试匹配",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 54918,
-      "sha256": "140269c33dd980115e511ad6beb10752f6e13230499362fae50238086219bb28"
-    },
-    {
-      "file": "screenshots/settings-offline.webp",
-      "page": "user-guide/settings.md",
-      "scene": "独立 IMDb 离线资料导入入口",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 37878,
-      "sha256": "9fa41bfe70046cca93c232285a6788b4eba58adefe991042db71c07f4baf6e9a"
-    },
-    {
-      "file": "screenshots/file-tools-entry.webp",
-      "page": "user-guide/settings.md",
-      "scene": "独立“管理文件”入口；工具标签只切换页内内容",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "扫描与整理选中库红色边框及同组操作按钮等宽调整",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 44154,
-      "sha256": "267dc6def98b40f01312ce6bc4cd12bd17e4ca791b22a2152ef76b9016451b4d"
-    },
-    {
-      "file": "screenshots/file-preview-video.webp",
-      "page": "user-guide/files.md",
-      "scene": "选中电影版本使用完整播放器预览，不记录观看进度；画面为合成视频",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 26430,
-      "sha256": "cee120e9906326f0f65218004d7cdaba514be2e153bdf0bd1a3518a672d95a5f"
-    },
-    {
-      "file": "screenshots/file-preview-text.webp",
-      "page": "user-guide/files.md",
-      "scene": "文件管理内原地预览合成字幕，关闭保留原目录与当前行，不自动勾选",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 21050,
-      "sha256": "d695e1b503a0e95cc359bebc2c704cac20aa9f6339eb9977012f51fca1c82c93"
-    },
-    {
-      "file": "screenshots/file-browser.webp",
-      "page": "user-guide/files.md",
-      "scene": "目录树、待扫描提醒、当前电影行与独立勾选的海报文件，批量操作只针对勾选项",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 60288,
-      "sha256": "5f745a9216f44ebf0e199d280c64576ebc6d7f87ed31d69eff3c104ed682060c"
-    },
-    {
-      "file": "screenshots/file-review.webp",
-      "page": "user-guide/files.md",
-      "scene": "离开文件管理前选择扫描核对、稍后处理或继续管理",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 39092,
-      "sha256": "ed7d67fdca535932c92f39ae1850ed8d9b11e916613c94a8f0fb7685838989f0"
-    },
-    {
-      "file": "screenshots/file-browser-mobile.webp",
-      "page": "user-guide/files.md",
-      "scene": "手机文件管理及更多操作菜单",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 390,
-        "height": 844,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 26210,
-      "sha256": "8b758b092de9d2a95fabe4f05c1d89a23e3a1847c879a0766a3bf82e02ac273e"
-    },
-    {
-      "file": "screenshots/player-settings.webp",
-      "page": "user-guide/playback-controls.md",
-      "scene": "合成视频预览中的统一播放器设置与六档倍速；不操作真实片源",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 1440,
-        "height": 1000,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 28514,
-      "sha256": "e3b827139e70fe8f93448f425a5ad214783a8a0d55504461fba6c187c6b2bc02"
-    },
-    {
-      "file": "screenshots/mobile-player.webp",
-      "page": "user-guide/playback-controls.md",
-      "scene": "390px手机模拟：44px主控、时间独立一行、倍速从设置进入；合成视频",
-      "verified_at": "2026-10-03",
-      "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "跨端统一图标、按钮、文件管理与播放器工作区改造",
-      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
-      "viewport": {
-        "width": 390,
-        "height": 844,
-        "device_scale_factor": 1
-      },
-      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
-      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
-      "bytes": 11294,
-      "sha256": "930755848d8521ad14e147656ebdc3d6d74c31c464d773a32805f164ef617ab8"
+      "bytes": 46500,
+      "sha256": "cc3c37bfc308b7d2aeaf12467180de9201248b19bcf78d97323da83362ca9753"
     },
     {
       "file": "screenshots/movie-library.webp",
@@ -596,8 +885,8 @@
       "scene": "紧凑继续观看、完整虚构海报墙与独立排序",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -607,7 +896,7 @@
       "capture_mode": "full-page",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
       "bytes": 97686,
       "sha256": "e4cc60efa144c54820c039ab6e3f4a17bb95d76cba32633a48d3ce50202a835a"
@@ -618,8 +907,8 @@
       "scene": "电影墙右侧的全部筛选面板、分组条件与固定应用操作",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -629,7 +918,7 @@
       "capture_mode": "viewport",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
       "bytes": 44506,
       "sha256": "af7a67acaa8323cf222d90a6164d1ad60c0245d37f25b730d1d6bfb83236af1a"
@@ -640,8 +929,8 @@
       "scene": "390px 手机的搜索、继续观看、排序与三列海报墙",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 390,
@@ -651,7 +940,7 @@
       "capture_mode": "full-page",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
       "bytes": 77890,
       "sha256": "8d112a21f72a81805e45b31f709b2210c012e14c8b07e76eabbe35fe9305ca80"
@@ -662,8 +951,8 @@
       "scene": "虚构合集详情及成员海报",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -673,7 +962,7 @@
       "capture_mode": "full-page",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
       "bytes": 44928,
       "sha256": "c62cfb9b0ba79f9be9386f76920d24b48251169cfbe86bfe7b470dd7f21af789"
@@ -684,8 +973,8 @@
       "scene": "媒体库连接及分组视频库条目",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -695,7 +984,7 @@
       "capture_mode": "full-page",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
       "bytes": 47778,
       "sha256": "8351645bdd0d380e0709b4b5d70fc16dd9e4a69476df4afb2ad7a18f32e88f8c"
@@ -706,8 +995,8 @@
       "scene": "按需展开的新建媒体库表单",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -717,7 +1006,7 @@
       "capture_mode": "full-page",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
       "bytes": 69618,
       "sha256": "a7935bcdd220bfeaf273ce230bdd9a7a7c1a4ba8d166fbce8ca2ff6ad6767241"
@@ -728,8 +1017,8 @@
       "scene": "分开的索引修复与播放缓存维护",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -739,7 +1028,7 @@
       "capture_mode": "full-page",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
       "bytes": 33392,
       "sha256": "8debc303399245973eded3e88ff1fed21167fd8807f740400284f842ed1f439a"
@@ -750,8 +1039,8 @@
       "scene": "电影详情、播放版本与继续观看入口",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -761,7 +1050,7 @@
       "capture_mode": "full-page",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
       "bytes": 90478,
       "sha256": "f62c0c2466656648d9680f29badd473f0517d84c412cf4057d05ea811b7c2f6b"
@@ -772,8 +1061,8 @@
       "scene": "剧集详情与两季各八集的虚构数据",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -783,10 +1072,10 @@
       "capture_mode": "full-page",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
-      "bytes": 75892,
-      "sha256": "3a2e55919f41109820b67be10089500b961f95d451dc8302ef5c0191075e8d9b"
+      "bytes": 75956,
+      "sha256": "de63bea374a3dbeb3adfc606b523e40f2abdf6cff545e9b18814c99ed9e090ea"
     },
     {
       "file": "screenshots/tv-season.webp",
@@ -794,8 +1083,8 @@
       "scene": "季页分集、剧照和播放状态",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -805,10 +1094,10 @@
       "capture_mode": "full-page",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
-      "bytes": 130508,
-      "sha256": "b5e41d53dafa5a9c7382a8bb064c3ebe431ed90a6408eade32becb7da12a959f"
+      "bytes": 129930,
+      "sha256": "f9da9f967cb214f52922ae73478c2e5ce8825c98538752e1d8b4830e792f9f10"
     },
     {
       "file": "screenshots/upload-movie.webp",
@@ -816,8 +1105,8 @@
       "scene": "电影上传目标与固定底部操作",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -827,7 +1116,7 @@
       "capture_mode": "viewport",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
       "bytes": 43160,
       "sha256": "f45fc308d80b048b5f4b558874d75eb728b4e2d6f743c723accf0dd3572d6fb5"
@@ -838,8 +1127,8 @@
       "scene": "剧集散文件上传、所属剧与季号",
       "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "94aa458",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -849,10 +1138,822 @@
       "capture_mode": "viewport",
       "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
-      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
       "format": "WebP q86",
-      "bytes": 35878,
-      "sha256": "8dc26c0a7c3909b96626790ae1f138b70c0e1d164f97760b12c4a6e846379837"
+      "bytes": 36062,
+      "sha256": "1600517b126c2ec88e56b03c9d7da2a9bd92ad49e7d087b0a3f7e8f902bd43b2"
+    },
+    {
+      "file": "screenshots/movie-cast.webp",
+      "page": "user-guide/movie-versions.md",
+      "scene": "虚构电影的演职员头像墙与影片信息",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 15460,
+      "sha256": "5398b1dd1bfcc879a98ca02781b1a711a3ddb027f429334d8f5a1cb69770ffa9"
+    },
+    {
+      "file": "screenshots/movie-similar.webp",
+      "page": "user-guide/movie-versions.md",
+      "scene": "虚构库中类似推荐与本地海报",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 31252,
+      "sha256": "8353c16e09cabc47cd6c646bbc1f1dc1379355d5f201436bc1bc45662465e1be"
+    },
+    {
+      "file": "screenshots/movie-posters.webp",
+      "page": "user-guide/movie-metadata.md",
+      "scene": "换海报候选：原创模拟海报与当前选择标记",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 42256,
+      "sha256": "17558475fd172e6b63a5c7108eaa0754819929703ea98ed9f534e83ada589fbc"
+    },
+    {
+      "file": "screenshots/movie-multiselect.webp",
+      "page": "user-guide/collections.md",
+      "scene": "电影海报多选与批量操作浮条",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 88866,
+      "sha256": "b165b4cacf78f52c3547439def896b923524d53ce3fd63eb9d1434f4fd097e65"
+    },
+    {
+      "file": "screenshots/person.webp",
+      "page": "user-guide/collections.md",
+      "scene": "虚构人物简介、参演与执导作品",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "full-page",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 44748,
+      "sha256": "b293d73bf4f2501b1574a317b221d3a4cbcda963b88ea1b65d81535188cefe1f"
+    },
+    {
+      "file": "screenshots/scan-review.webp",
+      "page": "user-guide/metadata.md",
+      "scene": "选定电影视频库的入库流程，无待处理项目",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 24390,
+      "sha256": "5397c5648171f67e714b816f21fa5c02199145861090db309fb6db5b7ba4d11a"
+    },
+    {
+      "file": "screenshots/match-review.webp",
+      "page": "user-guide/metadata.md",
+      "scene": "剧集库未匹配、待确认与集号待处理项目",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 38626,
+      "sha256": "03464ab3da7896b19f4acb5c9f1fbcaa7e098721e2c77d3c64839d763661a9ca"
+    },
+    {
+      "file": "screenshots/rematch-candidates.webp",
+      "page": "user-guide/metadata.md",
+      "scene": "手动匹配候选列表；模拟标题、年份与来源，不实际绑定",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 28392,
+      "sha256": "b9c22fc998af0a2d5801288c1cd34a17820e0fe40ebea91ad7ed98f0e7c99848"
+    },
+    {
+      "file": "screenshots/tv-bindings.webp",
+      "page": "user-guide/tv-bindings.md",
+      "scene": "目录归属三步：两个模拟目录、目标剧与逐目录季号",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1440,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 59840,
+      "sha256": "8fbcd8fd3560dad3dca6caf45ad25484e6de86080d1a6421376e53725ae1689d"
+    },
+    {
+      "file": "screenshots/tv-bindings-preview.webp",
+      "page": "user-guide/tv-bindings.md",
+      "scene": "模拟同集多版本重叠预览与禁止直接保存的冲突提示",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 50918,
+      "sha256": "1b8b5da1e233cb195070d685e531ec5dda681a9093551632d9d1bec58596d123"
+    },
+    {
+      "file": "screenshots/tv-episode-match.webp",
+      "page": "user-guide/tv-matching.md",
+      "scene": "分集资料匹配：季号查询及候选集名、日期",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 32456,
+      "sha256": "cd0361066379addcff646a69a517a43a0adbd4d300c6e83c5dbf53fed431334c"
+    },
+    {
+      "file": "screenshots/tv-versions.webp",
+      "page": "user-guide/watch-tv.md",
+      "scene": "同季 V1/V2 版本分组与版本筛选",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "full-page",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 134090,
+      "sha256": "a722ad65871c74ef14654dc353732c645ce147bf00f40bcefd78c2faf32a5678"
+    },
+    {
+      "file": "screenshots/tv-extras.webp",
+      "page": "user-guide/watch-tv.md",
+      "scene": "虚构幕后花絮与删减片段的独立播放入口",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 5592,
+      "sha256": "487489eb183a0ccf4c6aaca5fae582d516453f6f55ec57e5304b47ca5c64dfa7"
+    },
+    {
+      "file": "screenshots/tv-organize-panel.webp",
+      "page": "user-guide/tv-organizing.md",
+      "scene": "剧集批量整理预览、动作统计及文件名变更示例",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 30356,
+      "sha256": "7b4de89add6e694fd1197ad06feccadc0876e4fa73665474718648134ffa3389"
+    },
+    {
+      "file": "screenshots/tv-organize-dialog.webp",
+      "page": "user-guide/tv-organizing.md",
+      "scene": "单剧整理对话框的变更与季分布；未执行文件操作",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "viewport",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 38812,
+      "sha256": "54872df06f67b088d91c16261fa8b759483cc3ca3eb4bcad6bc2199c2eea6553"
+    },
+    {
+      "file": "screenshots/organize-history.webp",
+      "page": "user-guide/tv-organizing.md",
+      "scene": "虚构整理批次、动作类型及撤销预览",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 17404,
+      "sha256": "605303244debe2b5dd3efb0b5666ddf646cb05db7527abd8c2b597624b0e801e"
+    },
+    {
+      "file": "screenshots/restore-panel.webp",
+      "page": "user-guide/organizing.md",
+      "scene": "电影恢复原始位置候选与目标路径；未执行恢复",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 24424,
+      "sha256": "107bde8c737b0c765b17c5276b32955d074b8e78e05e6d9116d770c702326ce1"
+    },
+    {
+      "file": "screenshots/tv-maint.webp",
+      "page": "user-guide/settings.md",
+      "scene": "当前剧集视频库的资料维护与预览图生成入口",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 31004,
+      "sha256": "c3b398fdce6b40b3f1ff4a38b208b2d8611514db749f04d489527d0330ccf992"
+    },
+    {
+      "file": "screenshots/organize-preview.webp",
+      "page": "user-guide/organizing.md",
+      "scene": "电影就地整理预览、勾选范围与逐行动作；未执行移动",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区文档素材核对；源代码哈希 98aee62031a331048ed6042173abfb6a4daf426eef08be887d7596796f16cc31",
+      "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "capture_mode": "element",
+      "recording_script": "node scripts/ui_visual_review.mjs --capture-docs",
+      "fixtures": "scripts/fixtures/uiReviewData.mjs",
+      "fixture_sha256": "cae740a91cd62f94616657fe92b9d37486195bffc621c8d8d389ce5f8a3e2fd4",
+      "format": "WebP q86",
+      "bytes": 27636,
+      "sha256": "e9d5d03e5b2270e4f2825b667d3fe823988f013a2057f339ca3e0de29cbed4af"
+    },
+    {
+      "file": "screenshots/settings-unsaved.webp",
+      "page": "user-guide/settings.md",
+      "scene": "未保存的 TMDB 草稿触发离开确认；默认继续编辑，可明确放弃修改后离开",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 34284,
+      "sha256": "428b240267ed9b15d60fcc95a6fb859ab1a7718aff3b1c6ae3c069ee80dec9f7"
+    },
+    {
+      "file": "screenshots/file-browser-loading.webp",
+      "page": "user-guide/files.md",
+      "scene": "延迟模拟目录响应，展示首次进入文件管理的加载动画和提示",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 42758,
+      "sha256": "a58252c45e83b1b75a521a97984bd7815c8bb779b74af7495f9a68a0d849b9a3"
+    },
+    {
+      "file": "screenshots/settings-navigation.webp",
+      "page": "user-guide/settings.md",
+      "scene": "三组设置导航、独立文件管理及概览",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 41996,
+      "sha256": "c2c8d3600c8f3c200de362d8b2ed9b58a44368e149685fb8f1aa61f52c7aa272"
+    },
+    {
+      "file": "screenshots/settings-sources.webp",
+      "page": "user-guide/settings.md",
+      "scene": "在线资料服务：TMDB连接与来源状态",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 46768,
+      "sha256": "769854926fed5d61380ea0192ccf4500ed34f10f9adff57978a057609e76c191"
+    },
+    {
+      "file": "screenshots/settings-matching.webp",
+      "page": "user-guide/settings.md",
+      "scene": "按视频库设置来源顺序、保留草稿并测试匹配",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 54918,
+      "sha256": "140269c33dd980115e511ad6beb10752f6e13230499362fae50238086219bb28"
+    },
+    {
+      "file": "screenshots/settings-offline.webp",
+      "page": "user-guide/settings.md",
+      "scene": "独立 IMDb 离线资料导入入口",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 37878,
+      "sha256": "9fa41bfe70046cca93c232285a6788b4eba58adefe991042db71c07f4baf6e9a"
+    },
+    {
+      "file": "screenshots/file-tools-entry.webp",
+      "page": "user-guide/settings.md",
+      "scene": "独立“管理文件”入口；工具标签只切换页内内容",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 44154,
+      "sha256": "267dc6def98b40f01312ce6bc4cd12bd17e4ca791b22a2152ef76b9016451b4d"
+    },
+    {
+      "file": "screenshots/file-preview-video.webp",
+      "page": "user-guide/files.md",
+      "scene": "选中电影版本使用完整播放器预览，不记录观看进度；画面为合成视频",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 24750,
+      "sha256": "420b8c353d9ef396b222d1462f60214610edbb04d225d8befbd6f16fbbf97341"
+    },
+    {
+      "file": "screenshots/file-preview-text.webp",
+      "page": "user-guide/files.md",
+      "scene": "文件管理内原地预览合成字幕，关闭保留原目录与当前行，不自动勾选",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 21050,
+      "sha256": "d695e1b503a0e95cc359bebc2c704cac20aa9f6339eb9977012f51fca1c82c93"
+    },
+    {
+      "file": "screenshots/file-browser.webp",
+      "page": "user-guide/files.md",
+      "scene": "目录树、待扫描提醒、当前电影行与独立勾选的海报文件，批量操作只针对勾选项",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 60288,
+      "sha256": "5f745a9216f44ebf0e199d280c64576ebc6d7f87ed31d69eff3c104ed682060c"
+    },
+    {
+      "file": "screenshots/file-review.webp",
+      "page": "user-guide/files.md",
+      "scene": "离开文件管理前选择扫描核对、稍后处理或继续管理",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 39084,
+      "sha256": "fc5632986e0e734a8755657da4b0d41508dc87e5431a1b54bfcae603bea3fa5c"
+    },
+    {
+      "file": "screenshots/file-browser-mobile.webp",
+      "page": "user-guide/files.md",
+      "scene": "手机文件管理及更多操作菜单",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 26210,
+      "sha256": "8b758b092de9d2a95fabe4f05c1d89a23e3a1847c879a0766a3bf82e02ac273e"
+    },
+    {
+      "file": "screenshots/player-settings.webp",
+      "page": "user-guide/playback-controls.md",
+      "scene": "合成视频预览中的统一播放器设置与六档倍速；不操作真实片源",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 28462,
+      "sha256": "fc662e4ddb51f65c50dc5acec246a77020c46899bf90b950cb39635148189ad5"
+    },
+    {
+      "file": "screenshots/mobile-player.webp",
+      "page": "user-guide/playback-controls.md",
+      "scene": "390px手机模拟：44px主控、时间独立一行、倍速从设置进入；合成视频",
+      "verified_at": "2026-10-03",
+      "app_version": "0.19.0",
+      "source_commit": "cd28631",
+      "source_state": "当前工作区设置、文件管理与播放器回归",
+      "source_sha256": "ed00b872979f0b6ae695d054a05e7dd3a3f9a5337cbd4d5cadedf6f019263e4a",
+      "source_digest_scope": [
+        "frontend/src/**/*",
+        "frontend/public/**/*",
+        "frontend/index.html",
+        "frontend/package.json",
+        "frontend/package-lock.json"
+      ],
+      "source": "真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体",
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "device_scale_factor": 1
+      },
+      "recording_script": "scripts/smoke_settings_ui.mjs --capture-docs",
+      "fixtures": "scripts/smoke_settings_ui.mjs 内置内存数据",
+      "fixture_sha256": "eabfdcbe9d539ee5581e57fa3aa15d6c1540c886ff05d779a7c994ea63cbadb8",
+      "bytes": 10796,
+      "sha256": "6c77ae2f8041ded9510eac6565d71e8ac943f3e7779ff69b3a12539f52271948"
     }
-  ]
+  ],
+  "provenance_scope": "per_asset",
+  "unverified_assets": []
 }

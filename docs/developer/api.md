@@ -1,6 +1,6 @@
 ---
 version: 0.19.0
-reviewed: 2026-10-02
+reviewed: 2026-10-03
 ---
 
 # API 与后台任务
@@ -16,6 +16,7 @@ reviewed: 2026-10-02
 | `/api/media-libraries`、`/api/libraries` | 媒体库连接和视频库 CRUD/检查 |
 | `/api/movies`、`/api/search`、`/api/facets` | 电影、搜索筛选、详情、匹配、批量操作 |
 | `/api/tv` | 剧/季/集、待确认、手工绑定、观看和播放文件 |
+| `/api/tv-client` | TV 客户端的片名/拼音搜索、本库演员候选和参演作品 |
 | `/api/collections`、`/api/persons` | 合集、人物作品 |
 | `/api/files`、`/api/fs`、`/api/extras` | 归档预览/执行、文件操作、花絮 |
 | `/api/jobs` | 扫描、刮削、整理、重建 NFO/索引/元数据等任务 |
@@ -28,6 +29,14 @@ reviewed: 2026-10-02
 读接口可以按 `library` 视频库或 `media_library` 媒体库聚合过滤；写任务通常在 body 传 `library_id` 或 `media_library_id`。视频库工具应显式传 `library_id`，不要依赖缺省全库行为。未知媒体库的读筛选要返回空集合而非退化成全库。新增接口要覆盖“未指定、单视频库、媒体库聚合、不存在的媒体库”四种情况。
 
 当前四档播放由 POST `/api/stream/{id}/decide` 接收 `caps`；GET 兼容变体仅用保守默认。电影、分集、花絮播放时通过 `kind` 隔离媒体探测、进度和会话。文件直链及 HLS 分片读取是 GET，支持断点/Range 的接口不能被通用 JSON 包装破坏。
+
+## 健康与磁盘容量
+
+`GET /api/health` 的 `disks` 返回数据目录与转码目录所在文件系统的容量，不扫描媒体库或统计缓存文件。`data`、`transcode` 各含 `ok` 和 `filesystem_id`；容量按标识去重放在 `filesystems`，每项包含 `id`、`total_bytes`、`used_bytes`、`available_bytes`。`same_filesystem` 为 `true` / `false`；某一目录的文件系统无法识别时为 `null`。标识只用于当前运行环境内的关联，不能作为跨机器或重启后的永久磁盘身份。
+
+`available_bytes` 是应用进程可用的空间，可能少于总量减去已用量（文件系统可保留部分空间）。同卷的两个目录共享一份容量，不能相加。容量是容器/进程可见文件系统的快照，不等于媒体库大小、转码缓存限额或宿主物理磁盘总量。
+
+采集失败时对应目录返回 `ok:false` 和 `{code,message}` 错误，`disks.ok` 为 `false`，不回显原始路径或异常；目录不存在时不创建目录，也不改查父目录猜测容量。错误码包括 `not_found`、`permission_denied`、`not_directory`、`invalid_path`、`unsupported`、`unavailable`。现有顶层 `status` 仍由数据库和媒体可读性决定；监控容量时应同时检查 `disks.ok`，空间告警阈值由部署者确定。
 
 ## 客户端例子
 
@@ -82,14 +91,25 @@ POST /api/jobs/scan/{job_id}/cancel   # 协作式取消，已完成项保留
 归属预览/执行（token 15 分钟有效；磁盘或规则变化后确认返回 409，需重新预览）：
 
 ```http
-POST /api/tv/bindings/preview {"library_id": 3, "target_show_id": 72, "directories": [{"path": "Season 01"}]}
+POST /api/tv/bindings/preview {"library_id": 3, "tmdb_id": 12345, "target_show_id": 72, "directories": [{"path": "Season 01"}]}
 → {"groups": [...], "conflicts": [...], "can_apply": true, "token": "…"}
 
-POST /api/tv/bindings/apply {"token": "…", "dry_run": true}   # 先预览
-POST /api/tv/bindings/apply {"token": "…"}                    # 再执行
+POST /api/tv/bindings/apply {"token": "…"}   # 用户确认上述预览后执行
 ```
 
-`kind` 隔离播放：电影 `m{id}`、分集 `e{id}`、花絮 `x{id}` 的探测、断点、会话目录互相隔离；`kind=episode` 的版本接口只返回同剧同季同集的多版本。`library_id` 指视频库，`media_library_id` 指媒体库，写任务优先显式传视频库 id。
+`/apply` 只接收预览 token，没有 `dry_run` 模式；需要重新核对时调用 `/preview`。撤销的 `/undo` 才通过 `dry_run:true|false` 区分预览与执行。
+
+`kind=movie|episode|extra` 隔离探测、断点和会话目录；同一整数 ID 不能跨 kind 复用。`kind=episode` 的版本接口只返回同剧同季同集的多版本。`library_id` 指视频库，`media_library_id` 指媒体库，写任务优先显式传视频库 id。
+
+### 原生客户端握手与会话
+
+`GET /api/stream/client-info` 返回 `{protocol_version:1, features:["android_tv","independent_sessions","tv_search","tv_actor_search"], auth_required}`。GET 不验证写令牌；`POST /api/stream/client-check` 返回相同信息并通过现有写操作鉴权校验令牌，不改变配置或媒体。功能通过 `features` 单独协商，新增检索能力没有提高播放协议号。
+
+TV 客户端对 `versions/decide/sessions/prewarm` 显式传 `client:"android_tv"` 及原生 `caps`，旧客户端省略 `client` 仍按 web 处理。具体容器、HDR、音轨和逐片格式能力字段见仓库 `android-tv/docs/protocol.md`。`GET /api/tv-client/search` 支持 `q/kind/media_library/limit/offset`；演员 `/actors` 与 `/actor-works` 使用同一媒体库范围，作品查询中的 `actor` 为服务器返回的不透明 key。
+
+每次 `POST /api/stream/{id}/sessions` 返回独立 `session_id`，相同输出共享转码任务和成品；`POST /api/stream/sessions/{sid}/ping` 保活，DELETE 只释放该 sid。新产物占满 `MAX_TRANSCODES` 时返回 429，不能关闭其他设备来腾出名额。时间轴、复用及回收约定见[播放设计](playback.md#会话时间轴与清理)。
+
+`GET /api/tv/recent-played` 的条目 `id/show_id` 指剧，实际可播放分集在 `progress.version_id`，不能把 `id` 直接传给分集播放。电影、分集完成判定共同使用至少 95%，或至少 80% 且剩余不超过 300 秒的条件。
 
 ## 详情图片
 
@@ -97,11 +117,13 @@ POST /api/tv/bindings/apply {"token": "…"}                    # 再执行
 
 ## 认证和安全边界
 
-`app/main.py` 中间件仅在配置令牌时保护 `/api` 下的 POST/PUT/PATCH/DELETE，接收 `X-Api-Token` 或 `Authorization: Bearer`。GET、海报、视频直链继续可读。设置变更立即改变有效令牌。新增写接口须保持 `/api` 路径和写 HTTP 方法，敏感返回避免暴露令牌与 SMB 密码；也不能通过 GET 执行实际变更。
+`app/main.py` 中间件仅在配置令牌时保护 `/api` 下的 POST/PUT/PATCH/DELETE，接收 `X-Api-Token` 或 `Authorization: Bearer`；同时提供时优先使用非空 `X-Api-Token`。GET、海报、视频直链继续可读。设置变更立即改变有效令牌。新增配置或媒体写操作须保持 `/api` 路径和写 HTTP 方法，不能通过 GET 绕过令牌；现有读取接口可能按需填充图片或探测缓存。敏感返回避免暴露令牌与 SMB 密码。
+
+网页播放器同样使用 POST `decide/sessions/progress`，实例启用令牌后这些请求也需认证；“GET 媒体直链开放”不代表整个网页播放流程免令牌。
 
 ## 任务模式
 
-`app/jobkit.py` 的注册表保留进程内进行中及近期已完成任务。启动端点通常返回 `job_id`，前端轮询状态并可请求取消。取消属于协作式，worker 要检查停止标志，已完成子操作不自动回滚。单个任务的审计或持久结果（例如 `organize_moves`）仍在 DB，与内存任务状态分开。页面刷新或重启后，旧 job ID 不保证可查询；检查实际库状态再决定是否重启任务。
+`app/jobkit.py` 的注册表保留进程内进行中及近期已完成任务。启动端点通常返回 `job_id`，前端轮询状态并可请求取消。取消属于协作式，worker 要检查停止标志，已完成子操作不自动回滚。单个任务的审计或持久结果（例如 `organize_moves`、`fs_changes`）仍在 DB，与内存任务状态分开。页面刷新可继续查询现有任务；服务重启或已完成记录被淘汰后，旧 job ID 不保证可查询，应检查实际库状态再决定是否重启任务。
 
 整理、恢复、缓存清理等接口以 dry-run/预览体现计划，再经显式执行参数确认。应用路由层应验证请求范围，执行层仍需再次校验只读、目标占用及源存在性。[存储设计](storage.md)。
 

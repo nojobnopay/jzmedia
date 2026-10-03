@@ -14,12 +14,44 @@ GitHub 风格 slug 匹配（小写、空格→`-`，去标点，中文保留）�
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
 
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
+
+# Walk source documentation only; pruning avoids traversing installed toolchains,
+# generated screenshots/builds, runtime libraries, and local private records.
+SKIP_DIRS = {".git", ".venv", ".pytest_cache", "__pycache__", "node_modules",
+             ".vitepress", ".artifacts", ".gradle", ".kotlin", "build", "dist"}
+SKIP_PATHS = {".agents", ".codex", ".aws", "data", "media", "sample_media",
+              "output", "docs/private"}
+
+
+def excluded_path(path: Path, repo: Path) -> bool:
+    try:
+        relative = path.resolve().relative_to(repo.resolve())
+    except ValueError:
+        return True
+    name = relative.as_posix()
+    return (bool(SKIP_DIRS.intersection(relative.parts))
+            or any(name == prefix or name.startswith(prefix + "/") for prefix in SKIP_PATHS))
+
+
+def markdown_files(root: Path, repo: Path) -> list[Path]:
+    if excluded_path(root, repo):
+        return []
+    if not root.is_dir():
+        return [root]
+    files = []
+    for directory, dirs, names in os.walk(root, followlinks=False):
+        current = Path(directory)
+        dirs[:] = sorted(name for name in dirs if not excluded_path(current / name, repo))
+        files.extend(current / name for name in names
+                     if name.endswith(".md") and not excluded_path(current / name, repo))
+    return sorted(files)
 
 
 def slugify(heading: str) -> str:
@@ -98,11 +130,9 @@ def main() -> int:
     args = ap.parse_args()
     repo = Path(__file__).resolve().parent.parent
     root = (repo / args.root).resolve()
-    files = sorted(root.rglob("*.md")) if root.is_dir() else [root]
-    # 跳过私有本地资料与 node_modules
-    private = (repo / "docs/private").resolve()
-    files = [f for f in files if not f.resolve().is_relative_to(private)
-             and not {"node_modules", ".vitepress", ".artifacts"}.intersection(f.parts)]
+    if not root.is_relative_to(repo):
+        ap.error("--root 必须位于仓库内")
+    files = markdown_files(root, repo)
     errors: list[str] = []
     for f in files:
         errors.extend(check_file(f, repo))

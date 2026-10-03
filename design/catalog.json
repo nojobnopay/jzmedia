@@ -15132,7 +15132,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton class=\"primary\" :disabled=\"createBusy\" @click=\"showCreate = !showCreate\" type=\"button\" variant=\"primary\" icon=\"plus\">"
+      "source_excerpt": "<JzButton class=\"primary\" :disabled=\"!!busy\" @click=\"showCreate = !showCreate\" type=\"button\" variant=\"primary\" icon=\"plus\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:button:10",
@@ -15161,7 +15161,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/LibrariesPanel.vue",
-            "line": 598,
+            "line": 629,
             "selector": ".connection-title",
             "values": {
               "gap": "10px",
@@ -15172,7 +15172,7 @@
           },
           {
             "source": "frontend/src/components/LibrariesPanel.vue",
-            "line": 600,
+            "line": 631,
             "selector": ".connection-title svg",
             "values": {
               "width": "18px"
@@ -15429,11 +15429,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"addVideoOpen(m); closeMenu($event)\" type=\"button\" variant=\"ghost\" icon=\"plus\">"
+      "source_excerpt": "<JzButton :disabled=\"!!newVideo[m.id] || !!busy\" @click=\"addVideoOpen(m); closeMenu($event)\" type=\"button\" variant=\"ghost\" icon=\"plus\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:31",
@@ -15470,11 +15471,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"m.source !== 'local'\" @click=\"editConn(m); closeMenu($event)\" type=\"button\" variant=\"ghost\" icon=\"edit\">"
+      "source_excerpt": "<JzButton v-if=\"m.source !== 'local'\" :disabled=\"!!connEdit || !!busy\" @click=\"editConn(m); closeMenu($event)\" type=\"button\" variant=\"ghost\" icon=\"edit\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:32",
@@ -15511,11 +15513,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"m.source === 'local' && m.movie_count + m.episode_count === 0\" @click=\"editPath(m); closeMenu($event)\" type=\"button\" variant=\"ghost\" icon=\"edit\">"
+      "source_excerpt": "<JzButton v-if=\"m.source === 'local' && m.movie_count + m.episode_count === 0\" :disabled=\"!!pathEdit || !!busy\" @click=\"editPath(m); closeMenu($event)\" type=\"button\" variant=\"ghost"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:33",
@@ -15552,11 +15555,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"m.source !== 'local'\" @click=\"mount(m, true); closeMenu($event)\" type=\"button\" variant=\"ghost\" icon=\"link\">"
+      "source_excerpt": "<JzButton v-if=\"m.source !== 'local'\" :disabled=\"!!busy\" @click=\"mount(m, true); closeMenu($event)\" type=\"button\" variant=\"ghost\" icon=\"link\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:34",
@@ -15591,11 +15595,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"m.source !== 'local'\" @click=\"mount(m, false); closeMenu($event)\" type=\"button\" variant=\"ghost\">"
+      "source_excerpt": "<JzButton v-if=\"m.source !== 'local'\" :disabled=\"!!busy\" @click=\"mount(m, false); closeMenu($event)\" type=\"button\" variant=\"ghost\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:35",
@@ -15630,11 +15635,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"toggleReadOnly(m); closeMenu($event)\" type=\"button\" variant=\"ghost\">"
+      "source_excerpt": "<JzButton :disabled=\"!!busy\" @click=\"toggleReadOnly(m); closeMenu($event)\" type=\"button\" variant=\"ghost\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:36",
@@ -15669,11 +15675,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"toggleEnabled(m); closeMenu($event)\" type=\"button\" variant=\"ghost\">"
+      "source_excerpt": "<JzButton :disabled=\"!!busy\" @click=\"toggleEnabled(m); closeMenu($event)\" type=\"button\" variant=\"ghost\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:37",
@@ -15710,11 +15717,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton class=\"danger\" @click=\"armDelete(m); closeMenu($event)\" type=\"button\" variant=\"danger\" icon=\"delete\">"
+      "source_excerpt": "<JzButton class=\"danger\" :disabled=\"!!busy\" @click=\"armDelete(m); closeMenu($event)\" type=\"button\" variant=\"danger\" icon=\"delete\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:41",
@@ -15867,11 +15875,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"connEdit.url\" v-bind=\"NOFILL\" name=\"jz-conn-url\" placeholder=\"\\\\ServerName\\ShareName\\Folder\" />"
+      "source_excerpt": "<input :disabled=\"!!busy\" v-model=\"connEdit.url\" v-bind=\"NOFILL\" name=\"jz-conn-url\" placeholder=\"\\\\ServerName\\ShareName\\Folder\" />"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:input:53",
@@ -15906,11 +15915,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"connEdit.username\" v-bind=\"NOFILL\" name=\"jz-conn-user\" placeholder=\"SMB 登录用户名\" />"
+      "source_excerpt": "<input :disabled=\"!!busy\" v-model=\"connEdit.username\" v-bind=\"NOFILL\" name=\"jz-conn-user\" placeholder=\"SMB 登录用户名\" />"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:input:55",
@@ -15945,11 +15955,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"connEdit.password\" v-bind=\"NOFILL_PW\" name=\"jz-conn-pass\" type=\"password\" placeholder=\"SMB 密码（留空不改）\" />"
+      "source_excerpt": "<input :disabled=\"!!busy\" v-model=\"connEdit.password\" v-bind=\"NOFILL_PW\" name=\"jz-conn-pass\" type=\"password\" placeholder=\"SMB 密码（留空不改）\" />"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:input:57",
@@ -15984,11 +15995,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"connEdit.connect_host\" v-bind=\"NOFILL\" name=\"jz-conn-connect\" placeholder=\"连接地址（可选，Tailscale IP）\" />"
+      "source_excerpt": "<input :disabled=\"!!busy\" v-model=\"connEdit.connect_host\" v-bind=\"NOFILL\" name=\"jz-conn-connect\" placeholder=\"连接地址（可选，Tailscale IP）\" />"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:58",
@@ -16065,11 +16077,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"connEdit = null\" type=\"button\">"
+      "source_excerpt": "<JzButton :disabled=\"!!busy\" @click=\"connEdit = null\" type=\"button\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:input:64",
@@ -16104,11 +16117,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"pathEdit.value\" v-bind=\"NOFILL\" name=\"jz-path-edit\" placeholder=\"/media（容器内路径）\" />"
+      "source_excerpt": "<input :disabled=\"!!busy\" v-model=\"pathEdit.value\" v-bind=\"NOFILL\" name=\"jz-path-edit\" placeholder=\"/media（容器内路径）\" />"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:65",
@@ -16185,11 +16199,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"pathEdit = null\" type=\"button\">"
+      "source_excerpt": "<JzButton :disabled=\"!!busy\" @click=\"pathEdit = null\" type=\"button\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:81",
@@ -16307,11 +16322,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"editVideo(v, m)\" type=\"button\" icon=\"edit\">"
+      "source_excerpt": "<JzButton :disabled=\"!!videoEdit || !!busy\" @click=\"editVideo(v, m)\" type=\"button\" icon=\"edit\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:84",
@@ -16348,11 +16364,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton class=\"danger\" @click=\"armDeleteVideo(v, m)\" type=\"button\" variant=\"danger\" icon=\"delete\">"
+      "source_excerpt": "<JzButton class=\"danger\" :disabled=\"!!busy\" @click=\"armDeleteVideo(v, m)\" type=\"button\" variant=\"danger\" icon=\"delete\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:input:89",
@@ -16387,11 +16404,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"newVideo[m.id].name\" v-bind=\"NOFILL\" name=\"jz-nv-name\" placeholder=\"留空按子目录命名\" />"
+      "source_excerpt": "<input :disabled=\"!!busy\" v-model=\"newVideo[m.id].name\" v-bind=\"NOFILL\" name=\"jz-nv-name\" placeholder=\"留空按子目录命名\" />"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:input:91",
@@ -16426,11 +16444,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"newVideo[m.id].subpath\" v-bind=\"NOFILL\" name=\"jz-nv-sub\" placeholder=\"相对媒体库根目录，留空使用根目录\" />"
+      "source_excerpt": "<input :disabled=\"!!busy\" v-model=\"newVideo[m.id].subpath\" v-bind=\"NOFILL\" name=\"jz-nv-sub\" placeholder=\"相对媒体库根目录，留空使用根目录\" />"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:select:93",
@@ -16465,11 +16484,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<select v-model=\"newVideo[m.id].kind\">"
+      "source_excerpt": "<select :disabled=\"!!busy\" v-model=\"newVideo[m.id].kind\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:97",
@@ -16546,11 +16566,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"newVideo[m.id] = null\" type=\"button\">"
+      "source_excerpt": "<JzButton :disabled=\"!!busy\" @click=\"newVideo[m.id] = null\" type=\"button\">"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:99",
@@ -22569,7 +22590,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1534,
+            "line": 1535,
             "selector": ".player-video, .freeze-frame",
             "values": {
               "width": "100%",
@@ -22727,7 +22748,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1542,
+            "line": 1543,
             "selector": ".center-play",
             "values": {
               "width": "76px",
@@ -22737,7 +22758,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1603,
+            "line": 1604,
             "selector": ".center-play",
             "values": {
               "width": "60px",
@@ -23390,7 +23411,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1555,
+            "line": 1556,
             "selector": ".ctl-vol",
             "values": {
               "width": "68px",
@@ -23400,7 +23421,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1557,
+            "line": 1558,
             "selector": ".ctl-vol::-webkit-slider-thumb",
             "values": {
               "width": "10px",
@@ -23409,7 +23430,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1558,
+            "line": 1559,
             "selector": ".ctl-vol::-moz-range-thumb",
             "values": {
               "width": "10px",
@@ -23459,7 +23480,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1559,
+            "line": 1560,
             "selector": ".rate-btn",
             "values": {
               "height": "var(--jz-control-current)",
@@ -25519,6 +25540,123 @@
       "source_excerpt": "<AppIcon :name=\"source === 'custom' ? 'heart-filled' : 'star-filled'\" :size=\"12\" />"
     },
     {
+      "id": "frontend/src/components/SettingsLeaveDialog.vue:JzButton:6",
+      "source": "frontend/src/components/SettingsLeaveDialog.vue",
+      "line": 4,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "设置与引导",
+      "element": "JzButton",
+      "purpose": "继续编辑此项",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"item.edit && !busy\" type=\"button\" @click=\"edit(item)\">"
+    },
+    {
+      "id": "frontend/src/components/SettingsLeaveDialog.vue:JzButton:8",
+      "source": "frontend/src/components/SettingsLeaveDialog.vue",
+      "line": 6,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "设置与引导",
+      "element": "JzButton",
+      "purpose": "{{ busy ? '留在设置' : '继续编辑' }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton ref=\"stayButton\" type=\"button\" variant=\"primary\" @click=\"emit('stay')\">"
+    },
+    {
+      "id": "frontend/src/components/SettingsLeaveDialog.vue:JzButton:9",
+      "source": "frontend/src/components/SettingsLeaveDialog.vue",
+      "line": 7,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "设置与引导",
+      "element": "JzButton",
+      "purpose": "放弃修改并离开",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"!busy\" type=\"button\" variant=\"danger\" @click=\"emit('discard')\">"
+    },
+    {
       "id": "frontend/src/components/SetupLibraryStep.vue:select:6",
       "source": "frontend/src/components/SetupLibraryStep.vue",
       "line": 7,
@@ -26516,7 +26654,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/TmdbSettingsPanel.vue",
-            "line": 119,
+            "line": 131,
             "selector": ".token-help",
             "values": {
               "font-size": "var(--jz-font-s)"
@@ -40916,11 +41054,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input id=\"access-token\" v-model=\"authForm.token\" type=\"password\" minlength=\"8\" required placeholder=\"输入至少 8 位字符\" autocomplete=\"new-password\" />"
+      "source_excerpt": "<input id=\"access-token\" :disabled=\"busy === 'auth'\" v-model=\"authForm.token\" type=\"password\" minlength=\"8\" required placeholder=\"输入至少 8 位字符\" autocomplete=\"new-password\" />"
     },
     {
       "id": "frontend/src/views/Settings.vue:JzButton:175",

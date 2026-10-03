@@ -6,8 +6,11 @@
 .env
 data
 media
+output
+.playwright-cli
 frontend/dist
 docs/private
+docs/roadmap
 docs/.vitepress/dist
 docs/.vitepress/cache
 docs/.vitepress/.temp

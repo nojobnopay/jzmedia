@@ -32,6 +32,7 @@
 import AppIcon from './AppIcon.vue'
 
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useSettingsDraft } from '../settingsDrafts.js'
 import { useAiRequest } from '../useAiRequest.js'
 import { aiProviderPreset } from '../aiProviders.js'
 import JzButton from './JzButton.vue'
@@ -44,7 +45,7 @@ const armClear = ref(false)
 const configure = ref(false)
 const { busy, error, run } = useAiRequest()
 const preset = computed(() => aiProviderPreset(form.provider))
-const dirty = computed(() => !!apiKey.value || fields.some(key => form[key] !== settings.value?.[key]))
+const dirty = computed(() => !!settings.value && (!!apiKey.value || fields.some(key => form[key] !== settings.value[key])))
 const valid = computed(() => form.model.trim() && /^https?:\/\//i.test(form.base_url.trim()) && Number.isInteger(form.timeout_seconds) && form.timeout_seconds >= 2 && form.timeout_seconds <= 60 && Number.isInteger(form.daily_limit) && form.daily_limit >= 1 && form.daily_limit <= 10000)
 const sourceText = source => ({ db: '设置页', env: '服务器环境配置' }[source] || '')
 function selectProvider() {
@@ -52,12 +53,16 @@ function selectProvider() {
   message.value = ''
   armClear.value = false
 }
-function sync(value) {
+function sync(value, preserveDraft = false) {
+  for (const key of fields) {
+    if (!preserveDraft || form[key] === settings.value?.[key]) form[key] = value[key]
+  }
   settings.value = value
-  for (const key of fields) form[key] = value[key]
-  apiKey.value = ''
+  if (!preserveDraft) apiKey.value = ''
   armClear.value = false
 }
+useSettingsDraft({ section: 'sec-ai', label: '智能辅助配置', dirty: () => dirty.value,
+  busy: () => !!settings.value && busy.value, discard: () => { sync(settings.value); message.value = ''; error.value = '' } })
 async function load() {
   const value = await run('/api/ai/settings', undefined, 'GET')
   if (value) sync(value)
@@ -79,7 +84,7 @@ async function check() {
     // A failed connection test also consumes a request; refresh its counter without hiding the error.
     const failure = error.value
     const state = await run('/api/ai/settings', undefined, 'GET')
-    if (state) settings.value = state
+    if (state) sync(state, true)
     error.value = failure
   }
 }
@@ -87,7 +92,7 @@ async function clearKey() {
   if (!armClear.value) { armClear.value = true; return }
   message.value = ''
   const value = await run('/api/ai/settings', { clear_api_key: true }, 'PATCH')
-  if (value) { sync(value); message.value = value.api_key_source === 'env' ? '已移除设置页密钥，现使用服务器环境密钥' : '已移除设置页密钥' }
+  if (value) { sync(value, true); message.value = value.api_key_source === 'env' ? '已移除设置页密钥，现使用服务器环境密钥' : '已移除设置页密钥' }
 }
 onMounted(load)
 </script>

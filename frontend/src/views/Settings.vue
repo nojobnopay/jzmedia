@@ -100,7 +100,7 @@
               </li>
             </ol>
             <p class="hint">{{ chainSel.length ? chainOrderText : '至少选择一个来源。' }}</p>
-            <p v-if="chainDraftCount" class="hint" role="status">{{ chainDraftCount }} 个视频库有未保存修改。切换视频库保留草稿；离开设置页前请保存。</p>
+            <p v-if="chainDraftCount" class="hint" role="status">{{ chainDraftCount }} 个视频库有未保存修改。切换视频库保留草稿；离开此分区前会提示处理未保存修改。</p>
             <div class="bar"><JzButton class="primary" @click="saveChain" :disabled="savingChain || chainLibId == null || !chainSel.length" type="button" variant="primary" icon="match">{{ savingChain ? '保存中…' : '保存匹配规则' }}</JzButton><JzButton @click="chainSel = [...DEFAULT_CHAIN]" type="button" icon="undo">恢复默认选择</JzButton><JzButton v-if="chainDirty" @click="discardChain" type="button" icon="edit">放弃本库修改</JzButton></div>
             <p v-if="chainMsg" class="feedback" role="status">{{ chainMsg }}</p>
           </div>
@@ -133,16 +133,16 @@
 
       <section v-show="active === 'sec-auth'" id="sec-auth" class="card-block">
         <div class="section-heading"><h3>写操作保护</h3><span class="status-label">{{ s?.jzmedia_token_masked ? '已启用' : '未启用' }}</span></div>
-        <p class="hint">启用后，修改内容需要令牌；浏览、播放和媒体直链仍可直接访问。</p>
+        <p class="hint">启用后，修改内容、启动网页播放和保存进度需要令牌；浏览列表和媒体直链仍可直接访问。</p>
         <p v-if="s?.jzmedia_token_source === 'env'" class="hint">当前令牌由服务器配置提供。如需关闭保护，请在服务器移除 JZMEDIA_TOKEN；在此可保存新令牌替换。</p>
         <form class="settings-form" @submit.prevent="saveAuth()">
           <label for="access-token">{{ s?.jzmedia_token_masked ? '更换访问令牌' : '设置访问令牌' }}</label>
-          <input id="access-token" v-model="authForm.token" type="password" minlength="8" required placeholder="输入至少 8 位字符" autocomplete="new-password" />
+          <input id="access-token" :disabled="busy === 'auth'" v-model="authForm.token" type="password" minlength="8" required placeholder="输入至少 8 位字符" autocomplete="new-password" />
           <div class="bar"><JzButton class="primary" type="submit" :disabled="!!busy || !s || authForm.token.trim().length < 8" variant="primary">{{ busy === 'auth' ? '保存中…' : '保存并启用保护' }}</JzButton><JzButton v-if="s?.jzmedia_token_source === 'db'" type="button" @click="armDisableAuth = true" :disabled="!!busy" icon="delete">移除已保存令牌…</JzButton></div>
         </form>
         <div v-if="armDisableAuth" class="settings-notice" role="alert"><span>将移除此处保存的令牌。若服务器仍配置了令牌，将恢复使用；否则关闭保护，任何能访问服务的人都可以修改内容。</span><JzButton class="danger" @click="saveAuth(true)" :disabled="!!busy" type="button" variant="danger">确认移除令牌</JzButton><JzButton @click="armDisableAuth = false" :disabled="!!busy" type="button">取消</JzButton></div>
         <p v-if="authMsg" class="feedback" role="status">{{ authMsg }}</p>
-        <details class="settings-details"><summary>其他浏览器如何使用</summary><p class="hint">其他浏览器首次修改内容时会要求输入令牌，并在该浏览器中记住。此处保存新令牌后，当前浏览器会自动更新。</p></details>
+        <details class="settings-details"><summary>其他浏览器如何使用</summary><p class="hint">其他浏览器首次播放或修改内容时会要求输入令牌，并在该浏览器中记住。此处保存新令牌后，当前浏览器会自动更新。</p></details>
       </section>
 
       <section v-show="active === 'sec-display'" id="sec-display" class="card-block">
@@ -162,14 +162,18 @@
           :active="active === 'sec-libtools' || active === 'sec-files'" @changed="onToolsChanged" @add-library="go('sec-libraries')" @retry-libraries="loadLibraries(true)" />
       </div>
     </main>
+    <SettingsLeaveDialog v-if="draftGuard.pending.value" :busy="draftGuard.dialogBusy.value" :items="draftGuard.dialogItems.value"
+      @stay="draftGuard.stay" @discard="draftGuard.discardAndLeave" />
   </div>
 </template>
 <script setup>
 import AppIcon from '../components/AppIcon.vue'
 import JzButton from '../components/JzButton.vue'
+import SettingsLeaveDialog from '../components/SettingsLeaveDialog.vue'
+import { SETTINGS_DRAFTS, createSettingsDraftGuard } from '../settingsDrafts.js'
 
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, provide } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import TmdbSettingsPanel from '../components/TmdbSettingsPanel.vue'
 import AiSettingsPanel from '../components/AiSettingsPanel.vue'
 import LibrariesPanel from '../components/LibrariesPanel.vue'
@@ -186,6 +190,12 @@ import '../styles/settings.css'
 
 const route = useRoute()
 const router = useRouter()
+const draftGuard = createSettingsDraftGuard()
+provide(SETTINGS_DRAFTS, draftGuard)
+onBeforeRouteLeave(to => draftGuard.requestLeave(to))
+onBeforeRouteUpdate((to, from) => settingsTarget(to.query).page === settingsTarget(from.query).page
+  ? true : draftGuard.requestLeave(to, settingsTarget(from.query).page))
+const removeAfterEach = router.afterEach((to, _from, failure) => draftGuard.finishNavigation(to, failure))
 
 const s = ref(null)
 const stats = ref(null)
@@ -343,7 +353,7 @@ const libList = ref(listLibs())
 const currentId = ref(currentMediaId())
 const {
   libraryId: chainLibId, library: chainLibrary, selection: chainSel,
-  dirty: chainDirty, draftCount: chainDraftCount, message: chainMsg, orderText: chainOrderText,
+  dirty: chainDirty, dirtyLibraries: chainDirtyLibraries, discardAll: discardAllChains, draftCount: chainDraftCount, message: chainMsg, orderText: chainOrderText,
   saving: savingChain, testing: testingChain, query: chainQuery,
   testMessage: chainTestMsg, testResult: chainTestResult,
   toggle: toggleChain, move: moveChain, discard: discardChain, save: saveChain, testSearch: testChain,
@@ -379,6 +389,19 @@ const settingsScope = computed(() => {
   if (['sec-libtools', 'sec-files', 'sec-matching'].includes(active.value)) return '作用范围：下方选中的视频库'
   if (active.value === 'sec-status') return '统计范围：全部媒体库'
   return '作用范围：此服务的全部媒体库'
+})
+draftGuard.register({
+  section: 'sec-auth', label: '访问令牌', dirty: () => !!authForm.value.token,
+  busy: () => busy.value === 'auth',
+  discard: () => { authForm.value.token = ''; armDisableAuth.value = false; authMsg.value = '' },
+})
+draftGuard.register({
+  section: 'sec-matching', label: '视频库匹配规则', dirty: () => chainDraftCount.value > 0,
+  busy: () => savingChain.value, discard: discardAllChains,
+  items: () => chainDirtyLibraries.value.length ? chainDirtyLibraries.value.map(lib => ({
+    label: '匹配规则 · ' + libraryName(lib.id),
+    edit: () => { chainLibId.value = lib.id; document.getElementById('source-library')?.focus() },
+  })) : [{ label: '视频库匹配规则正在保存' }],
 })
 const visited = ref(new Set([active.value]))
 const ready = ref(false)
@@ -435,6 +458,7 @@ async function loadLibraries(force = false) {
 }
 onMounted(async () => {
   window.addEventListener('jzmedia:libraries-changed', onLibrariesLoaded)
+  window.addEventListener('beforeunload', draftGuard.beforeUnload)
   await Promise.all([
     loadSettings(),
     loadLibraries(),
@@ -443,6 +467,9 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   disposed = true
+  removeAfterEach()
+  draftGuard.dispose()
+  window.removeEventListener('beforeunload', draftGuard.beforeUnload)
   navigationGeneration++
   stopImportImdbTimer()
   window.removeEventListener('jzmedia:libraries-changed', onLibrariesLoaded)

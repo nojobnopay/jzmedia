@@ -54,6 +54,33 @@ test('save captures its original target and does not discard edits made while sa
   assert.deepEqual(state.selection.value, ['local', 'tmdb', 'wikidata'])
   assert.equal(state.dirty.value, true)
 })
+test('failed saves retain every library draft until an explicit discard', async t => {
+  const { state } = setup(t, async () => { throw new Error('offline') })
+  state.move(1, -1)
+  state.libraryId.value = 9
+  state.toggle('tmdb', false)
+  await state.save()
+  assert.equal(state.saving.value, false)
+  assert.match(state.message.value, /保存失败/)
+  assert.deepEqual(state.dirtyLibraries.value.map(lib => lib.id), [7, 9])
+  state.discardAll()
+  assert.equal(state.draftCount.value, 0)
+  assert.deepEqual(state.selection.value, ['tvmaze', 'tmdb'])
+  state.libraryId.value = 7
+  assert.deepEqual(state.selection.value, ['tmdb', 'local'])
+})
+test('successful save updates the current baseline even if a concurrent refresh replaced the library object', async t => {
+  const pending = deferred()
+  const { state, libraries } = setup(t, () => pending.promise, async () => { throw new Error('refresh offline') })
+  state.move(1, -1)
+  const save = state.save()
+  libraries.value = libraries.value.map(item => ({ ...item }))
+  pending.resolve({})
+  await save
+  assert.deepEqual(state.selection.value, ['local', 'tmdb'])
+  assert.equal(state.dirty.value, false)
+  assert.match(state.message.value, /列表刷新失败，规则已保存/)
+})
 test('matching tests use the selected movie or TV library; empty results are not successful matches', async t => {
   const requests = []
   const { state } = setup(t, async path => {

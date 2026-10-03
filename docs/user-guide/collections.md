@@ -1,6 +1,6 @@
 ---
 version: 0.19.0
-reviewed: 2026-10-02
+reviewed: 2026-10-03
 ---
 
 # 用合集、标签和已看状态管理电影
@@ -25,7 +25,7 @@ reviewed: 2026-10-02
 
 详情里的演员和导演点击后进入人物页，作品列表同样只显示当前媒体库：
 
-<DocFigure src="../assets/screenshots/person.webp" alt="人物页：执导作品列表" caption="人物页按“执导/参演”分区列出作品与评分，简介缺省时可在后台请求补全。" />
+<DocFigure src="../assets/screenshots/person.webp" alt="人物页：简介、参演与执导作品" caption="人物页按“执导/参演”分区列出作品与评分，简介缺省时可在后台请求补全。" />
 
 [手动匹配](metadata.md) · [整理归档](organizing.md)。
 

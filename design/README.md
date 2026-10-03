@@ -1,6 +1,6 @@
 # jzmedia 设计资产
 
-`design/` 是跨端设计的唯一可编辑来源。功能图标用 24×24 视框、1.7 描边、圆端点和连接，播放、评分和收藏的实心状态单独登记；颜色跟随所在控件。J 与播放标记延续仓库既有品牌，16px/32px 标记保留光学校正版。固定字标已转路径，不依赖浏览器或电视字体。
+`design/` 管理跨端设计的唯一母版与定义；`requirements.json`、`catalog.json` 和导出清单由生成器维护。功能图标用 24×24 视框、1.7 描边、圆端点和连接，播放、评分和收藏的实心状态单独登记；颜色跟随所在控件。J 与播放标记延续仓库既有品牌，16px/32px 标记保留光学校正版。固定字标已转路径，不依赖浏览器或电视字体。
 
 ## 维护入口
 
@@ -17,7 +17,7 @@
 
 Web 和手机网页共享 SVG，电视由同一母版生成 Compose `ImageVector`。1080p/4K 是显示环境，不能据此复制两份相同图形。`AppIcon` 的 `forward` 表示导航前进；`PlayerIcon` 的 `forward` 显式映射为 `skip-forward-10`，后退同理，数字已转路径。装饰图标不重复播报，按钮和链接提供名称；纯图标按钮必须设置 `aria-label`。正常文字、快捷键、屏幕键盘字母、媒体图片及字幕不属于业务图标。
 
-历史图标的外部来源未在原仓库记录：每项保留迁移路径和 Git 基线，不据此推断授权信息；本轮新绘路径单独标注。字标采用 DejaVu Sans Bold 的固定轮廓，许可证随母版保存在 `brand/DEJAVU-LICENSE.txt`。
+历史图标的外部来源未在原仓库记录：每项保留迁移路径和 Git 基线，不据此推断授权信息；新绘路径单独标注。字标采用 DejaVu Sans Bold 的固定轮廓，许可证随母版保存在 `brand/DEJAVU-LICENSE.txt`。
 
 ## 修改与生成
 
@@ -42,7 +42,7 @@ python -m venv /tmp/jzmedia-design-env
 
 `--check` 是只读检查，比较所有文本生成物、实际用途清单、跨端别名及 PNG/ICO 实际尺寸；默认通过哈希检查位图内容与母版同步。`--check --render-brand` 进一步重新渲染到内存逐字节比较。ICO 显式写入 16、32、48 三个真实图层，不从 32px 位图声明不存在的 48px 层。
 
-提交母版和生成物；禁止手工修改 `frontend/src/generated/`、Android `ui/generated/` 或导出的品牌资源。Web、帮助站、APK 的普通构建消费已提交产物，互不依赖。旧 `frontend/icon-src/render.py` 仅转发到统一生成器，不再存放独立母版。
+提交母版和生成物；禁止手工修改 `frontend/src/generated/`、Android `ui/generated/` 或导出的品牌资源。Web、帮助站、APK 的普通构建消费已提交产物，互不依赖。品牌资源统一使用 `scripts/build_design.py --render-brand` 维护。
 
 ## 验收与边界
 

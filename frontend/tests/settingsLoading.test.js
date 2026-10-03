@@ -34,7 +34,7 @@ async function mountSettings(t) {
   const requested = [], libraryLoads = [], focusCalls = []
   let libraries = [], currentMedia = null, toolProps, emitLibraryChange
   const route = Vue.reactive({ path: '/settings', query: { sec: 'sec-files', library: '7', media: '2' } })
-  const router = { push: async target => { route.query = target.query } }
+  const router = { afterEach: () => () => {}, push: async target => { route.query = target.query } }
   const blank = { setup: () => () => Vue.h('div') }
   const tools = {
     props: ['libs', 'currentMediaId', 'librariesReady', 'librariesError', 'active'],
@@ -54,7 +54,7 @@ async function mountSettings(t) {
   }
   const component = await loadSfc(new URL('../src/views/Settings.vue', import.meta.url), {
     vue: { ...Vue, vShow: {}, vModelCheckbox: {}, vModelSelect: {}, vModelText: {} },
-    'vue-router': { useRoute: () => route, useRouter: () => router },
+    'vue-router': { useRoute: () => route, useRouter: () => router, onBeforeRouteLeave() {}, onBeforeRouteUpdate() {} },
     '../api.js': { api: path => {
       requested.push(path)
       assert.ok(otherRequests.has(path), 'Unexpected settings request: ' + path)
@@ -107,6 +107,7 @@ async function mountSettings(t) {
       await flush()
       app.unmount()
       assert.equal(listeners.get('jzmedia:libraries-changed')?.size || 0, 0, 'Unmount removes the recovery listener')
+      assert.equal(listeners.get('beforeunload')?.size || 0, 0, 'Unmount removes the draft refresh guard')
     } finally { globalThis.window = previousWindow }
   })
   await flush()

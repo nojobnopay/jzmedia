@@ -1,13 +1,15 @@
 ---
 version: 0.19.0
-reviewed: 2026-10-02
+reviewed: 2026-10-03
 ---
 
 # 数据模型与迁移
 
 [开发者文档](README.md)
 
-数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。当前 `SCHEMA_VERSION=28`；启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
+数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。当前服务端/网页版本为 `0.19.0`，数据库 `SCHEMA_VERSION=30`；两种版本号不是一一对应。启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
+
+最近迁移为 v28 剧集目录归属及历史、v29 文件实际变更日志 `fs_changes`、v30 媒体探测帧率 `media_info.fps`。当前 ffprobe 缓存版本为 `PROBE_VERSION=4`，旧探测结果在播放时重新获取；新增字段不要求用户重新扫描整库。
 
 ## 主要实体
 
@@ -35,20 +37,24 @@ erDiagram
 | `tv_shows` / `tv_seasons` / `tv_episodes` | 剧、季、集镜像；分集含本地匹配/观看等字段，另有 `match_source`（归属来源）与 `binding_conflict`（归属冲突标记） |
 | `tv_directory_bindings` | 目录归属规则：主键 `(library_id, path)` → `(show_id, season, override_season)`；扫描与重扫沿用，整理/恢复同步改写路径 |
 | `extras` | 电影/剧集花絮，分别通过 `movie_id`/`show_id` 归属 |
-| `media_info` | 按 `(kind,item_id)` 缓存 ffprobe 结果与 `probe_ver` |
+| `media_info` | 按 `(kind,item_id)` 缓存 ffprobe 结果、帧率 `fps` 与 `probe_ver`，音轨 JSON 保存声道与采样率等信息 |
 | `playback_progress` | 按 `(kind,item_id)` 隔离电影、分集、花絮续播 |
 | `scan_state` | 文件大小/mtime/扫描状态，用于增量与整理后的路径同步 |
+| `fs_changes` | 按视频库记录已发生的文件变更；成功完整扫描只清除开始时水位以内的记录，期间新增变更保留 |
 | `tv_binding_history` | 归属变更的预览/执行快照与撤销状态机（`preview` → 已执行/已撤销），预览 token 15 分钟有效 |
 | `organize_moves` | 剧集整理逐步审计：批次、源/目标、文件或目录、撤销时间 |
 | `tmdb_cache`、`external_meta`、`match_index` | 已获取的来源详情和可离线检索索引 |
 | `persons`、`movie_person`、`collections`、`collection_members` | 演职员关联和媒体库级合集 |
-| `app_settings` | 数据库优先的运行配置及来源冷却状态 |
+| `app_settings` | 数据库优先的运行配置、来源冷却、新手配置状态和智能辅助配置 |
+| `ai_usage` | `app/ai/settings.py` 按需建表，按 UTC 日累计实际请求次数与上游报告的 token；不另增 schema 版本 |
 
 ## FTS 与字段所有权
 
 `movies_fts` 是 FTS5 索引，**没有 SQL trigger**。修改 `movies`、`persons`、`movie_person` 相关可检索字段后需调用 `store.resync_fts(movie_id)`；直接手写 SQL 若漏同步会使搜索与详情不一致。启动在迁移或检测到不一致时重建 FTS；设置页也提供手动重建。搜索对中文分词不足的场景可能走 LIKE 回退，大库要留意性能。
 
 `TMDB_FIELDS` 与 `LOCAL_FIELDS` 在 `store/_base.py` 分列，来源缓存和本地自有字段不能随意混写。`movies.title_auto` 标明标题能否被更可信来源自动覆盖；`added_at` 是首次入库时间，不应在重扫时刷新。`overview_override` 与观看/评分/标签是本地资料，刷新来源时须保护。
+
+电视客户端的片名拼音检索及演员作品查询分别位于 `store/tv_search.py`、`store/tv_actors.py`，读取现有电影/剧集/人物资料，不另建远程搜索服务，也不替代网页电影 FTS。`playback_progress` 的完成判定由 `app/playback_completion.py` 统一；剧集继续观看响应的 `id` 是剧 ID，实际分集 ID 位于 `progress.version_id`。
 
 ## 安全迁移步骤
 

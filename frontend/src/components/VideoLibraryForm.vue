@@ -13,6 +13,7 @@
 </template>
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import { useSettingsDraft } from '../settingsDrafts.js'
 import { api } from '../api.js'
 import JzButton from './JzButton.vue'
 const props = defineProps({ library: { type: Object, required: true }, disabled: Boolean })
@@ -20,9 +21,22 @@ const emit = defineEmits(['saved', 'cancel', 'busy'])
 const form = reactive({ name: '', subpath: '', kind: 'movie' })
 const busy = ref(false)
 const error = ref('')
+const baseline = ref('')
+useSettingsDraft({ section: 'sec-libraries', dirty: () => JSON.stringify(form) !== baseline.value,
+  busy: () => busy.value, items: () => [{ label: '视频库 · ' + (props.library.name || '新建视频库') }],
+  discard: () => { Object.assign(form, JSON.parse(baseline.value)); error.value = '' },
+})
 const hasContent = computed(() => (props.library.movie_count || 0) + (props.library.episode_count || 0) > 0)
+let targetKey = null
 watch(() => props.library, value => {
-  form.name = value.name || ''; form.subpath = value.subpath || ''; form.kind = value.kind || 'movie'
+  const key = value.id != null ? `id:${value.id}` : `new:${value.media_library_id}`
+  const previous = baseline.value ? JSON.parse(baseline.value) : {}
+  const next = { name: value.name || '', subpath: value.subpath || '', kind: value.kind || 'movie' }
+  for (const field of Object.keys(next)) {
+    if (key !== targetKey || form[field] === previous[field]) form[field] = next[field]
+  }
+  baseline.value = JSON.stringify(next)
+  targetKey = key
 }, { immediate: true })
 watch(busy, value => emit('busy', value), { flush: 'sync' })
 async function save() {
@@ -34,6 +48,7 @@ async function save() {
       method: id ? 'PATCH' : 'POST',
       body: JSON.stringify({ ...form, ...(id ? {} : { media_library_id: props.library.media_library_id }) }),
     })
+    baseline.value = JSON.stringify(form)
     emit('saved', result)
   } catch (e) { error.value = '保存失败：' + e.message }
   finally { busy.value = false }

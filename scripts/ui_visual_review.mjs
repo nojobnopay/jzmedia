@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { build } from '../frontend/node_modules/vite/dist/node/index.js'
 import vue from '../frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
-import { art, createFixture, fixtureVersion } from './fixtures/uiReviewData.mjs'
+import { createFixture, fixtureVersion } from './fixtures/uiReviewData.mjs'
 const root=fileURLToPath(new URL('../',import.meta.url)),args=process.argv.slice(2)
 let source=root,label='goal-after',demo=false,core=false,only='',captureDocsMode=false,beforeLabel='goal-before',galleryOnly=false
 for(let i=0;i<args.length;i++) { if(args[i]==='--source')source=path.resolve(args[++i]);else if(args[i]==='--label')label=args[++i];else if(args[i]==='--demo')demo=true;else if(args[i]==='--core')core=true;else if(args[i]==='--only')only=args[++i];else if(args[i]==='--capture-docs')captureDocsMode=true;else if(args[i]==='--before-label')beforeLabel=args[++i];else if(args[i]==='--gallery-only')galleryOnly=true;else throw new Error('Unknown argument '+args[i]) }
@@ -35,7 +35,28 @@ const coreScenes=[
   {name:'settings-maintenance',route:'/settings?sec=sec-index'},
   {name:'library-new',route:'/settings?sec=sec-libraries',action:async page=>{await page.getByRole('button',{name:'添加媒体库',exact:true}).click();await page.locator('.create-library-form').waitFor()}},
 ]
-const scenes=[...coreScenes,...(core?[]:[
+const tutorialScenes=[
+  {name:'movie-cast',route:'/m/101',capture:'.body-grid'},
+  {name:'movie-similar',route:'/m/101',capture:'.similar-block'},
+  {name:'movie-posters',route:'/m/101',overlay:true,action:async page=>{await page.locator('.poster.zoomable').click();await page.getByRole('button',{name:'换海报',exact:true}).click();await page.locator('.poster-cand').first().waitFor()}},
+  {name:'movie-multiselect',route:'/',overlay:true,action:async page=>{await page.locator('.sel-circle').nth(0).click();await page.locator('.sel-circle').nth(2).click();await page.getByRole('toolbar',{name:'多选操作'}).waitFor()}},
+  {name:'person',route:'/p/501'},
+  {name:'scan-review',route:'/settings?sec=sec-libtools&library=1',capture:'.settings-main'},
+  {name:'match-review',route:'/settings?sec=sec-libtools&library=2',capture:'.settings-main'},
+  {name:'rematch-candidates',route:'/m/101',capture:'.edit-panel',action:async page=>{await page.locator('.action-menu summary').first().click();await page.getByRole('button',{name:'重新匹配',exact:true}).click();await page.getByRole('button',{name:'搜索匹配',exact:true}).click();await page.locator('.edit-panel li').first().waitFor()}},
+  {name:'tv-bindings',height:1440,route:'/settings?sec=sec-libtools&library=2',overlay:true,action:async page=>{await page.getByRole('button',{name:'剧集归属与季号',exact:true}).click();await page.locator('.binding-directory').first().waitFor();await page.getByRole('combobox',{name:'库中已有目标剧集'}).selectOption('201');await page.locator('.binding-season-row').first().waitFor()}},
+  {name:'tv-bindings-preview',route:'/settings?sec=sec-libtools&library=2',overlay:true,action:async page=>{await page.getByRole('button',{name:'剧集归属与季号',exact:true}).click();await page.locator('.binding-directory').first().waitFor();await page.getByRole('combobox',{name:'库中已有目标剧集'}).selectOption('201');await page.getByRole('button',{name:'预览归属变更',exact:true}).click();await page.locator('.binding-preview').waitFor();await page.locator('.binding-preview').scrollIntoViewIfNeeded()}},
+  {name:'tv-episode-match',route:'/tv/201/s/1/e/403',capture:'.match.card-block',action:async page=>{await page.locator('.action-menu summary').first().click();await page.getByRole('button',{name:'修正集号匹配',exact:true}).click();await page.getByRole('button',{name:'查询该季',exact:true}).click();await page.locator('.mrow').first().waitFor()}},
+  {name:'tv-versions',route:'/tv/201/s/1'},
+  {name:'tv-extras',route:'/tv/201',capture:'.extras'},
+  {name:'tv-organize-panel',route:'/settings?sec=sec-tvorganize&library=2',capture:'#sec-tvorganize',action:async page=>{await page.getByRole('button',{name:'预览整理计划',exact:true}).click();await page.locator('.plan-card').waitFor();await page.locator('.plan-card .card-head').click()}},
+  {name:'tv-organize-preview',route:'/tv/201',overlay:true,action:async page=>{await page.locator('.action-menu summary').first().click();await page.getByRole('button',{name:'整理剧集目录',exact:true}).click();await page.locator('.organize-dialog .change-card').first().waitFor();await page.locator('.organize-dialog summary').filter({hasText:'查看文件示例'}).click()}},
+  {name:'organize-history',route:'/settings?sec=sec-tvorganize&library=2',capture:'.undo',action:async page=>{await page.locator('.undo summary').click();await page.getByRole('button',{name:'预览撤销',exact:true}).click();await page.getByText(/可还原 2 条/).waitFor()}},
+  {name:'restore-panel',route:'/settings?sec=sec-restore&library=1',capture:'#sec-restore'},
+  {name:'tv-maint',route:'/settings?sec=sec-libtools&library=2&tool=maintenance',capture:'.settings-main',action:async page=>{await page.getByRole('button',{name:'资料维护',exact:true}).click()}},
+  {name:'organize-preview',route:'/settings?sec=sec-organize&library=1',capture:'#sec-organize',action:async page=>{await page.locator('.plan-item').first().waitFor()}},
+].map(scene=>({...scene,viewports:[1440]}))
+const scenes=[...coreScenes,...(core?[]:[...tutorialScenes,
   ...[1,2,3,4].map(step=>({name:'setup-'+step,route:'/setup',step})),
   {name:'movie-filters',route:'/',overlay:true,action:async page=>{await page.getByRole('button',{name:/^全部筛选/}).click();await page.getByRole('dialog',{name:'全部筛选',exact:true}).waitFor()}},
   {name:'file-checkbox-selection',route:'/settings?sec=sec-files&library=1',action:async page=>{const row=page.locator('.fs-row').filter({hasText:'远山来信.mkv'});await row.locator('.fs-name').click();assert.equal(await row.locator('input').isChecked(),false);await page.getByRole('checkbox',{name:'选择 远山来信.mkv',exact:true}).check();await page.locator('.fs-row').filter({hasText:'最后一班夜航.mkv'}).locator('.fs-name').click();assert.equal(await page.locator('.fs-row.selected').count(),1);assert.equal(await page.locator('.fs-row.focused input').isChecked(),false)}},
@@ -107,6 +128,25 @@ async function captureDocs() {
     ['tv-season','season-detail',1440,'user-guide/watch-tv.md','季页分集、剧照和播放状态'],
     ['upload-movie','upload-dialog',1440,'user-guide/files.md','电影上传目标与固定底部操作'],
     ['upload-tv','tv-upload-dialog',1440,'user-guide/files.md','剧集散文件上传、所属剧与季号'],
+    ['movie-cast','movie-cast',1440,'user-guide/movie-versions.md','虚构电影的演职员头像墙与影片信息'],
+    ['movie-similar','movie-similar',1440,'user-guide/movie-versions.md','虚构库中类似推荐与本地海报'],
+    ['movie-posters','movie-posters',1440,'user-guide/movie-metadata.md','换海报候选：原创模拟海报与当前选择标记'],
+    ['movie-multiselect','movie-multiselect',1440,'user-guide/collections.md','电影海报多选与批量操作浮条'],
+    ['person','person',1440,'user-guide/collections.md','虚构人物简介、参演与执导作品'],
+    ['scan-review','scan-review',1440,'user-guide/metadata.md','选定电影视频库的入库流程，无待处理项目'],
+    ['match-review','match-review',1440,'user-guide/metadata.md','剧集库未匹配、待确认与集号待处理项目'],
+    ['rematch-candidates','rematch-candidates',1440,'user-guide/metadata.md','手动匹配候选列表；模拟标题、年份与来源，不实际绑定'],
+    ['tv-bindings','tv-bindings',1440,'user-guide/tv-bindings.md','目录归属三步：两个模拟目录、目标剧与逐目录季号'],
+    ['tv-bindings-preview','tv-bindings-preview',1440,'user-guide/tv-bindings.md','模拟同集多版本重叠预览与禁止直接保存的冲突提示'],
+    ['tv-episode-match','tv-episode-match',1440,'user-guide/tv-matching.md','分集资料匹配：季号查询及候选集名、日期'],
+    ['tv-versions','tv-versions',1440,'user-guide/watch-tv.md','同季 V1/V2 版本分组与版本筛选'],
+    ['tv-extras','tv-extras',1440,'user-guide/watch-tv.md','虚构幕后花絮与删减片段的独立播放入口'],
+    ['tv-organize-panel','tv-organize-panel',1440,'user-guide/tv-organizing.md','剧集批量整理预览、动作统计及文件名变更示例'],
+    ['tv-organize-dialog','tv-organize-preview',1440,'user-guide/tv-organizing.md','单剧整理对话框的变更与季分布；未执行文件操作'],
+    ['organize-history','organize-history',1440,'user-guide/tv-organizing.md','虚构整理批次、动作类型及撤销预览'],
+    ['restore-panel','restore-panel',1440,'user-guide/organizing.md','电影恢复原始位置候选与目标路径；未执行恢复'],
+    ['tv-maint','tv-maint',1440,'user-guide/settings.md','当前剧集视频库的资料维护与预览图生成入口'],
+    ['organize-preview','organize-preview',1440,'user-guide/organizing.md','电影就地整理预览、勾选范围与逐行动作；未执行移动'],
   ]
   for(const [name,scene,width,page,description] of samples){
     const result=results.find(r=>r.name===scene&&r.viewport.width===width)
@@ -114,7 +154,7 @@ async function captureDocs() {
     const file='screenshots/'+name+'.webp',destination=path.join(assets,file)
     execFileSync(ffmpeg,['-hide_banner','-loglevel','error','-y','-i',path.join(output,result.file),'-quality','86',destination])
     const bytes=await readFile(destination)
-    entries.push({file,page,scene:description,verified_at:new Date().toISOString().slice(0,10),app_version:appVersion,source_commit:sourceCommit,source_state:'当前工作区系统性 UI 改造；源代码哈希 '+source_sha256,source:'真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网',viewport:{...result.viewport,device_scale_factor:1},capture_mode:result.screenshot_mode,recording_script:'node scripts/ui_visual_review.mjs --capture-docs',fixtures:'scripts/fixtures/uiReviewData.mjs',fixture_sha256:createHash('sha256').update(await readFile(path.join(root,'scripts/fixtures/uiReviewData.mjs'))).digest('hex'),format:'WebP q86',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')})
+    entries.push({file,page,scene:description,verified_at:new Date().toISOString().slice(0,10),app_version:appVersion,source_commit:sourceCommit,source_state:'当前工作区文档素材核对；源代码哈希 '+source_sha256,source:'真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网',viewport:{...result.viewport,device_scale_factor:1},capture_mode:result.screenshot_mode,recording_script:'node scripts/ui_visual_review.mjs --capture-docs',fixtures:'scripts/fixtures/uiReviewData.mjs',fixture_sha256:createHash('sha256').update(await readFile(path.join(root,'scripts/fixtures/uiReviewData.mjs'))).digest('hex'),format:'WebP q86',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')})
     console.log('CAPTURE '+file)
   }
   const manifestFile=path.join(assets,'manifest.json'),manifest=JSON.parse(await readFile(manifestFile,'utf8'))
@@ -134,9 +174,8 @@ try {
     res.setHeader('Content-Security-Policy',"default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'")
     const url=new URL(req.url,'http://127.0.0.1'),key=url.pathname
     try{
-      if(key.startsWith('/posters/')||/\/backdrop$|\/still$/.test(key)){
-        const index=Number(key.match(/(?:-|episodes\/|movies\/)(\d+)/)?.[1]||0)
-        res.writeHead(200,{'Content-Type':'image/svg+xml'});res.end(art(index,/backdrop|still/.test(key),/person-/.test(key)));return
+      if(key.startsWith('/posters/')||/\/backdrop$|\/still$|\/poster-orig$/.test(key)){
+        res.writeHead(200,{'Content-Type':'image/svg+xml'});res.end(fixture.artwork(key));return
       }
       if(key.startsWith('/api/')){
         const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>65536)throw new Error('oversized mock input');chunks.push(chunk)}
@@ -148,7 +187,7 @@ try {
       let file
       if(/^\/assets\/[\w.-]+$/.test(key))file=path.join(dist,key)
       else if(/^\/(?:favicon[^/]*|logo\.svg|icon-512\.png|apple-touch-icon\.png)$/.test(key))file=path.join(dist,key)
-      else if(/^\/(?:settings|setup|collections|c\/\d+|m\/\d+|tv(?:\/\d+(?:\/s\/\d+(?:\/e\/\d+)?)?)?)?\/?$/.test(key))file=path.join(dist,'index.html')
+      else if(/^\/(?:settings|setup|collections|c\/\d+|m\/\d+|p\/\d+|tv(?:\/\d+(?:\/s\/\d+(?:\/e\/\d+)?)?)?)?\/?$/.test(key))file=path.join(dist,'index.html')
       else{res.writeHead(404);res.end('Only isolated UI routes are served');return}
       const content=await readFile(file);res.writeHead(200,{'Content-Type':{'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png'}[path.extname(file)]||'application/octet-stream'});res.end(content)
     }catch(error){console.error(error);if(!res.headersSent)res.writeHead(500);res.end('Isolated fixture failure')}
@@ -158,9 +197,10 @@ try {
   if(demo){console.log(`隔离 UI 演示（全部虚构数据与原创矢量素材）：${base}`);console.log('无 .env / 后端 / 数据库 / NAS；Ctrl+C 结束。');await new Promise(resolve=>{process.once('SIGTERM',resolve);process.once('SIGINT',resolve)})}
   else{
     browser=await chromium.launch({headless:true})
-    for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:375,height:812}]){
-      for(const scene of scenes.filter(scene=>!only||only.split(',').includes(scene.name))){
-        fixture.state.mode=scene.mode||'normal';fixture.state.failurePath=scene.apiPath||'/api/search';fixture.state.step=scene.step||1;fixture.state.unexpected=[]
+    for(const requestedViewport of [{width:1440,height:1000},{width:390,height:844},{width:375,height:812}]){
+      for(const scene of scenes.filter(scene=>(!scene.viewports||scene.viewports.includes(requestedViewport.width))&&(!only||only.split(',').includes(scene.name)))){
+        const viewport={...requestedViewport,height:scene.height||requestedViewport.height}
+        fixture.state.scene=scene.name;fixture.state.mode=scene.mode||'normal';fixture.state.failurePath=scene.apiPath||'/api/search';fixture.state.step=scene.step||1;fixture.state.unexpected=[]
         const context=await browser.newContext({viewport,serviceWorkers:'block',reducedMotion:'reduce'})
         await context.route('**/*',route=>{if(new URL(route.request().url()).origin!==base){external.push(route.request().url());return route.abort()}return route.continue()})
         const page=await context.newPage(),errors=[],failedRequests=[];page.setDefaultTimeout(8000)
@@ -172,6 +212,7 @@ try {
           await page.getByRole('navigation',{name:'主导航'}).waitFor()
           if(scene.mode==='loading')await page.waitForTimeout(180);else await page.waitForLoadState('networkidle')
           if(scene.action)await scene.action(page)
+          if(scene.capture){await page.locator(scene.capture).waitFor();await page.locator(scene.capture).scrollIntoViewIfNeeded();await page.waitForLoadState('networkidle')}
           if(scene.expect)assert.equal(await page.locator(scene.expect).count(),scene.count,scene.name+' must render the complete fixture')
           if(scene.step)await page.locator('.setup-steps [aria-current="step"]').filter({hasText:String(scene.step)}).waitFor()
           if(scene.mode==='loading')await page.getByText('正在加载影片',{exact:true}).waitFor()
@@ -189,11 +230,12 @@ try {
           if(scene.name==='movie-unmatched')metrics.posterFallback=await page.locator('.poster-empty').evaluate(element=>{const s=getComputedStyle(element);return {display:s.display,align:s.alignItems,justify:s.justifyContent,font:parseFloat(s.fontSize),iconWidth:element.querySelector('svg')?.getBoundingClientRect().width,label:element.querySelector('span')?.textContent}})
           if(scene.name.endsWith('-dialog'))metrics.dialog=await page.getByRole('dialog').last().evaluate(element=>{const r=element.getBoundingClientRect(),f=element.querySelector('.jz-dialog-footer')?.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,footerBottom:f?.bottom??null,scrollLocked:document.body.style.overflow==='hidden',focusInside:element.contains(document.activeElement),activeTag:document.activeElement?.tagName,activeText:document.activeElement?.textContent?.trim().slice(0,90)}})
           const file=`${scene.name}-${viewport.width}.png`
-          if(viewport.width!==375)await page.screenshot({path:path.join(output,file),fullPage:!scene.name.endsWith('-dialog')&&!scene.overlay,animations:'disabled'})
+          if(viewport.width!==375&&scene.capture)await page.locator(scene.capture).screenshot({path:path.join(output,file),animations:'disabled'})
+          else if(viewport.width!==375)await page.screenshot({path:path.join(output,file),fullPage:!scene.name.endsWith('-dialog')&&!scene.overlay,animations:'disabled'})
           const expectedError=scene.mode==='error'
           const actualErrors=expectedError?errors.filter(e=>!e.includes('503')):errors
           const actualFailures=failedRequests.filter(r=>!(expectedError&&r.status===503&&r.url===(scene.apiPath||'/api/search')))
-          const entry={name:scene.name,route:scene.route,viewport,file:viewport.width===375?null:file,screenshot_mode:scene.name.endsWith('-dialog')||scene.overlay?'viewport':'full-page',metrics,errors:actualErrors,failedRequests:actualFailures,unexpected:[...fixture.state.unexpected],expectedFailure:expectedError?failedRequests:[]}
+          const entry={name:scene.name,route:scene.route,viewport,file:viewport.width===375?null:file,screenshot_mode:scene.capture?'element':scene.name.endsWith('-dialog')||scene.overlay?'viewport':'full-page',metrics,errors:actualErrors,failedRequests:actualFailures,unexpected:[...fixture.state.unexpected],expectedFailure:expectedError?failedRequests:[]}
           if(scene.name==='movie-unmatched'&&!label.includes('before')){const f=metrics.posterFallback;assert.equal(f.display,'flex');assert.equal(f.align,'center');assert.equal(f.justify,'center');assert.ok(f.iconWidth>=24,'Missing-poster uses a legible shared asset');assert.ok(f.label?.trim(),'Missing-poster retains the media title')}
           if(scene.name.endsWith('-dialog')&&!label.includes('before')){
             assert.ok(metrics.dialog.x>=0&&metrics.dialog.y>=0&&metrics.dialog.right<=viewport.width+1&&metrics.dialog.bottom<=viewport.height+1,'Dialog fits viewport')

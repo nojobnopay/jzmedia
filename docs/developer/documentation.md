@@ -1,6 +1,6 @@
 ---
 version: 0.19.0
-reviewed: 2026-10-02
+reviewed: 2026-10-03
 ---
 
 # 文档制作与发布
@@ -9,7 +9,7 @@ reviewed: 2026-10-02
 
 ## 内容与导航
 
-普通用户先看 `docs/index.md` 与 `docs/user-guide/` 的任务页；安装、配置和备份位于 `docs/getting-started/`；技术约束位于 `docs/developer/`。计划保留在仓库 `docs/roadmap/`，私有记录保留在 `docs/private/`，两者均不发布。
+普通用户先看 `docs/index.md` 与 `docs/user-guide/` 的任务页；安装、配置和备份位于 `docs/getting-started/`；技术约束位于 `docs/developer/`。计划、完成状态与待验收事项保留在仓库 `docs/roadmap/`，私有记录保留在被 Git 忽略的 `docs/private/`，这两个目录均不发布。
 
 每个任务页围绕一个结果，按“目标 → 准备 → 操作步骤 → 完成后检查 → 常见问题 → 下一步”组织。参考表和总导航可按用途简化；关键动作、预期结果和文件影响必须写进正文，不能只出现在截图或视频里。首次配置由[首次入库](../user-guide/onboarding.md)单独维护，其他页面链接该教程。
 
@@ -31,13 +31,15 @@ reviewed: 2026-10-02
 
 目录 README 只提供入口；旧综合页只保留标题、旧锚点和任务链接，不再追加功能说明。纯导航和兼容页设置 `search: false`，让搜索结果直接定位正文。复用图片引用同一资源路径，不复制文件。
 
-删除重复段落前，先将独有信息并入对应正文，并核对旧锚点；删除页面前还需检查公开清单、应用帮助链接及仓库引用。只读限制、文件变更范围等与当前操作直接相关的短提示仍放在步骤旁。历史验收记录按当时事实保留，不跟随现行教程更新，也不进入公开站点。
+删除重复段落前，先将独有信息并入对应正文，并核对旧锚点；删除页面前还需检查公开清单、应用帮助链接及仓库引用。只读限制、文件变更范围等与当前操作直接相关的短提示仍放在步骤旁。
+
+一次性实施和测试总结写入提交或 PR 说明，不新增独立报告目录；`developer/` 保留持续维护的技术参考，素材来源和核对日期维护在素材清单。计划项在 `roadmap/` 中记录状态，标为已完成时附上实现与验证依据，未测范围继续明确列出。私有库路径、文件移动映射及本地操作报告继续保存在 `private/`，不能因未被引用或被 Git 忽略就当作废弃文件删除。
 
 每个公开页面包含以下元信息；`reviewed` 表示核对内容的日期，不能仅因构建成功就修改：
 
 ```yaml
 version: 0.19.0
-reviewed: 2026-10-02
+reviewed: 2026-10-03
 ```
 
 ## 图文与演示组件
@@ -75,19 +77,21 @@ reviewed: 2026-10-02
 .venv/bin/python scripts/preview_onboarding.py --port 18128 --docs-demo
 ```
 
-在另一个终端中，使用已安装 Playwright 和 Chromium 的 Python 环境，将命令中的目录替换为启动时打印的新临时目录：
+该拍摄器使用 Python Playwright，`docs/` 的 Node 依赖不能代替 Python 包。另开终端准备独立拍摄环境，将命令中的目录替换为启动时打印的新临时目录：
 
 ```bash
-python -m playwright install chromium
-python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
+python3 -m venv /tmp/jzmedia-docs-python
+/tmp/jzmedia-docs-python/bin/python -m pip install playwright==1.63.0
+/tmp/jzmedia-docs-python/bin/python -m playwright install chromium
+/tmp/jzmedia-docs-python/bin/python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
 .venv/bin/python scripts/capture_docs_diagrams.py
 ```
 
-拍摄脚本真实操作隔离实例，生成新手、字幕、整理三段视频及对应截图；从系统 PATH 或项目静态 FFmpeg 依赖中寻找 FFmpeg/ffprobe。需先安装前端依赖。完整重拍必须使用全新 `--docs-demo` 实例；`--only subtitles` 或 `--only organizing` 用于已经完成入库、尚未整理的演示重拍。
+拍摄脚本真实操作隔离实例，生成新手、字幕、整理三段视频及对应截图，并补拍播放信息和实际降档界面；从系统 PATH 或项目静态 FFmpeg 依赖中寻找 FFmpeg/ffprobe。`--docs-demo` 生成 180 秒的 1920×1080 H.264/AAC 合成视频，供真实软件转码到 720p；普通演示仍为 640×360、6 秒。需先安装前端依赖。完整重拍必须使用全新 `--docs-demo` 实例；`--only subtitles` 或 `--only organizing` 用于已经完成入库、尚未整理的演示重拍，`--only player` 只重拍已入库演示的播放信息与降档截图。
 
 脚本限制目标为 `/tmp/jzmedia-preview-*`，拒绝主服务端口，并校验视频编码、30–90 秒时长及 10 MB 大小上限。演示启动器复制已构建的帮助站供本地预览；尚未构建时，旧 `/preview/index.html` 展示构建命令和继续配置链接。原始 WebM 与运行校验文件留在拍摄器打印的 `/tmp/jzmedia-docs-capture-*`，不随仓库发布。
 
-仓库 `docs/assets/manifest.json` 保存素材关联信息、时长、体积与校验值，`docs/assets/README.md` 记录基线。拍摄成功后自动更新清单，也可单独运行 `scripts/capture_docs_manifest.py`。三段视频保留真实操作时长、无旁白，中文说明由 WebVTT 字幕提供。用户概念图由 `scripts/capture_docs_diagrams.py` 生成，图表源可维护，不依赖截图中的文字。
+仓库 `docs/assets/manifest.json` 保存素材关联信息、时长、体积与校验值，`docs/assets/README.md` 记录基线。拍摄成功后自动更新本次实际拍摄项，内容哈希相同的重新拍摄也会记录此次核对；仅单独运行 `scripts/capture_docs_manifest.py` 整理清单时，未变化素材保留原来源和日期。三段视频保留真实操作时长、无旁白，中文说明由 WebVTT 字幕提供。用户概念图由 `scripts/capture_docs_diagrams.py` 生成，图表源可维护，不依赖截图中的文字。
 
 ### 同数据的整页审查与教程截图
 
@@ -134,18 +138,22 @@ node scripts/smoke_ai_ui.mjs --capture-docs
 
 ## 构建与检查
 
-在项目根安装依赖并运行：
+在项目根安装依赖，先测试和构建，再检查生成产物：
 
 ```bash
 npm ci --prefix docs
-npm --prefix docs run dev
-npm --prefix docs run check
-npm --prefix docs run test
+python3 scripts/check_docs_links.py
+npm --prefix docs test
 npm --prefix docs run build
+npm --prefix docs run check
 npm --prefix docs run preview
 ```
 
-开发预览和发布产物只使用本地资源。构建产物位于 `docs/.vitepress/dist/`；主题与导航配置在 `docs/.vitepress/`。检查脚本和浏览器检查位于 `docs/scripts/`，已有仓库 Markdown 链接检查仍可辅助检查源文件。
+编辑期间可独立运行 `npm --prefix docs run dev`；`preview` 默认在 `http://127.0.0.1:4174/help/` 预览已构建产物。这两个命令持续运行，不应放在非交互检查流水线前面。
+
+开发预览和发布产物只使用本地资源。构建产物位于 `docs/.vitepress/dist/`；主题与导航配置在 `docs/.vitepress/`。`.vitepress/public-pages.mjs` 是公开页面与导航的单一来源，新增教程需登记到此清单；仓库 Markdown 检查默认排除依赖、产物、运行数据和私有记录。`docs/scripts/check.mjs` 另外检查最终 HTML 的资源/锚点、离线依赖、公开边界、SSR、CSP 和应用帮助入口，必须在 build 成功后执行。
+
+FastAPI 的 `app/help_site.py` 只挂载该构建目录；没有 `index.html` 返回 503，未知页面返回 404。构建生成 `csp-hashes.json`，仅帮助 HTML 的策略加入这些脚本哈希。Docker 复制帮助静态产物；宿主 `start.sh` 通过 `scripts/build_docs.py` 按输入内容摘要检测更新和删除，排除私有记录、路线图及历史报告。不能把整个 `docs/` 当静态目录发布。
 
 开发参考中的 Mermaid 保留在正文中。修改图定义后运行 `npm --prefix docs run diagrams` 生成并提交 `docs/.vitepress/diagrams/` 中的 SVG；首次生成需要安装 Playwright Chromium。普通文档构建只核验生成图存在，不需要浏览器和联网渲染。
 
@@ -164,6 +172,7 @@ npm --prefix docs run test:browser
 
 ```bash
 node scripts/smoke_settings_ui.mjs
+node scripts/smoke_settings_ui.mjs --drafts-only
 node scripts/smoke_settings_ui.mjs --capture-docs
 ```
 

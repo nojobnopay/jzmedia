@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -11,14 +12,14 @@ import { renderToString } from '@vue/server-renderer'
 import { docsRoot, isPublicPage, publicPages, walkFiles } from '../.vitepress/public-pages.mjs'
 import { tokenize, searchOptions } from '../.vitepress/search.mjs'
 import { collectScriptHashes, assertPublicOutput } from '../scripts/artifacts.mjs'
-import { checkAppHelpLinks, checkOutput } from '../scripts/check.mjs'
+import { checkAppHelpLinks, checkAssetManifest, checkOutput } from '../scripts/check.mjs'
 import { defaultDist } from '../scripts/server.mjs'
 
 test('publication is an explicit allowlist including compatibility pages', () => {
   assert.ok(isPublicPage('user-guide/movies.md'))
   assert.ok(isPublicPage('developer/architecture.md'))
   for (const file of ['private/secret.md', 'assets/README.md', 'roadmap/backlog.md',
-    'developer/ux-review-implementation.md', 'developer/new-private-report.md', 'user-guide/new-draft.md']) {
+    'developer/new-private-report.md', 'user-guide/new-draft.md']) {
     assert.equal(isPublicPage(file), false, file)
   }
 })
@@ -41,7 +42,7 @@ test('the built local index finds real user tasks and excludes unpublished sourc
   for (const query of ['添加电影', '字幕延迟', '没有声音', 'NAS']) assert.ok(index.search(query).length, query)
   const ids = Object.values(JSON.parse(json).documentIds)
   assert.ok(ids.length > 20)
-  assert.ok(ids.every(id => !/private|roadmap|ux-review|assets\/README/.test(id)))
+  assert.ok(ids.every(id => !/private|roadmap|assets\/README/.test(id)))
 })
 
 test('the build contains only public HTML and has exactly its final script hashes', () => {
@@ -75,6 +76,38 @@ test('HTML checking catches broken component assets, anchors, and external media
   assert.match(errors, /不存在锚点/)
   assert.match(errors, /离线文档依赖外部资源/)
   assert.match(errors, /视频缺少字幕轨/)
+})
+
+test('active tutorial assets require matching provenance records without inventing a new review date', t => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'jzmedia-doc-assets-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(path.join(root, 'user-guide'))
+  mkdirSync(path.join(root, 'assets'))
+  writeFileSync(path.join(root, 'user-guide/onboarding.md'), `<DocFigure src="../assets/still.webp" alt="截图" />
+<DocVideo src="../assets/demo.mp4" poster="../assets/still.webp" captions="../assets/demo.vtt" />
+<DocDiagram src="../assets/flow.svg" alt="概念图" />
+<DocDiagram src="/.vitepress/diagrams/generated.svg" alt="缓存图" />
+\`\`\`html
+<DocFigure src="../assets/example.webp" alt="代码示例" />
+\`\`\`
+`)
+  const names = ['still.webp', 'demo.mp4', 'demo.vtt', 'flow.svg']
+  const assets = names.map(file => {
+    const bytes = Buffer.from(file)
+    writeFileSync(path.join(root, 'assets', file), bytes)
+    return { file, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), verified_at: '2026-09-28' }
+  })
+  const save = entries => writeFileSync(path.join(root, 'assets/manifest.json'), JSON.stringify({ assets: entries }))
+  save(assets)
+  assert.deepEqual(checkAssetManifest(root), [])
+  save(assets.filter(entry => entry.file !== 'demo.vtt'))
+  assert.match(checkAssetManifest(root).join('\n'), /组件素材未登记 assets\/demo.vtt/)
+  save(assets)
+  writeFileSync(path.join(root, 'assets/still.webp'), 'still.WEBP') // Same length, different bytes.
+  assert.match(checkAssetManifest(root).join('\n'), /SHA-256 与清单不符 assets\/still.webp/)
+  writeFileSync(path.join(root, 'assets/still.webp'), 'still.webp')
+  save(assets.map(entry => entry.file === 'demo.mp4' ? { ...entry, bytes: 0 } : entry))
+  assert.match(checkAssetManifest(root).join('\n'), /字节数或 SHA-256 与清单不符 assets\/demo.mp4/)
 })
 
 test('figure, steps, and captioned video render usable content without a browser', async t => {

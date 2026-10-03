@@ -52,7 +52,9 @@ def test_short_episode_stays_in_recents_and_next_until_completion(completion_lib
     stats = store.show_season_stats(show)[0]
     assert stats["has_partial"] is True and stats["next_episode"] == 1
     rows = client.get("/api/tv/recent-played", params={"library": lib["id"]}).json()["items"]
-    assert first in [row["id"] for row in rows]
+    # Cards identify the show; the resumable episode is progress.version_id.
+    assert [row["id"] for row in rows] == [show]
+    assert first in [row["progress"]["version_id"] for row in rows]
 
     store.save_progress(first, 144, 180, kind="episode")
     assert store.next_episode(show)["id"] == second
@@ -60,7 +62,7 @@ def test_short_episode_stays_in_recents_and_next_until_completion(completion_lib
     stats = store.show_season_stats(show)[0]
     assert stats["has_partial"] is False and stats["next_episode"] == 2
     rows = client.get("/api/tv/recent-played", params={"library": lib["id"]}).json()["items"]
-    assert first not in [row["id"] for row in rows]
+    assert first not in [row["progress"]["version_id"] for row in rows]
 
 
 def test_short_movie_recents_use_the_same_rule(completion_library):

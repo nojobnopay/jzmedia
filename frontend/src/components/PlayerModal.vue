@@ -684,17 +684,18 @@ async function reload() {
   if (d.method === 'direct') {
     engine = 'direct'
     logEvt('engine:direct', '')
-    v.src = encodeURI(d.direct_url) + (startAt > 0 ? `#t=${Math.floor(startAt)}` : '')
+    // 服务端已编码路径和查询参数，再 encodeURI 会把中文路径中的 % 重复编码。
+    v.src = d.direct_url + (startAt > 0 ? `#t=${Math.floor(startAt)}` : '')
     tryPlay()
   } else {
-    // 渐进式会话：服务端前 3 分片就绪即回，首画面不等整片
+    // 渐进式会话：服务端按计划等待首批分片，首画面不等整片
     sessStatus.value = (d.method === 'remux' || d.method === 'audio_transcode')
       ? '正在换封装…' : '正在转码（前分片生成中，稍候即播）…'
     let s
     try {
       s = await api(`/api/stream/${props.versionId}/sessions`, {
         method: 'POST',
-        // 建会话要等前 3 分片（弱 CPU 转码慢），放宽到 300s，对齐服务端 deadline
+        // 建会话要等首批分片（弱 CPU 转码慢），放宽到 300s，对齐服务端 deadline
         timeout: 300000,
         signal: ctrl.signal,
         body: JSON.stringify({ quality: quality.value, audio: audioIdx.value,

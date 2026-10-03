@@ -1,6 +1,6 @@
 ---
 version: 0.19.0
-reviewed: 2026-10-02
+reviewed: 2026-10-03
 ---
 
 # 选择电影版本与相关文件
@@ -19,9 +19,11 @@ reviewed: 2026-10-02
 
 同片两版本例子：`阿凡达 (2009).mp4` 与 `阿凡达 (2009)-V2.mp4` 在详情显示为版本 1、版本 2；看完版本 1 的一半退出，断点只记在版本 1 上，版本 2 仍从头开始。播放时先选版本，选错版本续播位置不对是正常的，切回正确版本即可。
 
+“已看”标记按同片共享：手动标记或正常播放达到[完成阈值](playback-controls.md#完成后检查)时，同片各版本都会标为已看。各版本的断点仍独立；文件管理中的预览不保存断点，也不改变已看标记。
+
 <DocFigure src="../assets/screenshots/movie-detail.webp" alt="电影详情：背景、海报、播放入口与版本信息" caption="虚构影片详情：有断点时主按钮显示“继续观看”，下方选择版本并查看上次位置；“文件与版本”集中管理相关文件。" />
 
-<DocFigure src="../assets/screenshots/movie-cast.webp" alt="电影详情：演职员与影片信息" caption="详情下半：“演职员”头像墙可点进人物页，右侧“影片信息”汇总产地、语言与外部链接。" />
+<DocFigure src="../assets/screenshots/movie-cast.webp" alt="电影详情：演职员与影片信息" caption="详情下半：“演职员”头像墙可点进人物页，右侧“影片信息”汇总原标题、类型、产地、年份与外部链接。" />
 
 <DocFigure src="../assets/screenshots/movie-similar.webp" alt="库中类似推荐行" caption="“库中类似”按系列/影人/类型/标签从本地库挑选，点击海报直达对应详情；评分来自对应来源。" />
 

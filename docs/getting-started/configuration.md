@@ -1,6 +1,6 @@
 ---
 version: 0.19.0
-reviewed: 2026-10-02
+reviewed: 2026-10-03
 ---
 
 # 配置参考
@@ -11,7 +11,7 @@ reviewed: 2026-10-02
 
 ## 配置优先级
 
-TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：**数据库非空配置 → 环境变量 → 默认值**。保存立即生效；「恢复跟随 .env」清除数据库覆盖，并不一定清空最终有效值。设置页显示来源及脱敏凭据。
+TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：**数据库非空配置 → 环境变量 → 默认值**。保存立即生效；“恢复跟随 .env”清除数据库覆盖，并不一定清空最终有效值。设置页显示来源及脱敏凭据。智能辅助使用独立配置接口，也遵循数据库优先，Key 留空保留、明确清除后回退环境值。
 
 其他播放/存储调优变量通常从环境读取，不能假定都有设置页开关。
 
@@ -29,7 +29,7 @@ TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：
 | `TMDB_LANGUAGE` | `zh-CN` | 元数据语言 |
 | `TMDB_IMAGE_BASE` | `https://image.tmdb.org` | 图片源；设置页可改 |
 | `BUILD_HTTP_PROXY` | 空 | 仅镜像构建中的 pip/npm 代理；不等同于运行时代理或 Docker 拉取镜像代理 |
-| `JZMEDIA_TOKEN` | 空，写接口开放 | 非空时 API 写操作需令牌；GET 和直链仍开放 |
+| `JZMEDIA_TOKEN` | 空，写接口开放 | 非空时全部 API 写请求需令牌，包括网页播放决策、会话和进度；浏览、海报、媒体直链等 GET 仍开放 |
 | `LOG_LEVEL` | `INFO` | 应用日志；排障可短期用 DEBUG |
 | `SMB_DRIVER` | `auto` | 挂载可用用挂载，否则 SMB 直读；`direct` 强制直读，`mount` 强制挂载 |
 | `ALLOW_SMB_MOUNT` | `1` | `0` 禁止应用内挂载；SMB 直读无需挂载权限 |
@@ -49,11 +49,12 @@ TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：
 | `HLS_SEGMENT_TYPE` | `fmp4`；`ts` 为旧 MPEG-TS 回退路径 |
 | `AUDIO_COPY_SAFE` | 非原生 HLS 默认只允许 AAC/MP3 copy；不建议未测试就放开其他编码 |
 | `MIN_SEGS_COPY` / `MIN_SEGS_TRANSCODE` | `1` / `2`，起播所需视频分片数 |
+| `MAX_TRANSCODES` | `2`，范围 1–8；新 HLS 产物在初始化及整个 FFmpeg 生命周期占额，相同产物共享，满额的新请求返回 429 |
 | `FFMPEG_PROBESIZE` | `2097152` 字节，远程转码输入探测量 |
 | `FFMPEG_ANALYZEDURATION` | `1000000` 微秒，远程转码输入探测时长 |
 | `FFMPEG_RW_TIMEOUT_US` | `30000000` 微秒，远程输入读写超时 |
 | `TRANSCODE_CACHE_GB` | `10` GB；超限回收到约 90%，活跃目录受保护；0 只按 TTL 清理 |
-| `PREVIEW_CACHE_GB` | `2` GB；独立缩略图缓存限额，不按转码 24h TTL 清理 |
+| `PREVIEW_CACHE_GB` | `2` GB，最低 0.1 GB；独立缩略图缓存限额，不按转码 24h TTL 清理，0 不表示禁用 |
 | `PREVIEW_INTERVAL` | 未设置时本地 10 秒、远程 20 秒；有效范围 5～60 秒 |
 
 三个 `FFMPEG_*` 探测/超时变量可用 0 关闭限制，仅用于远程转码输入，不限制 ffprobe 元数据探测。缓存限额有活跃保护和扫描节流，可能暂时超过配置值。
@@ -71,6 +72,22 @@ group_add:
 ```
 
 在宿主用 `stat -c '%g' /dev/dri/renderD128` 等命令核对设备组号，在 `.env` 填相应的 `RENDER_GID`、`VIDEO_GID`，不要照抄另一台机器的数值。保持 `TRANSCODER=auto`，启动后在 `/api/stream/backends` 检查实际后端。识别不到时系统回落软件，指定后端也不能保证目标硬件编码一定成功。
+
+## 智能辅助
+
+以下变量也可在“设置 → 智能辅助”配置；普通扫描和搜索不会自动调用模型。完整请求与密钥保留规则见[智能辅助 API](../developer/api.md#智能辅助)。
+
+| 变量 | 默认/用途 |
+|---|---|
+| `AI_ENABLED` | `false`，显式启用后才允许业务建议 |
+| `AI_PROVIDER` | `deepseek`；可选 `opencode_go`、`compatible` |
+| `AI_BASE_URL` | `https://api.deepseek.com`，Chat Completions 基础地址；请求追加 `/chat/completions` |
+| `AI_MODEL` | `deepseek-flash`，须与服务商实际可用模型对应 |
+| `AI_API_KEY` | 空；仅服务端使用，设置读取只回显掩码；compatible 允许空 Key |
+| `AI_TIMEOUT_SECONDS` | `12`，范围 2–60 秒 |
+| `AI_DAILY_LIMIT` | `100`，范围 1–10000 次，按 UTC 日计数；失败和连接测试计次，缓存命中不计 |
+
+切换服务商要同步地址、模型和对应 Key；环境变量不会按服务商自动补齐预设。OpenCode Go 的应用配置固定使用 `https://opencode.ai/zen/go/v1`，界面示例为 `glm-5.3-flash`，项目尚未验证真实影视用途与模型效果。自定义服务地址在容器中必须可达，容器的 `localhost` 指容器自身。AI 客户端不继承 TMDB 或系统代理，数据库中的 Key 不以脱敏回显代表加密存储。
 
 ## 元数据与落盘
 

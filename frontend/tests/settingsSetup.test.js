@@ -23,7 +23,7 @@ test('settings initializes matching drafts and grouped navigation without setup 
   const blank = { setup: () => () => Vue.h('div') }
   const filename = new URL('../src/views/Settings.vue', import.meta.url)
   const component = await loadSfc(filename, {
-    'vue-router': { useRoute: () => ({ query: { sec: 'sec-matching', library: '7' } }), useRouter: () => ({}) },
+    'vue-router': { useRoute: () => ({ query: { sec: 'sec-matching', library: '7' } }), useRouter: () => ({ afterEach: () => () => {} }), onBeforeRouteLeave() {}, onBeforeRouteUpdate() {} },
     '../api.js': { api: () => { throw new Error('Rendering must not send API requests') }, setToken: () => {} },
     '../libraries.js': { currentMediaId: () => 2, listLibs: () => [
       { id: 7, name: '电影库', kind: 'movie', metadata_providers: '["tmdb","local"]' },

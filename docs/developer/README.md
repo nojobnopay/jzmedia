@@ -1,12 +1,12 @@
 ---
 version: 0.19.0
-reviewed: 2026-10-02
+reviewed: 2026-10-03
 search: false
 ---
 
 # 开发者文档
 
-面向要修改 jzmedia 的开发人员。文档以当前代码为事实源，解释模块边界、关键约束和验证方式；用户操作指南单列在[用户手册](../user-guide/README.md)，数据库版本与迁移见[数据模型](data.md)。
+面向要修改 jzmedia 的开发人员。文档以当前代码为事实源，解释模块边界、关键约束和验证方式；用户操作指南单列在[用户手册](../user-guide/README.md)，数据库版本与迁移见[数据模型](data.md)。当前服务端/网页为 `0.19.0`、schema 为 30；Android TV 是独立 Gradle 工程，构建与协议分别见仓库 `android-tv/README.md` 和 `android-tv/docs/protocol.md`。
 
 | 章节 | 内容 |
 |---|---|
@@ -21,4 +21,4 @@ search: false
 | [界面规范与验收](design-system.md) | 设计变量、共享控件、组件目录和隔离浏览器检查 |
 | [文档制作与发布](documentation.md) | 任务教程、媒体素材、站点构建与验证 |
 
-计划中的工作保留在仓库 `docs/roadmap/`，不进入帮助发布包，也不代表现有接口。贡献前检查仓库根目录 `AGENTS.md`。[返回文档导航](../README.md)。
+开发计划、完成状态与待验收事项保留在仓库 `docs/roadmap/`，不进入帮助发布包；现有接口以本目录参考为准。贡献前检查仓库根目录 `AGENTS.md`。[返回文档导航](../README.md)。
