@@ -13,8 +13,8 @@ android {
         minSdk = 23
         targetSdk = 36
         // Independent of the server/web version. Increment versionCode for each release.
-        versionCode = 7
-        versionName = "0.4.0-dev"
+        versionCode = 8
+        versionName = "0.5.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

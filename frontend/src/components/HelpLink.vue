@@ -1,17 +1,19 @@
 <template>
   <a class="help-link" :href="page ? `/help/${page}.html` : '/help/'" target="_blank" rel="noopener noreferrer"
-    :title="`${label}（在新标签页打开）`" @click.stop>{{ label }}<span class="help-new-tab" aria-hidden="true"> ↗</span><span class="help-sr">（在新标签页打开）</span></a>
+    :title="`${label}（在新标签页打开）`" @click.stop><AppIcon v-if="icon" :name="icon" /><span>{{ label }}<span class="help-new-tab" aria-hidden="true"> ↗</span></span><span class="help-sr">（在新标签页打开）</span></a>
 </template>
 
 <script setup>
+import AppIcon from './AppIcon.vue'
 defineProps({
   page: { type: String, default: '' },
-  label: { type: String, default: '图文帮助' }
+  label: { type: String, default: '图文帮助' },
+  icon: { type: String, default: '' }
 })
 </script>
 
 <style scoped>
-.help-link { color: #9acbff; font-size: .875rem; line-height: 1.7; text-underline-offset: 3px; }
+.help-link { color: var(--jz-help-color, #9acbff); font-size: var(--jz-help-font-size, .875rem); line-height: var(--jz-help-line-height, 1.7); text-underline-offset: 3px; }
 .help-link:hover { text-decoration: underline; }
 .help-link:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 2px; }
 .help-new-tab { font-size: .75em; }

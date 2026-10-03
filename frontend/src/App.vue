@@ -1,17 +1,32 @@
 <template>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
   <nav class="app-nav" aria-label="主导航">
-    <router-link to="/" class="brand"><img src="/favicon.svg" alt="jzmedia" width="26" height="26" /><span>jzmedia</span></router-link>
-    <router-link to="/">电影</router-link>
-    <router-link to="/tv">剧集</router-link>
-    <router-link to="/collections">合集</router-link>
-    <router-link to="/settings">设置</router-link>
-    <HelpLink label="帮助" />
-    <span class="nav-spacer"></span>
-    <select v-if="showSwitch" class="lib-switch" :value="currentId" title="切换媒体库" aria-label="切换媒体库"
-      @change="onSwitch">
-      <option v-for="m in libs" :key="m.id" :value="m.id">{{ optionLabel(m) }}</option>
-    </select>
+    <router-link :to="navTarget('/')" custom v-slot="{ href, navigate }">
+      <a :href="href" class="brand" aria-label="jzmedia 电影" @click="navigate"><img src="/favicon.svg" alt="" width="26" height="26" /><span>jzmedia</span></a>
+    </router-link>
+    <div class="nav-channels">
+      <router-link v-for="item in channels" :key="item.key" :to="navTarget(item.path)" custom v-slot="{ href, navigate }">
+        <a :href="href" class="nav-link" :class="{ 'is-current': activeSection === item.key }"
+          :aria-current="activeSection === item.key ? 'page' : undefined" @click="navigate">
+          <AppIcon :name="item.icon" /><span>{{ item.label }}</span>
+        </a>
+      </router-link>
+    </div>
+    <div class="nav-tools">
+      <router-link :to="navTarget('/settings')" custom v-slot="{ href, navigate }">
+        <a :href="href" class="nav-link" :class="{ 'is-current': activeSection === 'settings' }"
+          :aria-current="activeSection === 'settings' ? 'page' : undefined" @click="navigate">
+          <AppIcon name="settings" /><span>设置</span>
+        </a>
+      </router-link>
+      <HelpLink label="帮助" icon="help" class="nav-link" />
+      <label v-if="showSwitch" class="nav-library" title="切换媒体库">
+        <AppIcon name="library" />
+        <select class="lib-switch" :value="currentId" aria-label="切换媒体库" @change="onSwitch">
+          <option v-for="m in libs" :key="m.id" :value="m.id">{{ optionLabel(m) }}</option>
+        </select>
+      </label>
+    </div>
   </nav>
   <div id="main-content" class="app-content" tabindex="-1">
     <SetupWelcome v-if="route.path === '/' || route.path === '/tv'" />
@@ -36,6 +51,7 @@ import SetupWelcome from './components/SetupWelcome.vue'
 import BackToTop from './components/BackToTop.vue'
 import JzDialog from './components/JzDialog.vue'
 import JzButton from './components/JzButton.vue'
+import AppIcon from './components/AppIcon.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setToken, api } from './api.js'
@@ -48,6 +64,22 @@ const currentId = ref(null)   // 当前媒体库 id
 const router = useRouter()
 const route = useRoute()
 let offLibChange = null
+const channels = [
+  { key: 'movie', path: '/', label: '电影', icon: 'movie' },
+  { key: 'tv', path: '/tv', label: '剧集', icon: 'tv' },
+  { key: 'collections', path: '/collections', label: '合集', icon: 'collections' },
+]
+const activeSection = computed(() => {
+  const path = route.path
+  if (path === '/tv' || path.startsWith('/tv/')) return 'tv'
+  if (path === '/collections' || path.startsWith('/c/')) return 'collections'
+  if (path === '/settings' || path === '/setup') return 'settings'
+  if (path === '/' || path.startsWith('/m/') || path.startsWith('/p/')) return 'movie'
+  return ''
+})
+function navTarget(path) {
+  return currentId.value ? { path, query: { media: currentId.value } } : { path }
+}
 
 const showSwitch = computed(() => libs.value.length > 1)
 function optionLabel(m) {

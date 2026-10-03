@@ -556,10 +556,10 @@
       "file": "screenshots/movie-library.webp",
       "page": "user-guide/find-movies.md",
       "scene": "紧凑继续观看、完整虚构海报墙与独立排序",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -571,17 +571,17 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 92356,
-      "sha256": "88a10a8decb4f0d47677d5e6eb7ecab8fecf86dc68cf1e93055a4102035b3f5d"
+      "bytes": 93016,
+      "sha256": "5dfd600c11080a226cf176c1c4222c1317e30380756cdb329e8acfe0a50f7194"
     },
     {
       "file": "screenshots/movie-filters.webp",
       "page": "user-guide/find-movies.md",
       "scene": "展开的多维筛选与完整虚构电影资料",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -593,17 +593,17 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 103484,
-      "sha256": "26c90e0d82ea3a276fe0185ecf9c28f022806bdc7fdfed90f8d966c9fb7fffe2"
+      "bytes": 103190,
+      "sha256": "b9d29cddc0c6964a04d0f5f9314aeddb6065ff2ed190bbf2f1712a8c2a78307e"
     },
     {
       "file": "screenshots/mobile-library.webp",
       "page": "user-guide/find-movies.md",
       "scene": "390px 手机的搜索、继续观看、排序与三列海报墙",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 390,
@@ -615,17 +615,17 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 74334,
-      "sha256": "79c9023e6852b68341de11dd421fc29ecdfdc9754c7780862eae5f4b15f7a5cd"
+      "bytes": 74702,
+      "sha256": "667e5cf947d308b18b98f27e84a17cd5a6f60a6dbdb56e9d17ffa4565ecfe4e3"
     },
     {
       "file": "screenshots/collections.webp",
       "page": "user-guide/collections.md",
       "scene": "虚构合集详情及成员海报",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -637,17 +637,17 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 43982,
-      "sha256": "faa32f268f41be76d5dd75bbda01c0017940e62c813031ce64e65000ab21457f"
+      "bytes": 44756,
+      "sha256": "1d414cb10137382eb6b654b5d1d57c7624d5804651fefa811ebba3fe73e050f0"
     },
     {
       "file": "screenshots/library-connection.webp",
       "page": "user-guide/libraries.md",
       "scene": "媒体库连接及分组视频库条目",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -659,17 +659,17 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 43678,
-      "sha256": "5a2c3fc395c81850246ebbcf3f49ae4e0c5aa2398530ed5869d566be9dbb7140"
+      "bytes": 44360,
+      "sha256": "b29cbe438e938510cbd932d1fd77a5bbcbe508ffde74efe6457f419ee03751ef"
     },
     {
       "file": "screenshots/library-new.webp",
       "page": "user-guide/libraries.md",
       "scene": "按需展开的新建媒体库表单",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -681,17 +681,17 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 65142,
-      "sha256": "a5ac8e36d9e295eeb23a368dc247c64198e232f1e00e42cc24de90ce0afd6133"
+      "bytes": 65858,
+      "sha256": "079653f33b73fc371bbc4e4d3e31e68c1bc2b5a4a7a0282f232a775ab1e1058c"
     },
     {
       "file": "screenshots/settings-index.webp",
       "page": "user-guide/settings.md",
       "scene": "分开的索引修复与播放缓存维护",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -703,17 +703,17 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 31096,
-      "sha256": "ca45d6503a0cf0924eec0c952fc8bb207f61a824a18c9075aa6f3bf5275efe4a"
+      "bytes": 31784,
+      "sha256": "56dc141c8d4153a7c852e7b9a15d32fbfbd7bc867b4cc549c04dafbf6618a5e1"
     },
     {
       "file": "screenshots/movie-detail.webp",
       "page": "user-guide/movie-versions.md",
       "scene": "电影详情、播放版本与继续观看入口",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -725,17 +725,17 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 88576,
-      "sha256": "5867c4898f1ee0b9f4bc7463425b2b469045b7a01cfc4112edf47a9179d3b7ae"
+      "bytes": 89346,
+      "sha256": "6aaeb522ba616d73884a3c98889005021ecc5213c92e5e658b4d6ffd8b7ca959"
     },
     {
       "file": "screenshots/tv-show.webp",
       "page": "user-guide/watch-tv.md",
       "scene": "剧集详情与两季各八集的虚构数据",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -747,17 +747,17 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 74592,
-      "sha256": "b931387da997e2e3c13690e615e761d1005f62770636983ca6bf19e0e91324bc"
+      "bytes": 75462,
+      "sha256": "6b2b61460811be717ea0ba03fc03beeae438ab1b4b7d18acc12c1b3ba2090116"
     },
     {
       "file": "screenshots/tv-season.webp",
       "page": "user-guide/watch-tv.md",
       "scene": "季页分集、剧照和播放状态",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -769,17 +769,17 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 129780,
-      "sha256": "3b17187acf32c8cce17316664b19d884e9bf736fb43aef8b499159966bd73bbb"
+      "bytes": 130492,
+      "sha256": "aefc3c9646aeb55a01407a23d3a277c4c34128f5f1b0ee5c366980badebe879f"
     },
     {
       "file": "screenshots/upload-movie.webp",
       "page": "user-guide/files.md",
       "scene": "电影上传目标与固定底部操作",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -791,17 +791,17 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 40708,
-      "sha256": "14fcc04030992b4e3a66aab39b5db64fb59079d83eb268a153edd04769f0622b"
+      "bytes": 41122,
+      "sha256": "75eaa43915ea4a5c83079a8ea29ab01fb02bc351112cd677da0e1025e6fbf9c7"
     },
     {
       "file": "screenshots/upload-tv.webp",
       "page": "user-guide/files.md",
       "scene": "剧集散文件上传、所属剧与季号",
-      "verified_at": "2026-10-02",
+      "verified_at": "2026-10-03",
       "app_version": "0.19.0",
-      "source_commit": "a4e6d8c",
-      "source_state": "当前工作区系统性 UI 改造；源代码哈希 9b6eefb6f88e2a2f427725151ac81e14804b41467a1c9bb8951a2003aa1b46e9",
+      "source_commit": "57b9962",
+      "source_state": "当前工作区系统性 UI 改造；源代码哈希 f005d29a70deb0c6135523b21b54a0e6908e877af62098b058aa0d3735bb080c",
       "source": "真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网",
       "viewport": {
         "width": 1440,
@@ -813,8 +813,8 @@
       "fixtures": "scripts/fixtures/uiReviewData.mjs",
       "fixture_sha256": "fec27c03813ca2333e6e9b974c4fd634230f1d47037e6473ea623b1f9a53d413",
       "format": "WebP q86",
-      "bytes": 34084,
-      "sha256": "b6b2bba80e7519a9862df498e3a75339c88e406d6b919f336c44c22cb7672ca2"
+      "bytes": 34422,
+      "sha256": "2d3b526e2155c88e27fa0e9c0072e306a4e1722024afc991aa1b687c83e7e702"
     }
   ]
 }
