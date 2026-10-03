@@ -3,7 +3,7 @@
     <header class="setup-heading">
       <div><p class="eyebrow">新手配置<span v-if="state">第 {{ state.step }} / {{ SETUP_STEPS.length }} 步</span></p><h1>让第一部内容进入媒体库</h1><p class="setup-description">确认文件位置，扫描或上传。配置进度会自动保存。</p></div>
       <router-link v-if="state?.status === 'completed'" :to="wallLink">返回媒体库</router-link>
-      <button v-else @click="defer" :disabled="blocked || !state">稍后继续</button>
+      <JzButton v-else @click="defer" :disabled="blocked || !state" type="button">稍后继续</JzButton>
     </header>
     <ol class="setup-steps" aria-label="配置步骤">
       <li v-for="(label, index) in SETUP_STEPS" :key="label" :class="{ current: state?.step === index + 1, done: state?.step > index + 1 || state?.status === 'completed' }">
@@ -12,7 +12,7 @@
           @click="go(index + 1)"><span aria-hidden="true"><AppIcon v-if="state?.step > index + 1 || state?.status === 'completed'" name="check" :size="16" /><template v-else>{{ index + 1 }}</template></span>{{ label }}</button>
       </li>
     </ol>
-    <p v-if="loadError || error" class="setup-error" role="alert">{{ loadError || error }} <button @click="load" :disabled="blocked">重试加载</button></p>
+    <p v-if="loadError || error" class="setup-error" role="alert">{{ loadError || error }} <JzButton @click="load" :disabled="blocked" type="button" icon="refresh">重试加载</JzButton></p>
     <p v-if="loading" role="status">正在恢复配置进度…</p>
     <template v-else-if="state">
       <section v-if="state.step === 1" class="setup-card">
@@ -20,8 +20,8 @@
         <p v-if="state.tmdb_verified && tmdbReady" class="hint">当前配置已验证，可继续设置视频库。</p>
         <p v-if="state.tmdb_skipped" class="hint">已选择稍后配置 TMDB；本地资料和已启用的备用来源仍可使用。</p>
         <div class="setup-actions setup-next">
-          <button @click="skipTmdb" :disabled="blocked">稍后配置 TMDB</button>
-          <button class="primary" @click="nextSource" :disabled="blocked || !tmdbReady">下一步：设置视频库</button>
+          <JzButton @click="skipTmdb" :disabled="blocked" type="button">稍后配置 TMDB</JzButton>
+          <JzButton class="primary" @click="nextSource" :disabled="blocked || !tmdbReady" type="button" variant="primary">下一步：设置视频库</JzButton>
         </div>
       </section>
       <section v-else-if="state.step === 2" class="setup-card">
@@ -39,11 +39,11 @@
         <template v-if="state.import_mode === 'scan'">
           <p>扫描此视频库的已有文件，并尝试补全资料。首次可先放入一部电影或一集剧集，确认识别结果。</p>
           <p class="hint">扫描可能按库设置写入 NFO 或海报；不会自动执行目录整理。</p>
-          <div class="setup-actions"><button class="primary" @click="scan.start" :disabled="blocked || scan.blocked.value">扫描此视频库</button><button v-if="scan.running.value" @click="scan.cancel">取消扫描</button></div>
+          <div class="setup-actions"><JzButton class="primary" @click="scan.start" :disabled="blocked || scan.blocked.value" type="button" variant="primary" icon="scan">扫描此视频库</JzButton><JzButton v-if="scan.running.value" @click="scan.cancel" type="button">取消扫描</JzButton></div>
         </template>
         <template v-else>
           <p>{{ state.kind === 'tv' ? '选择包含剧名的完整文件夹；散集文件需指定所属剧和季号。' : '选择电影文件或包含影片、字幕的文件夹。' }}同名文件跳过，不会覆盖。</p>
-          <button class="primary" @click="uploadOpen = true" :disabled="blocked || !target || !state.upload_allowed || scan.blocked.value">选择并上传文件</button>
+          <JzButton class="primary" @click="uploadOpen = true" :disabled="blocked || !target || !state.upload_allowed || scan.blocked.value" type="button" variant="primary" icon="upload">选择并上传文件</JzButton>
           <p class="hint">上传期间请保持页面打开；刷新后需重新选择文件。</p>
         </template>
         <p role="status">{{ scan.message.value }}</p>
@@ -52,11 +52,11 @@
           <strong>此库已登记 {{ state.content.count }} {{ state.kind === 'tv' ? '个分集文件' : '个电影文件' }}</strong>
           <p v-if="!state.content.count">还没有可展示的内容。仅上传字幕、花絮或扫描到空目录不会完成本步骤。</p>
           <p v-else-if="state.content.pending">{{ state.content.pending }} 项资料或匹配待处理，入库结果中可继续核对。</p>
-          <button @click="refresh" :disabled="blocked">刷新入库结果</button>
+          <JzButton @click="refresh" :disabled="blocked" type="button" icon="refresh">刷新入库结果</JzButton>
         </div>
         <div class="setup-actions setup-next">
-          <button @click="defer" :disabled="blocked">稍后导入</button>
-          <button class="primary" @click="go(4)" :disabled="blocked || scan.running.value || !state.content.count">查看入库结果</button>
+          <JzButton @click="defer" :disabled="blocked" type="button">稍后导入</JzButton>
+          <JzButton class="primary" @click="go(4)" :disabled="blocked || scan.running.value || !state.content.count" type="button" variant="primary">查看入库结果</JzButton>
         </div>
       </section>
       <section v-else class="setup-card">
@@ -77,13 +77,13 @@
           <router-link :to="toolsLink">目录整理与库工具</router-link>
         </div>
         <div class="setup-actions setup-next">
-          <button v-if="state.status !== 'completed'" class="primary" @click="complete" :disabled="blocked || !state.can_complete">完成引导</button>
+          <JzButton v-if="state.status !== 'completed'" class="primary" @click="complete" :disabled="blocked || !state.can_complete" type="button" variant="primary">完成引导</JzButton>
           <router-link :to="wallLink">前往{{ state.kind === 'tv' ? '剧集' : '电影' }}库</router-link>
-          <button v-if="state.status === 'completed'" @click="addAnother" :disabled="blocked">继续添加另一视频库</button>
+          <JzButton v-if="state.status === 'completed'" @click="addAnother" :disabled="blocked" type="button" icon="plus">继续添加另一视频库</JzButton>
         </div>
       </section>
       <footer class="setup-actions">
-        <button v-if="state.step > 1 && state.status !== 'completed'" @click="go(state.step - 1)" :disabled="blocked || scan.running.value">上一步</button>
+        <JzButton v-if="state.step > 1 && state.status !== 'completed'" @click="go(state.step - 1)" :disabled="blocked || scan.running.value" type="button">上一步</JzButton>
         <span class="hint">稍后继续会保留已保存的配置。</span><HelpLink page="user-guide/onboarding" label="配置帮助" />
       </footer>
     </template>
@@ -93,6 +93,8 @@
   </main>
 </template>
 <script setup>
+import JzButton from '../components/JzButton.vue'
+
 import HelpLink from '../components/HelpLink.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'

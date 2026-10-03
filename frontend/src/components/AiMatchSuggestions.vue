@@ -1,6 +1,6 @@
 <template>
   <section class="ai-match" aria-label="AI 匹配建议">
-    <div class="bar"><button :disabled="busy || disabled" @click="suggest">{{ busy ? '正在分析候选…' : 'AI 匹配建议' }}</button><button v-if="busy" @click="reset">取消等待</button></div>
+    <div class="bar"><JzButton :disabled="busy || disabled" @click="suggest" type="button" icon="ai">{{ busy ? '正在分析候选…' : 'AI 匹配建议' }}</JzButton><JzButton v-if="busy" @click="reset" type="button">取消等待</JzButton></div>
     <p class="hint">点击后发送片名、文件名等必要线索，结合真实资料候选给出建议。请核对年份、标题与来源后确认绑定。</p>
     <p v-if="error" role="status">{{ error }} 可继续用上方搜索手动匹配。<router-link :to="{ path: '/settings', query: { sec: 'sec-ai' } }">配置智能辅助</router-link></p>
     <template v-if="result">
@@ -14,11 +14,11 @@
           <span class="hint"> · {{ c.source || 'TMDB' }}<template v-if="c.tmdb_id"> #{{ c.tmdb_id }}</template></span>
           <p v-if="c.original_title && c.original_title !== c.title" class="hint">{{ c.original_title }}</p>
           <p>{{ c.reason }}</p>
-          <button v-if="bindable(c)" :disabled="disabled" @click="selected = c">选择此候选</button>
+          <JzButton v-if="bindable(c)" :disabled="disabled" @click="selected = c" type="button">选择此候选</JzButton>
           <p v-else class="hint">{{ c.bind_reason || '仅索引线索，请手动搜索核对。' }}</p>
           <template v-if="selected === c">
             <p>确认将当前{{ kind === 'tv' ? '剧集' : '影片' }}绑定到「{{ c.title }}」？<span v-if="alreadyMatched">这会替换当前资料匹配。</span></p>
-            <button :disabled="disabled" @click="confirm">确认绑定此候选</button><button :disabled="disabled" @click="selected = null">取消</button>
+            <JzButton :disabled="disabled" @click="confirm" type="button">确认绑定此候选</JzButton><JzButton :disabled="disabled" @click="selected = null" type="button">取消</JzButton>
           </template>
         </li>
       </ul>
@@ -26,6 +26,8 @@
   </section>
 </template>
 <script setup>
+import JzButton from './JzButton.vue'
+
 import { ref, watch } from 'vue'
 import { useAiRequest } from '../useAiRequest.js'
 import { canBindAiCandidate as bindable } from '../aiMatch.js'

@@ -5,6 +5,8 @@ import { htmlPath, walkFiles } from '../.vitepress/public-pages.mjs'
 import { inlineScripts } from './html.mjs'
 
 export const compatibilityFiles = ['assets/previews/onboarding/index.html']
+// Explicit allowlist: the help export stays self-contained, without exposing docs/.
+export const designFiles = ['assets/design/favicon.svg']
 
 // VitePress 1.6 serializes custom search functions into its HTML metadata and
 // restores them with new Function. Publish data only; the theme imports the same
@@ -41,7 +43,7 @@ export function assertPublicOutput(root, pages) {
 }
 
 export function finishBuild(config) {
-  for (const file of compatibilityFiles) {
+  for (const file of [...compatibilityFiles, ...designFiles]) {
     const dest = path.join(config.outDir, file)
     mkdirSync(path.dirname(dest), { recursive: true })
     copyFileSync(path.join(config.srcDir, file), dest)

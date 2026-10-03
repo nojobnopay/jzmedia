@@ -1,0 +1,2159 @@
+{
+  "schema_version": 1,
+  "revision": 1,
+  "reviewed": "2026-10-03",
+  "language": {
+    "grid": [
+      24,
+      24
+    ],
+    "stroke_width": 1.7,
+    "stroke_linecap": "round",
+    "stroke_linejoin": "round",
+    "theme": "dark-cinema",
+    "provenance": "历史图标迁自仓库并记录Git基线，原外部来源未记录；本轮新增为自主几何绘制；逐资产source字段为准"
+  },
+  "aliases": {
+    "app": {
+      "back": "arrow-left",
+      "forward": "arrow-right",
+      "trash": "delete",
+      "external-link": "external",
+      "unlink": "disconnect",
+      "clear": "close",
+      "replay": "refresh",
+      "movies": "movie",
+      "shows": "tv",
+      "libraries": "library"
+    },
+    "player": {
+      "rewind": "skip-back-10",
+      "forward": "skip-forward-10",
+      "exitFullscreen": "exit-fullscreen",
+      "chevron": "chevron-right"
+    },
+    "tv": {
+      "rewind": "skip-back-10",
+      "forward10": "skip-forward-10",
+      "next": "skip-next",
+      "previous": "skip-previous"
+    }
+  },
+  "assets": [
+    {
+      "id": "ai",
+      "name": "智能辅助",
+      "category": "action",
+      "master": "design/icons/ai.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "arrow-down",
+      "name": "下移",
+      "category": "action",
+      "master": "design/icons/arrow-down.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "arrow-left",
+      "name": "返回",
+      "category": "action",
+      "master": "design/icons/arrow-left.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "arrow-right",
+      "name": "前进",
+      "category": "action",
+      "master": "design/icons/arrow-right.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "arrow-up",
+      "name": "上移",
+      "category": "action",
+      "master": "design/icons/arrow-up.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "audio",
+      "name": "音轨",
+      "category": "playback",
+      "master": "design/icons/audio.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "backspace",
+      "name": "退格",
+      "category": "action",
+      "master": "design/icons/backspace.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "check",
+      "name": "确认",
+      "category": "feedback",
+      "master": "design/icons/check.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "check-circle",
+      "name": "成功",
+      "category": "feedback",
+      "master": "design/icons/check-circle.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "chevron-down",
+      "name": "展开",
+      "category": "action",
+      "master": "design/icons/chevron-down.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "chevron-left",
+      "name": "上一级",
+      "category": "action",
+      "master": "design/icons/chevron-left.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "chevron-right",
+      "name": "下一级",
+      "category": "action",
+      "master": "design/icons/chevron-right.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "chevron-up",
+      "name": "收起",
+      "category": "action",
+      "master": "design/icons/chevron-up.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "clock",
+      "name": "时间",
+      "category": "action",
+      "master": "design/icons/clock.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "close",
+      "name": "关闭",
+      "category": "action",
+      "master": "design/icons/close.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "collections",
+      "name": "合集",
+      "category": "action",
+      "master": "design/icons/collections.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "copy",
+      "name": "复制",
+      "category": "action",
+      "master": "design/icons/copy.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "cut",
+      "name": "剪切",
+      "category": "action",
+      "master": "design/icons/cut.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "delete",
+      "name": "删除",
+      "category": "action",
+      "master": "design/icons/delete.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "disconnect",
+      "name": "断开连接",
+      "category": "action",
+      "master": "design/icons/disconnect.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "download",
+      "name": "下载",
+      "category": "action",
+      "master": "design/icons/download.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "edit",
+      "name": "编辑",
+      "category": "action",
+      "master": "design/icons/edit.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "error",
+      "name": "错误",
+      "category": "feedback",
+      "master": "design/icons/error.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "exit-fullscreen",
+      "name": "退出全屏",
+      "category": "playback",
+      "master": "design/icons/exit-fullscreen.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "external",
+      "name": "外部打开",
+      "category": "action",
+      "master": "design/icons/external.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "eye",
+      "name": "显示",
+      "category": "action",
+      "master": "design/icons/eye.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "eye-off",
+      "name": "隐藏",
+      "category": "action",
+      "master": "design/icons/eye-off.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "file",
+      "name": "文件",
+      "category": "action",
+      "master": "design/icons/file.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "filter",
+      "name": "筛选",
+      "category": "action",
+      "master": "design/icons/filter.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "folder",
+      "name": "文件夹",
+      "category": "action",
+      "master": "design/icons/folder.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "folder-open",
+      "name": "已打开文件夹",
+      "category": "action",
+      "master": "design/icons/folder-open.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "fullscreen",
+      "name": "全屏",
+      "category": "playback",
+      "master": "design/icons/fullscreen.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "grid",
+      "name": "网格",
+      "category": "action",
+      "master": "design/icons/grid.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "heart",
+      "name": "空心心形",
+      "category": "action",
+      "master": "design/icons/heart.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "heart-filled",
+      "name": "实心心形",
+      "category": "action",
+      "master": "design/icons/heart-filled.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "filled"
+    },
+    {
+      "id": "help",
+      "name": "帮助",
+      "category": "action",
+      "master": "design/icons/help.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "history",
+      "name": "历史记录",
+      "category": "action",
+      "master": "design/icons/history.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "home",
+      "name": "首页",
+      "category": "action",
+      "master": "design/icons/home.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "image",
+      "name": "图片或海报占位",
+      "category": "feedback",
+      "master": "design/icons/image.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "info",
+      "name": "信息",
+      "category": "feedback",
+      "master": "design/icons/info.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "keyboard",
+      "name": "屏幕键盘",
+      "category": "action",
+      "master": "design/icons/keyboard.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "library",
+      "name": "媒体库",
+      "category": "action",
+      "master": "design/icons/library.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "link",
+      "name": "连接",
+      "category": "action",
+      "master": "design/icons/link.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "list",
+      "name": "列表",
+      "category": "action",
+      "master": "design/icons/list.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "loading",
+      "name": "加载",
+      "category": "feedback",
+      "master": "design/icons/loading.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "lock",
+      "name": "锁定",
+      "category": "action",
+      "master": "design/icons/lock.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "logout",
+      "name": "退出连接",
+      "category": "action",
+      "master": "design/icons/logout.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "match",
+      "name": "匹配资料",
+      "category": "action",
+      "master": "design/icons/match.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "menu",
+      "name": "菜单",
+      "category": "action",
+      "master": "design/icons/menu.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "minus",
+      "name": "减少",
+      "category": "action",
+      "master": "design/icons/minus.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "more",
+      "name": "更多",
+      "category": "action",
+      "master": "design/icons/more.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "movie",
+      "name": "电影",
+      "category": "action",
+      "master": "design/icons/movie.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "mute",
+      "name": "静音",
+      "category": "playback",
+      "master": "design/icons/mute.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "organize",
+      "name": "整理",
+      "category": "action",
+      "master": "design/icons/organize.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "paste",
+      "name": "粘贴",
+      "category": "action",
+      "master": "design/icons/paste.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "pause",
+      "name": "暂停",
+      "category": "playback",
+      "master": "design/icons/pause.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "person",
+      "name": "人物占位",
+      "category": "feedback",
+      "master": "design/icons/person.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "pin",
+      "name": "固定",
+      "category": "action",
+      "master": "design/icons/pin.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "play",
+      "name": "播放",
+      "category": "playback",
+      "master": "design/icons/play.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "filled"
+    },
+    {
+      "id": "plus",
+      "name": "添加",
+      "category": "action",
+      "master": "design/icons/plus.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "quality",
+      "name": "画质",
+      "category": "playback",
+      "master": "design/icons/quality.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "refresh",
+      "name": "刷新",
+      "category": "action",
+      "master": "design/icons/refresh.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "save",
+      "name": "保存",
+      "category": "action",
+      "master": "design/icons/save.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "scan",
+      "name": "扫描",
+      "category": "action",
+      "master": "design/icons/scan.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "search",
+      "name": "搜索",
+      "category": "action",
+      "master": "design/icons/search.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "server",
+      "name": "服务器",
+      "category": "action",
+      "master": "design/icons/server.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "settings",
+      "name": "设置",
+      "category": "action",
+      "master": "design/icons/settings.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "skip-back-10",
+      "name": "后退十秒",
+      "category": "playback",
+      "master": "design/icons/skip-back-10.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "mixed"
+    },
+    {
+      "id": "skip-forward-10",
+      "name": "前进十秒",
+      "category": "playback",
+      "master": "design/icons/skip-forward-10.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "mixed"
+    },
+    {
+      "id": "skip-next",
+      "name": "下一集",
+      "category": "playback",
+      "master": "design/icons/skip-next.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "skip-previous",
+      "name": "上一集",
+      "category": "playback",
+      "master": "design/icons/skip-previous.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "sort-asc",
+      "name": "升序",
+      "category": "action",
+      "master": "design/icons/sort-asc.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "sort-desc",
+      "name": "降序",
+      "category": "action",
+      "master": "design/icons/sort-desc.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "speed",
+      "name": "播放速度",
+      "category": "playback",
+      "master": "design/icons/speed.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "star",
+      "name": "空心星形",
+      "category": "action",
+      "master": "design/icons/star.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "star-filled",
+      "name": "实心星形",
+      "category": "action",
+      "master": "design/icons/star-filled.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "filled"
+    },
+    {
+      "id": "stop",
+      "name": "停止",
+      "category": "playback",
+      "master": "design/icons/stop.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "filled"
+    },
+    {
+      "id": "subtitles",
+      "name": "字幕",
+      "category": "playback",
+      "master": "design/icons/subtitles.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "tv",
+      "name": "剧集",
+      "category": "action",
+      "master": "design/icons/tv.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "undo",
+      "name": "撤销",
+      "category": "action",
+      "master": "design/icons/undo.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "upload",
+      "name": "上传",
+      "category": "action",
+      "master": "design/icons/upload.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "volume",
+      "name": "音量",
+      "category": "playback",
+      "master": "design/icons/volume.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/PlayerIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "warning",
+      "name": "警告",
+      "category": "feedback",
+      "master": "design/icons/warning.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "迁自仓库 frontend/src/components/AppIcon.vue；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "brand-mark",
+      "name": "J 与播放标记",
+      "category": "brand",
+      "master": "design/brand/mark.svg",
+      "revision": 1,
+      "grid": [
+        64,
+        64
+      ],
+      "style": "filled",
+      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "theme": "固定品牌红/白/黄；字标适用深色背景",
+      "optical_variants": [
+        "brand-favicon-16",
+        "brand-favicon-32"
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "保留J+play母版；移除变换；固定字标转路径；集中管理"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null
+    },
+    {
+      "id": "brand-wordmark",
+      "name": "固定字标组合",
+      "category": "brand",
+      "master": "design/brand/wordmark.svg",
+      "revision": 1,
+      "grid": [
+        212,
+        64
+      ],
+      "style": "filled",
+      "source": "迁自仓库 frontend/icon-src/logo.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；字标由 DejaVu Sans Bold 转为固定轮廓，许可证见design/brand/DEJAVU-LICENSE.txt",
+      "theme": "固定品牌红/白/黄；字标适用深色背景",
+      "optical_variants": [],
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "保留J+play母版；移除变换；固定字标转路径；集中管理"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null
+    },
+    {
+      "id": "brand-favicon-16",
+      "name": "16px 光学标记",
+      "category": "brand",
+      "master": "design/brand/favicon-16.svg",
+      "revision": 1,
+      "grid": [
+        16,
+        16
+      ],
+      "style": "filled",
+      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "theme": "固定品牌红/白/黄；字标适用深色背景",
+      "optical_variants": [],
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "保留J+play母版；移除变换；固定字标转路径；集中管理"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null
+    },
+    {
+      "id": "brand-favicon-32",
+      "name": "32px 光学标记",
+      "category": "brand",
+      "master": "design/brand/favicon-32.svg",
+      "revision": 1,
+      "grid": [
+        32,
+        32
+      ],
+      "style": "filled",
+      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）",
+      "theme": "固定品牌红/白/黄；字标适用深色背景",
+      "optical_variants": [],
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "保留J+play母版；移除变换；固定字标转路径；集中管理"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null
+    },
+    {
+      "id": "tag",
+      "name": "标签",
+      "category": "action",
+      "master": "design/icons/tag.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-03 本轮依据jzmedia设计语言新绘路径；无第三方图标包依赖",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-03",
+          "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    }
+  ]
+}

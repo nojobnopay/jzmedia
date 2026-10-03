@@ -4,9 +4,9 @@
     <p class="hint">整理/搬迁后偏离首次入库位置的影片可搬回原处。勾选恢复；
       目标被占用或源文件缺失会跳过上报、绝不覆盖。</p>
     <div class="bar">
-      <button @click="doRestore(checkedAll(), 'all')" :disabled="!!busy || !checkedRestore.length">
+      <JzButton @click="doRestore(checkedAll(), 'all')" :disabled="!!busy || !checkedRestore.length" type="button" icon="undo">
         {{ busy === 'restore' ? '恢复中…' : (armRestore === 'all' ? `确认恢复全部 (${checkedRestore.length})` : `恢复全部选中 (${checkedRestore.length})`) }}
-      </button>
+      </JzButton>
       <span>{{ restoreMsg || selHint }}</span>
     </div>
     <p v-if="armRestore === 'all'" class="hint warn-text">再点一次执行恢复，无二次弹窗。目标被占用/源缺失的项会自动跳过。</p>
@@ -14,10 +14,10 @@
       <div class="lib-group-head">
         <b>{{ groupTitle(g) }}</b>
         <span class="fhint">{{ g.items.length }} 项</span>
-        <button @click="toggleRestore(g)">{{ groupAllChecked(g) ? '全不选本表' : '全选本表' }}</button>
-        <button @click="doRestore(groupChecked(g), g.key)" :disabled="!!busy || !groupChecked(g).length">
+        <JzButton @click="toggleRestore(g)" type="button">{{ groupAllChecked(g) ? '全不选本表' : '全选本表' }}</JzButton>
+        <JzButton @click="doRestore(groupChecked(g), g.key)" :disabled="!!busy || !groupChecked(g).length" type="button" icon="undo">
           {{ armRestore === g.key ? `确认恢复本表 (${groupChecked(g).length})` : `恢复本表选中 (${groupChecked(g).length})` }}
-        </button>
+        </JzButton>
       </div>
       <ul class="plan-list">
         <li v-for="p in seeMore(g)" :key="'r' + p.id" class="plan-row">
@@ -27,9 +27,9 @@
           <span v-if="p.status" :class="['plan-status', p.status === 'restored' ? 'ok' : 'fail']">{{ restoreStatusText(p.status) }}</span>
         </li>
         <li v-if="g.items.length > COLLAPSE_N" class="plan-row collapse-row">
-          <button @click="toggleExpand(restoreExpand, g.key)">
+          <JzButton @click="toggleExpand(restoreExpand, g.key)" type="button">
             {{ expanded(restoreExpand, g.key) ? '收起' : `展开全部 (${g.items.length})` }}
-          </button>
+          </JzButton>
         </li>
       </ul>
     </div>
@@ -41,6 +41,8 @@
   </section>
 </template>
 <script setup>
+import JzButton from './JzButton.vue'
+
 import { ref, computed, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { api } from '../api.js'
 import { groupByVideoLib, kindText } from '../libraryToolGroups.js'

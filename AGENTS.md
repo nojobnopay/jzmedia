@@ -50,6 +50,8 @@
 
 ## Conventions / constraints
 
+- 跨端设计资产（2026-10-03）：`design/` 管理SVG母版、品牌、主题语义令牌、资产定义和全量使用需求；`python3 scripts/build_design.py` 生成Web注册表/令牌、TV ImageVector/令牌及用途图鉴，`--check`验证引用与产物，品牌位图更新使用独立锁定依赖加`--render-brand`。禁止直接改生成物或在业务组件手写第二份SVG/字形图标。`AppIcon/PlayerIcon`共源但保留旧语义别名（导航forward≠快进10秒）；普通按钮用`JzButton`（icon/iconOnly、el/focus），专门控件通过清单登记。`ArtworkPlaceholder`保留缺图标题/姓名。`node scripts/smoke_design_system.mjs --demo`含可检索图鉴；需求记录区分CSS px/dp、矢量网格、触摸目标、位图分辨率和实际验证。手机播放器窄屏时间独立成行、倍速从设置可达、六个主控保留44px。`start.sh`通过`scripts/build_frontend.py`按内容摘要检测源码/public/入口/配置/锁文件及删除。详见设计源README及界面规范。
+
 - Web 筛选（2026-10-03）：电影/剧集墙共用 `BrowseFilters` 快捷面板和全部筛选抽屉，`BrowseFilterSummary` 显示可移除的已选条件；面板草稿在“应用筛选”时才生效，关闭/Escape 丢弃，重置只改草稿。手机全部筛选为全屏。`browseFilters.js` 统一规范化/计数/标签，国家选择清除大区，年份与年代取交集；选项计数为本库总量，不是组合结果预估。媒体库/路由变化丢弃草稿，facets 请求代际防旧库回包；返回详情恢复列表位置，不恢复打开的面板。回归 `browseFilters.test.js` / `browseFilterPages.test.js`、隔离浏览器 `scripts/smoke_browse_filters.mjs`；说明 `docs/user-guide/find-movies.md`。
 
 - UI 设计系统（2026-10-02）：`styles/tokens.css` 定义语义变量，`styles/base.css` 承载原 App 全局基础样式；通用控件 `JzButton/JzField/JzDialog/AppIcon`，浏览页 `BrowseToolbar/BrowseResultsHeader/EmptyState`。弹窗 Teleport 后主按钮仍独立生效，焦点陷阱按最上层处理；复杂播放器/文件预览保留专门生命周期。项目 skill `.agents/skills/jzmedia-ui/SKILL.md` 与 `docs/developer/design-system.md` 说明使用边界；`node scripts/smoke_design_system.mjs [--demo|--capture]` 为隔离组件目录及浏览器检查，不接真实 API/媒体，输出 `output/playwright/` 不提交。

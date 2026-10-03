@@ -1,9 +1,9 @@
 <template>
   <section class="ai-panel" aria-label="智能搜索">
-    <div class="ai-heading"><h3>智能搜索</h3><button @click="$emit('close')">收起</button></div>
+    <div class="ai-heading"><h3>智能搜索</h3><JzButton @click="$emit('close')" type="button">收起</JzButton></div>
     <p class="hint">描述想看的内容，解析后核对筛选条件。仅点击“解析条件”时调用模型；结果仍来自当前媒体库。</p>
     <label>想看什么<textarea v-model="term" rows="2" maxlength="500" placeholder="例如：没看过的、90 年代香港喜剧，TMDB 7 分以上" /></label>
-    <div class="bar"><button :disabled="busy || !term.trim()" @click="parse">{{ busy ? '正在解析…' : '解析条件' }}</button><button v-if="busy" @click="reset">取消等待</button><router-link :to="{ path: '/settings', query: { sec: 'sec-ai' } }">配置智能辅助</router-link></div>
+    <div class="bar"><JzButton icon="ai" :disabled="busy || !term.trim()" @click="parse" type="button">{{ busy ? '正在解析…' : '解析条件' }}</JzButton><JzButton v-if="busy" @click="reset" type="button">取消等待</JzButton><router-link :to="{ path: '/settings', query: { sec: 'sec-ai' } }">配置智能辅助</router-link></div>
     <p v-if="error" role="status">{{ error }} 普通搜索仍可使用。</p>
     <div v-if="result && draft">
       <p>{{ result.summary }}</p>
@@ -22,11 +22,13 @@
       <p v-if="draft.country.trim() && draft.region.trim()" class="hint">已指定国家／地区，应用时以国家／地区为准并清除产地大区条件；如需按大区筛选，请先清空国家／地区。</p>
       <p v-if="draft.q.trim() && kind === 'movie'" class="hint">含关键词时，电影结果按搜索相关度排序。</p>
       <p v-if="validationError" role="status">{{ validationError }}</p>
-      <button class="primary" :disabled="!!validationError" @click="apply">确认应用条件</button>
+      <JzButton class="primary" :disabled="!!validationError" @click="apply" type="button" variant="primary">确认应用条件</JzButton>
     </div>
   </section>
 </template>
 <script setup>
+import JzButton from './JzButton.vue'
+
 import { computed, ref, watch } from 'vue'
 import { useAiRequest } from '../useAiRequest.js'
 import { AI_FILTER_FIELDS, aiFilterDraft, aiFilterError, aiFiltersToWall } from '../aiSearch.js'

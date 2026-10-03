@@ -1,0 +1,768 @@
+{
+  "schema_version": 1,
+  "exports": [
+    {
+      "path": "frontend/public/favicon.svg",
+      "asset": "brand-mark",
+      "format": "svg",
+      "dimensions": [
+        64,
+        64
+      ],
+      "units": "viewBox",
+      "density": "vector",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-mark"
+      ],
+      "source_revisions": {
+        "brand-mark": 1
+      }
+    },
+    {
+      "path": "frontend/public/logo.svg",
+      "asset": "brand-wordmark",
+      "format": "svg",
+      "dimensions": [
+        212,
+        64
+      ],
+      "units": "viewBox",
+      "density": "vector",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-wordmark"
+      ],
+      "source_revisions": {
+        "brand-wordmark": 1
+      }
+    },
+    {
+      "path": "frontend/public/favicon-16x16.png",
+      "asset": "brand-favicon-16",
+      "format": "png",
+      "dimensions": [
+        16,
+        16
+      ],
+      "units": "px",
+      "density": "1x",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-favicon-16"
+      ],
+      "source_revisions": {
+        "brand-favicon-16": 1
+      }
+    },
+    {
+      "path": "frontend/public/favicon-32x32.png",
+      "asset": "brand-favicon-32",
+      "format": "png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "units": "px",
+      "density": "1x",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-favicon-32"
+      ],
+      "source_revisions": {
+        "brand-favicon-32": 1
+      }
+    },
+    {
+      "path": "frontend/public/favicon-48x48.png",
+      "asset": "brand-mark",
+      "format": "png",
+      "dimensions": [
+        48,
+        48
+      ],
+      "units": "px",
+      "density": "1x",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-mark"
+      ],
+      "source_revisions": {
+        "brand-mark": 1
+      }
+    },
+    {
+      "path": "frontend/public/favicon.ico",
+      "asset": "brand-mark",
+      "format": "ico",
+      "dimensions": [
+        [
+          16,
+          16
+        ],
+        [
+          32,
+          32
+        ],
+        [
+          48,
+          48
+        ]
+      ],
+      "units": "px",
+      "density": "multi-size",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-favicon-16",
+        "brand-favicon-32",
+        "brand-mark"
+      ],
+      "source_revisions": {
+        "brand-favicon-16": 1,
+        "brand-favicon-32": 1,
+        "brand-mark": 1
+      }
+    },
+    {
+      "path": "docs/assets/design/favicon.svg",
+      "asset": "brand-mark",
+      "format": "svg",
+      "dimensions": [
+        64,
+        64
+      ],
+      "units": "viewBox",
+      "density": "vector",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-mark"
+      ],
+      "source_revisions": {
+        "brand-mark": 1
+      }
+    },
+    {
+      "path": "docs/assets/design/logo.svg",
+      "asset": "brand-wordmark",
+      "format": "svg",
+      "dimensions": [
+        212,
+        64
+      ],
+      "units": "viewBox",
+      "density": "vector",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-wordmark"
+      ],
+      "source_revisions": {
+        "brand-wordmark": 1
+      }
+    },
+    {
+      "path": "docs/assets/design/favicon-16x16.png",
+      "asset": "brand-favicon-16",
+      "format": "png",
+      "dimensions": [
+        16,
+        16
+      ],
+      "units": "px",
+      "density": "1x",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-favicon-16"
+      ],
+      "source_revisions": {
+        "brand-favicon-16": 1
+      }
+    },
+    {
+      "path": "docs/assets/design/favicon-32x32.png",
+      "asset": "brand-favicon-32",
+      "format": "png",
+      "dimensions": [
+        32,
+        32
+      ],
+      "units": "px",
+      "density": "1x",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-favicon-32"
+      ],
+      "source_revisions": {
+        "brand-favicon-32": 1
+      }
+    },
+    {
+      "path": "docs/assets/design/favicon-48x48.png",
+      "asset": "brand-mark",
+      "format": "png",
+      "dimensions": [
+        48,
+        48
+      ],
+      "units": "px",
+      "density": "1x",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-mark"
+      ],
+      "source_revisions": {
+        "brand-mark": 1
+      }
+    },
+    {
+      "path": "docs/assets/design/favicon.ico",
+      "asset": "brand-mark",
+      "format": "ico",
+      "dimensions": [
+        [
+          16,
+          16
+        ],
+        [
+          32,
+          32
+        ],
+        [
+          48,
+          48
+        ]
+      ],
+      "units": "px",
+      "density": "multi-size",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-favicon-16",
+        "brand-favicon-32",
+        "brand-mark"
+      ],
+      "source_revisions": {
+        "brand-favicon-16": 1,
+        "brand-favicon-32": 1,
+        "brand-mark": 1
+      }
+    },
+    {
+      "path": "frontend/public/apple-touch-icon.png",
+      "asset": "brand-mark",
+      "format": "png",
+      "dimensions": [
+        180,
+        180
+      ],
+      "units": "px",
+      "density": "1x",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-mark"
+      ],
+      "source_revisions": {
+        "brand-mark": 1
+      }
+    },
+    {
+      "path": "frontend/public/icon-512.png",
+      "asset": "brand-mark",
+      "format": "png",
+      "dimensions": [
+        512,
+        512
+      ],
+      "units": "px",
+      "density": "1x",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-mark"
+      ],
+      "source_revisions": {
+        "brand-mark": 1
+      }
+    },
+    {
+      "path": "android-tv/app/src/main/res/drawable/ic_launcher.xml",
+      "asset": "brand-mark",
+      "format": "android-vector",
+      "dimensions": [
+        64,
+        64
+      ],
+      "units": "viewBox",
+      "density": "vector",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-mark"
+      ],
+      "source_revisions": {
+        "brand-mark": 1
+      }
+    },
+    {
+      "path": "android-tv/app/src/main/res/drawable/jz_wordmark.xml",
+      "asset": "brand-wordmark",
+      "format": "android-vector",
+      "dimensions": [
+        212,
+        64
+      ],
+      "units": "viewBox",
+      "density": "vector",
+      "transparent": true,
+      "safe_area": "保留母版内边距",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-wordmark"
+      ],
+      "source_revisions": {
+        "brand-wordmark": 1
+      },
+      "default_dp": [
+        106,
+        32
+      ]
+    },
+    {
+      "path": "android-tv/app/src/main/res/drawable-xhdpi/tv_banner.png",
+      "asset": "brand-wordmark",
+      "format": "png",
+      "dimensions": [
+        320,
+        180
+      ],
+      "units": "px",
+      "density": "xhdpi (160×90dp)",
+      "transparent": false,
+      "safe_area": "居中组合宽240px，四周至少40px",
+      "generator_version": 1,
+      "master_revision": 1,
+      "source_assets": [
+        "brand-wordmark"
+      ],
+      "source_revisions": {
+        "brand-wordmark": 1
+      }
+    },
+    {
+      "path": "frontend/src/generated/design-icons.js",
+      "assets": [
+        "ai",
+        "arrow-down",
+        "arrow-left",
+        "arrow-right",
+        "arrow-up",
+        "audio",
+        "backspace",
+        "check",
+        "check-circle",
+        "chevron-down",
+        "chevron-left",
+        "chevron-right",
+        "chevron-up",
+        "clock",
+        "close",
+        "collections",
+        "copy",
+        "cut",
+        "delete",
+        "disconnect",
+        "download",
+        "edit",
+        "error",
+        "exit-fullscreen",
+        "external",
+        "eye",
+        "eye-off",
+        "file",
+        "filter",
+        "folder",
+        "folder-open",
+        "fullscreen",
+        "grid",
+        "heart",
+        "heart-filled",
+        "help",
+        "history",
+        "home",
+        "image",
+        "info",
+        "keyboard",
+        "library",
+        "link",
+        "list",
+        "loading",
+        "lock",
+        "logout",
+        "match",
+        "menu",
+        "minus",
+        "more",
+        "movie",
+        "mute",
+        "organize",
+        "paste",
+        "pause",
+        "person",
+        "pin",
+        "play",
+        "plus",
+        "quality",
+        "refresh",
+        "save",
+        "scan",
+        "search",
+        "server",
+        "settings",
+        "skip-back-10",
+        "skip-forward-10",
+        "skip-next",
+        "skip-previous",
+        "sort-asc",
+        "sort-desc",
+        "speed",
+        "star",
+        "star-filled",
+        "stop",
+        "subtitles",
+        "tv",
+        "undo",
+        "upload",
+        "volume",
+        "warning",
+        "tag"
+      ],
+      "format": "vue-svg-registry",
+      "dimensions": [
+        24,
+        24
+      ],
+      "units": "viewBox",
+      "display_units": "CSS px",
+      "density": "vector; scales with platform density",
+      "transparent": true,
+      "safe_area": "24-unit viewBox; per-master optical spacing",
+      "platform": "web/mobile-web",
+      "generator_version": 1,
+      "master_revision": {
+        "ai": 1,
+        "arrow-down": 1,
+        "arrow-left": 1,
+        "arrow-right": 1,
+        "arrow-up": 1,
+        "audio": 1,
+        "backspace": 1,
+        "check": 1,
+        "check-circle": 1,
+        "chevron-down": 1,
+        "chevron-left": 1,
+        "chevron-right": 1,
+        "chevron-up": 1,
+        "clock": 1,
+        "close": 1,
+        "collections": 1,
+        "copy": 1,
+        "cut": 1,
+        "delete": 1,
+        "disconnect": 1,
+        "download": 1,
+        "edit": 1,
+        "error": 1,
+        "exit-fullscreen": 1,
+        "external": 1,
+        "eye": 1,
+        "eye-off": 1,
+        "file": 1,
+        "filter": 1,
+        "folder": 1,
+        "folder-open": 1,
+        "fullscreen": 1,
+        "grid": 1,
+        "heart": 1,
+        "heart-filled": 1,
+        "help": 1,
+        "history": 1,
+        "home": 1,
+        "image": 1,
+        "info": 1,
+        "keyboard": 1,
+        "library": 1,
+        "link": 1,
+        "list": 1,
+        "loading": 1,
+        "lock": 1,
+        "logout": 1,
+        "match": 1,
+        "menu": 1,
+        "minus": 1,
+        "more": 1,
+        "movie": 1,
+        "mute": 1,
+        "organize": 1,
+        "paste": 1,
+        "pause": 1,
+        "person": 1,
+        "pin": 1,
+        "play": 1,
+        "plus": 1,
+        "quality": 1,
+        "refresh": 1,
+        "save": 1,
+        "scan": 1,
+        "search": 1,
+        "server": 1,
+        "settings": 1,
+        "skip-back-10": 1,
+        "skip-forward-10": 1,
+        "skip-next": 1,
+        "skip-previous": 1,
+        "sort-asc": 1,
+        "sort-desc": 1,
+        "speed": 1,
+        "star": 1,
+        "star-filled": 1,
+        "stop": 1,
+        "subtitles": 1,
+        "tv": 1,
+        "undo": 1,
+        "upload": 1,
+        "volume": 1,
+        "warning": 1,
+        "tag": 1
+      }
+    },
+    {
+      "path": "android-tv/app/src/main/java/org/jzmedia/tv/ui/generated/DesignIcons.kt",
+      "assets": [
+        "ai",
+        "arrow-down",
+        "arrow-left",
+        "arrow-right",
+        "arrow-up",
+        "audio",
+        "backspace",
+        "check",
+        "check-circle",
+        "chevron-down",
+        "chevron-left",
+        "chevron-right",
+        "chevron-up",
+        "clock",
+        "close",
+        "collections",
+        "copy",
+        "cut",
+        "delete",
+        "disconnect",
+        "download",
+        "edit",
+        "error",
+        "exit-fullscreen",
+        "external",
+        "eye",
+        "eye-off",
+        "file",
+        "filter",
+        "folder",
+        "folder-open",
+        "fullscreen",
+        "grid",
+        "heart",
+        "heart-filled",
+        "help",
+        "history",
+        "home",
+        "image",
+        "info",
+        "keyboard",
+        "library",
+        "link",
+        "list",
+        "loading",
+        "lock",
+        "logout",
+        "match",
+        "menu",
+        "minus",
+        "more",
+        "movie",
+        "mute",
+        "organize",
+        "paste",
+        "pause",
+        "person",
+        "pin",
+        "play",
+        "plus",
+        "quality",
+        "refresh",
+        "save",
+        "scan",
+        "search",
+        "server",
+        "settings",
+        "skip-back-10",
+        "skip-forward-10",
+        "skip-next",
+        "skip-previous",
+        "sort-asc",
+        "sort-desc",
+        "speed",
+        "star",
+        "star-filled",
+        "stop",
+        "subtitles",
+        "tv",
+        "undo",
+        "upload",
+        "volume",
+        "warning",
+        "tag"
+      ],
+      "format": "compose-imagevector",
+      "dimensions": [
+        24,
+        24
+      ],
+      "units": "viewBox",
+      "display_units": "dp",
+      "density": "vector; scales with platform density",
+      "transparent": true,
+      "safe_area": "24-unit viewBox; per-master optical spacing",
+      "platform": "android-tv",
+      "generator_version": 1,
+      "master_revision": {
+        "ai": 1,
+        "arrow-down": 1,
+        "arrow-left": 1,
+        "arrow-right": 1,
+        "arrow-up": 1,
+        "audio": 1,
+        "backspace": 1,
+        "check": 1,
+        "check-circle": 1,
+        "chevron-down": 1,
+        "chevron-left": 1,
+        "chevron-right": 1,
+        "chevron-up": 1,
+        "clock": 1,
+        "close": 1,
+        "collections": 1,
+        "copy": 1,
+        "cut": 1,
+        "delete": 1,
+        "disconnect": 1,
+        "download": 1,
+        "edit": 1,
+        "error": 1,
+        "exit-fullscreen": 1,
+        "external": 1,
+        "eye": 1,
+        "eye-off": 1,
+        "file": 1,
+        "filter": 1,
+        "folder": 1,
+        "folder-open": 1,
+        "fullscreen": 1,
+        "grid": 1,
+        "heart": 1,
+        "heart-filled": 1,
+        "help": 1,
+        "history": 1,
+        "home": 1,
+        "image": 1,
+        "info": 1,
+        "keyboard": 1,
+        "library": 1,
+        "link": 1,
+        "list": 1,
+        "loading": 1,
+        "lock": 1,
+        "logout": 1,
+        "match": 1,
+        "menu": 1,
+        "minus": 1,
+        "more": 1,
+        "movie": 1,
+        "mute": 1,
+        "organize": 1,
+        "paste": 1,
+        "pause": 1,
+        "person": 1,
+        "pin": 1,
+        "play": 1,
+        "plus": 1,
+        "quality": 1,
+        "refresh": 1,
+        "save": 1,
+        "scan": 1,
+        "search": 1,
+        "server": 1,
+        "settings": 1,
+        "skip-back-10": 1,
+        "skip-forward-10": 1,
+        "skip-next": 1,
+        "skip-previous": 1,
+        "sort-asc": 1,
+        "sort-desc": 1,
+        "speed": 1,
+        "star": 1,
+        "star-filled": 1,
+        "stop": 1,
+        "subtitles": 1,
+        "tv": 1,
+        "undo": 1,
+        "upload": 1,
+        "volume": 1,
+        "warning": 1,
+        "tag": 1
+      }
+    }
+  ]
+}

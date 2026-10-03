@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,14 +25,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.CancellationException
@@ -54,11 +51,10 @@ internal fun ActorCard(api: JzApi, actor: JSONObject, onClick: () -> Unit, modif
     val name = actor.text("name").ifBlank { "未知演员" }
     val summary = actorWorkSummary(actor)
     Button(onClick, modifier.fillMaxWidth().height(76.dp).semantics { contentDescription = "$name · $summary" },
-        contentPadding = PaddingValues(8.dp), shape = ButtonDefaults.shape(shape = RoundedCornerShape(8.dp)),
-        colors = ButtonDefaults.colors(containerColor = Panel, contentColor = Color.White,
-            focusedContainerColor = Color.White, focusedContentColor = Color.Black)) {
+        contentPadding = PaddingValues(8.dp), shape = tvButtonShape(), scale = tvButtonScale(),
+        colors = tvButtonColors()) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Poster(api, actorAvatarPath(actor), name.take(1), Modifier.width(44.dp).height(56.dp))
+            Poster(api, actorAvatarPath(actor), name, Modifier.width(44.dp).height(56.dp), placeholderIcon = "person", showPlaceholderLabel = false)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(summary, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -130,7 +126,7 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
     fun turnPage(next: Int) { if (next != page) { data = null; error = ""; page = next; focusResults = true } }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvAction("‹ 返回", back, Modifier.focusMemory(memory, "back", returnButton))
+            TvAction("返回", back, Modifier.focusMemory(memory, "back", returnButton), icon = "back")
             Text(data?.optJSONObject("actor")?.text("name").orEmpty().ifBlank { route.title.ifBlank { "演员作品" } },
                 style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f))
@@ -145,10 +141,10 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
         Text(data?.let { "本库 ${it.optInt("total")} 部作品 · 第 ${page + 1} 页" } ?: "本库作品", color = Muted)
         when {
             error.isNotBlank() -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Status(error)
-                TvAction("重试", { focusResults = true; attempt++ }, Modifier.focusMemory(memory, "retry-works", retryButton))
+                Status(error, icon = "error")
+                TvAction("重试", { focusResults = true; attempt++ }, Modifier.focusMemory(memory, "retry-works", retryButton), icon = "refresh")
             }
-            data == null -> Status("正在读取演员作品…")
+            data == null -> Status("正在读取演员作品…", icon = "loading")
             rows.isEmpty() -> Status(if (page > 0) "这一页已没有作品，请返回上一页。" else "当前媒体库中没有这一类型的作品。")
             else -> {
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
@@ -167,8 +163,8 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
             }
         }
         if (page > 0 || data?.optBoolean("has_more") == true) Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous-works", previousButton))
-            if (data?.optBoolean("has_more") == true) TvAction("下一页", { turnPage(page + 1) }, Modifier.focusMemory(memory, "next-works"))
+            if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous-works", previousButton), icon = "back")
+            if (data?.optBoolean("has_more") == true) TvAction("下一页", { turnPage(page + 1) }, Modifier.focusMemory(memory, "next-works"), icon = "forward")
         }
     }
 }

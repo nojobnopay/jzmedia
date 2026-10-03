@@ -3,17 +3,19 @@
     <div><h3>播放缓存</h3>
     <p class="hint">清理全部媒体库的可回收转码与预缓存文件，正在播放的会话会保留。</p></div>
     <div class="bar">
-      <button @click="preview" :disabled="busy">{{ busy ? '处理中…' : '检查可清理空间' }}</button>
+      <JzButton @click="preview" :disabled="busy" type="button" icon="eye">{{ busy ? '处理中…' : '检查可清理空间' }}</JzButton>
     </div>
     <div v-if="candidate" class="settings-notice">
       <span>可释放 {{ fmtBytes(candidate.candidate_bytes) }}，共 {{ candidate.candidates }} 个缓存目录。清理后再次播放可能需要重新缓存。</span>
-      <button class="danger" @click="clean" :disabled="busy">确认清理缓存</button>
-      <button @click="candidate = null" :disabled="busy">取消</button>
+      <JzButton class="danger" @click="clean" :disabled="busy" type="button" variant="danger">确认清理缓存</JzButton>
+      <JzButton @click="candidate = null" :disabled="busy" type="button">取消</JzButton>
     </div>
     <p v-if="message" class="feedback" role="status">{{ message }}</p>
   </section>
 </template>
 <script setup>
+import JzButton from './JzButton.vue'
+
 import { ref } from 'vue'
 import { api } from '../api.js'
 import { fmtBytes } from '../format.js'

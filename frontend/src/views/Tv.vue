@@ -3,8 +3,8 @@
   <header class="browse-heading">
     <h1>剧集</h1>
     <div class="browse-actions">
-      <router-link :to="toolsLink" class="manage-link">扫描与整理 ›</router-link>
-      <ActionMenu label="添加剧集"><button @click="scanOpen = !scanOpen">扫描新文件</button><button @click="upDlg = true">上传文件</button></ActionMenu>
+      <router-link :to="toolsLink" class="manage-link"><AppIcon name="organize" :size="18" />扫描与整理<AppIcon name="chevron-right" :size="16" /></router-link>
+      <ActionMenu label="添加剧集"><JzButton @click="scanOpen = !scanOpen" type="button" variant="ghost" icon="scan">扫描新文件</JzButton><JzButton @click="upDlg = true" type="button" variant="ghost" icon="upload">上传文件</JzButton></ActionMenu>
     </div>
   </header>
   <BrowseToolbar id="tv-browse" v-model="q" label="搜索剧集" placeholder="搜剧名 / 演员"
@@ -41,8 +41,8 @@
   <EmptyState v-else-if="firstLoaded && !items.length" :state="q.trim() || activeCount ? 'no-results' : 'empty'"
     :title="q.trim() || activeCount ? '没有符合条件的剧集' : '当前媒体库还没有剧集'"
     :text="q.trim() || activeCount ? '试试其他剧名，或重置筛选条件。' : '扫描已有文件，或上传剧集开始观看。'">
-    <button v-if="q.trim() || activeCount" @click="clearAll">重置筛选</button>
-    <router-link v-else :to="toolsLink">扫描与整理 ›</router-link>
+    <JzButton v-if="q.trim() || activeCount" @click="clearAll" type="button" icon="filter">重置筛选</JzButton>
+    <router-link v-else :to="toolsLink"><AppIcon name="organize" :size="18" />扫描与整理<AppIcon name="chevron-right" :size="16" /></router-link>
   </EmptyState>
 
   <div class="grid" :aria-busy="loading">
@@ -50,7 +50,7 @@
       <div class="poster-wrap">
         <img v-if="s.poster_path" :src="posterUrl(s.poster_path)" loading="lazy"
           :alt="s.title || '剧集'" />
-        <div v-else class="no-poster" aria-hidden="true">{{ (s.title || '?').slice(0, 1) }}</div>
+        <ArtworkPlaceholder v-else class="no-poster" kind="poster" :label="s.title" />
         <span v-if="s.watched_count" class="seen">{{ s.watched_count }}/{{ s.episode_count }}</span>
         <span v-if="!s.tmdb_id" class="review">未匹配</span>
         <span v-else-if="s.needs_review" class="review">待确认</span>
@@ -65,7 +65,7 @@
   </div>
 
   <div ref="loadSentinel" class="load-more">
-    <button v-if="hasMore" @click="loadMore" :disabled="loadingMore">{{ loadingMore ? '加载中…' : '加载更多' }}</button>
+    <JzButton v-if="hasMore" @click="loadMore" :disabled="loadingMore" type="button" icon="more">{{ loadingMore ? '加载中…' : '加载更多' }}</JzButton>
     <span v-else-if="items.length" class="fhint">已全部加载（{{ items.length }} 部）</span>
   </div>
 
@@ -75,6 +75,12 @@
 </template>
 
 <script setup>
+import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
+
+import AppIcon from '../components/AppIcon.vue'
+
+import JzButton from '../components/JzButton.vue'
+
 import BrowseResultsHeader from '../components/BrowseResultsHeader.vue'
 import BrowseToolbar from '../components/BrowseToolbar.vue'
 import BrowseFilters from '../components/BrowseFilters.vue'

@@ -3,11 +3,11 @@
     <div class="hero media-hero">
       <div class="hero-inner">
         <div class="topbar">
-          <button @click="$router.back()">‹ 返回</button>
+          <JzButton @click="$router.back()" type="button" icon="back">返回</JzButton>
         </div>
         <div class="hero-main">
           <img v-if="p.avatar && p.avatar !== '-'" :src="posterUrl(p.avatar)" class="person-photo" :alt="(p.name || '人物') + ' 头像'" />
-          <div v-else class="person-photo avatar-fallback">{{ (p.name || '?').slice(0, 1) }}</div>
+          <ArtworkPlaceholder v-else class="person-photo avatar-fallback" kind="person" :label="p.name" />
           <div class="hero-info">
             <div class="hero-heading">
               <h1>{{ p.name }}</h1>
@@ -21,7 +21,7 @@
 
     <div class="sections">
       <section class="card-block">
-        <div class="section-head"><h3>人物简介</h3><button :disabled="bioLoading || bioRefreshing" @click="refreshBio">{{ bioRefreshing ? '更新中…' : '更新简介' }}</button></div>
+        <div class="section-head"><h3>人物简介</h3><JzButton :disabled="bioLoading || bioRefreshing" @click="refreshBio" type="button" icon="refresh">{{ bioRefreshing ? '更新中…' : '更新简介' }}</JzButton></div>
         <p v-if="bioMsg" class="page-feedback" role="status">{{ bioMsg }}</p>
         <MediaOverview v-if="(p.biography || '').trim()" :text="p.biography" />
         <p v-else-if="bioLoading" class="empty">简介加载中…</p>
@@ -34,7 +34,7 @@
           <div v-for="w in p.acting" :key="w.id" class="work-card" tabindex="0" role="link" @keydown.enter.self="$event.currentTarget.click()" @click="$router.push('/m/' + w.id)">
             <div class="poster-wrap">
               <img v-if="w.poster_path" :src="posterUrl(w.poster_path)" loading="lazy" :alt="w.title || '海报'" />
-              <div v-else class="no-poster" aria-hidden="true">{{ (w.title || '?').slice(0, 1) }}</div>
+              <ArtworkPlaceholder v-else class="no-poster" kind="poster" :label="w.title" />
               <ScoreBadge :score="w.tmdb_rating" source="tmdb" />
             </div>
             <div class="cast-name">{{ w.title }} <span v-if="w.year">({{ w.year }})</span></div>
@@ -49,7 +49,7 @@
           <div v-for="w in p.directing" :key="w.id" class="work-card" tabindex="0" role="link" @keydown.enter.self="$event.currentTarget.click()" @click="$router.push('/m/' + w.id)">
             <div class="poster-wrap">
               <img v-if="w.poster_path" :src="posterUrl(w.poster_path)" loading="lazy" :alt="w.title || '海报'" />
-              <div v-else class="no-poster" aria-hidden="true">{{ (w.title || '?').slice(0, 1) }}</div>
+              <ArtworkPlaceholder v-else class="no-poster" kind="poster" :label="w.title" />
               <ScoreBadge :score="w.tmdb_rating" source="tmdb" />
             </div>
             <div class="cast-name">{{ w.title }} <span v-if="w.year">({{ w.year }})</span></div>
@@ -63,7 +63,7 @@
           <div v-for="w in p.tv_works" :key="'tv' + w.show_id" class="work-card" tabindex="0" role="link" @keydown.enter.self="$event.currentTarget.click()" @click="$router.push('/tv/' + w.show_id)">
             <div class="poster-wrap">
               <img v-if="w.poster_path" :src="posterUrl(w.poster_path)" loading="lazy" :alt="w.title || '海报'" />
-              <div v-else class="avatar-fallback">{{ (w.title || '?').slice(0, 1) }}</div>
+              <ArtworkPlaceholder v-else class="avatar-fallback" kind="person" :label="w.title" />
             </div>
             <div class="cast-name">{{ w.title }} <span v-if="w.year">({{ w.year }})</span></div>
             <div v-if="showTvChar(w)" class="cast-char">{{ w.character }}</div>
@@ -72,9 +72,13 @@
       </section>
     </div>
   </div>
-  <div v-else class="page"><p>{{ ensuring ? '人物建档中…' : (err || '加载中…') }}</p><p v-if="err"><button @click="load()">重试</button></p></div>
+  <div v-else class="page"><p>{{ ensuring ? '人物建档中…' : (err || '加载中…') }}</p><p v-if="err"><JzButton @click="load()" type="button" icon="refresh">重试</JzButton></p></div>
 </template>
 <script setup>
+import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
+
+import JzButton from '../components/JzButton.vue'
+
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, posterUrl } from '../api.js'

@@ -6,7 +6,7 @@
       <label>内容类型<select v-model="form.kind" :disabled="hasContent"><option value="movie">电影</option><option value="tv">剧集</option></select></label>
       </div><p v-if="hasContent" class="hint">库内已有记录，类型不可改。子目录不能与同一存储下的其他视频库重叠。</p>
       <p v-else class="hint">空库可调整类型；电影和剧集应使用独立目录。</p>
-      <div class="bar"><JzButton variant="primary" @click="save">{{ busy ? '保存中…' : library.id ? '保存视频库' : '创建视频库' }}</JzButton><button @click="emit('cancel')">取消</button></div>
+      <div class="bar"><JzButton variant="primary" @click="save">{{ busy ? '保存中…' : library.id ? '保存视频库' : '创建视频库' }}</JzButton><JzButton @click="emit('cancel')" type="button">取消</JzButton></div>
     </fieldset>
     <p role="status">{{ error }}</p>
   </div>

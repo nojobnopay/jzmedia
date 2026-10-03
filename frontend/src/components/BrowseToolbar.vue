@@ -8,7 +8,7 @@
         @compositionend="$emit('compositionend', $event)" @keyup.enter="$emit('enter', $event)"
         @keydown.down.prevent="$emit('move', 1)" @keydown.up.prevent="$emit('move', -1)"
         @keydown.esc.stop="$emit('close')" @blur="$emit('blur')" />
-      <JzButton class="search-submit" variant="ghost" :aria-label="label" @click="$emit('search')"><AppIcon name="search" :size="19" /></JzButton>
+      <JzButton class="search-submit" variant="ghost" icon-only :aria-label="label" @click="$emit('search')"><AppIcon name="search" :size="19" /></JzButton>
       <ul v-show="suggestOpen" :id="id + '-suggestions'" class="suggest" role="listbox" :aria-label="label + '建议'">
         <li v-if="suggestNoMatch" class="s-empty" role="presentation">无匹配</li>
         <li v-if="suggestItems.length" class="s-head" role="presentation">{{ itemHeading }}</li>
@@ -28,10 +28,10 @@
     </div>
     <slot name="filters">
       <JzButton class="browse-tool" :aria-expanded="filtersOpen && !filtersDisabled" :aria-controls="filtersId" :disabled="filtersDisabled" @click="$emit('update:filtersOpen', !filtersOpen)">
-        筛选<span v-if="activeCount"> · {{ activeCount }}</span><span aria-hidden="true">{{ filtersOpen ? '⌃' : '⌄' }}</span>
+        筛选<span v-if="activeCount"> · {{ activeCount }}</span><AppIcon :name="filtersOpen ? 'chevron-up' : 'chevron-down'" :size="16" />
       </JzButton>
     </slot>
-    <JzButton class="browse-tool" variant="ghost" :aria-expanded="aiOpen" :aria-controls="id + '-ai'" @click="$emit('update:aiOpen', !aiOpen)">智能搜索</JzButton>
+    <JzButton icon="ai" class="browse-tool" variant="ghost" :aria-expanded="aiOpen" :aria-controls="id + '-ai'" @click="$emit('update:aiOpen', !aiOpen)">智能搜索</JzButton>
     <slot />
   </div>
 </template>

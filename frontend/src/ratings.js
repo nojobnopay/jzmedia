@@ -15,5 +15,5 @@ export function fullStars(v) {
 
 export function starRow(v) {
   const f = fullStars(v)
-  return '★'.repeat(f) + '☆'.repeat(5 - f)
+  return Array.from({ length: 5 }, (_, index) => index < f ? 'star-filled' : 'star')
 }

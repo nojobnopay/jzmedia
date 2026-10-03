@@ -3,20 +3,20 @@
             <summary>文件与版本<span v-if="movie.version_count > 1">（共{{ movie.version_count }}个版本）</span></summary>
             <ul class="ver-list"><li v-for="v in movie.versions" :key="v.id" class="f-row">
               <span class="f-name">{{ baseName(v.file_path) }}<span v-if="v.edition">（{{ v.edition }}）</span><span v-if="v.spec">（{{ v.spec }}）</span></span>
-              <span class="f-acts"><ActionMenu label="更多"><button @click="copyTvUrl(v)">复制直链</button></ActionMenu><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)">下载</a><button v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'">无效</button><button v-else @click="emit('play', v)">播放</button><span v-if="verFriendly(v.id)" class="friendly-chip" title="浏览器可直播，几乎不占 NAS 算力">★</span><span v-else-if="verMethod[v.id]==='video_transcode'" class="trans-chip" title="浏览器需视频重编码，较耗 NAS 算力">转码</span></span>
+              <span class="f-acts"><ActionMenu label="更多"><JzButton @click="copyTvUrl(v)" type="button" variant="ghost" icon="copy">复制直链</JzButton></ActionMenu><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)"><AppIcon name="download" :size="16" />下载</a><JzButton v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'" type="button">无效</JzButton><JzButton v-else @click="emit('play', v)" type="button" icon="play">播放</JzButton><span v-if="verFriendly(v.id)" class="friendly-chip" role="img" aria-label="浏览器友好" title="浏览器可直播，几乎不占 NAS 算力"><AppIcon name="check-circle" :size="16" /></span><span v-else-if="verMethod[v.id]==='video_transcode'" class="trans-chip" title="浏览器需视频重编码，较耗 NAS 算力">转码</span></span>
             </li></ul>
             <div v-for="g in fileGroups" :key="g.key">
-              <p v-if="g.items.length" class="hint">{{ g.label }}</p>
+              <p v-if="g.items.length" class="hint"><AppIcon :name="g.icon" :size="18" />{{ g.label }}</p>
               <ul v-if="g.items.length">
                 <li v-for="f in g.items" :key="g.key + f.name" class="f-row">
                   <span class="f-name">{{ f.name }}</span>
                   <span class="f-size">{{ fmtSize(f.size) }}</span>
                   <span class="f-acts">
-                    <a :href="blobUrl(f.rel || f.name)" :download="baseName(f.rel || f.name)">下载</a>
-                    <button v-if="isVideo(f.name)" @click="openPlayer(f)">播放</button>
-                    <button v-else-if="pvKindOf(f.name)" @click="openPlayer(f)">预览</button>
-                    <button v-if="delArm[f.rel || f.name] == null" @click="doFileDelete(f)">删除</button>
-                    <button v-else @click="doFileDeleteConfirm(f)" class="danger">{{ (delArm[f.rel || f.name] || {}).requires_confirm ? '确认删除正片' : '确认删除' }}</button>
+                    <a :href="blobUrl(f.rel || f.name)" :download="baseName(f.rel || f.name)"><AppIcon name="download" :size="16" />下载</a>
+                    <JzButton v-if="isVideo(f.name)" @click="openPlayer(f)" type="button" icon="play">播放</JzButton>
+                    <JzButton v-else-if="pvKindOf(f.name)" @click="openPlayer(f)" type="button" icon="eye">预览</JzButton>
+                    <JzButton v-if="delArm[f.rel || f.name] == null" @click="doFileDelete(f)" type="button" icon="delete">删除</JzButton>
+                    <JzButton v-else @click="doFileDeleteConfirm(f)" class="danger" type="button" variant="danger" icon="delete">{{ (delArm[f.rel || f.name] || {}).requires_confirm ? '确认删除正片' : '确认删除' }}</JzButton>
                   </span>
                 </li>
               </ul>
@@ -33,6 +33,10 @@
 </template>
 
 <script setup>
+import AppIcon from './AppIcon.vue'
+
+import JzButton from './JzButton.vue'
+
 import ActionMenu from './ActionMenu.vue'
 
 import { computed, ref, watch } from 'vue'
@@ -71,11 +75,11 @@ async function copyTvUrl(v) {
 const fileGroups = computed(() => {
   const s = props.sideFiles || {}
   return [
-    { key: 'extras', label: '🎬 花絮', items: s.extras || [] },
-    { key: 'samples', label: '🎞 样片', items: s.samples || [] },
-    { key: 'subtitles', label: '💬 字幕', items: s.subtitles || [] },
-    { key: 'nfos', label: 'NFO', items: s.nfos || [] },
-    { key: 'others', label: '周边（音乐/海报/剧本等）', items: s.others || [] },
+    { key: 'extras', label: '花絮', icon: 'movie', items: s.extras || [] },
+    { key: 'samples', label: '样片', icon: 'movie', items: s.samples || [] },
+    { key: 'subtitles', label: '字幕', icon: 'subtitles', items: s.subtitles || [] },
+    { key: 'nfos', label: 'NFO', icon: 'file', items: s.nfos || [] },
+    { key: 'others', label: '周边（音乐/海报/剧本等）', icon: 'collections', items: s.others || [] },
   ]
 })
 

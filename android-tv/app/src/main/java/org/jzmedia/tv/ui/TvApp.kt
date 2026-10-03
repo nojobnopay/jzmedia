@@ -1,5 +1,6 @@
 package org.jzmedia.tv.ui
 
+import org.jzmedia.tv.ui.generated.DesignTokens
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -79,7 +80,7 @@ fun TvApp(onExit: () -> Unit) {
         loaded = true
     }
 
-    if (!loaded) { Status("正在读取连接…"); return }
+    if (!loaded) { Status("正在读取连接…", icon = "loading"); return }
     if (api == null || editConnection) {
         ConnectionScreen(saved, restoreError, autoConnect = api == null && saved != null,
             onConnected = { connected, connection ->
@@ -130,7 +131,7 @@ fun TvApp(onExit: () -> Unit) {
                     }
                 }
             }
-            if (routes.size > 1 && route.kind !in listOf("search", "actor-works")) TvAction("‹ 返回", { back() }, Modifier.focusMemory(memory, "back"))
+            if (routes.size > 1 && route.kind !in listOf("search", "actor-works")) TvAction("返回", { back() }, Modifier.focusMemory(memory, "back"), icon = "back")
             when (route.kind) {
                 "home" -> HomeScreen(server, library, refresh, memory, ::open, ::play)
                 "movies", "shows", "collections" -> BrowseScreen(server, route.kind, library, refresh, memory, ::open)
@@ -143,15 +144,15 @@ fun TvApp(onExit: () -> Unit) {
                 "settings" -> LazyColumn(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                     item { SectionHeading("电视设置") }
                     item { Text("当前服务器：${server.baseUrl}", color = Muted) }
-                    item { TvAction("修改连接", { editConnection = true }, Modifier.focusMemory(memory, "settings:connection")) }
+                    item { TvAction("修改连接", { editConnection = true }, Modifier.focusMemory(memory, "settings:connection"), icon = "edit") }
                     item { Text("设备：${Build.MANUFACTURER} ${Build.MODEL}") }
                     item { Text("Android ${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT}") }
                     item { Text("电视应用 ${BuildConfig.VERSION_NAME} · 播放协议 1") }
                     item { Text("观看进度全家共享。媒体库扫描、整理和匹配请在网页端操作。", color = Muted) }
                     item { TvAction("忘记连接", {
                         scope.launch { withContext(Dispatchers.IO) { store.clear() }; saved = null; api = null }
-                    }, Modifier.focusMemory(memory, "settings:forget")) }
-                    item { TvAction("退出应用", onExit, Modifier.focusMemory(memory, "settings:exit")) }
+                    }, Modifier.focusMemory(memory, "settings:forget"), icon = "trash") }
+                    item { TvAction("退出应用", onExit, Modifier.focusMemory(memory, "settings:exit"), icon = "logout") }
                 }
             }
         }
@@ -201,11 +202,11 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
         item { Text("让电视和服务器连接同一个家庭网络，然后填写网页端使用的服务器地址。", color = Muted) }
         item { TvInput("服务器地址，例如 http://192.168.1.10:8080", address, { address = it }, Modifier.widthIn(max = 740.dp)) }
         item { TvInput("访问令牌（服务器未设置时留空）", token, { token = it }, Modifier.widthIn(max = 740.dp), password = true) }
-        if (error.isNotBlank()) item { Text(error, color = androidx.compose.ui.graphics.Color(0xFFFFB4AB)) }
+        if (error.isNotBlank()) item { Text(error, color = DesignTokens.Error) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                TvAction(if (busy) "正在连接…" else "连接并记住", ::connect, Modifier.focusMemory(memory, "connect"), enabled = !busy)
-                TvAction(if (busy) "取消连接" else "返回", { if (busy) { job?.cancel(); busy = false } else onBack() })
+                TvAction(if (busy) "正在连接…" else "连接并记住", ::connect, Modifier.focusMemory(memory, "connect"), enabled = !busy, icon = if (busy) "loading" else "link")
+                TvAction(if (busy) "取消连接" else "返回", { if (busy) { job?.cancel(); busy = false } else onBack() }, icon = if (busy) "close" else "back")
             }
         }
         item { Text("方向键移动 · 确定键编辑或选择 · 返回键关闭键盘或返回", color = Muted) }
@@ -225,12 +226,12 @@ private fun LibrariesScreen(api: JzApi, selected: Long, memory: FocusMemory, onS
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { SectionHeading("选择媒体库") }
-        item { TvAction("全部媒体库", { onSelect(0, "全部媒体库") }, Modifier.focusMemory(memory, "library:0"), selected == 0L) }
+        item { TvAction("全部媒体库", { onSelect(0, "全部媒体库") }, Modifier.focusMemory(memory, "library:0"), selected == 0L, icon = "library") }
         if (error.isNotBlank()) item { Status(error, { attempt++ }) }
-        else if (rows == null) item { Status("正在读取媒体库…") }
+        else if (rows == null) item { Status("正在读取媒体库…", icon = "loading") }
         items(rows.orEmpty(), key = { it.optLong("id") }) { row ->
             TvAction(row.text("name"), { onSelect(row.optLong("id"), row.text("name")) },
-                Modifier.focusMemory(memory, "library:${row.optLong("id")}"), selected == row.optLong("id"))
+                Modifier.focusMemory(memory, "library:${row.optLong("id")}"), selected == row.optLong("id"), icon = "library")
         }
     }
 }

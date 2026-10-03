@@ -56,9 +56,9 @@
         <div v-for="show in uploadedShows" :key="show.id" class="tv-result">
           <span>{{ show.title }} · {{ show.status || '已登记，待补全资料' }}</span>
           <router-link :to="'/tv/' + show.id">核对匹配</router-link>
-          <JzButton :disabled="tvBusy || uploading" @click="previewTv(show.id)">预览目录整理</JzButton>
+          <JzButton icon="eye" :disabled="tvBusy || uploading" @click="previewTv(show.id)">预览目录整理</JzButton>
         </div>
-        <JzButton v-if="!tvBusy && !uploading" @click="scrapeUploadedShows">补全剧集资料</JzButton>
+        <JzButton icon="refresh" v-if="!tvBusy && !uploading" @click="scrapeUploadedShows">补全剧集资料</JzButton>
         <JzButton v-if="tvBusy" @click="cancelTvMetadata">取消资料补全</JzButton>
       </section>
 

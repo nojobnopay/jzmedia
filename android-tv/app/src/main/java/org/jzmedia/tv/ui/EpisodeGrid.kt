@@ -11,19 +11,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Text
 
 /** The parent supplies a sticky focused-episode description above these lazy rows. */
@@ -45,15 +42,10 @@ internal fun LazyListScope.episodeGrid(
                             onClick = { openEpisode(episode.id) },
                             modifier = focusModifier("episode:${episode.id}").width(buttonWidth).heightIn(min = 56.dp)
                                 .onFocusChanged { if (it.isFocused) onFocused(episode.id) }
-                                .semantics { contentDescription = episode.description },
+                                .semantics { contentDescription = episode.description }.tvSelected(episode.continuing),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 5.dp),
-                            shape = ButtonDefaults.shape(shape = RoundedCornerShape(8.dp)),
-                            colors = ButtonDefaults.colors(
-                                containerColor = if (episode.continuing) Accent else Panel,
-                                contentColor = Color.White,
-                                focusedContainerColor = Color.White,
-                                focusedContentColor = Color(0xFF141414),
-                            ),
+                            shape = tvButtonShape(), scale = tvButtonScale(),
+                            colors = tvButtonColors(selected = episode.continuing),
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center,

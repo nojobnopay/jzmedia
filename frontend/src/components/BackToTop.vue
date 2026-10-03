@@ -1,8 +1,12 @@
 <template>
-  <button v-if="visible && !blocked" class="back-to-top" :style="{ bottom: bottom + 'px' }"
-    aria-label="回到顶部" title="回到顶部" @click="goTop">↑<span>顶部</span></button>
+  <JzButton v-if="visible && !blocked" class="back-to-top" :style="{ bottom: bottom + 'px' }"
+    aria-label="回到顶部" title="回到顶部" @click="goTop" type="button"><AppIcon name="arrow-up" /><span>顶部</span></JzButton>
 </template>
 <script setup>
+import AppIcon from './AppIcon.vue'
+
+import JzButton from './JzButton.vue'
+
 import { onMounted, onUnmounted, ref } from 'vue'
 const visible = ref(false)
 const blocked = ref(false)
@@ -38,7 +42,7 @@ onUnmounted(() => {
 })
 </script>
 <style scoped>
-.back-to-top { position: fixed; right: max(16px, env(safe-area-inset-right)); margin-bottom: env(safe-area-inset-bottom); z-index: 35; width: 48px; min-height: 48px; padding: 5px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--jz-surface-2); border-color: var(--jz-border-strong); box-shadow: 0 3px 16px #0008; font-size: 20px; }
+.back-to-top { position: fixed; right: max(16px, env(safe-area-inset-right)); margin-bottom: env(safe-area-inset-bottom); z-index: 35; width: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 3px 16px #0008; }
 .back-to-top span { font-size: 11px; }
 .back-to-top:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 3px; }
 </style>

@@ -19,6 +19,6 @@ test('stars map 0-10 to 5 stars', () => {
   assert.equal(fullStars(0), 0)
   assert.equal(fullStars(10), 5)
   assert.equal(fullStars(7), 4)
-  assert.equal(starRow(10), '★★★★★')
-  assert.equal(starRow(0), '☆☆☆☆☆')
+  assert.deepEqual(starRow(10), Array(5).fill('star-filled'))
+  assert.deepEqual(starRow(0), Array(5).fill('star'))
 })

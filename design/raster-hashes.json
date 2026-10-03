@@ -1,0 +1,23 @@
+{
+  "generator_version": 1,
+  "renderer_sha256": "c348cf22461b2b3778f561d86a6e6384a6727d7a9c44dbf76de16b773b200679",
+  "masters": {
+    "design/brand/mark.svg": "97458932c1dcb7ea10df45023d9efce4cec3291c4f1e0cf3288c98a5c8f50761",
+    "design/brand/wordmark.svg": "b39b932acc492adaed459bbd1aebd38aeb94f4f81e02a375e316ee49b4bf7894",
+    "design/brand/favicon-16.svg": "0d2716d3c98f737f45b855c8c2a226d23ec09fec4facd529debd921c0ce1d42b",
+    "design/brand/favicon-32.svg": "20f819f22250b2eab95275195591f385b64d2a225fc17d0f0f5cc8ab2a1035ad"
+  },
+  "outputs": {
+    "frontend/public/favicon-16x16.png": "355552752788e06a8b7e46493f63aac95eafd75b3e9abf55f32a17eec8cccac8",
+    "frontend/public/favicon-32x32.png": "b3b1b544b1a342d4b943201b3f4f47f4806693100884ba0e43c6b9bd2b6595cf",
+    "frontend/public/favicon-48x48.png": "1b86c02d68d074e635ed796ba1521ef2be6b43fbdc52b76c303c354b7a82584a",
+    "frontend/public/favicon.ico": "c0f7db4eee8f2dce96d21270566dd06aff0fafd1af408bfd6350b4d28255f0b3",
+    "docs/assets/design/favicon-16x16.png": "355552752788e06a8b7e46493f63aac95eafd75b3e9abf55f32a17eec8cccac8",
+    "docs/assets/design/favicon-32x32.png": "b3b1b544b1a342d4b943201b3f4f47f4806693100884ba0e43c6b9bd2b6595cf",
+    "docs/assets/design/favicon-48x48.png": "1b86c02d68d074e635ed796ba1521ef2be6b43fbdc52b76c303c354b7a82584a",
+    "docs/assets/design/favicon.ico": "c0f7db4eee8f2dce96d21270566dd06aff0fafd1af408bfd6350b4d28255f0b3",
+    "frontend/public/apple-touch-icon.png": "eb9a3a1e4517414ec280bd997f71145ca943bddc6031235289f9f6ca0daa2e39",
+    "frontend/public/icon-512.png": "168cb678b44f3d5dba770140983a4ecab351cf253ca187ad07ca42d316284c48",
+    "android-tv/app/src/main/res/drawable-xhdpi/tv_banner.png": "6adc3e190ce32e6e200b0dc32c5a279010ca08f70be7eea21794b0acef96626c"
+  }
+}

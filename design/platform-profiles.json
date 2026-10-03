@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "web-icon": {
+      "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+      "source": [
+        "frontend/src/components/AppIcon.vue",
+        "frontend/src/components/PlayerIcon.vue",
+        "frontend/src/components/Spinner.vue"
+      ]
+    },
+    "web-button": {
+      "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+      "source": [
+        "frontend/src/components/JzButton.vue",
+        "design/tokens.json"
+      ]
+    },
+    "web-placeholder": {
+      "specification": "图标32，max-width:40%；容器按媒体布局确定；保留标题/姓名",
+      "source": [
+        "frontend/src/components/ArtworkPlaceholder.vue"
+      ]
+    },
+    "web-native": {
+      "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+      "source": [
+        "frontend/src/styles/base.css",
+        "frontend/src/styles/tokens.css"
+      ]
+    },
+    "web-link": {
+      "specification": "正文链接保留行内文本；导航和按钮式链接按对应class扩展触摸区，不能把所有正文链接声明为44px",
+      "source": [
+        "frontend/src/styles/base.css"
+      ]
+    },
+    "web-specialized": {
+      "specification": "保留菜单/海报/选择/播放器专用几何；具体CSS规则记录在overrides；触摸目标规范44px需浏览器测量",
+      "source": [
+        "frontend/src/styles/base.css",
+        "frontend/src/player.css",
+        "design/contracts.json"
+      ]
+    },
+    "tv-icon": {
+      "specification": "默认24dp，调用Modifier.size优先；品牌字标76×23dp另见品牌export",
+      "source": [
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvIcon.kt",
+        "design/tokens.json"
+      ]
+    },
+    "tv-action": {
+      "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+      "source": [
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+      ]
+    },
+    "tv-poster": {
+      "specification": "图像容器按调用Modifier width/height；占位图标24dp、可选标题；演员头像44×56dp",
+      "source": [
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/ActorScreens.kt"
+      ]
+    },
+    "tv-poster-card": {
+      "specification": "宽150dp；海报默认高180dp或posterHeight参数；标题区42dp；搜索海报高(maxHeight−120dp).coerceIn(100dp,180dp)",
+      "source": [
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/SearchScreen.kt"
+      ]
+    },
+    "tv-history": {
+      "specification": "SearchHistoryAction由调用modifier给宽高：清除60×32dp，历史136×36dp；contentPadding horizontal12/vertical4dp",
+      "source": [
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/SearchScreen.kt"
+      ]
+    },
+    "tv-keyboard": {
+      "specification": "字母键weight(1f)；keyHeight=((maxHeight−174dp)/6−5dp).coerceIn(28dp,44dp)；保留原生遥控器焦点",
+      "source": [
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/SearchScreen.kt"
+      ]
+    },
+    "tv-navigation": {
+      "specification": "导航按钮height40dp，width按availableWidth及labels计算；图标24dp；字标76×23dp",
+      "source": [
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt"
+      ]
+    },
+    "tv-actor": {
+      "specification": "演员条目fillMaxWidth×76dp，头像44×56dp，姓名/角色文字可访问",
+      "source": [
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/ActorScreens.kt"
+      ]
+    },
+    "tv-episode": {
+      "specification": "集号宽度=((maxWidth−(columns−1)×EpisodeButtonGap)/columns)，最大EpisodeButtonMaximumWidth；min-height56dp；选择与焦点独立",
+      "source": [
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/EpisodeGrid.kt"
+      ]
+    }
+  }
+}

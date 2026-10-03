@@ -31,15 +31,15 @@
     </div>
 
     <div class="bar">
-      <button class="primary" @click="run(true)" :disabled="!!busy || !enabled.length">
+      <JzButton class="primary" @click="run(true)" :disabled="!!busy || !enabled.length" type="button" variant="primary" icon="organize">
         {{ busy === 'plan' ? '预览中…' : '预览整理计划' }}
-      </button>
-      <button @click="run(false)"
+      </JzButton>
+      <JzButton @click="run(false)"
         :disabled="!!busy || !enabled.length || !checked.length || blockedByAbs"
-        :class="{ danger: armRun }">
+        :class="{ danger: armRun }" :variant="armRun ? 'danger' : 'secondary'" type="button" icon="organize">
         {{ busy === 'exec' ? `整理中 ${done}/${total}…` : (armRun ? `确认执行选中 (${checked.length})` : `执行选中 (${checked.length})`) }}
-      </button>
-      <button v-if="busy" @click="cancel">取消</button>
+      </JzButton>
+      <JzButton v-if="busy" @click="cancel" type="button">取消</JzButton>
     </div>
     <p v-if="blockedByAbs" class="hint warn-text">选中的剧含绝对集号风险，请先勾选上方确认。</p>
     <p v-if="armRun" class="hint warn-text">
@@ -62,12 +62,12 @@
     <template v-if="actionPlans.length">
       <div class="sec-head">
         <h4>将执行（{{ actionPlans.length }} 部）</h4>
-        <button class="mini" @click="checkAll">{{ allChecked ? '全不选' : '全选' }}</button>
+        <JzButton class="mini" @click="checkAll" type="button" size="compact">{{ allChecked ? '全不选' : '全选' }}</JzButton>
       </div>
       <div v-for="p in actionPlans" :key="p.show_id" class="plan-card">
-        <div class="card-head" @click="toggle(p.show_id)">
+        <div class="card-head" role="button" tabindex="0" :aria-expanded="!!expanded[p.show_id]" @click="toggle(p.show_id)" @keydown.enter.self="toggle(p.show_id)" @keydown.space.self.prevent="toggle(p.show_id)">
           <input type="checkbox" :value="p.show_id" v-model="checked" @click.stop />
-          <span class="caret">{{ expanded[p.show_id] ? '▾' : '▸' }}</span>
+          <span class="caret"><AppIcon :name="expanded[p.show_id] ? 'chevron-down' : 'chevron-right'" :size="16" /></span>
           <span class="card-title">{{ p.title }}</span>
           <span v-for="c in planActionChips(p)" :key="c" class="chip act">{{ c }}</span>
           <span v-for="f in showFlags(p)" :key="f" class="chip warn">{{ f }}</span>
@@ -77,7 +77,7 @@
             <div class="g-title">{{ groupText(g) }}</div>
             <div v-for="(l, j) in groupSamples(g).lines" :key="'s' + j" class="g-sample" :title="l.title">
               <span class="from">{{ l.from }}</span>
-              <span class="arrow">→</span>
+              <AppIcon class="arrow" name="arrow-right" :size="16" />
               <span class="to">{{ l.to }}</span>
             </div>
             <div v-if="groupSamples(g).more" class="g-more">
@@ -95,8 +95,8 @@
     <details v-if="notePlans.length" class="notes">
       <summary>仅提示 · 不会执行（{{ notePlans.length }} 部）</summary>
       <div v-for="p in notePlans" :key="'n' + p.show_id" class="note-row">
-        <div class="note-head" @click="toggle('n' + p.show_id)">
-          <span class="caret">{{ expanded['n' + p.show_id] ? '▾' : '▸' }}</span>
+        <div class="note-head" role="button" tabindex="0" :aria-expanded="!!expanded['n' + p.show_id]" @click="toggle('n' + p.show_id)" @keydown.enter="toggle('n' + p.show_id)" @keydown.space.prevent="toggle('n' + p.show_id)">
+          <span class="caret"><AppIcon :name="expanded['n' + p.show_id] ? 'chevron-down' : 'chevron-right'" :size="16" /></span>
           <b>{{ p.title }}</b>
           <span class="dim">{{ noteText(p) }}</span>
         </div>
@@ -121,19 +121,19 @@
         </select>
       </div>
       <div class="chips">
-        <button v-for="k in KIND_OPTS" :key="k.value" type="button" class="chip toggle"
-          :class="{ on: kinds[k.value] }" @click="kinds[k.value] = !kinds[k.value]">{{ k.label }}</button>
-        <button type="button" class="mini" @click="toggleAllKinds">{{ allKinds ? '全不选' : '全选' }}</button>
+        <JzButton v-for="k in KIND_OPTS" :key="k.value" type="button" class="chip toggle"
+          :class="{ on: kinds[k.value] }" :aria-pressed="!!kinds[k.value]" @click="kinds[k.value] = !kinds[k.value]">{{ k.label }}</JzButton>
+        <JzButton type="button" class="mini" @click="toggleAllKinds" size="compact">{{ allKinds ? '全不选' : '全选' }}</JzButton>
       </div>
       <div class="bar">
-        <button @click="restore(true)" :disabled="!!busy2 || !selectedKinds.length">
+        <JzButton @click="restore(true)" :disabled="!!busy2 || !selectedKinds.length" type="button" icon="eye">
           {{ busy2 === 'plan' ? '预览中…' : '预览撤销' }}
-        </button>
-        <button @click="restore(false)" :disabled="!!busy2 || !selectedKinds.length"
-          :class="{ danger: armUndo }">
+        </JzButton>
+        <JzButton icon="undo" @click="restore(false)" :disabled="!!busy2 || !selectedKinds.length"
+          :class="{ danger: armUndo }" :variant="armUndo ? 'danger' : 'secondary'" type="button">
           {{ busy2 === 'exec' ? `撤销中 ${done2}/${total2}…` : (armUndo ? '确认执行撤销' : '执行撤销') }}
-        </button>
-        <button v-if="busy2" @click="cancelRestore">取消</button>
+        </JzButton>
+        <JzButton v-if="busy2" @click="cancelRestore" type="button">取消</JzButton>
         <span class="dim">{{ restoreMsg }}</span>
       </div>
       <p v-if="armUndo" class="hint warn-text">将按记录把上述文件反向搬回原路径（不改文件名）。再点一次执行。</p>
@@ -153,6 +153,10 @@
   </section>
 </template>
 <script setup>
+import AppIcon from './AppIcon.vue'
+
+import JzButton from './JzButton.vue'
+
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api.js'
 import {
@@ -397,73 +401,68 @@ onUnmounted(() => {
 </script>
 <style scoped>
 .lead { color: #999; font-size: 0.8125rem; line-height: 1.6; margin: 0 0 10px; }
-.hint { color: #777; font-size: 0.8125rem; margin: 6px 0; }
-.dim { color: #777; }
-.warn-text { color: #e0a63c; }
+.hint { color: var(--jz-text-faint); font-size: 0.8125rem; margin: 6px 0; }
+.dim { color: var(--jz-text-faint); }
+.warn-text { color: var(--jz-warn); }
 .bar { padding: 0; margin: 8px 0; flex-wrap: wrap; align-items: center; }
 .bar .dim { font-size: 0.8125rem; }
 
 /* 整理项目：折叠 + 自适应网格（每项独占一格，说明独立行不折标签） */
 .opts { border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); padding: 8px 10px; margin: 0 0 10px; }
-.opts summary { cursor: pointer; color: #bbb; font-size: 0.8125rem; }
+.opts summary { cursor: pointer; color: var(--jz-text-dim); font-size: 0.8125rem; }
 .opts summary .dim { margin-left: 8px; }
 .act-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px 18px; margin-top: 8px; }
 .act-item { display: flex; gap: 8px; align-items: flex-start; font-size: 0.8125rem; cursor: pointer; }
 .act-item input { margin-top: 3px; flex: none; }
 .act-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.act-text b { color: #ddd; font-weight: 500; white-space: nowrap; }
-.act-desc { color: #888; }
-.act-text code { color: #7fa8cc; font-size: 0.75rem; overflow-wrap: anywhere; }
+.act-text b { color: var(--jz-text); font-weight: 500; white-space: nowrap; }
+.act-desc { color: var(--jz-text-faint); }
+.act-text code { color: var(--jz-link); font-size: 0.75rem; overflow-wrap: anywhere; }
 
-.warn-box { color: #e0a63c; background: #241d0e; border: 1px solid #6b5410; border-radius: var(--jz-radius-m); padding: 8px 10px; font-size: 0.8125rem; margin: 0 0 10px; line-height: 1.6; }
-.abs-check { display: block; margin-top: 4px; color: #d8b25a; }
+.warn-box { color: var(--jz-warn); background: var(--jz-warn-soft); border: 1px solid var(--jz-warn-border); border-radius: var(--jz-radius-m); padding: 8px 10px; font-size: 0.8125rem; margin: 0 0 10px; line-height: 1.6; }
+.abs-check { display: block; margin-top: 4px; color: var(--jz-warn); }
 
 /* 结果 chips：按钮/状态分行，数字一目了然 */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
-.chip { font-size: 0.75rem; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-pill); padding: 1px 10px; color: #aaa; white-space: nowrap; }
-.chip.warn { color: var(--jz-warn); border-color: #6b5410; }
-.chip.act { color: var(--jz-link); border-color: #34506b; }
-.chip.dim { color: #777; }
-.chip.toggle { cursor: pointer; background: transparent; }
-.chip.toggle.on { color: var(--jz-green); border-color: #3a5a1e; }
-button.primary { background: #2b6cb0; border-color: #2b6cb0; color: #fff; }
-button.primary:hover:not(:disabled) { background: #3580cc; }
-button.primary:disabled { background: #333; border-color: #444; color: #777; }
-button.danger { border-color: #6e2b2b; color: #ff8a8a; }
-button.mini { font-size: 0.75rem; padding: 2px 10px; }
+.chip:not(button) { font-size: 0.75rem; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-pill); padding: 1px 10px; color: var(--jz-text-dim); white-space: nowrap; }
+.chip.warn { color: var(--jz-warn); border-color: var(--jz-warn-border); }
+.chip.act { color: var(--jz-link); border-color: var(--jz-info-border); }
+.chip.dim { color: var(--jz-text-faint); }
 
 .sec-head { display: flex; align-items: center; gap: 8px; margin: 12px 0 6px; }
-.sec-head h4 { margin: 0; font-size: 0.875rem; color: #ccc; }
+.sec-head h4 { margin: 0; font-size: 0.875rem; color: var(--jz-text); }
 
 /* 行卡片：剧名 + 动作 chips + 徽标；展开后明细 */
-.plan-card { border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); background: #1a1a1a; margin-bottom: 6px; }
-.plan-card:hover { border-color: #3a3a3a; }
+.plan-card { border: 1px solid var(--jz-border); border-radius: var(--jz-radius-m); background: var(--jz-surface); margin-bottom: 6px; }
+.plan-card:hover { border-color: var(--jz-border); }
 .card-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
 .card-head input { flex: none; }
-.card-title { color: #ddd; font-size: 0.875rem; }
-.card-body { padding: 4px 12px 10px 36px; border-top: 1px solid #262626; }
-.caret { color: #888; }
+.card-title { color: var(--jz-text); font-size: 0.875rem; }
+.card-body { padding: 4px 12px 10px 36px; border-top: 1px solid var(--jz-surface-3); }
+.caret { color: var(--jz-text-faint); }
 .group-line { margin: 6px 0 8px; }
-.g-title { color: #bbb; font-size: 0.8125rem; margin: 6px 0 2px; }
-.g-sample { color: #8a8a8a; font-size: 0.8125rem; padding-left: 12px; overflow-wrap: anywhere; }
-.g-sample .from { color: #9a9a9a; }
+.g-title { color: var(--jz-text-dim); font-size: 0.8125rem; margin: 6px 0 2px; }
+.g-sample { color: var(--jz-text-faint); font-size: 0.8125rem; padding-left: 12px; overflow-wrap: anywhere; }
+.g-sample .from { color: var(--jz-text-dim); }
 .g-sample .arrow { margin: 0 6px; }
-.g-sample .to { color: #cfcfcf; }
-.g-more { color: #666; font-size: 0.8125rem; padding-left: 12px; }
+.g-sample .to { color: var(--jz-text); }
+.g-more { color: var(--jz-text-faint); font-size: 0.8125rem; padding-left: 12px; }
 
 /* 仅提示区：默认折叠，一行一句人话 */
-.notes { margin-top: 12px; border-top: 1px dashed #3a3a3a; padding-top: 8px; }
-.notes summary { cursor: pointer; color: #bbb; font-size: 0.8125rem; }
-.note-row { border-bottom: 1px solid #242424; }
+.notes { margin-top: 12px; border-top: 1px dashed var(--jz-border); padding-top: 8px; }
+.notes summary { cursor: pointer; color: var(--jz-text-dim); font-size: 0.8125rem; }
+.note-row { border-bottom: 1px solid var(--jz-border); }
 .note-head { display: flex; gap: 8px; align-items: baseline; padding: 7px 2px; cursor: pointer; font-size: 0.8125rem; flex-wrap: wrap; }
-.note-head b { color: #ccc; font-weight: 500; }
-.note-head .dim { color: #888; }
+.note-head b { color: var(--jz-text); font-weight: 500; }
+.note-head .dim { color: var(--jz-text-faint); }
 .note-body { padding: 0 0 8px 20px; }
 
 .org-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; margin-top: 8px; }
 .org-table th, .org-table td { padding: 6px 8px; border-bottom: 1px solid var(--jz-border); text-align: left; vertical-align: top; }
-.org-table th { color: #888; font-weight: normal; }
+.org-table th { color: var(--jz-text-faint); font-weight: normal; }
 
 .undo { margin-top: 14px; border-top: 1px solid var(--jz-border); padding-top: 10px; }
-.undo summary { cursor: pointer; color: #bbb; }
+.undo summary { cursor: pointer; color: var(--jz-text-dim); }
+.card-head:focus-visible, .note-head:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 2px; }
+@media (max-width: 700px), (pointer: coarse) { .card-head, .note-head { min-height: var(--jz-touch-target); box-sizing: border-box; } }
 </style>

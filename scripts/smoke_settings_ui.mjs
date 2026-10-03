@@ -1,5 +1,5 @@
 // Real Vue UI + in-memory API fixtures. Never opens .env, backend, DB or media.
-// Run: node scripts/smoke_settings_ui.mjs [--capture-docs]
+// Run: node scripts/smoke_settings_ui.mjs [--capture-docs] [--player-only]
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
@@ -14,8 +14,9 @@ import { chromium } from '../docs/node_modules/playwright/index.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
-assert.ok(args.every(arg => arg === '--capture-docs'))
+assert.ok(args.every(arg => ['--capture-docs', '--player-only'].includes(arg)))
 const capture = args.includes('--capture-docs')
+const playerOnly = args.includes('--player-only')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-settings-ui-'))
 const dist = path.join(work, 'dist')
 const libs = [{ id: 1, name: '电影', kind: 'movie', subpath: '电影' }, { id: 2, name: '剧集', kind: 'tv', subpath: '剧集' }]
@@ -155,7 +156,7 @@ async function screenshot(page, name, doc, scene, { animations = 'disabled' } = 
   captured.push({ file, page: doc, scene, verified_at: new Date().toISOString().slice(0, 10),
     app_version: JSON.parse(await readFile(path.join(root, 'frontend/package.json'))).version,
     source_commit: execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
-    source_state: '设置导航与文件管理工作区改造', source: '真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体',
+    source_state: '跨端统一图标、按钮、文件管理与播放器工作区改造', source: '真实 Vue 界面 + 全 API 模拟；虚构资料，无真实配置、数据库或媒体',
     viewport: { ...page.viewportSize(), device_scale_factor: 1 }, recording_script: 'scripts/smoke_settings_ui.mjs --capture-docs',
     fixtures: 'scripts/smoke_settings_ui.mjs 内置内存数据', bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
 }
@@ -205,16 +206,16 @@ async function checkFileLoading(browser, base) {
   try {
     await page.goto(base + '/settings?sec=sec-files&library=1')
     await page.getByText('正在加载视频库…', { exact: true }).waitFor()
-    assert.equal(await page.locator('.library-load-state .ios-spin').isVisible(), true)
+    assert.equal(await page.locator('.library-load-state .jz-spinner').isVisible(), true)
     await noFalseEmpty()
     libraries.release()
-    await page.locator('.fs-table-area [role="status"] .ios-spin').waitFor()
+    await page.locator('.fs-table-area [role="status"] .jz-spinner').waitFor()
     await noFalseEmpty()
-    await page.waitForFunction(() => [...document.querySelectorAll('.fs-directory-state .ios-spin i')].every(el =>
+    await page.waitForFunction(() => document.querySelectorAll('.fs-directory-state .jz-spinner').length > 0 && [...document.querySelectorAll('.fs-directory-state .jz-spinner')].every(el =>
       getComputedStyle(el).animationName !== 'none' && Number(getComputedStyle(el).opacity) > 0))
     await screenshot(page, 'file-browser-loading', 'user-guide/files.md', '延迟模拟目录响应，展示首次进入文件管理的加载动画和提示', { animations: 'allow' })
     await page.emulateMedia({ reducedMotion: 'reduce' })
-    await page.waitForFunction(() => [...document.querySelectorAll('.fs-directory-state .ios-spin i')].every(el =>
+    await page.waitForFunction(() => document.querySelectorAll('.fs-directory-state .jz-spinner').length > 0 && [...document.querySelectorAll('.fs-directory-state .jz-spinner')].every(el =>
       getComputedStyle(el).animationName === 'none' && Number(getComputedStyle(el).opacity) > 0))
     await page.emulateMedia({ reducedMotion: 'no-preference' })
     directory.release()
@@ -313,9 +314,10 @@ try {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
   const base = `http://127.0.0.1:${server.address().port}`
   browser = await chromium.launch({ headless: true })
-  await checkFileLoading(browser, base)
+  if (!playerOnly) await checkFileLoading(browser, base)
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
   await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort())
+  if (!playerOnly) {
   const page = await context.newPage()
   page.setDefaultTimeout(12000)
   page.on('pageerror', e => errors.push(String(e)))
@@ -354,7 +356,7 @@ try {
   assert.equal(await views.getByRole('button', { name: '文件管理', exact: true }).count(), 0)
   await screenshot(page, 'file-tools-entry', 'user-guide/settings.md', '独立“管理文件”入口；工具标签只切换页内内容')
   const openFiles = page.getByRole('button', { name: '管理文件', exact: true })
-  const returnFiles = page.getByRole('button', { name: '← 返回扫描与整理', exact: true })
+  const returnFiles = page.getByRole('button', { name: '返回扫描与整理', exact: true })
   for (const view of ['资料维护', '还原位置']) {
     await views.getByRole('button', { name: view, exact: true }).click()
     await openFiles.click()
@@ -437,7 +439,12 @@ try {
   await movieRow.click()
   await selectionScreenshot(page, 'desktop-focus-and-checkbox')
   await movieRow.press('Escape')
+  // Focusing a folder changes the open action's label. Its width must stay stable:
+  // a toolbar wrap between mousedown and mouseup makes the checkbox miss its click.
+  const tableBeforeFolderFocus = await table.boundingBox()
   await table.locator('tbody tr').nth(0).locator('.fs-check-target').click()
+  assert.equal((await table.boundingBox()).y, tableBeforeFolderFocus.y, 'folder focus keeps the checkbox table in place')
+  await expectChecked(rowRels.slice(0, 1))
   await table.locator('tbody tr').nth(2).locator('.fs-check-target').click({ modifiers: ['Shift'] })
   await expectChecked(rowRels.slice(0, 3))
   await table.locator('tbody tr').nth(2).locator('.fs-check-target').click({ modifiers: ['Shift'] })
@@ -688,6 +695,7 @@ try {
   await page.waitForURL(/sec=sec-sync/)
   await page.getByText(/^扫描完成：/).first().waitFor()
   assert.equal(await page.evaluate(() => sessionStorage.getItem('jzmedia.files.origin.v1')), null)
+  }
   // Exercise the actual player in preview and ordinary modes, including the
   // parent saveFinal path, timeupdate/ended and the native beforeunload event.
   const playerPage = await context.newPage()
@@ -699,6 +707,69 @@ try {
   await playerPage.getByText('文件预览 · 不记录观看进度', { exact: true }).waitFor()
   await playerPage.waitForFunction(() => document.querySelector('video')?.readyState >= 2)
   assert.equal(await playerPage.locator('.resume-bar').count(), 0)
+  // The narrow toolbar keeps every action reachable without shrinking touch targets.
+  const playerChecks = []
+  const playerArtifacts = path.join(root, 'output/playwright/design-player')
+  await mkdir(playerArtifacts, { recursive: true })
+  for (const width of [1440, 390, 375, 320]) {
+    await playerPage.setViewportSize({ width, height: width > 700 ? 1000 : 844 })
+    const controls = await playerPage.locator('.pv-ctl').evaluate(element => {
+      const outer = element.getBoundingClientRect()
+      return [...element.querySelectorAll('button')].filter(button => button.checkVisibility()).map(button => {
+        const rect = button.getBoundingClientRect()
+        return { label: button.getAttribute('aria-label') || button.textContent.trim(),
+          width: rect.width, height: rect.height, inside: rect.left >= outer.left - 1 && rect.right <= outer.right + 1 }
+      })
+    })
+    assert.ok(controls.every(button => button.inside), `${width}px player toolbar must not clip controls: ${JSON.stringify(controls)}`)
+    if (width <= 700) assert.ok(controls.every(button => button.width >= 43.5 && button.height >= 43.5), JSON.stringify(controls))
+    await playerPage.getByRole('button', { name: '播放设置', exact: true }).click()
+    const panel = playerPage.getByRole('region', { name: '播放设置', exact: true })
+    await panel.waitFor()
+    const bounds = await panel.evaluate(element => ({ width: element.clientWidth, scroll: element.scrollWidth }))
+    assert.ok(bounds.scroll <= bounds.width + 1, `${width}px settings must not overflow`)
+    await panel.getByRole('button', { name: '1.5×', exact: true }).click()
+    assert.equal(await playerPage.locator('video').evaluate(video => video.playbackRate), 1.5)
+    if (width <= 700) {
+      const small = await panel.locator('button').evaluateAll(buttons => buttons.filter(button => button.checkVisibility()).map(button => {
+        const rect = button.getBoundingClientRect()
+        return { label: button.textContent.trim(), width: rect.width, height: rect.height }
+      }).filter(button => button.width < 43.5 || button.height < 43.5))
+      assert.deepEqual(small, [])
+    }
+    await playerPage.screenshot({ path: path.join(playerArtifacts, `settings-${width}.png`), animations: 'disabled' })
+    if (width === 1440) await screenshot(playerPage, 'player-settings', 'user-guide/playback-controls.md', '合成视频预览中的统一播放器设置与六档倍速；不操作真实片源')
+    await playerPage.getByRole('button', { name: '关闭设置', exact: true }).click()
+    await playerPage.screenshot({ path: path.join(playerArtifacts, `controls-${width}.png`), animations: 'disabled' })
+    if (width === 390) await screenshot(playerPage, 'mobile-player', 'user-guide/playback-controls.md', '390px手机模拟：44px主控、时间独立一行、倍速从设置进入；合成视频')
+    playerChecks.push({ width, controls, settings: bounds, rate: 1.5 })
+  }
+  await playerPage.getByRole('button', { name: '全屏', exact: true }).click()
+  await playerPage.waitForFunction(() => document.fullscreenElement)
+  await playerPage.getByRole('button', { name: '播放设置', exact: true }).click()
+  await playerPage.getByRole('region', { name: '播放设置', exact: true }).waitFor()
+  assert.equal(await playerPage.getByRole('button', { name: '播放设置', exact: true }).count(), 1)
+  await playerPage.getByRole('button', { name: '关闭设置', exact: true }).click()
+  await playerPage.locator('.ctl-options').getByRole('button', { name: '退出全屏', exact: true }).click()
+  await playerPage.waitForFunction(() => !document.fullscreenElement)
+  const touchContext = await browser.newContext({ viewport: { width: 320, height: 844 }, hasTouch: true, serviceWorkers: 'block' })
+  await touchContext.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort())
+  const touchPage = await touchContext.newPage()
+  touchPage.on('pageerror', error => errors.push(String(error)))
+  await touchPage.goto(base + '/player-harness.html')
+  await touchPage.getByRole('button', { name: '打开预览播放器', exact: true }).tap()
+  await touchPage.waitForFunction(() => document.querySelector('video')?.readyState >= 2)
+  await touchPage.getByRole('button', { name: '播放设置', exact: true }).tap()
+  await touchPage.getByRole('button', { name: '2×', exact: true }).tap()
+  assert.equal(await touchPage.locator('video').evaluate(video => video.playbackRate), 2)
+  await touchPage.getByRole('button', { name: '关闭设置', exact: true }).tap()
+  await touchPage.getByRole('button', { name: '静音', exact: true }).tap()
+  assert.equal(await touchPage.locator('video').evaluate(video => video.muted), true)
+  await touchPage.getByRole('button', { name: '关闭播放器', exact: true }).tap()
+  await touchPage.locator('.player-dlg').waitFor({ state: 'hidden' })
+  await touchContext.close()
+  await writeFile(path.join(playerArtifacts, 'checks.json'), JSON.stringify({ mocked: true, syntheticMedia: true,
+    deviceScaleFactor: 1, playerChecks, fullscreenSettings: true, coarsePointer320: ['tap settings', 'tap 2×', 'tap mute', 'tap close'] }, null, 2) + '\n')
   await playerPage.evaluate(() => {
     const video = document.querySelector('video')
     video.pause()
@@ -740,7 +811,7 @@ try {
     manifest.assets = manifest.assets.filter(entry => !names.has(entry.file)).concat(captured)
     await writeFile(filename, JSON.stringify(manifest, null, 2) + '\n')
   }
-  console.log('PASS settings: startup loading/error/retry/empty states, independent directory loading, navigation, matching drafts/order/search, complete file listing, independent row focus and explicit checkbox selection, 40px/44px checkbox targets, keyboard/range/mixed selection, context menu copy targets, preview selection preservation, rename, leave guard, accepted cross-media navigation, scoped scan, mobile menu, real player preview/normal progress lifecycle')
+  console.log(playerOnly ? 'PASS player: 1440/390/375/320px controls, 44px targets, settings/rate, fullscreen, preview/normal progress lifecycle' : 'PASS settings: startup loading/error/retry/empty states, independent directory loading, navigation, matching drafts/order/search, complete file listing, independent row focus and explicit checkbox selection, 40px/44px checkbox targets, keyboard/range/mixed selection, context menu copy targets, preview selection preservation, rename, leave guard, accepted cross-media navigation, scoped scan, mobile menu, real player preview/normal progress lifecycle')
 } finally {
   if (browser) await browser.close()
   if (server) await new Promise(resolve => server.close(resolve))

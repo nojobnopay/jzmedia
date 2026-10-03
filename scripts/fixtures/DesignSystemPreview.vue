@@ -22,9 +22,7 @@
         <JzButton size="compact" variant="primary">紧凑主按钮</JzButton>
         <JzButton size="compact" variant="ghost" aria-label="更多操作"><AppIcon name="more" /></JzButton>
       </div>
-      <div class="preview-icons" aria-label="图标目录">
-        <div v-for="name in icons" :key="name"><AppIcon :name="name" /><code>{{ name }}</code></div>
-      </div>
+
     </section>
 
     <section aria-labelledby="forms-title" class="preview-section">
@@ -67,6 +65,7 @@
       </div>
       <p class="preview-description">键盘检查：打开弹窗后按 Tab / Shift+Tab，再按 Esc 返回触发按钮。</p>
     </section>
+    <DesignAssetCatalogue />
   </main>
 
   <JzDialog v-if="dialogOpen" :size="dialogSize" :busy="busy" title="确认演示设置" @close="closeDialog">
@@ -93,8 +92,8 @@ import JzDialog from '../../frontend/src/components/JzDialog.vue'
 import JzField from '../../frontend/src/components/JzField.vue'
 import AppIcon from '../../frontend/src/components/AppIcon.vue'
 import EmptyState from '../../frontend/src/components/EmptyState.vue'
+import DesignAssetCatalogue from './DesignAssetCatalogue.vue'
 
-const icons = ['close', 'back', 'forward', 'refresh', 'search', 'more', 'folder', 'chevron-down', 'check', 'warning']
 const libraryName = ref('家庭电影'), saved = ref(false), retryCount = ref(0)
 const dialogOpen = ref(false), dialogSize = ref('medium'), busy = ref(false), nestedOpen = ref(false)
 function openDialog(size, working = false) {

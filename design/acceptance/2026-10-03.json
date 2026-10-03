@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-03",
+  "revision": 2,
+  "checks": [
+    {
+      "target": "repository design masters and exports",
+      "environment": "Python 3 / locked CairoSVG 2.9.1 and Pillow 12.3.0",
+      "density": "vectors; PNG/ICO dimensions verified directly",
+      "status": "passed",
+      "command": ".venv/bin/python scripts/build_design.py --check --render-brand",
+      "screenshots": [],
+      "limitations": "验证生成一致性与像素尺寸，不代表浏览器或电视交互验收。",
+      "result": "29项资产测试、2项前端启动更新检测回归、相关pyflakes及完整render生成一致性/像素尺寸检查通过。"
+    },
+    {
+      "target": "Android TV banner",
+      "environment": "generated 320x180 PNG visual review",
+      "density": "xhdpi, 160x90dp",
+      "status": "passed",
+      "screenshots": [
+        "android-tv/app/src/main/res/drawable-xhdpi/tv_banner.png"
+      ],
+      "limitations": "仅静态图形；远距离辨识仍须真实电视验收。"
+    },
+    {
+      "target": "physical Android TV",
+      "environment": "not connected",
+      "density": "unknown until physical-device review",
+      "status": "pending",
+      "screenshots": [],
+      "limitations": "须记录型号、Android API、实际density、1080p/4K、1.3字号及方向键/确定/返回。"
+    },
+    {
+      "target": "Web page baseline and migration",
+      "environment": "Chromium / isolated mocked API and original fixture artwork; 1440, 390, 375 CSS px",
+      "density": "deviceScaleFactor=1",
+      "status": "passed",
+      "command": "node scripts/ui_visual_review.mjs --capture-docs; node scripts/ui_visual_review.mjs --gallery-only --before-label design-before",
+      "result": "105/105 scenes; 0 layout/runtime issues; 105 comparable before/after pairs",
+      "fixture_sha256": "4f1c53e6806d94bf42f093448c1fc201cc2f99bb673539dcd61b4831ca841261",
+      "before_source_sha256": "6da60f0621a786501ee87a5f91cb4b9a100577771bce3af771448467b68d87ea",
+      "after_source_sha256": "7896e7b18e5ab8cf768cf63d1f98925797508411b5488b7d52e0a09e08e8226a",
+      "screenshots": [
+        "output/playwright/ui-review/index.html",
+        "output/playwright/ui-review/comparisons.json"
+      ],
+      "limitations": "截图使用虚构资料和模拟 API；不代表真实媒体扫描、整理或外部资料服务已验收。输出目录不提交，可用同脚本重新生成。"
+    },
+    {
+      "target": "Web component catalogue and button contracts",
+      "environment": "Chromium / real Vue components in isolated catalogue; 1440, 390, 375 CSS px",
+      "density": "deviceScaleFactor=1",
+      "status": "passed",
+      "command": "node scripts/smoke_design_system.mjs --capture",
+      "result": "资产数量与检索、按钮各状态、提交、44px 手机触摸目标、Teleport 样式、嵌套弹窗、焦点返回与忙碌关闭保护通过",
+      "screenshots": [
+        "output/playwright/design-system/manifest.json",
+        "output/playwright/design-system/playback-icons-1440.png"
+      ],
+      "limitations": "源码需求中的尺寸是规范；浏览器测量只覆盖脚本登记的组件和页面状态。"
+    },
+    {
+      "target": "Web files and player lifecycle",
+      "environment": "Chromium / mocked API plus temporary FFmpeg synthetic media; player 1440, 390, 375, 320 CSS px; additional hasTouch=true 320px context",
+      "density": "deviceScaleFactor=1",
+      "status": "passed",
+      "command": "node scripts/smoke_settings_ui.mjs --capture-docs",
+      "result": "文件选择/键盘/菜单/预览/退出守卫、加载与减少动画、播放器窗口及全屏设置、倍速、关闭停播、预览与正常播放进度隔离通过；390/375/320 六个核心播放按钮实测均为44x44 CSS px；触屏设置/2倍速/静音/关闭通过",
+      "screenshots": [
+        "output/playwright/design-player/checks.json",
+        "output/playwright/design-player/controls-320.png",
+        "output/playwright/design-player/settings-320.png",
+        "docs/assets/screenshots/mobile-player.webp",
+        "docs/assets/screenshots/player-settings.webp"
+      ],
+      "limitations": "合成媒体用于生命周期回归，不能代表所有真实编码、网络、HDR、ASS/PGS 场景；现有字幕单元回归另随完整前端测试执行。"
+    },
+    {
+      "target": "Web automated checks",
+      "environment": "Node.js / frontend",
+      "density": "not applicable",
+      "status": "passed",
+      "command": "npm test; npm run lint; npm run build",
+      "result": "53 test files passed; lint 0 errors / 2 existing console.warn warnings; production build passed",
+      "screenshots": [],
+      "limitations": "既有 hls.js 大块提示保留；本轮不更改播放依赖与分包。"
+    },
+    {
+      "target": "Help site brand and tutorial resources",
+      "environment": "VitePress / Chromium desktop and 390 CSS px; 40 public pages",
+      "density": "deviceScaleFactor=1",
+      "status": "passed",
+      "command": "npm --prefix docs run build; npm --prefix docs run check; npm --prefix docs test; npm --prefix docs run test:browser",
+      "result": "40页链接/锚点/图片/公共边界/SSR/CSP、离线资源、无JS正文、搜索、图片放大与焦点、视频延迟加载通过；52项素材清单哈希全部一致",
+      "screenshots": [
+        "docs/assets/screenshots/movie-library.webp",
+        "docs/assets/screenshots/movie-detail.webp",
+        "docs/assets/screenshots/tv-season.webp",
+        "docs/assets/screenshots/file-browser-mobile.webp"
+      ],
+      "limitations": "本轮更新受影响的25项截图，未重新拍摄的历史教程素材沿用各自来源和核对日期。"
+    },
+    {
+      "target": "Android TV automated checks",
+      "environment": "JDK 21 / locked Android Gradle project; offline SDK 36 and Gradle caches",
+      "density": "not applicable",
+      "status": "passed",
+      "command": "./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:assembleRelease --offline",
+      "result": "最终源码89项JVM测试全部通过；Lint 0错误、26项既有警告、16项Hint；Debug和未签名Release构建成功。Debug SHA-256 146f6c0d15fea795d357a2a893390c58b7cd2981dac45eee276cf24cc4df5447",
+      "screenshots": [],
+      "limitations": "APK版本保持0.5.0-dev/versionCode 8；未正式签名或发布。日志及APK散列记录在output/android-tv/design-system/。"
+    },
+    {
+      "target": "Android TV final APK emulator",
+      "environment": "sdk_google_atv_x86 / Android API 28 / JzMedia_TV28; synthetic API only",
+      "density": "1280×720 physical px; 213 dpi (~961.5×540.8 dp); font_scale 1.0 and 1.3",
+      "status": "passed",
+      "result": "已安装最终APK 146f6c0d15fea795d357a2a893390c58b7cd2981dac45eee276cf24cc4df5447；1.3字号长季名、季卡统计与聚焦边框完整；120项选集含合并集、续播/已看与白底焦点；方向/确定进入第2集后返回恢复同一按钮。最后恢复1.0字号复查分集布局。",
+      "screenshots": [
+        "output/android-tv/design-system/accepted-final-font130-state.png",
+        "output/android-tv/design-system/accepted-final-font130-season-focus.png",
+        "output/android-tv/design-system/accepted-final-font130-episodes.png",
+        "output/android-tv/design-system/accepted-final-font130-episode-return.png",
+        "output/android-tv/design-system/accepted-final-font100-episodes.png"
+      ],
+      "limitations": "软件模拟器/no-audio；不代表红米真机、1080p/4K实际设备密度、远距离辨识、系统中文输入或听感。演员缺图与全部筛选组合未逐项最终手工复验；JVM图片回退/导航回归已通过。"
+    },
+    {
+      "target": "Android TV candidate playback and search",
+      "environment": "API 28 same isolated emulator and synthetic fixture; candidate APK 5a41c8b18f55cf2eb4e80703e72814017462307b25205f83a3a8a5b10a8979e0",
+      "density": "1280×720 px / 213 dpi; font_scale 1.0 and 1.3",
+      "status": "passed",
+      "result": "方向键SQ输入与详情返回、合成MP4/中文字幕/暂停图标、播放退出回到播放按钮、1.3搜索键盘与长库名省略均已检查。",
+      "screenshots": [
+        "output/android-tv/design-system/final-search-results.png",
+        "output/android-tv/design-system/final-detail.png",
+        "output/android-tv/design-system/final-player-controls.png",
+        "output/android-tv/design-system/final-playback-return-detail.png",
+        "output/android-tv/design-system/final-search-return.png",
+        "output/android-tv/design-system/font130-search.png",
+        "output/android-tv/design-system/font130-long-library.png"
+      ],
+      "limitations": "这些场景拍摄于最终卡片标题高度修正之前；不能当作最终APK整套重测证据。最终APK的季卡/选集/焦点检查另列。"
+    }
+  ]
+}

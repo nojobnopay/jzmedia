@@ -4,21 +4,21 @@
     <p class="hint">以下操作仅作用于「{{ library.name }}」。</p>
 
     <div class="bar">
-      <button @click="doTvScrape(false)" :disabled="!!busy">
+      <JzButton class="tool-action" icon="refresh" @click="doTvScrape(false)" :disabled="!!busy" type="button">
         {{ busy === 'tv' ? `剧集刮削中 ${tvDone}/${tvTotal}…` : '补全缺失剧集资料' }}
-      </button>
-      <button @click="doTvScrape(true)" :disabled="!!busy">重新获取全部剧集资料</button>
-      <button v-if="busy === 'tv'" @click="cancelTv">取消</button>
+      </JzButton>
+      <JzButton class="tool-action" @click="doTvScrape(true)" :disabled="!!busy" type="button">重新获取全部剧集资料</JzButton>
+      <JzButton v-if="busy === 'tv'" @click="cancelTv" type="button">取消</JzButton>
       <span>{{ tvMsg }}</span>
     </div>
     <details class="settings-details"><summary>资料更新会影响哪些内容</summary><p class="hint">获取剧、季、集资料与海报，更新应用内资料。未匹配剧集和不一致的集号可在详情页核对。</p></details>
 
     <div class="bar">
-      <button @click="doTvNfo(false)" :disabled="!!busy">
+      <JzButton class="tool-action" @click="doTvNfo(false)" :disabled="!!busy" type="button">
         {{ busy === 'tvnfo' ? `写 NFO 中 ${tvNfoDone}/${tvNfoTotal}…` : '重写剧集 NFO 与海报' }}
-      </button>
-      <button @click="doTvNfo(true)" :disabled="!!busy">预览写入清单</button>
-      <button v-if="busy === 'tvnfo'" @click="cancelTvNfo">取消</button>
+      </JzButton>
+      <JzButton class="tool-action" @click="doTvNfo(true)" :disabled="!!busy" type="button" icon="eye">预览写入清单</JzButton>
+      <JzButton v-if="busy === 'tvnfo'" @click="cancelTvNfo" type="button">取消</JzButton>
       <span>{{ tvNfoMsg }}</span>
     </div>
     <details class="settings-details"><summary>NFO 与海报写入规则</summary><p class="hint">向媒体目录写入剧集与季 NFO，是否写海报取决于视频库设置。远程库默认不写逐集 NFO；此操作不移动或重命名视频。</p></details>
@@ -26,6 +26,8 @@
   </section>
 </template>
 <script setup>
+import JzButton from './JzButton.vue'
+
 import PreviewMaintenance from './PreviewMaintenance.vue'
 import { onUnmounted, ref } from 'vue'
 import { api } from '../api.js'

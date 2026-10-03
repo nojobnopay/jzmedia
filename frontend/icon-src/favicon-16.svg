@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
-  <!-- 正红 16px 特调版：去描边、笔画加粗、像素对齐 -->
-  <rect x="0" y="0" width="16" height="16" rx="3.5" fill="#e50914"/>
-  <path d="M6 3.5 V9.5 Q6 12.5 9.5 12.5 Q11.5 12.5 12 10.8" stroke="#ffffff" stroke-width="3" stroke-linecap="round" fill="none"/>
-  <path d="M9 5 L13.5 8 L9 11 Z" fill="#ffd60a"/>
-</svg>

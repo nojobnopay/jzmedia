@@ -10,32 +10,36 @@
         <div class="bar"><input v-model="f.tags" placeholder="标签，逗号分隔" style="flex:1" list="taglist" /></div>
         <datalist id="taglist"><option v-for="t in allTags" :key="t.value" :value="t.value" /></datalist>
         <div class="bar"><textarea v-model="f.overview_override" placeholder="简介覆盖（留空用刮削简介）" rows="3" style="flex:1"></textarea></div>
-        <div class="bar"><button @click="save">保存</button><button @click="cancelEdit">取消</button><span>{{ msg }}</span></div>
+        <div class="bar"><JzButton @click="save" type="button">保存</JzButton><JzButton @click="cancelEdit" type="button">取消</JzButton><span>{{ msg }}</span></div>
         </template>
         <template v-else>
         <h3>手动匹配 <span v-if="movie.tmdb_id">(当前TMDB {{ movie.tmdb_id }})</span></h3>
         <HelpLink page="user-guide/metadata" label="修正影片资料的图解" />
         <div class="bar">
           <input v-model="mq" placeholder="输入片名查找资料" aria-label="搜索匹配" style="flex:1" />
-          <button @click="tmdbSearch" :disabled="searching || !!bindingId"><Spinner v-if="searching" />{{ searching ? '搜索中…' : '搜索匹配' }}</button>
+          <JzButton @click="tmdbSearch" :disabled="searching || !!bindingId" type="button"><Spinner v-if="searching" />{{ searching ? '搜索中…' : '搜索匹配' }}</JzButton>
         </div>
         <ul>
           <li v-for="c in cands" :key="candKey(c)">
             <span class="src-badge">{{ c.source ? srcLabel(c.source) : 'TMDB' }}</span>
             {{ c.title }} ({{ (c.release_date || c.year || '').toString().slice(0, 4) }})
-            <template v-if="c.vote_average != null">★{{ c.vote_average }}</template>
-            <button v-if="c.tmdb_id" @click="bindMatch(c.tmdb_id)" :disabled="!!bindingId"><Spinner v-if="bindingId === c.tmdb_id" />{{ bindingId === c.tmdb_id ? '绑定中…' : '绑定' }}</button>
-            <button v-else-if="isExternal(c)" @click="bindExternal(c)" :disabled="!!bindingId"><Spinner v-if="bindingId === candKey(c)" />{{ bindingId === candKey(c) ? '绑定中…' : '绑定外源' }}</button>
+            <span v-if="c.vote_average != null"><AppIcon name="star-filled" :size="14" />{{ c.vote_average }}</span>
+            <JzButton v-if="c.tmdb_id" @click="bindMatch(c.tmdb_id)" :disabled="!!bindingId" type="button"><Spinner v-if="bindingId === c.tmdb_id" />{{ bindingId === c.tmdb_id ? '绑定中…' : '绑定' }}</JzButton>
+            <JzButton v-else-if="isExternal(c)" @click="bindExternal(c)" :disabled="!!bindingId" type="button"><Spinner v-if="bindingId === candKey(c)" />{{ bindingId === candKey(c) ? '绑定中…' : '绑定外源' }}</JzButton>
           </li>
         </ul>
         <AiMatchSuggestions kind="movie" :item-id="movieId" :disabled="searching || !!bindingId" :already-matched="!!movie.tmdb_id || !!movie.match_source" @select="selectAiMatch" />
         <p class="fhint">候选来源：TMDB 无凭据/不可用时自动回退本地索引、Wikidata、TVmaze（剧）、Bangumi 与 NFO；外源绑定不依赖 TMDB Token。</p>
-        <p v-if="msg" role="status">{{ msg }}</p><button @click="cancelEdit">收起匹配</button>
+        <p v-if="msg" role="status">{{ msg }}</p><JzButton @click="cancelEdit" type="button">收起匹配</JzButton>
         </template>
       </section>
 </template>
 
 <script setup>
+import AppIcon from './AppIcon.vue'
+
+import JzButton from './JzButton.vue'
+
 import AiMatchSuggestions from './AiMatchSuggestions.vue'
 import { isAiExternalCandidate } from '../aiMatch.js'
 import HelpLink from './HelpLink.vue'

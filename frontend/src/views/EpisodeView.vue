@@ -13,7 +13,7 @@
       <div class="hero-inner">
         <img v-if="ep.still_path" class="hero-still" :src="stillUrl(ep)" alt=""
           @error="ep.still_path = ''" />
-        <div v-else class="hero-still hero-no-still" aria-hidden="true">{{ (ep.title || ep.show_title || '?').slice(0, 1) }}</div>
+        <ArtworkPlaceholder v-else class="hero-still hero-no-still" kind="poster" :label="ep.title || ep.show_title" />
         <div class="hero-body">
           <div class="hero-heading">
             <p class="eyebrow">{{ ep.show_title }} · {{ epNo(ep) }}</p>
@@ -22,46 +22,46 @@
             <div class="meta">
               <span v-if="ep.air_date">{{ ep.air_date }}</span>
               <span v-if="ep.runtime">{{ ep.runtime }} 分钟</span>
-              <span v-if="ep.watched" class="seen-tag">✓已看</span>
+              <span v-if="ep.watched" class="seen-tag"><AppIcon name="check" :size="14" />已看</span>
               <span v-if="ep.needs_review" class="review-badge">未匹配集号</span>
               <span v-if="ep.local_only" class="local-badge">本地集</span>
             </div>
           </div>
           <div class="acts">
-            <button v-if="ep.exists" class="primary" @click="play">
+            <JzButton v-if="ep.exists" class="primary" @click="play" type="button" variant="primary">
               <PlayerIcon name="play" :size="20" /> {{ ep.progress ? '继续播放' : '播放' }}
-            </button>
+            </JzButton>
             <span v-else class="dim">文件缺失</span>
-            <button @click="toggleWatched">{{ ep.watched ? '标记未看' : '标记已看' }}</button>
+            <JzButton @click="toggleWatched" type="button">{{ ep.watched ? '标记未看' : '标记已看' }}</JzButton>
             <ActionMenu>
-              <button @click="pickOpen = !pickOpen">{{ pickOpen ? '收起集号匹配' : '修正集号匹配' }}</button>
+              <JzButton @click="pickOpen = !pickOpen" type="button" variant="ghost" icon="match">{{ pickOpen ? '收起集号匹配' : '修正集号匹配' }}</JzButton>
             </ActionMenu>
           </div>
           <MediaOverview :text="ep.overview || ''" />
           <nav v-if="prevEp || nextEp" class="episode-navigation" aria-label="切换剧集">
-            <button v-if="prevEp" @click="goEpisode(prevEp)">‹ 上一集 {{ epNo(prevEp) }}</button>
-            <button v-if="nextEp" @click="goEpisode(nextEp)">下一集 {{ epNo(nextEp) }} ›</button>
+            <JzButton v-if="prevEp" @click="goEpisode(prevEp)" type="button" icon="back">上一集 {{ epNo(prevEp) }}</JzButton>
+            <JzButton v-if="nextEp" @click="goEpisode(nextEp)" type="button" icon="forward">下一集 {{ epNo(nextEp) }}</JzButton>
           </nav>
           <EmptyState v-if="loadError" state="error" title="分集刷新失败" :text="loadError" retry @retry="load" />
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
           <div v-if="ep.needs_review && !pickOpen" class="review-notice">
-            <span>此集尚未匹配到集名和简介</span><button @click="pickOpen = true">匹配集号</button>
+            <span>此集尚未匹配到集名和简介</span><JzButton @click="pickOpen = true" type="button" icon="match">匹配集号</JzButton>
           </div>
           <div v-if="pickOpen" class="match card-block">
             <div class="bar match-bar">
               <span>为 <b>{{ epNo(ep) }}</b> 指定 TMDB 集（本地集号不变，只取元数据）</span>
               <label>季号 <input v-model.number="pickSeason" type="number" min="0" style="width: 72px" /></label>
-              <button :disabled="searching" @click="loadCandidates">查询该季</button>
+              <JzButton :disabled="searching" @click="loadCandidates" type="button">查询该季</JzButton>
             </div>
             <div class="bar match-bar">
               <span class="dim">TMDB 确实没有这一集：</span>
               <input v-model="localTitle" aria-label="本地集名" placeholder="本地集名（可选）" style="width: 220px" />
-              <button @click="confirmLocal">确认无对应集</button>
+              <JzButton @click="confirmLocal" type="button">确认无对应集</JzButton>
             </div>
             <div v-for="c in candidates" :key="c.tmdb_episode_id" class="mrow">
               <span class="mname">S{{ pad(c.season) }}E{{ pad(c.episode) }} · {{ c.title }}</span>
               <span class="dim">{{ c.air_date }}</span>
-              <button @click="bindEpisode(c)">匹配此集</button>
+              <JzButton @click="bindEpisode(c)" type="button" icon="match">匹配此集</JzButton>
             </div>
             <div v-if="searchedCand && !candidates.length" class="dim">该季没有候选</div>
           </div>
@@ -82,6 +82,12 @@
 </template>
 
 <script setup>
+import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
+
+import AppIcon from '../components/AppIcon.vue'
+
+import JzButton from '../components/JzButton.vue'
+
 import EmptyState from '../components/EmptyState.vue'
 import { followingPlayback } from '../episodePlayback.js'
 import PlayerIcon from '../components/PlayerIcon.vue'

@@ -2,12 +2,12 @@
   <section :id="active ? 'sec-pipeline' : undefined" class="workflow-panel">
     <div class="library-tools-header"><div class="tool-views" aria-label="视频库工具">
       <button v-for="view in toolViews" :key="view.key" :class="{ on: toolView === view.key }"
-        :aria-pressed="toolView === view.key" @click="chooseView(view.key)">{{ view.label }}</button>
-    </div><button type="button" class="open-library-files" @click="openFiles">管理文件</button></div>
+        :aria-pressed="toolView === view.key" @click="chooseView(view.key)"><AppIcon :name="view.key === 'workflow' ? 'organize' : view.key === 'restore' ? 'history' : 'settings'" :size="18" />{{ view.label }}</button>
+    </div><JzButton type="button" class="open-library-files" @click="openFiles" icon="folder">管理文件</JzButton></div>
     <div v-show="toolView === 'workflow'">
     <div class="status-line">
       <span v-if="pendingTotal" class="chip warn">待处理 {{ pendingTotal }}</span>
-      <span v-else-if="pendingLoaded" class="chip ok">✓ 无待匹配</span>
+      <span v-else-if="pendingLoaded" class="chip ok"><AppIcon name="check" :size="16" />无待匹配</span>
       <span v-if="orgCount" class="chip warn">可归档 {{ orgCount }}</span>
       <span v-if="missing.length" class="chip warn">失效 {{ missing.length }}</span>
       <span v-if="!tab.enabled" class="chip warn">库已停用：扫描/写入被跳过</span>
@@ -22,16 +22,16 @@
       <div v-show="openStep === 'scan'" class="pipe-body">
         <p class="hint">读取新影片并匹配资料，同时移除文件已不存在的记录。</p>
         <div class="bar">
-          <button class="primary" @click="startScan" :disabled="!!busy || scanBlocked || !tab.enabled">
+          <JzButton class="primary tool-action" @click="startScan" :disabled="!!busy || scanBlocked || !tab.enabled" type="button" variant="primary" icon="scan">
             {{ scanRunning ? '扫描中…' : '扫描新文件' }}
-          </button>
-          <button v-if="scanRunning" @click="cancelScan">取消扫描</button>
+          </JzButton>
+          <JzButton v-if="scanRunning" @click="cancelScan" type="button">取消扫描</JzButton>
           <span>{{ scanMsg }}</span>
-          <button v-if="scanStateText === '完成'" @click="toggleStep('pending')">核对匹配结果 →</button>
+          <JzButton v-if="scanStateText === '完成'" @click="toggleStep('pending')" type="button" icon="match">核对匹配结果</JzButton>
         </div>
         <div class="bar">
-          <button @click="loadMissing()" :disabled="!!busy || missingLoading">{{ missingLoading ? '检查中…' : '检查失效条目' }}</button>
-          <button v-if="missing.length" @click="scanOpen = !scanOpen">{{ scanOpen ? '收起清单' : '展开清单' }}</button>
+          <JzButton class="tool-action" @click="loadMissing()" :disabled="!!busy || missingLoading" type="button" icon="eye">{{ missingLoading ? '检查中…' : '检查失效条目' }}</JzButton>
+          <JzButton v-if="missing.length" @click="scanOpen = !scanOpen" type="button">{{ scanOpen ? '收起清单' : '展开清单' }}</JzButton>
           <span v-if="missing.length">共 {{ missing.length }} 条失效</span>
 
           <span>{{ cleanMsg }}</span>
@@ -40,10 +40,10 @@
           <div class="lib-group-head">
             <b>失效条目</b>
             <span class="fhint">{{ missing.length }} 条</span>
-            <button @click="toggleMissing">{{ allMissingChecked ? '全不选' : '全选' }}</button>
-            <button @click="doClean(checkedMissing)" :disabled="!!busy || !checkedMissing.length">
+            <JzButton @click="toggleMissing" type="button">{{ allMissingChecked ? '全不选' : '全选' }}</JzButton>
+            <JzButton @click="doClean(checkedMissing)" :disabled="!!busy || !checkedMissing.length" type="button" icon="delete">
               {{ busy === 'clean' ? '清理中…' : `移除失效记录 (${checkedMissing.length})` }}
-            </button>
+            </JzButton>
           </div>
           <ul class="miss-list">
             <li v-for="m in seeMore" :key="m.id" class="miss-row">
@@ -52,7 +52,7 @@
               <span class="miss-path">{{ m.file_path }}</span>
             </li>
             <li v-if="missing.length > COLLAPSE_N" class="miss-row collapse-row">
-              <button @click="missExpand = !missExpand">{{ missExpand ? '收起' : `展开全部 (${missing.length})` }}</button>
+              <JzButton @click="missExpand = !missExpand" type="button">{{ missExpand ? '收起' : `展开全部 (${missing.length})` }}</JzButton>
             </li>
           </ul>
         </div>
@@ -63,17 +63,17 @@
       <button type="button" class="pipe-head pipe-toggle" :aria-expanded="openStep === 'pending'" @click="toggleStep('pending')">
         <span class="step-title"><span class="step-no">②</span> 核对匹配 <span v-if="pendingTotal" class="nav-badge">{{ pendingTotal }}</span></span>
         <span class="fhint">{{ openStep === 'pending' ? '收起' : '展开' }}</span>
-        <span class="step-state" :class="{ ok: !pendingTotal && pendingLoaded }">{{ pendingTotal ? `${pendingTotal} 项待处理` : (pendingLoaded ? '✓ 全部已匹配' : '') }}</span>
+        <span class="step-state" :class="{ ok: !pendingTotal && pendingLoaded }">{{ pendingTotal ? `${pendingTotal} 项待处理` : (pendingLoaded ? '全部已匹配' : '') }}</span>
       </button>
       <div v-show="openStep === 'pending'" class="pipe-body">
         <details v-if="pendingTotal" class="settings-details"><summary>如何处理匹配问题</summary><p class="hint">未匹配或标题可疑：进入详情核对。待确认：核对后点击「匹配正确」。未归属花絮：填写影片 ID，将其关联到正片。</p></details>
         <div class="bar">
-          <button @click="loadUnmatched()" :disabled="!!busy">刷新列表</button>
+          <JzButton @click="loadUnmatched()" :disabled="!!busy" type="button" icon="refresh">刷新列表</JzButton>
           <span v-if="pendingTotal">{{ pendingSummary }}</span>
           <span v-else-if="pendingLoaded">全部已匹配</span>
-          <button v-if="needsReview.length > 1" :disabled="!!busy" title="待确认一次性清除" @click="confirmReview(needsReview.map(m => m.id))">
+          <JzButton v-if="needsReview.length > 1" :disabled="!!busy" title="待确认一次性清除" @click="confirmReview(needsReview.map(m => m.id))" type="button">
             确认全部匹配（{{ needsReview.length }}）
-          </button>
+          </JzButton>
         </div>
         <p v-if="pendingMsg" class="feedback" role="status">{{ pendingMsg }}</p>
         <ul class="miss-list">
@@ -83,15 +83,15 @@
             <span class="miss-path" :title="it.file_path">{{ it.file_path }}<span v-if="it.guessed_title" class="fhint">（猜测：{{ it.guessed_title }}{{ it.guessed_year ? ' ' + it.guessed_year : '' }}）</span></span>
             <template v-if="it.category === 'orphan'">
               <input v-model="orphanMovie[it.id]" placeholder="影片ID" style="width:80px" />
-              <button @click="attachOrphan(it.id)" :disabled="!!busy">关联影片</button>
+              <JzButton @click="attachOrphan(it.id)" :disabled="!!busy" type="button">关联影片</JzButton>
             </template>
             <template v-else>
-              <button v-if="it.category === 'needs_review'" :disabled="!!busy" title="匹配无误，清除待确认" @click="confirmReview([it.id])">匹配正确</button>
-              <button @click="$router.push('/m/' + it.id)">核对匹配</button>
+              <JzButton v-if="it.category === 'needs_review'" :disabled="!!busy" title="匹配无误，清除待确认" @click="confirmReview([it.id])" type="button" icon="match">匹配正确</JzButton>
+              <JzButton @click="$router.push('/m/' + it.id)" type="button" icon="match">核对匹配</JzButton>
             </template>
           </li>
           <li v-if="pendingRows.length > COLLAPSE_N" class="miss-row collapse-row">
-            <button @click="pendExpand = !pendExpand">{{ pendExpand ? '收起' : `展开全部 (${pendingRows.length})` }}</button>
+            <JzButton @click="pendExpand = !pendExpand" type="button">{{ pendExpand ? '收起' : `展开全部 (${pendingRows.length})` }}</JzButton>
           </li>
         </ul>
 
@@ -107,7 +107,7 @@
     <OrganizePanel ref="organizeRef" :library="tab" :active="active" :embedded="true" @status="orgCount = $event" @changed="onOrganized" />
       <details class="settings-details"><summary>整理已关联的花絮</summary><p class="hint">将已关联花絮移动到各影片目录的 extras 文件夹。</p>
         <div class="bar">
-          <button @click="doCollectExtras" :disabled="!!busy">{{ busy === 'collect' ? '归位中…' : (armCollect ? '确认移动花絮' : '整理已关联花絮') }}</button>
+          <JzButton @click="doCollectExtras" :disabled="!!busy" type="button" icon="organize">{{ busy === 'collect' ? '归位中…' : (armCollect ? '确认移动花絮' : '整理已关联花絮') }}</JzButton>
           <span>{{ collectMsg }}</span>
         </div>
       </details>
@@ -123,6 +123,10 @@
   </section>
 </template>
 <script setup>
+import AppIcon from './AppIcon.vue'
+
+import JzButton from './JzButton.vue'
+
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { api } from '../api.js'
 import { useLibraryScan } from '../useLibraryScan.js'

@@ -1,6 +1,6 @@
 <template>
   <section id="sec-libraries" class="card-block">
-    <div class="section-heading"><h3>媒体库列表</h3><button class="primary" :disabled="createBusy" @click="showCreate = !showCreate">{{ showCreate ? '收起新建表单' : '添加媒体库' }}</button></div>
+    <div class="section-heading"><h3>媒体库列表</h3><JzButton class="primary" :disabled="createBusy" @click="showCreate = !showCreate" type="button" variant="primary" icon="plus">{{ showCreate ? '收起新建表单' : '添加媒体库' }}</JzButton></div>
     <HelpLink page="user-guide/libraries" label="连接本地目录或 NAS 的图解" />
     <p v-if="!mediaItems.length" class="hint">添加存储位置，再选择其中的电影或剧集目录。</p>
     <div v-else class="media-connections">
@@ -15,29 +15,29 @@
         <div class="connection-meta"><span>{{ videoCounts(m) }}</span><span>{{ m.movie_count }} 片 / {{ m.episode_count }} 集</span></div>
         <p v-if="m.last_error && m.enabled" class="connection-error">{{ m.last_error }}</p>
         <div class="ops-wrap connection-actions">
-          <button @click="connect(m)" :disabled="!!busy">{{ busy === 'conn' + m.id ? (m.source === 'local' ? '检查中…' : '连接中…') : (m.source === 'local' ? '检查路径' : statusKind(m) === 'ok' ? '检查连接' : '连接') }}</button>
-          <button @click="scanAll(m)" :disabled="!!busy || scanning['m:' + m.id]">{{ scanning['m:' + m.id] ? '扫描中…' : '扫描此媒体库' }}</button>
-          <button v-if="scanning['m:' + m.id]" @click="cancelScan('m:' + m.id)">取消</button>
+          <JzButton @click="connect(m)" :disabled="!!busy" type="button" icon="eye">{{ busy === 'conn' + m.id ? (m.source === 'local' ? '检查中…' : '连接中…') : (m.source === 'local' ? '检查路径' : statusKind(m) === 'ok' ? '检查连接' : '连接') }}</JzButton>
+          <JzButton @click="scanAll(m)" :disabled="!!busy || scanning['m:' + m.id]" type="button" icon="scan">{{ scanning['m:' + m.id] ? '扫描中…' : '扫描此媒体库' }}</JzButton>
+          <JzButton v-if="scanning['m:' + m.id]" @click="cancelScan('m:' + m.id)" type="button">取消</JzButton>
           <details class="more"><summary title="更多操作">更多</summary><div class="more-menu">
-            <button @click="addVideoOpen(m); closeMenu($event)">添加视频库</button>
-            <button v-if="m.source !== 'local'" @click="editConn(m); closeMenu($event)">编辑连接</button>
-            <button v-if="m.source === 'local' && m.movie_count + m.episode_count === 0" @click="editPath(m); closeMenu($event)">修改根目录</button>
-            <button v-if="m.source !== 'local'" @click="mount(m, true); closeMenu($event)">挂载</button>
-            <button v-if="m.source !== 'local'" @click="mount(m, false); closeMenu($event)">卸载</button>
-            <button @click="toggleReadOnly(m); closeMenu($event)">{{ m.read_only ? '取消只读' : '设只读' }}</button>
-            <button @click="toggleEnabled(m); closeMenu($event)">{{ m.enabled ? '停用' : '启用' }}</button>
-            <button class="danger" @click="armDelete(m); closeMenu($event)">移除媒体库…</button>
+            <JzButton @click="addVideoOpen(m); closeMenu($event)" type="button" variant="ghost" icon="plus">添加视频库</JzButton>
+            <JzButton v-if="m.source !== 'local'" @click="editConn(m); closeMenu($event)" type="button" variant="ghost" icon="edit">编辑连接</JzButton>
+            <JzButton v-if="m.source === 'local' && m.movie_count + m.episode_count === 0" @click="editPath(m); closeMenu($event)" type="button" variant="ghost" icon="edit">修改根目录</JzButton>
+            <JzButton v-if="m.source !== 'local'" @click="mount(m, true); closeMenu($event)" type="button" variant="ghost" icon="link">挂载</JzButton>
+            <JzButton v-if="m.source !== 'local'" @click="mount(m, false); closeMenu($event)" type="button" variant="ghost">卸载</JzButton>
+            <JzButton @click="toggleReadOnly(m); closeMenu($event)" type="button" variant="ghost">{{ m.read_only ? '取消只读' : '设只读' }}</JzButton>
+            <JzButton @click="toggleEnabled(m); closeMenu($event)" type="button" variant="ghost">{{ m.enabled ? '停用' : '启用' }}</JzButton>
+            <JzButton class="danger" @click="armDelete(m); closeMenu($event)" type="button" variant="danger" icon="delete">移除媒体库…</JzButton>
           </div></details>
         </div>
           <div v-if="rowMsg['m:' + m.id]" class="row-msg">
             <div>
               <span :class="msgClass('m:' + m.id)">{{ rowMsg['m:' + m.id].text }}</span>
-              <button v-if="rowMsg['m:' + m.id].cmd" @click="copyCmd('m:' + m.id)">复制宿主挂载命令</button>
-              <button v-if="rowMsg['m:' + m.id].cmd" @click="showCmd['m:' + m.id] = !showCmd['m:' + m.id]">{{ showCmd['m:' + m.id] ? '收起命令' : '查看命令' }}</button>
+              <JzButton v-if="rowMsg['m:' + m.id].cmd" @click="copyCmd('m:' + m.id)" type="button" icon="copy">复制宿主挂载命令</JzButton>
+              <JzButton v-if="rowMsg['m:' + m.id].cmd" @click="showCmd['m:' + m.id] = !showCmd['m:' + m.id]" type="button">{{ showCmd['m:' + m.id] ? '收起命令' : '查看命令' }}</JzButton>
               <code v-if="rowMsg['m:' + m.id].cmd && showCmd['m:' + m.id]" class="cmd-text">{{ rowMsg['m:' + m.id].cmd }}</code>
               <ul v-if="rowMsg['m:' + m.id].videos && rowMsg['m:' + m.id].videos.length" class="vid-check">
                 <li v-for="v in rowMsg['m:' + m.id].videos" :key="v.id" :class="{ bad: !v.ok }">
-                  {{ v.name }}（{{ v.subpath || '根' }}）{{ v.ok ? '✓' : '✗ ' + (v.error || '不可达') }}
+                  {{ v.name }}（{{ v.subpath || '根' }}）<AppIcon :name="v.ok ? 'check-circle' : 'error'" :size="16" /><span>{{ v.ok ? '可访问' : v.error || '不可达' }}</span>
                 </li>
               </ul>
             </div>
@@ -48,16 +48,16 @@
               <label>SMB 用户名<input v-model="connEdit.username" v-bind="NOFILL" name="jz-conn-user" placeholder="SMB 登录用户名" /></label>
               <label>SMB 密码<input v-model="connEdit.password" v-bind="NOFILL_PW" name="jz-conn-pass" type="password" placeholder="SMB 密码（留空不改）" /></label>
               <label>连接地址<input v-model="connEdit.connect_host" v-bind="NOFILL" name="jz-conn-connect" placeholder="连接地址（可选，Tailscale IP）" /></label>
-              <button @click="saveConn(m)" :disabled="!!busy">{{ busy === 'conn' ? '保存中…' : '保存并连接' }}</button>
-              <button @click="connEdit = null">取消</button>
+              <JzButton @click="saveConn(m)" :disabled="!!busy" type="button" icon="link">{{ busy === 'conn' ? '保存中…' : '保存并连接' }}</JzButton>
+              <JzButton @click="connEdit = null" type="button">取消</JzButton>
               <span class="fhint" :class="{ 'warn-text': connPreview.error }">{{ connPreview.error || `→ ${connPreview.host}/${connPreview.share}/${connPreview.subpath}` }}</span>
             </div>
           </div>
           <div v-if="pathEdit && pathEdit.id === m.id">
             <div class="path-edit">
               <label>媒体库根目录<input v-model="pathEdit.value" v-bind="NOFILL" name="jz-path-edit" placeholder="/media（容器内路径）" /></label>
-              <button @click="savePath(m)" :disabled="!!busy">{{ busy === 'path' ? '保存中…' : '保存并检查' }}</button>
-              <button @click="pathEdit = null">取消</button>
+              <JzButton @click="savePath(m)" :disabled="!!busy" type="button" icon="eye">{{ busy === 'path' ? '保存中…' : '保存并检查' }}</JzButton>
+              <JzButton @click="pathEdit = null" type="button">取消</JzButton>
               <span class="fhint">媒体库根；仅当库内 0 记录时可改。NAS Docker 里填 /media 这类容器路径</span>
             </div>
           </div>
@@ -67,10 +67,10 @@
           <div v-for="v in m.video_libraries" :key="v.id" class="video-library-row" :class="{ off: !m.enabled || !v.enabled }">
             <div class="video-library-info"><div><strong>{{ v.name }}</strong><span class="badge" :class="{ tv: v.kind === 'tv' }">{{ kindText(v.kind) }}</span><span v-if="!v.enabled" class="badge">停用</span></div><p :title="v.path">{{ v.subpath || '媒体库根目录' }}</p><span class="fhint">{{ v.movie_count }} 片 / {{ v.episode_count }} 集</span><p v-if="rowMsg['v:' + v.id]" :class="msgClass('v:' + v.id)" role="status">{{ rowMsg['v:' + v.id].text }}</p></div>
             <div class="ops-wrap">
-              <button @click="scanVideo(v)" :disabled="!!busy || scanning['v:' + v.id]">{{ scanning['v:' + v.id] ? '扫描中…' : '扫描' }}</button>
-              <button v-if="scanning['v:' + v.id]" @click="cancelScan('v:' + v.id)">取消</button>
-              <button @click="editVideo(v, m)">编辑</button>
-              <button class="danger" @click="armDeleteVideo(v, m)">移除视频库…</button>
+              <JzButton @click="scanVideo(v)" :disabled="!!busy || scanning['v:' + v.id]" type="button" icon="scan">{{ scanning['v:' + v.id] ? '扫描中…' : '扫描' }}</JzButton>
+              <JzButton v-if="scanning['v:' + v.id]" @click="cancelScan('v:' + v.id)" type="button">取消</JzButton>
+              <JzButton @click="editVideo(v, m)" type="button" icon="edit">编辑</JzButton>
+              <JzButton class="danger" @click="armDeleteVideo(v, m)" type="button" variant="danger" icon="delete">移除视频库…</JzButton>
             </div>
           </div>
           <div v-if="videoEdit && videoEdit.mediaId === m.id" class="path-edit">
@@ -80,8 +80,8 @@
             <label>视频库名称<input v-model="newVideo[m.id].name" v-bind="NOFILL" name="jz-nv-name" placeholder="留空按子目录命名" /></label>
             <label>子目录<input v-model="newVideo[m.id].subpath" v-bind="NOFILL" name="jz-nv-sub" placeholder="相对媒体库根目录，留空使用根目录" /></label>
             <label>内容类型<select v-model="newVideo[m.id].kind"><option value="movie">电影</option><option value="tv">剧集</option></select></label>
-            <div class="ops-wrap"><button @click="createVideo(m)" :disabled="!!busy">{{ busy === 'video' ? '创建中…' : '创建视频库' }}</button><button @click="newVideo[m.id] = null">取消</button><button @click="detectSubdirs(m)" :disabled="subdirLoading[m.id]">{{ subdirLoading[m.id] ? '读取中…' : '检测子目录' }}</button></div>
-            <div v-if="subdirs[m.id] && subdirs[m.id].length" class="subdir-chips"><button v-for="d in subdirs[m.id]" :key="d.rel" class="chip" @click="pickSubdir(m, d)">{{ d.rel }}</button></div>
+            <div class="ops-wrap"><JzButton @click="createVideo(m)" :disabled="!!busy" type="button" icon="plus">{{ busy === 'video' ? '创建中…' : '创建视频库' }}</JzButton><JzButton @click="newVideo[m.id] = null" type="button">取消</JzButton><JzButton @click="detectSubdirs(m)" :disabled="subdirLoading[m.id]" type="button">{{ subdirLoading[m.id] ? '读取中…' : '检测子目录' }}</JzButton></div>
+            <div v-if="subdirs[m.id] && subdirs[m.id].length" class="subdir-chips"><JzButton v-for="d in subdirs[m.id]" :key="d.rel" class="chip" @click="pickSubdir(m, d)" type="button">{{ d.rel }}</JzButton></div>
             <span v-else-if="subdirs[m.id]" class="fhint">没有可用子目录</span>
           </div>
         </div>
@@ -91,9 +91,9 @@
     <p v-if="msg" class="feedback" role="status">{{ msg }}</p>
     <div v-if="created" class="created-bar">
       <span class="cb-title">媒体库「{{ created.name }}」已创建 · 下一步</span>
-      <span>① <button @click="connect(created)">{{ created.source === 'local' ? '检查路径' : '连接' }}</button></span>
-      <span>② <button @click="scanAll(created)">扫描全部视频库</button></span>
-      <button class="cb-close" @click="created = null">关闭引导</button>
+      <span>① <JzButton @click="connect(created)" type="button" icon="eye">{{ created.source === 'local' ? '检查路径' : '连接' }}</JzButton></span>
+      <span>② <JzButton @click="scanAll(created)" type="button" icon="scan">扫描全部视频库</JzButton></span>
+      <JzButton class="cb-close" @click="created = null" type="button">关闭引导</JzButton>
     </div>
 
     <div v-if="arm" class="danger-box">
@@ -101,8 +101,8 @@
         <b>{{ arm.movie_count }}</b> 条影片记录 / <b>{{ arm.episode_count }}</b> 条剧集记录与合集/花絮/缓存索引；
         <b>磁盘文件与远端数据不会被删除</b>（Plex/文件浏览不受影响）。</p>
       <div class="bar">
-        <button class="danger" @click="doDeleteMedia" :disabled="!!busy">{{ busy === 'delete' ? '删除中…' : '确认删除记录' }}</button>
-        <button @click="arm = null">取消</button>
+        <JzButton class="danger" @click="doDeleteMedia" :disabled="!!busy" type="button" variant="danger" icon="delete">{{ busy === 'delete' ? '删除中…' : '确认删除记录' }}</JzButton>
+        <JzButton @click="arm = null" type="button">取消</JzButton>
       </div>
     </div>
 
@@ -111,8 +111,8 @@
         <b>{{ armVideo.movie_count }}</b> 条影片 / <b>{{ armVideo.episode_count }}</b> 条剧集记录；
         <b>磁盘文件不会被删除</b>。媒体库连接保留。</p>
       <div class="bar">
-        <button class="danger" @click="doDeleteVideo" :disabled="!!busy">{{ busy === 'delete' ? '删除中…' : '确认删除记录' }}</button>
-        <button @click="armVideo = null">取消</button>
+        <JzButton class="danger" @click="doDeleteVideo" :disabled="!!busy" type="button" variant="danger" icon="delete">{{ busy === 'delete' ? '删除中…' : '确认删除记录' }}</JzButton>
+        <JzButton @click="armVideo = null" type="button">取消</JzButton>
       </div>
     </div>
 
@@ -123,6 +123,8 @@
 </template>
 
 <script setup>
+import JzButton from './JzButton.vue'
+
 import HelpLink from './HelpLink.vue'
 import AppIcon from './AppIcon.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
@@ -605,7 +607,6 @@ defineExpose({ ensure: load })
 .ops-wrap { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .connection-actions { margin: 18px 0 0 28px; }
 .badge { display: inline-block; margin-left: 8px; font-size: var(--jz-font-s); color: var(--jz-text-dim); border: 1px solid var(--jz-border-strong); border-radius: 4px; padding: 1px 6px; font-weight: 400; }
-.danger { border-color: var(--jz-danger-border); color: var(--jz-danger); }
 .danger-box { border: 1px solid var(--jz-danger-border); background: var(--jz-danger-soft); border-radius: var(--jz-radius-m); padding: 16px; margin: 16px 0; }
 .status-pill { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; font-size: var(--jz-font-s); color: var(--jz-text-dim); }
 .status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }

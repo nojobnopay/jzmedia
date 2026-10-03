@@ -19,6 +19,21 @@ test('shared button keeps native form semantics and disables pending actions', a
   assert.doesNotMatch(submit, /disabled/)
 })
 
+test('icon buttons keep the action name on the native button and replace the icon while busy', async () => {
+  const render = props => renderToString(createSSRApp({ render: () => h(button, props) }))
+  const html = await render({ icon: 'copy', iconOnly: true, 'aria-label': '复制文件', 'aria-pressed': 'true' })
+  assert.match(html, /jz-button--icon/)
+  assert.match(html, /aria-label="复制文件"/)
+  assert.match(html, /aria-pressed="true"/)
+  assert.match(html, /aria-hidden="true"/)
+  assert.equal((html.match(/<svg/g) || []).length, 1)
+  const busy = await render({ icon: 'copy', loading: true, 'aria-label': '复制文件' })
+  assert.match(busy, /jz-spinner/)
+  assert.match(busy, /aria-busy="true"/)
+  assert.match(busy, /disabled/)
+  assert.equal((busy.match(/<svg/g) || []).length, 1)
+})
+
 function harness(t) {
   const previousDocument = globalThis.document
   const listeners = new Set()
@@ -84,6 +99,16 @@ test('dialog respects business busy guards, child Escape handlers, and section a
   ui.doc.activeElement = ui.body
   ui.key('Escape')
   assert.equal(closed, 1)
+})
+
+test('button exposes its native element for menu positioning and focus restoration', async t => {
+  const ui = harness(t)
+  const handle = ref(null)
+  await ui.mount({ title: '菜单容器' }, { default: () => h(button, { ref: handle, icon: 'more', 'aria-label': '更多操作' }) })
+  assert.equal(handle.value.el.type, 'button')
+  assert.equal(handle.value.el.props['aria-label'], '更多操作')
+  handle.value.focus()
+  assert.equal(ui.doc.activeElement, handle.value.el)
 })
 
 test('nested dialogs keep Tab in the top dialog and return focus to its trigger', async t => {

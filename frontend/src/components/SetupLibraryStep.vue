@@ -26,14 +26,14 @@
           <p v-if="target.kind !== kind">这是空的{{ target.kind === 'tv' ? '剧集' : '电影' }}库，保存下面的类型调整后即可继续。</p>
           <VideoLibraryForm v-if="edit || target.kind !== kind" :key="target.id + ':' + kind"
             :library="{ ...target, kind }" @saved="videoSaved" @cancel="edit = false" @busy="childBusy = $event" />
-          <div v-else class="bar"><button @click="edit = true">修改视频库名称或目录</button></div>
+          <div v-else class="bar"><JzButton @click="edit = true" type="button" icon="edit">修改视频库名称或目录</JzButton></div>
           <details v-if="media?.source === 'local' && !media.movie_count && !media.episode_count">
             <summary>修改空媒体库的根路径</summary>
             <p>填写应用服务器可见的路径；Docker 中通常为 /media，而不是 NAS 宿主路径。</p>
             <label>根路径<input v-model="rootPath" placeholder="例如 /media" /></label>
-            <button @click="savePath">保存根路径</button>
+            <JzButton @click="savePath" type="button">保存根路径</JzButton>
           </details>
-          <button class="primary" @click="check" :disabled="target.kind !== kind || edit">检查并使用此视频库</button>
+          <JzButton class="primary" @click="check" :disabled="target.kind !== kind || edit" type="button" variant="primary" icon="eye">检查并使用此视频库</JzButton>
         </template>
       </template>
       <template v-else-if="mode === 'video'">
@@ -47,10 +47,12 @@
         @created="mediaCreated" @busy="childBusy = $event" />
     </fieldset>
     <p role="status">{{ working ? '正在保存或检查连接，请稍候…' : message }}</p>
-    <p v-if="loadError" role="alert">{{ loadError }} <button @click="load" :disabled="working">重新加载</button></p>
+    <p v-if="loadError" role="alert">{{ loadError }} <JzButton @click="load" :disabled="working" type="button" icon="refresh">重新加载</JzButton></p>
   </section>
 </template>
 <script setup>
+import JzButton from './JzButton.vue'
+
 import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '../api.js'
 import { listLibs, loadLibs } from '../libraries.js'

@@ -1,14 +1,14 @@
 <template>
   <section class="card-block">
-    <h3>上传文件 <span class="q-tip" tabindex="0">?<span class="q-bubble">适合上传：海报/剧照（jpg/png）、音乐/原声（mp3/flac）、剧本/字幕（txt/srt/ass/pdf）、花絮视频（自动进 extras/）；正片新版本视频也可上传，会自动刮削入库。&gt;2GB 建议在局域网操作，可随时取消。</span></span></h3>
+    <h3>上传文件 <JzButton variant="ghost" icon-only class="q-tip" aria-label="上传说明" aria-describedby="movie-upload-hint" @keydown.esc="$event.currentTarget.blur()"><AppIcon name="help" :size="18" /><span id="movie-upload-hint" class="q-bubble" role="tooltip">适合上传：海报/剧照（jpg/png）、音乐/原声（mp3/flac）、剧本/字幕（txt/srt/ass/pdf）、花絮视频（自动进 extras/）；正片新版本视频也可上传，会自动刮削入库。&gt;2GB 建议在局域网操作，可随时取消。</span></JzButton></h3>
     <div class="bar up-row">
       <input type="file" ref="upInput" :disabled="!!upCtl" />
       <select v-model="upSubdir" :disabled="!!upCtl">
         <option value="">片目录</option>
         <option value="extras">extras/</option>
       </select>
-      <button @click="doUpload" :disabled="!!upCtl">上传</button>
-      <button v-if="upCtl" @click="cancelUpload">取消</button>
+      <JzButton @click="doUpload" :disabled="!!upCtl" type="button" icon="upload">上传</JzButton>
+      <JzButton v-if="upCtl" @click="cancelUpload" type="button">取消</JzButton>
       <span v-if="upPct !== null">{{ upPct }}%</span>
       <span v-if="upScanning" class="up-scan">已传完，正在联网匹配 TMDB 元数据并下载海报，请耐心等待（已等待 {{ upScanSecs }}s）</span>
       <span v-else>{{ upMsg }}</span>
@@ -18,6 +18,9 @@
 </template>
 
 <script setup>
+import JzButton from './JzButton.vue'
+import AppIcon from './AppIcon.vue'
+
 import { computed, onUnmounted, ref } from 'vue'
 import { apiUpload } from '../api.js'
 
@@ -99,7 +102,8 @@ onUnmounted(stopUpScanTicker)
 .up-bar { height: 6px; background: #262626; border-radius: 3px; overflow: hidden; margin: 4px 0; }
 .up-bar i { display: block; height: 100%; background: #6ab0ff; }
 .up-scan { color: #e0a63c; font-size: 0.8125rem; }
-.q-tip { position: relative; display: inline-flex; width: 18px; height: 18px; border-radius: 50%; border: 1px solid #555; color: #aaa; font-size: 0.75rem; align-items: center; justify-content: center; cursor: help; font-weight: normal; }
-.q-tip .q-bubble { display: none; position: absolute; left: 50%; top: 130%; transform: translateX(-50%); width: 280px; background: #262626; border: 1px solid #444; border-radius: 8px; padding: 10px 12px; color: #ccc; font-size: 0.8125rem; line-height: 1.7; z-index: 30; white-space: normal; }
+.card-block { position: relative; }
+.q-tip { vertical-align: middle; }
+.q-tip .q-bubble { display: none; position: absolute; left: 12px; right: 12px; top: 52px; max-width: 320px; background: var(--jz-surface-3); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-m); padding: 10px 12px; color: var(--jz-text); font-size: var(--jz-font-s); line-height: 1.7; z-index: 30; white-space: normal; text-align: left; }
 .q-tip:hover .q-bubble, .q-tip:focus-within .q-bubble { display: block; }
 </style>

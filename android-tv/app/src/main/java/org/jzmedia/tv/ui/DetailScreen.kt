@@ -1,5 +1,6 @@
 package org.jzmedia.tv.ui
 
+import org.jzmedia.tv.ui.generated.DesignTokens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
@@ -140,11 +141,11 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
         LaunchedEffect(error) { requestedFocus = "retry" }
         Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(error, color = Muted)
-            TvAction("重试", { focusAfterLoad = "detail:primary"; attempt++ }, targetModifier("retry"))
+            TvAction("重试", { focusAfterLoad = "detail:primary"; attempt++ }, targetModifier("retry"), icon = "refresh")
         }
         return
     }
-    val row = data ?: run { Status("正在读取详情…"); return }
+    val row = data ?: run { Status("正在读取详情…", icon = "loading"); return }
     val title = when (route.kind) {
         "season" -> "${row.text("show_title")} · ${row.text("name").ifBlank { "第 ${route.season} 季" }}"
         "episode" -> "${row.text("show_title")} · ${episodeTitle(row)}"
@@ -240,33 +241,33 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                             .filter { it.isNotBlank() }.joinToString(" · "), color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                             if (canPlay) {
-                                item { TvAction(if (offline) "文件离线" else "▶ 播放 / 继续观看", {
+                                item { TvAction(if (offline) "文件离线" else "播放 / 继续观看", {
                                     if (!offline) play(PlaybackRequest(if (route.kind == "movie") "movie" else "episode", playableId, title, true))
-                                }, targetModifier("play"), enabled = !offline) }
+                                }, targetModifier("play"), enabled = !offline, icon = if (offline) "error" else "play") }
                                 item { TvAction("从头开始", {
                                     if (!offline) play(PlaybackRequest(if (route.kind == "movie") "movie" else "episode", playableId, title, false))
-                                }, targetModifier("restart"), enabled = !offline) }
+                                }, targetModifier("restart"), enabled = !offline, icon = "replay") }
                             }
                             if (next != null && route.kind in listOf("show", "season")) item {
                                 val label = episodeTitle(next).substringBefore("  ")
                                 val hasProgress = (next.optJSONObject("progress")?.optDouble("position") ?: next.optDouble("_pos")) > 0
-                                TvAction(if (nextOffline) "$label · 离线" else "▶ ${if (hasProgress) "继续观看" else "播放"} · $label", {
+                                TvAction(if (nextOffline) "$label · 离线" else "${if (hasProgress) "继续观看" else "播放"} · $label", {
                                     if (!nextOffline) play(PlaybackRequest("episode", next.optLong("id"), "${row.text("show_title").ifBlank { title }} · ${episodeTitle(next)}", true))
-                                }, targetModifier("play"), enabled = !nextOffline)
+                                }, targetModifier("play"), enabled = !nextOffline, icon = if (nextOffline) "error" else "play")
                             }
                             if (route.kind == "movie" && versions.size > 1) item {
                                 TvAction("版本：${versionLabel(movieVersion ?: JSONObject().put("id", selectedVersion))}", { choosingVersion = true },
-                                    targetModifier("version").widthIn(max = 260.dp))
+                                    targetModifier("version").widthIn(max = 260.dp), icon = "collections")
                             }
                             if (route.kind == "season" && versions.size > 1) item {
-                                TvAction(if (seasonVersion.isBlank()) "全部版本" else "版本 $seasonVersion", { choosingVersion = true }, targetModifier("version"))
+                                TvAction(if (seasonVersion.isBlank()) "全部版本" else "版本 $seasonVersion", { choosingVersion = true }, targetModifier("version"), icon = "collections")
                             }
                             item {
-                                TvAction(if (actionBusy) "保存中…" else "更多操作", { moreOpen = true }, targetModifier("more"), enabled = !actionBusy)
+                                TvAction(if (actionBusy) "保存中…" else "更多操作", { moreOpen = true }, targetModifier("more"), enabled = !actionBusy, icon = if (actionBusy) "loading" else "more")
                             }
                         }
                         if (offline || (route.kind in listOf("show", "season") && next != null && nextOffline))
-                            Text("此文件目前离线，请选择其它分集或版本", color = Color(0xFFFFB4AB))
+                            Text("此文件目前离线，请选择其它分集或版本", color = DesignTokens.Error)
                     }
                 }
             }
@@ -289,8 +290,8 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                 episodeGrid(episodes, episodeColumns, ::targetModifier, { focusedEpisodeId = it }, { navigate(TvRoute("episode", it)) })
                 item(key = "episode-pages") {
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(8.dp)) {
-                        if (page > 0) TvAction("上一页", { focusAfterLoad = "episode:first"; page-- }, targetModifier("previous-page"))
-                        if (row.optBoolean("has_more")) TvAction("下一页", { focusAfterLoad = "episode:first"; page++ }, targetModifier("next-page"))
+                        if (page > 0) TvAction("上一页", { focusAfterLoad = "episode:first"; page-- }, targetModifier("previous-page"), icon = "back")
+                        if (row.optBoolean("has_more")) TvAction("下一页", { focusAfterLoad = "episode:first"; page++ }, targetModifier("next-page"), icon = "forward")
                     }
                 }
                 // End the pinned selection context before the synopsis and cast.
@@ -298,11 +299,11 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
             }
             if (route.kind == "episode") item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-                    row.optJSONObject("previous_episode")?.let { previous -> item { TvAction("上一集", { navigate(TvRoute("episode", previous.optLong("id"))) }, targetModifier("previous-episode")) } }
+                    row.optJSONObject("previous_episode")?.let { previous -> item { TvAction("上一集", { navigate(TvRoute("episode", previous.optLong("id"))) }, targetModifier("previous-episode"), icon = "previous") } }
                     next?.let { following -> item { TvAction(if (nextOffline) "下一集 · 离线" else "下一集", {
                         if (!nextOffline) play(PlaybackRequest("episode", following.optLong("id"), episodeTitle(following)))
-                    }, targetModifier("next-episode"), enabled = !nextOffline) } }
-                    item { TvAction("返回剧集", { navigate(TvRoute("show", row.optLong("show_id"))) }, targetModifier("show")) }
+                    }, targetModifier("next-episode"), enabled = !nextOffline, icon = "next") } }
+                    item { TvAction("返回剧集", { navigate(TvRoute("show", row.optLong("show_id"))) }, targetModifier("show"), icon = "tv") }
                 }
             }
             if (route.kind == "collection") {
@@ -321,15 +322,15 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("剧情简介", style = MaterialTheme.typography.headlineSmall)
                     Text(overview, color = Muted, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                    TvAction("查看完整简介", { textDialog = "剧情简介" to overview.chunked(240) }, targetModifier("overview"))
+                    TvAction("查看完整简介", { textDialog = "剧情简介" to overview.chunked(240) }, targetModifier("overview"), icon = "info")
                 }
             }
             if (row.rows("extras").isNotEmpty()) {
                 item { SectionHeading("花絮与特别内容") }
                 items(row.rows("extras"), key = { "extra:${it.optLong("id")}" }) { extra ->
-                    TvAction("▶ ${extra.text("label").ifBlank { "花絮" }} · ${mediaTitle(extra)}", {
+                    TvAction("${extra.text("label").ifBlank { "花絮" }} · ${mediaTitle(extra)}", {
                         if (!knownOffline(extra)) play(PlaybackRequest("extra", extra.optLong("id"), mediaTitle(extra), true))
-                    }, targetModifier("extra:${extra.optLong("id")}").fillMaxWidth(), enabled = !knownOffline(extra))
+                    }, targetModifier("extra:${extra.optLong("id")}").fillMaxWidth(), enabled = !knownOffline(extra), icon = "play")
                 }
             }
             val cast = row.rows(if (route.kind == "movie") "persons" else "cast")
@@ -339,7 +340,7 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                     Text(cast.take(8).joinToString(" · ") { it.text("name") }, color = Muted)
                     TvAction("查看演职员（${cast.size}）", {
                         textDialog = "演职员" to cast.map { person -> person.text("name") + person.text("character").ifBlank { person.text("character_name").ifBlank { person.text("role") } }.let { if (it.isBlank()) "" else " · $it" } }
-                    }, targetModifier("cast"))
+                    }, targetModifier("cast"), icon = "person")
                 }
             }
             if (row.rows("collections").isNotEmpty()) item {
@@ -464,14 +465,14 @@ private fun versionLabel(row: JSONObject): String = listOf(row.text("edition"), 
 private fun TextDialog(title: String, lines: List<String>, onClose: () -> Unit) {
     val memory = rememberFocusMemory("text:0")
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.fillMaxWidth(.86f).heightIn(max = 520.dp).background(Panel, RoundedCornerShape(16.dp)).padding(28.dp),
+        Column(Modifier.fillMaxWidth(.86f).heightIn(max = 520.dp).background(Panel, RoundedCornerShape(DesignTokens.DialogRadius)).padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(title, style = MaterialTheme.typography.headlineSmall)
             LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(lines.size) { index ->
                     var focused by remember { mutableStateOf(false) }
                     Text(lines[index], modifier = Modifier.fillMaxWidth().focusMemory(memory, "text:$index")
-                        .onFocusChanged { focused = it.isFocused }.border(2.dp, if (focused) Color.White else Color.Transparent, RoundedCornerShape(6.dp))
+                        .onFocusChanged { focused = it.isFocused }.border(2.dp, if (focused) DesignTokens.TextStrong else Color.Transparent, RoundedCornerShape(DesignTokens.CornerRadius))
                         .focusable().padding(12.dp))
                 }
             }

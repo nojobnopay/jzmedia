@@ -11,7 +11,7 @@
       <div class="hero-inner">
         <img v-if="s.poster_path" class="hero-poster" :src="posterUrl(s.poster_path)"
           :alt="s.name || seasonLabel(s.season)" />
-        <div v-else class="hero-poster hero-no-poster" aria-hidden="true">{{ seasonLabel(s.season).slice(0, 1) }}</div>
+        <ArtworkPlaceholder v-else class="hero-poster hero-no-poster" kind="poster" :label="seasonLabel(s.season)" />
         <div class="hero-body">
           <div class="hero-heading">
             <h1>{{ s.show_title }}<span v-if="s.show_year" class="dim"> ({{ s.show_year }})</span></h1>
@@ -23,15 +23,15 @@
             </div>
           </div>
           <div class="acts">
-            <button v-if="s.next_episode" class="primary" :disabled="!s.next_episode.exists"
-              @click="play(s.next_episode)">
+            <JzButton v-if="s.next_episode" class="primary" :disabled="!s.next_episode.exists"
+              @click="play(s.next_episode)" type="button" variant="primary">
               <PlayerIcon name="play" :size="20" /> {{ s.next_episode.progress ? '继续观看' : '播放本季' }} {{ epNo(s.next_episode) }}
-            </button>
-            <button v-if="eps.length" :disabled="busy" @click="toggleSeasonWatched">
+            </JzButton>
+            <JzButton v-if="eps.length" :disabled="busy" @click="toggleSeasonWatched" type="button">
               {{ seasonDone ? '标记本季全部版本未看' : '标记本季全部版本已看' }}
-            </button>
+            </JzButton>
             <ActionMenu>
-              <button :disabled="verifying" @click="verifyExists">{{ verifying ? '检查中…' : '检查文件是否可用' }}</button>
+              <JzButton :disabled="verifying" @click="verifyExists" type="button" variant="ghost" icon="eye">{{ verifying ? '检查中…' : '检查文件是否可用' }}</JzButton>
             </ActionMenu>
             <span v-if="busy" class="dim">处理中…</span>
           </div>
@@ -57,7 +57,7 @@
           <button v-if="e.exists" class="poster-play"
             :aria-label="'播放 ' + epNo(e)" :title="'播放 ' + epNo(e)"
             @click.stop="play(e)"><PlayerIcon name="play" :size="24" /></button>
-          <span v-if="e.watched" class="ep-done">✓已看</span>
+          <span v-if="e.watched" class="ep-done"><AppIcon name="check" :size="14" />已看</span>
           <span v-else-if="e.progress" class="ep-left">{{ fmtRemaining(e.progress.remaining_sec) }}</span>
           <div v-if="!e.watched && e.progress" class="ep-bar" aria-hidden="true">
             <div class="ep-bar-in" :style="{ width: progressWidth(e.progress) }"></div>
@@ -77,9 +77,9 @@
     </div>
     <div ref="sentinel" class="more-sentinel" aria-hidden="true"></div>
     <div v-if="hasMore" class="bar more-bar">
-      <button :disabled="loadingMore" @click="loadMore">
+      <JzButton :disabled="loadingMore" @click="loadMore" type="button" icon="more">
         {{ loadingMore ? '加载中…' : `加载更多（${eps.length}/${s.total || s.episode_count}）` }}
-      </button>
+      </JzButton>
     </div>
     <div v-else-if="eps.length" class="bar dim small">已加载全部 {{ eps.length }} 个文件</div>
     <CastWall :cast="s.cast || []" :original-language="s.original_language || ''"
@@ -95,6 +95,12 @@
 </template>
 
 <script setup>
+import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
+
+import AppIcon from '../components/AppIcon.vue'
+
+import JzButton from '../components/JzButton.vue'
+
 import EmptyState from '../components/EmptyState.vue'
 import { followingPlayback } from '../episodePlayback.js'
 import PlayerIcon from '../components/PlayerIcon.vue'

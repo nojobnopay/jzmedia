@@ -17,7 +17,8 @@ export function renderHarness(component, props = {}) {
     node.parent = null
   }
   const renderer = Vue.createRenderer({
-    createElement: element, createText: text => element('#text', text), createComment: text => element('#comment', text),
+    // Vue passes an SVG namespace as the second createElement argument, not text.
+    createElement: type => element(type), createText: text => element('#text', text), createComment: text => element('#comment', text),
     setText(node, text) { node.text = text },
     setElementText(node, text) { node.text = text; node.children = [] },
     patchProp(node, key, _oldValue, value) { node.props[key] = value },

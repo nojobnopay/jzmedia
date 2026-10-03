@@ -3,8 +3,8 @@
   <header class="browse-heading">
     <h1>电影</h1>
     <div class="browse-actions">
-      <router-link :to="toolsLink" class="manage-link">扫描与整理 ›</router-link>
-      <ActionMenu label="添加影片"><button @click="scanOpen = !scanOpen">扫描新文件</button><button @click="upDlg = true">上传文件</button></ActionMenu>
+      <router-link :to="toolsLink" class="manage-link"><AppIcon name="organize" :size="18" />扫描与整理<AppIcon name="chevron-right" :size="16" /></router-link>
+      <ActionMenu label="添加影片"><JzButton @click="scanOpen = !scanOpen" type="button" variant="ghost" icon="scan">扫描新文件</JzButton><JzButton @click="upDlg = true" type="button" variant="ghost" icon="upload">上传文件</JzButton></ActionMenu>
     </div>
   </header>
   <BrowseToolbar id="movie-browse" v-model="q" label="搜索电影" placeholder="搜片名 / 演员 / 标签"
@@ -40,12 +40,12 @@
       tabindex="0" role="link" @keydown.enter.self="onCard(m)" :title="m.added_at ? ('入库 ' + fmtDate(m.added_at)) : ''" @click="onCard(m)">
       <div class="poster-wrap">
         <button :class="['sel-circle', { on: selectedIds.has(m.id) }]"
-          @click.stop="toggleSelect(m.id)" :aria-pressed="selectedIds.has(m.id)" aria-label="选择">
-          <svg viewBox="0 0 16 16" width="14" height="14"><path d="M6.2 11.3 3.1 8.2l-1.4 1.4 4.5 4.5 8.1-8.1-1.4-1.4z" fill="currentColor"/></svg>
+          @click.stop="toggleSelect(m.id)" :aria-pressed="selectedIds.has(m.id)" aria-label="选择" type="button">
+          <AppIcon name="check" :size="18" />
         </button>
         <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" :alt="m.title || '海报'" />
         <!-- 未匹配/无海报占位（评审 B9 后续）：刮削失败也留在墙上可见，点进详情可重新匹配 -->
-        <div v-else class="no-poster" aria-hidden="true">{{ (m.title || '?').slice(0, 1) }}</div>
+        <ArtworkPlaceholder v-else class="no-poster" kind="poster" :label="m.title" />
         <button v-if="!selecting" class="poster-play" :disabled="playBusy !== null"
           :title="'播放 ' + (m.title || '')" :aria-label="'播放 ' + (m.title || '')"
           @click.stop="playMovie(m)">
@@ -53,56 +53,56 @@
           <PlayerIcon v-else name="play" :size="24" />
         </button>
         <ScoreBadge :score="m.tmdb_rating" source="tmdb" />
-        <span v-if="m.watched" class="watched-badge">✓已看</span>
+        <span v-if="m.watched" class="watched-badge"><AppIcon name="check" :size="14" />已看</span>
         <span v-if="!m.tmdb_id || m.needs_review" class="unmatched-badge" :title="!m.tmdb_id ? '尚未匹配 TMDB，点击卡片进详情匹配' : '请进入详情确认匹配结果'">{{ !m.tmdb_id ? '未匹配' : '待确认' }}</span>
       </div>
-      <div class="t"><span class="card-title" :title="m.title">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span><span v-if="hasScore(m.custom_rating)" class="custom-mini">♥{{ fmtScore(m.custom_rating) }}</span></span><span v-if="m.region || (m.genres || []).length" class="card-meta meta">{{ [m.region, (m.genres || []).slice(0, 2).join('/')].filter(Boolean).join(' · ') }}</span></div>
+      <div class="t"><span class="card-title" :title="m.title">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span><span v-if="hasScore(m.custom_rating)" class="custom-mini"><AppIcon name="heart-filled" :size="12" />{{ fmtScore(m.custom_rating) }}</span></span><span v-if="m.region || (m.genres || []).length" class="card-meta meta">{{ [m.region, (m.genres || []).slice(0, 2).join('/')].filter(Boolean).join(' · ') }}</span></div>
     </div>
   </div>
   <EmptyState v-if="loading && !items.length || !firstLoaded && !loadError" state="loading" title="正在加载影片" text="请稍候…" />
   <EmptyState v-else-if="loadError" state="error" title="影片加载失败" :text="loadError" retry @retry="retryLoad" />
   <EmptyState v-else-if="showEmptyGuide" state="empty" title="当前媒体库还没有影片" text="扫描已有文件，或上传影片开始观看。">
-    <button @click="scanOpen = !scanOpen">扫描新文件</button><router-link :to="pipelineLink">扫描与整理 ›</router-link>
+    <JzButton @click="scanOpen = !scanOpen" type="button" icon="scan">扫描新文件</JzButton><router-link :to="pipelineLink"><AppIcon name="organize" :size="18" />扫描与整理<AppIcon name="chevron-right" :size="16" /></router-link>
   </EmptyState>
   <EmptyState v-else-if="firstLoaded && !items.length" state="no-results" title="没有符合条件的影片" text="试试其他片名，或重置筛选条件。">
-    <button @click="clearAll">重置筛选</button>
+    <JzButton @click="clearAll" type="button" icon="filter">重置筛选</JzButton>
   </EmptyState>
 
   <div ref="loadSentinel" class="load-more">
-    <button v-if="hasMore" @click="loadMore" :disabled="loadingMore">{{ loadingMore ? '加载中…' : '加载更多' }}</button>
+    <JzButton v-if="hasMore" @click="loadMore" :disabled="loadingMore" type="button" icon="more">{{ loadingMore ? '加载中…' : '加载更多' }}</JzButton>
     <span v-else-if="items.length" class="fhint">已全部加载（{{ items.length }} 部）</span>
   </div>
 
   <div v-if="selecting" class="floatbar" role="toolbar" aria-label="多选操作">
     <span class="count">{{ selectedIds.size }}</span>
-    <button @click="selectAllVisible" :disabled="!items.length" :title="`全选已加载的 ${items.length} 部（不含未加载页）`">
-      <svg viewBox="0 0 16 16"><path d="M2 2h12v12H2z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 8.2 7.2 10.4 11 5.6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+    <JzButton variant="ghost" size="compact" @click="selectAllVisible" :disabled="!items.length" :title="`全选已加载的 ${items.length} 部（不含未加载页）`" type="button">
+      <AppIcon name="check-circle" :size="18" />
       <span>全选</span>
-    </button>
-    <button @click="batchWatched(true)" :disabled="batching" title="标为已看">
-      <svg viewBox="0 0 16 16"><path d="M1.5 8S4 3.8 8 3.8 14.5 8 14.5 8 12 12.2 8 12.2 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="2.2" fill="currentColor"/></svg>
+    </JzButton>
+    <JzButton variant="ghost" size="compact" @click="batchWatched(true)" :disabled="batching" title="标为已看" type="button">
+      <AppIcon name="eye" :size="18" />
       <span>已看</span>
-    </button>
-    <button @click="batchWatched(false)" :disabled="batching" title="标为未看">
-      <svg viewBox="0 0 16 16"><path d="M1.5 8S4 3.8 8 3.8c1.5 0 2.9.5 4 1.2M14.5 8S12 12.2 8 12.2c-1.5 0-2.9-.5-4-1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 13 13 3" stroke="currentColor" stroke-width="1.4"/></svg>
+    </JzButton>
+    <JzButton variant="ghost" size="compact" @click="batchWatched(false)" :disabled="batching" title="标为未看" type="button">
+      <AppIcon name="eye-off" :size="18" />
       <span>未看</span>
-    </button>
-    <button @click="openTagDlg" title="批量标签">
-      <svg viewBox="0 0 16 16"><path d="M2 2h5.5L14 8.5 8.5 14 2 7.5z" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="6" r="1.3" fill="currentColor"/></svg>
+    </JzButton>
+    <JzButton variant="ghost" size="compact" @click="openTagDlg" title="批量标签" type="button">
+      <AppIcon name="tag" :size="18" />
       <span>标签</span>
-    </button>
-    <button @click="openColDlg" title="加入合集">
-      <svg viewBox="0 0 16 16"><path d="M1.5 4.5c0-.8.7-1.5 1.5-1.5h3l1.2 1.5H13c.8 0 1.5.7 1.5 1.5v5c0 .8-.7 1.5-1.5 1.5H3c-.8 0-1.5-.7-1.5-1.5z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+    </JzButton>
+    <JzButton variant="ghost" size="compact" @click="openColDlg" title="加入合集" type="button">
+      <AppIcon name="collections" :size="18" />
       <span>合集</span>
-    </button>
-    <button @click="openDelDlg" title="删除选中影片">
-      <svg viewBox="0 0 16 16"><path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.7 9.2c.1.7.6 1.3 1.3 1.3h4c.7 0 1.2-.6 1.3-1.3L12 4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.5 7v4M9.5 7v4" stroke="currentColor" stroke-width="1.4"/></svg>
+    </JzButton>
+    <JzButton variant="ghost" size="compact" @click="openDelDlg" title="删除选中影片" type="button">
+      <AppIcon name="delete" :size="18" />
       <span>删除</span>
-    </button>
-    <button @click="clearSelection" title="退出多选">
-      <svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6"/></svg>
+    </JzButton>
+    <JzButton variant="ghost" size="compact" @click="clearSelection" title="退出多选" type="button">
+      <AppIcon name="close" :size="18" />
       <span>取消</span>
-    </button>
+    </JzButton>
     <span v-if="batchMsg || batching" class="fmsg">{{ batching ? '提交中…' : batchMsg }}</span>
   </div>
 
@@ -115,13 +115,13 @@
       </div>
       <div class="bar">
         <input v-model="newTag" placeholder="新标签，回车加入待办" @keyup.enter="onTagEnter" style="flex:1" />
-        <button @click="queueNewTag">加入</button>
+        <JzButton @click="queueNewTag" type="button" icon="plus">加入</JzButton>
       </div>
-      <div v-if="pendingTags.length" class="bar">待{{ tagMode === 'add' ? '追加' : '移除' }}：<span v-for="t in pendingTags" :key="t" class="chip on" @click="dropPending(t)">{{ t }} ×</span></div>
+      <div v-if="pendingTags.length" class="bar">待{{ tagMode === 'add' ? '追加' : '移除' }}：<JzButton v-for="t in pendingTags" :key="t" class="chip on" size="compact" :aria-label="'移除待提交标签 ' + t" @click="dropPending(t)">{{ t }}<AppIcon name="close" :size="14" /></JzButton></div>
       <div class="taglist">
-        <span v-for="t in facets.tags" :key="t.value" class="chip tag" @click="queueExisting(t.value)">{{ t.value }} {{ t.count }}</span>
+        <JzButton v-for="t in facets.tags" :key="t.value" class="chip tag" size="compact" @click="queueExisting(t.value)">{{ t.value }} {{ t.count }}</JzButton>
       </div>
-      <div class="bar"><button @click="confirmBatchTags" :disabled="batching || !pendingTags.length">{{ batching ? '提交中…' : '确认提交' }}</button><button @click="tagDlg = false">取消</button><span>{{ batchMsg }}</span></div>
+      <div class="bar"><JzButton @click="confirmBatchTags" :disabled="batching || !pendingTags.length" type="button">{{ batching ? '提交中…' : '确认提交' }}</JzButton><JzButton @click="tagDlg = false" type="button">取消</JzButton><span>{{ batchMsg }}</span></div>
     </div>
   </div>
 
@@ -130,10 +130,10 @@
       <h3>加入合集（{{ selectedIds.size }} 部）</h3>
       <div class="bar"><input v-model="colQ" placeholder="搜索合集" style="flex:1" /></div>
       <ul class="collist">
-        <li v-for="c in filteredCols" :key="c.id"><span>{{ c.name }}（{{ c.member_count }}）</span><button @click="joinCollection(c.id)" :disabled="batching">加入</button></li>
+        <li v-for="c in filteredCols" :key="c.id"><span>{{ c.name }}（{{ c.member_count }}）</span><JzButton @click="joinCollection(c.id)" :disabled="batching" type="button" icon="plus">加入</JzButton></li>
       </ul>
-      <div class="bar"><input v-model="newCol" placeholder="新建合集名（含当前选中）" style="flex:1" /><button @click="createAndJoin" :disabled="batching || !newCol.trim()">创建并加入</button></div>
-      <div class="bar"><button @click="colDlg = false">关闭</button><span>{{ batchMsg }}</span></div>
+      <div class="bar"><input v-model="newCol" placeholder="新建合集名（含当前选中）" style="flex:1" /><JzButton @click="createAndJoin" :disabled="batching || !newCol.trim()" type="button" icon="plus">创建并加入</JzButton></div>
+      <div class="bar"><JzButton @click="colDlg = false" type="button">关闭</JzButton><span>{{ batchMsg }}</span></div>
     </div>
   </div>
 
@@ -145,10 +145,10 @@
       <ul class="collist">
         <li v-for="p in visibleDelPlans" :key="p.id"><span>{{ p.title || '(未命名)' }}<span v-if="p.year"> ({{ p.year }})</span></span><span class="fhint">{{ p.feature_count }} 版本 · {{ p.extra_count }} 附属 · {{ fmtBytes(p.total_size) }}</span></li>
       </ul>
-      <p v-if="delPlans.length > 20" class="fhint">等共 {{ delPlans.length }} 部<span v-if="!showAllDel">（仅列前 20）</span> <button v-if="!showAllDel" @click="showAllDel = true">展开全部</button></p>
+      <p v-if="delPlans.length > 20" class="fhint">等共 {{ delPlans.length }} 部<span v-if="!showAllDel">（仅列前 20）</span> <JzButton v-if="!showAllDel" @click="showAllDel = true" type="button">展开全部</JzButton></p>
       <div class="bar">
-        <button v-if="!delDone" @click="confirmDel" :disabled="batching || !delPlans.length" class="danger-btn">{{ batching ? '删除中…' : `确认删除 ${delSummary.total_movies} 部影片（${delSummary.total_files} 个文件）` }}</button>
-        <button @click="delDlg = false">{{ delDone ? '关闭' : '取消' }}</button>
+        <JzButton v-if="!delDone" @click="confirmDel" :disabled="batching || !delPlans.length" class="danger-btn" type="button" variant="danger" icon="delete">{{ batching ? '删除中…' : `确认删除 ${delSummary.total_movies} 部影片（${delSummary.total_files} 个文件）` }}</JzButton>
+        <JzButton @click="delDlg = false" type="button">{{ delDone ? '关闭' : '取消' }}</JzButton>
         <span>{{ batchMsg }}</span>
       </div>
     </div>
@@ -161,6 +161,12 @@
   </div>
 </template>
 <script setup>
+import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
+
+import AppIcon from '../components/AppIcon.vue'
+
+import JzButton from '../components/JzButton.vue'
+
 import BrowseResultsHeader from '../components/BrowseResultsHeader.vue'
 import EmptyState from '../components/EmptyState.vue'
 import BrowseToolbar from '../components/BrowseToolbar.vue'
@@ -933,12 +939,9 @@ watch(() => route.query, () => {
   display: flex; align-items: center; justify-content: center; padding: 0 6px;
 }
 .floatbar button {
-  display: flex; gap: 5px; align-items: center; border: none; background: transparent;
-  color: var(--jz-text); white-space: nowrap; font-size: 0.8125rem; padding: 6px 8px;
+  display: flex; gap: 5px; align-items: center; white-space: nowrap;
 }
-.floatbar button:hover:not(:disabled) { color: var(--jz-danger); }
 .floatbar button svg { width: 16px; height: 16px; flex-shrink: 0; }
-.floatbar button:disabled { opacity: .4; cursor: default; }
 .floatbar .fmsg { color: var(--jz-green); font-size: 0.75rem; white-space: nowrap; }
 
 .unmatched-badge { position: absolute; bottom: 6px; right: 6px; font-size: 0.75rem; padding: 2px 8px;
@@ -954,5 +957,5 @@ watch(() => route.query, () => {
 .collist li { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: var(--jz-surface-3); border-radius: 8px; padding: 6px 10px; }
 .del-warn { color: var(--jz-danger); font-size: 0.875rem; margin: 0 0 8px; }
 .del-sum { color: var(--jz-warn); font-size: 0.9375rem; margin: 0 0 8px; font-weight: bold; }
-.danger-btn { border-color: var(--jz-danger-border) !important; color: var(--jz-danger) !important; }
+@media (max-width: 700px), (pointer: coarse) { .sel-circle { width: var(--jz-touch-target); height: var(--jz-touch-target); } }
 </style>

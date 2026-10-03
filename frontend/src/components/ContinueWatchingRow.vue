@@ -4,17 +4,17 @@
       <h3>
         继续观看 <span class="cw-count">{{ items.length }}</span>
       </h3>
-      <button class="cw-toggle" :aria-pressed="allMode" @click="toggleAll">{{ allMode ? '只看未看完' : '全部最近播放' }}</button>
+      <JzButton class="cw-toggle" variant="ghost" size="compact" :aria-pressed="allMode" @click="toggleAll" type="button" icon="history">{{ allMode ? '只看未看完' : '全部最近播放' }}</JzButton>
     </div>
     <div class="cw-strip">
-      <button v-if="canLeft" class="cw-nav left" aria-label="向左滚动" @click="scrollByDir(-1)">‹</button>
+      <JzButton v-if="canLeft" class="cw-nav left" icon-only aria-label="向左滚动" @click="scrollByDir(-1)" type="button"><AppIcon name="chevron-left" /></JzButton>
       <div ref="rowRef" class="cw-row" @scroll="onScroll">
         <div v-for="m in items" :key="m.id" class="cw-card" role="link" tabindex="0"
           :title="m.added_at ? ('入库 ' + fmtDate(m.added_at)) : ''" @click="$emit('open', m.id)" @keydown.enter.self="$emit('open', m.id)">
           <div class="poster-wrap">
             <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy"
               :alt="(m.title || '影片') + ' 海报'" />
-            <div v-else class="cw-no-poster" aria-hidden="true">{{ (m.title || '?').slice(0, 1) }}</div>
+            <ArtworkPlaceholder v-else class="cw-no-poster" kind="poster" :label="m.title" />
             <div v-if="!m.watched" class="cw-bar" aria-hidden="true">
               <div class="cw-bar-in" :style="{ width: progressWidth(m.progress) }"></div>
             </div>
@@ -23,16 +23,22 @@
           </div>
           <div class="cw-name" :title="m.title">{{ m.title }}<span v-if="m.year" class="cw-year">({{ m.year }})</span><span v-if="m.version_count > 1" class="cw-year">×{{ m.version_count }}</span></div>
           <div v-if="m.subtitle" class="cw-ep" :title="m.subtitle">{{ m.subtitle }}</div>
-          <div class="cw-progress-text">{{ m.watched ? '✓ 已看完' : fmtRemaining(m.progress && m.progress.remaining_sec) }}</div>
+          <div class="cw-progress-text"><AppIcon v-if="m.watched" name="check" :size="14" />{{ m.watched ? '已看完' : fmtRemaining(m.progress && m.progress.remaining_sec) }}</div>
         </div>
       </div>
-      <button v-if="canRight" class="cw-nav right" aria-label="向右滚动" @click="scrollByDir(1)">›</button>
+      <JzButton v-if="canRight" class="cw-nav right" icon-only aria-label="向右滚动" @click="scrollByDir(1)" type="button"><AppIcon name="chevron-right" /></JzButton>
       <span v-if="canLeft" class="cw-fade left" aria-hidden="true"></span>
       <span v-if="canRight" class="cw-fade right" aria-hidden="true"></span>
     </div>
   </section>
 </template>
 <script setup>
+import ArtworkPlaceholder from './ArtworkPlaceholder.vue'
+
+import AppIcon from './AppIcon.vue'
+
+import JzButton from './JzButton.vue'
+
 import PlayerIcon from './PlayerIcon.vue'
 
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -128,8 +134,7 @@ defineExpose({ reload, ready: () => pending })
 .cw-head { display: flex; align-items: center; gap: var(--jz-gap-m); margin-bottom: var(--jz-gap-s); }
 .cw-head h3 { margin: 0; font-size: 1rem; line-height: 1.4; font-weight: 600; }
 .cw-count { margin-left: var(--jz-gap-xs); color: var(--jz-text-dim); font-size: var(--jz-font-s); font-weight: 400; }
-.cw-toggle { margin-left: auto; min-height: 32px; border: 0; background: transparent; color: var(--jz-text-dim); font-size: var(--jz-font-s); padding: var(--jz-gap-xs) 0; }
-.cw-toggle:hover { color: var(--jz-text); }
+.cw-toggle { margin-left: auto; }
 .cw-strip { position: relative; }
 .cw-row { display: flex; gap: var(--jz-gap-m); overflow-x: auto; scroll-behavior: smooth; scrollbar-width: none; padding: 3px; margin: -3px; scroll-snap-type: x proximity; }
 .cw-row::-webkit-scrollbar { display: none; }
@@ -145,12 +150,11 @@ defineExpose({ reload, ready: () => pending })
 .cw-ep { grid-column: 2; grid-row: 2; color: var(--jz-text-dim); font-size: var(--jz-font-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cw-progress-text { grid-column: 2; grid-row: 3; padding-top: var(--jz-gap-xs); font-size: var(--jz-font-s); color: var(--jz-text-dim); font-variant-numeric: tabular-nums; }
 .cw-card:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 2px; }
-.cw-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 3; width: 36px; height: 52px; padding: 0; border-radius: var(--jz-radius-s); background: var(--jz-overlay); border: 1px solid var(--jz-border-strong); color: var(--jz-text); font-size: 1.25rem; }
+.cw-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 3; width: 36px; height: 52px; }
 .cw-nav.left { left: 0; }.cw-nav.right { right: 0; }
 .cw-fade { display: none; }
 @media (max-width: 700px) {
   .cw { margin-top: var(--jz-gap-m); }
-  .cw-toggle { min-height: var(--jz-touch-target); }
   .cw-head { margin-bottom: var(--jz-gap-xs); }
   .cw-card { flex-basis: 246px; grid-template-columns: 48px minmax(0, 1fr); gap: 0 var(--jz-gap-s); }
   .cw-row { gap: var(--jz-gap-s); }

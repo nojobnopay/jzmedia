@@ -7,7 +7,7 @@
         <JzField id="tmdb-read-token" label="读取令牌（Read Token）" :hint="s?.tmdb_configured ? '留空保留现有凭据 · ' + sourceText(s.tmdb_read_token_masked ? s.tmdb_read_token_source : s.tmdb_api_key_source) + ' ' + (s.tmdb_read_token_masked || '') : '没有令牌也可先用本地资料和备用来源入库。'" v-slot="field">
           <input :id="field.id" :aria-describedby="field.describedby" v-model="form.readToken" name="tmdb-read-token" type="password" autocomplete="off" :spellcheck="false" placeholder="粘贴 TMDB API Read Access Token" />
         </JzField>
-        <a class="token-help" href="https://developer.themoviedb.org/docs/authentication-application" target="_blank" rel="noopener noreferrer">如何获取读取令牌 ↗</a>
+        <a class="token-help" href="https://developer.themoviedb.org/docs/authentication-application" target="_blank" rel="noopener noreferrer">如何获取读取令牌 <AppIcon name="external-link" :size="14" /></a>
       </div>
       <details class="tmdb-options">
         <summary><span>API Key、代理与其他配置</span><small>可选</small></summary>
@@ -21,7 +21,7 @@
         </div>
         <p class="hint">保存后优先使用这里的配置。清空代理或图片地址时，恢复服务器配置或默认值。</p>
         <dl><dt>代理来源</dt><dd>{{ sourceText(s?.tmdb_proxy_source) }}</dd><dt>语言来源</dt><dd>{{ sourceText(s?.tmdb_language_source) }}</dd><dt>图片地址来源</dt><dd>{{ sourceText(s?.tmdb_image_base_source) }}</dd></dl>
-        <div class="bar"><JzButton @click="clear">{{ armClear ? '确认恢复服务器配置' : '恢复服务器配置' }}</JzButton><JzButton v-if="armClear" @click="armClear = false">取消恢复</JzButton></div>
+        <div class="bar"><JzButton icon="undo" @click="clear">{{ armClear ? '确认恢复服务器配置' : '恢复服务器配置' }}</JzButton><JzButton v-if="armClear" @click="armClear = false">取消恢复</JzButton></div>
         <p v-if="armClear" class="hint">将移除在此保存的五项 TMDB 配置，改用服务器环境配置或默认值。</p>
       </details>
       <div class="bar tmdb-actions">
@@ -33,6 +33,8 @@
   </section>
 </template>
 <script setup>
+import AppIcon from './AppIcon.vue'
+
 import { reactive, ref, watch } from 'vue'
 import { api } from '../api.js'
 import JzButton from './JzButton.vue'

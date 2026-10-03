@@ -100,7 +100,7 @@
 | `movie-library.webp` | 电影墙、继续观看、排序 | `/?media=2` | 真实库 NAS |
 | `movie-detail.webp` | 电影背景、海报、播放入口 | `/m/875?media=2`（古董局中局） | 真实库 NAS |
 | `tv-season.webp` | 亮剑第 1 季分集与播放入口 | `/tv/72/s/1?media=2` | 真实库 NAS |
-| `player-settings.webp` | 播放画面、进度条、设置面板 | `/m/405?media=1` 点播放再开齿轮 | 真实库本地 |
+| `player-settings.webp` | 播放画面、进度条、统一设置面板 | `node scripts/smoke_settings_ui.mjs --player-only --capture-docs` | 隔离模拟 API 与合成视频 |
 | `library-connection.webp` | 媒体库与其下视频库 | `/settings?sec=sec-libraries` | 真实库 |
 | `scan-review.webp` | 视频库标签、入库三步 | `/settings?sec=sec-libtools&library=2` | 真实库 |
 | `organize-preview.webp` | 就地整理预览与目标路径 | 演示实例同页（`library=2`） | 演示环境 |
@@ -135,7 +135,7 @@
 | `upload-tv.webp` | 上传剧集多选文件模式与季号 | `/tv?media=1` 添加剧集 → 上传文件 | 真实库（本地测试库，未实际上传） |
 | `settings-navigation.webp` | 已由 2026-10-02 分组导航截图替代 | `/settings` | 模拟 API，见上方新批次 |
 | `mobile-library.webp` | 手机导航、紧凑继续观看与三列海报墙 | `/`（407×904 CSS，3x） | 隔离演示数据，Chromium 移动模拟，2026-10-02 |
-| `mobile-player.webp` | 手机宽度下的播放控件 | `/m/405?media=1` 播放（红米 K50 Ultra：407×904 CSS，3x） | 真实库，模拟环境 |
+| `mobile-player.webp` | 手机宽度下的播放控件 | `node scripts/smoke_settings_ui.mjs --player-only --capture-docs`（390×844 CSS，1x） | 隔离模拟 API 与合成视频；另测320px触屏 |
 
 ## 注意事项
 

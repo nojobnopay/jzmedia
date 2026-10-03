@@ -1,10 +1,12 @@
 <template>
   <details ref="menu" class="action-menu" @keydown.esc.stop="close(true)" @toggle="fit">
-    <summary>{{ label }} <span aria-hidden="true">⌄</span></summary>
+    <summary>{{ label }} <AppIcon name="chevron-down" :size="16" /></summary>
     <div ref="items" :style="{ transform: `translateX(${offset}px)` }" class="action-menu-items" @click.capture="onAction"><slot /></div>
   </details>
 </template>
 <script setup>
+import AppIcon from './AppIcon.vue'
+
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 defineProps({ label: { type: String, default: '更多操作' } })
 const menu = ref(null)
@@ -45,7 +47,7 @@ onUnmounted(() => {
 summary { box-sizing: border-box; min-height: var(--jz-control-current); list-style: none; display: flex; gap: var(--jz-gap-s); align-items: center; cursor: pointer; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s); padding: var(--jz-gap-s) var(--jz-gap-m); font-size: var(--jz-font-m); background: var(--jz-surface-2); }
 summary::-webkit-details-marker { display: none; }
 .action-menu-items { position: absolute; top: calc(100% + 8px); right: 0; z-index: 40; width: max-content; min-width: 180px; max-width: min(300px, calc(100vw - 32px)); background: var(--jz-surface-2); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-m); padding: 6px; box-shadow: 0 12px 32px #0008; }
-.action-menu-items :deep(button), .action-menu-items :deep(a) { display: block; width: 100%; text-align: left; padding: 10px 12px; border: 0; background: transparent; border-radius: var(--jz-radius-s); text-decoration: none; color: var(--jz-text); box-sizing: border-box; }
+.action-menu-items :deep(button), .action-menu-items :deep(a) { display: flex; justify-content: flex-start; width: 100%; text-align: left; text-decoration: none; box-sizing: border-box; }
 .action-menu-items :deep(button:hover), .action-menu-items :deep(a:hover) { background: var(--jz-surface-3); }
 summary:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 3px; }
 </style>

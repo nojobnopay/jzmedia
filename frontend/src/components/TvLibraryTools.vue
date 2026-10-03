@@ -2,17 +2,17 @@
   <section :id="active ? 'sec-pipeline' : undefined" class="workflow-panel">
     <div class="library-tools-header"><div class="tool-views" aria-label="视频库工具">
       <button v-for="view in toolViews" :key="view.key" :class="{ on: toolView === view.key }"
-        :aria-pressed="toolView === view.key" @click="chooseView(view.key)">{{ view.label }}</button>
-    </div><button type="button" class="open-library-files" @click="openFiles">管理文件</button></div>
+        :aria-pressed="toolView === view.key" @click="chooseView(view.key)"><AppIcon :name="view.key === 'workflow' ? 'organize' : view.key === 'restore' ? 'history' : 'settings'" :size="18" />{{ view.label }}</button>
+    </div><JzButton type="button" class="open-library-files" @click="openFiles" icon="folder">管理文件</JzButton></div>
     <div v-show="toolView === 'workflow'">
-    <div class="bar"><button :disabled="!tab.enabled" @click="bindingsOpen = true">剧集归属与季号</button>
+    <div class="bar"><JzButton :disabled="!tab.enabled" @click="bindingsOpen = true" type="button" icon="match">剧集归属与季号</JzButton>
       <span class="hint">多部曲、某一季或多个目录，可先确认归属再扫描。</span></div>
     <div class="status-line">
       <span v-if="statsReady" class="chip">{{ stats.shows }} 部剧 · {{ stats.episodes }} 集</span>
       <span v-if="unmatchedCount" class="chip warn">未匹配 {{ unmatchedCount }}</span>
       <span v-if="reviewCount" class="chip warn">待确认 {{ reviewCount }}</span>
       <span v-if="episodeReviewCount" class="chip warn">未匹配集号 {{ episodeReviewCount }}</span>
-      <span v-if="pendingLoaded && !pendingTotal" class="chip ok">✓ 剧集全部已匹配</span>
+      <span v-if="pendingLoaded && !pendingTotal" class="chip ok"><AppIcon name="check" :size="16" />剧集全部已匹配</span>
       <span v-if="!tab.enabled" class="chip warn">库已停用：扫描/写入被跳过</span>
     </div>
 
@@ -25,12 +25,12 @@
       <div v-show="openStep === 'scan'" class="pipe-body">
         <p class="hint">读取新剧集，自动匹配资料和海报，并移除文件已不存在的记录。</p>
         <div class="bar">
-          <button class="primary" @click="startScan" :disabled="!!busy || scanBlocked || !tab.enabled">
+          <JzButton class="primary tool-action" @click="startScan" :disabled="!!busy || scanBlocked || !tab.enabled" type="button" variant="primary" icon="scan">
             {{ scanRunning ? '扫描中…' : '扫描新文件' }}
-          </button>
-          <button v-if="scanRunning" @click="cancelScan">取消扫描</button>
+          </JzButton>
+          <JzButton v-if="scanRunning" @click="cancelScan" type="button">取消扫描</JzButton>
           <span>{{ scanMsg }}</span>
-          <button v-if="scanStateText === '完成'" @click="toggleStep('match')">核对匹配结果 →</button>
+          <JzButton v-if="scanStateText === '完成'" @click="toggleStep('match')" type="button" icon="match">核对匹配结果</JzButton>
         </div>
       </div>
     </div>
@@ -39,17 +39,17 @@
       <button type="button" class="pipe-head pipe-toggle" :aria-expanded="openStep === 'match'" @click="toggleStep('match')">
         <span class="step-title"><span class="step-no">②</span> 核对匹配 <span v-if="pendingTotal" class="nav-badge">{{ pendingTotal }}</span></span>
         <span class="fhint">{{ openStep === 'match' ? '收起' : '展开' }}</span>
-        <span class="step-state" :class="{ ok: !pendingTotal && pendingLoaded }">{{ pendingTotal ? `${pendingTotal} 部待处理` : (pendingLoaded ? '✓ 全部已匹配' : '') }}</span>
+        <span class="step-state" :class="{ ok: !pendingTotal && pendingLoaded }">{{ pendingTotal ? `${pendingTotal} 部待处理` : (pendingLoaded ? '全部已匹配' : '') }}</span>
       </button>
       <div v-show="openStep === 'match'" class="pipe-body">
         <details v-if="pendingTotal" class="settings-details"><summary>如何处理匹配问题</summary><p class="hint">未匹配：选择对应剧集。待确认：核对后点击「匹配正确」。集号待处理：进入详情页指定对应集号。</p></details>
         <div class="bar">
-          <button @click="loadPending()" :disabled="!!busy">刷新列表</button>
+          <JzButton @click="loadPending()" :disabled="!!busy" type="button" icon="refresh">刷新列表</JzButton>
           <span v-if="pendingTotal">{{ pendingSummary }}</span>
           <span v-else-if="pendingLoaded">全部已匹配</span>
-          <button v-if="reviewRows.length > 1" :disabled="!!busy" @click="confirmAll">
+          <JzButton v-if="reviewRows.length > 1" :disabled="!!busy" @click="confirmAll" type="button" icon="match">
             {{ busy === 'confirm' ? '确认中…' : `确认全部匹配（${reviewRows.length}）` }}
-          </button>
+          </JzButton>
         </div>
         <p v-if="pendingMsg" class="feedback" role="status">{{ pendingMsg }}</p>
         <ul class="miss-list">
@@ -60,11 +60,11 @@
               {{ it.season_count }} 季 · {{ it.episode_count }} 集
               <span v-if="it.episode_review_count" class="fhint"> · 未匹配集号 {{ it.episode_review_count }}</span>
             </span>
-            <button v-if="it.needs_review" :disabled="!!busy" title="匹配无误，清除待确认" @click="confirmOne(it.id)">匹配正确</button>
-            <button @click="$router.push('/tv/' + it.id)">{{ it.tmdb_id ? '核对集号' : '匹配剧集' }}</button>
+            <JzButton v-if="it.needs_review" :disabled="!!busy" title="匹配无误，清除待确认" @click="confirmOne(it.id)" type="button" icon="match">匹配正确</JzButton>
+            <JzButton @click="$router.push('/tv/' + it.id)" type="button" icon="match">{{ it.tmdb_id ? '核对集号' : '匹配剧集' }}</JzButton>
           </li>
           <li v-if="pendingTotal > COLLAPSE_N" class="miss-row collapse-row">
-            <button @click="pendExpand = !pendExpand">{{ pendExpand ? '收起' : `展开全部 (${pendingTotal})` }}</button>
+            <JzButton @click="pendExpand = !pendExpand" type="button">{{ pendExpand ? '收起' : `展开全部 (${pendingTotal})` }}</JzButton>
           </li>
         </ul>
       </div>
@@ -90,6 +90,10 @@
     @close="bindingsOpen = false" @changed="onBindingsChanged" />
 </template>
 <script setup>
+import AppIcon from './AppIcon.vue'
+
+import JzButton from './JzButton.vue'
+
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { api } from '../api.js'
 import { useLibraryScan } from '../useLibraryScan.js'
@@ -216,7 +220,7 @@ const { running: scanRunning, blocked: scanBlocked, message: scanMsg, stateText:
 function onOrgStatus(s) {
   if (!s) return
   if (s.executed) { orgState.value = `已执行 ${s.executed} 项`; return }
-  orgState.value = s.plans ? `${s.plans} 部可整理` : '✓ 无需整理'
+  orgState.value = s.plans ? `${s.plans} 部可整理` : '无需整理'
 }
 async function onOrganized() {
   emit('changed')

@@ -9,6 +9,7 @@ export default defineConfig({
   title: 'jzmedia 帮助',
   description: '从第一部内容入库到日常观看、片库管理与问题排查。',
   base: '/help/',
+  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/help/assets/design/favicon.svg' }]],
   cleanUrls: false,
   srcExclude: sourceExcludes(),
   outDir: '.vitepress/dist',
@@ -23,6 +24,7 @@ export default defineConfig({
   } } },
   markdown: { config: md => mermaidFence(md) },
   themeConfig: {
+    logo: { src: '/assets/design/favicon.svg', alt: 'jzmedia' },
     nav: [
       { text: '帮助首页', link: '/' },
       { text: '开始使用', link: '/user-guide/onboarding.html' },

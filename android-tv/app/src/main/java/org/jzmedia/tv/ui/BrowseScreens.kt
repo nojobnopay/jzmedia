@@ -1,5 +1,6 @@
 package org.jzmedia.tv.ui
 
+import org.jzmedia.tv.ui.generated.DesignTokens
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
@@ -144,17 +146,23 @@ fun HomeScreen(api: JzApi, library: Long, refresh: Int, memory: FocusMemory, nav
     }
     @Composable fun Feedback(index: Int) {
         val part = parts[index]
-        if (part.loading) Text(if (part.rows.isEmpty()) "正在读取${labels[index]}…" else "正在更新${labels[index]}…", color = Muted)
+        if (part.loading) Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            TvIcon("loading")
+            Text(if (part.rows.isEmpty()) "正在读取${labels[index]}…" else "正在更新${labels[index]}…", color = Muted)
+        }
         if (part.error.isNotBlank()) {
-            Text("${labels[index]}：${part.error}", color = Muted)
-            TvAction("重试${labels[index]}", { retry(index) }, Modifier.focusMemory(memory, "home-retry:$index", retryFocus[index]))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                TvIcon("error")
+                Text("${labels[index]}：${part.error}", color = Muted)
+            }
+            TvAction("重试${labels[index]}", { retry(index) }, Modifier.focusMemory(memory, "home-retry:$index", retryFocus[index]), icon = "refresh")
         }
     }
     LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(28.dp), contentPadding = PaddingValues(bottom = 30.dp)) {
         item(key = "heading") {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("今晚看什么", style = MaterialTheme.typography.headlineSmall)
-                TvAction("刷新", { attempts = attempts.map { it + 1 } }, Modifier.focusMemory(memory, "home-refresh", refreshFocus))
+                TvAction("刷新", { attempts = attempts.map { it + 1 } }, Modifier.focusMemory(memory, "home-refresh", refreshFocus), icon = "refresh")
             }
         }
         item(key = "continue") {
@@ -273,23 +281,23 @@ fun BrowseScreen(api: JzApi, kind: String, library: Long, refresh: Int, memory: 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.fillMaxWidth()) {
             Text(title, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-            TvAction("搜索", { navigate(TvRoute("search", title = kind)) }, Modifier.focusMemory(memory, "search"))
-            TvAction("筛选 / 排序", { filtering = true }, Modifier.focusMemory(memory, "filter", filterFocus))
-            TvAction("刷新", { attempt++ }, Modifier.focusMemory(memory, "refresh"))
+            TvAction("搜索", { navigate(TvRoute("search", title = kind)) }, Modifier.focusMemory(memory, "search"), icon = "search")
+            TvAction("筛选 / 排序", { filtering = true }, Modifier.focusMemory(memory, "filter", filterFocus), icon = "filter")
+            TvAction("刷新", { attempt++ }, Modifier.focusMemory(memory, "refresh"), icon = "refresh")
         }
         val summary = listOf(query.takeIf { it.isNotBlank() }?.let { "搜索：$it" }, genre, region, year,
             when (watched) { "1" -> "已看"; "0" -> "未看"; else -> "" }, rating.takeIf { it.isNotBlank() }?.let { "评分 ≥ $it" }).filterNotNull().filter { it.isNotBlank() }
         Text((if (summary.isEmpty()) "全部$title" else summary.joinToString(" · ")) + " · 第 ${page + 1} 页", color = Muted)
         when {
             error.isNotBlank() -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Status(error)
-                TvAction("重试", { focusResults = true; attempt++ }, Modifier.focusMemory(memory, "retry-browse", retryFocus))
-                if (page > 0) TvAction("返回上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous", previousFocus))
+                Status(error, icon = "error")
+                TvAction("重试", { focusResults = true; attempt++ }, Modifier.focusMemory(memory, "retry-browse", retryFocus), icon = "refresh")
+                if (page > 0) TvAction("返回上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous", previousFocus), icon = "back")
             }
-            data == null -> Status("正在读取$title…")
+            data == null -> Status("正在读取$title…", icon = "loading")
             rows.isEmpty() -> {
                 Status(if (page > 0) "这一页已没有内容，请返回上一页。" else if (filters.take(6).any { it.isNotBlank() }) "没有符合条件的$title，请调整搜索或筛选。" else "暂无$title，请先在网页端导入。")
-                if (page > 0) TvAction("返回上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous", previousFocus))
+                if (page > 0) TvAction("返回上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous", previousFocus), icon = "back")
             }
             else -> LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(150.dp), contentPadding = PaddingValues(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -300,8 +308,8 @@ fun BrowseScreen(api: JzApi, kind: String, library: Long, refresh: Int, memory: 
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(vertical = 10.dp)) {
-                        if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous", previousFocus))
-                        if (hasMore) TvAction("下一页", { turnPage(page + 1) }, Modifier.focusMemory(memory, "next"))
+                        if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous", previousFocus), icon = "back")
+                        if (hasMore) TvAction("下一页", { turnPage(page + 1) }, Modifier.focusMemory(memory, "next"), icon = "forward")
                         Text("本页 ${rows.size} 项" + if (data?.has("total") == true) " / 共 ${data?.optInt("total")} 项" else "", color = Muted, modifier = Modifier.padding(12.dp))
                     }
                 }
@@ -342,7 +350,7 @@ private fun FilterDialog(api: JzApi, kind: String, library: Long, current: List<
     )
     val labels = listOf("类型", "地区", "年份", "观看", "评分", "排序", "顺序")
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.fillMaxWidth(.88f).heightIn(max = 540.dp).background(Panel, RoundedCornerShape(16.dp)).padding(28.dp),
+        Column(Modifier.fillMaxWidth(.88f).heightIn(max = 540.dp).background(Panel, RoundedCornerShape(DesignTokens.DialogRadius)).padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Text("筛选与排序", style = MaterialTheme.typography.headlineSmall)
             LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -374,7 +382,7 @@ fun ChoiceDialog(title: String, choices: List<Pair<String, String>>, selected: S
     val memory = rememberFocusMemory("choice:$selected")
     BackHandler { onClose() }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.fillMaxWidth(.7f).heightIn(max = 480.dp).background(Panel, RoundedCornerShape(16.dp)).padding(28.dp),
+        Column(Modifier.fillMaxWidth(.7f).heightIn(max = 480.dp).background(Panel, RoundedCornerShape(DesignTokens.DialogRadius)).padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Text(title, style = MaterialTheme.typography.headlineSmall)
             LazyColumn(state = listState, modifier = Modifier.weight(1f, fill = false), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -382,7 +390,7 @@ fun ChoiceDialog(title: String, choices: List<Pair<String, String>>, selected: S
                     TvAction(label, { onSelect(value) }, Modifier.fillMaxWidth().focusMemory(memory, "choice:$value"), selected == value)
                 }
             }
-            TvAction("返回", onClose)
+            TvAction("返回", onClose, icon = "back")
         }
     }
 }

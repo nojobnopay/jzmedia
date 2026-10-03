@@ -2,11 +2,11 @@
   <div v-if="show" class="tv-page media-detail show-detail">
     <div class="hero media-hero">
       <MediaBackdrop :src="backdropSrc" />
-      <div class="topbar hero-backbar"><router-link :to="browseReturn('/tv', currentMediaId())" class="back-link">‹ 剧集</router-link></div>
+      <div class="topbar hero-backbar"><router-link :to="browseReturn('/tv', currentMediaId())" class="back-link"><AppIcon name="back" :size="18" />剧集</router-link></div>
       <div class="hero-inner">
         <img v-if="show.poster_path" class="hero-poster" :src="posterSrc"
           :alt="show.title" />
-        <div v-else class="hero-poster hero-no-poster" aria-hidden="true">{{ (show.title || '?').slice(0, 1) }}</div>
+        <ArtworkPlaceholder v-else class="hero-poster hero-no-poster" kind="poster" :label="show.title" />
         <div class="hero-body">
           <div class="hero-heading">
             <h1>{{ show.title }}<span v-if="show.year" class="dim"> ({{ show.year }})</span></h1>
@@ -22,19 +22,19 @@
             </div>
           </div>
           <div class="acts">
-            <button v-if="nextEp" class="primary" :disabled="!nextEp.exists" @click="play(nextEp)">
+            <JzButton v-if="nextEp" class="primary" :disabled="!nextEp.exists" @click="play(nextEp)" type="button" variant="primary">
               <PlayerIcon name="play" :size="20" /> {{ nextEp.progress ? '继续观看' : '播放下一集' }} {{ epNo(nextEp) }}
-            </button>
-            <button v-if="Number(show.episode_count) > 0" :disabled="busy" @click="toggleShowWatched">
+            </JzButton>
+            <JzButton v-if="Number(show.episode_count) > 0" :disabled="busy" @click="toggleShowWatched" type="button">
               {{ allWatched ? '标记整剧未看' : '标记整剧已看' }}
-            </button>
+            </JzButton>
             <ActionMenu>
-              <button :disabled="busy" @click="nameDraft = show.title; renameOpen = !renameOpen">修改剧名</button>
-              <button :disabled="busy" @click="refreshMeta">更新剧集资料</button>
-              <button :disabled="busy" @click="bindingsOpen = true">归属与季号</button>
-              <button @click="matchOpen = !matchOpen">{{ matchOpen ? '收起匹配' : '重新匹配剧集' }}</button>
-              <button :disabled="busy" @click="openOrganize">{{ organizing ? '正在发现新增分集…' : '整理剧集目录' }}</button>
-              <button :disabled="verifying" @click="verifyExists">{{ verifying ? '检查中…' : '检查文件是否可用' }}</button>
+              <JzButton :disabled="busy" @click="nameDraft = show.title; renameOpen = !renameOpen" type="button" variant="ghost" icon="edit">修改剧名</JzButton>
+              <JzButton :disabled="busy" @click="refreshMeta" type="button" variant="ghost" icon="refresh">更新剧集资料</JzButton>
+              <JzButton :disabled="busy" @click="bindingsOpen = true" type="button" variant="ghost" icon="match">归属与季号</JzButton>
+              <JzButton @click="matchOpen = !matchOpen" type="button" variant="ghost" icon="match">{{ matchOpen ? '收起匹配' : '重新匹配剧集' }}</JzButton>
+              <JzButton :disabled="busy" @click="openOrganize" type="button" variant="ghost" icon="organize">{{ organizing ? '正在发现新增分集…' : '整理剧集目录' }}</JzButton>
+              <JzButton :disabled="verifying" @click="verifyExists" type="button" variant="ghost" icon="eye">{{ verifying ? '检查中…' : '检查文件是否可用' }}</JzButton>
             </ActionMenu>
             <span class="dim">{{ show.watched_count }}/{{ show.episode_count }} 已看</span>
             <span v-if="busy" class="dim">{{ organizing ? '正在检查本剧目录…' : '处理中…' }}</span>
@@ -44,26 +44,26 @@
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
           <div v-if="(!show.tmdb_id && !show.match_source) || show.needs_review" class="review-notice">
             <span>{{ !show.tmdb_id && !show.match_source ? '剧集资料尚未匹配' : '请确认剧集是否匹配正确' }}</span>
-            <button v-if="show.tmdb_id || show.match_source" :disabled="busy" @click="confirmMatch">匹配正确</button>
-            <button :aria-expanded="matchOpen" @click="matchOpen = !matchOpen">{{ !show.tmdb_id && !show.match_source ? '匹配资料' : '重新匹配' }}</button>
+            <JzButton v-if="show.tmdb_id || show.match_source" :disabled="busy" @click="confirmMatch" type="button" icon="match">匹配正确</JzButton>
+            <JzButton :aria-expanded="matchOpen" @click="matchOpen = !matchOpen" type="button" icon="match">{{ !show.tmdb_id && !show.match_source ? '匹配资料' : '重新匹配' }}</JzButton>
           </div>
           <form v-if="renameOpen" class="inline-edit" @submit.prevent="renameShow">
             <label>剧名 <input v-model="nameDraft" required aria-label="剧名" /></label>
-            <button :disabled="busy || !nameDraft.trim()">保存剧名</button>
-            <button type="button" @click="renameOpen = false">取消</button>
+            <JzButton :disabled="busy || !nameDraft.trim()" type="submit">保存剧名</JzButton>
+            <JzButton type="button" @click="renameOpen = false">取消</JzButton>
           </form>
           <div v-if="matchOpen" class="match card-block">
-            <p class="hint">只匹配其中一季或合并多个目录，可使用 <button @click="bindingsOpen = true">归属与季号</button>。</p>
+            <p class="hint">只匹配其中一季或合并多个目录，可使用 <JzButton @click="bindingsOpen = true" type="button" icon="match">归属与季号</JzButton>。</p>
             <div class="bar match-bar">
               <input v-model="mq" placeholder="输入剧名" aria-label="搜索剧集匹配" @keyup.enter="doSearch" />
-              <button :disabled="searching" @click="doSearch">搜索</button>
+              <JzButton :disabled="searching" @click="doSearch" type="button" icon="search">搜索</JzButton>
             </div>
             <div v-for="r in results" :key="r.tmdb_id || r.source + ':' + r.source_id" class="mrow">
               <span v-if="r.source && r.source !== 'tmdb'" class="src-badge">{{ srcLabel(r.source) }}</span>
               <span class="mname">{{ r.title }}<span v-if="r.original_title && r.original_title !== r.title" class="dim"> / {{ r.original_title }}</span></span>
               <span class="dim">{{ r.year || '—' }}</span>
-              <button v-if="r.tmdb_id" @click="doMatch(r.tmdb_id)">匹配</button>
-              <button v-else-if="isExternal(r)" @click="doMatchExternal(r)">绑定外源</button>
+              <JzButton v-if="r.tmdb_id" @click="doMatch(r.tmdb_id)" type="button" icon="match">匹配</JzButton>
+              <JzButton v-else-if="isExternal(r)" @click="doMatchExternal(r)" type="button" icon="match">绑定外源</JzButton>
             </div>
             <div v-if="searched && !results.length" class="dim">没有找到相关剧集，请尝试其他名称。</div>
             <AiMatchSuggestions kind="tv" :item-id="show.id" :disabled="busy || searching" :already-matched="!!show.tmdb_id || !!show.match_source" @select="selectAiMatch" />
@@ -79,8 +79,8 @@
           <div class="season-poster">
             <img v-if="s.poster_path" :src="posterUrl(s.poster_path, posterVer || undefined)" loading="lazy"
               :alt="seasonLabel(s.season)" />
-            <div v-else class="season-no-poster" aria-hidden="true">{{ seasonLabel(s.season).slice(0, 1) }}</div>
-            <span v-if="seasonProgress(s.season).done" class="season-done">✓已看</span>
+            <ArtworkPlaceholder v-else class="season-no-poster" kind="poster" :label="seasonLabel(s.season)" />
+            <span v-if="seasonProgress(s.season).done" class="season-done"><AppIcon name="check" :size="14" />已看</span>
           </div>
           <div class="season-name">{{ s.name || seasonLabel(s.season) }}</div>
           <div class="dim small">{{ seasonStat(s.season).distinct }} 集<template
@@ -100,7 +100,7 @@
         <div v-for="x in movies" :key="x.id" class="ex-card">
           <div class="ex-name" :title="baseName(x.file_path)">{{ baseName(x.file_path) }}</div>
           <div class="dim small">{{ x.label }}</div>
-          <button v-if="x.exists" class="mini" @click="playExtra(x)">播放</button>
+          <JzButton v-if="x.exists" class="mini" @click="playExtra(x)" type="button" size="compact" icon="play">播放</JzButton>
           <span v-else class="dim small">文件缺失</span>
         </div>
       </div>
@@ -111,7 +111,7 @@
         <div v-for="x in features" :key="x.id" class="ex-card">
           <div class="ex-name" :title="baseName(x.file_path)">{{ baseName(x.file_path) }}</div>
           <div class="dim small">{{ x.label }}</div>
-          <button v-if="x.exists" class="mini" @click="playExtra(x)">播放</button>
+          <JzButton v-if="x.exists" class="mini" @click="playExtra(x)" type="button" size="compact" icon="play">播放</JzButton>
           <span v-else class="dim small">文件缺失</span>
         </div>
       </div>
@@ -132,6 +132,12 @@
 </template>
 
 <script setup>
+import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
+
+import AppIcon from '../components/AppIcon.vue'
+
+import JzButton from '../components/JzButton.vue'
+
 import EmptyState from '../components/EmptyState.vue'
 import AiMatchSuggestions from '../components/AiMatchSuggestions.vue'
 import { isAiExternalCandidate } from '../aiMatch.js'

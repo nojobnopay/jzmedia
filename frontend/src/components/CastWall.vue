@@ -8,7 +8,7 @@
         :to="castId(p.raw || p) ? personLink(p.raw || p) : undefined">
         <img v-if="p.avatarSrc" :src="p.avatarSrc" loading="lazy"
           class="cast-avatar" :alt="p.name || '演员'" @error="onImgError(p)" />
-        <div v-else class="avatar-fallback" aria-hidden="true">{{ (p.name || '?').slice(0, 1) }}</div>
+        <ArtworkPlaceholder v-else class="avatar-fallback" kind="person" :label="p.name" />
         <div class="cast-name">{{ p.name }}</div>
         <div v-if="showChar && p.character" class="cast-char">{{ p.character }}</div>
         <div v-if="p.guest" class="guest-badge">客串</div>
@@ -17,6 +17,8 @@
   </section>
 </template>
 <script setup>
+import ArtworkPlaceholder from './ArtworkPlaceholder.vue'
+
 // 全站演职员墙单源（P1）：圆形 150px（剧集基准），电影/剧/季/集四页复用。
 // 图片走 cast.js 归一解析（TMDB profile_path 走代理，本地 avatar 走 /posters），
 // 失败回退首字母占位；无 id 不可点；角色名仅英文原语言展示。

@@ -2,8 +2,8 @@
   <div class="preview-maintenance">
     <div><h4>播放进度缩略图</h4><p class="hint">为电影、剧集和花絮生成进度预览，已有成品自动跳过。远程库建议空闲时执行。</p></div>
     <div class="bar">
-      <button @click="start" :disabled="busy">{{ busy ? '生成缩略图中…' : '生成播放进度缩略图' }}</button>
-      <button v-if="busy && job?.job_id" @click="cancel">取消生成</button>
+      <JzButton class="tool-action" @click="start" :disabled="busy" type="button" icon="image">{{ busy ? '生成缩略图中…' : '生成播放进度缩略图' }}</JzButton>
+      <JzButton v-if="busy && job?.job_id" @click="cancel" type="button">取消生成</JzButton>
       <span>{{ message }}</span>
     </div>
 
@@ -11,6 +11,8 @@
 </template>
 
 <script setup>
+import JzButton from './JzButton.vue'
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from '../api.js'
 const props = defineProps({ libraryId: { type: Number, required: true }, active: Boolean })

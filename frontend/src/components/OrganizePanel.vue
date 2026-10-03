@@ -12,20 +12,20 @@
         <label><input type="radio" value="relocate" v-model="orgMode" /> 移至库根目录</label>
       </div>
       <div class="bar">
-        <button @click="loadOrgPreview" :disabled="!!busy">刷新预览</button>
-        <button @click="execOrganize(checkedPlanRows())" :disabled="!!busy || !execCount()">
+        <JzButton @click="loadOrgPreview" :disabled="!!busy" type="button" icon="refresh">刷新预览</JzButton>
+        <JzButton @click="execOrganize(checkedPlanRows())" :disabled="!!busy || !execCount()" type="button" icon="organize">
           {{ busy === 'organize' ? '执行中…' : `整理选中 (${execCount()})` }}
-        </button>
+        </JzButton>
         <span>{{ orgMsg }}</span>
       </div>
       <div v-for="g in planGroups" :key="'op' + g.key" class="lib-group">
         <div class="lib-group-head">
           <b>{{ groupTitle(g) }}</b>
           <span class="fhint">{{ g.items.length }} 项</span>
-          <button @click="togglePlans(g)">{{ groupAllChecked(g) ? '取消本组选中' : '选中本组' }}</button>
-          <button @click="execOrganize(groupChecked(g))" :disabled="!!busy || !groupChecked(g).length">
+          <JzButton @click="togglePlans(g)" type="button">{{ groupAllChecked(g) ? '取消本组选中' : '选中本组' }}</JzButton>
+          <JzButton @click="execOrganize(groupChecked(g))" :disabled="!!busy || !groupChecked(g).length" type="button" icon="organize">
             整理本组选中 ({{ groupChecked(g).length }})
-          </button>
+          </JzButton>
         </div>
         <ul class="plan-list">
           <li v-for="p in seeMore(planExpand, g)" :key="p.id" class="plan-item"
@@ -34,7 +34,7 @@
               <input type="checkbox" :value="p.id" v-model="checkedPlans" />
               <span v-if="p.kind === 'dir'" class="kind-badge" :title="dirTip(p)">{{ planDetails[p.id] && planDetails[p.id].badge }}</span>
               <span class="plan-from" :title="p.from">{{ p.kind === 'dir' ? p.from + '/' : p.from }}</span>
-              <span class="plan-arrow">→</span>
+              <AppIcon class="plan-arrow" name="arrow-right" :size="18" />
               <span class="plan-to" :title="rowViews[p.id] && rowViews[p.id].plan.to">{{ toText(p) }}</span>
               <span v-if="rowViews[p.id] && rowViews[p.id].forcedRelocate" class="kind-badge act">搬到顶层</span>
               <span v-if="rowViews[p.id] && rowViews[p.id].skipped" class="kind-badge act">保持不动</span>
@@ -50,7 +50,7 @@
             <div v-if="p.kind === 'dir' && planDetails[p.id]" class="plan-file-lines">
               <div v-for="(l, i) in planDetails[p.id].lines" :key="'f' + i" class="plan-file-line" :title="l.from + ' → ' + l.to">
                 <span class="pf-from">{{ l.nameFrom }}</span>
-                <span class="pf-arrow">→</span>
+                <AppIcon class="pf-arrow" name="arrow-right" :size="16" />
                 <span class="pf-to">{{ l.nameTo }}</span>
               </div>
               <div v-if="planDetails[p.id].more" class="pf-more">还有 {{ planDetails[p.id].more }} 个影片文件同样改名</div>
@@ -58,9 +58,9 @@
             </div>
           </li>
           <li v-if="g.items.length > COLLAPSE_N" class="plan-item collapse-row">
-            <button @click="toggleExpand(planExpand, g.key)">
+            <JzButton @click="toggleExpand(planExpand, g.key)" type="button">
               {{ expanded(planExpand, g.key) ? '收起' : `展开全部 (${g.items.length})` }}
-            </button>
+            </JzButton>
           </li>
         </ul>
       </div>
@@ -68,7 +68,7 @@
         <span v-if="mismatchCount">疑似错配 {{ mismatchCount }}（需重匹配，不自动加后缀）</span>
         <span v-if="diskCount">磁盘占用 {{ diskCount }}</span>
         <span v-if="dbCount">库内占用 {{ dbCount }}</span>
-        <button @click="loadOrgPreview" :disabled="!!busy">重新预览</button>
+        <JzButton @click="loadOrgPreview" :disabled="!!busy" type="button" icon="eye">重新预览</JzButton>
       </p>
       <div v-if="orgConflicts.length" class="conflict-groups">
         <div v-for="lg in conflictLibGroups" :key="'cl' + lg.key">
@@ -85,12 +85,12 @@
                 <span class="miss-path">{{ p.from }}</span>
               </div>
               <div class="conflict-actions">
-                <button @click="$router.push('/m/' + p.id)">去详情匹配</button>
+                <JzButton @click="$router.push('/m/' + p.id)" type="button" icon="match">去详情匹配</JzButton>
               </div>
               <div class="conflict-note">
                 <input v-model="noteEdits[p.id].edition" placeholder="版本" style="width:90px" />
                 <input v-model="noteEdits[p.id].spec" placeholder="规格/备注" style="width:90px" />
-                <button @click="saveNote(p.id)" :disabled="!!busy">改备注</button>
+                <JzButton @click="saveNote(p.id)" :disabled="!!busy" type="button" icon="edit">改备注</JzButton>
                 <span>{{ noteMsg[p.id] }}</span>
               </div>
             </div>
@@ -101,6 +101,9 @@
   </div>
 </template>
 <script setup>
+import JzButton from './JzButton.vue'
+import AppIcon from './AppIcon.vue'
+
 import HelpLink from './HelpLink.vue'
 import { ref, computed, reactive, watch, onUnmounted } from 'vue'
 import { api } from '../api.js'

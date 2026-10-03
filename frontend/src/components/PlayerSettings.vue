@@ -1,17 +1,17 @@
 <template>
   <div class="pd-setwrap">
-    <button class="player-icon-btn settings-trigger" :class="{ on: open }" @click="$emit('toggle-settings')"
+    <button type="button" class="player-icon-btn settings-trigger" :class="{ on: open }" @click="$emit('toggle-settings')"
       aria-label="播放设置" :aria-expanded="open" title="播放设置"><PlayerIcon name="settings" /></button>
     <section v-if="open" class="pd-set" :style="{ maxHeight: panelHeight + 'px' }" aria-label="播放设置" @click.stop>
       <header class="set-header">
         <strong>播放设置</strong>
         <HelpLink page="user-guide/playback-controls" label="帮助" />
-        <button class="player-icon-btn" @click="$emit('toggle-settings')" aria-label="关闭设置" title="关闭设置"><PlayerIcon name="close" :size="18" /></button>
+        <button type="button" class="player-icon-btn" @click="$emit('toggle-settings')" aria-label="关闭设置" title="关闭设置"><PlayerIcon name="close" :size="18" /></button>
       </header>
       <div class="set-section">
         <div class="section-label">播放速度</div>
         <div class="rate-options" role="group" aria-label="播放速度">
-          <button v-for="rate in PLAYBACK_RATES" :key="rate" :class="{ selected: playbackRate === rate }"
+          <button type="button" v-for="rate in PLAYBACK_RATES" :key="rate" :class="{ selected: playbackRate === rate }"
             :aria-pressed="playbackRate === rate" @click="pick($event, 'rate-change', rate)">{{ rate }}×</button>
         </div>
         <div class="set-row">
@@ -39,8 +39,8 @@
         <p v-else class="set-hint">暂无字幕，可加载本地字幕文件。</p>
         <div class="sub-file-actions">
           <HelpLink page="user-guide/subtitles" label="音轨与字幕图解" />
-          <button class="set-button" @click="pickSubFile" title="临时加载 SRT、VTT、ASS 或 SSA 字幕，仅本次播放有效"><PlayerIcon name="subtitles" :size="16" />加载字幕文件</button>
-          <button v-if="hasLocalSub" class="set-button" @click="$emit('remove-local-subs')">移除本地字幕</button>
+          <JzButton size="compact" class="set-button" @click="pickSubFile" title="临时加载 SRT、VTT、ASS 或 SSA 字幕，仅本次播放有效"><PlayerIcon name="subtitles" :size="16" />加载字幕文件</JzButton>
+          <JzButton size="compact" v-if="hasLocalSub" class="set-button" @click="$emit('remove-local-subs')">移除本地字幕</JzButton>
           <input ref="subFileInput" type="file" accept=".srt,.vtt,.ass,.ssa" class="sub-file" @change="onSubFile" />
         </div>
         <details v-if="subDelayVisible || subIsVtt || subIsAss || forceBurn" class="set-details">
@@ -48,9 +48,9 @@
           <div v-if="subDelayVisible" class="set-row">
             <span class="set-label">时间偏移</span>
             <span class="set-inline">
-              <button class="set-button" @click="$emit('shift-delay', -0.5)" aria-label="字幕提前 0.5 秒">−0.5s</button>
+              <JzButton size="compact" class="set-button" @click="$emit('shift-delay', -0.5)" aria-label="字幕提前 0.5 秒">−0.5s</JzButton>
               <span class="delay-val">{{ subDelayText }}</span>
-              <button class="set-button" @click="$emit('shift-delay', 0.5)" aria-label="字幕延后 0.5 秒">+0.5s</button>
+              <JzButton size="compact" class="set-button" @click="$emit('shift-delay', 0.5)" aria-label="字幕延后 0.5 秒">+0.5s</JzButton>
             </span>
           </div>
           <div v-if="subIsVtt" class="set-row">
@@ -78,25 +78,25 @@
           <label v-if="subIsAss" class="ctl-compat">
             <input type="checkbox" :checked="compatSub" @change="$emit('compat-change', $event.target.checked)" />兼容模式（使用简化字幕）
           </label>
-          <button v-if="subIsAss || subIsVtt || forceBurn" class="set-button" @click="$emit('undo-degrade')" :disabled="undoDisabled">恢复客户端渲染</button>
+          <JzButton size="compact" v-if="subIsAss || subIsVtt || forceBurn" class="set-button" @click="$emit('undo-degrade')" :disabled="undoDisabled">恢复客户端渲染</JzButton>
         </details>
       </div>
       <details class="set-section set-details more-settings">
         <summary>更多选项<PlayerIcon name="chevron" :size="14" /></summary>
         <div class="set-row">
           <span class="set-label">进度缩略图</span>
-          <button v-if="previewBusy" class="set-button" @click="$emit('preview-cancel')">取消生成</button>
-          <button v-else class="set-button" @click="$emit('preview-start')">生成预览</button>
+          <JzButton size="compact" v-if="previewBusy" class="set-button" @click="$emit('preview-cancel')">取消生成</JzButton>
+          <JzButton size="compact" v-else class="set-button" @click="$emit('preview-start')">生成预览</JzButton>
         </div>
         <p class="set-hint">{{ previewStatus }}。远程片源建议空闲时生成。</p>
-        <button class="set-button external-button" @click="$emit('copy-direct')" title="复制原文件直链，在 VLC、Kodi 等播放器打开"><PlayerIcon name="external" :size="16" />复制播放直链</button>
+        <JzButton size="compact" class="set-button external-button" @click="$emit('copy-direct')" title="复制原文件直链，在 VLC、Kodi 等播放器打开"><PlayerIcon name="external" :size="16" />复制播放直链</JzButton>
         <input v-if="directFailUrl" readonly :value="directFailUrl" class="set-copy-url" aria-label="播放直链"
           @focus="$event.target.select()" @click="$event.target.select()" />
         <div class="play-info">
           <span class="section-label">播放信息</span>
           <p>{{ methodLine }}</p><p v-if="qualityLine">{{ qualityLine }}</p>
           <p v-if="reasonLine">{{ reasonLine }}</p><p v-if="bufferLine">{{ bufferLine }}</p>
-          <button class="set-button" @click="$emit('copy-debug')">复制诊断信息</button>
+          <JzButton size="compact" class="set-button" @click="$emit('copy-debug')">复制诊断信息</JzButton>
         </div>
       </details>
     </section>
@@ -107,6 +107,7 @@
 import HelpLink from './HelpLink.vue'
 import { ref } from 'vue'
 import PlayerIcon from './PlayerIcon.vue'
+import JzButton from './JzButton.vue'
 import { audioLabel, subLabel, subBadge } from '../playerLabels.js'
 import { PLAYBACK_RATES } from '../playbackControls.js'
 
@@ -166,49 +167,52 @@ function styleSet(key, value) {
 
 <style scoped>
 .pd-setwrap { display: inline-flex; position: static; }
-.settings-trigger.on { background: rgba(255,255,255,.12); color: #fff; }
+.settings-trigger.on { background: rgba(255,255,255,.12); color: var(--jz-on-accent); }
 .pd-set { position: absolute; right: 16px; bottom: calc(100% + 8px); z-index: 20;
   width: min(350px, calc(100% - 32px)); box-sizing: border-box; overflow: auto;
-  color: #eee; background: rgba(28,28,31,.97); border: 1px solid rgba(255,255,255,.12);
-  border-radius: 14px; box-shadow: 0 12px 40px #0008; scrollbar-width: thin; scrollbar-color: #555 transparent;
+  color: var(--jz-text); background: var(--jz-surface); border: 1px solid rgba(255,255,255,.12);
+  border-radius: var(--jz-radius-dialog); box-shadow: 0 12px 40px #0008; scrollbar-width: thin; scrollbar-color: #555 transparent;
   text-align: left; font-size: .8125rem; color-scheme: dark; }
-.set-header { position: sticky; top: 0; z-index: 1; background: #1c1c1f; display: flex; justify-content: space-between; align-items: center; padding: 8px 12px 8px 18px;
+.set-header { position: sticky; top: 0; z-index: 1; background: var(--jz-surface); display: flex; justify-content: space-between; align-items: center; padding: 8px 12px 8px 18px;
   border-bottom: 1px solid #ffffff10; }
 .set-header strong { font-size: .875rem; font-weight: 600; }
 .set-section { padding: 14px 18px; border-bottom: 1px solid #ffffff10; }
 .set-section:last-child { border-bottom: 0; }
-.section-label { display: block; color: #aaa; font-size: .6875rem; letter-spacing: .06em; margin-bottom: 10px; }
+.section-label { display: block; color: var(--jz-text-dim); font-size: .6875rem; letter-spacing: .06em; margin-bottom: 10px; }
 .rate-options { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 14px; }
-.rate-options button { border: 0; padding: 8px 0; font-size: .75rem; font-weight: 500; background: #ffffff09; color: #bbb; border-radius: 6px; }
-.rate-options button:hover { color: #fff; background: #ffffff18; }
-.rate-options button.selected { background: var(--player-accent); color: #fff; }
+.rate-options button { min-height: var(--jz-control-current); border: 0; padding: 8px 0; font-size: .75rem; font-weight: 500; background: #ffffff09; color: var(--jz-text-dim); border-radius: var(--jz-radius-s); }
+.rate-options button:hover { color: var(--jz-on-accent); background: #ffffff18; }
+.rate-options button.selected { background: var(--player-accent); color: var(--jz-on-accent); }
 .set-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; min-width: 0; }
-.set-row > label, .set-label { flex: 1; color: #ccc; font-size: .75rem; white-space: nowrap; }
+.set-row > label, .set-label { flex: 1; color: var(--jz-text-dim); font-size: .75rem; white-space: nowrap; }
 .pd-set select { min-width: 0; box-sizing: border-box; border: 1px solid #ffffff12; background: #ffffff08;
-  color: #eee; font-size: .75rem; padding: 7px 8px; border-radius: 7px; max-width: 70%; }
-.pd-set select option { background: #242427; color: #eee; }
+  color: var(--jz-text); font-size: .75rem; padding: 7px 8px; border-radius: var(--jz-radius-s); max-width: 70%; }
+.pd-set select option { background: var(--jz-surface-2); color: var(--jz-text); }
 .pd-set select.sub-select { width: 100%; max-width: 100%; }
 .set-inline { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; }
 .set-inline select { flex: 1; }
-.set-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #ffffff14;
-  border-radius: 7px; padding: 6px 8px; background: #ffffff08; color: #ddd; font-size: .6875rem; line-height: 1.5; }
-.set-button:hover:not(:disabled) { background: #ffffff18; color: #fff; }
-.set-button:disabled { opacity: .4; cursor: default; }
+.set-button { gap: var(--jz-gap-xs); }
 .sub-file-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.set-hint { margin: 7px 0 0; color: #aaa; font-size: .6875rem; line-height: 1.7; overflow-wrap: anywhere; }
+.set-hint { margin: 7px 0 0; color: var(--jz-text-dim); font-size: .6875rem; line-height: 1.7; overflow-wrap: anywhere; }
 .set-details summary { display: flex; align-items: center; justify-content: space-between; list-style: none;
-  color: #ccc; padding: 12px 0 0; font-size: .75rem; cursor: pointer; }
+  color: var(--jz-text-dim); padding: 12px 0 0; font-size: .75rem; cursor: pointer; }
 .set-details summary::-webkit-details-marker { display: none; }
 .set-details[open] > summary { margin-bottom: 10px; }
 .set-details[open] > summary svg { transform: rotate(90deg); }
 .more-settings > summary { padding: 0; }
 .ctl-compat { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: .75rem; cursor: pointer; }
 .ctl-compat input { accent-color: var(--player-accent); }
-.delay-val { min-width: 38px; text-align: center; font-variant-numeric: tabular-nums; color: #fff; font-size: .75rem; }
+.delay-val { min-width: 38px; text-align: center; font-variant-numeric: tabular-nums; color: var(--jz-on-accent); font-size: .75rem; }
 .sub-file { display: none; }
 .external-button { margin-top: 14px; }
 .set-copy-url { width: 100%; box-sizing: border-box; margin-top: 8px; font-size: .6875rem; }
 .play-info { margin-top: 14px; padding-top: 14px; border-top: 1px solid #ffffff10; }
-.play-info p { margin: 6px 0; color: #aaa; font-size: .6875rem; line-height: 1.6; overflow-wrap: anywhere; }
+.play-info p { margin: 6px 0; color: var(--jz-text-dim); font-size: .6875rem; line-height: 1.6; overflow-wrap: anywhere; }
 .play-info .set-button { margin-top: 6px; }
+@media (max-width: 700px), (pointer: coarse) {
+  .rate-options { grid-template-columns: repeat(3, 1fr); }
+  .pd-set select, .set-details summary { min-height: var(--jz-touch-target); }
+  .set-row { flex-wrap: wrap; }
+  .set-inline { flex-wrap: wrap; }
+}
 </style>

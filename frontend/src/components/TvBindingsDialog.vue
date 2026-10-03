@@ -26,8 +26,8 @@
           <legend>2. 选择目标剧集</legend>
           <div class="binding-bar">
             <input v-model="query" placeholder="输入完整剧名或系列名" aria-label="搜索目标剧集" @keydown.enter.prevent="search" />
-            <JzButton type="button" :disabled="searching" @click="search">{{ searching ? '搜索中…' : '搜索' }}</JzButton>
-            <JzButton type="button" :disabled="!selected.length || selected.length > 12 || suggesting" @click="suggest()">{{ suggesting ? '查询季资料…' : '按目录获取建议' }}</JzButton>
+            <JzButton icon="search" type="button" :disabled="searching" @click="search">{{ searching ? '搜索中…' : '搜索' }}</JzButton>
+            <JzButton icon="match" type="button" :disabled="!selected.length || selected.length > 12 || suggesting" @click="suggest()">{{ suggesting ? '查询季资料…' : '按目录获取建议' }}</JzButton>
           </div>
           <label v-if="matchedShows.length" class="binding-local">或选择库中已有剧集
             <select aria-label="库中已有目标剧集" :value="target?.show_id || ''" @change="chooseLocal($event.target.value)">
@@ -65,7 +65,7 @@
             <label class="binding-check"><input v-model="replaceManual" type="checkbox" />允许替换受影响的手工分集绑定或“本地集”确认</label>
             <label class="binding-check"><input v-model="allowDuplicates" type="checkbox" />我已核对重复集号，保留全部文件作为多个版本</label>
           </details>
-          <JzButton type="button" class="primary" variant="primary" :disabled="!canPreview || previewing" @click="preview">{{ previewing ? '正在核对…' : '预览归属变更' }}</JzButton>
+          <JzButton icon="eye" type="button" class="primary" variant="primary" :disabled="!canPreview || previewing" @click="preview">{{ previewing ? '正在核对…' : '预览归属变更' }}</JzButton>
         </fieldset>
         <section v-if="plan" class="binding-preview" aria-live="polite">
           <h3>确认预览 · {{ plan.target.title }}</h3>
@@ -86,7 +86,7 @@
           <div v-for="h in history" :key="h.id" class="binding-group">
             <strong>{{ h.title }}</strong> · {{ h.episodes }} 个视频 · {{ new Date(h.created_at * 1000).toLocaleString() }}
             <p class="hint">{{ h.directories.join(' / ') }}</p>
-            <JzButton v-if="h.state === 'applied'" type="button" :disabled="applying" @click="previewUndo(h)">预览撤销</JzButton><span v-else>已撤销</span>
+            <JzButton icon="eye" v-if="h.state === 'applied'" type="button" :disabled="applying" @click="previewUndo(h)">预览撤销</JzButton><span v-else>已撤销</span>
           </div>
         </details>
         <section v-if="undoPlan" class="binding-preview">

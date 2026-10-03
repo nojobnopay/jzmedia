@@ -1,5 +1,6 @@
 package org.jzmedia.tv.ui
 
+import org.jzmedia.tv.ui.generated.DesignTokens
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -44,7 +45,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -57,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Button
-import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.CancellationException
@@ -197,7 +196,7 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
         } else false
     }, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvAction("‹ 返回", ::leaveSearch, Modifier.focusMemory(memory, "back"))
+            TvAction("返回", ::leaveSearch, Modifier.focusMemory(memory, "back"), icon = "back")
             Text("搜索", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(end = 12.dp))
             listOf("title" to "片名", "actor" to "演员").forEach { (value, label) ->
                 TvAction(label, {
@@ -213,8 +212,8 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
             val keyHeight = ((maxHeight - 174.dp) / 6f - 5.dp).coerceIn(28.dp, 44.dp)
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                 Column(Modifier.width(keyboardWidth).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.fillMaxWidth().height(48.dp).background(Panel, RoundedCornerShape(8.dp)).padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
-                        Text(query.ifEmpty { if (actorsMode) "输入姓名首字母" else "输入片名首字母" }, color = if (query.isEmpty()) Muted else Color.White,
+                    Box(Modifier.fillMaxWidth().height(48.dp).background(Panel, RoundedCornerShape(DesignTokens.CornerRadius)).padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
+                        Text(query.ifEmpty { if (actorsMode) "输入姓名首字母" else "输入片名首字母" }, color = if (query.isEmpty()) Muted else DesignTokens.TextStrong,
                             style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Text(if (actorsMode) "首字母 / 全拼 / 英文 · ZXC 找周星驰" else "首字母 / 全拼 / 英文 · 例如 SQ 找沙丘",
@@ -237,9 +236,8 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                                             .focusMemory(memory, "key:$letter", keys.getValue(letter))
                                             .onFocusChanged { if (it.isFocused) lastKey = letter },
                                         contentPadding = PaddingValues(0.dp),
-                                        shape = ButtonDefaults.shape(shape = RoundedCornerShape(6.dp)),
-                                        colors = ButtonDefaults.colors(containerColor = Panel, contentColor = Color.White,
-                                            focusedContainerColor = Color.White, focusedContentColor = Color.Black),
+                                        shape = tvButtonShape(), scale = tvButtonScale(),
+                                        colors = tvButtonColors(),
                                     ) { Text(letter, style = MaterialTheme.typography.titleMedium) }
                                 }
                             }
@@ -285,11 +283,11 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                     }
                     when {
                         error.isNotBlank() -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Status(error)
-                            TvAction("重试", { focusResults = true; attempt++ }, Modifier.focusMemory(memory, "retry-search", retryButton))
+                            Status(error, icon = "error")
+                            TvAction("重试", { focusResults = true; attempt++ }, Modifier.focusMemory(memory, "retry-search", retryButton), icon = "refresh")
                         }
                         !actorsMode && query.isBlank() -> Status("输入几个首字母，就能查看当前媒体库中的候选片名。")
-                        loading || data == null -> Status("正在搜索…")
+                        loading || data == null -> Status("正在搜索…", icon = "loading")
                         rows.isEmpty() -> Status(if (page > 0) "这一页已没有内容，请返回上一页。" else if (actorsMode) {
                             if (query.isBlank()) "当前媒体库中还没有可浏览的演员。" else "没有找到相关演员，试试更短的首字母或其他姓名。"
                         } else "没有找到相关内容，试试更短的首字母或其他片名。")
@@ -333,8 +331,8 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                         }
                     }
                     if (page > 0 || data?.optBoolean("has_more") == true) Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous-search", previousButton))
-                        if (data?.optBoolean("has_more") == true) TvAction("下一页", { turnPage(page + 1) }, Modifier.focusMemory(memory, "next-search"))
+                        if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous-search", previousButton), icon = "back")
+                        if (data?.optBoolean("has_more") == true) TvAction("下一页", { turnPage(page + 1) }, Modifier.focusMemory(memory, "next-search"), icon = "forward")
                     }
                 }
             }
@@ -346,11 +344,11 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
         fun close() { editing = false; softwareKeyboard?.hide(); restoreInput = true }
         Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             LaunchedEffect(Unit) { withFrameNanos { }; dialogInput.requestFocus() }
-            Column(Modifier.width(640.dp).background(Panel, RoundedCornerShape(16.dp)).padding(28.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Column(Modifier.width(640.dp).background(Panel, RoundedCornerShape(DesignTokens.DialogRadius)).padding(28.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 Text(if (actorsMode) "输入演员姓名" else "输入片名", style = MaterialTheme.typography.headlineSmall)
                 TvInput("支持中文、英文或拼音", draft, { draft = appendSearchInput("", it) }, Modifier.focusRequester(dialogInput))
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    TvAction("搜索", { rememberQuery(draft); changeQuery(draft); close() })
+                    TvAction("搜索", { rememberQuery(draft); changeQuery(draft); close() }, icon = "search")
                     TvAction("取消", { close() })
                 }
             }
@@ -387,8 +385,7 @@ private fun SearchHistoryRail(title: String, entries: List<Pair<String, String>>
 @Composable
 private fun SearchHistoryAction(text: String, click: () -> Unit, modifier: Modifier) {
     Button(click, modifier, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-        colors = ButtonDefaults.colors(containerColor = Panel, contentColor = Color.White,
-            focusedContainerColor = Color.White, focusedContentColor = Color.Black)) {
+        shape = tvButtonShape(), scale = tvButtonScale(), colors = tvButtonColors()) {
         Text(text, Modifier.fillMaxWidth(), style = MaterialTheme.typography.labelLarge,
             textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }

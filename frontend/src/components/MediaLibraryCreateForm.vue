@@ -35,11 +35,11 @@
         <label>用户名 <input v-model="form.smb_username" v-bind="NOFILL" name="jz-smb-user" placeholder="SMB 登录用户名（可空）" /></label>
         <label>密码 <input v-model="form.smb_password" v-bind="NOFILL_PW" name="jz-smb-pass" type="password" placeholder="SMB 密码（可空）" /></label>
         <label>连接地址 <input v-model="form.smb_connect_host" v-bind="NOFILL" name="jz-smb-connect" placeholder="可选：Tailscale IP / 内网地址（留空=用服务器地址）" style="min-width:240px" /></label>
-        <button @click="testConn" :disabled="test.busy || busy">
+        <JzButton @click="testConn" :disabled="test.busy || busy" type="button" icon="link">
           {{ test.busy ? '测试中…' : '测试连接' }}
-        </button>
+        </JzButton>
         <div v-if="test.text" class="parse-line test-result" :class="{ 'warn-text': !test.ok }">
-          {{ test.ok ? '✓' : '✗' }} {{ test.text }}
+          <AppIcon :name="test.ok ? 'check-circle' : 'error'" :size="16" /> {{ test.text }}
           <template v-if="!test.ok && test.suggestions.length">
             <br /><span v-for="(s, i) in test.suggestions" :key="i">· {{ s }}<br /></span>
           </template>
@@ -67,9 +67,9 @@
           <option value="movie">电影</option>
           <option value="tv">剧集</option>
         </select>
-        <button v-if="form.videos.length > 1" @click="form.videos.splice(i, 1)">移除</button>
+        <JzButton v-if="form.videos.length > 1" @click="form.videos.splice(i, 1)" type="button" icon="delete">移除</JzButton>
       </div>
-      <button v-if="!compact" @click="form.videos.push({ name: '', subpath: '', kind: 'movie' })">添加视频库</button>
+      <JzButton v-if="!compact" @click="form.videos.push({ name: '', subpath: '', kind: 'movie' })" type="button" icon="plus">添加视频库</JzButton>
     </div>
 
     <details class="policy-details"><summary>命名、资料落盘与只读选项</summary><div class="lib-form lib-form-policy">
@@ -145,6 +145,8 @@
     </fieldset></div>
 </template>
 <script setup>
+import AppIcon from './AppIcon.vue'
+
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from '../api.js'
 import { parseSmbInput } from '../smb.js'

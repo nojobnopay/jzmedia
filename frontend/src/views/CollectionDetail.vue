@@ -5,10 +5,10 @@
   </EmptyState>
   <div v-else class="page media-detail collection-detail">
     <header class="collection-heading">
-      <router-link to="/collections" class="back-link">‹ 合集</router-link>
+      <router-link to="/collections" class="back-link"><AppIcon name="back" :size="18" />合集</router-link>
       <ActionMenu label="管理合集">
-        <button @click="toggleEdit">{{ editing ? '结束编辑' : '编辑合集与成员' }}</button>
-        <button @click="openDelete" :disabled="busy">删除合集</button>
+        <JzButton @click="toggleEdit" type="button" variant="ghost" icon="edit">{{ editing ? '结束编辑' : '编辑合集与成员' }}</JzButton>
+        <JzButton @click="openDelete" :disabled="busy" type="button" variant="ghost" icon="delete">删除合集</JzButton>
       </ActionMenu>
     </header>
     <EmptyState v-if="loadErr" state="error" title="合集刷新失败" :text="loadErr" retry @retry="load" />
@@ -21,16 +21,16 @@
     <div v-if="editing" class="card-block">
       <div class="bar"><input v-model="f.name" aria-label="合集名称" placeholder="合集名" style="flex:1" /></div>
       <div class="bar"><textarea v-model="f.overview" aria-label="合集简介" placeholder="简介" rows="2" style="flex:1"></textarea></div>
-      <div class="bar"><button @click="save">保存</button><button @click="editing = false">取消</button></div>
+      <div class="bar"><JzButton @click="save" type="button">保存</JzButton><JzButton @click="editing = false" type="button">取消</JzButton></div>
     </div>
     <div class="grid">
       <div v-for="m in c.members" :key="m.id" class="card">
         <router-link class="poster-wrap" :to="'/m/' + m.id">
           <img v-if="m.poster_path" :src="posterUrl(m.poster_path)" loading="lazy" :alt="m.title || '海报'" />
-          <div v-else class="no-poster" aria-hidden="true">{{ (m.title || '?').slice(0, 1) }}</div>
+          <ArtworkPlaceholder v-else class="no-poster" kind="poster" :label="m.title" />
         </router-link>
         <div class="t">{{ m.title }} <span v-if="m.year">({{ m.year }})</span><span v-if="m.version_count > 1"> ×{{ m.version_count }}</span>
-          <button v-if="editing" @click="kick(m.id)">移出合集</button>
+          <JzButton v-if="editing" @click="kick(m.id)" type="button">移出合集</JzButton>
         </div>
       </div>
     </div>
@@ -48,6 +48,10 @@
   </div>
 </template>
 <script setup>
+import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
+
+import AppIcon from '../components/AppIcon.vue'
+
 import EmptyState from '../components/EmptyState.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import MediaOverview from '../components/MediaOverview.vue'

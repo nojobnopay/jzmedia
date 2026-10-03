@@ -49,6 +49,7 @@
 ```
 
 - 可安装的 Debug 包：`app/build/outputs/apk/debug/app-debug.apk`。
+- 本轮统一设计系统的本地试装包：`../output/android-tv/jzmedia-tv-0.5.0-dev-design-system-20261003-debug.apk`，旁附 `.apk.sha256`。它与已验证的最终构建逐字节相同，沿用 `versionCode=8` 和原 Debug 签名；旧 `jzmedia-tv-0.5.0-dev-debug.apk` 保留为历史导航版，请按文件名选择设计系统版。当前没有连接的 ADB 设备，本轮未安装到用户电视。
 - 未签名 Release 包：`app/build/outputs/apk/release/app-release-unsigned.apk`，不能直接安装或作为正式发行包。
 - 单元测试报告：`app/build/reports/tests/testDebugUnitTest/index.html`；Lint：`app/build/reports/lint-results-debug.html`。
 
@@ -185,4 +186,4 @@ API 28 隔离电视模拟器已验证左侧搜索入口、右侧设置入口、�
 4. 两台设备同片并发，分别切档、跳转和关闭互不打断；服务器满额提示可返回。
 5. Home、待机、断网、重试与退出无残留声音；同签名正式版覆盖升级保留配置。
 
-工程约定见 [AGENTS.md](AGENTS.md)。图标沿用网页标识，横幅源文件为 `artwork/banner.svg`，对应入库 PNG 为 `app/src/main/res/drawable-xhdpi/tv_banner.png`；正常构建不依赖 Python 或 Node.js。
+工程约定见 [AGENTS.md](AGENTS.md)。图标、字标、启动图标和横幅以仓库根目录 `design/` 为唯一设计源，生成的向量/位图及设计令牌分别供电视与网页消费；正常 APK 构建不依赖 Python 或 Node.js。按钮、缺图占位、遥控焦点及专用几何见 [跨端图标与电视控件](docs/design-system.md)。

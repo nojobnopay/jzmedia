@@ -57,6 +57,8 @@ import kotlinx.coroutines.delay
 import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.ui.Accent
 import org.jzmedia.tv.ui.Muted
+import org.jzmedia.tv.ui.TvIcon
+import org.jzmedia.tv.ui.generated.DesignTokens
 import org.jzmedia.tv.ui.TvAction
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -178,7 +180,11 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
             color = Color.White, textAlign = TextAlign.Center,
             style = TextStyle(fontSize = listOf(20, 26, 32)[state.subtitleSize].sp, shadow = Shadow(Color.Black, blurRadius = 6f)),
         )
-        if (state.loading) Text("正在准备播放…", Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = .8f)).padding(24.dp))
+        if (state.loading) Row(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = .8f)).padding(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            TvIcon("loading")
+            Text("正在准备播放…")
+        }
         if (preview != null) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = .85f)).padding(32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("跳转至 ${playbackTime(preview!!)} / ${playbackTime(state.duration)}", style = MaterialTheme.typography.headlineSmall)
             Progress(preview!!, state.duration, state.buffered)
@@ -201,35 +207,35 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
                 Text("${state.rate}× · ${state.output}", color = Muted)
             }
             LazyRow(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                item { TvAction(if (state.ended) "重新播放" else if (state.playWhenReady) "暂停" else "播放", { controller.toggle(); interaction++ }, Modifier.focusRequester(playFocus)) }
-                item { TvAction("后退 10 秒", { controller.skip(-10.0); interaction++ }) }
-                item { TvAction("前进 10 秒", { controller.skip(10.0); interaction++ }) }
-                item { TvAction("播放设置", { menu = "settings" }) }
+                item { TvAction(if (state.ended) "重新播放" else if (state.playWhenReady) "暂停" else "播放", { controller.toggle(); interaction++ }, Modifier.focusRequester(playFocus), icon = if (state.ended) "replay" else if (state.playWhenReady) "pause" else "play") }
+                item { TvAction("后退 10 秒", { controller.skip(-10.0); interaction++ }, icon = "rewind") }
+                item { TvAction("前进 10 秒", { controller.skip(10.0); interaction++ }, icon = "forward10") }
+                item { TvAction("播放设置", { menu = "settings" }, icon = "settings") }
                 if (state.ended && state.autoNext && state.next != null && !cancelThisNext) item { TvAction("取消本次连播", { cancelThisNext = true }) }
-                if (state.next != null) item { TvAction("下一集", ::startNext) }
-                item { TvAction("退出播放", { controller.close(); close() }) }
+                if (state.next != null) item { TvAction("下一集", ::startNext, icon = "next") }
+                item { TvAction("退出播放", { controller.close(); close() }, icon = "close") }
             }
         }
-        if (state.error != null) Column(Modifier.align(Alignment.Center).widthIn(max = 720.dp).background(Color(0xFF202020)).padding(32.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        if (state.error != null) Column(Modifier.align(Alignment.Center).widthIn(max = 720.dp).background(DesignTokens.SurfaceRaised).padding(32.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             Text(state.error, style = MaterialTheme.typography.titleLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                TvAction("重试", { controller.retry() }, Modifier.focusRequester(errorFocus))
-                TvAction("兼容播放", { controller.retry(true) })
-                TvAction("返回", { controller.close(); close() })
+                TvAction("重试", { controller.retry() }, Modifier.focusRequester(errorFocus), icon = "refresh")
+                TvAction("兼容播放", { controller.retry(true) }, icon = "play")
+                TvAction("返回", { controller.close(); close() }, icon = "back")
             }
         }
         if (menu != null && state.error == null) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .75f))) {
             key(menu) {
-            LazyColumn(Modifier.align(Alignment.CenterEnd).fillMaxWidth(.5f).fillMaxSize().background(Color(0xFF202020)).padding(30.dp),
+            LazyColumn(Modifier.align(Alignment.CenterEnd).fillMaxWidth(.5f).fillMaxSize().background(DesignTokens.SurfaceRaised).padding(30.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item { Text(when (menu) { "quality" -> "画质"; "audio" -> "音轨"; "subtitle" -> "字幕"; "rate" -> "播放速度"; else -> "播放设置" }, style = MaterialTheme.typography.headlineMedium) }
-                item { TvAction("返回", { menu = if (menu == "settings") null else "settings" }, Modifier.focusRequester(menuFocus)) }
+                item { TvAction("返回", { menu = if (menu == "settings") null else "settings" }, Modifier.focusRequester(menuFocus), icon = "back") }
                 when (menu) {
                     "settings" -> {
-                        item { TvAction("画质 · ${qualityName(state.quality)}", { menu = "quality" }) }
-                        item { TvAction("音轨", { menu = "audio" }) }
-                        item { TvAction("字幕", { menu = "subtitle" }) }
-                        item { TvAction("倍速 · ${state.rate}×", { menu = "rate" }) }
+                        item { TvAction("画质 · ${qualityName(state.quality)}", { menu = "quality" }, icon = "quality") }
+                        item { TvAction("音轨", { menu = "audio" }, icon = "volume") }
+                        item { TvAction("字幕", { menu = "subtitle" }, icon = "subtitles") }
+                        item { TvAction("倍速 · ${state.rate}×", { menu = "rate" }, icon = "speed") }
                         item { Text("字幕大小", color = Muted) }
                         item { Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { listOf("小", "中", "大").forEachIndexed { i, label -> TvAction(label, { controller.setSubtitleSize(i) }, selected = state.subtitleSize == i) } } }
                         item { Text("字幕延迟 ${"%+.1f".format(-state.subtitleDelay)} 秒", color = Muted) }
@@ -237,15 +243,15 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
                             TvAction("提前 0.5 秒", { controller.adjustSubtitleDelay(.5) })
                             TvAction("推迟 0.5 秒", { controller.adjustSubtitleDelay(-.5) })
                         } }
-                        item { TvAction("字幕延迟归零", { controller.adjustSubtitleDelay(-state.subtitleDelay) }) }
-                        if (request.kind == "episode") item { TvAction("自动下一集 · ${if (state.autoNext) "开" else "关"}", { controller.toggleAutoNext() }) }
+                        item { TvAction("字幕延迟归零", { controller.adjustSubtitleDelay(-state.subtitleDelay) }, icon = "refresh") }
+                        if (request.kind == "episode") item { TvAction("自动下一集 · ${if (state.autoNext) "开" else "关"}", { controller.toggleAutoNext() }, icon = "next") }
                         item { Text("音量使用遥控器音量键；图片字幕的外观由服务器烧录决定。", color = Muted) }
                     }
                     "quality" -> items(listOf("auto", "source", "1080p", "720p")) { quality -> TvAction(qualityName(quality), { controller.setQuality(quality); menu = null }, selected = state.quality == quality) }
                     "rate" -> items(PLAYBACK_RATES) { rate -> TvAction("${rate}×", { controller.setRate(rate); menu = null }, selected = state.rate == rate) }
                     "audio" -> items(state.audios) { track -> TvAction(track.label, { controller.setAudio(track.index); menu = null }, selected = state.audio == track.index) }
                     "subtitle" -> {
-                        item { TvAction("关闭字幕", { controller.setSubtitle(null); menu = null }, selected = state.subtitle == null) }
+                        item { TvAction("关闭字幕", { controller.setSubtitle(null); menu = null }, selected = state.subtitle == null, icon = "subtitles") }
                         items(state.subtitles) { track -> TvAction(track.label + if (track.image) " · 图片字幕" else "", { controller.setSubtitle(track.index); menu = null }, selected = state.subtitle == track.index) }
                     }
                 }
@@ -259,8 +265,8 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
 private fun Progress(position: Double, duration: Double, buffered: Double) {
     val played = if (duration > 0) (position / duration).toFloat().coerceIn(0f, 1f) else 0f
     val loaded = if (duration > 0) (buffered / duration).toFloat().coerceIn(0f, 1f) else 0f
-    Box(Modifier.fillMaxWidth().height(5.dp).background(Color.DarkGray)) {
-        Box(Modifier.fillMaxWidth(loaded).height(5.dp).background(Color.Gray))
+    Box(Modifier.fillMaxWidth().height(5.dp).background(DesignTokens.Border)) {
+        Box(Modifier.fillMaxWidth(loaded).height(5.dp).background(DesignTokens.TextDim))
         Box(Modifier.fillMaxWidth(played).height(5.dp).background(Accent))
     }
 }

@@ -1,0 +1,699 @@
+{
+  "schema_version": 1,
+  "dynamic_icons": [
+    {
+      "source": "frontend/src/App.vue",
+      "expression": "item.icon",
+      "assets": [
+        "movie",
+        "tv",
+        "collections"
+      ],
+      "reason": "主导航navItems的固定语义值",
+      "values_source": "frontend/src/App.vue"
+    },
+    {
+      "source": "frontend/src/components/FsBrowser.vue",
+      "expression": "item.icon",
+      "assets": [
+        "eye",
+        "info",
+        "cut",
+        "copy",
+        "paste",
+        "edit",
+        "delete",
+        "folder",
+        "link",
+        "refresh"
+      ],
+      "reason": "menuItems由文件操作定义；文案和快捷键与图标共同保持操作语义",
+      "values_source": "frontend/src/components/FsBrowser.vue"
+    },
+    {
+      "source": "frontend/src/components/HelpLink.vue",
+      "expression": "icon",
+      "assets": [
+        "ai",
+        "arrow-down",
+        "arrow-left",
+        "arrow-right",
+        "arrow-up",
+        "audio",
+        "backspace",
+        "check",
+        "check-circle",
+        "chevron-down",
+        "chevron-left",
+        "chevron-right",
+        "chevron-up",
+        "clock",
+        "close",
+        "collections",
+        "copy",
+        "cut",
+        "delete",
+        "disconnect",
+        "download",
+        "edit",
+        "error",
+        "exit-fullscreen",
+        "external",
+        "eye",
+        "eye-off",
+        "file",
+        "filter",
+        "folder",
+        "folder-open",
+        "fullscreen",
+        "grid",
+        "heart",
+        "heart-filled",
+        "help",
+        "history",
+        "home",
+        "image",
+        "info",
+        "keyboard",
+        "library",
+        "link",
+        "list",
+        "loading",
+        "lock",
+        "logout",
+        "match",
+        "menu",
+        "minus",
+        "more",
+        "movie",
+        "mute",
+        "organize",
+        "paste",
+        "pause",
+        "person",
+        "pin",
+        "play",
+        "plus",
+        "quality",
+        "refresh",
+        "save",
+        "scan",
+        "search",
+        "server",
+        "settings",
+        "skip-back-10",
+        "skip-forward-10",
+        "skip-next",
+        "skip-previous",
+        "sort-asc",
+        "sort-desc",
+        "speed",
+        "star",
+        "star-filled",
+        "stop",
+        "subtitles",
+        "tv",
+        "undo",
+        "upload",
+        "volume",
+        "warning",
+        "tag"
+      ],
+      "reason": "公共链接组件接受已登记图标，显示文字承担名称",
+      "adapter": true
+    },
+    {
+      "source": "frontend/src/components/JzButton.vue",
+      "expression": "icon",
+      "assets": [
+        "ai",
+        "arrow-down",
+        "arrow-left",
+        "arrow-right",
+        "arrow-up",
+        "audio",
+        "backspace",
+        "check",
+        "check-circle",
+        "chevron-down",
+        "chevron-left",
+        "chevron-right",
+        "chevron-up",
+        "clock",
+        "close",
+        "collections",
+        "copy",
+        "cut",
+        "delete",
+        "disconnect",
+        "download",
+        "edit",
+        "error",
+        "exit-fullscreen",
+        "external",
+        "eye",
+        "eye-off",
+        "file",
+        "filter",
+        "folder",
+        "folder-open",
+        "fullscreen",
+        "grid",
+        "heart",
+        "heart-filled",
+        "help",
+        "history",
+        "home",
+        "image",
+        "info",
+        "keyboard",
+        "library",
+        "link",
+        "list",
+        "loading",
+        "lock",
+        "logout",
+        "match",
+        "menu",
+        "minus",
+        "more",
+        "movie",
+        "mute",
+        "organize",
+        "paste",
+        "pause",
+        "person",
+        "pin",
+        "play",
+        "plus",
+        "quality",
+        "refresh",
+        "save",
+        "scan",
+        "search",
+        "server",
+        "settings",
+        "skip-back-10",
+        "skip-forward-10",
+        "skip-next",
+        "skip-previous",
+        "sort-asc",
+        "sort-desc",
+        "speed",
+        "star",
+        "star-filled",
+        "stop",
+        "subtitles",
+        "tv",
+        "undo",
+        "upload",
+        "volume",
+        "warning",
+        "tag"
+      ],
+      "reason": "公共按钮icon属性接受已登记图标，调用点必须登记/校验",
+      "adapter": true
+    },
+    {
+      "source": "frontend/src/components/MovieFileManager.vue",
+      "expression": "g.icon",
+      "assets": [
+        "movie",
+        "subtitles",
+        "file",
+        "collections"
+      ],
+      "reason": "fileGroups按花絮/样片/字幕选择",
+      "values_source": "frontend/src/components/MovieFileManager.vue"
+    },
+    {
+      "source": "frontend/src/views/Settings.vue",
+      "expression": "n.icon",
+      "assets": [
+        "home",
+        "library",
+        "organize",
+        "folder",
+        "link",
+        "match",
+        "ai",
+        "download",
+        "image",
+        "lock",
+        "settings"
+      ],
+      "reason": "settingsNavigation.js SETTINGS_PAGES维护固定页面导航",
+      "values_source": "frontend/src/settingsNavigation.js"
+    },
+    {
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
+      "expression": "icon",
+      "assets": [
+        "ai",
+        "arrow-down",
+        "arrow-left",
+        "arrow-right",
+        "arrow-up",
+        "audio",
+        "backspace",
+        "check",
+        "check-circle",
+        "chevron-down",
+        "chevron-left",
+        "chevron-right",
+        "chevron-up",
+        "clock",
+        "close",
+        "collections",
+        "copy",
+        "cut",
+        "delete",
+        "disconnect",
+        "download",
+        "edit",
+        "error",
+        "exit-fullscreen",
+        "external",
+        "eye",
+        "eye-off",
+        "file",
+        "filter",
+        "folder",
+        "folder-open",
+        "fullscreen",
+        "grid",
+        "heart",
+        "heart-filled",
+        "help",
+        "history",
+        "home",
+        "image",
+        "info",
+        "keyboard",
+        "library",
+        "link",
+        "list",
+        "loading",
+        "lock",
+        "logout",
+        "match",
+        "menu",
+        "minus",
+        "more",
+        "movie",
+        "mute",
+        "organize",
+        "paste",
+        "pause",
+        "person",
+        "pin",
+        "play",
+        "plus",
+        "quality",
+        "refresh",
+        "save",
+        "scan",
+        "search",
+        "server",
+        "settings",
+        "skip-back-10",
+        "skip-forward-10",
+        "skip-next",
+        "skip-previous",
+        "sort-asc",
+        "sort-desc",
+        "speed",
+        "star",
+        "star-filled",
+        "stop",
+        "subtitles",
+        "tv",
+        "undo",
+        "upload",
+        "volume",
+        "warning",
+        "tag"
+      ],
+      "reason": "TvAction/Status接收统一图标名；文字或状态提示承担名称",
+      "adapter": true
+    },
+    {
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
+      "expression": "placeholderIcon",
+      "assets": [
+        "image",
+        "person"
+      ],
+      "reason": "海报默认image、演员person；标题或姓名仍保留"
+    },
+    {
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavIcon.kt",
+      "expression": "kind",
+      "assets": [
+        "search",
+        "home",
+        "movies",
+        "shows",
+        "collections",
+        "libraries",
+        "settings"
+      ],
+      "reason": "导航类型别名映射"
+    },
+    {
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt",
+      "expression": "item.kind",
+      "assets": [
+        "search",
+        "home",
+        "movies",
+        "shows",
+        "collections",
+        "libraries",
+        "settings"
+      ],
+      "reason": "TvNavigationModels固定频道类型"
+    }
+  ],
+  "specialized_controls": [
+    {
+      "source": "frontend/src/components/ContinueWatchingRow.vue",
+      "selectors": [
+        "poster-play"
+      ],
+      "reason": "海报悬浮播放入口保留专门位置和事件阻止，使用统一播放图标"
+    },
+    {
+      "source": "frontend/src/components/FsBrowser.vue",
+      "selectors": [
+        "fs-expander",
+        "fs-tree-name",
+        "navigate('')",
+        "navigate(crumb.rel)",
+        "setSort(col.key)",
+        "setSort(sort)",
+        "role=\"menuitem\""
+      ],
+      "reason": "目录树展开/路径面包屑/表头排序/右键菜单为专用结构，保留键盘和当前行/勾选语义"
+    },
+    {
+      "source": "frontend/src/components/JzButton.vue",
+      "selectors": [
+        "ref=\"el\""
+      ],
+      "reason": "公共按钮本体必须是原生button，用于表单提交、焦点和根DOM公开接口"
+    },
+    {
+      "source": "frontend/src/components/LibrariesPanel.vue",
+      "selectors": [
+        "connection-title"
+      ],
+      "reason": "连接条目展开控件，aria-expanded与详情可访问结构保持"
+    },
+    {
+      "source": "frontend/src/components/MediaOverview.vue",
+      "selectors": [
+        "overview-toggle"
+      ],
+      "reason": "简介按实际溢出展开，专用内联文本按钮"
+    },
+    {
+      "source": "frontend/src/components/MovieLibraryTools.vue",
+      "selectors": [
+        "chooseView(view.key)",
+        "pipe-toggle"
+      ],
+      "reason": "工具视图标签及工作流步骤展开，保留aria-pressed/expanded"
+    },
+    {
+      "source": "frontend/src/components/TvLibraryTools.vue",
+      "selectors": [
+        "chooseView(view.key)",
+        "pipe-toggle"
+      ],
+      "reason": "剧集工具标签及工作流步骤展开，保留aria-pressed/expanded"
+    },
+    {
+      "source": "frontend/src/components/PlayerModal.vue",
+      "selectors": [
+        "player-icon-btn",
+        "center-play",
+        "rate-btn"
+      ],
+      "reason": "播放器生命周期专用按钮，统一44px触摸区与PlayerIcon母版"
+    },
+    {
+      "source": "frontend/src/components/PlayerSettings.vue",
+      "selectors": [
+        "player-icon-btn",
+        "PLAYBACK_RATES"
+      ],
+      "reason": "播放器设置触发器/关闭及倍速选择，窗口全屏保持同一状态"
+    },
+    {
+      "source": "frontend/src/views/Detail.vue",
+      "selectors": [
+        "contentTab",
+        "poster-cand"
+      ],
+      "reason": "详情页标签及海报候选网格；候选图是媒体内容而非业务图标"
+    },
+    {
+      "source": "frontend/src/views/Library.vue",
+      "selectors": [
+        "sel-circle",
+        "poster-play"
+      ],
+      "reason": "海报多选圆形命中区及播放浮层，保留.stop事件和选择状态"
+    },
+    {
+      "source": "frontend/src/views/SeasonView.vue",
+      "selectors": [
+        "poster-play"
+      ],
+      "reason": "分集海报播放浮层，与电影播放语义共享"
+    },
+    {
+      "source": "frontend/src/views/Settings.vue",
+      "selectors": [
+        "group.pages",
+        "go('sec-libraries')",
+        "go('sec-libtools')"
+      ],
+      "reason": "设置导航及概览跳转为页面导航控件，保持当前页状态"
+    },
+    {
+      "source": "frontend/src/views/Setup.vue",
+      "selectors": [
+        "aria-current"
+      ],
+      "reason": "四步向导进度导航，保留step与业务禁用状态"
+    }
+  ],
+  "native_exceptions": [
+    {
+      "kind": "form",
+      "elements": [
+        "input",
+        "select",
+        "textarea",
+        "summary"
+      ],
+      "reason": "保留HTML表单、选择器及details的原生语义；外观由base.css/tokens统一，操作名由label/aria-label承担。"
+    },
+    {
+      "kind": "link",
+      "elements": [
+        "a",
+        "RouterLink"
+      ],
+      "reason": "导航继续使用链接语义；业务图标只可引用资产清单，用户媒体图片不属于图标。"
+    },
+    {
+      "kind": "tv-keyboard",
+      "elements": [
+        "TvAction"
+      ],
+      "reason": "屏幕键盘中的字符、空格、拼音候选属于输入内容；退格、清空、搜索使用统一图标。"
+    },
+    {
+      "kind": "text",
+      "reason": "路径前后关系箭头、快捷键←/→、数字星级说明、单位及原始媒体/字幕内容属于文本，不能用全局字符替换破坏内容。"
+    }
+  ],
+  "literal_sources": [
+    "frontend/src/settingsNavigation.js",
+    "frontend/src/App.vue",
+    "frontend/src/components/FsBrowser.vue",
+    "frontend/src/components/MovieFileManager.vue"
+  ],
+  "text_symbols": [
+    {
+      "source": "frontend/src/components/OrganizePanel.vue",
+      "symbols": "←→",
+      "contexts": [
+        "plan-arrow",
+        "pf-arrow",
+        "l.from",
+        "conflict-target"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/components/TvOrganizeNotes.vue",
+      "symbols": "←→",
+      "contexts": [
+        "basename(c.from)"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/components/TvOrganizeDialog.vue",
+      "symbols": "←→",
+      "contexts": [
+        "sample-arrow"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/components/FsBrowser.vue",
+      "symbols": "←→",
+      "contexts": [
+        "plan.from",
+        "follower.from",
+        "item.from"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/components/RestorePanel.vue",
+      "symbols": "←→",
+      "contexts": [
+        "p.from"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/components/TvOrganizePanel.vue",
+      "symbols": "←→",
+      "contexts": [
+        "class=\"arrow\"",
+        "选批次"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/views/Setup.vue",
+      "symbols": "←→",
+      "contexts": [
+        "设置 → 在线资料服务"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/components/LibrariesPanel.vue",
+      "symbols": "←→",
+      "contexts": [
+        "connPreview.host",
+        "入库流程 → 待匹配确认"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/components/MediaLibraryCreateForm.vue",
+      "symbols": "←→",
+      "contexts": [
+        "添加视频库 → 检测子目录"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/views/Detail.vue",
+      "symbols": "←→",
+      "contexts": [
+        "无硬件转码→720p",
+        "arch-arrow"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/components/UploadDialog.vue",
+      "symbols": "←→",
+      "contexts": [
+        "p.from"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/components/TvBindingsDialog.vue",
+      "symbols": "←→",
+      "contexts": [
+        "g.files",
+        "sample.before"
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/components/PlayerModal.vue",
+      "symbols": "←→",
+      "contexts": [
+        "title=\"快退 10 秒（←）\"",
+        "title=\"快进 10 秒（→）\""
+      ],
+      "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
+    },
+    {
+      "source": "frontend/src/tvOrganizePlans.js",
+      "symbols": "→",
+      "contexts": [
+        "example:",
+        "basename(g.from)",
+        "${detail}",
+        "${s.from}"
+      ],
+      "reason": "文件/目录整理前后路径示例与文本摘要，不是可交互方向图标"
+    },
+    {
+      "source": "frontend/src/useMatchingSettings.js",
+      "symbols": "→",
+      "contexts": [
+        ".join(' → ')"
+      ],
+      "reason": "资料来源调用顺序的文本分隔符，不是操作按钮"
+    },
+    {
+      "source": "frontend/src/components/FsBrowser.vue",
+      "symbols": "⌘",
+      "contexts": [
+        "Ctrl / ⌘"
+      ],
+      "reason": "Mac Command实际键盘快捷键说明；不是按钮图标"
+    }
+  ],
+  "purpose_overrides": [
+    {
+      "source": "frontend/src/components/ScoreBadge.vue",
+      "assets": [
+        "heart-filled",
+        "star-filled"
+      ],
+      "purpose": "我的评分（心形）或外部资料评分（星形）；source、score和tip决定具体来源"
+    },
+    {
+      "source": "frontend/src/components/BackToTop.vue",
+      "assets": [
+        "arrow-up"
+      ],
+      "purpose": "回到当前页面顶部"
+    },
+    {
+      "source": "frontend/src/components/ArtworkPlaceholder.vue",
+      "assets": [
+        "image",
+        "person",
+        "collections"
+      ],
+      "purpose": "内容图片缺失时按海报/人物/合集显示占位，并保留标题或姓名"
+    }
+  ]
+}

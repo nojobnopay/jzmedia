@@ -13,11 +13,11 @@
         </div>
         <div class="hero-main">
           <img v-if="m.poster_path" :src="posterSrc" class="poster zoomable" :alt="(m.title || '海报') + ' 海报'" title="查看大图" tabindex="0" role="button" @keydown.enter="openPoster" @keydown.space.prevent="openPoster" @click="openPoster" />
-          <div v-else class="poster poster-empty" aria-hidden="true">{{ (m.title || '?').slice(0, 1) }}</div>
+          <ArtworkPlaceholder v-else class="poster poster-empty" kind="poster" :label="m.title" />
           <div class="hero-info">
             <div class="hero-heading">
               <h1>{{ m.title }} <span v-if="m.year" class="year">({{ m.year }})</span></h1>
-              <div v-if="m.edition || m.spec || m.watched" class="detail-badges"><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.watched" class="watched-chip">✓ 已看</span></div>
+              <div v-if="m.edition || m.spec || m.watched" class="detail-badges"><span v-if="m.edition" class="edition-chip">{{ m.edition }}</span><span v-if="m.spec" class="edition-chip spec">{{ m.spec }}</span><span v-if="m.watched" class="watched-chip"><AppIcon name="check" :size="14" />已看</span></div>
               <HeroRatings :tmdb="m.tmdb_rating" :douban="m.douban_rating" :custom="m.custom_rating" />
               <p v-if="metaLine" class="meta-line">{{ metaLine }}</p>
             </div>
@@ -26,17 +26,17 @@
 
               <JzButton :loading="watchedBusy" @click="toggleWatched">{{ m.watched ? '标记未看' : '标记已看' }}</JzButton>
               <ActionMenu>
-                <button @click="openEdit('edit')">编辑资料</button>
-                <button @click="openEdit('match')">重新匹配</button>
-                <button @click="refreshMovieInfo" :disabled="refreshBusy">{{ refreshBusy ? '更新中…' : '更新资料' }}</button>
-                <button :disabled="metaBusy" title="选择需要修复的资料文件" @click="repairOpen = !repairOpen">修复资料文件</button>
-                <button @click="collectionsOpen = !collectionsOpen">管理所属合集</button>
+                <JzButton @click="openEdit('edit')" type="button" variant="ghost" icon="edit">编辑资料</JzButton>
+                <JzButton @click="openEdit('match')" type="button" variant="ghost" icon="match">重新匹配</JzButton>
+                <JzButton @click="refreshMovieInfo" :disabled="refreshBusy" type="button" variant="ghost" icon="refresh">{{ refreshBusy ? '更新中…' : '更新资料' }}</JzButton>
+                <JzButton icon="refresh" :disabled="metaBusy" title="选择需要修复的资料文件" @click="repairOpen = !repairOpen" type="button" variant="ghost">修复资料文件</JzButton>
+                <JzButton @click="collectionsOpen = !collectionsOpen" type="button" variant="ghost">管理所属合集</JzButton>
               </ActionMenu>
             </div>
             <div v-if="(m.versions || []).length > 1 || heroResume" class="play-options">
               <select v-if="(m.versions || []).length > 1" v-model.number="heroVid" class="ver-sel" aria-label="播放版本">
                 <option v-for="v in m.versions" :key="v.id" :value="v.id" :disabled="!!verBlocked[v.id]">
-                  {{ verLabel(v) }}{{ verBlocked[v.id] ? '（无效）' : (verFriendly(v.id) ? ' ★浏览器友好' : '') }}
+                  {{ verLabel(v) }}{{ verBlocked[v.id] ? '（无效）' : (verFriendly(v.id) ? ' 浏览器友好' : '') }}
                 </option>
               </select>
               <span v-if="heroResume" class="resume-hint">{{ heroResume }}</span>
@@ -44,8 +44,8 @@
             <MediaOverview :text="m.overview_display || ''" />
             <div v-if="(!m.tmdb_id && !m.match_source) || m.needs_review" class="review-notice">
               <span>{{ !m.tmdb_id && !m.match_source ? '影片资料尚未匹配' : '请确认影片是否匹配正确' }}</span>
-              <button v-if="m.tmdb_id || m.match_source" :disabled="!!nrBusy" @click="confirmMatch">匹配正确</button>
-              <button :aria-expanded="editing === 'match'" @click="openEdit('match')">{{ !m.tmdb_id && !m.match_source ? '匹配资料' : '重新匹配' }}</button>
+              <JzButton v-if="m.tmdb_id || m.match_source" :disabled="!!nrBusy" @click="confirmMatch" type="button" icon="match">匹配正确</JzButton>
+              <JzButton :aria-expanded="editing === 'match'" @click="openEdit('match')" type="button" icon="match">{{ !m.tmdb_id && !m.match_source ? '匹配资料' : '重新匹配' }}</JzButton>
             </div>
             <div v-if="mediaBadge || mediaUnplayable || noFfmpeg" class="media-row">
               <span v-if="mediaBadge" class="media-badge">{{ mediaBadge }}</span>
@@ -55,8 +55,8 @@
             <div v-else-if="mediaLoading" class="media-row"><span class="media-loading">媒体信息探测中…</span></div>
             <div v-if="repairOpen" class="bar" style="flex-wrap:wrap">
               <label>修复内容 <select v-model="repairMode" :disabled="metaBusy"><option value="both">NFO 与海报</option><option value="nfo">仅 NFO</option><option value="art">仅海报</option></select></label>
-              <button @click="rebuildMeta" :disabled="metaBusy">{{ metaBusy ? '修复中…' : '确认修复本片资料文件' }}</button>
-              <button @click="repairOpen = false" :disabled="metaBusy">收起</button>
+              <JzButton icon="refresh" @click="rebuildMeta" :disabled="metaBusy" type="button">{{ metaBusy ? '修复中…' : '确认修复本片资料文件' }}</JzButton>
+              <JzButton @click="repairOpen = false" :disabled="metaBusy" type="button">收起</JzButton>
             </div>
               <details class="playback-preparation" v-if="!heroBlocked && (!verFriendly(heroVid) || (heroRemux && heroRemoteLib))" >
                 <summary>预缓存与转码</summary>
@@ -71,13 +71,13 @@
                   <option value="720p">720p</option>
                   <option value="source">原画</option>
                 </select>
-                <button class="pre-btn" :disabled="!!preJob"
+                <JzButton class="pre-btn" :disabled="!!preJob"
                   :title="heroRemux && heroRemoteLib
                     ? '把整片缓存到服务器本地（远程库读盘慢）：完工后点播零 NAS 读取、秒开，24h 内有效'
                     : '夜间/闲时把本片转好存着，完工后点播即静态秒播'"
-                  @click="startPrewarm">{{ preJob
+                  @click="startPrewarm" type="button">{{ preJob
                     ? (heroRemux && heroRemoteLib ? '预缓存中…' : '预转码中…')
-                    : (heroRemux && heroRemoteLib ? '预缓存到服务器' : '开始预转码') }}</button>
+                    : (heroRemux && heroRemoteLib ? '预缓存到服务器' : '开始预转码') }}</JzButton>
               </div>
               </details>
             <p v-if="preMsg" class="page-feedback" role="status">{{ preMsg }}</p>
@@ -108,7 +108,7 @@
       </nav>
             <div v-if="contentTab === 'info' && hint && hint.collection_tmdb_id" class="hint-row">
               TMDB 系列：{{ hint.collection_name }}（库内 {{ hint.in_library_count }} 部）
-              <button v-if="!hint.already_collected" @click="createFromSeries">创建系列合集</button>
+              <JzButton v-if="!hint.already_collected" @click="createFromSeries" type="button" icon="plus">创建系列合集</JzButton>
               <span v-else class="fhint">已收录</span>
               <span>{{ hintMsg }}</span>
             </div>
@@ -128,7 +128,7 @@
             <div v-if="m.region || originName" class="fact"><span>产地</span><span>{{ [m.region, originName].filter(Boolean).join(' · ') }}</span></div>
             <div v-if="m.year" class="fact"><span>年份</span><span>{{ m.year }}</span></div>
             <div v-if="fmtDate(m.added_at)" class="fact"><span>入库</span><span>{{ fmtDate(m.added_at) }}</span></div>
-            <div v-if="originalMoved" class="fact"><span>原始文件</span><span class="fact-val" :title="m.original_file_path">{{ m.original_file_path }} <button @click="goRestore">去恢复</button></span></div>
+            <div v-if="originalMoved" class="fact"><span>原始文件</span><span class="fact-val" :title="m.original_file_path">{{ m.original_file_path }} <JzButton @click="goRestore" type="button" icon="undo">去恢复</JzButton></span></div>
             <div v-if="m.tmdb_id" class="fact"><span>链接</span><span><a :href="`https://www.themoviedb.org/movie/${m.tmdb_id}`" target="_blank" rel="noopener">TMDB</a><a v-if="m.imdb_id" :href="`https://www.imdb.com/title/${m.imdb_id}/`" target="_blank" rel="noopener">IMDb</a></span></div>
           </section>
         </aside>
@@ -153,7 +153,7 @@
       <div ref="posterDlgRef" class="dlg pv-dlg poster-dlg" role="dialog" aria-modal="true">
         <template v-if="!posterPick">
           <img :src="posterBig" class="pv-img poster-big" />
-          <div class="bar"><span class="hint">{{ posterHi ? '高清原图' : '标清预览（原图加载中或不可用）' }}</span><a :href="posterBig" :download="baseName(posterBig)">下载</a><button @click="openPosterPicker">换海报</button><button @click="closePoster">关闭</button></div>
+          <div class="bar"><span class="hint">{{ posterHi ? '高清原图' : '标清预览（原图加载中或不可用）' }}</span><a :href="posterBig" :download="baseName(posterBig)"><AppIcon name="download" :size="16" />下载</a><JzButton @click="openPosterPicker" type="button">换海报</JzButton><JzButton @click="closePoster" type="button">关闭</JzButton></div>
         </template>
         <template v-else>
           <div class="poster-pick-head">
@@ -172,8 +172,8 @@
             </button>
           </div>
           <div class="bar">
-            <button :disabled="posterSaving" @click="posterPick = false">返回</button>
-            <button @click="closePoster">关闭</button>
+            <JzButton :disabled="posterSaving" @click="posterPick = false" type="button" icon="back">返回</JzButton>
+            <JzButton @click="closePoster" type="button">关闭</JzButton>
           </div>
         </template>
       </div>
@@ -187,7 +187,7 @@
       <ul class="arch-list">
         <li v-for="(p, i2) in archHint.plans" :key="i2">
           <span class="arch-from">{{ p.from }}</span>
-          <span class="arch-arrow">→</span>
+          <AppIcon class="arch-arrow" name="arrow-right" :size="16" />
           <span class="arch-to">{{ p.to }}</span>
         </li>
       </ul>
@@ -195,8 +195,8 @@
         另有 {{ archHint.conflicts.length }} 项冲突（疑似错配），请先核对匹配再归档。
       </p>
       <div class="bar">
-        <button @click="doArchive" :disabled="archApplying">{{ archApplying ? '归档中…' : '立即归档' }}</button>
-        <button @click="archHint = null" :disabled="archApplying">稍后整理</button>
+        <JzButton @click="doArchive" :disabled="archApplying" type="button" icon="organize">{{ archApplying ? '归档中…' : '立即归档' }}</JzButton>
+        <JzButton @click="archHint = null" :disabled="archApplying" type="button">稍后整理</JzButton>
         <span>{{ archMsg }}</span>
       </div>
     </div>
@@ -204,6 +204,8 @@
   <EmptyState v-if="!m" :state="loadErr ? 'error' : 'loading'" :title="loadErr ? '影片资料加载失败' : '正在加载影片'" :text="loadErr || '正在读取影片资料…'" :retry="!!loadErr" @retry="load" />
 </template>
 <script setup>
+import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
+
 import { browseReturn } from '../browseHistory.js'
 
 import PlayerIcon from '../components/PlayerIcon.vue'
@@ -839,7 +841,7 @@ watch(() => route.params.id, () => {
 })   // 同组件切片重载（评审 B8/R05-Q3）
 </script>
 <style scoped>
-.top-right { display: flex; gap: 8px; align-items: center; }.saved-flash { color: var(--jz-success); font-size: 0.875rem; }.poster.zoomable { cursor: zoom-in; }.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }.poster-dlg { text-align: center; }.poster-dlg .bar { justify-content: center; }.needs-review { color: var(--jz-danger); font-size: 0.875rem; border: 1px solid var(--jz-danger-border); border-radius: 999px; padding: 1px 4px 1px 10px; margin-left: 8px; vertical-align: middle; display: inline-flex; align-items: center; gap: 4px; }.needs-review .nr-btn { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--jz-danger-border); background: transparent; color: var(--jz-danger); cursor: pointer; }.needs-review .nr-btn.ok { border-color: var(--jz-success-border); color: var(--jz-success); }.needs-review .nr-btn:disabled { opacity: .6; cursor: wait; }.edition-chip { color: var(--jz-blue-chip); font-size: 0.875rem; border: 1px solid var(--jz-info-border); border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.edition-chip.spec { color: var(--jz-success); border-color: var(--jz-success-border); }.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }.media-badge { color: var(--jz-link); font-size: 0.875rem; border: 1px solid var(--jz-info-border); border-radius: 999px; padding: 1px 10px; }.media-warn { color: var(--jz-warn); font-size: 0.8125rem; border: 1px dashed var(--jz-warn-border); border-radius: 999px; padding: 1px 10px; }.media-loading { color: var(--jz-text-faint); font-size: 0.8125rem; }.resume-hint { color: var(--jz-text-dim); font-size: 0.8125rem; }.ver-sel { background: var(--jz-surface-3); color: var(--jz-text-dim); border: 1px solid var(--jz-border-strong); border-radius: 8px; padding: 6px 8px; max-width: 320px; }.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }.pre-sel { background: var(--jz-surface-3); color: var(--jz-text-dim); border: 1px solid var(--jz-warn-border); border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }.pre-btn { background: transparent; border: 1px dashed var(--jz-warn-border); color: var(--jz-warn); border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 0.8125rem; }.pre-btn:disabled { opacity: 0.6; cursor: wait; }.src { color: var(--jz-text-faint); font-weight: normal; }.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed var(--jz-border-strong); color: var(--jz-text-dim); }.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--jz-info-border); color: var(--jz-blue-chip); cursor: pointer; }.watched-chip { color: var(--jz-success); font-size: 0.875rem; border: 1px solid var(--jz-success-border); border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.hint-row { margin-top: 6px; color: var(--jz-text-dim); font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.hint-row .fhint { color: var(--jz-text-faint); font-size: 0.75rem; }.crew { margin: 8px 0; font-size: 0.9375rem; }.role { color: var(--jz-text-faint); margin-right: 8px; font-size: 0.875rem; }.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: var(--jz-surface-3); border: 1px solid var(--jz-border); cursor: pointer; font-size: 0.9375rem; }.actor-chip:hover { border-color: var(--jz-blue-chip); color: var(--jz-blue-chip); }.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }.cast-card { cursor: pointer; min-width: 0; }.cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: var(--jz-surface-3); }.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: var(--jz-text-faint); border: 1px solid var(--jz-border); }.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }.facts .fact span:first-child { color: var(--jz-text-faint); min-width: 48px; flex-shrink: 0; }.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }.facts a { color: var(--jz-blue-chip); margin-right: 10px; }.arch-dlg { max-width: 720px; }.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }.arch-list li { display: flex; gap: 8px; align-items: center; background: var(--jz-surface-3); border: 1px solid var(--jz-border); border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }.arch-from { color: var(--jz-text-faint); overflow-wrap: anywhere; }.arch-arrow { color: var(--jz-blue-chip); }.arch-to { color: var(--jz-success); overflow-wrap: anywhere; }.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }.dlg { background: var(--jz-surface); border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }button.danger { border-color: var(--jz-danger-border); color: var(--jz-danger); }.hint.warn { color: var(--jz-warn); }
+.top-right { display: flex; gap: 8px; align-items: center; }.saved-flash { color: var(--jz-success); font-size: 0.875rem; }.poster.zoomable { cursor: zoom-in; }.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }.poster-dlg { text-align: center; }.poster-dlg .bar { justify-content: center; }.needs-review { color: var(--jz-danger); font-size: 0.875rem; border: 1px solid var(--jz-danger-border); border-radius: 999px; padding: 1px 4px 1px 10px; margin-left: 8px; vertical-align: middle; display: inline-flex; align-items: center; gap: 4px; }.edition-chip { color: var(--jz-blue-chip); font-size: 0.875rem; border: 1px solid var(--jz-info-border); border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.edition-chip.spec { color: var(--jz-success); border-color: var(--jz-success-border); }.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }.media-badge { color: var(--jz-link); font-size: 0.875rem; border: 1px solid var(--jz-info-border); border-radius: 999px; padding: 1px 10px; }.media-warn { color: var(--jz-warn); font-size: 0.8125rem; border: 1px dashed var(--jz-warn-border); border-radius: 999px; padding: 1px 10px; }.media-loading { color: var(--jz-text-faint); font-size: 0.8125rem; }.resume-hint { color: var(--jz-text-dim); font-size: 0.8125rem; }.ver-sel { background: var(--jz-surface-3); color: var(--jz-text-dim); border: 1px solid var(--jz-border-strong); border-radius: 8px; padding: 6px 8px; max-width: 320px; }.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }.pre-sel { background: var(--jz-surface-3); color: var(--jz-text-dim); border: 1px solid var(--jz-warn-border); border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }.src { color: var(--jz-text-faint); font-weight: normal; }.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed var(--jz-border-strong); color: var(--jz-text-dim); }.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--jz-info-border); color: var(--jz-blue-chip); cursor: pointer; }.watched-chip { color: var(--jz-success); font-size: 0.875rem; border: 1px solid var(--jz-success-border); border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.hint-row { margin-top: 6px; color: var(--jz-text-dim); font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.hint-row .fhint { color: var(--jz-text-faint); font-size: 0.75rem; }.crew { margin: 8px 0; font-size: 0.9375rem; }.role { color: var(--jz-text-faint); margin-right: 8px; font-size: 0.875rem; }.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: var(--jz-surface-3); border: 1px solid var(--jz-border); cursor: pointer; font-size: 0.9375rem; }.actor-chip:hover { border-color: var(--jz-blue-chip); color: var(--jz-blue-chip); }.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }.cast-card { cursor: pointer; min-width: 0; }.cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: var(--jz-surface-3); }.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: var(--jz-text-faint); border: 1px solid var(--jz-border); }.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }.facts .fact span:first-child { color: var(--jz-text-faint); min-width: 48px; flex-shrink: 0; }.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }.facts a { color: var(--jz-blue-chip); margin-right: 10px; }.arch-dlg { max-width: 720px; }.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }.arch-list li { display: flex; gap: 8px; align-items: center; background: var(--jz-surface-3); border: 1px solid var(--jz-border); border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }.arch-from { color: var(--jz-text-faint); overflow-wrap: anywhere; }.arch-arrow { color: var(--jz-blue-chip); }.arch-to { color: var(--jz-success); overflow-wrap: anywhere; }.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }.dlg { background: var(--jz-surface); border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.hint.warn { color: var(--jz-warn); }
 /* 推荐行样式单源：SimilarRow.vue */
 .poster-pick-head { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
 .poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; max-height: 60vh; overflow: auto; padding: 2px; }

@@ -8,9 +8,21 @@ search: false
 
 jzmedia 使用深色影音界面：海报与背景图承载内容，红色表示主要操作，中性灰组织管理工具。电影、剧集、合集共享浏览模式；设置和文件管理采用紧凑密度。统一的是同类控件、状态和操作语义，不要求所有页面使用同样的信息密度。
 
+## 设计源与需求登记
+
+仓库根目录 `design/` 是功能图标、品牌、语义颜色和跨端规格的唯一设计源。SVG 母版使用稳定语义 ID；图形修订、来源、光学校正版、替代关系及导出规格记录在资产清单中。Web 与 Android 的生成代码和品牌导出物随源码提交，不能直接修改。各端正常构建消费已提交产物，不需要设计工具或另一端的工具链。
+
+需求记录与资产定义分开：每项使用需求关联实际功能、页面/组件、平台、操作含义、资产、尺寸、交互状态与可访问名称。设计网格、Web CSS px、Android dp、触摸区域和位图像素必须分别填写；电视的 1080p/4K 是目标显示环境，不是两套矢量母版。专用原生控件、动态图标和保留的文本表达也要登记，不能只清点普通按钮。
+
+功能图标使用 24×24 网格、1.7 线宽、圆端点与连接。播放和评分等填充图形在清单中明确标记。SVG 使用路径、填充和描边，固定数字转路径；不依赖字体、外链或运行时几何变换。品牌保留 J 与播放标记，16/32px 图标为关联的光学校正版；品牌字标的轮廓和来源在设计目录管理。
+
+新增或改款流程：登记需求 → 修改母版/语义令牌 → 生成各端产物 → 检查同步 → 在隔离组件图鉴和实际页面验证。详细生成命令、依赖及清单结构见仓库 `design/README.md`。需求和来源可在组件图鉴中搜索，不增加面向普通用户的设计管理入口。
+
+当前主题继续使用深色与红色强调。颜色通过语义令牌引用，主题与平台规格独立；本次没有新增应用主题切换。后续主题复用稳定的操作 ID，仅调整令牌或明确登记的图形变体。
+
 ## 样式的职责
 
-- `frontend/src/styles/tokens.css`：表面、文字、边框、状态色、字号、间距、圆角、控件高度和浮层层级。基本色为背景 `#141414`、表面 `#1c1c1c`、较高表面 `#262626`、正文 `#eee`、辅助文字 `#aaa`、主操作 `#e50914`。
+- `frontend/src/styles/tokens.css`：载入由设计源生成的表面、文字、边框、状态色、字号、间距、圆角、控件高度和浮层层级，保留响应式规则。基本色为背景 `#141414`、表面 `#1c1c1c`、较高表面 `#262626`、正文 `#eee`、辅助文字 `#aaa`、主操作 `#e50914`。
 - `styles/base.css`：原生表单、全局焦点、主导航、海报播放入口和已有共享卡片。基础选择器保持低权重；导航外观仅作用于 `.app-nav`，不能影响页内标签或面包屑。
 - `JzButton`、`JzField`、`JzDialog`、`AppIcon`：控件的外观与行为。跨页面和 Teleport 到 body 后保持同样表现。
 - `browse.css`、`mediaPages.css`、`settings.css`、`setup.css`：各类页面布局。组件 scoped 样式只管理自身结构和业务特例。
@@ -33,16 +45,22 @@ CSS 变量不能直接用于媒体查询条件；断点使用明确的 `700px` �
 
 | 组件 | 用法与边界 |
 | --- | --- |
-| `JzButton` | `variant="primary / secondary / danger / ghost"`，`size="default / compact"`；默认 `type="button"`。表单提交显式设 `type="submit"`；`loading` 禁止重复点击并播报 busy。单一区域保留明确的主要操作。 |
+| `JzButton` | `variant="primary / secondary / danger / ghost"`，`size="default / compact"`；可设 `icon`、`iconOnly`。默认 `type="button"`，表单提交显式设 `type="submit"`；`loading` 用统一加载图标替换动作图标，禁止重复点击并播报 busy。`ref.el` 返回真实按钮，`ref.focus()` 用于恢复焦点。单一区域保留明确的主要操作。 |
 | `JzField` | 提供 `id`、`label`，可加 `hint` 或 `error`。插槽控件连接 `id`、`aria-describedby` 和 `aria-invalid`；组件不接管业务校验。 |
 | `JzDialog` | 提供标题或 `labelledby`；支持 `header`、内容和 `footer` 插槽。正文可滚动，操作放在常驻 footer。`busy` 禁止关闭，`layer` 为 dialog / preview / auth；`presentation` 为 default / drawer / popover，共享同一个焦点陷阱。保留业务二次确认，关闭后返回焦点。复杂播放器和文件预览保留专门生命周期，只复用视觉规则。 |
-| `AppIcon` | 通用操作采用 24×24、1.7 线宽 SVG。纯图标按钮设置中文 `aria-label`；播放器继续使用 `PlayerIcon`。 |
+| `AppIcon` / `PlayerIcon` | 使用同一份生成图标注册表；播放器保留尺寸及旧名称适配。`AppIcon.forward` 是右箭头，`PlayerIcon.forward` 是快进十秒，不得混用。纯图标按钮设置中文 `aria-label`。 |
 | `EmptyState` | loading / error / empty / no-results；失败提供重试或明确下一步，首个请求完成前不能显示“没有内容”。 |
 | `BrowseToolbar` | 电影和剧集共享搜索、联想，通过 `filters` 插槽接入快捷筛选。搜索按钮位于输入框内，智能搜索是次要操作；请求、路由和播放业务留在页面。 |
 | `BrowseFilters` / `BrowseFilterSummary` | 类型、地区、年代、观看提供快捷面板，全部条件收进抽屉；手机保留类型、观看及全部筛选。面板使用独立草稿，应用才更新页面，关闭放弃草稿；已生效标签可单独移除，清空筛选保留搜索词。 |
 | `BrowseResultsHeader` | 统一结果标题、数量、排序及方向；电影关键词搜索时显示相关度说明，不能提供实际不生效的排序入口。 |
 
 错误反馈优先显示服务端提供的可读原因（字符串 `detail` 或 `message`），保留 HTTP 状态码供排查；长文本应截断并换行，不能撑破布局。失败、无结果与尚未加载必须明确区分。
+
+导航、播放和常用工具使用图标加文字；保存、取消等普通表单动作可以只显示文字。不要为所有选项值、集号、键盘字符机械添加图标。按钮式链接保留链接语义，原生展开、树节点、海报覆盖播放和播放器控件保留专用结构，并遵循共享颜色、状态与焦点规则。
+
+扫描与整理的视频库选中态使用强调红色边框。同组纵向操作按钮应等宽，设置工具通过 `tool-action` 对齐，较长的清理操作使用 `tool-actions-wide`；宽度不超过容器，忙碌或确认文案切换时保持稳定，辅助按钮与进度提示按内容布局。
+
+手机按钮至少提供 44×44 CSS px 的触摸区域。播放器在窄屏将时间单独排为一行，并收起重复的倍速快捷按钮；设置中仍能选择全部倍速，播放、前后跳转、静音、设置和全屏始终可用。视频与字幕继续根据实际控件预留高度定位。TV 使用平台 dp 和遥控器焦点规则，不能把网页触摸尺寸直接套到电视键盘上。
 
 ## 页面层级与响应式布局
 
@@ -86,6 +104,8 @@ node scripts/ui_visual_review.mjs --label goal-after
 `capture_ui_pages.mjs` 自动启动隔离演示，截取电影墙、电影详情、剧集详情、设置和合集的桌面与手机界面，检查页面溢出、浏览器错误和控件尺寸；结果位于 `output/playwright/ui-after/`，可用 `--label 名称` 指定另一组输出目录。
 
 系统性改版使用 `ui_visual_review.mjs` 与 `scripts/fixtures/uiReviewData.mjs`：完整虚构资料、原创 SVG 海报和模拟 API 驱动真实页面。用 `--source` 指向冻结源码拍改前、当前工作区拍改后，两次必须使用相同 fixture。清单记录源码与 fixture 哈希、视口、浏览器错误和布局测量；对照页在 `output/playwright/ui-review/index.html`。正常/异常状态和拍摄方法见[文档维护流程](documentation.md#同数据的整页审查与教程截图)。截图证明布局与交互状态，不能替代真实后端、资料服务或媒体写入验证。
+
+基线使用自定义名称时，用 `--before-label 名称` 指定对照来源；已有两组截图可加 `--gallery-only` 仅重建对照页，不重复拍摄。必须检查 `comparisons.json` 的 `comparable` 和 fixture 哈希，避免误用历史截图。
 
 功能验收复用 `scripts/smoke_settings_ui.mjs`、`scripts/smoke_ai_ui.mjs` 的真实 Vue 页面与模拟 API；向导和播放用 `scripts/preview_onboarding.py --docs-demo` 的临时数据库与合成媒体。不能为了截图对真实库执行扫描、整理或删除。
 

@@ -13,9 +13,10 @@ import vue from '../frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
 import { art, createFixture, fixtureVersion } from './fixtures/uiReviewData.mjs'
 const root=fileURLToPath(new URL('../',import.meta.url)),args=process.argv.slice(2)
-let source=root,label='goal-after',demo=false,core=false,only='',captureDocsMode=false
-for(let i=0;i<args.length;i++) { if(args[i]==='--source')source=path.resolve(args[++i]);else if(args[i]==='--label')label=args[++i];else if(args[i]==='--demo')demo=true;else if(args[i]==='--core')core=true;else if(args[i]==='--only')only=args[++i];else if(args[i]==='--capture-docs')captureDocsMode=true;else throw new Error('Unknown argument '+args[i]) }
+let source=root,label='goal-after',demo=false,core=false,only='',captureDocsMode=false,beforeLabel='goal-before',galleryOnly=false
+for(let i=0;i<args.length;i++) { if(args[i]==='--source')source=path.resolve(args[++i]);else if(args[i]==='--label')label=args[++i];else if(args[i]==='--demo')demo=true;else if(args[i]==='--core')core=true;else if(args[i]==='--only')only=args[++i];else if(args[i]==='--capture-docs')captureDocsMode=true;else if(args[i]==='--before-label')beforeLabel=args[++i];else if(args[i]==='--gallery-only')galleryOnly=true;else throw new Error('Unknown argument '+args[i]) }
 assert.match(label,/^[a-z0-9-]+$/)
+assert.match(beforeLabel,/^[a-z0-9-]+$/)
 assert.ok(!captureDocsMode||(!demo&&!only&&!core&&source===root&&label==='goal-after'),'Documentation capture requires a complete current-source goal-after review')
 const output=path.join(root,'output/playwright',label),temp=await mkdtemp(path.join(os.tmpdir(),'jzmedia-visual-')),dist=path.join(temp,'dist')
 const fixture=createFixture(),results=[],external=[],issues=[],timers=new Set()
@@ -64,14 +65,14 @@ async function sourceFingerprint() {
 const source_sha256=await sourceFingerprint()
 const esc=s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;')
 async function gallery(){
-  const before=await readFile(path.join(root,'output/playwright/goal-before/manifest.json'),'utf8').then(JSON.parse).catch(()=>null)
+  const before=await readFile(path.join(root,'output/playwright',beforeLabel,'manifest.json'),'utf8').then(JSON.parse).catch(()=>null)
   const after=await readFile(path.join(root,'output/playwright/goal-after/manifest.json'),'utf8').then(JSON.parse).catch(()=>null)
   const all=after?.results||before?.results||results
-  const content=all.filter(r=>r.viewport.width!==375).map(r=>{const old=before?.results.find(b=>b.name===r.name&&b.viewport.width===r.viewport.width);const latest=after?.results.find(b=>b.name===r.name&&b.viewport.width===r.viewport.width);return `<section><h2>${esc(r.name)} · ${r.viewport.width}px</h2><div class="pair">${[[old,'goal-before','改前'],[latest,'goal-after','改后']].map(([item,folder,title])=>item?`<figure><figcaption>${title} ${item.metrics.firstCardY!=null?'· 首卡 '+item.metrics.firstCardY+'px':''}</figcaption><a href="../${folder}/${item.file}"><img loading="lazy" src="../${folder}/${item.file}" alt="${esc(r.name)} ${title}"></a></figure>`:'<p>待生成</p>').join('')}</div></section>`}).join('')
+  const content=all.filter(r=>r.viewport.width!==375).map(r=>{const old=before?.results.find(b=>b.name===r.name&&b.viewport.width===r.viewport.width);const latest=after?.results.find(b=>b.name===r.name&&b.viewport.width===r.viewport.width);return `<section><h2>${esc(r.name)} · ${r.viewport.width}px</h2><div class="pair">${[[old,beforeLabel,'改前'],[latest,'goal-after','改后']].map(([item,folder,title])=>item?`<figure><figcaption>${title} ${item.metrics.firstCardY!=null?'· 首卡 '+item.metrics.firstCardY+'px':''}</figcaption><a href="../${folder}/${item.file}"><img loading="lazy" src="../${folder}/${item.file}" alt="${esc(r.name)} ${title}"></a></figure>`:'<p>待生成</p>').join('')}</div></section>`}).join('')
   const dir=path.join(root,'output/playwright/ui-review');await mkdir(dir,{recursive:true})
   if(before&&after){
     const comparisons=after.results.map(current=>{const previous=before.results.find(r=>r.name===current.name&&r.viewport.width===current.viewport.width);if(!previous)return null;return {name:current.name,viewport:current.viewport,first_card:{before:previous.metrics.firstCardY,after:current.metrics.firstCardY,delta:current.metrics.firstCardY!=null&&previous.metrics.firstCardY!=null?current.metrics.firstCardY-previous.metrics.firstCardY:null},toolbar:{before:previous.metrics.toolbar,after:current.metrics.toolbar},settings_content:{before:previous.metrics.settingsContent,after:current.metrics.settingsContent},hero:{before:previous.metrics.hero,after:current.metrics.hero}}}).filter(Boolean)
-    await writeFile(path.join(dir,'comparisons.json'),JSON.stringify({comparable:before.fixture_sha256===after.fixture_sha256,fixture_sha256:after.fixture_sha256,before_source:before.source_sha256,after_source:after.source_sha256,comparisons},null,2)+'\n')
+    await writeFile(path.join(dir,'comparisons.json'),JSON.stringify({before_label:beforeLabel,after_label:'goal-after',comparable:before.fixture_sha256===after.fixture_sha256,fixture_sha256:after.fixture_sha256,before_source:before.source_sha256,after_source:after.source_sha256,comparisons},null,2)+'\n')
   }
   await writeFile(path.join(dir,'index.html'),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>jzmedia UI 同数据对照</title><style>body{background:#141414;color:#eee;margin:0;padding:24px;font:15px/1.5 system-ui}h1{margin:0}p{color:#aaa}section{border-top:1px solid #444;margin-top:32px}h2{font-size:20px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:20px}figure{margin:0;min-width:0}figcaption{padding:10px;background:#252525}img{width:100%;height:auto}a{color:inherit}@media(max-width:700px){.pair{grid-template-columns:1fr}}</style><h1>jzmedia · 界面对照</h1><p>相同虚构数据、原创新海报、相同视口。图像检查不能替代业务验收。每个场景的API错误、溢出与测量见manifest.json。</p>${content}</html>`)
 }
@@ -120,6 +121,11 @@ async function captureDocs() {
   const replaced=new Set(entries.map(entry=>entry.file))
   manifest.assets=[...manifest.assets.filter(entry=>!replaced.has(entry.file)),...entries]
   await writeFile(manifestFile,JSON.stringify(manifest,null,2)+'\n')
+}
+if(galleryOnly) {
+  try { await gallery(); console.log('Comparison: output/playwright/ui-review/index.html; baseline '+beforeLabel) }
+  finally { await rm(temp,{recursive:true,force:true}) }
+  process.exit(0)
 }
 try {
   await mkdir(output,{recursive:true})
@@ -180,7 +186,7 @@ try {
             const card=rect('.grid .card, .season-card, .ep-card')
             return {overflow:document.documentElement.scrollWidth>innerWidth+1,firstCardY:card?.y??null,toolbar:rect('.browse-toolbar'),heading:rect('.browse-heading'),settingsContent:rect('.settings-main, .settings-content'),hero:rect('.media-hero'),h1:document.querySelector('h1')?.textContent?.trim(),activeElement:{tag:document.activeElement?.tagName,text:document.activeElement?.textContent?.trim().slice(0,80)},scrollY,skipLink:(()=>{const e=document.querySelector('.skip-link');const s=getComputedStyle(e);return {focused:e.matches(':focus'),top:s.top,position:s.position}})(),imageCount:document.images.length,brokenImages:[...document.images].filter(i=>i.complete&&!i.naturalWidth).map(i=>i.src),overflowElements:[...document.querySelectorAll('body *')].filter(e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.right>innerWidth+1&&s.position!=='fixed'&&!e.closest('.cw-track, .cast-wall, .similar-row')}).slice(0,6).map(e=>({tag:e.tagName,cls:e.className,width:Math.round(e.getBoundingClientRect().width)}))}
           })
-          if(scene.name==='movie-unmatched')metrics.posterFallback=await page.locator('.poster-empty').evaluate(element=>{const s=getComputedStyle(element);return {display:s.display,align:s.alignItems,justify:s.justifyContent,font:parseFloat(s.fontSize)}})
+          if(scene.name==='movie-unmatched')metrics.posterFallback=await page.locator('.poster-empty').evaluate(element=>{const s=getComputedStyle(element);return {display:s.display,align:s.alignItems,justify:s.justifyContent,font:parseFloat(s.fontSize),iconWidth:element.querySelector('svg')?.getBoundingClientRect().width,label:element.querySelector('span')?.textContent}})
           if(scene.name.endsWith('-dialog'))metrics.dialog=await page.getByRole('dialog').last().evaluate(element=>{const r=element.getBoundingClientRect(),f=element.querySelector('.jz-dialog-footer')?.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,footerBottom:f?.bottom??null,scrollLocked:document.body.style.overflow==='hidden',focusInside:element.contains(document.activeElement),activeTag:document.activeElement?.tagName,activeText:document.activeElement?.textContent?.trim().slice(0,90)}})
           const file=`${scene.name}-${viewport.width}.png`
           if(viewport.width!==375)await page.screenshot({path:path.join(output,file),fullPage:!scene.name.endsWith('-dialog')&&!scene.overlay,animations:'disabled'})
@@ -188,7 +194,7 @@ try {
           const actualErrors=expectedError?errors.filter(e=>!e.includes('503')):errors
           const actualFailures=failedRequests.filter(r=>!(expectedError&&r.status===503&&r.url===(scene.apiPath||'/api/search')))
           const entry={name:scene.name,route:scene.route,viewport,file:viewport.width===375?null:file,screenshot_mode:scene.name.endsWith('-dialog')||scene.overlay?'viewport':'full-page',metrics,errors:actualErrors,failedRequests:actualFailures,unexpected:[...fixture.state.unexpected],expectedFailure:expectedError?failedRequests:[]}
-          if(scene.name==='movie-unmatched'&&!label.includes('before')){const f=metrics.posterFallback;assert.equal(f.display,'flex');assert.equal(f.align,'center');assert.equal(f.justify,'center');assert.ok(f.font>=(viewport.width<=700?32:48),'Missing-poster initial remains legible')}
+          if(scene.name==='movie-unmatched'&&!label.includes('before')){const f=metrics.posterFallback;assert.equal(f.display,'flex');assert.equal(f.align,'center');assert.equal(f.justify,'center');assert.ok(f.iconWidth>=24,'Missing-poster uses a legible shared asset');assert.ok(f.label?.trim(),'Missing-poster retains the media title')}
           if(scene.name.endsWith('-dialog')&&!label.includes('before')){
             assert.ok(metrics.dialog.x>=0&&metrics.dialog.y>=0&&metrics.dialog.right<=viewport.width+1&&metrics.dialog.bottom<=viewport.height+1,'Dialog fits viewport')
             assert.equal(metrics.dialog.scrollLocked,true,'Open dialog locks background scrolling')

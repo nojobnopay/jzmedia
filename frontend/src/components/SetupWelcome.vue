@@ -3,11 +3,13 @@
     <div><strong>{{ state.status === 'active' ? '继续完成基本配置' : '欢迎使用 jzmedia' }}</strong>
       <p>跟随四个步骤配置资料来源、视频库，并扫描或上传第一部内容。</p></div>
     <router-link to="/setup">{{ state.status === 'active' ? '继续配置' : '开始配置' }}</router-link>
-    <button @click="dismiss" :disabled="busy">暂不需要</button>
+    <JzButton variant="ghost" @click="dismiss" :disabled="busy" type="button">暂不需要</JzButton>
     <p v-if="error" role="alert">{{ error }}</p>
   </aside>
 </template>
 <script setup>
+import JzButton from './JzButton.vue'
+
 import { onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useOnboarding } from '../useOnboarding.js'
@@ -32,6 +34,5 @@ onUnmounted(() => {
 .setup-welcome div { flex: 1; min-width: 220px; }
 p { margin: 4px 0 0; color: var(--jz-text-dim); font-size: .875rem; }
 a { color: var(--jz-on-accent); background: var(--jz-accent); border-radius: var(--jz-radius-s); font-weight: 600; text-decoration: none; padding: 10px 14px; }
-button { background: transparent; border-color: transparent; }
 @media (max-width: 700px) { .setup-welcome { margin: 12px; padding: 16px; } a, button { min-height: var(--jz-touch-target); box-sizing: border-box; } }
 </style>

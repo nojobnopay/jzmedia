@@ -4,7 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.graphics.Color
+import org.jzmedia.tv.ui.generated.DesignTokens
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
@@ -16,12 +16,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
-                    primary = Color(0xFFE50914),
-                    onPrimary = Color.White,
-                    background = Color(0xFF141414),
-                    onBackground = Color(0xFFEEEEEE),
-                    surface = Color(0xFF262626),
-                    onSurface = Color(0xFFEEEEEE),
+                    primary = DesignTokens.Accent,
+                    onPrimary = DesignTokens.TextStrong,
+                    background = DesignTokens.Background,
+                    onBackground = DesignTokens.Text,
+                    surface = DesignTokens.SurfaceRaised,
+                    onSurface = DesignTokens.Text,
                 ),
             ) {
                 CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {

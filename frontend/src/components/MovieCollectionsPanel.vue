@@ -5,15 +5,17 @@
             <option value="">选择合集…</option>
             <option v-for="c in colList" :key="c.id" :value="c.id">{{ c.name }}（{{ c.member_count }}）</option>
           </select>
-          <button @click="joinCol" :disabled="!joinColId">加入</button>
+          <JzButton @click="joinCol" :disabled="!joinColId" type="button" icon="plus">加入</JzButton>
         </div>
         <div class="bar">
           <input v-model="newColName" placeholder="新建合集名（含本片）" style="flex:1" />
-          <button @click="createCol" :disabled="!newColName.trim()">创建</button>
+          <JzButton @click="createCol" :disabled="!newColName.trim()" type="button" icon="plus">创建</JzButton>
           <span>{{ colMsg }}</span>
         </div>
-<button @click="emit('close')">收起</button></section></template>
+<JzButton @click="emit('close')" type="button">收起</JzButton></section></template>
 <script setup>
+import JzButton from './JzButton.vue'
+
 import { computed, onMounted, ref } from 'vue'
 import { api } from '../api.js'
 import { listLibs, currentMediaId } from '../libraries.js'

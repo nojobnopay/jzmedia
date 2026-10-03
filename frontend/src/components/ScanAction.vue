@@ -3,13 +3,15 @@
     <label v-if="candidates.length">扫描目标 <select v-model.number="selected" :disabled="scan.blocked.value">
       <option v-for="l in candidates" :key="l.id" :value="l.id">{{ l.media_name ? l.media_name + ' · ' : '' }}{{ l.name }}</option>
     </select></label>
-    <button v-if="target" :disabled="scan.blocked.value" @click="scan.start">{{ scan.running.value ? '扫描中…' : '扫描新文件' }}</button>
-    <button v-if="scan.running.value" @click="scan.cancel">取消扫描</button>
+    <JzButton v-if="target" :disabled="scan.blocked.value" @click="scan.start" type="button" icon="scan">{{ scan.running.value ? '扫描中…' : '扫描新文件' }}</JzButton>
+    <JzButton v-if="scan.running.value" @click="scan.cancel" type="button">取消扫描</JzButton>
     <p v-if="!target">当前没有启用的{{ kind === 'tv' ? '剧集' : '电影' }}库。<router-link to="/settings?sec=sec-libraries">添加视频库</router-link></p>
     <p v-if="scan.message.value" role="status">{{ scan.message.value }}</p>
   </div>
 </template>
 <script setup>
+import JzButton from './JzButton.vue'
+
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { currentMediaVideoLibs, onLibChange } from '../libraries.js'
 import { useLibraryScan } from '../useLibraryScan.js'

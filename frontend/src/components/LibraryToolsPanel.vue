@@ -5,29 +5,29 @@
     <div v-if="!tabs.length && librariesError" class="library-load-state" role="alert">
       <strong>视频库加载失败</strong>
       <span>{{ librariesError }}</span>
-      <button @click="emit('retry-libraries')">重新加载</button>
+      <JzButton @click="emit('retry-libraries')" type="button" icon="refresh">重新加载</JzButton>
     </div>
     <div v-else-if="!tabs.length && !librariesReady" class="library-load-state" role="status" aria-live="polite" aria-busy="true">
       <Spinner :size="28" />
       <strong>正在加载视频库…</strong>
       <span>{{ filesPage ? '加载完成后将显示文件和文件夹。' : '正在准备视频库工具。' }}</span>
     </div>
-    <div v-else-if="!tabs.length" class="hint">还没有视频库。<button @click="emit('add-library')">添加媒体库</button></div>
+    <div v-else-if="!tabs.length" class="hint">还没有视频库。<JzButton @click="emit('add-library')" type="button" icon="plus">添加媒体库</JzButton></div>
     <template v-else>
       <div v-if="!filesPage" class="lib-tabs">
-        <button v-for="t in tabs" :key="t.id"
+        <JzButton v-for="t in tabs" :key="t.id"
           :class="{ on: t.id === selectedId, off: !t.enabled }"
-          :title="tabTitle(t)" :aria-pressed="t.id === selectedId" @click="select(t.id, { sync: true })">
+          :title="tabTitle(t)" :aria-pressed="t.id === selectedId" @click="select(t.id, { sync: true })" type="button">
           {{ t.label }}
           <span v-if="t.name !== t.kind_text" class="tab-kind">{{ t.kind_text }}</span>
           <span v-if="badgeOf(t.id)" class="nav-badge">{{ badgeOf(t.id) }}</span>
-        </button>
+        </JzButton>
       </div>
 
       <p v-if="selectedTab && !selectedTab.enabled" class="hint warn-text">该视频库已停用：扫描/写入会被跳过，这里仅作查看。</p>
 
       <div v-if="filesPage && returnOrigin" class="file-return-bar">
-        <button @click="returnToTools">← 返回扫描与整理</button>
+        <JzButton @click="returnToTools" type="button" icon="back">返回扫描与整理</JzButton>
         <span>{{ sourceTab?.label }} · {{ sourceViewLabel }}</span>
       </div>
       <FsBrowser v-if="filesVisited" v-show="filesPage" ref="filesRef" :active="filesPage"
@@ -36,7 +36,7 @@
       <p v-if="changesError && filesPage" class="hint warn-text" role="status">{{ changesError }}</p>
       <div v-if="!filesPage && currentChanges?.pending" class="settings-notice">
         <span>本库有 {{ currentChanges.count }} 项文件变更待扫描核对。</span>
-        <button :disabled="scanBlocked || working || !selectedTab?.enabled" @click="scanFiles({ library_id: selectedId })">扫描并核对</button>
+        <JzButton :disabled="scanBlocked || working || !selectedTab?.enabled" @click="scanFiles({ library_id: selectedId })" type="button" icon="scan">扫描并核对</JzButton>
       </div>
       <p v-if="fileScanError" class="hint warn-text" role="alert">{{ fileScanError }}</p>
 
@@ -57,6 +57,8 @@
   </section>
 </template>
 <script setup>
+import JzButton from './JzButton.vue'
+
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { buildMediaLibs, currentMediaId, getStoredLibId, setStoredLibId, switchMedia } from '../libraries.js'
@@ -366,7 +368,7 @@ defineExpose({ select, focus })
 .fhint { font-size: 0.75rem; color: var(--jz-text-dim); font-weight: normal; }
 .lib-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 24px; }
 .lib-tabs button { display: inline-flex; align-items: center; gap: 6px; }
-.lib-tabs button.on { border-color: var(--jz-text-dim); background: var(--jz-surface-3); color: var(--jz-text); }
+.lib-tabs button.on { border-color: var(--jz-accent); background: var(--jz-surface-3); color: var(--jz-text); }
 .lib-tabs button.off { opacity: 0.6; }
 .tab-kind { font-size: 0.6875rem; color: var(--jz-text-dim); border: 1px solid var(--jz-border-strong); border-radius: 999px; padding: 0 6px; }
 .nav-badge { font-size: 0.75rem; color: var(--jz-warn); }

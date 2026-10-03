@@ -62,10 +62,10 @@ try {
     const pathname = new URL(req.url, 'http://127.0.0.1').pathname
     if (req.method !== 'GET') { res.writeHead(405); res.end(); return }
     if (pathname === '/') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html); return }
-    if (!/^\/assets\/[\w.-]+\.(?:js|css)$/.test(pathname)) { res.writeHead(404); res.end('No fixture at this path'); return }
+    if (!/^\/assets\/[\w.-]+\.(?:js|css|svg)$/.test(pathname)) { res.writeHead(404); res.end('No fixture at this path'); return }
     try {
       const content = await readFile(path.join(dist, pathname))
-      res.writeHead(200, { 'Content-Type': pathname.endsWith('.js') ? 'text/javascript' : 'text/css' }); res.end(content)
+      res.writeHead(200, { 'Content-Type': pathname.endsWith('.js') ? 'text/javascript' : pathname.endsWith('.svg') ? 'image/svg+xml' : 'text/css' }); res.end(content)
     } catch { res.writeHead(404); res.end('Missing preview asset') }
   })
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
@@ -93,6 +93,15 @@ try {
       await page.getByRole('heading', { name: '让每一次操作都有一致的体验' }).waitFor()
       await page.evaluate(() => document.fonts.ready)
       await checkBounds(page, `${width}px catalogue`)
+      const assetCount = JSON.parse(await readFile(path.join(root, 'design/assets.json'), 'utf8')).assets.length
+      assert.equal(await page.locator('[data-asset-id]').count(), assetCount, 'Catalogue covers every registered asset')
+      assert.equal(await page.locator('[data-asset-id="skip-forward-10"] svg path').count() > 0, true)
+      const search = page.getByLabel('查找资产与用途', { exact: true })
+      await search.fill('skip-forward-10')
+      await page.locator('[data-asset-id="skip-forward-10"]').waitFor()
+      await search.fill('no-such-jzmedia-asset')
+      assert.equal(await page.locator('[data-asset-id]').count(), 0)
+      await search.fill('')
       assert.equal(await page.getByRole('button', { name: '暂不可用', exact: true }).isDisabled(), true)
       assert.equal(await page.getByRole('button', { name: '正在保存', exact: true }).isDisabled(), true)
       if (width <= 700) {
@@ -105,6 +114,11 @@ try {
       await page.getByRole('button', { name: '保存演示表单', exact: true }).click()
       await page.getByText('演示设置已保存，仅在当前页面生效。', { exact: true }).waitFor()
       if (capture) await page.screenshot({ path: path.join(artifacts, `catalogue-${width}.png`), fullPage: true, animations: 'disabled' })
+      if (capture) {
+        await search.fill('播放')
+        await page.locator('.asset-catalogue').screenshot({ path: path.join(artifacts, `playback-icons-${width}.png`), animations: 'disabled' })
+        await search.fill('')
+      }
 
       const trigger = page.locator('#dialog-trigger')
       const previousOverflow = await page.evaluate(() => document.body.style.overflow)

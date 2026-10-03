@@ -5,15 +5,15 @@
     <div class="maintenance-group"><h4>更新影片资料</h4>
 
     <div class="bar">
-      <button @click="doBackfill" :disabled="!!busy">{{ busy === 'backfill' ? '补数据中…' : '补全产地与人物' }}</button>
+      <JzButton class="tool-action" icon="refresh" @click="doBackfill" :disabled="!!busy" type="button">{{ busy === 'backfill' ? '补数据中…' : '补全产地与人物' }}</JzButton>
       <span>{{ backfillMsg }}</span>
     </div>
 
     <div class="bar">
-      <button @click="doRefreshAll" :disabled="!!busy">
+      <JzButton class="tool-action" @click="doRefreshAll" :disabled="!!busy" type="button" icon="refresh">
         {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? '确认刷新本库资料' : '更新本库影片资料') }}
-      </button>
-      <button v-if="armRefresh" @click="armRefresh = false" :disabled="!!busy">取消</button>
+      </JzButton>
+      <JzButton v-if="armRefresh" @click="armRefresh = false" :disabled="!!busy" type="button">取消</JzButton>
       <span>{{ refreshMsg }}</span>
     </div>
     <p v-if="armRefresh" class="hint warn-text">将联网更新本库已匹配影片的资料（最多 5000 部），保留手工标题。再次点击确认执行。</p>
@@ -24,37 +24,37 @@
       <label>修复内容 <select v-model="repairMode" :disabled="!!busy" @change="armMeta = false">
         <option value="both">NFO 与海报</option><option value="nfo">仅 NFO</option><option value="art">仅海报</option>
       </select></label>
-      <button @click="doRebuildMeta" :disabled="!!busy">{{ busy === 'meta' || busy === 'nfo' ? '修复中…' : armMeta ? '确认修复' : '修复资料文件' }}</button>
-      <button v-if="armMeta" @click="armMeta = false">取消</button>
-      <button v-if="busy === 'meta'" @click="cancelMeta">取消任务</button><span>{{ metaMsg }}</span>
+      <JzButton icon="refresh" @click="doRebuildMeta" :disabled="!!busy" type="button">{{ busy === 'meta' || busy === 'nfo' ? '修复中…' : armMeta ? '确认修复' : '修复资料文件' }}</JzButton>
+      <JzButton v-if="armMeta" @click="armMeta = false" type="button">取消</JzButton>
+      <JzButton v-if="busy === 'meta'" @click="cancelMeta" type="button">取消任务</JzButton><span>{{ metaMsg }}</span>
     </div>
     <p v-if="armMeta" class="hint warn-text">将按当前匹配结果写入所选资料文件，保留手工标题。再次点击确认执行。</p>
 
     </div>
-    <details class="settings-details"><summary>清理误入库记录与挂载残留</summary>
+    <details class="settings-details tool-actions-wide"><summary>清理误入库记录与挂载残留</summary>
     <div class="bar">
-      <button @click="doCleanBdmv" :disabled="!!busy">
+      <JzButton class="tool-action" @click="doCleanBdmv" :disabled="!!busy" type="button" icon="delete">
         {{ busy === 'bdmv' ? '清理中…' : (armBdmv ? '确认移除蓝光碎片记录' : '移除蓝光碎片记录') }}
-      </button>
-      <button v-if="armBdmv" @click="armBdmv = false" :disabled="!!busy">取消</button>
+      </JzButton>
+      <JzButton v-if="armBdmv" @click="armBdmv = false" :disabled="!!busy" type="button">取消</JzButton>
       <span>{{ bdmvMsg }}</span>
     </div>
     <p v-if="armBdmv" class="hint warn-text">删除原盘结构（BDMV/VIDEO_TS）里的碎片记录（只删库记录，不动物理文件）。再点一次执行。</p>
 
     <div class="bar">
-      <button @click="doCleanSamples" :disabled="!!busy">
+      <JzButton class="tool-action" @click="doCleanSamples" :disabled="!!busy" type="button" icon="delete">
         {{ busy === 'samples' ? '清理中…' : (armSamples ? '确认移除样片与花絮误入库记录' : '移除样片与花絮误入库记录') }}
-      </button>
-      <button v-if="armSamples" @click="armSamples = false" :disabled="!!busy">取消</button>
+      </JzButton>
+      <JzButton v-if="armSamples" @click="armSamples = false" :disabled="!!busy" type="button">取消</JzButton>
       <span>{{ samplesMsg }}</span>
     </div>
     <p v-if="armSamples" class="hint warn-text">删除路径属于 Sample/Screens/Behind The Scenes 等样片/花絮目录的影片记录（只删库记录，不动物理文件）。再点一次执行。</p>
 
     <div v-if="library.source !== 'local'" class="bar">
-      <button @click="doCleanMount" :disabled="!!busy">
+      <JzButton class="tool-action" @click="doCleanMount" :disabled="!!busy" type="button" icon="link">
         {{ busy === 'mount' ? '清理中…' : (armMount ? '确认清理挂载残留' : '清理挂载残留') }}
-      </button>
-      <button v-if="armMount" @click="armMount = false" :disabled="!!busy">取消</button>
+      </JzButton>
+      <JzButton v-if="armMount" @click="armMount = false" :disabled="!!busy" type="button">取消</JzButton>
       <span>{{ mountMsg }}</span>
     </div>
     <p v-if="armMount" class="hint warn-text">清理挂载点目录里被历史误写的 NFO/图片（仅在未真正挂载时执行，绝不动 NAS）。再点一次执行。</p>
@@ -63,6 +63,8 @@
   </section>
 </template>
 <script setup>
+import JzButton from './JzButton.vue'
+
 import PreviewMaintenance from './PreviewMaintenance.vue'
 import { ref } from 'vue'
 import { api } from '../api.js'

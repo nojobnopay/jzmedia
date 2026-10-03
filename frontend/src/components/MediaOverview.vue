@@ -41,6 +41,7 @@ onUnmounted(() => observer?.disconnect())
 @media (max-width: 700px) {
   .media-overview { margin: 0; }
   .overview { font-size: var(--jz-font-m); line-height: 1.65; }
-  .overview-toggle { min-height: var(--jz-touch-target); margin-top: 0; }
+  .overview-toggle { margin-top: 0; }
 }
+@media (max-width: 700px), (pointer: coarse) { .overview-toggle { min-width: var(--jz-touch-target); min-height: var(--jz-touch-target); } }
 </style>

@@ -6,7 +6,7 @@
         <section v-for="(group, i) in navGroups" :key="group.name" :aria-labelledby="'settings-group-' + i">
           <h2 :id="'settings-group-' + i" class="nav-group">{{ group.name }}</h2>
           <button v-for="n in group.pages" :key="n.id" :class="{ on: active === n.id }" :aria-current="active === n.id ? 'page' : undefined"
-            @click="go(n.id)">{{ n.label }}</button>
+            @click="go(n.id)"><AppIcon :name="n.icon" :size="18" />{{ n.label }}</button>
         </section>
       </nav>
       <div class="mobile-categories"><label for="settings-category">设置分类</label>
@@ -22,11 +22,11 @@
         <div><div class="settings-title-line"><h2>{{ currentPage.label }}</h2><span class="settings-scope">{{ settingsScope }}</span></div><p>{{ currentPage.description }}</p></div>
         <span v-if="busy" class="activity-label" role="status">任务进行中</span>
       </header>
-      <p v-if="loadError" class="settings-notice" role="alert">{{ loadError }} <button @click="loadSettings">重新加载</button></p>
+      <p v-if="loadError" class="settings-notice" role="alert">{{ loadError }} <JzButton @click="loadSettings" type="button" icon="refresh">重新加载</JzButton></p>
 
       <div v-show="active === 'sec-status'" id="sec-status">
         <section class="card-block overview-tasks">
-          <div class="section-heading"><div><h3>需要处理</h3><p class="hint">按视频库核对匹配与失效文件。</p></div><button @click="loadStats">刷新统计</button></div>
+          <div class="section-heading"><div><h3>需要处理</h3><p class="hint">按视频库核对匹配与失效文件。</p></div><JzButton @click="loadStats" type="button" icon="refresh">刷新统计</JzButton></div>
           <div v-for="row in movieTodos" :key="'movie-' + row.library_id" class="overview-task">
             <div><strong>{{ libraryName(row.library_id) }}</strong><span>{{ row.pending }} 项匹配待办 · {{ row.missing_files }} 个失效文件</span></div>
             <router-link :to="{ path: '/settings', query: { sec: row.pending ? 'sec-pending' : 'sec-sync', library: row.library_id } }">处理待办</router-link>
@@ -59,8 +59,8 @@
         </div>
         <details v-if="stats" class="settings-details overview-storage"><summary>存储与缓存统计</summary><dl class="info-grid"><dt>数据库</dt><dd>{{ fmtBytes(stats.db_bytes) }}</dd><dt>海报文件</dt><dd>{{ fmtBytes(stats.posters_bytes) }}</dd><dt>资料缓存</dt><dd>{{ stats.tmdb_cache }} 条</dd><dt>人物</dt><dd>{{ stats.persons }} 位</dd></dl></details>
         <div class="settings-shortcuts">
-          <button @click="go('sec-libraries')"><b>媒体库连接</b><span>添加存储位置或检查连接</span></button>
-          <button @click="go('sec-libtools')"><b>扫描与整理</b><span>导入新文件，核对匹配，整理目录</span></button>
+          <button @click="go('sec-libraries')"><b><AppIcon name="library" />媒体库连接</b><span>添加存储位置或检查连接</span></button>
+          <button @click="go('sec-libtools')"><b><AppIcon name="organize" />扫描与整理</b><span>导入新文件，核对匹配，整理目录</span></button>
         </div>
       </div>
 
@@ -71,17 +71,17 @@
       <div v-show="active === 'sec-tmdb'" id="sec-tmdb">
         <TmdbSettingsPanel :settings="s" @saved="s = $event" />
         <section class="card-block provider-status">
-          <div class="section-heading"><h3>来源运行状态</h3><button @click="loadProviders">刷新状态</button></div>
+          <div class="section-heading"><h3>来源运行状态</h3><JzButton @click="loadProviders" type="button" icon="refresh">刷新状态</JzButton></div>
           <p class="hint">各视频库共享连接状态。暂不可用的来源会自动重试。</p>
           <p v-if="unavailableProviders" class="warn-text">{{ unavailableProviders }} 个来源暂不可用</p>
           <div class="provider-row" v-for="p in providers" :key="p.name">
             <span class="p-name">{{ p.label }}</span><span :class="{ 'warn-text': !p.available }">{{ providerStateText(p) }}</span>
-            <button v-if="!p.available" @click="resetProvider(p.name)" :disabled="!!busy">立即允许重试</button>
+            <JzButton v-if="!p.available" @click="resetProvider(p.name)" :disabled="!!busy" type="button" icon="refresh">立即允许重试</JzButton>
             <details v-if="p.last_error" class="provider-error"><summary>错误详情</summary><p>{{ p.last_error }}</p></details>
           </div>
           <p v-if="providerMsg" class="feedback" role="status">{{ providerMsg }}</p>
           <details class="settings-details"><summary>自动重试机制</summary><p class="hint">连续失败 {{ providerInfo?.fail_threshold ?? 3 }} 次后暂停使用，约 {{ Math.round((providerInfo?.cooldown_sec ?? 600) / 60) }} 分钟后重试。</p></details>
-          <div class="bar"><button @click="go('sec-matching')">设置视频库匹配规则</button></div>
+          <div class="bar"><JzButton @click="go('sec-matching')" type="button" icon="match">设置视频库匹配规则</JzButton></div>
         </section>
       </div>
 
@@ -96,15 +96,15 @@
             <ol class="source-order" aria-label="已启用来源的匹配顺序">
               <li v-for="(name, index) in chainSel" :key="name">
                 <span>{{ index + 1 }}. {{ CHAIN_LABELS[name] }}</span>
-                <div><button :disabled="index === 0" :aria-label="'上移 ' + CHAIN_LABELS[name]" @click="moveChain(index, -1)">上移</button><button :disabled="index === chainSel.length - 1" :aria-label="'下移 ' + CHAIN_LABELS[name]" @click="moveChain(index, 1)">下移</button></div>
+                <div><JzButton :disabled="index === 0" :aria-label="'上移 ' + CHAIN_LABELS[name]" @click="moveChain(index, -1)" type="button" icon="arrow-up">上移</JzButton><JzButton :disabled="index === chainSel.length - 1" :aria-label="'下移 ' + CHAIN_LABELS[name]" @click="moveChain(index, 1)" type="button" icon="arrow-down">下移</JzButton></div>
               </li>
             </ol>
             <p class="hint">{{ chainSel.length ? chainOrderText : '至少选择一个来源。' }}</p>
             <p v-if="chainDraftCount" class="hint" role="status">{{ chainDraftCount }} 个视频库有未保存修改。切换视频库保留草稿；离开设置页前请保存。</p>
-            <div class="bar"><button class="primary" @click="saveChain" :disabled="savingChain || chainLibId == null || !chainSel.length">{{ savingChain ? '保存中…' : '保存匹配规则' }}</button><button @click="chainSel = [...DEFAULT_CHAIN]">恢复默认选择</button><button v-if="chainDirty" @click="discardChain">放弃本库修改</button></div>
+            <div class="bar"><JzButton class="primary" @click="saveChain" :disabled="savingChain || chainLibId == null || !chainSel.length" type="button" variant="primary" icon="match">{{ savingChain ? '保存中…' : '保存匹配规则' }}</JzButton><JzButton @click="chainSel = [...DEFAULT_CHAIN]" type="button" icon="undo">恢复默认选择</JzButton><JzButton v-if="chainDirty" @click="discardChain" type="button" icon="edit">放弃本库修改</JzButton></div>
             <p v-if="chainMsg" class="feedback" role="status">{{ chainMsg }}</p>
           </div>
-          <p v-else class="hint">添加视频库后即可设置匹配来源。<button @click="go('sec-libraries')">添加媒体库</button></p>
+          <p v-else class="hint">添加视频库后即可设置匹配来源。<JzButton @click="go('sec-libraries')" type="button" icon="plus">添加媒体库</JzButton></p>
         </section>
         <section v-if="chainLibrary" class="card-block">
           <h3>测试当前视频库匹配</h3>
@@ -113,7 +113,7 @@
             <label for="matching-query">{{ chainLibrary.kind === 'tv' ? '剧集名称' : '电影名称' }}</label>
             <input id="matching-query" v-model="chainQuery" :placeholder="chainLibrary.kind === 'tv' ? '例如：三体' : '例如：阿凡达'" />
             <p v-if="chainDirty" class="hint">本库规则有修改，请保存后再测试。</p>
-            <div class="bar"><button :disabled="chainDirty || savingChain || testingChain || !chainQuery.trim()">{{ testingChain ? '查找中…' : '测试已保存规则' }}</button><button type="button" @click="go('sec-tmdb')">查看来源状态</button></div>
+            <div class="bar"><JzButton :disabled="chainDirty || savingChain || testingChain || !chainQuery.trim()" type="submit" icon="search">{{ testingChain ? '查找中…' : '测试已保存规则' }}</JzButton><JzButton type="button" @click="go('sec-tmdb')">查看来源状态</JzButton></div>
           </form>
           <p v-if="chainTestMsg" class="feedback" role="status">{{ chainTestMsg }}</p>
           <ul v-if="chainTestResult?.items?.length" class="matching-results"><li v-for="(item, index) in chainTestResult.items.slice(0, 5)" :key="index">{{ item.title || item.name }} <span class="hint">{{ item.year || item.release_date?.slice(0, 4) }} · {{ CHAIN_LABELS[item.source] || item.source || '未标注来源' }}</span></li></ul>
@@ -126,7 +126,7 @@
         <h3>IMDb 离线数据</h3>
         <p class="hint">用于离线查找标题、年份与 IMDb 编号。先将 title.basics.tsv 或 .gz 文件放到服务器可读目录；容器部署时填写容器内的挂载路径。</p>
         <label class="field-label" for="imdb-path">服务器文件路径</label><input id="imdb-path" v-model="imdbPath" class="wide-input" placeholder="留空使用服务器预设路径" />
-        <div class="bar"><button @click="doImportImdb" :disabled="!!busy">{{ busy === 'imdb' ? '导入中…' : '导入离线数据' }}</button><button v-if="busy === 'imdb'" @click="cancelImportImdb">取消导入</button></div>
+        <div class="bar"><JzButton @click="doImportImdb" :disabled="!!busy" type="button">{{ busy === 'imdb' ? '导入中…' : '导入离线数据' }}</JzButton><JzButton v-if="busy === 'imdb'" @click="cancelImportImdb" type="button">取消导入</JzButton></div>
         <p v-if="imdbMsg" class="feedback" role="status">{{ imdbMsg }}</p>
         <p class="hint">导入后，在“匹配规则”中启用“本地索引”，即可用于该视频库的资料查找。</p>
       </section>
@@ -138,9 +138,9 @@
         <form class="settings-form" @submit.prevent="saveAuth()">
           <label for="access-token">{{ s?.jzmedia_token_masked ? '更换访问令牌' : '设置访问令牌' }}</label>
           <input id="access-token" v-model="authForm.token" type="password" minlength="8" required placeholder="输入至少 8 位字符" autocomplete="new-password" />
-          <div class="bar"><button class="primary" type="submit" :disabled="!!busy || !s || authForm.token.trim().length < 8">{{ busy === 'auth' ? '保存中…' : '保存并启用保护' }}</button><button v-if="s?.jzmedia_token_source === 'db'" type="button" @click="armDisableAuth = true" :disabled="!!busy">移除已保存令牌…</button></div>
+          <div class="bar"><JzButton class="primary" type="submit" :disabled="!!busy || !s || authForm.token.trim().length < 8" variant="primary">{{ busy === 'auth' ? '保存中…' : '保存并启用保护' }}</JzButton><JzButton v-if="s?.jzmedia_token_source === 'db'" type="button" @click="armDisableAuth = true" :disabled="!!busy" icon="delete">移除已保存令牌…</JzButton></div>
         </form>
-        <div v-if="armDisableAuth" class="settings-notice" role="alert"><span>将移除此处保存的令牌。若服务器仍配置了令牌，将恢复使用；否则关闭保护，任何能访问服务的人都可以修改内容。</span><button class="danger" @click="saveAuth(true)" :disabled="!!busy">确认移除令牌</button><button @click="armDisableAuth = false" :disabled="!!busy">取消</button></div>
+        <div v-if="armDisableAuth" class="settings-notice" role="alert"><span>将移除此处保存的令牌。若服务器仍配置了令牌，将恢复使用；否则关闭保护，任何能访问服务的人都可以修改内容。</span><JzButton class="danger" @click="saveAuth(true)" :disabled="!!busy" type="button" variant="danger">确认移除令牌</JzButton><JzButton @click="armDisableAuth = false" :disabled="!!busy" type="button">取消</JzButton></div>
         <p v-if="authMsg" class="feedback" role="status">{{ authMsg }}</p>
         <details class="settings-details"><summary>其他浏览器如何使用</summary><p class="hint">其他浏览器首次修改内容时会要求输入令牌，并在该浏览器中记住。此处保存新令牌后，当前浏览器会自动更新。</p></details>
       </section>
@@ -149,11 +149,11 @@
         <h3>显示偏好</h3>
         <div class="slider-row"><label for="font-size">字体大小 <b>{{ prefs.fontSize }} px</b></label><input id="font-size" type="range" min="13" max="20" step="1" v-model.number="prefs.fontSize" @input="saveDisplay" /></div>
         <div class="slider-row"><label for="poster-size">海报大小 <b>{{ prefs.posterMin }} px</b></label><input id="poster-size" type="range" min="120" max="200" step="10" v-model.number="prefs.posterMin" @input="saveDisplay" /><span class="hint">越小，每行显示越多</span></div>
-        <div class="bar"><button @click="resetDisplay">恢复默认显示</button><span v-if="displayMsg" role="status">{{ displayMsg }}</span></div>
+        <div class="bar"><JzButton @click="resetDisplay" type="button" icon="undo">恢复默认显示</JzButton><span v-if="displayMsg" role="status">{{ displayMsg }}</span></div>
       </section>
 
       <div v-show="active === 'sec-index'" id="sec-index">
-        <section class="card-block maintenance-action"><div><h3>搜索索引</h3><p class="hint">搜索结果缺失或与资料不一致时，重建全部媒体库的索引。</p></div><div class="bar"><button @click="doRebuildFts" :disabled="!!busy">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</button></div><p v-if="ftsMsg" class="feedback" role="status">{{ ftsMsg }}</p></section>
+        <section class="card-block maintenance-action"><div><h3>搜索索引</h3><p class="hint">搜索结果缺失或与资料不一致时，重建全部媒体库的索引。</p></div><div class="bar"><JzButton @click="doRebuildFts" :disabled="!!busy" type="button" icon="search">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</JzButton></div><p v-if="ftsMsg" class="feedback" role="status">{{ ftsMsg }}</p></section>
         <TranscodeCachePanel />
       </div>
 
@@ -165,6 +165,9 @@
   </div>
 </template>
 <script setup>
+import AppIcon from '../components/AppIcon.vue'
+import JzButton from '../components/JzButton.vue'
+
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TmdbSettingsPanel from '../components/TmdbSettingsPanel.vue'

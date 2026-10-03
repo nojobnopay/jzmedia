@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- 正红 32px 特调版：笔画加粗 -->
-  <rect x="1" y="1" width="30" height="30" rx="7" fill="#e50914" stroke="#b00710" stroke-width="1"/>
-  <g transform="translate(-1,-1)">
-    <path d="M12.5 10 V20 Q12.5 23.5 16.5 23.5 Q19.5 23.5 20.5 21" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" fill="none"/>
-    <path d="M18.5 12.75 L25 16.5 L18.5 20.25 Z" fill="#ffd60a"/>
-  </g>
-</svg>

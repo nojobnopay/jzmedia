@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,6 +39,12 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusRequester
@@ -77,11 +84,41 @@ import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.mediaTitle
 import org.jzmedia.tv.data.posterPath
 import org.jzmedia.tv.data.text
+import org.jzmedia.tv.ui.generated.DesignTokens
 import org.json.JSONObject
 
-val Muted = Color(0xFFAAAAAA)
-val Panel = Color(0xFF262626)
-val Accent = Color(0xFFE50914)
+val Muted = DesignTokens.TextDim
+val Panel = DesignTokens.SurfaceRaised
+val Accent = DesignTokens.Accent
+
+// Geometry remains native to each TV control; colors, corners and focus are shared.
+@Composable
+internal fun tvButtonColors(selected: Boolean = false, surface: Color = Panel) = ButtonDefaults.colors(
+    containerColor = if (selected) Accent else surface,
+    contentColor = DesignTokens.Text,
+    focusedContainerColor = DesignTokens.FocusBackground,
+    focusedContentColor = DesignTokens.FocusForeground,
+    disabledContainerColor = surface.copy(alpha = .55f),
+    disabledContentColor = DesignTokens.TextDim,
+)
+
+@Composable
+internal fun tvButtonShape(card: Boolean = false) = ButtonDefaults.shape(
+    shape = RoundedCornerShape(if (card) DesignTokens.CardRadius else DesignTokens.CornerRadius),
+)
+
+@Composable
+internal fun tvButtonScale() = ButtonDefaults.scale(focusedScale = DesignTokens.FocusScale)
+
+/** Selection remains visible on a white focused button, and is announced separately. */
+internal fun Modifier.tvSelected(isSelected: Boolean): Modifier = semantics { selected = isSelected }.drawWithContent {
+    drawContent()
+    if (isSelected) {
+        val markerWidth = 20.dp.toPx()
+        drawRoundRect(Accent, Offset((size.width - markerWidth) / 2f, size.height - 4.dp.toPx()),
+            Size(markerWidth, 3.dp.toPx()), CornerRadius(1.5.dp.toPx()))
+    }
+}
 
 class FocusMemory(initial: String) {
     var key = initial
@@ -112,21 +149,22 @@ fun Modifier.focusMemory(memory: FocusMemory, key: String, focusRequester: Focus
 
 @Composable
 fun TvAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true,
-             centerLabel: Boolean = false) {
+             centerLabel: Boolean = false, icon: String? = null) {
     Button(
-        onClick = onClick, enabled = enabled, modifier = modifier,
-        colors = ButtonDefaults.colors(
-            containerColor = if (selected) Accent else Panel,
-            contentColor = Color.White,
-            focusedContainerColor = Color.White,
-            focusedContentColor = Color(0xFF141414),
-        ),
+        onClick = onClick, enabled = enabled,
+        modifier = modifier.heightIn(min = DesignTokens.ControlHeight).tvSelected(selected),
+        colors = tvButtonColors(selected), shape = tvButtonShape(), scale = tvButtonScale(),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
     ) {
-        // Only explicitly sized actions fill their label; natural-width buttons and
-        // full-width list entries retain their existing width/alignment contract.
-        Text(text, modifier = if (centerLabel) Modifier.fillMaxWidth() else Modifier,
-            textAlign = if (centerLabel) TextAlign.Center else TextAlign.Start,
-            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        // Fixed-width keyboard actions remain centered; natural-width actions retain
+        // their width, and full-width options keep their original start alignment.
+        Row(modifier = if (centerLabel) Modifier.fillMaxWidth() else Modifier,
+            horizontalArrangement = if (centerLabel) Arrangement.Center else Arrangement.Start,
+            verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) TvIcon(icon, Modifier.padding(end = 8.dp))
+            Text(text, textAlign = if (centerLabel) TextAlign.Center else TextAlign.Start,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -139,8 +177,8 @@ fun TvInput(label: String, value: String, onValue: (String) -> Unit, modifier: M
         Text(label, style = MaterialTheme.typography.labelLarge, color = Muted)
         BasicTextField(
             value = value, onValueChange = onValue, singleLine = true,
-            textStyle = TextStyle(color = Color.White, fontSize = 19.sp),
-            cursorBrush = SolidColor(Color.White),
+            textStyle = TextStyle(color = DesignTokens.TextStrong, fontSize = 19.sp),
+            cursorBrush = SolidColor(DesignTokens.TextStrong),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
             keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else KeyboardType.Text, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { keyboard?.hide(); focus.moveFocus(FocusDirection.Down) }),
@@ -154,8 +192,8 @@ fun TvInput(label: String, value: String, onValue: (String) -> Unit, modifier: M
                         keyboard?.show(); true
                     } else false
                 }
-                .border(if (focused) 3.dp else 1.dp, if (focused) Color.White else Color(0xFF666666), RoundedCornerShape(8.dp))
-                .background(Panel, RoundedCornerShape(8.dp)).padding(16.dp),
+                .border(if (focused) 3.dp else 1.dp, if (focused) DesignTokens.TextStrong else DesignTokens.Border, RoundedCornerShape(DesignTokens.CornerRadius))
+                .background(Panel, RoundedCornerShape(DesignTokens.CornerRadius)).padding(16.dp),
         )
     }
 }
@@ -194,7 +232,7 @@ private object Posters {
 
 @Composable
 fun Poster(api: JzApi, path: String, title: String, modifier: Modifier = Modifier, fallbackPosterPath: String = "",
-           posterPlaceholder: String = "") {
+           posterPlaceholder: String = "", placeholderIcon: String = "image", showPlaceholderLabel: Boolean = true) {
     // A changed source gets fresh state in this composition, before the new load
     // starts. Restarting produceState alone would retain the previous bitmap.
     val bitmap by key(api, path, fallbackPosterPath) {
@@ -207,9 +245,14 @@ fun Poster(api: JzApi, path: String, title: String, modifier: Modifier = Modifie
             }
         }
     }
-    Box(modifier.background(Panel, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+    Box(modifier.background(Panel, RoundedCornerShape(DesignTokens.CornerRadius)), contentAlignment = Alignment.Center) {
         if (bitmap != null) Image(bitmap!!.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else Text(posterPlaceholder.ifBlank { title.take(2) }, style = MaterialTheme.typography.headlineLarge, color = Muted)
+        else Column(Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            TvIcon(placeholderIcon)
+            if (showPlaceholderLabel) Text(posterPlaceholder.ifBlank { title }, style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis, color = Muted)
+        }
     }
 }
 
@@ -221,9 +264,8 @@ fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifi
     Button(
         onClick = onClick, modifier = modifier.width(150.dp),
         contentPadding = PaddingValues(7.dp),
-        shape = ButtonDefaults.shape(shape = RoundedCornerShape(10.dp)),
-        colors = ButtonDefaults.colors(containerColor = Color(0xFF1C1C1C), contentColor = Color.White,
-            focusedContainerColor = Color.White, focusedContentColor = Color.Black),
+        shape = tvButtonShape(card = true), scale = tvButtonScale(),
+        colors = tvButtonColors(surface = DesignTokens.Surface),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.fillMaxWidth().height(posterHeight)) {
@@ -235,7 +277,7 @@ fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifi
                     }
                 }
             }
-            Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall, modifier = Modifier.height(42.dp))
+            Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall, modifier = Modifier.heightIn(min = 42.dp))
             Text(subtitle.ifBlank {
                 listOf(row.text("year"), row.text("vote_average").takeIf { it != "0" }.orEmpty(), if (row.optInt("watched") == 1) "已看" else "")
                     .filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "查看详情" }
@@ -259,10 +301,13 @@ fun MediaRail(title: String, rows: List<JSONObject>, api: JzApi, memory: FocusMe
 }
 
 @Composable
-fun Status(message: String, retry: (() -> Unit)? = null, modifier: Modifier = Modifier) {
+fun Status(message: String, retry: (() -> Unit)? = null, modifier: Modifier = Modifier, icon: String = if (retry != null) "error" else "info") {
     Column(modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(message, color = Muted)
-        if (retry != null) TvAction("重试", retry)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            TvIcon(icon)
+            Text(message, color = Muted)
+        }
+        if (retry != null) TvAction("重试", retry, icon = "refresh")
     }
 }
 

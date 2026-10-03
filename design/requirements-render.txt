@@ -1,0 +1,10 @@
+# Maintenance only. Not required by server, Web, docs, or APK builds.
+CairoSVG==2.9.1
+Pillow==12.3.0
+cairocffi==1.7.1
+cssselect2==0.10.1
+defusedxml==0.7.1
+tinycss2==1.5.1
+cffi==2.1.1
+pycparser==3.0
+webencodings==0.6.1

@@ -14,12 +14,11 @@
 .media-detail .hero-still { width: 36%; max-width: 400px; aspect-ratio: 16 / 9; height: auto; object-fit: cover; border-radius: var(--jz-radius-m); }
 .media-detail .topbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--jz-gap-m); margin: 0; padding: 0; }
 .media-detail .hero-backbar { padding: var(--jz-gap-l) var(--jz-gap-3xl) 0; }
-.media-detail .back-link { display: inline-flex; align-items: center; gap: var(--jz-gap-xs); min-height: 32px; color: var(--jz-text-dim); text-decoration: none; font-size: var(--jz-font-m); }
+.media-detail .back-link { display: inline-flex; align-items: center; gap: var(--jz-gap-xs); min-height: var(--jz-control-current); color: var(--jz-text-dim); text-decoration: none; font-size: var(--jz-font-m); }
 .media-detail .back-link:hover { color: var(--jz-text); }
 .media-detail .acts, .media-detail .play-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--jz-gap-s); margin: var(--jz-gap-xl) 0 var(--jz-gap-l); }
 .media-detail .acts > button, .media-detail .play-row > button { min-height: 44px; padding: var(--jz-gap-m) var(--jz-gap-xl); border-radius: var(--jz-radius-s); }
-.media-detail .play-main, .media-detail .acts > .primary { display: inline-flex; align-items: center; justify-content: center; gap: var(--jz-gap-s); min-width: 138px; background: var(--jz-accent); border-color: var(--jz-accent); color: var(--jz-on-accent); font-weight: 600; }
-.media-detail .play-main:hover:not(:disabled), .media-detail .acts > .primary:hover:not(:disabled) { background: var(--jz-accent-hover); }
+.media-detail .play-main, .media-detail .acts > .primary { min-width: 138px; }
 .media-detail .meta, .media-detail .meta-line { display: flex; flex-wrap: wrap; gap: 4px var(--jz-gap-m); margin: var(--jz-gap-s) 0 0; color: var(--jz-text-dim); font-size: var(--jz-font-m); line-height: 1.65; }
 .media-detail .ver-sel { min-height: 44px; max-width: 320px; }
 .media-detail .play-options { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-s); margin: 0 0 var(--jz-gap-l); }
@@ -27,7 +26,7 @@
 .media-detail .detail-badges { display: flex; flex-wrap: wrap; align-items: center; gap: var(--jz-gap-xs); margin: var(--jz-gap-s) 0; }
 .media-detail .edition-chip, .media-detail .watched-chip { margin: 0; font-size: var(--jz-font-s); font-weight: 400; line-height: 1.6; padding: 1px var(--jz-gap-s); border-radius: var(--jz-radius-s); }
 .media-detail .playback-preparation { margin-top: var(--jz-gap-m); color: var(--jz-text-dim); font-size: var(--jz-font-s); }
-.media-detail .playback-preparation summary { width: fit-content; min-height: 32px; align-content: center; }
+.media-detail .playback-preparation summary { width: fit-content; min-height: var(--jz-control-current); align-content: center; }
 .media-detail .pre-wrap { margin-top: var(--jz-gap-s); flex-wrap: wrap; }
 .media-detail .sections { display: flex; flex-direction: column; gap: var(--jz-gap-xl); max-width: none; margin: 0; padding: 0; }
 .media-detail .detail-tabs { display: flex; flex-wrap: wrap; gap: var(--jz-gap-2xl); padding: 0; margin: 0; background: transparent; border-bottom: 1px solid var(--jz-border); }
@@ -44,7 +43,6 @@
 .media-detail .section-head, .media-detail .collection-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--jz-gap-l); margin-bottom: var(--jz-gap-xl); }
 .media-detail .section-head h3 { margin: 0; }
 .media-detail .episode-navigation { display: flex; flex-wrap: wrap; background: transparent; gap: var(--jz-gap-xl); padding: var(--jz-gap-s) 0 0; }
-.media-detail .episode-navigation button { border: 0; background: transparent; color: var(--jz-text-dim); padding: var(--jz-gap-xs) 0; }
 .media-detail .crumbs { display: flex; flex-wrap: wrap; gap: var(--jz-gap-s); margin: 0 0 var(--jz-gap-l); padding: 0; background: transparent; font-size: var(--jz-font-s); color: var(--jz-text-dim); line-height: 1.7; }
 .media-detail .crumbs a { color: var(--jz-text-dim); text-decoration: none; }
 .media-detail .eyebrow { margin: 0 0 var(--jz-gap-s); color: var(--jz-text-dim); font-size: var(--jz-font-s); }

@@ -5,13 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-# 1) 前端：dist 缺失，或 frontend/src 有更新，就重构建
-if [ ! -f frontend/dist/index.html ] || [ -n "$(find frontend/src -newer frontend/dist/index.html -print -quit 2>/dev/null)" ]; then
-  echo "[start] frontend changed, rebuilding..."
-  (cd frontend && { [ -d node_modules ] || npm install; } && npm run build)
-else
-  echo "[start] frontend dist is fresh, skip build."
-fi
+# 1) 前端：包括品牌资源、配置、锁文件及删除，按内容判断更新。
+python3 scripts/build_frontend.py
 
 # 文档独立构建：正文、主题、素材及锁文件变化（包括删除）都会触发。
 python3 scripts/build_docs.py

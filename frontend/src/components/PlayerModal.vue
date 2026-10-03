@@ -29,7 +29,7 @@
             <PlayerIcon name="info" :size="30" />
             <strong>播放遇到问题</strong>
             <p>{{ err }}</p>
-            <button class="player-action primary" @click="reload">重新加载</button>
+            <JzButton size="compact" variant="primary" class="player-action" @click="reload">重新加载</JzButton>
           </div>
         </div>
         <div v-else-if="needGesture || !isPlaying" class="stage-state pause-state" @dblclick.stop>
@@ -46,8 +46,8 @@
         </div>
         <div v-if="resumeOffer && !booting && !seekPending" class="resume-bar" @dblclick.stop>
           <span>上次看到 <strong>{{ resumeOffer }}</strong></span>
-          <button class="player-action primary" @click="resumePlay">继续观看</button>
-          <button class="player-action" @click="restartPlay">从头开始</button>
+          <JzButton size="compact" variant="primary" class="player-action" @click="resumePlay">继续观看</JzButton>
+          <JzButton size="compact" class="player-action" @click="restartPlay">从头开始</JzButton>
         </div>
         <div v-if="(posHint || sessStatus) && overlayVisible && !booting && !seekPending" class="player-toast" role="status" @dblclick.stop>{{ posHint || sessStatus }}</div>
         <div class="pv-ctl" :class="{ show: overlayVisible }" @dblclick.stop>
@@ -88,8 +88,8 @@
           <strong>播放不够流畅？</strong>
           <p>过去 30 秒丢失 {{ dropDrops }} 帧，切换至 1080p 可减轻播放负担。</p>
           <div class="prompt-actions">
-            <button class="player-action primary" @click="switchTo1080">切换至 1080p</button>
-            <button class="player-action" @click="cancelDropPrompt">保持原画 <span class="drop-count">{{ dropCountdown }}s</span></button>
+            <JzButton size="compact" variant="primary" class="player-action" @click="switchTo1080">切换至 1080p</JzButton>
+            <JzButton size="compact" class="player-action" @click="cancelDropPrompt">保持原画 <span class="drop-count">{{ dropCountdown }}s</span></JzButton>
           </div>
         </div>
       </div>
@@ -107,6 +107,7 @@ import { useFocusTrap } from '../useFocusTrap.js'
 import { useSubtitles } from '../useSubtitles.js'
 import PlayerSettings from './PlayerSettings.vue'
 import PlayerIcon from './PlayerIcon.vue'
+import JzButton from './JzButton.vue'
 import PlayerSeekbar from './PlayerSeekbar.vue'
 import { applyPlaybackRate, normalizeRate, reusableSeekTime } from '../playbackControls.js'
 import { usePlaybackPreviews } from '../usePlaybackPreviews.js'
@@ -231,7 +232,7 @@ function startDropCountdown() {
 function cancelDropPrompt() {
   clearDropCountdown()
   dropHint.value = false
-  posHint.value = '已保留原画（如仍卡顿可在「⚙ 设置」里切档）'
+  posHint.value = '已保留原画（如仍卡顿可在「设置」里切档）'
 }
 // 浮层出现即起倒计时（窗口/全屏统一）；消失/切档/卸载时清掉
 watch(dropHint, (hint) => {
@@ -868,7 +869,7 @@ function sampleDropGuard() {
 function switchTo1080() {
   clearDropCountdown()
   onQualityChange('1080p')
-  posHint.value = '已按建议切换到 1080p 转码；如仍想原画，可在「⚙ 设置」里切回'
+  posHint.value = '已按建议切换到 1080p 转码；如仍想原画，可在「设置」里切回'
 }
 // 音轨切换：fMP4 rendition 已在会话里 → 切 hls.audioTrack 即刻生效（视频不重编不重开）；
 // 原生 Safari 用 video.audioTracks；会话尚未就绪时只改选择，等 MANIFEST_PARSED 应用；
@@ -1518,16 +1519,16 @@ defineExpose({ saveFinal })
 .player-mask { background: rgba(5,5,8,.86); backdrop-filter: blur(12px); padding: 16px; box-sizing: border-box; }
 .player-dlg {
   --player-accent: var(--jz-accent, #e50914);
-  color: #f5f5f5; background: #161618; border: 1px solid #ffffff15; border-radius: 16px;
+  color: var(--jz-text); background: var(--jz-bg); border: 1px solid #ffffff15; border-radius: var(--jz-radius-dialog);
   width: min(1120px, 94vw); max-height: 94vh; max-height: 94dvh; overflow: auto;
   box-shadow: 0 24px 100px #0009; box-sizing: border-box;
 }
 .pd-head { display: flex; gap: 16px; align-items: center; padding: 16px 20px; }
 .pd-heading { flex: 1; min-width: 0; }
-.pd-eyebrow { display: block; font-size: .625rem; letter-spacing: .12em; color: #999; line-height: 1.4; margin-bottom: 4px; }
+.pd-eyebrow { display: block; font-size: .625rem; letter-spacing: .12em; color: var(--jz-text-faint); line-height: 1.4; margin-bottom: 4px; }
 .pd-head h3 { margin: 0; font-size: 1rem; font-weight: 500; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.quality-badge { padding: 3px 7px; border: 1px solid #ffffff25; border-radius: 5px; font-size: .625rem; font-weight: 600; color: #bbb; }
-.pd-close { color: #aaa; }
+.quality-badge { padding: 3px 7px; border: 1px solid #ffffff25; border-radius: 5px; font-size: .625rem; font-weight: 600; color: var(--jz-text-dim); }
+.pd-close { color: var(--jz-text-dim); }
 .pv-wrap { position: relative; background: #000; overflow: hidden; width: 100%; }
 .pv-wrap.has-bar { --pvb: 84px; }
 .pv-wrap.hide-cursor { cursor: none; }
@@ -1536,50 +1537,50 @@ defineExpose({ saveFinal })
 .stage-state { position: absolute; inset: 0 0 var(--pvb); display: flex; flex-direction: column; gap: 12px;
   align-items: center; justify-content: center; background: #0005; font-size: .8125rem; z-index: 4; }
 .stage-state strong { font-weight: 500; font-size: .9375rem; }
-.stage-state > span { color: #bbb; font-size: .75rem; }
+.stage-state > span { color: var(--jz-text-dim); font-size: .75rem; }
 .seek-ov { background: #08080b99; }
 .pause-state { pointer-events: none; background: linear-gradient(transparent, #0003); }
 .center-play { pointer-events: auto; display: grid; place-items: center; width: 76px; height: 76px; padding: 0 0 0 3px;
-  border: 1px solid #ffffff40; border-radius: 50%; color: #fff; background: #16161a99; backdrop-filter: blur(8px);
+  border: 1px solid #ffffff40; border-radius: 50%; color: var(--jz-on-accent); background: #16161a99; backdrop-filter: blur(8px);
   box-shadow: 0 4px 28px #0005; transition: background .2s, transform .2s; }
 .center-play:hover { transform: scale(1.06); background: #ffffff30; }
 .pv-ctl { position: absolute; left: 0; right: 0; bottom: 0; height: 84px; padding: 4px 20px 12px;
-  display: flex; flex-direction: column; box-sizing: border-box; background: #161618; z-index: 6; }
+  display: flex; flex-direction: column; box-sizing: border-box; background: var(--jz-bg); z-index: 6; }
 .ctl-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 40px; }
 .ctl-group, .volume-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .ctl-options { flex: none; gap: 6px; }
 .volume-group { margin-left: 4px; }
-.ctl-time { display: flex; gap: 8px; margin-left: 12px; font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; color: #999; }
-.ctl-time > span:first-child { color: #eee; }
+.ctl-time { display: flex; gap: 8px; margin-left: 12px; font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--jz-text-faint); }
+.ctl-time > span:first-child { color: var(--jz-text); }
 .time-divider { color: #626267; }
 .ctl-vol { width: 68px; height: 4px; margin: 0 8px 0 2px; padding: 0; border: 0; border-radius: 4px;
   background: linear-gradient(to right, #ddd var(--volume), #ffffff30 var(--volume)); appearance: none; cursor: pointer; }
-.ctl-vol::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; background: #eee; border: 0; border-radius: 50%; }
-.ctl-vol::-moz-range-thumb { width: 10px; height: 10px; background: #eee; border: 0; border-radius: 50%; }
-.rate-btn { height: 36px; min-width: 44px; padding: 0 8px; border: 0; border-radius: 7px; color: #eee; background: transparent;
+.ctl-vol::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; background: var(--jz-text); border: 0; border-radius: 50%; }
+.ctl-vol::-moz-range-thumb { width: 10px; height: 10px; background: var(--jz-text); border: 0; border-radius: 50%; }
+.rate-btn { height: var(--jz-control-current); min-width: 44px; padding: 0 8px; border: 0; border-radius: var(--jz-radius-s); color: var(--jz-text); background: transparent;
   font-size: .8125rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.rate-btn span { margin-left: 2px; font-weight: 400; color: #aaa; }
+.rate-btn span { margin-left: 2px; font-weight: 400; color: var(--jz-text-dim); }
 .rate-btn:hover { background: #ffffff12; }
 .pv-top { display: none; }
 .pv-heading { flex: 1; min-width: 0; }
 .pv-title { display: block; font-size: 1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .resume-bar { position: absolute; left: 20px; bottom: calc(var(--pvb) + 18px); z-index: 5; display: flex; align-items: center; flex-wrap: wrap;
   gap: 8px; max-width: calc(100% - 40px); box-sizing: border-box; padding: 10px 12px; border: 1px solid #ffffff20; border-radius: 10px;
-  background: #1c1c20ee; box-shadow: 0 6px 20px #0004; font-size: .75rem; color: #ccc; }
+  background: #1c1c20ee; box-shadow: 0 6px 20px #0004; font-size: .75rem; color: var(--jz-text-dim); }
 .resume-bar > span { margin-right: 8px; }
-.resume-bar strong { color: #fff; font-weight: 500; font-variant-numeric: tabular-nums; }
+.resume-bar strong { color: var(--jz-on-accent); font-weight: 500; font-variant-numeric: tabular-nums; }
 .player-toast { position: absolute; left: 50%; bottom: calc(var(--pvb) + 20px); transform: translateX(-50%); z-index: 7;
   width: max-content; max-width: calc(100% - 40px); padding: 9px 14px; border: 1px solid #ffffff18; border-radius: 9px;
-  color: #eee; background: #202024ed; font-size: .75rem; line-height: 1.6; box-sizing: border-box; overflow-wrap: anywhere; pointer-events: none; }
+  color: var(--jz-text); background: #202024ed; font-size: .75rem; line-height: 1.6; box-sizing: border-box; overflow-wrap: anywhere; pointer-events: none; }
 .status-card { display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(380px, calc(100% - 40px));
   max-height: calc(100% - 24px); overflow: auto; box-sizing: border-box; padding: 24px; border: 1px solid #ffffff20;
-  border-radius: 14px; background: #1c1c20f2; text-align: center; box-shadow: 0 12px 40px #0006; }
+  border-radius: var(--jz-radius-dialog); background: #1c1c20f2; text-align: center; box-shadow: 0 12px 40px #0006; }
 .status-card strong, .status-card > .player-action, .prompt-actions { flex-shrink: 0; }
 .status-card strong { font-size: 1rem; font-weight: 500; }
-.status-card p { min-height: 0; overflow: auto; margin: 0; color: #aaa; font-size: .8125rem; line-height: 1.7; overflow-wrap: anywhere; }
+.status-card p { min-height: 0; overflow: auto; margin: 0; color: var(--jz-text-dim); font-size: .8125rem; line-height: 1.7; overflow-wrap: anywhere; }
 .drop-prompt { position: absolute; left: 50%; top: calc((100% - var(--pvb)) / 2); transform: translate(-50%, -50%); z-index: 8; }
 .prompt-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
-.drop-count { margin-left: 4px; color: #999; font-variant-numeric: tabular-nums; }
+.drop-count { margin-left: 4px; color: var(--jz-text-faint); font-variant-numeric: tabular-nums; }
 /* 窗口态为字幕保留画面区；全屏控件悬浮，视频铺满容器。 */
 .pv-wrap:fullscreen { padding-top: 0 !important; width: 100vw; height: 100vh; --pvb: 0px; }
 .pv-wrap:fullscreen .pv-ctl { height: 108px; padding: 24px 32px 16px; background: linear-gradient(transparent, #000c);
@@ -1607,14 +1608,17 @@ defineExpose({ saveFinal })
   .pv-wrap:fullscreen .pv-ctl { padding-left: 16px; padding-right: 16px; }
   .pv-wrap:fullscreen .pv-top { padding: 16px 20px 30px; }
 }
-@media (max-width: 420px) {
-  .ctl-time { margin-left: 4px; gap: 4px; font-size: .625rem; }
-  .rate-btn { min-width: 36px; padding: 0 4px; font-size: .75rem; }
+/* Six 44px controls fit at 320px. Time owns a separate line; speed stays in settings. */
+@media (max-width: 600px) {
+  .pv-wrap.has-bar:not(:fullscreen) { --pvb: 104px; }
+  .pv-ctl { height: 104px; padding: 4px 8px 12px; }
+  .ctl-row { position: relative; padding-top: 16px; min-height: 44px; }
+  .ctl-time { position: absolute; top: 0; left: 0; margin: 0; font-size: .6875rem; }
+  .rate-btn { display: none; }
   .quality-badge { display: none; }
+  .pv-wrap:fullscreen .pv-ctl { height: 128px; padding-left: 8px; padding-right: 8px; }
 }
-@media (max-width: 360px) {
-  .ctl-time .time-divider, .ctl-time .time-total { display: none; }
-}
+
 @media (prefers-reduced-motion: reduce) {
   .center-play, .pv-wrap:fullscreen .pv-ctl, .pv-wrap:fullscreen .pv-top { transition: none; }
 }

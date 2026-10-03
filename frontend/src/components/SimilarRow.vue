@@ -2,15 +2,15 @@
   <section v-if="(items || []).length" class="card-block similar-block">
     <h3>{{ title }} <span v-if="subtitle" class="similar-sub">{{ subtitle }}</span></h3>
     <div class="similar-wrap">
-      <button v-if="items.length > 4" class="similar-nav left" aria-label="向左滚动" @click="scroll(-1)">‹</button>
+      <JzButton v-if="items.length > 4" class="similar-nav left" aria-label="向左滚动" @click="scroll(-1)" type="button"><AppIcon name="chevron-left" /></JzButton>
       <div ref="rowRef" class="similar-row" @scroll="onScroll">
         <div v-for="x in items" :key="x.id" class="similar-card" role="link" tabindex="0" @keydown.enter="$emit('open', x.id)" @click="$emit('open', x.id)">
           <div class="poster-wrap">
             <img v-if="x.poster_path" :src="posterUrl(x.poster_path)" loading="lazy" :alt="(x.title || '影片') + ' 海报'" />
-            <div v-else class="similar-no-poster" aria-hidden="true">{{ (x.title || '?').slice(0, 1) }}</div>
+            <ArtworkPlaceholder v-else class="similar-no-poster" kind="poster" :label="x.title" />
             <ScoreBadge :score="x.tmdb_rating" source="tmdb" />
           </div>
-          <div class="similar-name" :title="x.title">{{ x.title }}<span v-if="x.year" class="similar-year">({{ x.year }})</span><span v-if="x.version_count > 1" class="similar-year">×{{ x.version_count }}</span><span v-if="hasScore(x.custom_rating)" class="similar-custom">♥{{ fmtScore(x.custom_rating) }}</span></div>
+          <div class="similar-name" :title="x.title">{{ x.title }}<span v-if="x.year" class="similar-year">({{ x.year }})</span><span v-if="x.version_count > 1" class="similar-year">×{{ x.version_count }}</span><span v-if="hasScore(x.custom_rating)" class="similar-custom"><AppIcon name="heart-filled" :size="12" />{{ fmtScore(x.custom_rating) }}</span></div>
           <div v-if="mediaText(x)" class="similar-library" :title="mediaText(x)">{{ mediaText(x) }}</div>
           <div v-if="x.reason" class="similar-reason" :title="x.reason">{{ x.reason }}</div>
         </div>
@@ -18,11 +18,17 @@
       <div v-if="bar.show" class="similar-bar" aria-hidden="true">
         <div class="similar-bar-thumb" :style="{ left: bar.left + '%', width: bar.width + '%' }"></div>
       </div>
-      <button v-if="items.length > 4" class="similar-nav right" aria-label="向右滚动" @click="scroll(1)">›</button>
+      <JzButton v-if="items.length > 4" class="similar-nav right" aria-label="向右滚动" @click="scroll(1)" type="button"><AppIcon name="chevron-right" /></JzButton>
     </div>
   </section>
 </template>
 <script setup>
+import ArtworkPlaceholder from './ArtworkPlaceholder.vue'
+
+import AppIcon from './AppIcon.vue'
+
+import JzButton from './JzButton.vue'
+
 // 库中类似/相关节目单源（P4）：电影 similar-block 与剧集 similar-sec 统一为
 // 同一交互（横向滚动+箭头+细线进度+ScoreBadge+reason）。TV 条目无 version_count/
 // custom_rating 时对应徽标自动隐藏（hasScore 守卫）。
@@ -84,11 +90,10 @@ onUnmounted(() => window.removeEventListener('resize', updateBar))
 .similar-custom { color: var(--jz-danger); font-size: 0.75rem; margin-left: 4px; }
 .similar-library { font-size: 0.6875rem; color: var(--jz-text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .similar-reason { font-size: 0.75rem; color: var(--jz-text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.similar-nav { position: absolute; top: 42%; transform: translateY(-50%); z-index: 2; width: 32px; height: 44px; border: none; border-radius: 8px; background: rgba(0,0,0,.62); color: var(--jz-text); font-size: 1.5rem; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s; padding: 0; }
+.similar-nav { position: absolute; top: 42%; transform: translateY(-50%); z-index: 2; width: 32px; height: 44px; transition: opacity .15s; }
 .similar-nav.left { left: 4px; }
 .similar-nav.right { right: 4px; }
 .similar-block:hover .similar-nav, .similar-nav:focus-visible { opacity: 1; }
-.similar-nav:hover { background: rgba(0,0,0,.85); }
 @media (hover: none) { .similar-nav { display: none; } }
 @media (max-width: 700px) { .similar-block { padding: 0; }.similar-card { flex-basis: 120px; width: 120px; } }
 @media (prefers-reduced-motion: reduce) { .similar-row { scroll-behavior: auto; }.similar-card .poster-wrap img { transition: none; } }

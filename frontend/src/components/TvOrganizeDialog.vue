@@ -26,7 +26,7 @@
           </template>
           <template v-else-if="phase === 'done'">
             <div class="task-state" role="status">
-              <span :class="['result-mark', { partial: result.failed }]" aria-hidden="true">{{ result.failed ? '!' : '✓' }}</span>
+              <span :class="['result-mark', { partial: result.failed }]" aria-hidden="true"><AppIcon :name="result.failed ? 'warning' : 'check'" :size="24" /></span>
               <h3>{{ result.failed ? '整理完成，部分项目未成功' : changedCount ? '目录已更新' : '本次未修改文件' }}</h3>
               <div class="result-counts">
                 <span><b>{{ changedCount }}</b> 移动或改名</span>
@@ -37,7 +37,7 @@
             </div>
           </template>
           <template v-else-if="phase === 'failed'">
-            <div class="task-state"><span class="result-mark partial" aria-hidden="true">!</span><h3>整理未完成</h3><p>重新预览可检查当前目录，确认剩余需要处理的项目。</p></div>
+            <div class="task-state"><span class="result-mark partial" aria-hidden="true"><AppIcon name="warning" :size="24" /></span><h3>整理未完成</h3><p>重新预览可检查当前目录，确认剩余需要处理的项目。</p></div>
             <p class="feedback error" role="alert">{{ error }}</p>
           </template>
           <template v-else>
@@ -57,7 +57,7 @@
               <span v-else-if="groups.length">{{ groups.length }} 项整理</span>
             </div>
             <p v-if="!selected.length" class="empty-plan">请在下方选择至少一个整理项目。</p>
-            <p v-else-if="error" class="feedback error" role="alert">{{ error }} <JzButton @click="refresh">重试预览</JzButton></p>
+            <p v-else-if="error" class="feedback error" role="alert">{{ error }} <JzButton icon="eye" @click="refresh">重试预览</JzButton></p>
             <div v-else-if="groups.length" :class="['changes', { pending: loading }]" :aria-busy="loading">
               <article v-for="(g, index) in groups" :key="index" class="change-card">
                 <div class="change-heading"><span class="change-number" aria-hidden="true">{{ index + 1 }}</span><h4>{{ actionTitle(g.action) }}</h4><span v-if="!g.dir" class="change-count">{{ fileCount(g) }}</span></div>
@@ -70,7 +70,7 @@
                 <details v-if="(g.samples || []).length" class="file-samples">
                   <summary tabindex="0">查看文件示例<span v-if="g.count > g.samples.length">（{{ g.samples.length }} / {{ g.count }}）</span></summary>
                   <div v-for="(sample, i) in g.samples" :key="i" class="sample-pair">
-                    <span :title="sample.from">{{ sample.from }}</span><span class="sample-arrow" aria-hidden="true">→</span><span :title="sample.to">{{ sample.to }}</span>
+                    <span :title="sample.from">{{ sample.from }}</span><AppIcon class="sample-arrow" name="arrow-right" :size="16" /><span :title="sample.to">{{ sample.to }}</span>
                   </div>
                 </details>
               </article>
@@ -82,7 +82,7 @@
             </div>
 
             <section v-if="plan.absolute_risk && selected.includes('rename') && phase === 'preview'" class="numbering-notice">
-              <h3><span aria-hidden="true">!</span> 重命名前，请核对集号</h3>
+              <h3><AppIcon name="warning" :size="18" /> 重命名前，请核对集号</h3>
               <p>本地使用连续集号，可能与 TMDB 的季 / 集划分不同。未确认时只整理目录，保留正片文件名。</p>
               <label class="risk-choice"><input type="checkbox" v-model="allowAbsolute" /><span>我已核对集号，允许按 TMDB 编号改名</span></label>
             </section>
@@ -112,17 +112,17 @@
         </div>
 
         <footer class="dialog-footer">
-          <JzButton class="settings-link" variant="ghost" :disabled="running" @click="emit('settings')">整理历史与批量操作 ↗</JzButton>
+          <JzButton class="settings-link" variant="ghost" :disabled="running" @click="emit('settings')">整理历史与批量操作<AppIcon name="external-link" :size="16" /></JzButton>
           <div class="footer-actions">
             <template v-if="phase === 'done'">
-              <JzButton v-if="result.failed" @click="refresh">重新预览</JzButton><JzButton class="primary" variant="primary" @click="close">完成</JzButton>
+              <JzButton icon="eye" v-if="result.failed" @click="refresh">重新预览</JzButton><JzButton class="primary" variant="primary" @click="close">完成</JzButton>
             </template>
-            <template v-else-if="phase === 'failed'"><JzButton @click="close">关闭</JzButton><JzButton class="primary" variant="primary" @click="refresh">重新预览</JzButton></template>
+            <template v-else-if="phase === 'failed'"><JzButton @click="close">关闭</JzButton><JzButton icon="eye" class="primary" variant="primary" @click="refresh">重新预览</JzButton></template>
             <template v-else-if="running"><JzButton class="primary" variant="primary" disabled>正在整理…</JzButton></template>
             <template v-else>
-              <JzButton v-if="phase === 'confirm'" @click="phase = 'preview'">返回预览</JzButton>
+              <JzButton icon="eye" v-if="phase === 'confirm'" @click="phase = 'preview'">返回预览</JzButton>
               <JzButton v-else @click="close">取消</JzButton>
-              <JzButton class="primary" variant="primary" :disabled="!canProceed" @click="proceed">{{ loading ? '更新预览中…' : phase === 'confirm' ? '确认并开始' : '下一步：确认整理' }}</JzButton>
+              <JzButton icon="refresh" class="primary" variant="primary" :disabled="!canProceed" @click="proceed">{{ loading ? '更新预览中…' : phase === 'confirm' ? '确认并开始' : '下一步：确认整理' }}</JzButton>
             </template>
           </div>
         </footer>
@@ -222,7 +222,6 @@ summary { cursor: pointer; }
 .destination-chip b { color: var(--jz-text); font-weight: 400; margin-left: 10px; }
 .numbering-notice { border: 1px solid color-mix(in srgb, var(--jz-warn) 35%, var(--jz-border)); border-radius: var(--jz-radius-l); background: color-mix(in srgb, var(--jz-warn) 5%, var(--jz-surface)); margin-top: 20px; padding: 16px 18px; }
 .numbering-notice h3 { color: var(--jz-warn); font-size: var(--jz-font-m); display: flex; align-items: center; gap: 8px; }
-.numbering-notice h3 > span { display: grid; place-items: center; width: 16px; height: 16px; border: 1px solid currentColor; border-radius: 50%; font-size: var(--jz-font-s); }
 .numbering-notice p { margin: 8px 0 12px; line-height: 1.7; color: var(--jz-text-dim); }
 .risk-choice { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; line-height: 1.6; }
 input[type='checkbox'] { accent-color: var(--jz-accent); width: 16px; height: 16px; margin: 3px 0 0; flex-shrink: 0; }

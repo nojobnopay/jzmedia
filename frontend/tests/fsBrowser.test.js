@@ -538,7 +538,7 @@ test('actual browser template shows a spinner while pending, retry after failure
   const render = () => renderToString(createSSRApp(component, { active: true, initialLibId: 7, videoLibs: [{ id: 7, name: '电影' }] }))
   const reading = state.load('')
   let html = await render()
-  assert.match(html, /class="ios-spin"/)
+  assert.match(html, /class="jz-spinner"/)
   assert.match(html, /正在加载目录/)
   assert.doesNotMatch(html, /此文件夹为空/)
   rejectRead(new Error('无法连接媒体库'))
@@ -551,7 +551,7 @@ test('actual browser template shows a spinner while pending, retry after failure
   await state.retryLoad()
   html = await render()
   assert.match(html, /此文件夹为空/)
-  assert.doesNotMatch(html, /class="ios-spin"|目录加载失败/)
+  assert.doesNotMatch(html, /class="jz-spinner"|目录加载失败/)
 })
 
 

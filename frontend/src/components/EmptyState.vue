@@ -2,11 +2,12 @@
   <div :class="['jz-empty', 'jz-empty--' + state]" :role="state === 'error' ? 'alert' : 'status'"
     :aria-busy="state === 'loading'">
     <Spinner v-if="state === 'loading'" :size="24" />
+    <AppIcon v-else-if="state !== 'plain'" :name="state === 'error' ? 'warning' : state === 'no-results' ? 'search' : 'image'" :size="28" />
     <div class="jz-empty-body">
       <h2 v-if="title" class="jz-empty-title">{{ title }}</h2>
       <p v-if="text" class="jz-empty-text">{{ text }}</p>
       <div v-if="retry || $slots.default" class="jz-empty-actions">
-        <JzButton v-if="retry" @click="$emit('retry')">重新加载</JzButton>
+        <JzButton v-if="retry" icon="refresh" @click="$emit('retry')">重新加载</JzButton>
         <slot />
       </div>
     </div>
@@ -14,6 +15,7 @@
 </template>
 <script setup>
 import Spinner from './Spinner.vue'
+import AppIcon from './AppIcon.vue'
 import JzButton from './JzButton.vue'
 
 // text + default slot remain compatible; explicit states share loading/error UI.

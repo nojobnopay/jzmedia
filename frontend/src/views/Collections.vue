@@ -1,8 +1,8 @@
 <template>
   <div class="browse-page collections-page">
-    <header class="browse-heading"><h1>合集</h1><JzButton variant="primary" :aria-expanded="createOpen" aria-controls="collection-create" @click="createOpen = !createOpen">新建合集</JzButton></header>
-    <form class="bar collection-search" role="search" aria-label="搜索合集" @submit.prevent="load"><input v-model="q" aria-label="搜索合集" placeholder="搜合集名" /><button>搜索</button></form>
-    <form v-show="createOpen" id="collection-create" class="bar collection-create" @submit.prevent="create"><input v-model="name" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><button :disabled="!name.trim()">创建</button><button type="button" @click="createOpen = false">取消</button></form>
+    <header class="browse-heading"><h1>合集</h1><JzButton icon="plus" variant="primary" :aria-expanded="createOpen" aria-controls="collection-create" @click="createOpen = !createOpen">新建合集</JzButton></header>
+    <form class="bar collection-search" role="search" aria-label="搜索合集" @submit.prevent="load"><input v-model="q" aria-label="搜索合集" placeholder="搜合集名" /><JzButton type="submit" icon="search">搜索</JzButton></form>
+    <form v-show="createOpen" id="collection-create" class="bar collection-create" @submit.prevent="create"><input v-model="name" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><JzButton :disabled="!name.trim()" type="submit" icon="plus">创建</JzButton><JzButton type="button" @click="createOpen = false">取消</JzButton></form>
     <p v-if="msg" role="status">{{ msg }}</p>
     <div class="collections-heading"><h2 class="sec-h">我的合集</h2><span v-if="!loading && !loadError">{{ items.length }} 个合集</span></div>
     <EmptyState v-if="loading" state="loading" title="正在加载合集" text="请稍候…" />
@@ -10,12 +10,12 @@
     <EmptyState v-else-if="!items.length" :state="loadedQuery ? 'no-results' : 'empty'"
       :title="loadedQuery ? '没有符合条件的合集' : '还没有合集'"
       :text="loadedQuery ? '试试其他合集名，或清除搜索条件。' : '创建一个合集，或在海报墙多选影片后加入合集。'">
-      <JzButton v-if="loadedQuery" @click="clearSearch">清除搜索</JzButton>
-      <JzButton v-else variant="primary" @click="createOpen = true">新建合集</JzButton>
+      <JzButton icon="search" v-if="loadedQuery" @click="clearSearch">清除搜索</JzButton>
+      <JzButton icon="plus" v-else variant="primary" @click="createOpen = true">新建合集</JzButton>
     </EmptyState>
     <div v-else class="grid collections-grid">
       <router-link v-for="c in items" :key="c.id" class="card collection-card" :to="'/c/' + c.id">
-        <div class="poster-wrap"><img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" :alt="c.name || '合集'" /><div v-else class="cover-empty" aria-hidden="true"><AppIcon name="folder" :size="40" /></div></div>
+        <div class="poster-wrap"><img v-if="c.cover" :src="posterUrl(c.cover)" loading="lazy" :alt="c.name || '合集'" /><ArtworkPlaceholder v-else class="cover-empty" kind="collection" :label="c.name" /></div>
         <div class="collection-card-body"><h3>{{ c.name }}</h3><span>{{ c.member_count }} 部影片</span></div>
       </router-link>
     </div>
@@ -24,22 +24,22 @@
       <section v-if="topups.length"><h3>可补齐</h3><div class="grid collection-action-grid">
         <div v-for="t in topups" :key="t.collection_id" class="card tp-card">
           <div class="t">《{{ t.name }}》有 {{ t.new_count }} 部新片</div><div class="t sub">{{ t.new_members.map(m => m.title).join(' / ') }}</div>
-          <div class="bar"><button @click="topUp(t)" :disabled="topping">补齐合集</button><router-link :to="'/c/' + t.collection_id">查看合集</router-link></div>
+          <div class="bar"><JzButton @click="topUp(t)" :disabled="topping" type="button">补齐合集</JzButton><router-link :to="'/c/' + t.collection_id">查看合集</router-link></div>
         </div>
       </div></section>
-      <section v-if="suggest.length"><div class="bar"><h3>推荐合集</h3><button @click="acceptAll" :disabled="accepting">全部接受（{{ suggest.length }}）</button></div>
+      <section v-if="suggest.length"><div class="bar"><h3>推荐合集</h3><JzButton @click="acceptAll" :disabled="accepting" type="button">全部接受（{{ suggest.length }}）</JzButton></div>
         <div class="grid collection-action-grid"><div v-for="entry in suggest" :key="entry.collection_tmdb_id" class="card collection-card sg-card">
-          <div class="poster-wrap"><img v-if="entry.cover" :src="posterUrl(entry.cover)" loading="lazy" :alt="entry.collection_name" /><div v-else class="cover-empty" aria-hidden="true"><AppIcon name="folder" :size="40" /></div></div>
+          <div class="poster-wrap"><img v-if="entry.cover" :src="posterUrl(entry.cover)" loading="lazy" :alt="entry.collection_name" /><ArtworkPlaceholder v-else class="cover-empty" kind="collection" :label="entry.collection_name" /></div>
           <div class="collection-card-body"><h3>{{ entry.collection_name }}</h3><span>库内 {{ entry.member_count }} 部影片</span></div>
           <div class="t sub">{{ entry.members.map(m => m.title).join(' / ') }}</div>
-          <div class="bar"><button @click="accept(entry)" :disabled="accepting">接受</button><button @click="dismiss(entry)">忽略</button></div>
+          <div class="bar"><JzButton @click="accept(entry)" :disabled="accepting" type="button">接受</JzButton><JzButton @click="dismiss(entry)" type="button">忽略</JzButton></div>
         </div></div>
       </section>
     </details>
     <details class="collection-section" :open="bfRunning">
       <summary>合集维护<span v-if="bfRunning"> · 资料补全中</span></summary>
       <p v-if="coverage" class="fhint">{{ coverage.unchecked ?? coverage.without_collection }} 部待排查 · {{ coverage.standalone || 0 }} 部已确认无系列</p>
-      <div class="bar"><button v-if="!bfRunning" @click="backfill(false)" :disabled="backfilling">补全系列信息</button><button v-else @click="cancelBackfill">取消补全</button><button v-if="!bfRunning && coverage?.standalone" @click="backfill(true)" :disabled="backfilling">全部重查</button></div>
+      <div class="bar"><JzButton icon="refresh" v-if="!bfRunning" @click="backfill(false)" :disabled="backfilling" type="button">补全系列信息</JzButton><JzButton v-else @click="cancelBackfill" type="button">取消补全</JzButton><JzButton v-if="!bfRunning && coverage?.standalone" @click="backfill(true)" :disabled="backfilling" type="button">全部重查</JzButton></div>
       <p v-if="sgMsg" role="status">{{ sgMsg }}</p>
       <div v-if="bfRunning || bfProgress.total" class="progress-wrap"><div class="progress"><div class="fill" :style="{ width: bfPct + '%' }"></div></div><p>{{ bfProgress.done }}/{{ bfProgress.total }} · {{ bfProgress.current_title || bfStateText }}</p>
         <p v-for="failure in (bfProgress.failed || []).slice(0, 5)" :key="failure.tmdb_id" class="fail-list">{{ failure.title || failure.tmdb_id }}：{{ failure.error }}</p>
@@ -48,7 +48,8 @@
   </div>
 </template>
 <script setup>
-import AppIcon from '../components/AppIcon.vue'
+import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
+
 import EmptyState from '../components/EmptyState.vue'
 import JzButton from '../components/JzButton.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
