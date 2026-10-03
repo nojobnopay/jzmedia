@@ -7,6 +7,7 @@
 - ffmpeg/ffprobe 二进制解析与健康检查。
 """
 import json
+import math
 import os
 import re
 import shutil
@@ -18,7 +19,8 @@ logger = get_logger("media")
 
 # 探测结构版本：老行 probe_ver < 本值 → 视为过期自动重探（新字段上线时 +1 即可）
 # v3：图片字幕 codec 归一为 pgs/vobsub（原 hdmv_pgs_subtitle 等）
-PROBE_VERSION = 3
+# v4：源帧率 + 各音轨采样率，供原生播放器逐片能力验证。
+PROBE_VERSION = 4
 
 # 二进制解析见下方 ffprobe_bin()/ffmpeg_bin()（系统版优先，静态版兜底）
 
@@ -94,7 +96,7 @@ def bin_status() -> dict:
     sys_fp = shutil.which("ffprobe") or ""
     present = _static_bins_if_present()
     try:
-        import static_ffmpeg  # noqa: F401
+        __import__("static_ffmpeg")
         static_pkg = True
     except Exception:
         static_pkg = False
@@ -197,6 +199,25 @@ def probe_limit_args(abs_path: str) -> list[str]:
     return out
 
 
+def _frame_rate(raw) -> float:
+    """ffprobe rational/decimal frame rate; unknown or invalid values remain zero."""
+    value = str(raw or "").strip()
+    if not value or len(value) > 64 or isinstance(raw, bool):
+        return 0.0
+    try:
+        if "/" in value:
+            numerator, denominator = value.split("/", 1)
+            numerator, denominator = float(numerator), float(denominator)
+            if numerator <= 0 or denominator <= 0:
+                return 0.0
+            fps = numerator / denominator
+        else:
+            fps = float(value)
+    except (ValueError, TypeError, ZeroDivisionError, OverflowError):
+        return 0.0
+    return fps if math.isfinite(fps) and fps > 0 else 0.0
+
+
 def probe(abs_path: str, timeout: int = 30, size: int | None = None) -> dict:
     """ffprobe 单文件 → MediaInfo（播放决策输入）。0 字节/缺失/失败 → playable=False +
     probe_error（调用方禁用播放）。
@@ -206,7 +227,7 @@ def probe(abs_path: str, timeout: int = 30, size: int | None = None) -> dict:
     - attachments：字体等附件清单（ASS 客户端渲染取内嵌字体用）。
     - 远程直读：`abs_path` 可为内网 URL，size 由调用方从 StorageBackend.stat 提供
       （URL 无法 os.path.getsize）。"""
-    base: dict = {"container": "", "duration": 0.0, "width": 0, "height": 0,
+    base: dict = {"container": "", "duration": 0.0, "width": 0, "height": 0, "fps": 0.0,
                   "vcodec": "", "acodec": "", "vbitrate": 0, "abitrate": 0,
                   "video_profile": "", "video_level": 0, "bit_depth": 0, "pix_fmt": "",
                   "color_transfer": "", "color_primaries": "", "hdr": "",
@@ -265,6 +286,7 @@ def probe(abs_path: str, timeout: int = 30, size: int | None = None) -> dict:
         if cn in ("png", "mjpeg", "bmp") and len(videos) > 1:
             continue
         base["vcodec"] = cn
+        base["fps"] = _frame_rate(v.get("avg_frame_rate")) or _frame_rate(v.get("r_frame_rate"))
         base["video_profile"] = str(v.get("profile") or "")[:40]
         try:
             base["video_level"] = max(0, int(v.get("level") or 0))
@@ -312,8 +334,13 @@ def probe(abs_path: str, timeout: int = 30, size: int | None = None) -> dict:
             ch = int(a.get("channels") or 0)
         except (TypeError, ValueError):
             ch = 0
+        try:
+            sample_rate = max(0, int(a.get("sample_rate") or 0))
+        except (TypeError, ValueError, OverflowError):
+            sample_rate = 0
         base["audio"].append({"index": i, "ff_index": int(a.get("index", i)),
-                              "codec": cn, "channels": ch, "bitrate": br,
+                              "codec": cn, "channels": ch, "sample_rate": sample_rate,
+                              "bitrate": br,
                               "lang": str(tags.get("language") or "").lower()[:8],
                               "title": str(tags.get("title") or "")[:60],
                               **_disposition(a)})

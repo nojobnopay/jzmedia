@@ -27,6 +27,7 @@
   - 找可测片源：`python scripts/find_subs.py`（只读，列内嵌 ASS/PGS/字体附件/外挂）。
 
 ## Run
+- Android TV：`android-tv/` 为同仓独立 Gradle 工程，先读其 `AGENTS.md` / `README.md`；构建、测试、版本和 APK 发布独立，不接入 `start.sh`、Docker 或 Vue 构建。已接入连接/浏览/Media3 观影、`android_tv` 原生能力和独立 sid/共享转码任务；协议 1 见 `android-tv/docs/protocol.md`，进度及真机待验收项见 `docs/roadmap/android-tv.md`。服务端/网页版本一致规则不适用于 APK。
 - Backend (WSL dev, hot-reload via `docker-compose.override.yml`): `cp .env.example .env && mkdir -p media/电影 data && docker compose up --build`, check `http://localhost:8080/docs`.
 - Host-direct (no docker): prefer `./start.sh` — rebuilds `frontend/dist` only when stale, maps `.env` container paths (`/media`, `/app/data`) back to host defaults, then runs uvicorn. Manual equivalent needs `DATA_DIR=./data MEDIA_ROOT=./media` overrides plus `TMDB_*` from `.env` (see docs/getting-started/deployment.md).
 - Frontend dev: `npm run lint`（eslint 最小集：未定义/未用变量/console 警告）、`npm test`（node --test；含 `tests/templateBindings.test.js` 模板标识符绑定检查，防拆分后残留父级引用；`tests/useSubtitles.test.js` composable 初始化冒烟，防 setup 期异常导致"点播放无反应"——lint/build 不执行 setup，这类回归必须靠它）in `frontend/`；`npm run build` 产出 `frontend/dist`。`npm run dev` (5173, proxies `/api`,`/posters` → 8080). Prod build: `npm run build` → `frontend/dist`, served by FastAPI at `/` + `/assets`.

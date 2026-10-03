@@ -1,7 +1,6 @@
 """routers.stream.session（自 app/routers/stream.py 拆分，评审 B9/R12-Q1；经 stream 门面使用）。"""
 import os
 import time
-import json
 import subprocess
 import threading
 from fastapi import HTTPException
@@ -17,8 +16,9 @@ from .common import (_min_segs, _SEG_RE, _SESS_FILE_RE, _has_endlist, _drop_sess
                      _log_hit, _media_cached_or_probe, _media_start_for, _plan_marker,
                      _playlist_endlist, _playlist_text, _purge_old, _seg_count,
                      _sess_lock, _write_session_meta,
-                     _sessions, _session_complete, _session_dir, _session_key, _variant_playlists,
-                     _version_source, _video_seg_prefix, _watch_completion, _write_master, router)
+                     _sessions, _session_complete, _session_dir, _variant_playlists,
+                     _version_source, _video_seg_prefix, _write_master, router, _tasks,
+                     _artifact_key, _source_plan, _kill_proc, _watch_task)
 from .media import _media_payload
 from .subtitles import _sub_list
 __all__ = ['SessionBody', '_spawn_session', 'hls_session_create', 'hls_session_playlist', '_wait_file', 'hls_session_segment', 'hls_session_debug', 'hls_session_ping', 'hls_session_close', 'hls_session_file']
@@ -30,38 +30,36 @@ class SessionBody(BaseModel):
     start: float = Field(default=0, ge=0, allow_inf_nan=False)
     caps: dict | None = None
     force_burn: bool = False
-    kind: str = "movie"   # F：movie|episode
+    kind: str = "movie"   # movie|episode|extra
+    client: str = "web"
 
 
 def _spawn_session(version_id: int, quality: str, audio: int,
                    sub: int | None, start: float,
                    caps: dict | None = None,
                    force_burn: bool = False,
-                   kind: str = "movie") -> tuple[str, str, dict]:
-    """起后台转码会话（渐进式）：校验→plan→Popen→等前 _min_segs(plan) 个视频分片。
-    返回 (session_id, session_dir, plan_result)。direct/无 ffmpeg 等直接抛对应 HTTP 状态。
-    caps 参与 plan 与 plan_key（不同客户端能力不复用同一转码档）；force_burn 为
-    客户端图片字幕解码失败时的烧录降级（见 playback._subtitle_mode）。"""
+                   kind: str = "movie", client: str = "web",
+                   prewarm: bool = False) -> tuple[str, str, dict]:
+    """Create a client lease, atomically sharing an identical output producer.
+
+    Every call receives its own sid. Only the final lease releases a running producer;
+    prewarm owns a lease for its whole job. Reservations count against the process cap.
+    """
     m, src = _version_source(version_id, kind)
-    k = m.get("kind") or "movie"
+    k = m.get("kind") or kind
     info = _media_cached_or_probe(m, src)
     if not info.get("playable"):
         raise HTTPException(422, f"unplayable: {info.get('probe_error') or 'probe failed'}")
     caps_n = _caps.default_caps() if caps is None else _caps.normalize_caps(caps)
     d = _playback.plan(_media_payload(m, info), caps=caps_n, quality=quality,
-                       audio_idx=audio, sub_idx=sub, force_burn=force_burn)
+                       audio_idx=audio, sub_idx=sub, force_burn=force_burn, client=client)
     if d["method"] == "blocked":
         raise HTTPException(422, "unplayable")
     if d["method"] == "direct":
         raise HTTPException(400, "use direct_url (Direct Play, no HLS needed)")
-    # 图片字幕烧录（仅 VobSub/降级）：内嵌取真实流号（ff_index）；外挂（.idx/.sub）
-    # 记 sub_sidecar，build_cmd 以第二输入 + [1:s:0] overlay（时间轴对齐同主输入）。
     if (d.get("plan") or {}).get("sub") == "burn":
         subs = _sub_list(m, info)
-        try:
-            si = int(sub if sub is not None else -1)
-        except (TypeError, ValueError):
-            si = -1
+        si = int(sub if sub is not None else -1)
         if not (0 <= si < len(subs)):
             raise HTTPException(422, "subtitle not found")
         track = subs[si] or {}
@@ -70,187 +68,166 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         if track.get("source") == "sidecar":
             side = str(track.get("sidecar") or "")
             d["plan"]["sub_sidecar"] = side
-            # 远程库无本地路径：第二输入用内网 URL（build_cmd 不再假设 POSIX）
             d["plan"]["sub_sidecar_input"] = src.backend.get_read_url(side)
         else:
             ff = track.get("ff_index")
             if ff is None:
-                # 评审 B7/R13-D6：探测缓存缺流号时不再猜（猜错会烧错轨）
                 raise HTTPException(422, "subtitle stream index missing; re-probe required")
             d["plan"]["sub_ff_index"] = int(ff)
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
-    # 单人场景：同版本同 plan（含 start）且进程活着 → 直接复用（秒开，不重转）；
-    # 同版本不同 plan → 先杀旧的再开新的（防多路 ffmpeg 抢 CPU 越跑越慢）。
-    # 复用键/目录键只放产物字段（见 _plan_marker/_quality_key），不同 caps/档位字符串
-    # 只要落到同一 plan 就可安全复用（caps 摘要仅 decide 返回供观测）。
-    try:
-        st_key = max(0, int(float(start or 0)))
-    except (TypeError, ValueError):
-        st_key = 0
-    plan_key = _plan_marker(d["plan"], audio, st_key)
-    skey = _session_key(d["plan"], audio)
-    # 续播/跳转优先复用从 0 开始的整片成品；片内起播位置与媒体起点分开返回。
-    # 在关键帧探测之前检查，完整缓存无需为了定位再次读取远程视频。
-    sdir0 = _session_dir(int(m["id"]), skey, 0, k)
-    full_key = _plan_marker(d["plan"], audio, 0)
-    full_hit = st_key > 0 and _session_complete(sdir0, full_key)
-    if full_hit:
-        plan_key = full_key
-        d["media_start"] = 0.0
-    else:
-        sdir0 = _session_dir(int(m["id"]), skey, start, k)
-        d["media_start"] = _media_start_for(int(m["id"]), src.input, start, d["plan"], k)
-    d["initial_time"] = max(0.0, float(start) - d["media_start"])
-    seg = d["plan"].get("seg") or "fmp4"
-    stime = _playback.seg_time(seg)
-    if full_hit or _session_complete(sdir0, plan_key):
-        d["complete"] = True
-        sid0 = uuid.uuid4().hex[:16]
-        with _sess_lock:
-            _sessions[sid0] = {"proc": None, "sdir": sdir0, "vid": int(m["id"]),
-                               "kind": k, "plan": d["plan"], "plan_key": plan_key,
-                               "caps_hash": _caps.caps_hash(caps_n), "backend": "static",
-                               "complete": True, "last_ping": time.time(),
-                               "created": time.time(), "unclaimed": True}
-        return sid0, sdir0, d
+
+    _purge_old()
+    marker_plan = _source_plan(d["plan"], m, src)
+    plan_key = _plan_marker(marker_plan, audio, start)
+    full_key = _plan_marker(marker_plan, audio, 0)
+    sid = uuid.uuid4().hex[:16]
+    creator = False
     with _sess_lock:
-        for sid, s in list(_sessions.items()):
-            if int(s.get("vid") or -1) != int(m["id"]):
-                continue
-            if str(s.get("kind") or "movie") != k:
-                continue
-            proc = s.get("proc")
-            if proc is not None and proc.poll() is not None:
-                continue
-            if s.get("plan_key") == plan_key:
-                s["last_ping"] = time.time()
-                # 复用给新客户端：重置未认领宽限起点，防上一轮 abort 留下的会话被收割
-                # 撞上本轮刚起播（新客户端取 playlist 时 _get_session 会正式认领）
-                s["created"] = time.time()
-                return sid, s["sdir"], d
-            _drop_session(sid, kill=True)
-    if not _hls_sem.acquire(blocking=False):
-        raise HTTPException(429, "transcode slots full (max 2), try later")
-    sdir = ""
+        full_dir = _session_dir(int(m["id"]), _artifact_key(d["plan"], audio, full_key), 0, k)
+        full_hit = start > 0 and _session_complete(full_dir, full_key)
+        output_start = 0 if full_hit else start
+        if full_hit:
+            sdir, plan_key = full_dir, full_key
+        else:
+            sdir = _session_dir(int(m["id"]), _artifact_key(d["plan"], audio, plan_key), start, k)
+        key = (k, int(m["id"]), plan_key)
+        task = _tasks.get(key)
+        if task is not None and task.get("cancelled"):
+            raise HTTPException(503, "transcode stopping, retry later")
+        complete = _session_complete(sdir, plan_key)
+        if task is None and not complete:
+            if not _hls_sem.acquire(blocking=False):
+                raise HTTPException(429, "transcode slots full, try later")
+            task = {"key": key, "sdir": sdir, "vid": int(m["id"]), "kind": k,
+                    "plan_key": plan_key, "proc": None, "owners": set(),
+                    "ready": threading.Event(), "done": threading.Event(),
+                    "slot": _hls_sem, "cancelled": False, "complete": False}
+            _tasks[key] = task
+            creator = True
+        now = time.time()
+        sess = {"proc": task.get("proc") if task else None, "sdir": sdir,
+                "vid": int(m["id"]), "kind": k, "plan": d["plan"], "plan_key": plan_key,
+                "caps_hash": _caps.caps_hash(caps_n), "backend": "static",
+                "complete": complete, "last_ping": now, "created": now,
+                "unclaimed": not prewarm, "prewarm": prewarm, "task": task}
+        _sessions[sid] = sess
+        if task is not None:
+            task["owners"].add(sid)
     try:
-        _purge_old()
-        sdir = _session_dir(int(m["id"]), skey, start, k)
-        for n in os.listdir(sdir):
-            try:
-                os.remove(os.path.join(sdir, n))
-            except OSError:
-                pass
-        # 等前 _min_segs(plan) 个视频分片（remux=1 片秒出；转码按实际速度 2 片）：首画面不等整片。
-        # 硬件后端（VAAPI/QSV/NVENC）若不出片，自动用软件编码重试一次（驱动/编码器组合
-        # 不匹配时的兜底；日志留两次尝试的 ffmpeg 尾）。
-        log_path = os.path.join(sdir, "ffmpeg.log")
-        vprefix = _video_seg_prefix(seg)
-        min_segs = _min_segs(d["plan"])
-        force_sw = False
-        use_hw = bool(_playback.hw_backend()) and not d["plan"].get("vcopy")
-        proc = None
-        sid = ""
-        for attempt in (0, 1):
-            if seg != "ts":
-                # fMP4 的 master 自己写（ffmpeg 对 HEVC copy 不产 CODECS）；变体列表由 ffmpeg 产
-                _write_master(sdir, info, d["plan"], stime)
-            cmd = _playback.build_cmd(src.input, d["plan"], start=start, seg_time=stime,
-                                      force_sw=force_sw)
-            try:
-                log_fh = open(log_path, "wb")
-            except OSError:
-                log_fh = subprocess.DEVNULL  # type: ignore[assignment]
-            try:
-                # cwd=sdir：ffmpeg 相对分片名按 CWD 落盘，播放列表 URI 按列表位置解析
-                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                        stderr=log_fh, cwd=sdir)
-            except FileNotFoundError:
-                try:
-                    if log_fh is not subprocess.DEVNULL:
-                        log_fh.close()
-                except Exception:
-                    pass
-                raise HTTPException(501, "ffmpeg not installed in server image")
-            except Exception as e:
-                try:
-                    if log_fh is not subprocess.DEVNULL:
-                        log_fh.close()
-                except Exception:
-                    pass
-                raise HTTPException(500, f"transcode spawn failed: {e}")
-            if log_fh is not subprocess.DEVNULL:
-                try:
-                    log_fh.close()
-                except Exception:
-                    pass
-            sid = uuid.uuid4().hex[:16]
-            _write_session_meta(sdir, sid, int(m["id"]), proc,
-                                ("copy" if d["plan"].get("vcopy") else
-                                 ("software" if force_sw or not use_hw
-                                  else (_playback.hw_backend() or "software"))), attempt + 1)
-            with _sess_lock:
-                _sessions[sid] = {"proc": proc, "sdir": sdir, "vid": int(m["id"]),
-                                  "plan": d["plan"], "plan_key": plan_key,
-                                  "caps_hash": _caps.caps_hash(caps_n),
-                                  "backend": ("copy" if d["plan"].get("vcopy")
-                                              else ("software" if force_sw or not use_hw
-                                                    else (_playback.hw_backend() or "software"))),
-                                  "attempt": attempt + 1,
-                                  "last_ping": time.time(),
-                                  "created": time.time(), "unclaimed": True}
-            deadline = time.time() + (45 if (attempt == 0 and use_hw and not force_sw) else 300)
-            # 硬件首轮只等 45s：出不了分片就尽快回退软编，不让用户对着黑屏等满 300s
-            # （能出 1 片即算成功，见下方判定；用户 2026-09 反馈）。
-            while time.time() < deadline:
-                # 同时要求变体播放列表已落盘：copy=1 片时若只看分片数，可能撞上
-                # 「分片已 rename、m3u8 尚未更新」的毫秒级窗口而误判失败
-                if (_seg_count(sdir, vprefix) >= min_segs
-                        and _variant_playlists(sdir)):
-                    break
-                if proc.poll() is not None:
-                    break
-                time.sleep(1)
-            if _seg_count(sdir, vprefix) > 0 and _variant_playlists(sdir):
-                break  # 成功
-            tail = ""
-            try:
-                with open(log_path, "rb") as fh:
-                    fh.seek(max(0, os.path.getsize(log_path) - 2000))
-                    tail = fh.read().decode("utf-8", errors="replace").strip()[-500:]
-            except OSError:
-                pass
-            _drop_session(sid, kill=True)
-            if attempt == 0 and use_hw:
-                force_sw = True
-                for n2 in os.listdir(sdir):   # 清残片，重来
-                    try:
-                        os.remove(os.path.join(sdir, n2))
-                    except OSError:
-                        pass
-                continue
-            logger.warning("transcode failed vid=%s attempt=%s backend=%s tail=%s",
-                           m["id"], attempt + 1,
-                           "sw" if force_sw else ("hw" if use_hw else "copy"), tail[-200:])
-            raise HTTPException(500, "transcode failed (no segments)" +
-                                (f": {tail}" if tail else ""))
-        try:
-            with open(os.path.join(sdir, "plan.json"), "w", encoding="utf-8") as fh:
-                mk = json.loads(plan_key)
-                mk["sid"] = sid
-                fh.write(json.dumps(mk, sort_keys=True))
-        except (OSError, ValueError):
-            pass
-        # 完工监视：仅自然退出(code 0)写 complete.json，供“静态 VOD 复用”用
-        threading.Thread(target=_watch_completion,
-                         args=(sid, proc, sdir, plan_key), daemon=True).start()
+        # Probe source time once per producer, before its first segment. Completed full
+        # artifacts require no remote keyframe read for resume.
+        if task is None:
+            media_start = (0.0 if output_start == 0 else
+                           _media_start_for(int(m["id"]), src.input, output_start, marker_plan, k))
+        elif creator:
+            task["media_start"] = (0.0 if output_start == 0 else
+                                   _media_start_for(int(m["id"]), src.input, output_start, marker_plan, k))
+            _start_task(task, sid, m, src, info, d["plan"], output_start)
+            media_start = task["media_start"]
+        else:
+            if not task["ready"].wait(timeout=360):
+                raise HTTPException(504, "transcode startup timed out")
+            if task.get("error"):
+                raise task["error"]
+            if task.get("cancelled"):
+                raise HTTPException(503, "transcode stopped, retry later")
+            media_start = task["media_start"]
+        with _sess_lock:
+            if sid not in _sessions:
+                raise HTTPException(503, "transcode session closed during startup")
+            if task is not None:
+                sess.update({"proc": task.get("proc"), "backend": task.get("backend"),
+                             "attempt": task.get("attempt"), "complete": task.get("complete", False)})
+            # Startup can take longer than the abandoned-client grace period.
+            sess["created"] = sess["last_ping"] = time.time()
+        d["media_start"] = media_start
+        d["initial_time"] = max(0.0, float(start) - media_start)
+        d["complete"] = bool(sess["complete"])
+        d["duration"] = info.get("duration") or 0
         return sid, sdir, d
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(500, f"transcode failed: {e}")
-    finally:
-        _hls_sem.release()
+        if creator:
+            with _sess_lock:
+                task["error"] = e if isinstance(e, HTTPException) else HTTPException(500, "transcode startup failed")
+                task["cancelled"] = True
+                # Waiters wake and release their own leases; the final release stops
+                # the producer outside the lock and returns its slot after exit.
+                task["ready"].set()
+        _drop_session(sid)
+        if isinstance(e, HTTPException):
+            raise
+        logger.warning("transcode startup failed vid=%s: %s", version_id, e)
+        raise HTTPException(500, "transcode startup failed") from e
+
+
+def _start_task(task: dict, sid: str, row: dict, src, info: dict, plan: dict, start: float) -> None:
+    """Initialize a reserved producer; followers await ready and cannot touch its files."""
+    sdir = task["sdir"]
+    seg = plan.get("seg") or "fmp4"
+    stime = _playback.seg_time(seg)
+    vprefix = _video_seg_prefix(seg)
+    use_hw = bool(_playback.hw_backend()) and not plan.get("vcopy")
+    log_path = os.path.join(sdir, "ffmpeg.log")
+    for attempt in (0, 1):
+        force_sw = attempt == 1
+        # Cancellation and creation share the lock, so shutdown can never miss Popen.
+        with _sess_lock:
+            if task.get("cancelled"):
+                raise HTTPException(503, "transcode stopped")
+            for name in os.listdir(sdir):
+                try:
+                    os.remove(os.path.join(sdir, name))
+                except OSError as e:
+                    logger.debug("cannot clear output %s/%s: %s", sdir, name, e)
+            if seg != "ts":
+                _write_master(sdir, info, plan, stime)
+            cmd = _playback.build_cmd(src.input, plan, start=start, seg_time=stime, force_sw=force_sw)
+            with open(log_path, "wb") as log_fh:
+                try:
+                    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log_fh, cwd=sdir)
+                except FileNotFoundError as e:
+                    raise HTTPException(501, "ffmpeg not installed in server image") from e
+            backend = ("copy" if plan.get("vcopy") else
+                       ("software" if force_sw or not use_hw else _playback.hw_backend()))
+            task.update({"proc": proc, "backend": backend, "attempt": attempt + 1})
+            for owner in task["owners"]:
+                if owner in _sessions:
+                    _sessions[owner].update({"proc": proc, "backend": backend, "attempt": attempt + 1})
+            _write_session_meta(sdir, sid, int(row["id"]), proc, backend, attempt + 1)
+        deadline = time.monotonic() + (45 if use_hw and not force_sw else 300)
+        while time.monotonic() < deadline:
+            if task.get("cancelled"):
+                raise HTTPException(503, "transcode stopped")
+            if _seg_count(sdir, vprefix) >= _min_segs(plan) and _variant_playlists(sdir):
+                break
+            if proc.poll() is not None:
+                break
+            time.sleep(0.25)
+        if _seg_count(sdir, vprefix) > 0 and _variant_playlists(sdir):
+            with _sess_lock:
+                if task.get("cancelled"):
+                    raise HTTPException(503, "transcode stopped")
+                with open(os.path.join(sdir, "plan.json"), "w", encoding="utf-8") as fh:
+                    fh.write(task["plan_key"])
+                task["watched"] = True
+                threading.Thread(target=_watch_task, args=(task, proc), daemon=True).start()
+                task["ready"].set()
+            return
+        tail = ""
+        try:
+            with open(log_path, "rb") as fh:
+                fh.seek(max(0, os.path.getsize(log_path) - 2000))
+                tail = fh.read().decode("utf-8", errors="replace").strip()[-500:]
+        except OSError as e:
+            logger.debug("cannot read failed transcode log: %s", e)
+        _kill_proc(proc)
+        if proc.poll() is None:
+            raise HTTPException(500, "transcode process could not stop")
+        if attempt == 0 and use_hw:
+            continue
+        logger.warning("transcode failed vid=%s backend=%s tail=%s", row["id"], backend, tail)
+        raise HTTPException(500, "transcode failed (no segments)")
 
 
 @router.post("/{version_id}/sessions")
@@ -265,7 +242,7 @@ def hls_session_create(version_id: int, body: SessionBody | None = None):
         raise HTTPException(422, "bad version_id")
     sid, _sdir, d = _spawn_session(vid, body.quality, body.audio, body.sub, body.start,
                                    caps=body.caps, force_burn=body.force_burn,
-                                   kind=body.kind)
+                                   kind=body.kind, client=body.client)
     caps_n = _caps.default_caps() if body.caps is None else _caps.normalize_caps(body.caps)
     return {"session_id": sid,
             "playlist_url": f"/api/stream/sessions/{sid}/master.m3u8",
@@ -415,8 +392,8 @@ def hls_session_ping(sid: str):
 
 @router.delete("/sessions/{sid}")
 def hls_session_close(sid: str):
-    """关播：杀转码进程删会话（分片留 24h TTL，供同参数重进复用）。
-    预转码会话为共享产物：播放器关闭只解除绑定，不杀后台任务（评审 P1-07）。"""
+    """释放本客户端会话，最后持有者退出才停止转码；分片留缓存回收。
+    预缓存自己的持有者仅由 worker 释放，客户端无权中断其后台任务。"""
     with _sess_lock:
         sess = _sessions.get(sid)
         shared = bool(sess and sess.get("prewarm") and not sess.get("complete"))
@@ -455,4 +432,3 @@ def hls_session_file(sid: str, name: str):
         media = "video/iso.segment"
     return FileResponse(dest, media_type=media, filename=name,
                         headers={"Cache-Control": "no-store"})
-

@@ -89,12 +89,12 @@ def _seek_args(cmd: list, vcopy: bool, start: float) -> tuple[float, float]:
 
 def _sub_overlay_filter(plan: dict) -> tuple[str, bool]:
     """烧录 overlay 滤镜：返回 (filter_complex 串, 是否外挂第二输入)。
-    - 内嵌图片字幕：同一输入 [0:v][0:s:N]；
+    - 内嵌图片字幕：ffprobe ff_index 是绝对流号，使用 [0:v:0][0:N]；
     - 外挂图片字幕（VobSub）：第二输入 [0:v][1:s:0]。"""
     side = str(plan.get("sub_sidecar") or "")
     if side:
         return "[0:v][1:s:0]overlay=eof_action=pass", True
-    return ("[0:v][0:s:%d]overlay=eof_action=pass" % int(plan["sub_ff_index"]), False)
+    return ("[0:v:0][0:%d]overlay=eof_action=pass" % int(plan["sub_ff_index"]), False)
 
 
 def build_cmd(abs_path: str, plan: dict,
@@ -271,4 +271,3 @@ def _build_cmd_ts(abs_path: str, plan: dict,
             "-avoid_negative_ts", "make_zero",
             "-hls_segment_filename", seg_pat, out_m3u8]
     return cmd
-

@@ -5,7 +5,7 @@ import pathlib
 import pytest
 from fastapi.testclient import TestClient
 
-from app import store
+from app import media, store
 from app.config import settings
 from app.main import app
 from app.routers import movies as movies_router
@@ -68,7 +68,7 @@ def test_burn_without_ff_index_422(media_root):
         "audio": [], "attachments": [],
         "subs": [{"index": 0, "codec": "dvd_subtitle", "image": 1,
                   "lang": "", "title": "", "default": 0, "forced": 0}],  # 缺 ff_index
-        "probe_ver": 3, "probed_at": 1})
+        "probe_ver": media.PROBE_VERSION, "probed_at": 1})
     r = client.post(f"/api/stream/{mid}/sessions", json={"quality": "auto", "sub": 0})
     assert r.status_code == 422
     assert "stream index" in r.text
@@ -107,7 +107,7 @@ def test_upsert_media_info_roundtrip(media_root):
         "playable": True, "container": "mp4", "duration": 5.0,
         "width": 640, "height": 360, "vcodec": "h264", "bit_depth": 8,
         "audio": [], "subs": [], "attachments": [],
-        "probe_ver": 3, "probed_at": 1})
+        "probe_ver": media.PROBE_VERSION, "probed_at": 1})
     assert out["playable"] is True and out["item_id"] == mid and out["kind"] == "movie"
 
 

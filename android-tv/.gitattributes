@@ -1,0 +1,3 @@
+# Preserve the expected launcher line endings on every development platform.
+gradlew text eol=lf
+gradlew.bat text eol=crlf

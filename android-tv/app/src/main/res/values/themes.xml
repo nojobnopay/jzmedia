@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.JzmediaTV" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">#141414</item>
+        <item name="android:colorAccent">#E50914</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+</resources>

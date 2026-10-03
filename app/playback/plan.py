@@ -76,17 +76,23 @@ def _video_ok(media: dict, caps: dict) -> bool:
     return bool((caps.get("video") or {}).get(key)) if key else False
 
 
-def _audio_ok(track: dict, caps: dict) -> bool:
-    """音频可否直通（copy）：浏览器能力（probes 精确优先，回落通用矩阵）
-    + 当前输出管线 copy 安全集（可用 env AUDIO_COPY_SAFE 放开，实测为准）。"""
+def _audio_decodes(track: dict, caps: dict) -> bool:
+    """Source decoding support, independent of the HLS muxer's codec set."""
     acodec = norm_codec(str((track or {}).get("codec") or ""))
     st = _caps.probe_state(caps, list((track or {}).get("caps") or []))
-    if st != -1:
-        ok = st == 1
-    else:
-        ok = bool((caps.get("audio") or {}).get(acodec))
-    if not ok:
+    return st == 1 if st != -1 else bool((caps.get("audio") or {}).get(acodec))
+
+
+def _audio_ok(track: dict, caps: dict, client: str = "web") -> bool:
+    """HLS copy needs both decoding and explicitly supported output packaging."""
+    if not _audio_decodes(track, caps):
         return False
+    acodec = norm_codec(str((track or {}).get("codec") or ""))
+    if client == "android_tv":
+        # DTS/TrueHD/FLAC source playback does not establish HLS compatibility.
+        # Keep both fMP4 and the TS rollback pipeline to their shared safe set.
+        return (acodec in AUDIO_COPY_SAFE_NATIVE
+                and bool((caps.get("hls_audio") or {}).get(acodec)))
     safe = (_env_set("AUDIO_COPY_SAFE", AUDIO_COPY_SAFE) if not caps.get("native_hls")
             else _env_set("AUDIO_COPY_SAFE_NATIVE", AUDIO_COPY_SAFE_NATIVE))
     return acodec in safe
@@ -102,7 +108,7 @@ def iso639_2(lang: str) -> str:
     return _ISO639_2.get(s, "")
 
 
-def audio_variants(media: dict, caps: dict) -> list[dict]:
+def audio_variants(media: dict, caps: dict, client: str = "web") -> list[dict]:
     """全部音轨的 rendition 计划（fMP4 多音轨用）。顺序=输出 rendition 顺序。
     default 取源标注的首条 default 轨（无标注则第一条），与用户选择无关：
     选择由前端在 MANIFEST_PARSED 后切 hls.audioTrack，保证产物与选择解耦（静态复用稳）。"""
@@ -111,7 +117,7 @@ def audio_variants(media: dict, caps: dict) -> list[dict]:
     out = []
     for i, t in enumerate(audios):
         t = t or {}
-        copy = _audio_ok(t, caps)
+        copy = _audio_ok(t, caps, client)
         try:
             ch = int(t.get("channels") or 0)
         except (TypeError, ValueError):
@@ -163,6 +169,18 @@ def _hdr_blocks_direct(media: dict, caps: dict, client: str) -> tuple[bool, str,
     except (TypeError, ValueError):
         dv, compat = 0, 0
     hdr = str(media.get("hdr") or "")
+    if client == "android_tv":
+        formats = caps.get("hdr_formats") or []
+        if dv > 0:
+            if "dolby_vision" in formats or compat == 2:
+                return False, "", False
+            if compat == 1:
+                return ((False, "", False) if "hdr10" in formats
+                        else (True, "hdr_not_supported", True))
+            return True, "dovi_not_supported", True
+        if hdr and hdr not in formats:
+            return True, "hdr_not_supported", True
+        return False, "", False
     hdr_ok = (caps.get("hdr_decode") is True or caps.get("hdr") is True
               or caps.get("native_hls") is True)
     if dv > 0:
@@ -181,7 +199,8 @@ def _hdr_blocks_direct(media: dict, caps: dict, client: str) -> tuple[bool, str,
 
 
 def _subtitle_mode(media: dict, sub_idx, reasons: list,
-                   force_burn: bool = False) -> str:
+                   force_burn: bool = False, client: str = "web",
+                   caps: dict | None = None) -> str:
     """subtitle_mode: none | webvtt | ass_client | pgs_client | burn。
     - 文本 → webvtt / ass_client（客户端渲染，切换不重开会话）
     - pgs（内嵌/外挂）→ pgs_client（libpgs 客户端，零转码）
@@ -200,6 +219,9 @@ def _subtitle_mode(media: dict, sub_idx, reasons: list,
         return "none"
     codec = norm_codec(str(track.get("codec") or ""))
     if int(track.get("image") or 0):
+        if client == "android_tv":
+            reasons.append("image_subtitle_needs_burn")
+            return "burn"
         if force_burn:
             reasons.append("subtitle_burn_forced")
             return "burn"
@@ -207,6 +229,11 @@ def _subtitle_mode(media: dict, sub_idx, reasons: list,
             return "pgs_client"
         reasons.append("vobsub_needs_burn")
         return "burn"
+    if client == "android_tv" and codec in ASS_SUBS | TEXT_SUBS:
+        if ((caps or {}).get("subtitles") or {}).get("webvtt"):
+            return "webvtt"
+        reasons.append("subtitle_not_supported")
+        return "none"
     if codec in ASS_SUBS:
         return "ass_client"
     if codec in TEXT_SUBS:
@@ -255,6 +282,8 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
     - audios: 全部音轨 rendition 计划（fMP4 多音轨；TS 回滚只用 audio_idx）；
     - seg: 输出封装（fmp4|ts，随 env），目录键前缀区分、不进复用键（见 stream._plan_marker）。"""
     caps = _caps.normalize_caps(caps)
+    client = (client or "web").strip().lower()
+    native = client == "android_tv"
     media = media or {}
     reasons: list[str] = []
 
@@ -277,11 +306,17 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
                      "audio_idx": 0, "sub_idx": None}, [])
     # 无 MSE 且无原生 HLS 的浏览器（老 Safari/部分电视浏览器）播不了 HLS 档：
     # 只有 direct 可用，需要走 HLS 的档一律阻断并给明确原因（评审 R11-D2）
-    no_mse = caps.get("mse") is False and not caps.get("native_hls")
+    no_mse = (not caps.get("hls") if native
+              else caps.get("mse") is False and not caps.get("native_hls"))
 
     def _emit_or_blocked(method: str, sub_mode: str, plan_dict: dict, variants):
-        if no_mse:
-            reasons.append("no_mse")
+        unsupported_output = native and (
+            (not plan_dict.get("vcopy") and not caps["video"].get("h264"))
+            or (any(not v.get("copy") for v in variants)
+                and not (caps["audio"].get("aac") and caps["hls_audio"].get("aac"))))
+        if no_mse or unsupported_output:
+            reasons.append(("hls_not_supported" if native else "no_mse")
+                           if no_mse else "hls_output_not_supported")
             return emit("blocked", "none",
                         {"vcopy": False, "acopy": False, "height": 0, "sub": "none",
                          "audio_idx": 0, "sub_idx": None}, [])
@@ -302,11 +337,12 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
     except (TypeError, ValueError):
         ai = 0
     want_audio = audios[ai] if 0 <= ai < len(audios) else (audios[0] if audios else {})
-    variants = audio_variants(media, caps)
+    variants = audio_variants(media, caps, client)
     codec_ok = _video_ok(media, caps)
     v_ok = codec_ok
-    a_ok = _audio_ok(want_audio, caps)
-    sub_mode = _subtitle_mode(media, sub_idx, reasons, force_burn=force_burn)
+    a_ok = _audio_ok(want_audio, caps, client) if audios else native
+    sub_mode = _subtitle_mode(media, sub_idx, reasons, force_burn=force_burn,
+                              client=client, caps=caps)
     burn = sub_mode == "burn"
     hdr_block, hdr_reason, hdr_tonemap = _hdr_blocks_direct(media, caps, client)
     if hdr_block:
@@ -348,21 +384,31 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
                     {"vcopy": False, "acopy": bool(a_ok), "height": target_height,
                      "sub": sub_mode, "audio_idx": ai, "sub_idx": sub_idx,
                      "tonemap": tonemap}, variants)
+    default_ai = next((i for i, t in enumerate(audios)
+                       if int((t or {}).get("default") or 0)), 0)
+    container_key = "mkv" if container == "matroska" else container
+    container_ok = (bool(caps["containers"].get(container_key)) if native
+                    else container in MP4_CONTAINERS)
+    can_select_audio = (caps.get("audio_track_selection") if native
+                        else caps.get("native_hls"))
+    if (native and container_ok and (not audios or _audio_decodes(want_audio, caps))
+            and (ai == default_ai or can_select_audio)):
+        return emit("direct", sub_mode,
+                    {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
+                     "audio_idx": ai, "sub_idx": sub_idx}, variants)
     if not a_ok:
         reasons.append("audio_codec_not_supported")
         return _emit_or_blocked("audio_transcode", sub_mode,
                     {"vcopy": True, "acopy": False, "height": 0, "sub": sub_mode,
                      "audio_idx": ai, "sub_idx": sub_idx}, variants)
-    if container not in MP4_CONTAINERS:
+    if not container_ok:
         reasons.append("container_not_supported")
         return _emit_or_blocked("remux", sub_mode,
                     {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
                      "audio_idx": ai, "sub_idx": sub_idx}, variants)
     # 原文件直发只能播默认音轨（Chrome/Firefox 无 audioTracks 切换 API）：
     # 用户选了非默认轨 → 走 HLS remux（全部音轨 rendition），由前端切 hls.audioTrack。
-    default_ai = next((i for i, t in enumerate(audios)
-                       if int((t or {}).get("default") or 0)), 0)
-    if ai != default_ai and not caps.get("native_hls"):
+    if ai != default_ai and not can_select_audio:
         reasons.append("audio_track_selection")
         return _emit_or_blocked("remux", sub_mode,
                     {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
@@ -391,4 +437,3 @@ def score(media: dict, caps: dict | None = None, quality: str = "auto",
         cap = int(p.get("height") or 0) or 9999
         return (3, cap, 0 if p.get("vcopy") else 1)
     return (9, 0)
-

@@ -1,0 +1,22 @@
+# Local Android Studio / Gradle state.
+.gradle/
+.kotlin/
+.idea/
+*.iml
+local.properties
+**/build/
+.cxx/
+.externalNativeBuild/
+
+# Local configuration, credentials and distribution artifacts.
+.env
+.env.*
+keystore.properties
+signing.properties
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.apk
+*.aab
+*.apks

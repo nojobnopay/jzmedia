@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
+  <!-- TV banner derived from frontend/public/logo.svg. -->
+  <rect width="320" height="180" fill="#141414"/>
+  <svg x="32" y="51" width="256" height="78" viewBox="0 0 212 64">
+    <rect x="2" y="2" width="60" height="60" rx="14" fill="#e50914" stroke="#b00710" stroke-width="2"/>
+    <g transform="translate(-2,-2)">
+      <path d="M25 20 V40 Q25 47 33 47 Q39 47 41 42" stroke="#fff" stroke-width="9" stroke-linecap="round" fill="none"/>
+      <path d="M37 25.5 L50 33 L37 40.5 Z" fill="#ffd60a"/>
+    </g>
+    <text x="74" y="41" font-family="DejaVu Sans, sans-serif" font-size="28" font-weight="800" letter-spacing="0.5" fill="#f2f2f2">jz<tspan fill="#8f8f8f">media</tspan></text>
+  </svg>
+</svg>

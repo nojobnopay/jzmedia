@@ -3,6 +3,7 @@
 多库 v13：键为 `(kind, item_id)`（movie|episode），一表服务电影版本与电视剧集。
 """
 import json
+import math
 import time
 from ._base import _conn, _dump_list, _lock, logger
 __all__ = ['get_media_info', 'list_media_info_brief', 'upsert_media_info']
@@ -77,16 +78,23 @@ def upsert_media_info(item_id: int, info: dict, kind: str = "movie") -> dict:
         except (TypeError, ValueError):
             return 0
 
+    try:
+        fps = float(info.get("fps") or 0)
+        if not math.isfinite(fps) or fps < 0:
+            fps = 0.0
+    except (TypeError, ValueError, OverflowError):
+        fps = 0.0
+
     with _lock, _conn() as c:
         c.execute(
-            "INSERT INTO media_info(kind, item_id, container, duration, width, height,"
+            "INSERT INTO media_info(kind, item_id, container, duration, width, height, fps,"
             " vcodec, acodec, vbitrate, abitrate, audio_json, sub_json, dv_profile,"
             " probe_ver, video_profile, video_level, bit_depth, pix_fmt, color_transfer,"
             " color_primaries, hdr, dv_bl_compat, hdr10plus, attachments_json,"
             " playable, probe_error, probed_at)"
-            " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(kind, item_id) DO UPDATE SET container=excluded.container,"
-            " duration=excluded.duration, width=excluded.width, height=excluded.height,"
+            " duration=excluded.duration, width=excluded.width, height=excluded.height, fps=excluded.fps,"
             " vcodec=excluded.vcodec, acodec=excluded.acodec,"
             " vbitrate=excluded.vbitrate, abitrate=excluded.abitrate,"
             " audio_json=excluded.audio_json, sub_json=excluded.sub_json,"
@@ -101,7 +109,7 @@ def upsert_media_info(item_id: int, info: dict, kind: str = "movie") -> dict:
             " probed_at=excluded.probed_at",
             (kind, int(item_id), str(info.get("container") or "")[:16],
              float(info.get("duration") or 0),
-             int(info.get("width") or 0), int(info.get("height") or 0),
+             int(info.get("width") or 0), int(info.get("height") or 0), fps,
              str(info.get("vcodec") or "")[:32], str(info.get("acodec") or "")[:32],
              int(info.get("vbitrate") or 0), int(info.get("abitrate") or 0),
              audio_s, subs_s, _iv("dv_profile"),

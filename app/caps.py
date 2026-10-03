@@ -9,6 +9,8 @@ import json
 
 VIDEO_KEYS = ("h264", "h264_hi10p", "hevc", "hevc10", "av1", "vp9", "mpeg2", "vc1")
 AUDIO_KEYS = ("aac", "mp3", "ac3", "eac3", "dts", "truehd", "flac", "opus", "vorbis", "pcm")
+CONTAINER_KEYS = ("mp4", "mov", "m4v", "mkv", "webm", "mpegts")
+HDR_FORMATS = ("hdr10", "hlg", "dolby_vision")
 _MAX_PROBES = 32
 _MAX_PROBE_LEN = 160
 
@@ -37,12 +39,21 @@ def normalize_caps(raw) -> dict:
             if not k2 or len(k2) > _MAX_PROBE_LEN:
                 continue
             probes[k2] = v is True
+    hdr_formats = raw.get("hdr_formats")
+    hdr_formats = hdr_formats if isinstance(hdr_formats, list) else []
     return {"video": _bools(VIDEO_KEYS, raw.get("video")),
             "audio": _bools(AUDIO_KEYS, raw.get("audio")),
             "hdr": raw.get("hdr") is True,
             "hdr_decode": raw.get("hdr_decode") is True,
             "mse": raw.get("mse") is True if "mse" in raw else True,
             "native_hls": raw.get("native_hls") is True,
+            # Native capabilities are explicit and never inferred from browser flags.
+            "containers": _bools(CONTAINER_KEYS, raw.get("containers")),
+            "hls": raw.get("hls") is True,
+            "hls_audio": _bools(AUDIO_KEYS, raw.get("hls_audio")),
+            "audio_track_selection": raw.get("audio_track_selection") is True,
+            "hdr_formats": [k for k in HDR_FORMATS if k in hdr_formats[:16]],
+            "subtitles": _bools(("webvtt",), raw.get("subtitles")),
             "probes": probes}
 
 

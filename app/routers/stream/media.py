@@ -1,7 +1,9 @@
 """routers.stream.media（自 app/routers/stream.py 拆分，评审 B9/R12-Q1；经 stream 门面使用）。"""
 from fastapi import HTTPException
 from pydantic import BaseModel
+from urllib.parse import urlencode
 from ... import caps as _caps
+from ... import config
 from ... import media as _media
 from ... import storage
 from ... import store
@@ -11,7 +13,21 @@ from ...log import get_logger
 logger = get_logger("stream.media")
 from .common import _media_cached_or_probe, _version_source, router
 from .subtitles import _sub_list
-__all__ = ['stream_media', '_media_payload', 'stream_backends', 'PlaybackQuery', '_decide_payload', 'stream_decide', 'stream_decide_post', 'VersionsQuery', '_versions_payload', 'stream_versions', 'stream_versions_post', 'ProbeMissingBody', 'probe_missing', 'ProgressBody', 'progress_get', 'progress_save', 'progress_clear']
+__all__ = ['stream_client_info', 'stream_client_check', 'stream_media', '_media_payload', 'stream_backends', 'PlaybackQuery', '_decide_payload', 'stream_decide', 'stream_decide_post', 'VersionsQuery', '_versions_payload', 'stream_versions', 'stream_versions_post', 'ProbeMissingBody', 'probe_missing', 'ProgressBody', 'progress_get', 'progress_save', 'progress_clear']
+
+
+@router.get("/client-info")
+def stream_client_info():
+    """Read-only native client handshake; exposes no credentials or media data."""
+    return {"protocol_version": 1,
+            "features": ["android_tv", "independent_sessions"],
+            "auth_required": bool(config.effective_jzmedia_token())}
+
+
+@router.post("/client-check")
+def stream_client_check():
+    """The normal write-auth middleware validates the token without any writes."""
+    return stream_client_info()
 
 
 def _source_or_none(vm: dict):
@@ -86,7 +102,7 @@ def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
     elif k == "extra":
         blob_url = f"/api/tv/extras/{int(m['id'])}/blob"
     else:
-        blob_url = f"/api/movies/{int(m['id'])}/blob?name={m['file_path']}"
+        blob_url = f"/api/movies/{int(m['id'])}/blob?{urlencode({'name': m['file_path']})}"
     sub_q = f"&sub={q.sub}" if q.sub is not None else ""
     kind_q = "" if k == "movie" else f"&kind={k}"
     hls_url = (f"/api/stream/{int(m['id'])}/master.m3u8"
@@ -231,9 +247,10 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
                           "method": "blocked", "reasons": ["unplayable"],
                           "score": [9, 0], "duration_text": ""})
             continue
-        d = _playback.plan(info, caps=caps, quality=q.quality, client=cli)
+        merged = _media_payload(vm, info)
+        d = _playback.plan(merged, caps=caps, quality=q.quality, client=cli)
         method, reasons = d["method"], d["reasons"]
-        score = _playback.score(info, caps=caps, quality=q.quality, client=cli)
+        score = _playback.score(merged, caps=caps, quality=q.quality, client=cli)
         items.append({**base, "playable": True, "probe_error": "",
                       "method": method, "reasons": reasons,
                       "score": list(score),
@@ -245,7 +262,8 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
                       "dv_profile": info.get("dv_profile") or 0,
                       "bit_depth": info.get("bit_depth") or 0,
                       "audio_count": len(info.get("audio") or []),
-                      "sub_count": len(_sub_list(vm, info))})
+                      "sub_count": len(merged.get("subs") or []),
+                      **({"media": merged} if cli == "android_tv" else {})})
     best = None
     for it in sorted(items, key=lambda x: (x["score"], x["version_id"])):
         if it["method"] != "blocked":
@@ -357,4 +375,3 @@ def progress_clear(version_id: int, kind: str = "movie"):
     except (TypeError, ValueError):
         raise HTTPException(422, "bad version_id")
     return {"version_id": vid, "cleared": store.clear_progress(vid, kind)}
-

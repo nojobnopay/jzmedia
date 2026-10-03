@@ -23,10 +23,11 @@ def test_resume_reuses_static_cache_and_preserves_source_time(monkeypatch, tmp_p
         return media_start
     monkeypatch.setattr(session, '_media_start_for', media_time)
     from pathlib import Path
-    cache = Path(directory(42, common._session_key(plan, 0), cached_start, 'episode'))
+    marker = common._plan_marker(common._source_plan(plan, {'id': 42, 'kind': 'episode'}, SimpleNamespace(input='unused')), 0, cached_start)
+    cache = Path(directory(42, common._artifact_key(plan, 0, marker), cached_start, 'episode'))
     (cache / 'out_video.m3u8').write_text('#EXTM3U\n#EXTINF:4,\nvideo_seg00000.m4s\n#EXT-X-ENDLIST\n')
     (cache / 'video_seg00000.m4s').write_bytes(b'video')
-    (cache / 'complete.json').write_text(common._plan_marker(plan, 0, cached_start))
+    (cache / 'complete.json').write_text(marker)
     result = session.hls_session_create(42, session.SessionBody(start=start, kind='episode'))
     try:
         assert result['complete'] is True

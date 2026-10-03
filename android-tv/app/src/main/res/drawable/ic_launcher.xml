@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vector adaptation of frontend/public/favicon.svg. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp" android:height="64dp"
+    android:viewportWidth="64" android:viewportHeight="64">
+    <path android:fillColor="#E50914" android:strokeColor="#B00710" android:strokeWidth="2"
+        android:pathData="M16,2 H48 Q62,2 62,16 V48 Q62,62 48,62 H16 Q2,62 2,48 V16 Q2,2 16,2 Z" />
+    <group android:translateX="-2" android:translateY="-2">
+        <path android:fillColor="@android:color/transparent" android:strokeColor="#FFFFFF"
+            android:strokeWidth="9" android:strokeLineCap="round"
+            android:pathData="M25,20 V40 Q25,47 33,47 Q39,47 41,42" />
+        <path android:fillColor="#FFD60A" android:pathData="M37,25.5 L50,33 L37,40.5 Z" />
+    </group>
+</vector>

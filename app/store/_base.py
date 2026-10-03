@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS media_info (
   duration REAL DEFAULT 0,
   width INTEGER DEFAULT 0,
   height INTEGER DEFAULT 0,
+  fps REAL DEFAULT 0,
   vcodec TEXT DEFAULT '',
   acodec TEXT DEFAULT '',
   vbitrate INTEGER DEFAULT 0,
@@ -206,7 +207,7 @@ CREATE TABLE IF NOT EXISTS media_info (
 );
 """
 
-_MEDIA_INFO_COLUMNS = ["kind", "item_id", "container", "duration", "width", "height",
+_MEDIA_INFO_COLUMNS = ["kind", "item_id", "container", "duration", "width", "height", "fps",
                        "vcodec", "acodec", "vbitrate", "abitrate", "audio_json",
                        "sub_json", "dv_profile", "probe_ver", "video_profile",
                        "video_level", "bit_depth", "pix_fmt", "color_transfer",
@@ -562,7 +563,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "metadata_provider_state", "onboarding_state"}
 
 
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 30
 
 
 def _columns(c, table: str) -> set:
@@ -1301,12 +1302,19 @@ CREATE INDEX IF NOT EXISTS idx_fs_changes_library ON fs_changes(library_id, id);
 """)
 
 
+def _m30(c) -> None:
+    """Persist source frame rate for native per-title decoder capability checks."""
+    _ensure_columns(c, "media_info", [
+        ("fps", "ALTER TABLE media_info ADD COLUMN fps REAL DEFAULT 0"),
+    ])
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
                     (17, _m17), (18, _m18), (19, _m19), (20, _m20), (21, _m21),
                     (22, _m22), (23, _m23),                      (24, _m24), (25, _m25),
-                    (26, _m26), (27, _m27), (28, _m28), (29, _m29)]
+                    (26, _m26), (27, _m27), (28, _m28), (29, _m29), (30, _m30)]
 
 
 def init_db() -> None:

@@ -119,6 +119,13 @@ def get_movie(movie_id: int):
     m = store.get_movie(movie_id)
     if not m:
         raise HTTPException(404, "movie not found")
+    # Stored extra IDs can be played through stream(kind=extra) without listing
+    # the NAS directory. Include attachments to every same-library version.
+    version_ids = {int(v["id"]) for v in (m.get("versions") or [])}
+    version_ids.add(int(m["id"]))
+    extras = {int(e["id"]): e for vid in sorted(version_ids)
+              for e in store.list_extras_by_movie(vid)}
+    m["extras"] = sorted(extras.values(), key=lambda e: (e["file_path"], e["id"]))
     return m
 
 

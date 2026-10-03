@@ -14,3 +14,5 @@ docs/.vitepress/.temp
 docs/.vitepress/generated
 docs/.artifacts
 dist
+# The TV client has its own toolchain and release artifact.
+android-tv

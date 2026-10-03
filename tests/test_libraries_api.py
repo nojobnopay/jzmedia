@@ -2,7 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app import library_paths, store
+from app import library_paths, media, store
 from app.main import app
 
 client = TestClient(app)
@@ -97,7 +97,7 @@ def test_delete_library_only_clears_db(tmp_path, media_root):
     store.set_scan_state("a.mkv", 1, 2, "no_match", library_id=lib["id"])
     store.upsert_media_info(mid, {"playable": True, "duration": 1.0,
                                   "audio": [], "subs": [], "attachments": [],
-                                  "probe_ver": 1, "probed_at": 1})
+                                  "probe_ver": media.PROBE_VERSION, "probed_at": 1})
     store.save_progress(mid, 3.0, 10.0)
 
     r = client.delete(f"/api/libraries/{lib['id']}")

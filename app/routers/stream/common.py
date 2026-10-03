@@ -4,6 +4,7 @@ import re
 import signal
 import time
 import json
+import hashlib
 import shutil
 import subprocess
 import threading
@@ -14,13 +15,11 @@ from ... import library_paths
 from ... import store
 from ... import storage
 from ...db import TRANSCODE_DIR
-from ... import caps as _caps
 from ... import media as _media
 from ... import playback as _playback
-import uuid
 from ...log import get_logger
 logger = get_logger("stream.common")
-__all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_min_segs', 'PLAN_VERSION', '_SESS_IDLE', '_UNCLAIMED_TTL', '_CACHE_MIN_AGE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_source', '_media_cached_or_probe', 'version_cache_dir', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_tree_size', '_cache_cap_bytes', '_transcode_cache_scan', '_evict_transcode_cache', '_purge_old', 'CacheCleanBody', 'clean_stream_cache', '_kill_proc', '_drop_session', 'shutdown_sessions', 'drop_sessions_for_version', '_dead_sessions', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_watch_completion', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_register_prewarm_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
+__all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_min_segs', 'PLAN_VERSION', '_SESS_IDLE', '_UNCLAIMED_TTL', '_CACHE_MIN_AGE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_source', '_media_cached_or_probe', 'version_cache_dir', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_tree_size', '_cache_cap_bytes', '_transcode_cache_scan', '_evict_transcode_cache', '_purge_old', 'CacheCleanBody', 'clean_stream_cache', '_kill_proc', '_drop_session', 'shutdown_sessions', 'drop_sessions_for_version', '_dead_sessions', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
 
 router = APIRouter(prefix="/api/stream")
 
@@ -65,6 +64,10 @@ _CACHE_MIN_AGE = 300.0
 
 
 _sessions: dict[str, dict] = {}
+
+# Client leases are separate from shared FFmpeg producers. All mutations, including
+# first registration, are serialized by _sess_lock; initializing tasks reserve a slot.
+_tasks: dict[tuple, dict] = {}
 
 
 _sess_lock = threading.RLock()
@@ -248,26 +251,39 @@ def _session_key(plan: dict, audio: int) -> str:
 def _plan_marker(plan: dict, audio: int, start: float) -> str:
     """静态/在线复用键：只保留决定转码产物的字段。
     - 带 `PLAN_VERSION`：编码参数/像素格式等产物规则变化时旧成品自动失效重转；
-    - 去掉档位字符串：目录键（`_session_key`）已含产物档位；
-    - `seg`（封装类型）由目录键前缀区分，不进键（TS 回滚可继续命中 P1 旧成品）；
+    - 封装、精确起点与所有实际产物字段进入键，由完整键哈希隔离输出目录；
     - 非烧录字幕归一（文本/ASS 字幕走独立接口，不影响 ffmpeg 输出），
       否则换个字幕就把整片成品作废；烧录保留（sub_ff_index 在 plan 内）。"""
     p = dict(plan or {})
-    p.pop("seg", None)
+    p["seg"] = p.get("seg") or "fmp4"
     a_key = int(audio or 0)
     if (plan or {}).get("seg") != "ts":
         # fMP4 全部音轨都产成 rendition，产物与所选音轨无关 → 选择不进键（秒开复用）
         p["audio_idx"] = None
+        p["acopy"] = None  # fMP4 uses each audios[].copy, never the selected track's flag.
         a_key = 0
     if p.get("sub") != "burn":
         p["sub"] = "none"
         p["sub_idx"] = None
     try:
-        st = max(0, int(float(start or 0)))
+        st = max(0.0, float(start or 0))
     except (TypeError, ValueError):
         st = 0
     return json.dumps({"v": PLAN_VERSION, "a": a_key, "start": st, "plan": p},
                       sort_keys=True)
+
+
+def _artifact_key(plan: dict, audio: int, marker: str) -> str:
+    """Every output-changing field participates, including audio policy and burn track."""
+    return _session_key(plan, audio) + "_" + hashlib.sha256(marker.encode()).hexdigest()
+
+
+def _source_plan(plan: dict, row: dict, src) -> dict:
+    """Invalidate an artifact when the source is replaced, without keying transient URLs."""
+    return {**plan, "source": {"library": row.get("library_id"),
+                              "path": row.get("file_path"),
+                              "size": getattr(src, "size", None),
+                              "mtime": getattr(src, "mtime", None)}}
 
 
 def _session_dir(version_id: int, key: str, start: float, kind: str = "movie") -> str:
@@ -285,19 +301,15 @@ def _session_dir(version_id: int, key: str, start: float, kind: str = "movie") -
 def _media_start_for(version_id: int, input_url: str, start: float, plan: dict,
                      kind: str = "movie") -> float:
     """会话片内 0 对应的源时间（copy=目标前关键帧，转码/烧录=start）。
-    按 (kind, version, int(start)) 缓存探测结果，重开会话/复用同一 start 时不重复 ffprobe
-    （kind 参与键：电影/剧集 id 空间独立，防同号串缓存）。
+    按 kind/version/输入/精确起点/copy 状态缓存，避免 copy 关键帧偏移污染重编时间轴。
     `input_url` 可为本地路径或内网 URL（远程直读）。"""
-    try:
-        st_key = max(0, int(float(start or 0)))
-    except (TypeError, ValueError):
-        st_key = 0
-    key = (str(kind or "movie"), int(version_id), st_key)
+    vcopy_seek = bool((plan or {}).get("vcopy")) and (plan or {}).get("sub") != "burn"
+    key = (str(kind or "movie"), int(version_id), str(input_url), float(start or 0),
+           vcopy_seek, json.dumps((plan or {}).get("source"), sort_keys=True))
     with _sess_lock:
         hit = _MEDIA_START_CACHE.get(key)
     if hit is not None:
         return hit
-    vcopy_seek = bool((plan or {}).get("vcopy")) and (plan or {}).get("sub") != "burn"
     ms = _playback.actual_media_start(input_url, start, vcopy_seek)
     with _sess_lock:
         if len(_MEDIA_START_CACHE) >= 64:
@@ -329,7 +341,7 @@ def _write_master(sdir: str, info: dict, plan: dict, seg_time: int) -> None:
             w, h = src_w, src_h
         vc = _playback.transcoded_video_codec(w, h)
     lines = ["#EXTM3U", "#EXT-X-VERSION:7", "#EXT-X-INDEPENDENT-SEGMENTS"]
-    default_acodec = ""
+    audio_codecs = []
     audio_bits = 0
     tracks = info.get("audio") or []
     for n, a in enumerate(audios):
@@ -342,8 +354,10 @@ def _write_master(sdir: str, info: dict, plan: dict, seg_time: int) -> None:
             ac = _media.audio_codec_string(str(track.get("codec") or "")) or "mp4a.40.2"
         else:
             ac = "mp4a.40.2"
-        if int(a.get("default") or 0) and not default_acodec:
-            default_acodec = ac
+        # CODECS covers every rendition in AUDIO="aud", not only its default.
+        # Native HLS clients use this to prepare/identify the audio tracks.
+        if ac not in audio_codecs:
+            audio_codecs.append(ac)
         try:
             abr = int(track.get("bitrate") or 0) or (192000 if not a.get("copy") else 256000)
         except (TypeError, ValueError):
@@ -371,7 +385,7 @@ def _write_master(sdir: str, info: dict, plan: dict, seg_time: int) -> None:
     si = [f"BANDWIDTH={bandwidth}"]
     if w and h:
         si.append(f"RESOLUTION={w}x{h}")
-    codecs = [x for x in (vc, default_acodec or ("mp4a.40.2" if audios else "")) if x]
+    codecs = ([vc] if vc else []) + audio_codecs
     if codecs:
         si.append('CODECS="' + ",".join(codecs) + '"')
     if audios:
@@ -410,14 +424,8 @@ def _transcode_cache_scan(now: float) -> tuple[int, list[tuple[float, int, str]]
     """扫 TRANSCODE_DIR：返回 (总字节, 可淘汰候选 [(mtime, size, dir)]，最旧在前)。
     活动会话目录（进程在跑，或 10min 内被取过流）与创建 <5min 的新目录不进候选：
     防删掉正在播/正在写的分片，也防与「建目录→登记会话」的毫秒级窗口竞态。"""
-    live: set[str] = set()
     with _sess_lock:
-        for s in _sessions.values():
-            proc = s.get("proc")
-            running = proc is not None and proc.poll() is None
-            recent = now - float(s.get("last_ping") or 0) < _SESS_IDLE
-            if running or recent:
-                live.add(os.path.normpath(str(s.get("sdir") or "")))
+        live = _protected_dirs(now)
     total = 0
     cands: list[tuple[float, int, str]] = []
     try:
@@ -449,6 +457,17 @@ def _transcode_cache_scan(now: float) -> tuple[int, list[tuple[float, int, str]]
     return total, cands
 
 
+def _protected_dirs(now: float) -> set[str]:
+    """Caller holds _sess_lock; include reservations before Popen or the first lease."""
+    live = {os.path.normpath(t["sdir"]) for t in _tasks.values()}
+    for s in _sessions.values():
+        proc = s.get("proc")
+        if ((proc is not None and proc.poll() is None)
+                or now - float(s.get("last_ping") or 0) < _SESS_IDLE):
+            live.add(os.path.normpath(str(s.get("sdir") or "")))
+    return live
+
+
 def _evict_transcode_cache(now: float | None = None, cap: int | None = None,
                            dry_run: bool = False, delete_all: bool = False) -> dict:
     """转码缓存回收：超 cap（默认 TRANSCODE_CACHE_GB）按最旧淘汰到 90% 水位（滞回）；
@@ -466,10 +485,14 @@ def _evict_transcode_cache(now: float | None = None, cap: int | None = None,
     for _mtime, size, sd in cands:
         if not delete_all and total - freed <= target:
             break
-        if not dry_run:
-            shutil.rmtree(sd, ignore_errors=True)
-        freed += size
-        removed += 1
+        with _sess_lock:
+            # Recheck atomically: a client may have attached since the directory scan.
+            if os.path.normpath(sd) in _protected_dirs(time.time()):
+                continue
+            if not dry_run:
+                shutil.rmtree(sd, ignore_errors=True)
+            freed += size
+            removed += 1
     stat.update({"freed": freed, "removed": removed})
     return stat
 
@@ -504,8 +527,10 @@ def _purge_old() -> None:
             for sess in os.listdir(vd):
                 sd = os.path.join(vd, sess)
                 try:
-                    if os.path.isdir(sd) and now - os.path.getmtime(sd) > _TTL:
-                        shutil.rmtree(sd, ignore_errors=True)
+                    with _sess_lock:
+                        if (os.path.isdir(sd) and now - os.path.getmtime(sd) > _TTL
+                                and os.path.normpath(sd) not in _protected_dirs(now)):
+                            shutil.rmtree(sd, ignore_errors=True)
                 except OSError:
                     continue
     except OSError:
@@ -522,26 +547,104 @@ def _purge_old() -> None:
 
 
 def _kill_proc(proc) -> None:
+    if proc is None or proc.poll() is not None:
+        return
     try:
         proc.terminate()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("terminate transcode failed: %s", e)
     try:
         proc.wait(timeout=5)
     except Exception:
         try:
             proc.kill()
             proc.wait(timeout=3)   # 评审 B7/R12-B7：kill 后等待回收
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("kill transcode failed: %s", e)
 
 
 def _drop_session(sid: str, kill: bool = True) -> None:
+    """Remove one lease atomically; slow process termination never holds the global lock."""
     with _sess_lock:
         sess = _sessions.pop(sid, None)
-    if sess and kill:
-        _clear_session_meta(sess.get("sdir") or "")
-        _kill_proc(sess.get("proc"))
+        if not sess:
+            return
+        task = sess.get("task")
+        if task is not None:
+            task["owners"].discard(sid)
+            if task["owners"] or task.get("stopping"):
+                return
+            # Keep the cancelled task registered while stopping. New requests cannot
+            # attach or launch another producer into its directory during this gap.
+            task["cancelled"] = True
+            task["stopping"] = True
+            proc = task.get("proc")
+        else:
+            proc = sess.get("proc")
+    if task is not None:
+        _kill_proc(proc)
+        with _sess_lock:
+            _release_task_slot(task)
+            if proc is None or proc.poll() is not None:
+                if _tasks.get(task["key"]) is task:
+                    _tasks.pop(task["key"])
+                    _clear_session_meta(task["sdir"])
+                task["done"].set()
+            elif proc is not None and not task.get("watched"):
+                task["watched"] = True
+                threading.Thread(target=_watch_task, args=(task, proc), daemon=True).start()
+            task["stopping"] = False
+    elif kill:
+        _kill_proc(proc)
+        with _sess_lock:
+            # Legacy/static leases do not own a producer; avoid clearing newer metadata.
+            if not any(t["sdir"] == sess.get("sdir") for t in _tasks.values()):
+                _clear_session_meta(sess.get("sdir") or "")
+
+
+def _release_task_slot(task: dict) -> None:
+    """Exactly once, only after its process has exited (caller holds _sess_lock)."""
+    proc = task.get("proc")
+    if proc is not None and proc.poll() is None:
+        return
+    sem = task.pop("slot", None)
+    if sem is not None:
+        sem.release()
+
+
+def _watch_task(task: dict, proc) -> None:
+    """One completion observer owns slot release and publishes the finished artifact."""
+    try:
+        rc = proc.wait()
+        with _sess_lock:
+            if (not task.get("cancelled") and rc == 0
+                    and _seg_count(task["sdir"]) > 0 and _playlist_endlist(task["sdir"])):
+                _write_complete_marker(task["sdir"], task["plan_key"])
+                task["complete"] = True
+                for sid in task["owners"]:
+                    if sid in _sessions:
+                        _sessions[sid]["complete"] = True
+            elif not task.get("cancelled"):
+                task["error"] = HTTPException(500, "transcode ended before completion")
+            # A cancelled producer can have been replaced; never clear its successor's meta.
+            if _tasks.get(task["key"]) is task:
+                _clear_session_meta(task["sdir"])
+                if not task["owners"]:
+                    _tasks.pop(task["key"])
+    except Exception as e:
+        logger.warning("transcode completion observer failed: %s", e)
+        with _sess_lock:
+            task["error"] = HTTPException(500, "transcode completion failed")
+            task["cancelled"] = True
+        _kill_proc(proc)
+    finally:
+        with _sess_lock:
+            _release_task_slot(task)
+            if proc.poll() is not None:
+                if _tasks.get(task["key"]) is task and not task["owners"]:
+                    _tasks.pop(task["key"])
+                    _clear_session_meta(task["sdir"])
+                task["done"].set()
 
 
 def shutdown_sessions() -> None:
@@ -553,7 +656,7 @@ def shutdown_sessions() -> None:
         _drop_session(sid, kill=True)
 
 
-def drop_sessions_for_version(version_id: int) -> int:
+def drop_sessions_for_version(version_id: int, kind: str = "movie") -> int:
     """关掉某版本的在线/预转码会话（删库/删片用，防 ffmpeg 继续写分片）。"""
     try:
         vid = int(version_id)
@@ -561,7 +664,8 @@ def drop_sessions_for_version(version_id: int) -> int:
         return 0
     with _sess_lock:
         sids = [sid for sid, s in _sessions.items()
-                if int(s.get("vid") or -1) == vid]
+                if int(s.get("vid") or -1) == vid
+                and str(s.get("kind") or "movie") == kind]
     for sid in sids:
         _drop_session(sid, kill=True)
     return len(sids)
@@ -572,14 +676,15 @@ def _dead_sessions(now: float) -> list[str]:
     dead = []
     with _sess_lock:
         for sid, s in list(_sessions.items()):
+            task = s.get("task")
+            if task is not None and not task["ready"].is_set():
+                continue  # Startup has its own bounded timeout; no client can claim it yet.
             proc = s.get("proc")
             exited = proc is not None and proc.poll() is not None
             idle = now - float(s.get("last_ping") or now)
-            # 完工静态会话（proc=None）与预转码任务：只按文件 TTL 收记录，不按 idle 杀
-            # （预转码无客户端心跳，但有自己的 job 超时与生命周期，评审 P1-07）
-            if s.get("complete") or s.get("prewarm"):
-                if idle > _TTL:
-                    dead.append(sid)
+            # Prewarm has its own bounded worker lifetime; all client leases expire.
+            if s.get("prewarm"):
+                continue  # The prewarm worker owns a bounded lifetime, without heartbeats.
             elif s.get("unclaimed"):
                 # 客户端从未取过流（关窗 abort 拿不到 sid / 会话是给别人的）：快速回收
                 age = now - float(s.get("created") or s.get("last_ping") or now)
@@ -658,22 +763,6 @@ def _write_complete_marker(sdir: str, plan_key: str) -> None:
         pass
 
 
-def _watch_completion(sid: str, proc, sdir: str, plan_key: str) -> None:
-    """完工监视线程：仅当 ffmpeg 自然退出（返回码 0）才写 complete.json。
-    被 SIGTERM 杀掉（负返回码）的残缺会话也会写出 ENDLIST，绝不能冒充静态 VOD。"""
-    try:
-        rc = proc.wait()
-    except Exception:
-        return
-    if rc == 0 and _seg_count(sdir) > 0 and _playlist_endlist(sdir):
-        _write_complete_marker(sdir, plan_key)
-        _clear_session_meta(sdir)
-        with _sess_lock:
-            s = _sessions.get(sid)
-            if s is not None:
-                s["complete"] = True
-
-
 def _session_complete(sdir: str, plan_key: str) -> bool:
     """整片已自然转完（静态 VOD）：complete.json 存在 + 列表带 ENDLIST + 有分片 + plan 一致。
     仅凭 ENDLIST 不够——被杀的残缺会话也会写 ENDLIST（SIGTERM 时 ffmpeg 会写 trailer）。"""
@@ -727,22 +816,6 @@ def _find_live_session(vid: int, plan_key: str,
     """同 plan 的活会话（在线播或另一 prewarm），可附着复用。"""
     return next((x for x in _live_sessions_for(vid, kind)
                  if x["plan_key"] == plan_key), None)
-
-
-def _register_prewarm_session(vid: int, sdir: str, plan: dict, proc,
-                              plan_key: str, backend: str, attempt: int,
-                              kind: str = "movie") -> str:
-    """把 prewarm 转码进程注册进 `_sessions`：在线播可复用（同 plan 秒开）、
-    换档会按既有逻辑杀掉旧会话、关播 DELETE 会被识别为共享任务而不误杀。"""
-    sid = uuid.uuid4().hex[:16]
-    with _sess_lock:
-        _sessions[sid] = {"proc": proc, "sdir": sdir, "vid": int(vid),
-                          "kind": str(kind or "movie"),
-                          "plan": plan, "plan_key": plan_key,
-                          "caps_hash": _caps.caps_hash(_caps.default_caps()),
-                          "backend": backend, "attempt": attempt,
-                          "prewarm": True, "last_ping": time.time()}
-    return sid
 
 
 def _rm_tmp(path: str) -> None:
@@ -799,4 +872,3 @@ def _playlist_text(sdir: str) -> str:
         else:
             out.append(line)
     return "\n".join(out) + "\n"
-
