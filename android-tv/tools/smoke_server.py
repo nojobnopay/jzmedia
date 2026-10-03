@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Isolated TV fixture server. No app imports, live credentials, database or NAS access.
 
-Run: python android-tv/tools/smoke_server.py --port 18888 [--hls] [--browse-stress] [--season-stress]
+Run: python android-tv/tools/smoke_server.py --port 18888 [--hls] [--browse-stress] [--season-stress] [--no-show-poster]
 Then adb reverse tcp:18888 tcp:18888, and enter http://127.0.0.1:18888 on TV.
 Use --require-token to exercise the fixed fixture token ``demo-tv-token``.
 Use --browse-stress for 120 episode numbers, merged episodes and duplicate versions.
 Use --season-stress for eight seasons, including specials, long names and empty names.
+Season artwork covers four original PNGs, empty paths, HTTP 404 and non-image bytes.
+Add --no-show-poster to check the final placeholder after season artwork fails.
 All media and state are synthetic; request traces omit credentials and request bodies.
 """
 from __future__ import annotations
@@ -95,11 +97,24 @@ _EXTRA_SEASONS = {
     7: ("", 4, 1),
 }
 
+# Stress-only failures exercise client-side season -> show -> placeholder fallback.
+_SEASON_POSTERS = {
+    0: "tv/poster0.png",
+    1: "tv/poster2.png",
+    2: "tv/poster1.png",
+    3: "",
+    4: "tv/missing-season.png",
+    5: "tv/invalid-season.png",
+    6: "tv/poster3.png",
+    7: "",
+}
+
 
 class Fixtures:
-    def __init__(self, directory, hls=False, require_token=False, browse_stress=False, season_stress=False):
+    def __init__(self, directory, hls=False, require_token=False, browse_stress=False, season_stress=False, no_show_poster=False):
         self.directory, self.hls, self.require_token = directory, hls, require_token
         self.browse_stress, self.season_stress = browse_stress, season_stress
+        self.show_poster_path = "" if no_show_poster else "tv/poster2.png"
         self.lock = threading.Lock()
         self.progress = {("movie", 1): {"position": 45, "duration": 660}, ("episode", 201): {"position": 46, "duration": 660}}
         self.watched = set()
@@ -161,7 +176,7 @@ class Fixtures:
             title = "当遥远灯塔的信号再次亮起，我们终于听见了来自星海尽头的漫长回声"
         return {"id": eid, "title": title, "show_id": 100, "library_id": 2, "media_library_id": 1,
                 "show_title": "遥远的灯塔", "season": season, "episode": number, "episode_end": 6 if merged else None,
-                "show_poster": "tv/poster2.png", "poster_path": "tv/poster2.png", "exists": not offline, "missing": int(offline),
+                "show_poster": self.show_poster_path, "poster_path": self.show_poster_path, "exists": not offline, "missing": int(offline),
                 "file_path": f"演示剧集/S{season:02d}E{number:02d}{'-E06' if merged else ''}{'.v2' if version == 2 else ''}.mp4", "version": version,
                 "watched": int(("episode", eid) in self.watched), "progress": self.progress.get(("episode", eid), {}),
                 "overview": "旅程继续，信号终于从远方传来。", "cast": self.cast("show", 100),
@@ -185,14 +200,16 @@ class Fixtures:
                 "has_partial": any(not finished(row) and row["progress"].get("position", 0) >= 15 for row in rows),
                 "next_episode_num": next((row["episode"] for row in rows if not finished(row)), None),
                 "overview": "原创合成季，用于验证选季和遥控器焦点。",
-                "air_date": f"{2018 + season}-01-01", "poster_path": f"tv/poster{(season + 1) % 4}.png", "cast": self.cast("show", 100)}
+                "air_date": f"{2018 + season}-01-01",
+                "poster_path": _SEASON_POSTERS[season] if self.season_stress else f"tv/poster{(season + 1) % 4}.png",
+                "cast": self.cast("show", 100)}
 
     def show(self):
         # Match the scanner's POSTER_DIR-relative TV paths, alongside DATA_DIR-relative movies.
         seasons = [self.season_summary(season) for season in self.season_numbers()]
         count = sum(season["total"] for season in seasons)
         watched = sum(season["watched_count"] for season in seasons)
-        return {"id": 100, "title": "遥远的灯塔", "year": 2026, "poster_path": "tv/poster2.png", "episode_count": count,
+        return {"id": 100, "title": "遥远的灯塔", "year": 2026, "poster_path": self.show_poster_path, "episode_count": count,
                 "library_id": 2, "media_library_id": 1, "watched_count": watched,
                 "overview": ("跨越八季的合成灯塔故事，包含特别篇。" if self.season_stress else
                              "一百二十集的合成长季，用于验证选集与分页。" if self.browse_stress else "三个短篇故事，寻找夜色中的灯塔。"),
@@ -215,7 +232,7 @@ class Fixtures:
             result = {key: row[key] for key in ("id", "title", "year", "poster_path", "media_library_id")}
             candidates.append(({**result, "kind": "movie", "version_count": row["version_count"]}, phonetic))
         candidates.append(({"id": 100, "kind": "show", "title": "遥远的灯塔", "year": 2026,
-                            "poster_path": "tv/poster2.png", "media_library_id": 1}, ("yyddt", "yaoyuandedengta")))
+                            "poster_path": self.show_poster_path, "media_library_id": 1}, ("yyddt", "yaoyuandedengta")))
         candidates.append(({"id": 1, "kind": "collection", "title": "科幻时光", "name": "科幻时光",
                             "poster_path": "posters/poster1.png", "media_library_id": 1, "member_count": 8}, ("khsg", "kehuanshiguang")))
         rows = [row for row, phonetic in candidates if term and (kind == "all" or row["kind"] == kind)
@@ -316,7 +333,7 @@ class Fixtures:
                         for version in sorted({row["version"] for row in rows})]
             rows = [row for row in rows if not q("version") or str(row["version"]) == q("version")]
             offset, limit = max(0, int(q("offset", "0"))), max(1, min(500, int(q("limit", "100"))))
-            return {"show_id": 100, "show_title": "遥远的灯塔", "show_year": 2026, "show_poster": "tv/poster2.png",
+            return {"show_id": 100, "show_title": "遥远的灯塔", "show_year": 2026, "show_poster": self.show_poster_path,
                     "name": summary["name"], "season": season, "overview": summary["overview"], "poster_path": summary["poster_path"],
                     "episode_count": summary["total"], "watched_count": summary["watched_count"], "cast": summary["cast"],
                     "total": len(rows), "offset": offset, "limit": limit, "distinct_count": summary["distinct"],
@@ -400,6 +417,8 @@ class Handler(BaseHTTPRequestHandler):
         if method == "GET":
             file = None
             content_type = "application/octet-stream"
+            if fixtures.season_stress and parsed.path == "/posters/tv/invalid-season.png":
+                return self.send_json(200, {"synthetic": True, "fixture": "not-an-image"})
             if parsed.path == "/fixture/demo.mp4":
                 file, content_type = fixtures.directory / "demo.mp4", "video/mp4"
             elif re.fullmatch(r"/posters/(?:(?:tv|persons)/)?poster[0-3]\.png", parsed.path):
@@ -470,6 +489,7 @@ def main():
     parser.add_argument("--require-token", action="store_true")
     parser.add_argument("--browse-stress", action="store_true", help="Synthetic 120-episode season with merged ranges and duplicate versions")
     parser.add_argument("--season-stress", action="store_true", help="Synthetic eight-season show including specials and long/empty names")
+    parser.add_argument("--no-show-poster", action="store_true", help="Empty show artwork; combine with --season-stress to test poster placeholders")
     parser.add_argument("--ffmpeg", help="Explicit FFmpeg binary; no automatic downloads")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="jzmedia-tv-fixture-") as temp:
@@ -477,9 +497,10 @@ def main():
         make_fixtures(directory, args.hls, args.ffmpeg)
         server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
         server.daemon_threads = True
-        server.fixtures = Fixtures(directory, args.hls, args.require_token, args.browse_stress, args.season_stress)
+        server.fixtures = Fixtures(directory, args.hls, args.require_token, args.browse_stress, args.season_stress, args.no_show_poster)
         print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}", "fixtures": str(directory), "synthetic": True,
-                          "hls": args.hls, "browse_stress": args.browse_stress, "season_stress": args.season_stress}), flush=True)
+                          "hls": args.hls, "browse_stress": args.browse_stress, "season_stress": args.season_stress,
+                          "no_show_poster": args.no_show_poster}), flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:

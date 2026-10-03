@@ -1,8 +1,11 @@
 package org.jzmedia.tv.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -48,6 +53,7 @@ import org.jzmedia.tv.playback.PlaybackRequest
 import org.json.JSONArray
 import org.json.JSONObject
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, navigate: (TvRoute) -> Unit, play: (PlaybackRequest) -> Unit) {
     var data by remember { mutableStateOf<JSONObject?>(null) }
@@ -135,121 +141,135 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
             finally { actionBusy = false }
         }
     }
-    LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                Poster(api, posterPath(row), title, Modifier.width(144.dp).height(202.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    Text(listOf(row.text("year").ifBlank { row.text("show_year") }, row.text("origin_country_name"), row.text("library_name"),
-                        if (watched) "已看" else "", row.text("vote_average").takeIf { it.isNotBlank() && it != "0.0" }?.let { "评分 $it" }.orEmpty())
-                        .filter { it.isNotBlank() }.joinToString(" · "), color = Muted)
-                    if (canPlay) {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(6.dp)) {
-                            item { TvAction("▶ 播放 / 继续观看", { play(PlaybackRequest(if (route.kind == "movie") "movie" else "episode", playableId, title, true)) },
-                                Modifier.focusMemory(memory, "play"), enabled = row.optBoolean("exists", true) && movieVersion?.optInt("missing", 0) != 1) }
-                            item { TvAction("从头开始", { play(PlaybackRequest(if (route.kind == "movie") "movie" else "episode", playableId, title, false)) },
-                                Modifier.focusMemory(memory, "restart"), enabled = row.optBoolean("exists", true) && movieVersion?.optInt("missing", 0) != 1) }
+    val parentScrollSpec = LocalBringIntoViewSpec.current
+    val focusMargin = with(LocalDensity.current) { 16.dp.toPx() }
+    val scrollSpec = remember(parentScrollSpec, focusMargin, route.kind) {
+        if (route.kind != "show") parentScrollSpec else object : BringIntoViewSpec {
+            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                // TV's default pivot can place a tall card flush with the viewport
+                // bottom. Include its focused scale when choosing the scroll target.
+                val margin = minOf(focusMargin, ((containerSize - size) / 2f).coerceAtLeast(0f))
+                return parentScrollSpec.calculateScrollDistance(offset - margin, size + margin * 2, containerSize)
+            }
+        }
+    }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides scrollSpec) {
+        LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(bottom = 32.dp)) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    Poster(api, posterPath(row), title, Modifier.width(144.dp).height(202.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Text(listOf(row.text("year").ifBlank { row.text("show_year") }, row.text("origin_country_name"), row.text("library_name"),
+                            if (watched) "已看" else "", row.text("vote_average").takeIf { it.isNotBlank() && it != "0.0" }?.let { "评分 $it" }.orEmpty())
+                            .filter { it.isNotBlank() }.joinToString(" · "), color = Muted)
+                        if (canPlay) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(6.dp)) {
+                                item { TvAction("▶ 播放 / 继续观看", { play(PlaybackRequest(if (route.kind == "movie") "movie" else "episode", playableId, title, true)) },
+                                    Modifier.focusMemory(memory, "play"), enabled = row.optBoolean("exists", true) && movieVersion?.optInt("missing", 0) != 1) }
+                                item { TvAction("从头开始", { play(PlaybackRequest(if (route.kind == "movie") "movie" else "episode", playableId, title, false)) },
+                                    Modifier.focusMemory(memory, "restart"), enabled = row.optBoolean("exists", true) && movieVersion?.optInt("missing", 0) != 1) }
+                            }
+                        }
+                        val next = row.optJSONObject("next_episode")
+                        if (next != null && route.kind in listOf("show", "season")) TvAction("▶ ${episodeTitle(next)}", {
+                            play(PlaybackRequest("episode", next.optLong("id"), "${row.text("show_title").ifBlank { title }} · ${episodeTitle(next)}", true))
+                        }, Modifier.focusMemory(memory, "play"))
+                        if (row.optInt("missing") == 1 || !row.optBoolean("exists", true)) Text("此文件目前离线或不存在", color = Color(0xFFFFB4AB))
+                    }
+                }
+            }
+            if (route.kind != "collection") item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(6.dp)) {
+                    if (route.kind == "movie" && versions.size > 1) item {
+                        TvAction("版本：${versionLabel(movieVersion ?: JSONObject().put("id", selectedVersion))}", { choosingVersion = true }, Modifier.focusMemory(memory, "version"))
+                    }
+                    if (route.kind == "season" && versions.size > 1) item {
+                        TvAction(if (seasonVersion.isBlank()) "全部版本" else "版本 $seasonVersion", { choosingVersion = true }, Modifier.focusMemory(memory, "version"))
+                    }
+                    item { TvAction(if (watched) "标记未看" else "标记已看", ::markWatched, Modifier.focusMemory(memory, "watched"), enabled = !actionBusy) }
+                    item { TvAction("刷新", { attempt++ }, Modifier.focusMemory(memory, "refresh")) }
+                    if (route.kind == "episode") item { TvAction("返回剧集", { navigate(TvRoute("show", row.optLong("show_id"))) }, Modifier.focusMemory(memory, "show")) }
+                }
+            }
+            if (actionError.isNotBlank()) item { Status(actionError, ::markWatched) }
+            if (route.kind == "show") {
+                item { SectionHeading("选季", "${row.optInt("episode_count")} 集 · 已看 ${row.optInt("watched_count")} 集") }
+                if (row.rows("seasons").isNotEmpty()) item(key = "seasons") {
+                    SeasonGrid(api, row.rows("seasons"), posterPath(row), memory) { number -> navigate(TvRoute("season", route.id, number, title)) }
+                }
+                if (row.rows("seasons").isEmpty()) item { Status("暂时没有已入库的分集") }
+            }
+            if (route.kind == "season") {
+                item { SectionHeading("选集", "共 ${row.optInt("total")} 项 · 第 ${page + 1} 页") }
+                item(key = "episodes:$page:$seasonVersion") {
+                    val episodes = row.rows("episodes").map { episodeButtonModel(it, versions.size > 1 && seasonVersion.isBlank()) }
+                    EpisodeGrid(episodes, memory, focusedEpisodeId, { focusedEpisodeId = it },
+                        { navigate(TvRoute("episode", it)) }, requestEpisodeFocus, { requestEpisodeFocus = false })
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        if (page > 0) TvAction("上一页", { focusEpisodesAfterLoad = true; page-- }, Modifier.focusMemory(memory, "previous-page"))
+                        if (row.optBoolean("has_more")) TvAction("下一页", { focusEpisodesAfterLoad = true; page++ }, Modifier.focusMemory(memory, "next-page"))
+                    }
+                }
+            }
+            if (route.kind == "episode") item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(6.dp)) {
+                    row.optJSONObject("previous_episode")?.let { previous -> item { TvAction("上一集", { navigate(TvRoute("episode", previous.optLong("id"))) }, Modifier.focusMemory(memory, "previous-episode")) } }
+                    row.optJSONObject("next_episode")?.let { next -> item { TvAction("下一集", { play(PlaybackRequest("episode", next.optLong("id"), episodeTitle(next))) }, Modifier.focusMemory(memory, "next-episode")) } }
+                }
+            }
+            if (route.kind == "collection") {
+                item { Text("${row.optInt("member_count")} 部影片", color = Muted) }
+                val members = row.rows("members")
+                items(members.chunked(collectionColumns), key = { "members:${it.first().optLong("id")}" }) { group ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(8.dp)) {
+                        group.forEach { member ->
+                            MediaCard(api, member, { navigate(TvRoute("movie", member.optLong("id"))) }, Modifier.focusMemory(memory, "member:${member.optLong("id")}"))
                         }
                     }
-                    val next = row.optJSONObject("next_episode")
-                    if (next != null && route.kind in listOf("show", "season")) TvAction("▶ ${episodeTitle(next)}", {
-                        play(PlaybackRequest("episode", next.optLong("id"), "${row.text("show_title").ifBlank { title }} · ${episodeTitle(next)}", true))
-                    }, Modifier.focusMemory(memory, "play"))
-                    if (row.optInt("missing") == 1 || !row.optBoolean("exists", true)) Text("此文件目前离线或不存在", color = Color(0xFFFFB4AB))
+                }
+                if (members.isEmpty()) item { Status("合集中还没有影片") }
+            }
+            if (overview.isNotBlank()) item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("剧情简介", style = MaterialTheme.typography.headlineSmall)
+                    Text(overview, color = Muted, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                    TvAction("查看完整简介", { textDialog = "剧情简介" to overview.chunked(240) }, Modifier.focusMemory(memory, "overview"))
                 }
             }
-        }
-        if (route.kind != "collection") item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(6.dp)) {
-                if (route.kind == "movie" && versions.size > 1) item {
-                    TvAction("版本：${versionLabel(movieVersion ?: JSONObject().put("id", selectedVersion))}", { choosingVersion = true }, Modifier.focusMemory(memory, "version"))
-                }
-                if (route.kind == "season" && versions.size > 1) item {
-                    TvAction(if (seasonVersion.isBlank()) "全部版本" else "版本 $seasonVersion", { choosingVersion = true }, Modifier.focusMemory(memory, "version"))
-                }
-                item { TvAction(if (watched) "标记未看" else "标记已看", ::markWatched, Modifier.focusMemory(memory, "watched"), enabled = !actionBusy) }
-                item { TvAction("刷新", { attempt++ }, Modifier.focusMemory(memory, "refresh")) }
-                if (route.kind == "episode") item { TvAction("返回剧集", { navigate(TvRoute("show", row.optLong("show_id"))) }, Modifier.focusMemory(memory, "show")) }
-            }
-        }
-        if (actionError.isNotBlank()) item { Status(actionError, ::markWatched) }
-        if (route.kind == "show") {
-            item { SectionHeading("选季", "${row.optInt("episode_count")} 集 · 已看 ${row.optInt("watched_count")} 集") }
-            if (row.rows("seasons").isNotEmpty()) item(key = "seasons") {
-                SeasonGrid(row.rows("seasons"), memory) { number -> navigate(TvRoute("season", route.id, number, title)) }
-            }
-            if (row.rows("seasons").isEmpty()) item { Status("暂时没有已入库的分集") }
-        }
-        if (route.kind == "season") {
-            item { SectionHeading("选集", "共 ${row.optInt("total")} 项 · 第 ${page + 1} 页") }
-            item(key = "episodes:$page:$seasonVersion") {
-                val episodes = row.rows("episodes").map { episodeButtonModel(it, versions.size > 1 && seasonVersion.isBlank()) }
-                EpisodeGrid(episodes, memory, focusedEpisodeId, { focusedEpisodeId = it },
-                    { navigate(TvRoute("episode", it)) }, requestEpisodeFocus, { requestEpisodeFocus = false })
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    if (page > 0) TvAction("上一页", { focusEpisodesAfterLoad = true; page-- }, Modifier.focusMemory(memory, "previous-page"))
-                    if (row.optBoolean("has_more")) TvAction("下一页", { focusEpisodesAfterLoad = true; page++ }, Modifier.focusMemory(memory, "next-page"))
+            if (row.rows("extras").isNotEmpty()) {
+                item { SectionHeading("花絮与特别内容") }
+                items(row.rows("extras"), key = { "extra:${it.optLong("id")}" }) { extra ->
+                    TvAction("▶ ${extra.text("label").ifBlank { "花絮" }} · ${mediaTitle(extra)}", {
+                        play(PlaybackRequest("extra", extra.optLong("id"), mediaTitle(extra), true))
+                    }, Modifier.fillMaxWidth().focusMemory(memory, "extra:${extra.optLong("id")}"), enabled = extra.optBoolean("exists", true))
                 }
             }
-        }
-        if (route.kind == "episode") item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(6.dp)) {
-                row.optJSONObject("previous_episode")?.let { previous -> item { TvAction("上一集", { navigate(TvRoute("episode", previous.optLong("id"))) }, Modifier.focusMemory(memory, "previous-episode")) } }
-                row.optJSONObject("next_episode")?.let { next -> item { TvAction("下一集", { play(PlaybackRequest("episode", next.optLong("id"), episodeTitle(next))) }, Modifier.focusMemory(memory, "next-episode")) } }
+            val cast = row.rows(if (route.kind == "movie") "persons" else "cast")
+            if (cast.isNotEmpty()) item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("演职员", style = MaterialTheme.typography.headlineSmall)
+                    Text(cast.take(8).joinToString(" · ") { it.text("name") }, color = Muted)
+                    TvAction("查看演职员（${cast.size}）", {
+                        textDialog = "演职员" to cast.map { person -> person.text("name") + person.text("character").ifBlank { person.text("character_name").ifBlank { person.text("role") } }.let { if (it.isBlank()) "" else " · $it" } }
+                    }, Modifier.focusMemory(memory, "cast"))
+                }
             }
-        }
-        if (route.kind == "collection") {
-            item { Text("${row.optInt("member_count")} 部影片", color = Muted) }
-            val members = row.rows("members")
-            items(members.chunked(collectionColumns), key = { "members:${it.first().optLong("id")}" }) { group ->
-                Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(8.dp)) {
-                    group.forEach { member ->
-                        MediaCard(api, member, { navigate(TvRoute("movie", member.optLong("id"))) }, Modifier.focusMemory(memory, "member:${member.optLong("id")}"))
+            if (row.rows("collections").isNotEmpty()) item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionHeading("所属合集")
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(8.dp)) {
+                        items(row.rows("collections"), key = { it.optLong("id") }) { collection ->
+                            TvAction(collection.text("name"), { navigate(TvRoute("collection", collection.optLong("id"))) }, Modifier.focusMemory(memory, "collection:${collection.optLong("id")}"))
+                        }
                     }
                 }
             }
-            if (members.isEmpty()) item { Status("合集中还没有影片") }
+            if (similar.isNotEmpty()) item { MediaRail("库中相关推荐", similar, api, memory, "similar") { navigate(TvRoute(route.kind, it.optLong("id"))) } }
+            if (similarError.isNotBlank()) item { Status(similarError, { attempt++ }) }
         }
-        if (overview.isNotBlank()) item {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("剧情简介", style = MaterialTheme.typography.headlineSmall)
-                Text(overview, color = Muted, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                TvAction("查看完整简介", { textDialog = "剧情简介" to overview.chunked(240) }, Modifier.focusMemory(memory, "overview"))
-            }
-        }
-        if (row.rows("extras").isNotEmpty()) {
-            item { SectionHeading("花絮与特别内容") }
-            items(row.rows("extras"), key = { "extra:${it.optLong("id")}" }) { extra ->
-                TvAction("▶ ${extra.text("label").ifBlank { "花絮" }} · ${mediaTitle(extra)}", {
-                    play(PlaybackRequest("extra", extra.optLong("id"), mediaTitle(extra), true))
-                }, Modifier.fillMaxWidth().focusMemory(memory, "extra:${extra.optLong("id")}"), enabled = extra.optBoolean("exists", true))
-            }
-        }
-        val cast = row.rows(if (route.kind == "movie") "persons" else "cast")
-        if (cast.isNotEmpty()) item {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("演职员", style = MaterialTheme.typography.headlineSmall)
-                Text(cast.take(8).joinToString(" · ") { it.text("name") }, color = Muted)
-                TvAction("查看演职员（${cast.size}）", {
-                    textDialog = "演职员" to cast.map { person -> person.text("name") + person.text("character").ifBlank { person.text("character_name").ifBlank { person.text("role") } }.let { if (it.isBlank()) "" else " · $it" } }
-                }, Modifier.focusMemory(memory, "cast"))
-            }
-        }
-        if (row.rows("collections").isNotEmpty()) item {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SectionHeading("所属合集")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(8.dp)) {
-                    items(row.rows("collections"), key = { it.optLong("id") }) { collection ->
-                        TvAction(collection.text("name"), { navigate(TvRoute("collection", collection.optLong("id"))) }, Modifier.focusMemory(memory, "collection:${collection.optLong("id")}"))
-                    }
-                }
-            }
-        }
-        if (similar.isNotEmpty()) item { MediaRail("库中相关推荐", similar, api, memory, "similar") { navigate(TvRoute(route.kind, it.optLong("id"))) } }
-        if (similarError.isNotBlank()) item { Status(similarError, { attempt++ }) }
     }
     if (choosingVersion) {
         val choices = if (route.kind == "movie") versions.map { it.optLong("id").toString() to versionLabel(it) }

@@ -4,12 +4,28 @@
 Run: python android-tv/tools/test_smoke_server.py
 These checks validate the isolated UI fixtures, not the production search engine.
 """
+from io import BytesIO
+import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from urllib.parse import parse_qs, urlencode
 
-from smoke_server import Fixtures
+from smoke_server import Fixtures, Handler, poster_bytes
+
+
+class MemoryConnection:
+    """Exercise the real HTTP handler through in-memory streams, without a socket."""
+    def __init__(self, request):
+        self.request = request
+        self.response = bytearray()
+
+    def makefile(self, *_):
+        return BytesIO(self.request)
+
+    def sendall(self, data):
+        self.response.extend(data)
 
 
 class BrowseFixtureTests(unittest.TestCase):
@@ -32,6 +48,15 @@ class BrowseFixtureTests(unittest.TestCase):
 
     def actor_works(self, **params):
         return self.request("/api/tv-client/actor-works", **params)
+
+    def http_get(self, path):
+        connection = MemoryConnection(f"GET {path} HTTP/1.0\r\nHost: fixture\r\n\r\n".encode("ascii"))
+        Handler(connection, ("127.0.0.1", 0), SimpleNamespace(fixtures=self.fixtures))
+        head, _, body = bytes(connection.response).partition(b"\r\n\r\n")
+        lines = head.decode("iso-8859-1").split("\r\n")
+        headers = dict(line.split(": ", 1) for line in lines[1:])
+        self.assertEqual(int(headers["Content-Length"]), len(body))
+        return int(lines[0].split()[1]), headers, body
 
     def test_search_chinese_initials_full_pinyin_and_partial_query(self):
         for query in ("SQ", "sqhs", "ＳＱ", "沙丘", "shaqiuhuisheng"):
@@ -290,6 +315,68 @@ class BrowseFixtureTests(unittest.TestCase):
             self.request("/api/tv/shows/100/seasons/8")
         with self.assertRaises(KeyError):
             self.request("/api/tv/episodes/10003")
+
+    def test_season_poster_paths_match_detail_and_keep_four_original_images(self):
+        self.fixtures = Fixtures(Path(self.temp.name), season_stress=True)
+        show = self.request("/api/tv/shows/100")
+        paths = {row["season"]: row["poster_path"] for row in show["seasons"]}
+        self.assertEqual(paths, {0: "tv/poster0.png", 1: "tv/poster2.png", 2: "tv/poster1.png", 3: "",
+                                 4: "tv/missing-season.png", 5: "tv/invalid-season.png", 6: "tv/poster3.png", 7: ""})
+        self.assertEqual(show["poster_path"], "tv/poster2.png")
+        for season, path in paths.items():
+            detail = self.request(f"/api/tv/shows/100/seasons/{season}")
+            self.assertEqual(detail["poster_path"], path)
+            self.assertEqual(detail["show_poster"], show["poster_path"])
+
+    def test_season_artwork_http_status_and_bytes_cover_load_and_decode_failures(self):
+        # File responses use only the four original PNGs; no FFmpeg or network needed.
+        self.fixtures = Fixtures(Path(self.temp.name), season_stress=True)
+        images = []
+        for index in range(4):
+            expected = poster_bytes(index)
+            (Path(self.temp.name) / f"poster{index}.png").write_bytes(expected)
+            status, headers, body = self.http_get(f"/posters/tv/poster{index}.png")
+            self.assertEqual(status, 200)
+            self.assertEqual(headers["Content-Type"], "image/png")
+            self.assertTrue(body.startswith(b"\x89PNG\r\n\x1a\n"))
+            self.assertEqual(body, expected)
+            images.append(body)
+        self.assertEqual(len(set(images)), 4)
+        status, _, body = self.http_get("/posters/tv/missing-season.png")
+        self.assertEqual(status, 404)
+        self.assertIn("detail", json.loads(body))
+        status, headers, body = self.http_get("/posters/tv/invalid-season.png")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "application/json; charset=utf-8")
+        self.assertEqual(json.loads(body), {"synthetic": True, "fixture": "not-an-image"})
+        self.fixtures = Fixtures(Path(self.temp.name))
+        self.assertEqual(self.http_get("/posters/tv/invalid-season.png")[0], 404)
+
+    def test_no_show_poster_removes_fallback_consistently_without_changing_season_art(self):
+        with_art = Fixtures(Path(self.temp.name), season_stress=True)
+        self.fixtures = Fixtures(Path(self.temp.name), season_stress=True, no_show_poster=True)
+        show = self.request("/api/tv/shows/100")
+        self.assertEqual(show["poster_path"], "")
+        self.assertEqual(show["seasons"], with_art.show()["seasons"])
+        self.assertEqual(show["next_episode"]["show_poster"], "")
+        for season in range(8):
+            detail = self.request(f"/api/tv/shows/100/seasons/{season}")
+            self.assertEqual(detail["show_poster"], "")
+            self.assertTrue(all(row["show_poster"] == row["poster_path"] == "" for row in detail["episodes"]))
+        self.assertEqual(self.request("/api/tv/episodes/201")["show_poster"], "")
+        self.assertEqual(self.request("/api/tv/shows")["items"][0]["poster_path"], "")
+        self.assertEqual(self.request("/api/tv/recent-played")["items"][0]["poster_path"], "")
+        self.assertEqual(self.search(q="YYDDT")["items"][0]["poster_path"], "")
+        self.assertEqual(self.actor_works(actor="name:林雾汀")["items"][0]["poster_path"], "")
+        self.assertEqual(self.fixtures.movie(1), with_art.movie(1))
+
+    def test_season_poster_stress_preserves_first_season_playback_fixtures(self):
+        for browse_stress in (False, True):
+            with self.subTest(browse_stress=browse_stress):
+                baseline = Fixtures(Path(self.temp.name), browse_stress=browse_stress)
+                self.fixtures = Fixtures(Path(self.temp.name), browse_stress=browse_stress, season_stress=True)
+                expected = baseline.handle("GET", "/api/tv/shows/100/seasons/1", {}, {})
+                self.assertEqual(self.season(), expected)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ package org.jzmedia.tv.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -26,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -64,7 +66,6 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jzmedia.tv.data.JzApi
@@ -161,31 +162,38 @@ private object Posters {
 }
 
 @Composable
-fun Poster(api: JzApi, path: String, title: String, modifier: Modifier = Modifier) {
-    val bitmap by produceState<Bitmap?>(null, api, path) {
-        if (path.isBlank()) return@produceState
-        try {
-            val url = api.absoluteUrl(path)
-            value = Posters.cache.get(url) ?: withContext(Dispatchers.IO) {
-                val bytes = api.getBytes(path)
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                val options = BitmapFactory.Options().apply {
-                    inSampleSize = (maxOf(bounds.outWidth, bounds.outHeight) / 640).coerceAtLeast(1)
+fun Poster(api: JzApi, path: String, title: String, modifier: Modifier = Modifier, fallbackPosterPath: String = "",
+           posterPlaceholder: String = "") {
+    // A changed source gets fresh state in this composition, before the new load
+    // starts. Restarting produceState alone would retain the previous bitmap.
+    val bitmap by key(api, path, fallbackPosterPath) {
+        produceState<Bitmap?>(null) {
+            value = loadPosterWithFallback(path, fallbackPosterPath, onFailure = { attempt, error ->
+                // Do not log URLs, response messages or credentials.
+                Log.d("JzPoster", "Image attempt ${attempt + 1} failed (${error?.javaClass?.simpleName ?: "invalid image"})")
+            }) { candidate ->
+                val url = api.absoluteUrl(candidate)
+                Posters.cache.get(url) ?: withContext(Dispatchers.IO) {
+                    val bytes = api.getBytes(candidate)
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    val options = BitmapFactory.Options().apply {
+                        inSampleSize = (maxOf(bounds.outWidth, bounds.outHeight) / 640).coerceAtLeast(1)
+                    }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.also { Posters.cache.put(url, it) }
                 }
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.also { Posters.cache.put(url, it) }
             }
-        } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { /* Decorative image: retain its visible title fallback. */ }
+        }
     }
     Box(modifier.background(Panel, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
         if (bitmap != null) Image(bitmap!!.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else Text(title.take(2), style = MaterialTheme.typography.headlineLarge, color = Muted)
+        else Text(posterPlaceholder.ifBlank { title.take(2) }, style = MaterialTheme.typography.headlineLarge, color = Muted)
     }
 }
 
 @Composable
-fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifier = Modifier, subtitle: String = "") {
+fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifier = Modifier, subtitle: String = "",
+              fallbackPosterPath: String = "", posterPlaceholder: String = "") {
     val title = mediaTitle(row)
     Button(
         onClick = onClick, modifier = modifier.width(150.dp),
@@ -195,7 +203,8 @@ fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifi
             focusedContainerColor = Color.White, focusedContentColor = Color.Black),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Poster(api, posterPath(row), title, Modifier.fillMaxWidth().height(180.dp))
+            Poster(api, posterPath(row), title, Modifier.fillMaxWidth().height(180.dp),
+                fallbackPosterPath = fallbackPosterPath, posterPlaceholder = posterPlaceholder)
             Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall, modifier = Modifier.height(42.dp))
             Text(subtitle.ifBlank {
                 listOf(row.text("year"), row.text("vote_average").takeIf { it != "0" }.orEmpty(), if (row.optInt("watched") == 1) "已看" else "")
