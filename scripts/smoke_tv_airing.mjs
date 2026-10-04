@@ -41,7 +41,9 @@ function collection(id) {
       : collectionScenario === 'episode_review' ? 'match_review'
         : collectionScenario === 'partial_coverage' ? 'numbering_unresolved' : 'catalog_missing'
     Object.assign(season, { collection_state: 'uncertain', collection_reason: reason,
-      local_count: number === 1 ? 3 : 0, collected_count: number === 1 ? 1 : 2 })
+      local_count: number === 1 ? 3 : 0,
+      collected_count: collectionScenario === 'catalog_missing_local' ? 0 : number === 1 ? 1 : 2 })
+    if (collectionScenario === 'total_unknown') season.official_count = null
     if (number === 2) season.sources = [{ show_id: 901, library_id: 4, library_name: '修复版', season: 1, count: 2 }]
     data.missing_seasons = data.missing_seasons.filter(value => value !== number)
     if (number === 1) Object.assign(data.latest_episode, { collection_state: 'uncertain', collection_reason: reason })
@@ -193,7 +195,7 @@ try {
     assert.equal(await page.locator('.season-card').count(), 4)
     assert.ok(await page.getByText('特别篇（SP）', { exact: true }).count())
     assert.equal(await page.locator('.season-collection-badge').filter({ hasText: '未收藏' }).count(), 3)
-    await page.getByText('已收藏 3 / 8 集', { exact: true }).waitFor()
+    await page.getByText('已收藏 3/8 集', { exact: true }).waitFor()
     const gray = await page.locator('.season-uncollected-image').first().evaluate(el => getComputedStyle(el).filter)
     assert.match(gray, /grayscale/)
     await screenshot('show', 'tv-show', '虚构剧集详情：SP、部分收藏、未收藏正季与未播出新季；收藏范围为当前媒体库')
@@ -229,46 +231,59 @@ try {
     collectionScenario = 'catalog_missing'
     await go('/tv/201')
     const firstSeason = page.locator('.season-card:has(.season-card-main[href="/tv/201/s/1"])')
-    await firstSeason.getByText('已收藏 3 集', { exact: true }).waitFor()
+    await firstSeason.getByText('已确认收藏 1/8 集 · 本地 3 集', { exact: true }).waitFor()
     assert.equal(await firstSeason.locator('.season-collection-badge').count(), 0, 'Missing catalog must not claim a matching problem')
-    assert.doesNotMatch(await firstSeason.innerText(), /已收藏\s+\d+\s*\/|待核对|需确认|正在|处理中/)
+    assert.doesNotMatch(await firstSeason.innerText(), /已收藏\s+3\s*\/|待核对|需确认|正在|处理中/)
     await page.getByText(/进入「全部分集」可补充目录，无需重新匹配/).waitFor()
     assert.equal(await page.locator('.review-notice').count(), 0, 'Existing confirmed TMDB match remains confirmed')
     await screenshot('catalog-missing')
     await go('/tv/201/s/1')
-    await page.locator('.hero-heading').getByText('已收藏 3 集', { exact: true }).waitFor()
+    await page.locator('.hero-heading').getByText('已确认收藏 1/8 集 · 本地 3 集', { exact: true }).waitFor()
     await page.locator('.collection-explanation').getByText(/无需重新匹配/).waitFor()
     assert.equal(await page.getByRole('button', { name: '已收藏', exact: true }).getAttribute('aria-pressed'), 'true')
     assert.equal(requests.slice(collectionRequestsBefore).filter(request => request.path.endsWith('/seasons/1/catalog')).length, 0,
       'Viewing an existing local season must not fetch its full catalog automatically')
     await screenshot('local-catalog-missing')
-    pass('missing official catalog preserves known local collection without a review badge or fake progress')
+    pass('missing catalog compares only confirmed official coordinates while preserving local collection')
+
+    collectionScenario = 'catalog_missing_local'
+    await go('/tv/201')
+    await firstSeason.getByText('已收藏 3 集 · 官方 8 集', { exact: true }).waitFor()
+    assert.doesNotMatch(await firstSeason.innerText(), /已收藏\s+3\s*\//)
+    await screenshot('local-count-official-total')
+    await go('/tv/201/s/1')
+    await page.locator('.hero-heading').getByText('已收藏 3 集 · 官方 8 集', { exact: true }).waitFor()
+    collectionScenario = 'total_unknown'
+    await go('/tv/201')
+    await firstSeason.getByText('已收藏 3 集', { exact: true }).waitFor()
+    assert.doesNotMatch(await firstSeason.innerText(), /官方\s+\d+|已收藏\s+\d+\s*\//)
+    pass('known official totals remain visible without a false ratio and unknown totals stay omitted')
 
     collectionScenario = 'source_only'
     await go('/tv/201')
     const secondSeason = page.locator('.season-card:has(.season-card-main[href="/tv/201/s/2"])')
-    await secondSeason.getByText('已确认收藏 2 集', { exact: true }).waitFor()
+    await secondSeason.getByText('已确认收藏 2/8 集', { exact: true }).waitFor()
     assert.equal(await secondSeason.locator('.season-collection-badge').count(), 0)
     assert.doesNotMatch(await secondSeason.innerText(), /已收藏\s+\d+\s*\/|待核对|需确认/)
     assert.equal(await secondSeason.locator('.season-sources a[href="/tv/901/s/1"]').count(), 1)
     await go('/tv/201/s/2')
-    await page.locator('.hero-heading').getByText('已确认收藏 2 集', { exact: true }).waitFor()
+    await page.locator('.hero-heading').getByText('已确认收藏 2/8 集', { exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: /标记本季/ }).count(), 0)
     await screenshot('source-only-catalog-missing')
     pass('confirmed collection in another video library keeps its count and real local source')
 
     collectionScenario = 'episode_review'
     await go('/tv/201')
-    await firstSeason.getByText('已收藏 3 集', { exact: true }).waitFor()
+    await firstSeason.getByText('已确认收藏 1/8 集 · 本地 3 集', { exact: true }).waitFor()
     await firstSeason.locator('.season-collection-badge').getByText('分集匹配需确认', { exact: true }).waitFor()
-    await secondSeason.getByText('已收藏 0 / 8 集', { exact: true }).waitFor()
+    await secondSeason.getByText('已收藏 0/8 集', { exact: true }).waitFor()
     assert.equal(await secondSeason.locator('.season-collection-badge').innerText(), '未收藏')
     assert.doesNotMatch(await secondSeason.innerText(), /待核对|需确认|待对照/)
     assert.equal(await page.locator('.review-notice').count(), 0, 'One episode needing review must not unconfirm the whole show')
     await screenshot('episode-matching-review')
     await go('/tv/201/s/1')
     await page.locator('.collection-explanation').getByText(/部分分集匹配尚未确认/).waitFor()
-    await page.locator('.hero-heading').getByText('已收藏 3 集', { exact: true }).waitFor()
+    await page.locator('.hero-heading').getByText('已确认收藏 1/8 集 · 本地 3 集', { exact: true }).waitFor()
     await fit()
     collectionScenario = 'partial_coverage'
     await go('/tv/201')

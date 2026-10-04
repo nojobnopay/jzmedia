@@ -17,22 +17,40 @@ test('season cards merge metadata and local seasons without using legacy officia
   assert.deepEqual(rows.map(row => row.season), [0, 1, 2, 4])
   assert.equal(rows[1].name, '第一季')
   assert.equal(rows[1].local.distinct, 0)
-  assert.equal(collectionCountText(rows[0]), '已收藏 0 / 2 集')
-  assert.equal(collectionCountText(rows[1]), '收藏信息待补全')
-  assert.equal(collectionCountText(rows[2]), '已收藏 3 / 8 集')
+  assert.equal(collectionCountText(rows[0]), '已收藏 0/2 集')
+  assert.equal(collectionCountText(rows[1]), '收藏信息待补全 · 官方 12 集')
+  assert.equal(collectionCountText(rows[2]), '已收藏 3/8 集')
   assert.equal(rows[3].collected_count, 1)
   assert.equal(rows[3].local_count, 1)
   assert.equal(mergeTvSeasons([{ season: 1, total: 12, distinct: 0 }])[0].collected_count, 0)
 })
 
-test('uncertain ownership preserves local or confirmed counts without an unsupported official denominator', () => {
+test('uncertain ownership compares only confirmed official coordinates and preserves local counts separately', () => {
   const season = { collection_state: 'uncertain', collection_reason: 'catalog_missing', local_count: 12, collected_count: 3, official_count: 20 }
-  assert.equal(collectionCountText(season), '已收藏 12 集')
-  assert.equal(collectionCountText({ ...season, local_count: 0 }), '已确认收藏 3 集')
-  assert.equal(collectionCountText({ ...season, local_count: 0, collected_count: 0 }), '收藏信息待补全')
-  assert.equal(collectionCountText({ ...season, collection_reason: 'match_review' }), '已收藏 12 集')
+  assert.equal(collectionCountText(season), '已确认收藏 3/20 集 · 本地 12 集')
+  assert.equal(collectionCountText({ ...season, local_count: 0 }), '已确认收藏 3/20 集')
+  assert.equal(collectionCountText({ ...season, collected_count: 0 }), '已收藏 12 集 · 官方 20 集')
+  assert.equal(collectionCountText({ ...season, local_count: 0, collected_count: 0 }), '收藏信息待补全 · 官方 20 集')
+  assert.equal(collectionCountText({ ...season, collection_reason: 'match_review' }), '已确认收藏 3/20 集 · 本地 12 集')
   assert.equal(collectionCountText({ ...season, collection_state: 'collected', official: false, collected_count: 0 }), '已收藏 12 集')
+  assert.equal(collectionCountText({ ...season, collection_reason: 'show_unconfirmed' }), '已收藏 12 集')
+  assert.equal(collectionCountText({ ...season, official_count: null }), '已收藏 12 集')
   assert.equal(collectionCountText({ collection_state: 'collected', collected_count: 3, official_count: null }), '已收藏 3 集', 'older responses without official remain compatible')
+})
+
+test('unknown or invalid official totals never become a denominator', () => {
+  for (const official_count of [undefined, null, '', 0, -1, 2.5, 'unknown']) {
+    assert.equal(collectionCountText({ collection_state: 'collected', collected_count: 3, official_count }), '已收藏 3 集')
+  }
+  assert.equal(collectionCountText({ collection_state: 'uncollected', collected_count: 0, official_count: '8' }), '已收藏 0/8 集')
+  assert.equal(collectionCountText({ collection_state: 'collected', collected_count: 8, official_count: 8 }), '已收藏 8/8 集')
+})
+
+test('a stale show total cannot produce a collection ratio greater than one', () => {
+  const season = { collection_state: 'collected', collected_count: 9, official_count: 8 }
+  assert.equal(collectionCountText(season), '已收藏 9 集 · 总数待更新')
+  assert.equal(collectionCountText({ ...season, collection_state: 'uncertain', collection_reason: 'catalog_missing', local_count: 12 }),
+    '已确认收藏 9 集 · 总数待更新 · 本地 12 集')
 })
 
 test('collection reasons distinguish missing metadata from numbering and match questions', () => {
@@ -50,7 +68,7 @@ test('collection reasons distinguish missing metadata from numbering and match q
   const coverage = { ...season, collection_reason: 'coverage_incomplete', local_count: 3, official_count: 12 }
   assert.equal(collectionLabel(coverage), '收藏范围暂未确定')
   assert.equal(collectionBadge(coverage), '')
-  assert.equal(collectionCountText(coverage), '已收藏 3 集')
+  assert.equal(collectionCountText(coverage), '已收藏 3 集 · 官方 12 集')
   assert.equal(collectionExplanation(coverage), '本剧部分分集的对应范围尚未确定，暂不判断这些季是否缺集。')
 })
 

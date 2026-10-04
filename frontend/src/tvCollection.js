@@ -37,17 +37,27 @@ export function airingLabel(value) {
 }
 
 export function collectionCountText(value) {
+  const official = Number(value?.official_count)
+  const hasOfficial = value?.official !== false && !!value?.collection_state
+    && value.collection_reason !== 'show_unconfirmed' && Number.isInteger(official) && official > 0
+  const confirmed = Math.max(0, Number(value?.collected_count) || 0)
+  // Season catalogs can be fresher than the show's independently cached total.
+  const confirmedText = hasOfficial && confirmed <= official ? `${confirmed}/${official} 集`
+    : `${confirmed} 集${hasOfficial ? ' · 总数待更新' : ''}`
   if (!value || value.collection_state === 'uncertain' || !value.collection_state || value.official === false) {
     const local = Math.max(0, Number(value?.local_count) || 0)
-    const confirmed = Math.max(0, Number(value?.collected_count) || 0)
-    if (local > 0) return `已收藏 ${local} 集`
+    // Confirmed counts use official coordinates. A local season may span or map
+    // to different official seasons, so its count cannot form that same ratio.
+    if (hasOfficial && confirmed > 0) {
+      const localText = local > confirmed ? ` · 本地 ${local} 集` : ''
+      return `已确认收藏 ${confirmedText}${localText}`
+    }
+    const officialText = hasOfficial ? ` · 官方 ${official} 集` : ''
+    if (local > 0) return `已收藏 ${local} 集${officialText}`
     if (confirmed > 0) return `已确认收藏 ${confirmed} 集`
-    return '收藏信息待补全'
+    return `收藏信息待补全${officialText}`
   }
-  const count = Math.max(0, Number(value.collected_count) || 0)
-  const official = Number(value.official_count)
-  return value.official_count != null && Number.isFinite(official) && official > 0
-    ? `已收藏 ${count} / ${official} 集` : `已收藏 ${count} 集`
+  return `已收藏 ${confirmedText}`
 }
 
 export function checkedTime(value) {

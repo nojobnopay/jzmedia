@@ -81,7 +81,7 @@ test('show cards include SP and uncollected seasons only after the collection sn
   assert.match(ui.text(), /特别篇（SP）/)
   assert.match(ui.text(), /未收藏/)
   assert.match(ui.text(), /尚未播出/)
-  assert.match(ui.text(), /已收藏 8 \/ 12 集/)
+  assert.match(ui.text(), /已收藏 8\/12 集/)
   assert.ok(ui.find(node => node.type === 'a' && node.props.href === '/tv/41/s/2'))
   assert.ok(ui.find(node => node.type === 'a' && node.props.href === '/tv/82/s/3'))
   assert.ok(ui.find(node => node.type === 'img' && node.props.class === 'season-uncollected-image'))
@@ -104,11 +104,11 @@ test('missing official catalogs retain local counts without warning badges and e
   snapshot.seasons.push({ season: 3, name: '第三季', local_count: 0, collected_count: 5, official_count: 12, collection_state: 'uncertain', collection_reason: 'catalog_missing', sources: snapshot.seasons[1].sources })
   snapshot.latest_episode = { season: 1, episode: 8, airing_state: 'aired', collection_state: 'uncertain', collection_reason: 'catalog_missing' }
   const ui = await page(t, 'TvShow', path => path.endsWith('/collection') ? snapshot : undefined)
-  assert.match(ui.text(), /已收藏 2 集/)
-  assert.match(ui.text(), /已收藏 3 集/)
-  assert.match(ui.text(), /已确认收藏 5 集/)
+  assert.match(ui.text(), /已收藏 2 集 · 官方 2 集/)
+  assert.match(ui.text(), /已收藏 3 集 · 官方 12 集/)
+  assert.match(ui.text(), /已确认收藏 5\/12 集/)
   assert.match(ui.text(), /最近播出 S01E08.*资料待补全/)
-  assert.doesNotMatch(ui.text(), /待核对|编号待对照|匹配需确认|已收藏 3 \/|已确认收藏 5 \/|后台正在/)
+  assert.doesNotMatch(ui.text(), /待核对|编号待对照|匹配需确认|已收藏 3\s*\/|后台正在/)
   const notes = ui.all().filter(node => node.type === 'p' && String(node.props.class).includes('collection-explanation'))
   assert.equal(notes.length, 1)
   assert.match(nodeText(notes[0]), /进入「全部分集」可补充目录，无需重新匹配/)
@@ -127,7 +127,7 @@ test('only seasons with actual numbering or match questions display their specif
   assert.deepEqual(badges, ['分集编号待对照', '分集匹配需确认', '未收藏'])
   assert.match(ui.text(), /查看本季分集编号与官方目录的对应关系/)
   assert.match(ui.text(), /查看本季分集的匹配信息/)
-  assert.match(ui.text(), /已收藏 3 集/)
+  assert.match(ui.text(), /已确认收藏 8\/12 集/)
   assert.doesNotMatch(ui.text(), /待核对|冲突/)
 })
 
@@ -175,11 +175,11 @@ test('refreshing the same show reloads collection once after local data changes'
     return snapshot
   })
   assert.equal(reads, 1, 'initial identity watch performs one read')
-  assert.match(ui.text(), /已收藏 8 \/ 12 集/)
+  assert.match(ui.text(), /已收藏 8\/12 集/)
   await button(ui, '标记整剧已看').props.onClick()
   await flush()
   assert.equal(reads, 2, 'same-identity reload refreshes ownership without duplicate reads')
-  assert.match(ui.text(), /已收藏 9 \/ 12 集/)
+  assert.match(ui.text(), /已收藏 9\/12 集/)
 })
 
 test('a freshly loaded catalog updates the season summary without another snapshot request', async t => {
@@ -191,12 +191,12 @@ test('a freshly loaded catalog updates the season summary without another snapsh
     }
     if (path.endsWith('/catalog')) return { ...catalog, official_count: 12, collected_count: 8, collection_state: 'collected', airing_state: 'aired' }
   })
-  assert.match(ui.text(), /已收藏 3 集/)
+  assert.match(ui.text(), /已收藏 3 集 · 官方 12 集/)
   assert.match(ui.text(), /无需重新匹配/)
   button(ui, '全部分集').props.onClick()
   await flush()
   assert.doesNotMatch(ui.text(), /收藏信息待补全|无需重新匹配/)
-  assert.match(ui.text(), /已收藏 8 \/ 12 集/)
+  assert.match(ui.text(), /已收藏 8\/12 集/)
   assert.equal(ui.requests.filter(request => request.path.endsWith('/collection')).length, 1)
 })
 
