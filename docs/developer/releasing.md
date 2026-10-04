@@ -1,5 +1,5 @@
 ---
-version: 0.20.0
+version: 0.20.1
 reviewed: 2026-10-04
 ---
 
@@ -93,6 +93,34 @@ docker save -o output/releases/vX.Y.Z/jzmedia-vX.Y.Z.tar jzmedia:vX.Y.Z
 交付 APK 时一并提供其校验文件和统一清单，并注明它是 Debug 试装包。覆盖安装前核对新旧 APK 签名；不同电脑的 Debug 密钥可能不同，升版不能解决签名不一致。详细安装与签名检查见仓库 `android-tv/docs/releasing.md`。
 
 构建与自动检查通过只证明本次产物完成，不证明电视解码、HDR、音轨和遥控器行为已验收。在交付说明中单独记录实际测试设备、兼容服务器／协议、已测场景与限制。
+
+## 补发 GHCR 镜像
+
+统一构建完成后，可将已验证的同一镜像补发到 `ghcr.io/nojobnopay/jzmedia`。先将本地镜像 ID、版本与提交标签同 `manifest.json` 核对；补发只增加分发入口，不重新构建、不改 Git 发行标签，也不替换 Release 镜像归档。
+
+在已登录 GHCR、具备该包写入权限的构建机操作，用实际版本替换 `X.Y.Z`：
+
+```bash
+docker tag jzmedia:vX.Y.Z ghcr.io/nojobnopay/jzmedia:vX.Y.Z
+docker push ghcr.io/nojobnopay/jzmedia:vX.Y.Z
+```
+
+个人账户首次发布的 GHCR 包默认为 Private，命令行推送也不会自动关联同名源码仓库。首次推送成功后，在 GitHub 网页完成以下设置：
+
+1. 打开个人主页的 **Packages**，选择 `jzmedia` 包，在版本列表下点击 **Connect repository**，选择 `nojobnopay/jzmedia` 并确认关联。见 [GitHub 关联仓库说明](https://docs.github.com/en/packages/learn-github-packages/connecting-a-repository-to-a-package#connecting-a-repository-to-a-user-scoped-package-on-github)。
+2. 打开 **Package settings → Danger Zone → Change visibility**，选择 **Public**，按页面提示输入包名并确认。包的可见性独立于源码仓库，关联公开仓库不能代替这一步；见 [GitHub 个人包可见性说明](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility#configuring-visibility-of-packages-for-your-personal-account)。
+3. 在未登录环境确认版本标签可拉取，核对拉回镜像的 ID、平台及 OCI 版本／提交与统一清单一致。
+
+当前预构建平台为 `linux/amd64`；已有版本标签须保持相同镜像内容，不能覆盖为另一构建。
+
+版本标签通过核对后，再让 `latest` 指向同一镜像：
+
+```bash
+docker tag jzmedia:vX.Y.Z ghcr.io/nojobnopay/jzmedia:latest
+docker push ghcr.io/nojobnopay/jzmedia:latest
+```
+
+**预期结果：**版本标签与 `latest` 的远端摘要一致，版本标签可公开拉取，镜像身份仍对应原发行清单。随后更新发行说明中的在线获取入口；用户安装步骤见[从 GHCR 拉取镜像](../getting-started/deployment.md#从-ghcr-拉取镜像)。`scripts/release.py build` 仍只负责本地统一构建与验证，GHCR 推送由维护者单独执行。
 
 ## 构建失败与重试
 

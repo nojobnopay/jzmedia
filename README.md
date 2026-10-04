@@ -16,7 +16,7 @@ reviewed: 2026-10-04
 
 ## 快速开始
 
-从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载源码归档、Linux amd64 Docker 镜像归档或可安装的 Android TV Debug APK。
+从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载源码归档、Linux amd64 Docker 镜像归档或可安装的 Android TV Debug APK，也可按[在线拉取镜像](docs/getting-started/deployment.md#从-ghcr-拉取镜像)从 GHCR 获取 Docker 镜像。
 
 跟随[安装教程](docs/getting-started/deployment.md)部署。服务启动后访问 `http://服务器地址:8080`，点击空库欢迎卡片“开始配置”，按[首次入库图解](docs/user-guide/onboarding.md)完成配置和试播。
 

@@ -53,7 +53,7 @@
 
 ### DockerHub 镜像获取说明
 
-**状态：待补充 · 等待维护者上传镜像。** 当前 jzmedia 尚未发布到 DockerHub；[安装教程](../getting-started/deployment.md#docker-部署)仅提供从源码构建或加载镜像文件，再用 Compose / `docker run` 启动的流程。
+**状态：待补充 · 等待维护者上传镜像。** 当前 jzmedia 尚未发布到 DockerHub；[安装教程](../getting-started/deployment.md#docker-部署)提供从源码构建或加载镜像文件，再用 Compose / `docker run` 启动的流程。
 
 **完成条件：** 维护者上传并确认仓库地址、版本标签和支持架构后，核对实际拉取与启动结果，在安装教程的“准备 Docker 镜像”中补充 DockerHub 拉取方式，并同步升级、排障和公开获取入口。上传前不提供假定可用的 `docker pull` 命令或仓库地址。
 

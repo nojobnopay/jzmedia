@@ -11,10 +11,10 @@ reviewed: 2026-10-04
 
 | 运行方案 | 准备方式 | 启动方式 |
 |---|---|---|
-| Docker 容器 | 从源码构建镜像，或加载已有镜像文件 | 使用 Compose 配置文件，或执行 `docker run` |
+| Docker 容器 | 在线拉取、加载镜像文件或从源码构建 | 使用 Compose 配置文件，或执行 `docker run` |
 | Linux / WSL 直接运行 | 准备源码及宿主 Python、Node.js、FFmpeg 环境 | 执行 `./start.sh` |
 
-Docker 部署分为两个步骤：先把镜像准备到 Docker 中，再用镜像创建并启动容器。源码构建和加载镜像文件都属于镜像获取方式，两者都能配合 Compose 或 `docker run` 使用。Compose 将启动参数写在 YAML 文件里；本仓库使用的文件名是 `docker-compose.yml`。
+Docker 部署分为两个步骤：先把镜像准备到 Docker 中，再用镜像创建并启动容器。在线拉取、加载镜像文件和源码构建都属于镜像获取方式，都能配合 Compose 或 `docker run` 使用。Compose 将启动参数写在 YAML 文件里；本仓库使用的文件名是 `docker-compose.yml`。
 
 NAS 是部署设备，使用 Docker/Container Manager 时仍按 Docker 流程操作，另见 [NAS 路径与权限说明](#nas-部署)。Linux/WSL 也可以运行 Docker；下文的“直接运行源码”特指在宿主上运行应用、不使用容器的独立方案。
 
@@ -29,11 +29,11 @@ NAS 是部署设备，使用 Docker/Container Manager 时仍按 Docker 流程操
 
 镜像包含服务端、网页、帮助站和 FFmpeg，运行容器无需在宿主另装 Python、Node.js 或 FFmpeg。以下命令在部署目录执行；选择源码构建时，该目录就是项目根目录。
 
-源码归档、预构建的 Linux amd64 镜像归档与对应配置可从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载。目前 jzmedia 尚未发布到 DockerHub；请选择下面的源码构建或镜像文件加载。
+源码归档、预构建的 Linux amd64 镜像归档与对应配置可从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载。Docker 镜像也可从 `ghcr.io/nojobnopay/jzmedia` 在线拉取；Release 镜像归档仍可用于离线导入。目前 jzmedia 尚未发布到 DockerHub。
 
 ### Step 1：准备部署配置与目录
 
-源码构建可下载 Release 的 `Source code` 归档并解压为完整项目；加载镜像文件则下载 `jzmedia-vX.Y.Z-linux-amd64.tar.gz`，使用 Compose 时再下载同版本的 `docker-compose.yml`。`X.Y.Z` 替换为实际版本号；预构建镜像适用于 Linux amd64，其他架构需自行构建。将所需文件放到部署目录，在终端进入该目录。默认安装无需创建或复制 `.env`：
+源码构建可下载 Release 的 `Source code` 归档并解压为完整项目；加载镜像文件则下载 `jzmedia-vX.Y.Z-linux-amd64.tar.gz`；在线拉取无需下载镜像归档。拉取或加载镜像后使用 Compose 时，下载同版本的 `docker-compose.yml`。`X.Y.Z` 替换为实际版本号；预构建镜像适用于 Linux amd64，其他架构需自行构建。将所需文件放到部署目录，在终端进入该目录。默认安装无需创建或复制 `.env`：
 
 ```bash
 mkdir -p media data
@@ -64,7 +64,22 @@ volumes:
 
 ### Step 2：准备 Docker 镜像
 
-下面两种方式任选一种。完成后，镜像应位于准备启动容器的同一个 Docker Engine 中。
+下面三种方式任选一种。完成后，镜像应位于准备启动容器的同一个 Docker Engine 中。
+
+#### 从 GHCR 拉取镜像
+
+在 Linux amd64 设备上执行：
+
+```bash
+docker pull ghcr.io/nojobnopay/jzmedia:v0.20.1
+docker image ls ghcr.io/nojobnopay/jzmedia
+```
+
+**预期结果：**本地镜像列表包含 `ghcr.io/nojobnopay/jzmedia:v0.20.1`。若拉取失败，检查网络和标签，或使用下方的 Release 镜像归档。
+
+Compose 启动前将 `services.mymedia.image` 改为 `ghcr.io/nojobnopay/jzmedia:v0.20.1`；`docker run` 同样使用这个完整镜像名，再按 Step 3 启动。只修改 `APP_VERSION` 不会把原有 `jzmedia` 仓库名改为 GHCR 地址。
+
+`ghcr.io/nojobnopay/jzmedia:latest` 跟随最新发布镜像；固定部署建议选择明确版本标签。在线镜像与对应 Release 归档使用同一发行镜像，均为 `linux/amd64`。
 
 #### 从源码构建
 
@@ -110,9 +125,9 @@ docker compose -f docker-compose.yml ps
 docker compose -f docker-compose.yml logs --tail=100 mymedia
 ```
 
-**预期结果：**`mymedia` 服务的容器处于运行状态，日志没有持续重启或权限错误。`--no-build --pull never` 让启动使用上一步已准备的本地镜像；若报镜像不存在，核对载入/构建的标签与 Compose 的 `image`，再重试。参数含义见 [Docker Compose 命令参考](https://docs.docker.com/reference/cli/docker/compose/up/)。
+**预期结果：**`mymedia` 服务的容器处于运行状态，日志没有持续重启或权限错误。`--no-build --pull never` 让启动使用上一步已准备的本地镜像；若报镜像不存在，核对拉取/载入/构建的标签与 Compose 的 `image`，再重试。参数含义见 [Docker Compose 命令参考](https://docs.docker.com/reference/cli/docker/compose/up/)。
 
-生产部署始终显式指定 `-f docker-compose.yml`，不加载本机开发用的 override 文件。源码构建需要完整项目，加载镜像后的启动只需配置文件和挂载目录。
+生产部署始终显式指定 `-f docker-compose.yml`，不加载本机开发用的 override 文件。源码构建需要完整项目，拉取或加载镜像后的启动只需配置文件和挂载目录。
 
 <span id="docker-run"></span>
 
@@ -168,7 +183,7 @@ services:
       - "${DATA_HOST_PATH:-./data}:/app/data"
 ```
 
-`!override` 完整替换卷列表，避免新的 `/app/media` 映射一并合入；已有额外映射需一并列入。此写法需要 Docker Compose 2.24.4 或更新版本，见 [Docker 合并规则](https://docs.docker.com/reference/compose-file/merge/#replace-value)。先按上文构建或加载镜像并对齐标签，再执行：
+`!override` 完整替换卷列表，避免新的 `/app/media` 映射一并合入；已有额外映射需一并列入。此写法需要 Docker Compose 2.24.4 或更新版本，见 [Docker 合并规则](https://docs.docker.com/reference/compose-file/merge/#replace-value)。先按上文准备镜像并对齐完整镜像名，再执行：
 
 ```bash
 docker compose -f docker-compose.yml -f compose.media-legacy.yml config --quiet
@@ -183,7 +198,7 @@ docker compose -f docker-compose.yml -f compose.media-legacy.yml up -d --no-buil
 
 具有 Docker/Container Manager 的 NAS 使用上面的 Docker 部署流程。以下补充 NAS 的目录、权限与操作入口：
 
-1. 建立部署目录，例如 `/volume1/docker/jzmedia`。选择源码构建时放完整源码；选择加载镜像时导入适合 NAS 架构的镜像文件，并准备对应的配置模板。首次安装不要把开发机的 `.env`、数据库、缓存或开发 override 文件一并复制；已有实例迁移按[备份与迁移](operations.md)操作。
+1. 建立部署目录，例如 `/volume1/docker/jzmedia`。选择源码构建时放完整源码；选择预构建镜像时按上文拉取或导入适合 NAS 架构的镜像，并准备对应的配置模板。首次安装不要把开发机的 `.env`、数据库、缓存或开发 override 文件一并复制；已有实例迁移按[备份与迁移](operations.md)操作。
 2. 在 Compose 文件、`docker run` 参数或 NAS 界面中填写实际宿主目录，如媒体 `/volume1/video`、数据 `/volume1/docker/jzmedia/data`，无需另建 `.env`。
 3. 确认容器运行用户的 UID/GID 对这些目录有相应权限；若报 Permission denied，修正目标目录的属主/ACL，不要直接递归修改整块媒体盘的权限。
 4. 使用 NAS 的 Compose 项目管理界面或上面的 `docker compose` / `docker run` 命令启动。界面中也需选择已准备的本地镜像，并核对端口、目录、用户与设备映射；当前不要选择从 DockerHub 下载 jzmedia。
