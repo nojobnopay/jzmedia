@@ -5,11 +5,79 @@ reviewed: 2026-10-04
 
 # 同步发布 Docker 镜像与 APK
 
-从同一个 Git 提交构建 jzmedia 镜像与 Android TV APK，并生成可追溯的交付清单。两端共用仓库根 `version.properties` 的版本，统一入口为 `scripts/release.py`。默认 APK 是可安装的 Debug 试装包；真机兼容性仍需单独验收。
+推送发行标签后，GitHub Actions 从该提交完成全部检查，同步构建 Docker 镜像与 Android TV APK，再发布到 GHCR 和 GitHub Releases。两端共用仓库根 `version.properties` 的版本，云端与本机均复用 `scripts/release.py`。默认 APK 是可安装的 Debug 试装包；真机兼容性仍需单独验收。
 
 普通部署按[安装教程](../getting-started/deployment.md)操作。日常前端、后端和 Android 开发保留各自命令；本页用于一次同步交付两个产物。
 
 ## 完成一次统一发布
+
+<span id="cloud-signing"></span>
+
+### Step 1：配置云端签名与权限（首次一次）
+
+工作流为仓库 `.github/workflows/release.yml`，在 GitHub 的 **Actions → Release** 查看。先在 **Settings → Secrets and variables → Actions** 配置：
+
+| 类型与名称 | 内容 |
+| --- | --- |
+| Secret：`JZMEDIA_ANDROID_DEBUG_KEYSTORE_BASE64` | 已交付 Debug APK 使用的原 `debug.keystore`，编码为无换行的标准 Base64 |
+| Variable：`JZMEDIA_ANDROID_DEBUG_CERT_SHA256` | 原签名证书 SHA-256，64 位小写十六进制 |
+
+当前已交付证书指纹为 `606d6cafb3e63bd2d4c7ebcb6578bd893a8650ddb0f86dc5d65f96fdf9b5d2a5`。使用原密钥以延续覆盖升级能力；缺少配置或指纹不符时构建会失败，不自动生成替代签名。密钥与 Base64 内容只保存到 Secret，不提交源码、日志或发行附件；签名核对见仓库 `android-tv/docs/releasing.md`。
+
+工作流自动使用 `GITHUB_TOKEN`，无需额外 PAT。`prepare` 为识别发布草稿具有 `contents: write`，`build` 仅有 `contents: read`，`publish` 具有 `contents: write` 与 `packages: write`。已有 GHCR 包须关联 `nojobnopay/jzmedia`、允许该仓库 Actions 写入，并设为 Public；设置入口见[包的公开与关联步骤](#ghcr-package-settings)。
+
+<span id="release-tag"></span>
+
+### Step 2：确定版本并推送标签
+
+每次交付内容变化，同时提高发行版本与 Android `versionCode`。修复升 patch、新功能升 minor、破坏性变更升 major；`0.x` 阶段的破坏性变更升 minor 并说明兼容影响。Android code 全局递增，不按日期编码或随主版本重置。
+
+在本地仓库使用实际版本替换 `X.Y.Z`，使用高于已交付值的整数替换 `N`；例如 `0.20.1`／code 13 的下一次修复发行可用 `0.20.2`／code 14：
+
+```bash
+python3 scripts/release.py version X.Y.Z --android-code N
+python3 scripts/release.py check
+git status --short
+```
+
+审阅并提交本次源码、同步的版本文件和相关文档，使工作树干净。随后将以下 `X.Y.Z` 换成同一版本：
+
+```bash
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git push origin main
+git push origin vX.Y.Z
+```
+
+**预期结果：**GitHub **Actions → Release** 出现对应标签的运行记录。工作流只对版本标签推送发布；普通分支推送不发布。脚本要求标签严格为 `vX.Y.Z`、版本与根文件一致、检出的提交与远端标签一致。云端不自动升版，也不创建或移动 Git 标签。
+
+### Step 3：查看云端检查与构建
+
+`prepare` 先校验标签、源码和现有 Release。随后 `build` 在 GitHub 托管的 Ubuntu runner 上恢复并核验固定 Debug 签名，调用 `scripts/release.py build`，完成[本机构建所列的全部检查](#local-build-checks)、Docker 与 APK 构建以及隔离容器启动验证。本地电脑无需为这次云端构建安装 Docker 或 Android SDK。
+
+构建通过后，`scripts/github_release.py package` 生成八个发行文件，保存为 Actions artifact **release-bundle-运行次数**，保留 14 天。独立的 `publish` job 使用 `build` 输出的准确名称下载同一 bundle，逐项核验哈希、源码身份、镜像和 APK 签名；先保存完整 Release 草稿附件，再推送 GHCR 版本标签，确认匿名可读的镜像清单，公开 Release，最后更新 `latest`。
+
+只想检验云端环境时，在 **Actions → Release → Run workflow** 选择待验证分支。手动运行使用 `build --validate-only`，仍执行全部检查与两端构建，但不发布镜像、Release 或 APK，也不更新 Git／镜像版本标签；仅上传诊断日志。
+
+### Step 4：核对发布结果
+
+**预期结果：**`prepare`、`build` 与 `publish` 均成功，GitHub Releases 出现 `vX.Y.Z`；GHCR 的 `ghcr.io/nojobnopay/jzmedia:vX.Y.Z` 与 `latest` 指向同一 `linux/amd64` 镜像。
+
+Release 包含八个附件；GitHub 自动提供的源码归档不计入其中：
+
+| 文件 | 用途 |
+| --- | --- |
+| `jzmedia-vX.Y.Z-linux-amd64.tar.gz` | Docker 镜像归档，保留完整 GHCR 版本标签 |
+| `docker-compose.yml` | 移除源码构建段，并固定完整 GHCR 镜像名 |
+| `jzmedia-tv-X.Y.Z-debug.apk` | 固定 Debug 签名的可安装试装包 |
+| 同名 `.apk.sha256`、`.apk.json` | APK 校验值、源码及签名信息 |
+| `manifest.json` | 两端统一版本、完整提交、镜像 ID、APK 哈希和签名类别 |
+| `SHA256SUMS`、`LICENSE` | 除校验清单自身以外七个文件的 SHA-256 校验值与项目许可证 |
+
+核对发行清单中的源码提交、版本和镜像身份；安装使用[部署教程](../getting-started/deployment.md)。自动化成功不代表电视真机验收通过，设备、兼容场景和限制仍须在发行说明单独记录。
+
+## 在本机完成统一构建
+
+本机流程用于开发验证或维护者手工交付，使用与云端相同的检查和构建入口；它本身不发布 GHCR 或 GitHub Release。
 
 ### Step 1：准备构建环境
 
@@ -24,21 +92,13 @@ python3 scripts/release.py check
 
 **预期结果：** `check` 报告各端版本与根版本源一致。它只核对版本，不代替测试或构建。
 
-### Step 2：确定版本并提交源码
+### Step 2：准备干净源码
 
-每次交付内容发生变化，同时提高发行版本 `versionName` 与 Android `versionCode`。修复升 patch、新功能升 minor、破坏性变更升 major；`0.x` 阶段的破坏性变更升 minor 并说明兼容影响。Android code 全局递增，不按日期编码或随主版本重置。
-
-用实际版本号替换 `X.Y.Z`，用大于最近交付值的整数替换 `N`：
-
-```bash
-python3 scripts/release.py version X.Y.Z --android-code N
-python3 scripts/release.py check
-git status --short
-```
-
-审阅并提交源码、同步的版本文件及相关文档。根 `version.properties` 是唯一手工维护的版本源；不要分别修改各端版本来消除报错。本地重复开发构建不需要升版。
+按上文[版本与提交步骤](#release-tag)准备本次源码；仅在本机构建时无需推送标签。根 `version.properties` 是唯一手工维护的版本源；不要分别修改各端版本来消除报错。本地重复开发验证使用 `--validate-only`，无需为检查而升版。
 
 **预期结果：** 待发布源码已进入同一个 Git 提交，工作树干净。`build` 会拒绝未提交或未跟踪的源码；被忽略的依赖缓存与输出目录不属于发行源码。
+
+<span id="local-build-checks"></span>
 
 ### Step 3：同步检查并构建
 
@@ -57,6 +117,7 @@ python3 scripts/release.py build
 | 选项 | 用途 |
 | --- | --- |
 | `--python 路径` | 指定运行项目验证的 Python，例如 `.venv/bin/python` |
+| `--validate-only` | 完成检查与两端构建，保留验证输出，不更新发行目录或 Git／镜像版本标签 |
 | `--offline` | 让 Android Gradle 使用已有依赖缓存 |
 | `--build-proxy URL` | 临时覆盖 Docker 构建代理，不修改 `.env` |
 
@@ -64,15 +125,7 @@ python3 scripts/release.py build
 
 ### Step 4：核对并交付
 
-打开打印出的目录，核对文件：
-
-| 文件 | 用途 |
-| --- | --- |
-| `jzmedia-tv-X.Y.Z-debug.apk` | 默认的可安装 Debug 试装包 |
-| 同名 `.apk.sha256`、`.apk.json` | APK 校验值、源码及签名信息 |
-| `manifest.json` | 两端统一版本、完整提交、镜像 ID、APK SHA-256 与签名类别 |
-
-Docker 镜像保存在所连接的 Docker Engine 中，交付目录不包含镜像文件。可在 Docker Desktop 的 Images 页面查看标签，或运行：
+打开打印出的目录，核对 APK、同名 `.apk.sha256`／`.apk.json` 和 `manifest.json`。本机构建不会自动打包云端的八个附件，Docker 镜像保存在所连接的 Docker Engine 中。可在 Docker Desktop 的 Images 页面查看标签，或运行：
 
 ```bash
 docker image inspect jzmedia:vX.Y.Z --format '{{.Id}} {{json .Config.Labels}}'
@@ -96,7 +149,7 @@ docker save -o output/releases/vX.Y.Z/jzmedia-vX.Y.Z.tar jzmedia:vX.Y.Z
 
 ## 补发 GHCR 镜像
 
-统一构建完成后，可将已验证的同一镜像补发到 `ghcr.io/nojobnopay/jzmedia`。先将本地镜像 ID、版本与提交标签同 `manifest.json` 核对；补发只增加分发入口，不重新构建、不改 Git 发行标签，也不替换 Release 镜像归档。
+以下手工入口适用于已有发行产物；正常标签发布由 Actions 自动完成。统一构建完成后，可将已验证的同一镜像补发到 `ghcr.io/nojobnopay/jzmedia`。先将本地镜像 ID、版本与提交标签同 `manifest.json` 核对；补发只增加分发入口，不重新构建、不改 Git 发行标签，也不替换 Release 镜像归档。
 
 在已登录 GHCR、具备该包写入权限的构建机操作，用实际版本替换 `X.Y.Z`：
 
@@ -105,7 +158,9 @@ docker tag jzmedia:vX.Y.Z ghcr.io/nojobnopay/jzmedia:vX.Y.Z
 docker push ghcr.io/nojobnopay/jzmedia:vX.Y.Z
 ```
 
-个人账户首次发布的 GHCR 包默认为 Private，命令行推送也不会自动关联同名源码仓库。首次推送成功后，在 GitHub 网页完成以下设置：
+<span id="ghcr-package-settings"></span>
+
+个人账户首次发布的 GHCR 包默认为 Private。新镜像包含指向源码仓库的 `org.opencontainers.image.source` 标签；旧镜像或尚未关联的包可通过网页关联。首次推送成功后，在 GitHub 网页核对以下设置：
 
 1. 打开个人主页的 **Packages**，选择 `jzmedia` 包，在版本列表下点击 **Connect repository**，选择 `nojobnopay/jzmedia` 并确认关联。见 [GitHub 关联仓库说明](https://docs.github.com/en/packages/learn-github-packages/connecting-a-repository-to-a-package#connecting-a-repository-to-a-user-scoped-package-on-github)。
 2. 打开 **Package settings → Danger Zone → Change visibility**，选择 **Public**，按页面提示输入包名并确认。包的可见性独立于源码仓库，关联公开仓库不能代替这一步；见 [GitHub 个人包可见性说明](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility#configuring-visibility-of-packages-for-your-personal-account)。
@@ -120,9 +175,21 @@ docker tag jzmedia:vX.Y.Z ghcr.io/nojobnopay/jzmedia:latest
 docker push ghcr.io/nojobnopay/jzmedia:latest
 ```
 
-**预期结果：**版本标签与 `latest` 的远端摘要一致，版本标签可公开拉取，镜像身份仍对应原发行清单。随后更新发行说明中的在线获取入口；用户安装步骤见[从 GHCR 拉取镜像](../getting-started/deployment.md#从-ghcr-拉取镜像)。`scripts/release.py build` 仍只负责本地统一构建与验证，GHCR 推送由维护者单独执行。
+**预期结果：**版本标签与 `latest` 的远端摘要一致，版本标签可公开拉取，镜像身份仍对应原发行清单。随后更新发行说明中的在线获取入口；用户安装步骤见[从 GHCR 拉取镜像](../getting-started/deployment.md#从-ghcr-拉取镜像)。本地 `scripts/release.py build` 只负责统一构建与验证；Actions 通过 `scripts/github_release.py publish` 完成远端发布。
 
 ## 构建失败与重试
+
+云端从失败步骤和已有产物判断恢复方式：
+
+- **签名配置缺失或不符：** 修正原 Debug 密钥 Secret 或证书 Variable，不能通过更换签名绕过。密钥恢复在构建前验证。
+- **`build` 失败且尚无发布草稿：** 查看运行日志和 `release-logs-运行次数` artifact，修正环境后可重跑失败 job；需要改变源码时使用新提交和新版本。
+- **`publish` 失败：** 在同一次 Actions 运行选择 **Re-run failed jobs**，复用成功 `build` 指定的 `release-bundle-运行次数`。已有草稿时不要选 **Re-run all jobs**，重新构建会改变产物，脚本会拒绝。
+- **GHCR 匿名检查失败：** 核对包已设为 Public、关联仓库及 Actions 权限，再重跑失败 job；此时草稿附件与固定版本镜像可能已保存，尚未进入后续公开或 `latest` 步骤。
+- **bundle 超过 14 天或已删除：** 保留现有发行产物并核对草稿状态，不覆盖已有同版本文件；无法恢复原 bundle 时按新版本重新发布。
+
+已经公开且提交、版本一致的 Release 再次触发时，预检查直接结束，不重新构建。发布阶段如果在公开 Release 后更新 `latest` 失败，仍从原运行重跑失败的 `publish` job，使其复用原 bundle 完成后续步骤。
+
+本机构建按以下情况处理：
 
 - **版本不一致：** 从根版本源重新同步，审阅改动并提交后再运行 `check`。
 - **工作树不干净：** 提交本次发行需要的源码；无关修改先妥善保存，再从干净提交重试。不要为通过检查直接丢弃用户修改。

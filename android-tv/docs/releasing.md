@@ -8,13 +8,13 @@ Docker 镜像与 Android TV APK 通过仓库根[统一发布流程](../../docs/d
 
 ### Step 1：取得统一交付产物
 
-按[统一发布](../../docs/developer/releasing.md)完成版本更新、提交、检查和构建。在仓库根 `output/releases/vX.Y.Z/` 核对 APK、同名 `.apk.sha256`／`.apk.json` 及 `manifest.json`。清单应将 APK 与 Docker 镜像关联到相同完整 Git 提交。
+按[统一发布](../../docs/developer/releasing.md)更新版本、提交并推送标签，由 Actions 同步检查、构建和发布。发布成功后从 GitHub Releases 取得 APK、同名 `.apk.sha256`／`.apk.json` 及 `manifest.json`；本机手工构建则在根 `output/releases/vX.Y.Z/` 取得。清单应将 APK 与 Docker 镜像关联到相同完整 Git 提交。手动运行 Actions 只做验证，不上传可交付 APK。
 
 默认 APK 为 `jzmedia-tv-X.Y.Z-debug.apk`。`-debug` 表示 Debug 构建与签名，不代表正式版；未签名的 `-unsigned.apk` 不能安装或交付。
 
 ### Step 2：核对签名和覆盖升级
 
-Debug 包已签名，但不同电脑的 Debug 密钥可能不同。用 SDK Build-Tools 中的 `apksigner` 检查新旧包：
+云端发行从 Actions Secret 恢复原 Debug 密钥，并使用独立证书 SHA-256 Variable 核验，配置见[云端签名与权限](../../docs/developer/releasing.md#cloud-signing)。本地电脑的 Debug 密钥仍可能不同；缺少云端配置时发布会失败，不生成替代密钥。用 SDK Build-Tools 中的 `apksigner` 检查新旧包：
 
 ```sh
 apksigner verify --verbose --print-certs /实际路径/新包.apk

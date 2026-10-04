@@ -12,7 +12,7 @@
 
 - 以仓库根 `version.properties` 的 `versionName` / `versionCode` 为唯一版本来源，与服务端、网页、帮助站共用发行版本；统一发布标签使用 `vX.Y.Z`。通过根 `scripts/release.py version X.Y.Z --android-code N` 同步版本，不再使用独立的 Android 发行版本或新建 `android-tv-vX.Y.Z` 标签。兼容修复、视觉小调整升 patch，新功能升 minor，破坏性变更升 major；`0.x` 阶段的破坏性变更升 minor 并说明兼容影响。
 - 每次向用户交付内容变化的 APK（含 Debug 试装包），都必须同时提升版本号及全局单调递增的 `versionCode`；日常本地重复编译不升版，`versionCode` 不随主次版本重置、不使用日期。版本号不长期附带 `-dev`，Debug 构建只追加 `-debug`。
-- 分发使用仓库根 `python3 scripts/release.py build`，从干净同一提交同步构建镜像和 APK，全部成功后交付 `output/releases/vX.Y.Z/`。默认 Debug 试装包；正式 Release 必须完成签名验证，未签名 APK 不进入统一交付。`tools/tv.py package debug|release` 保留为 Android 单独开发打包入口，不能代替统一发行。
+- 分发使用仓库根 `python3 scripts/release.py build`，从干净同一提交同步构建镜像和 APK；标签触发的 GitHub Actions 复用该入口并发布 GHCR 与 GitHub Release，本机产物位于 `output/releases/vX.Y.Z/`。手动 Actions 与 `build --validate-only` 只验证、不发布。默认 Debug 试装包；正式 Release 必须完成签名验证，未签名 APK 不进入统一交付。`tools/tv.py package debug|release` 保留为 Android 单独开发打包入口，不能代替统一发行。
 - APK 名为 `jzmedia-tv-X.Y.Z-debug.apk`、正式签名的 `jzmedia-tv-X.Y.Z.apk` 或开发用未签名的 `jzmedia-tv-X.Y.Z-unsigned.apk`，不加日期、功能名或 `rebuilt`。统一清单记录完整提交、版本、镜像 ID、APK 哈希及签名类别。
 - 日期、提交、哈希、签名、兼容范围和验收状态写入旁附 JSON 或发布说明；同一版本与构建类型不得替换为不同内容或签名的产物，历史 APK 不靠改文件名冒充新版本。
 
@@ -21,6 +21,7 @@
 - 接口联动修改在同次变更中包含兼容说明和对应测试。
 - 不假定 APK 与服务端同时升级。开始接入 API 后，明确最低兼容服务端版本；新增播放能力字段必须保留旧网页客户端的默认行为。
 - `local.properties`、SDK、Gradle 缓存、构建产物和签名密钥不提交。正式签名密钥在仓库外保管并备份；不得使用 debug 签名发布正式版本。
+- 云端 Debug 交付从 Actions Secret 恢复原密钥，并使用独立证书 SHA-256 Variable 核验；缺失或不符时失败，不临时生成替代密钥。配置与失败恢复统一见根发布文档。
 
 ## 电视交互与播放
 

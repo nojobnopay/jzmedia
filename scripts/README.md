@@ -10,7 +10,9 @@
 
 | 工具 | 用途与输出 |
 | --- | --- |
-| [release.py](release.py) | 校验与同步统一版本，从同一提交构建 Docker 镜像和 APK，生成 `output/releases/vX.Y.Z/` 追溯清单。见[统一发布](../docs/developer/releasing.md)。 |
+| [release.py](release.py) | 校验与同步统一版本，从同一提交检查并构建 Docker 镜像和 APK；`build --validate-only` 只验证，不更新发行标签。见[统一发布](../docs/developer/releasing.md)。 |
+| [github_release.py](github_release.py) | Actions 的 `preflight/package/publish` 入口：检查标签身份、打包八个附件、核验并发布 GHCR 和 GitHub Release。 |
+| [github_signing.py](github_signing.py) | 从 Actions Secret 恢复既有 Debug 密钥并按证书 Variable 核验；配置见[云端签名](../docs/developer/releasing.md#cloud-signing)。 |
 | [check_python.py](check_python.py) | 严格运行 Python 静态检查，仅保留固定导出门面与同名重导出例外。 |
 | [build_frontend.py](build_frontend.py) | 按输入摘要构建 `frontend/dist/`；由 `start.sh` 调用，包含删除检测。 |
 | [build_docs.py](build_docs.py) | 按输入摘要构建 `docs/.vitepress/dist/`；由 `start.sh` 调用，排除私有资料、路线图和历史报告。 |

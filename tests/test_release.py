@@ -169,3 +169,138 @@ def test_second_build_failure_does_not_promote_first_artifact(tmp_path, monkeypa
         release.build(args, root=tmp_path)
     assert not (tmp_path / "output/v0.20.0").exists()
     assert all(args[:3] != ["docker", "image", "tag"] for args in commands)
+
+
+@pytest.fixture
+def validation_build(tmp_path, monkeypatch):
+    """Keep an existing delivery and its tags while faking only expensive build tools."""
+    interpreter = tmp_path / "python"
+    interpreter.touch()
+    previous = tmp_path / "output/releases/v0.20.0"
+    previous.mkdir(parents=True)
+    (previous / "manifest.json").write_text(json.dumps({
+        "version": "0.20.0", "androidVersionCode": 11, "commit": "c" * 40,
+    }))
+    images = {"jzmedia:v0.20.0": {"Id": "old-version"}, "jzmedia:latest": {"Id": "old-latest"}}
+    calls = []
+    monkeypatch.setattr(release, "check_versions", lambda *a: SimpleNamespace(name="0.20.0", code=11))
+    monkeypatch.setattr(release, "clean_commit", lambda *a: calls.append(("clean", a)) or COMMIT)
+    monkeypatch.setattr(release, "check_tag_history", lambda *a: calls.append(("history", a)))
+    monkeypatch.setattr(release, "git_tag_commit", lambda *a: "c" * 40)
+    monkeypatch.setattr(release, "image_info", images.get)
+    monkeypatch.setattr(release, "android_environment", lambda *a: {})
+    monkeypatch.setattr(release, "promote", lambda *a: pytest.fail("Validation must never promote artifacts"))
+
+    def snapshot(root, commit, directory):
+        source = directory / "source"
+        source.mkdir()
+        calls.append(("snapshot", (root, commit, source)))
+        return source
+
+    def checks(source, python, env, offline, log):
+        calls.append(("checks", (source, python, offline)))
+        log.write("checks passed\n")
+        return [[str(python), "checks"]]
+
+    def docker(source, candidate, version, commit, proxy, log):
+        calls.append(("docker", (source, version, commit)))
+        images[candidate] = {"Id": "candidate-image"}
+        log.write_text("image and isolated smoke passed\n")
+        return {"id": "candidate-image", "platform": "linux/amd64", "sizeBytes": 1}
+
+    def android(source, staging, version, code, commit, variant, offline, env, log):
+        calls.append(("android", (source, version, code, commit)))
+        log.write_text("APK signature and identity passed\n")
+        return artifact(staging)[1]
+
+    def command(args, **kwargs):
+        if args[:3] == ["docker", "image", "rm"]:
+            assert args[3].startswith("jzmedia:build-")
+            images.pop(args[3])
+        else:
+            assert args == ["docker", "info", "--format", "{{.OSType}}"]
+        return ""
+
+    for name, function in (("snapshot", snapshot), ("run_checks", checks), ("build_docker", docker),
+                           ("build_android", android), ("command", command)):
+        monkeypatch.setattr(release, name, function)
+    args = SimpleNamespace(python=str(interpreter), output=None, apk_variant="debug",
+                           offline=False, build_proxy="", validate_only=True)
+    return SimpleNamespace(root=tmp_path, previous=previous, args=args, calls=calls, images=images)
+
+
+@pytest.mark.parametrize("custom_output", [False, True])
+def test_validation_build_checks_both_artifacts_without_changing_existing_release(validation_build, capsys, custom_output):
+    state = validation_build
+    expected_parent = state.root / ("custom-output" if custom_output else "output")
+    if custom_output:
+        state.args.output = str(expected_parent)
+    previous = (state.previous / "manifest.json").read_bytes()
+    images = dict(state.images)
+    result = release.build(state.args, root=state.root)
+    assert result.parent == expected_parent
+    assert result.name.startswith(".validation-v0.20.0-")
+    record = json.loads((result / "manifest.json").read_text())
+    assert record["validationOnly"] is True
+    assert record["gitTag"] is None
+    assert record["docker"]["tags"] == []
+    assert record["commit"] == record["android"]["source"]["commit"] == COMMIT
+    assert record["checks"]
+    calls = dict(state.calls)
+    source = calls["snapshot"][2]
+    assert calls["checks"][0] == calls["docker"][0] == calls["android"][0] == source
+    assert calls["docker"][2] == calls["android"][3] == calls["snapshot"][1] == COMMIT
+    assert calls["history"] == (state.root, "0.20.0", 11)
+    assert [args for name, args in state.calls if name == "clean"] == [(state.root,), (state.root, COMMIT)]
+    assert state.images == images
+    assert (state.previous / "manifest.json").read_bytes() == previous
+    assert not (state.root / "output/releases/.release.lock").exists()
+    assert "nothing published or promoted" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("failure", ["checks", "android", "source_changed"])
+def test_failed_validation_preserves_existing_delivery_and_cleans_candidate(validation_build, monkeypatch, failure):
+    state = validation_build
+    images = dict(state.images)
+
+    def fail(*args):
+        raise release.ReleaseError(failure)
+
+    if failure == "checks":
+        monkeypatch.setattr(release, "run_checks", fail)
+    elif failure == "android":
+        monkeypatch.setattr(release, "build_android", fail)
+    else:
+        def clean(root, expected=None):
+            return fail() if expected else COMMIT
+        monkeypatch.setattr(release, "clean_commit", clean)
+    with pytest.raises(release.ReleaseError, match=failure):
+        release.build(state.args, root=state.root)
+    assert state.images == images
+    assert (state.previous / "manifest.json").is_file()
+    assert not list((state.root / "output").glob(".validation-*/manifest.json"))
+    assert not (state.root / "output/releases/.release.lock").exists()
+
+
+def test_validation_still_rejects_android_upgrade_regression(validation_build, monkeypatch):
+    state = validation_build
+    monkeypatch.setattr(release, "check_versions", lambda *a: SimpleNamespace(name="0.20.0", code=10))
+    with pytest.raises(release.ReleaseError, match="different Android versionCode"):
+        release.build(state.args, root=state.root)
+    assert all(name not in ("checks", "docker", "android") for name, args in state.calls)
+
+
+def test_formal_build_still_rejects_different_source_for_existing_release(validation_build):
+    state = validation_build
+    state.args.validate_only = False
+    with pytest.raises(release.ReleaseError, match="different source"):
+        release.build(state.args, root=state.root)
+    assert all(name not in ("checks", "docker", "android") for name, args in state.calls)
+
+
+def test_cli_accepts_validation_only(monkeypatch):
+    calls = []
+    monkeypatch.setattr(release, "build", lambda args: calls.append(args))
+    monkeypatch.setattr(release.sys, "version_info", (3, 12))
+    release.main(["build", "--validate-only"])
+    assert len(calls) == 1 and calls[0].validate_only is True

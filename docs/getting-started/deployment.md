@@ -102,12 +102,12 @@ docker image ls jzmedia
 
 ```bash
 docker load -i jzmedia-vX.Y.Z-linux-amd64.tar.gz
-docker image ls jzmedia
+docker image ls
 ```
 
 **预期结果：**`docker load` 打印载入的镜像标签，镜像出现在本地列表中；此时尚未启动容器。归档应由 `docker save` 导出，交付方式见[镜像文件交付说明](../developer/releasing.md#docker-image-export)。目标设备不需要源码或构建依赖。
 
-记下实际载入的标签，例如 `jzmedia:vX.Y.Z`（`X.Y.Z` 替换为实际版本号）。Compose 启动前将 `image` 改为 `jzmedia:vX.Y.Z`；`docker run` 则直接使用完整标签。若保留仓库原有的 `image` 变量写法并使用可选 `.env`，也可将其中的 `APP_VERSION` 设为 `vX.Y.Z`。仅当本地存在 `jzmedia:latest` 时，才能沿用示例的 `latest`。
+记下 `docker load` 实际载入的完整镜像名。云端发行归档使用 `ghcr.io/nojobnopay/jzmedia:vX.Y.Z`，随附 Compose 已固定为相同镜像；早期归档（如 `v0.20.1`）使用 `jzmedia:vX.Y.Z`。启动前核对 Compose 的 `image` 或 `docker run` 最后的镜像名与实际载入值一致，`X.Y.Z` 替换为实际版本号。仅修改 `APP_VERSION` 不能切换仓库名，也不要在本地缺少 `latest` 时沿用该标签。
 
 ### Step 3：选择一种方式启动容器
 

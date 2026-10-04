@@ -6,7 +6,7 @@
 
 ### Backend
 
-FastAPI + stdlib `sqlite3` (no ORM), Vue3 + Vite frontend. 验证：`pytest`（tests/）+ `scripts/check_python.py` + 前端 `npm test`/`npm run lint`；无 CI。
+FastAPI + stdlib `sqlite3` (no ORM), Vue3 + Vite frontend. 验证：`pytest`（tests/）+ `scripts/check_python.py` + 前端 `npm test`/`npm run lint`。GitHub Actions 的 Release 工作流在版本标签推送时完成双端检查与发布；手动运行只验证，不发布。
 
 ### Entrypoints
 
@@ -941,7 +941,7 @@ Git (`main` branch, `origin`: `git@github.com:nojobnopay/jzmedia.git`): commit p
 
 - `v0.4.0` = filters/ratings/avatar-wall/person page
 
-根 `version.properties` 是服务端、网页、帮助站及 Android TV 的唯一发行版本源。使用 `python3 scripts/release.py version X.Y.Z --android-code N` 同步版本，再提交全部发行源码；`check` 校验版本一致，`build` 从干净同一 Git 提交构建两端并生成追溯清单。每次交付内容变化同时提高发行版本和 Android `versionCode`，本地重复开发构建不升版。完整规则见 `docs/developer/releasing.md`。
+根 `version.properties` 是服务端、网页、帮助站及 Android TV 的唯一发行版本源。使用 `python3 scripts/release.py version X.Y.Z --android-code N` 同步版本，再提交全部发行源码；`check` 校验版本一致，`build` 从干净同一 Git 提交构建两端并生成追溯清单。推送与根版本一致的 `vX.Y.Z` 标签触发 `.github/workflows/release.yml`；云端不自动升版、不创建或移动 Git 标签。每次交付内容变化同时提高发行版本和 Android `versionCode`，本地重复开发验证使用 `build --validate-only`。完整规则见 `docs/developer/releasing.md`。
 
 依赖版本锁定在 `requirements.txt`；宿主直跑用 `requirements-dev.txt`（含 static-ffmpeg 兜底，评审 R01-Q5）；compose 有 `init: true` + `/api/health` healthcheck（R01-Q3）。
 
@@ -949,4 +949,6 @@ Git (`main` branch, `origin`: `git@github.com:nojobnopay/jzmedia.git`): commit p
 
 Compose 的 `image: jzmedia:${APP_VERSION:-latest}` 保留本地部署构建能力。统一发行使用 `python3 scripts/release.py build`；两端检查和构建全部通过后，才更新 `jzmedia:vX.Y.Z`、`jzmedia:latest` 与 `output/releases/vX.Y.Z/`。默认生成 Debug 试装 APK；正式 APK 必须配置并验证正式签名，未签名包不能交付。
 
-`manifest.json` 记录完整 Git 提交、统一版本、镜像 ID、APK SHA-256 与签名类别，OCI labels 记录版本和提交；成功创建同提交的 annotated Git tag `vX.Y.Z`，同名异提交拒绝发行。发行失败不得改变已发行版本标签和 `latest`；不自动导出镜像、推送远端或安装设备。产物、签名密钥与密码不提交。
+`manifest.json` 记录完整 Git 提交、统一版本、镜像 ID、APK SHA-256 与签名类别，OCI labels 记录版本和提交；本机发行成功创建或核对同提交的 annotated Git tag `vX.Y.Z`，同名异提交拒绝发行。本地 `build` 不导出镜像、推送远端或安装设备；`--validate-only` 不更新发行目录或 Git／镜像版本标签。
+
+云端复用完整双端构建，以 `scripts/github_signing.py` 恢复并核对固定 Debug 签名；`scripts/github_release.py` 提供 `preflight/package/publish`。八个发行附件保存为保留 14 天的 Actions bundle，独立发布 job 复核后先保存完整草稿附件，再推送 GHCR 固定标签、匿名核验、公开 Release，最后更新 `latest`。发布失败重跑 failed jobs 复用原 bundle，不重建或覆盖同版本产物；已存在草稿时拒绝重新构建。产物、签名密钥与密码不提交。

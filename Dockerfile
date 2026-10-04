@@ -48,6 +48,8 @@ ARG APP_VERSION="dev"
 ARG GIT_SHA="unknown"
 ENV JZMEDIA_BUILD_COMMIT=$GIT_SHA
 LABEL org.opencontainers.image.title="jzmedia" \
+      org.opencontainers.image.source="https://github.com/nojobnopay/jzmedia" \
+      org.opencontainers.image.licenses="BSD-3-Clause" \
       org.opencontainers.image.version=$APP_VERSION \
       org.opencontainers.image.revision=$GIT_SHA
 

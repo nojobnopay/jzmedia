@@ -1,5 +1,5 @@
 ---
-version: 0.20.0
+version: 0.20.1
 reviewed: 2026-10-04
 search: false
 ---
@@ -20,7 +20,7 @@ Android TV 是独立 Gradle 工程，日常构建与协议分别见仓库 `andro
 | [播放设计](playback.md) | 能力决策、FFmpeg/HLS、字幕、缓存、会话生命周期 |
 | [API 与任务](api.md) | 路由、鉴权、异步任务与响应约定 |
 | [开发与验证](development.md) | 环境、测试、变更步骤和排障入口 |
-| [同步发布 Docker 镜像与 APK](releasing.md) | 统一版本、同源构建、签名与产物追溯 |
+| [同步发布 Docker 镜像与 APK](releasing.md) | 标签触发云端发布、固定签名、本机构建与产物追溯 |
 | [界面规范与验收](design-system.md) | 设计变量、共享控件、组件目录和隔离浏览器检查 |
 | [文档制作与发布](documentation.md) | 任务教程、媒体素材、站点构建与验证 |
 

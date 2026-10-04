@@ -205,7 +205,7 @@ def android_environment(root):
 def run_checks(source, python, env, offline, log):
     steps = [
         [python, "-m", "pytest", "-q", "--maxfail=1"],
-        [python, "scripts/check_python.py", "scripts/release.py", "scripts/versioning.py", "scripts/check_python.py"],
+        [python, "scripts/check_python.py"],
         [python, "scripts/build_design.py", "--check"],
         ["npm", "--prefix", "frontend", "ci", "--prefer-offline", "--no-audit", "--no-fund"],
         ["npm", "--prefix", "frontend", "test"],
@@ -348,6 +348,7 @@ def promote(root, staging, destination, candidate, record):
 
 
 def build(args, root=ROOT):
+    validate_only = getattr(args, "validate_only", False)
     version = check_versions(root)
     commit = clean_commit(root)
     output = Path(args.output).resolve() if args.output else root / "output/releases"
@@ -361,17 +362,18 @@ def build(args, root=ROOT):
         output.mkdir(parents=True, exist_ok=True)
         check_history(output, version.name, version.code)
         check_tag_history(root, version.name, version.code)
-        existing = existing_release(destination, version.name, version.code, commit, args.apk_variant)
-        if existing:
-            if git_tag_commit(root, f"v{version.name}") != commit:
-                raise ReleaseError("Existing release Git tag is missing or changed")
-            print(f"Verified existing release: {destination}; no rebuild or latest movement.")
-            return destination
-        if image_info(f"jzmedia:v{version.name}") is not None:
-            raise ReleaseError("Version image already exists without this release record; bump the version")
-        prior = git_tag_commit(root, f"v{version.name}")
-        if prior and prior != commit:
-            raise ReleaseError("Release Git tag already points to different source; bump the version")
+        if not validate_only:
+            existing = existing_release(destination, version.name, version.code, commit, args.apk_variant)
+            if existing:
+                if git_tag_commit(root, f"v{version.name}") != commit:
+                    raise ReleaseError("Existing release Git tag is missing or changed")
+                print(f"Verified existing release: {destination}; no rebuild or latest movement.")
+                return destination
+            if image_info(f"jzmedia:v{version.name}") is not None:
+                raise ReleaseError("Version image already exists without this release record; bump the version")
+            prior = git_tag_commit(root, f"v{version.name}")
+            if prior and prior != commit:
+                raise ReleaseError("Release Git tag already points to different source; bump the version")
         env = android_environment(root)
         if args.apk_variant == "release":
             keys = ("JZMEDIA_ANDROID_KEYSTORE", "JZMEDIA_ANDROID_STORE_PASSWORD",
@@ -380,12 +382,15 @@ def build(args, root=ROOT):
                 raise ReleaseError("Signed release APK requires all JZMEDIA_ANDROID_* signing settings; use debug for trials")
             if not Path(env["JZMEDIA_ANDROID_KEYSTORE"]).is_absolute():
                 raise ReleaseError("JZMEDIA_ANDROID_KEYSTORE must be an absolute path outside the source snapshot")
-        staging = output / f".staging-v{version.name}-{uuid.uuid4().hex[:8]}"
+        staging_root = (output if args.output else root / "output") if validate_only else output
+        staging_kind = "validation" if validate_only else "staging"
+        staging = staging_root / f".{staging_kind}-v{version.name}-{uuid.uuid4().hex[:8]}"
         staging.mkdir()
         logs = staging / "logs"
         logs.mkdir()
         candidate = f"jzmedia:build-{commit[:12]}-{uuid.uuid4().hex[:8]}"
-        print(f"Release {version.name}, Android code {version.code}, commit {commit}\nLogs: {logs}", flush=True)
+        operation = "Validation" if validate_only else "Release"
+        print(f"{operation} {version.name}, Android code {version.code}, commit {commit}\nLogs: {logs}", flush=True)
         try:
             with tempfile.TemporaryDirectory(prefix="jzmedia-release-") as temporary:
                 source = snapshot(root, commit, Path(temporary))
@@ -404,11 +409,16 @@ def build(args, root=ROOT):
                           "createdAt": datetime.now(timezone.utc).isoformat(),
                           "docker": {"tags": [f"jzmedia:v{version.name}", "jzmedia:latest"], "image": image},
                           "android": apk, "checks": checks}
+                if validate_only:
+                    clean_commit(root, commit)
+                    record.update(validationOnly=True, gitTag=None)
+                    record["docker"]["tags"] = []
                 (staging / "manifest.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n",
                                                         encoding="utf-8")
-                promote(root, staging, destination, candidate, record)
+                if not validate_only:
+                    promote(root, staging, destination, candidate, record)
         except BaseException:
-            print(f"Release incomplete; logs kept at {staging}. Check any rollback errors before retrying.", file=sys.stderr)
+            print(f"{operation} incomplete; logs kept at {staging}. Check any rollback errors before retrying.", file=sys.stderr)
             raise
         finally:
             # Only remove our transient tag; never prune other images or build caches.
@@ -417,6 +427,9 @@ def build(args, root=ROOT):
                     command(["docker", "image", "rm", candidate])
             except (ReleaseError, OSError) as error:
                 print(f"Temporary image tag cleanup failed ({candidate}): {error}", file=sys.stderr)
+        if validate_only:
+            print(f"Validation complete: {staging}; nothing published or promoted.", flush=True)
+            return staging
         print(f"Release complete: {destination}", flush=True)
         return destination
 
@@ -431,6 +444,8 @@ def main(argv=None):
     release = commands.add_parser("build", help="Validate, build both artifacts and record one local release")
     release.add_argument("--apk-variant", choices=("debug", "release"), default="debug")
     release.add_argument("--offline", action="store_true", help="Use cached Android/Gradle dependencies")
+    release.add_argument("--validate-only", action="store_true",
+                         help="Run all checks and both builds without publishing or promoting Git/Docker tags")
     release.add_argument("--build-proxy", default=os.environ.get("BUILD_HTTP_PROXY", ""),
                          help="Proxy for Docker dependency downloads only; .env is not loaded")
     release.add_argument("--python", help="Python with requirements-dev.txt installed (default: .venv/bin/python)")
