@@ -2,6 +2,8 @@
 import errno
 import os
 import pathlib
+import threading
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -191,10 +193,38 @@ def test_collection_cover_and_members_batch(media_root):
 
 # ---------- B9/R04-D6：扫描后台任务 ----------
 
-def test_scan_job_lifecycle(monkeypatch):
-    import time as _t
-    from app import scanner
+@pytest.fixture
+def scan_workers(monkeypatch):
+    from app.jobkit import JobRegistry
     from app.routers import jobs as jobs_router
+
+    registry = JobRegistry(prefix="scan-test")
+    workers = []
+
+    def tracked_thread(*args, **kwargs):
+        worker = threading.Thread(*args, **kwargs)
+        workers.append(worker)
+        return worker
+
+    def wait_for_workers():
+        for worker in workers:
+            worker.join(timeout=5)
+            assert not worker.is_alive(), "scan worker did not exit before fixture cleanup"
+
+    monkeypatch.setattr(jobs_router, "_SCAN_JOBS", registry)
+    # Replace this router's module reference, not threading.Thread process-wide.
+    monkeypatch.setattr(jobs_router, "threading", SimpleNamespace(Thread=tracked_thread))
+    try:
+        yield wait_for_workers
+    finally:
+        for job in registry.active():
+            registry.cancel(job["job_id"])
+        # Cancellation changes state immediately; join before scanner patches are undone.
+        wait_for_workers()
+
+
+def test_scan_job_lifecycle(monkeypatch, scan_workers):
+    from app import scanner
 
     def fake_scan(progress_cb=None, should_stop=None, **kwargs):
         if progress_cb:
@@ -203,7 +233,6 @@ def test_scan_job_lifecycle(monkeypatch):
         for i in range(3):
             if should_stop and should_stop():
                 return out
-            _t.sleep(0.05)
             out.append({"file": f"f{i}.mkv", "status": "no_match"})
             if progress_cb:
                 progress_cb(len(out), 3)
@@ -212,41 +241,43 @@ def test_scan_job_lifecycle(monkeypatch):
     monkeypatch.setattr(scanner, "scan_all", fake_scan)
     r = client.post("/api/jobs/scan").json()
     assert r["resumed"] is False and r["job_id"]
-    for _ in range(60):
-        st = client.get(f"/api/jobs/scan/{r['job_id']}").json()
-        if st["state"] in ("done", "failed"):
-            break
-        _t.sleep(0.05)
+    scan_workers()
+    st = client.get(f"/api/jobs/scan/{r['job_id']}").json()
     assert st["state"] == "done"
     assert st["total"] == 3 and st["summary"]["counts"]["no_match"] == 3
     # 已完成后再次启动 → 新 job
     r2 = client.post("/api/jobs/scan").json()
-    assert r2["job_id"] != r["job_id"]
+    assert r2["resumed"] is False and r2["job_id"] != r["job_id"]
+    scan_workers()
+    st2 = client.get(f"/api/jobs/scan/{r2['job_id']}").json()
+    assert st2["state"] == "done" and st2["summary"]["counts"]["no_match"] == 3
 
 
-def test_scan_job_cancel(monkeypatch):
-    import time as _t
+def test_scan_job_cancel(monkeypatch, scan_workers):
     from app import scanner
 
+    started = threading.Event()
+    proceed = threading.Event()
+    observed_cancel = threading.Event()
+
     def slow_scan(progress_cb=None, should_stop=None, **kwargs):
-        out = []
-        for i in range(200):
-            if should_stop and should_stop():
-                return out
-            _t.sleep(0.02)
-            out.append({"file": f"f{i}.mkv", "status": "ok"})
-            if progress_cb:
-                progress_cb(len(out), 200)
-        return out
+        progress_cb(1, 200)
+        started.set()
+        assert proceed.wait(timeout=5), "test did not release the blocked scan"
+        if should_stop():
+            observed_cancel.set()
+        return [{"file": "f0.mkv", "status": "ok"}]
 
     monkeypatch.setattr(scanner, "scan_all", slow_scan)
-    r = client.post("/api/jobs/scan").json()
-    _t.sleep(0.1)
-    c = client.post(f"/api/jobs/scan/{r['job_id']}/cancel").json()
-    assert c["state"] == "cancelled"
-    for _ in range(60):
-        st = client.get(f"/api/jobs/scan/{r['job_id']}").json()
-        if st["state"] == "cancelled":
-            break
-        _t.sleep(0.05)
-    assert st["state"] == "cancelled" and st["done"] < 200
+    try:
+        r = client.post("/api/jobs/scan").json()
+        assert r["resumed"] is False
+        assert started.wait(timeout=5), "fake scan did not start"
+        c = client.post(f"/api/jobs/scan/{r['job_id']}/cancel").json()
+        assert c["state"] == "cancelled"
+    finally:
+        proceed.set()
+        scan_workers()
+    st = client.get(f"/api/jobs/scan/{r['job_id']}").json()
+    assert observed_cancel.is_set()
+    assert st["state"] == "cancelled" and st["done"] == 1 and st["total"] == 200
