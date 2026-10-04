@@ -29,8 +29,8 @@
           <div v-else class="bar"><JzButton @click="edit = true" type="button" icon="edit">修改视频库名称或目录</JzButton></div>
           <details v-if="media?.source === 'local' && !media.movie_count && !media.episode_count">
             <summary>修改空媒体库的根路径</summary>
-            <p>填写应用服务器可见的路径；Docker 中通常为 /media，而不是 NAS 宿主路径。</p>
-            <label>根路径<input v-model="rootPath" placeholder="例如 /media" /></label>
+            <p>填写应用服务器可见的路径；Docker 中通常为 /app/media，而不是 NAS 宿主路径。</p>
+            <label>根路径<input v-model="rootPath" placeholder="例如 /app/media" /></label>
             <JzButton @click="savePath" type="button">保存根路径</JzButton>
           </details>
           <JzButton class="primary" @click="check" :disabled="target.kind !== kind || edit" type="button" variant="primary" icon="eye">检查并使用此视频库</JzButton>

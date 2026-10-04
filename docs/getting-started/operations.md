@@ -75,8 +75,8 @@ SQLite 使用 WAL，应用运行时只复制 `jzmedia.db` 可能漏掉未合并�
 
 1. 停止/等待重要任务，备份数据、配置和旧版本源码或镜像。
 2. 阅读目标版本变更及迁移说明，获取对应源码。当前仓库不假定存在公共 `git pull` 地址。
-3. 保留 `.env`、数据目录及卷映射，比较新的 `.env.example` 后按需补项。
-4. 执行 `docker compose -f docker-compose.yml up --build -d`；宿主方式更新依赖后运行 `./start.sh`。
+3. 保留 `.env`、数据目录及卷映射，比较新的 `.env.example` 后按需补项。已入库路径为 `/media` 的容器，先按[旧路径兼容说明](deployment.md#legacy-media-path)保留原映射。
+4. 默认映射执行 `docker compose -f docker-compose.yml up --build -d`。使用旧路径兼容或其他 Compose 覆盖文件时，必须带上配置时相同的全部 `-f` 参数；旧 `/media` 部署使用[兼容说明中的启动命令](deployment.md#legacy-media-path)。宿主方式更新依赖后运行 `./start.sh`。
 5. 检查健康接口、媒体库连接、详情及一段视频，确认页面构建已更新。
 
 启动会执行数据库 schema 迁移；服务端版本与 schema 各自维护，当前迁移规则见[数据模型](../developer/data.md)。旧探测缓存会按 probe 版本自动更新。

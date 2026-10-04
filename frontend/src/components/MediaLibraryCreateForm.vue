@@ -14,7 +14,7 @@
         <input type="checkbox" v-model="advSplitting" /> 高级：手动拆分
       </label>
       <label v-if="form.source === 'local'">根路径
-        <input v-model="form.path" v-bind="NOFILL" name="jz-lib-path" placeholder="容器内路径，NAS 上如 /media" style="min-width:280px" /></label>
+        <input v-model="form.path" v-bind="NOFILL" name="jz-lib-path" placeholder="容器内路径，NAS 上如 /app/media" style="min-width:280px" /></label>
       <template v-if="form.source === 'smb'">
         <label v-if="!advSplitting">服务器 / 共享路径
           <input v-model="form.smb_url" v-bind="NOFILL" name="jz-smb-url" placeholder="\\ServerName\ShareName（媒体库根；子目录在下方视频库填）" style="min-width:320px" /></label>
@@ -130,7 +130,7 @@
       <summary>路径填写与连接帮助</summary>
       <ul class="hint-list">
         <li v-if="form.source === 'local'"><b>NAS Docker（推荐）</b>：媒体库根填容器内路径——compose 把宿主
-          <code>/volume1/video</code> 挂到容器 <code>/media</code> 后填 <code>/media</code>，视频库子目录填
+          <code>/volume1/video</code> 挂到容器 <code>/app/media</code> 后填 <code>/app/media</code>，视频库子目录填
           <code>Movies</code> / <code>TV Shows</code> 等。</li>
         <li v-else><b>远程访问</b>：SMB 粘贴媒体库根 <code>\\ServerName\共享名</code>（子目录留在视频库里填），
           NFS 填 <code>ServerName:/导出路径</code>；挂载点自动分配。SMB 默认走用户态直读

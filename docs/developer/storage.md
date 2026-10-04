@@ -1,6 +1,6 @@
 ---
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.20.0
+reviewed: 2026-10-04
 ---
 
 # 存储与文件操作设计
@@ -9,7 +9,9 @@ reviewed: 2026-10-03
 
 ## 路径和范围
 
-`media_libraries` 保存物理连接及媒体根，`libraries` 保存相对子目录和类型。业务读写通过 `library_paths` 找视频库，再向 `StorageBackend` 传**库内相对路径**。Compose 的 `MEDIA_HOST_PATH` 只是宿主挂载源，应用在容器里看到 `/media`；写死宿主绝对路径会破坏 NAS/容器部署。
+`media_libraries` 保存物理连接及媒体根，`libraries` 保存相对子目录和类型。业务读写通过 `library_paths` 找视频库，再向 `StorageBackend` 传**库内相对路径**。Compose 的 `MEDIA_HOST_PATH` 只是宿主挂载源，默认容器目标为 `/app/media`；写死宿主绝对路径会破坏 NAS/容器部署。
+
+已有库以数据库保存的路径为准，`settings.media_root` 用于首次自举与无库兜底，不会迁移已登记路径。容器工作目录为 `/app`，因此旧库的 `./media` 也解析到 `/app/media`；保存为 `/media` 的绝对路径则需继续提供对应映射，部署操作见[旧路径兼容说明](../getting-started/deployment.md#legacy-media-path)。
 
 `app/storage/base.py` 定义后端操作；`factory.py` 按库来源和 `SMB_DRIVER` 分流：本地/已挂载 NFS 使用本地后端，SMB 可直读或经挂载点。直读 SMB 的视频流通过只监听回环的内部 HTTP Range 代理交给 FFmpeg，而非假设 FFmpeg 自带 SMB 凭据。远程库离线或直读初始化失败时不能退到未挂载的空目录，否则清理工具会把“暂时不可读”误判为“文件已删除”。
 

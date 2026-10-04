@@ -1,6 +1,6 @@
 ---
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.20.0
+reviewed: 2026-10-04
 ---
 
 # 配置参考
@@ -26,9 +26,11 @@ TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：
 | `APP_PORT` | `8080`，访问端口 | Compose 和 start.sh 使用；容器服务仍监听 8080 |
 | `APP_VERSION` | 模板为 `latest`，本地镜像标签 | 不表示从公共镜像仓库下载 |
 | `MEDIA_HOST_PATH` / `DATA_HOST_PATH` | `./media` / `./data` | 仅 Compose 宿主卷映射 |
-| `MEDIA_ROOT` / `DATA_DIR` | 宿主默认 `./media` / `./data` | Compose 固定覆盖为 `/media` / `/app/data` |
+| `MEDIA_ROOT` / `DATA_DIR` | 宿主默认 `./media` / `./data` | Compose 固定覆盖为 `/app/media` / `/app/data` |
 | `UID` / `GID` | 模板为 `1000` / `1000` | 按宿主实际用户填写；Compose 缺省回退 0 |
 | `LOG_LEVEL` | `INFO` | 应用日志；排障可短期用 DEBUG |
+
+`MEDIA_ROOT` 不会改写已登记的库路径；已有 `/media` 部署按[旧路径兼容说明](deployment.md#legacy-media-path)保留映射。
 
 ### 资料服务、代理与访问保护
 

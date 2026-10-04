@@ -19,10 +19,10 @@ services:
     env_file:
       - .env
     environment:
-      MEDIA_ROOT: /media
+      MEDIA_ROOT: /app/media
       DATA_DIR: /app/data
     volumes:
-      - "${MEDIA_HOST_PATH:-./media}:/media:rw"
+      - "${MEDIA_HOST_PATH:-./media}:/app/media:rw"
       - "${DATA_HOST_PATH:-./data}:/app/data"
     # NAS 硬件转码（Intel QSV/VAAPI：DS425+ 等）：取消下面注释并在 .env 填宿主 gid
     # （DSM 上 `stat -c '%g' /dev/dri/renderD128` 取 render 组 id，通常 109；video 组 44）

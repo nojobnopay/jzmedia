@@ -51,7 +51,7 @@ GID=1000
 TRANSCODER=auto
 ```
 
-`MEDIA_HOST_PATH` 是宿主目录，容器里对应 `/media`；`DATA_HOST_PATH` 对应 `/app/data`。应用设置里要填容器看得到的路径。需要写 NFO、整理或上传时，还需媒体目录写权限。
+`MEDIA_HOST_PATH` 是宿主目录，容器里对应 `/app/media`；`DATA_HOST_PATH` 对应 `/app/data`。应用设置里要填容器看得到的路径。需要写 NFO、整理或上传时，还需媒体目录写权限。已有部署若将影片登记在 `/media` 下，启动前先按[保留旧媒体路径](#legacy-media-path)配置。
 
 ### Step 3：构建并启动服务
 
@@ -75,6 +75,33 @@ docker compose -f docker-compose.yml logs --tail=100 mymedia
 
 若设置 `JZMEDIA_TOKEN`，网页需填写令牌才能提交播放决策、创建播放会话、保存进度以及执行管理操作；页面浏览和媒体直链等 GET 仍开放。令牌保护不能代替完整的读取访问控制。
 
+<span id="legacy-media-path"></span>
+
+### 已有部署保留旧媒体路径
+
+修改 `MEDIA_ROOT` 不会改写数据库中已登记的媒体库和视频库路径；已有影片或剧集记录的媒体库也不能在设置页直接改根路径。若原库使用 `/media`，升级时先[备份数据](operations.md#一次一致的备份)，保留同一个宿主媒体目录与 `/media` 的映射，无需重新建库或扫描。
+
+在项目根创建 `compose.media-legacy.yml`，保留 `.env` 中原来的 `MEDIA_HOST_PATH`、`DATA_HOST_PATH`：
+
+```yaml
+services:
+  mymedia:
+    environment:
+      MEDIA_ROOT: /media
+    volumes: !override
+      - "${MEDIA_HOST_PATH:-./media}:/media:rw"
+      - "${DATA_HOST_PATH:-./data}:/app/data"
+```
+
+`!override` 完整替换卷列表，避免新的 `/app/media` 映射一并合入；已有额外映射需一并列入。此写法需要 Docker Compose 2.24.4 或更新版本，见 [Docker 合并规则](https://docs.docker.com/reference/compose-file/merge/#replace-value)。随后执行：
+
+```bash
+docker compose -f docker-compose.yml -f compose.media-legacy.yml config --quiet
+docker compose -f docker-compose.yml -f compose.media-legacy.yml up --build -d
+```
+
+**预期结果：**原媒体仍在容器 `/media` 下可见，已有库的连接检查与播放正常。后续管理该实例继续使用相同的两个 `-f` 参数；若配置检查提示不支持 `!override`，先升级 Compose，不要直接删掉该标记。
+
 ## NAS 部署
 
 以具有 Docker/Container Manager 的 NAS 为例：
@@ -83,7 +110,7 @@ docker compose -f docker-compose.yml logs --tail=100 mymedia
 2. 使用 NAS 实际目录配置 `.env`，如媒体 `/volume1/video`、数据 `/volume1/docker/jzmedia/data`。
 3. 确认配置的 UID/GID 对这些目录有相应权限；若报 Permission denied，修正目标目录的属主/ACL，不要直接递归修改整块媒体盘的权限。
 4. 从 NAS 项目管理界面启动此 Compose 项目，或使用上节命令。
-5. 访问 `http://NAS地址:8080`。媒体库类型选「本地路径」，根路径填 `/media`；同一台 NAS 的挂载目录不必再绕行 SMB。
+5. 访问 `http://NAS地址:8080`。媒体库类型选「本地路径」，新部署默认根路径填 `/app/media`；同一台 NAS 的挂载目录不必再绕行 SMB。
 
 Intel VAAPI/QSV 硬件转码可按 [配置参考](configuration.md) 映射设备。NVENC 在应用中有探测路径，但仓库没有完整 NVIDIA 容器设备配置，需在目标机器另行验证。
 

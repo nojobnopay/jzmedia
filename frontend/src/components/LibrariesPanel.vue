@@ -55,10 +55,10 @@
           </div>
           <div v-if="pathEdit && pathEdit.id === m.id">
             <div class="path-edit">
-              <label>媒体库根目录<input :disabled="!!busy" v-model="pathEdit.value" v-bind="NOFILL" name="jz-path-edit" placeholder="/media（容器内路径）" /></label>
+              <label>媒体库根目录<input :disabled="!!busy" v-model="pathEdit.value" v-bind="NOFILL" name="jz-path-edit" placeholder="/app/media（容器内路径）" /></label>
               <JzButton @click="savePath(m)" :disabled="!!busy" type="button" icon="eye">{{ busy === 'path' ? '保存中…' : '保存并检查' }}</JzButton>
               <JzButton :disabled="!!busy" @click="pathEdit = null" type="button">取消</JzButton>
-              <span class="fhint">媒体库根；仅当库内 0 记录时可改。NAS Docker 里填 /media 这类容器路径</span>
+              <span class="fhint">媒体库根；仅当库内 0 记录时可改。NAS Docker 里填 /app/media 这类容器路径</span>
             </div>
           </div>
 

@@ -181,7 +181,7 @@ MKV 附件首次请求 `/{id}/fonts/{name}` 时 `ffmpeg -dump_attachment` 到 `t
 
 ### Host-direct (no docker)
 
-prefer `./start.sh` — rebuilds `frontend/dist` only when stale, maps `.env` container paths (`/media`, `/app/data`) back to host defaults, then runs uvicorn.
+prefer `./start.sh` — rebuilds `frontend/dist` only when stale, maps `.env` container paths (`/app/media`, `/app/data`) back to host defaults, then runs uvicorn.
 
 Manual equivalent needs `DATA_DIR=./data MEDIA_ROOT=./media` overrides plus `TMDB_*` from `.env` (see docs/getting-started/deployment.md).
 
@@ -231,7 +231,7 @@ Manual equivalent needs `DATA_DIR=./data MEDIA_ROOT=./media` overrides plus `TMD
 
 ### 配置与路径映射
 
-Config is `os.getenv` in `app/config.py`; compose sets `MEDIA_ROOT=/media`, `DATA_DIR=/app/data` inside container. In code always use `settings.media_root` / `settings.data_dir`, never host paths (`MEDIA_HOST_PATH` is compose-only volume mapping).
+Config is `os.getenv` in `app/config.py`; compose sets `MEDIA_ROOT=/app/media`, `DATA_DIR=/app/data` inside container. In code always use `settings.media_root` / `settings.data_dir`, never host paths (`MEDIA_HOST_PATH` is compose-only volume mapping).
 
 ### 代理与凭据
 
