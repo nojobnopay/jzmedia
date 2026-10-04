@@ -16326,7 +16326,7 @@
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input :disabled=\"!!busy\" v-model=\"pathEdit.value\" v-bind=\"NOFILL\" name=\"jz-path-edit\" placeholder=\"/media（容器内路径）\" />"
+      "source_excerpt": "<input :disabled=\"!!busy\" v-model=\"pathEdit.value\" v-bind=\"NOFILL\" name=\"jz-path-edit\" placeholder=\"/app/media（容器内路径）\" />"
     },
     {
       "id": "frontend/src/components/LibrariesPanel.vue:JzButton:65",
@@ -18158,7 +18158,7 @@
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"form.path\" v-bind=\"NOFILL\" name=\"jz-lib-path\" placeholder=\"容器内路径，NAS 上如 /media\" style=\"min-width:280px\" />"
+      "source_excerpt": "<input v-model=\"form.path\" v-bind=\"NOFILL\" name=\"jz-lib-path\" placeholder=\"容器内路径，NAS 上如 /app/media\" style=\"min-width:280px\" />"
     },
     {
       "id": "frontend/src/components/MediaLibraryCreateForm.vue:input:19",
@@ -26211,7 +26211,7 @@
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"rootPath\" placeholder=\"例如 /media\" />"
+      "source_excerpt": "<input v-model=\"rootPath\" placeholder=\"例如 /app/media\" />"
     },
     {
       "id": "frontend/src/components/SetupLibraryStep.vue:JzButton:45",
