@@ -133,7 +133,8 @@ def _actor_catalogue(media_library):
         for table, kind in (("movies", "movie"), ("tv_shows", "show")):
             rows = connection.execute(
                 "SELECT i.id, i.title, i.original_title, i.year, i.poster_path,"
-                " i.library_id, i.tmdb_id, i.updated_at, ml.id AS media_library_id"
+                " i.library_id, i.tmdb_id, i.updated_at, i.tmdb_rating,"
+                " ml.id AS media_library_id, ml.name AS media_library_name"
                 f" FROM {table} i JOIN libraries l ON l.id=i.library_id"
                 " JOIN media_libraries ml ON ml.id=l.media_library_id"
                 " WHERE " + scope + " ORDER BY i.id", params).fetchall()

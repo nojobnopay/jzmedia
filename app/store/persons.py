@@ -1,7 +1,7 @@
 """store.persons（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
 import json as _json
 import time
-from ._base import _conn, _lock, _row_to_dict
+from ._base import _attach_media_libraries, _conn, _lock, _row_to_dict
 __all__ = ['upsert_person', 'get_person_raw', 'person_exists', 'persons_missing_avatar', 'update_person_bio', 'get_person', 'get_person_tv_works', 'link_person', 'clear_movie_persons', 'get_movie_person_links', 'copy_person_links', 'find_sibling_with_persons']
 
 def upsert_person(tmdb_id: int, name: str, avatar: str | None = None,
@@ -95,11 +95,13 @@ def get_person(tmdb_id: int, library_ids: list[int] | None = None) -> dict | Non
                 continue
             seen.add(gkey)
             item = {"id": d["id"], "title": d.get("title", ""), "year": d.get("year"),
+                    "library_id": d["library_id"],
                     "poster_path": d.get("poster_path", ""),
                     "tmdb_rating": d.get("tmdb_rating"),
                     "original_language": d.get("original_language", ""),
                     "character_name": r["character_name"] or ""}
             (acting if role == "actor" else directing).append(item)
+        _attach_media_libraries(c, acting + directing)
         p["acting"] = acting
         p["directing"] = directing
         p["tv_works"] = get_person_tv_works(tmdb_id, library_ids=library_ids)
@@ -123,7 +125,7 @@ def get_person_tv_works(person_tmdb_id: int,
         return []
     with _lock, _conn() as c:
         sql = ("SELECT id, library_id, title, year, poster_path, tmdb_id,"
-               " original_language FROM tv_shows")
+               " tmdb_rating, original_language FROM tv_shows")
         params: list = []
         if library_ids:
             ids = [int(x) for x in library_ids]
@@ -132,6 +134,7 @@ def get_person_tv_works(person_tmdb_id: int,
         shows = [dict(r) for r in c.execute(sql, params).fetchall()]
         if not shows:
             return []
+        _attach_media_libraries(c, shows)
         cache_rows = {int(r["tmdb_id"]): (r["credits"] or "")
                       for r in c.execute("SELECT tmdb_id, credits FROM tmdb_cache"
                                          " WHERE media_type='tv'").fetchall()
@@ -196,6 +199,10 @@ def get_person_tv_works(person_tmdb_id: int,
         if matched:
             seen.add(sid)
             out.append({"show_id": sid, "title": s.get("title") or "",
+                        "library_id": s["library_id"],
+                        "media_library_id": s["media_library_id"],
+                        "media_library_name": s["media_library_name"],
+                        "tmdb_rating": s["tmdb_rating"],
                         "year": s.get("year"),
                         "poster_path": s.get("poster_path") or "",
                         "original_language": s.get("original_language") or "",

@@ -4,7 +4,7 @@ v18：合集跟随**媒体库**（成员可跨同一媒体库内的视频库；�
 """
 import sqlite3
 import time
-from ._base import (DEFAULT_LIBRARY_ID, _like_esc, _attach_versions,
+from ._base import (DEFAULT_LIBRARY_ID, _like_esc, _attach_media_libraries, _attach_versions,
                     _collections_for_film, _conn, _film_key, _lock,
                     _row_to_dict, logger)
 __all__ = ['list_collections_for_movie', '_collection_cover', '_collection_covers', 'list_collections', 'get_collection', 'create_collection', 'update_collection', 'delete_collection', 'add_collection_members', 'remove_collection_members', 'collection_hint_for_movie', 'suggest_series_collections', 'collected_series_new_members', 'top_up_collection']
@@ -80,7 +80,7 @@ def list_collections(q: str = "", media_library_id: int | None = None) -> list[d
                 (d["id"],)).fetchone()["n"])
             d["cover"] = d.get("poster_path") or covers.get(int(d["id"]), "")
             out.append(d)
-        return out
+        return _attach_media_libraries(c, out)
 
 
 def get_collection(cid: int) -> dict | None:
@@ -129,6 +129,7 @@ def get_collection(cid: int) -> dict | None:
         if all(m["sort_order"] == 0 for m in mems) if mems else False:
             items.sort(key=lambda x: ((x.get("year") is None), x.get("year") or 0, x.get("id")))
         d["members"] = items
+        _attach_media_libraries(c, [d, *items])
         d["member_count"] = len(items)
         d["cover"] = d.get("poster_path") or _collection_cover(c, cid)
         return d

@@ -5,7 +5,7 @@
 import math
 import time
 from ..playback_completion import is_playback_complete
-from ._base import _attach_versions, _conn, _lock, _row_to_dict
+from ._base import _attach_media_libraries, _attach_versions, _conn, _lock, _row_to_dict
 from .search import _split_ints
 __all__ = ['get_progress', 'save_progress', 'clear_progress', 'list_recent_played',
            'list_recent_played_tv',
@@ -123,7 +123,7 @@ def list_recent_played(limit: int = 20, library_ids=None,
             out.append(_attach_versions(c, d))
             if len(out) >= lim:
                 break
-        return out
+        return _attach_media_libraries(c, out)
 
 
 def list_recent_played_tv(limit: int = 20, library_ids=None,
@@ -150,6 +150,7 @@ def list_recent_played_tv(limit: int = 20, library_ids=None,
         rows = c.execute(
             "SELECT e.*, s.title AS _show_title, s.year AS _show_year,"
             " s.poster_path AS _show_poster, s.library_id AS _show_lib,"
+            " s.tmdb_rating AS _show_rating,"
             " p.item_id AS _pvid, p.position AS _ppos, p.duration AS _pdur,"
             " p.updated_at AS _pplayed"
             " FROM playback_progress p JOIN tv_episodes e ON e.id = p.item_id"
@@ -178,6 +179,7 @@ def list_recent_played_tv(limit: int = 20, library_ids=None,
                 "title": r["_show_title"] or "",
                 "year": r["_show_year"],
                 "poster_path": r["_show_poster"] or "",
+                "tmdb_rating": r["_show_rating"],
                 "season": season,
                 "episode": episode,
                 "episode_end": end,
@@ -195,4 +197,4 @@ def list_recent_played_tv(limit: int = 20, library_ids=None,
             })
             if len(out) >= lim:
                 break
-        return out
+        return _attach_media_libraries(c, out)

@@ -60,7 +60,7 @@ def _search_sql(kind: str, media_library: int | None) -> tuple[str, list]:
             "movie_scores AS ("
             " SELECT m.id, 'movie' AS kind, m.title, m.original_title, m.year,"
             " m.poster_path, m.library_id, ml.id AS media_library_id,"
-            " m.tmdb_id, m.updated_at,"
+            " ml.name AS media_library_name, m.tmdb_rating, m.tmdb_id, m.updated_at,"
             " tv_title_rank(m.title, m.original_title) AS score,"
             " COUNT(*) OVER (PARTITION BY m.library_id, COALESCE(m.tmdb_id,-m.id))"
             " AS version_count"
@@ -74,7 +74,7 @@ def _search_sql(kind: str, media_library: int | None) -> tuple[str, list]:
         )
         sources.append(
             "SELECT id,kind,title,original_title,year,poster_path,library_id,"
-            " media_library_id,version_count,score FROM movie_ranked"
+            " media_library_id,media_library_name,tmdb_rating,version_count,score FROM movie_ranked"
             " WHERE rn=1 AND score>=0")
         if media_library is not None:
             params.append(media_library)
@@ -82,6 +82,7 @@ def _search_sql(kind: str, media_library: int | None) -> tuple[str, list]:
         sources.append(
             "SELECT s.id, 'show' AS kind, s.title, s.original_title, s.year,"
             " s.poster_path, s.library_id, ml.id AS media_library_id,"
+            " ml.name AS media_library_name, s.tmdb_rating,"
             " 0 AS version_count, tv_title_rank(s.title,s.original_title) AS score"
             " FROM tv_shows s JOIN libraries l ON l.id=s.library_id"
             " JOIN media_libraries ml ON ml.id=l.media_library_id"
@@ -93,6 +94,7 @@ def _search_sql(kind: str, media_library: int | None) -> tuple[str, list]:
             "SELECT col.id, 'collection' AS kind, col.name AS title,"
             " '' AS original_title, NULL AS year, col.poster_path,"
             " NULL AS library_id, ml.id AS media_library_id,"
+            " ml.name AS media_library_name, NULL AS tmdb_rating,"
             " 0 AS version_count, tv_title_rank(col.name,'') AS score"
             " FROM collections col"
             " JOIN media_libraries ml ON ml.id=col.media_library_id"
@@ -134,6 +136,7 @@ def search_tv_titles(query: str, kind: str = "all", media_library: int | None = 
             if item["kind"] != "movie":
                 item.pop("version_count")
             if item["kind"] == "collection":
+                item.pop("tmdb_rating")
                 item["name"] = item["title"]
                 item["member_count"] = connection.execute(
                     "SELECT COUNT(*) FROM collection_members WHERE collection_id=?",

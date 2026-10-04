@@ -1453,6 +1453,24 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return d
 
 
+def _attach_media_libraries(c: sqlite3.Connection, items: list[dict]) -> list[dict]:
+    """Add card provenance in one lookup; video-library names are not media names."""
+    if not items:
+        return items
+    rows = c.execute(
+        "SELECT l.id AS library_id, ml.id AS media_library_id, ml.name"
+        " FROM media_libraries ml LEFT JOIN libraries l ON l.media_library_id=ml.id"
+    ).fetchall()
+    by_library = {r["library_id"]: r for r in rows if r["library_id"] is not None}
+    by_media = {r["media_library_id"]: r for r in rows}
+    for item in items:
+        media_id = item.get("media_library_id")
+        row = by_media.get(media_id) if media_id is not None else by_library.get(item.get("library_id"))
+        item["media_library_id"] = row["media_library_id"] if row else media_id
+        item["media_library_name"] = row["name"] if row else ""
+    return items
+
+
 def _film_key(tmdb_id, movie_id) -> tuple:
     """海报粒度键：有 tmdb_id 按 tmdb，无按单行 id（与分组 GROUP BY 一致）。"""
     try:

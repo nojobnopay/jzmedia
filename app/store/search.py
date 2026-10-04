@@ -4,7 +4,8 @@ import sqlite3
 import time
 
 from ..log import get_logger
-from ._base import DEFAULT_LIBRARY_ID, _attach_versions, _conn, _like_esc, _lock, _row_to_dict
+from ._base import (DEFAULT_LIBRARY_ID, _attach_media_libraries, _attach_versions,
+                   _conn, _like_esc, _lock, _row_to_dict)
 
 logger = get_logger("store.search")
 
@@ -151,13 +152,13 @@ def list_movies(grouped: bool = True, genres: list | None = None,
             rows = c.execute(
                 f"SELECT * FROM movies WHERE {where} {order_sql} LIMIT ? OFFSET ?",
                 (*params, limit, off))
-            return [_row_to_dict(r) for r in rows]
+            return _attach_media_libraries(c, [_row_to_dict(r) for r in rows])
         rows = c.execute(
             f"SELECT *{_select_sort_extra(grouped, sort, rating_source)}"
             f" FROM movies WHERE {where} "
             f"GROUP BY library_id, COALESCE(tmdb_id, -id) {order_sql} LIMIT ? OFFSET ?",
             (*params, limit, off))
-        return [_attach_versions(c, _row_to_dict(r)) for r in rows]
+        return _attach_media_libraries(c, [_attach_versions(c, _row_to_dict(r)) for r in rows])
 
 
 def _query_terms(q: str) -> list[str]:
@@ -317,8 +318,8 @@ def search_fts(q: str, limit: int = 50, grouped: bool = True,
             # FTS 零命中时用 LIKE 兜底（同一查询各页行为一致，OFFSET 可继续翻页）
             rows = _search_like(c, q, fwhere, fparams, limit, grouped, off)
         if not grouped:
-            return [_row_to_dict(r) for r in rows]
-        return [_attach_versions(c, _row_to_dict(r)) for r in rows]
+            return _attach_media_libraries(c, [_row_to_dict(r) for r in rows])
+        return _attach_media_libraries(c, [_attach_versions(c, _row_to_dict(r)) for r in rows])
 
 
 def _split_multi(v) -> list[str]:

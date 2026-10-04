@@ -111,6 +111,8 @@ TV 客户端对 `versions/decide/sessions/prewarm` 显式传 `client:"android_tv
 
 `GET /api/tv/recent-played` 的条目 `id/show_id` 指剧，实际可播放分集在 `progress.version_id`，不能把 `id` 直接传给分集播放。电影、分集完成判定共同使用至少 95%，或至少 80% 且剩余不超过 300 秒的条件。
 
+电影/剧集列表、继续观看、相关推荐、人物作品、合集及其成员，以及 TV 客户端搜索/演员作品的卡片条目提供 `media_library_id` 和 `media_library_name`；名称属于父媒体库，区别于视频库的 `library_id/library_name`。电影和剧集条目提供可空的 `tmdb_rating`；剧集继续观看使用与剧名/海报对应的整剧评分，合集不合成评分。字段为向后兼容追加，不改变现有筛选或去重范围。
+
 ## 详情图片
 
 `GET /api/movies/{id}/backdrop` 优先返回本地横版背景缓存；缺图时只按已有 TMDB 缓存中的图片路径下载，不重新刮削影片。缺少背景为 404，下载失败为 502，前端保留渐变底色；图片请求独立于电影详情 JSON，避免拖慢资料加载。季和单集详情的 `show_backdrop_path` 沿用所属剧集的本地背景，空字符串表示暂无图片。
@@ -148,9 +150,9 @@ TV 客户端对 `versions/decide/sessions/prewarm` 显式传 `client:"android_tv
 | `GET /api/tv/airing/status` | 仅读状态，返回 `configured,total,checked,pending,failed,catalog_pending,catalog_failed,last_checked_at,next_check_at,running,current,error,retry_at`。剧级计数按启用库中已确认 TMDB 剧去重。 |
 | `POST /api/tv/airing/check` | `{}` 检查全部合格剧，或 `{show_id}` 检查指定本地剧对应的 TMDB 作品；沿用写操作鉴权，返回状态快照及 `status:"queued"`，不等待联网完成。手动操作不绕过失败冷却。 |
 
-季卡的 `official_count` 是来源集数，`collected_count` 是可确认的去重收藏数，`local_count` 仅指当前本地剧的有效编号数。`collection_state` 为 `collected|uncollected|uncertain`；客户端遇 `uncertain` 不应把未能对照的条目算成缺集。`airing_state` 独立为 `aired|upcoming|unknown`，日期按 UTC 日比较。`missing_seasons` 只含已播、完全未收藏的正季，不含特别篇和未来季。
+季卡的 `official_count` 是来源集数，`collected_count` 是可确认的去重收藏数，`local_count` 仅指当前本地剧的有效编号数。剧快照与季目录独立缓存，`collected_count` 超过旧快照的 `official_count` 时客户端保留收藏数量并显示“总数待更新”，不生成大于 1 的比值。`collection_state` 为 `collected|uncollected|uncertain`；客户端遇 `uncertain` 不应把未能对照的条目算成缺集。`airing_state` 独立为 `aired|upcoming|unknown`，日期按 UTC 日比较。`missing_seasons` 只含已播、完全未收藏的正季，不含特别篇和未来季。
 
-`collection_reason` 为 `''|catalog_missing|numbering_unresolved|coverage_incomplete|match_review|show_unconfirmed`，将资料缺失与人工处理区分。`catalog_missing` 表示缓存缺少足够的官方目录信息，不否定已有 TMDB 匹配，也不表示后台进度；客户端不显示人工待核对徽标，有 `local_count` 时显示“已收藏 N 集”，否则有 `collected_count` 时显示“已确认收藏 N 集”，均省略官方分母。`numbering_unresolved` 表示本地季或已知官方目标季的编号暂不能可靠对照；其他季因跨季覆盖范围不明而无法断言缺集时使用中性的 `coverage_incomplete`，不显示人工核对徽标。`match_review` 只用于分集实际 `needs_review/binding_conflict`，并限定受影响的季或分集；`show_unconfirmed` 表示整剧尚无 TMDB ID 或剧级匹配待确认。状态仍保守保留 `uncertain`，不能因改善文案而放开缺集推荐；已经可靠确认的单集可独立返回 `collected` 和空原因。此字段不触发额外周期请求。
+`collection_reason` 为 `''|catalog_missing|numbering_unresolved|coverage_incomplete|match_review|show_unconfirmed`，将资料缺失与人工处理区分。`catalog_missing` 表示缓存缺少足够的官方目录信息，不否定已有 TMDB 匹配，也不表示后台进度；客户端不显示人工待核对徽标。官方总数已知时，已按官方坐标确认的 `collected_count` 可显示“已确认收藏 N/M 集”，本地数量更大时另列“本地 X 集”；只有 `local_count` 时显示“已收藏 X 集 · 官方 M 集”，不能将本地数量直接用作官方分母的分子。总数未知或非官方季仍省略分母。确定收藏状态则显示“已收藏 N/M 集”。`numbering_unresolved` 表示本地季或已知官方目标季的编号暂不能可靠对照；其他季因跨季覆盖范围不明而无法断言缺集时使用中性的 `coverage_incomplete`，不显示人工核对徽标。`match_review` 只用于分集实际 `needs_review/binding_conflict`，并限定受影响的季或分集；`show_unconfirmed` 表示整剧尚无 TMDB ID 或剧级匹配待确认，不使用尚未确认作品的官方总数。状态仍保守保留 `uncertain`，不能因改善文案而放开缺集推荐；已经可靠确认的单集可独立返回 `collected` 和空原因。此字段不触发额外周期请求。
 
 状态中的 `checked` 表示至少成功取得过一次剧级快照的数量，不等同于全部资料当前均有效；`pending/failed` 包含有待处理或失败季目录的剧，`catalog_pending/catalog_failed` 另列季目录数量。`last_checked_at` 是最近一次剧级成功时间。墙响应的 `checked_at` 同样不能代替全库覆盖率，完整检查状态应读取 `/airing/status`。
 

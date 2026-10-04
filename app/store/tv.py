@@ -9,7 +9,7 @@ import os
 import re
 import time
 
-from ._base import DEFAULT_LIBRARY_ID, _conn, _like_esc, _lock, logger
+from ._base import DEFAULT_LIBRARY_ID, _attach_media_libraries, _conn, _like_esc, _lock, logger
 from .search import (_query_terms, _split_ints, _split_multi, normalize_sort)
 from ..playback_completion import is_playback_complete
 
@@ -821,7 +821,7 @@ def list_shows(library_ids=None, q: str = "", limit: int = 500,
             + wsql +
             " GROUP BY s.id " + order_sql +
             " LIMIT ? OFFSET ?", (*params, limit, offset)).fetchall()
-        return [_show_row(r) for r in rows]
+        return _attach_media_libraries(c, [_show_row(r) for r in rows])
 
 
 def count_shows(library_ids=None, q: str = "", *, genres=None,
@@ -1121,7 +1121,7 @@ def similar_shows(show_id: int, limit: int = 12) -> list[dict]:
     with _lock, _conn() as c:
         rows = c.execute(
             "SELECT s.*, l.name AS library_name, l.media_library_id,"
-            " m.name AS media_name, COUNT(e.id) AS episode_count,"
+            " m.name AS media_name, m.name AS media_library_name, COUNT(e.id) AS episode_count,"
             " COUNT(DISTINCT e.season) AS season_count,"
             " COALESCE(SUM(e.watched), 0) AS watched_count"
             " FROM tv_shows s JOIN libraries l ON l.id=s.library_id"

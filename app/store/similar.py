@@ -10,7 +10,7 @@
 import json
 import math
 
-from ._base import DEFAULT_LIBRARY_ID, _conn, _lock, _row_to_dict, logger
+from ._base import DEFAULT_LIBRARY_ID, _attach_media_libraries, _conn, _lock, _row_to_dict, logger
 
 __all__ = ['similar_movies']
 
@@ -136,6 +136,9 @@ def _score_candidates(cur: dict, reps: list[dict], links: dict, mems: dict,
             "id": d["id"], "tmdb_id": d.get("tmdb_id"),
             "title": d.get("title") or "", "year": d.get("year"),
             "poster_path": d.get("poster_path") or "",
+            "library_id": d["library_id"],
+            "media_library_id": d["media_library_id"],
+            "media_library_name": d["media_library_name"],
             "tmdb_rating": d.get("tmdb_rating"),
             "douban_rating": d.get("douban_rating"),
             "custom_rating": d.get("custom_rating"),
@@ -275,7 +278,7 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
         # ---- 候选代表行（只取打分所需列，避免大库全列 JSON 解析） ----
         ids = sorted(cand)
         rows = c.execute(
-            "SELECT m.id, m.tmdb_id, m.title, m.year, m.poster_path, m.tmdb_rating,"
+            "SELECT m.id, m.library_id, m.tmdb_id, m.title, m.year, m.poster_path, m.tmdb_rating,"
             " m.douban_rating, m.custom_rating, m.region, m.original_language,"
             " m.genres, m.genre_ids, m.tags, MAX(m.updated_at) AS _u,"
             " t.collection_tmdb_id AS _cid"
@@ -291,6 +294,7 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
                 continue      # 本片自身/其它版本
             d = {
                 "id": int(r["id"]), "tmdb_id": tid_v, "title": r["title"] or "",
+                "library_id": r["library_id"],
                 "year": r["year"], "poster_path": r["poster_path"] or "",
                 "tmdb_rating": r["tmdb_rating"], "douban_rating": r["douban_rating"],
                 "custom_rating": r["custom_rating"], "genres": _json_list(r["genres"]),
@@ -308,6 +312,7 @@ def similar_movies(movie_id: int, limit: int = 12) -> list[dict]:
                 mids.append(key[1])
         if not reps:
             return []
+        _attach_media_libraries(c, reps)
 
         # ---- 候选演职员（跨全部版本聚合） ----
         links: dict = {}

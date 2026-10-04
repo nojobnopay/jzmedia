@@ -97,6 +97,8 @@ def test_actor_query_spellings_and_local_avatar(catalogue, query):
                                     "original_title": "", "year": 2002,
                                     "poster_path": "posters/movies/infernal.jpg",
                                     "library_id": catalogue["movie"],
+                                    "tmdb_rating": None,
+                                    "media_library_name": store.get_media_library(catalogue["media"])["name"],
                                     "media_library_id": catalogue["media"], "version_count": 1}]
 
 

@@ -48,6 +48,8 @@ def test_chinese_initials_full_pinyin_case_width_and_original(catalogue, query):
         "id": identifier, "kind": "movie", "title": "沙丘", "original_title": "Dune",
         "year": 2021, "poster_path": "posters/movies/438631.jpg",
         "library_id": catalogue["电影"], "media_library_id": catalogue["media"],
+        "media_library_name": store.get_media_library(catalogue["media"])["name"],
+        "tmdb_rating": None,
         "version_count": 1}
     assert find(catalogue, "DUNE")["items"][0]["id"] == identifier
 
