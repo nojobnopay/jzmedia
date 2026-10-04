@@ -1,5 +1,5 @@
 ---
-version: 0.20.0
+version: 0.20.1
 reviewed: 2026-10-04
 ---
 
@@ -29,11 +29,11 @@ NAS 是部署设备，使用 Docker/Container Manager 时仍按 Docker 流程操
 
 镜像包含服务端、网页、帮助站和 FFmpeg，运行容器无需在宿主另装 Python、Node.js 或 FFmpeg。以下命令在部署目录执行；选择源码构建时，该目录就是项目根目录。
 
-目前 jzmedia 尚未上传 DockerHub，暂不提供从 DockerHub 直接 `docker pull` 的安装方式。待镜像上传后再补充仓库地址、可用标签和拉取步骤；当前请选择下面的源码构建或镜像文件加载。
+源码归档、预构建的 Linux amd64 镜像归档与对应配置可从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载。目前 jzmedia 尚未发布到 DockerHub；请选择下面的源码构建或镜像文件加载。
 
 ### Step 1：准备部署配置与目录
 
-源码构建需要完整项目源码；加载镜像文件只需取得镜像归档，使用 Compose 时再准备对应版本的 `docker-compose.yml`。将所需文件放到部署目录，在终端进入该目录。默认安装无需创建或复制 `.env`：
+源码构建可下载 Release 的 `Source code` 归档并解压为完整项目；加载镜像文件则下载 `jzmedia-vX.Y.Z-linux-amd64.tar.gz`，使用 Compose 时再下载同版本的 `docker-compose.yml`。`X.Y.Z` 替换为实际版本号；预构建镜像适用于 Linux amd64，其他架构需自行构建。将所需文件放到部署目录，在终端进入该目录。默认安装无需创建或复制 `.env`：
 
 ```bash
 mkdir -p media data
@@ -83,10 +83,10 @@ docker image ls jzmedia
 
 #### 加载镜像文件
 
-取得适合目标设备 CPU 架构的 jzmedia 镜像归档，将下面的文件名替换为实际文件名：
+取得适合目标设备 CPU 架构的 jzmedia 镜像归档，将下面的 `X.Y.Z` 替换为下载的版本号。`docker load` 可直接读取 gzip 归档，无需先解压：
 
 ```bash
-docker load -i jzmedia-image.tar
+docker load -i jzmedia-vX.Y.Z-linux-amd64.tar.gz
 docker image ls jzmedia
 ```
 

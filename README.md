@@ -1,5 +1,5 @@
 ---
-version: 0.20.0
+version: 0.20.1
 reviewed: 2026-10-04
 ---
 
@@ -15,6 +15,8 @@ reviewed: 2026-10-04
 <span id="怎样工作"></span>
 
 ## 快速开始
+
+从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载源码归档、Linux amd64 Docker 镜像归档或可安装的 Android TV Debug APK。
 
 跟随[安装教程](docs/getting-started/deployment.md)部署。服务启动后访问 `http://服务器地址:8080`，点击空库欢迎卡片“开始配置”，按[首次入库图解](docs/user-guide/onboarding.md)完成配置和试播。
 
@@ -54,7 +56,7 @@ reviewed: 2026-10-04
 
 面向家庭或受信任网络中的单实例部署。可选令牌保护 API 的 POST、PUT、PATCH、DELETE 请求，包括网页播放的启动和进度保存；浏览列表及媒体直链仍开放。它不是多用户登录与完整权限系统。转码能力取决于片源、CPU/GPU 和网络。
 
-项目仓库位于 [GitHub：nojobnopay/jzmedia](https://github.com/nojobnopay/jzmedia)。修改代码前阅读仓库 [AGENTS.md](AGENTS.md) 和开发者参考。公开镜像与安装包的分发由维护者确定；运行数据、媒体、凭据与 `docs/private/` 不进入文档发布包。
+项目仓库位于 [GitHub：nojobnopay/jzmedia](https://github.com/nojobnopay/jzmedia)。修改代码前阅读仓库 [AGENTS.md](AGENTS.md) 和开发者参考。运行数据、媒体、凭据与 `docs/private/` 不进入文档发布包。
 
 ## 许可证
 

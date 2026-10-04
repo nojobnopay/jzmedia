@@ -10,7 +10,9 @@
 
 ### Step 1：确认拿到可安装的包
 
-使用维护者交付的 `jzmedia-tv-X.Y.Z-debug.apk` 或正式签名的 `jzmedia-tv-X.Y.Z.apk`，`X.Y.Z` 是版本号。文件名含 `-unsigned` 的包不能安装。本仓库不保存 APK；统一交付包与 `manifest.json` 位于仓库根目录 `output/releases/vX.Y.Z/`。
+从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载可安装的 `jzmedia-tv-X.Y.Z-debug.apk`，`X.Y.Z` 是版本号。随包提供 `.apk.sha256`、`.apk.json` 和统一 `manifest.json`，记录校验值、源码及签名信息；它仍是 Debug 试装包，真机兼容性待验收。
+
+维护者另行提供正式签名包时，文件名为 `jzmedia-tv-X.Y.Z.apk`；文件名含 `-unsigned` 的包不能安装。源码仓库不提交 APK，构建机上的统一交付目录为 `output/releases/vX.Y.Z/`。
 
 ### Step 2：在电视安装
 
