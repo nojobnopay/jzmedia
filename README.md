@@ -54,4 +54,8 @@ reviewed: 2026-10-04
 
 面向家庭或受信任网络中的单实例部署。可选令牌保护 API 的 POST、PUT、PATCH、DELETE 请求，包括网页播放的启动和进度保存；浏览列表及媒体直链仍开放。它不是多用户登录与完整权限系统。转码能力取决于片源、CPU/GPU 和网络。
 
-仓库当前没有 `LICENSE`、公开镜像仓库、下载站或问题追踪平台，对外分发由维护者确定。修改代码前阅读仓库 [AGENTS.md](AGENTS.md) 和开发者参考。运行数据、媒体、凭据与 `docs/private/` 不进入文档发布包。
+项目仓库位于 [GitHub：nojobnopay/jzmedia](https://github.com/nojobnopay/jzmedia)。修改代码前阅读仓库 [AGENTS.md](AGENTS.md) 和开发者参考。公开镜像与安装包的分发由维护者确定；运行数据、媒体、凭据与 `docs/private/` 不进入文档发布包。
+
+## 许可证
+
+本项目采用 [BSD 3-Clause License](LICENSE)，版权归 joey.zhou 所有。第三方组件和素材保留各自的许可证与来源说明，设计素材见 [design/README.md](design/README.md)。

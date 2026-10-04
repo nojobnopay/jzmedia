@@ -907,7 +907,7 @@ Manual fix flow: `GET /api/tmdb/search` → `POST /api/movies/{id}/match {"tmdb_
 
 ### Git 与发布历史
 
-Git (`main` branch, local-only, no remote): commit per feature, annotated tag per release:
+Git (`main` branch, `origin`: `git@github.com:nojobnopay/jzmedia.git`): commit per feature, annotated tag per release. Project license: BSD-3-Clause (root `LICENSE`).
 
 - `v0.19.0` = 离线/无 token 外源刮削 Phase 1+2（v27）：`external_meta` + `match_index.alt_titles` + `tmdb_cache.seasons_json`；NFO 全量离线回放（movie/tvshow/分集 + 本地图片）；imdb_id→tmdb_id 离线桥；`metadata/auto.py` 门控 + 扫描/TV 刮削外源链（Wikidata 深化 / TVmaze / Bangumi，无 key，限速）；`POST /api/movies/{id}/bind-external`、`POST /api/tv/shows/{id}/bind-external`、`/api/tv/search` 降级链；设置页库级链勾选 + IMDb 导入按钮 + 候选来源徽章；回归 `tests/test_external_meta.py`）；
 
