@@ -2,7 +2,7 @@
 
 本页供修改电视客户端或服务端接口时查阅，记录必须保持的兼容约定。构建和连接步骤见 [README](../README.md)，验证步骤见[测试指南](testing.md)。核对日期：2026-10-04。
 
-APK 与服务器独立发布，通过协议握手确认兼容性。APK 版本以 [version.properties](../version.properties) 为准；首次正式发布的最低服务端发行版本尚待确定，见[待验收事项](../../docs/roadmap/android-tv.md)。媒体探测字段基线为 schema 30 / probe v4，旧媒体探测缓存可自动重探。
+APK 与服务器通过[统一发布](../../docs/developer/releasing.md)从同一提交构建，版本以根 [version.properties](../../version.properties) 为准。设备仍可分别安装升级，因此通过协议握手确认兼容性；首次正式签名发布的最低服务端发行版本尚待确定，见[待验收事项](../../docs/roadmap/android-tv.md)。媒体探测字段基线为 schema 30 / probe v4，旧媒体探测缓存可自动重探。
 
 ## 连接、认证与能力
 

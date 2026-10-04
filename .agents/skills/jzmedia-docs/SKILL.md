@@ -32,7 +32,7 @@ description: Write, maintain, and review jzmedia repository documentation, inclu
 ## 验证与交付
 
 - 根据[构建与检查](../../../docs/developer/documentation.md#构建与检查)选择验证范围。局部文字修改先做相关链接与正文检查；公开页面、导航或构建相关变更使用完整验证；主题、组件和交互变更再增加浏览器检查。先核对实际工具入口，不运行尚未实现的计划命令。
-- 复用仓库工具，不把检查脚本复制进 skill。Android TV 的命令与设备验证遵循其[工程约束](../../../android-tv/AGENTS.md)，不与服务端或网页构建混在一起。
+- 复用仓库工具，不把检查脚本复制进 skill。Android TV 的日常命令与设备验证遵循其[工程约束](../../../android-tv/AGENTS.md)；同步交付镜像与 APK 时遵循[统一发布](../../../docs/developer/releasing.md)，不要把单端构建当作已完成双端发行。
 - 新页面是否发布由公开清单决定；计划与私有记录保持原边界。图文素材使用隔离演示与合成媒体，不为文档验证修改真实片库；生成物从源更新。
 - 说明本次修改或审核发现、实际执行的检查及未覆盖范围。只有核对内容后才更新 `reviewed`；构建或模拟通过不能代替新手试读、外部服务或真机验收。
 

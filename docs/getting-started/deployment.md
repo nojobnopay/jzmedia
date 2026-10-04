@@ -1,6 +1,6 @@
 ---
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.20.0
+reviewed: 2026-10-04
 ---
 
 # 安装与首次使用
@@ -124,7 +124,7 @@ DATA_DIR=./data MEDIA_ROOT=./media APP_PORT=8080 ./start.sh
 
 ## Android TV 客户端
 
-服务器启动后可供网页与独立 Android TV 客户端共用。APK 不由 Docker、`start.sh` 或 Vue 构建生成；源码安装、构建与 APK 位置见仓库 `android-tv/README.md`。客户端连接服务器地址，通过协议 1 握手，并在实例启用访问令牌时单独验证写权限。电视真机的解码、HDR、音轨及遥控器行为仍需按实际设备验收。
+服务器启动后可供网页与独立 Android TV 客户端共用。镜像与 APK 通过[统一发布](../developer/releasing.md)从同一提交同步构建；普通 Docker Compose 或 `start.sh` 部署不会另外生成 APK。客户端安装、开发构建与产物位置见仓库 `android-tv/README.md`。电视连接服务器地址，通过协议 1 握手，并在实例启用访问令牌时单独验证写权限。电视真机的解码、HDR、音轨及遥控器行为仍需按实际设备验收。
 
 ## 第一次入库与播放
 

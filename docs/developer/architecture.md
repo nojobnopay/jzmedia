@@ -1,6 +1,6 @@
 ---
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.20.0
+reviewed: 2026-10-04
 ---
 
 # 系统架构
@@ -45,7 +45,7 @@ flowchart LR
 
 ### 电视播放
 
-Android TV 先通过 `/api/stream/client-info` 握手，再显式上传 `client=android_tv` 及设备能力，使用同一播放计划、进度和媒体存储。每个播放请求获得独立 sid，相同源和输出计划可共享一个 FFmpeg 任务；释放某设备 sid 只释放其持有关系。APK 的构建和发布独立于 Web/Docker，客户端协议见仓库 `android-tv/docs/protocol.md`。
+Android TV 先通过 `/api/stream/client-info` 握手，再显式上传 `client=android_tv` 及设备能力，使用同一播放计划、进度和媒体存储。每个播放请求获得独立 sid，相同源和输出计划可共享一个 FFmpeg 任务；释放某设备 sid 只释放其持有关系。APK 日常可独立构建，发行与 Docker 镜像共用版本及源码提交，见[统一发布](releasing.md)；客户端协议见仓库 `android-tv/docs/protocol.md`。
 
 ## 启动与退出
 

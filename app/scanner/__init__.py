@@ -2,7 +2,7 @@
 
 store/tmdb 以模块属性暴露（不进 __all__）：tests 与旧调用方可直接 monkeypatch
 `scanner.tmdb.xxx`，子模块共享同一模块对象，补丁生效。"""
-from .. import store, tmdb  # noqa: F401（monkeypatch 兼容）
+from .. import store as store, tmdb as tmdb  # monkeypatch 兼容导出
 from . import (classify, match, nfo_link, parse, persist, scan, tv_match, tv_nfo_link,
                tv_organize, tv_parse, tv_persist)  # noqa: F401
 from .classify import *

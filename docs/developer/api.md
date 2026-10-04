@@ -1,6 +1,6 @@
 ---
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.20.0
+reviewed: 2026-10-04
 ---
 
 # API 与后台任务
@@ -33,6 +33,10 @@ reviewed: 2026-10-03
 当前四档播放由 POST `/api/stream/{id}/decide` 接收 `caps`；GET 兼容变体仅用保守默认。电影、分集、花絮播放时通过 `kind` 隔离媒体探测、进度和会话。文件直链及 HLS 分片读取是 GET，支持断点/Range 的接口不能被通用 JSON 包装破坏。
 
 ## 健康与磁盘容量
+
+### 版本与源码追溯
+
+`GET /api/health` 返回根版本源的 `version` 和 Android 递增编号 `version_code`，完整源码提交放在 `build_commit`；旧字段 `build` 保留提交前 12 位。统一构建的镜像通过构建信息提供提交，源码运行时读取本仓库 Git；无法取得提交时返回 `unknown`。这些字段用于与[发布清单](releasing.md)核对，不代表运行实例的设备兼容性已验收。
 
 ### 容量含义
 

@@ -184,7 +184,8 @@ class CommandTests(ContextTestCase):
         artifact = Path("jzmedia-tv-0.5.1-debug.apk")
         with patch.object(package_apk, "os", SimpleNamespace(name="nt")), \
                 patch.object(tv.sys, "argv", ["package_apk.py", "debug"]), \
-                patch.object(package_apk, "read_version"), patch.object(package_apk, "git_revision"), \
+                patch.object(package_apk, "read_version", return_value=("0.5.1", 7)), \
+                patch.object(package_apk, "resolve_revision", return_value={"commit": None, "dirty": None}), \
                 patch.object(package_apk, "export_apk", return_value=artifact), \
                 patch.object(package_apk.subprocess, "run") as run:
             package_apk.main()

@@ -9,6 +9,7 @@ from .. import config, storage, store
 from ..config import settings
 from ..db import TRANSCODE_DIR
 from ..log import get_logger
+from ..version import VERSION, build_commit
 
 router = APIRouter(prefix="/api")
 logger = get_logger("health")
@@ -115,7 +116,9 @@ def health():
         libs = [{"id": None, "name": "", "kind": "", "source": "",
                  "path": settings.media_root, "ok": False, "read_only": False,
                  "last_status": "", "error": str(e)[:200]}]
+    commit = _build_commit()
     return {"status": "ok" if (dbh.get("ok") and all_ok) else "degraded",
+            "version": VERSION.name, "version_code": VERSION.code,
             "db": dbh,
             "media": {"root": settings.media_root, "ok": bool(all_ok),
                       "libraries": libs},
@@ -123,19 +126,12 @@ def health():
             "transcoder": tw,
             # Capacity collection is independent of the existing DB/media status.
             "disks": _disk_space(),
-            "build": _build_commit()}
+            "build": commit[:12], "build_commit": commit}
 
 
 def _build_commit() -> str:
-    """构建版本脚标：git 短 hash，无仓库（如镜像内）则 unknown。只读，不抛错。"""
-    try:
-        import subprocess as _sp
-        out = _sp.run(["git", "rev-parse", "--short", "HEAD"],
-                      capture_output=True, timeout=5, check=False)
-        s = (out.stdout or b"").decode("utf-8", errors="replace").strip()
-        return s[:12] if out.returncode == 0 and s else "unknown"
-    except Exception:
-        return "unknown"
+    """镜像使用构建时注入的完整提交；源码运行时读取当前仓库，无 Git 时 unknown。"""
+    return build_commit()
 
 
 def _settings_view() -> dict:

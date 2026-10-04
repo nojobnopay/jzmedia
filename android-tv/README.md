@@ -2,7 +2,7 @@
 
 在电视上连接 jzmedia，浏览电影、剧集和合集，用遥控器搜索、播放和续看。扫描、匹配、整理与上传仍在网页端操作。
 
-目前是**真机待验收的开发版本**。已有 APK 可直接试装；自己编译请按下面的 Step 操作。当前版本以 [version.properties](version.properties) 为准，设备验收和升级限制见[当前状态](../docs/roadmap/android-tv.md)。
+目前是**真机待验收的开发版本**。已有 APK 可直接试装；自己编译请按下面的 Step 操作。发行版本与 Docker 镜像共用根 [version.properties](../version.properties)，维护者通过[统一发布](../docs/developer/releasing.md)同步交付两端。设备验收和升级限制见[当前状态](../docs/roadmap/android-tv.md)。
 
 [安装已有 APK](#已有-apk安装并连接) · [从源码构建](#从源码构建测试与安装) · [日常命令与排错](#日常命令与常见问题)
 
@@ -10,7 +10,7 @@
 
 ### Step 1：确认拿到可安装的包
 
-使用维护者交付的 `jzmedia-tv-X.Y.Z-debug.apk` 或正式签名的 `jzmedia-tv-X.Y.Z.apk`，`X.Y.Z` 是版本号。文件名含 `-unsigned` 的包不能安装。本仓库不保存 APK；自行构建的交付包位于仓库根目录 `output/android-tv/`。
+使用维护者交付的 `jzmedia-tv-X.Y.Z-debug.apk` 或正式签名的 `jzmedia-tv-X.Y.Z.apk`，`X.Y.Z` 是版本号。文件名含 `-unsigned` 的包不能安装。本仓库不保存 APK；统一交付包与 `manifest.json` 位于仓库根目录 `output/releases/vX.Y.Z/`。
 
 ### Step 2：在电视安装
 
@@ -82,7 +82,7 @@ python3 tools/tv.py check
 | 单元测试报告 | `app/build/reports/tests/testDebugUnitTest/index.html` |
 | Lint 报告 | `app/build/reports/lint-results-debug.html` |
 
-Release 目前没有自动配置签名，构建出的 `app-release-unsigned.apk` 仅供后续签名。向他人交付 APK 时使用[打包流程](docs/releasing.md)，不要直接分发本地构建文件。
+没有配置正式签名时，Release 构建产出 `app-release-unsigned.apk`，仅供后续签名。向他人交付 APK 时使用[统一发布](../docs/developer/releasing.md)，签名与覆盖升级要求见[打包与升级](docs/releasing.md)。
 
 ### Step 3：连接电视或模拟器
 
@@ -145,10 +145,10 @@ python3 tools/tv.py install
 | 完整检查并构建两种包 | `python3 tools/tv.py check` |
 | 构建、安装、启动 | `python3 tools/tv.py install` |
 | 启动隔离演示并自动设置设备转发 | `python3 tools/tv.py demo` |
-| 导出带版本号的 Debug 交付包 | `python3 tools/tv.py package debug` |
+| 导出带版本号的本地 Debug 包 | `python3 tools/tv.py package debug` |
 | 查看各命令参数 | `python3 tools/tv.py --help` 或子命令后的 `--help` |
 
-构建类命令可加 `--offline` 使用已有缓存；第一次构建不能依赖此选项。
+构建类命令可加 `--offline` 使用已有缓存；第一次构建不能依赖此选项。单独 `package` 的产物位于仓库根 `output/android-tv/`，供开发检查；对外交付使用统一发布目录。
 
 ### 常见问题
 
@@ -163,7 +163,7 @@ python3 tools/tv.py install
 
 方向键移动焦点，确定键激活，返回键逐层退出。播放控件隐藏时，左右预选跳转位置、确定确认；无跳转预选时确定可暂停／继续。控件含音轨、字幕、倍速和下一集；按 Home 或退出播放会保存进度并释放本机播放资源。
 
-客户端使用 Kotlin、Compose for TV 和 Media3，只通过 HTTP API 连接服务器。电视和网页共享观看进度；各设备播放会话独立。Android 构建与服务器、Docker、网页构建互不依赖。设备是否能播放 HEVC、HDR 或多声道音频，由实际能力检测和真机验证决定。
+客户端使用 Kotlin、Compose for TV 和 Media3，只通过 HTTP API 连接服务器。电视和网页共享观看进度；各设备播放会话独立。Android 日常构建可单独执行，统一发布脚本负责编排镜像和 APK。设备是否能播放 HEVC、HDR 或多声道音频，由实际能力检测和真机验证决定。
 
 文本字幕由电视显示；ASS/SSA 转兼容文本后会简化特效，图片字幕由服务器烧录。片名首字母／全拼搜索和演员搜索分别需要服务器的可选能力。完整规则只在下列参考页维护：
 

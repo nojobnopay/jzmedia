@@ -1,6 +1,6 @@
 ---
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.20.0
+reviewed: 2026-10-04
 ---
 
 # 开发与验证
@@ -29,7 +29,7 @@ reviewed: 2026-10-03
 
 ```bash
 .venv/bin/python -m pytest -q
-.venv/bin/python -m pyflakes app
+.venv/bin/python scripts/check_python.py
 python3 scripts/build_design.py --check
 npm test --prefix frontend
 npm run lint --prefix frontend
@@ -37,6 +37,8 @@ npm run build --prefix frontend
 ```
 
 后端测试包含 schema 迁移、多库隔离、SMB、扫描、整理、外源、Android 原生能力及多客户端播放会话；前端测试包含纯函数、模板绑定和字幕 composable 初始化。`tests/conftest.py` 在导入应用前设置临时数据/媒体目录；`pytest.ini` 每例超时 120 秒，线程堆栈兜底 240 秒。改动范围小时先运行相关用例，提交前按仓库要求检查全套结果；如果仓库中已有与本次无关的警告/失败，记录基线及差异，不把未通过说成通过。
+
+`check_python.py` 包装 pyflakes，只对脚本内固定白名单的导出门面及同名重导出保留例外，其余未使用、未定义等诊断阻断检查。新增文件不自动加入白名单，不能用宽泛忽略隐藏真实错误。
 
 ### 隔离冒烟
 
@@ -53,7 +55,7 @@ npm run build --prefix frontend
 
 修改帮助站后运行 `npm --prefix docs run verify`，依次完成格式 lint、源链接检查、构建、测试及产物检查，确保测试读取本次构建；局部文档检查见[文档制作与发布](documentation.md#构建与检查)。
 
-Android TV 使用独立 Gradle 工程，先读仓库 `android-tv/AGENTS.md` 与 `android-tv/README.md`，不通过前端 npm 或 `start.sh` 构建 APK。
+Android TV 使用独立 Gradle 工程，先读仓库 `android-tv/AGENTS.md` 与 `android-tv/README.md`，不通过前端 npm 或 `start.sh` 构建 APK。对外交付时按[统一发布](releasing.md)从同一提交同步构建镜像与 APK，并记录版本、哈希和签名类别。
 
 ### 运行诊断
 

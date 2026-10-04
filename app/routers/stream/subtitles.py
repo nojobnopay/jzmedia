@@ -10,7 +10,6 @@ from fastapi.responses import FileResponse
 from ...config import settings
 from ... import library_paths
 from ... import storage
-from ...db import TRANSCODE_DIR
 from ...scanner import (sidecar_subtitles_fs, _SIDECAR_LANG_HINTS,
                         _guess_sidecar_lang)
 from ... import media as _media

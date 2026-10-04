@@ -125,7 +125,6 @@ def parse_path_variants(rel: str) -> list[str]:
 
 def parse_path_year(rel: str, fallback=None):
     """父目录里的年份优先（`告白.Confessions.2010/` → 2010）；无则用 fallback。"""
-    import os as _os
     import re as _re
     rel = str(rel or "").replace("\\", "/")
     for d in reversed([p for p in rel.split("/")[:-1] if p and p != "."]):

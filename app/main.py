@@ -14,6 +14,7 @@ from .config import settings
 from .db import POSTER_DIR, ensure_dirs
 from .log import get_logger, setup_logging
 from .help_site import HelpFiles
+from .version import VERSION
 from .routers import (ai, ai_settings, collections, extras, files, fs, health, jobs, libraries,
                       media_libraries, metadata, movies, onboarding, persons, stream, tv,
                       tv_airing as tv_airing_router, tv_bindings, tv_client)
@@ -78,7 +79,7 @@ async def _lifespan(_app: FastAPI):
     _logger.info("jzmedia 已停止")
 
 
-app = FastAPI(title="jzmedia", version="0.19.0", lifespan=_lifespan)
+app = FastAPI(title="jzmedia", version=VERSION.name, lifespan=_lifespan)
 
 # 写操作访问令牌（评审 P1-01）：仅当 JZMEDIA_TOKEN/设置页配置了令牌才生效。
 # 只护 /api 的写方法（POST/PUT/PATCH/DELETE）；GET 全放行（Kodi/电视直链、海报、

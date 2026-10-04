@@ -1,6 +1,6 @@
 ---
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.20.0
+reviewed: 2026-10-04
 ---
 
 # 模块划分
@@ -69,7 +69,7 @@ reviewed: 2026-10-03
 
 ## 跨端资产与独立工程
 
-`design/` 保存 SVG 母版、令牌、资产与使用需求；`scripts/build_design.py` 生成 Web 的 `frontend/src/generated/`、Android TV 的 `ui/generated/` 以及品牌资源，生成物不可手改。`docs/` 是独立 VitePress npm 包，构建后随服务托管；`android-tv/` 是独立 Gradle 工程，使用自己的 `AGENTS.md`、README、版本及 APK 发布流程。根 `scripts/README.md` 汇总构建、隔离冒烟、素材拍摄与只读诊断入口。
+`design/` 保存 SVG 母版、令牌、资产与使用需求；`scripts/build_design.py` 生成 Web 的 `frontend/src/generated/`、Android TV 的 `ui/generated/` 以及品牌资源，生成物不可手改。`docs/` 是独立 VitePress npm 包，构建后随服务托管；`android-tv/` 是独立 Gradle 工程，日常开发遵循其 `AGENTS.md` 与 README。根 `version.properties` 提供两端及帮助站版本，`scripts/release.py` 负责[统一发布](releasing.md)。根 `scripts/README.md` 汇总构建、隔离冒烟、素材拍摄与只读诊断入口。
 
 ## 常见改动去处
 

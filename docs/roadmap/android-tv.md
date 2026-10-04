@@ -2,7 +2,7 @@
 
 本页只维护尚未完成的事项与影响交付的限制，不进入公开帮助站。构建、安装见 [README](../../android-tv/README.md)，操作检查见[测试指南](../../android-tv/docs/testing.md)，打包规则见[发布指南](../../android-tv/docs/releasing.md)。核对日期：2026-10-04。
 
-连接、浏览、搜索、播放和独立会话已实现。当前待验收基线为 `0.5.2` / `versionCode=10`、协议 1；版本值以 [version.properties](../../android-tv/version.properties) 为准。历史 Debug/未签名 Release 构建、JVM/Lint 与 API 28 软件模拟器检查已有记录；这些结果不等于红米真机验收，也不代表后续变更已重新验证。
+连接、浏览、搜索、播放和独立会话已实现。当前版本以根 [version.properties](../../version.properties) 为准，与 Docker 镜像统一发布；协议仍为 1。此前 `0.5.2` / `versionCode=10` 的 Debug/未签名 Release 构建、JVM/Lint 与 API 28 软件模拟器检查已有记录；这些结果不等于红米真机验收，也不代表统一发行版本已重新验证。
 
 ## 影响安装与发布的限制
 

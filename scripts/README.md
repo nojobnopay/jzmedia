@@ -1,6 +1,6 @@
 # 仓库维护工具
 
-核对日期：2026-10-03。
+核对日期：2026-10-04。
 
 以下命令均从仓库根目录执行。Python 工具使用 `.venv/bin/python scripts/文件名.py`，Node 工具使用 `node scripts/文件名.mjs`。
 
@@ -10,6 +10,8 @@
 
 | 工具 | 用途与输出 |
 | --- | --- |
+| [release.py](release.py) | 校验与同步统一版本，从同一提交构建 Docker 镜像和 APK，生成 `output/releases/vX.Y.Z/` 追溯清单。见[统一发布](../docs/developer/releasing.md)。 |
+| [check_python.py](check_python.py) | 严格运行 Python 静态检查，仅保留固定导出门面与同名重导出例外。 |
 | [build_frontend.py](build_frontend.py) | 按输入摘要构建 `frontend/dist/`；由 `start.sh` 调用，包含删除检测。 |
 | [build_docs.py](build_docs.py) | 按输入摘要构建 `docs/.vitepress/dist/`；由 `start.sh` 调用，排除私有资料、路线图和历史报告。 |
 | [build_design.py](build_design.py) | 从 `design/` 母版生成跨端资产、令牌和用途清单；`--check` 只校验，品牌位图使用 `--render-brand`。详见[设计资产](../design/README.md)。 |

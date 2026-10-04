@@ -1,6 +1,6 @@
 ---
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.20.0
+reviewed: 2026-10-04
 ---
 
 # jzmedia
@@ -27,10 +27,11 @@ reviewed: 2026-10-03
 | 图文教程与任务导航 | [帮助首页](docs/index.md) · [完整任务目录](docs/user-guide/README.md) |
 | 安装、配置、升级与备份 | [部署与维护](docs/getting-started/README.md) |
 | 系统架构、API 与开发 | [开发者参考](docs/developer/README.md) |
+| 同步构建 Docker 镜像与 APK | [统一发布](docs/developer/releasing.md) |
 | 制作文档、截图与演示 | [文档制作与发布](docs/developer/documentation.md) |
 | 开发计划与待验收 | 仓库 `docs/roadmap/`（不随公开帮助发布） |
 
-安卓电视客户端位于独立工程 [android-tv/](android-tv/README.md)，与服务端同仓管理、分别构建和发布。已接入连接、媒体浏览和原生播放，当前为待验收的开发版本，红米真机及正式签名分发尚未完成；范围与验收见 [电视端开发计划](docs/roadmap/android-tv.md)。
+安卓电视客户端位于独立工程 [android-tv/](android-tv/README.md)，日常可单独构建，发行时与 Docker 镜像从同一提交同步构建并共用版本。已接入连接、媒体浏览和原生播放，当前为待验收的开发版本，默认交付 Debug 试装 APK；红米真机及正式签名升级尚未验收，范围见 [电视端开发计划](docs/roadmap/android-tv.md)。
 
 ## 仓库目录
 

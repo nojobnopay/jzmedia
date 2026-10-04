@@ -1,16 +1,16 @@
 # AGENTS.md
 
-现行约束核对：2026-10-03。下文功能条目的日期记录引入或修复背景；操作入口与行为按当前代码维护，末尾版本记录保留发布时的历史事实。
+现行约束核对：2026-10-04。下文功能条目的日期记录引入或修复背景；操作入口与行为按当前代码维护，末尾版本记录保留发布时的历史事实。
 
 ## Stack
 
 ### Backend
 
-FastAPI + stdlib `sqlite3` (no ORM), Vue3 + Vite frontend. 验证：`pytest`（tests/）+ `pyflakes app` + 前端 `npm test`/`npm run lint`；无 CI。
+FastAPI + stdlib `sqlite3` (no ORM), Vue3 + Vite frontend. 验证：`pytest`（tests/）+ `scripts/check_python.py` + 前端 `npm test`/`npm run lint`；无 CI。
 
 ### Entrypoints
 
-- `app/main.py` (app + SPA hosting, version `0.19.0`；启动初始化 ensure_dirs/init_db 在 lifespan，导入期无副作用),
+- `app/main.py` (app + SPA hosting，发行版本以根 `version.properties` 为准；启动初始化 ensure_dirs/init_db 在 lifespan，导入期无副作用),
 - `app/store/` (SQLite+FTS+facets/filters),
 - `app/scanner/` (scan/match flow),
 - `app/tmdb.py` (TMDB client),
@@ -171,9 +171,9 @@ MKV 附件首次请求 `/{id}/fonts/{name}` 时 `ffmpeg -dump_attachment` 到 `t
 
 ### Android TV
 
-`android-tv/` 为同仓独立 Gradle 工程，先读其 `AGENTS.md` / `README.md`；构建、测试、版本和 APK 发布独立，不接入 `start.sh`、Docker 或 Vue 构建。已接入连接/浏览/Media3 观影、`android_tv` 原生能力和独立 sid/共享转码任务；
+`android-tv/` 为同仓独立 Gradle 工程，先读其 `AGENTS.md` / `README.md`；日常构建与测试可独立执行，发行必须通过根 `scripts/release.py` 从同一干净 Git 提交同步构建 Docker 镜像与 APK。`start.sh`、Dockerfile 与 Vue 构建本身不依赖 Android SDK。已接入连接/浏览/Media3 观影、`android_tv` 原生能力和独立 sid/共享转码任务；
 
-协议 1 见 `android-tv/docs/protocol.md`，进度及真机待验收项见 `docs/roadmap/android-tv.md`。服务端/网页版本一致规则不适用于 APK。
+协议 1 见 `android-tv/docs/protocol.md`，进度及真机待验收项见 `docs/roadmap/android-tv.md`。服务端、网页、帮助站与 APK 共用根 `version.properties` 的 `versionName`；Android `versionCode` 在该文件全局递增。统一构建不代表设备必须同时升级，连接时仍检查协议与能力。
 
 ### Backend (WSL dev, hot-reload via `docker-compose.override.yml`)
 
@@ -193,7 +193,7 @@ Manual equivalent needs `DATA_DIR=./data MEDIA_ROOT=./media` overrides plus `TMD
 
 ### 验证命令
 
-`.venv/bin/python -m pytest -q`（含迁移/多库/媒体库聚合/离线匹配/TV/存储层；`pytest.ini` 默认 120s/用例熔断，hang 转失败+堆栈，`--timeout=N` 临时覆盖）；`.venv/bin/python -m pyflakes app`；
+`.venv/bin/python -m pytest -q`（含迁移/多库/媒体库聚合/离线匹配/TV/存储层；`pytest.ini` 默认 120s/用例熔断，hang 转失败+堆栈，`--timeout=N` 临时覆盖）；`.venv/bin/python scripts/check_python.py`（pyflakes 严格包装，仅固定白名单的导出门面及同名重导出例外）；
 
 冒烟 `scripts/smoke_multi_library.py`、`scripts/smoke_metadata_offline.py`（临时目录、不触网）；线上自检 `/api/health` + docs/developer/api.md。
 
@@ -941,8 +941,12 @@ Git (`main` branch, local-only, no remote): commit per feature, annotated tag pe
 
 - `v0.4.0` = filters/ratings/avatar-wall/person page
 
-Code versions unified (`main.py` + `package.json`). 依赖版本锁定在 `requirements.txt`；宿主直跑用 `requirements-dev.txt`（含 static-ffmpeg 兜底，评审 R01-Q5）；compose 有 `init: true` + `/api/health` healthcheck（R01-Q3）。
+根 `version.properties` 是服务端、网页、帮助站及 Android TV 的唯一发行版本源。使用 `python3 scripts/release.py version X.Y.Z --android-code N` 同步版本，再提交全部发行源码；`check` 校验版本一致，`build` 从干净同一 Git 提交构建两端并生成追溯清单。每次交付内容变化同时提高发行版本和 Android `versionCode`，本地重复开发构建不升版。完整规则见 `docs/developer/releasing.md`。
+
+依赖版本锁定在 `requirements.txt`；宿主直跑用 `requirements-dev.txt`（含 static-ffmpeg 兜底，评审 R01-Q5）；compose 有 `init: true` + `/api/health` healthcheck（R01-Q3）。
 
 ### Images
 
-`image: jzmedia:${APP_VERSION:-latest}` in compose (local `.env` pins e.g. `vX.Y.Z`); release = `GIT_SHA=$(git rev-parse --short HEAD) docker compose build` then `docker tag jzmedia:vX.Y.Z jzmedia:latest`. Version/commit baked via Dockerfile OCI labels (`APP_VERSION`/`GIT_SHA` args). `docker image prune` clears dangling rebuilds.
+Compose 的 `image: jzmedia:${APP_VERSION:-latest}` 保留本地部署构建能力。统一发行使用 `python3 scripts/release.py build`；两端检查和构建全部通过后，才更新 `jzmedia:vX.Y.Z`、`jzmedia:latest` 与 `output/releases/vX.Y.Z/`。默认生成 Debug 试装 APK；正式 APK 必须配置并验证正式签名，未签名包不能交付。
+
+`manifest.json` 记录完整 Git 提交、统一版本、镜像 ID、APK SHA-256 与签名类别，OCI labels 记录版本和提交；成功创建同提交的 annotated Git tag `vX.Y.Z`，同名异提交拒绝发行。发行失败不得改变已发行版本标签和 `latest`；不自动导出镜像、推送远端或安装设备。产物、签名密钥与密码不提交。

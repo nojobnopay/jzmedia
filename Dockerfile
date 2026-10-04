@@ -31,7 +31,8 @@ ARG GIT_SHA="unknown"
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    JZMEDIA_BUILD_COMMIT=$GIT_SHA
 
 LABEL org.opencontainers.image.title="jzmedia" \
       org.opencontainers.image.version=$APP_VERSION \
@@ -45,6 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY version.properties ./version.properties
 COPY --from=web /web/dist ./frontend/dist
 COPY --from=help /help/.vitepress/dist ./docs/.vitepress/dist
 
