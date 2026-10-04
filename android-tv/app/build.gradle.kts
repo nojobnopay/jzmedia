@@ -1,3 +1,4 @@
+import java.io.File
 import java.util.Properties
 
 plugins {
@@ -52,6 +53,15 @@ require(releaseSigning.values.all { it.isNullOrBlank() } || releaseSigning.value
     "Set all four JZMEDIA_ANDROID_KEYSTORE / STORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD values for release signing"
 }
 val hasReleaseSigning = releaseSigning.values.none { it.isNullOrBlank() }
+// CI restores the upgrade key to an explicit location. AGP's default can follow
+// XDG_CONFIG_HOME instead of HOME, so relying on ~/.android can generate a new key.
+val debugSigningFile = providers.environmentVariable("JZMEDIA_ANDROID_DEBUG_KEYSTORE").orNull?.let {
+    File(it).also { key ->
+        require(key.isAbsolute && key.isFile) {
+            "JZMEDIA_ANDROID_DEBUG_KEYSTORE must identify an existing absolute keystore path"
+        }
+    }
+}
 
 // This record travels inside the APK, so exporting cannot relabel stale build output.
 val buildRecord = """{"versionName":"$appVersionName","versionCode":$appVersionCode,"source":{"commit":${if (gitCommit == "unknown") "null" else "\"$gitCommit\""},"dirty":${gitDirty ?: "null"}}}"""
@@ -85,6 +95,15 @@ android {
         versionName = appVersionName
         buildConfigField("String", "GIT_COMMIT", "\"$gitCommit\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    if (debugSigningFile != null) {
+        signingConfigs.getByName("debug") {
+            storeFile = debugSigningFile
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     if (hasReleaseSigning) {

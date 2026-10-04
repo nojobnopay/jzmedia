@@ -955,4 +955,4 @@ Compose 的 `image: jzmedia:${APP_VERSION:-latest}` 保留本地部署构建能�
 
 `manifest.json` 记录完整 Git 提交、统一版本、镜像 ID、APK SHA-256 与签名类别，OCI labels 记录版本和提交；本机发行成功创建或核对同提交的 annotated Git tag `vX.Y.Z`，同名异提交拒绝发行。本地 `build` 不导出镜像、推送远端或安装设备；`--validate-only` 不更新发行目录或 Git／镜像版本标签。
 
-云端复用完整双端构建，以 `scripts/github_signing.py` 恢复并核对固定 Debug 签名；`scripts/github_release.py` 提供 `preflight/package/publish`。八个发行附件保存为保留 14 天的 Actions bundle，独立发布 job 复核后先保存完整草稿附件，再推送 GHCR 固定标签、匿名核验、公开 Release，最后更新 `latest`。发布失败重跑 failed jobs 复用原 bundle，不重建或覆盖同版本产物；已存在草稿时拒绝重新构建。产物、签名密钥与密码不提交。
+云端复用完整双端构建，以 `scripts/github_signing.py` 恢复并核对固定 Debug 签名，`JZMEDIA_ANDROID_DEBUG_KEYSTORE` 显式指定恢复、Gradle 与清理共用的绝对路径；APK 构建后、打包及发布均核对升级证书。`scripts/github_release.py` 提供 `preflight/package/publish`。八个发行附件保存为保留 14 天的 Actions bundle，独立发布 job 复核后先保存完整草稿附件，再推送 GHCR 固定标签、匿名核验、公开 Release，最后更新 `latest`。发布失败重跑 failed jobs 复用原 bundle，不重建或覆盖同版本产物；已存在草稿时拒绝重新构建。产物、签名密钥与密码不提交。

@@ -82,6 +82,24 @@ def test_clean_source_required_and_head_must_not_move(monkeypatch, tmp_path):
         release.clean_commit(tmp_path, "b" * 40)
 
 
+@pytest.mark.parametrize("fingerprint", [None, "b" * 64, "B" * 64])
+def test_android_build_checks_configured_upgrade_certificate(tmp_path, monkeypatch, fingerprint):
+    _, record = artifact(tmp_path)
+    monkeypatch.setattr(release, "command", lambda *a, **kw: "")
+    env = {} if fingerprint is None else {"JZMEDIA_ANDROID_DEBUG_CERT_SHA256": fingerprint}
+    assert release.build_android(tmp_path, tmp_path, "0.20.0", 11, COMMIT, "debug", False,
+                                 env, tmp_path / "android.log") == record
+
+
+@pytest.mark.parametrize("fingerprint", ["c" * 64, "invalid", ""])
+def test_android_build_rejects_changed_certificate_before_promotion(tmp_path, monkeypatch, fingerprint):
+    artifact(tmp_path)
+    monkeypatch.setattr(release, "command", lambda *a, **kw: "")
+    with pytest.raises(release.ReleaseError, match="upgrade certificate"):
+        release.build_android(tmp_path, tmp_path, "0.20.0", 11, COMMIT, "debug", False,
+                              {"JZMEDIA_ANDROID_DEBUG_CERT_SHA256": fingerprint}, tmp_path / "android.log")
+
+
 def test_history_requires_monotonic_android_code_and_version(tmp_path):
     history = tmp_path / "v0.20.0"
     history.mkdir()

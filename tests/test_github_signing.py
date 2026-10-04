@@ -156,6 +156,24 @@ def test_main_default_destination_is_under_home(tmp_path, monkeypatch, identity)
     assert (tmp_path / ".android/debug.keystore").read_bytes() == KEYSTORE
 
 
+def test_explicit_runner_destination_ignores_android_and_xdg_home_defaults(tmp_path, monkeypatch, identity):
+    home = tmp_path / "runner-home"
+    xdg = home / ".config"
+    android_home = tmp_path / "android-preferences"
+    destination = tmp_path / "runner-temp/jzmedia-signing/debug.keystore"
+    monkeypatch.setattr(signing.Path, "home", lambda: home)
+    for key, value in {**identity, "XDG_CONFIG_HOME": str(xdg),
+                       "ANDROID_USER_HOME": str(android_home),
+                       "JZMEDIA_ANDROID_DEBUG_KEYSTORE": str(destination)}.items():
+        monkeypatch.setenv(key, value)
+    valid_keytool(monkeypatch)
+    assert signing.main(["--output", str(destination)]) == 0
+    assert destination.read_bytes() == KEYSTORE
+    assert not (home / ".android/debug.keystore").exists()
+    assert not (xdg / ".android/debug.keystore").exists()
+    assert not (android_home / "debug.keystore").exists()
+
+
 def test_help_needs_no_secret_or_keytool(monkeypatch, capsys):
     monkeypatch.delenv(signing.KEYSTORE_ENV, raising=False)
     monkeypatch.delenv(signing.CERTIFICATE_ENV, raising=False)

@@ -290,6 +290,12 @@ def build_android(source, output, version, code, commit, variant, offline, env, 
                  "--output", output, "--commit", commit, *(["--offline"] if offline else [])],
                 cwd=source, env=env, log=log)
     result = verify_apk(output, version, code, commit, variant)
+    expected_certificate = env.get("JZMEDIA_ANDROID_DEBUG_CERT_SHA256")
+    if variant == "debug" and expected_certificate is not None:
+        expected_certificate = expected_certificate.lower()
+        if (not re.fullmatch(r"[0-9a-f]{64}", expected_certificate)
+                or result["signing"]["certificateSha256"] != expected_certificate):
+            raise ReleaseError("APK certificate differs from the configured upgrade certificate")
     print("Android build and delivery identity check passed.", flush=True)
     return result
 

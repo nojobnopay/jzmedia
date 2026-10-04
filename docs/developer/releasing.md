@@ -1,5 +1,5 @@
 ---
-version: 0.20.2
+version: 0.20.3
 reviewed: 2026-10-04
 ---
 
@@ -23,6 +23,8 @@ reviewed: 2026-10-04
 | Variable：`JZMEDIA_ANDROID_DEBUG_CERT_SHA256` | 原签名证书 SHA-256，64 位小写十六进制 |
 
 当前已交付证书指纹为 `606d6cafb3e63bd2d4c7ebcb6578bd893a8650ddb0f86dc5d65f96fdf9b5d2a5`。使用原密钥以延续覆盖升级能力；缺少配置或指纹不符时构建会失败，不自动生成替代签名。密钥与 Base64 内容只保存到 Secret，不提交源码、日志或发行附件；签名核对见仓库 `android-tv/docs/releasing.md`。
+
+工作流将已核验的密钥写入 runner 临时目录，通过 `JZMEDIA_ANDROID_DEBUG_KEYSTORE` 将同一绝对路径传给 Gradle，结束时清除该文件；不依赖 runner 的默认 Android 用户目录。APK 构建完成后立即核对证书指纹，打包和发布时再次核对。普通本地构建未设置此路径时继续使用 Android 默认 Debug 签名。
 
 工作流自动使用 `GITHUB_TOKEN`，无需额外 PAT。`prepare` 为识别发布草稿具有 `contents: write`，`build` 仅有 `contents: read`，`publish` 具有 `contents: write` 与 `packages: write`。已有 GHCR 包须关联 `nojobnopay/jzmedia`、允许该仓库 Actions 写入，并设为 Public；设置入口见[包的公开与关联步骤](#ghcr-package-settings)。
 
