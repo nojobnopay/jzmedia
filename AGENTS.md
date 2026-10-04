@@ -177,13 +177,13 @@ MKV 附件首次请求 `/{id}/fonts/{name}` 时 `ffmpeg -dump_attachment` 到 `t
 
 ### Backend (WSL dev, hot-reload via `docker-compose.override.yml`)
 
-`cp .env.example .env && mkdir -p media/电影 data && docker compose up --build`, check `http://localhost:8080/docs`.
+`mkdir -p media/电影 data && docker compose up --build`, check `http://localhost:8080/docs`。主 Compose 的 `.env` 可选（Compose ≥2.24.0），已有文件继续读取、不自动生成；运行用户、端口与卷可直接在 Compose 配置，或保留变量写法使用 `.env`。容器接收环境变量，不需要容器内存在该文件。
 
 ### Host-direct (no docker)
 
-prefer `./start.sh` — rebuilds `frontend/dist` only when stale, maps `.env` container paths (`/app/media`, `/app/data`) back to host defaults, then runs uvicorn.
+prefer `./start.sh` — no `.env` required; rebuilds `frontend/dist` only when stale, uses host data/media defaults even if an optional `.env` contains container paths (`/app/media`, `/app/data`), then runs uvicorn.
 
-Manual equivalent needs `DATA_DIR=./data MEDIA_ROOT=./media` overrides plus `TMDB_*` from `.env` (see docs/getting-started/deployment.md).
+Manual equivalent uses `DATA_DIR=./data MEDIA_ROOT=./media`; optional `TMDB_*` can come from the process environment or web settings (see docs/getting-started/deployment.md).
 
 ### Frontend dev
 
@@ -899,7 +899,7 @@ Manual fix flow: `GET /api/tmdb/search` → `POST /api/movies/{id}/match {"tmdb_
 
 ## Deploy
 
-- `docker-compose.override.yml` is WSL-only (dev user + bind mounts + `--reload`). Delete / exclude it on NAS; set NAS `.env` to `MEDIA_HOST_PATH=/volume1/video`, `DATA_HOST_PATH=/volume1/docker/jzmedia/data`, correct `UID/GID`（主 compose 用 `user: "${UID:-0}:${GID:-0}"` 运行容器，缺省 root；NAS 需保证数据目录属主为该 UID，见 docs/getting-started/deployment.md）。
+- `docker-compose.override.yml` is WSL-only (dev user + bind mounts + `--reload`). Delete / exclude it on NAS; configure the actual media/data paths and UID/GID in Compose directly, or keep its variable syntax and use an optional `.env`（主 compose 用 `user: "${UID:-0}:${GID:-0}"` 运行容器，缺省 root；NAS 需保证数据目录属主为该 UID，见 docs/getting-started/deployment.md）。
 
 - WSL Docker Desktop proxy breakage is documented in docs/getting-started/troubleshooting.md (use `crane pull … && docker load`, or `BUILD_HTTP_PROXY=http://nas:7890`).
 

@@ -1,7 +1,10 @@
-"""部署配置回归网（P1-09）：主 compose 必须以 .env 的 UID/GID 运行容器。"""
+"""部署配置：无需 .env 即可解析，同时保留已有文件中的部署与应用配置。"""
+import json
 import pathlib
 import shutil
 import subprocess
+
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -16,21 +19,48 @@ def test_env_example_has_uid_gid():
     assert "UID=" in text and "GID=" in text
 
 
-def test_compose_config_resolves_user(tmp_path):
-    """有 docker 时用 compose 渲染验证插值（无 docker 跳过）。"""
+@pytest.mark.parametrize("with_env", [False, True], ids=["no-env", "existing-env"])
+def test_compose_config_resolves_optional_env(tmp_path, with_env):
+    """只渲染隔离副本，不访问用户配置或 Docker daemon。"""
     if not shutil.which("docker"):
-        import pytest
         pytest.skip("docker not available")
-    # Compose's service env_file is separate from CLI interpolation. Render an
-    # isolated copy so a clean release archive needs no user's private .env.
+    process_env = {"PATH": "/usr/bin:/bin:/usr/local/bin"}
+    version = subprocess.run(
+        ["docker", "compose", "version"], capture_output=True, text=True,
+        timeout=60, env=process_env)
+    if version.returncode:
+        pytest.skip("docker compose not available")
+
     compose = tmp_path / "docker-compose.yml"
     compose.write_text((ROOT / "docker-compose.yml").read_text())
     environment = tmp_path / ".env"
-    environment.write_text("")
+    if with_env:
+        environment.write_text(
+            "UID=1234\nGID=2345\nAPP_PORT=18080\nAPP_VERSION=v1.2.3\n"
+            "MEDIA_HOST_PATH=./custom-media\nDATA_HOST_PATH=./custom-data\n"
+            "MEDIA_ROOT=/ignored-media\nDATA_DIR=/ignored-data\n"
+            "TMDB_LANGUAGE=en-US\nTRANSCODER=sw\n")
+
     out = subprocess.run(
-        ["docker", "compose", "--env-file", str(environment), "-f",
-         str(compose), "config"],
-        capture_output=True, text=True, timeout=60,
-        env={"PATH": "/usr/bin:/bin:/usr/local/bin", "UID": "", "GID": ""})
+        ["docker", "compose", "-f", str(compose), "config", "--format", "json"],
+        capture_output=True, text=True, timeout=60, cwd=tmp_path, env=process_env)
     assert out.returncode == 0, out.stderr
-    assert "user: '0:0'" in out.stdout or "user: 0:0" in out.stdout
+    service = json.loads(out.stdout)["services"]["mymedia"]
+    assert service["user"] == ("1234:2345" if with_env else "0:0")
+    assert service["image"] == ("jzmedia:v1.2.3" if with_env else "jzmedia:latest")
+    assert service["ports"][0]["target"] == 8080
+    assert service["ports"][0]["published"] == ("18080" if with_env else "8080")
+    volumes = {volume["target"]: volume["source"] for volume in service["volumes"]}
+    assert volumes == {
+        "/app/media": str(tmp_path / ("custom-media" if with_env else "media")),
+        "/app/data": str(tmp_path / ("custom-data" if with_env else "data")),
+    }
+    container_env = service["environment"]
+    assert container_env["MEDIA_ROOT"] == "/app/media"
+    assert container_env["DATA_DIR"] == "/app/data"
+    if with_env:
+        assert container_env["TMDB_LANGUAGE"] == "en-US"
+        assert container_env["TRANSCODER"] == "sw"
+    else:
+        assert set(container_env) == {"MEDIA_ROOT", "DATA_DIR"}
+        assert not environment.exists()

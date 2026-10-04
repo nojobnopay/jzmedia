@@ -88,7 +88,7 @@ docker image inspect jzmedia:vX.Y.Z --format '{{.Id}} {{json .Config.Labels}}'
 docker save -o output/releases/vX.Y.Z/jzmedia-vX.Y.Z.tar jzmedia:vX.Y.Z
 ```
 
-**预期结果：**交付目录中新增镜像 tar，保留 `jzmedia:vX.Y.Z` 标签。将文件、统一清单及该版本的 `.env.example` 一并交付；使用 Compose 的接收方还需该版本的 `docker-compose.yml`。确认镜像架构适用于目标机器后，按[加载镜像文件](../getting-started/deployment.md#加载镜像文件)导入，再选择 Compose 或 `docker run` 启动。镜像 tar 不包含运行实例的数据或媒体，迁移实例另按[备份与恢复](../getting-started/operations.md)处理。
+**预期结果：**交付目录中新增镜像 tar，保留 `jzmedia:vX.Y.Z` 标签。将文件与统一清单一并交付；使用 Compose 的接收方还需该版本的 `docker-compose.yml`，`.env.example` 可按需附带作为配置参考。确认镜像架构适用于目标机器后，按[加载镜像文件](../getting-started/deployment.md#加载镜像文件)导入，再选择 Compose 或 `docker run` 启动。镜像 tar 不包含运行实例的数据或媒体，迁移实例另按[备份与恢复](../getting-started/operations.md)处理。
 
 交付 APK 时一并提供其校验文件和统一清单，并注明它是 Debug 试装包。覆盖安装前核对新旧 APK 签名；不同电脑的 Debug 密钥可能不同，升版不能解决签名不一致。详细安装与签名检查见仓库 `android-tv/docs/releasing.md`。
 

@@ -31,11 +31,15 @@ docker logs --tail=100 jzmedia
 
 ### 启动时报 Permission denied
 
-核对 Compose 的 `.env` UID/GID 或 `docker run` 的 `--user`，以及数据目录属主/ACL 和媒体目录可读性。宿主路径与容器路径需分别填写，具体对应关系见[安装教程](deployment.md#docker-paths)。
+核对 Compose 的 `user` 或 `docker run` 的 `--user`，以及数据目录属主/ACL 和媒体目录可读性；若 Compose 的 `user` 保留变量写法，同时检查可选 `.env` 中的 UID/GID。宿主路径与容器路径需分别填写，具体对应关系见[安装教程](deployment.md#docker-paths)。
 
 ### 端口被占
 
-Linux/WSL 可用 `ss -ltnp` 查看占用。Compose 修改 `.env` 的 `APP_PORT`，`docker run` 修改 `-p` 的宿主端口，再重新创建容器；宿主直接运行修改 `APP_PORT` 后重启。也可确认后结束占用端口的自有进程，再重新启动。
+Linux/WSL 可用 `ss -ltnp` 查看占用。Compose 修改 `ports` 的宿主端口（保留变量写法时可修改 `.env` 的 `APP_PORT`），`docker run` 修改 `-p` 的宿主端口，再重新创建容器；宿主直接运行修改 `APP_PORT` 后重启。也可确认后结束占用端口的自有进程，再重新启动。
+
+### Compose 不支持 env_file 的 path 或 required 字段
+
+本仓库通过 `env_file` 的可选文件写法支持无 `.env` 启动，需要 Docker Compose 2.24.0 或更新版本。用 `docker compose version` 核对版本，升级 Compose 或 NAS 的容器管理组件；暂不能升级时，可按安装教程使用 [docker run](deployment.md#docker-run)。已有 `.env` 继续保留，其中配置仍可能被现有实例使用。
 
 ## 构建与更新
 
@@ -59,7 +63,7 @@ Docker 的网页与帮助站随镜像交付。自行构建时重新构建包含�
 
 ### 本地镜像不存在或提示 pull access denied
 
-先用 `docker image ls jzmedia` 核对本机镜像标签。Compose 的 `APP_VERSION` 和 `docker run` 命令末尾的标签须与实际镜像一致，例如载入 `jzmedia:v0.20.0` 后，不能仍指定不存在的 `jzmedia:latest`。
+先用 `docker image ls jzmedia` 核对本机镜像标签。Compose 的 `image` 和 `docker run` 命令末尾的标签须与实际镜像一致；若 `image` 保留变量写法，检查可选 `.env` 中的 `APP_VERSION`。例如载入 `jzmedia:v0.20.0` 后，不能仍指定不存在的 `jzmedia:latest`。
 
 当前 jzmedia 尚未发布到 Docker Hub。先按安装教程[准备本地镜像](deployment.md#docker-部署)，再使用其中禁止自动拉取的启动命令；不要通过反复 `docker pull jzmedia` 解决。使用 Compose 时明确指定 `-f docker-compose.yml`，避免加载开发 override。
 
@@ -128,7 +132,7 @@ crane pull --platform linux/amd64 python:3.12-slim /tmp/jzmedia-python-3.12.tar
 docker load -i /tmp/jzmedia-python-3.12.tar
 ```
 
-这只是针对对应架构和镜像的应急方法；Dockerfile 中其他基础镜像仍需可获取。构建期下载超时则在 `.env` 设置可从容器访问的 `BUILD_HTTP_PROXY`。运行时 TMDB 请求单独使用 `TMDB_PROXY`，不要混用三种代理配置。
+这只是针对对应架构和镜像的应急方法；Dockerfile 中其他基础镜像仍需可获取。Compose 构建期下载超时，可通过进程环境或可选 `.env` 设置容器可访问的 `BUILD_HTTP_PROXY`。运行时 TMDB 请求单独使用 `TMDB_PROXY`，不要混用三种代理配置。
 
 ## 提交问题
 

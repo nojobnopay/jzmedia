@@ -11,20 +11,22 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
     image: jzmedia:${APP_VERSION:-latest}
     # 以宿主 UID/GID 运行（评审 P1-09）：容器建的文件（NFO/海报/转码产物）宿主可直接管理。
-    # 缺省 0:0 保持旧的 root 行为；NAS/WSL 都应在 .env 填 `id -u`/`id -g`
-    # （NAS 另需保证 DATA_HOST_PATH 属主为该用户，见 docs/getting-started/deployment.md）。
+    # 缺省 0:0 保持旧的 root 行为；可直接修改 user，或在可选 .env 填 UID/GID。
+    # 用 `id -u`/`id -g` 核对宿主用户，并确保数据目录可写（见部署教程）。
     user: "${UID:-0}:${GID:-0}"
     ports:
       - "${APP_PORT:-8080}:8080"
     env_file:
-      - .env
+      # Compose >= 2.24.0：已有配置继续读取；文件不存在时跳过，不自动创建。
+      - path: .env
+        required: false
     environment:
       MEDIA_ROOT: /app/media
       DATA_DIR: /app/data
     volumes:
       - "${MEDIA_HOST_PATH:-./media}:/app/media:rw"
       - "${DATA_HOST_PATH:-./data}:/app/data"
-    # NAS 硬件转码（Intel QSV/VAAPI：DS425+ 等）：取消下面注释并在 .env 填宿主 gid
+    # NAS 硬件转码（Intel QSV/VAAPI：DS425+ 等）：取消下面注释，填实际组号或用可选 .env 配置
     # （DSM 上 `stat -c '%g' /dev/dri/renderD128` 取 render 组 id，通常 109；video 组 44）
     # devices:
     #   - /dev/dri:/dev/dri

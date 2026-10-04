@@ -31,7 +31,7 @@ reviewed: 2026-10-04
 |---|---|---|
 | `jzmedia.db` | 必须备份 | 库配置、匹配与个人记录 |
 | `secret.key` | 与数据库一起保存 | 解密远程凭据 |
-| `.env`、Compose 文件或 `docker run` 命令 | 另行安全保存 | 环境、卷与设备配置 |
+| Compose 文件或 `docker run` 命令、可选的 `.env` | 另行安全保存 | 环境、卷与设备配置 |
 | `fonts/` | 保留字体来源或备份 | 自行投放的字幕字体 |
 | `posters/` | 建议备份 | 图片缓存与已选图片 |
 | `transcode/`、`previews/` | 通常可排除 | 可重新生成的播放缓存 |
@@ -43,7 +43,7 @@ reviewed: 2026-10-04
 
 ## 一次一致的备份
 
-最易核对的方式是停止应用后复制数据库及相关配置。下面仅适用于默认 `./data`，使用其他 `DATA_HOST_PATH` 时替换目录：
+最易核对的方式是停止应用后复制数据库及相关配置。下面仅适用于默认 `./data`，使用其他宿主数据目录时替换路径：
 
 ### Step 1：停止服务并打包数据
 
@@ -59,7 +59,7 @@ tar --exclude='./mounts' --exclude='./transcode' --exclude='./previews' -czf "ba
 
 ### Step 2：保存配置并重新启动
 
-另行安全保存 `.env`、Compose 文件或完整的 `docker run` 启动命令；数据库备份不包含媒体目录。确认备份文件已经保存后重新启动。Compose 示例：
+另行安全保存 Compose 文件或完整的 `docker run` 启动命令；使用 `.env` 时一并保存。数据库备份不包含媒体目录。确认备份文件已经保存后重新启动。Compose 示例：
 
 ```bash
 docker compose -f docker-compose.yml start
@@ -77,8 +77,8 @@ SQLite 使用 WAL，应用运行时只复制 `jzmedia.db` 可能漏掉未合并�
 
 1. 停止/等待重要任务，备份数据、配置和旧版本源码或镜像。
 2. 阅读目标版本变更及迁移说明。Docker 部署获取目标版本源码或镜像文件；宿主直接运行获取源码。当前仓库不假定存在公共 `git pull` 地址；jzmedia 镜像尚未发布到 Docker Hub。
-3. 保留 `.env`、数据目录及卷映射，比较新的 `.env.example` 后按需补项。已入库路径为 `/media` 的容器，先按[旧路径兼容说明](deployment.md#legacy-media-path)保留原映射。
-4. Docker 部署先按安装教程[从源码构建](deployment.md#从源码构建)或[加载镜像文件](deployment.md#加载镜像文件)，确认目标镜像已在本机。Compose 的 `APP_VERSION` 或 `docker run` 命令末尾的镜像标签必须与目标标签一致。宿主直接运行则更新依赖。
+3. 保留原启动配置、数据目录及卷映射；已有 `.env` 时继续保留，按需参考新版 `.env.example` 补项，没有则无需创建。已入库路径为 `/media` 的容器，先按[旧路径兼容说明](deployment.md#legacy-media-path)保留原映射。
+4. Docker 部署先按安装教程[从源码构建](deployment.md#从源码构建)或[加载镜像文件](deployment.md#加载镜像文件)，确认目标镜像已在本机。Compose 的 `image` 或 `docker run` 命令末尾的镜像标签必须与目标标签一致；若 `image` 保留模板中的变量写法，则通过可选 `.env` 的 `APP_VERSION` 设置标签。宿主直接运行则更新依赖。
 5. Compose 执行 `docker compose -f docker-compose.yml up -d --no-build --pull never`，使用覆盖文件时保留原来的全部 `-f` 参数。`docker run` 实例先执行 `docker stop jzmedia`、`docker rm jzmedia`，再按[启动说明](deployment.md#docker-run)用目标镜像和原端口、卷、用户及设备参数创建容器；删除容器保留绑定到宿主的媒体和数据目录。宿主直接运行执行 `./start.sh`。
 6. 检查健康接口、媒体库连接、详情及一段视频，确认页面构建已更新。
 

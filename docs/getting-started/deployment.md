@@ -20,7 +20,7 @@ NAS 是部署设备，使用 Docker/Container Manager 时仍按 Docker 流程操
 
 ## 安装前准备
 
-- Docker 方案需要可用的 Docker Engine/Desktop 或 NAS 容器环境；选择 Compose 启动时还需 Docker Compose。直接运行源码则需 Linux/WSL、Python、Node.js 与 FFmpeg。
+- Docker 方案需要可用的 Docker Engine/Desktop 或 NAS 容器环境；使用仓库 Compose 配置需 Docker Compose 2.24.0 或更新版本，可用 `docker compose version` 查看。直接运行源码则需 Linux/WSL、Python、Node.js 与 FFmpeg。
 - 一个可读取的媒体目录和一个可写的数据目录。仅浏览和播放时可将媒体库设为只读。
 - 能访问服务器的浏览器。转码能力取决于片源、CPU/GPU 和网络。
 - 可先使用已有 NFO 与本地资料，无需为启动服务提前申请 TMDB 凭据；资料来源在[首次配置](../user-guide/onboarding.md)中选择。
@@ -33,34 +33,34 @@ NAS 是部署设备，使用 Docker/Container Manager 时仍按 Docker 流程操
 
 ### Step 1：准备部署配置与目录
 
-源码构建需要完整项目源码；加载镜像文件只需取得镜像归档和对应版本的 `.env.example`，使用 Compose 时再准备仓库的 `docker-compose.yml`。将所需文件放到部署目录，在终端进入该目录。首次复制配置；已有 `.env` 时跳过复制，不要覆盖：
+源码构建需要完整项目源码；加载镜像文件只需取得镜像归档，使用 Compose 时再准备对应版本的 `docker-compose.yml`。将所需文件放到部署目录，在终端进入该目录。默认安装无需创建或复制 `.env`：
 
 ```bash
-cp .env.example .env
 mkdir -p media data
 id -u
 id -g
 ```
 
-**预期结果：**部署目录内有 `.env`、`media/` 和 `data/`；最后两条命令分别打印当前用户的 UID、GID。
+**预期结果：**部署目录内有 `media/` 和 `data/`；最后两条命令分别打印当前用户的 UID、GID。
 
 <span id="docker-paths"></span>
 
-编辑 `.env` 中对应的项目。下面是示例，将 UID/GID 改为刚才的输出，并确保该用户可写数据目录、可读取媒体目录：
+使用 Compose 时，在 `docker-compose.yml` 的 `services.mymedia` 下修改 `user`、`ports`、`volumes` 三个字段，保留其余字段。下面是这三个字段的示例，将 `1000:1000` 改为刚才的 UID/GID；需要其他端口或目录时，修改映射左侧的宿主值：
 
-```dotenv
-APP_PORT=8080
-APP_VERSION=latest
-MEDIA_HOST_PATH=./media
-DATA_HOST_PATH=./data
-UID=1000
-GID=1000
-TRANSCODER=auto
+```yaml
+user: "1000:1000"
+ports:
+  - "8080:8080"
+volumes:
+  - "./media:/app/media:rw"
+  - "./data:/app/data"
 ```
 
-Compose 使用 `MEDIA_HOST_PATH` 作为宿主媒体目录，挂载到容器 `/app/media`；`DATA_HOST_PATH` 对应 `/app/data`。改用已有目录时，填写实际路径并确认目录存在。应用设置里要填容器看得到的路径。需要写 NFO、整理或上传时，还需媒体目录写权限。已有部署若将影片登记在 `/media` 下，启动前先按[保留旧媒体路径](#legacy-media-path)配置。
+仓库主 Compose 的 `user` 未配置时回退到 `0:0`（root）；应按宿主实际用户设置，并确保该用户可写数据目录、可读取媒体目录。宿主 `./media` 映射到容器 `/app/media`，`./data` 映射到 `/app/data`。改用已有目录时，填写实际路径并确认目录存在。应用设置里要填容器看得到的路径。需要写 NFO、整理或上传时，还需媒体目录写权限。已有部署若将影片登记在 `/media` 下，启动前先按[保留旧媒体路径](#legacy-media-path)配置。
 
-这些端口、镜像标签、宿主目录与 UID/GID 由 Compose 读取；选择 `docker run` 时要在命令参数中填写相同的值，具体见 [docker run 启动](#docker-run)。
+选择 `docker run` 时无需准备 Compose 文件，直接在[启动命令](#docker-run)中填写端口、路径与 UID/GID。资料来源、智能辅助和访问令牌可在启动后的网页设置中配置。
+
+`.env` 是可选的宿主配置文件，已有文件会继续读取；它不会被复制或挂载到容器里，容器内看不到该文件是正常现象。需要集中管理环境变量时，按[可选的环境变量文件](configuration.md#可选的环境变量文件)配置。
 
 ### Step 2：准备 Docker 镜像
 
@@ -68,7 +68,7 @@ Compose 使用 `MEDIA_HOST_PATH` 作为宿主媒体目录，挂载到容器 `/ap
 
 #### 从源码构建
 
-在完整项目根目录执行，按 `.env` 中的 `APP_VERSION` 生成本地镜像：
+在完整项目根目录执行，按 Compose 的 `image` 字段生成本地镜像，默认标签为 `jzmedia:latest`：
 
 ```bash
 docker compose -f docker-compose.yml build mymedia
@@ -92,7 +92,7 @@ docker image ls jzmedia
 
 **预期结果：**`docker load` 打印载入的镜像标签，镜像出现在本地列表中；此时尚未启动容器。归档应由 `docker save` 导出，交付方式见[镜像文件交付说明](../developer/releasing.md#docker-image-export)。目标设备不需要源码或构建依赖。
 
-记下实际载入的标签，例如 `jzmedia:vX.Y.Z`（`X.Y.Z` 替换为实际版本号）。Compose 启动前将 `.env` 的 `APP_VERSION` 改为 `vX.Y.Z`；`docker run` 则直接使用完整标签。仅当归档包含 `jzmedia:latest` 时，才能沿用示例的 `latest`。
+记下实际载入的标签，例如 `jzmedia:vX.Y.Z`（`X.Y.Z` 替换为实际版本号）。Compose 启动前将 `image` 改为 `jzmedia:vX.Y.Z`；`docker run` 则直接使用完整标签。若保留仓库原有的 `image` 变量写法并使用可选 `.env`，也可将其中的 `APP_VERSION` 设为 `vX.Y.Z`。仅当本地存在 `jzmedia:latest` 时，才能沿用示例的 `latest`。
 
 ### Step 3：选择一种方式启动容器
 
@@ -102,7 +102,7 @@ docker image ls jzmedia
 
 #### 使用 Compose 配置文件
 
-使用部署目录中的 `docker-compose.yml` 和已填写的 `.env`：
+使用已调整端口、路径和用户的 `docker-compose.yml`；没有 `.env` 时，Compose 会跳过该可选文件：
 
 ```bash
 docker compose -f docker-compose.yml up -d --no-build --pull never
@@ -110,7 +110,7 @@ docker compose -f docker-compose.yml ps
 docker compose -f docker-compose.yml logs --tail=100 mymedia
 ```
 
-**预期结果：**`mymedia` 服务的容器处于运行状态，日志没有持续重启或权限错误。`--no-build --pull never` 让启动使用上一步已准备的本地镜像；若报镜像不存在，核对载入/构建的标签与 `.env` 的 `APP_VERSION`，再重试。参数含义见 [Docker Compose 命令参考](https://docs.docker.com/reference/cli/docker/compose/up/)。
+**预期结果：**`mymedia` 服务的容器处于运行状态，日志没有持续重启或权限错误。`--no-build --pull never` 让启动使用上一步已准备的本地镜像；若报镜像不存在，核对载入/构建的标签与 Compose 的 `image`，再重试。参数含义见 [Docker Compose 命令参考](https://docs.docker.com/reference/cli/docker/compose/up/)。
 
 生产部署始终显式指定 `-f docker-compose.yml`，不加载本机开发用的 override 文件。源码构建需要完整项目，加载镜像后的启动只需配置文件和挂载目录。
 
@@ -124,7 +124,6 @@ docker compose -f docker-compose.yml logs --tail=100 mymedia
 docker run -d --name jzmedia \
   --pull=never --init --restart unless-stopped \
   --user 1000:1000 \
-  --env-file .env \
   -e MEDIA_ROOT=/app/media \
   -e DATA_DIR=/app/data \
   -p 8080:8080 \
@@ -137,7 +136,7 @@ docker logs --tail=100 jzmedia
 
 **预期结果：**`jzmedia` 容器处于运行状态，日志没有持续重启或权限错误。`--pull=never` 只使用本地镜像；镜像标签不存在时会直接报错，见 [Docker run 命令参考](https://docs.docker.com/reference/cli/docker/container/run/#set-the-pull-policy---pull)。启动失败按[部署排障](troubleshooting.md)检查；若同名容器已存在，先检查该容器，已有容器的启停见[停止与重启](operations.md#停止与重启)。
 
-`--env-file .env` 只传入容器环境变量，不会将 `APP_PORT`、`APP_VERSION`、`MEDIA_HOST_PATH`、`DATA_HOST_PATH`、`UID`、`GID` 自动转换为 Docker 启动参数。需要硬件转码时还需显式映射设备与补充设备组，见[配置参考](configuration.md#intel-硬件设备)。
+上面的命令无需 `.env`。需设置高级环境变量时添加 `-e 名称=值`；已有自定义文件时也可添加 `--env-file .env`，具体区别见[配置参考](configuration.md#可选的环境变量文件)。需要硬件转码时还需显式映射设备与补充设备组，见[配置参考](configuration.md#intel-硬件设备)。
 
 两种启动方式都应保留单进程服务：应用使用内存播放会话和任务状态，不能额外设置多个 uvicorn worker。
 
@@ -157,7 +156,7 @@ docker logs --tail=100 jzmedia
 
 修改 `MEDIA_ROOT` 不会改写数据库中已登记的媒体库和视频库路径；已有影片或剧集记录的媒体库也不能在设置页直接改根路径。若原库使用 `/media`，升级时先[备份数据](operations.md#一次一致的备份)，保留同一个宿主媒体目录与 `/media` 的映射，无需重新建库或扫描。
 
-使用 Compose 时，在部署目录创建 `compose.media-legacy.yml`，保留 `.env` 中原来的 `MEDIA_HOST_PATH`、`DATA_HOST_PATH`：
+使用 Compose 时，在部署目录创建 `compose.media-legacy.yml`。将示例卷映射左侧改为原来的宿主目录；如果已有 `.env` 设置了 `MEDIA_HOST_PATH`、`DATA_HOST_PATH`，可保留下面的变量写法和原文件：
 
 ```yaml
 services:
@@ -185,8 +184,8 @@ docker compose -f docker-compose.yml -f compose.media-legacy.yml up -d --no-buil
 具有 Docker/Container Manager 的 NAS 使用上面的 Docker 部署流程。以下补充 NAS 的目录、权限与操作入口：
 
 1. 建立部署目录，例如 `/volume1/docker/jzmedia`。选择源码构建时放完整源码；选择加载镜像时导入适合 NAS 架构的镜像文件，并准备对应的配置模板。首次安装不要把开发机的 `.env`、数据库、缓存或开发 override 文件一并复制；已有实例迁移按[备份与迁移](operations.md)操作。
-2. 使用 NAS 实际目录配置 `.env`，如媒体 `/volume1/video`、数据 `/volume1/docker/jzmedia/data`。
-3. 确认配置的 UID/GID 对这些目录有相应权限；若报 Permission denied，修正目标目录的属主/ACL，不要直接递归修改整块媒体盘的权限。
+2. 在 Compose 文件、`docker run` 参数或 NAS 界面中填写实际宿主目录，如媒体 `/volume1/video`、数据 `/volume1/docker/jzmedia/data`，无需另建 `.env`。
+3. 确认容器运行用户的 UID/GID 对这些目录有相应权限；若报 Permission denied，修正目标目录的属主/ACL，不要直接递归修改整块媒体盘的权限。
 4. 使用 NAS 的 Compose 项目管理界面或上面的 `docker compose` / `docker run` 命令启动。界面中也需选择已准备的本地镜像，并核对端口、目录、用户与设备映射；当前不要选择从 DockerHub 下载 jzmedia。
 5. 访问 `http://NAS地址:8080`。媒体库类型选「本地路径」，新部署默认根路径填 `/app/media`；同一台 NAS 的挂载目录不必再绕行 SMB。
 
@@ -206,12 +205,11 @@ npm ci --prefix frontend
 
 系统 FFmpeg/ffprobe 优先；开发依赖提供静态二进制兜底，首次使用可能需要下载。离线设备应提前准备可用二进制。
 
-### Step 2：准备配置并启动
+### Step 2：启动服务
 
-首次运行复制配置；已有 `.env` 时跳过第一条命令：
+依赖安装完成后直接启动，无需复制 `.env.example`：
 
 ```bash
-cp .env.example .env
 ./start.sh
 ```
 
@@ -225,7 +223,7 @@ cp .env.example .env
 DATA_DIR=./data MEDIA_ROOT=./media APP_PORT=8080 ./start.sh
 ```
 
-脚本按 `KEY=VALUE` 读取 `.env`，不是完整的 shell 配置解析器；使用模板中的无引号单行值，不写 shell 展开或行尾注释。已导出的非空环境变量优先；空值可能被 `.env` 中的非空值补回。不要通过 `source .env` 导入容器配置。
+脚本只在宿主存在 `.env` 时读取它，不会自动生成文件。需要使用该可选文件时，按 `KEY=VALUE` 填写；脚本不是完整的 shell 配置解析器，使用模板中的无引号单行值，不写 shell 展开或行尾注释。已导出的非空环境变量优先；空值可能被 `.env` 中的非空值补回。不要通过 `source .env` 导入容器配置。
 
 ## Android TV 客户端
 
