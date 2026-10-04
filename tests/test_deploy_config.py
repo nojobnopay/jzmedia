@@ -16,14 +16,20 @@ def test_env_example_has_uid_gid():
     assert "UID=" in text and "GID=" in text
 
 
-def test_compose_config_resolves_user():
+def test_compose_config_resolves_user(tmp_path):
     """有 docker 时用 compose 渲染验证插值（无 docker 跳过）。"""
     if not shutil.which("docker"):
         import pytest
         pytest.skip("docker not available")
+    # Compose's service env_file is separate from CLI interpolation. Render an
+    # isolated copy so a clean release archive needs no user's private .env.
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text((ROOT / "docker-compose.yml").read_text())
+    environment = tmp_path / ".env"
+    environment.write_text("")
     out = subprocess.run(
-        ["docker", "compose", "--env-file", "/dev/null", "-f",
-         str(ROOT / "docker-compose.yml"), "config"],
+        ["docker", "compose", "--env-file", str(environment), "-f",
+         str(compose), "config"],
         capture_output=True, text=True, timeout=60,
         env={"PATH": "/usr/bin:/bin:/usr/local/bin", "UID": "", "GID": ""})
     assert out.returncode == 0, out.stderr

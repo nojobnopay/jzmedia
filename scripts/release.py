@@ -204,7 +204,7 @@ def android_environment(root):
 
 def run_checks(source, python, env, offline, log):
     steps = [
-        [python, "-m", "pytest", "-q"],
+        [python, "-m", "pytest", "-q", "--maxfail=1"],
         [python, "scripts/check_python.py", "scripts/release.py", "scripts/versioning.py", "scripts/check_python.py"],
         [python, "scripts/build_design.py", "--check"],
         ["npm", "--prefix", "frontend", "ci", "--prefer-offline", "--no-audit", "--no-fund"],
@@ -451,5 +451,7 @@ def main(argv=None):
 if __name__ == "__main__":
     try:
         main()
+    except KeyboardInterrupt:
+        raise SystemExit("Release cancelled; inspect any rollback errors above.") from None
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         raise SystemExit(str(error)) from error
