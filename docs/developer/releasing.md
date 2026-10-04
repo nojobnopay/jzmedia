@@ -164,7 +164,8 @@ docker push ghcr.io/nojobnopay/jzmedia:vX.Y.Z
 
 1. 打开个人主页的 **Packages**，选择 `jzmedia` 包，在版本列表下点击 **Connect repository**，选择 `nojobnopay/jzmedia` 并确认关联。见 [GitHub 关联仓库说明](https://docs.github.com/en/packages/learn-github-packages/connecting-a-repository-to-a-package#connecting-a-repository-to-a-user-scoped-package-on-github)。
 2. 打开 **Package settings → Danger Zone → Change visibility**，选择 **Public**，按页面提示输入包名并确认。包的可见性独立于源码仓库，关联公开仓库不能代替这一步；见 [GitHub 个人包可见性说明](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility#configuring-visibility-of-packages-for-your-personal-account)。
-3. 在未登录环境确认版本标签可拉取，核对拉回镜像的 ID、平台及 OCI 版本／提交与统一清单一致。
+3. 为工作流授予写入权限。手工发布后再关联仓库的包默认保留原权限：在 **Package settings → Manage access／Inherited access** 勾选 **Inherit access from repository**；或在 **Manage Actions access → Add repository** 添加 `nojobnopay/jzmedia`，将 **Role** 设为至少 **Write**。仅完成仓库关联或公开可见性设置不能代替这一步；见 [GitHub Actions 包访问权限说明](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility#ensuring-workflow-access-to-your-package)。
+4. 在未登录环境确认版本标签可拉取，核对拉回镜像的 ID、平台及 OCI 版本／提交与统一清单一致。
 
 当前预构建平台为 `linux/amd64`；已有版本标签须保持相同镜像内容，不能覆盖为另一构建。
 
