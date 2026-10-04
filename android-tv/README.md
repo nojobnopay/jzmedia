@@ -41,7 +41,8 @@
 ```
 
 - 可安装的 Debug 包：`app/build/outputs/apk/debug/app-debug.apk`。
-- 本轮统一设计系统的本地试装包：`../output/android-tv/jzmedia-tv-0.5.0-dev-design-system-20261003-debug.apk`，旁附 `.apk.sha256`。它与已验证的最终构建逐字节相同，沿用 `versionCode=8` 和原 Debug 签名；旧 `jzmedia-tv-0.5.0-dev-debug.apk` 保留为历史导航版，请按文件名选择设计系统版。用户电视安装与真机验收尚无完成记录。
+- 本轮统一设计系统的本地试装包：`../output/android-tv/jzmedia-tv-0.5.0-dev-design-system-20261003-debug.apk`，旁附 `.apk.sha256`。它与已验证的最终构建逐字节相同，沿用 `versionCode=8` 和原 Debug 签名；旧历史导航包已清理，请按文件名选择设计系统版。用户电视安装与真机验收尚无完成记录。
+- 另保留 `../output/android-tv/jzmedia-tv-0.5.0-dev-rebuilt-debug.apk` 及校验文件，重建日志在 `output/android-tv/rebuild/`（仓库根目录）。此包与上述设计系统验收包内容不同，验收记录需分别对应。两包均早于 2026-10-04 的 A「点映」品牌更新。
 - 未签名 Release 包：`app/build/outputs/apk/release/app-release-unsigned.apk`，不能直接安装或作为正式发行包。
 - 单元测试报告：`app/build/reports/tests/testDebugUnitTest/index.html`；Lint：`app/build/reports/lint-results-debug.html`。
 
@@ -135,7 +136,7 @@ Debug 与正式版应用标识不同，可以并存；Debug 安装成功不能�
 
 核对日期：2026-10-03。各开发版本的测试计数、构建、模拟器运行和覆盖安装证据已移至[开发验证历史](docs/validation-history.md)。最近一次统一设计系统验收见[当轮结果](docs/validation-history.md#统一设计系统验收)及[跨端验收清单](../design/acceptance/2026-10-03.json)。这些记录明确区分模拟 API、真实后端与合成媒体、软件模拟器及待验收的真实设备。
 
-红米真机、真实扬声器听感、系统中文输入法及正式签名升级仍待验收。原始 APK、截图和日志保留在仓库根目录 `output/android-tv/`；历史包、问题复现和最终构建分别保存，按验证记录选择对应证据。
+红米真机、真实扬声器听感、系统中文输入法及正式签名升级仍待验收。当前试装包、对应验收资料和最近播放核对证据保留在仓库根目录 `output/android-tv/`；已被替代的历史包和中间产物可清理，历史文档中的原始路径不保证仍存在。
 
 每台电视记录型号、Android/API、APK/服务器版本，并依次验证：
 
