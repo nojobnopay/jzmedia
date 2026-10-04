@@ -1,7 +1,7 @@
 {
   "name": "jzmedia-docs",
   "private": true,
-  "version": "0.20.1",
+  "version": "0.20.2",
   "license": "BSD-3-Clause",
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "verify": "npm run lint && python3 ../scripts/check_docs_links.py && npm run build && npm test && npm run check",
     "test:browser": "node scripts/browser-check.mjs",
     "preview": "node scripts/serve.mjs",
-    "package": "npm run build && npm run check && node scripts/package.mjs"
+    "package": "node scripts/package.mjs"
   },
   "devDependencies": {
     "@vue/server-renderer": "3.5.32",

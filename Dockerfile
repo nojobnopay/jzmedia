@@ -20,6 +20,7 @@ RUN --mount=type=cache,id=jzmedia-npm,target=/root/.npm,sharing=locked \
     if [ -n "$HTTP_PROXY" ]; then npm config set proxy "$HTTP_PROXY" && npm config set https-proxy "$HTTPS_PROXY"; fi \
  && npm ci --prefer-offline --no-audit --no-fund
 COPY docs/ ./
+COPY version.properties /version.properties
 RUN npm run build
 
 FROM python:3.12-slim

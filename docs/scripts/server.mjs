@@ -1,7 +1,7 @@
 import { createServer } from 'node:http'
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
-import { docsRoot } from '../.vitepress/public-pages.mjs'
+import { site, normalizeBase } from './site-config.mjs'
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -9,14 +9,15 @@ const mimeTypes = {
   '.webp': 'image/webp', '.png': 'image/png', '.jpg': 'image/jpeg', '.mp4': 'video/mp4',
   '.vtt': 'text/vtt; charset=utf-8', '.woff2': 'font/woff2', '.ico': 'image/x-icon',
 }
-export const defaultDist = path.join(docsRoot, '.vitepress/dist')
+export const defaultDist = site.outDir
 
 export function helpCsp(root) {
   const { scriptHashes } = JSON.parse(readFileSync(path.join(root, 'csp-hashes.json'), 'utf8'))
   return `default-src 'self'; script-src 'self' ${scriptHashes.map(hash => `'${hash}'`).join(' ')}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'`
 }
 
-export function createHelpServer(root = defaultDist) {
+export function createHelpServer(root = defaultDist, base = site.base) {
+  base = normalizeBase(base)
   const csp = helpCsp(root)
   return createServer((request, response) => {
     response.setHeader('Content-Security-Policy', csp)
@@ -25,11 +26,13 @@ export function createHelpServer(root = defaultDist) {
     let pathname
     try { pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname) }
     catch { response.writeHead(400).end(); return }
-    if (pathname === '/' || pathname === '/help') { response.writeHead(308, { Location: '/help/' }).end(); return }
-    let relative = pathname.startsWith('/help/') ? pathname.slice(6) : ''
+    if (base !== '/' && (pathname === '/' || pathname === base.slice(0, -1))) {
+      response.writeHead(308, { Location: base }).end(); return
+    }
+    let relative = pathname.startsWith(base) ? pathname.slice(base.length) : ''
     if (!relative || relative.endsWith('/')) relative += 'index.html'
     const candidate = path.resolve(root, relative)
-    const allowed = pathname.startsWith('/help/') && candidate.startsWith(root + path.sep) &&
+    const allowed = pathname.startsWith(base) && candidate.startsWith(root + path.sep) &&
       !relative.split('/').some(part => part.startsWith('.')) && relative !== 'csp-hashes.json'
     let file = allowed && existsSync(candidate) && statSync(candidate).isFile() ? candidate : null
     let status = 200

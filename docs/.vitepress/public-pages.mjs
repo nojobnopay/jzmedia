@@ -21,7 +21,7 @@ export function publicPages(root = docsRoot) {
 }
 
 export function sourceExcludes(root = docsRoot) {
-  return ['assets/**', 'private/**', 'roadmap/**', 'scripts/**', 'tests/**', '.vitepress/**',
+  return ['assets/**', 'private/**', 'roadmap/**', 'scripts/**', 'tests/**', '.vitepress/**', '.artifacts/**',
     ...walkFiles(root).filter(file => file.endsWith('.md') && !isPublicPage(file))]
 }
 

@@ -2,6 +2,7 @@
 """宿主启动时按输入内容构建帮助站；包含删除检测，不依赖文件修改时间。"""
 
 import hashlib
+import os
 from pathlib import Path
 import subprocess
 
@@ -13,6 +14,9 @@ SKIP = {"node_modules", "private", "roadmap", "dist", "cache", ".temp", "generat
 
 def source_digest(root: Path) -> str:
     digest = hashlib.sha256()
+    version = root / "version.properties"
+    if version.is_file():
+        digest.update(b"version.properties\0" + version.read_bytes() + b"\0")
     for path in sorted((root / "docs").rglob("*")):
         relative = path.relative_to(root / "docs")
         if not path.is_file() or any(part in SKIP for part in relative.parts):
@@ -38,7 +42,8 @@ def main():
         subprocess.run(["npm", "ci", "--no-audit", "--no-fund"], cwd=docs, check=True)
         dependencies.write_text(lock)
     print("[start] help docs changed, rebuilding...", flush=True)
-    subprocess.run(["npm", "run", "build"], cwd=docs, check=True)
+    subprocess.run(["npm", "run", "build"], cwd=docs, check=True,
+                   env={**os.environ, "JZMEDIA_DOCS_TARGET": "app"})
     stamp.write_text(before)
 
 

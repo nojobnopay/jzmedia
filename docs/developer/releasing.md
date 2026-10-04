@@ -1,11 +1,11 @@
 ---
-version: 0.20.1
+version: 0.20.2
 reviewed: 2026-10-04
 ---
 
 # 同步发布 Docker 镜像与 APK
 
-推送发行标签后，GitHub Actions 从该提交完成全部检查，同步构建 Docker 镜像与 Android TV APK，再发布到 GHCR 和 GitHub Releases。两端共用仓库根 `version.properties` 的版本，云端与本机均复用 `scripts/release.py`。默认 APK 是可安装的 Debug 试装包；真机兼容性仍需单独验收。
+推送发行标签后，GitHub Actions 从该提交完成全部检查，同步构建 Docker 镜像与 Android TV APK，再发布到 GHCR 和 GitHub Releases。发布成功后，从同一提交构建在线帮助并部署到 GitHub Pages。各端共用仓库根 `version.properties` 的版本，云端与本机均复用 `scripts/release.py`。默认 APK 是可安装的 Debug 试装包；真机兼容性仍需单独验收。
 
 普通部署按[安装教程](../getting-started/deployment.md)操作。日常前端、后端和 Android 开发保留各自命令；本页用于一次同步交付两个产物。
 
@@ -25,6 +25,8 @@ reviewed: 2026-10-04
 当前已交付证书指纹为 `606d6cafb3e63bd2d4c7ebcb6578bd893a8650ddb0f86dc5d65f96fdf9b5d2a5`。使用原密钥以延续覆盖升级能力；缺少配置或指纹不符时构建会失败，不自动生成替代签名。密钥与 Base64 内容只保存到 Secret，不提交源码、日志或发行附件；签名核对见仓库 `android-tv/docs/releasing.md`。
 
 工作流自动使用 `GITHUB_TOKEN`，无需额外 PAT。`prepare` 为识别发布草稿具有 `contents: write`，`build` 仅有 `contents: read`，`publish` 具有 `contents: write` 与 `packages: write`。已有 GHCR 包须关联 `nojobnopay/jzmedia`、允许该仓库 Actions 写入，并设为 Public；设置入口见[包的公开与关联步骤](#ghcr-package-settings)。
+
+首次发布在线帮助前，另完成 [GitHub Pages 托管设置](#github-pages-setup)。
 
 <span id="release-tag"></span>
 
@@ -56,7 +58,9 @@ git push origin vX.Y.Z
 
 构建通过后，`scripts/github_release.py package` 生成八个发行文件，保存为 Actions artifact **release-bundle-运行次数**，保留 14 天。独立的 `publish` job 使用 `build` 输出的准确名称下载同一 bundle，逐项核验哈希、源码身份、镜像和 APK 签名；先保存完整 Release 草稿附件，再推送 GHCR 版本标签，确认匿名可读的镜像清单，公开 Release，最后更新 `latest`。
 
-只想检验云端环境时，在 **Actions → Release → Run workflow** 选择待验证分支。手动运行使用 `build --validate-only`，仍执行全部检查与两端构建，但不发布镜像、Release 或 APK，也不更新 Git／镜像版本标签；仅上传诊断日志。
+`publish` 全部成功后，`docs-pages.yml` 作为可复用工作流构建并部署在线帮助；具体检查和恢复见[在线帮助发布](#online-help)。
+
+只想检验云端环境时，在 **Actions → Release → Run workflow** 选择待验证分支。手动运行使用 `build --validate-only`，仍执行全部检查与两端构建，但不发布镜像、Release、APK 或在线帮助，也不更新 Git／镜像版本标签；仅上传诊断日志。
 
 ### Step 4：核对发布结果
 
@@ -74,6 +78,41 @@ Release 包含八个附件；GitHub 自动提供的源码归档不计入其中�
 | `SHA256SUMS`、`LICENSE` | 除校验清单自身以外七个文件的 SHA-256 校验值与项目许可证 |
 
 核对发行清单中的源码提交、版本和镜像身份；安装使用[部署教程](../getting-started/deployment.md)。自动化成功不代表电视真机验收通过，设备、兼容场景和限制仍须在发行说明单独记录。
+
+在线帮助部署成功后，打开[在线帮助首页](https://nojobnopay.github.io/jzmedia/)，核对显示的构建版本与本次最新正式版本一致，再进入教程、刷新深层页面并检查搜索及图片。首次部署成功后，将这个地址填入仓库 **About → Website**。
+
+<span id="online-help"></span>
+
+## 在线帮助发布与恢复
+
+在线站展示最新正式版本，应用内 `/help/` 保留安装版本对应的帮助。普通分支提交、文档单独修改和手动 **Release** 验证都不会部署在线站；文档纠错随下一正式版本发布。两种站点使用同一份正文，构建与本地预览命令见[文档制作与发布](documentation.md#选择应用内或在线构建)。
+
+<span id="github-pages-setup"></span>
+
+### 首次启用 GitHub Pages
+
+在有仓库设置权限的账户中完成以下操作；首次上线需要一个包含在线构建适配的新正式版本，不能直接发布旧版本的 `/help/` 产物。
+
+1. 打开仓库 **Settings → Pages → Build and deployment**，将 **Source** 设为 **GitHub Actions**。无需创建 `gh-pages` 分支，也无需上传源码目录；参见 [GitHub 自定义 Pages 工作流说明](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)。
+2. 打开 **Settings → Environments → github-pages**；若尚不存在则创建。在 **Deployment branches and tags** 选择 **Selected branches and tags**，分别允许版本标签 `v*` 和默认分支 `main`。标签规则用于正式发行，分支规则用于手动重发。环境按触发工作流的引用判断权限，手动流程后来检出发行提交不会改变这一引用；参见 [GitHub 环境规则](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments#deployment-branches-and-tags)。
+3. 按前文完成正式版本发布，查看 Release 中的文档部署结果。部署 job 使用 `github-pages` 环境，凭 `GITHUB_TOKEN` 的 `pages: write` 和 `id-token: write` 通过 OIDC 部署，不需要自行创建 PAT 或新增部署 Secret。
+
+**预期结果：**部署日志给出 `https://nojobnopay.github.io/jzmedia/`，站点可直接访问。仅在本地构建通过、或仅完成仓库设置，都不代表已经上线。
+
+### 发行身份与发布范围
+
+`.github/workflows/docs-pages.yml` 先通过 `scripts/github_pages.py` 确认最新正式版本，再检出该 Release 的准确提交，构建和验证 `pages` 目标，并运行浏览器检查。工作流从 GitHub Pages 配置读取访问路径，传给 `JZMEDIA_DOCS_BASE`；本仓库项目站为 `/jzmedia/`。只上传 `docs/.artifacts/pages/`，公开页面清单继续排除私有记录和开发计划，不依赖 jzmedia 后台。
+
+“最新正式版本”指已公开、非预发行、标签严格为 `vX.Y.Z` 的最高版本，同时要求 GitHub 的 latest 指针一致。脚本核对发行 `manifest.json`、远端标签、提交和根版本源；部署前再核对发行身份。Pages 部署串行执行，旧版本的任务重试会跳过，避免覆盖较新文档。站点构建版本取发行源码，不改变正文的适用版本或核对日期。
+
+### 单独重发在线帮助
+
+若 Docker、APK 和 Release 已发布成功，仅文档部署失败，先查看失败步骤，修正 Pages Source、环境规则或暂时的依赖下载问题，然后选择以下入口之一：
+
+- 在原 Actions 运行中选择 **Re-run failed jobs**，重试文档部署。
+- 打开 **Actions → Documentation Pages → Run workflow**，选择默认分支 `main`。手动流程无版本输入，只重新构建和部署最新已发行的正式版本，不使用分支上的未发行正文，也不重新构建 Docker 或 APK。
+
+手动入口需要工作流已进入默认分支；部署重试若找不到原 Pages 产物，也可用这个入口重新构建。若最新版本尚不包含在线构建适配，或修复需要改变发行源码，则提交修复并发布新版本。若脚本报告 latest 与最高正式版本不一致，先核对 GitHub Releases 的 latest 标记和发行状态；不要移动既有标签或替换原 `manifest.json` 来绕过身份检查。新版已经发行时，旧版本的重试跳过属于预期结果。
 
 ## 在本机完成统一构建
 
@@ -187,6 +226,7 @@ docker push ghcr.io/nojobnopay/jzmedia:latest
 - **`publish` 失败：** 在同一次 Actions 运行选择 **Re-run failed jobs**，复用成功 `build` 指定的 `release-bundle-运行次数`。已有草稿时不要选 **Re-run all jobs**，重新构建会改变产物，脚本会拒绝。
 - **GHCR 匿名检查失败：** 核对包已设为 Public、关联仓库及 Actions 权限，再重跑失败 job；此时草稿附件与固定版本镜像可能已保存，尚未进入后续公开或 `latest` 步骤。
 - **bundle 超过 14 天或已删除：** 保留现有发行产物并核对草稿状态，不覆盖已有同版本文件；无法恢复原 bundle 时按新版本重新发布。
+- **仅在线帮助部署失败：** 已发布的 Docker、APK 和 Release 继续保留，按[单独重发在线帮助](#单独重发在线帮助)恢复。
 
 已经公开且提交、版本一致的 Release 再次触发时，预检查直接结束，不重新构建。发布阶段如果在公开 Release 后更新 `latest` 失败，仍从原运行重跑失败的 `publish` job，使其复用原 bundle 完成后续步骤。
 

@@ -1,0 +1,142 @@
+name: Documentation Pages
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Successfully published formal release tag
+        required: true
+        type: string
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Keep retries and automatic publication in the same queue. Recheck latest after
+# waiting; an older run must never replace documentation from a newer release.
+concurrency:
+  group: jzmedia-pages
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      deploy: ${{ steps.source.outputs.deploy }}
+      tag: ${{ steps.source.outputs.tag }}
+      commit: ${{ steps.source.outputs.commit }}
+      version_code: ${{ steps.source.outputs.version_code }}
+      release_id: ${{ steps.source.outputs.release_id }}
+      manifest_sha256: ${{ steps.source.outputs.manifest_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Select published documentation source
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAGES_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python scripts/github_pages.py select --tag "$PAGES_RELEASE_TAG"
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.deploy == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      artifact_name: docs-pages-${{ github.run_attempt }}
+    env:
+      JZMEDIA_DOCS_TARGET: pages
+      PAGES_TAG: ${{ needs.prepare.outputs.tag }}
+      PAGES_COMMIT: ${{ needs.prepare.outputs.commit }}
+      PAGES_VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+      PAGES_RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+      PAGES_MANIFEST_SHA256: ${{ needs.prepare.outputs.manifest_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Verify exact release source
+        run: |
+          if [ ! -f scripts/github_pages.py ]; then
+            echo '::error::This release predates online help; publish a version with Pages support.'
+            exit 1
+          fi
+          python scripts/github_pages.py verify-source \
+            --tag "$PAGES_TAG" --commit "$PAGES_COMMIT" --version-code "$PAGES_VERSION_CODE" \
+            --release-id "$PAGES_RELEASE_ID" --manifest-sha256 "$PAGES_MANIFEST_SHA256"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '25'
+          package-manager-cache: false
+      - name: Read GitHub Pages configuration
+        id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - name: Install documentation dependencies and browser
+        run: |
+          npm --prefix docs ci
+          docs/node_modules/.bin/playwright install --with-deps chromium
+      - name: Validate and build online help
+        env:
+          JZMEDIA_DOCS_BASE: ${{ steps.pages.outputs.base_path || '/' }}
+        run: |
+          npm --prefix docs run verify
+          npm --prefix docs run test:browser
+      - name: Upload verified public site
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          name: docs-pages-${{ github.run_attempt }}
+          path: docs/.artifacts/pages
+          retention-days: 7
+
+  deploy:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Recheck latest release before deployment
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAGES_TAG: ${{ needs.prepare.outputs.tag }}
+          PAGES_COMMIT: ${{ needs.prepare.outputs.commit }}
+          PAGES_VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+          PAGES_RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+          PAGES_MANIFEST_SHA256: ${{ needs.prepare.outputs.manifest_sha256 }}
+        run: |
+          python scripts/github_pages.py check-current \
+            --tag "$PAGES_TAG" --commit "$PAGES_COMMIT" --version-code "$PAGES_VERSION_CODE" \
+            --release-id "$PAGES_RELEASE_ID" --manifest-sha256 "$PAGES_MANIFEST_SHA256"
+      - name: Deploy online help
+        id: deployment
+        if: steps.current.outputs.deploy == 'true'
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        with:
+          artifact_name: ${{ needs.build.outputs.artifact_name }}

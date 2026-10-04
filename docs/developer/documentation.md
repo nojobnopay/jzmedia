@@ -1,13 +1,13 @@
 ---
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.20.2
+reviewed: 2026-10-04
 ---
 
 # 文档制作与发布
 
 本页的内容组织与编辑规则适用于全仓文档，包括 `android-tv/`；后面的组件、素材与发布流程仅用于 HTML 帮助站。
 
-帮助站点将任务教程、图片、视频和图表构建为 HTML，随应用在 `/help/` 提供；API 调试文档保持 `/docs`。正文使用 Markdown 与少量受控组件，一处编辑即可生成应用内帮助和离线发布包。
+帮助站点将任务教程、图片、视频和图表构建为 HTML，随应用在 `/help/` 提供，也可独立部署到 GitHub Pages；API 调试文档保持 `/docs`。正文使用 Markdown 与少量受控组件，一处编辑即可生成应用内帮助、在线帮助和离线发布包。
 
 常用入口：[编写与排版](#markdown-排版) · [文档评审](#修改后的评审) · [格式检查与预览](#构建与检查) · [图文组件](#图文与演示组件) · [重新拍摄](#重新拍摄素材)。普通正文修改从编写、评审和检查开始；制作新素材时再使用拍摄流程。
 
@@ -43,6 +43,7 @@ reviewed: 2026-10-03
 | 控件与续播、字幕、预览缓存 | 对应播放任务页；实现与兼容决策集中在[播放链路](playback.md) |
 | 数据表、字段与迁移 | [数据模型](data.md)；API 文档说明请求与行为，不重复字段定义 |
 | 拍摄方法、检查与打包命令 | 本页；素材清单记录逐文件信息，资源 README 保留批次来源与历史说明 |
+| 在线帮助的发行触发、托管设置与失败重试 | [统一发布](releasing.md#online-help)；本页维护构建与预览方法 |
 
 目录 README 以入口为主，独立子项目的 README 可承载唯一的快速开始流程；其他页面链接该流程，不复制命令。旧综合页只保留标题、旧锚点和任务链接，不再追加功能说明。纯导航和兼容页设置 `search: false`，让搜索结果直接定位正文。复用图片引用同一资源路径，不复制文件。
 
@@ -99,6 +100,25 @@ npm --prefix docs run verify
 
 `verify` 依次执行格式 lint、源链接检查、帮助站构建、测试和产物检查。部分测试读取构建后的搜索索引、HTML 与 CSP，必须先成功构建，避免测试旧产物。成功时会打印源文件与公开页面的检查结果。
 
+### 选择应用内或在线构建
+
+VitePress 将正文预先生成 HTML，再由浏览器运行搜索、图片放大等交互。应用内由 FastAPI 提供这些静态文件，在线帮助由 GitHub Pages 提供，无需连接用户的应用、数据库或媒体。两种构建共用公开页面清单、导航、组件与素材，部署路径和产物目录分别设置：
+
+| 构建目标 | 访问路径 | 产物目录 |
+|---|---|---|
+| `app`（默认） | `/help/` | `docs/.vitepress/dist/` |
+| `pages` | `/jzmedia/` | `docs/.artifacts/pages/` |
+
+`JZMEDIA_DOCS_TARGET` 选择目标，`JZMEDIA_DOCS_BASE` 指定在线站的路径前缀。下列命令从仓库根执行，验证 GitHub 项目站构建：
+
+```bash
+JZMEDIA_DOCS_TARGET=pages JZMEDIA_DOCS_BASE=/jzmedia/ npm --prefix docs run verify
+```
+
+部署路径参与资源、导航和旧教程跳转链接生成，不能只把 `/help/` 的成品目录改名上传。两个目标分别输出，不覆盖应用内产物；`package` 始终生成 `/help/` 布局的离线包。修改构建、主题或部署路径相关代码时，分别运行默认与 `pages` 目标的完整验证。
+
+站点显示根 `version.properties` 中的构建版本，并链接对应发行版本。应用内帮助随安装版本交付，在线帮助跟随最新正式版本；页首的 `version` 与 `reviewed` 仍表示该篇内容的适用版本与核对日期，不随构建批量改写。发行时的自动部署、首次托管设置与重试见[在线帮助发布](releasing.md#online-help)。
+
 ### 只检查格式与链接
 
 日常编辑或仅修改未发布文档时，先运行快速检查；这两条命令不构建站点：
@@ -139,9 +159,17 @@ npm --prefix docs run preview
 
 编辑期间可独立运行 `npm --prefix docs run dev`；`preview` 默认在 `http://127.0.0.1:4174/help/` 预览已构建产物。这两个命令持续运行，不应放在非交互检查流水线前面。
 
-开发预览和发布产物只使用本地资源。构建产物位于 `docs/.vitepress/dist/`；主题与导航配置在 `docs/.vitepress/`。`.vitepress/public-pages.mjs` 是公开页面与导航的单一来源，新增教程需登记到此清单；仓库 Markdown 检查默认排除依赖、产物、运行数据和私有记录。`docs/scripts/check.mjs` 另外检查最终 HTML 的资源/锚点、离线依赖、公开边界、SSR、CSP 和应用帮助入口，必须在 build 成功后执行。
+在线产物使用同一预览入口，先完成上面的 `pages` 构建，再执行：
 
-FastAPI 的 `app/help_site.py` 只挂载该构建目录；没有 `index.html` 返回 503，未知页面返回 404。构建生成 `csp-hashes.json`，仅帮助 HTML 的策略加入这些脚本哈希。Docker 复制帮助静态产物；宿主 `start.sh` 通过 `scripts/build_docs.py` 按输入内容摘要检测更新和删除，排除私有记录、路线图及历史报告。不能把整个 `docs/` 当静态目录发布。
+```bash
+JZMEDIA_DOCS_TARGET=pages JZMEDIA_DOCS_BASE=/jzmedia/ npm --prefix docs run preview
+```
+
+访问 `http://127.0.0.1:4174/jzmedia/`。`preview` 与构建应使用相同目标和路径前缀；无需启动 jzmedia 后台。
+
+开发预览和发布产物只使用本地资源；主题与导航配置在 `docs/.vitepress/`。`.vitepress/public-pages.mjs` 是公开页面与导航的单一来源，新增教程需登记到此清单；仓库 Markdown 检查默认排除依赖、产物、运行数据和私有记录。`docs/scripts/check.mjs` 按当前目标检查最终 HTML 的资源/锚点、离线依赖、公开边界、SSR、CSP 和应用帮助入口，必须在 build 成功后执行。
+
+FastAPI 的 `app/help_site.py` 只挂载应用目标的 `docs/.vitepress/dist/`；没有 `index.html` 返回 503，未知页面返回 404。构建生成 `csp-hashes.json`，仅应用内帮助 HTML 的策略加入这些脚本哈希；GitHub Pages 使用其托管服务的响应头。Docker 复制应用目标静态产物；宿主 `start.sh` 通过 `scripts/build_docs.py` 按输入内容摘要检测更新和删除，排除私有记录、路线图及历史报告。两种部署都只发布检查通过的产物，不能把整个 `docs/` 当静态目录发布。
 
 开发参考中的 Mermaid 保留在正文中。修改图定义后运行 `npm --prefix docs run diagrams` 生成并提交 `docs/.vitepress/diagrams/` 中的 SVG；首次生成需要安装 Playwright Chromium。普通文档构建只核验生成图存在，不需要浏览器和联网渲染。
 
@@ -150,6 +178,7 @@ FastAPI 的 `app/help_site.py` 只挂载该构建目录；没有 `index.html` �
 ```bash
 npm --prefix docs run test:browser -- --url http://127.0.0.1:8080/help/
 npm --prefix docs run test:browser
+JZMEDIA_DOCS_TARGET=pages JZMEDIA_DOCS_BASE=/jzmedia/ npm --prefix docs run test:browser
 ```
 
 验证重点是：首页可进入首次入库、搜索可定位教程、旧入口和锚点可达、资源加载成功、窄屏可读、键盘能放大与关闭图片、视频字幕可选、关闭 JavaScript 后仍能读到正文及关键步骤。检查构建清单和发布包，确保私有目录、计划、运行数据与凭据未被复制。
@@ -281,6 +310,6 @@ npm --prefix docs run package
 python3 -m http.server 8090 --directory docs/.artifacts/jzmedia-help
 ```
 
-访问 `http://127.0.0.1:8090/help/`。发布包位于 `docs/.artifacts/jzmedia-help/`，其中 `help/` 与应用内静态产物一致，根 `index.html` 提供跳转。将整个目录复制到另一台机器后以本地 HTTP 服务打开即可；不依赖互联网或应用数据库。
+访问 `http://127.0.0.1:8090/help/`。`package` 固定构建并检查应用目标，不受在线目标环境变量影响。发布包位于 `docs/.artifacts/jzmedia-help/`，其中 `help/` 与应用内静态产物一致，根 `index.html` 提供跳转。将整个目录复制到另一台机器后以本地 HTTP 服务打开即可；不依赖互联网或应用数据库。
 
 功能界面变更时同时核对关联教程、截图和视频，更新真正失效的素材；未涉及内容不必整批重拍。发布前记录运行过的检查与未覆盖的设备，不用模拟截图代替真机验收。

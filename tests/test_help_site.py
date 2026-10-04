@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import _CSP, app, help_site
+from scripts import build_docs
 from scripts.build_docs import source_digest
 
 
@@ -100,3 +101,65 @@ def test_docs_build_detects_changed_and_deleted_inputs_but_not_private_files(tmp
     assert source_digest(tmp_path) == second
     source.unlink()
     assert source_digest(tmp_path) != second
+
+
+def test_docs_build_detects_root_version_changes(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text("使用帮助")
+    version = tmp_path / "version.properties"
+    version.write_text("versionName=1.0.0\nversionCode=1\n")
+    first = source_digest(tmp_path)
+    version.write_text("versionName=1.0.1\nversionCode=2\n")
+    assert source_digest(tmp_path) != first
+
+
+def test_docs_build_ignores_pages_artifacts(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text("使用帮助")
+    before = source_digest(tmp_path)
+    pages = docs / ".artifacts/pages"
+    pages.mkdir(parents=True)
+    output = pages / "index.html"
+    output.write_text("<h1>在线帮助</h1>")
+    assert source_digest(tmp_path) == before
+    output.write_text("<h1>新版在线帮助</h1>")
+    assert source_digest(tmp_path) == before
+    output.unlink()
+    assert source_digest(tmp_path) == before
+
+
+def test_host_docs_build_forces_app_target_and_reuses_stamp(tmp_path, monkeypatch):
+    docs = tmp_path / "docs"
+    dependency = docs / "node_modules/vitepress/package.json"
+    dependency.parent.mkdir(parents=True)
+    dependency.write_text("{}")
+    lock = docs / "package-lock.json"
+    lock.write_text("{}")
+    (docs / "node_modules/.jzmedia-lock.sha256").write_text(
+        hashlib.sha256(lock.read_bytes()).hexdigest())
+    (docs / "index.md").write_text("使用帮助")
+    monkeypatch.setattr(build_docs, "ROOT", tmp_path)
+    monkeypatch.setenv("JZMEDIA_DOCS_TARGET", "pages")
+    monkeypatch.setenv("JZMEDIA_DOCS_BASE", "/online-help/")
+    monkeypatch.setenv("JZMEDIA_TEST_BUILD_ENV", "inherited")
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        dist = docs / ".vitepress/dist"
+        dist.mkdir(parents=True)
+        (dist / "index.html").write_text("<h1>应用内帮助</h1>")
+
+    monkeypatch.setattr(build_docs.subprocess, "run", run)
+    build_docs.main()
+    assert len(calls) == 1
+    command, options = calls[0]
+    assert command == ["npm", "run", "build"]
+    assert options["cwd"] == docs and options["check"] is True
+    assert options["env"]["JZMEDIA_DOCS_TARGET"] == "app"
+    assert options["env"]["JZMEDIA_TEST_BUILD_ENV"] == "inherited"
+    assert (docs / ".vitepress/dist/.build-inputs.sha256").read_text() == source_digest(tmp_path)
+    build_docs.main()
+    assert len(calls) == 1

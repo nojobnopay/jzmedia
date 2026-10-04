@@ -3,16 +3,19 @@ import { sourceExcludes, sidebar } from './public-pages.mjs'
 import { tokenize, searchOptions, renderSearchContent } from './search.mjs'
 import { mermaidFence } from './diagram-source.mjs'
 import { finishBuild, staticMetadata } from '../scripts/artifacts.mjs'
+import { site, buildVersion, repositoryUrl } from '../scripts/site-config.mjs'
+
+const version = buildVersion()
 
 export default defineConfig({
   lang: 'zh-CN',
   title: 'jzmedia 帮助',
   description: '从第一部内容入库到日常观看、片库管理与问题排查。',
-  base: '/help/',
-  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/help/assets/design/favicon.svg' }]],
+  base: site.base,
+  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: `${site.base}assets/design/favicon.svg` }]],
   cleanUrls: false,
   srcExclude: sourceExcludes(),
-  outDir: '.vitepress/dist',
+  outDir: site.outDir,
   ignoreDeadLinks: false,
   appearance: true,
   lastUpdated: false,
@@ -30,7 +33,9 @@ export default defineConfig({
       { text: '开始使用', link: '/user-guide/onboarding.html' },
       { text: '解决问题', link: '/user-guide/troubleshooting.html' },
       { text: '开发参考', link: '/developer/README.html' },
+      { text: `v${version}`, link: `${repositoryUrl}/releases/tag/v${version}` },
     ],
+    socialLinks: [{ icon: 'github', link: repositoryUrl, ariaLabel: 'jzmedia GitHub 仓库' }],
     sidebar,
     outline: { level: [2, 3], label: '本页内容' },
     docFooter: { prev: '上一页', next: '下一页' },
@@ -46,7 +51,7 @@ export default defineConfig({
           footer: { selectText: '打开', navigateText: '切换', closeText: '关闭' } },
       },
     } },
-    footer: { message: '离线可读 · 图片和示例以标注的演示环境与版本为准' },
+    footer: { message: `帮助站构建版本 ${version} · 图片和示例以各页标注为准` },
   },
   transformHtml: staticMetadata,
   buildEnd: finishBuild,

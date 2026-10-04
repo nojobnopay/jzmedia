@@ -1,11 +1,13 @@
 ---
-version: 0.20.1
+version: 0.20.2
 reviewed: 2026-10-04
 ---
 
 # jzmedia
 
 把本地硬盘或 NAS 里已有的电影、剧集，变成可以在浏览器里找片、看片的私人影视库。
+
+[在线图文帮助](https://nojobnopay.github.io/jzmedia/)：查看最新正式版本的教程，无需启动 jzmedia。
 
 ![电影海报墙与继续观看](docs/assets/screenshots/movie-library.webp)
 
@@ -20,7 +22,7 @@ reviewed: 2026-10-04
 
 跟随[安装教程](docs/getting-started/deployment.md)部署。服务启动后访问 `http://服务器地址:8080`，点击空库欢迎卡片“开始配置”，按[首次入库图解](docs/user-guide/onboarding.md)完成配置和试播。
 
-已运行的实例在 `/help/` 提供图文帮助，API 调试文档位于 `/docs`。帮助站点可离线随应用使用；仓库中正文与图表源仍可直接阅读。
+已运行的实例在 `/help/` 提供对应安装版本的图文帮助，API 调试文档位于 `/docs`。在线帮助跟随最新正式版本，应用内帮助可离线使用；两者由同一份文档源码构建。仓库 Markdown 可直接阅读正文，完整图文布局与交互请在帮助站查看。
 
 ## 文档
 

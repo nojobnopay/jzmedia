@@ -7,8 +7,10 @@ import { checkDiagrams } from '../.vitepress/diagram-source.mjs'
 import { assertPublicOutput, collectScriptHashes } from './artifacts.mjs'
 import { attr, elements, textContent } from './html.mjs'
 import { defaultDist } from './server.mjs'
+import { site, normalizeBase } from './site-config.mjs'
 
-export function checkOutput(root = defaultDist) {
+export function checkOutput(root = defaultDist, base = site.base) {
+  base = normalizeBase(base)
   const errors = []
   const pages = walkFiles(root).filter(file => file.endsWith('.html'))
   const nodes = new Map(pages.map(file => [file, elements(readFileSync(path.join(root, file), 'utf8'))]))
@@ -26,16 +28,16 @@ export function checkOutput(root = defaultDist) {
         const raw = attr(node, name)
         if (!raw || /^(?:data:|blob:|mailto:|tel:)/i.test(raw)) continue
         let target
-        try { target = new URL(raw, `http://docs.invalid/help/${file}`) }
+        try { target = new URL(raw, `http://docs.invalid${base}${file}`) }
         catch { errors.push(`${file}: 无效资源地址 ${raw}`); continue }
         if (target.origin !== 'http://docs.invalid') {
           if (node.tagName !== 'a') errors.push(`${file}: 离线文档依赖外部资源 ${raw}`)
           continue
         }
-        if (!target.pathname.startsWith('/help/')) {
+        if (!target.pathname.startsWith(base)) {
           errors.push(`${file}: 链接离开帮助站 ${raw}`); continue
         }
-        let rel = decodeURIComponent(target.pathname.slice(6))
+        let rel = decodeURIComponent(target.pathname.slice(base.length))
         if (!rel || rel.endsWith('/')) rel += 'index.html'
         const dest = path.resolve(root, rel)
         if (!dest.startsWith(root + path.sep) || !existsSync(dest)) {
@@ -51,7 +53,7 @@ export function checkOutput(root = defaultDist) {
   return errors
 }
 
-export function checkAppHelpLinks(root = docsRoot) {
+export function checkAppHelpLinks(root = docsRoot, dist = defaultDist) {
   const frontend = path.resolve(root, '../frontend/src')
   if (!existsSync(frontend)) return []
   const errors = []
@@ -60,7 +62,7 @@ export function checkAppHelpLinks(root = docsRoot) {
     for (const match of source.matchAll(/<HelpLink\b[^>]*?\bpage=["']([^"']+)["']/g)) {
       const slug = match[1].replace(/^\/?help\//, '').replace(/^\//, '').split('#')[0]
       const target = slug ? (slug.endsWith('.html') ? slug : `${slug}.html`) : 'index.html'
-      if (!existsSync(path.join(root, '.vitepress/dist', target))) errors.push(`frontend/src/${file}: 帮助入口不存在 ${match[1]}`)
+      if (!existsSync(path.join(dist, target))) errors.push(`frontend/src/${file}: 帮助入口不存在 ${match[1]}`)
     }
   }
   return errors

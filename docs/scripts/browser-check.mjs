@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 import { publicPages, htmlPath } from '../.vitepress/public-pages.mjs'
 import { createHelpServer } from './server.mjs'
+import { site } from './site-config.mjs'
 
 const argument = process.argv.indexOf('--url')
 let server
@@ -11,7 +12,7 @@ try {
   if (!base) {
     server = createHelpServer()
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
-    base = `http://127.0.0.1:${server.address().port}/help/`
+    base = `http://127.0.0.1:${server.address().port}${site.base}`
   }
   if (!base.endsWith('/')) base += '/'
   const origin = new URL(base).origin
@@ -43,6 +44,7 @@ try {
   }
   assert.deepEqual(mediaRequests, [], '视频不能在用户播放前预加载')
   await page.goto(new URL('user-guide/onboarding.html', base).href)
+  assert.equal((await page.reload()).status(), 200, '深层页面刷新后仍可直接访问')
   await page.waitForFunction(() => !!document.querySelector('#app')?.__vue_app__)
   const stepHeadings = page.locator('.vp-doc h3').filter({ hasText: /^Step \d+：/ })
   assert.equal(await stepHeadings.count(), 4, '四个步骤必须进入正文标题层级')
@@ -67,7 +69,12 @@ try {
     await input.fill(query)
     await page.locator('.VPLocalSearchBox .result').first().waitFor()
     assert.ok(await page.locator('.VPLocalSearchBox .result').count(), `${query}: 无搜索结果`)
-    await page.keyboard.press('Escape')
+    const result = page.locator('.VPLocalSearchBox a.result').first()
+    const target = new URL(await result.getAttribute('href'), page.url())
+    assert.ok(target.href.startsWith(base), `${query}: 搜索结果离开部署路径 ${target.href}`)
+    await result.click()
+    await page.waitForURL(target.href)
+    assert.equal((await page.reload()).status(), 200, `${query}: 搜索结果无法直接访问`)
   }
   await page.setViewportSize({ width: 390, height: 844 })
   for (const file of ['index.html', 'getting-started/deployment.html', 'getting-started/operations.html',

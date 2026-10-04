@@ -139,3 +139,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python scripts/github_release.py publish
+
+  documentation:
+    needs: publish
+    if: github.event_name == 'push' && needs.publish.result == 'success'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/docs-pages.yml
+    with:
+      release_tag: ${{ github.ref_name }}

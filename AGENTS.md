@@ -219,6 +219,10 @@ Manual equivalent uses `DATA_DIR=./data MEDIA_ROOT=./media`; optional `TMDB_*` c
 
   独立站 `npm --prefix docs run preview`，发行包 `npm --prefix docs run package`。维护入口 `docs/developer/documentation.md`。
 
+- 在线帮助共用正文，`JZMEDIA_DOCS_TARGET=pages`（`JZMEDIA_DOCS_BASE` 默认 `/jzmedia/`）构建到 `docs/.artifacts/pages/`；构建、检查和预览共用 `docs/scripts/site-config.mjs`。应用目标固定 `/help/`，宿主构建和离线包强制使用应用目标；根版本文件参与构建摘要。
+
+  `.github/workflows/docs-pages.yml` 在正式 Release 的 `publish` 成功后部署同一发行提交，独立手动入口只重发最新正式版本。`scripts/github_pages.py` 核对发行清单、标签和源码，部署前再次检查版本，旧任务跳过；Pages 首次设置与恢复见 `docs/developer/releasing.md`。
+
 - 公开页面与导航统一由 `.vitepress/public-pages.mjs` 管理；`docs/private/`、`docs/roadmap/` 不可进入站点或搜索索引，禁止整目录静态发布 docs。Mermaid 修改后运行 `npm --prefix docs run diagrams`，提交图表缓存；
 
   普通 build 不下载浏览器。
