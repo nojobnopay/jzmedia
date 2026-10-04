@@ -94,6 +94,14 @@ docker image inspect jzmedia:vX.Y.Z --format '{{.Id}} {{json .Config.Labels}}'
 
 同一版本的发布清单与 APK 必须持续对应同一内容。对已完成的同一版本再次运行时，脚本核对现有产物后退出，不重新构建或移动 `latest`。保留需要交付的清单和产物；`output/` 被 Git 忽略，不是远端归档或备份。
 
+## Docker 构建缓存
+
+发布命令不变，Dockerfile 使用 BuildKit 缓存。基础镜像、依赖清单和安装设置未变化时，普通代码或 Git 提交变化可复用依赖安装层；发行版本与提交信息在依赖安装后写入。系统包单独安装，修改 `requirements.txt` 不会重新安装 FFmpeg 等系统依赖。
+
+网页与帮助站共享 `jzmedia-npm` 下载缓存，`npm ci --prefer-offline` 优先复用已有包；Python 使用独立的 `jzmedia-pip` 缓存。两者均使用锁定的缓存挂载协调并发访问。升级项目版本会修改 npm 的包描述和锁文件，可能重新执行 `npm ci`，但已下载的包仍可复用；首次填充缓存或出现新依赖时仍需下载。
+
+这些缓存由当前 Docker 构建器保存，不进入最终镜像或 `output/`。更换构建器、清理相应构建缓存或 Docker Desktop 数据后，可能需要重新下载依赖。缓存提高复用率，不保证完全离线；发布命令的 `--offline` 仍只用于 Android Gradle。缓存机制见 [Docker 官方说明](https://docs.docker.com/build/cache/optimize/)。
+
 ## 正式签名与升级边界
 
 默认流程交付 Debug 试装包。需要正式版时使用 `build --apk-variant release`，并在仓库外准备正式密钥及四个环境变量：`JZMEDIA_ANDROID_KEYSTORE`、`JZMEDIA_ANDROID_STORE_PASSWORD`、`JZMEDIA_ANDROID_KEY_ALIAS`、`JZMEDIA_ANDROID_KEY_PASSWORD`。其中 keystore 使用绝对路径。脚本要求配置完整并通过 `apksigner` 验证；未签名包或 Debug 证书不能当作正式 APK 交付。密码和密钥不进入源码或发布清单。
