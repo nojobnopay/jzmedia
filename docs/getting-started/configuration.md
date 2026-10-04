@@ -7,7 +7,9 @@ reviewed: 2026-10-04
 
 [本目录首页](README.md) · [部署教程](deployment.md)
 
-环境变量模板是仓库的 `.env.example`（仓库根目录）。首次复制为 `.env` 后，Docker Compose 和宿主启动脚本才会读取配置。修改 `.env` 后需重建容器或重启宿主进程；仅修改环境变量通常不必重新构建镜像，可用 `docker compose -f docker-compose.yml up -d --force-recreate`。
+环境变量模板是仓库的 `.env.example`。首次复制为 `.env` 后，Docker Compose 和宿主启动脚本会读取配置；使用 `docker run` 时须显式传入 `--env-file .env`。三者的启动步骤见[安装教程](deployment.md)。
+
+修改 `.env` 后需重新创建容器或重启宿主进程，通常不必重新构建镜像。Compose 可执行 `docker compose -f docker-compose.yml up -d --no-build --pull never --force-recreate`；使用自定义覆盖文件时保留原来的全部 `-f` 参数。`docker run` 实例需保留原端口、卷、用户及设备参数，停止并删除旧容器后重新创建；`docker restart` 不会读取修改后的 `.env`。
 
 按配置类型查找：[路径与连接](#基础与连接) · [播放与缓存](#播放与缓存) · [智能辅助](#智能辅助) · [元数据落盘](#元数据与落盘)。
 
@@ -23,14 +25,16 @@ TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：
 
 | 变量 | 默认/用途 | 注意事项 |
 |---|---|---|
-| `APP_PORT` | `8080`，访问端口 | Compose 和 start.sh 使用；容器服务仍监听 8080 |
-| `APP_VERSION` | 模板为 `latest`，本地镜像标签 | 不表示从公共镜像仓库下载 |
-| `MEDIA_HOST_PATH` / `DATA_HOST_PATH` | `./media` / `./data` | 仅 Compose 宿主卷映射 |
-| `MEDIA_ROOT` / `DATA_DIR` | 宿主默认 `./media` / `./data` | Compose 固定覆盖为 `/app/media` / `/app/data` |
-| `UID` / `GID` | 模板为 `1000` / `1000` | 按宿主实际用户填写；Compose 缺省回退 0 |
+| `APP_PORT` | `8080`，访问端口 | Compose 和 start.sh 使用；`docker run` 用 `-p` 设置，容器服务仍监听 8080 |
+| `APP_VERSION` | 模板为 `latest`，Compose 的本地镜像标签 | 加载镜像后填实际标签，如 `v0.20.0`；不表示从公共仓库下载 |
+| `MEDIA_HOST_PATH` / `DATA_HOST_PATH` | `./media` / `./data` | Compose 的宿主卷映射；`docker run` 用 `-v` 设置 |
+| `MEDIA_ROOT` / `DATA_DIR` | 宿主默认 `./media` / `./data` | Docker 示例设置为 `/app/media` / `/app/data`，须与容器内挂载目标一致 |
+| `UID` / `GID` | 模板为 `1000` / `1000` | Compose 用于设置容器用户，缺省回退 0；`docker run` 用 `--user` 设置 |
 | `LOG_LEVEL` | `INFO` | 应用日志；排障可短期用 DEBUG |
 
 `MEDIA_ROOT` 不会改写已登记的库路径；已有 `/media` 部署按[旧路径兼容说明](deployment.md#legacy-media-path)保留映射。
+
+`docker run --env-file .env` 只向容器传入环境变量，不会根据 `APP_PORT`、`APP_VERSION`、宿主路径或 UID/GID 自动生成启动参数。使用该方式时，镜像标签、端口、挂载与容器用户须在命令中明确填写。
 
 ### 资料服务、代理与访问保护
 
@@ -96,6 +100,8 @@ group_add:
 ```
 
 在宿主用 `stat -c '%g' /dev/dri/renderD128` 等命令核对设备组号，在 `.env` 填相应的 `RENDER_GID`、`VIDEO_GID`，不要照抄另一台机器的数值。保持 `TRANSCODER=auto`，启动后在 `/api/stream/backends` 检查实际后端。识别不到时系统回落软件，指定后端也不能保证目标硬件编码一定成功。
+
+使用 `docker run` 时，在创建容器的命令中添加 `--device /dev/dri:/dev/dri`，并分别用 `--group-add` 传入上述实际组号；仅修改 `.env` 不会添加设备或组权限。
 
 ## 智能辅助
 

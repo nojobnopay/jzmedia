@@ -78,7 +78,17 @@ Docker 镜像保存在所连接的 Docker Engine 中，交付目录不包含镜�
 docker image inspect jzmedia:vX.Y.Z --format '{{.Id}} {{json .Config.Labels}}'
 ```
 
-将镜像 ID 与 `manifest.json` 对照。OCI 版本标签为 `X.Y.Z`，Git revision 为完整提交；镜像仓库标签使用 `vX.Y.Z`。部署后可用 `/api/health` 的[版本与提交字段](api.md#版本与源码追溯)核对正在运行的镜像。
+将镜像 ID 与 `manifest.json` 对照。OCI 版本标签为 `X.Y.Z`，Git revision 为完整提交；本地镜像标签使用 `vX.Y.Z`。部署后可用 `/api/health` 的[版本与提交字段](api.md#版本与源码追溯)核对正在运行的镜像。
+
+<span id="docker-image-export"></span>
+
+需要交付镜像文件时，在构建机另行手动导出，用实际版本替换 `X.Y.Z`：
+
+```bash
+docker save -o output/releases/vX.Y.Z/jzmedia-vX.Y.Z.tar jzmedia:vX.Y.Z
+```
+
+**预期结果：**交付目录中新增镜像 tar，保留 `jzmedia:vX.Y.Z` 标签。将文件、统一清单及该版本的 `.env.example` 一并交付；使用 Compose 的接收方还需该版本的 `docker-compose.yml`。确认镜像架构适用于目标机器后，按[加载镜像文件](../getting-started/deployment.md#加载镜像文件)导入，再选择 Compose 或 `docker run` 启动。镜像 tar 不包含运行实例的数据或媒体，迁移实例另按[备份与恢复](../getting-started/operations.md)处理。
 
 交付 APK 时一并提供其校验文件和统一清单，并注明它是 Debug 试装包。覆盖安装前核对新旧 APK 签名；不同电脑的 Debug 密钥可能不同，升版不能解决签名不一致。详细安装与签名检查见仓库 `android-tv/docs/releasing.md`。
 

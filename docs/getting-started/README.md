@@ -1,6 +1,6 @@
 ---
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.20.0
+reviewed: 2026-10-04
 search: false
 ---
 
@@ -12,7 +12,7 @@ search: false
 
 ## 运行前准备
 
-先完成[安装前准备](deployment.md#安装前准备)，再按设备选择部署方式。
+先完成[安装前准备](deployment.md#安装前准备)，再选择 [Docker 部署](deployment.md#docker-部署)或 [Linux/WSL 直接运行源码](deployment.md#宿主直接运行)。Docker 流程先构建或加载镜像，再选择 Compose 或 `docker run` 启动；NAS 的目录与权限见[部署补充](deployment.md#nas-部署)。
 
 <span id="阅读顺序"></span>
 

@@ -9,17 +9,17 @@ reviewed: 2026-10-04
 
 [本目录首页](README.md)
 
-按任务阅读：[备份](#一次一致的备份) · [升级](#升级) · [换机与恢复](#换机与恢复)。命令从项目根目录执行；下面以 Docker Compose 和默认数据目录 `./data` 为例。
+按任务阅读：[备份](#一次一致的备份) · [升级](#升级) · [换机与恢复](#换机与恢复)。命令从部署目录执行；备份示例使用默认数据目录 `./data`。Docker 镜像可以从源码构建或从文件加载，日常管理命令则取决于容器是通过 Compose 还是 `docker run` 启动，参见[安装教程](deployment.md#docker-部署)。
 
 ## 停止与重启
 
-| 要做的事 | 命令 |
-|---|---|
-| 停止服务 | `docker compose -f docker-compose.yml stop` |
-| 重新启动 | `docker compose -f docker-compose.yml up -d` |
-| 持续查看日志 | `docker compose -f docker-compose.yml logs -f mymedia` |
+| 要做的事 | Compose | `docker run` 创建的容器 |
+|---|---|---|
+| 停止服务 | `docker compose -f docker-compose.yml stop` | `docker stop jzmedia` |
+| 启动已有容器 | `docker compose -f docker-compose.yml start` | `docker start jzmedia` |
+| 持续查看日志 | `docker compose -f docker-compose.yml logs -f mymedia` | `docker logs -f jzmedia` |
 
-以上命令按需选择；查看日志时按 `Ctrl+C` 只退出日志跟踪。
+以上命令按需选择；`jzmedia` 是安装教程中 `docker run` 使用的容器名，自定义名称时相应替换。Compose 使用覆盖文件时，继续带上原来的全部 `-f` 参数。查看日志时按 `Ctrl+C` 只退出日志跟踪；`start` 不会更新镜像或配置，更新方式见下文[升级](#升级)。
 
 `down` 删除容器和项目网络，绑定到宿主的媒体与数据目录保留。宿主直跑在启动终端按 Ctrl+C；只结束自己启动的服务进程。服务正常退出会回收转码子进程，正在运行的内存任务状态不会保留。
 
@@ -31,13 +31,13 @@ reviewed: 2026-10-04
 |---|---|---|
 | `jzmedia.db` | 必须备份 | 库配置、匹配与个人记录 |
 | `secret.key` | 与数据库一起保存 | 解密远程凭据 |
-| `.env`、自定义 Compose | 另行安全保存 | 环境、卷与设备配置 |
+| `.env`、Compose 文件或 `docker run` 命令 | 另行安全保存 | 环境、卷与设备配置 |
 | `fonts/` | 保留字体来源或备份 | 自行投放的字幕字体 |
 | `posters/` | 建议备份 | 图片缓存与已选图片 |
 | `transcode/`、`previews/` | 通常可排除 | 可重新生成的播放缓存 |
 | 视频、字幕、NFO、图片 | 另做媒体备份 | 原始媒体及落盘元数据 |
 
-数据库还保存评分、标签、观看进度、整理与归属历史、文件待扫描记录和智能配置/用量。重扫只能重建部分元数据，不能完整恢复个人记录和审计。`secret.key` 遗失后需重新录入相关凭据；图片重取可能依赖网络。`.env` 和 Compose 定制可能包含秘密，应与数据库一样妥善保管。
+数据库还保存评分、标签、观看进度、整理与归属历史、文件待扫描记录和智能配置/用量。重扫只能重建部分元数据，不能完整恢复个人记录和审计。`secret.key` 遗失后需重新录入相关凭据；图片重取可能依赖网络。`.env` 与容器启动配置可能包含秘密，应与数据库一样妥善保管。
 
 数据目录下的 `mounts/` 可能是远程挂载，不应把它当作普通缓存递归打包，否则可能把整个远程媒体库纳入备份。
 
@@ -47,7 +47,7 @@ reviewed: 2026-10-04
 
 ### Step 1：停止服务并打包数据
 
-等待重要任务结束后执行：
+等待重要任务结束后执行。下面以 Compose 为例；使用 `docker run` 时，将第一条命令替换为 `docker stop jzmedia`。宿主直接运行则先在启动终端按 `Ctrl+C` 停止，再跳过第一条命令：
 
 ```bash
 docker compose -f docker-compose.yml stop
@@ -59,11 +59,13 @@ tar --exclude='./mounts' --exclude='./transcode' --exclude='./previews' -czf "ba
 
 ### Step 2：保存配置并重新启动
 
-另行安全保存 `.env` 和自定义 Compose 文件；数据库备份不包含媒体目录。确认备份文件已经保存后重新启动：
+另行安全保存 `.env`、Compose 文件或完整的 `docker run` 启动命令；数据库备份不包含媒体目录。确认备份文件已经保存后重新启动。Compose 示例：
 
 ```bash
-docker compose -f docker-compose.yml up -d
+docker compose -f docker-compose.yml start
 ```
+
+使用 `docker run` 时执行 `docker start jzmedia`；宿主直接运行时执行 `./start.sh`。
 
 **预期结果：**首页和 `/api/health` 恢复可用。按下文的[恢复检查](#换机与恢复)验证备份副本，不覆盖现用数据。
 
@@ -74,10 +76,11 @@ SQLite 使用 WAL，应用运行时只复制 `jzmedia.db` 可能漏掉未合并�
 ## 升级
 
 1. 停止/等待重要任务，备份数据、配置和旧版本源码或镜像。
-2. 阅读目标版本变更及迁移说明，获取对应源码。当前仓库不假定存在公共 `git pull` 地址。
+2. 阅读目标版本变更及迁移说明。Docker 部署获取目标版本源码或镜像文件；宿主直接运行获取源码。当前仓库不假定存在公共 `git pull` 地址；jzmedia 镜像尚未发布到 Docker Hub。
 3. 保留 `.env`、数据目录及卷映射，比较新的 `.env.example` 后按需补项。已入库路径为 `/media` 的容器，先按[旧路径兼容说明](deployment.md#legacy-media-path)保留原映射。
-4. 默认映射执行 `docker compose -f docker-compose.yml up --build -d`。使用旧路径兼容或其他 Compose 覆盖文件时，必须带上配置时相同的全部 `-f` 参数；旧 `/media` 部署使用[兼容说明中的启动命令](deployment.md#legacy-media-path)。宿主方式更新依赖后运行 `./start.sh`。
-5. 检查健康接口、媒体库连接、详情及一段视频，确认页面构建已更新。
+4. Docker 部署先按安装教程[从源码构建](deployment.md#从源码构建)或[加载镜像文件](deployment.md#加载镜像文件)，确认目标镜像已在本机。Compose 的 `APP_VERSION` 或 `docker run` 命令末尾的镜像标签必须与目标标签一致。宿主直接运行则更新依赖。
+5. Compose 执行 `docker compose -f docker-compose.yml up -d --no-build --pull never`，使用覆盖文件时保留原来的全部 `-f` 参数。`docker run` 实例先执行 `docker stop jzmedia`、`docker rm jzmedia`，再按[启动说明](deployment.md#docker-run)用目标镜像和原端口、卷、用户及设备参数创建容器；删除容器保留绑定到宿主的媒体和数据目录。宿主直接运行执行 `./start.sh`。
+6. 检查健康接口、媒体库连接、详情及一段视频，确认页面构建已更新。
 
 启动会执行数据库 schema 迁移；服务端版本与 schema 各自维护，当前迁移规则见[数据模型](../developer/data.md)。旧探测缓存会按 probe 版本自动更新。
 
