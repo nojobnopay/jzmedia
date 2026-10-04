@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -31,8 +32,12 @@ def read_version(project):
 
 
 def git_revision(project):
-    commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=project, capture_output=True, text=True)
-    status = subprocess.run(["git", "status", "--porcelain"], cwd=project, capture_output=True, text=True)
+    try:
+        commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=project, capture_output=True, text=True)
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=project, capture_output=True, text=True)
+    except FileNotFoundError:
+        # Building an unpacked source archive does not require a Git installation.
+        return {"commit": None, "dirty": None}
     return {"commit": commit.stdout.strip() if commit.returncode == 0 else None,
             "dirty": bool(status.stdout.strip()) if status.returncode == 0 else None}
 
@@ -107,7 +112,7 @@ def main():
     parser.add_argument("--offline", action="store_true", help="Build using cached Gradle dependencies")
     args = parser.parse_args()
     read_version(PROJECT)
-    command = [str(PROJECT / "gradlew")]
+    command = [str(PROJECT / ("gradlew.bat" if os.name == "nt" else "gradlew"))]
     if args.offline:
         command.append("--offline")
     command.append(f":app:assemble{args.variant.title()}")

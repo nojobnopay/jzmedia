@@ -1,0 +1,47 @@
+import projectRules from './docs/scripts/markdown-rules.mjs'
+
+export default {
+  // Keep rules explicit: pinning a new linter must not silently add policies.
+  config: {
+    default: false,
+    MD001: true,
+    MD003: { style: 'atx' },
+    MD004: { style: 'dash' },
+    MD005: true,
+    MD007: { indent: 2 },
+    MD009: true,
+    MD010: true,
+    MD012: true,
+    MD018: true,
+    MD019: true,
+    MD020: true,
+    MD021: true,
+    MD022: true,
+    MD023: true,
+    MD024: { siblings_only: true },
+    MD025: { front_matter_title: '' },
+    MD027: true,
+    MD029: { style: 'ordered' },
+    MD030: true,
+    MD031: true,
+    MD032: true,
+    MD037: true,
+    MD038: true,
+    MD039: true,
+    MD040: true,
+    MD041: { front_matter_title: '' },
+    MD046: { style: 'fenced' },
+    MD047: true,
+    MD048: { style: 'backtick' },
+    MD055: { style: 'leading_and_trailing' },
+    MD056: true,
+    MD058: true,
+    JZ001: true,
+    JZ002: true,
+  },
+  customRules: projectRules,
+  overrides: [{
+    // VitePress renders this page's H1 from hero frontmatter.
+    filter: ['docs/index.md'], combine: 'merge', config: { MD041: false },
+  }],
+}

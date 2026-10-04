@@ -9,8 +9,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from package_apk import export_apk, read_version
+from package_apk import export_apk, git_revision, read_version
 
 
 class PackageApkTests(unittest.TestCase):
@@ -79,6 +80,15 @@ class PackageApkTests(unittest.TestCase):
         self.assertEqual(manifest["sha256"], digest)
         self.assertEqual(manifest["source"], revision)
         self.assertTrue(manifest["exportedAt"])
+
+    def test_source_archive_can_be_packaged_without_git_installed(self):
+        self.build_fixture()
+        with patch("package_apk.subprocess.run", side_effect=FileNotFoundError("git")):
+            revision = git_revision(self.project)
+        self.assertEqual(revision, {"commit": None, "dirty": None})
+        artifact = export_apk(self.project, "debug", self.output, revision)
+        manifest = json.loads(artifact.with_suffix(".apk.json").read_text())
+        self.assertEqual(manifest["source"], revision)
 
     def test_release_filenames_distinguish_unsigned_build_output(self):
         # Naming follows Gradle output; fake fixtures do not prove a signature.

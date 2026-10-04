@@ -12,13 +12,14 @@
 .vp-doc img { border-radius: 10px; }
 .doc-page-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--vp-c-text-2); margin-bottom: 20px; }
 .doc-step { border: 1px solid var(--vp-c-divider); border-radius: 16px; margin: 24px 0; padding: 22px; }
-.doc-step-heading { display: flex; align-items: center; gap: 12px; }
-.doc-step-heading h2 { border: 0; margin: 0; padding: 0; font-size: 22px; }
-.doc-step-number { display: grid; place-items: center; flex: 0 0 36px; height: 36px; border-radius: 50%; background: var(--vp-c-brand-soft); color: var(--vp-c-brand-1); font-weight: 700; }
+.vp-doc h3 + .doc-step { margin-top: 16px; }
 .doc-step-body > :last-child { margin-bottom: 0; }
+.doc-step-copy > :first-child { margin-top: 0; }
+.doc-step-copy > :last-child { margin-bottom: 0; }
 .doc-step-body.has-image { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(0, 1.3fr); gap: 20px; align-items: start; }
 .doc-step-copy, .doc-step-image { min-width: 0; }
-.doc-step-image .doc-figure { margin: 16px 0 0; }
+.doc-step-image .doc-figure { margin: 0 0 16px; }
+.doc-step-image .doc-figure:last-child { margin-bottom: 0; }
 .docs-home-content { max-width: 1120px; padding: 20px 32px 64px; margin: auto; }
 .docs-home-content > h2 { font-size: 26px; font-weight: 650; margin: 32px 0 16px; }
 .docs-home-content > p { margin: 18px 0; line-height: 1.85; }
@@ -52,8 +53,8 @@
 @media (min-width: 1280px) { .VPDoc.has-aside .content-container { max-width: 820px !important; } }
 @media (max-width: 640px) {
   .doc-step { padding: 16px; margin: 20px 0; }
-  .doc-step-heading h2 { font-size: 20px; }
   .doc-step-body.has-image { display: block; }
+  .doc-step-image { margin-top: 16px; }
   .docs-home-content { padding: 12px 24px 40px; }
   .task-grid { grid-template-columns: 1fr; }
   .doc-image-toolbar { flex-wrap: wrap; gap: 8px 12px; }

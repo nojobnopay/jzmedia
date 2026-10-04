@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import MiniSearch from 'minisearch'
+import MarkdownIt from 'markdown-it'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
@@ -52,6 +53,25 @@ test('the build contains only public HTML and has exactly its final script hashe
   assert.ok(manifest.scriptHashes.length > 0)
   for (const page of publicPages()) {
     assert.doesNotMatch(readFileSync(path.join(defaultDist, page.replace(/\.md$/, '.html')), 'utf8'), /_vp-fn_|new Function/, page)
+  }
+})
+
+test('tutorial step titles remain headings in plain Markdown and the published HTML', () => {
+  const renderer = new MarkdownIt({ html: true })
+  for (const [name, count, instruction] of [
+    ['onboarding', 4, '点击“检查并使用此视频库”'],
+    ['subtitles', 3, '点击“加载字幕文件”'],
+  ]) {
+    const source = readFileSync(path.join(docsRoot, 'user-guide', `${name}.md`), 'utf8')
+    const plain = renderer.render(source)
+    const published = readFileSync(path.join(defaultDist, 'user-guide', `${name}.html`), 'utf8')
+    const headings = html => [...html.matchAll(/<h3\b[^>]*>(Step \d+[^<]+)/g)].map(match => match[1].trim())
+    const titles = headings(plain)
+    assert.equal(titles.length, count, `${name}: missing plain Markdown step headings`)
+    assert.deepEqual(headings(published), titles, `${name}: component must not replace or duplicate headings`)
+    assert.ok(plain.includes(instruction), `${name}: plain Markdown must retain instructions`)
+    assert.match(published, /<h3 id="step-1[^"]*"/)
+    assert.match(published, /href="#step-1[^"]*"/)
   }
 })
 
@@ -125,11 +145,14 @@ test('figure, steps, and captioned video render usable content without a browser
   }
   const [Figure, Step, Video] = await Promise.all(['DocFigure', 'DocStep', 'DocVideo'].map(loadComponent))
   const html = await renderToString(createSSRApp({ render() { return h('div', [
-    h(Step, { number: 1, title: '选择视频库' }, { default: () => h('p', '点击检查并使用此视频库'), image: () => h(Figure, { src: '/help/example.webp', alt: '检查连接按钮', caption: '隔离演示', marks: [{ x: 25, y: 50, label: '1' }] }) }),
+    h('h3', { id: 'step-1' }, 'Step 1：选择视频库'),
+    h(Step, {}, { default: () => h('p', '点击检查并使用此视频库'), image: () => h(Figure, { src: '/help/example.webp', alt: '检查连接按钮', caption: '隔离演示', marks: [{ x: 25, y: 50, label: '1' }] }) }),
     h(Video, { src: '/help/demo.mp4', poster: '/help/poster.webp', captions: '/help/demo.vtt', title: '扫描演示' }, { default: () => h('p', '扫描后核对已登记数量') }),
   ]) } }))
   assert.match(html, /检查并使用此视频库/)
   assert.match(html, /has-image/)
+  assert.match(html, /<h3 id="step-1">Step 1：选择视频库<\/h3>/)
+  assert.doesNotMatch(html, /<h2/)
   assert.match(html, /aria-label="放大图片：检查连接按钮"/)
   assert.match(html, /left:clamp\(16px, 25%, calc\(100% - 16px\)\)/)
   assert.match(html, /preload="none"/)

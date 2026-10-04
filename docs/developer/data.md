@@ -29,6 +29,8 @@ erDiagram
 
 外键只表达归属方向；`media_info`、`playback_progress` 按 `(kind, item_id)` 键隔离电影/分集/花絮，不做硬外键。`tmdb_cache` 主键是 `(media_type, tmdb_id)`，电影与剧集的数值 id 空间独立。合集成员按海报粒度（同 `tmdb_id` 全版本）归并，不是按单个文件行。
 
+### 媒体与观看记录
+
 | 表 | 作用/关键关联 |
 |---|---|
 | `media_libraries` | 存储连接/根目录、凭据、只读、健康状态；一个媒体库有多个视频库 |
@@ -39,18 +41,33 @@ erDiagram
 | `extras` | 电影/剧集花絮，分别通过 `movie_id`/`show_id` 归属 |
 | `media_info` | 按 `(kind,item_id)` 缓存 ffprobe 结果、帧率 `fps` 与 `probe_ver`，音轨 JSON 保存声道与采样率等信息 |
 | `playback_progress` | 按 `(kind,item_id)` 隔离电影、分集、花絮续播 |
+| `persons`、`movie_person`、`collections`、`collection_members` | 演职员关联和媒体库级合集 |
+
+### 文件变更与任务审计
+
+| 表 | 作用/关键关联 |
+|---|---|
 | `scan_state` | 文件大小/mtime/扫描状态，用于增量与整理后的路径同步 |
 | `fs_changes` | 按视频库记录已发生的文件变更；成功完整扫描只清除开始时水位以内的记录，期间新增变更保留 |
 | `tv_binding_history` | 归属变更的预览/执行快照与撤销状态机（`preview` → 已执行/已撤销），预览 token 15 分钟有效 |
 | `organize_moves` | 剧集整理逐步审计：批次、源/目标、文件或目录、撤销时间 |
+
+### 元数据、配置与用量
+
+| 表 | 作用/关键关联 |
+|---|---|
 | `tmdb_cache`、`external_meta`、`match_index` | 已获取的来源详情和可离线检索索引 |
+| `app_settings` | 数据库优先的运行配置、来源冷却、新手配置状态和智能辅助配置 |
+| `ai_usage` | `app/ai/settings.py` 按需建表，按 UTC 日累计实际请求次数与上游报告的 token；不另增 schema 版本 |
+
+### 播出资料持久表
+
+| 表 | 作用/关键关联 |
+|---|---|
 | `tv_airing_snapshots` | 按 `tmdb_id` 保存播出快照、首次基线时间、成功/尝试/下次检查时间、错误与任务租约 |
 | `tv_airing_catalogs` | 主键 `(tmdb_id,season)`，保存官方季目录、缓存时钟、失败重试、`pending`、失效修订号 `revision` 与租约 |
 | `tv_airing_events` | 按稳定 `event_id` 去重近期播出事件，保存官方分集身份、季集号、播出日期、首次发现时间及 `active` 有效标记 |
 | `tv_airing_control` | 单行保存有效配置指纹、共享错误和下次重试时间，用于凭据错误、限流等整体退避 |
-| `persons`、`movie_person`、`collections`、`collection_members` | 演职员关联和媒体库级合集 |
-| `app_settings` | 数据库优先的运行配置、来源冷却、新手配置状态和智能辅助配置 |
-| `ai_usage` | `app/ai/settings.py` 按需建表，按 UTC 日累计实际请求次数与上游报告的 token；不另增 schema 版本 |
 
 ### 剧集播出缓存与收藏对照
 

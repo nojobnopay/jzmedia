@@ -9,6 +9,8 @@ reviewed: 2026-10-03
 
 环境变量模板是仓库的 `.env.example`（仓库根目录）。首次复制为 `.env` 后，Docker Compose 和宿主启动脚本才会读取配置。修改 `.env` 后需重建容器或重启宿主进程；仅修改环境变量通常不必重新构建镜像，可用 `docker compose -f docker-compose.yml up -d --force-recreate`。
 
+按配置类型查找：[路径与连接](#基础与连接) · [播放与缓存](#播放与缓存) · [智能辅助](#智能辅助) · [元数据落盘](#元数据与落盘)。
+
 ## 配置优先级
 
 TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：**数据库非空配置 → 环境变量 → 默认值**。保存立即生效；“恢复跟随 .env”清除数据库覆盖，并不一定清空最终有效值。设置页显示来源及脱敏凭据。智能辅助使用独立配置接口，也遵循数据库优先，Key 留空保留、明确清除后回退环境值。
@@ -17,6 +19,8 @@ TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：
 
 ## 基础与连接
 
+### 运行路径与端口
+
 | 变量 | 默认/用途 | 注意事项 |
 |---|---|---|
 | `APP_PORT` | `8080`，访问端口 | Compose 和 start.sh 使用；容器服务仍监听 8080 |
@@ -24,13 +28,27 @@ TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：
 | `MEDIA_HOST_PATH` / `DATA_HOST_PATH` | `./media` / `./data` | 仅 Compose 宿主卷映射 |
 | `MEDIA_ROOT` / `DATA_DIR` | 宿主默认 `./media` / `./data` | Compose 固定覆盖为 `/media` / `/app/data` |
 | `UID` / `GID` | 模板为 `1000` / `1000` | 按宿主实际用户填写；Compose 缺省回退 0 |
+| `LOG_LEVEL` | `INFO` | 应用日志；排障可短期用 DEBUG |
+
+### 资料服务、代理与访问保护
+
+| 变量 | 默认/用途 | 注意事项 |
+|---|---|---|
 | `TMDB_READ_TOKEN` / `TMDB_API_KEY` | 空 | Read Token 优先；支持设置页覆盖 |
 | `TMDB_PROXY` | 空，直连 | 运行时 API 和图片下载代理 |
 | `TMDB_LANGUAGE` | `zh-CN` | 元数据语言 |
 | `TMDB_IMAGE_BASE` | `https://image.tmdb.org` | 图片源；设置页可改 |
-| `BUILD_HTTP_PROXY` | 空 | 仅镜像构建中的 pip/npm 代理；不等同于运行时代理或 Docker 拉取镜像代理 |
-| `JZMEDIA_TOKEN` | 空，写接口开放 | 非空时全部 API 写请求需令牌，包括网页播放决策、会话和进度；浏览、海报、媒体直链等 GET 仍开放 |
-| `LOG_LEVEL` | `INFO` | 应用日志；排障可短期用 DEBUG |
+| `BUILD_HTTP_PROXY` | 空 | 仅镜像构建中的 pip/npm 下载代理 |
+| `JZMEDIA_TOKEN` | 空，写接口开放 | 非空时全部 API 写请求需令牌 |
+
+`BUILD_HTTP_PROXY` 不影响运行时请求或 Docker 拉取基础镜像的代理；三者的区别见[部署排障](troubleshooting.md#wsl--docker-desktop-代理故障)。
+
+`JZMEDIA_TOKEN` 也保护网页播放决策、会话建立和进度保存。浏览、海报、媒体直链等 GET 仍开放，因此它不是完整的读取访问控制。
+
+### 远程存储
+
+| 变量 | 默认/用途 | 注意事项 |
+|---|---|---|
 | `SMB_DRIVER` | `auto` | 挂载可用用挂载，否则 SMB 直读；`direct` 强制直读，`mount` 强制挂载 |
 | `ALLOW_SMB_MOUNT` | `1` | `0` 禁止应用内挂载；SMB 直读无需挂载权限 |
 | `SMB_CONNECT_TIMEOUT` | `15` 秒 | SMB 连接超时 |
@@ -49,15 +67,19 @@ TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：
 | `HLS_SEGMENT_TYPE` | `fmp4`；`ts` 为旧 MPEG-TS 回退路径 |
 | `AUDIO_COPY_SAFE` | 非原生 HLS 默认只允许 AAC/MP3 copy；不建议未测试就放开其他编码 |
 | `MIN_SEGS_COPY` / `MIN_SEGS_TRANSCODE` | `1` / `2`，起播所需视频分片数 |
-| `MAX_TRANSCODES` | `2`，范围 1–8；新 HLS 产物在初始化及整个 FFmpeg 生命周期占额，相同产物共享，满额的新请求返回 429 |
+| `MAX_TRANSCODES` | `2`，范围 1–8；并发生成 HLS 产物的上限 |
 | `FFMPEG_PROBESIZE` | `2097152` 字节，远程转码输入探测量 |
 | `FFMPEG_ANALYZEDURATION` | `1000000` 微秒，远程转码输入探测时长 |
 | `FFMPEG_RW_TIMEOUT_US` | `30000000` 微秒，远程输入读写超时 |
-| `TRANSCODE_CACHE_GB` | `10` GB；超限回收到约 90%，活跃目录受保护；0 只按 TTL 清理 |
-| `PREVIEW_CACHE_GB` | `2` GB，最低 0.1 GB；独立缩略图缓存限额，不按转码 24h TTL 清理，0 不表示禁用 |
+| `TRANSCODE_CACHE_GB` | `10` GB；0 只按 TTL 清理 |
+| `PREVIEW_CACHE_GB` | `2` GB，最低 0.1 GB；0 不表示禁用 |
 | `PREVIEW_INTERVAL` | 未设置时本地 10 秒、远程 20 秒；有效范围 5～60 秒 |
 
-三个 `FFMPEG_*` 探测/超时变量可用 0 关闭限制，仅用于远程转码输入，不限制 ffprobe 元数据探测。缓存限额有活跃保护和扫描节流，可能暂时超过配置值。
+`MAX_TRANSCODES` 按产物计数：从初始化到整个 FFmpeg 生命周期都占额，相同产物共享额度。达到上限后，新产物请求返回 429。
+
+三个 `FFMPEG_*` 探测/超时变量可用 0 关闭限制，仅用于远程转码输入，不限制 ffprobe 元数据探测。
+
+转码缓存超限时回收到约 90%，活跃目录受保护。缩略图使用独立缓存限额，不按转码的 24 小时 TTL 清理；缓存限额有活跃保护和扫描节流，可能暂时超过配置值。
 
 ### Intel 硬件设备
 
@@ -85,7 +107,9 @@ group_add:
 | `AI_MODEL` | `deepseek-flash`，须与服务商实际可用模型对应 |
 | `AI_API_KEY` | 空；仅服务端使用，设置读取只回显掩码；compatible 允许空 Key |
 | `AI_TIMEOUT_SECONDS` | `12`，范围 2–60 秒 |
-| `AI_DAILY_LIMIT` | `100`，范围 1–10000 次，按 UTC 日计数；失败和连接测试计次，缓存命中不计 |
+| `AI_DAILY_LIMIT` | `100`，范围 1–10000 次；按 UTC 日计数 |
+
+失败请求与连接测试计入每日限额，本地缓存命中不计。
 
 切换服务商要同步地址、模型和对应 Key；环境变量不会按服务商自动补齐预设。OpenCode Go 的应用配置固定使用 `https://opencode.ai/zen/go/v1`，界面示例为 `glm-5.3-flash`，项目尚未验证真实影视用途与模型效果。自定义服务地址在容器中必须可达，容器的 `localhost` 指容器自身。AI 客户端不继承 TMDB 或系统代理，数据库中的 Key 不以脱敏回显代表加密存储。
 

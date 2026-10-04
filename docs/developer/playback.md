@@ -47,9 +47,15 @@ fMP4 HLS 音轨通过 rendition 切换，一般不重开会话；网页原文件
 
 `POST /sessions` 返回源时间轴起点 `media_start` 和会话内起播位置 `initial_time`。copy 会话起点可落在目标前关键帧；客户端进度和字幕必须把片内时间换回原片时间。先在缓冲或 seekable 范围复用；范围外重开会话；完整的 start=0 成品可被续播命中。
 
+### 客户端会话与共享产物
+
 每次成功创建都返回新的客户端 sid；服务端 `_sessions` 保存各客户端持有关系，`_tasks` 在锁内按 `(kind,id,完整产物键)` 共享 FFmpeg 任务。完整键包含源路径/size/mtime、实际输出 plan、封装、烧录字幕及精确起点，目录名带 SHA-256；同一 fMP4 的所选音轨、非烧录字幕和仅名称不同的同输出画质不会拆出重复产物。旧非哈希目录不迁移，由缓存回收规则清理。
 
+### 并发额度与释放
+
 DELETE 或会话超时只释放该 sid，最后持有者离开才停止仍在运行的 FFmpeg；预缓存任务也有独立持有者。`MAX_TRANSCODES` 默认 2、范围 1–8，对新产物的初始化到进程退出全程占额；加入已有产物或使用完成缓存不重复占额，满额的新请求返回 429。不能为一个客户端清理会话而杀掉其他设备共享的任务。
+
+### 认领、保活与关闭
 
 playlist/分片读取和心跳都认领并保活；未认领会话宽限 90 秒，已认领空闲 600 秒后可回收，产物缓存按 24 小时 TTL 和容量限制清理，活动任务受保护。前端用 `disposed`、`reloadGen`、AbortController 守护异步请求，关闭窗口前显式 pause、断开 src 并 load，迟到会话立即 DELETE。退出 lifespan 调 `shutdown_sessions` 清转码子进程。修改任何 await 路径后要审查晚到响应和双 HLS 实例风险。
 
@@ -64,6 +70,8 @@ Android TV 使用协议 1 握手和 `client=android_tv`，显式声明原生容�
 `useSubtitles.js` 用自绘 DOM 层显示 SRT/VTT，失败回退原生 track；JASSUB 渲染 ASS/SSA 并尽量保留样式，libpgs 渲染 PGS，失败可降级烧录；VobSub 走烧录。自绘文本层在画中画中不可见；ASS 缺 CJK 字体可补 `DATA_DIR/fonts/` 内有权使用的字体，或降级 VTT（丢失原样式）。
 
 字幕源时间相对 HLS 会话应叠加 `media_start + subDelay`；延迟按版本保存，外观按浏览器保存。外挂轨从 `scanner.classify` 归属，临时本地字幕仅浏览器持有，关闭失效。
+
+### 倍速、缩略图与预缓存
 
 六档倍速由浏览器 `playbackRate` 实现，保持音调；换元素/会话需恢复。`usePlaybackPreviews.js` 与 `stream/previews.py` 管理逐页拼图，GET 只查状态，POST 才生成；缓存按源标识、大小、mtime 和规则失效，与 24 小时转码缓存分开。远程适用版本通过 prewarm 预缓存 start=0 的 HLS 成品，质量计划一致才复用。字幕、预览、seek 的所有 UI 时间都以原片时间表示。
 

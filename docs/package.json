@@ -8,13 +8,16 @@
     "diagrams": "node scripts/diagrams.mjs",
     "build": "node scripts/diagrams.mjs --check && vitepress build",
     "check": "node scripts/check.mjs",
+    "lint": "node scripts/lint.mjs",
     "test": "node --test tests/*.test.mjs",
+    "verify": "npm run lint && python3 ../scripts/check_docs_links.py && npm run build && npm test && npm run check",
     "test:browser": "node scripts/browser-check.mjs",
     "preview": "node scripts/serve.mjs",
     "package": "npm run build && npm run check && node scripts/package.mjs"
   },
   "devDependencies": {
     "@vue/server-renderer": "3.5.32",
+    "markdownlint-cli2": "0.23.3",
     "mermaid": "12.0.0",
     "minisearch": "7.2.0",
     "parse5": "8.0.0",

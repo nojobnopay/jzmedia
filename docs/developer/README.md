@@ -6,7 +6,9 @@ search: false
 
 # 开发者文档
 
-面向要修改 jzmedia 的开发人员。文档以当前代码为事实源，解释模块边界、关键约束和验证方式；用户操作指南单列在[用户手册](../user-guide/README.md)，数据库版本与迁移见[数据模型](data.md)。当前服务端/网页为 `0.19.0`、schema 为 30；Android TV 是独立 Gradle 工程，构建与协议分别见仓库 `android-tv/README.md` 和 `android-tv/docs/protocol.md`。
+面向要修改 jzmedia 的开发人员。文档以当前代码为事实源，解释模块边界、关键约束和验证方式；用户操作指南单列在[用户手册](../user-guide/README.md)，数据库版本与迁移见[数据模型](data.md)。
+
+Android TV 是独立 Gradle 工程，构建与协议分别见仓库 `android-tv/README.md` 和 `android-tv/docs/protocol.md`。
 
 | 章节 | 内容 |
 |---|---|

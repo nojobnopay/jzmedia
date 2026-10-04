@@ -18,16 +18,41 @@
 
 ## 当前拍摄流程
 
-| 脚本 | 对应素材 | 来源边界 |
-|---|---|---|
-| `node scripts/ui_visual_review.mjs --capture-docs` | 浏览、详情、库连接、上传、资料匹配与整理面板等通用场景 | 真实 Vue 页面、完整模拟 API、虚构资料与原创 SVG 海报 |
-| `node scripts/smoke_settings_ui.mjs --capture-docs` | 设置、未保存修改提醒、文件管理、文件预览及播放器控件 | 真实 Vue 页面、模拟 API；媒体预览使用临时合成文件 |
-| `node scripts/smoke_ai_ui.mjs --capture-docs` | AI 设置、搜索与匹配 | 真实 Vue 页面、模拟 API 与模型响应，无真实 Key 或模型调用 |
-| `python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录` | 四步向导、首播、字幕、电影整理及连续录屏 | `preview_onboarding.py --docs-demo` 的隔离应用、临时数据库、本地 NFO 和合成片源；浏览器 API 不模拟 |
-| `python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录 --only player` | 已入库演示实例的播放信息与实际 720p 输出 | 同一隔离应用；当前文档演示片源为 1920×1080、H.264/AAC、180 秒 |
-| `python scripts/capture_docs_diagrams.py` | 三个业务概念 SVG | 仓库代码生成，无浏览器拍摄或媒体数据 |
+| 拍摄入口 | 对应素材 |
+| --- | --- |
+| `ui_visual_review.mjs --capture-docs` | 浏览、详情、库连接、上传、匹配与整理面板 |
+| `smoke_settings_ui.mjs --capture-docs` | 设置、草稿提醒、文件管理、预览与播放器控件 |
+| `smoke_ai_ui.mjs --capture-docs` | AI 设置、搜索与匹配 |
+| `capture_docs.py` | 四步向导、首播、字幕、电影整理及连续录屏 |
+| `capture_docs.py --only player` | 已入库演示实例的播放信息与实际 720p 输出 |
+| `capture_docs_diagrams.py` | 三个业务概念 SVG |
+
+### 运行方式与来源边界
+
+Node 拍摄入口使用真实 Vue 页面和模拟 API，通用页面配有虚构资料与原创 SVG 海报；文件预览使用临时合成媒体。AI 画面使用模拟模型响应，无真实 Key 或模型调用。从仓库根按需运行：
+
+```bash
+node scripts/ui_visual_review.mjs --capture-docs
+node scripts/smoke_settings_ui.mjs --capture-docs
+node scripts/smoke_ai_ui.mjs --capture-docs
+```
+
+Python 拍摄入口连接 `preview_onboarding.py --docs-demo` 的隔离应用，使用临时数据库、本地 NFO 和合成片源，浏览器 API 不模拟。将下面的目录替换为启动器打印的实际目录；需要复拍播放器时选择带 `--only player` 的命令：
+
+```bash
+python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
+python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录 --only player
+```
+
+播放器示例使用同一隔离应用中已入库的 1920×1080、H.264/AAC、180 秒演示视频。业务概念 SVG 由仓库代码生成，不使用浏览器拍摄或媒体数据：
+
+```bash
+python scripts/capture_docs_diagrams.py
+```
 
 演示目录的准备方式和 Python Playwright 安装前置见[重新拍摄素材](../developer/documentation.md#重新拍摄素材)。普通新手预览仍使用 640×360、6 秒短片，不能据此演示从 1080p 降到 720p。原始浏览器截图和审查证据放在被忽略的 `output/playwright/` 或临时目录，正式文档只提交选定素材及来源记录。
+
+### 拍摄后的核对
 
 先确认截图中的操作、名称与正文一致，再更新对应条目。录屏内容改变时同时检查封面与中文字幕的时序。实际 CSS 视口、像素密度、应用版本及压缩规格按条目记录；移动浏览器模拟不能当作手机或电视真机验收。模拟 API 截图也不能证明真实 NAS 操作、模型效果或外部服务连通。
 

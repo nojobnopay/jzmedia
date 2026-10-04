@@ -44,6 +44,12 @@ try {
   assert.deepEqual(mediaRequests, [], '视频不能在用户播放前预加载')
   await page.goto(new URL('user-guide/onboarding.html', base).href)
   await page.waitForFunction(() => !!document.querySelector('#app')?.__vue_app__)
+  const stepHeadings = page.locator('.vp-doc h3').filter({ hasText: /^Step \d+：/ })
+  assert.equal(await stepHeadings.count(), 4, '四个步骤必须进入正文标题层级')
+  const firstStepId = await stepHeadings.first().getAttribute('id')
+  assert.ok(firstStepId, '步骤标题必须可以直接链接')
+  assert.ok(await page.locator(`.VPDocAsideOutline a[href="#${firstStepId}"]`).count(), '步骤必须进入页内目录')
+  assert.equal(await page.locator('.doc-step h2').count(), 0, '布局组件不能额外插入同级主题标题')
   const figure = page.locator('.doc-figure-open:visible').first()
   await figure.focus()
   await page.keyboard.press('Enter')
@@ -64,7 +70,9 @@ try {
     await page.keyboard.press('Escape')
   }
   await page.setViewportSize({ width: 390, height: 844 })
-  for (const file of ['index.html', 'user-guide/onboarding.html', 'user-guide/subtitles.html', 'user-guide/troubleshooting.html']) {
+  for (const file of ['index.html', 'getting-started/deployment.html', 'getting-started/operations.html',
+    'getting-started/configuration.html', 'getting-started/troubleshooting.html', 'user-guide/onboarding.html',
+    'user-guide/subtitles.html', 'user-guide/settings.html', 'user-guide/files.html', 'user-guide/troubleshooting.html']) {
     await page.goto(new URL(file, base).href)
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
     assert.ok(overflow <= 1, `${file}: 移动视口横向溢出 ${overflow}px`)
@@ -77,6 +85,7 @@ try {
   const plain = await noJs.newPage()
   await plain.goto(new URL('user-guide/onboarding.html', base).href)
   assert.match(await plain.locator('#VPContent').innerText(), /扫描|资料来源/)
+  assert.equal(await plain.locator('.vp-doc h3').filter({ hasText: /^Step \d+：/ }).count(), 4, '无 JS 时仍有完整步骤标题')
   await noJs.close()
   assert.deepEqual(unexpected, [], '帮助站出现外部网络请求')
   // The intentional missing-page probe produces a browser 404 console entry.
