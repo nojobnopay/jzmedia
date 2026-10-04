@@ -1,7 +1,19 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+val appVersion = Properties().apply {
+    rootProject.file("version.properties").inputStream().use { load(it) }
+}
+val appVersionName = appVersion.getProperty("versionName") ?: error("Missing versionName")
+val appVersionCode = appVersion.getProperty("versionCode")?.toIntOrNull() ?: error("Invalid versionCode")
+require(Regex("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)").matches(appVersionName)) {
+    "versionName must be X.Y.Z; build type supplies the debug suffix"
+}
+require(appVersionCode in 1..2_100_000_000) { "versionCode must be a positive Android version code" }
 
 android {
     namespace = "org.jzmedia.tv"
@@ -12,9 +24,9 @@ android {
         applicationId = "org.jzmedia.tv"
         minSdk = 23
         targetSdk = 36
-        // Independent of the server/web version. Increment versionCode for each release.
-        versionCode = 8
-        versionName = "0.5.0-dev"
+        // Independent of the server/web; both values increase for each changed delivery.
+        versionCode = appVersionCode
+        versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

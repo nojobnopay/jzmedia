@@ -7,7 +7,9 @@
 - 使用 Kotlin 与 Compose for TV；播放阶段使用 Media3/ExoPlayer。Android Studio 直接打开本目录。
 - 客户端只通过 HTTP API 访问 jzmedia，不直接读取服务器数据库、媒体目录或 SMB 凭据，不内嵌网页客户端。
 - 后端启动、Docker 镜像与网页构建不得依赖 Android SDK 或 APK 构建。工具链版本由本工程锁定。
-- APK 版本独立于服务端；发布标签使用 `android-tv-vX.Y.Z`，`versionCode` 每次正式分发递增。接口联动修改在同次变更中包含兼容说明和对应测试。
+- APK 版本独立于服务端，以 `version.properties` 的 `versionName` / `versionCode` 为唯一版本来源；发布标签使用 `android-tv-vX.Y.Z`。兼容修复、视觉小调整升 patch，新功能升 minor，破坏性变更升 major；`0.x` 阶段的破坏性变更升 minor 并说明兼容影响。
+- 每次向用户交付内容变化的 APK（含 Debug 试装包），都必须同时提升版本号及全局单调递增的 `versionCode`；日常本地重复编译不升版，`versionCode` 不随主次版本重置、不使用日期。版本号不长期附带 `-dev`，Debug 构建只追加 `-debug`。
+- 分发用 `python tools/package_apk.py debug|release` 构建并导出；APK 名为 `jzmedia-tv-X.Y.Z-debug.apk`、正式签名的 `jzmedia-tv-X.Y.Z.apk` 或未签名的 `jzmedia-tv-X.Y.Z-unsigned.apk`，不加日期、功能名或 `rebuilt`。日期、提交、哈希、签名、兼容范围和验收状态写入旁附 JSON 或发布说明；同一版本与构建类型不得替换为不同内容或签名的产物，历史 APK 不靠改文件名冒充新版本。接口联动修改在同次变更中包含兼容说明和对应测试。
 - 不假定 APK 与服务端同时升级。开始接入 API 后，明确最低兼容服务端版本；新增播放能力字段必须保留旧网页客户端的默认行为。
 - `local.properties`、SDK、Gradle 缓存、构建产物和签名密钥不提交。正式签名密钥在仓库外保管并备份；不得使用 debug 签名发布正式版本。
 
