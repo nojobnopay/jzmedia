@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-04",
+  "revision": 1,
+  "checks": [
+    {
+      "target": "Brand revision 3: selected A 点映",
+      "environment": "Chromium isolated SVG comparison; CairoSVG 2.9.1 / Pillow 12.3.0",
+      "density": "16/20/24/26/32/48 CSS px at deviceScaleFactor=1 and 2; dark and light backgrounds",
+      "status": "passed",
+      "command": ".venv/bin/python scripts/build_design.py --check --render-brand; .venv/bin/python -m pytest tests/test_design_assets.py -q",
+      "result": "用户选定A；主版J顶部增加片架横梁，16px横梁对齐整数像素并保留加粗弯钩，32px独立校正。主版/组合字标/实际SVG favicon目视核对通过；29项资产测试与全部导出重新渲染比对通过，ICO保留16/32/48三个真实像素层。",
+      "screenshots": [
+        "output/playwright/brand-adopted-a/comparison-1x.png",
+        "output/playwright/brand-adopted-a/comparison-2x.png",
+        "output/playwright/brand-adopted-a/checks.json"
+      ],
+      "limitations": "新旧对比为本地输出，旧图取改前Git母版与导出，新图取当前母版与实际导出；本地输出不提交。候选页不再作为正式资产来源，长期复查使用设计图鉴。"
+    },
+    {
+      "target": "Web and help-site integration",
+      "environment": "Node.js / Vite / VitePress; Chromium isolated Vue component catalogue",
+      "density": "1440/390/375 CSS px at deviceScaleFactor=1",
+      "status": "passed",
+      "command": "node scripts/smoke_design_system.mjs --capture; npm --prefix frontend test; npm --prefix frontend run lint; npm --prefix frontend run build; npm --prefix docs run build; npm --prefix docs run check",
+      "result": "59个前端测试文件通过；lint无错误，保留2项既有console警告；Web和帮助站构建通过，40页文档检查通过。图鉴三档宽度的布局/控件/表单/弹窗/焦点/忙碌保护通过。",
+      "screenshots": [
+        "output/playwright/design-system/manifest.json"
+      ],
+      "limitations": "本次只修改品牌资产与规范，未复拍历史教程截图或录屏；原素材保持各自适用版本与核对日期。"
+    },
+    {
+      "target": "Android TV brand resources",
+      "environment": "Generated Android vector XML and 320x180 PNG visual review",
+      "density": "launcher/wordmark vectors; TV banner xhdpi, 160x90dp",
+      "status": "passed",
+      "result": "启动图标、导航字标和TV横幅均由修订3母版同步生成，Android向量路径与母版一致，横幅静态目视核对通过。",
+      "screenshots": [
+        "android-tv/app/src/main/res/drawable-xhdpi/tv_banner.png"
+      ],
+      "limitations": "仅验收生成资源，本次未重建或分发APK，未验证模拟器或真实电视的启动器裁切与远距离显示。"
+    }
+  ]
+}

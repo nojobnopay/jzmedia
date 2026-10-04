@@ -1998,13 +1998,13 @@
       "name": "J 与播放标记",
       "category": "brand",
       "master": "design/brand/mark.svg",
-      "revision": 2,
+      "revision": 3,
       "grid": [
         64,
         64
       ],
       "style": "filled",
-      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓",
+      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓；修订3为用户选定的原创A「点映」：J顶部片架横梁补足左上留白，延续播放一体轮廓",
       "theme": "固定品牌红/白；字标适用深色背景",
       "optical_variants": [
         "brand-favicon-16",
@@ -2020,6 +2020,11 @@
           "revision": 2,
           "date": "2026-10-03",
           "change": "红/白双色，播放三角融入J的竖干，去除黄色与外描边；16px版加粗并对齐主要竖边，SVG favicon也使用16px光学版"
+        },
+        {
+          "revision": 3,
+          "date": "2026-10-04",
+          "change": "采用A「点映」；J顶部向左延伸片架横梁，平衡左上留白；16px横梁对齐像素网格并保留加粗弯钩，32px独立校正；组合字标同步标记"
         }
       ],
       "deprecated": false,
@@ -2030,13 +2035,13 @@
       "name": "固定字标组合",
       "category": "brand",
       "master": "design/brand/wordmark.svg",
-      "revision": 2,
+      "revision": 3,
       "grid": [
         212,
         64
       ],
       "style": "filled",
-      "source": "迁自仓库 frontend/icon-src/logo.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；字标由 DejaVu Sans Bold 转为固定轮廓，许可证见design/brand/DEJAVU-LICENSE.txt；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓",
+      "source": "迁自仓库 frontend/icon-src/logo.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；字标由 DejaVu Sans Bold 转为固定轮廓，许可证见design/brand/DEJAVU-LICENSE.txt；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓；修订3为用户选定的原创A「点映」：J顶部片架横梁补足左上留白，延续播放一体轮廓",
       "theme": "固定品牌红/白；字标适用深色背景",
       "optical_variants": [],
       "history": [
@@ -2049,6 +2054,11 @@
           "revision": 2,
           "date": "2026-10-03",
           "change": "红/白双色，播放三角融入J的竖干，去除黄色与外描边；16px版加粗并对齐主要竖边，SVG favicon也使用16px光学版"
+        },
+        {
+          "revision": 3,
+          "date": "2026-10-04",
+          "change": "采用A「点映」；J顶部向左延伸片架横梁，平衡左上留白；16px横梁对齐像素网格并保留加粗弯钩，32px独立校正；组合字标同步标记"
         }
       ],
       "deprecated": false,
@@ -2059,13 +2069,13 @@
       "name": "16px 光学标记",
       "category": "brand",
       "master": "design/brand/favicon-16.svg",
-      "revision": 2,
+      "revision": 3,
       "grid": [
         16,
         16
       ],
       "style": "filled",
-      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓",
+      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓；修订3为用户选定的原创A「点映」：J顶部片架横梁补足左上留白，延续播放一体轮廓",
       "theme": "固定品牌红/白；字标适用深色背景",
       "optical_variants": [],
       "history": [
@@ -2078,6 +2088,11 @@
           "revision": 2,
           "date": "2026-10-03",
           "change": "红/白双色，播放三角融入J的竖干，去除黄色与外描边；16px版加粗并对齐主要竖边，SVG favicon也使用16px光学版"
+        },
+        {
+          "revision": 3,
+          "date": "2026-10-04",
+          "change": "采用A「点映」；J顶部向左延伸片架横梁，平衡左上留白；16px横梁对齐像素网格并保留加粗弯钩，32px独立校正；组合字标同步标记"
         }
       ],
       "deprecated": false,
@@ -2088,13 +2103,13 @@
       "name": "32px 光学标记",
       "category": "brand",
       "master": "design/brand/favicon-32.svg",
-      "revision": 2,
+      "revision": 3,
       "grid": [
         32,
         32
       ],
       "style": "filled",
-      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓",
+      "source": "迁自仓库 frontend/icon-src/favicon.svg；基线 94aa458f6fc09b89ada928bc05af033745dbcdff（历史外部来源未记录）；修订2为项目原创几何重绘：红底与白色J/播放一体轮廓；修订3为用户选定的原创A「点映」：J顶部片架横梁补足左上留白，延续播放一体轮廓",
       "theme": "固定品牌红/白；字标适用深色背景",
       "optical_variants": [],
       "history": [
@@ -2107,6 +2122,11 @@
           "revision": 2,
           "date": "2026-10-03",
           "change": "红/白双色，播放三角融入J的竖干，去除黄色与外描边；16px版加粗并对齐主要竖边，SVG favicon也使用16px光学版"
+        },
+        {
+          "revision": 3,
+          "date": "2026-10-04",
+          "change": "采用A「点映」；J顶部向左延伸片架横梁，平衡左上留白；16px横梁对齐像素网格并保留加粗弯钩，32px独立校正；组合字标同步标记"
         }
       ],
       "deprecated": false,
@@ -45051,12 +45071,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-favicon-16"
       ],
       "source_revisions": {
-        "brand-favicon-16": 2
+        "brand-favicon-16": 3
       }
     },
     {
@@ -45072,12 +45092,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-wordmark"
       ],
       "source_revisions": {
-        "brand-wordmark": 2
+        "brand-wordmark": 3
       }
     },
     {
@@ -45093,12 +45113,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-favicon-16"
       ],
       "source_revisions": {
-        "brand-favicon-16": 2
+        "brand-favicon-16": 3
       }
     },
     {
@@ -45114,12 +45134,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-favicon-32"
       ],
       "source_revisions": {
-        "brand-favicon-32": 2
+        "brand-favicon-32": 3
       }
     },
     {
@@ -45135,12 +45155,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-mark": 2
+        "brand-mark": 3
       }
     },
     {
@@ -45166,16 +45186,16 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-favicon-16",
         "brand-favicon-32",
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-favicon-16": 2,
-        "brand-favicon-32": 2,
-        "brand-mark": 2
+        "brand-favicon-16": 3,
+        "brand-favicon-32": 3,
+        "brand-mark": 3
       }
     },
     {
@@ -45191,12 +45211,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-favicon-16"
       ],
       "source_revisions": {
-        "brand-favicon-16": 2
+        "brand-favicon-16": 3
       }
     },
     {
@@ -45212,12 +45232,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-wordmark"
       ],
       "source_revisions": {
-        "brand-wordmark": 2
+        "brand-wordmark": 3
       }
     },
     {
@@ -45233,12 +45253,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-favicon-16"
       ],
       "source_revisions": {
-        "brand-favicon-16": 2
+        "brand-favicon-16": 3
       }
     },
     {
@@ -45254,12 +45274,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-favicon-32"
       ],
       "source_revisions": {
-        "brand-favicon-32": 2
+        "brand-favicon-32": 3
       }
     },
     {
@@ -45275,12 +45295,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-mark": 2
+        "brand-mark": 3
       }
     },
     {
@@ -45306,16 +45326,16 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-favicon-16",
         "brand-favicon-32",
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-favicon-16": 2,
-        "brand-favicon-32": 2,
-        "brand-mark": 2
+        "brand-favicon-16": 3,
+        "brand-favicon-32": 3,
+        "brand-mark": 3
       }
     },
     {
@@ -45331,12 +45351,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-mark": 2
+        "brand-mark": 3
       }
     },
     {
@@ -45352,12 +45372,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-mark": 2
+        "brand-mark": 3
       }
     },
     {
@@ -45373,12 +45393,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-mark"
       ],
       "source_revisions": {
-        "brand-mark": 2
+        "brand-mark": 3
       }
     },
     {
@@ -45394,12 +45414,12 @@
       "transparent": true,
       "safe_area": "保留母版内边距",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-wordmark"
       ],
       "source_revisions": {
-        "brand-wordmark": 2
+        "brand-wordmark": 3
       },
       "default_dp": [
         106,
@@ -45419,12 +45439,12 @@
       "transparent": false,
       "safe_area": "居中组合宽240px，四周至少40px",
       "generator_version": 1,
-      "master_revision": 2,
+      "master_revision": 3,
       "source_assets": [
         "brand-wordmark"
       ],
       "source_revisions": {
-        "brand-wordmark": 2
+        "brand-wordmark": 3
       }
     },
     {
