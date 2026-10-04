@@ -255,12 +255,12 @@ def install(args):
     except ToolError as error:
         raise ToolError(f"{error}\n安装未完成，不会自动卸载或降级现有应用。若提示签名冲突，请使用原签名构建；若提示 VERSION_DOWNGRADE，请使用更高版本。") from error
     if args.apk:
-        print("APK 已安装。请从电视应用列表打开 jzmedia TV。")
+        print("APK 已安装。请从电视应用列表打开 jzmedia。")
         return
     result = run([*command, "shell", "am", "start", "-W", "-n", DEBUG_ACTIVITY], capture=True)
     output = result.stdout + result.stderr
     if "Error:" in output or "Exception" in output:
-        raise ToolError(f"APK 已安装，但启动失败：{output.strip()}。请从电视应用列表打开 jzmedia TV 调试版。")
+        raise ToolError(f"APK 已安装，但启动失败：{output.strip()}。请从电视应用列表打开 jzmedia。")
     print("Debug APK 已安装并启动。请在电视中填写 jzmedia 服务端地址。")
 
 
