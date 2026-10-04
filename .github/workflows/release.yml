@@ -72,7 +72,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y ffmpeg
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          android_sdk_manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$android_sdk_manager" ]; then
+            android_sdk_managers=("$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager)
+            android_sdk_manager="${android_sdk_managers[0]}"
+          fi
+          "$android_sdk_manager" 'platforms;android-36' 'build-tools;36.0.0'
           python -m venv .venv
           .venv/bin/python -m pip install -r requirements-dev.txt
       - name: Validate and build both artifacts
