@@ -64,34 +64,37 @@
       ]
     },
     "tv-poster-card": {
-      "specification": "宽150dp；海报默认高180dp或posterHeight参数；标题区42dp；搜索海报高(maxHeight−120dp).coerceIn(100dp,180dp)",
+      "specification": "目标宽150dp（网格按列宽约束分配）、内边距8dp；海报默认高180dp或posterHeight参数；图文间隔8dp、标题与元信息间隔4dp；文字区自然高度，不保留最小60dp或空元信息行；标题15/20sp最多两行、元信息12/16sp最多一行；海报右上评分、底部媒体库名最多两行；搜索海报扣除实际缩放后的两行标题、一行元信息及共享卡片间距/焦点边距，限100–180dp",
       "source": [
         "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-        "android-tv/app/src/main/java/org/jzmedia/tv/ui/SearchScreen.kt"
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/SearchScreen.kt",
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvTypography.kt"
       ]
     },
     "tv-history": {
-      "specification": "SearchHistoryAction由调用modifier给宽高：清除60×32dp，历史136×36dp；contentPadding horizontal12/vertical4dp",
+      "specification": "SearchHistoryAction由调用modifier给宽高：清除最小60×32dp，历史宽136dp/最小高36dp；大字号按文字自然增高，contentPadding horizontal12/vertical4dp",
       "source": [
         "android-tv/app/src/main/java/org/jzmedia/tv/ui/SearchScreen.kt"
       ]
     },
     "tv-keyboard": {
-      "specification": "字母键weight(1f)；keyHeight=((maxHeight−174dp)/6−5dp).coerceIn(28dp,44dp)；保留原生遥控器焦点",
+      "specification": "字母键weight(1f)；keyHeight基础值为(maxHeight−174dp)/6−5dp，最小值=max(28dp,实际字体行高+8dp)，最大值=max(44dp,最小值)；键盘titleMedium18/24sp并随系统字体缩放；查询框和说明固定，仅字母键/底部操作滚动；保留原生遥控器焦点",
       "source": [
-        "android-tv/app/src/main/java/org/jzmedia/tv/ui/SearchScreen.kt"
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/SearchScreen.kt",
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvTypography.kt"
       ]
     },
     "tv-navigation": {
-      "specification": "导航按钮height40dp，width按availableWidth及labels计算；图标24dp；字标76×23dp",
+      "specification": "导航容器height52dp、按钮height40dp；文字16/20sp，width按实际字宽及availableWidth计算，媒体库名最多176dp并单行省略；图标24dp；字标76×23dp",
       "source": [
         "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt"
       ]
     },
     "tv-actor": {
-      "specification": "演员条目fillMaxWidth×76dp，头像44×56dp，姓名/角色文字可访问",
+      "specification": "演员条目fillMaxWidth、min-height76dp，按实际文字需求增高；头像44×56dp；姓名18/24sp、作品数12/16sp且使用随焦点变化的次级文字色；装饰占位不重复播报姓名",
       "source": [
-        "android-tv/app/src/main/java/org/jzmedia/tv/ui/ActorScreens.kt"
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/ActorScreens.kt",
+        "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvTypography.kt"
       ]
     },
     "tv-episode": {

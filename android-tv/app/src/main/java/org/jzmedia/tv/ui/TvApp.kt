@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -120,8 +122,8 @@ fun TvApp(onExit: () -> Unit) {
         })
         fun open(next: TvRoute) { memory.leaving = true; navigate(next) }
         fun play(request: PlaybackRequest) { memory.leaving = true; playback = request }
-        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 40.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 40.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
             TvNavigation(navigationSection(routes), libraryName, memory) { kind ->
                 when (kind) {
                     "search", "libraries", "settings" -> if (route.kind != kind) open(TvRoute(kind))
@@ -131,28 +133,49 @@ fun TvApp(onExit: () -> Unit) {
                     }
                 }
             }
-            if (routes.size > 1 && route.kind !in listOf("search", "actor-works")) TvAction("返回", { back() }, Modifier.focusMemory(memory, "back"), icon = "back")
+            if (routes.size > 1 && route.kind !in listOf("search", "actor-works", "movie", "show", "season", "episode", "collection"))
+                TvAction("返回", { back() }, Modifier.focusMemory(memory, "back"), icon = "back")
             when (route.kind) {
                 "home" -> HomeScreen(server, library, refresh, memory, ::open, ::play)
                 "movies", "shows", "collections" -> BrowseScreen(server, route.kind, library, refresh, memory, ::open)
                 "search" -> SearchScreen(server, library, route.title, memory, ::open, ::back)
                 "actor-works" -> ActorWorksScreen(server, library, route, memory, ::open, ::back)
-                "movie", "show", "season", "episode", "collection" -> DetailScreen(server, route, refresh, memory, ::open, ::play)
+                "movie", "show", "season", "episode", "collection" -> DetailScreen(server, route, refresh, memory, ::open, ::play, ::back)
                 "libraries" -> LibrariesScreen(server, library, memory) { id, name ->
                     library = id; libraryName = name; routes = listOf(TvRoute("home", key = "root:home"))
                 }
-                "settings" -> LazyColumn(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                    item { SectionHeading("电视设置") }
-                    item { Text("当前服务器：${server.baseUrl}", color = Muted) }
-                    item { TvAction("修改连接", { editConnection = true }, Modifier.focusMemory(memory, "settings:connection"), icon = "edit") }
-                    item { Text("设备：${Build.MANUFACTURER} ${Build.MODEL}") }
-                    item { Text("Android ${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT}") }
-                    item { Text("电视应用 ${BuildConfig.VERSION_NAME} · 播放协议 1") }
-                    item { Text("观看进度全家共享。媒体库扫描、整理和匹配请在网页端操作。", color = Muted) }
-                    item { TvAction("忘记连接", {
-                        scope.launch { withContext(Dispatchers.IO) { store.clear() }; saved = null; api = null }
-                    }, Modifier.focusMemory(memory, "settings:forget"), icon = "trash") }
-                    item { TvAction("退出应用", onExit, Modifier.focusMemory(memory, "settings:exit"), icon = "logout") }
+                "settings" -> LazyColumn(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    item { Text("电视设置", style = MaterialTheme.typography.headlineMedium) }
+                    item {
+                        Column(Modifier.widthIn(max = 760.dp).fillMaxWidth()
+                            .background(DesignTokens.Surface, RoundedCornerShape(DesignTokens.CardRadius)).padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            SectionHeading("服务器连接")
+                            Text(server.baseUrl, color = Muted)
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                TvAction("修改连接", { editConnection = true }, Modifier.focusMemory(memory, "settings:connection"), icon = "edit")
+                                TvAction("忘记连接", {
+                                    scope.launch { withContext(Dispatchers.IO) { store.clear() }; saved = null; api = null }
+                                }, Modifier.focusMemory(memory, "settings:forget"), icon = "trash")
+                            }
+                        }
+                    }
+                    item {
+                        Column(Modifier.widthIn(max = 760.dp).fillMaxWidth()
+                            .background(DesignTokens.Surface, RoundedCornerShape(DesignTokens.CardRadius)).padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SectionHeading("设备与版本")
+                            Text("${Build.MANUFACTURER} ${Build.MODEL}")
+                            Text("Android ${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT}", color = Muted)
+                            Text("电视应用 ${BuildConfig.VERSION_NAME} · 播放协议 1", color = Muted)
+                        }
+                    }
+                    item {
+                        Column(Modifier.widthIn(max = 760.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Text("观看进度全家共享。媒体库扫描、整理和匹配请在网页端操作。", color = Muted)
+                            TvAction("退出应用", onExit, Modifier.focusMemory(memory, "settings:exit"), icon = "logout")
+                        }
+                    }
                 }
             }
         }

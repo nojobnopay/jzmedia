@@ -9,6 +9,36 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MediaModelsTest {
+    @Test fun cardsIdentifyTheMediaLibraryInsteadOfTheVideoSource() {
+        val row = JSONObject("""{"media_library_id":2,"media_library_name":"动画收藏","library_name":"NAS 视频目录"}""")
+        assertEquals("动画收藏", mediaLibraryLabel(row))
+        row.remove("media_library_name")
+        assertEquals("媒体库 #2", mediaLibraryLabel(row))
+        row.remove("media_library_id")
+        assertEquals("", mediaLibraryLabel(row))
+        assertEquals("", mediaLibraryLabel(JSONObject("""{"media_library_id":null,"media_library_name":null}""")))
+    }
+
+    @Test fun ratingsUseRealApiFieldsWithAnExplicitSourceAndOneDecimal() {
+        assertEquals("TMDB 8.3", mediaRatingLabel(JSONObject("""{"tmdb_rating":8.25,"vote_average":6.2,"douban_rating":9.1}""")))
+        assertEquals("TMDB 7.0", mediaRatingLabel(JSONObject("""{"vote_average":7}""")))
+        assertEquals("豆瓣 9.1", mediaRatingLabel(JSONObject("""{"tmdb_rating":null,"douban_rating":"9.1"}""")))
+        assertEquals("自评 8.0", mediaRatingLabel(JSONObject("""{"custom_rating":8}""")))
+    }
+
+    @Test fun missingAndInvalidRatingsDoNotBecomeBadges() {
+        listOf("null", "0", "-1", "11", "\"NaN\"", "\"Infinity\"", "\"unknown\"").forEach { value ->
+            assertEquals("", mediaRatingLabel(JSONObject("""{"tmdb_rating":$value}""")))
+        }
+        assertEquals("", mediaRatingLabel(JSONObject()))
+        assertEquals("TMDB 10.0", mediaRatingLabel(JSONObject("""{"tmdb_rating":10}""")))
+    }
+
+    @Test fun metadataKeepsYearAndWatchedWithoutDuplicatingTheRatingBadge() {
+        assertEquals("2026 · 已看", mediaCardSubtitle(JSONObject("""{"year":2026,"watched":1,"tmdb_rating":8.3}""")))
+        assertEquals("", mediaCardSubtitle(JSONObject("""{"year":0,"tmdb_rating":8.3}""")))
+    }
+
     @Test fun showAndSeasonPostersAreRelativeToThePosterDirectory() {
         // TV scanning persists POSTER_DIR-relative paths; recent-played returns them unchanged.
         listOf("tv/123.jpg", "/tv/123.jpg", "tv/123_s1.jpg").forEach { stored ->

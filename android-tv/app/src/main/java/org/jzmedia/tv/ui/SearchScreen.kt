@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -209,47 +211,53 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
         }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val keyboardWidth = (maxWidth * .3f).coerceIn(264.dp, 328.dp)
-            val keyHeight = ((maxHeight - 174.dp) / 6f - 5.dp).coerceIn(28.dp, 44.dp)
+            val keyboardStyle = MaterialTheme.typography.titleMedium
+            val minimumKeyHeight = maxOf(28.dp, with(LocalDensity.current) { keyboardStyle.lineHeight.toDp() } + 8.dp)
+            val keyHeight = ((maxHeight - 174.dp) / 6f - 5.dp)
+                .coerceIn(minimumKeyHeight, maxOf(44.dp, minimumKeyHeight))
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                Column(Modifier.width(keyboardWidth).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.width(keyboardWidth).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.fillMaxWidth().height(48.dp).background(Panel, RoundedCornerShape(DesignTokens.CornerRadius)).padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
                         Text(query.ifEmpty { if (actorsMode) "输入姓名首字母" else "输入片名首字母" }, color = if (query.isEmpty()) Muted else DesignTokens.TextStrong,
                             style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Text(if (actorsMode) "首字母 / 全拼 / 英文 · ZXC 找周星驰" else "首字母 / 全拼 / 英文 · 例如 SQ 找沙丘",
-                        style = MaterialTheme.typography.labelMedium, color = Muted)
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(4.dp)) {
-                        TV_SEARCH_KEYS.chunked(6).forEachIndexed { rowIndex, group ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                group.forEachIndexed { column, letter ->
-                                    val index = rowIndex * 6 + column
-                                    Button(onClick = { changeQuery(appendSearchInput(query, letter)) },
-                                        modifier = Modifier.weight(1f).height(keyHeight)
-                                            .focusProperties {
-                                                if (column > 0) left = keys.getValue(TV_SEARCH_KEYS[index - 1]) else left = FocusRequester.Cancel
-                                                if (column < 5) right = keys.getValue(TV_SEARCH_KEYS[index + 1])
-                                                else if (showingHistory) right = historyEntry
-                                                else if (rows.isNotEmpty() && !loading) right = firstResult
-                                                if (rowIndex > 0) up = keys.getValue(TV_SEARCH_KEYS[index - 6])
-                                                if (rowIndex < 5) down = keys.getValue(TV_SEARCH_KEYS[index + 6])
-                                            }
-                                            .focusMemory(memory, "key:$letter", keys.getValue(letter))
-                                            .onFocusChanged { if (it.isFocused) lastKey = letter },
-                                        contentPadding = PaddingValues(0.dp),
-                                        shape = tvButtonShape(), scale = tvButtonScale(),
-                                        colors = tvButtonColors(),
-                                    ) { Text(letter, style = MaterialTheme.typography.titleMedium) }
+                    Text(if (actorsMode) "姓名首字母 / 全拼 / 英文" else "片名首字母 / 全拼 / 英文",
+                        style = MaterialTheme.typography.labelMedium, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(4.dp)) {
+                            TV_SEARCH_KEYS.chunked(6).forEachIndexed { rowIndex, group ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    group.forEachIndexed { column, letter ->
+                                        val index = rowIndex * 6 + column
+                                        Button(onClick = { changeQuery(appendSearchInput(query, letter)) },
+                                            modifier = Modifier.weight(1f).height(keyHeight)
+                                                .focusProperties {
+                                                    if (column > 0) left = keys.getValue(TV_SEARCH_KEYS[index - 1]) else left = FocusRequester.Cancel
+                                                    if (column < 5) right = keys.getValue(TV_SEARCH_KEYS[index + 1])
+                                                    else if (showingHistory) right = historyEntry
+                                                    else if (rows.isNotEmpty() && !loading) right = firstResult
+                                                    if (rowIndex > 0) up = keys.getValue(TV_SEARCH_KEYS[index - 6])
+                                                    if (rowIndex < 5) down = keys.getValue(TV_SEARCH_KEYS[index + 6])
+                                                }
+                                                .focusMemory(memory, "key:$letter", keys.getValue(letter))
+                                                .onFocusChanged { if (it.isFocused) lastKey = letter },
+                                            contentPadding = PaddingValues(0.dp),
+                                            shape = tvButtonShape(), scale = tvButtonScale(),
+                                            colors = tvButtonColors(),
+                                        ) { Text(letter, style = keyboardStyle) }
+                                    }
                                 }
                             }
                         }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TvAction("删除", { changeQuery(deleteSearchInput(query)) }, Modifier.weight(1f).focusMemory(memory, "delete"), centerLabel = true)
+                            TvAction("清空", { rememberQuery(); changeQuery("") }, Modifier.weight(1f).focusMemory(memory, "clear"), centerLabel = true)
+                            TvAction("中文输入", { editing = true }, Modifier.weight(1.5f).focusMemory(memory, "input", inputButton), centerLabel = true)
+                        }
+                        Text(if (query.codePointCount(0, query.length) >= SEARCH_QUERY_LIMIT) "最多输入 $SEARCH_QUERY_LIMIT 个字符" else "方向键选字母 · 右移看候选",
+                            style = MaterialTheme.typography.labelMedium, color = Muted)
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TvAction("删除", { changeQuery(deleteSearchInput(query)) }, Modifier.weight(1f).focusMemory(memory, "delete"), centerLabel = true)
-                        TvAction("清空", { rememberQuery(); changeQuery("") }, Modifier.weight(1f).focusMemory(memory, "clear"), centerLabel = true)
-                        TvAction("中文输入", { editing = true }, Modifier.weight(1.5f).focusMemory(memory, "input", inputButton), centerLabel = true)
-                    }
-                    Text(if (query.codePointCount(0, query.length) >= SEARCH_QUERY_LIMIT) "最多输入 $SEARCH_QUERY_LIMIT 个字符" else "方向键选字母 · 右移查看候选",
-                        style = MaterialTheme.typography.labelMedium, color = Muted)
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -294,11 +302,17 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                         else -> {
                             BoxWithConstraints(Modifier.weight(1f)) {
                                 val columns = ((maxWidth + 2.dp) / (if (actorsMode) 244.dp else 168.dp)).toInt().coerceAtLeast(1)
-                                // Reserve the card's text/padding and its 1.1x focus overflow.
-                                // Paging consumes vertical space on 540dp screens; only the image contracts.
-                                val posterHeight = (maxHeight - 120.dp).coerceIn(100.dp, 180.dp)
+                                // Reserve two title lines, one caption, card padding and
+                                // the grid's focus margins at the actual system font scale.
+                                val captionHeight = with(LocalDensity.current) {
+                                    MaterialTheme.typography.titleSmall.lineHeight.toDp() * 2f +
+                                        MaterialTheme.typography.labelSmall.lineHeight.toDp()
+                                } + MediaCardTextGap
+                                val focusPadding = 16.dp
+                                val posterHeight = (maxHeight - captionHeight - MediaCardPadding * 2f -
+                                    MediaCardArtworkGap - focusPadding * 2f).coerceIn(100.dp, 180.dp)
                                 val parentScrollSpec = LocalBringIntoViewSpec.current
-                                val margin = with(LocalDensity.current) { 16.dp.toPx() }
+                                val margin = with(LocalDensity.current) { focusPadding.toPx() }
                                 val scrollSpec = remember(parentScrollSpec, margin) {
                                     object : BringIntoViewSpec {
                                         override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
@@ -309,7 +323,7 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                                 }
                                 CompositionLocalProvider(LocalBringIntoViewSpec provides scrollSpec) {
                                     LazyVerticalGrid(modifier = Modifier.fillMaxSize(), columns = GridCells.Fixed(columns), state = grid,
-                                        contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(18.dp),
+                                        contentPadding = PaddingValues(focusPadding), horizontalArrangement = Arrangement.spacedBy(18.dp),
                                         verticalArrangement = Arrangement.spacedBy(18.dp)) {
                                         itemsIndexed(rows, key = { _, row -> if (actorsMode) "actor:${row.text("key")}" else "${row.text("kind")}:${row.optLong("id")}" }) { index, row ->
                                             val modifier = Modifier.focusProperties { if (index % columns == 0) left = keys.getValue(lastKey) }
@@ -370,11 +384,11 @@ private fun SearchHistoryRail(title: String, entries: List<Pair<String, String>>
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge, color = Muted, modifier = Modifier.weight(1f))
-            SearchHistoryAction("清除", clear, Modifier.width(60.dp).height(32.dp).focusMemory(memory, "clear-history:$prefix"))
+            SearchHistoryAction("清除", clear, Modifier.widthIn(min = 60.dp).heightIn(min = 32.dp).focusMemory(memory, "clear-history:$prefix"))
         }
         LazyRow(state = state, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             itemsIndexed(entries, key = { _, entry -> entry.first }) { index, entry ->
-                SearchHistoryAction(entry.second, { select(entry.first) }, Modifier.width(136.dp).height(36.dp)
+                SearchHistoryAction(entry.second, { select(entry.first) }, Modifier.width(136.dp).heightIn(min = 36.dp)
                     .focusProperties { if (index == 0) left = keyboard }
                     .focusMemory(memory, "history:$prefix:${entry.first}", if (index == entryIndex) entryRequester else null))
             }
@@ -386,7 +400,7 @@ private fun SearchHistoryRail(title: String, entries: List<Pair<String, String>>
 private fun SearchHistoryAction(text: String, click: () -> Unit, modifier: Modifier) {
     Button(click, modifier, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
         shape = tvButtonShape(), scale = tvButtonScale(), colors = tvButtonColors()) {
-        Text(text, Modifier.fillMaxWidth(), style = MaterialTheme.typography.labelLarge,
+        Text(text, style = MaterialTheme.typography.labelLarge,
             textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

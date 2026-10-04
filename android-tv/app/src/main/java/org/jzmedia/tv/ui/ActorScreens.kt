@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -31,6 +32,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
+import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.CancellationException
@@ -50,14 +52,15 @@ import org.json.JSONObject
 internal fun ActorCard(api: JzApi, actor: JSONObject, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val name = actor.text("name").ifBlank { "未知演员" }
     val summary = actorWorkSummary(actor)
-    Button(onClick, modifier.fillMaxWidth().height(76.dp).semantics { contentDescription = "$name · $summary" },
+    Button(onClick, modifier.fillMaxWidth().heightIn(min = 76.dp).semantics { contentDescription = "$name · $summary" },
         contentPadding = PaddingValues(8.dp), shape = tvButtonShape(), scale = tvButtonScale(),
         colors = tvButtonColors()) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Poster(api, actorAvatarPath(actor), name, Modifier.width(44.dp).height(56.dp), placeholderIcon = "person", showPlaceholderLabel = false)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(summary, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(summary, style = MaterialTheme.typography.labelSmall, color = LocalContentColor.current.copy(alpha = .72f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

@@ -19,7 +19,7 @@ private val GenericSeasonName = Regex("^(第[0-9零〇一二两三四五六七�
 internal data class SeasonCardModel(val number: Int, val heading: String, val title: String,
                                     val subtitle: String, val description: String, val progress: Float?)
 
-internal fun seasonGridColumns(width: Int): Int = ((width - 32 + 18) / (150 + 18)).coerceAtLeast(1)
+internal fun seasonGridColumns(width: Int): Int = ((width - 16 + 18) / (150 + 18)).coerceAtLeast(1)
 
 internal fun seasonCardModel(season: JSONObject): SeasonCardModel {
     val number = season.optInt("season")
@@ -53,7 +53,7 @@ internal fun seasonCardModel(season: JSONObject): SeasonCardModel {
 internal fun LazyListScope.seasonGrid(api: JzApi, seasons: List<JSONObject>, showPosterPath: String,
                                      columns: Int, focusModifier: (String) -> Modifier, openSeason: (Int) -> Unit) {
     items(seasons.chunked(columns), key = { "season-row:${it.first().optInt("season")}" }) { group ->
-        Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(8.dp)) {
             group.forEach { season ->
                 val model = seasonCardModel(season)
                 key(model.number) {

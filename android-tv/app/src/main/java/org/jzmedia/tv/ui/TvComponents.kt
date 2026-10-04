@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -60,6 +62,8 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
@@ -73,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Text
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -81,6 +86,9 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.jzmedia.tv.data.JzApi
+import org.jzmedia.tv.data.mediaCardSubtitle
+import org.jzmedia.tv.data.mediaLibraryLabel
+import org.jzmedia.tv.data.mediaRatingLabel
 import org.jzmedia.tv.data.mediaTitle
 import org.jzmedia.tv.data.posterPath
 import org.jzmedia.tv.data.text
@@ -90,6 +98,16 @@ import org.json.JSONObject
 val Muted = DesignTokens.TextDim
 val Panel = DesignTokens.SurfaceRaised
 val Accent = DesignTokens.Accent
+
+internal val MediaCardPadding = 8.dp
+internal val MediaCardArtworkGap = 8.dp
+internal val MediaCardTextGap = 4.dp
+
+@Composable
+internal fun tvDialogMaxHeight(fraction: Float): Dp {
+    val height = LocalWindowInfo.current.containerSize.height
+    return with(LocalDensity.current) { (height * fraction).toDp() }
+}
 
 // Geometry remains native to each TV control; colors, corners and focus are shared.
 @Composable
@@ -245,7 +263,7 @@ fun Poster(api: JzApi, path: String, title: String, modifier: Modifier = Modifie
             }
         }
     }
-    Box(modifier.background(Panel, RoundedCornerShape(DesignTokens.CornerRadius)), contentAlignment = Alignment.Center) {
+    Box(modifier.clip(RoundedCornerShape(DesignTokens.CornerRadius)).background(Panel), contentAlignment = Alignment.Center) {
         if (bitmap != null) Image(bitmap!!.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else Column(Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -261,27 +279,45 @@ fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifi
               fallbackPosterPath: String = "", posterPlaceholder: String = "", progressFraction: Float? = null,
               posterHeight: Dp = 180.dp) {
     val title = mediaTitle(row)
+    val library = mediaLibraryLabel(row)
+    val rating = mediaRatingLabel(row)
+    val caption = subtitle.ifBlank { mediaCardSubtitle(row) }
     Button(
         onClick = onClick, modifier = modifier.width(150.dp),
-        contentPadding = PaddingValues(7.dp),
+        contentPadding = PaddingValues(MediaCardPadding),
         shape = tvButtonShape(card = true), scale = tvButtonScale(),
         colors = tvButtonColors(surface = DesignTokens.Surface),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(MediaCardArtworkGap)) {
             Box(Modifier.fillMaxWidth().height(posterHeight)) {
                 Poster(api, posterPath(row), title, Modifier.fillMaxSize(),
                     fallbackPosterPath = fallbackPosterPath, posterPlaceholder = posterPlaceholder)
+                if (rating.isNotBlank()) Text(rating,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(5.dp)
+                        .background(DesignTokens.Background.copy(alpha = .9f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                    color = DesignTokens.TextStrong, style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (library.isNotBlank()) Text(library,
+                    modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                        .background(DesignTokens.Background.copy(alpha = .9f))
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                    color = DesignTokens.TextStrong, style = MaterialTheme.typography.labelSmall,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
                 progressFraction?.takeIf { it.isFinite() }?.let { fraction ->
                     Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color.Black.copy(alpha = .6f))) {
                         Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(4.dp).background(Accent))
                     }
                 }
             }
-            Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall, modifier = Modifier.heightIn(min = 42.dp))
-            Text(subtitle.ifBlank {
-                listOf(row.text("year"), row.text("vote_average").takeIf { it != "0" }.orEmpty(), if (row.optInt("watched") == 1) "已看" else "")
-                    .filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "查看详情" }
-            }, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall)
+            // The card ends after its actual text; short titles do not reserve a
+            // second line or an empty footer. Grid rows align at the poster top.
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(MediaCardTextGap)) {
+                Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                if (caption.isNotBlank()) Text(caption, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
+                    color = LocalContentColor.current.copy(alpha = .72f))
+            }
         }
     }
 }
@@ -289,9 +325,9 @@ fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifi
 @Composable
 fun MediaRail(title: String, rows: List<JSONObject>, api: JzApi, memory: FocusMemory, prefix: String, onClick: (JSONObject) -> Unit) {
     if (rows.isEmpty()) return
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, style = MaterialTheme.typography.headlineSmall)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(8.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(8.dp)) {
             items(rows, key = { it.optLong("id") }) { row ->
                 MediaCard(api, row, { onClick(row) }, Modifier.focusMemory(memory, "$prefix:${row.optLong("id")}"),
                     subtitle = row.text("subtitle"))
@@ -302,7 +338,7 @@ fun MediaRail(title: String, rows: List<JSONObject>, api: JzApi, memory: FocusMe
 
 @Composable
 fun Status(message: String, retry: (() -> Unit)? = null, modifier: Modifier = Modifier, icon: String = if (retry != null) "error" else "info") {
-    Column(modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(modifier.fillMaxWidth().padding(vertical = 20.dp, horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             TvIcon(icon)
             Text(message, color = Muted)
@@ -313,8 +349,10 @@ fun Status(message: String, retry: (() -> Unit)? = null, modifier: Modifier = Mo
 
 @Composable
 fun SectionHeading(title: String, subtitle: String = "") {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = MaterialTheme.typography.headlineSmall)
-        if (subtitle.isNotBlank()) Text(subtitle, color = Muted, style = MaterialTheme.typography.labelLarge)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f),
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (subtitle.isNotBlank()) Text(subtitle, modifier = Modifier.widthIn(max = 300.dp), color = Muted,
+            style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

@@ -78,6 +78,38 @@ class BrowseFixtureTests(unittest.TestCase):
         self.assertEqual(self.search(q="XJHC", media_library=999)["total"], 0)
         self.assertEqual(self.search(q="YYDDT", media_library=2)["total"], 0)
 
+    def test_card_metadata_uses_real_library_and_rating_fields_across_routes(self):
+        libraries = {row["id"]: row["name"] for row in self.request("/api/media-libraries")["items"]}
+        rows = [self.request("/api/movies")["items"][0], self.request("/api/tv/shows")["items"][0],
+                self.request("/api/movies/recent-played")["items"][0], self.request("/api/tv/recent-played")["items"][0],
+                self.search(q="SQ")["items"][0], self.search(q="YYDDT")["items"][0],
+                self.actor_works(actor="tmdb:9001")["items"][0]]
+        for row in rows:
+            with self.subTest(item=row["id"]):
+                self.assertEqual(row["media_library_name"], libraries[row["media_library_id"]])
+                self.assertGreater(row["tmdb_rating"], 0)
+                self.assertNotIn("vote_average", row)
+        collection = self.search(q="KHSG")["items"][0]
+        self.assertEqual(collection["media_library_name"], libraries[collection["media_library_id"]])
+        self.assertNotIn("tmdb_rating", collection)
+
+    def test_card_stress_preserves_same_movie_in_distinct_libraries(self):
+        self.fixtures = Fixtures(Path(self.temp.name), card_stress=True)
+        rows = self.search(q="XJHC44")["items"]
+        self.assertEqual([row["id"] for row in rows], [44, 45])
+        for field in ("title", "year", "poster_path", "tmdb_rating"):
+            self.assertEqual(rows[0][field], rows[1][field])
+        self.assertEqual({row["media_library_id"] for row in rows}, {1, 2})
+        self.assertNotEqual(rows[0]["media_library_name"], rows[1]["media_library_name"])
+        self.assertGreater(len(rows[1]["media_library_name"]), 16)
+        for library_id, movie_id in ((1, 44), (2, 45)):
+            self.assertEqual([row["id"] for row in self.search(q="XJHC44", media_library=library_id)["items"]], [movie_id])
+        browse = self.request("/api/movies", limit=6)["items"]
+        self.assertEqual([row["id"] for row in browse], [46, 45, 44, 43, 42, 41])
+        self.assertGreater(len(browse[3]["title"]), 20)
+        self.assertIsNone(browse[4]["tmdb_rating"])
+        self.assertEqual(browse[5]["tmdb_rating"], 0)
+
     def test_search_pagination_keeps_total_and_unique_ids(self):
         first = self.search(q="XJHC", limit=24)
         second = self.search(q="XJHC", limit=24, offset=24)

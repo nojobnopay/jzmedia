@@ -8,6 +8,10 @@
 
 选季使用海报卡片，缺图时依次尝试整剧海报和文字占位；选集使用紧凑网格，保留版本、合并集、已看、续播和离线状态。浏览分页、详情返回及播放退出恢复对应条目焦点。搜索、频道、媒体库和设置使用统一导航，当前频道与遥控器焦点分别显示；图标与控件维护见[电视设计系统](docs/design-system.md)。
 
+媒体卡片的年份或剩余时间紧跟片名，海报底部标注媒体库，右上角显示评分及来源；没有有效评分时隐藏评分。全部媒体库下的同片仍分别保留，方便按来源选择。更新服务端后可在首页、浏览、搜索、演员作品、合集成员和相关推荐中显示媒体库名称；旧服务端仅返回媒体库 ID 时显示“媒体库 #ID”。
+
+`0.5.2` 统一了页面标题、章节、正文和卡片文字层级。卡片按实际内容收尾，缺少年份或进度时不留空行；首页横栏与季卡减少重复留白。详情的返回按钮移入标题行，长标题可显示两行，简介保留完整查看入口；设置按连接和设备分组。搜索键盘和候选海报按字体缩放安排空间，播放器设置与信息排版同步整理。具体几何和焦点约束见[电视设计系统](docs/design-system.md)；已通过 93 项 JVM 单测、Lint、Debug/未签名 Release 构建，并用隔离 Android TV 模拟器核对主要页面；具体范围和限制见设计系统验证记录，真机仍待验收。
+
 暂停状态跨跳转与换流保留，连续播放沿用倍速和音轨／字幕偏好。服务端、网页和电视按相同阈值判断接近看完：观看达到 95%，或观看至少 80% 且剩余不超过 5 分钟；实际结束仍由播放器结束事件判断。旧服务端的推荐结果可能仍受旧阈值影响，需同步更新服务端及网页构建并重启；无需数据库迁移或重扫。
 
 构建、模拟 API、模拟器和红米真机是不同层次的证据。家中红米电视的型号、Android 版本、中文输入与真实解码能力仍待核实；不能据代码完成或模拟器运行宣称家庭电视已经验收。待验收与分发事项见 [开发计划](../docs/roadmap/android-tv.md)，接口约定见 [客户端协议](docs/protocol.md)。
@@ -32,7 +36,7 @@
 | Compose BOM / TV Material | 2025.08.01 / 1.0.1 |
 | Media3 / OkHttp | 1.10.1 / 4.12.0 |
 | 应用标识 | 正式版 `org.jzmedia.tv`；Debug `org.jzmedia.tv.debug` |
-| 开发版本 | `0.5.0-dev`，`versionCode=8` |
+| 当前版本 | `0.5.2`，`versionCode=10`；Debug 显示 `0.5.2-debug` |
 
 在本目录执行：
 
@@ -40,9 +44,8 @@
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:assembleRelease
 ```
 
-- 可安装的 Debug 包：`app/build/outputs/apk/debug/app-debug.apk`。
-- 本轮统一设计系统的本地试装包：`../output/android-tv/jzmedia-tv-0.5.0-dev-design-system-20261003-debug.apk`，旁附 `.apk.sha256`。它与已验证的最终构建逐字节相同，沿用 `versionCode=8` 和原 Debug 签名；旧历史导航包已清理，请按文件名选择设计系统版。用户电视安装与真机验收尚无完成记录。
-- 另保留 `../output/android-tv/jzmedia-tv-0.5.0-dev-rebuilt-debug.apk` 及校验文件，重建日志在 `output/android-tv/rebuild/`（仓库根目录）。此包与上述设计系统验收包内容不同，验收记录需分别对应。两包均早于 2026-10-04 的 A「点映」品牌更新。
+- 本地 Debug 构建：`app/build/outputs/apk/debug/app-debug.apk`；交付前按下文打包命令导出，使用版本化文件名。
+- 本轮测试包为 [jzmedia-tv-0.5.2-debug.apk](../output/android-tv/jzmedia-tv-0.5.2-debug.apk)，旁附 `.apk.sha256` 和 `.apk.json`。本轮为界面布局调整，沿用协议 1 与现有接口；完整媒体库名称仍需支持名称字段的服务端，电视真机布局仍待验收。与 `0.5.1-debug` 使用相同调试签名，可覆盖升级。**本机现有调试签名与历史设计系统包的签名不同，原签名文件尚未找到；版本号增长不能解决签名不匹配，此包不能直接覆盖历史安装。保留现有安装及其连接配置，找回原密钥后以更高版本重新分发。**
 - 未签名 Release 包：`app/build/outputs/apk/release/app-release-unsigned.apk`，不能直接安装或作为正式发行包。
 - 单元测试报告：`app/build/reports/tests/testDebugUnitTest/index.html`；Lint：`app/build/reports/lint-results-debug.html`。
 
@@ -95,6 +98,8 @@ python android-tv/tools/smoke_server.py --ffmpeg "$TV_FFMPEG" --port 18888 --hls
 
 使用 `--browse-stress` 可切换到 120 项选集夹具，覆盖分页、长标题、合并集、多版本及离线状态；搜索 `SQ` 命中原创合成片名“沙丘回声”，`YYDDT` 命中“遥远的灯塔”。夹具契约检查：`python -m unittest discover -s android-tv/tools -p test_smoke_server.py`。模拟拼音映射只用于界面复验，真实搜索算法另由服务端临时数据库测试覆盖。
 
+使用 `--card-stress` 检查同片在不同媒体库中的卡片、长媒体库名称、长片名以及无评分/零评分；模拟接口沿用真实的 `media_library_name` 和 `tmdb_rating` 字段。可与其他压力夹具组合使用。
+
 演员夹具可搜 `ZXH`，得到合成人物“周星河”和“周晓河”；前者有超过一页的电影和电视剧作品。`LWT` 测试无人物 ID、无头像且仅参演电视剧的演员；`GYZ` 只关联第二媒体库。空词列出超过一页演员。人名、关系、头像和媒体均为合成资料，不依赖真实演员或真实媒体库。
 
 使用 `--season-stress` 展示 0–7 共八季，覆盖特别篇、长季名、空季名、不同已看状态与续播；可与 `--browse-stress` 合用。S0、S1、S2、S6 使用不同颜色的原创海报；S3、S7 的季海报路径为空，S4 返回 HTTP 404，S5 返回 HTTP 200 的非图片正文，模拟图片损坏。默认保留整剧海报，用于检查季图失败后回退；追加 `--no-show-poster` 切换为整剧缺图模式，检查最终文字占位。还可核对季卡片换行、进入选集后返回原季，以及纯集号和状态双行按钮的居中。
@@ -126,7 +131,36 @@ adb -s SERIAL reverse tcp:18889 tcp:18889
 
 ## 独立发布与升级
 
-APK 单独维护版本，发布标签为 `android-tv-vX.Y.Z`，每次正式分发递增 `versionCode`。正式版使用同一仓库外签名密钥，并单独备份密钥与密码；可通过 Android Studio 的 Generate Signed Bundle / APK 完成签名。签名后执行 `apksigner verify --verbose`，并在测试设备验证同签名覆盖升级及连接配置保留。
+APK 独立于服务端维护版本，[version.properties](version.properties) 是 `versionName` 与 `versionCode` 的唯一来源。版本源中的 `versionName` 只使用 `X.Y.Z`，不追加 `dev`、`rc` 或日期。本轮整体界面调整从 `0.5.1` 升为 `0.5.2`、`versionCode=10`；Debug 构建显示 `0.5.2-debug`。当前仍处于真机待验收阶段，版本号增长不表示已正式验收。
+
+| 变化 | 版本递增示例 |
+|---|---|
+| 兼容修复、视觉和交互小调整 | `0.5.1` → `0.5.2` |
+| 新功能 | `0.5.1` → `0.6.0` |
+| 破坏性变更 | `1.2.3` → `2.0.0`；`0.x` 阶段升 minor，并说明兼容影响 |
+
+每次向用户交付内容变化的包都同时增加版本号和 `versionCode`，包括 Debug 试装包。日常本地重复编译不升版；`versionCode` 使用全局递增整数，不随主次版本重置、不用日期。同一版本与构建类型只对应一份交付内容，不能用同名包替换不同内容或签名；需要重新交付有变化的包时先升版。历史 APK 保留原内嵌版本，不通过改文件名冒充新版本。
+
+在 `android-tv/` 执行以下命令；脚本先构建、核对 APK 构建元数据与版本源，再导出到仓库根目录 `output/android-tv/`，同名不同内容会拒绝覆盖：
+
+```sh
+python tools/package_apk.py debug
+python tools/package_apk.py release
+```
+
+已缓存依赖时可追加 `--offline`。脚本按本机输出目录中的 `.apk.json` 检查版本和 `versionCode` 同时递增，并拒绝降级导出；换机器或清理输出目录后，仍须核对最近一次交付记录，不能从头重置内部版本号。
+
+| 构建类型 | `0.5.2` 的交付文件名 |
+|---|---|
+| Debug 试装包 | `jzmedia-tv-0.5.2-debug.apk` |
+| 正式签名 Release | `jzmedia-tv-0.5.2.apk` |
+| 未签名 Release | `jzmedia-tv-0.5.2-unsigned.apk`，不能直接安装 |
+
+当前 Gradle 尚未配置 Release 签名，`release` 命令会导出未签名包；打包脚本不代替正式签名及其验证。
+
+文件名只保留版本和必要的构建类型，不追加日期、功能名或 `rebuilt`。旁附 `.apk.sha256` 校验文件和 `.apk.json` 构建信息；日期、提交、哈希、签名身份、兼容服务端及验收状态放旁附信息或发布说明。Debug 与 Release 使用同一版本源、不同应用标识，各自的签名与覆盖升级证据须分别记录。
+
+发布标签为 `android-tv-vX.Y.Z`。正式版使用同一仓库外签名密钥，并单独备份密钥与密码；可通过 Android Studio 的 Generate Signed Bundle / APK 完成签名。签名后执行 `apksigner verify --verbose`，并在测试设备验证同签名覆盖升级及连接配置保留。升级需满足应用标识相同、签名相同及 `versionCode` 更高，修改版本号不能补救密钥丢失。
 
 Debug 与正式版应用标识不同，可以并存；Debug 安装成功不能证明正式版覆盖升级可行。不得使用 Debug 签名发布正式版，也不得把密钥写入 Gradle 配置或 Git。
 
@@ -135,6 +169,8 @@ Debug 与正式版应用标识不同，可以并存；Debug 安装成功不能�
 ## 验证记录与真机清单
 
 核对日期：2026-10-03。各开发版本的测试计数、构建、模拟器运行和覆盖安装证据已移至[开发验证历史](docs/validation-history.md)。最近一次统一设计系统验收见[当轮结果](docs/validation-history.md#统一设计系统验收)及[跨端验收清单](../design/acceptance/2026-10-03.json)。这些记录明确区分模拟 API、真实后端与合成媒体、软件模拟器及待验收的真实设备。
+
+旧命名包仅作为历史证据：`jzmedia-tv-0.5.0-dev-cards-20261004-debug.apk`、`jzmedia-tv-0.5.0-dev-design-system-20261003-debug.apk` 和 `jzmedia-tv-0.5.0-dev-rebuilt-debug.apk` 均在 `output/android-tv/` 下，内嵌 `0.5.0-dev-debug`、`versionCode=8`。卡片包使用当前调试签名，后两包使用尚未找到密钥的历史调试签名；设计系统包对应已记录的验收构建，重建包内容不同，不能共用验收结论。它们不适用新的文件命名和单版本单产物规则，也不改写其原始验证记录。
 
 红米真机、真实扬声器听感、系统中文输入法及正式签名升级仍待验收。当前试装包、对应验收资料和最近播放核对证据保留在仓库根目录 `output/android-tv/`；已被替代的历史包和中间产物可清理，历史文档中的原始路径不保证仍存在。
 

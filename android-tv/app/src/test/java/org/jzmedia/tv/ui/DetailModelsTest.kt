@@ -63,6 +63,7 @@ class DetailModelsTest {
     @Test fun recommendationFocusWaitsForItsIndependentResponseBeforeFallback() {
         val saved = "similar:321"
         assertFalse(detailFocusReady(saved, false))
+        assertTrue(detailFocusReady("back", false))
         assertTrue(detailFocusReady("play", false))
         assertTrue(detailFocusReady("season:7", false))
         assertTrue(detailFocusReady(saved, true))
@@ -72,6 +73,11 @@ class DetailModelsTest {
     }
 
     @Test fun emptyDetailsAlwaysHaveAReachablePrimaryAction() {
+        for (kind in listOf("movie", "show", "season", "episode", "collection")) {
+            val keys = detailFocusKeys(kind, JSONObject(), 0)
+            assertTrue("back" in keys)
+            assertEquals("back", resolveDetailFocusKey("back", "more", keys, null))
+        }
         for (kind in listOf("show", "season", "collection")) {
             assertEquals("more", detailPrimaryFocusKey(kind, JSONObject()))
             assertTrue("more" in detailFocusKeys(kind, JSONObject(), 0))
@@ -119,6 +125,8 @@ class DetailModelsTest {
         assertEquals("第 3 季", seasonCardModel(JSONObject().put("season", 3).put("name", "Season 3")).title)
         assertEquals("第 4 季\n群岛来信", seasonCardModel(JSONObject().put("season", 4).put("name", "群岛来信")).title)
         assertEquals(5, seasonGridColumns(880))
+        assertEquals(2, seasonGridColumns(334))
+        assertEquals(1, seasonGridColumns(333))
         assertEquals(1, seasonGridColumns(150))
     }
 }

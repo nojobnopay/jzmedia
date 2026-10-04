@@ -8,6 +8,7 @@ Use --browse-stress for 120 episode numbers, merged episodes and duplicate versi
 Use --season-stress for eight seasons, including specials, long names and empty names.
 Season artwork covers four original PNGs, empty paths, HTTP 404 and non-image bytes.
 Add --no-show-poster to check the final placeholder after season artwork fails.
+Use --card-stress for duplicate movies across libraries, long labels and missing ratings.
 All media and state are synthetic; request traces omit credentials and request bodies.
 """
 from __future__ import annotations
@@ -111,9 +112,11 @@ _SEASON_POSTERS = {
 
 
 class Fixtures:
-    def __init__(self, directory, hls=False, require_token=False, browse_stress=False, season_stress=False, no_show_poster=False):
+    def __init__(self, directory, hls=False, require_token=False, browse_stress=False, season_stress=False, no_show_poster=False, card_stress=False):
         self.directory, self.hls, self.require_token = directory, hls, require_token
         self.browse_stress, self.season_stress = browse_stress, season_stress
+        self.card_stress = card_stress
+        self.media_libraries = {1: "家庭演示库", 2: "家庭珍藏与异地备份超长名称演示媒体库" if card_stress else "备用演示库"}
         self.show_poster_path = "" if no_show_poster else "tv/poster2.png"
         self.lock = threading.Lock()
         self.progress = {("movie", 1): {"position": 45, "duration": 660}, ("episode", 201): {"position": 46, "duration": 660}}
@@ -130,10 +133,17 @@ class Fixtures:
         self.trace = directory / "requests.jsonl"
 
     def movie(self, mid):
-        return {"id": mid, "title": {2: "山海之间", 46: "沙丘回声"}.get(mid, f"星际航程 {mid:02d}"), "year": 2020 + mid % 6,
-                "poster_path": f"posters/poster{mid % 4}.png", "file_path": f"合成电影/film{mid}.mp4", "library_id": 3 if mid == 45 else 1,
-                "media_library_id": 2 if mid == 45 else 1, "library_name": "演示电影", "genres": ["科幻" if mid % 2 else "剧情"],
-                "origin_country_name": "中国", "vote_average": 7 + mid % 3 / 10,
+        media_library_id = 2 if mid == 45 else 1
+        artwork_id = 44 if self.card_stress and mid == 45 else mid
+        title = {2: "山海之间", 46: "沙丘回声"}.get(artwork_id, f"星际航程 {artwork_id:02d}")
+        if self.card_stress and mid == 43:
+            title = "沿海小镇与遥远灯塔之间跨越漫长四季的再次重逢"
+        rating = None if self.card_stress and mid == 42 else 0 if self.card_stress and mid == 41 else 7 + artwork_id % 3 / 10
+        return {"id": mid, "title": title, "year": 2020 + artwork_id % 6,
+                "poster_path": f"posters/poster{artwork_id % 4}.png", "file_path": f"合成电影/film{mid}.mp4", "library_id": 3 if mid == 45 else 1,
+                "media_library_id": media_library_id, "media_library_name": self.media_libraries[media_library_id],
+                "library_name": "演示电影", "genres": ["科幻" if mid % 2 else "剧情"],
+                "origin_country_name": "中国", "tmdb_rating": rating,
                 "watched": int(("movie", mid) in self.watched), "version_count": 2 if mid == 1 else 1,
                 "updated_at": 1000 + mid, "added_at": 1000 + mid,
                 "overview": "原创合成影片，用于验证电视界面的浏览、中文、遥控器和播放。" * 8,
@@ -175,6 +185,7 @@ class Fixtures:
         if stress_episode and number == 7:
             title = "当遥远灯塔的信号再次亮起，我们终于听见了来自星海尽头的漫长回声"
         return {"id": eid, "title": title, "show_id": 100, "library_id": 2, "media_library_id": 1,
+                "media_library_name": self.media_libraries[1],
                 "show_title": "遥远的灯塔", "season": season, "episode": number, "episode_end": 6 if merged else None,
                 "show_poster": self.show_poster_path, "poster_path": self.show_poster_path, "exists": not offline, "missing": int(offline),
                 "file_path": f"演示剧集/S{season:02d}E{number:02d}{'-E06' if merged else ''}{'.v2' if version == 2 else ''}.mp4", "version": version,
@@ -210,7 +221,8 @@ class Fixtures:
         count = sum(season["total"] for season in seasons)
         watched = sum(season["watched_count"] for season in seasons)
         return {"id": 100, "title": "遥远的灯塔", "year": 2026, "poster_path": self.show_poster_path, "episode_count": count,
-                "library_id": 2, "media_library_id": 1, "watched_count": watched,
+                "library_id": 2, "media_library_id": 1, "media_library_name": self.media_libraries[1],
+                "tmdb_rating": 8.3, "watched_count": watched,
                 "overview": ("跨越八季的合成灯塔故事，包含特别篇。" if self.season_stress else
                              "一百二十集的合成长季，用于验证选集与分页。" if self.browse_stress else "三个短篇故事，寻找夜色中的灯塔。"),
                 "cast": self.cast("show", 100), "next_episode": self.episode(201),
@@ -227,14 +239,17 @@ class Fixtures:
         candidates = []
         for mid in range(1, 47):
             row = self.movie(mid)
+            phonetic_id = 44 if self.card_stress and mid == 45 else mid
             phonetic = {2: ("shzj", "shanhaizhijian"), 46: ("sqhs", "shaqiuhuisheng")}.get(
-                mid, (f"xjhc{mid:02d}", f"xingjihangcheng{mid:02d}"))
-            result = {key: row[key] for key in ("id", "title", "year", "poster_path", "media_library_id")}
+                phonetic_id, (f"xjhc{phonetic_id:02d}", f"xingjihangcheng{phonetic_id:02d}"))
+            result = {key: row[key] for key in ("id", "title", "year", "poster_path", "media_library_id", "media_library_name", "tmdb_rating")}
             candidates.append(({**result, "kind": "movie", "version_count": row["version_count"]}, phonetic))
         candidates.append(({"id": 100, "kind": "show", "title": "遥远的灯塔", "year": 2026,
-                            "poster_path": self.show_poster_path, "media_library_id": 1}, ("yyddt", "yaoyuandedengta")))
+                            "poster_path": self.show_poster_path, "media_library_id": 1,
+                            "media_library_name": self.media_libraries[1], "tmdb_rating": 8.3}, ("yyddt", "yaoyuandedengta")))
         candidates.append(({"id": 1, "kind": "collection", "title": "科幻时光", "name": "科幻时光",
-                            "poster_path": "posters/poster1.png", "media_library_id": 1, "member_count": 8}, ("khsg", "kehuanshiguang")))
+                            "poster_path": "posters/poster1.png", "media_library_id": 1,
+                            "media_library_name": self.media_libraries[1], "member_count": 8}, ("khsg", "kehuanshiguang")))
         rows = [row for row, phonetic in candidates if term and (kind == "all" or row["kind"] == kind)
                 and (not scope or str(row["media_library_id"]) == scope)
                 and any(term in _search_text(value) for value in (row["title"], *phonetic))]
@@ -297,8 +312,8 @@ class Fixtures:
             return {"protocol_version": 1, "auth_required": self.require_token,
                     "features": ["android_tv", "independent_sessions", "tv_search", "tv_actor_search"]}
         if path == "/api/media-libraries":
-            return {"items": [{"id": 1, "name": "家庭演示库", "enabled": True},
-                              {"id": 2, "name": "备用演示库", "enabled": True}], "default_id": 1}
+            return {"items": [{"id": key, "name": name, "enabled": True}
+                              for key, name in self.media_libraries.items()], "default_id": 1}
         if path == "/api/tv-client/search":
             return self.search(query)
         if path in ("/api/tv-client/actors", "/api/tv-client/actor-works"):
@@ -340,7 +355,8 @@ class Fixtures:
                     "has_more": offset + limit < len(rows), "episodes": rows[offset:offset + limit], "versions": versions,
                     "next_episode": next((row for row in rows if not row["watched"] and row["exists"]), None)}
         if path == "/api/collections":
-            return {"items": [{"id": 1, "name": "科幻时光", "member_count": 8, "cover": "posters/poster1.png", "updated_at": 1000}] if q("q") in "科幻时光" else []}
+            return {"items": [{"id": 1, "name": "科幻时光", "member_count": 8, "cover": "posters/poster1.png", "updated_at": 1000,
+                               "media_library_id": 1, "media_library_name": self.media_libraries[1]}] if q("q") in "科幻时光" else []}
         if path == "/api/collections/1":
             return {"id": 1, "name": "科幻时光", "member_count": 8, "overview": "原创模拟合集", "members": [self.movie(i) for i in range(1, 9)]}
         if path.endswith("/similar"):
@@ -490,6 +506,7 @@ def main():
     parser.add_argument("--browse-stress", action="store_true", help="Synthetic 120-episode season with merged ranges and duplicate versions")
     parser.add_argument("--season-stress", action="store_true", help="Synthetic eight-season show including specials and long/empty names")
     parser.add_argument("--no-show-poster", action="store_true", help="Empty show artwork; combine with --season-stress to test poster placeholders")
+    parser.add_argument("--card-stress", action="store_true", help="Duplicate movies across libraries, long labels and missing ratings")
     parser.add_argument("--ffmpeg", help="Explicit FFmpeg binary; no automatic downloads")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="jzmedia-tv-fixture-") as temp:
@@ -497,10 +514,10 @@ def main():
         make_fixtures(directory, args.hls, args.ffmpeg)
         server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
         server.daemon_threads = True
-        server.fixtures = Fixtures(directory, args.hls, args.require_token, args.browse_stress, args.season_stress, args.no_show_poster)
+        server.fixtures = Fixtures(directory, args.hls, args.require_token, args.browse_stress, args.season_stress, args.no_show_poster, args.card_stress)
         print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}", "fixtures": str(directory), "synthetic": True,
                           "hls": args.hls, "browse_stress": args.browse_stress, "season_stress": args.season_stress,
-                          "no_show_poster": args.no_show_poster}), flush=True)
+                          "no_show_poster": args.no_show_poster, "card_stress": args.card_stress}), flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:

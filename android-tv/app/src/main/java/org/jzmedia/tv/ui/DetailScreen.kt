@@ -32,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusDirection
@@ -63,7 +64,8 @@ import org.json.JSONObject
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, navigate: (TvRoute) -> Unit, play: (PlaybackRequest) -> Unit) {
+fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, navigate: (TvRoute) -> Unit,
+                 play: (PlaybackRequest) -> Unit, onBack: () -> Unit) {
     var data by remember { mutableStateOf<JSONObject?>(null) }
     var similar by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var error by remember { mutableStateOf("") }
@@ -138,14 +140,27 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
         catch (_: Exception) { similarError = "相关推荐暂时不可用"; similarSettled = true }
     }
     if (error.isNotBlank()) {
-        LaunchedEffect(error) { requestedFocus = "retry" }
-        Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(error, color = Muted)
+        LaunchedEffect(error) { requestedFocus = if (memory.key == "back") "back" else "retry" }
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("影片详情", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                TvAction("返回", onBack, targetModifier("back"), icon = "back")
+            }
+            Status(error, icon = "error")
             TvAction("重试", { focusAfterLoad = "detail:primary"; attempt++ }, targetModifier("retry"), icon = "refresh")
         }
         return
     }
-    val row = data ?: run { Status("正在读取详情…", icon = "loading"); return }
+    val row = data ?: run {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("影片详情", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                TvAction("返回", onBack, targetModifier("back"), icon = "back")
+            }
+            Status("正在读取详情…", icon = "loading")
+        }
+        return
+    }
     val title = when (route.kind) {
         "season" -> "${row.text("show_title")} · ${row.text("name").ifBlank { "第 ${route.season} 季" }}"
         "episode" -> "${row.text("show_title")} · ${episodeTitle(row)}"
@@ -169,11 +184,14 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
     }
     val primaryKey = detailPrimaryFocusKey(route.kind, row, movieVersion)
     LaunchedEffect(row, similarSettled, similar) {
-        val saved = focusAfterLoad ?: memory.restoreKey.takeUnless { memory.restored } ?: return@LaunchedEffect
+        // The loading/error header and loaded hero contain different back nodes.
+        // Carry the current back focus across that replacement as well as a route restore.
+        val saved = focusAfterLoad ?: memory.key.takeIf { it == "back" }
+            ?: memory.restoreKey.takeUnless { memory.restored } ?: return@LaunchedEffect
         if (!detailFocusReady(saved, similarSettled)) return@LaunchedEffect
         val available = detailFocusKeys(route.kind, row, page, movieVersion) + similar.map { "similar:${it.optLong("id")}" }
         val target = resolveDetailFocusKey(saved, primaryKey, available, episodes.firstOrNull()?.let { "episode:${it.id}" })
-        if (target == "back" || target.startsWith("nav:")) {
+        if (target.startsWith("nav:")) {
             focusAfterLoad = null
             return@LaunchedEffect
         }
@@ -182,7 +200,7 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
             target.startsWith("season:") -> gridStart + seasons.indexOfFirst { "season:${it.optInt("season")}" == target }.coerceAtLeast(0) / seasonColumns
             target.startsWith("episode:") -> gridStart + episodes.indexOfFirst { "episode:${it.id}" == target }.coerceAtLeast(0) / episodeColumns
             target.startsWith("member:") -> gridStart + row.rows("members").indexOfFirst { "member:${it.optLong("id")}" == target }.coerceAtLeast(0) / collectionColumns
-            target in setOf("play", "restart", "version", "more") -> 0
+            target in setOf("back", "play", "restart", "version", "more") -> 0
             else -> null
         }
         withFrameNanos { }
@@ -235,11 +253,15 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                     Poster(api, posterPath(row), title, Modifier.width(72.dp).height(108.dp),
                         fallbackPosterPath = detailFallbackPoster(row))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
+                            Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 2,
+                                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            TvAction("返回", onBack, targetModifier("back"), icon = "back")
+                        }
                         Text(listOf(row.text("year").ifBlank { row.text("show_year") }, row.text("origin_country_name"), row.text("library_name"),
-                            if (watched) "已看" else "", row.text("vote_average").takeIf { it.isNotBlank() && it != "0.0" }?.let { "评分 $it" }.orEmpty())
-                            .filter { it.isNotBlank() }.joinToString(" · "), color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+                            if (watched) "已看" else "", org.jzmedia.tv.data.mediaRatingLabel(row))
+                            .filter { it.isNotBlank() }.joinToString(" · "), color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(8.dp)) {
                             if (canPlay) {
                                 item { TvAction(if (offline) "文件离线" else "播放 / 继续观看", {
                                     if (!offline) play(PlaybackRequest(if (route.kind == "movie") "movie" else "episode", playableId, title, true))
@@ -288,7 +310,7 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                     }
                 }
                 episodeGrid(episodes, episodeColumns, ::targetModifier, { focusedEpisodeId = it }, { navigate(TvRoute("episode", it)) })
-                item(key = "episode-pages") {
+                if (page > 0 || row.optBoolean("has_more")) item(key = "episode-pages") {
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(8.dp)) {
                         if (page > 0) TvAction("上一页", { focusAfterLoad = "episode:first"; page-- }, targetModifier("previous-page"), icon = "back")
                         if (row.optBoolean("has_more")) TvAction("下一页", { focusAfterLoad = "episode:first"; page++ }, targetModifier("next-page"), icon = "forward")
@@ -319,9 +341,10 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                 if (members.isEmpty()) item { Status("合集中还没有影片") }
             }
             if (overview.isNotBlank()) item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("剧情简介", style = MaterialTheme.typography.headlineSmall)
-                    Text(overview, color = Muted, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                Column(Modifier.widthIn(max = 720.dp).padding(top = if (route.kind == "season") 0.dp else 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionHeading("剧情简介")
+                    Text(overview, color = Muted, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     TvAction("查看完整简介", { textDialog = "剧情简介" to overview.chunked(240) }, targetModifier("overview"), icon = "info")
                 }
             }
@@ -335,9 +358,9 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
             }
             val cast = row.rows(if (route.kind == "movie") "persons" else "cast")
             if (cast.isNotEmpty()) item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("演职员", style = MaterialTheme.typography.headlineSmall)
-                    Text(cast.take(8).joinToString(" · ") { it.text("name") }, color = Muted)
+                Column(Modifier.widthIn(max = 720.dp).padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionHeading("演职员")
+                    Text(cast.take(8).joinToString(" · ") { it.text("name") }, color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     TvAction("查看演职员（${cast.size}）", {
                         textDialog = "演职员" to cast.map { person -> person.text("name") + person.text("character").ifBlank { person.text("character_name").ifBlank { person.text("role") } }.let { if (it.isBlank()) "" else " · $it" } }
                     }, targetModifier("cast"), icon = "person")
@@ -436,6 +459,7 @@ internal fun detailPrimaryFocusKey(kind: String, row: JSONObject, movieVersion: 
 }
 
 internal fun detailFocusKeys(kind: String, row: JSONObject, page: Int, movieVersion: JSONObject? = null): Set<String> = buildSet {
+    add("back")
     add("more")
     if (kind in listOf("movie", "episode") && !knownOffline(row) && !knownOffline(movieVersion)) addAll(listOf("play", "restart"))
     if (kind in listOf("show", "season") && row.optJSONObject("next_episode")?.let { !knownOffline(it) } == true) add("play")
@@ -464,8 +488,9 @@ private fun versionLabel(row: JSONObject): String = listOf(row.text("edition"), 
 @Composable
 private fun TextDialog(title: String, lines: List<String>, onClose: () -> Unit) {
     val memory = rememberFocusMemory("text:0")
+    val dialogHeight = tvDialogMaxHeight(.88f)
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.fillMaxWidth(.86f).heightIn(max = 520.dp).background(Panel, RoundedCornerShape(DesignTokens.DialogRadius)).padding(28.dp),
+        Column(Modifier.fillMaxWidth(.8f).heightIn(max = dialogHeight).background(Panel, RoundedCornerShape(DesignTokens.DialogRadius)).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(title, style = MaterialTheme.typography.headlineSmall)
             LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(14.dp)) {
