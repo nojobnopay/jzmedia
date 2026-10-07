@@ -1,6 +1,6 @@
 ---
-version: 0.20.1
-reviewed: 2026-10-04
+version: 0.22.3
+reviewed: 2026-10-07
 ---
 
 # 安装与首次使用
@@ -71,13 +71,13 @@ volumes:
 在 Linux amd64 设备上执行：
 
 ```bash
-docker pull ghcr.io/nojobnopay/jzmedia:v0.20.1
+docker pull ghcr.io/nojobnopay/jzmedia:v0.22.3
 docker image ls ghcr.io/nojobnopay/jzmedia
 ```
 
-**预期结果：**本地镜像列表包含 `ghcr.io/nojobnopay/jzmedia:v0.20.1`。若拉取失败，检查网络和标签，或使用下方的 Release 镜像归档。
+**预期结果：**本地镜像列表包含 `ghcr.io/nojobnopay/jzmedia:v0.22.3`。若拉取失败，检查网络和标签，或使用下方的 Release 镜像归档。
 
-Compose 启动前将 `services.mymedia.image` 改为 `ghcr.io/nojobnopay/jzmedia:v0.20.1`；`docker run` 同样使用这个完整镜像名，再按 Step 3 启动。只修改 `APP_VERSION` 不会把原有 `jzmedia` 仓库名改为 GHCR 地址。
+Compose 启动前将 `services.mymedia.image` 改为 `ghcr.io/nojobnopay/jzmedia:v0.22.3`；`docker run` 同样使用这个完整镜像名，再按 Step 3 启动。只修改 `APP_VERSION` 不会把原有 `jzmedia` 仓库名改为 GHCR 地址。
 
 `ghcr.io/nojobnopay/jzmedia:latest` 跟随最新发布镜像；固定部署建议选择明确版本标签。在线镜像与对应 Release 归档使用同一发行镜像，均为 `linux/amd64`。
 

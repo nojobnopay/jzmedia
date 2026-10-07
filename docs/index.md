@@ -1,8 +1,8 @@
 ---
 layout: home
 markdownStyles: false
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.22.3
+reviewed: 2026-10-07
 hero:
   name: jzmedia 帮助中心
   text: 从第一部影片开始

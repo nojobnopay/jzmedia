@@ -1,5 +1,5 @@
 ---
-version: 0.20.2
+version: 0.22.3
 reviewed: 2026-10-04
 ---
 
@@ -80,8 +80,8 @@ Agent 编写、同步或审核项目文档时使用仓库 `.agents/skills/jzmedi
 每个公开页面包含以下元信息；`reviewed` 表示核对内容的日期，不能仅因构建成功就修改：
 
 ```yaml
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.22.3
+reviewed: 2026-10-07
 ```
 
 ## 构建与检查

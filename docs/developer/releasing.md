@@ -1,5 +1,5 @@
 ---
-version: 0.20.3
+version: 0.22.3
 reviewed: 2026-10-04
 ---
 
@@ -36,7 +36,7 @@ reviewed: 2026-10-04
 
 每次交付内容变化，同时提高发行版本与 Android `versionCode`。修复升 patch、新功能升 minor、破坏性变更升 major；`0.x` 阶段的破坏性变更升 minor 并说明兼容影响。Android code 全局递增，不按日期编码或随主版本重置。
 
-在本地仓库使用实际版本替换 `X.Y.Z`，使用高于已交付值的整数替换 `N`；例如 `0.20.1`／code 13 的下一次修复发行可用 `0.20.2`／code 14：
+在本地仓库使用实际版本替换 `X.Y.Z`，使用高于已交付值的整数替换 `N`；例如 `0.22.3`／code 20 的下一次修复发行可用 `0.22.4`／code 21：
 
 ```bash
 python3 scripts/release.py version X.Y.Z --android-code N
