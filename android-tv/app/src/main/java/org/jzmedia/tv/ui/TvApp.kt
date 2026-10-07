@@ -127,7 +127,7 @@ fun TvApp(onExit: () -> Unit) {
             "movie", "show", "season", "episode", "collection" -> "detail:primary"
             "libraries" -> "library:0"
             "settings" -> "settings:connection"
-            else -> "back"
+            else -> "nav:home"
         })
         fun open(next: TvRoute) { memory.leaving = true; navigate(next) }
         fun play(request: PlaybackRequest) { memory.leaving = true; playback = request }
