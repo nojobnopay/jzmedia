@@ -54,8 +54,13 @@ def fts_needs_rebuild() -> bool:
 
 
 def rebuild_fts() -> int:
-    """全量重建FTS（自愈：启动时调用，消除历史trigger残留）。"""
+    """全量重建FTS（自愈：启动时调用，消除历史trigger残留）。
+
+    先清已无主行的残留（旁路 SQL 删行/迁移/恢复后产生，逐行 resync 够不着），
+    再逐行同步，保证重建后行数与 movies 一致、fts_needs_rebuild() 收敛。
+    """
     with _lock, _conn() as c:
+        c.execute("DELETE FROM movies_fts WHERE rowid NOT IN (SELECT id FROM movies)")
         ids = [r["id"] for r in c.execute("SELECT id FROM movies")]
     for mid in ids:
         resync_fts(mid)
