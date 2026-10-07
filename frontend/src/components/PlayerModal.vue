@@ -102,6 +102,7 @@ import { api } from '../api.js'
 import { copyText } from '../clipboard.js'
 import { getCaps, probeStrings, withProbes } from '../caps.js'
 import { createDropGuard, tickDropGuard, isCopyVideoPath } from '../dropGuard.js'
+import { landscapeLockWanted, lockLandscape, orientationEnv, unlockOrientation } from '../screenOrientation.js'
 import Spinner from './Spinner.vue'
 import { useFocusTrap } from '../useFocusTrap.js'
 import { useSubtitles } from '../useSubtitles.js'
@@ -1086,6 +1087,7 @@ function onFullChange() {
   if (isFull.value) showOverlay()
   if (!isFull.value) {
     mouseActive.value = false
+    unlockOrientation()
     if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
   }
 }
@@ -1179,8 +1181,21 @@ function setVolume(e) {
 function toggleFull() {
   const el = pvWrapEl.value
   try {
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
-    else if (el && el.requestFullscreen) el.requestFullscreen().catch(() => {})
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+      unlockOrientation()
+    } else if (el && el.requestFullscreen) {
+      const done = el.requestFullscreen()
+      const afterFull = () => {
+        if (!document.fullscreenElement) return
+        // 手机竖屏进全屏：能锁则转横屏，不支持锁（如 iOS）给一次弱提示
+        const env = orientationEnv()
+        if (landscapeLockWanted(env)) lockLandscape()
+        else if (env.coarse && env.portrait) posHint.value = '旋转设备以横屏观看'
+      }
+      if (done && typeof done.then === 'function') done.then(afterFull).catch(() => {})
+      else if (done === undefined) setTimeout(afterFull, 350)
+    }
   } catch (e) { /* 忽略 */ }
 }
 function onPlayState() {

@@ -957,5 +957,15 @@ watch(() => route.query, () => {
 .collist li { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: var(--jz-surface-3); border-radius: 8px; padding: 6px 10px; }
 .del-warn { color: var(--jz-danger); font-size: 0.875rem; margin: 0 0 8px; }
 .del-sum { color: var(--jz-warn); font-size: 0.9375rem; margin: 0 0 8px; font-weight: bold; }
-@media (max-width: 700px), (pointer: coarse) { .sel-circle { width: var(--jz-touch-target); height: var(--jz-touch-target); } }
+@media (max-width: 700px), (pointer: coarse) {
+  /* 热区保持 44px 触摸目标，视觉圆缩回 26px 居中（::before），避免占满小海报 */
+  .sel-circle { width: var(--jz-touch-target); height: var(--jz-touch-target); background: transparent; border-color: transparent; }
+  .sel-circle.on { background: transparent; border-color: transparent; }
+  .sel-circle::before {
+    content: ""; position: absolute; inset: 9px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.85); background: var(--jz-overlay-soft);
+  }
+  .sel-circle.on::before { background: var(--jz-accent); border-color: var(--jz-accent); }
+  .sel-circle svg { width: 14px; height: 14px; position: relative; }
+}
 </style>
