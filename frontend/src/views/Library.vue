@@ -267,7 +267,7 @@ const sort = ref(loadWallSort(localStorage))
 const curMediaId = ref(currentMediaId())
 const cwRef = ref(null)
 const showContinue = computed(() =>
-  !activeCount.value && !q.value.trim() && !selecting.value)
+  !activeCount.value && !q.value.trim())
 const playVid = ref(null)
 const playTitle = ref('')
 const playBusy = ref(null)   // 多版本智能选版中的卡片 id（转圈防重复点）
