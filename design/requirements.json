@@ -3937,7 +3937,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:0",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 137,
+      "line": 139,
       "platforms": [
         "android-tv"
       ],
@@ -3981,7 +3981,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:1",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 156,
+      "line": 158,
       "platforms": [
         "android-tv"
       ],
@@ -4025,7 +4025,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:2",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 157,
+      "line": 159,
       "platforms": [
         "android-tv"
       ],
@@ -4069,7 +4069,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:3",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 176,
+      "line": 178,
       "platforms": [
         "android-tv"
       ],
@@ -4113,7 +4113,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:4",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 231,
+      "line": 253,
       "platforms": [
         "android-tv"
       ],
@@ -4158,7 +4158,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:5",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 232,
+      "line": 254,
       "platforms": [
         "android-tv"
       ],
@@ -4203,7 +4203,96 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:6",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 252,
+      "line": 259,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "TvAction",
+      "purpose": "if (scanning) \"停止扫描${if (scanProgress.isNotBlank()) \"（$scanProgress）\" else \"\"}\" else \"扫描局域网\", ::scan, Modifier.focusMemory(memory, \"scan\"), enabled = !busy, icon = if (scanning) \"l",
+      "assets": [
+        "loading",
+        "search"
+      ],
+      "dynamic_expression": "if (scanning) \"loading\" else \"search\"",
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction( if (scanning) \"停止扫描${if (scanProgress.isNotBlank()) \"（$scanProgress）\" else \"\"}\" else \"扫描局域网\", ::scan, Modifier.focusMemory(memory, \"scan\"), enabled = !busy, icon = if (sc"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:7",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
+      "line": 285,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "TvAction",
+      "purpose": "label, { address = hit.address }, Modifier.focusMemory(memory, \"scan:${hit.address}\"), selected = address == hit.address, enabled = hit.protocolOk, icon = \"server\"",
+      "assets": [
+        "server"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(label, { address = hit.address }, Modifier.focusMemory(memory, \"scan:${hit.address}\"), selected = address == hit.address, enabled = hit.protocolOk, icon = \"server\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:8",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
+      "line": 307,
       "platforms": [
         "android-tv"
       ],
@@ -4245,9 +4334,9 @@
       "source_excerpt": "TvAction(\"全部媒体库\", { onSelect(0, \"全部媒体库\") }, Modifier.focusMemory(memory, \"library:0\"), selected == 0L, icon = \"library\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:7",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:9",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 256,
+      "line": 311,
       "platforms": [
         "android-tv"
       ],
