@@ -54,7 +54,8 @@ class DetailModelsTest {
         assertEquals("season:7", resolveDetailFocusKey("season:7", "play", available, null))
         assertEquals("play", resolveDetailFocusKey("season:8", "play", available, null))
         assertEquals("play", resolveDetailFocusKey("detail:primary", "play", available, null))
-        assertEquals("back", resolveDetailFocusKey("back", "play", available, null))
+        // 屏幕返回键已取消：残留的旧记忆键落到 primary
+        assertEquals("play", resolveDetailFocusKey("back", "play", available, null))
         assertEquals("nav:settings", resolveDetailFocusKey("nav:settings", "play", available, null))
         assertEquals("episode:251", resolveDetailFocusKey("episode:first", "play", available, "episode:251"))
         assertEquals("more", resolveDetailFocusKey("episode:first", "play", available, null))
@@ -75,8 +76,8 @@ class DetailModelsTest {
     @Test fun emptyDetailsAlwaysHaveAReachablePrimaryAction() {
         for (kind in listOf("movie", "show", "season", "episode", "collection")) {
             val keys = detailFocusKeys(kind, JSONObject(), 0)
-            assertTrue("back" in keys)
-            assertEquals("back", resolveDetailFocusKey("back", "more", keys, null))
+            assertFalse("back" in keys)
+            assertEquals("more", resolveDetailFocusKey("back", "more", keys, null))
         }
         for (kind in listOf("show", "season", "collection")) {
             assertEquals("more", detailPrimaryFocusKey(kind, JSONObject()))

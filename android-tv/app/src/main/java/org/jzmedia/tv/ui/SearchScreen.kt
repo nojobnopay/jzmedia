@@ -12,11 +12,14 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -45,20 +48,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Button
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.CancellationException
@@ -78,6 +80,7 @@ import org.jzmedia.tv.data.rows
 import org.jzmedia.tv.data.searchKind
 import org.jzmedia.tv.data.text
 import org.jzmedia.tv.data.tvSearchPath
+import org.jzmedia.tv.ui.generated.DesignIcons
 import org.json.JSONObject
 
 /** The keyboard is part of the app, so ordinary TV search never requires a system IME. */
@@ -92,9 +95,7 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
     var kind by rememberSaveable { mutableStateOf(searchKind(initialKind)) }
     var page by rememberSaveable { mutableStateOf(0) }
     var lastKey by rememberSaveable { mutableStateOf("A") }
-    var editing by rememberSaveable { mutableStateOf(false) }
     var showDigits by rememberSaveable { mutableStateOf(false) }
-    var restoreInput by remember { mutableStateOf(false) }
     var data by remember { mutableStateOf<JSONObject?>(null) }
     var error by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
@@ -103,13 +104,11 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
     var resetResults by remember { mutableStateOf(false) }
     val keys = remember { TV_SEARCH_KEYS.associateWith { FocusRequester() } }
     val firstResult = remember { FocusRequester() }
-    val inputButton = remember { FocusRequester() }
     val retryButton = remember { FocusRequester() }
     val previousButton = remember { FocusRequester() }
     val historyEntry = remember { FocusRequester() }
     val grid = rememberLazyGridState()
     val resultEntryIndex by remember { derivedStateOf { grid.firstVisibleItemIndex } }
-    val softwareKeyboard = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
     val history = remember(context) { SearchHistoryStore(context.applicationContext) }
     var historyVersion by remember { mutableStateOf(0) }
@@ -123,7 +122,7 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
         historyVersion++
     }
     fun leaveSearch() { rememberQuery(); back() }
-    BackHandler(enabled = !editing) { leaveSearch() }
+    BackHandler { leaveSearch() }
 
     fun changeQuery(value: String) {
         val normalized = appendSearchInput("", value)
@@ -135,13 +134,6 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
         error = ""
         focusResults = false
         resetResults = true
-    }
-    LaunchedEffect(editing, restoreInput) {
-        if (!editing && restoreInput) {
-            withFrameNanos { }
-            inputButton.requestFocus()
-            restoreInput = false
-        }
     }
 
     LaunchedEffect(api, library, query, mode, kind, page, attempt) {
@@ -192,7 +184,7 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
     }
 
     Column(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
-        if (editing || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
         val native = event.nativeKeyEvent
         if (native.keyCode == android.view.KeyEvent.KEYCODE_DEL) {
             changeQuery(deleteSearchInput(query)); true
@@ -201,7 +193,6 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
         } else false
     }, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvAction("返回", ::leaveSearch, Modifier.focusMemory(memory, "back"), icon = "back")
             Text("搜索", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(end = 12.dp))
             listOf("title" to "片名", "actor" to "演员").forEach { (value, label) ->
                 TvAction(label, {
@@ -216,11 +207,68 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
             val keyboardWidth = (maxWidth * .3f).coerceIn(264.dp, 328.dp)
             val keyboardStyle = MaterialTheme.typography.titleMedium
             val minimumKeyHeight = maxOf(28.dp, with(LocalDensity.current) { keyboardStyle.lineHeight.toDp() } + 8.dp)
-            // 数字默认折叠：26 字母 5 行；展开后 36 键 6 行，键高按实际行数重算
+            // 数字默认折叠：26 字母固定 5 行；展开后数字占 2 行，键高按总行数重算
             val displayKeys = remember(showDigits) { searchKeyboardKeys(showDigits) }
-            val keyRows = remember(displayKeys) { displayKeys.chunked(6) }
-            val keyHeight = ((maxHeight - 230.dp) / keyRows.size - 6.dp)
+            val letterRows = remember { displayKeys.take(26).chunked(6) }
+            val digitRows = remember(displayKeys) { displayKeys.drop(26).chunked(6) }
+            val totalRows = letterRows.size + digitRows.size
+            val keyHeight = ((maxHeight - 230.dp) / totalRows - 6.dp)
                 .coerceIn(minimumKeyHeight, maxOf(44.dp, minimumKeyHeight))
+            // 三个动作格与字母键同格同高：图标键零内边距，清空用小一号字单行（窄格 37dp 放不下标题字号）
+            val actionFocus = remember {
+                mapOf("digits" to FocusRequester(), "key-delete" to FocusRequester(), "key-clear" to FocusRequester())
+            }
+            fun cellRequester(row: Int, col: Int): FocusRequester? = when {
+                row < letterRows.size - 1 -> keys.getValue(displayKeys[row * 6 + col])
+                row == letterRows.size - 1 -> when (col) {
+                    0 -> keys.getValue("Y")
+                    1 -> keys.getValue("Z")
+                    2 -> actionFocus.getValue("digits")
+                    3 -> actionFocus.getValue("key-delete")
+                    4 -> actionFocus.getValue("key-clear")
+                    else -> null
+                }
+                else -> {
+                    val digits = displayKeys.drop(26)
+                    val di = (row - letterRows.size) * 6 + col
+                    if (di < digits.size) keys.getValue(digits[di]) else null
+                }
+            }
+            fun Modifier.keyCell(row: Int, col: Int, lastInRow: Boolean): Modifier = focusProperties {
+                if (col == 0) left = FocusRequester.Cancel
+                else cellRequester(row, col - 1)?.let { left = it }
+                if (lastInRow) {
+                    if (showingHistory) right = historyEntry
+                    else if (rows.isNotEmpty() && !loading) right = firstResult
+                } else cellRequester(row, col + 1)?.let { right = it }
+                if (row > 0) cellRequester(row - 1, col)?.let { up = it }
+                cellRequester(row + 1, col)?.let { down = it }
+            }
+            @Composable
+            fun RowScope.LetterKey(letter: String, row: Int, col: Int, lastInRow: Boolean) {
+                Button(onClick = { changeQuery(appendSearchInput(query, letter)) },
+                    modifier = Modifier.weight(1f).height(keyHeight)
+                        .keyCell(row, col, lastInRow)
+                        .focusMemory(memory, "key:$letter", keys.getValue(letter))
+                        .onFocusChanged { if (it.isFocused) lastKey = letter },
+                    contentPadding = PaddingValues(0.dp),
+                    shape = tvButtonShape(), scale = tvButtonScale(),
+                    colors = tvButtonColors(),
+                ) { Text(letter, style = keyboardStyle) }
+            }
+            @Composable
+            fun RowScope.ActionKey(requesterKey: String, description: String, row: Int, col: Int, lastInRow: Boolean,
+                          selected: Boolean = false, onClick: () -> Unit, content: @Composable () -> Unit) {
+                Button(onClick = onClick,
+                    modifier = Modifier.weight(1f).height(keyHeight)
+                        .keyCell(row, col, lastInRow)
+                        .focusMemory(memory, requesterKey, actionFocus.getValue(requesterKey))
+                        .semantics { contentDescription = description },
+                    contentPadding = PaddingValues(0.dp),
+                    shape = tvButtonShape(), scale = tvButtonScale(),
+                    colors = tvButtonColors(selected),
+                ) { content() }
+            }
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                 Column(Modifier.width(keyboardWidth).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.fillMaxWidth().height(48.dp).background(Panel, RoundedCornerShape(DesignTokens.CornerRadius)).padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
@@ -235,38 +283,46 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                     Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(4.dp)) {
-                            keyRows.forEachIndexed { rowIndex, group ->
+                            // 字母区：末行 Y Z 之后直接跟三个动作格（等格等高），补 1 个空位对齐 6 列
+                            letterRows.forEachIndexed { rowIndex, group ->
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     group.forEachIndexed { column, letter ->
-                                        val index = rowIndex * 6 + column
-                                        Button(onClick = { changeQuery(appendSearchInput(query, letter)) },
-                                            modifier = Modifier.weight(1f).height(keyHeight)
-                                                .focusProperties {
-                                                    if (column > 0) left = keys.getValue(displayKeys[index - 1]) else left = FocusRequester.Cancel
-                                                    if (column < group.lastIndex) right = keys.getValue(displayKeys[index + 1])
-                                                    else if (showingHistory) right = historyEntry
-                                                    else if (rows.isNotEmpty() && !loading) right = firstResult
-                                                    if (rowIndex > 0) up = keys.getValue(displayKeys[index - 6])
-                                                    if (rowIndex < keyRows.lastIndex && index + 6 < displayKeys.size) down = keys.getValue(displayKeys[index + 6])
-                                                }
-                                                .focusMemory(memory, "key:$letter", keys.getValue(letter))
-                                                .onFocusChanged { if (it.isFocused) lastKey = letter },
-                                            contentPadding = PaddingValues(0.dp),
-                                            shape = tvButtonShape(), scale = tvButtonScale(),
-                                            colors = tvButtonColors(),
-                                        ) { Text(letter, style = keyboardStyle) }
+                                        LetterKey(letter, rowIndex, column, lastInRow = false)
+                                    }
+                                    if (rowIndex == letterRows.lastIndex) {
+                                        val actionRow = letterRows.size - 1
+                                        ActionKey("digits", if (showDigits) "收起数字键盘" else "展开数字键盘",
+                                            actionRow, 2, lastInRow = false, selected = showDigits, onClick = {
+                                                if (showDigits && lastKey.firstOrNull()?.isDigit() == true) lastKey = "A"
+                                                showDigits = !showDigits
+                                            }) {
+                                            Icon(DesignIcons.get("keyboard"), contentDescription = null,
+                                                modifier = Modifier.size(24.dp))
+                                        }
+                                        ActionKey("key-delete", "删除一个字符", actionRow, 3, lastInRow = false,
+                                            onClick = { changeQuery(deleteSearchInput(query)) }) {
+                                            Icon(DesignIcons.get("backspace"), contentDescription = null,
+                                                modifier = Modifier.size(24.dp))
+                                        }
+                                        ActionKey("key-clear", "清空输入", actionRow, 4, lastInRow = true,
+                                            onClick = { rememberQuery(); changeQuery("") }) {
+                                            Text("清空", style = MaterialTheme.typography.labelLarge,
+                                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                        Spacer(Modifier.weight(1f))
                                     }
                                 }
                             }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TvAction("删除", { changeQuery(deleteSearchInput(query)) }, Modifier.weight(1f).focusMemory(memory, "delete"), centerLabel = true)
-                            TvAction("清空", { rememberQuery(); changeQuery("") }, Modifier.weight(1f).focusMemory(memory, "clear"), centerLabel = true)
-                            TvAction(if (showDigits) "收起数字" else "数字", {
-                                if (showDigits && lastKey.firstOrNull()?.isDigit() == true) lastKey = "A"
-                                showDigits = !showDigits
-                            }, Modifier.weight(1f).focusMemory(memory, "digits"), centerLabel = true, selected = showDigits)
-                            TvAction("中文输入", { editing = true }, Modifier.weight(1.5f).focusMemory(memory, "input", inputButton), centerLabel = true)
+                            // 数字区（展开时）：末行不满 6 格同样补空位，保证与字母键等宽
+                            if (showDigits) digitRows.forEachIndexed { digitRow, group ->
+                                val row = letterRows.size + digitRow
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    group.forEachIndexed { column, letter ->
+                                        LetterKey(letter, row, column, lastInRow = column == group.lastIndex)
+                                    }
+                                    repeat(6 - group.size) { Spacer(Modifier.weight(1f)) }
+                                }
+                            }
                         }
                     }
                     // 翻页常驻左列键盘下方（原先在右列结果区底部，结果少时悬空且焦点链过长）
@@ -363,22 +419,6 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                             }
                         }
                     }
-                }
-            }
-        }
-    }
-    if (editing) {
-        var draft by remember { mutableStateOf(query) }
-        val dialogInput = remember { FocusRequester() }
-        fun close() { editing = false; softwareKeyboard?.hide(); restoreInput = true }
-        Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            LaunchedEffect(Unit) { withFrameNanos { }; dialogInput.requestFocus() }
-            Column(Modifier.width(640.dp).background(Panel, RoundedCornerShape(DesignTokens.DialogRadius)).padding(28.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                Text(if (actorsMode) "输入演员姓名" else "输入片名", style = MaterialTheme.typography.headlineSmall)
-                TvInput("支持中文、英文或拼音", draft, { draft = appendSearchInput("", it) }, Modifier.focusRequester(dialogInput))
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    TvAction("搜索", { rememberQuery(draft); changeQuery(draft); close() }, icon = "search")
-                    TvAction("取消", { close() })
                 }
             }
         }

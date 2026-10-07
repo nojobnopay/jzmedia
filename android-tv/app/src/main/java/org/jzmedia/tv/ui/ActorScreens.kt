@@ -78,7 +78,7 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
     var focusResults by remember { mutableStateOf(false) }
     val grid = rememberLazyGridState()
     val firstResult = remember { FocusRequester() }
-    val returnButton = remember { FocusRequester() }
+    val scopeAllButton = remember { FocusRequester() }
     val previousButton = remember { FocusRequester() }
     val retryButton = remember { FocusRequester() }
     val context = LocalContext.current
@@ -120,7 +120,7 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
             if (rows.isNotEmpty()) grid.scrollToItem(0)
             withFrameNanos { }
             if (focusResults || restoringResult) {
-                val target = if (rows.isNotEmpty()) firstResult else if (page > 0) previousButton else returnButton
+                val target = if (rows.isNotEmpty()) firstResult else if (page > 0) previousButton else scopeAllButton
                 if (target.requestFocus(FocusDirection.Enter)) memory.restored = true
             }
         }
@@ -129,7 +129,6 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
     fun turnPage(next: Int) { if (next != page) { data = null; error = ""; page = next; focusResults = true } }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvAction("返回", back, Modifier.focusMemory(memory, "back", returnButton), icon = "back")
             Text(data?.optJSONObject("actor")?.text("name").orEmpty().ifBlank { route.title.ifBlank { "演员作品" } },
                 style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f))
@@ -138,7 +137,7 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
                     if (kind != value || page != 0) {
                         kind = value; page = 0; data = null; error = ""; resetResults = true; focusResults = false
                     }
-                }, Modifier.focusMemory(memory, "works-scope:$value"), selected = kind == value)
+                }, Modifier.focusMemory(memory, "works-scope:$value", if (value == "all") scopeAllButton else null), selected = kind == value)
             }
         }
         Text(data?.let { "本库 ${it.optInt("total")} 部作品 · 第 ${page + 1} 页" } ?: "本库作品", color = Muted)

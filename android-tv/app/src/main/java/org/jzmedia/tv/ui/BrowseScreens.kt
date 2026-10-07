@@ -394,7 +394,6 @@ fun ChoiceDialog(title: String, choices: List<Pair<String, String>>, selected: S
                     TvAction(label, { onSelect(value) }, Modifier.fillMaxWidth().focusMemory(memory, "choice:$value"), selected == value)
                 }
             }
-            TvAction("返回", onClose, icon = "back")
         }
     }
 }

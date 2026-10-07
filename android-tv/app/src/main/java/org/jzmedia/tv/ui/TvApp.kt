@@ -125,6 +125,8 @@ fun TvApp(onExit: () -> Unit) {
             "search" -> "key:A"
             "home", "movies", "shows", "collections" -> "nav:${route.kind}"
             "movie", "show", "season", "episode", "collection" -> "detail:primary"
+            "libraries" -> "library:0"
+            "settings" -> "settings:connection"
             else -> "back"
         })
         fun open(next: TvRoute) { memory.leaving = true; navigate(next) }
@@ -140,8 +142,7 @@ fun TvApp(onExit: () -> Unit) {
                     }
                 }
             }
-            if (routes.size > 1 && route.kind !in listOf("search", "actor-works", "movie", "show", "season", "episode", "collection"))
-                TvAction("返回", { back() }, Modifier.focusMemory(memory, "back"), icon = "back")
+            // 屏幕返回键已取消：遥控器返回由上面的全局 BackHandler 兜底。
             when (route.kind) {
                 "home" -> HomeScreen(server, library, refresh, memory, ::open, ::play)
                 "movies", "shows", "collections" -> BrowseScreen(server, route.kind, library, refresh, memory, ::open)
@@ -262,7 +263,8 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 TvAction(if (busy) "正在连接…" else "连接并记住", ::connect, Modifier.focusMemory(memory, "connect"), enabled = !busy, icon = if (busy) "loading" else "link")
-                TvAction(if (busy) "取消连接" else "返回", { if (busy) { job?.cancel(); busy = false } else onBack() }, icon = if (busy) "close" else "back")
+                // 闲时返回由遥控器（BackHandler）负责；连接中才需要屏幕上的取消键
+                if (busy) TvAction("取消连接", { job?.cancel(); busy = false }, icon = "close")
             }
         }
         item {
@@ -337,7 +339,6 @@ private fun ServerPickerDialog(
                             selected = hit.address == movedAddress, enabled = hit.protocolOk, icon = "server")
                     }
                 }
-                TvAction("返回", onClose, icon = "back")
             } else {
                 Text("连接到 ${confirm.name}？", style = MaterialTheme.typography.headlineSmall)
                 Text("${confirm.address} · ${confirm.version}", color = Muted)
@@ -347,7 +348,6 @@ private fun ServerPickerDialog(
                     } else {
                         TvAction("连接", { onConfirm(confirm) }, Modifier.focusMemory(memory, "confirm:ok"), icon = "link")
                     }
-                    TvAction("返回", onBackToList, icon = "back")
                 }
             }
         }
