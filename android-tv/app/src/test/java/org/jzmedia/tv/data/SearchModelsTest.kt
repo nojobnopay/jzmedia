@@ -9,14 +9,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SearchModelsTest {
-    @Test fun keyboardFoldsDigitsByDefaultAndPaginationStaysInTheLeftRail() {
-        val letters = searchKeyboardKeys(false)
-        assertEquals(26, letters.size)
-        assertEquals(5, letters.chunked(6).size)
-        assertEquals(36, searchKeyboardKeys(true).size)
-        assertFalse(showSearchPagination(0, false))
-        assertTrue(showSearchPagination(1, false))
-        assertTrue(showSearchPagination(0, true))
+    @Test fun fullKeyboardIsAlwaysSixBySixWithDigitsInline() {
+        val rows = searchKeyboardRows()
+        assertEquals(6, rows.size)
+        rows.forEach { assertEquals(6, it.size) }
+        assertEquals(listOf("Y", "Z", "1", "2", "3", "4"), rows[4])
+        assertEquals(listOf("5", "6", "7", "8", "9", "0"), rows[5])
     }
 
     @Test fun remoteAndChineseInputCanBeEditedWithoutSplittingUnicode() {

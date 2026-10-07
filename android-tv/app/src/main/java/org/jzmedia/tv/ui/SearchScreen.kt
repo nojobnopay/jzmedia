@@ -19,10 +19,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -56,8 +56,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Button
 import androidx.tv.material3.Icon
@@ -71,8 +69,6 @@ import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.SEARCH_QUERY_LIMIT
 import org.jzmedia.tv.data.SearchHistoryStore
 import org.jzmedia.tv.data.TV_SEARCH_KEYS
-import org.jzmedia.tv.data.searchKeyboardKeys
-import org.jzmedia.tv.data.showSearchPagination
 import org.jzmedia.tv.data.appendSearchInput
 import org.jzmedia.tv.data.actorSearchPath
 import org.jzmedia.tv.data.deleteSearchInput
@@ -80,7 +76,6 @@ import org.jzmedia.tv.data.rows
 import org.jzmedia.tv.data.searchKind
 import org.jzmedia.tv.data.text
 import org.jzmedia.tv.data.tvSearchPath
-import org.jzmedia.tv.ui.generated.DesignIcons
 import org.json.JSONObject
 
 /** The keyboard is part of the app, so ordinary TV search never requires a system IME. */
@@ -95,7 +90,6 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
     var kind by rememberSaveable { mutableStateOf(searchKind(initialKind)) }
     var page by rememberSaveable { mutableStateOf(0) }
     var lastKey by rememberSaveable { mutableStateOf("A") }
-    var showDigits by rememberSaveable { mutableStateOf(false) }
     var data by remember { mutableStateOf<JSONObject?>(null) }
     var error by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
@@ -207,67 +201,17 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
             val keyboardWidth = (maxWidth * .3f).coerceIn(264.dp, 328.dp)
             val keyboardStyle = MaterialTheme.typography.titleMedium
             val minimumKeyHeight = maxOf(28.dp, with(LocalDensity.current) { keyboardStyle.lineHeight.toDp() } + 8.dp)
-            // 数字默认折叠：26 字母固定 5 行；展开后数字占 2 行，键高按总行数重算
-            val displayKeys = remember(showDigits) { searchKeyboardKeys(showDigits) }
-            val letterRows = remember { displayKeys.take(26).chunked(6) }
-            val digitRows = remember(displayKeys) { displayKeys.drop(26).chunked(6) }
-            val totalRows = letterRows.size + digitRows.size
-            val keyHeight = ((maxHeight - 230.dp) / totalRows - 6.dp)
+            // 腾讯式全键盘：36 键 6x6 常驻（字母+数字不分家，无折叠）
+            val gridKeys = remember { TV_SEARCH_KEYS.chunked(6) }
+            val keyHeight = ((maxHeight - 230.dp) / gridKeys.size - 6.dp)
                 .coerceIn(minimumKeyHeight, maxOf(44.dp, minimumKeyHeight))
-            // 三个动作格与字母键同格同高：图标键零内边距，清空用小一号字单行（窄格 37dp 放不下标题字号）
-            val actionFocus = remember {
-                mapOf("digits" to FocusRequester(), "key-delete" to FocusRequester(), "key-clear" to FocusRequester())
-            }
-            fun cellRequester(row: Int, col: Int): FocusRequester? = when {
-                row < letterRows.size - 1 -> keys.getValue(displayKeys[row * 6 + col])
-                row == letterRows.size - 1 -> when (col) {
-                    0 -> keys.getValue("Y")
-                    1 -> keys.getValue("Z")
-                    2 -> actionFocus.getValue("digits")
-                    3 -> actionFocus.getValue("key-delete")
-                    4 -> actionFocus.getValue("key-clear")
-                    else -> null
-                }
-                else -> {
-                    val digits = displayKeys.drop(26)
-                    val di = (row - letterRows.size) * 6 + col
-                    if (di < digits.size) keys.getValue(digits[di]) else null
-                }
-            }
-            fun Modifier.keyCell(row: Int, col: Int, lastInRow: Boolean): Modifier = focusProperties {
-                if (col == 0) left = FocusRequester.Cancel
-                else cellRequester(row, col - 1)?.let { left = it }
-                if (lastInRow) {
-                    if (showingHistory) right = historyEntry
-                    else if (rows.isNotEmpty() && !loading) right = firstResult
-                } else cellRequester(row, col + 1)?.let { right = it }
-                if (row > 0) cellRequester(row - 1, col)?.let { up = it }
-                cellRequester(row + 1, col)?.let { down = it }
-            }
+            // 顶行动作键的显式焦点链（首字母行按上键回来）
+            val topClear = remember { FocusRequester() }
+            val topDelete = remember { FocusRequester() }
+            // 键内容强制居中容器：不依赖 Button 内部排列实现
             @Composable
-            fun RowScope.LetterKey(letter: String, row: Int, col: Int, lastInRow: Boolean) {
-                Button(onClick = { changeQuery(appendSearchInput(query, letter)) },
-                    modifier = Modifier.weight(1f).height(keyHeight)
-                        .keyCell(row, col, lastInRow)
-                        .focusMemory(memory, "key:$letter", keys.getValue(letter))
-                        .onFocusChanged { if (it.isFocused) lastKey = letter },
-                    contentPadding = PaddingValues(0.dp),
-                    shape = tvButtonShape(), scale = tvButtonScale(),
-                    colors = tvButtonColors(),
-                ) { Text(letter, style = keyboardStyle) }
-            }
-            @Composable
-            fun RowScope.ActionKey(requesterKey: String, description: String, row: Int, col: Int, lastInRow: Boolean,
-                          selected: Boolean = false, onClick: () -> Unit, content: @Composable () -> Unit) {
-                Button(onClick = onClick,
-                    modifier = Modifier.weight(1f).height(keyHeight)
-                        .keyCell(row, col, lastInRow)
-                        .focusMemory(memory, requesterKey, actionFocus.getValue(requesterKey))
-                        .semantics { contentDescription = description },
-                    contentPadding = PaddingValues(0.dp),
-                    shape = tvButtonShape(), scale = tvButtonScale(),
-                    colors = tvButtonColors(selected),
-                ) { content() }
+            fun RowScope.CenterKeyContent(content: @Composable () -> Unit) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
             }
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                 Column(Modifier.width(keyboardWidth).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -280,57 +224,52 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                     // 操作提示常显于按键区上方（原先在滚动区底部，矮屏下被顶出可视区）
                     Text(if (query.codePointCount(0, query.length) >= SEARCH_QUERY_LIMIT) "最多输入 $SEARCH_QUERY_LIMIT 个字符" else "方向键选字母 · 右移看候选",
                         style = MaterialTheme.typography.labelMedium, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // 顶行动做键：图标+文字（腾讯式），T9 二期再加第三键
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TvAction("清空", { rememberQuery(); changeQuery("") },
+                            Modifier.weight(1f).focusMemory(memory, "top-clear", topClear)
+                                .focusProperties {
+                                    left = FocusRequester.Cancel
+                                    right = topDelete
+                                    down = keys.getValue("A")
+                                },
+                            icon = "trash", centerLabel = true)
+                        TvAction("退格", { changeQuery(deleteSearchInput(query)) },
+                            Modifier.weight(1f).focusMemory(memory, "top-delete", topDelete)
+                                .focusProperties {
+                                    left = topClear
+                                    if (showingHistory) right = historyEntry
+                                    else if (rows.isNotEmpty() && !loading) right = firstResult
+                                    down = keys.getValue("D")
+                                },
+                            icon = "backspace", centerLabel = true)
+                    }
                     Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(4.dp)) {
-                            // 字母区：末行 Y Z 之后直接跟三个动作格（等格等高），补 1 个空位对齐 6 列
-                            letterRows.forEachIndexed { rowIndex, group ->
+                            gridKeys.forEachIndexed { rowIndex, group ->
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     group.forEachIndexed { column, letter ->
-                                        LetterKey(letter, rowIndex, column, lastInRow = false)
-                                    }
-                                    if (rowIndex == letterRows.lastIndex) {
-                                        val actionRow = letterRows.size - 1
-                                        ActionKey("digits", if (showDigits) "收起数字键盘" else "展开数字键盘",
-                                            actionRow, 2, lastInRow = false, selected = showDigits, onClick = {
-                                                if (showDigits && lastKey.firstOrNull()?.isDigit() == true) lastKey = "A"
-                                                showDigits = !showDigits
-                                            }) {
-                                            Icon(DesignIcons.get("keyboard"), contentDescription = null,
-                                                modifier = Modifier.size(24.dp))
-                                        }
-                                        ActionKey("key-delete", "删除一个字符", actionRow, 3, lastInRow = false,
-                                            onClick = { changeQuery(deleteSearchInput(query)) }) {
-                                            Icon(DesignIcons.get("backspace"), contentDescription = null,
-                                                modifier = Modifier.size(24.dp))
-                                        }
-                                        ActionKey("key-clear", "清空输入", actionRow, 4, lastInRow = true,
-                                            onClick = { rememberQuery(); changeQuery("") }) {
-                                            Text("清空", style = MaterialTheme.typography.labelLarge,
-                                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        }
-                                        Spacer(Modifier.weight(1f))
+                                        val index = rowIndex * 6 + column
+                                        Button(onClick = { changeQuery(appendSearchInput(query, letter)) },
+                                            modifier = Modifier.weight(1f).height(keyHeight)
+                                                .focusProperties {
+                                                    if (column > 0) left = keys.getValue(TV_SEARCH_KEYS[index - 1]) else left = FocusRequester.Cancel
+                                                    if (column < 5) right = keys.getValue(TV_SEARCH_KEYS[index + 1])
+                                                    else if (showingHistory) right = historyEntry
+                                                    else if (rows.isNotEmpty() && !loading) right = firstResult
+                                                    up = if (rowIndex > 0) keys.getValue(TV_SEARCH_KEYS[index - 6])
+                                                    else if (column < 3) topClear else topDelete
+                                                }
+                                                .focusMemory(memory, "key:$letter", keys.getValue(letter))
+                                                .onFocusChanged { if (it.isFocused) lastKey = letter },
+                                            contentPadding = PaddingValues(0.dp),
+                                            shape = tvButtonShape(), scale = tvButtonScale(),
+                                            colors = tvButtonColors(),
+                                        ) { CenterKeyContent { Text(letter, style = keyboardStyle) } }
                                     }
                                 }
                             }
-                            // 数字区（展开时）：末行不满 6 格同样补空位，保证与字母键等宽
-                            if (showDigits) digitRows.forEachIndexed { digitRow, group ->
-                                val row = letterRows.size + digitRow
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    group.forEachIndexed { column, letter ->
-                                        LetterKey(letter, row, column, lastInRow = column == group.lastIndex)
-                                    }
-                                    repeat(6 - group.size) { Spacer(Modifier.weight(1f)) }
-                                }
-                            }
-                        }
-                    }
-                    // 翻页常驻左列键盘下方（原先在右列结果区底部，结果少时悬空且焦点链过长）
-                    if (showSearchPagination(page, data?.optBoolean("has_more") == true)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.weight(1f).focusMemory(memory, "previous-search", previousButton), icon = "back", centerLabel = true)
-                            Text("第 ${page + 1} 页", style = MaterialTheme.typography.labelMedium, color = Muted, maxLines = 1)
-                            if (data?.optBoolean("has_more") == true) TvAction("下一页", { turnPage(page + 1) }, Modifier.weight(1f).focusMemory(memory, "next-search"), icon = "forward", centerLabel = true)
                         }
                     }
                 }
@@ -345,6 +284,8 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                             }, Modifier.focusMemory(memory, "scope:$value"), selected = kind == value)
                         }
                     }
+                    // 分隔线：过滤器与搜索记录分区（清除键归属记录域，不再像粘着过滤器）
+                    SectionDivider()
                     if (query.isBlank()) {
                         if (pastQueries.isNotEmpty()) SearchHistoryRail(
                             "${if (actorsMode) "演员" else "片名"}搜索记录", pastQueries.map { it to it }, "query:$mode", memory,
@@ -354,6 +295,7 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                             }, select = { value ->
                                 keys.getValue(lastKey).requestFocus(); rememberQuery(value); changeQuery(value); focusResults = true
                             })
+                        if (pastQueries.isNotEmpty() && recentActors.isNotEmpty()) SectionDivider()
                         if (recentActors.isNotEmpty()) SearchHistoryRail(
                             "最近查看的演员", recentActors.map { it.key to it.name }, "actor", memory,
                             if (pastQueries.isEmpty()) historyEntry else null, keys.getValue(lastKey), clear = {
@@ -397,7 +339,8 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                                     }
                                 }
                                 CompositionLocalProvider(LocalBringIntoViewSpec provides scrollSpec) {
-                                    LazyVerticalGrid(modifier = Modifier.fillMaxSize(), columns = GridCells.Fixed(columns), state = grid,
+                                    Box(Modifier.fillMaxSize()) {
+                                    LazyVerticalGrid(modifier = Modifier.fillMaxSize().padding(end = 10.dp), columns = GridCells.Fixed(columns), state = grid,
                                         contentPadding = PaddingValues(focusPadding), horizontalArrangement = Arrangement.spacedBy(18.dp),
                                         verticalArrangement = Arrangement.spacedBy(18.dp)) {
                                         itemsIndexed(rows, key = { _, row -> if (actorsMode) "actor:${row.text("key")}" else "${row.text("kind")}:${row.optLong("id")}" }) { index, row ->
@@ -415,12 +358,53 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                                             }
                                         }
                                     }
+                                    // 右缘滚动条：thumb 长度=可视占比（foundation 无 Android 端组件，见 ResultsScrollbar）
+                                    ResultsScrollbar(grid, Modifier.align(Alignment.CenterEnd))
                                 }
                             }
+                            }
+                        }
+                    }
+                    // 翻页回右侧底部：浏览完本页才知道要不要翻；两键常在，不可点置灰
+                    if ((query.isNotBlank() || actorsMode) && data != null && error.isBlank()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TvAction("上一页", { turnPage(page - 1) },
+                                Modifier.weight(1f).focusMemory(memory, "previous-search", previousButton),
+                                enabled = page > 0, icon = "back", centerLabel = true)
+                            Text("第 ${page + 1} 页", style = MaterialTheme.typography.labelMedium, color = Muted, maxLines = 1)
+                            TvAction("下一页", { turnPage(page + 1) },
+                                Modifier.weight(1f).focusMemory(memory, "next-search"),
+                                enabled = data?.optBoolean("has_more") == true, icon = "forward", centerLabel = true)
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SectionDivider() {
+    // 分区细线：不可聚焦，不参与遥控器走位
+    Box(Modifier.fillMaxWidth().padding(vertical = 2.dp).height(1.dp)
+        .background(Muted.copy(alpha = 0.35f)))
+}
+
+@Composable
+private fun ResultsScrollbar(grid: LazyGridState, modifier: Modifier = Modifier) {
+    // 自绘细滚动条（foundation 未提供 Android 端 VerticalScrollbar）：
+    // thumb 长度=可视占比，位置=当前偏移；纯展示，不可聚焦
+    val total = grid.layoutInfo.totalItemsCount
+    val visible = grid.layoutInfo.visibleItemsInfo.size
+    if (total <= visible || total <= 0) return
+    val thumb = (visible.toFloat() / total).coerceIn(0.08f, 1f)
+    val offset = (grid.firstVisibleItemIndex.toFloat() / total).coerceIn(0f, 1f - thumb)
+    Box(modifier.fillMaxHeight().width(4.dp)) {
+        Column(Modifier.fillMaxSize()) {
+            Spacer(Modifier.weight(offset.coerceAtLeast(0.001f)))
+            Box(Modifier.weight(thumb).fillMaxWidth()
+                .background(Muted.copy(alpha = 0.6f), RoundedCornerShape(2.dp)))
+            Spacer(Modifier.weight((1f - offset - thumb).coerceAtLeast(0.001f)))
         }
     }
 }

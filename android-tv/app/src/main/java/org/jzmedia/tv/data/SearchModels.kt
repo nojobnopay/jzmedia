@@ -4,14 +4,11 @@ import org.json.JSONObject
 
 const val SEARCH_PAGE_SIZE = 24
 const val SEARCH_QUERY_LIMIT = 80
-val TV_SEARCH_KEYS = ('A'..'Z').map(Char::toString) + ('0'..'9').map(Char::toString)
+// 腾讯式全键盘顺序：A-Z 后跟 1-9、0 殿后（电话盘惯例）
+val TV_SEARCH_KEYS = ('A'..'Z').map(Char::toString) + ('1'..'9').map(Char::toString) + "0"
 
-/** 键盘默认只放 A-Z（5 行）；数字使用极少，收进“数字”开关，展开后 36 键 6 行。 */
-fun searchKeyboardKeys(showDigits: Boolean): List<String> =
-    if (showDigits) TV_SEARCH_KEYS else TV_SEARCH_KEYS.take(26)
-
-/** 分页常驻左列键盘下方；无翻页时不占位（右列结果区不再放分页）。 */
-fun showSearchPagination(page: Int, hasMore: Boolean): Boolean = page > 0 || hasMore
+/** 腾讯式全键盘：36 键固定 6x6（字母+数字不分家，无折叠）。 */
+fun searchKeyboardRows(): List<List<String>> = TV_SEARCH_KEYS.chunked(6)
 
 fun searchKind(value: String): String = when (value) {
     "movie", "movies" -> "movie"
