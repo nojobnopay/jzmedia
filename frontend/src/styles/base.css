@@ -1,7 +1,7 @@
 /* Application foundations. Shared tokens live in tokens.css; page layout stays in styles/. */
 @media (min-width: 701px) { html { scrollbar-gutter: stable; } }
 body { font-family: var(--jz-font-family); margin: 0; background: var(--jz-bg); color: var(--jz-text); }
-.app-nav { --jz-help-color: var(--jz-text); --jz-help-font-size: var(--jz-font-m); --jz-help-line-height: 1.4; padding: 8px max(24px, calc((100vw - 1392px) / 2)); background: var(--jz-surface); display: flex; gap: 24px; align-items: center; border-bottom: 1px solid var(--jz-border); }
+.app-nav { --jz-help-color: var(--jz-text); --jz-help-font-size: var(--jz-font-m); --jz-help-line-height: 1.4; padding: 8px clamp(20px, 3vw, 56px); background: var(--jz-surface); display: flex; gap: 24px; align-items: center; border-bottom: 1px solid var(--jz-border); }
 .app-nav a { color: var(--jz-text); text-decoration: none; }
 .nav-channels, .nav-tools { display: flex; align-items: center; gap: 4px; }
 .nav-tools { margin-left: auto; min-width: 0; }
