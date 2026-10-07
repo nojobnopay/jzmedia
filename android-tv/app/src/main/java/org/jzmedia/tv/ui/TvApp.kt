@@ -40,8 +40,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jzmedia.tv.BuildConfig
 import org.jzmedia.tv.data.ConnectionStore
+import org.jzmedia.tv.data.DiscoveredServer
 import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.SavedConnection
+import org.jzmedia.tv.data.ServerDiscovery
 import org.jzmedia.tv.data.rows
 import org.jzmedia.tv.data.text
 import org.jzmedia.tv.playback.PlaybackRequest
@@ -192,10 +194,18 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
     var error by remember { mutableStateOf(initialError) }
     var busy by remember { mutableStateOf(false) }
     var job by remember { mutableStateOf<Job?>(null) }
+    var scanning by remember { mutableStateOf(false) }
+    var scanProgress by remember { mutableStateOf("") }
+    var scanResults by remember { mutableStateOf<List<DiscoveredServer>?>(null) }
+    var scanJob by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
     val memory = rememberFocusMemory("connect")
     val keyboard = LocalSoftwareKeyboardController.current
     val imeVisible = WindowInsets.isImeVisible
+    // 已保存服务器换了 IP 时认亲提示。
+    val moved = initial?.serverId?.takeIf { it.isNotBlank() }?.let { id ->
+        scanResults?.let { ServerDiscovery.matchById(it, id)?.takeIf { it.address != initial.address } }
+    }
     fun connect() {
         if (busy) return
         busy = true; error = ""
@@ -204,8 +214,8 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
         job = scope.launch {
             try {
                 val candidate = JzApi(chosenAddress, chosenToken)
-                candidate.checkConnection()
-                val connection = SavedConnection(candidate.baseUrl, chosenToken)
+                val info = candidate.checkConnection()
+                val connection = SavedConnection(candidate.baseUrl, chosenToken, info.optString("server_id"))
                 save(connection)
                 onConnected(candidate, connection)
             } catch (e: CancellationException) { throw e }
@@ -214,9 +224,21 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
         }
     }
     LaunchedEffect(Unit) { if (autoConnect) connect() }
+    fun scan() {
+        if (scanning) { scanJob?.cancel(); scanning = false; return }
+        scanning = true; scanProgress = ""; scanResults = null
+        scanJob = scope.launch {
+            try {
+                scanResults = ServerDiscovery.scan(onProgress = { done, total -> scanProgress = "$done/$total" })
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { scanResults = emptyList() }
+            finally { scanning = false }
+        }
+    }
     BackHandler {
         if (imeVisible) keyboard?.hide()
         else if (busy) { job?.cancel(); busy = false }
+        else if (scanning) { scanJob?.cancel(); scanning = false }
         else onBack()
     }
     LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 64.dp, vertical = 36.dp),
@@ -230,6 +252,39 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 TvAction(if (busy) "正在连接…" else "连接并记住", ::connect, Modifier.focusMemory(memory, "connect"), enabled = !busy, icon = if (busy) "loading" else "link")
                 TvAction(if (busy) "取消连接" else "返回", { if (busy) { job?.cancel(); busy = false } else onBack() }, icon = if (busy) "close" else "back")
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                TvAction(
+                    if (scanning) "停止扫描${if (scanProgress.isNotBlank()) "（$scanProgress）" else ""}" else "扫描局域网",
+                    ::scan, Modifier.focusMemory(memory, "scan"), enabled = !busy,
+                    icon = if (scanning) "loading" else "search",
+                )
+            }
+        }
+        if (moved != null) item {
+            Text("已保存的 ${moved.name} 现位于 ${moved.address}，选择即更新", color = Muted)
+        }
+        val results = scanResults
+        if (results != null && !scanning) {
+            item { SectionHeading("发现的服务器") }
+            if (results.isEmpty()) {
+                item { Status("同一网络下未发现服务器，可手动填写地址", ::scan, icon = "info") }
+            } else {
+                items(results, key = { it.address }) { hit ->
+                    val label = buildString {
+                        append(hit.name)
+                        append(" · ")
+                        append(hit.version)
+                        append(" · ")
+                        append(hit.address.removePrefix("http://").removePrefix("https://").trimEnd('/'))
+                        if (hit.authRequired) append(" · 需令牌")
+                        if (!hit.protocolOk) append(" · 需升级服务端")
+                    }
+                    TvAction(label, { address = hit.address }, Modifier.focusMemory(memory, "scan:${hit.address}"),
+                        selected = address == hit.address, enabled = hit.protocolOk, icon = "server")
+                }
             }
         }
         item { Text("方向键移动 · 确定键编辑或选择 · 返回键关闭键盘或返回", color = Muted) }

@@ -187,9 +187,14 @@ def test_client_handshake_is_read_only_and_validates_existing_token(monkeypatch)
     client = TestClient(app)
     result = client.get("/api/stream/client-info")
     assert result.status_code == 200
-    assert result.json() == {"protocol_version": 1,
-                             "features": ["android_tv", "independent_sessions", "tv_search", "tv_actor_search"],
-                             "auth_required": True}
+    body = result.json()
+    assert body["protocol_version"] == 1
+    assert body["features"] == ["android_tv", "independent_sessions", "tv_search", "tv_actor_search"]
+    assert body["auth_required"] is True
+    # 局域网发现字段（additive，老客户端忽略）
+    assert body["server_id"] == store.get_server_id() and body["server_id"]
+    assert isinstance(body["name"], str) and body["name"]
+    assert isinstance(body["version"], str) and body["version"]
     assert "test-token" not in result.text
     assert client.post("/api/stream/client-check").status_code == 401
     assert client.post("/api/stream/client-check", headers={"X-Api-Token": "bad"}).status_code == 401

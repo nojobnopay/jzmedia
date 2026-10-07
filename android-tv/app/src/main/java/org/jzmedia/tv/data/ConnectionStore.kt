@@ -10,7 +10,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-data class SavedConnection(val address: String, val token: String)
+data class SavedConnection(val address: String, val token: String, val serverId: String = "")
 
 /** No credentials in backups: the manifest disables backups and the key never leaves Keystore. */
 class ConnectionStore(context: Context) {
@@ -35,7 +35,7 @@ class ConnectionStore(context: Context) {
             cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, iv))
             cipher.doFinal(Base64.decode(encrypted, Base64.NO_WRAP)).toString(Charsets.UTF_8)
         }
-        return SavedConnection(address, token)
+        return SavedConnection(address, token, prefs.getString("server_id", "").orEmpty())
     }
 
     fun save(connection: SavedConnection) {
@@ -44,7 +44,8 @@ class ConnectionStore(context: Context) {
         val encrypted = cipher.doFinal(connection.token.toByteArray(Charsets.UTF_8))
         check(prefs.edit().putString("address", connection.address)
             .putString("token", Base64.encodeToString(encrypted, Base64.NO_WRAP))
-            .putString("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP)).commit()) { "无法保存连接配置" }
+            .putString("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .putString("server_id", connection.serverId).commit()) { "无法保存连接配置" }
     }
 
     fun clear() { prefs.edit().clear().apply() }

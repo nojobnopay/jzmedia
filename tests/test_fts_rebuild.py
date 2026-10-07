@@ -26,7 +26,9 @@ def test_rebuild_prunes_orphan_fts_rows():
     # 旁路删行（绕过 delete_movie 的 FTS 级联，模拟迁移/手工 SQL）
     with _base._lock, _base._conn() as c:
         c.execute("DELETE FROM movies WHERE id=?", (m2,))
-    assert store.fts_needs_rebuild()
+    # 残留行仍在（逐行 resync 够不着它；此处不断言全局 needs_rebuild，
+    # 其他用例的未同步行会影响全局计数，只验证本行残留与最终收敛）
+    assert _fts_count(m2) == 1
 
     assert store.rebuild_fts() >= 1
     assert not store.fts_needs_rebuild()

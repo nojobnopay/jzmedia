@@ -560,7 +560,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "ai_enabled", "ai_provider", "ai_base_url", "ai_model", "ai_api_key",
                     "ai_timeout_seconds", "ai_daily_limit",
                     # 内部状态（不经 /api/settings 暴露，由各业务服务读写）
-                    "metadata_provider_state", "onboarding_state"}
+                    "metadata_provider_state", "onboarding_state", "server_id"}
 
 
 SCHEMA_VERSION = 31

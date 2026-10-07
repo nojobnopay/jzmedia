@@ -18,10 +18,25 @@ __all__ = ['stream_client_info', 'stream_client_check', 'stream_media', '_media_
 
 @router.get("/client-info")
 def stream_client_info():
-    """Read-only native client handshake; exposes no credentials or media data."""
+    """Read-only native client handshake; exposes no credentials or media data.
+
+    name/version/server_id 为局域网发现用展示与认亲字段（additive，老客户端忽略）。
+    """
+    try:
+        name = str(library_paths.default_library().get("name") or "") or "jzmedia"
+    except Exception:
+        name = "jzmedia"
+    try:
+        from ...version import VERSION
+        version = VERSION.name
+    except Exception:
+        version = ""
     return {"protocol_version": 1,
             "features": ["android_tv", "independent_sessions", "tv_search", "tv_actor_search"],
-            "auth_required": bool(config.effective_jzmedia_token())}
+            "auth_required": bool(config.effective_jzmedia_token()),
+            "name": name,
+            "version": version,
+            "server_id": store.get_server_id()}
 
 
 @router.post("/client-check")

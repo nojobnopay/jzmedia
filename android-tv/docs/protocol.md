@@ -30,6 +30,16 @@ APK 当前使用 `X-Api-Token`，仅发往保存的服务器 origin 和路径范
 
 `tv_search`（片名）与 `tv_actor_search`（演员）是独立的可选能力，不提高播放协议版本。缺少接口时仅对应搜索功能提示升级，浏览和播放继续可用。参数、演员身份和资料范围见[搜索接口](search-design.md#服务端与兼容)。
 
+### 局域网发现
+
+电视端不依赖名字解析（纯 IPv4 电视可能解析出不可用的 IPv6，且 DHCP 会换地址），改为**客户端主动扫描 + 按 `server_id` 认亲**：
+
+- `GET /api/stream/client-info` 追加 `name`（默认媒体库名，回落 `jzmedia`）、`version`（根 `version.properties`）、`server_id`（持久 UUID，存 `app_settings`，首次握手时生成；重装/删库更换，换 IP 不变）。纯 additive，老客户端忽略。
+- 电视连接页“扫描局域网”：取本机 IPv4 站点地址推导 /24，逐个并发 GET `http://<ip>:8080/api/stream/client-info`（连接 700ms/读取 1200ms，总超时 2.5s，24 并发），只收录返回 `protocol_version` 与 `server_id` 的响应。
+- 结果进确认弹窗（名称 · 版本 · 地址，`auth_required` 标需令牌，协议不一致置灰并提示升级服务端），选中只填充地址栏，仍按原连接流程验证令牌后保存；保存的连接同时记录 `server_id`，下次扫描到同 ID 不同地址时提示“已保存的服务器现位于 xxx，选择即更新”。
+
+不采用服务端 UDP 广播：Docker 网桥收不到/发不出局域网广播（Jellyfin/Plex 要求 host 网络也是此原因），客户端扫描无此限制。`client-info` 本就未鉴权，新增字段只暴露存在性；连接仍需用户确认与令牌。
+
 ### 播放能力声明
 
 以下 POST 请求显式传 `client: "android_tv"` 和 `caps`：
@@ -168,6 +178,11 @@ APK 将用户的播放 / 暂停意图与播放器缓冲状态分开，跳转、�
 ## 修改时核对的位置
 
 Android 文件位于 `app/src/main/java/org/jzmedia/tv/` 下；Python 路径相对仓库根目录。
+
+### 局域网发现
+
+- 源码：`data/ServerDiscovery.kt`、`ui/TvApp.kt`（`ConnectionScreen`）、`data/ConnectionStore.kt`、`app/routers/stream/media.py`、`app/store/settings.py`。
+- 回归：`ServerDiscoveryTest`、`test_discovery_server.py`、`test_android_tv_playback.py`。
 
 ### 握手、地址和认证
 
