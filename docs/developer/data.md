@@ -1,13 +1,13 @@
 ---
-version: 0.19.0
-reviewed: 2026-10-03
+version: 0.22.3
+reviewed: 2026-10-07
 ---
 
 # 数据模型与迁移
 
 [开发者文档](README.md)
 
-数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。当前服务端/网页版本为 `0.19.0`，数据库 `SCHEMA_VERSION=31`；两种版本号不是一一对应。启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
+数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。发行版本以根 `version.properties` 为准，数据库 `SCHEMA_VERSION=31`；两种版本号不是一一对应。启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
 
 最近迁移为 v28 剧集目录归属及历史、v29 文件实际变更日志 `fs_changes`、v30 媒体探测帧率 `media_info.fps`、v31 独立剧集播出快照与检查队列。当前 ffprobe 缓存版本为 `PROBE_VERSION=4`，旧探测结果在播放时重新获取；新增字段不要求用户重新扫描整库。
 
@@ -28,6 +28,8 @@ erDiagram
 ```
 
 外键只表达归属方向；`media_info`、`playback_progress` 按 `(kind, item_id)` 键隔离电影/分集/花絮，不做硬外键。`tmdb_cache` 主键是 `(media_type, tmdb_id)`，电影与剧集的数值 id 空间独立。合集成员按海报粒度（同 `tmdb_id` 全版本）归并，不是按单个文件行。
+
+`delete_movie` 与完整扫描后的 `delete_movies_not_in` 同步删除对应 `collection_members` 引用，空合集保留。历史残留成员由 `store.prune_dangling_members` 核对：TMDB 键在 `movies` 中没有同 ID，或影片 ID 键没有对应行时才认定为悬挂引用；存在性查询覆盖全部电影记录。可限定待处理合集所属的媒体库，接口预览与执行见[合集成员清理](api.md#合集成员清理)。
 
 ### 媒体与观看记录
 
@@ -82,6 +84,8 @@ v31 的四张表由迁移 `_m31` 幂等建立。快照与季目录按 TMDB 身�
 ## FTS 与字段所有权
 
 `movies_fts` 是 FTS5 索引，**没有 SQL trigger**。修改 `movies`、`persons`、`movie_person` 相关可检索字段后需调用 `store.resync_fts(movie_id)`；直接手写 SQL 若漏同步会使搜索与详情不一致。启动在迁移或检测到不一致时重建 FTS；设置页也提供手动重建。搜索对中文分词不足的场景可能走 LIKE 回退，大库要留意性能。
+
+`store.rebuild_fts()` 会先清除 `movies` 中已不存在的 FTS 行，再同步存活影片。旁路 SQL 删除留下的旧标题因此不会继续命中搜索，`fts_needs_rebuild()` 的行数检查也能收敛；只遍历存活影片调用 `resync_fts` 无法清理这些残留行。回归见 `tests/test_fts_rebuild.py`。
 
 `TMDB_FIELDS` 与 `LOCAL_FIELDS` 在 `store/_base.py` 分列，来源缓存和本地自有字段不能随意混写。`movies.title_auto` 标明标题能否被更可信来源自动覆盖；`added_at` 是首次入库时间，不应在重扫时刷新。`overview_override` 与观看/评分/标签是本地资料，刷新来源时须保护。
 

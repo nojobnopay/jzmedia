@@ -124,7 +124,7 @@ async function captureDocs() {
     ['library-new','library-new',1440,'user-guide/libraries.md','按需展开的新建媒体库表单'],
     ['settings-index','settings-maintenance',1440,'user-guide/settings.md','分开的索引修复与播放缓存维护'],
     ['movie-detail','movie-detail',1440,'user-guide/movie-versions.md','电影详情、播放版本与继续观看入口'],
-    ['tv-show','show-detail',1440,'user-guide/watch-tv.md','剧集详情与两季各八集的虚构数据'],
+    ['tv-show','show-detail',1440,'user-guide/watch-tv.md','虚构剧集详情、播出与收藏状态、本地及官方季目录'],
     ['tv-season','season-detail',1440,'user-guide/watch-tv.md','季页分集、剧照和播放状态'],
     ['upload-movie','upload-dialog',1440,'user-guide/files.md','电影上传目标与固定底部操作'],
     ['upload-tv','tv-upload-dialog',1440,'user-guide/files.md','剧集散文件上传、所属剧与季号'],

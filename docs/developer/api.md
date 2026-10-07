@@ -1,6 +1,6 @@
 ---
-version: 0.20.0
-reviewed: 2026-10-04
+version: 0.22.3
+reviewed: 2026-10-07
 ---
 
 # API 与后台任务
@@ -70,6 +70,12 @@ reviewed: 2026-10-04
 
 `GET /api/metadata/test-search?library=<id>&q=<片名>` 必须指定存在的视频库和非空片名。服务端根据库类型选择电影或剧集，并严格按该库保存的来源顺序查找；响应为 `{library_id,kind,chain,items,source,elapsed_ms}`。空结果的 `source` 为 `null`，不能视为连接检测成功。此接口不调用 AI，也不绑定媒体；TMDB 凭据直连验证仍使用 `POST /api/tmdb/check`。
 
+### 合集成员清理
+
+`POST /api/jobs/clean-collections` 同步清理历史遗留的悬挂合集成员，不创建后台 job。省略 body 或 `dry_run` 时仅预览；`media_library_id` 可限定待处理合集，省略则检查全部合集。此接口不使用 `library_id` 限定视频库，也不按磁盘是否在线判定成员失效；成员存在性规则见[数据模型](data.md#主要实体)。
+
+先传 `{"dry_run":true,"media_library_id":2}` 核对结果，再以同一作用域传 `dry_run:false` 执行。两种响应都含 `dry_run`、待清理数 `total` 和清理后将为空的 `empty_ids`；预览另含最多 20 条 `sample`，执行另含实际移除数 `removed`。预览不锁定快照，执行会重新检查当前记录。仅删除合集成员行，保留空合集和物理文件；`empty_ids` 不包含原本就没有成员的空合集。实例设置了令牌时须按下方[认证规则](#认证和安全边界)发送凭据。
+
 ### 常用调用
 
 以下 id 均为示例值，演示用隔离环境或只读查询，不要对真实库执行写操作。
@@ -113,7 +119,7 @@ POST /api/tv/bindings/apply {"token": "…"}   # 用户确认上述预览后执�
 
 ### 原生客户端握手与会话
 
-`GET /api/stream/client-info` 返回 `{protocol_version:1, features:["android_tv","independent_sessions","tv_search","tv_actor_search"], auth_required}`。GET 不验证写令牌；`POST /api/stream/client-check` 返回相同信息并通过现有写操作鉴权校验令牌，不改变配置或媒体。功能通过 `features` 单独协商，新增检索能力没有提高播放协议号。
+`GET /api/stream/client-info` 返回 `{protocol_version:1, features:["android_tv","independent_sessions","tv_search","tv_actor_search"], auth_required}`，另含局域网发现使用的 `name`、`version` 与持久实例身份 `server_id`。GET 不验证写令牌；`POST /api/stream/client-check` 返回相同信息并通过现有写操作鉴权校验令牌，不改变用户配置或媒体。首次握手可能生成并保存 `server_id`。功能通过 `features` 单独协商，新增检索与发现字段没有提高播放协议号；电视扫描范围和确认流程见仓库 `android-tv/docs/protocol.md`。
 
 TV 客户端对 `versions/decide/sessions/prewarm` 显式传 `client:"android_tv"` 及原生 `caps`，旧客户端省略 `client` 仍按 web 处理。具体容器、HDR、音轨和逐片格式能力字段见仓库 `android-tv/docs/protocol.md`。`GET /api/tv-client/search` 支持 `q/kind/media_library/limit/offset`；演员 `/actors` 与 `/actor-works` 使用同一媒体库范围，作品查询中的 `actor` 为服务器返回的不透明 key。
 

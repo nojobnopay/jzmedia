@@ -173,7 +173,7 @@ MKV 附件首次请求 `/{id}/fonts/{name}` 时 `ffmpeg -dump_attachment` 到 `t
 
 `android-tv/` 为同仓独立 Gradle 工程，先读其 `AGENTS.md` / `README.md`；日常构建与测试可独立执行，发行必须通过根 `scripts/release.py` 从同一干净 Git 提交同步构建 Docker 镜像与 APK。`start.sh`、Dockerfile 与 Vue 构建本身不依赖 Android SDK。已接入连接/浏览/Media3 观影、`android_tv` 原生能力和独立 sid/共享转码任务；
 
-协议 1 见 `android-tv/docs/protocol.md`，进度及真机待验收项见 `docs/roadmap/android-tv.md`。服务端、网页、帮助站与 APK 共用根 `version.properties` 的 `versionName`；Android `versionCode` 在该文件全局递增。统一构建不代表设备必须同时升级，连接时仍检查协议与能力。
+协议 1 见 `android-tv/docs/protocol.md`，验收状态及发布限制见 `docs/roadmap/android-tv.md`。服务端、网页、帮助站与 APK 共用根 `version.properties` 的 `versionName`；Android `versionCode` 在该文件全局递增。统一构建不代表设备必须同时升级，连接时仍检查协议与能力。
 
 ### Backend (WSL dev, hot-reload via `docker-compose.override.yml`)
 

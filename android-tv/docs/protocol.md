@@ -1,6 +1,6 @@
 # Android TV 客户端协议 1
 
-本页供修改电视客户端或服务端接口时查阅，记录必须保持的兼容约定。构建和连接步骤见 [README](../README.md)，验证步骤见[测试指南](testing.md)。核对日期：2026-10-04。
+本页供修改电视客户端或服务端接口时查阅，记录必须保持的兼容约定。构建和连接步骤见 [README](../README.md)，验证步骤见[测试指南](testing.md)。核对日期：2026-10-07。
 
 APK 与服务器通过[统一发布](../../docs/developer/releasing.md)从同一提交构建，版本以根 [version.properties](../../version.properties) 为准。设备仍可分别安装升级，因此通过协议握手确认兼容性；首次正式签名发布的最低服务端发行版本尚待确定，见[待验收事项](../../docs/roadmap/android-tv.md)。媒体探测字段基线为 schema 30 / probe v4，旧媒体探测缓存可自动重探。
 
@@ -8,17 +8,20 @@ APK 与服务器通过[统一发布](../../docs/developer/releasing.md)从同一
 
 ### 握手与令牌
 
-`GET /api/stream/client-info` 为只读握手，返回：
+`GET /api/stream/client-info` 为无需令牌的握手，返回示例：
 
 ```json
 {
   "protocol_version": 1,
   "features": ["android_tv", "independent_sessions", "tv_search", "tv_actor_search"],
-  "auth_required": false
+  "auth_required": false,
+  "name": "演示视频库",
+  "version": "0.22.3",
+  "server_id": "0123456789abcdef0123456789abcdef"
 }
 ```
 
-`POST /api/stream/client-check` 返回相同内容，不修改配置或媒体。它走已有写操作认证中间件，用于验证当前连接的令牌：
+`POST /api/stream/client-check` 返回相同内容，不更改用户配置或媒体；两种握手首次调用时都可能生成并持久化实例身份，见下方[局域网发现](#局域网发现)。POST 走已有写操作认证中间件，用于验证当前连接的令牌：
 
 - 未配置令牌可直接通过。
 - 已配置时使用 `X-Api-Token` 或 `Authorization: Bearer`，错误令牌返回 401。
@@ -34,7 +37,7 @@ APK 当前使用 `X-Api-Token`，仅发往保存的服务器 origin 和路径范
 
 电视端不依赖名字解析（纯 IPv4 电视可能解析出不可用的 IPv6，且 DHCP 会换地址），改为**客户端主动扫描 + 按 `server_id` 认亲**：
 
-- `GET /api/stream/client-info` 追加 `name`（默认媒体库名，回落 `jzmedia`）、`version`（根 `version.properties`）、`server_id`（持久 UUID，存 `app_settings`，首次握手时生成；重装/删库更换，换 IP 不变）。纯 additive，老客户端忽略。
+- `GET /api/stream/client-info` 追加 `name`（默认视频库名，回落 `jzmedia`）、`version`（根 `version.properties`）、`server_id`（持久 UUID，存 `app_settings`，首次握手时生成；删除或重建数据库后更换，换 IP 或保留数据库重装不变）。字段为向后兼容追加，老客户端可忽略；写入失败时身份可为空，客户端不将其作为可发现实例。
 - 电视连接页“扫描局域网”：取本机 IPv4 站点地址推导 /24，逐个并发 GET `http://<ip>:8080/api/stream/client-info`（连接 700ms/读取 1200ms，总超时 2.5s，24 并发），只收录返回 `protocol_version` 与 `server_id` 的响应。
 - 结果进确认弹窗（名称 · 版本 · 地址，`auth_required` 标需令牌，协议不一致置灰并提示升级服务端）：扫描完成自动弹出，已保存同 ID 的项预选中；选中直接切到“连接到 xxx？”确认态，确认即按原连接流程验证令牌后保存（需令牌但令牌栏空时按钮变为“去填写令牌”，关窗后地址已填好）。保存的连接同时记录 `server_id`，下次扫描到同 ID 不同地址时提示“已保存的服务器现位于 xxx”。
 

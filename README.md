@@ -35,7 +35,7 @@ reviewed: 2026-10-04
 | 制作文档、截图与演示 | [文档制作与发布](docs/developer/documentation.md) |
 | 开发计划与待验收 | 仓库 `docs/roadmap/`（不随公开帮助发布） |
 
-安卓电视客户端位于独立工程 [android-tv/](android-tv/README.md)，日常可单独构建，发行时与 Docker 镜像从同一提交同步构建并共用版本。已接入连接、媒体浏览和原生播放，当前为待验收的开发版本，默认交付 Debug 试装 APK；红米真机及正式签名升级尚未验收，范围见 [电视端开发计划](docs/roadmap/android-tv.md)。
+安卓电视客户端位于独立工程 [android-tv/](android-tv/README.md)，日常可单独构建，发行时与 Docker 镜像从同一提交同步构建并共用版本。已接入连接、媒体浏览和原生播放，电视真机验证已通过，默认交付 Debug 试装 APK；验收依据与正式签名升级限制见 [电视端状态与发布](docs/roadmap/android-tv.md)。
 
 ## 仓库目录
 

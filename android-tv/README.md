@@ -2,7 +2,7 @@
 
 在电视上连接 jzmedia，浏览电影、剧集和合集，用遥控器搜索、播放和续看。扫描、匹配、整理与上传仍在网页端操作。
 
-目前是**真机待验收的开发版本**。已有 APK 可直接试装；自己编译请按下面的 Step 操作。发行版本与 Docker 镜像共用根 [version.properties](../version.properties)，维护者通过[统一发布](../docs/developer/releasing.md)同步交付两端。设备验收和升级限制见[当前状态](../docs/roadmap/android-tv.md)。
+**电视真机验证已通过。** 已有 APK 可直接安装；自己编译请按下面的 Step 操作。发行版本与 Docker 镜像共用根 [version.properties](../version.properties)，维护者通过[统一发布](../docs/developer/releasing.md)同步交付两端。验收依据和升级限制见[当前状态](../docs/roadmap/android-tv.md)。
 
 [安装已有 APK](#已有-apk安装并连接) · [从源码构建](#从源码构建测试与安装) · [日常命令与排错](#日常命令与常见问题)
 
@@ -10,7 +10,7 @@
 
 ### Step 1：确认拿到可安装的包
 
-从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载可安装的 `jzmedia-tv-X.Y.Z-debug.apk`，`X.Y.Z` 是版本号。随包提供 `.apk.sha256`、`.apk.json` 和统一 `manifest.json`，记录校验值、源码及签名信息；它仍是 Debug 试装包，真机兼容性待验收。
+从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载可安装的 `jzmedia-tv-X.Y.Z-debug.apk`，`X.Y.Z` 是版本号。随包提供 `.apk.sha256`、`.apk.json` 和统一 `manifest.json`，记录校验值、源码及签名信息；当前默认交付 Debug 包。
 
 维护者另行提供正式签名包时，文件名为 `jzmedia-tv-X.Y.Z.apk`；文件名含 `-unsigned` 的包不能安装。源码仓库不提交 APK；标签触发的 Actions 将交付包上传至 GitHub Releases，本机构建目录为 `output/releases/vX.Y.Z/`。
 
@@ -164,6 +164,8 @@ python3 tools/tv.py install
 ## 使用方式与原理
 
 方向键移动焦点，确定键激活，返回键逐层退出。播放控件隐藏时，左右预选跳转位置、确定确认；无跳转预选时确定可暂停／继续。控件含音轨、字幕、倍速和下一集；按 Home 或退出播放会保存进度并释放本机播放资源。
+
+找片时进入“搜索”，选择“片名”或“演员”，用左侧字母数字键盘输入首字母、全拼或英文；例如中文片名可输入其拼音首字母。清空和退格位于键盘上方，结果在右侧，翻页位于结果底部。浏览和详情通过遥控器返回键退出，返回列表时恢复原条目。具体检索范围见[搜索与选集](docs/search-design.md)。
 
 客户端使用 Kotlin、Compose for TV 和 Media3，只通过 HTTP API 连接服务器。电视和网页共享观看进度；各设备播放会话独立。Android 日常构建可单独执行，统一发布脚本负责编排镜像和 APK。设备是否能播放 HEVC、HDR 或多声道音频，由实际能力检测和真机验证决定。
 
