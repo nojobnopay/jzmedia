@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 
 import release
 
@@ -42,6 +43,21 @@ def find_release(repo, tag):
     if len(matches) > 1:
         raise release.ReleaseError("Multiple releases claim this version")
     return matches[0] if matches else None
+
+
+def wait_for_release(repo, tag, attempts=12, delay=5.0):
+    """创建/上传后重读：releases 列表接口有复制滞后，刚写入的草稿可能暂时查不到。
+
+    取不到时退避重试，耗尽仍失败报清晰错误，而不是让下游在 None 上崩溃。
+    首次发布前的“是否存在”检查不用它（不存在是合法状态）。
+    """
+    for _ in range(max(1, int(attempts))):
+        existing = find_release(repo, tag)
+        if existing is not None:
+            return existing
+        time.sleep(delay)
+    raise release.ReleaseError(
+        f"Release {tag} not visible after creation; refusing to continue without a verified draft")
 
 
 def check_remote_tag(repo, tag, commit):
@@ -281,7 +297,7 @@ def publish(directory):
             notes_file.write_text(notes(record, repo))
             release.command(["gh", "release", "create", tag, "--repo", repo, "--verify-tag", "--draft",
                              "--title", f"jzmedia {tag}", "--generate-notes", "--notes-file", notes_file])
-            existing = find_release(repo, tag)
+            existing = wait_for_release(repo, tag)
         missing = verify_assets(existing, directory, complete=not existing["draft"])
         if missing:
             # Only empty interrupted uploads in this draft are removed; completed assets are immutable.
@@ -291,7 +307,7 @@ def publish(directory):
                                      f"repos/{repo}/releases/assets/{item['id']}"])
             release.command(["gh", "release", "upload", tag, "--repo", repo,
                              *[directory / name for name in missing]])
-        existing = find_release(repo, tag)
+        existing = wait_for_release(repo, tag)
         verify_assets(existing, directory, complete=True)
         # A complete recoverable draft and the immutable Actions bundle precede registry writes.
         if remote is None:

@@ -387,3 +387,21 @@ def test_newer_release_prevents_latest_rollback_before_remote_writes(bundle, pub
     with pytest.raises(github.release.ReleaseError, match="latest backwards"):
         github.publish(bundle.directory)
     assert publisher.events == []
+
+
+def test_wait_for_release_retries_list_lag_then_returns_draft(monkeypatch):
+    release_obj = {"tag_name": TAG, "draft": True}
+    calls = []
+    monkeypatch.setattr(github, "find_release",
+                        lambda repo, tag: calls.append(tag) or (release_obj if len(calls) > 2 else None))
+    slept = []
+    monkeypatch.setattr(github.time, "sleep", lambda s: slept.append(s))
+    assert github.wait_for_release(REPO, TAG, attempts=5, delay=1) is release_obj
+    assert len(calls) == 3 and slept == [1, 1]
+
+
+def test_wait_for_release_gives_clear_error_instead_of_none_crash(monkeypatch):
+    monkeypatch.setattr(github, "find_release", lambda repo, tag: None)
+    monkeypatch.setattr(github.time, "sleep", lambda s: None)
+    with pytest.raises(github.release.ReleaseError, match="not visible after creation"):
+        github.wait_for_release(REPO, TAG, attempts=3, delay=0)
