@@ -216,14 +216,23 @@ def get_movie_tags(movie_id: int) -> list[str] | None:
 def delete_movie(movie_id: int) -> bool:
     """彻底删除单行（软件外删片/移动后产生）：删关联+主行+FTS行。
     海报与 tmdb_cache 保留（多版本/重扫复用）。播放侧 media_info/progress 级联清理。
-    花絮归属置空（评审 B7/R02-B2：悬挂 movie_id 会让花絮既不在归属也不在 orphan 列表）。"""
+    花絮归属置空（评审 B7/R02-B2：悬挂 movie_id 会让花絮既不在归属也不在 orphan 列表）。
+    合集成员同步清理（两种键都删：tmdb 键覆盖同片全版本，id 键覆盖未匹配行），
+    否则合集列表的 member_count 会残留已删影片。"""
     with _lock, _conn() as c:
-        row = c.execute("SELECT id FROM movies WHERE id=?", (movie_id,)).fetchone()
+        row = c.execute("SELECT id, tmdb_id FROM movies WHERE id=?", (movie_id,)).fetchone()
         if not row:
             return False
+        tid = row["tmdb_id"]
         c.execute("DELETE FROM movie_person WHERE movie_id=?", (movie_id,))
         c.execute("DELETE FROM movies WHERE id=?", (movie_id,))
         c.execute("DELETE FROM movies_fts WHERE rowid=?", (movie_id,))
+        try:
+            if tid:
+                c.execute("DELETE FROM collection_members WHERE movie_tmdb_id=?", (int(tid),))
+            c.execute("DELETE FROM collection_members WHERE movie_id=?", (movie_id,))
+        except Exception as e:
+            logger.warning("clear collection refs failed mid=%s: %s", movie_id, e)
         try:
             c.execute("UPDATE extras SET movie_id=NULL, updated_at=? WHERE movie_id=?",
                       (int(time.time()), movie_id))
@@ -254,21 +263,29 @@ def delete_movies_not_in(keep_paths, library_id=None) -> int:
         lib_id = DEFAULT_LIBRARY_ID
     keep = set(keep_paths or ())
     with _lock, _conn() as c:
-        rows = c.execute("SELECT id, file_path FROM movies WHERE library_id=?",
+        rows = c.execute("SELECT id, file_path, tmdb_id FROM movies WHERE library_id=?",
                          (lib_id,)).fetchall()
-        gone = [(int(r["id"]), str(r["file_path"]))
+        gone = [(int(r["id"]), str(r["file_path"]), r["tmdb_id"])
                 for r in rows if str(r["file_path"]) not in keep]
         if not gone:
             return 0
         now = int(time.time())
         for i in range(0, len(gone), 400):
             chunk = gone[i:i + 400]
-            ids = [mid for mid, _p in chunk]
-            paths = [p for _m, p in chunk]
+            ids = [mid for mid, _p, _t in chunk]
+            paths = [p for _m, p, _t in chunk]
+            tids = sorted({int(t) for _m, _p, t in chunk if t})
             ph = ",".join("?" for _ in ids)
             c.execute(f"DELETE FROM movie_person WHERE movie_id IN ({ph})", ids)
             c.execute(f"DELETE FROM movies WHERE id IN ({ph})", ids)
             c.execute(f"DELETE FROM movies_fts WHERE rowid IN ({ph})", ids)
+            try:
+                if tids:
+                    tph = ",".join("?" for _ in tids)
+                    c.execute(f"DELETE FROM collection_members WHERE movie_tmdb_id IN ({tph})", tids)
+                c.execute(f"DELETE FROM collection_members WHERE movie_id IN ({ph})", ids)
+            except Exception as e:
+                logger.warning("clear collection refs failed lib=%s: %s", lib_id, e)
             try:
                 c.execute(f"UPDATE extras SET movie_id=NULL, updated_at=? WHERE movie_id IN ({ph})",
                           (now, *ids))

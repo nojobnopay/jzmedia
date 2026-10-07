@@ -8,6 +8,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -249,9 +250,15 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
     CompositionLocalProvider(LocalBringIntoViewSpec provides scrollSpec) {
         LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp)) {
             item(key = "hero") {
+                // 网页详情大海报观感：固定 2:3 展示尺寸（清晰度由来图决定，布局尺寸不变）。
+                val heroPosterWidth = if (contentWidth < 700) 120.dp else 168.dp
                 Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    Poster(api, posterPath(row), title, Modifier.width(72.dp).height(108.dp),
-                        fallbackPosterPath = detailFallbackPoster(row))
+                    Box {
+                        Poster(api, posterPath(row), title,
+                            Modifier.width(heroPosterWidth).height(heroPosterWidth * 1.5f),
+                            fallbackPosterPath = detailFallbackPoster(row))
+                        if (watched) WatchedBadge(Modifier.align(Alignment.TopStart).padding(5.dp))
+                    }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
                             Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 2,
@@ -259,8 +266,9 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                             TvAction("返回", onBack, targetModifier("back"), icon = "back")
                         }
                         Text(listOf(row.text("year").ifBlank { row.text("show_year") }, row.text("origin_country_name"), row.text("library_name"),
-                            if (watched) "已看" else "", org.jzmedia.tv.data.mediaRatingLabel(row))
+                            org.jzmedia.tv.data.mediaRatingLabel(row))
                             .filter { it.isNotBlank() }.joinToString(" · "), color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (watched) WatchedBadge()
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(8.dp)) {
                             if (canPlay) {
                                 item { TvAction(if (offline) "文件离线" else "播放 / 继续观看", {

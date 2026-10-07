@@ -34,9 +34,18 @@ class MediaModelsTest {
         assertEquals("TMDB 10.0", mediaRatingLabel(JSONObject("""{"tmdb_rating":10}""")))
     }
 
-    @Test fun metadataKeepsYearAndWatchedWithoutDuplicatingTheRatingBadge() {
-        assertEquals("2026 · 已看", mediaCardSubtitle(JSONObject("""{"year":2026,"watched":1,"tmdb_rating":8.3}""")))
+    @Test fun metadataKeepsYearWhileWatchedMovesToTheBadge() {
+        assertEquals("2026", mediaCardSubtitle(JSONObject("""{"year":2026,"watched":1,"tmdb_rating":8.3}""")))
         assertEquals("", mediaCardSubtitle(JSONObject("""{"year":0,"tmdb_rating":8.3}""")))
+    }
+
+    @Test fun watchedBadgeFollowsTheSameRulesAsTheWeb() {
+        assertTrue(mediaWatched(JSONObject("""{"watched":1}""")))
+        assertFalse(mediaWatched(JSONObject("""{"watched":0}""")))
+        assertTrue(mediaWatched(JSONObject("""{"episode_count":10,"watched_count":10}""")))
+        assertFalse(mediaWatched(JSONObject("""{"episode_count":10,"watched_count":9}""")))
+        assertTrue(mediaWatched(JSONObject("""{"total":4,"watched_count":4}""")))
+        assertFalse(mediaWatched(JSONObject()))
     }
 
     @Test fun showAndSeasonPostersAreRelativeToThePosterDirectory() {

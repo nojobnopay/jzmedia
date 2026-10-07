@@ -69,6 +69,8 @@ import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.SEARCH_QUERY_LIMIT
 import org.jzmedia.tv.data.SearchHistoryStore
 import org.jzmedia.tv.data.TV_SEARCH_KEYS
+import org.jzmedia.tv.data.searchKeyboardKeys
+import org.jzmedia.tv.data.showSearchPagination
 import org.jzmedia.tv.data.appendSearchInput
 import org.jzmedia.tv.data.actorSearchPath
 import org.jzmedia.tv.data.deleteSearchInput
@@ -91,6 +93,7 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
     var page by rememberSaveable { mutableStateOf(0) }
     var lastKey by rememberSaveable { mutableStateOf("A") }
     var editing by rememberSaveable { mutableStateOf(false) }
+    var showDigits by rememberSaveable { mutableStateOf(false) }
     var restoreInput by remember { mutableStateOf(false) }
     var data by remember { mutableStateOf<JSONObject?>(null) }
     var error by remember { mutableStateOf("") }
@@ -213,7 +216,10 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
             val keyboardWidth = (maxWidth * .3f).coerceIn(264.dp, 328.dp)
             val keyboardStyle = MaterialTheme.typography.titleMedium
             val minimumKeyHeight = maxOf(28.dp, with(LocalDensity.current) { keyboardStyle.lineHeight.toDp() } + 8.dp)
-            val keyHeight = ((maxHeight - 174.dp) / 6f - 5.dp)
+            // 数字默认折叠：26 字母 5 行；展开后 36 键 6 行，键高按实际行数重算
+            val displayKeys = remember(showDigits) { searchKeyboardKeys(showDigits) }
+            val keyRows = remember(displayKeys) { displayKeys.chunked(6) }
+            val keyHeight = ((maxHeight - 230.dp) / keyRows.size - 6.dp)
                 .coerceIn(minimumKeyHeight, maxOf(44.dp, minimumKeyHeight))
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                 Column(Modifier.width(keyboardWidth).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -223,22 +229,25 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                     }
                     Text(if (actorsMode) "姓名首字母 / 全拼 / 英文" else "片名首字母 / 全拼 / 英文",
                         style = MaterialTheme.typography.labelMedium, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // 操作提示常显于按键区上方（原先在滚动区底部，矮屏下被顶出可视区）
+                    Text(if (query.codePointCount(0, query.length) >= SEARCH_QUERY_LIMIT) "最多输入 $SEARCH_QUERY_LIMIT 个字符" else "方向键选字母 · 右移看候选",
+                        style = MaterialTheme.typography.labelMedium, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(4.dp)) {
-                            TV_SEARCH_KEYS.chunked(6).forEachIndexed { rowIndex, group ->
+                            keyRows.forEachIndexed { rowIndex, group ->
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     group.forEachIndexed { column, letter ->
                                         val index = rowIndex * 6 + column
                                         Button(onClick = { changeQuery(appendSearchInput(query, letter)) },
                                             modifier = Modifier.weight(1f).height(keyHeight)
                                                 .focusProperties {
-                                                    if (column > 0) left = keys.getValue(TV_SEARCH_KEYS[index - 1]) else left = FocusRequester.Cancel
-                                                    if (column < 5) right = keys.getValue(TV_SEARCH_KEYS[index + 1])
+                                                    if (column > 0) left = keys.getValue(displayKeys[index - 1]) else left = FocusRequester.Cancel
+                                                    if (column < group.lastIndex) right = keys.getValue(displayKeys[index + 1])
                                                     else if (showingHistory) right = historyEntry
                                                     else if (rows.isNotEmpty() && !loading) right = firstResult
-                                                    if (rowIndex > 0) up = keys.getValue(TV_SEARCH_KEYS[index - 6])
-                                                    if (rowIndex < 5) down = keys.getValue(TV_SEARCH_KEYS[index + 6])
+                                                    if (rowIndex > 0) up = keys.getValue(displayKeys[index - 6])
+                                                    if (rowIndex < keyRows.lastIndex && index + 6 < displayKeys.size) down = keys.getValue(displayKeys[index + 6])
                                                 }
                                                 .focusMemory(memory, "key:$letter", keys.getValue(letter))
                                                 .onFocusChanged { if (it.isFocused) lastKey = letter },
@@ -253,10 +262,20 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TvAction("删除", { changeQuery(deleteSearchInput(query)) }, Modifier.weight(1f).focusMemory(memory, "delete"), centerLabel = true)
                             TvAction("清空", { rememberQuery(); changeQuery("") }, Modifier.weight(1f).focusMemory(memory, "clear"), centerLabel = true)
+                            TvAction(if (showDigits) "收起数字" else "数字", {
+                                if (showDigits && lastKey.firstOrNull()?.isDigit() == true) lastKey = "A"
+                                showDigits = !showDigits
+                            }, Modifier.weight(1f).focusMemory(memory, "digits"), centerLabel = true, selected = showDigits)
                             TvAction("中文输入", { editing = true }, Modifier.weight(1.5f).focusMemory(memory, "input", inputButton), centerLabel = true)
                         }
-                        Text(if (query.codePointCount(0, query.length) >= SEARCH_QUERY_LIMIT) "最多输入 $SEARCH_QUERY_LIMIT 个字符" else "方向键选字母 · 右移看候选",
-                            style = MaterialTheme.typography.labelMedium, color = Muted)
+                    }
+                    // 翻页常驻左列键盘下方（原先在右列结果区底部，结果少时悬空且焦点链过长）
+                    if (showSearchPagination(page, data?.optBoolean("has_more") == true)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.weight(1f).focusMemory(memory, "previous-search", previousButton), icon = "back", centerLabel = true)
+                            Text("第 ${page + 1} 页", style = MaterialTheme.typography.labelMedium, color = Muted, maxLines = 1)
+                            if (data?.optBoolean("has_more") == true) TvAction("下一页", { turnPage(page + 1) }, Modifier.weight(1f).focusMemory(memory, "next-search"), icon = "forward", centerLabel = true)
+                        }
                     }
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -343,10 +362,6 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
                                 }
                             }
                         }
-                    }
-                    if (page > 0 || data?.optBoolean("has_more") == true) Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        if (page > 0) TvAction("上一页", { turnPage(page - 1) }, Modifier.focusMemory(memory, "previous-search", previousButton), icon = "back")
-                        if (data?.optBoolean("has_more") == true) TvAction("下一页", { turnPage(page + 1) }, Modifier.focusMemory(memory, "next-search"), icon = "forward")
                     }
                 }
             }

@@ -9,6 +9,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SearchModelsTest {
+    @Test fun keyboardFoldsDigitsByDefaultAndPaginationStaysInTheLeftRail() {
+        val letters = searchKeyboardKeys(false)
+        assertEquals(26, letters.size)
+        assertEquals(5, letters.chunked(6).size)
+        assertEquals(36, searchKeyboardKeys(true).size)
+        assertFalse(showSearchPagination(0, false))
+        assertTrue(showSearchPagination(1, false))
+        assertTrue(showSearchPagination(0, true))
+    }
+
     @Test fun remoteAndChineseInputCanBeEditedWithoutSplittingUnicode() {
         assertEquals("SQ", appendSearchInput("S", "Q"))
         assertEquals("沙丘", appendSearchInput("", "沙丘\n"))

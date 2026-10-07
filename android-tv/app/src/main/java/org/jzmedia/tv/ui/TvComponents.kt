@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Text
@@ -90,14 +91,18 @@ import org.jzmedia.tv.data.mediaCardSubtitle
 import org.jzmedia.tv.data.mediaLibraryLabel
 import org.jzmedia.tv.data.mediaRatingLabel
 import org.jzmedia.tv.data.mediaTitle
+import org.jzmedia.tv.data.mediaWatched
 import org.jzmedia.tv.data.posterPath
 import org.jzmedia.tv.data.text
+import org.jzmedia.tv.ui.generated.DesignIcons
 import org.jzmedia.tv.ui.generated.DesignTokens
 import org.json.JSONObject
 
 val Muted = DesignTokens.TextDim
 val Panel = DesignTokens.SurfaceRaised
 val Accent = DesignTokens.Accent
+/** “已看”绿与网页 --jz-green 同值，海报/详情/分集共用。 */
+val Watched = Color(0xFF7ED321)
 
 internal val MediaCardPadding = 8.dp
 internal val MediaCardArtworkGap = 8.dp
@@ -275,13 +280,28 @@ fun Poster(api: JzApi, path: String, title: String, modifier: Modifier = Modifie
 }
 
 @Composable
+fun WatchedBadge(modifier: Modifier = Modifier) {
+    Row(modifier = modifier
+        .background(DesignTokens.Background.copy(alpha = .9f), RoundedCornerShape(4.dp))
+        .padding(horizontal = 6.dp, vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(DesignIcons.get("check"), contentDescription = null,
+            modifier = Modifier.size(12.dp), tint = Watched)
+        Text("已看", color = Watched, style = MaterialTheme.typography.labelSmall,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
 fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifier = Modifier, subtitle: String = "",
               fallbackPosterPath: String = "", posterPlaceholder: String = "", progressFraction: Float? = null,
-              posterHeight: Dp = 180.dp) {
+              posterHeight: Dp = 180.dp, watched: Boolean? = null) {
     val title = mediaTitle(row)
     val library = mediaLibraryLabel(row)
     val rating = mediaRatingLabel(row)
     val caption = subtitle.ifBlank { mediaCardSubtitle(row) }
+    val showWatched = watched ?: mediaWatched(row)
     Button(
         onClick = onClick, modifier = modifier.width(150.dp),
         contentPadding = PaddingValues(MediaCardPadding),
@@ -298,6 +318,7 @@ fun MediaCard(api: JzApi, row: JSONObject, onClick: () -> Unit, modifier: Modifi
                         .padding(horizontal = 6.dp, vertical = 3.dp),
                     color = DesignTokens.TextStrong, style = MaterialTheme.typography.labelSmall,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (showWatched) WatchedBadge(Modifier.align(Alignment.TopStart).padding(5.dp))
                 if (library.isNotBlank()) Text(library,
                     modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
                         .background(DesignTokens.Background.copy(alpha = .9f))

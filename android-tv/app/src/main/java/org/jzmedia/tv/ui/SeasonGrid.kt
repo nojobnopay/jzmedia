@@ -17,7 +17,8 @@ import org.json.JSONObject
 private val GenericSeasonName = Regex("^(第[0-9零〇一二两三四五六七八九十百千万]+季|season[0-9]+)$", RegexOption.IGNORE_CASE)
 
 internal data class SeasonCardModel(val number: Int, val heading: String, val title: String,
-                                    val subtitle: String, val description: String, val progress: Float?)
+                                    val subtitle: String, val description: String, val progress: Float?,
+                                    val complete: Boolean)
 
 internal fun seasonGridColumns(width: Int): Int = ((width - 16 + 18) / (150 + 18)).coerceAtLeast(1)
 
@@ -46,7 +47,8 @@ internal fun seasonCardModel(season: JSONObject): SeasonCardModel {
     val description = listOf(heading, distinctName, state, "共 $total 集，已看 $watched 集")
         .filter { it.isNotBlank() }.joinToString(" · ")
     return SeasonCardModel(number, heading, if (distinctName.isBlank()) heading else "$heading\n$distinctName",
-        subtitle, description, if (total > 0 && watched > 0) (watched.toFloat() / total).coerceIn(0f, 1f) else null)
+        subtitle, description, if (total > 0 && watched > 0) (watched.toFloat() / total).coerceIn(0f, 1f) else null,
+        complete)
 }
 
 /** Rows belong to the detail LazyColumn, so offscreen seasons do not retain images. */
@@ -61,7 +63,8 @@ internal fun LazyListScope.seasonGrid(api: JzApi, seasons: List<JSONObject>, sho
                     MediaCard(api, card, { openSeason(model.number) },
                         modifier = focusModifier("season:${model.number}").semantics { contentDescription = model.description },
                         subtitle = model.subtitle, fallbackPosterPath = showPosterPath,
-                        posterPlaceholder = model.heading.replace(" ", ""), progressFraction = model.progress)
+                        posterPlaceholder = model.heading.replace(" ", ""), progressFraction = model.progress,
+                        watched = model.complete)
                 }
             }
         }

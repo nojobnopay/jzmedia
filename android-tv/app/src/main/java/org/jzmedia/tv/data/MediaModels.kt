@@ -33,8 +33,17 @@ fun mediaRatingLabel(row: JSONObject): String {
 
 fun mediaCardSubtitle(row: JSONObject): String = listOf(
     row.text("year").takeUnless { it == "0" }.orEmpty(),
-    if (row.optInt("watched") == 1) "已看" else "",
 ).filter { it.isNotBlank() }.joinToString(" · ")
+
+/** 海报“已看”徽与网页一致：电影/分集看 watched==1；剧/季按全集看完。 */
+fun mediaWatched(row: JSONObject): Boolean {
+    val total = row.optInt("episode_count", row.optInt("total", 0))
+    if (total > 0 || row.has("watched_count")) {
+        val watched = row.optInt("watched_count")
+        return total > 0 && watched >= total
+    }
+    return row.optInt("watched") == 1
+}
 
 fun posterPath(row: JSONObject): String {
     val stored = sequenceOf("poster_path", "show_poster", "cover", "season_poster")

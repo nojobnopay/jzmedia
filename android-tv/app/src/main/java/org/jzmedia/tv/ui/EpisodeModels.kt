@@ -17,6 +17,7 @@ internal data class EpisodeButtonModel(
     val badge: String,
     val description: String,
     val continuing: Boolean,
+    val watched: Boolean,
 )
 
 internal fun episodeButtonModel(row: JSONObject, showVersion: Boolean): EpisodeButtonModel {
@@ -41,5 +42,5 @@ internal fun episodeButtonModel(row: JSONObject, showVersion: Boolean): EpisodeB
         if (offline) "文件离线" else "",
         if (watched) "已看" else if (position > 0) "已观看 ${playbackTime(position)}" else "未看",
     ).filter { it.isNotBlank() }.joinToString(" · ")
-    return EpisodeButtonModel(row.optLong("id"), number, badge, description, continuing)
+    return EpisodeButtonModel(row.optLong("id"), number, badge, description, continuing, watched)
 }

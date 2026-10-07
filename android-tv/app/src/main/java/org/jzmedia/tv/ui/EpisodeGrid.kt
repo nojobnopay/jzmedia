@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
+import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Text
 
 /** The parent supplies a sticky focused-episode description above these lazy rows. */
@@ -52,7 +53,8 @@ internal fun LazyListScope.episodeGrid(
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp)) {
                                 Text(episode.number, fontSize = if (episode.number.length > 7) 16.sp else 19.sp, lineHeight = 22.sp, maxLines = 1)
                                 if (episode.badge.isNotBlank()) Text(episode.badge, fontSize = 14.sp, lineHeight = 18.sp,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                    color = if (episode.watched) Watched else LocalContentColor.current)
                             }
                         }
                     }

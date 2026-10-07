@@ -1127,6 +1127,18 @@ def clean_samples(body: CleanStraysBody | None = None):
             "failed": failed}
 
 
+@router.post("/clean-collections")
+def clean_collections(body: CleanStraysBody | None = None):
+    """清理指向已删影片的合集成员（删片前未同步的老数据）。
+    只删成员行、不自动删合集；删光成员的合集 id 在 empty_ids 中返回，
+    由用户手动删除。dry_run=true 默认只预览。
+    body.media_library_id 限定所属媒体库（合集本就按媒体库归属）。"""
+    body = body or CleanStraysBody()
+    mid = body.media_library_id
+    return store.prune_dangling_members(dry_run=body.dry_run,
+                                        media_library_id=mid)
+
+
 @router.post("/clean-mount-artifacts")
 def clean_mount_artifacts(body: CleanStraysBody | None = None):
     """清理挂载点目录里被误写的媒体产物（NFO/图片，历史 bug：远程库写到了挂载点）。

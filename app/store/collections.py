@@ -7,7 +7,7 @@ import time
 from ._base import (DEFAULT_LIBRARY_ID, _like_esc, _attach_media_libraries, _attach_versions,
                     _collections_for_film, _conn, _film_key, _lock,
                     _row_to_dict, logger)
-__all__ = ['list_collections_for_movie', '_collection_cover', '_collection_covers', 'list_collections', 'get_collection', 'create_collection', 'update_collection', 'delete_collection', 'add_collection_members', 'remove_collection_members', 'collection_hint_for_movie', 'suggest_series_collections', 'collected_series_new_members', 'top_up_collection']
+__all__ = ['list_collections_for_movie', '_collection_cover', '_collection_covers', 'list_collections', 'get_collection', 'create_collection', 'update_collection', 'delete_collection', 'add_collection_members', 'remove_collection_members', 'prune_dangling_members', 'collection_hint_for_movie', 'suggest_series_collections', 'collected_series_new_members', 'top_up_collection']
 
 # 媒体库 → 其视频库集合（SQL 子查询片段；配合 media_library_id 参数）
 _LIB_IN_MEDIA = "SELECT id FROM libraries WHERE media_library_id=?"
@@ -266,6 +266,74 @@ def remove_collection_members(cid: int, rep_ids: list) -> dict:
         total = c.execute("SELECT COUNT(*) AS n FROM collection_members WHERE collection_id=?",
                           (cid,)).fetchone()["n"]
     return {"removed": int(n), "total": int(total)}
+
+
+def prune_dangling_members(dry_run: bool = True,
+                           media_library_id: int | None = None) -> dict:
+    """清理指向已删影片的合集成员（删片前未同步的老数据，如美国派系列残留）。
+
+    悬挂判定：tmdb 键在 movies 中已无该 tmdb_id，或 id 键在 movies 中已无该行。
+    只删成员行、不自动删合集（空合集由用户手动删除，返回 empty_ids 供提示）。
+    media_library_id 限定所属媒体库时只处理该库合集。"""
+    with _lock, _conn() as c:
+        params: list = []
+        scope = ""
+        if media_library_id is not None:
+            scope = " WHERE col.media_library_id=?"
+            params.append(int(media_library_id))
+        mems = c.execute(
+            "SELECT cm.rowid AS rid, cm.collection_id AS cid, col.name AS cname,"
+            " cm.movie_tmdb_id AS tid, cm.movie_id AS mid"
+            " FROM collection_members cm"
+            " JOIN collections col ON col.id=cm.collection_id" + scope,
+            tuple(params)).fetchall()
+        live_tmdb = {int(r["tmdb_id"]) for r in
+                     c.execute("SELECT tmdb_id FROM movies WHERE tmdb_id IS NOT NULL").fetchall()
+                     if r["tmdb_id"]}
+        live_ids = {int(r["id"]) for r in
+                    c.execute("SELECT id FROM movies").fetchall()}
+        dangling = []
+        for m in mems:
+            tid, mid = m["tid"], m["mid"]
+            if tid:
+                if int(tid) not in live_tmdb:
+                    dangling.append(m)
+            elif mid:
+                if int(mid) not in live_ids:
+                    dangling.append(m)
+        per_coll_total: dict = {}
+        for m in mems:
+            per_coll_total[int(m["cid"])] = per_coll_total.get(int(m["cid"]), 0) + 1
+        per_coll_dead: dict = {}
+        for m in dangling:
+            per_coll_dead[int(m["cid"])] = per_coll_dead.get(int(m["cid"]), 0) + 1
+        empty_ids = sorted(cid for cid, n in per_coll_total.items()
+                           if per_coll_dead.get(cid, 0) >= n)
+        sample = [{"collection_id": int(m["cid"]), "collection_name": m["cname"],
+                   "movie_tmdb_id": m["tid"], "movie_id": m["mid"]}
+                  for m in dangling[:20]]
+        if dry_run:
+            return {"dry_run": True, "total": len(dangling), "sample": sample,
+                    "empty_ids": empty_ids}
+        removed = 0
+        if dangling:
+            rids = [int(m["rid"]) for m in dangling]
+            for i in range(0, len(rids), 400):
+                chunk = rids[i:i + 400]
+                ph = ",".join("?" for _ in chunk)
+                cur = c.execute(
+                    f"DELETE FROM collection_members WHERE rowid IN ({ph})", chunk)
+                removed += int(cur.rowcount or 0)
+            c.execute("UPDATE collections SET updated_at=? WHERE id IN "
+                      "(SELECT DISTINCT collection_id FROM collection_members)",
+                      (int(time.time()),))
+            # 已删光成员的合集也刷新 updated_at，保证列表排序反映清理
+            if empty_ids:
+                eph = ",".join("?" for _ in empty_ids)
+                c.execute(f"UPDATE collections SET updated_at=? WHERE id IN ({eph})",
+                          (int(time.time()), *empty_ids))
+        return {"dry_run": False, "total": len(dangling), "removed": removed,
+                "empty_ids": empty_ids}
 
 
 def collection_hint_for_movie(movie_id: int) -> dict | None:

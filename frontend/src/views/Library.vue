@@ -958,8 +958,9 @@ watch(() => route.query, () => {
 .del-warn { color: var(--jz-danger); font-size: 0.875rem; margin: 0 0 8px; }
 .del-sum { color: var(--jz-warn); font-size: 0.9375rem; margin: 0 0 8px; font-weight: bold; }
 @media (max-width: 700px), (pointer: coarse) {
-  /* 热区保持 44px 触摸目标，视觉圆缩回 26px 居中（::before），避免占满小海报 */
-  .sel-circle { width: var(--jz-touch-target); height: var(--jz-touch-target); background: transparent; border-color: transparent; }
+  /* 热区保持 44px 触摸目标，视觉圆缩回 26px 居中（::before），避免占满小海报；
+     盒子左上各外扩 3px，使视觉圆上沿/左沿回到 6px，与右上评分徽章对齐 */
+  .sel-circle { width: var(--jz-touch-target); height: var(--jz-touch-target); top: -3px; left: -3px; background: transparent; border-color: transparent; }
   .sel-circle.on { background: transparent; border-color: transparent; }
   .sel-circle::before {
     content: ""; position: absolute; inset: 9px; border-radius: 50%;
