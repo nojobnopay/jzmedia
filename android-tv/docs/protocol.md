@@ -36,7 +36,7 @@ APK 当前使用 `X-Api-Token`，仅发往保存的服务器 origin 和路径范
 
 - `GET /api/stream/client-info` 追加 `name`（默认媒体库名，回落 `jzmedia`）、`version`（根 `version.properties`）、`server_id`（持久 UUID，存 `app_settings`，首次握手时生成；重装/删库更换，换 IP 不变）。纯 additive，老客户端忽略。
 - 电视连接页“扫描局域网”：取本机 IPv4 站点地址推导 /24，逐个并发 GET `http://<ip>:8080/api/stream/client-info`（连接 700ms/读取 1200ms，总超时 2.5s，24 并发），只收录返回 `protocol_version` 与 `server_id` 的响应。
-- 结果进确认弹窗（名称 · 版本 · 地址，`auth_required` 标需令牌，协议不一致置灰并提示升级服务端），选中只填充地址栏，仍按原连接流程验证令牌后保存；保存的连接同时记录 `server_id`，下次扫描到同 ID 不同地址时提示“已保存的服务器现位于 xxx，选择即更新”。
+- 结果进确认弹窗（名称 · 版本 · 地址，`auth_required` 标需令牌，协议不一致置灰并提示升级服务端）：扫描完成自动弹出，已保存同 ID 的项预选中；选中直接切到“连接到 xxx？”确认态，确认即按原连接流程验证令牌后保存（需令牌但令牌栏空时按钮变为“去填写令牌”，关窗后地址已填好）。保存的连接同时记录 `server_id`，下次扫描到同 ID 不同地址时提示“已保存的服务器现位于 xxx”。
 
 不采用服务端 UDP 广播：Docker 网桥收不到/发不出局域网广播（Jellyfin/Plex 要求 host 网络也是此原因），客户端扫描无此限制。`client-info` 本就未鉴权，新增字段只暴露存在性；连接仍需用户确认与令牌。
 

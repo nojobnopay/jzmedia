@@ -6,7 +6,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.CancellationException
@@ -198,6 +203,10 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
     var scanProgress by remember { mutableStateOf("") }
     var scanResults by remember { mutableStateOf<List<DiscoveredServer>?>(null) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
+    // 扫描结果弹窗：选服务器与确认连接一步完成；null=关闭。
+    var serverPicker by remember { mutableStateOf(false) }
+    var confirmTarget by remember { mutableStateOf<DiscoveredServer?>(null) }
+    fun closePicker() { serverPicker = false; confirmTarget = null }
     val scope = rememberCoroutineScope()
     val memory = rememberFocusMemory("connect")
     val keyboard = LocalSoftwareKeyboardController.current
@@ -226,10 +235,12 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
     LaunchedEffect(Unit) { if (autoConnect) connect() }
     fun scan() {
         if (scanning) { scanJob?.cancel(); scanning = false; return }
-        scanning = true; scanProgress = ""; scanResults = null
+        scanning = true; scanProgress = ""; scanResults = null; closePicker()
         scanJob = scope.launch {
             try {
-                scanResults = ServerDiscovery.scan(onProgress = { done, total -> scanProgress = "$done/$total" })
+                val found = ServerDiscovery.scan(onProgress = { done, total -> scanProgress = "$done/$total" })
+                scanResults = found
+                if (found.isNotEmpty()) serverPicker = true
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { scanResults = emptyList() }
             finally { scanning = false }
@@ -264,30 +275,82 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
             }
         }
         if (moved != null) item {
-            Text("已保存的 ${moved.name} 现位于 ${moved.address}，选择即更新", color = Muted)
+            Text("已保存的 ${moved.name} 现位于 ${moved.address}，扫描后可直接选择更新", color = Muted)
         }
         val results = scanResults
-        if (results != null && !scanning) {
-            item { SectionHeading("发现的服务器") }
-            if (results.isEmpty()) {
-                item { Status("同一网络下未发现服务器，可手动填写地址", ::scan, icon = "info") }
-            } else {
-                items(results, key = { it.address }) { hit ->
-                    val label = buildString {
-                        append(hit.name)
-                        append(" · ")
-                        append(hit.version)
-                        append(" · ")
-                        append(hit.address.removePrefix("http://").removePrefix("https://").trimEnd('/'))
-                        if (hit.authRequired) append(" · 需令牌")
-                        if (!hit.protocolOk) append(" · 需升级服务端")
+        if (results != null && !scanning && results.isEmpty()) {
+            item { Status("同一网络下未发现服务器，可手动填写地址", ::scan, icon = "info") }
+        }
+        item { Text("方向键移动 · 确定键编辑或选择 · 返回键关闭键盘或返回", color = Muted) }
+    }
+    if (serverPicker) {
+        ServerPickerDialog(
+            results = scanResults.orEmpty(),
+            movedAddress = moved?.address,
+            tokenReady = token.isNotBlank(),
+            onPick = { hit -> address = hit.address; confirmTarget = hit },
+            confirm = confirmTarget,
+            onConfirm = { hit -> address = hit.address; closePicker(); connect() },
+            onBackToList = { confirmTarget = null },
+            onClose = ::closePicker,
+        )
+    }
+}
+
+private fun serverChoiceLabel(hit: DiscoveredServer): String = buildString {
+    append(hit.name)
+    append(" · ")
+    append(hit.version)
+    append(" · ")
+    append(hit.address.removePrefix("http://").removePrefix("https://").trimEnd('/'))
+    if (hit.authRequired) append(" · 需令牌")
+    if (!hit.protocolOk) append(" · 需升级服务端")
+}
+
+@Composable
+private fun ServerPickerDialog(
+    results: List<DiscoveredServer>,
+    movedAddress: String?,
+    tokenReady: Boolean,
+    onPick: (DiscoveredServer) -> Unit,
+    confirm: DiscoveredServer?,
+    onConfirm: (DiscoveredServer) -> Unit,
+    onBackToList: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val memory = rememberFocusMemory("server-pick")
+    val dialogHeight = tvDialogMaxHeight(.86f)
+    BackHandler { if (confirm != null) onBackToList() else onClose() }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxWidth(.7f).heightIn(max = dialogHeight).background(Panel, RoundedCornerShape(DesignTokens.DialogRadius)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (confirm == null) {
+                Text("选择服务器", style = MaterialTheme.typography.headlineSmall)
+                if (movedAddress != null) Text("已保存的服务器现位于 $movedAddress", color = Muted)
+                val initialIndex = (results.indexOfFirst { it.address == movedAddress }.coerceAtLeast(0))
+                val listState = rememberLazyListState(initialIndex)
+                LazyColumn(state = listState, modifier = Modifier.weight(1f, fill = false),
+                    contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(results, key = { it.address }) { hit ->
+                        TvAction(serverChoiceLabel(hit), { onPick(hit) },
+                            Modifier.fillMaxWidth().focusMemory(memory, "pick:${hit.address}"),
+                            selected = hit.address == movedAddress, enabled = hit.protocolOk, icon = "server")
                     }
-                    TvAction(label, { address = hit.address }, Modifier.focusMemory(memory, "scan:${hit.address}"),
-                        selected = address == hit.address, enabled = hit.protocolOk, icon = "server")
+                }
+                TvAction("返回", onClose, icon = "back")
+            } else {
+                Text("连接到 ${confirm.name}？", style = MaterialTheme.typography.headlineSmall)
+                Text("${confirm.address} · ${confirm.version}", color = Muted)
+                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    if (confirm.authRequired && !tokenReady) {
+                        TvAction("去填写令牌", onClose, Modifier.focusMemory(memory, "confirm:token"), icon = "link")
+                    } else {
+                        TvAction("连接", { onConfirm(confirm) }, Modifier.focusMemory(memory, "confirm:ok"), icon = "link")
+                    }
+                    TvAction("返回", onBackToList, icon = "back")
                 }
             }
         }
-        item { Text("方向键移动 · 确定键编辑或选择 · 返回键关闭键盘或返回", color = Muted) }
     }
 }
 
