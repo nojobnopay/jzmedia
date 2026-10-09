@@ -29,7 +29,7 @@ def _read_hashes(path: str, modified: int, size: int) -> tuple[str, ...]:
             raise ValueError("invalid script hashes")
         return tuple(sorted(set(values)))
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        _logger.warning("帮助站 CSP 清单无法读取: %s: %s", path, exc)
+        _logger.error("帮助站 CSP 清单无法读取，帮助页内联脚本将被拦截（请重建文档镜像）: %s: %s", path, exc)
         return ()
 
 
@@ -66,7 +66,7 @@ class HelpFiles(StaticFiles):
         except FileNotFoundError:
             return default
         except OSError as exc:
-            _logger.warning("帮助站 CSP 清单不可访问: %s", exc)
+            _logger.error("帮助站 CSP 清单不可访问，帮助页内联脚本将被拦截（请重建文档镜像）: %s", exc)
             return default
         hashes = _read_hashes(path, stat.st_mtime_ns, stat.st_size)
         if not hashes:

@@ -21,7 +21,7 @@ RUN --mount=type=cache,id=jzmedia-npm,target=/root/.npm,sharing=locked \
  && npm ci --prefer-offline --no-audit --no-fund
 COPY docs/ ./
 COPY version.properties /version.properties
-RUN npm run build
+RUN npm run build && npm run check
 
 FROM python:3.12-slim
 
