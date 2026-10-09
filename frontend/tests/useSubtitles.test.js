@@ -9,7 +9,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ref } from 'vue'
 
-import { useSubtitles } from '../src/useSubtitles.js'
+import { useSubtitles, withTimeout, firstUrlReachable, ASS_READY_TIMEOUT_MS } from '../src/useSubtitles.js'
 
 function makeCtx() {
   const videoEl = ref(null)
@@ -65,6 +65,31 @@ test('dispose 清理本地字幕引用不抛', () => {
   const s = useSubtitles(makeCtx())
   s.dispose()
   assert.deepEqual(s.localSubs.value, [])
+})
+
+test('withTimeout 正常 resolve 透传结果', async () => {
+  assert.equal(await withTimeout(Promise.resolve('ok'), 50), 'ok')
+})
+
+test('withTimeout 挂起超期拒绝（ASS ready 卡死兜底）', async () => {
+  await assert.rejects(withTimeout(new Promise(() => {}), 20), /timeout/)
+  assert.ok(ASS_READY_TIMEOUT_MS >= 10000, 'ASS ready 超时应留足字体加载时间')
+})
+
+test('firstUrlReachable 按 GET 结果判定（字体预检）', async () => {
+  assert.equal(await firstUrlReachable(async () => ({ ok: true }), ['/f/1.ttf']), true)
+  assert.equal(await firstUrlReachable(async () => ({ ok: false, status: 404 }), ['/f/1.ttf']), false)
+  assert.equal(await firstUrlReachable(async () => { throw new Error('down') }, ['/f/1.ttf']), false)
+  assert.equal(await firstUrlReachable(async () => ({ ok: true }), []), false)
+})
+
+test('firstUrlReachable 用 GET + abort（本栈路由仅 GET，HEAD 会 405）', async () => {
+  let seen = null
+  const fake = async (u, init) => { seen = { u, init }; return { ok: true } }
+  assert.equal(await firstUrlReachable(fake, ['/f/1.ttf']), true)
+  assert.equal(seen.u, '/f/1.ttf')
+  assert.equal(seen.init.method, 'GET')
+  assert.ok(seen.init.signal, '应传 signal 以便拿到响应头即 abort')
 })
 
 test('PlayerModal 解构的 useSubtitles 键全部存在（防命名错位回归）', () => {

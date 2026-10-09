@@ -67,7 +67,7 @@ Android TV 使用协议 1 握手和 `client=android_tv`，显式声明原生容�
 
 ## 字幕、预览与预缓存
 
-`useSubtitles.js` 用自绘 DOM 层显示 SRT/VTT，失败回退原生 track；JASSUB 渲染 ASS/SSA 并尽量保留样式，libpgs 渲染 PGS，失败可降级烧录；VobSub 走烧录。自绘文本层在画中画中不可见；ASS 缺 CJK 字体可补 `DATA_DIR/fonts/` 内有权使用的字体，或降级 VTT（丢失原样式）。
+`useSubtitles.js` 用自绘 DOM 层显示 SRT/VTT，失败回退原生 track；JASSUB 渲染 ASS/SSA 并尽量保留样式，libpgs 渲染 PGS，失败可降级烧录；VobSub 走烧录。自绘文本层在画中画中不可见；ASS 缺 CJK 字体可补 `DATA_DIR/fonts/` 内有权使用的字体，或降级 VTT（丢失原样式）。内嵌字体在首次请求时从片源解出：逐附件流显式输出后改名（ffmpeg≥7 拒绝中文/括号内嵌文件名做落盘名，整批按内嵌名解出零文件），同目录并发只跑一次；JASSUB 字体预检不通过或初始化失败/超时，自动降级同轨 VTT 并提示（本地临时 ASS 无服务端 VTT 变体，只提示不降级）。
 
 字幕源时间相对 HLS 会话应叠加 `media_start + subDelay`；延迟按版本保存，外观按浏览器保存。外挂轨从 `scanner.classify` 归属，临时本地字幕仅浏览器持有，关闭失效。
 

@@ -4,6 +4,7 @@ import re
 import hashlib
 import shutil
 import subprocess
+import threading
 from urllib.parse import quote, unquote
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
@@ -207,42 +208,112 @@ def hls_subtitle_sup(version_id: int, idx: int, request: Request, kind: str = "m
     return FileResponse(dest, media_type="application/x-pgs", filename=f"sub{si}.sup")
 
 
-def _dump_attachments(input_url: str, fdir: str) -> None:
+_dump_locks: dict[str, threading.Lock] = {}
+_dump_locks_guard = threading.Lock()
+
+
+def _dump_lock_for(fdir: str) -> threading.Lock:
+    """按字体缓存目录串行 dump（JASSUB 一次取几十个字体：无锁时并发请求各跑一次全量 dump）。"""
+    key = os.path.normpath(fdir or "")
+    with _dump_locks_guard:
+        lk = _dump_locks.get(key)
+        if lk is None:
+            lk = threading.Lock()
+            _dump_locks[key] = lk
+        return lk
+
+
+def _font_dump_targets(attachments) -> list[tuple[int, str, str]]:
+    """附件清单 → 显式 dump 目标 [(流序号, 安全临时名, 真实文件名)]。
+
+    ffmpeg ≥7 对 `-dump_attachment:t ""`（按内嵌文件名落盘）做安全名检查，
+    中文/括号文件名直接拒绝（`Filename ... is unsafe`，未麻的部屋事故）；
+    逐流显式指定输出则不受限（ffmpeg 7.1 实测单遍多路可用）。
+
+    `index` 取自 ffprobe 附件流序号（与 ffmpeg 流定位符一致，md5 跨版本核对过）。"""
+    targets: list[tuple[int, str, str]] = []
+    for a in (attachments or []):
+        name = os.path.basename(str((a or {}).get("name") or ""))
+        if not _FONT_RE.match(name):
+            continue
+        try:
+            idx = int((a or {}).get("index", -1))
+        except (TypeError, ValueError):
+            continue
+        if idx < 0:
+            continue
+        ext = os.path.splitext(name)[1].lower() or ".ttf"
+        targets.append((idx, f"att{idx}{ext}", name))
+    return targets
+
+
+def _dump_attachments(input_url: str, fdir: str, attachments=None) -> None:
     """一次性 dump 全部附件到 fdir（MKV 字体给 JASSUB 用）。
     `input_url` 可为本地路径或内网 URL（远程直读）。
+    有附件清单时逐流显式输出（绕过新版 ffmpeg 的内嵌文件名安全检查），
+    落盘后再改名为真实文件名；无清单时回退整批按内嵌文件名落盘（旧版兼容）。
     ffmpeg 以附件元数据文件名落盘且相对 CWD：在独立 .dump 子目录执行，只回收
-    合法字体名（basename + 字体扩展），其余（路径逃逸/非字体）丢弃。"""
+    合法字体名（basename + 字体扩展），其余（路径逃逸/非字体）丢弃。成功
+    （至少解出一个文件，或整批 rc==0）写 .dumped 标记，失败不写（下次重试）。"""
     marker = os.path.join(fdir, ".dumped")
     if os.path.isfile(marker):
         return
-    tmp = os.path.join(fdir, ".dump")
-    os.makedirs(tmp, exist_ok=True)
-    rc = 1
-    try:
-        proc = subprocess.run(
-            [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
-             "-dump_attachment:t", "", "-i", input_url],
-            cwd=tmp, timeout=120, check=False,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        rc = proc.returncode
-    except Exception:
+    with _dump_lock_for(fdir):
+        if os.path.isfile(marker):
+            return
+        tmp = os.path.join(fdir, ".dump")
+        os.makedirs(tmp, exist_ok=True)
+        renamed = 0
         rc = 1
-    for n in os.listdir(tmp):
-        src = os.path.join(tmp, n)
-        if os.path.isfile(src) and os.path.basename(n) == n and _FONT_RE.match(n):
+        targets = _font_dump_targets(attachments)
+        if targets:
+            argv = [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"]
+            for idx, tmpname, _real in targets:
+                argv += [f"-dump_attachment:{idx}", os.path.join(tmp, tmpname)]
+            argv += ["-i", input_url]
             try:
-                os.replace(src, os.path.join(fdir, n))
+                proc = subprocess.run(argv, cwd=tmp, timeout=120, check=False,
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                rc = proc.returncode
+            except Exception:
+                rc = 1
+            for _idx, tmpname, real in targets:
+                src = os.path.join(tmp, tmpname)
+                if os.path.isfile(src):
+                    try:
+                        os.replace(src, os.path.join(fdir, real))
+                        renamed += 1
+                    except OSError:
+                        pass
+            if renamed <= 0:
+                logger.warning("dump attachments failed file=%s rc=%s", input_url, rc)
+        else:
+            try:
+                proc = subprocess.run(
+                    [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
+                     "-dump_attachment:t", "", "-i", input_url],
+                    cwd=tmp, timeout=120, check=False,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                rc = proc.returncode
+            except Exception:
+                rc = 1
+            for n in os.listdir(tmp):
+                src = os.path.join(tmp, n)
+                if os.path.isfile(src) and os.path.basename(n) == n and _FONT_RE.match(n):
+                    try:
+                        os.replace(src, os.path.join(fdir, n))
+                        renamed += 1
+                    except OSError:
+                        pass
+            if rc != 0 and renamed <= 0:
+                logger.warning("dump attachments failed file=%s rc=%s", input_url, rc)
+        shutil.rmtree(tmp, ignore_errors=True)
+        if renamed > 0 or rc == 0:
+            try:
+                with open(marker, "w", encoding="utf-8") as fh:
+                    fh.write("1")
             except OSError:
                 pass
-    shutil.rmtree(tmp, ignore_errors=True)
-    if rc != 0:
-        logger.warning("dump attachments failed file=%s rc=%s", input_url, rc)
-    if rc == 0:
-        try:
-            with open(marker, "w", encoding="utf-8") as fh:
-                fh.write("1")
-        except OSError:
-            pass
 
 
 @router.get("/{version_id}/fonts")
@@ -302,7 +373,7 @@ def stream_attachment_font(version_id: int, name: str, kind: str = "movie"):
     os.makedirs(fdir, exist_ok=True)
     dest = os.path.join(fdir, wanted)
     if not os.path.isfile(dest):
-        _dump_attachments(src.input, fdir)
+        _dump_attachments(src.input, fdir, info.get("attachments"))
     if not os.path.isfile(dest):
         raise HTTPException(404, "font extract failed")
     return FileResponse(dest, media_type=_font_mime(wanted), filename=wanted)

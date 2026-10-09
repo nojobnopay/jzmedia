@@ -14,6 +14,31 @@ import { subKind } from './playerLabels.js'
 import { parseVtt, activeCues, pickDefaultSub, decodeSubtitleBytes, localSubCodec } from './subtitleParse.js'
 import { normalizeSubStyle, subFontPx, pickSubAnchor, subBarPad, subInnerPad } from './subStyle.js'
 
+// ASS 渲染 robustness（未麻的部屋事故）：服务端字体曾全量 404（新版 ffmpeg 拒绝
+// 中文附件名），而 JASSUB ready 照常 resolve → 空白字幕且无任何提示。
+// 下面两个纯函数即新逻辑的可测部分（node 单测），mountAss 内组装使用。
+export const ASS_READY_TIMEOUT_MS = 30000
+export function withTimeout(promise, ms) {
+  let timer = 0
+  const gate = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timeout')), ms)
+  })
+  return Promise.race([promise, gate]).finally(() => clearTimeout(timer))
+}
+// 首个字体 URL 可达性预检（同时预热服务端字体 dump 缓存）。
+// 注意用 GET + 立即 abort，不能用 HEAD：本栈 API 路由仅 GET（HEAD → 405）。
+// 传 fetch 实现以便单测注入；失败（含抛错）一律 false，调用方走 VTT 降级。
+export async function firstUrlReachable(fetchImpl, urls) {
+  const u = (urls || [])[0]
+  if (!u) return false
+  try {
+    const ctrl = new AbortController()
+    const r = await fetchImpl(u, { method: 'GET', cache: 'no-store', signal: ctrl.signal })
+    try { ctrl.abort() } catch (e) { /* 忽略：只要响应头已拿到即可 */ }
+    return !!r && !!r.ok
+  } catch (e) { return false }
+}
+
 export function useSubtitles(ctx) {
   const versionId = () => ctx.versionId()
   const kindParam = () => ctx.kindParam()
@@ -241,6 +266,19 @@ export function useSubtitles(ctx) {
         return
       }
     }
+    // 字体可用性预检：名单非空不代表文件可取（曾全量 404 但 ready 照常成功）。
+    // 首个字体 HEAD 不通 → 直接 VTT 降级，不等 JASSUB 空白渲染。
+    if (fonts.length && !isLocalSub(sub)) {
+      const ok = await firstUrlReachable(fetch, fonts)
+      if (videoEl.value !== v || ctx.getBurnOn() || subKind(selectedSub()) !== 'ass') return
+      if (!ok) {
+        autoVttSub.value = Number(subIdx.value)
+        ctx.toast('字幕字体加载失败：已用浏览器 VTT 显示')
+        ctx.logEvt('ass:font-unreachable', 'sub=' + subIdx.value)
+        applySubs(true)
+        return
+      }
+    }
     assFonts.value = fonts.length
     destroyAss()
     try {
@@ -262,15 +300,27 @@ export function useSubtitles(ctx) {
           ? 'ASS 字幕：未找到内嵌/内置字体，文字可能走默认字体；可把中文字体（woff2/ttf/ttc）放入 data/fonts/'
           : 'ASS 字幕：未找到内嵌/内置字体，文字可能走默认字体；异常可勾选「兼容」或投放字体到 data/fonts/'))
       const inst = jassub
-      Promise.resolve(inst.ready)
-        .then(() => {
-          if (jassub === inst) { try { inst.timeOffset = subShift() + subDelay.value } catch (e) { /* 忽略 */ } }
-          ctx.logEvt('ass:ready', 'fonts=' + fonts.length)
-        })
-        .catch((e) => {
-          ctx.toast('ASS 渲染初始化失败' + (isLocalSub(sub) ? '' : '，可勾选「兼容」改用 VTT 字幕'))
-          ctx.logEvt('ass:error', String(e).slice(0, 160))
-        })
+      // ready 失败/超时 → VTT 降级（宁可无样式不要空白；本地临时 ASS 无服务端
+      // VTT 变体，保持旧行为只提示）。超时后迟到的 ready 由 jassub === inst 守卫丢弃。
+      try {
+        await withTimeout(Promise.resolve(inst.ready), ASS_READY_TIMEOUT_MS)
+      } catch (e) {
+        if (videoEl.value !== v || jassub !== inst) return
+        const msg = String((e && e.message) || e).slice(0, 160)
+        if (!isLocalSub(selectedSub()) && subKind(selectedSub()) === 'ass') {
+          autoVttSub.value = Number(subIdx.value)
+          ctx.toast('ASS 字幕加载失败：已用浏览器 VTT 显示')
+          ctx.logEvt('ass:error-vtt', msg)
+          applySubs(true)
+          return
+        }
+        ctx.toast('ASS 渲染初始化失败' + (isLocalSub(selectedSub()) ? '' : '，可勾选「兼容」改用 VTT 字幕'))
+        ctx.logEvt('ass:error', msg)
+        return
+      }
+      if (videoEl.value !== v || jassub !== inst) return
+      try { inst.timeOffset = subShift() + subDelay.value } catch (e) { /* 忽略 */ }
+      ctx.logEvt('ass:ready', 'fonts=' + fonts.length)
     } catch (e) {
       ctx.toast('ASS 渲染初始化失败' + (isLocalSub(sub) ? '' : '，可勾选「兼容」改用 VTT 字幕'))
       ctx.logEvt('ass:init-error', String(e).slice(0, 160))
