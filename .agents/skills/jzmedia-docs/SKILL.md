@@ -20,6 +20,7 @@ description: Write, maintain, and review jzmedia repository documentation, inclu
 2. 只改本次任务及必要关联内容。行为变化同步步骤、命令、成功判断和恢复办法；参数细节优先链接到脚本帮助或权威参考。不要把每次开发经过追加到教程。
 3. 拆页、改标题或删除内容前检查入链、旧锚点、导航和应用帮助目标。迁移仍有效的独有信息，保留开发约束；未被引用、篇幅长或被 Git 忽略都不是删除依据。
 4. 依[排版规则](../../../docs/developer/documentation.md#markdown-排版)审查标题、表格和图文。关键步骤与结论可从正文读到；涉及 Vue 组件时同时核对源 Markdown 和生成 HTML，不以站点渲染正确推断其他阅读器也正确。
+5. 公开页正文变化后核对页首 `version`/`reviewed`：行为、约束或命令变化时把 `version` 升到当前开发版本、`reviewed` 写核对当日；纯文字润色不改。lint 的元信息提醒逐条确认后再提交，更新规则见[文档元信息](../../../docs/developer/documentation.md#构建与检查)。
 
 代码变更需要同步文档时，从变化的命令、配置、接口或用户操作查找受影响正文，避免无关润色。UI 任务涉及教程截图时，沿用界面验收和隔离素材流程。
 

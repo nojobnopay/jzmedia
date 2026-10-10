@@ -1,6 +1,6 @@
 # 仓库维护工具
 
-核对日期：2026-10-04。
+核对日期：2026-10-10。
 
 以下命令均从仓库根目录执行。Python 工具使用 `.venv/bin/python scripts/文件名.py`，Node 工具使用 `node scripts/文件名.mjs`。
 
@@ -19,6 +19,7 @@
 | [build_docs.py](build_docs.py) | 按输入摘要构建 `docs/.vitepress/dist/`；由 `start.sh` 调用，排除私有资料、路线图和历史报告。 |
 | [build_design.py](build_design.py) | 从 `design/` 母版生成跨端资产、令牌和用途清单；`--check` 只校验，品牌位图使用 `--render-brand`。详见[设计资产](../design/README.md)。 |
 | [check_docs_links.py](check_docs_links.py) | 检查仓库 Markdown 的本地链接、锚点和代码围栏。 |
+| [check_docs_meta.py](check_docs_meta.py) | 提醒公开帮助页正文改动后 `version`/`reviewed` 未随内容更新、缺失或格式不对；默认只提醒不改变退出码，`--strict` 计入退出码，`--base 基线` 指定比较点（默认 HEAD）。`docs` 的 lint 已自动运行它。 |
 
 链接检查默认跳过依赖、构建产物、运行数据和私有目录；`--root docs` 可限定范围。帮助站渲染结果另用 `npm --prefix docs run check`。
 
