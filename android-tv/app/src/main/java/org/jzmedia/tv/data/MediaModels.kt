@@ -3,6 +3,7 @@ package org.jzmedia.tv.data
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
+import java.text.Normalizer
 import java.util.Locale
 
 fun JSONObject.text(key: String, fallback: String = ""): String = if (isNull(key)) fallback else optString(key, fallback)
@@ -57,4 +58,61 @@ fun episodeTitle(row: JSONObject): String {
     val start = row.optInt("episode")
     val label = "S${row.optInt("season").toString().padStart(2, '0')} · E${start.toString().padStart(2, '0')}" + if (end > start) "–$end" else ""
     return "$label  ${mediaTitle(row)}"
+}
+
+/** 详情页背景：电影走独立背景端点（无 tmdb 不请求），剧/季/集用剧背景，合集无背景。 */
+fun detailBackdropPath(kind: String, row: JSONObject, routeId: Long): String {
+    return when (kind) {
+        "movie" -> {
+            val tmdb = row.optLong("tmdb_id", 0)
+            if (tmdb > 0) "/api/movies/$routeId/backdrop" else ""
+        }
+        "show" -> backdropUrl(row.text("backdrop_path"))
+        "season", "episode" -> backdropUrl(row.text("show_backdrop_path"))
+        else -> ""
+    }
+}
+
+private fun backdropUrl(stored: String): String {
+    if (stored.isBlank()) return ""
+    val relative = stored.trimStart('/').removePrefix("posters/")
+    return "/posters/$relative"
+}
+
+/** 演职员头像：TMDB 路径走代理，本地相对路径走 /posters，'-' 表示确认无图。 */
+fun castAvatarPath(p: JSONObject): String {
+    val profile = p.text("profile_path").ifBlank { p.text("profile_tmdb_path") }
+    if (profile.startsWith("/")) return "/api/tv/cast-avatar?path=" + URLEncoder.encode(profile, "UTF-8")
+    val avatar = p.text("avatar")
+    if (avatar.startsWith("/")) return "/api/tv/cast-avatar?path=" + URLEncoder.encode(avatar, "UTF-8")
+    if (avatar.isNotBlank() && avatar != "-") {
+        val relative = avatar.trimStart('/').removePrefix("posters/")
+        return "/posters/$relative"
+    }
+    return ""
+}
+
+/** 角色名为贡献者自由文本：仅英文原语言展示，与网页一致。 */
+fun castCharacter(p: JSONObject, originalLanguage: String): String {
+    if (!originalLanguage.lowercase().startsWith("en")) return ""
+    return p.text("character").ifBlank { p.text("character_name") }
+}
+
+/** 电影详情只展示演员（导演另行文字行），剧/季/集直接用 cast。 */
+fun detailCastList(kind: String, row: JSONObject): List<JSONObject> {
+    val raw = row.rows(if (kind == "movie") "persons" else "cast")
+    if (kind == "movie") return raw.filter { it.text("role") == "actor" }
+    return raw
+}
+
+/** 演职员卡点进演员作品页的 key，与服务端 tv_actors 索引同口径：
+ * 有 TMDB id 用 `tmdb:{id}`，无 id 用 `name:{小写名}`（NFKC+空白收敛）。
+ * 服务端用 Python casefold，TV 用 ROOT locale 小写，CJK/常见拉丁名一致，
+ * 极个别特殊字符不一致时人物页走 404 提示，不崩。 */
+fun castActorKey(p: JSONObject): String {
+    val id = p.optLong("id", p.optLong("tmdb_id", 0))
+    if (id > 0) return "tmdb:$id"
+    val name = Normalizer.normalize(p.text("name"), Normalizer.Form.NFKC)
+        .split("\\s+".toRegex()).filter { it.isNotEmpty() }.joinToString(" ")
+    return "name:" + name.lowercase(Locale.ROOT)
 }

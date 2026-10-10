@@ -79,6 +79,51 @@ class MediaModelsTest {
         assertEquals("", posterPath(JSONObject().put("poster_path", JSONObject.NULL).put("show_poster", " ").put("cover", "")))
     }
 
+    @Test fun detailBackdropsFollowTheSameContractAsTheWeb() {
+        assertEquals("/api/movies/7/backdrop", detailBackdropPath("movie", JSONObject().put("tmdb_id", 1), 7))
+        assertEquals("", detailBackdropPath("movie", JSONObject(), 7))
+        assertEquals("", detailBackdropPath("movie", JSONObject().put("tmdb_id", 0), 7))
+        assertEquals("/posters/backdrops/tv_123.jpg", detailBackdropPath("show", JSONObject().put("backdrop_path", "backdrops/tv_123.jpg"), 9))
+        assertEquals("/posters/backdrops/tv_123.jpg", detailBackdropPath("season", JSONObject().put("show_backdrop_path", "posters/backdrops/tv_123.jpg"), 9))
+        assertEquals("/posters/backdrops/tv_123.jpg", detailBackdropPath("episode", JSONObject().put("show_backdrop_path", "/backdrops/tv_123.jpg"), 11))
+        assertEquals("", detailBackdropPath("show", JSONObject(), 9))
+        assertEquals("", detailBackdropPath("collection", JSONObject().put("backdrop_path", "backdrops/tv_123.jpg"), 3))
+    }
+
+    @Test fun castAvatarsPreferTheProxyForTmdbPathsAndPostersForLocalFiles() {
+        assertEquals("/api/tv/cast-avatar?path=%2Fabc.jpg", castAvatarPath(JSONObject().put("profile_path", "/abc.jpg")))
+        assertEquals("/api/tv/cast-avatar?path=%2Fabc.jpg", castAvatarPath(JSONObject().put("profile_tmdb_path", "/abc.jpg")))
+        assertEquals("/api/tv/cast-avatar?path=%2Fabc.jpg", castAvatarPath(JSONObject().put("avatar", "/abc.jpg")))
+        assertEquals("/posters/persons/1.jpg", castAvatarPath(JSONObject().put("avatar", "posters/persons/1.jpg")))
+        assertEquals("", castAvatarPath(JSONObject().put("avatar", "-")))
+        assertEquals("", castAvatarPath(JSONObject()))
+    }
+
+    @Test fun castCharactersAreOnlyShownForEnglishOriginals() {
+        val p = JSONObject().put("character", "Neo").put("character_name", "Neo")
+        assertEquals("Neo", castCharacter(p, "en"))
+        assertEquals("", castCharacter(p, "zh-CN"))
+        assertEquals("", castCharacter(p, ""))
+        assertEquals("Neo", castCharacter(JSONObject().put("character_name", "Neo"), "English"))
+    }
+
+    @Test fun movieCastWallsOnlyShowActorsLikeTheWeb() {
+        val row = JSONObject().put("persons", org.json.JSONArray()
+            .put(JSONObject().put("name", "A").put("role", "actor"))
+            .put(JSONObject().put("name", "D").put("role", "director")))
+        assertEquals(listOf("A"), detailCastList("movie", row).map { it.getString("name") })
+        val show = JSONObject().put("cast", org.json.JSONArray().put(JSONObject().put("name", "B")))
+        assertEquals(listOf("B"), detailCastList("show", show).map { it.getString("name") })
+    }
+
+    @Test fun castActorKeysMatchTheServerIndex() {
+        assertEquals("tmdb:42", castActorKey(JSONObject().put("id", 42).put("name", "岩男润子")))
+        assertEquals("tmdb:42", castActorKey(JSONObject().put("tmdb_id", 42).put("name", "岩男润子")))
+        assertEquals("name:岩男润子", castActorKey(JSONObject().put("id", 0).put("name", "岩男润子")))
+        assertEquals("name:zhang yimou", castActorKey(JSONObject().put("name", "  Zhang   YIMOU  ")))
+        assertEquals("name:", castActorKey(JSONObject()))
+    }
+
     @Test fun recentEpisodeImageRequestsPreserveTheDeploymentPrefix() = runBlocking {
         MockWebServer().use { server ->
             val recentEpisode = JSONObject("""{"kind":"episode","poster_path":"tv/123.jpg","progress":{"version_id":456}}""")

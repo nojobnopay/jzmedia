@@ -336,7 +336,7 @@ private fun ServerPickerDialog(
                     items(results, key = { it.address }) { hit ->
                         TvAction(serverChoiceLabel(hit), { onPick(hit) },
                             Modifier.fillMaxWidth().focusMemory(memory, "pick:${hit.address}"),
-                            selected = hit.address == movedAddress, enabled = hit.protocolOk, icon = "server")
+                            selected = hit.address == movedAddress, enabled = hit.protocolOk, icon = "server", fillContent = true)
                     }
                 }
             } else {
@@ -367,12 +367,12 @@ private fun LibrariesScreen(api: JzApi, selected: Long, memory: FocusMemory, onS
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { SectionHeading("选择媒体库") }
-        item { TvAction("全部媒体库", { onSelect(0, "全部媒体库") }, Modifier.focusMemory(memory, "library:0"), selected == 0L, icon = "library") }
+        item { TvAction("全部媒体库", { onSelect(0, "全部媒体库") }, Modifier.fillMaxWidth().focusMemory(memory, "library:0"), selected == 0L, icon = "library", fillContent = true) }
         if (error.isNotBlank()) item { Status(error, { attempt++ }) }
         else if (rows == null) item { Status("正在读取媒体库…", icon = "loading") }
         items(rows.orEmpty(), key = { it.optLong("id") }) { row ->
             TvAction(row.text("name"), { onSelect(row.optLong("id"), row.text("name")) },
-                Modifier.focusMemory(memory, "library:${row.optLong("id")}"), selected == row.optLong("id"), icon = "library")
+                Modifier.fillMaxWidth().focusMemory(memory, "library:${row.optLong("id")}"), selected == row.optLong("id"), icon = "library", fillContent = true)
         }
     }
 }

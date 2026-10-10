@@ -3,8 +3,6 @@ package org.jzmedia.tv.ui
 import org.jzmedia.tv.ui.generated.DesignTokens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -39,20 +36,20 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.jzmedia.tv.data.JzApi
+import org.jzmedia.tv.data.castActorKey
+import org.jzmedia.tv.data.detailBackdropPath
+import org.jzmedia.tv.data.detailCastList
 import org.jzmedia.tv.data.episodeTitle
 import org.jzmedia.tv.data.mediaTitle
 import org.jzmedia.tv.data.posterPath
@@ -196,6 +193,23 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
             target.startsWith("season:") -> gridStart + seasons.indexOfFirst { "season:${it.optInt("season")}" == target }.coerceAtLeast(0) / seasonColumns
             target.startsWith("episode:") -> gridStart + episodes.indexOfFirst { "episode:${it.id}" == target }.coerceAtLeast(0) / episodeColumns
             target.startsWith("member:") -> gridStart + row.rows("members").indexOfFirst { "member:${it.optLong("id")}" == target }.coerceAtLeast(0) / collectionColumns
+            target.startsWith("cast:") -> {
+                // 演职员独占一个 item，位置跟随上方各区（季/集行、花絮）。
+                var castIndex = gridStart
+                if (route.kind == "show") castIndex += 1 + ((seasons.size + seasonColumns - 1) / seasonColumns) +
+                    if (seasons.isEmpty()) 1 else 0
+                if (route.kind == "season") castIndex += 1 + ((episodes.size + episodeColumns - 1) / episodeColumns) +
+                    if (page > 0 || row.optBoolean("has_more")) 1 else 0 + 1
+                if (route.kind == "episode") castIndex += 1
+                if (route.kind == "collection") {
+                    val members = row.rows("members")
+                    castIndex += 1 + ((members.size + collectionColumns - 1) / collectionColumns) +
+                        if (members.isEmpty()) 1 else 0
+                }
+                val extras = row.rows("extras")
+                if (extras.isNotEmpty()) castIndex += 1 + extras.size
+                castIndex
+            }
             target in setOf("play", "restart", "version", "more") -> 0
             else -> null
         }
@@ -246,15 +260,21 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
         LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp)) {
             item(key = "hero") {
                 // 网页详情大海报观感：固定 2:3 展示尺寸（清晰度由来图决定，布局尺寸不变）。
+                // 背景盖顶部介绍区（海报+标题+操作+简介，网页同口径），合集无背景。
+                // 回到顶部介绍区时吸顶到首项，避免海报半截悬空。
                 val heroPosterWidth = if (contentWidth < 700) 120.dp else 168.dp
-                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                Box(Modifier.fillMaxWidth().onFocusChanged { if (it.hasFocus) scope.launch { listState.scrollToItem(0) } }) {
+                    DetailBackdrop(api, detailBackdropPath(route.kind, row, route.id), Modifier.matchParentSize())
+                    // 背景出血：上下左右各留边，背景高于海报、低于简介按钮，不与海报齐平。
+                    Row(Modifier.padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     Box {
                         Poster(api, posterPath(row), title,
                             Modifier.width(heroPosterWidth).height(heroPosterWidth * 1.5f),
                             fallbackPosterPath = detailFallbackPoster(row))
                         if (watched) WatchedBadge(Modifier.align(Alignment.TopStart).padding(5.dp))
                     }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(title, style = MaterialTheme.typography.headlineMedium, maxLines = 2,
                             overflow = TextOverflow.Ellipsis)
                         Text(listOf(row.text("year").ifBlank { row.text("show_year") }, row.text("origin_country_name"), row.text("library_name"),
@@ -290,6 +310,14 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                         }
                         if (offline || (route.kind in listOf("show", "season") && next != null && nextOffline))
                             Text("此文件目前离线，请选择其它分集或版本", color = DesignTokens.Error)
+                        if (overview.isNotBlank()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(overview, color = Muted, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                // 简介整段一块进弹窗，不按字数切片（切片会在句中切成两截）。
+                                TvAction("查看完整简介", { textDialog = "剧情简介" to listOf(overview) }, targetModifier("overview"), icon = "info")
+                            }
+                        }
+                    }
                     }
                 }
             }
@@ -340,31 +368,22 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
                 }
                 if (members.isEmpty()) item { Status("合集中还没有影片") }
             }
-            if (overview.isNotBlank()) item {
-                Column(Modifier.widthIn(max = 720.dp).padding(top = if (route.kind == "season") 0.dp else 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SectionHeading("剧情简介")
-                    Text(overview, color = Muted, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    TvAction("查看完整简介", { textDialog = "剧情简介" to overview.chunked(240) }, targetModifier("overview"), icon = "info")
-                }
-            }
             if (row.rows("extras").isNotEmpty()) {
                 item { SectionHeading("花絮与特别内容") }
                 items(row.rows("extras"), key = { "extra:${it.optLong("id")}" }) { extra ->
                     TvAction("${extra.text("label").ifBlank { "花絮" }} · ${mediaTitle(extra)}", {
                         if (!knownOffline(extra)) play(PlaybackRequest("extra", extra.optLong("id"), mediaTitle(extra), true))
-                    }, targetModifier("extra:${extra.optLong("id")}").fillMaxWidth(), enabled = !knownOffline(extra), icon = "play")
+                    }, targetModifier("extra:${extra.optLong("id")}").fillMaxWidth(), enabled = !knownOffline(extra), icon = "play", fillContent = true)
                 }
             }
-            val cast = row.rows(if (route.kind == "movie") "persons" else "cast")
+            val cast = detailCastList(route.kind, row)
             if (cast.isNotEmpty()) item {
-                Column(Modifier.widthIn(max = 720.dp).padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SectionHeading("演职员")
-                    Text(cast.take(8).joinToString(" · ") { it.text("name") }, color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    TvAction("查看演职员（${cast.size}）", {
-                        textDialog = "演职员" to cast.map { person -> person.text("name") + person.text("character").ifBlank { person.text("character_name").ifBlank { person.text("role") } }.let { if (it.isBlank()) "" else " · $it" } }
-                    }, targetModifier("cast"), icon = "person")
-                }
+                // 卡片墙与“库中相关推荐”同列宽：占满整列横滚，不套 720dp 文字限宽。
+                CastWall(api, cast, row.text("original_language"), memory, { person ->
+                    navigate(TvRoute("actor-works",
+                        title = person.text("name").ifBlank { "演员作品" },
+                        actorKey = castActorKey(person)))
+                }, Modifier.padding(top = 8.dp))
             }
             if (row.rows("collections").isNotEmpty()) item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -477,30 +496,9 @@ internal fun detailFocusKeys(kind: String, row: JSONObject, page: Int, movieVers
     if (kind == "collection") row.rows("members").forEach { add("member:${it.optLong("id")}") }
     if (row.text("overview_display").ifBlank { row.text("overview") }.isNotBlank()) add("overview")
     row.rows("extras").filterNot(::knownOffline).forEach { add("extra:${it.optLong("id")}") }
-    if (row.rows(if (kind == "movie") "persons" else "cast").isNotEmpty()) add("cast")
     row.rows("collections").forEach { add("collection:${it.optLong("id")}") }
+    detailCastList(kind, row).forEach { add("cast:${castActorKey(it)}") }
 }
 
 private fun versionLabel(row: JSONObject): String = listOf(row.text("edition"), row.text("spec"), row.text("file_path").substringAfterLast('/'))
     .filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "版本 ${row.optLong("id")}" }
-
-@Composable
-private fun TextDialog(title: String, lines: List<String>, onClose: () -> Unit) {
-    val memory = rememberFocusMemory("text:0")
-    val dialogHeight = tvDialogMaxHeight(.88f)
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.fillMaxWidth(.8f).heightIn(max = dialogHeight).background(Panel, RoundedCornerShape(DesignTokens.DialogRadius)).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(title, style = MaterialTheme.typography.headlineSmall)
-            LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                items(lines.size) { index ->
-                    var focused by remember { mutableStateOf(false) }
-                    Text(lines[index], modifier = Modifier.fillMaxWidth().focusMemory(memory, "text:$index")
-                        .onFocusChanged { focused = it.isFocused }.border(2.dp, if (focused) DesignTokens.TextStrong else Color.Transparent, RoundedCornerShape(DesignTokens.CornerRadius))
-                        .focusable().padding(12.dp))
-                }
-            }
-            TvAction("关闭", onClose)
-        }
-    }
-}

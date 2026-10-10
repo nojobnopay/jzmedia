@@ -361,7 +361,7 @@ private fun FilterDialog(api: JzApi, kind: String, library: Long, current: List<
                 if (error.isNotBlank()) item { Status(error, { attempt++ }) }
                 items((if (kind == "collections") listOf(5, 6) else (0..6).toList())) { index ->
                     val label = options[index].firstOrNull { it.first == values[index] }?.second ?: values[index]
-                    TvAction("${labels[index]}：$label", { picker = index }, Modifier.fillMaxWidth())
+                    TvAction("${labels[index]}：$label", { picker = index }, Modifier.fillMaxWidth(), fillContent = true)
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -391,7 +391,7 @@ fun ChoiceDialog(title: String, choices: List<Pair<String, String>>, selected: S
             Text(title, style = MaterialTheme.typography.headlineSmall)
             LazyColumn(state = listState, modifier = Modifier.weight(1f, fill = false), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(choices, key = { it.first }) { (value, label) ->
-                    TvAction(label, { onSelect(value) }, Modifier.fillMaxWidth().focusMemory(memory, "choice:$value"), selected == value)
+                    TvAction(label, { onSelect(value) }, Modifier.fillMaxWidth().focusMemory(memory, "choice:$value"), selected == value, fillContent = true)
                 }
             }
         }

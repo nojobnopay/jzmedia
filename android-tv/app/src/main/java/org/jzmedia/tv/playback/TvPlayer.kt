@@ -240,10 +240,10 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
                 }
                 when (menu) {
                     "settings" -> {
-                        item { TvAction("画质 · ${qualityName(state.quality)}", { menu = "quality" }, Modifier.fillMaxWidth(), icon = "quality") }
-                        item { TvAction("音轨", { menu = "audio" }, Modifier.fillMaxWidth(), icon = "volume") }
-                        item { TvAction("字幕", { menu = "subtitle" }, Modifier.fillMaxWidth(), icon = "subtitles") }
-                        item { TvAction("倍速 · ${state.rate}×", { menu = "rate" }, Modifier.fillMaxWidth(), icon = "speed") }
+                        item { TvAction("画质 · ${qualityName(state.quality)}", { menu = "quality" }, Modifier.fillMaxWidth(), icon = "quality", fillContent = true) }
+                        item { TvAction("音轨", { menu = "audio" }, Modifier.fillMaxWidth(), icon = "volume", fillContent = true) }
+                        item { TvAction("字幕", { menu = "subtitle" }, Modifier.fillMaxWidth(), icon = "subtitles", fillContent = true) }
+                        item { TvAction("倍速 · ${state.rate}×", { menu = "rate" }, Modifier.fillMaxWidth(), icon = "speed", fillContent = true) }
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("字幕大小", color = Muted, style = MaterialTheme.typography.labelLarge)
@@ -264,16 +264,16 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
                                 }
                             }
                         }
-                        item { TvAction("字幕延迟归零", { controller.adjustSubtitleDelay(-state.subtitleDelay) }, Modifier.fillMaxWidth(), icon = "refresh") }
-                        if (request.kind == "episode") item { TvAction("自动下一集 · ${if (state.autoNext) "开" else "关"}", { controller.toggleAutoNext() }, Modifier.fillMaxWidth(), icon = "next") }
+                        item { TvAction("字幕延迟归零", { controller.adjustSubtitleDelay(-state.subtitleDelay) }, Modifier.fillMaxWidth(), icon = "refresh", fillContent = true) }
+                        if (request.kind == "episode") item { TvAction("自动下一集 · ${if (state.autoNext) "开" else "关"}", { controller.toggleAutoNext() }, Modifier.fillMaxWidth(), icon = "next", fillContent = true) }
                         item { Text("音量使用遥控器音量键；图片字幕的外观由服务器烧录决定。", color = Muted) }
                     }
-                    "quality" -> items(listOf("auto", "source", "1080p", "720p")) { quality -> TvAction(qualityName(quality), { controller.setQuality(quality); menu = null }, Modifier.fillMaxWidth(), selected = state.quality == quality) }
-                    "rate" -> items(PLAYBACK_RATES) { rate -> TvAction("${rate}×", { controller.setRate(rate); menu = null }, Modifier.fillMaxWidth(), selected = state.rate == rate) }
-                    "audio" -> items(state.audios) { track -> TvAction(track.label, { controller.setAudio(track.index); menu = null }, Modifier.fillMaxWidth(), selected = state.audio == track.index) }
+                    "quality" -> items(listOf("auto", "source", "1080p", "720p")) { quality -> TvAction(qualityName(quality), { controller.setQuality(quality); menu = null }, Modifier.fillMaxWidth(), selected = state.quality == quality, fillContent = true) }
+                    "rate" -> items(PLAYBACK_RATES) { rate -> TvAction("${rate}×", { controller.setRate(rate); menu = null }, Modifier.fillMaxWidth(), selected = state.rate == rate, fillContent = true) }
+                    "audio" -> items(state.audios) { track -> TvAction(track.label, { controller.setAudio(track.index); menu = null }, Modifier.fillMaxWidth(), selected = state.audio == track.index, fillContent = true) }
                     "subtitle" -> {
-                        item { TvAction("关闭字幕", { controller.setSubtitle(null); menu = null }, Modifier.fillMaxWidth(), selected = state.subtitle == null, icon = "subtitles") }
-                        items(state.subtitles) { track -> TvAction(track.label + if (track.image) " · 图片字幕" else "", { controller.setSubtitle(track.index); menu = null }, Modifier.fillMaxWidth(), selected = state.subtitle == track.index) }
+                        item { TvAction("关闭字幕", { controller.setSubtitle(null); menu = null }, Modifier.fillMaxWidth(), selected = state.subtitle == null, icon = "subtitles", fillContent = true) }
+                        items(state.subtitles) { track -> TvAction(track.label + if (track.image) " · 图片字幕" else "", { controller.setSubtitle(track.index); menu = null }, Modifier.fillMaxWidth(), selected = state.subtitle == track.index, fillContent = true) }
                     }
                 }
             }

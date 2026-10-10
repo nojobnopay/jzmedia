@@ -1,5 +1,6 @@
 package org.jzmedia.tv.ui
 
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -44,6 +46,7 @@ import org.jzmedia.tv.data.SearchHistoryStore
 import org.jzmedia.tv.data.actorAvatarPath
 import org.jzmedia.tv.data.actorWorkSummary
 import org.jzmedia.tv.data.actorWorksPath
+import org.jzmedia.tv.data.castAvatarPath
 import org.jzmedia.tv.data.rows
 import org.jzmedia.tv.data.text
 import org.json.JSONObject
@@ -76,6 +79,10 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
     var attempt by remember { mutableStateOf(0) }
     var resetResults by remember { mutableStateOf(false) }
     var focusResults by remember { mutableStateOf(false) }
+    // 网页人物页同款：头像+简介+作品。简介仅 tmdb: key 经 persons 接口取，
+    // name: key 无简介可取（简介区直接隐藏）；头像简介缺失不挡作品。
+    var person by remember { mutableStateOf<JSONObject?>(null) }
+    var bioOpen by remember { mutableStateOf(false) }
     val grid = rememberLazyGridState()
     val firstResult = remember { FocusRequester() }
     val scopeAllButton = remember { FocusRequester() }
@@ -127,6 +134,31 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
         resetResults = false; focusResults = false
     }
     fun turnPage(next: Int) { if (next != page) { data = null; error = ""; page = next; focusResults = true } }
+    LaunchedEffect(api, route.actorKey, route.title) {
+        person = null
+        val key = route.actorKey
+        if (!key.startsWith("tmdb:")) return@LaunchedEffect
+        val tid = key.removePrefix("tmdb:").toLongOrNull()?.takeIf { it > 0 } ?: return@LaunchedEffect
+        try {
+            // 网页点击进人物页同款：本地先读，无档先建档，简介空再后台补。
+            var p: JSONObject? = try { api.get("/api/persons/$tid") }
+            catch (e: ApiException) { if (e.status == 404) null else throw e }
+            coroutineContext.ensureActive()
+            if (p == null) {
+                api.post("/api/persons/ensure", JSONObject().put("tmdb_id", tid).put("name", route.title))
+                coroutineContext.ensureActive()
+                p = try { api.get("/api/persons/$tid") }
+                catch (e: ApiException) { if (e.status == 404) null else throw e }
+                coroutineContext.ensureActive()
+            }
+            person = p
+            if (p != null && p.optString("biography").isBlank()) {
+                try { person = api.post("/api/persons/$tid/refresh", JSONObject()) }
+                catch (e: Exception) { Log.d("JzActor", "person bio refresh unavailable: ${e.message}") }
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { Log.d("JzActor", "person header unavailable: ${e.message}") }
+    }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(data?.optJSONObject("actor")?.text("name").orEmpty().ifBlank { route.title.ifBlank { "演员作品" } },
@@ -141,6 +173,21 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
             }
         }
         Text(data?.let { "本库 ${it.optInt("total")} 部作品 · 第 ${page + 1} 页" } ?: "本库作品", color = Muted)
+        val actorObj = data?.optJSONObject("actor")
+        val actorName = actorObj?.text("name").orEmpty().ifBlank { route.title }
+        val avatarSrc = actorAvatarPath(actorObj ?: JSONObject())
+            .ifBlank { person?.let { castAvatarPath(it) } ?: "" }
+        val bio = person?.optString("biography").orEmpty().trim()
+        if (avatarSrc.isNotBlank() || bio.isNotBlank()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
+                if (avatarSrc.isNotBlank()) CastAvatar(api, avatarSrc, actorName.ifBlank { "演员" }, Modifier.size(96.dp))
+                if (bio.isNotBlank()) Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(bio, color = Muted, maxLines = 5, overflow = TextOverflow.Ellipsis)
+                    if (bio.length > 180) TvAction("查看完整简介", { bioOpen = true }, icon = "info")
+                }
+            }
+        }
+        if (bioOpen && bio.isNotBlank()) TextDialog("人物简介", listOf(bio)) { bioOpen = false }
         when {
             error.isNotBlank() -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Status(error, icon = "error")
