@@ -538,7 +538,7 @@ export const iconRegistry = {
   ],
   "play": [
     {
-      "d": "M8.67 5.5v13l10-6.5Z",
+      "d": "M8.2 5.8v13l10-6.5Z",
       "fill": "currentColor",
       "stroke": "none",
       "fillRule": "nonzero"

@@ -1437,7 +1437,7 @@
       "name": "播放",
       "category": "playback",
       "master": "design/icons/play.svg",
-      "revision": 1,
+      "revision": 5,
       "grid": [
         24,
         24
@@ -1450,6 +1450,26 @@
           "revision": 1,
           "date": "2026-10-03",
           "change": "跨端统一24网格/1.7线宽；数字为路径"
+        },
+        {
+          "revision": 2,
+          "date": "2026-10-10",
+          "change": "三角外框横向居中（左缘 8.67→7，中心回到 12），去掉播放器大按钮的 padding 补偿"
+        },
+        {
+          "revision": 3,
+          "date": "2026-10-10",
+          "change": "光学居中微调（外框中心 12.0→12.4，介于 Feather 与 Material 之间），小尺寸下不再显偏左"
+        },
+        {
+          "revision": 4,
+          "date": "2026-10-10",
+          "change": "真机反馈仍显偏左，外框中心再右移 12.4→12.6"
+        },
+        {
+          "revision": 5,
+          "date": "2026-10-10",
+          "change": "六档真机对比定稿：外框中心 (13.2, 12.3)，大按钮/红悬浮态/海报卡实景统一验证"
         }
       ],
       "deprecated": false,

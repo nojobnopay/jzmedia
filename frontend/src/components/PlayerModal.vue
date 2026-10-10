@@ -1565,7 +1565,7 @@ defineExpose({ saveFinal })
 .stage-state > span { color: var(--jz-text-dim); font-size: .75rem; }
 .seek-ov { background: #08080b99; }
 .pause-state { pointer-events: none; background: linear-gradient(transparent, #0003); }
-.center-play { pointer-events: auto; display: grid; place-items: center; width: 76px; height: 76px; padding: 0 0 0 3px;
+.center-play { pointer-events: auto; display: grid; place-items: center; width: 76px; height: 76px; padding: 0;
   border: 1px solid #ffffff40; border-radius: 50%; color: var(--jz-on-accent); background: #16161a99; backdrop-filter: blur(8px);
   box-shadow: 0 4px 28px #0005; transition: background .2s, transform .2s; }
 .center-play:hover { transform: scale(1.06); background: #ffffff30; }

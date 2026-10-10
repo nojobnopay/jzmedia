@@ -71,7 +71,7 @@ object DesignIcons {
         "pause" to listOf(Shape("M8 5v14M16 5v14", fill = false, stroke = true, evenOdd = false)),
         "person" to listOf(Shape("M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M4 21v-3a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v3", fill = false, stroke = true, evenOdd = false)),
         "pin" to listOf(Shape("m9 3 12 12M8 4l12 12M9 5 5 9l1 4-4 4 5 5 4-4 4 1 4-4", fill = false, stroke = true, evenOdd = false)),
-        "play" to listOf(Shape("M8.67 5.5v13l10-6.5Z", fill = true, stroke = false, evenOdd = false)),
+        "play" to listOf(Shape("M8.2 5.8v13l10-6.5Z", fill = true, stroke = false, evenOdd = false)),
         "plus" to listOf(Shape("M12 5v14M5 12h14", fill = false, stroke = true, evenOdd = false)),
         "quality" to listOf(Shape("M3 5h18v14H3ZM7 9v6m4-6v6M7 12h4M15 9h2a2 3 0 0 1 0 6h-2Z", fill = false, stroke = true, evenOdd = false)),
         "refresh" to listOf(Shape("M20 10a8 8 0 0 0-14-5L3 8m0-5v5h5", fill = false, stroke = true, evenOdd = false), Shape("M4 14a8 8 0 0 0 14 5l3-3m0 5v-5h-5", fill = false, stroke = true, evenOdd = false)),
