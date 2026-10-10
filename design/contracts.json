@@ -668,6 +668,16 @@
         "Ctrl / ⌘"
       ],
       "reason": "Mac Command实际键盘快捷键说明；不是按钮图标"
+    },
+    {
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
+      "symbols": "↑↓",
+      "contexts": [
+        "已到末尾，按 ↑ 回看",
+        "继续按 ↑ ↓ 滚动",
+        "按 ↓ 滚动查看更多"
+      ],
+      "reason": "简介滚动提示文案中用箭头示意遥控器上下方向键；不是按钮图标"
     }
   ],
   "purpose_overrides": [
