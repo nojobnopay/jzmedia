@@ -1,5 +1,8 @@
 # Local configuration and Python caches
 .env
+# Vite 本地开发覆盖（如 VITE_API_TARGET 指向本机后端端口），不入库
+frontend/.env.local
+frontend/.env.*.local
 # 本机专属（2026-10-10）：含本机主机名/网络/挂载信息，不入库，只存本地工作区
 /AGENTS.md
 /docker-compose.override.yml
