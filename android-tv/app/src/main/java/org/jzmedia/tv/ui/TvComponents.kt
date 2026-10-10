@@ -8,6 +8,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +23,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -32,11 +33,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -55,6 +58,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -66,6 +70,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
@@ -94,6 +99,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.castActorKey
 import org.jzmedia.tv.data.mediaCardSubtitle
@@ -370,23 +377,180 @@ fun CastWall(api: JzApi, cast: List<JSONObject>, originalLanguage: String, memor
 
 @Composable
 internal fun TextDialog(title: String, lines: List<String>, onClose: () -> Unit) {
-    val memory = rememberFocusMemory("text:0")
     val dialogHeight = tvDialogMaxHeight(.88f)
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val textFocus = remember { FocusRequester() }
+    val closeFocus = remember { FocusRequester() }
+    var viewportPx by remember { mutableStateOf(0) }
+    var textFocused by remember { mutableStateOf(false) }
+    // 正文默认样式的行高：实测结果出来前做兜底。
+    val styleLinePx = with(density) { MaterialTheme.typography.bodyLarge.lineHeight.toPx().toInt() }
+    // 各段正文实测（行数, 文本高度px）：行高一律按实际渲染结果算，不估。
+    var measured by remember(lines) { mutableStateOf(mapOf<Int, Pair<Int, Int>>()) }
+    val avgLinePx = textDialogAvgLine(
+        measured.values.sumOf { it.second }, measured.values.sumOf { it.first }, styleLinePx)
+    // 上次已处理按键的系统时间：紧随事件按连发处理，
+    // 覆盖“一次按压发多个首按事件”的遥控器。用数组免重组也能读到最新值。
+    val lastHandled = remember { longArrayOf(0L) }
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        textFocus.requestFocus()
+    }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxWidth(.8f).heightIn(max = dialogHeight).background(Panel, RoundedCornerShape(DesignTokens.DialogRadius)).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(title, style = MaterialTheme.typography.headlineSmall)
-            LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                items(lines.size) { index ->
-                    var focused by remember { mutableStateOf(false) }
-                    Text(lines[index], modifier = Modifier.fillMaxWidth().focusMemory(memory, "text:$index")
-                        .onFocusChanged { focused = it.isFocused }.border(2.dp, if (focused) DesignTokens.TextStrong else Color.Transparent, RoundedCornerShape(DesignTokens.CornerRadius))
-                        .focusable().padding(12.dp))
+            // 长文本单段也可能超出弹窗：整块作为一个可聚焦滚动区，
+            // 点按按可见行数的三分之一翻页、按住连发逐行滚；
+            // 到底/到顶后按键不再消费，焦点让给关闭按钮。
+            Box(Modifier.weight(1f, fill = false).fillMaxWidth()
+                .focusRequester(textFocus)
+                .focusProperties { down = closeFocus }
+                .onFocusChanged { textFocused = it.isFocused }
+                .border(2.dp, if (textFocused) DesignTokens.TextStrong else Color.Transparent, RoundedCornerShape(DesignTokens.CornerRadius))
+                .drawWithContent {
+                    drawContent()
+                    // 右缘滚动条只指示位置，不参与焦点；滑块按可视/全文比例定位。
+                    val max = scroll.maxValue
+                    if (max > 0) {
+                        val barW = 4.dp.toPx()
+                        val inset = 8.dp.toPx()
+                        val trackH = (size.height - inset * 2).coerceAtLeast(0f)
+                        val left = size.width - inset - barW
+                        drawRoundRect(DesignTokens.Border, Offset(left, inset), Size(barW, trackH),
+                            CornerRadius(barW / 2, barW / 2))
+                        textDialogThumb(scroll.value, max, trackH.roundToInt(), 32.dp.toPx().roundToInt())?.let { (top, h) ->
+                            drawRoundRect(DesignTokens.TextDim, Offset(left, inset + top), Size(barW, h.toFloat()),
+                                CornerRadius(barW / 2, barW / 2))
+                        }
+                    }
+                }
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    // 首按翻“实测可见行数的三分之一”，紧随连击/按住连发改 1 行瞬时滚：
+                    // 点按跟手、连按不断片。落点对齐整行，顶行永远完整显示。
+                    val down = when (event.key) {
+                        Key.DirectionDown -> true
+                        Key.DirectionUp -> false
+                        else -> return@onPreviewKeyEvent false
+                    }
+                    val native = event.nativeKeyEvent
+                    val following = textDialogIsRepeat(native.repeatCount, native.eventTime, lastHandled[0])
+                    val step = textDialogStepPx(following, viewportPx,
+                        with(density) { 400.dp.toPx().toInt() }, avgLinePx)
+                    val raw = textDialogScrollTarget(scroll.value, scroll.maxValue, step, down = down)
+                        ?: return@onPreviewKeyEvent false
+                    val target = textDialogSnapTarget(raw, scroll.value, scroll.maxValue, avgLinePx, down = down)
+                    // 连发用瞬时滚动：多个动画叠加是抖动的根因；点按保留动画跟手感。
+                    scope.launch { if (following) scroll.scrollTo(target) else scroll.animateScrollTo(target) }
+                    lastHandled[0] = native.eventTime
+                    true
+                }
+                .onSizeChanged { viewportPx = it.height }
+                .verticalScroll(scroll)
+                .semantics { contentDescription = "$title 全文" }) {
+                Column(Modifier.fillMaxWidth().padding(start = 12.dp, top = 12.dp, bottom = 12.dp,
+                    end = if (scroll.maxValue > 0) 20.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    lines.forEachIndexed { index, text ->
+                        Text(text, onTextLayout = { result ->
+                            val count = result.lineCount
+                            val mark = count to
+                                (if (count > 0) result.getLineBottom(count - 1).roundToInt() else 0)
+                            if (measured[index] != mark) measured = measured + (index to mark)
+                        })
+                    }
                 }
             }
-            TvAction("关闭", onClose)
+            // 滚动提示只占位不参与焦点；不可滚时不显示。用派生状态读滚动位置，
+            // 滚动中途不重组（逐像素重组在弱芯片上会抖），只在三态切换时更新。
+            val canScrollHint by remember { derivedStateOf { scroll.maxValue > 0 } }
+            val atEndHint by remember { derivedStateOf { scroll.maxValue > 0 && scroll.value >= scroll.maxValue } }
+            val pastTopHint by remember { derivedStateOf { scroll.value > 0 } }
+            if (canScrollHint) {
+                val hint = when {
+                    atEndHint -> "已到末尾，按 ↑ 回看"
+                    pastTopHint -> "继续按 ↑ ↓ 滚动"
+                    else -> "按 ↓ 滚动查看更多"
+                }
+                Text(hint, color = Muted, style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            TvAction("关闭", onClose, Modifier.focusRequester(closeFocus).focusProperties { up = textFocus })
         }
     }
+}
+
+/** 兜底页高（实测视口和行高不可用时）：约三分之一可视高度，保证首屏按键也有反应。 */
+internal fun textDialogPagePx(viewportPx: Int, fallbackPx: Int): Int =
+    if (viewportPx > 0) (viewportPx / 3).coerceAtLeast(1) else fallbackPx.coerceAtLeast(1)
+
+/**
+ * 本次按键的滚动步长（px）：首按按“可见行数的三分之一行”翻页，
+ * 紧随连击/按住连发按 [repeatLines] 行逐行滚。行高由调用方实测传入，跟随系统字号；
+ * 行高未知时退回按视口像素步进，保证任何情况都有反应。
+ */
+internal fun textDialogStepPx(
+    repeat: Boolean,
+    viewportPx: Int,
+    fallbackPx: Int,
+    linePx: Int,
+    repeatLines: Int = 1,
+): Int {
+    val viewport = (if (viewportPx > 0) viewportPx else fallbackPx).coerceAtLeast(1)
+    val line = if (linePx > 0) linePx else (viewport / 15).coerceAtLeast(1)
+    if (repeat) return (line * repeatLines).coerceAtLeast(1)
+    if (linePx <= 0) return textDialogPagePx(viewportPx, fallbackPx)
+    val visibleLines = (viewport / line).coerceAtLeast(1)
+    return ((visibleLines / 3).coerceAtLeast(1) * line).coerceAtLeast(1)
+}
+
+/** 实测平均行高：正文 onTextLayout 汇总的总高度/总行数；无实测时用样式行高兜底。 */
+internal fun textDialogAvgLine(totalH: Int, totalLines: Int, fallbackPx: Int): Int =
+    if (totalLines > 0 && totalH > 0) (totalH / totalLines).coerceAtLeast(1) else fallbackPx.coerceAtLeast(1)
+
+/**
+ * 紧随事件判定：系统 repeat 事件，或与上个已处理按键间隔不足 [windowMs]。
+ * 后者覆盖“一次按压发多个首按事件”的遥控器；正常点按间隔远大于窗口，不受影响。
+ */
+internal fun textDialogIsRepeat(repeatCount: Int, eventTimeMs: Long, lastHandledMs: Long, windowMs: Long = 180L): Boolean =
+    repeatCount > 0 || (lastHandledMs > 0 && eventTimeMs - lastHandledMs < windowMs)
+
+/**
+ * 返回本次按键应滚动到的位置；返回 null 表示已到边界，不消费按键、
+ * 把焦点让给下一个控件（到底后下键到关闭按钮）。
+ */
+internal fun textDialogScrollTarget(value: Int, max: Int, page: Int, down: Boolean): Int? =
+    if (down) {
+        if (value < max) (value + page).coerceAtMost(max) else null
+    } else {
+        if (value > 0) (value - page).coerceAtLeast(0) else null
+    }
+
+/**
+ * 滚动条滑块在轨道内的 (top, height)，均为 px；不可滚时返回 null。
+ * 高度按 可视²/全文 占比，设最小值保证短屏上仍可见。
+ */
+internal fun textDialogThumb(value: Int, max: Int, trackPx: Int, minThumbPx: Int): Pair<Int, Int>? {
+    if (max <= 0 || trackPx <= 0) return null
+    val height = (trackPx.toFloat() / (trackPx + max) * trackPx).toInt()
+        .coerceIn(minThumbPx.coerceAtMost(trackPx), trackPx)
+    val top = (value.toFloat() / max * (trackPx - height)).toInt().coerceIn(0, trackPx - height)
+    return top to height
+}
+
+/**
+ * 落点向下对齐到整行高度，保证停住时顶行是完整的；到底时不做对齐、
+ * 原样返回 max，下一次下键才能把焦点让给关闭按钮。
+ */
+internal fun textDialogSnapTarget(target: Int, value: Int, max: Int, linePx: Int, down: Boolean): Int {
+    if (target >= max || linePx <= 0) return target.coerceIn(0, max)
+    var snapped = (target / linePx) * linePx
+    // 下滚且步长不足一行时保证至少前进一步，避免按键无反应；上滚天然有进展。
+    if (down && snapped <= value) snapped = value + linePx
+    return snapped.coerceIn(0, max)
 }
 
 @Composable
