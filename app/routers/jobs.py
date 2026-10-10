@@ -646,6 +646,51 @@ class BackfillBody(BaseModel):
     media_library_id: int | None = None
 
 
+# ---- TMDB 资料刷新（远程批量）：后台任务，立即返回 job_id，进度轮询，可取消 ----
+_REFRESH_JOBS = JobRegistry(prefix="refresh")
+
+
+def _refresh_worker(jid: str, tmdb_ids: list[int]) -> None:
+    def _stop() -> bool:
+        job = _REFRESH_JOBS.get(jid)
+        return job is None or job.get("state") != "running"
+
+    try:
+        total = len(tmdb_ids)
+        _REFRESH_JOBS.update(jid, total=total)
+        done, changed = 0, 0
+        failed: list[dict] = []
+        for tid in tmdb_ids:
+            if _stop():
+                _REFRESH_JOBS.update(jid, done=done, changed=changed,
+                                     failed=failed)
+                return
+            label = str(tid)
+            try:
+                try:
+                    cached = store.get_tmdb_cached(int(tid))
+                except Exception:
+                    cached = None
+                if cached and cached.get("title"):
+                    label = str(cached.get("title"))
+                out = scanner.refresh_tmdb_id(int(tid))
+                if out.get("changed"):
+                    changed += 1
+                if out.get("title"):
+                    label = str(out.get("title"))
+            except Exception as e:
+                failed.append({"tmdb_id": int(tid), "title": label,
+                               "error": str(e)[:200]})
+                failed = failed[-50:]
+            done += 1
+            _REFRESH_JOBS.update(jid, done=done, changed=changed,
+                                 failed=failed, current=label[:120])
+        _REFRESH_JOBS.update(jid, state="done", done=done, changed=changed,
+                             total=total, failed=failed, current="")
+    except Exception as e:
+        _REFRESH_JOBS.update(jid, state="failed", error=str(e)[:300])
+
+
 class RefreshBody(BaseModel):
     ids: list[int] | None = None
     tmdb_ids: list[int] | None = None
@@ -708,7 +753,8 @@ def backfill_meta(body: BackfillBody | None = None):
 
 @router.post("/tmdb-refresh")
 def tmdb_refresh(body: RefreshBody | None = None):
-    """手动批量刷新：显式给出的 ids/tmdb_ids 才抓远端，无变化的行不碰。
+    """手动批量刷新（远程）：显式给出的 ids/tmdb_ids 才抓远端，无变化的行不碰。
+    后台任务（jobkit）：立即返回 {job_id, total}，进度轮询，可取消；
     默认永不自动触发，供前端多选/设置页调用。"""
     body = body or RefreshBody()
     limit = max(1, min(body.limit or 500, 5000))
@@ -743,16 +789,52 @@ def tmdb_refresh(body: RefreshBody | None = None):
     if not tmdb_ids:
         raise HTTPException(422, "library has no tmdb_id yet, scan first")
     tmdb_ids = tmdb_ids[:limit]
-    done, failed = [], []
-    for tid in tmdb_ids:
-        try:
-            out = scanner.refresh_tmdb_id(tid)
-            done.append({"tmdb_id": tid, **out})
-        except Exception as e:
-            failed.append({"tmdb_id": tid, "error": str(e)})
-    return {"total": len(tmdb_ids),
-            "ok": len(done), "failed": failed,
-            "results": done, "facets": store.get_facets()}
+    try:
+        scope_ids = sorted({int(x) for x in (body.ids or [])})
+    except (TypeError, ValueError):
+        raise HTTPException(422, "ids must be int list")
+    scope = {"library_id": body.library_id,
+             "media_library_id": body.media_library_id,
+             "ids": scope_ids, "tmdb_ids": sorted(seen), "limit": limit}
+    running = _REFRESH_JOBS.running()
+    if running:
+        if all(running.get(k) == v for k, v in scope.items()):
+            return {"job_id": running["job_id"], "resumed": True,
+                    "total": running.get("total") or len(tmdb_ids),
+                    "library_id": body.library_id,
+                    "media_library_id": body.media_library_id}
+        raise HTTPException(409, "另一个范围的资料刷新正在进行，请等待完成")
+    job = _REFRESH_JOBS.create(total=len(tmdb_ids), changed=0, **scope)
+    jid = job["job_id"]
+    threading.Thread(target=_refresh_worker, args=(jid, tmdb_ids),
+                     daemon=True).start()
+    return {"job_id": jid, "resumed": False, "total": len(tmdb_ids),
+            "library_id": body.library_id,
+            "media_library_id": body.media_library_id}
+
+
+@router.get("/tmdb-refresh")
+def refresh_current():
+    """正在运行或最近的刷新任务（切页回来可继续跟踪进度）。"""
+    return _REFRESH_JOBS.running() or _REFRESH_JOBS.latest() or {"state": "idle"}
+
+
+@router.get("/tmdb-refresh/{job_id}")
+def refresh_status(job_id: str):
+    """刷新进度：{state, done, total, changed, failed[{tmdb_id,title,error}], current}。"""
+    job = _REFRESH_JOBS.get(job_id) if job_id else _REFRESH_JOBS.latest()
+    if not job:
+        return {"job_id": job_id, "state": "idle", "done": 0, "total": 0}
+    return job
+
+
+@router.post("/tmdb-refresh/{job_id}/cancel")
+def refresh_cancel(job_id: str = ""):
+    """取消刷新（协作式：worker 处理完当前影片后退出，已完成项保留）。"""
+    if not job_id:
+        running = _REFRESH_JOBS.running()
+        job_id = running["job_id"] if running else ""
+    return {"job_id": job_id, "state": _REFRESH_JOBS.cancel(job_id)}
 
 
 class NfoBody(BaseModel):

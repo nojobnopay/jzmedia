@@ -2,6 +2,7 @@
 restore-candidates / rebuild-nfo / backfill-meta / tmdb-refresh / extras-collect
 的 library 参数——限定库时只作用于该库，缺省行为不变（全库）。"""
 import pathlib
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +11,15 @@ from app import library_paths, scanner, store
 from app.main import app
 
 client = TestClient(app)
+
+
+def _wait_refresh(job_id: str, tries: int = 100) -> dict:
+    for _ in range(tries):
+        st = client.get(f"/api/jobs/tmdb-refresh/{job_id}").json()
+        if st.get("state") != "running":
+            return st
+        time.sleep(0.05)
+    return st
 
 
 @pytest.fixture()
@@ -98,7 +108,35 @@ def test_tmdb_refresh_scoped(media_root, second_library, monkeypatch):
                         lambda tid: seen.append(int(tid)) or {"changed": False})
     try:
         d = client.post("/api/jobs/tmdb-refresh", json={"library_id": lib["id"]}).json()
-        assert d["total"] == 1 and seen == [889002]
+        assert d["total"] == 1 and d["job_id"]
+        st = _wait_refresh(d["job_id"])
+        assert st["state"] == "done" and seen == [889002], st
+    finally:
+        store.delete_movie(a)
+        store.delete_movie(b)
+
+
+def test_tmdb_refresh_reports_failure(media_root, second_library, monkeypatch):
+    """刷新失败逐条带原因：某部抓取抛异常不中断整批，失败项进 failed。"""
+    lib = second_library
+    a = _mk(media_root, "rf2/A (2020).mkv", title="A", tmdb_id=889011, year=2020)
+    b = _mk(lib["path"], "rf2/B (2020).mkv", library_id=lib["id"], title="B",
+            tmdb_id=889012, year=2020)
+    store.upsert_tmdb_cache(889012, {"title": "B", "year": 2020,
+                                     "media_type": "movie"}, {}, "")
+    def _boom(tid):
+        if int(tid) == 889012:
+            raise RuntimeError("tmdb 429")
+        return {"changed": False}
+    monkeypatch.setattr(scanner, "refresh_tmdb_id", _boom)
+    try:
+        d = client.post("/api/jobs/tmdb-refresh", json={"library_id": lib["id"]}).json()
+        st = _wait_refresh(d["job_id"])
+        assert st["state"] == "done", st
+        assert st["done"] == 1 and st["changed"] == 0
+        assert len(st["failed"]) == 1
+        assert st["failed"][0]["tmdb_id"] == 889012
+        assert "429" in st["failed"][0]["error"]
     finally:
         store.delete_movie(a)
         store.delete_movie(b)

@@ -5,6 +5,7 @@ organize（就地保留父目录 / 搬到顶层到视频库根 / 媒体库作用
 维护 job 的 media_library_id、扫描 summary 分库统计、fs 媒体根只读浏览。
 """
 import pathlib
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -172,7 +173,13 @@ def test_maintenance_media_scope(media, tmp_path, monkeypatch):
         assert [r["id"] for r in d["results"]] == [a]
         r = client.post("/api/jobs/tmdb-refresh",
                         json={"media_library_id": media["id"]}).json()
-        assert r["total"] == 1 and seen == [888101]
+        assert r["total"] == 1 and r["job_id"]
+        for _ in range(100):
+            st = client.get(f"/api/jobs/tmdb-refresh/{r['job_id']}").json()
+            if st.get("state") != "running":
+                break
+            time.sleep(0.05)
+        assert st["state"] == "done" and seen == [888101], st
         n = client.post("/api/jobs/rebuild-nfo",
                         json={"media_library_id": media["id"], "dry_run": True}).json()
         assert n["total"] == 1 and n["ok"] == 1

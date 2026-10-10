@@ -14,9 +14,13 @@
         {{ busy === 'refresh' ? '刷新中…' : (armRefresh ? '确认刷新本库资料' : '更新本库影片资料') }}
       </JzButton>
       <JzButton v-if="armRefresh" @click="armRefresh = false" :disabled="!!busy" type="button">取消</JzButton>
+      <JzButton v-if="busy === 'refresh'" @click="cancelRefresh" type="button">取消任务</JzButton>
       <span>{{ refreshMsg }}</span>
     </div>
-    <p v-if="armRefresh" class="hint warn-text">将联网更新本库已匹配影片的资料（最多 5000 部），保留手工标题。再次点击确认执行。</p>
+    <ul v-if="refreshFailed.length" class="fail-list">
+      <li v-for="f in refreshFailed" :key="f.tmdb_id">{{ f.title || f.tmdb_id }}：{{ f.error }}</li>
+    </ul>
+    <p v-if="armRefresh" class="hint warn-text">将联网更新本库已匹配影片的资料（最多 5000 部），保留手工标题。后台执行，可随时查看进度或取消。再次点击确认执行。</p>
 
     </div>
     <div class="maintenance-group"><h4>重写媒体目录中的资料文件</h4><p class="hint">资料正确但 NFO 或海报文件缺失时使用。</p>
@@ -103,6 +107,9 @@ async function doBackfill() {
 }
 
 const armRefresh = ref(false)
+const refreshJobId = ref('')
+const refreshFailed = ref([])
+const refreshPoll = usePolling(pollRefreshJob, { interval: 1000 })
 async function doRefreshAll() {
   if (!armRefresh.value) {
     armRefresh.value = true
@@ -112,18 +119,52 @@ async function doRefreshAll() {
   armRefresh.value = false
   busy.value = 'refresh'
   refreshMsg.value = ''
+  refreshFailed.value = []
   try {
     const d = await api('/api/jobs/tmdb-refresh', {
       method: 'POST', body: libBody({ limit: 5000 })
     })
-    const changed = d.results.filter(r => r.changed).length
-    refreshMsg.value = `完成：${d.total} 部中有变化 ${changed} 部，失败 ${d.failed.length}`
-    emit('changed')
+    refreshJobId.value = d.job_id || ''
+    if (d.resumed) refreshMsg.value = '已有刷新任务在跑，跟踪进度…'
+    if (!refreshJobId.value) return finishRefresh('没有可刷新的影片（都需要 TMDB 匹配）')
+    refreshPoll.start()
+    await pollRefreshJob()
   } catch (e) {
     refreshMsg.value = '刷新失败：' + e.message
-  } finally {
     busy.value = null
   }
+}
+async function pollRefreshJob() {
+  if (!refreshJobId.value) return
+  try {
+    const st = await api('/api/jobs/tmdb-refresh/' + refreshJobId.value)
+    if (st.state === 'running') {
+      const fails = st.failed || []
+      refreshMsg.value = `刷新中 ${st.done || 0}/${st.total || 0} · 有变化 ${st.changed || 0} · 失败 ${fails.length}` + (st.current ? ` · 当前：${st.current}` : '')
+      return
+    }
+    if (st.state === 'done') {
+      const fails = st.failed || []
+      refreshFailed.value = fails.slice(0, 10)
+      finishRefresh(`完成：共 ${st.total || 0} 部，有变化 ${st.changed || 0}，失败 ${fails.length}` + (fails.length > 10 ? '（仅列前 10）' : ''))
+      emit('changed')
+    } else if (st.state === 'cancelled') {
+      finishRefresh(`已取消（${st.done || 0}/${st.total || 0}，已完成项保留）`)
+    } else {
+      finishRefresh('刷新失败：' + (st.error || '未知错误'))
+    }
+  } catch (e) { /* 轮询失败下次继续 */ }
+}
+function finishRefresh(msg) {
+  refreshPoll.stop()
+  refreshJobId.value = ''
+  refreshMsg.value = msg
+  busy.value = null
+}
+async function cancelRefresh() {
+  if (!refreshJobId.value) return
+  try { await api('/api/jobs/tmdb-refresh/' + refreshJobId.value + '/cancel', { method: 'POST' }) } catch (e) { /* 忽略 */ }
+  await pollRefreshJob()
 }
 
 async function doRebuildNfo() {
@@ -272,5 +313,6 @@ async function doCleanMount() {
 .card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: var(--jz-text); }
 .hint { color: var(--jz-text-dim); font-size: 0.8125rem; margin: 0 0 4px; }
 .warn-text { color: var(--jz-warn); }
+.fail-list { margin: 4px 0 8px 18px; padding: 0; font-size: 0.8125rem; color: var(--jz-warn); max-height: 9em; overflow-y: auto; }
 .fhint { font-size: 0.75rem; color: var(--jz-text-dim); font-weight: normal; }
 </style>

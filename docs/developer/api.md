@@ -104,6 +104,18 @@ POST /api/jobs/scan/{job_id}/cancel   # 协作式取消，已完成项保留
 # 不同范围的扫描并发启动返回 409（“另一个范围的扫描正在进行”），同范围返回 resumed:true 复用。
 ```
 
+`POST /api/jobs/tmdb-refresh` 同为后台任务（立即返回 `{job_id, total}`，同上轮询/取消；进度含 `changed` 与 `failed[{tmdb_id,title,error}]`，失败项带原因且不中断整批）：
+
+```http
+POST /api/jobs/tmdb-refresh {"library_id": 2}
+→ {"job_id": "…", "resumed": false, "total": 308}
+
+GET /api/jobs/tmdb-refresh/{job_id}
+→ {"state": "running", "done": 12, "total": 308, "changed": 3, "failed": [], "current": "星际穿越"}
+
+POST /api/jobs/tmdb-refresh/{job_id}/cancel   # 协作式取消，已完成项保留
+```
+
 归属预览/执行（token 15 分钟有效；磁盘或规则变化后确认返回 409，需重新预览）：
 
 ```http
