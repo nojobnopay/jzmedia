@@ -42,6 +42,44 @@ export function useFsBrowser(props, emit, api, router) {
   let loadGeneration = 0
   let refreshQueued = null
   let historyGeneration = 0
+  // 详情页深链目录：每个库只自动定位一次，不打断用户后续手动浏览。
+  const appliedInitialPaths = new Set()
+  function normalizeInitialPath(value) {
+    if (typeof value !== 'string' || !value || value.length > 1024) return ''
+    const clean = []
+    for (const part of value.split('/')) {
+      if (!part || part === '.') continue
+      if (part === '..') return ''
+      clean.push(part)
+    }
+    return clean.join('/')
+  }
+  function pickInitialTarget() {
+    const target = normalizeInitialPath(props.initialPath)
+    if (!target || libraryId.value == null) return ''
+    const key = libraryId.value + '\n' + target
+    if (appliedInitialPaths.has(key)) return ''
+    appliedInitialPaths.add(key)
+    return target
+  }
+  async function loadInitial(target) {
+    if (!target) return false
+    await load(target, { record: true })
+    // 目标目录已不存在（如刚整理搬迁）：回落根目录，避免停在报错页。
+    if (!disposed && libraryId.value != null && loadError.value) await load('')
+    return true
+  }
+  // 仅响应后续深链变化（挂载首轮由 libraryId/active  watcher 经 pickInitialTarget 承接，避免双重加载互踩）。
+  watch(() => props.initialPath, async () => {
+    if (libraryId.value == null || !props.active) return
+    const target = normalizeInitialPath(props.initialPath)
+    if (!target) return
+    const key = libraryId.value + '\n' + target
+    if (appliedInitialPaths.has(key)) return
+    appliedInitialPaths.add(key)
+    if (path.value === target && hasLoaded.value) return
+    await loadInitial(target)
+  })
   const rows = computed(() => fsVisibleRows(dirs.value, files.value, query.value, sort.value, direction.value))
   const selectedRows = computed(() => rows.value.filter(r => selection.value.includes(r.rel)))
   const one = computed(() => selectedRows.value.length === 1 ? selectedRows.value[0] : null)
@@ -395,10 +433,18 @@ export function useFsBrowser(props, emit, api, router) {
     treeExpanded.value = new Set([''])
     treeLoading.value = new Set()
     resetSelection()
-    if (props.active) load('')
+    if (props.active) {
+      const target = pickInitialTarget()
+      if (target) loadInitial(target)
+      else load('')
+    }
   }, { immediate: true })
   watch(() => props.active, active => {
-    if (active) load(path.value, { record: false })
+    if (active) {
+      const target = pickInitialTarget()
+      if (target) loadInitial(target)
+      else load(path.value, { record: false })
+    }
     else closePreview()
   }, { flush: 'sync' })
   watch(rows, current => {

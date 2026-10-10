@@ -153,12 +153,12 @@ test('cold library failure stays distinct from empty; a successful global refres
   assert.equal(ui.toolProps.librariesError, '')
   assert.deepEqual(ui.toolProps.libs.map(library => library.id), [7, 9])
   assert.equal(ui.toolProps.currentMediaId, 3)
-  assert.deepEqual(ui.focusCalls, [{ page: 'sec-files', sec: 'sec-files', library: 9, media: 3, ids: [] }])
+  assert.deepEqual(ui.focusCalls, [{ page: 'sec-files', sec: 'sec-files', library: 9, media: 3, ids: [], files_path: '' }])
   assert.equal(ui.libraryLoads.length, 1, 'The successful event supplies the already-loaded list without another request')
 
   ui.route.query = { sec: 'sec-restore', library: '7', media: '2', ids: '11,12' }
   await flush()
-  assert.deepEqual(ui.focusCalls.at(-1), { page: 'sec-libtools', sec: 'sec-restore', library: 7, media: 2, ids: [11, 12] })
+  assert.deepEqual(ui.focusCalls.at(-1), { page: 'sec-libtools', sec: 'sec-restore', library: 7, media: 2, ids: [11, 12], files_path: '' })
 })
 
 test('library tools focus as soon as their list loads, while unrelated settings and statistics remain pending', async t => {
@@ -168,7 +168,7 @@ test('library tools focus as soon as their list loads, while unrelated settings 
   await flush()
   assert.equal(ui.toolProps.librariesReady, true)
   assert.equal(ui.toolProps.librariesError, '')
-  assert.deepEqual(ui.focusCalls, [{ page: 'sec-files', sec: 'sec-files', library: 7, media: 2, ids: [] }],
+  assert.deepEqual(ui.focusCalls, [{ page: 'sec-files', sec: 'sec-files', library: 7, media: 2, ids: [], files_path: '' }],
     'Tool focus cannot wait for Promise.all of settings, stats and provider status')
   ui.finishOtherRequests()
   await flush()

@@ -100,7 +100,7 @@ onUnmounted(stopUpScanTicker)
 .card-block h3 { margin: 0 0 10px; font-size: 1.0625rem; color: #ddd; }
 .up-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 0; }
 .up-bar { height: 6px; background: #262626; border-radius: 3px; overflow: hidden; margin: 4px 0; }
-.up-bar i { display: block; height: 100%; background: #6ab0ff; }
+.up-bar i { display: block; height: 100%; background: var(--jz-accent); }
 .up-scan { color: #e0a63c; font-size: 0.8125rem; }
 .card-block { position: relative; }
 .q-tip { vertical-align: middle; }

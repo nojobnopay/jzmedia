@@ -23,16 +23,30 @@ export function positiveId(value) {
   const n = Number(first(value))
   return Number.isInteger(n) && n > 0 ? n : null
 }
+// 文件管理深链目录：仅接受库内相对路径，拒绝空段之外的 '.' 与任何 '..'，超长视为无效。
+export function sanitizeFilesPath(value) {
+  if (typeof value !== 'string') return ''
+  if (value.length > 1024) return ''
+  const parts = value.split('/')
+  const clean = []
+  for (const part of parts) {
+    if (!part || part === '.') continue
+    if (part === '..') return ''
+    clean.push(part)
+  }
+  return clean.join('/')
+}
 
 export function settingsTarget(query = {}) {
   const sec = String(first(query.sec) || '')
   const library = positiveId(query.library)
   const media = positiveId(query.media)
   const ids = String(query.ids || '').split(',').map(positiveId).filter(Boolean)
+  const files_path = sanitizeFilesPath(first(query.files_path))
   const page = LIBRARY_SECTIONS.has(sec) ? 'sec-libtools'
     : SETTINGS_PAGES.some(p => p.id === sec) ? sec
       : library || media || ids.length ? 'sec-libtools' : 'sec-status'
-  return { page, sec, library, media, ids }
+  return { page, sec, library, media, ids, files_path }
 }
 
 export function toolViewForSection(sec, ids = []) {

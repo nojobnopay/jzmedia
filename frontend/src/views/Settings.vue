@@ -429,7 +429,7 @@ async function activate(query) {
 }
 async function go(id) {
   const query = { ...route.query, sec: id }
-  for (const key of ['ids', 'library', 'media', 'files_from', 'files_return']) delete query[key]
+  for (const key of ['ids', 'library', 'media', 'files_from', 'files_return', 'files_path']) delete query[key]
   const failure = await router.push({ path: '/settings', query })
   if (!failure) window.scrollTo({ top: 0 })
 }

@@ -26,11 +26,12 @@
 
               <JzButton :loading="watchedBusy" @click="toggleWatched">{{ m.watched ? '标记未看' : '标记已看' }}</JzButton>
               <ActionMenu>
-                <JzButton @click="openEdit('edit')" type="button" variant="ghost" icon="edit">编辑资料</JzButton>
-                <JzButton @click="openEdit('match')" type="button" variant="ghost" icon="match">重新匹配</JzButton>
-                <JzButton @click="refreshMovieInfo" :disabled="refreshBusy" type="button" variant="ghost" icon="refresh">{{ refreshBusy ? '更新中…' : '更新资料' }}</JzButton>
-                <JzButton icon="refresh" :disabled="metaBusy" title="选择需要修复的资料文件" @click="repairOpen = !repairOpen" type="button" variant="ghost">修复资料文件</JzButton>
-                <JzButton @click="collectionsOpen = !collectionsOpen" type="button" variant="ghost">管理所属合集</JzButton>
+                <JzButton @click="openEdit('edit')" type="button" variant="ghost" icon="edit" title="修改标题、简介、评分、标签等资料">编辑资料</JzButton>
+                <JzButton @click="openEdit('match')" type="button" variant="ghost" icon="match" title="重新搜索 TMDB 并绑定资料">重新匹配</JzButton>
+                <JzButton @click="refreshMovieInfo" :disabled="refreshBusy" type="button" variant="ghost" icon="refresh" title="重新获取 TMDB 资料并重写 NFO 与海报">{{ refreshBusy ? '更新中…' : '更新资料' }}</JzButton>
+                <JzButton icon="file" :disabled="metaBusy" title="选择要重写的资料文件（NFO/海报）" @click="repairOpen = !repairOpen" type="button" variant="ghost">修复资料文件</JzButton>
+                <JzButton @click="collectionsOpen = !collectionsOpen" type="button" variant="ghost" icon="collections" title="加入或移出合集">管理所属合集</JzButton>
+                <JzButton @click="goFiles" type="button" variant="ghost" icon="folder" title="在文件管理中打开所在目录">文件管理</JzButton>
               </ActionMenu>
             </div>
             <div v-if="(m.versions || []).length > 1 || heroResume" class="play-options">
@@ -769,6 +770,14 @@ const originalMoved = computed(() => {
 function goRestore() {
   const query = { sec: 'sec-restore', ids: String(m.value.id) }
   if (m.value.library_id != null) query.library = String(m.value.library_id)
+  router.push({ path: '/settings', query })
+}
+function goFiles() {
+  const query = { sec: 'sec-files' }
+  if (m.value.library_id != null) query.library = String(m.value.library_id)
+  if (m.value.media_library_id != null) query.media = String(m.value.media_library_id)
+  const dir = String(m.value.file_path || '').split('/').slice(0, -1).filter(p => p && p !== '.' && p !== '..').join('/')
+  if (dir) query.files_path = dir
   router.push({ path: '/settings', query })
 }
 async function waitForMedia(tries = 10) {

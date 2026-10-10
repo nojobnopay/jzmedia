@@ -31,7 +31,7 @@
         <span>{{ sourceTab?.label }} · {{ sourceViewLabel }}</span>
       </div>
       <FsBrowser v-if="filesVisited" v-show="filesPage" ref="filesRef" :active="filesPage"
-        :media="selectedMedia" :video-libs="libs" :initial-lib-id="selectedId" :pending-changes="currentChanges"
+        :media="selectedMedia" :video-libs="libs" :initial-lib-id="selectedId" :initial-path="pendingFilesPath" :pending-changes="currentChanges"
         @changed="onFilesChanged" @scan="scanFiles" @library-change="switchFileLibrary" />
       <p v-if="changesError && filesPage" class="hint warn-text" role="status">{{ changesError }}</p>
       <div v-if="!filesPage && currentChanges?.pending" class="settings-notice">
@@ -117,6 +117,8 @@ watch([tabs, () => props.librariesReady], ([list, ready]) => {
 const filesPage = computed(() => props.active && route.query.sec === 'sec-files')
 const filesVisited = ref(route.query.sec === 'sec-files')
 const filesRef = ref(null)
+// 详情页“在文件管理中打开”带来的目标目录（库内相对路径）：透传给 FsBrowser 消费一次。
+const pendingFilesPath = ref('')
 const selectedMedia = computed(() => mediaLibs.value.find(m => Number(m.id) === selectedTab.value?.media_id) || null)
 const { changes, errors: changeErrors, refresh: refreshChanges } = useFileChanges()
 const changesError = computed(() => changeErrors.value[selectedId.value] || '')
@@ -221,6 +223,7 @@ async function scanFiles({ library_id } = {}) {
   } finally { reviewScanning.value = false }
 }
 function switchFileLibrary({ library_id } = {}) {
+  pendingFilesPath.value = ''
   const tab = tabs.value.find(t => t.id === Number(library_id))
   if (tab) return router.push({ path: '/settings', query: { sec: 'sec-files', library: String(tab.id), media: String(tab.media_id),
     ...(returnOrigin.value ? { files_from: returnOrigin.value.token } : {}) } })
@@ -260,6 +263,7 @@ function syncUrl(id) {
   try {
     const q = { ...route.query, sec: filesPage.value ? 'sec-files' : 'sec-libtools' }
     delete q.ids
+    delete q.files_path
     const t = tabs.value.find(t => t.id === Number(id))
     if (t) {
       q.library = String(t.id)
@@ -302,8 +306,8 @@ function pickInitial() {
 }
 watch(tabs, pickInitial)
 
-// 深链承接：?sec=…&media=…&library=…&ids=…
-async function focus({ media, library, sec, ids } = {}) {
+// 深链承接：?sec=…&media=…&library=…&ids=…&files_path=…
+async function focus({ media, library, sec, ids, files_path } = {}) {
   const generation = ++focusGeneration
   // 库列表可能还在异步路上（父级 loadLibs 后 prop 才到）：等它就绪再选中
   for (let i = 0; i < 40 && !tabs.value.length; i++) {
@@ -319,6 +323,7 @@ async function focus({ media, library, sec, ids } = {}) {
   select(target.id)
   // Directory loading should start immediately, independently of the change summary.
   if (sec === 'sec-files') filesVisited.value = true
+  pendingFilesPath.value = sec === 'sec-files' ? (files_path || '') : ''
   await refreshChanges(target.id)
   if (disposed || generation !== focusGeneration) return
   if (sec === 'sec-files') return

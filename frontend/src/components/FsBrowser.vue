@@ -107,7 +107,7 @@ import { useFsBrowser } from '../useFsBrowser.js'
 import FilePreviewHost from './FilePreviewHost.vue'
 import Spinner from './Spinner.vue'
 
-const props = defineProps({ active: { type: Boolean, default: false }, media: { type: Object, default: null }, videoLibs: { type: Array, default: () => [] }, initialLibId: { type: Number, default: null }, pendingChanges: { type: Object, default: null } })
+const props = defineProps({ active: { type: Boolean, default: false }, media: { type: Object, default: null }, videoLibs: { type: Array, default: () => [] }, initialLibId: { type: Number, default: null }, initialPath: { type: String, default: '' }, pendingChanges: { type: Object, default: null } })
 const emit = defineEmits(['changed', 'scan', 'library-change'])
 const {
   libraryId, library, path, dirs, files, crumbs, writable, loading, hasLoaded, loadError, loadTarget, loadState, loadedCount, totalCount, message, busy, query, sort, direction,

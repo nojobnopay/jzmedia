@@ -44,7 +44,7 @@ onUnmounted(() => {
 </script>
 <style scoped>
 .action-menu { position: relative; display: inline-block; }
-summary { box-sizing: border-box; min-height: var(--jz-control-current); list-style: none; display: flex; gap: var(--jz-gap-s); align-items: center; cursor: pointer; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s); padding: var(--jz-gap-s) var(--jz-gap-m); font-size: var(--jz-font-m); background: var(--jz-surface-2); }
+summary { box-sizing: border-box; min-height: var(--jz-control-current); list-style: none; display: flex; gap: var(--jz-gap-s); align-items: center; cursor: pointer; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s); padding: var(--jz-gap-s) var(--jz-gap-m); font-size: var(--jz-font-m); color: var(--jz-text); background: var(--jz-surface-2); }
 summary::-webkit-details-marker { display: none; }
 .action-menu-items { position: absolute; top: calc(100% + 8px); right: 0; z-index: 40; width: max-content; min-width: 180px; max-width: min(300px, calc(100vw - 32px)); background: var(--jz-surface-2); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-m); padding: 6px; box-shadow: 0 12px 32px #0008; }
 .action-menu-items :deep(button), .action-menu-items :deep(a) { display: flex; justify-content: flex-start; width: 100%; text-align: left; text-decoration: none; box-sizing: border-box; }

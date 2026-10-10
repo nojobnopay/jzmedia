@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { PLAYBACK_RATES, normalizeRate, applyPlaybackRate, reusableSeekTime, previewFrame } from '../src/playbackControls.js'
+import { PLAYBACK_RATES, normalizeRate, applyPlaybackRate, reusableSeekTime, previewFrame, surfaceClickRevealsOnly } from '../src/playbackControls.js'
 
 const ranges = pairs => ({ length: pairs.length, start: i => pairs[i][0], end: i => pairs[i][1] })
 
@@ -39,4 +39,11 @@ test('缩略图跨页、片尾及未完成页面不会错图；原片时间不�
   manifest.pages.pop()
   assert.equal(previewFrame(manifest, 260), null)
   assert.equal(previewFrame(null, 0), null)
+})
+
+test('全屏隐藏态首次点击只显控件、再次点击才暂停；窗口态不受影响', () => {
+  assert.equal(surfaceClickRevealsOnly(true, false), true)
+  assert.equal(surfaceClickRevealsOnly(true, true), false)
+  assert.equal(surfaceClickRevealsOnly(false, false), false)
+  assert.equal(surfaceClickRevealsOnly(false, true), false)
 })

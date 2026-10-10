@@ -47,6 +47,8 @@
         </div>
       </div>
     </div>
+    <CastWall :cast="s.cast || []" :original-language="s.original_language || ''"
+      :subtitle="s.cast_source === 'season' ? seasonLabel(s.season) : '全剧'" />
     <div class="season-list-heading"><h2 class="section-heading">{{ seasonTab === 'local' ? '选择剧集' : '全部分集' }} <span v-if="seasonTab === 'local'">{{ s.distinct_count ?? s.episode_count }} 集</span></h2>
       <label v-if="seasonTab === 'local' && (s.versions || []).length > 1">播放版本 <select v-model="selectedVersion" @change="load">
         <option value="">全部版本</option><option v-for="v in s.versions" :key="v.version" :value="String(v.version)">V{{ v.version }} · {{ v.distinct }} 集</option>
@@ -97,8 +99,6 @@
     </div>
     <div v-else-if="eps.length" class="bar dim small">已加载全部 {{ eps.length }} 个文件</div>
     </template>
-    <CastWall :cast="s.cast || []" :original-language="s.original_language || ''"
-      :subtitle="s.cast_source === 'season' ? seasonLabel(s.season) : '全剧'" />
   </div>
   <EmptyState v-else :state="loadError ? 'error' : 'loading'" :title="loadError ? '剧季加载失败' : '正在加载剧季'"
     :text="loadError || '请稍候…'" :retry="!!loadError" @retry="load">

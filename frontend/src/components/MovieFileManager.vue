@@ -3,7 +3,8 @@
             <summary>文件与版本<span v-if="movie.version_count > 1">（共{{ movie.version_count }}个版本）</span></summary>
             <ul class="ver-list"><li v-for="v in movie.versions" :key="v.id" class="f-row">
               <span class="f-name">{{ baseName(v.file_path) }}<span v-if="v.edition">（{{ v.edition }}）</span><span v-if="v.spec">（{{ v.spec }}）</span></span>
-              <span class="f-acts"><ActionMenu label="更多"><JzButton @click="copyTvUrl(v)" type="button" variant="ghost" icon="copy">复制直链</JzButton></ActionMenu><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)"><AppIcon name="download" :size="16" />下载</a><JzButton v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'" type="button">无效</JzButton><JzButton v-else @click="emit('play', v)" type="button" icon="play">播放</JzButton><span v-if="verFriendly(v.id)" class="friendly-chip" role="img" aria-label="浏览器友好" title="浏览器可直播，几乎不占 NAS 算力"><AppIcon name="check-circle" :size="16" /></span><span v-else-if="verMethod[v.id]==='video_transcode'" class="trans-chip" title="浏览器需视频重编码，较耗 NAS 算力">转码</span></span>
+              <span v-if="verSize(v) != null" class="f-size">{{ fmtSize(verSize(v)) }}</span>
+              <span class="f-acts"><a :href="blobUrl(v.file_path)" :download="baseName(v.file_path)"><AppIcon name="download" :size="16" />下载</a><JzButton v-if="verBlocked[v.id]" disabled :title="verErr[v.id] || '无效文件'" type="button">无效</JzButton><JzButton v-else @click="emit('play', v)" type="button" icon="play" :class="{ 'transcode-play': verMethod[v.id] === 'video_transcode' }" :title="verMethod[v.id] === 'video_transcode' ? '浏览器需视频重编码，较耗 NAS 算力' : (verFriendly(v.id) ? '浏览器可直接播放，几乎不占 NAS 算力' : '播放')" :aria-label="verMethod[v.id] === 'video_transcode' ? '转码播放' : '播放'">播放</JzButton><ActionMenu label="更多"><JzButton @click="copyTvUrl(v)" type="button" variant="ghost" icon="copy">复制直链</JzButton></ActionMenu></span>
             </li></ul>
             <div v-for="g in fileGroups" :key="g.key">
               <p v-if="g.items.length" class="hint"><AppIcon :name="g.icon" :size="18" />{{ g.label }}</p>
@@ -70,6 +71,25 @@ async function copyTvUrl(v) {
     tvUrl.value = url
     tvMsg.value = '自动复制失败（浏览器限制），已显示链接，点框后 Ctrl+C 手动复制'
   }
+}
+
+const versionSizes = computed(() => {
+  const map = {}
+  const feats = (props.sideFiles || {}).feature || []
+  for (const it of feats) {
+    if (it == null) continue
+    if (it.rel) map[it.rel] = it.size
+    const bn = String(it.name || '').split('/').pop()
+    if (bn && map[bn] === undefined) map[bn] = it.size
+  }
+  return map
+})
+function verSize(v) {
+  const map = versionSizes.value
+  const p = v && v.file_path
+  if (p != null && map[p] !== undefined) return map[p]
+  const bn = baseName(p)
+  return map[bn]
 }
 
 const fileGroups = computed(() => {
@@ -150,8 +170,8 @@ async function doFileDeleteConfirm(f) {
 
 <style scoped>
 /* 自 Detail.vue 迁入的原始样式（评审 R05-Q4，保持观感一致） */
-.friendly-chip { color: #7ed321; font-size: 0.8125rem; }
-.trans-chip { color: #e0a63c; font-size: 0.75rem; border: 1px dashed #6e5426; border-radius: 999px; padding: 0 8px; }
+.transcode-play { color: var(--jz-warn); }
+.transcode-play:hover:not(:disabled) { color: var(--jz-warn); }
 .tvplay summary { cursor: pointer; color: #ccc; font-size: 0.9375rem; }
 .tvplay .hint { color: #888; font-size: 0.8125rem; overflow-wrap: anywhere; }
 .copy-url { display: block; width: 100%; box-sizing: border-box; margin: 6px 0 2px; padding: 6px 8px;
@@ -159,12 +179,17 @@ async function doFileDeleteConfirm(f) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.75rem;
   overflow-x: auto; white-space: nowrap; }
 .files summary { cursor: pointer; color: #ccc; font-size: 0.9375rem; }
-.files ul { color: #888; font-size: 0.875rem; }
+.files ul { list-style: none; margin: 4px 0; padding: 0; color: #888; font-size: 0.875rem; }
 .files a { color: #6ab0ff; margin-left: 6px; }
 .f-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 3px 0; }
-.f-name { flex: 1; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.f-size { color: #666; font-size: 0.75rem; }
+.f-name { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 大小列 + 三个动作槽全部定宽：版本行与其它文件行逐列对齐 */
+.f-size { flex: 0 0 4rem; text-align: right; font-variant-numeric: tabular-nums; color: #666; font-size: 0.75rem; }
 .f-acts { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+.f-acts > a { flex: 0 0 3.6em; display: inline-flex; align-items: center; gap: 4px; margin-left: 0; }
+.f-acts .jz-button:not(.danger) { flex: 0 0 6.4em; }
+.f-acts :deep(.action-menu) { flex: 0 0 6.4em; display: flex; justify-content: flex-end; }
+.f-acts :deep(.action-menu summary) { flex: 0 0 6.4em; justify-content: center; padding-left: 0; padding-right: 0; }
 .ver-list { list-style: none; margin: 4px 0; padding: 0; }
 .hint { color: #777; font-size: 0.8125rem; margin: 0 0 4px; }
 .hint.warn { color: #e0a63c; }

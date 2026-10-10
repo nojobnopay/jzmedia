@@ -12,8 +12,8 @@ body { font-family: var(--jz-font-family); margin: 0; background: var(--jz-bg); 
 .app-nav a:focus-visible, .nav-library:focus-within { outline: 2px solid var(--jz-accent); outline-offset: 3px; }
 .app-nav .brand { display: inline-flex; align-items: center; min-height: var(--jz-touch-target); gap: 8px; font-weight: 800; letter-spacing: 0.5px; border-radius: var(--jz-radius-s); }
 .app-nav .brand img { border-radius: var(--jz-radius-s); display: block; }
-.nav-library { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 240px; padding-left: 10px; margin-left: 8px; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-m); background: var(--jz-surface-2); }
-.lib-switch { min-width: 0; min-height: var(--jz-touch-target); width: 100%; background: var(--jz-surface-2); color: var(--jz-text); border: 0; padding: 6px 8px 6px 0; font-size: var(--jz-font-m); text-overflow: ellipsis; }
+.nav-library { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 240px; padding: 0 10px; margin-left: 8px; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-m); background: var(--jz-surface-2); }
+.lib-switch { min-width: 0; min-height: var(--jz-touch-target); width: 100%; background: var(--jz-surface-2); color: var(--jz-text); border: 0; padding: 6px 0 6px 0; font-size: var(--jz-font-m); text-overflow: ellipsis; }
 /* Native option popups need their own opaque surface, independent of the label. */
 .lib-switch option { background: var(--jz-surface-2); color: var(--jz-text); }
 .lib-switch:focus-visible { outline: none; }

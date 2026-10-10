@@ -1,0 +1,6 @@
+# GHCR 生产镜像覆盖：与 NAS 保持一致，固定版本 v0.22.3。
+# 用法：docker compose -f docker-compose.yml -f compose.ghcr.yml up -d --no-build --pull never
+# 必须显式 -f 以绕过 docker-compose.override.yml（WSL 开发热重载专用）。
+services:
+  mymedia:
+    image: ghcr.io/nojobnopay/jzmedia:v0.22.3

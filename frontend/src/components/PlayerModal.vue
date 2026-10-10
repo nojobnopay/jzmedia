@@ -14,7 +14,7 @@
       <div ref="pvWrapEl" class="pv-wrap has-bar"
         :class="{ 'hide-cursor': isFull && !overlayVisible }"
         :style="videoPadding ? { paddingTop: videoPadding } : {}"
-        @pointermove="onMouseMove" @pointerdown="showOverlay" @dblclick="onSurfaceDoubleClick"
+        @pointermove="onMouseMove" @pointerdown="notePointerDown" @dblclick="onSurfaceDoubleClick"
         @focusin="onControlFocus" @focusout="controlsFocused = false">
         <video ref="videoEl" :key="videoKey" autoplay playsinline preload="metadata" class="player-video"
           @click="onSurfaceClick" @error="onVideoError"></video>
@@ -110,7 +110,7 @@ import PlayerSettings from './PlayerSettings.vue'
 import PlayerIcon from './PlayerIcon.vue'
 import JzButton from './JzButton.vue'
 import PlayerSeekbar from './PlayerSeekbar.vue'
-import { applyPlaybackRate, normalizeRate, reusableSeekTime } from '../playbackControls.js'
+import { applyPlaybackRate, normalizeRate, reusableSeekTime, surfaceClickRevealsOnly } from '../playbackControls.js'
 import { usePlaybackPreviews } from '../usePlaybackPreviews.js'
 import { fmtTime as fmt } from '../playerLabels.js'
 import { isPlaybackComplete, pickProgressPosition } from '../progress.js'
@@ -143,10 +143,15 @@ const bufferedSections = ref([])
 let playerResizeObserver = null
 let surfaceClickTimer = 0
 let toastTimer = 0
+// 全屏隐藏态下 pointerdown 会先点亮控件：记下按下瞬间是否可见，单击回调据此决定只显控件还是暂停。
+let overlayAtPointerDown = true
 function onControlFocus(e) { controlsFocused.value = !!e.target?.matches?.(':focus-visible') }
 function onSurfaceClick() {
   clearTimeout(surfaceClickTimer)
-  surfaceClickTimer = setTimeout(() => { if (!disposed && !booting.value && !seekPending.value) togglePlay() }, 220)
+  const revealOnly = surfaceClickRevealsOnly(isFull.value, overlayAtPointerDown)
+  surfaceClickTimer = setTimeout(() => {
+    if (!disposed && !booting.value && !seekPending.value && !revealOnly) togglePlay()
+  }, 220)
 }
 function onSurfaceDoubleClick() { clearTimeout(surfaceClickTimer); toggleFull() }
 function observePlayerSize() {
@@ -1093,6 +1098,10 @@ function onFullChange() {
 }
 // 键盘快捷键（输入框/下拉聚焦时不拦截）：
 // 空格=播放/暂停；←/→ = ±10s；↑/↓ = 音量 ±5%；Esc：全屏时只退全屏，非全屏才关播放器
+function notePointerDown() {
+  overlayAtPointerDown = overlayVisible.value
+  showOverlay()
+}
 function showOverlay() {
   if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0 }
   mouseActive.value = true

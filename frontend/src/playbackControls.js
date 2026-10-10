@@ -29,8 +29,13 @@ export function reusableSeekTime(video, target, mediaStart = 0) {
   return null
 }
 
-export function previewFrame(manifest, time) {
-  if (!manifest?.pages?.length || !(manifest.interval > 0)) return null
+// 全屏控件隐藏时首次点击只点亮控件、不暂停；窗口态控件常显，不受影响。
+// overlayAtPointerDown 取按下瞬间的显隐（pointerdown 先于 click 点亮控件，不能用 click 时的状态判断）。
+export function surfaceClickRevealsOnly(isFull, overlayAtPointerDown) {
+  return Boolean(isFull) && !overlayAtPointerDown
+}
+
+export function previewFrame(manifest, time) {  if (!manifest?.pages?.length || !(manifest.interval > 0)) return null
   const count = Number(manifest.count) || 0
   const index = Math.min(count - 1, Math.max(0, Math.floor(time / manifest.interval)))
   if (index < 0) return null
