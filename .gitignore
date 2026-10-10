@@ -1,5 +1,9 @@
 # Local configuration and Python caches
 .env
+# 本机专属（2026-10-10）：含本机主机名/网络/挂载信息，不入库，只存本地工作区
+/AGENTS.md
+/docker-compose.override.yml
+/compose.mihomo.yml
 .venv/
 __pycache__/
 *.pyc

@@ -55,7 +55,7 @@ test('lint shares source scope, rejects excluded or empty explicit selections', 
   const files = await sourceFiles()
   assert.ok(files.includes('.agents/skills/jzmedia-docs/SKILL.md'))
   assert.ok(files.includes('android-tv/README.md'))
-  assert.ok(files.includes('AGENTS.md'))
+  // 根 AGENTS.md 仅存于本地工作区（不入库），不再要求出现在源集合中。
   assert.ok(files.every(file => !/(?:node_modules|docs\/private|\.vitepress|\/build\/)/.test(file)))
   assert.deepEqual(selectFiles(files, ['android-tv/README.md']), ['android-tv/README.md'])
   assert.ok(selectFiles(files, ['android-tv']).every(file => file.startsWith('android-tv/')))
