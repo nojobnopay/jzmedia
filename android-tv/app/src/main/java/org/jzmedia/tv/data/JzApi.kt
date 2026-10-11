@@ -66,6 +66,8 @@ class JzApi(address: String, val token: String = "") {
     suspend fun delete(path: String): JSONObject = json("DELETE", path)
     suspend fun getText(path: String): String = execute("GET", path, null, 16 * 1024 * 1024, longRequest = true).toString(Charsets.UTF_8)
     suspend fun getBytes(path: String): ByteArray = execute("GET", path, null, 4 * 1024 * 1024)
+    // CJK font collections can exceed the artwork limit; first access extracts MKV attachments.
+    suspend fun getFontBytes(path: String): ByteArray = execute("GET", path, null, 32 * 1024 * 1024, longRequest = true)
 
     private suspend fun json(method: String, path: String, body: JSONObject? = null, longRequest: Boolean = false): JSONObject {
         val text = execute(method, path, body, 8 * 1024 * 1024, longRequest).toString(Charsets.UTF_8)

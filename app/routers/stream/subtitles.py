@@ -323,11 +323,13 @@ def stream_fonts(version_id: int, kind: str = "movie"):
     m, src = _version_source(version_id, kind)
     info = _media_cached_or_probe(m, src)
     out = []
+    seen = set()
     for a in (info.get("attachments") or []):
         name = os.path.basename(str(a.get("name") or ""))
-        if _FONT_RE.match(name):
+        if _FONT_RE.match(name) and name not in seen:
+            seen.add(name)
             out.append({"name": name, "source": "attachment",
-                        "url": f"/api/stream/{int(m['id'])}/fonts/{quote(name)}"})
+                        "url": f"/api/stream/{int(m['id'])}/fonts/{quote(name)}?kind={quote(kind)}"})
     bdir = os.path.join(settings.data_dir, "fonts")
     if os.path.isdir(bdir):
         for name in sorted(os.listdir(bdir)):

@@ -2,7 +2,7 @@
 
 在电视上连接 jzmedia，浏览电影、剧集和合集，用遥控器搜索、播放和续看。扫描、匹配、整理与上传仍在网页端操作。
 
-**电视真机验证已通过。** 已有 APK 可直接安装；自己编译请按下面的 Step 操作。发行版本与 Docker 镜像共用根 [version.properties](../version.properties)，维护者通过[统一发布](../docs/developer/releasing.md)同步交付两端。验收依据和升级限制见[当前状态](../docs/roadmap/android-tv.md)。
+**电视主要播放流程已通过真机验证，新增 ASS/SSA 原生渲染仍待真机验收。** 已有 APK 可直接安装；自己编译请按下面的 Step 操作。发行版本与 Docker 镜像共用根 [version.properties](../version.properties)，维护者通过[统一发布](../docs/developer/releasing.md)同步交付两端。验收依据和升级限制见[当前状态](../docs/roadmap/android-tv.md)。
 
 [安装已有 APK](#已有-apk安装并连接) · [从源码构建](#从源码构建测试与安装) · [日常命令与排错](#日常命令与常见问题)
 
@@ -169,7 +169,7 @@ python3 tools/tv.py install
 
 客户端使用 Kotlin、Compose for TV 和 Media3，只通过 HTTP API 连接服务器。电视和网页共享观看进度；各设备播放会话独立。Android 日常构建可单独执行，统一发布脚本负责编排镜像和 APK。设备是否能播放 HEVC、HDR 或多声道音频，由实际能力检测和真机验证决定。
 
-文本字幕由电视显示；ASS/SSA 转兼容文本后会简化特效，图片字幕由服务器烧录。片名首字母／全拼搜索和演员搜索分别需要服务器的可选能力。完整规则只在下列参考页维护：
+文本字幕由电视显示；ASS/SSA 使用原生 libass 渲染字体、样式、位置和动画，加载或渲染失败时提示并回退为兼容文本。若仍显示兼容文本，先核对 APK 与服务端均包含此能力；旧服务端可能继续返回 WebVTT。图片字幕由服务器烧录。片名首字母／全拼搜索和演员搜索分别需要服务器的可选能力。完整规则只在下列参考页维护：
 
 | 想了解什么 | 阅读 |
 | --- | --- |

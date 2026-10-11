@@ -99,6 +99,30 @@ class JzApiTest {
         assertEquals("/api/search?q=A%26watched%3D1&limit=36", queryPath("/api/search", linkedMapOf("q" to "A&watched=1", "limit" to 36, "genre" to "", "year" to null)))
     }
 
+    @Test fun fontDownloadsAllowLargeCjkCollectionsAndKeepAuthentication() = runBlocking {
+        MockWebServer().use { server ->
+            val bytes = ByteArray(5 * 1024 * 1024) { 42 }
+            server.enqueue(MockResponse().setBody(okio.Buffer().write(bytes)))
+            val api = JzApi(server.url("/prefix").toString(), "font-token")
+            assertArrayEquals(bytes, api.getFontBytes("/api/stream/3/fonts/cjk.ttc?kind=episode"))
+            val request = server.takeRequest(1, TimeUnit.SECONDS)!!
+            assertEquals("/prefix/api/stream/3/fonts/cjk.ttc?kind=episode", request.path)
+            assertEquals("font-token", request.getHeader("X-Api-Token"))
+        }
+    }
+
+    @Test fun fontDownloadsCanBeCancelledDuringAttachmentExtraction() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+            val request = async { JzApi(server.url("/").toString()).getFontBytes("/api/stream/1/fonts/cjk.ttf") }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                assertNotNull(server.takeRequest(2, TimeUnit.SECONDS))
+            }
+            withTimeout(2000) { request.cancelAndJoin() }
+            assertTrue(request.isCancelled)
+        }
+    }
+
     @Test fun slowBrowseTimesOutWhilePlaybackPreparationCanFinish() = runBlocking {
         MockWebServer().use { server ->
             server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {

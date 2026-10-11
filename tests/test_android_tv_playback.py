@@ -62,12 +62,20 @@ def test_native_caps_are_strict_bounded_and_hash_stable():
     assert value["hls"] is False
     assert value["audio_track_selection"] is False
     assert value["hdr_formats"] == ["hdr10", "hlg"]
-    assert value["subtitles"] == {"webvtt": True}
+    assert value["subtitles"] == {"webvtt": True, "ass": True}
     assert value["hls_audio"]["dts"] is False
     assert caps.caps_hash(value) == caps.caps_hash(deepcopy(value))
     assert caps.caps_hash(value) != caps.caps_hash({**value, "hls": True})
     assert caps.caps_hash(native_caps(hdr_formats=["hlg", "hdr10"])) == caps.caps_hash(
         native_caps(hdr_formats=["hdr10", "hlg"]))
+    assert caps.caps_hash(native_caps()) != caps.caps_hash(
+        native_caps(subtitles={"webvtt": True, "ass": True}))
+
+
+@pytest.mark.parametrize("ass", [None, False, "true", "false", 1])
+def test_native_ass_capability_requires_a_real_boolean(ass):
+    value = caps.normalize_caps({"subtitles": {"webvtt": True, "ass": ass, "pgs": True}})
+    assert value["subtitles"] == {"webvtt": True, "ass": False}
 
 
 def test_native_mkv_source_audio_and_track_selection_stay_direct():
@@ -154,6 +162,33 @@ def test_native_dolby_vision_requires_explicit_format_or_compatible_base():
 def test_native_text_subtitles_use_webvtt(codec):
     result = decide(media(subs=[{"codec": codec, "image": 0}]), sub_idx=0)
     assert result["method"] == "direct"
+    assert result["subtitle_mode"] == "webvtt"
+
+
+@pytest.mark.parametrize("codec", ["ass", "ssa"])
+@pytest.mark.parametrize("webvtt", [True, False])
+def test_native_ass_subtitles_use_full_client_rendering_when_declared(codec, webvtt):
+    result = decide(media(subs=[{"codec": codec, "image": 0}]),
+                    native_caps(subtitles={"webvtt": webvtt, "ass": True}), sub_idx=0)
+    assert result["method"] == "direct"
+    assert result["subtitle_mode"] == "ass_client"
+    assert result["plan"]["sub"] == "ass_client"
+    assert result["plan"]["vcopy"] is True
+
+
+@pytest.mark.parametrize("codec", ["ass", "ssa", "subrip", "webvtt"])
+def test_native_text_subtitles_without_the_required_capability_stay_disabled(codec):
+    result = decide(media(subs=[{"codec": codec, "image": 0}]),
+                    native_caps(subtitles={"ass": codec not in ("ass", "ssa")}), sub_idx=0)
+    assert result["method"] == "direct"
+    assert result["subtitle_mode"] == "none"
+    assert "subtitle_not_supported" in result["reasons"]
+
+
+@pytest.mark.parametrize("codec", ["subrip", "webvtt"])
+def test_native_ass_capability_preserves_webvtt_for_other_text_subtitles(codec):
+    result = decide(media(subs=[{"codec": codec, "image": 0}]),
+                    native_caps(subtitles={"webvtt": True, "ass": True}), sub_idx=0)
     assert result["subtitle_mode"] == "webvtt"
 
 

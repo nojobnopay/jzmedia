@@ -88,7 +88,8 @@ object NativeCapabilities {
             })
             .put("hls", true).put("audio_track_selection", true)
             .put("hls_audio", JSONObject().put("aac", true).put("mp3", true))
-            .put("hdr_formats", hdr).put("subtitles", JSONObject().put("webvtt", true))
+            .put("hdr_formats", hdr).put("subtitles", JSONObject().put("webvtt", true)
+                .put("ass", AssSubtitleRenderer.isAvailable()))
     }
 }
 

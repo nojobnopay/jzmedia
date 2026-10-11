@@ -53,7 +53,7 @@ def normalize_caps(raw) -> dict:
             "hls_audio": _bools(AUDIO_KEYS, raw.get("hls_audio")),
             "audio_track_selection": raw.get("audio_track_selection") is True,
             "hdr_formats": [k for k in HDR_FORMATS if k in hdr_formats[:16]],
-            "subtitles": _bools(("webvtt",), raw.get("subtitles")),
+            "subtitles": _bools(("webvtt", "ass"), raw.get("subtitles")),
             "probes": probes}
 
 

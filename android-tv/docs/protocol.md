@@ -1,6 +1,6 @@
 # Android TV 客户端协议 1
 
-本页供修改电视客户端或服务端接口时查阅，记录必须保持的兼容约定。构建和连接步骤见 [README](../README.md)，验证步骤见[测试指南](testing.md)。核对日期：2026-10-07。
+本页供修改电视客户端或服务端接口时查阅，记录必须保持的兼容约定。构建和连接步骤见 [README](../README.md)，验证步骤见[测试指南](testing.md)。核对日期：2026-10-11。
 
 APK 与服务器通过[统一发布](../../docs/developer/releasing.md)从同一提交构建，版本以根 [version.properties](../../version.properties) 为准。设备仍可分别安装升级，因此通过协议握手确认兼容性；首次正式签名发布的最低服务端发行版本尚待确定，见[待验收事项](../../docs/roadmap/android-tv.md)。媒体探测字段基线为 schema 30 / probe v4，旧媒体探测缓存可自动重探。
 
@@ -63,7 +63,8 @@ APK 当前使用 `X-Api-Token`，仅发往保存的服务器 origin 和路径范
 | `hls_audio` | HLS 封装允许复制的音频编码；必须同时有设备解码能力 |
 | `audio_track_selection` | 原文件播放中能否切换音轨 |
 | `hdr_formats` | 明确支持的 HDR 格式列表，不能由品牌、`native_hls` 或普通 HEVC 能力推断 |
-| `subtitles.webvtt` | 首版兼容文本字幕能力 |
+| `subtitles.webvtt` | 兼容文本字幕能力 |
+| `subtitles.ass` | 原生 libass 的 ASS/SSA 字幕渲染能力 |
 
 APK 通过 Media3/MediaCodec 查询解码器，再按片源的宽、高、帧率、profile/level、声道数和采样率补充检测。通用 H.264/AAC 能力代表可接受的服务器输出；高规格源格式不支持时，不能连带关闭较低规格的输出能力。
 
@@ -145,11 +146,17 @@ HLS 创建请求示意（`caps` 必须来自当前设备检测）：
 
 ### 字幕时间轴
 
-媒体接口合并内嵌与外挂字幕。文本及 ASS/SSA 使用 `/api/stream/{id}/sub/{idx}.vtt?kind=...`，APK 解析 WebVTT 并在源时间上显示，支持字号和延迟；ASS 的字体、特效和复杂排版不保真。图片字幕采用 `subtitle_mode=burn`，切换需要重新准备播放。
+媒体接口合并内嵌与外挂字幕。普通文本使用 `/api/stream/{id}/sub/{idx}.vtt?kind=...`，APK 解析 WebVTT 并在源时间上显示，支持字号和延迟。声明 `subtitles.ass=true` 时，支持此能力的服务端为 ASS/SSA 返回 `subtitle_mode=ass_client`；APK 下载 `/api/stream/{id}/sub/{idx}.ass?kind=...` 和 `/api/stream/{id}/fonts?kind=...` 列出的字体，由独立于 Media3 的原生 libass 图层渲染。字体文件使用清单返回的 URL，沿用服务器地址解析与认证范围，不自行拼接 NAS 路径；旧清单的附件 URL 缺少 `kind` 时，APK 补上当前媒体类型。
+
+ASS 图层按视频 contain 后的实际画面区定位，使用原字幕的字体、样式、排版和动画；控件显示不改变字幕位置。字号“小／中／大”对普通文字应用 0.8／1／1.2 的字体缩放，默认“中”保持原字号；固定定位样式仍保留脚本尺寸。字体清单为空时使用系统字体；原字体不可用时可能出现字体替代，维护者可在服务端数据目录 `fonts/` 投放有权使用的字体。原生字体库扫描 `/system/fonts/` 和 `/product/fonts/`，不由 APK 批量复制系统字体。
+
+服务端列出的字体下载失败、字体资源超限、字幕加载、初始化或渲染失败时，当前轨道回退到同轨 WebVTT 并提示，兼容文本会丢失原 ASS 样式。字体清单先按解析后的 URL 去重，再允许下载最多 128 个独立字体；多字幕轨共用同一字体时只下载、注册一次。单字体上限 32 MiB，总量上限 64 MiB；这些限制只影响客户端字体读取，不修改服务器文件。失败提示及 `JzPlayback` 日志标明字幕文件、字体清单、下载、注册或解析阶段，资源超限时说明对应限额。重新选择 ASS 轨道可以再次尝试渲染；客户端渲染字幕切换不重开音视频会话。
+
+协议仍为 1。旧 APK 仅声明 `subtitles.webvtt`，新版服务端继续返回 WebVTT；旧服务端也可能为新版 APK 返回 WebVTT，需要升级服务端才能启用 ASS 图层。APK 遵循服务端返回的 `subtitle_mode`，切轨时重新查询决定，不仅凭字幕编码强行改用 ASS。图片字幕采用 `subtitle_mode=burn`，切换需要重新准备播放。
 
 内嵌图片字幕的 `sub_ff_index` 是源文件绝对流号，服务端 overlay 使用 `[0:<ff_index>]`，不能当成字幕类型内序号 `[0:s:<ff_index>]`。外挂图片字幕仍使用第二输入的 `[1:s:0]`。
 
-当前内部字幕计算为 `cueSourceTime = sourcePosition + subtitleDelay`；界面显示的“延迟”符号与内部偏移相反。延迟不能再次叠加到 `media_start` 上，否则续播后会错位。无字幕和烧录字幕不重复绘制文本层。
+WebVTT 与 ASS 的内部字幕时间统一为 `cueSourceTime = media_start + player.currentPosition / 1000 + subtitleDelay`；界面显示的“延迟”符号与内部偏移相反。`media_start` 只换算一次，不能在源播放位置上再次叠加，否则续播后会错位。无字幕和烧录字幕不重复绘制客户端图层。
 
 ### 进度与完成
 

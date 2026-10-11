@@ -1,6 +1,6 @@
 ---
-version: 0.22.3
-reviewed: 2026-10-03
+version: 0.24.3
+reviewed: 2026-10-11
 ---
 
 # 播放核心设计
@@ -61,7 +61,7 @@ playlist/分片读取和心跳都认领并保活；未认领会话宽限 90 秒�
 
 ## Android TV 与观看进度
 
-Android TV 使用协议 1 握手和 `client=android_tv`，显式声明原生容器、HLS、音轨选择、HDR 和逐片解码能力，不借用网页的 `mse/native_hls` 判定。源文件可解且容器可读时可直接播放 MKV；HLS copy 仍受设备声明的 `hls_audio` 约束。文本/ASS 字幕转 WebVTT，图片字幕烧录；ASS 样式不保真。原生 HLS 的起播仍严格区分 `media_start` 与 `initial_time`，详细协议在仓库 `android-tv/docs/protocol.md`。
+Android TV 使用协议 1 握手和 `client=android_tv`，显式声明原生容器、HLS、音轨选择、HDR 和逐片解码能力，不借用网页的 `mse/native_hls` 判定。源文件可解且容器可读时可直接播放 MKV；HLS copy 仍受设备声明的 `hls_audio` 约束。文本字幕使用 WebVTT；声明 `subtitles.ass=true` 的 APK 通过现有 `.ass` 和字体接口使用原生 libass 渲染 ASS/SSA，保留字体、样式、位置和动画，失败时提示并回退同轨 WebVTT。旧 APK 或旧服务端继续使用兼容文本路径，图片字幕烧录。原生 HLS 的起播仍严格区分 `media_start` 与 `initial_time`，详细协议在仓库 `android-tv/docs/protocol.md`。
 
 服务端 `app/playback_completion.py`、网页 `frontend/src/progress.js` 和 APK `PlaybackModels.kt` 统一完成条件：已播至少 95%，或已播至少 80% 且剩余不超过 300 秒。非法位置、未知时长和非有限数不算完成。3 分钟短片在第 60 秒暂停仍应继续观看，第 144 秒才满足条件；阈值不等同于播放器真正触发 ended/下一集。剧集最近播放项的 `id/show_id` 是剧 ID，续播使用 `progress.version_id` 的分集 ID，并传 `kind=episode`。
 

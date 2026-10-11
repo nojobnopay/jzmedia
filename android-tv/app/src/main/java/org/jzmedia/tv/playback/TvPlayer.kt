@@ -171,6 +171,16 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
             it.keepScreenOn = state.playing
         }, onRelease = { it.keepScreenOn = false; it.player = null })
 
+        controller.assRenderer?.let { renderer ->
+            AndroidView(factory = { AssSubtitleView(it) }, modifier = Modifier.fillMaxSize(), update = {
+                it.bind(renderer = renderer, videoAspectRatio = state.videoAspectRatio,
+                    sourceTime = controller::assSourceMillis,
+                    fontScale = listOf(.8f, 1f, 1.2f)[state.subtitleSize],
+                    onError = { controller.assRenderFailed(renderer) },
+                    storageWidth = controller.subtitleStorageWidth(), storageHeight = controller.subtitleStorageHeight())
+            }, onRelease = { it.release() })
+        }
+
         if (state.subtitleText.isNotBlank()) Text(state.subtitleText,
             modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 44.dp)
                 .padding(bottom = when {

@@ -14,6 +14,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.Timeline
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -51,10 +52,12 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
     private val preferences = appContext.getSharedPreferences("playback", Context.MODE_PRIVATE)
     private val intent = PlaybackIntent()
     private var selectionNotice: String? = null
+    private var playbackNotice: String? = null
+    private var subtitleNotice: String? = null
     private val delayKey = "delay.${api.baseUrl}.${request.kind}.${request.id}"
     var state by mutableStateOf(PlaybackState(
         subtitleDelay = preferences.getFloat(delayKey, 0f).toDouble(),
-        subtitleSize = preferences.getInt("subtitleSize", 1),
+        subtitleSize = preferences.getInt("subtitleSize", 1).coerceIn(0, 2),
         autoNext = preferences.getBoolean("autoNext", true),
         rate = request.continuation?.rate?.takeIf { it in PLAYBACK_RATES } ?: 1f,
     ))
@@ -72,6 +75,8 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
     private var subtitleJob: Job? = null
     private var timeline = SubtitleTimeline(emptyList())
     private var subtitleMode = "none"
+    var assRenderer by mutableStateOf<AssSubtitleRenderer?>(null)
+        private set
     private var segmentType = "fmp4"
     private var validPosition: Double? = null
     private var markedWatched = false
@@ -109,6 +114,12 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
             setHandleAudioBecomingNoisy(true)
             trackSelectionParameters = trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
             addListener(object : Player.Listener {
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    if (!disposed && videoSize.width > 0 && videoSize.height > 0) {
+                        state = state.copy(videoAspectRatio = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height)
+                    }
+                }
+
                 override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                     val pending = initialHlsSeek ?: return
                     if (disposed || timeline.isEmpty || player.currentMediaItem?.mediaId != pending.first) return
@@ -212,7 +223,8 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 val selection = continuationSelection(audioTracks, subtitleTracks, audio, sub, request.continuation)
                 selectionNotice = selection.notice
                 state = state.copy(duration = media.optDouble("duration", 0.0).finiteOrZero(), audio = selection.audio,
-                    subtitle = selection.subtitle, audios = audioTracks, subtitles = subtitleTracks)
+                    subtitle = selection.subtitle, audios = audioTracks, subtitles = subtitleTracks,
+                    videoAspectRatio = if (media.optInt("height") > 0) media.optInt("width").toFloat() / media.optInt("height") else 0f)
                 val progress = if (request.resume) api.get(progressPath()) else {
                     api.delete(progressPath())
                     JSONObject()
@@ -253,6 +265,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         if (disposed) return
         val current = ++generation
         reload?.cancel()
+        clearSubtitle()
         initialHlsSeek = null
         intent.beginPreparation()
         player.pause()
@@ -295,8 +308,9 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 val item = MediaItem.Builder().setUri(url).setMediaId(itemId)
                 if (method != "direct") item.setMimeType(MimeTypes.APPLICATION_M3U8)
                 val size = if (plan.optInt("height") > 0) "${plan.optInt("height")}p" else "${media.optInt("height")}p"
+                playbackNotice = listOfNotNull(selectionNotice, reasons(decision.optJSONArray("reasons"))).joinToString("；").ifEmpty { null }
                 state = state.copy(method = method, output = "$size · ${if (method == "direct" || plan.optBoolean("vcopy")) "原视频" else "视频转码"}",
-                    notice = listOfNotNull(selectionNotice, reasons(decision.optJSONArray("reasons"))).joinToString("；").ifEmpty { null })
+                    notice = playbackNotice)
                 val initialMs = (initial * 1000).toLong()
                 initialHlsSeek = if (method == "direct") null else itemId to initialMs
                 if (method == "direct") intent.prepared()
@@ -304,7 +318,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 player.setMediaItem(item.build(), initialMs)
                 player.setPlaybackSpeed(state.rate)
                 player.prepare()
-                loadSubtitle()
+                loadSubtitle(subtitleMode)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -322,7 +336,6 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         return when {
             "hdr_no_tonemap" in reasons || "dovi_no_base_tonemap" in reasons -> "此片需要 HDR 色彩转换，当前服务器可能无法准确还原色彩。可返回选择 SDR 版本。"
             subtitleMode == "burn" -> "图片字幕由服务器烧录，切换字幕会重新准备播放"
-            state.subtitle?.let { media.optJSONArray("subs")?.optJSONObject(it)?.optString("codec") in listOf("ass", "ssa") } == true -> "ASS 字幕使用兼容文本，部分样式会简化"
             else -> null
         }
     }
@@ -429,26 +442,103 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         val wasBurn = subtitleMode == "burn"
         state = state.copy(subtitle = index, subtitleText = "")
         if (!ready || wasBurn || index?.let { state.subtitles[it].image } == true) open(state.position)
-        else { subtitleMode = if (index == null) "none" else "webvtt"; loadSubtitle() }
+        else loadSubtitle()
     }
 
-    private fun loadSubtitle() {
-        val current = ++subtitleGeneration
+    private fun clearSubtitle() {
+        subtitleGeneration++
         subtitleJob?.cancel()
+        subtitleJob = null
         timeline = SubtitleTimeline(emptyList())
-        state = state.copy(subtitleText = "")
-        val index = state.subtitle ?: return
-        if (subtitleMode != "webvtt") return
+        val oldRenderer = assRenderer
+        assRenderer = null
+        oldRenderer?.close()
+        subtitleNotice = null
+        state = state.copy(subtitleText = "", notice = playbackNotice)
+    }
+
+    private fun setSubtitleNotice(value: String?) {
+        subtitleNotice = value
+        state = state.copy(notice = listOfNotNull(playbackNotice, subtitleNotice).distinct().joinToString("；").ifEmpty { null })
+    }
+
+    private fun selectedAssSubtitle() = state.subtitles.getOrNull(state.subtitle ?: -1)?.codec in listOf("ass", "ssa")
+
+    /** Read Media3 on its application thread; the view sends the resulting time to its worker. */
+    fun assSourceMillis(): Long = if (ready && !disposed) {
+        ((sourcePosition(player.currentPosition, mediaStart, state.duration) + state.subtitleDelay) * 1000).toLong()
+    } else -1L
+
+    fun subtitleStorageWidth() = media.optInt("width")
+    fun subtitleStorageHeight() = media.optInt("height")
+
+    private fun loadSubtitle(decidedMode: String? = null) {
+        clearSubtitle()
+        val current = ++subtitleGeneration
+        val index = state.subtitle ?: run { subtitleMode = "none"; return }
         subtitleJob = scope.launch {
             try {
-                val text = api.getText("/api/stream/${request.id}/sub/$index.vtt?kind=${request.kind}")
-                val parsed = withContext(Dispatchers.Default) { SubtitleTimeline(parseWebVtt(text)) }
+                // Ask the connected server on track changes as old servers only return WebVTT.
+                val mode = decidedMode ?: api.postPlayback("/api/stream/${request.id}/decide", body(state.position))
+                    .optString("subtitle_mode", "none")
                 ensureActive()
-                if (!disposed && current == subtitleGeneration) timeline = parsed
+                if (disposed || current != subtitleGeneration) return@launch
+                subtitleMode = mode
+                if (mode == "ass_client") {
+                    setSubtitleNotice("正在加载 ASS 字幕和字体…")
+                    var failure: Throwable? = null
+                    val renderer = try {
+                        loadAssSubtitle(api, request.id, request.kind, index, ::AssSubtitleRenderer)
+                    } catch (error: CancellationException) { throw error }
+                    catch (error: Exception) { failure = error; null }
+                    catch (error: LinkageError) { failure = error; null }
+                    if (renderer != null) {
+                        if (disposed || current != subtitleGeneration) renderer.close()
+                        else {
+                            assRenderer = renderer
+                            setSubtitleNotice("ASS 字幕使用原始样式渲染")
+                        }
+                        return@launch
+                    }
+                    ensureActive()
+                    if (disposed || current != subtitleGeneration) return@launch
+                    subtitleMode = "webvtt"
+                    val detail = (failure as? AssSubtitleLoadException)?.message ?: "渲染组件初始化失败"
+                    setSubtitleNotice("ASS 字幕加载失败（$detail），已改用兼容文本")
+                    Log.w("JzPlayback", "ASS subtitle load failed kind=${request.kind} id=${request.id} sub=$index; $detail", failure)
+                } else if (mode == "webvtt") {
+                    setSubtitleNotice(if (selectedAssSubtitle()) "ASS 字幕使用兼容文本，部分样式会简化" else null)
+                }
+                if (subtitleMode == "webvtt") loadVttSubtitle(index, current)
             } catch (error: CancellationException) { throw error }
             catch (error: Exception) {
-                if (!disposed && current == subtitleGeneration) state = state.copy(notice = "字幕加载失败，可重新选择字幕重试")
+                if (!disposed && current == subtitleGeneration) setSubtitleNotice("字幕加载失败，可重新选择字幕重试")
                 Log.w("JzPlayback", "Subtitle load failed")
+            }
+        }
+    }
+
+    private suspend fun loadVttSubtitle(index: Int, current: Int) {
+        val text = api.getText("/api/stream/${request.id}/sub/$index.vtt?kind=${request.kind}")
+        val parsed = withContext(Dispatchers.Default) { SubtitleTimeline(parseWebVtt(text)) }
+        if (!disposed && current == subtitleGeneration) {
+            timeline = parsed
+            updatePosition()
+        }
+    }
+
+    fun assRenderFailed(renderer: AssSubtitleRenderer) {
+        if (disposed || assRenderer !== renderer) return
+        val index = state.subtitle ?: return
+        clearSubtitle()
+        val current = subtitleGeneration
+        subtitleMode = "webvtt"
+        setSubtitleNotice("ASS 字幕渲染失败，已改用兼容文本")
+        subtitleJob = scope.launch {
+            try { loadVttSubtitle(index, current) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Exception) {
+                if (!disposed && current == subtitleGeneration) setSubtitleNotice("字幕加载失败，可重新选择字幕重试")
             }
         }
     }
@@ -530,6 +620,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         if (disposed) return
         updatePosition()
         disposed = true
+        clearSubtitle()
         initialHlsSeek = null
         generation++
         subtitleGeneration++

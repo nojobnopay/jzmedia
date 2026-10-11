@@ -40,6 +40,7 @@ data class PlaybackState(
     val subtitles: List<MediaTrack> = emptyList(),
     val rate: Float = 1f,
     val subtitleText: String = "",
+    val videoAspectRatio: Float = 0f,
     val subtitleDelay: Double = 0.0,
     val subtitleSize: Int = 1,
     val autoNext: Boolean = true,

@@ -230,7 +230,10 @@ def _subtitle_mode(media: dict, sub_idx, reasons: list,
         reasons.append("vobsub_needs_burn")
         return "burn"
     if client == "android_tv" and codec in ASS_SUBS | TEXT_SUBS:
-        if ((caps or {}).get("subtitles") or {}).get("webvtt"):
+        subtitles = (caps or {}).get("subtitles") or {}
+        if codec in ASS_SUBS and subtitles.get("ass"):
+            return "ass_client"
+        if subtitles.get("webvtt"):
             return "webvtt"
         reasons.append("subtitle_not_supported")
         return "none"
