@@ -188,11 +188,12 @@ fun Modifier.focusMemory(memory: FocusMemory, key: String, focusRequester: Focus
 
 @Composable
 fun TvAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true,
-             centerLabel: Boolean = false, icon: String? = null, fillContent: Boolean = false) {
+             centerLabel: Boolean = false, icon: String? = null, fillContent: Boolean = false,
+             focusScale: Float = DesignTokens.FocusScale) {
     Button(
         onClick = onClick, enabled = enabled,
         modifier = modifier.heightIn(min = DesignTokens.ControlHeight).tvSelected(selected),
-        colors = tvButtonColors(selected), shape = tvButtonShape(), scale = tvButtonScale(),
+        colors = tvButtonColors(selected), shape = tvButtonShape(), scale = ButtonDefaults.scale(focusedScale = focusScale),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
     ) {
         // centerLabel: fixed-width keys keep icon+text as one centered group.
