@@ -4997,7 +4997,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/base.css",
-            "line": 59,
+            "line": 60,
             "selector": ".skip-link",
             "values": {
               "padding": "12px 16px"
@@ -5085,7 +5085,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 105,
+            "line": 106,
             "selector": ".app-nav .brand",
             "values": {
               "min-width": "var(--jz-touch-target)"
@@ -5093,7 +5093,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 112,
+            "line": 113,
             "selector": ".app-nav .brand",
             "values": {
               "min-height": "var(--jz-touch-target)"
@@ -5229,7 +5229,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 106,
+            "line": 107,
             "selector": ".app-nav .nav-link",
             "values": {
               "padding-inline": "8px"
@@ -5237,7 +5237,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 114,
+            "line": 115,
             "selector": ".app-nav .nav-link",
             "values": {
               "gap": "2px",
@@ -5380,7 +5380,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 106,
+            "line": 107,
             "selector": ".app-nav .nav-link",
             "values": {
               "padding-inline": "8px"
@@ -5388,7 +5388,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 114,
+            "line": 115,
             "selector": ".app-nav .nav-link",
             "values": {
               "gap": "2px",
@@ -5524,7 +5524,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 117,
+            "line": 118,
             "selector": ".app-nav .lib-switch",
             "values": {
               "font-size": "1rem"
@@ -9344,7 +9344,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 68,
+            "line": 69,
             "selector": "/* 海报悬浮播放键（海报墙/继续观看/季集卡共用单源）：hover 海报显形，hover 按钮本身放大变红（Plex 式） */ .poster-play",
             "values": {
               "width": "52px",
@@ -9355,7 +9355,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 87,
+            "line": 88,
             "selector": ".poster-play",
             "values": {
               "width": "44px",
@@ -20576,7 +20576,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:img:12",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 21,
+      "line": 22,
       "platforms": [
         "web",
         "mobile-web"
@@ -20600,7 +20600,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1559,
+            "line": 1781,
             "selector": ".player-video, .freeze-frame",
             "values": {
               "width": "100%",
@@ -20621,7 +20621,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:Spinner:14",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 23,
+      "line": 24,
       "platforms": [
         "web",
         "mobile-web"
@@ -20658,7 +20658,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:19",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 29,
+      "line": 30,
       "platforms": [
         "web",
         "mobile-web"
@@ -20695,7 +20695,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:JzButton:22",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 32,
+      "line": 33,
       "platforms": [
         "web",
         "mobile-web"
@@ -20734,7 +20734,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:button:24",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 36,
+      "line": 37,
       "platforms": [
         "web",
         "mobile-web"
@@ -20758,7 +20758,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1567,
+            "line": 1789,
             "selector": ".center-play",
             "values": {
               "width": "76px",
@@ -20768,7 +20768,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1628,
+            "line": 1850,
             "selector": ".center-play",
             "values": {
               "width": "60px",
@@ -20794,7 +20794,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:25",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 37,
+      "line": 38,
       "platforms": [
         "web",
         "mobile-web"
@@ -20831,7 +20831,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:button:31",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 43,
+      "line": 44,
       "platforms": [
         "web",
         "mobile-web"
@@ -20891,7 +20891,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:32",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 44,
+      "line": 45,
       "platforms": [
         "web",
         "mobile-web"
@@ -20928,7 +20928,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:JzButton:36",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 49,
+      "line": 50,
       "platforms": [
         "web",
         "mobile-web"
@@ -20967,7 +20967,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:JzButton:37",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 50,
+      "line": 51,
       "platforms": [
         "web",
         "mobile-web"
@@ -21006,7 +21006,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:button:43",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 61,
+      "line": 62,
       "platforms": [
         "web",
         "mobile-web"
@@ -21066,7 +21066,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:44",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 63,
+      "line": 64,
       "platforms": [
         "web",
         "mobile-web"
@@ -21104,7 +21104,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:button:45",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 65,
+      "line": 66,
       "platforms": [
         "web",
         "mobile-web"
@@ -21165,7 +21165,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:46",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 65,
+      "line": 66,
       "platforms": [
         "web",
         "mobile-web"
@@ -21202,7 +21202,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:button:47",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 66,
+      "line": 67,
       "platforms": [
         "web",
         "mobile-web"
@@ -21263,7 +21263,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:48",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 66,
+      "line": 67,
       "platforms": [
         "web",
         "mobile-web"
@@ -21300,7 +21300,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:button:50",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 68,
+      "line": 69,
       "platforms": [
         "web",
         "mobile-web"
@@ -21360,7 +21360,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:51",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 69,
+      "line": 70,
       "platforms": [
         "web",
         "mobile-web"
@@ -21398,7 +21398,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:input:52",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 71,
+      "line": 72,
       "platforms": [
         "web",
         "mobile-web"
@@ -21421,7 +21421,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1580,
+            "line": 1802,
             "selector": ".ctl-vol",
             "values": {
               "width": "68px",
@@ -21431,7 +21431,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1582,
+            "line": 1804,
             "selector": ".ctl-vol::-webkit-slider-thumb",
             "values": {
               "width": "10px",
@@ -21440,7 +21440,7 @@
           },
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1583,
+            "line": 1805,
             "selector": ".ctl-vol::-moz-range-thumb",
             "values": {
               "width": "10px",
@@ -21466,7 +21466,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:button:58",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 77,
+      "line": 78,
       "platforms": [
         "web",
         "mobile-web"
@@ -21490,7 +21490,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1584,
+            "line": 1806,
             "selector": ".rate-btn",
             "values": {
               "height": "var(--jz-control-current)",
@@ -21518,7 +21518,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:button:62",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 80,
+      "line": 81,
       "platforms": [
         "web",
         "mobile-web"
@@ -21578,7 +21578,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:63",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 81,
+      "line": 82,
       "platforms": [
         "web",
         "mobile-web"
@@ -21616,7 +21616,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:65",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 87,
+      "line": 88,
       "platforms": [
         "web",
         "mobile-web"
@@ -21653,7 +21653,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:JzButton:69",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 91,
+      "line": 92,
       "platforms": [
         "web",
         "mobile-web"
@@ -21692,7 +21692,7 @@
     {
       "id": "frontend/src/components/PlayerModal.vue:JzButton:70",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 92,
+      "line": 93,
       "platforms": [
         "web",
         "mobile-web"
@@ -22108,7 +22108,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 190,
+            "line": 192,
             "selector": ".pd-set select.sub-select",
             "values": {
               "width": "100%",
@@ -22157,7 +22157,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 193,
+            "line": 195,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22242,7 +22242,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 193,
+            "line": 195,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22405,7 +22405,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 193,
+            "line": 195,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22453,7 +22453,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 193,
+            "line": 195,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22696,7 +22696,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 193,
+            "line": 195,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22821,7 +22821,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 193,
+            "line": 195,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22869,7 +22869,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 193,
+            "line": 195,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22917,7 +22917,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 193,
+            "line": 195,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -23002,7 +23002,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 207,
+            "line": 209,
             "selector": ".set-copy-url",
             "values": {
               "width": "100%",
@@ -23051,7 +23051,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 193,
+            "line": 195,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -23072,6 +23072,55 @@
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
       "source_excerpt": "<JzButton size=\"compact\" class=\"set-button\" @click=\"$emit('copy-debug')\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerSettings.vue:textarea:89",
+      "source": "frontend/src/components/PlayerSettings.vue",
+      "line": 100,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "播放",
+      "element": "textarea",
+      "purpose": "播放诊断信息",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/PlayerSettings.vue",
+            "line": 209,
+            "selector": ".set-copy-url",
+            "values": {
+              "width": "100%",
+              "font-size": ".6875rem"
+            }
+          }
+        ],
+        "value": "width:100%, font-size:.6875rem"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "播放诊断信息",
+      "classification": "native control",
+      "source_excerpt": "<textarea v-if=\"debugFailText\" readonly :value=\"debugFailText\" rows=\"4\" class=\"set-copy-url\" aria-label=\"播放诊断信息\" @focus=\"$event.target.select()\" @click=\"$event.target.select()\" />"
     },
     {
       "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:6",
@@ -31232,7 +31281,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/base.css",
-            "line": 67,
+            "line": 68,
             "selector": ".poster-wrap img",
             "values": {
               "width": "100%",
@@ -31844,7 +31893,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/base.css",
-            "line": 21,
+            "line": 19,
             "selector": ".card img",
             "values": {
               "width": "100%",
@@ -31853,7 +31902,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 22,
+            "line": 20,
             "selector": ".card .t",
             "values": {
               "padding": "8px",
@@ -33179,7 +33228,7 @@
           },
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 853,
+            "line": 854,
             "selector": ".ver-sel",
             "values": {
               "padding": "6px 8px",
@@ -33472,7 +33521,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 853,
+            "line": 854,
             "selector": ".pre-sel",
             "values": {
               "padding": "6px 8px",
@@ -33561,7 +33610,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 853,
+            "line": 854,
             "selector": ".col-chip",
             "values": {
               "font-size": "0.8125rem",
@@ -33842,7 +33891,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 853,
+            "line": 854,
             "selector": ".poster-big",
             "values": {
               "max-height": "78vh",
@@ -34038,7 +34087,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 856,
+            "line": 857,
             "selector": ".poster-cand",
             "values": {
               "padding": "0"
@@ -34046,7 +34095,7 @@
           },
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 858,
+            "line": 859,
             "selector": ".poster-cand img",
             "values": {
               "width": "100%",
@@ -35535,7 +35584,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/base.css",
-            "line": 68,
+            "line": 69,
             "selector": "/* 海报悬浮播放键（海报墙/继续观看/季集卡共用单源）：hover 海报显形，hover 按钮本身放大变红（Plex 式） */ .poster-play",
             "values": {
               "width": "52px",
@@ -35546,7 +35595,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 87,
+            "line": 88,
             "selector": ".poster-play",
             "values": {
               "width": "44px",
@@ -38304,7 +38353,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/base.css",
-            "line": 68,
+            "line": 69,
             "selector": "/* 海报悬浮播放键（海报墙/继续观看/季集卡共用单源）：hover 海报显形，hover 按钮本身放大变红（Plex 式） */ .poster-play",
             "values": {
               "width": "52px",
@@ -38315,7 +38364,7 @@
           },
           {
             "source": "frontend/src/styles/base.css",
-            "line": 87,
+            "line": 88,
             "selector": ".poster-play",
             "values": {
               "width": "44px",
