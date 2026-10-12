@@ -242,7 +242,7 @@ def test_plan_marker_stability_and_ignores():
     # 烧录保留
     p_burn = {**p, "sub": "burn", "sub_idx": 2, "sub_ff_index": 5}
     assert _plan_marker(p_burn, 0, 0) != m0
-    assert '"v": 2' in m0.replace("'", '"')
+    assert '"v": 3' in m0.replace("'", '"')
 
 
 def test_quality_and_session_keys():
@@ -326,6 +326,118 @@ def test_no_mse_native_hls_allows_remux():
     m = _media(container="mkv")
     d = pb.plan(m, caps, quality="auto", client="web")
     assert d["method"] == "remux"
+
+
+def test_file_decoder_allows_mp4_without_mse_or_hls():
+    c = _caps(mse=False, video={}, audio={}, file=_caps())
+    d = pb.plan(_media(), c)
+    assert d["method"] == "direct"
+    assert pb.plan(_media(container="mkv"), c)["method"] == "blocked"
+
+
+def test_file_decoder_rejection_does_not_leak_mse_support_into_direct():
+    c = _caps(file=_caps(video={}))
+    d = pb.plan(_media(), c)
+    assert d["method"] == "remux"
+    assert "direct_play_unavailable" in d["reasons"]
+
+
+def test_file_direct_still_honors_quality_audio_and_burn():
+    c = _caps(file=_caps())
+    assert pb.plan(_media(), c, quality="720p")["method"] == "video_transcode"
+    assert pb.plan(_media(audio=[{"codec": "dts"}]), c)["method"] == "audio_transcode"
+    assert pb.plan(_media(subs=[{"codec": "vobsub", "image": 1}]), c,
+                   sub_idx=0)["method"] == "video_transcode"
+
+
+def test_native_compat_handles_hevc10_dts_mkv_without_safari_assumptions():
+    c = _caps(video={"h264": True, "hevc10": True}, audio={"aac": True, "dts": True},
+              mse=False, native_hls=True, native_audio_tracks=False, hls_compat=True,
+              file=_caps(video={"h264": True, "hevc10": True}))
+    d = pb.plan(_media(container="matroska", vcodec="hevc", bit_depth=10,
+                       audio=[{"codec": "dts", "channels": 6}]), c)
+    assert d["method"] == "video_transcode"
+    assert d["plan"]["seg"] == "ts"
+    assert d["plan"]["vcopy"] is False
+    assert d["plan"]["acopy"] is False
+    assert "hls_compatibility" in d["reasons"]
+
+
+def test_native_compat_preserves_direct_mp4_and_h264_remux():
+    c = _caps(mse=False, native_hls=True, native_audio_tracks=False, hls_compat=True,
+              file=_caps())
+    assert pb.plan(_media(), c)["method"] == "direct"
+    d = pb.plan(_media(container="mkv"), c)
+    assert d["method"] == "remux"
+    assert d["plan"]["seg"] == "ts"
+    assert d["plan"]["vcopy"] is True
+
+
+@pytest.mark.parametrize("codec,channels", [("aac", 6), ("mp3", 2), ("ac3", 6), ("eac3", 6)])
+def test_native_compat_requires_aac_stereo(codec, channels, monkeypatch):
+    monkeypatch.setenv("AUDIO_COPY_SAFE_NATIVE", "aac,mp3,ac3,eac3")
+    c = _caps(native_hls=True, hls_compat=True, audio={codec: True})
+    d = pb.plan(_media(container="mkv", audio=[{"codec": codec, "channels": channels}]), c)
+    assert d["method"] == "audio_transcode"
+    assert d["plan"]["acopy"] is False
+
+
+def test_native_compat_does_not_infer_hdr_or_audio_selection():
+    c = _caps(native_hls=True, hls_compat=True, native_audio_tracks=False,
+              hdr_decode=True, video={"h264": True, "hevc10": True})
+    assert "hdr_not_supported" in pb.plan(_hevc10_media(hdr="hdr10"), c)["reasons"]
+    d = pb.plan(_media(audio=[{"codec": "aac"}, {"codec": "aac"}]), c, audio_idx=1)
+    assert d["method"] == "remux"
+    assert d["plan"]["audio_idx"] == 1
+
+
+def test_compat_cache_isolated_by_packaging_and_selected_audio():
+    c = _caps(hls_compat=True, force_hls=True)
+    media = _media(audio=[{"codec": "aac"}, {"codec": "aac"}])
+    d = pb.plan(media, c)
+    normal = pb.plan(_media(container="mkv"), _caps())
+    assert _plan_marker(d["plan"], 0, 0) != _plan_marker(normal["plan"], 0, 0)
+    other = pb.plan(media, c, audio_idx=1)
+    assert _plan_marker(d["plan"], 0, 0) != _plan_marker(other["plan"], 1, 0)
+
+
+def test_file_caps_normalization_is_bounded_and_idempotent():
+    from app import caps as capmod
+    c = capmod.normalize_caps({"file": {"video": {"h264": "yes", "hevc": True},
+                                       "probes": {str(i): True for i in range(100)}},
+                              "hls_compat": "true", "native_hls": True,
+                              "native_audio_tracks": False})
+    assert c["file"]["video"]["h264"] is False
+    assert c["file"]["video"]["hevc"] is True
+    assert len(c["file"]["probes"]) == 32
+    assert c["hls_compat"] is False
+    assert c["native_audio_tracks"] is False
+    assert capmod.normalize_caps(c) == c
+
+
+def test_mp4_compat_without_mse_or_hls_has_bounded_h264_aac_output():
+    c = _caps(mse=False, native_hls=False, mp4_compat=True, file=_caps(),
+              video={"h264": True, "hevc10": True}, audio={"dts": True})
+    d = pb.plan(_media(container="mkv", vcodec="hevc", bit_depth=10,
+                       audio=[{"codec": "dts", "channels": 6}]), c)
+    assert d["method"] == "video_transcode"
+    assert d["plan"]["seg"] == "mp4" and d["plan"]["clip_seconds"] == 30
+    assert not d["plan"]["vcopy"] and not d["plan"]["acopy"]
+    assert "mp4_compatibility" in d["reasons"]
+    assert "no_mse" not in d["reasons"]
+    assert pb.plan(_media(), c)["method"] == "direct"
+
+
+def test_mp4_output_requires_real_file_decoder_support():
+    c = _caps(mp4_compat=True, file=_caps(video={}), mse=False, native_hls=True)
+    assert pb.plan(_media(container="mkv"), c)["method"] == "blocked"
+
+
+def test_mp4_chunk_cache_includes_selected_audio_and_clip_rule():
+    p = {"seg": "mp4", "vcopy": False, "acopy": False, "audio_idx": 0, "clip_seconds": 30}
+    a = _plan_marker(p, 0, 100)
+    assert a != _plan_marker({**p, "audio_idx": 1}, 1, 100)
+    assert a != _plan_marker({**p, "clip_seconds": 60}, 0, 100)
 
 
 def test_quality_key_burn_splits_dir():

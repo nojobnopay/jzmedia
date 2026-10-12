@@ -397,7 +397,8 @@ const heroBlocked = computed(() => !!verBlocked.value[heroVid.value])
 const heroBlockTip = computed(() => verErr.value[heroVid.value] || '')
 // 预缓存入口（P1）：remux/audio_transcode 本不需要转码，但远程库读盘慢——整片缓存到服务端
 // 本地后点播零 NAS 读取。direct 无需缓存；本地库读取快也不必（保持旧按钮仅给转码版）。
-const heroRemux = computed(() => ['remux', 'audio_transcode'].includes(verMethod.value[heroVid.value]))
+const heroRemux = computed(() => ['remux', 'audio_transcode'].includes(verMethod.value[heroVid.value])
+  && verList.value.find(v => Number(v.version_id) === Number(heroVid.value))?.transport !== 'mp4')
 const heroRemoteLib = computed(() => {
   const v = (m.value?.versions || []).find(x => Number(x.id) === Number(heroVid.value))
   return isRemoteVideoLib(v?.library_id ?? m.value?.library_id)

@@ -100,14 +100,15 @@ def _sub_overlay_filter(plan: dict) -> tuple[str, bool]:
 def build_cmd(abs_path: str, plan: dict,
               start: float = 0, seg_time: int | None = None,
               force_sw: bool = False) -> list[str]:
-    """按 plan() 构造 ffmpeg HLS 命令。
+    """按 plan() 构造 HLS 或有限普通 MP4 命令。
     ⚠️ 必须 `cwd=会话目录` 执行：ffmpeg 的 `-hls_segment_filename` 相对路径按进程
     CWD 解析（写文件），而播放列表里的 URI 按列表位置解析；只有 cwd=目录 + 裸文件名
     才能两者一致（否则分片会落到服务进程 CWD，会话目录里永远没分片）。
     - fmp4（默认）：`-var_stream_map` 单进程，video + 全部音轨 rendition 扁平落盘
       （out_<name>.m3u8 + <name>_init.mp4/<name>_segNNNNN.m4s）；master.m3u8 由
       stream._write_master 生成（ffmpeg 对 HEVC copy 不产 CODECS，Safari 需要）。
-    - ts（HLS_SEGMENT_TYPE=ts 回滚）：旧单 variant MPEG-TS，master.m3u8 + segNNNNN.ts。
+    - ts（兼容客户端或 HLS_SEGMENT_TYPE=ts）：单音轨 MPEG-TS，master.m3u8 + segNNNNN.ts。
+    - mp4：有限普通 MP4 短片，faststart 完成后由会话层原子发布，支持原生文件时间轴。
     HW 加速：transcode.detect() 冒烟探测（env TRANSCODER/HW_ACCEL 可强制）；
     force_sw=True 用于硬件路径失败后的软件重试。"""
     plan = plan or {}
@@ -117,6 +118,13 @@ def build_cmd(abs_path: str, plan: dict,
     if not plan.get("vcopy"):
         from .. import transcode
         backend = transcode.software() if force_sw else transcode.detect()
+    if plan.get("seg") == "mp4":
+        # 复用单音轨编码链；短片自然完成后写 moov/faststart，再由会话层原子发布。
+        cmd = _build_cmd_ts(abs_path, plan, start, 6, backend=backend)
+        cmd = cmd[:cmd.index("-f", cmd.index("-i") + 2)]
+        return cmd + ["-t", str(int(plan.get("clip_seconds") or 30)),
+                      "-avoid_negative_ts", "make_zero", "-movflags", "+faststart",
+                      "-f", "mp4", "media.tmp.mp4"]
     if (plan.get("seg") or seg_type()) == "ts":
         return _build_cmd_ts(abs_path, plan, start, seg_time or 6, backend=backend)
     return _build_cmd_fmp4(abs_path, plan, start, seg_time or 4, backend=backend)
@@ -259,6 +267,7 @@ def _build_cmd_ts(abs_path: str, plan: dict,
         from .. import transcode as _tr
         _append_video_encoder(cmd, backend or _tr.software(), height,
                               burn=burn_sub, tonemap=bool(plan.get("tonemap")))
+        cmd += ["-force_key_frames", f"expr:gte(t,n_forced*{int(seg_time)})"]
     if acopy:
         cmd += ["-c:a", "copy"]
     else:
@@ -266,6 +275,7 @@ def _build_cmd_ts(abs_path: str, plan: dict,
     seg_pat = "seg%05d.ts"
     cmd += ["-f", "hls", "-hls_time", str(seg_time),
             "-hls_list_size", "0", "-hls_segment_type", "mpegts",
+            "-hls_flags", "temp_file",
             # 不要加 -hls_playlist_type event！hls.js 会把 EVENT 当 VOD 只播首屏分片
             # （约 18s 必死）；Plex 也是纯 live 式增长列表，无 ENDLIST 即刷新。
             "-avoid_negative_ts", "make_zero",

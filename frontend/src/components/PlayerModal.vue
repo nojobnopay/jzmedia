@@ -16,7 +16,8 @@
         :style="videoPadding ? { paddingTop: videoPadding } : {}"
         @pointermove="onMouseMove" @pointerdown="notePointerDown" @dblclick="onSurfaceDoubleClick"
         @focusin="onControlFocus" @focusout="controlsFocused = false">
-        <video ref="videoEl" :key="videoKey" autoplay playsinline preload="metadata" class="player-video"
+        <video ref="videoEl" :key="videoKey" autoplay playsinline webkit-playsinline preload="metadata" class="player-video"
+          disableremoteplayback controlslist="noremoteplayback" x-webkit-airplay="deny"
           @click="onSurfaceClick" @error="onVideoError"></video>
         <img v-if="freezeFrame" :src="freezeFrame" class="freeze-frame" alt="" />
         <div v-if="(seekPending || booting) && !err" class="stage-state seek-ov" role="status" aria-live="polite">
@@ -100,7 +101,9 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted, nextTick } from 'vue'
 import { api } from '../api.js'
 import { copyText } from '../clipboard.js'
-import { getCaps, probeStrings, withProbes } from '../caps.js'
+import { getCaps, probeStrings, withProbes, playbackSupport } from '../caps.js'
+import { compatibilityCaps, blockedPlaybackMessage, mediaErrorMessage } from '../playbackCompatibility.js'
+import { createMp4Queue, mp4ClipEnd, detachedMediaTimeline, loadMp4Blob, mp4AtEnd } from '../mp4Chunks.js'
 import { createDropGuard, tickDropGuard, isCopyVideoPath } from '../dropGuard.js'
 import { landscapeLockWanted, lockLandscape, orientationEnv, unlockOrientation } from '../screenOrientation.js'
 import Spinner from './Spinner.vue'
@@ -208,6 +211,18 @@ let pingTimer = 0
 // 客户端能力：基础矩阵一次；逐片候选码串实测结果按版本缓存（decide/sessions 带 caps）
 let activeCaps = null
 const probedCaps = {}
+const compatVersions = new Set()
+let compatPending = false
+let outputPlan = null
+const outputFormat = ref('')
+let sourceMedia = null
+const timelineDetached = ref(false)
+let mp4End = null
+let preparedMp4 = null
+const heldMp4Sessions = new Set()
+const mp4BlobUrls = new Map()
+let mp4Duration = null
+let mp4AdvanceGen = -1
 const err = ref('')
 const posHint = ref('')
 watch(posHint, text => {
@@ -329,7 +344,7 @@ const overlayVisible = computed(() =>
   !isFull.value || mouseActive.value || seekPending.value || !isPlaying.value
   || settingsOpen.value || previewActive.value || controlsFocused.value || !!err.value)
 const isHls = computed(() => ['remux', 'audio_transcode', 'video_transcode']
-  .includes(method.value))
+  .includes(method.value) && outputFormat.value !== 'mp4')
 const bufLine = computed(() => {
   if (!isHls.value) return ''
   const total = Number(decidedDuration.value) || 0
@@ -359,6 +374,7 @@ const methodLine = computed(() => {
 const planHeight = ref(0)
 const directUrl = ref('')   // 原文件直链（设置弹层「复制直链」给 VLC/Kodi 用）
 const directFailUrl = ref('')
+const debugFailText = ref('')
 const srcHeight = ref(0)
 const qualityBadge = computed(() => (planHeight.value || srcHeight.value) ? `${planHeight.value || srcHeight.value}p` : '')
 const qualityLine = computed(() => {
@@ -394,6 +410,9 @@ const REASON_TEXT = {
   audio_track_selection: '所选音轨需要走转封装（原文件直发只能播默认音轨）',
   subtitle_burn_forced: '图片字幕客户端解码不可用，已自动改为烧录',
   subtitle_not_found: '所选字幕不可用',
+  hls_compatibility: '正在使用浏览器兼容播放格式',
+  direct_play_unavailable: '原文件直发不可用，已改为兼容播放',
+  mp4_compatibility: '正在使用 MP4 兼容播放，切换片段时可能短暂等待',
 }
 const reasonLine = computed(() => (reasons.value || []).map(r => REASON_TEXT[r] || r).join('；'))
 function destroyHls() {
@@ -401,6 +420,7 @@ function destroyHls() {
 }
 // 应用所选音轨（fMP4 rendition）：hls.audioTracks 顺序 = 服务端产出顺序（见 playback.audio_variants）
 function applyAudioTrack() {
+  if (['ts', 'mp4'].includes(outputPlan?.seg)) return false
   if (!hls || !hls.audioTracks || !hls.audioTracks.length) {
     logEvt('hls:audio-skip', 'tracks=' + (hls && hls.audioTracks ? hls.audioTracks.length : -1) +
       ' want=' + (Number(audioIdx.value) || 0))
@@ -418,7 +438,8 @@ function applyAudioTrack() {
 // 原生 HLS（Safari）音轨切换：video.audioTracks[k].enabled；不支持则返回 false
 function applyNativeAudioTrack(v) {
   const tv = v || videoEl.value
-  if (engine !== 'native' || !tv || !tv.audioTracks || !tv.audioTracks.length) return false
+  if (!['native', 'direct'].includes(engine) || (isHls.value && outputPlan?.seg === 'ts')
+      || !tv || !tv.audioTracks || !tv.audioTracks.length) return false
   const i = Number(audioIdx.value) || 0
   for (let k = 0; k < tv.audioTracks.length; k++) {
     try { tv.audioTracks[k].enabled = (k === i) } catch (e) { /* 忽略 */ }
@@ -431,15 +452,20 @@ function applyNativeAudioTrack(v) {
 // 起点已由 startOffset 记录，片内 0 = 会话起点。自救保持默认（回到当前直播边缘附近）。
 async function mountHls(v, url, targetMediaTime, opts) {
   let Hls = null
-  try { Hls = await ensureHls() } catch (e) { Hls = null }
+  let loadError = null
+  try { Hls = await ensureHls() } catch (e) { loadError = e }
   // 动态 import 等待期可能已关窗/换元素/新一轮 reload：绝不在过期元素上建实例
   // （对齐 useSubtitles 的 videoEl.value !== v 守卫；此处是音频泄漏的直接入口）
   if (disposed || !v || videoEl.value !== v) return false
   if (opts && opts.gen != null && opts.gen !== reloadGen) return false
   if (opts && opts.signal && opts.signal.aborted) return false
   if (!Hls || !Hls.isSupported()) {
+    logEvt(loadError ? 'hls:load-failed' : 'hls:unsupported', loadError?.message || '')
+    if (tryCompatibility('HLS 引擎不可用', { native: true })) return false
     sessStatus.value = ''
-    err.value = '当前浏览器不支持 HLS，请用 Chrome/Edge/Safari'
+    err.value = loadError
+      ? '播放器组件加载失败，请刷新页面后重试；也可在播放设置中复制直链'
+      : blockedPlaybackMessage(['no_mse'])
     return false
   }
   destroyHls()
@@ -447,13 +473,19 @@ async function mountHls(v, url, targetMediaTime, opts) {
   const cfg = { maxBufferLength: 30 * Math.max(1, playbackRate.value), maxLiveSyncPlaybackRate: 1, maxMaxBufferLength: 60, backBufferLength: 30 }
   if (opts && opts.fromStart) cfg.startPosition = Math.max(0, Number(targetMediaTime) || 0)
   hls = new Hls(cfg)
+  const mounted = hls
   hls.on(Hls.Events.ERROR, (_ev, data) => {
+    if (disposed || hls !== mounted || (opts?.gen != null && opts.gen !== reloadGen)) return
     if (data) {
       lastHlsError.value = (data.fatal ? 'FATAL ' : '') + (data.details || data.type)
       logEvt('hls:' + (data.fatal ? 'FATAL ' : '') + (data.details || data.type),
         'frag=' + ((((data || {}).frag || {}).sn ?? '')) + ' ' +
         String((((data || {}).error || {})).message || '').slice(0, 80))
-      if (data.fatal) err.value = '播放错误：' + (data.details || data.type)
+      if (data.fatal) {
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR
+            && tryCompatibility('HLS 媒体解析失败', { transcode: outputPlan?.vcopy === true })) return
+        err.value = '播放错误：' + (data.details || data.type)
+      }
       else console.warn('[hls]', data.details || data.type, data)
     }
   })
@@ -505,21 +537,29 @@ let lastPlayAttempt = 0
 function tryPlay() {
   const v = videoEl.value
   if (!v || disposed) return
+  const gen = reloadGen
   restorePlaybackRate()
   wantPlaying = true
   lastPlayAttempt = Date.now()
   try {
     const r = v.play()
-    if (r && r.catch) r.then(() => { needGesture.value = false }).catch(() => { needGesture.value = true })
-  } catch (e) { needGesture.value = true }
+    if (r && r.catch) r.then(() => {
+      if (!disposed && gen === reloadGen && videoEl.value === v) needGesture.value = false
+    }).catch(e => handlePlayFailure(e, v, gen))
+  } catch (e) { handlePlayFailure(e, v, gen) }
+}
+function handlePlayFailure(error, v, gen) {
+  if (disposed || gen !== reloadGen || videoEl.value !== v || compatPending) return
+  if (error?.name === 'NotAllowedError') { needGesture.value = true; return }
+  if (error?.name === 'AbortError') return
+  if (v.error) { noteMediaError(); return }
+  if (error?.name === 'NotSupportedError'
+      && tryCompatibility('播放格式不可用', { transcode: method.value === 'direct' || outputPlan?.vcopy === true })) return
+  err.value = mediaErrorMessage(error?.name === 'NotSupportedError' ? 4 : 0)
 }
 function userPlay() {
-  const v = videoEl.value
-  if (!v) return
   needGesture.value = false
-  wantPlaying = true
-  lastPlayAttempt = Date.now()
-  v.play().catch(() => { needGesture.value = true })
+  tryPlay()
 }
 function stopPing() {
   if (pingTimer) { clearInterval(pingTimer); pingTimer = 0 }
@@ -541,34 +581,139 @@ function startPing() {
     if (!sessionId || disposed) return
     try {
       const r = await api(`/api/stream/sessions/${sessionId}/ping`, { method: 'POST' })
+      const next = mp4Queue.sessionId()
+      if (next) api(`/api/stream/sessions/${next}/ping`, { method: 'POST' }).catch(() => {})
       if (r && r.running === false && (r.segments || 0) > 0) {
         sessStatus.value = '' // 转码完成，后台收尾
       }
     } catch (e) { /* 心跳失败不打扰播放 */ }
   }, 10000)
 }
-// 引擎选择（hls.js 官方建议）：仅现代 Safari（ManagedMediaSource）用原生 HLS。
-// Chromium 147+ 的 canPlayType('application/vnd.apple.mpegurl') 会谎报 "maybe"，
-// 但原生 HLS 会解析失败（Edge 153 实测 DEMUXER_ERROR_COULD_NOT_PARSE），必须优先 hls.js。
-function canUseNativeHls(v) {
+function canUseNativeHls() {
+  return activeCaps?.native_hls === true
+}
+// 格式错误只兼容重播一次；基础能力缓存不变，关闭/下一轮 reload 仍由代际守卫接管。
+function tryCompatibility(reason, { native = canUseNativeHls(), transcode = false } = {}) {
+  if (activeCaps?.mp4_compat && method.value !== 'direct') return false
+  if (disposed || !activeCaps || compatVersions.has(props.versionId)) return false
+  const support = playbackSupport()
+  const supported = activeCaps.mp4_compat
+    ? activeCaps.file?.video?.h264 && activeCaps.file?.audio?.aac
+    : (native ? support.native_hls_available : support.mse)
+  if (!supported) return false
+  compatVersions.add(props.versionId)
+  resumePos = Math.max(0, absPos() || lastStartAt)
+  activeCaps = compatibilityCaps(activeCaps, { native, transcode })
+  probedCaps[props.versionId] = activeCaps
+  posHint.value = '正在尝试兼容播放…'
+  logEvt('compat:retry', reason + ' native=' + native + ' transcode=' + transcode)
+  compatPending = true
+  reload().finally(() => { compatPending = false })
+  return true
+}
+const mp4Queue = createMp4Queue({
+  create: createPlayerSession,
+  close: sid => { revokeMp4Blob(sid); return api(`/api/stream/sessions/${sid}`, { method: 'DELETE' }) },
+  isCurrent: gen => !disposed && gen === reloadGen,
+})
+function revokeMp4Blob(sid) {
+  const url = mp4BlobUrls.get(sid)
+  if (url) { URL.revokeObjectURL(url); mp4BlobUrls.delete(sid) }
+}
+async function createPlayerSession(body, signal) {
+  const session = await api(`/api/stream/${props.versionId}/sessions`, {
+    method: 'POST', timeout: 300000, signal, body: JSON.stringify(body),
+  })
+  if (session.plan?.seg !== 'mp4') return session
   try {
-    return ('ManagedMediaSource' in window)
-      && !!(v && v.canPlayType('application/vnd.apple.mpegurl'))
-  } catch (e) { return false }
+    const source = await loadMp4Blob(session.media_url, signal)
+    session.blob_url = source.url
+    session.blob_bytes = source.bytes
+    mp4BlobUrls.set(session.session_id, source.url)
+    return session
+  } catch (error) {
+    revokeMp4Blob(session.session_id)
+    api(`/api/stream/sessions/${session.session_id}`, { method: 'DELETE' }).catch(() => {})
+    throw error
+  }
+}
+function mp4Body() {
+  const selected = selectedSub()
+  return { quality: quality.value, audio: audioIdx.value, caps: activeCaps,
+    sub: imageSubSelected() && !isLocalSub(selected) && subIdx.value >= 0 ? Number(subIdx.value) : null,
+    force_burn: forceBurn.value, kind: props.kind }
+}
+function mountMp4(v, url, initialTime, gen, duration) {
+  engine = 'mp4'
+  timelineDetached.value = false
+  mp4Duration = Number.isFinite(duration) && duration > 0 ? duration : null
+  logEvt('engine:mp4', 'duration=' + mp4Duration + ' blob=' + url.startsWith('blob:'))
+  // 即使浏览器不发 loadedmetadata 或回传 NaN，也按服务器的真实片长立即预取。
+  const prepare = () => {
+    mp4End = mp4ClipEnd(mediaStart, mp4Duration || v.duration, decidedDuration.value)
+    if (mp4End != null && mp4End > lastStartAt + 0.5 && mp4End < decidedDuration.value - 0.25) {
+      mp4Queue.prepare(mp4End, mp4Body(), gen)
+    }
+  }
+  prepare()
+  let initialApplied = false
+  const onMeta = () => {
+    if (disposed || gen !== reloadGen || videoEl.value !== v) return
+    if (!initialApplied && v.readyState >= 1) {
+      try { if (initialTime > 0) v.currentTime = initialTime; initialApplied = true }
+      catch (e) { logEvt('seek:init', e.message) }
+    }
+    restorePlaybackRate()
+    prepare()
+  }
+  v.addEventListener('loadedmetadata', onMeta, { once: true })
+  v.addEventListener('canplay', onMeta, { once: true })
+  v.src = url
+  tryPlay()
+}
+function handleDetachedTimeline() {
+  if (timelineDetached.value) return
+  timelineDetached.value = true
+  logEvt('video:detached-timeline', engine)
+  if (!activeCaps?.mp4_compat && activeCaps?.file?.video?.h264 && activeCaps?.file?.audio?.aac) {
+    resumePos = absPos() || lastStartAt
+    activeCaps = { ...compatibilityCaps(activeCaps), mp4_compat: true, native_hls: false }
+    probedCaps[props.versionId] = activeCaps
+    posHint.value = '浏览器播放器无法同步进度，正在切换 MP4 兼容播放…'
+    reload()
+    return
+  }
+  err.value = '浏览器使用独立播放器，网页无法同步进度和字幕。请使用 Chrome/Edge 播放'
+}
+function mountNativeHls(v, url, initialTime, gen) {
+  engine = 'native'
+  manifestReady = false
+  logEvt('engine:native', outputPlan?.seg || '')
+  const onMeta = () => {
+    if (disposed || gen !== reloadGen || videoEl.value !== v) return
+    manifestReady = true
+    try { v.currentTime = initialTime } catch (e) { logEvt('seek:init', e.message) }
+    restorePlaybackRate()
+    applyNativeAudioTrack(v)
+  }
+  v.addEventListener('loadedmetadata', onMeta, { once: true })
+  v.src = url
+  tryPlay()
 }
 // 媒体级错误（Chrome 有时只置 v.error 不触发 error 事件）：记录 + 红字，供看门狗直通恢复
 function noteMediaError() {
+  if (compatPending) return false
   const v = videoEl.value
   if (!v || !v.error) return false
+  if ((v.error.code === 3 || v.error.code === 4)
+      && tryCompatibility('视频解码失败', { transcode: method.value === 'direct' || outputPlan?.vcopy === true })) return true
   const key = v.error.code + ':' + (v.error.message || '')
   if (key !== mediaErrLogged) {
     mediaErrLogged = key
     logEvt('video:error', key.slice(0, 140))
   }
   if (!err.value) {
-    err.value = v.error.code === 4
-      ? '播放器解析失败（格式/解码错误），正在尝试自动恢复…'
-      : '播放出错（媒体错误 ' + v.error.code + '），正在尝试自动恢复…'
+    err.value = mediaErrorMessage(v.error.code)
   }
   return true
 }
@@ -592,8 +737,12 @@ async function decidePlayback(subArg, signal) {
     return d
   }
   try {
-    const probes = await probeStrings(strs, { w: media.width, h: media.height })
-    probedCaps[props.versionId] = withProbes(base, probes)
+    const dims = { w: media.width, h: media.height }
+    const [probes, fileProbes] = await Promise.all([
+      probeStrings(strs, dims, base.native_hls || base.mp4_compat ? 'file' : 'media-source'),
+      probeStrings(strs, dims, 'file'),
+    ])
+    probedCaps[props.versionId] = withProbes(withProbes(base, probes), fileProbes, 'file')
     activeCaps = probedCaps[props.versionId]
     return await post(activeCaps)
   } catch (e) {
@@ -602,6 +751,14 @@ async function decidePlayback(subArg, signal) {
   }
 }
 async function reload() {
+  const prepared = preparedMp4
+  preparedMp4 = null
+  if (prepared?.session_id) heldMp4Sessions.add(prepared.session_id)
+  try {
+  mp4Queue.clear()
+  mp4End = null
+  mp4Duration = null
+  timelineDetached.value = false
   clearTimeout(seekFallbackTimer)
   clearTimeout(keyboardSeekTimer)
   keyboardSeekTarget = null
@@ -635,13 +792,15 @@ async function reload() {
   }
   // 换会话前抓一帧冻结画面：窗口不塌、无图像窗口不再出现
   freezeFrame.value = captureFrame()
+  const previousSid = sessionId
   await closeSession()
   destroyHls()
   manifestReady = false   // 旧 master 已失效，新挂载解析前不再认为可切 rendition
   const v = videoEl.value
-  if (!v || disposed) { booting.value = false; return }   // 关窗/换元素后不再起新一轮
+  if (!v || disposed) { revokeMp4Blob(previousSid); booting.value = false; return }   // 关窗/换元素后不再起新一轮
   try { v.pause() } catch (e) { /* 忽略 */ }
   v.removeAttribute('src'); v.load()
+  revokeMp4Blob(previousSid)
   let d
   // 图片字幕：默认客户端渲染（PGS→libpgs）；VobSub/解码降级走烧录（服务端 subtitle_mode）
   const wantBurn = imageSubSelected()
@@ -666,6 +825,14 @@ async function reload() {
   directUrl.value = d.direct_url || ''
   directFailUrl.value = ''
   srcHeight.value = Number(d.media?.height) || 0
+  sourceMedia = d.media || null
+  outputPlan = d.plan || null
+  outputFormat.value = outputPlan?.seg || ''
+  if (d.method === 'blocked') {
+    sessStatus.value = ''
+    err.value = blockedPlaybackMessage(d.reasons)
+    return
+  }
   // 播放器比例：padding-top = min(片源高宽比, 64vh)（16:9 片源按屏幕宽度自适应）；
   // HLS 模式底部额外预留控件条高度，视频区不被遮挡。无数据时容器也不塌陷。
   try {
@@ -699,17 +866,11 @@ async function reload() {
       ? '正在换封装…' : '正在转码（前分片生成中，稍候即播）…'
     let s
     try {
-      s = await api(`/api/stream/${props.versionId}/sessions`, {
-        method: 'POST',
-        // 建会话要等首批分片（弱 CPU 转码慢），放宽到 300s，对齐服务端 deadline
-        timeout: 300000,
-        signal: ctrl.signal,
-        body: JSON.stringify({ quality: quality.value, audio: audioIdx.value,
+      s = prepared || await createPlayerSession({ quality: quality.value, audio: audioIdx.value,
                                start: Math.floor(startAt),
                                sub: burnSub >= 0 ? burnSub : null,
                                caps: activeCaps,
-                               force_burn: forceBurn.value, kind: props.kind }),
-      })
+                               force_burn: forceBurn.value, kind: props.kind }, ctrl.signal)
     } catch (e) {
       if (disposed || gen !== reloadGen || ctrl.signal.aborted) return
       sessStatus.value = ''
@@ -722,12 +883,19 @@ async function reload() {
       // 晚到会话：本轮已被关窗/新档接管，立即回收，防孤儿 ffmpeg + 泄漏心跳（服务端
       // 另有 unclaimed 快速收割兜底客户端 abort 拿不到 sid 的情况）
       const late = s && s.session_id
-      if (late) api(`/api/stream/sessions/${late}`, { method: 'DELETE' }).catch(() => { /* 忽略 */ })
+      if (late) {
+        revokeMp4Blob(late)
+        api(`/api/stream/sessions/${late}`, { method: 'DELETE' }).catch(() => { /* 忽略 */ })
+      }
       return
     }
     sessionId = s.session_id
+    heldMp4Sessions.delete(sessionId)
     method.value = s.method || d.method
     reasons.value = s.reasons || d.reasons || []
+    outputPlan = s.plan || d.plan || null
+    outputFormat.value = outputPlan?.seg || ''
+    planHeight.value = Number(outputPlan?.height) || 0
     // 服务端实际媒体起点（copy 会话=目标前关键帧，可能早于请求 start）：字幕按它平移
     const ms = Number(s.media_start)
     if (Number.isFinite(ms) && Math.abs(ms - startOffset.value) > 0.01) {
@@ -737,31 +905,22 @@ async function reload() {
     }
     const initialTime = Math.max(0, Number(s.initial_time) || 0)
     startPing()
-    const url = s.playlist_url
+    const url = s.blob_url || s.media_url || s.playlist_url
     lastPlaylistUrl = url
     recoverCount = 0
     stallTicks = 0
     lastTickPos = -1
     const onPlaying = () => { sessStatus.value = ''; booting.value = false }
     v.addEventListener('playing', onPlaying, { once: true })
-    if (canUseNativeHls(v)) {
-      engine = 'native'
-      logEvt('engine:native', 'ManagedMediaSource')
-      v.src = url
-      // 原生 HLS 显式定位，避免增长型列表从直播边缘起播；完整缓存按目标时间起播。
-      // 音轨选择用 video.audioTracks 应用（Safari 有；没有则维持默认轨）
-      const onMeta = () => {
-        if (disposed || gen !== reloadGen || videoEl.value !== v) return
-        try { v.currentTime = initialTime } catch (e) { logEvt('seek:init', e.message) }
-        restorePlaybackRate()
-        applyNativeAudioTrack(v)
-      }
-      v.addEventListener('loadedmetadata', onMeta, { once: true })
-      tryPlay()
+    if (outputPlan?.seg === 'mp4') {
+      mountMp4(v, url, initialTime, gen, Number(s.clip_duration))
+    } else if (canUseNativeHls()) {
+      mountNativeHls(v, url, initialTime, gen)
     } else {
       engine = 'hls'
       logEvt('engine:hls', '')
-      await mountHls(v, url, initialTime, { fromStart: true, gen, signal: ctrl.signal })
+      const mounted = await mountHls(v, url, initialTime, { fromStart: true, gen, signal: ctrl.signal })
+      if (!mounted && !disposed && gen === reloadGen) await closeSession()
     }
     }
   } catch (e) {
@@ -769,6 +928,12 @@ async function reload() {
     if (disposed || gen !== reloadGen) return
     sessStatus.value = ''
     err.value = '播放失败：' + (e && e.message ? e.message : e)
+  }
+  } finally {
+    if (prepared?.session_id && heldMp4Sessions.delete(prepared.session_id)) {
+      revokeMp4Blob(prepared.session_id)
+      api(`/api/stream/sessions/${prepared.session_id}`, { method: 'DELETE' }).catch(() => {})
+    }
   }
 }
 // 字幕子系统（选轨/本地临时字幕/VTT 自绘/ASS/PGS/延迟/外观）：见 ../useSubtitles.js
@@ -819,6 +984,7 @@ const settingsProps = computed(() => ({
   compatSub: compatSub.value,
   hasLocalSub: localSubs.value.length > 0,
   directFailUrl: directFailUrl.value,
+  debugFailText: debugFailText.value,
   methodLine: methodLine.value,
   qualityLine: qualityLine.value,
   subStyle: subStyle.value,
@@ -886,7 +1052,7 @@ function onAudioChange(v) {
   logEvt('audio-change', 'ref=' + (Number(audioIdx.value) || 0) + ' ready=' + manifestReady)
   if (applyAudioTrack()) return
   if (applyNativeAudioTrack()) return
-  if (isHls.value && !manifestReady) return
+  if (isHls.value && outputPlan?.seg !== 'ts' && !manifestReady) return
   reload()
 }
 // 复制原文件直链（VLC/Kodi/电视播放器）：HDR/DV 等浏览器难处理的片源走这条路
@@ -915,6 +1081,8 @@ let savePromise = null
 let lastSaveAttempt = 0
 // 取关闭/上报这一刻的存档内容（pos==null 表示无有效位置，不写）
 function progressPayload(v) {
+  if (timelineDetached.value || (!seekPending.value && ['native', 'mp4'].includes(engine)
+      && detachedMediaTimeline(v) && !(v.currentTime > 0.05))) return null
   const pos = pickProgressPosition({
     seekPending: seekPending.value, seekPreview: seekPreview.value,
     absPos: absPos(), currentTime: v.currentTime
@@ -953,6 +1121,7 @@ function saveFinal() {
   return finalSavePromise
 }
 function onTime() {
+  if (timelineDetached.value) return
   const v = videoEl.value
   if (!seekPending.value && !seekDragging.value) seekPos.value = absPos()
   // 播放状态自愈：play/pause 事件若在监听绑定前/元素替换间隙丢失，timeupdate 低频校正
@@ -1024,6 +1193,27 @@ function restartSeek(t) {
   reload()
 }
 async function onEnded() {
+  if (engine === 'mp4') {
+    if (booting.value) return
+    if (timelineDetached.value || !mp4AtEnd(videoEl.value, mp4Duration)) return
+    if (mp4AdvanceGen === reloadGen) return
+    mp4AdvanceGen = reloadGen
+    if (mp4End == null) {
+      err.value = '无法确定兼容片段结束位置，请重新加载；不会将短片段标记为整部电影结束'
+      return
+    }
+  }
+  if (engine === 'mp4' && mp4End != null && mp4End < decidedDuration.value - 0.25) {
+    const gen = reloadGen
+    const end = mp4End
+    booting.value = true
+    const next = await mp4Queue.take(end, gen)
+    if (disposed || gen !== reloadGen) return
+    preparedMp4 = next
+    resumePos = end
+    reload()
+    return
+  }
   if (props.preview) return
   await saveNow()
   emit('watched')
@@ -1057,11 +1247,8 @@ async function restartPlay() {
   reload()
 }
 function onVideoError() {
-  if (err.value) return
-  // 分流：Direct 是文件问题；HLS 多半是分片/缓冲断流（可重试或降档），别报“文件损坏”吓人
-  err.value = method.value && method.value !== 'direct'
-    ? '播放中断（分片加载失败），可关闭重进，或切 720p 再试'
-    : '文件为空或损坏，无法播放，请下载检查'
+  noteMediaError()
+  if (!err.value && !booting.value) err.value = '播放中断，请检查连接后重试'
 }
 function onPlayingHide() {
   needGesture.value = false
@@ -1214,6 +1401,7 @@ function onPlayState() {
   if (v) { muted.value = !!v.muted; volume.value = Number(v.volume ?? 1) }
 }
 async function copyDebug() {
+  debugFailText.value = ''
   const info = debugSnapshot()
   try {
     const v = videoEl.value
@@ -1230,10 +1418,12 @@ async function copyDebug() {
       info.debug = { running: d.running, exit: d.exit_code, segs: d.segments,
         items: d.playlist_items, finished: d.finished, complete: !!d.complete }
     }
-    await navigator.clipboard.writeText(JSON.stringify(info))
-    posHint.value = '调试信息已复制，贴给开发者即可定位'
-  } catch (e) {
-    posHint.value = '复制失败：' + JSON.stringify(info)
+  } catch (e) { info.debugError = String(e.message || e) }
+  const text = JSON.stringify(info)
+  if (await copyText(text)) posHint.value = '诊断信息已复制，贴给开发者即可定位'
+  else {
+    debugFailText.value = text
+    posHint.value = '复制受浏览器限制，请在“更多选项”长按诊断信息手动复制'
   }
 }
 onMounted(async () => {
@@ -1272,6 +1462,7 @@ onMounted(async () => {
   bufTimer = setInterval(() => {
     try {
       const v = videoEl.value
+      if (engine === 'mp4' && v?.ended && !booting.value) onEnded()
       const offset = method.value === 'direct' ? 0 : startOffset.value
       bufferedSections.value = bufferedRanges().map(([start, end]) => [start + offset, end + offset])
       if (v && v.buffered && v.buffered.length && Number.isFinite(v.currentTime)) {
@@ -1280,7 +1471,7 @@ onMounted(async () => {
         bufSecs.value = 0
       }
       // 媒体级错误（v.error 有时不触发 error 事件）：元素已中毒，直通元素级恢复
-      if (noteMediaError() && Date.now() - lastRecoverAt > 8000 && recoverCount < 3) {
+      if (noteMediaError() && isHls.value && !booting.value && Date.now() - lastRecoverAt > 8000 && recoverCount < 3) {
         recoverStream(true)
       }
       watchStall()
@@ -1289,12 +1480,15 @@ onMounted(async () => {
   }, 2000)
 })
 function watchStall() {
+  if (booting.value || compatPending) return
+  if (timelineDetached.value || document.visibilityState === 'hidden') return
   // 每 2s 一拍。判定条件（不再看缓冲量——缓冲充足也可能楔死）：
   // HLS 会话存活、非 seek 切换中、元素声称在播(!paused && !ended)、有数据(readyState>=2)、
   // currentTime 连续 3 拍(约6s)不动 → 判定卡死。seeking 恒 true 约 10s、媒体错误同样自救。
   try {
     const v = videoEl.value
-    if (!isHls.value || !sessionId || !lastPlaylistUrl) { stallTicks = 0; return }
+    if ((!isHls.value && !['mp4', 'direct'].includes(engine))
+        || (engine !== 'direct' && (!sessionId || !lastPlaylistUrl))) { stallTicks = 0; return }
     if (seekPending.value) {
       if (!seekPendingSince) seekPendingSince = Date.now()
       if (Date.now() - seekPendingSince > 30000) {
@@ -1326,7 +1520,11 @@ function watchStall() {
       if (moved) { stallTicks = 0 }
       else {
         stallTicks += 1
-        if (stallTicks >= 3) { stallTicks = 0; recoverStream() }
+        if (stallTicks >= 3) {
+          stallTicks = 0
+          if (['native', 'mp4', 'direct'].includes(engine) && detachedMediaTimeline(v)) handleDetachedTimeline()
+          else recoverStream()
+        }
       }
     } else {
       stallTicks = 0 // 没数据（readyState<2）是真缺片，等分片而非自救
@@ -1350,7 +1548,7 @@ function onPausePing() {
     .catch(() => { /* 心跳失败不打扰 */ })
 }
 const _evtHandlers = {
-  loadedmetadata: restorePlaybackRate,
+  loadedmetadata: () => { restorePlaybackRate(); if (engine === 'direct') applyNativeAudioTrack() },
   ratechange: syncPlaybackRate,
   waiting: () => logEvt('video:waiting', 't=' + fmtT(videoEl.value)),
   stalled: () => logEvt('video:stalled', 't=' + fmtT(videoEl.value)),
@@ -1414,10 +1612,19 @@ function debugSnapshot() {
     hlsError: lastHlsError.value || '', quality: quality.value,
     recoverCount, engine, playing: isPlaying.value,
     freeze: !!freezeFrame.value, seekPending: seekPending.value,
+    browser: navigator.userAgent, caps: activeCaps, error: err.value,
+    output: outputPlan,
+    media: sourceMedia && { container: sourceMedia.container, vcodec: sourceMedia.vcodec,
+      bit_depth: sourceMedia.bit_depth, width: sourceMedia.width, height: sourceMedia.height,
+      audio: (sourceMedia.audio || []).map(a => ({ codec: a.codec, channels: a.channels })) },
+    timelineDetached: timelineDetached.value, mp4End, mp4Duration, mp4Prefetch: mp4Queue.debug(),
+    mp4Source: videoEl.value?.currentSrc?.startsWith('blob:') ? 'blob' : 'http',
+    mp4BlobCount: mp4BlobUrls.size,
   }
   try {
     if (v) {
       info.el = { ready: v.readyState, net: v.networkState, paused: v.paused,
+        duration: Number.isFinite(v.duration) ? v.duration : String(v.duration),
         rate: v.playbackRate,
         seeking: v.seeking, ended: v.ended, ct: Math.round((Number(v.currentTime) || 0) * 10) / 10,
         err: (v.error && (v.error.code + ':' + (v.error.message || ''))) || '' }
@@ -1455,6 +1662,11 @@ async function recoverStream(forceElement = false) {
   // 同会话自救（不杀转码进程，分片继续产）：
   // 常规：重建 hls 实例；媒体级致命错误(forceElement)或第 3 次：连 <video> 元素一起换新。
   if (disposed) return
+  if (engine === 'mp4') {
+    err.value = '兼容播放停滞，请重新加载或切换 720p'
+    return
+  }
+  const gen = reloadGen
   if (recoverCount >= 3) {
     err.value = '多次自动恢复失败，请关闭重进或切 720p'
     return
@@ -1481,24 +1693,32 @@ async function recoverStream(forceElement = false) {
       mediaErrLogged = ''
       await nextTick()
       const nv = videoEl.value
-      if (disposed || !nv) return
+      if (disposed || gen !== reloadGen || !nv) return
       bindVideo(nv)
       muted.value = !!nv.muted
       volume.value = Number(nv.volume ?? 1)
       // 换过 <video> 元素：JASSUB/libpgs 的 canvas 挂在旧元素后面，必须重建
       destroyAss()
       destroyPgs()
-      await mountHls(nv, lastPlaylistUrl, Math.max(0, target - 0.5))
+      if (canUseNativeHls()) mountNativeHls(nv, lastPlaylistUrl, Math.max(0, target - 0.5), gen)
+      else await mountHls(nv, lastPlaylistUrl, Math.max(0, target - 0.5), { gen })
+      if (disposed || gen !== reloadGen) return
       applySubs(true)
       return
     }
     destroyHls()
     const v = videoEl.value
     if (!v) return
-    await mountHls(v, lastPlaylistUrl, Math.max(0, target - 0.5))
+    if (canUseNativeHls()) mountNativeHls(v, lastPlaylistUrl, Math.max(0, target - 0.5), gen)
+    else await mountHls(v, lastPlaylistUrl, Math.max(0, target - 0.5), { gen })
   } catch (e) { /* 恢复失败等下次节拍或转 err */ }
 }
 onBeforeUnmount(() => {
+  mp4Queue.clear()
+  for (const sid of heldMp4Sessions) api(`/api/stream/sessions/${sid}`, { method: 'DELETE' }).catch(() => {})
+  heldMp4Sessions.clear()
+  if (preparedMp4?.session_id) api(`/api/stream/sessions/${preparedMp4.session_id}`, { method: 'DELETE' }).catch(() => {})
+  preparedMp4 = null
   playerResizeObserver?.disconnect()
   clearTimeout(surfaceClickTimer)
   clearTimeout(toastTimer)
@@ -1516,6 +1736,8 @@ onBeforeUnmount(() => {
     try { v.removeAttribute('src') } catch (e) { /* 忽略 */ }
     try { v.load() } catch (e) { /* 忽略 */ }
   }
+  for (const url of mp4BlobUrls.values()) URL.revokeObjectURL(url)
+  mp4BlobUrls.clear()
   try { unbindVideo(videoEl.value) } catch (e) { /* 忽略 */ }
 })
 onUnmounted(() => {

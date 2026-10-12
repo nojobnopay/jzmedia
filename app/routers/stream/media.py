@@ -128,8 +128,8 @@ def _decide_payload(m: dict, info: dict, q: PlaybackQuery) -> dict:
             "media": merged,
             # 直链始终返回：HDR/DV/图片字幕等复杂片源可复制给 VLC/Kodi（目标文档 §12）
             "direct_url": blob_url,
-            "hls_url": hls_url if method in ("remux", "audio_transcode",
-                                             "video_transcode") else ""}
+            "hls_url": hls_url if d["plan"].get("seg") != "mp4" and method in (
+                "remux", "audio_transcode", "video_transcode") else ""}
 
 
 @router.get("/{version_id}/decide")
@@ -268,6 +268,7 @@ def _versions_payload(movie_id: int, q: VersionsQuery) -> dict:
         score = _playback.score(merged, caps=caps, quality=q.quality, client=cli)
         items.append({**base, "playable": True, "probe_error": "",
                       "method": method, "reasons": reasons,
+                      "transport": d["plan"].get("seg"),
                       "score": list(score),
                       "duration": info.get("duration") or 0,
                       "duration_text": _media.fmt_duration(info.get("duration") or 0),

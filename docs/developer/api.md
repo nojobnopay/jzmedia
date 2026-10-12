@@ -1,6 +1,6 @@
 ---
-version: 0.22.3
-reviewed: 2026-10-07
+version: 0.24.3
+reviewed: 2026-10-12
 ---
 
 # API 与后台任务
@@ -31,6 +31,8 @@ reviewed: 2026-10-07
 读接口可以按 `library` 视频库或 `media_library` 媒体库聚合过滤；写任务通常在 body 传 `library_id` 或 `media_library_id`。视频库工具应显式传 `library_id`，不要依赖缺省全库行为。未知媒体库的读筛选要返回空集合而非退化成全库。新增接口要覆盖“未指定、单视频库、媒体库聚合、不存在的媒体库”四种情况。
 
 当前四档播放由 POST `/api/stream/{id}/decide` 接收 `caps`；GET 兼容变体仅用保守默认。电影、分集、花絮播放时通过 `kind` 隔离媒体探测、进度和会话。文件直链及 HLS 分片读取是 GET，支持断点/Range 的接口不能被通用 JSON 包装破坏。
+
+网页 `caps.mp4_compat=true` 使用普通 MP4 短片兼容传输；`versions.transport` 为 `mp4`，`sessions` 返回 `media_url`、空 `playlist_url`，并保留 `media_start/initial_time`。`clip_duration` 为完成文件的实际秒数，客户端据此准备下一片，不能依赖缺失的浏览器媒体元数据；其他传输此字段为 0。MP4 的 `complete` 只表示当前片段完成，客户端不得把它当作全片结束；获取下一片仍用原片时间创建会话，关闭时释放当前和预取 sid。格式及时间轴规则见[播放核心设计](playback.md#浏览器检测与兼容回退)。
 
 ## 健康与磁盘容量
 

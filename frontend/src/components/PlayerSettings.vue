@@ -97,6 +97,8 @@
           <p>{{ methodLine }}</p><p v-if="qualityLine">{{ qualityLine }}</p>
           <p v-if="reasonLine">{{ reasonLine }}</p><p v-if="bufferLine">{{ bufferLine }}</p>
           <JzButton size="compact" class="set-button" @click="$emit('copy-debug')">复制诊断信息</JzButton>
+          <textarea v-if="debugFailText" readonly :value="debugFailText" rows="4" class="set-copy-url" aria-label="播放诊断信息"
+            @focus="$event.target.select()" @click="$event.target.select()" />
         </div>
       </details>
     </section>
@@ -133,6 +135,7 @@ const props = defineProps({
   compatSub: { type: Boolean, default: false },
   hasLocalSub: { type: Boolean, default: false },
   directFailUrl: { type: String, default: '' },
+  debugFailText: { type: String, default: '' },
   methodLine: { type: String, default: '' },
   qualityLine: { type: String, default: '' },
   subStyle: { type: Object, default: () => ({ bg: 0, outline: 0, pos: 'auto', size: 2 }) }

@@ -88,6 +88,9 @@ def _audio_ok(track: dict, caps: dict, client: str = "web") -> bool:
     if not _audio_decodes(track, caps):
         return False
     acodec = norm_codec(str((track or {}).get("codec") or ""))
+    if client == "web" and caps.get("hls_compat"):
+        # 国产浏览器原生 HLS：合并 TS，仅 AAC 双声道；不能借用 Safari Dolby 安全集。
+        return acodec == "aac" and int(track.get("channels") or 2) <= 2
     if client == "android_tv":
         # DTS/TrueHD/FLAC source playback does not establish HLS compatibility.
         # Keep both fMP4 and the TS rollback pipeline to their shared safe set.
@@ -181,8 +184,9 @@ def _hdr_blocks_direct(media: dict, caps: dict, client: str) -> tuple[bool, str,
         if hdr and hdr not in formats:
             return True, "hdr_not_supported", True
         return False, "", False
-    hdr_ok = (caps.get("hdr_decode") is True or caps.get("hdr") is True
-              or caps.get("native_hls") is True)
+    hdr_ok = (not caps.get("hls_compat") and
+              (caps.get("hdr_decode") is True or caps.get("hdr") is True
+               or caps.get("native_hls") is True))
     if dv > 0:
         if compat == 2:
             return False, "", False
@@ -283,17 +287,23 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
     """四档决策。返回 {method, reasons, plan, subtitle_mode}。
     plan: {vcopy, acopy, height, sub, audio_idx, sub_idx, audios, seg}（build_cmd 输入）。
     - audios: 全部音轨 rendition 计划（fMP4 多音轨；TS 回滚只用 audio_idx）；
-    - seg: 输出封装（fmp4|ts，随 env），目录键前缀区分、不进复用键（见 stream._plan_marker）。"""
+    - seg: 输出封装（fmp4|ts，按客户端兼容策略或 env），进入产物复用键。"""
     caps = _caps.normalize_caps(caps)
     client = (client or "web").strip().lower()
     native = client == "android_tv"
     media = media or {}
     reasons: list[str] = []
+    mp4 = client == "web" and caps.get("mp4_compat") is True
+    compat = client == "web" and (caps.get("hls_compat") is True or mp4)
+    if mp4:
+        caps["hls_compat"] = True
 
     def emit(method: str, sub_mode: str, p: dict, variants: list) -> dict:
         out = dict(p)
         out["audios"] = variants
-        out["seg"] = seg_type()
+        out["seg"] = "mp4" if mp4 else ("ts" if compat else seg_type())
+        if mp4:
+            out["clip_seconds"] = 30
         out["vcodec"] = norm_codec(str(media.get("vcodec") or ""))
         return {"method": method, "reasons": reasons, "subtitle_mode": sub_mode, "plan": out}
 
@@ -311,6 +321,9 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
     # 只有 direct 可用，需要走 HLS 的档一律阻断并给明确原因（评审 R11-D2）
     no_mse = (not caps.get("hls") if native
               else caps.get("mse") is False and not caps.get("native_hls"))
+    if mp4:
+        file = caps.get("file") or {}
+        no_mse = not (file.get("video", {}).get("h264") and file.get("audio", {}).get("aac"))
 
     def _emit_or_blocked(method: str, sub_mode: str, plan_dict: dict, variants):
         unsupported_output = native and (
@@ -347,6 +360,25 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
     sub_mode = _subtitle_mode(media, sub_idx, reasons, force_burn=force_burn,
                               client=client, caps=caps)
     burn = sub_mode == "burn"
+    default_ai = next((i for i, t in enumerate(audios)
+                       if int((t or {}).get("default") or 0)), 0)
+    can_select_audio = (caps.get("audio_track_selection") if native
+                        else caps.get("native_audio_tracks"))
+    # 新网页客户端分别上报文件与 HLS 解码能力；MSE 不可用不应阻止可直放的 MP4。
+    file_caps = caps.get("file") if client == "web" else None
+    file_height = _target_height(quality, media, need_encode=False)[0] if file_caps else 0
+    if (file_caps is not None and not caps.get("force_hls") and not burn
+            and container in MP4_CONTAINERS and _video_ok(media, file_caps)
+            and (not audios or _audio_decodes(want_audio, file_caps))
+            and not _hdr_blocks_direct(media, file_caps, client)[0]
+            and not (file_height and height > file_height)
+            and (ai == default_ai or can_select_audio)):
+        return emit("direct", sub_mode,
+                    {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
+                     "audio_idx": ai, "sub_idx": sub_idx}, variants)
+    if compat:
+        reasons.append("mp4_compatibility" if mp4 else "hls_compatibility")
+        v_ok = v_ok and vcodec == "h264" and bit_depth <= 8
     hdr_block, hdr_reason, hdr_tonemap = _hdr_blocks_direct(media, caps, client)
     if hdr_block:
         v_ok = False
@@ -387,13 +419,9 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
                     {"vcopy": False, "acopy": bool(a_ok), "height": target_height,
                      "sub": sub_mode, "audio_idx": ai, "sub_idx": sub_idx,
                      "tonemap": tonemap}, variants)
-    default_ai = next((i for i, t in enumerate(audios)
-                       if int((t or {}).get("default") or 0)), 0)
     container_key = "mkv" if container == "matroska" else container
     container_ok = (bool(caps["containers"].get(container_key)) if native
                     else container in MP4_CONTAINERS)
-    can_select_audio = (caps.get("audio_track_selection") if native
-                        else caps.get("native_hls"))
     if (native and container_ok and (not audios or _audio_decodes(want_audio, caps))
             and (ai == default_ai or can_select_audio)):
         return emit("direct", sub_mode,
@@ -413,6 +441,11 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
     # 用户选了非默认轨 → 走 HLS remux（全部音轨 rendition），由前端切 hls.audioTrack。
     if ai != default_ai and not can_select_audio:
         reasons.append("audio_track_selection")
+        return _emit_or_blocked("remux", sub_mode,
+                    {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
+                     "audio_idx": ai, "sub_idx": sub_idx}, variants)
+    if client == "web" and (file_caps is not None or caps.get("force_hls")):
+        reasons.append("direct_play_unavailable")
         return _emit_or_blocked("remux", sub_mode,
                     {"vcopy": True, "acopy": True, "height": 0, "sub": sub_mode,
                      "audio_idx": ai, "sub_idx": sub_idx}, variants)

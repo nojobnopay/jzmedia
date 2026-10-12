@@ -28,7 +28,7 @@ _SEG_RE = re.compile(r"^(?:[A-Za-z0-9]+_seg\d+\.m4s|seg\d+\.ts)$")
 
 
 _SESS_FILE_RE = re.compile(
-    r"^(?:out_[A-Za-z0-9]+\.m3u8|[A-Za-z0-9]+_init\.mp4|[A-Za-z0-9]+_seg\d+\.m4s|seg\d+\.ts)$")
+    r"^(?:media\.mp4|out_[A-Za-z0-9]+\.m3u8|[A-Za-z0-9]+_init\.mp4|[A-Za-z0-9]+_seg\d+\.m4s|seg\d+\.ts)$")
 
 
 _TTL = 24 * 3600
@@ -48,7 +48,7 @@ def _min_segs(plan: dict | None = None) -> int:
         return default
 
 
-PLAN_VERSION = 2
+PLAN_VERSION = 3
 
 
 _SESS_IDLE = 600       # 会话无心跳保活期（秒）
@@ -243,7 +243,9 @@ def _session_key(plan: dict, audio: int) -> str:
     - fMP4：`f` 前缀（copy/h720/h1080/src）；全部音轨 rendition 都在，与所选音轨无关；
     - TS 回滚：`<档位>_a<音轨>`（沿用 P1 命名，按所选音轨单轨产出）。"""
     p = plan or {}
-    if (p.get("seg") or "fmp4") == "ts":
+    if (p.get("seg") or "fmp4") in ("ts", "mp4"):
+        if p.get("seg") == "mp4":
+            return f"mp4_{_quality_key(p)}_a{int(audio or 0)}"
         return f"{_quality_key(p)}_a{int(audio or 0)}"
     return "f" + _quality_key(p)
 
@@ -257,7 +259,7 @@ def _plan_marker(plan: dict, audio: int, start: float) -> str:
     p = dict(plan or {})
     p["seg"] = p.get("seg") or "fmp4"
     a_key = int(audio or 0)
-    if (plan or {}).get("seg") != "ts":
+    if (plan or {}).get("seg") not in ("ts", "mp4"):
         # fMP4 全部音轨都产成 rendition，产物与所选音轨无关 → 选择不进键（秒开复用）
         p["audio_idx"] = None
         p["acopy"] = None  # fMP4 uses each audios[].copy, never the selected track's flag.
@@ -768,6 +770,14 @@ def _session_complete(sdir: str, plan_key: str) -> bool:
     仅凭 ENDLIST 不够——被杀的残缺会话也会写 ENDLIST（SIGTERM 时 ffmpeg 会写 trailer）。"""
     if not os.path.isfile(os.path.join(sdir, "complete.json")):
         return False
+    try:
+        mp4 = (json.loads(plan_key).get("plan") or {}).get("seg") == "mp4"
+    except (ValueError, AttributeError):
+        mp4 = False
+    if mp4:
+        path = os.path.join(sdir, "media.mp4")
+        return (os.path.isfile(path) and os.path.getsize(path) > 0
+                and _marker_matches(sdir, plan_key, "complete.json"))
     return (_playlist_endlist(sdir) and _seg_count(sdir) > 0
             and _marker_matches(sdir, plan_key, "complete.json"))
 

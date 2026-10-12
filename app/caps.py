@@ -31,14 +31,22 @@ def normalize_caps(raw) -> dict:
         src = src if isinstance(src, dict) else {}
         return {k: src.get(k) is True for k in keys}
 
-    probes: dict[str, bool] = {}
-    src = raw.get("probes")
-    if isinstance(src, dict):
-        for k, v in list(src.items())[:_MAX_PROBES]:
-            k2 = str(k or "").strip()
-            if not k2 or len(k2) > _MAX_PROBE_LEN:
-                continue
-            probes[k2] = v is True
+    def _probes(src):
+        out: dict[str, bool] = {}
+        if isinstance(src, dict):
+            for k, v in list(src.items())[:_MAX_PROBES]:
+                k2 = str(k or "").strip()
+                if k2 and len(k2) <= _MAX_PROBE_LEN:
+                    out[k2] = v is True
+        return out
+
+    file = raw.get("file")
+    file = ({"video": _bools(VIDEO_KEYS, file.get("video")),
+             "audio": _bools(AUDIO_KEYS, file.get("audio")),
+             "hdr": file.get("hdr") is True,
+             "hdr_decode": file.get("hdr_decode") is True,
+             "probes": _probes(file.get("probes"))}
+            if isinstance(file, dict) else None)
     hdr_formats = raw.get("hdr_formats")
     hdr_formats = hdr_formats if isinstance(hdr_formats, list) else []
     return {"video": _bools(VIDEO_KEYS, raw.get("video")),
@@ -47,6 +55,13 @@ def normalize_caps(raw) -> dict:
             "hdr_decode": raw.get("hdr_decode") is True,
             "mse": raw.get("mse") is True if "mse" in raw else True,
             "native_hls": raw.get("native_hls") is True,
+            "native_audio_tracks": (raw.get("native_audio_tracks") is True
+                                    if "native_audio_tracks" in raw
+                                    else raw.get("native_hls") is True),
+            "hls_compat": raw.get("hls_compat") is True,
+            "mp4_compat": raw.get("mp4_compat") is True,
+            "force_hls": raw.get("force_hls") is True,
+            "file": file,
             # Native capabilities are explicit and never inferred from browser flags.
             "containers": _bools(CONTAINER_KEYS, raw.get("containers")),
             "hls": raw.get("hls") is True,
@@ -54,7 +69,7 @@ def normalize_caps(raw) -> dict:
             "audio_track_selection": raw.get("audio_track_selection") is True,
             "hdr_formats": [k for k in HDR_FORMATS if k in hdr_formats[:16]],
             "subtitles": _bools(("webvtt", "ass"), raw.get("subtitles")),
-            "probes": probes}
+            "probes": _probes(raw.get("probes"))}
 
 
 def caps_hash(caps: dict) -> str:

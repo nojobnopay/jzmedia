@@ -3,6 +3,8 @@ import os
 import time
 import subprocess
 import threading
+import json
+import math
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, Response
 from fastapi.responses import PlainTextResponse
@@ -19,8 +21,10 @@ from .common import (_min_segs, _SEG_RE, _SESS_FILE_RE, _has_endlist, _drop_sess
                      _sessions, _session_complete, _session_dir, _variant_playlists,
                      _version_source, _video_seg_prefix, _write_master, router, _tasks,
                      _artifact_key, _source_plan, _kill_proc, _watch_task)
+from .common import _write_complete_marker, _release_task_slot, _clear_session_meta
 from .media import _media_payload
 from .subtitles import _sub_list
+from ... import media as _media
 __all__ = ['SessionBody', '_spawn_session', 'hls_session_create', 'hls_session_playlist', '_wait_file', 'hls_session_segment', 'hls_session_debug', 'hls_session_ping', 'hls_session_close', 'hls_session_file']
 
 class SessionBody(BaseModel):
@@ -32,6 +36,33 @@ class SessionBody(BaseModel):
     force_burn: bool = False
     kind: str = "movie"   # movie|episode|extra
     client: str = "web"
+
+
+def _mp4_duration(sdir: str) -> float:
+    """已完成短片的真实时长；不依赖厂商浏览器的 duration/loadedmetadata。"""
+    metadata = os.path.join(sdir, "media-info.json")
+    try:
+        with open(metadata, encoding="utf-8") as fh:
+            duration = float(json.load(fh)["duration"])
+        if math.isfinite(duration) and duration > 0:
+            return duration
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    result = subprocess.run([_media.ffprobe_bin(), "-v", "error", "-show_entries",
+        "format=duration", "-of", "json", os.path.join(sdir, "media.mp4")],
+        capture_output=True, check=True, timeout=15)
+    duration = float(json.loads(result.stdout)["format"]["duration"])
+    if not math.isfinite(duration) or duration <= 0:
+        raise HTTPException(500, "MP4 clip duration unavailable")
+    temp = metadata + "." + uuid.uuid4().hex + ".tmp"
+    try:
+        with open(temp, "w", encoding="utf-8") as fh:
+            json.dump({"duration": duration}, fh)
+        os.replace(temp, metadata)
+    finally:
+        if os.path.exists(temp):
+            os.remove(temp)
+    return duration
 
 
 def _spawn_session(version_id: int, quality: str, audio: int,
@@ -57,6 +88,8 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         raise HTTPException(422, "unplayable")
     if d["method"] == "direct":
         raise HTTPException(400, "use direct_url (Direct Play, no HLS needed)")
+    if prewarm and d["plan"].get("seg") == "mp4":
+        raise HTTPException(400, "MP4 compatibility clips cannot prewarm a whole movie")
     if (d.get("plan") or {}).get("sub") == "burn":
         subs = _sub_list(m, info)
         si = int(sub if sub is not None else -1)
@@ -85,7 +118,8 @@ def _spawn_session(version_id: int, quality: str, audio: int,
     creator = False
     with _sess_lock:
         full_dir = _session_dir(int(m["id"]), _artifact_key(d["plan"], audio, full_key), 0, k)
-        full_hit = start > 0 and _session_complete(full_dir, full_key)
+        full_hit = (d["plan"].get("seg") != "mp4" and start > 0
+                    and _session_complete(full_dir, full_key))
         output_start = 0 if full_hit else start
         if full_hit:
             sdir, plan_key = full_dir, full_key
@@ -145,6 +179,8 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         d["initial_time"] = max(0.0, float(start) - media_start)
         d["complete"] = bool(sess["complete"])
         d["duration"] = info.get("duration") or 0
+        if d["plan"].get("seg") == "mp4":
+            d["clip_duration"] = _mp4_duration(sdir)
         return sid, sdir, d
     except Exception as e:
         if creator:
@@ -180,7 +216,7 @@ def _start_task(task: dict, sid: str, row: dict, src, info: dict, plan: dict, st
                     os.remove(os.path.join(sdir, name))
                 except OSError as e:
                     logger.debug("cannot clear output %s/%s: %s", sdir, name, e)
-            if seg != "ts":
+            if seg == "fmp4":
                 _write_master(sdir, info, plan, stime)
             cmd = _playback.build_cmd(src.input, plan, start=start, seg_time=stime, force_sw=force_sw)
             with open(log_path, "wb") as log_fh:
@@ -199,11 +235,28 @@ def _start_task(task: dict, sid: str, row: dict, src, info: dict, plan: dict, st
         while time.monotonic() < deadline:
             if task.get("cancelled"):
                 raise HTTPException(503, "transcode stopped")
-            if _seg_count(sdir, vprefix) >= _min_segs(plan) and _variant_playlists(sdir):
+            if seg != "mp4" and _seg_count(sdir, vprefix) >= _min_segs(plan) and _variant_playlists(sdir):
                 break
             if proc.poll() is not None:
                 break
             time.sleep(0.25)
+        if seg == "mp4" and proc.poll() == 0:
+            temp = os.path.join(sdir, "media.tmp.mp4")
+            if os.path.isfile(temp) and os.path.getsize(temp) > 0:
+                with _sess_lock:
+                    if task.get("cancelled"):
+                        raise HTTPException(503, "transcode stopped")
+                    os.replace(temp, os.path.join(sdir, "media.mp4"))
+                    _write_complete_marker(sdir, task["plan_key"])
+                    task["complete"] = True
+                    for owner in task["owners"]:
+                        if owner in _sessions:
+                            _sessions[owner]["complete"] = True
+                    _clear_session_meta(sdir)
+                    _release_task_slot(task)
+                    task["done"].set()
+                    task["ready"].set()
+                return
         if _seg_count(sdir, vprefix) > 0 and _variant_playlists(sdir):
             with _sess_lock:
                 if task.get("cancelled"):
@@ -244,11 +297,14 @@ def hls_session_create(version_id: int, body: SessionBody | None = None):
                                    caps=body.caps, force_burn=body.force_burn,
                                    kind=body.kind, client=body.client)
     caps_n = _caps.default_caps() if body.caps is None else _caps.normalize_caps(body.caps)
+    mp4 = d["plan"].get("seg") == "mp4"
     return {"session_id": sid,
-            "playlist_url": f"/api/stream/sessions/{sid}/master.m3u8",
+            "playlist_url": "" if mp4 else f"/api/stream/sessions/{sid}/master.m3u8",
+            "media_url": f"/api/stream/sessions/{sid}/media.mp4" if mp4 else "",
             "method": d["method"], "reasons": d["reasons"], "plan": d["plan"],
             "media_start": float(d.get("media_start") or 0),
             "initial_time": float(d.get("initial_time") or 0),
+            "clip_duration": float(d.get("clip_duration") or 0),
             "complete": bool(d.get("complete")),
             "caps_hash": _caps.caps_hash(caps_n),
             "subtitle_mode": d.get("subtitle_mode") or "none"}
@@ -346,7 +402,11 @@ def hls_session_debug(sid: str):
     sdir = sess.get("sdir") or ""
     plan = sess.get("plan") or {}
     segs = _seg_count(sdir)
+    if plan.get("seg") == "mp4":
+        segs = 1 if os.path.isfile(os.path.join(sdir, "media.mp4")) else 0
     vsegs = _seg_count(sdir, _video_seg_prefix(plan.get("seg") or "fmp4"))
+    if plan.get("seg") == "mp4":
+        vsegs = segs
     extinf = 0
     for name in _variant_playlists(sdir):
         try:
@@ -356,7 +416,7 @@ def hls_session_debug(sid: str):
                         extinf += 1
         except OSError:
             continue
-    endlist = _playlist_endlist(sdir)
+    endlist = bool(sess.get("complete")) if plan.get("seg") == "mp4" else _playlist_endlist(sdir)
     variants = []
     for name in _variant_playlists(sdir):
         variants.append({"name": name,
@@ -387,7 +447,8 @@ def hls_session_ping(sid: str):
     proc = sess.get("proc")
     running = proc is not None and proc.poll() is None
     return {"session_id": sid, "running": running,
-            "segments": _seg_count(sess["sdir"])}
+            "segments": (1 if os.path.isfile(os.path.join(sess["sdir"], "media.mp4")) else 0)
+            if (sess.get("plan") or {}).get("seg") == "mp4" else _seg_count(sess["sdir"])}
 
 
 @router.delete("/sessions/{sid}")
@@ -431,4 +492,5 @@ def hls_session_file(sid: str, name: str):
     else:
         media = "video/iso.segment"
     return FileResponse(dest, media_type=media, filename=name,
+                        content_disposition_type="inline" if name == "media.mp4" else "attachment",
                         headers={"Cache-Control": "no-store"})

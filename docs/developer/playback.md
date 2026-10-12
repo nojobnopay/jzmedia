@@ -35,11 +35,29 @@ flowchart TD
 
 数值例子：某片从 125.5 秒续播，目标前最近关键帧在 124.0 秒。copy 会话返回 `media_start=124.0`、`initial_time=1.5`：播放器片内 0 对应原片 124.0 秒，起播落在片内 1.5 秒处。字幕 cue 存的是原片时间，逐帧用 `media_start + 片内时间` 判定是否显示，再叠加用户设置的延迟。
 
+### 浏览器检测与兼容回退
+
+网页 `caps.js` 分别检测 `media-source` 和 `file` 解码能力；主 `video/audio/probes` 用于所选流式引擎，`file` 保存独立的原文件能力与逐片探测。服务端先按文件能力检查 MP4 直发，不能用 MSE 的否定结果阻止原生视频播放。新客户端使用 v4 能力缓存，旧客户端不带 `file` 时保留原决策。
+
+MSE 接口及基础 MP4 编码可用时优先 hls.js；现代 Safari 保留原生 HLS。无可用 MSE、但声明原生 HLS 的其他浏览器使用 `hls_compat=true`：按当前客户端输出音视频合并的 TS，视频只 copy H.264 8-bit，其余重编；音频只 copy AAC 单/双声道，其余转 AAC 双声道。这个原生 HLS 声明不意味着具备 Safari 的 Dolby、HDR 或音轨 API，网页另传 `native_audio_tracks`。TS 切音轨重开会话，封装与所选音轨参与产物复用键，不需要全局修改 `HLS_SEGMENT_TYPE`。
+
+hls.js 加载失败或不可用时，若浏览器声明原生 HLS，播放器尝试上述兼容路径；媒体解析/解码失败时尝试一次兼容重播，原文件解码失败会撤销源编码支持并重编。`force_hls` 只影响当前播放器，基础能力缓存不变；自动重播每个版本最多一次，保留位置并回收旧 sid。网络失败不触发格式降级。组件加载失败与浏览器格式不支持分别提示，调试信息包含 UA、能力、源编码和实际输出。
+
+无 MSE 的小米浏览器使用 `mp4_compat`，尝试恢复网页内播放。服务端输出 30 秒的普通 MP4，只有 FFmpeg 自然成功退出、完整索引生成后才原子发布 `media.mp4`；HTTP 使用不可变文件与 Range。服务端从完成文件探测并缓存实际 `clip_duration`，网页收到会话即预取下一片，不依赖浏览器的 `duration/loadedmetadata`。保留原片总时长及 `media_start + currentTime`；片段结束只衔接下一片，不发电影结束/已看事件，`ended` 属性轮询补足缺失事件，并防重复和旧源晚到事件。字幕继续客户端渲染并叠加源偏移；切轨/画质/seek、关窗取消预取并删除迟到 sid。没有 MSE/原生 HLS、但能解 H.264/AAC 文件的其他浏览器也可使用此输出。
+
+网页将 `media_url` 下载为 `video/mp4` Blob 后挂到媒体元素，减少厂商按视频 URL 接管的机会；每片最多 64 MiB、下载限时 45 秒，超限或失败显示可重试提示。仅保留当前和下一片，断源后或取消预取时撤销对象 URL。浏览器模式切换后的 MSE/原生 HLS 探测结果进入能力缓存环境指纹，刷新可重新决策。
+
+MP4 短片的完成标记只表示当前片段完成，不能作为 start=0 全片缓存复用于远处 seek；起点、片长、音轨和源修订进入产物键。首段生成或预取未完成时会等待，尤其弱服务器或倍速播放；此路径不提供整片预缓存。新编码规则使旧产物键失效。
+
+原生媒体播放时有画面、`readyState>=2`、未暂停，但网页时间长期不动且没有缓冲信息时，停止反复重挂并尝试 MP4；若仍是独立播放器则明确提示，暂停进度写入，不能用墙钟伪造进度或字幕时间。视频请求行内播放、禁用远程播放入口；浏览器自带浮层不属于网页 DOM，不能承诺这些属性一定隐藏厂商控件。
+
+厂商浏览器仍需验证首帧、连续片段、seek、切音轨、全屏字幕及关闭清理。回归为 `caps.test.js`、`mp4Chunks.test.js`、`playbackCompatibility.test.js`、`test_playback_plan.py`、`test_stream_mp4.py`、临时视频真实 FFmpeg 的 `test_playback_compat.py`，以及 `scripts/smoke_settings_ui.mjs --player-only`。浏览器模拟与合成视频验证不能代替真实小米浏览器验收。
+
 ## HLS 与 FFmpeg
 
 `playback/cmd.py` 组命令，`transcode.py` 检测 VAAPI → QSV → NVENC → 软件，首轮硬件 45 秒仍不出片时软件重试。默认 fMP4 HLS，每片目标 4 秒，`HLS_SEGMENT_TYPE=ts` 回退目标 6 秒的旧 TS。fMP4 单 FFmpeg 进程产生视频和最多 8 条音轨 rendition；服务端写 `master.m3u8`，`CODECS` 包含整个音频组的实际输出编码并集。ffmpeg 继续增长的 `out_*.m3u8` 应按内容快照返回，不能直接用按旧长度计算 Content-Length 的 `FileResponse`。FFmpeg 工作目录必须是产物目录，因为分片输出文件名是相对路径。
 
-fMP4 HLS 音轨通过 rendition 切换，一般不重开会话；网页原文件直发只能播放默认轨，非原生 HLS 浏览器选择其他轨时转为 remux。hls.js 音频 copy 默认仅 AAC/MP3，EAC3/AC3 转 AAC；Safari 原生 HLS 可支持更多 Dolby 格式。Android TV 则根据声明的原生选轨能力判断。`AUDIO_COPY_SAFE` 只应在目标设备实测后放宽。
+fMP4 HLS 音轨通过 rendition 切换，一般不重开会话；网页原文件直发依赖实际 `video.audioTracks` API，没有此 API 时选择非默认轨会转为 remux。hls.js 音频 copy 默认仅 AAC/MP3，EAC3/AC3 转 AAC；Safari 原生 HLS 可支持更多 Dolby 格式，其他原生 HLS 的兼容 TS 使用 AAC 单/双声道。Android TV 则根据声明的原生选轨能力判断。`AUDIO_COPY_SAFE` 只应在目标设备实测后放宽。
 
 音轨切换在 hls.js `MANIFEST_PARSED` 和 `AUDIO_TRACKS_UPDATED` 后应用，前者触发时列表可能尚空。源轨 default 与用户 UI 选择分离，非烧录字幕切换不应让音视频重新编码。copy 首屏等一个视频分片，视频重编/烧录等两个，不能把音频片计入视频可播放判断。
 

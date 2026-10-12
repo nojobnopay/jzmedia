@@ -183,6 +183,227 @@ async function ffmpeg() {
   }
   throw new Error('FFmpeg is required for documentation captures')
 }
+async function checkPlaybackCompatibility(browser, base) {
+  // 模拟无 MSE 的浏览器，仍由真实 video 解码原生 MP4。
+  const fileContext = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' })
+  try {
+    await fileContext.addInitScript(() => {
+      for (const key of ['MediaSource', 'ManagedMediaSource', 'WebKitMediaSource']) {
+        Object.defineProperty(window, key, { configurable: true, value: undefined })
+      }
+      const original = HTMLMediaElement.prototype.canPlayType
+      HTMLMediaElement.prototype.canPlayType = function (type) {
+        return /mpegurl/i.test(type) ? '' : original.call(this, type)
+      }
+    })
+    const page = await fileContext.newPage()
+    page.on('pageerror', e => errors.push(String(e)))
+    await page.goto(base + '/player-harness.html')
+    await page.getByRole('button', { name: '打开预览播放器', exact: true }).click()
+    await page.waitForFunction(() => document.querySelector('video')?.readyState >= 2)
+    const caps = await page.evaluate(() => window.__jzCaps())
+    assert.equal(caps.mse, false)
+    assert.equal(caps.native_hls, false)
+    assert.equal(caps.file.video.h264, true)
+    assert.equal(await page.evaluate(() => window.__jzPlayerDebug().engine), 'direct')
+    await page.getByRole('button', { name: '关闭播放器', exact: true }).click()
+    await page.locator('.player-dlg').waitFor({ state: 'hidden' })
+  } finally { await fileContext.close() }
+
+  // 模拟原生 HLS 能力声明和组件下载失败。兼容 sid 用 MP4 驱动真实媒体元素，
+  // 验证切轨/重挂/关闭生命周期；实际 TS 编码由 test_playback_compat.py 验证。
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' })
+  const created = [], deleted = []
+  let loadAttempts = 0
+  try {
+    await context.addInitScript(() => {
+      const original = HTMLMediaElement.prototype.canPlayType
+      HTMLMediaElement.prototype.canPlayType = function (type) {
+        return /mpegurl/i.test(type) ? 'maybe' : original.call(this, type)
+      }
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('synthetic clipboard restriction') } } })
+      document.execCommand = () => false
+    })
+    await context.route('**/assets/hls*.js', route => { loadAttempts++; return route.abort('failed') })
+    await context.route('**/api/stream/81/decide', async route => {
+      const body = route.request().postDataJSON()
+      const compat = body.caps.hls_compat === true
+      await route.fulfill({ json: { method: 'remux', direct_url: directFixtureUrl,
+        reasons: compat ? ['hls_compatibility'] : [],
+        plan: { seg: compat ? 'ts' : 'fmp4', vcopy: true, acopy: true },
+        media: { width: 320, height: 180, duration: 1200, container: 'mkv', vcodec: 'h264', bit_depth: 8,
+          vcaps: ['video/mp4; codecs="avc1.640028"'],
+          audio: [{ codec: 'aac', channels: 2 }, { codec: 'aac', channels: 2 }], subs: [] } } })
+    })
+    await context.route('**/api/stream/81/sessions', async route => {
+      const body = route.request().postDataJSON()
+      created.push(body)
+      const compat = body.caps.hls_compat === true
+      const mp4 = body.caps.mp4_compat === true
+      await route.fulfill({ json: { session_id: 'compat-' + created.length,
+        playlist_url: mp4 ? '' : directFixtureUrl,
+        media_url: mp4 ? directFixtureUrl + '&transport=compat-mp4' : '', media_start: body.start, initial_time: 0,
+        clip_duration: mp4 ? 40 : 0,
+        method: 'remux', reasons: compat ? ['hls_compatibility'] : [],
+        plan: { seg: mp4 ? 'mp4' : (compat ? 'ts' : 'fmp4'), clip_seconds: 30, vcopy: true, acopy: true } } })
+    })
+    await context.route(/\/api\/stream\/sessions\/compat-/, async route => {
+      if (route.request().method() === 'DELETE') deleted.push(route.request().url())
+      await route.fulfill({ json: { ok: true, running: false, segments: 1 } })
+    })
+    const page = await context.newPage()
+    page.on('pageerror', e => errors.push(String(e)))
+    await page.goto(base + '/player-harness.html')
+    await page.getByRole('button', { name: '打开预览播放器', exact: true }).click()
+    await page.waitForFunction(() => window.__jzPlayerDebug?.().engine === 'native' && document.querySelector('video')?.readyState >= 2)
+    assert.equal(loadAttempts, 1)
+    assert.equal(created.length, 2, '组件下载失败只发起一次兼容重播')
+    assert.equal(created[1].caps.native_hls, true)
+    assert.equal(created[1].caps.hls_compat, true)
+    assert.equal(created[1].caps.force_hls, true)
+    assert.equal(created[1].caps.file.video.h264, true)
+    assert.equal(deleted.length, 1, '兼容重播回收旧 sid')
+    await page.evaluate(() => document.querySelector('video').pause())
+    await page.getByRole('button', { name: '播放设置', exact: true }).click()
+    await page.getByLabel('音轨', { exact: true }).selectOption('1')
+    await page.waitForFunction(() => window.__jzPlayerDebug?.().session === 'compat-3' && document.querySelector('video')?.readyState >= 2)
+    assert.equal(created[2].audio, 1, 'TS 单轨产物切轨必须重开会话')
+    assert.equal(deleted.length, 2)
+    if (!await page.getByText('更多选项', { exact: true }).isVisible()) {
+      await page.getByRole('button', { name: '播放设置', exact: true }).click()
+    }
+    await page.getByText('更多选项', { exact: true }).click()
+    await page.getByRole('button', { name: '复制诊断信息', exact: true }).click()
+    const diagnostic = JSON.parse(await page.getByLabel('播放诊断信息', { exact: true }).inputValue())
+    assert.equal(diagnostic.output.seg, 'ts')
+    assert.equal(diagnostic.media.vcodec, 'h264')
+    assert.equal(diagnostic.caps.hls_compat, true)
+    const caps = await page.evaluate(() => window.__jzCaps())
+    assert.equal(caps.hls_compat, false, '重播不污染基础能力缓存')
+    // 复现真机：native 有画面/readyState=4，却始终回传 ct=0、buffered=[]。
+    await page.locator('video').evaluate(video => {
+      const time = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime')
+      const ranges = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'buffered')
+      Object.defineProperty(video, 'currentTime', { configurable: true,
+        get() { return this.currentSrc.startsWith('blob:') ? time.get.call(this) : 0 },
+        set(value) { time.set.call(this, value) } })
+      Object.defineProperty(video, 'buffered', { configurable: true,
+        get() { return this.currentSrc.startsWith('blob:') ? ranges.get.call(this) : { length: 0 } } })
+      video.currentTime = 0
+      video.play()
+    })
+    await page.waitForFunction(() => window.__jzPlayerDebug().engine === 'mp4' && document.querySelector('video')?.readyState >= 2)
+    assert.equal(await page.evaluate(() => window.__jzPlayerDebug().recoverCount), 0,
+      'native 时间轴失联不得连续重挂三次')
+    await page.waitForFunction(() => window.__jzPlayerDebug().mp4Prefetch?.ready)
+    await page.evaluate(() => { window.compatVideo = document.querySelector('video') })
+    const active = await page.evaluate(() => window.__jzPlayerDebug().session)
+    const closed = page.waitForResponse(response => response.url().includes('/sessions/' + active) && response.request().method() === 'DELETE')
+    await page.getByRole('button', { name: '关闭播放器', exact: true }).click()
+    await closed
+    await page.locator('.player-dlg').waitFor({ state: 'hidden' })
+    await page.waitForFunction(() => window.compatVideo.paused && !window.compatVideo.hasAttribute('src'))
+    assert.equal(deleted.length, created.length, '兼容回退及关窗回收全部 sid（含预取）')
+  } finally { await context.close() }
+}
+
+async function checkMp4Compatibility(browser, base) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block',
+    userAgent: 'Mozilla/5.0 Android 15 Chrome/135.0 Mobile Safari/537.36 XiaoMi/MiuiBrowser/20.28.1020918' })
+  const created = [], deleted = []
+  let hlsRequests = 0
+  try {
+    await context.addInitScript(() => {
+      for (const name of ['MediaSource', 'ManagedMediaSource', 'WebKitMediaSource']) {
+        Object.defineProperty(window, name, { configurable: true, value: undefined })
+      }
+      const original = HTMLMediaElement.prototype.canPlayType
+      HTMLMediaElement.prototype.canPlayType = function (type) {
+        return /mpegurl/i.test(type) ? 'maybe' : original.call(this, type)
+      }
+      // 复现真机缺失 duration/loadedmetadata，不能用合成 Chromium 的正常元数据掩盖。
+      Object.defineProperty(HTMLMediaElement.prototype, 'duration', { configurable: true, get: () => NaN })
+      window.addEventListener('loadedmetadata', event => event.stopImmediatePropagation(), true)
+      window.testBlobCreated = []; window.testBlobRevoked = []
+      const create = URL.createObjectURL.bind(URL), revoke = URL.revokeObjectURL.bind(URL)
+      URL.createObjectURL = blob => { const url = create(blob); window.testBlobCreated.push(url); return url }
+      URL.revokeObjectURL = url => { window.testBlobRevoked.push(url); revoke(url) }
+    })
+    await context.route('**/assets/hls*.js', route => { hlsRequests++; return route.abort() })
+    const plan = { seg: 'mp4', clip_seconds: 30, vcopy: false, acopy: false }
+    await context.route('**/api/stream/81/decide', route => route.fulfill({ json: {
+      method: 'video_transcode', subtitle_mode: 'webvtt', direct_url: directFixtureUrl, reasons: ['mp4_compatibility'], plan,
+      media: { width: 320, height: 180, duration: 1200, vcodec: 'hevc', bit_depth: 10, container: 'mkv',
+        audio: [{ codec: 'dts', channels: 6 }], subs: [{ index: 0, codec: 'webvtt', lang: 'eng', default: 1 }] },
+    } }))
+    await context.route('**/api/stream/81/sub/0.vtt', route => route.fulfill({ contentType: 'text/vtt',
+      body: 'WEBVTT\n\n00:00:41.000 --> 00:00:44.000\nMP4 offset caption\n\n00:08:21.000 --> 00:08:25.000\nMP4 seek caption' }))
+    await context.route('**/api/stream/81/sessions', route => {
+      const body = route.request().postDataJSON()
+      created.push(body)
+      assert.equal(body.caps.mp4_compat, true)
+      return route.fulfill({ json: { session_id: 'mp4-' + created.length, method: 'video_transcode',
+        media_url: directFixtureUrl, playlist_url: '', media_start: body.start, initial_time: 0,
+        clip_duration: 40,
+        complete: true, plan, reasons: ['mp4_compatibility'] } })
+    })
+    await context.route(/\/api\/stream\/sessions\/mp4-/, route => {
+      if (route.request().method() === 'DELETE') deleted.push(route.request().url().split('/').pop())
+      return route.fulfill({ json: { ok: true, running: false, segments: 0 } })
+    })
+    const page = await context.newPage()
+    page.on('pageerror', error => errors.push(String(error)))
+    await page.goto(base + '/player-harness.html')
+    await page.getByRole('button', { name: '打开预览播放器', exact: true }).click()
+    await page.waitForFunction(() => window.__jzPlayerDebug?.().engine === 'mp4' && document.querySelector('video')?.readyState >= 2)
+    assert.equal(hlsRequests, 0)
+    assert.equal(await page.locator('video').evaluate(v => v.hasAttribute('controls')), false)
+    assert.equal(await page.locator('video').evaluate(v => v.disableRemotePlayback), true)
+    assert.equal(await page.locator('video').evaluate(v => v.currentSrc.startsWith('blob:')), true)
+    await page.waitForFunction(() => window.__jzPlayerDebug().mp4Prefetch?.ready)
+    assert.equal(created.length, 2, 'only the next clip is prefetched')
+    assert.equal(created[1].start, 40, 'prefetch uses the actual finite clip duration')
+    await page.evaluate(() => {
+      const video = document.querySelector('video')
+      video.pause(); video.currentTime = 39.9
+      const source = video.currentSrc
+      Object.defineProperty(video, 'ended', { configurable: true, get() { return this.currentSrc === source } })
+      // 不发 ended 事件：原生接口只更新 ended 属性时，轮询也必须衔接下一片。
+    })
+    await page.waitForFunction(() => window.__jzPlayerDebug().pos >= 40 && window.__jzPlayerDebug().mp4End === 80)
+    await page.locator('video').evaluate(video => { video.pause(); video.currentTime = 2 })
+    await page.getByText('MP4 offset caption', { exact: true }).waitFor()
+    await page.locator('video').evaluate(video => video.dispatchEvent(new Event('ended')))
+    // 旧源晚到的 ended 不能在新片段 2 秒处跳过剩余内容。
+    assert.ok((await page.evaluate(() => window.__jzPlayerDebug().pos)) >= 42)
+    assert.equal(await page.locator('#player-events').textContent(), 'watched=0;ended=0', 'clip ending is not movie ending')
+    const seek = page.getByRole('slider', { name: '播放进度', exact: true })
+    await seek.evaluate(input => { input.value = '500'; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })) })
+    await page.waitForFunction(() => window.__jzPlayerDebug().mp4End === 540)
+    await page.locator('video').evaluate(video => { video.pause(); video.currentTime = 2 })
+    await page.getByText('MP4 seek caption', { exact: true }).waitFor()
+    const state = await page.evaluate(() => window.__jzPlayerDebug())
+    assert.ok(state.pos >= 502 && state.pos < 505)
+    assert.equal(state.recoverCount, 0)
+    assert.equal(state.error, '')
+    assert.equal(state.timelineDetached, false)
+    await page.getByRole('button', { name: '播放设置', exact: true }).click()
+    const menuOnTop = await page.locator('.pd-set').evaluate(menu => {
+      const r = menu.getBoundingClientRect()
+      return menu.contains(document.elementFromPoint(r.left + r.width / 2, r.top + 20))
+    })
+    assert.equal(menuOnTop, true, 'settings menu is above the inline Blob video')
+    await page.waitForFunction(() => window.__jzPlayerDebug().mp4Prefetch?.ready)
+    const all = created.map((_body, i) => 'mp4-' + (i + 1))
+    const closes = all.filter(sid => !deleted.includes(sid)).map(sid => page.waitForResponse(r => r.url().endsWith('/sessions/' + sid) && r.request().method() === 'DELETE'))
+    await page.getByRole('button', { name: '关闭播放器', exact: true }).click()
+    await Promise.all(closes)
+    assert.deepEqual([...new Set(deleted)].sort(), all.sort(), 'closing releases active and prefetched leases')
+    assert.deepEqual(await page.evaluate(() => [...new Set(window.testBlobCreated)].sort()),
+      await page.evaluate(() => [...new Set(window.testBlobRevoked)].sort()), 'all clip Blob URLs are revoked')
+  } finally { await context.close() }
+}
+
 async function checkAssFullscreen(browser, base) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 },
     deviceScaleFactor: 2, isMobile: true, hasTouch: true, serviceWorkers: 'block' })
@@ -731,7 +952,7 @@ try {
   server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost')
-      res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'")
+      res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self' blob:; media-src 'self' blob:; img-src 'self' data: blob:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'")
       if (url.pathname === '/player-harness.html') {
         const styles = (await readdir(path.join(dist, 'assets'))).filter(name => name.endsWith('.css'))
         res.writeHead(200, { 'Content-Type': 'text/html' })
@@ -1279,6 +1500,8 @@ try {
   assert.ok(progressRequests().some(r => r.method === 'DELETE'), 'ordinary restart clears progress')
   assert.ok(progressRequests().some(r => r.method === 'POST' && r.body.position === 1140), 'ordinary playback saves progress')
   await playerPage.close()
+  await checkPlaybackCompatibility(browser, base)
+  await checkMp4Compatibility(browser, base)
   await checkAssFullscreen(browser, base)
   await context.close()
   }
@@ -1292,7 +1515,7 @@ try {
     manifest.assets = manifest.assets.filter(entry => !names.has(entry.file)).concat(captured)
     await writeFile(filename, JSON.stringify(manifest, null, 2) + '\n')
   }
-  console.log(draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: controls, settings/rate, fullscreen, preview/normal lifecycle; real ASS worker, alpha/compositing, styled subtitles and video pixels in phone portrait/landscape fullscreen, compatibility switching and cleanup' : 'PASS settings: draft leave/refresh/save lifecycle, startup loading/error/retry/empty states, independent directory loading, navigation, matching drafts/order/search, complete file listing, independent row focus and explicit checkbox selection, 40px/44px checkbox targets, keyboard/range/mixed selection, context menu copy targets, preview selection preservation, rename, leave guard, accepted cross-media navigation, scoped scan, mobile menu, real player preview/normal progress lifecycle; ASS fullscreen pixels and lifecycle')
+  console.log(draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: controls, rate, fullscreen, preview/normal lifecycle; native HLS detached clock fallback without repeated recovery, MP4 clip prefetch/continuation/seek/source subtitle offset/lease cleanup and diagnostic copy; real ASS worker and video/subtitle pixels in phone portrait/landscape fullscreen' : 'PASS settings, files and playback: draft/navigation/preview lifecycle; browser playback compatibility, MP4 source timeline and subtitles, ASS fullscreen pixels and cleanup')
 } finally {
   if (browser) await browser.close()
   if (server) await new Promise(resolve => server.close(resolve))
