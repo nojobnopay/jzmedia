@@ -2,7 +2,7 @@
 
 在电视上连接 jzmedia，浏览电影、剧集和合集，用遥控器搜索、播放和续看。扫描、匹配、整理与上传仍在网页端操作。
 
-**电视主要播放流程已通过真机验证，新增 ASS/SSA 原生渲染仍待真机验收。** 已有 APK 可直接安装；自己编译请按下面的 Step 操作。发行版本与 Docker 镜像共用根 [version.properties](../version.properties)，维护者通过[统一发布](../docs/developer/releasing.md)同步交付两端。验收依据和升级限制见[当前状态](../docs/roadmap/android-tv.md)。
+**电视主要播放流程与 ASS/SSA 原生渲染已通过红米电视真机验证。** 已有 APK 可直接安装；自己编译请按下面的 Step 操作。发行版本与 Docker 镜像共用根 [version.properties](../version.properties)，维护者通过[统一发布](../docs/developer/releasing.md)同步交付两端。具体设备、专项验收记录及升级限制见[当前状态](../docs/roadmap/android-tv.md)。
 
 [安装已有 APK](#已有-apk安装并连接) · [从源码构建](#从源码构建测试与安装) · [日常命令与排错](#日常命令与常见问题)
 
