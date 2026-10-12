@@ -1,6 +1,6 @@
 ---
 version: 0.24.3
-reviewed: 2026-10-11
+reviewed: 2026-10-12
 ---
 
 # 播放核心设计
@@ -68,6 +68,8 @@ Android TV 使用协议 1 握手和 `client=android_tv`，显式声明原生容�
 ## 字幕、预览与预缓存
 
 `useSubtitles.js` 用自绘 DOM 层显示 SRT/VTT，失败回退原生 track；JASSUB 渲染 ASS/SSA 并尽量保留样式，libpgs 渲染 PGS，失败可降级烧录；VobSub 走烧录。自绘文本层在画中画中不可见；ASS 缺 CJK 字体可补 `DATA_DIR/fonts/` 内有权使用的字体，或降级 VTT（丢失原样式）。内嵌字体在首次请求时从片源解出：逐附件流显式输出后改名（ffmpeg≥7 拒绝中文/括号内嵌文件名做落盘名，整批按内嵌名解出零文件），同目录并发只跑一次；JASSUB 字体预检不通过或初始化失败/超时，自动降级同轨 VTT 并提示（本地临时 ASS 无服务端 VTT 变体，只提示不降级）。
+
+网页 ASS 的专用入口 `jassubWorker.js` 在注册原 JASSUB RPC worker 前，通过 `assCanvasContext.js` 将该 worker 的 WebGL/Canvas2D 上下文 `desynchronized` 设为 `false`，让透明字幕画布参与常规合成；保留透明度、WebGL 加速和 ASS 样式，不修改依赖包或页面中的其他画布。此设置针对手机全屏时字幕可见、底下视频黑屏的合成兼容路径，不改变播放计划。`scripts/smoke_settings_ui.mjs --player-only` 用合成视频、ASS 和字体检查真实 worker 的上下文属性、手机布局下窗口/竖屏与横屏全屏的画面及字幕像素、兼容模式往返和关闭清理；浏览器模拟通过仍需受影响手机验收。
 
 字幕源时间相对 HLS 会话应叠加 `media_start + subDelay`；延迟按版本保存，外观按浏览器保存。外挂轨从 `scanner.classify` 归属，临时本地字幕仅浏览器持有，关闭失效。
 

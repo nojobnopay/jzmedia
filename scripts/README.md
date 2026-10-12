@@ -32,7 +32,7 @@
 | [smoke_api.py](smoke_api.py) | 临时后端的扫描、整理、恢复、合集、设置和鉴权等 API；[_smoke_app.py](_smoke_app.py) 是其内部启动器。 |
 | [smoke_multi_library.py](smoke_multi_library.py) | 临时双库的扫描、搜索、版本隔离，以及删库保留文件。 |
 | [smoke_metadata_offline.py](smoke_metadata_offline.py) | 本地索引、NFO 回放、离线搜索和合成 IMDb 数据导入。 |
-| [smoke_settings_ui.mjs](smoke_settings_ui.mjs) | 设置草稿离开保护、文件操作与预览、合成片源播放。 |
+| [smoke_settings_ui.mjs](smoke_settings_ui.mjs) | 设置草稿离开保护、文件操作与预览、合成片源播放及 ASS 全屏合成。 |
 | [smoke_ai_ui.mjs](smoke_ai_ui.mjs) | 智能设置、搜索和匹配，模型及 API 均为模拟。 |
 | [smoke_browse_filters.mjs](smoke_browse_filters.mjs) | 电影/剧集筛选的真实 Vue 页面与模拟 API。 |
 | [smoke_tv_airing.mjs](smoke_tv_airing.mjs) | 剧集播出/收藏、官方目录、库范围、每周推荐与维护状态。 |
@@ -42,7 +42,7 @@
 
 ### 选择验证范围与输出
 
-- `smoke_settings_ui.mjs`：播放器使用临时 FFmpeg 合成片源；`--drafts-only` 限定设置草稿，`--player-only` 限定播放器，`--capture-docs` 更新教程图。
+- `smoke_settings_ui.mjs`：播放器使用临时 FFmpeg 合成片源，ASS 检查使用合成样式字幕和依赖包字体，覆盖真实 worker、透明合成、手机布局下的全屏画面及字幕像素、兼容切换与关闭清理；`--drafts-only` 限定设置草稿，`--player-only` 限定播放器，`--capture-docs` 更新教程图。手机布局模拟不能代替真机验收。
 - `smoke_ai_ui.mjs`：`--demo` 保留演示服务，`--capture-docs` 更新教程图。
 - `smoke_tv_airing.mjs`：使用虚构剧集和模拟 API；`--capture-docs` 更新对应教程图。
 - `ui_visual_review.mjs`：`--source` 指定源码快照，比较要求相同 fixture 哈希；`--capture-docs` 更新教程图。

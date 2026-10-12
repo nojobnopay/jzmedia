@@ -67,8 +67,9 @@ createApp({setup() {
   return () => h('main', [
     h('button',{onClick:()=>mode.value='preview'},'打开预览播放器'),
     h('button',{onClick:()=>mode.value='normal'},'打开普通播放器'),
+    h('button',{onClick:()=>mode.value='ass'},'打开 ASS 播放器'),
     h('output',{id:'player-events'},'watched='+watched.value+';ended='+ended.value),
-    mode.value ? h(PlayerModal,{key:mode.value,ref:player,versionId:81,title:'合成测试视频',preview:mode.value==='preview',
+    mode.value ? h(PlayerModal,{key:mode.value,ref:player,versionId:mode.value==='ass'?82:81,title:'合成测试视频',preview:mode.value!=='normal',
       onClose:async()=>{await player.value?.saveFinal();mode.value=''},
       onWatched:()=>watched.value++,onEnded:()=>ended.value++}) : null,
   ])
@@ -80,7 +81,19 @@ const files = Object.fromEntries(libs.map(l => [l.id, [
 ]]))
 const changes = new Map()
 let revision = 0, scanJob = null, scanPolls = 0, browser, server, harnessEntry
-let videoFixture, imageFixture
+let videoFixture, imageFixture, assVideoFixture, assFontFixture
+const assFixture = `[Script Info]
+ScriptType: v4.00+
+PlayResX: 640
+PlayResY: 360
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Liberation Sans,32,&H0000FFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,20,1
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:40.00,Default,,0,0,0,,{\\an8\\pos(320,25)\\c&H0000FF&\\b1}ASS TOP RED
+Dialogue: 0,0:00:00.00,0:00:40.00,Default,,0,0,0,,ASS BOTTOM YELLOW
+`
 const directFixturePath = '中文目录/合成视频 100% & #.mp4'
 const directFixtureUrl = '/fixtures/video.mp4?' + new URLSearchParams({ name: directFixturePath })
 function syntheticPdf() {
@@ -148,6 +161,10 @@ function mock(url, method, body) {
     return { total: body.from.length, files: body.from.length, bytes: 100, needs_confirm: true, conflicts: [] }
   }
   if (/^\/api\/stream\/\d+\/previews$/.test(key)) return { state: 'missing', pages: [] }
+  if (key === '/api/stream/82/fonts') return { fonts: [{ name: 'Liberation Sans', url: '/fixtures/ass-font.woff2' }] }
+  if (key === '/api/stream/82/decide') return { method: 'direct', direct_url: '/fixtures/ass-video.mp4', reasons: [],
+    media: { width: 640, height: 360, duration: 40, audio: [],
+      subs: [{ index: 0, codec: 'ass', lang: 'eng', title: '合成 ASS 样式', default: 1 }] }, plan: {} }
   if (/^\/api\/stream\/\d+\/decide$/.test(key)) return { method: 'direct', direct_url: directFixtureUrl, reasons: [],
     media: { width: 320, height: 180, duration: 1200, audio: [], subs: [] }, plan: {} }
   if (key === '/api/stream/progress') return method === 'GET' ? { position: 25, duration: 1200, position_text: '00:25' } : { ok: true }
@@ -165,6 +182,126 @@ async function ffmpeg() {
     }
   }
   throw new Error('FFmpeg is required for documentation captures')
+}
+async function checkAssFullscreen(browser, base) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 2, isMobile: true, hasTouch: true, serviceWorkers: 'block' })
+  await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort())
+  const page = await context.newPage()
+  page.setDefaultTimeout(15000)
+  page.on('pageerror', error => errors.push(String(error)))
+  const directory = path.join(root, 'output/playwright/ass-fullscreen')
+  await mkdir(directory, { recursive: true })
+  const checks = []
+  const consoleErrors = []
+  page.on('console', event => { if (event.type() === 'error') consoleErrors.push(event.text()) })
+  async function ready() {
+    await page.waitForFunction(() => window.__jzPlayer?.ass()
+      || window.__jzPlayer?.snapshot().events.some(event => event.k === 'ass:error-vtt' || event.k === 'ass:init-error'))
+    assert.equal(await page.evaluate(() => !!window.__jzPlayer.ass()), true,
+      JSON.stringify(await page.evaluate(() => window.__jzPlayer.snapshot())))
+    await page.evaluate(async () => { await window.__jzPlayer.ass().ready })
+    await page.evaluate(() => new Promise(resolve => {
+      const video = document.querySelector('video')
+      video.requestVideoFrameCallback(() => video.requestVideoFrameCallback(resolve))
+    }))
+  }
+  async function pixels(scene, styled = true) {
+    const geometry = await page.locator('video').evaluate(video => {
+      const rect = video.getBoundingClientRect(), ratio = video.videoWidth / video.videoHeight
+      const width = Math.min(rect.width, rect.height * ratio), height = width / ratio
+      return { x: rect.x + (rect.width - width) / 2, y: rect.y + (rect.height - height) / 2,
+        width, height, viewportWidth: innerWidth }
+    })
+    const png = await page.screenshot({ path: path.join(directory, scene + '.png'), animations: 'disabled' })
+    const counts = await page.evaluate(async ({ png, rect }) => {
+      const image = new Image()
+      image.src = 'data:image/png;base64,' + png
+      await image.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = image.width; canvas.height = image.height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(image, 0, 0)
+      const scale = image.width / rect.viewportWidth
+      const data = ctx.getImageData(Math.round(rect.x * scale), Math.round(rect.y * scale),
+        Math.floor(rect.width * scale), Math.floor(rect.height * scale)).data
+      let blue = 0, red = 0, yellow = 0
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2]
+        if (Math.abs(r - 50) < 10 && Math.abs(g - 91) < 10 && Math.abs(b - 112) < 10) blue++
+        if (r > 170 && g < 80 && b < 80) red++
+        if (r > 170 && g > 170 && b < 80) yellow++
+      }
+      return { blueFraction: blue / (data.length / 4), red, yellow }
+    }, { png: png.toString('base64'), rect: geometry })
+    assert.ok(counts.blueFraction > 0.6, `${scene}: video must remain visible under the subtitle layer: ${JSON.stringify(counts)}`)
+    if (styled) assert.ok(counts.red > 20 && counts.yellow > 20,
+      `${scene}: real ASS must retain both styled text colors: ${JSON.stringify(counts)}`)
+    checks.push({ scene, ...counts })
+  }
+  async function revealControls() { await page.locator('.pv-wrap').tap({ position: { x: 5, y: 5 } }) }
+  try {
+    await page.goto(base + '/player-harness.html')
+    await page.getByRole('button', { name: '打开 ASS 播放器', exact: true }).tap()
+    await ready()
+    const attributes = await page.evaluate(async () => window.__jzPlayer.ass().renderer._gpurender.gl.getContextAttributes())
+    assert.equal(attributes.alpha, true, 'real JASSUB WebGL context must remain transparent')
+    assert.equal(attributes.desynchronized, false, 'real worker must use compositor-synchronized rendering')
+    const mainAttributes = await page.evaluate(() => new OffscreenCanvas(1, 1).getContext('2d', { desynchronized: true }).getContextAttributes())
+    assert.equal(mainAttributes.desynchronized, true, 'worker policy must not patch the page realm')
+    const src = await page.locator('video').evaluate(video => video.currentSrc)
+    await page.locator('.player-toast').waitFor({ state: 'hidden' })
+    await pixels('window')
+    await page.getByRole('button', { name: '全屏', exact: true }).tap()
+    await page.waitForFunction(() => document.fullscreenElement && !document.querySelector('.pv-ctl.show'))
+    await pixels('fullscreen-portrait')
+    // Headless Chrome 不能调整处于原生全屏状态的窗口尺寸；退出、旋转视口后再进入。
+    await revealControls()
+    await page.locator('.ctl-options').getByRole('button', { name: '退出全屏', exact: true }).tap()
+    await page.waitForFunction(() => !document.fullscreenElement)
+    await page.setViewportSize({ width: 844, height: 390 })
+    await ready()
+    await page.getByRole('button', { name: '全屏', exact: true }).tap()
+    await page.waitForFunction(() => document.fullscreenElement && !document.querySelector('.pv-ctl.show'))
+    await pixels('fullscreen-landscape')
+    await revealControls()
+    await page.getByRole('button', { name: '播放设置', exact: true }).tap()
+    await page.getByText('字幕调整', { exact: true }).tap()
+    const compatibility = page.getByLabel('兼容模式（使用简化字幕）', { exact: true })
+    await compatibility.check()
+    await page.locator('canvas.JASSUB').waitFor({ state: 'detached' })
+    await page.locator('.sub-layer').getByText('ASS compatibility text', { exact: true }).waitFor()
+    await page.getByRole('button', { name: '关闭设置', exact: true }).tap()
+    await page.waitForFunction(() => !document.querySelector('.pv-ctl.show'))
+    await pixels('fullscreen-compatible', false)
+    await revealControls()
+    await page.getByRole('button', { name: '播放设置', exact: true }).tap()
+    await page.getByText('字幕调整', { exact: true }).tap()
+    await compatibility.uncheck()
+    await ready()
+    assert.equal(await page.locator('.sub-layer').count(), 0)
+    assert.equal(await page.locator('canvas.JASSUB').count(), 1, 'switching back must not leave duplicate canvases')
+    await page.getByRole('button', { name: '关闭设置', exact: true }).tap()
+    await page.waitForFunction(() => !document.querySelector('.pv-ctl.show'))
+    await pixels('fullscreen-ass-restored')
+    assert.equal(await page.locator('video').evaluate(video => video.currentSrc), src, 'subtitle switching must reuse the playing video')
+    await revealControls()
+    await page.locator('.ctl-options').getByRole('button', { name: '退出全屏', exact: true }).tap()
+    await page.waitForFunction(() => !document.fullscreenElement)
+    await page.locator('.player-toast').waitFor({ state: 'hidden' })
+    await pixels('fullscreen-exited')
+    await page.evaluate(() => { window.closedAssVideo = document.querySelector('video') })
+    await page.getByRole('button', { name: '关闭播放器', exact: true }).tap()
+    assert.equal(await page.locator('canvas.JASSUB').count(), 0)
+    assert.equal(await page.evaluate(() => window.closedAssVideo.paused && !window.closedAssVideo.hasAttribute('src')), true)
+    await writeFile(path.join(directory, 'checks.json'), JSON.stringify({ syntheticMedia: true,
+      phoneLayoutSimulation: true, physicalAndroidDevice: false, attributes, mainAttributes, checks }, null, 2) + '\n')
+  } catch (error) {
+    await page.screenshot({ path: path.join(directory, 'failure.png') }).catch(() => {})
+    const snapshot = await page.evaluate(() => window.__jzPlayer?.snapshot()).catch(() => null)
+    await writeFile(path.join(directory, 'failure.json'), JSON.stringify({ snapshot, consoleErrors }, null, 2))
+    throw error
+  } finally { await context.close() }
 }
 async function screenshot(page, name, doc, scene, { animations = 'disabled' } = {}) {
   if (!capture) return
@@ -580,8 +717,11 @@ try {
   const ffmpegPath = await ffmpeg()
   execFileSync(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=10', '-t', '40', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', path.join(work, 'video.mp4')])
   execFileSync(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=0x325b70:size=640x360', '-frames:v', '1', path.join(work, 'image.png')])
+  execFileSync(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=0x325b70:size=640x360:rate=10', '-t', '40', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', path.join(work, 'ass-video.mp4')])
   videoFixture = await readFile(path.join(work, 'video.mp4'))
   imageFixture = await readFile(path.join(work, 'image.png'))
+  assVideoFixture = await readFile(path.join(work, 'ass-video.mp4'))
+  assFontFixture = await readFile(path.join(root, 'frontend/node_modules/jassub/dist/default.woff2'))
   const output = await build({ root: path.join(root, 'frontend'), configFile: false, envFile: false, cacheDir: path.join(work, 'cache'), plugins: [vue(), {
     name: 'isolated-player-harness', resolveId: id => id === harnessId ? '\0' + harnessId : null,
     load: id => id === '\0' + harnessId ? harnessSource : null,
@@ -591,11 +731,26 @@ try {
   server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost')
-      res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'")
+      res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'")
       if (url.pathname === '/player-harness.html') {
         const styles = (await readdir(path.join(dist, 'assets'))).filter(name => name.endsWith('.css'))
         res.writeHead(200, { 'Content-Type': 'text/html' })
-        res.end('<!doctype html><html><head>' + styles.map(name => '<link rel="stylesheet" href="/assets/' + name + '">').join('') + '</head><body><div id="app"></div><script type="module" src="/' + harnessEntry + '"></script></body></html>'); return
+        res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">' + styles.map(name => '<link rel="stylesheet" href="/assets/' + name + '">').join('') + '</head><body><div id="app"></div><script type="module" src="/' + harnessEntry + '"></script></body></html>'); return
+      }
+      if (url.pathname === '/fixtures/ass-font.woff2') {
+        res.writeHead(200, { 'Content-Type': 'font/woff2' }); res.end(assFontFixture); return
+      }
+      if (url.pathname === '/api/stream/82/sub/0.ass' || url.pathname === '/api/stream/82/sub/0.vtt') {
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end(url.pathname.endsWith('.ass') ? assFixture : 'WEBVTT\n\n00:00:00.000 --> 00:00:40.000\nASS compatibility text'); return
+      }
+      if (url.pathname === '/fixtures/ass-video.mp4') {
+        const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range || '')
+        const start = range ? Number(range[1]) : 0
+        const end = range?.[2] ? Math.min(Number(range[2]), assVideoFixture.length - 1) : assVideoFixture.length - 1
+        res.writeHead(range ? 206 : 200, { 'Content-Type': 'video/mp4', 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes',
+          ...(range ? { 'Content-Range': `bytes ${start}-${end}/${assVideoFixture.length}` } : {}) })
+        res.end(assVideoFixture.subarray(start, end + 1)); return
       }
       if (url.pathname === '/api/fs/blob' || url.pathname === '/fixtures/video.mp4') {
         // Match the decoded filename just as the backend does. Double-encoded URLs must fail.
@@ -627,7 +782,8 @@ try {
         res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(result)); return
       }
       const file = /^\/assets\/[\w.-]+$/.test(url.pathname) || url.pathname === '/favicon.svg' ? path.join(dist, url.pathname) : path.join(dist, 'index.html')
-      const type = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.svg': 'image/svg+xml' }[path.extname(file)] || 'application/octet-stream'
+      const type = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.svg': 'image/svg+xml',
+        '.wasm': 'application/wasm' }[path.extname(file)] || 'application/octet-stream'
       const data = await readFile(file); res.writeHead(200, { 'Content-Type': type }); res.end(data)
     } catch (error) { errors.push(String(error)); res.writeHead(500); res.end('Fixture error') }
   })
@@ -1123,6 +1279,7 @@ try {
   assert.ok(progressRequests().some(r => r.method === 'DELETE'), 'ordinary restart clears progress')
   assert.ok(progressRequests().some(r => r.method === 'POST' && r.body.position === 1140), 'ordinary playback saves progress')
   await playerPage.close()
+  await checkAssFullscreen(browser, base)
   await context.close()
   }
   assert.deepEqual(unexpected, [], 'all API calls must be mocked explicitly')
@@ -1135,7 +1292,7 @@ try {
     manifest.assets = manifest.assets.filter(entry => !names.has(entry.file)).concat(captured)
     await writeFile(filename, JSON.stringify(manifest, null, 2) + '\n')
   }
-  console.log(draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: 1440/390/375/320px controls, 44px targets, settings/rate, fullscreen, preview/normal progress lifecycle' : 'PASS settings: draft leave/refresh/save lifecycle, startup loading/error/retry/empty states, independent directory loading, navigation, matching drafts/order/search, complete file listing, independent row focus and explicit checkbox selection, 40px/44px checkbox targets, keyboard/range/mixed selection, context menu copy targets, preview selection preservation, rename, leave guard, accepted cross-media navigation, scoped scan, mobile menu, real player preview/normal progress lifecycle')
+  console.log(draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: controls, settings/rate, fullscreen, preview/normal lifecycle; real ASS worker, alpha/compositing, styled subtitles and video pixels in phone portrait/landscape fullscreen, compatibility switching and cleanup' : 'PASS settings: draft leave/refresh/save lifecycle, startup loading/error/retry/empty states, independent directory loading, navigation, matching drafts/order/search, complete file listing, independent row focus and explicit checkbox selection, 40px/44px checkbox targets, keyboard/range/mixed selection, context menu copy targets, preview selection preservation, rename, leave guard, accepted cross-media navigation, scoped scan, mobile menu, real player preview/normal progress lifecycle; ASS fullscreen pixels and lifecycle')
 } finally {
   if (browser) await browser.close()
   if (server) await new Promise(resolve => server.close(resolve))
