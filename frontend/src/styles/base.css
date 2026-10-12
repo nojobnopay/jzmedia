@@ -14,8 +14,6 @@ body { font-family: var(--jz-font-family); margin: 0; background: var(--jz-bg); 
 .app-nav .brand img { border-radius: var(--jz-radius-s); display: block; }
 .nav-library { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 240px; padding: 0 10px; margin-left: 8px; border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-m); background: var(--jz-surface-2); }
 .lib-switch { min-width: 0; min-height: var(--jz-touch-target); width: 100%; background: var(--jz-surface-2); color: var(--jz-text); border: 0; padding: 6px 0 6px 0; font-size: var(--jz-font-m); text-overflow: ellipsis; }
-/* Native option popups need their own opaque surface, independent of the label. */
-.lib-switch option { background: var(--jz-surface-2); color: var(--jz-text); }
 .lib-switch:focus-visible { outline: none; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--poster-min, 150px), 1fr)); gap: 12px; padding: 12px; }
 .card { background: var(--jz-surface-2); border-radius: var(--jz-radius-m); overflow: hidden; cursor: pointer; }
@@ -36,6 +34,9 @@ body { font-family: var(--jz-font-family); margin: 0; background: var(--jz-bg); 
 .bar { padding: 12px; display: flex; gap: 8px; }
 /* Low specificity lets specialized player/file controls retain their geometry. */
 :where(input, button, textarea, select) { font-family: inherit; font-size: var(--jz-font-m); line-height: 1.4; padding: 8px 12px; border-radius: var(--jz-radius-s); border: 1px solid var(--jz-border-strong); background: var(--jz-surface-2); color: var(--jz-text); box-sizing: border-box; }
+/* Native popups need opaque colors even when the closed select is transparent. */
+:where(option, optgroup) { background: var(--jz-surface-2); color: var(--jz-text); }
+:where(option:disabled, optgroup:disabled, optgroup:disabled option) { color: var(--jz-text-faint); }
 :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea):not(:where(.player-dlg *)) { min-height: var(--jz-control-current); }
 :where(.bar button, .play-row button, .settings-layout button, .fs-toolbar button, .acts button):not(:where(.player-dlg *)) { min-height: var(--jz-control-current); }
 :where(input, select, textarea) { max-width: 100%; }

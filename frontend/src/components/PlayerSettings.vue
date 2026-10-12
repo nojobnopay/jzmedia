@@ -187,7 +187,6 @@ function styleSet(key, value) {
 .set-row > label, .set-label { flex: 1; color: var(--jz-text-dim); font-size: .75rem; white-space: nowrap; }
 .pd-set select { min-width: 0; box-sizing: border-box; border: 1px solid #ffffff12; background: #ffffff08;
   color: var(--jz-text); font-size: .75rem; padding: 7px 12px; border-radius: var(--jz-radius-s); max-width: 70%; }
-.pd-set select option { background: var(--jz-surface-2); color: var(--jz-text); }
 .pd-set select.sub-select { width: 100%; max-width: 100%; }
 .set-inline { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; }
 .set-inline select { flex: 1; }
