@@ -57,7 +57,15 @@
             <p v-if="tvStats" class="overview-detail">{{ tvStats.pending }} 部待处理 · {{ tvStats.episode_review }} 个分集待确认</p>
           </section>
         </div>
-        <details v-if="stats" class="settings-details overview-storage"><summary>存储与缓存统计</summary><dl class="info-grid"><dt>数据库</dt><dd>{{ fmtBytes(stats.db_bytes) }}</dd><dt>海报文件</dt><dd>{{ fmtBytes(stats.posters_bytes) }}</dd><dt>资料缓存</dt><dd>{{ stats.tmdb_cache }} 条</dd><dt>人物</dt><dd>{{ stats.persons }} 位</dd></dl></details>
+        <details v-if="stats || dataUsage" class="settings-details overview-storage"><summary>存储与缓存统计{{ dataUsage?.ok ? ` · ${fmtBytes(dataUsage.total_bytes)} / 20 GB` : '' }}</summary>
+          <dl class="info-grid">
+            <template v-if="dataUsage?.ok"><dt>数据库（含写入日志）</dt><dd>{{ fmtBytes(dataUsage.categories.database) }}</dd><dt>海报与图片</dt><dd>{{ fmtBytes(dataUsage.categories.posters) }}</dd><dt>进度缩略图</dt><dd>{{ fmtBytes(dataUsage.categories.previews) }}</dd><dt>播放缓存</dt><dd>{{ fmtBytes(dataUsage.categories.transcode) }}</dd><dt>其他应用数据</dt><dd>{{ fmtBytes(dataUsage.categories.other) }}</dd></template>
+            <template v-if="stats"><dt>资料缓存</dt><dd>{{ stats.tmdb_cache }} 条（计入数据库）</dd><dt>人物</dt><dd>{{ stats.persons }} 位</dd></template>
+          </dl>
+          <p v-if="dataUsageError || (dataUsage && !dataUsage.ok)" class="hint" role="status">{{ dataUsageError || dataUsage.error }}</p>
+          <p v-if="dataUsage?.over_limit" class="warn-text">已达到 20 GB 提醒线，请到“系统维护”检查可清理内容。</p>
+          <JzButton @click="go('sec-index')" type="button">打开系统维护</JzButton>
+        </details>
         <div class="settings-shortcuts">
           <button @click="go('sec-libraries')"><b><AppIcon name="library" />媒体库连接</b><span>添加存储位置或检查连接</span></button>
           <button @click="go('sec-libtools')"><b><AppIcon name="organize" />扫描与整理</b><span>导入新文件，核对匹配，整理目录</span></button>
@@ -155,6 +163,7 @@
       </section>
 
       <div v-show="active === 'sec-index'" id="sec-index">
+        <StorageUsagePanel />
         <section class="card-block maintenance-action"><div><h3>搜索索引</h3><p class="hint">搜索结果缺失或与资料不一致时，重建全部媒体库的索引。</p></div><div class="bar"><JzButton @click="doRebuildFts" :disabled="!!busy" type="button" icon="search">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</JzButton></div><p v-if="ftsMsg" class="feedback" role="status">{{ ftsMsg }}</p></section>
         <TranscodeCachePanel />
       </div>
@@ -187,6 +196,7 @@ import { currentMediaId, listLibs, loadLibs } from '../libraries.js'
 import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
 
 import TranscodeCachePanel from '../components/TranscodeCachePanel.vue'
+import StorageUsagePanel from '../components/StorageUsagePanel.vue'
 import { SETTINGS_PAGES, settingsTarget } from '../settingsNavigation.js'
 import { CHAIN_PROVIDERS, CHAIN_LABELS, DEFAULT_CHAIN, useMatchingSettings } from '../useMatchingSettings.js'
 import '../styles/settings.css'
@@ -202,6 +212,8 @@ const removeAfterEach = router.afterEach((to, _from, failure) => draftGuard.fini
 
 const s = ref(null)
 const stats = ref(null)
+const dataUsage = ref(null)
+const dataUsageError = ref('')
 const tvStats = ref(null)
 const tvStatsError = ref('')
 const movieTodos = computed(() => (stats.value?.by_library || []).filter(row => row.pending || row.missing_files))
@@ -347,7 +359,13 @@ async function loadStats() {
   await Promise.all([
     api('/api/jobs/stats').then(d => { stats.value = d }).catch(e => { statsError.value = '统计加载失败：' + e.message }),
     api('/api/tv/stats').then(d => { tvStats.value = d }).catch(e => { tvStatsError.value = '统计加载失败：' + e.message }),
+    loadDataUsage(),
   ])
+}
+async function loadDataUsage() {
+  dataUsageError.value = ''
+  try { dataUsage.value = await api('/api/data-usage') }
+  catch (e) { dataUsageError.value = '空间统计失败：' + e.message }
 }
 
 // 媒体库工具（按视频库标签页）：库列表来自全局状态，库变动后同步
@@ -460,6 +478,7 @@ async function loadLibraries(force = false) {
   }
 }
 onMounted(async () => {
+  window.addEventListener('jzmedia:data-usage-changed', loadDataUsage)
   window.addEventListener('jzmedia:libraries-changed', onLibrariesLoaded)
   window.addEventListener('beforeunload', draftGuard.beforeUnload)
   await Promise.all([
@@ -469,6 +488,7 @@ onMounted(async () => {
   ])
 })
 onUnmounted(() => {
+  window.removeEventListener('jzmedia:data-usage-changed', loadDataUsage)
   disposed = true
   removeAfterEach()
   draftGuard.dispose()

@@ -36,6 +36,32 @@ class SessionBody(BaseModel):
     force_burn: bool = False
     kind: str = "movie"   # movie|episode|extra
     client: str = "web"
+    client_id: str | None = Field(default=None, min_length=16, max_length=64,
+                                  pattern=r"^[A-Za-z0-9_-]+$")
+    request_seq: int | None = Field(default=None, ge=0)
+
+
+# A browser player can replace its own in-flight seek before the POST returns a
+# sid. Keep the latest request number long enough for an older POST to finish.
+_client_requests: dict[str, tuple[int, float]] = {}
+_CLIENT_REQUEST_TTL = 3600
+
+
+def _replace_client_request(client_id: str, request_seq: int) -> None:
+    now = time.time()
+    with _sess_lock:
+        previous = _client_requests.get(client_id)
+        if previous is not None and request_seq <= previous[0]:
+            raise HTTPException(409, "superseded playback request")
+        for key, (_, seen) in list(_client_requests.items()):
+            if now - seen > _CLIENT_REQUEST_TTL:
+                _client_requests.pop(key, None)
+        _client_requests[client_id] = (request_seq, now)
+        stale = [sid for sid, sess in _sessions.items()
+                 if sess.get("client_id") == client_id
+                 and int(sess.get("request_seq") or 0) < request_seq]
+    for sid in stale:
+        _drop_session(sid)
 
 
 def _mp4_duration(sdir: str) -> float:
@@ -70,12 +96,15 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                    caps: dict | None = None,
                    force_burn: bool = False,
                    kind: str = "movie", client: str = "web",
-                   prewarm: bool = False) -> tuple[str, str, dict]:
+                   prewarm: bool = False, client_id: str | None = None,
+                   request_seq: int | None = None) -> tuple[str, str, dict]:
     """Create a client lease, atomically sharing an identical output producer.
 
     Every call receives its own sid. Only the final lease releases a running producer;
     prewarm owns a lease for its whole job. Reservations count against the process cap.
     """
+    if (client_id is None) != (request_seq is None):
+        raise HTTPException(422, "client_id and request_seq must be paired")
     m, src = _version_source(version_id, kind)
     k = m.get("kind") or kind
     info = _media_cached_or_probe(m, src)
@@ -109,14 +138,18 @@ def _spawn_session(version_id: int, quality: str, audio: int,
             d["plan"]["sub_ff_index"] = int(ff)
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
-
     _purge_old()
     marker_plan = _source_plan(d["plan"], m, src)
     plan_key = _plan_marker(marker_plan, audio, start)
     full_key = _plan_marker(marker_plan, audio, 0)
     sid = uuid.uuid4().hex[:16]
     creator = False
+    if client_id is not None:
+        _replace_client_request(client_id, request_seq)
     with _sess_lock:
+        # A newer request can arrive while the old producer is being stopped.
+        if client_id is not None and _client_requests.get(client_id, (None,))[0] != request_seq:
+            raise HTTPException(409, "superseded playback request")
         full_dir = _session_dir(int(m["id"]), _artifact_key(d["plan"], audio, full_key), 0, k)
         full_hit = (d["plan"].get("seg") != "mp4" and start > 0
                     and _session_complete(full_dir, full_key))
@@ -144,7 +177,8 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                 "vid": int(m["id"]), "kind": k, "plan": d["plan"], "plan_key": plan_key,
                 "caps_hash": _caps.caps_hash(caps_n), "backend": "static",
                 "complete": complete, "last_ping": now, "created": now,
-                "unclaimed": not prewarm, "prewarm": prewarm, "task": task}
+                "unclaimed": not prewarm, "prewarm": prewarm, "task": task,
+                "client_id": client_id, "request_seq": request_seq}
         _sessions[sid] = sess
         if task is not None:
             task["owners"].add(sid)
@@ -295,7 +329,8 @@ def hls_session_create(version_id: int, body: SessionBody | None = None):
         raise HTTPException(422, "bad version_id")
     sid, _sdir, d = _spawn_session(vid, body.quality, body.audio, body.sub, body.start,
                                    caps=body.caps, force_burn=body.force_burn,
-                                   kind=body.kind, client=body.client)
+                                   kind=body.kind, client=body.client,
+                                   client_id=body.client_id, request_seq=body.request_seq)
     caps_n = _caps.default_caps() if body.caps is None else _caps.normalize_caps(body.caps)
     mp4 = d["plan"].get("seg") == "mp4"
     return {"session_id": sid,

@@ -62,4 +62,19 @@ class PlaybackModelsTest {
         assertEquals("0:00", playbackTime(-20.0))
         assertEquals("1:02:03", playbackTime(3723.0))
     }
+
+    @Test fun remoteSeekStartsPreciseAcceleratesOnHoldAndStopsAtBothEnds() {
+        assertEquals(10.0, seekStep(0), .001)
+        assertEquals(30.0, seekStep(8), .001)
+        assertEquals(120.0, seekStep(20), .001)
+        assertEquals(300.0, seekStep(0, 300), .001)
+        assertEquals(600.0, seekStep(8, 300), .001)
+        assertEquals(3610.0, seekPreviewPosition(3600.0, 7200.0, 1), .001)
+        assertEquals(3570.0, seekPreviewPosition(3600.0, 7200.0, -1, 8), .001)
+        assertEquals(3720.0, seekPreviewPosition(3600.0, 7200.0, 1, 20), .001)
+        assertEquals(3900.0, seekPreviewPosition(3600.0, 7200.0, 1, 0, 300), .001)
+        assertEquals(0.0, seekPreviewPosition(5.0, 7200.0, -1), .001)
+        assertEquals(7200.0, seekPreviewPosition(7199.0, 7200.0, 1), .001)
+        assertEquals(0.0, seekPreviewPosition(Double.NaN, 0.0, 1), .001)
+    }
 }

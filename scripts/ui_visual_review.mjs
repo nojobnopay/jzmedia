@@ -33,6 +33,7 @@ const coreScenes=[
   {name:'settings-libraries',route:'/settings?sec=sec-libraries'}, {name:'settings-ai',route:'/settings?sec=sec-ai'},
   {name:'settings-workflow',route:'/settings?sec=sec-libtools&library=1'},
   {name:'settings-maintenance',route:'/settings?sec=sec-index'},
+  {name:'settings-storage-alert',route:'/settings?sec=sec-index',expect:'.app-storage-alert',count:1},
   {name:'library-new',route:'/settings?sec=sec-libraries',action:async page=>{await page.getByRole('button',{name:'添加媒体库',exact:true}).click();await page.locator('.create-library-form').waitFor()}},
 ]
 const tutorialScenes=[

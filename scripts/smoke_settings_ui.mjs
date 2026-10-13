@@ -81,6 +81,14 @@ const files = Object.fromEntries(libs.map(l => [l.id, [
 ]]))
 const changes = new Map()
 let revision = 0, scanJob = null, scanPolls = 0, browser, server, harnessEntry
+let previewPhase = 'missing', previewPolls = 0
+let previewQueue = Array.from({ length: 52 }, (_, index) => ({
+  kind: 'movie', id: 200 + index, library_id: 1, title: `队列样本 ${index + 1}`, file_name: `queued-${index + 1}.mkv`,
+}))
+let previewRunning = { kind: 'movie', id: 91, library_id: 1, title: '处理样本', file_name: 'running.mkv',
+  job_id: 'preview-auto', auto: true, waiting: false, frames: 4, frame_total: 10, done: 0, total: 1 }
+const previewRevision = items => createHash('sha256').update(JSON.stringify(items.map(item =>
+  [item.kind, item.id, item.library_id]))).digest('hex').slice(0, 16)
 let videoFixture, imageFixture, assVideoFixture, assFontFixture
 const assFixture = `[Script Info]
 ScriptType: v4.00+
@@ -126,6 +134,8 @@ function mock(url, method, body) {
   if (key === '/api/ai/settings') return { enabled: false, provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'demo', daily_limit: 100, timeout_seconds: 12, usage: { requests: 0, input_tokens: 0, output_tokens: 0 } }
   if (key === '/api/jobs/stats') return { grouped: 10, versions: 12, no_match: 1, needs_review: 2, missing_files: 0,
     by_library: [{ library_id: 1, pending: 3, missing_files: 0 }] }
+  if (key === '/api/data-usage') return { ok: true, total_bytes: 2 * 1024 ** 3, warning_bytes: 20 * 1024 ** 3,
+    over_limit: false, categories: { database: 100 * 1024 ** 2, posters: 200 * 1024 ** 2, previews: 300 * 1024 ** 2, transcode: 1400 * 1024 ** 2, other: 48 * 1024 ** 2 }, error: '' }
   if (key === '/api/tv/stats') return { shows: 3, seasons: 5, episodes: 60, pending: 0, episode_review: 0, by_library: [] }
   if (key === '/api/tv/airing/status' && method === 'GET') return { configured: false, running: false,
     current: null, error: '', retry_at: 0, total: 0, checked: 0, pending: 0, failed: 0 }
@@ -163,7 +173,14 @@ function mock(url, method, body) {
     assert.equal(body.dry_run, true, 'selection checks must stop at the copy preview')
     return { total: body.from.length, files: body.from.length, bytes: 100, needs_confirm: true, conflicts: [] }
   }
-  if (/^\/api\/stream\/\d+\/previews$/.test(key)) return { state: 'missing', pages: [] }
+  if (/^\/api\/stream\/\d+\/previews$/.test(key)) {
+    if (key !== '/api/stream/81/previews') return { state: 'missing', pages: [] }
+    if (method === 'POST') { previewPhase = 'running'; previewPolls = 0; return { job_id: 'preview-film' } }
+    if (previewPhase === 'running' && ++previewPolls > 1) previewPhase = 'ready'
+    return previewPhase === 'running'
+      ? { state: 'running', job_id: 'preview-film', frames: 37, frame_total: 100, count: 100, columns: 5, rows: 5, pages: [] }
+      : { state: previewPhase, pages: [] }
+  }
   if (key === '/api/stream/82/fonts') return { fonts: [{ name: 'Liberation Sans', url: '/fixtures/ass-font.woff2' }] }
   if (key === '/api/stream/82/decide') return { method: 'direct', direct_url: '/fixtures/ass-video.mp4', reasons: [],
     media: { width: 640, height: 360, duration: 40, audio: [],
@@ -172,6 +189,36 @@ function mock(url, method, body) {
     media: { width: 320, height: 180, duration: 1200, audio: [], subs: [] }, plan: {} }
   if (key === '/api/stream/progress') return method === 'GET' ? { position: 25, duration: 1200, position_text: '00:25' } : { ok: true }
   if (key === '/api/stream/previews/jobs/latest') return { state: 'idle' }
+  if (key === '/api/stream/previews/auto') return { mode: 'all', queued: previewQueue.length + Number(!!previewRunning), running: !!previewRunning, start_hour: 3, end_hour: 6, pause_reason: 'scheduled' }
+  if (key === '/api/stream/previews/queue') {
+    if (method === 'POST') {
+      previewQueue.push({ kind: 'movie', id: 93, library_id: body.library_id, title: '已有影片样本', file_name: 'existing.mkv' })
+      return { total: 2, added: 1, ready: 1, unavailable: 0, already_queued: 0 }
+    }
+    const libraryId = Number(url.searchParams.get('library_id'))
+    const items = previewQueue.filter(item => item.library_id === libraryId)
+    const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 50)
+    return { items: items.slice(offset, offset + limit), total: items.length, revision: previewRevision(items),
+      offset: Number(url.searchParams.get('offset') || 0), limit: 50,
+      running: previewRunning?.library_id === libraryId ? previewRunning : null }
+  }
+  if (key === '/api/stream/previews/queue/remove' && method === 'POST') {
+    const pending = previewQueue.filter(item => item.library_id === body.library_id)
+    assert.equal(body.revision, previewRevision(pending), 'bulk removal uses the queue snapshot')
+    const keyOf = item => `${item.kind}:${item.id}`
+    const keys = new Set((body.all_pending ? body.exclude : body.items).map(keyOf))
+    const chosen = pending.filter(item => body.all_pending ? !keys.has(keyOf(item)) : keys.has(keyOf(item)))
+    const chosenKeys = new Set(chosen.map(keyOf))
+    previewQueue = previewQueue.filter(item => item.library_id !== body.library_id || !chosenKeys.has(keyOf(item)))
+    return { removed: chosen.length }
+  }
+  if (/^\/api\/stream\/previews\/queue\/(movie|episode|extra)\/\d+$/.test(key) && method === 'DELETE') {
+    const itemId = Number(key.split('/').at(-1))
+    if (previewRunning?.id === itemId) previewRunning = null
+    else previewQueue = previewQueue.filter(item => item.id !== itemId)
+    return { removed: true, cancelled: itemId === 91 }
+  }
+  if (key === '/api/stream/previews/cache/clean') return { candidates: 0, candidate_bytes: 0, dry_run: body?.dry_run ?? true, removed: 0, freed: 0 }
   unexpected.push({ key, method })
   return { items: [] }
 }
@@ -261,6 +308,9 @@ async function checkPlaybackCompatibility(browser, base) {
     await page.waitForFunction(() => window.__jzPlayerDebug?.().engine === 'native' && document.querySelector('video')?.readyState >= 2)
     assert.equal(loadAttempts, 1)
     assert.equal(created.length, 2, '组件下载失败只发起一次兼容重播')
+    assert.match(created[0].client_id, /^[A-Za-z0-9_-]{16,64}$/)
+    assert.equal(created[1].client_id, created[0].client_id, '同一播放器重播保留会话归属')
+    assert.ok(created[1].request_seq > created[0].request_seq, '后发请求可撤销前一轮建会话')
     assert.equal(created[1].caps.native_hls, true)
     assert.equal(created[1].caps.hls_compat, true)
     assert.equal(created[1].caps.force_hls, true)
@@ -271,6 +321,8 @@ async function checkPlaybackCompatibility(browser, base) {
     await page.getByRole('region', { name: '字幕与音轨', exact: true }).getByLabel('音轨', { exact: true }).selectOption('1')
     await page.waitForFunction(() => window.__jzPlayerDebug?.().session === 'compat-3' && document.querySelector('video')?.readyState >= 2)
     assert.equal(created[2].audio, 1, 'TS 单轨产物切轨必须重开会话')
+    assert.equal(created[2].client_id, created[0].client_id)
+    assert.ok(created[2].request_seq > created[1].request_seq)
     assert.equal(deleted.length, 2)
     if (!await page.getByText('更多选项', { exact: true }).isVisible()) {
       await page.getByRole('button', { name: '播放设置', exact: true }).click()
@@ -1067,6 +1119,40 @@ try {
   const returnFiles = page.getByRole('button', { name: '返回扫描与整理', exact: true })
   for (const view of ['资料维护', '还原位置']) {
     await views.getByRole('button', { name: view, exact: true }).click()
+    if (view === '资料维护') {
+      const preview = page.getByRole('region', { name: '播放进度缩略图' })
+      await preview.getByText('处理样本', { exact: true }).waitFor()
+      await preview.getByText('队列样本 1', { exact: true }).waitFor()
+      const hierarchy = await preview.evaluate(el => ({
+        headings: [...el.querySelectorAll('.queue-heading h5')].map(h => parseFloat(getComputedStyle(h).fontSize)),
+        item: parseFloat(getComputedStyle(el.querySelector('.queue-detail strong')).fontSize),
+      }))
+      assert.ok(hierarchy.headings.every(size => size > hierarchy.item), 'task headings are larger than video titles')
+      await page.setViewportSize({ width: 390, height: 844 })
+      const checkboxTarget = await preview.locator('.select-item').first().boundingBox()
+      assert.ok(checkboxTarget.width >= 44 && checkboxTarget.height >= 44, 'queue checkboxes have phone touch targets')
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+      await page.setViewportSize({ width: 1440, height: 1000 })
+      await preview.getByRole('button', { name: '取消并移出队列' }).click()
+      await preview.getByText('当前视频库没有正在处理的预览影片。').waitFor()
+      await preview.getByRole('checkbox', { name: '选择 队列样本 1', exact: true }).check()
+      await preview.getByRole('button', { name: '下一页' }).click()
+      await preview.getByRole('checkbox', { name: '选择 队列样本 52', exact: true }).check()
+      await preview.getByText('已选 2 项', { exact: true }).waitFor()
+      await preview.getByRole('button', { name: '批量移出选中项' }).click()
+      await preview.getByText('已移出 2 项待处理影片。').waitFor()
+      await preview.getByRole('checkbox', { name: '全选本库待处理项' }).check()
+      await preview.getByText('已选 50 项', { exact: true }).waitFor()
+      await preview.getByRole('checkbox', { name: '选择 队列样本 2', exact: true }).uncheck()
+      await preview.getByText('已选 49 项', { exact: true }).waitFor()
+      await preview.getByRole('button', { name: '批量移出选中项' }).click()
+      await preview.getByText('已移出 49 项待处理影片。').waitFor()
+      await preview.getByRole('button', { name: '从待处理队列移除 队列样本 2' }).click()
+      await preview.getByText('当前视频库没有待处理影片。').waitFor()
+      await preview.getByRole('button', { name: '将已有影片加入闲时队列' }).click()
+      await preview.getByText('已有影片样本', { exact: true }).waitFor()
+      assert.ok(requests.some(r => r.key === '/api/stream/previews/queue' && r.method === 'POST'))
+    }
     await openFiles.click()
     await page.waitForURL(/sec=sec-files/)
     if (view === '资料维护') {
@@ -1456,6 +1542,16 @@ try {
     if (width === 390) await screenshot(playerPage, 'mobile-player', 'user-guide/playback-controls.md', '390px手机模拟：六个44px主控、独立倍速及字幕入口、画面右上角设置与全屏；合成视频预览')
     playerChecks.push({ width, controls, settings: bounds, rate: 1.5 })
   }
+  await playerPage.getByRole('button', { name: '播放设置', exact: true }).click()
+  const previewPanel = playerPage.getByRole('region', { name: '播放设置', exact: true })
+  await previewPanel.getByText('更多选项', { exact: true }).click()
+  const startPreview = previewPanel.getByRole('button', { name: '生成预览', exact: true })
+  await startPreview.click()
+  await previewPanel.getByText(/37\/100 张（37%）/).waitFor()
+  await previewPanel.getByText('预览已生成完毕', { exact: true }).waitFor()
+  assert.equal(await previewPanel.getByRole('button', { name: '已生成预览', exact: true }).isDisabled(), true)
+  assert.equal(requests.filter(r => r.key === '/api/stream/81/previews' && r.method === 'POST').length, 1)
+  await playerPage.getByRole('button', { name: '关闭设置', exact: true }).click()
   await playerPage.getByRole('button', { name: '全屏', exact: true }).click()
   await playerPage.waitForFunction(() => document.fullscreenElement)
   await playerPage.getByRole('button', { name: '播放设置', exact: true }).click()

@@ -7,10 +7,25 @@ export function usePlaybackPreviews(identity) {
   const error = ref('')
   const jobId = ref('')
   const busy = computed(() => state.value === 'running')
-  const status = computed(() => error.value || ({
-    missing: '尚未生成进度预览', running: '预览生成中，已完成的图片可直接使用',
-    ready: '进度预览已就绪', cancelled: '已取消，可继续生成', failed: '生成失败，可重试',
-  }[state.value] || '尚未生成进度预览'))
+  const ready = computed(() => state.value === 'ready')
+  const status = computed(() => {
+    if (error.value) return error.value
+    if (busy.value) {
+      if (manifest.value?.queued) return '正在等待生成此影片的预览'
+      if (manifest.value?.waiting) return '正在等待播放转码结束'
+      const total = Number(manifest.value?.frame_total || manifest.value?.count || 0)
+      const cells = Number(manifest.value?.columns || 0) * Number(manifest.value?.rows || 0)
+      const completed = Math.min(total, Math.max(Number(manifest.value?.frames || 0),
+        (manifest.value?.pages?.length || 0) * cells))
+      return total > 0
+        ? `预览生成中：${completed}/${total} 张（${Math.floor(completed / total * 100)}%），已完成的图片可直接使用`
+        : '预览生成中，正在准备抽帧'
+    }
+    return ({
+      missing: '尚未生成进度预览', ready: '预览已生成完毕',
+      cancelled: '已取消，可继续生成', failed: '生成失败，可重试',
+    }[state.value] || '尚未生成进度预览')
+  })
   let controller = null
   let timer = null
   let generation = 0
@@ -38,7 +53,7 @@ export function usePlaybackPreviews(identity) {
     if (!disposed && gen === generation && seq === request && busy.value) timer = setTimeout(load, 3000)
   }
   async function start() {
-    if (busy.value || disposed) return
+    if (busy.value || ready.value || disposed) return
     const seq = ++request
     const gen = generation
     error.value = ''
@@ -85,5 +100,5 @@ export function usePlaybackPreviews(identity) {
     controller?.abort()
     clearTimeout(timer)
   })
-  return { manifest, status, busy, start, cancel }
+  return { manifest, status, busy, ready, start, cancel }
 }

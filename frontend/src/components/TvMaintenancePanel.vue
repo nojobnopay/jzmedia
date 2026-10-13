@@ -22,7 +22,7 @@
       <span>{{ tvNfoMsg }}</span>
     </div>
     <details class="settings-details"><summary>NFO 与海报写入规则</summary><p class="hint">向媒体目录写入剧集与季 NFO，是否写海报取决于视频库设置。远程库默认不写逐集 NFO；此操作不移动或重命名视频。</p></details>
-    <PreviewMaintenance :library-id="library.id" :active="active" />
+    <PreviewMaintenance :library-id="library.id" :library-source="library.source" :library-enabled="library.enabled" :active="active" />
   </section>
 </template>
 <script setup>

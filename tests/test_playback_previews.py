@@ -20,8 +20,12 @@ def isolate(monkeypatch, tmp_path):
     monkeypatch.setattr(pv, '_jobs', JobRegistry())
     monkeypatch.setattr(pv, '_active_job', None)
     monkeypatch.setattr(pv, '_worker_thread', None)
+    monkeypatch.setattr(pv, '_auto_thread', None)
+    monkeypatch.setattr(pv, '_auto_queue', [])
+    monkeypatch.setattr(pv, '_auto_job_id', None)
     monkeypatch.setattr(pv, '_root', lambda: tmp_path / 'previews')
     pv._stop.clear()
+    pv._auto_wake.clear()
     yield
     pv.shutdown_previews()
     pv._stop.clear()
@@ -48,6 +52,22 @@ def test_manifest_missing_never_starts_job(monkeypatch):
     monkeypatch.setattr(pv, '_version_source', lambda *a: (row(), source()))
     monkeypatch.setattr(pv, '_start', lambda *a: pytest.fail('GET must not generate'))
     assert pv.preview_manifest(7)['state'] == 'missing'
+
+
+def test_manifest_reports_current_movie_progress_and_ready_state(monkeypatch):
+    monkeypatch.setattr(pv, '_version_source', lambda *a: (row(), source()))
+    jid = pv._jobs.create(items=[('movie', 7)], total=1)['job_id']
+    pv._active_job = jid
+    pv._jobs.update(jid, current_kind='movie', current_id=7, frames=37, frame_total=100)
+    running = pv.preview_manifest(7)
+    assert (running['state'], running['frames'], running['frame_total']) == ('running', 37, 100)
+    key = pv._cache_key(row(), source(), pv._interval(row()))
+    directory = pv._root() / key
+    directory.mkdir(parents=True)
+    pv._write_manifest(directory, dict(version=pv.VERSION, state='ready', pages=[]))
+    ready = pv.preview_manifest(7)
+    assert ready['state'] == 'ready'
+    assert 'frames' not in ready
 
 
 def test_cancelled_generation_resumes_completed_pages(monkeypatch):
@@ -199,3 +219,159 @@ def test_batch_waits_for_online_transcoding_and_can_cancel(monkeypatch):
         assert pv._jobs.get(jid)['waiting'] is True
     finally:
         timer.cancel()
+
+
+def test_scan_only_queues_new_items_and_persists_them(monkeypatch, tmp_path):
+    monkeypatch.setenv('PREVIEW_AUTO_MODE', 'all')
+    (tmp_path / 'media').mkdir()
+    lib = store.create_library('preview automatic', path=str(tmp_path / 'media'))
+    existing = store.upsert_movie_by_path('preview/existing.mkv', library_id=lib['id'])
+    try:
+        before = pv.auto_scan_snapshot([store.get_library(lib['id'])])
+        new = store.upsert_movie_by_path('preview/new.mkv', library_id=lib['id'])
+        assert pv.enqueue_scan_previews(before) == 1
+        assert pv.enqueue_scan_previews(before) == 0
+        saved = json.loads((pv._root() / 'auto-queue.json').read_text())
+        assert saved == [{'kind': 'movie', 'id': new, 'library_id': lib['id']}]
+        assert saved[0]['id'] != existing
+    finally:
+        store.delete_media_library(lib['media_library_id'])
+
+
+def test_manual_generation_preempts_background_job(monkeypatch):
+    def worker(jid, _items, _batch):
+        while pv._jobs.get(jid)['state'] == 'running':
+            time.sleep(0.01)
+    monkeypatch.setattr(pv, '_worker', worker)
+    background = pv._start([('movie', 7)], auto=True)
+    manual = pv._start([('movie', 8)])
+    try:
+        assert pv._jobs.get(background['job_id'])['state'] == 'cancelled'
+        assert manual['auto'] is False
+        assert manual['job_id'] != background['job_id']
+    finally:
+        pv._jobs.cancel(manual['job_id'])
+        pv._worker_thread.join(timeout=2)
+
+
+def test_preview_cleanup_requires_confirmation_and_preserves_queue():
+    directory = pv._root() / ('a' * 32)
+    directory.mkdir(parents=True)
+    (directory / 'page_0000.jpg').write_bytes(b'jpeg')
+    (pv._root() / 'auto-queue.json').write_text('[]')
+    check = pv.preview_cache_clean(pv.PreviewCacheCleanBody(dry_run=True))
+    assert check['candidate_bytes'] == 4 and directory.is_dir()
+    result = pv.preview_cache_clean(pv.PreviewCacheCleanBody(dry_run=False))
+    assert result['freed'] == 4 and not directory.exists()
+    assert (pv._root() / 'auto-queue.json').is_file()
+
+
+def test_automatic_queue_runs_when_idle_and_survives_restart(monkeypatch):
+    monkeypatch.setenv('PREVIEW_AUTO_MODE', 'all')
+    monkeypatch.setattr(pv, '_auto_allowed_now', lambda: True)
+    monkeypatch.setattr(pv, '_playback_busy', lambda: False)
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'effective_enabled': True, 'source': 'local'})
+    monkeypatch.setattr(pv.data_usage, 'usage', lambda **_kw: {
+        'ok': True, 'over_limit': False, 'categories': {'previews': 0}})
+    processed = []
+    def worker(jid, items, _batch):
+        processed.extend(items)
+        pv._jobs.update(jid, state='done')
+        pv._auto_wake.set()
+    monkeypatch.setattr(pv, '_worker', worker)
+    pv._auto_queue.append({'kind': 'movie', 'id': 7, 'library_id': 1})
+    pv._save_auto_queue()
+    pv.start_auto_previews()
+    deadline = time.monotonic() + 2
+    while pv._auto_queue and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert processed == [('movie', 7)]
+    assert pv._auto_queue == []
+    assert json.loads((pv._root() / 'auto-queue.json').read_text()) == []
+
+
+def test_existing_local_videos_join_queue_once_and_skip_ready(monkeypatch):
+    monkeypatch.setenv('PREVIEW_AUTO_MODE', 'all')
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'id': 1, 'source': 'local', 'effective_enabled': True})
+    monkeypatch.setattr(pv.store, 'preview_items', lambda _lid: [('movie', 1), ('movie', 2), ('episode', 3)])
+    monkeypatch.setattr(pv, '_version_source', lambda vid, kind: ({'id': vid, 'kind': kind}, source()))
+    monkeypatch.setattr(pv, '_cache_key', lambda movie, *_args: str(movie['id']))
+    monkeypatch.setattr(pv, '_read_manifest', lambda directory: {'state': 'ready'} if directory.name == '2' else None)
+    body = pv.PreviewQueueBody(library_id=1)
+    first = pv.preview_queue_existing(body)
+    second = pv.preview_queue_existing(body)
+    assert first == {'total': 3, 'added': 2, 'ready': 1, 'unavailable': 0, 'already_queued': 0}
+    assert second == {'total': 3, 'added': 0, 'ready': 1, 'unavailable': 0, 'already_queued': 2}
+    assert json.loads((pv._root() / 'auto-queue.json').read_text()) == [
+        {'kind': 'movie', 'id': 1, 'library_id': 1},
+        {'kind': 'episode', 'id': 3, 'library_id': 1},
+    ]
+
+
+def test_queue_view_and_removal_keep_following_item(monkeypatch):
+    monkeypatch.setattr(pv.store, 'get_library', lambda lid: {'id': lid} if lid == 1 else None)
+    monkeypatch.setattr(pv.store, 'get_playable', lambda _kind, vid: {
+        'library_id': 1, 'title': f'影片 {vid}', 'file_path': f'/media/{vid}.mkv'})
+    pv._enqueue_auto_items([
+        {'kind': 'movie', 'id': 7, 'library_id': 1},
+        {'kind': 'movie', 'id': 8, 'library_id': 1},
+    ])
+    jid = pv._jobs.create(items=[('movie', 7)], total=1, auto=True)['job_id']
+    pv._active_job = pv._auto_job_id = jid
+    pv._jobs.update(jid, current_kind='movie', current_id=7, frames=3, frame_total=10)
+    view = pv.preview_queue(library_id=1, offset=0, limit=50)
+    assert view['total'] == 1 and view['items'][0]['title'] == '影片 8'
+    assert view['running']['title'] == '影片 7' and view['running']['frames'] == 3
+    assert pv.preview_queue_remove('movie', 7, library_id=1) == {'removed': True, 'cancelled': True}
+    assert pv._jobs.get(jid)['state'] == 'cancelled'
+    assert pv._auto_queue == [{'kind': 'movie', 'id': 8, 'library_id': 1}]
+    assert not pv._auto_head_matches(pv._jobs.get(jid))
+    assert json.loads((pv._root() / 'auto-queue.json').read_text()) == pv._auto_queue
+    assert pv.preview_queue_remove('movie', 8, library_id=1) == {'removed': True, 'cancelled': False}
+    assert pv.preview_queue(library_id=1, offset=0, limit=50)['total'] == 0
+
+
+def test_bulk_queue_removal_spans_pages_and_protects_running_item(monkeypatch):
+    monkeypatch.setattr(pv.store, 'get_library', lambda lid: {'id': lid} if lid in (1, 2) else None)
+    monkeypatch.setattr(pv.store, 'get_playable', lambda _kind, vid: {
+        'library_id': 1, 'title': f'影片 {vid}', 'file_path': f'/media/{vid}.mkv'})
+    pv._enqueue_auto_items([
+        {'kind': 'movie', 'id': 1, 'library_id': 1},
+        {'kind': 'movie', 'id': 2, 'library_id': 1},
+        {'kind': 'movie', 'id': 3, 'library_id': 1},
+        {'kind': 'movie', 'id': 4, 'library_id': 2},
+    ])
+    jid = pv._jobs.create(items=[('movie', 1)], total=1, auto=True)['job_id']
+    pv._active_job = pv._auto_job_id = jid
+    first = pv.preview_queue(library_id=1, offset=0, limit=1)
+    second = pv.preview_queue(library_id=1, offset=1, limit=1)
+    assert first['total'] == second['total'] == 2
+    assert first['revision'] == second['revision']
+    assert [first['items'][0]['id'], second['items'][0]['id']] == [2, 3]
+    result = pv.preview_queue_remove_many(pv.PreviewQueueRemoveBody(
+        library_id=1, revision=first['revision'], all_pending=True,
+        exclude=[{'kind': 'movie', 'id': 3}]))
+    assert result == {'removed': 1}
+    assert pv._jobs.get(jid)['state'] == 'running'
+    assert [item['id'] for item in pv._auto_queue] == [1, 3, 4]
+    with pytest.raises(HTTPException) as stale:
+        pv.preview_queue_remove_many(pv.PreviewQueueRemoveBody(
+            library_id=1, revision=first['revision'], items=[{'kind': 'movie', 'id': 3}]))
+    assert stale.value.status_code == 409
+    current = pv.preview_queue(library_id=1, offset=0, limit=50)
+    assert pv.preview_queue_remove_many(pv.PreviewQueueRemoveBody(
+        library_id=1, revision=current['revision'], items=[{'kind': 'movie', 'id': 3}])) == {'removed': 1}
+    assert [item['id'] for item in pv._auto_queue] == [1, 4]
+    assert json.loads((pv._root() / 'auto-queue.json').read_text()) == pv._auto_queue
+
+
+def test_bulk_queue_removal_rolls_back_when_persistence_fails(monkeypatch):
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'id': 1})
+    pv._enqueue_auto_items([{'kind': 'movie', 'id': 9, 'library_id': 1}])
+    revision = pv._queue_revision(pv._auto_queue)
+    monkeypatch.setattr(pv, '_save_auto_queue', lambda: (_ for _ in ()).throw(OSError('disk full')))
+    with pytest.raises(HTTPException) as error:
+        pv.preview_queue_remove_many(pv.PreviewQueueRemoveBody(
+            library_id=1, revision=revision, all_pending=True))
+    assert error.value.status_code == 503
+    assert pv._auto_queue == [{'kind': 'movie', 'id': 9, 'library_id': 1}]

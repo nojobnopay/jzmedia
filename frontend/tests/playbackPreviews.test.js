@@ -55,3 +55,30 @@ test('关窗时中止预览请求，晚到响应不再更新组件', async t => 
   await flush()
   assert.equal(preview.manifest.value, null)
 })
+
+test('显示当前影片的抽帧进度，完成后不能重复发起生成', async t => {
+  let manifest = { state: 'running', job_id: 'film-job', frames: 37, frame_total: 100,
+    count: 100, columns: 5, rows: 5, pages: ['/page-1.jpg'] }
+  const calls = []
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls.push({ url, method: options?.method || 'GET' })
+    return { ok: true, json: async () => manifest }
+  })
+  const { preview, app } = mount()
+  try {
+    await flush()
+    assert.equal(preview.busy.value, true)
+    assert.match(preview.status.value, /37\/100 张（37%）/)
+    manifest = { ...manifest, state: 'ready', frames: undefined }
+    await preview.start() // 运行中的任务不应重复发起
+    assert.equal(calls.length, 1)
+    const reopened = mount()
+    try {
+      await flush()
+      assert.equal(reopened.preview.ready.value, true)
+      assert.equal(reopened.preview.status.value, '预览已生成完毕')
+      await reopened.preview.start()
+      assert.equal(calls.filter(call => call.method === 'POST').length, 0)
+    } finally { reopened.app.unmount() }
+  } finally { app.unmount() }
+})

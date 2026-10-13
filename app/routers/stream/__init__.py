@@ -13,5 +13,5 @@ __all__ += list(session.__all__)
 __all__ += list(prewarm.__all__)
 __all__ += list(subtitles.__all__)
 
-from .previews import shutdown_previews as shutdown_previews
+from .previews import shutdown_previews as shutdown_previews, start_auto_previews as start_auto_previews
 __all__ += list(previews.__all__)

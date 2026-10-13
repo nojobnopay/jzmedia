@@ -1,5 +1,5 @@
 ---
-version: 0.24.4
+version: 0.26.0
 reviewed: 2026-10-13
 ---
 
@@ -85,6 +85,8 @@ fMP4 HLS 音轨通过 rendition 切换，一般不重开会话；网页原文件
 
 DELETE 或会话超时只释放该 sid，最后持有者离开才停止仍在运行的 FFmpeg；预缓存任务也有独立持有者。`MAX_TRANSCODES` 默认 2、范围 1–8，对新产物的初始化到进程退出全程占额；加入已有产物或使用完成缓存不重复占额，满额的新请求返回 429。不能为一个客户端清理会话而杀掉其他设备共享的任务。
 
+网页播放器在主会话请求中传同一播放器实例的 `client_id` 和递增的 `request_seq`。方向键连续 seek 时，较新请求会撤销该实例更早的会话，包括尚未返回 sid 的 POST；旧请求如果晚于新请求抵达，返回 409。清理只释放旧请求的持有关系；其他播放器或预缓存仍持有同一产物时，FFmpeg 继续运行。未传这两个可选字段的客户端仍按独立 sid 工作。
+
 ### 认领、保活与关闭
 
 playlist/分片读取和心跳都认领并保活；未认领会话宽限 90 秒，已认领空闲 600 秒后可回收，产物缓存按 24 小时 TTL 和容量限制清理，活动任务受保护。前端用 `disposed`、`reloadGen`、AbortController 守护异步请求，关闭窗口前显式 pause、断开 src 并 load，迟到会话立即 DELETE。退出 lifespan 调 `shutdown_sessions` 清转码子进程。修改任何 await 路径后要审查晚到响应和双 HLS 实例风险。
@@ -115,6 +117,6 @@ Android TV 使用协议 1 握手和 `client=android_tv`，显式声明原生容�
 
 ### 倍速、缩略图与预缓存
 
-六档倍速由浏览器 `playbackRate` 实现，保持音调；换元素/会话需恢复。`usePlaybackPreviews.js` 与 `stream/previews.py` 管理逐页拼图，GET 只查状态，POST 才生成；缓存按源标识、大小、mtime 和规则失效，与 24 小时转码缓存分开。远程适用版本通过 prewarm 预缓存 start=0 的 HLS 成品，质量计划一致才复用。字幕、预览、seek 的所有 UI 时间都以原片时间表示。
+六档倍速由浏览器 `playbackRate` 实现，保持音调；换元素/会话需恢复。`usePlaybackPreviews.js` 与 `stream/previews.py` 管理逐页拼图，GET 只查状态，POST 可手动生成。扫描前后比较电影、分集和花絮 ID，仅将新入库项写入 `DATA_DIR/previews/auto-queue.json`；重启恢复队列，默认服务器本地时间 03:00–06:00、无播放会话时单任务生成，播放开始或手动生成会取消后台任务，完整页可续做。已有入库项不因升级自动全库回填。`PREVIEW_AUTO_MODE=off|local|all`（默认 `all`），`PREVIEW_AUTO_START_HOUR` / `PREVIEW_AUTO_END_HOUR` 缺省 3/6，相同小时表示全天。自动队列达到应用数据 20 GB 提醒线或缩略图独立限额的 90% 时暂停。缓存按源标识、大小、mtime 和规则失效，与 24 小时转码缓存分开；默认 `PREVIEW_CACHE_GB=10`。远程适用版本通过 prewarm 预缓存 start=0 的 HLS 成品，质量计划一致才复用。字幕、预览、seek 的所有 UI 时间都以原片时间表示。
 
 面向普通用户的步骤与效果说明见[播放器任务教程](../user-guide/player.md)。

@@ -52,7 +52,9 @@ def producers(monkeypatch, tmp_path):
     assert not common._tasks
     created = []
     saved_sessions = dict(common._sessions)
+    saved_requests = dict(session._client_requests)
     common._sessions.clear()
+    session._client_requests.clear()
     monkeypatch.setattr(common, "TRANSCODE_DIR", str(tmp_path))
     monkeypatch.setattr(session, "_hls_sem", threading.BoundedSemaphore(2))
     monkeypatch.setattr(session, "_version_source", lambda vid, kind: (
@@ -85,6 +87,8 @@ def producers(monkeypatch, tmp_path):
         task["done"].wait(2)
     assert not common._tasks
     common._sessions.update(saved_sessions)
+    session._client_requests.clear()
+    session._client_requests.update(saved_requests)
     prewarm._prewarm_jobs.clear()
 
 
@@ -140,6 +144,68 @@ def test_different_outputs_coexist_until_process_limit(producers):
     create(start=24)
     assert len(producers) == 3
     assert producers[1].poll() is None
+
+
+def test_rapid_seeks_replace_only_the_same_player(producers, monkeypatch):
+    monkeypatch.setattr(session, "_hls_sem", threading.BoundedSemaphore(2))
+    player = "browser_player_1234567890"
+    other = create(client_id="other_browser_1234567890", request_seq=1)
+    first = create(start=10, client_id=player, request_seq=1)
+    assert len(producers) == 2
+
+    second = create(start=20, client_id=player, request_seq=2)
+    assert producers[1].terminated
+    assert producers[0].poll() is None
+    assert first["session_id"] not in common._sessions
+    assert second["session_id"] in common._sessions
+
+    third = create(start=30, client_id=player, request_seq=3)
+    assert producers[2].terminated
+    assert third["session_id"] in common._sessions
+    assert session.hls_session_ping(other["session_id"])["running"]
+
+
+def test_seek_keeps_other_players_shared_producer(producers):
+    player = "browser_player_1234567890"
+    first = create(start=10, client_id=player, request_seq=1)
+    other = create(start=10, client_id="other_browser_1234567890", request_seq=1)
+    assert len(producers) == 1
+
+    current = create(start=20, client_id=player, request_seq=2)
+    assert first["session_id"] not in common._sessions
+    assert current["session_id"] in common._sessions
+    assert other["session_id"] in common._sessions
+    assert not producers[0].terminated
+    assert session.hls_session_ping(other["session_id"])["running"]
+
+
+def test_new_seek_reclaims_post_still_waiting_for_first_segment(producers, monkeypatch):
+    player = "browser_player_1234567890"
+    entered = threading.Event()
+    resume = threading.Event()
+    media_start = session._media_start_for
+
+    def slow_media_start(vid, src, start, plan, kind):
+        if start == 10:
+            entered.set()
+            assert resume.wait(3)
+        return media_start(vid, src, start, plan, kind)
+
+    monkeypatch.setattr(session, "_media_start_for", slow_media_start)
+    monkeypatch.setattr(session, "_hls_sem", threading.BoundedSemaphore(1))
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        old = pool.submit(create, start=10, client_id=player, request_seq=1)
+        assert entered.wait(3)
+        current = create(start=20, client_id=player, request_seq=2)
+        resume.set()
+        with pytest.raises(HTTPException) as exc:
+            old.result(timeout=3)
+    assert exc.value.status_code == 503
+    assert current["session_id"] in common._sessions
+    assert len(producers) == 1
+    with pytest.raises(HTTPException) as stale:
+        create(start=30, client_id=player, request_seq=1)
+    assert stale.value.status_code == 409
 
 
 def test_complete_hash_separates_audio_policy_fractional_seek_and_source(producers, monkeypatch):

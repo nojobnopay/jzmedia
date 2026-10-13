@@ -813,7 +813,17 @@ def movie_file_delete(movie_id: int, body: dict | None = None):
 @router.post("/scan")
 def run_scan():
     """全量扫描：回包给聚合摘要（评审 B7/R03-B5：万级文件时不再把全部结果塞进响应）。"""
+    from ...scanner.scan import _scan_libraries
+    from ..stream import previews
+    before = previews.auto_scan_snapshot(_scan_libraries(None))
     res = scanner.scan_all()
+    failed_libraries = {int(r['library_id']) for r in res if r.get('library_id') is not None
+                        and (str(r.get('status') or '').startswith('error')
+                             or r.get('status') in ('scan_failed', 'library_offline'))}
+    try:
+        previews.enqueue_scan_previews(before, failed_libraries)
+    except Exception as e:
+        logger.warning("queue automatic previews failed after full scan: %s", e)
     counts: dict = {}
     errors: list = []
     for r in res:

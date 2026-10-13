@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +31,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -36,12 +39,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,6 +62,9 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.ui.Accent
 import org.jzmedia.tv.ui.Muted
@@ -77,11 +87,38 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
     var countdown by remember(controller) { mutableIntStateOf(10) }
     var cancelThisNext by remember(controller) { mutableStateOf(false) }
     var controlsHeightPx by remember(controller) { mutableIntStateOf(0) }
+    var seekFocused by remember(controller) { mutableStateOf(false) }
+    var seekUnit by remember(controller) { mutableIntStateOf(10) }
+    var seekHold by remember(controller) { mutableStateOf<Job?>(null) }
+    var previewManifest by remember(controller) { mutableStateOf<SeekPreviewManifest?>(null) }
+    var previewStatus by remember(controller) { mutableStateOf("loading") }
+    var previewError by remember(controller) { mutableStateOf("") }
+    var previewRefresh by remember(controller) { mutableIntStateOf(0) }
+    val previewImages = remember(controller) { SeekPreviewImages() }
+    val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val rootFocus = remember(controller) { FocusRequester() }
     val playFocus = remember(controller) { FocusRequester() }
     val menuFocus = remember(controller) { FocusRequester() }
     val errorFocus = remember(controller) { FocusRequester() }
+    val previewPath = "/api/stream/${request.id}/previews?kind=${request.kind}"
+
+    fun stopSeekHold() { seekHold?.cancel(); seekHold = null }
+    fun moveSeek(direction: Int, repeats: Int) {
+        if (state.duration > 0) preview = seekPreviewPosition(preview ?: state.position, state.duration, direction, repeats, seekUnit)
+    }
+    fun startSeekHold(direction: Int) {
+        if (seekHold != null) return
+        moveSeek(direction, 0)
+        seekHold = scope.launch {
+            delay(450)
+            var repeats = 0
+            while (true) {
+                moveSeek(direction, ++repeats)
+                delay(100)
+            }
+        }
+    }
 
     fun startNext() {
         val next = controller.nextRequest() ?: return
@@ -95,7 +132,28 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
             if (event == Lifecycle.Event.ON_STOP) { controller.close(); close() }
         }
         lifecycle?.addObserver(observer)
-        onDispose { lifecycle?.removeObserver(observer); controller.close() }
+        onDispose { seekHold?.cancel(); lifecycle?.removeObserver(observer); controller.close() }
+    }
+    LaunchedEffect(controller, previewRefresh) {
+        while (true) {
+            try {
+                val data = api.get(previewPath)
+                previewManifest = SeekPreviewManifest.fromJson(data)
+                previewStatus = data.optString("state", "missing")
+                previewError = data.optString("error", "")
+            } catch (e: org.jzmedia.tv.data.ApiException) {
+                previewStatus = if (e.status == 404) "unsupported" else "failed"
+                previewError = e.message ?: "无法读取进度预览"
+                break
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                previewStatus = "failed"
+                previewError = e.message ?: "无法读取进度预览"
+                break
+            }
+            if (previewStatus != "running") break
+            delay(3000)
+        }
     }
     LaunchedEffect(controller, controls, menu, state.error, cancelThisNext) {
         withFrameNanos { }
@@ -106,8 +164,8 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
             else -> rootFocus.requestFocus()
         }
     }
-    LaunchedEffect(controller, interaction, controls, menu, state.playing, state.ended, preview) {
-        if (controls && menu == null && state.playing && !state.ended && preview == null) {
+    LaunchedEffect(controller, interaction, controls, menu, state.playing, state.ended, preview, seekFocused) {
+        if (controls && menu == null && state.playing && !state.ended && preview == null && !seekFocused) {
             delay(6000)
             controls = false
         }
@@ -125,6 +183,7 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
     }
     BackHandler {
         interaction++
+        stopSeekHold()
         when {
             menu != null -> menu = null
             preview != null -> preview = null
@@ -135,6 +194,9 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
     }
     Box(Modifier.fillMaxSize().background(Color.Black).onPreviewKeyEvent { event ->
         val native = event.nativeKeyEvent
+        if (native.action == KeyEvent.ACTION_UP && native.keyCode in listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT) && seekHold != null) {
+            stopSeekHold(); return@onPreviewKeyEvent true
+        }
         if (native.action != KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
         interaction++
         when (native.keyCode) {
@@ -146,11 +208,12 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
             else -> if (!controls && menu == null && state.error == null) {
                 when (native.keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                        val delta = if (native.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 10 else -10
-                        preview = ((preview ?: state.position) + delta).coerceIn(0.0, state.duration.coerceAtLeast(0.0)); true
+                        startSeekHold(if (native.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1)
+                        true
                     }
-                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> { preview = null; controls = true; true }
+                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> { stopSeekHold(); preview = null; controls = true; true }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                        stopSeekHold()
                         if (preview != null) { controller.seek(preview!!); preview = null }
                         else { controller.toggle(); controls = true }
                         true
@@ -196,10 +259,11 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
             TvIcon("loading")
             Text("正在准备播放…")
         }
-        if (preview != null) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = .85f)).padding(32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (preview != null && !controls) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = .85f)).padding(32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            previewManifest?.frameAt(preview!!)?.let { SeekPreviewImage(api, it, previewImages) }
             Text("跳转至 ${playbackTime(preview!!)} / ${playbackTime(state.duration)}", style = MaterialTheme.typography.headlineSmall)
             Progress(preview!!, state.duration, state.buffered)
-            Text("左右调整 10 秒 · 确定跳转 · 返回取消", color = Muted)
+            Text("短按 ${playbackTime(seekUnit.toDouble())} · 按住加速 · 确定跳转 · 返回取消", color = Muted)
         }
         if (controls && menu == null && state.error == null) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
             .onSizeChanged { controlsHeightPx = it.height }
@@ -212,9 +276,42 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
                 cancelThisNext -> "播放结束 · 已取消本次连播"
                 else -> "播放结束"
             })
-            Progress(state.position, state.duration, state.buffered)
+            if (preview != null) previewManifest?.frameAt(preview!!)?.let { SeekPreviewImage(api, it, previewImages) }
+            Box(Modifier.fillMaxWidth().height(40.dp)
+                .onFocusChanged {
+                    seekFocused = it.isFocused
+                    if (!it.isFocused) { stopSeekHold(); if (preview != null) preview = null }
+                }
+                .onPreviewKeyEvent { event ->
+                    if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN || state.duration <= 0) return@onPreviewKeyEvent false
+                    when (event.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            val direction = if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1
+                            startSeekHold(direction)
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                            stopSeekHold()
+                            if (preview == null) preview = state.position else { controller.seek(preview!!); preview = null }
+                            true
+                        }
+                        else -> false
+                    }
+                }
+                .semantics {
+                    contentDescription = "播放进度"
+                    stateDescription = "${playbackTime(preview ?: state.position)} / ${playbackTime(state.duration)}"
+                }
+                .border(2.dp, if (seekFocused) Color.White else Color.Transparent, RoundedCornerShape(8.dp))
+                .background(if (seekFocused) Color.White.copy(alpha = .12f) else Color.Transparent, RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp)
+                .focusable(enabled = state.duration > 0), contentAlignment = Alignment.Center) {
+                Progress(preview ?: state.position, state.duration, state.buffered)
+            }
+            if (seekFocused) Text("短按 ${playbackTime(seekUnit.toDouble())} · 按住加速 · 确定跳转 · 返回取消", color = Muted,
+                style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("${playbackTime(state.position)} / ${playbackTime(state.duration)}", maxLines = 1)
+                Text("${if (preview != null) "跳转至 " else ""}${playbackTime(preview ?: state.position)} / ${playbackTime(state.duration)}", maxLines = 1)
                 Text("${state.rate}× · ${state.output}", Modifier.weight(1f), color = Muted,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
             }
@@ -254,6 +351,27 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
                         item { TvAction("音轨", { menu = "audio" }, Modifier.fillMaxWidth(), icon = "volume", fillContent = true) }
                         item { TvAction("字幕", { menu = "subtitle" }, Modifier.fillMaxWidth(), icon = "subtitles", fillContent = true) }
                         item { TvAction("倍速 · ${state.rate}×", { menu = "rate" }, Modifier.fillMaxWidth(), icon = "speed", fillContent = true) }
+                        item { TvAction("进度调整步长 · ${playbackTime(seekUnit.toDouble())}", {
+                            seekUnit = when (seekUnit) { 10 -> 60; 60 -> 300; else -> 10 }
+                        }, Modifier.fillMaxWidth(), fillContent = true) }
+                        if (previewStatus != "unsupported") item {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TvAction(when (previewStatus) {
+                                    "ready" -> "进度预览已生成"
+                                    "running" -> "正在生成进度预览"
+                                    else -> if (previewManifest?.pages?.isNotEmpty() == true) "继续生成进度预览" else "生成进度预览"
+                                }, {
+                                    if (previewStatus != "running" && previewStatus != "ready" && previewStatus != "loading") scope.launch {
+                                        previewStatus = "running"
+                                        try { api.post(previewPath); previewRefresh++ }
+                                        catch (e: CancellationException) { throw e }
+                                        catch (e: Exception) { previewStatus = "failed"; previewError = e.message ?: "无法生成进度预览" }
+                                    }
+                                }, Modifier.fillMaxWidth(), fillContent = true)
+                                if (previewStatus == "running") Text("服务器正在抽取画面；已完成的部分可用于跳转预览。", color = Muted)
+                                if (previewStatus == "failed") Text(previewError, color = Muted)
+                            }
+                        }
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("字幕大小", color = Muted, style = MaterialTheme.typography.labelLarge)

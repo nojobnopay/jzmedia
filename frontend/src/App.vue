@@ -28,6 +28,10 @@
       </label>
     </div>
   </nav>
+  <div v-if="dataUsage?.over_limit" class="app-storage-alert" role="alert">
+    <span>应用数据已使用 {{ fmtBytes(dataUsage.total_bytes) }}，达到 20 GB 提醒线。请检查可清理的缩略图和播放缓存。</span>
+    <router-link to="/settings?sec=sec-index">前往系统维护</router-link>
+  </div>
   <div id="main-content" class="app-content" tabindex="-1">
     <SetupWelcome v-if="route.path === '/' || route.path === '/tv'" />
     <router-view />
@@ -55,15 +59,22 @@ import AppIcon from './components/AppIcon.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setToken, api } from './api.js'
+import { fmtBytes } from './format.js'
 import { listMediaLibs, currentMediaId, loadLibs, onLibChange, switchMedia } from './libraries.js'
 
 const authAsk = ref(false)
 const authInput = ref('')
 const libs = ref([])          // 媒体库列表
 const currentId = ref(null)   // 当前媒体库 id
+const dataUsage = ref(null)
 const router = useRouter()
 const route = useRoute()
 let offLibChange = null
+let usageTimer = null
+async function loadDataUsage() {
+  try { dataUsage.value = await api('/api/data-usage') }
+  catch { /* 容量查询失败不阻断导航；设置页可手动重试 */ }
+}
 const channels = [
   { key: 'movie', path: '/', label: '电影', icon: 'movie' },
   { key: 'tv', path: '/tv', label: '剧集', icon: 'tv' },
@@ -112,6 +123,9 @@ function onSwitch(e) {
     })
 }
 onMounted(async () => {
+  loadDataUsage()
+  usageTimer = window.setInterval(loadDataUsage, 5 * 60 * 1000)
+  window.addEventListener('jzmedia:data-usage-changed', loadDataUsage)
   offLibChange = onLibChange(syncLibs)
   try {
     await loadLibs(api)
@@ -122,6 +136,8 @@ onMounted(async () => {
   window.addEventListener('jzmedia:libraries-changed', syncLibs)
 })
 onUnmounted(() => {
+  if (usageTimer) window.clearInterval(usageTimer)
+  window.removeEventListener('jzmedia:data-usage-changed', loadDataUsage)
   if (offLibChange) offLibChange()
   window.removeEventListener('jzmedia:unauthorized', onUnauthorized)
   window.removeEventListener('jzmedia:libraries-changed', syncLibs)

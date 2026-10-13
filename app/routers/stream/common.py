@@ -11,7 +11,7 @@ import threading
 from collections import deque
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from ... import library_paths
+from ... import data_usage, library_paths
 from ... import store
 from ... import storage
 from ...db import TRANSCODE_DIR
@@ -514,6 +514,8 @@ def clean_stream_cache(body: CacheCleanBody | None = None) -> dict:
     执行删掉全部可淘汰目录（跳过正在转码/10min 内播放过的会话与 5min 内新目录）。"""
     b = body or CacheCleanBody()
     r = _evict_transcode_cache(dry_run=bool(b.dry_run), delete_all=True)
+    if not b.dry_run:
+        data_usage.invalidate()
     return {"dry_run": bool(b.dry_run), **r}
 
 

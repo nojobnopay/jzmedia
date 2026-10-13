@@ -99,7 +99,9 @@ def _scan_worker(jid: str, library_id: int | None = None,
     try:
         from ..scanner.scan import _scan_libraries
         from .fs.copy import active_copy_jobs
+        from .stream import previews
         scan_libs = _scan_libraries(library_id, media_library_id)
+        preview_before = previews.auto_scan_snapshot(scan_libs)
         watermarks = {int(lib['id']): store.fs_change_summary(lib['id'])['revision']
                       for lib in scan_libs}
         copying_at_start = {int(j['library_id']) for j in active_copy_jobs()}
@@ -140,11 +142,19 @@ def _scan_worker(jid: str, library_id: int | None = None,
         failed_libs = {int(r['library_id']) for r in res if r.get('library_id') is not None
                        and (str(r.get('status') or '').startswith('error')
                             or r.get('status') in ('scan_failed', 'library_offline'))}
+        preview_failed_libs = set(failed_libs)
+        preview_failed_libs.update(copying_at_start)
+        preview_failed_libs.update(int(j['library_id']) for j in active_copy_jobs())
         scrape = summary.get('tv_scrape') or {}
         if scrape.get('error') or scrape.get('errors') or scrape.get('skipped'):
             failed_libs.update(tv_libs)
         failed_libs.update(copying_at_start)
         failed_libs.update(int(j['library_id']) for j in active_copy_jobs())
+        try:
+            summary['preview_auto'] = {'queued': previews.enqueue_scan_previews(preview_before, preview_failed_libs)}
+        except Exception as e:
+            logger.warning("queue automatic previews failed: %s", e)
+            summary['preview_auto'] = {'error': '自动缩略图排队失败'}
         with _SCAN_FINISH_LOCK:
             if _stop():
                 _SCAN_JOBS.update(jid, done=len(res), summary=summary)

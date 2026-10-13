@@ -5,7 +5,7 @@ import stat
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import config, storage, store
+from .. import config, data_usage, storage, store
 from ..config import settings
 from ..db import TRANSCODE_DIR
 from ..log import get_logger
@@ -13,6 +13,12 @@ from ..version import VERSION, build_commit
 
 router = APIRouter(prefix="/api")
 logger = get_logger("health")
+
+
+@router.get("/data-usage")
+def application_data_usage(refresh: bool = False):
+    """Count application data only; mounted source media are excluded."""
+    return data_usage.usage(refresh=refresh)
 
 
 def _disk_error(exc: Exception) -> dict:

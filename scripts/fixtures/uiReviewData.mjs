@@ -96,6 +96,9 @@ export function createFixture() {
     if(key==='/api/health')return {ffmpeg:true,version:'0.19.0',transcoder:{kind:'sw'}}
     if(key==='/api/jobs/stats')return {grouped:13,versions:14,no_match:1,needs_review:1,missing_files:0,by_library:[{library_id:1,name:'电影',grouped:13,pending:2,no_match:1,needs_review:1,missing_files:0}]}
     if(key==='/api/tv/stats')return {shows:6,seasons:12,episodes:96,pending:1,episode_review:1,by_library:[{library_id:2,name:'剧集',shows:6,episodes:96,pending:1,episode_review:1}]}
+    if(key==='/api/data-usage')return {ok:true,total_bytes:state.scene==='settings-storage-alert'?21*1024**3:2*1024**3,warning_bytes:20*1024**3,over_limit:state.scene==='settings-storage-alert',categories:{database:100*1024**2,posters:200*1024**2,previews:300*1024**2,transcode:1400*1024**2,other:state.scene==='settings-storage-alert'?19*1024**3+48*1024**2:48*1024**2},error:''}
+    if(key==='/api/stream/previews/auto')return {mode:'all',queued:0,running:false,start_hour:3,end_hour:6,pause_reason:'scheduled'}
+    if(key==='/api/stream/previews/cache/clean')return {candidates:0,candidate_bytes:0,dry_run:body?.dry_run??true,removed:0,freed:0}
     if(key==='/api/metadata/providers')return {providers:[{name:'local',label:'本地索引',available:true},{name:'tmdb',label:'TMDB',available:true}]}
     if(key==='/api/metadata/test-search')return {library_id:1,kind:'movie',items:[{title:titles[0],year:2014,source:'tmdb'}],source:'tmdb',elapsed_ms:82,chain:['local','tmdb']}
     if(key==='/api/jobs/scan')return {state:'idle'}

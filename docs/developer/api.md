@@ -1,5 +1,5 @@
 ---
-version: 0.24.4
+version: 0.26.0
 reviewed: 2026-10-13
 ---
 
@@ -13,7 +13,7 @@ reviewed: 2026-10-13
 
 | 前缀 | 主要功能 |
 |---|---|
-| `/api/health`、`/api/settings` | 健康、设置来源及保存 |
+| `/api/health`、`/api/data-usage`、`/api/settings` | 健康、应用数据占用、设置来源及保存 |
 | `/api/onboarding`、`/api/tmdb/check` | 新手配置进度、TMDB 凭据直连验证 |
 | `/api/media-libraries`、`/api/libraries` | 媒体库连接和视频库 CRUD/检查 |
 | `/api/movies`、`/api/search`、`/api/facets` | 电影、搜索筛选、详情、匹配、批量操作 |
@@ -62,6 +62,16 @@ reviewed: 2026-10-13
 `GET /api/health` 的 `disks` 返回数据目录与转码目录所在文件系统的容量，不扫描媒体库或统计缓存文件。`data`、`transcode` 各含 `ok` 和 `filesystem_id`；容量按标识去重放在 `filesystems`，每项包含 `id`、`total_bytes`、`used_bytes`、`available_bytes`。`same_filesystem` 为 `true` / `false`；某一目录的文件系统无法识别时为 `null`。标识只用于当前运行环境内的关联，不能作为跨机器或重启后的永久磁盘身份。
 
 `available_bytes` 是应用进程可用的空间，可能少于总量减去已用量（文件系统可保留部分空间）。同卷的两个目录共享一份容量，不能相加。容量是容器/进程可见文件系统的快照，不等于媒体库大小、转码缓存限额或宿主物理磁盘总量。
+
+`GET /api/data-usage` 另外遍历应用数据目录，返回 `total_bytes`、`warning_bytes`（20 GiB）、`over_limit`、`categories`（`database/posters/previews/transcode/other`）与 `ok/error`。不跟随符号链接，不进入 `DATA_DIR/mounts` 或配置的 `MEDIA_ROOT`；不把原始媒体算进提醒。结果缓存约一分钟，`?refresh=true` 强制重新统计。达到提醒线只提示用户清理并暂停自动进度缩略图，不会删除数据库或海报；独立缓存回收规则仍生效。
+
+自动预览总量与暂停状态由 `GET /api/stream/previews/auto` 返回。`GET /api/stream/previews/queue?library_id=<id>&offset=0&limit=50` 返回当前库待处理项及正在处理的影片，`total` 不包含正在处理的闲时项；省略 `library_id` 查询全服务，最多每页 100 项。同一队列快照的分页共享 `revision`。
+
+`POST /api/stream/previews/queue {"library_id":<id>}` 将已有本地库中未完成预览的可播放项加入闲时队列，返回新增、已有成品、已排队、源文件不可用的数量。`DELETE /api/stream/previews/queue/{kind}/{version_id}?library_id=<id>` 移出单项；移出正在处理的闲时项同时取消其任务。批量移出使用 `POST /api/stream/previews/queue/remove`，请求包含 `library_id`、从列表获得的 `revision`，以及 `items:[{"kind":"movie","id":1}]`；全选跨分页时改传 `all_pending:true`，可用 `exclude` 排除个别 `{kind,id}`。服务端一次保存，始终排除正在处理项；队列版本变化返回 409，需刷新后重新选择。移出保留已有预览页。
+
+手动批量任务用原有 `POST /api/stream/previews/jobs/{job_id}/cancel` 取消整个任务。`POST /api/stream/previews/cache/clean {"dry_run":true|false}` 先预览再清理全部进度缩略图，不删除自动队列，生成任务运行时返回 409。原有 `POST /api/stream/cache/clean` 只清理可回收播放缓存。扫描摘要的 `preview_auto.queued` 表示新排队项数。
+
+单片 `GET /api/stream/{version_id}/previews` 返回该片预览清单；运行中的任务另含 `frames`、`frame_total`（当前片已抽帧数与总数），尚未轮到该片时返回 `queued`。客户端以清单 `state=ready` 判断是否完成，不能只凭已有图片页数判断。
 
 ### 采集失败与监控
 
@@ -154,7 +164,7 @@ POST /api/tv/bindings/apply {"token": "…"}   # 用户确认上述预览后执�
 
 TV 客户端对 `versions/decide/sessions/prewarm` 显式传 `client:"android_tv"` 及原生 `caps`，旧客户端省略 `client` 仍按 web 处理。具体容器、HDR、音轨和逐片格式能力字段见仓库 `android-tv/docs/protocol.md`。`GET /api/tv-client/search` 支持 `q/kind/media_library/limit/offset`；演员 `/actors` 与 `/actor-works` 使用同一媒体库范围，作品查询中的 `actor` 为服务器返回的不透明 key。
 
-每次 `POST /api/stream/{id}/sessions` 返回独立 `session_id`，相同输出共享转码任务和成品；`POST /api/stream/sessions/{sid}/ping` 保活，DELETE 只释放该 sid。新产物占满 `MAX_TRANSCODES` 时返回 429，不能关闭其他设备来腾出名额。时间轴、复用及回收约定见[播放设计](playback.md#会话时间轴与清理)。
+每次 `POST /api/stream/{id}/sessions` 返回独立 `session_id`，相同输出共享转码任务和成品；`POST /api/stream/sessions/{sid}/ping` 保活，DELETE 只释放该 sid。请求可带成对的 `client_id`（16–64 位字母、数字、`_`、`-`）与递增整数 `request_seq`：同一播放器的新请求撤销旧请求，过期请求返回 409。新产物占满 `MAX_TRANSCODES` 时返回 429，不能关闭其他设备来腾出名额。时间轴、复用及回收约定见[播放设计](playback.md#会话时间轴与清理)。
 
 `GET /api/tv/recent-played` 的条目 `id/show_id` 指剧，实际可播放分集在 `progress.version_id`，不能把 `id` 直接传给分集播放。电影、分集完成判定共同使用至少 95%，或至少 80% 且剩余不超过 300 秒的条件。
 

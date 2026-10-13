@@ -1,5 +1,5 @@
 ---
-version: 0.24.8
+version: 0.26.0
 reviewed: 2026-10-13
 ---
 
@@ -32,7 +32,7 @@ TMDB 凭据、代理、语言、图片源及访问令牌支持设置页修改：
 需要集中保存变量时，可自行创建 `.env`，只填写要覆盖的项；仓库 `.env.example` 是可选参考，不要求整份复制。已有 `.env` 应继续保留，不会自动生成或覆盖。例如只调整转码缓存时，文件可以只有一行：
 
 ```dotenv
-TRANSCODE_CACHE_GB=20
+TRANSCODE_CACHE_GB=8
 ```
 
 仓库 Compose 用 `env_file` 的 `required: false` 允许文件缺失，需要 Compose 2.24.0 或更新版本，见 [Docker 可选环境文件说明](https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/#additional-information-1)。这个选项不影响显式传入的 `docker compose --env-file 文件`：该命令行参数指定的文件仍须存在。
@@ -99,14 +99,16 @@ Compose 的 `${变量:-默认值}` 用于替换 YAML 中的值，`env_file` 则�
 | `FFMPEG_ANALYZEDURATION` | `1000000` 微秒，远程转码输入探测时长 |
 | `FFMPEG_RW_TIMEOUT_US` | `30000000` 微秒，远程输入读写超时 |
 | `TRANSCODE_CACHE_GB` | `10` GB；0 只按 TTL 清理 |
-| `PREVIEW_CACHE_GB` | `2` GB，最低 0.1 GB；0 不表示禁用 |
+| `PREVIEW_CACHE_GB` | `10` GB，最低 0.1 GB；0 不表示禁用 |
 | `PREVIEW_INTERVAL` | 未设置时本地 10 秒、远程 20 秒；有效范围 5～60 秒 |
+| `PREVIEW_AUTO_MODE` | `all`；`local` 只处理本地视频库，`off` 关闭自动预览处理及已有影片入队 |
+| `PREVIEW_AUTO_START_HOUR` / `PREVIEW_AUTO_END_HOUR` | 服务器本地时间 `3` / `6`；相同小时表示全天 |
 
 `MAX_TRANSCODES` 按产物计数：从初始化到整个 FFmpeg 生命周期都占额，相同产物共享额度。达到上限后，新产物请求返回 429。
 
 三个 `FFMPEG_*` 探测/超时变量可用 0 关闭限制，仅用于远程转码输入，不限制 ffprobe 元数据探测。
 
-转码缓存超限时回收到约 90%，活跃目录受保护。缩略图使用独立缓存限额，不按转码的 24 小时 TTL 清理；缓存限额有活跃保护和扫描节流，可能暂时超过配置值。
+转码缓存超限时回收到约 90%，活跃目录受保护。缩略图使用独立缓存限额，不按转码的 24 小时 TTL 清理；缓存限额有活跃保护，可能暂时超过配置值。自动预览为扫描新入库项排队；设置页也可把已有本地视频加入闲时队列，默认夜间且无人播放时处理。缩略图占用达到独立限额的 90% 会暂停，避免生成后立即淘汰。应用数据总占用达到 20 GB 时网页主动提醒清理，并暂停自动预览；20 GB 是提醒线，不会自动删除数据库或图片。[清理步骤](../user-guide/settings.md#界面显示与系统维护)。
 
 ### 同一电脑边转码边播放
 

@@ -69,9 +69,9 @@
         <div class="set-row">
           <span class="set-label">进度缩略图</span>
           <JzButton size="compact" v-if="previewBusy" class="set-button" @click="$emit('preview-cancel')">取消生成</JzButton>
-          <JzButton size="compact" v-else class="set-button" @click="$emit('preview-start')">生成预览</JzButton>
+          <JzButton size="compact" v-else class="set-button" :disabled="previewReady" @click="$emit('preview-start')">{{ previewReady ? '已生成预览' : '生成预览' }}</JzButton>
         </div>
-        <p class="set-hint">{{ previewStatus }}。远程片源建议空闲时生成。</p>
+        <p class="set-hint" role="status" aria-live="polite">{{ previewStatus }}<template v-if="!previewReady">。远程片源建议空闲时生成。</template></p>
         <JzButton size="compact" class="set-button external-button" @click="$emit('copy-direct')" title="复制原文件直链，在 VLC、Kodi 等播放器打开"><PlayerIcon name="external" :size="16" />复制播放直链</JzButton>
         <input v-if="directFailUrl" readonly :value="directFailUrl" class="set-copy-url" aria-label="播放直链"
           @focus="$event.target.select()" @click="$event.target.select()" />
@@ -100,6 +100,7 @@ const props = defineProps({
   reasonLine: { type: String, default: '' },
   bufferLine: { type: String, default: '' },
   previewBusy: Boolean,
+  previewReady: Boolean,
   previewStatus: { type: String, default: '' },
   open: { type: Boolean, default: false },
   quality: { type: String, default: 'auto' },

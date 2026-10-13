@@ -41,6 +41,7 @@ import androidx.tv.material3.Text
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jzmedia.tv.BuildConfig
@@ -104,6 +105,15 @@ fun TvApp(onExit: () -> Unit) {
         return
     }
     val server = api!!
+    var storageAlert by remember(server) { mutableStateOf(false) }
+    LaunchedEffect(server) {
+        while (true) {
+            storageAlert = try { server.get("/api/data-usage").optBoolean("over_limit") }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { false } // Older servers do not expose application usage.
+            delay(15 * 60 * 1000L)
+        }
+    }
     val pagePrefix = "${server.baseUrl}:$library:"
     val pageKey = pagePrefix + routes.last().key
     LaunchedEffect(pagePrefix, routes) {
@@ -141,6 +151,11 @@ fun TvApp(onExit: () -> Unit) {
                         routes = listOf(TvRoute(kind, key = "root:$kind"))
                     }
                 }
+            }
+            if (storageAlert) {
+                Text("服务器应用数据已达到 20 GB。请在网页设置的“系统维护”中检查并清理缓存。",
+                    modifier = Modifier.fillMaxWidth().background(DesignTokens.SurfaceRaised, RoundedCornerShape(DesignTokens.CardRadius)).padding(16.dp),
+                    color = DesignTokens.Error)
             }
             // 屏幕返回键已取消：遥控器返回由上面的全局 BackHandler 兜底。
             when (route.kind) {

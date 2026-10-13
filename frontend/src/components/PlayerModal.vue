@@ -432,6 +432,10 @@ const lastHlsError = ref('')
 // reload 代际：并发 reload（起播等待中切音轨/快速切档）只允许最后一轮挂载，
 // 否则两轮各自 new Hls 互踩 → 实际播放的实例与 UI/会话错位（切轨无效的根因）。
 let reloadGen = 0
+// 每个播放器实例标识自己的会话请求；新 seek 可在旧 POST 尚未返回 sid 时
+// 由服务端撤销旧请求，不会暂占两个转码通道。
+const playbackClientId = globalThis.crypto?.randomUUID?.().replaceAll('-', '')
+  || `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`
 // 卸载守卫：关窗后晚到的 decide/sessions 响应绝不挂 hls（元素已脱离文档，浏览器
 // 不显示画面但会继续放音频 → 用户 2026-09 实测“关窗后海报墙听见片声”）。
 let disposed = false
@@ -1011,7 +1015,8 @@ async function reload() {
                                start: Math.floor(startAt),
                                sub: burnSub >= 0 ? burnSub : null,
                                caps: activeCaps,
-                               force_burn: forceBurn.value, kind: props.kind }, ctrl.signal)
+                               force_burn: forceBurn.value, kind: props.kind,
+                               client_id: playbackClientId, request_seq: gen }, ctrl.signal)
     } catch (e) {
       if (disposed || gen !== reloadGen || ctrl.signal.aborted) return
       sessStatus.value = ''
@@ -1109,6 +1114,7 @@ const settingsProps = computed(() => ({
   reasonLine: reasonLine.value,
   bufferLine: bufLine.value,
   previewBusy: previews.busy.value,
+  previewReady: previews.ready.value,
   previewStatus: previews.status.value,
   open: settingsOpen.value,
   quality: quality.value,

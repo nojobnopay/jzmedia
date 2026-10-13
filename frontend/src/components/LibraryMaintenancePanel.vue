@@ -63,7 +63,7 @@
     </div>
     <p v-if="armMount" class="hint warn-text">清理挂载点目录里被历史误写的 NFO/图片（仅在未真正挂载时执行，绝不动 NAS）。再点一次执行。</p>
     </details>
-    <PreviewMaintenance :library-id="library.id" :active="active" />
+    <PreviewMaintenance :library-id="library.id" :library-source="library.source" :library-enabled="library.enabled" :active="active" />
   </section>
 </template>
 <script setup>

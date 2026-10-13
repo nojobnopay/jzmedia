@@ -29,7 +29,7 @@ async function mountSettings(t) {
     scrollTo() {},
   }
   const libraryRequest = deferred()
-  const otherRequests = new Map(['/api/settings', '/api/jobs/stats', '/api/tv/stats', '/api/metadata/providers']
+  const otherRequests = new Map(['/api/settings', '/api/jobs/stats', '/api/tv/stats', '/api/data-usage', '/api/metadata/providers']
     .map(path => [path, deferred()]))
   const requested = [], libraryLoads = [], focusCalls = []
   let libraries = [], currentMedia = null, toolProps, emitLibraryChange
@@ -74,6 +74,7 @@ async function mountSettings(t) {
     '../components/LibrariesPanel.vue': { default: libraryPanel },
     '../components/LibraryToolsPanel.vue': { default: tools },
     '../components/TranscodeCachePanel.vue': { default: blank },
+    '../components/StorageUsagePanel.vue': { default: blank },
   })
   const element = () => ({ children: [], parent: null })
   const remove = node => {
@@ -163,7 +164,7 @@ test('cold library failure stays distinct from empty; a successful global refres
 
 test('library tools focus as soon as their list loads, while unrelated settings and statistics remain pending', async t => {
   const ui = await mountSettings(t)
-  assert.deepEqual(new Set(ui.requested), new Set(['/api/settings', '/api/jobs/stats', '/api/tv/stats', '/api/metadata/providers']))
+  assert.deepEqual(new Set(ui.requested), new Set(['/api/settings', '/api/jobs/stats', '/api/tv/stats', '/api/data-usage', '/api/metadata/providers']))
   ui.libraryRequest.resolve(sampleLibraries)
   await flush()
   assert.equal(ui.toolProps.librariesReady, true)

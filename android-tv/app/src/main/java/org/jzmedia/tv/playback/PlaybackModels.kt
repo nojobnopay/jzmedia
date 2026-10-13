@@ -56,6 +56,23 @@ fun playbackTime(seconds: Double): String {
     else "%d:%02d".format(total / 60, total % 60)
 }
 
+/** Short presses are precise; holding a direction accelerates without seeking until confirmation. */
+fun seekStep(repeats: Int, unitSeconds: Int = 10): Double {
+    val unit = unitSeconds.coerceIn(10, 300).toDouble()
+    return when {
+        repeats >= 20 -> maxOf(120.0, unit * 4).coerceAtMost(600.0)
+        repeats >= 8 -> maxOf(30.0, unit * 2).coerceAtMost(600.0)
+        else -> unit
+    }
+}
+
+fun seekPreviewPosition(position: Double, duration: Double, direction: Int, repeats: Int = 0,
+                        unitSeconds: Int = 10): Double {
+    if (!duration.isFinite() || duration <= 0) return 0.0
+    val start = position.takeIf { it.isFinite() }?.coerceIn(0.0, duration) ?: 0.0
+    return (start + direction.coerceIn(-1, 1) * seekStep(repeats, unitSeconds)).coerceIn(0.0, duration)
+}
+
 /** Server HLS zero is mediaStart; initialTime and player position are stream-relative. */
 fun sourcePosition(playerMillis: Long, mediaStart: Double, duration: Double): Double {
     val value = mediaStart + playerMillis.coerceAtLeast(0) / 1000.0

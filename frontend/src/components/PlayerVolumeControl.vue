@@ -129,8 +129,7 @@ onBeforeUnmount(clearHoverClose)
   display: flex; flex-direction: column; align-items: center; gap: var(--jz-gap-xs); width: 64px; box-sizing: border-box;
   padding: var(--jz-gap-s) var(--jz-gap-xs); border: 1px solid color-mix(in srgb, var(--jz-text) 14%, transparent);
   border-radius: var(--jz-radius-l); background: color-mix(in srgb, var(--jz-surface) 90%, transparent);
-  backdrop-filter: blur(12px); color: var(--jz-text); box-shadow: var(--jz-shadow-menu);
-  overflow-y: auto; overscroll-behavior: contain; }
+  backdrop-filter: blur(12px); color: var(--jz-text); box-shadow: var(--jz-shadow-menu); }
 .volume-panel::after { content: ''; position: absolute; bottom: -10px; left: 0; right: 0; height: 10px; }
 .volume-percent { flex: none; font-size: var(--jz-font-s); font-variant-numeric: tabular-nums; line-height: 20px; }
 .volume-range-wrap { position: relative; flex: 1; min-height: 36px; width: var(--jz-touch-target); }

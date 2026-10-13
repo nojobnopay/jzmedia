@@ -36,6 +36,7 @@ async def _lifespan(_app: FastAPI):
         _posters.migrate_posters()
     except Exception as e:
         _logger.warning("poster migrate at startup failed: %s", e)
+    stream.start_auto_previews()
     # 后台预热转码后端探测（冒烟编码最多几秒，不阻塞启动；首次 decide/health 即命中缓存）
     from . import transcode as _tr
     try:

@@ -41,6 +41,7 @@ async function clean() {
     const d = await api('/api/stream/cache/clean', { method: 'POST', body: JSON.stringify({ dry_run: false }) })
     candidate.value = null
     message.value = `已清理 ${d.removed} 个缓存目录，释放 ${fmtBytes(d.freed)}`
+    window.dispatchEvent(new Event('jzmedia:data-usage-changed'))
   } catch (e) { message.value = '清理失败：' + e.message }
   finally { busy.value = false }
 }
