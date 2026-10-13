@@ -29,10 +29,26 @@ export function reusableSeekTime(video, target, mediaStart = 0) {
   return null
 }
 
-// 全屏控件隐藏时首次点击只点亮控件、不暂停；窗口态控件常显，不受影响。
+// 画内控件隐藏时首次点击只点亮控件、不暂停（窗口/全屏相同）。
 // overlayAtPointerDown 取按下瞬间的显隐（pointerdown 先于 click 点亮控件，不能用 click 时的状态判断）。
-export function surfaceClickRevealsOnly(isFull, overlayAtPointerDown) {
-  return Boolean(isFull) && !overlayAtPointerDown
+export function surfaceClickRevealsOnly(overlayAtPointerDown) {
+  return !overlayAtPointerDown
+}
+
+// Centre the button itself, reserving picture tools and subtitle space on phones.
+// Tiny picture areas retain the bottom play control instead of overlapping actions.
+export function pauseButtonPlacement(height, { mobile = false, fullscreen = false, controlsHeight = 0 } = {}) {
+  height = Number(height)
+  if (!Number.isFinite(height) || height <= 0) return { visible: false, size: 0, center: 0, showHint: false }
+  const desired = mobile ? 60 : 76
+  const top = mobile && !fullscreen ? 64 : 0
+  const bottom = mobile && !fullscreen ? 32 : 16
+  const center = mobile && !fullscreen ? (height + top - bottom) / 2 : height / 2
+  const limit = fullscreen ? Math.min(height - 32, 2 * (height / 2 - controlsHeight - 8)) : height - top - bottom
+  const size = Math.min(desired, limit)
+  const hintLimit = fullscreen ? height - controlsHeight - 8 : height - bottom
+  return { visible: size >= 44, size: Math.max(0, size), center,
+    showHint: center + size / 2 + 22 <= hintLimit }
 }
 
 export function previewFrame(manifest, time) {  if (!manifest?.pages?.length || !(manifest.interval > 0)) return null

@@ -476,7 +476,8 @@
         "upload",
         "volume",
         "warning",
-        "tag"
+        "tag",
+        "cast"
       ],
       "format": "vue-svg-registry",
       "dimensions": [
@@ -574,7 +575,8 @@
         "upload": 1,
         "volume": 1,
         "warning": 1,
-        "tag": 1
+        "tag": 1,
+        "cast": 1
       }
     },
     {
@@ -663,7 +665,8 @@
         "upload",
         "volume",
         "warning",
-        "tag"
+        "tag",
+        "cast"
       ],
       "format": "compose-imagevector",
       "dimensions": [
@@ -761,7 +764,8 @@
         "upload": 1,
         "volume": 1,
         "warning": 1,
-        "tag": 1
+        "tag": 1,
+        "cast": 1
       }
     }
   ]

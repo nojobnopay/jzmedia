@@ -15,7 +15,7 @@ from .db import POSTER_DIR, ensure_dirs
 from .log import get_logger, setup_logging
 from .help_site import HelpFiles
 from .version import VERSION
-from .routers import (ai, ai_settings, collections, extras, files, fs, health, jobs, libraries,
+from .routers import (ai, ai_settings, cast, collections, extras, files, fs, health, jobs, libraries,
                       media_libraries, metadata, movies, onboarding, persons, stream, tv,
                       tv_airing as tv_airing_router, tv_bindings, tv_client)
 
@@ -68,6 +68,7 @@ async def _lifespan(_app: FastAPI):
                  app.version, lib_desc, settings.data_dir, settings.env)
     yield
     tv_airing.shutdown()
+    cast.manager.shutdown()
     # 优雅退出：杀掉全部转码进程（防重启/停服后孤儿 ffmpeg 继续烧 CPU 写分片）
     stream.shutdown_previews()
     stream.shutdown_sessions()
@@ -126,6 +127,7 @@ app.include_router(tv.router)
 app.include_router(tv_airing_router.router)
 app.include_router(tv_bindings.router)
 app.include_router(tv_client.router)
+app.include_router(cast.router)
 # check_dir=False：目录由 lifespan ensure_dirs 创建，导入期不再有副作用（评审 R01-Q1）
 app.mount("/posters", StaticFiles(directory=POSTER_DIR, check_dir=False), name="posters")
 

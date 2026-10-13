@@ -1,8 +1,27 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { PLAYBACK_RATES, normalizeRate, applyPlaybackRate, reusableSeekTime, previewFrame, surfaceClickRevealsOnly } from '../src/playbackControls.js'
+import { PLAYBACK_RATES, normalizeRate, applyPlaybackRate, reusableSeekTime, previewFrame, surfaceClickRevealsOnly, pauseButtonPlacement } from '../src/playbackControls.js'
 
 const ranges = pairs => ({ length: pairs.length, start: i => pairs[i][0], end: i => pairs[i][1] })
+
+test('手机暂停按钮在工具与字幕之间居中，提示不影响按钮位置', () => {
+  const normal = pauseButtonPlacement(208, { mobile: true })
+  assert.deepEqual(normal, { visible: true, size: 60, center: 120, showHint: true })
+  const narrow = pauseButtonPlacement(148, { mobile: true })
+  assert.equal(narrow.size, 52)
+  assert.equal(narrow.center - narrow.size / 2, 64)
+  assert.equal(narrow.center + narrow.size / 2, 116)
+  assert.equal(narrow.showHint, false)
+})
+
+test('桌面与全屏暂停按钮以视频居中，极低视口使用底栏播放', () => {
+  assert.equal(pauseButtonPlacement(360).center, 180)
+  const full = pauseButtonPlacement(375, { mobile: true, fullscreen: true, controlsHeight: 128 })
+  assert.equal(full.center, 187.5)
+  assert.ok(full.center + full.size / 2 <= 375 - 128 - 8)
+  assert.equal(pauseButtonPlacement(240, { mobile: true, fullscreen: true, controlsHeight: 128 }).visible, false)
+  for (const height of [0, 40, 100, NaN]) assert.equal(pauseButtonPlacement(height, { mobile: true }).visible, false)
+})
 
 test('所有倍速在视频元素重建后恢复，并保留音调', () => {
   for (const rate of PLAYBACK_RATES) {
@@ -41,9 +60,7 @@ test('缩略图跨页、片尾及未完成页面不会错图；原片时间不�
   assert.equal(previewFrame(null, 0), null)
 })
 
-test('全屏隐藏态首次点击只显控件、再次点击才暂停；窗口态不受影响', () => {
-  assert.equal(surfaceClickRevealsOnly(true, false), true)
-  assert.equal(surfaceClickRevealsOnly(true, true), false)
-  assert.equal(surfaceClickRevealsOnly(false, false), false)
-  assert.equal(surfaceClickRevealsOnly(false, true), false)
+test('窗口和全屏的隐藏态首次点击只显控件，已显示时才暂停', () => {
+  assert.equal(surfaceClickRevealsOnly(false), true)
+  assert.equal(surfaceClickRevealsOnly(true), false)
 })

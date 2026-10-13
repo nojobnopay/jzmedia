@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "revision": 3,
-  "reviewed": "2026-10-04",
+  "reviewed": "2026-10-13",
   "language": {
     "grid": [
       24,
@@ -2209,6 +2209,30 @@
           "revision": 1,
           "date": "2026-10-03",
           "change": "跨端统一24网格/1.7线宽；数字为路径"
+        }
+      ],
+      "deprecated": false,
+      "replacement": null,
+      "style": "outline"
+    },
+    {
+      "id": "cast",
+      "name": "投屏到电视",
+      "category": "playback",
+      "master": "design/icons/cast.svg",
+      "revision": 1,
+      "grid": [
+        24,
+        24
+      ],
+      "theme": "currentColor; semantic foreground from design/tokens.json",
+      "optical_variants": [],
+      "source": "2026-10-13 根据 jzmedia 设计语言自主绘制的屏幕与无线信号路径",
+      "history": [
+        {
+          "revision": 1,
+          "date": "2026-10-13",
+          "change": "DLNA 投屏入口；24 网格与 1.7 线宽"
         }
       ],
       "deprecated": false,

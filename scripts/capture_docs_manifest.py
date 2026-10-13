@@ -51,8 +51,8 @@ def main(captured=(), reviewed=None):
     previous_assets = {entry["file"]: inherited_entry(entry, previous) for entry in previous.get("assets", [])}
     groups = [
         ("previews/onboarding/*.webp", "user-guide/onboarding.md", "真实四步向导及首播；隔离临时库、固定本地 NFO 与合成片源"),
-        ("screenshots/demo-subtitles.webp", "user-guide/subtitles.md", "真实播放器：换字幕、调整延迟、加载本地 SRT"),
-        ("screenshots/player-subtitles.webp", "user-guide/subtitles.md", "真实播放器选择合成片源的中英文外挂字幕"),
+        ("screenshots/demo-subtitles.webp", "user-guide/subtitles.md", "真实播放器高级字幕设置：调整合成片源字幕延迟与外观"),
+        ("screenshots/player-subtitles.webp", "user-guide/subtitles.md", "真实播放器的字幕与音轨快捷面板：选择合成片源的中英文外挂字幕"),
         ("screenshots/player-info.webp", "user-guide/playback-previews.md", "真实播放器的预览入口、播放信息与诊断；1080p 合成片源"),
         ("screenshots/player-transcode.webp", "user-guide/playback-controls.md", "1080p H.264 合成片源实际转码为 720p；隔离软件转码会话"),
         ("screenshots/demo-organize-*.webp", "user-guide/organizing.md", "真实整理预览及执行结果；仅临时合成文件"),

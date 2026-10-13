@@ -127,6 +127,9 @@ function mock(url, method, body) {
   if (key === '/api/jobs/stats') return { grouped: 10, versions: 12, no_match: 1, needs_review: 2, missing_files: 0,
     by_library: [{ library_id: 1, pending: 3, missing_files: 0 }] }
   if (key === '/api/tv/stats') return { shows: 3, seasons: 5, episodes: 60, pending: 0, episode_review: 0, by_library: [] }
+  if (key === '/api/tv/airing/status' && method === 'GET') return { configured: false, running: false,
+    current: null, error: '', retry_at: 0, total: 0, checked: 0, pending: 0, failed: 0 }
+  if (key === '/api/cast/current' && method === 'GET') return { session: null }
   if (key === '/api/metadata/providers') return { providers: [{ name: 'local', label: '本地索引', available: true }, { name: 'tmdb', label: 'TMDB', available: true }] }
   if (key === '/api/metadata/test-search') return { library_id: id, kind: libs.find(l => l.id === id)?.kind, items: [], source: null, elapsed_ms: 1 }
   if (key === '/api/jobs/scan') {
@@ -264,8 +267,8 @@ async function checkPlaybackCompatibility(browser, base) {
     assert.equal(created[1].caps.file.video.h264, true)
     assert.equal(deleted.length, 1, '兼容重播回收旧 sid')
     await page.evaluate(() => document.querySelector('video').pause())
-    await page.getByRole('button', { name: '播放设置', exact: true }).click()
-    await page.getByLabel('音轨', { exact: true }).selectOption('1')
+    await page.getByRole('button', { name: '字幕与音轨', exact: true }).click()
+    await page.getByRole('region', { name: '字幕与音轨', exact: true }).getByLabel('音轨', { exact: true }).selectOption('1')
     await page.waitForFunction(() => window.__jzPlayerDebug?.().session === 'compat-3' && document.querySelector('video')?.readyState >= 2)
     assert.equal(created[2].audio, 1, 'TS 单轨产物切轨必须重开会话')
     assert.equal(deleted.length, 2)
@@ -460,7 +463,11 @@ async function checkAssFullscreen(browser, base) {
       `${scene}: real ASS must retain both styled text colors: ${JSON.stringify(counts)}`)
     checks.push({ scene, ...counts })
   }
-  async function revealControls() { await page.locator('.pv-wrap').tap({ position: { x: 5, y: 5 } }) }
+  async function revealControls() {
+    if (!await page.locator('.player-corner-controls').evaluate(element => element.classList.contains('show'))) {
+      await page.locator('.pv-wrap').tap({ position: { x: 5, y: 5 } })
+    }
+  }
   try {
     await page.goto(base + '/player-harness.html')
     await page.getByRole('button', { name: '打开 ASS 播放器', exact: true }).tap()
@@ -473,15 +480,17 @@ async function checkAssFullscreen(browser, base) {
     const src = await page.locator('video').evaluate(video => video.currentSrc)
     await page.locator('.player-toast').waitFor({ state: 'hidden' })
     await pixels('window')
+    await revealControls()
     await page.getByRole('button', { name: '全屏', exact: true }).tap()
     await page.waitForFunction(() => document.fullscreenElement && !document.querySelector('.pv-ctl.show'))
     await pixels('fullscreen-portrait')
     // Headless Chrome 不能调整处于原生全屏状态的窗口尺寸；退出、旋转视口后再进入。
     await revealControls()
-    await page.locator('.ctl-options').getByRole('button', { name: '退出全屏', exact: true }).tap()
+    await page.getByRole('button', { name: '退出全屏', exact: true }).tap()
     await page.waitForFunction(() => !document.fullscreenElement)
     await page.setViewportSize({ width: 844, height: 390 })
     await ready()
+    await revealControls()
     await page.getByRole('button', { name: '全屏', exact: true }).tap()
     await page.waitForFunction(() => document.fullscreenElement && !document.querySelector('.pv-ctl.show'))
     await pixels('fullscreen-landscape')
@@ -507,7 +516,7 @@ async function checkAssFullscreen(browser, base) {
     await pixels('fullscreen-ass-restored')
     assert.equal(await page.locator('video').evaluate(video => video.currentSrc), src, 'subtitle switching must reuse the playing video')
     await revealControls()
-    await page.locator('.ctl-options').getByRole('button', { name: '退出全屏', exact: true }).tap()
+    await page.getByRole('button', { name: '退出全屏', exact: true }).tap()
     await page.waitForFunction(() => !document.fullscreenElement)
     await page.locator('.player-toast').waitFor({ state: 'hidden' })
     await pixels('fullscreen-exited')
@@ -1421,14 +1430,18 @@ try {
       })
     })
     assert.ok(controls.every(button => button.inside), `${width}px player toolbar must not clip controls: ${JSON.stringify(controls)}`)
+    assert.equal(controls.length, 6, `${width}px player retains six direct controls`)
     if (width <= 700) assert.ok(controls.every(button => button.width >= 43.5 && button.height >= 43.5), JSON.stringify(controls))
+    await playerPage.getByRole('button', { name: /^播放速度 .* 倍$/ }).click()
+    const speedPanel = playerPage.getByRole('region', { name: '播放速度', exact: true })
+    await speedPanel.getByRole('button', { name: '1.5×', exact: true }).click()
+    assert.equal(await playerPage.locator('video').evaluate(video => video.playbackRate), 1.5)
+    await speedPanel.waitFor({ state: 'hidden' })
     await playerPage.getByRole('button', { name: '播放设置', exact: true }).click()
     const panel = playerPage.getByRole('region', { name: '播放设置', exact: true })
     await panel.waitFor()
     const bounds = await panel.evaluate(element => ({ width: element.clientWidth, scroll: element.scrollWidth }))
     assert.ok(bounds.scroll <= bounds.width + 1, `${width}px settings must not overflow`)
-    await panel.getByRole('button', { name: '1.5×', exact: true }).click()
-    assert.equal(await playerPage.locator('video').evaluate(video => video.playbackRate), 1.5)
     if (width <= 700) {
       const small = await panel.locator('button').evaluateAll(buttons => buttons.filter(button => button.checkVisibility()).map(button => {
         const rect = button.getBoundingClientRect()
@@ -1437,10 +1450,10 @@ try {
       assert.deepEqual(small, [])
     }
     await playerPage.screenshot({ path: path.join(playerArtifacts, `settings-${width}.png`), animations: 'disabled' })
-    if (width === 1440) await screenshot(playerPage, 'player-settings', 'user-guide/playback-controls.md', '合成视频预览中的统一播放器设置与六档倍速；不操作真实片源')
+    if (width === 1440) await screenshot(playerPage, 'player-settings', 'user-guide/playback-controls.md', '合成视频预览中的画质、字幕调整与更多设置；不操作真实片源')
     await playerPage.getByRole('button', { name: '关闭设置', exact: true }).click()
     await playerPage.screenshot({ path: path.join(playerArtifacts, `controls-${width}.png`), animations: 'disabled' })
-    if (width === 390) await screenshot(playerPage, 'mobile-player', 'user-guide/playback-controls.md', '390px手机模拟：44px主控、时间独立一行、倍速从设置进入；合成视频')
+    if (width === 390) await screenshot(playerPage, 'mobile-player', 'user-guide/playback-controls.md', '390px手机模拟：六个44px主控、独立倍速及字幕入口、画面右上角设置与全屏；合成视频预览')
     playerChecks.push({ width, controls, settings: bounds, rate: 1.5 })
   }
   await playerPage.getByRole('button', { name: '全屏', exact: true }).click()
@@ -1449,7 +1462,7 @@ try {
   await playerPage.getByRole('region', { name: '播放设置', exact: true }).waitFor()
   assert.equal(await playerPage.getByRole('button', { name: '播放设置', exact: true }).count(), 1)
   await playerPage.getByRole('button', { name: '关闭设置', exact: true }).click()
-  await playerPage.locator('.ctl-options').getByRole('button', { name: '退出全屏', exact: true }).click()
+  await playerPage.getByRole('button', { name: '退出全屏', exact: true }).click()
   await playerPage.waitForFunction(() => !document.fullscreenElement)
   const touchContext = await browser.newContext({ viewport: { width: 320, height: 844 }, hasTouch: true, serviceWorkers: 'block' })
   await touchContext.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort())
@@ -1458,17 +1471,17 @@ try {
   await touchPage.goto(base + '/player-harness.html')
   await touchPage.getByRole('button', { name: '打开预览播放器', exact: true }).tap()
   await touchPage.waitForFunction(() => document.querySelector('video')?.readyState >= 2)
-  await touchPage.getByRole('button', { name: '播放设置', exact: true }).tap()
-  await touchPage.getByRole('button', { name: '2×', exact: true }).tap()
+  await touchPage.getByRole('button', { name: /^播放速度 .* 倍$/ }).tap()
+  await touchPage.getByRole('region', { name: '播放速度', exact: true }).getByRole('button', { name: '2×', exact: true }).tap()
   assert.equal(await touchPage.locator('video').evaluate(video => video.playbackRate), 2)
-  await touchPage.getByRole('button', { name: '关闭设置', exact: true }).tap()
+  await touchPage.getByRole('button', { name: '音量调节', exact: true }).tap()
   await touchPage.getByRole('button', { name: '静音', exact: true }).tap()
   assert.equal(await touchPage.locator('video').evaluate(video => video.muted), true)
   await touchPage.getByRole('button', { name: '关闭播放器', exact: true }).tap()
   await touchPage.locator('.player-dlg').waitFor({ state: 'hidden' })
   await touchContext.close()
   await writeFile(path.join(playerArtifacts, 'checks.json'), JSON.stringify({ mocked: true, syntheticMedia: true,
-    deviceScaleFactor: 1, playerChecks, fullscreenSettings: true, coarsePointer320: ['tap settings', 'tap 2×', 'tap mute', 'tap close'] }, null, 2) + '\n')
+    deviceScaleFactor: 1, playerChecks, fullscreenSettings: true, coarsePointer320: ['tap speed', 'tap 2×', 'tap volume', 'tap mute', 'tap close'] }, null, 2) + '\n')
   await playerPage.evaluate(() => {
     const video = document.querySelector('video')
     video.pause()

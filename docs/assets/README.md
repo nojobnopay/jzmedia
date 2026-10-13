@@ -1,6 +1,6 @@
 # 文档素材维护
 
-本目录保存帮助站正文使用的截图、视频、字幕和概念图。维护说明核对于 **2026-10-03**；这不表示所有素材都在当天复拍。逐文件来源以 [manifest.json](manifest.json) 为准，拍摄环境与完整命令见[文档维护](../developer/documentation.md#重新拍摄素材)。
+本目录保存帮助站正文使用的截图、视频、字幕和概念图。维护说明核对于 **2026-10-13**；这不表示所有素材都在当天复拍。逐文件来源以 [manifest.json](manifest.json) 为准，拍摄环境与完整命令见[文档维护](../developer/documentation.md#重新拍摄素材)。
 
 ## 目录与用途
 
@@ -22,8 +22,11 @@
 | --- | --- |
 | `ui_visual_review.mjs --capture-docs` | 浏览、详情、库连接、上传、匹配与整理面板 |
 | `smoke_settings_ui.mjs --capture-docs` | 设置、草稿提醒、文件管理、预览与播放器控件 |
+| `smoke_settings_ui.mjs --player-only --capture-docs` | 播放器设置与文件预览控件截图 |
+| `smoke_casting.mjs --capture-only` | 普通播放的手机暂停布局与投屏工具截图（原始 PNG） |
 | `smoke_ai_ui.mjs --capture-docs` | AI 设置、搜索与匹配 |
 | `capture_docs.py` | 四步向导、首播、字幕、电影整理及连续录屏 |
+| `capture_docs.py --only subtitles` | 已入库演示的轨道快捷面板、字幕调整和本地字幕录屏 |
 | `capture_docs.py --only player` | 已入库演示实例的播放信息与实际 720p 输出 |
 | `capture_docs_diagrams.py` | 三个业务概念 SVG |
 
@@ -37,10 +40,13 @@ node scripts/smoke_settings_ui.mjs --capture-docs
 node scripts/smoke_ai_ui.mjs --capture-docs
 ```
 
+`smoke_casting.mjs --capture-only` 使用真实播放器、隔离 FastAPI、合成视频及回环模拟 DLNA 接收端；不会发现或控制真实局域网设备。原始截图位于 `output/playwright/casting/after/`，选定截图压缩为 WebP 后按实际来源登记到清单。
+
 Python 拍摄入口连接 `preview_onboarding.py --docs-demo` 的隔离应用，使用临时数据库、本地 NFO 和合成片源，浏览器 API 不模拟。将下面的目录替换为启动器打印的实际目录；需要复拍播放器时选择带 `--only player` 的命令：
 
 ```bash
 python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录
+python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录 --only subtitles
 python scripts/capture_docs.py /tmp/jzmedia-preview-实际目录 --only player
 ```
 

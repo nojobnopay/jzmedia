@@ -4048,6 +4048,7 @@
         "arrow-up",
         "audio",
         "backspace",
+        "cast",
         "check",
         "check-circle",
         "chevron-down",
@@ -4119,12 +4120,12 @@
         "star-filled",
         "stop",
         "subtitles",
+        "tag",
         "tv",
         "undo",
         "upload",
         "volume",
-        "warning",
-        "tag"
+        "warning"
       ]
     },
     {
@@ -4569,6 +4570,7 @@
         "arrow-up",
         "audio",
         "backspace",
+        "cast",
         "check",
         "check-circle",
         "chevron-down",
@@ -4640,12 +4642,12 @@
         "star-filled",
         "stop",
         "subtitles",
+        "tag",
         "tv",
         "undo",
         "upload",
         "volume",
-        "warning",
-        "tag"
+        "warning"
       ]
     },
     {
@@ -8880,6 +8882,571 @@
       "source_excerpt": "<JzButton icon=\"ai\" class=\"browse-tool\" variant=\"ghost\" :aria-expanded=\"aiOpen\" :aria-controls=\"id + '-ai'\" @click=\"$emit('update:aiOpen', !aiOpen)\">"
     },
     {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:10",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 14,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "播放",
+      "assets": [
+        "play"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"casting.busy.value\" icon=\"play\" @click=\"casting.control('play')\">"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:11",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 15,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "暂停",
+      "assets": [
+        "pause"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"casting.busy.value\" icon=\"pause\" @click=\"casting.control('pause')\">"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:12",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 16,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "停止投屏",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"casting.busy.value\" @click=\"casting.control('stop')\">"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:input:15",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 20,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input id=\"cast-seek\" v-model.number=\"seekTarget\" type=\"number\" min=\"0\" :max=\"casting.session.value.duration || undefined\" step=\"1\" :disabled=\"casting.busy.value\" />"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:16",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 21,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "跳转",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"casting.busy.value || !validSeek\" @click=\"casting.control('seek', seekTarget)\">"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:input:18",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 24,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input id=\"cast-volume\" v-model.number=\"desiredVolume\" type=\"number\" min=\"0\" max=\"100\" step=\"1\" :disabled=\"casting.busy.value\" />"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:19",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 25,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "设置音量",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"casting.busy.value || !validVolume\" @click=\"casting.control('volume', desiredVolume)\">"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:24",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 33,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "重新搜索",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton icon=\"refresh\" :loading=\"casting.searching.value\" :disabled=\"casting.busy.value\" @click=\"casting.discover\">"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:input:28",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 38,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input v-model=\"casting.selected.value\" type=\"radio\" name=\"cast-device\" :value=\"device.id\" :disabled=\"casting.busy.value\" />"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:AppIcon:29",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 39,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "浏览与资料",
+      "element": "AppIcon",
+      "purpose": "剧集",
+      "assets": [
+        "tv"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "20"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon name=\"tv\" />"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:input:35",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 45,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input id=\"cast-server-url\" v-model=\"casting.serverUrl.value\" type=\"url\" :aria-describedby=\"field.describedby\" placeholder=\"http://192.168.1.10:8080\" :disabled=\"casting.busy.value\""
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:39",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 51,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "{{ casting.active.value ? '结束投屏，手机播放' : '手机播放' }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"held\" :disabled=\"casting.busy.value\" @click=\"$emit('return-phone')\">"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:40",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 52,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "开始投屏",
+      "assets": [
+        "cast"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"!casting.active.value\" variant=\"primary\" icon=\"cast\" :loading=\"casting.busy.value\" :disabled=\"casting.searching.value || !casting.selected.value\" @click=\"casting.pl"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:41",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 54,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "关闭",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"casting.busy.value\" @click=\"casting.close\">"
+    },
+    {
       "id": "frontend/src/components/CastWall.vue:JzButton:6",
       "source": "frontend/src/components/CastWall.vue",
       "line": 5,
@@ -12609,6 +13176,7 @@
         "arrow-up",
         "audio",
         "backspace",
+        "cast",
         "check",
         "check-circle",
         "chevron-down",
@@ -12680,12 +13248,12 @@
         "star-filled",
         "stop",
         "subtitles",
+        "tag",
         "tv",
         "undo",
         "upload",
         "volume",
-        "warning",
-        "tag"
+        "warning"
       ]
     },
     {
@@ -12915,6 +13483,7 @@
         "arrow-up",
         "audio",
         "backspace",
+        "cast",
         "check",
         "check-circle",
         "chevron-down",
@@ -12986,12 +13555,12 @@
         "star-filled",
         "stop",
         "subtitles",
+        "tag",
         "tv",
         "undo",
         "upload",
         "volume",
-        "warning",
-        "tag"
+        "warning"
       ]
     },
     {
@@ -13020,7 +13589,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/JzDialog.vue",
-            "line": 67,
+            "line": 68,
             "selector": ".jz-dialog-close",
             "values": {
               "width": "var(--jz-control-current)",
@@ -20502,6 +21071,15 @@
         ],
         "overrides": [
           {
+            "source": "frontend/src/components/PlayerModal.vue",
+            "line": 1965,
+            "selector": ".ctl-row .player-icon-btn",
+            "values": {
+              "width": "44px",
+              "height": "44px"
+            }
+          },
+          {
             "source": "frontend/src/player.css",
             "line": 37,
             "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
@@ -20521,7 +21099,7 @@
             }
           }
         ],
-        "value": "width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
+        "value": "width:44px, height:44px / width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
       },
       "target": {
         "policy_touch_min_css_px": 44,
@@ -20533,7 +21111,7 @@
         "disabled"
       ],
       "accessible_name_owner": "关闭播放器",
-      "classification": "播放器生命周期专用按钮，统一44px触摸区与PlayerIcon母版",
+      "classification": "播放器播放/跳转及画面角落投屏/全屏控件，44px热区与PlayerIcon母版；菜单独立管理焦点",
       "source_excerpt": "<button class=\"player-icon-btn pd-close\" @click=\"$emit('close')\" aria-label=\"关闭播放器\" title=\"关闭（Esc）\">"
     },
     {
@@ -20600,7 +21178,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1781,
+            "line": 1945,
             "selector": ".player-video, .freeze-frame",
             "values": {
               "width": "100%",
@@ -20619,9 +21197,375 @@
       "source_excerpt": "<img v-if=\"freezeFrame\" :src=\"freezeFrame\" class=\"freeze-frame\" alt=\"\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:Spinner:14",
+      "id": "frontend/src/components/PlayerModal.vue:button:17",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 24,
+      "line": 29,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "button",
+      "purpose": "castHeld ? '投屏控制' : '投屏'",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-specialized",
+        "specification": "保留菜单/海报/选择/播放器专用几何；具体CSS规则记录在overrides；触摸目标规范44px需浏览器测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/player.css",
+          "design/contracts.json"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/PlayerModal.vue",
+            "line": 1965,
+            "selector": ".ctl-row .player-icon-btn",
+            "values": {
+              "width": "44px",
+              "height": "44px"
+            }
+          },
+          {
+            "source": "frontend/src/components/PlayerModal.vue",
+            "line": 1980,
+            "selector": ".player-corner-controls :deep(.player-corner-btn)",
+            "values": {
+              "width": "44px",
+              "height": "44px"
+            }
+          },
+          {
+            "source": "frontend/src/components/PlayerModal.vue",
+            "line": 1985,
+            "selector": ".player-corner-btn.connected::after",
+            "values": {
+              "width": "6px",
+              "height": "6px"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 37,
+            "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-control-height)",
+              "height": "var(--jz-control-height)",
+              "padding": "0"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 48,
+            "selector": ".player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-touch-target)",
+              "height": "var(--jz-touch-target)"
+            }
+          }
+        ],
+        "value": "width:44px, height:44px / width:44px, height:44px / width:6px, height:6px / width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "selected"
+      ],
+      "accessible_name_owner": "castHeld ? '投屏控制' : '投屏'",
+      "classification": "播放器播放/跳转及画面角落投屏/全屏控件，44px热区与PlayerIcon母版；菜单独立管理焦点",
+      "source_excerpt": "<button v-if=\"canCast\" type=\"button\" class=\"player-icon-btn player-corner-btn\" :class=\"{ connected: casting.active.value }\" :aria-label=\"castHeld ? '投屏控制' : '投屏'\" :title=\"castHeld "
+    },
+    {
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:18",
+      "source": "frontend/src/components/PlayerModal.vue",
+      "line": 32,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "播放",
+      "element": "PlayerIcon",
+      "purpose": "投屏到电视",
+      "assets": [
+        "cast"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "22"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<PlayerIcon name=\"cast\" />"
+    },
+    {
+      "id": "frontend/src/components/PlayerModal.vue:button:19",
+      "source": "frontend/src/components/PlayerModal.vue",
+      "line": 34,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "button",
+      "purpose": "isFull ? '退出全屏' : '全屏'",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-specialized",
+        "specification": "保留菜单/海报/选择/播放器专用几何；具体CSS规则记录在overrides；触摸目标规范44px需浏览器测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/player.css",
+          "design/contracts.json"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/PlayerModal.vue",
+            "line": 1965,
+            "selector": ".ctl-row .player-icon-btn",
+            "values": {
+              "width": "44px",
+              "height": "44px"
+            }
+          },
+          {
+            "source": "frontend/src/components/PlayerModal.vue",
+            "line": 1980,
+            "selector": ".player-corner-controls :deep(.player-corner-btn)",
+            "values": {
+              "width": "44px",
+              "height": "44px"
+            }
+          },
+          {
+            "source": "frontend/src/components/PlayerModal.vue",
+            "line": 1985,
+            "selector": ".player-corner-btn.connected::after",
+            "values": {
+              "width": "6px",
+              "height": "6px"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 37,
+            "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-control-height)",
+              "height": "var(--jz-control-height)",
+              "padding": "0"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 48,
+            "selector": ".player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-touch-target)",
+              "height": "var(--jz-touch-target)"
+            }
+          }
+        ],
+        "value": "width:44px, height:44px / width:44px, height:44px / width:6px, height:6px / width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "isFull ? '退出全屏' : '全屏'",
+      "classification": "播放器播放/跳转及画面角落投屏/全屏控件，44px热区与PlayerIcon母版；菜单独立管理焦点",
+      "source_excerpt": "<button type=\"button\" class=\"player-icon-btn player-corner-btn\" @click=\"toggleFull\" :aria-label=\"isFull ? '退出全屏' : '全屏'\" :title=\"isFull ? '退出全屏（Esc）' : '全屏（双击画面）'\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:20",
+      "source": "frontend/src/components/PlayerModal.vue",
+      "line": 36,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "播放",
+      "element": "PlayerIcon",
+      "purpose": "退出全屏 / 全屏",
+      "assets": [
+        "exit-fullscreen",
+        "fullscreen"
+      ],
+      "dynamic_expression": "isFull ? 'exitFullscreen' : 'fullscreen'",
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "22"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<PlayerIcon :name=\"isFull ? 'exitFullscreen' : 'fullscreen'\" />"
+    },
+    {
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:22",
+      "source": "frontend/src/components/PlayerModal.vue",
+      "line": 40,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "播放",
+      "element": "PlayerIcon",
+      "purpose": "投屏到电视",
+      "assets": [
+        "cast"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "32"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<PlayerIcon name=\"cast\" :size=\"32\" />"
+    },
+    {
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:26",
+      "source": "frontend/src/components/PlayerModal.vue",
+      "line": 44,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "投屏控制",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:36px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton size=\"compact\" class=\"player-action\" @click=\"openCasting\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:27",
+      "source": "frontend/src/components/PlayerModal.vue",
+      "line": 45,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "手机播放",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:36px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton size=\"compact\" class=\"player-action\" :disabled=\"casting.busy.value\" @click=\"returnToPhone\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerModal.vue:Spinner:29",
+      "source": "frontend/src/components/PlayerModal.vue",
+      "line": 49,
       "platforms": [
         "web",
         "mobile-web"
@@ -20656,9 +21600,9 @@
       "source_excerpt": "<Spinner :size=\"36\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:19",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:34",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 30,
+      "line": 55,
       "platforms": [
         "web",
         "mobile-web"
@@ -20693,9 +21637,9 @@
       "source_excerpt": "<PlayerIcon name=\"info\" :size=\"30\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:22",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:37",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 33,
+      "line": 58,
       "platforms": [
         "web",
         "mobile-web"
@@ -20732,9 +21676,9 @@
       "source_excerpt": "<JzButton size=\"compact\" variant=\"primary\" class=\"player-action\" @click=\"reload\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:24",
+      "id": "frontend/src/components/PlayerModal.vue:button:39",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 37,
+      "line": 63,
       "platforms": [
         "web",
         "mobile-web"
@@ -20758,25 +21702,16 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1789,
+            "line": 1955,
             "selector": ".center-play",
             "values": {
-              "width": "76px",
-              "height": "76px",
+              "width": "var(--pause-size)",
+              "height": "var(--pause-size)",
               "padding": "0"
-            }
-          },
-          {
-            "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1850,
-            "selector": ".center-play",
-            "values": {
-              "width": "60px",
-              "height": "60px"
             }
           }
         ],
-        "value": "width:76px, height:76px, padding:0 / width:60px, height:60px"
+        "value": "width:var(--pause-size), height:var(--pause-size), padding:0"
       },
       "target": {
         "policy_touch_min_css_px": 44,
@@ -20788,13 +21723,13 @@
         "disabled"
       ],
       "accessible_name_owner": "needGesture ? '开始播放' : '继续播放'",
-      "classification": "播放器生命周期专用按钮，统一44px触摸区与PlayerIcon母版",
-      "source_excerpt": "<button class=\"center-play\" @click=\"needGesture ? userPlay() : togglePlay()\" :aria-label=\"needGesture ? '开始播放' : '继续播放'\">"
+      "classification": "播放器播放/跳转及画面角落投屏/全屏控件，44px热区与PlayerIcon母版；菜单独立管理焦点",
+      "source_excerpt": "<button v-if=\"pausePlacement.visible\" type=\"button\" class=\"center-play\" @pointerdown.stop @click.stop=\"onCenterPlay\" @dblclick.stop :aria-label=\"needGesture ? '开始播放' : '继续播放'\" :tit"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:25",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:40",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 38,
+      "line": 65,
       "platforms": [
         "web",
         "mobile-web"
@@ -20829,106 +21764,9 @@
       "source_excerpt": "<PlayerIcon name=\"play\" :size=\"38\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:31",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:49",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 44,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "播放",
-      "element": "button",
-      "purpose": "退出全屏",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-specialized",
-        "specification": "保留菜单/海报/选择/播放器专用几何；具体CSS规则记录在overrides；触摸目标规范44px需浏览器测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/player.css",
-          "design/contracts.json"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/player.css",
-            "line": 37,
-            "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
-            "values": {
-              "width": "var(--jz-control-height)",
-              "height": "var(--jz-control-height)",
-              "padding": "0"
-            }
-          },
-          {
-            "source": "frontend/src/player.css",
-            "line": 48,
-            "selector": ".player-dlg .player-icon-btn",
-            "values": {
-              "width": "var(--jz-touch-target)",
-              "height": "var(--jz-touch-target)"
-            }
-          }
-        ],
-        "value": "width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "退出全屏",
-      "classification": "播放器生命周期专用按钮，统一44px触摸区与PlayerIcon母版",
-      "source_excerpt": "<button class=\"player-icon-btn\" @click=\"toggleFull\" aria-label=\"退出全屏\" title=\"退出全屏（Esc）\">"
-    },
-    {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:32",
-      "source": "frontend/src/components/PlayerModal.vue",
-      "line": 45,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "播放",
-      "element": "PlayerIcon",
-      "purpose": "退出全屏",
-      "assets": [
-        "exit-fullscreen"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "22"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<PlayerIcon name=\"exitFullscreen\" />"
-    },
-    {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:36",
-      "source": "frontend/src/components/PlayerModal.vue",
-      "line": 50,
+      "line": 74,
       "platforms": [
         "web",
         "mobile-web"
@@ -20965,9 +21803,9 @@
       "source_excerpt": "<JzButton size=\"compact\" variant=\"primary\" class=\"player-action\" @click=\"resumePlay\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:37",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:50",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 51,
+      "line": 75,
       "platforms": [
         "web",
         "mobile-web"
@@ -21004,9 +21842,9 @@
       "source_excerpt": "<JzButton size=\"compact\" class=\"player-action\" @click=\"restartPlay\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:43",
+      "id": "frontend/src/components/PlayerModal.vue:button:56",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 62,
+      "line": 87,
       "platforms": [
         "web",
         "mobile-web"
@@ -21014,7 +21852,7 @@
       "category": "control",
       "feature": "播放",
       "element": "button",
-      "purpose": "isPlaying ? '暂停' : '播放'",
+      "purpose": "isPlaying ? '暂停' : needGesture && !pausePlacement.visible ? '开始播放' : '播放'",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
@@ -21028,6 +21866,15 @@
           "design/contracts.json"
         ],
         "overrides": [
+          {
+            "source": "frontend/src/components/PlayerModal.vue",
+            "line": 1965,
+            "selector": ".ctl-row .player-icon-btn",
+            "values": {
+              "width": "44px",
+              "height": "44px"
+            }
+          },
           {
             "source": "frontend/src/player.css",
             "line": 37,
@@ -21048,7 +21895,7 @@
             }
           }
         ],
-        "value": "width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
+        "value": "width:44px, height:44px / width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
       },
       "target": {
         "policy_touch_min_css_px": 44,
@@ -21059,14 +21906,14 @@
         "focus",
         "disabled"
       ],
-      "accessible_name_owner": "isPlaying ? '暂停' : '播放'",
-      "classification": "播放器生命周期专用按钮，统一44px触摸区与PlayerIcon母版",
-      "source_excerpt": "<button class=\"player-icon-btn main-play\" @click=\"togglePlay\" :aria-label=\"isPlaying ? '暂停' : '播放'\" :title=\"isPlaying ? '暂停（空格）' : '播放（空格）'\">"
+      "accessible_name_owner": "isPlaying ? '暂停' : needGesture && !pausePlacement.visible ? '开始播放' : '播放'",
+      "classification": "播放器播放/跳转及画面角落投屏/全屏控件，44px热区与PlayerIcon母版；菜单独立管理焦点",
+      "source_excerpt": "<button class=\"player-icon-btn main-play\" @click=\"togglePlay\" :aria-label=\"isPlaying ? '暂停' : needGesture && !pausePlacement.visible ? '开始播放' : '播放'\" :title=\"isPlaying ? '暂停（空格）' :"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:44",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:57",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 64,
+      "line": 89,
       "platforms": [
         "web",
         "mobile-web"
@@ -21102,9 +21949,9 @@
       "source_excerpt": "<PlayerIcon :name=\"isPlaying ? 'pause' : 'play'\" :size=\"26\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:45",
+      "id": "frontend/src/components/PlayerModal.vue:button:58",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 66,
+      "line": 91,
       "platforms": [
         "web",
         "mobile-web"
@@ -21127,6 +21974,15 @@
         ],
         "overrides": [
           {
+            "source": "frontend/src/components/PlayerModal.vue",
+            "line": 1965,
+            "selector": ".ctl-row .player-icon-btn",
+            "values": {
+              "width": "44px",
+              "height": "44px"
+            }
+          },
+          {
             "source": "frontend/src/player.css",
             "line": 37,
             "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
@@ -21146,7 +22002,7 @@
             }
           }
         ],
-        "value": "width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
+        "value": "width:44px, height:44px / width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
       },
       "target": {
         "policy_touch_min_css_px": 44,
@@ -21159,13 +22015,13 @@
         "busy"
       ],
       "accessible_name_owner": "快退 10 秒",
-      "classification": "播放器生命周期专用按钮，统一44px触摸区与PlayerIcon母版",
+      "classification": "播放器播放/跳转及画面角落投屏/全屏控件，44px热区与PlayerIcon母版；菜单独立管理焦点",
       "source_excerpt": "<button class=\"player-icon-btn skip-btn\" @click=\"seekBy(-10)\" :disabled=\"!(decidedDuration > 0)\" aria-label=\"快退 10 秒\" title=\"快退 10 秒（←）\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:46",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:59",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 66,
+      "line": 91,
       "platforms": [
         "web",
         "mobile-web"
@@ -21200,9 +22056,9 @@
       "source_excerpt": "<PlayerIcon name=\"rewind\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:47",
+      "id": "frontend/src/components/PlayerModal.vue:button:60",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 67,
+      "line": 92,
       "platforms": [
         "web",
         "mobile-web"
@@ -21225,6 +22081,15 @@
         ],
         "overrides": [
           {
+            "source": "frontend/src/components/PlayerModal.vue",
+            "line": 1965,
+            "selector": ".ctl-row .player-icon-btn",
+            "values": {
+              "width": "44px",
+              "height": "44px"
+            }
+          },
+          {
             "source": "frontend/src/player.css",
             "line": 37,
             "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
@@ -21244,7 +22109,7 @@
             }
           }
         ],
-        "value": "width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
+        "value": "width:44px, height:44px / width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
       },
       "target": {
         "policy_touch_min_css_px": 44,
@@ -21257,13 +22122,13 @@
         "busy"
       ],
       "accessible_name_owner": "快进 10 秒",
-      "classification": "播放器生命周期专用按钮，统一44px触摸区与PlayerIcon母版",
+      "classification": "播放器播放/跳转及画面角落投屏/全屏控件，44px热区与PlayerIcon母版；菜单独立管理焦点",
       "source_excerpt": "<button class=\"player-icon-btn skip-btn\" @click=\"seekBy(10)\" :disabled=\"!(decidedDuration > 0)\" aria-label=\"快进 10 秒\" title=\"快进 10 秒（→）\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:48",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:61",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 67,
+      "line": 92,
       "platforms": [
         "web",
         "mobile-web"
@@ -21298,325 +22163,9 @@
       "source_excerpt": "<PlayerIcon name=\"forward\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:button:50",
+      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:70",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 69,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "播放",
-      "element": "button",
-      "purpose": "muted ? '取消静音' : '静音'",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-specialized",
-        "specification": "保留菜单/海报/选择/播放器专用几何；具体CSS规则记录在overrides；触摸目标规范44px需浏览器测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/player.css",
-          "design/contracts.json"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/player.css",
-            "line": 37,
-            "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
-            "values": {
-              "width": "var(--jz-control-height)",
-              "height": "var(--jz-control-height)",
-              "padding": "0"
-            }
-          },
-          {
-            "source": "frontend/src/player.css",
-            "line": 48,
-            "selector": ".player-dlg .player-icon-btn",
-            "values": {
-              "width": "var(--jz-touch-target)",
-              "height": "var(--jz-touch-target)"
-            }
-          }
-        ],
-        "value": "width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "muted ? '取消静音' : '静音'",
-      "classification": "播放器生命周期专用按钮，统一44px触摸区与PlayerIcon母版",
-      "source_excerpt": "<button class=\"player-icon-btn\" @click=\"toggleMute\" :aria-label=\"muted ? '取消静音' : '静音'\" :title=\"muted ? '取消静音' : '静音'\">"
-    },
-    {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:51",
-      "source": "frontend/src/components/PlayerModal.vue",
-      "line": 70,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "播放",
-      "element": "PlayerIcon",
-      "purpose": "静音 / 音量",
-      "assets": [
-        "mute",
-        "volume"
-      ],
-      "dynamic_expression": "muted || volume === 0 ? 'mute' : 'volume'",
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "22"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<PlayerIcon :name=\"muted || volume === 0 ? 'mute' : 'volume'\" />"
-    },
-    {
-      "id": "frontend/src/components/PlayerModal.vue:input:52",
-      "source": "frontend/src/components/PlayerModal.vue",
-      "line": 72,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "播放",
-      "element": "input",
-      "purpose": "音量",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1802,
-            "selector": ".ctl-vol",
-            "values": {
-              "width": "68px",
-              "height": "4px",
-              "padding": "0"
-            }
-          },
-          {
-            "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1804,
-            "selector": ".ctl-vol::-webkit-slider-thumb",
-            "values": {
-              "width": "10px",
-              "height": "10px"
-            }
-          },
-          {
-            "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1805,
-            "selector": ".ctl-vol::-moz-range-thumb",
-            "values": {
-              "width": "10px",
-              "height": "10px"
-            }
-          }
-        ],
-        "value": "width:68px, height:4px, padding:0 / width:10px, height:10px / width:10px, height:10px"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "音量",
-      "classification": "native control",
-      "source_excerpt": "<input type=\"range\" min=\"0\" max=\"100\" :value=\"muted ? 0 : volume * 100\" aria-label=\"音量\" :style=\"{ '--volume': (muted ? 0 : volume * 100) + '%' }\" @input=\"setVolume\" @change=\"blurPi"
-    },
-    {
-      "id": "frontend/src/components/PlayerModal.vue:button:58",
-      "source": "frontend/src/components/PlayerModal.vue",
-      "line": 78,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "播放",
-      "element": "button",
-      "purpose": "'播放速度 ' + playbackRate + ' 倍'",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-specialized",
-        "specification": "保留菜单/海报/选择/播放器专用几何；具体CSS规则记录在overrides；触摸目标规范44px需浏览器测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/player.css",
-          "design/contracts.json"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/components/PlayerModal.vue",
-            "line": 1806,
-            "selector": ".rate-btn",
-            "values": {
-              "height": "var(--jz-control-current)",
-              "min-width": "44px",
-              "padding": "0 8px",
-              "font-size": ".8125rem"
-            }
-          }
-        ],
-        "value": "height:var(--jz-control-current), min-width:44px, padding:0 8px, font-size:.8125rem"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "'播放速度 ' + playbackRate + ' 倍'",
-      "classification": "播放器生命周期专用按钮，统一44px触摸区与PlayerIcon母版",
-      "source_excerpt": "<button class=\"rate-btn\" @click.stop=\"toggleSettings\" :aria-label=\"'播放速度 ' + playbackRate + ' 倍'\" title=\"播放速度\" :aria-expanded=\"settingsOpen\">"
-    },
-    {
-      "id": "frontend/src/components/PlayerModal.vue:button:62",
-      "source": "frontend/src/components/PlayerModal.vue",
-      "line": 81,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "播放",
-      "element": "button",
-      "purpose": "isFull ? '退出全屏' : '全屏'",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-specialized",
-        "specification": "保留菜单/海报/选择/播放器专用几何；具体CSS规则记录在overrides；触摸目标规范44px需浏览器测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/player.css",
-          "design/contracts.json"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/player.css",
-            "line": 37,
-            "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
-            "values": {
-              "width": "var(--jz-control-height)",
-              "height": "var(--jz-control-height)",
-              "padding": "0"
-            }
-          },
-          {
-            "source": "frontend/src/player.css",
-            "line": 48,
-            "selector": ".player-dlg .player-icon-btn",
-            "values": {
-              "width": "var(--jz-touch-target)",
-              "height": "var(--jz-touch-target)"
-            }
-          }
-        ],
-        "value": "width:var(--jz-control-height), height:var(--jz-control-height), padding:0 / width:var(--jz-touch-target), height:var(--jz-touch-target)"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "isFull ? '退出全屏' : '全屏'",
-      "classification": "播放器生命周期专用按钮，统一44px触摸区与PlayerIcon母版",
-      "source_excerpt": "<button class=\"player-icon-btn\" @click=\"toggleFull\" :aria-label=\"isFull ? '退出全屏' : '全屏'\" :title=\"isFull ? '退出全屏（Esc）' : '全屏（双击画面）'\">"
-    },
-    {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:63",
-      "source": "frontend/src/components/PlayerModal.vue",
-      "line": 82,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "播放",
-      "element": "PlayerIcon",
-      "purpose": "退出全屏 / 全屏",
-      "assets": [
-        "exit-fullscreen",
-        "fullscreen"
-      ],
-      "dynamic_expression": "isFull ? 'exitFullscreen' : 'fullscreen'",
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "22"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<PlayerIcon :name=\"isFull ? 'exitFullscreen' : 'fullscreen'\" />"
-    },
-    {
-      "id": "frontend/src/components/PlayerModal.vue:PlayerIcon:65",
-      "source": "frontend/src/components/PlayerModal.vue",
-      "line": 88,
+      "line": 109,
       "platforms": [
         "web",
         "mobile-web"
@@ -21651,9 +22200,9 @@
       "source_excerpt": "<PlayerIcon name=\"info\" :size=\"28\" />"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:69",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:74",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 92,
+      "line": 113,
       "platforms": [
         "web",
         "mobile-web"
@@ -21690,9 +22239,9 @@
       "source_excerpt": "<JzButton size=\"compact\" variant=\"primary\" class=\"player-action\" @click=\"switchTo1080\">"
     },
     {
-      "id": "frontend/src/components/PlayerModal.vue:JzButton:70",
+      "id": "frontend/src/components/PlayerModal.vue:JzButton:75",
       "source": "frontend/src/components/PlayerModal.vue",
-      "line": 93,
+      "line": 114,
       "platforms": [
         "web",
         "mobile-web"
@@ -21727,6 +22276,625 @@
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
       "source_excerpt": "<JzButton size=\"compact\" class=\"player-action\" @click=\"cancelDropPrompt\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:JzButton:2",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 3,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "'播放速度 ' + playbackRate + ' 倍'",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/PlayerQuickControls.vue",
+            "line": 94,
+            "selector": ".player-quick-controls > .player-icon-btn",
+            "values": {
+              "width": "var(--jz-touch-target)",
+              "height": "var(--jz-touch-target)"
+            }
+          },
+          {
+            "source": "frontend/src/components/PlayerQuickControls.vue",
+            "line": 95,
+            "selector": ".rate-btn",
+            "values": {
+              "font-size": ".8125rem"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 37,
+            "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-control-height)",
+              "height": "var(--jz-control-height)",
+              "padding": "0"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 48,
+            "selector": ".player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-touch-target)",
+              "height": "var(--jz-touch-target)"
+            }
+          }
+        ],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "'播放速度 ' + playbackRate + ' 倍'",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton ref=\"speedTrigger\" variant=\"ghost\" icon-only class=\"player-icon-btn rate-btn player-menu-trigger\" :aria-label=\"'播放速度 ' + playbackRate + ' 倍'\" :aria-expanded=\"panel === 's"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:JzButton:4",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 8,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "字幕与音轨",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/PlayerQuickControls.vue",
+            "line": 94,
+            "selector": ".player-quick-controls > .player-icon-btn",
+            "values": {
+              "width": "var(--jz-touch-target)",
+              "height": "var(--jz-touch-target)"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 37,
+            "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-control-height)",
+              "height": "var(--jz-control-height)",
+              "padding": "0"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 48,
+            "selector": ".player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-touch-target)",
+              "height": "var(--jz-touch-target)"
+            }
+          }
+        ],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "字幕与音轨",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton ref=\"tracksTrigger\" variant=\"ghost\" icon-only class=\"player-icon-btn player-menu-trigger\" aria-label=\"字幕与音轨\" title=\"字幕与音轨\" :aria-expanded=\"panel === 'tracks'\" :aria-contr"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:PlayerIcon:5",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 11,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "播放",
+      "element": "PlayerIcon",
+      "purpose": "字幕",
+      "assets": [
+        "subtitles"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "22"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<PlayerIcon name=\"subtitles\" />"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:JzButton:9",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 16,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "关闭播放速度",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "关闭播放速度",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton variant=\"ghost\" icon-only aria-label=\"关闭播放速度\" @click=\"$emit('close')\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:PlayerIcon:10",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 16,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "播放",
+      "element": "PlayerIcon",
+      "purpose": "关闭",
+      "assets": [
+        "close"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "18"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<PlayerIcon name=\"close\" :size=\"18\" />"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:JzButton:12",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 19,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "{{ rate }}×",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "selected"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-for=\"rate in PLAYBACK_RATES\" :key=\"rate\" :aria-pressed=\"playbackRate === rate\" @click=\"$emit('rate-change', rate)\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:JzButton:16",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 26,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "关闭字幕与音轨",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "关闭字幕与音轨",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton variant=\"ghost\" icon-only aria-label=\"关闭字幕与音轨\" @click=\"$emit('close')\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:PlayerIcon:17",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 26,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "播放",
+      "element": "PlayerIcon",
+      "purpose": "关闭",
+      "assets": [
+        "close"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "18"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<PlayerIcon name=\"close\" :size=\"18\" />"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:select:20",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 30,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "播放",
+      "element": "select",
+      "purpose": "音轨",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "音轨",
+      "classification": "native control",
+      "source_excerpt": "<select :id=\"audioId\" aria-label=\"音轨\" :value=\"audioIdx\" @change=\"$emit('audio-change', Number($event.target.value))\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:select:23",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 35,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "播放",
+      "element": "select",
+      "purpose": "字幕轨道",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "字幕轨道",
+      "classification": "native control",
+      "source_excerpt": "<select :id=\"subId\" aria-label=\"字幕轨道\" :value=\"subIdx\" @change=\"$emit('sub-change', Number($event.target.value))\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:JzButton:28",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 42,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "加载字幕文件",
+      "assets": [
+        "subtitles"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton icon=\"subtitles\" @click=\"pickFile\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:JzButton:29",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 43,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "移除本地字幕",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"hasLocalSub\" @click=\"$emit('remove-local-subs')\">"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:input:30",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 44,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "播放",
+      "element": "input",
+      "purpose": "字幕文件",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "字幕文件",
+      "classification": "native control",
+      "source_excerpt": "<input ref=\"fileInput\" type=\"file\" accept=\".srt,.vtt,.ass,.ssa\" class=\"sub-file\" aria-label=\"字幕文件\" @change=\"loadFile\" />"
+    },
+    {
+      "id": "frontend/src/components/PlayerQuickControls.vue:JzButton:31",
+      "source": "frontend/src/components/PlayerQuickControls.vue",
+      "line": 46,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "字幕调整与兼容设置",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/PlayerQuickControls.vue",
+            "line": 112,
+            "selector": ".subtitle-settings",
+            "values": {
+              "font-size": "var(--jz-font-s)",
+              "min-height": "44px"
+            }
+          }
+        ],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton variant=\"ghost\" class=\"subtitle-settings\" @click=\"$emit('subtitle-settings')\">"
     },
     {
       "id": "frontend/src/components/PlayerSeekbar.vue:input:5",
@@ -21823,11 +22991,12 @@
         "normal",
         "focus",
         "disabled",
+        "busy",
         "selected"
       ],
       "accessible_name_owner": "播放设置",
-      "classification": "播放器设置触发器/关闭及倍速选择，窗口全屏保持同一状态",
-      "source_excerpt": "<button type=\"button\" class=\"player-icon-btn settings-trigger\" :class=\"{ on: open }\" @click=\"$emit('toggle-settings')\" aria-label=\"播放设置\" :aria-expanded=\"open\" title=\"播放设置\">"
+      "classification": "画面角落设置触发器与关闭按钮；窗口/全屏条件实例共享高级设置状态",
+      "source_excerpt": "<button ref=\"trigger\" type=\"button\" class=\"player-icon-btn player-corner-btn settings-trigger\" :class=\"{ on: open }\" :disabled=\"disabled\" @click=\"$emit('toggle-settings')\" aria-lab"
     },
     {
       "id": "frontend/src/components/PlayerSettings.vue:PlayerIcon:3",
@@ -21923,7 +23092,7 @@
         "disabled"
       ],
       "accessible_name_owner": "关闭设置",
-      "classification": "播放器设置触发器/关闭及倍速选择，窗口全屏保持同一状态",
+      "classification": "画面角落设置触发器与关闭按钮；窗口/全屏条件实例共享高级设置状态",
       "source_excerpt": "<button type=\"button\" class=\"player-icon-btn\" @click=\"$emit('toggle-settings')\" aria-label=\"关闭设置\" title=\"关闭设置\">"
     },
     {
@@ -21964,50 +23133,9 @@
       "source_excerpt": "<PlayerIcon name=\"close\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:button:13",
+      "id": "frontend/src/components/PlayerSettings.vue:select:14",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 14,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "播放",
-      "element": "button",
-      "purpose": "{{ rate }}×",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-specialized",
-        "specification": "保留菜单/海报/选择/播放器专用几何；具体CSS规则记录在overrides；触摸目标规范44px需浏览器测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/player.css",
-          "design/contracts.json"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "selected"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "播放器设置触发器/关闭及倍速选择，窗口全屏保持同一状态",
-      "source_excerpt": "<button type=\"button\" v-for=\"rate in PLAYBACK_RATES\" :key=\"rate\" :class=\"{ selected: playbackRate === rate }\" :aria-pressed=\"playbackRate === rate\" @click=\"pick($event, 'rate-chang"
-    },
-    {
-      "id": "frontend/src/components/PlayerSettings.vue:select:16",
-      "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 19,
+      "line": 15,
       "platforms": [
         "web",
         "mobile-web"
@@ -22044,97 +23172,9 @@
       "source_excerpt": "<select id=\"player-quality\" :value=\"quality\" @change=\"pick($event, 'quality-change', $event.target.value)\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:select:23",
+      "id": "frontend/src/components/PlayerSettings.vue:JzButton:22",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 28,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "播放",
-      "element": "select",
-      "purpose": "{{ audioLabel(a, i) }}",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<select id=\"player-audio\" :value=\"audioIdx\" @change=\"pick($event, 'audio-change', Number($event.target.value))\">"
-    },
-    {
-      "id": "frontend/src/components/PlayerSettings.vue:select:27",
-      "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 35,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "播放",
-      "element": "select",
-      "purpose": "字幕轨道",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 192,
-            "selector": ".pd-set select.sub-select",
-            "values": {
-              "width": "100%",
-              "max-width": "100%"
-            }
-          }
-        ],
-        "value": "width:100%, max-width:100%"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "字幕轨道",
-      "classification": "native control",
-      "source_excerpt": "<select v-if=\"subs.length\" class=\"sub-select\" aria-label=\"字幕轨道\" :value=\"subIdx\" @change=\"pick($event, 'sub-change', Number($event.target.value))\">"
-    },
-    {
-      "id": "frontend/src/components/PlayerSettings.vue:JzButton:33",
-      "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 42,
+      "line": 26,
       "platforms": [
         "web",
         "mobile-web"
@@ -22142,96 +23182,13 @@
       "category": "control",
       "feature": "播放",
       "element": "JzButton",
-      "purpose": "临时加载 SRT、VTT、ASS 或 SSA 字幕，仅本次播放有效",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 195,
-            "selector": ".set-button",
-            "values": {
-              "gap": "var(--jz-gap-xs)"
-            }
-          }
-        ],
-        "value": "min-height:36px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton size=\"compact\" class=\"set-button\" @click=\"pickSubFile\" title=\"临时加载 SRT、VTT、ASS 或 SSA 字幕，仅本次播放有效\">"
-    },
-    {
-      "id": "frontend/src/components/PlayerSettings.vue:PlayerIcon:34",
-      "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 42,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "播放",
-      "element": "PlayerIcon",
-      "purpose": "字幕",
+      "purpose": "字幕与音轨",
       "assets": [
         "subtitles"
       ],
       "dynamic_expression": null,
       "display_size": {
         "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "16"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<PlayerIcon name=\"subtitles\" :size=\"16\" />"
-    },
-    {
-      "id": "frontend/src/components/PlayerSettings.vue:JzButton:35",
-      "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 43,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "播放",
-      "element": "JzButton",
-      "purpose": "移除本地字幕",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
         "profile": "web-button",
         "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
         "measurement_status": "source specification; browser acceptance records actual geometry",
@@ -22242,7 +23199,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 195,
+            "line": 159,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22262,51 +23219,12 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton size=\"compact\" v-if=\"hasLocalSub\" class=\"set-button\" @click=\"$emit('remove-local-subs')\">"
+      "source_excerpt": "<JzButton icon=\"subtitles\" size=\"compact\" class=\"set-button\" @click=\"$emit('open-tracks')\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:input:36",
+      "id": "frontend/src/components/PlayerSettings.vue:summary:25",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 44,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "播放",
-      "element": "input",
-      "purpose": "input",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<input ref=\"subFileInput\" type=\"file\" accept=\".srt,.vtt,.ass,.ssa\" class=\"sub-file\" @change=\"onSubFile\" />"
-    },
-    {
-      "id": "frontend/src/components/PlayerSettings.vue:summary:38",
-      "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 47,
+      "line": 30,
       "platforms": [
         "web",
         "mobile-web"
@@ -22343,9 +23261,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:PlayerIcon:39",
+      "id": "frontend/src/components/PlayerSettings.vue:PlayerIcon:26",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 47,
+      "line": 30,
       "platforms": [
         "web",
         "mobile-web"
@@ -22380,9 +23298,9 @@
       "source_excerpt": "<PlayerIcon name=\"chevron\" :size=\"14\" />"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:JzButton:43",
+      "id": "frontend/src/components/PlayerSettings.vue:JzButton:30",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 51,
+      "line": 34,
       "platforms": [
         "web",
         "mobile-web"
@@ -22405,7 +23323,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 195,
+            "line": 159,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22428,9 +23346,9 @@
       "source_excerpt": "<JzButton size=\"compact\" class=\"set-button\" @click=\"$emit('shift-delay', -0.5)\" aria-label=\"字幕提前 0.5 秒\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:JzButton:45",
+      "id": "frontend/src/components/PlayerSettings.vue:JzButton:32",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 53,
+      "line": 36,
       "platforms": [
         "web",
         "mobile-web"
@@ -22453,7 +23371,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 195,
+            "line": 159,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22476,9 +23394,9 @@
       "source_excerpt": "<JzButton size=\"compact\" class=\"set-button\" @click=\"$emit('shift-delay', 0.5)\" aria-label=\"字幕延后 0.5 秒\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:select:49",
+      "id": "frontend/src/components/PlayerSettings.vue:select:36",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 59,
+      "line": 42,
       "platforms": [
         "web",
         "mobile-web"
@@ -22515,9 +23433,9 @@
       "source_excerpt": "<select :value=\"subStyle.bg\" @change=\"styleSet('bg', Number($event.target.value))\" aria-label=\"字幕背景\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:select:53",
+      "id": "frontend/src/components/PlayerSettings.vue:select:40",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 62,
+      "line": 45,
       "platforms": [
         "web",
         "mobile-web"
@@ -22554,9 +23472,9 @@
       "source_excerpt": "<select :value=\"subStyle.outline\" @change=\"styleSet('outline', Number($event.target.value))\" aria-label=\"字幕描边\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:select:60",
+      "id": "frontend/src/components/PlayerSettings.vue:select:47",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 70,
+      "line": 53,
       "platforms": [
         "web",
         "mobile-web"
@@ -22593,9 +23511,9 @@
       "source_excerpt": "<select :value=\"subStyle.pos\" @change=\"styleSet('pos', $event.target.value)\" aria-label=\"字幕位置\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:select:64",
+      "id": "frontend/src/components/PlayerSettings.vue:select:51",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 73,
+      "line": 56,
       "platforms": [
         "web",
         "mobile-web"
@@ -22632,9 +23550,9 @@
       "source_excerpt": "<select :value=\"subStyle.size\" @change=\"styleSet('size', Number($event.target.value))\" aria-label=\"字幕字号\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:input:69",
+      "id": "frontend/src/components/PlayerSettings.vue:input:56",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 79,
+      "line": 62,
       "platforms": [
         "web",
         "mobile-web"
@@ -22671,9 +23589,9 @@
       "source_excerpt": "<input type=\"checkbox\" :checked=\"compatSub\" @change=\"$emit('compat-change', $event.target.checked)\" />"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:JzButton:70",
+      "id": "frontend/src/components/PlayerSettings.vue:JzButton:57",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 81,
+      "line": 64,
       "platforms": [
         "web",
         "mobile-web"
@@ -22696,7 +23614,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 195,
+            "line": 159,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22720,9 +23638,9 @@
       "source_excerpt": "<JzButton size=\"compact\" v-if=\"subIsAss || subIsVtt || forceBurn\" class=\"set-button\" @click=\"$emit('undo-degrade')\" :disabled=\"undoDisabled\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:summary:72",
+      "id": "frontend/src/components/PlayerSettings.vue:summary:59",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 85,
+      "line": 68,
       "platforms": [
         "web",
         "mobile-web"
@@ -22759,9 +23677,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:PlayerIcon:73",
+      "id": "frontend/src/components/PlayerSettings.vue:PlayerIcon:60",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 85,
+      "line": 68,
       "platforms": [
         "web",
         "mobile-web"
@@ -22796,9 +23714,9 @@
       "source_excerpt": "<PlayerIcon name=\"chevron\" :size=\"14\" />"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:JzButton:76",
+      "id": "frontend/src/components/PlayerSettings.vue:JzButton:63",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 88,
+      "line": 71,
       "platforms": [
         "web",
         "mobile-web"
@@ -22821,7 +23739,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 195,
+            "line": 159,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22844,9 +23762,9 @@
       "source_excerpt": "<JzButton size=\"compact\" v-if=\"previewBusy\" class=\"set-button\" @click=\"$emit('preview-cancel')\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:JzButton:77",
+      "id": "frontend/src/components/PlayerSettings.vue:JzButton:64",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 89,
+      "line": 72,
       "platforms": [
         "web",
         "mobile-web"
@@ -22869,7 +23787,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 195,
+            "line": 159,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22892,9 +23810,9 @@
       "source_excerpt": "<JzButton size=\"compact\" v-else class=\"set-button\" @click=\"$emit('preview-start')\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:JzButton:79",
+      "id": "frontend/src/components/PlayerSettings.vue:JzButton:66",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 92,
+      "line": 75,
       "platforms": [
         "web",
         "mobile-web"
@@ -22917,7 +23835,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 195,
+            "line": 159,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -22940,9 +23858,9 @@
       "source_excerpt": "<JzButton size=\"compact\" class=\"set-button external-button\" @click=\"$emit('copy-direct')\" title=\"复制原文件直链，在 VLC、Kodi 等播放器打开\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:PlayerIcon:80",
+      "id": "frontend/src/components/PlayerSettings.vue:PlayerIcon:67",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 92,
+      "line": 75,
       "platforms": [
         "web",
         "mobile-web"
@@ -22977,9 +23895,9 @@
       "source_excerpt": "<PlayerIcon name=\"external\" :size=\"16\" />"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:input:81",
+      "id": "frontend/src/components/PlayerSettings.vue:input:68",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 93,
+      "line": 76,
       "platforms": [
         "web",
         "mobile-web"
@@ -23002,7 +23920,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 209,
+            "line": 172,
             "selector": ".set-copy-url",
             "values": {
               "width": "100%",
@@ -23026,9 +23944,9 @@
       "source_excerpt": "<input v-if=\"directFailUrl\" readonly :value=\"directFailUrl\" class=\"set-copy-url\" aria-label=\"播放直链\" @focus=\"$event.target.select()\" @click=\"$event.target.select()\" />"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:JzButton:88",
+      "id": "frontend/src/components/PlayerSettings.vue:JzButton:75",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 99,
+      "line": 82,
       "platforms": [
         "web",
         "mobile-web"
@@ -23051,7 +23969,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 195,
+            "line": 159,
             "selector": ".set-button",
             "values": {
               "gap": "var(--jz-gap-xs)"
@@ -23074,9 +23992,9 @@
       "source_excerpt": "<JzButton size=\"compact\" class=\"set-button\" @click=\"$emit('copy-debug')\">"
     },
     {
-      "id": "frontend/src/components/PlayerSettings.vue:textarea:89",
+      "id": "frontend/src/components/PlayerSettings.vue:textarea:76",
       "source": "frontend/src/components/PlayerSettings.vue",
-      "line": 100,
+      "line": 83,
       "platforms": [
         "web",
         "mobile-web"
@@ -23099,7 +24017,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PlayerSettings.vue",
-            "line": 209,
+            "line": 172,
             "selector": ".set-copy-url",
             "values": {
               "width": "100%",
@@ -23121,6 +24039,313 @@
       "accessible_name_owner": "播放诊断信息",
       "classification": "native control",
       "source_excerpt": "<textarea v-if=\"debugFailText\" readonly :value=\"debugFailText\" rows=\"4\" class=\"set-copy-url\" aria-label=\"播放诊断信息\" @focus=\"$event.target.select()\" @click=\"$event.target.select()\" />"
+    },
+    {
+      "id": "frontend/src/components/PlayerVolumeControl.vue:JzButton:2",
+      "source": "frontend/src/components/PlayerVolumeControl.vue",
+      "line": 4,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "音量调节",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/PlayerVolumeControl.vue",
+            "line": 126,
+            "selector": ".volume-trigger, .volume-mute",
+            "values": {
+              "width": "var(--jz-touch-target)",
+              "min-width": "var(--jz-touch-target)",
+              "height": "var(--jz-touch-target)",
+              "min-height": "var(--jz-touch-target)"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 37,
+            "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-control-height)",
+              "height": "var(--jz-control-height)",
+              "padding": "0"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 48,
+            "selector": ".player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-touch-target)",
+              "height": "var(--jz-touch-target)"
+            }
+          }
+        ],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "音量调节",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton ref=\"trigger\" variant=\"ghost\" icon-only class=\"player-icon-btn volume-trigger\" :disabled=\"disabled\" aria-label=\"音量调节\" :title=\"muted || volume === 0 ? '音量调节（已静音）' : '音量调节'"
+    },
+    {
+      "id": "frontend/src/components/PlayerVolumeControl.vue:PlayerIcon:3",
+      "source": "frontend/src/components/PlayerVolumeControl.vue",
+      "line": 7,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "播放",
+      "element": "PlayerIcon",
+      "purpose": "静音 / 音量",
+      "assets": [
+        "mute",
+        "volume"
+      ],
+      "dynamic_expression": "muted || volume === 0 ? 'mute' : 'volume'",
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "22"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<PlayerIcon :name=\"muted || volume === 0 ? 'mute' : 'volume'\" />"
+    },
+    {
+      "id": "frontend/src/components/PlayerVolumeControl.vue:input:10",
+      "source": "frontend/src/components/PlayerVolumeControl.vue",
+      "line": 15,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "播放",
+      "element": "input",
+      "purpose": "音量",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/PlayerVolumeControl.vue",
+            "line": 139,
+            "selector": ".volume-range",
+            "values": {
+              "width": "44px",
+              "height": "100%",
+              "min-height": "36px",
+              "padding": "0"
+            }
+          },
+          {
+            "source": "frontend/src/components/PlayerVolumeControl.vue",
+            "line": 142,
+            "selector": ".volume-range::-webkit-slider-runnable-track",
+            "values": {
+              "width": "4px",
+              "height": "100%"
+            }
+          },
+          {
+            "source": "frontend/src/components/PlayerVolumeControl.vue",
+            "line": 143,
+            "selector": ".volume-range::-webkit-slider-thumb",
+            "values": {
+              "width": "14px",
+              "height": "14px"
+            }
+          },
+          {
+            "source": "frontend/src/components/PlayerVolumeControl.vue",
+            "line": 145,
+            "selector": ".volume-range::-moz-range-track",
+            "values": {
+              "width": "4px",
+              "height": "100%"
+            }
+          },
+          {
+            "source": "frontend/src/components/PlayerVolumeControl.vue",
+            "line": 146,
+            "selector": ".volume-range::-moz-range-thumb",
+            "values": {
+              "width": "14px",
+              "height": "14px"
+            }
+          }
+        ],
+        "value": "width:44px, height:100%, min-height:36px, padding:0 / width:4px, height:100% / width:14px, height:14px / width:4px, height:100% / width:14px, height:14px"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "音量",
+      "classification": "native control",
+      "source_excerpt": "<input :id=\"rangeId\" class=\"volume-range\" type=\"range\" min=\"0\" max=\"100\" step=\"1\" :value=\"displayVolume * 100\" :disabled=\"disabled\" aria-label=\"音量\" aria-orientation=\"vertical\" :ari"
+    },
+    {
+      "id": "frontend/src/components/PlayerVolumeControl.vue:JzButton:12",
+      "source": "frontend/src/components/PlayerVolumeControl.vue",
+      "line": 22,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "muted ? '取消静音' : '静音'",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/PlayerVolumeControl.vue",
+            "line": 126,
+            "selector": ".volume-trigger, .volume-mute",
+            "values": {
+              "width": "var(--jz-touch-target)",
+              "min-width": "var(--jz-touch-target)",
+              "height": "var(--jz-touch-target)",
+              "min-height": "var(--jz-touch-target)"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 37,
+            "selector": "/* Player controls keep native elements and lifecycle; appearance uses shared tokens. */ .player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-control-height)",
+              "height": "var(--jz-control-height)",
+              "padding": "0"
+            }
+          },
+          {
+            "source": "frontend/src/player.css",
+            "line": 48,
+            "selector": ".player-dlg .player-icon-btn",
+            "values": {
+              "width": "var(--jz-touch-target)",
+              "height": "var(--jz-touch-target)"
+            }
+          }
+        ],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy",
+        "selected"
+      ],
+      "accessible_name_owner": "muted ? '取消静音' : '静音'",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton variant=\"ghost\" icon-only class=\"player-icon-btn volume-mute\" :disabled=\"disabled\" :aria-label=\"muted ? '取消静音' : '静音'\" :aria-pressed=\"muted\" :title=\"muted ? '取消静音' : '静音'"
+    },
+    {
+      "id": "frontend/src/components/PlayerVolumeControl.vue:PlayerIcon:13",
+      "source": "frontend/src/components/PlayerVolumeControl.vue",
+      "line": 24,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "播放",
+      "element": "PlayerIcon",
+      "purpose": "静音 / 音量",
+      "assets": [
+        "mute",
+        "volume"
+      ],
+      "dynamic_expression": "muted ? 'mute' : 'volume'",
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "20"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<PlayerIcon :name=\"muted ? 'mute' : 'volume'\" :size=\"20\" />"
     },
     {
       "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:6",

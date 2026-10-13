@@ -91,6 +91,7 @@ def main():
     # 复制源码与独立构建产物，主实例的 frontend/dist 也不被改写。
     shutil.copytree(ROOT / "app", runtime / "app",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copy2(ROOT / "version.properties", runtime / "version.properties")
     # 仅此临时副本跳过扫描时的远程搜索；UI、目录检查、NFO 扫描与入库仍走真实代码。
     (runtime / "preview_app.py").write_text(
         "from app import tmdb\n"

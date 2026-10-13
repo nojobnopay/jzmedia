@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body">
+  <Teleport to="body" :disabled="teleportDisabled">
     <div v-if="open" :class="['jz-dialog-mask', `jz-dialog-mask--${layer}`, `jz-dialog-mask--${presentation}`, maskClass]"
       @click.self="onBackdrop">
       <section ref="dialog" v-bind="$attrs" :class="['jz-dialog', `jz-dialog--${size}`, `jz-dialog--${presentation}`]"
@@ -34,6 +34,7 @@ const props = defineProps({
   closeOnEscape: { type: Boolean, default: true },
   closeLabel: { type: String, default: '关闭' },
   focusActive: { type: Boolean, default: true },
+  teleportDisabled: Boolean,
   maskClass: { type: String, default: '' },
 })
 const emit = defineEmits(['close'])

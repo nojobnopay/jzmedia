@@ -809,6 +809,20 @@ export const iconRegistry = {
       "stroke": "currentColor",
       "fillRule": "nonzero"
     }
+  ],
+  "cast": [
+    {
+      "d": "M3 8V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6M3 12a7 7 0 0 1 7 7M3 16a3 3 0 0 1 3 3",
+      "fill": "none",
+      "stroke": "currentColor",
+      "fillRule": "nonzero"
+    },
+    {
+      "d": "M3 19h.01",
+      "fill": "none",
+      "stroke": "currentColor",
+      "fillRule": "nonzero"
+    }
   ]
 }
 export const appIconAliases = {"back": "arrow-left", "forward": "arrow-right", "trash": "delete", "external-link": "external", "unlink": "disconnect", "clear": "close", "replay": "refresh", "movies": "movie", "shows": "tv", "libraries": "library"}

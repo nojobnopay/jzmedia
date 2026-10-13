@@ -18,7 +18,7 @@ export function useFocusTrap(active, containerRef) {
     const root = containerRef.value
     if (!root) return []
     return [...root.querySelectorAll(FOCUSABLE)]
-      .filter(n => !n.matches?.(':disabled') && (n.offsetWidth > 0 || n.offsetHeight > 0))
+      .filter(n => !n.matches?.(':disabled') && !n.closest?.('[inert]') && (n.offsetWidth > 0 || n.offsetHeight > 0))
   }
 
   function onKeydown(e) {

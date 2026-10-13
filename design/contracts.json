@@ -41,6 +41,7 @@
         "arrow-up",
         "audio",
         "backspace",
+        "cast",
         "check",
         "check-circle",
         "chevron-down",
@@ -112,12 +113,12 @@
         "star-filled",
         "stop",
         "subtitles",
+        "tag",
         "tv",
         "undo",
         "upload",
         "volume",
-        "warning",
-        "tag"
+        "warning"
       ],
       "reason": "公共链接组件接受已登记图标，显示文字承担名称",
       "adapter": true
@@ -133,6 +134,7 @@
         "arrow-up",
         "audio",
         "backspace",
+        "cast",
         "check",
         "check-circle",
         "chevron-down",
@@ -204,12 +206,12 @@
         "star-filled",
         "stop",
         "subtitles",
+        "tag",
         "tv",
         "undo",
         "upload",
         "volume",
-        "warning",
-        "tag"
+        "warning"
       ],
       "reason": "公共按钮icon属性接受已登记图标，调用点必须登记/校验",
       "adapter": true
@@ -256,6 +258,7 @@
         "arrow-up",
         "audio",
         "backspace",
+        "cast",
         "check",
         "check-circle",
         "chevron-down",
@@ -327,12 +330,12 @@
         "star-filled",
         "stop",
         "subtitles",
+        "tag",
         "tv",
         "undo",
         "upload",
         "volume",
-        "warning",
-        "tag"
+        "warning"
       ],
       "reason": "TvAction/Status接收统一图标名；文字或状态提示承担名称",
       "adapter": true
@@ -437,18 +440,16 @@
       "source": "frontend/src/components/PlayerModal.vue",
       "selectors": [
         "player-icon-btn",
-        "center-play",
-        "rate-btn"
+        "center-play"
       ],
-      "reason": "播放器生命周期专用按钮，统一44px触摸区与PlayerIcon母版"
+      "reason": "播放器播放/跳转及画面角落投屏/全屏控件，44px热区与PlayerIcon母版；菜单独立管理焦点"
     },
     {
       "source": "frontend/src/components/PlayerSettings.vue",
       "selectors": [
-        "player-icon-btn",
-        "PLAYBACK_RATES"
+        "player-icon-btn"
       ],
-      "reason": "播放器设置触发器/关闭及倍速选择，窗口全屏保持同一状态"
+      "reason": "画面角落设置触发器与关闭按钮；窗口/全屏条件实例共享高级设置状态"
     },
     {
       "source": "frontend/src/views/Detail.vue",

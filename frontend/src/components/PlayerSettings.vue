@@ -1,19 +1,15 @@
 <template>
-  <div class="pd-setwrap">
-    <button type="button" class="player-icon-btn settings-trigger" :class="{ on: open }" @click="$emit('toggle-settings')"
+  <div class="pd-setwrap" @click.stop @pointerdown.stop @dblclick.stop>
+    <button ref="trigger" type="button" class="player-icon-btn player-corner-btn settings-trigger" :class="{ on: open }" :disabled="disabled" @click="$emit('toggle-settings')"
       aria-label="播放设置" :aria-expanded="open" title="播放设置"><PlayerIcon name="settings" /></button>
-    <section v-if="open" class="pd-set" :style="{ maxHeight: panelHeight + 'px' }" aria-label="播放设置" @click.stop>
+    <section v-if="open" class="pd-set player-popup" :style="{ maxHeight: panelHeight + 'px' }" aria-label="播放设置" @click.stop>
       <header class="set-header">
         <strong>播放设置</strong>
         <HelpLink page="user-guide/playback-controls" label="帮助" />
         <button type="button" class="player-icon-btn" @click="$emit('toggle-settings')" aria-label="关闭设置" title="关闭设置"><PlayerIcon name="close" :size="18" /></button>
       </header>
       <div class="set-section">
-        <div class="section-label">播放速度</div>
-        <div class="rate-options" role="group" aria-label="播放速度">
-          <button type="button" v-for="rate in PLAYBACK_RATES" :key="rate" :class="{ selected: playbackRate === rate }"
-            :aria-pressed="playbackRate === rate" @click="pick($event, 'rate-change', rate)">{{ rate }}×</button>
-        </div>
+        <div class="section-label">画质</div>
         <div class="set-row">
           <label for="player-quality">画质</label>
           <select id="player-quality" :value="quality" @change="pick($event, 'quality-change', $event.target.value)">
@@ -23,27 +19,14 @@
             <option value="720p">720p</option>
           </select>
         </div>
-        <div v-if="audios.length > 1" class="set-row">
-          <label for="player-audio">音轨</label>
-          <select id="player-audio" :value="audioIdx" @change="pick($event, 'audio-change', Number($event.target.value))">
-            <option v-for="(a, i) in audios" :key="i" :value="i">{{ audioLabel(a, i) }}</option>
-          </select>
-        </div>
       </div>
       <div class="set-section">
         <div class="section-label">字幕</div>
-        <select v-if="subs.length" class="sub-select" aria-label="字幕轨道" :value="subIdx" @change="pick($event, 'sub-change', Number($event.target.value))">
-          <option :value="-1">关闭字幕</option>
-          <option v-for="(s, i) in subs" :key="i" :value="i">{{ subLabel(s, i) }}{{ subBadge(s) }}</option>
-        </select>
-        <p v-else class="set-hint">暂无字幕，可加载本地字幕文件。</p>
         <div class="sub-file-actions">
+          <JzButton icon="subtitles" size="compact" class="set-button" @click="$emit('open-tracks')">字幕与音轨</JzButton>
           <HelpLink page="user-guide/subtitles" label="音轨与字幕图解" />
-          <JzButton size="compact" class="set-button" @click="pickSubFile" title="临时加载 SRT、VTT、ASS 或 SSA 字幕，仅本次播放有效"><PlayerIcon name="subtitles" :size="16" />加载字幕文件</JzButton>
-          <JzButton size="compact" v-if="hasLocalSub" class="set-button" @click="$emit('remove-local-subs')">移除本地字幕</JzButton>
-          <input ref="subFileInput" type="file" accept=".srt,.vtt,.ass,.ssa" class="sub-file" @change="onSubFile" />
         </div>
-        <details v-if="subDelayVisible || subIsVtt || subIsAss || forceBurn" class="set-details">
+        <details v-if="subDelayVisible || subIsVtt || subIsAss || forceBurn" class="set-details subtitle-adjustments">
           <summary>字幕调整<PlayerIcon name="chevron" :size="14" /></summary>
           <div v-if="subDelayVisible" class="set-row">
             <span class="set-label">时间偏移</span>
@@ -110,22 +93,16 @@ import HelpLink from './HelpLink.vue'
 import { ref } from 'vue'
 import PlayerIcon from './PlayerIcon.vue'
 import JzButton from './JzButton.vue'
-import { audioLabel, subLabel, subBadge } from '../playerLabels.js'
-import { PLAYBACK_RATES } from '../playbackControls.js'
 
 const props = defineProps({
+  disabled: Boolean,
   panelHeight: { type: Number, default: 400 },
   reasonLine: { type: String, default: '' },
   bufferLine: { type: String, default: '' },
-  playbackRate: { type: Number, default: 1 },
   previewBusy: Boolean,
   previewStatus: { type: String, default: '' },
   open: { type: Boolean, default: false },
   quality: { type: String, default: 'auto' },
-  audios: { type: Array, default: () => [] },
-  audioIdx: { type: Number, default: 0 },
-  subs: { type: Array, default: () => [] },
-  subIdx: { type: Number, default: -1 },
   subDelayVisible: { type: Boolean, default: false },
   subDelayText: { type: String, default: '' },
   subIsVtt: { type: Boolean, default: false },
@@ -133,27 +110,19 @@ const props = defineProps({
   forceBurn: { type: Boolean, default: false },
   undoDisabled: { type: Boolean, default: false },
   compatSub: { type: Boolean, default: false },
-  hasLocalSub: { type: Boolean, default: false },
   directFailUrl: { type: String, default: '' },
   debugFailText: { type: String, default: '' },
   methodLine: { type: String, default: '' },
   qualityLine: { type: String, default: '' },
   subStyle: { type: Object, default: () => ({ bg: 0, outline: 0, pos: 'auto', size: 2 }) }
 })
-const emit = defineEmits(['toggle-settings', 'quality-change', 'audio-change', 'sub-change',
+const emit = defineEmits(['open-tracks', 'toggle-settings', 'quality-change',
   'shift-delay', 'update:sub-style', 'undo-degrade', 'compat-change', 'copy-direct',
-  'load-sub-file', 'remove-local-subs', 'rate-change', 'preview-start', 'preview-cancel', 'copy-debug'])
-
-const subFileInput = ref(null)
-function pickSubFile() {
-  const el = subFileInput.value
-  if (el) el.click()
-}
-function onSubFile(e) {
-  const f = e && e.target && e.target.files && e.target.files[0]
-  if (f) emit('load-sub-file', f)
-  try { if (e && e.target) e.target.value = '' } catch (err) { /* 忽略 */ }   // 允许重复选同一文件
-}
+  'preview-start', 'preview-cancel', 'copy-debug'])
+const trigger = ref(null)
+function focus() { trigger.value?.focus({ preventScroll: true }) }
+function openSubtitleAdjustments() { const details = trigger.value?.parentElement.querySelector('.subtitle-adjustments'); if (details) details.open = true }
+defineExpose({ focus, openSubtitleAdjustments })
 
 // 选完即失焦：否则焦点停在下拉框，方向键会去改选项而不是 seek/音量
 function pick(e, name, value) {
@@ -171,8 +140,8 @@ function styleSet(key, value) {
 <style scoped>
 .pd-setwrap { display: inline-flex; position: static; }
 .settings-trigger.on { background: rgba(255,255,255,.12); color: var(--jz-on-accent); }
-.pd-set { position: absolute; right: 16px; bottom: calc(100% + 8px); z-index: 20;
-  width: min(350px, calc(100% - 32px)); box-sizing: border-box; overflow: auto;
+.pd-set { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20;
+  width: min(350px, 100%); box-sizing: border-box; overflow: auto; overscroll-behavior: contain;
   color: var(--jz-text); background: var(--jz-surface); border: 1px solid rgba(255,255,255,.12);
   border-radius: var(--jz-radius-dialog); box-shadow: 0 12px 40px #0008; scrollbar-width: thin; scrollbar-color: #555 transparent;
   text-align: left; font-size: .8125rem; color-scheme: dark; }
@@ -182,15 +151,10 @@ function styleSet(key, value) {
 .set-section { padding: 14px 18px; border-bottom: 1px solid #ffffff10; }
 .set-section:last-child { border-bottom: 0; }
 .section-label { display: block; color: var(--jz-text-dim); font-size: .6875rem; letter-spacing: .06em; margin-bottom: 10px; }
-.rate-options { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 14px; }
-.rate-options button { min-height: var(--jz-control-current); border: 0; padding: 8px 0; font-size: .75rem; font-weight: 500; background: #ffffff09; color: var(--jz-text-dim); border-radius: var(--jz-radius-s); }
-.rate-options button:hover { color: var(--jz-on-accent); background: #ffffff18; }
-.rate-options button.selected { background: var(--player-accent); color: var(--jz-on-accent); }
 .set-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; min-width: 0; }
 .set-row > label, .set-label { flex: 1; color: var(--jz-text-dim); font-size: .75rem; white-space: nowrap; }
 .pd-set select { min-width: 0; box-sizing: border-box; border: 1px solid #ffffff12; background: #ffffff08;
   color: var(--jz-text); font-size: .75rem; padding: 7px 12px; border-radius: var(--jz-radius-s); max-width: 70%; }
-.pd-set select.sub-select { width: 100%; max-width: 100%; }
 .set-inline { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; }
 .set-inline select { flex: 1; }
 .set-button { gap: var(--jz-gap-xs); }
@@ -205,14 +169,12 @@ function styleSet(key, value) {
 .ctl-compat { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: .75rem; cursor: pointer; }
 .ctl-compat input { accent-color: var(--player-accent); }
 .delay-val { min-width: 38px; text-align: center; font-variant-numeric: tabular-nums; color: var(--jz-on-accent); font-size: .75rem; }
-.sub-file { display: none; }
 .external-button { margin-top: 14px; }
 .set-copy-url { width: 100%; box-sizing: border-box; margin-top: 8px; font-size: .6875rem; }
 .play-info { margin-top: 14px; padding-top: 14px; border-top: 1px solid #ffffff10; }
 .play-info p { margin: 6px 0; color: var(--jz-text-dim); font-size: .6875rem; line-height: 1.6; overflow-wrap: anywhere; }
 .play-info .set-button { margin-top: 6px; }
 @media (max-width: 700px), (pointer: coarse) {
-  .rate-options { grid-template-columns: repeat(3, 1fr); }
   .pd-set select, .set-details summary { min-height: var(--jz-touch-target); }
   .set-row { flex-wrap: wrap; }
   .set-inline { flex-wrap: wrap; }

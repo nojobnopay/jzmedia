@@ -1,6 +1,6 @@
 ---
 version: 0.24.4
-reviewed: 2026-10-12
+reviewed: 2026-10-13
 ---
 
 # API 与后台任务
@@ -23,8 +23,25 @@ reviewed: 2026-10-12
 | `/api/files`、`/api/fs`、`/api/extras` | 归档预览/执行、文件操作、花絮 |
 | `/api/jobs` | 扫描、刮削、整理、重建 NFO/索引/元数据等任务 |
 | `/api/stream` | 能力决策、会话/HLS、字幕、断点、预缓存和缩略图 |
+| `/api/cast` | 服务端 DLNA 发现、电视播放控制、投屏状态和原文件读取 |
 | `/api/metadata` | 外部来源状态及诊断 |
 | `/api/ai` | 智能辅助配置、连接检查、搜索条件与匹配建议 |
+
+## DLNA 投屏
+
+| 请求 | 行为 |
+| --- | --- |
+| `POST /api/cast/discover` | 搜索服务器局域网的 MediaRenderer；返回 `items`、建议的 `base_url` 和 `scope=server_lan` |
+| `GET /api/cast/devices` | 仅读设备缓存，不触发搜索 |
+| `POST /api/cast/sessions` | 接收 `{device_id,version_id,kind,position,base_url}`，设置电视 URI 并请求播放；`kind=movie\|episode`，`position` 为源视频秒数，`base_url` 可省略 |
+| `GET /api/cast/current?version_id=…&kind=…` | 返回该版本当前有效投屏的 `{session}`；无投屏为 `null` |
+| `GET /api/cast/sessions/{sid}` | 返回内存中的最近电视状态，不发起网络轮询 |
+| `POST /api/cast/sessions/{sid}/control` | `{command,value?}`；命令为 `play/pause/stop/seek/volume`，`seek` 单位秒，音量范围 0–100 |
+| `GET /api/cast/media/{sid}`、`HEAD` | 会话限定的原文件读取；GET 复用本地/远程 Range，响应 MIME 与 DLNA 头一致 |
+
+搜索与控制遵循现有写请求令牌；电视取流不要求全局令牌，URL 仅含随机会话 ID。设备列表超过 120 秒需重新搜索，搜索请求在 5 秒内复用结果。媒体 ID 由现有播放行与存储层解析，不接受任意文件路径或外部媒体 URL；不存在的版本返回 404，文件缺失 410，离线 503。投屏网络和固定地址见[部署指南](../getting-started/deployment.md#dlna-投屏网络)。
+
+创建响应 `state=TRANSITIONING` 只说明已发送播放请求；`PLAYING` 是电视回报的状态。服务端独立轮询，只有回报的 `TrackURI` 与当前投屏一致、位置有效时才记录进度，`position_known=false` 不可推算当前位置；`last_position` 保留最近有效断点，供电视停播后切回手机使用。电视切换到其他媒体后标为 `REPLACED`，不覆盖进度或继续控制新媒体。跳转续播失败以 `warning` 返回；设备命令失败返回 502，格式未获接收端声明支持返回 422。会话为内存状态，最多保留 24 小时；服务重启需重新投屏。
 
 ## 库作用域
 

@@ -90,14 +90,14 @@ test('api() 支持外部 signal：外部取消与超时区分', () => {
   assert.match(apiSrc, /请求超时，请检查连接后重试/)
   assert.doesNotMatch(apiSrc, /请求超时，后台可能仍在处理，稍后刷新查看/)
 
-test('全屏隐藏态首次点击只显控件：pointerdown 记显隐、click 据此跳过暂停', () => {
+test('画内控件隐藏态首次点击只显控件：pointerdown 记显隐、click 据此跳过暂停', () => {
   // pointerdown 先于 click 点亮控件，必须用按下瞬间状态仲裁，否则首次点击必暂停。
   assert.match(src, /@pointerdown="notePointerDown"/, '画面容器 pointerdown 必须先记显隐再点亮')
   const note = fnBody('function notePointerDown(')
   assert.match(note, /overlayAtPointerDown\s*=\s*overlayVisible\.value/, '必须记录按下瞬间控件是否可见')
   assert.match(note, /showOverlay\(\)/, '记录后仍要点亮控件')
   const click = fnBody('function onSurfaceClick(')
-  assert.match(click, /surfaceClickRevealsOnly\(isFull\.value,\s*overlayAtPointerDown\)/, '单击必须按全屏隐藏态仲裁')
+  assert.match(click, /surfaceClickRevealsOnly\(overlayAtPointerDown\)/, '窗口和全屏单击按同一隐藏态仲裁')
   assert.match(click, /!revealOnly/, '显控点击必须跳过 togglePlay')
 })
 

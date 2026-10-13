@@ -97,6 +97,7 @@ object DesignIcons {
         "volume" to listOf(Shape("M11 4 6 8H3v8h3l5 4z", fill = false, stroke = true, evenOdd = false), Shape("M15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14", fill = false, stroke = true, evenOdd = false)),
         "warning" to listOf(Shape("m12 3 10 18H2z", fill = false, stroke = true, evenOdd = false), Shape("M12 9v5m0 3v.01", fill = false, stroke = true, evenOdd = false)),
         "tag" to listOf(Shape("M3 3h8l11 11-8 8L3 11ZM7 7h.01", fill = false, stroke = true, evenOdd = false)),
+        "cast" to listOf(Shape("M3 8V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6M3 12a7 7 0 0 1 7 7M3 16a3 3 0 0 1 3 3", fill = false, stroke = true, evenOdd = false), Shape("M3 19h.01", fill = false, stroke = true, evenOdd = false)),
     )
     private val aliases = mapOf(
         "back" to "arrow-left",

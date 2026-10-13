@@ -1,0 +1,293 @@
+"""Real loopback SOAP receiver, bounded discovery, scoped Range reads, and progress ownership."""
+import socket
+import threading
+import time
+import xml.etree.ElementTree as ET
+from types import SimpleNamespace
+
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+from app import library_paths, store
+from app.storage import smb
+from _smb_fake import FakeSmbClient
+from app.casting import dlna, service
+from app.main import app
+from app.routers import cast
+from scripts.fixtures.dlna_receiver import DlnaReceiver
+
+
+@pytest.fixture
+def receiver(monkeypatch):
+    original = dlna.lan_ip
+    monkeypatch.setattr(dlna, "lan_ip", lambda value: value == "127.0.0.1" or original(value))
+    with DlnaReceiver() as receiver:
+        yield receiver
+
+
+@pytest.fixture
+def casting(receiver, tmp_path, monkeypatch):
+    manager = service.CastManager()
+    monkeypatch.setattr(cast, "manager", manager)
+    monkeypatch.setattr(manager, "_ensure_worker", lambda: None)
+    device = dlna.describe(receiver.location, "127.0.0.1")
+    monkeypatch.setattr(dlna, "discover", lambda: [device])
+    lib = store.create_library(name=f"cast-{tmp_path.name}", path=str(tmp_path))
+    library_paths.invalidate_cache()
+    path = "电影 空格%&#.mp4"
+    data = bytes(range(256)) * 10
+    (tmp_path / path).write_bytes(data)
+    vid = store.upsert_movie_by_path(path, library_id=lib["id"])
+    store.update_movie_meta(vid, title="合成影片 & <测试>")
+    monkeypatch.setattr(service, "_media_cached_or_probe", lambda *_: {"playable": True, "duration": 600})
+    client = TestClient(app)
+    assert client.post("/api/cast/discover").status_code == 200
+    yield SimpleNamespace(manager=manager, receiver=receiver, device=device, vid=vid,
+                          lib=lib, path=path, data=data, client=client)
+    manager.shutdown()
+    store.delete_media_library(lib["media_library_id"])
+    library_paths.invalidate_cache()
+
+
+def start(fixture, **extra):
+    result = fixture.client.post("/api/cast/sessions", json={"device_id": fixture.device.id,
+        "version_id": fixture.vid, "base_url": "http://192.168.1.10:8080", "position": 125, **extra})
+    assert result.status_code == 200, result.text
+    return result.json()
+
+
+@pytest.mark.parametrize("url", ["http://127.0.0.1/a", "http://8.8.8.8/a", "http://169.254.169.254/latest/",
+    "http://localhost/a", "http://192.168.1.2@8.8.8.8/a", "http://192.168.1.2:80@192.168.1.2/a",
+    "file:///etc/passwd", "https://192.168.1.2/a", "http://192.168.1.3/a", "http://192.168.1.2:99999/a"])
+def test_discovery_cannot_fetch_unrelated_or_non_lan_addresses(url):
+    with pytest.raises(dlna.CastError):
+        dlna.device_url(url, "192.168.1.2")
+
+
+def test_description_and_soap_use_real_receiver(receiver):
+    device = dlna.describe(receiver.location, "127.0.0.1")
+    assert device.name.startswith("合成 DLNA 电视")
+    assert device.rendering and device.connection
+    dlna.action(device.transport, "SetAVTransportURI", {"InstanceID": 0,
+        "CurrentURI": "http://192.168.1.2/video?x=%25&z=中文", "CurrentURIMetaData": ""})
+    assert receiver.uri.endswith("&z=中文")
+    receiver.reject.add("Seek")
+    with pytest.raises(dlna.CastError, match="跳转"):
+        dlna.action(device.transport, "Seek", {"InstanceID": 0, "Unit": "REL_TIME", "Target": "00:02:00"})
+
+
+def test_description_rejects_cross_device_control_urls(monkeypatch):
+    monkeypatch.setattr(dlna, "_http", lambda *_: b'<root xmlns="urn:schemas-upnp-org:device-1-0"><URLBase>http://8.8.8.8/</URLBase></root>')
+    with pytest.raises(dlna.CastError):
+        dlna.describe("http://192.168.1.2/device.xml", "192.168.1.2")
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16", "utf-32"])
+def test_rejects_entity_expansion(encoding):
+    with pytest.raises(dlna.CastError):
+        dlna.parse_xml('<!DOCTYPE x [<!ENTITY a "data">]><x>&a;</x>'.encode(encoding))
+
+
+def test_ssdp_real_unicast_response_is_bounded_and_validated(receiver, monkeypatch):
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+        udp.bind(("127.0.0.1", 0))
+        monkeypatch.setattr(dlna, "SSDP_TARGET", udp.getsockname())
+        def respond():
+            for _ in range(2):
+                packet, peer = udp.recvfrom(8192)
+                assert b"M-SEARCH" in packet and b"MediaRenderer:1" in packet
+                udp.sendto(f"HTTP/1.1 200 OK\r\nLOCATION: {receiver.location}\r\n\r\n".encode(), peer)
+                udp.sendto(b"HTTP/1.1 200 OK\r\nLOCATION: http://8.8.8.8/\r\n\r\n", peer)
+        thread = threading.Thread(target=respond)
+        thread.start()
+        assert dlna.ssdp_locations(0.1) == [(receiver.location, "127.0.0.1")]
+        thread.join(timeout=1)
+        assert not thread.is_alive()
+
+
+def test_play_range_head_and_control(casting):
+    result = start(casting)
+    sid = result["id"]
+    assert result["position_known"] is False
+    assert [c["name"] for c in casting.receiver.calls][-3:] == ["SetAVTransportURI", "Play", "Seek"]
+    assert casting.receiver.position == 125
+    meta = ET.fromstring(casting.receiver.metadata)
+    assert meta.findtext(".//{http://purl.org/dc/elements/1.1/}title") == "合成影片 & <测试>"
+    assert "电影" not in casting.receiver.uri and "/api/cast/media/" in casting.receiver.uri
+    response = casting.client.get(f"/api/cast/media/{sid}", headers={"Range": "bytes=10-29"})
+    assert response.status_code == 206 and response.content == casting.data[10:30]
+    assert response.headers["content-type"].startswith("video/mp4")
+    assert response.headers["contentFeatures.dlna.org"].startswith("DLNA.ORG_OP=01")
+    head = casting.client.head(f"/api/cast/media/{sid}")
+    assert head.status_code == 200 and not head.content
+    assert int(head.headers["content-length"]) == len(casting.data)
+    for command, extra in (("pause", {}), ("play", {}), ("seek", {"value": 200}), ("volume", {"value": 60})):
+        r = casting.client.post(f"/api/cast/sessions/{sid}/control", json={"command": command, **extra})
+        assert r.status_code == 200, r.text
+    assert casting.receiver.position == 200 and casting.receiver.volume == 60
+    assert casting.client.post(f"/api/cast/sessions/{sid}/control", json={"command": "stop"}).json()["active"] is False
+
+
+def test_episode_scope_and_background_progress(casting):
+    show = store.upsert_show(casting.lib["id"], "合成剧集")
+    episode = store.upsert_episode(show, casting.lib["id"], casting.path, 1, 1)
+    result = start(casting, kind="episode", version_id=episode)
+    session = casting.manager.get(result["id"])
+    casting.receiver.position = 321
+    casting.manager._poll(session)
+    assert store.get_progress(episode, "episode")["position"] == 321
+    assert casting.client.get(f"/api/cast/current?version_id={episode}&kind=episode").json()["session"]["id"] == result["id"]
+    assert casting.client.get(f"/api/cast/current?version_id={episode}&kind=movie").json()["session"] is None
+
+
+def test_unrelated_track_cannot_overwrite_progress_or_be_stopped(casting):
+    result = start(casting)
+    store.save_progress(casting.vid, 88, 600)
+    casting.receiver.uri = "http://192.168.1.20/another-video.mp4"
+    casting.receiver.position = 400
+    response = casting.client.post(f"/api/cast/sessions/{result['id']}/control", json={"command": "stop"})
+    assert response.status_code == 409
+    assert casting.receiver.state == "PLAYING"
+    assert store.get_progress(casting.vid)["position"] == 88
+
+
+def test_unknown_position_and_end_reset_do_not_forge_progress(casting):
+    result = start(casting)
+    session = casting.manager.get(result["id"])
+    store.save_progress(casting.vid, 88, 600)
+    casting.receiver.report_uri = False
+    casting.receiver.position = 400
+    casting.manager._poll(session)
+    assert not session.position_known and store.get_progress(casting.vid)["position"] == 88
+    casting.receiver.report_uri = True
+    casting.receiver.state = "STOPPED"
+    casting.receiver.position = 0
+    casting.manager._poll(session)
+    assert not session.active and store.get_progress(casting.vid)["position"] == 88
+
+
+def test_end_reset_preserves_last_valid_position_for_phone_resume(casting):
+    result = start(casting)
+    session = casting.manager.get(result["id"])
+    casting.receiver.position = 321
+    casting.manager._poll(session)
+    casting.receiver.state, casting.receiver.position = "STOPPED", 0
+    casting.manager._poll(session)
+    assert session.public()["last_position"] == 321
+    assert not session.position_known
+    assert store.get_progress(casting.vid)["position"] == 321
+
+
+def test_deleted_media_does_not_create_orphan_progress(casting):
+    result = start(casting)
+    session = casting.manager.get(result["id"])
+    store.delete_movie(casting.vid)
+    casting.manager._poll(session)
+    assert not session.active and session.state == "MEDIA_REMOVED"
+    assert casting.client.get(f"/api/cast/media/{result['id']}").status_code == 404
+
+
+def test_unsupported_seek_warns_and_no_position_is_assumed(casting):
+    casting.receiver.reject.add("Seek")
+    result = start(casting)
+    assert result["warning"] and not result["position_known"]
+    assert casting.receiver.position == 0
+
+
+def test_missing_position_service_still_reports_transport(casting):
+    result = start(casting)
+    casting.receiver.reject.add("GetPositionInfo")
+    session = casting.manager.get(result["id"])
+    for _ in range(7):
+        casting.manager._poll(session)
+    assert session.active and session.state == "PLAYING" and not session.position_known
+
+
+def test_stale_device_invalid_address_and_missing_movie_do_not_send_commands(casting):
+    before = len(casting.receiver.calls)
+    for payload in ({"device_id": "arbitrary"}, {"base_url": "http://10.0.2.2:8080"},
+                    {"version_id": 999999999}):
+        response = casting.client.post("/api/cast/sessions", json={"device_id": casting.device.id,
+            "version_id": casting.vid, "base_url": "http://192.168.1.10:8080", **payload})
+        assert response.status_code in (404, 422)
+    casting.manager.searched_at = time.monotonic() - 121
+    assert casting.client.post("/api/cast/sessions", json={"device_id": casting.device.id,
+        "version_id": casting.vid, "base_url": "http://192.168.1.10:8080"}).status_code == 404
+    assert len(casting.receiver.calls) == before
+
+
+def test_rejects_loopback_media_url():
+    with pytest.raises(HTTPException):
+        service.base_url("http://127.0.0.1:8080")
+
+
+def test_rejected_format_and_auth_have_no_playback_effect(casting):
+    casting.receiver.sink = "http-get:*:video/mpeg:*"
+    response = casting.client.post("/api/cast/sessions", json={"device_id": casting.device.id,
+        "version_id": casting.vid, "base_url": "http://192.168.1.10:8080"})
+    assert response.status_code == 422 and not casting.manager.sessions
+    assert not any(c["name"] == "Play" for c in casting.receiver.calls)
+    store.set_setting("jzmedia_token", "casting-secret-test")
+    try:
+        assert casting.client.post("/api/cast/discover").status_code == 401
+        assert casting.client.post("/api/cast/sessions", json={}).status_code == 401
+        assert casting.client.post("/api/cast/sessions/unknown/control", json={"command": "stop"}).status_code == 401
+        assert casting.client.post("/api/cast/discover", headers={"X-Api-Token": "casting-secret-test"}).status_code == 200
+    finally:
+        store.set_setting("jzmedia_token", "")
+
+
+def test_failed_play_cleans_up_loaded_receiver(casting):
+    casting.receiver.reject.add("Play")
+    response = casting.client.post("/api/cast/sessions", json={"device_id": casting.device.id,
+        "version_id": casting.vid, "base_url": "http://192.168.1.10:8080"})
+    assert response.status_code == 502
+    assert casting.receiver.state == "STOPPED"
+    assert not casting.manager.sessions
+    assert casting.receiver.calls[-1]["name"] == "Stop"
+
+
+def test_read_only_smb_cast_uses_scoped_range_and_never_exposes_credentials(casting, tmp_path, monkeypatch):
+    root = tmp_path / "remote"
+    root.mkdir()
+    fake = FakeSmbClient(root)
+    monkeypatch.setenv("SMB_DRIVER", "direct")
+    monkeypatch.setattr(smb, "smbclient", fake)
+    (root / casting.path).write_bytes(casting.data)
+    lib = store.create_library(name=f"cast-smb-{tmp_path.name}", source="smb",
+                               smb={"host": "nas", "share": "video", "username": "u", "password": "private-cast-password"})
+    store.update_media_library(lib["media_library_id"], read_only=True)
+    library_paths.invalidate_cache()
+    smb.invalidate()
+    try:
+        vid = store.upsert_movie_by_path(casting.path, library_id=lib["id"])
+        result = start(casting, version_id=vid)
+        assert "private-cast-password" not in str(result) + casting.receiver.uri + casting.receiver.metadata
+        response = casting.client.get(f"/api/cast/media/{result['id']}", headers={"Range": "bytes=100-139"})
+        assert response.status_code == 206 and response.content == casting.data[100:140]
+        assert response.headers["content-range"] == f"bytes 100-139/{len(casting.data)}"
+    finally:
+        store.delete_media_library(lib["media_library_id"])
+        library_paths.invalidate_cache()
+        smb.invalidate()
+
+
+def test_new_cast_replaces_session_and_shutdown_does_not_stop_tv(casting):
+    first = start(casting)
+    second = start(casting)
+    assert not casting.manager.get(first["id"]).active
+    assert casting.manager.get(second["id"]).active
+    casting.manager.shutdown()
+    assert casting.receiver.state == "PLAYING"
+
+
+def test_startup_stop_has_grace_period(casting):
+    result = start(casting)
+    session = casting.manager.get(result["id"])
+    casting.receiver.state = "STOPPED"
+    casting.manager._poll(session)
+    assert session.active and session.state == "TRANSITIONING"
+    session.created -= 31
+    casting.manager._poll(session)
+    assert not session.active
