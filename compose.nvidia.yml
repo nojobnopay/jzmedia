@@ -1,0 +1,15 @@
+# NVIDIA NVENC 可选覆盖；与 docker-compose.yml 一起使用。
+# 默认不加载；通过 -f 或 COMPOSE_FILE 显式选择。无 NVIDIA GPU 的主机不要加载。
+# 前置条件、验证与恢复见 docs/getting-started/configuration.md。
+services:
+  mymedia:
+    environment:
+      # video 提供 NVENC/NVDEC 驱动库；compute 用于 CUDA 输入解码。
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

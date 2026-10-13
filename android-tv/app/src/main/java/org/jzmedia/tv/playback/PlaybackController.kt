@@ -38,6 +38,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import org.json.JSONArray
 import org.json.JSONObject
+import org.jzmedia.tv.BuildConfig
 import org.jzmedia.tv.data.JzApi
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -110,6 +111,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         .setSeekBackIncrementMs(30_000)
         .setSeekForwardIncrementMs(30_000)
         .build().apply {
+            if (BuildConfig.DEBUG) addAnalyticsListener(PlaybackDiagnostics())
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             setHandleAudioBecomingNoisy(true)
             trackSelectionParameters = trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()

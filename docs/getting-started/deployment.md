@@ -1,5 +1,5 @@
 ---
-version: 0.24.4
+version: 0.24.5
 reviewed: 2026-10-13
 ---
 
@@ -204,7 +204,7 @@ docker compose -f docker-compose.yml -f compose.media-legacy.yml up -d --no-buil
 4. 使用 NAS 的 Compose 项目管理界面或上面的 `docker compose` / `docker run` 命令启动。界面中也需选择已准备的本地镜像，并核对端口、目录、用户与设备映射；当前不要选择从 DockerHub 下载 jzmedia。
 5. 访问 `http://NAS地址:8080`。媒体库类型选「本地路径」，新部署默认根路径填 `/app/media`；同一台 NAS 的挂载目录不必再绕行 SMB。
 
-Intel VAAPI/QSV 硬件转码可按 [配置参考](configuration.md) 映射设备。NVENC 在应用中有探测路径，但仓库没有完整 NVIDIA 容器设备配置，需在目标机器另行验证。
+Intel VAAPI/QSV 硬件转码可按 [配置参考](configuration.md#intel-硬件设备)映射设备；配有 NVIDIA 显卡及容器 GPU 运行时的机器可按 [NVIDIA 硬件转码](configuration.md#nvidia-硬件转码)叠加可选配置，并核对实际后端。
 
 ## 宿主直接运行
 

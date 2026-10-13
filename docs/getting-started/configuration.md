@@ -1,6 +1,6 @@
 ---
-version: 0.22.3
-reviewed: 2026-10-04
+version: 0.24.5
+reviewed: 2026-10-13
 ---
 
 # 配置参考
@@ -122,6 +122,27 @@ group_add:
 在宿主用 `stat -c '%g' /dev/dri/renderD128` 等命令核对设备组号，将 `group_add` 中的变量替换为实际组号；使用可选 `.env` 时也可在其中填写 `RENDER_GID`、`VIDEO_GID`。不要照抄另一台机器的数值。`TRANSCODER` 默认就是 `auto`，启动后在 `/api/stream/backends` 检查实际后端。识别不到时系统回落软件，指定后端也不能保证目标硬件编码一定成功。
 
 使用 `docker run` 时，在创建容器的命令中添加 `--device /dev/dri:/dev/dri`，并分别用 `--group-add` 传入上述实际组号；仅修改 `.env` 不会添加设备或组权限。
+
+### NVIDIA 硬件转码
+
+`compose.nvidia.yml` 是可选覆盖文件，默认不加载；通过 `-f compose.nvidia.yml` 或 `COMPOSE_FILE` 显式加入配置列表时才生效。无 NVIDIA GPU 的设备继续使用原启动命令，文件留在仓库不会产生影响；若强行加载，Docker 可能因无法分配 GPU 而拒绝启动，此时应用尚未运行，不能依靠应用的软件转码回退。
+
+需要支持 NVENC 的 NVIDIA 显卡及可用的容器 GPU 环境：Windows 使用 [Docker Desktop 的 WSL2 后端](https://docs.docker.com/desktop/features/gpu/)和 Windows NVIDIA 驱动；Linux Docker Engine 按 [NVIDIA Container Toolkit 安装说明](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)配置运行时。显卡在宿主可见不代表现有容器已获得 GPU。
+
+在项目根目录叠加 `compose.nvidia.yml`，先检查配置，再在停止观影后重新创建服务：
+
+```bash
+docker compose -f docker-compose.yml -f compose.nvidia.yml config --quiet
+docker compose -f docker-compose.yml -f compose.nvidia.yml up -d --no-build --pull never --force-recreate mymedia
+```
+
+已有自定义覆盖文件的实例需保留全部原 `-f` 参数，再追加 `-f compose.nvidia.yml`；WSL 开发实例也需显式保留 `-f docker-compose.override.yml`。重新创建会中断正在播放的会话。
+
+**预期结果：**浏览器打开服务器的 `/api/stream/backends`，返回 `name: "nvenc"`、`hw: true`。`TRANSCODER` 默认的 `auto` 会执行真实编码探测；已有配置为 `sw` 时，需改为 `auto` 或 `nvenc` 后重新创建容器。烧录字幕等软件专用路径仍可能使用 CPU，实际会话后端以播放调试结果为准。
+
+覆盖文件申请 NVIDIA GPU，并启用 `compute,video,utility` 驱动能力；其中 `video` 提供 NVENC/NVDEC 所需的库，见 [NVIDIA 驱动能力说明](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/docker-specialized.html#driver-capabilities)。使用 `docker run` 时，在原创建命令中添加 `--gpus all -e NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`，其余端口、卷及用户参数保持原配置。
+
+若报告 `Cannot load libcuda.so.1` 或 `libnvidia-encode.so.1`，检查容器的 GPU 申请及上述驱动能力；若 Docker 报无法选择 GPU 设备驱动，先修复宿主 GPU 运行时。`TRANSCODER=nvenc` 本身不会授予容器 GPU。需要恢复时，移除 `-f compose.nvidia.yml`，保留原来的配置参数重新创建服务；若曾强制 `TRANSCODER=nvenc`，同时恢复为 `auto`。
 
 ## 智能辅助
 

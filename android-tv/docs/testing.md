@@ -102,6 +102,18 @@ adb -s SERIAL reverse --remove tcp:18889
 
 `root` 下的 `fixture-info.json`、`requests.jsonl` 和 `playback-responses.jsonl` 用于核对片源、请求和时间轴；临时目录保留供复查，确认不再需要后可删除。此夹具不继承真实令牌、TMDB、AI 或 NAS 配置。
 
+## 排查播放卡顿
+
+使用 Debug 包时，先记录 APK 版本、设备/API、画质及字幕设置，在卡顿发生时通过 SDK 的 `adb` 读取日志：
+
+```sh
+adb -s SERIAL logcat -v threadtime 'JzPlayback:D' '*:S'
+```
+
+`SERIAL` 换成目标设备序列号。日志记录播放状态、`bufferedMs`（本地剩余媒体缓存毫秒数）、解码器名称、`audioUnderrun`（音频输出欠载）与累计批次掉帧；不记录服务器地址、令牌或字幕正文。Release 包不启用这些诊断事件。
+
+缓存接近零时检查分片请求和服务器供片；缓存已有数十秒却仍反复 `buffering`，应检查音频输出欠载、解码与渲染调度，不能只增加网络缓存。用同片同画质关闭字幕作对照，并分别验证退出重播、续播和跳转。模拟器结果不能代替实体电视验收。
+
 ## 验收边界与真机检查
 
 ### 各类证据的边界
