@@ -106,7 +106,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
             response
         }.build()
 
-    val player: ExoPlayer = ExoPlayer.Builder(appContext)
+    val player: ExoPlayer = ExoPlayer.Builder(appContext, PlaybackRenderersFactory(appContext))
         .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(http)))
         .setSeekBackIncrementMs(30_000)
         .setSeekForwardIncrementMs(30_000)
