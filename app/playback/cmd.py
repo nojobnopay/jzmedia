@@ -1,6 +1,7 @@
 """playback.cmd（自 app/playback.py 拆分，评审 B9/R11-Q1；经 playback 门面使用）。"""
 import os
 import json
+import math
 import subprocess
 from .. import library_paths
 from ..media import ffmpeg_bin
@@ -151,6 +152,26 @@ def _append_sub_input(cmd: list, plan: dict, pre: float) -> None:
     cmd += ["-i", src]
 
 
+def _transcode_pacing_args(plan: dict, vcopy: bool, trim_after: float,
+                          seg_time: int) -> list[str]:
+    """Optional HLS producer pacing for hosts shared with a playback client.
+
+    This changes resource use, not the output format or artifact identity. Keep
+    copy/precache reads and finite MP4 clips fast. Seek preroll and the first two
+    segments may burst so the limit does not add a long initial wait.
+    """
+    if vcopy or plan.get("seg") == "mp4":
+        return []
+    try:
+        rate = float(os.getenv("TRANSCODE_READRATE", "0"))
+    except ValueError:
+        return []
+    if not math.isfinite(rate) or rate < 1:
+        return []
+    return ["-readrate", f"{rate:g}", "-readrate_initial_burst",
+            f"{trim_after + max(8, 2 * seg_time):g}"]
+
+
 def _build_cmd_fmp4(abs_path: str, plan: dict,
                     start: float, seg_time: int, backend=None) -> list[str]:
     vcopy = bool(plan.get("vcopy"))
@@ -166,6 +187,7 @@ def _build_cmd_fmp4(abs_path: str, plan: dict,
         cmd += backend.input_args(burn=burn_sub)
     # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
     cmd += probe_limit_args(abs_path)   # 远程输入：限探测读取 + HTTP 读超时（本地无操作）
+    cmd += _transcode_pacing_args(plan, vcopy, trim_after, seg_time)
     cmd += ["-fflags", "+genpts", "-i", abs_path]
     if burn_sub:
         _append_sub_input(cmd, plan, pre)
@@ -244,6 +266,7 @@ def _build_cmd_ts(abs_path: str, plan: dict,
         cmd += backend.input_args(burn=burn_sub)
     # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
     cmd += probe_limit_args(abs_path)   # 远程输入：限探测读取 + HTTP 读超时（本地无操作）
+    cmd += _transcode_pacing_args(plan, vcopy, trim_after, seg_time)
     cmd += ["-fflags", "+genpts"]
     cmd += ["-i", abs_path]
     if burn_sub:
