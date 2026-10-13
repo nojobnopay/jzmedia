@@ -3,12 +3,21 @@ package org.jzmedia.tv.playback
 import android.util.Log
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime
 
 /** Debug builds only: distinguish source starvation from output stalls without logging media URLs. */
 @UnstableApi
 internal class PlaybackDiagnostics : AnalyticsListener {
+    fun snapshot(player: ExoPlayer) {
+        val video = player.videoDecoderCounters
+        video?.ensureUpdated()
+        Log.d("JzPlayback", "sample state=${player.playbackState} playing=${player.isPlaying}" +
+            " positionMs=${player.currentPosition} bufferedMs=${player.totalBufferedDuration}" +
+            " rendered=${video?.renderedOutputBufferCount ?: 0} dropped=${video?.droppedBufferCount ?: 0}")
+    }
+
     override fun onPlaybackStateChanged(eventTime: EventTime, state: Int) {
         val name = when (state) {
             Player.STATE_IDLE -> "idle"

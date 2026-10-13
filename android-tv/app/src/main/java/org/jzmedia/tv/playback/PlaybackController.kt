@@ -106,12 +106,14 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
             response
         }.build()
 
+    private val diagnostics = if (BuildConfig.DEBUG) PlaybackDiagnostics() else null
+
     val player: ExoPlayer = ExoPlayer.Builder(appContext, PlaybackRenderersFactory(appContext))
         .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(http)))
         .setSeekBackIncrementMs(30_000)
         .setSeekForwardIncrementMs(30_000)
         .build().apply {
-            if (BuildConfig.DEBUG) addAnalyticsListener(PlaybackDiagnostics())
+            diagnostics?.let(::addAnalyticsListener)
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             setHandleAudioBecomingNoisy(true)
             trackSelectionParameters = trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
@@ -189,6 +191,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                         queueSave()
                         if (ready && shouldMarkWatched(state.position, state.duration)) markWatched()
                     }
+                    if (tick % 25 == 0) diagnostics?.snapshot(player)
                     if (tick % 100 == 0) {
                         val sid = sessionId
                         if (sid != null) launch {
