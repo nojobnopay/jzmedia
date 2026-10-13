@@ -1,5 +1,5 @@
 ---
-version: 0.24.5
+version: 0.26.0
 reviewed: 2026-10-13
 ---
 
@@ -245,6 +245,8 @@ DATA_DIR=./data MEDIA_ROOT=./media APP_PORT=8080 ./start.sh
 需要手机投屏时，先确认电视能通过服务器的局域网 IP 和端口获取视频，并已开启 DLNA 视频接收。操作见[投屏到电视](../user-guide/playback-controls.md#投屏到电视)。不要给电视发送 `localhost`、`127.0.0.1`、模拟器专用的 `10.0.2.2` 或容器内部地址。
 
 发现使用服务器发出的 SSDP UDP 组播（`239.255.255.250:1900`），响应返回服务器临时 UDP 端口；控制通过电视声明的 HTTP 端口，视频由电视从 jzmedia 读取。只映射容器的 TCP `8080` 或 UDP `1900`，不能保证组播发现可用。手机能打开网站，也不代表服务器能搜索电视；访客 Wi-Fi、跨 VLAN、WSL NAT 和 Docker 桥接都需分别检查互通。
+
+若服务器搜不到电视、但能通过 HTTP 连接电视，可在投屏面板手动填写电视的 DLNA 描述地址。此方法无需组播，但仍要求电视能访问服务器的视频地址；具体操作见[投屏到电视](../user-guide/playback-controls.md#投屏到电视)。
 
 Linux 或支持宿主网络的 NAS 上，可在自己的 Compose 部署配置中将应用服务设为 `network_mode: host`，同时移除该服务的 `ports` 映射；此时服务直接使用宿主 `8080`，原 `APP_PORT` 映射不再生效。先确认端口无冲突，并按实际平台配置防火墙。此设置不是默认部署要求，Docker Desktop 与 WSL 的发现能力仍需在实际环境验证。
 

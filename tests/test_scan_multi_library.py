@@ -2,12 +2,14 @@
 import pytest
 
 from app import library_paths, scanner, store
+from app.metadata import chain as metadata_chain
 
 
 @pytest.fixture(autouse=True)
 def _offline_tmdb(monkeypatch):
-    """扫描链路禁止触网：search 返回空。"""
+    """扫描链路禁止触网：所有在线搜索返回空。"""
     monkeypatch.setattr(scanner.tmdb, "search_movie", lambda q, year=None: [])
+    monkeypatch.setattr(metadata_chain, "search", lambda *_args, **_kwargs: [])
 
 
 @pytest.fixture()

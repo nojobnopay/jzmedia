@@ -13,6 +13,7 @@ export function castStateLabel(session) {
 export function useCasting({ media, position, beforePlay = async () => {}, onSession = () => {}, request = api }) {
   const open = ref(false), searching = ref(false), busy = ref(false)
   const devices = ref([]), selected = ref(''), serverUrl = ref('')
+  const manualLocation = ref('')
   const session = ref(null), error = ref(''), searched = ref(false)
   let disposed = false, searchGeneration = 0, searchController = null, pollTimer = 0
   let pollController = null, restoreController = null
@@ -75,6 +76,24 @@ export function useCasting({ media, position, beforePlay = async () => {}, onSes
     } finally {
       if (!disposed && generation === searchGeneration) searching.value = false
     }
+  }
+  async function addManual() {
+    if (disposed || busy.value || !manualLocation.value.trim()) return
+    searchController?.abort()
+    searchGeneration++
+    searching.value = false
+    busy.value = true
+    error.value = ''
+    try {
+      const result = await request('/api/cast/devices', { method: 'POST',
+        body: JSON.stringify({ location: manualLocation.value.trim() }), timeout: 15000 })
+      if (disposed) return
+      devices.value = [...devices.value.filter(device => device.id !== result.item.id), result.item]
+      selected.value = result.item.id
+      searched.value = true
+      if (!serverUrl.value && result.base_url) serverUrl.value = result.base_url
+    } catch (e) { if (!disposed) error.value = e.message }
+    finally { if (!disposed) busy.value = false }
   }
   function show() {
     if (disposed) return
@@ -139,6 +158,6 @@ export function useCasting({ media, position, beforePlay = async () => {}, onSes
     pollController?.abort()
     session.value = null
   }
-  return { open, searching, busy, devices, selected, serverUrl, session, error, searched,
-    active, stateLabel, restore, discover, show, close, play, control, forget, dispose }
+  return { open, searching, busy, devices, selected, serverUrl, manualLocation, session, error, searched,
+    active, stateLabel, restore, discover, addManual, show, close, play, control, forget, dispose }
 }

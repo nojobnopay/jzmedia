@@ -17,6 +17,19 @@ def devices(request: Request):
     return {"items": manager.device_list(), "base_url": suggested_url(str(request.base_url))}
 
 
+class ManualDeviceBody(BaseModel):
+    location: str = Field(min_length=1, max_length=512)
+
+
+@router.post("/devices")
+def add_device(body: ManualDeviceBody, request: Request):
+    try:
+        item = manager.add_device(body.location)
+    except dlna.CastError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"item": item, "base_url": suggested_url(str(request.base_url))}
+
+
 @router.post("/discover")
 def discover(request: Request):
     try:

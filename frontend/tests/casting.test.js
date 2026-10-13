@@ -34,6 +34,26 @@ test('only latest discovery may replace selection and the server address', async
   casting.dispose()
 })
 
+test('manual addition cancels discovery and selects the validated receiver', async () => {
+  const discovery = pending(), calls = []
+  const item = { id: 'tv', name: '主卧的小米电视' }
+  const casting = make(async (path, options) => {
+    calls.push({ path, options })
+    return path === '/api/cast/discover' ? discovery.promise : { item, base_url: 'http://192.168.1.98:58080' }
+  })
+  const search = casting.discover()
+  casting.manualLocation.value = ' http://192.168.1.72:49152/description.xml '
+  await casting.addManual()
+  assert.equal(calls[0].options.signal.aborted, true)
+  assert.deepEqual(JSON.parse(calls[1].options.body), { location: 'http://192.168.1.72:49152/description.xml' })
+  discovery.resolve({ items: [] })
+  await search
+  assert.deepEqual(casting.devices.value, [item])
+  assert.equal(casting.selected.value, 'tv')
+  assert.equal(casting.serverUrl.value, 'http://192.168.1.98:58080')
+  casting.dispose()
+})
+
 test('play waits for local progress, sends episode identity and locks closing until acknowledged', async () => {
   const result = pending(), calls = []
   let saved = false, accepted = null

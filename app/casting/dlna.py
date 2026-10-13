@@ -38,7 +38,7 @@ def device_url(value: str, peer: str) -> str:
         url = urlsplit(value)
         if (not lan_ip(peer) or url.scheme != "http" or url.hostname != peer
                 or url.username or url.password or url.fragment
-                or not 1 <= (url.port or 80) <= 65535):
+                or not 1 <= (80 if url.port is None else url.port) <= 65535):
             raise ValueError
     except ValueError as exc:
         raise CastError("设备返回了无效的局域网地址") from exc
@@ -131,6 +131,16 @@ def describe(location: str, peer: str) -> Device:
                       services["AVTransport"], services.get("RenderingControl"),
                       services.get("ConnectionManager"))
     raise CastError("设备没有提供 DLNA 视频播放服务")
+
+
+def describe_location(location: str) -> Device:
+    """Resolve a user-supplied description URL without DNS or redirect access."""
+    location = location.strip()
+    try:
+        peer = urlsplit(location).hostname or ""
+    except ValueError:
+        peer = ""
+    return describe(location, peer)
 
 
 def ssdp_locations(timeout: float = 3) -> list[tuple[str, str]]:

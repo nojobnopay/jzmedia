@@ -59,7 +59,8 @@ def start(fixture, **extra):
 
 @pytest.mark.parametrize("url", ["http://127.0.0.1/a", "http://8.8.8.8/a", "http://169.254.169.254/latest/",
     "http://localhost/a", "http://192.168.1.2@8.8.8.8/a", "http://192.168.1.2:80@192.168.1.2/a",
-    "file:///etc/passwd", "https://192.168.1.2/a", "http://192.168.1.3/a", "http://192.168.1.2:99999/a"])
+    "file:///etc/passwd", "https://192.168.1.2/a", "http://192.168.1.3/a",
+    "http://192.168.1.2:0/a", "http://192.168.1.2:99999/a"])
 def test_discovery_cannot_fetch_unrelated_or_non_lan_addresses(url):
     with pytest.raises(dlna.CastError):
         dlna.device_url(url, "192.168.1.2")
@@ -81,6 +82,35 @@ def test_description_rejects_cross_device_control_urls(monkeypatch):
     monkeypatch.setattr(dlna, "_http", lambda *_: b'<root xmlns="urn:schemas-upnp-org:device-1-0"><URLBase>http://8.8.8.8/</URLBase></root>')
     with pytest.raises(dlna.CastError):
         dlna.describe("http://192.168.1.2/device.xml", "192.168.1.2")
+
+
+def test_manual_device_registration_survives_empty_discovery(casting, monkeypatch):
+    monkeypatch.setattr(dlna, "discover", lambda: [])
+    response = casting.client.post("/api/cast/devices", json={"location": casting.receiver.location})
+    assert response.status_code == 200, response.text
+    assert response.json()["item"]["id"] == casting.device.id
+    casting.manager.searched_at = 0
+    discovered = casting.client.post("/api/cast/discover")
+    assert discovered.status_code == 200
+    assert [item["id"] for item in discovered.json()["items"]] == [casting.device.id]
+    assert start(casting)["device"]["id"] == casting.device.id
+
+
+@pytest.mark.parametrize("location", ["http://127.0.0.1/description.xml",
+    "http://169.254.169.254/latest/meta-data/", "http://8.8.8.8/description.xml",
+    "http://localhost/description.xml", "https://192.168.1.72/description.xml",
+    "http://192.168.1.72@8.8.8.8/description.xml", "file:///etc/passwd"])
+def test_manual_device_rejects_non_lan_locations(casting, location):
+    response = casting.client.post("/api/cast/devices", json={"location": location})
+    assert response.status_code == 422
+    assert [item["id"] for item in casting.manager.device_list()] == [casting.device.id]
+
+
+def test_manual_device_rejects_non_renderer_description(casting, monkeypatch):
+    monkeypatch.setattr(dlna, "_http", lambda *_: b'<root xmlns="urn:schemas-upnp-org:device-1-0"/>')
+    response = casting.client.post("/api/cast/devices", json={"location": "http://192.168.1.72:49152/description.xml"})
+    assert response.status_code == 422
+    assert "DLNA" in response.json()["detail"]
 
 
 @pytest.mark.parametrize("encoding", ["utf-8", "utf-16", "utf-32"])

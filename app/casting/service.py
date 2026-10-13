@@ -26,7 +26,7 @@ def base_url(value: str) -> str:
         # An explicit LAN address avoids leaking emulator/localhost addresses to TVs.
         if (url.scheme not in ("http", "https") or not dlna.lan_ip(url.hostname or "")
                 or url.hostname == "10.0.2.2" or url.username or url.password
-                or url.query or url.fragment or not 1 <= (url.port or 80) <= 65535
+                or url.query or url.fragment or not 1 <= (80 if url.port is None else url.port) <= 65535
                 or any(part in (".", "..") for part in url.path.split("/"))):
             raise ValueError
     except ValueError as exc:
@@ -98,6 +98,7 @@ class CastManager:
         self.lock = threading.RLock()
         self.search_lock = threading.Lock()
         self.devices: dict[str, dlna.Device] = {}
+        self.manual_devices: dict[str, dlna.Device] = {}
         self.device_locks: dict[str, threading.RLock] = {}
         self.sessions: dict[str, CastSession] = {}
         self.searched_at = 0.0
@@ -109,9 +110,19 @@ class CastManager:
             if time.monotonic() - self.searched_at > 5:
                 devices = dlna.discover()
                 with self.lock:
-                    self.devices = {d.id: d for d in devices}
+                    self.devices = {**{d.id: d for d in devices}, **self.manual_devices}
                     self.searched_at = time.monotonic()
             return self.device_list()
+
+    def add_device(self, location: str) -> dict:
+        device = dlna.describe_location(location)
+        with self.lock:
+            if device.id not in self.manual_devices and len(self.manual_devices) >= dlna.MAX_DEVICES:
+                raise dlna.CastError("手动添加的电视过多")
+            self.manual_devices[device.id] = device
+            self.devices[device.id] = device
+            self.searched_at = time.monotonic()
+        return device.public()
 
     def device_list(self) -> list[dict]:
         with self.lock:

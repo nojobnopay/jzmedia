@@ -41,6 +41,13 @@
         </label>
       </div>
       <p v-else-if="casting.searched.value" class="cast-hint">未找到设备。请开启电视的 DLNA 接收功能，并检查服务器是否能发送局域网组播。Docker 桥接、访客 Wi-Fi 或模拟器虚拟网络可能阻止发现。</p>
+      <form class="cast-manual" @submit.prevent="casting.addManual">
+        <JzField id="cast-device-location" label="手动添加电视" hint="填写电视的 DLNA 描述地址，只有 IP 地址还不够。例：http://192.168.1.20:49152/description.xml" v-slot="field">
+          <input id="cast-device-location" v-model="casting.manualLocation.value" type="url" required :aria-describedby="field.describedby"
+            placeholder="http://192.168.1.20:49152/description.xml" :disabled="casting.busy.value" />
+        </JzField>
+        <JzButton type="submit" :loading="casting.busy.value" :disabled="casting.busy.value || !casting.manualLocation.value.trim()">添加电视</JzButton>
+      </form>
       <JzField id="cast-server-url" label="电视可访问的服务器地址" hint="通常是服务器的局域网 IP 和端口。不要使用 localhost、模拟器专用地址或容器内部地址。" v-slot="field">
         <input id="cast-server-url" v-model="casting.serverUrl.value" type="url" :aria-describedby="field.describedby" placeholder="http://192.168.1.10:8080" :disabled="casting.busy.value" />
       </JzField>
@@ -83,6 +90,8 @@ const validVolume = computed(() => Number.isFinite(desiredVolume.value) && desir
 .cast-fields { display: grid; gap: 12px; margin-top: 16px; }
 .cast-fields input { max-width: 130px; margin-right: 8px; }
 .cast-devices { display: grid; gap: 8px; margin-bottom: 16px; }
+.cast-manual { margin-bottom: 16px; }
+.cast-manual .jz-field { margin-bottom: 8px; }
 .cast-device { display: flex; align-items: center; gap: 12px; min-height: var(--jz-touch-target); padding: 12px; border: 1px solid var(--jz-border); border-radius: var(--jz-radius-s); cursor: pointer; }
 .cast-device:has(input:checked) { border-color: var(--jz-accent); background: var(--jz-surface); }
 .cast-device input { flex: none; accent-color: var(--jz-accent); }

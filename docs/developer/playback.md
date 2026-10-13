@@ -11,7 +11,7 @@ reviewed: 2026-10-13
 
 ## DLNA 接收端播放
 
-`app/casting/dlna.py` 通过 SSDP 搜索 MediaRenderer，读取设备描述，再调用 AVTransport 与可选 RenderingControl。浏览器只调用本服务 API，不直接发送组播或访问电视控制端口。设备描述及服务 URL 限于响应来源的私有 IPv4，禁用 DNS、代理和重定向，限制响应大小与等待时间并拒绝 XML DTD；发现数量与会话数量有上限。接口约定见[投屏 API](api.md#dlna-投屏)。
+`app/casting/dlna.py` 通过 SSDP 搜索 MediaRenderer，读取设备描述，再调用 AVTransport 与可选 RenderingControl。浏览器只调用本服务 API，不直接发送组播或访问电视控制端口。搜索结果的描述及服务 URL 限于响应来源的私有 IPv4；手动添加要求描述 URL 指向私有 IPv4，随后验证实际 MediaRenderer 与 AVTransport。两条路径都禁用 DNS、代理和重定向，限制响应大小与等待时间并拒绝 XML DTD；发现数量与会话数量有上限。接口约定见[投屏 API](api.md#dlna-投屏)。
 
 `app/casting/service.py` 为电视建立独立随机会话，复用现有源文件解析及 Range 读取，不使用手机的 caps/HLS sid，也不对 DLNA 自动转码。ConnectionManager 提供的格式列表可提前排除不支持的 MIME，不能证明具体编码、HDR、字幕或音轨能正常播放。通过 `SetAVTransportURI → Play → 可选 Seek` 请求起播；命令成功与电视实际上报的状态分开。
 
@@ -19,7 +19,7 @@ reviewed: 2026-10-13
 
 `PlayerModal` 恢复当前投屏后阻止手机自动起播；开始投屏前等待本地进度写入，成功后作废本地 reload、停播断源、关闭 HLS 与字幕渲染，禁止本地位置覆盖电视断点。“手机播放”先成功停止电视再重建本地播放。设备面板使用独立取消代际，关闭面板只取消搜索；全屏内将设备面板挂到全屏容器，复用 `JzDialog` 焦点管理。文件预览没有投屏入口。当前不提供投屏自动连播与网页字幕同步。
 
-回归：`tests/test_casting.py` 使用本机隔离 SOAP 接收端，覆盖 SSDP 响应、地址与 XML 校验、命令、电影/分集、Range/HEAD、进度归属、鉴权和清理；`frontend/tests/casting.test.js` 覆盖请求代际、离开与失败状态。`node scripts/smoke_casting.mjs` 使用合成视频、真实 FastAPI/FFprobe/PlayerModal 和模拟接收端，检查桌面及 390/375/320px 手机流程，输出位于 `output/playwright/casting/`。这些检查不代表真实电视或安卓模拟器接收端验收；真实设备仍需验证组播发现、解码、声音、字幕、seek 和长时间播放。
+回归：`tests/test_casting.py` 使用本机隔离 SOAP 接收端，覆盖 SSDP 响应、手动注册、地址与 XML 校验、命令、电影/分集、Range/HEAD、进度归属、鉴权和清理；`frontend/tests/casting.test.js` 覆盖请求代际、手动添加、离开与失败状态。`node scripts/smoke_casting.mjs` 使用合成视频、真实 FastAPI/FFprobe/PlayerModal 和模拟接收端，检查桌面及 390/375/320px 手机流程，输出位于 `output/playwright/casting/`。真实电视仍需分别验收屏幕声画、其他接收端、长时间播放及目标部署网络；自动化和电视状态回报不能代替这些观察。
 
 ## 从能力到播放计划
 
