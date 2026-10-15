@@ -1,11 +1,11 @@
 ---
-version: 0.22.3
-reviewed: 2026-10-04
+version: 0.26.0
+reviewed: 2026-10-15
 ---
 
 # 同步发布 Docker 镜像与 APK
 
-推送发行标签后，GitHub Actions 从该提交完成全部检查，同步构建 Docker 镜像与 Android TV APK，再发布到 GHCR 和 GitHub Releases。发布成功后，从同一提交构建在线帮助并部署到 GitHub Pages。各端共用仓库根 `version.properties` 的版本，云端与本机均复用 `scripts/release.py`。默认 APK 是可安装的 Debug 试装包；真机兼容性仍需单独验收。
+推送发行标签后，GitHub Actions 从该提交完成全部检查，同步构建 Docker 镜像与 Android TV APK，再发布到 GHCR 和 GitHub Releases。Release 正文先展示仓库根 `CHANGELOG.md` 中该版本的修改摘要，再提供安装与校验说明。发布成功后，从同一提交构建在线帮助并部署到 GitHub Pages。各端共用仓库根 `version.properties` 的版本，云端与本机均复用 `scripts/release.py`。默认 APK 是可安装的 Debug 试装包；真机兼容性仍需单独验收。
 
 普通部署按[安装教程](../getting-started/deployment.md)操作。日常前端、后端和 Android 开发保留各自命令；本页用于一次同步交付两个产物。
 
@@ -36,15 +36,24 @@ reviewed: 2026-10-04
 
 每次交付内容变化，同时提高发行版本与 Android `versionCode`。修复升 patch、新功能升 minor、破坏性变更升 major；`0.x` 阶段的破坏性变更升 minor 并说明兼容影响。Android code 全局递增，不按日期编码或随主版本重置。
 
-在本地仓库使用实际版本替换 `X.Y.Z`，使用高于已交付值的整数替换 `N`；例如 `0.22.3`／code 20 的下一次修复发行可用 `0.22.4`／code 21：
+在本地仓库使用实际版本替换 `X.Y.Z`，使用高于已交付值的整数替换 `N`；例如 `0.26.0`／code 40 的下一次修复发行可用 `0.26.1`／code 41。先同步版本，再查看修改草稿：
 
 ```bash
 python3 scripts/release.py version X.Y.Z --android-code N
+python3 scripts/release.py notes --draft
+```
+
+草稿将上一个可达的正式版本标签之后的非合并提交按类别列出，只打印到终端。默认基线取低于当前版本的最高 `vX.Y.Z` 标签；无符合条件的标签时覆盖全部历史，也可用 `--draft --since vA.B.C` 指定祖先标签或提交。须先取得完整 Git 历史与标签；工作树中的未提交修改不在草稿内，需要另行补充。
+
+在根 `CHANGELOG.md` 顶部增加唯一的 `## [X.Y.Z]` 条目，按需使用“新增”“改进”“修复”“兼容与升级”等三级标题。把草稿中的同类提交合并成面向用户的简短说明，核对实际功能与兼容影响，删除草稿提示和空分类，再保存。每个版本至少有一条以短横线开头的具体列表项，不保留 TODO 或“待补充”；已发布的条目保留，新版本继续向顶部追加。
+
+```bash
+python3 scripts/release.py notes
 python3 scripts/release.py check
 git status --short
 ```
 
-审阅并提交本次源码、同步的版本文件和相关文档，使工作树干净。随后将以下 `X.Y.Z` 换成同一版本：
+`notes` 预览本次发行将展示的修改摘要，`check` 核对各端版本与版本说明。审阅并提交本次源码、版本说明、同步的版本文件和相关文档，使工作树干净。随后将以下 `X.Y.Z` 换成同一版本：
 
 ```bash
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
@@ -52,7 +61,7 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-**预期结果：**GitHub **Actions → Release** 出现对应标签的运行记录。工作流只对版本标签推送发布；普通分支推送不发布。脚本要求标签严格为 `vX.Y.Z`、版本与根文件一致、检出的提交与远端标签一致。云端不自动升版，也不创建或移动 Git 标签。
+**预期结果：**GitHub **Actions → Release** 出现对应标签的运行记录。工作流只对版本标签推送发布；普通分支推送不发布。脚本要求标签严格为 `vX.Y.Z`、版本与根文件一致、检出的提交与远端标签一致，并在构建前检查本次版本说明。说明缺失、重复、为空或仍有草稿提示时先修正并提交，再推送发行标签；不要移动已经发布的标签。云端不自动升版，也不创建或移动 Git 标签。
 
 ### Step 3：查看云端检查与构建
 
@@ -66,7 +75,7 @@ git push origin vX.Y.Z
 
 ### Step 4：核对发布结果
 
-**预期结果：**`prepare`、`build` 与 `publish` 均成功，GitHub Releases 出现 `vX.Y.Z`；GHCR 的 `ghcr.io/nojobnopay/jzmedia:vX.Y.Z` 与 `latest` 指向同一 `linux/amd64` 镜像。
+**预期结果：**`prepare`、`build` 与 `publish` 均成功，GitHub Releases 出现 `vX.Y.Z`，正文“本次更新”与该标签下的 `CHANGELOG.md` 对应条目一致；GHCR 的 `ghcr.io/nojobnopay/jzmedia:vX.Y.Z` 与 `latest` 指向同一 `linux/amd64` 镜像。重试发布继续使用该提交的说明，不追加 GitHub 自动生成的提交列表。
 
 Release 包含八个附件；GitHub 自动提供的源码归档不计入其中：
 
@@ -131,11 +140,11 @@ python3 scripts/release.py --help
 python3 scripts/release.py check
 ```
 
-**预期结果：** `check` 报告各端版本与根版本源一致。它只核对版本，不代替测试或构建。
+**预期结果：** `check` 报告各端版本与根版本源一致，且当前版本具有可用的版本说明。它不代替测试或构建。
 
 ### Step 2：准备干净源码
 
-按上文[版本与提交步骤](#release-tag)准备本次源码；仅在本机构建时无需推送标签。根 `version.properties` 是唯一手工维护的版本源；不要分别修改各端版本来消除报错。本地重复开发验证使用 `--validate-only`，无需为检查而升版。
+按上文[版本与提交步骤](#release-tag)准备本次源码和版本说明；仅在本机构建时无需推送标签。根 `version.properties` 是唯一手工维护的版本源；不要分别修改各端版本来消除报错。本地正式构建也会先检查版本说明；重复开发验证使用 `--validate-only`，无需为检查而升版或提前准备发行说明。
 
 **预期结果：** 待发布源码已进入同一个 Git 提交，工作树干净。`build` 会拒绝未提交或未跟踪的源码；被忽略的依赖缓存与输出目录不属于发行源码。
 

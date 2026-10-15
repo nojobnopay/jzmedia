@@ -165,6 +165,7 @@ def test_existing_version_image_never_overwritten(tmp_path, monkeypatch):
 def test_second_build_failure_does_not_promote_first_artifact(tmp_path, monkeypatch):
     interpreter = tmp_path / "python"
     interpreter.touch()
+    (tmp_path / "CHANGELOG.md").write_text("# 版本说明\n\n## [0.20.0]\n\n- 改善播放。\n", encoding="utf-8")
     monkeypatch.setattr(release, "check_versions", lambda *a: SimpleNamespace(name="0.20.0", code=11))
     monkeypatch.setattr(release, "clean_commit", lambda *a: COMMIT)
     monkeypatch.setattr(release, "check_tag_history", lambda *a: None)
@@ -311,9 +312,19 @@ def test_validation_still_rejects_android_upgrade_regression(validation_build, m
 def test_formal_build_still_rejects_different_source_for_existing_release(validation_build):
     state = validation_build
     state.args.validate_only = False
+    (state.root / "CHANGELOG.md").write_text("# 版本说明\n\n## [0.20.0]\n\n- 改善播放。\n", encoding="utf-8")
     with pytest.raises(release.ReleaseError, match="different source"):
         release.build(state.args, root=state.root)
     assert all(name not in ("checks", "docker", "android") for name, args in state.calls)
+
+
+def test_formal_build_without_release_notes_stops_before_docker_access(validation_build, monkeypatch):
+    state = validation_build
+    state.args.validate_only = False
+    monkeypatch.setattr(release, "command", lambda *a, **kw: pytest.fail("Must reject before Docker access"))
+    with pytest.raises(release.ReleaseError, match="Missing CHANGELOG.md"):
+        release.build(state.args, root=state.root)
+    assert not (state.root / "output/releases/.release.lock").exists()
 
 
 def test_cli_accepts_validation_only(monkeypatch):

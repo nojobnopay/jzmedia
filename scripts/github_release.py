@@ -80,6 +80,7 @@ def check_tag(root=ROOT):
         raise release.ReleaseError("Missing GitHub event commit")
     if release.command(["git", "rev-parse", f"{event_sha}^{{commit}}"], cwd=root) != commit:
         raise release.ReleaseError("Checked-out source differs from the GitHub event")
+    release.read_release_notes(root, version.name)
     return version, commit, tag
 
 
@@ -254,7 +255,10 @@ def check_remote_image(manifest, expected):
 
 def notes(record, repo):
     tag = record["gitTag"]
-    return (f"## Docker\n\nLinux amd64 镜像：\n\n```bash\ndocker pull ghcr.io/{repo.lower()}:{tag}\n```\n\n"
+    changes = release.read_release_notes(ROOT, record["version"])
+    return (f"## 本次更新\n\n{changes}\n\n"
+            f"完整版本记录见 [CHANGELOG.md](https://github.com/{repo}/blob/{tag}/CHANGELOG.md)。\n\n"
+            f"## Docker\n\nLinux amd64 镜像：\n\n```bash\ndocker pull ghcr.io/{repo.lower()}:{tag}\n```\n\n"
             "下载附件 `docker-compose.yml`，按部署环境调整用户、端口与媒体／数据路径后启动。"
             "也可用镜像归档离线导入；两种方式使用相同镜像标签。旧 `/media` 实例升级前见"
             f"[部署教程](https://github.com/{repo}/blob/{tag}/docs/getting-started/deployment.md#legacy-media-path)。\n\n"
@@ -267,6 +271,7 @@ def publish(directory):
     version, commit, tag = check_tag()
     repo = repository()
     record = verify_bundle(directory, repo, tag, commit)
+    body = notes(record, repo)
     check_remote_tag(repo, tag, commit)
     if record["androidVersionCode"] != version.code:
         raise release.ReleaseError("Bundle Android versionCode differs from source")
@@ -294,9 +299,9 @@ def publish(directory):
         check_remote_image(remote, expected)
         if existing is None:
             notes_file = Path(temporary) / "notes.md"
-            notes_file.write_text(notes(record, repo))
+            notes_file.write_text(body, encoding="utf-8")
             release.command(["gh", "release", "create", tag, "--repo", repo, "--verify-tag", "--draft",
-                             "--title", f"jzmedia {tag}", "--generate-notes", "--notes-file", notes_file])
+                             "--title", f"jzmedia {tag}", "--notes-file", notes_file])
             existing = wait_for_release(repo, tag)
         missing = verify_assets(existing, directory, complete=not existing["draft"])
         if missing:

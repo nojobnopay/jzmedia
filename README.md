@@ -9,7 +9,7 @@ reviewed: 2026-10-15
 
 jzmedia 是面向家庭本地收藏的开源影视库。连接电脑或 NAS 上已有的媒体，在浏览器里逛海报墙、按演员找片、接着上次的位置观看，也能用 Android TV 客户端在电视上继续看。
 
-[开始安装](docs/getting-started/deployment.md) · [下载发行版](https://github.com/nojobnopay/jzmedia/releases) · [在线图文帮助](https://nojobnopay.github.io/jzmedia/) · [Android TV](android-tv/README.md#已有-apk安装并连接)
+[开始安装](docs/getting-started/deployment.md) · [下载发行版](https://github.com/nojobnopay/jzmedia/releases) · [版本说明](CHANGELOG.md) · [在线图文帮助](https://nojobnopay.github.io/jzmedia/) · [Android TV](android-tv/README.md#已有-apk安装并连接)
 
 ![电影海报墙与继续观看](docs/assets/screenshots/movie-library.webp)
 

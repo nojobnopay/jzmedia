@@ -51,6 +51,71 @@ def clean_commit(root, expected=None):
     return commit
 
 
+def read_release_notes(root, version):
+    """Read exactly one reviewed version entry; keep release prose in Git."""
+    path = root / "CHANGELOG.md"
+    if not path.is_file():
+        raise ReleaseError(f"Missing CHANGELOG.md; add release notes under ## [{version}] before release")
+    text = re.sub(r"<!--[\s\S]*?-->", "", path.read_text(encoding="utf-8"))
+    entries, current, fence = [], None, None
+    has_change = False
+    for line in text.splitlines():
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence:
+            if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
+                fence = None
+        elif marker:
+            fence = marker[1]
+        elif re.match(r"^#{1,2} ", line):
+            current = None
+            if re.fullmatch(rf"## \[{re.escape(version)}\](?: - .+)?", line):
+                current = []
+                entries.append(current)
+        elif current is not None and re.match(r"^- \S", line):
+            has_change = True
+        if current is not None:
+            current.append(line)
+    if len(entries) != 1:
+        raise ReleaseError(f"CHANGELOG.md must contain exactly one ## [{version}] release notes entry")
+    body = "\n".join(entries[0][1:]).strip()
+    if not has_change or re.search(r"(?im)^\s*(?:> 草稿：|[-*] (?:TODO|TBD|待补充|待填写)(?:\W|$))", body):
+        raise ReleaseError(f"Review CHANGELOG.md release notes for {version}; add concrete bullet points and remove placeholders")
+    return body
+
+
+def draft_release_notes(root, version, since=None):
+    """Group commit subjects as review material, without writing or publishing."""
+    if command(["git", "rev-parse", "--is-shallow-repository"], cwd=root) == "true":
+        raise ReleaseError("Release notes need full Git history; fetch --unshallow --tags first")
+    if since is None:
+        tags = command(["git", "tag", "--merged", "HEAD", "--list", "v*"], cwd=root).splitlines()
+        previous = [tag for tag in tags
+                    if re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag)
+                    and tuple(map(int, tag[1:].split("."))) < tuple(map(int, version.split(".")))]
+        since = max(previous, key=lambda tag: tuple(map(int, tag[1:].split(".")))) if previous else None
+    revision = "HEAD"
+    if since is not None:
+        base = command(["git", "rev-parse", "--verify", "--end-of-options", f"{since}^{{commit}}"], cwd=root)
+        command(["git", "merge-base", "--is-ancestor", base, "HEAD"], cwd=root)
+        revision = f"{base}..HEAD"
+    subjects = command(["git", "log", "--reverse", "--no-merges", "--format=%s", revision, "--"], cwd=root)
+    if not subjects:
+        raise ReleaseError("No commits to summarize in the selected release range")
+    groups = {name: [] for name in ("新增", "改进", "修复", "文档", "维护", "兼容与升级")}
+    for subject in subjects.splitlines():
+        match = re.fullmatch(r"([a-z]+)(?:\([^)]+\))?(!)?:\s*(.+)", subject)
+        kind, breaking, summary = match.groups() if match else ("", None, subject)
+        group = "兼容与升级" if breaking else {
+            "feat": "新增", "fix": "修复", "perf": "改进", "refactor": "改进", "docs": "文档",
+        }.get(kind, "维护")
+        groups[group].append(f"- {summary}")
+    result = [f"## [{version}]", "", "> 草稿：请合并同类修改，改写为用户可见的变化，核对兼容影响后删除本提示。", ""]
+    for group, changes in groups.items():
+        if changes:
+            result.extend([f"### {group}", "", *changes, ""])
+    return "\n".join(result)
+
+
 def image_info(reference):
     result = subprocess.run(["docker", "image", "inspect", reference],
                             capture_output=True, text=True)
@@ -357,6 +422,8 @@ def build(args, root=ROOT):
     validate_only = getattr(args, "validate_only", False)
     version = check_versions(root)
     commit = clean_commit(root)
+    if not validate_only:
+        read_release_notes(root, version.name)
     output = Path(args.output).resolve() if args.output else root / "output/releases"
     destination = output / f"v{version.name}"
     python = Path(args.python).resolve() if args.python else root / ".venv/bin/python"
@@ -443,7 +510,10 @@ def build(args, root=ROOT):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("check", help="Check the canonical version and all mirrored package versions")
+    commands.add_parser("check", help="Check package versions and require reviewed release notes for this version")
+    notes = commands.add_parser("notes", help="Preview current release notes or draft them from local Git history")
+    notes.add_argument("--draft", action="store_true", help="Print grouped commit subjects for manual review; do not write files")
+    notes.add_argument("--since", help="Draft after this ancestor tag/commit (default: highest earlier reachable vX.Y.Z tag)")
     version = commands.add_parser("version", help="Advance the unified version and Android versionCode")
     version.add_argument("name", help="X.Y.Z")
     version.add_argument("--android-code", type=int, required=True)
@@ -457,12 +527,20 @@ def main(argv=None):
     release.add_argument("--python", help="Python with requirements-dev.txt installed (default: .venv/bin/python)")
     release.add_argument("--output", help="Release root (default: output/releases)")
     args = parser.parse_args(argv)
+    if args.command == "notes" and args.since is not None and not args.draft:
+        parser.error("--since requires --draft")
     if args.command == "check":
         value = check_versions(ROOT)
-        print(f"Version {value.name}, Android versionCode {value.code}: consistent")
+        read_release_notes(ROOT, value.name)
+        print(f"Version {value.name}, Android versionCode {value.code}: consistent; release notes present")
+    elif args.command == "notes":
+        value = check_versions(ROOT)
+        print(draft_release_notes(ROOT, value.name, args.since) if args.draft
+              else read_release_notes(ROOT, value.name))
     elif args.command == "version":
         value = set_version(ROOT, args.name, args.android_code)
-        print(f"Version {value.name}, Android versionCode {value.code}; review and commit before building")
+        print(f"Version {value.name}, Android versionCode {value.code}; "
+              f"update CHANGELOG.md ## [{value.name}], review and commit before building")
     else:
         if sys.version_info < (3, 12):
             raise ReleaseError("Unified release builds require Python 3.12+")

@@ -26,7 +26,7 @@ IMAGE = f"ghcr.io/{REPO}:{TAG}"
 
 
 @pytest.fixture
-def tag_context(monkeypatch):
+def tag_context(monkeypatch, tmp_path):
     for name, value in {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": TAG,
                         "GITHUB_SHA": "c" * 40, "GITHUB_REPOSITORY": REPO}.items():
         monkeypatch.setenv(name, value)
@@ -35,10 +35,23 @@ def tag_context(monkeypatch):
     monkeypatch.setattr(github.release, "git_tag_commit", lambda root, tag: COMMIT)
     monkeypatch.setattr(github.release, "check_tag_history", lambda *args: None)
     monkeypatch.setattr(github.release, "command", lambda *args, **kwargs: COMMIT)
+    # check_tag's default root is the checkout; redirect just the notes reader.
+    (tmp_path / "CHANGELOG.md").write_text(f"# 版本说明\n\n## [{VERSION.name}]\n\n- 新增测试功能。\n", encoding="utf-8")
+    reader = github.release.read_release_notes
+    monkeypatch.setattr(github.release, "read_release_notes", lambda root, version: reader(tmp_path, version))
+    return tmp_path
 
 
 def test_tag_check_accepts_annotated_event_resolving_to_same_commit(tag_context):
     assert github.check_tag() == (VERSION, COMMIT, TAG)
+
+
+def test_tag_check_requires_release_notes_before_remote_preflight(tag_context, monkeypatch):
+    (tag_context / "CHANGELOG.md").unlink()
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    monkeypatch.setattr(github, "find_release", lambda *args: pytest.fail("Must reject before remote access"))
+    with pytest.raises(github.release.ReleaseError, match="Missing CHANGELOG.md"):
+        github.preflight()
 
 
 @pytest.mark.parametrize("field,value", [
@@ -83,7 +96,8 @@ def preflight_context(tag_context, tmp_path, monkeypatch):
     return output
 
 
-def test_manual_preflight_only_validates_source_without_remote_access(preflight_context, monkeypatch):
+def test_manual_preflight_only_validates_source_without_remote_access(preflight_context, tag_context, monkeypatch):
+    (tag_context / "CHANGELOG.md").unlink()
     monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
     monkeypatch.setenv("GITHUB_REF_NAME", "main")
     monkeypatch.setenv("GITHUB_REF_TYPE", "branch")
@@ -279,6 +293,10 @@ def publisher(bundle, monkeypatch):
     monkeypatch.setenv("GITHUB_ACTOR", "example")
     monkeypatch.setenv("GH_TOKEN", "fake-test-token")
     monkeypatch.setattr(github, "check_tag", lambda: (VERSION, COMMIT, TAG))
+    monkeypatch.setattr(github, "ROOT", bundle.directory.parent)
+    (github.ROOT / "CHANGELOG.md").write_text(
+        f"# 版本说明\n\n## [{VERSION.name}]\n\n### 新增\n\n- 新增测试功能。\n\n"
+        "## [0.20.1]\n\n- 旧版功能，不应出现在本次摘要中。\n", encoding="utf-8")
     monkeypatch.setattr(github, "releases", lambda repo: [state.existing] if state.existing else [])
     monkeypatch.setattr(github, "find_release", lambda repo, tag: state.existing)
     monkeypatch.setattr(github, "api", lambda path: {"object": {"type": "commit", "sha": COMMIT}})
@@ -291,6 +309,8 @@ def publisher(bundle, monkeypatch):
         args = list(map(str, args))
         assert "--clobber" not in args
         if args[:3] == ["gh", "release", "create"]:
+            assert "--generate-notes" not in args
+            state.notes = Path(args[args.index("--notes-file") + 1]).read_text(encoding="utf-8")
             state.events.append("draft")
             state.existing = {"tag_name": TAG, "draft": True, "prerelease": False, "assets": []}
         elif args[:3] == ["gh", "release", "upload"]:
@@ -336,6 +356,11 @@ def test_publication_persists_all_assets_before_registry_and_publishes_latest_la
     assert publisher.events[-5:] == ["assets_persisted", "version_push", "anonymous_verified", "published", "latest"]
     assert publisher.existing["draft"] is False
     assert len(publisher.existing["assets"]) == len(names)
+    if not partial_retry:
+        assert publisher.notes.startswith("## 本次更新\n\n### 新增\n\n- 新增测试功能。\n\n")
+        assert "旧版功能" not in publisher.notes
+        assert publisher.notes.index("## 本次更新") < publisher.notes.index("## Docker")
+        assert f"https://github.com/{REPO}/blob/{TAG}/CHANGELOG.md" in publisher.notes
 
 
 def test_different_remote_version_image_blocks_registry_and_release_mutation(bundle, publisher):
