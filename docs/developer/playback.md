@@ -1,6 +1,6 @@
 ---
-version: 0.26.0
-reviewed: 2026-10-13
+version: 0.27.0
+reviewed: 2026-10-15
 ---
 
 # 播放核心设计
@@ -117,6 +117,14 @@ Android TV 使用协议 1 握手和 `client=android_tv`，显式声明原生容�
 
 ### 倍速、缩略图与预缓存
 
-六档倍速由浏览器 `playbackRate` 实现，保持音调；换元素/会话需恢复。`usePlaybackPreviews.js` 与 `stream/previews.py` 管理逐页拼图，GET 只查状态，POST 可手动生成。扫描前后比较电影、分集和花絮 ID，仅将新入库项写入 `DATA_DIR/previews/auto-queue.json`；重启恢复队列，默认服务器本地时间 03:00–06:00、无播放会话时单任务生成，播放开始或手动生成会取消后台任务，完整页可续做。已有入库项不因升级自动全库回填。`PREVIEW_AUTO_MODE=off|local|all`（默认 `all`），`PREVIEW_AUTO_START_HOUR` / `PREVIEW_AUTO_END_HOUR` 缺省 3/6，相同小时表示全天。自动队列达到应用数据 20 GB 提醒线或缩略图独立限额的 90% 时暂停。缓存按源标识、大小、mtime 和规则失效，与 24 小时转码缓存分开；默认 `PREVIEW_CACHE_GB=10`。远程适用版本通过 prewarm 预缓存 start=0 的 HLS 成品，质量计划一致才复用。字幕、预览、seek 的所有 UI 时间都以原片时间表示。
+六档倍速由浏览器 `playbackRate` 实现，保持音调；换元素/会话需恢复。`usePlaybackPreviews.js` 与 `stream/previews.py` 管理逐页拼图，GET 不启动生成，POST 可手动生成。字幕、预览、seek 的所有 UI 时间都以原片时间表示。
+
+`stream/preview_extract.py` 对本地文件优先使用输入侧 `-skip_frame nokey`，每页只启动一次 FFmpeg，经采样、缩小、HDR 色调映射后直接生成 5×5 拼图。有限的关键帧时间日志用于核对 `fps` 的采样结果，任一格偏差超过一个采样间隔时回退逐点精确抽帧；尾部复制最后采样前也执行此检查。远程库（含挂载路径）保持逐点输入侧 seek，HTTP 输入复用 `media.probe_limit_args` 限制重复探测。`PREVIEW_MODE=accurate` 可强制精确路径；参数细节见[配置参考](../getting-started/configuration.md#播放与缓存)。
+
+硬件解码跟随 `TRANSCODER`，用实际片源尝试 VAAPI/QSV/CUDA 解码，失败后当前影片改用软件，不依赖 H.264 编码冒烟结果。解码线程数默认 2、最多 4，滤镜和拼图仍为单线程；任务保持低优先级、全局单并发。子进程用带超时的 `wait` 等待，结束立即唤醒，每 200ms 检查取消和播放让行；自动任务遇播放取消，立即批量任务遇在线转码终止当前页并等待后重做。只有成功且时间校验通过的完整页才原子提交，续做跳过已提交页。缓存格式和标识兼容已有页，不因提速批量失效。
+
+扫描前后比较电影、分集和花絮 ID，仅将新入库项写入 `DATA_DIR/previews/auto-queue.json`；重启恢复队列，默认服务器本地时间 03:00–06:00、无播放会话时生成。已有入库项不因升级自动全库回填。`PREVIEW_AUTO_MODE=off|local|all`（默认 `all`），`PREVIEW_AUTO_START_HOUR` / `PREVIEW_AUTO_END_HOUR` 缺省 3/6，相同小时表示全天。自动队列达到应用数据 20 GB 提醒线或缩略图独立限额的 90% 时暂停。缓存按源标识、大小、mtime 和规则失效，与 24 小时转码缓存分开；默认 `PREVIEW_CACHE_GB=10`。远程适用版本通过 prewarm 预缓存 start=0 的 HLS 成品，质量计划一致才复用。
+
+维护队列合并即时批量任务未领取项与持久闲时队列并去重，成功生成后同步退队。worker 在 `_lock` 内逐项领取实时任务列表，移出操作与领取互斥，保存失败则两处队列均保留；批量全选覆盖分页并保护已领取的当前项。历史遗留的完成项通过节流对账校验当前源的缓存键及完整页，不启动媒体探测或生成。前端在存在待处理项时持续短轮询，变更操作期间暂停轮询并作废旧请求，完成后重新获取队列。
 
 面向普通用户的步骤与效果说明见[播放器任务教程](../user-guide/player.md)。

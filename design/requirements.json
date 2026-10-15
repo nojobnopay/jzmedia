@@ -25659,7 +25659,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"canQueueExisting\" @click=\"queueExisting\" :disabled=\"!!mutating\" type=\"button\">"
+      "source_excerpt": "<JzButton v-if=\"canQueueExisting\" @click=\"queueExisting\" :disabled=\"starting || !!mutating\" type=\"button\">"
     },
     {
       "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:19",
@@ -25711,8 +25711,10 @@
       "category": "control",
       "feature": "播放",
       "element": "JzButton",
-      "purpose": "{{ queue.running.auto ? '取消并移出队列' : '取消任务' }}",
-      "assets": [],
+      "purpose": "queue.running.auto ? `取消并移出队列 ${queue.running.title}` : `取消立即生成任务 ${queue.running.title}`",
+      "assets": [
+        "close"
+      ],
       "dynamic_expression": null,
       "display_size": {
         "unit": "CSS px",
@@ -25736,14 +25738,14 @@
         "disabled",
         "busy"
       ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "accessible_name_owner": "queue.running.auto ? `取消并移出队列 ${queue.running.title}` : `取消立即生成任务 ${queue.running.title}`",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton type=\"button\" :disabled=\"!!mutating\" @click=\"removeRunning\">"
+      "source_excerpt": "<JzButton class=\"queue-action\" type=\"button\" variant=\"ghost\" icon=\"close\" icon-only :disabled=\"starting || !!mutating\" :loading=\"mutating === 'running'\" :aria-label=\"queue.running."
     },
     {
       "id": "frontend/src/components/PreviewMaintenance.vue:input:34",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 34,
+      "line": 37,
       "platforms": [
         "web",
         "mobile-web"
@@ -25778,12 +25780,12 @@
       ],
       "accessible_name_owner": "全选本库待处理项",
       "classification": "native control",
-      "source_excerpt": "<input type=\"checkbox\" aria-label=\"全选本库待处理项\" :checked=\"allSelected\" :indeterminate=\"selectionCount > 0 && !allSelected\" :disabled=\"!!mutating\" @change=\"toggleAll\" />"
+      "source_excerpt": "<input type=\"checkbox\" aria-label=\"全选本库待处理项\" :checked=\"allSelected\" :indeterminate=\"selectionCount > 0 && !allSelected\" :disabled=\"starting || !!mutating\" @change=\"toggleAll\" />"
     },
     {
       "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:36",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 37,
+      "line": 40,
       "platforms": [
         "web",
         "mobile-web"
@@ -25818,12 +25820,12 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton type=\"button\" variant=\"danger\" :disabled=\"!selectionCount || !!mutating\" @click=\"removeSelected\">"
+      "source_excerpt": "<JzButton type=\"button\" variant=\"danger\" :disabled=\"!selectionCount || starting || !!mutating\" @click=\"removeSelected\">"
     },
     {
       "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:37",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 38,
+      "line": 41,
       "platforms": [
         "web",
         "mobile-web"
@@ -25858,12 +25860,12 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"selectionCount\" type=\"button\" :disabled=\"!!mutating\" @click=\"clearSelection\">"
+      "source_excerpt": "<JzButton v-if=\"selectionCount\" type=\"button\" :disabled=\"starting || !!mutating\" @click=\"clearSelection\">"
     },
     {
       "id": "frontend/src/components/PreviewMaintenance.vue:input:42",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 43,
+      "line": 46,
       "platforms": [
         "web",
         "mobile-web"
@@ -25898,12 +25900,12 @@
       ],
       "accessible_name_owner": "`选择 ${item.title}`",
       "classification": "native control",
-      "source_excerpt": "<input type=\"checkbox\" :aria-label=\"`选择 ${item.title}`\" :checked=\"isSelected(item)\" :disabled=\"!!mutating\" @change=\"toggleItem(item)\" />"
+      "source_excerpt": "<input type=\"checkbox\" :aria-label=\"`选择 ${item.title}`\" :checked=\"isSelected(item)\" :disabled=\"starting || !!mutating\" @change=\"toggleItem(item)\" />"
     },
     {
       "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:47",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 50,
+      "line": 53,
       "platforms": [
         "web",
         "mobile-web"
@@ -25912,7 +25914,9 @@
       "feature": "播放",
       "element": "JzButton",
       "purpose": "`从待处理队列移除 ${item.title}`",
-      "assets": [],
+      "assets": [
+        "close"
+      ],
       "dynamic_expression": null,
       "display_size": {
         "unit": "CSS px",
@@ -25938,12 +25942,12 @@
       ],
       "accessible_name_owner": "`从待处理队列移除 ${item.title}`",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton type=\"button\" :disabled=\"!!mutating\" :aria-label=\"`从待处理队列移除 ${item.title}`\" @click=\"removeItem(item)\">"
+      "source_excerpt": "<JzButton class=\"queue-action\" type=\"button\" variant=\"ghost\" icon=\"close\" icon-only title=\"移出队列\" :disabled=\"starting || !!mutating\" :loading=\"mutating === `${item.kind}-${item.id}`"
     },
     {
       "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:49",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 55,
+      "line": 60,
       "platforms": [
         "web",
         "mobile-web"
@@ -25978,12 +25982,12 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton type=\"button\" :disabled=\"offset === 0\" @click=\"changePage(-1)\">"
+      "source_excerpt": "<JzButton type=\"button\" :disabled=\"offset === 0 || starting || !!mutating\" @click=\"changePage(-1)\">"
     },
     {
       "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:51",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 57,
+      "line": 62,
       "platforms": [
         "web",
         "mobile-web"
@@ -26018,7 +26022,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton type=\"button\" :disabled=\"offset + pageSize >= queue.total\" @click=\"changePage(1)\">"
+      "source_excerpt": "<JzButton type=\"button\" :disabled=\"offset + pageSize >= queue.total || starting || !!mutating\" @click=\"changePage(1)\">"
     },
     {
       "id": "frontend/src/components/ProtectionSettings.vue:input:8",

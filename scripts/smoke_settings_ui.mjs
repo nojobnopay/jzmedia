@@ -1134,7 +1134,7 @@ try {
       assert.ok(checkboxTarget.width >= 44 && checkboxTarget.height >= 44, 'queue checkboxes have phone touch targets')
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
       await page.setViewportSize({ width: 1440, height: 1000 })
-      await preview.getByRole('button', { name: '取消并移出队列' }).click()
+      await preview.getByRole('button', { name: '取消并移出队列 处理样本', exact: true }).click()
       await preview.getByText('当前视频库没有正在处理的预览影片。').waitFor()
       await preview.getByRole('checkbox', { name: '选择 队列样本 1', exact: true }).check()
       await preview.getByRole('button', { name: '下一页' }).click()

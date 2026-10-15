@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 import subprocess
 import sys
 import threading
@@ -24,6 +23,9 @@ def isolate(monkeypatch, tmp_path):
     monkeypatch.setattr(pv, '_auto_queue', [])
     monkeypatch.setattr(pv, '_auto_job_id', None)
     monkeypatch.setattr(pv, '_root', lambda: tmp_path / 'previews')
+    monkeypatch.setenv('TRANSCODER', 'sw')
+    monkeypatch.delenv('PREVIEW_MODE', raising=False)
+    monkeypatch.delenv('PREVIEW_THREADS', raising=False)
     pv._stop.clear()
     pv._auto_wake.clear()
     yield
@@ -73,14 +75,12 @@ def test_manifest_reports_current_movie_progress_and_ready_state(monkeypatch):
 def test_cancelled_generation_resumes_completed_pages(monkeypatch):
     calls = []
     stop_at_second_page = True
-    def run(cmd, jid, timeout=60):
-        if '-ss' in cmd:
-            timestamp = int(cmd[cmd.index('-ss') + 1])
-            if timestamp == 250 and stop_at_second_page:
-                raise pv._Cancelled()
-            calls.append(timestamp)
-        Path(cmd[-1]).write_bytes(b'jpeg')
-    monkeypatch.setattr(pv, '_run', run)
+    def page(_self, start, _size, _columns, _rows, output):
+        if start == 250 and stop_at_second_page:
+            raise pv._Cancelled()
+        calls.append(start)
+        output.write_bytes(b'jpeg')
+    monkeypatch.setattr(pv.Extractor, 'page', page)
     monkeypatch.setattr(media, 'ffmpeg_bin', lambda: 'ffmpeg')
     jid = pv._jobs.create()['job_id']
     with pytest.raises(pv._Cancelled):
@@ -92,7 +92,7 @@ def test_cancelled_generation_resumes_completed_pages(monkeypatch):
     stop_at_second_page = False
     calls.clear()
     pv._generate(jid, row(), source(), {'duration': 265}, 10)
-    assert calls == [250, 260]
+    assert calls == [250]
     assert pv._read_manifest(pv._root() / key)['state'] == 'ready'
     calls.clear()
     pv._generate(jid, row(), source(), {'duration': 265}, 10)
@@ -343,6 +343,7 @@ def test_bulk_queue_removal_spans_pages_and_protects_running_item(monkeypatch):
     ])
     jid = pv._jobs.create(items=[('movie', 1)], total=1, auto=True)['job_id']
     pv._active_job = pv._auto_job_id = jid
+    pv._jobs.update(jid, current_kind='movie', current_id=1)
     first = pv.preview_queue(library_id=1, offset=0, limit=1)
     second = pv.preview_queue(library_id=1, offset=1, limit=1)
     assert first['total'] == second['total'] == 2

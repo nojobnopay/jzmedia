@@ -1,6 +1,6 @@
 """时间轴预览：限并发抽帧、分页拼图与独立持久缓存。只读媒体，写 DATA_DIR。
 
-每帧输入侧 seek，避免为低分辨率预览全片解码；每页提交一次索引，取消/重启可续做。
+本地优先批量抽取关键帧，远程/不兼容片源按点读取；每页提交索引，取消/重启可续做。
 新入库项由空闲时段的持久队列处理，手动任务通过 POST 发起；悬停 GET 不启动 ffmpeg。
 """
 import hashlib
@@ -20,11 +20,12 @@ from fastapi import HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from ... import data_usage, media, store
+from ... import data_usage, store
 from ...config import settings
 from ...jobkit import JobRegistry
 from ...log import get_logger
 from .common import _media_cached_or_probe, _version_source, _sessions, _sess_lock, router
+from .preview_extract import Extractor
 
 logger = get_logger("stream.previews")
 __all__ = ['shutdown_previews', 'start_auto_previews']
@@ -39,6 +40,7 @@ _auto_wake = threading.Event()
 _auto_thread = None
 _auto_queue = []
 _auto_job_id = None
+_ready_queue_check = (None, 0.0)
 _KEY_RE = re.compile(r"^[a-f0-9]{32}$")
 _IMAGE_RE = re.compile(r"^page_\d{4}\.jpg$")
 
@@ -110,8 +112,17 @@ class _Cancelled(Exception):
     pass
 
 
+class _YieldToPlayback(Exception):
+    pass
+
+
+def _transcoding_busy():
+    with _sess_lock:
+        return any(s.get("proc") is not None and s["proc"].poll() is None for s in _sessions.values())
+
+
 def _run(cmd, jid, timeout=60):
-    """短进程分批运行，取消/停服在 200ms 轮询处终止并 wait，无孤儿 ffmpeg。"""
+    """进程结束立即唤醒；每 200ms 检查取消/播放让行，终止后回收子进程。"""
     if _cancelled(jid):
         raise _Cancelled()
     prefix = [shutil.which("nice"), "-n", "10"] if shutil.which("nice") else []
@@ -121,14 +132,24 @@ def _run(cmd, jid, timeout=60):
                                 stdout=subprocess.DEVNULL, stderr=log)
         deadline = time.monotonic() + timeout
         try:
-            while proc.poll() is None:
+            while True:
                 if _cancelled(jid):
                     raise _Cancelled()
+                if (_jobs.get(jid) or {}).get("library_id") is not None and _transcoding_busy():
+                    raise _YieldToPlayback()
                 if time.monotonic() > deadline:
                     raise RuntimeError("抽帧超时，请稍后重试")
-                _stop.wait(0.2)
+                try:
+                    proc.wait(timeout=min(0.2, max(0.001, deadline - time.monotonic())))
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
             if proc.returncode:
                 raise RuntimeError("无法生成预览（编码或色彩转换不受支持）")
+            # showinfo 只记录经 select 筛选的关键帧，保留有限日志用于核对时间。
+            end = log.seek(0, os.SEEK_END)
+            log.seek(max(0, end - 256 * 1024))
+            return log.read().decode("utf-8", errors="replace")
         finally:
             if proc.poll() is None:
                 proc.terminate()
@@ -169,37 +190,40 @@ def _generate(jid, row, src, info, interval):
                                 count=count, pages=[], state="partial")
     manifest.update(item_kind=row.get("kind", "movie"), item_id=int(row["id"]))
     filter_arg = _frame_filter(info)
-    ffmpeg = media.ffmpeg_bin()
     cells = COLUMNS * ROWS
+    lib = store.get_library(row.get("library_id") or 1) or {}
+    remote = lib.get("source", "local") != "local" or src.input.startswith(("http://", "https://"))
+    extractor = Extractor(src, filter_arg, interval, remote=remote, run=_run, jid=jid,
+                          progress=lambda frames: _jobs.update(jid, frames=frames, frame_total=count))
+    started = time.monotonic()
+    completed_pages = len(manifest["pages"])
+    _jobs.update(jid, frames=min(len(manifest["pages"]) * cells, count), frame_total=count)
     with tempfile.TemporaryDirectory(prefix=".frames-", dir=directory) as tmp:
         for page in range(len(manifest["pages"]), math.ceil(count / cells)):
             if _cancelled(jid):
                 raise _Cancelled()
             size = min(cells, count - page * cells)
-            for cell in range(size):
-                if (_jobs.get(jid) or {}).get("library_id") is not None:
-                    _wait_for_transcodes(jid)
-                frame = page * cells + cell
-                # 每次只读目标附近的 GOP，音轨/字幕不参与，线程数限制到 1。
-                cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-                       "-threads", "1", "-filter_threads", "1", "-ss", str(frame * interval),
-                       "-rw_timeout", "30000000", "-i", src.input,
-                       "-map", "0:v:0", "-an", "-sn", "-frames:v", "1", "-vf", filter_arg,
-                       "-threads", "1", "-q:v", "5", str(Path(tmp) / f"frame_{cell:02d}.jpg")]
-                _run(cmd, jid)
-                _jobs.update(jid, frames=frame + 1, frame_total=count)
             name = f"page_{page:04d}.jpg"
             temp_page = Path(tmp) / name
-            _run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-                  "-threads", "1", "-filter_threads", "1", "-framerate", "1", "-i",
-                  str(Path(tmp) / "frame_%02d.jpg"), "-vf", f"tile={COLUMNS}x{ROWS}:nb_frames={size}",
-                  "-frames:v", "1", "-threads", "1", "-q:v", "5", str(temp_page)], jid)
+            while True:
+                if (_jobs.get(jid) or {}).get("library_id") is not None:
+                    _wait_for_transcodes(jid)
+                try:
+                    extractor.page(page * cells * interval, size, COLUMNS, ROWS, temp_page)
+                    break
+                except _YieldToPlayback:
+                    _wait_for_transcodes(jid)
+            if _cancelled(jid):
+                raise _Cancelled()
             temp_page.replace(directory / name)
             manifest["pages"].append(name)
             manifest["state"] = "ready" if (page + 1) * cells >= count else "partial"
             _write_manifest(directory, manifest)
-            for img in Path(tmp).glob("frame_*.jpg"):
-                img.unlink()
+            _jobs.update(jid, frames=min((page + 1) * cells, count), frame_total=count)
+    logger.info("preview generated kind=%s id=%s pages=%s wall_seconds=%.2f last_mode=%s decoder=%s",
+                row.get("kind", "movie"), row["id"], len(manifest["pages"]) - completed_pages,
+                time.monotonic() - started, "keyframes" if extractor.fast else "accurate",
+                extractor.hw[1] if extractor.hw else "software")
     _prune_cache(protect=key)
     data_usage.invalidate()
 
@@ -240,8 +264,7 @@ def _wait_for_transcodes(jid):
     while True:
         if _cancelled(jid):
             raise _Cancelled()
-        with _sess_lock:
-            active = any(s.get("proc") is not None and s["proc"].poll() is None for s in _sessions.values())
+        active = _transcoding_busy()
         _jobs.update(jid, waiting=active)
         if not active:
             return
@@ -251,13 +274,23 @@ def _wait_for_transcodes(jid):
 def _worker(jid, items, batch):
     failures = []
     try:
-        for index, (kind, vid) in enumerate(items):
-            if _cancelled(jid):
-                raise _Cancelled()
+        while True:
+            # 领取与移出共用锁，绝不继续遍历启动时的影片快照。
+            with _lock:
+                if _cancelled(jid):
+                    raise _Cancelled()
+                job = _jobs.get(jid)
+                live = job.get("items", items)
+                index = int(job.get("done") or 0)
+                if index >= len(live):
+                    break
+                kind, vid = live[index]
+                _jobs.update(jid, waiting=False, current_kind=kind, current_id=vid,
+                             frames=0, frame_total=0)
             # 库级任务在有在线转码时等待；单片由用户显式请求，可边播边低优先级生成。
             if batch:
                 _wait_for_transcodes(jid)
-            _jobs.update(jid, waiting=False, current_kind=kind, current_id=vid, frames=0, frame_total=0)
+            completed = False
             try:
                 row, src = _version_source(vid, kind)
                 _jobs.update(jid, current=Path(src.rel).name)
@@ -265,23 +298,33 @@ def _worker(jid, items, batch):
                 if not info.get("playable"):
                     raise RuntimeError("片源不可播放")
                 _generate(jid, row, src, info, _interval(row))
+                completed = True
             except _Cancelled:
                 raise
             except Exception as e:
                 message = str(e.detail) if isinstance(e, HTTPException) else str(e)
                 logger.warning("preview generation failed kind=%s id=%s: %s", kind, vid, message)
                 failures.append({"kind": kind, "id": vid, "error": message})
-            _jobs.update(jid, done=index + 1, failed=failures[-100:], failure_count=len(failures))
-        _jobs.update(jid, state="failed" if len(failures) == len(items) and items else "done",
-                     error=failures[-1]["error"] if len(failures) == len(items) and items else "")
+            with _lock:
+                if completed:
+                    try:
+                        _retire_auto_items_locked({(kind, vid)})
+                    except OSError as e:
+                        logger.warning("save completed preview queue failed: %s", e)
+                _jobs.update(jid, done=index + 1, current_kind=None, current_id=None,
+                             failed=failures[-100:], failure_count=len(failures))
+        with _lock:
+            done = int((_jobs.get(jid) or {}).get("done") or 0)
+            failed = bool(done and len(failures) == done)
+            _jobs.update(jid, state="failed" if failed else "done",
+                         error=failures[-1]["error"] if failed else "")
     except _Cancelled:
         _jobs.update(jid, state="cancelled")
     except Exception as e:
         logger.warning("preview worker failed: %s", e)
         _jobs.update(jid, state="failed", error="预览任务失败，请重试")
     finally:
-        if (_jobs.get(jid) or {}).get("auto"):
-            _auto_wake.set()
+        _auto_wake.set()
 
 
 def _auto_mode() -> str:
@@ -310,6 +353,69 @@ def _save_auto_queue() -> None:
     temp = path.with_suffix(".tmp")
     temp.write_text(json.dumps(_auto_queue), encoding="utf-8")
     temp.replace(path)
+
+
+def _retire_auto_items_locked(keys):
+    """删除成功完成的影片；保存失败时保留可恢复的持久队列。"""
+    before = list(_auto_queue)
+    _auto_queue[:] = [item for item in before if (item["kind"], item["id"]) not in keys]
+    if len(before) == len(_auto_queue):
+        return
+    try:
+        _save_auto_queue()
+    except OSError:
+        _auto_queue[:] = before
+        raise
+
+
+def _reconcile_ready_queue():
+    """对账旧版本或手动生成遗留的完成项；只读缓存/文件属性，不探测或生成媒体。"""
+    global _ready_queue_check
+    root = _root()
+    now = time.monotonic()
+    with _lock:
+        if not _auto_queue or (_ready_queue_check[0] == root and now - _ready_queue_check[1] < 30):
+            return
+        _ready_queue_check = (root, now)
+        snapshot = list(_auto_queue)
+    owned = {}
+    legacy = set()
+    for path in root.glob("*/manifest.json"):
+        if not _KEY_RE.fullmatch(path.parent.name):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict) or data.get("state") != "ready" or data.get("version") != VERSION:
+            continue
+        item_id = data.get("item_id")
+        kind = data.get("item_kind", "movie")
+        if type(item_id) is int and item_id > 0 and kind in ("movie", "episode", "extra"):
+            key = (kind, item_id)
+            owned.setdefault(key, set()).add(path.parent.name)
+        elif item_id is None:
+            legacy.add(path.parent.name)
+    completed = set()
+    for item in snapshot:
+        identity = (item["kind"], item["id"])
+        candidates = owned.get(identity, set()) | legacy
+        if not candidates:
+            continue
+        try:
+            row, src = _version_source(item["id"], item["kind"])
+            key = _cache_key(row, src, _interval(row))
+            manifest = _read_manifest(root / key) if key in candidates else None
+            if manifest and manifest.get("state") == "ready":
+                completed.add(identity)
+        except (HTTPException, OSError):
+            continue
+    if completed:
+        with _lock:
+            try:
+                _retire_auto_items_locked(completed)
+            except OSError as e:
+                logger.warning("reconcile completed preview queue failed: %s", e)
 
 
 def _enqueue_auto_items(items: list[dict]) -> int:
@@ -479,7 +585,7 @@ def _start(items, library_id=None, auto=False):
         if _worker_thread and _worker_thread.is_alive():
             raise HTTPException(409, "已有预览任务在运行，请稍后重试")
         _stop.clear()
-        job = _jobs.create(items=items, library_id=library_id, total=len(items), auto=auto)
+        job = _jobs.create(items=list(items), library_id=library_id, total=len(items), auto=auto)
         _active_job = job["job_id"]
         _worker_thread = threading.Thread(target=_worker, args=(_active_job, items, library_id is not None or auto), daemon=True)
         _worker_thread.start()
@@ -501,9 +607,10 @@ def shutdown_previews():
 
 @router.get("/previews/auto")
 def preview_auto_status():
+    _reconcile_ready_queue()
     with _lock:
         job = _jobs.get(_auto_job_id)
-        queued = len(_auto_queue)
+        queued = len(_pending_queue()) + int(_running_queue_item(_jobs.get(_active_job)) is not None)
         running = bool(job and job["state"] == "running")
     start, end = _auto_hours()
     return {"mode": _auto_mode(), "queued": queued, "running": running,
@@ -519,13 +626,65 @@ def _queue_item_public(item: dict) -> dict:
             "file_name": file_name}
 
 
-def _pending_auto_queue() -> list[dict]:
-    """Call with _lock held. The active automatic item is managed separately."""
-    pending = list(_auto_queue)
-    job = _jobs.get(_auto_job_id)
-    if job and job["state"] == "running" and _auto_head_matches(job):
-        pending = pending[1:]
-    return pending
+def _job_queue_item(job, kind, vid):
+    library_id = job.get("library_id")
+    if not library_id:
+        queued = next((item for item in _auto_queue if (item["kind"], item["id"]) == (kind, vid)), None)
+        row = {} if queued else (store.get_playable(kind, vid) or {})
+        library_id = (queued or row).get("library_id") or 1
+    return {"kind": kind, "id": vid, "library_id": library_id}
+
+
+def _running_queue_item(job):
+    if not job or job["state"] != "running":
+        return None
+    items = job.get("items") or []
+    index = int(job.get("done") or 0)
+    current = (job.get("current_kind"), job.get("current_id"))
+    if index >= len(items) or tuple(items[index]) != current:
+        return None
+    return _job_queue_item(job, *current)
+
+
+def _pending_queue():
+    """Call with _lock held. Merge both schedules, excluding the claimed current item."""
+    job = _jobs.get(_active_job)
+    running = _running_queue_item(job)
+    pending = []
+    if job and job["state"] == "running":
+        start = int(job.get("done") or 0) + int(running is not None)
+        pending.extend(_job_queue_item(job, kind, vid) for kind, vid in job.get("items", [])[start:])
+    seen = {(running["kind"], running["id"])} if running else set()
+    result = []
+    for item in pending + list(_auto_queue):
+        key = (item["kind"], item["id"])
+        if key not in seen:
+            result.append(item)
+            seen.add(key)
+    return result
+
+
+def _remove_pending_locked(library_id, targets):
+    """先保存持久队列，再提交实时任务列表；两者与 worker 领取原子互斥。"""
+    job = _jobs.get(_active_job)
+    next_items = None
+    if job and job["state"] == "running":
+        items = job.get("items") or []
+        start = int(job.get("done") or 0) + int(_running_queue_item(job) is not None)
+        next_items = items[:start] + [(kind, vid) for kind, vid in items[start:]
+                                     if not (_job_queue_item(job, kind, vid)["library_id"] == library_id
+                                             and (kind, vid) in targets)]
+    before = list(_auto_queue)
+    _auto_queue[:] = [item for item in before if not (item["library_id"] == library_id and
+                                                     (item["kind"], item["id"]) in targets)]
+    if _auto_queue != before:
+        try:
+            _save_auto_queue()
+        except OSError:
+            _auto_queue[:] = before
+            raise HTTPException(503, "保存预览队列失败，请稍后重试") from None
+    if next_items is not None:
+        _jobs.update(job["job_id"], items=next_items, total=len(next_items))
 
 
 def _queue_revision(items: list[dict]) -> str:
@@ -539,25 +698,17 @@ def preview_queue(library_id: int | None = Query(default=None, gt=0),
                   limit: int = Query(default=50, ge=1, le=100)):
     if library_id is not None and not store.get_library(library_id):
         raise HTTPException(404, "视频库不存在")
+    _reconcile_ready_queue()
     with _lock:
-        pending = _pending_auto_queue()
+        pending = _pending_queue()
         job = _jobs.get(_active_job)
-        running = None
-        if job and job["state"] == "running":
-            items = job.get("items") or []
+        running = _running_queue_item(job)
+        if running:
             index = int(job.get("done") or 0)
-            if index < len(items):
-                kind, vid = items[index]
-                running = {"kind": kind, "id": vid, "library_id": job.get("library_id")}
-                if job.get("auto") and _auto_head_matches(job):
-                    running["library_id"] = _auto_queue[0]["library_id"]
-                running.update(job_id=job["job_id"], auto=bool(job.get("auto")),
-                               waiting=bool(job.get("waiting")),
-                               frames=(job.get("frames") or 0) if
-                               (job.get("current_kind"), job.get("current_id")) == (kind, vid) else 0,
-                               frame_total=(job.get("frame_total") or 0) if
-                               (job.get("current_kind"), job.get("current_id")) == (kind, vid) else 0,
-                               done=index, total=job.get("total") or len(items))
+            running.update(job_id=job["job_id"], auto=bool(job.get("auto")),
+                           waiting=bool(job.get("waiting")), frames=job.get("frames") or 0,
+                           frame_total=job.get("frame_total") or 0,
+                           done=index, total=job.get("total") or len(job.get("items") or []))
     if library_id is not None:
         pending = [item for item in pending if item["library_id"] == library_id]
     total = len(pending)
@@ -635,7 +786,7 @@ def preview_queue_remove_many(body: PreviewQueueRemoveBody):
     if not body.all_pending and not body.items:
         raise HTTPException(400, "请先选择待处理影片")
     with _lock:
-        pending = [item for item in _pending_auto_queue()
+        pending = [item for item in _pending_queue()
                    if item["library_id"] == body.library_id]
         if _queue_revision(pending) != body.revision:
             raise HTTPException(409, "队列已变化，请重新选择后重试")
@@ -646,24 +797,22 @@ def preview_queue_remove_many(body: PreviewQueueRemoveBody):
         targets = pending_keys & requested
         if not targets:
             return {"removed": 0}
-        before = list(_auto_queue)
-        _auto_queue[:] = [item for item in _auto_queue
-                          if not (item["library_id"] == body.library_id and
-                                  (item["kind"], item["id"]) in targets)]
-        removed = len(before) - len(_auto_queue)
-        try:
-            _save_auto_queue()
-        except OSError:
-            _auto_queue[:] = before
-            raise HTTPException(503, "保存预览队列失败，请稍后重试") from None
+        _remove_pending_locked(body.library_id, targets)
     _auto_wake.set()
-    return {"removed": removed}
+    return {"removed": len(targets)}
 
 
 @router.delete("/previews/queue/{kind}/{version_id}")
 def preview_queue_remove(kind: Literal["movie", "episode", "extra"], version_id: int,
                          library_id: int = Query(gt=0)):
     with _lock:
+        target = (kind, version_id)
+        pending = {(item["kind"], item["id"]) for item in _pending_queue()
+                   if item["library_id"] == library_id}
+        if target in pending:
+            _remove_pending_locked(library_id, {target})
+            _auto_wake.set()
+            return {"removed": True, "cancelled": False}
         index = next((i for i, item in enumerate(_auto_queue)
                       if (item["kind"], item["id"], item["library_id"]) ==
                       (kind, version_id, library_id)), None)

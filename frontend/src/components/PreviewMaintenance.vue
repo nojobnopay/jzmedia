@@ -9,7 +9,7 @@
     <p v-else-if="auto?.queued && auto.pause_reason === 'usage_unavailable'" class="hint" role="status">暂时无法统计应用数据占用，自动生成已暂停。可到“系统维护”重试统计。</p>
     <div class="bar">
       <JzButton class="tool-action" @click="start" :disabled="busy || !!mutating" type="button" icon="image">{{ busy ? '生成缩略图中…' : '立即批量生成' }}</JzButton>
-      <JzButton v-if="canQueueExisting" @click="queueExisting" :disabled="!!mutating" type="button">{{ mutating === 'add' ? '正在加入…' : '将已有影片加入闲时队列' }}</JzButton>
+      <JzButton v-if="canQueueExisting" @click="queueExisting" :disabled="starting || !!mutating" type="button">{{ mutating === 'add' ? '正在加入…' : '将已有影片加入闲时队列' }}</JzButton>
       <span class="hint" role="status">{{ message }}</span>
     </div>
     <p v-if="feedback" class="hint" role="status">{{ feedback }}</p>
@@ -19,10 +19,13 @@
     <p v-else-if="queueError" class="hint" role="alert">{{ queueError }} <JzButton type="button" @click="load">重试</JzButton></p>
     <div v-else-if="queue?.running" class="queue-row">
       <div class="queue-detail">
-        <strong>{{ queue.running.title }}</strong>
+        <strong :title="queue.running.title">{{ queue.running.title }}</strong>
         <span class="hint">{{ kindLabel(queue.running.kind) }}{{ queue.running.auto ? ' · 闲时队列' : ' · 立即生成' }}{{ queue.running.waiting ? ' · 等待在线转码' : '' }}{{ queue.running.frame_total ? ` · ${queue.running.frames}/${queue.running.frame_total} 张` : '' }}</span>
       </div>
-      <JzButton type="button" :disabled="!!mutating" @click="removeRunning">{{ queue.running.auto ? '取消并移出队列' : '取消任务' }}</JzButton>
+      <JzButton class="queue-action" type="button" variant="ghost" icon="close" icon-only
+        :disabled="starting || !!mutating" :loading="mutating === 'running'"
+        :aria-label="queue.running.auto ? `取消并移出队列 ${queue.running.title}` : `取消立即生成任务 ${queue.running.title}`"
+        :title="queue.running.auto ? '取消并移出队列' : '取消立即生成任务'" @click="removeRunning" />
     </div>
     <p v-else-if="queue" class="hint">当前视频库没有正在处理的预览影片。</p>
 
@@ -32,29 +35,31 @@
       <template v-else>
         <div class="selection-bar">
           <label class="select-all"><input type="checkbox" aria-label="全选本库待处理项" :checked="allSelected"
-            :indeterminate="selectionCount > 0 && !allSelected" :disabled="!!mutating" @change="toggleAll" />全选本库待处理项</label>
+            :indeterminate="selectionCount > 0 && !allSelected" :disabled="starting || !!mutating" @change="toggleAll" />全选本库</label>
           <span class="hint" role="status">已选 {{ selectionCount }} 项</span>
-          <JzButton type="button" variant="danger" :disabled="!selectionCount || !!mutating" @click="removeSelected">{{ mutating === 'bulk' ? '正在移出…' : '批量移出选中项' }}</JzButton>
-          <JzButton v-if="selectionCount" type="button" :disabled="!!mutating" @click="clearSelection">取消选择</JzButton>
+          <JzButton type="button" variant="danger" :disabled="!selectionCount || starting || !!mutating" @click="removeSelected">{{ mutating === 'bulk' ? '正在移出…' : '批量移出选中项' }}</JzButton>
+          <JzButton v-if="selectionCount" type="button" :disabled="starting || !!mutating" @click="clearSelection">取消选择</JzButton>
         </div>
         <ul class="queue-list">
           <li v-for="item in queue.items" :key="`${item.kind}-${item.id}`" class="queue-row" :class="{ 'is-selected': isSelected(item) }">
             <div class="queue-main">
               <label class="select-item"><input type="checkbox" :aria-label="`选择 ${item.title}`"
-                :checked="isSelected(item)" :disabled="!!mutating" @change="toggleItem(item)" /></label>
+                :checked="isSelected(item)" :disabled="starting || !!mutating" @change="toggleItem(item)" /></label>
               <div class="queue-detail">
-                <strong>{{ item.title }}</strong>
-                <span class="hint">{{ kindLabel(item.kind) }}<template v-if="item.file_name"> · {{ item.file_name }}</template></span>
+                <strong :title="item.title">{{ item.title }}</strong>
+                <span class="hint queue-file" :title="item.file_name">{{ kindLabel(item.kind) }}<template v-if="item.file_name"> · {{ item.file_name }}</template></span>
               </div>
             </div>
-            <JzButton type="button" :disabled="!!mutating" :aria-label="`从待处理队列移除 ${item.title}`" @click="removeItem(item)">移出队列</JzButton>
+            <JzButton class="queue-action" type="button" variant="ghost" icon="close" icon-only title="移出队列"
+              :disabled="starting || !!mutating" :loading="mutating === `${item.kind}-${item.id}`"
+              :aria-label="`从待处理队列移除 ${item.title}`" @click="removeItem(item)" />
           </li>
         </ul>
       </template>
       <div v-if="queue.total > pageSize" class="bar page-bar">
-        <JzButton type="button" :disabled="offset === 0" @click="changePage(-1)">上一页</JzButton>
+        <JzButton type="button" :disabled="offset === 0 || starting || !!mutating" @click="changePage(-1)">上一页</JzButton>
         <span class="hint">{{ offset + 1 }}–{{ Math.min(offset + pageSize, queue.total) }} / {{ queue.total }}</span>
-        <JzButton type="button" :disabled="offset + pageSize >= queue.total" @click="changePage(1)">下一页</JzButton>
+        <JzButton type="button" :disabled="offset + pageSize >= queue.total || starting || !!mutating" @click="changePage(1)">下一页</JzButton>
       </div>
     </template>
   </section>
@@ -122,20 +127,43 @@ function toggleItem(item) {
 }
 let timer = null
 let requestSeq = 0
+let loadCtrl = null
 let ctrl = new AbortController()
 let disposed = false
 
-async function load() {
-  if (!props.active || disposed) return
+function invalidateLoad() {
   clearTimeout(timer)
-  const seq = ++requestSeq
+  requestSeq++
+  loadCtrl?.abort()
+  loadCtrl = null
+  loading.value = false
+}
+function beginAction() {
+  invalidateLoad()
+  error.value = ''
+  feedback.value = ''
+  return ctrl.signal
+}
+const isCurrent = signal => !disposed && !signal.aborted
+async function finishAction(signal) {
+  if (!isCurrent(signal)) return
+  starting.value = false
+  mutating.value = ''
+  await load()
+}
+async function load() {
+  if (!props.active || disposed || starting.value || mutating.value) return
+  invalidateLoad()
+  const seq = requestSeq
   const libraryId = props.libraryId
+  const requestCtrl = new AbortController()
+  loadCtrl = requestCtrl
   loading.value = true
   try {
     const [result, autoStatus, queueResult] = await Promise.all([
-      api(`/api/stream/previews/jobs/latest?library_id=${libraryId}`, { signal: ctrl.signal }),
-      api('/api/stream/previews/auto', { signal: ctrl.signal }),
-      api(`/api/stream/previews/queue?library_id=${libraryId}&offset=${offset.value}&limit=${pageSize}`, { signal: ctrl.signal }),
+      api(`/api/stream/previews/jobs/latest?library_id=${libraryId}`, { signal: requestCtrl.signal }),
+      api('/api/stream/previews/auto', { signal: requestCtrl.signal }),
+      api(`/api/stream/previews/queue?library_id=${libraryId}&offset=${offset.value}&limit=${pageSize}`, { signal: requestCtrl.signal }),
     ])
     if (disposed || seq !== requestSeq) return
     job.value = result
@@ -146,7 +174,6 @@ async function load() {
     }
     queue.value = queueResult
     queueError.value = ''
-    error.value = ''
     if (offset.value > 0 && queueResult.total <= offset.value) {
       offset.value = Math.max(0, Math.floor((queueResult.total - 1) / pageSize) * pageSize)
       return load()
@@ -155,113 +182,113 @@ async function load() {
     if (!disposed && seq === requestSeq && e.name !== 'AbortError') queueError.value = e.message
   } finally {
     if (!disposed && seq === requestSeq) {
+      loadCtrl = null
       loading.value = false
-      if (props.active) timer = setTimeout(load, busy.value || queue.value?.running ? 2500 : 30000)
+      if (props.active) timer = setTimeout(load, busy.value || queue.value?.running || queue.value?.total ? 2500 : 30000)
     }
   }
 }
 async function start() {
+  if (busy.value || mutating.value) return
   const libraryId = props.libraryId
+  const signal = beginAction()
   starting.value = true
-  error.value = ''
   try {
     const result = await api('/api/stream/previews/jobs', {
-      method: 'POST', body: JSON.stringify({ library_id: libraryId }), signal: ctrl.signal,
+      method: 'POST', body: JSON.stringify({ library_id: libraryId }), signal,
     })
-    if (!disposed && libraryId === props.libraryId) { job.value = result; await load() }
-  } catch (e) { if (!disposed && libraryId === props.libraryId && e.name !== 'AbortError') error.value = e.message }
-  finally { if (libraryId === props.libraryId) starting.value = false }
+    if (isCurrent(signal)) job.value = result
+  } catch (e) { if (isCurrent(signal)) error.value = e.message }
+  finally { await finishAction(signal) }
 }
 async function queueExisting() {
+  if (starting.value || mutating.value) return
   const libraryId = props.libraryId
+  const signal = beginAction()
   mutating.value = 'add'
-  feedback.value = ''
   try {
     const result = await api('/api/stream/previews/queue', {
-      method: 'POST', body: JSON.stringify({ library_id: libraryId }), signal: ctrl.signal,
+      method: 'POST', body: JSON.stringify({ library_id: libraryId }), signal,
     })
-    if (disposed || libraryId !== props.libraryId) return
+    if (!isCurrent(signal)) return
     clearSelection()
     feedback.value = `已加入 ${result.added} 项；已有预览 ${result.ready} 项，已在队列 ${result.already_queued} 项，源文件不可用 ${result.unavailable} 项。`
     offset.value = 0
-    await load()
-  } catch (e) { if (!disposed && libraryId === props.libraryId && e.name !== 'AbortError') queueError.value = e.message }
-  finally { if (libraryId === props.libraryId) mutating.value = '' }
+  } catch (e) { if (isCurrent(signal)) error.value = e.message }
+  finally { await finishAction(signal) }
 }
 async function removeItem(item) {
+  if (starting.value || mutating.value) return
   const libraryId = props.libraryId
+  const signal = beginAction()
   mutating.value = `${item.kind}-${item.id}`
-  feedback.value = ''
   try {
-    await api(`/api/stream/previews/queue/${item.kind}/${item.id}?library_id=${libraryId}`, { method: 'DELETE', signal: ctrl.signal })
-    if (disposed || libraryId !== props.libraryId) return
+    await api(`/api/stream/previews/queue/${item.kind}/${item.id}?library_id=${libraryId}`, { method: 'DELETE', signal })
+    if (!isCurrent(signal)) return
     clearSelection()
     feedback.value = `已将“${item.title}”移出队列。`
-    await load()
-  } catch (e) { if (!disposed && libraryId === props.libraryId && e.name !== 'AbortError') queueError.value = e.message }
-  finally { if (libraryId === props.libraryId) mutating.value = '' }
+  } catch (e) { if (isCurrent(signal)) error.value = e.message }
+  finally { await finishAction(signal) }
 }
 async function removeSelected() {
-  if (!selectionCount.value || !queue.value) return
+  if (!selectionCount.value || !queue.value || starting.value || mutating.value) return
   const libraryId = props.libraryId
   const body = { library_id: libraryId, revision: queue.value.revision, all_pending: allMode.value,
     items: [...selected.value].map(itemRef), exclude: [...excluded.value].map(itemRef) }
+  const signal = beginAction()
   mutating.value = 'bulk'
-  feedback.value = ''
   try {
     const result = await api('/api/stream/previews/queue/remove', {
-      method: 'POST', body: JSON.stringify(body), signal: ctrl.signal,
+      method: 'POST', body: JSON.stringify(body), signal,
     })
-    if (disposed || libraryId !== props.libraryId) return
+    if (!isCurrent(signal)) return
     clearSelection()
     feedback.value = `已移出 ${result.removed} 项待处理影片。`
-    await load()
   } catch (e) {
-    if (disposed || libraryId !== props.libraryId) return
-    if (e.message?.startsWith('409 ')) {
+    if (!isCurrent(signal)) return
+    if (e.status === 409) {
       clearSelection()
-      await load()
       feedback.value = '待处理队列已变化，请重新选择。'
-    } else queueError.value = e.message
-  } finally { if (libraryId === props.libraryId) mutating.value = '' }
+    } else error.value = e.message
+  } finally { await finishAction(signal) }
 }
 async function removeRunning() {
   const running = queue.value?.running
-  if (!running) return
+  if (!running || starting.value || mutating.value) return
   const libraryId = props.libraryId
+  const signal = beginAction()
   mutating.value = 'running'
-  feedback.value = ''
   try {
     if (running.auto) {
-      await api(`/api/stream/previews/queue/${running.kind}/${running.id}?library_id=${libraryId}`, { method: 'DELETE', signal: ctrl.signal })
-      if (disposed || libraryId !== props.libraryId) return
+      await api(`/api/stream/previews/queue/${running.kind}/${running.id}?library_id=${libraryId}`, { method: 'DELETE', signal })
+      if (!isCurrent(signal)) return
       feedback.value = `已取消并移出“${running.title}”。`
     } else {
-      await api(`/api/stream/previews/jobs/${running.job_id}/cancel`, { method: 'POST', signal: ctrl.signal })
-      if (disposed || libraryId !== props.libraryId) return
+      await api(`/api/stream/previews/jobs/${running.job_id}/cancel`, { method: 'POST', signal })
+      if (!isCurrent(signal)) return
       feedback.value = '已取消立即生成任务。'
     }
-    await load()
-  } catch (e) { if (!disposed && libraryId === props.libraryId && e.name !== 'AbortError') queueError.value = e.message }
-  finally { if (libraryId === props.libraryId) mutating.value = '' }
+  } catch (e) { if (isCurrent(signal)) error.value = e.message }
+  finally { await finishAction(signal) }
 }
 function changePage(delta) { offset.value = Math.max(0, offset.value + delta * pageSize); load() }
 watch(() => [props.active, props.libraryId], ([active]) => {
-  clearTimeout(timer)
+  invalidateLoad()
   ctrl.abort()
   ctrl = new AbortController()
-  requestSeq++
   queue.value = null
   job.value = null
+  auto.value = null
   starting.value = false
   mutating.value = ''
   offset.value = 0
   clearSelection()
   feedback.value = ''
   queueError.value = ''
+  error.value = ''
   if (active) load()
 }, { immediate: true })
-onBeforeUnmount(() => { disposed = true; ctrl.abort(); clearTimeout(timer) })
+onBeforeUnmount(() => { disposed = true; ctrl.abort(); invalidateLoad() })
 </script>
 
 <style scoped>
@@ -273,16 +300,19 @@ h5 { margin: 0; font-size: var(--jz-font-xl); font-weight: 700; line-height: 1.4
 .queue-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-top: 28px; margin-bottom: 12px; padding-left: 12px; border-left: 3px solid var(--jz-accent); }
 .selection-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--jz-border); border-radius: var(--jz-radius-s); background: var(--jz-surface-2); }
 .select-all, .select-item { display: inline-flex; align-items: center; cursor: pointer; }
-.select-all { gap: 8px; min-height: 44px; font-size: var(--jz-font-m); }
+.select-all { gap: 8px; min-height: 44px; font-size: var(--jz-font-m); white-space: nowrap; }
 .select-item { justify-content: center; width: 44px; min-width: 44px; height: 44px; }
 .select-all input, .select-item input { width: 18px; height: 18px; margin: 0; accent-color: var(--jz-accent); cursor: pointer; }
 .select-all input:focus-visible, .select-item input:focus-visible { outline: 2px solid var(--jz-link); outline-offset: 3px; }
 .queue-list { list-style: none; padding: 0; margin: 0; }
-.queue-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--jz-border); }
+.queue-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--jz-border); }
 .queue-row.is-selected { background: var(--jz-selected); }
 .queue-main { display: flex; align-items: center; flex: 1; min-width: 0; gap: 4px; }
-.queue-detail { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.queue-detail { display: grid; flex: 1; gap: 3px; min-width: 0; }
 .queue-detail strong { font-size: var(--jz-font-m); font-weight: 500; }
+.queue-detail strong, .queue-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-detail .hint { margin: 0; }
+.queue-action { flex: none; align-self: center; }
+.queue-row > .queue-detail .hint { overflow-wrap: anywhere; }
 .page-bar { margin-top: 12px; }
-@media (max-width: 600px) { .queue-row { align-items: flex-start; flex-direction: column; } .queue-row :deep(button) { min-height: 44px; } }
 </style>
