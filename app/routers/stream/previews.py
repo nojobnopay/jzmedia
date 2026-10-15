@@ -26,6 +26,7 @@ from ...jobkit import JobRegistry
 from ...log import get_logger
 from .common import _media_cached_or_probe, _version_source, _sessions, _sess_lock, router
 from .preview_extract import Extractor
+from .preview_log import ExtractionError, error_kind, read_frame_log
 
 logger = get_logger("stream.previews")
 __all__ = ['shutdown_previews', 'start_auto_previews']
@@ -130,7 +131,8 @@ def _run(cmd, jid, timeout=60):
     with tempfile.TemporaryFile() as log:
         proc = subprocess.Popen(prefix + cmd, stdin=subprocess.DEVNULL,
                                 stdout=subprocess.DEVNULL, stderr=log)
-        deadline = time.monotonic() + timeout
+        started = time.monotonic()
+        deadline = started + timeout
         try:
             while True:
                 if _cancelled(jid):
@@ -138,18 +140,20 @@ def _run(cmd, jid, timeout=60):
                 if (_jobs.get(jid) or {}).get("library_id") is not None and _transcoding_busy():
                     raise _YieldToPlayback()
                 if time.monotonic() > deadline:
-                    raise RuntimeError("抽帧超时，请稍后重试")
+                    raise ExtractionError("抽帧超时，请稍后重试", reason="timeout", timed_out=True,
+                                          elapsed=time.monotonic() - started, limit=timeout,
+                                          stderr_bytes=os.fstat(log.fileno()).st_size)
                 try:
                     proc.wait(timeout=min(0.2, max(0.001, deadline - time.monotonic())))
                     break
                 except subprocess.TimeoutExpired:
                     pass
             if proc.returncode:
-                raise RuntimeError("无法生成预览（编码或色彩转换不受支持）")
-            # showinfo 只记录经 select 筛选的关键帧，保留有限日志用于核对时间。
-            end = log.seek(0, os.SEEK_END)
-            log.seek(max(0, end - 256 * 1024))
-            return log.read().decode("utf-8", errors="replace")
+                raise ExtractionError("无法生成预览（编码或色彩转换不受支持）", reason="exit",
+                                      returncode=proc.returncode, elapsed=time.monotonic() - started,
+                                      limit=timeout, stderr_bytes=os.fstat(log.fileno()).st_size,
+                                      error_kind=error_kind(log))
+            return read_frame_log(log, time.monotonic() - started)
         finally:
             if proc.poll() is None:
                 proc.terminate()
@@ -170,7 +174,7 @@ def _frame_filter(info):
     if hdr and not (dv and compat == 2):
         # 先缩小再软件 tone-map；无 zscale 的构建明确报失败，避免静默生成灰图。
         color = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,"
-    return (f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease,"
+    return (f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
             + color + f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuvj420p")
 
 
@@ -194,6 +198,7 @@ def _generate(jid, row, src, info, interval):
     lib = store.get_library(row.get("library_id") or 1) or {}
     remote = lib.get("source", "local") != "local" or src.input.startswith(("http://", "https://"))
     extractor = Extractor(src, filter_arg, interval, remote=remote, run=_run, jid=jid,
+                          context={"kind": row.get("kind", "movie"), "id": row["id"]},
                           progress=lambda frames: _jobs.update(jid, frames=frames, frame_total=count))
     started = time.monotonic()
     completed_pages = len(manifest["pages"])
@@ -222,7 +227,7 @@ def _generate(jid, row, src, info, interval):
             _jobs.update(jid, frames=min((page + 1) * cells, count), frame_total=count)
     logger.info("preview generated kind=%s id=%s pages=%s wall_seconds=%.2f last_mode=%s decoder=%s",
                 row.get("kind", "movie"), row["id"], len(manifest["pages"]) - completed_pages,
-                time.monotonic() - started, "keyframes" if extractor.fast else "accurate",
+                time.monotonic() - started, extractor.last_mode,
                 extractor.hw[1] if extractor.hw else "software")
     _prune_cache(protect=key)
     data_usage.invalidate()

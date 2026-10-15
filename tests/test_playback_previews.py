@@ -285,9 +285,11 @@ def test_automatic_queue_runs_when_idle_and_survives_restart(monkeypatch):
     deadline = time.monotonic() + 2
     while pv._auto_queue and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert processed == [('movie', 7)]
-    assert pv._auto_queue == []
-    assert json.loads((pv._root() / 'auto-queue.json').read_text()) == []
+    # 队列退役和持久化同属一个锁内转换，等写盘完成再核对内存及磁盘。
+    with pv._lock:
+        assert processed == [('movie', 7)]
+        assert pv._auto_queue == []
+        assert json.loads((pv._root() / 'auto-queue.json').read_text()) == []
 
 
 def test_existing_local_videos_join_queue_once_and_skip_ready(monkeypatch):

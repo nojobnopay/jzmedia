@@ -1,5 +1,6 @@
 """真实抽帧覆盖采样时序、尾页、长 GOP 回退；模拟设备覆盖硬件失败和远程读量策略。"""
 from pathlib import Path
+import math
 import subprocess
 import sys
 import threading
@@ -86,8 +87,10 @@ def test_real_keyframes_batch_two_pages_preserves_timeline_and_pads_tail(ffmpeg,
     jid, directory = generate(video, 29)
     manifest = pv._read_manifest(directory)
     assert manifest['state'] == 'ready' and manifest['count'] == 29
-    assert len(calls) == 2 and all('-skip_frame' in cmd for cmd in calls)
-    assert [int(cmd[cmd.index('-ss') + 1]) for cmd in calls] == [0, 25]
+    assert len(calls) == 4
+    inputs = [cmd for cmd in calls if '-ss' in cmd]
+    assert len(inputs) == 2 and all('-skip_frame' in cmd for cmd in inputs)
+    assert [int(cmd[cmd.index('-ss') + 1]) for cmd in inputs] == [0, 25]
     first = cells(ffmpeg, directory / 'page_0000.jpg')
     for index, rgb in enumerate(first):
         assert_color(rgb, min(index // 10, 2))
@@ -99,7 +102,7 @@ def test_real_keyframes_batch_two_pages_preserves_timeline_and_pads_tail(ffmpeg,
     assert not list(directory.rglob('frame_*.jpg'))
 
 
-def test_real_sparse_keyframes_fall_back_to_accurate_frames(ffmpeg, tmp_path, monkeypatch):
+def test_real_sparse_keyframes_fall_back_when_nearby_seek_window_is_insufficient(ffmpeg, tmp_path, monkeypatch):
     video = tmp_path / 'long-gop.mkv'
     colors(ffmpeg, video, gop=10000)
     monkeypatch.setattr(media, 'ffmpeg_bin', lambda: ffmpeg)
@@ -110,7 +113,11 @@ def test_real_sparse_keyframes_fall_back_to_accurate_frames(ffmpeg, tmp_path, mo
         return run(cmd, jid, timeout)
     monkeypatch.setattr(pv, '_run', capture)
     _, directory = generate(video, 29)
-    assert sum('-skip_frame' in cmd for cmd in calls) == 1
+    # GOP 超过逐点读取窗口时，仍要精确解码，不能复用很远的画面。
+    assert 1 <= sum('-skip_frame' in cmd for cmd in calls) <= 2
+    assert any('-noaccurate_seek' in cmd for cmd in calls)
+    inputs = [cmd for cmd in calls if '-ss' in cmd]
+    assert any('-noaccurate_seek' not in cmd and '-skip_frame' not in cmd for cmd in inputs)
     assert pv._read_manifest(directory)['state'] == 'ready'
     first = cells(ffmpeg, directory / 'page_0000.jpg')
     assert_color(first[12], 1)
@@ -118,30 +125,120 @@ def test_real_sparse_keyframes_fall_back_to_accurate_frames(ffmpeg, tmp_path, mo
     assert_color(cells(ffmpeg, directory / 'page_0001.jpg')[3], 2)
 
 
-def test_real_noninteger_keyframe_timestamps_stay_within_one_interval(ffmpeg, tmp_path, monkeypatch):
+@pytest.mark.parametrize('force_points', [False, True])
+@pytest.mark.parametrize('codec', ['libx264', 'libx265'])
+def test_real_noninteger_keyframe_timestamps_stay_within_one_interval(ffmpeg, tmp_path, monkeypatch,
+                                                                    force_points, codec):
     video = tmp_path / 'time-ramp.mkv'
     # 每秒红通道增加 8；关键帧每 1.5 秒一个，用像素核对实际画面时间而非只检查页数。
     subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
                     '-f', 'lavfi', '-i', "nullsrc=s=160x90:r=10:d=29,geq=r='N*0.8':g=0:b=0",
-                    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '0', '-threads', '1',
-                    '-g', '15', '-keyint_min', '15', '-sc_threshold', '0', str(video)],
+                    '-c:v', codec, '-preset', 'ultrafast', '-crf', '0', '-threads', '1',
+                    '-g', '15', '-keyint_min', '15', '-sc_threshold', '0',
+                    *(['-x265-params', 'pools=1:frame-threads=1:scenecut=0'] if codec == 'libx265' else []),
+                    str(video)],
                    capture_output=True, check=True, timeout=30)
     monkeypatch.setattr(media, 'ffmpeg_bin', lambda: ffmpeg)
     run = pv._run
     calls = []
     def capture(cmd, jid, timeout=60):
         calls.append(cmd)
+        if force_points and '-skip_frame' in cmd:
+            raise RuntimeError('window extraction unavailable')
         return run(cmd, jid, timeout)
     monkeypatch.setattr(pv, '_run', capture)
     _, directory = generate(video, 29)
-    assert len(calls) == 2 and all('-skip_frame' in cmd for cmd in calls)
+    if force_points:
+        assert sum('-noaccurate_seek' in cmd and '-skip_frame' not in cmd for cmd in calls) == 29
+        assert sum('-skip_frame' in cmd for cmd in calls) == 1
+        inputs = [cmd for cmd in calls if '-ss' in cmd]
+        assert all('-noaccurate_seek' in cmd and '-skip_frame' not in cmd for cmd in inputs[1:])
+    else:
+        assert len(calls) == 4
+        assert sum('-skip_frame' in cmd for cmd in calls) == 2
     for page, size in [(0, 25), (1, 4)]:
         for cell, rgb in enumerate(cells(ffmpeg, directory / f'page_{page:04d}.jpg')[:size]):
             target = page * 25 + cell
             assert abs(rgb[0] / 8 - target) <= 1.4  # JPEG/色彩转换容许约 3 级误差。
 
 
-def test_real_hevc_10bit_hdr_with_nonzero_start_time(ffmpeg, tmp_path, monkeypatch):
+def test_real_hybrid_page_only_decodes_one_uncovered_sample(ffmpeg, tmp_path, monkeypatch):
+    video = tmp_path / 'one-gap.mkv'
+    # 89～111 秒之间没有关键帧，仅 100 秒这个采样点超过 ±10 秒容差。
+    keyframes = [0, *range(9, 90, 10), 111, *range(119, 250, 10)]
+    subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                    '-f', 'lavfi', '-i', "nullsrc=s=160x90:r=1:d=250,geq=r='N*0.8':g=0:b=0",
+                    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '0', '-threads', '1',
+                    '-g', '1000', '-keyint_min', '1', '-sc_threshold', '0',
+                    '-force_key_frames', ','.join(map(str, keyframes)), str(video)],
+                   capture_output=True, check=True, timeout=30)
+    monkeypatch.setattr(media, 'ffmpeg_bin', lambda: ffmpeg)
+    run, calls = pv._run, []
+    def capture(cmd, jid, timeout=60):
+        calls.append(cmd)
+        return run(cmd, jid, timeout)
+    monkeypatch.setattr(pv, '_run', capture)
+    _, directory = generate(video, 250, interval=10)
+    assert pv._read_manifest(directory)['state'] == 'ready'
+    assert len(calls) == 3  # 一次批量、一次补缺、一次拼图。
+    repaired = [cmd for cmd in calls if '-ss' in cmd and '-skip_frame' not in cmd]
+    assert [float(cmd[cmd.index('-ss') + 1]) for cmd in repaired] == [100]
+    expected_times = [0, *range(9, 90, 10), 90, 111, *range(119, 240, 10)]
+    for rgb, expected in zip(cells(ffmpeg, directory / 'page_0000.jpg'), expected_times):
+        assert abs(rgb[0] - expected * 0.8) <= 5.2
+        assert max(rgb[1:]) < 8
+
+
+@pytest.mark.parametrize('pts,interval,expected_channels', [
+    ((480, 0, 240), 10, [1, 2, 0]),
+    ((509, 293, 546), 20, [1, 0, 2]),
+])
+def test_real_unordered_decoder_pts_preserve_jpeg_pairing_and_sample_colors(
+        ffmpeg, tmp_path, monkeypatch, pts, interval, expected_channels):
+    video = tmp_path / 'three-colors.mkv'
+    command = [ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y']
+    for color in ('red', 'lime', 'blue'):
+        command += ['-f', 'lavfi', '-i', f'color={color}:s=160x90:r=1:d=1']
+    command += ['-filter_complex', '[0:v][1:v][2:v]concat=n=3:v=1:a=0,setpts=N/TB',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1', '-g', '1', str(video)]
+    subprocess.run(command, capture_output=True, check=True, timeout=30)
+    monkeypatch.setattr(media, 'ffmpeg_bin', lambda: ffmpeg)
+    run, calls, observed = pv._run, [], []
+    def capture(cmd, jid, timeout=60):
+        calls.append(cmd)
+        if '-skip_frame' in cmd:
+            # 模拟 HEVC 的解码输出：三张不同画面按 n 输出，但原始 PTS 乱序。
+            # 第二组即现场触发 mjpeg Invalid pts 的时间序列，保留 1/24 时基。
+            vf_index = cmd.index('-vf') + 1
+            inject = ("settb=expr=1/24,setpts='if(eq(N,0),"
+                      f"{pts[0]},if(eq(N,1),{pts[1]},{pts[2]}))',")
+            cmd[vf_index] = cmd[vf_index].replace('showinfo=checksum=0', inject + 'showinfo=checksum=0', 1)
+        log = run(cmd, jid, timeout)
+        if '-skip_frame' in cmd:
+            assert log.frame_numbers == (0, 1, 2)
+            assert log.frame_times == pytest.approx([value / 24 for value in pts], abs=0.0001)
+            # 候选 JPEG 必须完整保留原输出顺序，不能只保留排序后的时间戳。
+            decoded = subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error',
+                                       '-start_number', '0', '-i', cmd[-1], '-frames:v', '3',
+                                       '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'],
+                                      capture_output=True, check=True, timeout=10).stdout
+            frame_bytes = pv.WIDTH * pv.HEIGHT * 3
+            assert len(decoded) == frame_bytes * 3
+            for index in range(3):
+                pixel = index * frame_bytes + ((pv.HEIGHT // 2) * pv.WIDTH + pv.WIDTH // 2) * 3
+                assert_color(decoded[pixel:pixel + 3], index)
+            observed.extend(log.frame_times)
+        return log
+    monkeypatch.setattr(pv, '_run', capture)
+    _, directory = generate(video, interval * 3, interval=interval)
+    assert pv._read_manifest(directory)['state'] == 'ready'
+    assert len(calls) == 2 and len(observed) == 3
+    for rgb, channel in zip(cells(ffmpeg, directory / 'page_0000.jpg'), expected_channels):
+        assert_color(rgb, channel)
+
+
+@pytest.mark.parametrize('force_points', [False, True])
+def test_real_hevc_10bit_hdr_with_nonzero_start_time(ffmpeg, tmp_path, monkeypatch, force_points):
     video = tmp_path / 'hdr.mkv'
     subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
                     '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=3',
@@ -152,14 +249,144 @@ def test_real_hevc_10bit_hdr_with_nonzero_start_time(ffmpeg, tmp_path, monkeypat
                     '-colorspace', 'bt2020nc', str(video)],
                    capture_output=True, check=True, timeout=30)
     monkeypatch.setattr(media, 'ffmpeg_bin', lambda: ffmpeg)
+    run, calls = pv._run, []
+    def capture(cmd, jid, timeout=60):
+        calls.append(cmd)
+        if force_points and '-skip_frame' in cmd:
+            raise RuntimeError('window extraction unavailable')
+        return run(cmd, jid, timeout)
+    monkeypatch.setattr(pv, '_run', capture)
     _, directory = generate(video, 3, info={'hdr': 'hdr10'})
     assert pv._read_manifest(directory)['state'] == 'ready'
     assert all(max(rgb) > 20 for rgb in cells(ffmpeg, directory / 'page_0000.jpg')[:3])
+    if force_points:
+        assert sum('-noaccurate_seek' in cmd and '-skip_frame' not in cmd for cmd in calls) == 3
+        assert sum('-skip_frame' in cmd for cmd in calls) == 1
+        inputs = [cmd for cmd in calls if '-ss' in cmd]
+        assert all('-noaccurate_seek' in cmd and '-skip_frame' not in cmd for cmd in inputs[1:])
+
+
+def test_real_widescreen_hdr_uses_even_scaled_dimensions_for_tone_mapping(ffmpeg, tmp_path, monkeypatch):
+    video = tmp_path / 'widescreen-hdr.mkv'
+    # 192:80 缩进 160x90 时高度约 67；4:2:0 的 HDR zscale 要求偶数尺寸。
+    subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                    '-f', 'lavfi', '-i', 'testsrc2=s=192x80:r=10:d=1',
+                    '-vf', 'format=yuv420p10le', '-c:v', 'libx265', '-preset', 'ultrafast',
+                    '-threads', '1', '-x265-params',
+                    'pools=1:frame-threads=1:scenecut=0:colorprim=9:transfer=16:colormatrix=9',
+                    '-color_primaries', 'bt2020', '-color_trc', 'smpte2084',
+                    '-colorspace', 'bt2020nc', str(video)],
+                   capture_output=True, check=True, timeout=30)
+    monkeypatch.setattr(media, 'ffmpeg_bin', lambda: ffmpeg)
+    _, directory = generate(video, 1, info={'hdr': 'hdr10'})
+    assert pv._read_manifest(directory)['state'] == 'ready'
+    assert max(cells(ffmpeg, directory / 'page_0000.jpg')[0]) > 20
 
 
 def extractor(src, run, **kwargs):
     return ex.Extractor(src, pv._frame_filter({}), 10, remote=kwargs.pop('remote', False),
                         run=run, jid='preview-test', progress=kwargs.pop('progress', lambda _n: None), **kwargs)
+
+
+def write_frames(cmd, times=(0,), *, numbers=None):
+    """模拟 image2 真实输出序号；每张图片留不同内容，防止时间戳重排后配错图。"""
+    if '%06d' in cmd[-1]:
+        for index, _time in enumerate(times):
+            Path(cmd[-1] % index).write_bytes(f'image-{index}'.encode())
+    else:
+        Path(cmd[-1]).write_bytes(b'jpeg')
+    return '\n'.join(f'n: {number} pts: {index} pts_time:{time}'
+                     for index, (number, time) in enumerate(zip(numbers or range(len(times)), times)))
+
+
+@pytest.mark.parametrize('times,expected', [
+    ((20, 0, 10), [b'image-1', b'image-2', b'image-0']),
+    ((0, 0, 20), [b'image-0', b'image-0', b'image-2']),
+    ((10,), [b'image-0', b'image-0', b'image-0']),
+    ((-10, 10, 30), [b'image-0', b'image-1', b'image-1']),
+])
+def test_batch_matches_images_to_pts_and_reuses_nearest_valid_frame(tmp_path, times, expected):
+    calls, assembled = [], []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if '-skip_frame' in cmd:
+            return write_frames(cmd, times)
+        assert '-ss' not in cmd, 'valid batch frames must not be decoded again'
+        assembled.extend((tmp_path / f'frame_{cell:02d}.jpg').read_bytes() for cell in range(3))
+        return write_frames(cmd)
+    worker = extractor(source('/isolated/video.mkv'), run)
+    worker.page(250, 3, 5, 5, tmp_path / 'page.jpg')
+    assert assembled == expected
+    assert len(calls) == 2 and worker.mode == 'window_keyframes'
+    assert not list(tmp_path.glob('frame_*.jpg'))
+    assert not list(tmp_path.glob('.keyframes-*'))
+
+
+@pytest.mark.parametrize('bad_numbering,missing_image', [
+    ((0, 2), False), ((1, 2), False), ((0, 0), False), ((0, 1), True),
+])
+def test_batch_with_unreliable_image_pts_pairing_is_never_reused(tmp_path, bad_numbering, missing_image):
+    points, assembled = [], []
+    def run(cmd, _jid, timeout=60):
+        if '-skip_frame' in cmd:
+            log = write_frames(cmd, (0, 10), numbers=bad_numbering)
+            if missing_image:
+                Path(cmd[-1] % 1).unlink()
+            return log
+        if '-ss' in cmd:
+            points.append(float(cmd[cmd.index('-ss') + 1]))
+            Path(cmd[-1]).write_bytes(b'verified point')
+            return 'n: 0 pts: 0 pts_time:0'
+        assembled.extend((tmp_path / f'frame_{cell:02d}.jpg').read_bytes() for cell in range(2))
+        return write_frames(cmd)
+    worker = extractor(source('/isolated/video.mkv'), run)
+    worker.page(250, 2, 5, 5, tmp_path / 'page.jpg')
+    assert points == [250, 260]
+    assert assembled == [b'verified point'] * 2
+    assert worker.mode == 'point_seek'
+
+
+@pytest.mark.parametrize('point_valid', [True, False])
+def test_batch_preserves_covered_cells_and_only_repairs_gap_without_disabling_next_page(tmp_path, point_valid):
+    calls, progress, assembled = [], [], []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if '-skip_frame' in cmd:
+            times = (0, 10, 19, 41) if float(cmd[cmd.index('-ss') + 1]) == 0 else (0,)
+            return write_frames(cmd, times)
+        if '-ss' in cmd:
+            Path(cmd[-1]).write_bytes(b'nearby' if '-noaccurate_seek' in cmd else b'accurate')
+            return 'n: 0 pts: 0 pts_time:0' if point_valid else 'n: 0 pts: 11 pts_time:10.01'
+        size = 5 if len(assembled) == 0 else 1
+        assembled.append([(tmp_path / f'frame_{cell:02d}.jpg').read_bytes() for cell in range(size)])
+        return write_frames(cmd)
+    worker = extractor(source('/isolated/video.mkv'), run, progress=progress.append)
+    worker.page(0, 5, 5, 5, tmp_path / 'page.jpg')
+    worker.page(250, 1, 5, 5, tmp_path / 'page.jpg')
+    assert assembled[0] == [b'image-0', b'image-1', b'image-2',
+                            b'nearby' if point_valid else b'accurate', b'image-3']
+    repaired = [cmd for cmd in calls if '-ss' in cmd and '-skip_frame' not in cmd]
+    assert [float(cmd[cmd.index('-ss') + 1]) for cmd in repaired] == ([30] if point_valid else [30, 30])
+    assert sum('-skip_frame' in cmd for cmd in calls) == 2
+    assert worker.mode == 'window_keyframes'
+    assert progress == [1, 2, 3, 4, 5, 26]
+
+
+@pytest.mark.parametrize('exception', [pv._Cancelled, pv._YieldToPlayback])
+def test_interruption_during_single_gap_repair_propagates_and_cleans_temporary_frames(tmp_path, exception):
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if '-skip_frame' in cmd:
+            return write_frames(cmd, (0, 10, 19, 41))
+        raise exception()
+    worker = extractor(source('/isolated/video.mkv'), run)
+    with pytest.raises(exception):
+        worker.page(0, 5, 5, 5, tmp_path / 'page.jpg')
+    assert len(calls) == 2
+    assert not (tmp_path / 'page.jpg').exists()
+    assert not list(tmp_path.glob('.keyframes-*'))
+    assert not list(tmp_path.glob('frame_*.jpg'))
 
 
 def test_hardware_failure_retries_software_and_remembers_for_later_pages(tmp_path, monkeypatch):
@@ -169,12 +396,11 @@ def test_hardware_failure_retries_software_and_remembers_for_later_pages(tmp_pat
         calls.append(cmd)
         if '-hwaccel' in cmd:
             raise RuntimeError('decoder unavailable')
-        Path(cmd[-1]).write_bytes(b'jpeg')
-        return '\n'.join(f'n: {i} pts: {i} pts_time:{i * 10}' for i in range(27))
+        return write_frames(cmd, tuple(i * 10 for i in range(27)))
     worker = extractor(source('/isolated/video.mkv'), run)
     worker.page(0, 25, 5, 5, tmp_path / 'page.jpg')
     worker.page(250, 2, 5, 5, tmp_path / 'page.jpg')
-    assert len(calls) == 3
+    assert len(calls) == 5
     assert '-hwaccel' in calls[0] and all('-hwaccel' not in cmd for cmd in calls[1:])
     assert worker.fast
 
@@ -191,7 +417,7 @@ def test_remote_reads_only_sampling_points_and_uses_probe_limits(remote, url, tm
     worker.page(250, 2, 5, 5, tmp_path / 'page.jpg')
     inputs = [cmd for cmd in calls if '-ss' in cmd]
     assert [cmd[cmd.index('-ss') + 1] for cmd in inputs] == ['250', '260']
-    assert all('-skip_frame' not in cmd and '-t' not in cmd for cmd in inputs)
+    assert all('-skip_frame' not in cmd and '-noaccurate_seek' not in cmd and '-t' not in cmd for cmd in inputs)
     if url.startswith('http'):
         assert all(cmd[cmd.index('-probesize') + 1] == '12345' for cmd in inputs)
     assert progress == [26, 27]
@@ -201,16 +427,16 @@ def test_explicit_accurate_mode_and_empty_keyframe_output(tmp_path, monkeypatch)
     calls = []
     def run(cmd, _jid, timeout=60):
         calls.append(cmd)
-        if '-skip_frame' not in cmd:
+        if '-skip_frame' not in cmd and '-noaccurate_seek' not in cmd:
             Path(cmd[-1]).write_bytes(b'jpeg')
         return ''
     worker = extractor(source('/isolated/video.mkv'), run)
     worker.page(0, 1, 5, 5, tmp_path / 'page.jpg')
-    assert len(calls) == 3 and not worker.fast
+    assert len(calls) == 4 and not worker.fast
     calls.clear()
     monkeypatch.setenv('PREVIEW_MODE', 'accurate')
     extractor(source('/isolated/video.mkv'), run).page(0, 1, 5, 5, tmp_path / 'page.jpg')
-    assert len(calls) == 2 and all('-skip_frame' not in cmd for cmd in calls)
+    assert len(calls) == 2 and all('-skip_frame' not in cmd and '-noaccurate_seek' not in cmd for cmd in calls)
 
 
 def test_remote_all_probe_limits_can_be_disabled(tmp_path, monkeypatch):
@@ -230,7 +456,7 @@ def test_software_keyframe_decoder_error_falls_back_once(tmp_path):
     calls = []
     def run(cmd, _jid, timeout=60):
         calls.append(cmd)
-        if '-skip_frame' in cmd:
+        if '-skip_frame' in cmd or '-noaccurate_seek' in cmd:
             raise RuntimeError('keyframe decoder unsupported')
         Path(cmd[-1]).write_bytes(b'jpeg')
         return ''
@@ -238,7 +464,90 @@ def test_software_keyframe_decoder_error_falls_back_once(tmp_path):
     worker.page(0, 1, 5, 5, tmp_path / 'page.jpg')
     worker.page(250, 1, 5, 5, tmp_path / 'page.jpg')
     assert sum('-skip_frame' in cmd for cmd in calls) == 1
+    assert sum('-noaccurate_seek' in cmd and '-skip_frame' not in cmd for cmd in calls) == 1
     assert not worker.fast
+
+
+def test_failed_window_uses_nearby_point_seek_for_this_and_later_pages(tmp_path):
+    calls, progress = [], []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if '-skip_frame' in cmd:
+            raise RuntimeError('window decoder failed')
+        Path(cmd[-1]).write_bytes(b'jpeg')
+        return 'n: 0 pts: -1 pts_time:-0.5' if '-noaccurate_seek' in cmd else ''
+    worker = extractor(source('/isolated/video.mkv'), run, progress=progress.append)
+    worker.page(0, 2, 5, 5, tmp_path / 'page.jpg')
+    worker.page(250, 1, 5, 5, tmp_path / 'page.jpg')
+    inputs = [cmd for cmd in calls if '-ss' in cmd]
+    assert len(inputs) == 4
+    assert '-skip_frame' in inputs[0]
+    assert all('-noaccurate_seek' in cmd and '-skip_frame' not in cmd for cmd in inputs[1:])
+    assert all(float(cmd[cmd.index('-t') + 1]) == 20 for cmd in inputs[1:])
+    assert [cmd[cmd.index('-ss') + 1] for cmd in inputs[1:]] == ['0', '10', '250']
+    assert progress == [1, 2, 26]
+    assert worker.fast and worker.mode == 'point_seek'
+
+
+@pytest.mark.parametrize('point_log', [
+    '', 'n: 0 pts: 11 pts_time:10.01', 'n: 0 pts: -11 pts_time:-10.01',
+    'n: 0 pts: 0 pts_time:nan',
+])
+def test_unverifiable_nearby_frame_retries_same_point_accurately_and_remembers(tmp_path, point_log):
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if '-skip_frame' in cmd:
+            raise RuntimeError('window decoder failed')
+        Path(cmd[-1]).write_bytes(b'jpeg')
+        return point_log if '-noaccurate_seek' in cmd else ''
+    worker = extractor(source('/isolated/video.mkv'), run)
+    worker.page(0, 2, 5, 5, tmp_path / 'page.jpg')
+    worker.page(250, 1, 5, 5, tmp_path / 'page.jpg')
+    inputs = [cmd for cmd in calls if '-ss' in cmd]
+    points = [cmd for cmd in inputs if '-noaccurate_seek' in cmd and '-skip_frame' not in cmd]
+    accurate = [cmd for cmd in inputs if '-skip_frame' not in cmd and '-noaccurate_seek' not in cmd]
+    assert len(points) == 1
+    assert [cmd[cmd.index('-ss') + 1] for cmd in accurate] == ['0', '10', '250']
+    assert not worker.fast
+
+
+def test_point_hardware_failure_retries_software_at_same_timestamp(tmp_path, monkeypatch):
+    monkeypatch.setattr(ex, '_hardware_args', lambda: ['-hwaccel', 'vaapi'])
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if '-noaccurate_seek' in cmd and '-skip_frame' not in cmd and '-hwaccel' in cmd:
+            raise RuntimeError('hardware decoder failed')
+        if '-skip_frame' in cmd:
+            return write_frames(cmd, (1000,))
+        Path(cmd[-1]).write_bytes(b'jpeg')
+        if '-noaccurate_seek' in cmd:
+            return 'n: 0 pts: 0 pts_time:0'
+        return ''
+    worker = extractor(source('/isolated/video.mkv'), run)
+    worker.page(250, 1, 5, 5, tmp_path / 'page.jpg')
+    worker.page(500, 1, 5, 5, tmp_path / 'page.jpg')
+    points = [cmd for cmd in calls if '-noaccurate_seek' in cmd and '-skip_frame' not in cmd]
+    assert [cmd[cmd.index('-ss') + 1] for cmd in points] == ['250', '250', '500']
+    assert all('-skip_frame' not in cmd for cmd in points)
+    assert '-hwaccel' in points[0] and all('-hwaccel' not in cmd for cmd in points[1:])
+    assert worker.fast
+
+
+def test_point_cancellation_does_not_enter_accurate_fallback(tmp_path):
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if '-skip_frame' not in cmd and '-noaccurate_seek' in cmd:
+            raise pv._Cancelled()
+        raise RuntimeError('window decoder failed')
+    worker = extractor(source('/isolated/video.mkv'), run)
+    with pytest.raises(pv._Cancelled):
+        worker.page(0, 2, 5, 5, tmp_path / 'page.jpg')
+    assert len(calls) == 2
+    assert '-skip_frame' in calls[0]
+    assert '-noaccurate_seek' in calls[1] and '-skip_frame' not in calls[1]
 
 
 def test_accurate_hardware_decode_failure_retries_same_timestamp(tmp_path, monkeypatch):
@@ -293,6 +602,74 @@ def test_running_batch_process_yields_to_playback_and_is_reaped(monkeypatch):
         assert processes[0].poll() is not None
     finally:
         timer.cancel()
+
+
+def test_run_preserves_all_frame_times_when_decoder_logs_exceed_tail_limit():
+    jid = pv._jobs.create()['job_id']
+    frames = ''.join(f'[Parsed_showinfo_0 @ 0x123] n: {i} pts: {i} pts_time:{i * 10}\n'
+                     for i in range(26))
+    script = f'import sys; sys.stderr.write({frames!r}); sys.stderr.write("decoder warning\\n" * 40000)'
+    log = pv._run([sys.executable, '-c', script], jid)
+    assert log.stderr_bytes > 256 * 1024
+    assert len(log.encode('utf-8')) <= 256 * 1024
+    assert log.frame_times == tuple(i * 10 for i in range(26))
+    assert log.frame_numbers == tuple(range(26))
+    assert ex._match_keyframes(log.frame_times, 25, 10) == list(range(25))
+
+
+@pytest.mark.parametrize('timestamp', ['nan', 'inf', 'N/A'])
+def test_run_keeps_invalid_first_timestamp_so_point_cannot_use_next_frame(tmp_path, timestamp):
+    jid = pv._jobs.create()['job_id']
+    stderr = f'n: 0 pts: 0 pts_time:{timestamp}\nn: 1 pts: 1 pts_time:0\n'
+    log = pv._run([sys.executable, '-c', f'import sys; sys.stderr.write({stderr!r})'], jid)
+    assert len(log.frame_times) == 2
+    assert log.frame_numbers == (0, 1)
+    assert not math.isfinite(log.frame_times[0]) and log.frame_times[1] == 0
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if '-skip_frame' in cmd:
+            raise RuntimeError('window extraction unavailable')
+        Path(cmd[-1]).write_bytes(b'jpeg')
+        return log if '-noaccurate_seek' in cmd else ''
+    worker = extractor(source('/isolated/video.mkv'), run)
+    worker.page(0, 1, 5, 5, tmp_path / 'page.jpg')
+    assert not worker.fast
+    assert any('-ss' in cmd and '-skip_frame' not in cmd and '-noaccurate_seek' not in cmd for cmd in calls)
+
+
+def test_run_reads_timestamp_split_at_buffer_boundary_and_final_line_without_newline():
+    jid = pv._jobs.create()['job_id']
+    prefix = 'n: 0 pts: 0 pts_time:'
+    # 首次读取仅包含 12，下一块才包含 .345；最后一条记录没有换行。
+    stderr = ('x' * (64 * 1024 - len(prefix) - 3) + '\n' + prefix +
+              '12.345\nn: 1 pts: 1 pts_time:20')
+    log = pv._run([sys.executable, '-c', f'import sys; sys.stderr.write({stderr!r})'], jid)
+    assert log.frame_times == (12.345, 20.0)
+    assert log.frame_numbers == (0, 1)
+
+
+@pytest.mark.parametrize('timeout,script,reason,error_kind', [
+    (10, 'import sys; sys.stderr.write("https://user:secret@example.invalid/video?token=private-token\\n"); sys.exit(23)', 'exit', 'unknown'),
+    (0.1, 'import sys,time; sys.stderr.write("https://user:secret@example.invalid/video?token=private-token\\n"); sys.stderr.flush(); time.sleep(60)', 'timeout', 'unknown'),
+    (10, 'import sys; sys.stderr.write("Error while filtering: image dimensions must be divisible by subsampling factor\\n"); sys.exit(1)', 'exit', 'filter'),
+])
+def test_run_failure_diagnostics_keep_cause_without_exposing_source(timeout, script, reason, error_kind):
+    jid = pv._jobs.create()['job_id']
+    with pytest.raises(RuntimeError) as caught:
+        pv._run([sys.executable, '-c', script], jid, timeout=timeout)
+    error = caught.value
+    assert error.reason == reason
+    assert error.timed_out == (reason == 'timeout')
+    if reason == 'exit':
+        assert error.returncode == (1 if error_kind == 'filter' else 23)
+    else:
+        assert error.returncode is None
+    assert error.stderr_bytes > 0 and error.elapsed > 0
+    assert reason in error.diagnostic
+    assert f'error_kind={error_kind}' in error.diagnostic
+    assert not any(value in str(error) + error.diagnostic
+                   for value in ('example.invalid', 'secret', 'private-token', script))
 
 
 def test_page_interrupted_by_playback_restarts_without_committing_bad_output(monkeypatch):
