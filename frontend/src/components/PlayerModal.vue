@@ -146,6 +146,7 @@ import { useCasting } from '../useCasting.js'
 import CastDialog from './CastDialog.vue'
 import { fmtTime as fmt } from '../playerLabels.js'
 import { isPlaybackComplete, pickProgressPosition } from '../progress.js'
+import { registerViewingPlaybackCleanup } from '../viewing.js'
 import '../player.css'
 // hls.js 懒加载（~600KB）：只在进入播放器且非 Safari 时才下载，不拖首屏
 let HlsCls = null
@@ -1882,7 +1883,15 @@ async function recoverStream(forceElement = false) {
     else await mountHls(v, lastPlaylistUrl, Math.max(0, target - 0.5), { gen })
   } catch (e) { /* 恢复失败等下次节拍或转 err */ }
 }
+const unregisterViewingCleanup = registerViewingPlaybackCleanup(async () => {
+  videoEl.value?.pause()
+  const finalProgress = saveFinal()
+  const stoppedCast = casting.active.value ? casting.control('stop') : Promise.resolve()
+  await Promise.allSettled([finalProgress, stoppedCast])
+  emit('close')
+})
 onBeforeUnmount(() => {
+  unregisterViewingCleanup()
   mp4Queue.clear()
   for (const sid of heldMp4Sessions) api(`/api/stream/sessions/${sid}`, { method: 'DELETE' }).catch(() => {})
   heldMp4Sessions.clear()

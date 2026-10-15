@@ -7,21 +7,58 @@ __all__ = ['upsert_extra', 'upsert_tv_extra', 'list_extras_by_movie', 'list_extr
            'delete_extra_by_path', 'repath_extra_by_basename', 'repath_extras_prefix',
            'find_movie_for_extra']
 
+
+def _extra_ownership(c, previous, movie_id=None, show_id=None):
+    """Keep restrictions across ownership changes, including automatic rescans."""
+    from ..viewing import merge_movie_restrictions, merge_show_restrictions, invalidate_content_access
+    if not previous:
+        return movie_id, show_id, []
+    previous = dict(previous)
+    if (previous.get('movie_id'), previous.get('show_id')) == (movie_id, show_id):
+        return movie_id, show_id, []
+    sources = []
+    for column, table in (('movie_id', 'movies'), ('show_id', 'tv_shows')):
+        if previous.get(column):
+            row = c.execute(f'SELECT * FROM main.{table} WHERE id=?', (previous[column],)).fetchone()
+            if row:
+                sources.append(dict(row))
+    if movie_id is None and show_id is None and any(
+            row.get('is_private') or row.get('children_override') == 'block' for row in sources):
+        return previous.get('movie_id'), previous.get('show_id'), []
+    movie_ids = merge_movie_restrictions(c, movie_id, sources) if movie_id else []
+    if show_id:
+        merge_show_restrictions(c, show_id, sources)
+    invalidate_content_access(c)
+    return movie_id, show_id, movie_ids
+
+
+def _resync_policies(movie_ids):
+    from .search import resync_fts
+    for movie_id in set(movie_ids):
+        resync_fts(movie_id)
+
+
 def upsert_extra(file_path: str, movie_id: int | None,
                  kind: str = "extra",
                  library_id: int = DEFAULT_LIBRARY_ID) -> int:
     """花絮归属记录（按 库+路径 幂等）。movie_id 为 None = 未归属。"""
     with _lock, _conn() as c:
+        c.execute('BEGIN IMMEDIATE')
+        previous = c.execute('SELECT * FROM extras WHERE file_path=? AND library_id=?',
+                             (file_path, int(library_id))).fetchone()
+        movie_id, show_id, changed_movies = _extra_ownership(c, previous, movie_id=movie_id)
         c.execute("INSERT OR IGNORE INTO extras(file_path, library_id, updated_at)"
                   " VALUES(?, ?, ?)",
                   (file_path, int(library_id), int(time.time())))
-        c.execute("UPDATE extras SET movie_id=?, kind=?, updated_at=?"
+        c.execute("UPDATE extras SET movie_id=?, show_id=?, kind=?, updated_at=?"
                   " WHERE file_path=? AND library_id=?",
-                  (movie_id, kind or "extra", int(time.time()), file_path,
+                  (movie_id, show_id, kind or "extra", int(time.time()), file_path,
                    int(library_id)))
         row = c.execute("SELECT id FROM extras WHERE file_path=? AND library_id=?",
                         (file_path, int(library_id))).fetchone()
-        return int(row["id"])
+        extra_id = int(row['id'])
+    _resync_policies(changed_movies)
+    return extra_id
 
 
 def upsert_tv_extra(file_path: str, show_id: int | None,
@@ -30,16 +67,22 @@ def upsert_tv_extra(file_path: str, show_id: int | None,
     """剧集花絮/剧场版归属（T4）：movie_id 置空、show_id 归属剧行（按 库+路径 幂等）。
     kind 复用 scanner.extra_kind 取值；剧场版目录文件用 kind='movie'。"""
     with _lock, _conn() as c:
+        c.execute('BEGIN IMMEDIATE')
+        previous = c.execute('SELECT * FROM extras WHERE file_path=? AND library_id=?',
+                             (file_path, int(library_id))).fetchone()
+        movie_id, show_id, changed_movies = _extra_ownership(c, previous, show_id=show_id)
         c.execute("INSERT OR IGNORE INTO extras(file_path, library_id, updated_at)"
                   " VALUES(?, ?, ?)",
                   (file_path, int(library_id), int(time.time())))
-        c.execute("UPDATE extras SET show_id=?, movie_id=NULL, kind=?, updated_at=?"
+        c.execute("UPDATE extras SET show_id=?, movie_id=?, kind=?, updated_at=?"
                   " WHERE file_path=? AND library_id=?",
-                  (show_id, kind or "extra", int(time.time()), file_path,
+                  (show_id, movie_id, kind or "extra", int(time.time()), file_path,
                    int(library_id)))
         row = c.execute("SELECT id FROM extras WHERE file_path=? AND library_id=?",
                         (file_path, int(library_id))).fetchone()
-        return int(row["id"])
+        extra_id = int(row['id'])
+    _resync_policies(changed_movies)
+    return extra_id
 
 
 def list_extras_by_movie(movie_id: int) -> list[dict]:
@@ -78,9 +121,14 @@ def get_extra(extra_id: int) -> dict | None:
 def update_extra_movie(extra_id: int, movie_id: int) -> bool:
     """手工认领：orphan 花絮归到指定影片。返回是否有行被更新（rowcount）。"""
     with _lock, _conn() as c:
-        cur = c.execute("UPDATE extras SET movie_id=?, updated_at=? WHERE id=?",
-                        (movie_id, int(time.time()), extra_id))
-        return int(cur.rowcount or 0) > 0
+        c.execute('BEGIN IMMEDIATE')
+        previous = c.execute('SELECT * FROM extras WHERE id=?', (extra_id,)).fetchone()
+        movie_id, show_id, changed_movies = _extra_ownership(c, previous, movie_id=movie_id)
+        cur = c.execute("UPDATE extras SET movie_id=?, show_id=?, updated_at=? WHERE id=?",
+                        (movie_id, show_id, int(time.time()), extra_id))
+        changed = int(cur.rowcount or 0) > 0
+    _resync_policies(changed_movies)
+    return changed
 
 
 def _abs_in_library(library_id: int, rel: str) -> str:
@@ -154,19 +202,29 @@ def repath_extra_by_basename(basename: str, new_path: str,
         return None
     keep = sorted(gone, key=lambda r: r["id"])[0]
     with _lock, _conn() as c:
+        c.execute('BEGIN IMMEDIATE')
+        previous = c.execute('SELECT * FROM extras WHERE id=?', (keep['id'],)).fetchone()
+        if not previous:
+            return None
         try:
-            c.execute("UPDATE extras SET file_path=?, movie_id=?, kind=?,"
+            c.execute("UPDATE extras SET file_path=?, kind=?,"
                       " updated_at=? WHERE id=?",
-                      (new_path, movie_id, kind or "extra",
+                      (new_path, kind or "extra",
                        int(time.time()), keep["id"]))
         except Exception:
             return keep
+        movie_id, show_id, changed_movies = _extra_ownership(c, previous, movie_id=movie_id)
         for r in same:
             if r["id"] != keep["id"] and r["file_path"] != new_path:
-                try:
-                    c.execute("DELETE FROM extras WHERE id=?", (r["id"],))
-                except Exception:
-                    pass
+                live = c.execute('SELECT * FROM extras WHERE id=?', (r['id'],)).fetchone()
+                movie_id, show_id, merged = _extra_ownership(c, live, movie_id, show_id)
+                changed_movies.extend(merged)
+                c.execute("DELETE FROM extras WHERE id=?", (r["id"],))
+        c.execute('UPDATE extras SET movie_id=?,show_id=? WHERE id=?', (movie_id, show_id, keep['id']))
+        # A changed path also revokes an existing stream for this persistent ID.
+        from ..viewing import invalidate_content_access
+        invalidate_content_access(c)
+    _resync_policies(changed_movies)
     with _lock, _conn() as c:
         row = c.execute("SELECT * FROM extras WHERE id=?", (keep["id"],)).fetchone()
         return dict(row) if row else None

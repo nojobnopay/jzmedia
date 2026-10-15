@@ -35,7 +35,7 @@ async function page(t, name, responder = () => undefined) {
   const component = await loadSfc(new URL(`../src/views/${name}.vue`, import.meta.url), {
     vue,
     'vue-router': { useRoute: () => route, useRouter: () => ({ push: path => pushed.push(path) }) },
-    '../api.js': { posterUrl: path => '/posters/' + path, api: async (path, options) => {
+    '../api.js': { posterUrl: path => '/posters/' + path, scopedArtworkUrl: path => path || '', api: async (path, options) => {
       requests.push({ path, options })
       const result = responder(path, options)
       if (result !== undefined) return result

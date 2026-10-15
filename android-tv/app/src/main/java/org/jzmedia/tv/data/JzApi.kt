@@ -1,6 +1,11 @@
 package org.jzmedia.tv.data
 
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl
@@ -18,10 +23,28 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class ApiException(val status: Int, message: String) : IOException(message)
+class ApiException(val status: Int, message: String, val code: String = "") : IOException(message)
 
 /** One server origin per connection. Redirects deliberately never carry credentials elsewhere. */
-class JzApi(address: String, val token: String = "") {
+class JzApi(address: String, val token: String = "", viewing: ViewingSession? = null,
+            private val initialViewingToken: String = "") {
+    var viewing: ViewingSession? by mutableStateOf(viewing)
+        private set
+    fun updateViewingMetadata(session: ViewingSession) {
+        check(viewing?.mode == session.mode && viewing?.generation == session.generation && viewingToken == session.token)
+        viewing = session
+    }
+    private val locked = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val viewingLocked = locked.asSharedFlow()
+    val viewingToken: String get() = viewing?.token ?: initialViewingToken
+    val cacheScope: String = java.util.UUID.randomUUID().toString()
+    private val privateSearchEntries = mutableMapOf<String, String>()
+    val privateHistory: SearchHistoryStore by lazy {
+        SearchHistoryStore({ privateSearchEntries[it] }, { key, value ->
+            if (value == null) privateSearchEntries.remove(key) else privateSearchEntries[key] = value
+        })
+    }
+    fun clearPrivateHistory() { privateSearchEntries.clear() }
     val baseUrl: String = normalizeServerUrl(address)
     private val base: HttpUrl = baseUrl.toHttpUrlOrNull()!!
     private val client = OkHttpClient.Builder()
@@ -35,6 +58,7 @@ class JzApi(address: String, val token: String = "") {
 
     init {
         require(token.length <= 4096 && token.none { it == '\r' || it == '\n' }) { "访问令牌格式无效" }
+        require(viewingToken.length <= 4096 && viewingToken.none { it == '\r' || it == '\n' }) { "观看模式会话格式无效" }
     }
 
     fun absoluteUrl(path: String): String {
@@ -51,7 +75,12 @@ class JzApi(address: String, val token: String = "") {
 
     fun authHeadersFor(url: String): Map<String, String> {
         val target = url.toHttpUrlOrNull() ?: return emptyMap()
-        return if (token.isNotEmpty() && isAllowed(target)) mapOf("X-Api-Token" to token) else emptyMap()
+        if (!isAllowed(target)) return emptyMap()
+        return buildMap {
+            if (token.isNotEmpty()) put("X-Api-Token", token)
+            put("X-Viewing-Client", "tv")
+            if (viewingToken.isNotEmpty()) put("X-Viewing-Session", viewingToken)
+        }
     }
 
     private fun isAllowed(url: HttpUrl): Boolean =
@@ -64,6 +93,11 @@ class JzApi(address: String, val token: String = "") {
     suspend fun getPlayback(path: String): JSONObject = json("GET", path, longRequest = true)
     suspend fun postPlayback(path: String, body: JSONObject = JSONObject()): JSONObject = json("POST", path, body, longRequest = true)
     suspend fun delete(path: String): JSONObject = json("DELETE", path)
+    suspend fun patch(path: String, body: JSONObject): JSONObject = json("PATCH", path, body)
+    fun readViewingSession(value: JSONObject): ViewingSession = try { ViewingSession.fromJson(value, viewingToken) }
+    catch (e: ApiException) { if (e.code == "viewing_locked") locked.tryEmit(Unit); throw e }
+    fun withViewing(value: JSONObject): JzApi = JzApi(baseUrl, token, readViewingSession(value))
+    fun cancelRequests() { client.dispatcher.cancelAll(); playbackClient.dispatcher.cancelAll() }
     suspend fun getText(path: String): String = execute("GET", path, null, 16 * 1024 * 1024, longRequest = true).toString(Charsets.UTF_8)
     suspend fun getBytes(path: String): ByteArray = execute("GET", path, null, 4 * 1024 * 1024)
     // CJK font collections can exceed the artwork limit; first access extracts MKV attachments.
@@ -93,7 +127,16 @@ class JzApi(address: String, val token: String = "") {
                 override fun onResponse(call: Call, response: Response) {
                     try {
                         val bytes = response.use {
-                            if (!it.isSuccessful) throw ApiException(it.code, when (it.code) {
+                            if (!it.isSuccessful) {
+                                val raw = it.body?.source()?.let { source ->
+                                    source.request(8193)
+                                    if (source.buffer.size <= 8192) source.readUtf8() else ""
+                                }.orEmpty()
+                                val code = runCatching {
+                                    JSONObject(raw).let { error -> error.text("code").ifBlank { error.optJSONObject("detail")?.text("code").orEmpty() } }
+                                }.getOrDefault("")
+                                if (code == "viewing_locked") locked.tryEmit(Unit)
+                                throw ApiException(it.code, viewingErrorMessage(code) ?: when (it.code) {
                                 401, 403 -> "访问被拒绝，请检查连接中的访问令牌"
                                 404 -> "内容不存在，或服务器尚未支持此功能"
                                 409 -> "媒体状态已变化，请返回刷新后重试"
@@ -101,7 +144,8 @@ class JzApi(address: String, val token: String = "") {
                                 503 -> "服务器或媒体暂不可用，请检查连接后重试"
                                 in 300..399 -> "服务器发生重定向，请在连接中填写最终地址"
                                 else -> "请求失败（${it.code}），请稍后重试"
-                            })
+                                }, code)
+                            }
                             val source = it.body?.source() ?: throw ApiException(0, "服务器返回了空响应")
                             if (source.request(maxBytes.toLong() + 1)) throw ApiException(0, "服务器响应过大")
                             source.readByteArray()

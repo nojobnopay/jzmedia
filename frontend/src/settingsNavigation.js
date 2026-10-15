@@ -14,7 +14,7 @@ export const SETTINGS_PAGES = [
   { id: 'sec-ai', icon: 'ai', label: '智能辅助', group: '资料与智能', description: '配置可选的智能搜索与匹配建议，整个实例共用。' },
   { id: 'sec-offline', icon: 'download', label: '离线资料', group: '资料与智能', description: '导入本地 IMDb 数据，为全部视频库提供离线标题与年份索引。' },
   { id: 'sec-display', icon: 'image', label: '界面显示', group: '系统设置', description: '调整当前浏览器的显示效果，修改后自动保存。' },
-  { id: 'sec-auth', icon: 'lock', label: '访问保护', group: '系统设置', description: '用令牌保护扫描、编辑、整理和删除等操作。' },
+  { id: 'sec-auth', icon: 'lock', label: '访问保护', group: '系统设置', description: '管理儿童与隐私保护密码，以及写操作访问令牌。' },
   { id: 'sec-index', icon: 'settings', label: '系统维护', group: '系统设置', description: '修复搜索、释放播放缓存，作用于全部媒体库。' },
 ]
 

@@ -104,6 +104,14 @@ def ensure_person(body: EnsureBody, library: str | None = None,
     scope = _library_scope(library, media_library)
     name = " ".join(str(body.name or "").split()) or f"TMDB {tid}"
     profile = str(body.profile_path or "").strip()
+    from ..viewing import current
+    if current.get() is not None:
+        if not store.person_exists(tid) and not store.get_person_tv_works(tid, library_ids=scope):
+            raise HTTPException(404, "person not found")
+        # A caller cannot use a visible actor id to fetch a hidden actor image.
+        from ..viewing_http import visible_profile_paths
+        if profile and profile not in visible_profile_paths():
+            raise HTTPException(404, "profile not found")
     raw = store.get_person_raw(tid) or {}
     if (raw.get("avatar") or "") not in ("", None):
         store.upsert_person(tid, name, avatar=None,

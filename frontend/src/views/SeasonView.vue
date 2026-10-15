@@ -32,7 +32,7 @@
             <JzButton v-if="eps.length" :disabled="busy" @click="toggleSeasonWatched" type="button">
               {{ seasonDone ? '标记本季全部版本未看' : '标记本季全部版本已看' }}
             </JzButton>
-            <ActionMenu>
+            <ActionMenu v-if="!isChildren">
               <JzButton :disabled="verifying" @click="verifyExists" type="button" variant="ghost" icon="eye">{{ verifying ? '检查中…' : '检查文件是否可用' }}</JzButton>
             </ActionMenu>
             <span v-if="busy" class="dim">处理中…</span>
@@ -110,6 +110,7 @@
 </template>
 
 <script setup>
+import { isChildren } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import AppIcon from '../components/AppIcon.vue'
@@ -125,7 +126,7 @@ import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, posterUrl } from '../api.js'
+import { api, posterUrl, scopedArtworkUrl } from '../api.js'
 import { episodeVersion } from '../episodeVersions.js'
 import { fmtRemaining } from '../format.js'
 import { progressWidth } from '../recentPlayed.js'
@@ -157,7 +158,7 @@ const posterFailed = ref(false)
 const hasLocalFiles = computed(() => Number(s.value?.episode_count) > 0)
 const seasonPoster = computed(() => {
   const path = s.value?.poster_path || collectionSeason.value?.poster_path || catalog.value?.poster_path
-  return path ? posterUrl(path) : collectionSeason.value?.poster_url || catalog.value?.poster_url || ''
+  return path ? posterUrl(path) : scopedArtworkUrl(collectionSeason.value?.poster_url || catalog.value?.poster_url)
 })
 const otherSeasonSources = computed(() => uniqueSeasonSources([
   ...(collectionSeason.value?.sources || []), ...(catalog.value?.sources || []),
@@ -193,7 +194,7 @@ function epNo (e) {
   const end = Number(e.episode_end) > 0 ? `-E${pad(e.episode_end)}` : ''
   return base + end
 }
-function stillUrl (e) { return `/api/tv/episodes/${e.id}/still` }
+function stillUrl (e) { return scopedArtworkUrl(`/api/tv/episodes/${e.id}/still`) }
 function openEpisode (id) {
   router.push(`/tv/${s.value.show_id}/s/${s.value.season}/e/${id}`)
 }

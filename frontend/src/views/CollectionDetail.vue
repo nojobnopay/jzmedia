@@ -6,7 +6,7 @@
   <div v-else class="page media-detail collection-detail">
     <header class="collection-heading">
       <router-link to="/collections" class="back-link"><AppIcon name="back" :size="18" />合集</router-link>
-      <ActionMenu label="管理合集">
+      <ActionMenu v-if="!isChildren" label="管理合集">
         <JzButton @click="toggleEdit" type="button" variant="ghost" icon="edit">{{ editing ? '结束编辑' : '编辑合集与成员' }}</JzButton>
         <JzButton @click="openDelete" :disabled="busy" type="button" variant="ghost" icon="delete">删除合集</JzButton>
       </ActionMenu>
@@ -48,6 +48,7 @@
   </div>
 </template>
 <script setup>
+import { isChildren } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import AppIcon from '../components/AppIcon.vue'

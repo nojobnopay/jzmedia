@@ -27,3 +27,16 @@ test('readable authentication errors still request the token dialog', async t =>
   await assert.rejects(api('/api/test', { method: 'POST' }), { message: '401 需要访问令牌' })
   assert.deepEqual(events, ['jzmedia:unauthorized'])
 })
+
+test('viewing authorization is distinct from the existing access token', async t => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const events = []
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { dispatchEvent: event => events.push([event.type, event.detail]) } })
+  t.after(() => descriptor ? Object.defineProperty(globalThis, 'window', descriptor) : delete globalThis.window)
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: false, status: 401, text: async () => JSON.stringify({ detail: '请验证保护密码', code: 'management_required' }) }))
+  await assert.rejects(api('/api/settings'), { code: 'management_required', status: 401 })
+  assert.deepEqual(events, [['jzmedia:viewing-error', { code: 'management_required' }]])
+  events.length = 0
+  await assert.rejects(api('/api/viewing/unlock', { method: 'POST', silentViewing: true }), { code: 'management_required' })
+  assert.deepEqual(events, [], 'Password form errors stay in that form without requesting another dialog')
+})

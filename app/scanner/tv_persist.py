@@ -267,6 +267,16 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
             store.set_tmdb_cache_seasons(tmdb_id, season_details, media_type="tv")
         except Exception as e:
             logger.debug("cache seasons failed tmdb_id=%s: %s", tmdb_id, e)
+    # Read back the merged evidence: failed appended requests preserve successful
+    # sections already cached for this exact TMDB identity.
+    from ..content_rules import content_fields
+    cached_evidence = meta.get("content_evidence")
+    try:
+        cached_payload = json.loads((store.get_tmdb_cached(tmdb_id, "tv") or {}).get("payload_json") or "{}")
+        if isinstance(cached_payload, dict):
+            cached_evidence = cached_payload.get("content_evidence", cached_evidence)
+    except (TypeError, ValueError):
+        pass
     # 剧集镜像列（标题保护：手工改过的标题不被 TMDB 覆盖，title_auto=0 表示受保护；
     # 显式换绑 force_title=True 例外——新条目标题必须生效，否则标题会停在旧条目）
     cur = store.get_show_meta(show_id) or {}
@@ -302,6 +312,7 @@ def apply_tv_detail(show_id: int, detail: dict, season_details: dict | None = No
         "needs_review": int(needs_review or 0),
         "match_source": source or "tmdb",
     }
+    fields.update(content_fields("tv", cached_evidence, meta.get("genres"), meta.get("genre_ids")))
     if has_credits:
         season_names: list[str] = []
         for _sd in (season_details or {}).values():

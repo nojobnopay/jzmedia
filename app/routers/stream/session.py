@@ -5,7 +5,7 @@ import subprocess
 import threading
 import json
 import math
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
@@ -179,6 +179,11 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                 "complete": complete, "last_ping": now, "created": now,
                 "unclaimed": not prewarm, "prewarm": prewarm, "task": task,
                 "client_id": client_id, "request_seq": request_seq}
+        from ...viewing import current
+        access = current.get()
+        if access is not None:
+            sess["viewing_owner"] = access.session_hash
+            sess["viewing_generation"] = access.generation
         _sessions[sid] = sess
         if task is not None:
             task["owners"].add(sid)
@@ -398,7 +403,7 @@ def _read_playlist_stable(path: str, attempts: int = 5) -> bytes:
 
 
 @router.get("/sessions/{sid}/seg/{name}")
-def hls_session_segment(sid: str, name: str):
+def hls_session_segment(sid: str, name: str, request: Request = None):
     """会话分片：未就绪等最多 25s（追转码进度），会话死亡则 404。"""
     if not _SEG_RE.match(name or ""):
         raise HTTPException(422, "bad segment name")
@@ -419,6 +424,13 @@ def hls_session_segment(sid: str, name: str):
         _log_hit(sid, "seg", name, 404)
         raise HTTPException(404, "segment not ready (session may have ended)")
     _log_hit(sid, "seg", name, 200)
+    from ...viewing import current
+    if current.get() is not None:
+        from ..blob import media_response
+        from ...storage import LocalStorageBackend
+        return media_response(request or Request({"type": "http", "headers": []}),
+                              LocalStorageBackend({"path": os.path.abspath(base)}), name,
+                              media_type="video/MP2T")
     return FileResponse(dest, media_type="video/MP2T", filename=name)
 
 
@@ -493,6 +505,10 @@ def hls_session_close(sid: str):
     with _sess_lock:
         sess = _sessions.get(sid)
         shared = bool(sess and sess.get("prewarm") and not sess.get("complete"))
+    from ...viewing import current
+    access = current.get()
+    if access is not None and sess and sess.get("viewing_owner") and sess["viewing_owner"] != access.session_hash:
+        raise HTTPException(404, "播放会话不存在")
     if shared:
         return {"session_id": sid, "closed": False, "detached": True}
     with _sess_lock:
@@ -502,7 +518,7 @@ def hls_session_close(sid: str):
 
 
 @router.get("/sessions/{sid}/{name}")
-def hls_session_file(sid: str, name: str):
+def hls_session_file(sid: str, name: str, request: Request = None):
     """fMP4 扁平产物：变体列表 out_<name>.m3u8 / init <name>_init.mp4 / 分片 <name>_segNNNNN.m4s。
     TS 回滚时的 segNNNNN.ts 也走这里（旧 seg/ 路由保留兼容）。"""
     if not _SESS_FILE_RE.match(name or ""):
@@ -526,6 +542,13 @@ def hls_session_file(sid: str, name: str):
         media = "video/mp4"
     else:
         media = "video/iso.segment"
+    from ...viewing import current
+    if current.get() is not None:
+        from ..blob import media_response
+        from ...storage import LocalStorageBackend
+        return media_response(request or Request({"type": "http", "headers": []}),
+                              LocalStorageBackend({"path": os.path.abspath(base)}), name,
+                              media_type=media, inline=name == "media.mp4")
     return FileResponse(dest, media_type=media, filename=name,
                         content_disposition_type="inline" if name == "media.mp4" else "attachment",
                         headers={"Cache-Control": "no-store"})

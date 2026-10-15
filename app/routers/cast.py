@@ -59,6 +59,9 @@ def play(body: PlayBody, request: Request):
 
 @router.get("/current")
 def current(version_id: int = Query(gt=0), kind: Literal["movie", "episode"] = "movie"):
+    from ..viewing import current as access_context, visible_item
+    if access_context.get() is not None:
+        visible_item(kind, version_id)
     return {"session": manager.current(version_id, kind)}
 
 
@@ -82,6 +85,24 @@ def control(sid: str, body: ControlBody):
 
 @router.api_route("/media/{sid}", methods=["GET", "HEAD"])
 def media(sid: str, request: Request):
+    from .. import viewing
+    # Receiver URLs are scoped bearer capabilities. Reconstruct their creator's
+    # current scope only after checking revocation; no cookie is needed on TV.
+    with manager.lock:
+        cast_session = manager.sessions.get(sid)
+    access_token = None
+    if cast_session and cast_session.viewing_owner:
+        if not viewing.check_lease(cast_session.viewing_owner, cast_session.viewing_generation):
+            raise HTTPException(404, "投屏授权已结束")
+        access_token = viewing.current.set(viewing.context_for(viewing.session_by_hash(cast_session.viewing_owner)))
+    try:
+        return _media_response(sid, request)
+    finally:
+        if access_token is not None:
+            viewing.current.reset(access_token)
+
+
+def _media_response(sid, request):
     session, backend, path = manager.source(sid)
     headers = {"transferMode.dlna.org": "Streaming",
                "contentFeatures.dlna.org": "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"}

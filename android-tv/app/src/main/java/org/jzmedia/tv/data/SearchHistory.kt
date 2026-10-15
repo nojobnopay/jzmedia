@@ -15,20 +15,27 @@ class SearchHistoryStore(
     private val read: (String) -> String?,
     private val write: (String, String?) -> Unit,
     private val onInvalid: (Exception) -> Unit = {},
+    private val viewingMode: String = "normal",
 ) {
-    constructor(context: Context) : this(
+    companion object {
+        /** Queries cannot reliably be mapped back to a media ID after privacy changes. */
+        fun clearAll(context: Context) { context.getSharedPreferences("tv_search_history", Context.MODE_PRIVATE).edit().clear().apply() }
+    }
+    constructor(context: Context, viewingMode: String = "normal") : this(
         { key -> context.getSharedPreferences("tv_search_history", Context.MODE_PRIVATE).getString(key, null) },
         { key, value -> context.getSharedPreferences("tv_search_history", Context.MODE_PRIVATE).edit().let { edit ->
             if (value == null) edit.remove(key) else edit.putString(key, value)
             edit.apply()
         } },
         { error -> Log.w("JzSearchHistory", "Discarding invalid local history (${error.javaClass.simpleName})") },
+        viewingMode,
     )
 
     private fun scope(server: String, library: Long): String {
         val canonical = JzApi.normalizeServerUrl(server)
         val bytes = MessageDigest.getInstance("SHA-256").digest("$canonical\u0000${library.coerceAtLeast(0)}".toByteArray(Charsets.UTF_8))
-        return "v1:" + bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
+        val prefix = if (viewingMode == "children") "children:v1:" else "v1:"
+        return prefix + bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
     }
 
     private fun queryKey(server: String, library: Long, mode: String): String =

@@ -104,10 +104,14 @@ fun SearchScreen(api: JzApi, library: Long, initialKind: String, memory: FocusMe
     val grid = rememberLazyGridState()
     val resultEntryIndex by remember { derivedStateOf { grid.firstVisibleItemIndex } }
     val context = LocalContext.current
-    val history = remember(context) { SearchHistoryStore(context.applicationContext) }
+    val history = remember(context, api) {
+        if (api.viewing?.mode == "private") {
+            api.privateHistory
+        } else SearchHistoryStore(context.applicationContext, api.viewing?.mode ?: "normal")
+    }
     var historyVersion by remember { mutableStateOf(0) }
-    val pastQueries = remember(api.baseUrl, library, mode, historyVersion) { history.queries(api.baseUrl, library, mode) }
-    val recentActors = remember(api.baseUrl, library, historyVersion) { history.actors(api.baseUrl, library) }
+    val pastQueries = remember(history, library, mode, historyVersion) { history.queries(api.baseUrl, library, mode) }
+    val recentActors = remember(history, library, historyVersion) { history.actors(api.baseUrl, library) }
     val showingHistory = query.isBlank() && (pastQueries.isNotEmpty() || recentActors.isNotEmpty())
     val rows = data?.rows().orEmpty()
     fun resultKey(row: JSONObject) = if (actorsMode) "result:actor:${row.text("key")}" else "result:${row.text("kind")}:${row.optLong("id")}"

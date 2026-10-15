@@ -141,8 +141,10 @@
       </section>
 
       <section v-show="active === 'sec-auth'" id="sec-auth" class="card-block">
+        <ProtectionSettings />
+        <ChildrenMetadataRefresh :active="active === 'sec-auth'" />
         <div class="section-heading"><h3>写操作保护</h3><span class="status-label">{{ s?.jzmedia_token_masked ? '已启用' : '未启用' }}</span></div>
-        <p class="hint">启用后，修改内容、启动网页播放和保存进度需要令牌；浏览列表和媒体直链仍可直接访问。</p>
+        <p class="hint">启用后，修改内容、启动网页播放和保存进度需要令牌。观看模式的内容保护独立生效，隐私内容需要保护密码解锁。</p>
         <p v-if="s?.jzmedia_token_source === 'env'" class="hint">当前令牌由服务器配置提供。如需关闭保护，请在服务器移除 JZMEDIA_TOKEN；在此可保存新令牌替换。</p>
         <form class="settings-form" @submit.prevent="saveAuth()">
           <label for="access-token">{{ s?.jzmedia_token_masked ? '更换访问令牌' : '设置访问令牌' }}</label>
@@ -181,6 +183,8 @@
 import AppIcon from '../components/AppIcon.vue'
 import JzButton from '../components/JzButton.vue'
 import SettingsLeaveDialog from '../components/SettingsLeaveDialog.vue'
+import ProtectionSettings from '../components/ProtectionSettings.vue'
+import ChildrenMetadataRefresh from '../components/ChildrenMetadataRefresh.vue'
 import { SETTINGS_DRAFTS, createSettingsDraftGuard } from '../settingsDrafts.js'
 
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, provide } from 'vue'

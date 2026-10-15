@@ -1,7 +1,7 @@
 <template>
   <div class="detail media-detail movie-detail" v-if="m">
     <div class="hero media-hero">
-      <MediaBackdrop :src="m.tmdb_id ? `/api/movies/${m.id}/backdrop?tmdb=${m.tmdb_id}` : ''" />
+      <MediaBackdrop :src="m.tmdb_id ? scopedArtworkUrl(`/api/movies/${m.id}/backdrop?tmdb=${m.tmdb_id}`) : ''" />
       <div class="hero-inner">
         <div class="topbar">
           <router-link :to="browseReturn('/', currentMediaId())" class="back-link"><AppIcon name="back" :size="16" />电影</router-link>
@@ -25,7 +25,8 @@
               <JzButton class="play-main" variant="primary" :disabled="heroBlocked" :title="heroBlockTip" @click="openHeroPlay"><PlayerIcon name="play" :size="20" /> {{ heroResume ? '继续观看' : '播放影片' }}</JzButton>
 
               <JzButton :loading="watchedBusy" @click="toggleWatched">{{ m.watched ? '标记未看' : '标记已看' }}</JzButton>
-              <ActionMenu>
+              <ActionMenu v-if="!isChildren">
+                <ContentPolicyButton kind="movie" :ids="[m.id]" @saved="load" />
                 <JzButton @click="openEdit('edit')" type="button" variant="ghost" icon="edit" title="修改标题、简介、评分、标签等资料">编辑资料</JzButton>
                 <JzButton @click="openEdit('match')" type="button" variant="ghost" icon="match" title="重新搜索 TMDB 并绑定资料">重新匹配</JzButton>
                 <JzButton @click="refreshMovieInfo" :disabled="refreshBusy" type="button" variant="ghost" icon="refresh" title="重新获取 TMDB 资料并重写 NFO 与海报">{{ refreshBusy ? '更新中…' : '更新资料' }}</JzButton>
@@ -43,7 +44,7 @@
               <span v-if="heroResume" class="resume-hint">{{ heroResume }}</span>
             </div>
             <MediaOverview :text="m.overview_display || ''" />
-            <div v-if="(!m.tmdb_id && !m.match_source) || m.needs_review" class="review-notice">
+            <div v-if="!isChildren && ((!m.tmdb_id && !m.match_source) || m.needs_review)" class="review-notice">
               <span>{{ !m.tmdb_id && !m.match_source ? '影片资料尚未匹配' : '请确认影片是否匹配正确' }}</span>
               <JzButton v-if="m.tmdb_id || m.match_source" :disabled="!!nrBusy" @click="confirmMatch" type="button" icon="match">匹配正确</JzButton>
               <JzButton :aria-expanded="editing === 'match'" @click="openEdit('match')" type="button" icon="match">{{ !m.tmdb_id && !m.match_source ? '匹配资料' : '重新匹配' }}</JzButton>
@@ -105,11 +106,11 @@
         @matched="onMatched" />
       <nav class="detail-tabs" aria-label="影片内容">
         <button :class="{ active: contentTab === 'info' }" :aria-pressed="contentTab === 'info'" @click="contentTab = 'info'">影片资料</button>
-        <button :class="{ active: contentTab === 'files' }" :aria-pressed="contentTab === 'files'" @click="contentTab = 'files'">文件与版本 <span>{{ (m.versions || []).length }}</span></button>
+        <button v-if="!isChildren" :class="{ active: contentTab === 'files' }" :aria-pressed="contentTab === 'files'" @click="openFilesTab">文件与版本 <span>{{ (m.versions || []).length }}</span></button>
       </nav>
             <div v-if="contentTab === 'info' && hint && hint.collection_tmdb_id" class="hint-row">
               TMDB 系列：{{ hint.collection_name }}（库内 {{ hint.in_library_count }} 部）
-              <JzButton v-if="!hint.already_collected" @click="createFromSeries" type="button" icon="plus">创建系列合集</JzButton>
+              <JzButton v-if="!isChildren && !hint.already_collected" @click="createFromSeries" type="button" icon="plus">创建系列合集</JzButton>
               <span v-else class="fhint">已收录</span>
               <span>{{ hintMsg }}</span>
             </div>
@@ -129,13 +130,13 @@
             <div v-if="m.region || originName" class="fact"><span>产地</span><span>{{ [m.region, originName].filter(Boolean).join(' · ') }}</span></div>
             <div v-if="m.year" class="fact"><span>年份</span><span>{{ m.year }}</span></div>
             <div v-if="fmtDate(m.added_at)" class="fact"><span>入库</span><span>{{ fmtDate(m.added_at) }}</span></div>
-            <div v-if="originalMoved" class="fact"><span>原始文件</span><span class="fact-val" :title="m.original_file_path">{{ m.original_file_path }} <JzButton @click="goRestore" type="button" icon="undo">去恢复</JzButton></span></div>
+            <div v-if="!isChildren && (!viewing.enabled || viewing.management_unlocked) && originalMoved" class="fact"><span>原始文件</span><span class="fact-val" :title="m.original_file_path">{{ m.original_file_path }} <JzButton @click="goRestore" type="button" icon="undo">去恢复</JzButton></span></div>
             <div v-if="m.tmdb_id" class="fact"><span>链接</span><span><a :href="`https://www.themoviedb.org/movie/${m.tmdb_id}`" target="_blank" rel="noopener">TMDB</a><a v-if="m.imdb_id" :href="`https://www.imdb.com/title/${m.imdb_id}/`" target="_blank" rel="noopener">IMDb</a></span></div>
           </section>
         </aside>
       </div>
 
-      <div v-show="contentTab === 'files'" class="file-sections">
+      <div v-if="!isChildren && (!viewing.enabled || viewing.management_unlocked)" v-show="contentTab === 'files'" class="file-sections">
           <MovieFileManager :movie-id="Number(route.params.id)" :movie="m" :side-files="sideFiles"
             :ver-blocked="verBlocked" :ver-err="verErr" :ver-method="verMethod" :ver-friendly="verFriendly"
             @play="openStream" @changed="onFilesChanged" />
@@ -168,7 +169,7 @@
               :class="{ cur: c.current }" :disabled="posterSaving"
               :title="`${c.width}×${c.height}${c.lang ? ' · ' + c.lang : ''}`"
               @click="choosePoster(c)">
-              <img :src="c.thumb_url" loading="lazy" :alt="`${c.width}×${c.height}`" />
+              <img :src="scopedArtworkUrl(c.thumb_url)" loading="lazy" :alt="`${c.width}×${c.height}`" />
               <span class="poster-cand-meta">{{ c.width }}×{{ c.height }}</span>
             </button>
           </div>
@@ -205,6 +206,8 @@
   <EmptyState v-if="!m" :state="loadErr ? 'error' : 'loading'" :title="loadErr ? '影片资料加载失败' : '正在加载影片'" :text="loadErr || '正在读取影片资料…'" :retry="!!loadErr" @retry="load" />
 </template>
 <script setup>
+import ContentPolicyButton from '../components/ContentPolicyButton.vue'
+import { isChildren, viewing, ensureManagement } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import { browseReturn } from '../browseHistory.js'
@@ -218,7 +221,7 @@ import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, posterUrl } from '../api.js'
+import { api, posterUrl, scopedArtworkUrl } from '../api.js'
 import { usePolling } from '../usePolling.js'
 import { getCaps } from '../caps.js'
 import { isPlaybackComplete } from '../progress.js'
@@ -612,7 +615,13 @@ async function loadSimilar(context = loadContext()) {
     if (currentLoad(context)) similar.value = d.items || []
   } catch (e) { /* 推荐失败不挡详情页 */ }
 }
+async function openFilesTab() {
+  if (viewing.enabled && !(await ensureManagement())) return
+  await reloadFiles()
+  contentTab.value = 'files'
+}
 async function reloadFiles(context = loadContext()) {
+  if (isChildren.value || viewing.enabled && !viewing.management_unlocked) { sideFiles.value = null; return }
   if (!currentLoad(context)) return
   try {
     const files = await api('/api/movies/' + context.id + '/files')

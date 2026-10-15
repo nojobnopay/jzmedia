@@ -42,13 +42,14 @@ private val ChannelItems = listOf(
 )
 
 @Composable
-internal fun TvNavigation(section: String, libraryName: String, memory: FocusMemory, open: (String) -> Unit) {
-    val tools = listOf(NavigationItem("libraries", libraryName), NavigationItem("settings", "设置"))
+internal fun TvNavigation(section: String, libraryName: String, memory: FocusMemory, viewingLabel: String? = null, open: (String) -> Unit) {
+    val tools = listOf(NavigationItem("libraries", libraryName)) +
+        listOfNotNull(viewingLabel?.let { NavigationItem("viewing", it) }) + NavigationItem("settings", "设置")
     val allItems = ChannelItems + tools
     val labelStyle = MaterialTheme.typography.labelLarge.copy(fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val widths = remember(libraryName, labelStyle, density, measurer) {
+    val widths = remember(libraryName, viewingLabel, labelStyle, density, measurer) {
         allItems.associate { item ->
             val textWidth = with(density) { measurer.measure(AnnotatedString(item.label), labelStyle, maxLines = 1, softWrap = false).size.width.toDp() }
             val width = (textWidth + 56.dp).coerceAtLeast(80.dp)
@@ -101,7 +102,7 @@ private fun NavigationButton(item: NavigationItem, width: Dp, labelStyle: TextSt
         scale = tvButtonScale(), shape = tvButtonShape(),
         colors = tvButtonColors(surface = if (isSelected) Panel else Color.Transparent)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TvNavIcon(item.kind, Modifier.size(24.dp))
+            TvNavIcon(if (item.kind == "viewing") "eye" else item.kind, Modifier.size(24.dp))
             Text(item.label, style = labelStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }

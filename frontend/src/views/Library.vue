@@ -2,7 +2,7 @@
   <div class="browse-page">
   <header class="browse-heading">
     <h1>电影</h1>
-    <div class="browse-actions">
+    <div v-if="!isChildren" class="browse-actions">
       <router-link :to="toolsLink" class="manage-link"><AppIcon name="organize" :size="18" />扫描与整理<AppIcon name="chevron-right" :size="16" /></router-link>
       <ActionMenu label="添加影片"><JzButton @click="scanOpen = !scanOpen" type="button" variant="ghost" icon="scan">扫描新文件</JzButton><JzButton @click="upDlg = true" type="button" variant="ghost" icon="upload">上传文件</JzButton></ActionMenu>
     </div>
@@ -10,7 +10,7 @@
   <BrowseToolbar id="movie-browse" v-model="q" label="搜索电影" placeholder="搜片名 / 演员 / 标签"
     item-heading="电影" :suggest-open="suggestOpen" :suggest-no-match="suggestNoMatch"
     :suggest-items="suggestItems" :suggest-persons="suggestPersons" :suggest-idx="suggestIdx"
-    v-model:ai-open="aiSearchOpen"
+    v-model:ai-open="aiSearchOpen" :ai-enabled="!isChildren"
     @input="onQInput" @compositionstart="composing = true" @compositionend="onCompositionEnd"
     @enter="onSearchEnter" @move="suggestMove" @close="closeSuggest" @blur="onQBlur"
     @pick-item="pickMovie" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="applyAndLoad">
@@ -39,7 +39,7 @@
     <div v-for="m in items" :key="m.id" :data-browse-id="m.id" :class="['card', { sel: selectedIds.has(m.id) }]"
       tabindex="0" role="link" @keydown.enter.self="onCard(m)" :title="m.added_at ? ('入库 ' + fmtDate(m.added_at)) : ''" @click="onCard(m)">
       <div class="poster-wrap">
-        <button :class="['sel-circle', { on: selectedIds.has(m.id) }]"
+        <button v-if="!isChildren" :class="['sel-circle', { on: selectedIds.has(m.id) }]"
           @click.stop="toggleSelect(m.id)" :aria-pressed="selectedIds.has(m.id)" aria-label="选择" type="button">
           <AppIcon name="check" :size="18" />
         </button>
@@ -61,6 +61,9 @@
   </div>
   <EmptyState v-if="loading && !items.length || !firstLoaded && !loadError" state="loading" title="正在加载影片" text="请稍候…" />
   <EmptyState v-else-if="loadError" state="error" title="影片加载失败" :text="loadError" retry @retry="retryLoad" />
+  <EmptyState v-else-if="!items.length && !q.trim() && !activeCount && (isChildren || isPrivate)" state="empty"
+    :title="isChildren ? '当前没有适合儿童的影片' : '还没有隐私影片'"
+    :text="isChildren ? '可退出儿童模式，在影片的“内容可见性”中确认适合儿童的内容。' : '返回普通模式，从影片详情的“更多操作 → 内容可见性”中加入隐私，也可在电影墙多选后设置。'" />
   <EmptyState v-else-if="showEmptyGuide" state="empty" title="当前媒体库还没有影片" text="扫描已有文件，或上传影片开始观看。">
     <JzButton @click="scanOpen = !scanOpen" type="button" icon="scan">扫描新文件</JzButton><router-link :to="pipelineLink"><AppIcon name="organize" :size="18" />扫描与整理<AppIcon name="chevron-right" :size="16" /></router-link>
   </EmptyState>
@@ -75,6 +78,7 @@
 
   <div v-if="selecting" class="floatbar" role="toolbar" aria-label="多选操作">
     <span class="count">{{ selectedIds.size }}</span>
+    <ContentPolicyButton kind="movie" :ids="[...selectedIds]" compact @saved="onPolicySaved" />
     <JzButton variant="ghost" size="compact" @click="selectAllVisible" :disabled="!items.length" :title="`全选已加载的 ${items.length} 部（不含未加载页）`" type="button">
       <AppIcon name="check-circle" :size="18" />
       <span>全选</span>
@@ -161,6 +165,8 @@
   </div>
 </template>
 <script setup>
+import ContentPolicyButton from '../components/ContentPolicyButton.vue'
+import { isChildren, isPrivate } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import AppIcon from '../components/AppIcon.vue'
@@ -643,6 +649,7 @@ async function onPlayWatched() {
   } catch (e) { /* 忽略 */ }
   refreshContinue()
 }
+async function onPolicySaved() { clearSelection(); await loadFacets(); await load(); await refreshContinue() }
 function toggleSelect(id) {
   const s = new Set(selectedIds.value)
   if (s.has(id)) s.delete(id)

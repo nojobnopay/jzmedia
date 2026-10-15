@@ -534,10 +534,12 @@ def _conn() -> sqlite3.Connection:
     ensure_dirs()
     # R02-D2：一调用一连接；5s busy_timeout 防并发写瞬时 SQLITE_BUSY，
     # synchronous=NORMAL 配合 WAL（WAL 在 init_db 里设置，持久于库文件）
-    c = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=5.0)
+    from .viewing_scope import ScopedConnection, install
+    c = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=5.0, factory=ScopedConnection)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA busy_timeout=5000")
     c.execute("PRAGMA synchronous=NORMAL")
+    install(c)
     return c
 
 
@@ -1382,6 +1384,8 @@ def init_db() -> None:
             raise RuntimeError("SQLite 缺少 FTS5 扩展，jzmedia 无法运行") from e
         c.executescript(SCHEMA)
         _migrated = _migrate(c)
+        from ..viewing import init_schema
+        init_schema(c)
         # v17/v18 索引：旧库在迁移里建表列后补，新库此处兜底（故不能写进 SCHEMA）
         c.execute("CREATE INDEX IF NOT EXISTS idx_libraries_media"
                   " ON libraries(media_library_id)")

@@ -595,6 +595,11 @@ def tv_cast_avatar(path: str = Query(default="")):
     p = str(path or "").strip()
     if not _TV_AVATAR_PATH_RE.match(p):
         raise HTTPException(422, f"illegal avatar path: {path!r}")
+    from ..viewing import current
+    if current.get() is not None:
+        from ..viewing_http import visible_profile_paths
+        if p not in visible_profile_paths():
+            raise HTTPException(404, "头像不存在")
     name = hashlib.sha1(p.encode("utf-8")).hexdigest()[:12]
     dest = os.path.join(POSTER_DIR, "tvcast", f"h632_{name}.jpg")
     if not os.path.isfile(dest):

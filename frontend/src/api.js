@@ -1,4 +1,12 @@
 const TOKEN_KEY = 'jzmedia.token'
+let artworkScope = ''
+
+// Protection changes must not reuse artwork cached before protection was enabled.
+export function setArtworkScope(scope) { artworkScope = scope || '' }
+export function scopedArtworkUrl(path) {
+  if (!path || !artworkScope || !/^\/(?:posters\/|api\/)/.test(path)) return path || ''
+  return `${path}${path.includes('?') ? '&' : '?'}viewing=${encodeURIComponent(artworkScope)}`
+}
 
 export function getToken() {
   try { return localStorage.getItem(TOKEN_KEY) || '' } catch (e) { return '' }
@@ -30,7 +38,7 @@ function _brief(text) {
 
 // opts.signal：调用方取消（关窗/切档）与内部超时合并；外部取消抛「已取消」而非超时文案。
 export async function api(path, opts = {}) {
-  const { timeout: configuredTimeout, signal: outer, mayContinue = false, ...fetchOpts } = opts
+  const { timeout: configuredTimeout, signal: outer, mayContinue = false, silentViewing = false, ...fetchOpts } = opts
   const method = String(fetchOpts.method || 'GET').toUpperCase()
   const timeout = configuredTimeout ?? (method === 'GET' ? 30000 : 120000)
   const ctrl = new AbortController()
@@ -47,12 +55,23 @@ export async function api(path, opts = {}) {
       ...fetchOpts,
       signal: ctrl.signal
     })
-    if (r.status === 401) {
-      try { window.dispatchEvent(new CustomEvent('jzmedia:unauthorized')) } catch (e) { /* 忽略 */ }
-      throw new Error(`${r.status} ${_brief(await r.text())}`)
+    const generation = r.headers?.get('X-Viewing-Generation')
+    if (generation != null && !/^\/api\/viewing\/(session|mode|unlock|lock|activity|password)$/.test(path)) {
+      try { window.dispatchEvent(new CustomEvent('jzmedia:viewing-generation', { detail: { generation: Number(generation) } })) } catch { /* 无浏览器环境 */ }
     }
     if (!r.ok) {
-      throw new Error(`${r.status} ${_brief(await r.text())}`)
+      const body = await r.text()
+      let code = ''
+      try { code = JSON.parse(body)?.code || '' } catch { /* 非 JSON 错误 */ }
+      if (code && !silentViewing) {
+        try { window.dispatchEvent(new CustomEvent('jzmedia:viewing-error', { detail: { code } })) } catch { /* 无浏览器环境 */ }
+      } else if (r.status === 401 && !code) {
+        try { window.dispatchEvent(new CustomEvent('jzmedia:unauthorized')) } catch { /* 无浏览器环境 */ }
+      }
+      const error = new Error(`${r.status} ${_brief(body)}`)
+      error.code = code
+      error.status = r.status
+      throw error
     }
     return r.json()
   } catch (e) {
@@ -76,7 +95,7 @@ export const posterUrl = (p, v) => {
   let rel = String(p).replace(/^\/+/, '')
   if (rel.startsWith('posters/')) rel = rel.slice('posters/'.length)
   const u = `/posters/${rel}`
-  return v ? `${u}?v=${encodeURIComponent(v)}` : u
+  return scopedArtworkUrl(v ? `${u}?v=${encodeURIComponent(v)}` : u)
 }
 
 // TV 演职员头像：走后端代理 `/api/tv/cast-avatar`（浏览器无需可达 TMDB 图片
@@ -84,7 +103,7 @@ export const posterUrl = (p, v) => {
 // `@error` 回退首字母占位（季页剧照同模式）。
 export const castAvatarUrl = (p) => {
   if (!p) return ''
-  return `/api/tv/cast-avatar?path=${encodeURIComponent(p)}`
+  return scopedArtworkUrl(`/api/tv/cast-avatar?path=${encodeURIComponent(p)}`)
 }
 
 // 大文件上传专用：FormData + XHR（支持进度与中断取消；>2GB 局域网场景）。

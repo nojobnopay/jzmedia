@@ -239,7 +239,10 @@ fun TvInput(label: String, value: String, onValue: (String) -> Unit, modifier: M
     }
 }
 
-private object Posters {
+internal object Posters {
+    private val cacheLock = Any()
+    private val generation = java.util.concurrent.atomic.AtomicLong()
+    fun clear() = synchronized(cacheLock) { generation.incrementAndGet(); cache.evictAll() }
     val cache = object : LruCache<String, Bitmap>(20 * 1024 * 1024) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
@@ -247,11 +250,13 @@ private object Posters {
     private val slots = Semaphore(4)
 
     suspend fun load(api: JzApi, path: String): Bitmap? {
+        val startedGeneration = generation.get()
         val url = api.absoluteUrl(path)
-        cache.get(url)?.let { return it }
+        val key = "${api.cacheScope}:$url"
+        cache.get(key)?.let { return it }
         return loads.get(api to url) {
             slots.withPermit {
-                cache.get(url) ?: withContext(Dispatchers.IO) {
+                cache.get(key) ?: withContext(Dispatchers.IO) {
                     val bytes = api.getBytes(path)
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
@@ -263,7 +268,7 @@ private object Posters {
                     currentCoroutineContext().ensureActive()
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.also {
                         currentCoroutineContext().ensureActive()
-                        cache.put(url, it)
+                        synchronized(cacheLock) { if (generation.get() == startedGeneration) cache.put(key, it) }
                     }
                 }
             }

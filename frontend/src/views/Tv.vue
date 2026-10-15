@@ -2,7 +2,7 @@
   <div class="browse-page">
   <header class="browse-heading">
     <h1>剧集</h1>
-    <div class="browse-actions">
+    <div v-if="!isChildren" class="browse-actions">
       <router-link :to="toolsLink" class="manage-link"><AppIcon name="organize" :size="18" />扫描与整理<AppIcon name="chevron-right" :size="16" /></router-link>
       <ActionMenu label="添加剧集"><JzButton @click="scanOpen = !scanOpen" type="button" variant="ghost" icon="scan">扫描新文件</JzButton><JzButton @click="upDlg = true" type="button" variant="ghost" icon="upload">上传文件</JzButton></ActionMenu>
     </div>
@@ -10,7 +10,7 @@
   <BrowseToolbar id="tv-browse" v-model="q" label="搜索剧集" placeholder="搜剧名 / 演员"
     item-heading="剧集" :suggest-open="suggestOpen" :suggest-no-match="suggestNoMatch"
     :suggest-items="suggestItems" :suggest-persons="suggestPersons" :suggest-idx="suggestIdx"
-    v-model:ai-open="aiSearchOpen"
+    v-model:ai-open="aiSearchOpen" :ai-enabled="!isChildren"
     @input="onQInput" @compositionstart="composing = true" @compositionend="onCompositionEnd"
     @enter="onSearchEnter" @move="suggestMove" @close="closeSuggest" @blur="onQBlur"
     @pick-item="pickShow" @pick-person="pickPerson" @hover="suggestIdx = $event" @search="applyAndLoad">
@@ -40,6 +40,9 @@
 
   <EmptyState v-if="loading && !items.length || !firstLoaded && !loadError" state="loading" title="正在加载剧集" text="请稍候…" />
   <EmptyState v-else-if="loadError" state="error" title="剧集加载失败" :text="loadError" retry @retry="retryLoad" />
+  <EmptyState v-else-if="firstLoaded && !items.length && !q.trim() && !activeCount && (isChildren || isPrivate)" state="empty"
+    :title="isChildren ? '当前没有适合儿童的剧集' : '还没有隐私剧集'"
+    :text="isChildren ? '可退出儿童模式，在整剧的“内容可见性”中确认适合儿童的内容。' : '返回普通模式，从剧集详情的“更多操作 → 内容可见性”中加入隐私。'" />
   <EmptyState v-else-if="firstLoaded && !items.length" :state="q.trim() || activeCount ? 'no-results' : 'empty'"
     :title="q.trim() || activeCount ? '没有符合条件的剧集' : '当前媒体库还没有剧集'"
     :text="q.trim() || activeCount ? '试试其他剧名，或重置筛选条件。' : '扫描已有文件，或上传剧集开始观看。'">
@@ -77,6 +80,7 @@
 </template>
 
 <script setup>
+import { isChildren, isPrivate } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import AppIcon from '../components/AppIcon.vue'

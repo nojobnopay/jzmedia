@@ -1,6 +1,6 @@
 <template>
   <div class="browse-page collections-page">
-    <header class="browse-heading"><h1>合集</h1><JzButton icon="plus" variant="primary" :aria-expanded="createOpen" aria-controls="collection-create" @click="createOpen = !createOpen">新建合集</JzButton></header>
+    <header class="browse-heading"><h1>合集</h1><JzButton v-if="!isChildren" icon="plus" variant="primary" :aria-expanded="createOpen" aria-controls="collection-create" @click="createOpen = !createOpen">新建合集</JzButton></header>
     <form class="bar collection-search" role="search" aria-label="搜索合集" @submit.prevent="load"><input v-model="q" aria-label="搜索合集" placeholder="搜合集名" /><JzButton type="submit" icon="search">搜索</JzButton></form>
     <form v-show="createOpen" id="collection-create" class="bar collection-create" @submit.prevent="create"><input v-model="name" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><JzButton :disabled="!name.trim()" type="submit" icon="plus">创建</JzButton><JzButton type="button" @click="createOpen = false">取消</JzButton></form>
     <p v-if="msg" role="status">{{ msg }}</p>
@@ -9,9 +9,9 @@
     <EmptyState v-else-if="loadError" state="error" title="合集加载失败" :text="loadError" retry @retry="load" />
     <EmptyState v-else-if="!items.length" :state="loadedQuery ? 'no-results' : 'empty'"
       :title="loadedQuery ? '没有符合条件的合集' : '还没有合集'"
-      :text="loadedQuery ? '试试其他合集名，或清除搜索条件。' : '创建一个合集，或在海报墙多选影片后加入合集。'">
+      :text="loadedQuery ? '试试其他合集名，或清除搜索条件。' : isChildren ? '当前儿童模式下没有可见的合集。' : viewing.mode === 'private' ? '隐私模式下还没有包含可见影片的合集。' : '创建一个合集，或在海报墙多选影片后加入合集。'">
       <JzButton icon="search" v-if="loadedQuery" @click="clearSearch">清除搜索</JzButton>
-      <JzButton icon="plus" v-else variant="primary" @click="createOpen = true">新建合集</JzButton>
+      <JzButton icon="plus" v-else-if="!isChildren" variant="primary" @click="createOpen = true">新建合集</JzButton>
     </EmptyState>
     <div v-else class="grid collections-grid">
       <router-link v-for="c in items" :key="c.id" class="card collection-card" :to="'/c/' + c.id">
@@ -19,7 +19,7 @@
         <div class="collection-card-body"><h3>{{ c.name }}</h3><span>{{ c.member_count }} 部影片</span></div>
       </router-link>
     </div>
-    <details v-if="suggest.length || topups.length" class="collection-section">
+    <details v-if="!isChildren && (suggest.length || topups.length)" class="collection-section">
       <summary>推荐与可补齐合集 · {{ suggest.length + topups.length }}</summary>
       <section v-if="topups.length"><h3>可补齐</h3><div class="grid collection-action-grid">
         <div v-for="t in topups" :key="t.collection_id" class="card tp-card">
@@ -36,7 +36,7 @@
         </div></div>
       </section>
     </details>
-    <details class="collection-section" :open="bfRunning">
+    <details v-if="!isChildren && (!viewing.enabled || viewing.management_unlocked)" class="collection-section" :open="bfRunning">
       <summary>合集维护<span v-if="bfRunning"> · 资料补全中</span></summary>
       <p v-if="coverage" class="fhint">{{ coverage.unchecked ?? coverage.without_collection }} 部待排查 · {{ coverage.standalone || 0 }} 部已确认无系列</p>
       <div class="bar"><JzButton icon="refresh" v-if="!bfRunning" @click="backfill(false)" :disabled="backfilling" type="button">补全系列信息</JzButton><JzButton v-else @click="cancelBackfill" type="button">取消补全</JzButton><JzButton v-if="!bfRunning && coverage?.standalone" @click="backfill(true)" :disabled="backfilling" type="button">全部重查</JzButton></div>
@@ -48,6 +48,7 @@
   </div>
 </template>
 <script setup>
+import { isChildren, viewing } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import EmptyState from '../components/EmptyState.vue'
@@ -90,6 +91,7 @@ function dismissedIds() {
 }
 
 async function loadSuggest() {
+  if (isChildren.value) return
   sgMsg.value = ''
   try {
     const d = await api('/api/collections/suggest'
@@ -290,6 +292,7 @@ async function create() {
   }
 }
 async function resumeBackfill() {
+  if (isChildren.value || viewing.enabled && !viewing.management_unlocked) return
   // 续跑：刷新页面后后台若还在补全，自动续上进度条
   try {
     const d = await api('/api/collections/suggest/backfill/status')

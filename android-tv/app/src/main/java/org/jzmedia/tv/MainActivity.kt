@@ -1,9 +1,11 @@
 package org.jzmedia.tv
 
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableLongStateOf
 import org.jzmedia.tv.ui.generated.DesignTokens
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.MaterialTheme
@@ -12,6 +14,12 @@ import org.jzmedia.tv.ui.TvApp
 import org.jzmedia.tv.ui.TvTypography
 
 class MainActivity : ComponentActivity() {
+    private val lastInteraction = mutableLongStateOf(SystemClock.elapsedRealtime())
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        lastInteraction.longValue = SystemClock.elapsedRealtime()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -27,7 +35,7 @@ class MainActivity : ComponentActivity() {
                 ),
             ) {
                 CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
-                    TvApp(onExit = ::finish)
+                    TvApp(onExit = ::finish, lastInteraction = lastInteraction.longValue)
                 }
             }
         }

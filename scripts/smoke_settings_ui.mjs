@@ -129,6 +129,7 @@ function mock(url, method, body) {
   requests.push({ key, method, body, query: Object.fromEntries(url.searchParams) })
   if (key === '/api/libraries') return { items: libs, default_id: 1 }
   if (/^\/api\/libraries\/\d+$/.test(key) && method === 'PATCH') { const lib = libs.find(l => l.id === Number(key.split('/').at(-1))); Object.assign(lib, body); return lib }
+  if (key === '/api/viewing/session') return { mode: 'normal', enabled: false, management_unlocked: false, generation: 0, expires_at: 0 }
   if (key === '/api/onboarding') return { show_welcome: false, status: 'completed' }
   if (key === '/api/settings') return { tmdb_configured: false, tmdb_language: 'zh-CN', jzmedia_token_source: 'unset' }
   if (key === '/api/ai/settings') return { enabled: false, provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'demo', daily_limit: 100, timeout_seconds: 12, usage: { requests: 0, input_tokens: 0, output_tokens: 0 } }

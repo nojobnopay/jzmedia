@@ -9,6 +9,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from .regions import country_name
+from .content_rules import nfo_certification_text
 
 # XML 1.0 非法控制字符（评审 B7/R10-D1）：标题/简介/标签里混入会让 Kodi/Jellyfin
 # 直接解析失败整份 NFO，这里统一剔除（含 0x7f）
@@ -36,6 +37,9 @@ def _build_root(movie: dict):
         ET.SubElement(root, "year").text = _t(movie["year"])
     overview = movie.get("overview_override") or movie.get("overview")
     ET.SubElement(root, "plot").text = _t(overview)
+    certification = nfo_certification_text(movie.get("content_evidence"))
+    if certification:
+        ET.SubElement(root, "mpaa").text = _t(certification)
     # D6：Plex NFO Agent 可读的补充字段（Kodi/Jellyfin 忽略未知标签）
     cache = movie.get("_tmdb_cache") or {}
     if cache.get("premiered"):
@@ -115,6 +119,9 @@ def _build_tvshow_root(show: dict, seasons: list | None = None,
         ET.SubElement(root, "year").text = _t(show["year"])
     overview = show.get("overview_override") or show.get("overview")
     ET.SubElement(root, "plot").text = _t(overview)
+    certification = nfo_certification_text(show.get("content_evidence"))
+    if certification:
+        ET.SubElement(root, "mpaa").text = _t(certification)
     if show.get("first_air_date"):
         ET.SubElement(root, "premiered").text = _t(show["first_air_date"])
     if show.get("status"):
@@ -197,6 +204,9 @@ def render_episode_nfo_bytes(show: dict, episode: dict) -> bytes:
     root = ET.Element("episodedetails")
     ET.SubElement(root, "title").text = _t(episode.get("title"))
     ET.SubElement(root, "showtitle").text = _t(show.get("title"))
+    certification = nfo_certification_text(episode.get("content_evidence"))
+    if certification:
+        ET.SubElement(root, "mpaa").text = _t(certification)
     try:
         season = int(episode.get("season") or 0)
         number = int(episode.get("episode") or 0)

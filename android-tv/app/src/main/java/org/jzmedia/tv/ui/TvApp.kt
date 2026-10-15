@@ -2,6 +2,11 @@ package org.jzmedia.tv.ui
 
 import org.jzmedia.tv.ui.generated.DesignTokens
 import android.os.Build
+import android.os.SystemClock
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -21,11 +26,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.LocalSaveableStateRegistry
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -46,10 +57,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jzmedia.tv.BuildConfig
 import org.jzmedia.tv.data.ConnectionStore
+import org.jzmedia.tv.data.ApiException
 import org.jzmedia.tv.data.DiscoveredServer
 import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.SavedConnection
 import org.jzmedia.tv.data.ServerDiscovery
+import org.jzmedia.tv.data.SearchHistoryStore
+import org.jzmedia.tv.data.supportsViewingModes
+import org.jzmedia.tv.data.viewingIdleExpired
 import org.jzmedia.tv.data.rows
 import org.jzmedia.tv.data.text
 import org.jzmedia.tv.playback.PlaybackRequest
@@ -64,8 +79,11 @@ data class TvRoute(val kind: String, val id: Long = 0, val season: Int = 0, val 
     }
 }
 
+internal fun savedViewingRoutes(routes: List<TvRoute>, mode: String?): List<String> =
+    if (mode == "private") listOf(TvRoute("home", key = "root:home").encode()) else routes.map(TvRoute::encode)
+
 @Composable
-fun TvApp(onExit: () -> Unit) {
+fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     val context = LocalContext.current
     val store = remember { ConnectionStore(context) }
     var loaded by remember { mutableStateOf(false) }
@@ -77,12 +95,87 @@ fun TvApp(onExit: () -> Unit) {
     var libraryName by rememberSaveable { mutableStateOf("全部媒体库") }
     var refresh by remember { mutableStateOf(0) }
     var playback by remember { mutableStateOf<PlaybackRequest?>(null) }
+    var playing by remember { mutableStateOf(false) }
+    var viewingDialog by remember { mutableStateOf<ViewingDialogRequest?>(null) }
+    var viewingBlocked by remember { mutableStateOf(false) }
+    var viewingError by remember { mutableStateOf("") }
+    var locking by remember { mutableStateOf(false) }
+    var dialogInteraction by remember { mutableLongStateOf(0L) }
+    var foreground by remember { mutableStateOf(true) }
     var routes by rememberSaveable(stateSaver = listSaver<List<TvRoute>, String>(
-        save = { rows -> rows.map { it.encode() } }, restore = { rows -> rows.map(TvRoute::decode) },
+        save = { rows -> savedViewingRoutes(rows, api?.viewing?.mode) }, restore = { rows -> rows.map(TvRoute::decode) },
     )) { mutableStateOf(listOf(TvRoute("home", key = "root:home"))) }
     val holder = rememberSaveableStateHolder()
     var savedPageKeys by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val scope = rememberCoroutineScope()
+    val latestInteraction by rememberUpdatedState(maxOf(lastInteraction, dialogInteraction))
+    val latestPlaying by rememberUpdatedState(playing)
+
+    fun clearPages() {
+        playback = null; playing = false; viewingDialog = null
+        savedPageKeys.forEach(holder::removeState); savedPageKeys = emptyList()
+        routes = listOf(TvRoute("home", key = "root:home"))
+        Posters.clear()
+        refresh++
+    }
+    fun applySession(updated: JzApi, reset: Boolean) {
+        val previous = api
+        if (!reset && previous != null && previous.viewing?.mode == updated.viewing?.mode &&
+            previous.viewing?.generation == updated.viewing?.generation && previous.viewingToken == updated.viewingToken) {
+            updated.viewing?.let(previous::updateViewingMetadata)
+            if (!foreground && updated.viewing?.protected == true) { clearPages(); viewingBlocked = true }
+            return
+        }
+        if (previous?.viewing?.mode != updated.viewing?.mode) { library = 0; libraryName = "全部媒体库" }
+        if (previous?.viewing != null && previous.viewing?.mode == updated.viewing?.mode && previous.viewing?.generation != updated.viewing?.generation) {
+            SearchHistoryStore.clearAll(context)
+            previous.clearPrivateHistory()
+        }
+        if (reset || previous?.viewing?.mode != updated.viewing?.mode || previous?.viewing?.generation != updated.viewing?.generation) clearPages()
+        previous?.cancelRequests()
+        api = updated
+        if (!foreground && updated.viewing?.protected == true) { clearPages(); viewingBlocked = true }
+        saved?.let { connection ->
+            if (connection.viewingToken != updated.viewingToken || connection.viewingGeneration != updated.viewing?.generation) {
+                saved = connection.copy(viewingToken = updated.viewingToken, viewingGeneration = updated.viewing?.generation ?: 0)
+                val value = saved!!
+                scope.launch { withContext(Dispatchers.IO) { store.save(value) } }
+            }
+        }
+    }
+    fun lockViewing() {
+        val current = api ?: return
+        if (current.viewing == null || locking) return
+        // Keep the old token quarantined until the server confirms it no longer grants private access.
+        viewingBlocked = true; viewingError = ""; locking = true
+        clearPages(); current.cancelRequests()
+        scope.launch {
+            try {
+                val updated = current.withViewing(current.post("/api/viewing/lock"))
+                if (api === current) { applySession(updated, true); viewingBlocked = false }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { viewingError = e.message ?: "无法确认锁定状态，请重试" }
+            finally { locking = false }
+        }
+    }
+    val latestLock by rememberUpdatedState(::lockViewing)
+    val latestApi by rememberUpdatedState(api)
+    val latestBlocked by rememberUpdatedState(viewingBlocked)
+    DisposableEffect(context) {
+        val lifecycle = (context as? ComponentActivity)?.lifecycle
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                foreground = false
+                if (latestApi?.viewing?.protected == true) latestLock()
+            }
+            if (event == Lifecycle.Event.ON_START) {
+                foreground = true
+                if (latestBlocked) latestLock()
+            }
+        }
+        lifecycle?.addObserver(observer)
+        onDispose { lifecycle?.removeObserver(observer) }
+    }
 
     LaunchedEffect(Unit) {
         try { saved = withContext(Dispatchers.IO) { store.load() } }
@@ -95,9 +188,11 @@ fun TvApp(onExit: () -> Unit) {
         ConnectionScreen(saved, restoreError, autoConnect = api == null && saved != null,
             onConnected = { connected, connection ->
                 val changed = saved?.address != connection.address || saved?.token != connection.token
+                api?.cancelRequests()
                 api = connected; saved = connection; editConnection = false; restoreError = ""
-                if (changed) {
-                    routes = listOf(TvRoute("home", key = "root:home")); library = 0; libraryName = "全部媒体库"
+                viewingBlocked = false; viewingError = ""
+                if (changed || connected.viewing != null) {
+                    clearPages(); library = 0; libraryName = "全部媒体库"
                 }
                 refresh++
             }, save = { withContext(Dispatchers.IO) { store.save(it) } },
@@ -105,6 +200,51 @@ fun TvApp(onExit: () -> Unit) {
         return
     }
     val server = api!!
+    LaunchedEffect(server, foreground, server.viewing?.protected) {
+        if (!foreground && server.viewing?.protected == true) lockViewing()
+    }
+    DisposableEffect(server.viewing?.mode) {
+        val window = (context as? ComponentActivity)?.window
+        if (server.viewing?.mode == "private") window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { if (server.viewing?.mode == "private") window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+    LaunchedEffect(server) { server.viewingLocked.collect { lockViewing() } }
+    LaunchedEffect(server, viewingBlocked) {
+        if (server.viewing == null || viewingBlocked) return@LaunchedEffect
+        var lastSeenInteraction = latestInteraction
+        var activeAt = SystemClock.elapsedRealtime()
+        while (true) {
+            delay(15_000)
+            val userActivity = latestInteraction > lastSeenInteraction
+            lastSeenInteraction = latestInteraction
+            val now = SystemClock.elapsedRealtime()
+            val privatePlayback = latestPlaying && server.viewing?.mode == "private"
+            if (userActivity || privatePlayback) activeAt = now
+            if (server.viewing?.protected == true && viewingIdleExpired(activeAt, now, privatePlayback)) {
+                if (server.viewing?.mode == "private") { lockViewing(); break }
+                server.updateViewingMetadata(server.viewing!!.copy(managementUnlocked = false))
+                viewingDialog = null
+            }
+            try {
+                val session = server.readViewingSession(server.post("/api/viewing/activity", JSONObject()
+                    .put("user_activity", userActivity).put("playing", latestPlaying)))
+                if (api === server && session != server.viewing) applySession(JzApi(server.baseUrl, server.token, session), false)
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* Local idle protection still runs while offline. */ }
+        }
+    }
+    if (viewingBlocked) {
+        BackHandler { onExit() }
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(40.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Status(if (locking) "正在锁定观看模式…" else "观看模式已在本机锁定", icon = if (locking) "loading" else "info")
+            if (viewingError.isNotBlank()) Text(viewingError, color = DesignTokens.Error)
+            TvAction("重试", ::lockViewing, enabled = !locking)
+            TvAction("检查连接", { editConnection = true }, enabled = !locking)
+            TvAction("退出应用", onExit)
+        }
+        return
+    }
     var storageAlert by remember(server) { mutableStateOf(false) }
     LaunchedEffect(server) {
         while (true) {
@@ -114,37 +254,39 @@ fun TvApp(onExit: () -> Unit) {
             delay(15 * 60 * 1000L)
         }
     }
-    val pagePrefix = "${server.baseUrl}:$library:"
+    val pagePrefix = "${server.baseUrl}:$library:${server.viewing?.mode ?: "normal"}:${server.viewing?.generation ?: 0}:"
     val pageKey = pagePrefix + routes.last().key
     LaunchedEffect(pagePrefix, routes) {
         val active = routes.map { pagePrefix + it.key }.toSet()
         val obsolete = savedPageKeys.filter { it !in active && !it.startsWith(pagePrefix + "root:") }
         obsolete.forEach(holder::removeState)
-        savedPageKeys = ((savedPageKeys - obsolete.toSet()) + pageKey).distinct()
+        if (server.viewing?.mode != "private") savedPageKeys = ((savedPageKeys - obsolete.toSet()) + pageKey).distinct()
     }
     if (playback != null) {
-        TvPlayer(server, playback!!, onClose = { playback = null; refresh++ }, onPlayNext = { playback = it })
+        TvPlayer(server, playback!!, onClose = { playback = null; playing = false; refresh++ }, onPlayNext = { playback = it },
+            onPlayingChanged = { playing = it })
         return
     }
     val route = routes.last()
     fun back() { if (routes.size > 1) routes = routes.dropLast(1) else onExit() }
     BackHandler { back() }
     fun navigate(next: TvRoute) { routes = routes + next }
-    holder.SaveableStateProvider(pageKey) {
+    val pageContent: @Composable () -> Unit = {
         val memory = rememberFocusMemory(when (route.kind) {
             "search" -> "key:A"
             "home", "movies", "shows", "collections" -> "nav:${route.kind}"
             "movie", "show", "season", "episode", "collection" -> "detail:primary"
             "libraries" -> "library:0"
-            "settings" -> "settings:connection"
+            "settings" -> if (server.viewing != null) "settings:viewing" else "settings:connection"
             else -> "nav:home"
         })
         fun open(next: TvRoute) { memory.leaving = true; navigate(next) }
         fun play(request: PlaybackRequest) { memory.leaving = true; playback = request }
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 40.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            TvNavigation(navigationSection(routes), libraryName, memory) { kind ->
+            TvNavigation(navigationSection(routes), libraryName, memory, server.viewing?.label) { kind ->
                 when (kind) {
+                    "viewing" -> viewingDialog = ViewingDialogRequest()
                     "search", "libraries", "settings" -> if (route.kind != kind) open(TvRoute(kind))
                     else -> {
                         if (route.key != "root:$kind") memory.leaving = true
@@ -163,24 +305,40 @@ fun TvApp(onExit: () -> Unit) {
                 "movies", "shows", "collections" -> BrowseScreen(server, route.kind, library, refresh, memory, ::open)
                 "search" -> SearchScreen(server, library, route.title, memory, ::open, ::back)
                 "actor-works" -> ActorWorksScreen(server, library, route, memory, ::open, ::back)
-                "movie", "show", "season", "episode", "collection" -> DetailScreen(server, route, refresh, memory, ::open, ::play, ::back)
+                "movie", "show", "season", "episode", "collection" -> DetailScreen(server, route, refresh, memory, ::open, ::play, ::back,
+                    onProtection = { kind, id -> viewingDialog = ViewingDialogRequest("policy", kind, id) })
                 "libraries" -> LibrariesScreen(server, library, memory) { id, name ->
                     library = id; libraryName = name; routes = listOf(TvRoute("home", key = "root:home"))
                 }
                 "settings" -> LazyColumn(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                     item { Text("电视设置", style = MaterialTheme.typography.headlineMedium) }
+                    if (server.viewing != null) item {
+                        Column(Modifier.widthIn(max = 760.dp).fillMaxWidth()
+                            .background(DesignTokens.Surface, RoundedCornerShape(DesignTokens.CardRadius)).padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            SectionHeading("观看模式")
+                            Text("${server.viewing?.label} · 只影响当前电视", color = Muted)
+                            TvAction("切换模式", { viewingDialog = ViewingDialogRequest() }, Modifier.focusMemory(memory, "settings:viewing"))
+                            if (server.viewing?.mode != "children") {
+                                TvAction(if (server.viewing?.enabled == true) "修改保护密码" else "设置保护密码",
+                                    { viewingDialog = ViewingDialogRequest("password") })
+                                if (server.viewing?.managementUnlocked == true) TvAction("锁定保护设置", ::lockViewing)
+                            }
+                        }
+                    }
                     item {
                         Column(Modifier.widthIn(max = 760.dp).fillMaxWidth()
                             .background(DesignTokens.Surface, RoundedCornerShape(DesignTokens.CardRadius)).padding(20.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             SectionHeading("服务器连接")
                             Text(server.baseUrl, color = Muted)
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (server.viewing?.mode != "children" && server.viewing?.protected != true) Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 TvAction("修改连接", { editConnection = true }, Modifier.focusMemory(memory, "settings:connection"), icon = "edit")
                                 TvAction("忘记连接", {
                                     scope.launch { withContext(Dispatchers.IO) { store.clear() }; saved = null; api = null }
                                 }, Modifier.focusMemory(memory, "settings:forget"), icon = "trash")
                             }
+                            else Text("切换到普通模式并锁定保护设置后，可以修改服务器连接。", color = Muted)
                         }
                     }
                     item {
@@ -203,6 +361,14 @@ fun TvApp(onExit: () -> Unit) {
             }
         }
     }
+    if (server.viewing?.mode == "private") {
+        CompositionLocalProvider(LocalSaveableStateRegistry provides null) { key(pageKey) { pageContent() } }
+    } else holder.SaveableStateProvider(pageKey, pageContent)
+    viewingDialog?.let { request ->
+        ViewingDialog(server, request, onClose = { viewingDialog = null }, onSession = ::applySession,
+            onPolicySaved = { SearchHistoryStore.clearAll(context); server.clearPrivateHistory(); clearPages() },
+            onUserActivity = { dialogInteraction = SystemClock.elapsedRealtime() })
+    }
 }
 
 @Composable
@@ -214,6 +380,8 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
     var token by remember { mutableStateOf(initial?.token.orEmpty()) }
     var error by remember { mutableStateOf(initialError) }
     var busy by remember { mutableStateOf(false) }
+    var resetViewingSession by remember { mutableStateOf(false) }
+    var viewingResetRequired by remember { mutableStateOf(false) }
     var job by remember { mutableStateOf<Job?>(null) }
     var scanning by remember { mutableStateOf(false) }
     var scanProgress by remember { mutableStateOf("") }
@@ -224,6 +392,7 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
     var confirmTarget by remember { mutableStateOf<DiscoveredServer?>(null) }
     fun closePicker() { serverPicker = false; confirmTarget = null }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val memory = rememberFocusMemory("connect")
     val keyboard = LocalSoftwareKeyboardController.current
     val imeVisible = WindowInsets.isImeVisible
@@ -238,13 +407,29 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
         val chosenToken = token
         job = scope.launch {
             try {
-                val candidate = JzApi(chosenAddress, chosenToken)
+                val prior = initial?.takeIf { !resetViewingSession && it.address == JzApi.normalizeServerUrl(chosenAddress) && it.token == chosenToken }
+                var candidate = JzApi(chosenAddress, chosenToken, initialViewingToken = prior?.viewingToken.orEmpty())
                 val info = candidate.checkConnection()
-                val connection = SavedConnection(candidate.baseUrl, chosenToken, info.optString("server_id"))
+                if (supportsViewingModes(info)) {
+                    if (!resetViewingSession && prior == null && initial?.serverId?.isNotBlank() == true && initial.serverId == info.text("server_id") && initial.token == chosenToken) {
+                        candidate = JzApi(chosenAddress, chosenToken, initialViewingToken = initial.viewingToken)
+                    }
+                    candidate = candidate.withViewing(candidate.get("/api/viewing/session"))
+                    if (initial?.viewingToken == candidate.viewingToken && initial.viewingGeneration != candidate.viewing?.generation) {
+                        SearchHistoryStore.clearAll(context)
+                    }
+                    // A persisted device token must never restore a previous private or management grant.
+                    candidate = candidate.withViewing(candidate.post("/api/viewing/lock"))
+                }
+                val connection = SavedConnection(candidate.baseUrl, chosenToken, info.optString("server_id"), candidate.viewingToken,
+                    candidate.viewing?.generation ?: 0)
                 save(connection)
                 onConnected(candidate, connection)
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { error = e.message ?: "连接失败，请重试" }
+            catch (e: Exception) {
+                error = e.message ?: "连接失败，请重试"
+                viewingResetRequired = e is ApiException && e.code == "viewing_locked"
+            }
             finally { busy = false }
         }
     }
@@ -275,6 +460,12 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
         item { TvInput("服务器地址，例如 http://192.168.1.10:8080", address, { address = it }, Modifier.widthIn(max = 740.dp)) }
         item { TvInput("访问令牌（服务器未设置时留空）", token, { token = it }, Modifier.widthIn(max = 740.dp), password = true) }
         if (error.isNotBlank()) item { Text(error, color = DesignTokens.Error) }
+        if (viewingResetRequired) item {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("旧观看会话已失效。重建会话后本机回到普通模式，服务器内的隐私内容仍保持隐藏。", color = Muted)
+                TvAction("重建本机观看会话", { resetViewingSession = true; viewingResetRequired = false; connect() }, enabled = !busy)
+            }
+        }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 TvAction(if (busy) "正在连接…" else "连接并记住", ::connect, Modifier.focusMemory(memory, "connect"), enabled = !busy, icon = if (busy) "loading" else "link")

@@ -73,7 +73,8 @@ def movie_detail(tmdb_id: int) -> dict:
     由 scanner.match.pick_display_title 择中文显示名。"""
     with _client() as c:
         return _get(c, f"/movie/{tmdb_id}",
-                    params=_params(append_to_response="credits,external_ids,alternative_titles")).json()
+                    params=_params(append_to_response=(
+                        "credits,external_ids,alternative_titles,release_dates,keywords"))).json()
 
 
 def search_tv(query: str, year: int | None = None) -> list[dict]:
@@ -90,7 +91,7 @@ def tv_detail(tmdb_id: int) -> dict:
     with _client() as c:
         return _get(c, f"/tv/{int(tmdb_id)}",
                     params=_params(append_to_response=(
-                        "credits,external_ids,alternative_titles,content_ratings"))).json()
+                        "credits,external_ids,alternative_titles,content_ratings,keywords"))).json()
 
 
 def tv_season(tmdb_id: int, season_number: int) -> dict:

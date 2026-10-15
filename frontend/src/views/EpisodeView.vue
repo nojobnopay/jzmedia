@@ -33,7 +33,7 @@
             </JzButton>
             <span v-else class="dim">文件缺失</span>
             <JzButton @click="toggleWatched" type="button">{{ ep.watched ? '标记未看' : '标记已看' }}</JzButton>
-            <ActionMenu>
+            <ActionMenu v-if="!isChildren">
               <JzButton @click="pickOpen = !pickOpen" type="button" variant="ghost" icon="match">{{ pickOpen ? '收起集号匹配' : '修正集号匹配' }}</JzButton>
             </ActionMenu>
           </div>
@@ -44,7 +44,7 @@
           </nav>
           <EmptyState v-if="loadError" state="error" title="分集刷新失败" :text="loadError" retry @retry="load" />
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
-          <div v-if="ep.needs_review && !pickOpen" class="review-notice">
+          <div v-if="!isChildren && ep.needs_review && !pickOpen" class="review-notice">
             <span>此集尚未匹配到集名和简介</span><JzButton @click="pickOpen = true" type="button" icon="match">匹配集号</JzButton>
           </div>
           <div v-if="pickOpen" class="match card-block">
@@ -82,6 +82,7 @@
 </template>
 
 <script setup>
+import { isChildren } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import AppIcon from '../components/AppIcon.vue'
@@ -97,7 +98,7 @@ import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, posterUrl } from '../api.js'
+import { api, posterUrl, scopedArtworkUrl } from '../api.js'
 import { episodeVersion } from '../episodeVersions.js'
 import PlayerModal from '../components/PlayerModal.vue'
 import CastWall from '../components/CastWall.vue'
@@ -129,7 +130,7 @@ function epNo (e) {
   const end = Number(e.episode_end) > 0 ? `-E${pad(e.episode_end)}` : ''
   return base + end
 }
-function stillUrl (e) { return `/api/tv/episodes/${e.id}/still` }
+function stillUrl (e) { return scopedArtworkUrl(`/api/tv/episodes/${e.id}/still`) }
 function playLabel (e) {
   const ver = episodeVersion(e)
   return `${e.show_title} ${epNo(e)}${e.title ? ' · ' + e.title : ''}`

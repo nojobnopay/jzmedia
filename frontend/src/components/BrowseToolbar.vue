@@ -31,7 +31,7 @@
         筛选<span v-if="activeCount"> · {{ activeCount }}</span><AppIcon :name="filtersOpen ? 'chevron-up' : 'chevron-down'" :size="16" />
       </JzButton>
     </slot>
-    <JzButton icon="ai" class="browse-tool" variant="ghost" :aria-expanded="aiOpen" :aria-controls="id + '-ai'" @click="$emit('update:aiOpen', !aiOpen)">智能搜索</JzButton>
+    <JzButton v-if="aiEnabled" icon="ai" class="browse-tool" variant="ghost" :aria-expanded="aiOpen" :aria-controls="id + '-ai'" @click="$emit('update:aiOpen', !aiOpen)">智能搜索</JzButton>
     <slot />
   </div>
 </template>
@@ -56,6 +56,7 @@ const props = defineProps({
   filtersOpen: { type: Boolean, default: false },
   filtersDisabled: { type: Boolean, default: false },
   aiOpen: { type: Boolean, default: false },
+  aiEnabled: { type: Boolean, default: true },
   activeCount: { type: Number, default: 0 },
 })
 const emit = defineEmits(['update:modelValue', 'update:filtersOpen', 'update:aiOpen', 'input', 'compositionstart',

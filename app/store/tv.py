@@ -48,13 +48,14 @@ TV_META_FIELDS = {"title", "sort_title", "original_title", "year", "overview",
                   "last_air_date", "number_of_seasons", "number_of_episodes",
                   "episode_run_time", "networks", "created_by", "title_auto",
                   "needs_review", "match_source", "fetched_at", "watched", "watched_at",
-                  "nfo_hash"}
+                  "nfo_hash", "content_evidence", "children_auto_status", "children_reason"}
 
 EPISODE_META_FIELDS = {"title", "overview", "still_path", "air_date", "runtime",
                        "tmdb_rating", "tmdb_episode_id", "season", "episode",
                        "episode_end", "absolute_number", "watched", "watched_at",
                        "missing", "needs_review", "local_only", "nfo_hash",
-                       "episode_credits", "match_source", "binding_conflict"}
+                       "episode_credits", "match_source", "binding_conflict",
+                       "content_evidence", "children_auto_status", "children_reason"}
 
 _LIST_COLS = {"genres", "genre_ids", "tags", "origin_countries", "networks", "created_by"}
 
@@ -76,18 +77,41 @@ def _meta_values(fields: dict, allowed: set) -> tuple[list[str], list]:
 
 def update_show_meta(show_id: int, **fields) -> bool:
     """剧元数据写入（TMDB 镜像/待确认/匹配来源等；allowlist 过滤）。"""
-    cols, vals = _meta_values(fields, TV_META_FIELDS)
-    if not cols:
-        return False
-    sets = ", ".join(f"{c}=?" for c in cols) + ", updated_at=?"
+    from ..viewing import policy_metadata, effective_show_classification
     with _lock, _conn() as c:
+        old = c.execute("SELECT * FROM tv_shows WHERE id=?", (show_id,)).fetchone()
+        fields.update(policy_metadata("tv", dict(old) if old else {}, fields))
+        if old and "tmdb_id" in fields and fields["tmdb_id"] != old["tmdb_id"]:
+            # Episode evidence belongs to the previous show identity. Keep its
+            # display metadata and all parent choices, but discard that evidence
+            # before applying episode vetoes to the newly matched show.
+            empty = policy_metadata("episode", {}, {"content_evidence": {}})
+            c.execute("UPDATE tv_episodes SET content_evidence=?,children_auto_status=?,children_reason=?"
+                      " WHERE show_id=?", (empty["content_evidence"], empty["children_auto_status"],
+                                           empty["children_reason"], int(show_id)))
+        if "children_auto_status" in fields:
+            fields["children_auto_status"], fields["children_reason"] = effective_show_classification(
+                c, show_id, fields["children_auto_status"], fields["children_reason"], show_fields=fields)
+        cols, vals = _meta_values(fields, TV_META_FIELDS)
+        if not cols:
+            return False
+        sets = ", ".join(f"{c}=?" for c in cols) + ", updated_at=?"
         cur = c.execute(f"UPDATE tv_shows SET {sets} WHERE id=?",
                         (*vals, int(time.time()), int(show_id)))
+        if old and fields.get("children_auto_status", old["children_auto_status"]) != old["children_auto_status"]:
+            from ..viewing import invalidate_content_access
+            invalidate_content_access(c)
         return int(cur.rowcount or 0) > 0
 
 
 def update_episode_meta(episode_id: int, **fields) -> bool:
     """集元数据写入（刮削回填/编号重映射/已看；allowlist 过滤）。"""
+    old = None
+    if "content_evidence" in fields or "tmdb_episode_id" in fields:
+        from ..viewing import policy_metadata
+        with _lock, _conn() as c:
+            old = c.execute("SELECT * FROM tv_episodes WHERE id=?", (episode_id,)).fetchone()
+        fields.update(policy_metadata("episode", dict(old) if old else {}, fields))
     cols, vals = _meta_values(fields, EPISODE_META_FIELDS)
     if not cols:
         return False
@@ -95,7 +119,12 @@ def update_episode_meta(episode_id: int, **fields) -> bool:
     with _lock, _conn() as c:
         cur = c.execute(f"UPDATE tv_episodes SET {sets} WHERE id=?",
                         (*vals, int(time.time()), int(episode_id)))
-        return int(cur.rowcount or 0) > 0
+        updated = int(cur.rowcount or 0) > 0
+    if old and "content_evidence" in fields:
+        show = get_show_meta(old["show_id"])
+        if show:
+            update_show_meta(old["show_id"], content_evidence=show.get("content_evidence", "{}"))
+    return updated
 
 
 def season_offsets(show_id: int) -> list[tuple[int, int]]:
@@ -379,10 +408,20 @@ def upsert_episode(show_id: int, library_id: int, file_path: str,
     lib_id = int(library_id or DEFAULT_LIBRARY_ID)
     now = int(time.time())
     with _lock, _conn() as c:
-        row = c.execute("SELECT id, title FROM tv_episodes"
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT id, title, show_id FROM tv_episodes"
                         " WHERE library_id=? AND file_path=?",
                         (lib_id, file_path)).fetchone()
         if row:
+            changed_owner = row["show_id"] != int(show_id)
+            if changed_owner:
+                from ..viewing import (merge_show_restrictions, policy_metadata,
+                                       recompute_show_classification, invalidate_content_access)
+                source = c.execute("SELECT * FROM main.tv_shows WHERE id=?", (row["show_id"],)).fetchone()
+                merge_show_restrictions(c, int(show_id), [source])
+                empty = policy_metadata("episode", {}, {"content_evidence": {}})
+                c.execute("UPDATE tv_episodes SET content_evidence=?,children_auto_status=?,children_reason=? WHERE id=?",
+                          (empty["content_evidence"], empty["children_auto_status"], empty["children_reason"], row["id"]))
             c.execute(
                 "UPDATE tv_episodes SET show_id=?, season=?, episode=?, episode_end=?,"
                 " absolute_number=COALESCE(?, absolute_number),"
@@ -390,6 +429,10 @@ def upsert_episode(show_id: int, library_id: int, file_path: str,
                 " missing=0, updated_at=? WHERE id=?",
                 (int(show_id), int(season), int(episode), int(episode_end or 0),
                  absolute_number, title or "", now, int(row["id"])))
+            if changed_owner:
+                recompute_show_classification(c, row["show_id"])
+                recompute_show_classification(c, int(show_id))
+                invalidate_content_access(c)
             return int(row["id"])
         cur = c.execute(
             "INSERT INTO tv_episodes(show_id, library_id, file_path, season, episode,"
@@ -1573,6 +1616,7 @@ def reattach_tv_extras(library_id=None) -> int:
     from ..scanner.tv_nfo_link import show_dir_of
     lib_id = int(library_id or DEFAULT_LIBRARY_ID)
     with _lock, _conn() as c:
+        c.execute('BEGIN IMMEDIATE')
         eps = c.execute("SELECT show_id, file_path FROM tv_episodes WHERE library_id=?",
                         (lib_id,)).fetchall()
         if not eps:
@@ -1606,9 +1650,15 @@ def reattach_tv_extras(library_id=None) -> int:
             rule = binding_for(path, rules)
             want = rule['show_id'] if rule else target.get(best)
             if want and int(x["show_id"]) != int(want):
+                from ..viewing import merge_show_restrictions
+                source = c.execute('SELECT * FROM main.tv_shows WHERE id=?', (x['show_id'],)).fetchone()
+                merge_show_restrictions(c, int(want), [source])
                 c.execute("UPDATE extras SET show_id=?, updated_at=? WHERE id=?",
                           (int(want), int(time.time()), int(x["id"])))
                 fixed += 1
+        if fixed:
+            from ..viewing import invalidate_content_access
+            invalidate_content_access(c)
         return fixed
 
 

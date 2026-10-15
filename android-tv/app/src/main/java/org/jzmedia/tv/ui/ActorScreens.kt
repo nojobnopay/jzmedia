@@ -89,7 +89,10 @@ fun ActorWorksScreen(api: JzApi, library: Long, route: TvRoute, memory: FocusMem
     val previousButton = remember { FocusRequester() }
     val retryButton = remember { FocusRequester() }
     val context = LocalContext.current
-    val history = remember(context) { SearchHistoryStore(context.applicationContext) }
+    val history = remember(context, api) {
+        if (api.viewing?.mode == "private") api.privateHistory
+        else SearchHistoryStore(context.applicationContext, api.viewing?.mode ?: "normal")
+    }
     val rows = data?.rows().orEmpty()
     LaunchedEffect(api, library, route.actorKey, kind, page, attempt) {
         data = null; error = ""

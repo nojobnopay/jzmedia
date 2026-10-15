@@ -143,6 +143,7 @@ def meta_from_detail(detail: dict) -> dict:
     """TMDB详情 → 可写入 tmdb_cache 的字典（产地/类型/语言，不含海报/NFO）。
     显示标题经 pick_display_title（zh 别名回退，缺中文主标题的片子也有中文名）；
     original_title 保留 TMDB 原始标题（为空时回退主标题，英文原名不丢）。"""
+    from ..content_rules import normalize_tmdb_evidence
     year = None
     if detail.get("release_date", "")[:4].isdigit():
         year = int(detail["release_date"][:4])
@@ -173,6 +174,7 @@ def meta_from_detail(detail: dict) -> dict:
         "origin_country": primary,
         "region": region,
         "media_type": "movie",
+        "content_evidence": normalize_tmdb_evidence("movie", detail),
         "collection_tmdb_id": col_id,
         "collection_name": belongs.get("name", "") or "",
         "collection_poster_path": belongs.get("poster_path", "") or "",

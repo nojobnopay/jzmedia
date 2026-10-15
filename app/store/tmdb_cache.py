@@ -1,6 +1,7 @@
 """store.tmdb_cache（自 app/store.py 拆分，评审 B9/R02-Q3；对外经 app.store 门面使用）。"""
 import json
 import time
+from ..content_rules import content_fields, merge_content_evidence, normalize_content_evidence
 from ._base import _conn, _dump_list, _lock, logger
 from .movies import update_movie_meta
 __all__ = ['seed_tmdb_cache_from_movies', 'get_tmdb_cached', 'upsert_tmdb_cache', 'list_movie_ids_by_tmdb', 'copy_tmdb_to_movie', 'tmdb_ids_missing_collection', 'set_poster_override', 'set_tmdb_cache_seasons', 'get_tmdb_cache_seasons']
@@ -167,10 +168,6 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
     studios_s = _dump_list(meta.get("studios"))
     backdrop = str(meta.get("backdrop_tmdb_path") or "")
     logo = str(meta.get("logo_tmdb_path") or "")
-    try:
-        payload_s = json.dumps(meta, ensure_ascii=False, sort_keys=True)
-    except (TypeError, ValueError):
-        payload_s = "{}"
     col_id = meta.get("collection_tmdb_id")
     try:
         col_id = int(col_id) if col_id is not None else None
@@ -181,6 +178,18 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
     def _apply(c) -> bool:
         row = c.execute("SELECT * FROM tmdb_cache WHERE media_type=? AND tmdb_id=?",
                         (media_type, tmdb_id)).fetchone()
+        try:
+            old_payload = json.loads(row["payload_json"] or "{}") if row else {}
+        except (TypeError, ValueError):
+            old_payload = {}
+        if not isinstance(old_payload, dict):
+            old_payload = {}
+        incoming = meta.get("content_evidence")
+        if incoming is None:
+            incoming = {"source": "tmdb", "source_id": str(tmdb_id), "available": []}
+        evidence = merge_content_evidence(old_payload.get("content_evidence"), incoming)
+        payload_s = json.dumps({**meta, "content_evidence": evidence}, ensure_ascii=False, sort_keys=True)
+        evidence_same = normalize_content_evidence(old_payload.get("content_evidence")) == evidence
         # v19：手工选过候选海报 → 刷新不得把默认海报写回去（override 只由 set_poster_override 改）
         if row is not None:
             try:
@@ -224,6 +233,8 @@ def upsert_tmdb_cache(tmdb_id: int, meta: dict,
         except Exception:
             old_col_poster = ""
         same = (
+            evidence_same
+            and
             (row["title"] or "") == (meta.get("title", "") or "")
             and (row["original_title"] or "") == (meta.get("original_title", "") or "")
             and row["year"] == meta.get("year")
@@ -342,6 +353,14 @@ def copy_tmdb_to_movie(movie_id: int, old_title: str | None = None) -> bool:
             "region": crow["region"] or "",
             "media_type": crow["media_type"] or "movie",
         }
+        try:
+            payload = json.loads(crow["payload_json"] or "{}")
+        except (TypeError, ValueError):
+            payload = {}
+        evidence = payload.get("content_evidence") if isinstance(payload, dict) else None
+        if not evidence:
+            evidence = {"source": "tmdb", "source_id": str(crow["tmdb_id"]), "available": []}
+        fields.update(content_fields("movie", evidence, crow["genres"], crow["genre_ids"]))
         if want_title:
             fields["title"] = new_title
             fields["title_auto"] = 0   # 标题来源转为 TMDB（此后视为受保护标题）

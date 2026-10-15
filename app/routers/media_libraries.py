@@ -65,7 +65,8 @@ def _payload(m: dict | None) -> dict | None:
     out["driver"] = driver_hint(m)
     out["video_libraries"] = [video_payload(v)
                               for v in store.video_libraries_of(m["id"])]
-    return out
+    from ..viewing_http import browse_library_payload
+    return browse_library_payload(out)
 
 
 @router.get("")

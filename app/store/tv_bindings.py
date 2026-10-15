@@ -6,6 +6,8 @@ import uuid
 
 from ._base import _conn, _lock
 from ..tv_binding_rules import binding_for, contains
+from ..viewing import (policy_metadata, merge_show_restrictions,
+                       recompute_show_classification, invalidate_content_access)
 
 __all__ = ['list_tv_bindings', 'tv_binding_for', 'tv_binding_snapshot',
            'save_tv_binding_preview', 'get_tv_binding_plan', 'apply_tv_binding_plan',
@@ -107,6 +109,22 @@ def _update(c, table, rid, values):
               [*values.values(), rid])
 
 
+def _empty_evidence():
+    return policy_metadata('episode', {}, {'content_evidence': {}})
+
+
+def _show_fields(c, show_id, fields):
+    """Apply the same identity reset as update_show_meta within this transaction."""
+    old = c.execute('SELECT * FROM tv_shows WHERE id=?', (show_id,)).fetchone() if show_id else None
+    values = dict(fields)
+    values.update(policy_metadata('tv', dict(old) if old else {}, values))
+    if old and 'tmdb_id' in values and old['tmdb_id'] != values['tmdb_id']:
+        empty = _empty_evidence()
+        c.execute('UPDATE tv_episodes SET content_evidence=?,children_auto_status=?,children_reason=? WHERE show_id=?',
+                  (empty['content_evidence'], empty['children_auto_status'], empty['children_reason'], show_id))
+    return values
+
+
 def _source_show(c, library_id, identity):
     row = c.execute('SELECT id FROM tv_shows WHERE library_id=? AND title=? AND year IS ?'
                     ' ORDER BY id LIMIT 1', (library_id, identity['title'], identity.get('year'))).fetchone()
@@ -179,8 +197,8 @@ def apply_tv_binding_plan(token):
                     file_path=item['file_path'], **item['original'], added_at=now, updated_at=now))
         before = _snapshot(c, lid, paths)
         if target.get('rebind'):
-            _update(c, 'tv_shows', target_id, dict(**p['show_fields'], title_auto=0,
-                    match_source='directory', updated_at=now, fetched_at=now))
+            _update(c, 'tv_shows', target_id, _show_fields(c, target_id, dict(**p['show_fields'], title_auto=0,
+                    match_source='directory', updated_at=now, fetched_at=now)))
         if not target_id:
             # A newly registered source may already have the canonical title.
             staged = c.execute('SELECT id FROM tv_shows WHERE library_id=? AND title=? AND year IS ?',
@@ -189,9 +207,10 @@ def apply_tv_binding_plan(token):
                           updated_at=now, fetched_at=now)
             if staged:
                 target_id = staged['id']
-                _update(c, 'tv_shows', target_id, fields)
+                _update(c, 'tv_shows', target_id, _show_fields(c, target_id, fields))
             else:
-                target_id = _insert(c, 'tv_shows', dict(library_id=lid, added_at=now, **fields))
+                target_id = _insert(c, 'tv_shows', dict(library_id=lid, added_at=now, **_show_fields(c, None, fields)))
+        merge_show_restrictions(c, target_id, before['shows'])
         for item in p['items']:
             ep = c.execute('SELECT * FROM tv_episodes WHERE library_id=? AND file_path=?',
                            (lid, item['file_path'])).fetchone()
@@ -202,10 +221,15 @@ def apply_tv_binding_plan(token):
             if changed or not protected:
                 fields.update(_EMPTY_META)
                 fields.update(item['metadata'])
+            if changed:
+                fields.setdefault('content_evidence', {})
+            fields.update(policy_metadata('episode', {} if changed else dict(ep), fields))
             _update(c, 'tv_episodes', ep['id'], fields)
             c.execute('DELETE FROM scan_state WHERE library_id=? AND file_path=?', (lid, item['file_path']))
         for extra in before['extras']:
-            _update(c, 'extras', extra['id'], dict(show_id=target_id, updated_at=now))
+            from .extras import _extra_ownership
+            movie_id, show_id, _ = _extra_ownership(c, extra, show_id=target_id)
+            _update(c, 'extras', extra['id'], dict(movie_id=movie_id, show_id=show_id, updated_at=now))
         for rule in p['rules']:
             c.execute('INSERT INTO tv_directory_bindings VALUES(?,?,?,?,?,?)'
                       ' ON CONFLICT(library_id,path) DO UPDATE SET show_id=excluded.show_id,'
@@ -220,6 +244,9 @@ def apply_tv_binding_plan(token):
             else:
                 _insert(c, 'tv_seasons', dict(show_id=target_id, library_id=lid, **fields, updated_at=now))
         _prune(c, lid, [s['id'] for s in before['shows']])
+        for sid in {target_id, *(show['id'] for show in before['shows'])}:
+            recompute_show_classification(c, sid)
+        invalidate_content_access(c)
         result = dict(ok=True, show_id=target_id, history_id=token, episodes=len(p['items']),
                       directories=len(paths), extras=len(before['extras']))
         p.update(before=before, after_digest=tv_binding_digest(_snapshot(c, lid, paths)), result=result)
@@ -236,7 +263,8 @@ def undo_tv_binding_plan(token, dry_run=True):
             raise ValueError('这条归属变更已撤销或不存在')
         p = json.loads(row['payload'])
         lid, paths = p['library_id'], [r['path'] for r in p['rules']]
-        if tv_binding_digest(_snapshot(c, lid, paths)) != p['after_digest']:
+        current = _snapshot(c, lid, paths)
+        if tv_binding_digest(current) != p['after_digest']:
             raise ValueError('确认后已有新增分集、路径或归属变化，请重新设置归属；不能直接撤销旧记录')
         result = dict(ok=True, directories=paths, episodes=len(p['before']['episodes']),
                       title=p['target']['title'],
@@ -244,39 +272,63 @@ def undo_tv_binding_plan(token, dry_run=True):
         if dry_run:
             return result
         before = p['before']
+        owner = c.execute('SELECT * FROM tv_shows WHERE id=?', (p['result']['show_id'],)).fetchone()
+        live_policies = {show['id']: show for show in current['shows']}
+        if owner:
+            live_policies[owner['id']] = dict(owner)
         for show in before['shows']:
             if not c.execute('SELECT id FROM tv_shows WHERE id=?', (show['id'],)).fetchone():
                 clash = c.execute('SELECT id FROM tv_shows WHERE library_id=? AND title=? AND year IS ?',
                                   (lid, show['title'], show['year'])).fetchone()
                 if clash:
                     raise ValueError('原剧名已有其他记录占用，请重新设置归属')
-                _insert(c, 'tv_shows', show)
+                _insert(c, 'tv_shows', {**show, **_empty_evidence()})
                 for season in before['seasons']:
                     if season['show_id'] == show['id']:
                         _insert(c, 'tv_seasons', {k: v for k, v in season.items() if k != 'id'})
         for show in before['shows']:
             if show['id'] == p['result']['show_id'] and show.get('tmdb_id') != p['target']['tmdb_id']:
-                _update(c, 'tv_shows', show['id'], {k: v for k, v in show.items()
-                        if k not in ('id', 'watched', 'watched_at', 'added_at')})
+                fields = {k: v for k, v in show.items()
+                          if k not in ('id', 'watched', 'watched_at', 'added_at', 'is_private', 'children_override',
+                                       'content_evidence', 'children_auto_status', 'children_reason')}
+                fields['content_evidence'] = '{}'
+                _update(c, 'tv_shows', show['id'], _show_fields(c, show['id'], fields))
                 c.execute('DELETE FROM tv_seasons WHERE show_id=?', (show['id'],))
                 for season in before['seasons']:
                     if season['show_id'] == show['id']:
                         _insert(c, 'tv_seasons', {k: v for k, v in season.items() if k != 'id'})
         for ep in before['episodes']:
-            _update(c, 'tv_episodes', ep['id'], dict(show_id=ep['show_id'],
-                    **{k: ep[k] for k in _META_KEYS}, updated_at=int(time.time())))
+            live = c.execute('SELECT * FROM tv_episodes WHERE id=?', (ep['id'],)).fetchone()
+            fields = dict(show_id=ep['show_id'], **{k: ep[k] for k in _META_KEYS}, updated_at=int(time.time()))
+            changed = live and any(live[key] != fields[key] for key in (
+                'show_id', 'season', 'episode', 'episode_end', 'absolute_number', 'tmdb_episode_id'))
+            if changed:
+                fields.update(_empty_evidence())
+            _update(c, 'tv_episodes', ep['id'], fields)
             c.execute('DELETE FROM scan_state WHERE library_id=? AND file_path=?', (lid, ep['file_path']))
+        changed_movies = []
         for extra in before['extras']:
-            _update(c, 'extras', extra['id'], dict(show_id=extra['show_id']))
+            from .extras import _extra_ownership
+            live = c.execute('SELECT * FROM extras WHERE id=?', (extra['id'],)).fetchone()
+            movie_id, show_id, changed = _extra_ownership(c, live, extra.get('movie_id'), extra.get('show_id'))
+            changed_movies.extend(changed)
+            _update(c, 'extras', extra['id'], dict(movie_id=movie_id, show_id=show_id))
         for path in paths:
             c.execute('DELETE FROM tv_directory_bindings WHERE library_id=? AND path=?', (lid, path))
         for rule in before['rules']:
             c.execute('INSERT OR REPLACE INTO tv_directory_bindings VALUES(?,?,?,?,?,?)',
                       tuple(rule[k] for k in ('library_id','path','show_id','season','override_season','updated_at')))
+        for show in before['shows']:
+            merge_show_restrictions(c, show['id'], [show, live_policies.get(show['id']), owner])
         _prune(c, lid, [p['result']['show_id']])
+        for sid in {p['result']['show_id'], *(show['id'] for show in before['shows'])}:
+            recompute_show_classification(c, sid)
+        invalidate_content_access(c)
         c.execute("UPDATE tv_binding_history SET state='undone',updated_at=? WHERE id=?",
                   (int(time.time()), token))
-        return result
+    from .extras import _resync_policies
+    _resync_policies(changed_movies)
+    return result
 
 
 def list_tv_binding_history(library_id):

@@ -4,6 +4,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SearchHistoryTest {
+    @Test fun childrenNeverReadNormalQueriesOrActorsAndKeepIndependentHistory() {
+        val values = mutableMapOf<String, String>()
+        val normal = store(values)
+        val children = SearchHistoryStore(values::get,
+            { key, value -> if (value == null) values.remove(key) else values[key] = value }, viewingMode = "children")
+        normal.recordQuery("http://server", 0, "title", "Adult title")
+        normal.recordActor("http://server", 0, RecentActor("tmdb:1", "Adult actor"))
+        assertTrue(children.queries("http://server", 0, "title").isEmpty())
+        assertTrue(children.actors("http://server", 0).isEmpty())
+        children.recordQuery("http://server", 0, "title", "Family title")
+        children.recordActor("http://server", 0, RecentActor("tmdb:2", "Family actor"))
+        assertEquals(listOf("Adult title"), normal.queries("http://server", 0, "title"))
+        assertEquals(listOf("Family title"), children.queries("http://server", 0, "title"))
+        assertEquals("tmdb:2", children.actors("http://server", 0).single().key)
+    }
     private fun store(values: MutableMap<String, String> = mutableMapOf()) = SearchHistoryStore(values::get,
         { key, value -> if (value == null) values.remove(key) else values[key] = value })
 

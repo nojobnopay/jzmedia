@@ -68,6 +68,7 @@ export function createFixture() {
     const id=Number(key.match(/\/(\d+)(?:\/|$)/)?.[1])
     if (/^\/api\/tv\/shows\/\d+\/collection$/.test(key)) return tvCollectionFixture(id)
     if (/^\/api\/tv\/shows\/\d+\/seasons\/\d+\/catalog$/.test(key)) return tvCatalogFixture(id, Number(key.match(/\/seasons\/(\d+)/)[1]))
+    if (key === '/api/viewing/session') return {mode:'normal',enabled:false,management_unlocked:false,generation:0,expires_at:0}
     if (key === '/api/tv/updates') return { media_library_id: Number(url.searchParams.get('media_library') || 1), items: [], error: '' }
     if (key === '/api/tv/airing/status' || key === '/api/tv/airing/check') return { configured: true, total: 6, checked: 6, pending: 0, failed: 0, running: false, current: 0, last_checked_at: 1790985600, next_check_at: 1791590400, error: '' }
     if(/^\/api\/persons\/\d+$/.test(key))return {...cast[0],biography:'演示人物陈予安：虚构电影演员与导演，作品关注人与地方的联系。此资料仅用于教程。',birthday:'1986-05-14',place_of_birth:'海边小城（虚构）',acting:movies.slice(0,3),directing:movies.slice(3,7),tv_works:[]}

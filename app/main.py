@@ -4,7 +4,7 @@ import re
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -83,6 +83,21 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="jzmedia", version=VERSION.name, lifespan=_lifespan)
 
+from .routers import viewing as viewing_router, viewing_refresh
+from .viewing_http import middleware as viewing_middleware, _error_response
+from fastapi.exception_handlers import http_exception_handler
+
+app.middleware("http")(viewing_middleware)
+app.include_router(viewing_router.router)
+app.include_router(viewing_refresh.router)
+
+
+@app.exception_handler(HTTPException)
+async def protection_exception(request, exc):
+    if isinstance(exc.detail, dict) and "code" in exc.detail:
+        return _error_response(exc)
+    return await http_exception_handler(request, exc)
+
 # 写操作访问令牌（评审 P1-01）：仅当 JZMEDIA_TOKEN/设置页配置了令牌才生效。
 # 只护 /api 的写方法（POST/PUT/PATCH/DELETE）；GET 全放行（Kodi/电视直链、海报、
 # HLS 分片读取都免鉴权）。令牌来自 config 的 DB 优先/env 兜底机制，改后免重启。
@@ -101,7 +116,9 @@ def _request_token(request) -> str:
 
 @app.middleware("http")
 async def _auth_write(request, call_next):
-    if request.method in _WRITE_METHODS and request.url.path.startswith("/api"):
+    viewing_auth = request.url.path in {"/api/viewing/mode", "/api/viewing/unlock",
+                                        "/api/viewing/lock", "/api/viewing/activity"}
+    if request.method in _WRITE_METHODS and request.url.path.startswith("/api") and not viewing_auth:
         token = await run_in_threadpool(config.effective_jzmedia_token)
         if token and not hmac.compare_digest(_request_token(request), token):
             return JSONResponse(

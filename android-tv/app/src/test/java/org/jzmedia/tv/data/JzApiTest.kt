@@ -13,6 +13,50 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class JzApiTest {
+    @Test fun viewingCredentialCoversMediaAndNeverLeavesTheServerScope() = runBlocking {
+        MockWebServer().use { server ->
+            val api = JzApi(server.url("/prefix").toString(), "api-token", ViewingSession(mode = "private", token = "viewing-token"))
+            listOf("/api/movies", "/posters/a.jpg", "/api/stream/1/sub/0.ass", "/api/stream/1/fonts/a.ttf").forEach { path ->
+                server.enqueue(MockResponse().setBody("{}"))
+                api.getBytes(path)
+                val request = server.takeRequest(1, TimeUnit.SECONDS)!!
+                assertEquals("viewing-token", request.getHeader("X-Viewing-Session"))
+                assertEquals("tv", request.getHeader("X-Viewing-Client"))
+            }
+            assertEquals("viewing-token", api.authHeadersFor(api.absoluteUrl("/api/stream/sessions/abc/master.m3u8"))["X-Viewing-Session"])
+            assertTrue(api.authHeadersFor(server.url("/outside").toString()).isEmpty())
+            assertTrue(api.authHeadersFor("http://other.example/prefix").isEmpty())
+        }
+    }
+
+    @Test fun viewingFailuresUseTrustedCodesWithoutEchoingServerSecrets() = runBlocking {
+        MockWebServer().use { server ->
+            val api = JzApi(server.url("/").toString())
+            server.enqueue(MockResponse().setResponseCode(403)
+                .setBody("""{"code":"protection_password_invalid","detail":"secret password"}"""))
+            try { api.post("/api/viewing/mode"); fail("Expected password failure") }
+            catch (e: ApiException) {
+                assertEquals("protection_password_invalid", e.code)
+                assertTrue(e.message!!.contains("保护密码"))
+                assertFalse(e.message!!.contains("secret"))
+            }
+            server.enqueue(MockResponse().setResponseCode(401).setBody("""{"code":"viewing_locked"}"""))
+            try { api.getBytes("/posters/a.jpg"); fail("Expected locked session") }
+            catch (e: ApiException) { assertEquals("viewing_locked", e.code) }
+        }
+    }
+
+    @Test fun invalidDeviceSessionDoesNotRetryWithoutItsCredential() = runBlocking {
+        MockWebServer().use { server ->
+            val api = JzApi(server.url("/").toString(), viewing = ViewingSession(mode = "children", token = "old-device"))
+            server.enqueue(MockResponse().setResponseCode(401).setBody("""{"detail":{"code":"viewing_locked","message":"expired"}}"""))
+            try { api.get("/api/movies"); fail("Expected rejected session") }
+            catch (e: ApiException) { assertEquals("viewing_locked", e.code) }
+            assertEquals(1, server.requestCount)
+            assertEquals("old-device", server.takeRequest(1, TimeUnit.SECONDS)!!.getHeader("X-Viewing-Session"))
+            assertEquals("children", api.viewing?.mode)
+        }
+    }
     @Test fun validatesConnectionAddressAndPreservesProxyPrefix() {
         val api = JzApi("http://localhost:8080/jzmedia", "secret")
         assertEquals("http://localhost:8080/jzmedia/", api.baseUrl)

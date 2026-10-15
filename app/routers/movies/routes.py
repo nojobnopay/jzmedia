@@ -571,6 +571,16 @@ def _movie_blob_rel(movie_id: int, name: str) -> tuple[dict, str]:
             allowed = True
     if not allowed:
         raise HTTPException(403, "not in this movie dir")
+    from ...viewing import current
+    if current.get() is not None:
+        # A public movie in a shared directory is not a capability for its
+        # siblings. Arbitrary sidecar/file browsing belongs to management.
+        own = {v.get("file_path", "") for v in (m.get("versions") or [])}
+        own.add(m["file_path"])
+        own.update(e["file_path"] for e in store.list_extras_by_movie(movie_id))
+        if rel not in own:
+            from ...viewing import require_management
+            require_management()
     return m, rel
 
 

@@ -43,15 +43,23 @@ def update_movie_meta(movie_id: int, **fields) -> None:
                "person_names", "watched", "watched_at",
                "origin_country", "origin_countries", "original_language",
                "region", "media_type", "edition", "spec", "original_file_path",
-               "nfo_hash", "match_source"}
+               "nfo_hash", "match_source", "content_evidence"}
     data = {k: (json.dumps(v, ensure_ascii=False) if k in ("genres", "genre_ids", "tags", "origin_countries") else v)
             for k, v in fields.items() if k in allowed}
     if not data:
         return
+    from ..viewing import policy_metadata, inherit_movie_policy
+    with _lock, _conn() as c:
+        old = c.execute("SELECT * FROM movies WHERE id=?", (movie_id,)).fetchone()
+    data.update(policy_metadata("movie", dict(old) if old else {}, fields))
     data["updated_at"] = int(time.time())
     cols = ", ".join(f"{k}=?" for k in data)
     with _lock, _conn() as c:
         c.execute(f"UPDATE movies SET {cols} WHERE id=?", (*data.values(), movie_id))
+        inherited = inherit_movie_policy(c, movie_id)
+        if inherited or (old and data.get("children_auto_status", old["children_auto_status"]) != old["children_auto_status"]):
+            from ..viewing import invalidate_content_access
+            invalidate_content_access(c)
     resync_fts(movie_id)
 
 

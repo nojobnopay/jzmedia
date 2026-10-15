@@ -110,6 +110,7 @@ async function mockApi(route) {
     return response(route, { items, source: items.length ? 'local' : null, kind: library.kind,
       library_id: library.id, chain: JSON.parse(library.metadata_providers), elapsed_ms: 12 })
   }
+  if (key === '/api/viewing/session') return response(route, { mode: 'normal', enabled: false, management_unlocked: false, generation: 0, expires_at: 0 })
   if (key === '/api/onboarding') return response(route, { show_welcome: false, status: 'completed' })
   if (key === '/api/settings') return response(route, { tmdb_configured: false, tmdb_language: 'zh-CN', libraries: [] })
   if (key === '/api/jobs/stats') return response(route, { total: 1, by_library: [] })

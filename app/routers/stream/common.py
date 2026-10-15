@@ -863,6 +863,14 @@ def _get_session(sid: str) -> dict:
         sess = _sessions.get(sid or "")
     if not sess:
         raise HTTPException(404, "no such transcode session (re-POST sessions)")
+    from ...viewing import current, visible_item, check_lease
+    access = current.get()
+    if access is not None:
+        visible_item(sess.get("kind", "movie"), sess["vid"])
+        owner = sess.get("viewing_owner", "")
+        if owner and (owner != access.session_hash or
+                      not check_lease(owner, sess.get("viewing_generation", -1))):
+            raise HTTPException(404, "播放会话已锁定")
     sess["last_ping"] = time.time()
     # 任何一次真实取流请求（playlist/分片/心跳/调试）= 客户端已拿到 sid，撤销快速收割
     sess["unclaimed"] = False

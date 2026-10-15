@@ -365,7 +365,7 @@
     },
     {
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt",
-      "expression": "item.kind",
+      "expression": "if (item.kind == \"viewing\") \"eye\" else item.kind",
       "assets": [
         "search",
         "home",
@@ -373,9 +373,10 @@
         "shows",
         "collections",
         "libraries",
-        "settings"
+        "settings",
+        "eye"
       ],
-      "reason": "TvNavigationModels固定频道类型"
+      "reason": "固定导航类型，观看模式入口复用eye图标"
     }
   ],
   "specialized_controls": [
@@ -679,6 +680,38 @@
         "按 ↓ 滚动查看更多"
       ],
       "reason": "简介滚动提示文案中用箭头示意遥控器上下方向键；不是按钮图标"
+    },
+    {
+      "source": "frontend/src/components/ViewingModeControls.vue",
+      "symbols": "→",
+      "contexts": [
+        "设置 → 访问保护"
+      ],
+      "reason": "菜单位置的文字路径，不替代交互图标"
+    },
+    {
+      "source": "frontend/src/views/Library.vue",
+      "symbols": "→",
+      "contexts": [
+        "更多操作 → 内容可见性"
+      ],
+      "reason": "菜单位置的文字路径，不替代交互图标"
+    },
+    {
+      "source": "frontend/src/views/Tv.vue",
+      "symbols": "→",
+      "contexts": [
+        "更多操作 → 内容可见性"
+      ],
+      "reason": "菜单位置的文字路径，不替代交互图标"
+    },
+    {
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/ViewingDialogs.kt",
+      "symbols": "→",
+      "contexts": [
+        "更多操作 → 内容可见性"
+      ],
+      "reason": "菜单位置的文字路径，不替代交互图标"
     }
   ],
   "purpose_overrides": [
@@ -705,6 +738,21 @@
         "collections"
       ],
       "purpose": "内容图片缺失时按海报/人物/合集显示占位，并保留标题或姓名"
+    },
+    {
+      "source": "frontend/src/components/ViewingModeControls.vue",
+      "assets": [
+        "eye",
+        "lock"
+      ],
+      "purpose": "显示当前普通、儿童或隐私观看模式，打开模式选择与保护密码验证"
+    },
+    {
+      "source": "frontend/src/components/ContentPolicyButton.vue",
+      "assets": [
+        "lock"
+      ],
+      "purpose": "打开影片或整剧可见性设置，手工标记隐私内容或纠正儿童适宜性"
     }
   ]
 }

@@ -123,6 +123,13 @@ def health():
                  "path": settings.media_root, "ok": False, "read_only": False,
                  "last_status": "", "error": str(e)[:200]}]
     commit = _build_commit()
+    from ..viewing import current
+    access = current.get()
+    if access is not None and not access.management:
+        return {"status": "ok" if (dbh.get("ok") and all_ok) else "degraded",
+                "version": VERSION.name, "version_code": VERSION.code,
+                "ffmpeg": bool(bins.get("ffmpeg")), "ffprobe": bool(bins.get("ffprobe")),
+                "build": commit[:12], "build_commit": commit}
     return {"status": "ok" if (dbh.get("ok") and all_ok) else "degraded",
             "version": VERSION.name, "version_code": VERSION.code,
             "db": dbh,

@@ -224,6 +224,7 @@ def tv_meta_from_detail(detail: dict) -> dict:
     """TMDB 剧集详情 → tmdb_cache 字典（movie 同构 + TV 专属字段）。
     TV 专属字段（status/number_of_seasons/seasons…）落在 payload_json，供离线重放；
     显示列由 tv_persist 写入 tv_shows/tv_seasons。"""
+    from ..content_rules import normalize_tmdb_evidence
     first = str(detail.get("first_air_date") or "")[:10]
     year = int(first[:4]) if first[:4].isdigit() else None
     countries = [c for c in (detail.get("origin_country") or []) if c]
@@ -261,6 +262,7 @@ def tv_meta_from_detail(detail: dict) -> dict:
         "origin_country": primary,
         "region": region,
         "media_type": "tv",
+        "content_evidence": normalize_tmdb_evidence("tv", detail),
         "collection_tmdb_id": None,
         "collection_name": "",
         "collection_poster_path": "",

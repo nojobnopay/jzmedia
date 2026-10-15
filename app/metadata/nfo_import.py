@@ -130,7 +130,15 @@ def parse_movie_bytes(data: bytes) -> dict | None:
         "actors": actors,
         "tmdb_id": tmdb_id,
         "imdb_id": imdb_id,
+        "content_evidence": _content_evidence(root),
     }
+
+
+def _content_evidence(root) -> dict:
+    from ..content_rules import normalize_nfo_evidence
+    ratings = [node.text or "" for name in ("mpaa", "certification")
+               for node in root.findall(name)]
+    return normalize_nfo_evidence(ratings or None, [node.text or "" for node in root.findall("tag")])
 
 
 def _int_full(v) -> int:
@@ -180,6 +188,7 @@ def parse_tvshow_bytes(data: bytes) -> dict | None:
         "tmdb_id": tmdb_id,
         "imdb_id": imdb_id,
         "tvdb_id": tvdb_id,
+        "content_evidence": _content_evidence(root),
     }
 
 
@@ -198,7 +207,8 @@ def parse_episode_bytes(data: bytes) -> dict | None:
         return None
     return {"title": title, "overview": _text(root, "plot"),
             "season": season, "episode": episode,
-            "air_date": _text(root, "aired"), "rating": _rating_of(root)}
+            "air_date": _text(root, "aired"), "rating": _rating_of(root),
+            "content_evidence": _content_evidence(root)}
 
 
 def candidate_from_movie(parsed: dict, source_id: str = "nfo") -> Candidate:

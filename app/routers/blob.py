@@ -56,13 +56,20 @@ def media_response(request: Request, backend, rel: str, *, filename: str = "",
                    media_type: str | None = None, inline: bool = False):
     """统一媒体响应：Range → 206/416；本地走 FileResponse，远程走流式代理。"""
     st = _stat_or_http(backend, rel)
+    from ..viewing import current, check_lease
+    access = current.get()
+    management_access = access is None and getattr(request.state, "viewing_context", None) is not None
+    if management_access:
+        # Management queries use the full catalogue, but their byte streams still
+        # belong to the originating device and expire with its temporary grant.
+        access = request.state.viewing_context
     name = filename or os.path.basename(backend.norm(rel))
     local = None
     try:
         local = backend.abs_path(rel)
     except storage.StorageError as e:
         raise _read_error(e) from e
-    if local:
+    if local and access is None:
         # stat alone does not prove that a file is readable. Report denied /
         # removed files before FileResponse has sent successful response headers.
         try:
@@ -98,6 +105,9 @@ def media_response(request: Request, backend, rel: str, *, filename: str = "",
         with opened:
             left = length
             while left > 0:
+                if access is not None and not check_lease(access.session_hash, access.generation,
+                                                          management=management_access):
+                    break
                 data = fh.read(min(left, _CHUNK))
                 if not data:
                     break

@@ -8,7 +8,7 @@
       <p v-else-if="loading && !snapshot">正在读取播出与收藏资料…</p>
       <p v-else-if="!snapshot?.checked_at">{{ matched ? '尚未获取播出资料' : '确认 TMDB 匹配后可查看最新播出资料' }}</p>
       <p v-else>暂无近期播出信息</p>
-      <JzButton v-if="matched" size="compact" variant="ghost" icon="refresh" :loading="checking"
+      <JzButton v-if="matched && !isChildren" size="compact" variant="ghost" icon="refresh" :loading="checking"
         @click="$emit('check')">{{ checking ? '检查中…' : '检查更新' }}</JzButton>
     </div>
     <p v-if="missing.length">尚未收藏：{{ missing.map(tvSeasonLabel).join('、') }}</p>
@@ -21,6 +21,7 @@
 </template>
 <script setup>
 import { computed } from 'vue'
+import { isChildren } from '../viewing.js'
 import JzButton from './JzButton.vue'
 import { airingErrorText, checkedTime, collectionLabel, tvEpisodeLabel, tvSeasonLabel } from '../tvCollection.js'
 const props = defineProps({ snapshot: Object, matched: Boolean, loading: Boolean, checking: Boolean, error: String, notice: String, scopeLabel: String })

@@ -13,6 +13,8 @@ import os
 import time
 
 from .. import config, posters, store, tmdb
+from ..content_rules import (content_fields, merge_content_evidence,
+                             normalize_content_evidence)
 from ..log import get_logger
 from .base import Candidate
 
@@ -72,6 +74,7 @@ def detail_from_nfo_movie(parsed: dict) -> dict:
         "_source": "nfo",
         "_source_id": parsed.get("_nfo_name") or "nfo",
         "_local_art": True,
+        "content_evidence": normalize_content_evidence(parsed.get("content_evidence")),
     }
 
 
@@ -123,6 +126,15 @@ def _people_names(detail: dict) -> str:
         if n:
             names.append(n)
     return ", ".join(dict.fromkeys(names))
+
+
+def _content_fields(kind: str, cur: dict, detail: dict, fields: dict,
+                    source: str, source_id: str) -> dict:
+    incoming = {**normalize_content_evidence(detail.get("content_evidence")),
+                "source": source, "source_id": source_id}
+    evidence = merge_content_evidence(cur.get("content_evidence"), incoming)
+    return content_fields(kind, evidence, fields.get("genres", cur.get("genres")),
+                          fields.get("genre_ids", cur.get("genre_ids")))
 
 
 def _download_to_rel(source: str, source_id, url: str, kind: str = "poster") -> str:
@@ -238,6 +250,7 @@ def apply_external_movie(movie_id: int, detail: dict, *, source: str = "",
             art = _download_to_rel(src, sid, str(detail.get("poster_url") or ""), "poster")
         if art:
             fields["poster_path"] = art
+    fields.update(_content_fields("movie", cur, detail, fields, src, sid))
     store.update_movie_meta(mid, **fields)
     try:
         store.resync_fts(mid)
@@ -254,7 +267,8 @@ def apply_external_movie(movie_id: int, detail: dict, *, source: str = "",
                               backdrop_url=detail.get("backdrop_url") or "",
                               payload={k: v for k, v in detail.items()
                                        if not str(k).startswith("_")}
-                              | {"aliases": detail.get("aliases") or []})
+                              | {"aliases": detail.get("aliases") or [],
+                                 "content_evidence": fields["content_evidence"]})
     except Exception as e:
         logger.debug("upsert external failed %s:%s: %s", src, sid, e)
     nfo_ok = False
@@ -286,6 +300,20 @@ def _fill_episode(ep: dict, item: dict, src: str) -> bool:
         v = str(item.get(src_key) or "").strip()
         if v and not str(ep.get(key) or "").strip():
             fields[key] = v
+    if item.get("content_evidence") is not None:
+        incoming = normalize_content_evidence(item["content_evidence"])
+        previous = normalize_content_evidence(ep.get("content_evidence"))
+        # An episode list or NFO without classification data must not erase a
+        # previously imported rating. Keep the provider identity when supplied.
+        if (incoming["certifications"] or incoming["keywords"] or incoming["genre_ids"]
+                or incoming["adult"] is not None):
+            if not incoming["source"]:
+                incoming["source"] = src
+            if incoming["source"] == previous["source"] and not incoming["source_id"]:
+                incoming["source_id"] = previous["source_id"]
+            evidence = merge_content_evidence(previous, incoming)
+            if evidence != previous:
+                fields["content_evidence"] = evidence
     if not fields:
         return False
     try:
@@ -388,6 +416,7 @@ def apply_external_show(show_id: int, detail: dict, *, source: str = "",
             fields["number_of_episodes"] = int(detail["number_of_episodes"])
         except (TypeError, ValueError):
             pass
+    fields.update(_content_fields("tv", cur, detail, fields, src, sid))
     store.update_show_meta(sid_show, **fields)
     # 图片
     if detail.get("_local_art"):
@@ -457,7 +486,8 @@ def apply_external_show(show_id: int, detail: dict, *, source: str = "",
                               backdrop_url=detail.get("backdrop_url") or "",
                               payload={k: v for k, v in detail.items()
                                        if not str(k).startswith("_")}
-                              | {"aliases": detail.get("aliases") or []})
+                              | {"aliases": detail.get("aliases") or [],
+                                 "content_evidence": fields["content_evidence"]})
     except Exception as e:
         logger.debug("upsert external show failed %s:%s: %s", src, sid, e)
     nfo = False

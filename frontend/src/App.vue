@@ -13,30 +13,48 @@
       </router-link>
     </div>
     <div class="nav-tools">
-      <router-link :to="navTarget('/settings')" custom v-slot="{ href, navigate }">
+      <router-link v-if="!isChildren" :to="navTarget('/settings')" custom v-slot="{ href, navigate }">
         <a :href="href" class="nav-link" :class="{ 'is-current': activeSection === 'settings' }"
           :aria-current="activeSection === 'settings' ? 'page' : undefined" @click="navigate">
           <AppIcon name="settings" /><span>设置</span>
         </a>
       </router-link>
       <HelpLink label="帮助" icon="help" class="nav-link" />
-      <label v-if="showSwitch" class="nav-library" title="切换媒体库">
-        <AppIcon name="library" />
-        <select class="lib-switch" :value="currentId" aria-label="切换媒体库" @change="onSwitch">
-          <option v-for="m in libs" :key="m.id" :value="m.id">{{ optionLabel(m) }}</option>
-        </select>
-      </label>
+      <div class="nav-context">
+        <label v-if="showSwitch" class="nav-library" title="切换媒体库">
+          <AppIcon name="library" />
+          <select class="lib-switch" :value="currentId" aria-label="切换媒体库" @change="onSwitch">
+            <option v-for="m in libs" :key="m.id" :value="m.id">{{ optionLabel(m) }}</option>
+          </select>
+        </label>
+        <ViewingModeControls />
+      </div>
     </div>
   </nav>
-  <div v-if="dataUsage?.over_limit" class="app-storage-alert" role="alert">
+  <div v-if="!isChildren && (!viewing.enabled || viewing.management_unlocked) && dataUsage?.over_limit" class="app-storage-alert" role="alert">
     <span>应用数据已使用 {{ fmtBytes(dataUsage.total_bytes) }}，达到 20 GB 提醒线。请检查可清理的缩略图和播放缓存。</span>
     <router-link to="/settings?sec=sec-index">前往系统维护</router-link>
   </div>
   <div id="main-content" class="app-content" tabindex="-1">
-    <SetupWelcome v-if="route.path === '/' || route.path === '/tv'" />
-    <router-view />
+    <p v-if="viewing.notice" class="viewing-notice" role="status">{{ viewing.notice }} <JzButton variant="ghost" size="compact" @click="viewing.notice = ''">关闭</JzButton></p>
+    <EmptyState v-if="!viewing.ready" :state="viewing.error ? 'error' : 'loading'" :title="viewing.error ? '观看模式加载失败' : '正在加载观看模式'"
+      :text="viewing.error || '请稍候…'" :retry="!!viewing.error" @retry="initializeViewing" />
+    <EmptyState v-else-if="viewing.locallyLocked" state="empty" title="隐私内容已锁定"
+      text="正在等待服务器确认锁定，连接恢复后继续浏览，也可手动重试。" retry @retry="initializeViewing" />
+    <EmptyState v-else-if="managementBlocked" state="empty" :title="isChildren ? '儿童模式无法打开管理页面' : '验证保护密码以管理内容'"
+      :text="isChildren ? '退出儿童模式后可使用管理功能。' : '管理页面包含全部内容，包括隐私内容。验证不会改变当前观看模式。'">
+      <JzButton v-if="!isChildren" variant="primary" icon="lock" @click="ensureManagement">验证保护密码</JzButton>
+      <router-link :to="navTarget('/')">返回电影</router-link>
+    </EmptyState>
+    <template v-else>
+      <SetupWelcome v-if="!isChildren && !viewing.enabled && (route.path === '/' || route.path === '/tv')" />
+      <router-view :key="isManagementRoute(route) ? 'management' : viewing.revision" />
+    </template>
   </div>
   <BackToTop />
+  <JzDialog v-if="viewing.suspended" title="正在验证保护会话" layer="auth" size="small" busy mask-class="viewing-verification-mask">
+    <p>验证完成后恢复隐私内容，请稍候…</p>
+  </JzDialog>
   <JzDialog v-if="authAsk" title="需要访问令牌" size="small" layer="auth" class="auth-dlg" mask-class="auth-mask" @close="authAsk = false">
     <p class="auth-hint">请输入此服务设置的访问令牌，继续当前操作。</p>
     <label for="access-token">访问令牌
@@ -56,9 +74,13 @@ import BackToTop from './components/BackToTop.vue'
 import JzDialog from './components/JzDialog.vue'
 import JzButton from './components/JzButton.vue'
 import AppIcon from './components/AppIcon.vue'
+import EmptyState from './components/EmptyState.vue'
+import ViewingModeControls from './components/ViewingModeControls.vue'
+import { viewing, isChildren, refreshViewing, startViewingLifecycle, setViewingChangeHandler, isManagementRoute, ensureManagement } from './viewing.js'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setToken, api } from './api.js'
+import { clearBrowse } from './browseHistory.js'
 import { fmtBytes } from './format.js'
 import { listMediaLibs, currentMediaId, loadLibs, onLibChange, switchMedia } from './libraries.js'
 
@@ -71,7 +93,14 @@ const router = useRouter()
 const route = useRoute()
 let offLibChange = null
 let usageTimer = null
+let stopViewing = null
+const managementBlocked = computed(() => isManagementRoute(route) &&
+  (isChildren.value || viewing.enabled && !viewing.management_unlocked))
+async function initializeViewing() {
+  try { await refreshViewing() } catch { /* 展示重试入口 */ }
+}
 async function loadDataUsage() {
+  if (!viewing.ready || isChildren.value || viewing.enabled && !viewing.management_unlocked) { dataUsage.value = null; return }
   try { dataUsage.value = await api('/api/data-usage') }
   catch { /* 容量查询失败不阻断导航；设置页可手动重试 */ }
 }
@@ -123,6 +152,16 @@ function onSwitch(e) {
     })
 }
 onMounted(async () => {
+  stopViewing = startViewingLifecycle()
+  setViewingChangeHandler(({ modeChanged }) => {
+    dataUsage.value = null
+    const path = route.path.startsWith('/tv') ? '/tv'
+      : route.path.startsWith('/c/') || route.path === '/collections' ? '/collections' : '/'
+    if (modeChanged && (!['/settings', '/setup'].includes(route.path) || isChildren.value)) {
+      router.replace(navTarget(path)).then(() => clearBrowse())
+    }
+  })
+  await initializeViewing()
   loadDataUsage()
   usageTimer = window.setInterval(loadDataUsage, 5 * 60 * 1000)
   window.addEventListener('jzmedia:data-usage-changed', loadDataUsage)
@@ -136,6 +175,8 @@ onMounted(async () => {
   window.addEventListener('jzmedia:libraries-changed', syncLibs)
 })
 onUnmounted(() => {
+  stopViewing?.()
+  setViewingChangeHandler(null)
   if (usageTimer) window.clearInterval(usageTimer)
   window.removeEventListener('jzmedia:data-usage-changed', loadDataUsage)
   if (offLibChange) offLibChange()

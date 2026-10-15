@@ -83,6 +83,8 @@ class CastSession:
     active: bool = True
     reported_playing: bool = False
     lock: threading.RLock = field(default_factory=threading.RLock)
+    viewing_owner: str = ""
+    viewing_generation: int = 0
 
     def public(self) -> dict:
         return {"id": self.id, "device": self.device.public(), "version_id": self.version_id,
@@ -135,13 +137,26 @@ class CastManager:
             session = self.sessions.get(sid)
         if session is None or time.monotonic() - session.created > 24 * 3600:
             raise HTTPException(404, "投屏会话已结束，请重新搜索设备并投屏")
+        from ..viewing import current, check_lease, visible_item
+        access = current.get()
+        if session.viewing_owner and not check_lease(session.viewing_owner, session.viewing_generation):
+            raise HTTPException(404, "投屏授权已结束")
+        if access is not None:
+            visible_item(session.kind, session.version_id)
+            if session.viewing_owner and access.session_hash != session.viewing_owner:
+                raise HTTPException(404, "投屏会话不存在")
         return session
 
     def current(self, version_id: int, kind: str) -> dict | None:
         with self.lock:
             matches = [s for s in self.sessions.values() if s.active
                        and s.version_id == version_id and s.kind == kind]
-        return matches[-1].public() if matches else None
+        for session in reversed(matches):
+            try:
+                return self.get(session.id).public()
+            except HTTPException:
+                continue
+        return None
 
     def play(self, device_id: str, version_id: int, kind: str, position: float,
              server_url: str, request_url: str) -> dict:
@@ -193,6 +208,11 @@ class CastManager:
                 if len(self.sessions) >= 32:
                     raise HTTPException(429, "投屏会话过多，请先停止其他投屏")
                 # The receiver may fetch immediately during SetAVTransportURI.
+                from ..viewing import current
+                access = current.get()
+                if access is not None:
+                    session.viewing_owner = access.session_hash
+                    session.viewing_generation = access.generation
                 self.sessions[sid] = session
             uri_set = False
             try:
@@ -280,7 +300,24 @@ class CastManager:
                 if track_uri and track_uri != session.uri:
                     session.state, session.active = "REPLACED", False
                     return
+                from ..viewing import check_lease, _connection, IDLE_SECONDS
+                if session.viewing_owner and not check_lease(session.viewing_owner, session.viewing_generation):
+                    # Do not stop a different device's/newer cast. A matching
+                    # receiver URI proves this is still our protected playback.
+                    if track_uri == session.uri:
+                        dlna.action(session.device.transport, "Stop", {"InstanceID": 0})
+                    session.state, session.active = "PROTECTION_LOCKED", False
+                    return
                 state = transport.get("CurrentTransportState", "UNKNOWN")
+                if state == "PLAYING" and track_uri == session.uri and session.viewing_owner:
+                    # Real receiver playback exempts private viewing from idle
+                    # expiry without extending the independent management grant.
+                    with _connection() as c:
+                        c.execute("UPDATE viewing_sessions SET last_activity=?,playback_until=?"
+                                  " WHERE token_hash=? AND mode='private' AND generation=?"
+                                  " AND MAX(last_activity+?,playback_until)>?",
+                                  (time.time(), time.time() + 90, session.viewing_owner,
+                                   session.viewing_generation, IDLE_SECONDS, time.time()))
                 if state in ("PLAYING", "PAUSED_PLAYBACK"):
                     session.reported_playing = True
                 pos = dlna.seconds(position.get("RelTime", ""))

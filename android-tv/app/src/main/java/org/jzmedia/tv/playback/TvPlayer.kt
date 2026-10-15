@@ -74,12 +74,15 @@ import org.jzmedia.tv.ui.TvAction
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNext: (PlaybackRequest) -> Unit) {
+fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNext: (PlaybackRequest) -> Unit,
+             onPlayingChanged: (Boolean) -> Unit = {}) {
     val context = LocalContext.current
     val controller = remember(api, request) { PlaybackController(context, api, request) }
     val state = controller.state
     val close by rememberUpdatedState(onClose)
     val playNext by rememberUpdatedState(onPlayNext)
+    val playingChanged by rememberUpdatedState(onPlayingChanged)
+    LaunchedEffect(state.playing) { playingChanged(state.playing) }
     var controls by remember(controller) { mutableStateOf(true) }
     var menu by remember(controller) { mutableStateOf<String?>(null) }
     var preview by remember(controller) { mutableStateOf<Double?>(null) }
@@ -132,7 +135,7 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
             if (event == Lifecycle.Event.ON_STOP) { controller.close(); close() }
         }
         lifecycle?.addObserver(observer)
-        onDispose { seekHold?.cancel(); lifecycle?.removeObserver(observer); controller.close() }
+        onDispose { playingChanged(false); seekHold?.cancel(); lifecycle?.removeObserver(observer); controller.close() }
     }
     LaunchedEffect(controller, previewRefresh) {
         while (true) {

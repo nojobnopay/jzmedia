@@ -167,6 +167,7 @@ def _generate(jid, row, src, info, interval):
     manifest = manifest or dict(version=VERSION, interval=interval, duration=duration,
                                 width=WIDTH, height=HEIGHT, columns=COLUMNS, rows=ROWS,
                                 count=count, pages=[], state="partial")
+    manifest.update(item_kind=row.get("kind", "movie"), item_id=int(row["id"]))
     filter_arg = _frame_filter(info)
     ffmpeg = media.ffmpeg_bin()
     cells = COLUMNS * ROWS
@@ -689,6 +690,10 @@ def preview_manifest(version_id: int, kind: Literal["movie", "episode", "extra"]
     key = _cache_key(row, src, _interval(row))
     directory = _root() / key
     data = _read_manifest(directory)
+    if data and (data.get("item_kind") != kind or data.get("item_id") != version_id):
+        # Upgrade old cache ownership only after resolving the authorized source.
+        data.update(item_kind=kind, item_id=version_id)
+        _write_manifest(directory, data)
     result = _public_manifest(key, data)
     result["state"] = "ready" if data and data.get("state") == "ready" else "missing"
     job = _jobs.get(_active_job)
@@ -785,6 +790,12 @@ def preview_image(key: str, name: str):
     dest = _root() / key / name
     if not dest.is_file():
         raise HTTPException(404, "预览图片不存在")
+    from ...viewing import current, visible_item
+    if current.get() is not None:
+        manifest = _read_manifest(dest.parent) or {}
+        if not manifest.get("item_id"):
+            raise HTTPException(404, "请先重新打开影片预览")
+        visible_item(manifest.get("item_kind", "movie"), int(manifest["item_id"]))
     try:
         os.utime(dest.parent, None)
     except OSError as e:

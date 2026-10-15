@@ -32,7 +32,7 @@ def stream_client_info():
     except Exception:
         version = ""
     return {"protocol_version": 1,
-            "features": ["android_tv", "independent_sessions", "tv_search", "tv_actor_search"],
+            "features": ["android_tv", "independent_sessions", "tv_search", "tv_actor_search", "viewing_modes"],
             "auth_required": bool(config.effective_jzmedia_token()),
             "name": name,
             "version": version,
@@ -84,6 +84,9 @@ def _media_payload(m: dict, info: dict) -> dict:
 def stream_backends(refresh: int = 0):
     """转码后端探测（目标文档 §11）：{name: software|vaapi|qsv|nvenc, hw, device, reason}。
     冒烟编码结果进程内缓存；?refresh=1 强制重探（NAS 上验证 /dev/dri 权限时用）。"""
+    if refresh:
+        from ...viewing import require_management
+        require_management()
     try:
         from ... import transcode as _tr
     except Exception as e:
@@ -390,4 +393,7 @@ def progress_clear(version_id: int, kind: str = "movie"):
         vid = int(version_id)
     except (TypeError, ValueError):
         raise HTTPException(422, "bad version_id")
+    from ...viewing import current, visible_item
+    if current.get() is not None:
+        visible_item(kind, vid)
     return {"version_id": vid, "cleared": store.clear_progress(vid, kind)}

@@ -78,7 +78,10 @@ def list_collections(q: str = "", media_library_id: int | None = None) -> list[d
             d["member_count"] = int(c.execute(
                 "SELECT COUNT(*) AS n FROM collection_members WHERE collection_id=?",
                 (d["id"],)).fetchone()["n"])
-            d["cover"] = d.get("poster_path") or covers.get(int(d["id"]), "")
+            from ..viewing import current
+            d["cover"] = covers.get(int(d["id"]), "") if current.get() is not None else d.get("poster_path") or covers.get(int(d["id"]), "")
+            if current.get() is not None:
+                d["poster_path"] = d["cover"]
             out.append(d)
         return _attach_media_libraries(c, out)
 
@@ -131,7 +134,10 @@ def get_collection(cid: int) -> dict | None:
         d["members"] = items
         _attach_media_libraries(c, [d, *items])
         d["member_count"] = len(items)
-        d["cover"] = d.get("poster_path") or _collection_cover(c, cid)
+        from ..viewing import current
+        d["cover"] = _collection_cover(c, cid) if current.get() is not None else d.get("poster_path") or _collection_cover(c, cid)
+        if current.get() is not None:
+            d["poster_path"] = d["cover"]
         return d
 
 

@@ -63,7 +63,7 @@ import org.json.JSONObject
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, navigate: (TvRoute) -> Unit,
-                 play: (PlaybackRequest) -> Unit, onBack: () -> Unit) {
+                 play: (PlaybackRequest) -> Unit, onBack: () -> Unit, onProtection: (String, Long) -> Unit = { _, _ -> }) {
     var data by remember { mutableStateOf<JSONObject?>(null) }
     var similar by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var error by remember { mutableStateOf("") }
@@ -226,7 +226,7 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
         actionBusy = true; actionError = ""
         scope.launch {
             try {
-                if (route.kind == "movie") api.post("/api/movies/batch", JSONObject().put("ids", JSONArray().put(route.id)).put("ops", JSONObject().put("watched", !watched)))
+                if (route.kind == "movie") api.patch("/api/movies/${route.id}", JSONObject().put("watched", !watched))
                 else api.post(when (route.kind) {
                     "show" -> "/api/tv/shows/${route.id}/watched"
                     "season" -> "/api/tv/shows/${route.id}/seasons/${route.season}/watched"
@@ -411,12 +411,19 @@ fun DetailScreen(api: JzApi, route: TvRoute, refresh: Int, memory: FocusMemory, 
     }
     if (moreOpen) {
         val choices = (if (route.kind != "collection") listOf("watched" to if (watched) "标记未看" else "标记已看") else emptyList()) +
+            (if (api.viewing != null && api.viewing?.mode != "children" && route.kind in listOf("movie", "show", "season", "episode"))
+                listOf("protection" to "内容可见性") else emptyList()) +
             listOf("refresh" to "刷新资料")
         ChoiceDialog("更多操作", choices, choices.first().first, { moreOpen = false }) { chosen ->
             moreOpen = false
             when (chosen) {
                 "watched" -> markWatched()
                 "refresh" -> { focusAfterLoad = "more"; attempt++ }
+                "protection" -> {
+                    val kind = if (route.kind == "movie") "movie" else "show"
+                    val id = if (route.kind == "episode") row.optLong("show_id") else route.id
+                    if (id > 0) onProtection(kind, id)
+                }
             }
         }
     }

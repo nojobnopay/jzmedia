@@ -29,7 +29,8 @@ def _payload(lib: dict | None) -> dict | None:
     out["movie_count"] = store.library_movie_count(out.get("id"))
     out["episode_count"] = store.library_tv_count(out.get("id"))
     out["driver"] = driver_hint(lib or {})
-    return out
+    from ..viewing_http import browse_library_payload
+    return browse_library_payload(out)
 
 
 @router.get("")

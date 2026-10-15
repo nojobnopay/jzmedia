@@ -28,7 +28,8 @@
             <JzButton v-if="Number(show.episode_count) > 0" :disabled="busy" @click="toggleShowWatched" type="button">
               {{ allWatched ? '标记整剧未看' : '标记整剧已看' }}
             </JzButton>
-            <ActionMenu>
+            <ActionMenu v-if="!isChildren">
+              <ContentPolicyButton kind="show" :ids="[show.id]" @saved="load" />
               <JzButton :disabled="busy" @click="nameDraft = show.title; renameOpen = !renameOpen" type="button" variant="ghost" icon="edit">修改剧名</JzButton>
               <JzButton :disabled="busy" @click="refreshMeta" type="button" variant="ghost" icon="refresh">更新剧集资料</JzButton>
               <JzButton :disabled="busy" @click="bindingsOpen = true" type="button" variant="ghost" icon="match">归属与季号</JzButton>
@@ -45,7 +46,7 @@
           <MediaOverview :text="show.overview || ''" />
           <EmptyState v-if="loadError" state="error" title="剧集刷新失败" :text="loadError" retry @retry="load()" />
           <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
-          <div v-if="(!show.tmdb_id && !show.match_source) || show.needs_review" class="review-notice">
+          <div v-if="!isChildren && ((!show.tmdb_id && !show.match_source) || show.needs_review)" class="review-notice">
             <span>{{ !show.tmdb_id && !show.match_source ? '剧集资料尚未匹配' : '请确认剧集是否匹配正确' }}</span>
             <JzButton v-if="show.tmdb_id || show.match_source" :disabled="busy" @click="confirmMatch" type="button" icon="match">匹配正确</JzButton>
             <JzButton :aria-expanded="matchOpen" @click="matchOpen = !matchOpen" type="button" icon="match">{{ !show.tmdb_id && !show.match_source ? '匹配资料' : '重新匹配' }}</JzButton>
@@ -143,6 +144,8 @@
 </template>
 
 <script setup>
+import ContentPolicyButton from '../components/ContentPolicyButton.vue'
+import { isChildren } from '../viewing.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import AppIcon from '../components/AppIcon.vue'
@@ -163,7 +166,7 @@ import MediaOverview from '../components/MediaOverview.vue'
 import ActionMenu from '../components/ActionMenu.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, posterUrl } from '../api.js'
+import { api, posterUrl, scopedArtworkUrl } from '../api.js'
 import { episodeVersion, seasonStats } from '../episodeVersions.js'
 import TvOrganizeDialog from '../components/TvOrganizeDialog.vue'
 import TvBindingsDialog from '../components/TvBindingsDialog.vue'
@@ -185,7 +188,7 @@ const seasonCards = computed(() => mergeTvSeasons(show.value?.seasons, collectio
 const collectionNotes = computed(() => [...new Set(seasonCards.value.map(collectionExplanation).filter(Boolean))])
 const failedSeasonPosters = ref(new Set())
 function seasonPoster(season) {
-  return season.poster_path ? posterUrl(season.poster_path, posterVer.value || undefined) : season.poster_url || ''
+  return season.poster_path ? posterUrl(season.poster_path, posterVer.value || undefined) : scopedArtworkUrl(season.poster_url)
 }
 function otherSources(season) {
   return uniqueSeasonSources(season.sources).filter(source => Number(source.show_id) !== Number(show.value?.id) || Number(source.season) !== Number(season.season))
