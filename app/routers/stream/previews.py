@@ -290,10 +290,8 @@ def _prune_cache(protect=""):
 
 
 def _cache_cap_bytes() -> int:
-    try:
-        return int(max(0.1, float(os.getenv("PREVIEW_CACHE_GB", "10"))) * 1024 ** 3)
-    except (TypeError, ValueError, OverflowError):
-        return 10 * 1024 ** 3
+    from ...cache_settings import preview_bytes
+    return preview_bytes()
 
 
 def _wait_for_transcodes(jid):

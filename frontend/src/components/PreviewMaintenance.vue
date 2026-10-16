@@ -4,8 +4,8 @@
     <p class="hint">为电影、剧集和花絮生成进度预览，已有成品自动跳过。远程库建议空闲时执行。</p>
     <p v-if="auto && auto.mode !== 'off'" class="hint">新入库的{{ auto.mode === 'local' ? '本地' : '所有' }}视频会在服务器{{ autoWindow }}、无人播放时自动生成；全服务队列共 {{ auto.queued }} 项。</p>
     <p v-else-if="auto?.mode === 'off'" class="hint">服务器已关闭自动生成；仍可在此批量生成。</p>
-    <p v-if="auto?.queued && auto.pause_reason === 'data_limit'" class="hint" role="status">应用数据已达到 20 GB 提醒线，自动生成暂时暂停。请到“系统维护”检查空间。</p>
-    <p v-else-if="auto?.queued && auto.pause_reason === 'preview_limit'" class="hint" role="status">进度缩略图缓存接近上限，自动生成暂时暂停。可在“系统维护”清理旧缩略图。</p>
+    <p v-if="auto?.queued && auto.pause_reason === 'data_limit'" class="hint" role="status">应用数据已达到设置的总预算，闲时生成暂时暂停。可到“系统维护”重新分配容量或清理缓存。</p>
+    <p v-else-if="auto?.queued && auto.pause_reason === 'preview_limit'" class="hint" role="status">进度缩略图缓存接近上限，闲时生成暂时暂停。可在“系统维护”调整容量或清理旧缩略图。</p>
     <p v-else-if="auto?.queued && auto.pause_reason === 'usage_unavailable'" class="hint" role="status">暂时无法统计应用数据占用，自动生成已暂停。可到“系统维护”重试统计。</p>
     <div class="bar">
       <JzButton class="tool-action" @click="start" :disabled="busy || !!mutating" type="button" icon="image">{{ busy ? '生成缩略图中…' : '立即批量生成' }}</JzButton>

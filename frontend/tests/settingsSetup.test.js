@@ -32,7 +32,6 @@ test('settings initializes matching drafts and grouped navigation without setup 
     '../components/AiSettingsPanel.vue': { default: blank },
     '../components/LibrariesPanel.vue': { default: blank },
     '../components/LibraryToolsPanel.vue': { default: blank },
-    '../components/TranscodeCachePanel.vue': { default: blank },
   })
   const app = Vue.createSSRApp(component)
   app.component('RouterLink', { setup: (_props, { slots }) => () => Vue.h('a', slots.default?.()) })

@@ -64,7 +64,13 @@ reviewed: 2026-10-16
 
 `available_bytes` 是应用进程可用的空间，可能少于总量减去已用量（文件系统可保留部分空间）。同卷的两个目录共享一份容量，不能相加。容量是容器/进程可见文件系统的快照，不等于媒体库大小、转码缓存限额或宿主物理磁盘总量。
 
-`GET /api/data-usage` 另外遍历应用数据目录，返回 `total_bytes`、`warning_bytes`（20 GiB）、`over_limit`、`categories`（`database/posters/previews/transcode/other`）与 `ok/error`。不跟随符号链接，不进入 `DATA_DIR/mounts` 或配置的 `MEDIA_ROOT`；不把原始媒体算进提醒。结果缓存约一分钟，`?refresh=true` 强制重新统计。达到提醒线只提示用户清理并暂停自动进度缩略图，不会删除数据库或海报；独立缓存回收规则仍生效。
+`GET /api/data-usage` 另外遍历应用数据目录，返回 `total_bytes`、`warning_bytes`（应用数据总预算，默认 20 GiB）、`over_limit`、`categories`（`database/posters/previews/transcode/other`）与 `ok/error`。不跟随符号链接，不进入 `DATA_DIR/mounts` 或配置的 `MEDIA_ROOT`；不把原始媒体算进总量。占用统计缓存约一分钟，`?refresh=true` 强制重新统计；总预算及超限状态每次按当前配置计算。达到总预算会提示并暂停闲时进度缩略图，不会删除数据库或海报；两项缓存各自的回收规则仍生效。
+
+`GET /api/cache-settings` 返回全服务当前生效的 `data_warning_gb`、`transcode_cache_gb`、`preview_cache_gb`，结构和数据库字段保持兼容；`data_warning_gb` 在界面解释为“应用数据总预算（软上限）”。默认分别为 20、10、10；未保存时后两项读取 `TRANSCODE_CACHE_GB` / `PREVIEW_CACHE_GB`。读取保留已有超配组合和旧播放额度 0，不因联动校验回落默认值；0 仍表示仅按 24 小时 TTL 清理。
+
+`PUT /api/cache-settings` 要求完整提交这三个数值，单位 GiB，支持一位小数，最大 102400；保存时最小值依次为 1、0.1、0.1。非法、非有限数或未知字段返回 422。保存前强制获取最新完整占用统计：基础数据为 `database + posters + other`，其预留为基础数据加 `max(基础数据 × 10%, 1 GiB)`，向上取整至 0.1 GiB。两项缓存额度加该预留超过总预算时返回带可读原因的 422；统计失败返回 503。这些失败均不写入任何一项。
+
+实际缓存占用超过新额度不阻止保存有效分配。成功时以单条 `app_settings.cache_limits` JSON 原子持久化，立即优先于环境变量，并唤醒闲时队列重新检查条件；本请求不执行缓存删除，后续维护沿用活动内容保护规则。基础数据增长不自动修改用户额度，客户端提示重新分配。两接口均受管理权限约束，PUT 同时遵循写操作令牌鉴权。[界面分配与清理流程](../user-guide/settings.md#调整应用数据与缓存)。
 
 自动生成时段、暂停状态及全服务预览排队总量由 `GET /api/stream/previews/auto` 返回，`queued` 包括当前正在处理的影片。`GET /api/stream/previews/queue?library_id=<id>&offset=0&limit=50` 合并立即批量任务与闲时队列的未开始项并去重，另返回正在处理的影片；`total` 不包含当前正在处理项。省略 `library_id` 查询全服务，最多每页 100 项。同一队列快照的分页共享 `revision`，完成项退出待处理队列。
 

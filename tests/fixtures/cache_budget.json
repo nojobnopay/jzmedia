@@ -1,0 +1,15 @@
+[
+  {"name": "empty", "base_bytes": 0, "reserved_tenths": 10},
+  {"name": "one-byte", "base_bytes": 1, "reserved_tenths": 11},
+  {"name": "below-tenth-boundary", "base_bytes": 107374182, "reserved_tenths": 11},
+  {"name": "above-tenth-boundary", "base_bytes": 107374183, "reserved_tenths": 12},
+  {"name": "one-gib", "base_bytes": 1073741824, "reserved_tenths": 20},
+  {"name": "five-gib", "base_bytes": 5368709120, "reserved_tenths": 60},
+  {"name": "five-gib-plus-byte", "base_bytes": 5368709121, "reserved_tenths": 61},
+  {"name": "ten-gib-minus-byte", "base_bytes": 10737418239, "reserved_tenths": 110},
+  {"name": "ten-gib", "base_bytes": 10737418240, "reserved_tenths": 110},
+  {"name": "ten-gib-plus-byte", "base_bytes": 10737418241, "reserved_tenths": 111},
+  {"name": "eleven-gib", "base_bytes": 11811160064, "reserved_tenths": 121},
+  {"name": "eleven-gib-plus-byte", "base_bytes": 11811160065, "reserved_tenths": 122},
+  {"name": "maximum-budget-scale", "base_bytes": 109951162777600, "reserved_tenths": 1126400}
+]

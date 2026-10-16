@@ -113,6 +113,7 @@ async function mockApi(route) {
   if (key === '/api/viewing/session') return response(route, { mode: 'normal', enabled: false, management_unlocked: false, generation: 0, expires_at: 0 })
   if (key === '/api/onboarding') return response(route, { show_welcome: false, status: 'completed' })
   if (key === '/api/settings') return response(route, { tmdb_configured: false, tmdb_language: 'zh-CN', libraries: [] })
+  if (key === '/api/cache-settings') return response(route, { data_warning_gb: 20, transcode_cache_gb: 10, preview_cache_gb: 10 })
   if (key === '/api/jobs/stats') return response(route, { total: 1, by_library: [] })
   if (key === '/api/tv/stats') return response(route, { shows: 1, seasons: 0, episodes: 0, by_library: [] })
   if (key === '/api/metadata/providers') return response(route, { providers: [] })

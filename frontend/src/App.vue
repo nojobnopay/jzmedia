@@ -32,7 +32,7 @@
     </div>
   </nav>
   <div v-if="!isChildren && (!viewing.enabled || viewing.management_unlocked) && dataUsage?.over_limit" class="app-storage-alert" role="alert">
-    <span>应用数据已使用 {{ fmtBytes(dataUsage.total_bytes) }}，达到 20 GB 提醒线。请检查可清理的缩略图和播放缓存。</span>
+    <span>应用数据已使用 {{ fmtBytes(dataUsage.total_bytes) }}，达到 {{ fmtBytes(dataUsage.warning_bytes) }} 总预算。可在系统维护中重新分配容量或清理缓存。</span>
     <router-link to="/settings?sec=sec-index">前往系统维护</router-link>
   </div>
   <div id="main-content" class="app-content" tabindex="-1">

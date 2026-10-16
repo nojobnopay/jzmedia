@@ -5,7 +5,7 @@ import stat
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import config, data_usage, storage, store
+from .. import cache_settings, config, data_usage, storage, store
 from ..config import settings
 from ..db import TRANSCODE_DIR
 from ..log import get_logger
@@ -19,6 +19,36 @@ logger = get_logger("health")
 def application_data_usage(refresh: bool = False):
     """Count application data only; mounted source media are excluded."""
     return data_usage.usage(refresh=refresh)
+
+
+@router.get("/cache-settings")
+def get_cache_settings():
+    return cache_settings.limits()
+
+
+@router.put("/cache-settings")
+def update_cache_settings(body: cache_settings.CacheLimits):
+    # Never validate against a cached or partial filesystem scan.
+    try:
+        usage = data_usage.usage(refresh=True)
+        categories = usage["categories"]
+        names = ("database", "posters", "previews", "transcode", "other")
+        if not usage["ok"] or any(
+                not isinstance(categories[name], int) or categories[name] < 0 for name in names):
+            raise ValueError("incomplete application data usage")
+        base_bytes = sum(categories[name] for name in ("database", "posters", "other"))
+    except Exception:
+        logger.warning("application data usage unavailable while saving cache budget")
+        raise HTTPException(503, "暂时无法完整统计应用数据，请刷新占用后重试；容量设置未保存") from None
+    try:
+        cache_settings.validate_budget(body, base_bytes)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    # Changing a limit does not run cleanup in this request.
+    result = cache_settings.save(body)
+    from .stream import previews
+    previews._auto_wake.set()
+    return result
 
 
 def _disk_error(exc: Exception) -> dict:

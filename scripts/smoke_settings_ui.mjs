@@ -1,5 +1,5 @@
 // Real Vue UI + in-memory API fixtures. Never opens .env, backend, DB or media.
-// Run: node scripts/smoke_settings_ui.mjs [--capture-docs] [--player-only|--drafts-only|--previews-only|--preview-baseline]
+// Run: node scripts/smoke_settings_ui.mjs [--capture-docs] [--player-only|--drafts-only|--cache-only|--previews-only|--preview-baseline]
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
@@ -14,14 +14,15 @@ import { chromium } from '../docs/node_modules/playwright/index.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
-assert.ok(args.every(arg => ['--capture-docs', '--player-only', '--drafts-only', '--preview-baseline', '--previews-only'].includes(arg)))
+assert.ok(args.every(arg => ['--capture-docs', '--player-only', '--drafts-only', '--cache-only', '--preview-baseline', '--previews-only'].includes(arg)))
 const capture = args.includes('--capture-docs')
 const playerOnly = args.includes('--player-only')
 const draftsOnly = args.includes('--drafts-only')
+const cacheOnly = args.includes('--cache-only')
 const previewBaseline = args.includes('--preview-baseline')
 const previewsOnly = args.includes('--previews-only') || previewBaseline
-assert.ok([playerOnly, draftsOnly, previewsOnly].filter(Boolean).length <= 1, 'Choose one focused regression scope')
-assert.ok(!(capture && (draftsOnly || previewsOnly)), 'Documentation capture requires the complete settings regression')
+assert.ok([playerOnly, draftsOnly, cacheOnly, previewsOnly].filter(Boolean).length <= 1, 'Choose one focused regression scope')
+assert.ok(!(capture && (draftsOnly || cacheOnly || previewsOnly)), 'Documentation capture requires the complete settings regression')
 async function frontendFingerprint() {
   const hash = createHash('sha256')
   async function walk(directory) {
@@ -83,6 +84,8 @@ const files = Object.fromEntries(libs.map(l => [l.id, [
 ]]))
 const changes = new Map()
 let revision = 0, scanJob = null, scanPolls = 0, browser, server, harnessEntry
+let cacheLimits = { data_warning_gb: 20, transcode_cache_gb: 10, preview_cache_gb: 10 }
+const cacheUsageCategories = { database: 100 * 1024 ** 2, posters: 200 * 1024 ** 2, previews: 300 * 1024 ** 2, transcode: 1400 * 1024 ** 2, other: 48 * 1024 ** 2 }
 let previewPhase = 'missing', previewPolls = 0
 let previewQueue = Array.from({ length: 52 }, (_, index) => ({
   kind: 'movie', id: 200 + index, library_id: 1, title: `队列样本 ${index + 1}`, file_name: `queued-${index + 1}.mkv`,
@@ -139,11 +142,20 @@ function mock(url, method, body) {
   if (key === '/api/viewing/session') return { mode: 'normal', enabled: false, management_unlocked: false, generation: 0, expires_at: 0 }
   if (key === '/api/onboarding') return { show_welcome: false, status: 'completed' }
   if (key === '/api/settings') return { tmdb_configured: false, tmdb_language: 'zh-CN', jzmedia_token_source: 'unset' }
+  if (key === '/api/cache-settings') {
+    if (method === 'PUT') {
+      const base = (cacheUsageCategories.database + cacheUsageCategories.posters + cacheUsageCategories.other) / 1024 ** 3
+      const reserve = Math.ceil((base + Math.max(base * 0.1, 1)) * 10 - 1e-8) / 10
+      assert.ok(body.transcode_cache_gb > 0 && body.transcode_cache_gb + body.preview_cache_gb + reserve <= body.data_warning_gb + 1e-8, 'isolated cache save must fit the total budget')
+      cacheLimits = { ...body }
+    }
+    return cacheLimits
+  }
   if (key === '/api/ai/settings') return { enabled: false, provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'demo', daily_limit: 100, timeout_seconds: 12, usage: { requests: 0, input_tokens: 0, output_tokens: 0 } }
   if (key === '/api/jobs/stats') return { grouped: 10, versions: 12, no_match: 1, needs_review: 2, missing_files: 0,
     by_library: [{ library_id: 1, pending: 3, missing_files: 0 }] }
-  if (key === '/api/data-usage') return { ok: true, total_bytes: 2 * 1024 ** 3, warning_bytes: 20 * 1024 ** 3,
-    over_limit: false, categories: { database: 100 * 1024 ** 2, posters: 200 * 1024 ** 2, previews: 300 * 1024 ** 2, transcode: 1400 * 1024 ** 2, other: 48 * 1024 ** 2 }, error: '' }
+  if (key === '/api/data-usage') return { ok: true, total_bytes: 2 * 1024 ** 3, warning_bytes: cacheLimits.data_warning_gb * 1024 ** 3,
+    over_limit: cacheLimits.data_warning_gb <= 2, categories: cacheUsageCategories, error: '' }
   if (key === '/api/tv/stats') return { shows: 3, seasons: 5, episodes: 60, pending: 0, episode_review: 0, by_library: [] }
   if (key === '/api/tv/airing/status' && method === 'GET') return { configured: false, running: false,
     current: null, error: '', retry_at: 0, total: 0, checked: 0, pending: 0, failed: 0 }
@@ -232,7 +244,7 @@ function mock(url, method, body) {
     else previewQueue = previewQueue.filter(item => item.id !== itemId)
     return { removed: true, cancelled: itemId === 91 }
   }
-  if (key === '/api/stream/previews/cache/clean') return { candidates: 0, candidate_bytes: 0, dry_run: body?.dry_run ?? true, removed: 0, freed: 0 }
+  if (key === '/api/stream/previews/cache/clean' || key === '/api/stream/cache/clean') return { total: cacheUsageCategories[key === '/api/stream/cache/clean' ? 'transcode' : 'previews'], candidates: 0, candidate_bytes: 0, dry_run: body?.dry_run ?? true, removed: 0, freed: 0 }
   unexpected.push({ key, method })
   return { items: [] }
 }
@@ -943,6 +955,796 @@ async function checkFileLoading(browser, base) {
     await context.close()
   }
 }
+async function checkCacheSettings(browser, base) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
+  const gib = 1024 ** 3
+  let limits = { data_warning_gb: 20, transcode_cache_gb: 10, preview_cache_gb: 10 }
+  let categories = { database: gib, posters: 4 * gib, previews: 10 * gib, transcode: 10 * gib, other: 0 }
+  let failLoad = true, failUsage = true, failSave = false, failValidation = false, releaseSave, saveStarted
+  let usageReads = 0, usageGate = null
+  const usageReleases = []
+  const writes = [], cleanCalls = []
+  const directory = path.join(root, 'output/playwright/cache-settings')
+  await mkdir(directory, { recursive: true })
+  const usage = () => {
+    const total = Object.values(categories).reduce((sum, value) => sum + value, 0)
+    return { ok: true, total_bytes: total, warning_bytes: limits.data_warning_gb * gib,
+      over_limit: total >= limits.data_warning_gb * gib, categories, error: '' }
+  }
+  const reserve = () => {
+    const base = (categories.database + categories.posters + categories.other) / gib
+    return Math.ceil((base + Math.max(base * 0.1, 1)) * 10 - 1e-8) / 10
+  }
+  await context.route('**/*', async route => {
+    const request = route.request(), url = new URL(request.url())
+    if (url.origin !== base) return route.abort()
+    if (url.pathname === '/api/libraries') return route.fulfill({ json: { items: libs.map(item => ({ ...item,
+      name: item.name + ' · 家庭录像与超长标题纪录片收藏', media_name: '客厅媒体库与家庭影片收藏' })), default_id: 1 } })
+    if (url.pathname === '/api/cache-settings') {
+      if (request.method() === 'GET' && failLoad) return route.fulfill({ status: 503, json: { detail: '模拟容量设置加载失败' } })
+      if (request.method() === 'PUT') {
+        const body = request.postDataJSON()
+        writes.push(body)
+        if (saveStarted) { saveStarted(); await new Promise(resolve => { releaseSave = resolve }) }
+        if (failSave) return route.fulfill({ status: 503, json: { detail: '模拟容量设置保存失败' } })
+        if (failValidation || failUsage) return route.fulfill({ status: 503, json: { detail: '模拟保存时完整统计失败' } })
+        if (body.transcode_cache_gb <= 0 || body.transcode_cache_gb + body.preview_cache_gb + reserve() > body.data_warning_gb + 1e-8)
+          return route.fulfill({ status: 422, json: { detail: '播放缓存、缩略图额度与基础预留超出预算，请重新分配' } })
+        limits = body
+      }
+      return route.fulfill({ json: limits })
+    }
+    if (url.pathname === '/api/data-usage') {
+      usageReads++
+      const pending = usageGate
+      if (pending) { pending.started(); await pending.promise }
+      if (failUsage) return route.fulfill({ status: 503, json: { detail: '模拟完整占用统计失败' } })
+      return route.fulfill({ json: usage() })
+    }
+    const cache = url.pathname === '/api/stream/cache/clean' ? 'transcode'
+      : url.pathname === '/api/stream/previews/cache/clean' ? 'previews' : null
+    if (cache) {
+      const body = request.postDataJSON(), freed = (cache === 'transcode' ? 2 : 3) * gib
+      cleanCalls.push({ cache, dry_run: body.dry_run })
+      if (!body.dry_run) categories = { ...categories, [cache]: categories[cache] - freed }
+      return route.fulfill({ json: { candidates: 2, candidate_bytes: freed, dry_run: body.dry_run,
+        removed: body.dry_run ? 0 : 2, freed: body.dry_run ? 0 : freed, total: categories[cache] } })
+    }
+    return route.continue()
+  })
+  const page = await context.newPage()
+  page.setDefaultTimeout(12000)
+  page.on('pageerror', error => errors.push(String(error)))
+  const storage = page.locator('.storage-usage-panel')
+  const panel = storage.locator('.cache-settings')
+  const save = panel.getByRole('button', { name: '保存容量设置', exact: true })
+  const warning = panel.getByRole('spinbutton', { name: '应用数据总预算（软上限，GB）', exact: true })
+  const quotaLegend = part => panel.locator(`.budget-legend [data-quota="${part}"]`)
+  const quotaDialog = part => page.getByRole('dialog', { name: part === 'transcode' ? '精确设置播放缓存额度' : '精确设置进度缩略图额度', exact: true })
+  const quotaInput = part => quotaDialog(part).getByLabel(part === 'transcode' ? '播放缓存额度（GB）' : '进度缩略图额度（GB）', { exact: true })
+  const quotaControl = part => ({
+    inputValue: async () => { await quotaLegend(part).waitFor(); return quotaLegend(part).getAttribute('data-quota-value') },
+    fill: async value => {
+      if (await quotaLegend(part).getAttribute('data-quota-value') === value) return
+      await quotaLegend(part).click()
+      await quotaInput(part).fill(value)
+      await quotaDialog(part).getByRole('button', { name: '确定', exact: true }).click()
+      await quotaDialog(part).waitFor({ state: 'hidden' })
+    },
+  })
+  const transcode = quotaControl('transcode'), previews = quotaControl('previews')
+  const refresh = storage.getByRole('button', { name: '刷新占用', exact: true })
+  const allocationBar = panel.getByRole('group', { name: '调整缓存预算分配', exact: true })
+  const playbackHandle = allocationBar.getByRole('slider', { name: '调整播放缓存额度', exact: true })
+  const previewHandle = allocationBar.getByRole('slider', { name: '调整进度缩略图额度', exact: true })
+  const navigate = name => page.getByRole('navigation', { name: '设置分区', exact: true }).getByRole('button', { name, exact: true }).click()
+  const values = async () => [await warning.inputValue(), await transcode.inputValue(), await previews.inputValue()]
+  const expectValues = async expected => assert.deepEqual(await values(), expected, 'budget edits never silently rewrite another allocation')
+  const refreshUsage = async () => {
+    const response = page.waitForResponse(response => new URL(response.url()).pathname === '/api/data-usage')
+    await refresh.click()
+    await response
+  }
+  const notifyUsage = async () => {
+    const response = page.waitForResponse(response => new URL(response.url()).pathname === '/api/data-usage')
+    await page.evaluate(() => window.dispatchEvent(new Event('jzmedia:data-usage-changed')))
+    await response
+  }
+  const handleGeometry = async () => {
+    const boxes = await Promise.all([playbackHandle.boundingBox(), previewHandle.boundingBox()])
+    assert.ok(boxes.every(box => box && box.width >= 44 && box.height >= 44), 'allocation handles provide 44px pointer and touch targets')
+    const [upper, lower] = boxes
+    assert.ok(upper.x + upper.width <= lower.x || lower.x + lower.width <= upper.x
+      || upper.y + upper.height <= lower.y || lower.y + lower.height <= upper.y, 'the two handle hit areas never overlap, including minimum allocations')
+  }
+  const waitHandleEnabled = async handle => page.waitForFunction(element => !element.disabled, await handle.elementHandle())
+  const resetAllocations = async () => { await transcode.fill('40'); await previews.fill('30') }
+  const expectApproxAllocations = async (t, p) => {
+    const actual = (await values()).slice(1).map(Number)
+    assert.ok(Math.abs(actual[0] - t) <= 0.2 && Math.abs(actual[1] - p) <= 0.2,
+      `direct manipulation should allocate approximately ${t}/${p} GB; received ${actual.join('/')}`)
+  }
+  const readScale = async () => allocationBar.evaluate(element => Number(element.dataset.scaleGb || element.querySelector('[data-scale-gb]')?.dataset.scaleGb))
+  const tooltip = page.locator('.budget-tooltip[role="tooltip"]')
+  const checkTooltip = async (quota, balance) => {
+    await tooltip.waitFor()
+    assert.match(await tooltip.textContent(), quota)
+    if (balance) assert.match(await tooltip.textContent(), balance)
+    assert.equal(await tooltip.evaluate(element => element.parentElement === document.body), true, 'the tooltip teleports to the body')
+    await page.waitForFunction(() => {
+      const element = document.querySelector('.budget-tooltip[role="tooltip"]')
+      if (!element) return false
+      const rect = element.getBoundingClientRect()
+      return rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight
+    })
+  }
+  const checkSegmentLabels = async () => {
+    const labels = await allocationBar.locator('[data-budget-part] .budget-segment-label').evaluateAll(elements => elements.filter(element =>
+      element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden').map(element => {
+      const parent = element.closest('[data-budget-part]').getBoundingClientRect(), range = document.createRange()
+      range.selectNodeContents(element)
+      const text = range.getBoundingClientRect()
+      return { value: element.textContent, left: text.left - parent.left, right: parent.right - text.right }
+    }))
+    assert.ok(labels.every(label => label.left >= -1 && label.right >= -1), 'visible segment labels fit their own segment')
+    return labels
+  }
+  const startMouseDrag = async (handle, deltaGb) => {
+    await handle.scrollIntoViewIfNeeded()
+    const box = await handle.boundingBox(), track = await allocationBar.locator('.budget-bar-track').boundingBox()
+    const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    await page.mouse.move(point.x, point.y)
+    await page.mouse.down()
+    assert.equal(await handle.evaluate(element => element.hasPointerCapture(1)), true, 'a real mouse drag captures its pointer')
+    const scale = await readScale()
+    assert.ok(Number.isFinite(scale) && scale > 0, 'the gesture exposes its current scale in GB')
+    await page.mouse.move(point.x + deltaGb / scale * track.width, point.y, { steps: 8 })
+    return { point, track, scale }
+  }
+  const assertUnavailableHandles = async () => {
+    for (const handle of [playbackHandle, previewHandle])
+      if (await handle.count()) assert.equal(await handle.isDisabled(), true, 'unavailable or invalid allocation cannot be dragged')
+  }
+  const checkQuotaEditor = async () => {
+    const writesBefore = writes.length
+    const segment = allocationBar.locator('.budget-segment-edit[data-quota="transcode"]')
+    await segment.click()
+    await quotaDialog('transcode').waitFor()
+    const selected = await quotaInput('transcode').evaluate(input => ({ value: input.value, start: input.selectionStart, end: input.selectionEnd }))
+    assert.deepEqual(selected, { value: '40', start: 0, end: 2 }, 'opening exact edit selects the complete value for replacement')
+    assert.equal(await save.isDisabled(), true, 'the final save is disabled while an exact-edit popup is open')
+    await quotaInput('transcode').fill('45')
+    await expectValues(['100', '40', '30'])
+    await quotaInput('transcode').press('Enter')
+    await quotaDialog('transcode').waitFor({ state: 'hidden' })
+    await expectValues(['100', '45', '30'])
+    assert.equal(writes.length, writesBefore, 'Enter confirms a local quota without submitting the enclosing settings form')
+    assert.equal(await segment.evaluate(element => element === document.activeElement), true, 'closing exact edit restores its segment opener')
+    await resetAllocations()
+
+    for (const part of ['transcode', 'previews']) {
+      const entry = quotaLegend(part)
+      await entry.focus()
+      await page.keyboard.press('Enter')
+      await quotaInput(part).waitFor()
+      for (const invalid of ['', '0', '-1', '1.23', '102400.1', 'abc']) {
+        await quotaInput(part).fill(invalid)
+        const confirm = quotaDialog(part).getByRole('button', { name: '确定', exact: true })
+        if (await confirm.isEnabled()) await confirm.click()
+        await quotaDialog(part).waitFor()
+        await expectValues(['100', '40', '30'])
+      }
+      await quotaDialog(part).getByRole('button', { name: '取消', exact: true }).click()
+      await quotaDialog(part).waitFor({ state: 'hidden' })
+      assert.equal(await entry.evaluate(element => element === document.activeElement), true, 'canceling exact edit restores the legend opener')
+    }
+    for (const mode of ['cancel', 'escape', 'close']) {
+      await quotaLegend('transcode').click()
+      await quotaInput('transcode').fill('46')
+      await page.locator('.jz-dialog-mask').last().click({ position: { x: 2, y: 2 } })
+      await quotaDialog('transcode').waitFor()
+      assert.equal(await quotaInput('transcode').inputValue(), '46', 'clicking the backdrop never discards exact input')
+      if (mode === 'escape') await page.keyboard.press('Escape')
+      else await quotaDialog('transcode').getByRole('button', { name: mode === 'close' ? '取消额度编辑' : '取消', exact: true }).click()
+      await quotaDialog('transcode').waitFor({ state: 'hidden' })
+      await expectValues(['100', '40', '30'])
+    }
+    await segment.click()
+    await quotaInput('transcode').fill('0.1')
+    await quotaDialog('transcode').getByRole('button', { name: '确定', exact: true }).click()
+    await quotaDialog('transcode').waitFor({ state: 'hidden' })
+    assert.equal(await quotaLegend('transcode').evaluate(element => element === document.activeElement), true, 'when a segment shrinks away focus falls back to its permanent legend entry')
+    await resetAllocations()
+
+    await quotaLegend('previews').click()
+    await quotaInput('previews').fill('44.4')
+    failUsage = true
+    await notifyUsage()
+    await storage.getByText(/模拟完整占用统计失败/).waitFor()
+    assert.equal(await quotaInput('previews').inputValue(), '44.4', 'failed statistics refresh preserves the local input buffer')
+    await expectValues(['100', '40', '30'])
+    failUsage = false
+    await notifyUsage()
+    await storage.locator('.storage-total').getByText('25.00G', { exact: false }).waitFor()
+    assert.equal(await quotaInput('previews').inputValue(), '44.4')
+    await quotaDialog('previews').getByRole('button', { name: '取消', exact: true }).click()
+
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+      await quotaLegend('transcode').click()
+      const editor = quotaDialog('transcode')
+      await quotaInput('transcode').waitFor()
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+      await page.screenshot({ path: path.join(directory, `capacity-quota-editor-${width}.png`), animations: 'disabled' })
+      if (width < 700) {
+        const controls = await editor.locator('input,button').evaluateAll(elements => elements.map(element => element.getBoundingClientRect()).map(rect => ({ width: rect.width, height: rect.height })))
+        assert.ok(controls.every(rect => rect.width >= 44 && rect.height >= 44), 'phone exact-edit controls have 44px targets')
+        // Reversible visualViewport stub models the visible area after a software
+        // keyboard opens; it does not claim to drive a physical phone keyboard.
+        await page.evaluate(() => {
+          const viewport = window.visualViewport
+          for (const [key, value] of Object.entries({ height: 360, offsetTop: 180 }))
+            Object.defineProperty(viewport, key, { configurable: true, value })
+          viewport.dispatchEvent(new Event('resize'))
+          viewport.dispatchEvent(new Event('scroll'))
+        })
+        await page.waitForFunction(() => {
+          const editor = document.querySelector('.budget-quota-editor')
+          if (!editor) return false
+          const rect = editor.getBoundingClientRect(), viewport = window.visualViewport
+          return rect.top >= viewport.offsetTop && rect.bottom <= viewport.offsetTop + viewport.height
+        })
+        await page.screenshot({ path: path.join(directory, `capacity-quota-keyboard-${width}.png`), animations: 'disabled' })
+        await page.evaluate(() => {
+          const viewport = window.visualViewport
+          delete viewport.height; delete viewport.offsetTop
+          viewport.dispatchEvent(new Event('resize'))
+          viewport.dispatchEvent(new Event('scroll'))
+        })
+      }
+      await editor.getByRole('button', { name: '取消', exact: true }).click()
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await expectValues(['100', '40', '30'])
+    assert.equal(writes.length, writesBefore)
+  }
+  const checkQuotaLeave = async () => {
+    const writesBefore = writes.length
+    await navigate('概览')
+    await navigate('系统维护')
+    await quotaLegend('transcode').click()
+    await quotaInput('transcode').fill('45')
+    await expectValues(['100', '40', '30'])
+    await page.evaluate(() => history.back())
+    const leave = page.getByTestId('settings-leave-dialog')
+    await leave.waitFor()
+    await leave.getByRole('button', { name: '继续编辑', exact: true }).click()
+    await quotaInput('transcode').waitFor()
+    assert.equal(await quotaInput('transcode').inputValue(), '45', 'staying after browser Back restores unconfirmed local input')
+    assert.equal(await quotaInput('transcode').evaluate(element => element === document.activeElement), true)
+    await quotaDialog('transcode').getByRole('button', { name: '取消', exact: true }).click()
+    await transcode.fill('45')
+    await quotaLegend('transcode').click()
+    await quotaInput('transcode').fill('46')
+    await page.evaluate(() => history.back())
+    await leave.waitFor()
+    await leave.getByRole('button', { name: '放弃修改并离开', exact: true }).click()
+    await page.locator('.settings-heading h2').getByText('概览', { exact: true }).waitFor()
+    await quotaDialog('transcode').waitFor({ state: 'hidden' })
+    await navigate('系统维护')
+    await expectValues(['100', '40', '30'])
+    assert.equal(writes.length, writesBefore, 'discarding both editor input and confirmed unsaved allocation never writes settings')
+  }
+  const checkDirectAllocation = async () => {
+    assert.equal(await panel.locator('.budget-inputs').count(), 0, 'fixed quota inputs are replaced by compact exact-edit entries')
+    assert.equal(await panel.locator('.budget-legend button[data-quota]').count(), 2, 'both quotas always have an exact-edit legend entry')
+    assert.equal(await panel.locator('.cache-budget-row input').count(), 0, 'actual usage rows do not scatter capacity inputs')
+    const actionsBox = await save.boundingBox(), baseBox = await panel.locator('.budget-base').boundingBox()
+    assert.ok(actionsBox.y + actionsBox.height <= baseBox.y, 'capacity save actions stay with configuration before the actual usage details')
+    await waitHandleEnabled(playbackHandle)
+    await handleGeometry()
+    assert.equal((await allocationBar.locator('.budget-bar-track').boundingBox()).height, 48, 'the allocation track is 48px high')
+    await checkSegmentLabels()
+    for (const [part, title, quota] of [['transcode', '播放缓存', '40'], ['previews', '进度缩略图', '30']]) {
+      const label = allocationBar.locator(`[data-budget-part="${part}"] .budget-segment-label`)
+      await label.waitFor()
+      assert.match(await label.textContent(), new RegExp(title))
+      assert.match(await label.textContent(), new RegExp(quota + '(?:\\.0)?\\s*GB'))
+    }
+    const writesBefore = writes.length
+    await warning.focus()
+    await playbackHandle.hover()
+    await checkTooltip(/40(?:\.0)?\s*GB/, /剩余\s*24(?:\.0)?\s*GB/)
+    assert.equal(await warning.evaluate(element => element === document.activeElement), true, 'hovering a handle shows its tooltip without taking focus')
+    await page.mouse.move(0, 0)
+    await tooltip.waitFor({ state: 'hidden' })
+    for (const focused of [warning, save]) {
+      await focused.focus()
+      await allocationBar.locator('[data-budget-part="transcode"]').hover()
+      await checkTooltip(/40(?:\.0)?\s*GB/, /剩余\s*24(?:\.0)?\s*GB/)
+      await page.evaluate(() => {
+        window.budgetEscapePrevented = null
+        window.addEventListener('keydown', event => { window.budgetEscapePrevented = event.defaultPrevented }, { once: true })
+      })
+      await page.keyboard.press('Escape')
+      await tooltip.waitFor({ state: 'hidden' })
+      assert.equal(await page.evaluate(() => window.budgetEscapePrevented), false, 'closing a hover tooltip from another focused control does not consume Escape')
+      assert.equal(await focused.evaluate(element => element === document.activeElement), true, 'Escape closes a segment hover tooltip while preserving the current control focus')
+      await page.mouse.move(0, 0)
+    }
+    for (const [handle, amount] of [[playbackHandle, /40(?:\.0)?\s*GB/], [previewHandle, /30(?:\.0)?\s*GB/]]) {
+      await handle.focus()
+      await checkTooltip(amount, /剩余\s*24(?:\.0)?\s*GB/)
+      await handle.hover()
+      await checkTooltip(amount, /剩余\s*24(?:\.0)?\s*GB/)
+      await page.mouse.move(0, 0)
+      await checkTooltip(amount, /剩余\s*24(?:\.0)?\s*GB/)
+      assert.equal(await handle.evaluate(element => element === document.activeElement), true, 'leaving a hovered but keyboard-focused handle restores its focus tooltip')
+      await warning.focus()
+      await tooltip.waitFor({ state: 'hidden' })
+    }
+    await startMouseDrag(playbackHandle, 10)
+    await expectApproxAllocations(50, 30)
+    assert.equal(await previews.inputValue(), '30', 'the playback handle changes only the playback quota')
+    await page.mouse.up()
+    await resetAllocations()
+    await startMouseDrag(previewHandle, 10)
+    await expectApproxAllocations(40, 40)
+    await page.mouse.up()
+    assert.equal(await transcode.inputValue(), '40', 'the preview handle changes only the preview quota')
+    assert.equal(writes.length, writesBefore, 'dragging only updates the unsaved draft')
+    await resetAllocations()
+
+    await warning.fill('76')
+    await previewHandle.focus()
+    await checkTooltip(/30(?:\.0)?\s*GB/, /预算刚好用满/)
+    await warning.fill('100')
+    const crossing = await startMouseDrag(playbackHandle, 24)
+    await expectApproxAllocations(64, 30)
+    await checkTooltip(/64(?:\.0)?\s*GB/, /预算刚好用满/)
+    await page.mouse.move(crossing.point.x + crossing.track.width * 0.25, crossing.point.y, { steps: 4 })
+    await expectApproxAllocations(65, 30)
+    assert.equal(await readScale(), crossing.scale, 'crossing the total freezes the scale for the entire gesture')
+    assert.equal(await save.isDisabled(), true, 'temporary over-allocation disables only saving')
+    assert.equal(await playbackHandle.isEnabled(), true)
+    await checkTooltip(/65(?:\.0)?\s*GB/, /超出预算\s*1(?:\.0)?\s*GB/)
+    await page.mouse.move(crossing.point.x + crossing.track.width * 0.1, crossing.point.y, { steps: 8 })
+    await expectApproxAllocations(50, 30)
+    assert.equal(await readScale(), crossing.scale)
+    assert.equal(await save.isEnabled(), true, 'pulling back within budget keeps the same gesture active')
+    await page.mouse.up()
+    await resetAllocations()
+
+    const beyond = await startMouseDrag(playbackHandle, 80)
+    await expectApproxAllocations(120, 30)
+    assert.equal(await readScale(), 100, 'moving beyond the rail continues increasing quota at the captured scale')
+    assert.equal(await previews.inputValue(), '30')
+    assert.equal(await save.isDisabled(), true)
+    await checkTooltip(/120(?:\.0)?\s*GB/, /超出预算\s*56(?:\.0)?\s*GB/)
+    const [barBox, handleBox] = await Promise.all([allocationBar.boundingBox(), playbackHandle.boundingBox()])
+    assert.ok(handleBox.x >= barBox.x - 1 && handleBox.x + handleBox.width <= barBox.x + barBox.width + 1, 'an off-rail drag clamps its handle within the visible bar')
+    await page.mouse.up()
+    const overflowScale = await readScale()
+    assert.equal(overflowScale, reserve() + Number(await transcode.inputValue()) + Number(await previews.inputValue()), 'release normalizes the scale to the over-allocated total')
+    const trackBox = await allocationBar.locator('.budget-bar-track').boundingBox()
+    const marker = await allocationBar.locator('.budget-limit-marker').boundingBox()
+    const overflow = await allocationBar.locator('.budget-overflow-zone').boundingBox()
+    assert.ok(Math.abs((marker.x - trackBox.x) / trackBox.width - 100 / overflowScale) < 0.01, 'the limit marker remains at the actual total budget')
+    assert.ok(overflow.width > 0 && overflow.x + overflow.width <= trackBox.x + trackBox.width + 2, 'the overflow zone shades the budget-exceeding portion')
+    assert.deepEqual(await allocationBar.locator('[data-budget-part]').evaluateAll(elements => elements.map(element => element.dataset.budgetPart)),
+      ['base', 'transcode', 'previews', 'free'], 'overflow does not invent an additional data category')
+    await waitHandleEnabled(playbackHandle)
+    await checkTooltip(/120(?:\.0)?\s*GB/, /超出预算\s*56(?:\.0)?\s*GB/)
+    await page.screenshot({ path: path.join(directory, 'capacity-overflow-1440.png'), animations: 'disabled' })
+    const returning = await startMouseDrag(playbackHandle, -80)
+    await expectApproxAllocations(40, 30)
+    assert.equal(returning.scale, overflowScale)
+    assert.equal(await readScale(), overflowScale, 'returning from an overflow keeps its start scale until release')
+    assert.equal(await save.isEnabled(), true)
+    await page.mouse.up()
+    assert.equal(await readScale(), 100, 'release restores the total-budget scale after correcting an overflow')
+    await expectValues(['100', '40', '30'])
+
+    await warning.fill('6')
+    await transcode.fill('0.1')
+    await previews.fill('0.1')
+    const minimumError = panel.locator('.budget-error')
+    assert.match(await minimumError.textContent(), /至少需要 6\.2 GB 总预算/)
+    assert.match(await minimumError.textContent(), /仅调低缓存额度仍不足/)
+    assert.equal(await panel.getByText(/可直接拖小任一缓存额度/).count(), 0, 'a budget below the base reserve plus minimum quotas never suggests quota reduction alone will fit')
+    for (const handle of [playbackHandle, previewHandle]) {
+      await waitHandleEnabled(handle)
+      await startMouseDrag(handle, 0.5)
+      await expectApproxAllocations(handle === playbackHandle ? 0.6 : 0.1, handle === previewHandle ? 0.6 : 0.1)
+      await page.mouse.up()
+      assert.equal(await save.isDisabled(), true, 'a base reserve that consumes the total keeps saving disabled despite editable quotas')
+      await handle.focus()
+      await page.keyboard.press('Home')
+      await expectValues(['6', '0.1', '0.1'])
+      assert.equal(await save.isDisabled(), true, 'both minimum quotas still require at least 6.2 GB')
+      assert.match(await minimumError.textContent(), /至少需要 6\.2 GB 总预算/)
+      assert.equal(await panel.getByText(/可直接拖小任一缓存额度/).count(), 0)
+    }
+    await warning.fill('100')
+    await resetAllocations()
+
+    // Keep a real primary mouse drag active while simulating a different
+    // pointer's terminal event. This checks pointerId isolation, not physical multitouch.
+    for (const [handle, moved, continued] of [[playbackHandle, [50, 30], [60, 30]], [previewHandle, [40, 40], [40, 50]]]) {
+      for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+        await resetAllocations()
+        const { point, track } = await startMouseDrag(handle, 10)
+        await expectApproxAllocations(...moved)
+        await handle.dispatchEvent(type, { pointerId: 999, pointerType: 'touch', isPrimary: false, button: 0, bubbles: true })
+        await expectApproxAllocations(...moved)
+        assert.equal(await handle.evaluate(element => element.hasPointerCapture(1)), true, 'a foreign pointer termination preserves primary pointer capture')
+        await page.mouse.move(point.x + track.width * 0.2, point.y, { steps: 8 })
+        await expectApproxAllocations(...continued)
+        await page.mouse.up()
+        await expectApproxAllocations(...continued)
+      }
+    }
+    for (const [handle, moved] of [[playbackHandle, [50, 30]], [previewHandle, [40, 40]]]) {
+      await resetAllocations()
+      const { point, track } = await startMouseDrag(handle, 10)
+      await expectApproxAllocations(...moved)
+      await page.keyboard.press('Tab')
+      assert.equal(await handle.evaluate(element => element === document.activeElement), false, 'Tab moves focus away from an active drag handle')
+      await expectValues(['100', '40', '30'])
+      await page.mouse.move(point.x + track.width * 0.2, point.y, { steps: 8 })
+      await page.mouse.up()
+      await expectValues(['100', '40', '30'])
+    }
+    await resetAllocations()
+
+    await playbackHandle.focus()
+    await page.keyboard.press('ArrowRight')
+    await expectValues(['100', '40.1', '30'])
+    await checkTooltip(/40\.1\s*GB/, /剩余\s*23\.9\s*GB/)
+    assert.equal(await playbackHandle.evaluate(element => element === document.activeElement), true, 'a changing tooltip preserves handle focus')
+    await page.keyboard.press('Shift+ArrowRight')
+    await expectValues(['100', '41.1', '30'])
+    await page.keyboard.press('PageUp')
+    await expectValues(['100', '51.1', '30'])
+    await page.keyboard.press('PageDown')
+    await expectValues(['100', '41.1', '30'])
+    await page.keyboard.press('Home')
+    await expectValues(['100', '0.1', '30'])
+    await page.keyboard.press('End')
+    await expectValues(['100', '102400', '30'])
+    await resetAllocations()
+    await previewHandle.focus()
+    await page.keyboard.press('ArrowLeft')
+    await expectValues(['100', '40', '29.9'])
+    await page.keyboard.press('Shift+ArrowLeft')
+    await expectValues(['100', '40', '28.9'])
+    await page.keyboard.press('PageDown')
+    await expectValues(['100', '40', '18.9'])
+    await page.keyboard.press('PageUp')
+    await expectValues(['100', '40', '28.9'])
+    await page.keyboard.press('Home')
+    await expectValues(['100', '40', '0.1'])
+    await page.keyboard.press('End')
+    await expectValues(['100', '40', '102400'])
+    await resetAllocations()
+
+    await startMouseDrag(playbackHandle, 10)
+    await expectApproxAllocations(50, 30)
+    await page.keyboard.press('Escape')
+    await page.mouse.up()
+    await expectValues(['100', '40', '30'])
+    await startMouseDrag(playbackHandle, 10)
+    await expectApproxAllocations(50, 30)
+    // Change the total while the handle retains focus so this exercises the
+    // scale watcher rather than relying on the separate blur cancellation.
+    await warning.evaluate(input => { input.value = '120'; input.dispatchEvent(new Event('input', { bubbles: true })) })
+    await expectValues(['120', '40', '30'])
+    await page.mouse.move(0, 0)
+    await page.mouse.up()
+    await expectValues(['120', '40', '30'])
+    await warning.fill('100')
+    for (const invalidTotal of ['', '0']) {
+      await startMouseDrag(playbackHandle, 10)
+      await expectApproxAllocations(50, 30)
+      await warning.evaluate((input, value) => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })) }, invalidTotal)
+      await expectValues([invalidTotal, '40', '30'])
+      await page.mouse.move(0, 0)
+      await page.mouse.up()
+      await expectValues([invalidTotal, '40', '30'])
+      assert.equal(await save.isDisabled(), true, 'invalidating the total during a gesture rolls back allocations and keeps the invalid input')
+      await warning.fill('100')
+      await waitHandleEnabled(playbackHandle)
+    }
+    await startMouseDrag(previewHandle, 10)
+    await expectApproxAllocations(40, 40)
+    let release, started
+    const promise = new Promise(resolve => { release = resolve })
+    const received = new Promise(resolve => { started = resolve })
+    usageReleases.push(release)
+    usageGate = { promise, release, started }
+    const response = page.waitForResponse(response => new URL(response.url()).pathname === '/api/data-usage')
+    await page.evaluate(() => window.dispatchEvent(new Event('jzmedia:data-usage-changed')))
+    await received
+    await assertUnavailableHandles()
+    await expectValues(['100', '40', '30'])
+    await page.mouse.move(0, 0)
+    await page.mouse.up()
+    await expectValues(['100', '40', '30'])
+    usageGate = null
+    release()
+    await response
+    await waitHandleEnabled(previewHandle)
+
+    for (const [t, p] of [['0.1', '0.1'], ['93.8', '0.1']]) {
+      await transcode.fill(t)
+      await previews.fill(p)
+      await page.setViewportSize({ width: 320, height: 844 })
+      await allocationBar.scrollIntoViewIfNeeded()
+      await handleGeometry()
+      await checkSegmentLabels()
+      await (t === '0.1' ? playbackHandle : previewHandle).focus()
+      await checkTooltip(/0\.1\s*GB/, /剩余/)
+      const narrow = allocationBar.locator('[data-budget-part="previews"] .budget-segment-label')
+      assert.equal(await narrow.isVisible(), false, 'a 0.1 GB segment omits its inner label on a narrow screen')
+    }
+    await resetAllocations()
+    await page.setViewportSize({ width: 390, height: 844 })
+    // CDP sends trusted Chromium touch input, covering real touch pointer capture
+    // and touchCancel -> pointercancel rather than synthetic DOM-only events.
+    const touch = await context.newCDPSession(page)
+    try {
+      await touch.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+      for (const [handle, expected, cancel] of [[playbackHandle, [50, 30], false], [previewHandle, [40, 40], false], [previewHandle, [40, 40], true]]) {
+        await resetAllocations()
+        await handle.scrollIntoViewIfNeeded()
+        const box = await handle.boundingBox(), track = await allocationBar.locator('.budget-bar-track').boundingBox()
+        const point = { x: box.x + box.width / 2, y: box.y + box.height / 2, id: 1, radiusX: 2, radiusY: 2, force: 1 }
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] })
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...point, x: point.x + track.width * 0.1 }] })
+        await expectApproxAllocations(...expected)
+        await checkTooltip(handle === playbackHandle ? /50(?:\.0)?\s*GB/ : /40(?:\.0)?\s*GB/, /剩余/)
+        if (handle === playbackHandle && !cancel)
+          await page.screenshot({ path: path.join(directory, 'capacity-drag-tooltip-390.png'), animations: 'disabled' })
+        await touch.send('Input.dispatchTouchEvent', { type: cancel ? 'touchCancel' : 'touchEnd', touchPoints: [] })
+        if (cancel) await expectValues(['100', '40', '30'])
+        else await expectApproxAllocations(...expected)
+      }
+    } finally {
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] }).catch(() => {})
+      await touch.send('Emulation.setTouchEmulationEnabled', { enabled: false }).catch(() => {})
+      await touch.detach()
+    }
+    await resetAllocations()
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    assert.equal(writes.length, writesBefore, 'mouse, keyboard and touch allocations remain unsaved until explicitly saved')
+  }
+  try {
+    await page.goto(base + '/settings?sec=sec-index')
+    await storage.getByRole('heading', { name: '应用数据与缓存', exact: true }).waitFor()
+    assert.equal(await storage.count(), 1, 'usage, budgets and cleanup share one panel')
+    await panel.getByText(/模拟容量设置加载失败/).waitFor()
+    await storage.getByText(/模拟完整占用统计失败/).waitFor()
+    failLoad = false
+    await panel.getByRole('button', { name: '重新加载', exact: true }).click()
+    await warning.waitFor()
+    await expectValues(['20', '10', '10'])
+    assert.equal(await save.isDisabled(), true, 'settings retry and usage retry have independent states')
+    failUsage = false
+    await refreshUsage()
+    await storage.locator('.storage-total').getByText('25.00G', { exact: false }).waitFor()
+    await panel.locator('.budget-error').getByText(/超出预算/).waitFor()
+    assert.equal(await save.isDisabled(), true, 'legacy over-allocation is preserved and requires an explicit edit')
+    await waitHandleEnabled(playbackHandle)
+    await waitHandleEnabled(previewHandle)
+    const originalCategories = categories
+    categories = { ...categories, database: Math.floor(0.1 * gib), posters: Math.floor(0.2 * gib), other: 0 }
+    await refreshUsage()
+    assert.equal(reserve(), 1.3, 'a 20 GB budget can expose the 21.3 GB initial-allocation case')
+    for (const [handle, untouched] of [[playbackHandle, previews], [previewHandle, transcode]]) {
+      await handle.focus()
+      await page.keyboard.press('Shift+ArrowLeft')
+      for (let step = 0; step < 3; step++) await page.keyboard.press('ArrowLeft')
+      assert.equal(await untouched.inputValue(), '10', 'reducing either quota from a 21.3 GB allocation leaves the other unchanged')
+      await panel.locator('.budget-error').waitFor({ state: 'hidden' })
+      assert.equal(await save.isEnabled(), true, 'either handle can repair the 20/21.3 GB allocation without first increasing the total')
+      await transcode.fill('10')
+      await previews.fill('10')
+    }
+    categories = originalCategories
+    await refreshUsage()
+    for (const [handle, untouched] of [[playbackHandle, previews], [previewHandle, transcode]]) {
+      await handle.focus()
+      await page.keyboard.press('Home')
+      assert.equal(await untouched.inputValue(), '10', 'correcting an old over-allocation leaves the other quota unchanged')
+      await panel.locator('.budget-error').waitFor({ state: 'hidden' })
+      assert.equal(await save.isEnabled(), true, 'either handle can directly correct an old over-allocation')
+      await transcode.fill('10')
+      await previews.fill('10')
+    }
+    await panel.getByRole('slider', { name: '应用数据总预算', exact: true }).focus()
+    await page.keyboard.press('ArrowRight')
+    await expectValues(['20.1', '10', '10'])
+    assert.equal(writes.length, 0, 'adjusting a slider does not save early')
+    await navigate('概览')
+    const dialog = page.getByTestId('settings-leave-dialog')
+    await dialog.getByText('应用数据与缓存', { exact: true }).waitFor()
+    await dialog.getByRole('button', { name: '继续编辑此项', exact: true }).click()
+    assert.equal(await warning.evaluate(input => input === document.activeElement), true)
+    await warning.fill('100')
+    await transcode.fill('40')
+    await previews.fill('30')
+    await panel.getByLabel('预算分配', { exact: true }).getByText('未保存', { exact: true }).waitFor()
+    await panel.locator('.budget-base').getByText(/自动预留/).waitFor()
+    const segments = await panel.locator('.budget-bar [data-budget-part]').evaluateAll(elements => elements.map(element => ({
+      part: element.dataset.budgetPart, width: element.getBoundingClientRect().width,
+      barWidth: element.parentElement.getBoundingClientRect().width, color: getComputedStyle(element).backgroundColor,
+    })))
+    assert.deepEqual(segments.map(segment => segment.part), ['base', 'transcode', 'previews', 'free'])
+    for (const [index, percent] of [6, 40, 30, 24].entries())
+      assert.ok(Math.abs(segments[index].width / segments[index].barWidth * 100 - percent) < 0.5, 'allocation segments reflect 6/40/30/24 GB of the 100 GB budget')
+    assert.equal(new Set(segments.map(segment => segment.color)).size, 4, 'each allocation has a distinct visible color')
+    assert.ok(segments.every(segment => !['transparent', 'rgba(0, 0, 0, 0)'].includes(segment.color)))
+    await panel.locator('.budget-legend').getByText(/未分配/).waitFor()
+    await checkQuotaEditor()
+    await checkDirectAllocation()
+
+    await warning.fill('76')
+    assert.equal(await save.isEnabled(), true, 'an exactly allocated total is valid')
+    await warning.fill('75.9')
+    await panel.locator('.budget-error').getByText(/超出预算/).waitFor()
+    assert.equal(await save.isDisabled(), true)
+    await expectValues(['75.9', '40', '30'])
+    await waitHandleEnabled(playbackHandle)
+    await waitHandleEnabled(previewHandle)
+    await warning.fill('100')
+    categories = { ...categories, posters: 39 * gib }
+    await refreshUsage()
+    await panel.locator('.budget-error').getByText(/超出预算/).waitFor()
+    assert.equal(await save.isDisabled(), true, 'base-data growth is included when validating an edited budget')
+    await expectValues(['100', '40', '30'])
+    categories = { ...categories, posters: 4 * gib }
+    await refreshUsage()
+    await storage.locator('.storage-total').getByText('25.00G', { exact: false }).waitFor()
+    assert.equal(await save.isEnabled(), true, 'refreshing usage preserves a valid unsaved draft')
+
+    failSave = true
+    await save.click()
+    await panel.getByText(/模拟容量设置保存失败/).waitFor()
+    await expectValues(['100', '40', '30'])
+    failSave = false
+    failValidation = true
+    await save.click()
+    await panel.getByText(/模拟保存时完整统计失败/).waitFor()
+    await expectValues(['100', '40', '30'])
+    assert.deepEqual(limits, { data_warning_gb: 20, transcode_cache_gb: 10, preview_cache_gb: 10 }, 'failed complete statistics do not persist a budget')
+    failValidation = false
+    const started = new Promise(resolve => { saveStarted = resolve })
+    await save.click()
+    await started
+    assert.equal(await warning.isDisabled(), true)
+    await assertUnavailableHandles()
+    await navigate('概览')
+    await dialog.getByRole('heading', { name: '设置操作尚未完成' }).waitFor()
+    assert.equal(await dialog.getByRole('button', { name: '放弃修改并离开' }).count(), 0)
+    releaseSave()
+    saveStarted = null
+    await panel.getByText('容量设置已保存并生效', { exact: true }).waitFor()
+    await dialog.waitFor({ state: 'hidden' })
+    await storage.locator('.storage-total').getByText('25.00G', { exact: false }).waitFor()
+    assert.doesNotMatch(await storage.locator('.storage-total').textContent(), /100\.00G/, 'actual usage remains distinct from the planning budget')
+    assert.equal(await page.locator('.app-storage-alert').count(), 0, 'raising the total budget clears the global alert immediately')
+    await navigate('概览')
+    assert.match(await page.locator('.overview-storage summary').textContent(), /100\.00G/)
+    await navigate('系统维护')
+    await page.reload()
+    await expectValues(['100', '40', '30'])
+    await checkQuotaLeave()
+    await warning.fill('0')
+    assert.equal(await save.isDisabled(), true)
+    await assertUnavailableHandles()
+    await warning.fill('2')
+    await panel.locator('.budget-error').getByText(/超出预算/).waitFor()
+    assert.equal(await save.isDisabled(), true)
+    await expectValues(['2', '40', '30'])
+    await warning.fill('110')
+    failUsage = true
+    await refreshUsage()
+    await storage.getByText(/模拟完整占用统计失败/).waitFor()
+    assert.equal(await save.isDisabled(), true, 'failed usage refresh blocks saving against stale base-data measurements')
+    await assertUnavailableHandles()
+    await expectValues(['110', '40', '30'])
+    failUsage = false
+    await refreshUsage()
+    await storage.locator('.storage-total').getByText('25.00G', { exact: false }).waitFor()
+    assert.equal(await save.isEnabled(), true)
+    await panel.getByRole('button', { name: '放弃修改', exact: true }).click()
+    await expectValues(['100', '40', '30'])
+
+    categories = { ...categories, transcode: 101 * gib }
+    await notifyUsage()
+    await page.locator('.app-storage-alert').getByText(/100.00G/).waitFor()
+    categories = { ...categories, transcode: 10 * gib }
+    await notifyUsage()
+    await page.locator('.app-storage-alert').waitFor({ state: 'hidden' })
+    limits = { data_warning_gb: 100, transcode_cache_gb: 0, preview_cache_gb: 30 }
+    await page.reload()
+    await expectValues(['100', '0', '30'])
+    await panel.locator('.budget-error').getByText(/未限制容量/).waitFor()
+    await warning.fill('110')
+    assert.equal(await save.isDisabled(), true, 'legacy zero keeps its meaning until the user chooses a positive playback quota')
+    await assertUnavailableHandles()
+    await warning.fill('100')
+    await transcode.fill('40')
+    await save.click()
+    await panel.getByText('容量设置已保存并生效', { exact: true }).waitFor()
+
+    await warning.fill('8')
+    await transcode.fill('1')
+    await previews.fill('1')
+    assert.equal(await save.isEnabled(), true, 'reclaimable current cache usage can exceed a valid new allocation')
+    await save.click()
+    await panel.getByText('容量设置已保存并生效', { exact: true }).waitFor()
+    assert.deepEqual(limits, { data_warning_gb: 8, transcode_cache_gb: 1, preview_cache_gb: 1 }, 'an exact fit is persisted despite current usage exceeding both cache quotas')
+    await warning.fill('100')
+    await transcode.fill('40')
+    await previews.fill('30')
+    await save.click()
+    await panel.getByText('容量设置已保存并生效', { exact: true }).waitFor()
+
+    for (const [cache, confirmation, remaining] of [['transcode', '确认清理缓存', '23.00G'], ['previews', '确认清理缩略图', '20.00G']]) {
+      const row = panel.locator(`.cache-budget-row[data-cache="${cache}"]`)
+      const check = row.getByRole('button', { name: '检查可清理空间', exact: true })
+      await check.click()
+      await row.getByRole('button', { name: confirmation, exact: true }).waitFor()
+      assert.equal(cleanCalls.filter(call => call.cache === cache && !call.dry_run).length, 0, 'checking cleanup only previews reclaimable content')
+      await row.getByRole('button', { name: '取消', exact: true }).click()
+      await row.getByRole('button', { name: confirmation, exact: true }).waitFor({ state: 'hidden' })
+      assert.equal(await check.evaluate(button => button === document.activeElement), true, 'canceling cleanup restores focus to its check button')
+      await check.click()
+      const readsBefore = usageReads
+      await row.getByRole('button', { name: confirmation, exact: true }).click()
+      await storage.locator('.storage-total').getByText(remaining, { exact: false }).waitFor()
+      assert.ok(usageReads > readsBefore, 'confirmed cleanup refreshes actual usage')
+      assert.equal(await check.evaluate(button => button === document.activeElement), true, 'confirmed cleanup restores focus to its check button')
+      assert.deepEqual(cleanCalls.filter(call => call.cache === cache).map(call => call.dry_run), [true, true, false])
+      await expectValues(['100', '40', '30'])
+    }
+    categories = { database: gib, posters: 4 * gib, previews: 10 * gib, transcode: 10 * gib, other: 0 }
+    await notifyUsage()
+    await storage.locator('.storage-total').getByText('25.00G', { exact: false }).waitFor()
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+      await panel.scrollIntoViewIfNeeded()
+      await warning.focus()
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'long library names and capacity controls fit the viewport')
+      const controls = await panel.locator('input, button').evaluateAll(elements => elements.filter(element => element.getClientRects().length).map(element => {
+        const rect = element.getBoundingClientRect()
+        return { width: rect.width, height: rect.height }
+      }))
+      if (width < 700) assert.ok(controls.every(rect => rect.width >= 44 && rect.height >= 44), 'phone capacity controls have 44px targets')
+      // A full-page screenshot must start at scroll zero: fixed off-screen skip links
+      // otherwise appear inside the extended capture despite being outside the viewport.
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await page.screenshot({ path: path.join(directory, `capacity-${width}.png`), animations: 'disabled', fullPage: true })
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await warning.fill('200')
+    await navigate('概览')
+    await dialog.getByRole('button', { name: '放弃修改并离开', exact: true }).click()
+    await page.locator('.settings-heading h2').getByText('概览', { exact: true }).waitFor()
+    await navigate('系统维护')
+    await expectValues(['100', '40', '30'])
+    assert.deepEqual(writes.at(-1), { data_warning_gb: 100, transcode_cache_gb: 40, preview_cache_gb: 30 })
+  } catch (error) {
+    await page.screenshot({ path: path.join(directory, 'failure.png'), fullPage: true }).catch(() => {})
+    throw error
+  } finally {
+    releaseSave?.()
+    for (const release of usageReleases) release()
+    await context.close()
+  }
+}
+
 async function checkSettingsDrafts(browser, base) {
   // This context owns its settings and libraries. Failed/delayed writes must not
   // leak into the existing file-management and playback lifecycle fixtures.
@@ -1313,9 +2115,10 @@ try {
   const base = `http://127.0.0.1:${server.address().port}`
   browser = await chromium.launch({ headless: true })
   if (previewsOnly) await checkPreviewMaintenance(browser, base, { baseline: previewBaseline })
-  if (!previewsOnly && !playerOnly) await checkSettingsDrafts(browser, base)
-  if (!previewsOnly && !playerOnly && !draftsOnly) await checkFileLoading(browser, base)
-  if (!previewsOnly && !draftsOnly) {
+  if (!previewsOnly && !playerOnly && !draftsOnly) await checkCacheSettings(browser, base)
+  if (!previewsOnly && !playerOnly && !cacheOnly) await checkSettingsDrafts(browser, base)
+  if (!previewsOnly && !playerOnly && !draftsOnly && !cacheOnly) await checkFileLoading(browser, base)
+  if (!previewsOnly && !draftsOnly && !cacheOnly) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
   await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort())
   if (!playerOnly) {
@@ -1866,7 +2669,7 @@ try {
     manifest.assets = manifest.assets.filter(entry => !names.has(entry.file)).concat(captured)
     await writeFile(filename, JSON.stringify(manifest, null, 2) + '\n')
   }
-  console.log(previewsOnly ? 'PASS preview maintenance isolated browser checks' : draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: controls, rate, fullscreen, preview/normal lifecycle; native HLS detached clock fallback without repeated recovery, MP4 clip prefetch/continuation/seek/source subtitle offset/lease cleanup and diagnostic copy; real ASS worker and video/subtitle pixels in phone portrait/landscape fullscreen' : 'PASS settings, files and playback: draft/navigation/preview lifecycle; browser playback compatibility, MP4 source timeline and subtitles, ASS fullscreen pixels and cleanup')
+  console.log(cacheOnly ? 'PASS cache budgets: exact-edit popups, local input guards and keyboard viewport, independent quotas, frozen drag scale and overflow recovery, viewport-safe tooltips and segment labels, grouped inputs, real mouse/touch allocation, keyboard bounds, secondary-pointer termination isolation, Tab/drag cancellation, non-overlapping handles, allocation colors/proportions, legacy/zero compatibility, exact/over budgets, base growth, statistics/save failures, cleanup confirmation, persistence, busy/leave guards and 1440/390/320 layouts' : previewsOnly ? 'PASS preview maintenance isolated browser checks' : draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: controls, rate, fullscreen, preview/normal lifecycle; native HLS detached clock fallback without repeated recovery, MP4 clip prefetch/continuation/seek/source subtitle offset/lease cleanup and diagnostic copy; real ASS worker and video/subtitle pixels in phone portrait/landscape fullscreen' : 'PASS settings, files and playback: draft/navigation/preview lifecycle; browser playback compatibility, MP4 source timeline and subtitles, ASS fullscreen pixels and cleanup')
 } finally {
   if (browser) await browser.close()
   if (server) await new Promise(resolve => server.close(resolve))

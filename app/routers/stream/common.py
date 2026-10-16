@@ -420,12 +420,9 @@ def _tree_size(path: str) -> int:
 
 
 def _cache_cap_bytes() -> int:
-    """转码缓存总量上限（env `TRANSCODE_CACHE_GB`，默认 10；0=只按 TTL 回收）。"""
-    try:
-        gb = float(os.getenv("TRANSCODE_CACHE_GB", "10") or 0)
-    except (TypeError, ValueError):
-        gb = 10.0
-    return int(max(0.0, gb) * (1 << 30))
+    """设置页优先，TRANSCODE_CACHE_GB 兜底；0=只按 TTL 回收。"""
+    from ...cache_settings import transcode_bytes
+    return transcode_bytes()
 
 
 def _transcode_cache_scan(now: float) -> tuple[int, list[tuple[float, int, str]]]:

@@ -381,6 +381,11 @@
   ],
   "specialized_controls": [
     {
+      "source": "frontend/src/components/BudgetAllocationBar.vue",
+      "selectors": ["budget-handle"],
+      "reason": "48px预算条使用JzButton水平slider分别改播放/缩略图额度，允许临时超配、配平后保存。宽段显示名称容量，44px以上缓存色段可打开精确编辑；更窄段通过常驻额度图例入口编辑，色段不强设最小宽度。独立JzDialog编辑弹层维护字符串缓冲，确定/Enter只更新单项草稿，取消/Escape丢弃本次输入，外部点击不关；焦点返回入口或图例，未确认输入接入离开保护。只读气泡、总预算线/斜纹、冻结拖动比例/出轨续拖/松手归一、键盘和指针ID隔离保持。两把手错开且热区44px，编辑中暂停拖动与最终保存。"
+    },
+    {
       "source": "frontend/src/components/ContinueWatchingRow.vue",
       "selectors": [
         "poster-play"
@@ -494,6 +499,12 @@
   ],
   "native_exceptions": [
     {
+      "kind": "cache-capacity",
+      "elements": ["input"],
+      "sources": ["frontend/src/components/CacheSettingsPanel.vue", "frontend/src/components/BudgetQuotaEditor.vue"],
+      "reason": "总预算保留原生range/number，两项缓存通过色段/常驻额度图例打开精确编辑弹层，不再常驻输入。弹层使用text+inputmode decimal保证字符串缓冲与文本全选，校验0.1～102400GB/一位小数后才进草稿；旧0及统计失败仍有输入入口。JzDialog统一焦点管理，桌面锚定、手机底部并适配visualViewport。输入与操作至少44px，刷新保留缓冲、未确认内容接入离开保护，最终显式保存。"
+    },
+    {
       "kind": "form",
       "elements": [
         "input",
@@ -510,7 +521,6 @@
       ],
       "sources": [
         "frontend/src/components/PreviewMaintenance.vue",
-        "frontend/src/components/StorageUsagePanel.vue",
         "frontend/src/components/FsBrowser.vue",
         "frontend/src/components/TvOrganizeDialog.vue"
       ],

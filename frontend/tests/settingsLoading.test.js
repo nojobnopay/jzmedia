@@ -73,7 +73,6 @@ async function mountSettings(t) {
     '../components/AiSettingsPanel.vue': { default: blank },
     '../components/LibrariesPanel.vue': { default: libraryPanel },
     '../components/LibraryToolsPanel.vue': { default: tools },
-    '../components/TranscodeCachePanel.vue': { default: blank },
     '../components/StorageUsagePanel.vue': { default: blank },
   })
   const element = () => ({ children: [], parent: null })

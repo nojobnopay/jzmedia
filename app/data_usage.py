@@ -12,9 +12,9 @@ import threading
 import time
 from urllib.parse import quote
 
+from . import cache_settings
 from .config import settings
 
-WARNING_BYTES = 20 * 1024 ** 3
 _lock = threading.Lock()
 _cached = None
 _cached_at = 0.0
@@ -96,8 +96,7 @@ def _scan() -> dict:
     except OSError:
         errors += 1
     total = sum(parts.values())
-    return {"ok": errors == 0, "total_bytes": total, "warning_bytes": WARNING_BYTES,
-            "over_limit": errors == 0 and total >= WARNING_BYTES,
+    return {"ok": errors == 0, "total_bytes": total,
             "categories": parts,
             "error": "部分应用数据暂时无法统计" if errors else ""}
 
@@ -109,4 +108,8 @@ def usage(*, refresh: bool = False) -> dict:
         if refresh or _cached is None or now - _cached_at >= 60:
             _cached = _scan()
             _cached_at = now
-        return dict(_cached, categories=dict(_cached["categories"]))
+        result = dict(_cached, categories=dict(_cached["categories"]))
+    # Limits are live even while the byte counts remain cached.
+    warning = cache_settings.warning_bytes()
+    return {**result, "warning_bytes": warning,
+            "over_limit": result["ok"] and result["total_bytes"] >= warning}

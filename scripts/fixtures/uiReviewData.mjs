@@ -60,8 +60,13 @@ const bindingTarget={tmdb_id:9001,show_id:201,title:tvTitles[0],year:2023,season
 const bindingInventory={items:bindingDirs,shows:[{...shows[0],seasons:bindingTarget.seasons}]}
 const tutorialExtras=[{id:701,kind:'behind_the_scenes',label:'幕后花絮',file_path:'群岛之间/Behind The Scenes/群岛拍摄手记.mp4',exists:true},{id:702,kind:'deleted_scene',label:'删减片段',file_path:'群岛之间/Deleted Scenes/渡轮上的告别.mp4',exists:true}]
 export function createFixture() {
-  const state={scene:'',mode:'normal',failurePath:'/api/search',step:1,requests:[],unexpected:[]}
+  const state={scene:'',mode:'normal',failurePath:'/api/search',step:1,requests:[],unexpected:[],cacheLimits:{data_warning_gb:20,transcode_cache_gb:10,preview_cache_gb:10}}
   const onboarding=()=>({show_welcome:false,status:'active',step:state.step,kind:'movie',library_id:1,tmdb_verified:true,tmdb_skipped:false,import_mode:'scan',upload_allowed:true,can_complete:true,content:{count:13,pending:2,items:movies.slice(0,4)}})
+  const dataUsage=()=>{
+    const categories={database:100*1024**2,posters:200*1024**2,previews:300*1024**2,transcode:1400*1024**2,other:state.scene==='settings-storage-alert'?19*1024**3+48*1024**2:48*1024**2}
+    const total=Object.values(categories).reduce((sum,value)=>sum+value,0),warning=state.cacheLimits.data_warning_gb*1024**3
+    return {ok:true,total_bytes:total,warning_bytes:warning,over_limit:total>=warning,categories,error:''}
+  }
   const list=items=>({items,has_more:false,total:items.length})
   function api(url,method,body){
     const key=url.pathname;state.requests.push({key,method,query:Object.fromEntries(url.searchParams)})
@@ -94,12 +99,21 @@ export function createFixture() {
     if(key==='/api/media-libraries')return {items:[{id:1,name:'客厅影库',source:'local',path:'/demo/media',movie_count:13,episode_count:96,enabled:true,read_only:false,video_libraries:libraries}],smb_driver:'direct'}
     if(key==='/api/onboarding'){if(method==='PATCH')Object.assign(state,{step:body.step||state.step});return onboarding()}
     if(key==='/api/settings')return {tmdb_configured:true,tmdb_language:'zh-CN',tmdb_read_token_set:true,tmdb_read_token_source:'db',tmdb_read_token_masked:'****demo',jzmedia_token_source:'unset',libraries:[]}
+    if(key==='/api/cache-settings'){
+      if(method==='PUT'){
+        const categories=dataUsage().categories,base=(categories.database+categories.posters+categories.other)/1024**3
+        const reserve=Math.ceil((base+Math.max(base*.1,1))*10-1e-8)/10
+        if(!(body.transcode_cache_gb>0&&body.transcode_cache_gb+body.preview_cache_gb+reserve<=body.data_warning_gb+1e-8))throw new Error('Isolated cache allocation exceeds the total budget')
+        state.cacheLimits={...body}
+      }
+      return state.cacheLimits
+    }
     if(key==='/api/health')return {ffmpeg:true,version:'0.19.0',transcoder:{kind:'sw'}}
     if(key==='/api/jobs/stats')return {grouped:13,versions:14,no_match:1,needs_review:1,missing_files:0,by_library:[{library_id:1,name:'电影',grouped:13,pending:2,no_match:1,needs_review:1,missing_files:0}]}
     if(key==='/api/tv/stats')return {shows:6,seasons:12,episodes:96,pending:1,episode_review:1,by_library:[{library_id:2,name:'剧集',shows:6,episodes:96,pending:1,episode_review:1}]}
-    if(key==='/api/data-usage')return {ok:true,total_bytes:state.scene==='settings-storage-alert'?21*1024**3:2*1024**3,warning_bytes:20*1024**3,over_limit:state.scene==='settings-storage-alert',categories:{database:100*1024**2,posters:200*1024**2,previews:300*1024**2,transcode:1400*1024**2,other:state.scene==='settings-storage-alert'?19*1024**3+48*1024**2:48*1024**2},error:''}
+    if(key==='/api/data-usage')return dataUsage()
     if(key==='/api/stream/previews/auto')return {mode:'all',queued:0,running:false,start_hour:3,end_hour:6,pause_reason:'scheduled'}
-    if(key==='/api/stream/previews/cache/clean')return {candidates:0,candidate_bytes:0,dry_run:body?.dry_run??true,removed:0,freed:0}
+    if(key==='/api/stream/previews/cache/clean'||key==='/api/stream/cache/clean')return {total:dataUsage().categories[key==='/api/stream/cache/clean'?'transcode':'previews'],candidates:0,candidate_bytes:0,dry_run:body?.dry_run??true,removed:0,freed:0}
     if(key==='/api/metadata/providers')return {providers:[{name:'local',label:'本地索引',available:true},{name:'tmdb',label:'TMDB',available:true}]}
     if(key==='/api/metadata/test-search')return {library_id:1,kind:'movie',items:[{title:titles[0],year:2014,source:'tmdb'}],source:'tmdb',elapsed_ms:82,chain:['local','tmdb']}
     if(key==='/api/jobs/scan')return {state:'idle'}

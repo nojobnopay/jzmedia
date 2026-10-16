@@ -22,7 +22,7 @@ def test_application_usage_counts_data_but_excludes_mounts_and_media(monkeypatch
     (root / 'outside-link').symlink_to(media, target_is_directory=True)
     monkeypatch.setattr(data_usage.settings, 'data_dir', str(root))
     monkeypatch.setattr(data_usage.settings, 'media_root', str(media))
-    monkeypatch.setattr(data_usage, 'WARNING_BYTES', 100)
+    monkeypatch.setattr(data_usage.cache_settings, 'warning_bytes', lambda: 100)
     result = data_usage.usage(refresh=True)
     assert result['ok'] and result['over_limit']
     assert result['total_bytes'] == 100

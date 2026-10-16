@@ -57,13 +57,13 @@
             <p v-if="tvStats" class="overview-detail">{{ tvStats.pending }} 部待处理 · {{ tvStats.episode_review }} 个分集待确认</p>
           </section>
         </div>
-        <details v-if="stats || dataUsage" class="settings-details overview-storage"><summary>存储与缓存统计{{ dataUsage?.ok ? ` · ${fmtBytes(dataUsage.total_bytes)} / 20 GB` : '' }}</summary>
+        <details v-if="stats || dataUsage" class="settings-details overview-storage"><summary>存储与缓存统计{{ dataUsage?.ok ? ` · ${fmtBytes(dataUsage.total_bytes)} / ${fmtBytes(dataUsage.warning_bytes)}` : '' }}</summary>
           <dl class="info-grid">
             <template v-if="dataUsage?.ok"><dt>数据库（含写入日志）</dt><dd>{{ fmtBytes(dataUsage.categories.database) }}</dd><dt>海报与图片</dt><dd>{{ fmtBytes(dataUsage.categories.posters) }}</dd><dt>进度缩略图</dt><dd>{{ fmtBytes(dataUsage.categories.previews) }}</dd><dt>播放缓存</dt><dd>{{ fmtBytes(dataUsage.categories.transcode) }}</dd><dt>其他应用数据</dt><dd>{{ fmtBytes(dataUsage.categories.other) }}</dd></template>
             <template v-if="stats"><dt>资料缓存</dt><dd>{{ stats.tmdb_cache }} 条（计入数据库）</dd><dt>人物</dt><dd>{{ stats.persons }} 位</dd></template>
           </dl>
           <p v-if="dataUsageError || (dataUsage && !dataUsage.ok)" class="hint" role="status">{{ dataUsageError || dataUsage.error }}</p>
-          <p v-if="dataUsage?.over_limit" class="warn-text">已达到 20 GB 提醒线，请到“系统维护”检查可清理内容。</p>
+          <p v-if="dataUsage?.over_limit" class="warn-text">已达到 {{ fmtBytes(dataUsage.warning_bytes) }} 总预算，请到“系统维护”重新分配容量或清理缓存。</p>
           <JzButton @click="go('sec-index')" type="button">打开系统维护</JzButton>
         </details>
         <div class="settings-shortcuts">
@@ -167,7 +167,6 @@
       <div v-show="active === 'sec-index'" id="sec-index">
         <StorageUsagePanel />
         <section class="card-block maintenance-action"><div><h3>搜索索引</h3><p class="hint">搜索结果缺失或与资料不一致时，重建全部媒体库的索引。</p></div><div class="bar"><JzButton @click="doRebuildFts" :disabled="!!busy" type="button" icon="search">{{ busy === 'fts' ? '重建中…' : '重建搜索索引' }}</JzButton></div><p v-if="ftsMsg" class="feedback" role="status">{{ ftsMsg }}</p></section>
-        <TranscodeCachePanel />
       </div>
 
       <div v-if="visited.has('sec-libtools') || visited.has('sec-files')" v-show="active === 'sec-libtools' || active === 'sec-files'">
@@ -199,7 +198,6 @@ import { api, setToken } from '../api.js'
 import { currentMediaId, listLibs, loadLibs } from '../libraries.js'
 import { loadPrefs, savePrefs, PREF_DEFAULTS } from '../prefs.js'
 
-import TranscodeCachePanel from '../components/TranscodeCachePanel.vue'
 import StorageUsagePanel from '../components/StorageUsagePanel.vue'
 import { SETTINGS_PAGES, settingsTarget } from '../settingsNavigation.js'
 import { CHAIN_PROVIDERS, CHAIN_LABELS, DEFAULT_CHAIN, useMatchingSettings } from '../useMatchingSettings.js'
