@@ -63,6 +63,34 @@ def test_declared_export_pixel_sizes_match_output_files():
     assert design.validate_rasters(design.brand_outputs()) == []
 
 
+def test_native_progress_is_registered_as_read_only_status():
+    rows = design.read_json('requirements.json')['requirements']
+    statuses = [row for row in rows if row['element'] == 'progress']
+    assert any(row['source'].endswith('/PreviewMaintenance.vue') for row in statuses)
+    assert all(row['category'] == 'native-status' and row['target'] is None for row in statuses)
+    assert all(row['display_size']['profile'] == 'web-progress' for row in statuses)
+    assert all('focus' not in row['states'] and row['accessible_name_owner'] for row in statuses)
+
+
+@pytest.mark.parametrize('registered,named', [(False, True), (True, False), (True, True)])
+def test_new_native_progress_requires_contract_and_accessible_name(tmp_path, monkeypatch, registered, named):
+    manifest = design.read_json('assets.json')
+    registry = {a['id']: design.icon_paths(a) for a in manifest['assets'] if a['category'] != 'brand'}
+    source = 'frontend/src/Demo.vue'
+    component = tmp_path / source
+    component.parent.mkdir(parents=True)
+    component.write_text('<template><progress' + (' aria-label="生成进度"' if named else '') + ' /></template>')
+    monkeypatch.setattr(design, 'ROOT', tmp_path)
+    contracts = {'dynamic_icons': [], 'specialized_controls': [], 'native_exceptions':
+                 [{'kind': 'status', 'sources': [source], 'reason': '只读进度'}] if registered else []}
+    _, errors = design.inventory(manifest, registry, contracts)
+    assert bool(errors) == (not registered or not named)
+    if not registered:
+        assert any('status contract' in error for error in errors)
+    if not named:
+        assert any('accessible name' in error for error in errors)
+
+
 def test_new_function_glyph_is_rejected_but_documented_text_is_allowed(tmp_path, monkeypatch):
     component = tmp_path / 'frontend/src/Demo.vue'
     component.parent.mkdir(parents=True)

@@ -20,7 +20,7 @@ from fastapi import HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from ... import data_usage, store
+from ... import data_usage, storage, store
 from ...config import settings
 from ...jobkit import JobRegistry
 from ...log import get_logger
@@ -758,6 +758,103 @@ def preview_queue(library_id: int | None = Query(default=None, gt=0),
     return {"items": page, "total": total, "offset": offset, "limit": limit,
             "revision": revision,
             "running": running}
+
+
+def _completed_manifest(data, interval, revision):
+    """Validate a whole usable sprite set without probing or changing the cache."""
+    if not data or data.get("state") != "ready":
+        return False
+    duration, count = data.get("duration"), data.get("count")
+    if (type(duration) not in (int, float) or not 0 < duration <= 86400
+            or not math.isfinite(duration) or type(count) is not int
+            or type(interval) is not int or not 5 <= interval <= 60
+            or type(data.get("quality_revision", 1)) is not int):
+        return False
+    expected = {"interval": interval, "width": WIDTH, "height": HEIGHT,
+                "columns": COLUMNS, "rows": ROWS, "count": math.ceil(duration / interval)}
+    return (all(data.get(name) == value for name, value in expected.items())
+            and data.get("quality_revision", 1) == revision
+            and data.get("pages") == [f"page_{page:04d}.jpg"
+                                      for page in range(math.ceil(count / (COLUMNS * ROWS)))])
+
+
+def _read_completed_manifest(directory):
+    try:
+        if directory.is_symlink() or (directory / "manifest.json").is_symlink():
+            return None
+        data = json.loads((directory / "manifest.json").read_text())
+        if (not isinstance(data, dict) or data.get("version") != VERSION
+                or data.get("quality_revision", 1) not in (1, QUALITY_REVISION)
+                or not _completed_manifest(data, data.get("interval"), data.get("quality_revision", 1))):
+            return None
+        if any((directory / name).is_symlink() or not (directory / name).is_file()
+               or (directory / name).stat().st_size == 0
+               for name in data["pages"]):
+            return None
+    except (OSError, ValueError, TypeError):
+        return None
+    return data
+
+
+@router.get("/previews/completed")
+def preview_completed(library_id: int | None = Query(default=None, gt=0),
+                      offset: int = Query(default=0, ge=0),
+                      limit: int = Query(default=50, ge=1, le=100)):
+    """On-demand inventory of current, complete previews, including usable old quality."""
+    library = store.get_library(library_id) if library_id is not None else None
+    if library_id is not None and not library:
+        raise HTTPException(404, "视频库不存在")
+    manifests, candidates = {}, set()
+    ownerless = False
+    root = _root()
+    for directory in [] if root.is_symlink() else root.glob("*"):
+        if not _KEY_RE.fullmatch(directory.name) or directory.is_symlink() or not directory.is_dir():
+            continue
+        data = _read_completed_manifest(directory)
+        if not data:
+            continue
+        manifests[directory.name] = data
+        kind, vid = data.get("item_kind"), data.get("item_id")
+        if kind in ("movie", "episode", "extra") and type(vid) is int and 0 < vid < 2 ** 63:
+            candidates.add((kind, vid))
+        elif kind is None and vid is None:
+            # Very early manifests lack ownership. Only these require a catalogue fallback.
+            ownerless = True
+    if ownerless:
+        for lib in [library] if library else store.list_libraries():
+            candidates.update(store.preview_items(lib["id"]))
+    completed = []
+    for kind, vid in candidates:
+        row = store.get_playable(kind, vid)
+        if not row or (library_id is not None and row.get("library_id") != library_id):
+            continue
+        try:
+            backend = storage.backend_for(row.get("library_id") or 1)
+            rel = backend.norm(row["file_path"])
+            stat = backend.stat(rel)
+            if stat.is_dir:
+                continue
+            # No read URL is needed: resolving one can start the remote HTTP proxy.
+            src = storage.MediaSource(backend, rel, "", None, stat.size, stat.mtime)
+        except storage.StorageError:
+            continue
+        interval = _interval(row)
+        for revision in (QUALITY_REVISION, 1):
+            data = manifests.get(_cache_key(row, src, interval, quality_revision=revision))
+            if not _completed_manifest(data, interval, revision):
+                continue
+            if (data.get("item_kind", kind), data.get("item_id", vid)) != (kind, vid):
+                continue
+            file_name = Path(row.get("file_path") or "").name
+            completed.append({"kind": kind, "id": vid, "library_id": row.get("library_id") or 1,
+                              "title": row.get("display_title") or row.get("title") or file_name,
+                              "file_name": file_name, "frames": data["count"], "interval": interval,
+                              "quality_revision": revision, "needs_update": revision != QUALITY_REVISION})
+            break
+    order = {"movie": 0, "episode": 1, "extra": 2}
+    completed.sort(key=lambda item: (item["library_id"], order[item["kind"]], item["id"]))
+    return {"items": completed[offset:offset + limit], "total": len(completed),
+            "offset": offset, "limit": limit}
 
 
 class PreviewQueueBody(BaseModel):

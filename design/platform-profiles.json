@@ -102,6 +102,16 @@
       "source": [
         "android-tv/app/src/main/java/org/jzmedia/tv/ui/EpisodeGrid.kt"
       ]
+    },
+    "web-progress": {
+      "specification": "原生只读进度状态，宽度随容器、条高按组件CSS；不设置触摸命中区或键盘焦点。",
+      "source": [
+        "design/contracts.json",
+        "frontend/src/components/PreviewMaintenance.vue",
+        "frontend/src/components/StorageUsagePanel.vue",
+        "frontend/src/components/FsBrowser.vue",
+        "frontend/src/components/TvOrganizeDialog.vue"
+      ]
     }
   }
 }

@@ -1,5 +1,5 @@
 // Real Vue UI + in-memory API fixtures. Never opens .env, backend, DB or media.
-// Run: node scripts/smoke_settings_ui.mjs [--capture-docs] [--player-only|--drafts-only]
+// Run: node scripts/smoke_settings_ui.mjs [--capture-docs] [--player-only|--drafts-only|--previews-only|--preview-baseline]
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
@@ -14,12 +14,14 @@ import { chromium } from '../docs/node_modules/playwright/index.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
-assert.ok(args.every(arg => ['--capture-docs', '--player-only', '--drafts-only'].includes(arg)))
+assert.ok(args.every(arg => ['--capture-docs', '--player-only', '--drafts-only', '--preview-baseline', '--previews-only'].includes(arg)))
 const capture = args.includes('--capture-docs')
 const playerOnly = args.includes('--player-only')
 const draftsOnly = args.includes('--drafts-only')
-assert.ok(!(playerOnly && draftsOnly), 'Choose one focused regression scope')
-assert.ok(!(capture && draftsOnly), 'Documentation capture requires the complete settings regression')
+const previewBaseline = args.includes('--preview-baseline')
+const previewsOnly = args.includes('--previews-only') || previewBaseline
+assert.ok([playerOnly, draftsOnly, previewsOnly].filter(Boolean).length <= 1, 'Choose one focused regression scope')
+assert.ok(!(capture && (draftsOnly || previewsOnly)), 'Documentation capture requires the complete settings regression')
 async function frontendFingerprint() {
   const hash = createHash('sha256')
   async function walk(directory) {
@@ -35,7 +37,7 @@ async function frontendFingerprint() {
   }
   return hash.digest('hex')
 }
-const sourceSha256 = capture ? await frontendFingerprint() : null
+const sourceSha256 = capture || previewsOnly ? await frontendFingerprint() : null
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-settings-ui-'))
 const dist = path.join(work, 'dist')
 const libs = [{ id: 1, name: '电影', kind: 'movie', subpath: '电影' }, { id: 2, name: '剧集', kind: 'tv', subpath: '剧集' }]
@@ -87,6 +89,11 @@ let previewQueue = Array.from({ length: 52 }, (_, index) => ({
 }))
 let previewRunning = { kind: 'movie', id: 91, library_id: 1, title: '处理样本', file_name: 'running.mkv',
   job_id: 'preview-auto', auto: true, waiting: false, frames: 4, frame_total: 10, done: 0, total: 1 }
+let previewCompleted = Array.from({ length: 53 }, (_, index) => ({
+  kind: ['movie', 'episode', 'extra'][index % 3], id: 500 + index, library_id: 1,
+  title: `成品样本 ${index + 1}`, file_name: `completed-${index + 1}.mkv`,
+  frames: 120 + index, interval: 10, quality_revision: index === 1 ? 0 : 1, needs_update: index === 1,
+}))
 const previewRevision = items => createHash('sha256').update(JSON.stringify(items.map(item =>
   [item.kind, item.id, item.library_id]))).digest('hex').slice(0, 16)
 let videoFixture, imageFixture, assVideoFixture, assFontFixture
@@ -191,6 +198,12 @@ function mock(url, method, body) {
   if (key === '/api/stream/progress') return method === 'GET' ? { position: 25, duration: 1200, position_text: '00:25' } : { ok: true }
   if (key === '/api/stream/previews/jobs/latest') return { state: 'idle' }
   if (key === '/api/stream/previews/auto') return { mode: 'all', queued: previewQueue.length + Number(!!previewRunning), running: !!previewRunning, start_hour: 3, end_hour: 6, pause_reason: 'scheduled' }
+  if (key === '/api/stream/previews/completed') {
+    const libraryId = Number(url.searchParams.get('library_id'))
+    const items = previewCompleted.filter(item => !libraryId || item.library_id === libraryId)
+    const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 50)
+    return { items: items.slice(offset, offset + limit), total: items.length, offset, limit }
+  }
   if (key === '/api/stream/previews/queue') {
     if (method === 'POST') {
       previewQueue.push({ kind: 'movie', id: 93, library_id: body.library_id, title: '已有影片样本', file_name: 'existing.mkv' })
@@ -586,6 +599,232 @@ async function checkAssFullscreen(browser, base) {
     throw error
   } finally { await context.close() }
 }
+async function checkPreviewMaintenance(browser, base, { baseline = false } = {}) {
+  const directory = path.join(root, 'output/playwright/preview-maintenance-unified')
+  await mkdir(directory, { recursive: true })
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
+  const original = structuredClone({ queue: previewQueue, running: previewRunning, completed: previewCompleted })
+  const checks = [], releases = []
+  const gate = () => {
+    let release, seen
+    const promise = new Promise(resolve => { release = resolve })
+    const requested = new Promise(resolve => { seen = resolve })
+    releases.push(release)
+    return { promise, release, requested, seen }
+  }
+  let completedGate = null, queueGate = null, failCompleted = false, failQueue = false
+  await context.route('**/*', async route => {
+    const url = new URL(route.request().url())
+    if (url.origin !== base) return route.abort()
+    if (route.request().method() === 'GET' && ['/api/stream/previews/completed', '/api/stream/previews/queue'].includes(url.pathname)) {
+      const completed = url.pathname.endsWith('/completed')
+      const delayed = completed ? completedGate : queueGate
+      const failed = completed ? failCompleted : failQueue
+      const result = mock(url, 'GET', null)
+      if (delayed) { delayed.seen(); await delayed.promise }
+      return route.fulfill({ status: failed ? 503 : 200,
+        json: failed ? { detail: completed ? '模拟成品清单读取失败' : '模拟处理队列读取失败' } : result }).catch(() => {})
+    }
+    return route.continue()
+  })
+  const page = await context.newPage()
+  page.setDefaultTimeout(12000)
+  page.on('pageerror', error => errors.push(String(error)))
+  const preview = page.getByRole('region', { name: '播放进度缩略图', exact: true })
+  const queue = preview.getByRole('region', { name: '处理队列', exact: true })
+  const completed = preview.getByRole('region', { name: '已生成缩略图清单', exact: true })
+  const toggle = preview.getByRole('button', { name: '已生成缩略图', exact: true })
+  const refresh = preview.getByRole('button', { name: '刷新已生成缩略图', exact: true })
+  const completedRequests = () => requests.filter(request => request.key === '/api/stream/previews/completed')
+  async function openLibrary(id = 1) {
+    await page.goto(base + '/settings?sec=sec-libtools&library=' + id + '&media=1')
+    await page.locator('.tool-views:visible').getByRole('button', { name: '资料维护', exact: true }).click()
+  }
+  async function captureViewports(scene) {
+    const viewports = []
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+      await preview.scrollIntoViewIfNeeded()
+      await preview.screenshot({ path: path.join(directory, `${scene}-${width}.png`), animations: 'disabled' })
+      await page.screenshot({ path: path.join(directory, `${scene}-${width}-viewport.png`), animations: 'disabled' })
+      const metrics = await preview.evaluate(el => ({
+        headings: [...el.querySelectorAll('h5')].map(h => ({ text: h.textContent, fontSize: getComputedStyle(h).fontSize })),
+        rowCount: el.querySelectorAll('.queue-row').length,
+        overflow: document.documentElement.scrollWidth > innerWidth,
+      }))
+      assert.equal(metrics.overflow, false, `${scene} does not overflow at ${width}px`)
+      if (width < 700) {
+        for (const locator of [preview.locator('.select-item').first(), preview.locator('.queue-action').first()]) {
+          if (!await locator.count()) continue
+          const box = await locator.boundingBox()
+          assert.ok(box.width >= 44 && box.height >= 44, `${scene} phone queue targets are at least 44px`)
+        }
+      }
+      viewports.push({ width, ...metrics })
+    }
+    return viewports
+  }
+  try {
+    if (!baseline) queueGate = gate()
+    await openLibrary()
+    if (queueGate) {
+      await queueGate.requested
+      await queue.getByText(/正在加载/).waitFor()
+      assert.equal(await queue.getByText('当前视频库没有待处理影片。', { exact: true }).count(), 0)
+      queueGate.release(); queueGate = null
+      checks.push('unresolved initial queue request is loading rather than empty')
+    }
+    await preview.getByText('处理样本', { exact: true }).waitFor()
+    await preview.getByText('队列样本 1', { exact: true }).waitFor()
+    const viewports = await captureViewports(baseline ? 'before' : 'after')
+    if (!baseline) {
+      assert.equal(await queue.locator('.queue-list > li').first().getAttribute('class').then(value => value.includes('is-running')), true)
+      assert.equal(await queue.locator('.is-running input[type="checkbox"]').count(), 0, 'current item cannot enter pending selection')
+      assert.equal(await queue.locator('.is-running progress').getAttribute('value'), '4')
+      assert.equal(await queue.locator('.is-running progress').getAttribute('max'), '10')
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'false')
+      assert.equal(completedRequests().length, 0, 'collapsed completed list is lazy')
+      checks.push('one queue with pinned current item, frame progress, current excluded from selection; completed lazy')
+
+      previewRunning.waiting = true
+      await queue.locator('.is-running').getByText('等待播放转码释放资源，随后继续生成。', { exact: true }).waitFor()
+      checks.push('playing-transcode wait reason updates in current row')
+      completedGate = gate()
+      await toggle.focus()
+      await page.keyboard.press('Space')
+      await completedGate.requested
+      await completed.getByText(/正在加载/).waitFor()
+      assert.equal(await completed.getByText(/还没有.*|没有已生成.*|暂无.*/).count(), 0, 'unresolved completed request is not empty')
+      assert.equal(await toggle.evaluate(el => el === document.activeElement), true, 'keyboard expansion retains focus')
+      await page.screenshot({ path: path.join(directory, 'completed-loading-320.png'), animations: 'disabled' })
+      completedGate.release(); completedGate = null
+      await completed.getByText('成品样本 1', { exact: true }).waitFor()
+      await completed.getByText('旧版可用', { exact: true }).waitFor()
+      const callsAfterExpand = completedRequests().length
+      await page.waitForResponse(response => new URL(response.url()).pathname === '/api/stream/previews/queue')
+      assert.equal(completedRequests().length, callsAfterExpand, 'queue polling does not poll completed manifests')
+      await completed.getByRole('button', { name: '已生成下一页', exact: true }).click()
+      await completed.getByText('成品样本 53', { exact: true }).waitFor()
+      assert.equal(await queue.getByText('队列样本 1', { exact: true }).count(), 1, 'completed pagination preserves queue page')
+      await completed.getByRole('button', { name: '已生成上一页', exact: true }).click()
+      await completed.getByText('成品样本 1', { exact: true }).waitFor()
+      checks.push('keyboard toggle, loading distinct from empty, old complete status, independent pagination, no completed polling')
+
+      previewRunning.waiting = false
+      previewRunning.frames = previewRunning.frame_total
+      await queue.locator('.is-running').getByText('抽帧完成，正在整理缩略图。', { exact: true }).waitFor()
+      assert.equal(await completed.getByText('处理样本', { exact: true }).count(), 0, '100 percent extraction is not a complete manifest')
+      previewCompleted.unshift({ ...original.completed[0], id: 91, title: '处理样本', frames: 10 })
+      previewRunning = null
+      await queue.getByText('处理样本', { exact: true }).waitFor({ state: 'hidden' })
+      await completed.getByText('处理样本', { exact: true }).waitFor()
+      checks.push('100 percent remains processing until ready; completed transition refreshes an open list')
+
+      failCompleted = true
+      await refresh.click()
+      await completed.getByRole('alert').filter({ hasText: '模拟成品清单读取失败' }).waitFor()
+      await page.screenshot({ path: path.join(directory, 'completed-error-320.png'), animations: 'disabled' })
+      failCompleted = false
+      await completed.getByRole('button', { name: '重试加载已生成缩略图', exact: true }).click()
+      await completed.getByText('成品样本 1', { exact: true }).waitFor()
+      previewCompleted = []
+      await refresh.click()
+      await completed.getByText(/没有.*(生成|缩略)|暂无/).waitFor()
+      await page.screenshot({ path: path.join(directory, 'completed-empty-320.png'), animations: 'disabled' })
+      previewCompleted = structuredClone(original.completed)
+      previewCompleted.unshift({ ...previewCompleted[0], id: 499, title: '刷新后新增成品' })
+      await refresh.focus()
+      await page.keyboard.press('Enter')
+      await completed.getByText('刷新后新增成品', { exact: true }).waitFor()
+      await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '刷新已生成缩略图')
+      completedGate = gate()
+      await page.keyboard.press('Enter')
+      await completedGate.requested
+      await toggle.focus()
+      const refreshResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/stream/previews/completed')
+      completedGate.release(); completedGate = null
+      await refreshResponse
+      await page.waitForFunction(() => document.querySelector('[aria-label="刷新已生成缩略图"]')?.disabled === false)
+      assert.equal(await toggle.evaluate(el => el === document.activeElement), true, 'a completed refresh cannot steal deliberately moved focus')
+      checks.push('completed error retry, true empty, explicit refresh sees a new complete item; keyboard focus restores without stealing focus')
+
+      const longTitle = '长名称样本：' + '电影与剧集花絮画面'.repeat(18)
+      previewRunning = { ...structuredClone(original.running), title: '当前长名称：' + '影片预览抽帧'.repeat(20) }
+      previewQueue[0] = { ...previewQueue[0], title: longTitle, file_name: '长文件名_'.repeat(30) + '.mkv' }
+      previewCompleted[0] = { ...previewCompleted[0], title: longTitle, file_name: 'completed-long-name_'.repeat(20) + '.mkv' }
+      previewQueue = previewQueue.slice(0, 2)
+      previewCompleted = previewCompleted.slice(0, 3)
+      await refresh.click()
+      await queue.getByText(longTitle, { exact: true }).waitFor()
+      await queue.getByText(previewRunning.title, { exact: true }).waitFor()
+      await completed.getByText(longTitle, { exact: true }).waitFor()
+      assert.equal(await queue.getByText(longTitle, { exact: true }).getAttribute('title'), longTitle)
+      await captureViewports('after-expanded-long')
+      checks.push('long titles and filenames at desktop 1440 and phones 390/320, readable actions without overflow')
+
+      previewQueue = structuredClone(original.queue)
+      previewCompleted = structuredClone(original.completed)
+      previewRunning = structuredClone(original.running)
+      await openLibrary()
+      await queue.getByText('队列样本 1', { exact: true }).waitFor()
+      await queue.getByRole('checkbox', { name: '选择 队列样本 1', exact: true }).check()
+      await queue.getByRole('navigation', { name: '处理队列分页', exact: true }).getByRole('button', { name: '下一页', exact: true }).click()
+      await queue.getByRole('checkbox', { name: '选择 队列样本 52', exact: true }).check()
+      await queue.getByText('已选 2 项', { exact: true }).waitFor()
+      await queue.getByRole('button', { name: '批量移出选中项', exact: true }).click()
+      await preview.getByText('已移出 2 项待处理影片。', { exact: true }).waitFor()
+      await queue.getByRole('checkbox', { name: '全选本库待处理项', exact: true }).check()
+      await queue.getByText('已选 50 项', { exact: true }).waitFor()
+      await queue.getByRole('checkbox', { name: '选择 队列样本 2', exact: true }).uncheck()
+      await queue.getByText('已选 49 项', { exact: true }).waitFor()
+      await queue.getByRole('button', { name: '批量移出选中项', exact: true }).click()
+      await preview.getByText('已移出 49 项待处理影片。', { exact: true }).waitFor()
+      assert.equal(await queue.getByText('处理样本', { exact: true }).count(), 1, 'bulk pending removal preserves current')
+      await queue.getByRole('button', { name: '从待处理队列移除 队列样本 2', exact: true }).click()
+      await queue.getByRole('button', { name: '取消并移出队列 处理样本', exact: true }).click()
+      await queue.getByText('当前视频库没有待处理影片。', { exact: true }).waitFor()
+      checks.push('cross-page selection, all-pages select/exclude, bulk removal preserves current, single removal and current cancellation')
+
+      failQueue = true
+      await openLibrary()
+      await queue.getByRole('alert').filter({ hasText: '模拟处理队列读取失败' }).waitFor()
+      failQueue = false
+      await queue.getByRole('button', { name: '重试加载处理队列', exact: true }).click()
+      await queue.getByText('当前视频库没有待处理影片。', { exact: true }).waitFor()
+      checks.push('queue failure retry and real empty')
+
+      await toggle.click()
+      await completed.getByText('成品样本 1', { exact: true }).waitFor()
+      completedGate = gate()
+      await refresh.click()
+      await completedGate.requested
+      previewCompleted.push({ ...original.completed[0], id: 900, library_id: 2, kind: 'episode', title: '库二成品' })
+      await page.locator('.lib-tabs').getByRole('button', { name: '演示媒体库 · 剧集', exact: true }).click()
+      await page.locator('.tool-views:visible').getByRole('button', { name: '资料维护', exact: true }).click()
+      completedGate.release(); completedGate = null
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'new library completed list starts collapsed')
+      await toggle.click()
+      await completed.getByText('库二成品', { exact: true }).waitFor()
+      assert.equal(await completed.getByText('成品样本 1', { exact: true }).count(), 0, 'late first-library response cannot replace second-library results')
+      checks.push('switching libraries aborts/stales old completed response and loads current library only')
+    }
+    await writeFile(path.join(directory, `${baseline ? 'before' : 'after'}-checks.json`), JSON.stringify({
+      mocked: true, realVue: true, sourceSha256, viewports, checks,
+      designBaseline: '深色资料维护卡片。当前任务与待处理分别成节；标题和帧数位于左侧，取消/移出为右侧图标。待处理每页50项，复选框与长标题共用行，分页和全库选择位于列表边界。',
+    }, null, 2) + '\n')
+    await Promise.all(['failure.json', 'failure.png'].map(name => rm(path.join(directory, name), { force: true })))
+  } catch (error) {
+    await page.screenshot({ path: path.join(directory, 'failure.png'), fullPage: true }).catch(() => {})
+    await writeFile(path.join(directory, 'failure.json'), JSON.stringify({ checks, message: String(error),
+      headings: await page.locator('h4,h5').allTextContents(), text: await preview.allTextContents() }, null, 2) + '\n')
+    throw error
+  } finally {
+    for (const release of releases) release()
+    previewQueue = original.queue; previewRunning = original.running; previewCompleted = original.completed
+    await context.close()
+  }
+}
+
 async function screenshot(page, name, doc, scene, { animations = 'disabled' } = {}) {
   if (!capture) return
   await page.evaluate(() => window.scrollTo(0, 0))
@@ -1073,9 +1312,10 @@ try {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
   const base = `http://127.0.0.1:${server.address().port}`
   browser = await chromium.launch({ headless: true })
-  if (!playerOnly) await checkSettingsDrafts(browser, base)
-  if (!playerOnly && !draftsOnly) await checkFileLoading(browser, base)
-  if (!draftsOnly) {
+  if (previewsOnly) await checkPreviewMaintenance(browser, base, { baseline: previewBaseline })
+  if (!previewsOnly && !playerOnly) await checkSettingsDrafts(browser, base)
+  if (!previewsOnly && !playerOnly && !draftsOnly) await checkFileLoading(browser, base)
+  if (!previewsOnly && !draftsOnly) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
   await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort())
   if (!playerOnly) {
@@ -1135,7 +1375,7 @@ try {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
       await page.setViewportSize({ width: 1440, height: 1000 })
       await preview.getByRole('button', { name: '取消并移出队列 处理样本', exact: true }).click()
-      await preview.getByText('当前视频库没有正在处理的预览影片。').waitFor()
+      await preview.getByRole('button', { name: '取消并移出队列 处理样本', exact: true }).waitFor({ state: 'hidden' })
       await preview.getByRole('checkbox', { name: '选择 队列样本 1', exact: true }).check()
       await preview.getByRole('button', { name: '下一页' }).click()
       await preview.getByRole('checkbox', { name: '选择 队列样本 52', exact: true }).check()
@@ -1617,6 +1857,7 @@ try {
   }
   assert.deepEqual(unexpected, [], 'all API calls must be mocked explicitly')
   assert.deepEqual(errors, [], 'no browser or fixture errors')
+  if (previewsOnly) assert.equal(await frontendFingerprint(), sourceSha256, 'Frontend source changed during preview checks; rerun after it is stable')
   if (capture) {
     assert.equal(await frontendFingerprint(), sourceSha256, 'Frontend source changed during capture; rerun after it is stable')
     const filename = path.join(root, 'docs/assets/manifest.json')
@@ -1625,7 +1866,7 @@ try {
     manifest.assets = manifest.assets.filter(entry => !names.has(entry.file)).concat(captured)
     await writeFile(filename, JSON.stringify(manifest, null, 2) + '\n')
   }
-  console.log(draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: controls, rate, fullscreen, preview/normal lifecycle; native HLS detached clock fallback without repeated recovery, MP4 clip prefetch/continuation/seek/source subtitle offset/lease cleanup and diagnostic copy; real ASS worker and video/subtitle pixels in phone portrait/landscape fullscreen' : 'PASS settings, files and playback: draft/navigation/preview lifecycle; browser playback compatibility, MP4 source timeline and subtitles, ASS fullscreen pixels and cleanup')
+  console.log(previewsOnly ? 'PASS preview maintenance isolated browser checks' : draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: controls, rate, fullscreen, preview/normal lifecycle; native HLS detached clock fallback without repeated recovery, MP4 clip prefetch/continuation/seek/source subtitle offset/lease cleanup and diagnostic copy; real ASS worker and video/subtitle pixels in phone portrait/landscape fullscreen' : 'PASS settings, files and playback: draft/navigation/preview lifecycle; browser playback compatibility, MP4 source timeline and subtitles, ASS fullscreen pixels and cleanup')
 } finally {
   if (browser) await browser.close()
   if (server) await new Promise(resolve => server.close(resolve))

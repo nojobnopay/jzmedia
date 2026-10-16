@@ -68,6 +68,8 @@ reviewed: 2026-10-16
 
 自动生成时段、暂停状态及全服务预览排队总量由 `GET /api/stream/previews/auto` 返回，`queued` 包括当前正在处理的影片。`GET /api/stream/previews/queue?library_id=<id>&offset=0&limit=50` 合并立即批量任务与闲时队列的未开始项并去重，另返回正在处理的影片；`total` 不包含当前正在处理项。省略 `library_id` 查询全服务，最多每页 100 项。同一队列快照的分页共享 `revision`，完成项退出待处理队列。
 
+`GET /api/stream/previews/completed?library_id=<id>&offset=0&limit=50` 按当前视频库分页列出已有完整预览的电影、分集和花絮；省略 `library_id` 查询全服务，`limit` 为 1–100。返回 `{items,total,offset,limit}`，每项包含 `kind/id/library_id/title/file_name/frames/interval/quality_revision/needs_update`；`frames` 为完整清单帧数，兼容的旧画质成品以 `needs_update:true` 标记。每部影片最多一项，按视频库、电影/分集/花絮、ID 顺序排列。仅计入与当前片源、采样配置匹配且所有图片页完整的清单，离线、过期和部分产物不计入；抽帧达到 100% 不等于完整成品。接口只读，不探测原片或更新缓存访问时间，使用与队列接口相同的管理权限；网页展开已生成清单时按需调用，刷新及分页独立于队列轮询。
+
 `POST /api/stream/previews/queue {"library_id":<id>}` 将已有本地库中未完成预览的可播放项加入闲时队列，返回新增、已有成品、已排队、源文件不可用的数量。`DELETE /api/stream/previews/queue/{kind}/{version_id}?library_id=<id>` 同时移出两处待处理列表中的单项；移出正在处理的闲时项同时取消其任务。批量移出使用 `POST /api/stream/previews/queue/remove`，请求包含 `library_id`、从列表获得的 `revision`，以及 `items:[{"kind":"movie","id":1}]`；全选跨分页时改传 `all_pending:true`，可用 `exclude` 排除个别 `{kind,id}`。服务端先保存持久队列，再原子更新即时任务未领取的影片列表，始终排除正在处理项；清空后仅当前影片继续完成。队列版本变化返回 409，需刷新后重新选择。移出保留已有预览页。
 
 手动批量任务用原有 `POST /api/stream/previews/jobs/{job_id}/cancel` 取消整个任务。`POST /api/stream/previews/cache/clean {"dry_run":true|false}` 先预览再清理全部进度缩略图，不删除自动队列，生成任务运行时返回 409。原有 `POST /api/stream/cache/clean` 只清理可回收播放缓存。扫描摘要的 `preview_auto.queued` 表示新排队项数。

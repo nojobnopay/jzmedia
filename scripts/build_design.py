@@ -486,13 +486,14 @@ def css_geometry_index():
 
 
 def web_geometry(tag, attrs, markup, source, rules, profiles):
-    profile = 'web-icon' if tag in ('AppIcon','PlayerIcon','Spinner') else 'web-placeholder' if tag == 'ArtworkPlaceholder' else 'web-button' if tag == 'JzButton' else 'web-native' if tag in ('input','select','textarea','summary') else 'web-link' if tag in ('a','RouterLink','router-link') else 'web-specialized'
+    profile = 'web-icon' if tag in ('AppIcon','PlayerIcon','Spinner') else 'web-placeholder' if tag == 'ArtworkPlaceholder' else 'web-button' if tag == 'JzButton' else 'web-progress' if tag == 'progress' else 'web-native' if tag in ('input','select','textarea','summary') else 'web-link' if tag in ('a','RouterLink','router-link') else 'web-specialized'
     explicit = attrs.get(':size') or attrs.get('size')
     icon_size = explicit or ('22' if tag == 'PlayerIcon' else '20' if tag == 'AppIcon' else '16' if tag == 'Spinner' else '32')
     classes = attrs.get('class','').split()
     classes += re.findall(r"'([a-z][\w-]+)'", attrs.get(':class',''))
     matches = [rule for rule in rules if (rule['source'] == source or rule['source'].endswith('.css'))
-               and any(re.search(r'\.'+re.escape(name)+r'(?![\w-])',rule['selector']) for name in classes)]
+               and (any(re.search(r'\.'+re.escape(name)+r'(?![\w-])',rule['selector']) for name in classes)
+                    or (tag == 'progress' and re.search(r'(?<![\w-])progress(?![\w-])', rule['selector'])))]
     info = {'unit':'CSS px', 'profile':profile, 'specification':profiles[profile]['specification'],
             'measurement_status':'source specification; browser acceptance records actual geometry',
             'source': profiles[profile]['source'], 'overrides':matches}
@@ -532,7 +533,9 @@ def inventory(manifest, registry, contracts):
     geometry_rules = css_geometry_index()
     contract_map = {(c['source'], c['expression']): c for c in contracts['dynamic_icons']}
     native_map = {c['source']: c for c in contracts['specialized_controls']}
-    vue_tags = {'JzButton','button','a','RouterLink','router-link','summary','input','select','textarea','AppIcon','PlayerIcon','Spinner','ArtworkPlaceholder','svg','img'}
+    native_status = {source: c for c in contracts.get('native_exceptions', [])
+                     if c['kind'] == 'status' for source in c.get('sources', [])}
+    vue_tags = {'JzButton','button','a','RouterLink','router-link','summary','input','select','textarea','progress','AppIcon','PlayerIcon','Spinner','ArtworkPlaceholder','svg','img'}
     for path in source_files():
         rel = path.relative_to(ROOT).as_posix()
         if '/generated/' in rel: continue
@@ -600,14 +603,22 @@ def inventory(manifest, registry, contracts):
                         errors.append(f'{rel}:{line}: unknown icon {name}')
                 if tag=='button' and not any(selector in markup for selector in native_map.get(rel,{}).get('selectors',[])):
                     errors.append(f'{rel}:{line}: native button needs documented specialized control contract')
-                category = 'asset' if tag in ('AppIcon','PlayerIcon','Spinner','ArtworkPlaceholder','svg') or (tag=='img' and asset_ids) else 'media-content' if tag=='img' and not asset_ids else 'link' if tag in ('a','RouterLink','router-link') else 'native-form' if tag in ('input','select','textarea','summary') else 'control'
+                if tag == 'progress':
+                    if rel not in native_status:
+                        errors.append(f'{rel}:{line}: native progress needs a documented status contract')
+                    if not any(attrs.get(name) for name in ('aria-label', ':aria-label', 'aria-labelledby', ':aria-labelledby')):
+                        errors.append(f'{rel}:{line}: native progress needs an accessible name')
+                category = 'asset' if tag in ('AppIcon','PlayerIcon','Spinner','ArtworkPlaceholder','svg') or (tag=='img' and asset_ids) else 'media-content' if tag=='img' and not asset_ids else 'link' if tag in ('a','RouterLink','router-link') else 'native-status' if tag=='progress' else 'native-form' if tag in ('input','select','textarea','summary') else 'control'
                 owner = 'decorative; surrounding control/text owns accessible name' if category=='asset' else attrs.get('aria-label') or attrs.get(':aria-label') or ('associated label / native form semantics' if category=='native-form' else 'visible text, title or enclosing media caption')
                 states=['normal','focus','disabled'] if category in ('control','native-form','link') else ['normal']
+                if category == 'native-status':
+                    owner = next((attrs[name] for name in ('aria-label', ':aria-label', 'aria-labelledby', ':aria-labelledby') if attrs.get(name)), owner)
+                    states = ['determinate', 'indeterminate']
                 if ':loading' in attrs or ':disabled' in attrs: states+=['busy']
                 if 'aria-pressed' in markup or 'aria-selected' in markup or ':class' in attrs: states+=['selected']
                 for override in contracts.get('purpose_overrides',[]):
                     if override['source']==rel and set(asset_ids)&set(override['assets']):purpose=override['purpose']
-                result.append({'id':f'{rel}:{tag}:{order}','source':rel,'line':line,'platforms':['web','mobile-web'],'category':category,'feature':source_family(path),'element':tag,'purpose':purpose,'assets':asset_ids,'dynamic_expression':dynamic,'display_size':web_geometry(tag, attrs, markup, rel, geometry_rules, profiles),'target':{'policy_touch_min_css_px':44,'measurement_status':'not inferred from source'} if category in ('control','native-form') else None,'states':states,'accessible_name_owner':owner,'classification':native_map.get(rel,{}).get('reason') if tag=='button' else 'media payload' if category=='media-content' else 'native control' if category=='native-form' else 'shared design component' if tag in ('AppIcon','PlayerIcon','JzButton','Spinner','ArtworkPlaceholder') else 'semantic link','source_excerpt':compact(markup)})
+                result.append({'id':f'{rel}:{tag}:{order}','source':rel,'line':line,'platforms':['web','mobile-web'],'category':category,'feature':source_family(path),'element':tag,'purpose':purpose,'assets':asset_ids,'dynamic_expression':dynamic,'display_size':web_geometry(tag, attrs, markup, rel, geometry_rules, profiles),'target':{'policy_touch_min_css_px':44,'measurement_status':'not inferred from source'} if category in ('control','native-form') else None,'states':states,'accessible_name_owner':owner,'classification':native_map.get(rel,{}).get('reason') if tag=='button' else 'media payload' if category=='media-content' else native_status.get(rel,{}).get('reason') if category=='native-status' else 'native control' if category=='native-form' else 'shared design component' if tag in ('AppIcon','PlayerIcon','JzButton','Spinner','ArtworkPlaceholder') else 'semantic link','source_excerpt':compact(markup)})
                 if adapter:
                     result[-1]['purpose']=contract['reason']
                     result[-1]['category']='adapter'

@@ -96,6 +96,49 @@ def test_preview_cache_needs_visible_owner_even_for_old_urls(device, monkeypatch
     assert response.headers["cache-control"] == "no-store"
 
 
+def test_completed_previews_require_management_and_never_leak_private_titles(device, monkeypatch, tmp_path):
+    client, mid, _, _, _ = device
+    backend = LocalStorageBackend({"id": 1, "path": str(tmp_path)})
+    source = tmp_path / "synthetic.mkv"
+    source.write_bytes(b"isolated-source")
+    monkeypatch.setattr(previews.storage, "backend_for", lambda _lid: backend)
+    cache = tmp_path / "completed-previews"
+    monkeypatch.setattr(previews, "_root", lambda: cache)
+    src = previews.storage.MediaSource(backend, "synthetic.mkv", "", None,
+                                      source.stat().st_size, source.stat().st_mtime)
+    key = previews._cache_key(store.get_playable("movie", mid), src, 10)
+    directory = cache / key
+    directory.mkdir(parents=True)
+    (directory / "page_0000.jpg").write_bytes(b"isolated-sprite")
+    previews._write_manifest(directory, dict(version=previews.VERSION, quality_revision=previews.QUALITY_REVISION,
+                                            state="ready", interval=10, duration=10, count=1,
+                                            width=previews.WIDTH, height=previews.HEIGHT,
+                                            columns=previews.COLUMNS, rows=previews.ROWS,
+                                            pages=["page_0000.jpg"], item_kind="movie", item_id=mid))
+    client.post("/api/viewing/unlock", json={"password": "123456"})
+    client.patch("/api/viewing/policy", json={"kind": "movie", "ids": [mid], "is_private": True})
+    path = "/api/stream/previews/completed"
+    allowed = client.get(path)
+    assert allowed.status_code == 200 and allowed.json()["total"] == 1
+    assert allowed.json()["items"][0]["file_name"] == "synthetic.mkv"
+    assert allowed.headers["cache-control"] == "no-store"
+
+    client.post("/api/viewing/lock")
+    denied = client.get(path)
+    assert denied.status_code == 403 and denied.json()["code"] == "management_required"
+    assert "synthetic.mkv" not in denied.text and "items" not in denied.json()
+    client.post("/api/viewing/mode", json={"mode": "private", "password": "123456"})
+    assert client.get(path).status_code == 200  # Entering private mode grants management temporarily.
+    current, _, _ = viewing.resolve(client.cookies[viewing.COOKIE])
+    with viewing._connection() as c:
+        c.execute("UPDATE viewing_sessions SET management_until=0 WHERE token_hash=?", (current["token_hash"],))
+    assert client.get(path).status_code == 403
+    client.post("/api/viewing/mode", json={"mode": "children"})
+    denied = client.get(path)
+    assert denied.status_code == 403 and denied.json()["code"] == "management_required"
+    assert "synthetic.mkv" not in denied.text
+
+
 def test_management_file_stream_stops_when_temporary_grant_expires(device, monkeypatch):
     client, _, _, directory, data = device
     client.post("/api/viewing/unlock", json={"password": "123456"})

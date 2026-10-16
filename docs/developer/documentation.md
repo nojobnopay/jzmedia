@@ -1,6 +1,6 @@
 ---
-version: 0.23.0
-reviewed: 2026-10-10
+version: 0.27.0
+reviewed: 2026-10-16
 ---
 
 # 文档制作与发布
@@ -301,10 +301,13 @@ node scripts/smoke_ai_ui.mjs --capture-docs
 ```bash
 node scripts/smoke_settings_ui.mjs
 node scripts/smoke_settings_ui.mjs --drafts-only
+node scripts/smoke_settings_ui.mjs --previews-only
 node scripts/smoke_settings_ui.mjs --capture-docs
 ```
 
 该脚本构建真实 Vue 页面，但使用内存 API 模拟；不读取 `.env`、真实数据库或媒体。覆盖设置分组、按库草稿与来源顺序、明确打开/返回入口、刷新后返回原工具标签、目录分页、右键改名、退出守卫、切库与扫描目标一致性，以及手机更多菜单。预览用 FFmpeg 在临时目录生成测试视频和图片，另有合成字幕/NFO/PDF；真实播放器对照验证预览不触发任何观看进度请求或已看/连播事件，普通播放仍读取、清除、保存进度。截图来源逐项记录在 `docs/assets/manifest.json`；不能当作真实 NAS 写入或网络服务验证。运行需要已安装 FFmpeg（可使用现有 static-ffmpeg），`--capture-docs` 同时用它生成 WebP。
+
+`--previews-only` 仅检查缩略图维护：合并处理队列、当前帧进度与等待状态、跨页选择和移出，以及按需加载的已生成清单、分页、刷新、失败重试和切库旧响应隔离。桌面 1440px、手机 390px 与 320px 的隔离截图及结果写入 `output/playwright/preview-maintenance-unified/`。
 
 ## 离线发布包
 
