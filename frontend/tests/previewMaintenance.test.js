@@ -12,10 +12,14 @@ const click = async (ui, name) => { assert.ok(button(ui, name), `Missing button:
 const completedItem = index => ({ id: index, library_id: 1, kind: index === 2 ? 'episode' : 'movie',
   title: `已生成样本 ${index}`, file_name: `ready-${index}.mkv`, frames: 150, interval: 10,
   quality_revision: index === 2 ? 1 : 2, needs_update: index === 2 })
+const failedItem = index => ({ id: index + 100, library_id: 1, kind: index === 2 ? 'episode' : 'movie',
+  title: `生成失败样本 ${index}`, file_name: `failed-${index}.mkv`, failed_at: 1789500000 + index,
+  error_code: 'timeout', error: '抽取缩略图超时，请稍后重新生成。' })
 
 async function mount(t) {
   const requests = [], timers = new Map()
   let timerId = 0, revision = 1, completedGate = null, completedFailure = false, queueFailure = false
+  let failedGate = null, failedFailure = false, retryGate = null, retryResult = 'queued'
   const state = {
     pending: Array.from({ length: 52 }, (_, index) => ({ kind: 'movie', id: index + 1,
       library_id: 1, title: `待处理样本 ${index + 1}`, file_name: `pending-${index + 1}.mkv` })),
@@ -23,6 +27,7 @@ async function mount(t) {
       job_id: 'manual-job', auto: false, waiting: false, frames: 4, frame_total: 10 },
     job: { state: 'running', job_id: 'manual-job', done: 0, total: 53 },
     completed: Array.from({ length: 53 }, (_, index) => completedItem(index + 1)),
+    failed: Array.from({ length: 53 }, (_, index) => failedItem(index + 1)),
   }
   t.mock.method(globalThis, 'setTimeout', (fn, delay) => { const id = ++timerId; timers.set(id, { fn, delay }); return id })
   t.mock.method(globalThis, 'clearTimeout', id => timers.delete(id))
@@ -40,6 +45,24 @@ async function mount(t) {
       if (completedFailure) { completedFailure = false; throw new Error('已生成清单暂时不可用') }
       return response
     }
+    if (url.pathname.endsWith('/failed')) {
+      const items = library === 1 ? state.failed : []
+      const response = { items: items.slice(offset, offset + 50), total: items.length, offset, limit: 50 }
+      if (failedGate) { const gate = failedGate; failedGate = null; return gate.promise }
+      if (failedFailure) { failedFailure = false; throw new Error('失败清单暂时不可用') }
+      return response
+    }
+    if (url.pathname.endsWith('/retry')) {
+      assert.equal(options.method, 'POST')
+      assert.deepEqual(body, { library_id: 1 })
+      if (retryGate) { const gate = retryGate; retryGate = null; return gate.promise }
+      if (retryResult === 'queued') {
+        const id = Number(url.pathname.split('/').at(-2))
+        state.pending.push({ ...state.failed.find(item => item.id === id), auto: false, source: 'retry' })
+        revision++
+      }
+      return { state: retryResult }
+    }
     if (url.pathname.endsWith('/queue') && !options.method) {
       if (queueFailure) { queueFailure = false; throw new Error('队列暂时不可用') }
       const items = state.pending.filter(item => item.library_id === library)
@@ -56,7 +79,9 @@ async function mount(t) {
       return { removed: before - state.pending.length }
     }
     if (/\/queue\/movie\/\d+$/.test(url.pathname) && options.method === 'DELETE') {
-      state.pending = state.pending.filter(item => item.id !== Number(url.pathname.split('/').at(-1)))
+      const id = Number(url.pathname.split('/').at(-1))
+      state.pending = state.pending.filter(item => item.id !== id)
+      if (state.running?.id === id) state.running = null
       revision++
       return { removed: true }
     }
@@ -71,9 +96,14 @@ async function mount(t) {
   return { ui, props, state, requests,
     async poll() { const timer = [...timers.values()].find(item => item.delay === 2500 || item.delay === 30000); assert.ok(timer); timer.fn(); await flush() },
     holdCompleted() { completedGate = deferred(); return completedGate },
+    holdFailed() { failedGate = deferred(); return failedGate },
+    holdRetry() { retryGate = deferred(); return retryGate },
+    failFailed() { failedFailure = true }, setRetryResult(value) { retryResult = value },
     failCompleted() { completedFailure = true }, failQueue() { queueFailure = true },
     changeRevision() { revision++ },
     completedCalls: () => requests.filter(request => request.path.endsWith('/completed')),
+    failedCalls: () => requests.filter(request => request.path.endsWith('/failed')),
+    retryCalls: () => requests.filter(request => request.path.endsWith('/retry')),
   }
 }
 
@@ -227,4 +257,140 @@ test('external queue revisions reset pending selections without disturbing compl
   assert.match(ui.text(), /已选 0 项/)
   assert.equal(rows(ui, 'completed-row').length, 50)
   assert.equal(setup.completedCalls().length, 1)
+})
+
+test('failure list is collapsed by default, pages independently and refreshes during polling only while expanded', async t => {
+  const setup = await mount(t), { ui, state } = setup
+  await setup.poll()
+  assert.equal(setup.failedCalls().length, 0)
+  await click(ui, '生成失败')
+  assert.equal(rows(ui, 'failed-row').length, 50)
+  assert.match(ui.text(), /抽取缩略图超时.*最近失败|最近失败.*抽取缩略图超时/s)
+  await click(ui, '失败下一页')
+  assert.equal(rows(ui, 'failed-row').length, 3)
+  assert.equal(setup.failedCalls().at(-1).query.offset, '50')
+  assert.equal(rows(ui, 'is-pending').length, 50, 'Failure paging does not page the processing queue')
+  state.failed = [failedItem(1)]
+  await setup.poll()
+  assert.equal(setup.failedCalls().at(-1).query.offset, '0', 'A shrinking failure list returns to its last available page')
+  assert.equal(rows(ui, 'failed-row').length, 1)
+  await click(ui, '生成失败')
+  const count = setup.failedCalls().length
+  await setup.poll()
+  assert.equal(setup.failedCalls().length, count)
+})
+
+test('failure loading, errors and empty results remain distinct and do not block processing', async t => {
+  const setup = await mount(t), { ui, state } = setup
+  const pending = setup.holdFailed()
+  await click(ui, '生成失败')
+  assert.match(ui.text(), /正在加载失败清单/)
+  assert.doesNotMatch(ui.text(), /暂无缩略图生成失败记录/)
+  state.running.frames = 9
+  await setup.poll()
+  assert.equal(ui.find(node => node.type === 'progress').props.value, 9)
+  pending.reject(new Error('失败清单暂时不可用'))
+  await flush()
+  assert.match(ui.text(), /失败清单暂时不可用/)
+  assert.doesNotMatch(ui.text(), /暂无缩略图生成失败记录/)
+  state.failed = []
+  await click(ui, '重试加载失败清单')
+  assert.match(ui.text(), /暂无缩略图生成失败记录/)
+  setup.failFailed()
+  await click(ui, '刷新失败清单')
+  assert.match(ui.text(), /失败清单暂时不可用/)
+  state.failed = [failedItem(1)]
+  await click(ui, '重试加载失败清单')
+  assert.equal(rows(ui, 'failed-row').length, 1)
+})
+
+test('failure requests abort on scope change, deactivation, collapse and unmount; stale replies never cross scopes', async t => {
+  const setup = await mount(t), { ui, props } = setup
+  const stale = setup.holdFailed()
+  await click(ui, '生成失败')
+  const first = setup.failedCalls().at(-1)
+  props.libraryId = 2
+  await flush()
+  assert.equal(first.options.signal.aborted, true)
+  stale.resolve({ items: [failedItem(99)], total: 1 })
+  await flush()
+  assert.equal(rows(ui, 'failed-row').length, 0)
+  assert.doesNotMatch(ui.text(), /生成失败样本 99/)
+  const inactive = setup.holdFailed()
+  await click(ui, '刷新失败清单')
+  const second = setup.failedCalls().at(-1)
+  props.active = false
+  await flush()
+  assert.equal(second.options.signal.aborted, true)
+  inactive.resolve({ items: [failedItem(98)], total: 1 })
+  await flush()
+  const count = setup.failedCalls().length
+  assert.equal(rows(ui, 'failed-row').length, 0)
+  props.active = true
+  await flush()
+  assert.equal(setup.failedCalls().length, count + 1)
+  const collapsed = setup.holdFailed()
+  await click(ui, '刷新失败清单')
+  const third = setup.failedCalls().at(-1)
+  await click(ui, '生成失败')
+  assert.equal(third.options.signal.aborted, true)
+  collapsed.resolve({ items: [failedItem(97)], total: 1 })
+  await flush()
+  await click(ui, '生成失败')
+  const unmounted = setup.holdFailed()
+  await click(ui, '刷新失败清单')
+  const last = setup.failedCalls().at(-1)
+  ui.app.unmount()
+  assert.equal(last.options.signal.aborted, true)
+  const lastCount = setup.requests.length
+  unmounted.resolve({ items: [failedItem(96)], total: 1 })
+  await flush()
+  assert.equal(setup.requests.length, lastCount)
+})
+
+test('retry keeps the failure record, appends one manual task, handles deduplication and cancels only that running item', async t => {
+  const setup = await mount(t), { ui, state } = setup
+  await click(ui, '生成失败')
+  const gate = setup.holdRetry()
+  await click(ui, '重新生成 生成失败样本 1')
+  assert.equal(button(ui, '重新生成 生成失败样本 1').props['aria-busy'], true)
+  assert.equal(button(ui, '重新生成 生成失败样本 2').props.disabled, true)
+  await click(ui, '重新生成 生成失败样本 1')
+  assert.equal(setup.retryCalls().length, 1)
+  gate.reject(new Error('队列暂时不可用'))
+  await flush()
+  assert.match(ui.text(), /队列暂时不可用.*可再次点击/)
+  await click(ui, '重新生成 生成失败样本 1')
+  assert.match(ui.text(), /已将“生成失败样本 1”加入处理队列末尾/)
+  assert.equal(rows(ui, 'failed-row').length, 50)
+  assert.equal(state.failed.length, 53)
+  assert.equal(state.pending.at(-1).source, 'retry')
+  setup.setRetryResult('already_queued')
+  await click(ui, '重新生成 生成失败样本 1')
+  assert.match(ui.text(), /“生成失败样本 1”已在处理队列中/)
+  setup.setRetryResult('running')
+  await click(ui, '重新生成 生成失败样本 1')
+  assert.match(ui.text(), /“生成失败样本 1”正在处理中/)
+  state.running = { ...failedItem(1), source: 'retry', auto: false, frames: 1, frame_total: 10 }
+  await setup.poll()
+  assert.match(nodeText(rows(ui, 'is-running')[0]), /手动重试/)
+  await click(ui, '取消并移出队列 生成失败样本 1')
+  assert.ok(setup.requests.some(request => request.path === '/api/stream/previews/queue/movie/101' && request.options.method === 'DELETE'))
+  assert.equal(setup.requests.some(request => request.path.endsWith('/cancel')), false)
+  assert.equal(state.failed.length, 53, 'Cancelling a retry retains the unresolved failure')
+})
+
+test('a pending retry aborts on library change and its response cannot show old feedback', async t => {
+  const setup = await mount(t), { ui, props } = setup
+  await click(ui, '生成失败')
+  const gate = setup.holdRetry()
+  await click(ui, '重新生成 生成失败样本 1')
+  const request = setup.retryCalls().at(-1)
+  props.libraryId = 2
+  await flush()
+  assert.equal(request.options.signal.aborted, true)
+  gate.resolve({ state: 'queued' })
+  await flush()
+  assert.doesNotMatch(ui.text(), /加入处理队列末尾/)
+  assert.equal(setup.failedCalls().at(-1).query.library_id, '2')
 })

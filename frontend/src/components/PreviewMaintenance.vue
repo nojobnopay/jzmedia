@@ -55,6 +55,51 @@
       </template>
     </div>
 
+    <div class="completed-heading">
+      <JzButton ref="failedToggleRef" type="button" variant="ghost" class="completed-toggle" icon="image"
+        aria-label="生成失败" :aria-expanded="failedOpen" :aria-controls="failedPanelId" @click="toggleFailed">
+        <span>生成失败<span v-if="failed"> · {{ failed.total }} 项</span></span>
+        <AppIcon :name="failedOpen ? 'chevron-up' : 'chevron-down'" :size="18" />
+      </JzButton>
+    </div>
+    <div v-if="failedOpen" :id="failedPanelId" class="completed-panel" role="region" aria-label="生成失败清单">
+      <div class="completed-summary">
+        <p class="hint">当前视频库<template v-if="failed"> · 共 {{ failed.total }} 项</template></p>
+        <JzButton ref="failedRefreshRef" type="button" variant="ghost" size="compact" icon="refresh" :loading="failedLoading"
+          aria-label="刷新失败清单" @click="loadFailed()">刷新</JzButton>
+      </div>
+      <p class="hint completed-note">保留每个视频最近一次失败的原因，重新生成成功后自动移出。</p>
+      <p v-if="failedFeedback" class="hint failed-feedback" role="status">{{ failedFeedback }}</p>
+      <p v-if="failedActionError" class="hint error failed-feedback" role="alert">{{ failedActionError }}，可再次点击“重新生成”。</p>
+      <p v-if="failedLoading && !failed" class="hint" role="status">正在加载失败清单…</p>
+      <p v-else-if="failedError" class="hint error" role="alert">{{ failedError }}
+        <JzButton ref="failedRetryRef" type="button" aria-label="重试加载失败清单" @click="loadFailed()">重试</JzButton>
+      </p>
+      <template v-else-if="failed">
+        <p v-if="!failed.total" class="hint">当前视频库暂无缩略图生成失败记录。</p>
+        <template v-else>
+          <ul class="completed-list">
+            <li v-for="item in failed.items" :key="`${item.kind}-${item.id}`" class="failed-row">
+              <div class="queue-detail">
+                <div class="queue-title-line"><strong :title="item.title">{{ item.title }}</strong></div>
+                <span class="hint queue-file" :title="item.file_name">{{ kindLabel(item.kind) }}<template v-if="item.file_name"> · {{ item.file_name }}</template></span>
+                <span class="hint">最近失败：{{ formatFailedAt(item.failed_at) }}</span>
+                <span class="hint failure-reason">{{ item.error || '缩略图生成失败，请重新生成。' }}</span>
+              </div>
+              <JzButton :ref="element => setFailedItemRef(item, element)" class="queue-action" type="button" icon="refresh"
+                :disabled="starting || !!mutating" :loading="mutating === `retry:${itemKey(item)}`"
+                :aria-label="`重新生成 ${item.title}`" @click="retryFailed(item)">{{ mutating === `retry:${itemKey(item)}` ? '正在加入…' : '重新生成' }}</JzButton>
+            </li>
+          </ul>
+          <nav v-if="failed.total > pageSize" class="bar page-bar" aria-label="生成失败分页">
+            <JzButton ref="failedPreviousRef" type="button" aria-label="失败上一页" :disabled="failedOffset === 0 || failedLoading" @click="changeFailedPage(-1)">上一页</JzButton>
+            <span class="hint">{{ failedOffset + 1 }}–{{ Math.min(failedOffset + pageSize, failed.total) }} / {{ failed.total }}</span>
+            <JzButton ref="failedNextRef" type="button" aria-label="失败下一页" :disabled="failedOffset + pageSize >= failed.total || failedLoading" @click="changeFailedPage(1)">下一页</JzButton>
+          </nav>
+        </template>
+      </template>
+    </div>
+
     <div class="processing-queue" role="region" aria-label="处理队列">
       <div class="queue-heading"><h5>处理队列</h5>
         <span v-if="queue" class="hint">共 {{ processingCount }} 项 · 处理中 {{ queue.running ? 1 : 0 }} · 等待 {{ queue.total }}</span>
@@ -81,7 +126,7 @@
                   <div class="queue-title-line"><strong :title="queue.running.title">{{ queue.running.title }}</strong>
                     <span class="queue-state current-state">{{ queue.running.waiting ? '等待转码' : '正在处理' }}</span>
                   </div>
-                  <span class="hint queue-file" :title="queue.running.file_name">{{ kindLabel(queue.running.kind) }} · {{ queue.running.auto ? '闲时队列' : '立即生成' }}<template v-if="queue.running.file_name"> · {{ queue.running.file_name }}</template></span>
+                  <span class="hint queue-file" :title="queue.running.file_name">{{ kindLabel(queue.running.kind) }} · {{ sourceLabel(queue.running) }}<template v-if="queue.running.file_name"> · {{ queue.running.file_name }}</template></span>
                   <div class="frame-progress">
                     <progress :max="runningTotal || 1" :value="runningTotal ? Math.min(runningFrames, runningTotal) : undefined"
                       :aria-label="`${queue.running.title} 缩略图抽取进度`"
@@ -94,8 +139,8 @@
               </div>
               <JzButton class="queue-action" type="button" variant="ghost" icon="close" icon-only
                 :disabled="starting || !!mutating" :loading="mutating === 'running'"
-                :aria-label="queue.running.auto ? `取消并移出队列 ${queue.running.title}` : `取消立即生成任务 ${queue.running.title}`"
-                :title="queue.running.auto ? '取消并移出队列' : '取消立即生成任务'" @click="removeRunning" />
+                :aria-label="isQueuedTask(queue.running) ? `取消并移出队列 ${queue.running.title}` : `取消立即生成任务 ${queue.running.title}`"
+                :title="isQueuedTask(queue.running) ? '取消并移出队列' : '取消立即生成任务'" @click="removeRunning" />
             </li>
             <li v-for="item in queue.items" :key="`${item.kind}-${item.id}`" class="queue-row is-pending" :class="{ 'is-selected': isSelected(item) }">
               <div class="queue-main">
@@ -103,7 +148,7 @@
                   :checked="isSelected(item)" :disabled="starting || !!mutating" @change="toggleItem(item)" /></label>
                 <div class="queue-detail">
                   <div class="queue-title-line"><strong :title="item.title">{{ item.title }}</strong><span class="queue-state pending-state">待处理</span></div>
-                  <span class="hint queue-file" :title="item.file_name">{{ kindLabel(item.kind) }}<template v-if="item.file_name"> · {{ item.file_name }}</template></span>
+                  <span class="hint queue-file" :title="item.file_name">{{ kindLabel(item.kind) }} · {{ sourceLabel(item) }}<template v-if="item.file_name"> · {{ item.file_name }}</template></span>
                 </div>
               </div>
               <JzButton class="queue-action" type="button" variant="ghost" icon="close" icon-only title="移出队列"
@@ -144,6 +189,20 @@ const completedRefreshRef = ref(null)
 const completedRetryRef = ref(null)
 const completedPreviousRef = ref(null)
 const completedNextRef = ref(null)
+const failed = ref(null)
+const failedOpen = ref(false)
+const failedOffset = ref(0)
+const failedLoading = ref(false)
+const failedError = ref('')
+const failedFeedback = ref('')
+const failedActionError = ref('')
+const failedPanelId = computed(() => `preview-failed-${props.libraryId}`)
+const failedToggleRef = ref(null)
+const failedRefreshRef = ref(null)
+const failedRetryRef = ref(null)
+const failedPreviousRef = ref(null)
+const failedNextRef = ref(null)
+const failedItemRefs = new Map()
 const offset = ref(0)
 const loading = ref(false)
 const queueError = ref('')
@@ -174,6 +233,12 @@ const message = computed(() => {
   return ({ done: '完成', cancelled: '已取消', failed: '失败' }[j.state] || j.state) + ' · ' + progress + (j.error ? ` · ${j.error}` : '')
 })
 const kindLabel = kind => ({ movie: '电影', episode: '剧集', extra: '花絮' }[kind] || '视频')
+const sourceLabel = item => item.source === 'retry' ? '手动重试' : item.auto || item.source === 'auto' ? '闲时队列' : '立即生成'
+const isQueuedTask = item => item.auto || ['auto', 'retry'].includes(item.source)
+const formatFailedAt = timestamp => {
+  const date = new Date(Number(timestamp) * 1000)
+  return Number.isFinite(date.getTime()) ? date.toLocaleString('zh-CN', { hour12: false }) : '时间未知'
+}
 const itemKey = item => `${item.kind}:${item.id}`
 const itemRef = key => { const [kind, id] = key.split(':'); return { kind, id: Number(id) } }
 const isSelected = item => allMode.value ? !excluded.value.has(itemKey(item)) : selected.value.has(itemKey(item))
@@ -202,6 +267,8 @@ let requestSeq = 0
 let loadCtrl = null
 let completedSeq = 0
 let completedCtrl = null
+let failedSeq = 0
+let failedCtrl = null
 let ctrl = new AbortController()
 let disposed = false
 
@@ -266,6 +333,73 @@ function changeCompletedPage(delta) {
   loadCompleted()
 }
 
+function invalidateFailed() {
+  failedSeq++
+  failedCtrl?.abort()
+  failedCtrl = null
+  failedLoading.value = false
+}
+function toggleFailed() {
+  failedOpen.value = !failedOpen.value
+  if (failedOpen.value) loadFailed()
+  else invalidateFailed()
+}
+function setFailedItemRef(item, element) {
+  if (element) failedItemRefs.set(itemKey(item), element)
+  else failedItemRefs.delete(itemKey(item))
+}
+function failedFocusOwner() {
+  if (typeof document === 'undefined') return null
+  const element = document.activeElement
+  const control = [failedRefreshRef, failedRetryRef, failedPreviousRef, failedNextRef]
+    .find(item => item.value?.el === element)
+  if (control) return { control, element }
+  const item = [...failedItemRefs.entries()].find(([, component]) => component.el === element)
+  return item ? { key: item[0], element } : null
+}
+function restoreFailedFocus(owner) {
+  if (!owner || ![document.body, owner.element].includes(document.activeElement)) return
+  const paging = [failedPreviousRef, failedNextRef].includes(owner.control)
+  const choices = [owner.key ? failedItemRefs.get(owner.key) : owner.control?.value,
+    ...(paging ? [failedPreviousRef.value, failedNextRef.value] : []), failedRefreshRef.value, failedToggleRef.value]
+  choices.find(item => item?.el && !item.el.disabled && item.el.isConnected !== false)?.focus()
+}
+async function loadFailed(focusOwner = failedFocusOwner()) {
+  if (!props.active || !failedOpen.value || disposed) return
+  invalidateFailed()
+  const seq = failedSeq
+  const libraryId = props.libraryId
+  const requestCtrl = new AbortController()
+  failedCtrl = requestCtrl
+  failedLoading.value = true
+  failedError.value = ''
+  try {
+    const result = await api(`/api/stream/previews/failed?library_id=${libraryId}&offset=${failedOffset.value}&limit=${pageSize}`, { signal: requestCtrl.signal })
+    if (disposed || seq !== failedSeq || requestCtrl.signal.aborted) return
+    failed.value = result
+    if (failedOffset.value > 0 && result.total <= failedOffset.value) {
+      failedOffset.value = Math.max(0, Math.floor((result.total - 1) / pageSize) * pageSize)
+      return loadFailed(focusOwner)
+    }
+  } catch (e) {
+    if (!disposed && seq === failedSeq && !requestCtrl.signal.aborted) failedError.value = e.message
+  } finally {
+    if (!disposed && seq === failedSeq) {
+      failedCtrl = null
+      failedLoading.value = false
+      await nextTick()
+      if (!disposed && seq === failedSeq && failedOpen.value) restoreFailedFocus(focusOwner)
+    }
+  }
+}
+function changeFailedPage(delta) {
+  if (failedLoading.value) return
+  const focusOwner = failedFocusOwner()
+  failedOffset.value = Math.max(0, failedOffset.value + delta * pageSize)
+  failed.value = null
+  loadFailed(focusOwner)
+}
+
 function invalidateLoad() {
   clearTimeout(timer)
   requestSeq++
@@ -280,13 +414,13 @@ function beginAction() {
   return ctrl.signal
 }
 const isCurrent = signal => !disposed && !signal.aborted
-async function finishAction(signal) {
+async function finishAction(signal, refreshFailures = true) {
   if (!isCurrent(signal)) return
   starting.value = false
   mutating.value = ''
-  await load()
+  await load({ refreshFailures })
 }
-async function load() {
+async function load({ refreshFailures = true } = {}) {
   if (!props.active || disposed || starting.value || mutating.value) return
   invalidateLoad()
   const seq = requestSeq
@@ -294,6 +428,8 @@ async function load() {
   const requestCtrl = new AbortController()
   loadCtrl = requestCtrl
   loading.value = true
+  // Failure history refreshes independently, even when queue status is unavailable.
+  if (refreshFailures && failedOpen.value && !failedLoading.value) loadFailed()
   try {
     const [result, autoStatus, queueResult] = await Promise.all([
       api(`/api/stream/previews/jobs/latest?library_id=${libraryId}`, { signal: requestCtrl.signal }),
@@ -316,7 +452,7 @@ async function load() {
     if (completedOpen.value && (currentChanged || jobFinished)) loadCompleted()
     if (offset.value > 0 && queueResult.total <= offset.value) {
       offset.value = Math.max(0, Math.floor((queueResult.total - 1) / pageSize) * pageSize)
-      return load()
+      return load({ refreshFailures })
     }
   } catch (e) {
     if (!disposed && seq === requestSeq && e.name !== 'AbortError') queueError.value = e.message
@@ -399,7 +535,7 @@ async function removeRunning() {
   const signal = beginAction()
   mutating.value = 'running'
   try {
-    if (running.auto) {
+    if (isQueuedTask(running)) {
       await api(`/api/stream/previews/queue/${running.kind}/${running.id}?library_id=${libraryId}`, { method: 'DELETE', signal })
       if (!isCurrent(signal)) return
       feedback.value = `已取消并移出“${running.title}”。`
@@ -411,10 +547,36 @@ async function removeRunning() {
   } catch (e) { if (isCurrent(signal)) error.value = e.message }
   finally { await finishAction(signal) }
 }
+async function retryFailed(item) {
+  if (starting.value || mutating.value) return
+  const libraryId = props.libraryId
+  const focusOwner = failedFocusOwner()
+  const signal = beginAction()
+  failedFeedback.value = ''
+  failedActionError.value = ''
+  mutating.value = `retry:${itemKey(item)}`
+  try {
+    const result = await api(`/api/stream/previews/failed/${item.kind}/${item.id}/retry`, {
+      method: 'POST', body: JSON.stringify({ library_id: libraryId }), signal,
+    })
+    if (!isCurrent(signal)) return
+    failedFeedback.value = ({
+      queued: `已将“${item.title}”加入处理队列末尾。`,
+      already_queued: `“${item.title}”已在处理队列中。`,
+      running: `“${item.title}”正在处理中。`,
+    })[result.state] || '处理队列已更新。'
+  } catch (e) {
+    if (isCurrent(signal)) failedActionError.value = e.message
+  } finally {
+    await finishAction(signal, false)
+    if (isCurrent(signal) && failedOpen.value) await loadFailed(focusOwner)
+  }
+}
 function changePage(delta) { offset.value = Math.max(0, offset.value + delta * pageSize); load() }
 watch(() => [props.active, props.libraryId], ([active]) => {
   invalidateLoad()
   invalidateCompleted()
+  invalidateFailed()
   ctrl.abort()
   ctrl = new AbortController()
   queue.value = null
@@ -423,6 +585,11 @@ watch(() => [props.active, props.libraryId], ([active]) => {
   completed.value = null
   completedOffset.value = 0
   completedError.value = ''
+  failed.value = null
+  failedOffset.value = 0
+  failedError.value = ''
+  failedFeedback.value = ''
+  failedActionError.value = ''
   starting.value = false
   mutating.value = ''
   offset.value = 0
@@ -435,7 +602,7 @@ watch(() => [props.active, props.libraryId], ([active]) => {
     if (completedOpen.value) loadCompleted()
   }
 }, { immediate: true })
-onBeforeUnmount(() => { disposed = true; ctrl.abort(); invalidateLoad(); invalidateCompleted() })
+onBeforeUnmount(() => { disposed = true; ctrl.abort(); invalidateLoad(); invalidateCompleted(); invalidateFailed() })
 </script>
 
 <style scoped>
@@ -454,6 +621,8 @@ h5 { margin: 0; font-size: var(--jz-font-xl); font-weight: 700; line-height: 1.4
 .completed-note { margin: 0 0 var(--jz-gap-s); }
 .completed-list { list-style: none; padding: 0; margin: 0; }
 .completed-row { display: flex; padding: var(--jz-gap-m) 0; border-top: 1px solid var(--jz-border); }
+.failed-row { display: flex; align-items: flex-start; gap: var(--jz-gap-m); padding: var(--jz-gap-m) 0; border-top: 1px solid var(--jz-border); }
+.failure-reason, .failed-feedback { overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.6; }
 .queue-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-top: var(--jz-gap-xl); margin-bottom: var(--jz-gap-m); padding-left: var(--jz-gap-m); border-left: 3px solid var(--jz-accent); }
 .selection-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--jz-border); border-radius: var(--jz-radius-s); background: var(--jz-surface-2); }
 .select-all, .select-item { display: inline-flex; align-items: center; cursor: pointer; }
@@ -487,4 +656,8 @@ h5 { margin: 0; font-size: var(--jz-font-xl); font-weight: 700; line-height: 1.4
 .frame-progress > span { flex: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .current-note { line-height: 1.5; }
 .page-bar { margin-top: 12px; }
+@media (max-width: 480px) {
+  .failed-row { flex-direction: column; align-items: stretch; }
+  .failed-row > .queue-action { align-self: flex-start; }
+}
 </style>

@@ -89,13 +89,19 @@ const cacheUsageCategories = { database: 100 * 1024 ** 2, posters: 200 * 1024 **
 let previewPhase = 'missing', previewPolls = 0
 let previewQueue = Array.from({ length: 52 }, (_, index) => ({
   kind: 'movie', id: 200 + index, library_id: 1, title: `队列样本 ${index + 1}`, file_name: `queued-${index + 1}.mkv`,
+  source: 'auto', auto: true,
 }))
 let previewRunning = { kind: 'movie', id: 91, library_id: 1, title: '处理样本', file_name: 'running.mkv',
-  job_id: 'preview-auto', auto: true, waiting: false, frames: 4, frame_total: 10, done: 0, total: 1 }
+  job_id: 'preview-auto', source: 'auto', auto: true, waiting: false, frames: 4, frame_total: 10, done: 0, total: 1 }
 let previewCompleted = Array.from({ length: 53 }, (_, index) => ({
   kind: ['movie', 'episode', 'extra'][index % 3], id: 500 + index, library_id: 1,
   title: `成品样本 ${index + 1}`, file_name: `completed-${index + 1}.mkv`,
   frames: 120 + index, interval: 10, quality_revision: index === 1 ? 0 : 1, needs_update: index === 1,
+}))
+let previewFailed = Array.from({ length: 53 }, (_, index) => ({
+  kind: ['movie', 'episode', 'extra'][index % 3], id: 700 + index, library_id: 1,
+  title: `失败样本 ${index + 1}`, file_name: `failed-${index + 1}.mkv`, failed_at: 1780000000 - index * 60,
+  error_code: index % 2 ? 'timeout' : 'source_unavailable', error: index % 2 ? '生成缩略图超时，请稍后重新生成。' : '片源暂不可用，请检查媒体库连接后重新生成。',
 }))
 const previewRevision = items => createHash('sha256').update(JSON.stringify(items.map(item =>
   [item.kind, item.id, item.library_id]))).digest('hex').slice(0, 16)
@@ -216,9 +222,26 @@ function mock(url, method, body) {
     const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 50)
     return { items: items.slice(offset, offset + limit), total: items.length, offset, limit }
   }
+  if (key === '/api/stream/previews/failed' && method === 'GET') {
+    const libraryId = Number(url.searchParams.get('library_id'))
+    const items = previewFailed.filter(item => !libraryId || item.library_id === libraryId)
+    const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 50)
+    return { items: items.slice(offset, offset + limit), total: items.length, offset, limit }
+  }
+  if (/^\/api\/stream\/previews\/failed\/(movie|episode|extra)\/\d+\/retry$/.test(key) && method === 'POST') {
+    const [, , , , , kind, itemId] = key.split('/')
+    const matches = item => item?.kind === kind && item.id === Number(itemId) && item.library_id === body.library_id
+    assert.ok(previewFailed.some(matches), 'retry uses a failure from the selected library')
+    if (matches(previewRunning)) return { state: 'running' }
+    const queued = previewQueue.find(matches)
+    if (queued && queued.source !== 'auto') return { state: 'already_queued' }
+    previewQueue = previewQueue.filter(item => !matches(item))
+    previewQueue.push({ ...(queued || previewFailed.find(matches)), source: 'retry', auto: false })
+    return { state: 'queued' }
+  }
   if (key === '/api/stream/previews/queue') {
     if (method === 'POST') {
-      previewQueue.push({ kind: 'movie', id: 93, library_id: body.library_id, title: '已有影片样本', file_name: 'existing.mkv' })
+      previewQueue.push({ kind: 'movie', id: 93, library_id: body.library_id, title: '已有影片样本', file_name: 'existing.mkv', source: 'auto', auto: true })
       return { total: 2, added: 1, ready: 1, unavailable: 0, already_queued: 0 }
     }
     const libraryId = Number(url.searchParams.get('library_id'))
@@ -239,10 +262,12 @@ function mock(url, method, body) {
     return { removed: chosen.length }
   }
   if (/^\/api\/stream\/previews\/queue\/(movie|episode|extra)\/\d+$/.test(key) && method === 'DELETE') {
-    const itemId = Number(key.split('/').at(-1))
-    if (previewRunning?.id === itemId) previewRunning = null
-    else previewQueue = previewQueue.filter(item => item.id !== itemId)
-    return { removed: true, cancelled: itemId === 91 }
+    const itemId = Number(key.split('/').at(-1)), kind = key.split('/').at(-2)
+    const matches = item => item?.kind === kind && item.id === itemId && item.library_id === Number(url.searchParams.get('library_id'))
+    const cancelled = matches(previewRunning)
+    if (cancelled) previewRunning = null
+    else previewQueue = previewQueue.filter(item => !matches(item))
+    return { removed: true, cancelled }
   }
   if (key === '/api/stream/previews/cache/clean' || key === '/api/stream/cache/clean') return { total: cacheUsageCategories[key === '/api/stream/cache/clean' ? 'transcode' : 'previews'], candidates: 0, candidate_bytes: 0, dry_run: body?.dry_run ?? true, removed: 0, freed: 0 }
   unexpected.push({ key, method })
@@ -615,7 +640,7 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
   const directory = path.join(root, 'output/playwright/preview-maintenance-unified')
   await mkdir(directory, { recursive: true })
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
-  const original = structuredClone({ queue: previewQueue, running: previewRunning, completed: previewCompleted })
+  const original = structuredClone({ queue: previewQueue, running: previewRunning, completed: previewCompleted, failed: previewFailed })
   const checks = [], releases = []
   const gate = () => {
     let release, seen
@@ -624,18 +649,26 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
     releases.push(release)
     return { promise, release, requested, seen }
   }
-  let completedGate = null, queueGate = null, failCompleted = false, failQueue = false
+  let completedGate = null, queueGate = null, failedGate = null, retryGate = null
+  let failCompleted = false, failQueue = false, failFailed = false, failRetry = false
   await context.route('**/*', async route => {
     const url = new URL(route.request().url())
     if (url.origin !== base) return route.abort()
-    if (route.request().method() === 'GET' && ['/api/stream/previews/completed', '/api/stream/previews/queue'].includes(url.pathname)) {
-      const completed = url.pathname.endsWith('/completed')
-      const delayed = completed ? completedGate : queueGate
-      const failed = completed ? failCompleted : failQueue
+    if (route.request().method() === 'GET' && ['/api/stream/previews/completed', '/api/stream/previews/queue', '/api/stream/previews/failed'].includes(url.pathname)) {
+      const completed = url.pathname.endsWith('/completed'), failureList = url.pathname.endsWith('/failed')
+      const delayed = completed ? completedGate : failureList ? failedGate : queueGate
+      const failed = completed ? failCompleted : failureList ? failFailed : failQueue
       const result = mock(url, 'GET', null)
       if (delayed) { delayed.seen(); await delayed.promise }
       return route.fulfill({ status: failed ? 503 : 200,
-        json: failed ? { detail: completed ? '模拟成品清单读取失败' : '模拟处理队列读取失败' } : result }).catch(() => {})
+        json: failed ? { detail: completed ? '模拟成品清单读取失败' : failureList ? '模拟失败清单读取失败' : '模拟处理队列读取失败' } : result }).catch(() => {})
+    }
+    if (route.request().method() === 'POST' && /\/api\/stream\/previews\/failed\/[^/]+\/\d+\/retry$/.test(url.pathname)) {
+      const failed = failRetry, body = route.request().postDataJSON()
+      if (failed) requests.push({ key: url.pathname, method: 'POST', body, query: Object.fromEntries(url.searchParams) })
+      const result = failed ? { detail: '模拟重新生成入队失败' } : mock(url, 'POST', body)
+      if (retryGate) { retryGate.seen(); await retryGate.promise }
+      return route.fulfill({ status: failed ? 503 : 200, json: result }).catch(() => {})
     }
     return route.continue()
   })
@@ -647,26 +680,41 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
   const completed = preview.getByRole('region', { name: '已生成缩略图清单', exact: true })
   const toggle = preview.getByRole('button', { name: '已生成缩略图', exact: true })
   const refresh = preview.getByRole('button', { name: '刷新已生成缩略图', exact: true })
+  const failed = preview.getByRole('region', { name: '生成失败清单', exact: true })
+  const failedToggle = preview.getByRole('button', { name: '生成失败', exact: true })
+  const failedRefresh = preview.getByRole('button', { name: '刷新失败清单', exact: true })
   const completedRequests = () => requests.filter(request => request.key === '/api/stream/previews/completed')
+  const failedRequests = () => requests.filter(request => request.key === '/api/stream/previews/failed')
+  const retryRequests = () => requests.filter(request => /\/previews\/failed\/[^/]+\/\d+\/retry$/.test(request.key))
   async function openLibrary(id = 1) {
     await page.goto(base + '/settings?sec=sec-libtools&library=' + id + '&media=1')
     await page.locator('.tool-views:visible').getByRole('button', { name: '资料维护', exact: true }).click()
   }
   async function captureViewports(scene) {
     const viewports = []
+    // Keep keyboard focus in this maintenance tool, away from the global skip link.
+    const captureFocus = baseline ? toggle : failedToggle
+    await captureFocus.focus()
+    // Tall element captures can include fixed content outside the viewport clip.
+    // Hide only the unfocused, offscreen skip link while taking screenshots.
+    const screenshotStyle = '.skip-link:not(:focus) { visibility: hidden !important; }'
     for (const width of [1440, 390, 320]) {
       await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
       await preview.scrollIntoViewIfNeeded()
-      await preview.screenshot({ path: path.join(directory, `${scene}-${width}.png`), animations: 'disabled' })
-      await page.screenshot({ path: path.join(directory, `${scene}-${width}-viewport.png`), animations: 'disabled' })
+      assert.equal(await captureFocus.evaluate(el => el === document.activeElement), true, `${scene} captures with focus in the preview tool`)
+      assert.equal(await page.locator('.skip-link').evaluate(el => el === document.activeElement), false, `${scene} skip link is not focused`)
+      await preview.screenshot({ path: path.join(directory, `${scene}-${width}.png`), animations: 'disabled', style: screenshotStyle })
+      await page.screenshot({ path: path.join(directory, `${scene}-${width}-viewport.png`), animations: 'disabled', style: screenshotStyle })
       const metrics = await preview.evaluate(el => ({
         headings: [...el.querySelectorAll('h5')].map(h => ({ text: h.textContent, fontSize: getComputedStyle(h).fontSize })),
         rowCount: el.querySelectorAll('.queue-row').length,
         overflow: document.documentElement.scrollWidth > innerWidth,
+        focusedAction: document.activeElement?.getAttribute('aria-label'),
+        skipLinkFocused: !!document.querySelector('.skip-link:focus'),
       }))
       assert.equal(metrics.overflow, false, `${scene} does not overflow at ${width}px`)
       if (width < 700) {
-        for (const locator of [preview.locator('.select-item').first(), preview.locator('.queue-action').first()]) {
+        for (const locator of [preview.locator('.select-item').first(), preview.locator('.queue-action').first(), failed.getByRole('button', { name: /^重新生成 / }).first()]) {
           if (!await locator.count()) continue
           const box = await locator.boundingBox()
           assert.ok(box.width >= 44 && box.height >= 44, `${scene} phone queue targets are at least 44px`)
@@ -696,6 +744,8 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       assert.equal(await queue.locator('.is-running progress').getAttribute('max'), '10')
       assert.equal(await toggle.getAttribute('aria-expanded'), 'false')
       assert.equal(completedRequests().length, 0, 'collapsed completed list is lazy')
+      assert.equal(await failedToggle.getAttribute('aria-expanded'), 'false')
+      assert.equal(failedRequests().length, 0, 'collapsed failed list is lazy')
       checks.push('one queue with pinned current item, frame progress, current excluded from selection; completed lazy')
 
       previewRunning.waiting = true
@@ -760,22 +810,90 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       assert.equal(await toggle.evaluate(el => el === document.activeElement), true, 'a completed refresh cannot steal deliberately moved focus')
       checks.push('completed error retry, true empty, explicit refresh sees a new complete item; keyboard focus restores without stealing focus')
 
+      failedGate = gate()
+      await failedToggle.focus()
+      await page.keyboard.press('Space')
+      await failedGate.requested
+      await failed.getByText(/正在加载/).waitFor()
+      assert.equal(await failed.getByText(/没有.*失败|暂无.*失败/).count(), 0, 'unresolved failures request is not empty')
+      assert.equal(await failedToggle.evaluate(el => el === document.activeElement), true, 'failure expansion retains keyboard focus')
+      await page.screenshot({ path: path.join(directory, 'failed-loading-320.png'), animations: 'disabled' })
+      failedGate.release(); failedGate = null
+      await failed.getByText('失败样本 1', { exact: true }).waitFor()
+      await failed.getByText(original.failed[0].error, { exact: true }).first().waitFor()
+      await failed.getByRole('navigation', { name: '生成失败分页', exact: true }).getByRole('button', { name: '失败下一页', exact: true }).click()
+      await failed.getByText('失败样本 53', { exact: true }).waitFor()
+      assert.ok(failedRequests().some(request => request.query.offset === '50' && request.query.limit === '50' && request.query.library_id === '1'))
+      assert.equal(await queue.getByText('队列样本 1', { exact: true }).count(), 1, 'failure pagination preserves the queue page')
+      assert.equal(await completed.getByText('刷新后新增成品', { exact: true }).count(), 1, 'failure pagination preserves the completed page')
+      await failed.getByRole('button', { name: '失败上一页', exact: true }).click()
+      await failed.getByText('失败样本 1', { exact: true }).waitFor()
+      failFailed = true
+      await failedRefresh.click()
+      await failed.getByRole('alert').filter({ hasText: '模拟失败清单读取失败' }).waitFor()
+      await page.screenshot({ path: path.join(directory, 'failed-error-320.png'), animations: 'disabled' })
+      failFailed = false
+      await failed.getByRole('button', { name: '重试加载失败清单', exact: true }).click()
+      await failed.getByText('失败样本 1', { exact: true }).waitFor()
+      previewFailed = []
+      await failedRefresh.click()
+      await failed.getByText(/没有.*失败|暂无.*失败/).waitFor()
+      await page.screenshot({ path: path.join(directory, 'failed-empty-320.png'), animations: 'disabled' })
+      previewFailed = structuredClone(original.failed)
+      await failedRefresh.focus()
+      await page.keyboard.press('Enter')
+      await failed.getByText('失败样本 1', { exact: true }).waitFor()
+      await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '刷新失败清单')
+      failedGate = gate()
+      await page.keyboard.press('Enter')
+      await failedGate.requested
+      await failedToggle.focus()
+      const failedRefreshResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/stream/previews/failed')
+      failedGate.release(); failedGate = null
+      await failedRefreshResponse
+      await page.waitForFunction(() => document.querySelector('[aria-label="刷新失败清单"]')?.disabled === false)
+      assert.equal(await failedToggle.evaluate(el => el === document.activeElement), true, 'a failure refresh cannot steal deliberately moved focus')
+      previewFailed.unshift({ ...original.failed[0], id: 699, title: '轮询新增失败' })
+      await failed.getByText('轮询新增失败', { exact: true }).waitFor()
+      previewFailed = previewFailed.filter(item => item.id !== 699)
+      await failed.getByText('轮询新增失败', { exact: true }).waitFor({ state: 'hidden' })
+      await failedToggle.click()
+      const callsAfterCollapse = failedRequests().length
+      await page.waitForResponse(response => new URL(response.url()).pathname === '/api/stream/previews/queue')
+      assert.equal(failedRequests().length, callsAfterCollapse, 'collapsed failure list stops polling')
+      await failedToggle.click()
+      await failed.getByText('失败样本 1', { exact: true }).waitFor()
+      checks.push('failures lazy keyboard expansion, loading/error/empty and retry, per-library 50-item pagination, refresh focus isolation and live updates only while expanded')
+
       const longTitle = '长名称样本：' + '电影与剧集花絮画面'.repeat(18)
+      const longReason = '无法读取视频片源，请检查媒体库连接和文件权限后重新生成。'.repeat(22)
       previewRunning = { ...structuredClone(original.running), title: '当前长名称：' + '影片预览抽帧'.repeat(20) }
       previewQueue[0] = { ...previewQueue[0], title: longTitle, file_name: '长文件名_'.repeat(30) + '.mkv' }
       previewCompleted[0] = { ...previewCompleted[0], title: longTitle, file_name: 'completed-long-name_'.repeat(20) + '.mkv' }
+      previewFailed[0] = { ...previewFailed[0], title: longTitle, file_name: 'failed-long-name_'.repeat(25) + '.mkv', error: longReason }
       previewQueue = previewQueue.slice(0, 2)
       previewCompleted = previewCompleted.slice(0, 3)
+      previewFailed = previewFailed.slice(0, 2)
       await refresh.click()
+      await failedRefresh.click()
       await queue.getByText(longTitle, { exact: true }).waitFor()
       await queue.getByText(previewRunning.title, { exact: true }).waitFor()
       await completed.getByText(longTitle, { exact: true }).waitFor()
+      await failed.getByText(longTitle, { exact: true }).waitFor()
+      await failed.getByText(longReason, { exact: true }).waitFor()
       assert.equal(await queue.getByText(longTitle, { exact: true }).getAttribute('title'), longTitle)
+      assert.equal(await failed.getByText(longTitle, { exact: true }).getAttribute('title'), longTitle)
+      const reasonStyle = await failed.getByText(longReason, { exact: true }).evaluate(el => ({
+        whiteSpace: getComputedStyle(el).whiteSpace, scroll: el.scrollHeight, client: el.clientHeight,
+      }))
+      assert.notEqual(reasonStyle.whiteSpace, 'nowrap', 'failure reasons can wrap')
+      assert.ok(reasonStyle.scroll <= reasonStyle.client + 1, 'the full failure reason is readable without clipping')
       await captureViewports('after-expanded-long')
-      checks.push('long titles and filenames at desktop 1440 and phones 390/320, readable actions without overflow')
+      checks.push('long titles, filenames and full multiline failure reasons at desktop 1440 and phones 390/320, 44px actions without overflow')
 
       previewQueue = structuredClone(original.queue)
       previewCompleted = structuredClone(original.completed)
+      previewFailed = structuredClone(original.failed)
       previewRunning = structuredClone(original.running)
       await openLibrary()
       await queue.getByText('队列样本 1', { exact: true }).waitFor()
@@ -805,20 +923,97 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       await queue.getByText('当前视频库没有待处理影片。', { exact: true }).waitFor()
       checks.push('queue failure retry and real empty')
 
+      previewQueue = structuredClone(original.queue.slice(0, 2))
+      previewQueue[1] = { ...previewQueue[1], source: 'retry', auto: false }
+      previewRunning = structuredClone(original.running)
+      previewFailed = [original.failed[0], ...previewQueue, previewRunning].map(item => ({
+        ...item, failed_at: 1780000000, error_code: 'timeout', error: '生成缩略图超时，请稍后重新生成。',
+      }))
+      await openLibrary()
+      await queue.getByText('队列样本 1', { exact: true }).waitFor()
+      await failedToggle.click()
+      await failed.getByText('失败样本 1', { exact: true }).waitFor()
+      const retryButton = title => failed.getByRole('button', { name: '重新生成 ' + title, exact: true })
+      retryGate = gate()
+      const initialRetryCalls = retryRequests().length
+      await retryButton('失败样本 1').focus()
+      await page.keyboard.press('Enter')
+      await retryGate.requested
+      assert.equal(await retryButton('失败样本 1').isDisabled(), true, 'the pending retry button is busy')
+      assert.equal(await retryButton('失败样本 1').getAttribute('aria-busy'), 'true')
+      assert.equal(await retryButton('队列样本 1').isDisabled(), true, 'other retry buttons cannot race the current mutation')
+      await retryButton('失败样本 1').evaluate(button => button.click())
+      assert.equal(retryRequests().length, initialRetryCalls + 1, 'busy retry ignores repeated activation')
+      retryGate.release(); retryGate = null
+      await failed.getByRole('status').filter({ hasText: '已将“失败样本 1”加入处理队列末尾。' }).waitFor()
+      await queue.getByText('失败样本 1', { exact: true }).waitFor()
+      assert.equal(await retryButton('失败样本 1').evaluate(button => button === document.activeElement), true, 'retry restores keyboard focus')
+      assert.equal(previewQueue.at(-1).id, original.failed[0].id, 'a fresh retry appends to the queue tail')
+      assert.equal(previewRunning.id, original.running.id, 'retry leaves the current task running')
+      assert.equal(await failed.getByText('失败样本 1', { exact: true }).count(), 1, 'queueing preserves the unresolved failure')
+      assert.deepEqual(retryRequests().at(-1).body, { library_id: 1 })
+      await retryButton('队列样本 1').click()
+      await failed.getByRole('status').filter({ hasText: '已将“队列样本 1”加入处理队列末尾。' }).waitFor()
+      assert.deepEqual(previewQueue.map(item => item.id), [201, 700, 200], 'an auto item upgrades to retry and moves behind earlier retries')
+      assert.equal(previewQueue.at(-1).source, 'retry')
+      await queue.locator('.queue-file').filter({ hasText: '手动重试' }).first().waitFor()
+      await retryButton('队列样本 2').click()
+      await failed.getByRole('status').filter({ hasText: '“队列样本 2”已在处理队列中。' }).waitFor()
+      assert.deepEqual(previewQueue.map(item => item.id), [201, 700, 200], 'an existing retry keeps its position')
+      await retryButton('处理样本').click()
+      await failed.getByRole('status').filter({ hasText: '“处理样本”正在处理中。' }).waitFor()
+      assert.equal(previewQueue.length, 3, 'a running item is never duplicated')
+      failRetry = true
+      await retryButton('失败样本 1').click()
+      await failed.getByRole('alert').filter({ hasText: '模拟重新生成入队失败' }).waitFor()
+      failRetry = false
+      assert.equal(await retryButton('失败样本 1').isEnabled(), true, 'failed retry can be attempted again')
+      await retryButton('失败样本 1').click()
+      await failed.getByRole('status').filter({ hasText: '“失败样本 1”已在处理队列中。' }).waitFor()
+      assert.equal(await failed.getByRole('alert').count(), 0, 'successful retry clears the mutation error')
+      previewRunning = { ...previewQueue.find(item => item.id === 700), job_id: 'preview-manual-retry', waiting: false, frames: 1, frame_total: 10 }
+      previewQueue = previewQueue.filter(item => item.id !== 700)
+      await queue.locator('.is-running').getByText('失败样本 1', { exact: true }).waitFor()
+      const remainingQueue = structuredClone(previewQueue)
+      await queue.getByRole('button', { name: '取消并移出队列 失败样本 1', exact: true }).click()
+      await queue.locator('.is-running').waitFor({ state: 'hidden' })
+      assert.deepEqual(previewQueue, remainingQueue, 'cancelling a running retry preserves other pending tasks')
+      assert.equal(await failed.getByText('失败样本 1', { exact: true }).count(), 1, 'cancelling a retry preserves the failure reason')
+      checks.push('retry request busy and duplicate guard, queued/already_queued/running feedback, auto upgrade moves to queue tail, failure recovery, focus restoration and cancelling only the running retry')
+
       await toggle.click()
       await completed.getByText('成品样本 1', { exact: true }).waitFor()
       completedGate = gate()
       await refresh.click()
       await completedGate.requested
+      failedGate = gate()
+      await failedRefresh.click()
+      await failedGate.requested
       previewCompleted.push({ ...original.completed[0], id: 900, library_id: 2, kind: 'episode', title: '库二成品' })
+      previewFailed.push({ ...original.failed[0], id: 901, library_id: 2, kind: 'episode', title: '库二失败', error: '模拟库二片源暂不可用。' })
       await page.locator('.lib-tabs').getByRole('button', { name: '演示媒体库 · 剧集', exact: true }).click()
       await page.locator('.tool-views:visible').getByRole('button', { name: '资料维护', exact: true }).click()
       completedGate.release(); completedGate = null
+      failedGate.release(); failedGate = null
       assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'new library completed list starts collapsed')
+      assert.equal(await failedToggle.getAttribute('aria-expanded'), 'false', 'new library failure list starts collapsed')
       await toggle.click()
       await completed.getByText('库二成品', { exact: true }).waitFor()
       assert.equal(await completed.getByText('成品样本 1', { exact: true }).count(), 0, 'late first-library response cannot replace second-library results')
-      checks.push('switching libraries aborts/stales old completed response and loads current library only')
+      await failedToggle.click()
+      await failed.getByText('库二失败', { exact: true }).waitFor()
+      assert.equal(await failed.getByText('失败样本 1', { exact: true }).count(), 0, 'late first-library failure response cannot replace current library results')
+      retryGate = gate()
+      await retryButton('库二失败').click()
+      await retryGate.requested
+      await page.locator('.lib-tabs').getByRole('button', { name: '演示媒体库 · 电影', exact: true }).click()
+      await page.locator('.tool-views:visible').getByRole('button', { name: '资料维护', exact: true }).click()
+      retryGate.release(); retryGate = null
+      if (await failedToggle.getAttribute('aria-expanded') !== 'true') await failedToggle.click()
+      await failed.getByText('失败样本 1', { exact: true }).waitFor()
+      assert.equal(await failed.getByText('库二失败', { exact: true }).count(), 0)
+      assert.equal(await failed.getByRole('status').filter({ hasText: '库二失败' }).count(), 0, 'late retry feedback cannot enter the next library')
+      checks.push('switching libraries aborts/stales old completed/failure/retry responses, resets collapsed lists and loads current library only')
     }
     await writeFile(path.join(directory, `${baseline ? 'before' : 'after'}-checks.json`), JSON.stringify({
       mocked: true, realVue: true, sourceSha256, viewports, checks,
@@ -832,7 +1027,7 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
     throw error
   } finally {
     for (const release of releases) release()
-    previewQueue = original.queue; previewRunning = original.running; previewCompleted = original.completed
+    previewQueue = original.queue; previewRunning = original.running; previewCompleted = original.completed; previewFailed = original.failed
     await context.close()
   }
 }

@@ -26,6 +26,7 @@ from ...jobkit import JobRegistry
 from ...log import get_logger
 from .common import _media_cached_or_probe, _version_source, _sessions, _sess_lock, router
 from .preview_extract import Extractor
+from .preview_failures import FailureStore, failure_reason
 from .preview_log import ExtractionError, error_kind, read_frame_log
 
 logger = get_logger("stream.previews")
@@ -42,6 +43,9 @@ _auto_wake = threading.Event()
 _auto_thread = None
 _auto_queue = []
 _auto_job_id = None
+_queued_finished = None
+_queue_retry_at = 0.0
+_failure_store = None
 _ready_queue_check = (None, 0.0)
 _KEY_RE = re.compile(r"^[a-f0-9]{32}$")
 _IMAGE_RE = re.compile(r"^page_\d{4}\.jpg$")
@@ -306,6 +310,7 @@ def _wait_for_transcodes(jid):
 
 
 def _worker(jid, items, batch):
+    global _queued_finished, _queue_retry_at
     failures = []
     try:
         while True:
@@ -336,28 +341,59 @@ def _worker(jid, items, batch):
             except _Cancelled:
                 raise
             except Exception as e:
-                message = str(e.detail) if isinstance(e, HTTPException) else str(e)
-                logger.warning("preview generation failed kind=%s id=%s: %s", kind, vid, message)
-                failures.append({"kind": kind, "id": vid, "error": message})
+                code, message = failure_reason(e)
+                logger.warning("preview generation failed kind=%s id=%s code=%s", kind, vid, code)
+                identity = _job_queue_item(_jobs.get(jid) or {}, kind, vid)
+                failure = {"kind": kind, "id": vid, "library_id": identity["library_id"],
+                           "failed_at": int(time.time()), "error_code": code, "error": message}
+                failures.append(failure)
             with _lock:
+                job = _jobs.get(jid)
+                if _stop.is_set() or not job or job["state"] != "running":
+                    raise _Cancelled()
+                ledger = _failure_ledger()
+                ledger.update(kind, vid, None if completed else failure)
+                saved = _flush_failures_locked()
                 if completed:
                     try:
-                        _retire_auto_items_locked({(kind, vid)})
-                    except OSError as e:
-                        logger.warning("save completed preview queue failed: %s", e)
+                        if saved:
+                            _retire_auto_items_locked({(kind, vid)})
+                    except OSError:
+                        _queue_retry_at = time.monotonic() + 30
+                        logger.warning("save completed preview queue failed")
                 _jobs.update(jid, done=index + 1, current_kind=None, current_id=None,
                              failed=failures[-100:], failure_count=len(failures))
         with _lock:
+            if (_jobs.get(jid) or {}).get("state") != "running":
+                raise _Cancelled()
             done = int((_jobs.get(jid) or {}).get("done") or 0)
             failed = bool(done and len(failures) == done)
             _jobs.update(jid, state="failed" if failed else "done",
                          error=failures[-1]["error"] if failed else "")
     except _Cancelled:
-        _jobs.update(jid, state="cancelled")
+        with _lock:
+            _jobs.update(jid, state="cancelled")
     except Exception as e:
-        logger.warning("preview worker failed: %s", e)
-        _jobs.update(jid, state="failed", error="预览任务失败，请重试")
+        code, message = failure_reason(e)
+        logger.warning("preview worker failed code=%s", code)
+        with _lock:
+            job = _jobs.get(jid) or {}
+            if _stop.is_set() or job.get("state") != "running":
+                _jobs.update(jid, state="cancelled")
+            else:
+                item = job.get("queue_item")
+                if item:
+                    failure = {name: item[name] for name in ("kind", "id", "library_id")}
+                    failure.update(failed_at=int(time.time()), error_code=code, error=message)
+                    _failure_ledger().update(item["kind"], item["id"], failure)
+                    _flush_failures_locked()
+                _jobs.update(jid, state="failed", error="预览任务失败，请重试")
     finally:
+        with _lock:
+            job = _jobs.get(jid)
+            if job and job.get("queue_item"):
+                # Keep the terminal result even if the bounded job registry evicts it.
+                _queued_finished = job
         _auto_wake.set()
 
 
@@ -379,6 +415,29 @@ def auto_scan_snapshot(libraries) -> dict:
 
 def _queue_path() -> Path:
     return _root() / "auto-queue.json"
+
+
+def _failure_ledger():
+    global _failure_store
+    root = _root()
+    if _failure_store is None or _failure_store.root != root:
+        _failure_store = FailureStore(root)
+    return _failure_store
+
+
+def _flush_failures_locked():
+    try:
+        return _failure_ledger().flush()
+    except (OSError, ValueError, UnicodeError):
+        logger.warning("save preview failures failed; retrying in 30 seconds")
+        return False
+
+
+def _failure_snapshot_locked():
+    try:
+        return _failure_ledger().snapshot()
+    except (OSError, ValueError, UnicodeError):
+        raise HTTPException(503, "读取缩略图失败记录失败，请稍后重试") from None
 
 
 def _save_auto_queue() -> None:
@@ -446,6 +505,10 @@ def _reconcile_ready_queue():
             continue
     if completed:
         with _lock:
+            for kind, vid in completed:
+                _failure_ledger().update(kind, vid, None)
+            if not _flush_failures_locked():
+                return
             try:
                 _retire_auto_items_locked(completed)
             except OSError as e:
@@ -487,10 +550,28 @@ def enqueue_scan_previews(before: dict, failed_libraries=()) -> int:
     return _enqueue_auto_items(added)
 
 
+def _queued_job_item(job):
+    if not job:
+        return None
+    if job.get("queue_item"):
+        return job["queue_item"]
+    # Compatibility for existing in-memory jobs and test fixtures.
+    items = job.get("items") or []
+    if not job.get("auto") or not items:
+        return None
+    return next((item for item in _auto_queue
+                 if (item["kind"], item["id"]) == tuple(items[0])), None)
+
+
+def _queued_item_matches(left, right):
+    return bool(left and right and all(left.get(name) == right.get(name)
+                                      for name in ("kind", "id", "library_id")))
+
+
 def _auto_head_matches(job) -> bool:
-    items = (job or {}).get("items") or []
-    return bool(_auto_queue and items and tuple(items[0]) ==
-                (_auto_queue[0]["kind"], _auto_queue[0]["id"]))
+    """Compatibility helper: dispatcher jobs can now own any queue position."""
+    item = _queued_job_item(job)
+    return any(_queued_item_matches(item, queued) for queued in _auto_queue)
 
 
 def _auto_hours() -> tuple[int, int]:
@@ -527,61 +608,81 @@ def _auto_pause_reason(usage: dict | None = None) -> str:
     return ""
 
 
+def _dispatch_queue_once():
+    """Finalize the previous item, then claim the first currently eligible item."""
+    global _auto_job_id, _queued_finished, _queue_retry_at
+    with _lock:
+        if time.monotonic() < _queue_retry_at or not _flush_failures_locked():
+            return
+        if _auto_job_id:
+            job = _jobs.get(_auto_job_id) or _queued_finished
+            if job and job["state"] == "running":
+                return
+            if job and job["state"] in ("done", "failed"):
+                item = _queued_job_item(job)
+                if item and _auto_head_matches(job):
+                    try:
+                        _retire_auto_items_locked({(item["kind"], item["id"])})
+                    except OSError:
+                        _queue_retry_at = time.monotonic() + 30
+                        logger.warning("save finished preview queue failed; retrying in 30 seconds")
+                        return
+            _auto_job_id = None
+            _queued_finished = None
+        # _start(auto=False) would preempt an automatic job. A queued retry must wait.
+        if _worker_thread and _worker_thread.is_alive():
+            return
+        if not _auto_queue:
+            return
+        automatic_paused = None
+        for candidate in list(_auto_queue):
+            if candidate.get("manual_retry"):
+                item = dict(candidate)
+                break
+            if automatic_paused is None:
+                automatic_paused = bool(_auto_pause_reason())
+            if automatic_paused:
+                continue
+            if not _auto_library(store.get_library(candidate["library_id"])):
+                try:
+                    _retire_auto_items_locked({(candidate["kind"], candidate["id"])})
+                except OSError:
+                    _queue_retry_at = time.monotonic() + 30
+                    logger.warning("save skipped preview queue failed; retrying in 30 seconds")
+                    return
+                continue
+            item = dict(candidate)
+            break
+        else:
+            return
+        try:
+            manual = bool(item.get("manual_retry"))
+            job = _start([(item["kind"], item["id"])],
+                         library_id=item["library_id"] if manual else None,
+                         auto=not manual, queue_item=item)
+            _auto_job_id = job["job_id"]
+        except HTTPException as e:
+            if e.status_code != 409:
+                logger.warning("queued preview start failed status=%s", e.status_code)
+
+
 def _auto_loop() -> None:
-    global _auto_job_id
     while not _stop.is_set():
         _auto_wake.wait(30)
         _auto_wake.clear()
         if _stop.is_set():
             break
-        with _lock:
-            if _auto_job_id:
-                job = _jobs.get(_auto_job_id)
-                if job and job["state"] == "running":
-                    continue
-                if job and job["state"] in ("done", "failed") and _auto_head_matches(job):
-                    finished = _auto_queue.pop(0)
-                    try:
-                        _save_auto_queue()
-                    except OSError as e:
-                        _auto_queue.insert(0, finished)
-                        logger.warning("save automatic preview queue failed: %s", e)
-                _auto_job_id = None
-            if not _auto_queue:
-                continue
-            item = dict(_auto_queue[0])
-        if _auto_pause_reason():
-            continue
-        if not _auto_library(store.get_library(item["library_id"])):
-            with _lock:
-                if _auto_queue and _auto_queue[0] == item:
-                    skipped = _auto_queue.pop(0)
-                    try:
-                        _save_auto_queue()
-                    except OSError as e:
-                        _auto_queue.insert(0, skipped)
-                        logger.warning("save automatic preview queue failed: %s", e)
-            continue
-        try:
-            with _lock:
-                if not _auto_queue or _auto_queue[0] != item:
-                    continue
-                job = _start([(item["kind"], item["id"])], auto=True)
-                _auto_job_id = job["job_id"]
-        except HTTPException as e:
-            if e.status_code != 409:
-                logger.warning("automatic preview start failed: %s", e.detail)
-            continue
-        _auto_wake.set()
+        _dispatch_queue_once()
 
 
 def start_auto_previews() -> None:
-    global _auto_thread, _auto_queue, _auto_job_id
+    global _auto_thread, _auto_queue, _auto_job_id, _queued_finished
     with _lock:
         if _auto_thread and _auto_thread.is_alive():
             return
         _stop.clear()
         _auto_job_id = None
+        _queued_finished = None
         try:
             saved = json.loads(_queue_path().read_text(encoding="utf-8"))
             if not isinstance(saved, list):
@@ -589,7 +690,8 @@ def start_auto_previews() -> None:
             _auto_queue = [x for x in saved if isinstance(x, dict)
                            and x.get("kind") in ("movie", "episode", "extra")
                            and isinstance(x.get("id"), int) and x["id"] > 0
-                           and isinstance(x.get("library_id"), int) and x["library_id"] > 0]
+                           and isinstance(x.get("library_id"), int) and x["library_id"] > 0
+                           and type(x.get("manual_retry", False)) is bool]
         except FileNotFoundError:
             _auto_queue = []
         except (OSError, ValueError, TypeError) as e:
@@ -600,7 +702,7 @@ def start_auto_previews() -> None:
     _auto_wake.set()
 
 
-def _start(items, library_id=None, auto=False):
+def _start(items, library_id=None, auto=False, *, queue_item=None):
     global _worker_thread, _active_job
     previous = None
     with _lock:
@@ -619,7 +721,9 @@ def _start(items, library_id=None, auto=False):
         if _worker_thread and _worker_thread.is_alive():
             raise HTTPException(409, "已有预览任务在运行，请稍后重试")
         _stop.clear()
-        job = _jobs.create(items=list(items), library_id=library_id, total=len(items), auto=auto)
+        source = "retry" if queue_item and queue_item.get("manual_retry") else "auto" if auto else "batch"
+        job = _jobs.create(items=list(items), library_id=library_id, total=len(items), auto=auto,
+                           source=source, queue_item=dict(queue_item) if queue_item else None)
         _active_job = job["job_id"]
         _worker_thread = threading.Thread(target=_worker, args=(_active_job, items, library_id is not None or auto), daemon=True)
         _worker_thread.start()
@@ -627,7 +731,7 @@ def _start(items, library_id=None, auto=False):
 
 
 def _public_job(job):
-    return {k: v for k, v in job.items() if k != "items"}
+    return {k: v for k, v in job.items() if k not in ("items", "queue_item")}
 
 
 def shutdown_previews():
@@ -645,7 +749,7 @@ def preview_auto_status():
     with _lock:
         job = _jobs.get(_auto_job_id)
         queued = len(_pending_queue()) + int(_running_queue_item(_jobs.get(_active_job)) is not None)
-        running = bool(job and job["state"] == "running")
+        running = bool(job and job.get("auto") and job["state"] == "running")
     start, end = _auto_hours()
     return {"mode": _auto_mode(), "queued": queued, "running": running,
             "start_hour": start, "end_hour": end, "pause_reason": _auto_pause_reason()}
@@ -657,7 +761,8 @@ def _queue_item_public(item: dict) -> dict:
     return {"kind": item["kind"], "id": item["id"],
             "library_id": item.get("library_id") or row.get("library_id"),
             "title": row.get("display_title") or row.get("title") or file_name or "已移除的影片",
-            "file_name": file_name}
+            "file_name": file_name,
+            "source": item.get("source") or ("retry" if item.get("manual_retry") else "auto")}
 
 
 def _job_queue_item(job, kind, vid):
@@ -666,7 +771,8 @@ def _job_queue_item(job, kind, vid):
         queued = next((item for item in _auto_queue if (item["kind"], item["id"]) == (kind, vid)), None)
         row = {} if queued else (store.get_playable(kind, vid) or {})
         library_id = (queued or row).get("library_id") or 1
-    return {"kind": kind, "id": vid, "library_id": library_id}
+    return {"kind": kind, "id": vid, "library_id": library_id,
+            "source": job.get("source") or ("auto" if job.get("auto") else "batch")}
 
 
 def _running_queue_item(job):
@@ -855,6 +961,77 @@ def preview_completed(library_id: int | None = Query(default=None, gt=0),
             "offset": offset, "limit": limit}
 
 
+@router.get("/previews/failed")
+def preview_failed(library_id: int | None = Query(default=None, gt=0),
+                   offset: int = Query(default=0, ge=0),
+                   limit: int = Query(default=50, ge=1, le=100)):
+    if library_id is not None and not store.get_library(library_id):
+        raise HTTPException(404, "视频库不存在")
+    with _lock:
+        records = list(_failure_snapshot_locked().values())
+    failed = []
+    for record in records:
+        row = store.get_playable(record["kind"], record["id"])
+        if not row:
+            continue
+        current_library = row.get("library_id") or 1
+        if library_id is not None and current_library != library_id:
+            continue
+        file_name = Path(row.get("file_path") or "").name
+        failed.append(record | {"library_id": current_library,
+                                "title": row.get("display_title") or row.get("title") or file_name,
+                                "file_name": file_name})
+    order = {"movie": 0, "episode": 1, "extra": 2}
+    failed.sort(key=lambda item: (-item["failed_at"], item["library_id"], order[item["kind"]], item["id"]))
+    return {"items": failed[offset:offset + limit], "total": len(failed),
+            "offset": offset, "limit": limit}
+
+
+class PreviewRetryBody(BaseModel):
+    library_id: int = Field(gt=0)
+
+
+@router.post("/previews/failed/{kind}/{version_id}/retry")
+def preview_retry(kind: Literal["movie", "episode", "extra"], version_id: int,
+                  body: PreviewRetryBody):
+    if not store.get_library(body.library_id):
+        raise HTTPException(404, "视频库不存在")
+    row = store.get_playable(kind, version_id)
+    if not row or (row.get("library_id") or 1) != body.library_id:
+        raise HTTPException(404, "该影片不属于当前视频库")
+    target = (kind, version_id)
+    with _lock:
+        job = _jobs.get(_active_job)
+        running = _running_queue_item(job)
+        if running and (running["kind"], running["id"]) == target:
+            return {"state": "running"}
+        if job and job["state"] == "running":
+            start = int(job.get("done") or 0) + int(running is not None)
+            if target in [tuple(item) for item in job.get("items", [])[start:]]:
+                return {"state": "already_queued"}
+        queued = next((item for item in _auto_queue
+                       if (item["kind"], item["id"]) == target), None)
+        if queued and queued.get("manual_retry"):
+            return {"state": "already_queued"}
+        if target not in _failure_snapshot_locked():
+            raise HTTPException(409, "该影片已没有待处理的生成失败，请刷新列表")
+        dispatched = _jobs.get(_auto_job_id) or _queued_finished
+        if (queued and dispatched and dispatched["state"] != "running"
+                and _queued_item_matches(_queued_job_item(dispatched), queued)):
+            raise HTTPException(503, "正在保存上次生成结果，请稍后重试")
+        before = list(_auto_queue)
+        _auto_queue[:] = [item for item in before if (item["kind"], item["id"]) != target]
+        _auto_queue.append({"kind": kind, "id": version_id, "library_id": body.library_id,
+                            "manual_retry": True})
+        try:
+            _save_auto_queue()
+        except OSError:
+            _auto_queue[:] = before
+            raise HTTPException(503, "保存预览队列失败，请稍后重试") from None
+    _auto_wake.set()
+    return {"state": "queued"}
+
+
 class PreviewQueueBody(BaseModel):
     library_id: int = Field(gt=0)
 
@@ -950,8 +1127,8 @@ def preview_queue_remove(kind: Literal["movie", "episode", "extra"], version_id:
         if index is None:
             raise HTTPException(404, "该影片已不在待处理队列中")
         job = _jobs.get(_auto_job_id)
-        running = bool(index == 0 and job and job["state"] == "running"
-                       and _auto_head_matches(job))
+        running = bool(job and job["state"] == "running"
+                       and _queued_item_matches(_queued_job_item(job), _auto_queue[index]))
         item = _auto_queue.pop(index)
         try:
             _save_auto_queue()
@@ -1005,7 +1182,19 @@ def preview_manifest(version_id: int, kind: Literal["movie", "episode", "extra"]
 
 @router.post("/{version_id}/previews")
 def preview_start(version_id: int, kind: Literal["movie", "episode", "extra"] = "movie"):
-    _version_source(version_id, kind)  # 拒绝不存在/离线文件；后续 worker 再检查一次
+    try:
+        _version_source(version_id, kind)  # 后续 worker 再检查一次。
+    except HTTPException as e:
+        row = store.get_playable(kind, version_id)
+        if row:
+            code, message = failure_reason(e)
+            failure = {"kind": kind, "id": version_id, "library_id": row.get("library_id") or 1,
+                       "failed_at": int(time.time()), "error_code": code, "error": message}
+            with _lock:
+                _failure_ledger().update(kind, version_id, failure)
+                _flush_failures_locked()
+            raise HTTPException(e.status_code, message) from None
+        raise
     return _start([(kind, version_id)])
 
 
@@ -1036,7 +1225,17 @@ def preview_job(job_id: str):
 
 @router.post("/previews/jobs/{job_id}/cancel")
 def preview_cancel(job_id: str):
-    _jobs.cancel(job_id)
+    with _lock:
+        job = _jobs.get(job_id)
+        item = _queued_job_item(job)
+        if (job and job["state"] == "running" and job_id == _auto_job_id
+                and item and item.get("manual_retry")):
+            try:
+                _retire_auto_items_locked({(item["kind"], item["id"])})
+            except OSError:
+                raise HTTPException(503, "保存预览队列失败，请稍后重试") from None
+        _jobs.cancel(job_id)
+    _auto_wake.set()
     return preview_job(job_id)
 
 

@@ -77,6 +77,7 @@ class ExtractionError(RuntimeError):
         self.timed_out = timed_out
         self.stderr_bytes = stderr_bytes
         self.elapsed = elapsed
+        self.error_kind = error_kind
         self.diagnostic = (f"reason={reason} returncode={returncode} timed_out={timed_out} "
                            f"wall_s={elapsed:.3f} limit_s={limit} stderr_bytes={stderr_bytes} "
                            f"error_kind={error_kind}")

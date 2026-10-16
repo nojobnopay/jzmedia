@@ -139,6 +139,38 @@ def test_completed_previews_require_management_and_never_leak_private_titles(dev
     assert "synthetic.mkv" not in denied.text
 
 
+def test_failed_previews_require_management_for_listing_and_retry(device, monkeypatch, tmp_path):
+    client, mid, _, _, _ = device
+    monkeypatch.setattr(previews, "_root", lambda: tmp_path / "failed-previews")
+    monkeypatch.setattr(previews, "_failure_store", None)
+    monkeypatch.setattr(previews, "_auto_queue", [])
+    monkeypatch.setattr(previews, "_active_job", None)
+    monkeypatch.setattr(previews, "_auto_job_id", None)
+    monkeypatch.setattr(previews, "_queued_finished", None)
+    ledger = previews._failure_ledger()
+    ledger.update("movie", mid, dict(kind="movie", id=mid, library_id=1,
+                                     failed_at=100, error_code="decoder"))
+    assert ledger.flush()
+    client.post("/api/viewing/unlock", json={"password": "123456"})
+    client.patch("/api/viewing/policy", json={"kind": "movie", "ids": [mid], "is_private": True})
+    path = "/api/stream/previews/failed"
+    retry = f"{path}/movie/{mid}/retry"
+    allowed = client.get(path)
+    assert allowed.status_code == 200 and allowed.json()["items"][0]["file_name"] == "synthetic.mkv"
+    assert allowed.headers["cache-control"] == "no-store"
+    assert client.post(retry, json={"library_id": 1}).json() == {"state": "queued"}
+    client.post("/api/viewing/lock")
+    for response in (client.get(path), client.post(retry, json={"library_id": 1})):
+        assert response.status_code == 403 and response.json()["code"] == "management_required"
+        assert "synthetic.mkv" not in response.text
+    client.post("/api/viewing/mode", json={"mode": "private", "password": "123456"})
+    assert client.get(path).status_code == 200
+    assert client.post(retry, json={"library_id": 1}).json() == {"state": "already_queued"}
+    client.post("/api/viewing/mode", json={"mode": "children"})
+    assert client.get(path).status_code == 403
+    assert client.post(retry, json={"library_id": 1}).status_code == 403
+
+
 def test_management_file_stream_stops_when_temporary_grant_expires(device, monkeypatch):
     client, _, _, directory, data = device
     client.post("/api/viewing/unlock", json={"password": "123456"})
