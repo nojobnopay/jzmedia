@@ -1,6 +1,6 @@
 ---
 version: 0.27.0
-reviewed: 2026-10-15
+reviewed: 2026-10-16
 ---
 
 # API 与后台任务
@@ -165,7 +165,11 @@ POST /api/tv/bindings/apply {"token": "…"}   # 用户确认上述预览后执�
 
 TV 客户端对 `versions/decide/sessions/prewarm` 显式传 `client:"android_tv"` 及原生 `caps`，旧客户端省略 `client` 仍按 web 处理。具体容器、HDR、音轨和逐片格式能力字段见仓库 `android-tv/docs/protocol.md`。`GET /api/tv-client/search` 支持 `q/kind/media_library/limit/offset`；演员 `/actors` 与 `/actor-works` 使用同一媒体库范围，作品查询中的 `actor` 为服务器返回的不透明 key。
 
-每次 `POST /api/stream/{id}/sessions` 返回独立 `session_id`，相同输出共享转码任务和成品；`POST /api/stream/sessions/{sid}/ping` 保活，DELETE 只释放该 sid。请求可带成对的 `client_id`（16–64 位字母、数字、`_`、`-`）与递增整数 `request_seq`：同一播放器的新请求撤销旧请求，过期请求返回 409。新产物占满 `MAX_TRANSCODES` 时返回 429，不能关闭其他设备来腾出名额。时间轴、复用及回收约定见[播放设计](playback.md#会话时间轴与清理)。
+每次 `POST /api/stream/{id}/sessions` 返回独立 `session_id`，相同输出共享转码任务和成品；DELETE 只释放该 sid。创建会话请求可带成对的 `client_id`（16–64 位字母、数字、`_`、`-`）与递增整数 `request_seq`：同一播放器的新请求撤销旧请求，过期请求返回 409。新产物占满 `MAX_TRANSCODES` 时返回 429，不能关闭其他设备来腾出名额。时间轴、复用及回收约定见[播放设计](playback.md#会话时间轴与清理)。
+
+`POST /api/stream/sessions/{sid}/ping` 认领并保活当前 sid，可省略请求体，兼容已有客户端；新客户端可传可选字段 `position`、`paused` 和 `playback_rate`。`position` 为原片绝对秒数，不是 HLS 片内时间，需为非负有限值；`paused` 为布尔值，`playback_rate` 范围为 0.25～4。服务端结合视频分片需求控制提前生成窗口，不修改持久观看进度；仅发送旧式空心跳时，仍可按实际视频分片请求推进需求。窗口与预缓存共享规则见[按需生成窗口](playback.md#按需生成窗口)。
+
+心跳响应和会话调试提供 `buffer_paused`、`ahead_seconds`、`lookahead_seconds`、`window_supported` 和 `flow_reason`。`running` 表示 FFmpeg 尚未退出，包含缓冲足够而暂停的情况；不能把窗口暂停当作生成失败或整片完成。心跳另用 `complete`、`failed` 区分完整成品与中断，`ahead_seconds` 在尚无可用列表或整片预缓存时可为 `null`。
 
 `GET /api/tv/recent-played` 的条目 `id/show_id` 指剧，实际可播放分集在 `progress.version_id`，不能把 `id` 直接传给分集播放。电影、分集完成判定共同使用至少 95%，或至少 80% 且剩余不超过 300 秒的条件。
 

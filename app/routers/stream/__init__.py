@@ -15,3 +15,7 @@ __all__ += list(subtitles.__all__)
 
 from .previews import shutdown_previews as shutdown_previews, start_auto_previews as start_auto_previews
 __all__ += list(previews.__all__)
+
+from .common import (start_session_maintenance as start_session_maintenance,
+                     stop_session_maintenance as stop_session_maintenance)
+__all__ += ["start_session_maintenance", "stop_session_maintenance"]

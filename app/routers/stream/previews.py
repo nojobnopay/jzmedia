@@ -110,7 +110,10 @@ def _cancelled(jid):
 def _playback_busy() -> bool:
     now = time.time()
     with _sess_lock:
-        return any(s.get("prewarm") or now - float(s.get("last_ping") or now) < 90
+        return any(not getattr(s.get("proc"), "_jz_buffer_paused", False)
+                   and ((s.get("proc") is not None and s["proc"].poll() is None)
+                        or (not (s.get("_flow_state") or {}).get("paused", False)
+                            and (s.get("prewarm") or now - float(s.get("last_ping") or now) < 90)))
                    for s in _sessions.values())
 
 
@@ -124,7 +127,9 @@ class _YieldToPlayback(Exception):
 
 def _transcoding_busy():
     with _sess_lock:
-        return any(s.get("proc") is not None and s["proc"].poll() is None for s in _sessions.values())
+        return any(s.get("proc") is not None and s["proc"].poll() is None
+                   and not getattr(s["proc"], "_jz_buffer_paused", False)
+                   for s in _sessions.values())
 
 
 def _run(cmd, jid, timeout=60):

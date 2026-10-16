@@ -128,6 +128,34 @@ def test_concurrent_same_output_gets_unique_leases_and_one_process(producers, mo
     assert not common._tasks
 
 
+def test_creator_closed_after_ready_does_not_cancel_attached_viewer(producers, monkeypatch):
+    initialized, released = threading.Event(), threading.Event()
+    start = session._start_task
+    def hold_creator(*args):
+        start(*args)
+        initialized.set()
+        assert released.wait(3)
+    monkeypatch.setattr(session, "_start_task", hold_creator)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        creator = pool.submit(create)
+        try:
+            assert initialized.wait(3)
+            viewer = create()
+            creator_sid = next(sid for sid in common._sessions if sid != viewer["session_id"])
+            session.hls_session_close(creator_sid)
+        finally:
+            released.set()
+        with pytest.raises(HTTPException) as error:
+            creator.result(timeout=3)
+        assert error.value.status_code == 503
+    assert session.hls_session_ping(viewer["session_id"])["running"]
+    assert not session.hls_session_ping(viewer["session_id"])["failed"]
+    assert not common._sessions[viewer["session_id"]]["task"].get("cancelled")
+    assert not producers[0].terminated
+    session.hls_session_close(viewer["session_id"])
+    assert producers[0].terminated
+
+
 def test_different_outputs_coexist_until_process_limit(producers):
     a, b = create(), create(quality="720p", start=12)
     assert common._sessions[a["session_id"]]["sdir"] != common._sessions[b["session_id"]]["sdir"]

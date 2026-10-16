@@ -24,8 +24,11 @@ from .common import (_min_segs, _SEG_RE, _SESS_FILE_RE, _has_endlist, _drop_sess
 from .common import _write_complete_marker, _release_task_slot, _clear_session_meta
 from .media import _media_payload
 from .subtitles import _sub_list
+from .flow_control import (flow_status, record_playback_state, record_video_request,
+                           start_producer_control, wake_producer_control)
+from .flow_input import prepare_flow_input
 from ... import media as _media
-__all__ = ['SessionBody', '_spawn_session', 'hls_session_create', 'hls_session_playlist', '_wait_file', 'hls_session_segment', 'hls_session_debug', 'hls_session_ping', 'hls_session_close', 'hls_session_file']
+__all__ = ['SessionBody', 'SessionPingBody', '_spawn_session', 'hls_session_create', 'hls_session_playlist', '_wait_file', 'hls_session_segment', 'hls_session_debug', 'hls_session_ping', 'hls_session_close', 'hls_session_file']
 
 class SessionBody(BaseModel):
     quality: str = "auto"
@@ -39,6 +42,12 @@ class SessionBody(BaseModel):
     client_id: str | None = Field(default=None, min_length=16, max_length=64,
                                   pattern=r"^[A-Za-z0-9_-]+$")
     request_seq: int | None = Field(default=None, ge=0)
+
+
+class SessionPingBody(BaseModel):
+    position: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    paused: bool | None = None
+    playback_rate: float | None = Field(default=None, ge=0.25, le=4, allow_inf_nan=False)
 
 
 # A browser player can replace its own in-flight seek before the POST returns a
@@ -178,6 +187,7 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                 "caps_hash": _caps.caps_hash(caps_n), "backend": "static",
                 "complete": complete, "last_ping": now, "created": now,
                 "unclaimed": not prewarm, "prewarm": prewarm, "task": task,
+                "requested_start": float(start),
                 "client_id": client_id, "request_seq": request_seq}
         from ...viewing import current
         access = current.get()
@@ -187,6 +197,7 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         _sessions[sid] = sess
         if task is not None:
             task["owners"].add(sid)
+            wake_producer_control(task)
     try:
         # Probe source time once per producer, before its first segment. Completed full
         # artifacts require no remote keyframe read for resume.
@@ -224,11 +235,13 @@ def _spawn_session(version_id: int, quality: str, audio: int,
     except Exception as e:
         if creator:
             with _sess_lock:
-                task["error"] = e if isinstance(e, HTTPException) else HTTPException(500, "transcode startup failed")
-                task["cancelled"] = True
-                # Waiters wake and release their own leases; the final release stops
-                # the producer outside the lock and returns its slot after exit.
-                task["ready"].set()
+                # A closed caller lease must not poison an already shared producer.
+                if not task["ready"].is_set():
+                    task["error"] = e if isinstance(e, HTTPException) else HTTPException(500, "transcode startup failed")
+                    task["cancelled"] = True
+                    # Waiters release their own leases; the final release stops
+                    # the producer outside the lock and returns its slot after exit.
+                    task["ready"].set()
         _drop_session(sid)
         if isinstance(e, HTTPException):
             raise
@@ -246,6 +259,8 @@ def _start_task(task: dict, sid: str, row: dict, src, info: dict, plan: dict, st
     log_path = os.path.join(sdir, "ffmpeg.log")
     for attempt in (0, 1):
         force_sw = attempt == 1
+        cmd = _playback.build_cmd(src.input, plan, start=start, seg_time=stime, force_sw=force_sw)
+        cmd, flow_supported = prepare_flow_input(cmd, src.input, plan)
         # Cancellation and creation share the lock, so shutdown can never miss Popen.
         with _sess_lock:
             if task.get("cancelled"):
@@ -257,7 +272,7 @@ def _start_task(task: dict, sid: str, row: dict, src, info: dict, plan: dict, st
                     logger.debug("cannot clear output %s/%s: %s", sdir, name, e)
             if seg == "fmp4":
                 _write_master(sdir, info, plan, stime)
-            cmd = _playback.build_cmd(src.input, plan, start=start, seg_time=stime, force_sw=force_sw)
+            task["flow_input_supported"] = flow_supported
             with open(log_path, "wb") as log_fh:
                 try:
                     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log_fh, cwd=sdir)
@@ -270,6 +285,7 @@ def _start_task(task: dict, sid: str, row: dict, src, info: dict, plan: dict, st
                 if owner in _sessions:
                     _sessions[owner].update({"proc": proc, "backend": backend, "attempt": attempt + 1})
             _write_session_meta(sdir, sid, int(row["id"]), proc, backend, attempt + 1)
+        start_producer_control(task, proc, plan, float(info.get("duration") or 0))
         deadline = time.monotonic() + (45 if use_hw and not force_sw else 300)
         while time.monotonic() < deadline:
             if task.get("cancelled"):
@@ -305,6 +321,7 @@ def _start_task(task: dict, sid: str, row: dict, src, info: dict, plan: dict, st
                 task["watched"] = True
                 threading.Thread(target=_watch_task, args=(task, proc), daemon=True).start()
                 task["ready"].set()
+                wake_producer_control(task)
             return
         tail = ""
         try:
@@ -414,6 +431,7 @@ def hls_session_segment(sid: str, name: str, request: Request = None):
     dest = os.path.normpath(os.path.join(base, os.path.basename(name or "")))
     if os.path.dirname(dest) != base:
         raise HTTPException(422, "bad segment name")
+    record_video_request(sid, sess, name)
     deadline = time.time() + 25
     while not os.path.isfile(dest) and time.time() < deadline:
         proc = sess.get("proc")
@@ -484,16 +502,28 @@ def hls_session_debug(sid: str):
             "caps_hash": sess.get("caps_hash") or "", "plan": plan,
             "variants": variants,
             "last_ping_ago": round(time.time() - float(sess.get("last_ping") or 0), 1),
-            "ffmpeg_log_tail": flog, "hits": hits}
+            "ffmpeg_log_tail": flog, "hits": hits, **flow_status(sess)}
 
 
 @router.post("/sessions/{sid}/ping")
-def hls_session_ping(sid: str):
+def hls_session_ping(sid: str, body: SessionPingBody | None = None):
     """心跳保活（播放器每 ~10s 调一次；10min 无心跳会话被回收）。"""
     sess = _get_session(sid)
+    if body is not None:
+        record_playback_state(sid, sess, position=body.position, paused=body.paused,
+                              playback_rate=body.playback_rate)
     proc = sess.get("proc")
-    running = proc is not None and proc.poll() is None
+    exit_code = proc.poll() if proc is not None else None
+    running = proc is not None and exit_code is None
+    with _sess_lock:
+        task = sess.get("task") or {}
+        complete = bool(sess.get("complete") or task.get("complete"))
+        failed = bool(not complete and (task.get("error") or (
+            exit_code is not None and exit_code != 0)))
     return {"session_id": sid, "running": running,
+            "complete": complete, "failed": failed,
+            "error": "转码已中断，请重新建立播放会话" if failed else "",
+            **flow_status(sess),
             "segments": (1 if os.path.isfile(os.path.join(sess["sdir"], "media.mp4")) else 0)
             if (sess.get("plan") or {}).get("seg") == "mp4" else _seg_count(sess["sdir"])}
 
@@ -528,6 +558,7 @@ def hls_session_file(sid: str, name: str, request: Request = None):
     dest = os.path.normpath(os.path.join(base, os.path.basename(name or "")))
     if os.path.dirname(dest) != base:
         raise HTTPException(422, "bad file name")
+    record_video_request(sid, sess, name)
     wait = 25.0 if name.endswith((".m4s", ".ts", ".mp4")) else 10.0
     if not _wait_file(sess, dest, timeout=wait):
         _log_hit(sid, "file", name, 404)

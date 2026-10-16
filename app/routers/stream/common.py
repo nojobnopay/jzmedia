@@ -72,6 +72,12 @@ _tasks: dict[tuple, dict] = {}
 
 _sess_lock = threading.RLock()
 
+_sweeper_thread: threading.Thread | None = None
+_sweeper_stop = threading.Event()
+_sweeper_wake = threading.Event()
+_sweeper_lifecycle_lock = threading.Lock()
+_SWEEP_INTERVAL = 60.0
+
 
 _MEDIA_START_CACHE: dict = {}
 
@@ -470,6 +476,19 @@ def _protected_dirs(now: float) -> set[str]:
     return live
 
 
+def _remove_cache_dir(path: str) -> bool:
+    """Caller protects against new leases; report only a successful removal."""
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        return False
+    except OSError as e:
+        logger.warning("remove transcode cache failed dir=%s: %s", path, e)
+        return False
+    data_usage.invalidate()
+    return True
+
+
 def _evict_transcode_cache(now: float | None = None, cap: int | None = None,
                            dry_run: bool = False, delete_all: bool = False) -> dict:
     """转码缓存回收：超 cap（默认 TRANSCODE_CACHE_GB）按最旧淘汰到 90% 水位（滞回）；
@@ -491,8 +510,8 @@ def _evict_transcode_cache(now: float | None = None, cap: int | None = None,
             # Recheck atomically: a client may have attached since the directory scan.
             if os.path.normpath(sd) in _protected_dirs(time.time()):
                 continue
-            if not dry_run:
-                shutil.rmtree(sd, ignore_errors=True)
+            if not dry_run and not _remove_cache_dir(sd):
+                continue
             freed += size
             removed += 1
     stat.update({"freed": freed, "removed": removed})
@@ -534,7 +553,7 @@ def _purge_old() -> None:
                     with _sess_lock:
                         if (os.path.isdir(sd) and now - os.path.getmtime(sd) > _TTL
                                 and os.path.normpath(sd) not in _protected_dirs(now)):
-                            shutil.rmtree(sd, ignore_errors=True)
+                            _remove_cache_dir(sd)
                 except OSError:
                     continue
     except OSError:
@@ -550,9 +569,30 @@ def _purge_old() -> None:
         logger.debug("transcode cache cap pass failed: %s", e)
 
 
+def _resume_proc(proc) -> bool:
+    """A buffer-paused producer must receive CONT before graceful termination."""
+    if proc is None or proc.poll() is not None:
+        return False
+    if not getattr(proc, "_jz_buffer_paused", False):
+        return True
+    resume = getattr(signal, "SIGCONT", None)
+    if resume is None:
+        return False
+    try:
+        proc.send_signal(resume)
+        proc._jz_buffer_paused = False
+        return True
+    except (AttributeError, OSError) as e:
+        logger.debug("resume transcode failed: %s", e)
+        return False
+
+
 def _kill_proc(proc) -> None:
     if proc is None or proc.poll() is not None:
         return
+    with _sess_lock:
+        proc._jz_terminating = True
+    _resume_proc(proc)
     try:
         proc.terminate()
     except Exception as e:
@@ -567,15 +607,23 @@ def _kill_proc(proc) -> None:
             logger.warning("kill transcode failed: %s", e)
 
 
-def _drop_session(sid: str, kill: bool = True) -> None:
+def _wake_session_maintenance() -> None:
+    _sweeper_wake.set()
+
+
+def _drop_session(sid: str, kill: bool = True, *, expired_at: float | None = None) -> None:
     """Remove one lease atomically; slow process termination never holds the global lock."""
     with _sess_lock:
-        sess = _sessions.pop(sid, None)
-        if not sess:
+        sess = _sessions.get(sid)
+        if not sess or (expired_at is not None and not _session_expired(sess, expired_at)):
             return
+        _sessions.pop(sid)
+        _wake_session_maintenance()
         task = sess.get("task")
         if task is not None:
             task["owners"].discard(sid)
+            from .flow_control import wake_producer_control
+            wake_producer_control(task)
             if task["owners"] or task.get("stopping"):
                 return
             # Keep the cancelled task registered while stopping. New requests cannot
@@ -604,6 +652,7 @@ def _drop_session(sid: str, kill: bool = True) -> None:
             # Legacy/static leases do not own a producer; avoid clearing newer metadata.
             if not any(t["sdir"] == sess.get("sdir") for t in _tasks.values()):
                 _clear_session_meta(sess.get("sdir") or "")
+    _wake_session_maintenance()
 
 
 def _release_task_slot(task: dict) -> None:
@@ -649,6 +698,7 @@ def _watch_task(task: dict, proc) -> None:
                     _tasks.pop(task["key"])
                     _clear_session_meta(task["sdir"])
                 task["done"].set()
+        _wake_session_maintenance()
 
 
 def shutdown_sessions() -> None:
@@ -675,40 +725,90 @@ def drop_sessions_for_version(version_id: int, kind: str = "movie") -> int:
     return len(sids)
 
 
+def _session_expired(sess: dict, now: float) -> bool:
+    """Caller holds _sess_lock; producer startup and prewarm own their lifetimes."""
+    task = sess.get("task")
+    if task is not None and not task["ready"].is_set():
+        return False
+    if sess.get("prewarm"):
+        return False
+    if sess.get("unclaimed"):
+        created = float(sess.get("created") or sess.get("last_ping") or now)
+        return now - created > _UNCLAIMED_TTL
+    idle = now - float(sess.get("last_ping") or now)
+    proc = sess.get("proc")
+    exited = proc is not None and proc.poll() is not None
+    return idle > _SESS_IDLE or (exited and idle > 300)
+
+
 def _dead_sessions(now: float) -> list[str]:
     """应收割的会话 id（无心跳超期 / 未认领超宽限 / 进程已退出超期）；纯计算便于回归测试。"""
-    dead = []
     with _sess_lock:
-        for sid, s in list(_sessions.items()):
-            task = s.get("task")
-            if task is not None and not task["ready"].is_set():
-                continue  # Startup has its own bounded timeout; no client can claim it yet.
-            proc = s.get("proc")
-            exited = proc is not None and proc.poll() is not None
-            idle = now - float(s.get("last_ping") or now)
-            # Prewarm has its own bounded worker lifetime; all client leases expire.
-            if s.get("prewarm"):
-                continue  # The prewarm worker owns a bounded lifetime, without heartbeats.
-            elif s.get("unclaimed"):
-                # 客户端从未取过流（关窗 abort 拿不到 sid / 会话是给别人的）：快速回收
-                age = now - float(s.get("created") or s.get("last_ping") or now)
-                if age > _UNCLAIMED_TTL:
-                    dead.append(sid)
-            elif idle > _SESS_IDLE or (exited and idle > 300):
-                dead.append(sid)
-    return dead
+        return [sid for sid, sess in _sessions.items() if _session_expired(sess, now)]
+
+
+def _maintain_sessions() -> None:
+    now = time.time()
+    try:
+        dead = _dead_sessions(now)
+    except Exception:
+        logger.exception("transcode lease scan failed")
+        dead = []
+    for sid in dead:
+        try:
+            # A request may have renewed this lease after the candidate scan.
+            _drop_session(sid, expired_at=now)
+        except Exception:
+            logger.exception("expire transcode lease failed sid=%s", sid)
+    try:
+        _purge_old()
+    except Exception:
+        logger.exception("transcode cache maintenance failed")
 
 
 def _sweeper() -> None:
     """后台收尸：无心跳超期 / 进程已退出超期 → 杀进程删会话（分片留 TTL 清理）。"""
-    while True:
-        time.sleep(60)
-        for sid in _dead_sessions(time.time()):
-            _drop_session(sid, kill=True)
-        _purge_old()
+    while not _sweeper_stop.is_set():
+        _sweeper_wake.clear()
+        try:
+            _maintain_sessions()
+        except Exception:
+            logger.exception("transcode maintenance pass failed")
+        if _sweeper_stop.is_set():
+            break
+        _sweeper_wake.wait(_SWEEP_INTERVAL)
 
 
-_sweeper_thread = threading.Thread(target=_sweeper, daemon=True)
+def start_session_maintenance() -> None:
+    """Start once per app lifespan, after orphan reaping; never at import time."""
+    global _sweeper_thread, _cap_last
+    with _sweeper_lifecycle_lock:
+        if _sweeper_thread and _sweeper_thread.is_alive():
+            if _sweeper_stop.is_set():
+                raise RuntimeError("transcode maintenance is still stopping")
+            return
+        _sweeper_stop.clear()
+        _sweeper_wake.clear()
+        with _cap_lock:
+            _cap_last = 0.0
+        _sweeper_thread = threading.Thread(target=_sweeper, name="stream-maintenance", daemon=True)
+        _sweeper_thread.start()
+
+
+def stop_session_maintenance() -> None:
+    """Wake promptly on shutdown; never join while holding session locks."""
+    global _sweeper_thread
+    with _sweeper_lifecycle_lock:
+        thread = _sweeper_thread
+        _sweeper_stop.set()
+        _sweeper_wake.set()
+    if thread is not None and thread is not threading.current_thread():
+        thread.join(timeout=10)
+    with _sweeper_lifecycle_lock:
+        if thread is not None and thread.is_alive():
+            logger.warning("transcode maintenance is still stopping")
+        elif _sweeper_thread is thread:
+            _sweeper_thread = None
 
 
 def _marker_matches(sdir: str, plan_key: str, filename: str = "plan.json") -> bool:
@@ -871,9 +971,13 @@ def _get_session(sid: str) -> dict:
         if owner and (owner != access.session_hash or
                       not check_lease(owner, sess.get("viewing_generation", -1))):
             raise HTTPException(404, "播放会话已锁定")
-    sess["last_ping"] = time.time()
-    # 任何一次真实取流请求（playlist/分片/心跳/调试）= 客户端已拿到 sid，撤销快速收割
-    sess["unclaimed"] = False
+    with _sess_lock:
+        # Authorization may block while a DELETE or expiry releases this lease.
+        if _sessions.get(sid) is not sess:
+            raise HTTPException(404, "no such transcode session (re-POST sessions)")
+        sess["last_ping"] = time.time()
+        # Playlist, segment and heartbeat requests claim the returned sid.
+        sess["unclaimed"] = False
     return sess
 
 

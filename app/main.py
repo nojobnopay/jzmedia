@@ -45,6 +45,7 @@ async def _lifespan(_app: FastAPI):
             _logger.warning("启动清理孤儿转码进程 %s 个", killed)
     except Exception as e:
         _logger.warning("reap orphans failed: %s", e)
+    stream.start_session_maintenance()
     threading.Thread(target=_tr.detect, daemon=True).start()
     # 远程库挂载看门狗（C 阶段）：启动重挂 + 60s 巡检（ALLOW_SMB_MOUNT=0 可禁用）
     try:
@@ -67,18 +68,21 @@ async def _lifespan(_app: FastAPI):
         lib_desc = "unavailable"
     _logger.info("jzmedia %s 启动：media=[%s] DATA_DIR=%s ENV=%s",
                  app.version, lib_desc, settings.data_dir, settings.env)
-    yield
-    tv_airing.shutdown()
-    cast.manager.shutdown()
-    # 优雅退出：杀掉全部转码进程（防重启/停服后孤儿 ffmpeg 继续烧 CPU 写分片）
-    stream.shutdown_previews()
-    stream.shutdown_sessions()
     try:
-        from . import mounts as _mounts
-        _mounts.shutdown_mounts()
-    except Exception as e:
-        _logger.warning("shutdown mounts failed: %s", e)
-    _logger.info("jzmedia 已停止")
+        yield
+    finally:
+        stream.stop_session_maintenance()
+        tv_airing.shutdown()
+        cast.manager.shutdown()
+        # 优雅退出：杀掉全部转码进程（防重启/停服后孤儿 ffmpeg 继续烧 CPU 写分片）
+        stream.shutdown_previews()
+        stream.shutdown_sessions()
+        try:
+            from . import mounts as _mounts
+            _mounts.shutdown_mounts()
+        except Exception as e:
+            _logger.warning("shutdown mounts failed: %s", e)
+        _logger.info("jzmedia 已停止")
 
 
 app = FastAPI(title="jzmedia", version=VERSION.name, lifespan=_lifespan)

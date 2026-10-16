@@ -72,7 +72,7 @@ test('reload 每个 await 后都有 disposed/代际守卫且可被取消', () =>
   const guards = body.match(/disposed\s*\|\|\s*gen\s*!==\s*reloadGen/g) || []
   assert.ok(guards.length >= 3, `reload 的 await 后守卫不足（${guards.length} < 3）`)
   assert.match(body, /createPlayerSession\([\s\S]*?ctrl\.signal/, 'sessions 与片段下载必须带取消信号')
-  assert.match(body, /session_id[\s\S]{0,200}DELETE/, '晚到会话必须立即 DELETE 回收')
+  assert.match(body, /releaseSession\(late\)/, '晚到会话必须通过统一释放函数立即回收')
 })
 
 test('startPing 受 disposed 保护（卸载后心跳不再泄漏）', () => {

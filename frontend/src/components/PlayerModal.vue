@@ -1,5 +1,5 @@
 <template>
-  <div class="dlg-mask player-mask" @click.self="$emit('close')">
+  <div class="dlg-mask player-mask" @click.self="requestClose">
     <div ref="dlgRef" class="player-dlg" role="dialog" aria-modal="true" :aria-label="title || '视频播放器'">
       <header class="pd-head">
         <div class="pd-heading">
@@ -7,7 +7,7 @@
           <h3>{{ title || ('版本 ' + versionId) }}</h3>
         </div>
         <span v-if="qualityBadge && !castHeld" class="quality-badge" :title="qualityLine">{{ qualityBadge }}</span>
-        <button class="player-icon-btn pd-close" @click="$emit('close')" aria-label="关闭播放器" title="关闭（Esc）">
+        <button class="player-icon-btn pd-close" @click="requestClose" aria-label="关闭播放器" title="关闭（Esc）">
           <PlayerIcon name="close" />
         </button>
       </header>
@@ -128,6 +128,7 @@ import { copyText } from '../clipboard.js'
 import { getCaps, probeStrings, withProbes, playbackSupport } from '../caps.js'
 import { compatibilityCaps, blockedPlaybackMessage, mediaErrorMessage } from '../playbackCompatibility.js'
 import { createMp4Queue, mp4ClipEnd, detachedMediaTimeline, loadMp4Blob, mp4AtEnd } from '../mp4Chunks.js'
+import { createSessionReleaser, createPlaybackHeartbeat, createPlaybackPageLifecycle, createExpiredSessionRecovery } from '../playbackLifecycle.js'
 import { createDropGuard, tickDropGuard, isCopyVideoPath } from '../dropGuard.js'
 import { landscapeLockWanted, lockLandscape, orientationEnv, unlockOrientation } from '../screenOrientation.js'
 import Spinner from './Spinner.vue'
@@ -292,6 +293,7 @@ function onRateChange(rate) {
   try { localStorage.setItem('jzmedia.playbackRate', String(playbackRate.value)) }
   catch (e) { logEvt('rate:storage', e.message) }
   if (hls) hls.config.maxBufferLength = 30 * Math.max(1, playbackRate.value)
+  void heartbeat.send()
 }
 function syncPlaybackRate() {
   const rate = videoEl.value?.playbackRate
@@ -348,7 +350,9 @@ const sessStatus = ref('')
 // 晚到挂载正是“海报墙传出声音”的触发场景，见 reload/mountHls 的 disposed 守卫）
 const booting = ref(false)
 let sessionId = null
-let pingTimer = 0
+const releaseSession = createSessionReleaser(api)
+let playbackFinished = false
+let pauseOnReady = false
 // 客户端能力：基础矩阵一次；逐片候选码串实测结果按版本缓存（decide/sessions 带 caps）
 let activeCaps = null
 const probedCaps = {}
@@ -499,6 +503,7 @@ const bufLine = computed(() => {
   return s
 })
 function absPos() {
+  if (playbackFinished) return seekPos.value
   const v = videoEl.value
   const cur = (v && Number.isFinite(v.currentTime)) ? v.currentTime : 0
   // Direct：媒体时间轴就是整片时间；HLS：会话时间轴从 0 起，需加会话起点
@@ -627,6 +632,7 @@ async function mountHls(v, url, targetMediaTime, opts) {
         'frag=' + ((((data || {}).frag || {}).sn ?? '')) + ' ' +
         String((((data || {}).error || {})).message || '').slice(0, 80))
       if (data.fatal) {
+        if (Number(data.response?.code) === 404) void heartbeat.send()
         if (data.type === Hls.ErrorTypes.MEDIA_ERROR
             && tryCompatibility('HLS 媒体解析失败', { transcode: outputPlan?.vcopy === true })) return
         err.value = '播放错误：' + (data.details || data.type)
@@ -681,7 +687,11 @@ let wantPlaying = false
 let lastPlayAttempt = 0
 function tryPlay() {
   const v = videoEl.value
-  if (!v || disposed) return
+  if (!v || disposed || pageLifecycle.isAway()) return
+  if (playbackFinished) { restartPlay(); return }
+  // The element's autoplay attribute must also follow the saved pause intent.
+  v.autoplay = !pauseOnReady
+  if (pauseOnReady) { wantPlaying = false; booting.value = false; sessStatus.value = ''; return }
   const gen = reloadGen
   restorePlaybackRate()
   wantPlaying = true
@@ -703,36 +713,59 @@ function handlePlayFailure(error, v, gen) {
   err.value = mediaErrorMessage(error?.name === 'NotSupportedError' ? 4 : 0)
 }
 function userPlay() {
+  pauseOnReady = false
   needGesture.value = false
   tryPlay()
 }
 function stopPing() {
-  if (pingTimer) { clearInterval(pingTimer); pingTimer = 0 }
+  heartbeat.stop()
 }
 async function closeSession() {
   stopPing()
   if (sessionId) {
     const sid = sessionId
     sessionId = null
-    try {
-      await api(`/api/stream/sessions/${sid}`, { method: 'DELETE' })
-    } catch (e) { /* 关播失败由服务端 TTL/清道夫回收 */ }
+    await releaseSession(sid)
   }
 }
+const recovery = createExpiredSessionRecovery({
+  current: () => !disposed && !pageLifecycle.isAway() && !castHeld.value ? sessionId : null,
+  recover: async () => {
+    const position = Math.max(0, absPos())
+    const paused = !!videoEl.value?.paused
+    clearResumeTimer()
+    resumeOffer.value = ''
+    resumePos = position
+    seekPos.value = position
+    startFromZero = position === 0
+    logEvt('session:recover', 'position=' + Math.floor(position))
+    await reload({ paused, recovering: true })
+  },
+  failed: () => {
+    resumePos = Math.max(0, absPos())
+    seekPos.value = resumePos
+    stopPlayback()
+    err.value = '播放会话已失效，请点击重新加载'
+  },
+})
+const heartbeat = createPlaybackHeartbeat({
+  request: api,
+  session: () => sessionId,
+  enabled: () => !disposed && !pageLifecycle.isAway() && !castHeld.value && !playbackFinished,
+  state: () => ({ position: absPos(), paused: !videoEl.value || videoEl.value.paused || videoEl.value.ended,
+    playbackRate: playbackRate.value }),
+  onExpired: sid => { void recovery.expired(sid) },
+  onUpdate: result => {
+    if (result?.failed && !result.complete) { void recovery.expired(sessionId); return }
+    if (result?.complete) sessStatus.value = ''
+    const next = mp4Queue.sessionId()
+    if (next) api(`/api/stream/sessions/${next}/ping`, { method: 'POST', body: '{}' }).catch(() => {})
+  },
+})
 function startPing() {
   stopPing()
-  if (!sessionId || disposed) return
-  pingTimer = setInterval(async () => {
-    if (!sessionId || disposed) return
-    try {
-      const r = await api(`/api/stream/sessions/${sessionId}/ping`, { method: 'POST' })
-      const next = mp4Queue.sessionId()
-      if (next) api(`/api/stream/sessions/${next}/ping`, { method: 'POST' }).catch(() => {})
-      if (r && r.running === false && (r.segments || 0) > 0) {
-        sessStatus.value = '' // 转码完成，后台收尾
-      }
-    } catch (e) { /* 心跳失败不打扰播放 */ }
-  }, 10000)
+  if (!sessionId || disposed || pageLifecycle.isAway()) return
+  heartbeat.start()
 }
 function canUseNativeHls() {
   return activeCaps?.native_hls === true
@@ -758,7 +791,7 @@ function tryCompatibility(reason, { native = canUseNativeHls(), transcode = fals
 }
 const mp4Queue = createMp4Queue({
   create: createPlayerSession,
-  close: sid => { revokeMp4Blob(sid); return api(`/api/stream/sessions/${sid}`, { method: 'DELETE' }) },
+  close: sid => { revokeMp4Blob(sid); return releaseSession(sid) },
   isCurrent: gen => !disposed && gen === reloadGen,
 })
 function revokeMp4Blob(sid) {
@@ -778,7 +811,7 @@ async function createPlayerSession(body, signal) {
     return session
   } catch (error) {
     revokeMp4Blob(session.session_id)
-    api(`/api/stream/sessions/${session.session_id}`, { method: 'DELETE' }).catch(() => {})
+    releaseSession(session.session_id)
     throw error
   }
 }
@@ -895,8 +928,14 @@ async function decidePlayback(subArg, signal) {
     return d
   }
 }
-async function reload() {
-  if (castHeld.value || disposed) return
+async function reload(options) {
+  const paused = options?.paused === true
+  const recovering = options?.recovering === true
+  if (castHeld.value || disposed || pageLifecycle.isAway()) return
+  if (!recovering) recovery.reset()
+  playbackFinished = false
+  pauseOnReady = paused
+  finalSavePromise = null
   const prepared = preparedMp4
   preparedMp4 = null
   if (prepared?.session_id) heldMp4Sessions.add(prepared.session_id)
@@ -944,6 +983,7 @@ async function reload() {
   manifestReady = false   // 旧 master 已失效，新挂载解析前不再认为可切 rendition
   const v = videoEl.value
   if (!v || disposed) { revokeMp4Blob(previousSid); booting.value = false; return }   // 关窗/换元素后不再起新一轮
+  v.autoplay = !paused
   try { v.pause() } catch (e) { /* 忽略 */ }
   v.removeAttribute('src'); v.load()
   revokeMp4Blob(previousSid)
@@ -1032,7 +1072,7 @@ async function reload() {
       const late = s && s.session_id
       if (late) {
         revokeMp4Blob(late)
-        api(`/api/stream/sessions/${late}`, { method: 'DELETE' }).catch(() => { /* 忽略 */ })
+        releaseSession(late)
       }
       return
     }
@@ -1079,7 +1119,7 @@ async function reload() {
   } finally {
     if (prepared?.session_id && heldMp4Sessions.delete(prepared.session_id)) {
       revokeMp4Blob(prepared.session_id)
-      api(`/api/stream/sessions/${prepared.session_id}`, { method: 'DELETE' }).catch(() => {})
+      releaseSession(prepared.session_id)
     }
   }
 }
@@ -1240,7 +1280,7 @@ async function postProgress(p) {
   } catch (e) { /* 进度上报失败不打扰播放 */ }
 }
 function saveNow() {
-  if (props.preview || castHeld.value) return Promise.resolve()
+  if (props.preview || castHeld.value || pageLifecycle.isAway() || playbackFinished) return Promise.resolve()
   if (savePromise) return savePromise
   lastSaveAttempt = Date.now()
   const v = videoEl.value
@@ -1260,7 +1300,7 @@ function saveFinal() {
   return finalSavePromise
 }
 function onTime() {
-  if (castHeld.value) return
+  if (castHeld.value || pageLifecycle.isAway() || playbackFinished) return
   if (timelineDetached.value) return
   const v = videoEl.value
   if (!seekPending.value && !seekDragging.value) seekPos.value = absPos()
@@ -1334,7 +1374,7 @@ function restartSeek(t) {
   reload()
 }
 async function onEnded() {
-  if (castHeld.value) return
+  if (castHeld.value || disposed || pageLifecycle.isAway() || playbackFinished) return
   if (engine === 'mp4') {
     if (booting.value) return
     if (timelineDetached.value || !mp4AtEnd(videoEl.value, mp4Duration)) return
@@ -1356,8 +1396,15 @@ async function onEnded() {
     reload()
     return
   }
+  const saved = saveFinal()
+  seekPos.value = Math.max(0, absPos())
+  playbackFinished = true
+  freezeFrame.value = captureFrame()
+  stopPlayback()
+  const endingGen = reloadGen
   if (props.preview) return
-  await saveNow()
+  await saved
+  if (disposed || pageLifecycle.isAway() || !playbackFinished || endingGen !== reloadGen) return
   emit('watched')
   emit('ended')   // 剧集连播：父级据此切下一集（watched 可能在片尾前 5% 触发，不可用于连播）
 }
@@ -1511,13 +1558,15 @@ function onKeydown(e) {
   }
   if (e.key === 'Escape') {
     if (document.fullscreenElement) return // 浏览器先退全屏，再由用户决定是否关闭
-    emit('close')
+    requestClose()
   }
 }
 function togglePlay() {
   if (castHeld.value) { openCasting(); return }
   const v = videoEl.value
   if (!v) return
+  if (playbackFinished) { restartPlay(); return }
+  pauseOnReady = false
   if (v.paused) { needGesture.value = false; wantPlaying = true; lastPlayAttempt = Date.now(); v.play().catch(() => { needGesture.value = true }) }
   else { wantPlaying = false; v.pause() }
 }
@@ -1564,6 +1613,7 @@ function onPlayState() {
   isPlaying.value = !!(v && !v.paused && !v.ended)
   if (isPlaying.value) booting.value = false   // direct 起播早于 bindVideo 时也要收浮层
   if (v) { muted.value = !!v.muted; volume.value = Number(v.volume ?? 1) }
+  if (!booting.value) void heartbeat.send()
 }
 async function copyDebug() {
   debugFailText.value = ''
@@ -1591,34 +1641,13 @@ async function copyDebug() {
     posHint.value = '复制受浏览器限制，请在“更多选项”长按诊断信息手动复制'
   }
 }
-onMounted(async () => {
+onMounted(() => {
+  // Bind exit and media events before casting/progress/session requests can suspend.
+  pageLifecycle.bind(window)
   observePlayerSize()
-  if (canCast.value) await casting.restore()
-  if (disposed) return
-  if (!props.preview && !castHeld.value) {
-    try {
-      const p = await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`)
-      const pos = Number(p.position) || 0
-      let dur = Number(p.duration) || 0
-      // 旧版本用 HLS 增长清单时长（如 30s）写坏过存档：dur < pos 视为不可信，按未看完处理
-      if (dur > 0 && dur < pos) dur = 0
-      if (pos > 15 && !isPlaybackComplete(pos, dur)) {
-        resumePos = pos
-        resumeOffer.value = p.position_text || fmt(pos)
-        // 弹窗打开即计时：10s 内未点任一按钮 = 同意续播，自动消条（direct 缺 #t 会在到点时补跳）
-        clearResumeTimer()
-        resumeTimer = setTimeout(() => { resumeTimer = 0; resumePlay() }, 10000)
-      }
-    } catch (e) { /* 无断点直接播 */ }
-  }
-  if (disposed) return
-  await reload()
-  // 进度请求/reload 期间可能已关窗：此时不能再绑监听/起定时器（onUnmounted 已经清理过）
-  if (disposed) return
   bindVideo(videoEl.value)
   document.addEventListener('fullscreenchange', onFullChange)
   document.addEventListener('click', onDocClick)
-  if (!props.preview) window.addEventListener('beforeunload', saveNow)
   window.addEventListener('keydown', onKeydown)
   try {
     // 调试口收进命名空间（评审 B8/R14-D4）；__jzPlayerDebug 保留兼容
@@ -1628,6 +1657,7 @@ onMounted(async () => {
   } catch (e) { /* 忽略 */ }
   bufTimer = setInterval(() => {
     try {
+      if (pageLifecycle.isAway() || playbackFinished) return
       const v = videoEl.value
       if (engine === 'mp4' && v?.ended && !booting.value) onEnded()
       const offset = method.value === 'direct' ? 0 : startOffset.value
@@ -1645,9 +1675,34 @@ onMounted(async () => {
       sampleDropGuard()
     } catch (e) { bufSecs.value = 0 }
   }, 2000)
+  void initializePlayback()
 })
+async function initializePlayback() {
+  const initialGen = reloadGen
+  if (canCast.value) await casting.restore()
+  if (disposed || pageLifecycle.isAway() || initialGen !== reloadGen) return
+  if (!props.preview && !castHeld.value) {
+    try {
+      const p = await api(`/api/stream/progress?version_id=${props.versionId}${kindSuffix.value}`)
+      if (disposed || pageLifecycle.isAway() || initialGen !== reloadGen) return
+      const pos = Number(p.position) || 0
+      let dur = Number(p.duration) || 0
+      // 旧版本用 HLS 增长清单时长（如 30s）写坏过存档：dur < pos 视为不可信，按未看完处理
+      if (dur > 0 && dur < pos) dur = 0
+      if (pos > 15 && !isPlaybackComplete(pos, dur)) {
+        resumePos = pos
+        resumeOffer.value = p.position_text || fmt(pos)
+        // 弹窗打开即计时：10s 内未点任一按钮 = 同意续播，自动消条（direct 缺 #t 会在到点时补跳）
+        clearResumeTimer()
+        resumeTimer = setTimeout(() => { resumeTimer = 0; resumePlay() }, 10000)
+      }
+    } catch (e) { /* 无断点直接播 */ }
+  }
+  if (disposed || pageLifecycle.isAway() || initialGen !== reloadGen) return
+  await reload()
+}
 function watchStall() {
-  if (castHeld.value || booting.value || compatPending) return
+  if (castHeld.value || booting.value || compatPending || playbackFinished || pageLifecycle.isAway()) return
   if (timelineDetached.value || document.visibilityState === 'hidden') return
   // 每 2s 一拍。判定条件（不再看缓冲量——缓冲充足也可能楔死）：
   // HLS 会话存活、非 seek 切换中、元素声称在播(!paused && !ended)、有数据(readyState>=2)、
@@ -1708,12 +1763,6 @@ function watchStall() {
     } catch (e) { /* 忽略 */ }
   } catch (e) { /* 看门狗自身永不抛错 */ }
 }
-function onPausePing() {
-  // 暂停会停止 hls.js 取片 → 服务端 10min 无心跳会回收会话（评审 B8/R12-D8）
-  if (!sessionId) return
-  api(`/api/stream/sessions/${sessionId}/ping`, { method: 'POST' })
-    .catch(() => { /* 心跳失败不打扰 */ })
-}
 const _evtHandlers = {
   loadedmetadata: () => { restorePlaybackRate(); if (engine === 'direct') applyNativeAudioTrack() },
   ratechange: syncPlaybackRate,
@@ -1738,7 +1787,6 @@ function bindVideo(v) {
   attachSubtitleVideo(v)
   v.addEventListener('pause', saveNow)
   v.addEventListener('pause', onPlayState)
-  v.addEventListener('pause', onPausePing)
   v.addEventListener('ended', onEnded)
   v.addEventListener('playing', onPlayingHide)
   v.addEventListener('play', onPlayState)
@@ -1755,7 +1803,6 @@ function unbindVideo(v) {
   detachSubtitleVideo(v)
   v.removeEventListener('pause', saveNow)
   v.removeEventListener('pause', onPlayState)
-  v.removeEventListener('pause', onPausePing)
   v.removeEventListener('ended', onEnded)
   v.removeEventListener('playing', onPlayingHide)
   v.removeEventListener('play', onPlayState)
@@ -1833,7 +1880,7 @@ function debugSnapshot() {
 async function recoverStream(forceElement = false) {
   // 同会话自救（不杀转码进程，分片继续产）：
   // 常规：重建 hls 实例；媒体级致命错误(forceElement)或第 3 次：连 <video> 元素一起换新。
-  if (disposed || castHeld.value) return
+  if (disposed || castHeld.value || playbackFinished || pageLifecycle.isAway()) return
   if (engine === 'mp4') {
     err.value = '兼容播放停滞，请重新加载或切换 720p'
     return
@@ -1883,20 +1930,62 @@ async function recoverStream(forceElement = false) {
     else await mountHls(v, lastPlaylistUrl, Math.max(0, target - 0.5), { gen })
   } catch (e) { /* 恢复失败等下次节拍或转 err */ }
 }
+function stopPlayback() {
+  seekPos.value = Math.max(0, absPos())
+  reloadGen++
+  bootCtrl?.abort()
+  bootCtrl = null
+  wantPlaying = false
+  clearTimeout(seekFallbackTimer)
+  clearTimeout(keyboardSeekTimer)
+  clearResumeTimer()
+  const closing = [closeSession()]
+  mp4Queue.clear()
+  for (const sid of heldMp4Sessions) closing.push(releaseSession(sid))
+  heldMp4Sessions.clear()
+  if (preparedMp4?.session_id) closing.push(releaseSession(preparedMp4.session_id))
+  preparedMp4 = null
+  destroyHls()
+  const v = videoEl.value
+  if (v) {
+    try { v.pause() } catch (e) { /* 忽略 */ }
+    try { v.removeAttribute('src'); v.load() } catch (e) { /* 忽略 */ }
+  }
+  isPlaying.value = false
+  for (const url of mp4BlobUrls.values()) URL.revokeObjectURL(url)
+  mp4BlobUrls.clear()
+  return Promise.allSettled(closing)
+}
+const pageLifecycle = createPlaybackPageLifecycle({
+  capture: () => ({ position: Math.max(0, absPos() || seekPos.value || resumePos),
+    paused: !wantPlaying || !!videoEl.value?.paused }),
+  save: () => saveFinal(),
+  stop: stopPlayback,
+  restore: async snapshot => {
+    if (disposed || castHeld.value) return
+    clearResumeTimer()
+    resumeOffer.value = ''
+    finalSavePromise = null
+    resumePos = snapshot.position
+    seekPos.value = snapshot.position
+    startFromZero = snapshot.position === 0
+    await reload({ paused: snapshot.paused })
+  },
+})
+function requestClose() {
+  pageLifecycle.leave()
+  emit('close')
+}
 const unregisterViewingCleanup = registerViewingPlaybackCleanup(async () => {
-  videoEl.value?.pause()
-  const finalProgress = saveFinal()
+  const finalProgress = pageLifecycle.leave()
   const stoppedCast = casting.active.value ? casting.control('stop') : Promise.resolve()
   await Promise.allSettled([finalProgress, stoppedCast])
   emit('close')
 })
 onBeforeUnmount(() => {
   unregisterViewingCleanup()
-  mp4Queue.clear()
-  for (const sid of heldMp4Sessions) api(`/api/stream/sessions/${sid}`, { method: 'DELETE' }).catch(() => {})
-  heldMp4Sessions.clear()
-  if (preparedMp4?.session_id) api(`/api/stream/sessions/${preparedMp4.session_id}`, { method: 'DELETE' }).catch(() => {})
-  preparedMp4 = null
+  pageLifecycle.leave()
+  pageLifecycle.unbind()
   playerResizeObserver?.disconnect()
   clearTimeout(surfaceClickTimer)
   clearTimeout(toastTimer)
@@ -1928,7 +2017,6 @@ onUnmounted(() => {
   closeSession()
   document.removeEventListener('fullscreenchange', onFullChange)
   document.removeEventListener('click', onDocClick)
-  window.removeEventListener('beforeunload', saveNow)
   window.removeEventListener('keydown', onKeydown)
   if (hideTimer) clearTimeout(hideTimer)
   if (bufTimer) clearInterval(bufTimer)
