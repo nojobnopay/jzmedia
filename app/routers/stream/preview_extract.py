@@ -117,22 +117,23 @@ class Extractor:
         window = (size + 1) * self.interval
         with tempfile.TemporaryDirectory(prefix=".keyframes-", dir=output.parent) as tmp:
             directory = Path(tmp)
-            pattern = directory / "key_%06d.jpg"
+            pattern = directory / "key_%06d.png"
             cmd = self._input(start, keyframes=True, duration=window, accurate_seek=False)
             # 全关键帧片源也只保留有界数量的小图；达到上限仍须严格核对
             # 输出数量，不一致时安全降级，不允许写图随整片时长无限增长。
-            # JPEG 编码器拒绝倒退的 PTS。先记录原始时间供采样匹配，再仅为
-            # 输出图片重建严格递增的时间；passthrough 保持一帧对应一张图。
+            # 先记录原始时间供采样匹配，再仅为输出图片重建递增时间；
+            # PNG 无损保留候选画面，passthrough 保持一帧对应一张图。
             cmd += ["-vf", f"{self.filter_arg},showinfo=checksum=0,settb=expr=1/1,setpts=N",
                     "-frames:v", str(_MAX_KEYFRAMES), "-enc_time_base", "1:1", "-fps_mode", "passthrough",
-                    "-threads", "1", "-q:v", "5", "-start_number", "0", str(pattern)]
+                    "-threads", "1", "-c:v", "png", "-pix_fmt", "rgb24",
+                    "-compression_level", "1", "-start_number", "0", str(pattern)]
             log = self.run(cmd, self.jid, timeout=120)
             times = _frame_times(log)
             numbers = _frame_numbers(log)
-            files = sorted(directory.glob("key_*.jpg"))
+            files = sorted(directory.glob("key_*.png"))
             if (not times or len(times) > _MAX_KEYFRAMES or
                     tuple(numbers) != tuple(range(len(times))) or len(files) != len(times) or
-                    any(file.name != f"key_{index:06d}.jpg" or not file.stat().st_size
+                    any(file.name != f"key_{index:06d}.png" or not file.stat().st_size
                         for index, file in enumerate(files)) or
                     any(not math.isfinite(time) for time in times)):
                 raise _SparseKeyframes(
@@ -145,7 +146,7 @@ class Extractor:
             nearby_points = accurate_points = 0
             try:
                 for cell, index in enumerate(matches):
-                    frame = output.parent / f"frame_{cell:02d}.jpg"
+                    frame = output.parent / f"frame_{cell:02d}.png"
                     if index is None:
                         mode = self._sample_point(start + cell * self.interval, frame,
                                                   nearby=True, remember_failure=False)
@@ -179,7 +180,8 @@ class Extractor:
               f"showinfo=checksum=0,{self.filter_arg}")
         cmd = self._input(target, duration=2 * self.interval, accurate_seek=False, frame_log=True)
         cmd += ["-vf", vf, "-frames:v", "1", "-fps_mode", "passthrough",
-                "-threads", "1", "-q:v", "5", str(frame)]
+                "-threads", "1", "-c:v", "png", "-pix_fmt", "rgb24",
+                "-compression_level", "1", str(frame)]
         log = self.run(cmd, self.jid)
         times = _frame_times(log)
         if not frame.is_file() or not frame.stat().st_size:
@@ -199,7 +201,7 @@ class Extractor:
                 else:
                     cmd = self._input(target)
                     cmd += ["-frames:v", "1", "-vf", self.filter_arg, "-threads", "1",
-                            "-q:v", "5", str(frame)]
+                            "-c:v", "png", "-pix_fmt", "rgb24", "-compression_level", "1", str(frame)]
                     self.run(cmd, self.jid)
                 if not frame.is_file() or not frame.stat().st_size:
                     raise RuntimeError("无法从采样位置取得预览画面")
@@ -219,16 +221,17 @@ class Extractor:
 
     @staticmethod
     def _clear_frames(output):
-        for image in output.parent.glob("frame_*.jpg"):
+        for image in output.parent.glob("frame_*.png"):
             image.unlink(missing_ok=True)
 
     def _tile_page(self, size, columns, rows, output):
         output.unlink(missing_ok=True)
         cmd = [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
                "-threads", "1", "-filter_threads", "1", "-framerate", "1", "-i",
-               str(output.parent / "frame_%02d.jpg"), "-vf",
+               str(output.parent / "frame_%02d.png"), "-vf",
                f"tpad=stop_mode=add:stop={columns * rows - size}:color=black,tile={columns}x{rows}",
-               "-frames:v", "1", "-threads", "1", "-q:v", "5", str(output)]
+               "-frames:v", "1", "-threads", "1", "-c:v", "mjpeg", "-pix_fmt", "yuvj444p",
+               "-q:v", "2", str(output)]
         self.run(cmd, self.jid)
         if not output.is_file() or not output.stat().st_size:
             raise RuntimeError("无法拼接预览画面")
@@ -238,7 +241,7 @@ class Extractor:
         try:
             for cell in range(size):
                 mode = self._sample_point(start + cell * self.interval,
-                                          output.parent / f"frame_{cell:02d}.jpg", nearby=nearby)
+                                          output.parent / f"frame_{cell:02d}.png", nearby=nearby)
                 nearby_points += mode == "point_seek"
                 accurate_points += mode == "accurate"
                 self.last_samples.append({"cell": cell, "pts": None, "mode": mode})

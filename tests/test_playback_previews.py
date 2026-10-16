@@ -50,6 +50,181 @@ def test_cache_identity_includes_kind_file_revision_and_interval():
     assert key != pv._cache_key(row(), source(), 20)
 
 
+def cached_preview(*, quality_revision=1, state='ready'):
+    key = pv._cache_key(row(), source(), 10, quality_revision=quality_revision)
+    directory = pv._root() / key
+    directory.mkdir(parents=True)
+    for page in range(2):
+        (directory / f'page_{page:04d}.jpg').write_bytes(f'quality-{quality_revision}-{page}'.encode())
+    data = dict(version=pv.VERSION, interval=10, duration=265, width=pv.WIDTH,
+                height=pv.HEIGHT, columns=pv.COLUMNS, rows=pv.ROWS, count=27,
+                pages=['page_0000.jpg', 'page_0001.jpg'], state=state,
+                item_kind='movie', item_id=7)
+    if quality_revision != 1:
+        data['quality_revision'] = quality_revision
+    pv._write_manifest(directory, data)
+    return key, directory
+
+
+def test_quality_upgrade_has_new_cache_url_and_preserves_original_identity():
+    # 已部署的第一代 key 固定下来，避免升级后旧完整成品失联。
+    assert pv._cache_key(row(), source(), 10, quality_revision=1) == '8f1116440320183d0e21f28203c9f69f'
+    assert pv._cache_key(row(), source(), 10) != pv._cache_key(row(), source(), 10, quality_revision=1)
+
+
+def test_quality_upgrade_keeps_legacy_ready_until_new_generation_resumes_and_finishes(monkeypatch):
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'source': 'local'})
+    monkeypatch.setattr(pv, '_version_source', lambda *_args: (row(), source()))
+    monkeypatch.setattr(pv, '_start', lambda *_args: pytest.fail('GET must not generate'))
+    monkeypatch.setattr(media, 'ffmpeg_bin', lambda: 'ffmpeg')
+    legacy_key, legacy_directory = cached_preview()
+    legacy_manifest = (legacy_directory / 'manifest.json').read_bytes()
+    old = pv.preview_manifest(7)
+    assert old['state'] == 'ready' and old['key'] == legacy_key
+    assert all(f'/{legacy_key}/' in url for url in old['pages'])
+
+    calls, interrupted = [], True
+    def page(_self, start, _size, _columns, _rows, output):
+        if start == 250 and interrupted:
+            raise pv._Cancelled()
+        calls.append(start)
+        output.write_bytes(f'new-{start}'.encode())
+    monkeypatch.setattr(pv.Extractor, 'page', page)
+    jid = pv._jobs.create()['job_id']
+    with pytest.raises(pv._Cancelled):
+        pv._generate(jid, row(), source(), {'duration': 265}, 10)
+    assert calls == [0]  # 旧 ready 不能使新版生成短路。
+    current_key = pv._cache_key(row(), source(), 10)
+    partial = pv._read_manifest(pv._root() / current_key)
+    assert partial['quality_revision'] == pv.QUALITY_REVISION
+    assert partial['pages'] == ['page_0000.jpg'] and partial['state'] == 'partial'
+    assert (pv._root() / current_key / 'page_0000.jpg').read_bytes() == b'new-0'
+    visible = pv.preview_manifest(7)
+    assert visible['key'] == legacy_key and visible['pages'] == old['pages']
+    assert (legacy_directory / 'page_0000.jpg').read_bytes() == b'quality-1-0'
+    assert (legacy_directory / 'manifest.json').read_bytes() == legacy_manifest
+
+    interrupted = False
+    calls.clear()
+    pv._generate(jid, row(), source(), {'duration': 265}, 10)
+    assert calls == [250]  # 只恢复新版已完成页；不混用旧版第二页。
+    current = pv.preview_manifest(7)
+    assert current['state'] == 'ready' and current['key'] == current_key
+    assert current['quality_revision'] == pv.QUALITY_REVISION
+    assert all(f'/{current_key}/' in url for url in current['pages'])
+    assert (pv._root() / current_key / 'page_0001.jpg').read_bytes() == b'new-250'
+    assert not legacy_directory.exists()
+    calls.clear()
+    pv._generate(jid, row(), source(), {'duration': 265}, 10)
+    assert calls == []
+
+
+def test_ready_quality_cache_removes_only_matching_older_quality(monkeypatch):
+    _, legacy_directory = cached_preview()
+    _, current_directory = cached_preview(quality_revision=pv.QUALITY_REVISION)
+    current_manifest = (current_directory / 'manifest.json').read_bytes()
+    others = []
+    for other_row, other_source, other_interval in [
+        ({**row(), 'id': 8}, source(), 10),
+        (row('episode'), source(), 10),
+        (row(), source(mtime=2), 10),
+        (row(), source(), 20),
+    ]:
+        key = pv._cache_key(other_row, other_source, other_interval, quality_revision=1)
+        directory = pv._root() / key
+        directory.mkdir()
+        (directory / 'page_0000.jpg').write_bytes(b'unrelated')
+        others.append(directory)
+    invalidated = []
+    monkeypatch.setattr(pv.data_usage, 'invalidate', lambda: invalidated.append(True))
+    monkeypatch.setattr(pv.Extractor, 'page', lambda *_a: pytest.fail('ready must not decode'))
+
+    pv._generate(None, row(), source(), {'duration': 265}, 10)
+
+    assert not legacy_directory.exists()
+    assert (current_directory / 'manifest.json').read_bytes() == current_manifest
+    assert (current_directory / 'page_0000.jpg').read_bytes() == f'quality-{pv.QUALITY_REVISION}-0'.encode()
+    assert all((directory / 'page_0000.jpg').read_bytes() == b'unrelated' for directory in others)
+    assert invalidated
+
+
+@pytest.mark.parametrize('change', ['missing_page', 'duplicate_page', 'count', 'quality_revision'])
+def test_incomplete_ready_quality_cache_keeps_legacy(change):
+    _, legacy_directory = cached_preview()
+    _, directory = cached_preview(quality_revision=pv.QUALITY_REVISION)
+    data = pv._read_manifest(directory)
+    if change == 'missing_page':
+        data['pages'].pop()
+    elif change == 'duplicate_page':
+        data['pages'][1] = data['pages'][0]
+    elif change == 'count':
+        data['count'] -= 1
+    else:
+        data['quality_revision'] -= 1
+    pv._write_manifest(directory, data)
+
+    pv._generate(None, row(), source(), {'duration': 265}, 10)
+
+    assert (legacy_directory / 'page_0000.jpg').read_bytes() == b'quality-1-0'
+
+
+def test_old_quality_cleanup_failure_keeps_new_cache_ready(monkeypatch, caplog):
+    _, legacy_directory = cached_preview()
+    _, current_directory = cached_preview(quality_revision=pv.QUALITY_REVISION)
+    def fail_remove(_path):
+        raise PermissionError('test cleanup denied')
+    monkeypatch.setattr(pv.shutil, 'rmtree', fail_remove)
+
+    pv._generate(None, row(), source(), {'duration': 265}, 10)
+
+    assert legacy_directory.exists()
+    assert pv._read_manifest(current_directory)['state'] == 'ready'
+    assert 'remove old preview quality cache failed' in caplog.text
+
+
+@pytest.mark.parametrize('change', ['file_revision', 'interval', 'kind'])
+def test_legacy_ready_fallback_matches_current_source_and_sampling(monkeypatch, change):
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'source': 'local'})
+    cached_preview()
+    kind = 'episode' if change == 'kind' else 'movie'
+    current_source = source(mtime=2) if change == 'file_revision' else source()
+    monkeypatch.setattr(pv, '_version_source', lambda *_args: (row(kind), current_source))
+    monkeypatch.setattr(pv, '_start', lambda *_args: pytest.fail('GET must not generate'))
+    if change == 'interval':
+        monkeypatch.setenv('PREVIEW_INTERVAL', '20')
+    result = pv.preview_manifest(7, kind=kind)
+    assert result['state'] == 'missing' and result['pages'] == []
+
+
+def test_partial_legacy_cache_is_not_displayed_as_completed_quality_fallback(monkeypatch):
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'source': 'local'})
+    monkeypatch.setattr(pv, '_version_source', lambda *_args: (row(), source()))
+    cached_preview(state='partial')
+    result = pv.preview_manifest(7)
+    assert result['state'] == 'missing' and result['pages'] == []
+
+
+def test_legacy_ready_joins_quality_upgrade_queue_and_is_retired_only_after_current_ready(monkeypatch):
+    monkeypatch.setenv('PREVIEW_AUTO_MODE', 'all')
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {
+        'id': 1, 'source': 'local', 'effective_enabled': True})
+    monkeypatch.setattr(pv.store, 'preview_items', lambda _lid: [('movie', 7)])
+    monkeypatch.setattr(pv, '_version_source', lambda *_args: (row(), source()))
+    monkeypatch.setattr(pv, '_ready_queue_check', (None, 0.0))
+    cached_preview()
+    result = pv.preview_queue_existing(pv.PreviewQueueBody(library_id=1))
+    assert result['added'] == 1 and result['ready'] == 0
+    pv._reconcile_ready_queue()
+    assert pv._auto_queue == [{'kind': 'movie', 'id': 7, 'library_id': 1}]
+    assert json.loads(pv._queue_path().read_text()) == pv._auto_queue
+
+    cached_preview(quality_revision=pv.QUALITY_REVISION)
+    monkeypatch.setattr(pv, '_ready_queue_check', (None, 0.0))
+    pv._reconcile_ready_queue()
+    assert pv._auto_queue == []
+    assert json.loads(pv._queue_path().read_text()) == []
+
+
 def test_manifest_missing_never_starts_job(monkeypatch):
     monkeypatch.setattr(pv, '_version_source', lambda *a: (row(), source()))
     monkeypatch.setattr(pv, '_start', lambda *a: pytest.fail('GET must not generate'))

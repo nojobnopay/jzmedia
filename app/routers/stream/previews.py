@@ -31,6 +31,7 @@ from .preview_log import ExtractionError, error_kind, read_frame_log
 logger = get_logger("stream.previews")
 __all__ = ['shutdown_previews', 'start_auto_previews']
 VERSION = 1
+QUALITY_REVISION = 2
 WIDTH, HEIGHT, COLUMNS, ROWS = 160, 90, 5, 5
 _jobs = JobRegistry(max_finished=12, prefix="preview")
 _lock = threading.RLock()
@@ -50,10 +51,14 @@ def _root() -> Path:
     return Path(settings.data_dir) / "previews"
 
 
-def _cache_key(row, src, interval: int) -> str:
+def _cache_key(row, src, interval: int, *, quality_revision: int | None = None) -> str:
     # 不对远程电影做全文件 hash；路径/库/大小/mtime 变化即失效。
     identity = [VERSION, row.get("kind", "movie"), row["id"], src.backend.library_id,
                 src.backend.root, src.rel, src.size, src.mtime, interval, WIDTH, HEIGHT]
+    revision = QUALITY_REVISION if quality_revision is None else quality_revision
+    # 第一代 key 必须保持原样；新版图片另用 URL，避免覆盖 immutable 旧图。
+    if revision != 1:
+        identity.append(revision)
     return hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()[:32]
 
 
@@ -175,7 +180,25 @@ def _frame_filter(info):
         # 先缩小再软件 tone-map；无 zscale 的构建明确报失败，避免静默生成灰图。
         color = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,"
     return (f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
-            + color + f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuvj420p")
+            + color + f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=rgb24")
+
+
+def _remove_old_quality_cache(row, src, interval, manifest, count):
+    """新版完整落盘后，仅清理相同片源和采样配置的旧画质缓存。"""
+    pages = [f"page_{page:04d}.jpg" for page in range(math.ceil(count / (COLUMNS * ROWS)))]
+    if (manifest.get("state") != "ready" or manifest.get("quality_revision") != QUALITY_REVISION
+            or manifest.get("count") != count or manifest.get("pages") != pages):
+        return
+    for revision in range(1, QUALITY_REVISION):
+        key = _cache_key(row, src, interval, quality_revision=revision)
+        try:
+            shutil.rmtree(_root() / key)
+        except FileNotFoundError:
+            continue
+        except OSError as e:
+            logger.warning("remove old preview quality cache failed key=%s: %s", key, e)
+        else:
+            data_usage.invalidate()
 
 
 def _generate(jid, row, src, info, interval):
@@ -187,12 +210,14 @@ def _generate(jid, row, src, info, interval):
     count = max(1, math.ceil(duration / interval))
     manifest = _read_manifest(directory)
     if manifest and manifest.get("state") == "ready":
+        _remove_old_quality_cache(row, src, interval, manifest, count)
         return
     directory.mkdir(parents=True, exist_ok=True)
     manifest = manifest or dict(version=VERSION, interval=interval, duration=duration,
                                 width=WIDTH, height=HEIGHT, columns=COLUMNS, rows=ROWS,
                                 count=count, pages=[], state="partial")
-    manifest.update(item_kind=row.get("kind", "movie"), item_id=int(row["id"]))
+    manifest.update(item_kind=row.get("kind", "movie"), item_id=int(row["id"]),
+                    quality_revision=QUALITY_REVISION)
     filter_arg = _frame_filter(info)
     cells = COLUMNS * ROWS
     lib = store.get_library(row.get("library_id") or 1) or {}
@@ -229,6 +254,7 @@ def _generate(jid, row, src, info, interval):
                 row.get("kind", "movie"), row["id"], len(manifest["pages"]) - completed_pages,
                 time.monotonic() - started, extractor.last_mode,
                 extractor.hw[1] if extractor.hw else "software")
+    _remove_old_quality_cache(row, src, interval, manifest, count)
     _prune_cache(protect=key)
     data_usage.invalidate()
 
@@ -841,9 +867,17 @@ def preview_queue_remove(kind: Literal["movie", "episode", "extra"], version_id:
 @router.get("/{version_id}/previews")
 def preview_manifest(version_id: int, kind: Literal["movie", "episode", "extra"] = "movie"):
     row, src = _version_source(version_id, kind)
-    key = _cache_key(row, src, _interval(row))
+    interval = _interval(row)
+    key = _cache_key(row, src, interval)
     directory = _root() / key
     data = _read_manifest(directory)
+    if not data or data.get("state") != "ready":
+        # 重建完成前继续显示旧完整成品，不混用新旧页，也不在 GET 启动生成。
+        legacy_key = _cache_key(row, src, interval, quality_revision=1)
+        legacy_directory = _root() / legacy_key
+        legacy_data = _read_manifest(legacy_directory)
+        if legacy_data and legacy_data.get("state") == "ready":
+            key, directory, data = legacy_key, legacy_directory, legacy_data
     if data and (data.get("item_kind") != kind or data.get("item_id") != version_id):
         # Upgrade old cache ownership only after resolving the authorized source.
         data.update(item_kind=kind, item_id=version_id)

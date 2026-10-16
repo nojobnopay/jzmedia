@@ -99,7 +99,7 @@ def test_real_keyframes_batch_two_pages_preserves_timeline_and_pads_tail(ffmpeg,
         assert_color(rgb, 2)
     assert max(tail[4]) < 10  # 尾页未使用的格子仍为黑色。
     assert pv._jobs.get(jid)['frames'] == 29
-    assert not list(directory.rglob('frame_*.jpg'))
+    assert not list(directory.rglob('frame_*.png'))
 
 
 def test_real_sparse_keyframes_fall_back_when_nearby_seek_window_is_insufficient(ffmpeg, tmp_path, monkeypatch):
@@ -193,7 +193,7 @@ def test_real_hybrid_page_only_decodes_one_uncovered_sample(ffmpeg, tmp_path, mo
     ((480, 0, 240), 10, [1, 2, 0]),
     ((509, 293, 546), 20, [1, 0, 2]),
 ])
-def test_real_unordered_decoder_pts_preserve_jpeg_pairing_and_sample_colors(
+def test_real_unordered_decoder_pts_preserve_image_pairing_and_sample_colors(
         ffmpeg, tmp_path, monkeypatch, pts, interval, expected_channels):
     video = tmp_path / 'three-colors.mkv'
     command = [ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y']
@@ -217,7 +217,7 @@ def test_real_unordered_decoder_pts_preserve_jpeg_pairing_and_sample_colors(
         if '-skip_frame' in cmd:
             assert log.frame_numbers == (0, 1, 2)
             assert log.frame_times == pytest.approx([value / 24 for value in pts], abs=0.0001)
-            # 候选 JPEG 必须完整保留原输出顺序，不能只保留排序后的时间戳。
+            # 无损候选图片必须完整保留原输出顺序，不能只保留排序后的时间戳。
             decoded = subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error',
                                        '-start_number', '0', '-i', cmd[-1], '-frames:v', '3',
                                        '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'],
@@ -283,6 +283,71 @@ def test_real_widescreen_hdr_uses_even_scaled_dimensions_for_tone_mapping(ffmpeg
     assert max(cells(ffmpeg, directory / 'page_0000.jpg')[0]) > 20
 
 
+@pytest.mark.parametrize('mode', ['batch', 'nearby', 'accurate'])
+def test_real_detail_frames_remain_lossless_until_single_final_jpeg(
+        ffmpeg, tmp_path, monkeypatch, mode):
+    # 细文字般的亮度纹理和单像素彩色边缘，对中间 JPEG 与 4:2:0 色度采样均敏感。
+    raw = bytes(channel for y in range(pv.HEIGHT) for x in range(pv.WIDTH)
+                for channel in ((255, 12, 30) if (x + y) % 3 == 0 else
+                                (16, 220, 250) if x % 5 == 0 else
+                                (240, 240, 240) if (x // 2 + y // 2) % 2 else (12, 12, 12)))
+    video = tmp_path / 'detail.mkv'
+    subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                    '-f', 'rawvideo', '-pixel_format', 'rgb24',
+                    '-video_size', f'{pv.WIDTH}x{pv.HEIGHT}', '-framerate', '1', '-i', '-',
+                    '-frames:v', '1', '-c:v', 'ffv1', '-pix_fmt', 'gbrp', '-threads', '1', str(video)],
+                   input=raw, capture_output=True, check=True, timeout=15)
+    monkeypatch.setattr(media, 'ffmpeg_bin', lambda: ffmpeg)
+    if mode == 'accurate':
+        monkeypatch.setenv('PREVIEW_MODE', 'accurate')
+    filter_arg = pv._frame_filter({})
+    reference = subprocess.run(
+        [ffmpeg, '-hide_banner', '-loglevel', 'error', '-i', str(video),
+         '-vf', filter_arg, '-frames:v', '1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'],
+        capture_output=True, check=True, timeout=10).stdout
+    # 本例无需缩放或 tone-map；RGB→4:2:0→RGB 同样属于不必要的信息丢失。
+    assert reference == raw
+
+    def decode(path):
+        return subprocess.run(
+            [ffmpeg, '-hide_banner', '-loglevel', 'error', '-i', str(path),
+             '-frames:v', '1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'],
+            capture_output=True, check=True, timeout=10).stdout
+
+    run, observed = pv._run, []
+    jid = pv._jobs.create()['job_id']
+    def capture(cmd, job_id, timeout=60):
+        if mode == 'nearby' and '-skip_frame' in cmd:
+            raise RuntimeError('exercise nearby sampling')
+        log = run(cmd, job_id, timeout)
+        if '-ss' in cmd:
+            images = ([Path(cmd[-1] % index) for index in range(len(log.frame_times))]
+                      if '%06d' in cmd[-1] else [Path(cmd[-1])])
+            for image in images:
+                assert image.read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
+                assert decode(image) == reference
+                observed.append(image)
+        return log
+    worker = ex.Extractor(source(video), filter_arg, 10, remote=False, run=capture,
+                          jid=jid, progress=lambda _n: None)
+    output = tmp_path / 'page.jpg'
+    worker.page(0, 1, 1, 1, output)
+    assert observed
+    assert worker.last_mode == {'batch': 'window_keyframes', 'nearby': 'point_seek',
+                                'accurate': 'accurate'}[mode]
+
+    # 用滤镜输出 RGB 直接编码一次的 JPEG 作独立参考；不能只断言命令选项。
+    expected = tmp_path / 'single-encode.jpg'
+    subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                    '-f', 'rawvideo', '-pixel_format', 'rgb24',
+                    '-video_size', f'{pv.WIDTH}x{pv.HEIGHT}', '-i', '-', '-frames:v', '1',
+                    '-threads', '1', '-pix_fmt', 'yuvj444p', '-q:v', '2', str(expected)],
+                   input=reference, capture_output=True, check=True, timeout=10)
+    assert decode(output) == decode(expected)
+    assert not list(tmp_path.rglob('frame_*.png'))
+    assert not list(tmp_path.glob('.keyframes-*'))
+
+
 def extractor(src, run, **kwargs):
     return ex.Extractor(src, pv._frame_filter({}), 10, remote=kwargs.pop('remote', False),
                         run=run, jid='preview-test', progress=kwargs.pop('progress', lambda _n: None), **kwargs)
@@ -312,13 +377,13 @@ def test_batch_matches_images_to_pts_and_reuses_nearest_valid_frame(tmp_path, ti
         if '-skip_frame' in cmd:
             return write_frames(cmd, times)
         assert '-ss' not in cmd, 'valid batch frames must not be decoded again'
-        assembled.extend((tmp_path / f'frame_{cell:02d}.jpg').read_bytes() for cell in range(3))
+        assembled.extend((tmp_path / f'frame_{cell:02d}.png').read_bytes() for cell in range(3))
         return write_frames(cmd)
     worker = extractor(source('/isolated/video.mkv'), run)
     worker.page(250, 3, 5, 5, tmp_path / 'page.jpg')
     assert assembled == expected
     assert len(calls) == 2 and worker.mode == 'window_keyframes'
-    assert not list(tmp_path.glob('frame_*.jpg'))
+    assert not list(tmp_path.glob('frame_*.png'))
     assert not list(tmp_path.glob('.keyframes-*'))
 
 
@@ -337,7 +402,7 @@ def test_batch_with_unreliable_image_pts_pairing_is_never_reused(tmp_path, bad_n
             points.append(float(cmd[cmd.index('-ss') + 1]))
             Path(cmd[-1]).write_bytes(b'verified point')
             return 'n: 0 pts: 0 pts_time:0'
-        assembled.extend((tmp_path / f'frame_{cell:02d}.jpg').read_bytes() for cell in range(2))
+        assembled.extend((tmp_path / f'frame_{cell:02d}.png').read_bytes() for cell in range(2))
         return write_frames(cmd)
     worker = extractor(source('/isolated/video.mkv'), run)
     worker.page(250, 2, 5, 5, tmp_path / 'page.jpg')
@@ -358,7 +423,7 @@ def test_batch_preserves_covered_cells_and_only_repairs_gap_without_disabling_ne
             Path(cmd[-1]).write_bytes(b'nearby' if '-noaccurate_seek' in cmd else b'accurate')
             return 'n: 0 pts: 0 pts_time:0' if point_valid else 'n: 0 pts: 11 pts_time:10.01'
         size = 5 if len(assembled) == 0 else 1
-        assembled.append([(tmp_path / f'frame_{cell:02d}.jpg').read_bytes() for cell in range(size)])
+        assembled.append([(tmp_path / f'frame_{cell:02d}.png').read_bytes() for cell in range(size)])
         return write_frames(cmd)
     worker = extractor(source('/isolated/video.mkv'), run, progress=progress.append)
     worker.page(0, 5, 5, 5, tmp_path / 'page.jpg')
@@ -386,7 +451,7 @@ def test_interruption_during_single_gap_repair_propagates_and_cleans_temporary_f
     assert len(calls) == 2
     assert not (tmp_path / 'page.jpg').exists()
     assert not list(tmp_path.glob('.keyframes-*'))
-    assert not list(tmp_path.glob('frame_*.jpg'))
+    assert not list(tmp_path.glob('frame_*.png'))
 
 
 def test_hardware_failure_retries_software_and_remembers_for_later_pages(tmp_path, monkeypatch):
@@ -565,13 +630,13 @@ def test_accurate_hardware_decode_failure_retries_same_timestamp(tmp_path, monke
 
 
 def test_empty_accurate_output_cannot_reuse_a_stale_frame(tmp_path):
-    (tmp_path / 'frame_00.jpg').write_bytes(b'stale from interrupted page')
+    (tmp_path / 'frame_00.png').write_bytes(b'stale from interrupted page')
     def run(*_args, **_kwargs):
         return ''  # FFmpeg 在 EOF 后可能成功退出却没有输出图片。
     worker = extractor(source('http://127.0.0.1/video'), run, remote=True)
     with pytest.raises(RuntimeError, match='无法从采样位置'):
         worker.page(250, 1, 5, 5, tmp_path / 'page.jpg')
-    assert not (tmp_path / 'frame_00.jpg').exists()
+    assert not (tmp_path / 'frame_00.png').exists()
     assert not (tmp_path / 'page.jpg').exists()
 
 
