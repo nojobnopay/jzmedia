@@ -54,7 +54,7 @@ def visible_profile_paths():
         paths.update(r[0] for r in c.execute("SELECT profile_tmdb_path FROM persons") if r[0])
         blobs = [r[0] for r in c.execute("SELECT credits FROM tmdb_cache WHERE media_type='tv'"
                                         " AND tmdb_id IN (SELECT tmdb_id FROM tv_shows)")]
-        blobs.extend(r[0] for r in c.execute("SELECT cast FROM tv_seasons"))
+        blobs.extend(r[0] for r in c.execute('SELECT "cast" FROM tv_seasons'))
         blobs.extend(r[0] for r in c.execute("SELECT episode_credits FROM tv_episodes"))
     def collect(value):
         if isinstance(value, dict):
