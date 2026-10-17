@@ -1,6 +1,6 @@
 ---
-version: 0.28.0
-reviewed: 2026-10-16
+version: 0.28.1
+reviewed: 2026-10-17
 ---
 
 # API 与后台任务
@@ -25,6 +25,7 @@ reviewed: 2026-10-16
 | `/api/stream` | 能力决策、会话/HLS、字幕、断点、预缓存和缩略图 |
 | `/api/cast` | 服务端 DLNA 发现、电视播放控制、投屏状态和原文件读取 |
 | `/api/metadata` | 外部来源状态及诊断 |
+| `/api/viewing` | 观看模式、内容可见性与儿童筛选资料补全 |
 | `/api/ai` | 智能辅助配置、连接检查、搜索条件与匹配建议 |
 
 ## DLNA 投屏
@@ -113,6 +114,14 @@ reviewed: 2026-10-16
 ### 匹配规则测试
 
 `GET /api/metadata/test-search?library=<id>&q=<片名>` 必须指定存在的视频库和非空片名。服务端根据库类型选择电影或剧集，并严格按该库保存的来源顺序查找；响应为 `{library_id,kind,chain,items,source,elapsed_ms}`。空结果的 `source` 为 `null`，不能视为连接检测成功。此接口不调用 AI，也不绑定媒体；TMDB 凭据直连验证仍使用 `POST /api/tmdb/check`。
+
+### 儿童筛选资料补全
+
+`POST /api/viewing/refresh` 接收可选的 `library_id`：正整数指定单个视频库，`null`、省略字段或省略请求体表示全部媒体库；不存在的视频库返回 404。网页在“访问保护”中独立选择范围，不复用扫描或顶栏选库。任务仅处理范围内已有 TMDB 匹配、但儿童筛选资料不足的电影和剧集，不扫描或修改媒体文件。
+
+范围在启动时固定，并随任务状态的 `library_id` 返回。单库任务的本地资料写入、电影搜索索引同步和剧集分集重算均限于所选视频库；其他库中的同一 TMDB 作品不随本次任务更新。TMDB 资料缓存仍跨库共享，同库多版本可共用补全结果，远程请求按作品去重。
+
+使用 `GET /api/viewing/refresh/{job_id}` 查询进度，`POST /api/viewing/refresh/{job_id}/cancel` 取消；取消后应等待 `worker_finished:true` 再启动新任务。同范围的运行中任务返回原任务及 `resumed:true`，其他未结束任务冲突返回 409。任务不存在或服务重启后返回 404，客户端应清理旧任务引用；其他状态读取失败可重试。接口受管理权限保护，POST 同时遵循写操作令牌鉴权。
 
 ### 合集成员清理
 

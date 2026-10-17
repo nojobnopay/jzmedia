@@ -1,5 +1,5 @@
 // Real Vue UI + in-memory API fixtures. Never opens .env, backend, DB or media.
-// Run: node scripts/smoke_settings_ui.mjs [--capture-docs] [--player-only|--drafts-only|--cache-only|--previews-only|--preview-baseline]
+// Run: node scripts/smoke_settings_ui.mjs [--capture-docs] [--player-only|--drafts-only|--cache-only|--previews-only|--preview-baseline|--tools-only]
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
@@ -14,15 +14,16 @@ import { chromium } from '../docs/node_modules/playwright/index.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
-assert.ok(args.every(arg => ['--capture-docs', '--player-only', '--drafts-only', '--cache-only', '--preview-baseline', '--previews-only'].includes(arg)))
+assert.ok(args.every(arg => ['--capture-docs', '--player-only', '--drafts-only', '--cache-only', '--preview-baseline', '--previews-only', '--tools-only'].includes(arg)))
 const capture = args.includes('--capture-docs')
 const playerOnly = args.includes('--player-only')
 const draftsOnly = args.includes('--drafts-only')
 const cacheOnly = args.includes('--cache-only')
 const previewBaseline = args.includes('--preview-baseline')
 const previewsOnly = args.includes('--previews-only') || previewBaseline
-assert.ok([playerOnly, draftsOnly, cacheOnly, previewsOnly].filter(Boolean).length <= 1, 'Choose one focused regression scope')
-assert.ok(!(capture && (draftsOnly || cacheOnly || previewsOnly)), 'Documentation capture requires the complete settings regression')
+const toolsOnly = args.includes('--tools-only')
+assert.ok([playerOnly, draftsOnly, cacheOnly, previewsOnly, toolsOnly].filter(Boolean).length <= 1, 'Choose one focused regression scope')
+assert.ok(!(capture && (draftsOnly || cacheOnly || previewsOnly || toolsOnly)), 'Documentation capture requires the complete settings regression')
 async function frontendFingerprint() {
   const hash = createHash('sha256')
   async function walk(directory) {
@@ -1089,13 +1090,14 @@ async function checkFileLoading(browser, base) {
   page.setDefaultTimeout(12000)
   page.on('pageerror', e => errors.push(String(e)))
   const rows = page.getByRole('table', { name: '当前目录文件' }).locator('tbody tr')
+  const workspace = page.locator('.library-workspace')
   const noFalseEmpty = async () => {
-    assert.equal(await page.getByText('还没有视频库。', { exact: false }).count(), 0)
+    assert.equal(await workspace.getByText('还没有视频库。', { exact: false }).count(), 0)
     assert.equal(await page.getByText('此文件夹为空', { exact: true }).count(), 0)
   }
   try {
     await page.goto(base + '/settings?sec=sec-files&library=1')
-    await page.getByText('正在加载视频库…', { exact: true }).waitFor()
+    await workspace.getByText('正在加载视频库…', { exact: true }).waitFor()
     assert.equal(await page.locator('.library-load-state .jz-spinner').isVisible(), true)
     await noFalseEmpty()
     libraries.release()
@@ -1134,7 +1136,7 @@ async function checkFileLoading(browser, base) {
 
     failLibraries = true
     await page.goto(base + '/settings?sec=sec-files&library=1')
-    await page.getByText('视频库加载失败', { exact: true }).waitFor()
+    await workspace.getByText('视频库加载失败', { exact: true }).waitFor()
     await noFalseEmpty()
     failLibraries = false
     await page.locator('.library-load-state').getByRole('button', { name: '重新加载', exact: true }).click()
@@ -1143,7 +1145,7 @@ async function checkFileLoading(browser, base) {
 
     emptyLibraries = true
     await page.goto(base + '/settings?sec=sec-files')
-    await page.getByText('还没有视频库。', { exact: false }).waitFor()
+    await workspace.getByText('还没有视频库。', { exact: false }).waitFor()
     assert.equal(await page.locator('.library-load-state').count(), 0, 'an actually empty library has a distinct settled state')
   } finally {
     for (const release of gates) release()
@@ -2232,6 +2234,108 @@ async function checkSettingsDrafts(browser, base) {
     await context.close()
   }
 }
+async function checkLibraryTools(browser, base) {
+  const directory = path.join(root, 'output/playwright/library-tools')
+  await mkdir(directory, { recursive: true })
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
+  await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort())
+  const page = await context.newPage()
+  page.setDefaultTimeout(12000)
+  page.on('pageerror', error => errors.push(String(error)))
+  const measurements = []
+  const views = page.locator('.tool-views:visible')
+  const files = page.getByRole('button', { name: '管理文件', exact: true })
+  const readLayout = () => page.locator('.library-tools-header:visible').evaluate(header => {
+    const rect = element => {
+      const value = element.getBoundingClientRect()
+      return { left: value.left, top: value.top, right: value.right, bottom: value.bottom, width: value.width, height: value.height }
+    }
+    const group = header.querySelector('.tool-views')
+    return { header: rect(header), group: rect(group), groupOverflow: group.scrollWidth > group.clientWidth + 1,
+      gap: parseFloat(getComputedStyle(header).columnGap), files: rect(header.querySelector('.open-library-files')),
+      pageOverflow: document.documentElement.scrollWidth > innerWidth + 1,
+      buttons: [...group.querySelectorAll('button')].map(button => {
+        const label = button.querySelector('.tool-view-label')
+        return { name: button.getAttribute('aria-label'), pressed: button.getAttribute('aria-pressed'), rect: rect(button),
+          labelVisible: label.checkVisibility(), label: rect(label), overflow: button.scrollWidth > button.clientWidth + 1 }
+      }) }
+  })
+  try {
+    await page.goto(base + '/settings?sec=sec-libtools&library=1&media=1')
+    for (const width of [1440, 320, 375, 390]) {
+      for (const fontSize of [16, 20]) {
+        await page.setViewportSize({ width, height: width > 700 ? 1000 : 844 })
+        await page.evaluate(fontSize => localStorage.setItem('jz.prefs', JSON.stringify({ fontSize, posterMin: 150 })), fontSize)
+        for (const library of [{ id: 1, kind: 'movie', labels: ['入库整理', '资料维护', '还原位置'] }, { id: 2, kind: 'tv', labels: ['入库整理', '资料维护'] }]) {
+          await page.goto(base + '/settings?sec=sec-libtools&library=' + library.id + '&media=1')
+          await views.waitFor()
+          assert.equal(await views.getByRole('button').count(), library.labels.length)
+          for (const [index, label] of library.labels.entries()) {
+            const button = views.getByRole('button', { name: label, exact: true })
+            await button.focus()
+            assert.equal(await button.evaluate(element => element === document.activeElement), true, 'Every tool has a keyboard focus target')
+            await button.press(index % 2 ? 'Space' : 'Enter')
+            await page.waitForFunction(label => [...document.querySelectorAll('.tool-views button[aria-pressed="true"]')].some(button => button.checkVisibility() && button.getAttribute('aria-label') === label), label)
+            const layout = await readLayout()
+            const message = width + 'px font ' + fontSize + ' ' + library.kind + ' ' + label
+            assert.equal(layout.pageOverflow || layout.groupOverflow, false, message + ': no page or tool-group horizontal scrolling')
+            assert.equal(layout.buttons.filter(button => button.pressed === 'true').length, 1, message + ': one selected tool')
+            assert.deepEqual(layout.buttons.map(button => button.name), library.labels, message + ': all tools retain full accessible names')
+            for (const [buttonIndex, button] of layout.buttons.entries()) {
+              assert.equal(button.labelVisible, width > 700 || button.name === label, message + ': only the selected mobile tool shows its label')
+              assert.equal(button.overflow, false, message + ': button content is not clipped')
+              assert.ok(button.rect.left >= layout.group.left - 1 && button.rect.right <= layout.group.right + 1, message + ': every tool stays inside its group')
+              if (buttonIndex) assert.ok(button.rect.left >= layout.buttons[buttonIndex - 1].rect.right, message + ': adjacent tools do not overlap')
+              if (button.labelVisible) assert.ok(button.label.left >= button.rect.left - 1 && button.label.right <= button.rect.right + 1, message + ': full label stays inside its button')
+              if (width < 701) assert.ok(button.rect.width >= 44 && button.rect.height >= 44, message + ': tools keep 44px touch targets')
+            }
+            assert.ok(layout.files.left >= layout.header.left - 1 && layout.files.right <= layout.header.right + 1, message + ': file management stays inside the header')
+            if (width < 701) {
+              assert.ok(layout.files.width >= 44 && layout.files.height >= 44, message + ': file management keeps a 44px touch target')
+              const fits = layout.group.width + layout.files.width + layout.gap <= layout.header.width + 1
+              if (fits) {
+                assert.ok(Math.abs(layout.group.top + layout.group.height / 2 - layout.files.top - layout.files.height / 2) < 1, message + ': file management shares the row when it fits')
+                assert.ok(layout.files.left >= layout.group.right, message + ': file management cannot overlap the tools')
+              }
+              else {
+                assert.ok(layout.files.top >= layout.group.bottom && Math.abs(layout.files.right - layout.header.right) < 1, message + ': file management wraps below to the right')
+              }
+            }
+            measurements.push({ width, fontSize, kind: library.kind, selected: label, ...layout })
+            if ((width === 1440 && fontSize === 16 || width === 375 && fontSize === 16 || width === 320 && fontSize === 20) && label === '入库整理') {
+              await page.locator('.library-tools-header:visible').scrollIntoViewIfNeeded()
+              await page.screenshot({ path: path.join(directory, library.kind + '-' + width + '-font-' + fontSize + '.png'), animations: 'disabled' })
+            }
+          }
+          await views.getByRole('button', { name: library.labels[0], exact: true }).focus()
+          await page.keyboard.press('Tab')
+          assert.equal(await views.getByRole('button', { name: library.labels[1], exact: true }).evaluate(button => button === document.activeElement), true, 'Tab follows the visible tool order')
+          if (width === 320 && fontSize === 20 || width === 375 && fontSize === 16) {
+            for (const label of library.labels) {
+              await views.getByRole('button', { name: label, exact: true }).click()
+              const pending = page.locator('.pipe-toggle:visible').filter({ hasText: '核对匹配' })
+              if (label === '入库整理' && await pending.getAttribute('aria-expanded') !== 'true') await pending.click()
+              await files.click()
+              await page.waitForURL(/sec=sec-files/)
+              if (width === 320 && label === '资料维护') await page.reload()
+              await page.getByRole('button', { name: '返回扫描与整理', exact: true }).click()
+              await page.waitForURL(/sec=sec-libtools/)
+              await page.waitForFunction(label => [...document.querySelectorAll('.tool-views button[aria-pressed="true"]')].some(button => button.checkVisibility() && button.getAttribute('aria-label') === label), label)
+              assert.equal(new URL(page.url()).searchParams.get('library'), String(library.id), 'Returning from files preserves the video library')
+              assert.equal(await views.getByRole('button', { name: label, exact: true }).getAttribute('aria-pressed'), 'true', 'Returning from files restores the selected tool')
+              if (label === '入库整理') assert.equal(await pending.getAttribute('aria-expanded'), 'true', 'Returning from files restores the expanded workflow step')
+            }
+          }
+        }
+      }
+    }
+    await writeFile(path.join(directory, 'checks.json'), JSON.stringify({ mocked: true, realVue: true, measurements }, null, 2) + '\n')
+    console.log('PASS library tools: desktop labels, compact mobile labels, full accessible names, keyboard activation, 44px targets, adaptive file action and file return at 320/375/390px and font sizes 16/20')
+  } catch (error) {
+    await page.screenshot({ path: path.join(directory, 'failure.png'), fullPage: true }).catch(() => {})
+    throw error
+  } finally { await context.close() }
+}
 try {
   const ffmpegPath = await ffmpeg()
   execFileSync(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=10', '-t', '40', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', path.join(work, 'video.mp4')])
@@ -2309,6 +2413,8 @@ try {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
   const base = `http://127.0.0.1:${server.address().port}`
   browser = await chromium.launch({ headless: true })
+  if (toolsOnly || !previewsOnly && !playerOnly && !draftsOnly && !cacheOnly) await checkLibraryTools(browser, base)
+  if (!toolsOnly) {
   if (previewsOnly) await checkPreviewMaintenance(browser, base, { baseline: previewBaseline })
   if (!previewsOnly && !playerOnly && !draftsOnly) await checkCacheSettings(browser, base)
   if (!previewsOnly && !playerOnly && !cacheOnly) await checkSettingsDrafts(browser, base)
@@ -2853,6 +2959,7 @@ try {
   await checkAssFullscreen(browser, base)
   await context.close()
   }
+  }
   assert.deepEqual(unexpected, [], 'all API calls must be mocked explicitly')
   assert.deepEqual(errors, [], 'no browser or fixture errors')
   if (previewsOnly) assert.equal(await frontendFingerprint(), sourceSha256, 'Frontend source changed during preview checks; rerun after it is stable')
@@ -2864,7 +2971,7 @@ try {
     manifest.assets = manifest.assets.filter(entry => !names.has(entry.file)).concat(captured)
     await writeFile(filename, JSON.stringify(manifest, null, 2) + '\n')
   }
-  console.log(cacheOnly ? 'PASS cache budgets: exact-edit popups, local input guards and keyboard viewport, independent quotas, frozen drag scale and overflow recovery, viewport-safe tooltips and segment labels, grouped inputs, real mouse/touch allocation, keyboard bounds, secondary-pointer termination isolation, Tab/drag cancellation, non-overlapping handles, allocation colors/proportions, legacy/zero compatibility, exact/over budgets, base growth, statistics/save failures, cleanup confirmation, persistence, busy/leave guards and 1440/390/320 layouts' : previewsOnly ? 'PASS preview maintenance isolated browser checks' : draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: controls, rate, fullscreen, preview/normal lifecycle; native HLS detached clock fallback without repeated recovery, MP4 clip prefetch/continuation/seek/source subtitle offset/lease cleanup and diagnostic copy; real ASS worker and video/subtitle pixels in phone portrait/landscape fullscreen' : 'PASS settings, files and playback: draft/navigation/preview lifecycle; browser playback compatibility, MP4 source timeline and subtitles, ASS fullscreen pixels and cleanup')
+  console.log(toolsOnly ? 'PASS compact library tools isolated browser checks' : cacheOnly ? 'PASS cache budgets: exact-edit popups, local input guards and keyboard viewport, independent quotas, frozen drag scale and overflow recovery, viewport-safe tooltips and segment labels, grouped inputs, real mouse/touch allocation, keyboard bounds, secondary-pointer termination isolation, Tab/drag cancellation, non-overlapping handles, allocation colors/proportions, legacy/zero compatibility, exact/over budgets, base growth, statistics/save failures, cleanup confirmation, persistence, busy/leave guards and 1440/390/320 layouts' : previewsOnly ? 'PASS preview maintenance isolated browser checks' : draftsOnly ? 'PASS settings draft regression' : playerOnly ? 'PASS player: controls, rate, fullscreen, preview/normal lifecycle; native HLS detached clock fallback without repeated recovery, MP4 clip prefetch/continuation/seek/source subtitle offset/lease cleanup and diagnostic copy; real ASS worker and video/subtitle pixels in phone portrait/landscape fullscreen' : 'PASS settings, files and playback: draft/navigation/preview lifecycle; browser playback compatibility, MP4 source timeline and subtitles, ASS fullscreen pixels and cleanup')
 } finally {
   if (browser) await browser.close()
   if (server) await new Promise(resolve => server.close(resolve))

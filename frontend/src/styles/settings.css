@@ -71,9 +71,8 @@
 .settings-layout .slider-row label { display: flex; flex-direction: column; gap: 6px; font-size: var(--jz-font-m); }
 .settings-layout .slider-row b { color: var(--jz-text-dim); font-weight: normal; font-size: var(--jz-font-s); }
 .settings-layout .slider-row .hint { grid-column: 2; margin: -10px 0 0; }
-.settings-layout .tool-views { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--jz-border); margin: 12px 0 20px; }
+.settings-layout .tool-views { display: flex; flex: 1; flex-wrap: wrap; gap: 4px; min-width: 0; border-bottom: 1px solid var(--jz-border); margin: 0; }
 .settings-layout .library-tools-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
-.settings-layout .library-tools-header .tool-views { flex: 1; margin: 0; min-width: 0; }
 .settings-layout .open-library-files { flex-shrink: 0; white-space: nowrap; }
 .settings-layout .tool-views button { display: inline-flex; align-items: center; gap: var(--jz-gap-s); background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 12px 16px; color: var(--jz-text-dim); }
 .settings-layout .tool-views button.on { border-bottom-color: var(--jz-accent); color: var(--jz-text); }
@@ -125,8 +124,11 @@
   .settings-layout .settings-notice { padding: 10px 12px; gap: var(--jz-gap-s); margin: 12px 0; line-height: 1.5; }
   .settings-layout .bar { padding: 8px 0; }
   .settings-layout .slider-row { grid-template-columns: 108px minmax(0, 1fr); gap: 12px; padding: 12px 0; }
-  .settings-layout .tool-views { flex-wrap: nowrap; overflow-x: auto; margin: 8px 0 12px; }
-  .settings-layout .tool-views button { display: inline-flex; align-items: center; gap: var(--jz-gap-s); flex-shrink: 0; padding: 8px 10px; min-height: var(--jz-touch-target); }
+  .settings-layout .tool-views { flex: 0 0 auto; flex-wrap: nowrap; max-width: 100%; }
+  .settings-layout .tool-views button { flex-shrink: 0; justify-content: center; padding: 8px 10px; min-width: var(--jz-touch-target); min-height: var(--jz-touch-target); white-space: nowrap; }
+  .settings-layout .tool-views button:not(.on) { width: var(--jz-touch-target); padding-inline: 0; }
+  .settings-layout .tool-views button:not(.on) .tool-view-label { display: none; }
+  .settings-layout .open-library-files { margin-inline-start: auto; }
   .settings-layout .pipe-head { flex-wrap: wrap; }
 }
 

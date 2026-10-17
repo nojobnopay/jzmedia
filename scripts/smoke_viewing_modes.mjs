@@ -19,8 +19,9 @@ const fixture = createFixture()
 const sessions = new Map()
 const policies = new Map()
 const refreshJobs = new Map()
+const refreshReadFailures = new Map()
 const requests = [], unexpected = [], errors = []
-let password = 'demo-pass', serial = 0, multipleLibraries = true, server, browser
+let password = 'demo-pass', serial = 0, multipleLibraries = true, refreshStartFailure = null, server, browser
 const initial = () => ({ mode: 'normal', enabled: !!password, management_unlocked: false, generation: 1, expires_at: 0 })
 const visible = (movie, session) => {
   const policy = policies.get(movie.id) || { is_private: false, children_override: 'auto' }
@@ -55,13 +56,25 @@ function api(url, method, body, session) {
     return { data: { ...session } }
   }
   if (key === '/api/viewing/refresh') {
+    if (refreshStartFailure) {
+      const failure = refreshStartFailure
+      refreshStartFailure = null
+      return failure
+    }
     const job_id = `children-${refreshJobs.size + 1}`
-    const value = { job_id, state: 'running', done: 1, total: 2, current: '模拟儿童资料', failed: [], error: '' }
+    const value = { job_id, library_id: body.library_id ?? null, state: 'running', worker_finished: false,
+      done: 1, total: 2, current: '模拟儿童资料', failed: [], error: '' }
     refreshJobs.set(job_id, value)
     return { data: value }
   }
   if (key.startsWith('/api/viewing/refresh/')) {
-    const value = refreshJobs.get(key.split('/')[4])
+    const jobId = key.split('/')[4]
+    const value = refreshJobs.get(jobId)
+    if (!value) return { status: 404, data: { detail: '补全任务已失效' } }
+    if (method === 'GET' && refreshReadFailures.has(jobId)) {
+      refreshReadFailures.delete(jobId)
+      return { status: 503, data: { detail: '模拟任务状态暂不可用' } }
+    }
     if (key.endsWith('/cancel')) value.state = 'cancelled'
     return { data: value }
   }
@@ -84,11 +97,11 @@ function api(url, method, body, session) {
   }
   if (key.startsWith('/api/movies/') && key.endsWith('/similar')) return { data: { items: movies.slice(0, 3).filter(movie => visible(movie, session)) } }
   const value = fixture.api(url, method, body)
-  if (key === '/api/libraries' && multipleLibraries) value.items = [...value.items, { id: 3, media_library_id: 2, media_name: '家庭录像与长期收藏',
+  if (key === '/api/libraries' && multipleLibraries) value.items = [...value.items, { id: 4, media_library_id: 2, media_name: '家庭录像与长期收藏',
     name: '家庭录像', source: 'local', kind: 'movie', enabled: true, read_only: true }]
   if (key === '/api/media-libraries' && multipleLibraries) value.items.push({ id: 2, name: '家庭录像与长期收藏', source: 'local', path: '/demo/family',
     movie_count: 0, episode_count: 0, enabled: true, read_only: true,
-    video_libraries: [{ id: 3, media_library_id: 2, name: '家庭录像', kind: 'movie', subpath: '', enabled: true }] })
+    video_libraries: [{ id: 4, media_library_id: 2, name: '家庭录像', kind: 'movie', subpath: '', enabled: true }] })
   if (value === undefined) unexpected.push(method + ' ' + key)
   return { data: value }
 }
@@ -412,11 +425,92 @@ try {
     await page.getByRole('button', { name: '验证保护密码', exact: true }).click()
     await verify()
     await page.getByRole('heading', { name: '儿童与隐私保护' }).waitFor()
-    await page.getByRole('button', { name: '补全儿童筛选资料', exact: true }).click()
-    await page.getByRole('button', { name: '取消补全', exact: true }).waitFor()
-    await page.getByRole('button', { name: '取消补全', exact: true }).click()
-    await page.getByText('已取消 · 1/2 · 模拟儿童资料', { exact: true }).waitFor()
-    pass('children metadata refresh displays progress and cancellation')
+    const category = async (id, label) => {
+      if (viewport.width < 701) await page.getByRole('combobox', { name: '设置分类', exact: true }).selectOption(id)
+      else await page.locator('.side-nav').getByRole('button', { name: label, exact: true }).click()
+      await page.waitForURL(url => url.searchParams.get('sec') === id)
+      await page.waitForLoadState('networkidle')
+    }
+    const refresh = page.locator('.children-refresh')
+    const scope = refresh.getByRole('combobox', { name: '补全范围', exact: true })
+    const startRefresh = () => refresh.getByRole('button', { name: /^(重试)?补全儿童筛选资料$/, exact: true })
+    const readRefresh = () => refresh.getByRole('button', { name: '刷新状态', exact: true })
+    const refreshWrites = () => requests.filter(request => request.key === '/api/viewing/refresh' && request.method === 'POST')
+    const currentJob = () => refreshJobs.get([...refreshJobs.keys()].at(-1))
+    const expectTaskScope = async label => refresh.getByText('任务范围：' + label, { exact: true }).waitFor()
+    const allLabel = '全部媒体库'
+    const movieLabel = '客厅影库 / 电影 · 电影'
+    const tvLabel = '客厅影库 / 剧集 · 剧集'
+    await category('sec-libtools', '扫描与整理')
+    await page.locator('.lib-tabs').getByRole('button', { name: /客厅影库.*电影/, exact: false }).first().click()
+    await page.waitForURL(url => url.searchParams.get('library') === '1')
+    await category('sec-auth', '访问保护')
+    assert.equal(await scope.inputValue(), '', 'Scanning scope never supplies the children refresh default')
+    assert.deepEqual(await scope.locator('option').evaluateAll(options => options.map(option => option.value)), ['', '1', '2', '3', '4'], 'The independent scope contains every video library across media libraries')
+    assert.equal(await scope.locator('option[value="4"]').innerText(), '家庭录像与长期收藏 / 家庭录像 · 电影')
+    await scope.selectOption('2')
+    await category('sec-libtools', '扫描与整理')
+    assert.match(await page.locator('.lib-tabs [aria-pressed="true"]').innerText(), /客厅影库.*电影/, 'Children scope cannot change the selected scanning library')
+    await category('sec-auth', '访问保护')
+    assert.equal(await scope.inputValue(), '2', 'Switching settings categories preserves the independent scope')
+    const childrenScopeUrl = page.url()
+    await scope.selectOption('4')
+    assert.equal(await page.getByRole('combobox', { name: '切换媒体库', exact: true }).inputValue(), '1', 'Children scope cannot change the global media library')
+    assert.equal(page.url(), childrenScopeUrl, 'Children scope cannot rewrite the settings route')
+    await scope.selectOption('')
+    await startRefresh().click()
+    await refresh.getByRole('button', { name: '取消补全', exact: true }).waitFor()
+    assert.deepEqual(refreshWrites().at(-1).body, { library_id: null })
+    assert.equal(await scope.isDisabled(), true, 'An active worker locks its scope')
+    await expectTaskScope(allLabel)
+    await refresh.getByRole('button', { name: '取消补全', exact: true }).click()
+    await refresh.getByText('正在取消 · 1/2 · 模拟儿童资料', { exact: true }).waitFor()
+    assert.equal(await scope.isDisabled(), true, 'Cancellation keeps the scope locked while the worker finishes')
+    currentJob().worker_finished = true
+    await readRefresh().click()
+    await page.waitForFunction(() => !document.querySelector('#children-refresh-library').disabled)
+    await scope.selectOption('1')
+    await expectTaskScope(allLabel)
+    await screenshot('children-refresh-scope')
+    await startRefresh().click()
+    await expectTaskScope(movieLabel)
+    assert.deepEqual(refreshWrites().at(-1).body, { library_id: 1 })
+    Object.assign(currentJob(), { state: 'done', worker_finished: true, done: 2 })
+    await readRefresh().click()
+    await refresh.getByText('补全完成 · 2/2 · 模拟儿童资料', { exact: true }).waitFor()
+    await scope.selectOption('2')
+    await expectTaskScope(movieLabel)
+    refreshStartFailure = { status: 409, data: { detail: '已有儿童资料补全任务正在运行' } }
+    await startRefresh().click()
+    await refresh.getByRole('alert').filter({ hasText: '已有儿童资料补全任务正在运行' }).waitFor()
+    assert.equal(await scope.inputValue(), '2', 'A conflicting task does not expand the chosen scope')
+    assert.equal(await startRefresh().isEnabled(), true)
+    await startRefresh().click()
+    await expectTaskScope(tvLabel)
+    assert.deepEqual(refreshWrites().at(-1).body, { library_id: 2 })
+    const restoredJobId = await page.evaluate(() => sessionStorage.getItem('jzmedia.childrenRefreshJob'))
+    assert.equal(refreshJobs.get(restoredJobId).library_id, 2)
+    refreshReadFailures.set(restoredJobId, true)
+    await page.reload()
+    await refresh.getByRole('alert').filter({ hasText: '模拟任务状态暂不可用' }).waitFor()
+    assert.equal(await scope.isDisabled(), true, 'A task whose state cannot be restored cannot silently start another scope')
+    await readRefresh().click()
+    await expectTaskScope(tvLabel)
+    assert.equal(await scope.inputValue(), '2', 'Reload restores the scope from the server task')
+    assert.equal(await scope.isDisabled(), true)
+    await refresh.getByRole('button', { name: '取消补全', exact: true }).click()
+    await refresh.getByText('正在取消 · 1/2 · 模拟儿童资料', { exact: true }).waitFor()
+    refreshJobs.get(restoredJobId).worker_finished = true
+    await readRefresh().click()
+    await page.waitForFunction(() => !document.querySelector('#children-refresh-library').disabled)
+    refreshJobs.delete(restoredJobId)
+    await readRefresh().click()
+    await refresh.getByRole('alert').filter({ hasText: '补全任务已失效' }).waitFor()
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('jzmedia.childrenRefreshJob')), null, 'An expired task clears its stored reference')
+    await page.reload()
+    await page.waitForLoadState('networkidle')
+    assert.equal(await scope.inputValue(), '', 'Opening settings without an existing task defaults to every library')
+    pass('children refresh scope is independent, locks active workers, preserves task scope and restores or retries tasks')
     await page.getByLabel('当前保护密码', { exact: true }).fill('demo-pass')
     await page.getByLabel('新保护密码', { exact: true }).fill('updated-pass')
     await page.getByLabel('确认密码', { exact: true }).fill('updated-pass')

@@ -142,9 +142,9 @@
 
       <section v-show="active === 'sec-auth'" id="sec-auth" class="card-block">
         <ProtectionSettings />
-        <ChildrenMetadataRefresh :active="active === 'sec-auth'" />
+        <ChildrenMetadataRefresh :active="active === 'sec-auth'" :libs="libList" :libraries-ready="ready" :libraries-error="librariesError" @retry-libraries="loadLibraries(true)" />
         <div class="section-heading"><h3>写操作保护</h3><span class="status-label">{{ s?.jzmedia_token_masked ? '已启用' : '未启用' }}</span></div>
-        <p class="hint">启用后，修改内容、启动网页播放和保存进度需要令牌。观看模式的内容保护独立生效，隐私内容需要保护密码解锁。</p>
+        <p class="hint">作用于整个服务。启用后，修改内容、启动网页播放和保存进度需要令牌。观看模式的内容保护独立生效，隐私内容需要保护密码解锁。</p>
         <p v-if="s?.jzmedia_token_source === 'env'" class="hint">当前令牌由服务器配置提供。如需关闭保护，请在服务器移除 JZMEDIA_TOKEN；在此可保存新令牌替换。</p>
         <form class="settings-form" @submit.prevent="saveAuth()">
           <label for="access-token">{{ s?.jzmedia_token_masked ? '更换访问令牌' : '设置访问令牌' }}</label>
@@ -409,6 +409,7 @@ const active = ref(settingsTarget(route.query).page)
 const currentPage = computed(() => navs.find(n => n.id === active.value) || navs[0])
 const settingsScope = computed(() => {
   if (active.value === 'sec-display') return '作用范围：当前浏览器'
+  if (active.value === 'sec-auth') return '作用范围：见下方各项'
   if (['sec-libtools', 'sec-files', 'sec-matching'].includes(active.value)) return '作用范围：下方选中的视频库'
   if (active.value === 'sec-status') return '统计范围：全部媒体库'
   return '作用范围：此服务的全部媒体库'

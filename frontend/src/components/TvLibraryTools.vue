@@ -1,8 +1,8 @@
 <template>
   <section :id="active ? 'sec-pipeline' : undefined" class="workflow-panel">
     <div class="library-tools-header"><div class="tool-views" aria-label="视频库工具">
-      <button v-for="view in toolViews" :key="view.key" :class="{ on: toolView === view.key }"
-        :aria-pressed="toolView === view.key" @click="chooseView(view.key)"><AppIcon :name="view.key === 'workflow' ? 'organize' : view.key === 'restore' ? 'history' : 'settings'" :size="18" />{{ view.label }}</button>
+      <button v-for="view in toolViews" :key="view.key" type="button" :class="{ on: toolView === view.key }"
+        :aria-label="view.label" :aria-pressed="toolView === view.key" @click="chooseView(view.key)"><AppIcon :name="view.key === 'workflow' ? 'organize' : view.key === 'restore' ? 'history' : 'settings'" :size="18" /><span class="tool-view-label">{{ view.label }}</span></button>
     </div><JzButton type="button" class="open-library-files" @click="openFiles" icon="folder">管理文件</JzButton></div>
     <div v-show="toolView === 'workflow'">
     <div class="bar"><JzButton :disabled="!tab.enabled" @click="bindingsOpen = true" type="button" icon="match">剧集归属与季号</JzButton>

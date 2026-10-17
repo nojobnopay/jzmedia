@@ -13534,9 +13534,49 @@
       "source_excerpt": "<JzButton v-if=\"bar.show\" class=\"cast-nav right\" icon=\"chevron-right\" icon-only aria-label=\"向右滚动\" :disabled=\"!canRight\" @click=\"scrollByDir(1)\" />"
     },
     {
-      "id": "frontend/src/components/ChildrenMetadataRefresh.vue:JzButton:5",
+      "id": "frontend/src/components/ChildrenMetadataRefresh.vue:select:7",
       "source": "frontend/src/components/ChildrenMetadataRefresh.vue",
-      "line": 6,
+      "line": 8,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "设置与引导",
+      "element": "select",
+      "purpose": "全部媒体库 视频库 {{ selectedLibraryId }}（已不存在） {{ libraryLabel(library.id) }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<select :id=\"id\" v-model=\"selectedLibraryId\" :disabled=\"scopeLocked || !librariesReady || !!librariesError || !libs.length\" :aria-describedby=\"describedby\" :aria-invalid=\"invalid\">"
+    },
+    {
+      "id": "frontend/src/components/ChildrenMetadataRefresh.vue:JzButton:12",
+      "source": "frontend/src/components/ChildrenMetadataRefresh.vue",
+      "line": 16,
       "platforms": [
         "web",
         "mobile-web"
@@ -13544,7 +13584,48 @@
       "category": "control",
       "feature": "设置与引导",
       "element": "JzButton",
-      "purpose": "{{ task?.state === 'failed' || failureCount ? '重试补全儿童筛选资料' : '补全儿童筛选资料' }}",
+      "purpose": "重新加载视频库",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton icon=\"refresh\" @click=\"emit('retry-libraries')\">"
+    },
+    {
+      "id": "frontend/src/components/ChildrenMetadataRefresh.vue:JzButton:16",
+      "source": "frontend/src/components/ChildrenMetadataRefresh.vue",
+      "line": 20,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "设置与引导",
+      "element": "JzButton",
+      "purpose": "{{ retrySameScope ? '重试补全儿童筛选资料' : '补全儿童筛选资料' }}",
       "assets": [
         "refresh"
       ],
@@ -13573,12 +13654,12 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"!running\" icon=\"refresh\" :loading=\"starting\" :disabled=\"loading\" @click=\"start\">"
+      "source_excerpt": "<JzButton v-if=\"!running\" icon=\"refresh\" :loading=\"starting\" :disabled=\"!canStart\" @click=\"start\">"
     },
     {
-      "id": "frontend/src/components/ChildrenMetadataRefresh.vue:JzButton:6",
+      "id": "frontend/src/components/ChildrenMetadataRefresh.vue:JzButton:17",
       "source": "frontend/src/components/ChildrenMetadataRefresh.vue",
-      "line": 7,
+      "line": 21,
       "platforms": [
         "web",
         "mobile-web"
@@ -13616,9 +13697,9 @@
       "source_excerpt": "<JzButton v-else :loading=\"cancelling\" @click=\"cancel\">"
     },
     {
-      "id": "frontend/src/components/ChildrenMetadataRefresh.vue:JzButton:7",
+      "id": "frontend/src/components/ChildrenMetadataRefresh.vue:JzButton:18",
       "source": "frontend/src/components/ChildrenMetadataRefresh.vue",
-      "line": 8,
+      "line": 22,
       "platforms": [
         "web",
         "mobile-web"
@@ -13653,7 +13734,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"jobId\" variant=\"ghost\" :disabled=\"loading || starting\" @click=\"reload\">"
+      "source_excerpt": "<JzButton v-if=\"jobId\" variant=\"ghost\" :disabled=\"loading || starting || cancelling\" @click=\"reload\">"
     },
     {
       "id": "frontend/src/components/ContentPolicyButton.vue:JzButton:1",
@@ -23227,7 +23308,7 @@
       "category": "control",
       "feature": "媒体管理",
       "element": "button",
-      "purpose": "{{ view.label }}",
+      "purpose": "view.label",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
@@ -23253,9 +23334,9 @@
         "disabled",
         "selected"
       ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "accessible_name_owner": "view.label",
       "classification": "工具视图标签及工作流步骤展开，保留aria-pressed/expanded",
-      "source_excerpt": "<button v-for=\"view in toolViews\" :key=\"view.key\" :class=\"{ on: toolView === view.key }\" :aria-pressed=\"toolView === view.key\" @click=\"chooseView(view.key)\">"
+      "source_excerpt": "<button v-for=\"view in toolViews\" :key=\"view.key\" type=\"button\" :class=\"{ on: toolView === view.key }\" :aria-label=\"view.label\" :aria-pressed=\"toolView === view.key\" @click=\"choose"
     },
     {
       "id": "frontend/src/components/MovieLibraryTools.vue:AppIcon:5",
@@ -23297,7 +23378,7 @@
       "source_excerpt": "<AppIcon :name=\"view.key === 'workflow' ? 'organize' : view.key === 'restore' ? 'history' : 'settings'\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:6",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:7",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 6,
       "platforms": [
@@ -23338,7 +23419,7 @@
       "source_excerpt": "<JzButton type=\"button\" class=\"open-library-files\" @click=\"openFiles\" icon=\"folder\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:AppIcon:11",
+      "id": "frontend/src/components/MovieLibraryTools.vue:AppIcon:12",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 10,
       "platforms": [
@@ -23375,7 +23456,7 @@
       "source_excerpt": "<AppIcon name=\"check\" :size=\"16\" />"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:button:16",
+      "id": "frontend/src/components/MovieLibraryTools.vue:button:17",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 17,
       "platforms": [
@@ -23425,7 +23506,7 @@
           },
           {
             "source": "frontend/src/styles/settings.css",
-            "line": 79,
+            "line": 78,
             "selector": ".settings-layout .pipe-head.pipe-toggle",
             "values": {
               "width": "100%",
@@ -23449,7 +23530,7 @@
       "source_excerpt": "<button type=\"button\" class=\"pipe-head pipe-toggle\" :aria-expanded=\"openStep === 'scan'\" @click=\"toggleStep('scan')\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:24",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:25",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 25,
       "platforms": [
@@ -23508,7 +23589,7 @@
       "source_excerpt": "<JzButton class=\"primary tool-action\" @click=\"startScan\" :disabled=\"!!busy || scanBlocked || !tab.enabled\" type=\"button\" variant=\"primary\" icon=\"scan\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:25",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:26",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 28,
       "platforms": [
@@ -23547,7 +23628,7 @@
       "source_excerpt": "<JzButton v-if=\"scanRunning\" @click=\"cancelScan\" type=\"button\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:27",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:28",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 30,
       "platforms": [
@@ -23588,7 +23669,7 @@
       "source_excerpt": "<JzButton v-if=\"scanStateText === '完成'\" @click=\"toggleStep('pending')\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:29",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:30",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 33,
       "platforms": [
@@ -23630,7 +23711,7 @@
       "source_excerpt": "<JzButton class=\"tool-action\" @click=\"loadMissing()\" :disabled=\"!!busy || missingLoading\" type=\"button\" icon=\"eye\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:30",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:31",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 34,
       "platforms": [
@@ -23669,7 +23750,7 @@
       "source_excerpt": "<JzButton v-if=\"missing.length\" @click=\"scanOpen = !scanOpen\" type=\"button\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:37",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:38",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 43,
       "platforms": [
@@ -23708,7 +23789,7 @@
       "source_excerpt": "<JzButton @click=\"toggleMissing\" type=\"button\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:38",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:39",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 44,
       "platforms": [
@@ -23750,7 +23831,7 @@
       "source_excerpt": "<JzButton @click=\"doClean(checkedMissing)\" :disabled=\"!!busy || !checkedMissing.length\" type=\"button\" icon=\"delete\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:input:41",
+      "id": "frontend/src/components/MovieLibraryTools.vue:input:42",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 50,
       "platforms": [
@@ -23789,7 +23870,7 @@
       "source_excerpt": "<input type=\"checkbox\" :value=\"m.id\" v-model=\"checkedMissing\" />"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:46",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:47",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 55,
       "platforms": [
@@ -23828,7 +23909,7 @@
       "source_excerpt": "<JzButton @click=\"missExpand = !missExpand\" type=\"button\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:button:48",
+      "id": "frontend/src/components/MovieLibraryTools.vue:button:49",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 63,
       "platforms": [
@@ -23878,7 +23959,7 @@
           },
           {
             "source": "frontend/src/styles/settings.css",
-            "line": 79,
+            "line": 78,
             "selector": ".settings-layout .pipe-head.pipe-toggle",
             "values": {
               "width": "100%",
@@ -23902,7 +23983,7 @@
       "source_excerpt": "<button type=\"button\" class=\"pipe-head pipe-toggle\" :aria-expanded=\"openStep === 'pending'\" @click=\"toggleStep('pending')\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:summary:56",
+      "id": "frontend/src/components/MovieLibraryTools.vue:summary:57",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 69,
       "platforms": [
@@ -23941,7 +24022,7 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:59",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:60",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 71,
       "platforms": [
@@ -23983,7 +24064,7 @@
       "source_excerpt": "<JzButton @click=\"loadUnmatched()\" :disabled=\"!!busy\" type=\"button\" icon=\"refresh\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:62",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:63",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 74,
       "platforms": [
@@ -24023,7 +24104,7 @@
       "source_excerpt": "<JzButton v-if=\"needsReview.length > 1\" :disabled=\"!!busy\" title=\"待确认一次性清除\" @click=\"confirmReview(needsReview.map(m => m.id))\" type=\"button\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:input:72",
+      "id": "frontend/src/components/MovieLibraryTools.vue:input:73",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 85,
       "platforms": [
@@ -24062,7 +24143,7 @@
       "source_excerpt": "<input v-model=\"orphanMovie[it.id]\" placeholder=\"影片ID\" style=\"width:80px\" />"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:73",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:74",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 86,
       "platforms": [
@@ -24102,7 +24183,7 @@
       "source_excerpt": "<JzButton @click=\"attachOrphan(it.id)\" :disabled=\"!!busy\" type=\"button\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:75",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:76",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 89,
       "platforms": [
@@ -24144,7 +24225,7 @@
       "source_excerpt": "<JzButton v-if=\"it.category === 'needs_review'\" :disabled=\"!!busy\" title=\"匹配无误，清除待确认\" @click=\"confirmReview([it.id])\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:76",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:77",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 90,
       "platforms": [
@@ -24185,7 +24266,7 @@
       "source_excerpt": "<JzButton @click=\"$router.push('/m/' + it.id)\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:78",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:79",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 94,
       "platforms": [
@@ -24224,7 +24305,7 @@
       "source_excerpt": "<JzButton @click=\"pendExpand = !pendExpand\" type=\"button\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:button:80",
+      "id": "frontend/src/components/MovieLibraryTools.vue:button:81",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 102,
       "platforms": [
@@ -24274,7 +24355,7 @@
           },
           {
             "source": "frontend/src/styles/settings.css",
-            "line": 79,
+            "line": 78,
             "selector": ".settings-layout .pipe-head.pipe-toggle",
             "values": {
               "width": "100%",
@@ -24298,7 +24379,7 @@
       "source_excerpt": "<button type=\"button\" class=\"pipe-head pipe-toggle\" :aria-expanded=\"openStep === 'organize'\" @click=\"toggleStep('organize')\">"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:summary:87",
+      "id": "frontend/src/components/MovieLibraryTools.vue:summary:88",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 108,
       "platforms": [
@@ -24337,7 +24418,7 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:90",
+      "id": "frontend/src/components/MovieLibraryTools.vue:JzButton:91",
       "source": "frontend/src/components/MovieLibraryTools.vue",
       "line": 110,
       "platforms": [
@@ -33033,7 +33114,7 @@
       "category": "control",
       "feature": "媒体管理",
       "element": "button",
-      "purpose": "{{ view.label }}",
+      "purpose": "view.label",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
@@ -33059,9 +33140,9 @@
         "disabled",
         "selected"
       ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "accessible_name_owner": "view.label",
       "classification": "剧集工具标签及工作流步骤展开，保留aria-pressed/expanded",
-      "source_excerpt": "<button v-for=\"view in toolViews\" :key=\"view.key\" :class=\"{ on: toolView === view.key }\" :aria-pressed=\"toolView === view.key\" @click=\"chooseView(view.key)\">"
+      "source_excerpt": "<button v-for=\"view in toolViews\" :key=\"view.key\" type=\"button\" :class=\"{ on: toolView === view.key }\" :aria-label=\"view.label\" :aria-pressed=\"toolView === view.key\" @click=\"choose"
     },
     {
       "id": "frontend/src/components/TvLibraryTools.vue:AppIcon:5",
@@ -33103,7 +33184,7 @@
       "source_excerpt": "<AppIcon :name=\"view.key === 'workflow' ? 'organize' : view.key === 'restore' ? 'history' : 'settings'\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:6",
+      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:7",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 6,
       "platforms": [
@@ -33144,7 +33225,7 @@
       "source_excerpt": "<JzButton type=\"button\" class=\"open-library-files\" @click=\"openFiles\" icon=\"folder\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:9",
+      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:10",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 8,
       "platforms": [
@@ -33186,7 +33267,7 @@
       "source_excerpt": "<JzButton :disabled=\"!tab.enabled\" @click=\"bindingsOpen = true\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:AppIcon:17",
+      "id": "frontend/src/components/TvLibraryTools.vue:AppIcon:18",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 15,
       "platforms": [
@@ -33223,7 +33304,7 @@
       "source_excerpt": "<AppIcon name=\"check\" :size=\"16\" />"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:button:20",
+      "id": "frontend/src/components/TvLibraryTools.vue:button:21",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 20,
       "platforms": [
@@ -33273,7 +33354,7 @@
           },
           {
             "source": "frontend/src/styles/settings.css",
-            "line": 79,
+            "line": 78,
             "selector": ".settings-layout .pipe-head.pipe-toggle",
             "values": {
               "width": "100%",
@@ -33297,7 +33378,7 @@
       "source_excerpt": "<button type=\"button\" class=\"pipe-head pipe-toggle\" :aria-expanded=\"openStep === 'scan'\" @click=\"toggleStep('scan')\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:28",
+      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:29",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 28,
       "platforms": [
@@ -33356,7 +33437,7 @@
       "source_excerpt": "<JzButton class=\"primary tool-action\" @click=\"startScan\" :disabled=\"!!busy || scanBlocked || !tab.enabled\" type=\"button\" variant=\"primary\" icon=\"scan\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:29",
+      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:30",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 31,
       "platforms": [
@@ -33395,7 +33476,7 @@
       "source_excerpt": "<JzButton v-if=\"scanRunning\" @click=\"cancelScan\" type=\"button\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:31",
+      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:32",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 33,
       "platforms": [
@@ -33436,7 +33517,7 @@
       "source_excerpt": "<JzButton v-if=\"scanStateText === '完成'\" @click=\"toggleStep('match')\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:button:33",
+      "id": "frontend/src/components/TvLibraryTools.vue:button:34",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 39,
       "platforms": [
@@ -33486,7 +33567,7 @@
           },
           {
             "source": "frontend/src/styles/settings.css",
-            "line": 79,
+            "line": 78,
             "selector": ".settings-layout .pipe-head.pipe-toggle",
             "values": {
               "width": "100%",
@@ -33510,7 +33591,7 @@
       "source_excerpt": "<button type=\"button\" class=\"pipe-head pipe-toggle\" :aria-expanded=\"openStep === 'match'\" @click=\"toggleStep('match')\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:summary:41",
+      "id": "frontend/src/components/TvLibraryTools.vue:summary:42",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 45,
       "platforms": [
@@ -33549,7 +33630,7 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:44",
+      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:45",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 47,
       "platforms": [
@@ -33591,7 +33672,7 @@
       "source_excerpt": "<JzButton @click=\"loadPending()\" :disabled=\"!!busy\" type=\"button\" icon=\"refresh\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:47",
+      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:48",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 50,
       "platforms": [
@@ -33633,7 +33714,7 @@
       "source_excerpt": "<JzButton v-if=\"reviewRows.length > 1\" :disabled=\"!!busy\" @click=\"confirmAll\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:56",
+      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:57",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 63,
       "platforms": [
@@ -33675,7 +33756,7 @@
       "source_excerpt": "<JzButton v-if=\"it.needs_review\" :disabled=\"!!busy\" title=\"匹配无误，清除待确认\" @click=\"confirmOne(it.id)\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:57",
+      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:58",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 64,
       "platforms": [
@@ -33716,7 +33797,7 @@
       "source_excerpt": "<JzButton @click=\"$router.push('/tv/' + it.id)\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:59",
+      "id": "frontend/src/components/TvLibraryTools.vue:JzButton:60",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 67,
       "platforms": [
@@ -33755,7 +33836,7 @@
       "source_excerpt": "<JzButton @click=\"pendExpand = !pendExpand\" type=\"button\">"
     },
     {
-      "id": "frontend/src/components/TvLibraryTools.vue:button:61",
+      "id": "frontend/src/components/TvLibraryTools.vue:button:62",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 74,
       "platforms": [
@@ -33805,7 +33886,7 @@
           },
           {
             "source": "frontend/src/styles/settings.css",
-            "line": 79,
+            "line": 78,
             "selector": ".settings-layout .pipe-head.pipe-toggle",
             "values": {
               "width": "100%",
@@ -43766,6 +43847,15 @@
             "values": {
               "min-height": "var(--jz-touch-target)"
             }
+          },
+          {
+            "source": "frontend/src/styles/settings.css",
+            "line": 128,
+            "selector": ".settings-layout .tool-views button:not(.on)",
+            "values": {
+              "width": "var(--jz-touch-target)",
+              "padding-inline": "0"
+            }
           }
         ],
         "value": "min-height:36px desktop / 44px touch"
@@ -45595,7 +45685,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/settings.css",
-            "line": 104,
+            "line": 103,
             "selector": ".settings-layout .side-nav .setup-link",
             "values": {
               "padding": "0",
@@ -45604,7 +45694,7 @@
           },
           {
             "source": "frontend/src/styles/settings.css",
-            "line": 131,
+            "line": 133,
             "selector": ".settings-layout .setup-link",
             "values": {
               "padding": "10px 12px",

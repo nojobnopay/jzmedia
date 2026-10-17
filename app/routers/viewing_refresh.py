@@ -49,17 +49,20 @@ def _candidates(library_id):
     return result
 
 
-def _save_evidence(kind, tmdb_id, evidence):
-    """Update evidence atomically without touching display metadata or local choices."""
+def _save_evidence(kind, tmdb_id, evidence, library_id=None):
+    """Update scoped evidence atomically without touching metadata or local choices."""
     table = "movies" if kind == "movie" else "tv_shows"
+    library_clause = " AND library_id=?" if library_id is not None else ""
+    library_params = (library_id,) if library_id is not None else ()
     with store._lock, store._conn() as connection:
         cached = connection.execute("SELECT payload_json FROM tmdb_cache WHERE media_type=? AND tmdb_id=?",
                                     (kind, tmdb_id)).fetchone()
         payload = _payload(cached[0] if cached else None)
         merged = merge_content_evidence(payload.get("content_evidence"), evidence)
         rows = connection.execute(f"SELECT id,content_evidence,children_auto_status,children_reason,genres,genre_ids"
-                                  f" FROM {table} WHERE tmdb_id=?", (tmdb_id,)).fetchall()
-        # A rematch during the remote request must not update the old local item.
+                                  f" FROM {table} WHERE tmdb_id=?" + library_clause,
+                                  (tmdb_id, *library_params)).fetchall()
+        # A removed or rematched scoped item cannot borrow a match in another library.
         if not rows:
             return 0
         if not cached or normalize_content_evidence(payload.get("content_evidence")) != merged:
@@ -82,8 +85,9 @@ def _save_evidence(kind, tmdb_id, evidence):
                     and row["children_auto_status"] == status and row["children_reason"] == reason):
                 continue
             connection.execute(f"UPDATE {table} SET content_evidence=?,children_auto_status=?,children_reason=?"
-                               " WHERE id=? AND tmdb_id=?",
-                               (json.dumps(local, ensure_ascii=False), status, reason, row["id"], tmdb_id))
+                               " WHERE id=? AND tmdb_id=?" + library_clause,
+                               (json.dumps(local, ensure_ascii=False), status, reason,
+                                row["id"], tmdb_id, *library_params))
             changed_ids.append(row["id"])
         if changed_ids:
             viewing.invalidate_content_access(connection)
@@ -93,7 +97,7 @@ def _save_evidence(kind, tmdb_id, evidence):
     return len(changed_ids)
 
 
-def _worker(job_id, candidates):
+def _worker(job_id, candidates, library_id=None):
     done = changed = failed_count = 0
     failed = []
     try:
@@ -114,7 +118,7 @@ def _worker(job_id, candidates):
                     job = _JOBS.get(job_id)
                     if not job or job["state"] != "running":
                         return
-                    changed += _save_evidence(kind, tmdb_id, evidence)
+                    changed += _save_evidence(kind, tmdb_id, evidence, library_id)
                 except Exception as error:
                     failed_count += 1
                     message = str(error) if isinstance(error, _EvidenceError) else "资料来源暂不可用，已保留原资料"
@@ -149,7 +153,7 @@ def start_refresh(body: RefreshBody | None = None):
         job = _JOBS.create(total=len(candidates), library_id=library_id, changed=0,
                            failed_count=0, worker_finished=False)
         if candidates:
-            threading.Thread(target=_worker, args=(job["job_id"], candidates), daemon=True,
+            threading.Thread(target=_worker, args=(job["job_id"], candidates, library_id), daemon=True,
                              name="viewing-evidence-refresh").start()
         else:
             _JOBS.update(job["job_id"], state="done", worker_finished=True)

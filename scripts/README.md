@@ -32,7 +32,7 @@
 | [smoke_api.py](smoke_api.py) | 临时后端的扫描、整理、恢复、合集、设置和鉴权等 API；[_smoke_app.py](_smoke_app.py) 是其内部启动器。 |
 | [smoke_multi_library.py](smoke_multi_library.py) | 临时双库的扫描、搜索、版本隔离，以及删库保留文件。 |
 | [smoke_metadata_offline.py](smoke_metadata_offline.py) | 本地索引、NFO 回放、离线搜索和合成 IMDb 数据导入。 |
-| [smoke_settings_ui.mjs](smoke_settings_ui.mjs) | 应用数据总预算与缓存分配、设置草稿离开保护、文件操作与预览、合成片源播放及 ASS 全屏合成。 |
+| [smoke_settings_ui.mjs](smoke_settings_ui.mjs) | 应用数据总预算与缓存分配、设置草稿离开保护、扫描整理工具栏、文件操作与预览、合成片源播放及 ASS 全屏合成。 |
 | [smoke_casting.mjs](smoke_casting.mjs) | 合成电影/分集、真实手机播放器、隔离后端与模拟 DLNA 接收端；需要项目 `.venv` 和已安装的 FFmpeg/FFprobe，不搜索真实设备。 |
 | [smoke_ai_ui.mjs](smoke_ai_ui.mjs) | 智能设置、搜索和匹配，模型及 API 均为模拟。 |
 | [smoke_browse_filters.mjs](smoke_browse_filters.mjs) | 电影/剧集筛选的真实 Vue 页面与模拟 API。 |
@@ -43,7 +43,7 @@
 
 ### 选择验证范围与输出
 
-- `smoke_settings_ui.mjs`：播放器使用临时 FFmpeg 合成片源，ASS 检查使用合成样式字幕和依赖包字体，覆盖真实 worker、透明合成、手机布局下的全屏画面及字幕像素、兼容切换与关闭清理；`--drafts-only` 限定设置草稿，`--cache-only` 检查总预算、四色分配条、基础数据预留、超配与旧配置、两类清理确认、保存与离开保护及桌面/手机布局，`--player-only` 限定播放器，`--capture-docs` 更新教程图。手机布局模拟不能代替真机验收。
+- `smoke_settings_ui.mjs`：播放器使用临时 FFmpeg 合成片源，ASS 检查使用合成样式字幕和依赖包字体，覆盖真实 worker、透明合成、手机布局下的全屏画面及字幕像素、兼容切换与关闭清理；`--drafts-only` 限定设置草稿，`--cache-only` 检查总预算、四色分配条、基础数据预留、超配与旧配置、两类清理确认、保存与离开保护及桌面/手机布局，`--player-only` 限定播放器，`--capture-docs` 更新教程图。`--tools-only` 限定扫描整理工具栏，覆盖手机仅当前项显示文字、完整可访问名称、44px 触摸区域与键盘切换、“管理文件”自适应同排或换行及返回工具，检查 320/375/390px 视口和 16/20px 字号；默认完整运行也包含这些检查。手机布局模拟不能代替真机验收。
 - `smoke_casting.mjs`：默认验证六个底栏快捷控件、画面右上角工具、竖向音量、倍速/轨道面板及全屏投屏，使用隔离应用与模拟 DLNA 接收端；`--capture-only` 只拍当前界面，配合 `--source 源码快照目录` 拍改前界面。对照图输出到 `output/playwright/casting/before/` 与 `after/`，比较前核对合成媒体 SHA-256；这两个选项不更新正式教程素材。
 - `smoke_ai_ui.mjs`：`--demo` 保留演示服务，`--capture-docs` 更新教程图。
 - `smoke_tv_airing.mjs`：使用虚构剧集和模拟 API；`--capture-docs` 更新对应教程图。
