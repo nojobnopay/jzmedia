@@ -18,7 +18,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { fmtTime } from '../playerLabels.js'
-import { previewFrame } from '../playbackControls.js'
+import { previewFrame, previewImageStyle } from '../playbackControls.js'
 
 const props = defineProps({
   value: { type: Number, default: 0 }, duration: { type: Number, default: 0 },
@@ -40,12 +40,7 @@ const limits = ref({ left: 0, right: 164 })
 const imageFailed = ref(false)
 const frame = computed(() => previewFrame(props.manifest, hoverTime.value))
 const bubbleLeft = computed(() => Math.max(limits.value.left, Math.min(limits.value.right - 164, pointerX.value - 82)))
-const imageStyle = computed(() => frame.value ? {
-  width: frame.value.width + 'px', height: frame.value.height + 'px',
-  backgroundImage: `url("${frame.value.url}")`,
-  backgroundPosition: `-${frame.value.x}px -${frame.value.y}px`,
-  backgroundSize: `${frame.value.sheetWidth}px ${frame.value.sheetHeight}px`,
-} : {})
+const imageStyle = computed(() => previewImageStyle(frame.value))
 watch(() => frame.value?.url, (url, _old, cleanup) => {
   imageFailed.value = false
   if (!url) return

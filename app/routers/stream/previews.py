@@ -32,8 +32,9 @@ from .preview_log import ExtractionError, error_kind, read_frame_log
 logger = get_logger("stream.previews")
 __all__ = ['shutdown_previews', 'start_auto_previews']
 VERSION = 1
-QUALITY_REVISION = 2
-WIDTH, HEIGHT, COLUMNS, ROWS = 160, 90, 5, 5
+QUALITY_REVISION = 3
+# Web 160 CSS px at up to 3x; TV 240 dp at 2x. One shared sprite set.
+WIDTH, HEIGHT, COLUMNS, ROWS = 480, 270, 5, 5
 _jobs = JobRegistry(max_finished=12, prefix="preview")
 _lock = threading.RLock()
 _worker_thread = None
@@ -55,11 +56,17 @@ def _root() -> Path:
     return Path(settings.data_dir) / "previews"
 
 
+def _quality_dimensions(revision):
+    # Deployed revisions must keep their original dimensions and immutable URLs.
+    return (160, 90) if revision in (1, 2) else (WIDTH, HEIGHT)
+
+
 def _cache_key(row, src, interval: int, *, quality_revision: int | None = None) -> str:
     # 不对远程电影做全文件 hash；路径/库/大小/mtime 变化即失效。
-    identity = [VERSION, row.get("kind", "movie"), row["id"], src.backend.library_id,
-                src.backend.root, src.rel, src.size, src.mtime, interval, WIDTH, HEIGHT]
     revision = QUALITY_REVISION if quality_revision is None else quality_revision
+    width, height = _quality_dimensions(revision)
+    identity = [VERSION, row.get("kind", "movie"), row["id"], src.backend.library_id,
+                src.backend.root, src.rel, src.size, src.mtime, interval, width, height]
     # 第一代 key 必须保持原样；新版图片另用 URL，避免覆盖 immutable 旧图。
     if revision != 1:
         identity.append(revision)
@@ -874,7 +881,8 @@ def _completed_manifest(data, interval, revision):
             or type(interval) is not int or not 5 <= interval <= 60
             or type(data.get("quality_revision", 1)) is not int):
         return False
-    expected = {"interval": interval, "width": WIDTH, "height": HEIGHT,
+    width, height = _quality_dimensions(revision)
+    expected = {"interval": interval, "width": width, "height": height,
                 "columns": COLUMNS, "rows": ROWS, "count": math.ceil(duration / interval)}
     return (all(data.get(name) == value for name, value in expected.items())
             and data.get("quality_revision", 1) == revision
@@ -888,7 +896,7 @@ def _read_completed_manifest(directory):
             return None
         data = json.loads((directory / "manifest.json").read_text())
         if (not isinstance(data, dict) or data.get("version") != VERSION
-                or data.get("quality_revision", 1) not in (1, QUALITY_REVISION)
+                or data.get("quality_revision", 1) not in range(1, QUALITY_REVISION + 1)
                 or not _completed_manifest(data, data.get("interval"), data.get("quality_revision", 1))):
             return None
         if any((directory / name).is_symlink() or not (directory / name).is_file()
@@ -943,7 +951,7 @@ def preview_completed(library_id: int | None = Query(default=None, gt=0),
         except storage.StorageError:
             continue
         interval = _interval(row)
-        for revision in (QUALITY_REVISION, 1):
+        for revision in range(QUALITY_REVISION, 0, -1):
             data = manifests.get(_cache_key(row, src, interval, quality_revision=revision))
             if not _completed_manifest(data, interval, revision):
                 continue
@@ -1150,11 +1158,13 @@ def preview_manifest(version_id: int, kind: Literal["movie", "episode", "extra"]
     data = _read_manifest(directory)
     if not data or data.get("state") != "ready":
         # 重建完成前继续显示旧完整成品，不混用新旧页，也不在 GET 启动生成。
-        legacy_key = _cache_key(row, src, interval, quality_revision=1)
-        legacy_directory = _root() / legacy_key
-        legacy_data = _read_manifest(legacy_directory)
-        if legacy_data and legacy_data.get("state") == "ready":
-            key, directory, data = legacy_key, legacy_directory, legacy_data
+        for revision in range(QUALITY_REVISION - 1, 0, -1):
+            legacy_key = _cache_key(row, src, interval, quality_revision=revision)
+            legacy_directory = _root() / legacy_key
+            legacy_data = _read_manifest(legacy_directory)
+            if _completed_manifest(legacy_data, interval, revision):
+                key, directory, data = legacy_key, legacy_directory, legacy_data
+                break
     if data and (data.get("item_kind") != kind or data.get("item_id") != version_id):
         # Upgrade old cache ownership only after resolving the authorized source.
         data.update(item_kind=kind, item_id=version_id)

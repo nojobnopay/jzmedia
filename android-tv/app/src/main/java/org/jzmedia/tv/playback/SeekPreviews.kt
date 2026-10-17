@@ -13,6 +13,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -54,7 +55,8 @@ data class SeekPreviewManifest(val interval: Double, val count: Int, val width: 
     }
 }
 
-class SeekPreviewImages : LruCache<String, Bitmap>(8 * 1024 * 1024) {
+// A 5×5 sheet of 480×270 ARGB cells uses about 12.4 MiB; retain two nearby pages.
+class SeekPreviewImages : LruCache<String, Bitmap>(32 * 1024 * 1024) {
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 }
 
@@ -65,7 +67,12 @@ fun SeekPreviewImage(api: JzApi, frame: SeekPreviewFrame, images: SeekPreviewIma
         produceState<Bitmap?>(null) {
             value = images.get(frame.page) ?: try {
                 val bytes = api.getBytes(frame.page)
-                withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                withContext(Dispatchers.Default) {
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply {
+                        inScaled = false
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    })
+                }
                     ?.also { images.put(frame.page, it) }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { null }
@@ -77,6 +84,7 @@ fun SeekPreviewImage(api: JzApi, frame: SeekPreviewFrame, images: SeekPreviewIma
         drawImage(bitmap.asImageBitmap(), srcOffset = IntOffset(frame.x, frame.y),
             srcSize = IntSize(frame.width, frame.height),
             dstOffset = IntOffset.Zero,
-            dstSize = IntSize(size.width.toInt(), size.height.toInt()))
+            dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+            filterQuality = FilterQuality.High)
     }
 }

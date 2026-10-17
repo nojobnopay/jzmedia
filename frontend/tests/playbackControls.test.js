@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { PLAYBACK_RATES, normalizeRate, applyPlaybackRate, reusableSeekTime, previewFrame, surfaceClickRevealsOnly, pauseButtonPlacement } from '../src/playbackControls.js'
+import { PLAYBACK_RATES, normalizeRate, applyPlaybackRate, reusableSeekTime, previewFrame, previewImageStyle, surfaceClickRevealsOnly, pauseButtonPlacement } from '../src/playbackControls.js'
 
 const ranges = pairs => ({ length: pairs.length, start: i => pairs[i][0], end: i => pairs[i][1] })
 
@@ -58,6 +58,24 @@ test('缩略图跨页、片尾及未完成页面不会错图；原片时间不�
   manifest.pages.pop()
   assert.equal(previewFrame(manifest, 260), null)
   assert.equal(previewFrame(null, 0), null)
+})
+
+test('160/320/480 像素预览统一显示为 160×90 CSS 像素，精灵图缩放保持行列及分页定位', () => {
+  for (const width of [160, 320, 480]) {
+    const manifest = { interval: 10, columns: 5, rows: 5, width, height: width * 9 / 16,
+      count: 27, pages: ['page0', 'page1'] }
+    for (const [time, url, x, y] of [
+      [0, 'page0', 0, 0], [40, 'page0', 640, 0], [50, 'page0', 0, 90],
+      [240, 'page0', 640, 360], [250, 'page1', 0, 0], [260, 'page1', 160, 0],
+      [999, 'page1', 160, 0],
+    ]) {
+      assert.deepEqual(previewImageStyle(previewFrame(manifest, time)), {
+        width: '160px', height: '90px', backgroundImage: `url("${url}")`,
+        backgroundPosition: `-${x}px -${y}px`, backgroundSize: '800px 450px',
+      })
+    }
+  }
+  assert.deepEqual(previewImageStyle(null), {})
 })
 
 test('窗口和全屏的隐藏态首次点击只显控件，已显示时才暂停', () => {

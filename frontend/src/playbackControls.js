@@ -51,7 +51,8 @@ export function pauseButtonPlacement(height, { mobile = false, fullscreen = fals
     showHint: center + size / 2 + 22 <= hintLimit }
 }
 
-export function previewFrame(manifest, time) {  if (!manifest?.pages?.length || !(manifest.interval > 0)) return null
+export function previewFrame(manifest, time) {
+  if (!manifest?.pages?.length || !(manifest.interval > 0)) return null
   const count = Number(manifest.count) || 0
   const index = Math.min(count - 1, Math.max(0, Math.floor(time / manifest.interval)))
   if (index < 0) return null
@@ -63,4 +64,17 @@ export function previewFrame(manifest, time) {  if (!manifest?.pages?.length || 
     y: Math.floor(cell / manifest.columns) * manifest.height,
     width: manifest.width, height: manifest.height,
     sheetWidth: manifest.width * manifest.columns, sheetHeight: manifest.height * manifest.rows }
+}
+
+// Sprite coordinates are bitmap pixels; the preview stays the same CSS size on
+// every screen. Higher resolution sheets supply the extra pixels for HiDPI.
+export function previewImageStyle(frame) {
+  if (!frame) return {}
+  const scale = 160 / frame.width
+  return {
+    width: '160px', height: frame.height * scale + 'px',
+    backgroundImage: `url("${frame.url}")`,
+    backgroundPosition: `-${frame.x * scale}px -${frame.y * scale}px`,
+    backgroundSize: `${frame.sheetWidth * scale}px ${frame.sheetHeight * scale}px`,
+  }
 }

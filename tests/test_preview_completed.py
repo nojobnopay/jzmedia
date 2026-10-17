@@ -66,8 +66,9 @@ def inventory(tmp_path, monkeypatch):
         pages = [f"page_{n:04d}.jpg" for n in range(math.ceil(count / (pv.COLUMNS * pv.ROWS)))]
         for name in pages:
             (directory / name).write_bytes(b"synthetic-sprite")
+        width, height = (160, 90) if revision in (1, 2) else (480, 270)
         data = dict(version=pv.VERSION, state="ready", duration=265, interval=interval,
-                    count=count, width=pv.WIDTH, height=pv.HEIGHT, columns=pv.COLUMNS,
+                    count=count, width=width, height=height, columns=pv.COLUMNS,
                     rows=pv.ROWS, pages=pages)
         if revision != 1:
             data["quality_revision"] = revision
@@ -110,9 +111,10 @@ def test_completed_paginates_titles_kinds_and_libraries(inventory):
     assert inv.client.get(path, params={"offset": 4}).json()["items"] == []
 
 
-def test_completed_prefers_current_but_includes_whole_legacy_without_writes(inventory, monkeypatch):
+@pytest.mark.parametrize('revision', [1, 2])
+def test_completed_prefers_current_but_includes_whole_legacy_without_writes(inventory, monkeypatch, revision):
     ref = inventory.item()
-    legacy, _ = inventory.cached(ref, revision=1, owner=False)
+    legacy, _ = inventory.cached(ref, revision=revision, owner=False)
     before = {path: (path.read_bytes(), path.stat().st_mtime_ns)
               for path in legacy.iterdir()}
     directory_mtime = legacy.stat().st_mtime_ns
@@ -120,7 +122,7 @@ def test_completed_prefers_current_but_includes_whole_legacy_without_writes(inve
     monkeypatch.setattr(pv, "_write_manifest", lambda *_a: pytest.fail("GET must not write ownership"))
     response = inventory.client.get("/api/stream/previews/completed").json()
     assert response["total"] == 1
-    assert response["items"][0]["quality_revision"] == 1 and response["items"][0]["needs_update"]
+    assert response["items"][0]["quality_revision"] == revision and response["items"][0]["needs_update"]
     assert before == {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in legacy.iterdir()}
     assert legacy.stat().st_mtime_ns == directory_mtime
     monkeypatch.setattr(pv, "_write_manifest", write_manifest)
@@ -182,14 +184,23 @@ def test_completed_uses_current_source_and_sampling(inventory, monkeypatch, chan
     assert inventory.client.get("/api/stream/previews/completed").json()["total"] == 0
 
 
-def test_completed_partial_current_falls_back_to_complete_legacy(inventory):
+@pytest.mark.parametrize('revision', [1, 2])
+def test_completed_partial_current_falls_back_to_complete_legacy(inventory, revision):
     ref = inventory.item()
-    inventory.cached(ref, revision=1)
+    inventory.cached(ref, revision=revision)
     directory, data = inventory.cached(ref)
     data["pages"].pop()
     pv._write_manifest(directory, data)
     result = inventory.client.get("/api/stream/previews/completed").json()
     assert result["total"] == 1 and result["items"][0]["needs_update"]
+
+
+def test_completed_prefers_second_revision_over_first_until_current_ready(inventory):
+    ref = inventory.item()
+    inventory.cached(ref, revision=1)
+    inventory.cached(ref, revision=2)
+    result = inventory.client.get("/api/stream/previews/completed").json()
+    assert result["total"] == 1 and result["items"][0]["quality_revision"] == 2
 
 
 def test_completed_owned_cache_does_not_enumerate_the_catalogue(inventory, monkeypatch):

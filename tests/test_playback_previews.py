@@ -59,8 +59,9 @@ def cached_preview(*, quality_revision=1, state='ready'):
     directory.mkdir(parents=True)
     for page in range(2):
         (directory / f'page_{page:04d}.jpg').write_bytes(f'quality-{quality_revision}-{page}'.encode())
-    data = dict(version=pv.VERSION, interval=10, duration=265, width=pv.WIDTH,
-                height=pv.HEIGHT, columns=pv.COLUMNS, rows=pv.ROWS, count=27,
+    width, height = (160, 90) if quality_revision in (1, 2) else (480, 270)
+    data = dict(version=pv.VERSION, interval=10, duration=265, width=width,
+                height=height, columns=pv.COLUMNS, rows=pv.ROWS, count=27,
                 pages=['page_0000.jpg', 'page_0001.jpg'], state=state,
                 item_kind='movie', item_id=7)
     if quality_revision != 1:
@@ -72,18 +73,22 @@ def cached_preview(*, quality_revision=1, state='ready'):
 def test_quality_upgrade_has_new_cache_url_and_preserves_original_identity():
     # 已部署的第一代 key 固定下来，避免升级后旧完整成品失联。
     assert pv._cache_key(row(), source(), 10, quality_revision=1) == '8f1116440320183d0e21f28203c9f69f'
+    assert pv._cache_key(row(), source(), 10, quality_revision=2) == 'cb5b8b3b03ba2d8c1c3ca3094ba7839d'
     assert pv._cache_key(row(), source(), 10) != pv._cache_key(row(), source(), 10, quality_revision=1)
+    assert pv._cache_key(row(), source(), 10) != pv._cache_key(row(), source(), 10, quality_revision=2)
 
 
-def test_quality_upgrade_keeps_legacy_ready_until_new_generation_resumes_and_finishes(monkeypatch):
+@pytest.mark.parametrize('revision', [1, 2])
+def test_quality_upgrade_keeps_legacy_ready_until_new_generation_resumes_and_finishes(monkeypatch, revision):
     monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'source': 'local'})
     monkeypatch.setattr(pv, '_version_source', lambda *_args: (row(), source()))
     monkeypatch.setattr(pv, '_start', lambda *_args: pytest.fail('GET must not generate'))
     monkeypatch.setattr(media, 'ffmpeg_bin', lambda: 'ffmpeg')
-    legacy_key, legacy_directory = cached_preview()
+    legacy_key, legacy_directory = cached_preview(quality_revision=revision)
     legacy_manifest = (legacy_directory / 'manifest.json').read_bytes()
     old = pv.preview_manifest(7)
     assert old['state'] == 'ready' and old['key'] == legacy_key
+    assert (old['width'], old['height']) == (160, 90)
     assert all(f'/{legacy_key}/' in url for url in old['pages'])
 
     calls, interrupted = [], True
@@ -104,7 +109,7 @@ def test_quality_upgrade_keeps_legacy_ready_until_new_generation_resumes_and_fin
     assert (pv._root() / current_key / 'page_0000.jpg').read_bytes() == b'new-0'
     visible = pv.preview_manifest(7)
     assert visible['key'] == legacy_key and visible['pages'] == old['pages']
-    assert (legacy_directory / 'page_0000.jpg').read_bytes() == b'quality-1-0'
+    assert (legacy_directory / 'page_0000.jpg').read_bytes() == f'quality-{revision}-0'.encode()
     assert (legacy_directory / 'manifest.json').read_bytes() == legacy_manifest
 
     interrupted = False
@@ -114,6 +119,7 @@ def test_quality_upgrade_keeps_legacy_ready_until_new_generation_resumes_and_fin
     current = pv.preview_manifest(7)
     assert current['state'] == 'ready' and current['key'] == current_key
     assert current['quality_revision'] == pv.QUALITY_REVISION
+    assert (current['width'], current['height']) == (480, 270)
     assert all(f'/{current_key}/' in url for url in current['pages'])
     assert (pv._root() / current_key / 'page_0001.jpg').read_bytes() == b'new-250'
     assert not legacy_directory.exists()
@@ -124,6 +130,7 @@ def test_quality_upgrade_keeps_legacy_ready_until_new_generation_resumes_and_fin
 
 def test_ready_quality_cache_removes_only_matching_older_quality(monkeypatch):
     _, legacy_directory = cached_preview()
+    _, second_directory = cached_preview(quality_revision=2)
     _, current_directory = cached_preview(quality_revision=pv.QUALITY_REVISION)
     current_manifest = (current_directory / 'manifest.json').read_bytes()
     others = []
@@ -145,10 +152,24 @@ def test_ready_quality_cache_removes_only_matching_older_quality(monkeypatch):
     pv._generate(None, row(), source(), {'duration': 265}, 10)
 
     assert not legacy_directory.exists()
+    assert not second_directory.exists()
     assert (current_directory / 'manifest.json').read_bytes() == current_manifest
     assert (current_directory / 'page_0000.jpg').read_bytes() == f'quality-{pv.QUALITY_REVISION}-0'.encode()
     assert all((directory / 'page_0000.jpg').read_bytes() == b'unrelated' for directory in others)
     assert invalidated
+
+
+def test_manifest_prefers_latest_complete_legacy_set_while_current_is_partial(monkeypatch):
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'source': 'local'})
+    monkeypatch.setattr(pv, '_version_source', lambda *_args: (row(), source()))
+    first_key, _ = cached_preview()
+    second_key, second_directory = cached_preview(quality_revision=2)
+    cached_preview(quality_revision=pv.QUALITY_REVISION, state='partial')
+    assert pv.preview_manifest(7)['key'] == second_key
+    second = pv._read_manifest(second_directory)
+    second['pages'].pop()  # A ready label alone must not hide a complete older set.
+    pv._write_manifest(second_directory, second)
+    assert pv.preview_manifest(7)['key'] == first_key
 
 
 @pytest.mark.parametrize('change', ['missing_page', 'duplicate_page', 'count', 'quality_revision'])
@@ -364,9 +385,14 @@ def test_real_ffmpeg_preview_timeline_and_partial_page(tmp_path):
     directory = pv._root() / pv._cache_key(row(), src, 1)
     manifest = json.loads((directory / 'manifest.json').read_text())
     assert manifest['state'] == 'ready' and manifest['count'] == 3
+    assert (manifest['width'], manifest['height']) == (480, 270)
+    sheet_info = subprocess.run([ff, '-hide_banner', '-i', str(directory / 'page_0000.jpg'),
+                                 '-frames:v', '1', '-f', 'null', '-'],
+                                capture_output=True, check=True, timeout=10)
+    assert b'2400x1350' in sheet_info.stderr
     for index in range(3):
         result = subprocess.run([ff, '-loglevel', 'error', '-i', str(directory / 'page_0000.jpg'),
-                                 '-vf', f'crop=2:2:{index * 160 + 80}:44,format=rgb24',
+                                 '-vf', f'crop=2:2:{index * pv.WIDTH + pv.WIDTH // 2}:{pv.HEIGHT // 2},format=rgb24',
                                  '-frames:v', '1', '-f', 'rawvideo', '-'], capture_output=True, check=True, timeout=10)
         rgb = result.stdout[:3]
         assert rgb[index] > 200 and max(v for i, v in enumerate(rgb) if i != index) < 60

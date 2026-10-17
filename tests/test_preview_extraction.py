@@ -57,8 +57,8 @@ def cells(ff, page):
                             capture_output=True, check=True, timeout=10)
     image = result.stdout
     width = pv.WIDTH * pv.COLUMNS
-    return [image[((i // pv.COLUMNS * pv.HEIGHT + 44) * width +
-                   i % pv.COLUMNS * pv.WIDTH + 80) * 3:][:3]
+    return [image[((i // pv.COLUMNS * pv.HEIGHT + pv.HEIGHT // 2) * width +
+                   i % pv.COLUMNS * pv.WIDTH + pv.WIDTH // 2) * 3:][:3]
             for i in range(pv.COLUMNS * pv.ROWS)]
 
 
@@ -268,9 +268,9 @@ def test_real_hevc_10bit_hdr_with_nonzero_start_time(ffmpeg, tmp_path, monkeypat
 
 def test_real_widescreen_hdr_uses_even_scaled_dimensions_for_tone_mapping(ffmpeg, tmp_path, monkeypatch):
     video = tmp_path / 'widescreen-hdr.mkv'
-    # 192:80 缩进 160x90 时高度约 67；4:2:0 的 HDR zscale 要求偶数尺寸。
+    # 192:82 缩进 480x270 时高度为 205；4:2:0 的 HDR zscale 要求偶数尺寸。
     subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
-                    '-f', 'lavfi', '-i', 'testsrc2=s=192x80:r=10:d=1',
+                    '-f', 'lavfi', '-i', 'testsrc2=s=192x82:r=10:d=1',
                     '-vf', 'format=yuv420p10le', '-c:v', 'libx265', '-preset', 'ultrafast',
                     '-threads', '1', '-x265-params',
                     'pools=1:frame-threads=1:scenecut=0:colorprim=9:transfer=16:colormatrix=9',
