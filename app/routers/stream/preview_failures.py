@@ -32,6 +32,7 @@ _MESSAGES = {
     "unplayable": "片源不可播放",
     "duration": "无法取得有效时长（支持 24 小时以内的视频）",
     "dolby_vision": "该 Dolby Vision 片源无可用兼容基底，暂不支持预览",
+    "dolby_vision_runtime": "Dolby Vision 预览转换环境不可用，请更新含软件 Vulkan 支持的服务镜像",
     "frame": "无法从采样位置取得预览画面",
     "tile": "无法拼接预览画面",
     "unknown": "无法生成预览，请检查片源与 FFmpeg 配置后重试",
@@ -40,6 +41,7 @@ _KNOWN_ERRORS = {
     "片源不可播放": "unplayable",
     "无法取得有效时长（支持 24 小时以内的视频）": "duration",
     "该 Dolby Vision 片源无可用兼容基底，暂不支持预览": "dolby_vision",
+    "Dolby Vision 预览转换环境不可用，请更新含软件 Vulkan 支持的服务镜像": "dolby_vision_runtime",
     "无法从采样位置取得预览画面": "frame",
     "无法拼接预览画面": "tile",
 }

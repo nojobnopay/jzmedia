@@ -33,11 +33,12 @@ ARG https_proxy=""
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    TZ=Asia/Shanghai
 
 # cifs-utils/nfs-common：应用内挂载远程库（C 阶段）；无此需求也可保留（体积很小）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg cifs-utils nfs-common \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ffmpeg mesa-vulkan-drivers cifs-utils nfs-common tzdata \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

@@ -1,16 +1,16 @@
 <template>
   <section class="preview-maintenance" aria-label="播放进度缩略图">
     <h4>播放进度缩略图</h4>
-    <p class="hint">为电影、剧集和花絮生成进度预览，已有成品自动跳过。远程库建议空闲时执行。</p>
+    <p class="hint">为电影、剧集和花絮生成进度预览，已有新版预览自动跳过，旧版预览会更新。远程库建议空闲时执行。</p>
     <p v-if="auto && auto.mode !== 'off'" class="hint">新入库的{{ auto.mode === 'local' ? '本地' : '所有' }}视频会在服务器{{ autoWindow }}、无人播放时自动生成；全服务队列共 {{ auto.queued }} 项。</p>
     <p v-else-if="auto?.mode === 'off'" class="hint">服务器已关闭自动生成；仍可在此批量生成。</p>
     <p v-if="auto?.queued && auto.pause_reason === 'data_limit'" class="hint" role="status">应用数据已达到设置的总预算，闲时生成暂时暂停。可到“系统维护”重新分配容量或清理缓存。</p>
     <p v-else-if="auto?.queued && auto.pause_reason === 'preview_limit'" class="hint" role="status">进度缩略图缓存接近上限，闲时生成暂时暂停。可在“系统维护”调整容量或清理旧缩略图。</p>
     <p v-else-if="auto?.queued && auto.pause_reason === 'usage_unavailable'" class="hint" role="status">暂时无法统计应用数据占用，自动生成已暂停。可到“系统维护”重试统计。</p>
     <div class="bar">
-      <JzButton class="tool-action" @click="start" :disabled="busy || !!mutating" type="button" icon="image">{{ busy ? '生成缩略图中…' : '立即批量生成' }}</JzButton>
+      <JzButton class="tool-action" @click="start" :disabled="starting || !!mutating" :loading="starting" type="button" icon="image">{{ starting ? '正在加入…' : '立即批量生成' }}</JzButton>
       <JzButton v-if="canQueueExisting" @click="queueExisting" :disabled="starting || !!mutating" type="button">{{ mutating === 'add' ? '正在加入…' : '将已有影片加入闲时队列' }}</JzButton>
-      <span class="hint" role="status">{{ message }}</span>
+      <span v-if="error" class="hint error" role="alert">{{ error }}</span>
     </div>
     <p v-if="feedback" class="hint" role="status">{{ feedback }}</p>
 
@@ -101,14 +101,20 @@
     </div>
 
     <div class="processing-queue" role="region" aria-label="处理队列">
-      <div class="queue-heading"><h5>处理队列</h5>
-        <span v-if="queue" class="hint">共 {{ processingCount }} 项 · 处理中 {{ queue.running ? 1 : 0 }} · 等待 {{ queue.total }}</span>
+      <div class="queue-heading"><h5 ref="queueHeadingRef" tabindex="-1">处理队列</h5>
+        <span v-if="queue" class="hint">共 {{ processingCount }} 项 · 处理中 {{ running ? 1 : 0 }} · 等待 {{ queue.total }}</span>
       </div>
       <p v-if="loading && !queue" class="hint" role="status">正在加载预览任务…</p>
       <p v-else-if="queueError" class="hint error" role="alert">{{ queueError }}
         <JzButton type="button" aria-label="重试加载处理队列" @click="load">重试</JzButton>
       </p>
       <template v-else-if="queue">
+        <div v-for="(batch, index) in queue.batches || []" :key="batch.batch_id" class="batch-summary"
+          role="group" :aria-label="`立即批量生成批次 ${index + 1}`">
+          <span class="hint">本批次剩余 {{ batch.remaining }} 项 · 处理中 {{ batch.running }} · 等待 {{ batch.pending }}</span>
+          <JzButton :ref="element => setBatchCancelRef(batch, element)" type="button" variant="ghost" size="compact"
+            :disabled="starting || !!mutating" :aria-label="`取消本批次 ${index + 1}`" @click="openBatchCancel(batch)">取消本批次</JzButton>
+        </div>
         <p v-if="!processingCount" class="hint">当前视频库没有待处理影片。</p>
         <template v-else>
           <div v-if="queue.total" class="selection-bar">
@@ -119,28 +125,27 @@
             <JzButton v-if="selectionCount" type="button" :disabled="starting || !!mutating" @click="clearSelection">取消选择</JzButton>
           </div>
           <ul class="queue-list">
-            <li v-if="queue.running" class="queue-row is-running" aria-current="true">
+            <li v-if="running" class="queue-row is-running" aria-current="true">
               <div class="queue-main">
                 <span class="current-mark"><AppIcon name="image" :size="20" /></span>
                 <div class="queue-detail">
-                  <div class="queue-title-line"><strong :title="queue.running.title">{{ queue.running.title }}</strong>
-                    <span class="queue-state current-state">{{ queue.running.waiting ? '等待转码' : '正在处理' }}</span>
+                  <div class="queue-title-line"><strong :title="running.title">{{ running.title }}</strong>
+                    <span class="queue-state current-state">{{ running.waiting ? '等待转码' : '正在处理' }}</span>
                   </div>
-                  <span class="hint queue-file" :title="queue.running.file_name">{{ kindLabel(queue.running.kind) }} · {{ sourceLabel(queue.running) }}<template v-if="queue.running.file_name"> · {{ queue.running.file_name }}</template></span>
+                  <span class="hint queue-file" :title="running.file_name">{{ kindLabel(running.kind) }} · {{ sourceLabel(running) }}<template v-if="running.file_name"> · {{ running.file_name }}</template></span>
                   <div class="frame-progress">
                     <progress :max="runningTotal || 1" :value="runningTotal ? Math.min(runningFrames, runningTotal) : undefined"
-                      :aria-label="`${queue.running.title} 缩略图抽取进度`"
-                      :aria-valuetext="runningTotal ? `${runningFrames}/${runningTotal} 张` : '正在准备抽帧'" />
-                    <span class="hint">{{ runningTotal ? `${runningFrames}/${runningTotal} 张` : '准备中' }}</span>
+                      :aria-label="`${running.title} 缩略图抽取进度`"
+                      :aria-valuetext="runningProgress" />
+                    <span class="hint">{{ runningProgress }}</span>
                   </div>
-                  <span v-if="queue.running.waiting" class="hint current-note">等待播放转码释放资源，随后继续生成。</span>
+                  <span v-if="running.waiting" class="hint current-note">等待播放转码释放资源，随后继续生成。</span>
                   <span v-else-if="runningTotal && runningFrames >= runningTotal" class="hint current-note">抽帧完成，正在整理缩略图。</span>
                 </div>
               </div>
               <JzButton class="queue-action" type="button" variant="ghost" icon="close" icon-only
                 :disabled="starting || !!mutating" :loading="mutating === 'running'"
-                :aria-label="isQueuedTask(queue.running) ? `取消并移出队列 ${queue.running.title}` : `取消立即生成任务 ${queue.running.title}`"
-                :title="isQueuedTask(queue.running) ? '取消并移出队列' : '取消立即生成任务'" @click="removeRunning" />
+                :aria-label="`取消当前影片 ${running.title}`" title="取消当前影片" @click="removeRunning" />
             </li>
             <li v-for="item in queue.items" :key="`${item.kind}-${item.id}`" class="queue-row is-pending" :class="{ 'is-selected': isSelected(item) }">
               <div class="queue-main">
@@ -164,20 +169,36 @@
         </nav>
       </template>
     </div>
+    <JzDialog v-if="batchToCancel" title="取消本批次" size="small" :busy="mutating === 'batch'" @close="closeBatchCancel">
+      <p>本批次剩余 {{ batchToCancel.remaining }} 项：处理中 {{ batchToCancel.running }} 项，等待 {{ batchToCancel.pending }} 项。</p>
+      <p>取消这次立即批量生成后，已有缩略图会保留；手动重试、闲时任务和其他批次继续处理。</p>
+      <p v-if="batchCancelError" class="hint error" role="alert">{{ batchCancelError }}，可重试取消。</p>
+      <template #footer>
+        <JzButton ref="batchKeepRef" type="button" :disabled="mutating === 'batch'" @click="closeBatchCancel">继续生成</JzButton>
+        <JzButton ref="batchConfirmRef" type="button" variant="danger" :loading="mutating === 'batch'" @click="cancelBatch">确认取消本批次</JzButton>
+      </template>
+    </JzDialog>
   </section>
 </template>
 
 <script setup>
 import JzButton from './JzButton.vue'
+import JzDialog from './JzDialog.vue'
 import AppIcon from './AppIcon.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from '../api.js'
 
 const props = defineProps({ libraryId: { type: Number, required: true }, librarySource: String, libraryEnabled: Boolean, active: Boolean })
 const pageSize = 50
-const job = ref(null)
 const auto = ref(null)
 const queue = ref(null)
+const queueHeadingRef = ref(null)
+const batchToCancel = ref(null)
+const batchCancelError = ref('')
+const batchKeepRef = ref(null)
+const batchConfirmRef = ref(null)
+const batchCancelRefs = new Map()
+let batchTrigger = null
 const completed = ref(null)
 const completedOpen = ref(false)
 const completedOffset = ref(0)
@@ -213,28 +234,20 @@ const mutating = ref('')
 const allMode = ref(false)
 const selected = ref(new Set())
 const excluded = ref(new Set())
-const busy = computed(() => starting.value || job.value?.state === 'running')
-const processingCount = computed(() => (queue.value?.total || 0) + (queue.value?.running ? 1 : 0))
-const runningFrames = computed(() => Math.max(0, Number(queue.value?.running?.frames) || 0))
-const runningTotal = computed(() => Math.max(0, Number(queue.value?.running?.frame_total) || 0))
+const running = computed(() => queue.value?.running?.library_id === props.libraryId ? queue.value.running : null)
+const processingCount = computed(() => (queue.value?.total || 0) + (running.value ? 1 : 0))
+const runningFrames = computed(() => Math.max(0, Number(running.value?.frames) || 0))
+const runningTotal = computed(() => Math.max(0, Number(running.value?.frame_total) || 0))
+const runningProgress = computed(() => runningTotal.value
+  ? `${Math.min(runningFrames.value, runningTotal.value)}/${runningTotal.value} 张 · ${Math.min(100, Math.floor(runningFrames.value / runningTotal.value * 100))}%` : '准备中')
 const selectionCount = computed(() => allMode.value
   ? Math.max(0, (queue.value?.total || 0) - excluded.value.size) : selected.value.size)
 const allSelected = computed(() => !!queue.value?.total && selectionCount.value === queue.value.total)
 const canQueueExisting = computed(() => props.librarySource === 'local' && props.libraryEnabled && auto.value && auto.value.mode !== 'off')
 const autoWindow = computed(() => auto.value?.start_hour === auto.value?.end_hour ? '全天'
   : ` ${String(auto.value?.start_hour).padStart(2, '0')}:00–${String(auto.value?.end_hour).padStart(2, '0')}:00`)
-const message = computed(() => {
-  if (error.value) return error.value
-  const j = job.value
-  if (!j || j.state === 'idle') return ''
-  const progress = `${j.done || 0}/${j.total || 0} 项` + (j.failure_count ? `，失败 ${j.failure_count}` : '')
-  if (j.state === 'running') return (j.waiting ? '等待播放转码释放资源 · ' : '') + progress
-    + (j.frame_total ? ` · 当前 ${j.frames || 0}/${j.frame_total} 张` : '')
-  return ({ done: '完成', cancelled: '已取消', failed: '失败' }[j.state] || j.state) + ' · ' + progress + (j.error ? ` · ${j.error}` : '')
-})
 const kindLabel = kind => ({ movie: '电影', episode: '剧集', extra: '花絮' }[kind] || '视频')
-const sourceLabel = item => item.source === 'retry' ? '手动重试' : item.auto || item.source === 'auto' ? '闲时队列' : '立即生成'
-const isQueuedTask = item => item.auto || ['auto', 'retry'].includes(item.source)
+const sourceLabel = item => item.source === 'retry' ? '手动重试' : item.source === 'batch' ? (item.batch_id ? '立即批量' : '立即生成') : item.auto || item.source === 'auto' ? '闲时队列' : '立即生成'
 const formatFailedAt = timestamp => {
   const date = new Date(Number(timestamp) * 1000)
   return Number.isFinite(date.getTime()) ? date.toLocaleString('zh-CN', { hour12: false }) : '时间未知'
@@ -431,16 +444,14 @@ async function load({ refreshFailures = true } = {}) {
   // Failure history refreshes independently, even when queue status is unavailable.
   if (refreshFailures && failedOpen.value && !failedLoading.value) loadFailed()
   try {
-    const [result, autoStatus, queueResult] = await Promise.all([
-      api(`/api/stream/previews/jobs/latest?library_id=${libraryId}`, { signal: requestCtrl.signal }),
+    const [autoStatus, queueResult] = await Promise.all([
       api('/api/stream/previews/auto', { signal: requestCtrl.signal }),
       api(`/api/stream/previews/queue?library_id=${libraryId}&offset=${offset.value}&limit=${pageSize}`, { signal: requestCtrl.signal }),
     ])
     if (disposed || seq !== requestSeq) return
-    const previousRunning = queue.value?.running
-    const currentChanged = previousRunning && (!queueResult.running || itemKey(previousRunning) !== itemKey(queueResult.running))
-    const jobFinished = job.value?.state === 'running' && result.state !== 'running'
-    job.value = result
+    const previousRunning = running.value
+    const currentRunning = queueResult.running?.library_id === libraryId ? queueResult.running : null
+    const currentChanged = previousRunning && (!currentRunning || itemKey(previousRunning) !== itemKey(currentRunning))
     auto.value = autoStatus
     if (queue.value && queueResult.revision !== queue.value.revision && selectionCount.value) {
       clearSelection()
@@ -449,7 +460,7 @@ async function load({ refreshFailures = true } = {}) {
     queue.value = queueResult
     queueError.value = ''
     // Read full completed pages only while requested and after a task transition.
-    if (completedOpen.value && (currentChanged || jobFinished)) loadCompleted()
+    if (completedOpen.value && currentChanged) loadCompleted()
     if (offset.value > 0 && queueResult.total <= offset.value) {
       offset.value = Math.max(0, Math.floor((queueResult.total - 1) / pageSize) * pageSize)
       return load({ refreshFailures })
@@ -460,12 +471,12 @@ async function load({ refreshFailures = true } = {}) {
     if (!disposed && seq === requestSeq) {
       loadCtrl = null
       loading.value = false
-      if (props.active) timer = setTimeout(load, busy.value || queue.value?.running || queue.value?.total ? 2500 : 30000)
+      if (props.active) timer = setTimeout(load, running.value || queue.value?.total ? 2500 : 30000)
     }
   }
 }
 async function start() {
-  if (busy.value || mutating.value) return
+  if (starting.value || mutating.value) return
   const libraryId = props.libraryId
   const signal = beginAction()
   starting.value = true
@@ -473,7 +484,10 @@ async function start() {
     const result = await api('/api/stream/previews/jobs', {
       method: 'POST', body: JSON.stringify({ library_id: libraryId }), signal,
     })
-    if (isCurrent(signal)) job.value = result
+    if (!isCurrent(signal)) return
+    clearSelection()
+    feedback.value = `已加入 ${result.added} 项立即批量任务${result.promoted ? `，转为立即处理 ${result.promoted} 项` : ''}；已有新版预览 ${result.ready} 项，已在处理队列 ${result.already_queued} 项，源文件不可用 ${result.unavailable} 项。`
+    offset.value = 0
   } catch (e) { if (isCurrent(signal)) error.value = e.message }
   finally { await finishAction(signal) }
 }
@@ -488,7 +502,7 @@ async function queueExisting() {
     })
     if (!isCurrent(signal)) return
     clearSelection()
-    feedback.value = `已加入 ${result.added} 项；已有预览 ${result.ready} 项，已在队列 ${result.already_queued} 项，源文件不可用 ${result.unavailable} 项。`
+    feedback.value = `已加入 ${result.added} 项；已有新版预览 ${result.ready} 项，已在队列 ${result.already_queued} 项，源文件不可用 ${result.unavailable} 项。`
     offset.value = 0
   } catch (e) { if (isCurrent(signal)) error.value = e.message }
   finally { await finishAction(signal) }
@@ -529,23 +543,80 @@ async function removeSelected() {
   } finally { await finishAction(signal) }
 }
 async function removeRunning() {
-  const running = queue.value?.running
-  if (!running || starting.value || mutating.value) return
+  const current = running.value
+  if (!current || starting.value || mutating.value) return
+  const focusOwner = typeof document === 'undefined' ? null : document.activeElement
   const libraryId = props.libraryId
   const signal = beginAction()
   mutating.value = 'running'
   try {
-    if (isQueuedTask(running)) {
-      await api(`/api/stream/previews/queue/${running.kind}/${running.id}?library_id=${libraryId}`, { method: 'DELETE', signal })
-      if (!isCurrent(signal)) return
-      feedback.value = `已取消并移出“${running.title}”。`
-    } else {
-      await api(`/api/stream/previews/jobs/${running.job_id}/cancel`, { method: 'POST', signal })
-      if (!isCurrent(signal)) return
-      feedback.value = '已取消立即生成任务。'
-    }
+    await api(`/api/stream/previews/queue/${current.kind}/${current.id}?library_id=${libraryId}`, { method: 'DELETE', signal })
+    if (!isCurrent(signal)) return
+    feedback.value = `已取消并移出“${current.title}”。`
   } catch (e) { if (isCurrent(signal)) error.value = e.message }
-  finally { await finishAction(signal) }
+  finally {
+    await finishAction(signal)
+    await nextTick()
+    if (isCurrent(signal)) restoreQueueFocus(focusOwner)
+  }
+}
+function restoreQueueFocus(owner) {
+  if (owner?.isConnected === false && [document.body, owner].includes(document.activeElement)) queueHeadingRef.value?.focus?.()
+}
+function setBatchCancelRef(batch, element) {
+  if (element) batchCancelRefs.set(batch.batch_id, element)
+  else batchCancelRefs.delete(batch.batch_id)
+}
+async function openBatchCancel(batch) {
+  if (starting.value || mutating.value) return
+  batchTrigger = batchCancelRefs.get(batch.batch_id)
+  batchCancelError.value = ''
+  batchToCancel.value = { ...batch, library_id: props.libraryId }
+  // Let the shared dialog establish its focus trap before choosing the safe action.
+  await nextTick()
+  await nextTick()
+  if (batchToCancel.value?.batch_id === batch.batch_id) batchKeepRef.value?.focus()
+}
+async function closeBatchCancel() {
+  if (mutating.value === 'batch') return
+  batchToCancel.value = null
+  batchCancelError.value = ''
+  const trigger = batchTrigger
+  batchTrigger = null
+  await nextTick()
+  if (disposed || !props.active) return
+  if (trigger?.el && trigger.el.isConnected !== false && !trigger.el.disabled) trigger.focus()
+  else queueHeadingRef.value?.focus?.()
+}
+async function cancelBatch() {
+  const batch = batchToCancel.value
+  if (!batch || batch.library_id !== props.libraryId || starting.value || mutating.value) return
+  const signal = beginAction()
+  const focusOwner = batchTrigger?.el
+  let cancelled = false
+  batchCancelError.value = ''
+  mutating.value = 'batch'
+  try {
+    const result = await api(`/api/stream/previews/batches/${batch.batch_id}/cancel`, {
+      method: 'POST', body: JSON.stringify({ library_id: batch.library_id }), signal,
+    })
+    if (!isCurrent(signal)) return
+    feedback.value = `已取消本批次，移出 ${result.removed} 项${result.cancelled ? '，并停止当前影片' : ''}。`
+    clearSelection()
+    mutating.value = ''
+    await closeBatchCancel()
+    cancelled = true
+  } catch (e) {
+    if (isCurrent(signal)) batchCancelError.value = e.message
+  } finally {
+    await finishAction(signal)
+    await nextTick()
+    if (isCurrent(signal) && cancelled) restoreQueueFocus(focusOwner)
+    if (isCurrent(signal) && batchToCancel.value) {
+      await nextTick()
+      batchConfirmRef.value?.focus()
+    }
+  }
 }
 async function retryFailed(item) {
   if (starting.value || mutating.value) return
@@ -580,7 +651,10 @@ watch(() => [props.active, props.libraryId], ([active]) => {
   ctrl.abort()
   ctrl = new AbortController()
   queue.value = null
-  job.value = null
+  batchToCancel.value = null
+  batchCancelError.value = ''
+  batchTrigger = null
+  batchCancelRefs.clear()
   auto.value = null
   completed.value = null
   completedOffset.value = 0
@@ -624,6 +698,7 @@ h5 { margin: 0; font-size: var(--jz-font-xl); font-weight: 700; line-height: 1.4
 .failed-row { display: flex; align-items: flex-start; gap: var(--jz-gap-m); padding: var(--jz-gap-m) 0; border-top: 1px solid var(--jz-border); }
 .failure-reason, .failed-feedback { overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.6; }
 .queue-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-top: var(--jz-gap-xl); margin-bottom: var(--jz-gap-m); padding-left: var(--jz-gap-m); border-left: 3px solid var(--jz-accent); }
+.batch-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--jz-gap-s); margin-bottom: var(--jz-gap-m); }
 .selection-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--jz-border); border-radius: var(--jz-radius-s); background: var(--jz-surface-2); }
 .select-all, .select-item { display: inline-flex; align-items: center; cursor: pointer; }
 .select-all { gap: 8px; min-height: 44px; font-size: var(--jz-font-m); white-space: nowrap; }

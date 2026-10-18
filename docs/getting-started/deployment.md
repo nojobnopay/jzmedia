@@ -1,6 +1,6 @@
 ---
-version: 0.27.0
-reviewed: 2026-10-15
+version: 0.28.1
+reviewed: 2026-10-18
 ---
 
 # 安装与首次使用
@@ -28,6 +28,8 @@ NAS 是部署设备，使用 Docker/Container Manager 时仍按 Docker 流程操
 ## Docker 部署
 
 镜像包含服务端、网页、帮助站和 FFmpeg，运行容器无需在宿主另装 Python、Node.js 或 FFmpeg。以下命令在部署目录执行；选择源码构建时，该目录就是项目根目录。
+
+容器默认时区为 `Asia/Shanghai`，缩略图闲时默认对应北京时间 03:00–06:00。使用其他时区时配置 `TZ`，见[配置参考](configuration.md#运行路径与端口)。已有容器需更新启动配置并重新创建后才生效。
 
 源码归档、预构建的 Linux amd64 镜像归档与对应配置可从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载。Docker 镜像也可从 `ghcr.io/nojobnopay/jzmedia` 在线拉取；Release 镜像归档仍可用于离线导入。目前 jzmedia 尚未发布到 DockerHub。
 
@@ -139,6 +141,7 @@ docker compose -f docker-compose.yml logs --tail=100 mymedia
 docker run -d --name jzmedia \
   --pull=never --init --restart unless-stopped \
   --user 1000:1000 \
+  -e TZ=Asia/Shanghai \
   -e MEDIA_ROOT=/app/media \
   -e DATA_DIR=/app/data \
   -p 8080:8080 \

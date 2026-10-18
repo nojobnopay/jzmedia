@@ -25,10 +25,13 @@ def isolate(monkeypatch, tmp_path):
     monkeypatch.setattr(pv, '_queued_finished', None)
     monkeypatch.setattr(pv, '_queue_retry_at', 0.0)
     monkeypatch.setattr(pv, '_failure_store', None)
+    monkeypatch.setattr(pv, '_dv_runtime_ready', set())
     monkeypatch.setattr(pv, '_root', lambda: tmp_path / 'previews')
     monkeypatch.setenv('TRANSCODER', 'sw')
     monkeypatch.delenv('PREVIEW_MODE', raising=False)
     monkeypatch.delenv('PREVIEW_THREADS', raising=False)
+    monkeypatch.setattr(pv, 'resolve_timeline', lambda _src, info, **_kw: {
+        'duration': info['duration'], 'video_stream_index': None, 'source': 'test'})
     pv._stop.clear()
     pv._auto_wake.clear()
     yield
@@ -53,8 +56,9 @@ def test_cache_identity_includes_kind_file_revision_and_interval():
     assert key != pv._cache_key(row(), source(), 20)
 
 
-def cached_preview(*, quality_revision=1, state='ready'):
-    key = pv._cache_key(row(), source(), 10, quality_revision=quality_revision)
+def cached_preview(*, quality_revision=1, state='ready', extraction_revision=None):
+    key = pv._cache_key(row(), source(), 10, quality_revision=quality_revision,
+                        extraction_revision=extraction_revision)
     directory = pv._root() / key
     directory.mkdir(parents=True)
     for page in range(2):
@@ -172,8 +176,10 @@ def test_manifest_prefers_latest_complete_legacy_set_while_current_is_partial(mo
     assert pv.preview_manifest(7)['key'] == first_key
 
 
-@pytest.mark.parametrize('change', ['missing_page', 'duplicate_page', 'count', 'quality_revision'])
-def test_incomplete_ready_quality_cache_keeps_legacy(change):
+@pytest.mark.parametrize('change', [
+    'missing_page', 'duplicate_page', 'count', 'quality_revision', 'empty_page', 'missing_file',
+])
+def test_incomplete_ready_quality_cache_rebuilds_and_keeps_legacy_until_complete(monkeypatch, change):
     _, legacy_directory = cached_preview()
     _, directory = cached_preview(quality_revision=pv.QUALITY_REVISION)
     data = pv._read_manifest(directory)
@@ -183,13 +189,33 @@ def test_incomplete_ready_quality_cache_keeps_legacy(change):
         data['pages'][1] = data['pages'][0]
     elif change == 'count':
         data['count'] -= 1
-    else:
+    elif change == 'quality_revision':
         data['quality_revision'] -= 1
+    elif change == 'empty_page':
+        (directory / data['pages'][0]).write_bytes(b'')
+    else:
+        (directory / data['pages'][0]).unlink()
     pv._write_manifest(directory, data)
 
-    pv._generate(None, row(), source(), {'duration': 265}, 10)
+    def interrupted(*_args):
+        raise pv._Cancelled()
+    monkeypatch.setattr(pv.Extractor, 'page', interrupted)
+    jid = pv._jobs.create()['job_id']
+    with pytest.raises(pv._Cancelled):
+        pv._generate(jid, row(), source(), {'duration': 265}, 10)
 
     assert (legacy_directory / 'page_0000.jpg').read_bytes() == b'quality-1-0'
+    calls = []
+    def generated(_self, start, _size, _columns, _rows, output):
+        calls.append(start)
+        output.write_bytes(f'repaired-{start}'.encode())
+    monkeypatch.setattr(pv.Extractor, 'page', generated)
+    pv._generate(jid, row(), source(), {'duration': 265}, 10)
+    assert calls == [0, 250]
+    assert pv._current_ready(row(), source(), 10)[1]['count'] == 27
+    assert (directory / 'page_0000.jpg').read_bytes() == b'repaired-0'
+    assert (directory / 'page_0001.jpg').read_bytes() == b'repaired-250'
+    assert not legacy_directory.exists()
 
 
 def test_old_quality_cleanup_failure_keeps_new_cache_ready(monkeypatch, caplog):
@@ -364,8 +390,178 @@ def test_library_scope_and_unknown_library(tmp_path):
 def test_hdr_and_dolby_vision_filter_policy():
     assert 'tonemap=' in pv._frame_filter({'hdr': 'hdr10'})
     assert 'tonemap=' not in pv._frame_filter({'dv_profile': 8, 'dv_bl_compat': 2, 'hdr': 'hdr10'})
-    with pytest.raises(RuntimeError, match='Dolby Vision'):
-        pv._frame_filter({'dv_profile': 5})
+    assert 'libplacebo=' in pv._frame_filter({'dv_profile': 5})
+
+
+def test_verified_profile7_bluray_base_uses_hdr10_tone_mapping():
+    info = {'dv_profile': 7, 'dv_bl_compat': 6, 'vcodec': 'hevc',
+            'color_transfer': 'smpte2084', 'color_primaries': 'bt2020'}
+    assert 'tonemap=' in pv._frame_filter(info)
+    for name, value in [('dv_profile', 5), ('vcodec', 'h264'),
+                        ('color_transfer', ''), ('color_primaries', '')]:
+        with pytest.raises(RuntimeError, match='Dolby Vision'):
+            pv._frame_filter(info | {name: value})
+
+
+def test_preview_uses_video_timeline_without_changing_playback_duration(monkeypatch):
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'source': 'local'})
+    monkeypatch.setattr(pv, 'resolve_timeline', lambda *_args, **_kw: {
+        'duration': 44.5, 'video_stream_index': 2, 'source': 'video_tag'})
+    pages, selected = [], []
+    def initialize(_self, _src, _filter, _interval, **kwargs):
+        selected.append(kwargs['video_stream_index'])
+        _self.last_mode, _self.hw = 'accurate', []
+    def page(_self, start, size, _columns, _rows, output):
+        pages.append((start, size))
+        output.write_bytes(b'preview')
+    monkeypatch.setattr(pv.Extractor, '__init__', initialize)
+    monkeypatch.setattr(pv.Extractor, 'page', page)
+    info = {'duration': 61.5}
+    jid = pv._jobs.create()['job_id']
+    pv._generate(jid, row(), source(), info, 10)
+    manifest = pv._read_manifest(pv._root() / pv._cache_key(row(), source(), 10))
+    assert info == {'duration': 61.5}
+    assert pages == [(0, 5)] and selected == [2]
+    assert manifest['duration'] == 44.5 and manifest['count'] == 5
+    assert manifest['video_duration_source'] == 'video_tag'
+    assert manifest['extraction_revision'] == pv.EXTRACTION_REVISION
+    assert manifest['state'] == 'ready'
+
+
+def test_previous_same_quality_ready_remains_usable_without_reprobe_or_regeneration(monkeypatch):
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'source': 'local'})
+    monkeypatch.setattr(pv, '_version_source', lambda *_args: (row(), source()))
+    key, directory = cached_preview(quality_revision=3, extraction_revision=1)
+    before = (directory / 'manifest.json').read_bytes()
+    monkeypatch.setattr(pv, 'resolve_timeline', lambda *_a, **_k: pytest.fail('ready must not probe'))
+    monkeypatch.setattr(pv.Extractor, 'page', lambda *_a: pytest.fail('ready must not generate'))
+    pv._generate(None, row(), source(), {'duration': 265}, 10)
+    assert pv.preview_manifest(7)['key'] == key
+    assert (directory / 'manifest.json').read_bytes() == before
+    assert not (pv._root() / pv._cache_key(row(), source(), 10)).exists()
+
+
+def test_new_timeline_recipe_does_not_reuse_or_overwrite_previous_partial(monkeypatch):
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'source': 'local'})
+    old_key, old_directory = cached_preview(quality_revision=3, state='partial', extraction_revision=1)
+    old_bytes = (old_directory / 'page_0000.jpg').read_bytes()
+    calls = []
+    interrupted = True
+    def page(_self, start, _size, _columns, _rows, output):
+        if start == 250 and interrupted:
+            raise pv._Cancelled()
+        calls.append(start)
+        output.write_bytes(b'new-timeline')
+    monkeypatch.setattr(pv.Extractor, 'page', page)
+    jid = pv._jobs.create()['job_id']
+    with pytest.raises(pv._Cancelled):
+        pv._generate(jid, row(), source(), {'duration': 265}, 10)
+    assert calls == [0]
+    assert (old_directory / 'page_0000.jpg').read_bytes() == old_bytes
+    assert pv._cache_key(row(), source(), 10) != old_key
+    interrupted = False
+    calls.clear()
+    pv._generate(jid, row(), source(), {'duration': 265}, 10)
+    assert calls == [250]
+    assert not old_directory.exists()
+
+
+def test_probe_runner_captures_json_and_preserves_cancellation():
+    jid = pv._jobs.create()['job_id']
+    assert json.loads(pv._run([sys.executable, '-c', 'print("{\\"duration\\": 3}")'],
+                              jid, capture_output=True)) == {'duration': 3}
+    pv._jobs.cancel(jid)
+    with pytest.raises(pv._Cancelled):
+        pv._run([sys.executable, '-c', 'print("{}")'], jid, capture_output=True)
+
+
+@pytest.mark.parametrize('video_duration', [400, 240])
+def test_retry_updates_video_tail_while_preserving_committed_sprite_pixels(monkeypatch, video_duration):
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'source': 'local'})
+    key, directory = cached_preview(quality_revision=3, state='partial')
+    data = pv._read_manifest(directory)
+    data.update(duration=500, count=50, pages=['page_0000.jpg'])
+    pv._write_manifest(directory, data)
+    old_image = (directory / 'page_0000.jpg').read_bytes()
+    monkeypatch.setattr(pv, 'resolve_timeline', lambda *_a, **_k: {
+        'duration': video_duration, 'video_stream_index': 0, 'source': 'tail_packets'})
+    calls = []
+    def page(_self, start, _size, _columns, _rows, output):
+        calls.append(start)
+        output.write_bytes(b'last-page')
+    monkeypatch.setattr(pv.Extractor, 'page', page)
+    jid = pv._jobs.create()['job_id']
+    pv._generate(jid, row(), source(), {'duration': 500}, 10)
+    after = pv._read_manifest(directory)
+    assert after['state'] == 'ready' and after['duration'] == video_duration
+    assert after['count'] == video_duration // 10
+    assert calls == ([250] if video_duration == 400 else [])
+    assert (directory / 'page_0000.jpg').read_bytes() == old_image
+
+
+def test_dv_runtime_smoke_is_cached_only_after_success_and_errors_are_safe(monkeypatch):
+    monkeypatch.setattr(media, 'ffmpeg_bin', lambda: '/isolated/ffmpeg')
+    calls = []
+    def failed(cmd, jid, timeout):
+        calls.append(cmd)
+        raise pv.ExtractionError('https://user:secret@source.invalid', reason='exit', error_kind='hardware')
+    monkeypatch.setattr(pv, '_run', failed)
+    for _attempt in range(2):
+        with pytest.raises(RuntimeError) as error:
+            pv._ensure_dv_runtime('job')
+        assert pv.failure_reason(error.value)[0] == 'dolby_vision_runtime'
+        assert 'secret' not in str(error.value)
+    assert len(calls) == 2
+    monkeypatch.setattr(pv, '_run', lambda *args, **kwargs: calls.append(args))
+    pv._ensure_dv_runtime('job')
+    pv._ensure_dv_runtime('job')
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize('error', [pv._Cancelled, pv._YieldToPlayback])
+def test_dv_runtime_cancellation_and_playback_yield_are_not_misreported(monkeypatch, error):
+    monkeypatch.setattr(media, 'ffmpeg_bin', lambda: '/isolated/ffmpeg')
+    def run(*_args, **_kwargs):
+        raise error()
+    monkeypatch.setattr(pv, '_run', run)
+    with pytest.raises(error):
+        pv._ensure_dv_runtime('job')
+    assert not pv._dv_runtime_ready
+
+
+@pytest.mark.parametrize('configured,expected', [('1', '1'), ('50', '4'), ('invalid', '2')])
+def test_preview_subprocess_limits_software_vulkan_threads(monkeypatch, configured, expected):
+    monkeypatch.setenv('PREVIEW_THREADS', configured)
+    monkeypatch.setenv('LP_NUM_THREADS', '99')
+    jid = pv._jobs.create()['job_id']
+    output = pv._run([sys.executable, '-c', 'import os; print(os.environ["LP_NUM_THREADS"])'],
+                     jid, capture_output=True)
+    assert output.strip() == expected.encode()
+    assert pv.os.environ['LP_NUM_THREADS'] == '99'
+
+
+def test_real_generation_ignores_long_audio_tail_and_completes(tmp_path, monkeypatch):
+    from app.routers.stream.preview_timeline import resolve_timeline
+    bins = media._static_bins_if_present()
+    ff = pv.shutil.which('ffmpeg') or bins.get('ffmpeg')
+    if not ff:
+        pytest.skip('ffmpeg unavailable')
+    video = tmp_path / 'long-audio.mkv'
+    subprocess.run([ff, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                    '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=5:d=29',
+                    '-f', 'lavfi', '-i', 'sine=d=41', '-map', '0:v:0', '-map', '1:a:0',
+                    '-c:v', 'ffv1', '-c:a', 'pcm_s16le', str(video)],
+                   check=True, capture_output=True, timeout=20)
+    monkeypatch.setattr(pv, 'resolve_timeline', resolve_timeline)
+    monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'source': 'local'})
+    src = source(video)
+    jid = pv._jobs.create()['job_id']
+    info = {'duration': 41, 'fps': 5}
+    pv._generate(jid, row(), src, info, 10)
+    manifest = pv._read_manifest(pv._root() / pv._cache_key(row(), src, 10))
+    assert manifest['state'] == 'ready' and manifest['count'] == 3
+    assert manifest['duration'] == pytest.approx(29)
+    assert info['duration'] == 41
 
 
 def test_real_ffmpeg_preview_timeline_and_partial_page(tmp_path):
@@ -501,8 +697,8 @@ def test_existing_local_videos_join_queue_once_and_skip_ready(monkeypatch):
     monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'id': 1, 'source': 'local', 'effective_enabled': True})
     monkeypatch.setattr(pv.store, 'preview_items', lambda _lid: [('movie', 1), ('movie', 2), ('episode', 3)])
     monkeypatch.setattr(pv, '_version_source', lambda vid, kind: ({'id': vid, 'kind': kind}, source()))
-    monkeypatch.setattr(pv, '_cache_key', lambda movie, *_args: str(movie['id']))
-    monkeypatch.setattr(pv, '_read_manifest', lambda directory: {'state': 'ready'} if directory.name == '2' else None)
+    monkeypatch.setattr(pv, '_current_ready', lambda movie, *_args: (
+        ('2', {'state': 'ready'}) if movie['id'] == 2 else (None, None)))
     body = pv.PreviewQueueBody(library_id=1)
     first = pv.preview_queue_existing(body)
     second = pv.preview_queue_existing(body)

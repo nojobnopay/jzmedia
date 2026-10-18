@@ -20,6 +20,9 @@ def isolate_preview_queue(monkeypatch, tmp_path):
     monkeypatch.setattr(pv, '_auto_thread', None)
     monkeypatch.setattr(pv, '_auto_queue', [])
     monkeypatch.setattr(pv, '_auto_job_id', None)
+    monkeypatch.setattr(pv, '_queued_finished', None)
+    monkeypatch.setattr(pv, '_queue_retry_at', 0.0)
+    monkeypatch.setattr(pv, '_ready_queue_check', (None, 0.0))
     monkeypatch.setattr(pv, '_sessions', {})
     monkeypatch.setattr(pv, '_root', lambda: tmp_path / 'previews')
     monkeypatch.delenv('PREVIEW_INTERVAL', raising=False)
@@ -294,7 +297,10 @@ def ready_manifest(vid, *, owned):
     directory = pv._root() / pv._cache_key(row, src, pv._interval(row))
     directory.mkdir(parents=True)
     (directory / 'page_0000.jpg').write_bytes(b'isolated preview page')
-    manifest = {'version': pv.VERSION, 'state': 'ready', 'pages': ['page_0000.jpg']}
+    manifest = {'version': pv.VERSION, 'state': 'ready', 'pages': ['page_0000.jpg'],
+                'quality_revision': pv.QUALITY_REVISION, 'duration': 30, 'count': 3,
+                'interval': pv._interval(row), 'width': pv.WIDTH, 'height': pv.HEIGHT,
+                'columns': pv.COLUMNS, 'rows': pv.ROWS}
     if owned:
         manifest.update(item_kind='movie', item_id=vid)
     pv._write_manifest(directory, manifest)
@@ -383,3 +389,270 @@ def test_malformed_manifest_ownership_does_not_break_queue_or_auto_status(
     else:
         assert pv.preview_auto_status()['queued'] == 1
     assert [item['id'] for item in pv._auto_queue] == saved_ids() == [9]
+
+
+def batch_item(vid, batch_id, library_id=1):
+    return {'kind': 'movie', 'id': vid, 'library_id': library_id,
+            'source': 'batch', 'immediate': True, 'batch_id': batch_id}
+
+
+def immediate_batch(monkeypatch, ids, library_id=1):
+    monkeypatch.setattr(pv.store, 'preview_items', lambda lid: [('movie', vid) for vid in ids] if lid == library_id else [])
+    return pv.preview_batch(pv.PreviewBatchBody(library_id=library_id))
+
+
+def test_batch_enqueues_only_missing_current_quality_and_promotes_idle_without_stealing_other_work(monkeypatch, generation):
+    generation.start([1])
+    generation.wait_for(1)
+    generation.enqueue([2])
+    retry = {'kind': 'movie', 'id': 3, 'library_id': 1, 'manual_retry': True}
+    other = batch_item(4, 'b' * 32)
+    pv._enqueue_auto_items([retry, other])
+    ready_manifest(5, owned=True)
+    # Complete old 160-pixel output remains available, but still needs the current quality.
+    row, src = generation.version_source(6, 'movie')
+    legacy = pv._root() / pv._cache_key(row, src, 10, quality_revision=2)
+    legacy.mkdir()
+    (legacy / 'page_0000.jpg').write_bytes(b'old preview')
+    pv._write_manifest(legacy, {'version': pv.VERSION, 'state': 'ready', 'pages': ['page_0000.jpg']})
+    resolve = generation.version_source
+    def source(vid, kind):
+        if vid == 7:
+            raise HTTPException(410, 'offline')
+        return resolve(vid, kind)
+    monkeypatch.setattr(pv, '_version_source', source)
+    result = immediate_batch(monkeypatch, range(1, 8))
+    batch_id = result['batch_id']
+    assert result == {'state': 'queued', 'batch_id': batch_id, 'total': 7,
+                      'added': 1, 'promoted': 1, 'ready': 1, 'already_queued': 3, 'unavailable': 1}
+    assert pv._auto_queue == [batch_item(2, batch_id), retry, other, batch_item(6, batch_id)]
+    assert pv._jobs.get(pv._active_job)['state'] == 'running'
+    assert queue()['batches'] == [
+        {'batch_id': batch_id, 'pending': 2, 'running': 0, 'remaining': 2},
+        {'batch_id': 'b' * 32, 'pending': 1, 'running': 0, 'remaining': 1}]
+    duplicate = immediate_batch(monkeypatch, range(1, 8))
+    assert duplicate['batch_id'] is None and duplicate['added'] == duplicate['promoted'] == 0
+    assert duplicate['already_queued'] == 5
+    assert saved_ids() == [2, 3, 4, 6]
+    generation.finish()
+
+
+def test_batch_enqueue_save_failure_restores_idle_policy_and_does_not_leave_a_batch(monkeypatch, generation):
+    generation.enqueue([1])
+    before = [dict(item) for item in pv._auto_queue]
+    with monkeypatch.context() as patch:
+        patch.setattr(pv, '_save_auto_queue', lambda: (_ for _ in ()).throw(OSError('disk full')))
+        with pytest.raises(HTTPException) as error:
+            immediate_batch(monkeypatch, [1, 2])
+        assert error.value.status_code == 503
+    assert pv._auto_queue == before
+    assert saved_ids() == [1]
+    assert queue()['batches'] == []
+
+
+@pytest.mark.parametrize('entrypoint', ['immediate', 'idle'])
+@pytest.mark.parametrize('damage', ['metadata', 'truncated', 'empty', 'missing'])
+def test_incomplete_ready_cache_is_queued_and_not_retired_by_status(
+        monkeypatch, generation, entrypoint, damage):
+    directory = ready_manifest(1, owned=True)
+    manifest = json.loads((directory / 'manifest.json').read_text())
+    if damage == 'metadata':
+        manifest.pop('count')
+    elif damage == 'truncated':
+        manifest.update(duration=260, count=26)
+    elif damage == 'empty':
+        (directory / 'page_0000.jpg').write_bytes(b'')
+    else:
+        (directory / 'page_0000.jpg').unlink()
+    pv._write_manifest(directory, manifest)
+    monkeypatch.setattr(pv.store, 'preview_items', lambda _lid: [('movie', 1)])
+    if entrypoint == 'immediate':
+        result = pv.preview_batch(pv.PreviewBatchBody(library_id=1))
+    else:
+        result = pv.preview_queue_existing(pv.PreviewQueueBody(library_id=1))
+    assert result['ready'] == 0 and result['added'] == 1
+    assert queue_ids(queue()) == [1]
+    assert saved_ids() == [1]
+
+
+@pytest.mark.parametrize('complete', [False, True])
+def test_batch_rechecks_complete_cache_before_claiming_batch_membership(
+        monkeypatch, generation, complete):
+    check = pv._current_ready
+    calls = []
+    def ready_during_request(row, src, interval):
+        calls.append(row['id'])
+        if len(calls) == 2:
+            directory = ready_manifest(row['id'], owned=True)
+            if not complete:
+                manifest = json.loads((directory / 'manifest.json').read_text())
+                manifest.update(duration=260, count=26)
+                pv._write_manifest(directory, manifest)
+        return check(row, src, interval)
+    monkeypatch.setattr(pv, '_current_ready', ready_during_request)
+    result = immediate_batch(monkeypatch, [1])
+    assert calls == [1, 1]
+    assert result['ready'] == int(complete)
+    assert result['added'] == int(not complete)
+    assert [item['id'] for item in pv._auto_queue] == ([] if complete else [1])
+
+
+def test_terminal_idle_job_cannot_retire_a_new_batch_membership(monkeypatch, generation):
+    monkeypatch.setattr(pv, '_auto_pause_reason', lambda: '')
+    monkeypatch.setattr(pv, '_auto_allowed_now', lambda: True)
+    monkeypatch.setattr(pv, '_playback_busy', lambda: False)
+    attempts = []
+    def generate(_jid, row, _src, _info, _interval):
+        attempts.append(row['id'])
+        if len(attempts) == 1:
+            raise RuntimeError('isolated initial extraction failure')
+    monkeypatch.setattr(pv, '_generate', generate)
+    generation.enqueue([1])
+    pv._dispatch_queue_once()
+    pv._worker_thread.join(timeout=2)
+    assert not pv._worker_thread.is_alive()
+    assert pv._jobs.get(pv._auto_job_id)['state'] == 'failed'
+
+    # The failed idle request has not been retired by the dispatcher yet.
+    batch = immediate_batch(monkeypatch, [1])
+    assert batch['promoted'] == 1
+    assert pv._auto_queue[0]['batch_id'] == batch['batch_id']
+    pv._dispatch_queue_once()
+    pv._worker_thread.join(timeout=2)
+    assert not pv._worker_thread.is_alive()
+    assert attempts == [1, 1]
+    assert pv._jobs.get(pv._auto_job_id)['state'] == 'done'
+    pv._dispatch_queue_once()
+    assert saved_ids() == []
+
+
+def test_queued_batch_does_not_preempt_current_idle_generation_and_current_cancel_keeps_the_rest(monkeypatch, generation):
+    monkeypatch.setattr(pv, '_auto_pause_reason', lambda: '')
+    monkeypatch.setattr(pv, '_auto_allowed_now', lambda: True)
+    monkeypatch.setattr(pv, '_playback_busy', lambda: False)
+    generation.enqueue([1])
+    pv._dispatch_queue_once()
+    generation.wait_for(1)
+    original = pv._active_job
+    result = immediate_batch(monkeypatch, [2, 3])
+    assert pv._active_job == original and pv._jobs.get(original)['state'] == 'running'
+    generation.release(1)
+    pv._worker_thread.join(timeout=2)
+    pv._dispatch_queue_once()
+    generation.wait_for(2)
+    view = queue()
+    assert view['running']['batch_id'] == result['batch_id']
+    assert view['running']['source'] == 'batch' and view['running']['auto'] is False
+    assert view['batches'] == [{'batch_id': result['batch_id'], 'pending': 1, 'running': 1, 'remaining': 2}]
+    assert pv.preview_queue_remove('movie', 2, library_id=1) == {'removed': True, 'cancelled': True}
+    assert saved_ids() == [3]
+    generation.release(2)
+    pv._worker_thread.join(timeout=2)
+    pv._dispatch_queue_once()
+    generation.wait_for(3)
+    assert queue()['batches'][0]['remaining'] == 1
+    generation.finish()
+    assert generation.calls == [('movie', 1), ('movie', 2), ('movie', 3)]
+    assert saved_ids() == []
+
+
+def test_cancel_batch_only_stops_its_current_and_pending_preserving_other_sources_and_libraries(generation):
+    batch = 'a' * 32
+    pv._enqueue_auto_items([batch_item(1, batch), batch_item(2, batch),
+                           {'kind': 'movie', 'id': 3, 'library_id': 1, 'manual_retry': True},
+                           batch_item(4, 'b' * 32), {'kind': 'movie', 'id': 5, 'library_id': 1},
+                           batch_item(6, batch, library_id=2)])
+    generation.libraries[('movie', 6)] = 2
+    pv._dispatch_queue_once()
+    generation.wait_for(1)
+    assert queue(library_id=2)['batches'] == [{'batch_id': batch, 'pending': 1, 'running': 0, 'remaining': 1}]
+    result = pv.preview_batch_cancel(batch, pv.PreviewBatchBody(library_id=1))
+    assert result == {'removed': 2, 'cancelled': True}
+    assert saved_ids() == [3, 4, 5, 6]
+    assert pv._auto_queue[0]['manual_retry']
+    generation.release(1)
+    pv._worker_thread.join(timeout=2)
+    pv._dispatch_queue_once()
+    generation.wait_for(3)
+    assert queue()['running']['source'] == 'retry'
+    generation.finish()
+    assert 2 not in [vid for _kind, vid in generation.calls]
+    assert pv.preview_batch_cancel(batch, pv.PreviewBatchBody(library_id=1)) == {'removed': 0, 'cancelled': False}
+
+
+def test_cancel_batch_save_failure_preserves_running_job_and_all_members(monkeypatch, generation):
+    batch = 'a' * 32
+    pv._enqueue_auto_items([batch_item(1, batch), batch_item(2, batch)])
+    pv._dispatch_queue_once()
+    generation.wait_for(1)
+    jid = pv._active_job
+    with monkeypatch.context() as patch:
+        patch.setattr(pv, '_save_auto_queue', lambda: (_ for _ in ()).throw(OSError('disk full')))
+        with pytest.raises(HTTPException) as error:
+            pv.preview_batch_cancel(batch, pv.PreviewBatchBody(library_id=1))
+        assert error.value.status_code == 503
+    assert pv._jobs.get(jid)['state'] == 'running'
+    assert saved_ids() == [1, 2]
+    assert [item['id'] for item in pv._auto_queue] == [1, 2]
+    generation.finish()
+
+
+def test_cancel_batch_before_first_worker_claim_is_atomic(monkeypatch, generation):
+    result = immediate_batch(monkeypatch, [1, 2])
+    with pv._lock:
+        pv._dispatch_queue_once()
+        jid = pv._active_job
+        assert queue()['running'] is None
+        assert pv.preview_batch_cancel(result['batch_id'], pv.PreviewBatchBody(library_id=1)) == {'removed': 2, 'cancelled': True}
+    pv._worker_thread.join(timeout=2)
+    assert generation.calls == [] and saved_ids() == []
+    assert pv._jobs.get(jid)['state'] == 'cancelled'
+
+
+def test_restart_restores_batch_and_legacy_retries_with_auto_off_and_rejects_bad_metadata(monkeypatch, generation):
+    result = immediate_batch(monkeypatch, [1, 2])
+    pv._enqueue_auto_items([{'kind': 'movie', 'id': 3, 'library_id': 1, 'manual_retry': True},
+                           {'kind': 'movie', 'id': 4, 'library_id': 1}])
+    saved = json.loads(pv._queue_path().read_text())
+    for invalid in ({'immediate': True}, {'source': 'batch', 'immediate': True, 'batch_id': 'bad'},
+                    {'source': 'batch', 'batch_id': 'c' * 32},
+                    {'source': 'batch', 'immediate': True, 'manual_retry': True, 'batch_id': 'c' * 32}):
+        saved.append({'kind': 'movie', 'id': 90 + len(saved), 'library_id': 1, **invalid})
+    pv._queue_path().write_text(json.dumps(saved))
+    monkeypatch.setenv('PREVIEW_AUTO_MODE', 'off')
+    monkeypatch.setattr(pv, '_auto_queue', [])
+    # Load through the production restart hook, then drive dispatch explicitly.
+    with monkeypatch.context() as patch:
+        patch.setattr(pv.threading, 'Thread', lambda **_kwargs: SimpleNamespace(start=lambda: None, is_alive=lambda: False, join=lambda **_kw: None))
+        pv.start_auto_previews()
+    assert [item['id'] for item in pv._auto_queue] == [1, 2, 3, 4]
+    assert pv._auto_queue[0]['batch_id'] == result['batch_id']
+    pv._dispatch_queue_once()
+    generation.wait_for(1)
+    assert queue()['running']['source'] == 'batch' and not queue()['running']['auto']
+    generation.finish()
+
+
+def test_batch_failure_attempts_once_keeps_reason_and_continues_to_next(monkeypatch, generation):
+    attempted = []
+    def generate(_jid, row, *_args):
+        attempted.append(row['id'])
+        if row['id'] == 1:
+            raise RuntimeError('片源不可播放')
+    monkeypatch.setattr(pv, '_generate', generate)
+    immediate_batch(monkeypatch, [1, 2])
+    for _ in range(3):
+        pv._dispatch_queue_once()
+        if pv._worker_thread:
+            pv._worker_thread.join(timeout=2)
+    assert attempted == [1, 2] and saved_ids() == []
+    assert pv._failure_ledger().snapshot()[('movie', 1)]['error_code'] == 'unplayable'
+    assert queue()['batches'] == []
+
+
+def test_direct_player_single_item_can_still_be_cancelled_from_current_row(generation):
+    result = generation.start([1])
+    generation.wait_for(1)
+    assert pv.preview_queue_remove('movie', 1, library_id=1) == {'removed': True, 'cancelled': True}
+    assert pv._jobs.get(result['job_id'])['state'] == 'cancelled'
+    generation.finish()

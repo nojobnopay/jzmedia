@@ -94,6 +94,18 @@ let previewQueue = Array.from({ length: 52 }, (_, index) => ({
 }))
 let previewRunning = { kind: 'movie', id: 91, library_id: 1, title: '处理样本', file_name: 'running.mkv',
   job_id: 'preview-auto', source: 'auto', auto: true, waiting: false, frames: 4, frame_total: 10, done: 0, total: 1 }
+let previewBatchSequence = 0
+function previewBatchSummaries(libraryId) {
+  const batches = new Map()
+  for (const item of [...previewQueue, ...(previewRunning ? [previewRunning] : [])]) {
+    if (item.library_id !== libraryId || !item.batch_id) continue
+    const batch = batches.get(item.batch_id) || { batch_id: item.batch_id, pending: 0, running: 0, total: 0 }
+    batch[item === previewRunning ? 'running' : 'pending']++
+    batch.total++
+    batches.set(item.batch_id, batch)
+  }
+  return [...batches.values()].map(batch => ({ ...batch, remaining: batch.total }))
+}
 let previewCompleted = Array.from({ length: 53 }, (_, index) => ({
   kind: ['movie', 'episode', 'extra'][index % 3], id: 500 + index, library_id: 1,
   title: `成品样本 ${index + 1}`, file_name: `completed-${index + 1}.mkv`,
@@ -216,6 +228,22 @@ function mock(url, method, body) {
     media: { width: 320, height: 180, duration: 1200, audio: [], subs: [] }, plan: {} }
   if (key === '/api/stream/progress') return method === 'GET' ? { position: 25, duration: 1200, position_text: '00:25' } : { ok: true }
   if (key === '/api/stream/previews/jobs/latest') return { state: 'idle' }
+  if (key === '/api/stream/previews/jobs' && method === 'POST') {
+    const batchId = `preview-fixture-batch-${++previewBatchSequence}`
+    const batch = Array.from({ length: 3 }, (_, index) => ({ kind: 'movie', id: 1100 + previewBatchSequence * 10 + index,
+      library_id: body.library_id, title: `批次 ${previewBatchSequence} 样本 ${index + 1}`, file_name: `batch-${previewBatchSequence}-${index + 1}.mkv`,
+      source: 'batch', batch_id: batchId, auto: false }))
+    previewQueue.push(...batch)
+    return { state: 'queued', batch_id: batchId, total: 3, added: 3, ready: 0, already_queued: 0, unavailable: 0 }
+  }
+  if (/^\/api\/stream\/previews\/batches\/[^/]+\/cancel$/.test(key) && method === 'POST') {
+    const batchId = key.split('/').at(-2)
+    const matches = item => item?.batch_id === batchId && item.library_id === body.library_id
+    const before = previewQueue.length, cancelled = matches(previewRunning)
+    previewQueue = previewQueue.filter(item => !matches(item))
+    if (cancelled) previewRunning = null
+    return { removed: before - previewQueue.length, cancelled }
+  }
   if (key === '/api/stream/previews/auto') return { mode: 'all', queued: previewQueue.length + Number(!!previewRunning), running: !!previewRunning, start_hour: 3, end_hour: 6, pause_reason: 'scheduled' }
   if (key === '/api/stream/previews/completed') {
     const libraryId = Number(url.searchParams.get('library_id'))
@@ -250,7 +278,8 @@ function mock(url, method, body) {
     const offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 50)
     return { items: items.slice(offset, offset + limit), total: items.length, revision: previewRevision(items),
       offset: Number(url.searchParams.get('offset') || 0), limit: 50,
-      running: previewRunning?.library_id === libraryId ? previewRunning : null }
+      running: previewRunning?.library_id === libraryId ? previewRunning : null,
+      batches: previewBatchSummaries(libraryId) }
   }
   if (key === '/api/stream/previews/queue/remove' && method === 'POST') {
     const pending = previewQueue.filter(item => item.library_id === body.library_id)
@@ -642,7 +671,7 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
   await mkdir(directory, { recursive: true })
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
   const original = structuredClone({ queue: previewQueue, running: previewRunning, completed: previewCompleted, failed: previewFailed })
-  const checks = [], releases = []
+  const checks = [], releases = [], scenes = {}
   const gate = () => {
     let release, seen
     const promise = new Promise(resolve => { release = resolve })
@@ -650,8 +679,9 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
     releases.push(release)
     return { promise, release, requested, seen }
   }
-  let completedGate = null, queueGate = null, failedGate = null, retryGate = null
+  let completedGate = null, queueGate = null, failedGate = null, retryGate = null, batchCancelGate = null
   let failCompleted = false, failQueue = false, failFailed = false, failRetry = false
+  let failCurrentCancel = false, failBatchCancel = false
   await context.route('**/*', async route => {
     const url = new URL(route.request().url())
     if (url.origin !== base) return route.abort()
@@ -669,6 +699,16 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       if (failed) requests.push({ key: url.pathname, method: 'POST', body, query: Object.fromEntries(url.searchParams) })
       const result = failed ? { detail: '模拟重新生成入队失败' } : mock(url, 'POST', body)
       if (retryGate) { retryGate.seen(); await retryGate.promise }
+      return route.fulfill({ status: failed ? 503 : 200, json: result }).catch(() => {})
+    }
+    const currentCancel = route.request().method() === 'DELETE' && /\/previews\/queue\/[^/]+\/\d+$/.test(url.pathname)
+    const batchCancel = route.request().method() === 'POST' && /\/previews\/batches\/[^/]+\/cancel$/.test(url.pathname)
+    if (currentCancel || batchCancel) {
+      const failed = currentCancel ? failCurrentCancel : failBatchCancel
+      const method = route.request().method(), body = route.request().postDataJSON()
+      if (failed) requests.push({ key: url.pathname, method, body, query: Object.fromEntries(url.searchParams) })
+      const result = failed ? { detail: currentCancel ? '模拟当前影片取消失败' : '模拟批次取消失败' } : mock(url, method, body)
+      if (batchCancel && batchCancelGate) { batchCancelGate.seen(); await batchCancelGate.promise }
       return route.fulfill({ status: failed ? 503 : 200, json: result }).catch(() => {})
     }
     return route.continue()
@@ -715,7 +755,8 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       }))
       assert.equal(metrics.overflow, false, `${scene} does not overflow at ${width}px`)
       if (width < 700) {
-        for (const locator of [preview.locator('.select-item').first(), preview.locator('.queue-action').first(), failed.getByRole('button', { name: /^重新生成 / }).first()]) {
+        for (const locator of [preview.locator('.select-item').first(), preview.locator('.queue-action').first(),
+          queue.getByRole('group').getByRole('button').first(), failed.getByRole('button', { name: /^重新生成 / }).first()]) {
           if (!await locator.count()) continue
           const box = await locator.boundingBox()
           assert.ok(box.width >= 44 && box.height >= 44, `${scene} phone queue targets are at least 44px`)
@@ -723,6 +764,7 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       }
       viewports.push({ width, ...metrics })
     }
+    scenes[scene] = viewports
     return viewports
   }
   try {
@@ -743,11 +785,28 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       assert.equal(await queue.locator('.is-running input[type="checkbox"]').count(), 0, 'current item cannot enter pending selection')
       assert.equal(await queue.locator('.is-running progress').getAttribute('value'), '4')
       assert.equal(await queue.locator('.is-running progress').getAttribute('max'), '10')
+      await queue.locator('.is-running').getByText('4/10 张 · 40%', { exact: true }).waitFor()
+      assert.equal(requests.filter(request => request.key === '/api/stream/previews/jobs/latest').length, 0,
+        'maintenance status comes from the persistent queue rather than the latest single worker job')
+      assert.doesNotMatch(await preview.innerText(), /\b0\s*\/\s*1\b/, 'single worker counters never become the queue progress')
       assert.equal(await toggle.getAttribute('aria-expanded'), 'false')
       assert.equal(completedRequests().length, 0, 'collapsed completed list is lazy')
       assert.equal(await failedToggle.getAttribute('aria-expanded'), 'false')
       assert.equal(failedRequests().length, 0, 'collapsed failed list is lazy')
       checks.push('one queue with pinned current item, frame progress, current excluded from selection; completed lazy')
+
+      previewRunning.frames = 0
+      previewRunning.frame_total = 0
+      await queue.locator('.is-running').getByText('准备中', { exact: true }).waitFor()
+      assert.equal(await queue.locator('.is-running progress').getAttribute('value'), null,
+        'an unknown frame count uses an indeterminate progress indicator')
+      assert.doesNotMatch(await queue.locator('.is-running').innerText(), /\d+%|0\s*\/\s*1/,
+        'preparation never invents a percentage or a one-item job total')
+      await captureViewports('queue-unknown-frames')
+      previewRunning.frames = original.running.frames
+      previewRunning.frame_total = original.running.frame_total
+      await queue.locator('.is-running').getByText('4/10 张 · 40%', { exact: true }).waitFor()
+      checks.push('known frame count includes percentage; unknown count stays indeterminate on desktop and phones, with no latest-job request or 0/1 summary')
 
       previewRunning.waiting = true
       await queue.locator('.is-running').getByText('等待播放转码释放资源，随后继续生成。', { exact: true }).waitFor()
@@ -912,7 +971,7 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       await preview.getByText('已移出 49 项待处理影片。', { exact: true }).waitFor()
       assert.equal(await queue.getByText('处理样本', { exact: true }).count(), 1, 'bulk pending removal preserves current')
       await queue.getByRole('button', { name: '从待处理队列移除 队列样本 2', exact: true }).click()
-      await queue.getByRole('button', { name: '取消并移出队列 处理样本', exact: true }).click()
+      await queue.getByRole('button', { name: '取消当前影片 处理样本', exact: true }).click()
       await queue.getByText('当前视频库没有待处理影片。', { exact: true }).waitFor()
       checks.push('cross-page selection, all-pages select/exclude, bulk removal preserves current, single removal and current cancellation')
 
@@ -976,14 +1035,132 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       previewQueue = previewQueue.filter(item => item.id !== 700)
       await queue.locator('.is-running').getByText('失败样本 1', { exact: true }).waitFor()
       const remainingQueue = structuredClone(previewQueue)
-      await queue.getByRole('button', { name: '取消并移出队列 失败样本 1', exact: true }).click()
+      await queue.getByRole('button', { name: '取消当前影片 失败样本 1', exact: true }).click()
       await queue.locator('.is-running').waitFor({ state: 'hidden' })
       assert.deepEqual(previewQueue, remainingQueue, 'cancelling a running retry preserves other pending tasks')
       assert.equal(await failed.getByText('失败样本 1', { exact: true }).count(), 1, 'cancelling a retry preserves the failure reason')
       checks.push('retry request busy and duplicate guard, queued/already_queued/running feedback, auto upgrade moves to queue tail, failure recovery, focus restoration and cancelling only the running retry')
 
-      await toggle.click()
+      previewQueue = [
+        { ...original.queue[0], title: '独立闲时样本' },
+        { ...original.queue[1], title: '独立重试样本', source: 'retry', auto: false },
+      ]
+      previewRunning = structuredClone(original.running)
+      await openLibrary()
+      await queue.getByText('独立闲时样本', { exact: true }).waitFor()
+      const startBatch = preview.getByRole('button', { name: '立即批量生成', exact: true })
+      const batchGroup = number => queue.getByRole('group', { name: `立即批量生成批次 ${number}`, exact: true })
+      const batchCancel = number => batchGroup(number).getByRole('button', { name: `取消本批次 ${number}`, exact: true })
+      const batchRequests = () => requests.filter(request => /\/previews\/batches\/[^/]+\/cancel$/.test(request.key))
+      const batchDialog = page.getByRole('dialog', { name: '取消本批次', exact: true })
+      const confirmBatch = () => batchDialog.getByRole('button', { name: '确认取消本批次', exact: true })
+      await startBatch.focus()
+      await page.keyboard.press('Enter')
+      await batchGroup(1).getByText('本批次剩余 3 项 · 处理中 0 · 等待 3', { exact: true }).waitFor()
+      const firstBatchId = previewQueue.find(item => item.batch_id)?.batch_id
+      assert.equal(previewRunning.id, original.running.id, 'a new batch appends without replacing the current item')
+      assert.equal(await startBatch.isEnabled(), true, 'another batch can be queued while work is running')
+      await startBatch.click()
+      await batchGroup(2).getByText('本批次剩余 3 项 · 处理中 0 · 等待 3', { exact: true }).waitFor()
+      const secondBatchId = previewQueue.find(item => item.batch_id && item.batch_id !== firstBatchId)?.batch_id
+      assert.ok(firstBatchId && secondBatchId && firstBatchId !== secondBatchId)
+      const jobRequests = requests.filter(request => request.key === '/api/stream/previews/jobs' && request.method === 'POST')
+      assert.equal(jobRequests.length, 2)
+      assert.ok(jobRequests.every(request => request.body.library_id === 1))
+      const firstCurrent = previewQueue.find(item => item.batch_id === firstBatchId)
+      previewQueue = previewQueue.filter(item => item.id !== firstCurrent.id)
+      previewRunning = { ...firstCurrent, job_id: 'preview-batch-worker-one', frames: 12, frame_total: 100,
+        waiting: false, done: 0, total: 1 }
+      await queue.locator('.is-running').getByText(firstCurrent.title, { exact: true }).waitFor()
+      await batchGroup(1).getByText('本批次剩余 3 项 · 处理中 1 · 等待 2', { exact: true }).waitFor()
+      await queue.locator('.is-running').getByText('12/100 张 · 12%', { exact: true }).waitFor()
+      assert.doesNotMatch(await preview.innerText(), /\b0\s*\/\s*1\b/)
+      await captureViewports('queue-two-batches')
+
+      const firstPending = structuredClone(previewQueue)
+      const cancelCurrent = queue.getByRole('button', { name: `取消当前影片 ${firstCurrent.title}`, exact: true })
+      failCurrentCancel = true
+      await cancelCurrent.focus()
+      await page.keyboard.press('Enter')
+      await preview.getByRole('alert').filter({ hasText: '模拟当前影片取消失败' }).waitFor()
+      assert.deepEqual(previewQueue, firstPending, 'a failed current-item cancellation leaves pending work intact')
+      assert.equal(previewRunning.id, firstCurrent.id)
+      assert.equal(await cancelCurrent.isEnabled(), true, 'failed current cancellation can be retried')
+      failCurrentCancel = false
+      await cancelCurrent.focus()
+      await page.keyboard.press('Enter')
+      await queue.locator('.is-running').waitFor({ state: 'hidden' })
+      assert.deepEqual(previewQueue, firstPending, 'cancelling one batch item preserves every other item in that batch')
+      const currentDeletes = requests.filter(request => request.key === `/api/stream/previews/queue/movie/${firstCurrent.id}` && request.method === 'DELETE')
+      assert.equal(currentDeletes.length, 2)
+      assert.ok(currentDeletes.every(request => request.query.library_id === '1'))
+      assert.equal(requests.filter(request => /\/previews\/jobs\/[^/]+\/cancel$/.test(request.key)).length, 0,
+        'the current-item action always deletes one persistent queue item')
+
+      const secondCurrent = previewQueue.find(item => item.batch_id === secondBatchId)
+      previewQueue = previewQueue.filter(item => item.id !== secondCurrent.id)
+      previewRunning = { ...secondCurrent, job_id: 'preview-batch-worker-two', frames: 2, frame_total: 10,
+        waiting: false, done: 0, total: 1 }
+      await queue.locator('.is-running').getByText(secondCurrent.title, { exact: true }).waitFor()
+      await batchGroup(2).getByText('本批次剩余 3 项 · 处理中 1 · 等待 2', { exact: true }).waitFor()
+      const beforeFirstCancel = structuredClone(previewQueue)
+      const callsBeforeEscape = batchRequests().length
+      await batchCancel(1).focus()
+      await page.keyboard.press('Enter')
+      await batchDialog.waitFor()
+      await page.waitForFunction(() => document.activeElement?.textContent?.trim() === '继续生成')
+      await page.keyboard.press('Tab')
+      assert.equal(await batchDialog.evaluate(el => el.contains(document.activeElement)), true, 'batch confirmation traps keyboard focus')
+      await page.keyboard.press('Escape')
+      await batchDialog.waitFor({ state: 'hidden' })
+      assert.equal(batchRequests().length, callsBeforeEscape, 'Escape closes confirmation without cancelling')
+      assert.equal(await batchCancel(1).evaluate(el => el === document.activeElement), true, 'Escape restores the batch trigger')
+      await batchCancel(1).click()
+      failBatchCancel = true
+      await confirmBatch().click()
+      await batchDialog.getByRole('alert').filter({ hasText: '模拟批次取消失败' }).waitFor()
+      assert.deepEqual(previewQueue, beforeFirstCancel)
+      assert.equal(previewRunning.id, secondCurrent.id)
+      assert.equal(await confirmBatch().isEnabled(), true, 'the failed batch confirmation remains available for retry')
+      await page.screenshot({ path: path.join(directory, 'batch-cancel-error-320.png'), animations: 'disabled' })
+      failBatchCancel = false
+      await confirmBatch().focus()
+      await page.keyboard.press('Enter')
+      await batchDialog.waitFor({ state: 'hidden' })
+      await queue.getByRole('group').getByText('本批次剩余 3 项 · 处理中 1 · 等待 2', { exact: true }).waitFor()
+      await page.waitForFunction(() => document.activeElement?.matches('.queue-heading h5'))
+      assert.deepEqual(previewQueue, beforeFirstCancel.filter(item => item.batch_id !== firstBatchId))
+      assert.equal(previewRunning.id, secondCurrent.id, 'cancelling the first batch preserves the second batch current item')
+      assert.ok(previewQueue.some(item => item.source === 'auto') && previewQueue.some(item => item.source === 'retry'),
+        'batch cancellation preserves independent auto and retry work')
+      assert.equal(batchRequests().at(-1).key, `/api/stream/previews/batches/${firstBatchId}/cancel`)
+      assert.deepEqual(batchRequests().at(-1).body, { library_id: 1 })
+
+      const independentPending = structuredClone(previewQueue.filter(item => !item.batch_id))
+      batchCancelGate = gate()
+      await batchCancel(1).click() // The remaining batch is relabelled, but retains its real batch_id.
+      await confirmBatch().click()
+      await batchCancelGate.requested
+      assert.equal(await confirmBatch().isDisabled(), true, 'a pending batch cancellation prevents duplicate confirmation')
+      await confirmBatch().evaluate(button => button.click())
+      assert.equal(batchRequests().filter(request => request.key.includes(secondBatchId)).length, 1)
+      await page.keyboard.press('Escape')
+      assert.equal(await batchDialog.isVisible(), true, 'a pending cancellation keeps its confirmation open')
+      batchCancelGate.release(); batchCancelGate = null
+      await batchDialog.waitFor({ state: 'hidden' })
+      await queue.locator('.is-running').waitFor({ state: 'hidden' })
+      await page.waitForFunction(() => document.activeElement?.matches('.queue-heading h5'))
+      assert.deepEqual(previewQueue, independentPending)
+      assert.equal(batchRequests().at(-1).key, `/api/stream/previews/batches/${secondBatchId}/cancel`,
+        'the second displayed batch cancels its own stable ID after the first one disappears')
+      assert.deepEqual(batchRequests().at(-1).body, { library_id: 1 })
+      await captureViewports('queue-batches-cancelled')
+      checks.push('persistent batch acknowledgements append while running; frame percentage and remaining summaries; current cancellation failure/retry removes one item; two distinct batches cancel independently via captured IDs with confirmation, Escape/focus, API retry and busy duplicate guard; auto/retry work survives')
+
+      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
       await completed.getByText('成品样本 1', { exact: true }).waitFor()
+      if (await failedToggle.getAttribute('aria-expanded') !== 'true') await failedToggle.click()
+      await failed.getByText('失败样本 1', { exact: true }).waitFor()
       completedGate = gate()
       await refresh.click()
       await completedGate.requested
@@ -1017,8 +1194,9 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       checks.push('switching libraries aborts/stales old completed/failure/retry responses, resets collapsed lists and loads current library only')
     }
     await writeFile(path.join(directory, `${baseline ? 'before' : 'after'}-checks.json`), JSON.stringify({
-      mocked: true, realVue: true, sourceSha256, viewports, checks,
+      mocked: true, realVue: true, sourceSha256, viewports, scenes, checks,
       designBaseline: '深色资料维护卡片。当前任务与待处理分别成节；标题和帧数位于左侧，取消/移出为右侧图标。待处理每页50项，复选框与长标题共用行，分页和全库选择位于列表边界。',
+      designDirection: '沿用深灰表面与红色当前项标记，17px粗体标题保持层级；当前项置顶并显示帧数与百分比，批次独立显示剩余数和取消范围。手机保留44px操作区域，长标题可访问且不造成横向溢出。',
     }, null, 2) + '\n')
     await Promise.all(['failure.json', 'failure.png'].map(name => rm(path.join(directory, name), { force: true })))
   } catch (error) {
@@ -2478,8 +2656,8 @@ try {
       assert.ok(checkboxTarget.width >= 44 && checkboxTarget.height >= 44, 'queue checkboxes have phone touch targets')
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
       await page.setViewportSize({ width: 1440, height: 1000 })
-      await preview.getByRole('button', { name: '取消并移出队列 处理样本', exact: true }).click()
-      await preview.getByRole('button', { name: '取消并移出队列 处理样本', exact: true }).waitFor({ state: 'hidden' })
+      await preview.getByRole('button', { name: '取消当前影片 处理样本', exact: true }).click()
+      await preview.getByRole('button', { name: '取消当前影片 处理样本', exact: true }).waitFor({ state: 'hidden' })
       await preview.getByRole('checkbox', { name: '选择 队列样本 1', exact: true }).check()
       await preview.getByRole('button', { name: '下一页' }).click()
       await preview.getByRole('checkbox', { name: '选择 队列样本 52', exact: true }).check()

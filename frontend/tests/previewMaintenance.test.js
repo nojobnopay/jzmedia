@@ -20,11 +20,32 @@ async function mount(t) {
   const requests = [], timers = new Map()
   let timerId = 0, revision = 1, completedGate = null, completedFailure = false, queueFailure = false
   let failedGate = null, failedFailure = false, retryGate = null, retryResult = 'queued'
+  let startGate = null, startFailure = false, cancelGate = null, singleCancelFailure = false, batchSequence = 1
+  const listeners = new Set(), previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  const document = { activeElement: null, body: {},
+    addEventListener(type, handler) { if (type === 'keydown') listeners.add(handler) },
+    removeEventListener(type, handler) { if (type === 'keydown') listeners.delete(handler) } }
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: document })
+  let ui
+  const seenNodes = new Set()
+  function wireFocus() {
+    for (const node of seenNodes) node.isConnected = false
+    for (const node of ui?.all() || []) {
+      seenNodes.add(node)
+      node.isConnected = true
+      node.focus = () => { document.activeElement = node }
+    }
+  }
+  // Keep the real dialog and its Escape/busy events; the browser fixture checks
+  // the actual teleport and Tab trap. Give native harness nodes focus methods.
+  const vue = { ...Vue, Teleport: 'div', async nextTick(callback) {
+    await Vue.nextTick(); wireFocus(); return callback?.()
+  } }
   const state = {
     pending: Array.from({ length: 52 }, (_, index) => ({ kind: 'movie', id: index + 1,
-      library_id: 1, title: `待处理样本 ${index + 1}`, file_name: `pending-${index + 1}.mkv` })),
+      library_id: 1, title: `待处理样本 ${index + 1}`, file_name: `pending-${index + 1}.mkv`, source: 'batch', batch_id: 'batch-1' })),
     running: { kind: 'movie', id: 91, library_id: 1, title: '当前处理样本', file_name: 'current.mkv',
-      job_id: 'manual-job', auto: false, waiting: false, frames: 4, frame_total: 10 },
+      job_id: 'manual-job', source: 'batch', batch_id: 'batch-1', auto: false, waiting: false, frames: 4, frame_total: 10 },
     job: { state: 'running', job_id: 'manual-job', done: 0, total: 53 },
     completed: Array.from({ length: 53 }, (_, index) => completedItem(index + 1)),
     failed: Array.from({ length: 53 }, (_, index) => failedItem(index + 1)),
@@ -36,8 +57,16 @@ async function mount(t) {
     const request = { path: url.pathname, query: Object.fromEntries(url.searchParams), options, body }
     requests.push(request)
     const library = Number(url.searchParams.get('library_id')), offset = Number(url.searchParams.get('offset') || 0)
-    if (url.pathname.endsWith('/jobs/latest')) return library === 1 ? { ...state.job } : { state: 'idle' }
     if (url.pathname.endsWith('/auto')) return { mode: 'local', start_hour: 3, end_hour: 6, queued: state.pending.length }
+    if (url.pathname.endsWith('/jobs') && options.method === 'POST') {
+      if (startGate) { const gate = startGate; startGate = null; return gate.promise }
+      if (startFailure) { startFailure = false; throw new Error('批量加入暂时不可用') }
+      const batch_id = `batch-${++batchSequence}`
+      state.pending.push(...[201, 202].map(id => ({ kind: 'movie', id, library_id: body.library_id,
+        title: `新批次样本 ${id}`, file_name: `batch-${id}.mkv`, source: 'batch', batch_id })))
+      revision++
+      return { state: 'queued', batch_id, total: 55, added: 2, promoted: 0, ready: 0, already_queued: 53, unavailable: 0 }
+    }
     if (url.pathname.endsWith('/completed')) {
       const items = library === 1 ? state.completed : []
       const response = { items: items.slice(offset, offset + 50), total: items.length, offset, limit: 50 }
@@ -66,8 +95,17 @@ async function mount(t) {
     if (url.pathname.endsWith('/queue') && !options.method) {
       if (queueFailure) { queueFailure = false; throw new Error('队列暂时不可用') }
       const items = state.pending.filter(item => item.library_id === library)
+      const batches = new Map()
+      for (const item of [...items, ...(state.running?.library_id === library ? [state.running] : [])]) {
+        if (!item.batch_id) continue
+        if (!batches.has(item.batch_id)) batches.set(item.batch_id, { batch_id: item.batch_id, pending: 0, running: 0, remaining: 0 })
+        const batch = batches.get(item.batch_id)
+        if (item === state.running) batch.running++
+        else batch.pending++
+        batch.remaining++
+      }
       return { items: items.slice(offset, offset + 50), total: items.length, revision: String(revision),
-        running: state.running?.library_id === library ? { ...state.running } : null }
+        batches: [...batches.values()], running: state.running?.library_id === library ? { ...state.running } : null }
     }
     if (url.pathname.endsWith('/queue/remove')) {
       assert.equal(body.revision, String(revision))
@@ -79,25 +117,46 @@ async function mount(t) {
       return { removed: before - state.pending.length }
     }
     if (/\/queue\/movie\/\d+$/.test(url.pathname) && options.method === 'DELETE') {
+      if (singleCancelFailure) { singleCancelFailure = false; throw new Error('取消当前影片暂时不可用') }
       const id = Number(url.pathname.split('/').at(-1))
       state.pending = state.pending.filter(item => item.id !== id)
       if (state.running?.id === id) state.running = null
       revision++
       return { removed: true }
     }
-    if (url.pathname.endsWith('/cancel')) { state.running = null; state.job = { state: 'cancelled' }; return {} }
+    if (/\/batches\/[^/]+\/cancel$/.test(url.pathname)) {
+      if (cancelGate) { const gate = cancelGate; cancelGate = null; return gate.promise }
+      const id = url.pathname.split('/').at(-2), before = state.pending.length
+      state.pending = state.pending.filter(item => item.batch_id !== id || item.library_id !== body.library_id)
+      const cancelled = state.running?.batch_id === id && state.running?.library_id === body.library_id
+      if (cancelled) state.running = null
+      revision++
+      return { removed: before - state.pending.length + (cancelled ? 1 : 0), cancelled }
+    }
     throw new Error(`Unexpected request: ${path}`)
   }
-  const component = await loadSfc(new URL('../src/components/PreviewMaintenance.vue', import.meta.url), { '../api.js': { api } })
+  const component = await loadSfc(new URL('../src/components/PreviewMaintenance.vue', import.meta.url), {
+    '../api.js': { api }, vue, '../useFocusTrap.js': { useFocusTrap: () => ({ isTop: () => true }) },
+  })
   const props = Vue.reactive({ libraryId: 1, active: true, librarySource: 'local', libraryEnabled: true })
-  const ui = renderHarness(component, props)
-  t.after(() => ui.app.unmount())
+  ui = renderHarness(component, props)
+  t.after(() => { ui.app.unmount(); if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument); else delete globalThis.document })
   await flush()
+  wireFocus()
   return { ui, props, state, requests,
-    async poll() { const timer = [...timers.values()].find(item => item.delay === 2500 || item.delay === 30000); assert.ok(timer); timer.fn(); await flush() },
+    async poll() { const timer = [...timers.values()].find(item => item.delay === 2500 || item.delay === 30000); assert.ok(timer); timer.fn(); await flush(); wireFocus() },
     holdCompleted() { completedGate = deferred(); return completedGate },
     holdFailed() { failedGate = deferred(); return failedGate },
     holdRetry() { retryGate = deferred(); return retryGate },
+    holdStart() { startGate = deferred(); return startGate }, failStart() { startFailure = true },
+    holdBatchCancel() { cancelGate = deferred(); return cancelGate },
+    failSingleCancel() { singleCancelFailure = true },
+    escape() {
+      const event = { key: 'Escape', defaultPrevented: false,
+        preventDefault() { this.defaultPrevented = true }, stopPropagation() {} }
+      for (const listener of listeners) listener(event)
+    },
+    document, wireFocus,
     failFailed() { failedFailure = true }, setRetryResult(value) { retryResult = value },
     failCompleted() { completedFailure = true }, failQueue() { queueFailure = true },
     changeRevision() { revision++ },
@@ -128,8 +187,9 @@ test('one processing list highlights current work and excludes it from pending b
   assert.equal(rows(ui, 'is-running').length, 1)
   assert.equal(rows(ui, 'is-pending').length, 0)
   assert.doesNotMatch(ui.text(), /当前视频库没有待处理影片/)
-  await click(ui, '取消立即生成任务 当前处理样本')
-  assert.ok(requests.some(request => request.path === '/api/stream/previews/jobs/manual-job/cancel'))
+  await click(ui, '取消当前影片 当前处理样本')
+  assert.ok(requests.some(request => request.path === '/api/stream/previews/queue/movie/91' && request.options.method === 'DELETE'))
+  assert.equal(requests.some(request => request.path.includes('/jobs/')), false)
   assert.match(ui.text(), /当前视频库没有待处理影片/)
 })
 
@@ -374,7 +434,7 @@ test('retry keeps the failure record, appends one manual task, handles deduplica
   state.running = { ...failedItem(1), source: 'retry', auto: false, frames: 1, frame_total: 10 }
   await setup.poll()
   assert.match(nodeText(rows(ui, 'is-running')[0]), /手动重试/)
-  await click(ui, '取消并移出队列 生成失败样本 1')
+  await click(ui, '取消当前影片 生成失败样本 1')
   assert.ok(setup.requests.some(request => request.path === '/api/stream/previews/queue/movie/101' && request.options.method === 'DELETE'))
   assert.equal(setup.requests.some(request => request.path.endsWith('/cancel')), false)
   assert.equal(state.failed.length, 53, 'Cancelling a retry retains the unresolved failure')
@@ -393,4 +453,152 @@ test('a pending retry aborts on library change and its response cannot show old 
   await flush()
   assert.doesNotMatch(ui.text(), /加入处理队列末尾/)
   assert.equal(setup.failedCalls().at(-1).query.library_id, '2')
+})
+
+test('queue counts and current-frame percentages replace the unrelated one-item job counter', async t => {
+  const { ui, requests, state, poll } = await mount(t)
+  assert.equal(requests.some(request => request.path.endsWith('/jobs/latest')), false)
+  assert.match(ui.text(), /共 53 项 · 处理中 1 · 等待 52/)
+  assert.match(nodeText(rows(ui, 'is-running')[0]), /4\/10 张 · 40%/)
+  assert.equal(ui.find(node => node.type === 'progress').props['aria-valuetext'], '4/10 张 · 40%')
+  assert.equal(button(ui, '立即批量生成').props.disabled, false)
+  assert.doesNotMatch(ui.text(), /0\/1 项/)
+  state.running.frame_total = 0
+  await poll()
+  const progress = ui.find(node => node.type === 'progress')
+  assert.equal(progress.props.value, undefined)
+  assert.equal(progress.props['aria-valuetext'], '准备中')
+  state.running.frame_total = 10
+  state.running.frames = 11
+  await poll()
+  assert.match(ui.text(), /10\/10 张 · 100%/)
+  assert.match(ui.text(), /抽帧完成，正在整理缩略图/)
+})
+
+test('immediate batches can append during existing work, prevent duplicate submissions and retry errors', async t => {
+  const setup = await mount(t), { ui, state, requests } = setup
+  setup.failStart()
+  await click(ui, '立即批量生成')
+  assert.match(ui.text(), /批量加入暂时不可用/)
+  assert.equal(rows(ui, 'is-running').length, 1)
+  const gate = setup.holdStart()
+  await click(ui, '立即批量生成')
+  assert.equal(button(ui, '正在加入…').props['aria-busy'], true)
+  await click(ui, '正在加入…')
+  assert.equal(requests.filter(request => request.path.endsWith('/jobs')).length, 2)
+  gate.resolve({ state: 'queued', batch_id: null, total: 55, added: 0, promoted: 2, ready: 0, already_queued: 53, unavailable: 0 })
+  await flush()
+  assert.match(ui.text(), /转为立即处理 2 项/)
+  await click(ui, '立即批量生成')
+  assert.match(ui.text(), /已加入 2 项立即批量任务/)
+  assert.equal(state.running.id, 91, 'Appending a batch never replaces the current movie')
+  assert.equal(state.pending.at(-1).batch_id, 'batch-2')
+  assert.match(ui.text(), /共 55 项 · 处理中 1 · 等待 54/)
+  assert.equal(requests.some(request => request.path.includes('/jobs/')), false)
+})
+
+for (const source of ['batch', 'retry', 'auto', 'direct']) {
+  test(`current-film cancellation uses the same single-item API for ${source}`, async t => {
+    const setup = await mount(t), { ui, state, requests } = setup
+    state.running.source = source
+    state.running.auto = source === 'auto'
+    await setup.poll()
+    setup.failSingleCancel()
+    await click(ui, '取消当前影片 当前处理样本')
+    assert.match(ui.text(), /取消当前影片暂时不可用/)
+    assert.equal(state.running.id, 91)
+    await click(ui, '取消当前影片 当前处理样本')
+    assert.equal(state.running, null)
+    assert.equal(state.pending.length, 52, 'Cancelling one film retains all pending batch members')
+    assert.equal(requests.filter(request => request.path === '/api/stream/previews/queue/movie/91').length, 2)
+    assert.equal(requests.some(request => request.path.endsWith('/cancel')), false)
+  })
+}
+
+test('whole-batch confirmation only removes its captured batch and preserves other work', async t => {
+  const setup = await mount(t), { ui, state, requests } = setup
+  state.pending = [state.pending[0],
+    { kind: 'movie', id: 201, library_id: 1, title: '第二批', source: 'batch', batch_id: 'batch-2' },
+    { kind: 'movie', id: 202, library_id: 1, title: '重试样本', source: 'retry' },
+    { kind: 'movie', id: 203, library_id: 1, title: '闲时样本', source: 'auto', auto: true }]
+  await setup.poll()
+  const trigger = button(ui, '取消本批次 2')
+  trigger.focus()
+  await click(ui, '取消本批次 2')
+  assert.match(nodeText(ui.find(node => node.props.role === 'dialog')), /本批次剩余 1 项.*处理中 0 项，等待 1 项/s)
+  assert.ok(setup.document.activeElement === button(ui, '继续生成'), 'Opening confirmation focuses the safe action')
+  setup.escape()
+  await flush()
+  assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+  assert.ok(setup.document.activeElement === trigger, 'Escape restores the original batch button')
+  assert.equal(requests.some(request => request.path.includes('/batches/')), false)
+  await click(ui, '取消本批次 2')
+  await click(ui, '确认取消本批次')
+  const cancellation = requests.find(request => request.path.includes('/batches/'))
+  assert.equal(cancellation.path, '/api/stream/previews/batches/batch-2/cancel')
+  assert.deepEqual(cancellation.body, { library_id: 1 })
+  assert.equal(state.running.id, 91)
+  assert.deepEqual(state.pending.map(item => item.id), [1, 202, 203])
+})
+
+test('batch cancellation blocks Escape and duplicate requests while busy, then retains an error for retry', async t => {
+  const setup = await mount(t), { ui, state, requests } = setup
+  state.pending.push({ kind: 'movie', id: 202, library_id: 1, title: '其它重试', source: 'retry' })
+  await setup.poll()
+  button(ui, '取消本批次 1').focus()
+  await click(ui, '取消本批次 1')
+  const gate = setup.holdBatchCancel()
+  await click(ui, '确认取消本批次')
+  await click(ui, '确认取消本批次')
+  assert.equal(requests.filter(request => request.path.includes('/batches/')).length, 1)
+  assert.equal(button(ui, '继续生成').props.disabled, true)
+  setup.escape()
+  await flush()
+  assert.ok(ui.find(node => node.props.role === 'dialog'))
+  gate.reject(new Error('取消批次暂时不可用'))
+  await flush()
+  assert.match(ui.text(), /取消批次暂时不可用.*可重试取消/)
+  assert.ok(setup.document.activeElement === button(ui, '确认取消本批次'), 'A failed cancellation focuses its retry action')
+  await click(ui, '确认取消本批次')
+  assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+  assert.equal(state.running, null)
+  assert.deepEqual(state.pending.map(item => item.id), [202])
+  assert.ok(setup.document.activeElement === ui.find(node => node.type === 'h5'), 'Removing the focused batch returns focus to the queue heading')
+})
+
+test('a confirmation retains its batch identity when finished batches disappear from the queue', async t => {
+  const setup = await mount(t), { ui, state, requests } = setup
+  state.pending.push({ kind: 'movie', id: 201, library_id: 1, title: '第二批', source: 'batch', batch_id: 'batch-2' })
+  await setup.poll()
+  await click(ui, '取消本批次 2')
+  state.running = null
+  state.pending = state.pending.filter(item => item.batch_id === 'batch-2')
+  await setup.poll()
+  await click(ui, '确认取消本批次')
+  assert.equal(requests.find(request => request.path.includes('/batches/')).path, '/api/stream/previews/batches/batch-2/cancel')
+})
+
+test('batch requests abort and dismiss their confirmation on a library change', async t => {
+  const setup = await mount(t), { ui, props, requests } = setup
+  await click(ui, '取消本批次 1')
+  const gate = setup.holdBatchCancel()
+  await click(ui, '确认取消本批次')
+  const request = requests.find(item => item.path.includes('/batches/'))
+  props.libraryId = 2
+  await flush()
+  assert.equal(request.options.signal.aborted, true)
+  assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+  gate.resolve({ removed: 53, cancelled: true })
+  await flush()
+  assert.doesNotMatch(ui.text(), /已取消本批次/)
+  assert.equal(rows(ui, 'is-running').length, 0)
+})
+
+test('another library current film cannot supply this library progress or cancellation action', async t => {
+  const setup = await mount(t), { ui, state } = setup
+  state.running.library_id = 2
+  await setup.poll()
+  assert.equal(rows(ui, 'is-running').length, 0)
+  assert.equal(ui.find(node => node.type === 'progress'), undefined)
+  assert.match(ui.text(), /共 52 项 · 处理中 0 · 等待 52/)
 })

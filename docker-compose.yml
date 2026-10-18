@@ -21,6 +21,7 @@ services:
       - path: .env
         required: false
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       MEDIA_ROOT: /app/media
       DATA_DIR: /app/data
     volumes:

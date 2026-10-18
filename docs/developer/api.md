@@ -1,6 +1,6 @@
 ---
 version: 0.28.1
-reviewed: 2026-10-17
+reviewed: 2026-10-18
 ---
 
 # API 与后台任务
@@ -73,9 +73,11 @@ reviewed: 2026-10-17
 
 实际缓存占用超过新额度不阻止保存有效分配。成功时以单条 `app_settings.cache_limits` JSON 原子持久化，立即优先于环境变量，并唤醒闲时队列重新检查条件；本请求不执行缓存删除，后续维护沿用活动内容保护规则。基础数据增长不自动修改用户额度，客户端提示重新分配。两接口均受管理权限约束，PUT 同时遵循写操作令牌鉴权。[界面分配与清理流程](../user-guide/settings.md#调整应用数据与缓存)。
 
-自动生成时段、暂停状态及全服务预览排队总量由 `GET /api/stream/previews/auto` 返回，`queued` 包括当前正在处理的影片。`GET /api/stream/previews/queue?library_id=<id>&offset=0&limit=50` 合并立即批量任务与闲时队列的未开始项并去重，另返回正在处理的影片；`total` 不包含当前正在处理项。省略 `library_id` 查询全服务，最多每页 100 项。同一队列快照的分页共享 `revision`，完成项退出待处理队列。
+自动生成时段、暂停状态及全服务预览排队总量由 `GET /api/stream/previews/auto` 返回，`queued` 包括当前正在处理的影片。立即批量生成、手动重试和闲时生成共用持久影片队列与单个执行器，未完成项在服务重启后恢复。`GET /api/stream/previews/queue?library_id=<id>&offset=0&limit=50` 分页返回未开始项 `items`，另以 `running` 返回当前影片；`total` 只统计等待项，不包含当前影片。省略 `library_id` 查询全服务，最多每页 100 项。同一队列快照的分页共享 `revision`，完成项退出队列。
 
-队列项与当前项的 `source` 区分 `auto`（闲时生成）、`retry`（手动重试）和 `batch`（立即生成），保留原有当前项的 `auto` 布尔字段。手动重试追加在处理列表末尾，不抢占当前任务；调度可跳过暂不符合运行条件的闲时项，但不改变这些项的显示顺序或闲时规则。
+队列项与当前项的 `source` 区分 `auto`（闲时生成）、`retry`（手动重试）和 `batch`（立即生成），保留原有当前项的 `auto` 布尔字段；批次成员另含 `batch_id`。响应中的 `batches:[{batch_id,pending,running,remaining}]` 按当前库的全部队列项汇总，不受分页影响；`remaining` 为本批等待与处理中数量之和，批次无剩余项后不再返回。客户端用队列数量、当前片的 `frames/frame_total` 与批次剩余量表示进度，不能用单片 job 的 `done/total` 表示整队进度。立即请求不抢占当前任务；调度可跳过暂不符合运行条件的闲时项，但不改变这些项的显示顺序或闲时规则。
+
+`POST /api/stream/previews/jobs {"library_id":<id>}` 将当前库尚未完成新版预览的可播放项作为一个立即批次持久入队，返回 `{state:"queued",batch_id,total,added,promoted,ready,already_queued,unavailable}`。`added` 为新增影片数，`promoted` 为从闲时任务提升为本批立即任务的数量；已运行、已单独重试或属于其他立即批次的影片计入 `already_queued`，保留原归属。已有新版成品计入 `ready`，源文件不可用计入 `unavailable`；没有新增或提升项时 `batch_id` 为 `null`。立即批次和手动重试不受自动生成开关与闲时时段限制，仍遵守播放转码让行规则；普通闲时项继续遵守原有时段、播放与预算条件。
 
 `GET /api/stream/previews/completed?library_id=<id>&offset=0&limit=50` 按当前视频库分页列出已有完整预览的电影、分集和花絮；省略 `library_id` 查询全服务，`limit` 为 1–100。返回 `{items,total,offset,limit}`，每项包含 `kind/id/library_id/title/file_name/frames/interval/quality_revision/needs_update`；`frames` 为完整清单帧数，兼容的旧画质成品以 `needs_update:true` 标记。每部影片最多一项，按视频库、电影/分集/花絮、ID 顺序排列。仅计入与当前片源、采样配置匹配且所有图片页完整的清单，离线、过期和部分产物不计入；抽帧达到 100% 不等于完整成品。接口只读，不探测原片或更新缓存访问时间，使用与队列接口相同的管理权限；网页展开已生成清单时按需调用，刷新及分页独立于队列轮询。
 
@@ -83,9 +85,11 @@ reviewed: 2026-10-17
 
 `POST /api/stream/previews/failed/{kind}/{id}/retry {"library_id":<id>}` 将失败视频作为手动请求加入处理列表末尾，返回 `{"state":"queued"|"already_queued"|"running"}`。仅在闲时队列中的同项会改为手动重试并移到队尾；已在立即任务或重试队列、或正在运行时不重复加入。手动重试不受自动生成开关和时段限制，沿用立即批量生成的播放转码让行规则。排队请求持久化，重启后恢复；可用现有单项移出接口取消并移出当前重试，仅影响这一项，失败原因保留。本接口遵循管理权限及写操作令牌鉴权。
 
-`POST /api/stream/previews/queue {"library_id":<id>}` 将已有本地库中未完成预览的可播放项加入闲时队列，返回新增、已有成品、已排队、源文件不可用的数量。`DELETE /api/stream/previews/queue/{kind}/{version_id}?library_id=<id>` 同时移出两处待处理列表中的单项；移出正在处理的闲时项同时取消其任务。批量移出使用 `POST /api/stream/previews/queue/remove`，请求包含 `library_id`、从列表获得的 `revision`，以及 `items:[{"kind":"movie","id":1}]`；全选跨分页时改传 `all_pending:true`，可用 `exclude` 排除个别 `{kind,id}`。服务端先保存持久队列，再原子更新即时任务未领取的影片列表，始终排除正在处理项；清空后仅当前影片继续完成。队列版本变化返回 409，需刷新后重新选择。移出保留已有预览页。
+`POST /api/stream/previews/queue {"library_id":<id>}` 将已有本地库中未完成预览的可播放项加入闲时队列，返回新增、已有成品、已排队、源文件不可用的数量。`DELETE /api/stream/previews/queue/{kind}/{version_id}?library_id=<id>` 只移出指定影片，无论来源是闲时、重试还是立即批次；目标正在处理时同时取消该片，其余影片继续。批量移出使用 `POST /api/stream/previews/queue/remove`，请求包含 `library_id`、从列表获得的 `revision`，以及 `items:[{"kind":"movie","id":1}]`；全选跨分页时改传 `all_pending:true`，可用 `exclude` 排除个别 `{kind,id}`。服务端先保存持久队列，再提交移出结果，始终排除正在处理项；清空后仅当前影片继续完成。队列版本变化返回 409，需刷新后重新选择。移出保留已有预览页及上次失败原因。
 
-手动批量任务用原有 `POST /api/stream/previews/jobs/{job_id}/cancel` 取消整个任务。`POST /api/stream/previews/cache/clean {"dry_run":true|false}` 先预览再清理全部进度缩略图，不删除自动队列，生成任务运行时返回 409。原有 `POST /api/stream/cache/clean` 只清理可回收播放缓存。扫描摘要的 `preview_auto.queued` 表示新排队项数。
+`POST /api/stream/previews/batches/{batch_id}/cancel {"library_id":<id>}` 取消指定库中该批剩余影片，包括属于本批的当前影片，返回 `{removed,cancelled}`；`removed` 为移出数量，`cancelled` 表示是否同时取消当前影片。其他批次、单独重试和闲时任务不受影响；批次已经结束或移出时返回 `{removed:0,cancelled:false}`。原有 `POST /api/stream/previews/jobs/{job_id}/cancel` 保留单片运行任务的取消兼容，不能用于取消持久批次；播放器内发起单片生成的接口保持不变。上述写接口遵循管理权限及写操作令牌鉴权。
+
+`POST /api/stream/previews/cache/clean {"dry_run":true|false}` 先预览再清理全部进度缩略图，不删除持久队列，生成任务运行时返回 409。原有 `POST /api/stream/cache/clean` 只清理可回收播放缓存。扫描摘要的 `preview_auto.queued` 表示新排队项数。
 
 单片 `GET /api/stream/{version_id}/previews` 返回该片预览清单；运行中的任务另含 `frames`、`frame_total`（当前片已抽帧数与总数），尚未轮到该片时返回 `queued`。客户端以清单 `state=ready` 判断是否完成，不能只凭已有图片页数判断。
 

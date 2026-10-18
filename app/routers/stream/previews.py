@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 from typing import Literal
+import uuid
 
 from fastapi import HTTPException, Query
 from fastapi.responses import FileResponse
@@ -25,14 +26,17 @@ from ...config import settings
 from ...jobkit import JobRegistry
 from ...log import get_logger
 from .common import _media_cached_or_probe, _version_source, _sessions, _sess_lock, router
-from .preview_extract import Extractor
+from .preview_extract import Extractor, _threads
 from .preview_failures import FailureStore, failure_reason
 from .preview_log import ExtractionError, error_kind, read_frame_log
+from .preview_timeline import resolve_timeline
+from .preview_color import color_plan, smoke_command
 
 logger = get_logger("stream.previews")
 __all__ = ['shutdown_previews', 'start_auto_previews']
 VERSION = 1
 QUALITY_REVISION = 3
+EXTRACTION_REVISION = 2
 # Web 160 CSS px at up to 3x; TV 240 dp at 2x. One shared sprite set.
 WIDTH, HEIGHT, COLUMNS, ROWS = 480, 270, 5, 5
 _jobs = JobRegistry(max_finished=12, prefix="preview")
@@ -48,8 +52,10 @@ _queued_finished = None
 _queue_retry_at = 0.0
 _failure_store = None
 _ready_queue_check = (None, 0.0)
+_dv_runtime_ready = set()
 _KEY_RE = re.compile(r"^[a-f0-9]{32}$")
 _IMAGE_RE = re.compile(r"^page_\d{4}\.jpg$")
+_BATCH_RE = re.compile(r"^[a-f0-9]{32}$")
 
 
 def _root() -> Path:
@@ -61,7 +67,8 @@ def _quality_dimensions(revision):
     return (160, 90) if revision in (1, 2) else (WIDTH, HEIGHT)
 
 
-def _cache_key(row, src, interval: int, *, quality_revision: int | None = None) -> str:
+def _cache_key(row, src, interval: int, *, quality_revision: int | None = None,
+               extraction_revision: int | None = None) -> str:
     # 不对远程电影做全文件 hash；路径/库/大小/mtime 变化即失效。
     revision = QUALITY_REVISION if quality_revision is None else quality_revision
     width, height = _quality_dimensions(revision)
@@ -70,7 +77,27 @@ def _cache_key(row, src, interval: int, *, quality_revision: int | None = None) 
     # 第一代 key 必须保持原样；新版图片另用 URL，避免覆盖 immutable 旧图。
     if revision != 1:
         identity.append(revision)
+    extraction = EXTRACTION_REVISION if extraction_revision is None else extraction_revision
+    if revision >= 3 and extraction != 1:
+        identity.extend(["extraction", extraction])
     return hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()[:32]
+
+
+def _quality_keys(row, src, interval, revision):
+    keys = [_cache_key(row, src, interval, quality_revision=revision)]
+    if revision >= 3:
+        legacy = _cache_key(row, src, interval, quality_revision=revision, extraction_revision=1)
+        if legacy not in keys:
+            keys.append(legacy)
+    return keys
+
+
+def _current_ready(row, src, interval):
+    for key in _quality_keys(row, src, interval, QUALITY_REVISION):
+        data = _read_completed_manifest(_root() / key)
+        if data and _completed_manifest(data, interval, QUALITY_REVISION):
+            return key, data
+    return None, None
 
 
 def _interval(row) -> int:
@@ -143,15 +170,17 @@ def _transcoding_busy():
                    for s in _sessions.values())
 
 
-def _run(cmd, jid, timeout=60):
+def _run(cmd, jid, timeout=60, *, capture_output=False):
     """进程结束立即唤醒；每 200ms 检查取消/播放让行，终止后回收子进程。"""
     if _cancelled(jid):
         raise _Cancelled()
     prefix = [shutil.which("nice"), "-n", "10"] if shutil.which("nice") else []
+    child_env = dict(os.environ, LP_NUM_THREADS=_threads())
     # 日志落临时文件，避免 PIPE 未读满导致子进程卡死；只向用户返回固定错误。
-    with tempfile.TemporaryFile() as log:
+    with tempfile.TemporaryFile() as log, tempfile.TemporaryFile() as output:
         proc = subprocess.Popen(prefix + cmd, stdin=subprocess.DEVNULL,
-                                stdout=subprocess.DEVNULL, stderr=log)
+                                stdout=output if capture_output else subprocess.DEVNULL, stderr=log,
+                                env=child_env)
         started = time.monotonic()
         deadline = started + timeout
         try:
@@ -160,6 +189,8 @@ def _run(cmd, jid, timeout=60):
                     raise _Cancelled()
                 if (_jobs.get(jid) or {}).get("library_id") is not None and _transcoding_busy():
                     raise _YieldToPlayback()
+                if capture_output and os.fstat(output.fileno()).st_size > 8 * 1024 * 1024:
+                    raise ExtractionError("无法核对视频预览时长", reason="probe_output_limit")
                 if time.monotonic() > deadline:
                     raise ExtractionError("抽帧超时，请稍后重试", reason="timeout", timed_out=True,
                                           elapsed=time.monotonic() - started, limit=timeout,
@@ -174,6 +205,12 @@ def _run(cmd, jid, timeout=60):
                                       returncode=proc.returncode, elapsed=time.monotonic() - started,
                                       limit=timeout, stderr_bytes=os.fstat(log.fileno()).st_size,
                                       error_kind=error_kind(log))
+            if capture_output:
+                output.seek(0)
+                data = output.read(8 * 1024 * 1024 + 1)
+                if len(data) > 8 * 1024 * 1024:
+                    raise ExtractionError("无法核对视频预览时长", reason="probe_output_limit")
+                return data
             return read_frame_log(log, time.monotonic() - started)
         finally:
             if proc.poll() is None:
@@ -186,17 +223,23 @@ def _run(cmd, jid, timeout=60):
 
 
 def _frame_filter(info):
-    dv = int(info.get("dv_profile") or 0)
-    compat = int(info.get("dv_bl_compat") or 0)
-    if dv and compat not in (1, 2, 4):
-        raise RuntimeError("该 Dolby Vision 片源无可用兼容基底，暂不支持预览")
-    hdr = info.get("hdr") or ("hdr10" if dv and compat == 1 else "hlg" if dv and compat == 4 else "")
-    color = ""
-    if hdr and not (dv and compat == 2):
-        # 先缩小再软件 tone-map；无 zscale 的构建明确报失败，避免静默生成灰图。
-        color = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,"
-    return (f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
-            + color + f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=rgb24")
+    return color_plan(info, WIDTH, HEIGHT)["filter"]
+
+
+def _ensure_dv_runtime(jid):
+    from ... import media
+    ffmpeg = media.ffmpeg_bin()
+    try:
+        identity = (ffmpeg, Path(ffmpeg).stat().st_mtime_ns, _threads())
+    except OSError:
+        identity = (ffmpeg, None, _threads())
+    if identity in _dv_runtime_ready:
+        return
+    try:
+        _run(smoke_command(ffmpeg), jid, timeout=30)
+    except (ExtractionError, FileNotFoundError):
+        raise RuntimeError("Dolby Vision 预览转换环境不可用，请更新含软件 Vulkan 支持的服务镜像") from None
+    _dv_runtime_ready.add(identity)
 
 
 def _remove_old_quality_cache(row, src, interval, manifest, count):
@@ -205,8 +248,11 @@ def _remove_old_quality_cache(row, src, interval, manifest, count):
     if (manifest.get("state") != "ready" or manifest.get("quality_revision") != QUALITY_REVISION
             or manifest.get("count") != count or manifest.get("pages") != pages):
         return
-    for revision in range(1, QUALITY_REVISION):
-        key = _cache_key(row, src, interval, quality_revision=revision)
+    old_keys = [_cache_key(row, src, interval, quality_revision=revision)
+                for revision in range(1, QUALITY_REVISION)]
+    if manifest.get("extraction_revision") == EXTRACTION_REVISION:
+        old_keys.append(_cache_key(row, src, interval, extraction_revision=1))
+    for key in old_keys:
         try:
             shutil.rmtree(_root() / key)
         except FileNotFoundError:
@@ -224,21 +270,64 @@ def _generate(jid, row, src, info, interval):
     if not math.isfinite(duration) or not 0 < duration <= 86400:
         raise RuntimeError("无法取得有效时长（支持 24 小时以内的视频）")
     count = max(1, math.ceil(duration / interval))
-    manifest = _read_manifest(directory)
-    if manifest and manifest.get("state") == "ready":
-        _remove_old_quality_cache(row, src, interval, manifest, count)
+    _ready_key, ready = _current_ready(row, src, interval)
+    if ready:
+        _remove_old_quality_cache(row, src, interval, ready, ready["count"])
         return
+    manifest = _read_manifest(directory)
+    # A ready label may survive missing/empty pages or damaged metadata. Rebuild
+    # that set rather than silently retiring a retry; keep older usable quality
+    # until the replacement has completed.
+    if manifest and manifest.get("state") == "ready":
+        manifest = None
+    plan = color_plan(info, WIDTH, HEIGHT)
+    while True:
+        if (_jobs.get(jid) or {}).get("library_id") is not None:
+            _wait_for_transcodes(jid)
+        try:
+            if plan["software"]:
+                _ensure_dv_runtime(jid)
+            timeline = resolve_timeline(src, info,
+                                        run_probe=lambda cmd, job, timeout: _run(
+                                            cmd, job, timeout, capture_output=True), jid=jid)
+            break
+        except _YieldToPlayback:
+            _wait_for_transcodes(jid)
+    duration = timeline["duration"]
+    count = max(1, math.ceil(duration / interval))
     directory.mkdir(parents=True, exist_ok=True)
-    manifest = manifest or dict(version=VERSION, interval=interval, duration=duration,
+    expected = dict(version=VERSION, interval=interval, duration=duration,
                                 width=WIDTH, height=HEIGHT, columns=COLUMNS, rows=ROWS,
                                 count=count, pages=[], state="partial")
+    if manifest:
+        if (any(manifest.get(name) != expected[name]
+                for name in ("version", "interval", "width", "height", "columns", "rows"))
+                or manifest.get("pages") != [f"page_{page:04d}.jpg"
+                                             for page in range(len(manifest["pages"]))]):
+            raise RuntimeError("预览采样信息已变化，无法继续旧任务")
+        # A retry can confirm a shorter video tail after an earlier probe failed.
+        # Keep unchanged sprite pixels; count hides extra cells in the last page.
+        manifest.update(duration=duration, count=count)
+        manifest["pages"] = manifest["pages"][:math.ceil(count / (COLUMNS * ROWS))]
+        manifest["state"] = ("ready" if len(manifest["pages"]) * COLUMNS * ROWS >= count
+                             else "partial")
+    manifest = manifest or expected
     manifest.update(item_kind=row.get("kind", "movie"), item_id=int(row["id"]),
-                    quality_revision=QUALITY_REVISION)
-    filter_arg = _frame_filter(info)
+                    quality_revision=QUALITY_REVISION, extraction_revision=EXTRACTION_REVISION,
+                    video_duration_source=timeline["source"],
+                    video_stream_index=timeline["video_stream_index"])
+    _write_manifest(directory, manifest)
+    if manifest["state"] == "ready":
+        _remove_old_quality_cache(row, src, interval, manifest, count)
+        data_usage.invalidate()
+        return
     cells = COLUMNS * ROWS
     lib = store.get_library(row.get("library_id") or 1) or {}
     remote = lib.get("source", "local") != "local" or src.input.startswith(("http://", "https://"))
-    extractor = Extractor(src, filter_arg, interval, remote=remote, run=_run, jid=jid,
+    extractor = Extractor(src, plan["filter"], interval, remote=remote, run=_run, jid=jid,
+                          video_stream_index=timeline["video_stream_index"],
+                          input_args=plan["input_args"], software=plan["software"],
+                          frame_guard=plan["frame_guard"],
                           context={"kind": row.get("kind", "movie"), "id": row["id"]},
                           progress=lambda frames: _jobs.update(jid, frames=frames, frame_total=count))
     started = time.monotonic()
@@ -504,10 +593,11 @@ def _reconcile_ready_queue():
             continue
         try:
             row, src = _version_source(item["id"], item["kind"])
-            key = _cache_key(row, src, _interval(row))
-            manifest = _read_manifest(root / key) if key in candidates else None
-            if manifest and manifest.get("state") == "ready":
-                completed.add(identity)
+            for key in _quality_keys(row, src, _interval(row), QUALITY_REVISION):
+                manifest = _read_completed_manifest(root / key) if key in candidates else None
+                if manifest and _completed_manifest(manifest, _interval(row), QUALITY_REVISION):
+                    completed.add(identity)
+                    break
         except (HTTPException, OSError):
             continue
     if completed:
@@ -541,6 +631,26 @@ def _enqueue_auto_items(items: list[dict]) -> int:
             raise
     _auto_wake.set()
     return len(unique)
+
+
+def _queue_immediate(item):
+    return bool(item.get("manual_retry") or item.get("immediate"))
+
+
+def _valid_saved_queue_item(item):
+    """Keep legacy idle/retry entries; reject partial or inconsistent batch metadata."""
+    if (not isinstance(item, dict) or item.get("kind") not in ("movie", "episode", "extra")
+            or type(item.get("id")) is not int or item["id"] <= 0
+            or type(item.get("library_id")) is not int or item["library_id"] <= 0
+            or type(item.get("manual_retry", False)) is not bool
+            or type(item.get("immediate", False)) is not bool):
+        return False
+    if item.get("source") == "batch" or "batch_id" in item or item.get("immediate"):
+        return (item.get("source") == "batch" and item.get("immediate") is True
+                and not item.get("manual_retry") and isinstance(item.get("batch_id"), str)
+                and bool(_BATCH_RE.fullmatch(item["batch_id"])))
+    return item.get("source") in (None, "auto", "retry") and (
+        item.get("source") != "retry" or item.get("manual_retry") is True)
 
 
 def enqueue_scan_previews(before: dict, failed_libraries=()) -> int:
@@ -578,7 +688,10 @@ def _queued_item_matches(left, right):
 def _auto_head_matches(job) -> bool:
     """Compatibility helper: dispatcher jobs can now own any queue position."""
     item = _queued_job_item(job)
-    return any(_queued_item_matches(item, queued) for queued in _auto_queue)
+    policy = ("manual_retry", "immediate", "source", "batch_id")
+    return any(_queued_item_matches(item, queued)
+               and all(item.get(name) == queued.get(name) for name in policy)
+               for queued in _auto_queue)
 
 
 def _auto_hours() -> tuple[int, int]:
@@ -643,7 +756,7 @@ def _dispatch_queue_once():
             return
         automatic_paused = None
         for candidate in list(_auto_queue):
-            if candidate.get("manual_retry"):
+            if _queue_immediate(candidate):
                 item = dict(candidate)
                 break
             if automatic_paused is None:
@@ -663,7 +776,7 @@ def _dispatch_queue_once():
         else:
             return
         try:
-            manual = bool(item.get("manual_retry"))
+            manual = _queue_immediate(item)
             job = _start([(item["kind"], item["id"])],
                          library_id=item["library_id"] if manual else None,
                          auto=not manual, queue_item=item)
@@ -694,11 +807,7 @@ def start_auto_previews() -> None:
             saved = json.loads(_queue_path().read_text(encoding="utf-8"))
             if not isinstance(saved, list):
                 raise ValueError("automatic preview queue must be a list")
-            _auto_queue = [x for x in saved if isinstance(x, dict)
-                           and x.get("kind") in ("movie", "episode", "extra")
-                           and isinstance(x.get("id"), int) and x["id"] > 0
-                           and isinstance(x.get("library_id"), int) and x["library_id"] > 0
-                           and type(x.get("manual_retry", False)) is bool]
+            _auto_queue = [x for x in saved if _valid_saved_queue_item(x)]
         except FileNotFoundError:
             _auto_queue = []
         except (OSError, ValueError, TypeError) as e:
@@ -728,7 +837,8 @@ def _start(items, library_id=None, auto=False, *, queue_item=None):
         if _worker_thread and _worker_thread.is_alive():
             raise HTTPException(409, "已有预览任务在运行，请稍后重试")
         _stop.clear()
-        source = "retry" if queue_item and queue_item.get("manual_retry") else "auto" if auto else "batch"
+        source = (queue_item.get("source") if queue_item else None) or (
+            "retry" if queue_item and queue_item.get("manual_retry") else "auto" if auto else "batch")
         job = _jobs.create(items=list(items), library_id=library_id, total=len(items), auto=auto,
                            source=source, queue_item=dict(queue_item) if queue_item else None)
         _active_job = job["job_id"]
@@ -765,11 +875,14 @@ def preview_auto_status():
 def _queue_item_public(item: dict) -> dict:
     row = store.get_playable(item["kind"], item["id"]) or {}
     file_name = Path(row.get("file_path") or "").name
-    return {"kind": item["kind"], "id": item["id"],
+    result = {"kind": item["kind"], "id": item["id"],
             "library_id": item.get("library_id") or row.get("library_id"),
             "title": row.get("display_title") or row.get("title") or file_name or "已移除的影片",
             "file_name": file_name,
             "source": item.get("source") or ("retry" if item.get("manual_retry") else "auto")}
+    if item.get("batch_id"):
+        result["batch_id"] = item["batch_id"]
+    return result
 
 
 def _job_queue_item(job, kind, vid):
@@ -778,8 +891,12 @@ def _job_queue_item(job, kind, vid):
         queued = next((item for item in _auto_queue if (item["kind"], item["id"]) == (kind, vid)), None)
         row = {} if queued else (store.get_playable(kind, vid) or {})
         library_id = (queued or row).get("library_id") or 1
-    return {"kind": kind, "id": vid, "library_id": library_id,
-            "source": job.get("source") or ("auto" if job.get("auto") else "batch")}
+    result = {"kind": kind, "id": vid, "library_id": library_id,
+              "source": job.get("source") or ("auto" if job.get("auto") else "batch")}
+    batch_id = (job.get("queue_item") or {}).get("batch_id")
+    if batch_id:
+        result["batch_id"] = batch_id
+    return result
 
 
 def _running_queue_item(job):
@@ -839,6 +956,18 @@ def _queue_revision(items: list[dict]) -> str:
     return hashlib.sha256(json.dumps(keys, separators=(",", ":")).encode()).hexdigest()[:16]
 
 
+def _queue_batches(pending, running):
+    batches = {}
+    for item, active in ([(running, True)] if running else []) + [(item, False) for item in pending]:
+        batch_id = item.get("batch_id")
+        if not batch_id:
+            continue
+        batch = batches.setdefault(batch_id, {"batch_id": batch_id, "pending": 0, "running": 0, "remaining": 0})
+        batch["running" if active else "pending"] += 1
+        batch["remaining"] += 1
+    return list(batches.values())
+
+
 @router.get("/previews/queue")
 def preview_queue(library_id: int | None = Query(default=None, gt=0),
                   offset: int = Query(default=0, ge=0),
@@ -868,7 +997,7 @@ def preview_queue(library_id: int | None = Query(default=None, gt=0),
             running = None
     return {"items": page, "total": total, "offset": offset, "limit": limit,
             "revision": revision,
-            "running": running}
+            "running": running, "batches": _queue_batches(pending, running)}
 
 
 def _completed_manifest(data, interval, revision):
@@ -952,8 +1081,9 @@ def preview_completed(library_id: int | None = Query(default=None, gt=0),
             continue
         interval = _interval(row)
         for revision in range(QUALITY_REVISION, 0, -1):
-            data = manifests.get(_cache_key(row, src, interval, quality_revision=revision))
-            if not _completed_manifest(data, interval, revision):
+            data = next((candidate for key in _quality_keys(row, src, interval, revision)
+                         if _completed_manifest(candidate := manifests.get(key), interval, revision)), None)
+            if not data:
                 continue
             if (data.get("item_kind", kind), data.get("item_id", vid)) != (kind, vid):
                 continue
@@ -1019,7 +1149,7 @@ def preview_retry(kind: Literal["movie", "episode", "extra"], version_id: int,
                 return {"state": "already_queued"}
         queued = next((item for item in _auto_queue
                        if (item["kind"], item["id"]) == target), None)
-        if queued and queued.get("manual_retry"):
+        if queued and _queue_immediate(queued):
             return {"state": "already_queued"}
         if target not in _failure_snapshot_locked():
             raise HTTPException(409, "该影片已没有待处理的生成失败，请刷新列表")
@@ -1068,8 +1198,7 @@ def preview_queue_existing(body: PreviewQueueBody):
         except HTTPException:
             unavailable += 1
             continue
-        manifest = _read_manifest(_root() / _cache_key(row, src, _interval(row)))
-        if manifest and manifest.get("state") == "ready":
+        if _current_ready(row, src, _interval(row))[1]:
             ready += 1
             continue
         candidates.append({"kind": kind, "id": vid, "library_id": body.library_id})
@@ -1133,6 +1262,13 @@ def preview_queue_remove(kind: Literal["movie", "episode", "extra"], version_id:
                       if (item["kind"], item["id"], item["library_id"]) ==
                       (kind, version_id, library_id)), None)
         if index is None:
+            # Player-triggered single-item jobs remain in memory for compatibility.
+            job = _jobs.get(_active_job)
+            current = _running_queue_item(job)
+            if (current and (current["kind"], current["id"], current["library_id"]) ==
+                    (kind, version_id, library_id) and len(job.get("items") or []) == 1):
+                _jobs.cancel(job["job_id"])
+                return {"removed": True, "cancelled": True}
             raise HTTPException(404, "该影片已不在待处理队列中")
         job = _jobs.get(_auto_job_id)
         running = bool(job and job["state"] == "running"
@@ -1158,8 +1294,11 @@ def preview_manifest(version_id: int, kind: Literal["movie", "episode", "extra"]
     data = _read_manifest(directory)
     if not data or data.get("state") != "ready":
         # 重建完成前继续显示旧完整成品，不混用新旧页，也不在 GET 启动生成。
-        for revision in range(QUALITY_REVISION - 1, 0, -1):
-            legacy_key = _cache_key(row, src, interval, quality_revision=revision)
+        legacy_candidates = [(revision, candidate)
+                             for revision in range(QUALITY_REVISION, 0, -1)
+                             for candidate in _quality_keys(row, src, interval, revision)
+                             if candidate != key]
+        for revision, legacy_key in legacy_candidates:
             legacy_directory = _root() / legacy_key
             legacy_data = _read_manifest(legacy_directory)
             if _completed_manifest(legacy_data, interval, revision):
@@ -1216,7 +1355,85 @@ class PreviewBatchBody(BaseModel):
 def preview_batch(body: PreviewBatchBody):
     if not store.get_library(body.library_id):
         raise HTTPException(404, "视频库不存在")
-    return _start(store.preview_items(body.library_id), body.library_id)
+    items = store.preview_items(body.library_id)
+    candidates = []
+    ready = unavailable = 0
+    for kind, vid in items:
+        try:
+            row, src = _version_source(vid, kind)
+        except HTTPException:
+            unavailable += 1
+            continue
+        interval = _interval(row)
+        if _current_ready(row, src, interval)[1]:
+            ready += 1
+        else:
+            candidates.append((kind, vid, row, src, interval))
+    batch_id = uuid.uuid4().hex
+    added = promoted = already_queued = 0
+    with _lock:
+        job = _jobs.get(_active_job)
+        active = set()
+        if job and job["state"] == "running":
+            active.update(tuple(item) for item in job.get("items", [])[int(job.get("done") or 0):])
+        before = list(_auto_queue)
+        for kind, vid, row, src, interval in candidates:
+            identity = (kind, vid)
+            entry_index = next((i for i, entry in enumerate(_auto_queue)
+                                if (entry["kind"], entry["id"]) == identity), None)
+            if identity in active or (entry_index is not None and _queue_immediate(_auto_queue[entry_index])):
+                already_queued += 1
+                continue
+            # Generation can complete while this request gathers the library list.
+            if _current_ready(row, src, interval)[1]:
+                ready += 1
+                continue
+            entry = {"kind": kind, "id": vid, "library_id": body.library_id,
+                     "immediate": True, "source": "batch", "batch_id": batch_id}
+            if entry_index is None:
+                _auto_queue.append(entry)
+                added += 1
+            else:
+                _auto_queue[entry_index] = entry
+                promoted += 1
+        try:
+            if _auto_queue != before:
+                _save_auto_queue()
+        except OSError:
+            _auto_queue[:] = before
+            raise HTTPException(503, "保存预览队列失败，请稍后重试") from None
+    _auto_wake.set()
+    return {"state": "queued", "batch_id": batch_id if added + promoted else None,
+            "total": len(items), "added": added, "promoted": promoted, "ready": ready,
+            "already_queued": already_queued, "unavailable": unavailable}
+
+
+@router.post("/previews/batches/{batch_id}/cancel")
+def preview_batch_cancel(batch_id: str, body: PreviewBatchBody):
+    if not _BATCH_RE.fullmatch(batch_id):
+        raise HTTPException(422, "批次标识无效")
+    if not store.get_library(body.library_id):
+        raise HTTPException(404, "视频库不存在")
+    with _lock:
+        before = list(_auto_queue)
+        removed = [item for item in before if item.get("batch_id") == batch_id
+                   and item["library_id"] == body.library_id]
+        if not removed:
+            return {"removed": 0, "cancelled": False}
+        _auto_queue[:] = [item for item in before if item not in removed]
+        try:
+            _save_auto_queue()
+        except OSError:
+            _auto_queue[:] = before
+            raise HTTPException(503, "保存预览队列失败，请稍后重试") from None
+        job = _jobs.get(_auto_job_id)
+        current = _queued_job_item(job)
+        cancelled = bool(job and job["state"] == "running" and current
+                         and current.get("batch_id") == batch_id and current["library_id"] == body.library_id)
+        if cancelled:
+            _jobs.cancel(job["job_id"])
+    _auto_wake.set()
+    return {"removed": len(removed), "cancelled": cancelled}
 
 
 @router.get("/previews/jobs/latest")
@@ -1239,7 +1456,7 @@ def preview_cancel(job_id: str):
         job = _jobs.get(job_id)
         item = _queued_job_item(job)
         if (job and job["state"] == "running" and job_id == _auto_job_id
-                and item and item.get("manual_retry")):
+                and item):
             try:
                 _retire_auto_items_locked({(item["kind"], item["id"])})
             except OSError:

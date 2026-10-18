@@ -640,6 +640,314 @@ def test_empty_accurate_output_cannot_reuse_a_stale_frame(tmp_path):
     assert not (tmp_path / 'page.jpg').exists()
 
 
+def test_real_empty_accurate_tail_recovers_only_a_verified_nearby_frame(ffmpeg, tmp_path, monkeypatch):
+    video = tmp_path / 'tail.mkv'
+    subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                    '-f', 'lavfi', '-i', "nullsrc=s=160x90:r=10:d=3,geq=r='N*7':g=0:b=0",
+                    '-c:v', 'ffv1', '-threads', '1', str(video)],
+                   capture_output=True, check=True, timeout=15)
+    monkeypatch.setattr(media, 'ffmpeg_bin', lambda: ffmpeg)
+    jid, calls = pv._jobs.create()['job_id'], []
+    def run(cmd, job_id, timeout=60):
+        calls.append(cmd)
+        return pv._run(cmd, job_id, timeout)
+    worker = ex.Extractor(source(video), pv._frame_filter({}), 10, remote=True,
+                          run=run, jid=jid, progress=lambda _n: None)
+    frame = tmp_path / 'frame.png'
+    assert worker._sample_point(3.05, frame, nearby=False) == 'accurate'
+    assert [float(cmd[cmd.index('-ss') + 1]) for cmd in calls] == pytest.approx([3.05, 2.8])
+    raw = subprocess.run([ffmpeg, '-loglevel', 'error', '-i', str(frame), '-frames:v', '1',
+                          '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'],
+                         capture_output=True, check=True, timeout=10).stdout
+    assert raw[0] == pytest.approx(28 * 7, abs=3)
+    # 视频结束很久以后仍必须失败，不能用更早的画面把容器尾部填满。
+    calls.clear()
+    with pytest.raises(RuntimeError, match='无法从采样位置'):
+        worker._sample_point(6, frame, nearby=False)
+    assert [float(cmd[cmd.index('-ss') + 1]) for cmd in calls] == [6, 5.75, 4]
+    assert not frame.exists()
+
+
+@pytest.mark.parametrize('point_log', [
+    '', 'n: 0 pts: 20 pts_time:20', 'n: 0 pts: -1 pts_time:-0.01',
+    'n: 0 pts: -100 pts_time:-100\nn: 1 pts: 0 pts_time:0',
+])
+def test_empty_accurate_recovery_rejects_unverified_or_distant_image(tmp_path, point_log):
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if len(calls) > 1:
+            Path(cmd[-1]).write_bytes(b'wrong image')
+        return point_log
+    worker = extractor(source('/isolated/video.mkv'), run, remote=True)
+    with pytest.raises(RuntimeError, match='无法从采样位置'):
+        worker.page(250, 1, 5, 5, tmp_path / 'page.jpg')
+    assert [float(cmd[cmd.index('-ss') + 1]) for cmd in calls] == [250, 249.75, 248]
+    assert all(float(cmd[cmd.index('-t') + 1]) == 0.5 for cmd in calls[1:])
+    assert not list(tmp_path.glob('frame_*.png'))
+
+
+def test_empty_accurate_hardware_output_retries_software_before_bounded_recovery(tmp_path, monkeypatch):
+    monkeypatch.setattr(ex, '_hardware_args', lambda: ['-hwaccel', 'qsv'])
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if '-t' in cmd:
+            Path(cmd[-1]).write_bytes(b'verified')
+            return 'n: 0 pts: 1 pts_time:0.1'
+        return ''
+    worker = extractor(source('/isolated/video.mkv'), run, remote=True)
+    assert worker._sample_point(250, tmp_path / 'frame.png', nearby=False) == 'accurate'
+    assert [float(cmd[cmd.index('-ss') + 1]) for cmd in calls] == [250, 250, 249.75]
+    assert '-hwaccel' in calls[0] and all('-hwaccel' not in cmd for cmd in calls[1:])
+
+
+@pytest.mark.parametrize('exception', [pv._Cancelled, pv._YieldToPlayback])
+def test_empty_accurate_recovery_propagates_interruption(tmp_path, exception):
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if len(calls) > 1:
+            raise exception()
+        return ''
+    worker = extractor(source('/isolated/video.mkv'), run, remote=True)
+    with pytest.raises(exception):
+        worker.page(250, 1, 5, 5, tmp_path / 'page.jpg')
+    assert len(calls) == 2
+    assert not list(tmp_path.glob('frame_*.png'))
+
+
+def test_empty_point_diagnostics_record_safe_context_and_output_count(tmp_path, caplog):
+    def run(cmd, _jid, timeout=60):
+        if '-skip_frame' in cmd or '-noaccurate_seek' in cmd:
+            raise RuntimeError('https://user:secret@example.invalid/video?token=private-token')
+        return ''
+    worker = extractor(source('https://user:secret@example.invalid/video?token=private-token'), run,
+                       context={'kind': 'movie', 'id': 23})
+    with caplog.at_level('INFO', logger=ex.logger.name), pytest.raises(RuntimeError):
+        worker.page(250, 1, 5, 5, tmp_path / 'page.jpg')
+    assert all(value in caplog.text for value in ('item=movie:23', 'page=1', 'start=250',
+                                                  'mode=accurate', 'images=0', 'returncode=0'))
+    assert not any(value in caplog.text for value in ('example.invalid', 'secret', 'private-token'))
+
+
+def test_selected_video_stream_and_converter_device_are_preserved_before_input(tmp_path, monkeypatch):
+    monkeypatch.setattr(ex, '_hardware_args', lambda: ['-hwaccel', 'qsv'])
+    inputs = []
+    def run(cmd, _jid, timeout=60):
+        inputs.append(cmd)
+        return write_frames(cmd)
+    converter = ['-init_hw_device', 'vulkan=preview', '-filter_hw_device', 'preview']
+    worker = extractor(source('/isolated/video.mkv'), run, remote=True, video_stream_index=3,
+                       input_args=converter, software=True)
+    worker._sample_point(250, tmp_path / 'frame.png', nearby=False)
+    assert inputs[0][inputs[0].index('-map') + 1] == '0:3'
+    assert '-hwaccel' not in inputs[0]
+    assert inputs[0][inputs[0].index('-init_hw_device'):inputs[0].index('-init_hw_device') + 4] == converter
+    assert inputs[0].index('-filter_hw_device') < inputs[0].index('-i')
+
+
+@pytest.mark.parametrize('mode', ['batch', 'nearby', 'accurate', 'recovery'])
+@pytest.mark.parametrize('trailing_comma', ['', ','])
+def test_frame_guard_precedes_color_conversion_and_timestamp_pairing(tmp_path, mode, trailing_comma):
+    guard = 'sidedata=mode=select:type=DOVI_METADATA'
+    inputs = []
+    def run(cmd, _jid, timeout=60):
+        if '-ss' in cmd:
+            inputs.append(cmd)
+            if mode == 'recovery' and len(inputs) == 1:
+                return ''
+        return write_frames(cmd)
+    worker = extractor(source('/isolated/video.mkv'), run, frame_guard=guard + trailing_comma)
+    frame = tmp_path / 'frame.png'
+    if mode == 'batch':
+        worker._keyframe_page(250, 1, 1, 1, tmp_path / 'page.jpg')
+    elif mode == 'nearby':
+        worker._nearby_point(250, frame)
+    else:
+        worker._sample_point(250, frame, nearby=False)
+    assert len(inputs) == (2 if mode == 'recovery' else 1)
+    for input_index, cmd in enumerate(inputs):
+        vf = cmd[cmd.index('-vf') + 1]
+        assert vf.count(guard) == 1 and ',,' not in vf
+        assert vf.index(guard) < vf.index(worker.filter_arg)
+        assert vf.index(guard) < vf.index('showinfo=')
+        if (('-noaccurate_seek' in cmd and '-skip_frame' not in cmd) or
+                (mode == 'recovery' and input_index > 0)):
+            assert vf.startswith('select=') and vf.index('select=') < vf.index(guard)
+
+
+@pytest.mark.parametrize('remote', [False, True])
+def test_real_missing_dolby_metadata_never_produces_preview_or_reuses_stale_frame(
+        ffmpeg, tmp_path, monkeypatch, remote):
+    video = tmp_path / 'without-rpu.mkv'
+    subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                    '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=3',
+                    '-c:v', 'ffv1', '-threads', '1', str(video)],
+                   capture_output=True, check=True, timeout=15)
+    monkeypatch.setattr(media, 'ffmpeg_bin', lambda: ffmpeg)
+    calls, jid = [], pv._jobs.create()['job_id']
+    def run(cmd, job_id, timeout=60):
+        calls.append(cmd)
+        log = pv._run(cmd, job_id, timeout)
+        # 没有 RPU 的帧必须在 showinfo 之前丢弃，不能留下可与其它 PNG 配错的 PTS。
+        assert log.frame_times == ()
+        assert not list(tmp_path.rglob('key_*.png'))
+        if '-skip_frame' not in cmd:
+            assert not list(tmp_path.glob('frame_*.png'))
+        return log
+    worker = ex.Extractor(source(video), pv._frame_filter({}), 10, remote=remote,
+                          run=run, jid=jid, progress=lambda _n: None,
+                          frame_guard='sidedata=mode=select:type=DOVI_METADATA,')
+    (tmp_path / 'frame_00.png').write_bytes(b'stale from interrupted page')
+    with pytest.raises(RuntimeError, match='无法从采样位置'):
+        worker.page(1, 1, 1, 1, tmp_path / 'page.jpg')
+    # Guarded auto mode probes ordinary points first for both local and remote
+    # inputs; missing metadata never activates the adjacent-window optimization.
+    assert len(calls) <= 6
+    assert all('-skip_frame' not in cmd for cmd in calls)
+    assert not (tmp_path / 'page.jpg').exists()
+    assert not list(tmp_path.glob('frame_*.png'))
+    assert not list(tmp_path.glob('.keyframes-*'))
+
+
+@pytest.mark.parametrize('threshold,interval,target,expected_calls', [
+    (5, 1, 0, 1),  # 第一个有效帧位于窗口外；必须及时停止，不能解完整片去找它。
+    (1.5, 1, 2, 4),  # 有限预读也不能接受超过原采样间隔的画面。
+])
+def test_real_guarded_accurate_seek_rejects_distant_first_eligible_frame(
+        ffmpeg, tmp_path, monkeypatch, threshold, interval, target, expected_calls):
+    video = tmp_path / 'metadata-gap.mkv'
+    subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                    '-f', 'lavfi', '-i', 'testsrc2=s=64x64:r=10:d=8',
+                    '-c:v', 'ffv1', '-threads', '1', str(video)],
+                   capture_output=True, check=True, timeout=15)
+    monkeypatch.setattr(media, 'ffmpeg_bin', lambda: ffmpeg)
+    jid, calls, observed = pv._jobs.create()['job_id'], [], []
+    def run(cmd, job_id, timeout=60):
+        # Keep the synthetic metadata gap at the same ORIGINAL video time when
+        # the recovery seeks earlier; filter timestamps are input-relative.
+        start = float(cmd[cmd.index('-ss') + 1])
+        vf = cmd.index('-vf') + 1
+        cmd[vf] = cmd[vf].replace(f'gte(t,{threshold})', f'gte(t,{target + threshold - start})')
+        calls.append(cmd)
+        log = pv._run(cmd, job_id, timeout)
+        observed.append(log.frame_times)
+        return log
+    # select 与缺少 RPU 时的 sidedata 具有相同丢帧行为，无需 Vulkan 或真实媒体。
+    worker = ex.Extractor(source(video), pv._frame_filter({}), interval, remote=True,
+                          run=run, jid=jid, progress=lambda _n: None,
+                          frame_guard=f"select='gte(t,{threshold})'", software=True)
+    frame = tmp_path / 'frame.png'
+    with pytest.raises(RuntimeError, match='无法从采样位置'):
+        worker._sample_point(target, frame, nearby=False)
+    assert len(calls) == expected_calls
+    assert all('-t' in cmd for cmd in calls)
+    assert float(calls[0][calls[0].index('-t') + 1]) == 2
+    assert not frame.exists()
+    if threshold < 2:
+        assert observed[0][0] == pytest.approx(threshold)
+    else:
+        assert observed[0] == ()
+
+
+@pytest.mark.parametrize('times', [(), (float('nan'), 0), (float('inf'),), (-0.01,), (10.01,)])
+def test_guarded_accurate_seek_requires_verified_first_output_timestamp(tmp_path, times):
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        Path(cmd[-1]).write_bytes(b'unverified frame')
+        # Preserve each invalid offset relative to the actual selection window.
+        match = ex.re.search(r"select='between\(t,([\d.]+),", cmd[cmd.index('-vf') + 1])
+        offset = float(match[1]) if match else 0
+        return SimpleNamespace(frame_times=tuple(value + offset for value in times))
+    worker = extractor(source('/isolated/video.mkv'), run, remote=True,
+                       frame_guard='sidedata=mode=select:type=DOVI_METADATA,')
+    with pytest.raises(RuntimeError, match='无法从采样位置'):
+        worker._sample_point(250, tmp_path / 'frame.png', nearby=False)
+    assert len(calls) == 5
+    assert not (tmp_path / 'frame.png').exists()
+
+
+@pytest.mark.parametrize('interval', [1, 10, 60])
+def test_guarded_accurate_all_empty_input_and_recovery_windows_are_bounded(tmp_path, interval):
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        return ''
+    worker = ex.Extractor(source('/isolated/video.mkv'), pv._frame_filter({}), interval,
+                          remote=True, run=run, jid='preview-test', progress=lambda _n: None,
+                          frame_guard='sidedata=mode=select:type=DOVI_METADATA,')
+    with pytest.raises(RuntimeError, match='无法从采样位置'):
+        worker._sample_point(250, tmp_path / 'frame.png', nearby=False)
+    window = min(interval, 2)
+    assert [float(cmd[cmd.index('-t') + 1]) for cmd in calls] == [
+        min(2 * interval, 30), 0.5, 0.5, 10 + window, 30 + window]
+    assert not (tmp_path / 'frame.png').exists()
+
+
+@pytest.mark.parametrize('needed_preroll', [10, 30])
+def test_guarded_preroll_restores_only_a_verified_frame_at_the_original_target(tmp_path, needed_preroll):
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append((cmd, timeout))
+        start = float(cmd[cmd.index('-ss') + 1])
+        if start == 250:
+            Path(cmd[-1]).write_bytes(b'distant metadata frame')
+            return SimpleNamespace(frame_times=(17.5,))
+        if start == 250 - needed_preroll:
+            Path(cmd[-1]).write_bytes(b'verified target frame')
+            return SimpleNamespace(frame_times=(needed_preroll + 0.125,))
+        return SimpleNamespace(frame_times=())
+    worker = extractor(source('/isolated/video.mkv'), run, remote=True,
+                       frame_guard='sidedata=mode=select:type=DOVI_METADATA,')
+    frame = tmp_path / 'frame.png'
+    assert worker._sample_point(250, frame, nearby=False) == 'accurate'
+    assert frame.read_bytes() == b'verified target frame'
+    assert len(calls) == (4 if needed_preroll == 10 else 5)
+    command, timeout = calls[-1]
+    assert float(command[command.index('-t') + 1]) == needed_preroll + 2
+    assert timeout == 60
+    vf = command[command.index('-vf') + 1]
+    assert vf.startswith(f"select='between(t,{float(needed_preroll)},{float(needed_preroll + 2)})',sidedata=")
+    assert vf.index('DOVI_METADATA') < vf.index('showinfo') < vf.index('scale=')
+
+
+@pytest.mark.parametrize('interruption', [pv._Cancelled, pv._YieldToPlayback])
+def test_guarded_preroll_propagates_cancellation_and_playback_yield(tmp_path, interruption):
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        if float(cmd[cmd.index('-ss') + 1]) == 240:
+            raise interruption()
+        return SimpleNamespace(frame_times=())
+    worker = extractor(source('/isolated/video.mkv'), run, remote=True,
+                       frame_guard='sidedata=mode=select:type=DOVI_METADATA,')
+    frame = tmp_path / 'frame.png'
+    with pytest.raises(interruption):
+        worker._sample_point(250, frame, nearby=False)
+    assert len(calls) == 4
+    assert not frame.exists()
+
+
+def test_invalid_video_data_is_reported_only_after_guarded_recovery_fails(tmp_path):
+    calls = []
+    def run(cmd, _jid, timeout=60):
+        calls.append(cmd)
+        return 'Invalid NAL unit 16, skipping. https://private.invalid/token=hidden'
+    worker = extractor(source('/isolated/video.mkv'), run, remote=True,
+                       frame_guard='sidedata=mode=select:type=DOVI_METADATA,')
+    with pytest.raises(ex.ExtractionError) as error:
+        worker._sample_point(250, tmp_path / 'frame.png', nearby=False)
+    from app.routers.stream.preview_failures import failure_reason
+    assert failure_reason(error.value) == ('decoder', '无法解码片源，请检查视频编码或文件是否损坏')
+    assert error.value.reason == 'invalid_video_data'
+    assert 'private.invalid' not in str(error.value)
+    assert 'hidden' not in error.value.diagnostic
+    assert len(calls) == 5
+    assert not (tmp_path / 'frame.png').exists()
+
+
 def test_cancellation_does_not_enter_fallback(tmp_path):
     def run(*_args, **_kwargs):
         raise pv._Cancelled()

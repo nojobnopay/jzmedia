@@ -39,7 +39,7 @@ def test_compose_config_resolves_optional_env(tmp_path, with_env):
             "UID=1234\nGID=2345\nAPP_PORT=18080\nAPP_VERSION=v1.2.3\n"
             "MEDIA_HOST_PATH=./custom-media\nDATA_HOST_PATH=./custom-data\n"
             "MEDIA_ROOT=/ignored-media\nDATA_DIR=/ignored-data\n"
-            "TMDB_LANGUAGE=en-US\nTRANSCODER=sw\n")
+            "TMDB_LANGUAGE=en-US\nTRANSCODER=sw\nTZ=UTC\n")
 
     out = subprocess.run(
         ["docker", "compose", "-f", str(compose), "config", "--format", "json"],
@@ -58,9 +58,10 @@ def test_compose_config_resolves_optional_env(tmp_path, with_env):
     container_env = service["environment"]
     assert container_env["MEDIA_ROOT"] == "/app/media"
     assert container_env["DATA_DIR"] == "/app/data"
+    assert container_env["TZ"] == ("UTC" if with_env else "Asia/Shanghai")
     if with_env:
         assert container_env["TMDB_LANGUAGE"] == "en-US"
         assert container_env["TRANSCODER"] == "sw"
     else:
-        assert set(container_env) == {"MEDIA_ROOT", "DATA_DIR"}
+        assert set(container_env) == {"MEDIA_ROOT", "DATA_DIR", "TZ"}
         assert not environment.exists()

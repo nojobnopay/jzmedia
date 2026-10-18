@@ -8,7 +8,9 @@ export function nodeText(node) {
 // A small host renderer for component behavior tests without a browser or DOM.
 // Keep actual Vue templates, child components, events and reactivity in the test.
 export function renderHarness(component, props = {}) {
-  const element = (type = '', text = '') => ({ type, text, props: {}, children: [], parent: null })
+  // Native DOM nodes stay raw when stored in Vue refs. Keep that identity here,
+  // too, so focus ownership compares the host element with document.activeElement.
+  const element = (type = '', text = '') => Vue.markRaw({ type, text, props: {}, children: [], parent: null })
   const remove = node => {
     if (!node.parent) return
     const siblings = node.parent.children
