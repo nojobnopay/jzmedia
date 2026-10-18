@@ -1,5 +1,5 @@
 ---
-version: 0.29.2
+version: 0.29.3
 reviewed: 2026-10-18
 ---
 
@@ -173,7 +173,7 @@ group_add:
 
 在宿主用 `stat -c '%g' /dev/dri/renderD128` 核对设备组号，将 `group_add` 中的变量替换为实际组号；使用可选 `.env` 时也可在其中填写 `RENDER_GID`。保留原来的运行用户及数据目录权限，不需特权容器或修改宿主设备权限。`TRANSCODER` 默认就是 `auto`，启动后在 `/api/stream/backends` 检查实际后端。普通播放硬件失败可回落软件，P5 网页播放则要求上方专用能力全部通过。
 
-项目 amd64 Docker 镜像安装完整的 `intel-media-va-driver-non-free` iHD 驱动；其他架构不会安装该 Intel 驱动。镜像内 `/usr/share/jzmedia/intel-driver-packages.txt` 与 `intel-driver-sha256.txt` 分别记录新增包的版本和下载哈希。宿主运行或自定义镜像需满足同样的驱动、FFmpeg/libplacebo 和 Intel ANV Vulkan 条件。
+项目 amd64 Docker 镜像安装完整的 `intel-media-va-driver-non-free` iHD 驱动；其他架构不会安装该 Intel 驱动。镜像内 `/usr/share/jzmedia/intel-driver-packages.txt` 与 `intel-driver-sha256.txt` 分别记录新增包的版本和下载哈希。镜像同时固定已验证的 FFmpeg、libplacebo、Mesa、VAAPI 和 Vulkan 运行库版本，升级这些组件前需重新验证转色与预览。宿主运行或自定义镜像需满足同样的驱动、FFmpeg/libplacebo 和 Intel ANV Vulkan 条件。
 
 使用 `docker run` 时，在创建容器的命令中添加 `--device /dev/dri/renderD128:/dev/dri/renderD128`，并用 `--group-add` 传入上述实际组号；仅修改 `.env` 不会添加设备或组权限。配置需要重新创建容器，先结束正在进行的播放。
 

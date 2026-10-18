@@ -36,9 +36,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TZ=Asia/Shanghai
 
+# 转色组件固定为 NAS 实片验证过的组合；更新前重新验证，不随 apt 重建漂移。
 # cifs-utils/nfs-common：应用内挂载远程库（C 阶段）；无此需求也可保留（体积很小）
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      ffmpeg mesa-vulkan-drivers cifs-utils nfs-common tzdata \
+      ffmpeg=7:7.1.5-0+deb13u1 mesa-vulkan-drivers=25.0.7-2+deb13u1 \
+      libplacebo349=7.349.0-3 libva2=2.22.0-3 libvulkan1=1.4.309.0-1 \
+      cifs-utils nfs-common tzdata \
  && rm -rf /var/lib/apt/lists/*
 
 # P5 网页播放使用完整 iHD 驱动；其他架构保持能力不足时明确阻断的行为。

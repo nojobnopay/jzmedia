@@ -1,5 +1,5 @@
 ---
-version: 0.29.2
+version: 0.29.3
 reviewed: 2026-10-18
 ---
 
