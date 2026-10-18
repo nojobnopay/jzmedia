@@ -779,7 +779,8 @@ def test_frame_guard_precedes_color_conversion_and_timestamp_pairing(tmp_path, m
 
 @pytest.mark.parametrize('remote', [False, True])
 def test_real_missing_dolby_metadata_never_produces_preview_or_reuses_stale_frame(
-        ffmpeg, tmp_path, monkeypatch, remote):
+        ffmpeg, tmp_path, monkeypatch, remote, require_dovi_metadata):
+    require_dovi_metadata(ffmpeg)
     video = tmp_path / 'without-rpu.mkv'
     subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
                     '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=3',

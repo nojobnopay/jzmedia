@@ -140,8 +140,10 @@ def test_real_10bit_cpu_conversion_produces_full_size_neutral_sdr(software_vulka
     assert max(center) - min(center) <= 2
 
 
-def test_real_missing_frame_rpu_produces_no_wrong_color_image(software_vulkan):
+def test_real_missing_frame_rpu_produces_no_wrong_color_image(
+        software_vulkan, require_dovi_metadata):
     ffmpeg, env = software_vulkan
+    require_dovi_metadata(ffmpeg, env)
     result = subprocess.run(raw_smoke(ffmpeg, guard=plan({"dv_profile": 5})["frame_guard"]),
                             env=env, capture_output=True, check=True, timeout=30)
     # HDR input without parsed DV RPU must never silently become a P5 preview.
@@ -329,15 +331,16 @@ def _write_synthetic_p5(ffmpeg, env, tmp_path, colors, rpus, *, framerate=1):
 
 
 @pytest.fixture
-def synthetic_p5(software_vulkan, tmp_path):
+def synthetic_p5(software_vulkan, tmp_path, require_dovi_metadata):
     ffmpeg, env = software_vulkan
+    require_dovi_metadata(ffmpeg, env)
     video = _write_synthetic_p5(ffmpeg, env, tmp_path, _COLORS,
                                 [_P5_RPU[4:]] * len(_COLORS))
     return ffmpeg, env, video
 
 
 @pytest.fixture
-def synthetic_p5_references(tmp_path):
+def synthetic_p5_references(tmp_path, require_dovi_metadata):
     # No Vulkan dependency: the regression concerns decoder RPU state before
     # conversion. All I-frames make seek(5) land on an independently decodable
     # picture while its RPU still refers to the full mapping at time 0.
@@ -345,6 +348,7 @@ def synthetic_p5_references(tmp_path):
     if not ffmpeg:
         pytest.skip("ffmpeg unavailable")
     env = dict(os.environ, LP_NUM_THREADS="2")
+    require_dovi_metadata(ffmpeg, env)
     reference = _p5_reference_rpu()
     rpus = [_P5_RPU[4:] if frame in (0, 10) else reference for frame in range(12)]
     video = _write_synthetic_p5(ffmpeg, env, tmp_path, _COLORS * 2, rpus)
@@ -452,10 +456,11 @@ def test_real_p5_production_preroll_preserves_target_and_converted_pixels(
 
 
 @pytest.fixture
-def synthetic_p5_references_24fps(software_vulkan, tmp_path):
+def synthetic_p5_references_24fps(software_vulkan, tmp_path, require_dovi_metadata):
     import math
 
     ffmpeg, env = software_vulkan
+    require_dovi_metadata(ffmpeg, env)
     # Three seconds of smoothly changing known IPT colors. The target at 1.5s
     # has multiple subsequent pictures inside the 0.1s recovery window; unlike
     # the 1fps fixture this exposes adjacent-frame selection or mixing errors.

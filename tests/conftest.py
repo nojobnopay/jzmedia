@@ -4,6 +4,8 @@
 """
 import os
 import pathlib
+import re
+import subprocess
 import sys
 import tempfile
 
@@ -40,3 +42,22 @@ def media_root() -> pathlib.Path:
     d = pathlib.Path(settings.media_root)
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+@pytest.fixture(scope="session")
+def require_dovi_metadata():
+    """Gate only real frame-RPU tests on the selected FFmpeg's named enum."""
+    def require(ffmpeg, env=None):
+        result = subprocess.run([ffmpeg, "-hide_banner", "-h", "filter=sidedata"],
+                                env=env, capture_output=True, text=True, check=True, timeout=10)
+        help_text = result.stdout + result.stderr
+        # A failed, unrelated or truncated help probe is a failure, not proof
+        # that the enum is unavailable. Keep real conversion assertions strict.
+        assert re.search(r"(?m)^Filter sidedata\s*$", help_text), help_text
+        assert "sidedata AVOptions:" in help_text, help_text
+        assert re.search(r"(?m)^\s+type\s+<int>\s", help_text), help_text
+        assert ("This filter has support for timeline through the 'enable' option."
+                in help_text.splitlines()), help_text
+        if not re.search(r"(?m)^\s+DOVI_METADATA\s+\d+\s", help_text):
+            pytest.skip("selected FFmpeg sidedata filter lacks DOVI_METADATA")
+    return require
