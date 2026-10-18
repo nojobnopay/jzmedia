@@ -13,7 +13,7 @@ class PlaybackCapabilitiesTest {
             .put("video", JSONObject().put("h264", true).put("hevc10", true))
             .put("audio", JSONObject().put("aac", true))
             .put("probes", JSONObject().put(sourceVideo, true).put(sourceAudio, false))
-            .put("hdr_formats", JSONArray().put("hdr10"))
+            .put("hdr_formats", JSONArray().put("hdr10").put("dolby_vision"))
         val fallback = compatibleCapabilities(original, JSONObject().put("vcaps", JSONArray().put(sourceVideo)))
         assertTrue(fallback.getJSONObject("video").getBoolean("h264"))
         assertTrue(fallback.getJSONObject("audio").getBoolean("aac"))

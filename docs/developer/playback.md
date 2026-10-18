@@ -1,5 +1,5 @@
 ---
-version: 0.28.1
+version: 0.29.1
 reviewed: 2026-10-18
 ---
 
@@ -32,7 +32,7 @@ reviewed: 2026-10-18
 | `audio_transcode` | copy | 转 AAC | 视频可解，音频不在安全 copy 集合 |
 | `video_transcode` | 重编 | 按需 copy/重编 | 视频编码、尺寸或 HDR 路径不适合直通 |
 
-画质 `auto/source/1080p/720p` 会影响输出尺寸和会话复用；`auto` 只在需要视频重编且源高度超过 1080 时封顶为硬件 1080p、软件 720p，copy 路径保留原尺寸。`source`（原画）取消自动封顶，格式不兼容仍需转换，不能保证免重编；旧 `original` 按 `auto` 兼容。切换画质可能重开会话，不属于无缝 ABR。网页对 HDR10/HLG、带 HDR10 基底的 DV P8.1，在客户端可解 PQ 时允许直通；DV P5 无兼容基底阻止直通。硬件后端可 tone map，软件退化路径会给原因提示。
+画质 `auto/source/1080p/720p` 会影响输出尺寸和会话复用；普通转码的 `auto` 在源高度超过 1080 时封顶为硬件 1080p、软件 720p，copy 路径保留原尺寸。`source`（原画）取消自动封顶，格式不兼容仍需转换，不能保证免重编；旧 `original` 按 `auto` 兼容。切换画质可能重开会话。网页对 HDR10/HLG、带 HDR10 基底的 DV P8.1，在客户端可解 PQ 时允许直通。无兼容基底的 P5 使用下方专用转换，不能沿用普通 HDR10 tone mapping。
 
 ```mermaid
 flowchart TD
@@ -67,11 +67,25 @@ MP4 短片的完成标记只表示当前片段完成，不能作为 start=0 全�
 
 ## HLS 与 FFmpeg
 
-`playback/cmd.py` 组命令，`transcode.py` 检测 VAAPI → QSV → NVENC → 软件，首轮硬件 45 秒仍不出片时软件重试。默认 fMP4 HLS，每片目标 4 秒，`HLS_SEGMENT_TYPE=ts` 回退目标 6 秒的旧 TS。fMP4 单 FFmpeg 进程产生视频和最多 8 条音轨 rendition；服务端写 `master.m3u8`，`CODECS` 包含整个音频组的实际输出编码并集。ffmpeg 继续增长的 `out_*.m3u8` 应按内容快照返回，不能直接用按旧长度计算 Content-Length 的 `FileResponse`。FFmpeg 工作目录必须是产物目录，因为分片输出文件名是相对路径。
+`playback/cmd.py` 组命令，`transcode.py` 检测 VAAPI → QSV → NVENC → 软件，普通转码首轮硬件 45 秒仍不出片时软件重试；P5 不使用这条软件兜底。默认 fMP4 HLS，每片目标 4 秒，`HLS_SEGMENT_TYPE=ts` 回退目标 6 秒的旧 TS。fMP4 单 FFmpeg 进程产生视频和最多 8 条音轨 rendition；服务端写 `master.m3u8`，`CODECS` 包含整个音频组的实际输出编码并集。ffmpeg 继续增长的 `out_*.m3u8` 应按内容快照返回，不能直接用按旧长度计算 Content-Length 的 `FileResponse`。FFmpeg 工作目录必须是产物目录，因为分片输出文件名是相对路径。
 
 fMP4 HLS 音轨通过 rendition 切换，一般不重开会话；网页原文件直发依赖实际 `video.audioTracks` API，没有此 API 时选择非默认轨会转为 remux。hls.js 音频 copy 默认仅 AAC/MP3，EAC3/AC3 转 AAC；Safari 原生 HLS 可支持更多 Dolby 格式，其他原生 HLS 的兼容 TS 使用 AAC 单/双声道。Android TV 则根据声明的原生选轨能力判断。`AUDIO_COPY_SAFE` 只应在目标设备实测后放宽。
 
 音轨切换在 hls.js `MANIFEST_PARSED` 和 `AUDIO_TRACKS_UPDATED` 后应用，前者触发时列表可能尚空。源轨 default 与用户 UI 选择分离，非烧录字幕切换不应让音视频重新编码。copy 首屏等一个视频分片，视频重编/烧录等两个，不能把音频片计入视频可播放判断。
+
+### P5 网页色彩转换与发布
+
+`DOVI_P5_WEB_ENABLED` 默认关闭，试用时显式设为 `true`。关闭后网页计划返回 `blocked/dovi_p5_web_disabled`，不触发硬件探测；电视原视频播放、普通硬件转码和缩略图不受此开关影响。
+
+`playback/dovi.py` 独立探测 HEVC Main10 解码、H.264 编码、Intel ANV Vulkan 及组合链路。合成 Main10 只证明运行环境，不证明实际片源 RPU、色彩或实时性能。P5 计划声明 `color_pipeline=dovi_p5_sdr`、`color_revision=1`、`encoder_backend=vaapi`，缺少专用能力时返回 `blocked`；TV 原生杜比直通保留原判定。
+
+固定链路为原生 HEVC 解码器使用 VAAPI 保留 Main10 surface 和 RPU，裁剪后通过 `showinfo@dovi_input=checksum=0` 审计原始 PTS、时长和 RPU，再由 libplacebo 直接导入 VAAPI 帧完成杜比映射和 BT.709、有限范围 NV12 输出，上传回同一 VAAPI 设备编码。转色前不普通缩放、降位深或转 RGB；输出保持帧率，使用 `-fps_mode passthrough`、关闭 B 帧。FFmpeg 7.1 的 `setpts` 会清空帧时长与滤镜帧率，因此视频在编码后通过 `setts` 仅平移包 PTS/DTS；审计使用相同的裁剪偏移和整数 tick 规则，音频继续减去共同原点。进度通过独立 stdout 管道读取，避免插入 stderr 的多行 RPU 记录。审计仅允许将精确匹配受控相对文件名的 HLS `Opening` 状态消息从日志中分离，并要求同一 showinfo 实例继续提供全部原始字节；完整逻辑行仍逐字段校验。未知交错、缺少续行、截断和错误日志均停止发布。Intel Vulkan 和 iHD 环境只注入该 FFmpeg 子进程，libplacebo 私建 Vulkan，不影响缩略图的 llvmpipe。
+
+P5 只支持 fMP4，不允许烧录字幕或转入 TS／MP4 回退。全部音轨保留为 AAC rendition，与视频精确裁剪到同一 seek 位置，文字及 PGS 字幕继续客户端渲染。seek 先预解码目标前 15 秒，恢复失败最多重试 30 秒，每次限时 45 秒；不能筛去缺少 RPU 的帧后继续发布。
+
+产物先写私有目录，逐帧审计与 fMP4 样本时间核对成功后才发布完整分片和播放列表；日志不完整、元数据损坏或帧不能一一对应时停止，音频不能超出已验证视频的边界。缓存完成标记和静态取流沿用同一发布守卫。P5 管线、修订、实际高度和编码后端进入产物键，预读重试长度不进入键；普通影片的键和全局版本保持兼容。
+
+`DOVI_AUTO_HEIGHT` 默认 720，1080 需要目标服务器实片验收后配置。自动档持续处理不足且缓冲偏低时只降至 720 一次，不自动升回；无法实时或正确转色时停止并提供兼容版本、复制直链入口。合成检查、代码回归和浏览器模拟均不能代替目标 NAS 的颜色、CPU、处理速度、30 分钟连续播放及 seek 声画验收。
 
 ### 按需生成窗口
 
@@ -118,6 +132,8 @@ playlist/分片读取和心跳都认领并保活；未认领会话宽限 90 秒�
 ## Android TV 与观看进度
 
 Android TV 使用协议 1 握手和 `client=android_tv`，显式声明原生容器、HLS、音轨选择、HDR 和逐片解码能力，不借用网页的 `mse/native_hls` 判定。源文件可解且容器可读时可直接播放 MKV；HLS copy 仍受设备声明的 `hls_audio` 约束。文本字幕使用 WebVTT；声明 `subtitles.ass=true` 的 APK 通过现有 `.ass` 和字体接口使用原生 libass 渲染 ASS/SSA，保留字体、样式、位置和动画，失败时提示并回退同轨 WebVTT。旧 APK 或旧服务端继续使用兼容文本路径，图片字幕烧录。原生 HLS 的起播仍严格区分 `media_start` 与 `initial_time`，详细协议在仓库 `android-tv/docs/protocol.md`。
+
+Android TV 对 P5 按实际片源规格检测原生 Dolby Vision 硬件解码器与杜比显示能力，通过后沿用 `hdr_formats` 声明，允许 NAS 只发送原视频。P5 若需要视频重编码则阻止播放，不使用普通 HDR10 转色回退；新版 APK 连接旧服务端时也会在创建会话前守卫，并校验实际选中轨道仍是受支持的 P5 Dolby Vision 格式。自动／原画画质、文本字幕及仅音频转换可保留原视频；图片字幕烧录和降分辨率需要兼容版本。P7 与普通 HDR 判定保持原有行为，实际电视颜色和连续播放仍需专项验证。
 
 服务端 `app/playback_completion.py`、网页 `frontend/src/progress.js` 和 APK `PlaybackModels.kt` 统一完成条件：已播至少 95%，或已播至少 80% 且剩余不超过 300 秒。非法位置、未知时长和非有限数不算完成。3 分钟短片在第 60 秒暂停仍应继续观看，第 144 秒才满足条件；阈值不等同于播放器真正触发 ended/下一集。剧集最近播放项的 `id/show_id` 是剧 ID，续播使用 `progress.version_id` 的分集 ID，并传 `kind=episode`。
 

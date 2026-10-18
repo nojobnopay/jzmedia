@@ -66,15 +66,18 @@ const harnessSource = `
 import {createApp, h, ref} from ${JSON.stringify(path.join(root, 'frontend/node_modules/vue/dist/vue.runtime.esm-bundler.js'))};
 import PlayerModal from ${JSON.stringify(path.join(root, 'frontend/src/components/PlayerModal.vue'))};
 createApp({setup() {
-  const mode=ref(''), player=ref(null), watched=ref(0), ended=ref(0);
+  const mode=ref(''), player=ref(null), watched=ref(0), ended=ref(0), doviVersion=ref(83);
   window.testPlayerEvents={watched,ended};
   return () => h('main', [
     h('button',{onClick:()=>mode.value='preview'},'打开预览播放器'),
     h('button',{onClick:()=>mode.value='normal'},'打开普通播放器'),
     h('button',{onClick:()=>mode.value='ass'},'打开 ASS 播放器'),
+    h('button',{onClick:()=>{doviVersion.value=83;mode.value='dovi'}},'打开杜比错误播放器'),
     h('output',{id:'player-events'},'watched='+watched.value+';ended='+ended.value),
-    mode.value ? h(PlayerModal,{key:mode.value,ref:player,versionId:mode.value==='ass'?82:81,title:'合成测试视频',preview:mode.value!=='normal',
+    mode.value ? h(PlayerModal,{key:mode.value==='dovi'?'dovi:'+doviVersion.value:mode.value,ref:player,
+      versionId:mode.value==='dovi'?doviVersion.value:mode.value==='ass'?82:81,title:'合成测试视频',preview:!['normal','dovi'].includes(mode.value),
       onClose:async()=>{await player.value?.saveFinal();mode.value=''},
+      onVersionChange:async version=>{await player.value?.saveFinal();doviVersion.value=version.id},
       onWatched:()=>watched.value++,onEnded:()=>ended.value++}) : null,
   ])
 }}).mount('#app');`
@@ -440,6 +443,164 @@ async function checkPlaybackCompatibility(browser, base) {
     await page.locator('.player-dlg').waitFor({ state: 'hidden' })
     await page.waitForFunction(() => window.compatVideo.paused && !window.compatVideo.hasAttribute('src'))
     assert.equal(deleted.length, created.length, '兼容回退及关窗回收全部 sid（含预取）')
+  } finally { await context.close() }
+}
+
+async function checkDoviFailure(browser, base) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' })
+  const directory = path.join(root, 'output/playwright/dovi-player')
+  const sessionRequests = [], decisions = [], versionRequests = [], checks = []
+  await mkdir(directory, { recursive: true })
+  let page, currentWidth = 1440
+  try {
+    await context.addInitScript(() => {
+      window.doviCopiedLinks = []
+      window.doviClipboardDenied = false
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+        writeText: async text => {
+          if (window.doviClipboardDenied) throw new Error('synthetic clipboard restriction')
+          window.doviCopiedLinks.push(text)
+        },
+      } })
+      document.execCommand = () => false
+    })
+    await context.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort())
+    await context.route(/\/api\/stream\/(83|84)\/decide$/, async route => {
+      const id = Number(new URL(route.request().url()).pathname.split('/')[3])
+      decisions.push(id)
+      const p5 = id === 83
+      await route.fulfill({ json: {
+        method: p5 ? 'blocked' : 'direct', direct_url: directFixtureUrl,
+        reasons: p5 ? ['dovi_p5_unavailable'] : [],
+        plan: p5 ? { seg: 'fmp4', height: 1080, vcopy: false,
+          color_pipeline: 'dovi_p5_sdr', encoder_backend: 'vaapi' } : {},
+        media: { width: p5 ? 3840 : 320, height: p5 ? 2160 : 180,
+          duration: 1200, dv_profile: p5 ? 5 : 0, vcodec: p5 ? 'hevc' : 'h264',
+          bit_depth: p5 ? 10 : 8, audio: [], subs: [] },
+      } })
+    })
+    await context.route('**/api/stream/versions', async route => {
+      const body = route.request().postDataJSON()
+      versionRequests.push(body)
+      assert.equal(body.movie_id, 83)
+      assert.equal(body.kind, 'movie')
+      await route.fulfill({ json: { best_version_id: 84, versions: [
+        { version_id: 83, playable: true, method: 'blocked', dv_profile: 5,
+          file_path: '/synthetic/dovi-p5.mkv' },
+        { version_id: 84, playable: true, method: 'direct', dv_profile: 0,
+          file_path: '/synthetic/compatible.mp4' },
+      ] } })
+    })
+    await context.route(/\/api\/stream\/(?:\d+\/sessions|sessions\/)/, async route => {
+      sessionRequests.push({ url: route.request().url(), method: route.request().method() })
+      await route.fulfill({ status: 422, json: { detail: 'synthetic P5 scenario must never create or recover a session' } })
+    })
+    page = await context.newPage()
+    page.setDefaultTimeout(12000)
+    page.on('pageerror', error => errors.push(String(error)))
+    await page.clock.install()
+    await page.goto(base + '/player-harness.html')
+    for (const width of [1440, 390, 320]) {
+      currentWidth = width
+      await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+      await page.evaluate(() => { window.doviClipboardDenied = false })
+      await page.getByRole('button', { name: '打开杜比错误播放器', exact: true }).click()
+      const alert = page.getByRole('alert').filter({ hasText: '服务器暂时无法正确、流畅地转换此杜比视界版本' })
+      await alert.waitFor()
+      const copy = alert.getByRole('button', { name: '复制直链', exact: true })
+      const compatible = alert.getByRole('button', { name: '播放兼容版本', exact: true })
+      await compatible.waitFor()
+      assert.equal(await page.getByRole('region', { name: '播放设置', exact: true }).count(), 0,
+        'P5 recovery actions must be accessible directly in the error card')
+      await copy.click()
+      assert.equal(await page.evaluate(() => window.doviCopiedLinks.at(-1)), new URL(directFixtureUrl, base).href)
+      assert.match(await alert.getByRole('status').textContent(), /直链已复制/)
+      assert.equal(await page.locator('.resume-bar, .player-toast').count(), 0,
+        'P5 error feedback must stay in the card without floating resume or copy overlays')
+      await page.evaluate(() => { window.doviClipboardDenied = true })
+      await copy.click()
+      const field = alert.getByRole('textbox', { name: '播放直链', exact: true })
+      await field.waitFor()
+      assert.equal(await field.inputValue(), new URL(directFixtureUrl, base).href)
+      assert.equal(await field.getAttribute('readonly'), '')
+      await field.focus()
+      const selection = await field.evaluate(element => ({ focused: document.activeElement === element,
+        start: element.selectionStart, end: element.selectionEnd, length: element.value.length }))
+      assert.ok(selection.focused && selection.start === 0 && selection.end === selection.length,
+        `${width}px manual-copy input must be focusable and select the complete link`)
+      const geometry = await alert.evaluate(element => {
+        const bounds = element.getBoundingClientRect()
+        function visibleText(node) {
+          const rect = node.getBoundingClientRect()
+          let top = 0, bottom = innerHeight, left = 0, right = innerWidth
+          for (let ancestor = node.parentElement; ancestor; ancestor = ancestor.parentElement) {
+            const style = getComputedStyle(ancestor), clip = ancestor.getBoundingClientRect()
+            if (/auto|scroll|hidden|clip/.test(style.overflowY)) {
+              top = Math.max(top, clip.top); bottom = Math.min(bottom, clip.bottom)
+            }
+            if (/auto|scroll|hidden|clip/.test(style.overflowX)) {
+              left = Math.max(left, clip.left); right = Math.min(right, clip.right)
+            }
+            // This fixed modal is rooted in the viewport. The short, ordinary
+            // document-flow body/app boxes do not clip its descendants.
+            if (ancestor.classList.contains('player-mask')) break
+          }
+          return { height: rect.height, top: rect.top, bottom: rect.bottom,
+            fullyVisible: rect.height > 0 && rect.top >= top - 1 && rect.bottom <= bottom + 1
+              && rect.left >= left - 1 && rect.right <= right + 1,
+            textFits: node.scrollHeight <= node.clientHeight + 1 }
+        }
+        const corner = element.closest('.pv-wrap').querySelector('.player-corner-controls').getBoundingClientRect()
+        return { documentFits: document.documentElement.scrollWidth <= innerWidth,
+          cardFits: element.scrollWidth <= element.clientWidth + 1,
+          left: bounds.left, right: bounds.right, top: bounds.top, cornerBottom: corner.bottom,
+          title: visibleText(element.querySelector(':scope > strong')),
+          reason: visibleText(element.querySelector(':scope > p:not(.error-feedback)')),
+          actions: [...element.querySelectorAll('button, input')].map(action => {
+            const rect = action.getBoundingClientRect()
+            const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+            return { label: action.getAttribute('aria-label') || action.textContent.trim(),
+              inside: rect.left >= bounds.left && rect.right <= bounds.right + 1,
+              unobscured: hit === action || action.contains(hit),
+              width: rect.width, height: rect.height }
+          }) }
+      })
+      assert.ok(geometry.documentFits && geometry.cardFits && geometry.left >= 0 && geometry.right <= width + 1,
+        `${width}px P5 error card must not overflow horizontally: ${JSON.stringify(geometry)}`)
+      assert.ok(geometry.title.fullyVisible && geometry.title.textFits
+        && geometry.reason.fullyVisible && geometry.reason.textFits,
+      `${width}px P5 title and reason must have their full height inside the visible clipping region: ${JSON.stringify(geometry)}`)
+      assert.ok(geometry.top >= geometry.cornerBottom + 8,
+        `${width}px P5 error card must leave room below the corner controls`)
+      assert.ok(geometry.actions.every(action => action.inside && action.unobscured && action.width > 0 && action.height > 0),
+        `${width}px P5 recovery actions must remain visible and receive pointer events: ${JSON.stringify(geometry.actions)}`)
+      assert.equal(await page.locator('.resume-bar, .player-toast').count(), 0,
+        'Manual-copy feedback must not cover the error actions')
+      assert.equal(sessionRequests.length, 0, 'A blocked P5 plan must not attempt a compatibility transcode')
+      await page.screenshot({ path: path.join(directory, `failure-${width}.png`), animations: 'disabled' })
+      await compatible.click()
+      await page.waitForFunction(() => window.__jzPlayerDebug?.().version === 84
+        && window.__jzPlayerDebug().engine === 'direct' && document.querySelector('video')?.readyState >= 2)
+      assert.ok(decisions.includes(84), 'The existing version-change event must mount the compatible version')
+      assert.equal(await page.getByRole('alert').count(), 0)
+      assert.equal(await page.locator('video').evaluate(video => new URL(video.currentSrc).pathname), '/fixtures/video.mp4')
+      await page.evaluate(() => { window.closedDoviVideo = document.querySelector('video') })
+      await page.getByRole('button', { name: '关闭播放器', exact: true }).click()
+      await page.locator('.player-dlg').waitFor({ state: 'hidden' })
+      const decisionsAtClose = decisions.length
+      await page.clock.fastForward(30000)
+      assert.equal(await page.evaluate(() => window.closedDoviVideo.paused && !window.closedDoviVideo.hasAttribute('src')), true)
+      assert.equal(decisions.length, decisionsAtClose, 'Closing must not trigger another playback decision')
+      assert.equal(sessionRequests.length, 0, 'Closing must not create or recover a P5 session')
+      checks.push({ width, geometry, copySucceeded: true, manualSelection: selection,
+        compatibleVersion: 84, closedWithoutRecovery: true })
+    }
+    assert.equal(versionRequests.length, 3, 'Only the three blocked P5 instances need version discovery')
+    await writeFile(path.join(directory, 'checks.json'), JSON.stringify({ mocked: true, syntheticMedia: true,
+      realVue: true, sessionRequests, checks }, null, 2) + '\n')
+  } catch (error) {
+    await page?.screenshot({ path: path.join(directory, `unexpected-${currentWidth}.png`), fullPage: true }).catch(() => {})
+    throw error
   } finally { await context.close() }
 }
 
@@ -3133,6 +3294,7 @@ try {
   assert.ok(progressRequests().some(r => r.method === 'POST' && r.body.position === 1140), 'ordinary playback saves progress')
   await playerPage.close()
   await checkPlaybackCompatibility(browser, base)
+  await checkDoviFailure(browser, base)
   await checkMp4Compatibility(browser, base)
   await checkAssFullscreen(browser, base)
   await context.close()

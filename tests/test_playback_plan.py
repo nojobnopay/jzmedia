@@ -14,6 +14,7 @@ from app.routers.stream import _plan_marker, _quality_key, _session_key
 def _no_hw(monkeypatch):
     monkeypatch.setattr(pb_backend, "hw_backend", lambda: "")
     monkeypatch.setattr(pb_backend, "hw_can_tonemap", lambda: False)
+    monkeypatch.setattr(pb_backend, "dovi_capabilities", lambda: {"available": False})
 
 
 @pytest.fixture()
@@ -151,11 +152,13 @@ def test_native_hls_passthrough_hdr():
     assert d["method"] == "direct"
 
 
-def test_dv_profile5_blocked_even_with_pq_decode():
+def test_dv_profile5_blocked_even_with_pq_decode(monkeypatch):
+    monkeypatch.setenv("DOVI_P5_WEB_ENABLED", "true")
     d = pb.plan(_hevc10_media(dv_profile=5, dv_bl_compat=0),
                 caps=_caps_hevc10(hdr_decode=True))
-    assert d["method"] == "video_transcode"
+    assert d["method"] == "blocked"
     assert "dovi_not_supported" in d["reasons"]
+    assert "dovi_p5_unavailable" in d["reasons"]
 
 
 def test_caps_normalize_keeps_hdr_decode_bool():
@@ -172,8 +175,9 @@ def test_dv_compat2_treated_as_sdr():
 
 def test_dv_profile5_blocks_direct():
     d = pb.plan(_media(dv_profile=5, dv_bl_compat=0), caps=_caps())
-    assert d["method"] == "video_transcode"
+    assert d["method"] == "blocked"
     assert "dovi_not_supported" in d["reasons"]
+    assert "dovi_p5_source_unsupported" in d["reasons"]
 
 
 def test_vobsub_forces_burn():
@@ -274,11 +278,12 @@ def test_quality_source_uncapped_with_reason():
     assert "source_transcode" in d["reasons"]
 
 
-def test_dovi_no_base_reason_when_tonemapping_with_hw(hw_on):
+def test_generic_hdr_hardware_does_not_enable_p5_tonemapping(hw_on):
     d = pb.plan(_media(dv_profile=5, dv_bl_compat=0), caps=_caps())
-    assert d["plan"]["tonemap"] is True
-    assert "dovi_no_base_tonemap" in d["reasons"]
-    assert "hdr_no_tonemap" not in d["reasons"]
+    assert d["method"] == "blocked"
+    assert d["plan"]["tonemap"] is False
+    assert "dovi_no_base_tonemap" not in d["reasons"]
+    assert "dovi_p5_source_unsupported" in d["reasons"]
 
 
 def test_native_hls_keeps_direct_for_non_default_audio():

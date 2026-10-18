@@ -27,13 +27,12 @@ services:
     volumes:
       - "${MEDIA_HOST_PATH:-./media}:/app/media:rw"
       - "${DATA_HOST_PATH:-./data}:/app/data"
-    # NAS 硬件转码（Intel QSV/VAAPI：DS425+ 等）：取消下面注释，填实际组号或用可选 .env 配置
-    # （DSM 上 `stat -c '%g' /dev/dri/renderD128` 取 render 组 id，通常 109；video 组 44）
+    # Intel 硬件转码：在宿主 stat -c '%g' /dev/dri/renderD128 核对实际组号后启用。
+    # 仅映射 render 节点，无需 privileged 或修改宿主设备权限。
     # devices:
-    #   - /dev/dri:/dev/dri
+    #   - /dev/dri/renderD128:/dev/dri/renderD128
     # group_add:
-    #   - "${VIDEO_GID:-44}"
-    #   - "${RENDER_GID:-109}"
+    #   - "${RENDER_GID}"
     # NVIDIA NVENC：按 docs/getting-started/configuration.md 叠加 compose.nvidia.yml。
     # 应用内挂载 SMB/NFS 远程库（C 阶段）：需要 CAP_SYS_ADMIN（容器内 mount）。
     # DSM/群晖 的 AppArmor 可能仍拦截，必要时改用 privileged: true；不需要应用内挂载

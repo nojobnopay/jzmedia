@@ -140,7 +140,7 @@
     @close="orgHint = null" @settings="goOrgSettings" @finished="onOrganized" />
   <PlayerModal v-if="playing" :key="playing.kind + ':' + playing.id"
     :version-id="playing.id" :title="playing.label" :kind="playing.kind"
-    @close="playing = null" @watched="onWatched" @ended="onEnded" />
+    @close="playing = null" @watched="onWatched" @ended="onEnded" @version-change="playing = $event" />
 </template>
 
 <script setup>

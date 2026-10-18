@@ -1,5 +1,5 @@
 ---
-version: 0.28.1
+version: 0.29.1
 reviewed: 2026-10-18
 ---
 
@@ -193,6 +193,10 @@ POST /api/tv/bindings/apply {"token": "…"}   # 用户确认上述预览后执�
 TV 客户端对 `versions/decide/sessions/prewarm` 显式传 `client:"android_tv"` 及原生 `caps`，旧客户端省略 `client` 仍按 web 处理。具体容器、HDR、音轨和逐片格式能力字段见仓库 `android-tv/docs/protocol.md`。`GET /api/tv-client/search` 支持 `q/kind/media_library/limit/offset`；演员 `/actors` 与 `/actor-works` 使用同一媒体库范围，作品查询中的 `actor` 为服务器返回的不透明 key。
 
 每次 `POST /api/stream/{id}/sessions` 返回独立 `session_id`，相同输出共享转码任务和成品；DELETE 只释放该 sid。创建会话请求可带成对的 `client_id`（16–64 位字母、数字、`_`、`-`）与递增整数 `request_seq`：同一播放器的新请求撤销旧请求，过期请求返回 409。新产物占满 `MAX_TRANSCODES` 时返回 429，不能关闭其他设备来腾出名额。时间轴、复用及回收约定见[播放设计](playback.md#会话时间轴与清理)。
+
+P5 专用计划通过 `plan.color_pipeline="dovi_p5_sdr"`、`color_revision`、`decoder`、`tone_mapper` 和 `encoder_backend` 标识实际转换路径；`height` 仍表示实际输出高度。会话创建可额外传 `auto_max_height:720`，仅限制 P5 自动画质的输出，其他画质和视频不受影响。客户端应在同一播放器内保留这一降档上限，避免自动升回 1080p。
+
+`GET /api/stream/backends` 的 `dovi_p5.enabled` 表示网页试验开关（默认关闭），`experimental:true` 标记试验状态，`available` 仅表示硬件能力。关闭时网页计划返回 `blocked/dovi_p5_web_disabled`，电视原视频不受影响。`dovi_p5` 分别给出 HEVC Main10 解码、H.264 编码、Intel Vulkan 和组合链的检查结果；`validated_real_p5:false` 表示合成能力检查不能代替实际片源验收。P5 会话心跳和诊断增加 `processing_speed`、实际解码／转色／编码后端，以及 `failure_code`、中文 `failure_reason` 和可选的 `recommended_height:720`。自动 1080p 因性能失败时可降档一次；`dovi_metadata_invalid`、`dovi_pipeline_unavailable` 或 720p 再次失败应停止，不进入普通软件转码或封装兼容重试。
 
 `POST /api/stream/sessions/{sid}/ping` 认领并保活当前 sid，可省略请求体，兼容已有客户端；新客户端可传可选字段 `position`、`paused` 和 `playback_rate`。`position` 为原片绝对秒数，不是 HLS 片内时间，需为非负有限值；`paused` 为布尔值，`playback_rate` 范围为 0.25～4。服务端结合视频分片需求控制提前生成窗口，不修改持久观看进度；仅发送旧式空心跳时，仍可按实际视频分片请求推进需求。窗口与预缓存共享规则见[按需生成窗口](playback.md#按需生成窗口)。
 

@@ -64,7 +64,9 @@ object NativeCapabilities {
         }
         if (media != null) {
             val videoMime = videoMimes[media.optString("vcodec")]
-            if (videoMime != null) probeStrings(media.optJSONArray("vcaps"), videoMime)
+            if (videoMime != null && !DolbyVisionCapabilities.isP5Source(media)) {
+                probeStrings(media.optJSONArray("vcaps"), videoMime)
+            }
             val tracks = media.optJSONArray("audio") ?: JSONArray()
             for (i in 0 until tracks.length()) {
                 val track = tracks.optJSONObject(i) ?: continue
@@ -75,12 +77,45 @@ object NativeCapabilities {
             }
         }
         val hdr = JSONArray()
+        val display = runCatching {
+            val displays = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+            displays?.getDisplay(Display.DEFAULT_DISPLAY)
+        }.getOrNull()
+        val displayHdrTypes = if (Build.VERSION.SDK_INT >= 24) runCatching {
+            display?.hdrCapabilities?.supportedHdrTypes ?: intArrayOf()
+        }.getOrDefault(intArrayOf()) else intArrayOf()
         if (Build.VERSION.SDK_INT >= 24 && video.optBoolean("hevc10")) {
-            val display = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(Display.DEFAULT_DISPLAY)
-            val supported = display?.hdrCapabilities?.supportedHdrTypes ?: intArrayOf()
+            val supported = displayHdrTypes
             if (Display.HdrCapabilities.HDR_TYPE_HDR10 in supported) hdr.put("hdr10")
             if (Display.HdrCapabilities.HDR_TYPE_HLG in supported) hdr.put("hlg")
         }
+        val displaySupportsDolbyVision = Build.VERSION.SDK_INT >= 24 && runCatching {
+            display != null && (Build.VERSION.SDK_INT < 26 || display.isHdr) &&
+                Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION in displayHdrTypes
+        }.getOrDefault(false)
+        val p5Supported = DolbyVisionCapabilities.supportsP5(
+            media,
+            displaySupportsDolbyVision,
+        ) { source ->
+            val format = Format.Builder()
+                .setSampleMimeType(DolbyVisionCapabilities.MIME_TYPE)
+                .setCodecs(source.codecs)
+                .setWidth(source.width).setHeight(source.height)
+                .setFrameRate(source.frameRate.toFloat())
+                .build()
+            // Do not soft-match HEVC: Profile 5 has no HDR10-compatible base
+            // layer. Media3 supplies the vendor aliases and pre-API-29 hardware
+            // classification. A level inferred for an older server is only a
+            // capability preflight; Media3 validates the extracted track's real
+            // profile/level and geometry again before actual playback.
+            MediaCodecUtil.getDecoderInfos(DolbyVisionCapabilities.MIME_TYPE, false, false).any { decoder ->
+                decoder.mimeType == DolbyVisionCapabilities.MIME_TYPE && decoder.hardwareAccelerated && !decoder.softwareOnly &&
+                    runCatching { decoder.isFormatSupported(context, format) }.getOrDefault(false)
+            }
+        }
+        if (p5Supported) hdr.put("dolby_vision")
+        // A separate DV decoder can support a source rejected by generic HEVC.
+        DolbyVisionCapabilities.applySourceVideoSupport(media, video, probes, p5Supported)
         return JSONObject()
             .put("video", video).put("audio", audio).put("probes", probes)
             .put("containers", JSONObject().apply {

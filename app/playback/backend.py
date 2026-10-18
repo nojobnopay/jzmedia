@@ -5,7 +5,13 @@ from ..log import get_logger
 
 logger = get_logger("playback.backend")
 
-__all__ = ['hw_backend', 'hw_can_tonemap']
+__all__ = ['hw_backend', 'hw_can_tonemap', 'dovi_capabilities']
+
+
+def dovi_capabilities(refresh: bool = False) -> dict:
+    """P5 所需各硬件阶段；与通用 H.264 编码探测分开缓存。"""
+    from . import dovi
+    return dovi.capabilities(refresh=refresh)
 
 def hw_backend() -> str:
     """当前转码后端名（''=软件；qsv/vaapi/nvenc）。

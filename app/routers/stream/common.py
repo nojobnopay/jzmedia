@@ -106,6 +106,7 @@ def _write_session_meta(sdir: str, sid: str, vid: int, proc, backend: str,
         with open(os.path.join(sdir, _SESSION_META), "w", encoding="utf-8") as fh:
             json.dump({"sid": sid, "vid": int(vid), "pid": int(proc.pid),
                        "backend": backend, "attempt": attempt,
+                       "workdir": getattr(proc, '_jz_work_dir', sdir),
                        "started_at": int(time.time())}, fh, sort_keys=True)
     except OSError as e:
         logger.debug("write session meta failed dir=%s: %s", sdir, e)
@@ -151,7 +152,11 @@ def _reap_orphans() -> int:
                     cwd = os.readlink(f"/proc/{pid}/cwd")
                 except OSError:
                     cwd = ""
-                if cwd and os.path.realpath(cwd) == os.path.realpath(sdir):
+                workdir = os.path.realpath(str(m.get('workdir') or sdir))
+                base = os.path.realpath(sdir)
+                permitted = (workdir == base or (os.path.dirname(workdir) == base
+                             and os.path.basename(workdir).startswith('.dovi-')))
+                if cwd and permitted and os.path.realpath(cwd) == workdir:
                     try:
                         os.kill(pid, signal.SIGKILL)
                         killed += 1
@@ -632,6 +637,16 @@ def _drop_session(sid: str, kill: bool = True, *, expired_at: float | None = Non
             proc = sess.get("proc")
     if task is not None:
         _kill_proc(proc)
+        # A P5 worker may still be atomically publishing after its process exits.
+        # Keep its directory reserved until every publisher/log writer has stopped.
+        worker = task.get('dovi_thread')
+        if worker is not None and worker is not threading.current_thread():
+            worker.join(timeout=5)
+            if worker.is_alive():
+                return
+        if task.get('dovi') and not task['done'].is_set():
+            # Its exit observer still owns private cleanup and the reservation.
+            return
         with _sess_lock:
             _release_task_slot(task)
             if proc is None or proc.poll() is not None:
@@ -869,6 +884,16 @@ def _session_complete(sdir: str, plan_key: str) -> bool:
     仅凭 ENDLIST 不够——被杀的残缺会话也会写 ENDLIST（SIGTERM 时 ffmpeg 会写 trailer）。"""
     if not os.path.isfile(os.path.join(sdir, "complete.json")):
         return False
+    try:
+        p5 = (json.loads(plan_key).get('plan') or {}).get('color_pipeline') == 'dovi_p5_sdr'
+    except (ValueError, AttributeError):
+        p5 = False
+    if p5 and not _marker_matches(sdir, plan_key, 'dovi-verified.json'):
+        return False
+    if p5:
+        from .dovi_publish import publication_complete
+        if not publication_complete(sdir):
+            return False
     try:
         mp4 = (json.loads(plan_key).get("plan") or {}).get("seg") == "mp4"
     except (ValueError, AttributeError):

@@ -75,7 +75,7 @@
   </div>
 
   <PlayerModal v-if="playing" :key="'episode:' + playing.id" :version-id="playing.id" :title="playing.label"
-    kind="episode" @close="playing = null" @watched="onWatched" @ended="onWatched" />
+    kind="episode" @close="playing = null" @watched="onWatched" @ended="onWatched" @version-change="playing = $event" />
   </div>
 </template>
 

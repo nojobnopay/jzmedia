@@ -149,7 +149,8 @@
     </div>
 
     <PlayerModal v-if="playVid" :key="'movie:' + playVid" ref="playerRef" :versionId="playVid" :title="playTitle"
-      kind="movie" @close="closeStream" @watched="onPlayEnded" />
+      kind="movie" @close="closeStream" @watched="onPlayEnded"
+      @version-change="openStream({ id: $event.id, file_path: $event.label })" />
 
     <div v-if="posterDlg" class="dlg-mask" @click.self="closePoster">
       <div ref="posterDlgRef" class="dlg pv-dlg poster-dlg" role="dialog" aria-modal="true">

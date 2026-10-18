@@ -115,6 +115,12 @@ def build_cmd(abs_path: str, plan: dict,
     plan = plan or {}
     if "://" not in abs_path:   # 远程直读输入是内网 URL，不能 abspath（指导 §10/§11）
         abs_path = os.path.abspath(abs_path)  # cwd=会话目录执行，输入须绝对化
+    from . import dovi
+    if dovi.is_p5_plan(plan):
+        if (force_sw or plan.get("vcopy") or plan.get("sub") == "burn"
+                or (plan.get("seg") or seg_type()) != "fmp4"):
+            raise ValueError("P5 requires audited hardware fMP4 playback without subtitle burn")
+        return _build_cmd_fmp4(abs_path, plan, start, seg_time or 4)
     backend = None
     if not plan.get("vcopy"):
         from .. import transcode
@@ -178,12 +184,25 @@ def _build_cmd_fmp4(abs_path: str, plan: dict,
     height = int(plan.get("height") or 0)
     burn_sub = _is_burn(plan)
     variants = list(plan.get("audios") or [])[:MAX_AUDIO_RENDITIONS]
+    from . import dovi
+    p5 = dovi.is_p5_plan(plan)
     if burn_sub:
         vcopy = False  # 烧录必须重编码
-    cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error"]
-    trim_after, pre = _seek_args(cmd, vcopy, start)
+    cmd = [ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "repeat+info" if p5 else "error"]
+    if p5:
+        cmd += ["-nostdin", "-nostats", "-progress", "pipe:1", "-stats_period", "1",
+                "-filter_threads", "1"]
+        st = max(0.0, float(start or 0))
+        preroll = 30.0 if plan.get("dovi_preroll") == 30 else 15.0
+        pre = max(0.0, st - preroll)
+        trim_after = st - pre
+        if pre:
+            cmd += ["-ss", f"{pre:.6f}"]
+        cmd += dovi.input_args()
+    else:
+        trim_after, pre = _seek_args(cmd, vcopy, start)
     # 输入侧硬件参数（-hwaccel/-vaapi_device 必须在 -i 之前；烧录走软件滤镜图）
-    if not vcopy and backend is not None:
+    if not p5 and not vcopy and backend is not None:
         cmd += backend.input_args(burn=burn_sub)
     # 输入侧 genpts：-ss 跳转后缺/乱 PTS 由 demuxer 补齐（放 -i 之前才生效）
     cmd += probe_limit_args(abs_path)   # 远程输入：限探测读取 + HTTP 读超时（本地无操作）
@@ -191,7 +210,7 @@ def _build_cmd_fmp4(abs_path: str, plan: dict,
     cmd += ["-fflags", "+genpts", "-i", abs_path]
     if burn_sub:
         _append_sub_input(cmd, plan, pre)
-    if trim_after > 0:
+    if trim_after > 0 and not p5:
         cmd += ["-ss", f"{trim_after:.3f}"]
     # 映射：视频（烧录走 overlay 滤镜输出）+ 全部音轨
     if burn_sub:
@@ -211,6 +230,9 @@ def _build_cmd_fmp4(abs_path: str, plan: dict,
         cmd += ["-c:v", "copy"]
         if norm_codec(str(plan.get("vcodec") or "")) == "hevc":
             cmd += ["-tag:v", "hvc1"]  # Apple/MSE 认 hvc1（hev1 部分客户端不认）
+    elif p5:
+        cmd += dovi.video_args(height, trim_after)
+        cmd += ["-force_key_frames", f"expr:gte(t,n_forced*{int(seg_time)})"]
     else:
         from .. import transcode as _tr
         _append_video_encoder(cmd, backend or _tr.software(), height,
@@ -219,6 +241,12 @@ def _build_cmd_fmp4(abs_path: str, plan: dict,
         cmd += ["-force_key_frames", f"expr:gte(t,n_forced*{int(seg_time)})"]
     # 音频编码：按 rendition 序号（a:N 指输出音频流序号）
     for n, a in enumerate(variants):
+        if p5:
+            # 音视频减去共同裁剪原点，保留迟入音轨及首视频帧量化的时间偏移。
+            # 过滤后不能 copy，所有 P5 音轨统一 AAC，保证时间轴可控。
+            cmd += [f"-filter:a:{n}", f"atrim=start={trim_after:.6f},asetpts=PTS-{trim_after:.6f}/TB",
+                    f"-c:a:{n}", "aac", f"-b:a:{n}", "192k", f"-ac:a:{n}", "2"]
+            continue
         if a.get("copy"):
             cmd += [f"-c:a:{n}", "copy"]
         else:
@@ -240,7 +268,7 @@ def _build_cmd_fmp4(abs_path: str, plan: dict,
             # temp_file：分片先写 .tmp 再原子改名，防半写分片被 hls.js 拉走
             "-hls_flags", "temp_file+independent_segments",
             # 时间戳归一：输入 -ss 后音视频起点常错位数秒，MSE 遇大跨度错位会黑屏/卡死
-            "-avoid_negative_ts", "make_zero",
+            "-avoid_negative_ts", "disabled" if p5 else "make_zero",
             "out_%v.m3u8"]
     return cmd
 

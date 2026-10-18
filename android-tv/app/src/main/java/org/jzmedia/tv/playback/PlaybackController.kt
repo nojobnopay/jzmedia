@@ -108,7 +108,9 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
 
     private val diagnostics = if (BuildConfig.DEBUG) PlaybackDiagnostics() else null
 
-    val player: ExoPlayer = ExoPlayer.Builder(appContext, PlaybackRenderersFactory(appContext))
+    val player: ExoPlayer = ExoPlayer.Builder(appContext, PlaybackRenderersFactory(appContext) {
+        DolbyVisionCapabilities.isP5Source(media)
+    })
         .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(http)))
         .setSeekBackIncrementMs(30_000)
         .setSeekForwardIncrementMs(30_000)
@@ -139,7 +141,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (disposed) return
+                    if (disposed || state.error != null) return
                     if (playbackState == Player.STATE_READY) ready = true
                     val ended = playbackState == Player.STATE_ENDED
                     state = state.copy(loading = playbackState == Player.STATE_BUFFERING || (!ready && playbackState != Player.STATE_ENDED), ended = ended)
@@ -162,17 +164,39 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 }
 
                 override fun onTracksChanged(tracks: Tracks) {
-                    if (!disposed && !tracks.isEmpty && state.audios.isNotEmpty() && !applyAudioTrack()) {
+                    if (!disposed && !tracks.isEmpty && state.error == null && DolbyVisionCapabilities.isP5Source(media)) {
+                        val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+                        val hasSelectedVideo = videoGroups.any { group ->
+                            (0 until group.length).any { group.isTrackSelected(it) }
+                        }
+                        val invalidDolbyTrack = videoGroups.any { group ->
+                            (0 until group.length).any { index ->
+                                val format = group.getTrackFormat(index)
+                                group.isTrackSelected(index) && (!group.isTrackSupported(index) ||
+                                    !isDolbyVisionP5Format(format.sampleMimeType, format.codecs))
+                            }
+                        }
+                        if (!hasSelectedVideo || invalidDolbyTrack) {
+                            // An extractor that only identifies HEVC would display P5 with wrong colours.
+                            stopDolbyVisionPlayback("播放器无法原生处理该片源的杜比格式，请选择兼容版本。")
+                            return
+                        }
+                    }
+                    if (!disposed && state.error == null && !tracks.isEmpty && state.audios.isNotEmpty() && !applyAudioTrack()) {
                         val current = generation
                         scope.launch {
-                            if (!disposed && current == generation) recoverAudioMapping()
+                            if (!disposed && state.error == null && current == generation) recoverAudioMapping()
                         }
                     }
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    if (!disposed) state = state.copy(loading = false, playing = false,
-                        error = "播放失败（${error.errorCodeName}），可重试或选择兼容播放")
+                    if (!disposed) {
+                        if (DolbyVisionCapabilities.isP5Source(media)) {
+                            stopDolbyVisionPlayback("该片源的杜比原生播放失败，请重试或选择兼容版本（${error.errorCodeName}）")
+                        } else state = state.copy(loading = false, playing = false,
+                            error = "播放失败（${error.errorCodeName}），可重试或选择兼容播放")
+                    }
                     Log.w("JzPlayback", "Playback error code=${error.errorCode}")
                 }
             })
@@ -251,6 +275,19 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
 
     private fun progressPath() = "/api/stream/progress?version_id=${request.id}&kind=${request.kind}"
 
+    private fun stopDolbyVisionPlayback(message: String) {
+        generation++
+        reload?.cancel()
+        initialHlsSeek = null
+        ready = false
+        state = state.copy(loading = false, playing = false, error = message)
+        val sid = sessionId
+        sessionId = null
+        closeSession(sid)
+        clearSubtitle()
+        player.stop()
+    }
+
     private fun trackList(items: JSONArray): List<MediaTrack> = (0 until items.length()).map { i ->
         val item = items.optJSONObject(i) ?: JSONObject()
         val title = listOf(item.optString("lang"), item.optString("title"), item.optString("codec"))
@@ -286,6 +323,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 val decision = api.postPlayback("/api/stream/${request.id}/decide", body(start))
                 ensureActive()
                 if (disposed || current != generation) return@launch
+                dolbyVisionPlaybackError(media, capabilities, decision)?.let { throw IOException(it) }
                 val method = decision.optString("method")
                 if (method == "blocked") throw IOException("这台电视暂不支持该片源，请选择兼容播放或其他版本")
                 val plan = decision.optJSONObject("plan") ?: JSONObject()

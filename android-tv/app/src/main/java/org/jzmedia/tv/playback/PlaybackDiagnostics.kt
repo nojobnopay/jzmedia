@@ -2,10 +2,12 @@ package org.jzmedia.tv.playback
 
 import android.util.Log
 import androidx.media3.common.Player
+import androidx.media3.common.Format
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 
 /** Debug builds only: distinguish source starvation from output stalls without logging media URLs. */
 @UnstableApi
@@ -39,6 +41,11 @@ internal class PlaybackDiagnostics : AnalyticsListener {
         eventTime: EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long,
     ) {
         log(eventTime, "videoDecoder=$decoderName initMs=$initializationDurationMs")
+    }
+
+    override fun onVideoInputFormatChanged(eventTime: EventTime, format: Format, decoderReuseEvaluation: DecoderReuseEvaluation?) {
+        log(eventTime, "videoFormat mime=${format.sampleMimeType} codecs=${format.codecs}" +
+            " size=${format.width}x${format.height} fps=${format.frameRate}")
     }
 
     override fun onAudioDecoderInitialized(

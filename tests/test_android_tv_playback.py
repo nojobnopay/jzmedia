@@ -151,11 +151,74 @@ def test_native_hdr_formats_are_independent(hdr, formats, expected):
 
 
 def test_native_dolby_vision_requires_explicit_format_or_compatible_base():
-    assert decide(media(dv_profile=5, dv_bl_compat=0))["method"] == "video_transcode"
+    p5 = media(vcodec="hevc", bit_depth=10, width=3840, height=1604,
+               dv_profile=5, dv_bl_compat=0)
+    result = decide(p5)
+    assert result["method"] == "blocked"
+    assert "dovi_not_supported" in result["reasons"]
+    assert "dovi_p5_native_transcode_unsupported" in result["reasons"]
+    assert result["plan"]["tonemap"] is False
     assert decide(media(dv_profile=8, dv_bl_compat=1))["method"] == "direct"
     assert decide(media(dv_profile=8, dv_bl_compat=2), native_caps(hdr_formats=[]))["method"] == "direct"
-    assert decide(media(dv_profile=5, dv_bl_compat=0),
-                  native_caps(hdr_formats=["dolby_vision"]))["method"] == "direct"
+    assert decide(p5, native_caps(hdr_formats=["dolby_vision"]))["method"] == "direct"
+
+
+@pytest.mark.parametrize("quality", ["720p", "1080p"])
+def test_native_p5_quality_reduction_blocks_instead_of_ordinary_video_encoding(quality):
+    result = decide(media(vcodec="hevc", bit_depth=10, height=1604, dv_profile=5),
+                    native_caps(hdr_formats=["dolby_vision"]), quality=quality)
+    assert result["method"] == "blocked"
+    assert "resolution_downscale" in result["reasons"]
+    assert "dovi_p5_native_transcode_unsupported" in result["reasons"]
+    assert result["plan"]["tonemap"] is False
+
+
+@pytest.mark.parametrize("hardware", [False, True])
+def test_native_p5_decoder_failure_cannot_use_generic_tonemap(monkeypatch, hardware):
+    monkeypatch.setattr(backend, "hw_backend", lambda: "vaapi" if hardware else "")
+    monkeypatch.setattr(backend, "hw_can_tonemap", lambda: hardware)
+    codec = 'video/mp4; codecs="hvc1.2.4.L153.B0"'
+    source = media(vcodec="hevc", bit_depth=10, dv_profile=5, vcaps=[codec])
+    result = decide(source, native_caps(hdr_formats=["dolby_vision"], probes={codec: False}))
+    assert result["method"] == "blocked"
+    assert "video_codec_not_supported" in result["reasons"]
+    assert "dovi_p5_native_transcode_unsupported" in result["reasons"]
+    assert result["plan"]["tonemap"] is False
+    assert "dovi_no_base_tonemap" not in result["reasons"]
+
+
+@pytest.mark.parametrize("codec", ["pgs", "vobsub"])
+def test_native_p5_picture_subtitles_cannot_trigger_wrong_color_burn(codec):
+    source = media(vcodec="hevc", bit_depth=10, dv_profile=5,
+                   subs=[{"codec": codec, "image": 1}])
+    result = decide(source, native_caps(hdr_formats=["dolby_vision"]), sub_idx=0)
+    assert result["method"] == "blocked"
+    assert result["subtitle_mode"] == "burn"
+    assert "image_subtitle_needs_burn" in result["reasons"]
+    assert "dovi_p5_native_transcode_unsupported" in result["reasons"]
+    assert result["plan"]["tonemap"] is False
+
+
+@pytest.mark.parametrize(("updates", "expected"), [
+    ({}, "direct"),
+    ({"container": "avi"}, "remux"),
+    ({"container": "avi", "audio": [{"codec": "truehd", "channels": 8}]}, "audio_transcode"),
+])
+def test_native_p5_preserves_video_for_existing_delivery_methods(monkeypatch, updates, expected):
+    monkeypatch.setenv("DOVI_P5_WEB_ENABLED", "false")
+    source = media(vcodec="hevc", bit_depth=10, dv_profile=5,
+                   subs=[{"codec": "subrip", "image": 0}], **updates)
+    result = decide(source, native_caps(hdr_formats=["dolby_vision"]), sub_idx=0)
+    assert result["method"] == expected
+    assert result["plan"]["vcopy"] is True
+    assert result["subtitle_mode"] == "webvtt"
+    assert "dovi_p5_native_transcode_unsupported" not in result["reasons"]
+
+
+def test_native_other_dolby_profiles_keep_existing_capability_decision():
+    result = decide(media(vcodec="hevc", bit_depth=10, dv_profile=7, dv_bl_compat=6),
+                    native_caps(hdr_formats=["dolby_vision"]))
+    assert result["method"] == "direct"
 
 
 @pytest.mark.parametrize("codec", ["ass", "ssa", "subrip", "webvtt"])

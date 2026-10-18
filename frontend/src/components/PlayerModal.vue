@@ -12,8 +12,8 @@
         </button>
       </header>
       <div ref="pvWrapEl" class="pv-wrap has-bar"
-        :class="{ 'hide-cursor': isFull && !overlayVisible }"
-        :style="videoPadding ? { paddingTop: videoPadding } : {}"
+        :class="{ 'hide-cursor': isFull && !overlayVisible, 'p5-error': p5Error }"
+        :style="videoPadding ? { paddingTop: p5Error ? '0px' : videoPadding } : {}"
         @pointermove="onMouseMove" @pointerdown="notePointerDown" @dblclick="onSurfaceDoubleClick"
         @focusin="onControlFocus" @focusout="onControlBlur">
         <video ref="videoEl" :key="videoKey" autoplay playsinline webkit-playsinline preload="metadata" class="player-video"
@@ -50,12 +50,19 @@
           <strong>{{ seekPending ? ('正在跳转到 ' + fmt(seekPos)) : '正在准备播放' }}</strong>
           <span>正在加载视频，请稍候</span>
         </div>
-        <div v-else-if="err" class="stage-state" @dblclick.stop>
-          <div class="status-card error-card" role="alert">
+        <div v-else-if="err" class="stage-state" :class="{ 'p5-error-stage': p5Error }" @dblclick.stop>
+          <div class="status-card error-card" :class="{ 'p5-error-card': p5Error }" role="alert">
             <PlayerIcon name="info" :size="30" />
             <strong>播放遇到问题</strong>
             <p>{{ err }}</p>
-            <JzButton size="compact" variant="primary" class="player-action" @click="reload">重新加载</JzButton>
+            <div class="prompt-actions">
+              <JzButton v-if="!p5Failed" size="compact" variant="primary" class="player-action" @click="reload">重新加载</JzButton>
+              <JzButton v-if="p5Playback" size="compact" :variant="p5Failed ? 'primary' : 'secondary'" class="player-action" @click="copyDirectLink">复制直链</JzButton>
+              <JzButton v-if="compatibleVersion" size="compact" class="player-action" @click="playCompatibleVersion">播放兼容版本</JzButton>
+            </div>
+            <p v-if="p5Error && posHint" class="error-feedback" role="status">{{ posHint }}</p>
+            <input v-if="p5Playback && directFailUrl" readonly :value="directFailUrl" class="error-copy-url" aria-label="播放直链"
+              @focus="$event.target.select()" @click="$event.target.select()" />
           </div>
         </div>
         <div v-else-if="needGesture || !isPlaying" class="stage-state pause-state"
@@ -69,12 +76,12 @@
         <div class="pv-top" :class="{ show: overlayVisible }" :aria-hidden="!isFull || !overlayVisible" @dblclick.stop>
           <div class="pv-heading"><span class="pd-eyebrow">正在播放</span><span class="pv-title">{{ title || ('版本 ' + versionId) }}</span></div>
         </div>
-        <div v-if="resumeOffer && !booting && !seekPending" class="resume-bar" @dblclick.stop>
+        <div v-if="resumeOffer && !booting && !seekPending && !p5Error" class="resume-bar" @dblclick.stop>
           <span>上次看到 <strong>{{ resumeOffer }}</strong></span>
           <JzButton size="compact" variant="primary" class="player-action" @click="resumePlay">继续观看</JzButton>
           <JzButton size="compact" class="player-action" @click="restartPlay">从头开始</JzButton>
         </div>
-        <div v-if="(posHint || sessStatus) && overlayVisible && !booting && !seekPending" class="player-toast" role="status" @dblclick.stop>{{ posHint || sessStatus }}</div>
+        <div v-if="(posHint || sessStatus) && overlayVisible && !booting && !seekPending && !p5Error" class="player-toast" role="status" @dblclick.stop>{{ posHint || sessStatus }}</div>
         <div v-if="!castHeld" class="pv-ctl" :class="{ show: !isFull || overlayVisible }"
           :inert="isFull && !overlayVisible" :aria-hidden="isFull && !overlayVisible" @dblclick.stop>
           <PlayerSeekbar :duration="decidedDuration" :manifest="previews.manifest.value" :buffered="bufferedSections"
@@ -127,6 +134,7 @@ import { api } from '../api.js'
 import { copyText } from '../clipboard.js'
 import { getCaps, probeStrings, withProbes, playbackSupport } from '../caps.js'
 import { compatibilityCaps, blockedPlaybackMessage, mediaErrorMessage } from '../playbackCompatibility.js'
+import { isDoviP5Playback, doviHeartbeatAction, compatiblePlaybackVersion } from '../doviPlayback.js'
 import { createMp4Queue, mp4ClipEnd, detachedMediaTimeline, loadMp4Blob, mp4AtEnd } from '../mp4Chunks.js'
 import { createSessionReleaser, createPlaybackHeartbeat, createPlaybackPageLifecycle, createExpiredSessionRecovery } from '../playbackLifecycle.js'
 import { createDropGuard, tickDropGuard, isCopyVideoPath } from '../dropGuard.js'
@@ -164,7 +172,7 @@ const kindParam = computed(() => isEpisode.value ? '?kind=episode'
   : (isExtra.value ? '?kind=extra' : ''))
 const kindSuffix = computed(() => isEpisode.value ? '&kind=episode'
   : (isExtra.value ? '&kind=extra' : ''))
-const emit = defineEmits(['close', 'watched', 'ended'])
+const emit = defineEmits(['close', 'watched', 'ended', 'version-change'])
 
 const dlgRef = ref(null)
 const videoEl = ref(null)
@@ -359,6 +367,11 @@ const probedCaps = {}
 const compatVersions = new Set()
 let compatPending = false
 let outputPlan = null
+const p5Playback = ref(false)
+const p5Failed = ref(false)
+const compatibleVersion = ref(null)
+let p5Downgraded = false
+let p5FailureCode = ''
 const outputFormat = ref('')
 let sourceMedia = null
 const timelineDetached = ref(false)
@@ -369,6 +382,7 @@ const mp4BlobUrls = new Map()
 let mp4Duration = null
 let mp4AdvanceGen = -1
 const err = ref('')
+const p5Error = computed(() => p5Playback.value && !!err.value)
 const posHint = ref('')
 watch(posHint, text => {
   clearTimeout(toastTimer)
@@ -530,6 +544,7 @@ const qualityBadge = computed(() => (planHeight.value || srcHeight.value) ? `${p
 const qualityLine = computed(() => {
   if (!method.value) return ''
   const h = Number(planHeight.value) || 0
+  if (p5Playback.value && method.value !== 'blocked') return `杜比视界 P5 转 SDR · 实际输出 ${h || srcHeight.value}p${quality.value === 'auto' ? '（自动）' : ''}`
   const src = Number(srcHeight.value) || 0
   const dim = src ? `${src}p` : ''
   if (method.value === 'video_transcode') {
@@ -543,7 +558,12 @@ const qualityLine = computed(() => {
   return dim ? `原分辨率 ${dim} 直通` : '原分辨率直通'
 })
 const REASON_TEXT = {
-  dovi_not_supported: '含杜比视界（无 HDR10 兼容基底，浏览器无法直通，已重编；原盘 DV 请用电视/Kodi）',
+  dovi_p5_sdr: '杜比视界 P5 已转换为 SDR，使用硬件解码与编码',
+  dovi_p5_unavailable: '服务器的杜比视界颜色转换暂不可用',
+  dovi_p5_packaging_unsupported: '杜比视界转换暂不支持此播放格式',
+  dovi_p5_burn_unsupported: '杜比视界转换暂不支持图片字幕烧录',
+  dovi_p5_source_unsupported: '此杜比视界片源暂不支持网页颜色转换',
+  dovi_not_supported: '杜比视界无 HDR10 兼容基底，浏览器播放需要服务器转换，也可使用支持的外部播放器',
   video_codec_not_supported: '视频编码浏览器不支持，已重编为 H264',
   video_bit_depth_not_supported: '10bit 视频浏览器不能直解，已重编为 H264 8bit',
   hdr_not_supported: 'HDR 片源本屏/浏览器不支持，已转 SDR',
@@ -729,7 +749,7 @@ async function closeSession() {
   }
 }
 const recovery = createExpiredSessionRecovery({
-  current: () => !disposed && !pageLifecycle.isAway() && !castHeld.value ? sessionId : null,
+  current: () => !disposed && !pageLifecycle.isAway() && !castHeld.value && !p5Failed.value ? sessionId : null,
   recover: async () => {
     const position = Math.max(0, absPos())
     const paused = !!videoEl.value?.paused
@@ -751,17 +771,43 @@ const recovery = createExpiredSessionRecovery({
 const heartbeat = createPlaybackHeartbeat({
   request: api,
   session: () => sessionId,
-  enabled: () => !disposed && !pageLifecycle.isAway() && !castHeld.value && !playbackFinished,
+  enabled: () => !disposed && !pageLifecycle.isAway() && !castHeld.value && !playbackFinished && !p5Failed.value,
   state: () => ({ position: absPos(), paused: !videoEl.value || videoEl.value.paused || videoEl.value.ended,
     playbackRate: playbackRate.value }),
   onExpired: sid => { void recovery.expired(sid) },
   onUpdate: result => {
+    const action = doviHeartbeatAction(result, { p5: p5Playback.value, quality: quality.value,
+      height: planHeight.value, downgraded: p5Downgraded })
+    if (action === 'downgrade') { void downgradeP5(); return }
+    if (action === 'stop') { failP5(result); return }
     if (result?.failed && !result.complete) { void recovery.expired(sessionId); return }
     if (result?.complete) sessStatus.value = ''
     const next = mp4Queue.sessionId()
     if (next) api(`/api/stream/sessions/${next}/ping`, { method: 'POST', body: '{}' }).catch(() => {})
   },
 })
+function failP5(result) {
+  p5Failed.value = true
+  p5FailureCode = result?.failure_code || 'dovi_pipeline_unavailable'
+  resumePos = Math.max(0, absPos())
+  stopPlayback()
+  sessStatus.value = ''
+  err.value = result?.failure_reason || '服务器无法继续正确、流畅地转换此杜比视界版本，请复制直链交给外部播放器，或选择兼容版本'
+  logEvt('dovi:stopped', p5FailureCode)
+}
+async function downgradeP5() {
+  p5Downgraded = true
+  const position = Math.max(0, absPos())
+  const paused = !!videoEl.value?.paused
+  clearResumeTimer()
+  resumeOffer.value = ''
+  resumePos = position
+  seekPos.value = position
+  startFromZero = position === 0
+  posHint.value = '当前转换速度不足，已自动降至 720p'
+  logEvt('dovi:downscale', '720p position=' + position)
+  await reload({ paused, recovering: true })
+}
 function startPing() {
   stopPing()
   if (!sessionId || disposed || pageLifecycle.isAway()) return
@@ -772,6 +818,7 @@ function canUseNativeHls() {
 }
 // 格式错误只兼容重播一次；基础能力缓存不变，关闭/下一轮 reload 仍由代际守卫接管。
 function tryCompatibility(reason, { native = canUseNativeHls(), transcode = false } = {}) {
+  if (p5Playback.value || p5Failed.value) return false
   if (activeCaps?.mp4_compat && method.value !== 'direct') return false
   if (disposed || !activeCaps || compatVersions.has(props.versionId)) return false
   const support = playbackSupport()
@@ -799,9 +846,16 @@ function revokeMp4Blob(sid) {
   if (url) { URL.revokeObjectURL(url); mp4BlobUrls.delete(sid) }
 }
 async function createPlayerSession(body, signal) {
+  if (p5Downgraded && body.quality === 'auto') body = { ...body, auto_max_height: 720 }
   const session = await api(`/api/stream/${props.versionId}/sessions`, {
     method: 'POST', timeout: 300000, signal, body: JSON.stringify(body),
   })
+  if ((p5Playback.value || isDoviP5Playback(session.plan))
+      && (session.plan?.seg !== 'fmp4' || session.plan?.color_pipeline !== 'dovi_p5_sdr'
+        || session.plan?.encoder_backend !== 'vaapi')) {
+    releaseSession(session.session_id)
+    throw new Error(blockedPlaybackMessage(['dovi_p5_packaging_unsupported']))
+  }
   if (session.plan?.seg !== 'mp4') return session
   try {
     const source = await loadMp4Blob(session.media_url, signal)
@@ -853,6 +907,8 @@ function handleDetachedTimeline() {
   if (timelineDetached.value) return
   timelineDetached.value = true
   logEvt('video:detached-timeline', engine)
+  if (p5Playback.value) { failP5({ failure_code: 'dovi_pipeline_unavailable',
+    failure_reason: '浏览器无法同步此杜比视界播放格式，请复制直链交给外部播放器，或选择兼容版本' }); return }
   if (!activeCaps?.mp4_compat && activeCaps?.file?.video?.h264 && activeCaps?.file?.audio?.aac) {
     resumePos = absPos() || lastStartAt
     activeCaps = { ...compatibilityCaps(activeCaps), mp4_compat: true, native_hls: false }
@@ -932,6 +988,9 @@ async function reload(options) {
   const paused = options?.paused === true
   const recovering = options?.recovering === true
   if (castHeld.value || disposed || pageLifecycle.isAway()) return
+  p5Failed.value = false
+  p5FailureCode = ''
+  compatibleVersion.value = null
   if (!recovering) recovery.reset()
   playbackFinished = false
   pauseOnReady = paused
@@ -1014,6 +1073,7 @@ async function reload(options) {
   sourceMedia = d.media || null
   outputPlan = d.plan || null
   outputFormat.value = outputPlan?.seg || ''
+  p5Playback.value = isDoviP5Playback(outputPlan, sourceMedia, reasons.value)
   if (d.method === 'blocked') {
     sessStatus.value = ''
     err.value = blockedPlaybackMessage(d.reasons)
@@ -1053,7 +1113,7 @@ async function reload(options) {
     let s
     try {
       s = prepared || await createPlayerSession({ quality: quality.value, audio: audioIdx.value,
-                               start: Math.floor(startAt),
+                               start: p5Playback.value ? startAt : Math.floor(startAt),
                                sub: burnSub >= 0 ? burnSub : null,
                                caps: activeCaps,
                                force_burn: forceBurn.value, kind: props.kind,
@@ -1082,6 +1142,7 @@ async function reload(options) {
     reasons.value = s.reasons || d.reasons || []
     outputPlan = s.plan || d.plan || null
     outputFormat.value = outputPlan?.seg || ''
+    p5Playback.value = isDoviP5Playback(outputPlan, sourceMedia, reasons.value)
     planHeight.value = Number(outputPlan?.height) || 0
     // 服务端实际媒体起点（copy 会话=目标前关键帧，可能早于请求 start）：字幕按它平移
     const ms = Number(s.media_start)
@@ -1239,13 +1300,33 @@ async function copyDirectLink() {
   const url = directUrl.value
   if (!url) { posHint.value = '直链暂不可用，请稍后重试'; return }
   directFailUrl.value = ''
-  const abs = location.origin + url
+  const abs = new URL(url, location.origin).href
   if (await copyText(abs)) {
     posHint.value = '直链已复制：可在 VLC/Kodi/电视播放器里打开'
   } else {
     directFailUrl.value = abs
-    posHint.value = '自动复制失败（浏览器限制），已显示链接，点框后 Ctrl+C 手动复制'
+    posHint.value = p5Error.value ? '自动复制失败，请选择下方链接手动复制'
+      : '自动复制失败（浏览器限制），已显示链接，点框后 Ctrl+C 手动复制'
   }
+}
+// Reuse the existing version planner only after a P5 error. Late results cannot
+// change a replacement stream, closed modal, or a different failure generation.
+watch(err, async message => {
+  if (!message || !p5Playback.value || props.preview || !['movie', 'episode'].includes(props.kind)) return
+  const gen = reloadGen
+  try {
+    const result = await api('/api/stream/versions', { method: 'POST',
+      body: JSON.stringify({ movie_id: props.versionId, kind: props.kind, quality: 'auto', caps: activeCaps }) })
+    if (disposed || pageLifecycle.isAway() || gen !== reloadGen || !err.value) return
+    compatibleVersion.value = compatiblePlaybackVersion(result.versions, props.versionId)
+  } catch { /* The direct link stays available when version discovery fails. */ }
+})
+function playCompatibleVersion() {
+  const version = compatibleVersion.value
+  if (!version) return
+  pageLifecycle.leave()
+  emit('version-change', { id: Number(version.version_id), kind: props.kind,
+    label: String(version.file_path || '').split('/').pop() || props.title })
 }
 // 总时长统一用探测值：HLS 增长型清单里 v.duration 只是“已产出片段之和”（如 30s），
 // 用它算剩余会一开播就误判“已看”、存档 duration 也会写坏导致详情页看不到续播。
@@ -1631,7 +1712,10 @@ async function copyDebug() {
     if (sessionId) {
       const d = await api(`/api/stream/sessions/${sessionId}/debug`)
       info.debug = { running: d.running, exit: d.exit_code, segs: d.segments,
-        items: d.playlist_items, finished: d.finished, complete: !!d.complete }
+        items: d.playlist_items, finished: d.finished, complete: !!d.complete,
+        decoder: d.decoder, color_pipeline: d.color_pipeline, encoder: d.encoder,
+        processing_speed: d.processing_speed, failure_code: d.failure_code,
+        failure_reason: d.failure_reason, recommended_height: d.recommended_height }
     }
   } catch (e) { info.debugError = String(e.message || e) }
   const text = JSON.stringify(info)
@@ -1702,7 +1786,7 @@ async function initializePlayback() {
   await reload()
 }
 function watchStall() {
-  if (castHeld.value || booting.value || compatPending || playbackFinished || pageLifecycle.isAway()) return
+  if (p5Failed.value || castHeld.value || booting.value || compatPending || playbackFinished || pageLifecycle.isAway()) return
   if (timelineDetached.value || document.visibilityState === 'hidden') return
   // 每 2s 一拍。判定条件（不再看缓冲量——缓冲充足也可能楔死）：
   // HLS 会话存活、非 seek 切换中、元素声称在播(!paused && !ended)、有数据(readyState>=2)、
@@ -1830,6 +1914,7 @@ function debugSnapshot() {
     pos: Math.floor(absPos()), buffered: Math.floor(bufSecs.value),
     hlsError: lastHlsError.value || '', quality: quality.value,
     recoverCount, engine, playing: isPlaying.value,
+    dovi: { downgraded: p5Downgraded, failure_code: p5FailureCode },
     freeze: !!freezeFrame.value, seekPending: seekPending.value,
     browser: navigator.userAgent, caps: activeCaps, error: err.value,
     output: outputPlan,
@@ -1880,7 +1965,7 @@ function debugSnapshot() {
 async function recoverStream(forceElement = false) {
   // 同会话自救（不杀转码进程，分片继续产）：
   // 常规：重建 hls 实例；媒体级致命错误(forceElement)或第 3 次：连 <video> 元素一起换新。
-  if (disposed || castHeld.value || playbackFinished || pageLifecycle.isAway()) return
+  if (p5Failed.value || disposed || castHeld.value || playbackFinished || pageLifecycle.isAway()) return
   if (engine === 'mp4') {
     err.value = '兼容播放停滞，请重新加载或切换 720p'
     return
@@ -2107,6 +2192,18 @@ defineExpose({ saveFinal })
 .status-card p { min-height: 0; overflow: auto; margin: 0; color: var(--jz-text-dim); font-size: .8125rem; line-height: 1.7; overflow-wrap: anywhere; }
 .drop-prompt { position: absolute; left: 50%; top: calc((100% - var(--pvb)) / 2); transform: translate(-50%, -50%); z-index: 8; }
 .prompt-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.error-copy-url { width: 100%; min-width: 0; min-height: var(--jz-control-current); box-sizing: border-box; color: var(--jz-text);
+  background: var(--jz-surface-2); border: 1px solid var(--jz-border-strong); border-radius: var(--jz-radius-s);
+  padding: 8px; font: inherit; font-size: .75rem; }
+/* An unavailable P5 stream needs room for recovery, independent of its aspect ratio. */
+.pv-wrap.p5-error { min-height: min(680px, calc(94dvh - 80px)); box-sizing: border-box; }
+.p5-error-stage { inset: 72px 0 calc(var(--pvb) + 16px); }
+.p5-error-card { max-height: 100%; }
+.p5-error-card > * { flex-shrink: 0; }
+.p5-error-card p { overflow: visible; }
+.p5-error-card .error-feedback { font-size: .75rem; }
+.pv-wrap.p5-error:fullscreen { min-height: 0; height: 100dvh; }
+.pv-wrap.p5-error:fullscreen .p5-error-stage { bottom: 144px; }
 .drop-count { margin-left: 4px; color: var(--jz-text-faint); font-variant-numeric: tabular-nums; }
 /* 窗口态为字幕保留画面区；全屏控件悬浮，视频铺满容器。 */
 .pv-wrap:fullscreen { padding-top: 0 !important; width: 100vw; height: 100vh; --pvb: 0px; }

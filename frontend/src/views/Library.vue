@@ -159,7 +159,8 @@
   </div>
 
   <PlayerModal v-if="playVid" :key="'movie:' + playVid" ref="playerRef" :versionId="playVid" :title="playTitle"
-    kind="movie" @close="closeStream" @watched="onPlayWatched" />
+    kind="movie" @close="closeStream" @watched="onPlayWatched"
+    @version-change="playVid = $event.id; playTitle = $event.label" />
 
   <UploadDialog v-if="upDlg" @close="upDlg = false" @done="onUpDone" />
   </div>

@@ -23,7 +23,7 @@ COPY docs/ ./
 COPY version.properties /version.properties
 RUN npm run build && npm run check
 
-FROM python:3.12-slim
+FROM python:3.12-slim-trixie
 
 # 构建期代理（NAS直连留空；WSL经Docker Desktop时在compose里填BUILD_HTTP_PROXY）
 ARG HTTP_PROXY=""
@@ -40,6 +40,31 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       ffmpeg mesa-vulkan-drivers cifs-utils nfs-common tzdata \
  && rm -rf /var/lib/apt/lists/*
+
+# P5 网页播放使用完整 iHD 驱动；其他架构保持能力不足时明确阻断的行为。
+# 复制发行版源以继承实际 Signed-By（Trixie 使用 .pgp，不硬编码密钥文件）。
+ARG INTEL_MEDIA_DRIVER_VERSION="25.2.3+ds1-1"
+ARG INTEL_GMM_VERSION="22.7.2+ds1-1"
+ARG INTEL_MEDIA_DRIVER_SHA256="e0aec5839e3a6c41b7b1815ed944b85c1334d38ee744165c9788f0e0fc8803f9"
+ARG INTEL_GMM_SHA256="81b668213cb59d2bcae8c66b1184277fd0228e3648ab63f4f2b3b578da291b06"
+RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+      sed 's/^Components: .*/Components: non-free/' /etc/apt/sources.list.d/debian.sources \
+        > /etc/apt/sources.list.d/intel-media-non-free.sources \
+      && apt-get update \
+      && mkdir -p /tmp/jzmedia-intel-driver /usr/share/jzmedia \
+      && cd /tmp/jzmedia-intel-driver \
+      && apt-get download "intel-media-va-driver-non-free=${INTEL_MEDIA_DRIVER_VERSION}" \
+                          "libigdgmm12=${INTEL_GMM_VERSION}" \
+      && printf '%s  %s\n' \
+           "$INTEL_MEDIA_DRIVER_SHA256" "intel-media-va-driver-non-free_${INTEL_MEDIA_DRIVER_VERSION}_amd64.deb" \
+           "$INTEL_GMM_SHA256" "libigdgmm12_${INTEL_GMM_VERSION}_amd64.deb" \
+           | sha256sum -c - \
+      && sha256sum ./*.deb > /usr/share/jzmedia/intel-driver-sha256.txt \
+      && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ./*.deb \
+      && dpkg-query -W -f='${Package}=${Version}\n' intel-media-va-driver-non-free libigdgmm12 \
+        > /usr/share/jzmedia/intel-driver-packages.txt \
+      && cd / && rm -rf /tmp/jzmedia-intel-driver /var/lib/apt/lists/*; \
+    fi
 
 COPY requirements.txt .
 RUN --mount=type=cache,id=jzmedia-pip,target=/root/.cache/pip,sharing=locked \

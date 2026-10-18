@@ -42,6 +42,7 @@ class SessionBody(BaseModel):
     client_id: str | None = Field(default=None, min_length=16, max_length=64,
                                   pattern=r"^[A-Za-z0-9_-]+$")
     request_seq: int | None = Field(default=None, ge=0)
+    auto_max_height: int | None = Field(default=None, ge=720, le=720)
 
 
 class SessionPingBody(BaseModel):
@@ -106,7 +107,8 @@ def _spawn_session(version_id: int, quality: str, audio: int,
                    force_burn: bool = False,
                    kind: str = "movie", client: str = "web",
                    prewarm: bool = False, client_id: str | None = None,
-                   request_seq: int | None = None) -> tuple[str, str, dict]:
+                   request_seq: int | None = None,
+                   auto_max_height: int | None = None) -> tuple[str, str, dict]:
     """Create a client lease, atomically sharing an identical output producer.
 
     Every call receives its own sid. Only the final lease releases a running producer;
@@ -122,8 +124,15 @@ def _spawn_session(version_id: int, quality: str, audio: int,
     caps_n = _caps.default_caps() if caps is None else _caps.normalize_caps(caps)
     d = _playback.plan(_media_payload(m, info), caps=caps_n, quality=quality,
                        audio_idx=audio, sub_idx=sub, force_burn=force_burn, client=client)
+    if (auto_max_height == 720 and quality in ('auto', 'original')
+            and d['plan'].get('color_pipeline') == 'dovi_p5_sdr'):
+        d['plan']['height'] = min(int(info.get('height') or 720), 720)
+        d['reasons'] = [r for r in d['reasons'] if r != 'auto_downscale_1080p']
+        if 'auto_downscale_720p' not in d['reasons']:
+            d['reasons'].append('auto_downscale_720p')
     if d["method"] == "blocked":
-        raise HTTPException(422, "unplayable")
+        p5 = any(r.startswith('dovi_p5_') for r in d.get('reasons', []))
+        raise HTTPException(422, '此杜比视界视频无法通过当前路径正确播放，请复制直链或选择兼容版本' if p5 else 'unplayable')
     if d["method"] == "direct":
         raise HTTPException(400, "use direct_url (Direct Play, no HLS needed)")
     if prewarm and d["plan"].get("seg") == "mp4":
@@ -251,6 +260,9 @@ def _spawn_session(version_id: int, quality: str, audio: int,
 
 def _start_task(task: dict, sid: str, row: dict, src, info: dict, plan: dict, start: float) -> None:
     """Initialize a reserved producer; followers await ready and cannot touch its files."""
+    if plan.get('color_pipeline') == 'dovi_p5_sdr':
+        from .dovi_runtime import start_task
+        return start_task(task, sid, row, src, info, plan, start)
     sdir = task["sdir"]
     seg = plan.get("seg") or "fmp4"
     stime = _playback.seg_time(seg)
@@ -352,7 +364,8 @@ def hls_session_create(version_id: int, body: SessionBody | None = None):
     sid, _sdir, d = _spawn_session(vid, body.quality, body.audio, body.sub, body.start,
                                    caps=body.caps, force_burn=body.force_burn,
                                    kind=body.kind, client=body.client,
-                                   client_id=body.client_id, request_seq=body.request_seq)
+                                   client_id=body.client_id, request_seq=body.request_seq,
+                                   auto_max_height=body.auto_max_height)
     caps_n = _caps.default_caps() if body.caps is None else _caps.normalize_caps(body.caps)
     mp4 = d["plan"].get("seg") == "mp4"
     return {"session_id": sid,
@@ -494,6 +507,7 @@ def hls_session_debug(sid: str):
             flog = fh.read().decode("utf-8", errors="replace")[-800:]
     except OSError:
         pass
+    from .dovi_runtime import diagnostics
     return {"session_id": sid, "exists": True, "running": alive,
             "complete": bool(sess.get("complete")),
             "exit_code": exit_code, "segments": segs, "video_segments": vsegs,
@@ -502,7 +516,8 @@ def hls_session_debug(sid: str):
             "caps_hash": sess.get("caps_hash") or "", "plan": plan,
             "variants": variants,
             "last_ping_ago": round(time.time() - float(sess.get("last_ping") or 0), 1),
-            "ffmpeg_log_tail": flog, "hits": hits, **flow_status(sess)}
+            "ffmpeg_log_tail": flog, "hits": hits, **flow_status(sess),
+            **diagnostics(sess.get('task'))}
 
 
 @router.post("/sessions/{sid}/ping")
@@ -512,6 +527,8 @@ def hls_session_ping(sid: str, body: SessionPingBody | None = None):
     if body is not None:
         record_playback_state(sid, sess, position=body.position, paused=body.paused,
                               playback_rate=body.playback_rate)
+        from .dovi_runtime import record_demand
+        record_demand(sess, body.position, body.paused, body.playback_rate)
     proc = sess.get("proc")
     exit_code = proc.poll() if proc is not None else None
     running = proc is not None and exit_code is None
@@ -520,9 +537,11 @@ def hls_session_ping(sid: str, body: SessionPingBody | None = None):
         complete = bool(sess.get("complete") or task.get("complete"))
         failed = bool(not complete and (task.get("error") or (
             exit_code is not None and exit_code != 0)))
+    from .dovi_runtime import diagnostics
     return {"session_id": sid, "running": running,
             "complete": complete, "failed": failed,
             "error": "转码已中断，请重新建立播放会话" if failed else "",
+            **diagnostics(task),
             **flow_status(sess),
             "segments": (1 if os.path.isfile(os.path.join(sess["sdir"], "media.mp4")) else 0)
             if (sess.get("plan") or {}).get("seg") == "mp4" else _seg_count(sess["sdir"])}

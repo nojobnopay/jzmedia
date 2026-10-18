@@ -168,10 +168,16 @@ def _hdr_blocks_direct(media: dict, caps: dict, client: str) -> tuple[bool, str,
         return False, "", False
     try:
         dv = int(media.get("dv_profile") or 0)
+    except (TypeError, ValueError):
+        dv = 0
+    try:
         compat = int(media.get("dv_bl_compat") or 0)
     except (TypeError, ValueError):
-        dv, compat = 0, 0
+        compat = -1
     hdr = str(media.get("hdr") or "")
+    if client == "web" and dv == 5:
+        # P5 不能因损坏/矛盾的兼容标识误入 HDR10 或 SDR 直通。
+        return True, "dovi_not_supported", True
     if client == "android_tv":
         formats = caps.get("hdr_formats") or []
         if dv > 0:
@@ -383,6 +389,45 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
     if hdr_block:
         v_ok = False
         reasons.append(hdr_reason)
+    try:
+        p5 = int(media.get("dv_profile") or 0) == 5
+    except (TypeError, ValueError):
+        p5 = False
+    p5_web = client == "web" and p5
+    if p5_web:
+        # P5 的 IPT 基底不能交给普通 HDR10 tonemap 或软件 scale；即使
+        # 当前硬件后端缺失，也不能把有色偏的结果作为可用播放计划返回。
+        from . import dovi
+        # 精确预读裁剪要求音频滤镜；保留全部音轨，但将实际编码策略记入
+        # 计划，避免 master CODECS 与 AAC 产物不符。
+        variants = [{**a, "copy": False, "channels": 2} for a in variants]
+        q = (quality or "auto").strip().lower()
+        target = (_clamp_to_source(dovi.auto_height(), media)
+                  if q not in ("source", "720", "720p", "1080", "1080p")
+                  else _target_height(q, media, need_encode=False)[0])
+        p = {"vcopy": False, "acopy": False, "height": target,
+             "sub": sub_mode, "audio_idx": ai, "sub_idx": sub_idx,
+             "tonemap": False, "color_pipeline": dovi.COLOR_PIPELINE,
+             "color_revision": dovi.COLOR_REVISION, "encoder_backend": "vaapi",
+             "decoder": "hevc_vaapi", "tone_mapper": "libplacebo_vulkan"}
+        blocked = ("dovi_p5_burn_unsupported" if burn else
+                   "dovi_p5_packaging_unsupported" if mp4 or compat or seg_type() != "fmp4" else
+                   "dovi_p5_source_unsupported" if (vcodec != "hevc" or bit_depth != 10
+                       or str(media.get("dv_bl_compat") or 0) != "0") else "")
+        if not blocked and not dovi.web_enabled():
+            blocked = "dovi_p5_web_disabled"
+        if not blocked and not backend.dovi_capabilities().get("available"):
+            blocked = "dovi_p5_unavailable"
+        if blocked:
+            reasons.append(blocked)
+            return emit("blocked", sub_mode, p, variants)
+        if q == "source":
+            reasons.append("source_transcode")
+        elif target and height > target:
+            reasons.append(f"auto_downscale_{target}p" if q not in ("720", "720p", "1080", "1080p")
+                           else "resolution_downscale")
+        reasons.append("dovi_p5_sdr")
+        return _emit_or_blocked("video_transcode", sub_mode, p, variants)
     target_height, auto_reason = _target_height(quality, media,
                                                 need_encode=(not v_ok) or burn)
     downgrade = bool(target_height and height and height > target_height)
@@ -399,6 +444,14 @@ def plan(media: dict, caps: dict | None = None, quality: str = "auto",
             reasons.append("resolution_downscale")
         if (quality or "").strip().lower() == "source":
             reasons.append("source_transcode")  # 用户显式原画：不封顶重编，提示耗 CPU
+        if native and p5:
+            # 原生 P5 仅允许保留原视频；不支持解码、降分辨率或图片字幕烧录
+            # 均不能回落到普通 HDR10 / 软件 scale，避免生成颜色错误的产物。
+            reasons.append("dovi_p5_native_transcode_unsupported")
+            return emit("blocked", sub_mode,
+                        {"vcopy": False, "acopy": False, "height": target_height,
+                         "sub": sub_mode, "audio_idx": ai, "sub_idx": sub_idx,
+                         "tonemap": False}, variants)
         # HDR→SDR：仅硬件后端做实时 tonemap（目标文档 §12：不把实时 tone mapping
         # 作为弱 NAS 的主要能力）；烧录走软件滤镜图（overlay+缩放）用不了硬件 tonemap 链，
         # 软件 tonemap 亦非默认能力 → 同样如实提示偏灰（评审 P1-08），别让用户拿

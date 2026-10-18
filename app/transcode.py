@@ -161,6 +161,8 @@ def detect(refresh: bool = False) -> Backend:
 
 def backend_info(refresh: bool = False) -> dict:
     b = detect(refresh=refresh)
+    from .playback.dovi import capabilities as dovi_capabilities
     return {"name": b.name or "software", "hw": b.hw, "device": b.device,
             "reason": b.reason,
-            "env": os.getenv("TRANSCODER") or os.getenv("HW_ACCEL") or ""}
+            "env": os.getenv("TRANSCODER") or os.getenv("HW_ACCEL") or "",
+            "dovi_p5": dovi_capabilities(refresh=refresh, probe=refresh)}

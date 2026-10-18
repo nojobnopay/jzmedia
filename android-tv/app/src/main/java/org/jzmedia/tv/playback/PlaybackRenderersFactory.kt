@@ -15,7 +15,10 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 
 /** Movie playback tolerates a larger PCM queue than interactive, low-latency audio. */
 @UnstableApi
-internal class PlaybackRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
+internal class PlaybackRenderersFactory(
+    context: Context,
+    private val nativeP5: () -> Boolean = { false },
+) : DefaultRenderersFactory(context) {
     override fun buildVideoRenderers(
         context: Context, extensionRendererMode: Int, mediaCodecSelector: MediaCodecSelector,
         enableDecoderFallback: Boolean, eventHandler: Handler,
@@ -23,7 +26,17 @@ internal class PlaybackRenderersFactory(context: Context) : DefaultRenderersFact
         out: ArrayList<Renderer>,
     ) {
         val firstVideoRenderer = out.size
-        super.buildVideoRenderers(context, extensionRendererMode, mediaCodecSelector,
+        val selector = MediaCodecSelector { mime, secure, tunneling ->
+            val decoders = mediaCodecSelector.getDecoderInfos(mime, secure, tunneling)
+            if (nativeP5() && mime.startsWith("video/")) {
+                // The capability preflight and actual playback must use the same native path.
+                if (mime == DolbyVisionCapabilities.MIME_TYPE) {
+                    decoders.filter { it.mimeType == DolbyVisionCapabilities.MIME_TYPE &&
+                        it.hardwareAccelerated && !it.softwareOnly }
+                } else emptyList()
+            } else decoders
+        }
+        super.buildVideoRenderers(context, extensionRendererMode, selector,
             enableDecoderFallback, eventHandler, eventListener, allowedVideoJoiningTimeMs, out)
         // Video and audio share the playback thread. A slow software decoder / surface must
         // yield between batches instead of draining video until the audio queue runs dry.

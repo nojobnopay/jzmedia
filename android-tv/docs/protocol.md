@@ -84,7 +84,11 @@ APK 当前使用 `X-Api-Token`，仅发往保存的服务器 origin 和路径范
 
 APK 通过 Media3/MediaCodec 查询解码器，再按片源的宽、高、帧率、profile/level、声道数和采样率补充检测。通用 H.264/AAC 能力代表可接受的服务器输出；高规格源格式不支持时，不能连带关闭较低规格的输出能力。
 
-当前 APK 的 HLS 音频复制保守仅声明 AAC/MP3；源文件能解 DTS 或 Dolby 不意味着它们可以安全复制进 HLS。HDR10/HLG 结合解码器与显示能力声明；未验证的 Dolby Vision 不主动放行。真实电视仍可能与检测结果不同，播放器提供重试和兼容播放入口。
+当前 APK 的 HLS 音频复制保守仅声明 AAC/MP3；源文件能解 DTS 或 Dolby 不意味着它们可以安全复制进 HLS。HDR10/HLG 结合解码器与显示能力声明。
+
+Dolby Vision 首期只检测 HEVC 10 bit、无兼容基底的单层 P5。APK 按当前片源宽高、帧率和杜比 level 查询 `video/dolby-vision` 硬件解码器，并同时核对显示器的 Dolby Vision 能力；通过后才在本片 `hdr_formats` 中上报 `dolby_vision`，不能用普通 HEVC Main10 能力代替。旧服务端未提供 `dv_level` 时，按实际像素率和宽度推导预检所需 level；实际封装中的 profile、level 和轨道支持状态仍由 Media3 再次检查。P7 等其他杜比格式不随此检测放宽。
+
+P5 只允许保留原视频的直放、重封装或仅音频转码。降低视频分辨率、图片字幕烧录或解码能力不足时，服务端阻止普通视频转码；新版 APK 连接旧服务端时也会在创建会话前拒绝这类计划。实际提取的轨道若不再是可解的 P5 Dolby Vision 格式，APK 停止并提示选择兼容版本。使用自动／原画画质和文本字幕可避免主动要求视频重编码；“兼容播放”不提供 P5 到 SDR 的转换。此行为沿用协议 1 和既有能力字段，无需数据库迁移，真机颜色和播放体验仍需验证。
 
 fMP4 master 的 `CODECS` 必须包含整个音频组的实际输出编码并集，不能只写默认音轨；Media3 会据此解析其他 rendition。无法复制的音轨以输出 AAC 描述。
 

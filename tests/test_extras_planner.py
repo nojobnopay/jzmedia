@@ -1,6 +1,7 @@
 """B7-EXTRAS：归属纯函数、planner 规划、合集补全 job 状态机（全部无网络/无 ffmpeg）。"""
 import pathlib
-import time
+import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -135,30 +136,56 @@ def test_planner_numbered_fallback_for_twins(_planner):
 def test_backfill_resume_and_cancel(monkeypatch):
     from app.routers import collections as col
 
+    entered = threading.Event()
+    release = threading.Event()
+    workers = []
+    refreshed = []
+
+    def fake_refresh(tid):
+        refreshed.append(tid)
+        entered.set()
+        assert release.wait(timeout=5), "backfill refresh was not released"
+        return {"changed": False}, []
+
+    def tracked_thread(*args, **kwargs):
+        worker = threading.Thread(*args, **kwargs)
+        workers.append(worker)
+        return worker
+
+    def wait_for_workers():
+        for worker in workers:
+            worker.join(timeout=5)
+            assert not worker.is_alive(), "backfill worker did not exit before cleanup"
+
     monkeypatch.setattr(col.store, "tmdb_ids_missing_collection",
                         lambda limit, force: [1, 2])
-    monkeypatch.setattr(scanner.persist, "refresh_tmdb_id_fast",
-                        lambda tid: ({"changed": False}, []))
+    # Patch the exported function used by the router, before starting its worker.
+    monkeypatch.setattr(col.scanner, "refresh_tmdb_id_fast", fake_refresh)
+    # Track only this router's workers; leave threading.Thread process-wide intact.
+    monkeypatch.setattr(col, "threading", SimpleNamespace(Thread=tracked_thread))
     with col._JOBS_LOCK:
         saved = dict(col._JOBS)
         col._JOBS.clear()
     try:
         r1 = col.suggest_backfill({"limit": 10})
         assert r1["resumed"] is False and r1["total"] == 2
+        assert entered.wait(timeout=5), "backfill refresh did not start"
         r2 = col.suggest_backfill({"limit": 10})
         assert r2["resumed"] is True and r2["job_id"] == r1["job_id"]
 
         jid = r1["job_id"]
         c = col.suggest_backfill_cancel({"job_id": jid})
-        assert c["state"] in ("cancelled", "done", "running")
-        for _ in range(50):
-            st = col.suggest_backfill_status(jid)
-            if st["state"] in ("done", "cancelled"):
-                break
-            time.sleep(0.05)
-        assert st["state"] in ("done", "cancelled")
+        assert c["state"] == "cancelled"
+        release.set()
+        wait_for_workers()
+        st = col.suggest_backfill_status(jid)
+        assert st["state"] == "cancelled"
         assert st["done"] <= st["total"]
+        assert refreshed == [1]
     finally:
+        release.set()
+        # Cancellation changes state immediately; retain jobs and mocks until exit.
+        wait_for_workers()
         with col._JOBS_LOCK:
             col._JOBS.clear()
             col._JOBS.update(saved)
