@@ -240,6 +240,7 @@ def test_encoded_packet_shift_preserves_fractional_source_rate_and_every_pts(tmp
     from fractions import Fraction
     import math
     from app import media as media_tools
+    from app.routers.stream.dovi_publish import parse_fragment, parse_init
     installed = media_tools._static_bins_if_present()
     ffmpeg = installed.get("ffmpeg") or shutil.which("ffmpeg")
     ffprobe = installed.get("ffprobe") or shutil.which("ffprobe")
@@ -251,14 +252,17 @@ def test_encoded_packet_shift_preserves_fractional_source_rate_and_every_pts(tmp
                     "-c:v", "ffv1", "-threads", "1",
                     str(source)], capture_output=True, check=True, timeout=15)
 
-    def packets(path):
+    def packet_data(path):
         result = subprocess.run([ffprobe, "-v", "error", "-select_streams", "v:0",
             "-show_entries", "stream=r_frame_rate,time_base:packet=pts,duration", "-of", "json", str(path)],
             capture_output=True, check=True, timeout=10)
         data = json.loads(result.stdout)
-        stream = data["streams"][0]
+        return data["streams"][0], data["packets"]
+
+    def packets(path):
+        stream, rows = packet_data(path)
         return stream, [(Fraction(p["pts"]) * Fraction(stream["time_base"]),
-                         Fraction(p["duration"]) * Fraction(stream["time_base"])) for p in data["packets"]]
+                         Fraction(p["duration"]) * Fraction(stream["time_base"])) for p in rows]
 
     source_stream, source_packets = packets(source)
     p5 = commands.build_cmd("/isolated/unused.mkv", decision()["plan"], start=float(origin))
@@ -273,7 +277,27 @@ def test_encoded_packet_shift_preserves_fractional_source_rate_and_every_pts(tmp
                     "-hls_segment_filename", str(tmp_path / "shifted%05d.m4s"),
                     "-hls_flags", "temp_file+independent_segments", "-avoid_negative_ts", "disabled", str(output)],
                    capture_output=True, check=True, timeout=15)
-    stream, encoded = packets(output)
+    # FFprobe 6.1 can omit encoded packet durations even on a complete MP4.
+    # Read actual sample durations from the fMP4, then cross-check every sample
+    # PTS with external FFprobe. Expected timestamps still come only from source.
+    lines = output.read_text().splitlines()
+    assert lines[-1] == "#EXT-X-ENDLIST"
+    assert [line for line in lines if line.startswith("#EXT-X-MAP:")] == [
+        '#EXT-X-MAP:URI="shifted_init.mp4"']
+    fragments = [line for line in lines if line and not line.startswith("#")]
+    assert len(fragments) == len(set(fragments))
+    assert set(fragments) == {path.name for path in tmp_path.glob("shifted*.m4s")}
+    tracks = parse_init(tmp_path / "shifted_init.mp4")
+    assert len(tracks) == 1
+    track_id, track = next(iter(tracks.items()))
+    assert track.handler == b"vide"
+    samples = [sample for name in fragments
+               for sample in parse_fragment(tmp_path / name, tracks)[track_id]]
+    stream, encoded_packets = packet_data(output)
+    encoded_pts = [Fraction(packet["pts"]) * Fraction(stream["time_base"])
+                   for packet in encoded_packets]
+    assert [sample.pts for sample in samples] == encoded_pts
+    encoded = [(pts, sample.duration) for pts, sample in zip(encoded_pts, samples)]
     assert Fraction(stream["r_frame_rate"]) == Fraction(source_stream["r_frame_rate"]) == Fraction(24000, 1001)
     quantized_offset = math.floor(float(origin) / float(Fraction(source_stream["time_base"])) + 0.5) * Fraction(source_stream["time_base"])
     expected = [(pts - quantized_offset, duration) for pts, duration in source_packets if pts >= Fraction(origin)]
