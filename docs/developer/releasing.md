@@ -1,8 +1,3 @@
----
-version: 0.26.0
-reviewed: 2026-10-15
----
-
 # 同步发布 Docker 镜像与 APK
 
 推送发行标签后，GitHub Actions 从该提交完成全部检查，同步构建 Docker 镜像与 Android TV APK，再发布到 GHCR 和 GitHub Releases。Release 正文先展示仓库根 `CHANGELOG.md` 中该版本的修改摘要，再提供安装与校验说明。发布成功后，从同一提交构建在线帮助并部署到 GitHub Pages。各端共用仓库根 `version.properties` 的版本，云端与本机均复用 `scripts/release.py`。默认 APK 是可安装的 Debug 试装包；真机兼容性仍需单独验收。
@@ -114,7 +109,7 @@ Release 包含八个附件；GitHub 自动提供的源码归档不计入其中�
 
 `.github/workflows/docs-pages.yml` 先通过 `scripts/github_pages.py` 确认最新正式版本，再检出该 Release 的准确提交，构建和验证 `pages` 目标，并运行浏览器检查。工作流从 GitHub Pages 配置读取访问路径，传给 `JZMEDIA_DOCS_BASE`；本仓库项目站为 `/jzmedia/`。只上传 `docs/.artifacts/pages/`，公开页面清单继续排除私有记录和开发计划，不依赖 jzmedia 后台。
 
-“最新正式版本”指已公开、非预发行、标签严格为 `vX.Y.Z` 的最高版本，同时要求 GitHub 的 latest 指针一致。脚本核对发行 `manifest.json`、远端标签、提交和根版本源；部署前再核对发行身份。Pages 部署串行执行，旧版本的任务重试会跳过，避免覆盖较新文档。站点构建版本取发行源码，不改变正文的适用版本或核对日期。
+“最新正式版本”指已公开、非预发行、标签严格为 `vX.Y.Z` 的最高版本，同时要求 GitHub 的 latest 指针一致。脚本核对发行 `manifest.json`、远端标签、提交和根版本源；部署前再核对发行身份。Pages 部署串行执行，旧版本的任务重试会跳过，避免覆盖较新文档。站点统一显示发行源码的构建版本；正文中的兼容说明与验收记录按[文档版本与核对记录](documentation.md#文档版本与核对记录)维护。
 
 ### 单独重发在线帮助
 

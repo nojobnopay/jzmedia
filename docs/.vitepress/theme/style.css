@@ -10,7 +10,6 @@
 .vp-doc { line-height: 1.85; }
 .vp-doc p, .vp-doc li { overflow-wrap: anywhere; }
 .vp-doc img { border-radius: 10px; }
-.doc-page-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--vp-c-text-2); margin-bottom: 20px; }
 .doc-step { border: 1px solid var(--vp-c-divider); border-radius: 16px; margin: 24px 0; padding: 22px; }
 .vp-doc h3 + .doc-step { margin-top: 16px; }
 .doc-step-body > :last-child { margin-bottom: 0; }

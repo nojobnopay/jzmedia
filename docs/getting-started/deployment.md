@@ -1,8 +1,3 @@
----
-version: 0.29.3
-reviewed: 2026-10-20
----
-
 # 安装与首次使用
 
 [本目录首页](README.md) · [配置参考](configuration.md)

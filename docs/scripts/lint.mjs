@@ -38,20 +38,7 @@ export async function run(args = process.argv.slice(2)) {
     logMessage: message => { if (!message.startsWith('Finding:')) console.log(message) },
     logError: console.error,
   })
-  // 格式通过后提醒页首 version/reviewed 是否需要随正文更新；只提醒，不改变退出码。
-  try {
-    await metaReminders(targets.length ? files : [])
-  } catch (error) {
-    console.error(`元信息提醒检查失败（不影响本次 lint 结果）：${error.message}`)
-  }
   return result
-}
-
-export async function metaReminders(files = []) {
-  const script = path.join(repoRoot, 'scripts/check_docs_meta.py')
-  const { stdout } = await execute('python3', files.length ? [script, ...files] : [script],
-    { cwd: repoRoot, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 })
-  if (stdout.trim()) console.log(stdout.trim())
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

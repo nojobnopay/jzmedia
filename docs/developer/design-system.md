@@ -1,6 +1,4 @@
 ---
-version: 0.28.1
-reviewed: 2026-10-17
 search: false
 ---
 

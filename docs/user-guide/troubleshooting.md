@@ -1,8 +1,3 @@
----
-version: 0.29.3
-reviewed: 2026-10-18
----
-
 # 功能排障
 
 [用户手册](README.md) · [部署排障](../getting-started/troubleshooting.md)

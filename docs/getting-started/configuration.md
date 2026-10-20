@@ -1,8 +1,3 @@
----
-version: 0.29.3
-reviewed: 2026-10-18
----
-
 # 配置参考
 
 [本目录首页](README.md) · [部署教程](deployment.md)
