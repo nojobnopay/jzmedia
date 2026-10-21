@@ -124,7 +124,8 @@ async def _auth_write(request, call_next):
                                         "/api/viewing/lock", "/api/viewing/activity"}
     if request.method in _WRITE_METHODS and request.url.path.startswith("/api") and not viewing_auth:
         token = await run_in_threadpool(config.effective_jzmedia_token)
-        if token and not hmac.compare_digest(_request_token(request), token):
+        if token and not hmac.compare_digest(_request_token(request).encode("utf-8"),
+                                             token.encode("utf-8")):
             return JSONResponse(
                 {"detail": "unauthorized: 需要访问令牌（设置页 → 访问控制）"},
                 status_code=401)

@@ -372,13 +372,17 @@ def copy_tmdb_to_movie(movie_id: int, old_title: str | None = None) -> bool:
     return True
 
 
-def tmdb_ids_missing_collection(limit: int = 200, force: bool = False) -> list[int]:
+def tmdb_ids_missing_collection(limit: int = 200, force: bool = False,
+                                media_library_id: int | None = None) -> list[int]:
     """待排查系列信息的 tmdb_id 列表（cache 缺失或系列为空且未确认过），供回填口用。
     确认无系列的独立片已盖 collection_checked_at，不再重复检查；force=True 忽略盖戳全量重查。"""
     try:
         limit = max(1, min(int(limit), 200))
     except (TypeError, ValueError):
         limit = 200
+    scope = (" AND m.library_id IN (SELECT id FROM libraries WHERE media_library_id=?)"
+             if media_library_id is not None else "")
+    params = (int(media_library_id), limit) if media_library_id is not None else (limit,)
     with _lock, _conn() as c:
         if force:
             rows = c.execute(
@@ -386,7 +390,7 @@ def tmdb_ids_missing_collection(limit: int = 200, force: bool = False) -> list[i
                 " LEFT JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id AND t.media_type='movie'"
                 " WHERE m.tmdb_id IS NOT NULL"
                 " AND (t.tmdb_id IS NULL OR t.collection_tmdb_id IS NULL)"
-                " ORDER BY m.tmdb_id LIMIT ?", (limit,)).fetchall()
+                f"{scope} ORDER BY m.tmdb_id LIMIT ?", params).fetchall()
         else:
             try:
                 rows = c.execute(
@@ -396,7 +400,7 @@ def tmdb_ids_missing_collection(limit: int = 200, force: bool = False) -> list[i
                     " AND (t.tmdb_id IS NULL"
                     " OR (t.collection_tmdb_id IS NULL"
                     " AND COALESCE(t.collection_checked_at, 0) = 0))"
-                    " ORDER BY m.tmdb_id LIMIT ?", (limit,)).fetchall()
+                    f"{scope} ORDER BY m.tmdb_id LIMIT ?", params).fetchall()
             except Exception:
                 # 极老库无盖戳列时退化为旧口径
                 rows = c.execute(
@@ -404,6 +408,6 @@ def tmdb_ids_missing_collection(limit: int = 200, force: bool = False) -> list[i
                     " LEFT JOIN tmdb_cache t ON t.tmdb_id=m.tmdb_id AND t.media_type='movie'"
                     " WHERE m.tmdb_id IS NOT NULL"
                     " AND (t.tmdb_id IS NULL OR t.collection_tmdb_id IS NULL)"
-                    " ORDER BY m.tmdb_id LIMIT ?", (limit,)).fetchall()
+                    f"{scope} ORDER BY m.tmdb_id LIMIT ?", params).fetchall()
         return [int(r["tid"]) for r in rows if r["tid"]]
 

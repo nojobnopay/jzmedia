@@ -180,12 +180,15 @@ def expand_ids_to_versions(rep_ids: list[int]) -> dict[int, list[int]]:
     return out
 
 
-def get_movie_by_tmdb(tmdb_id: int) -> dict | None:
+def get_movie_by_tmdb(tmdb_id: int, media_library_id: int | None = None) -> dict | None:
     """同 tmdb_id 的代表行（最新更新），供回填进度展示标题用。"""
+    scope = (" AND library_id IN (SELECT id FROM libraries WHERE media_library_id=?)"
+             if media_library_id is not None else "")
+    params = (int(tmdb_id), int(media_library_id)) if media_library_id is not None else (int(tmdb_id),)
     with _lock, _conn() as c:
         row = c.execute(
             "SELECT *, MAX(updated_at) AS _u FROM movies WHERE tmdb_id=?"
-            " GROUP BY COALESCE(tmdb_id, -id)", (int(tmdb_id),)).fetchone()
+            f"{scope} GROUP BY COALESCE(tmdb_id, -id)", params).fetchone()
         if not row:
             return None
         return _attach_versions(c, _row_to_dict(row))

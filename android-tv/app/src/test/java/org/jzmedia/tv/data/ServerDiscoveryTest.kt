@@ -1,6 +1,18 @@
 package org.jzmedia.tv.data
 
 import kotlinx.coroutines.runBlocking
+import okhttp3.MediaType
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okio.Buffer
+import okio.BufferedSource
+import okio.Source
+import okio.Timeout
+import okio.buffer
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -49,6 +61,70 @@ class ServerDiscoveryTest {
         assertEquals(a, ServerDiscovery.matchById(listOf(a, b), "id-1"))
         assertNull(ServerDiscovery.matchById(listOf(a, b), "missing"))
         assertNull(ServerDiscovery.matchById(listOf(a, b), null))
+    }
+
+    @Test fun httpProbeAcceptsNormalAndChunkedHandshakes() {
+        MockWebServer().use { server ->
+            val handshake = """{"protocol_version":1,"server_id":"test-server","name":"家庭影院"}"""
+            listOf(MockResponse().setBody(handshake), MockResponse().setChunkedBody(handshake, 7)).forEach { response ->
+                server.enqueue(response)
+                val hit = ServerDiscovery.httpProbe(server.url("/").toString())!!
+                assertEquals("test-server", hit.serverId)
+                assertEquals("家庭影院", hit.name)
+                assertTrue(hit.protocolOk)
+                assertEquals("/api/stream/client-info", server.takeRequest().path)
+            }
+        }
+    }
+
+    @Test fun httpProbeRejectsDeclaredOversizeWithoutReadingTheBody() {
+        val body = CountingBody(declaredLength = 1024 * 1024)
+        assertNull(ServerDiscovery.httpProbe("http://discovery.test/", clientReturning(body)))
+        assertEquals(0L, body.bytesRead)
+        assertTrue(body.closed)
+    }
+
+    @Test fun httpProbeBoundsUnknownLengthBodyBeforeDecoding() {
+        val body = CountingBody(declaredLength = -1)
+        assertNull(ServerDiscovery.httpProbe("http://discovery.test/", clientReturning(body)))
+        // Okio may prefetch one 8 KiB segment beyond the 8193-byte check. The
+        // virtual 1 MiB body must never be fully read, even without Content-Length.
+        assertTrue(body.bytesRead in 8193L..16384L)
+        assertTrue(body.closed)
+    }
+
+    @Test fun httpProbeRejectsOversizedChunkedHandshake() {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setChunkedBody("x".repeat(8193), 1024))
+            assertNull(ServerDiscovery.httpProbe(server.url("/").toString()))
+        }
+    }
+
+    private fun clientReturning(body: ResponseBody) = OkHttpClient.Builder().addInterceptor { chain ->
+        Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+            .code(200).message("OK").body(body).build()
+    }.build()
+
+    private class CountingBody(private val declaredLength: Long) : ResponseBody() {
+        var bytesRead = 0L
+            private set
+        var closed = false
+            private set
+        private val buffered = object : Source {
+            override fun read(sink: Buffer, byteCount: Long): Long {
+                val count = minOf(byteCount, 1024 * 1024 - bytesRead)
+                if (count == 0L) return -1
+                sink.write(ByteArray(count.toInt()) { 'x'.code.toByte() })
+                bytesRead += count
+                return count
+            }
+            override fun timeout(): Timeout = Timeout.NONE
+            override fun close() { closed = true }
+        }.buffer()
+
+        override fun contentType(): MediaType? = null
+        override fun contentLength(): Long = declaredLength
+        override fun source(): BufferedSource = buffered
     }
 
     @Test fun scanUsesInjectedProbeWithoutNetwork() = runBlocking {

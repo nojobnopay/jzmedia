@@ -37080,7 +37080,7 @@
           },
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 334,
+            "line": 432,
             "selector": ".collection-card",
             "values": {
               "min-width": "0"
@@ -37088,7 +37088,7 @@
           },
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 335,
+            "line": 433,
             "selector": ".collection-card .poster-wrap",
             "values": {
               "aspect-ratio": "2 / 3"
@@ -37169,7 +37169,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 336,
+            "line": 434,
             "selector": ".cover-empty",
             "values": {
               "height": "100%",
@@ -37403,7 +37403,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 336,
+            "line": 434,
             "selector": ".cover-empty",
             "values": {
               "height": "100%",
@@ -40133,7 +40133,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton :disabled=\"searching\" @click=\"loadCandidates\" type=\"button\">"
+      "source_excerpt": "<JzButton :disabled=\"searching || matching\" @click=\"loadCandidates\" type=\"button\">"
     },
     {
       "id": "frontend/src/views/EpisodeView.vue:input:52",
@@ -40207,11 +40207,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"confirmLocal\" type=\"button\">"
+      "source_excerpt": "<JzButton :disabled=\"matching\" @click=\"confirmLocal\" type=\"button\">"
     },
     {
       "id": "frontend/src/views/EpisodeView.vue:JzButton:57",
@@ -40248,11 +40249,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"bindEpisode(c)\" type=\"button\" icon=\"match\">"
+      "source_excerpt": "<JzButton :disabled=\"matching\" @click=\"bindEpisode(c)\" type=\"button\" icon=\"match\">"
     },
     {
       "id": "frontend/src/views/EpisodeView.vue:RouterLink:62",
@@ -42470,7 +42472,7 @@
           },
           {
             "source": "frontend/src/views/Person.vue",
-            "line": 194,
+            "line": 218,
             "selector": ".person-photo",
             "values": {
               "width": "160px"
@@ -42524,7 +42526,7 @@
           },
           {
             "source": "frontend/src/views/Person.vue",
-            "line": 194,
+            "line": 218,
             "selector": ".person-photo",
             "values": {
               "width": "160px"
@@ -42532,7 +42534,7 @@
           },
           {
             "source": "frontend/src/views/Person.vue",
-            "line": 195,
+            "line": 219,
             "selector": ".avatar-fallback",
             "values": {
               "font-size": "4rem",
@@ -42834,7 +42836,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Person.vue",
-            "line": 195,
+            "line": 219,
             "selector": ".avatar-fallback",
             "values": {
               "font-size": "4rem",
@@ -45053,7 +45055,7 @@
       "category": "native-form",
       "feature": "设置与引导",
       "element": "input",
-      "purpose": "input",
+      "purpose": "请使用至少 8 位英文字母、数字或半角符号",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
@@ -45080,7 +45082,7 @@
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input id=\"access-token\" :disabled=\"busy === 'auth'\" v-model=\"authForm.token\" type=\"password\" minlength=\"8\" required placeholder=\"输入至少 8 位字符\" autocomplete=\"new-password\" />"
+      "source_excerpt": "<input id=\"access-token\" :disabled=\"busy === 'auth'\" v-model=\"authForm.token\" type=\"password\" minlength=\"8\" pattern=\"[ -~]{8,}\" required placeholder=\"至少 8 位英文、数字或半角符号\" title=\"请使用至少"
     },
     {
       "id": "frontend/src/views/Settings.vue:JzButton:189",

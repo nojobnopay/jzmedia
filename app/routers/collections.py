@@ -9,6 +9,7 @@ import time
 import uuid
 
 from .. import scanner, store
+from ..metadata.state import safe_error
 
 router = APIRouter(prefix="/api/collections")
 
@@ -102,25 +103,28 @@ def suggest_backfill(body: dict | None = None):
         raise HTTPException(422, "limit must be int")
     force = bool((body or {}).get("force"))
     media_id = _media_scope((body or {}).get("library"),
-                            (body or {}).get("media_library"))
+                            (body or {}).get("media_library_id", (body or {}).get("media_library")))
     # 兼容旧字段 library_id（视频库 id）→ 媒体库
     if media_id is None and (body or {}).get("library_id") is not None:
         try:
-            media_id = store.media_id_for_library(int(body["library_id"]))
+            media_id = store.media_id_for_library(int(body["library_id"])) or -1
         except (TypeError, ValueError):
             media_id = -1
-    
+    options = {"media_library_id": media_id, "force": force, "limit": limit}
     with _JOBS_LOCK:
         for jid, j in _JOBS.items():
             if j["state"] == "running":
-                return {"job_id": jid, "total": j["total"], "resumed": True}
-        tids = store.tmdb_ids_missing_collection(limit, force)
+                if any(j.get(key) != value for key, value in options.items()):
+                    raise HTTPException(409, "另一个范围或参数的系列补全正在运行，请等待完成或取消后重试")
+                return {"job_id": jid, "total": j["total"], "resumed": True, **options}
+        tids = store.tmdb_ids_missing_collection(limit, force, media_library_id=media_id)
         if not tids:
             return {"job_id": "", "total": 0, "resumed": False,
+                    **options,
                     "suggest": store.suggest_series_collections(media_library_id=media_id)}
         jid = uuid.uuid4().hex[:12]
         _JOBS[jid] = {"state": "running", "done": 0, "total": len(tids),
-                      "current_title": "", "failed": [], "force": force,
+                      "current_title": "", "failed": [], **options,
                       "started_at": int(time.time())}
     def _run():
         for tid in tids:
@@ -128,7 +132,9 @@ def suggest_backfill(body: dict | None = None):
                 if _JOBS.get(jid, {}).get("state") != "running":
                     return
             try:
-                m = store.get_movie_by_tmdb(tid)
+                m = store.get_movie_by_tmdb(tid, media_library_id=media_id)
+                if media_id is not None and m is None:
+                    continue
                 title = (m or {}).get("title", "") if m else ""
                 with _JOBS_LOCK:
                     _JOBS[jid]["current_title"] = title or f"TMDB {tid}"
@@ -139,7 +145,7 @@ def suggest_backfill(body: dict | None = None):
                     _JOBS[jid]["failed"].append(
                         {"tmdb_id": tid,
                          "title": (_JOBS[jid].get("current_title") or ""),
-                         "error": str(e)[:200]})
+                         "error": safe_error(e)})
             finally:
                 with _JOBS_LOCK:
                     if jid in _JOBS:
@@ -151,13 +157,15 @@ def suggest_backfill(body: dict | None = None):
                 _JOBS[jid]["finished_at"] = int(time.time())
             _trim_jobs()
     threading.Thread(target=_run, daemon=True).start()
-    return {"job_id": jid, "total": len(tids), "resumed": False, "force": force}
+    return {"job_id": jid, "total": len(tids), "resumed": False, **options}
 
 
 @router.get("/suggest/backfill/status")
 def suggest_backfill_status(job_id: str = ""):
     """补全进度轮询：{state, done, total, current_title, failed}。无 job_id 查最近一个。"""
     with _JOBS_LOCK:
+        if job_id and job_id not in _JOBS:
+            raise HTTPException(404, "backfill job not found")
         if job_id and job_id in _JOBS:
             j = _JOBS[job_id]
             return {"job_id": job_id, **{k: (list(v) if k == "failed" else v)
@@ -168,7 +176,7 @@ def suggest_backfill_status(job_id: str = ""):
             return {"job_id": jid, **{k: (list(v) if k == "failed" else v)
                                       for k, v in j.items()}}
     return {"job_id": "", "state": "idle", "done": 0, "total": 0,
-            "current_title": "", "failed": []}
+            "current_title": "", "failed": [], "media_library_id": None, "force": False}
 
 
 @router.post("/suggest/backfill/cancel")
@@ -176,6 +184,8 @@ def suggest_backfill_cancel(body: dict | None = None):
     """取消补全：后台循环协作式退出，已刷的不回滚。"""
     job_id = ((body or {}).get("job_id") or "")
     with _JOBS_LOCK:
+        if job_id and job_id not in _JOBS:
+            raise HTTPException(404, "backfill job not found")
         target = job_id if job_id in _JOBS else (
             max(_JOBS, key=lambda k: _JOBS[k].get("started_at", 0)) if _JOBS else "")
         if not target or _JOBS[target]["state"] != "running":

@@ -136,7 +136,7 @@ def tv_aggregate_credits(tmdb_id: int) -> dict:
 def tv_alternative_titles(tmdb_id: int) -> list[dict]:
     """剧集别名表（`/tv/{id}/alternative_titles` → results，含 iso_3166_1/title）。"""
     with _client() as c:
-        data = _get(c, f"/tv/{int(tmdb_id)}/alternative_titles").json()
+        data = _get(c, f"/tv/{int(tmdb_id)}/alternative_titles", params=_params()).json()
         return data.get("results", []) or []
 
 
@@ -144,7 +144,7 @@ def tv_images(tmdb_id: int, languages: str = "zh,en,null") -> dict:
     """候选图片（/tv/{id}/images，返回 {posters, backdrops, logos}）。"""
     with _client() as c:
         return _get(c, f"/tv/{int(tmdb_id)}/images",
-                    params={"include_image_language": languages}).json()
+                    params=_params(include_image_language=languages)).json()
 
 
 def find_by_external_id(external_id: str, source: str = "tvdb_id") -> list[dict]:
@@ -168,7 +168,7 @@ def movie_images(tmdb_id: int, languages: str = "zh,en,null") -> dict:
     每项含 file_path/width/height/iso_639_1/vote_average；网络/权限错误上抛。"""
     with _client() as c:
         return _get(c, f"/movie/{int(tmdb_id)}/images",
-                    params={"include_image_language": languages}).json()
+                    params=_params(include_image_language=languages)).json()
 
 
 def download_url(url: str, dest: str, timeout: float = 30.0,

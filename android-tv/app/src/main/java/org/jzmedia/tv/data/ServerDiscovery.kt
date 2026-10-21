@@ -26,6 +26,7 @@ data class DiscoveredServer(
 object ServerDiscovery {
     const val DEFAULT_PORT = 8080
     const val PROTOCOL_VERSION = 1
+    private const val MAX_HANDSHAKE_BYTES = 8192L
 
     /** 本机 IPv4 站点地址（以太网/WLAN 双栈只取 v4，纯 v6 设备返回空列表即提示手动填写）。 */
     fun localIpv4(): List<String> {
@@ -85,15 +86,18 @@ object ServerDiscovery {
             .followRedirects(false).followSslRedirects(false).build()
     }
 
-    private fun httpProbe(address: String): DiscoveredServer? {
+    internal fun httpProbe(address: String, client: OkHttpClient = probeClient): DiscoveredServer? {
         return try {
             val request = Request.Builder().url(address + "api/stream/client-info")
                 .header("Accept", "application/json").build()
-            probeClient.newCall(request).execute().use { response ->
+            client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
-                val text = response.body?.string().orEmpty()
-                if (text.length > 8192) return null
-                parse(address, text)
+                val body = response.body ?: return null
+                if (body.contentLength() > MAX_HANDSHAKE_BYTES) return null
+                // Discovery also reaches unrelated LAN services. Bound the stream before
+                // decoding, including chunked or decompressed bodies without a length.
+                if (body.source().request(MAX_HANDSHAKE_BYTES + 1)) return null
+                parse(address, body.string())
             }
         } catch (_: Exception) { null }
     }

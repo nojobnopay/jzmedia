@@ -2,7 +2,7 @@
 import time
 import uuid
 from ._base import APP_SETTING_KEYS, _conn, _lock
-__all__ = ['get_setting', 'set_setting', 'get_server_id']
+__all__ = ['get_setting', 'set_setting', 'set_settings', 'get_server_id']
 
 SERVER_ID_KEY = "server_id"
 
@@ -27,19 +27,27 @@ def get_setting(key: str) -> str:
 
 def set_setting(key: str, value: str) -> str:
     """写单项应用配置。空串表示清空（恢复跟随 env）。返回落库后的 strip 值。"""
-    if key not in APP_SETTING_KEYS:
-        raise ValueError(f"unknown setting: {key}")
-    v = (value or "").strip()
+    return set_settings({key: value})[key]
+
+
+def set_settings(values: dict[str, str]) -> dict[str, str]:
+    """Validate every key before atomically saving a settings change."""
+    for key in values:
+        if key not in APP_SETTING_KEYS:
+            raise ValueError(f"unknown setting: {key}")
+    cleaned = {key: (value or "").strip() for key, value in values.items()}
+    if not cleaned:
+        return cleaned
     now = int(time.time())
     with _lock, _conn() as c:
         c.execute("CREATE TABLE IF NOT EXISTS app_settings ("
                   "key TEXT PRIMARY KEY, value TEXT DEFAULT '',"
                   " updated_at INTEGER DEFAULT 0)")
-        c.execute("INSERT INTO app_settings(key, value, updated_at) VALUES(?, ?, ?)"
-                  " ON CONFLICT(key) DO UPDATE SET value=excluded.value,"
-                  " updated_at=excluded.updated_at",
-                  (key, v, now))
-    return v
+        c.executemany("INSERT INTO app_settings(key, value, updated_at) VALUES(?, ?, ?)"
+                      " ON CONFLICT(key) DO UPDATE SET value=excluded.value,"
+                      " updated_at=excluded.updated_at",
+                      [(key, value, now) for key, value in cleaned.items()])
+    return cleaned
 
 
 def get_server_id() -> str:

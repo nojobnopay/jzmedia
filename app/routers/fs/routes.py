@@ -34,8 +34,7 @@ def fs_blob(request: Request, library: int = Query(..., gt=0),
             path: str = Query(..., min_length=1), mode: Literal['raw', 'text'] = 'raw',
             inline: bool = False):
     """Read an exact library-relative file without requiring a catalogue record."""
-    # backend_for() intentionally falls back to the default library elsewhere;
-    # previews must never reinterpret a missing or stale library id that way.
+    # Resolve this exact library before validating or opening the requested path.
     lib = store.get_library(library)
     if lib is None:
         raise HTTPException(404, 'library not found')
@@ -94,6 +93,8 @@ def _locked_write(fn):
 def _backend(lid: int):
     try:
         return storage.backend_for(lid)
+    except storage.StorageNotFound as e:
+        raise HTTPException(404, "library not found") from e
     except storage.StorageError as e:
         raise HTTPException(503, f"library unavailable: {e}")
 

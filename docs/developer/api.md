@@ -27,6 +27,8 @@
 
 读接口可以按 `library` 视频库或 `media_library` 媒体库聚合过滤；写任务通常在 body 传 `library_id` 或 `media_library_id`。视频库工具应显式传 `library_id`，不要依赖缺省全库行为。未知媒体库的读筛选要返回空集合而非退化成全库。新增接口要覆盖“未指定、单视频库、媒体库聚合、不存在的媒体库”四种情况。
 
+文件操作显式指定的视频库不存在时返回 404；只有省略库参数的兼容入口才使用默认库。扫描全部时仅处理视频库及其父媒体库均已启用的范围，全部停用时不启动默认库扫描。
+
 当前四档播放由 POST `/api/stream/{id}/decide` 接收 `caps`；GET 兼容变体仅用保守默认。电影、分集、花絮播放时通过 `kind` 隔离媒体探测、进度和会话。文件直链及 HLS 分片读取是 GET，支持断点/Range 的接口不能被通用 JSON 包装破坏。
 
 网页 `caps.mp4_compat=true` 使用普通 MP4 短片兼容传输；`versions.transport` 为 `mp4`，`sessions` 返回 `media_url`、空 `playlist_url`，并保留 `media_start/initial_time`。`clip_duration` 为完成文件的实际秒数，客户端据此准备下一片，不能依赖缺失的浏览器媒体元数据；其他传输此字段为 0。MP4 的 `complete` 只表示当前片段完成，客户端不得把它当作全片结束；获取下一片仍用原片时间创建会话，关闭时释放当前和预取 sid。格式及时间轴规则见[播放核心设计](playback.md#浏览器检测与兼容回退)。
@@ -38,6 +40,8 @@
 ### 写操作令牌
 
 配置 `JZMEDIA_TOKEN` 或设置页令牌后，`app/main.py` 对 `/api` 下的 POST/PUT/PATCH/DELETE 校验 `X-Api-Token` 或 `Authorization: Bearer`；两者同时提供时优先使用非空 `X-Api-Token`。设置变更立即改变有效令牌。`/api/viewing/mode`、`unlock`、`lock`、`activity` 四个观看会话端点不要求此令牌，仍执行各自的会话与密码检查；密码设置、内容策略修改和其他写操作继续要求令牌。
+
+设置页新令牌须至少 8 位，使用可打印 ASCII 字符（英文字母、数字或半角符号），不能包含中文、全角字符或控制字符。`PUT /api/settings` 先校验本次全部字段，再在同一事务中保存；字段校验或数据库写入失败时，不保留本次请求的部分修改。字段省略或为 `null` 时保持原值，显式空串恢复对应环境配置或默认值。
 
 网页播放的 POST `decide/sessions/progress` 同样需要写令牌。令牌本身不限制 GET、海报或媒体读取；这些请求还会受到下述观看模式限制。新增配置或媒体写操作须使用 `/api` 路径和写 HTTP 方法，不能通过 GET 绕过令牌；现有读取接口可能按需填充图片或探测缓存。
 
@@ -152,6 +156,14 @@
 范围在启动时固定，并随任务状态的 `library_id` 返回。单库任务的本地资料写入、电影搜索索引同步和剧集分集重算均限于所选视频库；其他库中的同一 TMDB 作品不随本次任务更新。TMDB 资料缓存仍跨库共享，同库多版本可共用补全结果，远程请求按作品去重。
 
 使用 `GET /api/viewing/refresh/{job_id}` 查询进度，`POST /api/viewing/refresh/{job_id}/cancel` 取消；取消后应等待 `worker_finished:true` 再启动新任务。同范围的运行中任务返回原任务及 `resumed:true`，其他未结束任务冲突返回 409。任务不存在或服务重启后返回 404，客户端应清理旧任务引用；其他状态读取失败可重试。接口受管理权限保护，POST 同时遵循写操作令牌鉴权。
+
+### 系列信息补全
+
+`POST /api/collections/suggest/backfill` 接收 `media_library`（兼容 `media_library_id`）、`limit`（1–200，默认 50）和 `force`。媒体库范围在启动时固定，仅选取该范围内缺少系列信息的电影；省略范围表示全服务。旧字段 `library` / `library_id` 按视频库映射到父媒体库，未知 ID 对应空范围。不会为仅存在于其他库的作品发起补全；同一 TMDB 作品仍共用资料缓存，资料变化时按既有规则同步其各库版本的文字资料，保留手工标题与标签，不写媒体文件或 NFO。
+
+启动响应和 `GET /api/collections/suggest/backfill/status?job_id=<id>` 状态包含 `media_library_id`（全服务为 `null`）、`force` 和 `limit`。仅当运行中任务的范围、强制参数及批量上限全部一致时复用任务并返回 `resumed:true`；存在其他参数的运行中任务时返回 409。网页切换媒体库或离开页面后停止旧任务的前端自动续跑，已经提交的后台批次继续处理原范围；用户也可通过取消按钮停止剩余处理。
+
+状态查询及 `POST /api/collections/suggest/backfill/cancel {"job_id":"<id>"}` 对明确指定但已失效的任务返回 404，不改查或取消另一任务；兼容入口省略任务 ID 时仍处理最近任务。网页收到任务已失效的响应后停止跟踪，可重新发起补全。
 
 ### 合集成员清理
 

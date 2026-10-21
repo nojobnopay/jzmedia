@@ -122,12 +122,13 @@ def search(title: str, year: int | None = None, kind: str = "movie",
         try:
             hits = fn(term, year, kind, limit)
         except Exception as e:
-            tripped = state.note_fail(name, str(e))
+            error = state.safe_error(e)
+            tripped = state.note_fail(name, error)
             if tripped:
                 logger.warning("provider %s 连续失败进入冷却 %ss term=%s: %s",
-                               name, state.COOLDOWN_SEC, term, e)
+                               name, state.COOLDOWN_SEC, term, error)
             else:
-                logger.debug("provider %s failed term=%s: %s", name, term, e)
+                logger.debug("provider %s failed term=%s: %s", name, term, error)
             hits = []
         else:
             # 无异常即视为健康（空结果不算失败，避免误冷却）
@@ -152,7 +153,7 @@ def detail_for(cand: Candidate, fetch: bool = True) -> dict:
         d = fn(cand.source_id)
     except Exception as e:
         logger.debug("provider %s detail failed id=%s: %s",
-                     cand.source, cand.source_id, e)
+                     cand.source, cand.source_id, state.safe_error(e))
         return base
     if not isinstance(d, dict) or not d.get("title"):
         return base

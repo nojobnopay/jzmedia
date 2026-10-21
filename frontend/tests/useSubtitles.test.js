@@ -67,6 +67,46 @@ test('dispose 清理本地字幕引用不抛', () => {
   assert.deepEqual(s.localSubs.value, [])
 })
 
+test('a subtitle file finishing after dispose cannot create a blob, restore tracks or emit feedback', async t => {
+  const ctx = makeCtx()
+  const messages = []
+  ctx.toast = message => messages.push(message)
+  const created = t.mock.method(URL, 'createObjectURL', () => 'blob:late-subtitle')
+  const s = useSubtitles(ctx)
+  let resolve
+  const reading = new Promise(yes => { resolve = yes })
+  const load = s.onLoadSubFile({ name: 'slow.srt', arrayBuffer: () => reading })
+  s.dispose()
+  resolve(new TextEncoder().encode('1\n00:00:00,000 --> 00:00:01,000\n字幕\n').buffer)
+  await load
+  assert.equal(created.mock.callCount(), 0)
+  assert.deepEqual(s.localSubs.value, [])
+  assert.deepEqual(s.subs.value, [])
+  assert.equal(s.subIdx.value, -1)
+  assert.deepEqual(messages, [])
+})
+
+test('removing local subtitles also invalidates pending reads; late read failures after disposal stay silent', async t => {
+  const ctx = makeCtx()
+  const messages = []
+  ctx.toast = message => messages.push(message)
+  const created = t.mock.method(URL, 'createObjectURL', () => 'blob:removed-subtitle')
+  const s = useSubtitles(ctx)
+  let resolve
+  const load = s.onLoadSubFile({ name: 'removed.srt', arrayBuffer: () => new Promise(yes => { resolve = yes }) })
+  s.removeLocalSubs()
+  resolve(new ArrayBuffer(0))
+  await load
+  assert.equal(created.mock.callCount(), 0)
+  assert.deepEqual(s.localSubs.value, [])
+  let reject
+  const failed = s.onLoadSubFile({ name: 'failed.srt', arrayBuffer: () => new Promise((_yes, no) => { reject = no }) })
+  s.dispose()
+  reject(new Error('late failure'))
+  await failed
+  assert.deepEqual(messages, [])
+})
+
 test('withTimeout 正常 resolve 透传结果', async () => {
   assert.equal(await withTimeout(Promise.resolve('ok'), 50), 'ok')
 })

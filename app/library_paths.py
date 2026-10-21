@@ -63,7 +63,8 @@ def list_libraries(only_enabled: bool = False) -> list[dict]:
     rows = _snapshot()
     if not rows:
         return [_fallback_library()]
-    return [r for r in rows if (not only_enabled or int(r.get("enabled") or 0))]
+    return [r for r in rows if (not only_enabled or
+            (int(r.get("enabled") or 0) and int(r.get("media_enabled", 1) or 0)))]
 
 
 def get_library(library_id) -> dict | None:
@@ -85,7 +86,8 @@ def default_library() -> dict:
     for r in rows:
         if int(r.get("id") or 0) == DEFAULT_LIBRARY_ID:
             return r
-    enabled = [r for r in rows if int(r.get("enabled") or 0)]
+    enabled = [r for r in rows if int(r.get("enabled") or 0)
+               and int(r.get("media_enabled", 1) or 0)]
     return enabled[0] if enabled else rows[0]
 
 
@@ -98,8 +100,12 @@ def default_root() -> str:
 
 
 def library_root(library_id) -> str:
+    if library_id is None:
+        return default_root()
     lib = get_library(library_id)
-    return str((lib or default_library()).get("path") or settings.media_root)
+    if lib is None:
+        raise ValueError("library not found")
+    return str(lib.get("path") or settings.media_root)
 
 
 def resolve(library_id, rel: str) -> str:

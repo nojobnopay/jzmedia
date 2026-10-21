@@ -669,13 +669,12 @@ def _scan_libraries(library_id, media_library_id=None) -> list[dict]:
             return [l for l in library_paths.list_libraries(only_enabled=True)
                     if int(l.get("media_library_id") or 0) == mid]
         if library_id is None:
-            libs = library_paths.list_libraries(only_enabled=True)
-            return libs or [library_paths.default_library()]
+            return library_paths.list_libraries(only_enabled=True)
         lib = library_paths.get_library(library_id)
         return [lib] if lib else []
     except Exception as e:
         logger.warning("resolve scan libraries failed: %s", e)
-        return [library_paths.default_library()]
+        return []
 
 
 def scan_all(progress_cb=None, should_stop=None, library_id=None,
@@ -704,7 +703,8 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
             backend = storage.backend_for(lib_id)
         except storage.StorageError as e:
             out.append({"file": "", "library_id": lib_id,
-                        "status": f"error: library unavailable: {e}"})
+                        "status": ST_LIBRARY_OFFLINE if isinstance(e, storage.StorageOffline)
+                        else f"error: library unavailable: {e}"})
             continue
         change_revision = store.fs_change_summary(lib_id)["revision"]
         storage.clear_meta_cache(lib_id)   # 扫描必须看到磁盘当前状态（不吃 TTL 缓存）
@@ -781,6 +781,14 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
             logger.info("scan cancelled before GC: lib=%s", lib_id)
             return out
         with library_mutation_lock(lib_id):
+            try:
+                storage.clear_meta_cache(lib_id)
+                backend.stat("")
+            except storage.StorageError as ex:
+                out.append({"file": "", "library_id": lib_id,
+                            "status": ST_LIBRARY_OFFLINE if isinstance(ex, storage.StorageOffline)
+                            else f"error: library unavailable: {ex}"})
+                continue
             if store.fs_change_summary(lib_id)["revision"] != change_revision:
                 out.append({"file": "", "library_id": lib_id,
                             "status": "error: files changed during scan; scan again"})

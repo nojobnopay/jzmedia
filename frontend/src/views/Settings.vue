@@ -148,7 +148,7 @@
         <p v-if="s?.jzmedia_token_source === 'env'" class="hint">当前令牌由服务器配置提供。如需关闭保护，请在服务器移除 JZMEDIA_TOKEN；在此可保存新令牌替换。</p>
         <form class="settings-form" @submit.prevent="saveAuth()">
           <label for="access-token">{{ s?.jzmedia_token_masked ? '更换访问令牌' : '设置访问令牌' }}</label>
-          <input id="access-token" :disabled="busy === 'auth'" v-model="authForm.token" type="password" minlength="8" required placeholder="输入至少 8 位字符" autocomplete="new-password" />
+          <input id="access-token" :disabled="busy === 'auth'" v-model="authForm.token" type="password" minlength="8" pattern="[ -~]{8,}" required placeholder="至少 8 位英文、数字或半角符号" title="请使用至少 8 位英文字母、数字或半角符号" autocomplete="new-password" />
           <div class="bar"><JzButton class="primary" type="submit" :disabled="!!busy || !s || authForm.token.trim().length < 8" variant="primary">{{ busy === 'auth' ? '保存中…' : '保存并启用保护' }}</JzButton><JzButton v-if="s?.jzmedia_token_source === 'db'" type="button" @click="armDisableAuth = true" :disabled="!!busy" icon="delete">移除已保存令牌…</JzButton></div>
         </form>
         <div v-if="armDisableAuth" class="settings-notice" role="alert"><span>将移除此处保存的令牌。若服务器仍配置了令牌，将恢复使用；否则关闭保护，任何能访问服务的人都可以修改内容。</span><JzButton class="danger" @click="saveAuth(true)" :disabled="!!busy" type="button" variant="danger">确认移除令牌</JzButton><JzButton @click="armDisableAuth = false" :disabled="!!busy" type="button">取消</JzButton></div>
@@ -227,6 +227,10 @@ const authMsg = ref('')
 const armDisableAuth = ref(false)
 async function saveAuth(disable = false) {
   if (busy.value || (!disable && authForm.value.token.trim().length < 8)) return
+  if (!disable && !/^[\x20-\x7e]{8,}$/.test(authForm.value.token.trim())) {
+    authMsg.value = '请使用至少 8 位英文字母、数字或半角符号'
+    return
+  }
   busy.value = 'auth'
   authMsg.value = ''
   try {

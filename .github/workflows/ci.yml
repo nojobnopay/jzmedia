@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jzmedia-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install backend test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements-dev.txt
+      - name: Check Python and run backend tests
+        run: |
+          .venv/bin/python scripts/check_python.py
+          .venv/bin/python -m pytest -q
+
+  frontend-docs-design:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '25'
+          package-manager-cache: false
+      - name: Check generated design assets
+        run: python scripts/build_design.py --check
+      - name: Install frontend and documentation dependencies
+        run: |
+          npm --prefix frontend ci --prefer-offline --no-audit --no-fund
+          npm --prefix docs ci --prefer-offline --no-audit --no-fund
+      - name: Test, lint and build frontend
+        run: |
+          npm --prefix frontend test
+          npm --prefix frontend run lint
+          npm --prefix frontend run build
+      - name: Verify documentation
+        run: npm --prefix docs run verify
+
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK components
+        run: |
+          android_sdk_manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$android_sdk_manager" ]; then
+            android_sdk_managers=("$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager)
+            android_sdk_manager="${android_sdk_managers[0]}"
+          fi
+          "$android_sdk_manager" 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Run TV tool tests, JVM tests and Lint
+        run: python android-tv/tools/tv.py test

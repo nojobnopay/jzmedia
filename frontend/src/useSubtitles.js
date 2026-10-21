@@ -52,6 +52,8 @@ export function useSubtitles(ctx) {
   // 影片重载（切档/seek/音轨）后合并保留，选中项按 localId 恢复。
   const localSubs = ref([])
   let localSubSeq = 0
+  let localSubGeneration = 0
+  let disposed = false
   // 外挂中文默认轨只自动选一次（用户手动选过后不再自动覆盖）
   let autoSubPicked = false
   // 缺字体时自动转 VTT 的字幕轨索引（按轨，不污染其他 ASS 轨；重开播放器即重置）
@@ -101,6 +103,8 @@ export function useSubtitles(ctx) {
   // 临时加载本地字幕文件（srt/vtt 自绘、ass/ssa JASSUB；图片格式不支持，见 localSubCodec）。
   // 纯浏览器端：不入库、不上传，关播放器即失效；同名文件重复加载自动替换。
   async function onLoadSubFile(file) {
+    if (disposed) return
+    const generation = localSubGeneration
     const codec = localSubCodec(file && file.name)
     if (!codec) {
       ctx.toast('不支持的字幕格式：仅可临时加载 srt/vtt/ass/ssa（图片字幕请与正片同名放入片目录）')
@@ -113,12 +117,14 @@ export function useSubtitles(ctx) {
       if (codec === 'ass' || codec === 'ssa') {
         entry.url = URL.createObjectURL(file)
       } else {
-        entry.text = decodeSubtitleBytes(await file.arrayBuffer())
+        const bytes = await file.arrayBuffer()
+        if (disposed || generation !== localSubGeneration) return
+        entry.text = decodeSubtitleBytes(bytes)
         entry.url = URL.createObjectURL(new Blob([entry.text], { type: 'text/vtt' }))   // 原生 <track> 兜底用
       }
       entry.blobUrl = entry.url
     } catch (e) {
-      ctx.toast('字幕文件读取失败：' + ((e && e.message) || e))
+      if (!disposed && generation === localSubGeneration) ctx.toast('字幕文件读取失败：' + ((e && e.message) || e))
       return
     }
     const prev = localSubs.value.findIndex(s => s.title === entry.title)
@@ -137,6 +143,7 @@ export function useSubtitles(ctx) {
     applySubs(true)
   }
   function removeLocalSubs() {
+    localSubGeneration++
     if (!localSubs.value.length) return
     const wasLocal = isLocalSub(selectedSub())
     for (const s of localSubs.value) revokeLocalUrl(s)
@@ -703,9 +710,13 @@ export function useSubtitles(ctx) {
   }
   // 卸载清理：销毁三类渲染器并回收本地字幕 blob URL
   function dispose() {
+    disposed = true
+    localSubGeneration++
     destroyAll()
     for (const s of localSubs.value) revokeLocalUrl(s)
     localSubs.value = []
+    subs.value = []
+    subIdx.value = -1
   }
 
   return {

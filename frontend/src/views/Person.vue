@@ -94,6 +94,14 @@ const bioRefreshing = ref(false)
 const bioLoading = ref(false)
 const ensuring = ref(false)  // TV 跳转建档中（404 承接）：页内 loading，完后刷新显示
 let unsubLib = null
+let loadGeneration = 0
+let controller = null
+let disposed = false
+
+function current(context) {
+  return !disposed && context.generation === loadGeneration
+    && context.id === String(route.params.tmdb_id) && context.media === mediaParam()
+}
 
 const countsLine = computed(() => {
   if (!p.value) return ''
@@ -112,40 +120,52 @@ function showTvChar(w) {
   return String(w.original_language || '').toLowerCase().startsWith('en') && w.character
 }
 // 作品列表随当前媒体库聚合（v18 读聚合）；单媒体库不带参数=全库
-function personUrl() {
-  const mp = mediaParam()
-  return '/api/persons/' + route.params.tmdb_id + (mp != null ? '?media_library=' + mp : '')
+function personUrl(context, refresh = false) {
+  return '/api/persons/' + context.id + (refresh ? '/refresh' : '')
+    + (context.media != null ? '?media_library=' + context.media : '')
 }
 async function load() {
+  if (disposed) return
+  controller?.abort()
+  controller = new AbortController()
+  const context = { id: String(route.params.tmdb_id), media: mediaParam(),
+    generation: ++loadGeneration, signal: controller.signal }
+  const qname = String(route.query.name || '').trim()
+  const qprofile = String(route.query.profile || '').trim()
   p.value = null
   err.value = ''
+  bioMsg.value = ''
+  bioRefreshing.value = false
   bioLoading.value = false
   ensuring.value = false
-  const tid = route.params.tmdb_id
   try {
     // 本地数据先秒开（后端纯本地查询，不等 TMDB）
-    p.value = await api(personUrl())
+    const data = await api(personUrl(context), { signal: context.signal })
+    if (!current(context)) return
+    p.value = data
   } catch (e) {
+    if (!current(context)) return
     // TV 跳转带 query 建档：无人物行时自动建档后重取（跳转本身零等待，
     // 加载态收敛在此，杜绝连点竞态）；直接访问无 query 仍 404。
     const msg404 = String((e && e.message) || '')
-    const qname = String(route.query.name || '').trim()
-    const qprofile = String(route.query.profile || '').trim()
     if (msg404.startsWith('404') && (qname || qprofile)) {
       ensuring.value = true
       try {
         await api('/api/persons/ensure', {
           method: 'POST',
-          body: JSON.stringify({ tmdb_id: Number(tid), name: qname, profile_path: qprofile }),
+          body: JSON.stringify({ tmdb_id: Number(context.id), name: qname, profile_path: qprofile }),
+          signal: context.signal,
         })
-        if (route.params.tmdb_id !== tid) return
-        p.value = await api(personUrl())
+        if (!current(context)) return
+        const data = await api(personUrl(context), { signal: context.signal })
+        if (!current(context)) return
+        p.value = data
       } catch (e2) {
-        if (route.params.tmdb_id !== tid) return
+        if (!current(context)) return
         err.value = '人物建档失败：' + e2.message
         return
       } finally {
-        if (route.params.tmdb_id === tid) ensuring.value = false
+        if (current(context)) ensuring.value = false
       }
     } else {
       err.value = '人物不存在：' + e.message
@@ -158,34 +178,38 @@ async function load() {
     if (!(p.value.biography || '').trim() && !(p.value.bio_fetched_at || 0)) {
       bioLoading.value = true
       try {
-        const full = await api(personUrl(), { method: 'POST' })
+        const full = await api(personUrl(context, true), { method: 'POST', signal: context.signal })
         // 路由已切走则丢弃过期回包
-        if (route.params.tmdb_id === tid) p.value = full
-      } catch (e) { /* 保持“暂无简介”，用户可点刷新简介重试 */ }
+        if (current(context)) p.value = full
+      } catch (e) { if (current(context)) bioMsg.value = '简介加载失败，可点击更新简介重试：' + e.message }
       finally {
-        if (route.params.tmdb_id === tid) bioLoading.value = false
+        if (current(context)) bioLoading.value = false
       }
     }
   } catch (e) {
-    err.value = '人物不存在：' + e.message
+    if (current(context)) err.value = '人物不存在：' + e.message
   }
 }
 async function refreshBio() {
-  if (bioRefreshing.value) return
+  if (disposed || !p.value || bioRefreshing.value || bioLoading.value) return
+  const context = { id: String(route.params.tmdb_id), media: mediaParam(),
+    generation: loadGeneration, signal: controller.signal }
   bioRefreshing.value = true
   bioMsg.value = ''
   try {
-    p.value = await api(personUrl(), { method: 'POST' })
+    const data = await api(personUrl(context, true), { method: 'POST', signal: context.signal })
+    if (!current(context)) return
+    p.value = data
     bioMsg.value = (p.value.biography || '').trim() ? '已更新' : '远端暂无简介'
   } catch (e) {
-    bioMsg.value = '更新失败：' + e.message
-  } finally { bioRefreshing.value = false }
+    if (current(context)) bioMsg.value = '更新失败：' + e.message
+  } finally { if (current(context)) bioRefreshing.value = false }
 }
 onMounted(() => {
   load()
   unsubLib = onLibChange(() => load())
 })
-onUnmounted(() => { if (unsubLib) unsubLib() })
+onUnmounted(() => { disposed = true; loadGeneration++; controller?.abort(); unsubLib?.() })
 watch(() => route.params.tmdb_id, load)
 </script>
 <style scoped>

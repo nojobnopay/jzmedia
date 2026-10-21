@@ -90,6 +90,22 @@ def test_scan_offline_skips_and_keeps_rows(smb_movie_lib):
     assert any(e["file_path"] == "Keep (2000)-trailer.mkv" for e in extras)
 
 
+def test_scan_disconnect_after_snapshot_keeps_rows_even_with_cached_root(smb_movie_lib):
+    lib, _, fake = smb_movie_lib
+    rel = "Keep while offline (2000).mkv"
+    movie_id = store.upsert_movie_by_path(rel, library_id=lib["id"])
+    store.save_progress(movie_id, 50, 100)
+
+    def disconnect_after_snapshot(done, total):
+        assert done == total == 0
+        fake.offline = True
+
+    result = scanner.scan_all(library_id=lib["id"], progress_cb=disconnect_after_snapshot)
+    assert any(row["status"] == "library_offline" for row in result)
+    assert store.get_movie(movie_id)
+    assert store.get_progress(movie_id)["position"] == 50
+
+
 def test_scan_tv_library_direct(tmp_path, monkeypatch):
     lib, root, _fake = _make_lib(tmp_path, monkeypatch, kind="tv")
     try:
@@ -133,17 +149,27 @@ def test_rescan_remote_movie_api(smb_movie_lib):
     assert r.json()["status"] in ("no_match", "ok", "ok_needs_review")
 
 
-def test_scan_no_per_file_stat(smb_movie_lib):
+def test_scan_no_per_file_stat(smb_movie_lib, monkeypatch):
     """P2 扫描热路径：iter_tree 已带 size/mtime，不得再为每个视频文件 stat。"""
     lib, root, fake = smb_movie_lib
     d = root / "Many (2001)"
     d.mkdir()
     for i in range(5):
         (d / f"Many.part{i}.mkv").write_bytes(b"x")
+    monkeypatch.setenv("SMB_META_TTL", "0")
+    stat_paths = []
+    original_stat = fake.stat
+
+    def track_stat(unc, **kwargs):
+        stat_paths.append(fake._p(unc))
+        return original_stat(unc, **kwargs)
+
+    monkeypatch.setattr(fake, "stat", track_stat)
     fake.counts.clear()
     scanner.scan_all(library_id=lib["id"])
-    # 只允许库根一次 stat（backend.stat("") 可达性探测）；scandir 每目录一次
-    assert fake.counts.get("stat", 0) <= 1
+    # 开始与 GC 前各核验库根；不得退化成逐片 stat，scandir 仍每目录一次。
+    assert fake.counts.get("stat", 0) == 2
+    assert stat_paths == [root, root]
     assert fake.counts.get("scandir", 0) <= 2
 
 

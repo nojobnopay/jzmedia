@@ -317,15 +317,17 @@ def _restore_one(m: dict, dry_run: bool) -> dict:
     base = {"id": m["id"], "title": m.get("title", ""),
             "from": m["file_path"], "to": m.get("original_file_path") or "",
             "library_id": m.get("library_id")}
+    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
     # 目标边界守卫（评审 B6/R09-B4）：to 来自库内历史值，理论上合法；
     # 防御性再校验一次，防止库被外部工具改坏后恢复到 MEDIA_ROOT 之外
     try:
-        base["to"] = _check_inside_root(base["to"])
+        base["to"] = _check_inside_root(base["to"], lib_id)
     except HTTPException as e:
         return {**base, "status": f"error: illegal target ({e.detail})"}
-    lib_id = m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID
     backend = _backend_for(lib_id)
-    if backend is not None and backend.abs_path(base["from"]) is None:
+    if backend is None:
+        return {**base, "status": "error: library unavailable"}
+    if backend.abs_path(base["from"]) is None:
         return _restore_one_remote(m, base, backend, dry_run)
     src = library_paths.resolve(
         m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, base["from"])

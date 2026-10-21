@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 
 from ..log import get_logger
-from .base import StorageBackend, StorageError
+from .base import StorageBackend, StorageError, StorageNotFound
 from .local import LocalStorageBackend
 
 logger = get_logger("storage.factory")
@@ -57,19 +57,23 @@ def backend_for_library(lib: dict | None) -> StorageBackend:
                 logger.warning("SMB 直读不可用，回退挂载点 lib=%s: %s",
                                lib.get("id"), e)
     driver = "mount" if source in ("smb", "nfs") else "local"
-    return LocalStorageBackend(lib, driver=driver)
+    backend = LocalStorageBackend(lib, driver=driver)
+    # An unmounted directory can still exist and be empty or contain old files.
+    # Fail before callers interpret that directory as the remote library.
+    if driver == "mount":
+        backend.abs_path("")
+    return backend
 
 
 def backend_for(library_id=None) -> StorageBackend:
-    """按库 id 取后端；缺省/未知回落默认库（与 library_paths 语义一致）。"""
+    """按库 id 取后端；仅省略 id 时取默认库，显式未知 id 不能改指其他库。"""
     from .. import library_paths
-    lib = None
-    if library_id is not None:
-        try:
-            lib = library_paths.get_library(int(library_id))
-        except (TypeError, ValueError):
-            lib = None
-    return backend_for_library(lib or library_paths.default_library())
+    if library_id is None:
+        return backend_for_library(library_paths.default_library())
+    lib = library_paths.get_library(library_id)
+    if lib is None:
+        raise StorageNotFound("library not found")
+    return backend_for_library(lib)
 
 
 def backend_for_media(media_library_id) -> StorageBackend:

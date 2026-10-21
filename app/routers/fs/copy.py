@@ -407,6 +407,8 @@ def fs_copy(body: dict | None = None):
         raise HTTPException(422, "library must be int")
     try:
         backend = storage.backend_for(lid)
+    except storage.StorageNotFound as e:
+        raise HTTPException(404, "library not found") from e
     except storage.StorageError as e:
         raise HTTPException(503, f"library unavailable: {e}")
     remote = backend.abs_path("") is None

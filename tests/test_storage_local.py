@@ -150,6 +150,9 @@ def test_factory_local_and_mount(media_root, monkeypatch):
     from app.db import mount_point
 
     monkeypatch.setenv("SMB_DRIVER", "mount")
+    simulated_mount = mount_point(77)
+    os.makedirs(simulated_mount, exist_ok=True)
+    monkeypatch.setattr(os.path, "ismount", lambda path: str(path) == simulated_mount)
     local = storage.backend_for_library(_lib(media_root, source="local"))
     assert local.driver == "local"
     smb = storage.backend_for_library(

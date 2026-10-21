@@ -81,6 +81,41 @@ const DISMISS_KEY = 'jzmedia.dismissedSeries'
 const BF_MAX_ROUNDS = 4          // 自动续跑上限（评审 B5a-10/R06-D4：一轮 50 条，防死循环）
 let bfRounds = 0                 // 当前补全链已发起的轮数
 let bfAuto = false               // 当前链是否为「一键补全」（force=全部重查不自动续）
+let scopeGeneration = 0
+let suggestSeq = 0
+let suggestController = null
+let backfillContext = null
+
+function scopeContext() {
+  return { generation: scopeGeneration, mediaId: currentMediaId(), mediaScope: mediaParam() }
+}
+function currentScope(context) {
+  return !disposed && context.generation === scopeGeneration
+    && context.mediaId === currentMediaId() && context.mediaScope === mediaParam()
+}
+function currentBackfill(context) {
+  return context && context === backfillContext && currentScope(context)
+}
+function sameJobScope(data, context) {
+  return Object.hasOwn(data, 'media_library_id')
+    && (data.media_library_id == null ? null : Number(data.media_library_id)) === context.mediaScope
+}
+function resetBackfill() {
+  backfillContext?.controller.abort()
+  backfillContext = null
+  stopPoll()
+  backfilling.value = false
+  bfAuto = false
+  bfRounds = 0
+  jobId.value = ''
+  lastPollDone = -1
+  bfProgress.value = { state: 'idle', done: 0, total: 0, current_title: '', failed: [] }
+}
+function newBackfillContext() {
+  resetBackfill()
+  backfillContext = { ...scopeContext(), controller: new AbortController() }
+  return backfillContext
+}
 
 function dismissedIds() {
   try {
@@ -90,29 +125,48 @@ function dismissedIds() {
   }
 }
 
-async function loadSuggest() {
-  if (isChildren.value) return
-  sgMsg.value = ''
+async function loadSuggest(context = scopeContext()) {
+  if (!currentScope(context) || isChildren.value) return null
+  const seq = ++suggestSeq
+  suggestController?.abort()
+  suggestController = new AbortController()
+  const signal = suggestController.signal
   try {
     const d = await api('/api/collections/suggest'
-      + (mediaParam() != null ? '?media_library=' + mediaParam() : ''))
+      + (context.mediaScope != null ? '?media_library=' + context.mediaScope : ''), { signal })
+    if (!currentScope(context) || seq !== suggestSeq) return null
     const gone = dismissedIds()
     suggest.value = (d.items || []).filter(s => !gone.has(s.collection_tmdb_id))
     topups.value = d.topups || []
     coverage.value = d.coverage || null
-  } catch (e) { /* 无系列信息时静默 */ }
+    return d
+  } catch (e) {
+    if (currentScope(context) && seq === suggestSeq && !signal.aborted) sgMsg.value = '推荐加载失败：' + e.message
+    return null
+  }
 }
-async function backfill(force = false) {
-  backfilling.value = true
-  if (force || bfRounds === 0) {
-    bfRounds = 0
+async function backfill(force = false, context = null) {
+  if (!context) {
+    if (disposed || backfilling.value) return
+    context = newBackfillContext()
     bfAuto = !force
   }
+  if (!currentBackfill(context)) return
+  backfilling.value = true
   sgMsg.value = ''
   try {
     const d = await api('/api/collections/suggest/backfill', {
-      method: 'POST', body: JSON.stringify({ limit: 50, force, media_library: mediaParam() })
+      method: 'POST', body: JSON.stringify({ limit: 50, force, media_library: context.mediaScope }),
+      signal: context.controller.signal,
     })
+    if (!currentBackfill(context)) return
+    if (Object.hasOwn(d, 'media_library_id') && !sameJobScope(d, context)) {
+      resetBackfill()
+      sgMsg.value = '另一媒体库的补全正在运行，请稍后重试。'
+      return
+    }
+    // Older servers do not expose the resumed job's scope/force; only follow its progress.
+    if (d.resumed) bfAuto = bfAuto && sameJobScope(d, context) && d.force === false
     if (!d.total) {
       sgMsg.value = '没有缺系列信息的影片'
       backfilling.value = false
@@ -125,6 +179,7 @@ async function backfill(force = false) {
     if (d.resumed) sgMsg.value = '已复用运行中的补全任务，继续跟踪进度…'
     startPoll()
   } catch (e) {
+    if (!currentBackfill(context)) return
     sgMsg.value = '补全失败：' + e.message
     backfilling.value = false
     bfRounds = 0
@@ -146,10 +201,19 @@ let lastPollDone = -1
 const bfPoll = usePolling(pollStatus, { interval: 2000, immediate: true })
 function startPoll() { bfPoll.start() }
 function stopPoll() { bfPoll.stop() }
-async function pollStatus() {
+async function pollStatus(context = backfillContext) {
+  if (!currentBackfill(context) || !jobId.value) return
+  const requestedJob = jobId.value
   try {
     const d = await api('/api/collections/suggest/backfill/status' +
-      (jobId.value ? '?job_id=' + encodeURIComponent(jobId.value) : ''))
+      '?job_id=' + encodeURIComponent(requestedJob), { signal: context.controller.signal })
+    if (!currentBackfill(context)) return
+    if ((d.job_id && d.job_id !== requestedJob)
+        || (Object.hasOwn(d, 'media_library_id') && !sameJobScope(d, context))) {
+      resetBackfill()
+      sgMsg.value = '补全任务范围已变更，请重新检查。'
+      return
+    }
     bfProgress.value = {
       state: d.state || 'idle', done: d.done || 0, total: d.total || 0,
       current_title: d.current_title || '', failed: d.failed || []
@@ -158,17 +222,17 @@ async function pollStatus() {
     // 增量呈现：仅进度变化或收尾时刷新推荐（评审 B8/R06-D2：此前每 2s 一次全量聚合）
     const progressed = d.done !== lastPollDone
     lastPollDone = d.done
-    if (progressed || d.state === 'done' || d.state === 'cancelled') {
-      await loadSuggest()
-    }
+    const refreshed = progressed || d.state === 'done' || d.state === 'cancelled'
+      ? await loadSuggest(context) : null
+    if (!currentBackfill(context)) return
     if (d.state === 'done' || d.state === 'cancelled') {
       stopPoll()
       backfilling.value = false
       if (d.state === 'done' && bfAuto && bfRounds < BF_MAX_ROUNDS
-          && ((coverage.value && coverage.value.unchecked) || 0) > 0) {
+          && (refreshed?.coverage?.unchecked || 0) > 0) {
         // 还有未排查的片：自动续跑下一轮（最多 BF_MAX_ROUNDS 轮）
         sgMsg.value = `已完成 ${d.done}/${d.total}，继续补全剩余…`
-        await backfill(false)
+        await backfill(false, context)
         return
       }
       bfRounds = 0
@@ -177,15 +241,32 @@ async function pollStatus() {
         ? `补全完成 ${d.done}/${d.total}` + ((d.failed || []).length ? `，失败 ${(d.failed || []).length}` : '')
         : `已取消（${d.done}/${d.total}）`
     }
-  } catch (e) { /* 轮询失败忽略，下次继续 */ }
+  } catch (e) {
+    if (currentBackfill(context) && e.status === 404) {
+      resetBackfill()
+      sgMsg.value = '补全任务已失效，可重新开始。'
+    }
+    // Connection failures remain retryable; a missing job cannot reappear after a restart.
+  }
 }
 async function cancelBackfill() {
+  const context = backfillContext
+  if (!currentBackfill(context) || !jobId.value) return
+  bfAuto = false
   try {
     await api('/api/collections/suggest/backfill/cancel', {
-      method: 'POST', body: JSON.stringify({ job_id: jobId.value })
+      method: 'POST', body: JSON.stringify({ job_id: jobId.value }), signal: context.controller.signal,
     })
-  } catch (e) { /* 忽略 */ }
-  await pollStatus()
+  } catch (e) {
+    if (!currentBackfill(context)) return
+    if (e.status === 404) {
+      resetBackfill()
+      sgMsg.value = '补全任务已失效，可重新开始。'
+      return
+    }
+    sgMsg.value = '取消补全失败：' + e.message
+  }
+  await pollStatus(context)
 }
 async function accept(s) {
   accepting.value = true
@@ -293,14 +374,17 @@ async function create() {
 }
 async function resumeBackfill() {
   if (isChildren.value || viewing.enabled && !viewing.management_unlocked) return
+  const context = newBackfillContext()
   // 续跑：刷新页面后后台若还在补全，自动续上进度条
   try {
-    const d = await api('/api/collections/suggest/backfill/status')
+    const d = await api('/api/collections/suggest/backfill/status', { signal: context.controller.signal })
+    if (!currentBackfill(context)) return
+    if (Object.hasOwn(d, 'media_library_id') && !sameJobScope(d, context)) return
     if (d.state === 'running' && d.total) {
       jobId.value = d.job_id || ''
       backfilling.value = true
       bfRounds = Math.max(1, bfRounds)   // 刷新后接力：完成后仍可自动续跑
-      bfAuto = true
+      bfAuto = sameJobScope(d, context) && d.force === false
       bfProgress.value = {
         state: d.state, done: d.done || 0, total: d.total || 0,
         current_title: d.current_title || '', failed: d.failed || []
@@ -313,13 +397,27 @@ let unsubLib = null
 onMounted(async () => {
   try { await loadLibs(api) } catch (e) { /* 忽略 */ }
   if (disposed) return
-  unsubLib = onLibChange(() => { load(); loadSuggest() })
+  unsubLib = onLibChange(() => {
+    scopeGeneration++
+    suggestSeq++
+    suggestController?.abort()
+    resetBackfill()
+    suggest.value = []
+    topups.value = []
+    coverage.value = null
+    sgMsg.value = ''
+    load()
+    loadSuggest()
+  })
   await Promise.all([load(), loadSuggest(), resumeBackfill()])
 })
 onUnmounted(() => {
   disposed = true
+  scopeGeneration++
   loadSeq++
-  stopPoll()
+  suggestSeq++
+  suggestController?.abort()
+  resetBackfill()
   if (unsubLib) { try { unsubLib() } catch (e) { /* 忽略 */ } unsubLib = null }
 })
 </script>

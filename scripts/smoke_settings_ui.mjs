@@ -2472,6 +2472,12 @@ async function checkSettingsDrafts(browser, base) {
     checks.push('multiple library drafts: switching preserves both; saving one does not hide the other; discard only removes unsaved values')
 
     await go('访问保护', 'sec-auth')
+    const authWritesBefore = writes.filter(w => w.key === '/api/settings' && 'jzmedia_token' in w.body).length
+    await page.locator('#access-token').fill('测试访问令牌八个字')
+    await page.getByRole('button', { name: '保存并启用保护', exact: true }).click()
+    assert.equal(await page.locator('#access-token').evaluate(input => input.validity.patternMismatch), true)
+    assert.equal(writes.filter(w => w.key === '/api/settings' && 'jzmedia_token' in w.body).length, authWritesBefore,
+      'unsupported token characters are rejected before any settings request')
     await page.locator('#access-token').fill('isolated-access-token')
     await nav('概览').click()
     await unsaved.waitFor()

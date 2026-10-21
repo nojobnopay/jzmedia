@@ -158,7 +158,7 @@ def test_backfill_resume_and_cancel(monkeypatch):
             assert not worker.is_alive(), "backfill worker did not exit before cleanup"
 
     monkeypatch.setattr(col.store, "tmdb_ids_missing_collection",
-                        lambda limit, force: [1, 2])
+                        lambda limit, force, media_library_id=None: [1, 2])
     # Patch the exported function used by the router, before starting its worker.
     monkeypatch.setattr(col.scanner, "refresh_tmdb_id_fast", fake_refresh)
     # Track only this router's workers; leave threading.Thread process-wide intact.

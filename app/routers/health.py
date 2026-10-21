@@ -250,6 +250,8 @@ def _validate(key: str, value: str) -> str:
         minimum = 8 if key == "jzmedia_token" else 10
         if v and len(v) < minimum:
             raise HTTPException(422, f"{key} too short, check paste")
+        if key == "jzmedia_token" and v and not re.fullmatch(r"[\x20-\x7e]+", v):
+            raise HTTPException(422, "访问令牌请使用至少 8 位英文字母、数字或半角符号")
         return v
     if key in ("tmdb_proxy", "tmdb_image_base"):
         if v and not (v.startswith("http://") or v.startswith("https://")):
@@ -274,8 +276,7 @@ def update_settings(body: SettingsUpdate):
         cur, _ = config.effective_with_source("tmdb_proxy")
         if data["tmdb_proxy"] == config.mask_proxy(cur):
             data.pop("tmdb_proxy")
-    for k, v in data.items():
-        if v is None:
-            continue
-        store.set_setting(k, _validate(k, v))
+    validated = {key: _validate(key, value) for key, value in data.items()
+                 if value is not None}
+    store.set_settings(validated)
     return _settings_view()

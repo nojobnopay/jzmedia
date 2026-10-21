@@ -51,17 +51,17 @@
             <div class="bar match-bar">
               <span>为 <b>{{ epNo(ep) }}</b> 指定 TMDB 集（本地集号不变，只取元数据）</span>
               <label>季号 <input v-model.number="pickSeason" type="number" min="0" style="width: 72px" /></label>
-              <JzButton :disabled="searching" @click="loadCandidates" type="button">查询该季</JzButton>
+              <JzButton :disabled="searching || matching" @click="loadCandidates" type="button">查询该季</JzButton>
             </div>
             <div class="bar match-bar">
               <span class="dim">TMDB 确实没有这一集：</span>
               <input v-model="localTitle" aria-label="本地集名" placeholder="本地集名（可选）" style="width: 220px" />
-              <JzButton @click="confirmLocal" type="button">确认无对应集</JzButton>
+              <JzButton :disabled="matching" @click="confirmLocal" type="button">确认无对应集</JzButton>
             </div>
             <div v-for="c in candidates" :key="c.tmdb_episode_id" class="mrow">
               <span class="mname">S{{ pad(c.season) }}E{{ pad(c.episode) }} · {{ c.title }}</span>
               <span class="dim">{{ c.air_date }}</span>
-              <JzButton @click="bindEpisode(c)" type="button" icon="match">匹配此集</JzButton>
+              <JzButton :disabled="matching" @click="bindEpisode(c)" type="button" icon="match">匹配此集</JzButton>
             </div>
             <div v-if="searchedCand && !candidates.length" class="dim">该季没有候选</div>
           </div>
@@ -110,14 +110,31 @@ const router = useRouter()
 const ep = ref(null)
 const loadError = ref('')
 let loadSeq = 0
+let episodeGeneration = 0
+let candidateSeq = 0
+let candidateController = null
+let disposed = false
 const msg = ref('')
 const playing = ref(null)
 const searching = ref(false)
+const matching = ref(false)
 const pickOpen = ref(false)
 const pickSeason = ref(1)
 const localTitle = ref('')
 const candidates = ref([])
 const searchedCand = ref(false)
+
+function currentEpisode(id) {
+  return !disposed && String(route.params.epId) === id && String(ep.value?.id) === id
+}
+function invalidateCandidates() {
+  candidateSeq++
+  candidateController?.abort()
+  candidateController = null
+  candidates.value = []
+  searching.value = false
+  searchedCand.value = false
+}
 
 const directors = computed(() => ep.value?.directors || [])
 const prevEp = computed(() => ep.value?.previous_episode || null)
@@ -166,35 +183,60 @@ async function markWatched (watched) {
 }
 function toggleWatched () { markWatched(!Number(ep.value.watched)) }
 async function loadCandidates () {
+  const id = String(ep.value?.id)
+  if (!currentEpisode(id) || matching.value) return
+  invalidateCandidates()
+  const seq = candidateSeq
+  const season = pickSeason.value
+  const showId = ep.value.show_id
+  candidateController = new AbortController()
+  const signal = candidateController.signal
+  const current = () => currentEpisode(id) && seq === candidateSeq
   searching.value = true
   searchedCand.value = false
   try {
-    const d = await api(`/api/tv/shows/${ep.value.show_id}/tmdb-episodes?season=${pickSeason.value}`)
+    const d = await api(`/api/tv/shows/${showId}/tmdb-episodes?season=${season}`, { signal })
+    if (!current()) return
     candidates.value = d.items || []
     searchedCand.value = true
-  } catch (e) { msg.value = '候选查询失败：' + e.message } finally { searching.value = false }
+  } catch (e) { if (current()) msg.value = '候选查询失败：' + e.message }
+  finally { if (current()) searching.value = false }
 }
 async function bindEpisode (c) {
+  const id = String(ep.value?.id)
+  if (!currentEpisode(id) || !pickOpen.value || matching.value || !candidates.value.includes(c)) return
+  const generation = episodeGeneration
+  const current = () => currentEpisode(id) && generation === episodeGeneration
+  matching.value = true
   try {
-    await api(`/api/tv/episodes/${ep.value.id}/match-episode`, {
+    await api(`/api/tv/episodes/${id}/match-episode`, {
       method: 'POST',
       body: JSON.stringify({ tmdb_episode_id: c.tmdb_episode_id, season: c.season }),
     })
+    if (!current()) return
     pickOpen.value = false
     candidates.value = []
     await load()
-  } catch (e) { msg.value = '绑定失败：' + e.message }
+  } catch (e) { if (current()) msg.value = '绑定失败：' + e.message }
+  finally { if (current()) matching.value = false }
 }
 async function confirmLocal () {
+  const id = String(ep.value?.id)
+  if (!currentEpisode(id) || matching.value) return
+  const generation = episodeGeneration
+  const current = () => currentEpisode(id) && generation === episodeGeneration
+  matching.value = true
   try {
-    await api(`/api/tv/episodes/${ep.value.id}/confirm-local`, {
+    await api(`/api/tv/episodes/${id}/confirm-local`, {
       method: 'POST',
       body: JSON.stringify({ title: localTitle.value || null }),
     })
+    if (!current()) return
     pickOpen.value = false
     candidates.value = []
     await load()
-  } catch (e) { msg.value = '操作失败：' + e.message }
+  } catch (e) { if (current()) msg.value = '操作失败：' + e.message }
+  finally { if (current()) matching.value = false }
 }
 async function onWatched () {
   const cur = playing.value
@@ -215,8 +257,17 @@ async function onEnded () {
 }
 
 onMounted(load)
-onUnmounted(() => { loadSeq++ })
-watch(() => route.params.epId, load)
+onUnmounted(() => { disposed = true; loadSeq++; invalidateCandidates() })
+watch(pickSeason, invalidateCandidates, { flush: 'sync' })
+watch(pickOpen, open => { if (!open) invalidateCandidates() }, { flush: 'sync' })
+watch(() => route.params.epId, () => {
+  episodeGeneration++
+  invalidateCandidates()
+  pickOpen.value = false
+  localTitle.value = ''
+  matching.value = false
+  load()
+}, { flush: 'sync' })
 </script>
 
 <style scoped>

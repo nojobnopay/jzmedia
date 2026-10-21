@@ -6,7 +6,10 @@
 最近一次错误摘要（截断 200 字符），不落任何凭据。
 """
 import json
+import re
 import time
+
+import httpx
 
 from .. import store
 from ..log import get_logger
@@ -30,13 +33,43 @@ LABELS = {
 }
 
 
+def safe_error(error) -> str:
+    """Keep useful failure categories without persisting upstream URLs or credentials."""
+    if isinstance(error, httpx.HTTPStatusError):
+        return f"HTTP {error.response.status_code}: 资料服务请求失败"
+    if isinstance(error, (httpx.TimeoutException, TimeoutError)):
+        return "资料服务请求超时"
+    if isinstance(error, httpx.HTTPError):
+        return "资料服务连接失败"
+    value = str(error or "")
+    # This also scrubs old HTTPX exception strings, including already-truncated URLs.
+    value = re.sub(r"https?://[^\s\"'<>]+", "[地址已隐藏]", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bBearer\s+[^\s\"'<>]+", "Bearer [已隐藏]", value, flags=re.IGNORECASE)
+    value = re.sub(
+        r"\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret)"
+        r"\s*[:=]\s*[\"']?[^\s&\"',;<>]+",
+        r"\1=[已隐藏]", value, flags=re.IGNORECASE)
+    return value[:200]
+
+
 def _load() -> dict:
     try:
         raw = store.get_setting(SETTING_KEY)
         data = json.loads(raw) if raw else {}
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        changed = False
+        for entry in data.values():
+            if isinstance(entry, dict) and "last_error" in entry:
+                sanitized = safe_error(entry["last_error"])
+                if sanitized != entry["last_error"]:
+                    entry["last_error"] = sanitized
+                    changed = True
+        if changed:
+            _save(data)
+        return data
     except Exception as e:
-        logger.debug("load provider state failed: %s", e)
+        logger.debug("load provider state failed: %s", safe_error(e))
         return {}
 
 
@@ -44,7 +77,7 @@ def _save(data: dict) -> None:
     try:
         store.set_setting(SETTING_KEY, json.dumps(data, ensure_ascii=False))
     except Exception as e:
-        logger.warning("save provider state failed: %s", e)
+        logger.warning("save provider state failed: %s", safe_error(e))
 
 
 def available(name: str) -> bool:
@@ -76,7 +109,7 @@ def note_fail(name: str, error: str = "") -> bool:
     data[name] = {
         "fails": fails,
         "cooldown_until": now + COOLDOWN_SEC if tripped else 0,
-        "last_error": str(error or "")[:200],
+        "last_error": safe_error(error),
         "last_fail_at": now,
         "last_ok_at": int(ent.get("last_ok_at") or 0),
     }
@@ -126,4 +159,4 @@ def reset(name: str | None = None) -> None:
 
 
 __all__ = ['SETTING_KEY', 'FAIL_THRESHOLD', 'COOLDOWN_SEC', 'LABELS',
-           'available', 'note_ok', 'note_fail', 'snapshot', 'reset']
+           'available', 'note_ok', 'note_fail', 'snapshot', 'reset', 'safe_error']

@@ -61,7 +61,7 @@ Compose 的 `${变量:-默认值}` 用于替换 YAML 中的值，`env_file` 则�
 | `TMDB_LANGUAGE` | `zh-CN` | 元数据语言 |
 | `TMDB_IMAGE_BASE` | `https://image.tmdb.org` | 图片源；设置页可改 |
 | `BUILD_HTTP_PROXY` | 空 | 仅镜像构建中的 pip/npm 下载代理 |
-| `JZMEDIA_TOKEN` | 空，不校验写令牌 | 保护常规 API 写请求，观看会话端点例外见下文 |
+| `JZMEDIA_TOKEN` | 空，不校验写令牌 | 使用至少 8 位英文字母、数字或半角符号；保护常规 API 写请求，观看会话端点例外见下文 |
 
 `BUILD_HTTP_PROXY` 不影响运行时请求或 Docker 拉取基础镜像的代理；三者的区别见[部署排障](troubleshooting.md#wsl--docker-desktop-代理故障)。
 

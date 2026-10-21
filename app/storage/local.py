@@ -18,7 +18,7 @@ from .. import fsutil
 from ..log import get_logger
 from .base import (
     StorageBackend, StorageDenied, StorageError, StorageExists, StorageInvalidPath,
-    StorageNotFound, StorageStat, StorageUnsupported, WalkEntry, _is_dir_mode,
+    StorageNotFound, StorageOffline, StorageStat, StorageUnsupported, WalkEntry, _is_dir_mode,
 )
 
 logger = get_logger("storage.local")
@@ -44,8 +44,22 @@ class LocalStorageBackend(StorageBackend):
         if not self.root:
             raise StorageUnsupported(f"库「{self.name}」没有可用存储路径")
 
+    def _require_available(self) -> None:
+        """Recheck an existing mount backend too: a mount can disappear after selection."""
+        if self.driver != "mount":
+            return
+        mount_root = str(self.library.get("media_mount_point")
+                         or self.library.get("media_path") or self.root)
+        try:
+            ready = os.path.ismount(mount_root) and os.access(mount_root, os.R_OK)
+        except OSError:
+            ready = False
+        if not ready:
+            raise StorageOffline(f"库「{self.name}」尚未挂载或不可读")
+
     def _abs(self, path: str = "") -> str:
         """严格模式：realpath 校验，含符号链接逃逸（内容访问一律走这里）。"""
+        self._require_available()
         rel = self.norm(path)
         try:
             root = os.path.realpath(self.root)
@@ -58,6 +72,7 @@ class LocalStorageBackend(StorageBackend):
 
     def _abs_lax(self, path: str = "") -> str:
         """宽松模式：只做语法归一（stat/exists 等元数据，不跟随逃逸判定）。"""
+        self._require_available()
         rel = self.norm(path)
         return os.path.join(self.root, rel) if rel else self.root
 
@@ -125,6 +140,7 @@ class LocalStorageBackend(StorageBackend):
         n = 0
         stack = [(start_rel, start)]
         while stack:
+            self._require_available()
             rel_dir, abs_dir = stack.pop()
             try:
                 with os.scandir(abs_dir) as it:
@@ -151,6 +167,7 @@ class LocalStorageBackend(StorageBackend):
                     return
                 if is_dir:
                     stack.append((rel, os.path.join(abs_dir, name)))
+        self._require_available()
 
     # ---------------- 写 ----------------
 
