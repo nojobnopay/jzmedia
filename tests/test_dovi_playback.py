@@ -413,6 +413,40 @@ def test_probe_failure_classifies_and_discards_raw_log(monkeypatch, stderr, reas
     assert dovi._run(["/test/ffmpeg"], {}) == {"ok": False, "reason": reason}
 
 
+@pytest.mark.parametrize("stderr", [
+    b"[libplacebo @ 0x123] Validation failed: target->planes[i].texture->params.renderable\n",
+    b"[Parsed_libplacebo_0 @ 0x123] Failed rendering image!\n",
+])
+def test_capability_smoke_rejects_renderer_failure_with_successful_exit(monkeypatch, stderr):
+    monkeypatch.setattr(dovi.subprocess, "run", lambda *a, **k:
+                        SimpleNamespace(returncode=0, stderr=stderr))
+    assert dovi._run(["/test/ffmpeg"], {}) == {"ok": False, "reason": "pipeline_failed"}
+
+
+def test_capability_smoke_allows_successful_exit_without_renderer_failure(monkeypatch):
+    monkeypatch.setattr(dovi.subprocess, "run", lambda *a, **k:
+                        SimpleNamespace(returncode=0, stderr=b""))
+    assert dovi._run(["/test/ffmpeg"], {}) == {
+        "ok": True, "reason": "synthetic_smoke_passed"}
+
+
+def test_zero_exit_renderer_failure_cannot_advertise_available_pipeline(monkeypatch):
+    monkeypatch.setattr(dovi.os.path, "exists", lambda path: True)
+    monkeypatch.setattr(dovi.os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(dovi, "ffmpeg_bin", lambda: "/test/ffmpeg")
+    def run(command, **kwargs):
+        rejected = "-vf" in command and "libplacebo=" in command[command.index("-vf")+1]
+        stderr = b"[libplacebo @ 0x123] Validation failed: target is not renderable\n" if rejected else b""
+        return SimpleNamespace(returncode=0, stderr=stderr)
+    monkeypatch.setattr(dovi.subprocess, "run", run)
+    result = dovi.capabilities()
+    assert result["h264_encode"]["ok"] is True
+    assert result["hevc_main10_decode"]["ok"] is True
+    assert result["intel_vulkan"]["ok"] is False
+    assert result["combined"]["ok"] is False
+    assert result["available"] is False
+
+
 @pytest.mark.parametrize(("error", "reason"), [
     (subprocess.TimeoutExpired("/test/ffmpeg", 8), "timeout"),
     (FileNotFoundError("/unavailable/ffmpeg"), "ffmpeg_unavailable"),

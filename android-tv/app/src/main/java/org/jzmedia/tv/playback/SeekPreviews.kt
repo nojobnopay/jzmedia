@@ -26,11 +26,20 @@ import org.json.JSONObject
 
 data class SeekPreviewFrame(val page: String, val x: Int, val y: Int, val width: Int, val height: Int)
 
+data class SeekPreviewCoverage(val availableCount: Int, val end: Double, val duration: Double,
+                               val warning: String)
+
 data class SeekPreviewManifest(val interval: Double, val count: Int, val width: Int, val height: Int,
-                               val columns: Int, val rows: Int, val pages: List<String>) {
+                               val columns: Int, val rows: Int, val pages: List<String>,
+                               val coverage: SeekPreviewCoverage? = null) {
+    fun missingTailAt(time: Double): Boolean =
+        coverage?.let { time.isFinite() && time >= it.end } == true
+
     fun frameAt(time: Double): SeekPreviewFrame? {
         if (!time.isFinite() || time < 0 || count <= 0) return null
+        if (missingTailAt(time)) return null
         val index = (time / interval).toInt().coerceIn(0, count - 1)
+        if (coverage != null && index >= coverage.availableCount) return null
         val cells = columns * rows
         val page = pages.getOrNull(index / cells) ?: return null
         val cell = index % cells
@@ -50,7 +59,59 @@ data class SeekPreviewManifest(val interval: Double, val count: Int, val width: 
             val source = value.optJSONArray("pages") ?: return null
             val pages = (0 until source.length()).map { source.optString(it) }
             if (pages.any { !it.startsWith("/api/stream/previews/cache/") }) return null
-            return SeekPreviewManifest(interval, count, width, height, columns, rows, pages)
+            var coverage: SeekPreviewCoverage? = null
+            if (hasCoverageDeclaration(value)) {
+                val availableValue = value.opt("available_count")
+                if (availableValue !is Int && availableValue !is Long) return null
+                val availableLong = (availableValue as Number).toLong()
+                if (availableLong !in 1 until count.toLong()) return null
+                val available = availableLong.toInt()
+                val countValue = value.opt("count")
+                if ((countValue !is Int && countValue !is Long)
+                        || (countValue as Number).toLong() != count.toLong()) return null
+                val duration = (value.opt("duration") as? Number)?.toDouble() ?: return null
+                val end = (value.opt("coverage_end") as? Number)?.toDouble() ?: return null
+                val warning = value.optJSONObject("warning") ?: return null
+                val message = warning.opt("message") as? String ?: return null
+                if (value.optString("state") != "ready" || value.optString("completion") != "known_tail_missing"
+                        || !duration.isFinite() || duration <= 0 || duration > 86400
+                        || kotlin.math.ceil(duration / interval) != count.toDouble()
+                        || !end.isFinite() || end <= 0 || end != minOf(available * interval, duration)
+                        || pages.size != (available + columns * rows - 1) / (columns * rows)
+                        || warning.optString("code") != "confirmed_tail_damage" || message.isBlank()
+                        || message.length > 500) return null
+                coverage = SeekPreviewCoverage(available, end, duration, message)
+            }
+            return SeekPreviewManifest(interval, count, width, height, columns, rows, pages, coverage)
+        }
+    }
+}
+
+private fun hasCoverageDeclaration(value: JSONObject): Boolean =
+    value.has("available_count") || value.has("coverage_end") || value.has("completion") ||
+        value.optJSONObject("warning")?.optString("code") == "confirmed_tail_damage"
+
+internal data class SeekPreviewStatus(val state: String, val manifest: SeekPreviewManifest? = null,
+                                     val error: String = "") {
+    val actionLabel: String get() = when (state) {
+        "ready" -> "进度预览已生成"
+        "running" -> "正在生成进度预览"
+        else -> if (manifest?.pages?.isNotEmpty() == true) "继续生成进度预览" else "生成进度预览"
+    }
+    val canGenerate: Boolean get() = state !in setOf("running", "ready", "loading")
+    val warning: String? get() = if (state == "ready") manifest?.coverage?.warning else null
+    val coverageDescription: String? get() = if (state == "ready") manifest?.coverage?.let {
+        "预览覆盖至 ${playbackTime(it.end)} / ${playbackTime(it.duration)}"
+    } else null
+    fun seekNotice(time: Double): String? = if (manifest?.missingTailAt(time) == true) "片尾缺少预览" else null
+
+    companion object {
+        fun fromJson(value: JSONObject): SeekPreviewStatus {
+            val manifest = SeekPreviewManifest.fromJson(value)
+            if (manifest == null && hasCoverageDeclaration(value)) {
+                return SeekPreviewStatus("failed", error = "进度预览覆盖信息无效，请稍后重试")
+            }
+            return SeekPreviewStatus(value.optString("state", "missing"), manifest, value.optString("error", ""))
         }
     }
 }

@@ -32,18 +32,22 @@
         <JzButton ref="completedRetryRef" type="button" aria-label="重试加载已生成缩略图" @click="loadCompleted">重试</JzButton>
       </p>
       <template v-else-if="completed">
-        <p v-if="!completed.total" class="hint">当前视频库暂无可用的完整缩略图。</p>
+        <p v-if="!completed.total" class="hint">当前视频库暂无可用的缩略图。</p>
         <template v-else>
-          <p class="hint completed-note">已完整生成并可用于播放进度预览。</p>
+          <p class="hint completed-note">以下缩略图可用于播放进度预览；已确认的片尾缺失会单独提示覆盖范围。</p>
           <ul class="completed-list">
             <li v-for="item in completed.items" :key="`${item.kind}-${item.id}`" class="completed-row">
               <div class="queue-detail">
                 <div class="queue-title-line"><strong :title="item.title">{{ item.title }}</strong>
                   <span v-if="item.needs_update" class="queue-state legacy-state">旧版可用</span>
+                  <span v-if="tailDetails(item)" class="queue-state legacy-state">已完成·片尾缺失</span>
                 </div>
                 <span class="hint queue-file" :title="item.file_name">{{ kindLabel(item.kind) }}<template v-if="item.file_name"> · {{ item.file_name }}</template></span>
                 <span class="hint">共 {{ item.frames }} 张<template v-if="item.interval"> · {{ item.interval }} 秒/张</template></span>
+                <span v-if="tailDetails(item)" class="hint tail-note">覆盖至 {{ fmtTime(item.coverage_end) }} / 全长 {{ fmtTime(item.duration) }}；已确认片源尾部损坏，末尾部分没有进度预览。</span>
               </div>
+              <JzButton v-if="canRevokeTail(item)" :ref="element => setTailRef('revoke', item, element)" type="button" variant="ghost"
+                :disabled="starting || !!mutating" :aria-label="`撤销片尾损坏确认 ${item.title}`" @click="openTailDialog(item, 'revoke')">撤销确认</JzButton>
             </li>
           </ul>
           <nav v-if="completed.total > pageSize" class="bar page-bar" aria-label="已生成分页">
@@ -89,6 +93,8 @@
               <JzButton :ref="element => setFailedItemRef(item, element)" class="queue-action" type="button" icon="refresh"
                 :disabled="starting || !!mutating" :loading="mutating === `retry:${itemKey(item)}`"
                 :aria-label="`重新生成 ${item.title}`" @click="retryFailed(item)">{{ mutating === `retry:${itemKey(item)}` ? '正在加入…' : '重新生成' }}</JzButton>
+              <JzButton v-if="tailCandidate(item)" :ref="element => setTailRef('accept', item, element)" class="queue-action" type="button" variant="ghost"
+                :disabled="starting || !!mutating" :aria-label="`确认片尾损坏 ${item.title}`" @click="openTailDialog(item, 'accept')">确认片尾损坏</JzButton>
             </li>
           </ul>
           <nav v-if="failed.total > pageSize" class="bar page-bar" aria-label="生成失败分页">
@@ -178,6 +184,18 @@
         <JzButton ref="batchConfirmRef" type="button" variant="danger" :loading="mutating === 'batch'" @click="cancelBatch">确认取消本批次</JzButton>
       </template>
     </JzDialog>
+    <JzDialog v-if="tailDialog" :title="tailDialog.mode === 'accept' ? '确认片尾损坏' : '撤销片尾损坏确认'" size="small" :busy="tailBusy" @close="closeTailDialog">
+      <p class="tail-title"><strong>{{ tailDialog.title }}</strong></p>
+      <p>有效预览覆盖至 {{ fmtTime(tailDialog.coverage_end) }} / 全长 {{ fmtTime(tailDialog.duration) }}。</p>
+      <p>尚有 {{ missingTime(tailDialog.duration - tailDialog.coverage_end) }} 未覆盖；这是当前预览范围，不代表损坏从此处开始。</p>
+      <p v-if="tailDialog.mode === 'accept'">请仅在已核对片源、确认尾部损坏后继续。已有预览会保留，并作为“已完成·片尾缺失”列出，末尾不显示预览。日后更换片源可以重新生成。</p>
+      <p v-else>撤销后恢复到失败清单，保留已有预览，不会立即重新生成。需要时可在失败清单点击“重新生成”。</p>
+      <p v-if="tailError" class="hint error" role="alert">{{ tailError }}</p>
+      <template #footer>
+        <JzButton ref="tailCancelRef" type="button" :disabled="tailBusy" @click="closeTailDialog">取消</JzButton>
+        <JzButton ref="tailConfirmRef" type="button" variant="primary" :loading="tailBusy" @click="submitTailDialog">{{ tailDialog.mode === 'accept' ? '确认片尾损坏并保留预览' : '确认撤销' }}</JzButton>
+      </template>
+    </JzDialog>
   </section>
 </template>
 
@@ -187,6 +205,8 @@ import JzDialog from './JzDialog.vue'
 import AppIcon from './AppIcon.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from '../api.js'
+import { previewTailCoverage } from '../playbackControls.js'
+import { fmtTime } from '../playerLabels.js'
 
 const props = defineProps({ libraryId: { type: Number, required: true }, librarySource: String, libraryEnabled: Boolean, active: Boolean })
 const pageSize = 50
@@ -224,6 +244,12 @@ const failedRetryRef = ref(null)
 const failedPreviousRef = ref(null)
 const failedNextRef = ref(null)
 const failedItemRefs = new Map()
+const tailDialog = ref(null)
+const tailError = ref('')
+const tailCancelRef = ref(null)
+const tailConfirmRef = ref(null)
+const tailActionRefs = new Map()
+let tailTrigger = null
 const offset = ref(0)
 const loading = ref(false)
 const queueError = ref('')
@@ -231,6 +257,7 @@ const error = ref('')
 const feedback = ref('')
 const starting = ref(false)
 const mutating = ref('')
+const tailBusy = computed(() => mutating.value.startsWith('tail:'))
 const allMode = ref(false)
 const selected = ref(new Set())
 const excluded = ref(new Set())
@@ -254,6 +281,26 @@ const formatFailedAt = timestamp => {
 }
 const itemKey = item => `${item.kind}:${item.id}`
 const itemRef = key => { const [kind, id] = key.split(':'); return { kind, id: Number(id) } }
+const tailDetails = item => previewTailCoverage({ ...item, available_count: item.available_count ?? item.frames })
+const missingTime = seconds => {
+  const rounded = Math.round(seconds)
+  return rounded >= 60 ? `${Math.floor(rounded / 60)}分${rounded % 60}秒` : `${rounded}秒`
+}
+const snapshotKey = key => typeof key === 'string' && /^[a-f0-9]{32}$/.test(key)
+function tailCandidate(item) {
+  const candidate = item.tail_acceptance
+  if (!candidate || !snapshotKey(candidate.key) || !Number.isInteger(candidate.failed_at) || candidate.failed_at <= 0
+      || candidate.failed_at !== item.failed_at || !Number.isInteger(candidate.available_count) || candidate.available_count <= 0
+      || !Number.isFinite(candidate.duration) || candidate.duration > 86400
+      || !Number.isFinite(candidate.coverage_end) || candidate.coverage_end <= 0 || candidate.coverage_end >= candidate.duration
+      || !Number.isFinite(candidate.missing_seconds) || candidate.missing_seconds <= 0
+      || Math.abs(candidate.missing_seconds - (candidate.duration - candidate.coverage_end)) > 0.001) return null
+  return candidate
+}
+function canRevokeTail(item) {
+  return !!tailDetails(item) && snapshotKey(item.key)
+    && (item.confirmed_at === undefined || Number.isInteger(item.confirmed_at) && item.confirmed_at > 0)
+}
 const isSelected = item => allMode.value ? !excluded.value.has(itemKey(item)) : selected.value.has(itemKey(item))
 function clearSelection() { allMode.value = false; selected.value = new Set(); excluded.value = new Set() }
 function toggleAll() {
@@ -643,6 +690,83 @@ async function retryFailed(item) {
     if (isCurrent(signal) && failedOpen.value) await loadFailed(focusOwner)
   }
 }
+function setTailRef(mode, item, element) {
+  const key = `${mode}:${itemKey(item)}`
+  if (element) tailActionRefs.set(key, element)
+  else tailActionRefs.delete(key)
+}
+async function openTailDialog(item, mode) {
+  if (disposed || !props.active || starting.value || mutating.value || tailDialog.value) return
+  const candidate = mode === 'accept' ? tailCandidate(item) : canRevokeTail(item) ? item : null
+  const inventory = mode === 'accept' ? failed.value : completed.value
+  if (!candidate || !inventory?.items.some(value => itemKey(value) === itemKey(item))) return
+  tailTrigger = tailActionRefs.get(`${mode}:${itemKey(item)}`)
+  tailError.value = ''
+  const dialog = { ...candidate, kind: item.kind, id: item.id, title: item.title,
+    library_id: props.libraryId, mode, signal: ctrl.signal }
+  tailDialog.value = dialog
+  await nextTick()
+  await nextTick()
+  if (tailDialog.value?.signal === dialog.signal && isCurrent(dialog.signal)) tailCancelRef.value?.focus()
+}
+function restoreTailFocus(trigger, mode) {
+  if (typeof document === 'undefined') return
+  if (![document.body, trigger?.el].includes(document.activeElement) && document.activeElement?.isConnected !== false) return
+  const fallback = mode === 'accept' ? [failedRefreshRef.value, failedToggleRef.value]
+    : [completedRefreshRef.value, completedToggleRef.value]
+  ;[trigger, ...fallback].find(item => item?.el && !item.el.disabled && item.el.isConnected !== false)?.focus()
+}
+async function closeTailDialog() {
+  const dialog = tailDialog.value
+  if (!dialog || tailBusy.value) return
+  const trigger = tailTrigger
+  tailDialog.value = null
+  tailTrigger = null
+  tailError.value = ''
+  await nextTick()
+  if (isCurrent(dialog.signal) && props.active && props.libraryId === dialog.library_id) restoreTailFocus(trigger, dialog.mode)
+}
+async function submitTailDialog() {
+  const dialog = tailDialog.value
+  if (!dialog || !isCurrent(dialog.signal) || dialog.library_id !== props.libraryId || starting.value || mutating.value) return
+  const signal = beginAction()
+  const trigger = tailTrigger
+  const accept = dialog.mode === 'accept'
+  const current = () => isCurrent(signal) && props.active && props.libraryId === dialog.library_id
+  let saved = false
+  mutating.value = `tail:${dialog.mode}`
+  tailError.value = ''
+  try {
+    const body = accept ? { library_id: dialog.library_id, key: dialog.key, failed_at: dialog.failed_at,
+      available_count: dialog.available_count, confirmed: true }
+      : { library_id: dialog.library_id, key: dialog.key,
+        ...(dialog.confirmed_at !== undefined ? { confirmed_at: dialog.confirmed_at } : {}) }
+    // The source snapshot fixes this write. Leaving stops UI tracking, not a submitted server action.
+    await api(`/api/stream/previews/${accept ? 'failed' : 'completed'}/${dialog.kind}/${dialog.id}/${accept ? 'accept-tail' : 'tail-acceptance'}`, {
+      method: accept ? 'POST' : 'DELETE', body: JSON.stringify(body),
+    })
+    if (!current()) return
+    saved = true
+    feedback.value = accept ? `已将“${dialog.title}”作为带片尾缺失提示的已生成预览保留。`
+      : `已撤销“${dialog.title}”的片尾损坏确认，已有预览保留，可在失败清单重新生成。`
+    completedOpen.value = true
+    if (!accept) failedOpen.value = true
+    tailDialog.value = null
+    tailTrigger = null
+  } catch (e) {
+    if (current()) tailError.value = e.status === 409 ? `${e.message}；请取消并刷新清单后重新核对。` : e.message
+  } finally {
+    if (current() && saved) await Promise.all([loadCompleted(), loadFailed(null)])
+    await finishAction(signal, false)
+    if (current() && saved) {
+      await nextTick()
+      if (current() && !tailDialog.value && !mutating.value) restoreTailFocus(trigger, dialog.mode)
+    } else if (current() && tailDialog.value && !mutating.value) {
+      await nextTick()
+      if (current() && !mutating.value) tailConfirmRef.value?.focus()
+    }
+  }
+}
 function changePage(delta) { offset.value = Math.max(0, offset.value + delta * pageSize); load() }
 watch(() => [props.active, props.libraryId], ([active]) => {
   invalidateLoad()
@@ -655,6 +779,10 @@ watch(() => [props.active, props.libraryId], ([active]) => {
   batchCancelError.value = ''
   batchTrigger = null
   batchCancelRefs.clear()
+  tailDialog.value = null
+  tailError.value = ''
+  tailTrigger = null
+  tailActionRefs.clear()
   auto.value = null
   completed.value = null
   completedOffset.value = 0
@@ -675,7 +803,7 @@ watch(() => [props.active, props.libraryId], ([active]) => {
     load()
     if (completedOpen.value) loadCompleted()
   }
-}, { immediate: true })
+}, { immediate: true, flush: 'sync' })
 onBeforeUnmount(() => { disposed = true; ctrl.abort(); invalidateLoad(); invalidateCompleted(); invalidateFailed() })
 </script>
 
@@ -694,7 +822,7 @@ h5 { margin: 0; font-size: var(--jz-font-xl); font-weight: 700; line-height: 1.4
 .completed-summary > p { margin-block: var(--jz-gap-m); }
 .completed-note { margin: 0 0 var(--jz-gap-s); }
 .completed-list { list-style: none; padding: 0; margin: 0; }
-.completed-row { display: flex; padding: var(--jz-gap-m) 0; border-top: 1px solid var(--jz-border); }
+.completed-row { display: flex; align-items: flex-start; gap: var(--jz-gap-m); padding: var(--jz-gap-m) 0; border-top: 1px solid var(--jz-border); }
 .failed-row { display: flex; align-items: flex-start; gap: var(--jz-gap-m); padding: var(--jz-gap-m) 0; border-top: 1px solid var(--jz-border); }
 .failure-reason, .failed-feedback { overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.6; }
 .queue-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-top: var(--jz-gap-xl); margin-bottom: var(--jz-gap-m); padding-left: var(--jz-gap-m); border-left: 3px solid var(--jz-accent); }
@@ -718,6 +846,9 @@ h5 { margin: 0; font-size: var(--jz-font-xl); font-weight: 700; line-height: 1.4
 .current-state { color: var(--jz-text); }
 .pending-state { color: var(--jz-text-faint); }
 .legacy-state { color: var(--jz-warn); }
+.tail-note { overflow-wrap: anywhere; line-height: 1.6; }
+.tail-title { margin-top: 0; overflow-wrap: anywhere; }
+.completed-row > button { flex: none; }
 .queue-detail strong { font-size: var(--jz-font-m); font-weight: 500; }
 .queue-detail strong, .queue-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-detail .hint { margin: 0; }
@@ -732,7 +863,7 @@ h5 { margin: 0; font-size: var(--jz-font-xl); font-weight: 700; line-height: 1.4
 .current-note { line-height: 1.5; }
 .page-bar { margin-top: 12px; }
 @media (max-width: 480px) {
-  .failed-row { flex-direction: column; align-items: stretch; }
+  .failed-row, .completed-row { flex-direction: column; align-items: stretch; }
   .failed-row > .queue-action { align-self: flex-start; }
 }
 </style>

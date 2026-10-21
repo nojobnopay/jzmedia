@@ -15,12 +15,19 @@ const completedItem = index => ({ id: index, library_id: 1, kind: index === 2 ? 
 const failedItem = index => ({ id: index + 100, library_id: 1, kind: index === 2 ? 'episode' : 'movie',
   title: `生成失败样本 ${index}`, file_name: `failed-${index}.mkv`, failed_at: 1789500000 + index,
   error_code: 'timeout', error: '抽取缩略图超时，请稍后重新生成。' })
+const tailCandidate = () => ({ ...failedItem(1), error_code: 'decoder', title: '尾部受损样本',
+  tail_acceptance: { key: 'a'.repeat(32), failed_at: 1789500001, available_count: 925,
+    coverage_end: 9250, duration: 9449.147, missing_seconds: 199.147 } })
+const tailCompleted = () => ({ ...completedItem(101), title: '尾部受损样本', key: 'a'.repeat(32), confirmed_at: 1789500020,
+  completion: 'known_tail_missing', frames: 925, available_count: 925, coverage_end: 9250, duration: 9449.147,
+  warning: { code: 'confirmed_tail_damage', message: '已确认片源尾部损坏，末尾部分没有进度预览' } })
 
 async function mount(t) {
   const requests = [], timers = new Map()
   let timerId = 0, revision = 1, completedGate = null, completedFailure = false, queueFailure = false
   let failedGate = null, failedFailure = false, retryGate = null, retryResult = 'queued'
   let startGate = null, startFailure = false, cancelGate = null, singleCancelFailure = false, batchSequence = 1
+  let tailGate = null, tailFailure = null
   const listeners = new Set(), previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
   const document = { activeElement: null, body: {},
     addEventListener(type, handler) { if (type === 'keydown') listeners.add(handler) },
@@ -92,6 +99,22 @@ async function mount(t) {
       }
       return { state: retryResult }
     }
+    if (url.pathname.endsWith('/accept-tail') || url.pathname.endsWith('/tail-acceptance')) {
+      const accept = url.pathname.endsWith('/accept-tail')
+      assert.equal(options.method, accept ? 'POST' : 'DELETE')
+      if (tailGate) { const gate = tailGate; tailGate = null; return gate.promise }
+      if (tailFailure) { const failure = tailFailure; tailFailure = null; throw failure }
+      const id = Number(url.pathname.split('/').at(-2))
+      if (accept) {
+        state.failed = state.failed.filter(item => item.id !== id)
+        state.completed.unshift(tailCompleted())
+      } else {
+        state.completed = state.completed.filter(item => item.id !== id)
+        state.failed.unshift(tailCandidate())
+      }
+      revision++
+      return { state: accept ? 'ready' : 'partial' }
+    }
     if (url.pathname.endsWith('/queue') && !options.method) {
       if (queueFailure) { queueFailure = false; throw new Error('队列暂时不可用') }
       const items = state.pending.filter(item => item.library_id === library)
@@ -150,6 +173,7 @@ async function mount(t) {
     holdRetry() { retryGate = deferred(); return retryGate },
     holdStart() { startGate = deferred(); return startGate }, failStart() { startFailure = true },
     holdBatchCancel() { cancelGate = deferred(); return cancelGate },
+    holdTail() { tailGate = deferred(); return tailGate }, failTail(status = 409) { tailFailure = Object.assign(new Error('预览快照已变化，请刷新后重试'), { status }) },
     failSingleCancel() { singleCancelFailure = true },
     escape() {
       const event = { key: 'Escape', defaultPrevented: false,
@@ -163,8 +187,148 @@ async function mount(t) {
     completedCalls: () => requests.filter(request => request.path.endsWith('/completed')),
     failedCalls: () => requests.filter(request => request.path.endsWith('/failed')),
     retryCalls: () => requests.filter(request => request.path.endsWith('/retry')),
+    tailCalls: () => requests.filter(request => /\/(accept-tail|tail-acceptance)$/.test(request.path)),
   }
 }
+
+test('known tail damage requires an explicit dialog with safe initial focus and no write on close', async t => {
+  const setup = await mount(t), { ui, state } = setup
+  state.failed = [tailCandidate(), failedItem(2)]
+  await click(ui, '生成失败')
+  assert.equal(button(ui, '确认片尾损坏 生成失败样本 2'), undefined)
+  const trigger = button(ui, '确认片尾损坏 尾部受损样本')
+  assert.ok(trigger)
+  trigger.focus()
+  await click(ui, '确认片尾损坏 尾部受损样本')
+  assert.match(ui.text(), /覆盖至 2:34:10/)
+  assert.match(ui.text(), /3分19秒/)
+  assert.match(ui.text(), /不代表损坏从此处开始/)
+  assert.equal(nodeText(setup.document.activeElement).trim(), '取消')
+  assert.equal(setup.tailCalls().length, 0)
+  setup.escape()
+  await flush()
+  assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+  assert.equal(setup.document.activeElement, trigger)
+  assert.equal(setup.tailCalls().length, 0)
+})
+
+test('accepting a tail snapshot is single-flight, survives submitted writes and refreshes all inventories normally', async t => {
+  const setup = await mount(t), { ui, state } = setup
+  state.failed = [tailCandidate()]
+  await click(ui, '生成失败')
+  await click(ui, '确认片尾损坏 尾部受损样本')
+  const pending = setup.holdTail()
+  const submit = button(ui, '确认片尾损坏并保留预览').props.onClick
+  submit(); submit()
+  await flush()
+  assert.equal(setup.tailCalls().length, 1)
+  assert.deepEqual(setup.tailCalls()[0].body, { library_id: 1, key: 'a'.repeat(32), failed_at: 1789500001,
+    available_count: 925, confirmed: true })
+  assert.equal(setup.tailCalls()[0].options.signal, undefined)
+  assert.equal(button(ui, '取消').props.disabled, true)
+  setup.escape()
+  await flush()
+  assert.ok(ui.find(node => node.props.role === 'dialog'))
+  state.failed = []
+  state.completed.unshift(tailCompleted())
+  pending.resolve({ state: 'ready' })
+  await flush()
+  assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+  assert.match(ui.text(), /已完成·片尾缺失/)
+  assert.match(ui.text(), /覆盖至 2:34:10/)
+  assert.doesNotMatch(ui.text(), /已完整生成并可用于/)
+  assert.equal(setup.completedCalls().length, 1)
+  assert.ok(setup.failedCalls().length >= 2)
+  assert.equal(setup.document.activeElement?.props['aria-label'], '刷新失败清单')
+})
+
+test('tail acceptance failures remain in the dialog and stale responses cannot follow a switched library', async t => {
+  const setup = await mount(t), { ui, state, props } = setup
+  state.failed = [tailCandidate()]
+  await click(ui, '生成失败')
+  await click(ui, '确认片尾损坏 尾部受损样本')
+  setup.failTail()
+  await click(ui, '确认片尾损坏并保留预览')
+  assert.match(ui.text(), /预览快照已变化/)
+  assert.ok(ui.find(node => node.props.role === 'dialog'))
+  assert.equal(button(ui, '确认片尾损坏并保留预览').props.disabled, false)
+  const pending = setup.holdTail()
+  await click(ui, '确认片尾损坏并保留预览')
+  props.libraryId = 2
+  await flush()
+  const count = setup.requests.length
+  pending.reject(new Error('旧库确认失败'))
+  await flush()
+  assert.equal(setup.requests.length, count)
+  assert.doesNotMatch(ui.text(), /旧库确认失败|尾部受损样本/)
+  assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+})
+
+test('malformed tail candidates do not offer confirmation and ordinary failures keep their retry action', async t => {
+  const setup = await mount(t), { ui, state } = setup
+  state.failed = [{ key: 'invalid' }, { available_count: 1.5 }, { coverage_end: Infinity },
+    { duration: 100 }, { failed_at: 1 }, { missing_seconds: NaN }].map((patch, index) => {
+    const item = tailCandidate()
+    return { ...item, id: 110 + index, tail_acceptance: { ...item.tail_acceptance, ...patch } }
+  })
+  await click(ui, '生成失败')
+  assert.equal(ui.all().filter(node => String(node.props['aria-label'] || '').startsWith('确认片尾损坏 ')).length, 0)
+  assert.equal(ui.all().filter(node => String(node.props['aria-label'] || '').startsWith('重新生成 ')).length, 6)
+})
+
+test('a submitted acceptance finishing after unmount cannot refresh inventories or create UI timers', async t => {
+  const setup = await mount(t), { ui, state } = setup
+  state.failed = [tailCandidate()]
+  await click(ui, '生成失败')
+  await click(ui, '确认片尾损坏 尾部受损样本')
+  const pending = setup.holdTail()
+  await click(ui, '确认片尾损坏并保留预览')
+  ui.app.unmount()
+  const count = setup.requests.length
+  pending.resolve({ state: 'ready' })
+  await flush()
+  assert.equal(setup.requests.length, count)
+  assert.equal(setup.tailCalls()[0].options.signal, undefined)
+})
+
+test('a confirmed tail can be revoked through the same safe dialog without starting generation', async t => {
+  const setup = await mount(t), { ui, state } = setup
+  state.completed = [tailCompleted(), completedItem(2)]
+  await click(ui, '已生成缩略图')
+  assert.equal(button(ui, '撤销片尾损坏确认 已生成样本 2'), undefined)
+  await click(ui, '撤销片尾损坏确认 尾部受损样本')
+  assert.equal(nodeText(setup.document.activeElement).trim(), '取消')
+  assert.match(ui.text(), /保留已有预览.*不会立即重新生成/)
+  await click(ui, '确认撤销')
+  assert.equal(setup.tailCalls().length, 1)
+  assert.equal(setup.tailCalls()[0].options.method, 'DELETE')
+  assert.deepEqual(setup.tailCalls()[0].body, { library_id: 1, key: 'a'.repeat(32), confirmed_at: 1789500020 })
+  assert.ok(button(ui, '重新生成 尾部受损样本'))
+  assert.equal(setup.retryCalls().length, 0)
+  assert.equal(setup.document.activeElement?.props['aria-label'], '刷新已生成缩略图')
+})
+
+test('revocation is single-flight and a late completion cannot repopulate a deactivated tool', async t => {
+  const setup = await mount(t), { ui, state, props } = setup
+  state.completed = [tailCompleted()]
+  await click(ui, '已生成缩略图')
+  await click(ui, '撤销片尾损坏确认 尾部受损样本')
+  const pending = setup.holdTail()
+  const submit = button(ui, '确认撤销').props.onClick
+  submit(); submit()
+  await flush()
+  assert.equal(setup.tailCalls().length, 1)
+  assert.equal(button(ui, '取消').props.disabled, true)
+  props.active = false
+  await flush()
+  const count = setup.requests.length
+  pending.resolve({ state: 'partial' })
+  await flush()
+  assert.equal(setup.requests.length, count)
+  assert.equal(ui.find(node => node.props.role === 'dialog'), undefined)
+  assert.doesNotMatch(ui.text(), /已撤销/)
+  assert.equal(setup.retryCalls().length, 0)
+})
 
 test('one processing list highlights current work and excludes it from pending bulk removal', async t => {
   const { ui, requests } = await mount(t)
@@ -251,7 +415,7 @@ test('completed loading, failure and empty states do not block the processing qu
   const pending = setup.holdCompleted()
   await click(ui, '已生成缩略图')
   assert.match(ui.text(), /正在加载已生成缩略图/)
-  assert.doesNotMatch(ui.text(), /暂无可用的完整缩略图/)
+  assert.doesNotMatch(ui.text(), /暂无可用的缩略图/)
   state.running.waiting = true
   state.running.frames = 7
   await setup.poll()
@@ -261,10 +425,10 @@ test('completed loading, failure and empty states do not block the processing qu
   await flush()
   assert.match(ui.text(), /已生成清单暂时不可用/)
   assert.equal(rows(ui, 'is-running').length, 1)
-  assert.doesNotMatch(ui.text(), /暂无可用的完整缩略图/)
+  assert.doesNotMatch(ui.text(), /暂无可用的缩略图/)
   state.completed = []
   await click(ui, '重试加载已生成缩略图')
-  assert.match(ui.text(), /当前视频库暂无可用的完整缩略图/)
+  assert.match(ui.text(), /当前视频库暂无可用的缩略图/)
   setup.failQueue()
   await setup.poll()
   assert.match(ui.text(), /队列暂时不可用/)

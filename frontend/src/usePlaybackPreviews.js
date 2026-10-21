@@ -1,5 +1,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from './api.js'
+import { previewTailCoverage } from './playbackControls.js'
+import { fmtTime } from './playerLabels.js'
 
 export function usePlaybackPreviews(identity) {
   const manifest = ref(null)
@@ -7,9 +9,12 @@ export function usePlaybackPreviews(identity) {
   const error = ref('')
   const jobId = ref('')
   const busy = computed(() => state.value === 'running')
-  const ready = computed(() => state.value === 'ready')
+  const coverage = computed(() => previewTailCoverage(manifest.value, true))
+  const ready = computed(() => state.value === 'ready' && coverage.value !== null)
   const status = computed(() => {
     if (error.value) return error.value
+    if (coverage.value === null) return '预览覆盖信息无效，暂不可用'
+    if (ready.value && coverage.value) return `已完成·片尾缺失，覆盖至 ${fmtTime(coverage.value.coverageEnd)}；已确认片源尾部损坏`
     if (busy.value) {
       if (manifest.value?.queued) return '正在等待生成此影片的预览'
       if (manifest.value?.waiting) return '正在等待播放转码结束'

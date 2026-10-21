@@ -5,7 +5,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvIcon:0",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
-      "line": 262,
+      "line": 258,
       "platforms": [
         "android-tv"
       ],
@@ -769,7 +769,7 @@
       "category": "control",
       "feature": "播放",
       "element": "TvAction",
-      "purpose": "when (previewStatus) { \"ready\" -> \"进度预览已生成\" \"running\" -> \"正在生成进度预览\" else -> if (previewManifest?.pages?.isNotEmpty() == true) \"继续生成进度预览\" else \"生成进度预览\" }, { if (previewStatus != \"ru",
+      "purpose": "previewState.actionLabel, { if (previewState.canGenerate) scope.launch { previewState = previewState.copy(state = \"running\") try { api.post(previewPath); previewRefresh++ } catch (",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
@@ -801,12 +801,12 @@
       ],
       "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
       "classification": "native TV focus and control contract",
-      "source_excerpt": "TvAction(when (previewStatus) { \"ready\" -> \"进度预览已生成\" \"running\" -> \"正在生成进度预览\" else -> if (previewManifest?.pages?.isNotEmpty() == true) \"继续生成进度预览\" else \"生成进度预览\" }, { if (previewStat"
+      "source_excerpt": "TvAction(previewState.actionLabel, { if (previewState.canGenerate) scope.launch { previewState = previewState.copy(state = \"running\") try { api.post(previewPath); previewRefresh++ "
     },
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvAction:18",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
-      "line": 383,
+      "line": 381,
       "platforms": [
         "android-tv"
       ],
@@ -850,7 +850,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvAction:19",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
-      "line": 393,
+      "line": 391,
       "platforms": [
         "android-tv"
       ],
@@ -894,7 +894,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvAction:20",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
-      "line": 394,
+      "line": 392,
       "platforms": [
         "android-tv"
       ],
@@ -938,7 +938,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvAction:21",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
-      "line": 398,
+      "line": 396,
       "platforms": [
         "android-tv"
       ],
@@ -984,7 +984,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvAction:22",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
-      "line": 399,
+      "line": 397,
       "platforms": [
         "android-tv"
       ],
@@ -1030,7 +1030,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvAction:23",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
-      "line": 402,
+      "line": 400,
       "platforms": [
         "android-tv"
       ],
@@ -1074,7 +1074,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvAction:24",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
-      "line": 403,
+      "line": 401,
       "platforms": [
         "android-tv"
       ],
@@ -1118,7 +1118,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvAction:25",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
-      "line": 404,
+      "line": 402,
       "platforms": [
         "android-tv"
       ],
@@ -1162,7 +1162,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvAction:26",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
-      "line": 406,
+      "line": 404,
       "platforms": [
         "android-tv"
       ],
@@ -1208,7 +1208,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvAction:27",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
-      "line": 407,
+      "line": 405,
       "platforms": [
         "android-tv"
       ],
@@ -4339,7 +4339,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:Button:1",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 193,
+      "line": 183,
       "platforms": [
         "android-tv"
       ],
@@ -4383,7 +4383,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:TvIcon:2",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 205,
+      "line": 195,
       "platforms": [
         "android-tv"
       ],
@@ -4513,7 +4513,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:Image:4",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 295,
+      "line": 285,
       "platforms": [
         "android-tv"
       ],
@@ -4555,7 +4555,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:TvIcon:5",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 298,
+      "line": 288,
       "platforms": [
         "android-tv"
       ],
@@ -4601,7 +4601,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:Image:6",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 320,
+      "line": 310,
       "platforms": [
         "android-tv"
       ],
@@ -4643,7 +4643,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:Image:7",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 342,
+      "line": 332,
       "platforms": [
         "android-tv"
       ],
@@ -4685,7 +4685,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:TvIcon:8",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 343,
+      "line": 333,
       "platforms": [
         "android-tv"
       ],
@@ -4730,7 +4730,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:Button:9",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 352,
+      "line": 342,
       "platforms": [
         "android-tv"
       ],
@@ -4774,7 +4774,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:TvAction:10",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 487,
+      "line": 477,
       "platforms": [
         "android-tv"
       ],
@@ -4816,7 +4816,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:Button:11",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 585,
+      "line": 575,
       "platforms": [
         "android-tv"
       ],
@@ -4862,7 +4862,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:Poster:12",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 593,
+      "line": 583,
       "platforms": [
         "android-tv"
       ],
@@ -4905,7 +4905,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:TvIcon:13",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 644,
+      "line": 634,
       "platforms": [
         "android-tv"
       ],
@@ -5035,7 +5035,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt:TvAction:14",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt",
-      "line": 647,
+      "line": 637,
       "platforms": [
         "android-tv"
       ],
@@ -19686,11 +19686,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<select v-model=\"joinColId\" style=\"flex:1\">"
+      "source_excerpt": "<select v-model=\"joinColId\" :disabled=\"!!busy\" style=\"flex:1\">"
     },
     {
       "id": "frontend/src/components/MovieCollectionsPanel.vue:JzButton:7",
@@ -19732,7 +19733,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"joinCol\" :disabled=\"!joinColId\" type=\"button\" icon=\"plus\">"
+      "source_excerpt": "<JzButton @click=\"joinCol\" :disabled=\"!joinColId || !!busy\" :loading=\"busy === 'join'\" type=\"button\" icon=\"plus\">"
     },
     {
       "id": "frontend/src/components/MovieCollectionsPanel.vue:input:9",
@@ -19767,11 +19768,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"newColName\" placeholder=\"新建合集名（含本片）\" style=\"flex:1\" />"
+      "source_excerpt": "<input v-model=\"newColName\" :disabled=\"!!busy\" placeholder=\"新建合集名（含本片）\" style=\"flex:1\" />"
     },
     {
       "id": "frontend/src/components/MovieCollectionsPanel.vue:JzButton:10",
@@ -19813,7 +19815,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"createCol\" :disabled=\"!newColName.trim()\" type=\"button\" icon=\"plus\">"
+      "source_excerpt": "<JzButton @click=\"createCol\" :disabled=\"!newColName.trim() || !!busy\" :loading=\"busy === 'create'\" type=\"button\" icon=\"plus\">"
     },
     {
       "id": "frontend/src/components/MovieCollectionsPanel.vue:JzButton:12",
@@ -22259,7 +22261,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/MovieUploadPanel.vue",
-            "line": 106,
+            "line": 118,
             "selector": ".q-tip .q-bubble",
             "values": {
               "max-width": "320px",
@@ -26746,7 +26748,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PreviewMaintenance.vue",
-            "line": 689,
+            "line": 817,
             "selector": ".completed-toggle",
             "values": {
               "width": "100%",
@@ -26755,7 +26757,7 @@
           },
           {
             "source": "frontend/src/components/PreviewMaintenance.vue",
-            "line": 690,
+            "line": 818,
             "selector": ".completed-toggle > span",
             "values": {
               "min-width": "0"
@@ -26897,9 +26899,49 @@
       "source_excerpt": "<JzButton ref=\"completedRetryRef\" type=\"button\" aria-label=\"重试加载已生成缩略图\" @click=\"loadCompleted\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:42",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:43",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 50,
+      "line": 49,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "`撤销片尾损坏确认 ${item.title}`",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "`撤销片尾损坏确认 ${item.title}`",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"canRevokeTail(item)\" :ref=\"element => setTailRef('revoke', item, element)\" type=\"button\" variant=\"ghost\" :disabled=\"starting || !!mutating\" :aria-label=\"`撤销片尾损坏确认 $"
+    },
+    {
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:45",
+      "source": "frontend/src/components/PreviewMaintenance.vue",
+      "line": 54,
       "platforms": [
         "web",
         "mobile-web"
@@ -26937,9 +26979,9 @@
       "source_excerpt": "<JzButton ref=\"completedPreviousRef\" type=\"button\" aria-label=\"已生成上一页\" :disabled=\"completedOffset === 0 || completedLoading\" @click=\"changeCompletedPage(-1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:44",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:47",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 52,
+      "line": 56,
       "platforms": [
         "web",
         "mobile-web"
@@ -26977,9 +27019,9 @@
       "source_excerpt": "<JzButton ref=\"completedNextRef\" type=\"button\" aria-label=\"已生成下一页\" :disabled=\"completedOffset + pageSize >= completed.total || completedLoading\" @click=\"changeCompletedPage(1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:46",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:49",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 59,
+      "line": 63,
       "platforms": [
         "web",
         "mobile-web"
@@ -27004,7 +27046,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PreviewMaintenance.vue",
-            "line": 689,
+            "line": 817,
             "selector": ".completed-toggle",
             "values": {
               "width": "100%",
@@ -27013,7 +27055,7 @@
           },
           {
             "source": "frontend/src/components/PreviewMaintenance.vue",
-            "line": 690,
+            "line": 818,
             "selector": ".completed-toggle > span",
             "values": {
               "min-width": "0"
@@ -27036,9 +27078,9 @@
       "source_excerpt": "<JzButton ref=\"failedToggleRef\" type=\"button\" variant=\"ghost\" class=\"completed-toggle\" icon=\"image\" aria-label=\"生成失败\" :aria-expanded=\"failedOpen\" :aria-controls=\"failedPanelId\" @cl"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:AppIcon:49",
+      "id": "frontend/src/components/PreviewMaintenance.vue:AppIcon:52",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 62,
+      "line": 66,
       "platforms": [
         "web",
         "mobile-web"
@@ -27074,9 +27116,9 @@
       "source_excerpt": "<AppIcon :name=\"failedOpen ? 'chevron-up' : 'chevron-down'\" :size=\"18\" />"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:54",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:57",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 68,
+      "line": 72,
       "platforms": [
         "web",
         "mobile-web"
@@ -27116,9 +27158,9 @@
       "source_excerpt": "<JzButton ref=\"failedRefreshRef\" type=\"button\" variant=\"ghost\" size=\"compact\" icon=\"refresh\" :loading=\"failedLoading\" aria-label=\"刷新失败清单\" @click=\"loadFailed()\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:60",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:63",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 76,
+      "line": 80,
       "platforms": [
         "web",
         "mobile-web"
@@ -27155,9 +27197,9 @@
       "source_excerpt": "<JzButton ref=\"failedRetryRef\" type=\"button\" aria-label=\"重试加载失败清单\" @click=\"loadFailed()\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:73",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:76",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 89,
+      "line": 93,
       "platforms": [
         "web",
         "mobile-web"
@@ -27197,9 +27239,49 @@
       "source_excerpt": "<JzButton :ref=\"element => setFailedItemRef(item, element)\" class=\"queue-action\" type=\"button\" icon=\"refresh\" :disabled=\"starting || !!mutating\" :loading=\"mutating === `retry:${ite"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:75",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:77",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 95,
+      "line": 96,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "`确认片尾损坏 ${item.title}`",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "`确认片尾损坏 ${item.title}`",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"tailCandidate(item)\" :ref=\"element => setTailRef('accept', item, element)\" class=\"queue-action\" type=\"button\" variant=\"ghost\" :disabled=\"starting || !!mutating\" :ar"
+    },
+    {
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:79",
+      "source": "frontend/src/components/PreviewMaintenance.vue",
+      "line": 101,
       "platforms": [
         "web",
         "mobile-web"
@@ -27237,9 +27319,9 @@
       "source_excerpt": "<JzButton ref=\"failedPreviousRef\" type=\"button\" aria-label=\"失败上一页\" :disabled=\"failedOffset === 0 || failedLoading\" @click=\"changeFailedPage(-1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:77",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:81",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 97,
+      "line": 103,
       "platforms": [
         "web",
         "mobile-web"
@@ -27277,9 +27359,9 @@
       "source_excerpt": "<JzButton ref=\"failedNextRef\" type=\"button\" aria-label=\"失败下一页\" :disabled=\"failedOffset + pageSize >= failed.total || failedLoading\" @click=\"changeFailedPage(1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:84",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:88",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 109,
+      "line": 115,
       "platforms": [
         "web",
         "mobile-web"
@@ -27316,9 +27398,9 @@
       "source_excerpt": "<JzButton type=\"button\" aria-label=\"重试加载处理队列\" @click=\"load\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:88",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:92",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 115,
+      "line": 121,
       "platforms": [
         "web",
         "mobile-web"
@@ -27356,9 +27438,9 @@
       "source_excerpt": "<JzButton :ref=\"element => setBatchCancelRef(batch, element)\" type=\"button\" variant=\"ghost\" size=\"compact\" :disabled=\"starting || !!mutating\" :aria-label=\"`取消本批次 ${index + 1}`\" @cl"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:input:93",
+      "id": "frontend/src/components/PreviewMaintenance.vue:input:97",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 121,
+      "line": 127,
       "platforms": [
         "web",
         "mobile-web"
@@ -27396,9 +27478,9 @@
       "source_excerpt": "<input type=\"checkbox\" aria-label=\"全选本库待处理项\" :checked=\"allSelected\" :indeterminate=\"selectionCount > 0 && !allSelected\" :disabled=\"starting || !!mutating\" @change=\"toggleAll\" />"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:95",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:99",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 124,
+      "line": 130,
       "platforms": [
         "web",
         "mobile-web"
@@ -27436,9 +27518,9 @@
       "source_excerpt": "<JzButton type=\"button\" variant=\"danger\" :disabled=\"!selectionCount || starting || !!mutating\" @click=\"removeSelected\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:96",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:100",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 125,
+      "line": 131,
       "platforms": [
         "web",
         "mobile-web"
@@ -27476,9 +27558,9 @@
       "source_excerpt": "<JzButton v-if=\"selectionCount\" type=\"button\" :disabled=\"starting || !!mutating\" @click=\"clearSelection\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:AppIcon:101",
+      "id": "frontend/src/components/PreviewMaintenance.vue:AppIcon:105",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 130,
+      "line": 136,
       "platforms": [
         "web",
         "mobile-web"
@@ -27513,9 +27595,9 @@
       "source_excerpt": "<AppIcon name=\"image\" :size=\"20\" />"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:progress:109",
+      "id": "frontend/src/components/PreviewMaintenance.vue:progress:113",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 137,
+      "line": 143,
       "platforms": [
         "web",
         "mobile-web"
@@ -27541,7 +27623,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/PreviewMaintenance.vue",
-            "line": 726,
+            "line": 857,
             "selector": ".frame-progress progress",
             "values": {
               "min-width": "0",
@@ -27562,9 +27644,9 @@
       "source_excerpt": "<progress :max=\"runningTotal || 1\" :value=\"runningTotal ? Math.min(runningFrames, runningTotal) : undefined\" :aria-label=\"`${running.title} 缩略图抽取进度`\" :aria-valuetext=\"runningProgre"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:113",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:117",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 146,
+      "line": 152,
       "platforms": [
         "web",
         "mobile-web"
@@ -27604,9 +27686,9 @@
       "source_excerpt": "<JzButton class=\"queue-action\" type=\"button\" variant=\"ghost\" icon=\"close\" icon-only :disabled=\"starting || !!mutating\" :loading=\"mutating === 'running'\" :aria-label=\"`取消当前影片 ${runn"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:input:117",
+      "id": "frontend/src/components/PreviewMaintenance.vue:input:121",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 152,
+      "line": 158,
       "platforms": [
         "web",
         "mobile-web"
@@ -27644,9 +27726,9 @@
       "source_excerpt": "<input type=\"checkbox\" :aria-label=\"`选择 ${item.title}`\" :checked=\"isSelected(item)\" :disabled=\"starting || !!mutating\" @change=\"toggleItem(item)\" />"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:124",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:128",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 159,
+      "line": 165,
       "platforms": [
         "web",
         "mobile-web"
@@ -27686,9 +27768,9 @@
       "source_excerpt": "<JzButton class=\"queue-action\" type=\"button\" variant=\"ghost\" icon=\"close\" icon-only title=\"移出队列\" :disabled=\"starting || !!mutating\" :loading=\"mutating === `${item.kind}-${item.id}`"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:126",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:130",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 166,
+      "line": 172,
       "platforms": [
         "web",
         "mobile-web"
@@ -27726,9 +27808,9 @@
       "source_excerpt": "<JzButton type=\"button\" :disabled=\"offset === 0 || starting || !!mutating\" @click=\"changePage(-1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:128",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:132",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 168,
+      "line": 174,
       "platforms": [
         "web",
         "mobile-web"
@@ -27766,9 +27848,9 @@
       "source_excerpt": "<JzButton type=\"button\" :disabled=\"offset + pageSize >= queue.total || starting || !!mutating\" @click=\"changePage(1)\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:134",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:138",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 177,
+      "line": 183,
       "platforms": [
         "web",
         "mobile-web"
@@ -27806,9 +27888,9 @@
       "source_excerpt": "<JzButton ref=\"batchKeepRef\" type=\"button\" :disabled=\"mutating === 'batch'\" @click=\"closeBatchCancel\">"
     },
     {
-      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:135",
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:139",
       "source": "frontend/src/components/PreviewMaintenance.vue",
-      "line": 178,
+      "line": 184,
       "platforms": [
         "web",
         "mobile-web"
@@ -27844,6 +27926,86 @@
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
       "source_excerpt": "<JzButton ref=\"batchConfirmRef\" type=\"button\" variant=\"danger\" :loading=\"mutating === 'batch'\" @click=\"cancelBatch\">"
+    },
+    {
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:149",
+      "source": "frontend/src/components/PreviewMaintenance.vue",
+      "line": 195,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "取消",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton ref=\"tailCancelRef\" type=\"button\" :disabled=\"tailBusy\" @click=\"closeTailDialog\">"
+    },
+    {
+      "id": "frontend/src/components/PreviewMaintenance.vue:JzButton:150",
+      "source": "frontend/src/components/PreviewMaintenance.vue",
+      "line": 196,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "JzButton",
+      "purpose": "{{ tailDialog.mode === 'accept' ? '确认片尾损坏并保留预览' : '确认撤销' }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton ref=\"tailConfirmRef\" type=\"button\" variant=\"primary\" :loading=\"tailBusy\" @click=\"submitTailDialog\">"
     },
     {
       "id": "frontend/src/components/ProtectionSettings.vue:input:8",
@@ -38369,7 +38531,7 @@
           },
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 864,
+            "line": 1078,
             "selector": ".ver-sel",
             "values": {
               "padding": "6px 8px",
@@ -38390,7 +38552,7 @@
       ],
       "accessible_name_owner": "播放版本",
       "classification": "native control",
-      "source_excerpt": "<select v-if=\"(m.versions || []).length > 1\" v-model.number=\"heroVid\" class=\"ver-sel\" aria-label=\"播放版本\">"
+      "source_excerpt": "<select v-if=\"(m.versions || []).length > 1\" v-model.number=\"heroVid\" class=\"ver-sel\" aria-label=\"播放版本\" @change=\"refreshProgress(heroVid)\">"
     },
     {
       "id": "frontend/src/views/Detail.vue:JzButton:45",
@@ -38662,7 +38824,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 864,
+            "line": 1078,
             "selector": ".pre-sel",
             "values": {
               "padding": "6px 8px",
@@ -38684,7 +38846,7 @@
       ],
       "accessible_name_owner": "预缓存与转码画质",
       "classification": "native control",
-      "source_excerpt": "<select id=\"pre-quality\" v-model=\"preQuality\" aria-label=\"预缓存与转码画质\" :disabled=\"!!preJob\" class=\"pre-sel\" :title=\"heroRemux && heroRemoteLib ? '预缓存目标：远程库建议「原画」（无损 copy、几乎不耗 CPU；选 72"
+      "source_excerpt": "<select id=\"pre-quality\" v-model=\"preQuality\" aria-label=\"预缓存与转码画质\" :disabled=\"preStarting || !!preJob\" class=\"pre-sel\" :title=\"heroRemux && heroRemoteLib ? '预缓存目标：远程库建议「原画」（无损 cop"
     },
     {
       "id": "frontend/src/views/Detail.vue:JzButton:71",
@@ -38724,7 +38886,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton class=\"pre-btn\" :disabled=\"!!preJob\" :title=\"heroRemux && heroRemoteLib ? '把整片缓存到服务器本地（远程库读盘慢）：完工后点播零 NAS 读取、秒开，24h 内有效' : '夜间/闲时把本片转好存着，完工后点播即静态秒播'\" @click=\"startPrewarm"
+      "source_excerpt": "<JzButton class=\"pre-btn\" :disabled=\"!!preJob\" :loading=\"preStarting\" :title=\"heroRemux && heroRemoteLib ? '把整片缓存到服务器本地（远程库读盘慢）：完工后点播零 NAS 读取、秒开，24h 内有效' : '夜间/闲时把本片转好存着，完工后点播即静态秒播"
     },
     {
       "id": "frontend/src/views/Detail.vue:RouterLink:76",
@@ -38751,7 +38913,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 864,
+            "line": 1078,
             "selector": ".col-chip",
             "values": {
               "font-size": "0.8125rem",
@@ -38888,11 +39050,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"!isChildren && !hint.already_collected\" @click=\"createFromSeries\" type=\"button\" icon=\"plus\">"
+      "source_excerpt": "<JzButton v-if=\"!isChildren && !hint.already_collected\" :loading=\"seriesBusy\" @click=\"createFromSeries\" type=\"button\" icon=\"plus\">"
     },
     {
       "id": "frontend/src/views/Detail.vue:JzButton:116",
@@ -39032,7 +39195,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 864,
+            "line": 1078,
             "selector": ".poster-big",
             "values": {
               "max-height": "78vh",
@@ -39156,11 +39319,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"openPosterPicker\" type=\"button\">"
+      "source_excerpt": "<JzButton @click=\"openPosterPicker\" :disabled=\"posterSaving\" type=\"button\">"
     },
     {
       "id": "frontend/src/views/Detail.vue:JzButton:136",
@@ -39195,11 +39359,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"closePoster\" type=\"button\">"
+      "source_excerpt": "<JzButton @click=\"closePoster\" :disabled=\"posterSaving\" type=\"button\">"
     },
     {
       "id": "frontend/src/views/Detail.vue:button:144",
@@ -39228,7 +39393,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 867,
+            "line": 1081,
             "selector": ".poster-cand",
             "values": {
               "padding": "0"
@@ -39236,7 +39401,7 @@
           },
           {
             "source": "frontend/src/views/Detail.vue",
-            "line": 869,
+            "line": 1083,
             "selector": ".poster-cand img",
             "values": {
               "width": "100%",
@@ -39371,11 +39536,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"closePoster\" type=\"button\">"
+      "source_excerpt": "<JzButton @click=\"closePoster\" :disabled=\"posterSaving\" type=\"button\">"
     },
     {
       "id": "frontend/src/views/Detail.vue:AppIcon:157",
@@ -39494,7 +39660,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"archHint = null\" :disabled=\"archApplying\" type=\"button\">"
+      "source_excerpt": "<JzButton @click=\"closeArchive\" :disabled=\"archApplying\" type=\"button\">"
     },
     {
       "id": "frontend/src/views/EpisodeView.vue:RouterLink:3",

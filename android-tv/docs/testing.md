@@ -24,8 +24,11 @@ python3 tools/tv.py check
 | --- | --- |
 | 仅文档 | `python3 ../scripts/check_docs_links.py --root android-tv` |
 | 仅 Python 工具 | `python3 -m unittest discover -s tools -p 'test_*.py'` |
+| Android 逻辑与界面，无需构建 APK | `python3 tools/tv.py test` |
 
-修改跨端协议时，另在仓库根运行关联后端或网页回归；普通 Android 界面修改不要求重跑整个服务器测试集。自动检查不操作遥控器，也不验证真实设备解码。
+JVM 单测使用模拟 HTTP 与独立协程作用域，直接覆盖退出清理编排、最终源时间进度保存、准备取消后的迟回会话回收，以及页面焦点记忆的保存与恢复。方向键在实际布局中的移动、Media3 原生资源释放和设备解码仍按真机清单验证。
+
+修改跨端协议时，另在仓库根运行关联后端或网页回归；普通 Android 界面修改不要求重跑整个服务器测试集。
 
 ### Step 2：运行隔离演示
 

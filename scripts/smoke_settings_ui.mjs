@@ -840,9 +840,11 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
     releases.push(release)
     return { promise, release, requested, seen }
   }
-  let completedGate = null, queueGate = null, failedGate = null, retryGate = null, batchCancelGate = null
+  let completedGate = null, queueGate = null, failedGate = null, retryGate = null, batchCancelGate = null, tailGate = null
   let failCompleted = false, failQueue = false, failFailed = false, failRetry = false
   let failCurrentCancel = false, failBatchCancel = false
+  let failTail = false
+  const tailSources = new Map()
   await context.route('**/*', async route => {
     const url = new URL(route.request().url())
     if (url.origin !== base) return route.abort()
@@ -861,6 +863,34 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       const result = failed ? { detail: '模拟重新生成入队失败' } : mock(url, 'POST', body)
       if (retryGate) { retryGate.seen(); await retryGate.promise }
       return route.fulfill({ status: failed ? 503 : 200, json: result }).catch(() => {})
+    }
+    const acceptTail = route.request().method() === 'POST' && /\/previews\/failed\/[^/]+\/\d+\/accept-tail$/.test(url.pathname)
+    const revokeTail = route.request().method() === 'DELETE' && /\/previews\/completed\/[^/]+\/\d+\/tail-acceptance$/.test(url.pathname)
+    if (acceptTail || revokeTail) {
+      const body = route.request().postDataJSON(), failed = failTail, delayed = tailGate
+      const id = Number(url.pathname.split('/').at(-2))
+      requests.push({ key: url.pathname, method: route.request().method(), body, query: Object.fromEntries(url.searchParams) })
+      if (delayed) { delayed.seen(); await delayed.promise }
+      if (failed) return route.fulfill({ status: 409, json: { detail: '模拟预览快照已变化，请刷新后重新核对' } })
+      if (acceptTail) {
+        const item = previewFailed.find(item => item.id === id && item.library_id === body.library_id)
+        assert.ok(item?.tail_acceptance, 'Only an explicit fixture tail candidate can be accepted')
+        assert.deepEqual(body, { library_id: item.library_id, key: item.tail_acceptance.key,
+          failed_at: item.failed_at, available_count: item.tail_acceptance.available_count, confirmed: true })
+        tailSources.set(id, structuredClone(item))
+        const candidate = item.tail_acceptance
+        previewFailed = previewFailed.filter(value => value !== item)
+        previewCompleted.unshift({ ...item, ...candidate, frames: candidate.available_count, interval: 10,
+          completion: 'known_tail_missing', confirmed_at: 1780000005,
+          warning: { code: 'confirmed_tail_damage', message: '已确认片源尾部损坏，末尾部分没有进度预览' } })
+      } else {
+        const item = previewCompleted.find(item => item.id === id && item.library_id === body.library_id)
+        assert.ok(item?.completion === 'known_tail_missing')
+        assert.deepEqual(body, { library_id: item.library_id, key: item.key, confirmed_at: item.confirmed_at })
+        previewCompleted = previewCompleted.filter(value => value !== item)
+        previewFailed.unshift(structuredClone(tailSources.get(id)))
+      }
+      return route.fulfill({ status: 200, json: { state: acceptTail ? 'ready' : 'partial' } }).catch(() => {})
     }
     const currentCancel = route.request().method() === 'DELETE' && /\/previews\/queue\/[^/]+\/\d+$/.test(url.pathname)
     const batchCancel = route.request().method() === 'POST' && /\/previews\/batches\/[^/]+\/cancel$/.test(url.pathname)
@@ -1085,6 +1115,101 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       await failedToggle.click()
       await failed.getByText('失败样本 1', { exact: true }).waitFor()
       checks.push('failures lazy keyboard expansion, loading/error/empty and retry, per-library 50-item pagination, refresh focus isolation and live updates only while expanded')
+
+      const beforeTail = structuredClone({ completed: previewCompleted, failed: previewFailed })
+      const tailTitle = '片尾损坏样本 F1（虚构）'
+      const candidate = { key: 'a'.repeat(32), failed_at: 1780000001, available_count: 925,
+        coverage_end: 9250, duration: 9449.147, missing_seconds: 199.147 }
+      previewFailed.unshift({ id: 1001, kind: 'movie', library_id: 1, title: tailTitle, file_name: 'tail-fixture.mkv',
+        failed_at: candidate.failed_at, error_code: 'decoder', error: '无法解码片源，请检查视频编码或文件是否损坏', tail_acceptance: candidate })
+      await failedRefresh.click()
+      const tailTrigger = () => failed.getByRole('button', { name: '确认片尾损坏 ' + tailTitle, exact: true })
+      const tailDialog = page.getByRole('dialog', { name: '确认片尾损坏', exact: true })
+      const acceptButton = () => tailDialog.getByRole('button', { name: '确认片尾损坏并保留预览', exact: true })
+      const tailRequests = () => requests.filter(request => /\/(accept-tail|tail-acceptance)$/.test(request.key))
+      assert.equal(await failed.getByRole('button', { name: '确认片尾损坏 失败样本 1', exact: true }).count(), 0,
+        'An ordinary decoder/timeout failure never acquires a tail confirmation from its error text')
+      await tailTrigger().focus()
+      await page.keyboard.press('Enter')
+      await tailDialog.waitFor()
+      await page.waitForFunction(() => document.activeElement?.textContent?.trim() === '取消')
+      await tailDialog.getByText(/覆盖至 2:34:10 \/ 全长 2:37:29/).waitFor()
+      await tailDialog.getByText(/3分19秒.*不代表损坏从此处开始/).waitFor()
+      assert.equal(tailRequests().length, 0)
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Tail confirmation fits the viewport')
+        await tailDialog.screenshot({ path: path.join(directory, `tail-confirm-${width}.png`), animations: 'disabled' })
+        const confirmBox = await acceptButton().boundingBox()
+        if (width < 700) assert.ok(confirmBox.width >= 44 && confirmBox.height >= 44)
+      }
+      await page.keyboard.press('Tab')
+      assert.equal(await tailDialog.evaluate(element => element.contains(document.activeElement)), true)
+      await page.keyboard.press('Escape')
+      await tailDialog.waitFor({ state: 'hidden' })
+      assert.equal(await tailTrigger().evaluate(element => element === document.activeElement), true)
+      assert.equal(tailRequests().length, 0, 'Cancel/Escape never accepts the source damage')
+      await tailTrigger().click()
+      failTail = true
+      await acceptButton().click()
+      await tailDialog.getByRole('alert').filter({ hasText: '模拟预览快照已变化' }).waitFor()
+      assert.equal(await acceptButton().isEnabled(), true)
+      await page.waitForFunction(() => document.activeElement?.textContent?.trim() === '确认片尾损坏并保留预览')
+      failTail = false
+      tailGate = gate()
+      await acceptButton().click()
+      await tailGate.requested
+      assert.equal(await acceptButton().isDisabled(), true)
+      await acceptButton().evaluate(element => element.click())
+      assert.equal(tailRequests().length, 2, 'Pending acceptance blocks a second write')
+      await page.keyboard.press('Escape')
+      assert.equal(await tailDialog.isVisible(), true)
+      tailGate.release(); tailGate = null
+      await tailDialog.waitFor({ state: 'hidden' })
+      await completed.getByText(tailTitle, { exact: true }).waitFor()
+      const tailRow = completed.locator('.completed-row').filter({ hasText: tailTitle })
+      await tailRow.getByText('已完成·片尾缺失', { exact: true }).waitFor()
+      await tailRow.getByText(/覆盖至 2:34:10 \/ 全长 2:37:29.*已确认片源尾部损坏/).waitFor()
+      assert.equal(await failed.getByText(tailTitle, { exact: true }).count(), 0)
+      await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '刷新失败清单')
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+        await tailRow.evaluate(element => window.scrollTo({ top: Math.max(0, window.scrollY + element.getBoundingClientRect().top - 120), behavior: 'instant' }))
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Tail completed row fits the viewport')
+        await tailRow.screenshot({ path: path.join(directory, `tail-completed-${width}.png`), animations: 'disabled' })
+      }
+      const retriesBeforeRevoke = retryRequests().length
+      await tailRow.getByRole('button', { name: '撤销片尾损坏确认 ' + tailTitle, exact: true }).click()
+      const revokeDialog = page.getByRole('dialog', { name: '撤销片尾损坏确认', exact: true })
+      await revokeDialog.getByText(/保留已有预览.*不会立即重新生成/).waitFor()
+      await page.waitForFunction(() => document.activeElement?.textContent?.trim() === '取消')
+      await revokeDialog.getByRole('button', { name: '确认撤销', exact: true }).click()
+      await revokeDialog.waitFor({ state: 'hidden' })
+      await tailTrigger().waitFor()
+      assert.equal(await completed.getByText(tailTitle, { exact: true }).count(), 0)
+      assert.equal(retryRequests().length, retriesBeforeRevoke, 'Revoke preserves sprites and restores the failure without starting generation')
+      await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '刷新已生成缩略图')
+      // Native browser history can leave a busy modal even though its own close
+      // controls stay disabled. Prepare a different-library history destination.
+      await openLibrary(2)
+      await openLibrary(1)
+      await failedToggle.click()
+      await tailTrigger().waitFor()
+      tailGate = gate()
+      await tailTrigger().click()
+      await acceptButton().click()
+      await tailGate.requested
+      await page.goBack()
+      await page.locator('.tool-views:visible').getByRole('button', { name: '资料维护', exact: true }).click()
+      tailGate.release(); tailGate = null
+      await tailDialog.waitFor({ state: 'hidden' })
+      assert.equal(await preview.getByText(tailTitle, { exact: true }).count(), 0, 'Late confirmation stays scoped to its original library')
+      previewCompleted = beforeTail.completed; previewFailed = beforeTail.failed
+      await openLibrary()
+      await toggle.click()
+      await failedToggle.click()
+      await failed.getByText('失败样本 1', { exact: true }).waitFor()
+      checks.push('explicit tail-damage confirmation: 925 verified frames/2:34:10 coverage with a separate 3m19 uncovered remainder, safe Cancel focus, Tab/Escape restore, stale-snapshot retry, busy duplicate guard, scoped late writes, completed warning and reversible acceptance without generation; desktop/390/320 screenshots')
 
       const longTitle = '长名称样本：' + '电影与剧集花絮画面'.repeat(18)
       const longReason = '无法读取视频片源，请检查媒体库连接和文件权限后重新生成。'.repeat(22)

@@ -82,3 +82,27 @@ test('显示当前影片的抽帧进度，完成后不能重复发起生成', as
     } finally { reopened.app.unmount() }
   } finally { app.unmount() }
 })
+
+test('confirmed tail damage is ready with its own warning and cannot restart ordinary generation', async t => {
+  const calls = []
+  const manifest = { state: 'ready', completion: 'known_tail_missing', duration: 9449.147,
+    interval: 10, count: 945, available_count: 925, coverage_end: 9250,
+    columns: 5, rows: 5, width: 480, height: 270,
+    pages: Array.from({ length: 37 }, (_, i) => 'page' + i),
+    warning: { code: 'confirmed_tail_damage', message: '已确认片源尾部损坏，末尾部分没有进度预览' } }
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls.push({ url, method: options?.method || 'GET' })
+    return { ok: true, json: async () => manifest }
+  })
+  const { preview, app } = mount()
+  try {
+    await flush()
+    assert.equal(preview.ready.value, true)
+    assert.equal(preview.busy.value, false)
+    assert.match(preview.status.value, /片尾.*缺失|片源尾部损坏/)
+    assert.match(preview.status.value, /2:34:10/)
+    await preview.start()
+    assert.equal(calls.filter(call => call.method === 'POST').length, 0)
+    assert.equal(preview.manifest.value.error, undefined)
+  } finally { app.unmount() }
+})

@@ -32,6 +32,7 @@
 | [smoke_settings_ui.mjs](smoke_settings_ui.mjs) | 应用数据总预算与缓存分配、设置草稿离开保护、扫描整理工具栏、文件操作与预览、合成片源播放及 ASS 全屏合成。 |
 | [smoke_casting.mjs](smoke_casting.mjs) | 合成电影/分集、真实手机播放器、隔离后端与模拟 DLNA 接收端；需要项目 `.venv` 和已安装的 FFmpeg/FFprobe，不搜索真实设备。 |
 | [smoke_ai_ui.mjs](smoke_ai_ui.mjs) | 智能设置、搜索和匹配，模型及 API 均为模拟。 |
+| [smoke_movie_context.mjs](smoke_movie_context.mjs) | 电影详情切换时的写入目标、迟到响应及离开页面保护；使用真实 Vue 页面与隔离 API。 |
 | [smoke_browse_filters.mjs](smoke_browse_filters.mjs) | 电影/剧集筛选的真实 Vue 页面与模拟 API。 |
 | [smoke_tv_airing.mjs](smoke_tv_airing.mjs) | 剧集播出/收藏、官方目录、库范围、每周推荐与维护状态。 |
 | [smoke_design_system.mjs](smoke_design_system.mjs) | 组件和资产目录；`--capture` 保存截图，`--demo` 启动可交互图鉴。 |

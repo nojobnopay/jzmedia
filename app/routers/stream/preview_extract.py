@@ -17,6 +17,7 @@ _MAX_KEYFRAMES = 4096
 _EMPTY_POINT_MAX_BACKOFF = 2.0
 _EMPTY_POINT_WINDOW = 0.5
 _DV_PREROLL_SECONDS = (10.0, 30.0)
+_DV_POINT_PREROLL_SECONDS = (*_DV_PREROLL_SECONDS, 60.0)
 _DV_WINDOW_POINTS = 2
 _DV_WINDOW_SECONDS = 42.0
 _DV_HINT_USES = 3
@@ -308,7 +309,7 @@ class Extractor:
         window = min(float(self.interval), _EMPTY_POINT_MAX_BACKOFF)
         attempted = set()
         invalid_data = False
-        for before in _DV_PREROLL_SECONDS:
+        for before in _DV_POINT_PREROLL_SECONDS:
             start = max(0.0, target - before)
             if start >= target or start in attempted:
                 continue
@@ -322,7 +323,9 @@ class Extractor:
                     f"{self.frame_guard}showinfo=checksum=0,{self.filter_arg}",
                     "-frames:v", "1", "-fps_mode", "passthrough", "-threads", "1",
                     "-c:v", "png", "-pix_fmt", "rgb24", "-compression_level", "1", str(frame)]
-            log = self.run(cmd, self.jid, timeout=60)
+            # Long RPU references can require a final 60s preroll. Keep this
+            # costly recovery local to the failed point, outside shared hints.
+            log = self.run(cmd, self.jid, timeout=120 if before == 60 else 60)
             times = _frame_times(log)
             images = int(frame.is_file() and bool(frame.stat().st_size))
             invalid_data |= not images and 'invalid nal unit' in str(log).lower()
@@ -333,7 +336,7 @@ class Extractor:
                             "mode=dv_preroll seek=%s observed=%s images=%s samples=%s",
                             self.jid, self.context.get("kind", "unknown"), self.context.get("id", "unknown"),
                             self.page_number, target, start, observed, images, len(times))
-                if self.mode == "dv_windows":
+                if self.mode == "dv_windows" and before in _DV_PREROLL_SECONDS:
                     self._remember_dv_preroll(before, target)
                 return True
             error = _PointOutputError(reason="empty_output" if not images else "unverified_output",

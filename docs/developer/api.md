@@ -109,9 +109,17 @@
 
 ### 已生成与失败清单
 
-`GET /api/stream/previews/completed?library_id=<id>&offset=0&limit=50` 按当前视频库分页列出已有完整预览的电影、分集和花絮；省略 `library_id` 查询全服务，`limit` 为 1–100。返回 `{items,total,offset,limit}`，每项包含 `kind/id/library_id/title/file_name/frames/interval/quality_revision/needs_update`；`frames` 为完整清单帧数，兼容的旧画质成品以 `needs_update:true` 标记。每部影片最多一项，按视频库、电影/分集/花絮、ID 顺序排列。仅计入与当前片源、采样配置匹配且所有图片页完整的清单，离线、过期和部分产物不计入；抽帧达到 100% 不等于完整成品。接口只读，不探测原片或更新缓存访问时间，使用与队列接口相同的管理权限；网页展开已生成清单时按需调用，刷新及分页独立于队列轮询。
+`GET /api/stream/previews/completed?library_id=<id>&offset=0&limit=50` 按当前视频库分页列出可用预览的电影、分集和花絮；省略 `library_id` 查询全服务，`limit` 为 1–100。返回 `{items,total,offset,limit}`，每项包含 `kind/id/library_id/title/file_name/frames/interval/quality_revision/needs_update`；`frames` 为实际可用帧数，兼容的旧画质成品以 `needs_update:true` 标记。每部影片最多一项，按视频库、电影/分集/花絮、ID 顺序排列。仅计入与当前片源、采样配置匹配且图片页完整的普通成品或手动接纳的片尾缺失成品；后者另含 `completion/available_count/coverage_end/duration/warning/key/confirmed_at`。离线、过期和未经确认的部分产物不计入；抽帧达到 100% 不等于完整成品。接口只读，不探测原片或更新缓存访问时间，使用与队列接口相同的管理权限；网页展开已生成清单时按需调用，刷新及分页独立于队列轮询。
 
-`GET /api/stream/previews/failed?library_id=<id>&offset=0&limit=50` 返回 `{items,total,offset,limit}`，参数范围与已生成接口一致；每项包含 `kind/id/library_id/title/file_name/failed_at/error_code/error`，`failed_at` 为 Unix 秒，按失败时间倒序排列。每个视频仅保留最近一次未解决失败，名称和库归属使用当前媒体记录，已删除媒体不显示；查询不访问片源，也不启动生成。失败记录独立持久化，生成成功后清除，取消或重新排队时保留；已有旧版成品但升级失败时可同时出现在两份清单。读取失败返回可读错误，不将损坏记录作为空清单。接口受管理权限保护。
+`GET /api/stream/previews/failed?library_id=<id>&offset=0&limit=50` 返回 `{items,total,offset,limit}`，参数范围与已生成接口一致；每项包含 `kind/id/library_id/title/file_name/failed_at/error_code/error`，`failed_at` 为 Unix 秒，按失败时间倒序排列。每个视频仅保留最近一次未解决失败，名称和库归属使用当前媒体记录，已删除媒体不显示。查询为片尾确认候选读取片源文件属性及缓存清单，不读取媒体内容、解析读取 URL 或启动探测与生成；符合条件的条目另含 `tail_acceptance:{key,failed_at,available_count,coverage_end,duration,missing_seconds}`。失败记录独立持久化，生成成功或手动接纳片尾缺失后清除，取消或重新排队时保留；已有旧版成品但升级失败时可同时出现在两份清单。读取失败返回可读错误，不将损坏记录作为空清单。接口受管理权限保护。
+
+### 手动接纳片尾缺失
+
+`POST /api/stream/previews/failed/{kind}/{id}/accept-tail` 提交 `{library_id,key,failed_at,available_count,confirmed:true}`，其中快照字段来自失败条目的 `tail_acceptance`。仅允许当前片源最近的解码失败，已有连续完整页覆盖至少 95% 时长且未覆盖尾段不超过 300 秒，并且没有该项的排队或运行任务。服务端再次检查片源缓存键、清单、图片页和失败记录；条件或快照变化返回 409，库归属错误返回 404。成功返回 `state:ready`，保留原页图片和原 `duration/count`，不启动抽帧；普通超时、网络与环境错误不能通过此接口接纳。
+
+带提示清单使用 `completion:"known_tail_missing"`、`available_count`、排他的 `coverage_end`，以及 `warning:{code:"confirmed_tail_damage",message:...}`。`available_count` 是已提交的完整页格数，`coverage_end` 是实际可显示预览的截止秒数，不代表精确的片源损坏位置。客户端在此边界之外返回无图；不能缩小原 `count` 后把末图重复到片尾。完成清单、自动队列和批量生成将其视为已完成，警示与普通失败 `error` 分开。
+
+`DELETE /api/stream/previews/completed/{kind}/{id}/tail-acceptance` 提交 `{library_id,key,confirmed_at}`，快照字段来自已生成条目。成功返回 `state:partial`，撤销确认并恢复原解码失败，已有图片页保留；不自动排队，需要继续时调用失败重试接口。普通完整成品不能撤销片尾确认。两项写接口遵循管理权限和写操作令牌鉴权，确认只对当前片源及采样配置生效。
 
 ### 重试与取消
 

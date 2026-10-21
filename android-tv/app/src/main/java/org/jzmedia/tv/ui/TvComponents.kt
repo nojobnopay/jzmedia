@@ -159,18 +159,9 @@ internal fun Modifier.tvSelected(isSelected: Boolean): Modifier = semantics { se
     }
 }
 
-class FocusMemory(initial: String) {
-    var key = initial
-    val restoreKey = initial
-    var restored = false
-    // Removing a focused destination can briefly focus the navigation bar. Keep the
-    // user's last target while this screen is leaving the composition.
-    var leaving = false
-}
-
 @Composable
 fun rememberFocusMemory(first: String): FocusMemory = rememberSaveable(saver = Saver(
-    save = { it.key }, restore = { FocusMemory(it) },
+    save = { it.save() }, restore = { FocusMemory.restore(it) },
 )) { FocusMemory(first) }
 
 fun Modifier.focusMemory(memory: FocusMemory, key: String, focusRequester: FocusRequester? = null): Modifier = composed {
@@ -179,11 +170,10 @@ fun Modifier.focusMemory(memory: FocusMemory, key: String, focusRequester: Focus
     LaunchedEffect(Unit) {
         if (!memory.restored && memory.restoreKey == key) {
             withFrameNanos { }
-            requester.requestFocus()
-            memory.restored = true
+            memory.restoreFocus(key) { requester.requestFocus(FocusDirection.Enter) }
         }
     }
-    this.focusRequester(requester).onFocusChanged { if (it.isFocused && !memory.leaving) memory.key = key }
+    this.focusRequester(requester).onFocusChanged { if (it.isFocused) memory.focused(key) }
 }
 
 @Composable

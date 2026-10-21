@@ -10,7 +10,7 @@
     <div v-if="visible && duration > 0" class="preview" :style="{ left: bubbleLeft + 'px' }">
       <div v-if="frame && !imageFailed" class="preview-image" :style="imageStyle"></div>
       <span>{{ fmtTime(hoverTime) }}</span>
-      <small v-if="!frame || imageFailed">{{ manifest?.state === 'running' ? '预览生成中…' : '可在设置中生成预览' }}</small>
+      <small v-if="!frame || imageFailed">{{ previewHint }}</small>
     </div>
   </div>
 </template>
@@ -18,7 +18,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { fmtTime } from '../playerLabels.js'
-import { previewFrame, previewImageStyle } from '../playbackControls.js'
+import { previewFrame, previewImageStyle, previewTailCoverage } from '../playbackControls.js'
 
 const props = defineProps({
   value: { type: Number, default: 0 }, duration: { type: Number, default: 0 },
@@ -41,6 +41,13 @@ const imageFailed = ref(false)
 const frame = computed(() => previewFrame(props.manifest, hoverTime.value))
 const bubbleLeft = computed(() => Math.max(limits.value.left, Math.min(limits.value.right - 164, pointerX.value - 82)))
 const imageStyle = computed(() => previewImageStyle(frame.value))
+const previewHint = computed(() => {
+  const coverage = previewTailCoverage(props.manifest, true)
+  if (coverage === null) return '预览覆盖信息无效'
+  if (coverage && hoverTime.value >= coverage.coverageEnd) return '片尾缺少预览'
+  if (coverage && imageFailed.value) return '预览图片暂不可用'
+  return props.manifest?.state === 'running' ? '预览生成中…' : '可在设置中生成预览'
+})
 watch(() => frame.value?.url, (url, _old, cleanup) => {
   imageFailed.value = false
   if (!url) return

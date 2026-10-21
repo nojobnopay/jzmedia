@@ -24,10 +24,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -202,6 +199,23 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
             })
         }
     private val mediaSession = MediaSession.Builder(appContext, player).build()
+    private val exit = PlaybackExit(scope, writes,
+        releaseLocal = {
+            clearSubtitle()
+            initialHlsSeek = null
+            generation++
+            subtitleGeneration++
+            sessionId = null
+            player.pause()
+            mediaSession.release()
+            player.release()
+        },
+        save = ::save,
+        releaseSession = { deleteSession(it) },
+        awaitPendingWrites = { watchedJob?.join() },
+        releaseNetwork = { http.dispatcher.cancelAll(); http.connectionPool.evictAll() },
+        onFailure = { Log.w("JzPlayback", "Playback exit cleanup failed") },
+    )
 
     init {
         initialize()
@@ -318,7 +332,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         sessionId = null
         closeSession(oldSession)
         reload = scope.launch {
-            var createdSession: String? = null
+            val lease = PlaybackSessionLease({ !disposed && current == generation }, ::deleteSession)
             try {
                 val decision = api.postPlayback("/api/stream/${request.id}/decide", body(start))
                 ensureActive()
@@ -337,15 +351,15 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                     initial = start
                     complete = true
                 } else {
-                    val session = api.postPlayback("/api/stream/${request.id}/sessions", body(start))
-                    createdSession = session.getString("session_id")
-                    ensureActive()
-                    if (disposed || current != generation) return@launch
+                    val session = lease.create(
+                        { api.postPlayback("/api/stream/${request.id}/sessions", body(start)) },
+                        { it.getString("session_id") },
+                    )
                     url = api.absoluteUrl(session.getString("playlist_url"))
                     mediaStart = session.optDouble("media_start", 0.0).finiteOrZero()
                     initial = session.optDouble("initial_time", 0.0).finiteOrZero()
                     complete = session.optBoolean("complete")
-                    sessionId = createdSession
+                    sessionId = lease.sessionId
                 }
                 val itemId = "${request.kind}:${request.id}:$current"
                 val item = MediaItem.Builder().setUri(url).setMediaId(itemId)
@@ -367,9 +381,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
             } catch (error: Exception) {
                 if (!disposed && current == generation) state = state.copy(loading = false, error = error.message ?: "无法开始播放")
             } finally {
-                if (createdSession != null && (disposed || current != generation || sessionId != createdSession)) {
-                    withContext(NonCancellable) { deleteSession(createdSession) }
-                }
+                lease.releaseUnlessAdopted(sessionId)
             }
         }
     }
@@ -663,29 +675,11 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         if (disposed) return
         updatePosition()
         disposed = true
-        clearSubtitle()
-        initialHlsSeek = null
-        generation++
-        subtitleGeneration++
         val sid = sessionId
-        sessionId = null
         val position = validPosition
         val duration = state.duration
         val sequence = saveSequence.incrementAndGet()
-        player.pause()
-        mediaSession.release()
-        player.release()
-        scope.cancel()
-        writes.launch {
-            coroutineScope {
-                launch { if (position != null) save(position, duration, sequence) }
-                launch { deleteSession(sid) }
-            }
-            watchedJob?.join()
-            http.dispatcher.cancelAll()
-            http.connectionPool.evictAll()
-            writes.cancel()
-        }
+        exit.close(position, duration, sequence, sid)
     }
 }
 

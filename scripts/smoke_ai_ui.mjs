@@ -505,8 +505,13 @@ try {
   if (capture) await captureDocs(go)
   }
 } catch (error) {
+  const report = path.join(project, 'output/playwright/ai-matching')
+  await mkdir(report, { recursive: true })
+  await writeFile(path.join(report, 'failure.json'), JSON.stringify({
+    mocked: true, message: String(error), unexpected, browserErrors: errors,
+  }, null, 2) + '\n')
   if (page && !page.isClosed()) {
-    const screenshot = path.join(temporary, 'failure.png')
+    const screenshot = path.join(report, 'failure.png')
     try {
       await page.screenshot({ path: screenshot, fullPage: true })
       console.error('Failure screenshot (isolated fixture only): ' + screenshot)

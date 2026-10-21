@@ -35,35 +35,43 @@ const upPct = ref(null)
 const upMsg = ref('')
 const upScanning = ref(false)
 const upScanSecs = ref(0)
-let upAbort = null
+const upAbort = ref(null)
 let upScanTimer = null
 let upHintTimer = null
-const upCtl = computed(() => !!upAbort)
+let upHideTimer = null
+let disposed = false
+const upCtl = computed(() => !!upAbort.value)
 
 function stopUpScanTicker() {
   if (upScanTimer) { clearInterval(upScanTimer); upScanTimer = null }
   if (upHintTimer) { clearTimeout(upHintTimer); upHintTimer = null }
+  if (upHideTimer) { clearTimeout(upHideTimer); upHideTimer = null }
 }
 
 async function doUpload() {
+  if (disposed || upCtl.value) return
+  const id = props.movieId
+  const current = () => !disposed && id === props.movieId
   const files = upInput.value && upInput.value.files
   if (!files || !files.length) {
     upMsg.value = '先选文件'
     return
   }
   const file = files[0]
+  stopUpScanTicker()
   upMsg.value = ''
   upPct.value = 0
   upScanning.value = false
   upScanSecs.value = 0
-  const h = apiUpload(`/api/movies/${props.movieId}/upload`, file, {
+  const h = apiUpload(`/api/movies/${id}/upload`, file, {
     subdir: upSubdir.value,
-    onProgress: (p) => { upPct.value = p },
+    onProgress: (p) => { if (current()) upPct.value = p },
     onUploaded: () => {
+      if (!current()) return
       // 延迟 800ms 再切“刮削中”，字幕/花絮等本地快路径不会闪提示
       if (upHintTimer) clearTimeout(upHintTimer)
       upHintTimer = setTimeout(() => {
-        if (!upAbort) return
+        if (!current() || !upAbort.value) return
         upScanning.value = true
         upScanSecs.value = 0
         if (upScanTimer) clearInterval(upScanTimer)
@@ -71,28 +79,32 @@ async function doUpload() {
       }, 800)
     }
   })
-  upAbort = h.abort
+  upAbort.value = h.abort
   try {
     const r = await h.promise
+    if (!current()) return
     stopUpScanTicker()
     upScanning.value = false
     upPct.value = 100
     upMsg.value = `已上传 ${file.name}` + (r && r.status && r.status !== 'stored' ? `（${r.status}）` : '')
-    upInput.value.value = ''
+    if (upInput.value) upInput.value.value = ''
     emit('uploaded')
   } catch (e) {
+    if (!current()) return
     stopUpScanTicker()
     upScanning.value = false
     upMsg.value = '上传失败：' + e.message
   } finally {
-    upAbort = null
-    setTimeout(() => { if (!upAbort) { upPct.value = null; upScanning.value = false } }, 3000)
+    if (current()) {
+      upAbort.value = null
+      upHideTimer = setTimeout(() => { if (current() && !upAbort.value) { upPct.value = null; upScanning.value = false } }, 3000)
+    }
   }
 }
 function cancelUpload() {
-  if (upAbort) upAbort()
+  upAbort.value?.()
 }
-onUnmounted(stopUpScanTicker)
+onUnmounted(() => { disposed = true; stopUpScanTicker(); upAbort.value = null })
 </script>
 
 <style scoped>

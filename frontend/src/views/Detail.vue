@@ -36,7 +36,7 @@
               </ActionMenu>
             </div>
             <div v-if="(m.versions || []).length > 1 || heroResume" class="play-options">
-              <select v-if="(m.versions || []).length > 1" v-model.number="heroVid" class="ver-sel" aria-label="播放版本">
+              <select v-if="(m.versions || []).length > 1" v-model.number="heroVid" class="ver-sel" aria-label="播放版本" @change="refreshProgress(heroVid)">
                 <option v-for="v in m.versions" :key="v.id" :value="v.id" :disabled="!!verBlocked[v.id]">
                   {{ verLabel(v) }}{{ verBlocked[v.id] ? '（无效）' : (verFriendly(v.id) ? ' 浏览器友好' : '') }}
                 </option>
@@ -64,7 +64,7 @@
                 <summary>预缓存与转码</summary>
                 <p class="fhint">提前准备影片可减少下次起播等待，缓存有效期为 24 小时。</p>
                 <div class="pre-wrap"><label for="pre-quality">准备画质</label>
-                <select id="pre-quality" v-model="preQuality" aria-label="预缓存与转码画质" :disabled="!!preJob" class="pre-sel"
+                <select id="pre-quality" v-model="preQuality" aria-label="预缓存与转码画质" :disabled="preStarting || !!preJob" class="pre-sel"
                   :title="heroRemux && heroRemoteLib
                     ? '预缓存目标：远程库建议「原画」（无损 copy、几乎不耗 CPU；选 720p/1080p 会真转码）'
                     : '预转码目标：自动=按服务器能力（无硬件转码→720p，有硬件→1080p）'">
@@ -73,7 +73,7 @@
                   <option value="720p">720p</option>
                   <option value="source">原画</option>
                 </select>
-                <JzButton class="pre-btn" :disabled="!!preJob"
+                <JzButton class="pre-btn" :disabled="!!preJob" :loading="preStarting"
                   :title="heroRemux && heroRemoteLib
                     ? '把整片缓存到服务器本地（远程库读盘慢）：完工后点播零 NAS 读取、秒开，24h 内有效'
                     : '夜间/闲时把本片转好存着，完工后点播即静态秒播'"
@@ -89,7 +89,7 @@
             <div v-if="(m.collections || []).length" class="tag-row">
               <router-link v-for="c in m.collections" :key="c.id" class="col-chip" :to="'/c/' + c.id">{{ c.name }}</router-link>
             </div>
-            <MovieCollectionsPanel v-if="collectionsOpen" :movie-id="m.id" :library-id="m.library_id"
+            <MovieCollectionsPanel v-if="collectionsOpen" :key="m.id" :movie-id="m.id" :library-id="m.library_id"
               @changed="onEditChanged" @close="collectionsOpen = false" />
             <p v-if="refreshMsg" class="page-feedback" role="status">{{ refreshMsg }}</p>
 
@@ -110,7 +110,7 @@
       </nav>
             <div v-if="contentTab === 'info' && hint && hint.collection_tmdb_id" class="hint-row">
               TMDB 系列：{{ hint.collection_name }}（库内 {{ hint.in_library_count }} 部）
-              <JzButton v-if="!isChildren && !hint.already_collected" @click="createFromSeries" type="button" icon="plus">创建系列合集</JzButton>
+              <JzButton v-if="!isChildren && !hint.already_collected" :loading="seriesBusy" @click="createFromSeries" type="button" icon="plus">创建系列合集</JzButton>
               <span v-else class="fhint">已收录</span>
               <span>{{ hintMsg }}</span>
             </div>
@@ -137,10 +137,10 @@
       </div>
 
       <div v-if="!isChildren && (!viewing.enabled || viewing.management_unlocked)" v-show="contentTab === 'files'" class="file-sections">
-          <MovieFileManager :movie-id="Number(route.params.id)" :movie="m" :side-files="sideFiles"
+          <MovieFileManager :key="m.id" :movie-id="Number(route.params.id)" :movie="m" :side-files="sideFiles"
             :ver-blocked="verBlocked" :ver-err="verErr" :ver-method="verMethod" :ver-friendly="verFriendly"
             @play="openStream" @changed="onFilesChanged" />
-          <MovieUploadPanel :movie-id="Number(route.params.id)" @uploaded="load" />
+          <MovieUploadPanel :key="m.id" :movie-id="Number(route.params.id)" @uploaded="load" />
       </div>
 
       <SimilarRow v-if="contentTab === 'info'" :items="similar" title="库中类似" subtitle="按系列 / 影人 / 类型 / 标签推荐"
@@ -156,7 +156,7 @@
       <div ref="posterDlgRef" class="dlg pv-dlg poster-dlg" role="dialog" aria-modal="true">
         <template v-if="!posterPick">
           <img :src="posterBig" class="pv-img poster-big" />
-          <div class="bar"><span class="hint">{{ posterHi ? '高清原图' : '标清预览（原图加载中或不可用）' }}</span><a :href="posterBig" :download="baseName(posterBig)"><AppIcon name="download" :size="16" />下载</a><JzButton @click="openPosterPicker" type="button">换海报</JzButton><JzButton @click="closePoster" type="button">关闭</JzButton></div>
+          <div class="bar"><span class="hint">{{ posterHi ? '高清原图' : '标清预览（原图加载中或不可用）' }}</span><a :href="posterBig" :download="baseName(posterBig)"><AppIcon name="download" :size="16" />下载</a><JzButton @click="openPosterPicker" :disabled="posterSaving" type="button">换海报</JzButton><JzButton @click="closePoster" :disabled="posterSaving" type="button">关闭</JzButton></div>
         </template>
         <template v-else>
           <div class="poster-pick-head">
@@ -176,14 +176,14 @@
           </div>
           <div class="bar">
             <JzButton :disabled="posterSaving" @click="posterPick = false" type="button" icon="back">返回</JzButton>
-            <JzButton @click="closePoster" type="button">关闭</JzButton>
+            <JzButton @click="closePoster" :disabled="posterSaving" type="button">关闭</JzButton>
           </div>
         </template>
       </div>
     </div>
   </div>
   <!-- 重新匹配后的归档推荐（评审 B9 后续）：有推荐路径就弹窗，不让用户自己去设置页找 -->
-  <div v-if="archHint" class="dlg-mask" @click.self="archHint = null">
+  <div v-if="archHint" class="dlg-mask" @click.self="closeArchive">
     <div ref="archDlgRef" class="dlg arch-dlg" role="dialog" aria-modal="true">
       <h3>已匹配成功，可以归档了</h3>
       <p class="hint">检测到推荐的正式库路径，归档后可避免后续迁移：</p>
@@ -199,7 +199,7 @@
       </p>
       <div class="bar">
         <JzButton @click="doArchive" :disabled="archApplying" type="button" icon="organize">{{ archApplying ? '归档中…' : '立即归档' }}</JzButton>
-        <JzButton @click="archHint = null" :disabled="archApplying" type="button">稍后整理</JzButton>
+        <JzButton @click="closeArchive" :disabled="archApplying" type="button">稍后整理</JzButton>
         <span>{{ archMsg }}</span>
       </div>
     </div>
@@ -245,6 +245,11 @@ const router = useRouter()
 let disposed = false
 let loadGeneration = 0
 let mediaGeneration = 0
+let movieGeneration = 0
+let movieReadSeq = 0
+let progressSeq = 0
+let pageController = new AbortController()
+const mediaWaits = new Map()
 function currentMovieId() {
   const id = String(route.params.id || '')
   // The route updates before this component unmounts when returning to a wall.
@@ -252,9 +257,31 @@ function currentMovieId() {
   if (route.path && !/^\/m\/[1-9]\d*\/?$/.test(route.path)) return null
   return id
 }
-function loadContext() { return { id: currentMovieId(), generation: loadGeneration } }
-function currentLoad(context) {
-  return !disposed && context.id != null && context.id === currentMovieId() && context.generation === loadGeneration
+function loadContext() {
+  return { id: currentMovieId(), generation: loadGeneration, identity: movieGeneration, signal: pageController.signal }
+}
+function currentMovie(context) {
+  return !disposed && context.id != null && context.id === currentMovieId() && context.identity === movieGeneration
+}
+function currentLoad(context) { return currentMovie(context) && context.generation === loadGeneration }
+function actionableMovie(context) { return currentMovie(context) && String(m.value?.id) === context.id }
+async function readMovie(context = loadContext()) {
+  if (!currentLoad(context)) return null
+  const seq = ++movieReadSeq
+  const movie = await api('/api/movies/' + context.id, { signal: context.signal })
+  if (!currentLoad(context) || seq !== movieReadSeq) return null
+  m.value = movie
+  return movie
+}
+function stopMediaWaits() {
+  for (const [timer, resolve] of mediaWaits) { clearTimeout(timer); resolve() }
+  mediaWaits.clear()
+}
+function pauseForMedia() {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => { mediaWaits.delete(timer); resolve() }, 3000)
+    mediaWaits.set(timer, resolve)
+  })
 }
 const m = ref(null)
 const sideFiles = ref(null)
@@ -262,6 +289,7 @@ const msg = ref('')
 const loadErr = ref('')
 const hint = ref(null)
 const hintMsg = ref('')
+const seriesBusy = ref(false)
 const posterDlgRef = ref(null)
 const archDlgRef = ref(null)
 const regionNote = ref('')
@@ -345,6 +373,7 @@ async function loadMedia(context = loadContext()) {
     const agg = await api('/api/stream/versions', {
       method: 'POST',
       body: JSON.stringify({ movie_id: Number(context.id), quality: 'auto', caps }),
+      signal: context.signal,
     })
     if (!current()) return
     verList.value = agg.versions || []
@@ -378,11 +407,7 @@ async function loadMedia(context = loadContext()) {
     if (current()) mediaLoading.value = false
   }
   if (!current()) return
-  try {
-    const p = await api(`/api/stream/progress?version_id=${heroVid.value}`)
-    if (!current()) return
-    progressInfo.value = (p && Number(p.position) > 0) ? p : null
-  } catch (e) { if (current()) progressInfo.value = null }
+  await refreshProgress(heroVid.value, context)
 }
 // 在线播放 P1：版本选播弹窗（播放单位=版本行 id）+ 播完标已看（阈值逻辑 P3 进弹窗内）
 const playVid = ref(null)
@@ -421,25 +446,36 @@ function openHeroPlay() {
   openStream(v || { id: heroVid.value, file_path: m.value?.file_path || '' })
 }
 function openStream(v) {
+  const context = loadContext()
+  if (!actionableMovie(context) || !v?.id || (Number(v.id) !== Number(context.id)
+      && !(m.value.versions || []).some(version => Number(version.id) === Number(v.id)))) return
   playTitle.value = baseName(v.file_path)
   playVid.value = Number(v.id)
 }
 // 预转码：闲时把本片转完存静态，完工后点播秒播；只给需转码版显示
 const preJob = ref(null)
+const preStarting = ref(false)
 const preQuality = ref('auto')
 const preMsg = ref('')
+let preContext = null
 const prePoll = usePolling(pollPrewarm, { interval: 5000 })
+function currentPrewarm(context) {
+  return context && preContext === context && currentMovie(context) && Number(heroVid.value) === context.versionId
+}
 async function pollPrewarm() {
-  if (!preJob.value) return
+  const context = preContext
+  if (!currentPrewarm(context) || !preJob.value) return
+  const job = preJob.value
   try {
-    const s = await api(`/api/stream/prewarm/${preJob.value}`)
+    const s = await api(`/api/stream/prewarm/${job}`, { signal: context.signal })
+    if (!currentPrewarm(context) || preJob.value !== job) return
     const exp = Number(s.expected) || 0
     const got = Number(s.segments) || 0
     if (s.status === 'done') {
       preMsg.value = '已就绪，点播即秒播'
       preJob.value = null
       prePoll.stop()
-      loadMedia()
+      await loadMedia()
     } else if (s.status === 'failed') {
       preMsg.value = '失败：' + (s.error || '未知').slice(0, 80)
       preJob.value = null
@@ -447,24 +483,36 @@ async function pollPrewarm() {
     } else if (exp > 0) {
       preMsg.value = `转码中 ${Math.floor((got / exp) * 100)}%（${got}/${exp}）`
     }
-  } catch (e) { /* 轮询失败下次继续 */ }
+  } catch (e) {
+    if (currentPrewarm(context) && e.status === 404) {
+      preJob.value = null
+      prePoll.stop()
+      preMsg.value = '准备任务已失效，可重新开始。'
+    }
+  }
 }
 async function startPrewarm() {
-  if (preJob.value || !heroVid.value) return
+  const context = { ...loadContext(), versionId: Number(heroVid.value), quality: preQuality.value }
+  if (!actionableMovie(context) || preJob.value || preStarting.value || !context.versionId) return
+  preContext = context
+  preStarting.value = true
   preMsg.value = ''
   try {
     // 带上本机实测 caps（评审 B5a-7）：预转码产物键与在线播一致，完工后点播才能命中
     const caps = await getCaps()
+    if (!currentPrewarm(context)) return
     const r = await api('/api/stream/prewarm', {
       method: 'POST',
-      body: JSON.stringify({ version_id: Number(heroVid.value), quality: preQuality.value, audio: 0, caps }),
+      body: JSON.stringify({ version_id: context.versionId, quality: context.quality, audio: 0, caps }),
     })
+    if (!currentPrewarm(context)) return
+    if (!r.job_id) { preMsg.value = '准备任务未能启动，请重试。'; return }
     preJob.value = r.job_id
     preMsg.value = '已开始，后台转码中…'
     prePoll.start()
   } catch (e) {
-    preMsg.value = '启动失败：' + e.message
-  }
+    if (currentPrewarm(context)) preMsg.value = '启动失败：' + e.message
+  } finally { if (currentPrewarm(context)) preStarting.value = false }
 }
 // 重写元数据（2026-09）：换绑/刷新后 NAS 上 NFO/海报可能没落盘，这里按当前匹配单部重写
 const repairOpen = ref(false)
@@ -473,17 +521,22 @@ const metaBusy = ref(false)
 const metaMsg = ref('')
 const metaErr = ref(false)
 let metaJobId = ''
+let metaContext = null
 const metaPoll = usePolling(pollMeta, { interval: 1000 })
 async function rebuildMeta() {
-  if (metaBusy.value) return
+  const context = loadContext()
+  if (!actionableMovie(context) || metaBusy.value) return
+  metaContext = context
+  const mode = repairMode.value
   metaBusy.value = true
   metaMsg.value = ''
   metaErr.value = false
   try {
     const d = await api('/api/jobs/rebuild-meta', {
       method: 'POST',
-      body: JSON.stringify({ ids: [Number(route.params.id)], dry_run: false, backdrops: false, nfo: repairMode.value !== 'art', artwork: repairMode.value !== 'nfo' }),
+      body: JSON.stringify({ ids: [Number(context.id)], dry_run: false, backdrops: false, nfo: mode !== 'art', artwork: mode !== 'nfo' }),
     })
+    if (!currentMovie(context) || metaContext !== context) return
     metaJobId = d.job_id || ''
     if (!metaJobId) {
       metaBusy.value = false
@@ -494,22 +547,26 @@ async function rebuildMeta() {
     metaMsg.value = '后台重写中…'
     metaPoll.start()
   } catch (e) {
+    if (!currentMovie(context) || metaContext !== context) return
     metaBusy.value = false
     metaErr.value = true
     metaMsg.value = '重写失败：' + e.message
   }
 }
 async function pollMeta() {
-  if (!metaJobId) return
+  const context = metaContext
+  if (!context || !currentMovie(context) || !metaJobId) return
+  const job = metaJobId
+  const current = () => currentMovie(context) && metaContext === context
   try {
-    const st = await api('/api/jobs/rebuild-meta/' + metaJobId)
+    const st = await api('/api/jobs/rebuild-meta/' + job, { signal: context.signal })
+    if (!current() || metaJobId !== job) return
     if (st.state === 'running') {
       metaMsg.value = `重写中 ${st.done}/${st.total}…`
       return
     }
     metaPoll.stop()
     metaJobId = ''
-    metaBusy.value = false
     if (st.state === 'done') {
       const failed = (st.failed || []).length
       metaErr.value = failed > 0
@@ -519,52 +576,74 @@ async function pollMeta() {
       metaErr.value = true
       metaMsg.value = '重写失败：' + (st.error || st.state || '未知')
     }
-  } catch (e) { /* 轮询失败下次继续 */ }
+    if (current()) metaBusy.value = false
+  } catch (e) {
+    if (current() && e.status === 404) {
+      metaPoll.stop()
+      metaJobId = ''
+      metaBusy.value = false
+      metaErr.value = true
+      metaMsg.value = '修复任务已失效，请核对资料文件后重试。'
+    }
+  }
 }
 function closeStream() {
+  const context = loadContext()
   const vid = playVid.value
   // 关播：先同步取播放器的最终存档 Promise（此时组件未卸载、位置=关闭这一刻），
   // 再关窗；落库完成后再 GET 刷新「上次看到」。不走 saved 事件：组件卸载后 emit 会被 Vue 丢弃。
   const saving = (playerRef.value && playerRef.value.saveFinal)
     ? playerRef.value.saveFinal() : Promise.resolve()
   playVid.value = null
-  Promise.resolve(saving).catch(() => { /* 忽略 */ }).then(() => refreshProgress(vid))
+  Promise.resolve(saving).catch(() => { /* 忽略 */ }).then(() => {
+    if (currentMovie(context)) return refreshProgress(vid)
+  })
 }
-async function refreshProgress(vid) {
+async function refreshProgress(vid, context = loadContext()) {
   // 刷新断点显示（仅当前 hero 版本；非 hero 版本本就不展示「上次看到」）
-  if (!vid || Number(vid) !== Number(heroVid.value)) return
+  if (!currentLoad(context) || !vid || Number(vid) !== Number(heroVid.value)) return
+  const seq = ++progressSeq
+  const current = () => currentLoad(context) && seq === progressSeq && Number(vid) === Number(heroVid.value)
+  progressInfo.value = null
   try {
-    const p = await api(`/api/stream/progress?version_id=${vid}`)
+    const p = await api(`/api/stream/progress?version_id=${vid}`, { signal: context.signal })
+    if (!current()) return
     progressInfo.value = (p && Number(p.position) > 0) ? p : null
-  } catch (e) { /* 忽略 */ }
+  } catch (e) { if (current()) progressInfo.value = null }
 }
 async function toggleWatched() {
-  if (watchedBusy.value || !m.value) return
+  const context = loadContext()
+  if (watchedBusy.value || !actionableMovie(context)) return
+  const watched = !m.value.watched
   watchedBusy.value = true
   msg.value = ''
   try {
     await api('/api/movies/batch', {
-      method: 'POST', body: JSON.stringify({ ids: [m.value.id], ops: { watched: !m.value.watched } }),
+      method: 'POST', body: JSON.stringify({ ids: [Number(context.id)], ops: { watched } }),
     })
-    m.value = await api('/api/movies/' + route.params.id)
-    flashSaved()
-  } catch (e) { msg.value = '观看状态保存失败：' + e.message }
-  finally { watchedBusy.value = false }
+    if (!currentMovie(context)) return
+    await readMovie()
+    if (currentMovie(context)) flashSaved(context)
+  } catch (e) { if (currentMovie(context)) msg.value = '观看状态保存失败：' + e.message }
+  finally { if (currentMovie(context)) watchedBusy.value = false }
 }
 async function onPlayEnded() {
+  const context = loadContext()
+  if (!actionableMovie(context) || !playVid.value) return
   // 海报粒度：同片全版本同步标已看（批量接口一次完成，评审 B8/R05-D5）
   try {
     await api('/api/movies/batch', {
       method: 'POST',
-      body: JSON.stringify({ ids: [Number(route.params.id)], ops: { watched: true } }),
+      body: JSON.stringify({ ids: [Number(context.id)], ops: { watched: true } }),
     })
-    m.value = await api('/api/movies/' + route.params.id)
-    flashSaved()
+    if (!currentMovie(context)) return
+    await readMovie()
+    if (currentMovie(context)) flashSaved(context)
   } catch (e) { /* 忽略 */ }
 }
 
 async function load() {
-  const context = { id: currentMovieId(), generation: ++loadGeneration }
+  const context = { ...loadContext(), generation: ++loadGeneration }
   if (!currentLoad(context)) return
   regionNote.value = ''
   loadErr.value = ''
@@ -579,9 +658,8 @@ async function load() {
     verMethod.value = {}
   }
   try {
-    const movie = await api('/api/movies/' + context.id)
-    if (!currentLoad(context)) return
-    m.value = movie
+    const movie = await readMovie(context)
+    if (!movie || !currentLoad(context)) return
   } catch (e) {
     if (!currentLoad(context)) return
     loadErr.value = '加载失败：' + e.message
@@ -593,7 +671,7 @@ async function load() {
   loadMedia(context)
   loadSimilar(context)
   try {
-    const h = await api('/api/health')
+    const h = await api('/api/health', { signal: context.signal })
     if (!currentLoad(context)) return
     noFfmpeg.value = !h.ffmpeg
   } catch (e) { /* 健康检查失败不挡详情页 */ }
@@ -601,7 +679,7 @@ async function load() {
   await reloadFiles(context)
   if (!currentLoad(context)) return
   try {
-    const result = await api('/api/movies/' + context.id + '/collection-hint')
+    const result = await api('/api/movies/' + context.id + '/collection-hint', { signal: context.signal })
     if (!currentLoad(context)) return
     hint.value = result
     if (!hint.value?.collection_tmdb_id) hint.value = null
@@ -611,28 +689,30 @@ async function loadSimilar(context = loadContext()) {
   if (!currentLoad(context)) return
   similar.value = []
   try {
-    const d = await api(`/api/movies/${context.id}/similar?limit=18`)
+    const d = await api(`/api/movies/${context.id}/similar?limit=18`, { signal: context.signal })
     // 路由已切走则丢弃过期回包（同组件切片）
     if (currentLoad(context)) similar.value = d.items || []
   } catch (e) { /* 推荐失败不挡详情页 */ }
 }
 async function openFilesTab() {
+  const context = loadContext()
+  if (!actionableMovie(context)) return
   if (viewing.enabled && !(await ensureManagement())) return
+  if (!currentMovie(context)) return
   await reloadFiles()
-  contentTab.value = 'files'
+  if (currentMovie(context)) contentTab.value = 'files'
 }
 async function reloadFiles(context = loadContext()) {
   if (isChildren.value || viewing.enabled && !viewing.management_unlocked) { sideFiles.value = null; return }
   if (!currentLoad(context)) return
   try {
-    const files = await api('/api/movies/' + context.id + '/files')
+    const files = await api('/api/movies/' + context.id + '/files', { signal: context.signal })
     if (!currentLoad(context)) return
     sideFiles.value = files
   } catch (e) { if (currentLoad(context)) sideFiles.value = null }
   if (!currentLoad(context)) return
   try {
-    const movie = await api('/api/movies/' + context.id)
-    if (currentLoad(context)) m.value = movie
+    await readMovie(context)
   } catch (e) { /* 忽略 */ }
 }
 
@@ -640,26 +720,34 @@ const posterDlg = ref(false)
 const posterBig = ref('')
 const posterHi = ref(false)
 let posterObjUrl = ''
+let posterGeneration = 0
+let posterController = null
+let posterWriteContext = null
 // 换海报后原地覆盖文件（URL 不变）→ 用版本参数强制取新图；posterVer 用于同页即时刷新
 const posterVer = ref(0)
 const posterSrc = computed(() =>
   posterUrl(m.value?.poster_path, posterVer.value || m.value?.updated_at))
 async function openPoster() {
-  if (!m.value?.poster_path) return
+  const context = loadContext()
+  if (!actionableMovie(context) || !m.value?.poster_path || posterSaving.value) return
+  posterController?.abort()
+  posterController = new AbortController()
+  const signal = posterController.signal
+  const generation = ++posterGeneration
+  const current = () => currentMovie(context) && generation === posterGeneration && posterDlg.value
   posterBig.value = posterSrc.value
   posterHi.value = false
   posterDlg.value = true
   try {
     const v = posterVer.value || m.value?.updated_at || ''
-    const r = await fetch(`/api/movies/${route.params.id}/poster-orig?v=${encodeURIComponent(v)}`)
-    if (!r.ok) return
+    const r = await fetch(`/api/movies/${context.id}/poster-orig?v=${encodeURIComponent(v)}`, { signal })
+    if (!current() || !r.ok) return
     const b = await r.blob()
+    if (!current()) return
     if (posterObjUrl) URL.revokeObjectURL(posterObjUrl)
     posterObjUrl = URL.createObjectURL(b)
-    if (posterDlg.value) {
-      posterBig.value = posterObjUrl
-      posterHi.value = true
-    }
+    posterBig.value = posterObjUrl
+    posterHi.value = true
   } catch (e) { /* 保持本地图 */ }
 }
 // 换海报（TMDB 候选，后端代理缩略图；选定后持久化 override，刷新不回退）
@@ -669,121 +757,174 @@ const posterLoading = ref(false)
 const posterSaving = ref(false)
 const posterErr = ref('')
 async function openPosterPicker() {
+  const context = loadContext()
+  if (!actionableMovie(context) || !posterDlg.value || posterLoading.value || posterSaving.value) return
+  const generation = posterGeneration
+  const current = () => currentMovie(context) && generation === posterGeneration && posterDlg.value
   posterPick.value = true
   posterErr.value = ''
   if (posterCands.value.length) return
   posterLoading.value = true
   try {
-    const d = await api(`/api/movies/${route.params.id}/posters`)
+    const d = await api(`/api/movies/${context.id}/posters`, { signal: posterController.signal })
+    if (!current()) return
     posterCands.value = d.items || []
   } catch (e) {
-    posterErr.value = '候选海报加载失败：' + e.message
+    if (current()) posterErr.value = '候选海报加载失败：' + e.message
   } finally {
-    posterLoading.value = false
+    if (current()) posterLoading.value = false
   }
 }
 async function choosePoster(c) {
-  if (posterSaving.value) return
+  const context = loadContext()
+  if (!actionableMovie(context) || posterSaving.value || !posterDlg.value || !posterCands.value.includes(c)) return
+  posterWriteContext = context
+  const current = () => currentMovie(context) && posterWriteContext === context
   posterSaving.value = true
   posterErr.value = ''
   try {
-    await api(`/api/movies/${route.params.id}/poster`, {
+    await api(`/api/movies/${context.id}/poster`, {
       method: 'POST',
       body: JSON.stringify({ file_path: c.file_path })
     })
+    if (!current()) return
     posterPick.value = false
     posterCands.value = []
     posterVer.value++    // 版本号变化 → 头部/弹窗 URL 立刻指向新图
     await load()
+    if (!current()) return
+    posterSaving.value = false
+    posterWriteContext = null
     await openPoster()   // 重新拉取新原图
   } catch (e) {
-    posterErr.value = '切换失败：' + e.message
+    if (current()) posterErr.value = '切换失败：' + e.message
   } finally {
-    posterSaving.value = false
+    if (current()) posterSaving.value = false
   }
 }
 function closePoster() {
+  if (posterSaving.value) return
+  clearPoster()
+}
+function clearPoster() {
+  posterGeneration++
+  posterController?.abort()
+  posterController = null
+  posterWriteContext = null
   posterDlg.value = false
   posterPick.value = false
   posterCands.value = []
   posterErr.value = ''
   posterBig.value = ''
   posterHi.value = false
+  posterLoading.value = false
+  posterSaving.value = false
   if (posterObjUrl) {
     URL.revokeObjectURL(posterObjUrl)
     posterObjUrl = ''
   }
 }
 async function createFromSeries() {
+  const context = loadContext()
+  if (!actionableMovie(context) || seriesBusy.value || !hint.value || hint.value.already_collected) return
+  seriesBusy.value = true
   hintMsg.value = ''
   try {
     const d = await api('/api/collections/from-tmdb-series', {
       method: 'POST',
-      body: JSON.stringify({ movie_id: Number(route.params.id) })
+      body: JSON.stringify({ movie_id: Number(context.id) })
     })
+    if (!currentMovie(context)) return
     hintMsg.value = `已建「${d.name}」（${d.member_count} 部）`
     await load()
   } catch (e) {
-    hintMsg.value = '创建失败：' + e.message
-  }
+    if (currentMovie(context)) hintMsg.value = '创建失败：' + e.message
+  } finally { if (currentMovie(context)) seriesBusy.value = false }
 }
-function openEdit(mode) { editing.value = editing.value === mode ? '' : mode }
+function openEdit(mode) { if (actionableMovie(loadContext())) editing.value = editing.value === mode ? '' : mode }
 // 编辑面板回调（R05-Q4：子组件只发信号，重载/闪存/归档引导留在本页）
 async function onFilesChanged() { await reloadFiles() }
 const nrBusy = ref(false)
 async function confirmMatch () {
-  if (nrBusy.value) return
+  const context = loadContext()
+  if (!actionableMovie(context) || nrBusy.value) return
   nrBusy.value = true
   try {
-    await api('/api/movies/' + route.params.id + '/confirm-match', { method: 'POST' })
-    m.value = await api('/api/movies/' + route.params.id)
-    flashSaved()
+    await api('/api/movies/' + context.id + '/confirm-match', { method: 'POST' })
+    if (!currentMovie(context)) return
+    await readMovie()
+    if (currentMovie(context)) flashSaved(context)
   } catch (e) {
-    regionNote.value = '确认失败：' + e.message
+    if (currentMovie(context)) regionNote.value = '确认失败：' + e.message
   } finally {
-    nrBusy.value = false
+    if (currentMovie(context)) nrBusy.value = false
   }
 }
 
-async function onEditSaved() { editing.value = ''; flashSaved(); await load() }
-async function onEditChanged() { flashSaved(); await load() }
+async function onEditSaved() {
+  const context = loadContext()
+  if (!actionableMovie(context)) return
+  editing.value = ''
+  flashSaved(context)
+  await load()
+}
+async function onEditChanged() {
+  const context = loadContext()
+  if (!actionableMovie(context)) return
+  flashSaved(context)
+  await load()
+}
 async function refreshMovieInfo() {
-  if (refreshBusy.value) return
+  const context = loadContext()
+  if (!actionableMovie(context) || refreshBusy.value) return
   refreshBusy.value = true
   refreshMsg.value = '正在更新资料…'
   try {
-    const r = await api('/api/movies/' + route.params.id + '/refresh', { method: 'POST' })
+    const r = await api('/api/movies/' + context.id + '/refresh', { method: 'POST' })
+    if (!currentMovie(context)) return
     refreshMsg.value = r.changed ? '影片资料已更新' : '远端资料无变化'
     if (r.forced) refreshMsg.value += '，已提交 NFO 与海报重写'
-    await onRefreshed()
-  } catch (e) { refreshMsg.value = '更新失败：' + e.message }
-  finally { refreshBusy.value = false }
+    await onRefreshed(context)
+  } catch (e) { if (currentMovie(context)) refreshMsg.value = '更新失败：' + e.message }
+  finally { if (currentMovie(context)) refreshBusy.value = false }
 }
-async function onRefreshed() { await load(); flashSaved(); await waitForMedia() }
-async function onMatched({ oldRegion = '', background = {} } = {}) {
+async function onRefreshed(context) {
+  if (!currentMovie(context)) return
   await load()
+  if (!currentMovie(context)) return
+  flashSaved(context)
+  await waitForMedia(context)
+}
+async function onMatched({ oldRegion = '', background = {} } = {}) {
+  const context = loadContext()
+  if (!actionableMovie(context)) return
+  await load()
+  if (!currentMovie(context)) return
   editing.value = ''
-  checkArchiveHint()
-  flashSaved()
+  checkArchiveHint(context)
+  flashSaved(context)
   regionNote.value = (m.value?.region && m.value.region !== oldRegion)
     ? `产地变为${m.value.region}，文件仍在旧分区，请到设置页用“搬到顶层”修复。` : ''
-  if (background.poster || background.avatars) await waitForMedia()
+  if (background.poster || background.avatars) await waitForMedia(context)
 }
-function flashSaved() {
+function flashSaved(context = loadContext()) {
+  if (!currentMovie(context)) return
   savedFlash.value = true
   if (flashTimer) clearTimeout(flashTimer)
-  flashTimer = setTimeout(() => { savedFlash.value = false }, 3000)
+  flashTimer = setTimeout(() => { if (currentMovie(context)) savedFlash.value = false }, 3000)
 }
 const originalMoved = computed(() => {
   const o = (m.value?.original_file_path || '').trim()
   return !!o && o !== m.value?.file_path
 })
 function goRestore() {
+  if (!actionableMovie(loadContext())) return
   const query = { sec: 'sec-restore', ids: String(m.value.id) }
   if (m.value.library_id != null) query.library = String(m.value.library_id)
   router.push({ path: '/settings', query })
 }
 function goFiles() {
+  if (!actionableMovie(loadContext())) return
   const query = { sec: 'sec-files' }
   if (m.value.library_id != null) query.library = String(m.value.library_id)
   if (m.value.media_library_id != null) query.media = String(m.value.media_library_id)
@@ -791,53 +932,108 @@ function goFiles() {
   if (dir) query.files_path = dir
   router.push({ path: '/settings', query })
 }
-async function waitForMedia(tries = 10) {
+async function waitForMedia(context, tries = 10) {
   for (let i = 0; i < tries; i++) {
-    await new Promise(r => setTimeout(r, 3000))
+    if (!currentMovie(context)) return
+    await pauseForMedia()
+    if (!currentMovie(context)) return
     try {
-      const cur = await api('/api/movies/' + route.params.id)
-      m.value = cur
-      if (cur.poster_path) return
+      const cur = await readMovie()
+      if (!currentMovie(context)) return
+      if (cur?.poster_path) return
     } catch (e) { /* 忽略，继续轮询 */ }
   }
-  await load()
+  if (currentMovie(context)) await load()
 }
-async function checkArchiveHint() {
+let archiveContext = null
+let archiveReadSeq = 0
+async function checkArchiveHint(context = loadContext()) {
+  if (!actionableMovie(context)) return
+  const seq = ++archiveReadSeq
   archHint.value = null
   archMsg.value = ''
   try {
-    const h = await api('/api/movies/' + route.params.id + '/organize-hint')
-    if (h && h.needs) archHint.value = h
+    const h = await api('/api/movies/' + context.id + '/organize-hint', { signal: context.signal })
+    if (!currentMovie(context) || seq !== archiveReadSeq) return
+    if (h && h.needs) { archiveContext = context; archHint.value = h }
   } catch (e) { /* 忽略 */ }
 }
 async function doArchive() {
+  const context = archiveContext
   const h = archHint.value
-  if (!h || archApplying.value) return
+  if (!context || !actionableMovie(context) || !h || archApplying.value) return
   archApplying.value = true
   archMsg.value = ''
   try {
     const p = h.params || {}
     const body = p.mode === 'relocate'
       ? { mode: 'relocate', library_id: p.library_id,
-          ids: [Number(route.params.id)], dry_run: false }
+          ids: [Number(context.id)], dry_run: false }
       : { mode: 'inplace', library_id: p.library_id,
-          ids: [Number(route.params.id)], dry_run: false }
+          ids: [Number(context.id)], dry_run: false }
     const d = await api('/api/files/organize', { method: 'POST', body: JSON.stringify(body) })
+    if (!currentMovie(context) || archiveContext !== context) return
     const rs = d.results || []
     const ok = rs.filter(r => r.status === 'moved').length
-    archApplying.value = false
     archHint.value = null
     msg.value = `归档完成：${ok}/${rs.length} 项`
     await load()
   } catch (e) {
-    archMsg.value = '归档失败：' + e.message
-    archApplying.value = false
-  }
+    if (currentMovie(context) && archiveContext === context) archMsg.value = '归档失败：' + e.message
+  } finally { if (currentMovie(context) && archiveContext === context) archApplying.value = false }
+}
+function closeArchive() {
+  if (archApplying.value) return
+  archiveReadSeq++
+  archiveContext = null
+  archHint.value = null
 }
 function escPlayer(e) {
   // 预览弹窗（Esc 关闭）随 MovieFileManager；这里只管海报大图
   if (e.key !== 'Escape') return
   if (posterDlg.value) closePoster()
+}
+function clearMovieActivity() {
+  movieGeneration++
+  loadGeneration++
+  mediaGeneration++
+  movieReadSeq++
+  progressSeq++
+  pageController.abort()
+  pageController = new AbortController()
+  stopMediaWaits()
+  prePoll.stop()
+  metaPoll.stop()
+  preContext = null
+  preJob.value = null
+  preStarting.value = false
+  preMsg.value = ''
+  metaContext = null
+  metaJobId = ''
+  metaBusy.value = false
+  metaMsg.value = ''
+  metaErr.value = false
+  watchedBusy.value = false
+  msg.value = ''
+  nrBusy.value = false
+  refreshBusy.value = false
+  refreshMsg.value = ''
+  seriesBusy.value = false
+  hintMsg.value = ''
+  archiveReadSeq++
+  archiveContext = null
+  archHint.value = null
+  archApplying.value = false
+  archMsg.value = ''
+  clearPoster()
+  if (flashTimer) clearTimeout(flashTimer)
+  flashTimer = null
+  savedFlash.value = false
+  playVid.value = null
+  playTitle.value = ''
+  heroVid.value = null
+  progressInfo.value = null
+  similar.value = []
 }
 // 焦点陷阱需在 ref 全部声明后启用（watch immediate 会立即求值，避免 TDZ 崩整页）
 useFocusTrap(computed(() => !!posterDlg.value), posterDlgRef)
@@ -847,18 +1043,36 @@ onMounted(() => {
   load()
   window.addEventListener('keydown', escPlayer)
 })
-onBeforeUnmount(() => { disposed = true; loadGeneration++ })
+onBeforeUnmount(() => { disposed = true; clearMovieActivity() })
 onUnmounted(() => {
   window.removeEventListener('keydown', escPlayer)
-  // 上传中止/计时由 MovieUploadPanel 自身卸载时处理（评审 B8/R05-B5）
-  if (flashTimer) clearTimeout(flashTimer)
-  if (posterObjUrl) URL.revokeObjectURL(posterObjUrl)
+  // Uploads keep their original target; the child stops timers and page feedback on unmount.
 })
-watch(() => route.params.id, () => {
-  if (!currentMovieId()) { loadGeneration++; return }
-  contentTab.value = 'info'; editing.value = ''; collectionsOpen.value = false; repairOpen.value = false; refreshMsg.value = ''
-  load()
-})   // 同组件切片重载（评审 B8/R05-Q3）
+watch(heroVid, value => {
+  progressSeq++
+  progressInfo.value = null
+  if (preContext && Number(value) !== preContext.versionId) {
+    preContext = null
+    prePoll.stop()
+    preJob.value = null
+    preStarting.value = false
+    preMsg.value = ''
+  }
+}, { flush: 'sync' })
+watch(() => currentMovieId(), id => {
+  clearMovieActivity()
+  contentTab.value = 'info'; editing.value = ''; collectionsOpen.value = false; repairOpen.value = false
+  m.value = null
+  sideFiles.value = null
+  hint.value = null
+  mediaInfo.value = null
+  verBlocked.value = {}
+  verErr.value = {}
+  verMethod.value = {}
+  verList.value = []
+  posterVer.value = 0
+  if (id) load()
+}, { flush: 'sync' })   // 同组件切片重载（评审 B8/R05-Q3）
 </script>
 <style scoped>
 .top-right { display: flex; gap: 8px; align-items: center; }.saved-flash { color: var(--jz-success); font-size: 0.875rem; }.poster.zoomable { cursor: zoom-in; }.poster-big { max-height: 78vh; width: auto; max-width: 100%; margin: 0 auto; display: block; }.poster-dlg { text-align: center; }.poster-dlg .bar { justify-content: center; }.needs-review { color: var(--jz-danger); font-size: 0.875rem; border: 1px solid var(--jz-danger-border); border-radius: 999px; padding: 1px 4px 1px 10px; margin-left: 8px; vertical-align: middle; display: inline-flex; align-items: center; gap: 4px; }.edition-chip { color: var(--jz-blue-chip); font-size: 0.875rem; border: 1px solid var(--jz-info-border); border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.edition-chip.spec { color: var(--jz-success); border-color: var(--jz-success-border); }.media-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }.media-badge { color: var(--jz-link); font-size: 0.875rem; border: 1px solid var(--jz-info-border); border-radius: 999px; padding: 1px 10px; }.media-warn { color: var(--jz-warn); font-size: 0.8125rem; border: 1px dashed var(--jz-warn-border); border-radius: 999px; padding: 1px 10px; }.media-loading { color: var(--jz-text-faint); font-size: 0.8125rem; }.resume-hint { color: var(--jz-text-dim); font-size: 0.8125rem; }.ver-sel { background: var(--jz-surface-3); color: var(--jz-text-dim); border: 1px solid var(--jz-border-strong); border-radius: 8px; padding: 6px 8px; max-width: 320px; }.pre-wrap { display: inline-flex; gap: 6px; align-items: center; }.pre-sel { background: var(--jz-surface-3); color: var(--jz-text-dim); border: 1px solid var(--jz-warn-border); border-radius: 8px; padding: 6px 8px; font-size: 0.8125rem; }.src { color: var(--jz-text-faint); font-weight: normal; }.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }.tag-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px dashed var(--jz-border-strong); color: var(--jz-text-dim); }.col-chip { font-size: 0.8125rem; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--jz-info-border); color: var(--jz-blue-chip); cursor: pointer; }.watched-chip { color: var(--jz-success); font-size: 0.875rem; border: 1px solid var(--jz-success-border); border-radius: 999px; padding: 1px 10px; margin-left: 8px; vertical-align: middle; }.hint-row { margin-top: 6px; color: var(--jz-text-dim); font-size: 0.875rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }.hint-row .fhint { color: var(--jz-text-faint); font-size: 0.75rem; }.crew { margin: 8px 0; font-size: 0.9375rem; }.role { color: var(--jz-text-faint); margin-right: 8px; font-size: 0.875rem; }.actor-chip { display: inline-block; padding: 5px 14px; margin: 2px 4px 2px 0; border-radius: 999px; background: var(--jz-surface-3); border: 1px solid var(--jz-border); cursor: pointer; font-size: 0.9375rem; }.actor-chip:hover { border-color: var(--jz-blue-chip); color: var(--jz-blue-chip); }.cast-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; margin-top: 10px; }.cast-card { cursor: pointer; min-width: 0; }.cast-card img, .avatar-fallback { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; display: block; background: var(--jz-surface-3); }.avatar-fallback { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: var(--jz-text-faint); border: 1px solid var(--jz-border); }.facts .fact { display: flex; gap: 10px; font-size: 0.875rem; margin: 8px 0; align-items: flex-start; }.facts .fact span:first-child { color: var(--jz-text-faint); min-width: 48px; flex-shrink: 0; }.facts .fact-val { min-width: 0; flex: 1; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; }.facts .fact-val button { flex-shrink: 0; margin-left: 6px; white-space: nowrap; }.facts a { color: var(--jz-blue-chip); margin-right: 10px; }.arch-dlg { max-width: 720px; }.arch-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }.arch-list li { display: flex; gap: 8px; align-items: center; background: var(--jz-surface-3); border: 1px solid var(--jz-border); border-radius: 8px; padding: 6px 10px; font-size: 0.8125rem; flex-wrap: wrap; }.arch-from { color: var(--jz-text-faint); overflow-wrap: anywhere; }.arch-arrow { color: var(--jz-blue-chip); }.arch-to { color: var(--jz-success); overflow-wrap: anywhere; }.dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.66); display: flex; align-items: center; justify-content: center; z-index: 50; }.dlg { background: var(--jz-surface); border-radius: 10px; padding: 16px; min-width: 320px; max-width: 860px; width: calc(100vw - 48px); max-height: 88vh; overflow: auto; }.dlg h3 { margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.hint.warn { color: var(--jz-warn); }

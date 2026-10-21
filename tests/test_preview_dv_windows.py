@@ -144,6 +144,7 @@ def test_unreliable_window_never_publishes_partial_or_mismatched_images(
     ([float("nan")], 10),
     ([float("inf")], 10),
     ([250], 5),
+    ([250], 60),  # The expensive single-point recovery is never a shared window.
 ])
 def test_out_of_bounds_window_does_not_start_a_decoder(tmp_path, targets, preroll):
     def run(*_args, **_kwargs):
@@ -311,6 +312,61 @@ def test_short_empty_point_recovery_does_not_activate_preroll_windows(tmp_path, 
     assert calls == [250, 249.75, 260]
     assert assembled == [[b"short-recovery", b"normal-point"]]
     assert extractor.last_stats == {"windows": 0, "individual_points": 2}
+
+
+def test_sixty_second_point_recovery_does_not_activate_shared_windows(tmp_path, monkeypatch):
+    calls, assembled = [], []
+
+    def run(cmd, _jid, timeout=60):
+        seek = float(cmd[cmd.index("-ss") + 1])
+        calls.append((seek, timeout))
+        if seek == 190:
+            Path(cmd[-1]).write_bytes(b"long-recovery")
+            return FrameLog("", frame_times=(60.0,), frame_numbers=(0,))
+        if seek == 260:
+            Path(cmd[-1]).write_bytes(b"normal-next-point")
+            return FrameLog("", frame_times=(0.0,), frame_numbers=(0,))
+        return FrameLog("")
+
+    extractor = worker(run)
+    monkeypatch.setattr(extractor, "_guarded_window",
+                        lambda *_args, **_kwargs: pytest.fail("60s recovery must not activate windows"))
+    stub_tile(extractor, monkeypatch, assembled)
+    extractor.page(250, 2, 2, 1, tmp_path / "page.jpg")
+    assert calls == [(250, 60), (249.75, 30), (248, 30), (240, 60), (220, 60),
+                     (190, 120), (260, 60)]
+    assert assembled == [[b"long-recovery", b"normal-next-point"]]
+    assert extractor._dv_hint_uses == 0
+    assert extractor.last_stats == {"windows": 0, "individual_points": 2}
+
+
+@pytest.mark.parametrize("failure", ["cancel", "yield", "timeout"])
+def test_sixty_second_point_interruption_cleans_partial_page(tmp_path, failure):
+    error = {"cancel": pv._Cancelled(), "yield": pv._YieldToPlayback(),
+             "timeout": ExtractionError("预览抽帧超时", reason="timeout", timed_out=True,
+                                        limit=120)}[failure]
+    calls, progress = [], []
+
+    def run(cmd, _jid, timeout=60):
+        seek = float(cmd[cmd.index("-ss") + 1])
+        calls.append((seek, timeout))
+        if seek == 190:
+            Path(cmd[-1]).write_bytes(b"partial before interruption")
+            raise error
+        return FrameLog("")
+
+    extractor = worker(run)
+    extractor.progress = progress.append
+    output = tmp_path / "page.jpg"
+    output.write_bytes(b"stale page")
+    with pytest.raises(type(error)) as caught:
+        extractor.page(250, 1, 1, 1, output)
+    assert caught.value is error
+    assert calls[-1] == (190, 120)
+    assert len(calls) == 6
+    assert progress == []
+    assert not output.exists()
+    assert not list(tmp_path.glob("frame_*.png"))
 
 
 @pytest.mark.parametrize("interval,lengths,size", [(10, [2, 2, 1], 5), (20, [2, 2, 1], 5), (60, [1] * 3, 3)])
@@ -580,6 +636,62 @@ def rgb_pixels(ffmpeg, env, image):
         env=env, capture_output=True, check=True, timeout=15)
     assert len(result.stdout) == 64 * 64 * 3
     return result.stdout
+
+
+def test_real_long_referenced_p5_point_recovers_original_target_pixels(
+        software_vulkan, tmp_path, monkeypatch, require_dovi_metadata):
+    ffmpeg, env = software_vulkan
+    require_dovi_metadata(ffmpeg, env)
+    # Every picture is independently decodable, but references between the full
+    # RPUs at 0s and 70s need the decoder state from 0s. Seeking 10s or 30s before
+    # target 45s therefore cannot restore metadata. The next full RPU is far
+    # outside the accepted target window and has a deliberately different color.
+    colors = [(100, 0, 0)] * 72
+    colors[45:48] = [(0, 100, 0), (0, 0, 100), (50, 50, 50)]
+    reference_rpu = color_fixtures._p5_reference_rpu()
+    rpus = [color_fixtures._P5_RPU[4:] if frame in (0, 70) else reference_rpu
+            for frame in range(72)]
+    video = color_fixtures._write_synthetic_p5(ffmpeg, env, tmp_path, colors, rpus)
+    monkeypatch.setattr(media, "ffmpeg_bin", lambda: ffmpeg)
+    calls = []
+
+    def run(cmd, jid, timeout=60):
+        log = pv._run(cmd, jid, timeout)
+        calls.append((cmd, timeout, log))
+        return log
+
+    extractor = worker(run, video=str(video))
+    recovered = tmp_path / "recovered.png"
+    assert extractor._sample_point(45, recovered, nearby=False) == "accurate"
+    assert len(calls) == 6
+    assert [float(cmd[cmd.index("-ss") + 1]) for cmd, _, _ in calls] == [
+        45, 44.75, 43, 35, 15, 0]
+    assert all(log.frame_times == () for _, _, log in calls[:-1])
+    command, timeout, log = calls[-1]
+    assert float(command[command.index("-t") + 1]) == 47
+    assert timeout == 120
+    # FFmpeg may feed the next picture to the filter before the PNG encoder's
+    # one-frame limit stops it; the first showinfo record identifies the PNG.
+    assert log.frame_times[0] == 45.0
+    assert extractor._dv_hint_uses == 0
+
+    conversion = color_plan({"dv_profile": 5, "dv_bl_compat": 0}, 64, 64)
+    reference = tmp_path / "independent.png"
+    # An independent decoder starting at zero is the pixel reference. Selection
+    # after the metadata guard also differs from production's single-point path.
+    vf = (conversion["frame_guard"] + ",select='between(t,45,45.5)',"
+          + conversion["filter"] + ",showinfo=checksum=0")
+    reference_log = pv._run(
+        [ffmpeg, "-hide_banner", "-loglevel", "info", "-nostdin", "-y",
+         *conversion["input_args"], "-threads", "2", "-filter_threads", "1",
+         "-ss", "0", "-t", "45.5", "-i", str(video), "-map", "0:v:0", "-an", "-sn", "-dn",
+         "-vf", vf, "-frames:v", "1", "-fps_mode", "passthrough", "-threads", "1", "-c:v", "png",
+         "-pix_fmt", "rgb24", "-compression_level", "1", str(reference)], extractor.jid, timeout=30)
+    assert reference_log.frame_times[0] == 45.0
+    pixels = rgb_pixels(ffmpeg, env, recovered)
+    assert pixels == rgb_pixels(ffmpeg, env, reference)
+    center = pixels[(32 * 64 + 32) * 3:][:3]
+    assert center[1] > max(center[0], center[2]) + 80
 
 
 def test_real_referenced_p5_window_matches_independent_point_pixels(

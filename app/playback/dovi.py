@@ -135,9 +135,16 @@ def _run(cmd: list[str], env: dict) -> dict:
         result = subprocess.run(cmd, env=env, timeout=_TIMEOUT, check=False,
                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.PIPE)
-        ok = result.returncode == 0
+        stderr = getattr(result, "stderr", b"")
+        message = (stderr.decode("utf-8", errors="replace") if isinstance(stderr, bytes)
+                   else str(stderr or ""))
+        # FFmpeg 7.1's libplacebo filter does not check pl_render_image_mix's
+        # return value. A rejected target can still reach the encoder and exit
+        # zero, so the controlled smoke must also reject renderer diagnostics.
+        render_failed = re.search(r"\bvalidation failed\b|\bfailed rendering\b", message, re.I)
+        ok = result.returncode == 0 and not render_failed
         return {"ok": ok, "reason": "synthetic_smoke_passed" if ok else
-                _failure_reason(getattr(result, "stderr", b""))}
+                _failure_reason(stderr)}
     except subprocess.TimeoutExpired:
         return {"ok": False, "reason": "timeout"}
     except FileNotFoundError:

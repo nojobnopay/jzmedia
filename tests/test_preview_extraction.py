@@ -866,15 +866,16 @@ def test_guarded_accurate_seek_requires_verified_first_output_timestamp(tmp_path
                        frame_guard='sidedata=mode=select:type=DOVI_METADATA,')
     with pytest.raises(RuntimeError, match='无法从采样位置'):
         worker._sample_point(250, tmp_path / 'frame.png', nearby=False)
-    assert len(calls) == 5
+    assert len(calls) == 6
     assert not (tmp_path / 'frame.png').exists()
 
 
 @pytest.mark.parametrize('interval', [1, 10, 60])
 def test_guarded_accurate_all_empty_input_and_recovery_windows_are_bounded(tmp_path, interval):
-    calls = []
+    calls, timeouts = [], []
     def run(cmd, _jid, timeout=60):
         calls.append(cmd)
+        timeouts.append(timeout)
         return ''
     worker = ex.Extractor(source('/isolated/video.mkv'), pv._frame_filter({}), interval,
                           remote=True, run=run, jid='preview-test', progress=lambda _n: None,
@@ -883,11 +884,12 @@ def test_guarded_accurate_all_empty_input_and_recovery_windows_are_bounded(tmp_p
         worker._sample_point(250, tmp_path / 'frame.png', nearby=False)
     window = min(interval, 2)
     assert [float(cmd[cmd.index('-t') + 1]) for cmd in calls] == [
-        min(2 * interval, 30), 0.5, 0.5, 10 + window, 30 + window]
+        min(2 * interval, 30), 0.5, 0.5, 10 + window, 30 + window, 60 + window]
+    assert timeouts == [60, 30, 30, 60, 60, 120]
     assert not (tmp_path / 'frame.png').exists()
 
 
-@pytest.mark.parametrize('needed_preroll', [10, 30])
+@pytest.mark.parametrize('needed_preroll', [10, 30, 60])
 def test_guarded_preroll_restores_only_a_verified_frame_at_the_original_target(tmp_path, needed_preroll):
     calls = []
     def run(cmd, _jid, timeout=60):
@@ -905,21 +907,22 @@ def test_guarded_preroll_restores_only_a_verified_frame_at_the_original_target(t
     frame = tmp_path / 'frame.png'
     assert worker._sample_point(250, frame, nearby=False) == 'accurate'
     assert frame.read_bytes() == b'verified target frame'
-    assert len(calls) == (4 if needed_preroll == 10 else 5)
+    assert len(calls) == {10: 4, 30: 5, 60: 6}[needed_preroll]
     command, timeout = calls[-1]
     assert float(command[command.index('-t') + 1]) == needed_preroll + 2
-    assert timeout == 60
+    assert timeout == (120 if needed_preroll == 60 else 60)
     vf = command[command.index('-vf') + 1]
     assert vf.startswith(f"select='between(t,{float(needed_preroll)},{float(needed_preroll + 2)})',sidedata=")
     assert vf.index('DOVI_METADATA') < vf.index('showinfo') < vf.index('scale=')
 
 
 @pytest.mark.parametrize('interruption', [pv._Cancelled, pv._YieldToPlayback])
-def test_guarded_preroll_propagates_cancellation_and_playback_yield(tmp_path, interruption):
+@pytest.mark.parametrize('before', [10, 30, 60])
+def test_guarded_preroll_propagates_cancellation_and_playback_yield(tmp_path, interruption, before):
     calls = []
     def run(cmd, _jid, timeout=60):
         calls.append(cmd)
-        if float(cmd[cmd.index('-ss') + 1]) == 240:
+        if float(cmd[cmd.index('-ss') + 1]) == 250 - before:
             raise interruption()
         return SimpleNamespace(frame_times=())
     worker = extractor(source('/isolated/video.mkv'), run, remote=True,
@@ -927,7 +930,7 @@ def test_guarded_preroll_propagates_cancellation_and_playback_yield(tmp_path, in
     frame = tmp_path / 'frame.png'
     with pytest.raises(interruption):
         worker._sample_point(250, frame, nearby=False)
-    assert len(calls) == 4
+    assert len(calls) == {10: 4, 30: 5, 60: 6}[before]
     assert not frame.exists()
 
 
@@ -945,7 +948,7 @@ def test_invalid_video_data_is_reported_only_after_guarded_recovery_fails(tmp_pa
     assert error.value.reason == 'invalid_video_data'
     assert 'private.invalid' not in str(error.value)
     assert 'hidden' not in error.value.diagnostic
-    assert len(calls) == 5
+    assert len(calls) == 6
     assert not (tmp_path / 'frame.png').exists()
 
 

@@ -60,6 +60,38 @@ test('缩略图跨页、片尾及未完成页面不会错图；原片时间不�
   assert.equal(previewFrame(null, 0), null)
 })
 
+const tailManifest = () => ({ state: 'ready', completion: 'known_tail_missing',
+  duration: 9449.147, count: 945, available_count: 925, coverage_end: 9250,
+  interval: 10, columns: 5, rows: 5, width: 480, height: 270,
+  warning: { code: 'confirmed_tail_damage', message: '已确认片源尾部损坏，末尾部分没有进度预览' },
+  pages: Array.from({ length: 37 }, (_, i) => 'page' + i) })
+
+test('confirmed tail damage exposes only the verified prefix with an exclusive coverage boundary', () => {
+  const manifest = tailManifest()
+  assert.equal(previewFrame(manifest, 9249.999).url, 'page36')
+  assert.equal(previewFrame(manifest, 9250), null)
+  assert.equal(previewFrame(manifest, 9440), null)
+  assert.equal(previewFrame(manifest, 99999), null)
+  assert.equal(manifest.duration, 9449.147)
+  assert.equal(manifest.count, 945)
+  const padded = { ...manifest, available_count: 932, coverage_end: 9320, pages: [...manifest.pages, 'page37'] }
+  assert.equal(previewFrame(padded, 9319).url, 'page37')
+  assert.equal(previewFrame(padded, 9320), null, 'Padding in a present final sprite is never exposed as a valid frame')
+})
+
+test('malformed new coverage fields cannot expose a sprite or silently use legacy clamping', () => {
+  for (const patch of [
+    { available_count: 925.5 }, { available_count: '925' }, { available_count: 0 },
+    { available_count: 946 }, { count: 944 }, { coverage_end: Infinity }, { coverage_end: -1 },
+    { coverage_end: 9450 }, { duration: NaN }, { duration: '9449.147' },
+    { completion: 'unknown' }, { warning: { code: 'decoder' } }, { pages: ['page0'] },
+  ]) assert.equal(previewFrame({ ...tailManifest(), ...patch }, 100), null, JSON.stringify(patch))
+  assert.equal(previewFrame({ interval: 10, count: 27, columns: 5, rows: 5, width: 160, height: 90,
+    pages: ['page0', 'page1'], available_count: 25 }, 100), null)
+  assert.equal(previewFrame({ interval: 10, count: 27, columns: 5, rows: 5, width: 160, height: 90,
+    pages: ['page0', 'page1'], warning: { code: 'confirmed_tail_damage' } }, 100), null)
+})
+
 test('160/320/480 像素预览统一显示为 160×90 CSS 像素，精灵图缩放保持行列及分页定位', () => {
   for (const width of [160, 320, 480]) {
     const manifest = { interval: 10, columns: 5, rows: 5, width, height: width * 9 / 16,

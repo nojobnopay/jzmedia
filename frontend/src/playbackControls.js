@@ -51,8 +51,33 @@ export function pauseButtonPlacement(height, { mobile = false, fullscreen = fals
     showHint: center + size / 2 + 22 <= hintLimit }
 }
 
+// undefined is an ordinary/legacy preview; null rejects an invalid new contract.
+export function previewTailCoverage(value, strict = false) {
+  if (!value) return undefined
+  const bounded = value.available_count !== undefined || value.coverage_end !== undefined || value.warning?.code === 'confirmed_tail_damage'
+  if (!bounded && [undefined, 'complete'].includes(value.completion)) return undefined
+  if (value.completion !== 'known_tail_missing' || value.warning?.code !== 'confirmed_tail_damage') return null
+  const { duration, interval, count, available_count: availableCount, coverage_end: coverageEnd } = value
+  if (!Number.isFinite(duration) || !(duration > 0 && duration <= 86400)
+      || !Number.isInteger(interval) || interval < 5 || interval > 60
+      || !Number.isInteger(availableCount) || availableCount < 1
+      || !Number.isFinite(coverageEnd) || coverageEnd !== availableCount * interval || coverageEnd >= duration
+      || (count !== undefined && (!Number.isInteger(count) || count !== Math.ceil(duration / interval) || availableCount >= count))) return null
+  if (strict) {
+    const { columns, rows, width, height, pages } = value
+    if (value.state !== 'ready' || !Number.isInteger(count)
+        || ![columns, rows, width, height].every(number => Number.isInteger(number) && number > 0)
+        || !Array.isArray(pages) || pages.length !== Math.ceil(availableCount / (columns * rows))
+        || !pages.every(page => typeof page === 'string' && !!page)) return null
+  }
+  return { availableCount, coverageEnd, duration, missingSeconds: duration - coverageEnd }
+}
+
 export function previewFrame(manifest, time) {
   if (!manifest?.pages?.length || !(manifest.interval > 0)) return null
+  const coverage = previewTailCoverage(manifest, true)
+  if (coverage === null || !Number.isFinite(time)) return null
+  if (coverage && (time >= coverage.coverageEnd || Math.floor(time / manifest.interval) >= coverage.availableCount)) return null
   const count = Number(manifest.count) || 0
   const index = Math.min(count - 1, Math.max(0, Math.floor(time / manifest.interval)))
   if (index < 0) return null

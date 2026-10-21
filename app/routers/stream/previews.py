@@ -19,7 +19,7 @@ import uuid
 
 from fastapi import HTTPException, Query
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 from ... import data_usage, storage, store
 from ...config import settings
@@ -53,6 +53,12 @@ _queue_retry_at = 0.0
 _failure_store = None
 _ready_queue_check = (None, 0.0)
 _dv_runtime_ready = set()
+_tail_reconcile_check = (None, 0.0)
+_tail_reconcile_pending = set()
+_TAIL_COMPLETION = "known_tail_missing"
+_TAIL_WARNING = {"code": "confirmed_tail_damage",
+                 "message": "已确认片源尾部损坏，末尾部分没有进度预览"}
+_TAIL_FIELDS = ("completion", "available_count", "coverage_end", "warning")
 _KEY_RE = re.compile(r"^[a-f0-9]{32}$")
 _IMAGE_RE = re.compile(r"^page_\d{4}\.jpg$")
 _BATCH_RE = re.compile(r"^[a-f0-9]{32}$")
@@ -95,7 +101,10 @@ def _quality_keys(row, src, interval, revision):
 def _current_ready(row, src, interval):
     for key in _quality_keys(row, src, interval, QUALITY_REVISION):
         data = _read_completed_manifest(_root() / key)
-        if data and _completed_manifest(data, interval, QUALITY_REVISION):
+        if (data and _completed_manifest(data, interval, QUALITY_REVISION)
+                and (data.get("completion") != _TAIL_COMPLETION or
+                     (data.get("item_kind"), data.get("item_id"), data["tail_decision"]["library_id"])
+                     == (row.get("kind", "movie"), row["id"], row.get("library_id") or 1))):
             return key, data
     return None, None
 
@@ -117,6 +126,16 @@ def _read_manifest(directory: Path):
         pages = data.get("pages", [])
         if not isinstance(pages, list) or not all(isinstance(n, str) and _IMAGE_RE.fullmatch(n) and (directory / n).is_file() for n in pages):
             return None
+        if (any(name in data for name in _TAIL_FIELDS) or
+                data.get("state") == "ready" and "tail_decision" in data) and not _completed_manifest(
+                data, data.get("interval"), data.get("quality_revision", 1)):
+            return None
+        if data.get("completion") == _TAIL_COMPLETION:
+            if (data["tail_decision"]["key"] != directory.name or directory.is_symlink()
+                    or (directory / "manifest.json").is_symlink() or _root().is_symlink()
+                    or any((directory / name).is_symlink() or (directory / name).stat().st_size == 0
+                           for name in pages)):
+                return None
         return data
     except FileNotFoundError:
         return None
@@ -272,6 +291,16 @@ def _generate(jid, row, src, info, interval):
     count = max(1, math.ceil(duration / interval))
     _ready_key, ready = _current_ready(row, src, interval)
     if ready:
+        # An explicit retry may succeed by reusing a whole older extraction.
+        # Retire the current prefix's revoked decision before the worker clears
+        # its failure, so restart reconciliation cannot resurrect that failure.
+        current = _read_manifest(directory)
+        decision = _tail_decision(current or {})
+        if (decision and decision["state"] == "revoked" and decision["key"] == key
+                and (current.get("item_kind"), current.get("item_id"))
+                == (row.get("kind", "movie"), row["id"])):
+            current.pop("tail_decision")
+            _write_manifest(directory, current)
         _remove_old_quality_cache(row, src, interval, ready, ready["count"])
         return
     manifest = _read_manifest(directory)
@@ -311,6 +340,8 @@ def _generate(jid, row, src, info, interval):
         manifest["pages"] = manifest["pages"][:math.ceil(count / (COLUMNS * ROWS))]
         manifest["state"] = ("ready" if len(manifest["pages"]) * COLUMNS * ROWS >= count
                              else "partial")
+        if manifest["state"] == "ready":
+            manifest.pop("tail_decision", None)
     manifest = manifest or expected
     manifest.update(item_kind=row.get("kind", "movie"), item_id=int(row["id"]),
                     quality_revision=QUALITY_REVISION, extraction_revision=EXTRACTION_REVISION,
@@ -353,6 +384,8 @@ def _generate(jid, row, src, info, interval):
             temp_page.replace(directory / name)
             manifest["pages"].append(name)
             manifest["state"] = "ready" if (page + 1) * cells >= count else "partial"
+            if manifest["state"] == "ready":
+                manifest.pop("tail_decision", None)
             _write_manifest(directory, manifest)
             _jobs.update(jid, frames=min((page + 1) * cells, count), frame_total=count)
     logger.info("preview generated kind=%s id=%s pages=%s wall_seconds=%.2f last_mode=%s decoder=%s",
@@ -732,6 +765,7 @@ def _dispatch_queue_once():
     """Finalize the previous item, then claim the first currently eligible item."""
     global _auto_job_id, _queued_finished, _queue_retry_at
     with _lock:
+        _reconcile_tail_decisions_locked()
         if time.monotonic() < _queue_retry_at or not _flush_failures_locked():
             return
         if _auto_job_id:
@@ -1000,6 +1034,168 @@ def preview_queue(library_id: int | None = Query(default=None, gt=0),
             "running": running, "batches": _queue_batches(pending, running)}
 
 
+def _tail_prefix_count(data, interval):
+    """Only complete saved pages form the contiguous accepted prefix."""
+    if not isinstance(data, dict) or type(interval) is not int or not 5 <= interval <= 60:
+        return None
+    duration, count, pages = data.get("duration"), data.get("count"), data.get("pages")
+    if (type(duration) not in (int, float) or not math.isfinite(duration) or not 0 < duration <= 86400
+            or type(count) is not int or count != math.ceil(duration / interval)
+            or not isinstance(pages, list) or not pages):
+        return None
+    expected = dict(version=VERSION, interval=interval, width=WIDTH, height=HEIGHT,
+                    columns=COLUMNS, rows=ROWS, quality_revision=QUALITY_REVISION,
+                    extraction_revision=EXTRACTION_REVISION)
+    if any(type(data.get(name)) is not int or data[name] != value for name, value in expected.items()):
+        return None
+    available = len(pages) * COLUMNS * ROWS
+    coverage = available * interval
+    if (pages != [f"page_{page:04d}.jpg" for page in range(len(pages))]
+            or not 0 < available < count or coverage / duration < 0.95
+            or not 0 < duration - coverage <= 300):
+        return None
+    return available
+
+
+def _tail_decision(data):
+    decision = data.get("tail_decision")
+    if (not isinstance(decision, dict) or decision.get("state") not in ("accepted", "revoked")
+            or any(type(decision.get(name)) is not int or decision[name] <= 0
+                   for name in ("library_id", "failed_at", "confirmed_at", "available_count"))
+            or not isinstance(decision.get("key"), str) or not _KEY_RE.fullmatch(decision["key"])):
+        return None
+    return decision
+
+
+def _valid_tail_ready(data, interval):
+    available = _tail_prefix_count(data, interval)
+    decision = _tail_decision(data)
+    return bool(available and decision and decision["state"] == "accepted"
+                and decision["available_count"] == available
+                and data.get("completion") == _TAIL_COMPLETION
+                and type(data.get("available_count")) is int and data["available_count"] == available
+                and type(data.get("coverage_end")) in (int, float)
+                and data["coverage_end"] == available * interval
+                and data.get("warning") == _TAIL_WARNING
+                and data.get("item_kind") in ("movie", "episode", "extra")
+                and type(data.get("item_id")) is int and data["item_id"] > 0)
+
+
+def _tail_source(row):
+    """File attributes only; never create a read URL or run a media probe."""
+    backend = storage.backend_for(row.get("library_id") or 1)
+    rel = backend.norm(row["file_path"])
+    stat = backend.stat(rel)
+    if stat.is_dir:
+        raise storage.StorageNotFound("source is a directory")
+    return storage.MediaSource(backend, rel, "", None, stat.size, stat.mtime)
+
+
+def _tail_work_pending(kind, vid):
+    target = (kind, vid)
+    jobs = _jobs.active()
+    if _worker_thread and _worker_thread.is_alive():
+        worker = _jobs.get(_active_job)
+        if not worker:
+            return True  # An untracked writer cannot safely coexist with a decision.
+        jobs.append(worker)  # Cancellation changes job state before its writer exits.
+    return (any((item["kind"], item["id"]) == target for item in _auto_queue)
+            or any(target in [tuple(item) for item in job.get("items", [])[int(job.get("done") or 0):]]
+                   for job in jobs))
+
+
+def _read_tail_prefix(directory, row, interval):
+    if (directory.is_symlink() or (directory / "manifest.json").is_symlink()
+            or _root().is_symlink()):
+        return None
+    data = _read_manifest(directory)
+    if (not data or data.get("state") not in ("partial", "ready")
+            or type(data.get("item_id")) is not int
+            or (data.get("item_kind"), data.get("item_id")) != (row.get("kind", "movie"), row["id"])
+            or _tail_prefix_count(data, interval) is None):
+        return None
+    if any((directory / name).is_symlink() or (directory / name).stat().st_size == 0
+           for name in data["pages"]):
+        return None
+    return data
+
+
+def _tail_candidate(row, record, key, data):
+    interval = _interval(row)
+    available = _tail_prefix_count(data, interval)
+    if (record.get("error_code") != "decoder" or record.get("library_id") != (row.get("library_id") or 1)
+            or not data or data.get("state") != "partial" or not available
+            or _tail_work_pending(row.get("kind", "movie"), row["id"])):
+        return None
+    coverage = available * interval
+    return dict(key=key, failed_at=record["failed_at"], available_count=available,
+                coverage_end=coverage, duration=data["duration"],
+                missing_seconds=round(data["duration"] - coverage, 6))
+
+
+def _reconcile_tail_decisions_locked():
+    """A committed manifest remains authoritative after a ledger write failure."""
+    global _tail_reconcile_check
+    root, now = _root(), time.monotonic()
+    if _tail_reconcile_check[0] != root:
+        _tail_reconcile_pending.clear()
+        # Discover decisions once per cache root. Ordinary manifests never
+        # cause page stats, source stats, or repeated background rescans.
+        if not root.is_symlink():
+            for path in root.glob("*/manifest.json"):
+                if (not _KEY_RE.fullmatch(path.parent.name) or path.parent.is_symlink()
+                        or path.is_symlink()):
+                    continue
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if isinstance(data, dict) and _tail_decision(data):
+                    _tail_reconcile_pending.add(path)
+    elif not _tail_reconcile_pending or now - _tail_reconcile_check[1] < 30:
+        return
+    _tail_reconcile_check = (root, now)
+    if root.is_symlink():
+        return
+    ledger = _failure_ledger()
+    try:
+        records = ledger.snapshot()
+    except (OSError, ValueError, UnicodeError):
+        return
+    for path in tuple(_tail_reconcile_pending):
+        try:
+            data = _read_manifest(path.parent)
+            decision = _tail_decision(data or {})
+            if not decision:
+                _tail_reconcile_pending.discard(path)
+                continue
+            kind, vid = data.get("item_kind"), data.get("item_id")
+            if kind not in ("movie", "episode", "extra") or type(vid) is not int:
+                _tail_reconcile_pending.discard(path)
+                continue
+            row = store.get_playable(kind, vid)
+            if (not row or (row.get("library_id") or 1) != decision["library_id"]
+                    or _cache_key(row, _tail_source(row), _interval(row)) != path.parent.name
+                    or decision["key"] != path.parent.name):
+                _tail_reconcile_pending.discard(path)
+                continue
+            checked = _read_tail_prefix(path.parent, row, _interval(row))
+            if not checked:
+                _tail_reconcile_pending.discard(path)
+                continue
+            previous = records.get((kind, vid))
+            if data.get("state") == "ready" and _valid_tail_ready(data, _interval(row)):
+                if previous:
+                    ledger.update(kind, vid, None)
+            elif data.get("state") == "partial" and decision["state"] == "revoked":
+                if not previous or previous["failed_at"] < decision["failed_at"]:
+                    ledger.update(kind, vid, dict(kind=kind, id=vid, library_id=decision["library_id"],
+                        failed_at=decision["failed_at"], error_code="decoder"))
+            _tail_reconcile_pending.discard(path)  # FailureStore now owns durable-write retries.
+        except (OSError, storage.StorageError, ValueError, TypeError):
+            continue
+
+
 def _completed_manifest(data, interval, revision):
     """Validate a whole usable sprite set without probing or changing the cache."""
     if not data or data.get("state") != "ready":
@@ -1013,6 +1209,9 @@ def _completed_manifest(data, interval, revision):
     width, height = _quality_dimensions(revision)
     expected = {"interval": interval, "width": width, "height": height,
                 "columns": COLUMNS, "rows": ROWS, "count": math.ceil(duration / interval)}
+    if any(name in data for name in _TAIL_FIELDS) or "tail_decision" in data:
+        return (revision == QUALITY_REVISION and _valid_tail_ready(data, interval)
+                and all(data.get(name) == value for name, value in expected.items()))
     return (all(data.get(name) == value for name, value in expected.items())
             and data.get("quality_revision", 1) == revision
             and data.get("pages") == [f"page_{page:04d}.jpg"
@@ -1027,6 +1226,8 @@ def _read_completed_manifest(directory):
         if (not isinstance(data, dict) or data.get("version") != VERSION
                 or data.get("quality_revision", 1) not in range(1, QUALITY_REVISION + 1)
                 or not _completed_manifest(data, data.get("interval"), data.get("quality_revision", 1))):
+            return None
+        if data.get("completion") == _TAIL_COMPLETION and data["tail_decision"]["key"] != directory.name:
             return None
         if any((directory / name).is_symlink() or not (directory / name).is_file()
                or (directory / name).stat().st_size == 0
@@ -1081,17 +1282,26 @@ def preview_completed(library_id: int | None = Query(default=None, gt=0),
             continue
         interval = _interval(row)
         for revision in range(QUALITY_REVISION, 0, -1):
-            data = next((candidate for key in _quality_keys(row, src, interval, revision)
-                         if _completed_manifest(candidate := manifests.get(key), interval, revision)), None)
-            if not data:
+            matched = next(((key, candidate) for key in _quality_keys(row, src, interval, revision)
+                            if _completed_manifest(candidate := manifests.get(key), interval, revision)), None)
+            if not matched:
                 continue
+            key, data = matched
             if (data.get("item_kind", kind), data.get("item_id", vid)) != (kind, vid):
+                continue
+            if (data.get("completion") == _TAIL_COMPLETION
+                    and data["tail_decision"]["library_id"] != (row.get("library_id") or 1)):
                 continue
             file_name = Path(row.get("file_path") or "").name
             completed.append({"kind": kind, "id": vid, "library_id": row.get("library_id") or 1,
                               "title": row.get("display_title") or row.get("title") or file_name,
-                              "file_name": file_name, "frames": data["count"], "interval": interval,
+                              "file_name": file_name, "frames": data.get("available_count", data["count"]), "interval": interval,
                               "quality_revision": revision, "needs_update": revision != QUALITY_REVISION})
+            if data.get("completion") == _TAIL_COMPLETION:
+                completed[-1].update(key=key, completion=_TAIL_COMPLETION,
+                    available_count=data["available_count"], coverage_end=data["coverage_end"],
+                    duration=data["duration"], warning=dict(_TAIL_WARNING),
+                    confirmed_at=data["tail_decision"]["confirmed_at"])
             break
     order = {"movie": 0, "episode": 1, "extra": 2}
     completed.sort(key=lambda item: (item["library_id"], order[item["kind"]], item["id"]))
@@ -1115,14 +1325,134 @@ def preview_failed(library_id: int | None = Query(default=None, gt=0),
         current_library = row.get("library_id") or 1
         if library_id is not None and current_library != library_id:
             continue
+        tail_acceptance = None
+        if record["error_code"] == "decoder":
+            try:
+                key = _cache_key(row, _tail_source(row), _interval(row))
+                data = _read_tail_prefix(_root() / key, row, _interval(row))
+                if data and data.get("state") == "ready" and _valid_tail_ready(data, _interval(row)):
+                    continue  # A committed acceptance wins over a stale failure ledger.
+                with _lock:
+                    tail_acceptance = _tail_candidate(row, record, key, data)
+            except (storage.StorageError, OSError):
+                pass
         file_name = Path(row.get("file_path") or "").name
         failed.append(record | {"library_id": current_library,
                                 "title": row.get("display_title") or row.get("title") or file_name,
                                 "file_name": file_name})
+        if tail_acceptance:
+            failed[-1]["tail_acceptance"] = tail_acceptance
     order = {"movie": 0, "episode": 1, "extra": 2}
     failed.sort(key=lambda item: (-item["failed_at"], item["library_id"], order[item["kind"]], item["id"]))
     return {"items": failed[offset:offset + limit], "total": len(failed),
             "offset": offset, "limit": limit}
+
+
+class PreviewTailAcceptBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    library_id: int = Field(gt=0, strict=True)
+    key: str = Field(pattern=r"^[a-f0-9]{32}$")
+    failed_at: int = Field(gt=0, strict=True)
+    available_count: int = Field(gt=0, strict=True)
+    confirmed: StrictBool
+
+
+class PreviewTailRevokeBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    library_id: int = Field(gt=0, strict=True)
+    key: str = Field(pattern=r"^[a-f0-9]{32}$")
+    confirmed_at: int | None = Field(default=None, gt=0, strict=True)
+
+
+def _tail_request_source(kind, version_id, library_id, key):
+    row = store.get_playable(kind, version_id)
+    if not store.get_library(library_id) or not row or (row.get("library_id") or 1) != library_id:
+        raise HTTPException(404, "该影片不属于当前视频库")
+    if _tail_work_pending(kind, version_id):
+        raise HTTPException(409, "该影片正在生成或已排队，请先等待或移出队列")
+    try:
+        storage.clear_meta_cache(row.get("library_id") or 1)
+        current_key = _cache_key(row, _tail_source(row), _interval(row))
+    except storage.StorageNotFound:
+        raise HTTPException(410, "片源文件不存在") from None
+    except storage.StorageOffline:
+        raise HTTPException(503, "片源存储离线，请恢复连接后重试") from None
+    except (OSError, storage.StorageError):
+        raise HTTPException(503, "无法核对片源，请稍后重试") from None
+    if key != current_key:
+        raise HTTPException(409, "片源或采样配置已变化，请刷新列表")
+    directory = _root() / key
+    try:
+        data = _read_tail_prefix(directory, row, _interval(row))
+    except OSError:
+        raise HTTPException(409, "已保存的预览页已变化，请刷新列表") from None
+    if not data:
+        raise HTTPException(409, "已保存的完整预览页不满足片尾确认条件，请刷新列表")
+    decision = _tail_decision(data)
+    if data.get("completion") == _TAIL_COMPLETION and (
+            not decision or decision["library_id"] != library_id or decision["key"] != key):
+        raise HTTPException(409, "片尾确认所属片源已变化，请刷新列表")
+    return row, directory, data
+
+
+@router.post("/previews/failed/{kind}/{version_id}/accept-tail")
+def preview_accept_tail(kind: Literal["movie", "episode", "extra"], version_id: int,
+                        body: PreviewTailAcceptBody):
+    if body.confirmed is not True:
+        raise HTTPException(422, "请明确确认片源尾部损坏")
+    with _lock:
+        row, directory, data = _tail_request_source(kind, version_id, body.library_id, body.key)
+        decision = _tail_decision(data)
+        if data.get("state") == "ready":
+            if (not _valid_tail_ready(data, _interval(row)) or not decision
+                    or (decision["failed_at"], data["available_count"]) != (body.failed_at, body.available_count)):
+                raise HTTPException(409, "确认记录已变化，请刷新列表")
+        else:
+            record = _failure_snapshot_locked().get((kind, version_id))
+            candidate = _tail_candidate(row, record or {}, body.key, data)
+            if (not candidate or candidate["failed_at"] != body.failed_at
+                    or candidate["available_count"] != body.available_count):
+                raise HTTPException(409, "失败记录或已保存页数已变化，请刷新列表")
+            data = dict(data, state="ready", completion=_TAIL_COMPLETION,
+                        available_count=body.available_count, coverage_end=candidate["coverage_end"],
+                        warning=dict(_TAIL_WARNING), tail_decision=dict(state="accepted", key=body.key,
+                            library_id=body.library_id, failed_at=body.failed_at,
+                            confirmed_at=int(time.time()), available_count=body.available_count))
+            try:
+                _write_manifest(directory, data)
+            except OSError:
+                raise HTTPException(503, "保存片尾确认失败，请稍后重试") from None
+        # The durable manifest is authoritative. A failed ledger write remains
+        # pending and is recovered after restart; never report an untrue failure.
+        _failure_ledger().update(kind, version_id, None)
+        _flush_failures_locked()
+    _auto_wake.set()
+    data_usage.invalidate()
+    return _public_manifest(body.key, data)
+
+
+@router.delete("/previews/completed/{kind}/{version_id}/tail-acceptance")
+def preview_revoke_tail(kind: Literal["movie", "episode", "extra"], version_id: int,
+                        body: PreviewTailRevokeBody):
+    with _lock:
+        row, directory, data = _tail_request_source(kind, version_id, body.library_id, body.key)
+        decision = _tail_decision(data)
+        if (not decision or not _valid_tail_ready(data, _interval(row)) or data.get("state") != "ready"
+                or decision["library_id"] != body.library_id or decision["key"] != body.key
+                or body.confirmed_at is not None and body.confirmed_at != decision["confirmed_at"]):
+            raise HTTPException(409, "片尾确认已变化，请刷新列表")
+        data = {name: value for name, value in data.items() if name not in _TAIL_FIELDS}
+        data.update(state="partial", tail_decision=dict(decision, state="revoked"))
+        try:
+            _write_manifest(directory, data)
+        except OSError:
+            raise HTTPException(503, "保存撤销失败，请稍后重试") from None
+        _failure_ledger().update(kind, version_id, dict(kind=kind, id=version_id,
+            library_id=body.library_id, failed_at=decision["failed_at"], error_code="decoder"))
+        _flush_failures_locked()
+    _auto_wake.set()
+    data_usage.invalidate()
+    return {"state": "partial"}
 
 
 class PreviewRetryBody(BaseModel):
@@ -1292,6 +1622,10 @@ def preview_manifest(version_id: int, kind: Literal["movie", "episode", "extra"]
     key = _cache_key(row, src, interval)
     directory = _root() / key
     data = _read_manifest(directory)
+    if data and data.get("completion") == _TAIL_COMPLETION and (
+            (data.get("item_kind"), data.get("item_id")) != (kind, version_id)
+            or data["tail_decision"]["library_id"] != (row.get("library_id") or 1)):
+        data = None
     if not data or data.get("state") != "ready":
         # 重建完成前继续显示旧完整成品，不混用新旧页，也不在 GET 启动生成。
         legacy_candidates = [(revision, candidate)

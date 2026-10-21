@@ -22,13 +22,14 @@
 
 ### 日常 CI
 
-GitHub Actions 的 `.github/workflows/ci.yml` 在 PR 和 `main` 分支推送时并行运行三组检查：
+GitHub Actions 的 `.github/workflows/ci.yml` 在 PR 和 `main` 分支推送时并行运行四组检查：
 
 - 后端：安装测试依赖与 FFmpeg，运行 Python 静态检查和 pytest。
 - 网页、文档与设计：核对设计生成物，运行前端测试、lint 与构建，再运行帮助站 `verify`。
+- 浏览器：安装锁文件对应的 Playwright Chromium，以独立任务验证设置草稿、搜索与匹配、电影详情迟到响应；使用真实 Vue 页面和隔离 API，并保留七天诊断附件。
 - Android TV：使用锁定的 JDK 与 SDK 配置，通过 `tv.py test` 运行工具测试、文档检查、JVM 单测与 Lint。
 
-这些检查使用隔离数据和模拟服务，无需签名或发布凭据。同一 PR 或 `main` 分支有新提交时，会取消尚未完成的旧运行。三组检查全部成功表示本次 CI 通过；失败时从 Actions 中对应 job 的首个失败步骤定位，并在本地运行下方的相同入口复现。
+这些检查使用隔离数据和模拟服务，无需签名或发布凭据。同一 PR 或 `main` 分支有新提交时，会取消尚未完成的旧运行。所有检查成功表示本次 CI 通过；失败时从 Actions 中对应 job 的首个失败步骤定位，并在本地运行下方的相同入口复现。
 
 Docker 镜像、交付 APK 及发布验证由独立的 Release 工作流负责。设备播放、遥控器和真机兼容性仍按 Android TV 验收流程验证。
 
@@ -54,6 +55,10 @@ npm run build --prefix frontend
 ```bash
 .venv/bin/python scripts/smoke_multi_library.py
 .venv/bin/python scripts/smoke_metadata_offline.py
+node docs/node_modules/playwright/cli.js install chromium
+node scripts/smoke_settings_ui.mjs --drafts-only
+node scripts/smoke_ai_ui.mjs
+node scripts/smoke_movie_context.mjs
 ```
 
 全部维护工具的用途、读写边界与运行前提见仓库 `scripts/README.md`。

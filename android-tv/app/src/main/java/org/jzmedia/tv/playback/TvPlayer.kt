@@ -93,9 +93,8 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
     var seekFocused by remember(controller) { mutableStateOf(false) }
     var seekUnit by remember(controller) { mutableIntStateOf(10) }
     var seekHold by remember(controller) { mutableStateOf<Job?>(null) }
-    var previewManifest by remember(controller) { mutableStateOf<SeekPreviewManifest?>(null) }
-    var previewStatus by remember(controller) { mutableStateOf("loading") }
-    var previewError by remember(controller) { mutableStateOf("") }
+    var previewState by remember(controller) { mutableStateOf(SeekPreviewStatus("loading")) }
+    val previewManifest = previewState.manifest
     var previewRefresh by remember(controller) { mutableIntStateOf(0) }
     val previewImages = remember(controller) { SeekPreviewImages() }
     val scope = rememberCoroutineScope()
@@ -141,20 +140,17 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
         while (true) {
             try {
                 val data = api.get(previewPath)
-                previewManifest = SeekPreviewManifest.fromJson(data)
-                previewStatus = data.optString("state", "missing")
-                previewError = data.optString("error", "")
+                previewState = SeekPreviewStatus.fromJson(data)
             } catch (e: org.jzmedia.tv.data.ApiException) {
-                previewStatus = if (e.status == 404) "unsupported" else "failed"
-                previewError = e.message ?: "无法读取进度预览"
+                previewState = previewState.copy(state = if (e.status == 404) "unsupported" else "failed",
+                    error = e.message ?: "无法读取进度预览")
                 break
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                previewStatus = "failed"
-                previewError = e.message ?: "无法读取进度预览"
+                previewState = previewState.copy(state = "failed", error = e.message ?: "无法读取进度预览")
                 break
             }
-            if (previewStatus != "running") break
+            if (previewState.state != "running") break
             delay(3000)
         }
     }
@@ -264,6 +260,7 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
         }
         if (preview != null && !controls) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = .85f)).padding(32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             previewManifest?.frameAt(preview!!)?.let { SeekPreviewImage(api, it, previewImages) }
+            previewState.seekNotice(preview!!)?.let { Text(it, color = Muted) }
             Text("跳转至 ${playbackTime(preview!!)} / ${playbackTime(state.duration)}", style = MaterialTheme.typography.headlineSmall)
             Progress(preview!!, state.duration, state.buffered)
             Text("短按 ${playbackTime(seekUnit.toDouble())} · 按住加速 · 确定跳转 · 返回取消", color = Muted)
@@ -279,7 +276,10 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
                 cancelThisNext -> "播放结束 · 已取消本次连播"
                 else -> "播放结束"
             })
-            if (preview != null) previewManifest?.frameAt(preview!!)?.let { SeekPreviewImage(api, it, previewImages) }
+            if (preview != null) {
+                previewManifest?.frameAt(preview!!)?.let { SeekPreviewImage(api, it, previewImages) }
+                previewState.seekNotice(preview!!)?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
+            }
             Box(Modifier.fillMaxWidth().height(40.dp)
                 .onFocusChanged {
                     seekFocused = it.isFocused
@@ -357,22 +357,20 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
                         item { TvAction("进度调整步长 · ${playbackTime(seekUnit.toDouble())}", {
                             seekUnit = when (seekUnit) { 10 -> 60; 60 -> 300; else -> 10 }
                         }, Modifier.fillMaxWidth(), fillContent = true) }
-                        if (previewStatus != "unsupported") item {
+                        if (previewState.state != "unsupported") item {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TvAction(when (previewStatus) {
-                                    "ready" -> "进度预览已生成"
-                                    "running" -> "正在生成进度预览"
-                                    else -> if (previewManifest?.pages?.isNotEmpty() == true) "继续生成进度预览" else "生成进度预览"
-                                }, {
-                                    if (previewStatus != "running" && previewStatus != "ready" && previewStatus != "loading") scope.launch {
-                                        previewStatus = "running"
+                                TvAction(previewState.actionLabel, {
+                                    if (previewState.canGenerate) scope.launch {
+                                        previewState = previewState.copy(state = "running")
                                         try { api.post(previewPath); previewRefresh++ }
                                         catch (e: CancellationException) { throw e }
-                                        catch (e: Exception) { previewStatus = "failed"; previewError = e.message ?: "无法生成进度预览" }
+                                        catch (e: Exception) { previewState = previewState.copy(state = "failed", error = e.message ?: "无法生成进度预览") }
                                     }
                                 }, Modifier.fillMaxWidth(), fillContent = true)
-                                if (previewStatus == "running") Text("服务器正在抽取画面；已完成的部分可用于跳转预览。", color = Muted)
-                                if (previewStatus == "failed") Text(previewError, color = Muted)
+                                if (previewState.state == "running") Text("服务器正在抽取画面；已完成的部分可用于跳转预览。", color = Muted)
+                                if (previewState.state == "failed") Text(previewState.error, color = Muted)
+                                previewState.warning?.let { Text(it, color = Muted) }
+                                previewState.coverageDescription?.let { Text(it, color = Muted) }
                             }
                         }
                         item {
