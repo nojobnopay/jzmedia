@@ -21,6 +21,7 @@ search: false
 | 找到电影 | [搜索、筛选和排序](find-movies.md) |
 | 选对文件版本 | [电影版本与相关文件](movie-versions.md) |
 | 继续追剧 | [选集、版本与连播](watch-tv.md) |
+| 在 Android TV 上观看 | [Android TV 安装与连接（GitHub）](https://github.com/nojobnopay/jzmedia/blob/main/android-tv/README.md#已有-apk安装并连接) |
 | 让孩子观看或收起隐私内容 | [儿童模式与隐私模式](settings.md#儿童模式与隐私模式) |
 | 调整播放速度或画质 | [播放控件](playback-controls.md) |
 | 换语言或字幕 | [音轨、字幕文件与延迟](subtitles.md) |

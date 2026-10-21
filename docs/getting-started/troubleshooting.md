@@ -40,7 +40,7 @@ Linux/WSL 可用 `ss -ltnp` 查看占用。Compose 修改 `ports` 的宿主端�
 
 ### 页面还是旧界面
 
-- **Docker**：确认已经从新源码构建镜像，或加载了新版本镜像文件，再按原来的 Compose 或 `docker run` 方式重新创建容器。只重启旧容器不会应用新镜像，具体步骤见[升级](operations.md#升级)。
+- **Docker**：确认已拉取目标版本的 GHCR 镜像、加载新版本镜像文件或从新源码构建镜像，并让启动配置指向对应的完整镜像名，再按原来的 Compose 或 `docker run` 方式重新创建容器。只重启旧容器不会应用新镜像，具体步骤见[升级](operations.md#升级)。
 - **宿主直接运行**：重新运行 `./start.sh`，让脚本按源码与资源内容摘要检查构建；也可显式执行 `npm run build --prefix frontend`。
 
 完成后刷新浏览器，并确认访问的是正确端口。
@@ -54,17 +54,30 @@ npm --prefix docs ci
 npm --prefix docs run build
 ```
 
-Docker 的网页与帮助站随镜像交付。自行构建时重新构建包含帮助站产物的镜像；使用镜像文件时获取并加载已修复的镜像，再重新创建容器。缺页 404 则核对公开页面清单及链接；帮助站 `/help/` 和 FastAPI `/docs` 是不同入口。
+Docker 的网页与帮助站随镜像交付。从 GHCR 拉取已修复版本、获取并加载已修复的镜像文件，或重新构建包含帮助站产物的镜像后，再重新创建容器，见[升级](operations.md#升级)。缺页 404 则核对公开页面清单及链接；帮助站 `/help/` 和 FastAPI `/docs` 是不同入口。
 
 ### 本地镜像不存在或提示 pull access denied
 
-先用 `docker image ls jzmedia` 核对本机镜像标签。Compose 的 `image` 和 `docker run` 命令末尾的标签须与实际镜像一致；若 `image` 保留变量写法，检查可选 `.env` 中的 `APP_VERSION`。例如载入 `jzmedia:v0.20.0` 后，不能仍指定不存在的 `jzmedia:latest`。
+先按镜像来源核对本机完整镜像名：
 
-当前 jzmedia 尚未发布到 Docker Hub。先按安装教程[准备本地镜像](deployment.md#docker-部署)，再使用其中禁止自动拉取的启动命令；不要通过反复 `docker pull jzmedia` 解决。使用 Compose 时明确指定 `-f docker-compose.yml`，避免加载开发 override。
+```bash
+docker image ls ghcr.io/nojobnopay/jzmedia
+docker image ls jzmedia
+```
+
+GHCR 和当前 Release 归档使用 `ghcr.io/nojobnopay/jzmedia`，源码构建默认使用 `jzmedia`，早期归档以 `docker load` 打印的镜像名为准。Compose 的 `image` 和 `docker run` 命令末尾的完整镜像名须与实际镜像一致；如果模板通过 `APP_VERSION` 替换标签，修改该变量不会把仓库名 `jzmedia` 改为 GHCR 地址。
+
+在线安装按[从 GHCR 拉取镜像](deployment.md#从-ghcr-拉取镜像)准备镜像，并从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 核对所需标签是否已发布。离线导入和源码构建按安装教程[准备本地镜像](deployment.md#其他-docker-安装方式)，使用 `--pull=never`（`docker run`）或 `--pull never`（Compose）避免访问远端。已导入固定版本却仍指定本地不存在的 `latest` 时，也会启动失败。
+
+当前 jzmedia 尚未发布到 Docker Hub，不能通过反复 `docker pull jzmedia` 获取成品。使用 Compose 时明确指定 `-f docker-compose.yml`，避免加载开发 override。
 
 ### Docker 构建或拉取超时
 
-此处的拉取指 Dockerfile 所需的 Node.js/Python 等基础镜像，不是从 Docker Hub 获取 jzmedia 成品。区分基础镜像拉取、构建中的 pip/npm 下载、运行时 TMDB 请求三条网络路径。`BUILD_HTTP_PROXY` 只影响构建阶段的下载步骤；Docker Desktop 场景见下方[代理故障](#wsl--docker-desktop-代理故障)。加载已有的 jzmedia 镜像文件无需重新下载构建依赖。
+- **GHCR 成品镜像拉取失败**：检查是否能访问 `ghcr.io`、镜像全名和发行标签是否正确，以及 Docker daemon 的网络/代理。无法在线拉取时，可改用[Release 镜像文件](deployment.md#加载镜像文件)。
+- **源码构建失败**：先分清是 Dockerfile 的 Node.js/Python 等基础镜像拉取失败，还是构建中的 pip/npm 下载失败。基础镜像由 Docker daemon 拉取；`BUILD_HTTP_PROXY` 只影响构建阶段的下载步骤，不能修复 daemon 拉取。
+- **离线导入失败**：检查归档是否下载完整、是否适合目标 CPU 架构，以及 `docker load` 的具体错误。加载已有 jzmedia 镜像文件无需重新下载基础镜像或构建依赖。
+
+Docker Desktop 的 daemon 代理检查见下方[代理故障](#wsl--docker-desktop-代理故障)。运行时 TMDB 请求单独使用 `TMDB_PROXY`，不能用来修复 GHCR 拉取或源码构建。升级后仍是旧页面时，按[升级流程](operations.md#升级)核对目标镜像及重建容器步骤。
 
 ## 存储与健康状态
 
@@ -118,7 +131,7 @@ GET 握手只报告 `auth_required`。先用客户端令牌验证检查 POST 权
 
 ## WSL / Docker Desktop 代理故障
 
-若宿主 `curl` 正常，而 Docker 拉基础镜像报 HTTPS proxy 或 timeout，先区分 **Docker daemon 拉镜像** 与 **镜像构建中的 pip/npm 下载**。前者需要修复 Docker Desktop 的代理配置；`BUILD_HTTP_PROXY` 只传入构建阶段，不能修复 daemon 拉取。
+若宿主 `curl` 正常，而 Docker 拉 GHCR 成品或基础镜像时报 HTTPS proxy 或 timeout，先区分 **Docker daemon 拉镜像** 与 **镜像构建中的 pip/npm 下载**。前者需要修复 Docker Desktop 的代理配置；`BUILD_HTTP_PROXY` 只传入构建阶段，不能修复 daemon 拉取。
 
 已有 `crane` 且可通过可用代理访问镜像仓库时，也可以在宿主拉取所需基础镜像并导入 Docker 后重试构建，例如：
 

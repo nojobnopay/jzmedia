@@ -10,7 +10,7 @@ search: false
 
 ## 运行前准备
 
-先完成[安装前准备](deployment.md#安装前准备)，再选择 [Docker 部署](deployment.md#docker-部署)或 [Linux/WSL 直接运行源码](deployment.md#宿主直接运行)。Docker 流程先构建或加载镜像，再选择 Compose 或 `docker run` 启动；NAS 的目录与权限见[部署补充](deployment.md#nas-部署)。
+先完成[安装前准备](deployment.md#安装前准备)，再选择 [Docker 部署](deployment.md#docker-部署)或 [Linux/WSL 直接运行源码](deployment.md#宿主直接运行)。Docker 可从 GHCR 拉取镜像，再选择 Compose 或 `docker run` 启动；源码构建、离线导入及 NAS 目录与权限见[安装教程](deployment.md)。
 
 <span id="阅读顺序"></span>
 
@@ -19,6 +19,7 @@ search: false
 | 当前任务 | 教程 |
 |---|---|
 | 第一次安装到电脑或 NAS | [安装与首次使用](deployment.md) |
+| 在电视上连接已有服务 | [Android TV 安装与连接（GitHub）](https://github.com/nojobnopay/jzmedia/blob/main/android-tv/README.md#已有-apk安装并连接) |
 | 服务已启动，准备添加内容 | [首次入库与试播](../user-guide/onboarding.md) |
 | 修改路径、凭据、代理或转码 | [配置参考](configuration.md) |
 | 升级、备份、恢复或换机 | [升级、备份与迁移](operations.md) |

@@ -52,7 +52,7 @@ Android TV 先通过 `/api/stream/client-info` 握手，再显式上传 `client=
 
 - `app/config.py` 读取环境变量；部分键由 SQLite 中非空设置覆盖。Docker Compose 的宿主媒体路径只用于挂载，业务代码使用 `settings.media_root`、`settings.data_dir` 和库表路径。
 - `store` 负责持久资料和版本迁移，不在路由里散写 SQL。路径操作走 `storage` 与 `library_paths`，保护视频库边界。
-- 写 API 可选令牌鉴权；GET、海报与媒体直链不受该令牌保护，网页播放器的 POST 决策、会话和进度请求则需要令牌。这是设计边界，不能把它当成私有文件授权系统。
+- 写 API 可选令牌鉴权，网页播放器的 POST 决策、会话和进度请求也需要令牌。GET、海报与媒体直链不受写令牌保护，但观看模式独立限制可见内容，管理读取也可能要求保护密码解锁；三者的区别见[认证和安全边界](api.md#认证和安全边界)。当前仍是家庭可信网络中的设备级保护，没有多用户登录与完整权限系统。
 - 日志经 `app/log.py`，新失败路径要记录上下文，不能静默吞异常。
 
 部署视角见 [安装教程](../getting-started/deployment.md)；改代码前从 [模块划分](modules.md) 找归属。

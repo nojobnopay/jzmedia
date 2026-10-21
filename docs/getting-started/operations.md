@@ -4,7 +4,7 @@
 
 [本目录首页](README.md)
 
-按任务阅读：[备份](#一次一致的备份) · [升级](#升级) · [换机与恢复](#换机与恢复)。命令从部署目录执行；备份示例使用默认数据目录 `./data`。Docker 镜像可以从源码构建或从文件加载，日常管理命令则取决于容器是通过 Compose 还是 `docker run` 启动，参见[安装教程](deployment.md#docker-部署)。
+按任务阅读：[备份](#一次一致的备份) · [升级](#升级) · [换机与恢复](#换机与恢复)。命令从部署目录执行；备份示例使用默认数据目录 `./data`。Docker 镜像可以从 GHCR 拉取、从源码构建或从文件加载，日常管理命令则取决于容器是通过 Compose 还是 `docker run` 启动，参见[安装教程](deployment.md#docker-部署)。
 
 ## 停止与重启
 
@@ -71,10 +71,10 @@ SQLite 使用 WAL，应用运行时只复制 `jzmedia.db` 可能漏掉未合并�
 ## 升级
 
 1. 停止/等待重要任务，备份数据、配置和旧版本源码或镜像。
-2. 阅读目标版本变更及迁移说明。Docker 部署获取目标版本源码或镜像文件；宿主直接运行获取源码。当前仓库不假定存在公共 `git pull` 地址；jzmedia 镜像尚未发布到 Docker Hub。
+2. 阅读目标版本变更及迁移说明，从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 选择实际发行版本。Docker 部署可拉取该版本的 GHCR 镜像，或获取对应源码、镜像归档；宿主直接运行获取源码。jzmedia 镜像尚未发布到 Docker Hub。
 3. 保留原启动配置、数据目录及卷映射；已有 `.env` 时继续保留，按需参考新版 `.env.example` 补项，没有则无需创建。已入库路径为 `/media` 的容器，先按[旧路径兼容说明](deployment.md#legacy-media-path)保留原映射。
-4. Docker 部署先按安装教程[从源码构建](deployment.md#从源码构建)或[加载镜像文件](deployment.md#加载镜像文件)，确认目标镜像已在本机。Compose 的 `image` 或 `docker run` 命令末尾的镜像标签必须与目标标签一致；若 `image` 保留模板中的变量写法，则通过可选 `.env` 的 `APP_VERSION` 设置标签。宿主直接运行则更新依赖。
-5. Compose 执行 `docker compose -f docker-compose.yml up -d --no-build --pull never`，使用覆盖文件时保留原来的全部 `-f` 参数。`docker run` 实例先执行 `docker stop jzmedia`、`docker rm jzmedia`，再按[启动说明](deployment.md#docker-run)用目标镜像和原端口、卷、用户及设备参数创建容器；删除容器保留绑定到宿主的媒体和数据目录。宿主直接运行执行 `./start.sh`。
+4. Docker 部署先按安装教程[从 GHCR 拉取镜像](deployment.md#从-ghcr-拉取镜像)、[从源码构建](deployment.md#从源码构建)或[加载镜像文件](deployment.md#加载镜像文件)，确认目标镜像已在本机。Compose 的 `image` 或 `docker run` 命令末尾的完整镜像名必须与目标一致；`APP_VERSION` 只能替换模板中的标签，不能将 `jzmedia` 仓库名改成 GHCR 地址。宿主直接运行则更新依赖。
+5. Compose 执行 `docker compose -f docker-compose.yml up -d --no-build --pull never`，使用覆盖文件时保留原来的全部 `-f` 参数。`docker run` 实例先执行 `docker stop jzmedia`、`docker rm jzmedia`，再按[本地镜像启动说明](deployment.md#本地镜像的-docker-run-启动参数)使用 `--pull=never`、目标镜像及原端口、卷、用户与设备参数创建容器；删除容器保留绑定到宿主的媒体和数据目录。宿主直接运行执行 `./start.sh`。
 6. 检查健康接口、媒体库连接、详情及一段视频，确认页面构建已更新。
 
 启动会执行数据库 schema 迁移；服务端版本与 schema 各自维护，当前迁移规则见[数据模型](../developer/data.md)。旧探测缓存会按 probe 版本自动更新。

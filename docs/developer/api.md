@@ -4,7 +4,7 @@
 
 运行实例的 `/docs` 是各请求体和响应字段的即时来源。下面只列业务分组及会影响客户端实现的约定，避免将文档固定在每个小字段上。
 
-常用入口：[库作用域](#库作用域) · [客户端例子](#客户端例子) · [剧集收藏对照](#剧集播出与收藏对照) · [智能辅助](#智能辅助)。
+常用入口：[库作用域](#库作用域) · [认证和权限](#认证和安全边界) · [任务模式](#任务模式) · [健康与容量](#健康与磁盘容量) · [缩略图与缓存](#进度缩略图与缓存) · [客户端例子](#客户端例子)。
 
 | 前缀 | 主要功能 |
 |---|---|
@@ -23,23 +23,6 @@
 | `/api/viewing` | 观看模式、内容可见性与儿童筛选资料补全 |
 | `/api/ai` | 智能辅助配置、连接检查、搜索条件与匹配建议 |
 
-## DLNA 投屏
-
-| 请求 | 行为 |
-| --- | --- |
-| `POST /api/cast/discover` | 搜索服务器局域网的 MediaRenderer；返回 `items`、建议的 `base_url` 和 `scope=server_lan` |
-| `GET /api/cast/devices` | 仅读设备缓存，不触发搜索 |
-| `POST /api/cast/devices` | 接收 `{location}`，从指定局域网 HTTP 描述地址验证 DLNA MediaRenderer 并加入设备缓存；返回 `{item,base_url}` |
-| `POST /api/cast/sessions` | 接收 `{device_id,version_id,kind,position,base_url}`，设置电视 URI 并请求播放；`kind=movie\|episode`，`position` 为源视频秒数，`base_url` 可省略 |
-| `GET /api/cast/current?version_id=…&kind=…` | 返回该版本当前有效投屏的 `{session}`；无投屏为 `null` |
-| `GET /api/cast/sessions/{sid}` | 返回内存中的最近电视状态，不发起网络轮询 |
-| `POST /api/cast/sessions/{sid}/control` | `{command,value?}`；命令为 `play/pause/stop/seek/volume`，`seek` 单位秒，音量范围 0–100 |
-| `GET /api/cast/media/{sid}`、`HEAD` | 会话限定的原文件读取；GET 复用本地/远程 Range，响应 MIME 与 DLNA 头一致 |
-
-搜索、手动注册与控制遵循现有写请求令牌；电视取流不要求全局令牌，URL 仅含随机会话 ID。手动注册要求完整的私有 IPv4 HTTP 描述地址，服务端不使用 DNS、代理或重定向，并核对 MediaRenderer 与 AVTransport；设备保存在当前进程内，重启后需重新添加。设备列表超过 120 秒需重新搜索或注册，搜索请求在 5 秒内复用结果，重新搜索时会保留本次运行中手动注册的设备。媒体 ID 由现有播放行与存储层解析，不接受任意文件路径或外部媒体 URL；不存在的版本返回 404，文件缺失 410，离线 503。投屏网络和固定地址见[部署指南](../getting-started/deployment.md#dlna-投屏网络)。
-
-创建响应 `state=TRANSITIONING` 只说明已发送播放请求；`PLAYING` 是电视回报的状态。服务端独立轮询，只有回报的 `TrackURI` 与当前投屏一致、位置有效时才记录进度，`position_known=false` 不可推算当前位置；`last_position` 保留最近有效断点，供电视停播后切回手机使用。电视切换到其他媒体后标为 `REPLACED`，不覆盖进度或继续控制新媒体。跳转续播失败以 `warning` 返回；设备命令失败返回 502，格式未获接收端声明支持返回 422。会话为内存状态，最多保留 24 小时；服务重启需重新投屏。
-
 ## 库作用域
 
 读接口可以按 `library` 视频库或 `media_library` 媒体库聚合过滤；写任务通常在 body 传 `library_id` 或 `media_library_id`。视频库工具应显式传 `library_id`，不要依赖缺省全库行为。未知媒体库的读筛选要返回空集合而非退化成全库。新增接口要覆盖“未指定、单视频库、媒体库聚合、不存在的媒体库”四种情况。
@@ -47,6 +30,42 @@
 当前四档播放由 POST `/api/stream/{id}/decide` 接收 `caps`；GET 兼容变体仅用保守默认。电影、分集、花絮播放时通过 `kind` 隔离媒体探测、进度和会话。文件直链及 HLS 分片读取是 GET，支持断点/Range 的接口不能被通用 JSON 包装破坏。
 
 网页 `caps.mp4_compat=true` 使用普通 MP4 短片兼容传输；`versions.transport` 为 `mp4`，`sessions` 返回 `media_url`、空 `playlist_url`，并保留 `media_start/initial_time`。`clip_duration` 为完成文件的实际秒数，客户端据此准备下一片，不能依赖缺失的浏览器媒体元数据；其他传输此字段为 0。MP4 的 `complete` 只表示当前片段完成，客户端不得把它当作全片结束；获取下一片仍用原片时间创建会话，关闭时释放当前和预取 sid。格式及时间轴规则见[播放核心设计](playback.md#浏览器检测与兼容回退)。
+
+## 认证和安全边界
+
+写操作令牌、当前设备的观看会话和管理解锁分别检查，提供写令牌并不代表已解锁管理或隐私内容。
+
+### 写操作令牌
+
+配置 `JZMEDIA_TOKEN` 或设置页令牌后，`app/main.py` 对 `/api` 下的 POST/PUT/PATCH/DELETE 校验 `X-Api-Token` 或 `Authorization: Bearer`；两者同时提供时优先使用非空 `X-Api-Token`。设置变更立即改变有效令牌。`/api/viewing/mode`、`unlock`、`lock`、`activity` 四个观看会话端点不要求此令牌，仍执行各自的会话与密码检查；密码设置、内容策略修改和其他写操作继续要求令牌。
+
+网页播放的 POST `decide/sessions/progress` 同样需要写令牌。令牌本身不限制 GET、海报或媒体读取；这些请求还会受到下述观看模式限制。新增配置或媒体写操作须使用 `/api` 路径和写 HTTP 方法，不能通过 GET 绕过令牌；现有读取接口可能按需填充图片或探测缓存。
+
+### 观看会话与管理解锁
+
+`GET /api/viewing/session` 创建或读取当前设备会话，返回 `mode`、`enabled`、`management_unlocked`、`generation` 等状态。网页使用服务端设置的 `jz_viewing` HttpOnly Cookie；电视以 `X-Viewing-Client: tv` 请求该接口，从响应读取 `session_token`，后续携带 `X-Viewing-Session`。会话凭据与写操作令牌独立，不能互相替代。
+
+启用保护后，普通、儿童、隐私模式分别限制当前设备可见的列表、详情、图片和媒体。管理接口还需有效管理授权，GET 请求也可能被拒绝。请求范围由 `app/viewing_http.py` 与 `app/viewing.py` 共同检查；公开用户操作见[儿童模式与隐私模式](../user-guide/settings.md#儿童模式与隐私模式)。
+
+`POST /api/viewing/unlock` 接收保护密码并授予当前会话管理权限，不切换观看模式；儿童模式需先通过 `/api/viewing/mode` 验证密码退出，再解锁管理。进入隐私模式同样使用 `/mode`。`/lock` 撤销管理与隐私授权，儿童模式保持；密码变更会撤销既有授权。客户端需识别响应的 `X-Viewing-Generation`，在模式或授权变化后刷新内容，清除不再可用的页面状态。
+
+### 区分认证失败
+
+| 响应 | 含义 | 客户端处理 |
+|---|---|---|
+| `401`，无观看保护 `code` | 写操作令牌缺失或错误 | 核对实例令牌 |
+| `401`，`code=viewing_locked` | 设备会话失效或隐私授权过期 | 按会话状态重新连接或验证密码 |
+| `403`，`code=management_required` | 当前会话未解锁管理 | 退出儿童模式后验证保护密码 |
+
+保护密码错误另以 `protection_password_invalid` 返回，不能当成写令牌错误。敏感响应、日志和诊断不得泄露保护密码、会话凭据、写令牌或 SMB 密码。
+
+## 任务模式
+
+`app/jobkit.py` 的注册表保留进程内进行中及近期已完成任务。启动端点通常返回 `job_id`，前端轮询状态；提供取消接口的任务才可请求取消。取消属于协作式，worker 要检查停止标志，已完成子操作不自动回滚。单个任务的审计或持久结果（例如 `organize_moves`、`fs_changes`）仍在 DB，与内存任务状态分开。页面刷新可继续查询现有任务；服务重启或已完成记录被淘汰后，旧 job ID 不保证可查询，应检查实际库状态再决定是否重启任务。
+
+整片预缓存有独立持有关系，当前没有用户取消入口，关闭播放器不会取消；使用方法与限制见[远程预缓存](../user-guide/playback-previews.md#为远程播放预缓存)。
+
+整理、恢复、缓存清理等接口以 dry-run/预览体现计划，再经显式执行参数确认。应用路由层应验证请求范围，执行层仍需再次校验只读、目标占用及源存在性。[存储设计](storage.md)。
 
 ## 健康与磁盘容量
 
@@ -62,11 +81,21 @@
 
 `GET /api/data-usage` 另外遍历应用数据目录，返回 `total_bytes`、`warning_bytes`（应用数据总预算，默认 20 GiB）、`over_limit`、`categories`（`database/posters/previews/transcode/other`）与 `ok/error`。不跟随符号链接，不进入 `DATA_DIR/mounts` 或配置的 `MEDIA_ROOT`；不把原始媒体算进总量。占用统计缓存约一分钟，`?refresh=true` 强制重新统计；总预算及超限状态每次按当前配置计算。达到总预算会提示并暂停闲时进度缩略图，不会删除数据库或海报；两项缓存各自的回收规则仍生效。
 
+### 采集失败与监控
+
+采集失败时对应目录返回 `ok:false` 和 `{code,message}` 错误，`disks.ok` 为 `false`，不回显原始路径或异常；目录不存在时不创建目录，也不改查父目录猜测容量。错误码包括 `not_found`、`permission_denied`、`not_directory`、`invalid_path`、`unsupported`、`unavailable`。现有顶层 `status` 仍由数据库和媒体可读性决定；监控容量时应同时检查 `disks.ok`，空间告警阈值由部署者确定。
+
+## 进度缩略图与缓存
+
+### 缓存额度
+
 `GET /api/cache-settings` 返回全服务当前生效的 `data_warning_gb`、`transcode_cache_gb`、`preview_cache_gb`，结构和数据库字段保持兼容；`data_warning_gb` 在界面解释为“应用数据总预算（软上限）”。默认分别为 20、10、10；未保存时后两项读取 `TRANSCODE_CACHE_GB` / `PREVIEW_CACHE_GB`。读取保留已有超配组合和旧播放额度 0，不因联动校验回落默认值；0 仍表示仅按 24 小时 TTL 清理。
 
 `PUT /api/cache-settings` 要求完整提交这三个数值，单位 GiB，支持一位小数，最大 102400；保存时最小值依次为 1、0.1、0.1。非法、非有限数或未知字段返回 422。保存前强制获取最新完整占用统计：基础数据为 `database + posters + other`，其预留为基础数据加 `max(基础数据 × 10%, 1 GiB)`，向上取整至 0.1 GiB。两项缓存额度加该预留超过总预算时返回带可读原因的 422；统计失败返回 503。这些失败均不写入任何一项。
 
 实际缓存占用超过新额度不阻止保存有效分配。成功时以单条 `app_settings.cache_limits` JSON 原子持久化，立即优先于环境变量，并唤醒闲时队列重新检查条件；本请求不执行缓存删除，后续维护沿用活动内容保护规则。基础数据增长不自动修改用户额度，客户端提示重新分配。两接口均受管理权限约束，PUT 同时遵循写操作令牌鉴权。[界面分配与清理流程](../user-guide/settings.md#调整应用数据与缓存)。
+
+### 队列与批次
 
 自动生成时段、暂停状态及全服务预览排队总量由 `GET /api/stream/previews/auto` 返回，`queued` 包括当前正在处理的影片。立即批量生成、手动重试和闲时生成共用持久影片队列与单个执行器，未完成项在服务重启后恢复。`GET /api/stream/previews/queue?library_id=<id>&offset=0&limit=50` 分页返回未开始项 `items`，另以 `running` 返回当前影片；`total` 只统计等待项，不包含当前影片。省略 `library_id` 查询全服务，最多每页 100 项。同一队列快照的分页共享 `revision`，完成项退出队列。
 
@@ -74,9 +103,13 @@
 
 `POST /api/stream/previews/jobs {"library_id":<id>}` 将当前库尚未完成新版预览的可播放项作为一个立即批次持久入队，返回 `{state:"queued",batch_id,total,added,promoted,ready,already_queued,unavailable}`。`added` 为新增影片数，`promoted` 为从闲时任务提升为本批立即任务的数量；已运行、已单独重试或属于其他立即批次的影片计入 `already_queued`，保留原归属。已有新版成品计入 `ready`，源文件不可用计入 `unavailable`；没有新增或提升项时 `batch_id` 为 `null`。立即批次和手动重试不受自动生成开关与闲时时段限制，仍遵守播放转码让行规则；普通闲时项继续遵守原有时段、播放与预算条件。
 
+### 已生成与失败清单
+
 `GET /api/stream/previews/completed?library_id=<id>&offset=0&limit=50` 按当前视频库分页列出已有完整预览的电影、分集和花絮；省略 `library_id` 查询全服务，`limit` 为 1–100。返回 `{items,total,offset,limit}`，每项包含 `kind/id/library_id/title/file_name/frames/interval/quality_revision/needs_update`；`frames` 为完整清单帧数，兼容的旧画质成品以 `needs_update:true` 标记。每部影片最多一项，按视频库、电影/分集/花絮、ID 顺序排列。仅计入与当前片源、采样配置匹配且所有图片页完整的清单，离线、过期和部分产物不计入；抽帧达到 100% 不等于完整成品。接口只读，不探测原片或更新缓存访问时间，使用与队列接口相同的管理权限；网页展开已生成清单时按需调用，刷新及分页独立于队列轮询。
 
 `GET /api/stream/previews/failed?library_id=<id>&offset=0&limit=50` 返回 `{items,total,offset,limit}`，参数范围与已生成接口一致；每项包含 `kind/id/library_id/title/file_name/failed_at/error_code/error`，`failed_at` 为 Unix 秒，按失败时间倒序排列。每个视频仅保留最近一次未解决失败，名称和库归属使用当前媒体记录，已删除媒体不显示；查询不访问片源，也不启动生成。失败记录独立持久化，生成成功后清除，取消或重新排队时保留；已有旧版成品但升级失败时可同时出现在两份清单。读取失败返回可读错误，不将损坏记录作为空清单。接口受管理权限保护。
+
+### 重试与取消
 
 `POST /api/stream/previews/failed/{kind}/{id}/retry {"library_id":<id>}` 将失败视频作为手动请求加入处理列表末尾，返回 `{"state":"queued"|"already_queued"|"running"}`。仅在闲时队列中的同项会改为手动重试并移到队尾；已在立即任务或重试队列、或正在运行时不重复加入。手动重试不受自动生成开关和时段限制，沿用立即批量生成的播放转码让行规则。排队请求持久化，重启后恢复；可用现有单项移出接口取消并移出当前重试，仅影响这一项，失败原因保留。本接口遵循管理权限及写操作令牌鉴权。
 
@@ -84,13 +117,11 @@
 
 `POST /api/stream/previews/batches/{batch_id}/cancel {"library_id":<id>}` 取消指定库中该批剩余影片，包括属于本批的当前影片，返回 `{removed,cancelled}`；`removed` 为移出数量，`cancelled` 表示是否同时取消当前影片。其他批次、单独重试和闲时任务不受影响；批次已经结束或移出时返回 `{removed:0,cancelled:false}`。原有 `POST /api/stream/previews/jobs/{job_id}/cancel` 保留单片运行任务的取消兼容，不能用于取消持久批次；播放器内发起单片生成的接口保持不变。上述写接口遵循管理权限及写操作令牌鉴权。
 
+### 清理与单片状态
+
 `POST /api/stream/previews/cache/clean {"dry_run":true|false}` 先预览再清理全部进度缩略图，不删除持久队列，生成任务运行时返回 409。原有 `POST /api/stream/cache/clean` 只清理可回收播放缓存。扫描摘要的 `preview_auto.queued` 表示新排队项数。
 
 单片 `GET /api/stream/{version_id}/previews` 返回该片预览清单；运行中的任务另含 `frames`、`frame_total`（当前片已抽帧数与总数），尚未轮到该片时返回 `queued`。客户端以清单 `state=ready` 判断是否完成，不能只凭已有图片页数判断。
-
-### 采集失败与监控
-
-采集失败时对应目录返回 `ok:false` 和 `{code,message}` 错误，`disks.ok` 为 `false`，不回显原始路径或异常；目录不存在时不创建目录，也不改查父目录猜测容量。错误码包括 `not_found`、`permission_denied`、`not_directory`、`invalid_path`、`unsupported`、`unavailable`。现有顶层 `status` 仍由数据库和媒体可读性决定；监控容量时应同时检查 `disks.ok`，空间告警阈值由部署者确定。
 
 ## 客户端例子
 
@@ -183,7 +214,7 @@ POST /api/tv/bindings/apply {"token": "…"}   # 用户确认上述预览后执�
 
 ### 原生客户端握手与会话
 
-`GET /api/stream/client-info` 返回 `{protocol_version:1, features:["android_tv","independent_sessions","tv_search","tv_actor_search"], auth_required}`，另含局域网发现使用的 `name`、`version` 与持久实例身份 `server_id`。GET 不验证写令牌；`POST /api/stream/client-check` 返回相同信息并通过现有写操作鉴权校验令牌，不改变用户配置或媒体。首次握手可能生成并保存 `server_id`。功能通过 `features` 单独协商，新增检索与发现字段没有提高播放协议号；电视扫描范围和确认流程见仓库 `android-tv/docs/protocol.md`。
+`GET /api/stream/client-info` 返回 `{protocol_version:1, features:["android_tv","independent_sessions","tv_search","tv_actor_search","viewing_modes"], auth_required}`，另含局域网发现使用的 `name`、`version` 与持久实例身份 `server_id`。GET 不验证写令牌；`POST /api/stream/client-check` 返回相同信息并通过现有写操作鉴权校验令牌，不改变用户配置或媒体。首次握手可能生成并保存 `server_id`。功能通过 `features` 单独协商，新增检索与发现字段没有提高播放协议号；电视扫描范围和确认流程见仓库 `android-tv/docs/protocol.md`。
 
 TV 客户端对 `versions/decide/sessions/prewarm` 显式传 `client:"android_tv"` 及原生 `caps`，旧客户端省略 `client` 仍按 web 处理。具体容器、HDR、音轨和逐片格式能力字段见仓库 `android-tv/docs/protocol.md`。`GET /api/tv-client/search` 支持 `q/kind/media_library/limit/offset`；演员 `/actors` 与 `/actor-works` 使用同一媒体库范围，作品查询中的 `actor` 为服务器返回的不透明 key。
 
@@ -205,17 +236,22 @@ P5 专用计划通过 `plan.color_pipeline="dovi_p5_sdr"`、`color_revision`、`
 
 `GET /api/movies/{id}/backdrop` 优先返回本地横版背景缓存；缺图时只按已有 TMDB 缓存中的图片路径下载，不重新刮削影片。缺少背景为 404，下载失败为 502，前端保留渐变底色；图片请求独立于电影详情 JSON，避免拖慢资料加载。季和单集详情的 `show_backdrop_path` 沿用所属剧集的本地背景，空字符串表示暂无图片。
 
-## 认证和安全边界
+## DLNA 投屏
 
-`app/main.py` 中间件仅在配置令牌时保护 `/api` 下的 POST/PUT/PATCH/DELETE，接收 `X-Api-Token` 或 `Authorization: Bearer`；同时提供时优先使用非空 `X-Api-Token`。GET、海报、视频直链继续可读。设置变更立即改变有效令牌。新增配置或媒体写操作须保持 `/api` 路径和写 HTTP 方法，不能通过 GET 绕过令牌；现有读取接口可能按需填充图片或探测缓存。敏感返回避免暴露令牌与 SMB 密码。
+| 请求 | 行为 |
+| --- | --- |
+| `POST /api/cast/discover` | 搜索服务器局域网的 MediaRenderer；返回 `items`、建议的 `base_url` 和 `scope=server_lan` |
+| `GET /api/cast/devices` | 仅读设备缓存，不触发搜索 |
+| `POST /api/cast/devices` | 接收 `{location}`，从指定局域网 HTTP 描述地址验证 DLNA MediaRenderer 并加入设备缓存；返回 `{item,base_url}` |
+| `POST /api/cast/sessions` | 接收 `{device_id,version_id,kind,position,base_url}`，设置电视 URI 并请求播放；`kind=movie\|episode`，`position` 为源视频秒数，`base_url` 可省略 |
+| `GET /api/cast/current?version_id=…&kind=…` | 返回该版本当前有效投屏的 `{session}`；无投屏为 `null` |
+| `GET /api/cast/sessions/{sid}` | 返回内存中的最近电视状态，不发起网络轮询 |
+| `POST /api/cast/sessions/{sid}/control` | `{command,value?}`；命令为 `play/pause/stop/seek/volume`，`seek` 单位秒，音量范围 0–100 |
+| `GET /api/cast/media/{sid}`、`HEAD` | 会话限定的原文件读取；GET 复用本地/远程 Range，响应 MIME 与 DLNA 头一致 |
 
-网页播放器同样使用 POST `decide/sessions/progress`，实例启用令牌后这些请求也需认证；“GET 媒体直链开放”不代表整个网页播放流程免令牌。
+搜索、手动注册与控制遵循现有写请求令牌；电视取流不要求全局令牌，URL 仅含随机会话 ID。手动注册要求完整的私有 IPv4 HTTP 描述地址，服务端不使用 DNS、代理或重定向，并核对 MediaRenderer 与 AVTransport；设备保存在当前进程内，重启后需重新添加。设备列表超过 120 秒需重新搜索或注册，搜索请求在 5 秒内复用结果，重新搜索时会保留本次运行中手动注册的设备。媒体 ID 由现有播放行与存储层解析，不接受任意文件路径或外部媒体 URL；不存在的版本返回 404，文件缺失 410，离线 503。投屏网络和固定地址见[部署指南](../getting-started/deployment.md#dlna-投屏网络)。
 
-## 任务模式
-
-`app/jobkit.py` 的注册表保留进程内进行中及近期已完成任务。启动端点通常返回 `job_id`，前端轮询状态并可请求取消。取消属于协作式，worker 要检查停止标志，已完成子操作不自动回滚。单个任务的审计或持久结果（例如 `organize_moves`、`fs_changes`）仍在 DB，与内存任务状态分开。页面刷新可继续查询现有任务；服务重启或已完成记录被淘汰后，旧 job ID 不保证可查询，应检查实际库状态再决定是否重启任务。
-
-整理、恢复、缓存清理等接口以 dry-run/预览体现计划，再经显式执行参数确认。应用路由层应验证请求范围，执行层仍需再次校验只读、目标占用及源存在性。[存储设计](storage.md)。
+创建响应 `state=TRANSITIONING` 只说明已发送播放请求；`PLAYING` 是电视回报的状态。服务端独立轮询，只有回报的 `TrackURI` 与当前投屏一致、位置有效时才记录进度，`position_known=false` 不可推算当前位置；`last_position` 保留最近有效断点，供电视停播后切回手机使用。电视切换到其他媒体后标为 `REPLACED`，不覆盖进度或继续控制新媒体。跳转续播失败以 `warning` 返回；设备命令失败返回 502，格式未获接收端声明支持返回 422。会话为内存状态，最多保留 24 小时；服务重启需重新投屏。
 
 ## 上传与浏览体验接口
 

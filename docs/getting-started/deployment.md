@@ -1,71 +1,126 @@
 # 安装与首次使用
 
-[本目录首页](README.md) · [配置参考](configuration.md)
+[本目录首页](README.md) · [配置参考](configuration.md) · [部署排障](troubleshooting.md)
 
-先选择运行方案：[Docker 部署](#docker-部署)或 [Linux / WSL 直接运行源码](#宿主直接运行)。默认端口为 `8080`；浏览器访问远程服务器时，把 `localhost` 换成服务器地址。服务启动后再进行[第一次入库](#第一次入库与播放)。
+首次安装建议在 Linux amd64（x86_64）设备上，按下面的 [Docker 部署](#docker-部署)启动网页，再跟随[首次入库](../user-guide/onboarding.md)扫描并试播。默认端口为 `8080`；浏览器访问远程服务器时，把 `localhost` 换成服务器地址。
 
-| 运行方案 | 准备方式 | 启动方式 |
-|---|---|---|
-| Docker 容器 | 在线拉取、加载镜像文件或从源码构建 | 使用 Compose 配置文件，或执行 `docker run` |
-| Linux / WSL 直接运行 | 准备源码及宿主 Python、Node.js、FFmpeg 环境 | 执行 `./start.sh` |
-
-Docker 部署分为两个步骤：先把镜像准备到 Docker 中，再用镜像创建并启动容器。在线拉取、加载镜像文件和源码构建都属于镜像获取方式，都能配合 Compose 或 `docker run` 使用。Compose 将启动参数写在 YAML 文件里；本仓库使用的文件名是 `docker-compose.yml`。
-
-NAS 是部署设备，使用 Docker/Container Manager 时仍按 Docker 流程操作，另见 [NAS 路径与权限说明](#nas-部署)。Linux/WSL 也可以运行 Docker；下文的“直接运行源码”特指在宿主上运行应用、不使用容器的独立方案。
+需要其他方式时，可选择 [Compose 配置文件](#docker-compose)、[离线镜像](#加载镜像文件)、[源码构建](#从源码构建)或 [Linux / WSL 直接运行源码](#宿主直接运行)。NAS 使用 Docker/Container Manager 时同样按 Docker 流程操作，另见 [NAS 路径与权限](#nas-部署)。
 
 ## 安装前准备
 
-- Docker 方案需要可用的 Docker Engine/Desktop 或 NAS 容器环境；使用仓库 Compose 配置需 Docker Compose 2.24.0 或更新版本，可用 `docker compose version` 查看。直接运行源码则需 Linux/WSL、Python、Node.js 与 FFmpeg。
-- 一个可读取的媒体目录和一个可写的数据目录。仅浏览和播放时可将媒体库设为只读。
-- 能访问服务器的浏览器。转码能力取决于片源、CPU/GPU 和网络。
+- 可用的 Docker Engine/Desktop 或 NAS 容器环境。预构建镜像适用于 Linux amd64，其他架构需自行构建并验证；直接运行源码的条件见[对应流程](#宿主直接运行)。
+- 一个可读取的媒体目录和一个可写的数据目录。下面的最短流程在当前部署目录创建 `media/` 与 `data/`，使用当前用户的 UID/GID 运行容器；该用户需有 Docker 操作权限。
+- 能访问服务器的浏览器。转码能力取决于片源、CPU/GPU 和网络，先用小目录试播；硬件选配见[硬件与配置建议](#硬件与配置建议)。
 - 可先使用已有 NFO 与本地资料，无需为启动服务提前申请 TMDB 凭据；资料来源在[首次配置](../user-guide/onboarding.md)中选择。
-
-## 硬件与配置建议
-
-以下针对服务端。预构建 Docker 镜像适用于 Linux amd64（x86_64），其他架构需自行构建并验证。项目尚未通过硬件基准确定统一的最低 CPU 核数与内存；已有电脑或 NAS 可先用小目录完成扫描、浏览与试播，再判断是否需要升级。
-
-原画直放时，服务器主要读取和传输文件，视频解码由客户端完成，无需强制配备 GPU。客户端不兼容、降低分辨率或需要烧录字幕时，可能由服务器重新编码视频，对 CPU/GPU 的要求会提高；选择“原画”也可能因格式不兼容而转码，详见[画质与实际输出](../user-guide/playback-controls.md#选择倍速与画质)。
-
-| 项目 | 家庭使用的选配起点 |
-|---|---|
-| CPU / GPU | 优先考虑兼容的 Intel 核显平台；启用普通视频硬件转码前，需核对片源编码的硬件解码能力和 H.264 硬件编码能力，常见 HEVC 10-bit 片源需支持 Main10 解码 |
-| 内存 | 建议 8 GB 整机内存，并为操作系统、其他容器和核显共享内存留出余量 |
-| 数据与缓存 | 建议将数据库、海报和播放缓存放在 SSD；媒体文件可继续放在已有硬盘或 NAS 共享中 |
-| 网络 | 建议服务器使用千兆有线网络；有效带宽需覆盖片源码率峰值与同时播放的总需求 |
-
-上述为选配建议，尚非 jzmedia 的硬件实测结论；8 GB 指宿主整机内存，无需为容器单独预留 8 GB。选配思路可参考 [Jellyfin 官方硬件指南](https://jellyfin.org/docs/general/administration/hardware-selection/)，具体支持范围以 jzmedia 的配置说明与实际播放结果为准。
-
-有核显或独立显卡，还需驱动、容器设备访问权限和实际片源编解码能力配合。Intel 与已有 NVIDIA 设备的配置分别见 [Intel 硬件设备](configuration.md#intel-硬件设备)和 [NVIDIA 硬件转码](configuration.md#nvidia-硬件转码)。
-
-4K HDR 的视频转换、字幕烧录和多路并发需按实际片源单独验证，不能仅凭内存大小或显卡型号保证实时播放；兼容客户端能直接播放原视频时，仍可减少服务器负担。Dolby Vision P5 网页转换是默认关闭的试验功能，需要专用 Intel 硬件链路并逐片验收，见 [P5 网页播放条件](configuration.md#dolby-vision-p5-网页播放)。并发任务上限只是软件额度，可同时流畅转码的路数仍取决于硬件与片源。
-
-磁盘空间需分别考虑镜像、数据库、图片、预览与播放缓存，媒体文件另计；缓存额度和应用数据总预算均为软目标，活动任务可能使占用暂时超出设置值，因此需额外保留空闲空间。额度含义与调整方法见[播放与缓存](configuration.md#播放与缓存)。
 
 ## Docker 部署
 
-镜像包含服务端、网页、帮助站和 FFmpeg，运行容器无需在宿主另装 Python、Node.js 或 FFmpeg。以下命令在部署目录执行；选择源码构建时，该目录就是项目根目录。
-
-容器默认时区为 `Asia/Shanghai`，缩略图闲时默认对应北京时间 03:00–06:00。使用其他时区时配置 `TZ`，见[配置参考](configuration.md#运行路径与端口)。已有容器需更新启动配置并重新创建后才生效。
-
-源码归档、预构建的 Linux amd64 镜像归档与对应配置可从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载。Docker 镜像也可从 `ghcr.io/nojobnopay/jzmedia` 在线拉取；Release 镜像归档仍可用于离线导入。目前 jzmedia 尚未发布到 DockerHub。
+镜像包含服务端、网页、帮助站和 FFmpeg，宿主无需另装 Python、Node.js 或 FFmpeg。以下为新安装的最短在线路径，不需要下载源码、Compose 文件或创建 `.env`。
 
 ### Step 1：准备部署配置与目录
 
-源码构建可下载 Release 的 `Source code` 归档并解压为完整项目；加载镜像文件则下载 `jzmedia-vX.Y.Z-linux-amd64.tar.gz`；在线拉取无需下载镜像归档。拉取或加载镜像后使用 Compose 时，下载同版本的 `docker-compose.yml`。`X.Y.Z` 替换为实际版本号；预构建镜像适用于 Linux amd64，其他架构需自行构建。将所需文件放到部署目录，在终端进入该目录。默认安装无需创建或复制 `.env`：
+在选定的部署目录打开终端并执行：
 
 ```bash
 mkdir -p media data
-id -u
-id -g
 ```
 
-**预期结果：**部署目录内有 `media/` 和 `data/`；最后两条命令分别打印当前用户的 UID、GID。
+**预期结果：**当前目录内有 `media/` 和 `data/`；当前用户能读取媒体目录并写入数据目录。可先在 `media/` 放少量测试影片；`data/` 持久保存数据库、图片与缓存，重建容器时继续使用同一目录。
 
 <span id="docker-paths"></span>
 
-使用 Compose 时，在 `docker-compose.yml` 的 `services.mymedia` 下修改 `user`、`ports`、`volumes` 三个字段，保留其余字段。下面是这三个字段的示例，将 `1000:1000` 改为刚才的 UID/GID；需要其他端口或目录时，修改映射左侧的宿主值：
+宿主 `./media` 映射到容器 `/app/media`，`./data` 映射到 `/app/data`。应用设置里要填容器看得到的路径；新部署的媒体库根路径填 `/app/media`。使用已有目录时，修改后面 `-v` 左侧的宿主路径，并确保目录存在且当前用户有相应权限。需要写 NFO、整理或上传时，还需媒体目录写权限；仅浏览和播放可将媒体卷改为 `:ro`。
+
+已有部署若将影片登记在 `/media` 下，启动前先按[保留旧媒体路径](#legacy-media-path)配置，不要把原数据目录换成新空目录。
+
+### Step 2：准备 Docker 镜像
+
+快速体验使用 `ghcr.io/nojobnopay/jzmedia:latest`，下一步的命令会从 GHCR 自动拉取镜像。`latest` 跟随最新发布镜像；固定部署应先在 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 选择真实发行版本，再将镜像标签替换为对应的 `vX.Y.Z`，不要根据仓库中的版本号猜测已发布标签。
+
+需要预先拉取、Compose 或离线安装时，见后面的[其他 Docker 安装方式](#其他-docker-安装方式)。在线拉取、加载镜像文件和源码构建都是镜像获取方式，均可搭配 Compose 或 `docker run`；目前 jzmedia 尚未发布到 DockerHub。
+
+### Step 3：选择一种方式启动容器
+
+下面使用 `docker run`，在当前部署目录执行；希望将参数保存在 YAML 文件中时，可改用 [Compose 配置文件](#docker-compose)。同一个实例只需启动一次。
+
+<span id="docker-run"></span>
+
+#### 使用 docker run
+
+```bash
+docker run -d --name jzmedia \
+  --pull=always --init --restart unless-stopped \
+  --user "$(id -u):$(id -g)" \
+  -e MEDIA_ROOT=/app/media \
+  -e DATA_DIR=/app/data \
+  -p 8080:8080 \
+  -v "$(pwd)/media:/app/media:rw" \
+  -v "$(pwd)/data:/app/data:rw" \
+  ghcr.io/nojobnopay/jzmedia:latest
+```
+
+**预期结果：**Docker 拉取镜像并打印容器 ID。`--pull=always` 每次执行创建命令时检查远端镜像，不会自动升级已经运行的容器。使用其他端口时修改 `-p` 左侧端口；离线或本地构建镜像按[本地镜像启动说明](#本地镜像的-docker-run-启动参数)改用 `--pull=never` 和实际镜像名。
+
+拉取失败时检查网络与发行标签，或使用[离线镜像](#加载镜像文件)。若提示同名容器已存在，先检查该容器；已有实例的启停见[停止与重启](operations.md#停止与重启)，升级见[升级](operations.md#升级)。
+
+<span id="check-service"></span>
+
+### Step 4：打开网页并检查服务
+
+打开 `http://localhost:8080`；部署在另一台设备时，打开 `http://服务器地址:8080`。能看到应用首页后，继续[第一次入库与播放](#第一次入库与播放)。
+
+再打开同一地址下的 `/api/health`，检查 JSON 中的 `status`、`db`、`media`、`ffmpeg`、`ffprobe`、`transcoder`。**预期结果：**数据库与媒体检查正常，播放所需工具可用；Compose 显示 healthy 也不能代替核对这些字段。
+
+网页打不开或服务反复退出时，检查容器状态与日志：
+
+```bash
+docker ps -a --filter name=jzmedia
+docker logs --tail=100 jzmedia
+```
+
+日志有 `Permission denied` 时先核对运行用户和目录权限；端口被占用时修改宿主端口再创建容器。其他问题按[部署排障](troubleshooting.md)处理，不要通过删除数据目录来重试。
+
+若设置 `JZMEDIA_TOKEN`，网页需填写令牌才能提交播放决策、创建播放会话、保存进度以及执行管理操作。令牌本身不限制读取；另行设置的[儿童与隐私保护](../user-guide/settings.md#儿童模式与隐私模式)按当前设备模式限制列表、详情、图片和媒体访问，两种保护独立生效。
+
+## 第一次入库与播放
+
+打开空库首页，点击“开始配置”，跟随[首次入库图解](../user-guide/onboarding.md)完成资料来源、目标视频库、扫描或上传，再核对结果并播放。已有内容的安装可从“设置 → 新手配置”进入。
+
+扫描与整理是不同操作。首次试播不要求重命名或移动文件；整理需单独预览与确认。
+
+## Android TV 客户端
+
+服务器启动后，可按 [Android TV 安装与连接（GitHub）](https://github.com/nojobnopay/jzmedia/blob/main/android-tv/README.md#已有-apk安装并连接)安装 APK 并连接服务器。网页与电视共用同一套媒体库；电视真机的解码、HDR、音轨及遥控器行为需按实际设备验收。
+
+镜像与 APK 通过[统一发布](../developer/releasing.md)从同一提交同步构建；普通 Docker Compose 或 `start.sh` 部署不会另外生成 APK。电视通过协议 1 握手，并在实例启用访问令牌时单独验证写权限；开发构建与产物位置见仓库 `android-tv/README.md`。
+
+## 其他 Docker 安装方式
+
+下面的方式复用前面的目录与路径约定。镜像准备好后，选择 Compose 或 `docker run` 启动；完成后均按[服务检查](#check-service)打开网页并建库。
+
+### 从 GHCR 拉取镜像
+
+需要提前准备镜像或使用 Compose 时，在 Linux amd64 设备上执行：
+
+```bash
+docker pull ghcr.io/nojobnopay/jzmedia:latest
+docker image ls ghcr.io/nojobnopay/jzmedia
+```
+
+**预期结果：**本地镜像列表包含 `ghcr.io/nojobnopay/jzmedia:latest`。固定部署时，将命令中的 `latest` 换成 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 已发布的 `vX.Y.Z`；拉取失败时检查网络与标签，或选择 Release 镜像归档。
+
+Compose 的 `services.mymedia.image` 和 `docker run` 最后的镜像名必须与准备的完整镜像名一致。只修改 `APP_VERSION` 不会把模板中的 `jzmedia` 仓库名改成 GHCR 地址。在线镜像与对应 Release 归档使用同一发行镜像，均为 `linux/amd64`。
+
+<span id="docker-compose"></span>
+
+### 使用 Compose 配置文件
+
+需要 Docker Compose 2.24.0 或更新版本，可用 `docker compose version` 查看。拉取或加载 Release 镜像时，下载同一版本的 `docker-compose.yml` 放到部署目录；源码构建使用项目根目录中的文件。默认安装无需创建或复制 `.env`。
+
+先按前面的方式准备 `media/`、`data/`，并用 `id -u`、`id -g` 查看宿主用户。在 `docker-compose.yml` 的 `services.mymedia` 下修改 `image`、`user`、`ports`、`volumes`，保留其余字段。下面是在线体验的字段示例，将 `1000:1000` 换为实际 UID/GID；固定部署将 `latest` 换为已经拉取的真实发行标签：
 
 ```yaml
+image: ghcr.io/nojobnopay/jzmedia:latest
 user: "1000:1000"
 ports:
   - "8080:8080"
@@ -74,49 +129,38 @@ volumes:
   - "./data:/app/data"
 ```
 
-仓库主 Compose 的 `user` 未配置时回退到 `0:0`（root）；应按宿主实际用户设置，并确保该用户可写数据目录、可读取媒体目录。宿主 `./media` 映射到容器 `/app/media`，`./data` 映射到 `/app/data`。改用已有目录时，填写实际路径并确认目录存在。应用设置里要填容器看得到的路径。需要写 NFO、整理或上传时，还需媒体目录写权限。已有部署若将影片登记在 `/media` 下，启动前先按[保留旧媒体路径](#legacy-media-path)配置。
+仓库主 Compose 的 `user` 未配置时回退到 `0:0`（root）；应按宿主实际用户设置，并确保该用户可写数据目录、可读取媒体目录。使用源码构建或离线镜像时，`image` 填对应的本地完整镜像名。准备好镜像后执行：
 
-选择 `docker run` 时无需准备 Compose 文件，直接在[启动命令](#docker-run)中填写端口、路径与 UID/GID。资料来源、智能辅助和访问令牌可在启动后的网页设置中配置。
+```bash
+docker compose -f docker-compose.yml up -d --no-build --pull never
+docker compose -f docker-compose.yml ps
+docker compose -f docker-compose.yml logs --tail=100 mymedia
+```
+
+**预期结果：**`mymedia` 服务的容器处于运行状态，日志没有持续重启或权限错误。`--no-build --pull never` 使用已经准备的本地镜像；若报镜像不存在，核对拉取、载入或构建的标签与 Compose 的 `image`，再重试。参数含义见 [Docker Compose 命令参考](https://docs.docker.com/reference/cli/docker/compose/up/)。
+
+生产部署始终显式指定 `-f docker-compose.yml`，不加载本机开发用的 override 文件。源码构建需要完整项目，拉取或加载镜像后的启动只需配置文件和挂载目录。
 
 `.env` 是可选的宿主配置文件，已有文件会继续读取；它不会被复制或挂载到容器里，容器内看不到该文件是正常现象。需要集中管理环境变量时，按[可选的环境变量文件](configuration.md#可选的环境变量文件)配置。
 
-### Step 2：准备 Docker 镜像
+### 从源码构建
 
-下面三种方式任选一种。完成后，镜像应位于准备启动容器的同一个 Docker Engine 中。
-
-#### 从 GHCR 拉取镜像
-
-在 Linux amd64 设备上执行：
-
-```bash
-docker pull ghcr.io/nojobnopay/jzmedia:v0.22.3
-docker image ls ghcr.io/nojobnopay/jzmedia
-```
-
-**预期结果：**本地镜像列表包含 `ghcr.io/nojobnopay/jzmedia:v0.22.3`。若拉取失败，检查网络和标签，或使用下方的 Release 镜像归档。
-
-Compose 启动前将 `services.mymedia.image` 改为 `ghcr.io/nojobnopay/jzmedia:v0.22.3`；`docker run` 同样使用这个完整镜像名，再按 Step 3 启动。只修改 `APP_VERSION` 不会把原有 `jzmedia` 仓库名改为 GHCR 地址。
-
-`ghcr.io/nojobnopay/jzmedia:latest` 跟随最新发布镜像；固定部署建议选择明确版本标签。在线镜像与对应 Release 归档使用同一发行镜像，均为 `linux/amd64`。
-
-#### 从源码构建
-
-在完整项目根目录执行，按 Compose 的 `image` 字段生成本地镜像，默认标签为 `jzmedia:latest`：
+从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载 `Source code` 归档并解压，或使用已有完整源码。在项目根目录执行，按仓库 Compose 的 `image` 字段生成本地镜像，未改写该字段时默认标签为 `jzmedia:latest`：
 
 ```bash
 docker compose -f docker-compose.yml build mymedia
 docker image ls jzmedia
 ```
 
-**预期结果：**构建成功，镜像列表包含 `jzmedia:latest`（使用示例配置时）。前端和帮助站在镜像构建中编译；首次构建需要获取 Dockerfile 中的基础镜像及依赖。构建失败按[构建网络排障](troubleshooting.md#docker-构建或拉取超时)检查后重试。
+**预期结果：**构建成功，镜像列表包含 `jzmedia:latest`（未改写仓库配置时）；已自定义 `image` 的部署按该字段核对实际标签。前端和帮助站在镜像构建中编译；首次构建需要获取 Dockerfile 中的基础镜像及依赖。构建失败按[构建网络排障](troubleshooting.md#docker-构建或拉取超时)检查后重试。
 
 如果只使用 Docker CLI、未安装 Compose，也可在项目根目录执行 `docker build -t jzmedia:latest .`。它不会自动读取 `.env` 中的构建代理；需要代理时通过 Docker 的 `--build-arg` 传入 `HTTP_PROXY`、`HTTPS_PROXY` 等构建参数。
 
-以上操作只准备镜像。即使用 Compose 构建，下一步也可以选择 `docker run` 启动。需要同时交付镜像和 Android TV APK 时，使用[统一发布流程](../developer/releasing.md)。
+以上操作只准备镜像。即使用 Compose 构建，也可以按下文的本地镜像启动说明选择 `docker run` 启动。需要同时交付镜像和 Android TV APK 时，使用[统一发布流程](../developer/releasing.md)。
 
-#### 加载镜像文件
+### 加载镜像文件
 
-取得适合目标设备 CPU 架构的 jzmedia 镜像归档，将下面的 `X.Y.Z` 替换为下载的版本号。`docker load` 可直接读取 gzip 归档，无需先解压：
+从 [GitHub Releases](https://github.com/nojobnopay/jzmedia/releases) 下载适合目标设备 CPU 架构的 jzmedia 镜像归档，将下面的 `X.Y.Z` 替换为实际下载的版本号。`docker load` 可直接读取 gzip 归档，无需先解压：
 
 ```bash
 docker load -i jzmedia-vX.Y.Z-linux-amd64.tar.gz
@@ -127,62 +171,15 @@ docker image ls
 
 记下 `docker load` 实际载入的完整镜像名。云端发行归档使用 `ghcr.io/nojobnopay/jzmedia:vX.Y.Z`，随附 Compose 已固定为相同镜像；早期归档（如 `v0.20.1`）使用 `jzmedia:vX.Y.Z`。启动前核对 Compose 的 `image` 或 `docker run` 最后的镜像名与实际载入值一致，`X.Y.Z` 替换为实际版本号。仅修改 `APP_VERSION` 不能切换仓库名，也不要在本地缺少 `latest` 时沿用该标签。
 
-### Step 3：选择一种方式启动容器
+### 本地镜像的 docker run 启动参数
 
-镜像准备好后，下面两种方式任选一种；它们都启动 jzmedia 的 Docker 容器，同一个实例只需启动一次。
+源码构建、离线导入或预先拉取完成后，复用上面的 [docker run 命令](#docker-run)：将 `--pull=always` 改为 `--pull=never`，最后一行改为本地实际存在的完整镜像名，例如源码构建的 `jzmedia:latest`，或 `docker load` 打印的 `ghcr.io/nojobnopay/jzmedia:vX.Y.Z`。这样启动不会访问远端仓库；镜像不存在时会直接报错，见 [Docker run 命令参考](https://docs.docker.com/reference/cli/docker/container/run/#set-the-pull-policy---pull)。
 
-<span id="docker-compose"></span>
+该命令无需 `.env`；需设置高级环境变量时添加 `-e 名称=值`，已有自定义文件时也可添加 `--env-file .env`，具体区别见[配置参考](configuration.md#可选的环境变量文件)。需要硬件转码时还需显式映射设备与补充设备组，见[配置参考](configuration.md#intel-硬件设备)。
 
-#### 使用 Compose 配置文件
+容器默认时区为 `Asia/Shanghai`，缩略图闲时默认对应北京时间 03:00–06:00。使用其他时区时配置 `TZ`，见[配置参考](configuration.md#运行路径与端口)；已有容器需更新启动配置并重新创建后才生效。
 
-使用已调整端口、路径和用户的 `docker-compose.yml`；没有 `.env` 时，Compose 会跳过该可选文件：
-
-```bash
-docker compose -f docker-compose.yml up -d --no-build --pull never
-docker compose -f docker-compose.yml ps
-docker compose -f docker-compose.yml logs --tail=100 mymedia
-```
-
-**预期结果：**`mymedia` 服务的容器处于运行状态，日志没有持续重启或权限错误。`--no-build --pull never` 让启动使用上一步已准备的本地镜像；若报镜像不存在，核对拉取/载入/构建的标签与 Compose 的 `image`，再重试。参数含义见 [Docker Compose 命令参考](https://docs.docker.com/reference/cli/docker/compose/up/)。
-
-生产部署始终显式指定 `-f docker-compose.yml`，不加载本机开发用的 override 文件。源码构建需要完整项目，拉取或加载镜像后的启动只需配置文件和挂载目录。
-
-<span id="docker-run"></span>
-
-#### 使用 docker run
-
-下面示例使用部署目录下的 `media/`、`data/`，容器名为 `jzmedia`。执行前，将 `1000:1000` 改为实际 UID/GID，将最后的 `jzmedia:latest` 改为上一步准备的完整镜像标签。使用其他宿主目录或端口时，同时修改 `-v` 左侧路径和 `-p` 左侧端口：
-
-```bash
-docker run -d --name jzmedia \
-  --pull=never --init --restart unless-stopped \
-  --user 1000:1000 \
-  -e TZ=Asia/Shanghai \
-  -e MEDIA_ROOT=/app/media \
-  -e DATA_DIR=/app/data \
-  -p 8080:8080 \
-  -v "$(pwd)/media:/app/media:rw" \
-  -v "$(pwd)/data:/app/data" \
-  jzmedia:latest
-docker ps -a --filter name=jzmedia
-docker logs --tail=100 jzmedia
-```
-
-**预期结果：**`jzmedia` 容器处于运行状态，日志没有持续重启或权限错误。`--pull=never` 只使用本地镜像；镜像标签不存在时会直接报错，见 [Docker run 命令参考](https://docs.docker.com/reference/cli/docker/container/run/#set-the-pull-policy---pull)。启动失败按[部署排障](troubleshooting.md)检查；若同名容器已存在，先检查该容器，已有容器的启停见[停止与重启](operations.md#停止与重启)。
-
-上面的命令无需 `.env`。需设置高级环境变量时添加 `-e 名称=值`；已有自定义文件时也可添加 `--env-file .env`，具体区别见[配置参考](configuration.md#可选的环境变量文件)。需要硬件转码时还需显式映射设备与补充设备组，见[配置参考](configuration.md#intel-硬件设备)。
-
-两种启动方式都应保留单进程服务：应用使用内存播放会话和任务状态，不能额外设置多个 uvicorn worker。
-
-<span id="check-service"></span>
-
-### Step 4：打开网页并检查服务
-
-打开 `http://localhost:8080`，再查看 `http://localhost:8080/api/health`。健康 JSON 中检查 `status`、`db`、`media`、`ffmpeg`、`ffprobe`、`transcoder`；Compose 配置的容器健康检查显示 healthy，也不能代替检查这些具体字段。
-
-**预期结果：**能看到应用首页，数据库与媒体检查正常，播放所需工具可用。随后按[第一次入库与播放](#第一次入库与播放)建库。
-
-若设置 `JZMEDIA_TOKEN`，网页需填写令牌才能提交播放决策、创建播放会话、保存进度以及执行管理操作。令牌本身不限制读取；另行设置的[儿童与隐私保护](../user-guide/settings.md#儿童模式与隐私模式)按当前设备模式限制列表、详情、图片和媒体访问，两种保护独立生效。
+Compose 与 `docker run` 都应保留单进程服务：应用使用内存播放会话和任务状态，不能额外设置多个 uvicorn worker。
 
 <span id="legacy-media-path"></span>
 
@@ -224,6 +221,27 @@ docker compose -f docker-compose.yml -f compose.media-legacy.yml up -d --no-buil
 5. 访问 `http://NAS地址:8080`。媒体库类型选「本地路径」，新部署默认根路径填 `/app/media`；同一台 NAS 的挂载目录不必再绕行 SMB。
 
 Intel VAAPI/QSV 硬件转码可按 [配置参考](configuration.md#intel-硬件设备)映射设备；配有 NVIDIA 显卡及容器 GPU 运行时的机器可按 [NVIDIA 硬件转码](configuration.md#nvidia-硬件转码)叠加可选配置，并核对实际后端。
+
+## 硬件与配置建议
+
+以下针对服务端。预构建 Docker 镜像适用于 Linux amd64（x86_64），其他架构需自行构建并验证。项目尚未通过硬件基准确定统一的最低 CPU 核数与内存；已有电脑或 NAS 可先用小目录完成扫描、浏览与试播，再判断是否需要升级。
+
+原画直放时，服务器主要读取和传输文件，视频解码由客户端完成，无需强制配备 GPU。客户端不兼容、降低分辨率或需要烧录字幕时，可能由服务器重新编码视频，对 CPU/GPU 的要求会提高；选择“原画”也可能因格式不兼容而转码，详见[画质与实际输出](../user-guide/playback-controls.md#选择倍速与画质)。
+
+| 项目 | 家庭使用的选配起点 |
+|---|---|
+| CPU / GPU | 优先考虑兼容的 Intel 核显平台；启用普通视频硬件转码前，需核对片源编码的硬件解码能力和 H.264 硬件编码能力，常见 HEVC 10-bit 片源需支持 Main10 解码 |
+| 内存 | 建议 8 GB 整机内存，并为操作系统、其他容器和核显共享内存留出余量 |
+| 数据与缓存 | 建议将数据库、海报和播放缓存放在 SSD；媒体文件可继续放在已有硬盘或 NAS 共享中 |
+| 网络 | 建议服务器使用千兆有线网络；有效带宽需覆盖片源码率峰值与同时播放的总需求 |
+
+上述为选配建议，尚非 jzmedia 的硬件实测结论；8 GB 指宿主整机内存，无需为容器单独预留 8 GB。选配思路可参考 [Jellyfin 官方硬件指南](https://jellyfin.org/docs/general/administration/hardware-selection/)，具体支持范围以 jzmedia 的配置说明与实际播放结果为准。
+
+有核显或独立显卡，还需驱动、容器设备访问权限和实际片源编解码能力配合。Intel 与已有 NVIDIA 设备的配置分别见 [Intel 硬件设备](configuration.md#intel-硬件设备)和 [NVIDIA 硬件转码](configuration.md#nvidia-硬件转码)。
+
+4K HDR 的视频转换、字幕烧录和多路并发需按实际片源单独验证，不能仅凭内存大小或显卡型号保证实时播放；兼容客户端能直接播放原视频时，仍可减少服务器负担。Dolby Vision P5 网页转换是默认关闭的试验功能，需要专用 Intel 硬件链路并逐片验收，见 [P5 网页播放条件](configuration.md#dolby-vision-p5-网页播放)。并发任务上限只是软件额度，可同时流畅转码的路数仍取决于硬件与片源。
+
+磁盘空间需分别考虑镜像、数据库、图片、预览与播放缓存，媒体文件另计；缓存额度和应用数据总预算均为软目标，活动任务可能使占用暂时超出设置值，因此需额外保留空闲空间。额度含义与调整方法见[播放与缓存](configuration.md#播放与缓存)。
 
 ## 宿主直接运行
 
@@ -270,16 +288,6 @@ DATA_DIR=./data MEDIA_ROOT=./media APP_PORT=8080 ./start.sh
 Linux 或支持宿主网络的 NAS 上，可在自己的 Compose 部署配置中将应用服务设为 `network_mode: host`，同时移除该服务的 `ports` 映射；此时服务直接使用宿主 `8080`，原 `APP_PORT` 映射不再生效。先确认端口无冲突，并按实际平台配置防火墙。此设置不是默认部署要求，Docker Desktop 与 WSL 的发现能力仍需在实际环境验证。
 
 需要固定投屏媒体地址时，可通过进程环境或 Compose 的可选 `.env` 配置 `CAST_BASE_URL=http://192.168.1.10:8080`，替换为电视可访问的真实地址，重启服务生效。该值只决定电视取流地址，不会修复组播网络；默认根据网页访问地址填写，投屏面板也允许本次手动调整。支持地址带代理路径前缀，代理必须提供对应 `/api/cast/media/` 的 GET、HEAD 与 Range 访问。
-
-## Android TV 客户端
-
-服务器启动后可供网页与独立 Android TV 客户端共用。镜像与 APK 通过[统一发布](../developer/releasing.md)从同一提交同步构建；普通 Docker Compose 或 `start.sh` 部署不会另外生成 APK。客户端安装、开发构建与产物位置见仓库 `android-tv/README.md`。电视连接服务器地址，通过协议 1 握手，并在实例启用访问令牌时单独验证写权限。电视真机的解码、HDR、音轨及遥控器行为仍需按实际设备验收。
-
-## 第一次入库与播放
-
-打开空库首页，点击“开始配置”，跟随[首次入库图解](../user-guide/onboarding.md)完成资料来源、目标视频库、扫描或上传，再核对结果并播放。已有内容的安装可从“设置 → 新手配置”进入。
-
-扫描与整理是不同操作。首次试播不要求重命名或移动文件；整理需单独预览与确认。
 
 ## 重设保护密码
 

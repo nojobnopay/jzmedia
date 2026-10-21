@@ -31,7 +31,7 @@ features:
 
 ## 常用操作
 
-[找电影](user-guide/find-movies.md) · [追剧与连播](user-guide/watch-tv.md) · [音轨与字幕](user-guide/subtitles.md) · [扫描与匹配](user-guide/metadata.md) · [整理目录](user-guide/organizing.md)
+[找电影](user-guide/find-movies.md) · [追剧与连播](user-guide/watch-tv.md) · [音轨与字幕](user-guide/subtitles.md) · [扫描与匹配](user-guide/metadata.md) · [整理目录](user-guide/organizing.md) · [Android TV 安装与连接（GitHub）](https://github.com/nojobnopay/jzmedia/blob/main/android-tv/README.md#已有-apk安装并连接)
 
 ## 先看到结果，再按需深入
 
