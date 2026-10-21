@@ -1,6 +1,13 @@
 package org.jzmedia.tv.data
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -140,5 +147,29 @@ class ServerDiscoveryTest {
         )
         assertEquals(listOf("http://10.0.0.9:8080/"), got.map { it.address })
         assertEquals(253 to 253, progress)
+    }
+
+    @Test fun cancelledScanDoesNotPublishAProbeThatReturnsLate() = runBlocking {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val updates = AtomicInteger()
+        val scan = launch {
+            ServerDiscovery.scan(locals = listOf("10.0.0.5"), maxParallel = 1,
+                probe = { target ->
+                    started.countDown()
+                    check(release.await(5, TimeUnit.SECONDS))
+                    DiscoveredServer(target, "Late server", "1.0", "late", false, true)
+                },
+                onProgress = { _, _ -> updates.incrementAndGet() })
+        }
+        try {
+            withContext(Dispatchers.IO) { assertTrue(started.await(5, TimeUnit.SECONDS)) }
+            scan.cancel()
+        } finally {
+            release.countDown()
+        }
+        withTimeout(5000) { scan.join() }
+        assertTrue(scan.isCancelled)
+        assertEquals(0, updates.get())
     }
 }

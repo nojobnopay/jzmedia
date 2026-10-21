@@ -114,6 +114,10 @@ async function mockApi(route) {
   if (key === '/api/onboarding') return response(route, { show_welcome: false, status: 'completed' })
   if (key === '/api/settings') return response(route, { tmdb_configured: false, tmdb_language: 'zh-CN', libraries: [] })
   if (key === '/api/cache-settings') return response(route, { data_warning_gb: 20, transcode_cache_gb: 10, preview_cache_gb: 10 })
+  if (key === '/api/data-usage' && method === 'GET') return response(route, {
+    ok: true, total_bytes: 0, warning_bytes: 20 * 1024 ** 3, over_limit: false, error: '',
+    categories: { database: 0, posters: 0, previews: 0, transcode: 0, other: 0 },
+  })
   if (key === '/api/jobs/stats') return response(route, { total: 1, by_library: [] })
   if (key === '/api/tv/stats') return response(route, { shows: 1, seasons: 0, episodes: 0, by_library: [] })
   if (key === '/api/metadata/providers') return response(route, { providers: [] })
@@ -121,12 +125,18 @@ async function mockApi(route) {
   if (key === '/api/facets' || key === '/api/tv/facets') return response(route, facets)
   if (key === '/api/search') return response(route, list([movie]))
   if (key === '/api/tv/shows') return response(route, list([show]))
+  if (key === '/api/tv/updates' && method === 'GET') return response(route, { items: [], checked_at: 0, error: '' })
   if (key === '/api/collections/suggest') return response(route, { items: [], topups: [], coverage: { unchecked: 0, standalone: 0 } })
   if (key === '/api/collections/suggest/backfill/status') return response(route, { state: 'idle', done: 0, total: 0, failed: [] })
   if (key === '/api/collections' || /\/(recent-played|similar)$/.test(key)) return response(route, list([]))
   if (key === '/api/search/suggest' || key === '/api/tv/suggest') return response(route, { items: [], persons: [] })
   if (key === '/api/movies/101') return response(route, movie)
   if (key === '/api/tv/shows/201') return response(route, show)
+  if (key === '/api/tv/shows/201/collection' && method === 'GET') return response(route, {
+    show_id: show.id, tmdb_id: show.tmdb_id, media_library_id: show.media_library_id,
+    confirmed: !!show.tmdb_id && !show.needs_review, status: '', status_text: '',
+    checked_at: 0, next_check_at: 0, error: '', seasons: [], latest_episode: null, missing_seasons: [],
+  })
   if (/\/(collection-hint|organize-hint)$/.test(key)) return response(route, { needs: false })
   if (key === '/api/movies/101/files') return response(route, { items: [] })
   if (key === '/api/stream/versions') return response(route, { versions: [], best_version_id: 101 })

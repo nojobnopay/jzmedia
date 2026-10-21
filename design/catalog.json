@@ -5779,7 +5779,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:0",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 242,
+      "line": 243,
       "platforms": [
         "android-tv"
       ],
@@ -5821,7 +5821,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:1",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 243,
+      "line": 244,
       "platforms": [
         "android-tv"
       ],
@@ -5863,7 +5863,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:2",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 244,
+      "line": 245,
       "platforms": [
         "android-tv"
       ],
@@ -5905,7 +5905,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:3",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 321,
+      "line": 322,
       "platforms": [
         "android-tv"
       ],
@@ -5947,7 +5947,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:4",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 323,
+      "line": 324,
       "platforms": [
         "android-tv"
       ],
@@ -5989,7 +5989,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:5",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 325,
+      "line": 326,
       "platforms": [
         "android-tv"
       ],
@@ -6031,7 +6031,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:6",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 336,
+      "line": 337,
       "platforms": [
         "android-tv"
       ],
@@ -6075,7 +6075,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:7",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 337,
+      "line": 338,
       "platforms": [
         "android-tv"
       ],
@@ -6119,7 +6119,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:8",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 357,
+      "line": 358,
       "platforms": [
         "android-tv"
       ],
@@ -6163,7 +6163,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:9",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 466,
+      "line": 467,
       "platforms": [
         "android-tv"
       ],
@@ -6205,7 +6205,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:10",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 471,
+      "line": 472,
       "platforms": [
         "android-tv"
       ],
@@ -6250,7 +6250,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:11",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 473,
+      "line": 474,
       "platforms": [
         "android-tv"
       ],
@@ -6294,7 +6294,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:12",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 478,
+      "line": 479,
       "platforms": [
         "android-tv"
       ],
@@ -6339,7 +6339,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:13",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 543,
+      "line": 544,
       "platforms": [
         "android-tv"
       ],
@@ -6385,7 +6385,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:14",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 553,
+      "line": 554,
       "platforms": [
         "android-tv"
       ],
@@ -6429,7 +6429,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:15",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 555,
+      "line": 556,
       "platforms": [
         "android-tv"
       ],
@@ -6473,7 +6473,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:16",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 576,
+      "line": 577,
       "platforms": [
         "android-tv"
       ],
@@ -6519,7 +6519,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:17",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 580,
+      "line": 581,
       "platforms": [
         "android-tv"
       ],
@@ -38943,11 +38943,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"!isChildren\" icon=\"plus\" variant=\"primary\" :aria-expanded=\"createOpen\" aria-controls=\"collection-create\" @click=\"createOpen = !createOpen\">"
+      "source_excerpt": "<JzButton v-if=\"!isChildren\" :disabled=\"creating\" icon=\"plus\" variant=\"primary\" :aria-expanded=\"createOpen\" aria-controls=\"collection-create\" @click=\"createOpen = !createOpen\">"
     },
     {
       "id": "frontend/src/views/Collections.vue:input:6",
@@ -39062,11 +39063,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "新合集名称",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"name\" aria-label=\"新合集名称\" placeholder=\"新建合集名，如 周星驰合集\" />"
+      "source_excerpt": "<input v-model=\"name\" :disabled=\"creating\" aria-label=\"新合集名称\" placeholder=\"新建合集名，如 周星驰合集\" />"
     },
     {
       "id": "frontend/src/views/Collections.vue:JzButton:10",
@@ -39108,7 +39110,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton :disabled=\"!name.trim()\" type=\"submit\" icon=\"plus\">"
+      "source_excerpt": "<JzButton :disabled=\"!name.trim()\" :loading=\"creating\" type=\"submit\" icon=\"plus\">"
     },
     {
       "id": "frontend/src/views/Collections.vue:JzButton:11",
@@ -39143,11 +39145,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton type=\"button\" @click=\"createOpen = false\">"
+      "source_excerpt": "<JzButton :disabled=\"creating\" type=\"button\" @click=\"createOpen = false\">"
     },
     {
       "id": "frontend/src/views/Collections.vue:JzButton:19",
@@ -39306,7 +39309,7 @@
           },
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 432,
+            "line": 464,
             "selector": ".collection-card",
             "values": {
               "min-width": "0"
@@ -39314,7 +39317,7 @@
           },
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 433,
+            "line": 465,
             "selector": ".collection-card .poster-wrap",
             "values": {
               "aspect-ratio": "2 / 3"
@@ -39395,7 +39398,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 434,
+            "line": 466,
             "selector": ".cover-empty",
             "values": {
               "height": "100%",
@@ -39490,7 +39493,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"topUp(t)\" :disabled=\"topping\" type=\"button\">"
+      "source_excerpt": "<JzButton @click=\"topUp(t)\" :disabled=\"topping\" :loading=\"topping && toppingCollection === t.collection_id\" type=\"button\">"
     },
     {
       "id": "frontend/src/views/Collections.vue:RouterLink:39",
@@ -39565,7 +39568,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"acceptAll\" :disabled=\"accepting\" type=\"button\">"
+      "source_excerpt": "<JzButton @click=\"acceptAll\" :disabled=\"accepting\" :loading=\"accepting && acceptingSeries === null\" type=\"button\">"
     },
     {
       "id": "frontend/src/views/Collections.vue:img:47",
@@ -39629,7 +39632,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/Collections.vue",
-            "line": 434,
+            "line": 466,
             "selector": ".cover-empty",
             "values": {
               "height": "100%",
@@ -39685,7 +39688,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"accept(entry)\" :disabled=\"accepting\" type=\"button\">"
+      "source_excerpt": "<JzButton @click=\"accept(entry)\" :disabled=\"accepting\" :loading=\"accepting && acceptingSeries === entry.collection_tmdb_id\" type=\"button\">"
     },
     {
       "id": "frontend/src/views/Collections.vue:JzButton:55",
@@ -39720,11 +39723,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"dismiss(entry)\" type=\"button\">"
+      "source_excerpt": "<JzButton @click=\"dismiss(entry)\" :disabled=\"accepting\" type=\"button\">"
     },
     {
       "id": "frontend/src/views/Collections.vue:summary:57",
@@ -49732,11 +49736,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"matchOpen = !matchOpen\" type=\"button\" variant=\"ghost\" icon=\"match\">"
+      "source_excerpt": "<JzButton :disabled=\"busy\" @click=\"matchOpen = !matchOpen\" type=\"button\" variant=\"ghost\" icon=\"match\">"
     },
     {
       "id": "frontend/src/views/TvShow.vue:JzButton:33",
@@ -49899,11 +49904,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton :aria-expanded=\"matchOpen\" @click=\"matchOpen = !matchOpen\" type=\"button\" icon=\"match\">"
+      "source_excerpt": "<JzButton :disabled=\"busy\" :aria-expanded=\"matchOpen\" @click=\"matchOpen = !matchOpen\" type=\"button\" icon=\"match\">"
     },
     {
       "id": "frontend/src/views/TvShow.vue:input:47",
@@ -49938,11 +49944,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "剧名",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"nameDraft\" required aria-label=\"剧名\" />"
+      "source_excerpt": "<input v-model=\"nameDraft\" :disabled=\"busy\" required aria-label=\"剧名\" />"
     },
     {
       "id": "frontend/src/views/TvShow.vue:JzButton:48",
@@ -50097,11 +50104,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "搜索剧集匹配",
       "classification": "native control",
-      "source_excerpt": "<input v-model=\"mq\" placeholder=\"输入剧名\" aria-label=\"搜索剧集匹配\" @keyup.enter=\"doSearch\" />"
+      "source_excerpt": "<input v-model=\"mq\" :disabled=\"busy\" placeholder=\"输入剧名\" aria-label=\"搜索剧集匹配\" @keyup.enter=\"doSearch\" />"
     },
     {
       "id": "frontend/src/views/TvShow.vue:JzButton:55",
@@ -50143,7 +50151,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton :disabled=\"searching\" @click=\"doSearch\" type=\"button\" icon=\"search\">"
+      "source_excerpt": "<JzButton :disabled=\"searching || busy\" @click=\"doSearch\" type=\"button\" icon=\"search\">"
     },
     {
       "id": "frontend/src/views/TvShow.vue:JzButton:61",
@@ -50180,11 +50188,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"r.tmdb_id\" @click=\"doMatch(r.tmdb_id)\" type=\"button\" icon=\"match\">"
+      "source_excerpt": "<JzButton v-if=\"r.tmdb_id\" :disabled=\"busy\" @click=\"doMatch(r.tmdb_id)\" type=\"button\" icon=\"match\">"
     },
     {
       "id": "frontend/src/views/TvShow.vue:JzButton:62",
@@ -50221,11 +50230,12 @@
       "states": [
         "normal",
         "focus",
-        "disabled"
+        "disabled",
+        "busy"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-else-if=\"isExternal(r)\" @click=\"doMatchExternal(r)\" type=\"button\" icon=\"match\">"
+      "source_excerpt": "<JzButton v-else-if=\"isExternal(r)\" :disabled=\"busy\" @click=\"doMatchExternal(r)\" type=\"button\" icon=\"match\">"
     },
     {
       "id": "frontend/src/views/TvShow.vue:RouterLink:72",
@@ -50252,7 +50262,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/TvShow.vue",
-            "line": 588,
+            "line": 686,
             "selector": ".season-card-main",
             "values": {
               "padding-bottom": "var(--jz-gap-s)"
@@ -50334,7 +50344,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/TvShow.vue",
-            "line": 598,
+            "line": 696,
             "selector": ".season-no-poster",
             "values": {
               "width": "100%",

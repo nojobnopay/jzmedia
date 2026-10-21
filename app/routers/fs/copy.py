@@ -46,22 +46,63 @@ def _unique_dst(path: str) -> tuple[str, bool]:
         i += 1
 
 
-def _copy_file(src: str, dst: str, on_bytes, should_stop) -> bool:
+def _check_local_copy_target(src: str, dst: str) -> None:
+    """Compare real directories, including existing symlink ancestors of a new target."""
+    source, target = os.path.realpath(src), os.path.realpath(dst)
+    if target == source or target.startswith(source.rstrip(os.sep) + os.sep):
+        raise storage.StorageInvalidPath("target inside source")
+
+
+def _local_access(library_id, *paths, write=False, source_dir=None):
+    """Re-resolve the library at each I/O boundary; keep lexical paths for symlink copies."""
+    backend = storage.backend_for(library_id)
+    if backend.abs_path("") is None:
+        raise storage.StorageOffline("copy storage access changed; retry the copy")
+    if write and backend.read_only:
+        raise storage.StorageReadOnly("copy library is read-only")
+    rels = []
+    for path in paths:
+        rel = os.path.relpath(path, backend.root) if os.path.isabs(path) else path
+        rel = backend.norm(rel)
+        backend.abs_path(rel)
+        rels.append(rel)
+    if source_dir is not None and paths:
+        _check_local_copy_target(source_dir, paths[-1])
+    return backend, rels
+
+
+def _copy_file(src: str, dst: str, on_bytes, should_stop,
+               check_access=None, on_target_change=None) -> bool:
     """分块复制（1MB：可报进度、可协作取消）。成功 True；取消时删除半成品。"""
+    if check_access:
+        check_access()
     with open(src, "rb") as fr, open(dst, "xb") as fw:
+        if on_target_change:
+            on_target_change(True)
         while True:
+            if check_access:
+                check_access()
             if should_stop and should_stop():
                 try:
-                    fw.close(); os.remove(dst)
+                    fw.close()
+                    if check_access:
+                        check_access()
+                    os.remove(dst)
+                    if on_target_change:
+                        on_target_change(False)
                 except OSError:
                     pass
                 return False
             chunk = fr.read(1024 * 1024)
             if not chunk:
                 break
+            if check_access:
+                check_access()
             fw.write(chunk)
             if on_bytes:
                 on_bytes(len(chunk))
+    if check_access:
+        check_access()
     try:
         shutil.copystat(src, dst)
     except OSError:
@@ -69,39 +110,56 @@ def _copy_file(src: str, dst: str, on_bytes, should_stop) -> bool:
     return True
 
 
-def _copy_file_tracked(src, dst, library_id, on_bytes, should_stop):
+def _copy_file_tracked(src, dst, library_id, on_bytes, should_stop, source_dir=None):
     """Retained partial files count as changes even when an item later fails."""
     with library_mutation_lock(library_id):
-        return _copy_file_tracked_locked(src, dst, library_id, on_bytes, should_stop)
+        return _copy_file_tracked_locked(src, dst, library_id, on_bytes, should_stop, source_dir)
 
 
-def _copy_file_tracked_locked(src, dst, library_id, on_bytes, should_stop):
+def _copy_file_tracked_locked(src, dst, library_id, on_bytes, should_stop, source_dir=None):
+    def check_access():
+        _local_access(library_id, src, dst, write=True, source_dir=source_dir)
+
+    check_access()
     existed = os.path.lexists(dst)
+    target_created = False
+
+    def target_changed(created):
+        nonlocal target_created
+        target_created = created
+
     try:
-        return _copy_file(src, dst, on_bytes, should_stop)
+        return _copy_file(src, dst, on_bytes, should_stop, check_access, target_changed)
     except FileExistsError:
         existed = True
         raise
     finally:
-        if not existed and os.path.lexists(dst):
+        # An unmount may hide a file already created through an open descriptor.
+        # Only a confirmed cancellation cleanup withdraws that creation evidence.
+        if not existed and (target_created or os.path.lexists(dst)):
             rel = os.path.relpath(dst, library_paths.library_root(library_id))
             store.record_fs_change(library_id, 'copy', rel)
 
 
-def _mkdir_tracked(library_id, path, backend=None):
+def _mkdir_tracked(library_id, path, backend=None, source_dir=None):
     with library_mutation_lock(library_id):
         if backend is not None:
             if not backend.exists(path):
                 backend.mkdir(path, parents=True)
                 store.record_fs_change(library_id, 'copy', path)
-        elif not os.path.isdir(path):
-            os.makedirs(path, exist_ok=True)
-            store.record_fs_change(library_id, 'copy', os.path.relpath(path, library_paths.library_root(library_id)))
+        else:
+            local, (rel,) = _local_access(library_id, path, write=True, source_dir=source_dir)
+            if not local.exists(rel) or not local.is_dir(rel):
+                local.mkdir(rel, parents=True)
+                store.record_fs_change(library_id, 'copy', rel)
 
 
-def _symlink_tracked(src, dst, library_id):
+def _symlink_tracked(src, dst, library_id, source_dir=None):
     with library_mutation_lock(library_id):
-        os.symlink(os.readlink(src), dst)
+        _local_access(library_id, src)
+        link = os.readlink(src)
+        _local_access(library_id, dst, write=True, source_dir=source_dir)
+        os.symlink(link, dst)
         store.record_fs_change(library_id, 'copy', os.path.relpath(dst, library_paths.library_root(library_id)))
 
 
@@ -308,28 +366,37 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict,
     renamed = 0
     registered = 0
     try:
+        if _stop():
+            return
+        _local_access(lid, write=True)
         for rel in items:
             if _stop():
                 return
             src_abs = library_paths.resolve(lid, rel)
             base = os.path.basename(rel.rstrip("/"))
+            _local_access(lid, src_abs, library_paths.resolve(lid, to_dir), write=True)
             dst_abs, was_renamed = _unique_dst(
                 library_paths.resolve(lid, os.path.join(to_dir, base)) if to_dir
                 else library_paths.resolve(lid, base))
+            _local_access(lid, src_abs, dst_abs, write=True)
             if was_renamed:
                 renamed += 1
             item_status = "copied"
             if os.path.isdir(src_abs) and not os.path.islink(src_abs):
+                _check_local_copy_target(src_abs, dst_abs)
                 # 目录递归：保留符号链接；复制过程不自动登记（完成后由前端引导「扫描新文件」）
                 try:
                     for root, dnames, fnames in os.walk(src_abs):
+                        if _stop():
+                            return
+                        _local_access(lid, root, dst_abs, write=True, source_dir=src_abs)
                         rel_root = os.path.relpath(root, src_abs)
                         target = dst_abs if rel_root == "." else os.path.join(dst_abs, rel_root)
-                        _mkdir_tracked(lid, target)
+                        _mkdir_tracked(lid, target, source_dir=src_abs)
                         for d in list(dnames):
                             p = os.path.join(root, d)
                             if os.path.islink(p):
-                                _symlink_tracked(p, os.path.join(target, d), lid)
+                                _symlink_tracked(p, os.path.join(target, d), lid, source_dir=src_abs)
                                 dnames.remove(d)
                         for f in fnames:
                             if _stop():
@@ -337,10 +404,10 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict,
                             fp = os.path.join(root, f)
                             tp = os.path.join(target, f)
                             if os.path.islink(fp):
-                                _symlink_tracked(fp, tp, lid)
+                                _symlink_tracked(fp, tp, lid, source_dir=src_abs)
                                 continue
-                            _mkdir_tracked(lid, os.path.dirname(tp))
-                            if not _copy_file_tracked(fp, tp, lid, _on_bytes, _stop):
+                            _mkdir_tracked(lid, os.path.dirname(tp), source_dir=src_abs)
+                            if not _copy_file_tracked(fp, tp, lid, _on_bytes, _stop, source_dir=src_abs):
                                 return
                 except OSError as e:
                     item_status = f"error: {e}"
@@ -379,7 +446,8 @@ def _copy_worker(jid: str, items: list[str], to_dir: str, hints: dict,
                           registered=registered, results=results[:200])
     except Exception as e:
         logger.warning("copy job failed jid=%s: %s", jid, e)
-        _COPY_JOBS.update(jid, state="failed", error=str(e)[:300])
+        if not _stop():
+            _COPY_JOBS.update(jid, state="failed", error=str(e)[:300])
     finally:
         _COPY_JOBS.update(jid, worker_finished=True)
 
@@ -456,9 +524,9 @@ def fs_copy(body: dict | None = None):
             if not os.path.exists(abs_p):
                 raise HTTPException(404, f"not found: {rel!r}")
             if os.path.isdir(abs_p) and not os.path.islink(abs_p):
-                norm_src = os.path.normpath(abs_p)
-                norm_dst = os.path.normpath(dst_root)
-                if norm_dst == norm_src or norm_dst.startswith(norm_src + os.sep):
+                try:
+                    _check_local_copy_target(abs_p, dst_root)
+                except storage.StorageInvalidPath:
                     raise HTTPException(422, f"target inside source: {rel!r}")
             base = os.path.basename(rel.rstrip("/"))
             if os.path.exists(os.path.join(dst_root, base)):

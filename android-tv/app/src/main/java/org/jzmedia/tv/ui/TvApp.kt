@@ -59,6 +59,7 @@ import org.jzmedia.tv.BuildConfig
 import org.jzmedia.tv.data.ConnectionStore
 import org.jzmedia.tv.data.ApiException
 import org.jzmedia.tv.data.DiscoveredServer
+import org.jzmedia.tv.data.DiscoveryScan
 import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.SavedConnection
 import org.jzmedia.tv.data.ServerDiscovery
@@ -386,12 +387,12 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
     var scanning by remember { mutableStateOf(false) }
     var scanProgress by remember { mutableStateOf("") }
     var scanResults by remember { mutableStateOf<List<DiscoveredServer>?>(null) }
-    var scanJob by remember { mutableStateOf<Job?>(null) }
     // 扫描结果弹窗：选服务器与确认连接一步完成；null=关闭。
     var serverPicker by remember { mutableStateOf(false) }
     var confirmTarget by remember { mutableStateOf<DiscoveredServer?>(null) }
     fun closePicker() { serverPicker = false; confirmTarget = null }
     val scope = rememberCoroutineScope()
+    val discovery = remember(scope) { DiscoveryScan(scope) }
     val context = LocalContext.current
     val memory = rememberFocusMemory("connect")
     val keyboard = LocalSoftwareKeyboardController.current
@@ -435,22 +436,22 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
     }
     LaunchedEffect(Unit) { if (autoConnect) connect() }
     fun scan() {
-        if (scanning) { scanJob?.cancel(); scanning = false; return }
+        if (scanning) { discovery.cancel(); scanning = false; return }
         scanning = true; scanProgress = ""; scanResults = null; closePicker()
-        scanJob = scope.launch {
-            try {
-                val found = ServerDiscovery.scan(onProgress = { done, total -> scanProgress = "$done/$total" })
+        discovery.start(
+            onProgress = { done, total -> scanProgress = "$done/$total" },
+            onResult = { found ->
                 scanResults = found
                 if (found.isNotEmpty()) serverPicker = true
-            } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { scanResults = emptyList() }
-            finally { scanning = false }
-        }
+            },
+            onFailure = { scanResults = emptyList() },
+            onFinished = { scanning = false },
+        )
     }
     BackHandler {
         if (imeVisible) keyboard?.hide()
         else if (busy) { job?.cancel(); busy = false }
-        else if (scanning) { scanJob?.cancel(); scanning = false }
+        else if (scanning) { discovery.cancel(); scanning = false }
         else onBack()
     }
     LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 64.dp, vertical = 36.dp),

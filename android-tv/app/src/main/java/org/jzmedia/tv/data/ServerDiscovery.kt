@@ -1,8 +1,10 @@
 package org.jzmedia.tv.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -118,7 +120,11 @@ object ServerDiscovery {
             targets.chunked(maxParallel).forEach { chunk ->
                 val jobs = chunk.map { target ->
                     async {
-                        val hit = try { probe(target) } catch (_: Exception) { null }
+                        val hit = try { probe(target) }
+                        catch (error: CancellationException) { throw error }
+                        catch (_: Exception) { null }
+                        // A synchronous HTTP probe can finish after its scan was stopped.
+                        coroutineContext.ensureActive()
                         synchronized(found) {
                             if (hit != null) found.add(hit)
                             done++

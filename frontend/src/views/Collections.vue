@@ -1,8 +1,8 @@
 <template>
   <div class="browse-page collections-page">
-    <header class="browse-heading"><h1>合集</h1><JzButton v-if="!isChildren" icon="plus" variant="primary" :aria-expanded="createOpen" aria-controls="collection-create" @click="createOpen = !createOpen">新建合集</JzButton></header>
+    <header class="browse-heading"><h1>合集</h1><JzButton v-if="!isChildren" :disabled="creating" icon="plus" variant="primary" :aria-expanded="createOpen" aria-controls="collection-create" @click="createOpen = !createOpen">新建合集</JzButton></header>
     <form class="bar collection-search" role="search" aria-label="搜索合集" @submit.prevent="load"><input v-model="q" aria-label="搜索合集" placeholder="搜合集名" /><JzButton type="submit" icon="search">搜索</JzButton></form>
-    <form v-show="createOpen" id="collection-create" class="bar collection-create" @submit.prevent="create"><input v-model="name" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><JzButton :disabled="!name.trim()" type="submit" icon="plus">创建</JzButton><JzButton type="button" @click="createOpen = false">取消</JzButton></form>
+    <form v-show="createOpen" id="collection-create" class="bar collection-create" @submit.prevent="create"><input v-model="name" :disabled="creating" aria-label="新合集名称" placeholder="新建合集名，如 周星驰合集" /><JzButton :disabled="!name.trim()" :loading="creating" type="submit" icon="plus">创建</JzButton><JzButton :disabled="creating" type="button" @click="createOpen = false">取消</JzButton></form>
     <p v-if="msg" role="status">{{ msg }}</p>
     <div class="collections-heading"><h2 class="sec-h">我的合集</h2><span v-if="!loading && !loadError">{{ items.length }} 个合集</span></div>
     <EmptyState v-if="loading" state="loading" title="正在加载合集" text="请稍候…" />
@@ -24,15 +24,15 @@
       <section v-if="topups.length"><h3>可补齐</h3><div class="grid collection-action-grid">
         <div v-for="t in topups" :key="t.collection_id" class="card tp-card">
           <div class="t">《{{ t.name }}》有 {{ t.new_count }} 部新片</div><div class="t sub">{{ t.new_members.map(m => m.title).join(' / ') }}</div>
-          <div class="bar"><JzButton @click="topUp(t)" :disabled="topping" type="button">补齐合集</JzButton><router-link :to="'/c/' + t.collection_id">查看合集</router-link></div>
+          <div class="bar"><JzButton @click="topUp(t)" :disabled="topping" :loading="topping && toppingCollection === t.collection_id" type="button">补齐合集</JzButton><router-link :to="'/c/' + t.collection_id">查看合集</router-link></div>
         </div>
       </div></section>
-      <section v-if="suggest.length"><div class="bar"><h3>推荐合集</h3><JzButton @click="acceptAll" :disabled="accepting" type="button">全部接受（{{ suggest.length }}）</JzButton></div>
+      <section v-if="suggest.length"><div class="bar"><h3>推荐合集</h3><JzButton @click="acceptAll" :disabled="accepting" :loading="accepting && acceptingSeries === null" type="button">全部接受（{{ suggest.length }}）</JzButton></div>
         <div class="grid collection-action-grid"><div v-for="entry in suggest" :key="entry.collection_tmdb_id" class="card collection-card sg-card">
           <div class="poster-wrap"><img v-if="entry.cover" :src="posterUrl(entry.cover)" loading="lazy" :alt="entry.collection_name" /><ArtworkPlaceholder v-else class="cover-empty" kind="collection" :label="entry.collection_name" /></div>
           <div class="collection-card-body"><h3>{{ entry.collection_name }}</h3><span>库内 {{ entry.member_count }} 部影片</span></div>
           <div class="t sub">{{ entry.members.map(m => m.title).join(' / ') }}</div>
-          <div class="bar"><JzButton @click="accept(entry)" :disabled="accepting" type="button">接受</JzButton><JzButton @click="dismiss(entry)" type="button">忽略</JzButton></div>
+          <div class="bar"><JzButton @click="accept(entry)" :disabled="accepting" :loading="accepting && acceptingSeries === entry.collection_tmdb_id" type="button">接受</JzButton><JzButton @click="dismiss(entry)" :disabled="accepting" type="button">忽略</JzButton></div>
         </div></div>
       </section>
     </details>
@@ -59,6 +59,7 @@ import { currentMediaId, mediaParam, loadLibs, onLibChange } from '../libraries.
 import { usePolling } from '../usePolling.js'
 
 const createOpen = ref(false)
+const creating = ref(false)
 const q = ref('')
 const name = ref('')
 const items = ref([])
@@ -74,9 +75,11 @@ const coverage = ref(null)
 const sgMsg = ref('')
 const backfilling = ref(false)
 const topping = ref(false)
+const toppingCollection = ref(null)
 const jobId = ref('')
 const bfProgress = ref({ state: 'idle', done: 0, total: 0, current_title: '', failed: [] })
 const accepting = ref(false)
+const acceptingSeries = ref(null)
 const DISMISS_KEY = 'jzmedia.dismissedSeries'
 const BF_MAX_ROUNDS = 4          // 自动续跑上限（评审 B5a-10/R06-D4：一轮 50 条，防死循环）
 let bfRounds = 0                 // 当前补全链已发起的轮数
@@ -269,48 +272,62 @@ async function cancelBackfill() {
   await pollStatus(context)
 }
 async function accept(s) {
+  const context = scopeContext()
+  if (!currentScope(context) || accepting.value || !suggest.value.includes(s)) return
   accepting.value = true
+  acceptingSeries.value = s.collection_tmdb_id
   sgMsg.value = ''
   try {
     await api('/api/collections/from-tmdb-series', {
       method: 'POST',
       body: JSON.stringify({ movie_id: s.members[0].id, name: s.collection_name })
     })
+    if (!currentScope(context)) return
     await load()
-    await loadSuggest()
+    if (!currentScope(context)) return
+    await loadSuggest(context)
   } catch (e) {
-    sgMsg.value = '创建失败：' + e.message
+    if (currentScope(context)) sgMsg.value = '创建失败：' + e.message
   } finally {
-    accepting.value = false
+    if (currentScope(context)) { accepting.value = false; acceptingSeries.value = null }
   }
 }
 // 批量接受当前库的全部系列推荐（逐条串行，避免并发写合集/成员）
 async function acceptAll() {
-  if (accepting.value || !suggest.value.length) return
+  const context = scopeContext()
+  if (!currentScope(context) || accepting.value || !suggest.value.length) return
   accepting.value = true
+  acceptingSeries.value = null
   sgMsg.value = ''
   const list = [...suggest.value]
   const failed = []
   let ok = 0
   for (const s of list) {
+    if (!currentScope(context)) return
     try {
       await api('/api/collections/from-tmdb-series', {
         method: 'POST',
         body: JSON.stringify({ movie_id: s.members[0].id, name: s.collection_name })
       })
+      if (!currentScope(context)) return
       ok += 1
       sgMsg.value = `批量建合集 ${ok}/${list.length}…`
     } catch (e) {
+      if (!currentScope(context)) return
       failed.push(s.collection_name || String(s.collection_tmdb_id))
     }
   }
-  accepting.value = false
+  if (!currentScope(context)) return
   sgMsg.value = `已建 ${ok} 个合集`
     + (failed.length ? `，失败 ${failed.length}：${failed.slice(0, 3).join('、')}${failed.length > 3 ? ' 等' : ''}` : '')
-  await load()
-  await loadSuggest()
+  try {
+    await load()
+    if (!currentScope(context)) return
+    await loadSuggest(context)
+  } finally { if (currentScope(context)) accepting.value = false }
 }
 function dismiss(s) {
+  if (accepting.value || !suggest.value.includes(s)) return
   try {
     const gone = dismissedIds()
     gone.add(s.collection_tmdb_id)
@@ -319,17 +336,22 @@ function dismiss(s) {
   suggest.value = suggest.value.filter(x => x.collection_tmdb_id !== s.collection_tmdb_id)
 }
 async function topUp(t) {
+  const context = scopeContext()
+  if (!currentScope(context) || topping.value || !topups.value.includes(t)) return
   topping.value = true
+  toppingCollection.value = t.collection_id
   sgMsg.value = ''
   try {
     const d = await api(`/api/collections/${t.collection_id}/members/top-up`, { method: 'POST' })
+    if (!currentScope(context)) return
     sgMsg.value = `已补齐 ${d.added} 部`
     await load()
-    await loadSuggest()
+    if (!currentScope(context)) return
+    await loadSuggest(context)
   } catch (e) {
-    sgMsg.value = '补齐失败：' + e.message
+    if (currentScope(context)) sgMsg.value = '补齐失败：' + e.message
   } finally {
-    topping.value = false
+    if (currentScope(context)) { topping.value = false; toppingCollection.value = null }
   }
 }
 
@@ -358,19 +380,22 @@ function clearSearch() { q.value = ''; load() }
 
 async function create() {
   const n = name.value.trim()
-  if (!n) return
+  const context = scopeContext()
+  if (!n || !currentScope(context) || creating.value) return
+  creating.value = true
   msg.value = ''
   try {
     const d = await api('/api/collections', {
       method: 'POST',
-      body: JSON.stringify({ name: n, media_library_id: currentMediaId() })
+      body: JSON.stringify({ name: n, media_library_id: context.mediaId })
     })
+    if (!currentScope(context)) return
     name.value = ''
     createOpen.value = false
     items.value.unshift({ id: d.id, name: d.name, member_count: 0, cover: d.cover || '' })
   } catch (e) {
-    msg.value = '创建失败：' + e.message
-  }
+    if (currentScope(context)) msg.value = '创建失败：' + e.message
+  } finally { if (currentScope(context)) creating.value = false }
 }
 async function resumeBackfill() {
   if (isChildren.value || viewing.enabled && !viewing.management_unlocked) return
@@ -406,6 +431,13 @@ onMounted(async () => {
     topups.value = []
     coverage.value = null
     sgMsg.value = ''
+    creating.value = false
+    createOpen.value = false
+    name.value = ''
+    accepting.value = false
+    acceptingSeries.value = null
+    topping.value = false
+    toppingCollection.value = null
     load()
     loadSuggest()
   })

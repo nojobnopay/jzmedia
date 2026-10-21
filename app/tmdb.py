@@ -25,6 +25,16 @@ def _client() -> httpx.Client:
 _RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
+def _raise_for_status(response: httpx.Response) -> None:
+    """Keep HTTPX status semantics without propagating credential-bearing URLs."""
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        raise httpx.HTTPStatusError(
+            f"HTTP {response.status_code}: 资料服务请求失败",
+            request=error.request, response=error.response) from None
+
+
 def _get(c: httpx.Client, path: str, params: dict | None = None,
          retries: int = 2) -> httpx.Response:
     """GET + 瞬时错误退避重试（429/5xx/网络错误）；4xx 不重试直接抛。"""
@@ -37,7 +47,7 @@ def _get(c: httpx.Client, path: str, params: dict | None = None,
                     f"retryable status {r.status_code}", request=r.request,
                     response=r)
                 raise last
-            r.raise_for_status()
+            _raise_for_status(r)
             return r
         except httpx.HTTPStatusError as e:
             if e.response is not None and e.response.status_code not in _RETRY_STATUS:
@@ -106,7 +116,7 @@ def _tv_light(path: str) -> dict:
     """One bounded attempt for the airing queue; retries belong to its durable clock."""
     with _client() as client:
         response = client.get(path, params=_params(), timeout=8.0)
-        response.raise_for_status()
+        _raise_for_status(response)
         value = response.json()
         if not isinstance(value, dict):
             raise ValueError("invalid TMDB response")
@@ -190,7 +200,8 @@ def download_url(url: str, dest: str, timeout: float = 30.0,
             atomic_write_bytes(dest, r.content)
         return True
     except Exception as e:
-        logger.warning("image download failed url=%s dest=%s: %s", url, dest, e)
+        from .metadata.state import safe_error
+        logger.warning("image download failed dest=%s: %s", dest, safe_error(e))
         return False
 
 

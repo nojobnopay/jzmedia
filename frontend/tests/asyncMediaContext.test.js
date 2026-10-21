@@ -110,7 +110,7 @@ async function collectionPage(t, options = {}) {
         return options.status?.(++statusCount, path, opts) ?? Promise.resolve({ state: 'idle' })
       }
       if (path.startsWith('/api/collections/suggest')) return options.suggest?.(media, opts) ?? Promise.resolve({ items: [], coverage: { unchecked: 1 } })
-      return Promise.resolve({ items: [] })
+      return options.list?.(media, opts) ?? Promise.resolve({ items: [] })
     } },
     '../libraries.js': { currentMediaId: () => media, mediaParam: () => media, loadLibs: async () => {},
       onLibChange: callback => { changed = callback; return () => {} } },
@@ -242,6 +242,154 @@ test('cancelling an expired explicit job clears tracking without querying or can
   const count = ui.requests.length
   await ui.tick()
   assert.equal(ui.requests.length, count)
+})
+
+const submit = (ui, id) => ui.find(node => node.type === 'form' && node.props.id === id).props.onSubmit({ preventDefault() {} })
+const collectionWrites = ui => ui.requests.filter(request => request.opts.method === 'POST')
+
+test('collection creation is single-flight and an old library response cannot insert a row or release a newer save', async t => {
+  const pending = []
+  const ui = await collectionPage(t, { post: () => { const request = deferred(); pending.push(request); return request.promise } })
+  const setName = value => ui.find(node => node.type === 'input' && node.props['aria-label'] === '新合集名称').props['onUpdate:modelValue'](value)
+  setName('旧库新合集')
+  await flush()
+  submit(ui, 'collection-create')
+  submit(ui, 'collection-create')
+  await flush()
+  assert.equal(pending.length, 1)
+  assert.equal(button(ui, '创建').props['aria-busy'], true)
+  assert.deepEqual(JSON.parse(collectionWrites(ui)[0].opts.body), { name: '旧库新合集', media_library_id: 7 })
+  ui.switchMedia(9)
+  await flush()
+  setName('当前库新合集')
+  await flush()
+  submit(ui, 'collection-create')
+  pending[0].resolve({ id: 71, name: '旧库新合集' })
+  await flush()
+  assert.doesNotMatch(ui.text(), /旧库新合集/)
+  assert.equal(button(ui, '创建').props['aria-busy'], true)
+  assert.equal(ui.find(node => node.props['aria-label'] === '新合集名称').props.value, '当前库新合集')
+  pending[1].resolve({ id: 91, name: '当前库新合集' })
+  await flush()
+  assert.match(ui.text(), /当前库新合集/)
+  assert.equal(button(ui, '创建').props.disabled, true, 'the successful save clears the draft')
+})
+
+test('collection creation errors remain retryable in their own scope and stay silent after unmount', async t => {
+  const pending = []
+  const ui = await collectionPage(t, { post: () => { const request = deferred(); pending.push(request); return request.promise } })
+  ui.find(node => node.props['aria-label'] === '新合集名称').props['onUpdate:modelValue']('可重试合集')
+  await flush()
+  submit(ui, 'collection-create')
+  pending[0].reject(new Error('服务暂不可用'))
+  await flush()
+  assert.match(ui.text(), /创建失败.*服务暂不可用/)
+  assert.equal(button(ui, '创建').props.disabled, false)
+  submit(ui, 'collection-create')
+  ui.app.unmount()
+  const count = ui.requests.length
+  pending[1].resolve({ id: 7, name: '可重试合集' })
+  await flush()
+  assert.equal(ui.requests.length, count)
+})
+
+test('accepting or topping up a collection cannot refresh another scope, and ignores rapid repeated actions', async t => {
+  for (const operation of ['accept', 'top-up']) {
+    const pending = deferred()
+    const ui = await collectionPage(t, {
+      suggest: media => Promise.resolve({ ...suggestion(media, '推荐库' + media), topups: [
+        { collection_id: media * 10, name: '补齐库' + media, new_count: 1, new_members: [{ title: '新增影片' }] },
+      ] }),
+      post: () => pending.promise,
+    })
+    const action = button(ui, operation === 'accept' ? '接受' : '补齐合集').props.onClick
+    action(); action()
+    await flush()
+    assert.equal(collectionWrites(ui).length, 1)
+    assert.equal(button(ui, operation === 'accept' ? '接受' : '补齐合集').props['aria-busy'], true)
+    ui.switchMedia(9)
+    await flush()
+    const count = ui.requests.length
+    pending.resolve({ added: 12 })
+    await flush()
+    assert.equal(ui.requests.length, count, 'a completed old write must not start reads for the new library')
+    assert.doesNotMatch(ui.text(), /已补齐 12 部|创建失败|补齐失败/)
+    assert.match(ui.text(), /推荐库9/)
+    assert.equal(button(ui, operation === 'accept' ? '接受' : '补齐合集').props.disabled, false)
+  }
+})
+
+test('collection write completion checks scope again after refreshing its list', async t => {
+  const list = deferred(), write = deferred()
+  let oldLists = 0
+  const ui = await collectionPage(t, {
+    suggest: media => Promise.resolve(suggestion(media, '推荐库' + media)),
+    list: media => media === 7 && ++oldLists > 1 ? list.promise : Promise.resolve({ items: [] }),
+    post: () => write.promise,
+  })
+  button(ui, '接受').props.onClick()
+  write.resolve({ id: 71 })
+  await flush()
+  ui.switchMedia(9)
+  await flush()
+  const count = ui.requests.length
+  list.resolve({ items: [{ id: 71, name: '旧列表合集', member_count: 1 }] })
+  await flush()
+  assert.equal(ui.requests.length, count)
+  assert.doesNotMatch(ui.text(), /旧列表合集/)
+})
+
+test('batch collection acceptance stops dispatching on a library switch or unmount', async t => {
+  for (const leave of ['switch', 'unmount']) {
+    const pending = deferred()
+    const ui = await collectionPage(t, {
+      suggest: () => Promise.resolve({ items: [...suggestion(71, '系列一').items, ...suggestion(72, '系列二').items] }),
+      post: () => pending.promise,
+    })
+    const action = button(ui, '全部接受（2）').props.onClick
+    action(); action()
+    assert.equal(collectionWrites(ui).length, 1)
+    if (leave === 'switch') ui.switchMedia(9)
+    else ui.app.unmount()
+    await flush()
+    const count = ui.requests.length
+    pending.resolve({ id: 71 })
+    await flush()
+    assert.equal(ui.requests.length, count)
+    assert.equal(collectionWrites(ui).length, 1, 'the next item was never submitted after leaving')
+  }
+})
+
+test('batch collection acceptance still processes its original selection and reports partial failure', async t => {
+  let writes = 0
+  const ui = await collectionPage(t, {
+    suggest: () => Promise.resolve({ items: [...suggestion(71, '系列一').items, ...suggestion(72, '系列二').items] }),
+    post: () => ++writes === 1 ? Promise.resolve({ id: 71 }) : Promise.reject(new Error('资料暂不可用')),
+  })
+  button(ui, '全部接受（2）').props.onClick()
+  await flush()
+  assert.deepEqual(collectionWrites(ui).map(request => JSON.parse(request.opts.body).movie_id), [71, 72])
+  assert.match(ui.text(), /已建 1 个合集，失败 1：系列二/)
+  assert.equal(button(ui, '全部接受（2）').props.disabled, false)
+})
+
+test('batch acceptance remains busy until its refreshed suggestions replace the old action objects', async t => {
+  const refreshing = deferred()
+  let lists = 0
+  const ui = await collectionPage(t, {
+    suggest: () => Promise.resolve(suggestion(71, '系列一')),
+    list: () => ++lists > 1 ? refreshing.promise : Promise.resolve({ items: [] }),
+    post: () => Promise.resolve({ id: 71 }),
+  })
+  const action = button(ui, '全部接受（1）').props.onClick
+  action()
+  await flush()
+  assert.equal(button(ui, '全部接受（1）').props['aria-busy'], true)
+  action()
+  assert.equal(collectionWrites(ui).length, 1)
+  refreshing.resolve({ items: [] })
+  await flush()
+  assert.equal(button(ui, '全部接受（1）').props.disabled, false)
 })
 
 async function episodePage(t) {

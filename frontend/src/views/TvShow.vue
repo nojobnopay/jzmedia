@@ -33,7 +33,7 @@
               <JzButton :disabled="busy" @click="nameDraft = show.title; renameOpen = !renameOpen" type="button" variant="ghost" icon="edit">修改剧名</JzButton>
               <JzButton :disabled="busy" @click="refreshMeta" type="button" variant="ghost" icon="refresh">更新剧集资料</JzButton>
               <JzButton :disabled="busy" @click="bindingsOpen = true" type="button" variant="ghost" icon="match">归属与季号</JzButton>
-              <JzButton @click="matchOpen = !matchOpen" type="button" variant="ghost" icon="match">{{ matchOpen ? '收起匹配' : '重新匹配剧集' }}</JzButton>
+              <JzButton :disabled="busy" @click="matchOpen = !matchOpen" type="button" variant="ghost" icon="match">{{ matchOpen ? '收起匹配' : '重新匹配剧集' }}</JzButton>
               <JzButton :disabled="busy" @click="openOrganize" type="button" variant="ghost" icon="organize">{{ organizing ? '正在发现新增分集…' : '整理剧集目录' }}</JzButton>
               <JzButton :disabled="verifying" @click="verifyExists" type="button" variant="ghost" icon="eye">{{ verifying ? '检查中…' : '检查文件是否可用' }}</JzButton>
             </ActionMenu>
@@ -49,25 +49,25 @@
           <div v-if="!isChildren && ((!show.tmdb_id && !show.match_source) || show.needs_review)" class="review-notice">
             <span>{{ !show.tmdb_id && !show.match_source ? '剧集资料尚未匹配' : '请确认剧集是否匹配正确' }}</span>
             <JzButton v-if="show.tmdb_id || show.match_source" :disabled="busy" @click="confirmMatch" type="button" icon="match">匹配正确</JzButton>
-            <JzButton :aria-expanded="matchOpen" @click="matchOpen = !matchOpen" type="button" icon="match">{{ !show.tmdb_id && !show.match_source ? '匹配资料' : '重新匹配' }}</JzButton>
+            <JzButton :disabled="busy" :aria-expanded="matchOpen" @click="matchOpen = !matchOpen" type="button" icon="match">{{ !show.tmdb_id && !show.match_source ? '匹配资料' : '重新匹配' }}</JzButton>
           </div>
           <form v-if="renameOpen" class="inline-edit" @submit.prevent="renameShow">
-            <label>剧名 <input v-model="nameDraft" required aria-label="剧名" /></label>
+            <label>剧名 <input v-model="nameDraft" :disabled="busy" required aria-label="剧名" /></label>
             <JzButton :disabled="busy || !nameDraft.trim()" type="submit">保存剧名</JzButton>
             <JzButton type="button" @click="renameOpen = false">取消</JzButton>
           </form>
           <div v-if="matchOpen" class="match card-block">
             <p class="hint">只匹配其中一季或合并多个目录，可使用 <JzButton @click="bindingsOpen = true" type="button" icon="match">归属与季号</JzButton>。</p>
             <div class="bar match-bar">
-              <input v-model="mq" placeholder="输入剧名" aria-label="搜索剧集匹配" @keyup.enter="doSearch" />
-              <JzButton :disabled="searching" @click="doSearch" type="button" icon="search">搜索</JzButton>
+              <input v-model="mq" :disabled="busy" placeholder="输入剧名" aria-label="搜索剧集匹配" @keyup.enter="doSearch" />
+              <JzButton :disabled="searching || busy" @click="doSearch" type="button" icon="search">搜索</JzButton>
             </div>
             <div v-for="r in results" :key="r.tmdb_id || r.source + ':' + r.source_id" class="mrow">
               <span v-if="r.source && r.source !== 'tmdb'" class="src-badge">{{ srcLabel(r.source) }}</span>
               <span class="mname">{{ r.title }}<span v-if="r.original_title && r.original_title !== r.title" class="dim"> / {{ r.original_title }}</span></span>
               <span class="dim">{{ r.year || '—' }}</span>
-              <JzButton v-if="r.tmdb_id" @click="doMatch(r.tmdb_id)" type="button" icon="match">匹配</JzButton>
-              <JzButton v-else-if="isExternal(r)" @click="doMatchExternal(r)" type="button" icon="match">绑定外源</JzButton>
+              <JzButton v-if="r.tmdb_id" :disabled="busy" @click="doMatch(r.tmdb_id)" type="button" icon="match">匹配</JzButton>
+              <JzButton v-else-if="isExternal(r)" :disabled="busy" @click="doMatchExternal(r)" type="button" icon="match">绑定外源</JzButton>
             </div>
             <div v-if="searched && !results.length" class="dim">没有找到相关剧集，请尝试其他名称。</div>
             <AiMatchSuggestions kind="tv" :item-id="show.id" :disabled="busy || searching" :already-matched="!!show.tmdb_id || !!show.match_source" @select="selectAiMatch" />
@@ -195,6 +195,35 @@ function otherSources(season) {
 }
 const loadError = ref('')
 let loadSeq = 0
+let showGeneration = 0
+let searchSeq = 0
+let searchController = null
+let disposed = false
+const mediaWaits = new Map()
+function showContext() { return { id: String(route.params.id), generation: showGeneration } }
+function currentShow(context) {
+  return !disposed && context.generation === showGeneration && context.id === String(route.params.id)
+    && /^[1-9]\d*$/.test(context.id)
+    && (!route.path || route.path.replace(/\/$/, '') === '/tv/' + context.id)
+}
+function actionableShow(context) { return currentShow(context) && String(show.value?.id) === context.id }
+function invalidateSearch(clear = true) {
+  searchSeq++
+  searchController?.abort()
+  searchController = null
+  searching.value = false
+  if (clear) { results.value = []; searched.value = false }
+}
+function stopMediaWaits() {
+  for (const [timer, resolve] of mediaWaits) { clearTimeout(timer); resolve() }
+  mediaWaits.clear()
+}
+function pauseForMedia() {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => { mediaWaits.delete(timer); resolve() }, 2000)
+    mediaWaits.set(timer, resolve)
+  })
+}
 const msg = ref('')
 const playing = ref(null)
 const busy = ref(false)
@@ -311,10 +340,11 @@ function playExtra (x) {
   }
 }
 function openShow (id) { router.push('/tv/' + id) }
-async function load (verify = '0') {
-  const requestedId = String(route.params.id)
+async function load (verify = '0', context = showContext()) {
+  if (!currentShow(context)) return
+  const requestedId = context.id
   const seq = ++loadSeq
-  const isCurrent = () => seq === loadSeq && String(route.params.id) === requestedId
+  const isCurrent = () => seq === loadSeq && currentShow(context)
   if (show.value && String(show.value.id) !== requestedId) show.value = null
   loadError.value = ''
   msg.value = ''
@@ -349,54 +379,78 @@ async function load (verify = '0') {
 }
 
 async function verifyExists () {
+  const context = showContext()
+  if (!actionableShow(context) || verifying.value) return
   verifying.value = true
   try {
-    await load('1')
-  } catch (e) { msg.value = '校验失败：' + e.message } finally { verifying.value = false }
+    await load('1', context)
+  } catch (e) { if (currentShow(context)) msg.value = '校验失败：' + e.message }
+  finally { if (currentShow(context)) verifying.value = false }
 }
-async function markWatched (episodeId, watched) {
+async function markWatched (episodeId, watched, context) {
   try {
     await api(`/api/tv/episodes/${episodeId}/watched`, {
       method: 'POST', body: JSON.stringify({ watched }) })
-  } catch (e) { msg.value = '操作失败：' + e.message }
+  } catch (e) { if (currentShow(context)) msg.value = '操作失败：' + e.message }
 }
 async function toggleShowWatched () {
+  const context = showContext()
+  if (!actionableShow(context) || busy.value) return
+  const watched = !allWatched.value
   busy.value = true
   try {
-    await api(`/api/tv/shows/${show.value.id}/watched`, {
-      method: 'POST', body: JSON.stringify({ watched: !allWatched.value }) })
-    await load()
-  } catch (e) { msg.value = '操作失败：' + e.message } finally { busy.value = false }
+    await api(`/api/tv/shows/${context.id}/watched`, {
+      method: 'POST', body: JSON.stringify({ watched }) })
+    if (!currentShow(context)) return
+    await load('0', context)
+  } catch (e) { if (currentShow(context)) msg.value = '操作失败：' + e.message }
+  finally { if (currentShow(context)) busy.value = false }
 }
 async function renameShow () {
+  const context = showContext()
+  if (!actionableShow(context) || busy.value) return
   const cur = show.value.title || ''
   const t = nameDraft.value.trim()
   if (!t) return
   if (t === cur) { renameOpen.value = false; return }
   busy.value = true
   try {
-    await api(`/api/tv/shows/${show.value.id}`, {
+    await api(`/api/tv/shows/${context.id}`, {
       method: 'PATCH', body: JSON.stringify({ title: t }) })
+    if (!currentShow(context)) return
     renameOpen.value = false
-    await load()
+    await load('0', context)
+    if (!currentShow(context)) return
     msg.value = '剧名已保存'
-  } catch (e) { msg.value = '改名失败：' + e.message } finally { busy.value = false }
+  } catch (e) { if (currentShow(context)) msg.value = '改名失败：' + e.message }
+  finally { if (currentShow(context)) busy.value = false }
 }
 async function confirmMatch () {
-  try {
-    await api(`/api/tv/shows/${show.value.id}/confirm-match`, { method: 'POST' })
-    await load()
-  } catch (e) { msg.value = '操作失败：' + e.message }
-}
-async function refreshMeta () {
+  const context = showContext()
+  if (!actionableShow(context) || busy.value) return
   busy.value = true
   try {
-    await api(`/api/tv/shows/${show.value.id}/refresh`, { method: 'POST' })
+    await api(`/api/tv/shows/${context.id}/confirm-match`, { method: 'POST' })
+    if (!currentShow(context)) return
+    await load('0', context)
+  } catch (e) { if (currentShow(context)) msg.value = '操作失败：' + e.message }
+  finally { if (currentShow(context)) busy.value = false }
+}
+async function refreshMeta () {
+  const context = showContext()
+  if (!actionableShow(context) || busy.value) return
+  busy.value = true
+  try {
+    await api(`/api/tv/shows/${context.id}/refresh`, { method: 'POST' })
+    if (!currentShow(context)) return
     posterVer.value++
-    await load()
-    await waitForMedia()
+    await load('0', context)
+    if (!currentShow(context)) return
+    await waitForMedia(context)
+    if (!currentShow(context)) return
     posterVer.value++
-  } catch (e) { msg.value = '刷新失败：' + e.message } finally { busy.value = false }
+  } catch (e) { if (currentShow(context)) msg.value = '刷新失败：' + e.message }
+  finally { if (currentShow(context)) busy.value = false }
 }
 // 匹配响应自带落盘状态：失败原因必须可见，不静默（与后端 media.artwork.reason 对齐）
 function mediaNote (res) {
@@ -413,46 +467,61 @@ function mediaNote (res) {
   }[art.reason] || ''
 }
 // 大剧后台落盘/慢链路时的补齐轮询：已有简介/海报立即返回，不空转
-async function waitForMedia (tries = 5) {
+async function waitForMedia (context, tries = 5) {
   for (let i = 0; i < tries; i++) {
+    if (!currentShow(context)) return
     const cur = show.value
     if (cur && cur.tmdb_id && (cur.poster_path || cur.overview)) return
-    await new Promise((r) => setTimeout(r, 2000))
+    await pauseForMedia()
+    if (!currentShow(context)) return
     try {
-      const d = await api('/api/tv/shows/' + route.params.id)
-      if (String(route.params.id) !== String(show.value?.id)) return
+      const d = await api('/api/tv/shows/' + context.id)
+      if (!currentShow(context)) return
       show.value = d
       if (d.tmdb_id && (d.poster_path || d.overview)) return
     } catch (e) { /* 下一轮 */ }
   }
 }
 async function doSearch () {
+  const context = showContext()
   const term = mq.value.trim()
-  if (!term) return
+  if (!term || !actionableShow(context) || busy.value) return
+  invalidateSearch()
+  const seq = searchSeq
+  searchController = new AbortController()
+  const signal = searchController.signal
+  const current = () => currentShow(context) && seq === searchSeq
   searching.value = true
   searched.value = false
   try {
-    const d = await api('/api/tv/search?q=' + encodeURIComponent(term))
+    const d = await api('/api/tv/search?q=' + encodeURIComponent(term), { signal })
+    if (!current()) return
     results.value = d.items || []
     searched.value = true
-  } catch (e) { msg.value = '搜索失败：' + e.message } finally { searching.value = false }
+  } catch (e) { if (current()) msg.value = '搜索失败：' + e.message }
+  finally { if (current()) searching.value = false }
 }
 async function doMatch (tmdbId) {
-  if (busy.value) return
+  const context = showContext()
+  if (!actionableShow(context) || busy.value) return
   busy.value = true
   try {
-    const res = await api(`/api/tv/shows/${show.value.id}/match`, {
+    const res = await api(`/api/tv/shows/${context.id}/match`, {
       method: 'POST', body: JSON.stringify({ tmdb_id: tmdbId }) })
+    if (!currentShow(context)) return
     matchOpen.value = false
     results.value = []
     posterVer.value++
-    await load()
-    await waitForMedia()
+    await load('0', context)
+    if (!currentShow(context)) return
+    await waitForMedia(context)
+    if (!currentShow(context)) return
     posterVer.value++
     const note = mediaNote(res)
     if (note) msg.value = '已匹配成功' + note
-    await checkOrgHint()
-  } catch (e) { msg.value = '匹配失败：' + e.message } finally { busy.value = false }
+    await checkOrgHint(context)
+  } catch (e) { if (currentShow(context)) msg.value = '匹配失败：' + e.message }
+  finally { if (currentShow(context)) busy.value = false }
 }
 // 外部元数据绑定（P2.5）：无 TMDB Token 时用 Wikidata/TVmaze/Bangumi/NFO 落库
 const EXTERNAL_SOURCES = ['wikidata', 'tvmaze', 'bgm', 'douban', 'nfo']
@@ -463,32 +532,36 @@ const SOURCE_LABELS = {
 function srcLabel (s) { return SOURCE_LABELS[s] || s }
 function isExternal (r) { return !r.tmdb_id && EXTERNAL_SOURCES.includes(r.source) }
 async function doMatchExternal (r) {
-  if (busy.value) return
+  const context = showContext()
+  if (!actionableShow(context) || busy.value) return
   busy.value = true
   try {
-    const res = await api(`/api/tv/shows/${show.value.id}/bind-external`, {
+    const res = await api(`/api/tv/shows/${context.id}/bind-external`, {
       method: 'POST', body: JSON.stringify({ source: r.source, source_id: r.source_id }) })
+    if (!currentShow(context)) return
     matchOpen.value = false
     results.value = []
     posterVer.value++
-    await load()
+    await load('0', context)
+    if (!currentShow(context)) return
     posterVer.value++
     msg.value = '已绑定外源元数据（无 TMDB ID，后续可手动匹配 TMDB 升级）'
     if (res && res.episodes_filled) msg.value += `，回填 ${res.episodes_filled} 集`
-  } catch (e) { msg.value = '绑定失败：' + e.message } finally { busy.value = false }
+  } catch (e) { if (currentShow(context)) msg.value = '绑定失败：' + e.message }
+  finally { if (currentShow(context)) busy.value = false }
 }
 function selectAiMatch(candidate) {
   if (candidate.tmdb_id) return doMatch(candidate.tmdb_id)
   if (isAiExternalCandidate(candidate)) return doMatchExternal(candidate)
 }
 // 匹配成功后查单剧整理预览：有可执行计划或风险/手动项即弹窗（对标电影归档引导）
-async function checkOrgHint () {
+async function checkOrgHint (context = showContext()) {
+  if (!actionableShow(context)) return
   orgHint.value = null
   if (!show.value || !show.value.tmdb_id) return
   try {
-    const id = show.value.id
-    const h = await api(`/api/tv/shows/${id}/organize-hint`)
-    if (String(route.params.id) !== String(id)) return
+    const h = await api(`/api/tv/shows/${context.id}/organize-hint`)
+    if (!currentShow(context)) return
     if (hintNeeds(h)) {
       orgHint.value = h
     }
@@ -496,17 +569,19 @@ async function checkOrgHint () {
 }
 // 详情页手动入口：先发现当前剧根的新文件，再基于最新分集清单生成整理预览。
 async function openOrganize () {
-  if (!show.value || busy.value) return
+  const context = showContext()
+  if (!actionableShow(context) || busy.value) return
   busy.value = true
   organizing.value = true
   msg.value = '正在检查本剧目录中的新增分集…'
   try {
-    const id = show.value.id
+    const id = context.id
     const discovery = await api(`/api/tv/shows/${id}/discover`, { method: 'POST' })
-    if (String(route.params.id) !== String(id)) return
-    if (discovery.added) await load()
+    if (!currentShow(context)) return
+    if (discovery.added) await load('0', context)
+    if (!currentShow(context)) return
     const h = await api(`/api/tv/shows/${id}/organize-hint`)
-    if (String(route.params.id) !== String(id)) return
+    if (!currentShow(context)) return
     h.discovery = discovery
     if (hintNeeds(h) || (h.kept || []).length) {
       orgHint.value = h
@@ -519,10 +594,9 @@ async function openOrganize () {
       msg.value = notes.join('；')
     }
   } catch (e) {
-    msg.value = '检查剧集目录失败：' + e.message
+    if (currentShow(context)) msg.value = '检查剧集目录失败：' + e.message
   } finally {
-    organizing.value = false
-    busy.value = false
+    if (currentShow(context)) { organizing.value = false; busy.value = false }
   }
 }
 async function onBindingChanged(result) {
@@ -535,8 +609,11 @@ async function onBindingChanged(result) {
 }
 
 async function onOrganized () {
+  const context = showContext()
+  if (!actionableShow(context)) return
   posterVer.value++
-  await load()
+  await load('0', context)
+  if (!currentShow(context)) return
   await verifyExists()
 }
 function goOrgSettings () {
@@ -546,23 +623,44 @@ function goOrgSettings () {
 }
 
 async function onWatched () {
+  const context = showContext()
   const cur = playing.value
   if (!cur || cur.kind !== 'episode') return
-  await markWatched(cur.id, true)
-  await load()
+  if (!actionableShow(context)) return
+  await markWatched(cur.id, true, context)
+  if (!currentShow(context)) return
+  await load('0', context)
 }
 async function onEnded () {
+  const context = showContext()
   const cur = playing.value
   if (!cur || cur.kind && cur.kind !== 'episode') return
   try {
     const next = await followingPlayback(cur, show.value.title)
-    if (playing.value === cur) playing.value = next
-  } catch (e) { msg.value = '自动连播失败：' + e.message }
+    if (currentShow(context) && playing.value === cur) playing.value = next
+  } catch (e) { if (currentShow(context)) msg.value = '自动连播失败：' + e.message }
 }
 
 onMounted(() => load())
-onUnmounted(() => { loadSeq++ })
-watch(() => route.params.id, () => { orgHint.value = null; bindingsOpen.value = false; load() })
+onUnmounted(() => { disposed = true; loadSeq++; invalidateSearch(); stopMediaWaits() })
+watch(mq, () => invalidateSearch(), { flush: 'sync' })
+watch(matchOpen, open => { if (!open) invalidateSearch(false) }, { flush: 'sync' })
+watch(() => route.params.id, () => {
+  showGeneration++
+  invalidateSearch()
+  stopMediaWaits()
+  orgHint.value = null
+  bindingsOpen.value = false
+  matchOpen.value = false
+  renameOpen.value = false
+  nameDraft.value = ''
+  mq.value = ''
+  busy.value = false
+  organizing.value = false
+  verifying.value = false
+  posterVer.value = 0
+  load()
+}, { flush: 'sync' })
 watch(() => show.value?.tmdb_id, () => { failedSeasonPosters.value = new Set() })
 </script>
 
