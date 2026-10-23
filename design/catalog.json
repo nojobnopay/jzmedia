@@ -24487,7 +24487,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/MovieUploadPanel.vue",
-            "line": 118,
+            "line": 121,
             "selector": ".q-tip .q-bubble",
             "values": {
               "max-width": "320px",
