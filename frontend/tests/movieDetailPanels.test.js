@@ -60,19 +60,22 @@ test('creating a movie collection snapshots its name and library, blocks repeats
   assert.equal(ui.find(node => node.type === 'input').props.disabled, false)
 })
 
-async function uploadPanel(t) {
-  const uploads = [], events = []
+async function uploadPanel(t, protection = async () => true) {
+  const uploads = [], events = [], protectionCalls = []
   const component = await loadSfc(new URL('../src/components/MovieUploadPanel.vue', import.meta.url), {
     vue, '../api.js': { apiUpload(path, file, options) {
       const upload = { path, file, options, ...deferred(), aborted: 0 }
       uploads.push(upload)
       return { promise: upload.promise, abort: () => { upload.aborted++ } }
+    } }, '../viewing.js': { requestProtection(purpose) {
+      protectionCalls.push(purpose)
+      return protection()
     } },
   })
   const ui = renderHarness(component, { movieId: 101, onUploaded: () => events.push('uploaded') })
   t.after(() => ui.app.unmount())
   ui.find(node => node.type === 'input').files = [{ name: '模拟字幕.srt' }]
-  return { ...ui, uploads, events }
+  return { ...ui, uploads, events, protectionCalls }
 }
 
 test('movie upload controls react to an active upload and prevent duplicate sends', async t => {
@@ -109,4 +112,24 @@ test('upload callbacks after unmount cannot start scanning timers or refresh a d
   await flush()
   assert.deepEqual(ui.events, [])
   assert.equal(upload.aborted, 0, 'Leaving stops UI tracking without claiming to cancel a submitted upload')
+})
+
+test('an unmounted movie upload panel rejects late authorization and cannot open a new password prompt', async t => {
+  const authorization = deferred()
+  const ui = await uploadPanel(t, () => authorization.promise)
+  button(ui, '上传').props.onClick()
+  await flush()
+  const upload = ui.uploads[0]
+  assert.equal(upload.options.canStart(), true)
+  const pendingAuthorization = upload.options.authorize()
+  assert.deepEqual(ui.protectionCalls, ['unlock'])
+  ui.app.unmount()
+  assert.equal(upload.options.canStart(), false)
+  assert.equal(await upload.options.authorize(), false)
+  assert.deepEqual(ui.protectionCalls, ['unlock'], 'Leaving the panel prevents another global password prompt')
+  authorization.resolve(true)
+  assert.equal(await pendingAuthorization, false, 'Authorization completing after the panel unmounts must not start its file transfer')
+  upload.resolve({ status: 'stored' })
+  await flush()
+  assert.deepEqual(ui.events, [])
 })

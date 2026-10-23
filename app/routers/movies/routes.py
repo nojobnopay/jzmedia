@@ -19,7 +19,7 @@ from ...scanner import same_stem
 from .common import (_INLINE_EXTS, FilterList, _library_scope, _page,
                      _stream_upload, _stream_upload_backend)
 from .scope import _movie_delete_scope
-__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'recent_played', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_similar', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'organize_hint', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig', 'movie_posters', 'movie_poster_thumb', 'movie_poster_set']
+__all__ = ['router', 'search', 'search_suggest', 'list_movies', 'recent_played', 'facets', 'get_movie', 'patch_movie', 'batch_update', 'movie_collections', 'movie_collection_hint', 'movie_similar', 'movie_files', '_movie_blob_rel', 'movie_blob', 'movie_upload', 'check_upload_access', 'library_upload', 'movie_file_delete', 'run_scan', 'tmdb_search', 'manual_match', 'rescan_movie', 'organize_hint', 'refresh_movie', 'batch_delete_movies', 'movie_poster_orig', 'movie_posters', 'movie_poster_thumb', 'movie_poster_set']
 
 router = APIRouter(prefix="/api")
 
@@ -699,6 +699,17 @@ def movie_upload(movie_id: int, file: UploadFile = File(...),
     except Exception as e:
         status = f"stored_scan_warn: {e}"
     return {"name": safe, "rel": rel, "size": size, "status": status}
+
+
+@router.post("/uploads/check-access")
+def check_upload_access():
+    """Check the same write and management gates before sending a large file.
+
+    Both gates run in HTTP middleware, just as for the upload endpoints. Keep
+    this request bodyless so a browser can recover expired access before it
+    starts transferring bytes, including through a buffering reverse proxy.
+    """
+    return {"allowed": True}
 
 
 @router.post("/uploads")

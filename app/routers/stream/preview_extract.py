@@ -17,7 +17,7 @@ _MAX_KEYFRAMES = 4096
 _EMPTY_POINT_MAX_BACKOFF = 2.0
 _EMPTY_POINT_WINDOW = 0.5
 _DV_PREROLL_SECONDS = (10.0, 30.0)
-_DV_POINT_PREROLL_SECONDS = (*_DV_PREROLL_SECONDS, 60.0)
+_DV_POINT_PREROLL_SECONDS = (*_DV_PREROLL_SECONDS, 60.0, 120.0)
 _DV_WINDOW_POINTS = 2
 _DV_WINDOW_SECONDS = 42.0
 _DV_HINT_USES = 3
@@ -96,14 +96,19 @@ class Extractor:
         self.video_map = "0:v:0" if video_stream_index is None else f"0:{int(video_stream_index)}"
         self.fast = not remote and os.getenv("PREVIEW_MODE", "auto").strip().lower() != "accurate"
         self.mode = "window_keyframes" if self.fast else "accurate"
-        # Skipping pictures also skips referenced RPU state. Decode short P5
-        # windows normally and share that state between adjacent samples.
+        # Skipping pictures can lose Dolby metadata. Decode guarded P5
+        # windows normally and share decoder state between adjacent samples.
         if self.frame_guard and os.getenv("PREVIEW_MODE", "auto").strip().lower() != "accurate":
             self.mode = "dv_windows"
             self.fast = False
         self._dv_hint_uses = 0
         self._dv_hint_target = None
         self._dv_hint_before = 10.0
+        self._dv_recovery_entry = None
+        self._dv_policy = None
+        self._segment_elapsed = None
+        self._point_pts = None
+        self._window_pts = ()
         self.last_mode = self.mode
         self.last_stats = {}
         self.last_samples = []
@@ -224,7 +229,11 @@ class Extractor:
                 f"无法核对采样位置的画面时间 observed={times[0] if times else 'missing'} "
                 f"samples={len(times)}")
 
-    def _sample_point(self, target, frame, *, nearby, remember_failure=True):
+    def _sample_point(self, target, frame, *, nearby, remember_failure=True, recover=True):
+        self._point_pts = None
+        policy = self._dv_policy if self.frame_guard and not nearby else None
+        if policy is not None:
+            policy.begin_point()
         while True:
             frame.unlink(missing_ok=True)
             try:
@@ -232,12 +241,19 @@ class Extractor:
                     self._nearby_point(target, frame)
                 else:
                     # 元数据过滤可能连续丢帧；不能为了找下一张有 RPU 的画面读完整片。
+                    # Accepted PTS ends at one interval. Keep two seconds of
+                    # decoding margin without reading a second full interval
+                    # that cannot produce an acceptable guarded sample.
                     window = min(2 * float(self.interval), 30.0) if self.frame_guard else None
+                    if self.frame_guard and self.mode == "dv_windows":
+                        window = min(window, float(self.interval) + 2)
                     cmd = self._input(target, duration=window, frame_log=True)
                     cmd += ["-frames:v", "1", "-vf",
                             f"{self.frame_guard}showinfo=checksum=0,{self.filter_arg}", "-threads", "1",
                             "-c:v", "png", "-pix_fmt", "rgb24", "-compression_level", "1", str(frame)]
                     log = self.run(cmd, self.jid)
+                    if policy is not None:
+                        policy.record_attempt(log)
                 if not frame.is_file() or not frame.stat().st_size:
                     raise _PointOutputError(reason="empty_output", images=0,
                                             samples=0 if nearby else len(_frame_times(log)), start=target)
@@ -248,16 +264,29 @@ class Extractor:
                         raise _PointOutputError(reason="unverified_output", images=1,
                                                 samples=len(times), start=target,
                                                 observed=target + times[0] if times else None)
+                    self._point_pts = target + times[0]
+                if policy is not None:
+                    policy.direct_result(target, True)
                 return "point_seek" if nearby else "accurate"
             except (RuntimeError, _SparseKeyframes) as exc:
                 mode = "point_seek" if nearby else "accurate"
                 if self.hw and isinstance(exc, RuntimeError):
                     self._fallback_log(mode, target, exc)
                     self.hw = []
+                    # Timings and hints belong to the decoder configuration
+                    # that produced them; do not carry them into fallback.
+                    self._dv_policy = policy = None
+                    self._dv_recovery_entry = None
+                    self._dv_hint_uses = 0
+                    self._dv_hint_target = None
                     continue
                 if not nearby:
                     self._fallback_log(mode, target, exc)
                     if isinstance(exc, _PointOutputError):
+                        if policy is not None:
+                            policy.direct_result(target, False)
+                        if not recover:
+                            raise
                         self._recover_empty_point(target, frame)
                         return "accurate"
                     raise
@@ -285,6 +314,8 @@ class Extractor:
                     "-frames:v", "1", "-fps_mode", "passthrough", "-threads", "1",
                     "-c:v", "png", "-pix_fmt", "rgb24", "-compression_level", "1", str(frame)]
             log = self.run(cmd, self.jid, timeout=30)
+            if self._dv_policy is not None:
+                self._dv_policy.record_attempt(log)
             times = _frame_times(log)
             images = int(frame.is_file() and bool(frame.stat().st_size))
             observed = start + times[0] if times else None
@@ -295,6 +326,7 @@ class Extractor:
                             "mode=accurate_recovery seek=%s observed=%s images=%s samples=%s",
                             self.jid, self.context.get("kind", "unknown"), self.context.get("id", "unknown"),
                             self.page_number, target, start, observed, images, len(times))
+                self._point_pts = observed
                 return
             error = _PointOutputError(reason="empty_output" if not images else "unverified_output",
                                       images=images, samples=len(times), start=start, observed=observed)
@@ -305,11 +337,13 @@ class Extractor:
         raise _PointOutputError(reason="empty_output_exhausted", images=0, samples=0, start=target)
 
     def _recover_guarded_point(self, target, frame):
-        """Give referenced DV metadata bounded decoder preroll, then sample near target."""
+        """Give Dolby metadata bounded decoder preroll, then sample near target."""
         window = min(float(self.interval), _EMPTY_POINT_MAX_BACKOFF)
         attempted = set()
         invalid_data = False
-        for before in _DV_POINT_PREROLL_SECONDS:
+        attempts = (self._dv_policy.prerolls(target, _DV_POINT_PREROLL_SECONDS)
+                    if self._dv_policy is not None else _DV_POINT_PREROLL_SECONDS)
+        for before in attempts:
             start = max(0.0, target - before)
             if start >= target or start in attempted:
                 continue
@@ -317,15 +351,17 @@ class Extractor:
             offset = target - start
             frame.unlink(missing_ok=True)
             cmd = self._input(start, duration=offset + window, frame_log=True)
-            # Decode preroll frames to restore RPU references, but only convert
+            # Decode preroll frames to restore metadata, but only convert
             # verified metadata-bearing frames at the original sampling point.
             cmd += ["-vf", f"select='between(t,{offset},{offset + window})',"
                     f"{self.frame_guard}showinfo=checksum=0,{self.filter_arg}",
                     "-frames:v", "1", "-fps_mode", "passthrough", "-threads", "1",
                     "-c:v", "png", "-pix_fmt", "rgb24", "-compression_level", "1", str(frame)]
-            # Long RPU references can require a final 60s preroll. Keep this
-            # costly recovery local to the failed point, outside shared hints.
-            log = self.run(cmd, self.jid, timeout=120 if before == 60 else 60)
+            # Some inputs need up to 120s preceding decode. This does not
+            # establish a particular bitstream error or RPU reference pattern.
+            log = self.run(cmd, self.jid, timeout=max(60, 2 * before))
+            if self._dv_policy is not None:
+                self._dv_policy.record_attempt(log)
             times = _frame_times(log)
             images = int(frame.is_file() and bool(frame.stat().st_size))
             invalid_data |= not images and 'invalid nal unit' in str(log).lower()
@@ -336,9 +372,16 @@ class Extractor:
                             "mode=dv_preroll seek=%s observed=%s images=%s samples=%s",
                             self.jid, self.context.get("kind", "unknown"), self.context.get("id", "unknown"),
                             self.page_number, target, start, observed, images, len(times))
+                self._point_pts = observed
+                if self.mode == "dv_windows":
+                    self._dv_recovery_entry = (start, target, before)
+                    if self._dv_policy is not None:
+                        self._dv_policy.recovered(target, before, start, offset + window, log)
                 if self.mode == "dv_windows" and before in _DV_PREROLL_SECONDS:
                     self._remember_dv_preroll(before, target)
                 return True
+            if self._dv_policy is not None:
+                self._dv_policy.failed_preroll(target, before)
             error = _PointOutputError(reason="empty_output" if not images else "unverified_output",
                                       images=images, samples=len(times), start=start, observed=observed)
             self._fallback_log("dv_preroll", target, error)
@@ -355,6 +398,7 @@ class Extractor:
 
     def _guarded_window(self, targets, frames, *, preroll):
         """Publish at most two samples only after checking the entire window."""
+        self._window_pts = ()
         for frame in frames:
             frame.unlink(missing_ok=True)
         if (not self.frame_guard or not 1 <= len(targets) <= _DV_WINDOW_POINTS
@@ -405,6 +449,7 @@ class Extractor:
                     return False
                 for source, destination in zip(files, frames):
                     shutil.copyfile(source, destination)
+                self._window_pts = tuple(start + t for t in times)
                 published = True
                 logger.info("preview dv window job=%s item=%s:%s page=%s target=%s "
                             "last_target=%s preroll=%s images=%s wall_seconds=%.3f",
@@ -424,10 +469,75 @@ class Extractor:
                     frame.unlink(missing_ok=True)
 
     def _dv_windows_page(self, start, size, columns, rows, output):
-        cell, windows, individual = 0, 0, 0
+        from .preview_adaptive import RecoveryPolicy
+        from .preview_segment import (
+            MAX_SEGMENT_POINTS, MAX_SEGMENT_PREROLL, MAX_SEGMENT_SECONDS, extract_segment,
+        )
+
+        cell, windows, individual, segments = 0, 0, 0, 0
+        # Decoder state is not a checkpoint. Only an entry verified within this
+        # page attempt can seed one segment; yield/retry must establish it anew.
+        self._dv_recovery_entry = None
+        self._dv_policy = RecoveryPolicy(self.interval)
         try:
             while cell < size:
                 target = start + cell * self.interval
+                entry, self._dv_recovery_entry = self._dv_recovery_entry, None
+                if entry is not None and abs(target - entry[1] - self.interval) <= 0.001:
+                    # A short isolated recovery must not force an entire page
+                    # to be decoded. Longer recovery has more work to amortize.
+                    tolerance = min(float(self.interval), _EMPTY_POINT_MAX_BACKOFF)
+                    capacity = math.floor((entry[0] + MAX_SEGMENT_SECONDS - tolerance - target)
+                                          / self.interval) + 1
+                    count = min(6 if entry[2] < 30 else MAX_SEGMENT_POINTS, size - cell, capacity)
+                    if count > 0 and target - entry[0] <= min(MAX_SEGMENT_PREROLL,
+                                                            120 + self.interval):
+                        targets = [target + offset * self.interval for offset in range(count)]
+                        frames = [output.parent / f"frame_{cell + offset:02d}.png"
+                                  for offset in range(count)]
+                        mode = "accurate"
+                        decoder = tuple(self.hw)
+                        try:
+                            # One isolated slow point does not imply its next
+                            # neighbour is slow. Keep cheap direct seeks cheap.
+                            self._sample_point(target, frames[0], nearby=False, recover=False)
+                            times = (self._point_pts,)
+                            individual += 1
+                        except _PointOutputError:
+                            times = ()
+                            if tuple(self.hw) == decoder:
+                                if self._dv_policy is not None:
+                                    count = self._dv_policy.segment_size(
+                                        target, entry[0], min(size - cell, capacity),
+                                        6 if entry[2] < 30 else MAX_SEGMENT_POINTS)
+                                    targets = [target + offset * self.interval for offset in range(count)]
+                                    frames = [output.parent / f"frame_{cell + offset:02d}.png"
+                                              for offset in range(count)]
+                                self._segment_elapsed = None
+                                times = extract_segment(self, targets, frames, start=entry[0])
+                                if self._dv_policy is not None:
+                                    self._dv_policy.observe_segment(
+                                        targets, entry[0], self._segment_elapsed, len(times))
+                            if times:
+                                mode = "dv_segment"
+                                segments += 1
+                            else:
+                                # The identical direct seek already failed in
+                                # this recovery round; start at its next step.
+                                self._recover_empty_point(target, frames[0])
+                                times = (self._point_pts,)
+                                individual += 1
+                        # Regardless of success this exact entry is consumed.
+                        # Probe the next uncovered point normally after the
+                        # bounded segment; never extend a hint indefinitely.
+                        self._dv_hint_uses = 0
+                        if times:
+                            for offset, pts in enumerate(times):
+                                self.last_samples.append({"cell": cell + offset, "pts": pts,
+                                                          "mode": mode})
+                                self.progress(start // self.interval + cell + offset + 1)
+                            cell += len(times)
+                            continue
                 adjacent = (self._dv_hint_target is not None
                             and abs(target - self._dv_hint_target - self.interval) <= 0.001)
                 if not self._dv_hint_uses or not adjacent:
@@ -437,7 +547,8 @@ class Extractor:
                     frame = output.parent / f"frame_{cell:02d}.png"
                     self._sample_point(target, frame, nearby=False)
                     self._dv_hint_target = target
-                    self.last_samples.append({"cell": cell, "pts": None, "mode": "accurate"})
+                    self.last_samples.append({"cell": cell, "pts": self._point_pts,
+                                              "mode": "accurate"})
                     self.progress(start // self.interval + cell + 1)
                     individual += 1
                     cell += 1
@@ -467,20 +578,28 @@ class Extractor:
                     # A broken short window must not fill a missing slot with a
                     # later picture. Keep the proven per-point recovery chain.
                     self._dv_hint_uses = 0
+                    point_times = []
                     for target, frame in zip(targets, frames):
                         self._dv_hint_uses = 0
                         self._sample_point(target, frame, nearby=False)
+                        point_times.append(self._point_pts)
                         individual += 1
                 self._dv_hint_target = targets[-1]
                 for offset in range(count):
-                    self.last_samples.append({"cell": cell + offset, "pts": None,
+                    pts = (self._window_pts[offset] if offset < len(self._window_pts) else None
+                           ) if recovered else point_times[offset]
+                    self.last_samples.append({"cell": cell + offset, "pts": pts,
                                               "mode": "dv_window" if recovered else "accurate"})
                     self.progress(start // self.interval + cell + offset + 1)
                 cell += count
             self._tile_page(size, columns, rows, output)
         finally:
+            self._dv_recovery_entry = None
+            self._dv_policy = None
             self._clear_frames(output)
         self.last_stats = {"windows": windows, "individual_points": individual}
+        if segments:
+            self.last_stats["segments"] = segments
         self.last_mode = "dv_windows"
 
     @staticmethod

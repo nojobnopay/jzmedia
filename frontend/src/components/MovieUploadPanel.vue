@@ -23,6 +23,7 @@ import AppIcon from './AppIcon.vue'
 
 import { computed, onUnmounted, ref } from 'vue'
 import { apiUpload } from '../api.js'
+import { requestProtection } from '../viewing.js'
 
 // 详情页上传面板（评审 R05-Q4：自 Detail.vue 抽出）：单文件 + 可放片目录/extras，
 // 传完服务端同步刮削，前端给“刮削中”等待提示。上传成功发 uploaded 让父页刷新。
@@ -64,6 +65,8 @@ async function doUpload() {
   upScanning.value = false
   upScanSecs.value = 0
   const h = apiUpload(`/api/movies/${id}/upload`, file, {
+    authorize: async () => current() && await requestProtection('unlock') && current(),
+    canStart: current,
     subdir: upSubdir.value,
     onProgress: (p) => { if (current()) upPct.value = p },
     onUploaded: () => {

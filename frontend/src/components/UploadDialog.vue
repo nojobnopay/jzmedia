@@ -104,6 +104,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { api, apiUpload } from '../api.js'
+import { requestProtection } from '../viewing.js'
 import { currentMediaId, currentMediaVideoLibs, listLibs, uploadTargets, onLibChange } from '../libraries.js'
 import { fmtBytes, midEllipsis } from '../format.js'
 import { useTvUpload } from '../useTvUpload.js'
@@ -309,6 +310,7 @@ async function startUpload() {
     t.scanStartedAt = 0
     upCurPct.value = 0
     const h = apiUpload('/api/uploads', t.file, {
+      authorize: () => requestProtection('unlock'),
       fields: { relpath: t.rel, library_id: upLibId.value, media_type: props.kind, mode: upMode.value, ...(props.kind === 'tv' && upMode.value === 'files' ? { show_id: targetShow.value || undefined, show_title: targetShow.value ? '' : targetTitle.value.trim(), season: targetSeason.value } : {}) },
       onProgress: (p, bytes) => { upCurPct.value = p; t.transferred = bytes ?? Math.round(t.file.size * p / 100) },
       onUploaded: () => {
@@ -355,6 +357,7 @@ async function startUpload() {
       t.phase = 'uploading'
       const m = String((e && e.message) || e)
       if (m === '已取消' || upCancelled) {
+        upCancelled = true
         t.state = 'queued'
         t.note = ''
       } else if (/^409\b.*already exists/.test(m)) {
@@ -364,6 +367,10 @@ async function startUpload() {
         t.state = 'error'
         t.note = m.slice(0, 120)
         failed++
+        if (e.status === 401 || e.status === 403) {
+          upMsg.value = '上传已暂停，请完成验证后重试；其余文件尚未上传。'
+          break
+        }
       }
     } finally {
       upAbort = null

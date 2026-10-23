@@ -805,7 +805,7 @@ def test_real_missing_dolby_metadata_never_produces_preview_or_reuses_stale_fram
         worker.page(1, 1, 1, 1, tmp_path / 'page.jpg')
     # Guarded auto mode probes ordinary points first for both local and remote
     # inputs; missing metadata never activates the adjacent-window optimization.
-    assert len(calls) <= 6
+    assert len(calls) <= 7
     assert all('-skip_frame' not in cmd for cmd in calls)
     assert not (tmp_path / 'page.jpg').exists()
     assert not list(tmp_path.glob('frame_*.png'))
@@ -866,7 +866,7 @@ def test_guarded_accurate_seek_requires_verified_first_output_timestamp(tmp_path
                        frame_guard='sidedata=mode=select:type=DOVI_METADATA,')
     with pytest.raises(RuntimeError, match='无法从采样位置'):
         worker._sample_point(250, tmp_path / 'frame.png', nearby=False)
-    assert len(calls) == 6
+    assert len(calls) == 7
     assert not (tmp_path / 'frame.png').exists()
 
 
@@ -884,12 +884,13 @@ def test_guarded_accurate_all_empty_input_and_recovery_windows_are_bounded(tmp_p
         worker._sample_point(250, tmp_path / 'frame.png', nearby=False)
     window = min(interval, 2)
     assert [float(cmd[cmd.index('-t') + 1]) for cmd in calls] == [
-        min(2 * interval, 30), 0.5, 0.5, 10 + window, 30 + window, 60 + window]
-    assert timeouts == [60, 30, 30, 60, 60, 120]
+        min(2 * interval, interval + 2, 30), 0.5, 0.5, 10 + window, 30 + window, 60 + window,
+        120 + window]
+    assert timeouts == [60, 30, 30, 60, 60, 120, 240]
     assert not (tmp_path / 'frame.png').exists()
 
 
-@pytest.mark.parametrize('needed_preroll', [10, 30, 60])
+@pytest.mark.parametrize('needed_preroll', [10, 30, 60, 120])
 def test_guarded_preroll_restores_only_a_verified_frame_at_the_original_target(tmp_path, needed_preroll):
     calls = []
     def run(cmd, _jid, timeout=60):
@@ -907,17 +908,17 @@ def test_guarded_preroll_restores_only_a_verified_frame_at_the_original_target(t
     frame = tmp_path / 'frame.png'
     assert worker._sample_point(250, frame, nearby=False) == 'accurate'
     assert frame.read_bytes() == b'verified target frame'
-    assert len(calls) == {10: 4, 30: 5, 60: 6}[needed_preroll]
+    assert len(calls) == {10: 4, 30: 5, 60: 6, 120: 7}[needed_preroll]
     command, timeout = calls[-1]
     assert float(command[command.index('-t') + 1]) == needed_preroll + 2
-    assert timeout == (120 if needed_preroll == 60 else 60)
+    assert timeout == max(60, 2 * needed_preroll)
     vf = command[command.index('-vf') + 1]
     assert vf.startswith(f"select='between(t,{float(needed_preroll)},{float(needed_preroll + 2)})',sidedata=")
     assert vf.index('DOVI_METADATA') < vf.index('showinfo') < vf.index('scale=')
 
 
 @pytest.mark.parametrize('interruption', [pv._Cancelled, pv._YieldToPlayback])
-@pytest.mark.parametrize('before', [10, 30, 60])
+@pytest.mark.parametrize('before', [10, 30, 60, 120])
 def test_guarded_preroll_propagates_cancellation_and_playback_yield(tmp_path, interruption, before):
     calls = []
     def run(cmd, _jid, timeout=60):
@@ -930,7 +931,7 @@ def test_guarded_preroll_propagates_cancellation_and_playback_yield(tmp_path, in
     frame = tmp_path / 'frame.png'
     with pytest.raises(interruption):
         worker._sample_point(250, frame, nearby=False)
-    assert len(calls) == {10: 4, 30: 5, 60: 6}[before]
+    assert len(calls) == {10: 4, 30: 5, 60: 6, 120: 7}[before]
     assert not frame.exists()
 
 
@@ -948,7 +949,7 @@ def test_invalid_video_data_is_reported_only_after_guarded_recovery_fails(tmp_pa
     assert error.value.reason == 'invalid_video_data'
     assert 'private.invalid' not in str(error.value)
     assert 'hidden' not in error.value.diagnostic
-    assert len(calls) == 6
+    assert len(calls) == 7
     assert not (tmp_path / 'frame.png').exists()
 
 

@@ -263,7 +263,7 @@ def test_normal_p5_points_do_not_pay_for_preroll_or_windows(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize("needed_preroll", [10, 30])
-def test_real_point_recovery_learns_a_window_only_for_adjacent_samples(
+def test_real_point_recovery_reuses_exact_entry_after_next_direct_seek_fails(
         tmp_path, monkeypatch, needed_preroll):
     calls, windows, assembled = [], [], []
 
@@ -277,20 +277,20 @@ def test_real_point_recovery_learns_a_window_only_for_adjacent_samples(
 
     extractor = worker(run)
 
-    def window(targets, frames, *, preroll):
-        windows.append((list(targets), preroll))
+    def segment(_extractor, targets, frames, *, start):
+        windows.append((list(targets), start))
         for target, frame in zip(targets, frames):
             frame.write_bytes(f"window-{target}".encode())
-        return True
+        return tuple(targets)
 
-    monkeypatch.setattr(extractor, "_guarded_window", window)
+    monkeypatch.setattr("app.routers.stream.preview_segment.extract_segment", segment)
     stub_tile(extractor, monkeypatch, assembled)
     extractor.page(250, 3, 3, 1, tmp_path / "page.jpg")
-    assert calls == ([250, 249.75, 248, 240] if needed_preroll == 10
-                     else [250, 249.75, 248, 240, 220])
-    assert windows == [([260, 270], needed_preroll)]
+    assert calls == ([250, 249.75, 248, 240, 260] if needed_preroll == 10
+                     else [250, 249.75, 248, 240, 220, 260])
+    assert windows == [([260, 270], 250 - needed_preroll)]
     assert assembled == [[b"recovered-250", b"window-260", b"window-270"]]
-    assert extractor.last_stats == {"windows": 1, "individual_points": 1}
+    assert extractor.last_stats == {"windows": 0, "individual_points": 1, "segments": 1}
 
 
 def test_short_empty_point_recovery_does_not_activate_preroll_windows(tmp_path, monkeypatch):
@@ -314,15 +314,18 @@ def test_short_empty_point_recovery_does_not_activate_preroll_windows(tmp_path, 
     assert extractor.last_stats == {"windows": 0, "individual_points": 2}
 
 
-def test_sixty_second_point_recovery_does_not_activate_shared_windows(tmp_path, monkeypatch):
-    calls, assembled = [], []
+@pytest.mark.parametrize("preroll,limit", [(60, 120), (120, 240)])
+def test_long_point_recovery_stays_bounded_without_activating_shared_windows(
+        tmp_path, monkeypatch, preroll, limit):
+    calls, durations, assembled = [], [], []
 
     def run(cmd, _jid, timeout=60):
         seek = float(cmd[cmd.index("-ss") + 1])
         calls.append((seek, timeout))
-        if seek == 190:
+        durations.append(float(cmd[cmd.index("-t") + 1]))
+        if seek == 250 - preroll:
             Path(cmd[-1]).write_bytes(b"long-recovery")
-            return FrameLog("", frame_times=(60.0,), frame_numbers=(0,))
+            return FrameLog("", frame_times=(float(preroll),), frame_numbers=(0,))
         if seek == 260:
             Path(cmd[-1]).write_bytes(b"normal-next-point")
             return FrameLog("", frame_times=(0.0,), frame_numbers=(0,))
@@ -330,27 +333,35 @@ def test_sixty_second_point_recovery_does_not_activate_shared_windows(tmp_path, 
 
     extractor = worker(run)
     monkeypatch.setattr(extractor, "_guarded_window",
-                        lambda *_args, **_kwargs: pytest.fail("60s recovery must not activate windows"))
+                        lambda *_args, **_kwargs: pytest.fail("long recovery must not activate windows"))
     stub_tile(extractor, monkeypatch, assembled)
     extractor.page(250, 2, 2, 1, tmp_path / "page.jpg")
-    assert calls == [(250, 60), (249.75, 30), (248, 30), (240, 60), (220, 60),
-                     (190, 120), (260, 60)]
+    expected_calls = [(250, 60), (249.75, 30), (248, 30), (240, 60), (220, 60), (190, 120)]
+    expected_durations = [12, 0.5, 0.5, 12, 32, 62]
+    if preroll == 120:
+        expected_calls.append((130, 240))
+        expected_durations.append(122)
+    assert calls == [*expected_calls, (260, 60)]
+    assert durations == [*expected_durations, 12]
+    assert calls[-2] == (250 - preroll, limit)
     assert assembled == [[b"long-recovery", b"normal-next-point"]]
     assert extractor._dv_hint_uses == 0
     assert extractor.last_stats == {"windows": 0, "individual_points": 2}
 
 
 @pytest.mark.parametrize("failure", ["cancel", "yield", "timeout"])
-def test_sixty_second_point_interruption_cleans_partial_page(tmp_path, failure):
+@pytest.mark.parametrize("preroll,limit,calls_before_failure", [(60, 120, 6), (120, 240, 7)])
+def test_long_point_interruption_cleans_partial_page(
+        tmp_path, failure, preroll, limit, calls_before_failure):
     error = {"cancel": pv._Cancelled(), "yield": pv._YieldToPlayback(),
              "timeout": ExtractionError("预览抽帧超时", reason="timeout", timed_out=True,
-                                        limit=120)}[failure]
+                                        limit=limit)}[failure]
     calls, progress = [], []
 
     def run(cmd, _jid, timeout=60):
         seek = float(cmd[cmd.index("-ss") + 1])
         calls.append((seek, timeout))
-        if seek == 190:
+        if seek == 250 - preroll:
             Path(cmd[-1]).write_bytes(b"partial before interruption")
             raise error
         return FrameLog("")
@@ -362,8 +373,8 @@ def test_sixty_second_point_interruption_cleans_partial_page(tmp_path, failure):
     with pytest.raises(type(error)) as caught:
         extractor.page(250, 1, 1, 1, output)
     assert caught.value is error
-    assert calls[-1] == (190, 120)
-    assert len(calls) == 6
+    assert calls[-1] == (250 - preroll, limit)
+    assert len(calls) == calls_before_failure
     assert progress == []
     assert not output.exists()
     assert not list(tmp_path.glob("frame_*.png"))
@@ -638,19 +649,25 @@ def rgb_pixels(ffmpeg, env, image):
     return result.stdout
 
 
+@pytest.mark.parametrize("target,next_full,seeks,limit", [
+    (45, 70, [45, 44.75, 43, 35, 15, 0], 120),
+    (100, 140, [100, 99.75, 98, 90, 70, 40, 0], 240),
+])
 def test_real_long_referenced_p5_point_recovers_original_target_pixels(
-        software_vulkan, tmp_path, monkeypatch, require_dovi_metadata):
+        software_vulkan, tmp_path, monkeypatch, require_dovi_metadata,
+        target, next_full, seeks, limit):
     ffmpeg, env = software_vulkan
     require_dovi_metadata(ffmpeg, env)
     # Every picture is independently decodable, but references between the full
-    # RPUs at 0s and 70s need the decoder state from 0s. Seeking 10s or 30s before
-    # target 45s therefore cannot restore metadata. The next full RPU is far
+    # RPUs at zero and next_full need the decoder state from zero. For target
+    # 100s even a 60s preroll cannot restore that state. The next full RPU lies
     # outside the accepted target window and has a deliberately different color.
-    colors = [(100, 0, 0)] * 72
-    colors[45:48] = [(0, 100, 0), (0, 0, 100), (50, 50, 50)]
+    colors = [(100, 0, 0)] * (next_full + 2)
+    colors[target:target + 3] = [(0, 100, 0), (0, 0, 100), (50, 50, 50)]
+    colors[next_full] = (0, 0, 100)
     reference_rpu = color_fixtures._p5_reference_rpu()
-    rpus = [color_fixtures._P5_RPU[4:] if frame in (0, 70) else reference_rpu
-            for frame in range(72)]
+    rpus = [color_fixtures._P5_RPU[4:] if frame in (0, next_full) else reference_rpu
+            for frame in range(len(colors))]
     video = color_fixtures._write_synthetic_p5(ffmpeg, env, tmp_path, colors, rpus)
     monkeypatch.setattr(media, "ffmpeg_bin", lambda: ffmpeg)
     calls = []
@@ -662,32 +679,31 @@ def test_real_long_referenced_p5_point_recovers_original_target_pixels(
 
     extractor = worker(run, video=str(video))
     recovered = tmp_path / "recovered.png"
-    assert extractor._sample_point(45, recovered, nearby=False) == "accurate"
-    assert len(calls) == 6
-    assert [float(cmd[cmd.index("-ss") + 1]) for cmd, _, _ in calls] == [
-        45, 44.75, 43, 35, 15, 0]
+    assert extractor._sample_point(target, recovered, nearby=False) == "accurate"
+    assert len(calls) == len(seeks)
+    assert [float(cmd[cmd.index("-ss") + 1]) for cmd, _, _ in calls] == seeks
     assert all(log.frame_times == () for _, _, log in calls[:-1])
     command, timeout, log = calls[-1]
-    assert float(command[command.index("-t") + 1]) == 47
-    assert timeout == 120
+    assert float(command[command.index("-t") + 1]) == target + 2
+    assert timeout == limit
     # FFmpeg may feed the next picture to the filter before the PNG encoder's
     # one-frame limit stops it; the first showinfo record identifies the PNG.
-    assert log.frame_times[0] == 45.0
+    assert log.frame_times[0] == float(target)
     assert extractor._dv_hint_uses == 0
 
     conversion = color_plan({"dv_profile": 5, "dv_bl_compat": 0}, 64, 64)
     reference = tmp_path / "independent.png"
     # An independent decoder starting at zero is the pixel reference. Selection
     # after the metadata guard also differs from production's single-point path.
-    vf = (conversion["frame_guard"] + ",select='between(t,45,45.5)',"
+    vf = (conversion["frame_guard"] + f",select='between(t,{target},{target + 0.5})',"
           + conversion["filter"] + ",showinfo=checksum=0")
     reference_log = pv._run(
         [ffmpeg, "-hide_banner", "-loglevel", "info", "-nostdin", "-y",
          *conversion["input_args"], "-threads", "2", "-filter_threads", "1",
-         "-ss", "0", "-t", "45.5", "-i", str(video), "-map", "0:v:0", "-an", "-sn", "-dn",
+         "-ss", "0", "-t", str(target + 0.5), "-i", str(video), "-map", "0:v:0", "-an", "-sn", "-dn",
          "-vf", vf, "-frames:v", "1", "-fps_mode", "passthrough", "-threads", "1", "-c:v", "png",
          "-pix_fmt", "rgb24", "-compression_level", "1", str(reference)], extractor.jid, timeout=30)
-    assert reference_log.frame_times[0] == 45.0
+    assert reference_log.frame_times[0] == float(target)
     pixels = rgb_pixels(ffmpeg, env, recovered)
     assert pixels == rgb_pixels(ffmpeg, env, reference)
     center = pixels[(32 * 64 + 32) * 3:][:3]
