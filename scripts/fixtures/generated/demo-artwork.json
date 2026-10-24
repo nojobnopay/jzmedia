@@ -1,0 +1,202 @@
+{
+  "generated_by": "scripts/build_design.py; edit design/demo-artwork/ instead",
+  "source_sha256": "de2a622c5ac5d75f0a8c626251960579ab8b564d845268b6a5d81ec967fcc29e",
+  "assets": {
+    "movie-0": {
+      "master": "design/demo-artwork/movie-0.webp",
+      "title": "远山来信",
+      "width": 600,
+      "height": 900,
+      "sha256": "492dc96fcde43c8e65c378a18db5d4d7659d947332c88fc4082a6c5210c53dd4"
+    },
+    "movie-1": {
+      "master": "design/demo-artwork/movie-1.webp",
+      "title": "最后一班夜航",
+      "width": 600,
+      "height": 900,
+      "sha256": "9d7e4e3ab11f569a195f080ac2d06c44a6e815542a583d96827a6c5cdae21d07"
+    },
+    "movie-2": {
+      "master": "design/demo-artwork/movie-2.webp",
+      "title": "沿着海岸慢慢走",
+      "width": 600,
+      "height": 900,
+      "sha256": "fb997963da22b9039e5a218443779808866a11234f34d6caa5e34d99c8a5c88a"
+    },
+    "movie-3": {
+      "master": "design/demo-artwork/movie-3.webp",
+      "title": "星河尽头的约定",
+      "width": 600,
+      "height": 900,
+      "sha256": "65a08d71efdad5e8df3ccf98ca5b1ed1f760b7a574944ed5323d142063a8197b"
+    },
+    "movie-4": {
+      "master": "design/demo-artwork/movie-4.webp",
+      "title": "旧城里的夏天",
+      "width": 600,
+      "height": 900,
+      "sha256": "60bbdf4b3a76ccc7554afcf0c1c57cdbde8b5a8e40916c70f0a8789c2bed2e5c"
+    },
+    "movie-5": {
+      "master": "design/demo-artwork/movie-5.webp",
+      "title": "风停之前",
+      "width": 600,
+      "height": 900,
+      "sha256": "d3d7dfbbaa4e5e845ab70faa43478b185f1dfcebcb95436eac3953287de5d83a"
+    },
+    "movie-6": {
+      "master": "design/demo-artwork/movie-6.webp",
+      "title": "二十四小时之外",
+      "width": 600,
+      "height": 900,
+      "sha256": "015441bf6c036d0155a406d505fe4cff591c755f7c6976570a0eac0e1d74585c"
+    },
+    "movie-7": {
+      "master": "design/demo-artwork/movie-7.webp",
+      "title": "月光照亮无人抵达的北方站台",
+      "width": 600,
+      "height": 900,
+      "sha256": "05f55acae1faa6eb3ed207fe4bd09bd8f757818693be7bc30e66668f6cfabb82"
+    },
+    "movie-8": {
+      "master": "design/demo-artwork/movie-8.webp",
+      "title": "雨季旅人",
+      "width": 600,
+      "height": 900,
+      "sha256": "4613c58be32a7448815100fdd7bd342a463c3bfdbd9b10a674dd1363003566ff"
+    },
+    "movie-9": {
+      "master": "design/demo-artwork/movie-9.webp",
+      "title": "橙色地平线",
+      "width": 600,
+      "height": 900,
+      "sha256": "5f91dad529720d248cac54cc4011588907ebe49c5e8f60678a64507312a2b2b0"
+    },
+    "movie-10": {
+      "master": "design/demo-artwork/movie-10.webp",
+      "title": "明日重逢",
+      "width": 600,
+      "height": 900,
+      "sha256": "924ed43f9c515ca865b43b50ac88b8b06b6781da64ee9ed322376d8bbddd4277"
+    },
+    "movie-11": {
+      "master": "design/demo-artwork/movie-11.webp",
+      "title": "无声的森林",
+      "width": 600,
+      "height": 900,
+      "sha256": "f383b117830c989608ebec279ce5de1b2ef56b5fec6fd352d5aadb1c2f25d783"
+    },
+    "show-0": {
+      "master": "design/demo-artwork/show-0.webp",
+      "title": "群岛之间",
+      "width": 600,
+      "height": 900,
+      "sha256": "59e4adf7978d52d7df1b78fbba1abc515be6764b69dd41f94ac20ea691e16f1e"
+    },
+    "show-1": {
+      "master": "design/demo-artwork/show-1.webp",
+      "title": "长夜观测站",
+      "width": 600,
+      "height": 900,
+      "sha256": "fe983574860530f0831048d8097e53cf76c2683c248d28193462e4dde861b376"
+    },
+    "show-2": {
+      "master": "design/demo-artwork/show-2.webp",
+      "title": "街角食堂",
+      "width": 600,
+      "height": 900,
+      "sha256": "9fd86aef13e181bb77f23e509a16991c410f02c968e0be77fd011f3ab83421d8"
+    },
+    "show-3": {
+      "master": "design/demo-artwork/show-3.webp",
+      "title": "远方的回声：写给每一个仍在路上的人",
+      "width": 600,
+      "height": 900,
+      "sha256": "6a5a232888258a4400193473680bb595e16f5a490f1afa9b4a7fc4b26f32b1c7"
+    },
+    "show-4": {
+      "master": "design/demo-artwork/show-4.webp",
+      "title": "山海纪事",
+      "width": 600,
+      "height": 900,
+      "sha256": "2cf26501220fcb8f9901cd3c9a18392fcd6329e404240c457877a460241dfbc4"
+    },
+    "show-5": {
+      "master": "design/demo-artwork/show-5.webp",
+      "title": "星期天的房间",
+      "width": 600,
+      "height": 900,
+      "sha256": "df7f04a0723262458c21d52eabda7fa2bdec5effb66e33f8f18ef355036ac0e1"
+    },
+    "mountain-backdrop": {
+      "master": "design/demo-artwork/mountain-backdrop.webp",
+      "title": "远山来信 · 剧照",
+      "width": 1600,
+      "height": 900,
+      "sha256": "1d3e7a3b36839c252e3882185c026d6bb2c698cb91da7547fb5496941ba24425"
+    },
+    "island-backdrop": {
+      "master": "design/demo-artwork/island-backdrop.webp",
+      "title": "群岛之间 · 剧照",
+      "width": 1600,
+      "height": 900,
+      "sha256": "ab8fa5a4f052f55cacf35d9a957ff9bfa7fee0a75b6f53b5274e8c69693c2293"
+    },
+    "person-0": {
+      "master": "design/demo-artwork/person-0.webp",
+      "title": "陈予安",
+      "width": 400,
+      "height": 600,
+      "sha256": "78b5a635f6b1ed3974a8a29dc56b01e1a14392bf67709221c673fcf0c7da5dba"
+    },
+    "person-1": {
+      "master": "design/demo-artwork/person-1.webp",
+      "title": "林知夏",
+      "width": 400,
+      "height": 600,
+      "sha256": "63d687cc286dc49a5ac046bc96cc0fc88336065aa0ca3241c6a32e8fc15f2c94"
+    },
+    "person-2": {
+      "master": "design/demo-artwork/person-2.webp",
+      "title": "周远山",
+      "width": 400,
+      "height": 600,
+      "sha256": "fb4e2384f5e699f1bcea1d6414e2e6bd1b9e472f24379db3384b413b5eb7ca7c"
+    },
+    "person-3": {
+      "master": "design/demo-artwork/person-3.webp",
+      "title": "许星河",
+      "width": 400,
+      "height": 600,
+      "sha256": "a230b81a5865d98f27058096f565ec370def95be9962b128fc0fe125ac9e2daf"
+    },
+    "person-4": {
+      "master": "design/demo-artwork/person-4.webp",
+      "title": "宋雨宁",
+      "width": 400,
+      "height": 600,
+      "sha256": "6335a0dc93645d16cbfc8d6909b6c08a2bfc723ee6c38ee14cf1a31b835ac589"
+    },
+    "person-5": {
+      "master": "design/demo-artwork/person-5.webp",
+      "title": "程望",
+      "width": 400,
+      "height": 600,
+      "sha256": "697a3656e80f8e29c0f5c752ab9c0ad9a93aaa6f80188e82f757b50e4119056f"
+    },
+    "mountain-alternate-1": {
+      "master": "design/demo-artwork/mountain-alternate-1.webp",
+      "title": "远山来信 · 替代海报",
+      "width": 600,
+      "height": 900,
+      "sha256": "6af04408a26bc837f9f4ff1aa27bab00a41c9b1d5cac430e3be1385750f63d40"
+    },
+    "mountain-alternate-2": {
+      "master": "design/demo-artwork/mountain-alternate-2.webp",
+      "title": "远山来信 · 替代海报",
+      "width": 600,
+      "height": 900,
+      "sha256": "533cee176844d9ece24f87739adc87cf9b75026c32092859bd8969f74c087a18"
+    }
+  }
+}

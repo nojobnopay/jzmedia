@@ -202,7 +202,7 @@ node scripts/ui_visual_review.mjs --demo
 node scripts/ui_visual_review.mjs --label goal-after
 ```
 
-系统性改版使用 `ui_visual_review.mjs` 与 `scripts/fixtures/uiReviewData.mjs`：完整虚构资料、原创 SVG 海报和模拟 API 驱动真实页面。用 `--source` 指向冻结源码拍改前、当前工作区拍改后，两次必须使用相同 fixture。清单记录源码与 fixture 哈希、视口、浏览器错误和布局测量；对照页在 `output/playwright/ui-review/index.html`。正常/异常状态和拍摄方法见[文档维护流程](documentation.md#同数据的整页审查与教程截图)。截图证明布局与交互状态，不能替代真实后端、资料服务或媒体写入验证。
+系统性改版使用 `ui_visual_review.mjs` 与 `scripts/fixtures/uiReviewData.mjs`：完整虚构资料、AI 生成的原创摄影风格海报和模拟 API 驱动真实页面。用 `--source` 指向冻结源码拍改前、当前工作区拍改后，两次必须使用相同 fixture。清单记录源码与 fixture 哈希、视口、浏览器错误和布局测量；对照页在 `output/playwright/ui-review/index.html`。正常/异常状态和拍摄方法见[文档维护流程](documentation.md#同数据的整页审查与教程截图)。截图证明布局与交互状态，不能替代真实后端、资料服务或媒体写入验证。
 
 基线使用自定义名称时，用 `--before-label 名称` 指定对照来源；已有两组截图可加 `--gallery-only` 仅重建对照页，不重复拍摄。必须检查 `comparisons.json` 的 `comparable` 和 fixture 哈希，避免误用历史截图。
 

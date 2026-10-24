@@ -69,6 +69,12 @@ python -m venv /tmp/jzmedia-design-env
 
 提交母版和生成物；禁止手工修改 `frontend/src/generated/`、Android `ui/generated/` 或导出的品牌资源。Web、帮助站、APK 的普通构建消费已提交产物，互不依赖。品牌资源统一使用 `scripts/build_design.py --render-brand` 维护。
 
+## 文档演示海报与人物
+
+`demo-artwork/` 保存内置生图工具制作的原创电影与剧集海报、横幅剧照和虚构人物肖像，仅供隔离演示及文档拍摄使用。影片名与人物均为虚构；生成提示词、日期、尺寸和文件摘要保存在 `demo-artwork/manifest.json`。生成原图经 FFmpeg 等比缩放并编码为 WebP 母版；保留海报中的片名，不用矢量占位图替代。
+
+修改母版或清单后运行 `python3 scripts/build_design.py`，再运行 `--check`。生成器校验母版摘要并更新 `scripts/fixtures/generated/demo-artwork.json`；`scripts/fixtures/uiReviewData.mjs` 读取该目录，在原有 SVG 图片响应中嵌入本地 WebP，不请求外部图片。素材不打入产品前端包，也不写入真实媒体库。教程截图按[素材流程](../docs/assets/README.md)重新拍摄，不能用生图直接生成操作界面。
+
 ## 验收与边界
 
 检查桌面 1440px、手机 390/375px 和播放器 320px；普通/悬停/按下/焦点/选中/禁用/忙碌状态、减少动画、长文本及可访问名称。电视记录模拟器或设备的分辨率、实际 density、字体比例及遥控器输入；模拟器通过不能替代真机远距离辨识。

@@ -683,6 +683,31 @@ def inventory(manifest, registry, contracts):
     return result, sorted(set(errors))
 
 
+def demo_artwork_outputs():
+    """Publish the documentation-only raster catalog; never bundle it in the app."""
+    source = read_json('demo-artwork/manifest.json')
+    assets = {}
+    for asset in source['assets']:
+        key = asset['id']
+        if key in assets:
+            raise ValueError(f'duplicate demo artwork ID: {key}')
+        path = (ROOT / asset['master']).resolve()
+        if not path.is_relative_to(DESIGN / 'demo-artwork'):
+            raise ValueError(f'demo artwork master outside design/demo-artwork: {path}')
+        data = path.read_bytes()
+        if data[:4] != b'RIFF' or data[8:12] != b'WEBP':
+            raise ValueError(f'{path}: expected a WebP master')
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != asset['sha256']:
+            raise ValueError(f'{path}: master differs from its generation record')
+        assets[key] = {field: asset[field] for field in ('master', 'title', 'width', 'height', 'sha256')}
+    return {'scripts/fixtures/generated/demo-artwork.json': json_text({
+        'generated_by': 'scripts/build_design.py; edit design/demo-artwork/ instead',
+        'source_sha256': hashlib.sha256((DESIGN / 'demo-artwork/manifest.json').read_bytes()).hexdigest(),
+        'assets': assets,
+    })}
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check',action='store_true',help='Read-only: verify committed generated outputs, asset references, inventory and pixel dimensions')
@@ -716,6 +741,7 @@ def main():
         'design/catalog.json':json_text({'schema_version':1,'assets':manifest['assets'],'aliases':manifest['aliases'],'requirements':requirements,'exports':exports,'platform_rules':tokens['platform_rules'],'platform_profiles':read_json('platform-profiles.json')['profiles'],'contracts':contracts}),
     }
     outputs.update(brand_vector_outputs(exports,manifest))
+    outputs.update(demo_artwork_outputs())
     if args.render_brand:outputs.update(render_brand(exports,manifest))
     # Hash manifest lets default dependency-free check detect altered/obsolete raster content too.
     raster_paths=[e['path'] for e in exports if e['format'] in ('png','ico')]

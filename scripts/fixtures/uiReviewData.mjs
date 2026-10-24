@@ -1,16 +1,31 @@
-// Deterministic fictional data and original vector art. No downloaded artwork or real media.
-export const fixtureVersion = 'jzmedia-ui-review-v2'
+// Deterministic fictional data and AI-generated cinematic art. No real media or remote fetches.
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+const artworkCatalogBytes = readFileSync(new URL('./generated/demo-artwork.json', import.meta.url))
+const artworkCatalog = JSON.parse(artworkCatalogBytes).assets
+const imageCache = new Map()
+export const fixtureVersion = 'jzmedia-ui-review-v3'
+export const artworkFingerprint = createHash('sha256').update(artworkCatalogBytes).digest('hex')
+export const fixtureFingerprint = createHash('sha256').update(readFileSync(new URL(import.meta.url))).update(artworkCatalogBytes).digest('hex')
 const titles = ['远山来信', '最后一班夜航', '沿着海岸慢慢走', '星河尽头的约定', '旧城里的夏天', '风停之前', '二十四小时之外', '月光照亮无人抵达的北方站台', '雨季旅人', '橙色地平线', '明日重逢', '无声的森林', '未识别的家庭录像_2024_最终完整版']
 const tvTitles = ['群岛之间', '长夜观测站', '街角食堂', '远方的回声：写给每一个仍在路上的人', '山海纪事', '星期天的房间']
-const palettes = [['#172d39','#607976','#d5ab71'],['#181d38','#666487','#d79871'],['#17424b','#759e99','#e9c99a'],['#1a244c','#63739c','#e0b47a'],['#5a362b','#b68c69','#efd0a0'],['#273b2e','#7c966d','#c9d1a4'],['#2a243c','#987d96','#d9b0a1'],['#192e43','#50778e','#dce0d0'],['#203635','#698982','#c4b091'],['#663f2c','#b27444','#ffcf83'],['#323d4a','#91a0ad','#ddc8ae'],['#1c3029','#587966','#b2b791']]
+function rasterArt(key, wide = false) {
+  const asset = artworkCatalog[key]
+  if (!asset) throw new Error('Missing demo artwork: ' + key + '; run python3 scripts/build_design.py')
+  if (!imageCache.has(key)) {
+    const bytes = readFileSync(new URL('../../' + asset.master, import.meta.url))
+    if (createHash('sha256').update(bytes).digest('hex') !== asset.sha256) throw new Error('Demo artwork changed: ' + key)
+    imageCache.set(key, bytes.toString('base64'))
+  }
+  const w = wide ? 1600 : 600, h = 900
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><image width="${w}" height="${h}" preserveAspectRatio="xMidYMid slice" href="data:image/webp;base64,${imageCache.get(key)}"/></svg>`
+}
 export function art(index = 0, wide = false, portrait = false, label = {}) {
-  const i = Math.abs(Number(index) || 0), [dark, middle, light] = palettes[i % palettes.length]
-  const w = wide ? 1600 : 600, h = wide ? 900 : 900
-  const hills = `<path d="M0 ${h*.69} Q${w*.27} ${h*.32} ${w*.55} ${h*.65} T${w} ${h*.44} V${h}H0Z" fill="${middle}"/><path d="M0 ${h*.85} Q${w*.38} ${h*.51} ${w*.6} ${h*.76} T${w} ${h*.68}V${h}H0Z" fill="${dark}"/>`
-  const city = Array.from({length: 12}, (_,n)=>`<rect x="${n*w/11}" y="${h*(.48+(n%4)*.045)}" width="${w/15}" height="${h*.5}" fill="${n%2?dark:middle}"/><path d="M${n*w/11+8} ${h*.65}v42" stroke="${light}" stroke-width="3" opacity=".5"/>`).join('')
-  const scenery = i%3===0 ? hills : i%3===1 ? city : `<path d="M0 ${h*.54}Q${w*.3} ${h*.48} ${w*.6} ${h*.58}T${w} ${h*.54}V${h}H0Z" fill="${middle}"/><path d="M0 ${h*.7} Q${w*.35} ${h*.6} ${w} ${h*.77}M0 ${h*.8}Q${w*.5} ${h*.7} ${w} ${h*.87}" fill="none" stroke="${light}" opacity=".22" stroke-width="3"/>`
-  const title = label.title || titles[i%12]
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><defs><linearGradient id="sky" x2=".25" y2="1"><stop stop-color="${dark}"/><stop offset="1" stop-color="${middle}"/></linearGradient><pattern id="grain" width="7" height="7" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".65" fill="#fff" opacity=".06"/></pattern></defs><rect width="${w}" height="${h}" fill="url(#sky)"/><circle cx="${w*(.62+(i%3)*.04)}" cy="${h*.28}" r="${wide?110:72}" fill="${light}" opacity=".85"/>${portrait ? `<circle cx="300" cy="360" r="122" fill="${light}"/><path d="M105 850Q80 510 300 495Q530 510 495 850" fill="${middle}"/><path d="M175 350Q150 190 310 195Q450 205 430 355Q390 250 220 300Z" fill="${dark}"/>` : scenery}<rect width="${w}" height="${h}" fill="url(#grain)"/>${wide||portrait ? '' : `<text x="46" y="100" fill="${light}" font-family="serif" font-size="17" letter-spacing="6">JZ · CINEMA STUDIES</text><text x="44" y="725" fill="#fff3de" font-family="serif" font-size="${title.length>7?34:48}" letter-spacing="4">${title}</text><path d="M48 764H140" stroke="${light}"/><text x="47" y="805" fill="${light}" font-family="sans-serif" font-size="16" letter-spacing="5">A FICTIONAL ${label.series ? 'SERIES' : 'FILM'} · ${label.year || 2014+i}</text><text x="48" y="856" fill="${light}" font-family="sans-serif" font-size="12" letter-spacing="2">ORIGINAL VECTOR ART / ISOLATED UI REVIEW</text>`}</svg>`
+  const i = Math.abs(Number(index) || 0)
+  const key = portrait ? 'person-' + i % 6 : wide ? (label.series ? 'island-backdrop' : 'mountain-backdrop')
+    : label.candidate ? ['movie-0', 'mountain-alternate-1', 'mountain-alternate-2'][i % 3]
+      : (label.series ? 'show-' + i % 6 : 'movie-' + i % 12)
+  return rasterArt(key, wide)
 }
 const overview = '一封迟到的信，把久未归家的旅人带回海边小城。在旧车站、雨后的街巷和即将关闭的放映室之间，人们重新发现被日常掩藏的温柔。这是一段关于相遇、告别与重新出发的故事。'
 const progress = { position: 2180, duration: 6900, remaining_sec: 4720, position_text: '36:20', percent: 0.316 }
@@ -77,7 +92,7 @@ export function createFixture() {
     if (key === '/api/tv/updates') return { media_library_id: Number(url.searchParams.get('media_library') || 1), items: [], error: '' }
     if (key === '/api/tv/airing/status' || key === '/api/tv/airing/check') return { configured: true, total: 6, checked: 6, pending: 0, failed: 0, running: false, current: 0, last_checked_at: 1790985600, next_check_at: 1791590400, error: '' }
     if(/^\/api\/persons\/\d+$/.test(key))return {...cast[0],biography:'演示人物陈予安：虚构电影演员与导演，作品关注人与地方的联系。此资料仅用于教程。',birthday:'1986-05-14',place_of_birth:'海边小城（虚构）',acting:movies.slice(0,3),directing:movies.slice(3,7),tv_works:[]}
-    if(/^\/api\/movies\/\d+\/posters$/.test(key))return {items:Array.from({length:6},(_,i)=>({file_path:'/demo-poster-'+i+'.jpg',thumb_url:'/posters/movie-'+i+'.svg',width:1000,height:1500,current:i===0,lang:'zh'}))}
+    if(/^\/api\/movies\/\d+\/posters$/.test(key))return {items:Array.from({length:3},(_,i)=>({file_path:'/demo-poster-'+i+'.jpg',thumb_url:'/posters/candidate-'+i+'.svg',width:1000,height:1500,current:i===0,lang:'zh'}))}
     if(/^\/api\/tv\/shows\/\d+\/tmdb-episodes$/.test(key))return {items:episodes.map((e,i)=>({...e,tmdb_episode_id:9401+i}))}
     if(/^\/api\/tv\/shows\/\d+\/discover$/.test(key))return {added:0,unknown:0}
     if(/^\/api\/tv\/shows\/\d+\/organize-hint$/.test(key))return tvPlan
@@ -113,6 +128,7 @@ export function createFixture() {
     if(key==='/api/tv/stats')return {shows:6,seasons:12,episodes:96,pending:1,episode_review:1,by_library:[{library_id:2,name:'剧集',shows:6,episodes:96,pending:1,episode_review:1}]}
     if(key==='/api/data-usage')return dataUsage()
     if(key==='/api/stream/previews/auto')return {mode:'all',queued:0,running:false,start_hour:3,end_hour:6,pause_reason:'scheduled'}
+    if(key==='/api/stream/previews/queue')return {library_id:Number(url.searchParams.get('library_id')||1),revision:1,total:0,offset:0,limit:20,items:[],batches:[],running:null}
     if(key==='/api/stream/previews/cache/clean'||key==='/api/stream/cache/clean')return {total:dataUsage().categories[key==='/api/stream/cache/clean'?'transcode':'previews'],candidates:0,candidate_bytes:0,dry_run:body?.dry_run??true,removed:0,freed:0}
     if(key==='/api/metadata/providers')return {providers:[{name:'local',label:'本地索引',available:true},{name:'tmdb',label:'TMDB',available:true}]}
     if(key==='/api/metadata/test-search')return {library_id:1,kind:'movie',items:[{title:titles[0],year:2014,source:'tmdb'}],source:'tmdb',elapsed_ms:82,chain:['local','tmdb']}
@@ -151,10 +167,15 @@ export function createFixture() {
     state.unexpected.push(`${method} ${key}`);return undefined
   }
   const artwork=key=>{
-    const show=key.match(/\/show-(\d+)/),candidate=state.scene==='movie-posters'&&/movie-\d+\.svg$/.test(key)
-    const index=Number(key.match(/(?:-|episodes\/|movies\/)(\d+)/)?.[1]||0)
-    const label=show?{title:tvTitles[Number(show[1])],year:2023-Number(show[1]),series:true}:candidate?{title:titles[0],year:2014}:{}
-    return art(index,/backdrop|still/.test(key),/person-/.test(key),label)
+    const show=key.match(/\/show-(\d+)/), person=key.match(/\/person-(\d+)/), candidate=key.match(/\/candidate-(\d+)/)
+    if (candidate) return art(Number(candidate[1]), false, false, {candidate:true})
+    if (person) return art(Number(person[1]), false, true)
+    if (/backdrop|still/.test(key)) {
+      const series=/still|\/tv\//.test(key)||/backdrop-(?!0(?:\.|$))/.test(key)
+      return art(0, true, false, {series})
+    }
+    const index=show?Number(show[1]):Number(key.match(/movie-(\d+)/)?.[1]||0)
+    return art(index, false, false, {series:!!show})
   }
   return {state,api,artwork}
 }

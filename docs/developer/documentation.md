@@ -68,7 +68,7 @@
 
 Agent 编写、同步或审核项目文档时使用仓库 `.agents/skills/jzmedia-docs/SKILL.md`；本页维护通用规则，skill 负责选择正文、核对事实和执行验证，不另存一份规范。功能变更先判断文档影响，仅内部重构且使用方式与约束不变时，不扩大为全仓文档整理。
 
-只要求审核时不修改文件，按“位置、问题、读者影响、依据、建议”报告，并区分事实错误与风格建议。编写或维护时在任务范围内直接更新唯一正文；提交前核对以下五项，并在提交或 PR 说明中记录执行的检查和未覆盖范围：
+只要求审核时不修改文件，按“位置、问题、读者影响、依据、建议”报告，并区分事实错误与风格建议。编写或维护时在任务范围内直接更新唯一正文；提交前核对以下各项，并在提交或 PR 说明中记录执行的检查和未覆盖范围：
 
 - 页面结构符合用途；任务页让读者从准备开始完成操作，看到明确结果，失败时知道下一步；参考和解释能定位事实、机制与限制。标题层级、步骤编号和表格遵循上面的排版规则。
 - 命令、脚本帮助与当前实现一致；能安全自动化的重复操作已经有统一入口。
@@ -249,7 +249,7 @@ python3 -m venv /tmp/jzmedia-docs-python
 
 ### 同数据的整页审查与教程截图
 
-跨页面改版先冻结改前源码，再用同一份完整模拟资料比较；旧教程截图只能说明历史界面，不能当作同数据基线。`scripts/ui_visual_review.mjs` 使用 `scripts/fixtures/uiReviewData.mjs` 的虚构影片、剧集、合集、文件和设置，以及原创 SVG 海报；真实 Vue 页面独立构建到临时目录，不读取项目 `.env`、数据库、媒体或 NAS，不连接外网。
+跨页面改版先冻结改前源码，再用同一份完整模拟资料比较；旧教程截图只能说明历史界面，不能当作同数据基线。`scripts/ui_visual_review.mjs` 使用 `scripts/fixtures/uiReviewData.mjs` 的虚构影片、剧集、合集、文件和设置，以及 AI 生成的原创摄影风格海报、剧照和人物肖像。素材母版与完整生成提示词位于 `design/demo-artwork/`，经 `python3 scripts/build_design.py` 生成并用 `--check` 核对素材目录。真实 Vue 页面独立构建到临时目录，不读取项目 `.env`、数据库、媒体或 NAS，不连接外网。
 
 ```bash
 node scripts/ui_visual_review.mjs --demo
@@ -261,7 +261,7 @@ node scripts/ui_visual_review.mjs --capture-docs
 
 `--source` 指向包含 `frontend/` 的冻结源码目录；fixture 始终来自当前脚本，改前和改后的 fixture 哈希必须一致。`--demo` 打印独立本机地址供手动体验，输入与操作只修改内存模拟状态。完整审查覆盖电影/剧集/合集浏览与详情、设置、四步向导、筛选、勾选、上传与删除弹窗，以及加载、空、无结果和失败状态。`--core` 只保留主要页面，适合局部布局迭代，不能代替完整验收。
 
-脚本保存 1440×1000 和 390×844 CSS 视口截图，另在 375×812 检查窄屏。`output/playwright/goal-before/manifest.json` 和 `goal-after/manifest.json` 记录源码与 fixture 哈希、场景、页面错误和布局测量；`output/playwright/ui-review/index.html` 展示成对图片，`comparisons.json` 的 `comparable` 标记两组 fixture 是否一致。拍摄过程中不要修改前端源码；脚本会核对拍摄前后的源码哈希。局部重拍仅在源码与 fixture 均一致时合并旧结果，避免一组截图混入多个实现版本。
+脚本保存 1440×1000 和 390×844 CSS 视口截图，另在 375×812 检查窄屏。`output/playwright/goal-before/manifest.json` 和 `goal-after/manifest.json` 记录源码与 fixture 哈希、场景、页面错误和布局测量；fixture 摘要包含生成素材目录，图片母版还会逐项核对哈希。`output/playwright/ui-review/index.html` 展示成对图片，`comparisons.json` 的 `comparable` 标记两组 fixture 是否一致。拍摄过程中不要修改前端源码；脚本会核对拍摄前后的源码哈希。局部重拍仅在源码与 fixture 均一致时合并旧结果，避免一组截图混入多个实现版本。
 
 `--capture-docs` 必须使用当前工作区的完整审查，不与 `--source`、`--only`、`--core` 或 `--demo` 混用。脚本从通过检查的场景生成 WebP q86，只更新对应教程图和素材清单条目，保留其他来源记录；需要现有 FFmpeg。新增或调整教程图映射时同步检查实际图片、正文、替代文字和图注。设置/文件与 AI 的专门拍摄脚本仍负责其操作场景，见下文；截图通过不代表真实 NAS、TMDB 或模型服务已验证。
 

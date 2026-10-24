@@ -1,6 +1,6 @@
 # 文档素材维护
 
-本目录保存帮助站正文使用的截图、视频、字幕和概念图。维护说明核对于 **2026-10-13**；这不表示所有素材都在当天复拍。逐文件来源以 [manifest.json](manifest.json) 为准，拍摄环境与完整命令见[文档维护](../developer/documentation.md#重新拍摄素材)。
+本目录保存帮助站正文使用的截图、视频、字幕和概念图。逐文件来源以 [manifest.json](manifest.json) 为准，拍摄环境与完整命令见[文档维护](../developer/documentation.md#重新拍摄素材)。
 
 ## 目录与用途
 
@@ -21,6 +21,7 @@
 | 拍摄入口 | 对应素材 |
 | --- | --- |
 | `ui_visual_review.mjs --capture-docs` | 浏览、详情、库连接、上传、匹配与整理面板 |
+| `smoke_tv_airing.mjs --capture-docs` | 剧集播出、收藏状态与官方分集目录 |
 | `smoke_settings_ui.mjs --capture-docs` | 设置、草稿提醒、文件管理、预览与播放器控件 |
 | `smoke_settings_ui.mjs --player-only --capture-docs` | 播放器设置与文件预览控件截图 |
 | `smoke_casting.mjs --capture-only` | 普通播放的手机暂停布局与投屏工具截图（原始 PNG） |
@@ -32,13 +33,16 @@
 
 ### 运行方式与来源边界
 
-Node 拍摄入口使用真实 Vue 页面和模拟 API，通用页面配有虚构资料与原创 SVG 海报；文件预览使用临时合成媒体。AI 画面使用模拟模型响应，无真实 Key 或模型调用。从仓库根按需运行：
+Node 拍摄入口使用真实 Vue 页面和模拟 API，通用页面配有虚构资料与 AI 生成的原创电影、剧集海报及人物肖像；文件预览使用临时合成媒体。演示图片母版、生成提示词与摘要位于 `design/demo-artwork/`，由 `scripts/build_design.py` 生成拍摄脚本使用的素材目录；真实界面仍由浏览器拍摄。智能辅助画面使用模拟模型响应，无真实 Key 或模型调用。从仓库根按需运行：
 
 ```bash
 node scripts/ui_visual_review.mjs --capture-docs
+node scripts/smoke_tv_airing.mjs --capture-docs
 node scripts/smoke_settings_ui.mjs --capture-docs
 node scripts/smoke_ai_ui.mjs --capture-docs
 ```
+
+2026-10-24 更新通用 UI 与剧集播出教程图，改用摄影风格的原创演示海报、横幅剧照和虚构人物肖像；逐文件拍摄记录见清单。缺失海报示例继续保留真实的缺图状态，便于说明未匹配影片。
 
 `smoke_casting.mjs --capture-only` 使用真实播放器、隔离 FastAPI、合成视频及回环模拟 DLNA 接收端；不会发现或控制真实局域网设备。原始截图位于 `output/playwright/casting/after/`，选定截图压缩为 WebP 后按实际来源登记到清单。
 
@@ -85,7 +89,7 @@ python scripts/capture_docs_diagrams.py
 
 | 图 | 核对内容 |
 |---|---|
-| `libraries.svg` | 媒体库存连接，电影/剧集视频库选择其子目录；扫描、上传、整理按视频库作用域执行。对应 `app/routers/media_libraries.py`、`app/routers/libraries.py`。 |
+| `libraries.svg` | 媒体库保存连接信息，电影/剧集视频库选择其子目录；扫描、上传、整理按视频库作用域执行。对应 `app/routers/media_libraries.py`、`app/routers/libraries.py`。 |
 | `ingestion.svg` | 已有文件扫描，设备文件上传；导入后核对并播放，整理需要独立预览与确认。对应四步向导、上传入口及 `LibraryToolsPanel`。 |
 | `organizing.svg` | 就地整理预览原/目标路径，正片与同茎字幕随行，目标冲突不覆盖；撤回使用还原位置。文件名为概念示例，实际结果以应用预览为准。 |
 

@@ -15,7 +15,7 @@
 | [check_python.py](check_python.py) | 严格运行 Python 静态检查，仅保留固定导出门面与同名重导出例外。 |
 | [build_frontend.py](build_frontend.py) | 按输入摘要构建 `frontend/dist/`；由 `start.sh` 调用，包含删除检测。 |
 | [build_docs.py](build_docs.py) | 按输入摘要构建 `docs/.vitepress/dist/`；由 `start.sh` 调用，排除私有资料、路线图和历史报告。 |
-| [build_design.py](build_design.py) | 从 `design/` 母版生成跨端资产、令牌和用途清单；`--check` 只校验，品牌位图使用 `--render-brand`。详见[设计资产](../design/README.md)。 |
+| [build_design.py](build_design.py) | 从 `design/` 母版生成跨端资产、令牌、用途清单及文档演示图片目录；`--check` 只校验，品牌位图使用 `--render-brand`。详见[设计资产](../design/README.md)。 |
 | [check_docs_links.py](check_docs_links.py) | 检查仓库 Markdown 的本地链接、锚点和代码围栏。 |
 
 链接检查默认跳过依赖、构建产物、运行数据和私有目录；`--root docs` 可限定范围。帮助站渲染结果另用 `npm --prefix docs run check`。

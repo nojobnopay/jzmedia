@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { build } from '../frontend/node_modules/vite/dist/node/index.js'
 import vue from '../frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
-import { createFixture, fixtureVersion } from './fixtures/uiReviewData.mjs'
+import { artworkFingerprint, createFixture, fixtureFingerprint, fixtureVersion } from './fixtures/uiReviewData.mjs'
 const root=fileURLToPath(new URL('../',import.meta.url)),args=process.argv.slice(2)
 let source=root,label='goal-after',demo=false,core=false,only='',captureDocsMode=false,beforeLabel='goal-before',galleryOnly=false
 for(let i=0;i<args.length;i++) { if(args[i]==='--source')source=path.resolve(args[++i]);else if(args[i]==='--label')label=args[++i];else if(args[i]==='--demo')demo=true;else if(args[i]==='--core')core=true;else if(args[i]==='--only')only=args[++i];else if(args[i]==='--capture-docs')captureDocsMode=true;else if(args[i]==='--before-label')beforeLabel=args[++i];else if(args[i]==='--gallery-only')galleryOnly=true;else throw new Error('Unknown argument '+args[i]) }
@@ -155,7 +155,7 @@ async function captureDocs() {
     const file='screenshots/'+name+'.webp',destination=path.join(assets,file)
     execFileSync(ffmpeg,['-hide_banner','-loglevel','error','-y','-i',path.join(output,result.file),'-quality','86',destination])
     const bytes=await readFile(destination)
-    entries.push({file,page,scene:description,verified_at:new Date().toISOString().slice(0,10),app_version:appVersion,source_commit:sourceCommit,source_state:'当前工作区文档素材核对；源代码哈希 '+source_sha256,source:'真实 Vue 界面与全模拟 API；虚构影片及原创 SVG 海报，不连接真实媒体、数据库或外网',viewport:{...result.viewport,device_scale_factor:1},capture_mode:result.screenshot_mode,recording_script:'node scripts/ui_visual_review.mjs --capture-docs',fixtures:'scripts/fixtures/uiReviewData.mjs',fixture_sha256:createHash('sha256').update(await readFile(path.join(root,'scripts/fixtures/uiReviewData.mjs'))).digest('hex'),format:'WebP q86',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')})
+    entries.push({file,page,scene:description,verified_at:new Date().toISOString().slice(0,10),app_version:appVersion,source_commit:sourceCommit,source_state:'当前工作区文档素材核对；源代码哈希 '+source_sha256,source:'真实 Vue 界面与全模拟 API；虚构影片及 AI 生成的原创电影海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网',viewport:{...result.viewport,device_scale_factor:1},capture_mode:result.screenshot_mode,recording_script:'node scripts/ui_visual_review.mjs --capture-docs',fixtures:'scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json',fixture_sha256:fixtureFingerprint,artwork_sha256:artworkFingerprint,format:'WebP q86',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')})
     console.log('CAPTURE '+file)
   }
   const manifestFile=path.join(assets,'manifest.json'),manifest=JSON.parse(await readFile(manifestFile,'utf8'))
@@ -195,7 +195,7 @@ try {
   })
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve)})
   const base=`http://127.0.0.1:${server.address().port}`
-  if(demo){console.log(`隔离 UI 演示（全部虚构数据与原创矢量素材）：${base}`);console.log('无 .env / 后端 / 数据库 / NAS；Ctrl+C 结束。');await new Promise(resolve=>{process.once('SIGTERM',resolve);process.once('SIGINT',resolve)})}
+  if(demo){console.log(`隔离 UI 演示（全部虚构数据与 AI 原创电影素材）：${base}`);console.log('无 .env / 后端 / 数据库 / NAS；Ctrl+C 结束。');await new Promise(resolve=>{process.once('SIGTERM',resolve);process.once('SIGINT',resolve)})}
   else{
     browser=await chromium.launch({headless:true})
     for(const requestedViewport of [{width:1440,height:1000},{width:390,height:844},{width:375,height:812}]){
@@ -255,7 +255,7 @@ try {
       }
     }
     let commit;try{commit=execFileSync('git',['rev-parse','HEAD'],{cwd:source,encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim()}catch{commit=source.includes('goal-before')?'06b2a4f (frozen source)':'source archive'}
-    const fixture_sha256=createHash('sha256').update(await readFile(path.join(root,'scripts/fixtures/uiReviewData.mjs'))).digest('hex')
+    const fixture_sha256=fixtureFingerprint
     let mergedResults=results
     if(only){
       const prior=await readFile(path.join(output,'manifest.json'),'utf8').then(JSON.parse).catch(()=>null)
@@ -266,7 +266,7 @@ try {
         mergedResults=prior.results.map(r=>{const next=newResults.get(key(r));newResults.delete(key(r));return next||r}).concat([...newResults.values()])
       }
     }
-    await writeFile(path.join(output,'manifest.json'),JSON.stringify({fixtureVersion,fixture_sha256,source,source_commit:commit,source_sha256,source_changed_during_review:source_sha256!==await sourceFingerprint(),generated_at:new Date().toISOString(),all_api_mocked:true,external_requests:external,business_validation:'Visual and layout review only; pair with existing workflow smoke tests.',results:mergedResults},null,2)+'\n')
+    await writeFile(path.join(output,'manifest.json'),JSON.stringify({fixtureVersion,fixture_sha256,artwork_sha256:artworkFingerprint,source,source_commit:commit,source_sha256,source_changed_during_review:source_sha256!==await sourceFingerprint(),generated_at:new Date().toISOString(),all_api_mocked:true,external_requests:external,business_validation:'Visual and layout review only; pair with existing workflow smoke tests.',results:mergedResults},null,2)+'\n')
     await gallery()
     console.log(`Review ${output}: ${results.length} cases, ${issues.length} issues. Comparison: output/playwright/ui-review/index.html`)
     if(!label.includes('before')){

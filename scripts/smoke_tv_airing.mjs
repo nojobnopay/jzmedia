@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { build } from '../frontend/node_modules/vite/dist/node/index.js'
 import vue from '../frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
-import { createFixture, episodes, libraries, shows, tvCatalogFixture, tvCollectionFixture } from './fixtures/uiReviewData.mjs'
+import { artworkFingerprint, fixtureFingerprint, createFixture, episodes, libraries, shows, tvCatalogFixture, tvCollectionFixture } from './fixtures/uiReviewData.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url)), args = process.argv.slice(2)
 assert.ok(args.every(arg => arg === '--capture-docs'), 'Only --capture-docs is supported')
@@ -135,10 +135,10 @@ async function captureDocs() {
     const bytes = await readFile(destination)
     entries.push({ file, page: 'user-guide/watch-tv.md', scene: entry.scene, verified_at: new Date().toISOString().slice(0, 10), app_version: version,
       source_commit: commit, source_state: '当前工作区剧集播出与收藏界面',
-      source: '真实 Vue 界面与全模拟 API；虚构剧集及原创 SVG 海报，不连接真实媒体、数据库或外网；不证明 TMDB 实际可用性',
+      source: '真实 Vue 界面与全模拟 API；虚构剧集及 AI 生成的原创剧集海报、剧照与虚构人物肖像，不连接真实媒体、数据库或外网；不证明 TMDB 实际可用性',
       viewport: { width: 1440, height: 1000, device_scale_factor: 1 }, capture_mode: 'full-page',
-      recording_script: 'node scripts/smoke_tv_airing.mjs --capture-docs', fixtures: 'scripts/smoke_tv_airing.mjs + scripts/fixtures/uiReviewData.mjs',
-      fixture_sha256: createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).update(await readFile(path.join(root, 'scripts/fixtures/uiReviewData.mjs'))).digest('hex'),
+      recording_script: 'node scripts/smoke_tv_airing.mjs --capture-docs', fixtures: 'scripts/smoke_tv_airing.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/manifest.json', artwork_sha256: artworkFingerprint,
+      fixture_sha256: createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).update(fixtureFingerprint).digest('hex'),
       format: 'WebP q86', bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
     console.log('CAPTURE ' + file)
   }

@@ -30,9 +30,9 @@
 
 <DocFigure src="../assets/screenshots/movie-filters.webp" alt="电影墙右侧的全部筛选面板：按组选择条件，底部重置和应用" caption="全部筛选按组呈现，选项计数表示本库数量；点击应用后生效，关闭会放弃本次修改。真实 Vue 界面与全模拟 API，不连接真实媒体。" />
 
-<DocFigure src="../assets/screenshots/movie-library.webp" alt="电影墙：继续观看、排序与海报" caption="继续观看只在有有效断点时出现；墙默认按入库时间倒序，可切年份、评分等排序。" />
+<DocFigure src="../assets/screenshots/movie-library.webp" alt="电影墙：继续观看、排序与海报" caption="继续观看只在有有效断点时出现；墙默认按入库时间倒序，可切年份、评分等排序。图中影片和 AI 生成海报均为虚构演示素材。" />
 
-<DocFigure src="../assets/screenshots/mobile-library.webp" alt="手机宽度下的电影墙" caption="Chromium 移动模拟（390×844 CSS，1x）：完整虚构资料与原创 SVG 海报，展示常用筛选入口、紧凑继续观看和三列海报墙；列数随视口宽度和海报大小偏好调整。" />
+<DocFigure src="../assets/screenshots/mobile-library.webp" alt="手机宽度下的电影墙" caption="Chromium 移动模拟（390×844 CSS，1x）：虚构影片与 AI 生成海报，展示常用筛选入口、紧凑继续观看和三列海报墙；列数随视口宽度和海报大小偏好调整。" />
 
 ### 智能搜索
 

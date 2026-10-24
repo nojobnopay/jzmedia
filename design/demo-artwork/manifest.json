@@ -1,0 +1,512 @@
+{
+  "schema_version": 1,
+  "purpose": "Fictional cinema artwork for isolated documentation screenshots; never production library data.",
+  "generation_mode": "Built-in image generation, one independent call per poster, portrait or backdrop.",
+  "art_direction": "Photographic theatrical key art based on the user-provided poster-wall reference; diverse scenes, natural lighting, readable Chinese titles.",
+  "assets": [
+    {
+      "id": "movie-0",
+      "title": "远山来信",
+      "master": "design/demo-artwork/movie-0.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing\nAsset type: one fictional Chinese theatrical movie poster for a media-library documentation demo.\nCreate a finished portrait 2:3 movie poster for \"远山来信\" (Letters from the Mountains), 2014. An East Asian man in his late forties in a worn charcoal hiking jacket holds an old cream-colored letter, photographed waist-up in three-quarter profile on a mountain trail; immense misty slate mountains recede behind him. Quiet, intimate human drama. Real photographic face, subtle skin texture and natural imperfections, atmospheric overcast light, muted blue-green and warm paper, tasteful analog film grain, detailed professional theatrical key art. Subject dominates upper two thirds, beautifully balanced mountainous depth.\nText (verbatim): \"远山来信\" in large expressive white Chinese brush calligraphy across the lower quarter, and small \"LETTERS FROM THE MOUNTAINS\" underneath. A tiny fictional credit block at bottom. Prioritize exact readable title. No other large text.\nConstraints: just ONE poster edge to edge, no frame, no UI, no rating badges, no watermark, no recognizable actor, no real studio logos. Avoid vector art, flat geometry, plastic CGI, generic identical poster layouts. The user reference is mood guidance for photoreal cinematic poster treatment; do not regenerate the app UI.",
+      "original_sha256": "10a2dffceaf4bef87df12edef96025aebea07b5c835336edf341b85f9269129e",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 149914,
+      "sha256": "492dc96fcde43c8e65c378a18db5d4d7659d947332c88fc4082a6c5210c53dd4"
+    },
+    {
+      "id": "movie-1",
+      "title": "最后一班夜航",
+      "master": "design/demo-artwork/movie-1.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. Asset type: ONE finished original fictional Chinese movie poster, portrait 2:3, edge to edge. Photographic professional cinema key art with realistic East Asian people (fictional cast), fine analog film grain, natural skin texture, sophisticated light and color. Compose distinct evocative scenes, subject mainly in the upper two thirds, exact Chinese movie title large and legible near bottom with small English subtitle and tiny fictional credits. No frames, no app UI, no rating, no real studio marks, no watermark, no vector shapes, no plastic CGI.\nFilm title (verbatim): \"最后一班夜航\". English subtitle: \"THE LAST NIGHT FLIGHT\". Year: 2015.\nScene and art direction: A solitary young man seen from behind in a dark coat in a rainy airport terminal at midnight, huge glass windows, warm amber boarding lights reflected on polished wet floor, jet barely visible in mist. Suspense thriller, deep navy and amber, strong cinematic perspective. Chinese title as bold white hand-painted lettering.",
+      "original_sha256": "2c1444343380d97ab9e39e8af5806d37a8ee3a1907d3dba84b724cf57c130d26",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 159296,
+      "sha256": "9d7e4e3ab11f569a195f080ac2d06c44a6e815542a583d96827a6c5cdae21d07"
+    },
+    {
+      "id": "movie-2",
+      "title": "沿着海岸慢慢走",
+      "master": "design/demo-artwork/movie-2.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. Asset type: ONE finished original fictional Chinese movie poster, portrait 2:3, edge to edge. Photographic professional cinema key art with realistic East Asian people (fictional cast), fine analog film grain, natural skin texture, sophisticated light and color. Compose distinct evocative scenes, subject mainly in the upper two thirds, exact Chinese movie title large and legible near bottom with small English subtitle and tiny fictional credits. No frames, no app UI, no rating, no real studio marks, no watermark, no vector shapes, no plastic CGI.\nFilm title (verbatim): \"沿着海岸慢慢走\". English subtitle: \"ALONG THE COAST\". Year: 2016.\nScene and art direction: Windblown long-haired East Asian woman in a simple white linen blouse in three-quarter profile, at the turquoise sea on a bright breezy day, sunlight grazing her face, waves and distant horizon, airy blue and seafoam palette, wistful gentle independent drama. Slender elegant white Chinese title.",
+      "original_sha256": "30a0b5667a84a92bafdbf9b41c13f6458dbf6c1182bc7dbe53c4a31a85ba2c77",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 142326,
+      "sha256": "fb997963da22b9039e5a218443779808866a11234f34d6caa5e34d99c8a5c88a"
+    },
+    {
+      "id": "movie-3",
+      "title": "星河尽头的约定",
+      "master": "design/demo-artwork/movie-3.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. Asset type: ONE finished original fictional Chinese movie poster, portrait 2:3, edge to edge. Photographic professional cinema key art with realistic East Asian people (fictional cast), fine analog film grain, natural skin texture, sophisticated light and color. Compose distinct evocative scenes, subject mainly in the upper two thirds, exact Chinese movie title large and legible near bottom with small English subtitle and tiny fictional credits. No frames, no app UI, no rating, no real studio marks, no watermark, no vector shapes, no plastic CGI.\nFilm title (verbatim): \"星河尽头的约定\". English subtitle: \"PROMISE BEYOND THE STARS\". Year: 2017.\nScene and art direction: Small lone astronaut standing with back to camera on rocky lunar terrain below an enormous luminous blue planet and distant stars, monumental negative space, indigo and icy blue, premium epic science fiction theatrical key art. Silver-white Chinese title, refined compact lettering.",
+      "original_sha256": "46482dd5014ff53bdbf43266e010638fbf2da00e8d32cc9c9b7061b22b3a1b0e",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 181600,
+      "sha256": "65a08d71efdad5e8df3ccf98ca5b1ed1f760b7a574944ed5323d142063a8197b"
+    },
+    {
+      "id": "movie-4",
+      "title": "旧城里的夏天",
+      "master": "design/demo-artwork/movie-4.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. Asset type: ONE finished original fictional Chinese movie poster, portrait 2:3, edge to edge. Photographic professional cinema key art with realistic East Asian people (fictional cast), fine analog film grain, natural skin texture, sophisticated light and color. Compose distinct evocative scenes, subject mainly in the upper two thirds, exact Chinese movie title large and legible near bottom with small English subtitle and tiny fictional credits. No frames, no app UI, no rating, no real studio marks, no watermark, no vector shapes, no plastic CGI.\nFilm title (verbatim): \"旧城里的夏天\". English subtitle: \"SUMMER IN THE OLD CITY\". Year: 2018.\nScene and art direction: Young East Asian couple turning toward one another on a historic warm ochre Chinese city street at sunset, narrow old buildings, weathered masonry and airborne golden dust, tender natural expressions, 35mm lens, honey and amber color. Lyrical cream-white Chinese calligraphy title.",
+      "original_sha256": "a6c63ed3852f19732d9d6b732275b6998a9020174e6213c44caada3f0f164903",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 131986,
+      "sha256": "60bbdf4b3a76ccc7554afcf0c1c57cdbde8b5a8e40916c70f0a8789c2bed2e5c"
+    },
+    {
+      "id": "movie-5",
+      "title": "风停之前",
+      "master": "design/demo-artwork/movie-5.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"风停之前\". English subtitle: \"BEFORE THE WIND FALLS\".\nScene: A young man and woman standing apart in tall green meadow grass, wind moving their clothes, immense summer clouds, distant rural mountains, thoughtful longing, soft pale olive green and cream daylight; elegant ivory Chinese calligraphy.",
+      "original_sha256": "416864688309c5bf76f3cf44f60ef94dcaf5ef0cf97de18012058a1020e487fd",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 156042,
+      "sha256": "d3d7dfbbaa4e5e845ab70faa43478b185f1dfcebcb95436eac3953287de5d83a"
+    },
+    {
+      "id": "movie-6",
+      "title": "二十四小时之外",
+      "master": "design/demo-artwork/movie-6.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"二十四小时之外\". English subtitle: \"BEYOND TWENTY FOUR\".\nScene: Close profile of a young East Asian man at night, layered rain-streaked neon city and tram lights, magenta and violet with sharp red lens flare, tense urban mystery, asymmetrical portrait composition; bold white condensed Chinese title.",
+      "original_sha256": "5967ad864a9aa87aba8315ba38e46038d42a6cb7b27dd475ab79aef33febe9b3",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 181270,
+      "sha256": "015441bf6c036d0155a406d505fe4cff591c755f7c6976570a0eac0e1d74585c"
+    },
+    {
+      "id": "movie-7",
+      "title": "月光照亮无人抵达的北方站台",
+      "master": "design/demo-artwork/movie-7.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"月光照亮无人抵达的北方站台\". English subtitle: \"MOONLIT NORTHERN PLATFORM\".\nScene: A solitary woman in a long navy winter coat on a deserted snowy railway platform under blue moonlight, single bright overhead lamp, train receding into mist, melancholy blue-toned mystery. Title exact, balanced in two beautiful lines of white Chinese type, avoid overly small letters.",
+      "original_sha256": "87883c73590fd8eaf5fb2d5bea644de6db322cc500af4e19e52f0abf8011d7d6",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 143374,
+      "sha256": "05f55acae1faa6eb3ed207fe4bd09bd8f757818693be7bc30e66668f6cfabb82"
+    },
+    {
+      "id": "movie-8",
+      "title": "雨季旅人",
+      "master": "design/demo-artwork/movie-8.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"雨季旅人\". English subtitle: \"TRAVELERS IN THE RAIN\".\nScene: A couple beneath overlapping yellow and teal umbrellas in a rain-soaked old-city street, intimate embrace, wet pavement and warm shop lights reflected in puddles, lush green and amber romantic drama; white expressive calligraphy.",
+      "original_sha256": "27d82b411a456fb7c864c05f009fcf43dea9b0b124aff7c3d2c49e9958305320",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 240528,
+      "sha256": "4613c58be32a7448815100fdd7bd342a463c3bfdbd9b10a674dd1363003566ff"
+    },
+    {
+      "id": "movie-9",
+      "title": "橙色地平线",
+      "master": "design/demo-artwork/movie-9.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"橙色地平线\". English subtitle: \"ORANGE HORIZON\".\nScene: Vintage ochre sedan parked along desert road, a lone young traveler in distance walking toward huge orange setting sun, copper sky, canyon silhouettes, dusty cinematic western road movie; cream Chinese brush lettering.",
+      "original_sha256": "b5b8529d48129aae8a6870cb2bac3d20d66c88620b67230ac59c64c99ff9235f",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 160468,
+      "sha256": "5f91dad529720d248cac54cc4011588907ebe49c5e8f60678a64507312a2b2b0"
+    },
+    {
+      "id": "movie-10",
+      "title": "明日重逢",
+      "master": "design/demo-artwork/movie-10.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"明日重逢\". English subtitle: \"UNTIL WE MEET TOMORROW\".\nScene: Double portrait of a young man looking left and woman looking right, realistic emotional faces in soft profile against a modern coastal city skyline at dusk, muted slate blue with warm skin highlights, romantic drama, editorial photomontage, elegant pale ivory Chinese title.",
+      "original_sha256": "bddf0a239b697bca14f206bae7dece5715ee39ebb56a21f0524fdb56da42f4e3",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 108760,
+      "sha256": "924ed43f9c515ca865b43b50ac88b8b06b6781da64ee9ed322376d8bbddd4277"
+    },
+    {
+      "id": "movie-11",
+      "title": "无声的森林",
+      "master": "design/demo-artwork/movie-11.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"无声的森林\". English subtitle: \"THE SILENT FOREST\".\nScene: Close frontal portrait of a thoughtful East Asian woman surrounded by deep emerald misty forest foliage, wet black hair, subtle side light and watchful eyes, layered tree trunks, atmospheric psychological mystery, white hand-lettered Chinese title.",
+      "original_sha256": "d9bfb4cc4532df74d8b2552dc1da746f5aa86381b17c5f4a3c649eed7f1a74c7",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 150288,
+      "sha256": "f383b117830c989608ebec279ce5de1b2ef56b5fec6fd352d5aadb1c2f25d783"
+    },
+    {
+      "id": "show-0",
+      "title": "群岛之间",
+      "master": "design/demo-artwork/show-0.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"群岛之间\". English subtitle: \"BETWEEN THE ISLANDS\".\nScene: Ensemble of three East Asian adults on a windswept rocky island overlooking a distant ferry and chain of misty islands, realistic maritime family drama, slate sea blue and muted weathered gold, cinematic portrait poster.",
+      "original_sha256": "ebdfa184eda9f8eb161fe7b94d762ab5e9bbf879ae51c84bbcc75e734ee2d0a4",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 154746,
+      "sha256": "59e4adf7978d52d7df1b78fbba1abc515be6764b69dd41f94ac20ea691e16f1e"
+    },
+    {
+      "id": "show-1",
+      "title": "长夜观测站",
+      "master": "design/demo-artwork/show-1.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"长夜观测站\". English subtitle: \"THE NIGHT OBSERVATORY\".\nScene: Young East Asian woman astronomer beside a large observatory telescope under an indigo star-filled sky, distant snowy mountain observatory, cyan interior control lights, understated science mystery.",
+      "original_sha256": "d4945512f4acaf5f2a040114bb5d761877b5611cb9bccc66b7caf20aafeba9b8",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 131384,
+      "sha256": "fe983574860530f0831048d8097e53cf76c2683c248d28193462e4dde861b376"
+    },
+    {
+      "id": "show-2",
+      "title": "街角食堂",
+      "master": "design/demo-artwork/show-2.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"街角食堂\". English subtitle: \"THE CORNER KITCHEN\".\nScene: Middle-aged East Asian woman chef in simple apron behind steamy counter of a tiny warm Japanese-style Chinese neighborhood diner at night, two patrons softly out of focus, warm lantern light and rich wood surfaces, intimate food and community drama.",
+      "original_sha256": "e31f0c7b273b9510142b0ad59ac998f4d8b417a280ef0b273afb197849ef293e",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 138862,
+      "sha256": "9fd86aef13e181bb77f23e509a16991c410f02c968e0be77fd011f3ab83421d8"
+    },
+    {
+      "id": "show-3",
+      "title": "远方的回声：写给每一个仍在路上的人",
+      "master": "design/demo-artwork/show-3.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"远方的回声：写给每一个仍在路上的人\". English subtitle: \"ECHOES FROM AFAR\".\nScene: Young East Asian backpacker seen from side on an old passenger train, looking out window at blurred green mountain country, soft window light, gentle wistful road drama, title in three balanced readable lines.",
+      "original_sha256": "d282219fa0dbe65b3d5ee6425424410754ec02356b1df63312ad8d38fa71ebba",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 120328,
+      "sha256": "6a5a232888258a4400193473680bb595e16f5a490f1afa9b4a7fc4b26f32b1c7"
+    },
+    {
+      "id": "show-4",
+      "title": "山海纪事",
+      "master": "design/demo-artwork/show-4.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"山海纪事\". English subtitle: \"CHRONICLES OF MOUNTAIN AND SEA\".\nScene: Weathered East Asian fisherman in profile beside wooden fishing boat, vast wild green mountain meeting a stormy turquoise coast, tactile nets and sea spray, contemplative documentary drama with muted teal and golden dawn.",
+      "original_sha256": "65b8efd7a526efe114248dad96b78611c1ccdd422f45780952b3e6acadab9c26",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 210692,
+      "sha256": "2cf26501220fcb8f9901cd3c9a18392fcd6329e404240c457877a460241dfbc4"
+    },
+    {
+      "id": "show-5",
+      "title": "星期天的房间",
+      "master": "design/demo-artwork/show-5.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE finished original fictional Chinese theatrical poster, portrait 2:3 edge to edge. Sophisticated photorealistic movie key art: natural skin, cinematic lighting, fine analog film grain, fictional East Asian cast; exact Chinese title large and readable in lower quarter, small English title and tiny fictional credits. No UI, frame, ratings, recognizable celebrity, real studio marks or watermark. Each is a distinct cinematic composition, not a flat illustration.\nChinese title (verbatim): \"星期天的房间\". English subtitle: \"THE SUNDAY ROOM\".\nScene: A young East Asian woman seated by an open sunlit apartment window with a book, soft curtain blowing, old wooden floor, warm ivory morning light and sage green shadows, intimate slow-living ensemble drama.",
+      "original_sha256": "1fb436b286a8ea906952b2f576ecc1b064b058315cf997fb63f6ce5ae52740e7",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 146272,
+      "sha256": "df7f04a0723262458c21d52eabda7fa2bdec5effb66e33f8f18ef355036ac0e1"
+    },
+    {
+      "id": "mountain-backdrop",
+      "title": "远山来信 · 剧照",
+      "master": "design/demo-artwork/mountain-backdrop.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Create ONE landscape 16:9 cinematic film still (no text): the same film concept as 远山来信, a weathered late-forties East Asian man in charcoal hiking jacket holding a cream letter on a mountain trail, distant misty slate blue mountain valleys, natural overcast light, photoreal, rich atmosphere, quiet human drama. Position man in right third and landscape left, no logos or UI.",
+      "original_sha256": "4cd6c74fc113c420f7e166d6f161786494e30c99069b0acd6a1367d80d97f6d2",
+      "original_dimensions": [
+        1672,
+        941
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 1600,
+      "height": 900,
+      "bytes": 185160,
+      "sha256": "1d3e7a3b36839c252e3882185c026d6bb2c698cb91da7547fb5496941ba24425"
+    },
+    {
+      "id": "island-backdrop",
+      "title": "群岛之间 · 剧照",
+      "master": "design/demo-artwork/island-backdrop.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Create ONE landscape 16:9 cinematic film still (no text) for fictional series 群岛之间: three East Asian adults waiting on a weathered island ferry dock at blue hour, ferry and misty mountain islands in distance, warm amber cabin lights, subtle rain and tactile realistic clothing, poetic sea-blue family drama, balanced wide framing, no logos or UI.",
+      "original_sha256": "bcf6f031a73fdc942003385120780371ae22cf247ae5738e11314b0d733aaad7",
+      "original_dimensions": [
+        1672,
+        941
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 1600,
+      "height": 900,
+      "bytes": 250822,
+      "sha256": "ab8fa5a4f052f55cacf35d9a957ff9bfa7fee0a75b6f53b5274e8c69693c2293"
+    },
+    {
+      "id": "person-0",
+      "title": "陈予安",
+      "master": "design/demo-artwork/person-0.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: photorealistic-natural. Create ONE portrait 2:3 professional editorial casting photograph of a fictional person for a media library demo: East Asian man in late forties with short slightly tousled black hair, faint stubble, weathered thoughtful face, charcoal crewneck shirt. Head and shoulders, eyes looking slightly beside camera, neutral softly textured dark gray studio background, soft window light, natural human skin and fine film grain, restrained cinematic photography, head centered and fully visible. No text, no logos, no frame. Not a recognizable celebrity.",
+      "original_sha256": "e118c05c4012572c46a3384455553ad4eab136b627c0f12d85c3902db8ae549f",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 400,
+      "height": 600,
+      "bytes": 42482,
+      "sha256": "78b5a635f6b1ed3974a8a29dc56b01e1a14392bf67709221c673fcf0c7da5dba"
+    },
+    {
+      "id": "person-1",
+      "title": "林知夏",
+      "master": "design/demo-artwork/person-1.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: photorealistic-natural. Create ONE portrait 2:3 professional editorial casting photograph of a fictional person for a media library demo: East Asian woman in her late twenties with long straight black hair, natural understated makeup, warm thoughtful expression, ivory linen blouse. Head and shoulders, eyes looking slightly beside camera, neutral softly textured dark gray studio background, soft window light, natural human skin and fine film grain, restrained cinematic photography, head centered and fully visible. No text, no logos, no frame. Not a recognizable celebrity.",
+      "original_sha256": "ed663de3a79d86fea1e4b107af63cd2c5c6ae300ee4660fbbef3dc348450e4cc",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 400,
+      "height": 600,
+      "bytes": 39396,
+      "sha256": "63d687cc286dc49a5ac046bc96cc0fc88336065aa0ca3241c6a32e8fc15f2c94"
+    },
+    {
+      "id": "person-2",
+      "title": "周远山",
+      "master": "design/demo-artwork/person-2.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: photorealistic-natural. Create ONE portrait 2:3 professional editorial casting photograph of a fictional person for a media library demo: East Asian man in early thirties, close-cropped hair, clean shaven, calm direct gaze, dark navy shirt. Head and shoulders, eyes looking slightly beside camera, neutral softly textured dark gray studio background, soft window light, natural human skin and fine film grain, restrained cinematic photography, head centered and fully visible. No text, no logos, no frame. Not a recognizable celebrity.",
+      "original_sha256": "68e1d05878015b7575a5eb4dac376d4a12fae0024e0be7d42da5ae25d4945a54",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 400,
+      "height": 600,
+      "bytes": 26364,
+      "sha256": "fb4e2384f5e699f1bcea1d6414e2e6bd1b9e472f24379db3384b413b5eb7ca7c"
+    },
+    {
+      "id": "person-3",
+      "title": "许星河",
+      "master": "design/demo-artwork/person-3.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: photorealistic-natural. Create ONE portrait 2:3 professional editorial casting photograph of a fictional person for a media library demo: East Asian woman in early thirties, chin-length black bob, subtle confident smile, slate jacket. Head and shoulders, eyes looking slightly beside camera, neutral softly textured dark gray studio background, soft window light, natural human skin and fine film grain, restrained cinematic photography, head centered and fully visible. No text, no logos, no frame. Not a recognizable celebrity.",
+      "original_sha256": "27a0881e30c88dfa3ce12c4d7bce8fb10dfc51d90d4ef007dd12466f2cff7ce4",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 400,
+      "height": 600,
+      "bytes": 29068,
+      "sha256": "a230b81a5865d98f27058096f565ec370def95be9962b128fc0fe125ac9e2daf"
+    },
+    {
+      "id": "person-4",
+      "title": "宋雨宁",
+      "master": "design/demo-artwork/person-4.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: photorealistic-natural. Create ONE portrait 2:3 professional editorial casting photograph of a fictional person for a media library demo: East Asian woman in late thirties, gently tied back dark hair, slight smile and natural skin texture, moss green top. Head and shoulders, eyes looking slightly beside camera, neutral softly textured dark gray studio background, soft window light, natural human skin and fine film grain, restrained cinematic photography, head centered and fully visible. No text, no logos, no frame. Not a recognizable celebrity.",
+      "original_sha256": "1e4aa49642dc65cb158d7682e4b203a81663d7dff785efd5e4f1b23c7d20e1ad",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 400,
+      "height": 600,
+      "bytes": 37142,
+      "sha256": "6335a0dc93645d16cbfc8d6909b6c08a2bfc723ee6c38ee14cf1a31b835ac589"
+    },
+    {
+      "id": "person-5",
+      "title": "程望",
+      "master": "design/demo-artwork/person-5.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: photorealistic-natural. Create ONE portrait 2:3 professional editorial casting photograph of a fictional person for a media library demo: East Asian male director in his fifties, short salt-and-pepper hair, round dark eyeglasses, warm thoughtful face, black cotton shirt. Head and shoulders, eyes looking slightly beside camera, neutral softly textured dark gray studio background, soft window light, natural human skin and fine film grain, restrained cinematic photography, head centered and fully visible. No text, no logos, no frame. Not a recognizable celebrity.",
+      "original_sha256": "bdf6b00cc222e3a33e2c7edf88e70f80d1d6c9746e8a0848a40b38216a22a690",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 400,
+      "height": 600,
+      "bytes": 27932,
+      "sha256": "697a3656e80f8e29c0f5c752ab9c0ad9a93aaa6f80188e82f757b50e4119056f"
+    },
+    {
+      "id": "mountain-alternate-1",
+      "title": "远山来信 · 替代海报",
+      "master": "design/demo-artwork/mountain-alternate-1.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE portrait 2:3 photographic Chinese movie poster for fictional film \"远山来信\". A man in his late forties in a dark hiking jacket walking alone away from us on a narrow path through misty green mountain valleys, a folded letter in his hand, distant village, contemplative travel drama, pale fog and muted forest green. Film photography with subtle grain. Large exact Chinese title \"远山来信\" in white at lower quarter, small English \"LETTERS FROM THE MOUNTAINS\", tiny fictional credits. Edge to edge, no UI, ratings, logos, celebrities or watermark.",
+      "original_sha256": "3097674b0b408244c97099b7f41aa59add5f09ce8598cba736e83fa1c77be336",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 184814,
+      "sha256": "6af04408a26bc837f9f4ff1aa27bab00a41c9b1d5cac430e3be1385750f63d40"
+    },
+    {
+      "id": "mountain-alternate-2",
+      "title": "远山来信 · 替代海报",
+      "master": "design/demo-artwork/mountain-alternate-2.webp",
+      "generated_at": "2026-10-24",
+      "tool": "built-in image_gen.imagegen",
+      "prompt": "Use case: ads-marketing. ONE portrait 2:3 premium photographic Chinese movie poster for fictional film \"远山来信\". Close still-life of a handwritten cream letter lying on a weathered wooden windowsill, small old mountain village beyond rain-speckled glass and blue mist, late-afternoon warm window light on the paper, cinematic intimate drama, analog film texture. Large exact Chinese title \"远山来信\" in dark elegant ink brush calligraphy along lower quarter, small English \"LETTERS FROM THE MOUNTAINS\", tiny fictional credits. No people, UI, ratings, real logos or watermark.",
+      "original_sha256": "501630d2ed7060e44030e587c57bf47c50f622bc0fc648b5e4d60d13347f9ff3",
+      "original_dimensions": [
+        1024,
+        1536
+      ],
+      "encoding": "FFmpeg; proportional Lanczos scale, WebP q92; no compositing or UI generation",
+      "width": 600,
+      "height": 900,
+      "bytes": 159748,
+      "sha256": "533cee176844d9ece24f87739adc87cf9b75026c32092859bd8969f74c087a18"
+    }
+  ]
+}
