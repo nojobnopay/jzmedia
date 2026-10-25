@@ -522,6 +522,7 @@
       "sources": [
         "frontend/src/components/PreviewMaintenance.vue",
         "frontend/src/components/FsBrowser.vue",
+        "frontend/src/components/CastDialog.vue",
         "frontend/src/components/TvOrganizeDialog.vue"
       ],
       "reason": "原生progress为只读进度状态，保留确定/不确定进度语义及aria可访问名称；条高随组件样式，不设置44px触摸命中区或键盘焦点。"

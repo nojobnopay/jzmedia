@@ -1,12 +1,12 @@
 <template>
-  <div ref="wrap" class="seekbar" @pointermove="move" @pointerleave="leave">
+  <div ref="wrap" class="seekbar" :class="{ 'seekbar--touch': touchTarget }" @pointermove="move" @pointerleave="leave">
     <div class="seek-rail" aria-hidden="true">
       <span v-for="(section, i) in bufferStyles" :key="i" class="seek-buffer" :style="section"></span>
       <span class="seek-played" :style="{ width: playedPercent + '%' }"></span>
     </div>
     <input type="range" min="0" :max="Math.floor(duration)" step="1" :value="value"
-      :disabled="disabled" aria-label="播放进度" :aria-valuetext="fmtTime(value) + ' / ' + fmtTime(duration)" @input="input" @change="commit"
-      @pointerdown="begin" @pointerup="end" @pointercancel="cancel" @lostpointercapture="lostCapture" @blur="leave" />
+      :disabled="disabled" :aria-label="label" :aria-valuetext="valueText || fmtTime(value) + ' / ' + fmtTime(duration)" @input="input" @change="commit"
+      @pointerdown="begin" @pointerup="end" @pointercancel="cancel" @lostpointercapture="lostCapture" @keydown="cancelledGesture = false" @blur="leave" />
     <div v-if="visible && duration > 0" class="preview" :style="{ left: bubbleLeft + 'px' }">
       <div v-if="frame && !imageFailed" class="preview-image" :style="imageStyle"></div>
       <span>{{ fmtTime(hoverTime) }}</span>
@@ -24,6 +24,8 @@ const props = defineProps({
   value: { type: Number, default: 0 }, duration: { type: Number, default: 0 },
   buffered: { type: Array, default: () => [] },
   disabled: Boolean, manifest: { type: Object, default: null },
+  touchTarget: Boolean, label: { type: String, default: '播放进度' },
+  valueText: { type: String, default: '' },
 })
 const percent = time => Math.max(0, Math.min(100, (Number(time) || 0) / Math.max(1, props.duration) * 100))
 const playedPercent = computed(() => percent(props.value))
@@ -34,6 +36,7 @@ const emit = defineEmits(['input', 'commit', 'active', 'cancel'])
 const wrap = ref(null)
 const visible = ref(false)
 const dragging = ref(false)
+let cancelledGesture = false
 const hoverTime = ref(0)
 const pointerX = ref(0)
 const limits = ref({ left: 0, right: 164 })
@@ -79,6 +82,7 @@ function move(e) {
 }
 function begin(e) {
   if (props.disabled) return
+  cancelledGesture = false
   move(e)
   dragging.value = true
   e.currentTarget.setPointerCapture?.(e.pointerId)
@@ -92,14 +96,18 @@ function input(e) {
   emit('active', true)
   emit('input', e)
 }
-function commit(e) { dragging.value = false; emit('commit', e); leave() }
+function commit(e) {
+  if (cancelledGesture) { cancelledGesture = false; return }
+  dragging.value = false; emit('commit', e); leave()
+}
 function end(e) { dragging.value = false; if (e.pointerType !== 'mouse') leave() }
-function cancel() { dragging.value = false; emit('cancel'); leave() }
+function cancel() { cancelledGesture = dragging.value; dragging.value = false; emit('cancel'); leave() }
 function leave() { if (!dragging.value) { visible.value = false; emit('active', false) } }
 </script>
 
 <style scoped>
 .seekbar { position: relative; width: 100%; height: 28px; flex: none; display: flex; align-items: center; }
+.seekbar--touch, .seekbar--touch input { height: 44px; }
 .seek-rail { position: absolute; left: 7px; right: 7px; height: 3px; background: #ffffff30; border-radius: 4px; overflow: hidden; transition: height .15s; pointer-events: none; }
 .seek-buffer, .seek-played { position: absolute; inset: 0 auto 0 0; background: #ffffff50; border-radius: inherit; }
 .seek-played { background: var(--player-accent, #e50914); }

@@ -1,7 +1,30 @@
 package org.jzmedia.tv.playback
 
 data class PlaybackRequest(val kind: String, val id: Long, val title: String, val resume: Boolean = true,
-                           val continuation: ContinuationPreferences? = null)
+                           val continuation: ContinuationPreferences? = null,
+                           val position: Double? = null, val audio: Int? = null, val subtitle: Int? = null,
+                           val remoteSessionId: String? = null)
+
+/** Source ordinals are valid only when every source subtitle is represented by the extractor. */
+fun nativeSubtitleCandidateIndex(supported: List<Boolean>, selected: Int, sourceCount: Int): Int? =
+    selected.takeIf { it in 0 until sourceCount && supported.size == sourceCount && supported[it] }
+
+fun explicitPlaybackStart(request: PlaybackRequest, duration: Double): Double? = request.position?.let {
+    require(it.isFinite() && it >= 0) { "手机起播位置无效" }
+    if (duration > 0) it.coerceAtMost((duration - .1).coerceAtLeast(0.0)) else it
+}
+
+fun handoffTrackSelection(request: PlaybackRequest, audioCount: Int, subtitleCount: Int,
+                          previous: ContinuationSelection): ContinuationSelection {
+    val audio = request.audio ?: previous.audio
+    require(audio in 0 until audioCount || audioCount == 0 && audio == 0) { "手机选择的音轨已不可用，请重新选择" }
+    val subtitle = when (request.subtitle) { null -> previous.subtitle; -1 -> null; else -> request.subtitle }
+    require(subtitle == null || subtitle in 0 until subtitleCount) { "手机选择的字幕已不可用，请重新选择" }
+    return previous.copy(audio = audio, subtitle = subtitle)
+}
+
+fun serverSubtitleSelection(request: PlaybackRequest, subtitles: List<MediaTrack>, selected: Int?): Int? =
+    if (request.remoteSessionId != null && subtitles.getOrNull(selected ?: -1)?.image == true) null else selected
 
 data class MediaTrack(val index: Int, val label: String, val image: Boolean = false, val ffIndex: Int = -1,
                       val language: String = "", val title: String = "", val codec: String = "",

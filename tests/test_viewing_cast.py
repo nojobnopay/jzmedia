@@ -204,6 +204,28 @@ def test_paused_cast_expires_fifteen_minutes_after_last_reported_playback(protec
     assert [name for _, name, _ in fixture.calls].count("Stop") == 1
 
 
+@pytest.mark.parametrize("preparing", [False, True])
+def test_selected_audio_revocation_releases_independent_lease(protected_cast, monkeypatch, preparing):
+    from app.casting import audio
+    fixture = protected_cast
+    owner = fixture.owner()
+    session = fixture.session(owner)
+    session.audio_index, session.audio_lease = 1, "synthetic-selected-audio"
+    session.audio_validator = lambda: True
+    session.preparing = preparing
+    session.resume_target = 125
+    released = []
+    monkeypatch.setattr(audio.outputs, "release", released.append)
+    monkeypatch.setattr(audio.outputs, "snapshot", lambda _: pytest.fail("Revoked output must not be read"))
+    fixture.clock[0] += viewing.IDLE_SECONDS
+    fixture.manager._poll(session)
+    assert not session.active and session.state == "PROTECTION_LOCKED"
+    assert session.audio_lease is None and session.resume_target is None
+    assert released == ["synthetic-selected-audio"]
+    stopped = [name for _, name, _ in fixture.calls if name == "Stop"]
+    assert stopped == ([] if preparing else ["Stop"])
+
+
 @pytest.mark.parametrize("revocation", ["expiry", "password"])
 @pytest.mark.parametrize("uri", ["matching", "missing", "different", "unavailable"])
 def test_revoked_casts_stop_only_when_receiver_still_reports_their_uri(protected_cast, revocation, uri):
@@ -211,6 +233,8 @@ def test_revoked_casts_stop_only_when_receiver_still_reports_their_uri(protected
     owners = [fixture.owner(), fixture.owner()]
     sessions = [fixture.session(owner) for owner in owners]
     for session in sessions:
+        session.resume_target = 125
+        session.resume_deadline = service.time.monotonic() + service.RESUME_TIMEOUT
         fixture.receiver_uri(session, uri)
     if revocation == "expiry":
         fixture.clock[0] += viewing.IDLE_SECONDS
@@ -223,6 +247,7 @@ def test_revoked_casts_stop_only_when_receiver_still_reports_their_uri(protected
         assert not viewing.check_lease(session.viewing_owner, session.viewing_generation)
         fixture.manager._poll(session)
         assert not session.active
+        assert session.resume_target is None
         assert session.state == ("REPLACED" if uri == "different" else "PROTECTION_LOCKED")
         with pytest.raises(HTTPException) as error:
             fixture.manager.get(session.id)

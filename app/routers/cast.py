@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from ..casting import dlna
 from ..casting.service import manager, suggested_url
+from ..casting.tv_app import manager as tv_manager
 from .blob import media_response, _stat_or_http
 
 router = APIRouter(prefix="/api/cast", tags=["cast"])
@@ -46,13 +47,18 @@ class PlayBody(BaseModel):
     kind: Literal["movie", "episode"] = "movie"
     position: float = Field(default=0, ge=0, le=7 * 86400, allow_inf_nan=False)
     base_url: str = Field(default="", max_length=512)
+    receiver_type: Literal["dlna", "jzmedia_tv"] = "dlna"
+    audio: int | None = Field(default=None, ge=0, le=63)
+    sub: int | None = Field(default=None, ge=-1, le=1024)
 
 
 @router.post("/sessions")
 def play(body: PlayBody, request: Request):
+    if body.receiver_type == "jzmedia_tv":
+        return tv_manager.play(body.device_id, body.version_id, body.kind, body.position, body.audio, body.sub)
     try:
         return manager.play(body.device_id, body.version_id, body.kind, body.position,
-                            body.base_url, str(request.base_url))
+                            body.base_url, str(request.base_url), body.audio, body.sub)
     except dlna.CastError as exc:
         raise HTTPException(502, str(exc)) from exc
 
@@ -62,11 +68,14 @@ def current(version_id: int = Query(gt=0), kind: Literal["movie", "episode"] = "
     from ..viewing import current as access_context, visible_item
     if access_context.get() is not None:
         visible_item(kind, version_id)
-    return {"session": manager.current(version_id, kind)}
+    sessions = [session for session in (manager.current(version_id, kind), tv_manager.current(version_id, kind)) if session]
+    return {"session": max(sessions, key=lambda session: session.get("created_at", 0)) if sessions else None}
 
 
 @router.get("/sessions/{sid}")
 def status(sid: str):
+    if sid.startswith("tv_"):
+        return tv_manager.get(sid).public()
     return manager.get(sid).public()
 
 
@@ -77,6 +86,8 @@ class ControlBody(BaseModel):
 
 @router.post("/sessions/{sid}/control")
 def control(sid: str, body: ControlBody):
+    if sid.startswith("tv_"):
+        return tv_manager.control(sid, body.command, body.value)
     try:
         return manager.control(sid, body.command, body.value)
     except dlna.CastError as exc:
@@ -104,8 +115,9 @@ def media(sid: str, request: Request):
 
 def _media_response(sid, request):
     session, backend, path = manager.source(sid)
+    converted = 1 if session.prepared_path else 0
     headers = {"transferMode.dlna.org": "Streaming",
-               "contentFeatures.dlna.org": "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"}
+               "contentFeatures.dlna.org": f"DLNA.ORG_OP=01;DLNA.ORG_CI={converted};DLNA.ORG_FLAGS=01700000000000000000000000000000"}
     if request.method == "HEAD":
         st = _stat_or_http(backend, path)
         return Response(headers={**headers, "Content-Length": str(st.size), "Accept-Ranges": "bytes"},

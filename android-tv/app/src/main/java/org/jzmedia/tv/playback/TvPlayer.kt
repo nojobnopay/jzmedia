@@ -75,13 +75,15 @@ import org.jzmedia.tv.ui.TvAction
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNext: (PlaybackRequest) -> Unit,
-             onPlayingChanged: (Boolean) -> Unit = {}) {
+             onPlayingChanged: (Boolean) -> Unit = {},
+             onController: (PlaybackController, Boolean) -> Unit = { _, _ -> }) {
     val context = LocalContext.current
     val controller = remember(api, request) { PlaybackController(context, api, request) }
     val state = controller.state
     val close by rememberUpdatedState(onClose)
     val playNext by rememberUpdatedState(onPlayNext)
     val playingChanged by rememberUpdatedState(onPlayingChanged)
+    val controllerChanged by rememberUpdatedState(onController)
     LaunchedEffect(state.playing) { playingChanged(state.playing) }
     var controls by remember(controller) { mutableStateOf(true) }
     var menu by remember(controller) { mutableStateOf<String?>(null) }
@@ -129,12 +131,13 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
     }
 
     DisposableEffect(controller) {
+        controllerChanged(controller, true)
         val lifecycle = context.activity()?.lifecycle
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) { controller.close(); close() }
         }
         lifecycle?.addObserver(observer)
-        onDispose { playingChanged(false); seekHold?.cancel(); lifecycle?.removeObserver(observer); controller.close() }
+        onDispose { controllerChanged(controller, false); playingChanged(false); seekHold?.cancel(); lifecycle?.removeObserver(observer); controller.close() }
     }
     LaunchedEffect(controller, previewRefresh) {
         while (true) {
@@ -394,7 +397,7 @@ fun TvPlayer(api: JzApi, request: PlaybackRequest, onClose: () -> Unit, onPlayNe
                             }
                         }
                         item { TvAction("字幕延迟归零", { controller.adjustSubtitleDelay(-state.subtitleDelay) }, Modifier.fillMaxWidth(), icon = "refresh", fillContent = true) }
-                        if (request.kind == "episode") item { TvAction("自动下一集 · ${if (state.autoNext) "开" else "关"}", { controller.toggleAutoNext() }, Modifier.fillMaxWidth(), icon = "next", fillContent = true) }
+                        if (request.kind == "episode" && request.remoteSessionId == null) item { TvAction("自动下一集 · ${if (state.autoNext) "开" else "关"}", { controller.toggleAutoNext() }, Modifier.fillMaxWidth(), icon = "next", fillContent = true) }
                         item { Text("音量使用遥控器音量键；图片字幕的外观由服务器烧录决定。", color = Muted) }
                     }
                     "quality" -> items(listOf("auto", "source", "1080p", "720p")) { quality -> TvAction(qualityName(quality), { controller.setQuality(quality); menu = null }, Modifier.fillMaxWidth(), selected = state.quality == quality, fillContent = true) }

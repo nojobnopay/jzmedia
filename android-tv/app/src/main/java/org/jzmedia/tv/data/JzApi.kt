@@ -94,6 +94,13 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
     suspend fun postPlayback(path: String, body: JSONObject = JSONObject()): JSONObject = json("POST", path, body, longRequest = true)
     suspend fun delete(path: String): JSONObject = json("DELETE", path)
     suspend fun patch(path: String, body: JSONObject): JSONObject = json("PATCH", path, body)
+    suspend fun postReceiver(path: String, receiverToken: String, body: JSONObject): JSONObject =
+        json("POST", path, body, receiverToken = checkedReceiverToken(receiverToken))
+    suspend fun deleteReceiver(path: String, receiverToken: String): JSONObject =
+        json("DELETE", path, receiverToken = checkedReceiverToken(receiverToken))
+    private fun checkedReceiverToken(value: String): String = value.also {
+        require(it.isNotBlank() && it.length <= 512 && it.none { c -> c == '\r' || c == '\n' }) { "电视接收凭据无效" }
+    }
     fun readViewingSession(value: JSONObject): ViewingSession = try { ViewingSession.fromJson(value, viewingToken) }
     catch (e: ApiException) { if (e.code == "viewing_locked") locked.tryEmit(Unit); throw e }
     fun withViewing(value: JSONObject): JzApi = JzApi(baseUrl, token, readViewingSession(value))
@@ -103,18 +110,21 @@ class JzApi(address: String, val token: String = "", viewing: ViewingSession? = 
     // CJK font collections can exceed the artwork limit; first access extracts MKV attachments.
     suspend fun getFontBytes(path: String): ByteArray = execute("GET", path, null, 32 * 1024 * 1024, longRequest = true)
 
-    private suspend fun json(method: String, path: String, body: JSONObject? = null, longRequest: Boolean = false): JSONObject {
-        val text = execute(method, path, body, 8 * 1024 * 1024, longRequest).toString(Charsets.UTF_8)
+    private suspend fun json(method: String, path: String, body: JSONObject? = null, longRequest: Boolean = false,
+                             receiverToken: String? = null): JSONObject {
+        val text = execute(method, path, body, 8 * 1024 * 1024, longRequest, receiverToken).toString(Charsets.UTF_8)
         return try { if (text.isBlank()) JSONObject() else JSONObject(text) }
         catch (_: Exception) { throw ApiException(0, "服务器返回了无法识别的数据") }
     }
 
-    private suspend fun execute(method: String, path: String, body: JSONObject?, maxBytes: Int, longRequest: Boolean = false): ByteArray =
+    private suspend fun execute(method: String, path: String, body: JSONObject?, maxBytes: Int, longRequest: Boolean = false,
+                                receiverToken: String? = null): ByteArray =
         suspendCancellableCoroutine { continuation ->
             val url = absoluteUrl(path)
             val request = Request.Builder().url(url).header("Accept", "application/json, text/plain, */*")
                 .header("User-Agent", "jzmedia-android-tv/${BuildConfig.VERSION_NAME}")
             authHeadersFor(url).forEach { (key, value) -> request.header(key, value) }
+            if (receiverToken != null) request.header("X-Receiver-Token", receiverToken)
             request.method(method, body?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType()))
             val call = (if (longRequest) playbackClient else client).newCall(request.build())
             continuation.invokeOnCancellation { call.cancel() }

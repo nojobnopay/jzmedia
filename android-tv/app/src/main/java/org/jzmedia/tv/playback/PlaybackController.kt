@@ -56,7 +56,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
     var state by mutableStateOf(PlaybackState(
         subtitleDelay = preferences.getFloat(delayKey, 0f).toDouble(),
         subtitleSize = preferences.getInt("subtitleSize", 1).coerceIn(0, 2),
-        autoNext = preferences.getBoolean("autoNext", true),
+        autoNext = request.remoteSessionId == null && preferences.getBoolean("autoNext", true),
         rate = request.continuation?.rate?.takeIf { it in PLAYBACK_RATES } ?: 1f,
     ))
         private set
@@ -142,6 +142,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                     if (playbackState == Player.STATE_READY) ready = true
                     val ended = playbackState == Player.STATE_ENDED
                     state = state.copy(loading = playbackState == Player.STATE_BUFFERING || (!ready && playbackState != Player.STATE_ENDED), ended = ended)
+                    if (playbackState == Player.STATE_READY && subtitleMode == "native_image" && !applyNativeSubtitleTrack()) unavailableNativeSubtitle()
                     if (ended) {
                         updatePosition()
                         queueSave()
@@ -161,6 +162,9 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 }
 
                 override fun onTracksChanged(tracks: Tracks) {
+                    if (!disposed && subtitleMode == "native_image" && tracks.groups.any { it.type == C.TRACK_TYPE_TEXT }) {
+                        if (!applyNativeSubtitleTrack() && ready) unavailableNativeSubtitle()
+                    }
                     if (!disposed && !tracks.isEmpty && state.error == null && DolbyVisionCapabilities.isP5Source(media)) {
                         val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
                         val hasSelectedVideo = videoGroups.any { group ->
@@ -263,22 +267,24 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 }
                 val audioTracks = trackList(audios)
                 val subtitleTracks = trackList(subs)
-                val selection = continuationSelection(audioTracks, subtitleTracks, audio, sub, request.continuation)
+                val selection = handoffTrackSelection(request, audioTracks.size, subtitleTracks.size,
+                    continuationSelection(audioTracks, subtitleTracks, audio, sub, request.continuation))
                 selectionNotice = selection.notice
                 state = state.copy(duration = media.optDouble("duration", 0.0).finiteOrZero(), audio = selection.audio,
                     subtitle = selection.subtitle, audios = audioTracks, subtitles = subtitleTracks,
                     videoAspectRatio = if (media.optInt("height") > 0) media.optInt("width").toFloat() / media.optInt("height") else 0f)
-                val progress = if (request.resume) api.get(progressPath()) else {
+                val explicitStart = explicitPlaybackStart(request, state.duration)
+                val progress = if (explicitStart != null) JSONObject() else if (request.resume) api.get(progressPath()) else {
                     api.delete(progressPath())
                     JSONObject()
                 }
                 ensureActive()
                 val position = progress.optDouble("position", 0.0).finiteOrZero().coerceAtLeast(0.0)
-                val start = if (position > 15 && !shouldMarkWatched(position, state.duration)) position else 0.0
+                val start = explicitStart ?: if (position > 15 && !shouldMarkWatched(position, state.duration)) position else 0.0
                 initialized = true
                 if (compatible) useCompatibleCapabilities()
                 open(start)
-                if (request.kind == "episode") fetchNext()
+                if (request.kind == "episode" && request.remoteSessionId == null) fetchNext()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -313,9 +319,13 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
             channels = item.optInt("channels"), forced = item.optInt("forced") == 1)
     }
 
+    private fun remoteImageSubtitle(): Boolean = request.remoteSessionId != null &&
+        state.subtitles.getOrNull(state.subtitle ?: -1)?.image == true
+
     private fun body(start: Double) = JSONObject().put("client", "android_tv").put("kind", request.kind)
         .put("caps", capabilities).put("quality", state.quality).put("audio", state.audio)
-        .put("sub", state.subtitle ?: JSONObject.NULL).put("start", start)
+        // Image subtitles from a phone handoff must never request server burning.
+        .put("sub", serverSubtitleSelection(request, state.subtitles, state.subtitle) ?: JSONObject.NULL).put("start", start)
 
     private fun open(start: Double) {
         if (disposed) return
@@ -343,6 +353,12 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 val plan = decision.optJSONObject("plan") ?: JSONObject()
                 segmentType = plan.optString("seg", "fmp4")
                 subtitleMode = decision.optString("subtitle_mode", "none")
+                if (request.remoteSessionId != null && subtitleMode == "burn") throw IOException("电视投屏不启用字幕烧录，请关闭字幕或选择其他字幕")
+                val unsupportedImageSubtitle = remoteImageSubtitle() && method != "direct"
+                if (remoteImageSubtitle()) {
+                    if (method == "direct") subtitleMode = "native_image"
+                    else { subtitleMode = "none"; state = state.copy(subtitle = null) }
+                }
                 val url: String
                 val initial: Double
                 if (method == "direct") {
@@ -376,6 +392,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
                 player.setPlaybackSpeed(state.rate)
                 player.prepare()
                 loadSubtitle(subtitleMode)
+                if (unsupportedImageSubtitle) unavailableNativeSubtitle()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -501,6 +518,9 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
     }
 
     private fun clearSubtitle() {
+        subtitleMode = "none"
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).clearOverridesOfType(C.TRACK_TYPE_TEXT).build()
         subtitleGeneration++
         subtitleJob?.cancel()
         subtitleJob = null
@@ -510,6 +530,28 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
         oldRenderer?.close()
         subtitleNotice = null
         state = state.copy(subtitleText = "", notice = playbackNotice)
+    }
+
+    private fun applyNativeSubtitleTrack(): Boolean {
+        val selected = state.subtitle ?: return true
+        val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        val candidates = groups.flatMap { group -> (0 until group.length).map { group to it } }
+        val ordinal = nativeSubtitleCandidateIndex(candidates.map { (group, index) -> group.isTrackSupported(index) },
+            selected, state.subtitles.size) ?: return false
+        val (group, index) = candidates[ordinal]
+        val parameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index)).build()
+        if (parameters != player.trackSelectionParameters) player.trackSelectionParameters = parameters
+        setSubtitleNotice("图片字幕使用电视本机解码")
+        return true
+    }
+
+    private fun unavailableNativeSubtitle() {
+        subtitleMode = "none"
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).clearOverridesOfType(C.TRACK_TYPE_TEXT).build()
+        state = state.copy(subtitle = null, subtitleText = "")
+        setSubtitleNotice("所选图片字幕暂不能在本机显示，已关闭；未启用服务器烧录")
     }
 
     private fun setSubtitleNotice(value: String?) {
@@ -610,6 +652,7 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
     }
 
     fun toggleAutoNext() {
+        if (request.remoteSessionId != null) return
         state = state.copy(autoNext = !state.autoNext)
         preferences.edit().putBoolean("autoNext", state.autoNext).apply()
     }
@@ -624,6 +667,9 @@ class PlaybackController(context: Context, private val api: JzApi, val request: 
     }
 
     fun nextRequest(): PlaybackRequest? = nextRequestWithPreferences(state)
+
+    /** Called on the player's main thread before a remote heartbeat or Stop acknowledgement. */
+    fun remoteState(): PlaybackState { updatePosition(); return state }
 
     private fun markWatched() {
         if (markedWatched || request.kind == "extra") return

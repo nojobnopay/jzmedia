@@ -18,7 +18,7 @@
 | `/api/files`、`/api/fs`、`/api/extras` | 归档预览/执行、文件操作、花絮 |
 | `/api/jobs` | 扫描、刮削、整理、重建 NFO/索引/元数据等任务 |
 | `/api/stream` | 能力决策、会话/HLS、字幕、断点、预缓存和缩略图 |
-| `/api/cast` | 服务端 DLNA 发现、电视播放控制、投屏状态和原文件读取 |
+| `/api/cast` | DLNA 发现、前台电视 App 接收、播放控制、投屏状态和电视取流 |
 | `/api/metadata` | 外部来源状态及诊断 |
 | `/api/viewing` | 观看模式、内容可见性与儿童筛选资料补全 |
 | `/api/ai` | 智能辅助配置、连接检查、搜索条件与匹配建议 |
@@ -267,15 +267,39 @@ P5 专用计划通过 `plan.color_pipeline="dovi_p5_sdr"`、`color_revision`、`
 | `POST /api/cast/discover` | 搜索服务器局域网的 MediaRenderer；返回 `items`、建议的 `base_url` 和 `scope=server_lan` |
 | `GET /api/cast/devices` | 仅读设备缓存，不触发搜索 |
 | `POST /api/cast/devices` | 接收 `{location}`，从指定局域网 HTTP 描述地址验证 DLNA MediaRenderer 并加入设备缓存；返回 `{item,base_url}` |
-| `POST /api/cast/sessions` | 接收 `{device_id,version_id,kind,position,base_url}`，设置电视 URI 并请求播放；`kind=movie\|episode`，`position` 为源视频秒数，`base_url` 可省略 |
+| `POST /api/cast/sessions` | 接收 `{device_id,version_id,kind,position,base_url?,receiver_type?,audio?,sub?}`；`receiver_type=dlna`（默认）或 `jzmedia_tv`，`kind=movie\|episode`，`position` 为源视频绝对秒数，`audio` 为源音轨零基索引，`sub=-1` 关闭字幕、非负为服务器字幕索引 |
 | `GET /api/cast/current?version_id=…&kind=…` | 返回该版本当前有效投屏的 `{session}`；无投屏为 `null` |
 | `GET /api/cast/sessions/{sid}` | 返回内存中的最近电视状态，不发起网络轮询 |
 | `POST /api/cast/sessions/{sid}/control` | `{command,value?}`；命令为 `play/pause/stop/seek/volume`，`seek` 单位秒，音量范围 0–100 |
-| `GET /api/cast/media/{sid}`、`HEAD` | 会话限定的原文件读取；GET 复用本地/远程 Range，响应 MIME 与 DLNA 头一致 |
+| `GET /api/cast/media/{sid}`、`HEAD` | DLNA 会话限定的原文件或已完成单音轨 MP4 读取；GET 复用 Range，响应 MIME 与 DLNA 头一致 |
 
 搜索、手动注册与控制遵循现有写请求令牌；电视取流不要求全局令牌，URL 仅含随机会话 ID。手动注册要求完整的私有 IPv4 HTTP 描述地址，服务端不使用 DNS、代理或重定向，并核对 MediaRenderer 与 AVTransport；设备保存在当前进程内，重启后需重新添加。设备列表超过 120 秒需重新搜索或注册，搜索请求在 5 秒内复用结果，重新搜索时会保留本次运行中手动注册的设备。媒体 ID 由现有播放行与存储层解析，不接受任意文件路径或外部媒体 URL；不存在的版本返回 404，文件缺失 410，离线 503。投屏网络和固定地址见[部署指南](../getting-started/deployment.md#dlna-投屏网络)。
 
-创建响应 `state=TRANSITIONING` 只说明已发送播放请求；`PLAYING` 是电视回报的状态。服务端独立轮询，只有回报的 `TrackURI` 与当前投屏一致、位置有效时才记录进度，`position_known=false` 不可推算当前位置；`last_position` 保留最近有效断点，供电视停播后切回手机使用。电视切换到其他媒体后标为 `REPLACED`，不覆盖进度或继续控制新媒体。跳转续播失败以 `warning` 返回；设备命令失败返回 502，格式未获接收端声明支持返回 422。会话为内存状态，最多保留 24 小时；服务重启需重新投屏。
+会话包含 `receiver_type` 与不透明 `id`，客户端不可把 App ID 作为 DLNA 描述地址。`state=PREPARING` 表示 NAS 正在准备完整单音轨文件，`prepare_progress` 为 0–1 或 `null`，`prepare_message` 说明阶段；只允许 `stop` 取消，不对电视发送播放控制。`TRANSITIONING` 表示请求已发出、状态仍待电视确认；`PLAYING` 是电视回报的状态。创建、查询和控制返回的会话包含 `resume_pending`（布尔）及 `resume_target`（源视频绝对秒数或 `null`）：起点尚待电视完成续播时为待恢复状态，目标不是实报位置。客户端应在发起瞬间冻结绝对起点，不发送 HLS 分片内的相对时间。
+
+服务端独立轮询，确认自有 `TrackURI` 与电视就绪后限次请求起始 Seek，并以电视有效位置确认完成；待恢复时 `position_known=false`，临时零秒不覆盖断点。恢复完成、取消或限次失败后 `resume_pending=false`、`resume_target=null`，失败原因保留在 `warning`，之后仅按有效电视实报记录。手动 `seek/stop` 取消自动续播目标。
+
+只有回报的 `TrackURI` 与当前 DLNA 投屏一致、位置有效时才记录进度，`position_known=false` 不可推算当前位置；`last_position` 保留最近有效断点，供电视停播后切回手机使用。电视切换到其他媒体后标为 `REPLACED`，不覆盖进度或继续控制新媒体。设备命令失败返回 502，格式未获接收端声明支持返回 422。DLNA 会话为内存状态，最多保留 24 小时；服务重启需重新投屏。
+
+DLNA 显式选择多音轨中的音轨时，异步准备视频 copy、所选声音转 AAC 双声道的完整 faststart MP4；旧请求省略 `audio` 仍使用原文件。不能安全重封装的 HDR／DV 等返回 422，推荐电视 App。`sub>=0` 的 DLNA 请求返回 422 并推荐 App，不增加字幕烧录。App 接收则传递源音轨与服务器字幕索引，`base_url` 不参与 App 播放。
+
+### 前台电视 App 接收
+
+握手 `features` 中的 `tv_app_handoff` 为协议 1 的可选能力。旧服务端返回 404 时，APK 关闭接收功能并保留手动播放。
+
+| 请求 | 行为 |
+| --- | --- |
+| `GET /api/cast/apps` | 返回 `{items,protocol_version:1}`；仅列在线 App 的公开名称、地址、不透明 `id` 和 `receiver_type=jzmedia_tv`，不含接收密钥 |
+| `POST /api/cast/apps/register` | `{device_id,name,protocol_version:1}`；安装标识为稳定 UUID，返回 `receiver_id`、临时 `receiver_token`、`heartbeat_seconds=3`、`ttl_seconds=15` |
+| `POST /api/cast/apps/{receiver_id}/poll` | `{foreground,session_id?,state,position?,duration?,error?}`；返回 `{command:null\|{id,session_id,action,payload,valid_for_seconds}}` |
+| `POST /api/cast/apps/{receiver_id}/ack` | `{command_id,accepted,error?}`；接收器完成本地动作后确认，重复同一结果幂等，取消／替换／过期的迟到确认返回 409 |
+| `DELETE /api/cast/apps/{receiver_id}` | 退出前台／连接时注销，不再接收命令 |
+
+注册遵循全局访问令牌和观看会话认证；轮询、确认、注销还需 `X-Receiver-Token`。密钥只保留在内存和请求头。注册绑定电视当前观看会话，手机和电视权限都允许时才能发送媒体，不向电视委托手机权限。重新注册同一安装标识会轮换密钥并废弃旧命令。
+
+初次 `play` 的 payload 为 `{version_id,kind,title,position,audio,sub}`；恢复播放的 `play`、`pause`、`stop` 为 `{}`，`seek` 为 `{position}`。命令 60 秒过期并通过 ID 去重；`valid_for_seconds` 是本次响应时剩余有效时间，APK 用单调时钟与前台代际再次核对。App 会话为 `WAITING_FOR_APP → LOADING →` 真实状态，仅向已在线且明确选中的 App 发出，不提供离线排队或后台唤醒。
+
+App 控制仍用统一 sessions/status/control，操作最多等待 8 秒 ACK；未确认返回 504，并不假设电视已停。App 系统音量由电视遥控器操作，`volume` 返回 422。App 的实际进度接口负责保存断点，轮询只报告状态。图片字幕在此入口仅尝试精确映射的原生直放，不能支持时提示并关闭；不调用自动烧录。完整客户端生命周期见仓库 `android-tv/docs/protocol.md` 的“手机请求电视 App 播放”。
 
 ## 上传与浏览体验接口
 

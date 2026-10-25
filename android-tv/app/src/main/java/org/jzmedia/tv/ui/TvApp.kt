@@ -52,9 +52,11 @@ import androidx.tv.material3.Text
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jzmedia.tv.BuildConfig
 import org.jzmedia.tv.data.ConnectionStore
 import org.jzmedia.tv.data.ApiException
@@ -64,11 +66,16 @@ import org.jzmedia.tv.data.JzApi
 import org.jzmedia.tv.data.SavedConnection
 import org.jzmedia.tv.data.ServerDiscovery
 import org.jzmedia.tv.data.SearchHistoryStore
+import org.jzmedia.tv.data.TvCastCommand
+import org.jzmedia.tv.data.TvCastCommandHistory
+import org.jzmedia.tv.data.TvCastReceiver
+import org.jzmedia.tv.data.TvCastSnapshot
 import org.jzmedia.tv.data.supportsViewingModes
 import org.jzmedia.tv.data.viewingIdleExpired
 import org.jzmedia.tv.data.rows
 import org.jzmedia.tv.data.text
 import org.jzmedia.tv.playback.PlaybackRequest
+import org.jzmedia.tv.playback.PlaybackController
 import org.jzmedia.tv.playback.TvPlayer
 import org.json.JSONObject
 import java.util.UUID
@@ -83,6 +90,7 @@ data class TvRoute(val kind: String, val id: Long = 0, val season: Int = 0, val 
 internal fun savedViewingRoutes(routes: List<TvRoute>, mode: String?): List<String> =
     if (mode == "private") listOf(TvRoute("home", key = "root:home").encode()) else routes.map(TvRoute::encode)
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     val context = LocalContext.current
@@ -102,7 +110,17 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     var viewingError by remember { mutableStateOf("") }
     var locking by remember { mutableStateOf(false) }
     var dialogInteraction by remember { mutableLongStateOf(0L) }
-    var foreground by remember { mutableStateOf(true) }
+    var foreground by remember { mutableStateOf((context as? ComponentActivity)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true) }
+    var receiverEpoch by remember { mutableLongStateOf(0L) }
+    var remoteSessionId by remember { mutableStateOf<String?>(null) }
+    var remoteSnapshot by remember { mutableStateOf(TvCastSnapshot()) }
+    var playbackController by remember { mutableStateOf<PlaybackController?>(null) }
+    val receiverDeviceId = remember(context) {
+        val preferences = context.getSharedPreferences("cast_receiver", android.content.Context.MODE_PRIVATE)
+        preferences.getString("device_id", null) ?: UUID.randomUUID().toString().also {
+            preferences.edit().putString("device_id", it).apply()
+        }
+    }
     var routes by rememberSaveable(stateSaver = listSaver<List<TvRoute>, String>(
         save = { rows -> savedViewingRoutes(rows, api?.viewing?.mode) }, restore = { rows -> rows.map(TvRoute::decode) },
     )) { mutableStateOf(listOf(TvRoute("home", key = "root:home"))) }
@@ -113,6 +131,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     val latestPlaying by rememberUpdatedState(playing)
 
     fun clearPages() {
+        remoteSessionId = null; remoteSnapshot = TvCastSnapshot(); playbackController = null
         playback = null; playing = false; viewingDialog = null
         savedPageKeys.forEach(holder::removeState); savedPageKeys = emptyList()
         routes = listOf(TvRoute("home", key = "root:home"))
@@ -166,10 +185,12 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         val lifecycle = (context as? ComponentActivity)?.lifecycle
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
+                receiverEpoch++
                 foreground = false
                 if (latestApi?.viewing?.protected == true) latestLock()
             }
             if (event == Lifecycle.Event.ON_START) {
+                receiverEpoch++
                 foreground = true
                 if (latestBlocked) latestLock()
             }
@@ -201,6 +222,115 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         return
     }
     val server = api!!
+    val receiverHistory = remember(server) { TvCastCommandHistory() }
+    fun currentReceiverSnapshot(): TvCastSnapshot {
+        val session = remoteSessionId ?: return TvCastSnapshot()
+        val controller = playbackController
+        if (playback?.remoteSessionId != session || controller?.request?.remoteSessionId != session) return remoteSnapshot
+        val state = controller.remoteState()
+        val status = when {
+            state.error != null -> "ERROR"
+            state.loading -> "LOADING"
+            state.ended -> "STOPPED"
+            state.playing -> "PLAYING"
+            else -> "PAUSED_PLAYBACK"
+        }
+        val known = !state.loading && state.error == null && state.duration > 0
+        return TvCastSnapshot(session, status, state.position.takeIf { known }, state.duration.takeIf { it > 0 },
+            if (state.error != null) "电视播放失败，请使用电视遥控器查看详情" else "").also { remoteSnapshot = it }
+    }
+    fun closeCurrentPlayback() {
+        if (remoteSessionId != null && playback?.remoteSessionId == remoteSessionId) {
+            remoteSnapshot = currentReceiverSnapshot().copy(state = "STOPPED")
+        }
+        playbackController?.close()
+        playbackController = null
+        playback = null; playing = false; refresh++
+    }
+    fun acceptReceiverCommand(command: TvCastCommand): Boolean {
+        if (!foreground || viewingBlocked || api !== server || !command.isValid()) return false
+        if (command.startsMedia) {
+            // Replacing a player releases its local output before acknowledging the new command.
+            playbackController?.close(); playbackController = null
+            remoteSessionId = command.sessionId
+            remoteSnapshot = TvCastSnapshot(command.sessionId, "LOADING")
+            playback = PlaybackRequest(command.kind!!, command.versionId!!, command.title,
+                position = command.position, audio = command.audio, subtitle = command.subtitle,
+                remoteSessionId = command.sessionId)
+            return true
+        }
+        if (command.action == "stop" && command.sessionId == remoteSessionId &&
+            (playback?.remoteSessionId == command.sessionId || playback == null &&
+                remoteSnapshot.sessionId == command.sessionId && remoteSnapshot.state == "STOPPED")) {
+            // Stop must also cancel a Play accepted before Compose mounts its controller.
+            playbackController?.setPlaying(false)
+            closeCurrentPlayback()
+            return true
+        }
+        val controller = playbackController
+        if (command.sessionId != remoteSessionId || playback?.remoteSessionId != command.sessionId ||
+            controller?.request?.remoteSessionId != command.sessionId) return false
+        when (command.action) {
+            "play" -> controller.setPlaying(true)
+            "pause" -> controller.setPlaying(false)
+            "seek" -> controller.seek(command.position!!)
+            else -> return false
+        }
+        return true
+    }
+    val latestReceiverSnapshot by rememberUpdatedState(::currentReceiverSnapshot)
+    val latestReceiverCommand by rememberUpdatedState(::acceptReceiverCommand)
+    val latestRejectedRemote by rememberUpdatedState<(String) -> Unit>({ session ->
+        if (remoteSessionId == session && playback?.remoteSessionId == session) closeCurrentPlayback()
+    })
+    val latestDisconnectRemote by rememberUpdatedState<() -> Unit>({
+        val session = remoteSessionId
+        if (session != null && playback?.remoteSessionId == session) closeCurrentPlayback()
+        remoteSessionId = null; remoteSnapshot = TvCastSnapshot()
+    })
+    LaunchedEffect(server, foreground, viewingBlocked, receiverEpoch) {
+        if (!foreground || viewingBlocked) return@LaunchedEffect
+        val epoch = receiverEpoch
+        fun current() = foreground && !viewingBlocked && api === server && receiverEpoch == epoch
+        while (current()) {
+            val receiver = TvCastReceiver(server, receiverDeviceId, "${Build.MODEL} · jzmedia-tv")
+            var registered = false
+            try {
+                latestDisconnectRemote()
+                receiver.register(); registered = true
+                while (current()) {
+                    val command = receiver.poll(latestReceiverSnapshot())
+                    if (!current()) break
+                    if (command != null) {
+                        val accepted = if (receiverHistory.claim(command)) {
+                            latestReceiverCommand(command).also { receiverHistory.complete(command, it) }
+                        } else receiverHistory.accepted(command)
+                        try {
+                            // Publish the released player's final source position before Stop ACK
+                            // makes the phone's session inactive. Unacked commands are redelivered.
+                            if (accepted && command.action == "stop") receiver.poll(latestReceiverSnapshot())
+                            receiver.acknowledge(command, accepted,
+                                if (accepted) "" else "电视播放或前台状态已变化，请重新发起投屏")
+                        } catch (error: ApiException) {
+                            if (error.status != 409 || !accepted) throw error
+                            // A phone cancellation/expiry can race the local Play action and ACK.
+                            // Revoke only the exact remote media; never a subsequent manual player.
+                            latestRejectedRemote(command.sessionId)
+                            receiverHistory.complete(command, false)
+                        }
+                    }
+                    delay(receiver.heartbeatMillis)
+                }
+            } catch (error: CancellationException) { throw error }
+            catch (error: ApiException) {
+                if (!registered && error.status == 404) return@LaunchedEffect // Older servers retain normal TV playback.
+                if (current()) { latestDisconnectRemote(); delay(3000) }
+            } catch (_: Exception) { if (current()) { latestDisconnectRemote(); delay(3000) } }
+            finally {
+                withContext(NonCancellable) { withTimeoutOrNull(3000) { runCatching { receiver.unregister() } } }
+            }
+        }
+    }
     LaunchedEffect(server, foreground, server.viewing?.protected) {
         if (!foreground && server.viewing?.protected == true) lockViewing()
     }
@@ -264,8 +394,13 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         if (server.viewing?.mode != "private") savedPageKeys = ((savedPageKeys - obsolete.toSet()) + pageKey).distinct()
     }
     if (playback != null) {
-        TvPlayer(server, playback!!, onClose = { playback = null; playing = false; refresh++ }, onPlayNext = { playback = it },
-            onPlayingChanged = { playing = it })
+        TvPlayer(server, playback!!, onClose = ::closeCurrentPlayback, onPlayNext = {
+            remoteSessionId = null; remoteSnapshot = TvCastSnapshot(); playback = it
+        }, onPlayingChanged = { playing = it }, onController = { controller, available ->
+            if (available && foreground && !viewingBlocked && playback == controller.request) playbackController = controller
+            else if (available) controller.close()
+            else if (playbackController === controller) playbackController = null
+        })
         return
     }
     val route = routes.last()
@@ -282,7 +417,11 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
             else -> "nav:home"
         })
         fun open(next: TvRoute) { memory.leaving = true; navigate(next) }
-        fun play(request: PlaybackRequest) { memory.leaving = true; playback = request }
+        fun play(request: PlaybackRequest) {
+            memory.leaving = true
+            remoteSessionId = null; remoteSnapshot = TvCastSnapshot()
+            playback = request
+        }
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 40.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             TvNavigation(navigationSection(routes), libraryName, memory, server.viewing?.label) { kind ->

@@ -475,6 +475,10 @@ def _protected_dirs(now: float) -> set[str]:
         if ((proc is not None and proc.poll() is None)
                 or now - float(s.get("last_ping") or 0) < _SESS_IDLE):
             live.add(os.path.normpath(str(s.get("sdir") or "")))
+    # Independent DLNA audio outputs have no browser heartbeat/lease. Their
+    # active preparation and TV playback must survive normal cache eviction.
+    from ...casting.audio import outputs as cast_audio_outputs
+    live.update(os.path.normpath(path) for path in cast_audio_outputs.protected_directories())
     return live
 
 

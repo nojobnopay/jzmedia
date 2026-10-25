@@ -5,6 +5,129 @@ import { useCasting, castStateLabel } from '../src/useCasting.js'
 const pending = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 const make = (request, extra = {}) => useCasting({ media: () => ({ version_id: 12, kind: 'episode' }), position: () => 123, request, ...extra })
 const session = id => ({ id, active: true, state: 'TRANSITIONING', position_known: false, device: { name: '电视' } })
+const appDevice = { id: 'tv_bedroom', name: '主卧 jzmedia-tv', address: '192.168.1.72', receiver_type: 'jzmedia_tv', volume_control: false }
+
+test('TV App discovery requires an explicit receiver choice and ignores a closed picker response', async t => {
+  const listing = pending()
+  const casting = make(async () => listing.promise)
+  t.after(() => casting.dispose())
+  casting.open.value = true
+  const opening = casting.chooseReceiver('jzmedia_tv')
+  assert.equal(casting.receiverType.value, 'jzmedia_tv')
+  casting.close()
+  listing.resolve({ items: [appDevice] })
+  await opening
+  assert.deepEqual(casting.appDevices.value, [])
+  assert.equal(casting.selected.value, '')
+  assert.equal(casting.searchingApps.value, false)
+})
+
+test('online TV Apps never auto-select the first device and preserve only an explicitly still-online selection', async t => {
+  let items = [appDevice, { ...appDevice, id: 'tv_living', name: '客厅' }]
+  const casting = make(async () => ({ items }))
+  t.after(() => casting.dispose())
+  await casting.chooseReceiver('jzmedia_tv')
+  assert.deepEqual(casting.appDevices.value, items)
+  assert.equal(casting.selected.value, '')
+  casting.selected.value = appDevice.id
+  items = [items[1]]
+  await casting.refreshApps()
+  assert.equal(casting.selected.value, '', 'An offline target must not silently become another television')
+})
+
+test('TV App creation passes the frozen absolute position and explicit phone track choices', async t => {
+  const calls = [], saving = pending()
+  let position = 142.5
+  const casting = make(async (path, options) => {
+    calls.push({ path, options })
+    if (path === '/api/cast/apps') return { items: [appDevice] }
+    return { ...session('app-session'), receiver_type: 'jzmedia_tv', state: 'WAITING_FOR_APP', resume_pending: true,
+      resume_target: 142.5, version_id: 12, kind: 'episode', device: appDevice }
+  }, { position: () => position, media: () => ({ version_id: 12, kind: 'episode', audio: 1, sub: -1 }), beforePlay: () => saving.promise })
+  t.after(() => casting.dispose())
+  await casting.chooseReceiver('jzmedia_tv')
+  casting.selected.value = appDevice.id
+  const work = casting.play()
+  position = 199
+  saving.resolve()
+  await work
+  const sent = JSON.parse(calls.find(call => call.path === '/api/cast/sessions').options.body)
+  assert.deepEqual(sent, { version_id: 12, kind: 'episode', audio: 1, sub: -1, device_id: appDevice.id,
+    base_url: '', position: 142.5, receiver_type: 'jzmedia_tv' })
+  assert.equal(casting.active.value, true)
+  assert.equal(casting.session.value.position_known, false)
+  assert.match(casting.stateLabel.value, /等待.*jzmedia-tv/)
+})
+
+test('switching a DLNA cast to TV App stops first and keeps its real position despite the stopped response resetting', async t => {
+  const calls = []
+  let position = 212
+  const casting = make(async (path, options) => {
+    calls.push({ path, options })
+    if (path.endsWith('/control')) { position = 0; return { ...session('old'), active: false, state: 'STOPPED', receiver_type: 'dlna' } }
+    if (path === '/api/cast/apps') return { items: [appDevice] }
+    return { ...session('new'), receiver_type: 'jzmedia_tv', device: appDevice }
+  }, { position: () => position })
+  t.after(() => casting.dispose())
+  casting.session.value = { ...session('old'), receiver_type: 'dlna', position: 212, position_known: true }
+  await casting.chooseReceiver('jzmedia_tv')
+  assert.ok(calls[0].path.endsWith('/control'))
+  assert.equal(JSON.parse(calls[0].options.body).command, 'stop')
+  assert.equal(casting.selected.value, '')
+  casting.selected.value = appDevice.id
+  await casting.play()
+  assert.equal(JSON.parse(calls.find(call => call.path === '/api/cast/sessions').options.body).position, 212)
+})
+
+test('a failed DLNA Stop never starts TV App discovery or changes the receiver route', async t => {
+  const calls = []
+  const casting = make(async path => { calls.push(path); throw Object.assign(new Error('502 TV not reachable'), { status: 502 }) })
+  t.after(() => casting.dispose())
+  casting.session.value = { ...session('old'), receiver_type: 'dlna' }
+  assert.equal(await casting.chooseReceiver('jzmedia_tv'), false)
+  assert.equal(casting.receiverType.value, 'dlna')
+  assert.equal(casting.active.value, true)
+  assert.equal(calls.length, 1)
+})
+
+test('switching to TV App uses newer real progress sampled by a successful Stop', async t => {
+  let sent
+  const casting = make(async (path, options) => {
+    if (path.endsWith('/control')) return { ...session('old'), active: false, state: 'STOPPED',
+      position: 217, position_known: true, last_position: 217 }
+    if (path === '/api/cast/apps') return { items: [appDevice] }
+    sent = JSON.parse(options.body)
+    return { ...session('new'), receiver_type: 'jzmedia_tv', device: appDevice }
+  }, { position: () => 212 })
+  t.after(() => casting.dispose())
+  casting.session.value = { ...session('old'), receiver_type: 'dlna', position: 212, position_known: true }
+  await casting.chooseReceiver('jzmedia_tv')
+  casting.selected.value = appDevice.id
+  await casting.play()
+  assert.equal(sent.position, 217)
+})
+
+test('an old server gives a useful TV App upgrade message without touching DLNA discovery', async t => {
+  const calls = []
+  const casting = make(async path => { calls.push(path); throw Object.assign(new Error('404'), { status: 404 }) })
+  t.after(() => casting.dispose())
+  await casting.chooseReceiver('jzmedia_tv')
+  assert.match(casting.appsError.value, /升级服务器和 jzmedia-tv/)
+  assert.deepEqual(calls, ['/api/cast/apps'])
+})
+
+test('an immediately rejected App session restores the phone without presenting active TV playback', async t => {
+  let restored = 0, held = 0
+  const casting = make(async () => ({ ...session('rejected'), active: false, state: 'EXPIRED', receiver_type: 'jzmedia_tv' }),
+    { onPlayFailure: () => { restored++ }, onSession: () => { held++ } })
+  t.after(() => casting.dispose())
+  casting.receiverType.value = 'jzmedia_tv'
+  casting.selected.value = appDevice.id
+  await casting.play()
+  assert.equal(restored, 1)
+  assert.equal(held, 0)
+  assert.equal(casting.active.value, false)
+})
 
 test('closing discovery cancels it and ignores late devices', async () => {
   const result = pending(), calls = []
@@ -66,7 +189,7 @@ test('play waits for local progress, sends episode identity and locks closing un
   casting.close()
   assert.equal(casting.open.value, true)
   await Promise.resolve()
-  assert.deepEqual(JSON.parse(calls[0].options.body), { device_id: 'device', base_url: 'http://192.168.1.5:8080', version_id: 12, kind: 'episode', position: 123 })
+  assert.deepEqual(JSON.parse(calls[0].options.body), { device_id: 'device', base_url: 'http://192.168.1.5:8080', version_id: 12, kind: 'episode', position: 123, receiver_type: 'dlna' })
   result.resolve(session('cast1'))
   await work
   assert.equal(accepted.id, 'cast1')
@@ -119,4 +242,163 @@ test('remote state labels distinguish command acknowledgement from actual playba
   assert.equal(castStateLabel({ state: 'PLAYING' }), '电视正在播放')
   assert.equal(castStateLabel({ state: 'STOPPED' }), '投屏已停止')
   assert.equal(castStateLabel({ state: 'REPLACED' }), '电视已切换到其他视频')
+})
+
+test('play captures identity, receiver and absolute position before a delayed local save', async () => {
+  const saving = pending(), calls = []
+  let position = 100, kind = 'movie', prepared, failures = 0
+  const casting = make(async (path, options) => { calls.push({ path, body: JSON.parse(options.body) }); return session('new') }, {
+    media: () => ({ version_id: 7, kind }), position: () => position,
+    beforePlay: target => { prepared = target; return saving.promise }, onPlayFailure: () => { failures++ },
+  })
+  casting.selected.value = 'first'
+  casting.serverUrl.value = 'http://192.168.1.8:8080'
+  const work = casting.play()
+  assert.equal(prepared, 100)
+  position = 135; kind = 'episode'; casting.selected.value = 'second'
+  saving.resolve()
+  await work
+  assert.deepEqual(calls[0].body, { version_id: 7, kind: 'movie', device_id: 'first', base_url: 'http://192.168.1.8:8080', position: 100, receiver_type: 'dlna' })
+  assert.equal(failures, 0)
+  casting.dispose()
+})
+
+test('a failed cast restores its preparation once, but never after disposal', async () => {
+  const result = pending()
+  let restored = 0
+  const casting = make(async () => result.promise, { onPlayFailure: () => { restored++ } })
+  casting.selected.value = 'tv'
+  const work = casting.play()
+  await Promise.resolve()
+  result.resolve(Promise.reject(Object.assign(new Error('接收器不支持'), { status: 422 })))
+  await work
+  assert.equal(restored, 1)
+  assert.equal(casting.busy.value, false)
+  assert.equal(casting.error.value, '接收器不支持')
+  casting.dispose()
+  const late = pending()
+  const another = make(async () => late.promise, { onPlayFailure: () => { restored++ } })
+  another.selected.value = 'tv'
+  const waiting = another.play()
+  await Promise.resolve()
+  another.dispose()
+  late.resolve(Promise.reject(new Error('迟到失败')))
+  await waiting
+  assert.equal(restored, 1)
+})
+
+test('an uncertain creation adopts only a new matching receiver session instead of resuming the phone', async () => {
+  let resumed = 0, held = 0
+  const calls = []
+  const remote = { ...session('started-remotely'), version_id: 12, kind: 'episode', device: { id: 'tv', name: '电视' } }
+  const casting = make(async (path, options) => {
+    calls.push({ path, options })
+    if (options.method === 'POST') throw new TypeError('Failed to fetch')
+    return { session: remote }
+  }, { onPlayFailure: () => { resumed++ }, onSession: () => { held++ } })
+  casting.selected.value = 'tv'
+  await casting.play()
+  assert.equal(casting.session.value.id, remote.id)
+  assert.equal(casting.uncertain.value, false)
+  assert.equal(held, 1)
+  assert.equal(resumed, 0)
+  assert.equal(calls.length, 2)
+  assert.equal(calls[1].options.timeout, 5000)
+  assert.equal(calls.some(call => call.path.endsWith('/control')), false)
+  casting.dispose()
+})
+
+for (const status of [408, 500, 502, 504]) {
+  test(`HTTP ${status} creation checks for an already-started matching TV before restoring the phone`, async () => {
+    let resumed = 0, reads = 0
+    const remote = { ...session('started-remotely'), version_id: 12, kind: 'episode', device: { id: 'tv', name: '电视' } }
+    const casting = make(async (_path, options) => {
+      if (options.method === 'POST') throw Object.assign(new Error(`${status} operation result unknown`), { status })
+      reads++
+      return { session: remote }
+    }, { onPlayFailure: () => { resumed++ } })
+    casting.selected.value = 'tv'
+    await casting.play()
+    assert.equal(reads, 1)
+    assert.equal(casting.session.value.id, remote.id)
+    assert.equal(resumed, 0)
+    casting.dispose()
+  })
+}
+
+test('a failed creation resumes the phone only after a readable current response confirms absence', async () => {
+  let resumed = 0
+  const casting = make(async (_path, options) => {
+    if (options.method === 'POST') throw new Error('请求超时，操作结果未知')
+    return { session: null }
+  }, { onPlayFailure: () => { resumed++ } })
+  casting.selected.value = 'tv'
+  await casting.play()
+  assert.equal(resumed, 1)
+  assert.equal(casting.uncertain.value, false)
+  casting.dispose()
+})
+
+test('creation plus read failure keeps the phone held and rechecks without repeating Play or Stop', async () => {
+  let readsWork = false, resumed = 0, held = 0, posts = 0
+  const casting = make(async (_path, options) => {
+    if (options.method === 'POST') { posts++; throw new TypeError('Failed to fetch') }
+    if (!readsWork) throw new TypeError('Failed to fetch')
+    return { session: null }
+  }, { onPlayFailure: () => { resumed++ }, onPlayUncertain: () => { held++ } })
+  casting.selected.value = 'tv'
+  await casting.play()
+  assert.equal(casting.uncertain.value, true)
+  assert.equal(resumed, 0)
+  assert.equal(held, 1)
+  assert.match(casting.error.value, /手机保持暂停/)
+  await casting.play()
+  assert.equal(posts, 1, 'Unknown results must not automatically repeat the create request')
+  readsWork = true
+  await casting.reconcile()
+  assert.equal(casting.uncertain.value, false)
+  assert.doesNotMatch(casting.error.value, /手机保持暂停/)
+  assert.equal(resumed, 1)
+  assert.equal(posts, 1)
+  casting.dispose()
+})
+
+for (const conflict of ['previous-session', 'different-receiver', 'different-media']) {
+  test(`unknown creation never adopts or stops a ${conflict} response`, async () => {
+    let resumed = 0, posts = 0
+    const remote = { ...session(conflict === 'previous-session' ? 'previous' : 'another'),
+      version_id: conflict === 'different-media' ? 13 : 12, kind: 'episode',
+      device: { id: conflict === 'different-receiver' ? 'other-tv' : 'tv', name: '电视' } }
+    const casting = make(async (_path, options) => {
+      if (options.method === 'POST') { posts++; throw new TypeError('Failed to fetch') }
+      return { session: remote }
+    }, { onPlayFailure: () => { resumed++ } })
+    casting.session.value = { ...session('previous'), active: false }
+    casting.selected.value = 'tv'
+    await casting.play()
+    assert.equal(casting.uncertain.value, true)
+    assert.equal(casting.active.value, false)
+    assert.equal(resumed, 0)
+    assert.equal(posts, 1)
+    casting.dispose()
+  })
+}
+
+test('late uncertainty readbacks after disposal cannot adopt a session or resume the phone', async () => {
+  const reading = pending()
+  let resumed = 0, accepted = 0, signal
+  const casting = make(async (_path, options) => {
+    if (options.method === 'POST') throw new TypeError('Failed to fetch')
+    signal = options.signal
+    return reading.promise
+  }, { onPlayFailure: () => { resumed++ }, onSession: () => { accepted++ } })
+  casting.selected.value = 'tv'
+  const work = casting.play()
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+  casting.dispose()
+  assert.equal(signal.aborted, true)
+  reading.resolve({ session: null })
+  await work
+  assert.equal(resumed, 0)
+  assert.equal(accepted, 0)
 })

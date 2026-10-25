@@ -13,6 +13,7 @@ class DlnaReceiver:
         self.uri = ""
         self.position = 0
         self.state = "STOPPED"
+        self.transport_status = "OK"
         self.calls = []
         self.volume = 50
         self.reject = set()
@@ -22,6 +23,9 @@ class DlnaReceiver:
         self.fetch_errors = []
         self.report_uri = True
         self.metadata = ""
+        self.ready_polls = 0
+        self._ready_polls_left = 0
+        self.ignore_seeks = 0
         receiver = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -87,7 +91,8 @@ class DlnaReceiver:
             self.metadata = args["CurrentURIMetaData"]
             self.position, self.state = 0, "STOPPED"
         elif name == "Play":
-            self.state = "PLAYING"
+            self._ready_polls_left = self.ready_polls
+            self.state = "TRANSITIONING" if self._ready_polls_left else "PLAYING"
             if self.fetch_media:
                 threading.Thread(target=self._fetch, daemon=True).start()
         elif name == "Pause":
@@ -95,11 +100,21 @@ class DlnaReceiver:
         elif name == "Stop":
             self.state = "STOPPED"
         elif name == "Seek":
-            self.position = seconds(args["Target"])
+            if self.ignore_seeks:
+                self.ignore_seeks -= 1
+            else:
+                self.position = seconds(args["Target"])
         elif name == "SetVolume":
             self.volume = int(args["DesiredVolume"])
+        elif name == "GetVolume":
+            return {"CurrentVolume": self.volume}
         elif name == "GetTransportInfo":
-            return {"CurrentTransportState": self.state, "CurrentTransportStatus": "OK", "CurrentSpeed": 1}
+            state = self.state
+            if self._ready_polls_left:
+                self._ready_polls_left -= 1
+                if not self._ready_polls_left:
+                    self.state = "PLAYING"
+            return {"CurrentTransportState": state, "CurrentTransportStatus": self.transport_status, "CurrentSpeed": 1}
         elif name == "GetPositionInfo":
             return {"TrackURI": self.uri if self.report_uri else "", "RelTime": time_text(self.position),
                     "TrackDuration": "00:10:00"}

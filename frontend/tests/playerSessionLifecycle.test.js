@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import * as Vue from 'vue'
 import { loadSfc } from './helpers/loadSfc.js'
 import { deferred, flush } from './helpers/renderHarness.js'
+import { useCasting } from '../src/useCasting.js'
+import * as mp4Playback from '../src/mp4Chunks.js'
 
 function eventTarget() {
   const handlers = new Map()
@@ -12,10 +14,13 @@ function eventTarget() {
     dispatch(name, event = {}) { for (const fn of handlers.get(name) || []) fn(event) } }
 }
 
-async function player(t, { slowCreation = false, p5 = false, blocked = false, versions = [], sessionPlan = null } = {}) {
+async function player(t, { slowCreation = false, p5 = false, blocked = false, versions = [], sessionPlan = null,
+  realCasting = false, direct = false, initialCast = null, mp4 = false, clearCastPositionOnStop = false } = {}) {
   const mounted = [], beforeUnmount = [], unmounted = [], refs = [], requests = [], emitted = [], timers = new Map()
   const copied = []
   const saving = deferred(), creation = deferred(), page = eventTarget()
+  const castCreation = deferred()
+  let castingController, castReadBroken = false, castCurrent = initialCast
   const globals = new Map(['window', 'document', 'localStorage', 'location'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
   Object.defineProperty(globalThis, 'window', { configurable: true, value: page })
   Object.defineProperty(globalThis, 'document', { configurable: true, value: { ...eventTarget(), visibilityState: 'visible' } })
@@ -37,13 +42,22 @@ async function player(t, { slowCreation = false, p5 = false, blocked = false, ve
   const api = async (path, options = {}) => {
     const body = options.body && JSON.parse(options.body)
     requests.push({ path, options, body })
-    if (path.endsWith('/decide')) return { method: blocked ? 'blocked' : (p5 ? 'video_transcode' : 'remux'), plan: makePlan(body),
+    if (path.startsWith('/api/cast/current')) {
+      if (castReadBroken) throw new TypeError('Failed to fetch')
+      return { session: castCurrent }
+    }
+    if (path === '/api/cast/sessions') return castCreation.promise
+    if (path.startsWith('/api/cast/sessions/') && path.endsWith('/control')) return {
+      ...castingController.session.value, active: false, state: 'STOPPED', resume_pending: false, resume_target: null,
+      ...(clearCastPositionOnStop ? { position: null, position_known: false, last_position: null } : {}) }
+    if (path.endsWith('/decide')) return { method: blocked ? 'blocked' : (direct ? 'direct' : p5 ? 'video_transcode' : 'remux'), plan: makePlan(body),
       direct_url: '/api/direct/synthetic.mkv', reasons: p5 ? [blocked ? 'dovi_p5_unavailable' : 'dovi_p5_sdr'] : [],
       media: { duration: 1200, width: p5 ? 3840 : 1280, height: p5 ? 2160 : 720, dv_profile: p5 ? 5 : 0, audio: [], subs: [] } }
     if (path === '/api/stream/versions') return { versions }
     if (path.endsWith('/sessions')) {
-      const session = { session_id: `lease-${++nextSid}`, method: p5 ? 'video_transcode' : 'remux', plan: sessionPlan || makePlan(body),
-        media_start: body.start, initial_time: 0, playlist_url: `/session-${nextSid}.m3u8` }
+      const session = { session_id: `lease-${++nextSid}`, method: p5 ? 'video_transcode' : 'remux', plan: sessionPlan || (mp4 ? { seg: 'mp4' } : makePlan(body)),
+        media_start: body.start, initial_time: 0, playlist_url: `/session-${nextSid}.m3u8`,
+        ...(mp4 ? { media_url: '/synthetic-segment.mp4', clip_duration: 1200 } : {}) }
       if (nextSid === (slowCreation === true ? 1 : slowCreation)) return creation.promise
       return session
     }
@@ -61,13 +75,18 @@ async function player(t, { slowCreation = false, p5 = false, blocked = false, ve
     vue: { ...Vue, ref(value) { const result = Vue.ref(value); refs.push(result); return result },
       onMounted: fn => mounted.push(fn), onBeforeUnmount: fn => beforeUnmount.push(fn), onUnmounted: fn => unmounted.push(fn) },
     '../api.js': { api },
+    ...(mp4 ? { '../mp4Chunks.js': { ...mp4Playback, loadMp4Blob: async () => ({ url: 'blob:synthetic-cast-chunk', bytes: 3 }) } } : {}),
     '../clipboard.js': { copyText: async text => { copied.push(text); return clipboardAllowed } },
     '../caps.js': { getCaps: async () => ({ native_hls: true }), probeStrings: async () => [], withProbes: value => value, playbackSupport: () => ({}) },
     '../useFocusTrap.js': { useFocusTrap: () => {} },
     '../usePlaybackPreviews.js': { usePlaybackPreviews: () => ({ manifest: Vue.ref(null), busy: Vue.ref(false),
       ready: Vue.ref(false), status: Vue.ref('') }) },
-    '../useCasting.js': { useCasting: () => ({ open: Vue.ref(false), active: Vue.ref(false), session: Vue.ref(null),
-      busy: Vue.ref(false), restore: async () => {}, dispose: () => {} }) },
+    '../useCasting.js': { useCasting: options => {
+      castingController = realCasting ? useCasting({ ...options, request: api })
+        : { open: Vue.ref(false), active: Vue.ref(false), session: Vue.ref(null),
+          busy: Vue.ref(false), restore: async () => {}, dispose: () => {} }
+      return castingController
+    } },
     '../viewing.js': { registerViewingPlaybackCleanup: () => () => {} },
   })
   const scope = Vue.effectScope()
@@ -105,6 +124,8 @@ async function player(t, { slowCreation = false, p5 = false, blocked = false, ve
     return result
   }
   return { video, page, requests, emitted, saving, creation, close, nodes, copied,
+    casting: castingController, castCreation,
+    setCastReadback: (value, broken = false) => { castCurrent = value; castReadBroken = broken },
     heartbeatResult: result => { pingResult = result },
     holdNextHeartbeat: () => { pendingPing = deferred(); return pendingPing },
     denyClipboard: () => { clipboardAllowed = false },
@@ -301,3 +322,181 @@ test('P5 never mounts an MP4 or software-transcode fallback returned by a stale 
   await ui.tick()
   assert.equal(ui.requests.filter(request => request.path.endsWith('/sessions')).length, 1)
 })
+
+test('actual PlayerModal freezes the HLS absolute position across a delayed save and cast creation', async t => {
+  const ui = await player(t, { realCasting: true })
+  ui.video.currentTime = 25.25
+  ui.casting.selected.value = 'tv'
+  const work = ui.casting.play()
+  assert.equal(ui.video.paused, true)
+  assert.equal(ui.video.autoplay, false)
+  assert.equal(ui.requests.filter(request => request.path === '/api/cast/sessions').length, 0)
+  ui.video.currentTime = 80
+  ui.video.dispatch('timeupdate')
+  ui.saving.resolve({})
+  await flush()
+  const cast = ui.requests.find(request => request.path === '/api/cast/sessions')
+  assert.equal(cast.body.position, 137.25, 'HLS source offset112 plus currentTime25.25 was frozen at click')
+  const saved = ui.requests.filter(request => request.path.includes('/progress') && request.options.method === 'POST')
+  assert.equal(saved.at(-1).body.position, 137.25)
+  ui.castCreation.resolve({ id: 'remote', active: true, state: 'TRANSITIONING', device: { name: '合成电视' } })
+  await work
+  assert.equal(ui.video.src, '')
+  assert.equal(ui.video.paused, true)
+})
+
+for (const paused of [false, true]) {
+  test(`failed cast restores the same source position and ${paused ? 'paused' : 'playing'} intent`, async t => {
+    const ui = await player(t, { realCasting: true })
+    ui.video.currentTime = 25.25
+    if (paused) ui.video.pause()
+    ui.casting.selected.value = 'tv'
+    const work = ui.casting.play()
+    ui.saving.resolve({})
+    await flush()
+    ui.castCreation.reject(new Error('电视拒绝起播'))
+    await work
+    await flush()
+    const sessions = ui.requests.filter(request => request.path.startsWith('/api/stream/') && request.path.endsWith('/sessions'))
+    assert.equal(sessions.length, 2)
+    assert.equal(sessions[1].body.start, 137, 'Ordinary stream startup keeps its existing whole-second seek precision')
+    assert.equal(ui.video.paused, paused)
+    assert.equal(ui.video.autoplay, !paused)
+    assert.match(ui.casting.error.value, /电视拒绝起播/)
+  })
+}
+
+test('actual PlayerModal captures the direct-file timeline without adding a previous HLS/resume offset', async t => {
+  const ui = await player(t, { realCasting: true, direct: true })
+  ui.video.currentTime = 35.5
+  ui.casting.selected.value = 'tv'
+  const work = ui.casting.play()
+  ui.saving.resolve({})
+  await flush()
+  assert.equal(ui.requests.find(request => request.path === '/api/cast/sessions').body.position, 35.5)
+  ui.castCreation.reject(new Error('模拟失败'))
+  await work
+  await flush()
+})
+
+test('actual MP4 chunk casting preserves the source offset instead of sending the chunk-local clock', async t => {
+  const ui = await player(t, { realCasting: true, mp4: true })
+  assert.equal(ui.video.src, 'blob:synthetic-cast-chunk')
+  ui.video.currentTime = 25.25
+  ui.casting.selected.value = 'tv'
+  const work = ui.casting.play()
+  ui.saving.resolve({})
+  await flush()
+  assert.equal(ui.requests.find(request => request.path === '/api/cast/sessions').body.position, 137.25)
+  ui.castCreation.reject(new Error('模拟失败'))
+  await work
+  await flush()
+})
+
+test('casting during a pending stream seek uses the selected target and late local creation cannot mount', async t => {
+  const ui = await player(t, { realCasting: true, slowCreation: 2 })
+  const seek = ui.nodes().find(node => node.props?.onInput && node.props?.onCommit)
+  seek.props.onInput({ target: { value: '700' } })
+  seek.props.onCommit({ target: { value: '700' } })
+  await flush()
+  ui.casting.selected.value = 'tv'
+  const work = ui.casting.play()
+  ui.saving.resolve({})
+  await flush()
+  assert.equal(ui.requests.find(request => request.path === '/api/cast/sessions').body.position, 700)
+  ui.castCreation.resolve({ id: 'remote', active: true, state: 'TRANSITIONING', device: { name: '合成电视' } })
+  await work
+  ui.creation.resolve({ session_id: 'stale-seek', plan: { seg: 'fmp4' }, playlist_url: '/stale.m3u8' })
+  await flush()
+  assert.equal(ui.video.src, '')
+  assert.ok(ui.requests.some(request => request.options.method === 'DELETE' && request.path.endsWith('/stale-seek')))
+})
+
+test('page exit during handoff preparation prevents TV creation and a failed cast never resumes an exited phone', async t => {
+  const ui = await player(t, { realCasting: true })
+  ui.video.currentTime = 18
+  ui.casting.selected.value = 'tv'
+  const work = ui.casting.play()
+  ui.page.dispatch('pagehide')
+  ui.saving.resolve({})
+  await work
+  await flush()
+  assert.equal(ui.requests.filter(request => request.path === '/api/cast/sessions').length, 0)
+  assert.equal(ui.video.src, '')
+  assert.equal(ui.video.paused, true)
+  assert.equal(ui.requests.filter(request => request.path.startsWith('/api/stream/') && request.path.endsWith('/sessions')).length, 1)
+})
+
+test('a creation failure after page exit leaves the released phone paused', async t => {
+  const ui = await player(t, { realCasting: true })
+  ui.video.currentTime = 18
+  ui.casting.selected.value = 'tv'
+  const work = ui.casting.play()
+  ui.saving.resolve({})
+  await flush()
+  ui.page.dispatch('pagehide')
+  ui.castCreation.reject(new Error('迟到的接收器错误'))
+  await work
+  await flush()
+  assert.equal(ui.video.src, '')
+  assert.equal(ui.video.paused, true)
+  assert.equal(ui.requests.filter(request => request.path.startsWith('/api/stream/') && request.path.endsWith('/sessions')).length, 1)
+})
+
+test('an unknown creation plus unreadable state keeps the real phone held until absence is confirmed', async t => {
+  const ui = await player(t, { realCasting: true })
+  ui.video.currentTime = 25.25
+  ui.casting.selected.value = 'tv'
+  const work = ui.casting.play()
+  ui.saving.resolve({})
+  await flush()
+  ui.setCastReadback(null, true)
+  ui.castCreation.reject(new TypeError('Failed to fetch'))
+  await work
+  await flush()
+  assert.equal(ui.casting.uncertain.value, true)
+  assert.equal(ui.video.src, '')
+  assert.equal(ui.video.paused, true)
+  assert.equal(ui.requests.filter(request => request.path.startsWith('/api/stream/') && request.path.endsWith('/sessions')).length, 1)
+  ui.setCastReadback(null)
+  await ui.casting.reconcile()
+  await flush()
+  const streams = ui.requests.filter(request => request.path.startsWith('/api/stream/') && request.path.endsWith('/sessions'))
+  assert.equal(streams.length, 2)
+  assert.equal(streams[1].body.start, 137)
+  assert.equal(ui.video.paused, false)
+  assert.equal(ui.casting.uncertain.value, false)
+  assert.equal(ui.requests.filter(request => request.path === '/api/cast/sessions').length, 1)
+})
+
+for (const lastPosition of [null, 125]) {
+  test(`returning a pending receiver to the phone uses ${lastPosition == null ? 'the saved requested fallback' : 'the real last TV position'}`, async t => {
+    const ui = await player(t, { realCasting: true, initialCast: { id: 'pending', active: true,
+      state: 'TRANSITIONING', resume_pending: true, resume_target: 145,
+      position: 0, position_known: false, last_position: lastPosition, device: { name: '电视' } } })
+    ui.casting.open.value = true
+    const panel = ui.nodes().find(node => node.props?.onReturnPhone)
+    await panel.props.onReturnPhone()
+    await flush()
+    const stream = ui.requests.find(request => request.path.startsWith('/api/stream/') && request.path.endsWith('/sessions'))
+    assert.equal(stream.body.start, lastPosition ?? 145)
+    assert.equal(ui.casting.session.value, null)
+  })
+
+  test(`restored pending App cancellation retains ${lastPosition == null ? 'its requested fallback' : 'real TV progress ahead of the request'} for a later phone return`, async t => {
+    const ui = await player(t, { realCasting: true, clearCastPositionOnStop: true, initialCast: { id: 'pending-app', active: true,
+      receiver_type: 'jzmedia_tv', state: 'WAITING_FOR_APP', resume_pending: true, resume_target: 145,
+      position: null, position_known: false, last_position: lastPosition, device: { name: '电视 App' } } })
+    assert.equal(ui.video.src, '')
+    assert.equal(await ui.casting.control('stop'), true)
+    assert.equal(ui.casting.session.value.resume_target, null)
+    assert.equal(ui.casting.session.value.last_position, null)
+    ui.casting.open.value = true
+    const panel = ui.nodes().find(node => node.props?.onReturnPhone)
+    await panel.props.onReturnPhone()
+    await flush()
+    const stream = ui.requests.find(request => request.path.startsWith('/api/stream/') && request.path.endsWith('/sessions'))
+    assert.equal(stream.body.start, lastPosition ?? 145)
+    assert.equal(ui.requests.filter(request => request.path.endsWith('/control')).length, 1, 'Returning after cancellation does not repeat Stop')
+  })
+}

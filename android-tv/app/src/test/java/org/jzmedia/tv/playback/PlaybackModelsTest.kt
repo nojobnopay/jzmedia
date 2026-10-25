@@ -4,6 +4,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PlaybackModelsTest {
+    @Test fun phoneHandoffUsesItsExplicitTimeAndTracksWithoutResumeHeuristics() {
+        val request = PlaybackRequest("movie", 42, "test", position = 5.0, audio = 1, subtitle = -1, remoteSessionId = "tv_one")
+        assertEquals(5.0, explicitPlaybackStart(request, 600.0)!!, 0.0)
+        val selection = handoffTrackSelection(request, 2, 3, ContinuationSelection(0, 0))
+        assertEquals(1, selection.audio)
+        assertNull(selection.subtitle)
+        assertEquals(0.0, explicitPlaybackStart(request.copy(position = 0.0), 600.0)!!, 0.0)
+        assertEquals(599.9, explicitPlaybackStart(request.copy(position = 900.0), 600.0)!!, .001)
+        assertNull(explicitPlaybackStart(request.copy(position = null), 600.0))
+        assertThrows(IllegalArgumentException::class.java) { handoffTrackSelection(request.copy(audio = 2), 2, 3, selection) }
+        assertThrows(IllegalArgumentException::class.java) { handoffTrackSelection(request.copy(subtitle = 3), 2, 3, selection) }
+    }
+
+    @Test fun remoteImageSubtitlesNeverReachTheServerBurnDecision() {
+        val image = MediaTrack(0, "PGS", image = true)
+        val text = MediaTrack(1, "ASS")
+        val request = PlaybackRequest("movie", 42, "test", remoteSessionId = "tv_one")
+        assertNull(serverSubtitleSelection(request, listOf(image, text), 0))
+        assertEquals(1, serverSubtitleSelection(request, listOf(image, text), 1))
+        assertEquals(0, serverSubtitleSelection(request.copy(remoteSessionId = null), listOf(image, text), 0))
+        assertEquals(1, nativeSubtitleCandidateIndex(listOf(true, true), 1, 2))
+        assertNull(nativeSubtitleCandidateIndex(listOf(true), 1, 2))
+        assertNull(nativeSubtitleCandidateIndex(listOf(true, false), 1, 2))
+    }
     @Test fun matroskaTrackNumbersNeverMatchFfprobeIndices() {
         // ffprobe audio streams 1/2 commonly have Matroska TrackNumbers 2/3.
         val audio = listOf(AudioCandidate("2", "中文", true), AudioCandidate("3", "英语", true))

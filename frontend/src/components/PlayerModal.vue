@@ -39,10 +39,10 @@
         <div v-if="castHeld" class="stage-state cast-stage" @dblclick.stop>
           <PlayerIcon name="cast" :size="32" />
           <strong>{{ casting.stateLabel.value }}</strong>
-          <span>{{ casting.session.value?.device.name }} · 手机播放已暂停</span>
+          <span>{{ casting.session.value?.device.name || '正在核对电视状态' }} · 手机播放已暂停</span>
           <div class="prompt-actions">
             <JzButton size="compact" class="player-action" @click="openCasting">投屏控制</JzButton>
-            <JzButton size="compact" class="player-action" :disabled="casting.busy.value" @click="returnToPhone">手机播放</JzButton>
+            <JzButton v-if="!casting.uncertain?.value" size="compact" class="player-action" :disabled="casting.busy.value" @click="returnToPhone">手机播放</JzButton>
           </div>
         </div>
         <div v-else-if="(seekPending || booting) && !err" class="stage-state seek-ov" role="status" aria-live="polite">
@@ -122,9 +122,10 @@
           </div>
         </div>
         <CastDialog v-if="canCast && casting.open.value && isFull" :casting="casting" :held="castHeld"
-          :teleport-disabled="true" @return-phone="returnToPhone" />
+          :manifest="previews.manifest.value" v-bind="castingTrackProps" :teleport-disabled="true" @return-phone="returnToPhone" />
       </div>
-      <CastDialog v-if="canCast && casting.open.value && !isFull" :casting="casting" :held="castHeld" @return-phone="returnToPhone" />
+      <CastDialog v-if="canCast && casting.open.value && !isFull" :casting="casting" :held="castHeld"
+        :manifest="previews.manifest.value" v-bind="castingTrackProps" @return-phone="returnToPhone" />
     </div>
   </div>
 </template>
@@ -153,7 +154,7 @@ import { applyPlaybackRate, normalizeRate, reusableSeekTime, surfaceClickReveals
 import { usePlaybackPreviews } from '../usePlaybackPreviews.js'
 import { useCasting } from '../useCasting.js'
 import CastDialog from './CastDialog.vue'
-import { fmtTime as fmt } from '../playerLabels.js'
+import { fmtTime as fmt, audioLabel, subLabel } from '../playerLabels.js'
 import { isPlaybackComplete, pickProgressPosition } from '../progress.js'
 import { registerViewingPlaybackCleanup } from '../viewing.js'
 import '../player.css'
@@ -178,19 +179,100 @@ const dlgRef = ref(null)
 const videoEl = ref(null)
 const canCast = computed(() => !props.preview && ['movie', 'episode'].includes(props.kind))
 const castHeld = ref(false)
+const castPreparing = ref(false)
+let castHandoff = null
+let castReceiverId = null, castRequestedPosition = null, castReportedPosition = null
 const casting = useCasting({
-  media: () => ({ version_id: props.versionId, kind: props.kind }),
-  position: () => castHeld.value && casting.session.value?.position_known
-    ? casting.session.value.position : Math.max(seekPos.value, resumePos),
-  beforePlay: () => saveNow(),
+  media: castingMedia,
+  position: castingPosition,
+  beforePlay: prepareCasting,
   onSession: suspendForCasting,
+  onPlayFailure: restoreFailedCasting,
+  onPlayUncertain: holdUncertainCasting,
 })
+function castingPosition() {
+  const remote = casting.session.value
+  if (castHeld.value) return remote?.last_position ?? (remote?.position_known ? remote.position
+    : castReportedPosition ?? remote?.resume_target ?? castRequestedPosition ?? seekPos.value)
+  if (seekPending.value || seekDragging.value || keyboardSeekTarget != null) return keyboardSeekTarget ?? seekPreview.value
+  if (booting.value || timelineDetached.value) return resumePos || seekPos.value || lastStartAt
+  return absPos()
+}
+function castingMedia() {
+  return { version_id: props.versionId, kind: props.kind,
+    audio: audios.value.length ? Number(audioIdx.value) : null,
+    sub: isLocalSub(selectedSub()) ? -1 : Number(subIdx.value ?? -1) }
+}
+async function prepareCasting(position) {
+  if (disposed || pageLifecycle.isAway()) throw new Error('当前页面已离开，请重新打开播放器后投屏')
+  if (castHeld.value) return
+  const video = videoEl.value
+  const playing = !!video && ((!video.paused && !video.ended)
+    || (seekPending.value || booting.value) && wantPlaying && !pauseOnReady)
+  const generation = ++reloadGen
+  castHandoff = { position, playing, generation }
+  castReceiverId = null
+  castReportedPosition = null
+  castRequestedPosition = position
+  castPreparing.value = true
+  bootCtrl?.abort()
+  wantPlaying = false
+  if (video) { video.autoplay = false; video.pause() }
+  clearResumeTimer()
+  clearTimeout(keyboardSeekTimer)
+  clearTimeout(seekFallbackTimer)
+  mp4Queue.clear()
+  seekDragging.value = false
+  seekPos.value = position
+  // A previous periodic save may still be writing an older position. Write the
+  // frozen handoff after it, without deriving it from a changing media element.
+  await (savePromise || Promise.resolve())
+  if (disposed || pageLifecycle.isAway() || reloadGen !== generation) throw new Error('播放状态已变化，请重新发起投屏')
+  await postProgress({ pos: position, dur: mediaDuration(video) })
+  if (disposed || pageLifecycle.isAway() || reloadGen !== generation) throw new Error('播放状态已变化，请重新发起投屏')
+}
+function restoreFailedCasting() {
+  const previous = castHandoff
+  castHandoff = null
+  castPreparing.value = false
+  if (previous?.uncertain) castHeld.value = false
+  if (!previous || disposed || pageLifecycle.isAway() || castHeld.value || reloadGen !== previous.generation) return
+  resumePos = previous.position
+  seekPos.value = previous.position
+  seekPending.value = false
+  seekPendingSince = 0
+  seekDragging.value = false
+  startFromZero = previous.position === 0
+  void reload({ paused: !previous.playing })
+}
+function holdUncertainCasting() {
+  if (!castHandoff || disposed || pageLifecycle.isAway()) return
+  const previous = castHandoff
+  suspendForCasting()
+  castHandoff = { ...previous, generation: reloadGen, uncertain: true }
+  castPreparing.value = true
+}
 async function openCasting() {
   closePlayerMenu({ restoreFocus: false })
   if (!disposed) casting.show()
 }
-function suspendForCasting() {
-  if (castHeld.value || disposed) return
+function suspendForCasting(remote) {
+  if (disposed) return
+  if (remote?.id && remote.id !== castReceiverId) {
+    castReceiverId = remote.id
+    castReportedPosition = null
+    castRequestedPosition = null
+  }
+  // Keep the handoff fallback across a separate Cancel then Return to phone.
+  // A stopped or expired session may clear its requested target and position.
+  const reported = remote?.last_position ?? (remote?.position_known ? remote.position : null)
+  if (reported != null && Number.isFinite(Number(reported))) castReportedPosition = Math.max(0, Number(reported))
+  if (remote?.resume_pending && remote.resume_target != null && Number.isFinite(Number(remote.resume_target))) {
+    castRequestedPosition = Math.max(0, Number(remote.resume_target))
+  }
+  castHandoff = null
+  castPreparing.value = false
+  if (castHeld.value) return
   castHeld.value = true
   reloadGen++
   bootCtrl?.abort()
@@ -214,16 +296,25 @@ function suspendForCasting() {
 }
 async function returnToPhone() {
   if (casting.busy.value) return
+  if (casting.uncertain?.value) { await openCasting(); return }
+  // Stop clears a pending receiver seek. Preserve its requested fallback before
+  // the response replaces the session, while preferring any real TV position.
+  const previous = casting.session.value
+  const requested = previous?.resume_pending ? previous.resume_target : null
   if (casting.active.value && !await casting.control('stop')) {
     await openCasting()
     return
   }
   if (disposed) return
   const remote = casting.session.value
-  const target = remote?.last_position ?? (remote?.position_known ? remote.position : seekPos.value)
+  const target = remote?.last_position ?? (remote?.position_known ? remote.position
+    : previous?.last_position ?? castReportedPosition ?? requested ?? castRequestedPosition ?? seekPos.value)
   casting.close()
   casting.forget()
   castHeld.value = false
+  castReceiverId = null
+  castReportedPosition = null
+  castRequestedPosition = null
   resumePos = target
   seekPos.value = target
   if (!target) startFromZero = true
@@ -517,6 +608,7 @@ const bufLine = computed(() => {
   return s
 })
 function absPos() {
+  if (castPreparing.value && castHandoff) return castHandoff.position
   if (playbackFinished) return seekPos.value
   const v = videoEl.value
   const cur = (v && Number.isFinite(v.currentTime)) ? v.currentTime : 0
@@ -707,7 +799,7 @@ let wantPlaying = false
 let lastPlayAttempt = 0
 function tryPlay() {
   const v = videoEl.value
-  if (!v || disposed || pageLifecycle.isAway()) return
+  if (!v || disposed || pageLifecycle.isAway() || castPreparing.value) return
   if (playbackFinished) { restartPlay(); return }
   // The element's autoplay attribute must also follow the saved pause intent.
   v.autoplay = !pauseOnReady
@@ -1208,6 +1300,12 @@ const {
   toast: (t) => { posHint.value = t },
   logEvt: (kind, detail) => logEvt(kind, detail),
 })
+const castingTrackProps = computed(() => {
+  const selected = selectedSub()
+  return { audioLabel: audios.value[audioIdx.value] ? audioLabel(audios.value[audioIdx.value], audioIdx.value) : '',
+    subtitleLabel: selected ? subLabel(selected, subIdx.value) : '',
+    hasSelectedSubtitle: subIdx.value >= 0, localSubtitle: isLocalSub(selected) }
+})
 
 // 角落工具位于视频容器内，窗口/全屏条件实例共享父级菜单和偏好。
 const settingsProps = computed(() => ({
@@ -1381,7 +1479,7 @@ function saveFinal() {
   return finalSavePromise
 }
 function onTime() {
-  if (castHeld.value || pageLifecycle.isAway() || playbackFinished) return
+  if (castHeld.value || castPreparing.value || pageLifecycle.isAway() || playbackFinished) return
   if (timelineDetached.value) return
   const v = videoEl.value
   if (!seekPending.value && !seekDragging.value) seekPos.value = absPos()
@@ -1517,7 +1615,7 @@ async function restartPlay() {
   reload()
 }
 function onVideoError() {
-  if (castHeld.value) return
+  if (castHeld.value || castPreparing.value) return
   noteMediaError()
   if (!err.value && !booting.value) err.value = '播放中断，请检查连接后重试'
 }
@@ -1786,7 +1884,7 @@ async function initializePlayback() {
   await reload()
 }
 function watchStall() {
-  if (p5Failed.value || castHeld.value || booting.value || compatPending || playbackFinished || pageLifecycle.isAway()) return
+  if (p5Failed.value || castHeld.value || castPreparing.value || booting.value || compatPending || playbackFinished || pageLifecycle.isAway()) return
   if (timelineDetached.value || document.visibilityState === 'hidden') return
   // 每 2s 一拍。判定条件（不再看缓冲量——缓冲充足也可能楔死）：
   // HLS 会话存活、非 seek 切换中、元素声称在播(!paused && !ended)、有数据(readyState>=2)、
@@ -2048,6 +2146,8 @@ const pageLifecycle = createPlaybackPageLifecycle({
   stop: stopPlayback,
   restore: async snapshot => {
     if (disposed || castHeld.value) return
+    castHandoff = null
+    castPreparing.value = false
     clearResumeTimer()
     resumeOffer.value = ''
     finalSavePromise = null
