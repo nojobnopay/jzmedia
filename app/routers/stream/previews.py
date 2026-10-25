@@ -4,12 +4,14 @@
 新入库项由空闲时段的持久队列处理，手动任务通过 POST 发起；悬停 GET 不启动 ffmpeg。
 """
 import hashlib
+from functools import lru_cache
 import json
 import math
 import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -28,6 +30,7 @@ from ...log import get_logger
 from .common import _media_cached_or_probe, _version_source, _sessions, _sess_lock, router
 from .preview_extract import Extractor, _threads
 from .preview_failures import FailureStore, failure_reason
+from .preview_inventory import PreviewInventory
 from .preview_log import ExtractionError, error_kind, read_frame_log
 from .preview_timeline import resolve_timeline
 from .preview_color import color_plan, smoke_command
@@ -66,6 +69,20 @@ _BATCH_RE = re.compile(r"^[a-f0-9]{32}$")
 
 def _root() -> Path:
     return Path(settings.data_dir) / "previews"
+
+
+@lru_cache(maxsize=4)
+def _inventory(root):
+    return PreviewInventory(root)
+
+
+def _inventory_changed(directory, data=None):
+    try:
+        _inventory(directory.parent).changed(directory, data)
+    except (OSError, sqlite3.Error, ValueError, TypeError) as e:
+        # The index is rebuildable; a committed preview must never fail because
+        # its inventory update could not be persisted.
+        logger.warning("update preview inventory failed key=%s: %s", directory.name, e)
 
 
 def _quality_dimensions(revision):
@@ -149,6 +166,7 @@ def _write_manifest(directory: Path, data: dict):
     tmp = directory / "manifest.tmp"
     tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     tmp.replace(dest)
+    _inventory_changed(directory, data)
 
 
 def _public_manifest(key, data):
@@ -280,6 +298,8 @@ def _remove_old_quality_cache(row, src, interval, manifest, count):
             logger.warning("remove old preview quality cache failed key=%s: %s", key, e)
         else:
             data_usage.invalidate()
+        finally:
+            _inventory_changed(_root() / key)
 
 
 def _generate(jid, row, src, info, interval):
@@ -420,6 +440,8 @@ def _prune_cache(protect=""):
             data_usage.invalidate()
         except OSError as e:
             logger.warning("preview cache eviction failed key=%s: %s", directory.name, e)
+        finally:
+            _inventory_changed(directory)
 
 
 def _cache_cap_bytes() -> int:
@@ -1249,13 +1271,19 @@ def preview_completed(library_id: int | None = Query(default=None, gt=0),
     manifests, candidates = {}, set()
     ownerless = False
     root = _root()
-    for directory in [] if root.is_symlink() else root.glob("*"):
-        if not _KEY_RE.fullmatch(directory.name) or directory.is_symlink() or not directory.is_dir():
-            continue
-        data = _read_completed_manifest(directory)
-        if not data:
-            continue
-        manifests[directory.name] = data
+    inventory = _inventory(root)
+    if root.is_symlink():
+        return {"items": [], "total": 0, "offset": offset, "limit": limit}
+    try:
+        manifests = inventory.snapshot()
+    except (OSError, sqlite3.Error, ValueError, TypeError):
+        # Read-only DATA_DIR or an unusable index still permits the old inventory.
+        inventory = None
+        for directory in root.glob("*"):
+            if _KEY_RE.fullmatch(directory.name) and not directory.is_symlink() and directory.is_dir():
+                if data := _read_completed_manifest(directory):
+                    manifests[directory.name] = data
+    for data in manifests.values():
         kind, vid = data.get("item_kind"), data.get("item_id")
         if kind in ("movie", "episode", "extra") and type(vid) is int and 0 < vid < 2 ** 63:
             candidates.add((kind, vid))
@@ -1265,13 +1293,26 @@ def preview_completed(library_id: int | None = Query(default=None, gt=0),
     if ownerless:
         for lib in [library] if library else store.list_libraries():
             candidates.update(store.preview_items(lib["id"]))
-    completed = []
-    for kind, vid in candidates:
-        row = store.get_playable(kind, vid)
-        if not row or (library_id is not None and row.get("library_id") != library_id):
-            continue
+
+    def checked(key, *, verify):
+        if inventory is None:
+            return manifests.get(key)
         try:
-            backend = storage.backend_for(row.get("library_id") or 1)
+            return inventory.checked(key, _read_completed_manifest, verify=verify)
+        except (OSError, sqlite3.Error, ValueError, TypeError):
+            return _read_completed_manifest(root / key)
+
+    completed, backends, intervals = [], {}, {}
+    order = {"movie": 0, "episode": 1, "extra": 2}
+    rows = store.get_preview_playables(candidates, library_id=library_id)
+    rows.sort(key=lambda row: (row.get("library_id") or 1, order[row["kind"]], row["id"]))
+    for row in rows:
+        kind, vid = row["kind"], row["id"]
+        current_library = row.get("library_id") or 1
+        try:
+            if current_library not in backends:
+                backends[current_library] = storage.backend_for(current_library)
+            backend = backends[current_library]
             rel = backend.norm(row["file_path"])
             stat = backend.stat(rel)
             if stat.is_dir:
@@ -1280,14 +1321,19 @@ def preview_completed(library_id: int | None = Query(default=None, gt=0),
             src = storage.MediaSource(backend, rel, "", None, stat.size, stat.mtime)
         except storage.StorageError:
             continue
-        interval = _interval(row)
+        if current_library not in intervals:
+            intervals[current_library] = _interval(row)
+        interval = intervals[current_library]
         for revision in range(QUALITY_REVISION, 0, -1):
             matched = next(((key, candidate) for key in _quality_keys(row, src, interval, revision)
-                            if _completed_manifest(candidate := manifests.get(key), interval, revision)), None)
+                            if key in manifests and _completed_manifest(
+                                candidate := checked(key, verify=offset <= len(completed) < offset + limit),
+                                interval, revision)), None)
             if not matched:
                 continue
             key, data = matched
             if (data.get("item_kind", kind), data.get("item_id", vid)) != (kind, vid):
+                _inventory_changed(root / key)
                 continue
             if (data.get("completion") == _TAIL_COMPLETION
                     and data["tail_decision"]["library_id"] != (row.get("library_id") or 1)):
@@ -1303,8 +1349,11 @@ def preview_completed(library_id: int | None = Query(default=None, gt=0),
                     duration=data["duration"], warning=dict(_TAIL_WARNING),
                     confirmed_at=data["tail_decision"]["confirmed_at"])
             break
-    order = {"movie": 0, "episode": 1, "extra": 2}
-    completed.sort(key=lambda item: (item["library_id"], order[item["kind"]], item["id"]))
+    if inventory is not None:
+        try:
+            inventory.flush()
+        except (OSError, sqlite3.Error, ValueError, TypeError) as e:
+            logger.warning("save preview inventory failed: %s", e)
     return {"items": completed[offset:offset + limit], "total": len(completed),
             "offset": offset, "limit": limit}
 
@@ -1827,6 +1876,8 @@ def preview_cache_clean(body: PreviewCacheCleanBody):
                     result["freed"] += size
                 except OSError as e:
                     logger.warning("preview cache cleanup failed key=%s: %s", directory.name, e)
+                finally:
+                    _inventory_changed(directory)
             data_usage.invalidate()
         return result
 

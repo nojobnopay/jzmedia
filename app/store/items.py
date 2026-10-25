@@ -10,7 +10,7 @@ from .extras import get_extra
 from .movies import get_movie
 from .tv import get_episode, get_show
 
-__all__ = ['get_playable', 'normalize_kind', 'EXTRA_LABELS', 'preview_items']
+__all__ = ['get_playable', 'get_preview_playables', 'normalize_kind', 'EXTRA_LABELS', 'preview_items']
 
 # 花絮子类型 → 中文标签（前端也可用 /api/tv/shows 返回的 kind）
 EXTRA_LABELS = {"movie": "剧场版", "trailer": "预告", "behindthescenes": "幕后",
@@ -40,36 +40,70 @@ def get_playable(kind, item_id: int) -> dict | None:
         if not x:
             return None
         show = get_show(x.get("show_id")) if x.get("show_id") else None
-        stem = os.path.splitext(os.path.basename(x.get("file_path") or ""))[0]
-        sub = str(x.get("kind") or "extra")
-        label = EXTRA_LABELS.get(sub, "花絮")
-        out = dict(x)
-        out["kind"] = "extra"
-        out["extra_kind"] = sub
-        out["show_title"] = (show or {}).get("title", "")
-        out["title"] = stem or label
-        out["display_title"] = (f"{out['show_title']} · {label}"
-                                + (f" · {stem}" if stem else ""))
-        return out
+        return _preview_playable(k, x, (show or {}).get("title", ""))
     if k == "episode":
         e = get_episode(iid)
         if not e:
             return None
         show = get_show(e.get("show_id")) or {}
-        season = int(e.get("season") or 0)
-        ep = int(e.get("episode") or 0)
-        out = dict(e)
-        out["kind"] = "episode"
-        out["show_title"] = show.get("title", "")
-        out["title"] = e.get("title") or f"S{season:02d}E{ep:02d}"
-        out["display_title"] = (f"{show.get('title', '')} S{season:02d}E{ep:02d}"
-                                + (f" · {e.get('title')}" if e.get("title") else ""))
-        return out
+        return _preview_playable(k, e, show.get("title", ""))
     m = get_movie(iid)
     if not m:
         return None
     out = dict(m)
     out["kind"] = "movie"
+    return out
+
+
+def _preview_playable(kind, row, show_title=""):
+    out = dict(row)
+    out["kind"] = kind
+    if kind == "extra":
+        stem = os.path.splitext(os.path.basename(row.get("file_path") or ""))[0]
+        sub = str(row.get("kind") or "extra")
+        label = EXTRA_LABELS.get(sub, "花絮")
+        out.update(extra_kind=sub, show_title=show_title, title=stem or label,
+                   display_title=f"{show_title} · {label}" + (f" · {stem}" if stem else ""))
+    elif kind == "episode":
+        season, ep = int(row.get("season") or 0), int(row.get("episode") or 0)
+        out.update(show_title=show_title, title=row.get("title") or f"S{season:02d}E{ep:02d}",
+                   display_title=f"{show_title} S{season:02d}E{ep:02d}"
+                   + (f" · {row['title']}" if row.get("title") else ""))
+    return out
+
+
+def get_preview_playables(refs, library_id=None) -> list[dict]:
+    """批量读取缩略图候选行及展示名；不加载演职员、版本或整剧分集详情。"""
+    grouped = {kind: set() for kind in ("movie", "episode", "extra")}
+    for kind, item_id in refs:
+        try:
+            item_id = int(item_id)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if 0 < item_id < 2 ** 63:
+            grouped[normalize_kind(kind)].add(item_id)
+    if not any(grouped.values()):
+        return []
+    out = []
+    with _lock, _conn() as c:
+        for kind, table in (("movie", "movies"), ("episode", "tv_episodes"), ("extra", "extras")):
+            ids = sorted(grouped[kind])
+            for start in range(0, len(ids), 400):
+                chunk = ids[start:start + 400]
+                query = f"SELECT item.* FROM {table} AS item"
+                if kind != "movie":
+                    query = ("SELECT item.*, CASE WHEN series.id IS NULL THEN '' ELSE series.title END "
+                             "AS preview_show_title "
+                             f"FROM {table} AS item LEFT JOIN tv_shows AS series ON series.id=item.show_id")
+                query += " WHERE item.id IN (" + ",".join("?" for _ in chunk) + ")"
+                params = chunk
+                if library_id is not None:
+                    query += " AND item.library_id=?"
+                    params = [*chunk, int(library_id)]
+                for raw in c.execute(query, params):
+                    row = dict(raw)
+                    show_title = row.pop("preview_show_title", "")
+                    out.append(_preview_playable(kind, row, show_title))
     return out
 
 

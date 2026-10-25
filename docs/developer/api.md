@@ -109,7 +109,9 @@
 
 ### 已生成与失败清单
 
-`GET /api/stream/previews/completed?library_id=<id>&offset=0&limit=50` 按当前视频库分页列出可用预览的电影、分集和花絮；省略 `library_id` 查询全服务，`limit` 为 1–100。返回 `{items,total,offset,limit}`，每项包含 `kind/id/library_id/title/file_name/frames/interval/quality_revision/needs_update`；`frames` 为实际可用帧数，兼容的旧画质成品以 `needs_update:true` 标记。每部影片最多一项，按视频库、电影/分集/花絮、ID 顺序排列。仅计入与当前片源、采样配置匹配且图片页完整的普通成品或手动接纳的片尾缺失成品；后者另含 `completion/available_count/coverage_end/duration/warning/key/confirmed_at`。离线、过期和未经确认的部分产物不计入；抽帧达到 100% 不等于完整成品。接口只读，不探测原片或更新缓存访问时间，使用与队列接口相同的管理权限；网页展开已生成清单时按需调用，刷新及分页独立于队列轮询。
+`GET /api/stream/previews/completed?library_id=<id>&offset=0&limit=50` 按当前视频库分页列出可用预览的电影、分集和花絮；省略 `library_id` 查询全服务，`limit` 为 1–100。返回 `{items,total,offset,limit}`，每项包含 `kind/id/library_id/title/file_name/frames/interval/quality_revision/needs_update`；`frames` 为实际可用帧数，兼容的旧画质成品以 `needs_update:true` 标记。每部影片最多一项，按视频库、电影/分集/花絮、ID 顺序排列。仅计入与当前片源、采样配置匹配并通过完整性校验的普通成品或手动接纳的片尾缺失成品；后者另含 `completion/available_count/coverage_end/duration/warning/key/confirmed_at`。离线、过期和未经确认的部分产物不计入；抽帧达到 100% 不等于完整成品。
+
+完成清单复用持久目录索引，按当前库批量读取候选资料并核对源文件属性；已验证且目录、清单签名未变的成品复用结果，返回页内项目仍检查图片页。`total` 不是每次对全部拼图的物理审计：外部原地破坏未展示项目的图片时，可在该页校验后纠正计数。旧缓存首次使用时需发现目录、读取清单并校验本库匹配成品，索引不可用时回退直接读取缓存；[索引更新与校验机制](playback.md#倍速缩略图与预缓存)见播放设计。接口可维护可重建索引，不修改媒体或预览清单，不探测原片、启动 FFmpeg 或更新缓存访问时间，使用与队列接口相同的管理权限；网页展开已生成清单时按需调用，刷新及分页独立于队列轮询。
 
 `GET /api/stream/previews/failed?library_id=<id>&offset=0&limit=50` 返回 `{items,total,offset,limit}`，参数范围与已生成接口一致；每项包含 `kind/id/library_id/title/file_name/failed_at/error_code/error`，`failed_at` 为 Unix 秒，按失败时间倒序排列。每个视频仅保留最近一次未解决失败，名称和库归属使用当前媒体记录，已删除媒体不显示。查询为片尾确认候选读取片源文件属性及缓存清单，不读取媒体内容、解析读取 URL 或启动探测与生成；符合条件的条目另含 `tail_acceptance:{key,failed_at,available_count,coverage_end,duration,missing_seconds}`。失败记录独立持久化，生成成功或手动接纳片尾缺失后清除，取消或重新排队时保留；已有旧版成品但升级失败时可同时出现在两份清单。读取失败返回可读错误，不将损坏记录作为空清单。接口受管理权限保护。
 

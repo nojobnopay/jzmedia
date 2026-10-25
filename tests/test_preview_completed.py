@@ -266,3 +266,189 @@ def test_completed_validates_query(inventory, query):
 
 def test_completed_unknown_library_is_404(inventory):
     assert inventory.client.get("/api/stream/previews/completed?library_id=999999").status_code == 404
+
+
+def test_completed_reuses_persistent_inventory_and_only_rechecks_returned_page(inventory, monkeypatch):
+    inv = inventory
+    directories = [inv.cached(inv.item(name=f"movie-{n}.mkv"))[0] for n in range(4)]
+    assert pv.preview_completed(library_id=None, offset=0, limit=1)["total"] == 4
+    pv._inventory.cache_clear()  # A new service process still reuses the disk index.
+    from app.routers.stream import preview_inventory
+    monkeypatch.setattr(preview_inventory.os, "scandir", lambda *_a: pytest.fail("must reuse directory index"))
+    seen = []
+    original = pv._read_completed_manifest
+
+    def read(directory):
+        seen.append(directory)
+        return original(directory)
+
+    monkeypatch.setattr(pv, "_read_completed_manifest", read)
+    result = pv.preview_completed(library_id=None, offset=1, limit=1)
+    assert result["total"] == 4 and len(result["items"]) == 1
+    assert seen == [directories[1]]
+
+
+def test_completed_scope_does_not_read_other_library_sprites(inventory, monkeypatch):
+    inv = inventory
+    first, second = inv.libraries
+    expected, _ = inv.cached(inv.item(library=first))
+    inv.cached(inv.item(library=second))
+    seen = []
+    original = pv._read_completed_manifest
+
+    def read(directory):
+        seen.append(directory)
+        return original(directory)
+
+    monkeypatch.setattr(pv, "_read_completed_manifest", read)
+    result = pv.preview_completed(library_id=first["id"], offset=0, limit=50)
+    assert result["total"] == 1 and seen == [expected]
+
+
+@pytest.mark.parametrize("change", ["source", "missing_page", "empty_page", "manifest", "symlink"])
+def test_completed_rechecks_damage_after_index_is_warm(inventory, change, tmp_path):
+    inv = inventory
+    directory, data = inv.cached(inv.item())
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 1
+    if change == "source":
+        (Path(inv.libraries[0]["path"]) / "movie.mkv").write_bytes(b"changed-source")
+    elif change == "missing_page":
+        (directory / data["pages"][0]).unlink()
+    elif change == "empty_page":
+        (directory / data["pages"][0]).write_bytes(b"")
+    elif change == "manifest":
+        data["state"] = "partial"
+        # Simulate a process stopping between manifest replace and index update.
+        import json
+        (directory / "manifest.json").write_text(json.dumps(data))
+    else:
+        outside = tmp_path / "outside"
+        directory.rename(outside)
+        directory.symlink_to(outside, target_is_directory=True)
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 0
+
+
+def test_completed_discovers_unannounced_new_and_repaired_partial_caches(inventory):
+    inv = inventory
+    directory, data = inv.cached(inv.item())
+    data["state"] = "partial"
+    pv._write_manifest(directory, data)
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 0
+    import json
+    data["state"] = "ready"
+    (directory / "manifest.json").write_text(json.dumps(data))
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 1
+    inv.cached(inv.item(name="another.mkv"))
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 2
+
+
+def test_completed_index_failure_falls_back_without_failing_generation(inventory, monkeypatch):
+    from app.routers.stream.preview_inventory import PreviewInventory
+    monkeypatch.setattr(PreviewInventory, "_connect", lambda *_a: (_ for _ in ()).throw(OSError("read-only index")))
+    inventory.cached(inventory.item())
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 1
+
+
+def test_completed_does_not_retain_entries_after_cache_cleanup(inventory):
+    inv = inventory
+    inv.cached(inv.item())
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 1
+    pv.preview_cache_clean(pv.PreviewCacheCleanBody(dry_run=False))
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 0
+
+
+@pytest.mark.parametrize("damage", ["metadata", "key"])
+def test_completed_corrupt_index_records_fall_back_to_cache(inventory, damage):
+    import sqlite3
+
+    inv = inventory
+    ref = inv.item()
+    inv.cached(ref)
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 1
+    connection = sqlite3.connect(pv._inventory(inv.cache).path)
+    try:
+        with connection:
+            if damage == "metadata":
+                connection.execute("UPDATE entries SET data=?", ("[]",))
+            else:
+                connection.execute("UPDATE entries SET key=?", ("invalid-preview-key",))
+    finally:
+        connection.close()
+    pv._inventory.cache_clear()
+
+    response = inv.client.get("/api/stream/previews/completed")
+    assert response.status_code == 200
+    result = response.json()
+    assert result["total"] == 1
+    assert [(item["kind"], item["id"]) for item in result["items"]] == [ref]
+
+
+def test_completed_recovers_after_warm_manifest_owner_is_corrupted_and_repaired(inventory):
+    import json
+
+    inv = inventory
+    ref = inv.item()
+    other = inv.item(name="other.mkv")
+    directory, data = inv.cached(ref)
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 1
+
+    # Bypass the writer to simulate an external edit, with an otherwise valid ID.
+    data["item_id"] = other[1]
+    (directory / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 0
+
+    data["item_id"] = ref[1]
+    (directory / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
+    result = pv.preview_completed(library_id=None, offset=0, limit=50)
+    assert result["total"] == 1
+    assert [(item["kind"], item["id"]) for item in result["items"]] == [ref]
+
+
+def test_completed_recovers_when_initially_discovered_owner_is_repaired(inventory, monkeypatch):
+    import json
+
+    inv = inventory
+    ref = inv.item()
+    other = inv.item(name="other.mkv")
+    with monkeypatch.context() as unindexed:
+        unindexed.setattr(pv, "_inventory_changed", lambda *_a: None)
+        directory, data = inv.cached(ref)
+    data["item_id"] = other[1]
+    (directory / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 0
+
+    data["item_id"] = ref[1]
+    (directory / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
+    result = pv.preview_completed(library_id=None, offset=0, limit=50)
+    assert result["total"] == 1
+    assert [(item["kind"], item["id"]) for item in result["items"]] == [ref]
+
+
+def test_completed_failed_invalidation_drops_pending_wrong_owner(inventory, monkeypatch):
+    import json
+
+    inv = inventory
+    ref = inv.item()
+    other = inv.item(name="other.mkv")
+    directory, data = inv.cached(ref)
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 1
+    data["item_id"] = other[1]
+    (directory / "manifest.json").write_text(json.dumps(data))
+    index = pv._inventory(inv.cache)
+    connect = index._connect
+    calls = 0
+
+    def temporary_failure():
+        nonlocal calls
+        calls += 1
+        if calls == 2:  # Snapshot succeeds; the ownership invalidation cannot persist.
+            raise OSError("temporarily read-only index")
+        return connect()
+
+    with monkeypatch.context() as unavailable:
+        unavailable.setattr(index, "_connect", temporary_failure)
+        assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 0
+    assert directory.name not in index.pending
+    data["item_id"] = ref[1]
+    (directory / "manifest.json").write_text(json.dumps(data))
+    assert pv.preview_completed(library_id=None, offset=0, limit=50)["total"] == 1
