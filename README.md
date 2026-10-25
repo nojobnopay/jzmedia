@@ -12,7 +12,7 @@ jzmedia 是面向家庭本地收藏的开源影视库。连接电脑或 NAS 上�
 
 <span id="运行条件与推荐配置"></span>
 
-适用于已安装 Docker 的 **Linux amd64（x86_64）** 电脑或 NAS，在家庭或受信任网络中使用。在准备用来部署的目录打开终端，执行：
+适用于已安装 Docker 的 **Linux amd64（x86_64）** 电脑或 NAS，在家庭或受信任网络中使用。原生 Linux／NAS 需要 DLNA 电视自动发现时，推荐将下面命令的 `-p 8080:8080` 替换为 `--network host`；先核对 [host 部署的端口与代理要求](docs/getting-started/deployment.md#host-network)。默认 bridge 安装仍可用于普通网页与 Android TV 播放。在准备用来部署的目录打开终端，执行：
 
 ```bash
 mkdir -p media data

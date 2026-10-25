@@ -195,6 +195,7 @@ def bundle(tmp_path, monkeypatch):
                   "id": "sha256:" + config_digest, "platform": "linux/amd64", "sizeBytes": 123}}}
     (directory / "manifest.json").write_text(json.dumps(record))
     (directory / "docker-compose.yml").write_text(f"services:\n  mymedia:\n    image: {IMAGE}\n")
+    (directory / "compose.host.yml").write_text((SCRIPTS.parent / "compose.host.yml").read_text())
     (directory / "LICENSE").write_text("BSD-3-Clause test fixture\n")
     write_checksums(directory, record)
     return SimpleNamespace(directory=directory, record=record)
@@ -253,6 +254,15 @@ def test_registry_compose_removes_build_and_preserves_all_runtime_configuration(
     runtime = source.split("    image: ", 1)[1].split("\n", 1)[1]
     assert generated.endswith(runtime)
     assert "MEDIA_ROOT: /app/media" in generated and "required: false" in generated
+
+
+def test_host_compose_is_a_required_checked_release_asset(bundle):
+    assert "compose.host.yml" in github.asset_names(bundle.record)
+    checksums = (bundle.directory / "SHA256SUMS").read_text()
+    assert f"{github.release.sha256(bundle.directory / 'compose.host.yml')}  compose.host.yml\n" in checksums
+    (bundle.directory / "compose.host.yml").write_text("services: {}\n")
+    with pytest.raises(github.release.ReleaseError, match="checksum mismatch: compose.host.yml"):
+        github.verify_bundle(bundle.directory, REPO, TAG, COMMIT)
 
 
 def remote_asset(directory, name):

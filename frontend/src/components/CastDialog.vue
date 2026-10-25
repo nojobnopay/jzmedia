@@ -40,7 +40,7 @@
           <span><strong>{{ device.name }}</strong><small>{{ device.model }} · {{ device.address }}</small></span>
         </label>
       </div>
-      <p v-else-if="casting.searched.value" class="cast-hint">未找到设备。请开启电视的 DLNA 接收功能，并检查服务器是否能发送局域网组播。Docker 桥接、访客 Wi-Fi 或模拟器虚拟网络可能阻止发现。</p>
+      <p v-else-if="casting.searched.value" class="cast-hint">未找到设备。请开启电视的 DLNA 接收功能。Linux／NAS 需要自动发现时，建议使用 host 网络模式；bridge、访客 Wi-Fi 或虚拟网络可能阻止组播发现。也可尝试手动添加电视。</p>
       <form class="cast-manual" @submit.prevent="casting.addManual">
         <JzField id="cast-device-location" label="手动添加电视" hint="填写电视的 DLNA 描述地址，只有 IP 地址还不够。例：http://192.168.1.20:49152/description.xml" v-slot="field">
           <input id="cast-device-location" v-model="casting.manualLocation.value" type="url" required :aria-describedby="field.describedby"

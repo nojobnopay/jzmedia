@@ -4,7 +4,7 @@
 
 首次安装建议在 Linux amd64（x86_64）设备上，按下面的 [Docker 部署](#docker-部署)启动网页，再跟随[首次入库](../user-guide/onboarding.md)扫描并试播。默认端口为 `8080`；浏览器访问远程服务器时，把 `localhost` 换成服务器地址。
 
-需要其他方式时，可选择 [Compose 配置文件](#docker-compose)、[离线镜像](#加载镜像文件)、[源码构建](#从源码构建)或 [Linux / WSL 直接运行源码](#宿主直接运行)。NAS 使用 Docker/Container Manager 时同样按 Docker 流程操作，另见 [NAS 路径与权限](#nas-部署)。
+需要其他方式时，可选择 [Compose 配置文件](#docker-compose)、[离线镜像](#加载镜像文件)、[源码构建](#从源码构建)或 [Linux / WSL 直接运行源码](#宿主直接运行)。NAS 使用 Docker/Container Manager 时同样按 Docker 流程操作，另见 [NAS 路径与权限](#nas-部署)。在原生 Linux 或支持宿主网络的 NAS 上需要 DLNA 电视自动发现时，建议按 [DLNA 投屏网络](#dlna-投屏网络)使用 host 模式。
 
 ## 安装前准备
 
@@ -43,6 +43,8 @@ mkdir -p media data
 
 下面使用 `docker run`，在当前部署目录执行；希望将参数保存在 YAML 文件中时，可改用 [Compose 配置文件](#docker-compose)。同一个实例只需启动一次。
 
+默认命令使用 bridge 网络。原生 Linux／NAS 需要 DLNA 电视自动发现时，推荐将命令中的 `-p 8080:8080` 替换为 `--network host`；host 模式下直接使用宿主 `8080`，其余用户、卷和环境参数保留。端口与代理要求见 [DLNA 投屏网络](#dlna-投屏网络)。
+
 <span id="docker-run"></span>
 
 #### 使用 docker run
@@ -59,7 +61,7 @@ docker run -d --name jzmedia \
   ghcr.io/nojobnopay/jzmedia:latest
 ```
 
-**预期结果：**Docker 拉取镜像并打印容器 ID。`--pull=always` 每次执行创建命令时检查远端镜像，不会自动升级已经运行的容器。使用其他端口时修改 `-p` 左侧端口；离线或本地构建镜像按[本地镜像启动说明](#本地镜像的-docker-run-启动参数)改用 `--pull=never` 和实际镜像名。
+**预期结果：**Docker 拉取镜像并打印容器 ID。`--pull=always` 每次执行创建命令时检查远端镜像，不会自动升级已经运行的容器。bridge 模式使用其他端口时修改 `-p` 左侧端口；host 模式不使用端口映射。离线或本地构建镜像按[本地镜像启动说明](#本地镜像的-docker-run-启动参数)改用 `--pull=never` 和实际镜像名。
 
 拉取失败时检查网络与发行标签，或使用[离线镜像](#加载镜像文件)。若提示同名容器已存在，先检查该容器；已有实例的启停见[停止与重启](operations.md#停止与重启)，升级见[升级](operations.md#升级)。
 
@@ -139,7 +141,7 @@ docker compose -f docker-compose.yml logs --tail=100 mymedia
 
 **预期结果：**`mymedia` 服务的容器处于运行状态，日志没有持续重启或权限错误。`--no-build --pull never` 使用已经准备的本地镜像；若报镜像不存在，核对拉取、载入或构建的标签与 Compose 的 `image`，再重试。参数含义见 [Docker Compose 命令参考](https://docs.docker.com/reference/cli/docker/compose/up/)。
 
-生产部署始终显式指定 `-f docker-compose.yml`，不加载本机开发用的 override 文件。源码构建需要完整项目，拉取或加载镜像后的启动只需配置文件和挂载目录。
+生产部署始终显式指定 `-f docker-compose.yml`，不加载本机开发用的 override 文件。原生 Linux／NAS 需要 DLNA 自动发现时，按 [host 配置](#host-network)在最后追加 `-f compose.host.yml`，后续启停、升级和重建继续保留该参数。源码构建需要完整项目，拉取或加载镜像后的启动只需配置文件和挂载目录。
 
 `.env` 是可选的宿主配置文件，已有文件会继续读取；它不会被复制或挂载到容器里，容器内看不到该文件是正常现象。需要集中管理环境变量时，按[可选的环境变量文件](configuration.md#可选的环境变量文件)配置。
 
@@ -212,7 +214,7 @@ docker compose -f docker-compose.yml -f compose.media-legacy.yml up -d --no-buil
 
 ## NAS 部署
 
-具有 Docker/Container Manager 的 NAS 使用上面的 Docker 部署流程。以下补充 NAS 的目录、权限与操作入口：
+具有 Docker/Container Manager 的 NAS 使用上面的 Docker 部署流程。需要 DLNA 电视自动发现时，推荐整个 jzmedia 服务使用 [host 网络](#host-network)；无需安装额外的手机或电视接收应用。不使用 DLNA 自动发现时可继续使用默认 bridge 配置。以下补充 NAS 的目录、权限与操作入口：
 
 1. 建立部署目录，例如 `/volume1/docker/jzmedia`。选择源码构建时放完整源码；选择预构建镜像时按上文拉取或导入适合 NAS 架构的镜像，并准备对应的配置模板。首次安装不要把开发机的 `.env`、数据库、缓存或开发 override 文件一并复制；已有实例迁移按[备份与迁移](operations.md)操作。
 2. 在 Compose 文件、`docker run` 参数或 NAS 界面中填写实际宿主目录，如媒体 `/volume1/video`、数据 `/volume1/docker/jzmedia/data`，无需另建 `.env`。
@@ -279,13 +281,37 @@ DATA_DIR=./data MEDIA_ROOT=./media APP_PORT=8080 ./start.sh
 
 ## DLNA 投屏网络
 
-需要手机投屏时，先确认电视能通过服务器的局域网 IP 和端口获取视频，并已开启 DLNA 视频接收。操作见[投屏到电视](../user-guide/playback-controls.md#投屏到电视)。不要给电视发送 `localhost`、`127.0.0.1`、模拟器专用的 `10.0.2.2` 或容器内部地址。
+需要手机投屏时，先确认电视已开启 DLNA 视频接收，服务器与电视处于可互通的局域网。手机网页只访问 jzmedia，电视直接从服务器获取视频，无需手机或电视另装接收应用。操作见[投屏到电视](../user-guide/playback-controls.md#投屏到电视)。不要给电视发送 `localhost`、`127.0.0.1`、模拟器专用的 `10.0.2.2` 或容器内部地址。
 
 发现使用服务器发出的 SSDP UDP 组播（`239.255.255.250:1900`），响应返回服务器临时 UDP 端口；控制通过电视声明的 HTTP 端口，视频由电视从 jzmedia 读取。只映射容器的 TCP `8080` 或 UDP `1900`，不能保证组播发现可用。手机能打开网站，也不代表服务器能搜索电视；访客 Wi-Fi、跨 VLAN、WSL NAT 和 Docker 桥接都需分别检查互通。
 
-若服务器搜不到电视、但能通过 HTTP 连接电视，可在投屏面板手动填写电视的 DLNA 描述地址。此方法无需组播，但仍要求电视能访问服务器的视频地址；具体操作见[投屏到电视](../user-guide/playback-controls.md#投屏到电视)。
+<span id="host-network"></span>
 
-Linux 或支持宿主网络的 NAS 上，可在自己的 Compose 部署配置中将应用服务设为 `network_mode: host`，同时移除该服务的 `ports` 映射；此时服务直接使用宿主 `8080`，原 `APP_PORT` 映射不再生效。先确认端口无冲突，并按实际平台配置防火墙。此设置不是默认部署要求，Docker Desktop 与 WSL 的发现能力仍需在实际环境验证。
+### Linux／NAS：推荐 host 部署
+
+原生 Linux 或支持宿主网络的 NAS 上，需要 DLNA 电视自动发现时建议整个 jzmedia 服务使用 host 模式，不需要另设发现助手。host 让服务直接使用宿主网络；它不保证跨 VLAN、访客 Wi-Fi 或已被防火墙阻断的设备可达，也不会改变电视的解码、音轨或字幕能力。Docker Desktop／WSL 的 host 实现与原生 Linux 不同，仍需在实际环境验证，不能以 NAS 的验证结果代替。
+
+使用 `docker run` 时，将[启动命令](#docker-run)中的 `-p 8080:8080` 替换为 `--network host`，不要同时保留 `-p`。使用 Compose 时，将仓库或同一发行包中的 `compose.host.yml` 与 `docker-compose.yml` 放在部署目录；准备好镜像、用户和卷配置后执行：
+
+```bash
+docker compose -f docker-compose.yml -f compose.host.yml config --quiet
+docker compose -f docker-compose.yml -f compose.host.yml up -d --no-build --pull never --force-recreate mymedia
+docker compose -f docker-compose.yml -f compose.host.yml ps
+```
+
+`compose.host.yml` 清除服务的 `ports` 与 `networks`，设置 `network_mode: host`；需要 Docker Compose 2.24.0 或更新版本。原命令已有其他覆盖文件时，保留全部原 `-f` 参数，并将 `-f compose.host.yml` 放在最后。若旧版发行包不含此文件，或 NAS 的旧 Compose 不支持 `!reset`，可在自己的服务配置中直接删除 `ports`、`networks`，增加 `network_mode: host`；不要仅删除 `!reset` 标记，否则列表可能仍被合并。
+
+切换前检查以下配置，停止观影并[保存一致备份](operations.md#一次一致的备份)后再重新创建容器：
+
+- **端口：**默认镜像和主 Compose 直接监听宿主 `8080`；原 `APP_PORT` 端口映射不再生效。确保该端口未被其他服务占用；若需改用其他监听端口，应明确修改容器启动命令，不能只改 `ports` 或 `APP_PORT`。
+- **代理：**原先通过 Docker 自定义网络访问的代理容器名称，切换后可能无法解析。将 `TMDB_PROXY` 改为 host 服务可访问的代理地址；代理确实监听宿主回环时可使用 `http://127.0.0.1:实际端口`。核对 API 与图片下载，不把未认证请求的响应当作 TMDB 配置已验证。
+- **数据与权限：**保持原媒体和数据挂载、`MEDIA_ROOT`／`DATA_DIR`、UID/GID、硬件设备和附加组；保留原 `.env`、`secret.key` 和观看保护设置，不换成空数据目录，也不重新建库。
+
+**预期结果：**首页与 `/api/health` 正常，原媒体库、代理下载与权限保持可用；投屏面板能列出开启接收的电视。再用隔离视频观察电视画面和声音，并验证暂停、跳转与停止。升级与日常管理继续使用同一组 `-f` 参数。需要回退时恢复原配置与代理地址，移除 host 覆盖并重新创建原服务；仅切换网络时不删除数据目录。
+
+### 保留 bridge 或手动添加电视
+
+bridge 模式可能阻断 SSDP 自动发现，导致搜索不到电视；这不等于所有投屏能力都不可用。若服务器仍能通过 HTTP 连接电视，可在投屏面板手动填写完整的 DLNA 描述地址来绕过搜索，但电视也必须能访问服务器的视频地址。手动条目只保留在当前服务进程中，端口或地址变化后需要重新添加，具体操作见[投屏到电视](../user-guide/playback-controls.md#投屏到电视)。
 
 需要固定投屏媒体地址时，可通过进程环境或 Compose 的可选 `.env` 配置 `CAST_BASE_URL=http://192.168.1.10:8080`，替换为电视可访问的真实地址，重启服务生效。该值只决定电视取流地址，不会修复组播网络；默认根据网页访问地址填写，投屏面板也允许本次手动调整。支持地址带代理路径前缀，代理必须提供对应 `/api/cast/media/` 的 GET、HEAD 与 Range 访问。
 

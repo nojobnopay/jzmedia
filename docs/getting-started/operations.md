@@ -14,7 +14,7 @@
 | 启动已有容器 | `docker compose -f docker-compose.yml start` | `docker start jzmedia` |
 | 持续查看日志 | `docker compose -f docker-compose.yml logs -f mymedia` | `docker logs -f jzmedia` |
 
-以上命令按需选择；`jzmedia` 是安装教程中 `docker run` 使用的容器名，自定义名称时相应替换。Compose 使用覆盖文件时，继续带上原来的全部 `-f` 参数。查看日志时按 `Ctrl+C` 只退出日志跟踪；`start` 不会更新镜像或配置，更新方式见下文[升级](#升级)。
+以上命令按需选择；`jzmedia` 是安装教程中 `docker run` 使用的容器名，自定义名称时相应替换。Compose 使用覆盖文件时，继续带上原来的全部 `-f` 参数；采用 [host 投屏部署](deployment.md#host-network)的实例始终把 `-f compose.host.yml` 放在最后，避免重建时退回 bridge 或重新合入端口映射。查看日志时按 `Ctrl+C` 只退出日志跟踪；`start` 不会更新镜像或配置，更新方式见下文[升级](#升级)。
 
 `down` 删除容器和项目网络，绑定到宿主的媒体与数据目录保留。宿主直跑在启动终端按 Ctrl+C；只结束自己启动的服务进程。服务正常退出会回收转码子进程，正在运行的内存任务状态不会保留。
 

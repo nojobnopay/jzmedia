@@ -40,7 +40,7 @@ Compose 的 `${变量:-默认值}` 用于替换 YAML 中的值，`env_file` 则�
 
 | 变量 | 默认/用途 | 注意事项 |
 |---|---|---|
-| `APP_PORT` | `8080`，访问端口 | Compose 变量写法和 start.sh 使用；也可直接改 `ports` 或 `docker run -p` |
+| `APP_PORT` | `8080`，访问端口 | bridge 的 Compose 端口映射与 start.sh 使用；host 部署默认直接监听 `8080`，不使用该映射，见[投屏网络](deployment.md#host-network) |
 | `APP_VERSION` | `latest`，Compose `image` 中的标签变量 | 也可直接改 `image`；加载镜像后使用实际标签，不表示从公共仓库下载 |
 | `MEDIA_HOST_PATH` / `DATA_HOST_PATH` | `./media` / `./data` | Compose 卷的变量写法使用；也可直接改 `volumes` 或 `docker run -v` |
 | `MEDIA_ROOT` / `DATA_DIR` | 宿主默认 `./media` / `./data` | Docker 示例设置为 `/app/media` / `/app/data`，须与容器内挂载目标一致 |
@@ -50,7 +50,7 @@ Compose 的 `${变量:-默认值}` 用于替换 YAML 中的值，`env_file` 则�
 
 `MEDIA_ROOT` 不会改写已登记的库路径；已有 `/media` 部署按[旧路径兼容说明](deployment.md#legacy-media-path)保留映射。
 
-`docker run --env-file .env` 只向容器传入环境变量，不会根据 `APP_PORT`、`APP_VERSION`、宿主路径或 UID/GID 自动生成启动参数。使用该方式时，镜像标签、端口、挂载与容器用户须在命令中明确填写。
+`docker run --env-file .env` 只向容器传入环境变量，不会根据 `APP_PORT`、`APP_VERSION`、宿主路径或 UID/GID 自动生成启动参数。使用该方式时，镜像标签、端口、挂载与容器用户须在命令中明确填写。host 模式忽略 `-p`／`ports`；默认镜像固定监听 `8080`，仅传入 `APP_PORT` 不会改变容器内的启动命令。
 
 ### 资料服务、代理与访问保护
 

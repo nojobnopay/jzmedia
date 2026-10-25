@@ -62,7 +62,7 @@ git push origin vX.Y.Z
 
 `prepare` 先校验标签、源码和现有 Release。随后 `build` 在 GitHub 托管的 Ubuntu runner 上恢复并核验固定 Debug 签名，调用 `scripts/release.py build`，完成[本机构建所列的全部检查](#local-build-checks)、Docker 与 APK 构建以及隔离容器启动验证。本地电脑无需为这次云端构建安装 Docker 或 Android SDK。
 
-构建通过后，`scripts/github_release.py package` 生成八个发行文件，保存为 Actions artifact **release-bundle-运行次数**，保留 14 天。独立的 `publish` job 使用 `build` 输出的准确名称下载同一 bundle，逐项核验哈希、源码身份、镜像和 APK 签名；先保存完整 Release 草稿附件，再推送 GHCR 版本标签，确认匿名可读的镜像清单，公开 Release，最后更新 `latest`。
+构建通过后，`scripts/github_release.py package` 生成九个发行文件，保存为 Actions artifact **release-bundle-运行次数**，保留 14 天。独立的 `publish` job 使用 `build` 输出的准确名称下载同一 bundle，逐项核验哈希、源码身份、镜像和 APK 签名；先保存完整 Release 草稿附件，再推送 GHCR 版本标签，确认匿名可读的镜像清单，公开 Release，最后更新 `latest`。
 
 `publish` 全部成功后，`docs-pages.yml` 作为可复用工作流构建并部署在线帮助；具体检查和恢复见[在线帮助发布](#online-help)。
 
@@ -72,16 +72,17 @@ git push origin vX.Y.Z
 
 **预期结果：**`prepare`、`build` 与 `publish` 均成功，GitHub Releases 出现 `vX.Y.Z`，正文“本次更新”与该标签下的 `CHANGELOG.md` 对应条目一致；GHCR 的 `ghcr.io/nojobnopay/jzmedia:vX.Y.Z` 与 `latest` 指向同一 `linux/amd64` 镜像。重试发布继续使用该提交的说明，不追加 GitHub 自动生成的提交列表。
 
-Release 包含八个附件；GitHub 自动提供的源码归档不计入其中：
+Release 包含九个附件；GitHub 自动提供的源码归档不计入其中：
 
 | 文件 | 用途 |
 | --- | --- |
 | `jzmedia-vX.Y.Z-linux-amd64.tar.gz` | Docker 镜像归档，保留完整 GHCR 版本标签 |
 | `docker-compose.yml` | 移除源码构建段，并固定完整 GHCR 镜像名 |
+| `compose.host.yml` | Linux／NAS 的可选 host 网络覆盖，投屏自动发现推荐使用 |
 | `jzmedia-tv-X.Y.Z-debug.apk` | 固定 Debug 签名的可安装试装包 |
 | 同名 `.apk.sha256`、`.apk.json` | APK 校验值、源码及签名信息 |
 | `manifest.json` | 两端统一版本、完整提交、镜像 ID、APK 哈希和签名类别 |
-| `SHA256SUMS`、`LICENSE` | 除校验清单自身以外七个文件的 SHA-256 校验值与项目许可证 |
+| `SHA256SUMS`、`LICENSE` | 除校验清单自身以外八个文件的 SHA-256 校验值与项目许可证 |
 
 核对发行清单中的源码提交、版本和镜像身份；安装使用[部署教程](../getting-started/deployment.md)。自动化成功不代表电视真机验收通过，设备、兼容场景和限制仍须在发行说明单独记录。
 
@@ -170,7 +171,7 @@ python3 scripts/release.py build
 
 ### Step 4：核对并交付
 
-打开打印出的目录，核对 APK、同名 `.apk.sha256`／`.apk.json` 和 `manifest.json`。本机构建不会自动打包云端的八个附件，Docker 镜像保存在所连接的 Docker Engine 中。可在 Docker Desktop 的 Images 页面查看标签，或运行：
+打开打印出的目录，核对 APK、同名 `.apk.sha256`／`.apk.json` 和 `manifest.json`。本机构建不会自动打包云端的九个附件，Docker 镜像保存在所连接的 Docker Engine 中。可在 Docker Desktop 的 Images 页面查看标签，或运行：
 
 ```bash
 docker image inspect jzmedia:vX.Y.Z --format '{{.Id}} {{json .Config.Labels}}'
@@ -186,7 +187,7 @@ docker image inspect jzmedia:vX.Y.Z --format '{{.Id}} {{json .Config.Labels}}'
 docker save -o output/releases/vX.Y.Z/jzmedia-vX.Y.Z.tar jzmedia:vX.Y.Z
 ```
 
-**预期结果：**交付目录中新增镜像 tar，保留 `jzmedia:vX.Y.Z` 标签。将文件与统一清单一并交付；使用 Compose 的接收方还需该版本的 `docker-compose.yml`，`.env.example` 可按需附带作为配置参考。确认镜像架构适用于目标机器后，按[加载镜像文件](../getting-started/deployment.md#加载镜像文件)导入，再选择 Compose 或 `docker run` 启动。镜像 tar 不包含运行实例的数据或媒体，迁移实例另按[备份与恢复](../getting-started/operations.md)处理。
+**预期结果：**交付目录中新增镜像 tar，保留 `jzmedia:vX.Y.Z` 标签。将文件与统一清单一并交付；使用 Compose 的接收方还需该版本的 `docker-compose.yml`，需要 Linux／NAS 投屏自动发现时同时附带 `compose.host.yml`，`.env.example` 可按需附带作为配置参考。确认镜像架构适用于目标机器后，按[加载镜像文件](../getting-started/deployment.md#加载镜像文件)导入，再选择 Compose 或 `docker run` 启动。镜像 tar 不包含运行实例的数据或媒体，迁移实例另按[备份与恢复](../getting-started/operations.md)处理。
 
 交付 APK 时一并提供其校验文件和统一清单，并注明它是 Debug 试装包。覆盖安装前核对新旧 APK 签名；不同电脑的 Debug 密钥可能不同，升版不能解决签名不一致。详细安装与签名检查见仓库 `android-tv/docs/releasing.md`。
 

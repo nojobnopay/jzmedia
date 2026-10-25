@@ -135,7 +135,7 @@ def asset_names(record):
     apk = record["android"]["file"]
     if Path(apk).name != apk or not apk.endswith(".apk"):
         raise release.ReleaseError("Invalid APK asset name")
-    return [archive_name(record["gitTag"]), "docker-compose.yml", "LICENSE", "manifest.json",
+    return [archive_name(record["gitTag"]), "docker-compose.yml", "compose.host.yml", "LICENSE", "manifest.json",
             apk, apk + ".sha256", apk + ".json"]
 
 
@@ -203,10 +203,11 @@ def package(directory):
             process.terminate()
             process.wait()
     for name in asset_names(record):
-        if name in (target.name, "docker-compose.yml", "LICENSE"):
+        if name in (target.name, "docker-compose.yml", "compose.host.yml", "LICENSE"):
             continue
         shutil.copyfile(source / name, directory / name)
     shutil.copyfile(ROOT / "LICENSE", directory / "LICENSE")
+    shutil.copyfile(ROOT / "compose.host.yml", directory / "compose.host.yml")
     (directory / "docker-compose.yml").write_text(compose_for_registry(
         (ROOT / "docker-compose.yml").read_text(), image))
     (directory / "SHA256SUMS").write_text("".join(
@@ -260,6 +261,7 @@ def notes(record, repo):
             f"完整版本记录见 [CHANGELOG.md](https://github.com/{repo}/blob/{tag}/CHANGELOG.md)。\n\n"
             f"## Docker\n\nLinux amd64 镜像：\n\n```bash\ndocker pull ghcr.io/{repo.lower()}:{tag}\n```\n\n"
             "下载附件 `docker-compose.yml`，按部署环境调整用户、端口与媒体／数据路径后启动。"
+            "Linux／NAS 需要 DLNA 自动发现时，同时下载 `compose.host.yml` 并按部署教程启用 host 网络。"
             "也可用镜像归档离线导入；两种方式使用相同镜像标签。旧 `/media` 实例升级前见"
             f"[部署教程](https://github.com/{repo}/blob/{tag}/docs/getting-started/deployment.md#legacy-media-path)。\n\n"
             "## Android TV\n\n附件 APK 是 Debug 试装包，使用固定签名；真机兼容性仍需验收。"

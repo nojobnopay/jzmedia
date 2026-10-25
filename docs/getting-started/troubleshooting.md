@@ -22,7 +22,7 @@ docker ps -a --filter name=jzmedia
 docker logs --tail=100 jzmedia
 ```
 
-容器已运行时，再检查端口映射、服务器地址与宿主防火墙。从另一台设备访问要使用服务器地址，不能使用 `localhost`。
+容器已运行时，再检查服务器地址与宿主防火墙。bridge 模式检查端口映射；host 模式直接检查宿主监听端口，默认是 `8080`。从另一台设备访问要使用服务器地址，不能使用 `localhost`。
 
 ### 启动时报 Permission denied
 
@@ -30,7 +30,11 @@ docker logs --tail=100 jzmedia
 
 ### 端口被占
 
-Linux/WSL 可用 `ss -ltnp` 查看占用。Compose 修改 `ports` 的宿主端口（保留变量写法时可修改 `.env` 的 `APP_PORT`），`docker run` 修改 `-p` 的宿主端口，再重新创建容器；宿主直接运行修改 `APP_PORT` 后重启。也可确认后结束占用端口的自有进程，再重新启动。
+Linux/WSL 可用 `ss -ltnp` 查看占用。bridge 模式下，Compose 修改 `ports` 的宿主端口（保留变量写法时可修改 `.env` 的 `APP_PORT`），`docker run` 修改 `-p` 的宿主端口，再重新创建容器；宿主直接运行修改 `APP_PORT` 后重启。host 模式不使用端口映射，默认镜像直接监听 `8080`，需调整冲突服务或明确修改容器启动命令，不能只修改 `APP_PORT`。也可确认后结束占用端口的自有进程，再重新启动。
+
+### host 配置仍提示 ports／networks 冲突，或不识别 !reset
+
+`compose.host.yml` 必须放在最后一个 `-f` 参数中，防止后续覆盖文件重新合入端口或网络。先运行与启动相同参数的 `docker compose ... config --quiet`，核对 Compose 版本及覆盖顺序。旧版 NAS Compose 若不支持 `!reset`，可在自己的配置中直接删除应用服务的 `ports`、`networks` 并增加 `network_mode: host`；不要只删掉 `!reset` 标记。完整步骤见 [host 部署](deployment.md#host-network)。
 
 ### Compose 不支持 env_file 的 path 或 required 字段
 

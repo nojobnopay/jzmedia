@@ -9,7 +9,7 @@
 | 工具 | 用途与输出 |
 | --- | --- |
 | [release.py](release.py) | 同步统一版本，`check` 校验版本与修改摘要；`notes` 预览摘要，`notes --draft` 从 Git 提交生成待审阅草稿。从同一提交检查并构建 Docker 镜像和 APK；`build --validate-only` 不要求版本说明、不更新发行标签。见[统一发布](../docs/developer/releasing.md)。 |
-| [github_release.py](github_release.py) | Actions 的 `preflight/package/publish` 入口：检查标签身份和版本说明、打包八个附件、核验并发布 GHCR 和 GitHub Release；Release 摘要取自同提交的 `CHANGELOG.md`。 |
+| [github_release.py](github_release.py) | Actions 的 `preflight/package/publish` 入口：检查标签身份和版本说明、打包九个附件、核验并发布 GHCR 和 GitHub Release；Release 摘要取自同提交的 `CHANGELOG.md`。 |
 | [github_pages.py](github_pages.py) | 在线帮助的 `select/verify-source/check-current` 身份检查：核对最新正式发行、源码与部署时状态；流程见[在线帮助发布](../docs/developer/releasing.md#online-help)。 |
 | [github_signing.py](github_signing.py) | 从 Actions Secret 恢复既有 Debug 密钥并按证书 Variable 核验；配置见[云端签名](../docs/developer/releasing.md#cloud-signing)。 |
 | [check_python.py](check_python.py) | 严格运行 Python 静态检查，仅保留固定导出门面与同名重导出例外。 |

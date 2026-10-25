@@ -1,0 +1,9 @@
+# Linux / NAS 的 DLNA 自动发现推荐覆盖；最后一个 -f 加载。
+# 用法：docker compose -f docker-compose.yml -f compose.host.yml up -d --no-build --pull never
+# Compose >= 2.24.0；默认 docker-compose.yml 仍使用 bridge。
+# host 直接监听宿主 8080，APP_PORT 端口映射不再生效；先检查端口及代理地址。
+services:
+  mymedia:
+    network_mode: host
+    ports: !reset []
+    networks: !reset []
