@@ -7,16 +7,18 @@
     <input type="range" min="0" :max="Math.floor(duration)" step="1" :value="value"
       :disabled="disabled" :aria-label="label" :aria-valuetext="valueText || fmtTime(value) + ' / ' + fmtTime(duration)" @input="input" @change="commit"
       @pointerdown="begin" @pointerup="end" @pointercancel="cancel" @lostpointercapture="lostCapture" @keydown="cancelledGesture = false" @blur="leave" />
-    <div v-if="visible && duration > 0" class="preview" :style="{ left: bubbleLeft + 'px' }">
-      <div v-if="frame && !imageFailed" class="preview-image" :style="imageStyle"></div>
-      <span>{{ fmtTime(hoverTime) }}</span>
-      <small v-if="!frame || imageFailed">{{ previewHint }}</small>
-    </div>
+    <Teleport :to="previewContainer" :disabled="!previewContainer">
+      <div v-if="visible && duration > 0" class="preview" :class="{ 'preview--overlay': previewContainer }" :style="bubbleStyle">
+        <div v-if="frame && !imageFailed" class="preview-image" :style="imageStyle"></div>
+        <span>{{ fmtTime(hoverTime) }}</span>
+        <small v-if="!frame || imageFailed">{{ previewHint }}</small>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { fmtTime } from '../playerLabels.js'
 import { previewFrame, previewImageStyle, previewTailCoverage } from '../playbackControls.js'
 
@@ -26,6 +28,7 @@ const props = defineProps({
   disabled: Boolean, manifest: { type: Object, default: null },
   touchTarget: Boolean, label: { type: String, default: '播放进度' },
   valueText: { type: String, default: '' },
+  previewContainer: { type: Object, default: null },
 })
 const percent = time => Math.max(0, Math.min(100, (Number(time) || 0) / Math.max(1, props.duration) * 100))
 const playedPercent = computed(() => percent(props.value))
@@ -43,7 +46,17 @@ const limits = ref({ left: 0, right: 164 })
 const imageFailed = ref(false)
 const frame = computed(() => previewFrame(props.manifest, hoverTime.value))
 const bubbleLeft = computed(() => Math.max(limits.value.left, Math.min(limits.value.right - 164, pointerX.value - 82)))
-const imageStyle = computed(() => previewImageStyle(frame.value))
+const overlay = ref({ left: 0, top: 0, height: 0, width: 0 })
+const previewWidth = computed(() => {
+  if (!props.previewContainer || !frame.value || imageFailed.value) return 160
+  // Keep the time readable while fitting the image above a scrolled seekbar.
+  return Math.max(1, Math.min(160, (overlay.value.height - 36) * frame.value.width / frame.value.height))
+})
+const imageStyle = computed(() => previewImageStyle(frame.value, previewWidth.value))
+const bubbleStyle = computed(() => props.previewContainer ? {
+  left: Math.max(4, Math.min(overlay.value.width - previewWidth.value - 10, overlay.value.left - (previewWidth.value + 6) / 2)) + 'px',
+  top: overlay.value.top + 'px', width: previewWidth.value + 'px',
+} : { left: bubbleLeft.value + 'px' })
 const previewHint = computed(() => {
   const coverage = previewTailCoverage(props.manifest, true)
   if (coverage === null) return '预览覆盖信息无效'
@@ -71,11 +84,33 @@ function measure() {
   limits.value = { left: container.left - rect.left + 4, right: container.right - rect.left - 4 }
   return rect
 }
+function measureOverlay(rect) {
+  const target = props.previewContainer
+  if (!target) return
+  const bounds = target.getBoundingClientRect()
+  const top = rect.top - bounds.top - target.clientTop - 8
+  overlay.value = { left: rect.left - bounds.left - target.clientLeft + pointerX.value,
+    top, height: top - 4, width: target.clientWidth }
+}
+function reposition() {
+  if (visible.value && props.previewContainer && wrap.value) measureOverlay(wrap.value.getBoundingClientRect())
+}
+onMounted(() => {
+  if (typeof window === 'undefined') return
+  window.addEventListener('scroll', reposition, true)
+  window.addEventListener('resize', reposition)
+})
+onUnmounted(() => {
+  if (typeof window === 'undefined') return
+  window.removeEventListener('scroll', reposition, true)
+  window.removeEventListener('resize', reposition)
+})
 function move(e) {
   if (props.disabled) return
   const rect = measure()
   // 原生 range 两端预留 thumb 半径，悬停预览与点击位置一致。
   pointerX.value = Math.max(0, Math.min(rect.width, e.clientX - rect.left))
+  measureOverlay(rect)
   if (!dragging.value) hoverTime.value = Math.max(0, Math.min(1, (pointerX.value - 7) / Math.max(1, rect.width - 14))) * props.duration
   visible.value = true
   emit('active', true)
@@ -92,6 +127,7 @@ function input(e) {
   hoverTime.value = Number(e.target.value)
   const rect = measure()
   pointerX.value = 7 + hoverTime.value / Math.max(1, props.duration) * (rect.width - 14)
+  measureOverlay(rect)
   visible.value = true
   emit('active', true)
   emit('input', e)
@@ -125,6 +161,7 @@ input::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 5
 .preview { position: absolute; bottom: 32px; width: 160px; padding: 2px; border: 1px solid #ffffff25;
   border-radius: 10px; background: #202024; box-shadow: 0 6px 24px #0008; color: #fff; pointer-events: none; text-align: center; overflow: hidden; font-size: .75rem; }
 .preview-image { background-repeat: no-repeat; border-radius: 7px 7px 0 0; }
+.preview--overlay { bottom: auto; transform: translateY(-100%); z-index: 2; line-height: 1.4; }
 .preview span { display: block; padding: 6px 4px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .preview small { display: block; width: 160px; max-width: 100%; padding: 0 4px 6px; box-sizing: border-box; color: #aaa; font-size: .625rem; }
 @media (hover: none) {

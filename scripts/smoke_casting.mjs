@@ -534,10 +534,13 @@ async function castTimeline(page, picker, base, width, mode) {
   const draft = Number(await slider.inputValue())
   await picker.locator('.preview-image').waitFor()
   const previewBounds = await picker.locator('.preview').boundingBox()
-  const bodyBounds = await picker.locator('.jz-dialog-body').boundingBox()
-  assert.ok(previewBounds.x >= bodyBounds.x - 1 && previewBounds.x + previewBounds.width <= bodyBounds.x + bodyBounds.width + 1
-    && previewBounds.y >= bodyBounds.y - 1 && previewBounds.y + previewBounds.height <= bodyBounds.y + bodyBounds.height + 1,
-  `TV thumbnail stays inside scrolling dialog content: ${JSON.stringify({ previewBounds, bodyBounds })}`)
+  const dialogBounds = await picker.boundingBox()
+  const sliderBounds = await slider.boundingBox()
+  assert.ok(previewBounds.x >= dialogBounds.x - 1 && previewBounds.x + previewBounds.width <= dialogBounds.x + dialogBounds.width + 1
+    && previewBounds.y >= dialogBounds.y - 1 && previewBounds.y + previewBounds.height <= dialogBounds.y + dialogBounds.height + 1,
+  `TV thumbnail stays visible inside its dialog: ${JSON.stringify({ previewBounds, dialogBounds })}`)
+  assert.ok(previewBounds.y + previewBounds.height <= sliderBounds.y - 7,
+    `TV thumbnail stays above the finger and range: ${JSON.stringify({ previewBounds, sliderBounds })}`)
   await mode({ position: 5 })
   await page.waitForTimeout(6500)
   assert.equal(Number(await slider.inputValue()), draft, 'Receiver polls do not overwrite a held TV seek')
@@ -576,9 +579,11 @@ async function castFullscreenController(page, player, picker, width) {
   await seek.evaluate(element => { element.value = 30; element.dispatchEvent(new Event('input', { bubbles: true })) })
   await picker.locator('.preview-image').waitFor()
   await insidePlayer(page, picker, `${width}px fullscreen TV controller`)
-  const preview = await picker.locator('.preview').boundingBox(), body = await picker.locator('.jz-dialog-body').boundingBox()
-  assert.ok(preview.y >= body.y - 1 && preview.y + preview.height <= body.y + body.height + 1,
+  const preview = await picker.locator('.preview').boundingBox(), dialog = await picker.boundingBox(), rail = await seek.boundingBox()
+  assert.ok(preview.y >= dialog.y - 1 && preview.y + preview.height <= dialog.y + dialog.height + 1,
     'Fullscreen TV thumbnail is not clipped')
+  assert.ok(preview.y + preview.height <= rail.y - 7,
+    'Fullscreen TV thumbnail stays above the range instead of under the finger')
   await page.screenshot({ path: path.join(output, `controller-fullscreen-${width}.png`) })
   await seek.dispatchEvent('pointercancel')
   await page.keyboard.press('Escape')

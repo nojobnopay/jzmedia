@@ -110,6 +110,13 @@ test('160/320/480 像素预览统一显示为 160×90 CSS 像素，精灵图缩�
   assert.deepEqual(previewImageStyle(null), {})
 })
 
+test('a preview scaled for a short dialog preserves the selected sprite crop', () => {
+  const style = previewImageStyle({ url: '/preview.jpg', x: 480, y: 270,
+    width: 480, height: 270, sheetWidth: 2400, sheetHeight: 1350 }, 96)
+  assert.deepEqual(style, { width: '96px', height: '54px', backgroundImage: 'url("/preview.jpg")',
+    backgroundPosition: '-96px -54px', backgroundSize: '480px 270px' })
+})
+
 test('窗口和全屏的隐藏态首次点击只显控件，已显示时才暂停', () => {
   assert.equal(surfaceClickRevealsOnly(false), true)
   assert.equal(surfaceClickRevealsOnly(true), false)

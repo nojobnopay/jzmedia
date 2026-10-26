@@ -12776,7 +12776,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 274,
+            "line": 277,
             "selector": ".cast-prepare-progress",
             "values": {
               "width": "100%",
@@ -13097,7 +13097,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 306,
+            "line": 308,
             "selector": ".cast-volume-range",
             "values": {
               "width": "100%",
@@ -13107,7 +13107,7 @@
           },
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 308,
+            "line": 310,
             "selector": ".cast-volume-range::-webkit-slider-runnable-track",
             "values": {
               "height": "4px"
@@ -13115,7 +13115,7 @@
           },
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 310,
+            "line": 312,
             "selector": ".cast-volume-range::-webkit-slider-thumb",
             "values": {
               "width": "14px",
@@ -13124,7 +13124,7 @@
           },
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 311,
+            "line": 313,
             "selector": ".cast-volume-range::-moz-range-track",
             "values": {
               "height": "4px"
@@ -13132,7 +13132,7 @@
           },
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 312,
+            "line": 314,
             "selector": ".cast-volume-range::-moz-range-progress",
             "values": {
               "height": "4px"
@@ -13140,7 +13140,7 @@
           },
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 313,
+            "line": 315,
             "selector": ".cast-volume-range::-moz-range-thumb",
             "values": {
               "width": "14px",
@@ -13193,7 +13193,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 316,
+            "line": 318,
             "selector": ".cast-stop",
             "values": {
               "width": "100%"
@@ -14008,7 +14008,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 321,
+            "line": 323,
             "selector": ".cast-start, .cast-return-phone",
             "values": {
               "width": "100%",
@@ -14058,7 +14058,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 321,
+            "line": 323,
             "selector": ".cast-start, .cast-return-phone",
             "values": {
               "width": "100%",

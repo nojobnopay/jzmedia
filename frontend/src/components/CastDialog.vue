@@ -1,5 +1,5 @@
 <template>
-  <JzDialog :open="casting.open.value" title="投屏到电视" size="small" layer="preview" class="cast-dialog"
+  <JzDialog ref="dialog" :open="casting.open.value" title="投屏到电视" size="small" layer="preview" class="cast-dialog"
     :teleport-disabled="teleportDisabled" close-label="关闭投屏面板" :busy="casting.busy.value" @close="casting.close">
     <p v-if="castError" class="cast-error" role="alert">{{ castError }}</p>
     <JzButton v-if="casting.uncertain?.value" icon="refresh" :loading="casting.busy.value"
@@ -23,7 +23,7 @@
       <template v-else-if="casting.active.value">
         <div class="cast-timeline">
           <PlayerSeekbar class="cast-seekbar" :duration="duration" :manifest="manifest" :value="seekDragging ? seekTarget : displayPosition"
-            :value-text="seekValueText" :disabled="seekDisabled" label="电视播放进度" touch-target
+            :value-text="seekValueText" :disabled="seekDisabled" :preview-container="dialog?.element" label="电视播放进度" touch-target
             @input="seekInput" @commit="seekCommit" @cancel="cancelSeek" />
           <div class="cast-times">
             <output v-if="seekDragging" aria-label="待跳转位置">{{ fmt(seekTarget) }}</output>
@@ -158,6 +158,7 @@ const props = defineProps({ casting: { type: Object, required: true }, held: Boo
   manifest: { type: Object, default: null }, audioLabel: { type: String, default: '' },
   subtitleLabel: { type: String, default: '' }, hasSelectedSubtitle: Boolean, localSubtitle: Boolean })
 defineEmits(['return-phone'])
+const dialog = ref(null)
 const seekTarget = ref(0), seekDragging = ref(false)
 const desiredVolume = ref(null), volumeEditing = ref(false)
 let volumeGestureCancelled = false
@@ -254,6 +255,8 @@ watch(() => props.casting.busy.value, busy => { if (busy) cancelVolume() })
 </script>
 
 <style scoped>
+/* JzDialog teleports its section, so the preview anchor uses this owned class. */
+:global(.cast-dialog) { position: relative; }
 .cast-hint, .cast-start-hint { color: var(--jz-text-dim); font-size: var(--jz-font-s); }
 .cast-hint { margin: 8px 0 12px; }
 .cast-error { margin: 0 0 16px; color: var(--jz-danger); overflow-wrap: anywhere; }
@@ -293,7 +296,6 @@ watch(() => props.casting.busy.value, busy => { if (busy) cancelVolume() })
 .cast-track-summary dd { margin: 0; overflow-wrap: anywhere; }
 .cast-error-recovery { margin-top: 12px; }
 .cast-timeline { position: relative; margin-top: 20px; }
-.cast-seekbar :deep(.preview) { top: 44px; bottom: auto; z-index: 2; }
 .cast-times { display: flex; justify-content: space-between; gap: 12px; font-size: var(--jz-font-s); font-variant-numeric: tabular-nums; color: var(--jz-text-dim); }
 .cast-times > :last-child { flex: none; }
 .cast-reported-position { margin: 4px 0 0; }

@@ -91,13 +91,13 @@ export function previewFrame(manifest, time) {
     sheetWidth: manifest.width * manifest.columns, sheetHeight: manifest.height * manifest.rows }
 }
 
-// Sprite coordinates are bitmap pixels; the preview stays the same CSS size on
-// every screen. Higher resolution sheets supply the extra pixels for HiDPI.
-export function previewImageStyle(frame) {
+// Sprite coordinates are bitmap pixels. The default is 160 CSS pixels; a
+// floating dialog preview may shrink to fit above the seekbar on short screens.
+export function previewImageStyle(frame, width = 160) {
   if (!frame) return {}
-  const scale = 160 / frame.width
+  const scale = width / frame.width
   return {
-    width: '160px', height: frame.height * scale + 'px',
+    width: width + 'px', height: frame.height * scale + 'px',
     backgroundImage: `url("${frame.url}")`,
     backgroundPosition: `-${frame.x * scale}px -${frame.y * scale}px`,
     backgroundSize: `${frame.sheetWidth * scale}px ${frame.sheetHeight * scale}px`,
