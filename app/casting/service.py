@@ -403,6 +403,11 @@ class CastManager:
         session.prepared_path = prepared["path"]
         session.duration = prepared["duration"]
         target = session.resume_target or 0
+        # A receiver may fetch synchronously during SetURI or Play, before its
+        # SOAP response returns. Publish the complete, leased file first; the
+        # device lock still serializes controls and start-failure cleanup.
+        session.preparing = False
+        session.state, session.prepare_message = "TRANSITIONING", "所选音轨文件已准备完成"
         try:
             dlna.action(session.device.transport, "SetAVTransportURI", {"InstanceID": 0,
                 "CurrentURI": session.uri, "CurrentURIMetaData": dlna.metadata(
@@ -428,8 +433,6 @@ class CastManager:
             session.preparing, session.active, session.state = False, False, "ERROR"
             session.error = str(error)
             return
-        session.preparing = False
-        session.state, session.prepare_message = "TRANSITIONING", "所选音轨文件已准备完成"
         session.play_started = time.monotonic()
         if target > 0:
             session.resume_target = min(target, max(0, session.duration - 1))

@@ -1,6 +1,8 @@
 import { computed, ref } from 'vue'
 import { api } from './api.js'
 
+const SEEK_CONFIRM_TIMEOUT = 15000
+
 export function castStateLabel(session) {
   if (!session) return ''
   return ({ PLAYING: '电视正在播放', PAUSED_PLAYBACK: '电视已暂停', STOPPED: '投屏已停止',
@@ -20,13 +22,67 @@ export function useCasting({ media, position, beforePlay = async () => {}, onSes
   const manualLocation = ref('')
   const session = ref(null), error = ref(''), searched = ref(false)
   const uncertain = ref(false)
+  const pendingSeek = ref(null)
   let disposed = false, searchGeneration = 0, searchController = null, pollTimer = 0
   let pollController = null, restoreController = null, reconcileController = null
   let pendingCreation = null
   let appTimer = 0, appController = null, appGeneration = 0, nextPosition = null
   let sessionEpoch = 0
+  let seekTimer = 0
   const active = computed(() => !!session.value?.active)
-  const stateLabel = computed(() => uncertain.value ? '投屏状态待确认' : castStateLabel(session.value))
+  const seekPending = computed(() => active.value && !!pendingSeek.value && pendingSeek.value.sessionId === session.value?.id)
+  const displayPosition = computed(() => {
+    const remote = session.value
+    const position = seekPending.value ? pendingSeek.value.target : remote?.position_known ? remote.position : remote?.last_position
+    return Math.max(0, Math.min(Number(remote?.duration) || Infinity, Number(position) || 0))
+  })
+  const stateLabel = computed(() => uncertain.value ? '投屏状态待确认'
+    : seekPending.value ? '正在跳转，等待电视确认' : castStateLabel(session.value))
+
+  function clearSeek() {
+    clearTimeout(seekTimer)
+    pendingSeek.value = null
+  }
+  function waitForSeek(pending) {
+    if (pendingSeek.value !== pending) return
+    pending.phase = 'waiting'
+    pending.waitingAt = Date.now()
+    clearTimeout(seekTimer)
+    seekTimer = setTimeout(() => {
+      if (disposed || pendingSeek.value !== pending) return
+      clearSeek()
+      error.value = '电视尚未确认跳转，请核对电视画面后重试。'
+    }, SEEK_CONFIRM_TIMEOUT)
+  }
+  function rememberStalePosition(pending, position) {
+    // A near-target report is already within the receiver's seek precision.
+    if (!Number.isFinite(position) || Math.abs(position - pending.target) <= 3) return
+    if (!pending.stalePositions.some(previous => Math.abs(previous - position) <= 0.5)) {
+      pending.stalePositions.push(position)
+    }
+  }
+  function updateSeek(value) {
+    const pending = pendingSeek.value
+    if (!pending) return
+    if (value?.id !== pending.sessionId || !value?.active || value.error) { clearSeek(); return }
+    // An accepted command may still carry the previous position. Only a real
+    // playback report near the requested target confirms it; leave session's
+    // position/last_position untouched for progress saving and phone handoff.
+    if (pending.phase !== 'waiting' || !value.position_known || !['PLAYING', 'PAUSED_PLAYBACK'].includes(value.state)) return
+    const reported = Number(value.position)
+    if (!Number.isFinite(reported)) return
+    // Include time spent awaiting the command's HTTP response: the TV may
+    // already have sought and continued playing before its acknowledgement.
+    const elapsed = Math.max(0, Date.now() - pending.startedAt) / 1000
+    const delta = reported - pending.target
+    // A frozen old position must never become confirmation merely because the
+    // allowance for playback since submission grows to include that number.
+    if (pending.stalePositions.some(previous => Math.abs(previous - reported) <= 0.5)) return
+    if (delta >= -2 && delta <= elapsed + 3) {
+      if (pending.failureMessage && error.value === pending.failureMessage) error.value = ''
+      clearSeek()
+    } else rememberStalePosition(pending, reported)
+  }
 
   function stopApps() {
     clearTimeout(appTimer)
@@ -89,6 +145,7 @@ export function useCasting({ media, position, beforePlay = async () => {}, onSes
     if (disposed) return
     uncertain.value = false
     pendingCreation = null
+    updateSeek(value)
     session.value = value
     if (value?.receiver_type) receiverType.value = value.receiver_type
     if (value?.active) stopApps()
@@ -112,6 +169,7 @@ export function useCasting({ media, position, beforePlay = async () => {}, onSes
       if (!disposed && !ctrl.signal.aborted && session.value?.id === sid) {
         error.value = e.message
         if (String(e.message).startsWith('404')) {
+          clearSeek()
           session.value = { ...session.value, active: false, state: 'DISCONNECTED', position_known: false }
         } else pollTimer = setTimeout(poll, 5000)
       }
@@ -273,6 +331,17 @@ export function useCasting({ media, position, beforePlay = async () => {}, onSes
   async function control(command, value) {
     if (disposed || busy.value || !active.value) return false
     const sid = session.value.id
+    const epoch = ++sessionEpoch
+    if (command === 'seek') {
+      clearSeek()
+      const target = Number(value)
+      if (Number.isFinite(target) && target >= 0) {
+        pendingSeek.value = { sessionId: sid, target, phase: 'sending', startedAt: Date.now(), stalePositions: [] }
+        const remote = session.value
+        rememberStalePosition(pendingSeek.value, remote.position_known ? remote.position : remote.last_position)
+      }
+    }
+    const pending = command === 'seek' ? pendingSeek.value : null
     busy.value = true
     error.value = ''
     pollController?.abort()
@@ -282,10 +351,24 @@ export function useCasting({ media, position, beforePlay = async () => {}, onSes
       const result = await request(`/api/cast/sessions/${encodeURIComponent(sid)}/control`, {
         method: 'POST', body: JSON.stringify({ command, ...(value == null ? {} : { value }) }), timeout: 30000,
       })
-      if (!disposed && session.value?.id === sid) accept(result)
+      if (!disposed && epoch === sessionEpoch && session.value?.id === sid) {
+        if (pending) {
+          waitForSeek(pending)
+          if (result?.state === 'TRANSITIONING') {
+            rememberStalePosition(pending, result.last_position)
+            if (result.position_known) rememberStalePosition(pending, result.position)
+          }
+        }
+        accept(result)
+      }
       return true
     } catch (e) {
-      if (!disposed) {
+      if (!disposed && epoch === sessionEpoch && session.value?.id === sid) {
+        const status = Number(e.status)
+        if (pending) {
+          if (status >= 400 && status < 500 && status !== 408) clearSeek()
+          else { pending.failureMessage = e.message; waitForSeek(pending) }
+        }
         error.value = e.message
         pollTimer = setTimeout(poll, 3000)
       }
@@ -301,12 +384,14 @@ export function useCasting({ media, position, beforePlay = async () => {}, onSes
     pollController?.abort()
     stopApps()
     clearTimeout(pollTimer)
+    clearSeek()
   }
   function forget() {
     sessionEpoch++
     clearTimeout(pollTimer)
     pollController?.abort()
     session.value = null
+    clearSeek()
     uncertain.value = false
     pendingCreation = null
     nextPosition = null
@@ -315,5 +400,6 @@ export function useCasting({ media, position, beforePlay = async () => {}, onSes
   }
   return { open, searching, busy, devices, selected, serverUrl, manualLocation, session, error, searched,
     receiverType, appDevices, searchingApps, appsSearched, appsError, refreshApps, chooseReceiver,
-    active, uncertain, stateLabel, restore, reconcile, discover, addManual, show, close, play, control, forget, dispose }
+    active, uncertain, pendingSeek, seekPending, displayPosition, stateLabel,
+    restore, reconcile, discover, addManual, show, close, play, control, forget, dispose }
 }

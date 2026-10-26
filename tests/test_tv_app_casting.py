@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app import store, viewing
-from app.casting import tv_app
+from app.casting import dlna, service, tv_app
 from app.main import app
 from app.routers import tv_cast
 
@@ -67,6 +67,118 @@ def test_register_lists_only_public_metadata_and_requires_receiver_secret(fixtur
     assert device["receiver_token"] not in str(data)
     assert "installation-uuid" not in str(data)
     assert fixture.client.post(f"/api/cast/apps/{device['receiver_id']}/poll", json={}).status_code == 404
+
+
+@pytest.fixture
+def names(fixture, monkeypatch):
+    cache = service.CastManager()
+    monkeypatch.setattr(service, "manager", cache)
+
+    def unexpected_network(*_args, **_kwargs):
+        pytest.fail("Displaying App receiver names must not discover or contact DLNA devices")
+
+    monkeypatch.setattr(dlna, "discover", unexpected_network)
+    monkeypatch.setattr(dlna, "_http", unexpected_network)
+
+    def discovered(*devices):
+        cache.devices = {device.id: device for device in devices}
+        cache.searched_at = time.monotonic()
+
+    def receiver(address="192.168.1.25", suffix="one"):
+        return fixture.manager.register("installation-names-" + suffix, "MiTV-MFTP0 · jzmedia-tv", address)
+
+    device = dlna.Device("dlna-bedroom", "主卧小米电视", "192.168.1.25", "MiTV-MFTP0",
+                         dlna.Service("AVTransport", "http://192.168.1.25/control"))
+    return SimpleNamespace(cache=cache, discovered=discovered, register=receiver, device=device)
+
+
+def test_app_receiver_uses_unique_cached_dlna_name_for_list_and_session_without_changing_identity(fixture, names):
+    names.discovered(names.device)
+    receiver = names.register()
+    item = fixture.client.get("/api/cast/apps").json()["items"][0]
+    assert item["name"] == "主卧小米电视"
+    assert item["app_name"] == "MiTV-MFTP0 · jzmedia-tv"
+    assert item["id"] == receiver["receiver_id"] != names.device.id
+    session = start(fixture, receiver)
+    assert session["device"] == item
+    assert fixture.client.get(f"/api/cast/sessions/{session['id']}").json()["device"] == item
+    assert fixture.client.get("/api/cast/current", params={"version_id": fixture.vid}).json()["session"]["device"] == item
+    command = poll(fixture, receiver).json()["command"]
+    assert command["session_id"] == session["id"]
+    ack(fixture, receiver, command)
+    assert fixture.manager.get(session["id"]).accepted
+
+
+def test_confirmed_dlna_name_survives_cache_expiry_but_not_a_new_registration(fixture, names):
+    names.discovered(names.device)
+    receiver = names.register()
+    assert fixture.manager.device_list()[0]["name"] == "主卧小米电视"
+    session = start(fixture, receiver)
+    names.cache.searched_at -= 121
+    assert names.cache.device_list() == []
+    assert fixture.manager.device_list()[0]["name"] == "主卧小米电视"
+    assert fixture.manager.get(session["id"]).public()["device"]["name"] == "主卧小米电视"
+    names.register()
+    assert fixture.manager.device_list()[0]["name"] == "MiTV-MFTP0 · jzmedia-tv"
+
+
+def test_fresh_dlna_rename_updates_an_existing_app_session(fixture, names):
+    from dataclasses import replace
+    names.discovered(names.device)
+    receiver = names.register()
+    session = start(fixture, receiver)
+    names.discovered(replace(names.device, name="卧室电视"))
+    assert fixture.manager.get(session["id"]).public()["device"]["name"] == "卧室电视"
+    assert fixture.manager.device_list()[0]["name"] == "卧室电视"
+
+
+def test_multiple_online_apps_at_one_ip_revoke_an_ambiguous_name(fixture, names):
+    names.discovered(names.device)
+    first = names.register()
+    assert fixture.manager.device_list()[0]["name"] == "主卧小米电视"
+    session = start(fixture, first)
+    second = names.register(suffix="two")
+    items = fixture.manager.device_list()
+    assert len(items) == 2
+    assert all(item["name"] == item["app_name"] == "MiTV-MFTP0 · jzmedia-tv" for item in items)
+    assert fixture.manager.get(session["id"]).public()["device"]["name"] == "MiTV-MFTP0 · jzmedia-tv"
+    fixture.manager.unregister(second["receiver_id"], second["receiver_token"])
+    assert fixture.manager.device_list()[0]["name"] == "主卧小米电视"
+
+
+def test_multiple_dlna_ids_at_one_ip_are_not_chosen_arbitrarily(fixture, names):
+    from dataclasses import replace
+    names.discovered(names.device)
+    names.register()
+    assert fixture.manager.device_list()[0]["name"] == "主卧小米电视"
+    names.discovered(names.device, replace(names.device, id="dlna-other", name="另一台电视"))
+    assert fixture.manager.device_list()[0]["name"] == "MiTV-MFTP0 · jzmedia-tv"
+
+
+@pytest.mark.parametrize("address", ["192.168.1.26", "127.0.0.1", "::1", "8.8.8.8", "169.254.1.25", "testclient"])
+def test_name_matching_requires_a_unique_real_lan_address(fixture, names, address):
+    from dataclasses import replace
+    # Even equal loopback/proxy/public addresses must not become identity.
+    names.discovered(replace(names.device, address=address if address != "192.168.1.26" else names.device.address))
+    names.register(address)
+    item = fixture.manager.device_list()[0]
+    assert item["name"] == item["app_name"] == "MiTV-MFTP0 · jzmedia-tv"
+
+
+def test_ipv4_mapped_registration_matches_the_same_dlna_address(fixture, names):
+    names.discovered(names.device)
+    names.register("::ffff:192.168.1.25")
+    assert fixture.manager.device_list()[0]["name"] == "主卧小米电视"
+
+
+def test_forwarded_address_does_not_override_the_registration_peer(fixture, names):
+    names.discovered(names.device)
+    response = fixture.client.post("/api/cast/apps/register", headers={"X-Forwarded-For": "192.168.1.25"}, json={
+        "device_id": "installation-names-forwarded", "name": "MiTV-MFTP0 · jzmedia-tv"})
+    assert response.status_code == 200
+    item = fixture.manager.device_list()[0]
+    assert item["address"] == "testclient"
+    assert item["name"] == item["app_name"] == "MiTV-MFTP0 · jzmedia-tv"
 
 
 def test_explicit_position_tracks_and_no_progress_deletion(fixture):

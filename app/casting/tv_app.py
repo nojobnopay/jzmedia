@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import hmac
+import ipaddress
 import secrets
 import threading
 import time
@@ -15,6 +16,19 @@ from .. import store, viewing
 ONLINE_TTL = 15
 COMMAND_TTL = 60
 CONTROL_TIMEOUT = 8
+
+
+def _lan_address(value):
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return None
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    if (not address.is_private or address.is_loopback or address.is_unspecified
+            or address.is_multicast or address.is_link_local):
+        return None
+    return str(address)
 
 
 @dataclass(frozen=True)
@@ -57,9 +71,10 @@ class Receiver:
     seen: float
     active_session: str | None = None
     online: bool = True
+    dlna_name: str = ""
 
     def public(self):
-        return {"id": self.id, "name": self.name, "address": self.address,
+        return {"id": self.id, "name": self.dlna_name or self.name, "app_name": self.name, "address": self.address,
                 "model": "jzmedia-tv", "receiver_type": "jzmedia_tv", "volume_control": False}
 
 
@@ -117,6 +132,37 @@ class TvAppManager:
         self.sessions: dict[str, AppSession] = {}
         self.commands: dict[str, list[Command]] = {}
 
+    def _refresh_receiver_names(self):
+        # Read only the existing discovery cache, before taking the App registry
+        # lock. Naming must not start network discovery or nest the two locks.
+        from .service import manager as dlna_manager
+        devices = dlna_manager.device_list()
+        matches = {}
+        for device in devices:
+            address = _lan_address(device["address"])
+            if address:
+                matches.setdefault(address, {})[device["id"]] = device["name"].strip()
+        now = time.monotonic()
+        with self.lock:
+            receivers = [receiver for receiver in self.receivers.values()
+                         if receiver.online and now - receiver.seen <= ONLINE_TTL]
+            addresses = {}
+            for receiver in receivers:
+                address = _lan_address(receiver.address)
+                if address:
+                    addresses.setdefault(address, []).append(receiver)
+            for address, same_address in addresses.items():
+                candidates = matches.get(address, {})
+                if len(same_address) != 1 or len(candidates) > 1:
+                    # Shared proxy/NAT addresses are not a device identity.
+                    for receiver in same_address:
+                        receiver.dlna_name = ""
+                elif candidates:
+                    same_address[0].dlna_name = next(iter(candidates.values()))
+                # The discovery cache expires sooner than a foreground App.
+                # Keep a confirmed name for this registration when it does;
+                # reconnecting creates a new receiver and starts without it.
+
     def _finish(self, session, state, error=""):
         session.active = False
         session.state = state
@@ -169,6 +215,7 @@ class TvAppManager:
                     "heartbeat_seconds": 3, "ttl_seconds": ONLINE_TTL}
 
     def device_list(self):
+        self._refresh_receiver_names()
         with self.lock:
             self._prune()
             receivers = [receiver for receiver in self.receivers.values() if receiver.online]
@@ -193,6 +240,7 @@ class TvAppManager:
         return command
 
     def play(self, device_id, version_id, kind, position, audio=None, sub=None):
+        self._refresh_receiver_names()
         scope = current_scope()
         row = viewing.visible_item(kind, version_id)
         with self.lock:
@@ -234,6 +282,7 @@ class TvAppManager:
             return session.public()
 
     def get(self, sid):
+        self._refresh_receiver_names()
         with self.lock:
             self._prune()
             session = self.sessions.get(sid)

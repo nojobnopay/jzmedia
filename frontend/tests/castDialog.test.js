@@ -13,9 +13,12 @@ async function panel(t, initial = {}, props = {}) {
   const session = ref({ id: 'tv-session', active: true, state: 'PLAYING', duration: 300,
     position: 20, position_known: true, last_position: 20, volume: null,
     device: { name: '名字很长的客厅电视，包含中文与特殊字符', volume_control: true }, ...initial })
+  const pendingSeek = ref(null)
   const casting = { session, open: ref(true), busy: ref(false), uncertain: ref(false), active: computed(() => !!session.value?.active),
+    pendingSeek, seekPending: computed(() => !!pendingSeek.value),
+    displayPosition: computed(() => pendingSeek.value?.target ?? (session.value?.position_known ? session.value.position : session.value?.last_position) ?? 0),
     error: ref(''), stateLabel: computed(() => castStateLabel(session.value)),
-    control: async (...args) => { calls.push(args); return true }, close() {},
+    control: async (...args) => { calls.push(args); if (args[0] === 'seek') pendingSeek.value = { sessionId: session.value.id, target: args[1] }; return true }, close() {},
     searching: ref(false), searched: ref(false), devices: ref([]), selected: ref('tv'),
     serverUrl: ref(''), manualLocation: ref(''), discover() {}, addManual() {}, play() {} }
   casting.receiverType = ref('dlna')
@@ -59,14 +62,34 @@ test('TV seek drafts survive polling and use existing thumbnails, then commit on
   ui.seek().props.onChange({ target: { value: '110' } })
   await flush()
   assert.deepEqual(ui.calls, [['seek', 110]])
-  assert.equal(ui.seek().props.value, 25)
+  assert.equal(ui.seek().props.value, 110, 'The submitted target stays visible until the television confirms it')
+  assert.match(ui.text(), /正在跳转到 1:50，等待电视确认/)
+  assert.match(ui.text(), /电视上次上报：0:25/)
+  assert.match(ui.seek().props['aria-valuetext'], /等待电视确认/)
+  assert.equal(ui.find(node => node.type === 'button' && node.props['aria-label'] === '前进 10 秒').props.disabled, true)
+  ui.session.value = { ...ui.session.value, state: 'TRANSITIONING', position_known: false }
+  await flush()
+  const pause = ui.find(node => node.type === 'button' && node.children.some(child => child.text === '暂停'))
+  assert.ok(pause, 'A pending seek must retain the last confirmed playback action')
+  pause.props.onClick()
+  assert.deepEqual(ui.calls.at(-1), ['pause'])
+  ui.session.value = { ...ui.session.value, position: 27, last_position: 27 }
+  await flush()
+  assert.equal(ui.seek().props.value, 110, 'An old television update must not move the thumb back')
+  ui.session.value = { ...ui.session.value, state: 'PLAYING', position_known: true, position: 111, last_position: 111 }
+  ui.casting.pendingSeek.value = null
+  await flush()
+  assert.equal(ui.seek().props.value, 111)
+  assert.doesNotMatch(ui.text(), /待确认/)
 })
 
-test('selected subtitles recommend the installed TV App and block a misleading DLNA start', async t => {
-  const ui = await panel(t, { active: false }, { hasSelectedSubtitle: true })
-  assert.match(ui.text(), /手机选择了字幕.*不能传递/)
+test('selected subtitles explain the restriction by name and offer the TV App beside a blocked DLNA start', async t => {
+  const ui = await panel(t, { active: false }, { hasSelectedSubtitle: true, subtitleLabel: '简体中文 PGS' })
+  assert.match(ui.text(), /当前选择了“简体中文 PGS”字幕.*不能传递/)
   const start = ui.find(node => node.type === 'button' && node.children.some(child => child.text === '开始投屏'))
   assert.equal(start.props.disabled, true)
+  assert.equal(start.props['aria-describedby'], 'cast-start-hint')
+  assert.match(ui.find(node => node.props.id === 'cast-start-hint').text, /字幕无法通过内置投屏传递/)
   const recommend = ui.find(node => node.type === 'button' && node.children.some(child => child.text === '使用 jzmedia-tv 播放'))
   recommend.props.onClick()
   await flush()
@@ -74,9 +97,35 @@ test('selected subtitles recommend the installed TV App and block a misleading D
   assert.match(ui.text(), /请在目标电视打开 jzmedia-tv/)
 })
 
+test('a missing receiver selection explains the disabled action and a retryable App error stays distinct from empty', async t => {
+  const ui = await panel(t, { active: false })
+  ui.casting.selected.value = ''
+  await flush()
+  assert.match(ui.text(), /请先选择一台电视/)
+  ui.casting.receiverType.value = 'jzmedia_tv'
+  ui.casting.appsError.value = '电视 App 查询失败，请重试'
+  await flush()
+  assert.match(ui.text(), /电视 App 查询失败，请重试/)
+  assert.doesNotMatch(ui.text(), /尚未找到可接收/)
+  assert.match(ui.text(), /无法确认电视 App 是否可用，请刷新重试/)
+  const start = ui.find(node => node.type === 'button' && node.children.some(child => child.text === '在电视 App 播放'))
+  assert.equal(start.props.disabled, true)
+})
+
+test('a server compatibility error remains readable and offers a switch to the TV App', async t => {
+  const ui = await panel(t, { active: false })
+  ui.casting.error.value = '电视未声明支持此视频格式（video/x-matroska）'
+  await flush()
+  assert.match(ui.text(), /电视未声明支持此视频格式/)
+  const switchApp = ui.find(node => node.type === 'button' && node.props.class?.includes('cast-error-recovery'))
+  assert.ok(switchApp)
+  switchApp.props.onClick()
+  assert.deepEqual(ui.calls, [['receiver', 'jzmedia_tv']])
+})
+
 test('an active DLNA receiver offers the TV App route even when it reports playing with no warning', async t => {
   const ui = await panel(t, { position: 0, last_position: 0, warning: '', error: '' })
-  assert.match(ui.text(), /电视无画面、无声音或需要字幕时/)
+  assert.match(ui.text(), /电视无画面、无声音或需要字幕/)
   const switchApp = ui.find(node => node.type === 'button' && node.children.some(child => child.text === '改用 jzmedia-tv'))
   assert.ok(switchApp)
   switchApp.props.onClick()

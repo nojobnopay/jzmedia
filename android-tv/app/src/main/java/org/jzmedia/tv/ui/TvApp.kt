@@ -70,6 +70,7 @@ import org.jzmedia.tv.data.TvCastCommand
 import org.jzmedia.tv.data.TvCastCommandHistory
 import org.jzmedia.tv.data.TvCastReceiver
 import org.jzmedia.tv.data.TvCastSnapshot
+import org.jzmedia.tv.data.tvCastReceiverName
 import org.jzmedia.tv.data.supportsViewingModes
 import org.jzmedia.tv.data.viewingIdleExpired
 import org.jzmedia.tv.data.rows
@@ -293,7 +294,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         val epoch = receiverEpoch
         fun current() = foreground && !viewingBlocked && api === server && receiverEpoch == epoch
         while (current()) {
-            val receiver = TvCastReceiver(server, receiverDeviceId, "${Build.MODEL} · jzmedia-tv")
+            val receiver = TvCastReceiver(server, receiverDeviceId, tvCastReceiverName(context))
             var registered = false
             try {
                 latestDisconnectRemote()

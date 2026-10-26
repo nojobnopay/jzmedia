@@ -6,6 +6,332 @@ const pending = () => { let resolve; const promise = new Promise(done => { resol
 const make = (request, extra = {}) => useCasting({ media: () => ({ version_id: 12, kind: 'episode' }), position: () => 123, request, ...extra })
 const session = id => ({ id, active: true, state: 'TRANSITIONING', position_known: false, device: { name: '电视' } })
 const appDevice = { id: 'tv_bedroom', name: '主卧 jzmedia-tv', address: '192.168.1.72', receiver_type: 'jzmedia_tv', volume_control: false }
+const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() }
+
+for (const receiverType of ['dlna', 'jzmedia_tv']) {
+  test(`${receiverType} seek keeps the submitted target through command acknowledgement and stale playback reports`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    const response = pending()
+    const original = { ...session('playing'), state: 'PLAYING', receiver_type: receiverType,
+      duration: 300, position: 20, last_position: 20, position_known: true }
+    let reported = { ...original, position: 23, last_position: 23 }
+    const casting = make(async (path) => path.endsWith('/control') ? response.promise : reported)
+    t.after(() => casting.dispose())
+    casting.session.value = original
+    const work = casting.control('seek', 110)
+    assert.equal(casting.displayPosition.value, 110, 'The target must stay visible as soon as the command is submitted')
+    assert.equal(casting.session.value.position, 20, 'Requested progress is never saved as actual TV progress')
+    assert.equal(casting.pendingSeek.value.phase, 'sending')
+    response.resolve({ ...original, state: 'TRANSITIONING', position_known: receiverType === 'jzmedia_tv' })
+    await work
+    assert.equal(casting.displayPosition.value, 110)
+    assert.equal(casting.pendingSeek.value.phase, 'waiting')
+    assert.match(casting.stateLabel.value, /正在跳转.*等待电视确认/)
+    t.mock.timers.tick(3000)
+    await settle()
+    assert.equal(casting.session.value.position, 23)
+    assert.equal(casting.displayPosition.value, 110, 'A stale PLAYING response must not undo the submitted target')
+    reported = { ...original, position: 113, last_position: 113 }
+    t.mock.timers.tick(3000)
+    await settle()
+    assert.equal(casting.pendingSeek.value, null)
+    assert.equal(casting.seekPending.value, false)
+    assert.equal(casting.displayPosition.value, 113)
+    assert.equal(casting.stateLabel.value, '电视正在播放')
+  })
+}
+
+test('a subsequent absolute seek replaces the target, and backward seeks ignore old progress ahead of it', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const original = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 120, last_position: 120, position_known: true }
+  let reported = { ...original, position: 123, last_position: 123 }
+  const casting = make(async path => path.endsWith('/control') ? { ...original, state: 'TRANSITIONING' } : reported)
+  t.after(() => casting.dispose())
+  casting.session.value = original
+  await casting.control('seek', 200)
+  await casting.control('seek', 110)
+  assert.equal(casting.displayPosition.value, 110)
+  t.mock.timers.tick(3000)
+  await settle()
+  assert.equal(casting.seekPending.value, true)
+  assert.equal(casting.displayPosition.value, 110)
+  reported = { ...original, state: 'PAUSED_PLAYBACK', position: 110, last_position: 110 }
+  t.mock.timers.tick(3000)
+  await settle()
+  assert.equal(casting.seekPending.value, false)
+  assert.equal(casting.displayPosition.value, 110)
+})
+
+test('a backward ten-second seek never confirms a frozen old position as playback time passes', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const original = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 120, last_position: 120, position_known: true }
+  const casting = make(async path => path.endsWith('/control') ? { ...original, state: 'TRANSITIONING' } : original)
+  t.after(() => casting.dispose())
+  casting.session.value = original
+  await casting.control('seek', 110)
+  for (let i = 0; i < 4; i++) {
+    t.mock.timers.tick(3000)
+    await settle()
+    assert.equal(casting.seekPending.value, true, `The unchanged 120-second report is stale after ${(i + 1) * 3} seconds`)
+    assert.equal(casting.displayPosition.value, 110)
+    assert.equal(casting.session.value.position, 120)
+  }
+  t.mock.timers.tick(3000)
+  await settle()
+  assert.equal(casting.seekPending.value, false)
+  assert.match(casting.error.value, /电视尚未确认跳转/)
+})
+
+test('a rejected old report cannot age into confirmation even when it differs from the submitted origin', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const original = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 120, last_position: 120, position_known: true }
+  const frozen = { ...original, position: 121, last_position: 121 }
+  const casting = make(async path => path.endsWith('/control') ? { ...original, state: 'TRANSITIONING' } : frozen)
+  t.after(() => casting.dispose())
+  casting.session.value = original
+  await casting.control('seek', 110)
+  for (let i = 0; i < 4; i++) { t.mock.timers.tick(3000); await settle() }
+  assert.equal(casting.seekPending.value, true)
+  assert.equal(casting.displayPosition.value, 110)
+})
+
+test('a slow command acknowledgement includes elapsed playback since submission when confirming seek progress', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const acknowledgement = pending()
+  const original = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 20, last_position: 20, position_known: true }
+  let polls = 0
+  const casting = make(async path => {
+    if (path.endsWith('/control')) return acknowledgement.promise
+    polls++
+    return { ...original, position: 121, last_position: 121 }
+  })
+  t.after(() => casting.dispose())
+  casting.session.value = original
+  const work = casting.control('seek', 110)
+  t.mock.timers.tick(8000)
+  await settle()
+  assert.equal(casting.pendingSeek.value.phase, 'sending')
+  assert.equal(casting.displayPosition.value, 110)
+  acknowledgement.resolve({ ...original, state: 'TRANSITIONING' })
+  await work
+  t.mock.timers.tick(3000)
+  await settle()
+  assert.equal(polls, 1)
+  assert.equal(casting.seekPending.value, false, 'The TV has played eleven seconds since seeking, including the slow acknowledgement')
+  assert.equal(casting.displayPosition.value, 121)
+  assert.equal(casting.error.value, '')
+})
+
+test('a slow backward seek acknowledgement waits past a matching old-position sample and then confirms new progress', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const acknowledgement = pending()
+  const original = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 120, last_position: 120, position_known: true }
+  let reported = original
+  const casting = make(async path => path.endsWith('/control') ? acknowledgement.promise : reported)
+  t.after(() => casting.dispose())
+  casting.session.value = original
+  const work = casting.control('seek', 110)
+  t.mock.timers.tick(7000)
+  acknowledgement.resolve({ ...original, state: 'TRANSITIONING' })
+  await work
+  t.mock.timers.tick(3000)
+  await settle()
+  assert.equal(casting.seekPending.value, true, 'At ten seconds the true new progress could equal the old position, so that single ambiguous report cannot confirm it')
+  reported = { ...original, position: 123, last_position: 123 }
+  t.mock.timers.tick(3000)
+  await settle()
+  assert.equal(casting.seekPending.value, false)
+  assert.equal(casting.displayPosition.value, 123)
+  assert.equal(casting.error.value, '')
+})
+
+test('pausing after a slow seek acknowledgement confirms the real position including playback before the pause', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const acknowledgement = pending()
+  const original = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 20, last_position: 20, position_known: true }
+  const paused = { ...original, state: 'PAUSED_PLAYBACK', position: 118, last_position: 118 }
+  const casting = make(async (path, options) => {
+    if (path.endsWith('/control')) return JSON.parse(options.body).command === 'seek'
+      ? acknowledgement.promise : { ...paused, state: 'TRANSITIONING' }
+    return paused
+  })
+  t.after(() => casting.dispose())
+  casting.session.value = original
+  const work = casting.control('seek', 110)
+  t.mock.timers.tick(8000)
+  acknowledgement.resolve({ ...original, state: 'TRANSITIONING' })
+  await work
+  await casting.control('pause')
+  assert.equal(casting.seekPending.value, true)
+  t.mock.timers.tick(3000)
+  await settle()
+  assert.equal(casting.seekPending.value, false)
+  assert.equal(casting.displayPosition.value, 118)
+  assert.equal(casting.session.value.state, 'PAUSED_PLAYBACK')
+  assert.equal(casting.error.value, '')
+})
+
+test('a rejected seek restores reported progress with its error', async t => {
+  const casting = make(async () => { throw Object.assign(new Error('跳转位置超出视频范围'), { status: 422 }) })
+  t.after(() => casting.dispose())
+  casting.session.value = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 20, last_position: 20, position_known: true }
+  assert.equal(await casting.control('seek', 110), false)
+  assert.equal(casting.seekPending.value, false)
+  assert.equal(casting.displayPosition.value, 20)
+  assert.match(casting.error.value, /超出视频范围/)
+})
+
+test('an uncertain seek keeps its target until a real readback confirms execution and clears the transient error', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const original = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 20, last_position: 20, position_known: true }
+  const casting = make(async path => {
+    if (path.endsWith('/control')) throw new TypeError('Failed to fetch')
+    return { ...original, position: 112, last_position: 112 }
+  })
+  t.after(() => casting.dispose())
+  casting.session.value = original
+  assert.equal(await casting.control('seek', 110), false)
+  assert.equal(casting.displayPosition.value, 110)
+  assert.equal(casting.error.value, 'Failed to fetch')
+  t.mock.timers.tick(3000)
+  await settle()
+  assert.equal(casting.seekPending.value, false)
+  assert.equal(casting.displayPosition.value, 112)
+  assert.equal(casting.error.value, '')
+})
+
+test('a seek without confirming progress expires with a useful error instead of keeping guessed progress forever', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const original = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 20, last_position: 20, position_known: true }
+  const casting = make(async path => path.endsWith('/control') ? { ...original, state: 'TRANSITIONING' } : original)
+  t.after(() => casting.dispose())
+  casting.session.value = original
+  await casting.control('seek', 110)
+  for (let i = 0; i < 5; i++) { t.mock.timers.tick(3000); await settle() }
+  assert.equal(casting.seekPending.value, false)
+  assert.equal(casting.displayPosition.value, 20)
+  assert.match(casting.error.value, /电视尚未确认跳转.*重试/)
+})
+
+test('stopping, forgetting or disposing a cast clears pending seek feedback and its timeout', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  for (const action of ['stop', 'forget', 'dispose']) {
+    const original = { ...session('playing'), state: 'PLAYING', duration: 300,
+      position: 20, last_position: 20, position_known: true }
+    const casting = make(async (_path, options) => JSON.parse(options.body).command === 'stop'
+      ? { ...original, active: false, state: 'STOPPED' } : { ...original, state: 'TRANSITIONING' })
+    t.after(() => casting.dispose())
+    casting.session.value = original
+    await casting.control('seek', 110)
+    if (action === 'stop') await casting.control('stop')
+    else casting[action]()
+    assert.equal(casting.pendingSeek.value, null)
+    t.mock.timers.tick(15000)
+    await settle()
+    assert.equal(casting.error.value, '')
+  }
+})
+
+test('a late seek response after forgetting a session cannot restore its target or progress', async t => {
+  const response = pending()
+  const casting = make(async () => response.promise)
+  t.after(() => casting.dispose())
+  casting.session.value = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 20, last_position: 20, position_known: true }
+  const work = casting.control('seek', 110)
+  casting.forget()
+  response.resolve({ ...session('playing'), position_known: true, position: 110 })
+  await work
+  assert.equal(casting.session.value, null)
+  assert.equal(casting.pendingSeek.value, null)
+})
+
+test('pause and volume preserve a pending seek, and an aborted concurrent poll cannot confirm it', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const stale = pending()
+  const original = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 20, last_position: 20, position_known: true }
+  let reads = 0, staleSignal
+  const notified = []
+  const casting = make(async (path, options) => {
+    if (path.endsWith('/control')) {
+      const body = JSON.parse(options.body)
+      return { ...original, state: body.command === 'volume' ? 'PLAYING' : 'TRANSITIONING', volume: body.value }
+    }
+    if (++reads === 1) { staleSignal = options.signal; return stale.promise }
+    return { ...original, state: 'PAUSED_PLAYBACK', position: 110, last_position: 110 }
+  }, { onSession: value => { notified.push(value) } })
+  t.after(() => casting.dispose())
+  casting.session.value = original
+  await casting.control('seek', 110)
+  t.mock.timers.tick(3000)
+  await settle()
+  await casting.control('pause')
+  assert.equal(staleSignal.aborted, true)
+  assert.equal(casting.displayPosition.value, 110)
+  assert.equal(casting.seekPending.value, true)
+  stale.resolve({ ...original, position: 110, last_position: 110 })
+  await settle()
+  assert.equal(casting.seekPending.value, true, 'An aborted read cannot confirm a command even if its position happens to match')
+  await casting.control('volume', 70)
+  assert.equal(casting.session.value.volume, 70)
+  assert.equal(casting.displayPosition.value, 110)
+  assert.equal(casting.seekPending.value, true)
+  assert.ok(notified.every(value => value.last_position === 20), 'Phone handoff receives only reported positions, never the optimistic target')
+  t.mock.timers.tick(3000)
+  await settle()
+  assert.equal(casting.seekPending.value, false)
+  assert.equal(casting.session.value.last_position, 110)
+})
+
+test('a restore started before seeking cannot overwrite the command, while a newly observed session clears its target', async t => {
+  const oldRead = pending()
+  const original = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 20, last_position: 20, position_known: true }
+  const replacement = { ...original, id: 'replacement', position: 40, last_position: 40 }
+  let reads = 0
+  const casting = make(async path => {
+    if (path.startsWith('/api/cast/current')) return ++reads === 1 ? oldRead.promise : { session: replacement }
+    return { ...original, state: 'TRANSITIONING' }
+  })
+  t.after(() => casting.dispose())
+  casting.session.value = original
+  const oldRestore = casting.restore()
+  await casting.control('seek', 110)
+  oldRead.resolve({ session: { ...original, position: 110, last_position: 110 } })
+  await oldRestore
+  assert.equal(casting.seekPending.value, true, 'The restore predates the user command and must be ignored')
+  await casting.restore()
+  assert.equal(casting.session.value.id, 'replacement')
+  assert.equal(casting.pendingSeek.value, null)
+  assert.equal(casting.displayPosition.value, 40)
+})
+
+test('a late seek failure after forgetting a session cannot add an error to its replacement', async t => {
+  const response = pending()
+  const casting = make(async () => response.promise)
+  t.after(() => casting.dispose())
+  casting.session.value = { ...session('playing'), state: 'PLAYING', duration: 300,
+    position: 20, last_position: 20, position_known: true }
+  const work = casting.control('seek', 110)
+  casting.forget()
+  casting.session.value = { ...session('replacement'), position_known: true, position: 40 }
+  response.resolve(Promise.reject(new Error('迟到网络错误')))
+  await work
+  assert.equal(casting.session.value.id, 'replacement')
+  assert.equal(casting.displayPosition.value, 40)
+  assert.equal(casting.pendingSeek.value, null)
+  assert.equal(casting.error.value, '')
+})
 
 test('TV App discovery requires an explicit receiver choice and ignores a closed picker response', async t => {
   const listing = pending()

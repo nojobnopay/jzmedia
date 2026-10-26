@@ -1,6 +1,6 @@
 // Actual Vue PlayerModal + isolated FastAPI/FFmpeg + loopback SOAP renderer. No real media/LAN.
 import assert from 'node:assert/strict'
-import { cp, mkdir, mkdtemp, readFile, symlink, writeFile, rm } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, symlink, writeFile, rm } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:net'
 import path from 'node:path'
@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process'
 import { build } from '../frontend/node_modules/vite/dist/node/index.js'
 import vue from '../frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
-import { smokeTvHandoff } from './fixtures/tv_handoff_browser.mjs'
+import { assertCastLayout, smokeTvHandoff } from './fixtures/tv_handoff_browser.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
@@ -24,6 +24,15 @@ assert.ok(!source || captureOnly, '--source is for comparable visual captures of
 const temp = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-cast-ui-'))
 const output = path.join(root, handoffOnly ? 'output/playwright/tv-handoff' : 'output/playwright/casting', captureOnly ? (source ? 'before' : 'after') : '')
 let backend, browser, backendOutput = ''
+const sourceFiles = {}
+for (const file of [
+  'frontend/src/components/PlayerModal.vue', 'frontend/src/components/CastDialog.vue',
+  'frontend/src/components/PlayerSeekbar.vue', 'frontend/src/useCasting.js',
+  'scripts/smoke_casting.mjs', 'scripts/fixtures/tv_handoff_browser.mjs',
+  'scripts/fixtures/casting_server.py', 'scripts/fixtures/dlna_receiver.py',
+  ...(!handoffOnly ? ['app/casting/service.py', 'app/casting/audio.py', 'app/routers/cast.py'] : []),
+]) sourceFiles[file] = createHash('sha256').update(await readFile(path.join(root, file))).digest('hex')
+const sourceSha256 = createHash('sha256').update(JSON.stringify(sourceFiles)).digest('hex')
 
 async function insidePlayer(page, locator, label) {
   const bounds = await locator.evaluate(element => {
@@ -556,7 +565,7 @@ async function castTimeline(page, picker, base, width, mode) {
 }
 
 async function castFullscreenController(page, player, picker, width) {
-  await picker.getByRole('button', { name: '关闭', exact: true }).click()
+  await picker.getByRole('button', { name: '关闭投屏面板', exact: true }).click()
   await player.getByRole('button', { name: '全屏', exact: true }).click()
   await page.waitForFunction(() => !!document.fullscreenElement)
   await player.getByRole('button', { name: '投屏控制', exact: true }).first().click()
@@ -638,6 +647,25 @@ async function uncertainHandoff(page, player, picker, width) {
   console.log(`PASS ${width}px unknown result keeps phone held; explicit readback confirms absence before resuming`)
 }
 
+async function castingDiscoveryStates(browser, base, mode) {
+  const page = await browser.newPage({ viewport: { width: 375, height: 812 } })
+  await page.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort())
+  await page.goto(base)
+  await page.getByRole('button', { name: '合成电影', exact: true }).click()
+  await mode({ discovery: 'empty' })
+  await page.getByRole('button', { name: '投屏', exact: true }).click()
+  const picker = page.getByRole('dialog', { name: '投屏到电视', exact: true })
+  await picker.getByText(/未找到电视/).waitFor()
+  await mode({ discovery: 'error' })
+  await picker.getByRole('button', { name: '重新搜索', exact: true }).click()
+  await picker.getByRole('alert').filter({ hasText: '模拟组播网络不可用' }).waitFor()
+  await mode({ discovery: 'normal' })
+  await picker.getByRole('button', { name: '重新搜索', exact: true }).click()
+  await picker.getByRole('radio').waitFor()
+  await page.close()
+  console.log('PASS DLNA empty/error/retry states')
+}
+
 try {
   await mkdir(output, { recursive: true })
   let component = path.join(root, 'frontend/src/components/PlayerModal.vue')
@@ -685,7 +713,7 @@ template:${JSON.stringify(template)}}).mount('#app');`)
   }
   browser = await chromium.launch({ headless: true })
   if (handoffOnly) {
-    await smokeTvHandoff({ browser, base, fixture, output })
+    await smokeTvHandoff({ browser, base, fixture, output, legacyLayout: !!source })
   } else {
   for (const width of [1440, 390, 375, 320]) {
     console.log(`Checking ${width}px casting flow`)
@@ -742,12 +770,23 @@ template:${JSON.stringify(template)}}).mount('#app');`)
     await player().getByRole('button', { name: '投屏', exact: true }).click()
     await picker().getByRole('radio').waitFor()
     const start = picker().getByRole('button', { name: '开始投屏', exact: true })
+    const network = picker().locator('.cast-network-settings'), server = picker().getByLabel('电视可访问的服务器地址', { exact: true })
+    assert.equal(await server.isVisible(), false, 'Connection fields are deferred until requested')
+    await network.locator('summary').click()
+    assert.equal(await server.isVisible(), true)
+    assert.equal(await picker().getByLabel('手动添加电视', { exact: true }).isVisible(), true)
+    await assertCastLayout(page, picker(), start)
+    await page.screenshot({ path: path.join(output, `connection-settings-${width}.png`) })
+    await network.locator('summary').focus()
+    await page.keyboard.press('Enter')
+    assert.equal(await server.isVisible(), false, 'Keyboard users can collapse connection settings')
     assert.equal(await start.isDisabled(), true)
     await picker().getByRole('radio').check()
     if (width <= 390) {
       const sizes = await picker().locator('button').evaluateAll(buttons => buttons.filter(button => button.offsetHeight).map(button => ({ width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height })))
       assert.ok(sizes.every(size => size.width >= 44 && size.height >= 44), 'Cast controls must retain 44px phone targets')
     }
+    await assertCastLayout(page, picker(), start)
     await page.screenshot({ path: path.join(output, `picker-${width}.png`) })
     await start.click()
     await picker().getByText('电视正在播放', { exact: true }).waitFor()
@@ -771,7 +810,7 @@ template:${JSON.stringify(template)}}).mount('#app');`)
     await picker().getByRole('slider', { name: '设置电视音量', exact: true }).evaluate(element => {
       element.value = 60; element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true }))
     })
-    await picker().getByRole('button', { name: '关闭', exact: true }).click()
+    await picker().getByRole('button', { name: '关闭投屏面板', exact: true }).click()
     await player().getByRole('button', { name: '投屏控制', exact: true }).first().waitFor()
     if (width === 390) {
       await page.waitForTimeout(3200)
@@ -812,6 +851,11 @@ template:${JSON.stringify(template)}}).mount('#app');`)
     // Movie and episode IDs are separate casting identities.
     await page.getByRole('button', { name: '合成剧集', exact: true }).click()
     await disableDlnaSubtitles(page, player())
+    // This case checks movie/episode identity; freeze an exact start instead of
+    // racing autoplay's fractional first second against receiver readiness.
+    // Nonzero continuation is covered independently by movie and App handoff.
+    await player().locator('video').evaluate(video => { video.pause(); video.currentTime = 0 })
+    await page.waitForFunction(() => document.querySelector('video')?.currentTime === 0 && !document.querySelector('video').seeking)
     await player().getByRole('button', { name: '投屏', exact: true }).click()
     await picker().getByRole('radio').check()
     await picker().getByRole('button', { name: '开始投屏', exact: true }).click()
@@ -820,7 +864,7 @@ template:${JSON.stringify(template)}}).mount('#app');`)
     assert.equal(current.session.kind, 'episode')
     await picker().getByRole('button', { name: '停止投屏', exact: true }).click()
     await picker().getByText('投屏已停止', { exact: true }).waitFor()
-    await picker().getByRole('button', { name: '关闭', exact: true }).click()
+    await picker().getByRole('button', { name: '关闭投屏面板', exact: true }).click()
     await player().getByRole('button', { name: '关闭播放器', exact: true }).click()
     // Preview remains progress-free and has no casting entry.
     const before = writes.length
@@ -838,6 +882,7 @@ template:${JSON.stringify(template)}}).mount('#app');`)
     console.log(`PASS ${width}px movie/episode casting, SOAP controls, real Range fetch, progress, reconnect, phone handoff, Escape and preview isolation`)
     await context.close()
   }
+  if (castingOnly && !captureOnly) await castingDiscoveryStates(browser, base, mode)
   if (captureOnly) {
     const mediaBytes = await readFile(path.join(temp, 'media', '合成电影 空格%&#.mp4'))
     await writeFile(path.join(output, 'fixture.json'), JSON.stringify({ syntheticMedia: true, loopbackOnly: true,
@@ -856,20 +901,7 @@ template:${JSON.stringify(template)}}).mount('#app');`)
   await landscapePage.getByRole('button', { name: '关闭播放器', exact: true }).click()
   assert.deepEqual(landscapeErrors, [])
   await landscape.close()
-  const page = await browser.newPage({ viewport: { width: 375, height: 812 } })
-  await page.goto(base)
-  await page.getByRole('button', { name: '合成电影', exact: true }).click()
-  await mode({ discovery: 'empty' })
-  await page.getByRole('button', { name: '投屏', exact: true }).click()
-  const picker = page.getByRole('dialog', { name: '投屏到电视', exact: true })
-  await picker.getByText(/未找到设备/).waitFor()
-  await mode({ discovery: 'error' })
-  await picker.getByRole('button', { name: '重新搜索', exact: true }).click()
-  await picker.getByRole('alert').filter({ hasText: '模拟组播网络不可用' }).waitFor()
-  await mode({ discovery: 'normal' })
-  await picker.getByRole('button', { name: '重新搜索', exact: true }).click()
-  await picker.getByRole('radio').waitFor()
-  console.log('PASS empty/error/retry states')
+  await castingDiscoveryStates(browser, base, mode)
   const restricted = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true })
   await restricted.route('**/*', route => new URL(route.request().url()).origin === base ? route.continue() : route.abort())
   await restricted.addInitScript(() => {
@@ -894,21 +926,38 @@ template:${JSON.stringify(template)}}).mount('#app');`)
   console.log('PASS browsers with read-only volume keep mute and use device volume buttons')
   }
   }
+  if (!captureOnly) {
+    const screenshots = (await readdir(output)).filter(file => file.endsWith('.png') && !file.startsWith('failure-')).sort()
+    await writeFile(path.join(output, 'summary.json'), JSON.stringify({ passed: true,
+      recordedAt: new Date().toISOString(), mode: handoffOnly ? 'app-ui-fixture' : 'dlna-loopback-soap-range',
+      arguments: args, widths: [1440, 390, 375, 320], sourceSha256, sourceFiles,
+      syntheticMedia: true, loopbackOnly: true, realTelevisionValidated: false, screenshots,
+      coverage: handoffOnly
+        ? ['App loading/empty/error/retry', 'explicit target and long device names', 'single-line full-width action',
+          'audio/subtitle/time handoff', 'delayed seek acknowledgement and stale polling', 'transitioning playback label',
+          'fullscreen containment and focus return', 'audio preparation and safe receiver switching']
+        : ['connection settings disclosure and keyboard access', 'single-line full-width action', 'real SOAP and HTTP Range fetch',
+          'touch/mouse seek and thumbnails', 'fullscreen containment and cancellation', 'phone handoff and progress isolation',
+          'movie/episode identity', 'discovery empty/error/retry'],
+    }, null, 2) + '\n')
+  }
 } catch (error) {
   const pages = browser?.contexts().flatMap(context => context.pages()) || []
   for (const [index, page] of pages.entries()) {
     try { await page.screenshot({ path: path.join(output, `failure-${index}.png`) }) } catch { /* Keep the original failure. */ }
   }
-  let receiverFixture = null, currentFixture = null
+  let receiverFixture = null, currentFixture = null, episodeFixture = null
   if (pages[0]) {
     try {
       const origin = new URL(pages[0].url()).origin
       receiverFixture = await (await fetch(origin + '/__fixture/info', { signal: AbortSignal.timeout(3000) })).json()
       currentFixture = await (await fetch(`${origin}/api/cast/current?version_id=${receiverFixture.movie_id}&kind=movie`,
         { signal: AbortSignal.timeout(3000) })).json()
+      episodeFixture = await (await fetch(`${origin}/api/cast/current?version_id=${receiverFixture.episode_id}&kind=episode`,
+        { signal: AbortSignal.timeout(3000) })).json()
     } catch { /* Keep the original assertion if the isolated server already stopped. */ }
   }
-  await writeFile(path.join(output, 'failure.json'), JSON.stringify({ error: String(error), stack: error.stack, receiverFixture, currentFixture,
+  await writeFile(path.join(output, 'failure.json'), JSON.stringify({ error: String(error), stack: error.stack, receiverFixture, currentFixture, episodeFixture,
     backendOutput: backendOutput.slice(-12000) }, null, 2) + '\n')
   throw error
 } finally {

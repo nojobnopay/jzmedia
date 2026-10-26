@@ -222,6 +222,47 @@ def test_complete_audio_output_confirms_zero_start_without_another_monitor_inter
     assert any(call["name"] == "GetTransportInfo" for call in fixture.cast.receiver.calls)
 
 
+def test_complete_audio_file_is_readable_before_set_uri_and_play_respond(prepared_audio, monkeypatch):
+    fixture = prepared_audio
+    result = start(fixture.cast, audio=1, position=0)
+    sid = result["id"]
+    session = fixture.cast.manager.get(sid)
+    assert fixture.cast.client.get(f"/api/cast/media/{sid}").status_code == 409
+    command = fixture.cast.receiver.command
+    reads = []
+
+    def fetch_before_response(name, args):
+        response = command(name, args)
+        if name in ("SetAVTransportURI", "Play"):
+            # This runs on the real SOAP server thread while _poll holds the
+            # device lock and is still waiting for the corresponding response.
+            head = fixture.cast.client.head(f"/api/cast/media/{sid}")
+            data = fixture.cast.client.get(f"/api/cast/media/{sid}", headers={"Range": "bytes=7-23"})
+            reads.append((name, head.status_code, head.headers.get("content-length"), data.status_code, data.content))
+        return response
+
+    monkeypatch.setattr(fixture.cast.receiver, "command", fetch_before_response)
+    fixture.ready()
+    fixture.cast.manager._poll(session)
+    assert reads == [(name, 200, str(fixture.output.stat().st_size), 206, fixture.output.read_bytes()[7:24])
+                     for name in ("SetAVTransportURI", "Play")]
+    assert session.active and session.state == "PLAYING" and not session.preparing
+
+
+@pytest.mark.parametrize("rejected", ["SetAVTransportURI", "Play"])
+def test_complete_audio_start_failure_revokes_the_published_file(prepared_audio, rejected):
+    fixture = prepared_audio
+    result = start(fixture.cast, audio=1, position=0)
+    session = fixture.cast.manager.get(result["id"])
+    fixture.ready()
+    fixture.cast.receiver.reject.add(rejected)
+    fixture.cast.manager._poll(session)
+    assert not session.active and not session.preparing and session.state == "ERROR"
+    assert session.audio_lease is None
+    assert any(call[0] == "release" for call in fixture.calls)
+    assert fixture.cast.client.get(f"/api/cast/media/{session.id}").status_code == 410
+
+
 def test_stop_preparation_does_not_stop_unrelated_tv_content(prepared_audio):
     fixture = prepared_audio
     fixture.cast.receiver.uri = "http://192.168.1.5/unrelated.mp4"
