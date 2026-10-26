@@ -5779,7 +5779,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:0",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 373,
+      "line": 374,
       "platforms": [
         "android-tv"
       ],
@@ -5821,7 +5821,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:1",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 374,
+      "line": 375,
       "platforms": [
         "android-tv"
       ],
@@ -5863,7 +5863,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:2",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 375,
+      "line": 376,
       "platforms": [
         "android-tv"
       ],
@@ -5905,7 +5905,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:3",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 461,
+      "line": 462,
       "platforms": [
         "android-tv"
       ],
@@ -5947,7 +5947,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:4",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 463,
+      "line": 464,
       "platforms": [
         "android-tv"
       ],
@@ -5989,7 +5989,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:5",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 465,
+      "line": 466,
       "platforms": [
         "android-tv"
       ],
@@ -6031,7 +6031,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:6",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 476,
+      "line": 477,
       "platforms": [
         "android-tv"
       ],
@@ -6075,7 +6075,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:7",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 477,
+      "line": 478,
       "platforms": [
         "android-tv"
       ],
@@ -6119,7 +6119,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:8",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 497,
+      "line": 498,
       "platforms": [
         "android-tv"
       ],
@@ -6163,7 +6163,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:9",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 606,
+      "line": 607,
       "platforms": [
         "android-tv"
       ],
@@ -6205,7 +6205,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:10",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 611,
+      "line": 612,
       "platforms": [
         "android-tv"
       ],
@@ -6250,7 +6250,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:11",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 613,
+      "line": 614,
       "platforms": [
         "android-tv"
       ],
@@ -6294,7 +6294,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:12",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 618,
+      "line": 619,
       "platforms": [
         "android-tv"
       ],
@@ -6339,7 +6339,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:13",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 683,
+      "line": 684,
       "platforms": [
         "android-tv"
       ],
@@ -6385,7 +6385,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:14",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 693,
+      "line": 694,
       "platforms": [
         "android-tv"
       ],
@@ -6429,7 +6429,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:15",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 695,
+      "line": 696,
       "platforms": [
         "android-tv"
       ],
@@ -6473,7 +6473,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:16",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 716,
+      "line": 717,
       "platforms": [
         "android-tv"
       ],
@@ -6519,7 +6519,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:17",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 720,
+      "line": 721,
       "platforms": [
         "android-tv"
       ],
@@ -12669,9 +12669,9 @@
       "source_excerpt": "<JzButton @click=\"load\" icon=\"refresh\">"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:4",
+      "id": "frontend/src/components/CastDialog.vue:JzButton:3",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 8,
+      "line": 5,
       "platforms": [
         "web",
         "mobile-web"
@@ -12708,12 +12708,12 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"casting.uncertain?.value\" icon=\"refresh\" :loading=\"casting.busy.value\" :disabled=\"casting.busy.value\" @click=\"casting.reconcile\">"
+      "source_excerpt": "<JzButton v-if=\"casting.uncertain?.value\" icon=\"refresh\" :loading=\"casting.busy.value\" @click=\"casting.reconcile\">"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:AppIcon:7",
+      "id": "frontend/src/components/CastDialog.vue:AppIcon:6",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 11,
+      "line": 8,
       "platforms": [
         "web",
         "mobile-web"
@@ -12748,9 +12748,9 @@
       "source_excerpt": "<AppIcon name=\"tv\" :size=\"28\" />"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:progress:14",
+      "id": "frontend/src/components/CastDialog.vue:progress:13",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 17,
+      "line": 14,
       "platforms": [
         "web",
         "mobile-web"
@@ -12776,7 +12776,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 217,
+            "line": 274,
             "selector": ".cast-prepare-progress",
             "values": {
               "width": "100%",
@@ -12796,9 +12796,9 @@
       "source_excerpt": "<progress class=\"cast-prepare-progress\" :value=\"prepareProgress ?? undefined\" max=\"1\" aria-label=\"音轨准备进度\">"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:19",
+      "id": "frontend/src/components/CastDialog.vue:JzButton:18",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 24,
+      "line": 21,
       "platforms": [
         "web",
         "mobile-web"
@@ -12840,7 +12840,7 @@
     {
       "id": "frontend/src/components/CastDialog.vue:JzButton:29",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 40,
+      "line": 37,
       "platforms": [
         "web",
         "mobile-web"
@@ -12880,7 +12880,7 @@
     {
       "id": "frontend/src/components/CastDialog.vue:PlayerIcon:30",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 40,
+      "line": 37,
       "platforms": [
         "web",
         "mobile-web"
@@ -12917,7 +12917,7 @@
     {
       "id": "frontend/src/components/CastDialog.vue:JzButton:31",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 41,
+      "line": 38,
       "platforms": [
         "web",
         "mobile-web"
@@ -12960,7 +12960,7 @@
     {
       "id": "frontend/src/components/CastDialog.vue:JzButton:32",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 42,
+      "line": 39,
       "platforms": [
         "web",
         "mobile-web"
@@ -13000,7 +13000,7 @@
     {
       "id": "frontend/src/components/CastDialog.vue:PlayerIcon:33",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 42,
+      "line": 39,
       "platforms": [
         "web",
         "mobile-web"
@@ -13037,7 +13037,7 @@
     {
       "id": "frontend/src/components/CastDialog.vue:AppIcon:37",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 45,
+      "line": 42,
       "platforms": [
         "web",
         "mobile-web"
@@ -13074,7 +13074,7 @@
     {
       "id": "frontend/src/components/CastDialog.vue:input:39",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 48,
+      "line": 45,
       "platforms": [
         "web",
         "mobile-web"
@@ -13097,7 +13097,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 229,
+            "line": 306,
             "selector": ".cast-volume-range",
             "values": {
               "width": "100%",
@@ -13107,7 +13107,7 @@
           },
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 231,
+            "line": 308,
             "selector": ".cast-volume-range::-webkit-slider-runnable-track",
             "values": {
               "height": "4px"
@@ -13115,7 +13115,7 @@
           },
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 233,
+            "line": 310,
             "selector": ".cast-volume-range::-webkit-slider-thumb",
             "values": {
               "width": "14px",
@@ -13124,7 +13124,7 @@
           },
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 234,
+            "line": 311,
             "selector": ".cast-volume-range::-moz-range-track",
             "values": {
               "height": "4px"
@@ -13132,7 +13132,7 @@
           },
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 235,
+            "line": 312,
             "selector": ".cast-volume-range::-moz-range-progress",
             "values": {
               "height": "4px"
@@ -13140,7 +13140,7 @@
           },
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 236,
+            "line": 313,
             "selector": ".cast-volume-range::-moz-range-thumb",
             "values": {
               "width": "14px",
@@ -13168,7 +13168,7 @@
     {
       "id": "frontend/src/components/CastDialog.vue:JzButton:40",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 55,
+      "line": 52,
       "platforms": [
         "web",
         "mobile-web"
@@ -13193,7 +13193,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/CastDialog.vue",
-            "line": 239,
+            "line": 316,
             "selector": ".cast-stop",
             "values": {
               "width": "100%"
@@ -13217,9 +13217,48 @@
       "source_excerpt": "<JzButton class=\"cast-stop\" icon=\"stop\" :disabled=\"casting.busy.value\" @click=\"casting.control('stop')\">"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:44",
+      "id": "frontend/src/components/CastDialog.vue:summary:43",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 60,
+      "line": 56,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "summary",
+      "purpose": "电视无画面、无声音或需要字幕？",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<summary>"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:45",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 58,
       "platforms": [
         "web",
         "mobile-web"
@@ -13259,9 +13298,9 @@
       "source_excerpt": "<JzButton icon=\"tv\" :disabled=\"casting.busy.value || casting.uncertain?.value\" @click=\"chooseReceiver('jzmedia_tv')\">"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:47",
+      "id": "frontend/src/components/CastDialog.vue:JzButton:48",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 65,
+      "line": 63,
       "platforms": [
         "web",
         "mobile-web"
@@ -13300,9 +13339,9 @@
       "source_excerpt": "<JzButton :aria-pressed=\"receiverType === 'dlna'\" :disabled=\"casting.busy.value\" @click=\"chooseReceiver('dlna')\">"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:48",
+      "id": "frontend/src/components/CastDialog.vue:JzButton:49",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 66,
+      "line": 64,
       "platforms": [
         "web",
         "mobile-web"
@@ -13341,248 +13380,9 @@
       "source_excerpt": "<JzButton :aria-pressed=\"receiverType === 'jzmedia_tv'\" :disabled=\"casting.busy.value\" @click=\"chooseReceiver('jzmedia_tv')\">"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:52",
+      "id": "frontend/src/components/CastDialog.vue:JzButton:54",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 71,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "浏览与资料",
-      "element": "JzButton",
-      "purpose": "重新搜索",
-      "assets": [
-        "refresh"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton icon=\"refresh\" :loading=\"casting.searching.value\" :disabled=\"casting.busy.value\" @click=\"casting.discover\">"
-    },
-    {
-      "id": "frontend/src/components/CastDialog.vue:input:56",
-      "source": "frontend/src/components/CastDialog.vue",
-      "line": 76,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "浏览与资料",
-      "element": "input",
-      "purpose": "input",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<input v-model=\"casting.selected.value\" type=\"radio\" name=\"cast-device\" :value=\"device.id\" :disabled=\"casting.busy.value\" />"
-    },
-    {
-      "id": "frontend/src/components/CastDialog.vue:AppIcon:57",
-      "source": "frontend/src/components/CastDialog.vue",
-      "line": 77,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "浏览与资料",
-      "element": "AppIcon",
-      "purpose": "剧集",
-      "assets": [
-        "tv"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "20"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon name=\"tv\" />"
-    },
-    {
-      "id": "frontend/src/components/CastDialog.vue:input:64",
-      "source": "frontend/src/components/CastDialog.vue",
-      "line": 84,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "浏览与资料",
-      "element": "input",
-      "purpose": "input",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<input id=\"cast-device-location\" v-model=\"casting.manualLocation.value\" type=\"url\" required :aria-describedby=\"field.describedby\" placeholder=\"http://192.168.1.20:49152/description"
-    },
-    {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:65",
-      "source": "frontend/src/components/CastDialog.vue",
-      "line": 87,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "浏览与资料",
-      "element": "JzButton",
-      "purpose": "添加电视",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton type=\"submit\" :loading=\"casting.busy.value\" :disabled=\"casting.busy.value || !casting.manualLocation.value.trim()\">"
-    },
-    {
-      "id": "frontend/src/components/CastDialog.vue:input:67",
-      "source": "frontend/src/components/CastDialog.vue",
-      "line": 90,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "浏览与资料",
-      "element": "input",
-      "purpose": "input",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<input id=\"cast-server-url\" v-model=\"casting.serverUrl.value\" type=\"url\" :aria-describedby=\"field.describedby\" placeholder=\"http://192.168.1.10:8080\" :disabled=\"casting.busy.value\""
-    },
-    {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:70",
-      "source": "frontend/src/components/CastDialog.vue",
-      "line": 94,
+      "line": 70,
       "platforms": [
         "web",
         "mobile-web"
@@ -13622,9 +13422,410 @@
       "source_excerpt": "<JzButton icon=\"tv\" :disabled=\"casting.busy.value\" @click=\"chooseReceiver('jzmedia_tv')\">"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:75",
+      "id": "frontend/src/components/CastDialog.vue:JzButton:57",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 74,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "重新搜索",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton icon=\"refresh\" :loading=\"casting.searching.value\" :disabled=\"casting.busy.value\" @click=\"casting.discover\">"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:input:61",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 79,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input v-model=\"casting.selected.value\" type=\"radio\" name=\"cast-device\" :value=\"device.id\" :disabled=\"casting.busy.value\" />"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:AppIcon:62",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 80,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "浏览与资料",
+      "element": "AppIcon",
+      "purpose": "剧集",
+      "assets": [
+        "tv"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "20"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon name=\"tv\" />"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:summary:68",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 86,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "summary",
+      "purpose": "连接设置与手动添加",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<summary>"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:input:70",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 88,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input id=\"cast-server-url\" v-model=\"casting.serverUrl.value\" type=\"url\" :aria-describedby=\"field.describedby\" placeholder=\"http://192.168.1.10:8080\" :disabled=\"casting.busy.value\""
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:input:73",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 92,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input id=\"cast-device-location\" v-model=\"casting.manualLocation.value\" type=\"url\" required :aria-describedby=\"field.describedby\" placeholder=\"http://192.168.1.20:49152/description"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:74",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 95,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "添加电视",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton type=\"submit\" :loading=\"casting.busy.value\" :disabled=\"casting.busy.value || !casting.manualLocation.value.trim()\">"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:summary:77",
       "source": "frontend/src/components/CastDialog.vue",
       "line": 100,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "summary",
+      "purpose": "音轨与格式说明",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<summary>"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:80",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 103,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "改用 jzmedia-tv",
+      "assets": [
+        "tv"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton icon=\"tv\" :disabled=\"casting.busy.value\" @click=\"chooseReceiver('jzmedia_tv')\">"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:81",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 105,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "改用 jzmedia-tv",
+      "assets": [
+        "tv"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"castError && !dlnaBlocked\" class=\"cast-error-recovery\" icon=\"tv\" :disabled=\"casting.busy.value\" @click=\"chooseReceiver('jzmedia_tv')\">"
+    },
+    {
+      "id": "frontend/src/components/CastDialog.vue:JzButton:85",
+      "source": "frontend/src/components/CastDialog.vue",
+      "line": 109,
       "platforms": [
         "web",
         "mobile-web"
@@ -13664,9 +13865,9 @@
       "source_excerpt": "<JzButton icon=\"refresh\" :loading=\"casting.searchingApps?.value\" :disabled=\"casting.busy.value\" @click=\"casting.refreshApps\">"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:input:81",
+      "id": "frontend/src/components/CastDialog.vue:input:90",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 107,
+      "line": 115,
       "platforms": [
         "web",
         "mobile-web"
@@ -13704,9 +13905,9 @@
       "source_excerpt": "<input v-model=\"casting.selected.value\" type=\"radio\" name=\"cast-app-device\" :value=\"device.id\" :disabled=\"casting.busy.value\" />"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:AppIcon:82",
+      "id": "frontend/src/components/CastDialog.vue:AppIcon:91",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 108,
+      "line": 116,
       "platforms": [
         "web",
         "mobile-web"
@@ -13741,30 +13942,30 @@
       "source_excerpt": "<AppIcon name=\"tv\" />"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:92",
+      "id": "frontend/src/components/CastDialog.vue:summary:97",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 118,
+      "line": 121,
       "platforms": [
         "web",
         "mobile-web"
       ],
-      "category": "control",
+      "category": "native-form",
       "feature": "浏览与资料",
-      "element": "JzButton",
-      "purpose": "{{ casting.active.value ? '结束投屏，手机播放' : '手机播放' }}",
+      "element": "summary",
+      "purpose": "如何连接电视 App",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
         "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
         "measurement_status": "source specification; browser acceptance records actual geometry",
         "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
         ],
         "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
       },
       "target": {
         "policy_touch_min_css_px": 44,
@@ -13773,17 +13974,16 @@
       "states": [
         "normal",
         "focus",
-        "disabled",
-        "busy"
+        "disabled"
       ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"held && !casting.uncertain?.value\" :disabled=\"casting.busy.value\" @click=\"$emit('return-phone')\">"
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:93",
+      "id": "frontend/src/components/CastDialog.vue:JzButton:114",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 119,
+      "line": 137,
       "platforms": [
         "web",
         "mobile-web"
@@ -13805,7 +14005,17 @@
           "frontend/src/components/JzButton.vue",
           "design/tokens.json"
         ],
-        "overrides": [],
+        "overrides": [
+          {
+            "source": "frontend/src/components/CastDialog.vue",
+            "line": 321,
+            "selector": ".cast-start, .cast-return-phone",
+            "values": {
+              "width": "100%",
+              "min-height": "44px"
+            }
+          }
+        ],
         "value": "min-height:40px desktop / 44px touch"
       },
       "target": {
@@ -13820,12 +14030,12 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"!casting.active.value && !casting.uncertain?.value\" variant=\"primary\" icon=\"cast\" :loading=\"casting.busy.value\" :disabled=\"casting.searching.value || !casting.selec"
+      "source_excerpt": "<JzButton class=\"cast-start\" variant=\"primary\" icon=\"cast\" :loading=\"casting.busy.value\" :aria-describedby=\"startHint ? 'cast-start-hint' : undefined\" :disabled=\"startDisabled\" @cl"
     },
     {
-      "id": "frontend/src/components/CastDialog.vue:JzButton:94",
+      "id": "frontend/src/components/CastDialog.vue:JzButton:115",
       "source": "frontend/src/components/CastDialog.vue",
-      "line": 121,
+      "line": 140,
       "platforms": [
         "web",
         "mobile-web"
@@ -13833,7 +14043,7 @@
       "category": "control",
       "feature": "浏览与资料",
       "element": "JzButton",
-      "purpose": "关闭",
+      "purpose": "{{ casting.active.value ? '结束投屏，手机播放' : '手机播放' }}",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
@@ -13845,7 +14055,17 @@
           "frontend/src/components/JzButton.vue",
           "design/tokens.json"
         ],
-        "overrides": [],
+        "overrides": [
+          {
+            "source": "frontend/src/components/CastDialog.vue",
+            "line": 321,
+            "selector": ".cast-start, .cast-return-phone",
+            "values": {
+              "width": "100%",
+              "min-height": "44px"
+            }
+          }
+        ],
         "value": "min-height:40px desktop / 44px touch"
       },
       "target": {
@@ -13860,7 +14080,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton :disabled=\"casting.busy.value\" @click=\"casting.close\">"
+      "source_excerpt": "<JzButton v-if=\"held && !casting.uncertain?.value\" class=\"cast-return-phone\" :disabled=\"casting.busy.value\" @click=\"$emit('return-phone')\">"
     },
     {
       "id": "frontend/src/components/CastWall.vue:JzButton:6",
