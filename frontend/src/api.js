@@ -56,7 +56,8 @@ function _httpError(status, body, silentViewing = false) {
 
 // opts.signal：调用方取消（关窗/切档）与内部超时合并；外部取消抛「已取消」而非超时文案。
 export async function api(path, opts = {}) {
-  const { timeout: configuredTimeout, signal: outer, mayContinue = false, silentViewing = false, ...fetchOpts } = opts
+  const { timeout: configuredTimeout, signal: outer, headers: extraHeaders,
+    mayContinue = false, silentViewing = false, ...fetchOpts } = opts
   const method = String(fetchOpts.method || 'GET').toUpperCase()
   const timeout = configuredTimeout ?? (method === 'GET' ? 30000 : 120000)
   const ctrl = new AbortController()
@@ -69,7 +70,7 @@ export async function api(path, opts = {}) {
   try {
     const r = await fetch(path, {
       // 仅带 body 时发 JSON Content-Type（评审 B8/R04-B2）
-      headers: { ...(fetchOpts.body != null ? { 'Content-Type': 'application/json' } : {}), ..._authHeaders(), ...(fetchOpts.headers || {}) },
+      headers: { ...(fetchOpts.body != null ? { 'Content-Type': 'application/json' } : {}), ..._authHeaders(), ...(extraHeaders || {}) },
       ...fetchOpts,
       signal: ctrl.signal
     })
