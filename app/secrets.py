@@ -1,7 +1,7 @@
 """库凭据加密（MULTI_LIBRARY_PLAN D4）：Fernet + data_dir/secret.key（0600）。
 
 - 密钥首次使用时自动生成；换机携带 data/secret.key 即可解密既有凭据，丢 key 需重输。
-- 只用于远程库凭据（SMB/NFS 密码）；API 只写不读，日志/错误一律脱敏。
+- 用于远程库凭据（SMB/NFS 密码）和网络代理凭据；API 只写不读，日志/错误一律脱敏。
 - 未安装 cryptography 时给出明确错误，不影响其余功能启动（只在写入/挂载时触发）。
 """
 import os

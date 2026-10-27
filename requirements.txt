@@ -3,6 +3,7 @@ fastapi==0.141.1
 uvicorn[standard]==0.52.4
 pydantic==2.13.5
 httpx==0.28.1
+httpcore==1.0.9
 guessit==4.4.0
 # 电视客户端标题全拼/首字母搜索（本地词组词典，无联网服务）
 pypinyin==0.55.0
