@@ -8,7 +8,7 @@ import time
 
 from ..network.guard import NetworkOperation, NetworkOperationError, current_operation, operation_context
 from ..store import online as online_store
-from . import maccms, open_catalog, service
+from . import health, maccms, open_catalog, service
 from .models import OnlinePlaybackIdentity
 from .providers import ProviderError, ResolvedPlayback
 
@@ -127,7 +127,8 @@ def search(access, source_id, query, page=1, *, operation=None):
         source = _ready_source(source_id, access)
         if not query and source["provider"] != "open_catalog":
             raise CatalogError("online_query_required", 422)
-        result = _adapter(source).search(source, query, page)
+        with health.observe_catalogue():
+            result = _adapter(source).search(source, query, page)
         _after(source, access)
         return {"source": _public_source(source), **result}
 
@@ -171,7 +172,8 @@ def detail(access, source_id, selected_id, *, operation=None):
         raise CatalogError("invalid_online_catalog_request", 422) from None
     with _admit(access.owner, operation):
         source = _ready_source(source_id, access)
-        selected = _adapter(source).detail(source, selected_id)
+        with health.observe_catalogue():
+            selected = _adapter(source).detail(source, selected_id)
         _after(source, access)
         saved = _persist(source, selected)
         _after(source, access)
@@ -185,7 +187,8 @@ def resolve(identity):
         item = online_store.get_online_item(identity.item_id)
         if item is None or item["source_id"] != identity.source_id:
             raise ProviderError("provider_not_found")
-        selected = _adapter(source).detail(source, item["external_id"])
+        with health.observe_catalogue():
+            selected = _adapter(source).detail(source, item["external_id"])
         _after(source)
         if selected.kind != item["kind"]:
             raise ProviderError("provider_not_found")

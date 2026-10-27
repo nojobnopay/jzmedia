@@ -59,6 +59,44 @@ def entry_for(value, transport):
     return next(entry for line in value["lines"] for entry in line["entries"] if entry["transport"] == transport)
 
 
+def test_health_observes_actual_catalogue_and_media_reads_without_probing(client):
+    source = add_source(client)
+    path = "/api/online/catalog/health"
+    params = {"source_id": source["id"]}
+    initial = client.get(path, params=params)
+    assert initial.status_code == 200
+    assert initial.json()["purposes"]["api"]["state"] == "unknown"
+    value = detail(client, source)
+    response = client.get(path, params=params)
+    assert response.json()["purposes"]["api"]["state"] == "success"
+    assert response.json()["purposes"]["media"]["state"] == "unknown"
+    descriptor = client.post("/api/online/sessions", json=entry_for(value, "mp4")["identity"]).json()
+    assert client.get(descriptor["media_url"], headers={"Range": "bytes=0-31"}).content == (b"0123456789" * 100)[:32]
+    before = len(client.get("/api/p2/metrics").json()["origin_calls"])
+    observed = client.get(path, params=params)
+    assert observed.status_code == 200
+    assert observed.json()["cache_scope"] == "process"
+    media = observed.json()["purposes"]["media"]
+    assert media["state"] == "success" and media["mode"] == "direct" and media["stage"] == "bytes"
+    assert "fixture.invalid" not in observed.text and "proxy_url" not in observed.text
+    assert len(client.get("/api/p2/metrics").json()["origin_calls"]) == before
+    assert client.delete(f"/api/online/sessions/{descriptor['session_id']}").status_code == 204
+
+
+def test_health_requires_a_viewing_device_and_rejects_extra_targets(client):
+    source = add_source(client)
+    stranger = TestClient(client.app)
+    try:
+        response = stranger.get("/api/online/catalog/health", params={"source_id": source["id"]})
+        assert response.status_code == 401
+    finally:
+        stranger.close()
+    response = client.get("/api/online/catalog/health", params={"source_id": source["id"], "url": "https://private.invalid/secret"})
+    assert response.status_code == 422 and "private.invalid" not in response.text
+    assert response.headers["cache-control"] == "no-store"
+    assert client.get("/api/online/catalog/health", params={"source_id": "src_" + "f" * 32}).status_code == 404
+
+
 def test_fixture_guard_refuses_unmarked_and_production_paths(tmp_path):
     for path in (Path("/data"), tmp_path, Path("/tmp/arbitrary-directory")):
         with pytest.raises(ValueError):

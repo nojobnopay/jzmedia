@@ -21,11 +21,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app import config, library_paths, secrets, store
 from app.network.client import create_client
-from app.network.policy import resolve_online_policy
+from app.network.policy import NetworkPolicyError, resolve_policy_state
 from app.online import catalog, runtime, service
 from app.routers import online, online_network, online_playback, viewing
 from app.store import _base
-from app.store import online as online_store
+from app.store.online_network import load_online_network_state
 from app.viewing_http import _error_response, middleware as viewing_middleware
 from scripts.online_p1.server import FixtureRegistry, FixtureTargetPolicy
 from scripts.online_p2.fixtures import DURATION, MARKER, MODES, FixtureOrigin, fixture_root, prepare_media
@@ -53,16 +53,22 @@ class FixtureState:
     def client(self, source_id, purpose, *, header_policy=None):
         if purpose not in {"api", "media"}:
             raise ValueError("unexpected fixture network purpose")
-        source = online_store.get_online_source(source_id)
-        if source is None or source["api_base_url"] != f"{self.origin.base_url}/provide/vod":
+        state = load_online_network_state(source_id)
+        source = state["source_config"]
+        if source["api_base_url"] != f"{self.origin.base_url}/provide/vod":
             raise ValueError("fixture clients may only use the exact isolated MacCMS source")
-        snapshot = resolve_online_policy(source_id, purpose)
+        if not state["online_enabled"] or not source["enabled"]:
+            raise NetworkPolicyError("online_source_disabled")
+        snapshot = resolve_policy_state(state, purpose)
         with self.lock:
             self.client_calls.append({"source_id": source_id, "purpose": purpose, "mode": snapshot.mode,
                                       "fingerprint": snapshot.fingerprint})
             del self.client_calls[:-2000]
-        return create_client(snapshot, targets=FixtureTargetPolicy(source_id, self.origin.port),
-                             header_policy=header_policy)
+        client = create_client(snapshot, targets=FixtureTargetPolicy(source_id, self.origin.port),
+                               header_policy=header_policy)
+        from app.online.health import bind_client
+        bind_client(client, state)
+        return client
 
     def metrics(self):
         active = {session.id for session in self.registry.sessions()}
@@ -96,6 +102,10 @@ def isolated_fixture(value, *, static_dir=None):
     # provider result is monkeypatched: all identities pass through real JSON.
     maccms = importlib.import_module("app.online.maccms")
     catalogue_router = importlib.import_module("app.routers.online_catalog")
+    state_router = importlib.import_module("app.routers.online_state")
+    health_router = importlib.import_module("app.routers.online_health")
+    health_module = importlib.import_module("app.online.health")
+    health_module.registry.clear()
     with ExitStack() as stack:
         state_dir = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="state-", dir=root)))
         stack.enter_context(patch.object(_base, "DB_PATH", str(state_dir / "fixture.db")))
@@ -153,6 +163,8 @@ def isolated_fixture(value, *, static_dir=None):
 
         app.include_router(online_playback.router)
         app.include_router(catalogue_router.router)
+        app.include_router(state_router.router)
+        app.include_router(health_router.router)
         app.include_router(online.router)
         app.include_router(online_network.router)
         app.include_router(viewing.router)
@@ -209,6 +221,7 @@ def isolated_fixture(value, *, static_dir=None):
             yield app
         finally:
             state.registry.close_all()
+            health_module.registry.clear()
             library_paths.invalidate_cache()
 
 

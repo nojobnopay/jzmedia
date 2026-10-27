@@ -6,7 +6,7 @@ import logging
 
 from fastapi.concurrency import run_in_threadpool
 
-from . import gateway, service
+from . import gateway, health, service
 
 
 _task = None
@@ -40,3 +40,4 @@ async def shutdown():
             await task
     await run_in_threadpool(service.registry.close_all)
     gateway.shutdown_workers()
+    health.registry.clear()

@@ -287,4 +287,7 @@ def create_online_client(source_id: str, purpose: str, *,
     snapshot = resolve_policy_state(state, purpose)
     targets = TargetPolicy(source_id, source["allowed_hosts"],
                            dns_timeout_seconds=snapshot.connect_timeout_seconds)
-    return create_client(snapshot, targets=targets, header_policy=header_policy)
+    client = create_client(snapshot, targets=targets, header_policy=header_policy)
+    from ..online.health import bind_client
+    bind_client(client, state)
+    return client

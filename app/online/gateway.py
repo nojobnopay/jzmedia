@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..network.client import NetworkRequestError
 from ..network.guard import NetworkOperation, NetworkOperationError
+from . import health
 from .hls import ManifestError, rewrite_manifest
 from .sessions import CHUNK_BYTES, SessionError
 
@@ -271,6 +272,8 @@ class _Transfer:
 
     def run(self):
         operation = NetworkOperation(self.lease.deadline, self.lease.cancelled, attach=self.lease.attach)
+        observation = (None if self.method == "HEAD" else health.begin_media(
+            self.session.client, "manifest" if self.resource.kind == "manifest" else "bytes"))
         cap = self.registry.response_limit(self.resource.kind)
         try:
             with self.session.client.guarded_stream(self.method, self.resource.url, operation=operation,
@@ -329,7 +332,9 @@ class _Transfer:
                     if pending:
                         self._emit(bytes(pending))
             self._emit(None)
+            health.registry.finish(observation)
         except Exception as error:
+            health.registry.finish(observation, error)
             failure = _failure(error)
             if not self.ready.done():
                 self.ready.set_exception(failure)
