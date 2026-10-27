@@ -11,7 +11,7 @@
       <div v-if="visible && duration > 0" class="preview" :class="{ 'preview--overlay': previewContainer }" :style="bubbleStyle">
         <div v-if="frame && !imageFailed" class="preview-image" :style="imageStyle"></div>
         <span>{{ fmtTime(hoverTime) }}</span>
-        <small v-if="!frame || imageFailed">{{ previewHint }}</small>
+        <small v-if="(!frame || imageFailed) && previewHint">{{ previewHint }}</small>
       </div>
     </Teleport>
   </div>
@@ -28,6 +28,7 @@ const props = defineProps({
   disabled: Boolean, manifest: { type: Object, default: null },
   touchTarget: Boolean, label: { type: String, default: '播放进度' },
   valueText: { type: String, default: '' },
+  previewHintText: { type: String, default: null },
   previewContainer: { type: Object, default: null },
 })
 const percent = time => Math.max(0, Math.min(100, (Number(time) || 0) / Math.max(1, props.duration) * 100))
@@ -58,6 +59,7 @@ const bubbleStyle = computed(() => props.previewContainer ? {
   top: overlay.value.top + 'px', width: previewWidth.value + 'px',
 } : { left: bubbleLeft.value + 'px' })
 const previewHint = computed(() => {
+  if (props.previewHintText !== null) return props.previewHintText
   const coverage = previewTailCoverage(props.manifest, true)
   if (coverage === null) return '预览覆盖信息无效'
   if (coverage && hoverTime.value >= coverage.coverageEnd) return '片尾缺少预览'

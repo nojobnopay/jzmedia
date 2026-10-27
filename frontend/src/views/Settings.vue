@@ -76,6 +76,8 @@
         <LibrariesPanel ref="librariesRef" @changed="onLibrariesChanged" />
       </div>
 
+      <div v-if="visited.has('sec-online')" v-show="active === 'sec-online'" id="sec-online"><OnlineSourcesPanel /></div>
+
       <div v-show="active === 'sec-tmdb'" id="sec-tmdb">
         <TmdbSettingsPanel :settings="s" @saved="s = $event" />
         <TvAiringMaintenance :active="active === 'sec-tmdb'" />
@@ -192,6 +194,7 @@ import TmdbSettingsPanel from '../components/TmdbSettingsPanel.vue'
 import TvAiringMaintenance from '../components/TvAiringMaintenance.vue'
 import AiSettingsPanel from '../components/AiSettingsPanel.vue'
 import LibrariesPanel from '../components/LibrariesPanel.vue'
+import OnlineSourcesPanel from '../components/OnlineSourcesPanel.vue'
 import LibraryToolsPanel from '../components/LibraryToolsPanel.vue'
 import { fmtBytes } from '../format.js'
 import { api, setToken } from '../api.js'
@@ -414,6 +417,7 @@ const currentPage = computed(() => navs.find(n => n.id === active.value) || navs
 const settingsScope = computed(() => {
   if (active.value === 'sec-display') return '作用范围：当前浏览器'
   if (active.value === 'sec-auth') return '作用范围：见下方各项'
+  if (active.value === 'sec-online') return '作用范围：此服务的在线点播'
   if (['sec-libtools', 'sec-files', 'sec-matching'].includes(active.value)) return '作用范围：下方选中的视频库'
   if (active.value === 'sec-status') return '统计范围：全部媒体库'
   return '作用范围：此服务的全部媒体库'

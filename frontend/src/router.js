@@ -26,6 +26,7 @@ export default createRouter({
     { path: '/m/:id', component: Detail },
     { path: '/p/:tmdb_id', component: Person },
     { path: '/collections', component: Collections },
+    { path: '/online', component: () => import('./views/Online.vue') },
     { path: '/c/:id', component: CollectionDetail },
     { path: '/tv', component: Tv },
     { path: '/tv/:id', component: TvShow },

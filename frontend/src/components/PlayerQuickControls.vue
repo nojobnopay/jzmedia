@@ -5,7 +5,7 @@
       :aria-controls="panel === 'speed' ? speedId : undefined" title="播放速度" @click="$emit('toggle', 'speed')">
       {{ playbackRate }}<span>×</span>
     </JzButton>
-    <JzButton ref="tracksTrigger" variant="ghost" icon-only class="player-icon-btn player-menu-trigger"
+    <JzButton v-if="showTracks" ref="tracksTrigger" variant="ghost" icon-only class="player-icon-btn player-menu-trigger"
       aria-label="字幕与音轨" title="字幕与音轨" :aria-expanded="panel === 'tracks'"
       :aria-controls="panel === 'tracks' ? tracksId : undefined" @click="$emit('toggle', 'tracks')">
       <PlayerIcon name="subtitles" />
@@ -20,7 +20,7 @@
           @click="$emit('rate-change', rate)">{{ rate }}×</JzButton>
       </div>
     </section>
-    <section v-if="panel === 'tracks'" ref="tracksPanel" :id="tracksId" class="quick-panel player-popup"
+    <section v-if="showTracks && panel === 'tracks'" ref="tracksPanel" :id="tracksId" class="quick-panel player-popup"
       :style="{ maxHeight: panelHeight + 'px' }" aria-label="字幕与音轨">
       <header class="quick-header"><strong>字幕与音轨</strong>
         <JzButton variant="ghost" icon-only aria-label="关闭字幕与音轨" @click="$emit('close')"><PlayerIcon name="close" :size="18" /></JzButton>
@@ -37,13 +37,13 @@
             <option v-for="(sub, index) in subs" :key="index" :value="index">{{ subLabel(sub, index) }}{{ subBadge(sub) }}</option>
           </select>
         </label>
-        <p v-else class="quick-hint">暂无字幕，可加载本地字幕文件。</p>
-        <div class="track-file-actions">
+        <p v-else class="quick-hint">{{ allowLocalSubtitles ? '暂无字幕，可加载本地字幕文件。' : '当前来源暂无可选字幕。' }}</p>
+        <div v-if="allowLocalSubtitles" class="track-file-actions">
           <JzButton icon="subtitles" @click="pickFile">加载字幕文件</JzButton>
           <JzButton v-if="hasLocalSub" @click="$emit('remove-local-subs')">移除本地字幕</JzButton>
           <input ref="fileInput" type="file" accept=".srt,.vtt,.ass,.ssa" class="sub-file" aria-label="字幕文件" @change="loadFile" />
         </div>
-        <JzButton variant="ghost" class="subtitle-settings" @click="$emit('subtitle-settings')">字幕调整与兼容设置</JzButton>
+        <JzButton v-if="allowSubtitleSettings" variant="ghost" class="subtitle-settings" @click="$emit('subtitle-settings')">字幕调整与兼容设置</JzButton>
       </div>
     </section>
   </div>
@@ -58,7 +58,9 @@ import { audioLabel, subLabel, subBadge } from '../playerLabels.js'
 
 const props = defineProps({ panel: { type: String, default: '' }, panelHeight: { type: Number, default: 300 },
   playbackRate: { type: Number, default: 1 }, audios: { type: Array, default: () => [] }, audioIdx: { type: Number, default: 0 },
-  subs: { type: Array, default: () => [] }, subIdx: { type: Number, default: -1 }, hasLocalSub: Boolean })
+  subs: { type: Array, default: () => [] }, subIdx: { type: Number, default: -1 }, hasLocalSub: Boolean,
+  showTracks: { type: Boolean, default: true }, allowLocalSubtitles: { type: Boolean, default: true },
+  allowSubtitleSettings: { type: Boolean, default: true } })
 const emit = defineEmits(['toggle', 'close', 'rate-change', 'audio-change', 'sub-change',
   'load-sub-file', 'remove-local-subs', 'subtitle-settings'])
 const instanceId = getCurrentInstance().uid

@@ -9,6 +9,7 @@ export const SETTINGS_PAGES = [
   { id: 'sec-libraries', icon: 'library', label: '媒体库连接', group: '媒体管理', description: '连接存储位置，管理其中的电影库与剧集库。' },
   { id: 'sec-libtools', icon: 'organize', label: '扫描与整理', group: '媒体管理', description: '选择视频库，扫描新文件、核对匹配或整理目录。' },
   { id: 'sec-files', icon: 'folder', label: '文件管理', group: '媒体管理', description: '按视频库浏览和管理文件，变更后通过扫描核对媒体资料。' },
+  { id: 'sec-online', icon: 'play', label: '在线视频源', group: '媒体管理', description: '管理在线点播开关、视频源及其各用途网络。配置对整个服务生效。' },
   { id: 'sec-tmdb', icon: 'link', label: '在线资料服务', group: '资料与智能', description: '配置 TMDB 连接，查看资料服务运行状态。配置对全部视频库生效。' },
   { id: 'sec-matching', icon: 'match', label: '匹配规则', group: '资料与智能', description: '为每个视频库选择资料来源、调整优先级并测试已保存规则。' },
   { id: 'sec-ai', icon: 'ai', label: '智能辅助', group: '资料与智能', description: '配置可选的智能搜索与匹配建议，整个实例共用。' },

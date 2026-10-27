@@ -1,6 +1,6 @@
 <template>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
-  <nav class="app-nav" aria-label="主导航">
+  <nav class="app-nav" :class="{ 'app-nav--online': !isChildren }" aria-label="主导航">
     <router-link :to="navTarget('/')" custom v-slot="{ href, navigate }">
       <a :href="href" class="brand" aria-label="jzmedia 电影" @click="navigate"><img src="/favicon.svg" alt="" width="26" height="26" /><span>jzmedia</span></a>
     </router-link>
@@ -104,24 +104,27 @@ async function loadDataUsage() {
   try { dataUsage.value = await api('/api/data-usage') }
   catch { /* 容量查询失败不阻断导航；设置页可手动重试 */ }
 }
-const channels = [
+const channels = computed(() => [
   { key: 'movie', path: '/', label: '电影', icon: 'movie' },
   { key: 'tv', path: '/tv', label: '剧集', icon: 'tv' },
   { key: 'collections', path: '/collections', label: '合集', icon: 'collections' },
-]
+  ...(!isChildren.value ? [{ key: 'online', path: '/online', label: '在线', icon: 'play' }] : []),
+])
 const activeSection = computed(() => {
   const path = route.path
   if (path === '/tv' || path.startsWith('/tv/')) return 'tv'
   if (path === '/collections' || path.startsWith('/c/')) return 'collections'
+  if (path === '/online') return 'online'
   if (path === '/settings' || path === '/setup') return 'settings'
   if (path === '/' || path.startsWith('/m/') || path.startsWith('/p/')) return 'movie'
   return ''
 })
 function navTarget(path) {
+  if (path === '/online') return { path }
   return currentId.value ? { path, query: { media: currentId.value } } : { path }
 }
 
-const showSwitch = computed(() => libs.value.length > 1)
+const showSwitch = computed(() => route.path !== '/online' && libs.value.length > 1)
 function optionLabel(m) {
   return m.name + (m.read_only ? ' · 只读' : '')
 }
@@ -155,7 +158,8 @@ onMounted(async () => {
   stopViewing = startViewingLifecycle()
   setViewingChangeHandler(({ modeChanged }) => {
     dataUsage.value = null
-    const path = route.path.startsWith('/tv') ? '/tv'
+    const path = route.path === '/online' && !isChildren.value ? '/online'
+      : route.path.startsWith('/tv') ? '/tv'
       : route.path.startsWith('/c/') || route.path === '/collections' ? '/collections' : '/'
     if (modeChanged && (!['/settings', '/setup'].includes(route.path) || isChildren.value)) {
       router.replace(navTarget(path)).then(() => clearBrowse())
