@@ -16,7 +16,8 @@ from .log import get_logger, setup_logging
 from .help_site import HelpFiles
 from .version import VERSION
 from .routers import (ai, ai_settings, cast, collections, extras, files, fs, health, jobs, libraries,
-                      media_libraries, metadata, movies, onboarding, persons, stream, tv,
+                      media_libraries, metadata, movies, onboarding, online, online_catalog, online_network, online_playback,
+                      persons, stream, tv,
                       tv_airing as tv_airing_router, tv_bindings, tv_client, tv_cast)
 
 setup_logging()
@@ -28,6 +29,7 @@ async def _lifespan(_app: FastAPI):
     # 启动初始化（评审 R01-Q1）：此前在模块导入期执行，测试无法隔离/导入即写盘
     ensure_dirs()
     store.init_db()
+    from .online import runtime as online_runtime
     from . import tv_airing
     tv_airing.start()
     # posters 子目录迁移（根部旧文件 → 功能子目录 + DB 旧值改写；幂等可重入）
@@ -68,9 +70,11 @@ async def _lifespan(_app: FastAPI):
         lib_desc = "unavailable"
     _logger.info("jzmedia %s 启动：media=[%s] DATA_DIR=%s ENV=%s",
                  app.version, lib_desc, settings.data_dir, settings.env)
+    await online_runtime.start()
     try:
         yield
     finally:
+        await online_runtime.shutdown()
         stream.stop_session_maintenance()
         tv_airing.shutdown()
         cast.manager.shutdown()
@@ -129,13 +133,18 @@ async def _auth_write(request, call_next):
                                              token.encode("utf-8")):
             return JSONResponse(
                 {"detail": "unauthorized: 需要访问令牌（设置页 → 访问控制）"},
-                status_code=401)
+                status_code=401,
+                headers={"Cache-Control": "no-store"} if request.url.path.startswith("/api/online/") else None)
     return await call_next(request)
 
 app.include_router(health.router)
 app.include_router(ai_settings.router)
 app.include_router(ai.router)
 app.include_router(onboarding.router)
+app.include_router(online.router)
+app.include_router(online_catalog.router)
+app.include_router(online_network.router)
+app.include_router(online_playback.router)
 app.include_router(media_libraries.router)
 app.include_router(libraries.router)
 app.include_router(movies.router)

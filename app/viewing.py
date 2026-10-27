@@ -405,6 +405,18 @@ def management_path(path, method):
     """Explicit browsing/playback allowlist; new management APIs default protected."""
     if path.startswith("/api/viewing/"):
         return False
+    if path in {"/api/online/catalog/sources", "/api/online/catalog/search", "/api/online/catalog/detail"}:
+        return method != "GET"
+    if path.startswith("/api/online/sessions"):
+        opaque = r"[A-Za-z0-9_-]{32,128}"
+        if method == "POST" and path == "/api/online/sessions":
+            return False
+        if method == "DELETE" and re.fullmatch(rf"/api/online/sessions/{opaque}", path):
+            return False
+        if method in {"GET", "HEAD"} and re.fullmatch(
+                rf"/api/online/sessions/{opaque}/(?:media|resources/{opaque})", path):
+            return False
+        return True
     if method in {"GET", "HEAD"}:
         if path in {"/api/health", "/api/libraries", "/api/media-libraries"}:
             return False
