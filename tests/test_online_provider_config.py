@@ -64,7 +64,7 @@ def test_upgrade_from_33_preserves_local_and_online_data():
     store.init_db()
     store.init_db()
     with closing(_base._conn()) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 34
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == _base.SCHEMA_VERSION
         assert {table: [tuple(row) for row in connection.execute(f"SELECT * FROM {table}")]
                 for table in before} == before
     assert online.get_online_source(original["id"]) == original

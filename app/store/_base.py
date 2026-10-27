@@ -18,6 +18,7 @@ from ..db import DB_PATH, ensure_dirs, mount_point
 from ..log import get_logger
 from .online_schema import ONLINE_SCHEMA_STATEMENTS
 from .network_schema import NETWORK_SCHEMA_STATEMENTS
+from .online_state_schema import ONLINE_STATE_SCHEMA_STATEMENTS
 
 logger = get_logger("store")
 
@@ -515,7 +516,8 @@ SCHEMA = "".join([_MEDIA_LIBRARIES_DDL, _LIBRARIES_DDL, _MOVIES_DDL, _EXTRAS_DDL
                   _COLLECTION_MEMBERS_DDL, _TMDB_CACHE_DDL, _TMDB_CACHE_INDEX_DDL,
                   _EXTERNAL_META_DDL, _REST_DDL,
                   ";\n".join(ONLINE_SCHEMA_STATEMENTS) + ";\n",
-                  ";\n".join(NETWORK_SCHEMA_STATEMENTS) + ";\n"])
+                  ";\n".join(NETWORK_SCHEMA_STATEMENTS) + ";\n",
+                  ";\n".join(ONLINE_STATE_SCHEMA_STATEMENTS) + ";\n"])
 
 _MOVIE_INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_movies_year ON movies(year)",
@@ -571,7 +573,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "online_network_default"}
 
 
-SCHEMA_VERSION = 34
+SCHEMA_VERSION = 35
 
 
 def _columns(c, table: str) -> set:
@@ -1386,13 +1388,19 @@ def _m34(c) -> None:
     ])
 
 
+def _m35(c) -> None:
+    """Independent device/mode favourites, progress and revocable write claims."""
+    for statement in ONLINE_STATE_SCHEMA_STATEMENTS:
+        c.execute(statement)
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
                     (17, _m17), (18, _m18), (19, _m19), (20, _m20), (21, _m21),
                     (22, _m22), (23, _m23),                      (24, _m24), (25, _m25),
                     (26, _m26), (27, _m27), (28, _m28), (29, _m29), (30, _m30),
-                    (31, _m31), (32, _m32), (33, _m33), (34, _m34)]
+                    (31, _m31), (32, _m32), (33, _m33), (34, _m34), (35, _m35)]
 
 
 def init_db() -> None:

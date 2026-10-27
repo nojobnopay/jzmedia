@@ -16,7 +16,7 @@ from .log import get_logger, setup_logging
 from .help_site import HelpFiles
 from .version import VERSION
 from .routers import (ai, ai_settings, cast, collections, extras, files, fs, health, jobs, libraries,
-                      media_libraries, metadata, movies, onboarding, online, online_catalog, online_network, online_playback,
+                      media_libraries, metadata, movies, onboarding, online, online_catalog, online_network, online_playback, online_state,
                       persons, stream, tv,
                       tv_airing as tv_airing_router, tv_bindings, tv_client, tv_cast)
 
@@ -145,6 +145,7 @@ app.include_router(online.router)
 app.include_router(online_catalog.router)
 app.include_router(online_network.router)
 app.include_router(online_playback.router)
+app.include_router(online_state.router)
 app.include_router(media_libraries.router)
 app.include_router(libraries.router)
 app.include_router(movies.router)

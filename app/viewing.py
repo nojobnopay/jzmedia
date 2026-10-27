@@ -407,6 +407,18 @@ def management_path(path, method):
         return False
     if path in {"/api/online/catalog/sources", "/api/online/catalog/search", "/api/online/catalog/detail"}:
         return method != "GET"
+    if path.startswith("/api/online/state"):
+        item = r"itm_[0-9a-f]{32}"
+        if method == "GET" and (path == "/api/online/state/library"
+                                or re.fullmatch(rf"/api/online/state/items/{item}", path)):
+            return False
+        if method == "PUT" and re.fullmatch(rf"/api/online/state/items/{item}/favorite", path):
+            return False
+        if method == "DELETE" and re.fullmatch(rf"/api/online/state/items/{item}/history", path):
+            return False
+        if method == "POST" and path in {"/api/online/state/progress", "/api/online/state/progress/claim"}:
+            return False
+        return True
     if path.startswith("/api/online/sessions"):
         opaque = r"[A-Za-z0-9_-]{32,128}"
         if method == "POST" and path == "/api/online/sessions":
