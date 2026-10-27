@@ -2,9 +2,9 @@
 
 [开发者文档](README.md)
 
-数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。发行版本以根 `version.properties` 为准，数据库 `SCHEMA_VERSION=31`；两种版本号不是一一对应。启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
+数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。发行版本以根 `version.properties` 为准，数据库 `SCHEMA_VERSION=34`；两种版本号不是一一对应。启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
 
-最近迁移为 v28 剧集目录归属及历史、v29 文件实际变更日志 `fs_changes`、v30 媒体探测帧率 `media_info.fps`、v31 独立剧集播出快照与检查队列。当前 ffprobe 缓存版本为 `PROBE_VERSION=4`，旧探测结果在播放时重新获取；新增字段不要求用户重新扫描整库。
+最近迁移为 v28 剧集目录归属及历史、v29 文件实际变更日志 `fs_changes`、v30 媒体探测帧率 `media_info.fps`、v31 独立剧集播出快照与检查队列、v32 在线来源与稳定内容身份、v33 网络档案与来源用途规则、v34 MacCMS 接口兼容选项。当前 ffprobe 缓存版本为 `PROBE_VERSION=4`，旧探测结果在播放时重新获取；新增字段不要求用户重新扫描整库。
 
 ## 主要实体
 
@@ -39,6 +39,40 @@ erDiagram
 | `media_info` | 按 `(kind,item_id)` 缓存 ffprobe 结果、帧率 `fps` 与 `probe_ver`，音轨 JSON 保存声道与采样率等信息 |
 | `playback_progress` | 按 `(kind,item_id)` 隔离电影、分集、花絮续播 |
 | `persons`、`movie_person`、`collections`、`collection_members` | 演职员关联和媒体库级合集 |
+
+### 在线来源与稳定身份
+
+v32 的独立在线表由 `app/store/online_schema.py` 定义，新库与迁移 `_m32` 使用同一组幂等语句。读写通过 `app/store/online.py`，不向本地影片路径或现有观看记录中写公网地址。
+
+| 表 | 身份与归属 |
+|---|---|
+| `online_sources` | 持久随机 `src_` ID；提供方类型、显示名称、API 基础地址、允许主机、启停、优先级和 `provider_options` |
+| `online_items` | 持久随机 `itm_` ID；`UNIQUE(source_id,kind,external_id)`，电影与剧集及不同来源彼此隔离 |
+| `online_episodes` | 持久随机 `ep_` ID；`UNIQUE(item_id,external_id)`，父项必须是在线剧集，季集号和排序为独立资料 |
+
+提供方外部 ID 接受文本或整数并规范化为文本；影片标题、分集排序及临时播放地址均不参与主键。资料更新保留既有 ID 与创建时间；来源改名或切换同一片库的接口地址不改变 ID，换成不同片库时应建立新来源，不能仅按同名合并。来源提供方类型创建后不可更改，停用保留配置和身份，目前不提供硬删除接口。
+
+v34 幂等地增加 `online_sources.provider_options` JSON 对象列，旧行的 `{}` 按模型补全为 `search_action:list`、`detail_action:detail`；不改变既有在线 ID。API 提交该对象时整体替换，省略对象时保留原值；完整取值见[在线视频源配置](../getting-started/configuration.md#在线视频源)。
+
+MacCMS 搜索只返回有界元数据，不全量导入片库；读取详情后才原子保存在线条目及分集身份。线路 ID 为 `ln_` 加 32 位十六进制标识，由线路名称导出；剧集分集外部键由线路名称和集名共同导出，不含数组序号、临时 URL 或排序。重复线路名或同线重复集名明确拒绝，避免猜测身份。电影多线路通过播放身份中的可选 `line_id` 选择，线路无需另建长期播放 URL 表。
+
+详情中的简介、年份、线路与支持状态作为响应返回，不将播放 URL、上游请求头或简介写入上述身份表；实际播放前会重新解析所选内容、线路及分集。在线收藏和持久观看历史尚未接入，本地媒体记录与观看进度表不复用在线 ID。
+
+在线存储连接在各自事务内检查父级，局部启用 SQLite 外键并显式关闭连接，不改变其它存储连接的外键行为。总开关存为 `app_settings.online_enabled`，缺失或无效时关闭，不继承环境变量；新来源也默认停用。播放会话使用[进程内注册表](playback.md#在线会话与透传限额)，不新增会话表；收藏和持久化在线观看进度尚未接入，网页组件只按在线身份保存内存进度或交给父级处理。来源网络规则见下节。
+
+### 网络档案与来源用途规则
+
+v33 由 `app/store/network_schema.py` 定义网络表，新库和迁移 `_m33` 逐语句建立，不改变 v32 的在线内容身份。读写位于 `app/store/online_network.py`。
+
+| 表/设置 | 作用 |
+|---|---|
+| `network_profiles` | `np_` 随机 ID、直连/代理类型、代理地址、超时、每池连接数、CA 路径及修订号；代理凭据只以 `credentials_encrypted` 密文保存 |
+| `online_network_policies` | 以在线来源 ID 为主键，保存来源默认及 API、媒体、图片、字幕、订阅规则和修订号 |
+| `app_settings.online_network_default` | 保存在线模块使用的应用默认规则与修订号；缺失时为内置直连，损坏时明确报错，不猜测出口 |
+
+规则引用网络档案时校验存在性与直连/代理类型。档案类型创建后不可变；被应用默认或任一来源规则引用时禁止删除。规则和档案更新均先整体验证再原子保存，更新递增修订号。
+
+`load_online_network_state` 在一个读事务内取得应用默认、来源规则和引用档案的完整快照，包括仅限服务器使用的凭据密文。后续解析选择有效规则、解密凭据并创建 TLS 上下文；客户端播放描述不包含这些对象。公开配置只返回 `has_credentials`，备份/恢复须同时保留数据库和 `secret.key`。具体优先级与证书边界见[在线网络策略](../getting-started/configuration.md#在线来源的网络策略)。
 
 ### 文件变更与任务审计
 

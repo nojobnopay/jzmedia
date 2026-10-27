@@ -38,6 +38,7 @@ export const sidebar = [
   { text: '观看影片', items: [
     item('找片与筛选', 'find-movies'), item('影片版本与文件', 'movie-versions'),
     item('追剧与连续播放', 'watch-tv'), item('播放控件与画质', 'playback-controls'),
+    item('观看在线视频', 'watch-online'),
     item('音轨与字幕', 'subtitles'), item('进度预览与预缓存', 'playback-previews'),
   ] },
   { text: '管理片库', collapsed: true, items: [

@@ -22,6 +22,7 @@
 | `/api/metadata` | 外部来源状态及诊断 |
 | `/api/viewing` | 观看模式、内容可见性与儿童筛选资料补全 |
 | `/api/ai` | 智能辅助配置、连接检查、搜索条件与匹配建议 |
+| `/api/online/settings`、`/api/online/sources`、`/api/online/network` | 在线功能开关、来源、网络配置及持久身份；当前仅提供管理接口 |
 
 ## 库作用域
 
@@ -43,7 +44,7 @@
 
 设置页新令牌须至少 8 位，使用可打印 ASCII 字符（英文字母、数字或半角符号），不能包含中文、全角字符或控制字符。`PUT /api/settings` 先校验本次全部字段，再在同一事务中保存；字段校验或数据库写入失败时，不保留本次请求的部分修改。字段省略或为 `null` 时保持原值，显式空串恢复对应环境配置或默认值。
 
-网页播放的 POST `decide/sessions/progress` 同样需要写令牌。令牌本身不限制 GET、海报或媒体读取；这些请求还会受到下述观看模式限制。新增配置或媒体写操作须使用 `/api` 路径和写 HTTP 方法，不能通过 GET 绕过令牌；现有读取接口可能按需填充图片或探测缓存。
+网页播放的 POST `decide/sessions/progress` 同样需要写令牌。常规 GET、海报或媒体读取不受写令牌限制，仍受下述观看模式限制；在线来源配置是例外，其管理 GET 也校验已配置的访问令牌。新增配置或媒体写操作须使用 `/api` 路径和写 HTTP 方法，不能通过 GET 绕过令牌；现有读取接口可能按需填充图片或探测缓存。
 
 ### 观看会话与管理解锁
 
@@ -62,6 +63,90 @@
 | `403`，`code=management_required` | 当前会话未解锁管理 | 退出儿童模式后验证保护密码 |
 
 保护密码错误另以 `protection_password_invalid` 返回，不能当成写令牌错误。敏感响应、日志和诊断不得泄露保护密码、会话凭据、写令牌或 SMB 密码。
+
+## 在线来源配置
+
+这些接口只保存开关与来源配置，不执行外部搜索、连接检查、播放地址解析或媒体取流。总开关和新来源均默认关闭；关闭时仍可管理来源，以便先完成配置。正式网页入口为“在线”，管理入口为“设置 → 在线视频源”；目录与播放分别使用下述独立接口。
+
+| 请求 | 行为 |
+|---|---|
+| `GET /api/online/settings` | 返回总开关 `{enabled:false}` |
+| `PATCH /api/online/settings` | 必须提供布尔 `enabled`，持久保存总开关 |
+| `GET /api/online/sources` | 返回 `{items:[...]}`，按优先级、创建时间和 ID 排序 |
+| `POST /api/online/sources` | 创建来源并返回 `201`；返回持久随机 ID |
+| `GET /api/online/sources/{source_id}` | 读取单个来源；不存在返回 `404` |
+| `PATCH /api/online/sources/{source_id}` | 原子更新已提供的字段；可用 `enabled:false` 停用并保留身份 |
+
+创建来源必须提供 `name`、`provider`、`api_base_url`，提供方支持 `maccms` 与固定开放样例 `open_catalog`。可选 `allowed_hosts` 为精确主机名列表，自动包含 API 主机，不支持通配符；`enabled` 默认 `false`，`priority` 为 0–1000 的整数、默认 100，数值越小越优先。地址只接受无内嵌账号密码、查询参数或片段的 HTTP(S) 基础地址；保存时只检查结构和字面地址，不发 DNS 或网络请求。实际读取执行[公网目标与头部策略](playback.md#在线远程读取)，保存成功不代表来源已经可播放。
+
+`provider_options` 为严格对象，`search_action` 可选 `list/detail/videolist`、默认 `list`，`detail_action` 可选 `detail/videolist`、默认 `detail`。更新时提交该对象会整体替换，未提供的子项恢复默认；省略对象则保留原值。MacCMS 据此选择 Provide JSON 的 `ac` 参数；开放样例忽略这两个兼容选项。开放样例使用固定基础地址与媒体主机，见[配置参考](../getting-started/configuration.md#在线视频源)。
+
+更新时省略字段保持原值，显式 `null`、未知字段、修改 `provider` 或无效地址返回 `422`，本次其它字段也不保存。停用来源或修改其 `api_base_url`、`allowed_hosts`、`provider_options` 会撤销相关活动会话；仅改名或优先级不撤销。验证错误不回显提交的地址或凭据。上述全部管理接口（包括 GET）均校验已配置的访问令牌，保护启用时还需管理解锁；令牌未配置时保持现有局域网开放行为。配置响应使用 `Cache-Control: no-store`。
+
+稳定身份见[在线数据模型](data.md#在线来源与稳定身份)，播放描述的同源路径与处理约束见[在线播放描述](playback.md#在线播放描述)。
+
+## 在线网络管理
+
+这些接口沿用在线来源配置的管理解锁、访问令牌及 `no-store` 规则。关闭在线功能时仍可配置；请求不连接代理或目标站点，不提供任意 URL 的连通性测试、解析或转发。
+
+| 请求 | 行为 |
+|---|---|
+| `GET /api/online/network/profiles` | 返回 `{items:[...]}`，仅包含公开配置和 `has_credentials` |
+| `POST /api/online/network/profiles` | 创建直连或代理档案并返回 `201` |
+| `GET /api/online/network/profiles/{profile_id}` | 读取档案，凭据不回显 |
+| `PATCH /api/online/network/profiles/{profile_id}` | 部分更新；类型不可更改，省略凭据保留，明确清除或替换凭据 |
+| `DELETE /api/online/network/profiles/{profile_id}` | 未被引用时删除并返回 `204`；存在引用返回 `409` |
+| `GET /api/online/network/default` | 返回应用默认 `{rule,revision}`，初始规则为 `direct` |
+| `PATCH /api/online/network/default` | 必须提供完整 `rule`；应用默认不能选择 `inherit` |
+| `GET /api/online/sources/{source_id}/network` | 返回 `{source_id,policy,revision}`；未配置的来源规则默认全部继承 |
+| `PATCH /api/online/sources/{source_id}/network` | 部分更新来源 `default` 或 `api/media/image/subtitle/subscription` 规则；每个已提供的规则整体替换 |
+| `GET /api/online/sources/{source_id}/network/effective?purpose=media` | 解释指定用途的有效出口、选择层级、档案与修订号、配置指纹及 DNS 边界；不连接站点 |
+
+档案必需 `name`、`mode`。`proxy` 档案还需 `proxy_url`；账号密码使用只写的 `username/password` 字段，不能嵌在地址中。可配置连接/读取超时、每池连接数和 CA 路径；完整参数范围及凭据更新语义见[配置参考](../getting-started/configuration.md#在线来源的网络策略)。未知字段、显式 `null`、错误类型或不匹配的档案引用返回 `422`，不存在的来源或档案返回 `404`。错误不反射提交的凭据或地址。
+
+规则格式为 `{mode:"inherit"|"direct"|"proxy",profile_id:null|"np_..."}`；`inherit` 不能带档案，`proxy` 必须引用代理档案，`direct` 可不带档案或引用直连档案。例如将 API 设为代理、媒体设为直连时，提交两个对应用途规则；其它用途保持继承。
+
+有效规则解释不包含代理凭据。直连与代理均返回 `target_dns:"local_pinned"`、`destination_validation:"required_per_request"`，表示内部读取客户端必须在每次请求执行目标策略；该端点不解析 DNS、不连接站点，也不验证来源已经可播放。代理目标使用已批准公网 IP 的 CONNECT 隧道，无法使用该隧道时失败，不切换出口。
+
+`create_online_client(source_id,purpose)` 是提供方与会话网关使用的服务端内部工厂，从同一数据库读快照检查总开关、来源启用状态，并绑定来源允许主机与网络策略。API 查询用 `api`，媒体与 HLS 子资源用 `media`。上游认证授权由服务端独立的 `HeaderGrant` 提供，不接受管理请求中的 jzmedia 令牌、观看 Cookie 或任意上游请求头。GET/HEAD、逐跳重定向与认证隔离的完整约束见[在线远程读取](playback.md#在线远程读取)。公开读取仅使用固定来源的目录或已登记会话和资源，不提供任意 URL 转发接口。
+
+## 在线目录
+
+目录接口需要有效设备观看会话，即使未启用保护也须先调用 `GET /api/viewing/session`。它们不要求管理解锁，儿童模式仍拒绝；来源管理接口继续要求管理权限。只允许下表中的精确 GET 路径和参数，未知或重复参数返回固定 `422 invalid_online_catalog_request`。
+
+| 请求 | 返回与行为 |
+|---|---|
+| `GET /api/online/catalog/sources` | `{enabled,items:[{id,name,provider,priority,capabilities}]}`；总开关关闭时列表为空，不访问上游 |
+| `GET /api/online/catalog/search?source_id=src_...&q=片名&page=1` | 单源搜索；返回来源、元数据条目、`page/page_count/total` |
+| `GET /api/online/catalog/detail?source_id=src_...&external_id=123` | 返回稳定条目身份、简介、年份、全部线路、分集和可选归因链接 |
+
+`q` 最多 100 字符，MacCMS 要求非空；开放样例可空词浏览。`page` 为 1–1000；`external_id` 为 1–128 个 ASCII 字母、数字、下划线或连字符。搜索只给 `external_id` 与文本元数据，不创建本地媒体记录；详情按来源和内容种类保存独立在线身份。
+
+详情的每条线路为 `{id,label,entries}`，播放项为 `{label,identity,transport,supported,reason}`。支持项携带稳定播放身份；不支持的封装、播放器网页或不在允许主机中的目标返回 `supported:false`、`identity:null`，不泄露上游地址。简介按纯文本显示；当前页面不请求外部封面。只有开放样例归因中的官方项目和许可链接可作为外部超链接返回，不能当作媒体入口。
+
+搜索、详情和播放解析共用有界提供方入口：每进程最多 4 个、每设备最多 1 个活动查询，无等待队列；30 秒总期限覆盖 DNS、连接池等待和上游读取。JSON 最多 2 MiB、每页最多 100 项、每条目最多 16 线路、每线路最多 500 项、总共最多 2000 分集。取消 HTTP 查询或创建会话会中断上游 I/O，并由实际工作退出后释放槽位；取消等待不提前释放仍在工作的配额。
+
+读取前后复核观看权限、总开关、来源启用及影响解析的来源配置指纹；变化返回 `online_source_changed`，不把旧结果交付成新配置的结果。错误使用固定 `code`：例如 `provider_catalog_busy` 为 `429`，`provider_timeout` 为 `504`，上游限流为 `provider_rate_limited`，不把上游认证错误当成 jzmedia 登录失败，也不返回上游响应正文。
+
+## 在线播放会话
+
+会话网关与独立网页播放器连接 MacCMS JSON 或显式启用的开放样例提供方。创建前重新读取所选内容、线路与分集的当前地址；不能在请求中提交播放 URL 或上游请求头。提供方支持不等于该站点已经通过连通性或长期播放验收。前端接口及开发机隔离入口见[在线网页播放器](playback.md#在线网页播放器)。
+
+客户端先调用 `GET /api/viewing/session` 并保留设备 Cookie；电视端使用已有 `x-viewing-session` 机制。即使保护功能关闭，创建、读取和关闭也须携带有效设备会话。启用保护后的儿童模式暂时返回 `403`，不会获得未分类的在线资源。POST 和 DELETE 沿用配置过的全局写令牌，GET/HEAD 不要求该写令牌，但必须与创建者为同一设备及有效观看 generation。
+
+| 请求 | 行为 |
+|---|---|
+| `POST /api/online/sessions` | 请求体直接使用 `OnlinePlaybackIdentity`；提供方可用时返回 `201` 和同源播放描述 |
+| `GET /api/online/sessions/{session_id}/media` | 读取已绑定入口；MP4 支持单 Range，HLS 返回完整重写清单，即使收到合法单 Range 探测也返回 `200` |
+| `HEAD /api/online/sessions/{session_id}/media` | 读取入口元信息，不读取媒体响应体 |
+| `GET/HEAD /api/online/sessions/{session_id}/resources/{resource_id}` | 读取当前会话登记的不透明资源 |
+| `DELETE /api/online/sessions/{session_id}` | 关闭本设备当前会话并返回 `204`，中断其上游读取 |
+
+身份包含 `source_id`、`item_id`、`kind`；电影的 `kind` 为 `movie`，分集为 `episode` 且必须带 `episode_id`。可选 `line_id` 为 `ln_` 加 32 位小写十六进制字符，未选择时从序列化结果省略，兼容早期单线路身份。多线路电影未选择线路时返回 `provider_line_required`；失效线路或分集明确失败，不自动改播其它线路或集。服务端核对来源、条目种类、分集及线路归属，未知身份返回 `404`。URL、headers、处理方式或其它未知字段均不接受，验证失败返回固定 `422`，不回显请求内容。播放描述固定 `processing:"passthrough"`、`time_offset_seconds:0`，不包含上游 URL、凭据或本地文件路径。
+
+创建请求断连或取消时中断提供方的上游操作，同步工作仍持有其结果；工作结束后会回收尚未交付的会话，不能仅取消等待而遗失创建结果。描述经过序列化、连接状态和来源指纹复核后才提交；仍能返回错误响应时，创建取消使用固定 `410`、`code:"online_create_cancelled"`。这不保证网络传输一定送达客户端：响应提交后的丢包仍依赖客户端释放和服务端期限兜底。前端对收到的晚到会话执行释放，也不会把它挂到已关闭或换身份的媒体元素。
+
+所有响应使用 `Cache-Control:no-store` 和 `X-Content-Type-Options:nosniff`。未知或其它设备的会话/资源返回 `404`；设备会话缺失、失效或观看权限撤销返回 `401`。达到会话、并发或字节预算返回 `429`，无效/超限 Range 返回 `416`，超大上游响应可返回 `413`，协议错误返回固定类别而不转发上游正文。发送响应头前耗尽单次取流总期限返回 `504`，发送后出现超时或错误则中断响应体。来源停用和关闭总开关会撤销活动会话，权限变化由新请求和每秒维护任务复核。期限、缓冲、HLS 支持范围及精确字节限额集中见[在线会话与透传限额](playback.md#在线会话与透传限额)。
 
 ## 任务模式
 
