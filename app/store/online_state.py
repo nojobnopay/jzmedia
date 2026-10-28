@@ -279,10 +279,13 @@ def save_progress(access, intent, values):
         # claim. A zero-position completion packet cannot erase the endpoint.
         if body.completed and (body.duration is None or abs(position - body.duration) > 1):
             raise OnlineStateError("invalid_online_state_completion", 422)
+        # The writer expires after inactivity, rather than after a fixed movie
+        # length. Only a fully validated new sequence extends the lease; an
+        # expired or replaced writer cannot revive itself with a late packet.
         connection.execute("UPDATE online_progress SET position=?,duration=?,paused=?,completed=?,updated_at=?,"
-            "writer_seq=?,writer_digest=? WHERE owner_hash=? AND scope=? AND identity_key=?",
+            "writer_seq=?,writer_digest=?,writer_expires_at=? WHERE owner_hash=? AND scope=? AND identity_key=?",
             (position, body.duration, int(body.paused), int(body.completed), now,
-             body.seq, digest, owner, mode, row["identity_key"]))
+             body.seq, digest, now + WRITER_TTL_SECONDS, owner, mode, row["identity_key"]))
         updated = connection.execute(f"SELECT {_PUBLIC_PROGRESS} FROM online_progress"
             " WHERE owner_hash=? AND scope=? AND identity_key=?", (owner, mode, row["identity_key"])).fetchone()
         return {"progress": _progress(updated), **public_scope}

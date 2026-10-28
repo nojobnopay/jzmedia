@@ -305,6 +305,56 @@ def test_media_session_release_allows_final_write_but_writer_expiry_does_not(env
     save(env, writer, seq=2, position=8, status=409)
 
 
+def test_active_writer_keeps_saving_beyond_two_hours_without_reclaiming(environment, monkeypatch):
+    env = environment
+    writer, _ = claim(env)
+    started = writer["expires_at"] - state.WRITER_TTL_SECONDS
+    clock = [started]
+    monkeypatch.setattr(state, "time", SimpleNamespace(time=lambda: clock[0]))
+    for seq in (1, 2, 3):
+        elapsed = seq * (state.WRITER_TTL_SECONDS - 1)
+        clock[0] = started + elapsed
+        result = save(env, writer, seq=seq, position=elapsed, duration=4 * state.WRITER_TTL_SECONDS).json()
+        assert result["progress"]["position"] == elapsed
+        assert result["progress"]["writer_revision"] == writer["writer_revision"]
+        with closing(store._base._conn()) as connection:
+            row = connection.execute("SELECT writer_id,writer_expires_at FROM online_progress").fetchone()
+        assert row["writer_id"] == writer["writer_id"]
+        assert row["writer_expires_at"] == clock[0] + state.WRITER_TTL_SECONDS
+    assert result["progress"]["updated_at"] > writer["expires_at"]
+
+
+@pytest.mark.parametrize("seq", [1, 2])
+def test_an_idle_expired_writer_cannot_revive_with_a_duplicate_or_new_packet(environment, monkeypatch, seq):
+    env = environment
+    writer, _ = claim(env)
+    clock = [writer["expires_at"] - state.WRITER_TTL_SECONDS + 1]
+    monkeypatch.setattr(state, "time", SimpleNamespace(time=lambda: clock[0]))
+    save(env, writer)
+    clock[0] += state.WRITER_TTL_SECONDS
+    response = save(env, writer, seq=seq, status=409)
+    assert response.json()["code"] == "online_progress_writer_conflict"
+    with closing(store._base._conn()) as connection:
+        row = connection.execute("SELECT position,writer_expires_at FROM online_progress").fetchone()
+    assert row["position"] == 12 and row["writer_expires_at"] == clock[0]
+
+
+def test_replaced_writer_cannot_extend_or_reactivate_its_lease(environment, monkeypatch):
+    env = environment
+    previous, _ = claim(env)
+    current, _ = claim(env)
+    clock = [current["expires_at"] - 1]
+    monkeypatch.setattr(state, "time", SimpleNamespace(time=lambda: clock[0]))
+    assert save(env, previous, status=409).json()["code"] == "online_progress_writer_conflict"
+    with closing(store._base._conn()) as connection:
+        assert connection.execute("SELECT writer_expires_at FROM online_progress").fetchone()[0] == current["expires_at"]
+    save(env, current, position=18)
+    clock[0] += 1
+    save(env, previous, seq=2, status=409)
+    selected = env.scope(line_id=MAIN)["selected_progress"]
+    assert selected["position"] == 18 and selected["writer_revision"] == current["writer_revision"]
+
+
 def test_history_clear_blocks_a_pending_initial_claim_and_returns_a_fresh_scope(environment):
     env = environment
     old_scope = env.scope()["scope_token"]
