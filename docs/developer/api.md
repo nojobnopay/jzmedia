@@ -128,6 +128,37 @@
 
 读取前后复核观看权限、总开关、来源启用及影响解析的来源配置指纹；变化返回 `online_source_changed`，不把旧结果交付成新配置的结果。错误使用固定 `code`：例如 `provider_catalog_busy` 为 `429`，`provider_timeout` 为 `504`，上游限流为 `provider_rate_limited`，不把上游认证错误当成 jzmedia 登录失败，也不返回上游响应正文。
 
+### 最近来源观察
+
+`GET /api/online/catalog/health?source_id=src_...` 需要同样的设备观看身份，不需要管理解锁。它只解释已有观察与当前配置，不发上游请求、不解析 DNS、不解密代理凭据或建立 TLS 上下文。未知或重复查询参数返回固定 `422`。
+
+响应为 `{source_id,cache_scope:"process",max_age_seconds:1800,purposes:{api,media}}`。每个用途包含 `state`（`unknown/success/failure/stale/disabled/local`）、有效 `mode`（`direct/proxy`）、`configuration_fingerprint`、观察时间、距今秒数、`stage`（`catalogue/manifest/bytes`）、固定类别、耗时与 `reason`；不返回目标地址、代理凭据或路径。取消不作为来源失败；旧操作晚到的结果不会覆盖更新的操作。含义和容量边界见[在线来源观察](playback.md#在线来源观察)。
+
+## 在线收藏与进度
+
+`/api/online/state` 接口使用设备观看 Cookie 或既有电视观看会话头，即使保护关闭也不可省略；不需要管理解锁，儿童模式拒绝。服务端在同一数据库事务内确定设备、普通／隐私模式及权限，客户端不能传 owner、mode、上游地址或本地媒体 ID。所有响应使用 `no-store`，错误返回固定 `code`，不反射输入。
+
+| 请求 | 返回与行为 |
+|---|---|
+| `GET /api/online/state/library?section=continue&limit=20&offset=0` | 收藏、继续观看或历史列表，返回 `{items,total,limit,offset,generation,scope_token}` |
+| `GET /api/online/state/items/{item_id}?episode_id=ep_...&line_id=ln_...` | 读取收藏状态、条目最近进度与精确选中身份进度，以及当前可播放状态 |
+| `PUT /api/online/state/items/{item_id}/favorite` | 请求 `{favorite:true}` 或 `{favorite:false}`，返回条目 ID 和最终收藏状态 |
+| `DELETE /api/online/state/items/{item_id}/history` | 删除该条目所有分集／线路进度，返回删除数量与新的 `scope_token` |
+| `POST /api/online/state/progress/claim` | 请求 `{session_id,expected_revision}`，为已归属会话申请写入资格 |
+| `POST /api/online/state/progress` | 提交当前 writer 的有序位置、暂停与真实完播快照 |
+
+`section` 为 `favorites/continue/history`，`limit` 为 1–100、默认 20，`offset` 为 0–1000。列表项为 `{item,source,favorite,progress,available,reason}`；条目包含稳定 ID、来源、提供方外部 ID、类型和标题，来源只给名称、类型及启用状态。`available` 描述总开关与来源启用状态，不替代解析或设备播放验证。最近已完成内容不进入“继续观看”；未成功写入首帧后的进度也不进入历史。读取单项返回 `{item_id,favorite,last_progress,selected_progress,available,reason,generation,scope_token}`，按可选分集和线路选择精确断点，不自动借用另一线路的位置。
+
+所有成功状态响应都包含服务端 `generation` 与不透明 `scope_token`。每次 PUT、POST、DELETE 必须携带发起该意图时冻结的 `X-Online-State-Scope`，同时遵循已配置的全局写令牌；GET 不要求这个 header。token 绑定设备、模式、观看 generation、保护 revision 与清理历史的命名空间 revision，不能把旧回调换成当前页面最新 token 后重发。失效 token 返回 `409 online_state_scope_changed`。
+
+claim 不接收任意播放身份，而是核对 `session_id` 的设备归属。客户端先读精确选中状态，用其 `writer_revision`（没有则 0）作为 `expected_revision`。成功返回 `{identity,writer_id,writer_revision,expires_at,progress,generation,scope_token}`；GET 不返回 `writer_id`。申请资格不会改变已有播放位置或最近观看时间，未真正写入过的 claim 响应 `progress:null`；单项读取可能返回 `updated_at:0` 的资格行，仅供下一次比较 revision，不能当作已观看记录。
+
+进度请求严格为 `{writer_id,writer_revision,seq,position,duration,paused,completed}`：`seq` 从正整数开始递增，位置为有限非负秒数，时长为正秒数或 `null`。相同序号与相同内容幂等，旧序号、旧 writer 或不同内容重用同一序号返回 `409 online_progress_writer_conflict`；发生冲突不自动重新读取和抢占 writer。writer 的 2 小时空闲期限只由完整校验通过的新序号保存延长，重复幂等包不续期，过期或被替代后不能靠迟到包恢复。用户向后 seek 可以减少位置。`completed:true` 仅描述真实 ended，要求有效时长及接近实际终点的位置，不接受归零的完播包；新一轮重播需新会话与新资格。
+
+来源或总开关关闭后，已有记录可读、可取消收藏、可清历史，未过期且权限仍有效的已有 writer 可提交最终快照；新收藏与新 claim 要求来源启用。每设备与模式最多 500 个收藏、1000 条完整身份进度，达到相应上限返回 `429 online_favorite_limit` 或 `online_progress_limit`。普通／隐私模式和不同设备彼此隔离，不承诺跨设备账户同步。
+
+删除历史在同一事务中递增本设备、本模式的状态命名空间，返回新的 `scope_token`；旧 writer 与在途 claim 不能将删除的记录写回。客户端采纳新 token 只用于之后新的显式操作，其它旧页面须重新开始播放。数据键与写入期限见[在线收藏与观看进度](data.md#在线收藏与观看进度)。
+
 ## 在线播放会话
 
 会话网关与独立网页播放器连接 MacCMS JSON 或显式启用的开放样例提供方。创建前重新读取所选内容、线路与分集的当前地址；不能在请求中提交播放 URL 或上游请求头。提供方支持不等于该站点已经通过连通性或长期播放验收。前端接口及开发机隔离入口见[在线网页播放器](playback.md#在线网页播放器)。
