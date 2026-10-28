@@ -2,6 +2,7 @@
 
 from contextlib import closing
 from pathlib import Path
+from threading import Event
 import re
 
 from fastapi.testclient import TestClient
@@ -100,9 +101,12 @@ def test_health_requires_a_viewing_device_and_rejects_extra_targets(client):
 
 def test_health_bookkeeping_failure_does_not_change_catalogue_or_streamed_bytes(client, monkeypatch):
     observed_stages = []
+    media_observed = Event()
 
     def broken_finish(observation, error=None):
         observed_stages.append(observation.stage)
+        if observation.stage == "bytes":
+            media_observed.set()
         raise RuntimeError("health bookkeeping failed")
 
     monkeypatch.setattr(health.registry, "finish", broken_finish)
@@ -115,6 +119,7 @@ def test_health_bookkeeping_failure_does_not_change_catalogue_or_streamed_bytes(
     assert response.status_code == 206
     assert response.headers["Content-Range"] == "bytes 0-31/1000"
     assert response.content == (b"0123456789" * 100)[:32]
+    assert media_observed.wait(2), "The byte producer finishes its observation after delivering the body"
     assert "catalogue" in observed_stages and "bytes" in observed_stages
     assert client.delete(f"/api/online/sessions/{descriptor['session_id']}").status_code == 204
     assert client.get("/api/p2/metrics").json()["registry"]["sessions"] == 0

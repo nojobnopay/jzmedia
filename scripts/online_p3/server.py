@@ -16,6 +16,9 @@ from scripts.online_p3.fixtures import MARKER, ROOT_PREFIX, fixture_root, prepar
 from app.store import _base
 
 
+__all__ = ["FIXTURE_TOKEN", "isolated_fixture", "main"]
+
+
 @contextmanager
 def isolated_fixture(value, *, static_dir=None):
     root = fixture_root(value, require_media=True)

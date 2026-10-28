@@ -7,4 +7,6 @@ from scripts.online_p2.fixtures import fixture_root as fixture_root
 from scripts.online_p2.fixtures import prepare_media as prepare_media
 
 
+__all__ = ["DURATION", "MARKER", "MARKER_TEXT", "fixture_root", "prepare_media", "ROOT_PREFIX"]
+
 ROOT_PREFIX = "jzmedia-online-p2-p3-"
