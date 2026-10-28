@@ -78,7 +78,7 @@
 
       <div v-if="visited.has('sec-online')" v-show="active === 'sec-online'" id="sec-online"><OnlineSourcesPanel /></div>
 
-      <div v-show="active === 'sec-tmdb'" id="sec-tmdb">
+      <div v-if="visited.has('sec-tmdb')" v-show="active === 'sec-tmdb'" id="sec-tmdb">
         <TmdbSettingsPanel :settings="s" @saved="s = $event" />
         <TvAiringMaintenance :active="active === 'sec-tmdb'" />
         <section class="card-block provider-status">
@@ -142,7 +142,7 @@
         <p class="hint">导入后，在“匹配规则”中启用“本地索引”，即可用于该视频库的资料查找。</p>
       </section>
 
-      <section v-show="active === 'sec-auth'" id="sec-auth" class="card-block">
+      <section v-if="visited.has('sec-auth')" v-show="active === 'sec-auth'" id="sec-auth" class="card-block">
         <ProtectionSettings />
         <ChildrenMetadataRefresh :active="active === 'sec-auth'" :libs="libList" :libraries-ready="ready" :libraries-error="librariesError" @retry-libraries="loadLibraries(true)" />
         <div class="section-heading"><h3>写操作保护</h3><span class="status-label">{{ s?.jzmedia_token_masked ? '已启用' : '未启用' }}</span></div>

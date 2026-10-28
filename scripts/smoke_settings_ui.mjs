@@ -2414,6 +2414,7 @@ async function checkSettingsDrafts(browser, base) {
   const settings = { tmdb_configured: false, tmdb_language: 'zh-CN', tmdb_proxy: '', tmdb_image_base: '', jzmedia_token_source: 'unset' }
   const ai = { enabled: false, provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'demo', daily_limit: 100, timeout_seconds: 12,
     api_key_set: false, usage: { requests: 0, input_tokens: 0, output_tokens: 0 } }
+  const onlineSettings = { enabled: false }, onlineSources = []
   const media = [
     { id: 1, name: '演示媒体库', source: 'local', path: '/demo/media', enabled: true, read_only: false, movie_count: 0, episode_count: 0 },
     { id: 2, name: '演示媒体库乙', source: 'smb', path: '/demo/remote', smb_host: 'demo.invalid', smb_share: 'videos', smb_username: 'demo', smb_subpath: '', smb_connect_host: '',
@@ -2431,6 +2432,9 @@ async function checkSettingsDrafts(browser, base) {
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url()), key = url.pathname, method = request.method()
     if (url.origin !== base) { errors.push('Unexpected settings-draft external request: ' + url.origin); return route.abort() }
+    if (key === '/api/viewing/session') return route.fulfill({ json: {
+      mode: 'normal', enabled: true, management_unlocked: true, generation: 0, expires_at: 0,
+    } })
     if (key === '/api/settings') {
       if (method === 'PUT') {
         const body = request.postDataJSON()
@@ -2446,6 +2450,24 @@ async function checkSettingsDrafts(browser, base) {
     if (key === '/api/ai/settings') {
       if (method === 'PATCH') { const body = request.postDataJSON(); writes.push({ key, body }); Object.assign(ai, body) }
       return route.fulfill({ json: ai })
+    }
+    if (key === '/api/online/settings') {
+      if (method === 'PATCH') { const body = request.postDataJSON(); writes.push({ key, body }); Object.assign(onlineSettings, body) }
+      return route.fulfill({ json: onlineSettings })
+    }
+    if (key === '/api/online/sources') {
+      if (method === 'POST') {
+        const body = request.postDataJSON(), source = { ...body, id: 'src_' + '1'.repeat(32) }
+        writes.push({ key, body }); onlineSources.push(source)
+        return route.fulfill({ json: source })
+      }
+      return route.fulfill({ json: { items: onlineSources } })
+    }
+    if (key === '/api/online/network/profiles') return route.fulfill({ json: { items: [] } })
+    if (key === '/api/online/network/default') return route.fulfill({ json: { rule: { mode: 'direct' } } })
+    if (key === '/api/viewing/password' && method === 'POST') {
+      writes.push({ key, body: request.postDataJSON() })
+      return route.fulfill({ status: 503, json: { detail: '此场景不应保存保护密码' } })
     }
     if (key === '/api/libraries') return route.fulfill({ json: { items: localLibs, default_id: 1 } })
     if (/^\/api\/libraries\/\d+$/.test(key) && method === 'PATCH') {
@@ -2476,6 +2498,37 @@ async function checkSettingsDrafts(browser, base) {
   const go = async (label, sec) => { await nav(label).click(); await page.waitForURL(url => url.searchParams.get('sec') === sec) }
   const collectionsLink = () => page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '合集', exact: true })
   try {
+    // Unvisited credential forms must not exist for password managers to fill.
+    // Exercise both a deep link and navigation from the default overview.
+    for (const entry of ['sec-online', 'sec-status']) {
+      await page.goto(base + '/settings?sec=' + entry)
+      if (entry === 'sec-status') await go('在线视频源', 'sec-online')
+      await page.getByRole('button', { name: onlineSettings.enabled ? '关闭在线点播' : '启用在线点播', exact: true }).waitFor()
+      assert.equal(await page.locator('#sec-tmdb input[type="password"], #sec-auth input[type="password"]').count(), 0,
+        'online-only visits do not mount unvisited TMDB or protection credential inputs')
+      assert.equal(await unloadBlocked(), false, 'opening online settings has no unrelated drafts')
+      if (entry === 'sec-online') {
+        await page.getByRole('button', { name: '启用在线点播', exact: true }).click()
+        await page.getByText('已启用在线点播。', { exact: true }).waitFor()
+        await page.getByRole('button', { name: '添加来源', exact: true }).click()
+        await page.getByLabel('提供方', { exact: true }).selectOption('open_catalog')
+        await page.getByLabel('启用此来源', { exact: true }).check()
+        await page.getByRole('button', { name: '保存来源', exact: true }).click()
+        await page.getByText('来源已保存；尚未验证上游连通性。', { exact: true }).waitFor()
+        assert.equal(onlineSettings.enabled, true)
+        assert.equal(onlineSources.length, 1)
+        assert.equal(onlineSources[0].provider, 'open_catalog')
+        assert.equal(onlineSources[0].enabled, true)
+        assert.equal(await unloadBlocked(), false, 'saved online settings and source leave no draft')
+      }
+      await collectionsLink().click()
+      await page.waitForURL(url => url.pathname === '/collections')
+      assert.equal(await unsaved.count(), 0, 'online-only configuration leaves settings without an unrelated warning')
+      assert.deepEqual(writes.map(({ key }) => key), ['/api/online/settings', '/api/online/sources'],
+        'online-only configuration never writes TMDB settings or protection passwords')
+    }
+    checks.push('online deep link and overview navigation mount no unrelated credentials; saved BBB settings leave without warnings or unrelated writes')
+
     await page.goto(base + '/settings?sec=sec-tmdb')
     await token.waitFor()
     assert.equal(await unloadBlocked(), false, 'loaded settings are initially clean')
@@ -2597,6 +2650,22 @@ async function checkSettingsDrafts(browser, base) {
     checks.push('multiple library drafts: switching preserves both; saving one does not hide the other; discard only removes unsaved values')
 
     await go('访问保护', 'sec-auth')
+    await page.locator('#protection-new').fill('isolated-protection-draft')
+    await nav('概览').click()
+    await unsaved.waitFor()
+    assert.match(await unsaved.innerText(), /保护密码/, 'actively edited protection credentials remain guarded')
+    assert.doesNotMatch(await unsaved.innerText(), /TMDB 连接配置/, 'a protection draft does not claim a TMDB change')
+    await stay()
+    assert.equal(await page.locator('#protection-new').inputValue(), 'isolated-protection-draft')
+    await nav('概览').click()
+    await unsaved.waitFor()
+    await discard()
+    await page.waitForURL(/sec=sec-status/)
+    await go('访问保护', 'sec-auth')
+    assert.equal(await page.locator('#protection-new').inputValue(), '', 'accepted discard clears protection credentials on return')
+    assert.equal(writes.some(({ key }) => key === '/api/viewing/password'), false, 'discarding a protection draft never saves it')
+    checks.push('active protection credentials retain stay/discard guards and discard returns to an empty form')
+
     const authWritesBefore = writes.filter(w => w.key === '/api/settings' && 'jzmedia_token' in w.body).length
     await page.locator('#access-token').fill('测试访问令牌八个字')
     await page.getByRole('button', { name: '保存并启用保护', exact: true }).click()
