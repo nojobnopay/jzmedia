@@ -10,6 +10,7 @@ import argparse
 from contextlib import contextmanager
 from pathlib import Path
 import shutil
+import signal
 
 from app.routers.stream.media import stream_client_check, stream_client_info
 from app.store import online, online_network
@@ -70,11 +71,24 @@ def main():
         if not 1024 <= args.port <= 65535:
             parser.error("port must be between 1024 and 65535")
         import uvicorn
+        class FixtureServer(uvicorn.Server):
+            @contextmanager
+            def capture_signals(self):
+                # Uvicorn re-raises captured signals after shutdown. This CLI
+                # must unwind its isolated database and --cleanup root first.
+                previous = {sig: signal.signal(sig, self.handle_exit)
+                            for sig in (signal.SIGINT, signal.SIGTERM)}
+                try:
+                    yield
+                finally:
+                    for sig, handler in previous.items():
+                        signal.signal(sig, handler)
+
         try:
             with isolated_fixture(root) as app:
                 print(f"P4 isolated TV fixture: http://127.0.0.1:{args.port}; root={root}", flush=True)
                 print(f"Fixture-only access token: {FIXTURE_TOKEN}; synthetic MacCMS is enabled.", flush=True)
-                uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+                FixtureServer(uvicorn.Config(app, host="127.0.0.1", port=args.port, log_level="warning")).run()
         finally:
             if args.cleanup and (root / MARKER).is_file():
                 shutil.rmtree(fixture_root(root, require_media=True))
