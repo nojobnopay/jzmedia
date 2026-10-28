@@ -827,7 +827,7 @@ export const iconRegistry = {
 }
 export const appIconAliases = {"back": "arrow-left", "forward": "arrow-right", "trash": "delete", "external-link": "external", "unlink": "disconnect", "clear": "close", "replay": "refresh", "movies": "movie", "shows": "tv", "libraries": "library"}
 export const playerIconAliases = {"back": "arrow-left", "forward": "skip-forward-10", "trash": "delete", "external-link": "external", "unlink": "disconnect", "clear": "close", "replay": "refresh", "movies": "movie", "shows": "tv", "libraries": "library", "rewind": "skip-back-10", "exitFullscreen": "exit-fullscreen", "chevron": "chevron-right"}
-export const tvIconAliases = {"back": "arrow-left", "forward": "arrow-right", "trash": "delete", "external-link": "external", "unlink": "disconnect", "clear": "close", "replay": "refresh", "movies": "movie", "shows": "tv", "libraries": "library", "rewind": "skip-back-10", "forward10": "skip-forward-10", "next": "skip-next", "previous": "skip-previous"}
+export const tvIconAliases = {"back": "arrow-left", "forward": "arrow-right", "trash": "delete", "external-link": "external", "unlink": "disconnect", "clear": "close", "replay": "refresh", "movies": "movie", "shows": "tv", "libraries": "library", "online": "play", "rewind": "skip-back-10", "forward10": "skip-forward-10", "next": "skip-next", "previous": "skip-previous"}
 export function resolveIcon(name, family = 'app') {
   const aliases = family === 'player' ? playerIconAliases : family === 'tv' ? tvIconAliases : appIconAliases
   return iconRegistry[aliases[name] || name] || iconRegistry[family === 'player' ? 'info' : 'warning']

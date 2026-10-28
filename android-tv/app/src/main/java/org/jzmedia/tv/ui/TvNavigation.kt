@@ -42,14 +42,16 @@ private val ChannelItems = listOf(
 )
 
 @Composable
-internal fun TvNavigation(section: String, libraryName: String, memory: FocusMemory, viewingLabel: String? = null, open: (String) -> Unit) {
+internal fun TvNavigation(section: String, libraryName: String, memory: FocusMemory, viewingLabel: String? = null,
+                          showOnline: Boolean = false, open: (String) -> Unit) {
+    val channels = if (showOnline) ChannelItems + NavigationItem("online", "在线") else ChannelItems
     val tools = listOf(NavigationItem("libraries", libraryName)) +
         listOfNotNull(viewingLabel?.let { NavigationItem("viewing", it) }) + NavigationItem("settings", "设置")
-    val allItems = ChannelItems + tools
+    val allItems = channels + tools
     val labelStyle = MaterialTheme.typography.labelLarge.copy(fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val widths = remember(libraryName, viewingLabel, labelStyle, density, measurer) {
+    val widths = remember(libraryName, viewingLabel, showOnline, labelStyle, density, measurer) {
         allItems.associate { item ->
             val textWidth = with(density) { measurer.measure(AnnotatedString(item.label), labelStyle, maxLines = 1, softWrap = false).size.width.toDp() }
             val width = (textWidth + 56.dp).coerceAtLeast(80.dp)
@@ -58,11 +60,11 @@ internal fun TvNavigation(section: String, libraryName: String, memory: FocusMem
     }
     val brandWidth = 76.dp
     val state = rememberLazyListState()
-    LaunchedEffect(Unit) {
+    LaunchedEffect(showOnline) {
         if (!memory.restored && memory.restoreKey.startsWith("nav:")) {
             val index = allItems.indexOfFirst { "nav:${it.kind}" == memory.restoreKey }
-            // A non-focusable spacer separates the five channels from the two tools.
-            val rowIndex = if (index < ChannelItems.size) index else index + 1
+            // A non-focusable spacer separates the channels from the tools.
+            val rowIndex = if (index < channels.size) index else index + 1
             withFrameNanos { }
             if (index >= 0 && !memory.restored && state.layoutInfo.visibleItemsInfo.none { it.index == rowIndex }) {
                 state.scrollToItem(rowIndex)
@@ -77,7 +79,7 @@ internal fun TvNavigation(section: String, libraryName: String, memory: FocusMem
         val spacerWidth = (maxWidth - itemWidth - 16.dp - 56.dp - brandSpace).coerceAtLeast(16.dp)
         LazyRow(state = state, modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(ChannelItems, key = { it.kind }) { item ->
+            items(channels, key = { it.kind }) { item ->
                 NavigationButton(item, widths.getValue(item.kind), labelStyle, section == item.kind, memory) { open(item.kind) }
             }
             item(key = "tools-space") { Spacer(Modifier.width(spacerWidth)) }

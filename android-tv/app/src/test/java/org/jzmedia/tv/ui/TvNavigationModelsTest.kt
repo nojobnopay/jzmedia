@@ -7,7 +7,7 @@ class TvNavigationModelsTest {
     private fun routes(vararg kinds: String) = kinds.map { TvRoute(it) }
 
     @Test fun currentNavigationPagesSelectTheirOwnSection() {
-        for (kind in listOf("home", "movies", "shows", "collections", "search", "settings", "libraries")) {
+        for (kind in listOf("home", "movies", "shows", "collections", "online", "search", "settings", "libraries")) {
             assertEquals(kind, navigationSection(routes("search", "actor-works", kind)))
         }
     }

@@ -353,6 +353,8 @@ def expression_values(expression):
 
 def kotlin_expression_values(expression):
     expression = expression.strip()
+    if expression == 'null':
+        return []
     if expression.startswith('"'):
         return expression_values(expression)
     prefix = re.match(r'if\s*\(', expression)

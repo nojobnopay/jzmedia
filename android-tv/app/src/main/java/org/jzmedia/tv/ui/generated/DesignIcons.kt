@@ -110,6 +110,7 @@ object DesignIcons {
         "movies" to "movie",
         "shows" to "tv",
         "libraries" to "library",
+        "online" to "play",
         "rewind" to "skip-back-10",
         "forward10" to "skip-forward-10",
         "next" to "skip-next",

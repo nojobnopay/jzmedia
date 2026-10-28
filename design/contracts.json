@@ -378,7 +378,8 @@
         "shows",
         "collections",
         "libraries",
-        "settings"
+        "settings",
+        "online"
       ],
       "reason": "导航类型别名映射"
     },
@@ -393,9 +394,27 @@
         "collections",
         "libraries",
         "settings",
-        "eye"
+        "eye",
+        "online"
       ],
       "reason": "固定导航类型，观看模式入口复用eye图标"
+    },
+    {
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "expression": "if (item?.favorite == true) \"heart-filled\" else \"heart\"",
+      "assets": [
+        "heart-filled",
+        "heart"
+      ],
+      "reason": "电视在线详情按本设备当前观看模式的收藏状态显示操作"
+    },
+    {
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "expression": "if (entry.supported) \"play\" else null",
+      "assets": [
+        "play"
+      ],
+      "reason": "仅支持直接播放的在线条目显示播放图标，不支持项保留说明"
     }
   ],
   "specialized_controls": [
@@ -571,6 +590,16 @@
     {
       "kind": "text",
       "reason": "路径前后关系箭头、快捷键←/→、数字星级说明、单位及原始媒体/字幕内容属于文本，不能用全局字符替换破坏内容。"
+    },
+    {
+      "kind": "tv-online-seek",
+      "elements": [
+        "Box"
+      ],
+      "sources": [
+        "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt"
+      ],
+      "reason": "在线播放进度使用原生48dp焦点区、中文可访问名称和当前位置；左右预选、确定提交、返回取消，10秒/1分钟/5分钟步长，不生成或读取NAS缩略图。"
     }
   ],
   "literal_sources": [
@@ -771,6 +800,14 @@
         "更多操作 → 内容可见性"
       ],
       "reason": "菜单位置的文字路径，不替代交互图标"
+    },
+    {
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "symbols": "→",
+      "contexts": [
+        "设置 → 在线视频源"
+      ],
+      "reason": "提示管理员在网页中的配置位置；文字路径不替代操作图标"
     }
   ],
   "purpose_overrides": [

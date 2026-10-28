@@ -78,6 +78,9 @@ import org.jzmedia.tv.data.text
 import org.jzmedia.tv.playback.PlaybackRequest
 import org.jzmedia.tv.playback.PlaybackController
 import org.jzmedia.tv.playback.TvPlayer
+import org.jzmedia.tv.playback.OnlinePlaybackController
+import org.jzmedia.tv.playback.OnlinePlaybackRequest
+import org.jzmedia.tv.playback.TvOnlinePlayer
 import org.json.JSONObject
 import java.util.UUID
 
@@ -105,6 +108,9 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     var libraryName by rememberSaveable { mutableStateOf("全部媒体库") }
     var refresh by remember { mutableStateOf(0) }
     var playback by remember { mutableStateOf<PlaybackRequest?>(null) }
+    var onlinePlayback by remember { mutableStateOf<OnlinePlaybackRequest?>(null) }
+    var onlineController by remember { mutableStateOf<OnlinePlaybackController?>(null) }
+    var onlineState by remember(api) { mutableStateOf(OnlineScreenState()) }
     var playing by remember { mutableStateOf(false) }
     var viewingDialog by remember { mutableStateOf<ViewingDialogRequest?>(null) }
     var viewingBlocked by remember { mutableStateOf(false) }
@@ -131,7 +137,16 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     val latestInteraction by rememberUpdatedState(maxOf(lastInteraction, dialogInteraction))
     val latestPlaying by rememberUpdatedState(playing)
 
+    fun closeOnlinePlayback() {
+        onlineController?.close()
+        onlineController = null
+        onlinePlayback = null
+        playing = false
+        refresh++
+    }
     fun clearPages() {
+        closeOnlinePlayback()
+        onlineState = OnlineScreenState()
         remoteSessionId = null; remoteSnapshot = TvCastSnapshot(); playbackController = null
         playback = null; playing = false; viewingDialog = null
         savedPageKeys.forEach(holder::removeState); savedPageKeys = emptyList()
@@ -182,10 +197,12 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     val latestLock by rememberUpdatedState(::lockViewing)
     val latestApi by rememberUpdatedState(api)
     val latestBlocked by rememberUpdatedState(viewingBlocked)
+    val latestCloseOnline by rememberUpdatedState(::closeOnlinePlayback)
     DisposableEffect(context) {
         val lifecycle = (context as? ComponentActivity)?.lifecycle
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
+                latestCloseOnline()
                 receiverEpoch++
                 foreground = false
                 if (latestApi?.viewing?.protected == true) latestLock()
@@ -252,6 +269,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         if (!foreground || viewingBlocked || api !== server || !command.isValid()) return false
         if (command.startsMedia) {
             // Replacing a player releases its local output before acknowledging the new command.
+            closeOnlinePlayback()
             playbackController?.close(); playbackController = null
             remoteSessionId = command.sessionId
             remoteSnapshot = TvCastSnapshot(command.sessionId, "LOADING")
@@ -360,7 +378,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
             try {
                 val session = server.readViewingSession(server.post("/api/viewing/activity", JSONObject()
                     .put("user_activity", userActivity).put("playing", latestPlaying)))
-                if (api === server && session != server.viewing) applySession(JzApi(server.baseUrl, server.token, session), false)
+                if (api === server && session != server.viewing) applySession(server.withViewingSession(session), false)
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* Local idle protection still runs while offline. */ }
         }
@@ -394,6 +412,24 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         obsolete.forEach(holder::removeState)
         if (server.viewing?.mode != "private") savedPageKeys = ((savedPageKeys - obsolete.toSet()) + pageKey).distinct()
     }
+    if (onlinePlayback != null) {
+        val selected = onlinePlayback!!
+        TvOnlinePlayer(server, selected,
+            onClose = { if (onlinePlayback === selected) closeOnlinePlayback() },
+            onPlayNext = { next ->
+                if (onlinePlayback === selected && api === server && foreground && !viewingBlocked && server.viewing?.mode != "children") {
+                    onlineController?.close(); onlineController = null
+                    onlinePlayback = next
+                }
+            },
+            onPlayingChanged = { if (onlinePlayback === selected) playing = it },
+            onController = { controller, available ->
+                if (available && foreground && !viewingBlocked && onlinePlayback === selected && api === server) onlineController = controller
+                else if (available) controller.close()
+                else if (onlineController === controller) onlineController = null
+            })
+        return
+    }
     if (playback != null) {
         TvPlayer(server, playback!!, onClose = ::closeCurrentPlayback, onPlayNext = {
             remoteSessionId = null; remoteSnapshot = TvCastSnapshot(); playback = it
@@ -411,7 +447,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
     val pageContent: @Composable () -> Unit = {
         val memory = rememberFocusMemory(when (route.kind) {
             "search" -> "key:A"
-            "home", "movies", "shows", "collections" -> "nav:${route.kind}"
+            "home", "movies", "shows", "collections", "online" -> "nav:${route.kind}"
             "movie", "show", "season", "episode", "collection" -> "detail:primary"
             "libraries" -> "library:0"
             "settings" -> if (server.viewing != null) "settings:viewing" else "settings:connection"
@@ -420,12 +456,14 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
         fun open(next: TvRoute) { memory.leaving = true; navigate(next) }
         fun play(request: PlaybackRequest) {
             memory.leaving = true
+            closeOnlinePlayback()
             remoteSessionId = null; remoteSnapshot = TvCastSnapshot()
             playback = request
         }
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 40.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            TvNavigation(navigationSection(routes), libraryName, memory, server.viewing?.label) { kind ->
+            TvNavigation(navigationSection(routes), libraryName, memory, server.viewing?.label,
+                showOnline = server.supportsOnlineVod && server.viewing?.mode != "children") { kind ->
                 when (kind) {
                     "viewing" -> viewingDialog = ViewingDialogRequest()
                     "search", "libraries", "settings" -> if (route.kind != kind) open(TvRoute(kind))
@@ -445,6 +483,19 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
                 "home" -> HomeScreen(server, library, refresh, memory, ::open, ::play)
                 "movies", "shows", "collections" -> BrowseScreen(server, route.kind, library, refresh, memory, ::open)
                 "search" -> SearchScreen(server, library, route.title, memory, ::open, ::back)
+                "online" -> if (server.supportsOnlineVod && server.viewing?.mode != "children") {
+                    OnlineScreen(server, memory, refresh, onlineState, onPlay = { request ->
+                        if (foreground && !viewingBlocked && api === server) {
+                            memory.leaving = true
+                            playbackController?.close(); playbackController = null
+                            remoteSessionId = null; remoteSnapshot = TvCastSnapshot(); playback = null
+                            onlinePlayback = request
+                        }
+                    }, back = ::back)
+                } else {
+                    Status(if (server.viewing?.mode == "children") "儿童模式暂不支持在线内容" else "此服务器尚未支持在线点播，请升级服务端")
+                    TvAction("返回", ::back)
+                }
                 "actor-works" -> ActorWorksScreen(server, library, route, memory, ::open, ::back)
                 "movie", "show", "season", "episode", "collection" -> DetailScreen(server, route, refresh, memory, ::open, ::play, ::back,
                     onProtection = { kind, id -> viewingDialog = ViewingDialogRequest("policy", kind, id) })
@@ -494,7 +545,7 @@ fun TvApp(onExit: () -> Unit, lastInteraction: Long = 0L) {
                     }
                     item {
                         Column(Modifier.widthIn(max = 760.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Text("观看进度全家共享。媒体库扫描、整理和匹配请在网页端操作。", color = Muted)
+                            Text("本地媒体观看进度全家共享；在线记录属于当前电视和观看模式。媒体库扫描、整理和匹配请在网页端操作。", color = Muted)
                             TvAction("退出应用", onExit, Modifier.focusMemory(memory, "settings:exit"), icon = "logout")
                         }
                     }
@@ -553,7 +604,8 @@ private fun ConnectionScreen(initial: SavedConnection?, initialError: String, au
                 val info = candidate.checkConnection()
                 if (supportsViewingModes(info)) {
                     if (!resetViewingSession && prior == null && initial?.serverId?.isNotBlank() == true && initial.serverId == info.text("server_id") && initial.token == chosenToken) {
-                        candidate = JzApi(chosenAddress, chosenToken, initialViewingToken = initial.viewingToken)
+                        candidate = JzApi(chosenAddress, chosenToken, initialViewingToken = initial.viewingToken,
+                            initialOnlineVod = candidate.supportsOnlineVod)
                     }
                     candidate = candidate.withViewing(candidate.get("/api/viewing/session"))
                     if (initial?.viewingToken == candidate.viewingToken && initial.viewingGeneration != candidate.viewing?.generation) {

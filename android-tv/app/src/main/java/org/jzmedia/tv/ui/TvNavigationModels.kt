@@ -1,7 +1,7 @@
 package org.jzmedia.tv.ui
 
-private val navigationPages = setOf("home", "movies", "shows", "collections", "search", "settings", "libraries")
-private val navigationSources = setOf("home", "movies", "shows", "collections", "search")
+private val navigationPages = setOf("home", "movies", "shows", "collections", "online", "search", "settings", "libraries")
+private val navigationSources = setOf("home", "movies", "shows", "collections", "online", "search")
 private val detailSections = mapOf(
     "movie" to "movies",
     "show" to "shows",

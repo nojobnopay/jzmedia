@@ -33,6 +33,7 @@
       "chevron": "chevron-right"
     },
     "tv": {
+      "online": "play",
       "rewind": "skip-back-10",
       "forward10": "skip-forward-10",
       "next": "skip-next",

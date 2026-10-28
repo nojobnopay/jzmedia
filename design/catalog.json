@@ -2221,6 +2221,7 @@
       "chevron": "chevron-right"
     },
     "tv": {
+      "online": "play",
       "rewind": "skip-back-10",
       "forward10": "skip-forward-10",
       "next": "skip-next",
@@ -2228,6 +2229,844 @@
     }
   },
   "requirements": [
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:0",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 227,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"重新播放\", controller::retry, Modifier.focusRequester(actionFocus), icon = \"replay\"",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"重新播放\", controller::retry, Modifier.focusRequester(actionFocus), icon = \"replay\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:1",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 228,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"暂停\", controller::toggle, Modifier.focusRequester(actionFocus), icon = \"pause\"",
+      "assets": [
+        "pause"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"暂停\", controller::toggle, Modifier.focusRequester(actionFocus), icon = \"pause\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:2",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 229,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"播放\", controller::toggle, Modifier.focusRequester(actionFocus), icon = \"play\"",
+      "assets": [
+        "play"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"播放\", controller::toggle, Modifier.focusRequester(actionFocus), icon = \"play\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:3",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 232,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"后退10秒\", { controller.skip(-10.0) }, enabled = state.seekable && state.duration > 0 && !state.ended, icon = \"rewind\"",
+      "assets": [
+        "skip-back-10"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"后退10秒\", { controller.skip(-10.0) }, enabled = state.seekable && state.duration > 0 && !state.ended, icon = \"rewind\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:4",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 233,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"前进10秒\", { controller.skip(10.0) }, enabled = state.seekable && state.duration > 0 && !state.ended, icon = \"forward10\"",
+      "assets": [
+        "skip-forward-10"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"前进10秒\", { controller.skip(10.0) }, enabled = state.seekable && state.duration > 0 && !state.ended, icon = \"forward10\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:5",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 234,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"播放设置\", { menu = \"settings\" }, icon = \"settings\"",
+      "assets": [
+        "settings"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"播放设置\", { menu = \"settings\" }, icon = \"settings\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:6",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 235,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"取消连续播放\", controller::cancelNext",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"取消连续播放\", controller::cancelNext)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:7",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 236,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"退出播放\", ::leave, icon = \"close\"",
+      "assets": [
+        "close"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"退出播放\", ::leave, icon = \"close\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:8",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 244,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"重试播放\", controller::retry, Modifier.focusRequester(errorFocus), icon = \"refresh\"",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"重试播放\", controller::retry, Modifier.focusRequester(errorFocus), icon = \"refresh\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:9",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 245,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"返回选集\", ::leave, icon = \"arrow-left\"",
+      "assets": [
+        "arrow-left"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"返回选集\", ::leave, icon = \"arrow-left\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:10",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 252,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"返回播放\", { menu = null }, Modifier.fillMaxWidth().focusRequester(menuFocus), icon = \"arrow-left\", fillContent = true",
+      "assets": [
+        "arrow-left"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "fillMaxWidth()",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [
+          "fillMaxWidth()"
+        ],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"返回播放\", { menu = null }, Modifier.fillMaxWidth().focusRequester(menuFocus), icon = \"arrow-left\", fillContent = true)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:11",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 255,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"播放速度 · ${state.rate}×\", { menu = \"rate\" }, Modifier.fillMaxWidth(), fillContent = true",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "fillMaxWidth()",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [
+          "fillMaxWidth()"
+        ],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"播放速度 · ${state.rate}×\", { menu = \"rate\" }, Modifier.fillMaxWidth(), fillContent = true)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:12",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 256,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"音轨\", { menu = \"audio\" }, Modifier.fillMaxWidth(), enabled = state.audios.isNotEmpty(), fillContent = true",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "fillMaxWidth()",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [
+          "fillMaxWidth()"
+        ],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"音轨\", { menu = \"audio\" }, Modifier.fillMaxWidth(), enabled = state.audios.isNotEmpty(), fillContent = true)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:13",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 257,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"字幕\", { menu = \"subtitle\" }, Modifier.fillMaxWidth(), enabled = state.subtitles.isNotEmpty(), fillContent = true",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "fillMaxWidth()",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [
+          "fillMaxWidth()"
+        ],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"字幕\", { menu = \"subtitle\" }, Modifier.fillMaxWidth(), enabled = state.subtitles.isNotEmpty(), fillContent = true)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:14",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 259,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "playbackTime(seconds.toDouble()), { seekUnit = seconds }, Modifier.fillMaxWidth(), selected = seekUnit == seconds, fillContent = true",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "fillMaxWidth()",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [
+          "fillMaxWidth()"
+        ],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(playbackTime(seconds.toDouble()), { seekUnit = seconds }, Modifier.fillMaxWidth(), selected = seekUnit == seconds, fillContent = true)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:15",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 263,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"${rate}×\", { controller.setRate(rate); menu = null }, Modifier.fillMaxWidth(), selected = state.rate == rate, fillContent = true",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "fillMaxWidth()",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [
+          "fillMaxWidth()"
+        ],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"${rate}×\", { controller.setRate(rate); menu = null }, Modifier.fillMaxWidth(), selected = state.rate == rate, fillContent = true)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:16",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 265,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "option.label, { controller.setTrack(C.TRACK_TYPE_AUDIO, option); menu = null }, Modifier.fillMaxWidth(), selected = option.selected, fillContent = true",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "fillMaxWidth()",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [
+          "fillMaxWidth()"
+        ],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(option.label, { controller.setTrack(C.TRACK_TYPE_AUDIO, option); menu = null }, Modifier.fillMaxWidth(), selected = option.selected, fillContent = true)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:17",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 268,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "\"关闭字幕\", { controller.setTrack(C.TRACK_TYPE_TEXT, null); menu = null }, Modifier.fillMaxWidth(), selected = state.subtitles.none { it.selected }, icon = \"subtitles\", fillContent = t",
+      "assets": [
+        "subtitles"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "fillMaxWidth()",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [
+          "fillMaxWidth()"
+        ],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"关闭字幕\", { controller.setTrack(C.TRACK_TYPE_TEXT, null); menu = null }, Modifier.fillMaxWidth(), selected = state.subtitles.none { it.selected }, icon = \"subtitles\", fillCo"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt:TvAction:18",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt",
+      "line": 270,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "播放",
+      "element": "TvAction",
+      "purpose": "option.label, { controller.setTrack(C.TRACK_TYPE_TEXT, option); menu = null }, Modifier.fillMaxWidth(), selected = option.selected, fillContent = true",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "fillMaxWidth()",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [
+          "fillMaxWidth()"
+        ],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(option.label, { controller.setTrack(C.TRACK_TYPE_TEXT, option); menu = null }, Modifier.fillMaxWidth(), selected = option.selected, fillContent = true)"
+    },
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt:TvIcon:0",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvPlayer.kt",
@@ -5244,6 +6083,1273 @@
       "source_excerpt": "Button( onClick = { openEpisode(episode.id) }, modifier = focusModifier(\"episode:${episode.id}\").width(buttonWidth).heightIn(min = 56.dp) .onFocusChanged { if (it.isFocused) onFocu"
     },
     {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:0",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 389,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "label, { selectSection(key) }, Modifier.onlineFocus(\"online:tab:$key\"), selected = state.section == key",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(label, { selectSection(key) }, Modifier.onlineFocus(\"online:tab:$key\"), selected = state.section == key)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:1",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 391,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"刷新\", { loadSources(); loadLibrary(); loadItem() }, Modifier.onlineFocus(\"online:refresh\"), icon = \"refresh\"",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"刷新\", { loadSources(); loadLibrary(); loadItem() }, Modifier.onlineFocus(\"online:refresh\"), icon = \"refresh\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:2",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 401,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"重试详情\", { openDetail(state.detailSourceId, state.detailExternalId) }, Modifier.onlineFocus(\"online:retry-detail\"), icon = \"refresh\"",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"重试详情\", { openDetail(state.detailSourceId, state.detailExternalId) }, Modifier.onlineFocus(\"online:retry-detail\"), icon = \"refresh\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:3",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 413,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"简介与来源\", { descriptionDialog = true }, Modifier.onlineFocus(\"online:description\"), icon = \"info\"",
+      "assets": [
+        "info"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"简介与来源\", { descriptionDialog = true }, Modifier.onlineFocus(\"online:description\"), icon = \"info\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:4",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 421,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "if (item?.favorite == true) \"取消收藏\" else \"收藏\", { if (item != null) favorite(detail.item.id, !item.favorite, item.scopeToken) }, Modifier.onlineFocus(\"online:detail-favorite\"), enabl",
+      "assets": [
+        "heart-filled",
+        "heart"
+      ],
+      "dynamic_expression": "if (item?.favorite == true) \"heart-filled\" else \"heart\"",
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(if (item?.favorite == true) \"取消收藏\" else \"收藏\", { if (item != null) favorite(detail.item.id, !item.favorite, item.scopeToken) }, Modifier.onlineFocus(\"online:detail-favorite"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:5",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 426,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "if (item?.lastProgress?.completed == true) \"重新播放\" else \"继续播放\", { play(entry) }, Modifier.onlineFocus(\"online:detail-resume\"), enabled = playableSource && !state.starting, icon = \"p",
+      "assets": [
+        "play"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(if (item?.lastProgress?.completed == true) \"重新播放\" else \"继续播放\", { play(entry) }, Modifier.onlineFocus(\"online:detail-resume\"), enabled = playableSource && !state.starting, "
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:6",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 436,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "line.label, { playRead.cancel(); state.starting = false; state.lineId = line.id }, Modifier.onlineFocus(\"online:line:${line.id}\"), selected = state.lineId == line.id",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(line.label, { playRead.cancel(); state.starting = false; state.lineId = line.id }, Modifier.onlineFocus(\"online:line:${line.id}\"), selected = state.lineId == line.id)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:7",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 440,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"自动播放下一集：${if (state.autoplay) \"开启\" else \"关闭\"}（本电视·当前模式）\", { state.autoplay = !state.autoplay preferences.edit().putBoolean(preferenceKey, state.autoplay).apply() }, Modifier.onlin",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"自动播放下一集：${if (state.autoplay) \"开启\" else \"关闭\"}（本电视·当前模式）\", { state.autoplay = !state.autoplay preferences.edit().putBoolean(preferenceKey, state.autoplay).apply() }, Modif"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:8",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 453,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "entry.label, { play(entry) }, Modifier.weight(1f).onlineFocus(key), enabled = entry.supported && playableSource && !state.starting, icon = if (entry.supported) \"play\" else null, fi",
+      "assets": [
+        "play"
+      ],
+      "dynamic_expression": "if (entry.supported) \"play\" else null",
+      "display_size": {
+        "value": "weight(1f)",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [
+          "weight(1f)"
+        ],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(entry.label, { play(entry) }, Modifier.weight(1f).onlineFocus(key), enabled = entry.supported && playableSource && !state.starting, icon = if (entry.supported) \"play\" else"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:9",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 467,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"重试视频源\", ::loadSources, Modifier.onlineFocus(\"online:retry-sources\"), icon = \"refresh\"",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"重试视频源\", ::loadSources, Modifier.onlineFocus(\"online:retry-sources\"), icon = \"refresh\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:10",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 476,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "source.name, { changeSource(source.id) }, Modifier.onlineFocus(\"online:source:${source.id}\"), selected = source.id == state.sourceId",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(source.name, { changeSource(source.id) }, Modifier.onlineFocus(\"online:source:${source.id}\"), selected = source.id == state.sourceId)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:11",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 484,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "if (selectedSource?.provider == \"open_catalog\" && state.query.isBlank()) \"浏览目录\" else \"搜索\", { search() }, Modifier.onlineFocus(\"online:search\"), enabled = !state.searching && (state",
+      "assets": [
+        "search"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(if (selectedSource?.provider == \"open_catalog\" && state.query.isBlank()) \"浏览目录\" else \"搜索\", { search() }, Modifier.onlineFocus(\"online:search\"), enabled = !state.searching "
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:12",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 486,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"遥控字母键盘\", { state.keyboard = !state.keyboard }, Modifier.onlineFocus(\"online:keyboard\"), selected = state.keyboard",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"遥控字母键盘\", { state.keyboard = !state.keyboard }, Modifier.onlineFocus(\"online:keyboard\"), selected = state.keyboard)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:13",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 494,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"清空\", { changeQuery(\"\") }, Modifier.onlineFocus(\"online:key:clear\"), icon = \"trash\"",
+      "assets": [
+        "delete"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"清空\", { changeQuery(\"\") }, Modifier.onlineFocus(\"online:key:clear\"), icon = \"trash\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:14",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 495,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"退格\", { changeQuery(deleteSearchInput(state.query)) }, Modifier.onlineFocus(\"online:key:delete\"), icon = \"backspace\"",
+      "assets": [
+        "backspace"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"退格\", { changeQuery(deleteSearchInput(state.query)) }, Modifier.onlineFocus(\"online:key:delete\"), icon = \"backspace\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:15",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 496,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"收起键盘\", { state.keyboard = false; target(\"online:keyboard\") }, Modifier.onlineFocus(\"online:key:close\")",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"收起键盘\", { state.keyboard = false; target(\"online:keyboard\") }, Modifier.onlineFocus(\"online:key:close\"))"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:16",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 501,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "value, { changeQuery(state.query + value) }, Modifier.weight(1f).onlineFocus(\"online:key:$value\"), centerLabel = true",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "weight(1f)",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [
+          "weight(1f)"
+        ],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(value, { changeQuery(state.query + value) }, Modifier.weight(1f).onlineFocus(\"online:key:$value\"), centerLabel = true)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:17",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 512,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"刷新状态\", ::loadHealth, Modifier.onlineFocus(\"online:health\"), enabled = !state.healthLoading, icon = \"refresh\"",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"刷新状态\", ::loadHealth, Modifier.onlineFocus(\"online:health\"), enabled = !state.healthLoading, icon = \"refresh\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:18",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 522,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"重试搜索\", { search(state.searchPage) }, Modifier.onlineFocus(\"online:retry-search\"), icon = \"refresh\"",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"重试搜索\", { search(state.searchPage) }, Modifier.onlineFocus(\"online:retry-search\"), icon = \"refresh\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:19",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 535,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"查看详情\", { openDetail(state.sourceId, row.externalId) }, Modifier.onlineFocus(\"online:result:${row.externalId}\"), icon = \"forward\"",
+      "assets": [
+        "arrow-right"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"查看详情\", { openDetail(state.sourceId, row.externalId) }, Modifier.onlineFocus(\"online:result:${row.externalId}\"), icon = \"forward\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:20",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 542,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"上一页\", { search(result.page - 1) }, Modifier.onlineFocus(\"online:previous-search\"), enabled = result.page > 1, icon = \"back\"",
+      "assets": [
+        "arrow-left"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"上一页\", { search(result.page - 1) }, Modifier.onlineFocus(\"online:previous-search\"), enabled = result.page > 1, icon = \"back\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:21",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 544,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"下一页\", { search(result.page + 1) }, Modifier.onlineFocus(\"online:next-search\"), enabled = result.page < result.pageCount && result.page < 1000, icon = \"forward\"",
+      "assets": [
+        "arrow-right"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"下一页\", { search(result.page + 1) }, Modifier.onlineFocus(\"online:next-search\"), enabled = result.page < result.pageCount && result.page < 1000, icon = \"forward\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:22",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 555,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"重试记录\", { loadLibrary() }, Modifier.onlineFocus(\"online:retry-library\"), icon = \"refresh\"",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"重试记录\", { loadLibrary() }, Modifier.onlineFocus(\"online:retry-library\"), icon = \"refresh\")"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:23",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 572,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "if (progress.completed) \"重新播放\" else \"继续播放\", { openDetail(row.source.id, row.item.externalId, progress.identity) }, Modifier.onlineFocus(\"online:record:${row.item.id}:resume\"), enab",
+      "assets": [
+        "play"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(if (progress.completed) \"重新播放\" else \"继续播放\", { openDetail(row.source.id, row.item.externalId, progress.identity) }, Modifier.onlineFocus(\"online:record:${row.item.id}:resum"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:24",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 575,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"查看详情\", { openDetail(row.source.id, row.item.externalId) }, Modifier.onlineFocus(\"online:record:${row.item.id}:detail\"), enabled = row.available && !state.sourcesLoading, icon = \"f",
+      "assets": [
+        "arrow-right"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"查看详情\", { openDetail(row.source.id, row.item.externalId) }, Modifier.onlineFocus(\"online:record:${row.item.id}:detail\"), enabled = row.available && !state.sourcesLoading, "
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:25",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 577,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"取消收藏\", { favorite(row.item.id, false, state.library!!.scopeToken) }, Modifier.onlineFocus(\"online:record:${row.item.id}:favorite\"), enabled = row.item.id !in state.mutating, icon ",
+      "assets": [
+        "heart-filled"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"取消收藏\", { favorite(row.item.id, false, state.library!!.scopeToken) }, Modifier.onlineFocus(\"online:record:${row.item.id}:favorite\"), enabled = row.item.id !in state.mutati"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:26",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 579,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"清除观看记录\", { deleteHistory(row, state.library!!.scopeToken) }, Modifier.onlineFocus(\"online:record:${row.item.id}:clear\"), enabled = row.item.id !in state.mutating, icon = \"trash\"",
+      "assets": [
+        "delete"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"清除观看记录\", { deleteHistory(row, state.library!!.scopeToken) }, Modifier.onlineFocus(\"online:record:${row.item.id}:clear\"), enabled = row.item.id !in state.mutating, icon = "
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:27",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 587,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"上一页\", { savePosition(); loadLibrary((state.libraryOffset - 20).coerceAtLeast(0)); target(\"online:previous-library\") }, Modifier.onlineFocus(\"online:previous-library\"), enabled = s",
+      "assets": [
+        "arrow-left"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"上一页\", { savePosition(); loadLibrary((state.libraryOffset - 20).coerceAtLeast(0)); target(\"online:previous-library\") }, Modifier.onlineFocus(\"online:previous-library\"), en"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt:TvAction:28",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+      "line": 590,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "TvAction",
+      "purpose": "\"下一页\", { savePosition(); loadLibrary(state.libraryOffset + 20); target(\"online:next-library\") }, Modifier.onlineFocus(\"online:next-library\"), enabled = state.libraryOffset + 20 < l",
+      "assets": [
+        "arrow-right"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"下一页\", { savePosition(); loadLibrary(state.libraryOffset + 20); target(\"online:next-library\") }, Modifier.onlineFocus(\"online:next-library\"), enabled = state.libraryOffset"
+    },
+    {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/SearchScreen.kt:TvAction:0",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/SearchScreen.kt",
       "line": 196,
@@ -5779,7 +7885,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:0",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 374,
+      "line": 392,
       "platforms": [
         "android-tv"
       ],
@@ -5821,7 +7927,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:1",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 375,
+      "line": 393,
       "platforms": [
         "android-tv"
       ],
@@ -5863,7 +7969,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:2",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 376,
+      "line": 394,
       "platforms": [
         "android-tv"
       ],
@@ -5905,7 +8011,49 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:3",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 462,
+      "line": 497,
+      "platforms": [
+        "android-tv"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "TvAction",
+      "purpose": "\"返回\", ::back",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "value": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "unit": "dp",
+        "profile": "tv-action",
+        "specification": "TvAction min-height40dp，宽度为文本+padding或调用Modifier，icon24dp；原生TV焦点缩放1.05",
+        "source": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvComponents.kt"
+        ],
+        "modifier_expressions": [],
+        "measurement_status": "source specification; actual density and font scale belong in device acceptance"
+      },
+      "target": {
+        "display_environments": [
+          "1080p",
+          "4K"
+        ],
+        "density": "device dependent; record at acceptance"
+      },
+      "states": [
+        "normal",
+        "focused",
+        "selected",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "adjacent Text / enclosing native TV control; decorative Icon contentDescription=null",
+      "classification": "native TV focus and control contract",
+      "source_excerpt": "TvAction(\"返回\", ::back)"
+    },
+    {
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:4",
+      "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
+      "line": 513,
       "platforms": [
         "android-tv"
       ],
@@ -5945,9 +8093,9 @@
       "source_excerpt": "TvAction(\"切换模式\", { viewingDialog = ViewingDialogRequest() }, Modifier.focusMemory(memory, \"settings:viewing\"))"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:4",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:5",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 464,
+      "line": 515,
       "platforms": [
         "android-tv"
       ],
@@ -5987,9 +8135,9 @@
       "source_excerpt": "TvAction(if (server.viewing?.enabled == true) \"修改保护密码\" else \"设置保护密码\", { viewingDialog = ViewingDialogRequest(\"password\") })"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:5",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:6",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 466,
+      "line": 517,
       "platforms": [
         "android-tv"
       ],
@@ -6029,9 +8177,9 @@
       "source_excerpt": "TvAction(\"锁定保护设置\", ::lockViewing)"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:6",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:7",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 477,
+      "line": 528,
       "platforms": [
         "android-tv"
       ],
@@ -6073,9 +8221,9 @@
       "source_excerpt": "TvAction(\"修改连接\", { editConnection = true }, Modifier.focusMemory(memory, \"settings:connection\"), icon = \"edit\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:7",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:8",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 478,
+      "line": 529,
       "platforms": [
         "android-tv"
       ],
@@ -6117,9 +8265,9 @@
       "source_excerpt": "TvAction(\"忘记连接\", { scope.launch { withContext(Dispatchers.IO) { store.clear() }; saved = null; api = null } }, Modifier.focusMemory(memory, \"settings:forget\"), icon = \"trash\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:8",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:9",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 498,
+      "line": 549,
       "platforms": [
         "android-tv"
       ],
@@ -6161,9 +8309,9 @@
       "source_excerpt": "TvAction(\"退出应用\", onExit, Modifier.focusMemory(memory, \"settings:exit\"), icon = \"logout\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:9",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:10",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 607,
+      "line": 659,
       "platforms": [
         "android-tv"
       ],
@@ -6203,9 +8351,9 @@
       "source_excerpt": "TvAction(\"重建本机观看会话\", { resetViewingSession = true; viewingResetRequired = false; connect() }, enabled = !busy)"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:10",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:11",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 612,
+      "line": 664,
       "platforms": [
         "android-tv"
       ],
@@ -6248,9 +8396,9 @@
       "source_excerpt": "TvAction(if (busy) \"正在连接…\" else \"连接并记住\", ::connect, Modifier.focusMemory(memory, \"connect\"), enabled = !busy, icon = if (busy) \"loading\" else \"link\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:11",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:12",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 614,
+      "line": 666,
       "platforms": [
         "android-tv"
       ],
@@ -6292,9 +8440,9 @@
       "source_excerpt": "TvAction(\"取消连接\", { job?.cancel(); busy = false }, icon = \"close\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:12",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:13",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 619,
+      "line": 671,
       "platforms": [
         "android-tv"
       ],
@@ -6337,9 +8485,9 @@
       "source_excerpt": "TvAction( if (scanning) \"停止扫描${if (scanProgress.isNotBlank()) \"（$scanProgress）\" else \"\"}\" else \"扫描局域网\", ::scan, Modifier.focusMemory(memory, \"scan\"), enabled = !busy, icon = if (sc"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:13",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:14",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 684,
+      "line": 736,
       "platforms": [
         "android-tv"
       ],
@@ -6383,9 +8531,9 @@
       "source_excerpt": "TvAction(serverChoiceLabel(hit), { onPick(hit) }, Modifier.fillMaxWidth().focusMemory(memory, \"pick:${hit.address}\"), selected = hit.address == movedAddress, enabled = hit.protocol"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:14",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:15",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 694,
+      "line": 746,
       "platforms": [
         "android-tv"
       ],
@@ -6427,9 +8575,9 @@
       "source_excerpt": "TvAction(\"去填写令牌\", onClose, Modifier.focusMemory(memory, \"confirm:token\"), icon = \"link\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:15",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:16",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 696,
+      "line": 748,
       "platforms": [
         "android-tv"
       ],
@@ -6471,9 +8619,9 @@
       "source_excerpt": "TvAction(\"连接\", { onConfirm(confirm) }, Modifier.focusMemory(memory, \"confirm:ok\"), icon = \"link\")"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:16",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:17",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 717,
+      "line": 769,
       "platforms": [
         "android-tv"
       ],
@@ -6517,9 +8665,9 @@
       "source_excerpt": "TvAction(\"全部媒体库\", { onSelect(0, \"全部媒体库\") }, Modifier.fillMaxWidth().focusMemory(memory, \"library:0\"), selected == 0L, icon = \"library\", fillContent = true)"
     },
     {
-      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:17",
+      "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt:TvAction:18",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvApp.kt",
-      "line": 721,
+      "line": 773,
       "platforms": [
         "android-tv"
       ],
@@ -7320,7 +9468,8 @@
         "tv",
         "collections",
         "library",
-        "settings"
+        "settings",
+        "play"
       ],
       "dynamic_expression": "kind",
       "display_size": {
@@ -7356,7 +9505,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt:NavigationButton:0",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt",
-      "line": 81,
+      "line": 83,
       "platforms": [
         "android-tv"
       ],
@@ -7398,7 +9547,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt:NavigationButton:1",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt",
-      "line": 85,
+      "line": 87,
       "platforms": [
         "android-tv"
       ],
@@ -7440,7 +9589,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt:Image:2",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt",
-      "line": 88,
+      "line": 90,
       "platforms": [
         "android-tv"
       ],
@@ -7487,7 +9636,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt:Button:4",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt",
-      "line": 98,
+      "line": 100,
       "platforms": [
         "android-tv"
       ],
@@ -7532,7 +9681,7 @@
     {
       "id": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt:TvNavIcon:5",
       "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/TvNavigation.kt",
-      "line": 105,
+      "line": 107,
       "platforms": [
         "android-tv"
       ],
@@ -7548,7 +9697,8 @@
         "collections",
         "library",
         "settings",
-        "eye"
+        "eye",
+        "play"
       ],
       "dynamic_expression": "if (item.kind == \"viewing\") \"eye\" else item.kind",
       "display_size": {
@@ -55438,7 +57588,8 @@
           "shows",
           "collections",
           "libraries",
-          "settings"
+          "settings",
+          "online"
         ],
         "reason": "导航类型别名映射"
       },
@@ -55453,9 +57604,27 @@
           "collections",
           "libraries",
           "settings",
-          "eye"
+          "eye",
+          "online"
         ],
         "reason": "固定导航类型，观看模式入口复用eye图标"
+      },
+      {
+        "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+        "expression": "if (item?.favorite == true) \"heart-filled\" else \"heart\"",
+        "assets": [
+          "heart-filled",
+          "heart"
+        ],
+        "reason": "电视在线详情按本设备当前观看模式的收藏状态显示操作"
+      },
+      {
+        "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+        "expression": "if (entry.supported) \"play\" else null",
+        "assets": [
+          "play"
+        ],
+        "reason": "仅支持直接播放的在线条目显示播放图标，不支持项保留说明"
       }
     ],
     "specialized_controls": [
@@ -55631,6 +57800,16 @@
       {
         "kind": "text",
         "reason": "路径前后关系箭头、快捷键←/→、数字星级说明、单位及原始媒体/字幕内容属于文本，不能用全局字符替换破坏内容。"
+      },
+      {
+        "kind": "tv-online-seek",
+        "elements": [
+          "Box"
+        ],
+        "sources": [
+          "android-tv/app/src/main/java/org/jzmedia/tv/playback/TvOnlinePlayer.kt"
+        ],
+        "reason": "在线播放进度使用原生48dp焦点区、中文可访问名称和当前位置；左右预选、确定提交、返回取消，10秒/1分钟/5分钟步长，不生成或读取NAS缩略图。"
       }
     ],
     "literal_sources": [
@@ -55831,6 +58010,14 @@
           "更多操作 → 内容可见性"
         ],
         "reason": "菜单位置的文字路径，不替代交互图标"
+      },
+      {
+        "source": "android-tv/app/src/main/java/org/jzmedia/tv/ui/OnlineScreen.kt",
+        "symbols": "→",
+        "contexts": [
+          "设置 → 在线视频源"
+        ],
+        "reason": "提示管理员在网页中的配置位置；文字路径不替代操作图标"
       }
     ],
     "purpose_overrides": [

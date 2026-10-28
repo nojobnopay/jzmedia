@@ -21,6 +21,7 @@ def test_navigation_forward_is_distinct_from_playback_forward():
     assert design.canonical('forward10', manifest, 'tv') == 'skip-forward-10'
     assert design.canonical('rewind', manifest, 'player') == 'skip-back-10'
     assert design.canonical('movies', manifest, 'tv') == 'movie'
+    assert design.canonical('online', manifest, 'tv') == 'play'
 
 
 def test_all_functional_masters_are_portable_and_have_provenance():
@@ -199,6 +200,7 @@ def test_conditions_do_not_count_as_assets_and_partial_dynamic_outputs_fail():
     assert design.expression_values("(state?.ready ?? false) ? 'play' : 'pause'") == ['play', 'pause']
     assert design.expression_values("ready ? 'play' : dynamicName") is None
     assert design.kotlin_expression_values('if (ready) "play" else if (paused) "pause" else "close"') == ['play', 'pause', 'close']
+    assert design.kotlin_expression_values('if (ready) "play" else null') == ['play']
     assert design.kotlin_expression_values('if (ready) "play" else dynamicName') is None
     assert design.icon_property_values('const items = [{icon: "play"}, {"icon": \'pause\'}]') == (['play', 'pause'], [])
     assert design.icon_property_values('const items = [{icon: dynamicName}]')[1]
