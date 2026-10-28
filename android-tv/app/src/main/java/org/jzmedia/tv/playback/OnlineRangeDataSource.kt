@@ -55,6 +55,7 @@ internal class OnlineRangeReader(private val client: OkHttpClient, private val u
     @Volatile private var response: Response? = null
     private val callLock = Any()
     private var started = false
+    private var ioActive = false
     private var body: InputStream? = null
     private var position = 0L
     private var remaining = 0L
@@ -68,13 +69,15 @@ internal class OnlineRangeReader(private val client: OkHttpClient, private val u
         require(start >= 0 && (length == -1L || length > 0))
         synchronized(callLock) {
             if (closed || started) throw IOException("在线播放已停止")
-            started = true
+            started = true; ioActive = true
         }
-        position = start; remaining = length; total = null; validator = null
-        nextChunk()
-        val available = ((total ?: start) - start).coerceAtLeast(0)
-        remaining = if (length < 0) available else minOf(length, available)
-        return remaining
+        try {
+            position = start; remaining = length; total = null; validator = null
+            nextChunk()
+            val available = ((total ?: start) - start).coerceAtLeast(0)
+            remaining = if (length < 0) available else minOf(length, available)
+            return remaining
+        } finally { finishIo() }
     }
 
     private fun nextChunk() {
@@ -123,20 +126,47 @@ internal class OnlineRangeReader(private val client: OkHttpClient, private val u
 
     fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
-        if (closed) throw IOException("在线播放已停止")
-        if (remaining == 0L) return -1
-        if (chunkRemaining == 0L) nextChunk()
-        val count = body?.read(buffer, offset, minOf(length.toLong(), remaining, chunkRemaining).toInt()) ?: -1
-        if (count < 0) throw EOFException("在线媒体响应提前结束")
-        position += count; remaining -= count; chunkRemaining -= count
-        return count
+        synchronized(callLock) {
+            if (closed || !started) throw IOException("在线播放已停止")
+            check(!ioActive) { "An online range has only one reading worker" }
+            ioActive = true
+        }
+        try {
+            if (remaining == 0L) return -1
+            if (chunkRemaining == 0L) nextChunk()
+            val count = body?.read(buffer, offset, minOf(length.toLong(), remaining, chunkRemaining).toInt()) ?: -1
+            if (closed) throw IOException("在线播放已停止")
+            if (count < 0) throw EOFException("在线媒体响应提前结束")
+            position += count; remaining -= count; chunkRemaining -= count
+            return count
+        } finally { finishIo() }
+    }
+
+    /** Caller holds callLock, and no worker is inside open/read. Network close stays outside the lock. */
+    private fun detachResponse(): Response? {
+        val previous = response
+        response = null; body = null; chunkRemaining = 0; remaining = 0
+        return previous
+    }
+
+    private fun finishIo() {
+        val previous = synchronized(callLock) {
+            ioActive = false
+            if (closed) detachResponse() else null
+        }
+        previous?.close()
     }
 
     fun close() {
-        val active = synchronized(callLock) { closed = true; call.also { call = null } }
+        val (active, previous) = synchronized(callLock) {
+            closed = true
+            val active = call.also { call = null }
+            active to if (ioActive) null else detachResponse()
+        }
+        // Call cancellation can interrupt a read. Closing its Okio body from a
+        // different thread cannot: the reading worker owns that close in finally.
         active?.cancel()
-        response?.close(); response = null; body = null
-        chunkRemaining = 0; remaining = 0
+        previous?.close()
     }
 }
 

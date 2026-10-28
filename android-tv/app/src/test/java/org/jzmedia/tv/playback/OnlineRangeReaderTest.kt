@@ -1,11 +1,15 @@
 package org.jzmedia.tv.playback
 
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import okio.Buffer
+import okio.BufferedSource
+import okio.ForwardingSource
+import okio.buffer
 import org.junit.Assert.*
 import org.junit.Test
 import org.jzmedia.tv.data.JzApi
@@ -13,6 +17,7 @@ import org.jzmedia.tv.data.ViewingSession
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.Executors
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class OnlineRangeReaderTest {
@@ -123,17 +128,40 @@ class OnlineRangeReaderTest {
 
     @Test fun closingAnActiveRangeInterruptsTheBlockingBodyWithoutWaitingForItsTimeout() {
         MockWebServer().use { server ->
-            server.enqueue(ranged(ByteArray(16), 0, 15).setBodyDelay(2, TimeUnit.SECONDS))
-            val reader = OnlineRangeReader(http(), server.url("/media").toString(), 16)
             val worker = Executors.newSingleThreadExecutor()
+            val sharedHttp = http()
             try {
-                reader.open(0)
-                val task = worker.submit<Boolean> {
-                    try { reader.read(ByteArray(16), 0, 16); false } catch (_: IOException) { true }
+                repeat(4) {
+                    val reading = CountDownLatch(1)
+                    val client = sharedHttp.newBuilder().addNetworkInterceptor { chain ->
+                        val response = chain.proceed(chain.request())
+                        val body = response.body!!
+                        val source = object : ForwardingSource(body.source()) {
+                            override fun read(sink: Buffer, byteCount: Long): Long {
+                                reading.countDown()
+                                return super.read(sink, byteCount)
+                            }
+                        }.buffer()
+                        response.newBuilder().body(object : ResponseBody() {
+                            override fun contentType() = body.contentType()
+                            override fun contentLength() = body.contentLength()
+                            override fun source(): BufferedSource = source
+                        }).build()
+                    }.build()
+                    server.enqueue(ranged(ByteArray(16), 0, 15).setBodyDelay(2, TimeUnit.SECONDS))
+                    val reader = OnlineRangeReader(client, server.url("/media").toString(), 16)
+                    try {
+                        reader.open(0)
+                        assertEquals("body IO has not started while merely opening headers", 1L, reading.count)
+                        val task = worker.submit<Boolean> {
+                            try { reader.read(ByteArray(16), 0, 16); false } catch (_: IOException) { true }
+                        }
+                        assertTrue("worker entered real OkHttp body IO", reading.await(1, TimeUnit.SECONDS))
+                        reader.close()
+                        assertTrue("cancellation returns an IO failure, never an Okio close/read race", task.get(1, TimeUnit.SECONDS))
+                    } finally { reader.close() }
                 }
-                reader.close()
-                assertTrue(task.get(1, TimeUnit.SECONDS))
-            } finally { reader.close(); worker.shutdownNow() }
+            } finally { sharedHttp.dispatcher.cancelAll(); sharedHttp.connectionPool.evictAll(); worker.shutdownNow() }
         }
     }
 
