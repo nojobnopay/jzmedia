@@ -139,6 +139,16 @@ class HealthRegistry:
 registry = HealthRegistry()
 
 
+def finish_observation(observation, error=None):
+    """Keep optional health bookkeeping outside the request's error contract."""
+    try:
+        registry.finish(observation, error)
+    except Exception:
+        # An observation must never replace successful bytes or the original
+        # upstream error. Do not log exceptions that may contain source secrets.
+        pass
+
+
 def bind_client(client, state):
     """Attach the exact configuration used to create this independent client."""
     try:
@@ -161,10 +171,10 @@ def observe_catalogue():
     try:
         yield
     except Exception as error:
-        registry.finish(observation, error)
+        finish_observation(observation, error)
         raise
     else:
-        registry.finish(observation)
+        finish_observation(observation)
     finally:
         _current.reset(token)
 

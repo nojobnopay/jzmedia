@@ -332,9 +332,9 @@ class _Transfer:
                     if pending:
                         self._emit(bytes(pending))
             self._emit(None)
-            health.registry.finish(observation)
+            health.finish_observation(observation)
         except Exception as error:
-            health.registry.finish(observation, error)
+            health.finish_observation(observation, error)
             failure = _failure(error)
             if not self.ready.done():
                 self.ready.set_exception(failure)

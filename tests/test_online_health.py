@@ -4,6 +4,8 @@ from copy import deepcopy
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from app.online import health
 from app.online.health_models import SourceHealth
 from app.online.providers import ProviderError
@@ -143,3 +145,31 @@ def test_catalogue_success_is_recorded_after_semantic_parsing_and_failure_is_obs
         pass
     assert cache.summary(values, "api")["category"] == "invalid_provider_response"
     assert health.begin_media(SimpleNamespace(), "bytes") is None
+
+
+def test_broken_health_bookkeeping_cannot_replace_a_catalogue_result_or_its_original_error(monkeypatch):
+    calls = []
+
+    def broken_finish(observation, error=None):
+        calls.append((observation, error))
+        raise RuntimeError("health bookkeeping failed")
+
+    monkeypatch.setattr(health.registry, "finish", broken_finish)
+    client = SimpleNamespace(snapshot=SimpleNamespace(source_id=SOURCE, purpose="api"))
+    expected = {"items": [{"id": "preserved-result"}]}
+
+    def catalogue_result():
+        with health.observe_catalogue():
+            health.bind_client(client, state())
+            return expected
+
+    assert catalogue_result() is expected
+    assert calls[-1][1] is None
+    original = ProviderError("invalid_provider_response")
+    with pytest.raises(ProviderError) as raised:
+        with health.observe_catalogue():
+            health.bind_client(client, state())
+            raise original
+    assert raised.value is original
+    assert calls[-1][1] is original
+    assert health._current.get() is None

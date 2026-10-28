@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app import store
+from app.online import health
 from scripts.online_p2.fixtures import MARKER, MARKER_TEXT, fixture_root
 from scripts.online_p2.server import FIXTURE_TOKEN, isolated_fixture
 
@@ -95,6 +96,28 @@ def test_health_requires_a_viewing_device_and_rejects_extra_targets(client):
     assert response.status_code == 422 and "private.invalid" not in response.text
     assert response.headers["cache-control"] == "no-store"
     assert client.get("/api/online/catalog/health", params={"source_id": "src_" + "f" * 32}).status_code == 404
+
+
+def test_health_bookkeeping_failure_does_not_change_catalogue_or_streamed_bytes(client, monkeypatch):
+    observed_stages = []
+
+    def broken_finish(observation, error=None):
+        observed_stages.append(observation.stage)
+        raise RuntimeError("health bookkeeping failed")
+
+    monkeypatch.setattr(health.registry, "finish", broken_finish)
+    source = add_source(client)
+    value = detail(client, source)
+    descriptor_response = client.post("/api/online/sessions", json=entry_for(value, "mp4")["identity"])
+    assert descriptor_response.status_code == 201, descriptor_response.text
+    descriptor = descriptor_response.json()
+    response = client.get(descriptor["media_url"], headers={"Range": "bytes=0-31"})
+    assert response.status_code == 206
+    assert response.headers["Content-Range"] == "bytes 0-31/1000"
+    assert response.content == (b"0123456789" * 100)[:32]
+    assert "catalogue" in observed_stages and "bytes" in observed_stages
+    assert client.delete(f"/api/online/sessions/{descriptor['session_id']}").status_code == 204
+    assert client.get("/api/p2/metrics").json()["registry"]["sessions"] == 0
 
 
 def test_fixture_guard_refuses_unmarked_and_production_paths(tmp_path):
