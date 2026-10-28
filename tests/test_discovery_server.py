@@ -22,4 +22,5 @@ def test_client_info_carries_discovery_fields():
     assert body["server_id"] == store.get_server_id()
     assert body["name"]  # 默认媒体库名，回落 jzmedia
     assert body["version"]  # 与 version.properties 一致
+    assert "online_vod" in body["features"]
     assert client.post("/api/stream/client-check").json() == body
