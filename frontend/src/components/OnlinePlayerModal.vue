@@ -99,8 +99,8 @@ import '../player.css'
 import '../onlinePlayer.css'
 
 const props = defineProps({ onlineIdentity: { type: Object, required: true }, title: { type: String, default: '' },
-  initialPosition: { type: Number, default: 0 } })
-const emit = defineEmits(['close', 'progress', 'ended'])
+  initialPosition: { type: Number, default: 0 }, prepareSession: { type: Function, default: null } })
+const emit = defineEmits(['close', 'progress', 'ended', 'session'])
 const dialogEl = ref(null), stageEl = ref(null), videoEl = ref(null)
 const volumeControl = ref(null), quickControls = ref(null)
 const focus = useFocusTrap(ref(true), dialogEl)
@@ -147,12 +147,15 @@ function capture() {
   return { identity, position: Math.max(0, actual || 0), duration: duration.value,
     // pause() updates the element before its queued DOM event updates refs.
     // Capture the synchronous user/load intent, including startup and errors.
-    paused: pauseWanted, ended: endedOnce }
+    paused: pauseWanted, ended: endedOnce, first_frame: firstFrame.value }
 }
-function save(snapshot = capture()) {
+function save(snapshot = capture(), reason = 'tick') {
   if (!snapshot) return
-  const data = { position: snapshot.ended ? 0 : snapshot.position, duration: snapshot.duration, paused: snapshot.paused }
-  memory.save(snapshot.identity, data)
+  const data = { position: snapshot.position, duration: snapshot.duration, paused: snapshot.paused,
+    completed: !!snapshot.ended, first_frame: !!snapshot.first_frame, reason }
+  // Persistent progress keeps the actual ending position. Only the in-memory
+  // replay point resets, so a completed film cannot become a false zero seek.
+  if (snapshot.first_frame) memory.save(snapshot.identity, { ...data, position: snapshot.ended ? 0 : snapshot.position })
   emit('progress', { identity: snapshot.identity, ...data })
 }
 function clearStartup() { clearTimeout(startupTimer); startupTimer = null }
@@ -183,7 +186,7 @@ function stop() {
   return controller.stop()
 }
 function fail(category, message) {
-  save()
+  save(undefined, 'error')
   record(category)
   error.value = message
   void stop()
@@ -332,6 +335,13 @@ async function load({ start = position.value, paused: keepPaused = false, recove
     const result = await controller.begin(identity, { signal: control.signal })
     if (!current(gen, video) || control.signal.aborted) { await client.release(result.session_id); return }
     descriptor.value = result; transport.value = result.transport
+    emit('session', { identity: result.identity, session_id: result.session_id })
+    // Acquire the progress writer before there can be a decoded frame. Closing
+    // still releases the media lease immediately, even while this bounded claim
+    // is pending; that late result must never attach media to a closed player.
+    try { await props.prepareSession?.({ identity: result.identity, session_id: result.session_id }) }
+    catch { /* Saving history is optional; its failure does not prevent playback. */ }
+    if (!current(gen, video) || control.signal.aborted || !descriptor.value) return
     duration.value = Number(result.duration_seconds) || 0
     await mountSource(video, result, gen, control.signal)
     if (!current(gen, video) || control.signal.aborted || !descriptor.value) return
@@ -393,7 +403,7 @@ function playState(event) {
   paused.value = event.currentTarget.paused
   // Media events report observed state; teardown, buffering and failures must
   // not overwrite the intent set synchronously by controls or a new load.
-  if (event.type === 'pause' && !booting.value && !event.currentTarget.error && !event.currentTarget.ended) save()
+  if (event.type === 'pause' && !booting.value && !event.currentTarget.error && !event.currentTarget.ended) save(undefined, 'pause')
 }
 async function attemptPlay() {
   const video = videoEl.value, gen = generation
@@ -431,7 +441,7 @@ function doSeek(value) {
     clearTimeout(seekTimer)
     const gen = generation
     seekTimer = setTimeout(() => { if (current(gen) && seeking.value) fail('online_seek_timeout', '跳转暂未完成，请重新加载或选择其他来源') }, 10000)
-    save()
+    save(undefined, 'seek')
   } catch { notify('当前设备暂时无法跳转到此位置') }
 }
 function seekBy(change) { doSeek(position.value + change); showControls() }
@@ -442,7 +452,7 @@ function seeked(event) {
 function ended(event) {
   if (!validEvent(event) || endedOnce || booting.value) return
   position.value = Number.isFinite(event.currentTarget.currentTime) ? event.currentTarget.currentTime : position.value
-  endedOnce = true; pauseWanted = true; paused.value = true; save()
+  endedOnce = true; pauseWanted = true; paused.value = true; save(undefined, 'ended')
   const endingIdentity = identity
   void stop(); emit('ended', endingIdentity)
 }
@@ -550,7 +560,7 @@ function keydown(event) {
   else if (event.key.toLowerCase() === 'm') { event.preventDefault(); toggleMute() }
   else if (event.key.toLowerCase() === 'f') { event.preventDefault(); void toggleFull() }
 }
-const pageLifecycle = createPlaybackPageLifecycle({ capture, save, stop,
+const pageLifecycle = createPlaybackPageLifecycle({ capture, save: snapshot => save(snapshot, 'pagehide'), stop,
   restore: snapshot => {
     if (disposed || !identity) return
     const sameIdentity = snapshot?.identity && onlineIdentityKey(snapshot.identity) === onlineIdentityKey(identity)
@@ -562,7 +572,7 @@ function requestClose() { void pageLifecycle.leave(); emit('close') }
 const unregisterViewingCleanup = registerViewingPlaybackCleanup(async () => { await pageLifecycle.leave(); emit('close') })
 watch(identityKey, () => {
   if (!mounted || disposed) return
-  if (!pageLifecycle.isAway()) save()
+  if (!pageLifecycle.isAway()) save(undefined, 'close')
   void stop(); activePanel.value = ''; errors.length = 0
   try { identity = validateOnlineIdentity(props.onlineIdentity) }
   catch { identity = null; error.value = '在线内容身份无效，请返回重新选择'; return }
@@ -593,7 +603,7 @@ onMounted(() => {
   void load({ start: props.initialPosition })
 })
 onBeforeUnmount(() => {
-  if (!pageLifecycle.isAway()) save()
+  if (!pageLifecycle.isAway()) save(undefined, 'close')
   disposed = true; unregisterViewingCleanup(); void pageLifecycle.leave(); pageLifecycle.unbind()
   void controller.close(); detachMedia(); resizeObserver?.disconnect()
   document.removeEventListener('fullscreenchange', fullChange); document.removeEventListener('click', documentClick)
@@ -602,5 +612,5 @@ onBeforeUnmount(() => {
   unlockOrientation()
 })
 onUnmounted(() => { if (import.meta.env.DEV && window.__jzOnlinePlayer === debug) delete window.__jzOnlinePlayer })
-defineExpose({ snapshot, saveFinal: () => { save(); return Promise.resolve() } })
+defineExpose({ snapshot, saveFinal: () => { save(undefined, 'close'); return Promise.resolve() } })
 </script>

@@ -19,5 +19,7 @@ export async function loadSfc(filename, overrides = {}) {
     code = code.replace(full, 'const ' + binding + ' = modules[' + i + ']' + (names.startsWith('{') ? '' : '.default'))
   }
   code = code.replace(/import\s+['"][^'"]+\.css['"];?/g, '')
+  // Vite supplies this build constant; the Node component harness is not DEV.
+  code = code.replace(/\bimport\.meta\.env\.DEV\b/g, 'false')
   return new Function('modules', code + '\nreturn component')(modules)
 }

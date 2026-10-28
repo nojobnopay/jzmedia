@@ -84,3 +84,24 @@ test('movie lines have distinct stable identities and progress without accepting
     transport: 'mp4', processing: 'passthrough', seekable: true, duration_seconds: null, time_offset_seconds: 0, expires_at: 2000000000 }
   assert.throws(() => validateOnlineDescriptor(descriptor, first, { now: () => 1700000000000 }), error => error.code === 'invalid_online_descriptor')
 })
+
+test('health reads never cancel a catalogue query and cannot expose an older source status', async () => {
+  const { createOnlineHealthClient, onlineHealthLabel } = await import('../src/onlineCatalog.js')
+  const search = deferred(), oldHealth = deferred(), newHealth = deferred(), calls = []
+  const request = (path, options) => {
+    calls.push({ path, options })
+    return path.includes('/search?') ? search.promise : calls.filter(call => call.path.includes('/health?')).length === 1 ? oldHealth.promise : newHealth.promise
+  }
+  const catalogue = createOnlineCatalogClient({ request }), health = createOnlineHealthClient({ request })
+  const pendingSearch = catalogue.search(SOURCE, '同一片名')
+  const first = health.read(SOURCE)
+  const second = health.read('src_' + '9'.repeat(32))
+  assert.equal(calls[0].options.signal.aborted, false)
+  assert.equal(calls[1].options.signal.aborted, true)
+  oldHealth.resolve({ state: 'old' }); newHealth.resolve({ state: 'new' }); search.resolve({ items: [] })
+  assert.equal(await first, null); assert.deepEqual(await second, { state: 'new' }); assert.deepEqual(await pendingSearch, { items: [] })
+  assert.equal(onlineHealthLabel({ state: 'success', stage: 'manifest', mode: 'direct' }), '清单已读 · 直连')
+  assert.equal(onlineHealthLabel({ state: 'success', stage: 'bytes', mode: 'proxy' }), '取流通过 · 代理')
+  assert.equal(onlineHealthLabel({ state: 'stale', mode: 'direct' }), '观察已过期 · 直连')
+  catalogue.close(); health.close()
+})

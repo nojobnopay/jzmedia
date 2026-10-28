@@ -3,8 +3,19 @@
   "dynamic_icons": [
     {
       "source": "frontend/src/views/Online.vue",
+      "expression": "itemState?.favorite ? 'heart-filled' : 'heart'",
+      "assets": [
+        "heart-filled",
+        "heart"
+      ],
+      "reason": "在线详情按当前设备和观看模式的收藏状态显示操作"
+    },
+    {
+      "source": "frontend/src/views/Online.vue",
       "expression": "entry.supported ? 'play' : undefined",
-      "assets": ["play"],
+      "assets": [
+        "play"
+      ],
       "reason": "只有支持的在线条目显示播放图标，不支持的条目保留禁用说明"
     },
     {

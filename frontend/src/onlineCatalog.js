@@ -78,6 +78,33 @@ export function createOnlineCatalogClient({ request = api } = {}) {
   }
 }
 
+// Status reads are independent of catalogue work and never initiate a probe.
+export function createOnlineHealthClient({ request = api } = {}) {
+  let pending = null, generation = 0, closed = false
+  function cancel() { generation++; pending?.abort(); pending = null }
+  return {
+    async read(source) {
+      if (closed) return null
+      cancel()
+      const turn = generation, control = pending = new AbortController()
+      try {
+        const value = await request('/api/online/catalog/health?' + new URLSearchParams({ source_id: sourceId(source) }), { signal: control.signal, timeout: 10000 })
+        return !closed && generation === turn && !control.signal.aborted ? value : null
+      } catch (error) { if (!closed && generation === turn && !control.signal.aborted) throw error; return null }
+      finally { if (pending === control) pending = null }
+    },
+    cancel,
+    close() { closed = true; cancel() },
+  }
+}
+
+export function onlineHealthLabel(value) {
+  const state = value?.state
+  const observed = ({ unknown: '未观察', stale: '观察已过期', failure: '近期失败', disabled: '已停用', local: '本地目录' })[state]
+  const success = value?.stage === 'manifest' ? '清单已读' : value?.stage === 'bytes' ? '取流通过' : '查询通过'
+  return `${observed || (state === 'success' ? success : '未观察')} · ${value?.mode === 'proxy' ? '代理' : '直连'}`
+}
+
 export function networkRuleChoice(rule) {
   if (rule?.mode === 'proxy') return 'profile:' + rule.profile_id
   if (rule?.mode === 'direct' && rule.profile_id) return 'profile:' + rule.profile_id
