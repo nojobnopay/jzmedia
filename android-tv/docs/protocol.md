@@ -4,6 +4,8 @@
 
 APK 与服务器通过[统一发布](../../docs/developer/releasing.md)从同一提交构建，版本以根 [version.properties](../../version.properties) 为准。设备仍可分别安装升级，因此通过协议握手确认兼容性；首次正式签名发布的最低服务端发行版本尚待确定，见[待验收事项](../../docs/roadmap/android-tv.md)。媒体探测字段基线为 schema 30 / probe v4，旧媒体探测缓存可自动重探。
 
+本地媒体使用 `/api/stream`，在线点播使用独立的 `/api/online` 身份、会话和进度；新增在线能力不改变原有本地播放协议。
+
 ## 连接、认证与能力
 
 ### 握手与令牌
@@ -32,6 +34,8 @@ APK 当前使用 `X-Api-Token`，仅发往保存的服务器 origin 和路径范
 ### 可选搜索能力
 
 `tv_search`（片名）与 `tv_actor_search`（演员）是独立的可选能力，不提高播放协议版本。缺少接口时仅对应搜索功能提示升级，浏览和播放继续可用。参数、演员身份和资料范围见[搜索接口](search-design.md#服务端与兼容)。
+
+`online_vod` 是独立的可选能力。APK 完成 `client-info/client-check` 后保存该能力，接受 `features` 数组中的成员或对象中显式的 `online_vod:true`；缺失、错误类型或 `false` 不启用。连接克隆及观看模式切换沿用握手结果，不按版本号猜测支持情况；旧服务器仍走原本地媒体流程。
 
 ### 观看模式与保护会话
 
@@ -191,6 +195,8 @@ WebVTT 与 ASS 的内部字幕时间统一为 `cueSourceTime = media_start + pla
 
 `GET/POST/DELETE /api/stream/progress?version_id=...&kind=...` 复用网页进度；POST 的 `position`、`duration` 是源秒数。全家共享且最后保存为准。
 
+本节描述本地媒体；在线点播的设备隔离与写入顺序见[在线点播与设备状态](#在线点播与设备状态)。
+
 客户端区分“标为已看”的进度阈值和 Media3 的真正结束事件；下一集只由真正结束触发，并复用服务端 `/next` 的选集结果。
 
 完成阈值为观看达到 95%，或观看达到 80% 且剩余不超过 300 秒；短片不能仅因总时长不足 300 秒而算看完。服务端 `playback_completion.py`、网页 `progress.js` 与 APK `PlaybackModels.kt` 必须保持一致。旧服务器仍可连接，但旧的继续观看/下一集判定需升级服务端才会修复，无需重扫。
@@ -213,6 +219,26 @@ APK 将用户的播放 / 暂停意图与播放器缓冲状态分开，跳转、�
 所有请求继续遵循页面或播放请求取消，不将普通浏览超时套用到首次转码准备。
 
 退出、Home、待机或 Activity 停止时，客户端停止播放、释放 Media3/媒体会话、取消过期读取、保存最终进度并释放本机 HLS sid。更新画质/切片源以请求代际判定晚响应；不能在用户退出后继续起播。进度写入失败会记录，但不阻止本机停止声音。
+
+## 在线点播与设备状态
+
+`OnlineApi` 使用既有 `JzApi` 的服务器地址、`X-Api-Token`、`X-Viewing-Client: tv` 与 `X-Viewing-Session`。JSON 与媒体请求仅发往当前服务器 origin 和部署前缀，拒绝跨 origin／路径范围的凭据转发与重定向。来源 API、媒体出站路由及允许主机仍由服务端独立策略控制，电视不接受上游 URL、NAS 路径或代理凭据。
+
+客户端只提交 `OnlineIdentity(source_id,item_id,kind,episode_id?,line_id?)`；在线 ID 不属于本地媒体的整数 ID 空间。播放描述必须是当前精确身份、同源 `/api/online/sessions/{session_id}/media`、`processing:passthrough`、`transport:mp4|hls` 与 `time_offset_seconds:0`，不接受新增处理方式或任意 URL。MP4 数据源串联不超过 8 MiB 的 Range 读取，区分单个区间完成与整片结束，校验范围及完整文件长度，支持定位后继续读取；HLS 仅加载网关返回的清单及当前会话资源。两条路径都由电视 Media3 解码，不调用本地 `/api/stream` 转码、预览、ASS 提取或字幕烧录入口。
+
+| API 范围 | 电视用途 |
+|---|---|
+| `/api/online/catalog/{sources,search,detail}` | 来源选择、显式单源查询、精确线路／分集刷新 |
+| `/api/online/sessions` | 为本机稳定身份创建、释放独立播放会话 |
+| `/api/online/state/library` 与 `/api/online/state/items/{item_id}` | 收藏、历史、继续观看及所选身份进度 |
+| `/api/online/state/progress/claim` 与 `/api/online/state/progress` | 绑定已归属会话的写入资格与有序保存 |
+| `/api/online/catalog/health` | 当前配置最近的 API／媒体实际请求观察；不触发上游探测 |
+
+显式播放前读取精确选中身份的断点，记录读取失败仍可从零播放；权限拒绝停止。首帧前完成有界 writer claim，首帧后才保存历史；记账失败不触发媒体转码。所有写入冻结发起读取时的 `X-Online-State-Scope`，`writer_revision/seq` 防止旧页面覆盖新播放；冲突后不重新抢写。清历史递增状态 epoch，使本设备、同模式的旧 writer 失效，未来明确重新播放才申请新资格。有效新序号保存滚动延长两小时空闲期限，重复包不续期。字段和上限由[服务端状态 API](../../docs/developer/api.md#在线收藏与进度)维护。
+
+在线收藏、历史和续播属于观看 token 的本电视身份，普通／隐私分别保存，不是账户级网页／电视同步；来源停用仍保留记录并允许清理。页面的查询、结果、详情、线路和焦点仅驻留当前连接／观看身份的内存，退出页面取消旧请求；关闭播放器后可恢复原条目。模式、generation、连接或授权变化清除旧内容与播放，儿童模式隐藏入口并拒绝直达。
+
+自动连播只持久化本电视、服务器与模式下的布尔偏好，默认关闭；只有当前 Media3 的真实结束事件可触发同来源、条目、线路目录刷新。紧邻下一集不支持时停止，不跨源、跨线、跳集或按已看比例提前推进；旧 ended、取消或离开不能打开新会话。会话失效仅按既有精确身份有界重建，首播格式错误不会无限续建；实际编解码能力和声画仍需真机验收。
 
 ## 手机请求电视 App 播放
 
