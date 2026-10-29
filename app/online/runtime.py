@@ -6,7 +6,7 @@ import logging
 
 from fastapi.concurrency import run_in_threadpool
 
-from . import gateway, health, service
+from . import api_pool, gateway, health, service
 
 
 _task = None
@@ -21,6 +21,11 @@ async def _maintain():
             # A failing permission/source read must not extend old leases.
             await run_in_threadpool(service.registry.close_all)
             _logger.warning("online session access check failed; sessions revoked")
+        try:
+            await run_in_threadpool(api_pool.sweep)
+        except Exception:
+            await run_in_threadpool(api_pool.clear)
+            _logger.warning("online API connection maintenance failed; idle connections discarded")
         await asyncio.sleep(1)
 
 
@@ -28,6 +33,7 @@ async def start():
     global _task
     gateway.start_workers()
     if _task is None or _task.done():
+        api_pool.start()
         _task = asyncio.create_task(_maintain(), name="online-session-maintenance")
 
 
@@ -40,4 +46,5 @@ async def shutdown():
             await task
     await run_in_threadpool(service.registry.close_all)
     gateway.shutdown_workers()
+    await run_in_threadpool(api_pool.shutdown)
     health.registry.clear()

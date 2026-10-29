@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlsplit
 from ..network.client import create_online_client, NetworkRequestError
 from ..network.guard import NetworkOperation, NetworkOperationError, current_operation, operation_context
 from ..network.targets import TargetPolicy, TargetPolicyError
+from . import api_pool
 from .providers import ProviderError
 
 
@@ -242,9 +243,10 @@ def fetch(source, params):
 
             for attempt in range(2 if retry else 1):
                 current()
-                # A fresh guarded client retains the same explicit source API
-                # route; it never falls back to environment proxies or media.
-                with create_online_client(source["id"], "api") as client:
+                # Only an explicit foreground scope may reuse a validated API
+                # connection. A retry always starts with a fresh reader.
+                with api_pool.borrow(source, create_online_client, fresh=bool(attempt)) as lease:
+                    client = lease.client
                     current()  # Factory reads may race a configuration change.
                     try:
                         response = client.request("GET", source["api_base_url"], params=params,
@@ -269,7 +271,10 @@ def fetch(source, params):
                                 raise ProviderError("provider_not_found")
                             if response.status_code != 200:
                                 raise ProviderError("provider_upstream_error")
-                            return decode(response.content)
+                            result = decode(response.content)
+                            current()
+                            lease.accept()
+                            return result
                 # Close the real first reader before retrying, retaining the
                 # caller's admission and original absolute operation deadline.
                 current()

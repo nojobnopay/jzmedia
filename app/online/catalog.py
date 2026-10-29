@@ -1,6 +1,6 @@
 """On-demand single-source catalogues with bounded work and stable identities."""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 import hashlib
 import json
@@ -11,7 +11,7 @@ from ..network.guard import NetworkOperation, NetworkOperationError, current_ope
 from ..store import online as online_store
 from ..store.online import OnlineNotFound
 from ..store.online_network import load_online_network_state
-from . import health, maccms, open_catalog, service
+from . import api_pool, health, maccms, open_catalog, service
 from .models import OnlinePlaybackIdentity
 from .providers import ProviderError, ResolvedPlayback
 
@@ -237,19 +237,24 @@ def search(access, source_id, query, page=1, *, operation=None):
         source = _ready_source(source_id, access)
         if not query and source["provider"] != "open_catalog":
             raise CatalogError("online_query_required", 422)
-        check = None
-        with health.observe_catalogue():
-            if source["provider"] == "maccms":
-                configuration, check = _detail_retry_guard(access, source)
-                parameters = {"ac": source.get("provider_options", {}).get("search_action", "list"),
-                              "wd": query, "pg": str(page)}
-                with maccms.foreground_metadata_retry(configuration, check, parameters):
+        configuration, check = (_detail_retry_guard(access, source)
+                                if source["provider"] == "maccms" else (None, None))
+        scope = (api_pool.scope(access, source, configuration, lambda: check(source, configuration))
+                 if check is not None else nullcontext())
+        with scope:
+            with health.observe_catalogue():
+                if check is not None:
+                    parameters = {"ac": source.get("provider_options", {}).get("search_action", "list"),
+                                  "wd": query, "pg": str(page)}
+                    with maccms.foreground_metadata_retry(configuration, check, parameters):
+                        result = _adapter(source).search(source, query, page)
+                    check(source, configuration)
+                else:
                     result = _adapter(source).search(source, query, page)
+            _after(source, access)
+            response = {"source": _public_source(source), **_artwork(source, result)}
+            if check is not None:
                 check(source, configuration)
-            else:
-                result = _adapter(source).search(source, query, page)
-        _after(source, access)
-        response = {"source": _public_source(source), **_artwork(source, result)}
         if check is not None:
             check(source, configuration)
         return response
@@ -287,7 +292,8 @@ def browse(access, source_id, page=1, category_id="", year="", *, operation=None
                 parameters["t"] = category_id
             if year:
                 parameters["year"] = year
-            with taxonomy_cache.foreground(access, source, configuration, lambda: check(source, configuration)):
+            with api_pool.scope(access, source, configuration, lambda: check(source, configuration)), \
+                    taxonomy_cache.foreground(access, source, configuration, lambda: check(source, configuration)):
                 with health.observe_catalogue():
                     with maccms.foreground_metadata_retry(configuration, check, parameters):
                         result = _adapter(source).browse(source, page, category_id, year)
@@ -349,21 +355,26 @@ def detail(access, source_id, selected_id, *, operation=None):
     with _admit(access.owner, operation):
         source = _ready_source(source_id, access)
         target_configuration = related.target_context(access, source)
-        detail_check = None
-        with health.observe_catalogue():
-            if source["provider"] == "maccms":
-                configuration, detail_check = _detail_retry_guard(access, source)
-                with maccms.foreground_detail_retry(configuration, detail_check):
+        configuration, detail_check = (_detail_retry_guard(access, source)
+                                       if source["provider"] == "maccms" else (None, None))
+        scope = (api_pool.scope(access, source, configuration, lambda: detail_check(source, configuration))
+                 if detail_check is not None else nullcontext())
+        with scope:
+            with health.observe_catalogue():
+                if detail_check is not None:
+                    with maccms.foreground_detail_retry(configuration, detail_check):
+                        selected = _adapter(source).detail(source, selected_id)
+                    detail_check(source, configuration)
+                else:
                     selected = _adapter(source).detail(source, selected_id)
+            _after(source, access)
+            saved = _persist(source, selected)
+            _after(source, access)
+            result = _public_detail(source, selected, saved)
+            related.remember_target(access, source, selected, target_configuration)
+            _after(source, access)
+            if detail_check is not None:
                 detail_check(source, configuration)
-            else:
-                selected = _adapter(source).detail(source, selected_id)
-        _after(source, access)
-        saved = _persist(source, selected)
-        _after(source, access)
-        result = _public_detail(source, selected, saved)
-        related.remember_target(access, source, selected, target_configuration)
-        _after(source, access)
         if detail_check is not None:
             detail_check(source, configuration)
         return result
