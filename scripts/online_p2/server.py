@@ -65,7 +65,9 @@ class Scenario(BaseModel):
     detail_mode: bool | None = None
     related_delay_ms: int | None = Field(default=None, ge=0, le=5000)
     related_failure: bool | None = None
+    related_category_failure: bool | None = None
     clear_related_cache: bool = False
+    clear_related_results: bool = False
     image_delay_ms: int | None = Field(default=None, ge=0, le=1500)
     clear_artwork_cache: bool = False
     expire_sessions: bool = False
@@ -291,6 +293,8 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                     origin.related_delay_ms = body.related_delay_ms
                 if body.related_failure is not None:
                     origin.related_failure = body.related_failure
+                if body.related_category_failure is not None:
+                    origin.related_category_failure = body.related_category_failure
                 if body.image_delay_ms is not None:
                     origin.image_delay_ms = body.image_delay_ms
             if body.expire_sessions:
@@ -299,6 +303,10 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                 artwork_module.cache.clear()
             if body.clear_related_cache:
                 related_module.cache.clear()
+            elif body.clear_related_results:
+                # Keep the already-authorized foreground detail snapshot while
+                # forcing a real retry of the optional recommendation branches.
+                related_module.cache.clear_results()
             return {"ok": True}
 
         if static is not None:
@@ -308,6 +316,7 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
         finally:
             state.registry.close_all()
             health_module.registry.clear()
+            related_module.cache.clear()
             library_paths.invalidate_cache()
 
 

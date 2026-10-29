@@ -25,7 +25,7 @@ async function setup(t, request, { stateRequest, relatedRequest, autoplay = fals
     vue,
     'vue-router': { useRoute: () => ({ query: routeQuery }), useRouter: () => ({ replace: async target => { navigations.push(target) } }) },
     '../onlineCatalog.js': { ...catalog, createOnlineCatalogClient: () => catalog.createOnlineCatalogClient({ request }), createOnlineHealthClient: () => ({ read: async () => null, cancel() {}, close() {} }) },
-    '../onlineRelated.js': { createOnlineRelatedClient: () => relatedCatalog.createOnlineRelatedClient({ delay: 0,
+    '../onlineRelated.js': { ...relatedCatalog, createOnlineRelatedClient: () => relatedCatalog.createOnlineRelatedClient({ delay: 0,
       request: relatedRequest || (async path => ({ source: { id: SOURCE_A }, external_id: new URL(path, 'https://jzmedia.invalid').searchParams.get('external_id'), status: 'unsupported' })) }) },
     '../onlineState.js': { ...state, createOnlineStateClient: () => state.createOnlineStateClient({ request: stateRead }),
       loadOnlineAutoplay: () => autoplay, saveOnlineAutoplay: value => preferences.push(value),
@@ -555,6 +555,84 @@ test('deferred recommendations require one explicit retry and failures leave the
   assert.equal(ui.find(node => node.props['data-online-current-season'] !== undefined), undefined, 'An unnumbered title is never labelled first season')
   selectedEntry(ui).props.onClick(); await flush()
   assert.equal(players.length, 1)
+})
+
+test('partial recommendations show usable cards and only an explicit retry replaces them with a complete result', async t => {
+  const pending = deferred()
+  let calls = 0
+  const { ui, players } = await setup(t, detailRequest, { relatedRequest: async () => {
+    calls++
+    return calls === 1 ? relatedRows('movie-1', { partial: true, related: [], name_related: [] }) : pending.promise
+  } })
+  await openShow(ui)
+  const card = ui.find(node => node.props['data-online-related-id'] === 'season-1')
+  assert.ok(card)
+  assert.ok(ui.find(node => node.props['data-online-related-partial'] !== undefined))
+  assert.ok(ui.text().includes('部分相关内容暂时无法读取，已显示可用结果。'))
+  await flush(); assert.equal(calls, 1)
+  ui.find(node => node.props['data-online-related-retry'] !== undefined).props.onClick(); await flush()
+  assert.equal(calls, 2)
+  assert.ok(ui.find(node => node.props['data-online-related-loading'] !== undefined))
+  assert.equal(ui.find(node => node.props['data-online-related-id'] === 'season-1'), card, 'A retry keeps the usable card mounted')
+  assert.equal(selectedEntry(ui).props.disabled, false)
+  pending.resolve(relatedRows()); await flush()
+  assert.equal(ui.find(node => node.props['data-online-related-partial'] !== undefined), undefined)
+  assert.ok(ui.find(node => node.props['data-online-related-id'] === 'same-type'))
+  await flush(); assert.equal(calls, 2)
+  assert.equal(players.length, 0)
+})
+
+test('failed or deferred partial retries preserve cards and use safe classified errors without blocking playback', async t => {
+  let calls = 0
+  const privateMessage = 'https://private.invalid/path?token=private-secret'
+  const { ui, players } = await setup(t, detailRequest, { relatedRequest: async () => {
+    calls++
+    if (calls === 1) return relatedRows('movie-1', { partial: true })
+    if (calls === 2) throw Object.assign(new Error(privateMessage), { code: 'provider_timeout' })
+    return relatedRows('movie-1', { status: 'deferred' })
+  } })
+  await openShow(ui)
+  const card = ui.find(node => node.props['data-online-related-id'] === 'season-1')
+  ui.find(node => node.props['data-online-related-retry'] !== undefined).props.onClick(); await flush()
+  assert.equal(ui.find(node => node.props['data-online-related-id'] === 'season-1'), card)
+  assert.ok(ui.find(node => node.props['data-online-related-error'] !== undefined))
+  assert.ok(ui.text().includes('相关目录读取超时'))
+  assert.equal(ui.text().includes(privateMessage), false)
+  await flush(); assert.equal(calls, 2)
+  ui.find(node => node.props['data-online-related-retry'] !== undefined).props.onClick(); await flush()
+  assert.ok(ui.find(node => node.props['data-online-related-deferred'] !== undefined))
+  assert.equal(ui.find(node => node.props['data-online-related-id'] === 'season-1'), card)
+  await flush(); assert.equal(calls, 3)
+  selectedEntry(ui).props.onClick(); await flush()
+  assert.equal(players.length, 1)
+})
+
+test('partial cards and a pending retry are cleared by another selection, source, permission cleanup or leaving', async t => {
+  for (const action of ['selection', 'source', 'permission', 'unmount']) {
+    const pending = deferred(), signals = []
+    let calls = 0
+    const { ui, cleanup } = await setup(t, detailRequest, { relatedRequest: async (path, options) => {
+      signals.push(options.signal)
+      calls++
+      if (calls === 1) return relatedRows('movie-1', { partial: true })
+      if (calls === 2) return pending.promise
+      return relatedRows(new URL(path, 'https://jzmedia.invalid').searchParams.get('external_id'), { status: 'unsupported' })
+    } })
+    await openShow(ui)
+    ui.find(node => node.props['data-online-related-retry'] !== undefined).props.onClick(); await flush()
+    if (action === 'selection') ui.find(node => node.props['data-online-related-id'] === 'season-3').props.onClick()
+    else if (action === 'source') {
+      const select = ui.find(node => node.props['data-online-source'] !== undefined)
+      select.props['onUpdate:modelValue'](SOURCE_B); select.props.onChange()
+    } else if (action === 'permission') await cleanup()
+    else ui.app.unmount()
+    await flush()
+    assert.equal(signals[1].aborted, true, action)
+    pending.resolve(relatedRows('movie-1', { partial: true })); await flush()
+    assert.equal(ui.find(node => node.props['data-online-related-id'] !== undefined), undefined, action)
+    assert.equal(ui.find(node => node.props['data-online-related-partial'] !== undefined), undefined, action)
+    ui.app.unmount()
+  }
 })
 
 test('choosing another season replaces a deep-link identity before a later refresh can reopen the old season', async t => {

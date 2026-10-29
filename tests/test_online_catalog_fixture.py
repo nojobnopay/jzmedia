@@ -203,12 +203,66 @@ def test_related_fixture_sorts_explicit_seasons_without_persisting_candidates(cl
     after = client.get("/api/p2/metrics").json()
     upstream = after["origin_calls"][len(before["origin_calls"]):]
     calls = [call for call in upstream if call["kind"] == "api"]
-    assert 1 <= len(calls) <= 3, "Recommendations have one bounded detail/search/category budget"
-    assert sum(bool(call["external_id"]) for call in calls) <= 1, "No per-card detail requests"
+    assert len(calls) == 2, "A foreground detail supplies the trusted target for search/category only"
+    assert not any(call["external_id"] for call in calls), "The selected detail and candidate details are not fetched again"
+    assert result["partial"] is False
     assert after["catalog_rows"] == before["catalog_rows"], "Candidates do not become watched items or episodes"
     assert after["local_rows"] == {"movies": 0, "tv_episodes": 0, "playback_progress": 0}
     assert client.get("/api/online/catalog/related", params=params).json() == result
     assert len(client.get("/api/p2/metrics").json()["origin_calls"]) == len(after["origin_calls"])
+
+
+@pytest.mark.parametrize("plan,expected_group", [
+    ({"related_failure": True}, "related"),
+    ({"related_category_failure": True}, "series"),
+    ({"related_delay_ms": 3600}, "related"),
+])
+def test_related_fixture_keeps_available_branch_and_retries_without_caching_partial(client, plan, expected_group):
+    source = add_source(client)
+    assert client.post("/api/p2/scenario", json={"related": True, "clear_related_cache": True, **plan}).status_code == 200
+    detail(client, source, "academy-s2")
+    params = {"source_id": source["id"], "external_id": "academy-s2"}
+    before = client.get("/api/p2/metrics").json()
+    for _attempt in range(2):
+        response = client.get("/api/online/catalog/related", params=params)
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result["status"] == "ready" and result["partial"] is True
+        assert result[expected_group], "A failed optional branch must not discard useful candidates"
+    failed = client.get("/api/p2/metrics").json()
+    calls = [call for call in failed["origin_calls"][len(before["origin_calls"]):] if call["kind"] == "api"]
+    assert len(calls) == 4 and not any(call["external_id"] for call in calls)
+    assert failed["catalog_rows"] == before["catalog_rows"]
+    assert client.post("/api/p2/scenario", json={"related_failure": False,
+        "related_category_failure": False, "related_delay_ms": 0}).status_code == 200
+    # Deliberately do not clear the result cache here: the previous partial
+    # response must not have become a successful empty/permanent recommendation.
+    recovered = client.get("/api/online/catalog/related", params=params)
+    assert recovered.status_code == 200, recovered.text
+    assert recovered.json()["partial"] is False
+    assert [row["external_id"] for row in recovered.json()["series"]] == ["academy-s1", "academy-s3", "academy-s4"]
+    after = client.get("/api/p2/metrics").json()
+    calls = [call for call in after["origin_calls"][len(failed["origin_calls"]):] if call["kind"] == "api"]
+    assert len(calls) == 2 and not any(call["external_id"] for call in calls)
+
+
+@pytest.mark.parametrize("external_id", ["academy-s2", "lonely-trailer"])
+def test_related_fixture_does_not_hide_two_failed_or_failed_empty_branches(client, external_id):
+    source = add_source(client)
+    assert client.post("/api/p2/scenario", json={"related": True, "related_failure": True,
+        "related_category_failure": True, "clear_related_cache": True}).status_code == 200
+    detail(client, source, external_id)
+    params = {"source_id": source["id"], "external_id": external_id}
+    before = client.get("/api/p2/metrics").json()
+    for _attempt in range(2):
+        response = client.get("/api/online/catalog/related", params=params)
+        assert response.status_code == 502, response.text
+        assert response.json()["code"] == "provider_upstream_error"
+        assert "fixture.invalid" not in response.text
+    after = client.get("/api/p2/metrics").json()
+    calls = [call for call in after["origin_calls"][len(before["origin_calls"]):] if call["kind"] == "api"]
+    assert len(calls) == 4 and not any(call["external_id"] for call in calls)
+    assert after["catalog_rows"] == before["catalog_rows"]
 
 
 @pytest.mark.parametrize("external_id,current_season", [

@@ -610,7 +610,8 @@ async function relatedRecommendations() {
     const response = await fetch(`${base}/api/p2/scenario`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Token': 'online-p2-fixture-only' },
       body: JSON.stringify({ related: true, taxonomy: false, gallery: false, related_delay_ms: 0,
-        related_failure: false, reverse_lines: false, clear_related_cache: true, ...plan }) })
+        related_failure: false, related_category_failure: false, reverse_lines: false,
+        clear_related_results: true, ...plan }) })
     assert.equal(response.status, 200)
   }
   async function settled(page) {
@@ -668,8 +669,8 @@ async function relatedRecommendations() {
       assert.equal(new Set(candidates).size, candidates.length)
       const after = await metrics()
       const extraCalls = apiCalls(after).slice(apiCalls(before).length)
-      assert.ok(extraCalls.length <= 4, 'One selected detail plus at most three recommendation metadata calls')
-      assert.ok(extraCalls.filter(call => call.external_id).length <= 2, 'Cards never trigger per-item detail fan-out')
+      assert.equal(extraCalls.length, 3, 'The selected foreground detail is followed by only search and category metadata')
+      assert.equal(extraCalls.filter(call => call.external_id).length, 1, 'Recommendations reuse the foreground detail without per-card reads')
       assert.equal(after.catalog_rows.online_items, before.catalog_rows.online_items + (width === 1440 ? 1 : 0),
         'Only explicitly opened targets are persisted, and existing targets retain their identity')
       assert.equal(await page.locator('video').count(), 0)
@@ -720,14 +721,59 @@ async function relatedRecommendations() {
       assert.equal(await page.locator('[data-online-related-id]').count(), 0, 'Late recommendations cannot repaint a different item')
       assert.match(await page.locator('[data-online-detail] h2').textContent(), /独行预告/)
 
-      phase = { name: `related-failure-${width}`, expectedHttp: true }
+      phase = { name: `related-search-partial-${width}`, expectedHttp: false }
       await configure({ related_failure: true })
       await openSearch(page, '青山书院第二季', 'academy-s2')
       await finished(page)
-      assert.equal(await page.locator('[data-online-entry]').first().isEnabled(), true, 'Failed recommendations cannot disable playback')
-      await configure({})
-      if (await page.locator('[data-online-related-retry]').count()) await page.locator('[data-online-related-retry]').click()
-      else { await returned(page); await detailUi(page, 'academy-s2') }
+      await page.locator('[data-online-related-partial]').waitFor()
+      assert.ok((await ids(page, 'related')).length > 0, 'A failed name search keeps available same-category posters')
+      assert.deepEqual(await ids(page, 'series'), [])
+      assert.equal(await page.locator('[data-online-related-error]').count(), 0)
+      assert.equal(await page.locator('[data-online-entry]').first().isEnabled(), true)
+      const beforeRetry = await metrics()
+      await configure({ related_delay_ms: 600, clear_related_results: false })
+      await page.locator('[data-online-related-retry]').click()
+      assert.ok((await ids(page, 'related')).length > 0, 'Manual retry preserves already available posters while loading')
+      await page.locator('[data-online-related-id="academy-s4"]').waitFor()
+      await finished(page)
+      assert.equal(await page.locator('[data-online-related-partial]').count(), 0)
+      const retryCalls = apiCalls(await metrics()).slice(apiCalls(beforeRetry).length)
+      assert.equal(retryCalls.length, 2, 'Partial responses are not cached and retry still reuses the foreground target')
+      assert.equal(retryCalls.some(call => call.external_id), false)
+
+      phase.name = `related-category-partial-${width}`
+      await configure({ related_category_failure: true })
+      await openSearch(page, '青山书院第二季', 'academy-s2')
+      await finished(page)
+      await page.locator('[data-online-related-partial]').waitFor()
+      assert.deepEqual(await ids(page, 'series'), ['academy-s1', 'academy-s3', 'academy-s4'],
+        'A failed category query keeps successfully discovered seasons')
+      assert.deepEqual(await ids(page, 'related'), [])
+      await page.locator('[data-online-related]').scrollIntoViewIfNeeded()
+      await page.screenshot({ path: path.join(output, `related-partial-${width}.png`), fullPage: true })
+
+      phase.name = `related-search-timeout-fallback-${width}`
+      await configure({ related_delay_ms: 3600 })
+      await openSearch(page, '青山书院第二季', 'academy-s2')
+      await finished(page)
+      await page.locator('[data-online-related-partial]').waitFor()
+      assert.ok((await ids(page, 'related')).length > 0, 'A bounded slow name query leaves time for the independent category fallback')
+      assert.equal(await page.locator('[data-online-entry]').first().isEnabled(), true)
+      await idle('The timed-out source response and its cancelled reader are fully released')
+
+      phase = { name: `related-both-failed-${width}`, expectedHttp: true }
+      await configure({ related_failure: true, related_category_failure: true })
+      await openSearch(page, '青山书院第二季', 'academy-s2')
+      await finished(page)
+      await page.locator('[data-online-related-error]').waitFor()
+      assert.equal(await page.locator('[data-online-related-id]').count(), 0)
+      assert.equal(await page.locator('[data-online-entry]').first().isEnabled(), true, 'Two unavailable branches cannot disable the selected detail')
+      const failedRequests = (await metrics()).api_calls.filter(call => call.path === '/api/online/catalog/related').length
+      await delay(450)
+      assert.equal((await metrics()).api_calls.filter(call => call.path === '/api/online/catalog/related').length, failedRequests,
+        'Recommendation errors never start an automatic retry loop')
+      await configure({ clear_related_results: false })
+      await page.locator('[data-online-related-retry]').click()
       await page.locator('[data-online-related-id="academy-s4"]').waitFor()
       await finished(page)
       phase.expectedHttp = false
@@ -775,7 +821,9 @@ async function relatedRecommendations() {
         currentSeasonExcluded: true, candidatesBound: 12, recommendationMetadataCalls: extraCalls.length - 1,
         perCardDetailCalls: 0, opensDetailsWithoutPlayback: true, separateSeasonProgress: true,
         categoryYearPageAnchorRestored: true, sameCategoryFallback: true, emptyRelatedKeepsEpisodes: true,
-        lateResultsDiscarded: true, failureDoesNotBlockPlayback: true, foregroundPlayPreempts: true,
+        lateResultsDiscarded: true, partialResultsKeepPosters: true, partialManualRetryRecovers: true,
+        slowSearchKeepsCategoryFallback: true, bothFailuresStayVisibleWithoutAutoRetry: true,
+        foregroundTargetReused: true, failureDoesNotBlockPlayback: true, foregroundPlayPreempts: true,
         serverDeferredStatus: deferred.body.status, clickToFrameMs, actualDecodedFrames: true })
 
       if (width === 390 && selectedCase === 'related') {
@@ -813,7 +861,8 @@ async function relatedRecommendations() {
       await idle()
       const response = await fetch(`${base}/api/p2/scenario`, { method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Api-Token': 'online-p2-fixture-only' },
-        body: JSON.stringify({ related: false, related_delay_ms: 0, related_failure: false, clear_related_cache: true }) })
+        body: JSON.stringify({ related: false, related_delay_ms: 0, related_failure: false,
+          related_category_failure: false, clear_related_cache: true }) })
       assert.equal(response.status, 200)
     }
   }

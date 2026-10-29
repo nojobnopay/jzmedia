@@ -101,8 +101,9 @@
           </section>
           <section v-if="relatedLoading || relatedError || relatedDeferred || relatedGroups.length" class="online-related" aria-label="相关内容" data-online-related>
             <p v-if="relatedLoading" class="online-related-state" data-online-related-loading role="status">正在查找相关内容…</p>
-            <div v-else-if="relatedError" class="online-related-state" data-online-related-error role="status"><span>相关内容暂时无法读取，仍可正常选集播放。</span><JzButton data-online-related-retry @click="loadRelated(true)">重试</JzButton></div>
+            <div v-else-if="relatedError" class="online-related-state" data-online-related-error role="status"><span>{{ relatedError.message }}仍可正常选集播放。</span><JzButton data-online-related-retry @click="loadRelated(true)">重试</JzButton></div>
             <div v-else-if="relatedDeferred" class="online-related-state" data-online-related-deferred><span>相关内容稍后可继续查看。</span><JzButton data-online-related-retry @click="loadRelated(true)">查看相关推荐</JzButton></div>
+            <div v-else-if="related?.partial" class="online-related-state" data-online-related-partial role="status"><span>部分相关内容暂时无法读取，已显示可用结果。</span><JzButton data-online-related-retry @click="loadRelated(true)">重试</JzButton></div>
             <section v-for="group in relatedGroups" :key="group.key" class="online-related-group" :data-online-related-group="group.key" :aria-label="group.title">
               <header class="online-related-heading"><h3>{{ group.title }}</h3><span v-if="group.key === 'series' && related.current_season" class="online-related-current" data-online-current-season>当前：第 {{ related.current_season }} 季</span></header>
               <p class="online-related-note">{{ group.note }}</p>
@@ -162,7 +163,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createOnlineCatalogClient, createOnlineHealthClient, onlineHealthLabel, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
-import { createOnlineRelatedClient } from '../onlineRelated.js'
+import { createOnlineRelatedClient, onlineRelatedError } from '../onlineRelated.js'
 import { createOnlineProgressMemory, onlineIdentityKey, validateOnlineIdentity } from '../onlinePlayback.js'
 import { createOnlineStateClient, createOnlineProgressWriter, loadOnlineAutoplay, saveOnlineAutoplay, nextOnlineEpisode, onlineStateError } from '../onlineState.js'
 import { isChildren, registerViewingPlaybackCleanup, viewing } from '../viewing.js'
@@ -183,7 +184,7 @@ import '../styles/online.css'
 const client = createOnlineCatalogClient(), nextClient = createOnlineCatalogClient(), stateClient = createOnlineStateClient()
 const route = useRoute(), router = useRouter()
 const healthClient = createOnlineHealthClient(), health = ref(null), healthLoading = ref(false), healthError = ref('')
-const relatedClient = createOnlineRelatedClient(), related = ref(null), relatedLoading = ref(false), relatedError = ref(false), relatedDeferred = ref(false)
+const relatedClient = createOnlineRelatedClient(), related = ref(null), relatedLoading = ref(false), relatedError = ref(null), relatedDeferred = ref(false)
 const progress = createOnlineProgressMemory()
 const sources = ref([]), sourceId = ref(''), enabled = ref(false), query = ref('')
 const loadingSources = ref(true), sourcesError = ref(''), searching = ref(false), searched = ref(false), searchError = ref('')
@@ -258,19 +259,20 @@ function current(turn) { return !disposed && turn === generation && safeMode.val
 function cancelRelated(clear = false, defer = false) {
   const interrupted = relatedLoading.value
   relatedGeneration++; relatedClient.cancel(); relatedLoading.value = false
-  if (clear) { related.value = null; relatedError.value = false; relatedDeferred.value = false }
-  else if (defer && interrupted && !related.value) { relatedError.value = false; relatedDeferred.value = true }
+  if (clear) { related.value = null; relatedError.value = null; relatedDeferred.value = false }
+  else if (defer && interrupted && !related.value) { relatedError.value = null; relatedDeferred.value = true }
 }
 async function loadRelated(immediate = false) {
   if (!safeMode.value || !detail.value || detailLoading.value || playing.value || starting.value || nextLoading.value || selectedSource.value?.capabilities?.related !== true) return
   const turn = ++relatedGeneration, view = generation, source = sourceId.value, externalId = lastDetailId.value
-  relatedLoading.value = true; relatedError.value = false; relatedDeferred.value = false
+  relatedLoading.value = true; relatedError.value = null; relatedDeferred.value = false
   try {
     const value = await relatedClient.read(source, externalId, { immediate })
     if (!current(view) || turn !== relatedGeneration || source !== sourceId.value || externalId !== lastDetailId.value || !value) return
-    related.value = value.status === 'ready' ? value : null
+    if (value.status === 'ready') related.value = value
+    else if (value.status === 'unsupported') related.value = null
     relatedDeferred.value = value.status === 'deferred'
-  } catch { if (current(view) && turn === relatedGeneration) relatedError.value = true }
+  } catch (error) { if (current(view) && turn === relatedGeneration) relatedError.value = onlineRelatedError(error) }
   finally { if (turn === relatedGeneration) relatedLoading.value = false }
 }
 function sameIdentity(a, b) { try { return onlineIdentityKey(a) === onlineIdentityKey(b) } catch { return false } }

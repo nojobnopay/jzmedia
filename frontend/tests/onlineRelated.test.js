@@ -1,11 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createOnlineRelatedClient } from '../src/onlineRelated.js'
+import { createOnlineRelatedClient, onlineRelatedError } from '../src/onlineRelated.js'
 import { createOnlineCatalogClient } from '../src/onlineCatalog.js'
 
 const SOURCE = 'src_' + '1'.repeat(32)
 const result = (externalId = 'show-1', extra = {}) => ({ source: { id: SOURCE }, external_id: externalId,
-  current_season: 2, status: 'ready', series: [], related: [], name_related: [], ...extra })
+  current_season: 2, status: 'ready', partial: false, series: [], related: [], name_related: [], ...extra })
 function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
 function scheduler() {
   let lastDelay
@@ -99,4 +99,41 @@ test('deferred and unsupported replies remain distinct and never retry themselve
   await Promise.resolve()
   assert.equal(calls, 1)
   assert.equal((await client.read(SOURCE, 'show-1', { immediate: true })).status, 'unsupported')
+})
+
+test('partial results keep usable cards and older complete responses default to not partial', async () => {
+  const card = { external_id: 'season-1', title: '另一季', season: 1, reason: 'inferred_season' }
+  let calls = 0
+  const client = createOnlineRelatedClient({ delay: 0, request: async () => { calls++; return result('show-1', { partial: true, series: [card] }) } })
+  const value = await client.read(SOURCE, 'show-1')
+  assert.equal(value.partial, true)
+  assert.deepEqual(value.series, [card])
+  await Promise.resolve()
+  assert.equal(calls, 1, 'A partial response is not an automatic retry instruction')
+  const legacy = result(); delete legacy.partial
+  const olderServer = createOnlineRelatedClient({ delay: 0, request: async () => legacy })
+  assert.equal((await olderServer.read(SOURCE, 'show-1')).partial, false)
+})
+
+test('partial is a strict ready-only boolean and cannot label an empty result as a partial success', async () => {
+  for (const extra of [{ partial: null }, { partial: 'true' }, { partial: 1 },
+    { partial: true, status: 'deferred' }, { partial: true, status: 'unsupported' }, { partial: true }]) {
+    const client = createOnlineRelatedClient({ delay: 0, request: async () => result('show-1', extra) })
+    await assert.rejects(client.read(SOURCE, 'show-1'), error => error.code === 'provider_invalid_response')
+  }
+})
+
+test('recommendation errors use fixed known codes and never include private upstream messages', () => {
+  const privateMessage = 'https://private.invalid/path?token=private-secret'
+  for (const [code, expected] of [['provider_timeout', '超时'], ['provider_rate_limited', '限制查询次数'],
+    ['provider_response_limit', '资料过大'], ['provider_network_error', '无法连接'],
+    ['provider_upstream_error', '暂时无法提供'], ['provider_invalid_response', '资料暂不受支持']]) {
+    const value = onlineRelatedError({ code, message: privateMessage })
+    assert.equal(value.code, code)
+    assert.ok(value.message.includes(expected))
+    assert.equal(JSON.stringify(value).includes(privateMessage), false)
+  }
+  for (const code of ['unknown-upstream-' + privateMessage, '__proto__', 'constructor', null]) {
+    assert.deepEqual(onlineRelatedError({ code, message: privateMessage }), { code: 'unknown', message: '相关内容暂时无法读取。' })
+  }
 })

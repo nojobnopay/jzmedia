@@ -135,6 +135,7 @@ class FixtureOrigin:
         self.detail_mode = False
         self.related_delay_ms = 0
         self.related_failure = False
+        self.related_category_failure = False
         self.image_delay_ms = 0
         self.image_active = 0
         self.image_peak = 0
@@ -280,8 +281,9 @@ class FixtureOrigin:
                                    {"青山书院", "重启之路", "回声"} and "ids" not in query)
                     if root_search:
                         delay_ms = max(delay_ms, origin.related_delay_ms)
-                    if origin.related_failure and origin.related and "ids" not in query and (
-                            root_search or query.get("t", [""])[0]):
+                    category_request = origin.related and bool(query.get("t", [""])[0]) and "ids" not in query
+                    if (origin.related_failure and root_search
+                            or origin.related_category_failure and category_request):
                         mode = "status_error"
                     origin.pending_requests += 1
                 try:

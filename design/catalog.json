@@ -51654,9 +51654,48 @@
       "source_excerpt": "<JzButton data-online-related-retry @click=\"loadRelated(true)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:145",
+      "id": "frontend/src/views/Online.vue:JzButton:140",
       "source": "frontend/src/views/Online.vue",
-      "line": 111,
+      "line": 106,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "重试",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton data-online-related-retry @click=\"loadRelated(true)\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:148",
+      "source": "frontend/src/views/Online.vue",
+      "line": 112,
       "platforms": [
         "web",
         "mobile-web"
@@ -51703,9 +51742,9 @@
       "source_excerpt": "<JzButton class=\"online-poster-button\" variant=\"ghost\" :data-online-related-id=\"item.external_id\" :aria-label=\"'查看详情 ' + item.title\" @click=\"openRelated(item.external_id)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:AppIcon:149",
+      "id": "frontend/src/views/Online.vue:AppIcon:152",
       "source": "frontend/src/views/Online.vue",
-      "line": 111,
+      "line": 112,
       "platforms": [
         "web",
         "mobile-web"
@@ -51740,9 +51779,9 @@
       "source_excerpt": "<AppIcon name=\"play\" :size=\"22\" />"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:157",
+      "id": "frontend/src/views/Online.vue:JzButton:160",
       "source": "frontend/src/views/Online.vue",
-      "line": 120,
+      "line": 121,
       "platforms": [
         "web",
         "mobile-web"
@@ -51779,9 +51818,9 @@
       "source_excerpt": "<JzButton @click=\"search(lastQuery.page, lastQuery.query, { force: true })\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:167",
+      "id": "frontend/src/views/Online.vue:JzButton:170",
       "source": "frontend/src/views/Online.vue",
-      "line": 126,
+      "line": 127,
       "platforms": [
         "web",
         "mobile-web"
@@ -51821,9 +51860,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" data-online-refresh :disabled=\"searching\" @click=\"refreshResults\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:170",
+      "id": "frontend/src/views/Online.vue:JzButton:173",
       "source": "frontend/src/views/Online.vue",
-      "line": 128,
+      "line": 129,
       "platforms": [
         "web",
         "mobile-web"
@@ -51871,9 +51910,9 @@
       "source_excerpt": "<JzButton class=\"online-poster-button\" variant=\"ghost\" :data-online-result=\"item.external_id\" :aria-label=\"'查看详情 ' + item.title\" :disabled=\"searching\" @click=\"openDetail(item.exter"
     },
     {
-      "id": "frontend/src/views/Online.vue:AppIcon:174",
+      "id": "frontend/src/views/Online.vue:AppIcon:177",
       "source": "frontend/src/views/Online.vue",
-      "line": 128,
+      "line": 129,
       "platforms": [
         "web",
         "mobile-web"
@@ -51908,9 +51947,9 @@
       "source_excerpt": "<AppIcon name=\"play\" :size=\"22\" />"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:179",
+      "id": "frontend/src/views/Online.vue:JzButton:182",
       "source": "frontend/src/views/Online.vue",
-      "line": 131,
+      "line": 132,
       "platforms": [
         "web",
         "mobile-web"
@@ -51950,9 +51989,9 @@
       "source_excerpt": "<JzButton icon=\"arrow-left\" :disabled=\"searching || !!searchError || page <= 1\" @click=\"search(page - 1, loadedQuery)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:181",
+      "id": "frontend/src/views/Online.vue:JzButton:184",
       "source": "frontend/src/views/Online.vue",
-      "line": 131,
+      "line": 132,
       "platforms": [
         "web",
         "mobile-web"
@@ -51992,9 +52031,9 @@
       "source_excerpt": "<JzButton icon=\"forward\" :disabled=\"searching || !!searchError || page >= pageCount\" @click=\"search(page + 1, loadedQuery)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:187",
+      "id": "frontend/src/views/Online.vue:JzButton:190",
       "source": "frontend/src/views/Online.vue",
-      "line": 136,
+      "line": 137,
       "platforms": [
         "web",
         "mobile-web"
@@ -52034,9 +52073,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" :disabled=\"libraryLoading\" @click=\"loadLibrary()\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:189",
+      "id": "frontend/src/views/Online.vue:JzButton:192",
       "source": "frontend/src/views/Online.vue",
-      "line": 138,
+      "line": 139,
       "platforms": [
         "web",
         "mobile-web"
@@ -52074,9 +52113,9 @@
       "source_excerpt": "<JzButton v-for=\"tab in libraryTabs\" :key=\"tab.key\" :data-online-library-section=\"tab.key\" :aria-pressed=\"librarySection === tab.key\" @click=\"selectLibrary(tab.key)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:202",
+      "id": "frontend/src/views/Online.vue:JzButton:205",
       "source": "frontend/src/views/Online.vue",
-      "line": 147,
+      "line": 148,
       "platforms": [
         "web",
         "mobile-web"
@@ -52116,9 +52155,9 @@
       "source_excerpt": "<JzButton v-if=\"row.progress\" icon=\"play\" :data-online-resume=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError || starting\" @click=\"openSaved(row, true)\""
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:203",
+      "id": "frontend/src/views/Online.vue:JzButton:206",
       "source": "frontend/src/views/Online.vue",
-      "line": 148,
+      "line": 149,
       "platforms": [
         "web",
         "mobile-web"
@@ -52156,9 +52195,9 @@
       "source_excerpt": "<JzButton :data-online-library-detail=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError\" @click=\"openSaved(row, false)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:204",
+      "id": "frontend/src/views/Online.vue:JzButton:207",
       "source": "frontend/src/views/Online.vue",
-      "line": 149,
+      "line": 150,
       "platforms": [
         "web",
         "mobile-web"
@@ -52198,9 +52237,9 @@
       "source_excerpt": "<JzButton v-if=\"row.favorite\" icon=\"heart-filled\" :data-online-favorite=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"favoriteRow(row, false)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:205",
+      "id": "frontend/src/views/Online.vue:JzButton:208",
       "source": "frontend/src/views/Online.vue",
-      "line": 150,
+      "line": 151,
       "platforms": [
         "web",
         "mobile-web"
@@ -52238,9 +52277,9 @@
       "source_excerpt": "<JzButton v-if=\"row.progress\" :data-online-history-delete=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"clearHistory(row)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:207",
+      "id": "frontend/src/views/Online.vue:JzButton:210",
       "source": "frontend/src/views/Online.vue",
-      "line": 154,
+      "line": 155,
       "platforms": [
         "web",
         "mobile-web"
@@ -52278,9 +52317,9 @@
       "source_excerpt": "<JzButton :disabled=\"libraryOffset === 0 || libraryLoading\" @click=\"loadLibrary(Math.max(0, libraryOffset - 20))\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:209",
+      "id": "frontend/src/views/Online.vue:JzButton:212",
       "source": "frontend/src/views/Online.vue",
-      "line": 154,
+      "line": 155,
       "platforms": [
         "web",
         "mobile-web"
