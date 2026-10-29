@@ -406,8 +406,10 @@ def management_path(path, method):
     if path.startswith("/api/viewing/"):
         return False
     if path in {"/api/online/catalog/sources", "/api/online/catalog/search", "/api/online/catalog/detail",
-                "/api/online/catalog/health"}:
+                "/api/online/catalog/health", "/api/online/catalog/browse"}:
         return method != "GET"
+    if method == "GET" and re.fullmatch(r"/api/online/catalog/artwork/src_[0-9a-f]{32}/[0-9a-f]{32}", path):
+        return False
     if path.startswith("/api/online/state"):
         item = r"itm_[0-9a-f]{32}"
         if method == "GET" and (path == "/api/online/state/library"

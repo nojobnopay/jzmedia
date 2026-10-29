@@ -130,7 +130,32 @@ def search(access, source_id, query, page=1, *, operation=None):
         with health.observe_catalogue():
             result = _adapter(source).search(source, query, page)
         _after(source, access)
-        return {"source": _public_source(source), **result}
+        return {"source": _public_source(source), **_artwork(source, result)}
+
+
+def _artwork(source, result):
+    from . import artwork
+    urls = [item.pop("_poster_url", "") for item in result["items"]]
+    for item, path in zip(result["items"], artwork.register_many(source, urls)):
+        item["poster_path"] = path
+    return result
+
+
+def browse(access, source_id, page=1, category_id="", *, operation=None):
+    if type(page) is not int or not 1 <= page <= 1000:
+        raise CatalogError("invalid_online_catalog_request", 422)
+    try:
+        if category_id:
+            category_id = maccms.external_id(category_id)
+    except ProviderError:
+        raise CatalogError("invalid_online_catalog_request", 422) from None
+    with _admit(access.owner, operation):
+        source = _ready_source(source_id, access)
+        with health.observe_catalogue():
+            result = (open_catalog.search(source, "", page) if source["provider"] == "open_catalog"
+                      else _adapter(source).browse(source, page, category_id))
+        _after(source, access)
+        return {"source": _public_source(source), **_artwork(source, result)}
 
 
 def _persist(source, detail):
@@ -145,6 +170,7 @@ def _persist(source, detail):
 
 
 def _public_detail(source, detail, saved):
+    from . import artwork
     item = saved["item"]
     episodes = {episode["external_id"]: episode for episode in saved["episodes"]}
     lines = []
@@ -162,7 +188,8 @@ def _public_detail(source, detail, saved):
         lines.append({"id": line.id, "label": line.name, "entries": entries})
     return {"source": _public_source(source), "item": {key: item[key] for key in ("id", "source_id", "kind", "title")},
             "description": detail.description, "year": detail.year, "lines": lines,
-            "attribution": [{"label": label, "url": url} for label, url in detail.attribution]}
+            "attribution": [{"label": label, "url": url} for label, url in detail.attribution],
+            "poster_path": artwork.register(source, detail.poster_url)}
 
 
 def detail(access, source_id, selected_id, *, operation=None):

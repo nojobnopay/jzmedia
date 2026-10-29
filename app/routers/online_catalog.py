@@ -7,7 +7,7 @@ import time
 from fastapi import APIRouter, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 
 from ..network.policy import NetworkPolicyError
@@ -122,3 +122,19 @@ async def detail(request: Request, source_id: SourceId,
                  external_id: str = Query(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")):
     _query(request, {"source_id", "external_id"})
     return await _read(request, catalog.detail, source_id, external_id)
+
+
+@router.get("/browse", response_model=catalog_models.CatalogSearch)
+async def browse(request: Request, source_id: SourceId,
+                 page: int = Query(default=1, ge=1, le=1000),
+                 category_id: str = Query(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$")):
+    _query(request, {"source_id", "page", "category_id"})
+    return await _read(request, catalog.browse, source_id, page, category_id)
+
+
+@router.get("/artwork/{source_id}/{token}")
+async def artwork(request: Request, source_id: SourceId, token: str):
+    from ..online import artwork as images
+    _query(request, set())
+    body, mime = await _read(request, images.fetch, source_id, token)
+    return Response(body, media_type=mime, headers=HEADERS)

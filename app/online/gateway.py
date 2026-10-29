@@ -30,6 +30,11 @@ _MANIFEST_TYPES = {"application/vnd.apple.mpegurl", "application/x-mpegurl", "au
                    "audio/x-mpegurl", "text/plain", "application/octet-stream"}
 _SEGMENT_TYPES = {"video/mp2t", "video/mp4", "video/iso.segment", "audio/mp4", "audio/aac", "audio/mpeg",
                   "audio/ac3", "audio/eac3", "text/vtt", "application/octet-stream"}
+# Native browser MP4 readers request an open-ended range and follow the
+# returned Content-Range. Keep that transfer short enough for slower sources
+# to complete within the existing absolute deadline. Explicit bounded ranges
+# (including Android's 8 MiB windows) retain the registry's original limit.
+MP4_OPEN_RANGE_BYTES = 1024 * 1024
 _executor = None
 _executor_lock = threading.Lock()
 _accepting = True
@@ -400,7 +405,10 @@ async def stream_response(request, registry, session, resource):
             requested_range(raw_range, 2**63 - 1)
             selected = None
         else:
-            selected = requested_range(raw_range, cap, resource.byte_range)
+            range_cap = (min(cap, MP4_OPEN_RANGE_BYTES)
+                         if resource.kind == "mp4" and raw_range is not None and raw_range.endswith("-")
+                         else cap)
+            selected = requested_range(raw_range, range_cap, resource.byte_range)
         headers = {"Range": selected.header} if selected is not None else {}
         if "if-range" in request.headers:
             value = request.headers["if-range"]

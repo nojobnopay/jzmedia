@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from .. import config
 from ..online import models
+from ..online.source_templates import SourceTemplateList, list_source_templates
 from ..store import online as online_store
 
 
@@ -67,6 +68,11 @@ def _missing() -> HTTPException:
 @router.get("/settings", response_model=models.OnlineSettings)
 def get_settings():
     return online_store.get_online_settings()
+
+
+@router.get("/source-templates", response_model=SourceTemplateList)
+def get_source_templates():
+    return list_source_templates()
 
 
 @router.patch("/settings", response_model=models.OnlineSettings)

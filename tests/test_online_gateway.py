@@ -26,6 +26,7 @@ pytest_plugins = ["test_network_transport"]
 
 OWNER = "gateway-owner-fixture"
 DATA = bytes(range(100))
+LARGE_DATA = bytes(range(256)) * (8 * 1024 * 1024 // 256) + b"final-mp4-bytes"
 MASTER = (b"#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-STREAM-INF:BANDWIDTH=1000\n"
           b"child.m3u8?token=media-secret\n")
 CHILD = (b'#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:4\n'
@@ -106,6 +107,8 @@ def upstream():
                 content_type = "application/octet-stream"
             elif path == "/fragment.m4s":
                 content_type = "video/iso.segment"
+            elif path in {"/large.mp4", "/paced-large.mp4"}:
+                body = LARGE_DATA
             elif path in {"/blocked.mp4", "/slow-body.mp4"}:
                 body = DATA[:16]
             raw_range = self.headers.get("Range")
@@ -149,6 +152,12 @@ def upstream():
                         if stop.wait(timeout=.1):
                             return
                         self.wfile.write(bytes([value]))
+                        self.wfile.flush()
+                elif path == "/paced-large.mp4":
+                    for offset in range(0, len(body), 64 * 1024):
+                        if stop.wait(timeout=.02):
+                            return
+                        self.wfile.write(body[offset:offset + 64 * 1024])
                         self.wfile.flush()
                 else:
                     self.wfile.write(body)
@@ -237,6 +246,64 @@ def test_mp4_range_is_bounded_and_validated(bridge, upstream, requested, start, 
     assert int(response.headers["content-length"]) == end - start + 1
     assert upstream["records"][0]["headers"]["Range"] == forwarded
     assert harness.registry.stats()["consumed_bytes"] == len(response.content)
+
+
+def test_mp4_browser_follows_short_open_ranges_through_large_file_and_eof(bridge, upstream):
+    limits = SessionLimits(ttl_seconds=60, idle_seconds=30,
+                           max_session_bytes=32 * 1024**2, max_reserved_bytes=16 * 1024**2)
+    harness = bridge("/large.mp4", configured=limits)
+    offset, parts = 0, []
+    with TestClient(harness.app) as client:
+        while offset < len(LARGE_DATA):
+            response = client.get(harness.url, headers={"Range": f"bytes={offset}-",
+                                                        "If-Range": '"fixture-v1"'})
+            assert response.status_code == 206
+            end = min(offset + gateway.MP4_OPEN_RANGE_BYTES, len(LARGE_DATA)) - 1
+            assert response.headers["content-range"] == f"bytes {offset}-{end}/{len(LARGE_DATA)}"
+            assert response.headers["etag"] == '"fixture-v1"'
+            assert int(response.headers["content-length"]) == len(response.content) == end - offset + 1
+            parts.append(response.content)
+            offset = end + 1
+        final = client.get(harness.url, headers={"Range": f"bytes={offset}-"})
+    assert b"".join(parts) == LARGE_DATA
+    assert len(parts) > 8, "The reader must continue past the old 8 MiB boundary"
+    assert final.status_code == 416 and final.headers["content-range"] == f"bytes */{len(LARGE_DATA)}"
+    assert harness.registry.stats()["consumed_bytes"] == len(LARGE_DATA)
+    assert harness.registry.stats()["reserved_bytes"] == 0
+    assert all(record["headers"].get("If-Range") == '"fixture-v1"'
+               for record in upstream["records"][:-1])
+
+
+def test_mp4_explicit_android_ranges_and_suffixes_keep_original_byte_limit(bridge, upstream):
+    limits = SessionLimits(ttl_seconds=60, idle_seconds=30,
+                           max_session_bytes=32 * 1024**2, max_reserved_bytes=16 * 1024**2)
+    harness = bridge("/large.mp4", configured=limits)
+    explicit_size = limits.max_mp4_response_bytes
+    with TestClient(harness.app) as client:
+        explicit = client.get(harness.url, headers={"Range": f"bytes=0-{explicit_size - 1}"})
+        suffix = client.get(harness.url, headers={"Range": "bytes=-2097152"})
+        rejected = client.get(harness.url, headers={"Range": f"bytes=0-{explicit_size}"})
+    assert explicit.status_code == 206 and explicit.content == LARGE_DATA[:explicit_size]
+    assert suffix.status_code == 206 and suffix.content == LARGE_DATA[-2097152:]
+    assert rejected.status_code == 416 and rejected.json()["code"] == "range_byte_limit"
+    assert len(upstream["records"]) == 2, "An oversized explicit range cannot contact the origin"
+
+
+def test_slow_origin_finishes_browser_window_with_existing_request_deadline(bridge, upstream):
+    # This origin takes >2.5 seconds for 8 MiB, but about .32 seconds for a
+    # browser's new 1 MiB window. Do not extend deadlines to hide slow reads.
+    limits = SessionLimits(ttl_seconds=60, idle_seconds=30, request_seconds=1.5,
+                           max_session_bytes=32 * 1024**2, max_reserved_bytes=16 * 1024**2)
+    harness = bridge("/paced-large.mp4", configured=limits)
+    with TestClient(harness.app) as client:
+        first = client.get(harness.url, headers={"Range": "bytes=0-"})
+        next_offset = len(first.content)
+        following = client.get(harness.url, headers={"Range": f"bytes={next_offset}-"})
+    assert first.status_code == following.status_code == 206
+    assert first.content == LARGE_DATA[:gateway.MP4_OPEN_RANGE_BYTES]
+    assert following.content == LARGE_DATA[gateway.MP4_OPEN_RANGE_BYTES:2 * gateway.MP4_OPEN_RANGE_BYTES]
+    assert harness.registry.stats()["consumed_bytes"] == 2 * gateway.MP4_OPEN_RANGE_BYTES
+    assert harness.registry.stats()["reserved_bytes"] == 0
 
 
 def test_unsatisfied_range_returns_safe_content_range(bridge):

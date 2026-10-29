@@ -52,6 +52,7 @@ class Detail:
     lines: tuple[Line, ...]
     attribution: tuple[tuple[str, str], ...] = ()
     duration_seconds: float | None = None
+    poster_url: str = field(default="", repr=False)
 
 
 def external_id(value):
@@ -213,9 +214,12 @@ def _kind(row, *, lines=()):
     return "movie" if lines else "unknown"
 
 
-def search(source, query, page):
-    action = source.get("provider_options", {}).get("search_action", "list")
-    payload = fetch(source, {"ac": action, "wd": query, "pg": str(page)})
+def poster_url(row):
+    value = row.get("vod_pic", "")
+    return value if isinstance(value, str) and len(value) <= 4096 and not _CONTROL.search(value) else ""
+
+
+def _search_result(payload, page):
     result, seen = [], set()
     for row in payload["list"]:
         identity = external_id(row.get("vod_id"))
@@ -224,13 +228,49 @@ def search(source, query, page):
         seen.add(identity)
         result.append({"external_id": identity, "title": plain(row.get("vod_name"), required=True),
                        "kind": _kind(row), "year": plain(row.get("vod_year"), 16),
-                       "description": plain(row.get("vod_content"), 4000)})
+                       "description": plain(row.get("vod_content"), 4000),
+                       "category": plain(row.get("type_name"), 128), "_poster_url": poster_url(row)})
     selected_page = _number(payload.get("page"), maximum=1000, default=page)
     count = _number(payload.get("pagecount"), maximum=1000000, default=1 if result else 0)
     total = _number(payload.get("total"), maximum=1000000000, default=len(result))
     if selected_page != page or result and count < page:
         raise ProviderError("invalid_provider_response")
     return {"items": result, "page": page, "page_count": min(count, 1000), "total": total}
+
+
+def search(source, query, page):
+    action = source.get("provider_options", {}).get("search_action", "list")
+    return _search_result(fetch(source, {"ac": action, "wd": query, "pg": str(page)}), page)
+
+
+def browse(source, page, category_id=""):
+    if category_id:
+        category_id = external_id(category_id)
+    action = source.get("provider_options", {}).get("detail_action", "detail")
+    params = {"ac": action, "pg": str(page)}
+    if category_id:
+        params["t"] = category_id
+    payload = fetch(source, params)
+    categories = payload.get("class", [])
+    if not categories:
+        try:
+            categories = fetch(source, {"ac": "list", "pg": "1"}).get("class", [])
+        except ProviderError:
+            # Category discovery is optional; a compatible detail endpoint can
+            # still provide a useful latest-updates wall without MacCMS list.
+            categories = []
+    if not isinstance(categories, list) or len(categories) > 256:
+        raise ProviderError("invalid_provider_response")
+    result, seen = [], set()
+    for row in categories:
+        if not isinstance(row, dict):
+            raise ProviderError("invalid_provider_response")
+        identity = external_id(row.get("type_id"))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        result.append({"id": identity, "name": plain(row.get("type_name"), 128, required=True)})
+    return {**_search_result(payload, page), "categories": result}
 
 
 def _entry(source, label, url, target=None):
@@ -270,7 +310,7 @@ def parse_detail(source, row):
         raise ProviderError("invalid_provider_response")
     if not names and not groups:
         return Detail(identity, title, _kind(row, lines=()) if _kind(row) != "unknown" else "movie",
-                      plain(row.get("vod_content"), 4000), plain(row.get("vod_year"), 16), ())
+                      plain(row.get("vod_content"), 4000), plain(row.get("vod_year"), 16), (), poster_url=poster_url(row))
     split_names, split_groups = names.split("$$$"), groups.split("$$$")
     if len(split_names) != len(split_groups) or len(split_names) > MAX_LINES:
         raise ProviderError("invalid_provider_response")
@@ -314,4 +354,4 @@ def parse_detail(source, row):
                                       for entry in line.entries)) if len(line.entries) > 1 else line
                  for line in lines]
     return Detail(identity, title, kind, plain(row.get("vod_content"), 4000),
-                  plain(row.get("vod_year"), 16), tuple(lines))
+                  plain(row.get("vod_year"), 16), tuple(lines), poster_url=poster_url(row))

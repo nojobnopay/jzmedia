@@ -8,6 +8,7 @@ API_BASE_URL = "https://www.bigbuckbunny.org/"
 # The checked official original file is assigned here, never from API input.
 MEDIA_URL = "https://video.blender.org/object-storage/web_videos/bf1f3fb5-b119-4f9f-9930-8e20e892b898-360.mp4"
 MEDIA_HOST = "video.blender.org"
+POSTER_URL = "https://video.blender.org/lazy-static/thumbnails/bf1f3fb5-b119-4f9f-9930-8e20e892b898.jpg"
 EXTERNAL_ID = "big-buck-bunny"
 TITLE = "Big Buck Bunny"
 DESCRIPTION = "Blender Foundation 开放电影（2008），官方发布的原版影片。保留原片尾署名；原项目使用 CC BY 3.0 许可。"
@@ -28,7 +29,7 @@ def search(source, query, page):
     _ready(source)
     matches = not query or query.casefold() in (TITLE + " 大雄兔 兔子 Blender 开放样例").casefold()
     items = [{"external_id": EXTERNAL_ID, "title": TITLE, "year": "2008", "kind": "movie",
-              "description": DESCRIPTION}] if matches and page == 1 else []
+              "description": DESCRIPTION, "_poster_url": POSTER_URL}] if matches and page == 1 else []
     return {"items": items, "page": page, "page_count": 1 if matches else 0, "total": 1 if matches else 0}
 
 
@@ -40,4 +41,4 @@ def detail(source, selected_id):
     entry = Entry("完整影片", MEDIA_URL if supported else "", "mp4" if supported else None,
                   "" if supported else "target_host_not_allowed")
     return Detail(EXTERNAL_ID, TITLE, "movie", DESCRIPTION, "2008",
-                  (Line("Blender 官方原片", (entry,)),), ATTRIBUTION, 596.0)
+                  (Line("Blender 官方原片", (entry,)),), ATTRIBUTION, 596.0, POSTER_URL)

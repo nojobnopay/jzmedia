@@ -15,6 +15,7 @@ class CatalogCapabilities(_Public):
     search: bool = True
     episodes: bool = True
     refresh: bool = True
+    browse: bool = True
 
 
 class CatalogSource(_Public):
@@ -39,6 +40,13 @@ class CatalogSearchItem(_Public):
     year: str = ""
     kind: Literal["movie", "tv", "unknown"] = "unknown"
     description: str = ""
+    category: str = ""
+    poster_path: str = ""
+
+
+class CatalogCategory(_Public):
+    id: str
+    name: str
 
 
 class CatalogSearch(_Public):
@@ -47,6 +55,7 @@ class CatalogSearch(_Public):
     page: int
     page_count: int
     total: int
+    categories: list[CatalogCategory] = Field(default_factory=list)
 
 
 class CatalogItem(_Public):
@@ -82,3 +91,4 @@ class CatalogDetail(_Public):
     year: str
     lines: list[CatalogLine]
     attribution: list[CatalogAttribution] = Field(default_factory=list)
+    poster_path: str = ""
