@@ -141,7 +141,8 @@ def test_fixture_guard_refuses_unmarked_and_production_paths(tmp_path):
 def test_initial_feature_and_local_media_are_empty(client):
     response = client.get("/api/online/catalog/sources")
     assert response.status_code == 200
-    assert response.json() == {"enabled": False, "items": []}
+    assert response.json()["enabled"] is False and response.json()["items"] == []
+    assert len(response.json()["scope_token"]) == 64
     metrics = client.get("/api/p2/metrics").json()
     assert metrics["catalog_rows"] == {"online_sources": 0, "online_items": 0, "online_episodes": 0}
     assert metrics["local_rows"] == {"movies": 0, "tv_episodes": 0, "playback_progress": 0}

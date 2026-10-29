@@ -17,6 +17,7 @@ from ..network.targets import TargetPolicy, TargetPolicyError
 from ..store.online import OnlineNotFound
 from ..store.online_network import load_online_network_state
 from . import health, service
+from .artwork_cache import ArtworkCache, ArtworkCacheBusy
 from .catalog import CatalogError
 
 
@@ -105,6 +106,7 @@ class ArtworkRegistry:
 
 
 registry = ArtworkRegistry()
+cache = ArtworkCache()
 
 
 def _state(source_id):
@@ -211,35 +213,97 @@ def _body(response, access, entry, operation):
     return bytes(data), mime
 
 
+def _authorized(access, entry, token, operation):
+    operation.check()
+    state = _current(access, entry)
+    registry.lookup(entry.source_id, token)
+    operation.check()
+    return state
+
+
+def _read(access, entry, token, operation):
+    """The producer owns its reader until all I/O and validation have ended."""
+    acquired = False
+    try:
+        while not acquired:
+            acquired = _readers.acquire(timeout=min(0.1, operation.remaining()))
+        state = _authorized(access, entry, token, operation)
+        expected_network, _mode = health.configuration(state, "image")
+        with create_online_client(entry.source_id, "image") as client:
+            # The factory records its exact immutable DB view. Reject a policy
+            # race before its reader can contact an upstream host.
+            context = getattr(client, "_online_health_context", None)
+            if (context is None or context.configuration_fingerprint != expected_network
+                    or context.purpose != "image" or context.source_id != entry.source_id):
+                raise ArtworkError("online_artwork_stale", 404)
+            _authorized(access, entry, token, operation)
+            with client.stream("GET", entry.url, headers={"Accept": "image/jpeg,image/png,image/webp"}) as response:
+                result = _body(response, access, entry, operation)
+            _authorized(access, entry, token, operation)
+            return result
+    finally:
+        if acquired:
+            _readers.release()
+
+
+def _shared_error(error, access, operation):
+    # Never export one request's cancellation or viewing-identity error to
+    # another waiter. It may retry only after this producer closes its reader.
+    if isinstance(error, ArtworkError):
+        return error.category, error.status
+    if isinstance(error, NetworkRequestError):
+        try:
+            operation.check()
+            service._current_access(access)
+        except (NetworkOperationError, service.PlaybackError):
+            return None
+        return "online_artwork_unavailable", 502
+    if isinstance(error, NetworkPolicyError):
+        return "online_artwork_unavailable", 503
+    return None
+
+
 def fetch(access, source_id, token, *, operation=None):
-    """Fetch one registered poster through its image-purpose pinned reader."""
+    """Authorize every caller, then reuse or coalesce the bounded image bytes."""
     service._current_access(access)
     entry = registry.lookup(source_id, token)
     operation = operation or current_operation() or NetworkOperation(time.monotonic() + MAX_READ_SECONDS)
-    # Keep the same socket-registration owner as the HTTP disconnect watcher.
-    # Narrowing its absolute deadline also bounds DNS, pool waits and TLS work.
+    # The same socket-registration owner as the HTTP disconnect watcher also
+    # bounds cache/coalescing waits, DNS, pool waits and TLS work.
     operation.deadline = min(operation.deadline, time.monotonic() + MAX_READ_SECONDS)
-    acquired = False
+    key = (source_id, entry.configuration, hashlib.sha256(entry.url.encode()).digest())
     try:
         with operation_context(operation):
-            while not acquired:
-                acquired = _readers.acquire(timeout=min(0.1, operation.remaining()))
-            state = _current(access, entry)
-            expected_network, _mode = health.configuration(state, "image")
-            with create_online_client(source_id, "image") as client:
-                # The factory records its exact immutable DB view. Reject a
-                # policy race before its reader can contact an upstream host.
-                context = getattr(client, "_online_health_context", None)
-                if (context is None or context.configuration_fingerprint != expected_network
-                        or context.purpose != "image" or context.source_id != source_id):
-                    raise ArtworkError("online_artwork_stale", 404)
-                _current(access, entry)
-                with client.stream("GET", entry.url, headers={"Accept": "image/jpeg,image/png,image/webp"}) as response:
-                    result = _body(response, access, entry, operation)
-                operation.check()
-                _current(access, entry)
-                registry.lookup(source_id, token)
-                return result
+            while True:
+                _authorized(access, entry, token, operation)
+                try:
+                    result, flight, producer = cache.acquire(key)
+                except ArtworkCacheBusy:
+                    raise ArtworkError("online_artwork_busy", 429) from None
+                if flight is None:
+                    _authorized(access, entry, token, operation)
+                    return result
+                try:
+                    if producer:
+                        result, error = None, None
+                        try:
+                            result = _read(access, entry, token, operation)
+                        except BaseException as problem:
+                            error = _shared_error(problem, access, operation)
+                            raise
+                        finally:
+                            cache.complete(key, flight, result=result, error=error)
+                        _authorized(access, entry, token, operation)
+                        return result
+                    while not flight.done.wait(min(0.1, operation.remaining())):
+                        operation.check()
+                    _authorized(access, entry, token, operation)
+                    if flight.error is not None:
+                        raise ArtworkError(*flight.error)
+                    # A successful producer populated the cache. A cancelled
+                    # producer left no result, so compete with our own deadline.
+                finally:
+                    cache.release()
     except NetworkOperationError as error:
         raise ArtworkError("online_artwork_timeout" if str(error) == "operation_timeout"
                            else "online_artwork_cancelled", 504 if str(error) == "operation_timeout" else 409) from None
@@ -254,5 +318,3 @@ def fetch(access, source_id, token, *, operation=None):
         raise ArtworkError("online_artwork_unavailable", 503) from None
     finally:
         operation.close()
-        if acquired:
-            _readers.release()

@@ -36,6 +36,7 @@ def environment(tmp_path, monkeypatch):
                             chunks=[JPEG], requests=[], readers=[], access_valid=True,
                             before_factory=None, before_chunk=None, real_access_check=service._current_access)
     monkeypatch.setattr(artwork, "registry", artwork.ArtworkRegistry())
+    monkeypatch.setattr(artwork, "cache", artwork.ArtworkCache())
     monkeypatch.setattr(artwork, "_readers", threading.BoundedSemaphore(2))
 
     def access_check(_access):
@@ -82,8 +83,8 @@ def environment(tmp_path, monkeypatch):
         library_paths.invalidate_cache()
 
 
-def lease(environment):
-    path = artwork.register(environment.source, URL)
+def lease(environment, url=URL):
+    path = artwork.register(environment.source, url)
     assert path.startswith("/api/online/catalog/artwork/" + environment.source["id"] + "/")
     assert "signature" not in path and "images.example" not in path
     return path.rsplit("/", 1)[1]
@@ -244,7 +245,7 @@ def test_stalled_content_exceeds_the_same_absolute_read_deadline(environment):
 
 
 def test_two_network_readers_are_the_global_limit_and_waiter_cancellation_releases_its_worker(environment):
-    token = lease(environment)
+    tokens = [lease(environment, URL + f"&image={index}") for index in range(3)]
     entered = threading.Event()
     release = threading.Event()
     lock = threading.Lock()
@@ -263,11 +264,11 @@ def test_two_network_readers_are_the_global_limit_and_waiter_cancellation_releas
     environment.before_chunk = block
     operation = NetworkOperation(time.monotonic() + 10)
     with ThreadPoolExecutor(max_workers=3) as executor:
-        first = executor.submit(artwork.fetch, object(), environment.source["id"], token)
-        second = executor.submit(artwork.fetch, object(), environment.source["id"], token)
+        first = executor.submit(artwork.fetch, object(), environment.source["id"], tokens[0])
+        second = executor.submit(artwork.fetch, object(), environment.source["id"], tokens[1])
         try:
             assert entered.wait(2)
-            waiting = executor.submit(artwork.fetch, object(), environment.source["id"], token, operation=operation)
+            waiting = executor.submit(artwork.fetch, object(), environment.source["id"], tokens[2], operation=operation)
             operation.abort()
             with pytest.raises(artwork.ArtworkError):
                 waiting.result(timeout=2)
@@ -276,6 +277,250 @@ def test_two_network_readers_are_the_global_limit_and_waiter_cancellation_releas
             release.set()
         assert first.result(timeout=2) == (JPEG, "image/jpeg")
         assert second.result(timeout=2) == (JPEG, "image/jpeg")
+
+
+def test_repeated_reads_reuse_validated_bytes_without_opening_another_reader(environment):
+    token = lease(environment)
+    for _ in range(3):
+        assert artwork.fetch(object(), environment.source["id"], token) == (JPEG, "image/jpeg")
+    assert len(environment.requests) == 1
+    assert len(environment.readers) == 1 and environment.readers[0].closed
+
+
+@pytest.mark.parametrize("change", ["disabled_source", "disabled_feature", "source", "network", "access", "cancelled"])
+def test_warm_cache_still_rechecks_source_network_access_and_operation(environment, change):
+    token = lease(environment)
+    assert artwork.fetch(object(), environment.source["id"], token) == (JPEG, "image/jpeg")
+    operation = NetworkOperation(time.monotonic() + 10)
+    if change == "disabled_source":
+        online.update_online_source(environment.source["id"], {"enabled": False})
+    elif change == "disabled_feature":
+        online.update_online_settings(False)
+    elif change == "source":
+        online.update_online_source(environment.source["id"], {"name": "Changed poster source"})
+    elif change == "network":
+        online_network.update_online_network_default({"mode": "direct"})
+    elif change == "access":
+        environment.access_valid = False
+    else:
+        operation.abort()
+    with pytest.raises((artwork.ArtworkError, service.PlaybackError)):
+        artwork.fetch(object(), environment.source["id"], token, operation=operation)
+    assert len(environment.requests) == 1
+
+
+def test_a_warm_cache_cannot_extend_the_original_lease(environment, monkeypatch):
+    now = [1.0]
+    monkeypatch.setattr(artwork, "registry", artwork.ArtworkRegistry(ttl=1, clock=lambda: now[0]))
+    token = lease(environment)
+    artwork.fetch(object(), environment.source["id"], token)
+    now[0] = 2.0
+    with pytest.raises(artwork.ArtworkError) as error:
+        artwork.fetch(object(), environment.source["id"], token)
+    assert error.value.category == "online_artwork_not_found"
+    assert len(environment.requests) == 1
+
+
+def test_network_changes_use_a_new_cache_key_even_with_the_same_upstream_url(environment):
+    first = lease(environment)
+    artwork.fetch(object(), environment.source["id"], first)
+    online_network.update_online_network_default({"mode": "direct"})
+    second = lease(environment)
+    assert second != first
+    artwork.fetch(object(), environment.source["id"], second)
+    assert len(environment.requests) == 2
+
+
+@pytest.mark.parametrize("change", ["access", "source"])
+def test_warm_cache_revalidates_after_looking_up_the_bytes(environment, monkeypatch, change):
+    token = lease(environment)
+    artwork.fetch(object(), environment.source["id"], token)
+    original = artwork.cache.acquire
+    def change_after_lookup(key):
+        value = original(key)
+        assert value[0] is not None
+        if change == "access":
+            environment.access_valid = False
+        else:
+            online.update_online_source(environment.source["id"], {"priority": 9})
+        return value
+    monkeypatch.setattr(artwork.cache, "acquire", change_after_lookup)
+    with pytest.raises((artwork.ArtworkError, service.PlaybackError)):
+        artwork.fetch(object(), environment.source["id"], token)
+    assert len(environment.requests) == 1
+
+
+def test_expired_image_bytes_are_refetched_within_a_still_valid_lease(environment, monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(artwork, "cache", artwork.ArtworkCache(ttl=1, clock=lambda: now[0]))
+    token = lease(environment)
+    artwork.fetch(object(), environment.source["id"], token)
+    now[0] = 1
+    artwork.fetch(object(), environment.source["id"], token)
+    assert len(environment.requests) == 2
+
+
+def observe_waiter(monkeypatch):
+    joined = threading.Event()
+    original = artwork.cache.acquire
+    def acquire(key):
+        value = original(key)
+        if value[1] is not None and not value[2]:
+            joined.set()
+        return value
+    monkeypatch.setattr(artwork.cache, "acquire", acquire)
+    return joined
+
+
+def test_same_image_concurrency_reads_upstream_once(environment, monkeypatch):
+    token = lease(environment)
+    entered, release = threading.Event(), threading.Event()
+    joined = observe_waiter(monkeypatch)
+    def block():
+        entered.set()
+        assert release.wait(2)
+    environment.before_chunk = block
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(artwork.fetch, object(), environment.source["id"], token)
+        try:
+            assert entered.wait(2)
+            second = executor.submit(artwork.fetch, object(), environment.source["id"], token)
+            assert joined.wait(2)
+            assert len(environment.requests) == 1
+        finally:
+            release.set()
+        assert first.result(timeout=2) == second.result(timeout=2) == (JPEG, "image/jpeg")
+    assert len(environment.requests) == 1
+    assert not artwork.cache._flights and artwork.cache._pending == 0
+
+
+def test_a_cancelled_waiter_does_not_cancel_the_producer(environment, monkeypatch):
+    token = lease(environment)
+    entered, release = threading.Event(), threading.Event()
+    joined = observe_waiter(monkeypatch)
+    waiting_operation = NetworkOperation(time.monotonic() + 10)
+    def block():
+        entered.set()
+        assert release.wait(2)
+    environment.before_chunk = block
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(artwork.fetch, object(), environment.source["id"], token)
+        try:
+            assert entered.wait(2)
+            waiting = executor.submit(artwork.fetch, object(), environment.source["id"], token,
+                                      operation=waiting_operation)
+            assert joined.wait(2)
+            waiting_operation.abort()
+            with pytest.raises(artwork.ArtworkError) as error:
+                waiting.result(timeout=2)
+            assert error.value.category == "online_artwork_cancelled"
+            assert not first.done()
+        finally:
+            release.set()
+        assert first.result(timeout=2) == (JPEG, "image/jpeg")
+    assert len(environment.requests) == 1
+    assert all(reader.closed for reader in environment.readers)
+    assert not artwork.cache._flights and artwork.cache._pending == 0
+
+
+@pytest.mark.parametrize("failure", ["cancel", "access"])
+def test_a_waiter_can_take_over_after_another_identitys_cancelled_read(environment, monkeypatch, failure):
+    token = lease(environment)
+    entered, release = threading.Event(), threading.Event()
+    joined = observe_waiter(monkeypatch)
+    first_access, second_access = object(), object()
+    revoked = set()
+    first_operation = NetworkOperation(time.monotonic() + 10)
+    reads = []
+    def check(access):
+        if access in revoked:
+            raise service.PlaybackError("online_access_revoked", 401)
+    monkeypatch.setattr(service, "_current_access", check)
+    def block_first():
+        reads.append(True)
+        if len(reads) == 1:
+            entered.set()
+            assert release.wait(2)
+    environment.before_chunk = block_first
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(artwork.fetch, first_access, environment.source["id"], token,
+                                operation=first_operation)
+        try:
+            assert entered.wait(2)
+            waiting = executor.submit(artwork.fetch, second_access, environment.source["id"], token)
+            assert joined.wait(2)
+            if failure == "cancel":
+                first_operation.abort()
+            else:
+                revoked.add(first_access)
+        finally:
+            release.set()
+        with pytest.raises((artwork.ArtworkError, service.PlaybackError)):
+            first.result(timeout=2)
+        assert waiting.result(timeout=2) == (JPEG, "image/jpeg")
+    assert len(environment.requests) == 2
+    assert all(reader.closed for reader in environment.readers)
+    assert not artwork.cache._flights and artwork.cache._pending == 0
+
+
+def test_cancelling_all_participants_releases_every_flight_and_reader(environment, monkeypatch):
+    token = lease(environment)
+    entered, release = threading.Event(), threading.Event()
+    joined = observe_waiter(monkeypatch)
+    operations = [NetworkOperation(time.monotonic() + 10) for _ in range(2)]
+    def block():
+        entered.set()
+        assert release.wait(2)
+    environment.before_chunk = block
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(artwork.fetch, object(), environment.source["id"], token, operation=operations[0])
+        try:
+            assert entered.wait(2)
+            second = executor.submit(artwork.fetch, object(), environment.source["id"], token, operation=operations[1])
+            assert joined.wait(2)
+            for operation in operations:
+                operation.abort()
+        finally:
+            release.set()
+        for future in (first, second):
+            with pytest.raises(artwork.ArtworkError):
+                future.result(timeout=2)
+    assert len(environment.requests) == 1
+    assert all(reader.closed for reader in environment.readers)
+    assert not artwork.cache._flights and artwork.cache._pending == 0
+    assert not artwork.cache._entries
+    assert artwork._readers.acquire(blocking=False)
+    assert artwork._readers.acquire(blocking=False)
+    artwork._readers.release()
+    artwork._readers.release()
+
+
+def test_upstream_errors_are_shared_only_with_current_waiters_and_never_cached(environment, monkeypatch):
+    token = lease(environment)
+    entered, release = threading.Event(), threading.Event()
+    joined = observe_waiter(monkeypatch)
+    environment.chunks = [b"<html>upstream error</html>"]
+    def block():
+        entered.set()
+        assert release.wait(2)
+    environment.before_chunk = block
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(artwork.fetch, object(), environment.source["id"], token)
+        try:
+            assert entered.wait(2)
+            second = executor.submit(artwork.fetch, object(), environment.source["id"], token)
+            assert joined.wait(2)
+        finally:
+            release.set()
+        for future in (first, second):
+            with pytest.raises(artwork.ArtworkError) as error:
+                future.result(timeout=2)
+            assert error.value.category == "unsupported_online_artwork"
+    assert len(environment.requests) == 1 and not artwork.cache._entries
+    environment.before_chunk = None
+    environment.chunks = [JPEG]
+    assert artwork.fetch(object(), environment.source["id"], token) == (JPEG, "image/jpeg")
+    assert len(environment.requests) == 2
 
 
 def test_artwork_is_an_exact_get_viewing_route_not_a_general_admin_bypass():

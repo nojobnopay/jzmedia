@@ -27,11 +27,13 @@ class CatalogSource(_Public):
 class CatalogSourceSummary(CatalogSource):
     priority: int
     capabilities: CatalogCapabilities = Field(default_factory=CatalogCapabilities)
+    configuration_token: str = ""
 
 
 class CatalogSources(_Public):
     enabled: bool
     items: list[CatalogSourceSummary]
+    scope_token: str = ""
 
 
 class CatalogSearchItem(_Public):

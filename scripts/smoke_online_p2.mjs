@@ -393,7 +393,9 @@ async function setup() {
   const { context, page } = await newPage()
   try {
     const disabled = await call(page, 'GET', '/api/online/catalog/sources')
-    assert.deepEqual(disabled.body, { enabled: false, items: [] })
+    assert.equal(disabled.body.enabled, false)
+    assert.deepEqual(disabled.body.items, [])
+    assert.match(disabled.body.scope_token, /^[0-9a-f]{64}$/)
     primarySource = await createSourceUi(page, '隔离合成MacCMS')
     await page.getByRole('button', { name: '网络 ' + primarySource.name, exact: true }).click()
     const network = page.locator('[data-online-network-form]')

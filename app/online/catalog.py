@@ -2,12 +2,15 @@
 
 from contextlib import contextmanager
 from contextvars import ContextVar
+import hashlib
 import json
 import threading
 import time
 
 from ..network.guard import NetworkOperation, NetworkOperationError, current_operation, operation_context
 from ..store import online as online_store
+from ..store.online import OnlineNotFound
+from ..store.online_network import load_online_network_state
 from . import health, maccms, open_catalog, service
 from .models import OnlinePlaybackIdentity
 from .providers import ProviderError, ResolvedPlayback
@@ -108,13 +111,32 @@ def _public_source(source):
 def sources(access):
     service._current_access(access)
     enabled = online_store.get_online_settings()["enabled"]
-    result = [{**_public_source(source), "priority": source["priority"],
-               "capabilities": {"search": True, "episodes": source["provider"] == "maccms", "refresh": True}}
-              for source in online_store.list_online_sources() if source["enabled"]] if enabled else []
+    # Cache partition only: this is deliberately distinct from state API write
+    # intent tokens and never exposes the device's owner hash to the browser.
+    scope = hashlib.sha256(json.dumps(["online-catalogue", access.owner, access.generation,
+                                      access.protection_revision], separators=(",", ":")).encode()).hexdigest()
+    result = []
+    for selected in online_store.list_online_sources() if enabled else []:
+        if not selected["enabled"]:
+            continue
+        try:
+            state = load_online_network_state(selected["id"])
+        except OnlineNotFound:
+            continue
+        source = state["source_config"]
+        if not state["online_enabled"] or not source or not source["enabled"]:
+            continue
+        # Include referenced encrypted credentials/revisions and every network
+        # purpose, while returning only an opaque invalidation tag.
+        configuration = hashlib.sha256(json.dumps(state, sort_keys=True,
+                                                 separators=(",", ":")).encode()).hexdigest()
+        result.append({**_public_source(source), "priority": source["priority"],
+                       "configuration_token": configuration,
+                       "capabilities": {"search": True, "episodes": source["provider"] == "maccms", "refresh": True}})
     service._current_access(access)
     if not online_store.get_online_settings()["enabled"]:
-        return {"enabled": False, "items": []}
-    return {"enabled": enabled, "items": result}
+        return {"enabled": False, "items": [], "scope_token": scope}
+    return {"enabled": enabled, "items": result, "scope_token": scope}
 
 
 def search(access, source_id, query, page=1, *, operation=None):

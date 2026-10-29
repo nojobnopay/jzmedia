@@ -12,7 +12,7 @@ from app.config import settings
 from app.main import app
 from app.online import catalog, maccms, open_catalog, providers
 from app.online.models import OnlinePlaybackIdentity
-from app.store import online
+from app.store import online, online_network
 
 
 MP4 = "https://cdn.example/movie.mp4?sig=server-only-old"
@@ -71,7 +71,39 @@ def test_public_source_list_omits_configuration_and_is_opt_in(environment):
     assert item["id"] == environment.source["id"]
     assert not {"api_base_url", "allowed_hosts", "provider_options"} & item.keys()
     online.update_online_settings(False)
-    assert environment.client.get("/api/online/catalog/sources").json() == {"enabled": False, "items": []}
+    disabled = environment.client.get("/api/online/catalog/sources").json()
+    assert disabled["enabled"] is False and disabled["items"] == []
+    assert len(disabled["scope_token"]) == 64
+    assert environment.requests == []
+
+
+def test_source_cache_tags_track_network_configuration_and_device_identity(environment):
+    def read(client=environment.client):
+        response = client.get("/api/online/catalog/sources")
+        assert response.status_code == 200
+        return response.json()
+
+    initial = read()
+    assert read() == initial
+    assert len(initial["scope_token"]) == 64
+    assert len(initial["items"][0]["configuration_token"]) == 64
+    online_network.update_online_network_default({"mode": "direct"})
+    changed = read()
+    assert changed["scope_token"] == initial["scope_token"]
+    assert changed["items"][0]["configuration_token"] != initial["items"][0]["configuration_token"]
+    online.update_online_source(environment.source["id"], {"name": "Updated name"})
+    renamed = read()
+    assert renamed["items"][0]["configuration_token"] != changed["items"][0]["configuration_token"]
+    other = TestClient(app)
+    try:
+        other.get("/api/viewing/session")
+        second_device = read(other)
+    finally:
+        other.close()
+    assert second_device["scope_token"] != renamed["scope_token"]
+    assert second_device["items"][0]["configuration_token"] == renamed["items"][0]["configuration_token"]
+    online.update_online_source(environment.source["id"], {"enabled": False})
+    assert read()["items"] == []
     assert environment.requests == []
 
 

@@ -123,7 +123,7 @@
 
 | 请求 | 返回与行为 |
 |---|---|
-| `GET /api/online/catalog/sources` | `{enabled,items:[{id,name,provider,priority,capabilities}]}`；总开关关闭时列表为空，不访问上游 |
+| `GET /api/online/catalog/sources` | `{enabled,scope_token,items:[{id,name,provider,priority,capabilities,configuration_token}]}`；总开关关闭时列表为空，不访问上游 |
 | `GET /api/online/catalog/search?source_id=src_...&q=片名&page=1` | 单源搜索；返回来源、元数据条目、`page/page_count/total` |
 | `GET /api/online/catalog/browse?source_id=src_...&page=1&category_id=...` | 浏览来源最近更新或实际分类；返回搜索结果同型结构，并包含 `categories:[{id,name}]` |
 | `GET /api/online/catalog/detail?source_id=src_...&external_id=123` | 返回稳定条目身份、简介、年份、全部线路、分集和可选归因链接 |
@@ -133,9 +133,11 @@
 
 搜索与浏览条目提供 `external_id`、文本元数据及可选的服务内 `poster_path`，不创建本地媒体记录；详情按来源和内容种类保存独立在线身份。海报路径是不透明的来源绑定租约，受当前观看权限、来源与网络配置检查约束；停用来源、配置变化或租约失效后需重新读取目录或详情，不能将它作为持久图片地址保存。
 
+来源列表的 `scope_token` 仅用于区分设备观看身份、generation 与保护 revision 下的目录缓存，不是状态 API 的写入意图 token。`configuration_token` 是来源及完整网络配置快照的不透明摘要。客户端复用目录前须重新读取来源列表，两者均匹配且来源仍启用才能恢复；摘要不包含可读配置、上游地址或凭据。
+
 详情的每条线路为 `{id,label,entries}`，播放项为 `{label,identity,transport,supported,reason}`。支持项携带稳定播放身份；不支持的封装、播放器网页或不在允许主机中的目标返回 `supported:false`、`identity:null`，不泄露上游地址。简介按纯文本显示；海报只经上述登记路径和图片用途策略读取，缺失时 `poster_path` 为空。只有开放样例归因中的官方项目和许可链接可作为外部超链接返回，不能当作媒体入口。
 
-海报响应只接受 JPEG、PNG、WebP，最多 512 KiB、10 秒，服务进程最多同时读取两张；不在服务器解码或落盘。租约最多保留 30 分钟，读取失败只影响封面展示，不改变目录条目或媒体播放身份。
+海报响应只接受 JPEG、PNG、WebP，最多 512 KiB、10 秒，服务进程最多同时读取两张；不在服务器解码或落盘。成功图片可在进程内缓存最多 16 MiB、512 条、10 分钟，按完整来源及网络配置隔离；命中仍复核当前权限、配置与租约，HTTP 响应继续 `no-store`。相同图片的并发读取合并，参与读取与等待的请求合计最多 64 个；等待同样计入本请求期限，取消或权限撤销不影响其他合法请求的权限。租约最多保留 30 分钟，读取失败只影响封面展示，不改变目录条目或媒体播放身份。
 
 搜索、详情和播放解析共用有界提供方入口：每进程最多 4 个、每设备最多 1 个活动查询，无等待队列；30 秒总期限覆盖 DNS、连接池等待和上游读取。JSON 最多 2 MiB、每页最多 100 项、每条目最多 16 线路、每线路最多 500 项、总共最多 2000 分集。取消 HTTP 查询或创建会话会中断上游 I/O，并由实际工作退出后释放槽位；取消等待不提前释放仍在工作的配额。
 
