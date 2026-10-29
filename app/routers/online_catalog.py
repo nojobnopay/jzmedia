@@ -133,6 +133,14 @@ async def browse(request: Request, source_id: SourceId,
     return await _read(request, catalog.browse, source_id, page, category_id, year)
 
 
+@router.get("/related", response_model=catalog_models.CatalogRelated)
+async def related(request: Request, source_id: SourceId,
+                  external_id: str = Query(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")):
+    from ..online import related as recommendations
+    _query(request, {"source_id", "external_id"})
+    return await _read(request, recommendations.read, source_id, external_id)
+
+
 @router.get("/artwork/{source_id}/{token}")
 async def artwork(request: Request, source_id: SourceId, token: str):
     from ..online import artwork as images

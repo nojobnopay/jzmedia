@@ -18,14 +18,29 @@ from .providers import ProviderError, ResolvedPlayback
 
 _owner = ContextVar("online_catalog_owner", default=None)
 _lock = threading.Lock()
+_condition = threading.Condition(_lock)
 _active = 0
 _owners = set()
+_background = {}
+_preempt_waiters = set()
+MAX_PREEMPT_WAITERS = 4
 
 
 class CatalogError(RuntimeError):
     def __init__(self, category, status=502):
         self.category, self.status = category, status
         super().__init__(category)
+
+
+class BackgroundDeferred(RuntimeError):
+    """Optional work yielded to foreground catalogue and playback requests."""
+
+
+def admission_stats():
+    """Internal fixture diagnostics; never expose owners or operation objects."""
+    with _lock:
+        return {"active": _active, "owners": len(_owners), "background": len(_background),
+                "preempt_waiters": len(_preempt_waiters)}
 
 
 @contextmanager
@@ -38,20 +53,61 @@ def resolution_owner(owner):
 
 
 @contextmanager
-def _admit(owner=None, operation=None):
+def _admit(owner=None, operation=None, *, background=False):
     global _active
     borrowed = operation is None and current_operation() is not None
     operation = operation or current_operation() or NetworkOperation(time.monotonic() + 30)
     admitted = False
+    waiting = False
+    waiter_key = owner if owner is not None else object()
     try:
-        operation.check()
-        with _lock:
-            if _active >= 4 or owner is not None and owner in _owners:
-                raise ProviderError("provider_catalog_busy")
-            _active += 1
-            if owner is not None:
-                _owners.add(owner)
-            admitted = True
+        while not admitted:
+            operation.check()
+            victim = None
+            with _condition:
+                if background:
+                    if owner is None or _background or _preempt_waiters or _active >= 4 or owner in _owners:
+                        raise BackgroundDeferred()
+                    _background[owner] = operation
+                    admitted = True
+                else:
+                    if not waiting and waiter_key in _preempt_waiters:
+                        raise ProviderError("provider_catalog_busy")
+                    owner_busy = owner is not None and owner in _owners
+                    if not owner_busy and _active < 4:
+                        # The slot freed by a cancelled worker belongs to an
+                        # existing preemption waiter before a newly arriving
+                        # foreground request may claim it.
+                        if not waiting and _active + len(_preempt_waiters) >= 4:
+                            raise ProviderError("provider_catalog_busy")
+                        admitted = True
+                    else:
+                        victim = (_background.get(owner) if owner_busy
+                                  else next(iter(_background.values()), None))
+                        if not waiting:
+                            if victim is None or len(_preempt_waiters) >= MAX_PREEMPT_WAITERS:
+                                raise ProviderError("provider_catalog_busy")
+                            _preempt_waiters.add(waiter_key)
+                            waiting = True
+                        # Another already-waiting foreground may have taken
+                        # the first freed slot. Keep only this bounded waiter
+                        # until a real slot is available or its deadline ends.
+                if admitted:
+                    _active += 1
+                    if owner is not None:
+                        _owners.add(owner)
+                    if waiting:
+                        _preempt_waiters.discard(waiter_key)
+                        waiting = False
+                    break
+            # Socket shutdown and cancellation callbacks run outside our lock.
+            # The original worker retains both quotas until its own finally.
+            if victim is not None:
+                victim.abort()
+            wait_timeout = min(0.1, operation.remaining())
+            with _condition:
+                if _active >= 4 or owner is not None and owner in _owners:
+                    _condition.wait(timeout=wait_timeout)
         with operation_context(operation):
             yield operation
             operation.check()
@@ -60,11 +116,17 @@ def _admit(owner=None, operation=None):
     finally:
         if not borrowed:
             operation.close()
-        if admitted:
-            with _lock:
-                _active -= 1
-                if owner is not None:
-                    _owners.discard(owner)
+        if admitted or waiting:
+            with _condition:
+                if waiting:
+                    _preempt_waiters.discard(waiter_key)
+                if admitted:
+                    if background:
+                        _background.pop(owner, None)
+                    _active -= 1
+                    if owner is not None:
+                        _owners.discard(owner)
+                _condition.notify_all()
 
 
 def _ready_source(source_id, access=None):
@@ -109,6 +171,8 @@ def _public_source(source):
 
 
 def sources(access):
+    from .related import supports_related
+
     service._current_access(access)
     enabled = online_store.get_online_settings()["enabled"]
     # Cache partition only: this is deliberately distinct from state API write
@@ -133,7 +197,8 @@ def sources(access):
         result.append({**_public_source(source), "priority": source["priority"],
                        "configuration_token": configuration,
                        "capabilities": {"search": True, "episodes": source["provider"] == "maccms", "refresh": True,
-                                        "year_filter": maccms.supports_year_filter(source)}})
+                                        "year_filter": maccms.supports_year_filter(source),
+                                        "related": supports_related(source)}})
     service._current_access(access)
     if not online_store.get_online_settings()["enabled"]:
         return {"enabled": False, "items": [], "scope_token": scope}

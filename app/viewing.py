@@ -406,7 +406,7 @@ def management_path(path, method):
     if path.startswith("/api/viewing/"):
         return False
     if path in {"/api/online/catalog/sources", "/api/online/catalog/search", "/api/online/catalog/detail",
-                "/api/online/catalog/health", "/api/online/catalog/browse"}:
+                "/api/online/catalog/health", "/api/online/catalog/browse", "/api/online/catalog/related"}:
         return method != "GET"
     if method == "GET" and re.fullmatch(r"/api/online/catalog/artwork/src_[0-9a-f]{32}/[0-9a-f]{32}", path):
         return False

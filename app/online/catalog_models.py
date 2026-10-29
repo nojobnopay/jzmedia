@@ -17,6 +17,7 @@ class CatalogCapabilities(_Public):
     refresh: bool = True
     browse: bool = True
     year_filter: bool = False
+    related: bool = False
 
 
 class CatalogSource(_Public):
@@ -57,6 +58,21 @@ class CatalogSearchItem(CatalogMetadata):
     kind: Literal["movie", "tv", "unknown"] = "unknown"
     description: str = ""
     poster_path: str = ""
+
+
+class CatalogRelatedItem(CatalogSearchItem):
+    reason: Literal["inferred_season", "same_category", "name_related"]
+    season: int | None = Field(default=None, ge=1, le=999)
+
+
+class CatalogRelated(_Public):
+    source: CatalogSource
+    external_id: str
+    current_season: int | None = Field(default=None, ge=1, le=999)
+    status: Literal["ready", "deferred", "unsupported"]
+    series: list[CatalogRelatedItem] = Field(default_factory=list, max_length=12)
+    related: list[CatalogRelatedItem] = Field(default_factory=list, max_length=12)
+    name_related: list[CatalogRelatedItem] = Field(default_factory=list, max_length=12)
 
 
 class CatalogCategory(_Public):
