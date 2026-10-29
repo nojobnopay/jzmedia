@@ -395,6 +395,8 @@ class FixtureOrigin:
                         target = (f"{self.base_url}/watch/{identity}/{index}" if unavailable or index == 52
                                   else media((index - 1) % 2 + 1, transport))
                         entries.append(f"{caption}${target}")
+                    if len(captions) > 500:
+                        entries.extend(entries[:3])
                     groups.append((name, "#".join(entries)))
                 if reverse:
                     groups.reverse()
@@ -407,8 +409,8 @@ class FixtureOrigin:
                         "vod_content": description, "vod_play_from": "$$$".join(group[0] for group in groups),
                         "vod_play_url": "$$$".join(group[1] for group in groups)}
 
-            captions = [f"第{number}集" for number in range(1, 124)]
-            captions[100], captions[122] = "番外·特别篇", "终章（下）"
+            captions = [f"第{number}集" for number in range(1, 784)]
+            captions[100], captions[782] = "番外·特别篇", "终章（下）"
             description = "\n".join(
                 f"第{number}段：这是一部仅用于界面验收的合成长篇作品，角色沿着山海线索展开冒险。"
                 "选集采用来源提供的名称和原始顺序，画面与声音均由开发机提前生成，不对应任何真实影视内容。"

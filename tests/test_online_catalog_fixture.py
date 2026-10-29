@@ -368,9 +368,9 @@ def test_detail_fixture_keeps_long_source_order_and_nonstandard_labels_with_boun
     assert len(value["lines"]) == 2
     for line in value["lines"]:
         entries = line["entries"]
-        assert len(entries) == 123
+        assert len(entries) == 783
         assert entries[0]["label"] == "第1集" and entries[104]["label"] == "第105集"
-        assert entries[100]["label"] == "番外·特别篇" and entries[122]["label"] == "终章（下）"
+        assert entries[100]["label"] == "番外·特别篇" and entries[782]["label"] == "终章（下）"
         assert entries[51]["supported"] is False and entries[51]["identity"] is None
     identity = value["lines"][0]["entries"][104]["identity"]
     assert identity["line_id"] != value["lines"][1]["entries"][104]["identity"]["line_id"]

@@ -1025,18 +1025,18 @@ async function detailExperience() {
       const mp4 = detail.lines.find(line => line.label === 'MP4直链')
       const hls = detail.lines.find(line => line.label === 'HLS直链')
       assert.ok(mp4 && hls)
-      assert.equal(await visibleEntries(page).count(), 50, 'A 123-entry line mounts only one 50-entry group')
+      assert.equal(await visibleEntries(page).count(), 50, 'A 783-entry line mounts only one 50-entry group')
       const group = page.locator('[data-online-entry-group]'), order = page.locator('[data-online-entry-order]')
-      assert.equal(await group.locator('option').count(), 3)
+      assert.equal(await group.locator('option').count(), 16)
       await group.selectOption('1')
       assert.equal((await labels(page))[0], '第51集')
       assert.equal(await page.locator('[data-online-entry="第52集"]').isEnabled(), false)
       await group.selectOption('2')
-      assert.equal(await visibleEntries(page).count(), 23)
+      assert.equal(await visibleEntries(page).count(), 50)
       assert.equal((await labels(page))[0], '番外·特别篇')
-      assert.equal((await labels(page)).at(-1), '终章（下）')
+      assert.equal((await labels(page)).at(-1), '第150集')
       await order.selectOption('desc')
-      assert.equal(await group.inputValue(), '2')
+      assert.equal(await group.inputValue(), '15')
       assert.equal((await labels(page))[0], '终章（下）')
       await order.selectOption('asc')
       assert.equal(await group.inputValue(), '0')
@@ -1062,6 +1062,16 @@ async function detailExperience() {
       await metadata.locator('summary').focus(); await page.keyboard.press('Enter')
       await page.locator('[data-online-detail-heading]').scrollIntoViewIfNeeded()
       await page.screenshot({ path: path.join(output, `detail-${width}.png`), fullPage: true })
+
+      // Read and play beyond the former 500-entry limit using stable identity.
+      await group.selectOption('15')
+      assert.equal(await visibleEntries(page).count(), 33)
+      assert.equal((await labels(page))[0], '第751集')
+      assert.equal((await labels(page)).at(-1), '终章（下）')
+      await page.locator('[data-online-entry="终章（下）"]').click()
+      await loaded(page)
+      assert.deepEqual((await snapshot(page)).identity, mp4.entries[782].identity)
+      await closePlayer(page)
 
       // Persist a late-group episode through the real player. Seek provides a
       // distinguishable resume point without turning this into a long-play test.
@@ -1122,6 +1132,7 @@ async function detailExperience() {
       if (width === 1440) {
         await page.locator('[data-online-autoplay]').check()
         await order.selectOption('desc')
+        await group.selectOption('2')
         await page.locator('[data-online-entry="第105集"]').click(); await loaded(page)
         await page.evaluate(() => {
           window.__p2RealEndedCount = 0
@@ -1147,7 +1158,7 @@ async function detailExperience() {
       assert.equal(await visibleEntries(page).evaluateAll(elements => elements.every(element => element.disabled)), true)
       assert.equal(await page.locator('video').count(), 0)
       passed({ case: `detail-${width}`, geometry, firstScreenPrimary: true, hiddenBrowseTools: true,
-        sourceEntries: 123, maxMountedEntries: 50, preservesNonstandardLabels: true,
+        sourceEntries: 783, lastGroupPlayback: true, maxMountedEntries: 50, preservesNonstandardLabels: true,
         keyboardDescriptionAndMetadata: true, realLateGroupPlayback: true, resumePosition: saved.position,
         lastWatchedFocusWithoutAutoplay: true, crossLineProgressIsolated: true,
         categoryYearPageAnchorRestored: true, resetForDifferentItem: true,
