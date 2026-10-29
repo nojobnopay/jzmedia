@@ -43,6 +43,7 @@ export function onlineCatalogError(problem) {
     provider_ambiguous_identity: '视频源的线路或集名重复，暂时无法稳定选择，请选择其他来源。',
     provider_cancelled: '视频源查询已取消，请重新查询。',
     online_source_changed: '视频源配置已变化，请重新选择来源并查询。',
+    online_year_filter_unsupported: '此来源尚未验证年份筛选，请清除年份后重试。',
     network_timeout: '连接视频源超时，请稍后重试。',
     unsupported_online_media: '此来源没有可直接播放的 MP4 或 HLS 视频。',
   }[problem?.code] || '暂时无法读取此视频源，请检查来源设置与网络后重试。')
@@ -70,10 +71,13 @@ export function createOnlineCatalogClient({ request = api } = {}) {
   function cancel() { generation++; pending?.abort(); pending = null }
   return {
     sources: () => run('/api/online/catalog/sources'),
-    browse(source, page = 1, category = '') {
+    browse(source, page = 1, category = '', year = '') {
       if (!Number.isInteger(page) || page < 1 || page > 1000
-        || category && (typeof category !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(category))) throw new Error('在线分类条件无效')
-      return run('/api/online/catalog/browse?' + new URLSearchParams({ source_id: sourceId(source), page: String(page), category_id: category }))
+        || category && (typeof category !== 'string' || /^[A-Za-z0-9_-]{1,128}$/.exec(category)?.[0] !== category)
+        || typeof year !== 'string' || year && /^[1-9][0-9]{3}$/.exec(year)?.[0] !== year) throw new Error('在线分类条件无效')
+      const params = new URLSearchParams({ source_id: sourceId(source), page: String(page), category_id: category })
+      if (year) params.set('year', year)
+      return run('/api/online/catalog/browse?' + params)
     },
     search(source, query, page = 1) {
       const q = String(query || '').trim()

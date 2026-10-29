@@ -15,10 +15,42 @@
           <JzField id="online-query" label="片名"><template #default="field"><input :id="field.id" v-model="query" maxlength="100" autocomplete="off" placeholder="输入电影或剧集名称" /></template></JzField>
           <JzButton type="submit" variant="primary" icon="search" :disabled="!canSearch || searching" :loading="searching">{{ !query.trim() ? '浏览目录' : '搜索' }}</JzButton>
         </form>
-        <div v-if="categories.length" class="online-categories" role="group" aria-label="内容分类">
-          <JzButton :aria-pressed="!categoryId" :disabled="searching" @click="selectCategory('')">全部</JzButton>
-          <JzButton v-for="category in categories" :key="category.id" :data-online-category="category.id" :aria-pressed="categoryId === category.id" :disabled="searching" @click="selectCategory(category.id)">{{ category.name }}</JzButton>
+        <section v-if="categories.length" class="online-discovery-filters" aria-label="目录分类与年份">
+          <nav class="online-channels" aria-label="内容频道">
+            <JzButton :aria-pressed="!channelId && !loadedQuery" :disabled="searching" data-online-channel="" @click="selectChannel('')">发现</JzButton>
+            <JzButton v-for="channel in mainChannels" :key="channel.id" :data-online-channel="channel.id" :data-online-category="!channel.children.length ? channel.id : undefined" :aria-pressed="channelId === channel.id && !loadedQuery" :disabled="searching" @click="selectChannel(channel.id)">{{ channel.label }}</JzButton>
+            <JzButton ref="categoriesTrigger" variant="ghost" icon="filter" data-online-categories-open :aria-expanded="categoriesOpen" @click="openCategories"><span class="online-class-label-wide">全部分类</span><span class="online-class-label-narrow">选择分类</span></JzButton>
+          </nav>
+          <div v-if="selectedChannel?.children.length" class="online-subcategories" role="group" :aria-label="selectedChannel.label + '分类'">
+            <JzButton :data-online-category="selectedChannel.id" :aria-pressed="categoryId === selectedChannel.id" :disabled="searching" @click="selectCategory(selectedChannel.id)">{{ selectedChannel.name }}综合条目</JzButton>
+            <JzButton v-for="category in quickCategories" :key="category.id" :data-online-category="category.id" :aria-pressed="categoryId === category.id" :disabled="searching" @click="selectCategory(category.id)">{{ category.name }}</JzButton>
+            <JzButton v-if="selectedChannel.children.length > quickCategories.length" variant="ghost" @click="openCategories">更多分类</JzButton>
+          </div>
+          <p v-if="categoryId" class="online-category-current" data-online-category-current>{{ selectedChannel?.label }}<span v-if="selectedCategoryName && selectedCategoryName !== selectedChannel?.label"> / {{ selectedCategoryName }}</span></p>
+          <p v-if="selectedChannel?.children.length && categoryId === selectedChannel.id" class="online-category-hint">综合条目与细分类分别浏览，可选择下方的具体分类。</p>
+        </section>
+        <div v-if="canFilterYear" class="online-year-controls">
+          <JzField id="online-year" label="年份"><template #default="field"><select :id="field.id" :value="yearChoice" :disabled="searching" data-online-year @change="chooseYear($event.target.value)"><option value="">全部年份</option><option v-for="value in recentYears" :key="value" :value="value">{{ value }} 年</option><option value="custom">其他年份…</option></select></template></JzField>
+          <form v-if="yearChoice === 'custom'" class="online-custom-year" data-online-year-form @submit.prevent="applyCustomYear">
+            <JzField id="online-year-custom" label="指定年份" :error="customYearError"><template #default="field"><input :id="field.id" v-model="customYear" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="如 2018" :disabled="searching" :aria-invalid="field.invalid || undefined" :aria-describedby="field.describedby" data-online-year-custom @input="customYearError = ''" /></template></JzField>
+            <JzButton type="submit" :disabled="searching">应用年份</JzButton>
+          </form>
         </div>
+        <JzDialog v-if="categoriesOpen" title="选择内容分类" size="large" @close="categoriesOpen = false">
+          <div class="online-class-dialog" data-online-categories-dialog>
+            <p class="online-scope">选择具体分类查看内容，综合条目与细分类分别浏览。</p>
+            <JzField id="online-category-query" label="查找分类"><template #default="field"><input :id="field.id" v-model="categoryQuery" maxlength="80" autocomplete="off" placeholder="输入分类名称" data-online-category-query /></template></JzField>
+            <JzButton :aria-pressed="!categoryId" :disabled="searching" @click="selectDialogCategory('')">发现 · 最近更新</JzButton>
+            <EmptyState v-if="!dialogChannels.length" state="no-results" title="没有匹配的分类" text="换个分类名称试试。" />
+            <section v-for="channel in dialogChannels" :key="channel.id" class="online-class-group" :aria-label="channel.name">
+              <h3>{{ channel.name }}</h3>
+              <div class="online-class-options" role="group" :aria-label="channel.name + '分类'">
+                <JzButton v-if="channel.showRoot" :data-online-category="channel.id" :aria-pressed="categoryId === channel.id" :disabled="searching" @click="selectDialogCategory(channel.id)">{{ categoryTree.channels.find(value => value.id === channel.id)?.children.length ? channel.name + '综合条目' : channel.name }}</JzButton>
+                <JzButton v-for="category in channel.children" :key="category.id" :data-online-category="category.id" :aria-pressed="categoryId === category.id" :disabled="searching" @click="selectDialogCategory(category.id)">{{ category.name }}</JzButton>
+              </div>
+            </section>
+          </div>
+        </JzDialog>
         <p class="online-discovery-note">{{ loadedQuery ? '搜索当前视频源' : '发现推荐 · 按视频源最近更新浏览' }}<span v-if="selectedSource?.provider === 'open_catalog'"> · Blender 开放影片</span></p>
         <details class="online-connection"><summary>连接状态</summary>
           <div class="online-health" data-online-health><span>目录：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.api) : healthError || '尚未使用' }}</span><span>播放：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.media) : healthError || '尚未使用' }}</span><JzButton variant="ghost" :disabled="healthLoading" @click="loadHealth">刷新状态</JzButton><small>来自最近请求的记录。卡顿时可在来源网络设置中尝试代理。</small></div>
@@ -27,8 +59,9 @@
         <EmptyState v-else-if="detailError" state="error" title="详情加载失败" :text="detailError" retry @retry="openDetail(lastDetailId)"><JzButton @click="backToResults">返回搜索结果</JzButton></EmptyState>
         <section v-else-if="detail" class="online-detail" data-online-detail>
           <JzButton variant="ghost" icon="arrow-left" @click="backToResults">返回搜索结果</JzButton>
-          <header class="online-detail-heading"><OnlineArtwork :path="detail.poster_path" :title="detail.item.title" class="online-artwork" /><div><p class="online-eyebrow">{{ detail.source.name }} · {{ detail.item.kind === 'tv' ? '剧集' : '电影' }}</p><h2>{{ detail.item.title }}</h2><p v-if="detail.year" class="online-year">{{ detail.year }}</p></div></header>
+          <header class="online-detail-heading"><OnlineArtwork :path="detail.poster_path" :title="detail.item.title" class="online-artwork" /><div><p class="online-eyebrow">{{ detail.source.name }} · {{ detail.category || (detail.item.kind === 'tv' ? '剧集' : '电影') }}</p><h2>{{ detail.item.title }}</h2><p v-if="detail.year || detail.area || detail.language" class="online-year">{{ [detail.year, detail.area, detail.language].filter(Boolean).join(' · ') }}</p><p v-if="detail.remarks" class="online-detail-status" data-online-detail-status>{{ detail.remarks }}</p><ul v-if="detailGenres.length" class="online-genre-tags" aria-label="题材"><li v-for="genre in detailGenres" :key="genre">{{ genre }}</li></ul></div></header>
           <div class="online-detail-actions"><JzButton :data-online-favorite="detail.item.id" :icon="itemState?.favorite ? 'heart-filled' : 'heart'" :disabled="!itemState || mutationBusy.has(detail.item.id)" @click="favoriteDetail">{{ itemState?.favorite ? '取消收藏' : '收藏' }}</JzButton><JzButton v-if="resumeEntry" icon="play" data-online-detail-resume :disabled="starting" @click="play(resumeEntry)">继续播放</JzButton><span v-if="starting" role="status">正在读取续播位置…</span></div>
+          <dl v-if="detailMetadata.length" class="online-detail-metadata" data-online-metadata><div v-for="row in detailMetadata" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl>
           <p v-if="detail.description" class="online-description">{{ detail.description }}</p>
           <div v-if="detail.attribution?.length" class="online-attribution"><span>内容来源与许可</span><a v-for="credit in detail.attribution" :key="credit.url" :href="safeAttribution(credit.url)" target="_blank" rel="noopener noreferrer">{{ credit.label }}</a></div>
           <div v-if="needsHostUpdate" class="online-host-help" data-online-host-help role="status">
@@ -50,12 +83,12 @@
           <EmptyState v-else-if="!searched" state="empty" :title="selectedSource?.provider === 'open_catalog' ? '浏览开放样例目录' : '查找想看的内容'" :text="selectedSource?.provider === 'open_catalog' ? '点击“浏览目录”查看开放影片及许可。' : '输入片名，仅向当前选中的来源发起查询。'" />
           <EmptyState v-else-if="!results.length" state="no-results" title="没有找到相关内容" text="试试其他片名，或选择其他来源。" />
           <template v-else>
-            <div class="online-results-heading"><h2>{{ loadedQuery ? '搜索结果' : categories.find(category => category.id === loadedCategoryId)?.name || '最近更新' }}</h2><span>{{ total }} 项 · {{ selectedSource?.name }}</span><JzButton variant="ghost" icon="refresh" data-online-refresh :disabled="searching" @click="refreshResults">刷新</JzButton></div>
+            <div class="online-results-heading"><h2>{{ loadedQuery ? '搜索结果' : loadedCategoryName || '最近更新' }}<span v-if="loadedYear" class="online-results-year"> · {{ loadedYear }} 年</span></h2><span>{{ total }} 项 · {{ selectedSource?.name }}</span><JzButton variant="ghost" icon="refresh" data-online-refresh :disabled="searching" @click="refreshResults">刷新</JzButton></div>
             <div class="grid online-results"><article v-for="item in results" :key="item.external_id" class="card online-result" :data-online-browse-id="item.external_id">
-              <JzButton class="online-poster-button" variant="ghost" :data-online-result="item.external_id" :aria-label="'查看详情 ' + item.title" :disabled="searching" @click="openDetail(item.external_id)"><OnlineArtwork :key="posterGeneration" :path="item.poster_path" :title="item.title" /><span class="online-poster-action"><AppIcon name="play" :size="22" />查看详情</span></JzButton>
+              <JzButton class="online-poster-button" variant="ghost" :data-online-result="item.external_id" :aria-label="'查看详情 ' + item.title" :disabled="searching" @click="openDetail(item.external_id)"><OnlineArtwork :key="posterGeneration" :path="item.poster_path" :title="item.title" /><span v-if="item.remarks" class="online-poster-remark" :title="item.remarks" data-online-item-status>{{ item.remarks }}</span><span class="online-poster-action"><AppIcon name="play" :size="22" />查看详情</span></JzButton>
               <div class="t"><h3 class="card-title" :title="item.title">{{ item.title }}</h3><p class="card-meta">{{ [item.year, item.category || (item.kind === 'tv' ? '剧集' : item.kind === 'movie' ? '电影' : '')].filter(Boolean).join(' · ') }}</p></div>
             </article></div>
-            <nav v-if="pageCount > 1" class="online-pagination" aria-label="在线搜索分页"><JzButton icon="arrow-left" :disabled="searching || page <= 1" @click="search(page - 1, loadedQuery)">上一页</JzButton><span>第 {{ page }} / {{ pageCount }} 页</span><JzButton icon="forward" :disabled="searching || page >= pageCount" @click="search(page + 1, loadedQuery)">下一页</JzButton></nav>
+            <nav v-if="pageCount > 1" class="online-pagination" aria-label="在线搜索分页"><JzButton icon="arrow-left" :disabled="searching || !!searchError || page <= 1" @click="search(page - 1, loadedQuery)">上一页</JzButton><span>第 {{ page }} / {{ pageCount }} 页</span><JzButton icon="forward" :disabled="searching || !!searchError || page >= pageCount" @click="search(page + 1, loadedQuery)">下一页</JzButton></nav>
           </template>
         </div>
       </template>
@@ -93,10 +126,12 @@ import { createOnlineProgressMemory, onlineIdentityKey, validateOnlineIdentity }
 import { createOnlineStateClient, createOnlineProgressWriter, loadOnlineAutoplay, saveOnlineAutoplay, nextOnlineEpisode, onlineStateError } from '../onlineState.js'
 import { isChildren, registerViewingPlaybackCleanup, viewing } from '../viewing.js'
 import { onlineBrowseMemory, onlineBrowseScope, clearOnlineBrowse, captureOnlinePosition, restoreOnlinePosition } from '../onlineBrowse.js'
+import { onlineCategoryTree, visibleOnlineChannels, onlineCategoryLabel, onlineChannelCategory, visibleOnlineCategories, filterOnlineChannels, validOnlineYear } from '../onlineCategories.js'
 import { fmtTime as fmt } from '../playerLabels.js'
 import EmptyState from '../components/EmptyState.vue'
 import JzButton from '../components/JzButton.vue'
 import JzField from '../components/JzField.vue'
+import JzDialog from '../components/JzDialog.vue'
 import AppIcon from '../components/AppIcon.vue'
 import OnlinePlayerModal from '../components/OnlinePlayerModal.vue'
 import OnlineArtwork from '../components/OnlineArtwork.vue'
@@ -110,6 +145,11 @@ const sources = ref([]), sourceId = ref(''), enabled = ref(false), query = ref('
 const loadingSources = ref(true), sourcesError = ref(''), searching = ref(false), searched = ref(false), searchError = ref('')
 const categories = ref([]), categoryId = ref('')
 const loadedCategoryId = ref(''), browseRoot = ref(null)
+const channelId = ref(''), loadedChannelId = ref(''), channelSelections = ref({})
+const year = ref(''), loadedYear = ref(''), yearChoice = ref(''), customYear = ref(''), customYearError = ref('')
+const categoriesOpen = ref(false), categoriesTrigger = ref(null)
+const categoryQuery = ref('')
+const recentYears = Array.from({ length: 6 }, (_, index) => String(new Date().getFullYear() - index))
 const posterGeneration = ref(0)
 const results = ref([]), page = ref(1), pageCount = ref(1), total = ref(0), loadedQuery = ref('')
 const detailLoading = ref(false), detailError = ref(''), detail = ref(null), lineId = ref(''), lastDetailId = ref(''), itemState = ref(null)
@@ -122,12 +162,26 @@ const mode = viewing?.mode === 'private' ? 'private' : 'normal'
 const modeText = mode === 'private' ? '隐私模式' : '普通模式'
 const autoplay = ref(loadOnlineAutoplay(mode))
 const selectedSource = computed(() => sources.value.find(source => source.id === sourceId.value))
+const canFilterYear = computed(() => selectedSource.value?.capabilities?.year_filter === true)
+const categoryTree = computed(() => onlineCategoryTree(categories.value))
+const mainChannels = computed(() => visibleOnlineChannels(categoryTree.value, channelId.value))
+const selectedChannel = computed(() => categoryTree.value.channels.find(channel => channel.id === channelId.value))
+const quickCategories = computed(() => visibleOnlineCategories(selectedChannel.value, categoryId.value))
+const dialogChannels = computed(() => filterOnlineChannels(categoryTree.value, categoryQuery.value))
+const selectedCategoryName = computed(() => onlineCategoryLabel(categoryTree.value, categoryId.value))
+const loadedCategoryName = computed(() => onlineCategoryLabel(categoryTree.value, loadedCategoryId.value) || (loadedCategoryId.value ? '所选分类' : ''))
 const canBrowse = computed(() => selectedSource.value?.capabilities?.browse || selectedSource.value?.provider === 'open_catalog')
 const canSearch = computed(() => !!sourceId.value && (query.value.trim().length > 0 || canBrowse.value))
 const selectedLine = computed(() => detail.value?.lines.find(line => line.id === lineId.value))
 const needsHostUpdate = computed(() => detail.value?.lines.some(line => line.entries.some(entry => ['host_not_allowed', 'target_host_not_allowed'].includes(entry.reason))))
 const lastQuery = ref({ page: 1, query: '' })
 const resumeEntry = computed(() => !itemState.value?.last_progress?.completed ? findEntry(detail.value, itemState.value?.last_progress?.identity) : null)
+const detailGenres = computed(() => textValues(detail.value?.genres).slice(0, 8))
+const detailMetadata = computed(() => [
+  { label: '导演', value: textValues(detail.value?.directors).join(' / ') },
+  { label: '演员', value: textValues(detail.value?.actors).join(' / ') },
+  { label: '别名', value: typeof detail.value?.subtitle === 'string' ? detail.value.subtitle : '' },
+].filter(row => row.value))
 let disposed = false, generation = 0, libraryGeneration = 0, healthGeneration = 0, playIntent = 0, nextIntent = 0, runId = 0, activeRun = null
 let lastSourceId = ''
 let cacheScope = '', loadedAt = 0, browsePosition = null, positionIntent = 0, suspendedWork = null
@@ -137,20 +191,37 @@ function findEntry(data, identity) { return data?.lines?.flatMap(line => line.en
 function cancelNext() { nextIntent++; nextLoading.value = false; nextClient.cancel() }
 function autoplayChanged() { saveOnlineAutoplay(autoplay.value, mode); if (!autoplay.value) cancelNext() }
 function availabilityReason(reason) { return reason === 'online_source_disabled' || reason === 'online_disabled' ? '来源或在线功能已停用，记录仍会保留' : '当前内容暂不可播放，记录仍会保留' }
+function textValues(values) { return Array.isArray(values) ? [...new Set(values.filter(value => typeof value === 'string' && value))].slice(0, 32) : [] }
+function setYear(value) {
+  year.value = canFilterYear.value && validOnlineYear(value) ? value : ''
+  yearChoice.value = !year.value || recentYears.includes(year.value) ? year.value : 'custom'
+  customYear.value = year.value
+  customYearError.value = ''
+}
+function syncChannel() {
+  channelId.value = categoryTree.value.rootByCategory.get(categoryId.value) || channelId.value
+  if (!categoryId.value) channelId.value = ''
+  if (channelId.value && categoryId.value) channelSelections.value = { ...channelSelections.value, [channelId.value]: categoryId.value }
+}
 function rememberBrowse(source = selectedSource.value, capture = true) {
   if (!safeMode.value || !searched.value || !cacheScope || !source || !loadedAt
     || cacheScope !== onlineBrowseScope(cacheScope.slice(0, 64), viewing)) return
   if (capture && !detail.value && !detailLoading.value && !detailError.value) browsePosition = captureOnlinePosition(browseRoot.value) || browsePosition
-  onlineBrowseMemory.save({ scope: cacheScope, source, categoryId: loadedCategoryId.value, query: loadedQuery.value,
+  onlineBrowseMemory.save({ scope: cacheScope, source, categoryId: loadedCategoryId.value, channelId: loadedChannelId.value,
+    channelSelections: channelSelections.value, year: loadedYear.value, query: loadedQuery.value,
     inputQuery: query.value, loadedAt, position: browsePosition,
     response: { items: results.value, categories: categories.value, page: page.value, page_count: pageCount.value, total: total.value } })
 }
 function applyBrowse(snapshot) {
   categoryId.value = loadedCategoryId.value = snapshot.categoryId
+  channelId.value = loadedChannelId.value = snapshot.channelId || ''
+  channelSelections.value = { ...(snapshot.channelSelections || {}), ...channelSelections.value }
+  setYear(snapshot.year || ''); loadedYear.value = year.value
   query.value = snapshot.inputQuery; loadedQuery.value = snapshot.query
   browsePosition = snapshot.position; loadedAt = snapshot.loadedAt
   if (!snapshot.response) return false
   results.value = snapshot.response.items || []; categories.value = snapshot.response.categories || []
+  syncChannel(); loadedChannelId.value = channelId.value
   page.value = snapshot.response.page; pageCount.value = snapshot.response.page_count
   total.value = snapshot.response.total; searched.value = true
   return true
@@ -166,6 +237,8 @@ async function restoreBrowse(position = browsePosition, { top = false } = {}) {
 }
 function resetBrowse() {
   results.value = []; categories.value = []; categoryId.value = loadedCategoryId.value = ''; loadedQuery.value = ''
+  channelId.value = loadedChannelId.value = ''; channelSelections.value = {}; categoriesOpen.value = false; categoryQuery.value = ''
+  setYear(''); loadedYear.value = ''
   searched.value = false; searchError.value = ''; searching.value = false; page.value = pageCount.value = 1; total.value = 0
   loadedAt = 0; browsePosition = null; positionIntent++
 }
@@ -183,6 +256,7 @@ async function loadSources() {
     if (target && sources.value.some(source => source.id === target.sourceId)) sourceId.value = target.sourceId
     else if (!target && restored) sourceId.value = restored.sourceId
     if (!sources.value.some(source => source.id === sourceId.value)) sourceId.value = sources.value[0]?.id || ''
+    if (!canFilterYear.value) setYear('')
     if (restored?.sourceId === sourceId.value) applyBrowse(restored)
     lastSourceId = sourceId.value
     void loadHealth()
@@ -241,23 +315,55 @@ function sourceChanged(discover = true) {
 }
 function selectCategory(id) {
   if (searching.value || id === categoryId.value && !loadedQuery.value && searched.value) return
-  categoryId.value = id; query.value = ''; void search(1, '')
+  rememberBrowse()
+  categoryId.value = id; syncChannel(); query.value = ''; void search(1, '')
+}
+function selectChannel(id) {
+  if (searching.value) return
+  if (!id) {
+    rememberBrowse(); channelId.value = ''; categoryId.value = ''; setYear(''); query.value = ''; void search(1, '')
+    return
+  }
+  const channel = categoryTree.value.channels.find(value => value.id === id)
+  if (!channel) return
+  selectCategory(onlineChannelCategory(channel, channelSelections.value[id]))
+}
+function selectDialogCategory(id) {
+  if (searching.value) return
+  categoriesOpen.value = false
+  if (id) selectCategory(id)
+  else selectChannel('')
+}
+function openCategories() { categoryQuery.value = ''; categoriesOpen.value = true }
+function chooseYear(value) {
+  customYearError.value = ''
+  if (value === 'custom') { yearChoice.value = 'custom'; customYear.value = year.value; return }
+  if (!canFilterYear.value || !validOnlineYear(value) || searching.value) return
+  if (value === year.value && !loadedQuery.value) { setYear(value); return }
+  rememberBrowse(); setYear(value); query.value = ''; void search(1, '')
+}
+function applyCustomYear() {
+  if (!canFilterYear.value || searching.value) return
+  if (!customYear.value || !validOnlineYear(customYear.value)) { customYearError.value = '请输入 1000 至 9999 的四位年份'; return }
+  rememberBrowse(); setYear(customYear.value); query.value = ''; void search(1, '')
 }
 async function search(nextPage = 1, text = query.value, options = {}) {
   if (!sourceId.value || !safeMode.value || !text.trim() && !canBrowse.value) return
   rememberBrowse()
-  if (text.trim()) categoryId.value = ''
+  if (text.trim()) { categoryId.value = ''; channelId.value = ''; setYear('') }
   const requestedCategory = categoryId.value
-  const changingView = searched.value && (nextPage !== page.value || requestedCategory !== loadedCategoryId.value || text.trim() !== loadedQuery.value)
+  const requestedYear = canFilterYear.value && !text.trim() ? year.value : ''
+  const requestedChannel = channelId.value
+  const changingView = searched.value && (nextPage !== page.value || requestedCategory !== loadedCategoryId.value || requestedYear !== loadedYear.value || text.trim() !== loadedQuery.value)
   const turn = ++generation
   positionIntent++
   client.cancel()
   void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
   searching.value = true; searchError.value = ''; lastQuery.value = { page: nextPage, query: text,
-    force: !!options.force, position: options.position || (options.force ? browsePosition : null) }
+    year: requestedYear, channelId: requestedChannel, force: !!options.force, position: options.position || (options.force ? browsePosition : null) }
   try {
     const cached = !options.force && onlineBrowseMemory.read(cacheScope, selectedSource.value,
-      { page: nextPage, categoryId: requestedCategory, query: text.trim() })
+      { page: nextPage, categoryId: requestedCategory, year: requestedYear, channelId: requestedChannel, query: text.trim() })
     if (cached?.response) {
       applyBrowse(cached)
       browsePosition = options.position || (changingView ? null : cached.position)
@@ -265,11 +371,12 @@ async function search(nextPage = 1, text = query.value, options = {}) {
       return
     }
     const browsing = !text.trim() && selectedSource.value?.capabilities?.browse
-    const response = await (browsing ? client.browse(sourceId.value, nextPage, requestedCategory) : client.search(sourceId.value, text, nextPage))
+    const response = await (browsing ? client.browse(sourceId.value, nextPage, requestedCategory, requestedYear) : client.search(sourceId.value, text, nextPage))
     if (!current(turn) || !response) return
     results.value = response.items || []; page.value = response.page; pageCount.value = response.page_count
     if (browsing) categories.value = response.categories || []
     total.value = response.total; loadedQuery.value = text.trim(); loadedCategoryId.value = requestedCategory; searched.value = true; loadedAt = Date.now()
+    syncChannel(); loadedChannelId.value = channelId.value; loadedYear.value = requestedYear
     if (options.force) posterGeneration.value++
     browsePosition = options.position || (options.force ? browsePosition : null)
     // New metadata must not capture an anchor from the previous Vue render.
@@ -280,6 +387,7 @@ async function search(nextPage = 1, text = query.value, options = {}) {
 }
 function refreshResults() {
   categoryId.value = loadedCategoryId.value
+  channelId.value = loadedChannelId.value; setYear(loadedYear.value)
   void search(page.value, loadedQuery.value, { force: true })
 }
 async function readItemState(data, turn) {
@@ -460,13 +568,15 @@ watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locally
 watch(() => viewing.suspended, suspended => {
   positionIntent++
   if (suspended) {
+    categoriesOpen.value = false; categoryQuery.value = ''
     // Verification temporarily hides content. It does not revoke an otherwise
     // unchanged session or discard the selected detail and active player.
     if (!detail.value && !detailLoading.value && !detailError.value) browsePosition = captureOnlinePosition(browseRoot.value) || browsePosition
     if (loadingSources.value) suspendedWork = { type: 'sources' }
     else if (detailLoading.value && !detail.value) suspendedWork = { type: 'detail', id: lastDetailId.value }
     else if (searching.value) suspendedWork = { type: 'search', page: lastQuery.value.page, query: lastQuery.value.query,
-      category: categoryId.value, force: lastQuery.value.force, position: lastQuery.value.position }
+      category: categoryId.value, year: lastQuery.value.year, channelId: lastQuery.value.channelId,
+      force: lastQuery.value.force, position: lastQuery.value.position }
     generation++; libraryGeneration++; client.cancel(); stateClient.cancel(); cancelNext()
     healthGeneration++; healthClient.cancel(); healthLoading.value = false
     searching.value = detailLoading.value = starting.value = libraryLoading.value = false
@@ -477,7 +587,7 @@ watch(() => viewing.suspended, suspended => {
   suspendedWork = null
   if (work?.type === 'sources') void loadSources()
   else if (work?.type === 'detail') void openDetail(work.id)
-  else if (work?.type === 'search') { categoryId.value = work.category; void search(work.page, work.query, { force: work.force, position: work.position }) }
+  else if (work?.type === 'search') { categoryId.value = work.category; channelId.value = work.channelId || ''; setYear(work.year || ''); void search(work.page, work.query, { force: work.force, position: work.position }) }
   else {
     void loadHealth()
     if (detail.value) {

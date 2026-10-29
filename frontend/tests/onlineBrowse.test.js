@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createOnlineBrowseMemory, onlineBrowseScope, captureOnlinePosition, restoreOnlinePosition } from '../src/onlineBrowse.js'
 
-const source = { id: 'src_' + '1'.repeat(32), configuration_token: '2'.repeat(64) }
+const source = { id: 'src_' + '1'.repeat(32), configuration_token: '2'.repeat(64), capabilities: { year_filter: true } }
 const scope = onlineBrowseScope('3'.repeat(64), { mode: 'private', generation: 4, revision: 1 })
 const response = (page = 1, title = '合成剧集') => ({ items: [{ external_id: String(page), title }],
   categories: [{ id: '71', name: '都市脑洞' }], page, page_count: 3, total: 50 })
@@ -74,6 +74,47 @@ test('page LRU and byte ceilings bound all cached directories, including oversiz
   assert.ok(memory.stats().bytes <= 2000)
   memory.clear()
   assert.deepEqual(memory.stats(), { pages: 0, bytes: 0 })
+})
+
+test('year and channel navigation cannot reuse a different filtered catalogue page', () => {
+  const memory = createOnlineBrowseMemory()
+  const selections = { '58': '71', '20': '21' }
+  memory.save(snapshot({ year: '2026', channelId: '58', channelSelections: selections,
+    response: response(2, '2026都市脑洞') }))
+  selections['58'] = '74'
+  const filters = { categoryId: '71', year: '2026', channelId: '58', page: 2 }
+  const saved = memory.read(scope, source, filters)
+  assert.equal(saved.response.items[0].title, '2026都市脑洞')
+  assert.deepEqual(saved.channelSelections, { '58': '71', '20': '21' })
+  saved.channelSelections['58'] = '65'
+  assert.equal(memory.last(scope, [source]).channelSelections['58'], '71')
+  for (const changed of [{ year: '' }, { year: '2025' }, { channelId: '20' }, { channelId: '' }]) {
+    assert.equal(memory.read(scope, source, { ...filters, ...changed }), null)
+  }
+  memory.save(snapshot({ year: '2025', channelId: '58', response: response(2, '2025都市脑洞') }))
+  assert.equal(memory.last(scope, [source]).year, '2025')
+  assert.equal(memory.read(scope, source, filters).response.items[0].title, '2026都市脑洞')
+})
+
+test('malformed years and unbounded channel memories are refused before caching', () => {
+  const memory = createOnlineBrowseMemory()
+  for (const extra of [{ year: 2026 }, { year: '2026\n' }, { year: '0999' }, { channelId: '58\n' },
+    { channelSelections: [] }, { channelSelections: new Date() }, { channelSelections: { '58': '71\n' } },
+    { channelSelections: Object.fromEntries(Array.from({ length: 257 }, (_, index) => [String(index), '71'])) }]) {
+    assert.equal(memory.save(snapshot(extra)), false)
+  }
+  assert.deepEqual(memory.stats(), { pages: 0, bytes: 0 })
+})
+
+test('a year capability downgrade cannot display a filtered snapshot under an empty year selector', () => {
+  const memory = createOnlineBrowseMemory()
+  memory.save(snapshot({ year: '2026' }))
+  const unsupported = { ...source, capabilities: { year_filter: false } }
+  assert.equal(memory.last(scope, [unsupported]), null)
+  assert.equal(memory.read(scope, unsupported, { categoryId: '71', year: '2026' }), null)
+  assert.equal(memory.save(snapshot({ source: unsupported, year: '2026' })), false)
+  assert.equal(memory.save(snapshot({ source: unsupported })), true)
+  assert.equal(memory.last(scope, [unsupported]).year, '')
 })
 
 test('scroll restoration follows the first visible poster anchor across layout changes', () => {

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as Vue from 'vue'
 import { loadSfc } from './helpers/loadSfc.js'
-import { renderHarness, flush, deferred } from './helpers/renderHarness.js'
+import { renderHarness, flush, deferred, nodeText } from './helpers/renderHarness.js'
 import * as catalog from '../src/onlineCatalog.js'
 import * as state from '../src/onlineState.js'
 import { clearOnlineBrowse, onlineBrowseMemory, onlineBrowseScope } from '../src/onlineBrowse.js'
@@ -27,6 +27,8 @@ async function setup(t, request, { stateRequest, autoplay = false, routeQuery = 
       loadOnlineAutoplay: () => autoplay, saveOnlineAutoplay: value => preferences.push(value),
       createOnlineProgressWriter: options => { const writer = { options, snapshots: [], sessions: [], closes: 0, session(value) { this.sessions.push(value) }, update(value) { this.snapshots.push(value) }, async close() { this.closes++ } }; writers.push(writer); return writer } },
     '../viewing.js': { isChildren: Vue.ref(false), viewing: viewingSession, registerViewingPlaybackCleanup: callback => { cleanups.add(callback); return () => cleanups.delete(callback) } },
+    '../components/JzDialog.vue': { default: { props: ['title', 'size'], emits: ['close'],
+      setup: (_props, { slots }) => () => Vue.h('section', { 'data-stub-category-dialog': true }, slots.default?.()) } },
     '../components/OnlinePlayerModal.vue': { default: { props: ['onlineIdentity', 'initialPosition', 'prepareSession'], setup: props => {
       const listeners = Vue.getCurrentInstance().vnode.props
       const player = { props, ended: identity => listeners.onEnded(identity || props.onlineIdentity),
@@ -48,6 +50,153 @@ function search(ui, query) {
   ui.find(node => node.props.id === 'online-query').props['onUpdate:modelValue'](query)
   ui.find(node => node.props['data-online-search'] !== undefined).props.onSubmit({ preventDefault() {} })
 }
+
+const hierarchy = [{ id: '20', name: '电影片' }, { id: '21', parent_id: '20', name: '动作片' },
+  { id: '58', name: '短剧大全' }, { id: '71', parent_id: '58', name: '都市脑洞' },
+  { id: '72', parent_id: '58', name: '古装仙侠' }]
+function taxonomySources(yearFilter = true) {
+  return { enabled: true, scope_token: SCOPE,
+    items: [{ ...sources.items[0], configuration_token: 'b'.repeat(64), capabilities: { browse: true, year_filter: yearFilter } }] }
+}
+function categoryRows(path) {
+  const params = new URL(path, 'https://jzmedia.invalid').searchParams
+  return { ...rows, page: Number(params.get('page') || 1), page_count: 2, total: 40, categories: hierarchy }
+}
+
+test('a failed new year cannot paginate using a previous year count until retry succeeds', async t => {
+  let failing = true
+  const calls = []
+  const { ui } = await setup(t, async path => {
+    calls.push(path)
+    if (path.endsWith('/sources')) return taxonomySources()
+    const params = new URL(path, 'https://jzmedia.invalid').searchParams
+    if (params.get('year') === '2025' && failing) throw { code: 'provider_timeout' }
+    return { ...categoryRows(path), items: [{ ...rows.items[0], year: params.get('year') || '2026' }] }
+  })
+  const year = () => ui.find(node => node.props['data-online-year'] !== undefined)
+  const next = () => ui.find(node => node.type === 'button' && nodeText(node) === '下一页')
+  year().props.onChange({ target: { value: '2026' } }); await flush()
+  assert.equal(next().props.disabled, false)
+  year().props.onChange({ target: { value: '2025' } }); await flush()
+  assert.ok(ui.text().includes('以下仍为上次结果'))
+  assert.ok(ui.text().includes('2026 年'))
+  assert.equal(next().props.disabled, true)
+  failing = false
+  ui.find(node => node.type === 'button' && nodeText(node) === '重试').props.onClick(); await flush()
+  assert.equal(new URL(calls.at(-1), 'https://jzmedia.invalid').searchParams.get('year'), '2025')
+  assert.equal(next().props.disabled, false)
+})
+
+test('channels choose a concrete child, remember it and keep native parent queries explicit', async t => {
+  const calls = []
+  const { ui } = await setup(t, async path => { calls.push(path); return path.endsWith('/sources') ? taxonomySources() : categoryRows(path) })
+  ui.find(node => node.props['data-online-channel'] === '58').props.onClick(); await flush()
+  assert.equal(new URL(calls.at(-1), 'https://jzmedia.invalid').searchParams.get('category_id'), '71')
+  ui.find(node => node.props['data-online-category'] === '72').props.onClick(); await flush()
+  ui.find(node => node.props['data-online-channel'] === '20').props.onClick(); await flush()
+  assert.equal(new URL(calls.at(-1), 'https://jzmedia.invalid').searchParams.get('category_id'), '21')
+  ui.find(node => node.props['data-online-channel'] === '58').props.onClick(); await flush()
+  assert.equal(ui.find(node => node.props['data-online-category'] === '72').props['aria-pressed'], true)
+  ui.find(node => node.props['data-online-category'] === '58').props.onClick(); await flush()
+  assert.equal(new URL(calls.at(-1), 'https://jzmedia.invalid').searchParams.get('category_id'), '58')
+  assert.ok(ui.all().some(node => node.type === 'h2' && nodeText(node).includes('短剧大全综合条目')))
+  assert.equal(ui.text().includes('全部短剧'), false)
+})
+
+test('verified year filters reach pagination, validate custom years and clear before keyword search', async t => {
+  const calls = []
+  const { ui } = await setup(t, async path => { calls.push(path); return path.endsWith('/sources') ? taxonomySources() : categoryRows(path) })
+  const chooseYear = value => ui.find(node => node.props['data-online-year'] !== undefined).props.onChange({ target: { value } })
+  chooseYear('2026'); await flush()
+  ui.find(node => node.props['data-online-channel'] === '58').props.onClick(); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '下一页').props.onClick(); await flush()
+  let params = new URL(calls.at(-1), 'https://jzmedia.invalid').searchParams
+  assert.equal(params.get('year'), '2026'); assert.equal(params.get('page'), '2'); assert.equal(params.get('category_id'), '71')
+  chooseYear('custom'); await flush()
+  const input = () => ui.find(node => node.props['data-online-year-custom'] !== undefined)
+  input().props['onUpdate:modelValue']('0000')
+  const before = calls.length
+  ui.find(node => node.props['data-online-year-form'] !== undefined).props.onSubmit({ preventDefault() {} }); await flush()
+  assert.equal(calls.length, before)
+  assert.ok(ui.text().includes('1000 至 9999'))
+  input().props['onUpdate:modelValue']('1988')
+  ui.find(node => node.props['data-online-year-form'] !== undefined).props.onSubmit({ preventDefault() {} }); await flush()
+  params = new URL(calls.at(-1), 'https://jzmedia.invalid').searchParams
+  assert.equal(params.get('year'), '1988'); assert.equal(params.get('page'), '1')
+  search(ui, '合成'); await flush()
+  const keyword = new URL(calls.at(-1), 'https://jzmedia.invalid')
+  assert.equal(keyword.pathname, '/api/online/catalog/search')
+  assert.equal(keyword.searchParams.has('year'), false)
+  assert.equal(ui.find(node => node.props['data-online-year'] !== undefined).props.value, '')
+  assert.equal(ui.find(node => node.props['data-online-channel'] === '58').props['aria-pressed'], false)
+})
+
+test('unknown-source capabilities hide year controls and cannot inherit a prior source year', async t => {
+  const catalogue = taxonomySources()
+  catalogue.items.push({ ...sources.items[1], capabilities: { browse: true, year_filter: false } })
+  const calls = []
+  const { ui } = await setup(t, async path => { calls.push(path); return path.endsWith('/sources') ? catalogue : categoryRows(path) })
+  ui.find(node => node.props['data-online-year'] !== undefined).props.onChange({ target: { value: '2026' } }); await flush()
+  const select = ui.find(node => node.props['data-online-source'] !== undefined)
+  select.props['onUpdate:modelValue'](SOURCE_B); select.props.onChange(); await flush()
+  assert.equal(ui.find(node => node.props['data-online-year'] !== undefined), undefined)
+  const next = new URL(calls.at(-1), 'https://jzmedia.invalid')
+  assert.equal(next.searchParams.get('source_id'), SOURCE_B)
+  assert.equal(next.searchParams.has('year'), false)
+})
+
+test('verified warm reentry restores channel, selected child and year without another provider request', async t => {
+  const request = async path => path.endsWith('/sources') ? taxonomySources() : categoryRows(path)
+  const first = await setup(t, request)
+  first.ui.find(node => node.props['data-online-channel'] === '58').props.onClick(); await flush()
+  first.ui.find(node => node.props['data-online-category'] === '72').props.onClick(); await flush()
+  first.ui.find(node => node.props['data-online-year'] !== undefined).props.onChange({ target: { value: '2026' } }); await flush()
+  first.ui.find(node => node.type === 'button' && nodeText(node) === '下一页').props.onClick(); await flush()
+  first.ui.app.unmount()
+  const calls = []
+  const second = await setup(t, async path => { calls.push(path); return request(path) })
+  assert.equal(calls.length, 1)
+  assert.equal(second.ui.find(node => node.props['data-online-year'] !== undefined).props.value, '2026')
+  assert.equal(second.ui.find(node => node.props['data-online-channel'] === '58').props['aria-pressed'], true)
+  assert.equal(second.ui.find(node => node.props['data-online-category'] === '72').props['aria-pressed'], true)
+  assert.ok(second.ui.text().includes('第 2 / 2 页'))
+})
+
+test('category panel searches local labels without fetching and selections close before querying', async t => {
+  const calls = []
+  const { ui, viewing } = await setup(t, async path => { calls.push(path); return path.endsWith('/sources') ? taxonomySources() : categoryRows(path) })
+  ui.find(node => node.props['data-online-categories-open'] !== undefined).props.onClick(); await flush()
+  const before = calls.length
+  ui.find(node => node.props['data-online-category-query'] !== undefined).props['onUpdate:modelValue']('都市'); await flush()
+  assert.equal(calls.length, before)
+  const panel = ui.find(node => node.props['data-online-categories-dialog'] !== undefined)
+  const child = ui.all().find(node => node.props['data-online-category'] === '71' && (() => {
+    let parent = node.parent
+    while (parent) { if (parent === panel) return true; parent = parent.parent }
+    return false
+  })())
+  child.props.onClick(); await flush()
+  assert.equal(ui.find(node => node.props['data-online-categories-dialog'] !== undefined), undefined)
+  assert.equal(new URL(calls.at(-1), 'https://jzmedia.invalid').searchParams.get('category_id'), '71')
+  ui.find(node => node.props['data-online-categories-open'] !== undefined).props.onClick(); await flush()
+  viewing.suspended = true; await flush()
+  viewing.suspended = false; await flush()
+  assert.equal(ui.find(node => node.props['data-online-categories-dialog'] !== undefined), undefined, 'temporary verification never reopens the panel')
+})
+
+test('provider remarks and available metadata render as text without requiring local metadata services', async t => {
+  const { ui } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return taxonomySources()
+    if (path.includes('/browse?')) return { ...categoryRows(path), items: [{ ...rows.items[0], remarks: '更新至第7集' }] }
+    return { ...show(), category: '泰国剧', year: '2026', remarks: '更新至第7集', area: '泰国', language: '泰语',
+      genres: ['剧情', '悬疑'], directors: ['导演甲'], actors: ['演员甲', '演员乙'], subtitle: '来源别名' }
+  })
+  assert.equal(nodeText(ui.find(node => node.props['data-online-item-status'] !== undefined)), '更新至第7集')
+  ui.find(node => node.props['data-online-result'] === 'movie-1').props.onClick(); await flush()
+  assert.equal(nodeText(ui.find(node => node.props['data-online-detail-status'] !== undefined)), '更新至第7集')
+  for (const text of ['泰国', '泰语', '剧情', '悬疑', '导演甲', '演员甲', '来源别名']) assert.ok(ui.text().includes(text))
+  assert.ok(ui.find(node => node.props['data-online-metadata'] !== undefined))
+})
 
 test('a source repair return link opens the selected item once without auto-discovery or playback', async t => {
   const calls = []

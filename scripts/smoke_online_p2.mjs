@@ -21,11 +21,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|hosts|all]')
+    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|hosts|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-'))
 const output = path.join(root, 'output/playwright/online-p2')
 const dist = path.join(work, 'dist')
@@ -442,6 +442,160 @@ async function discovery() {
   }
   await backendChildren('after-discovery')
 }
+async function categoryNavigation() {
+  async function taxonomyScenario(taxonomy) {
+    const response = await fetch(`${base}/api/p2/scenario`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Token': 'online-p2-fixture-only' },
+      body: JSON.stringify({ taxonomy, gallery: false, image_delay_ms: 0 }) })
+    assert.equal(response.status, 200)
+  }
+  async function settled(page) {
+    await until(async () => (await page.locator('[data-online-browser]').getAttribute('aria-busy')) === 'false',
+      'The selected directory request must finish')
+  }
+  async function categoryDialog(page) {
+    await page.locator('[data-online-categories-open]:visible').first().click()
+    const dialog = page.getByRole('dialog')
+    await dialog.waitFor()
+    return dialog
+  }
+  async function chooseCategory(page, id) {
+    let button = page.locator(`[data-online-category="${id}"]:visible`).first()
+    if (!await button.count()) button = (await categoryDialog(page)).locator(`[data-online-category="${id}"]`).first()
+    await button.click()
+    await settled(page)
+  }
+  async function chooseChannel(page, id) {
+    let button = page.locator(`[data-online-channel="${id}"]:visible`).first()
+    if (!await button.count()) {
+      const dialog = await categoryDialog(page)
+      const channel = dialog.locator(`[data-online-channel="${id}"]`).first()
+      button = await channel.count() ? channel : dialog.locator(`[data-online-category="${id}"]`).first()
+    }
+    await button.click()
+    await settled(page)
+  }
+  async function chooseYear(page, year) {
+    const select = page.locator('[data-online-year]')
+    const available = await select.locator('option').evaluateAll(options => options.map(option => option.value))
+    if (available.includes(year)) await select.selectOption(year)
+    else {
+      await select.selectOption('custom')
+      await page.locator('[data-online-year-custom]').fill(year)
+      await page.getByRole('button', { name: '应用年份', exact: true }).click()
+    }
+    await settled(page)
+  }
+  async function resultIds(page) {
+    return page.locator('[data-online-result]').evaluateAll(elements => elements.map(element => element.dataset.onlineResult))
+  }
+  for (const width of [1440, 390, 320]) {
+    phase = { name: `categories-${width}`, expectedHttp: false }
+    // No previous page has this device scope. Enabling the isolated feature
+    // before boot also ensures capability discovery and the first tree agree.
+    await taxonomyScenario(true)
+    const { context, page } = await newPage(width)
+    try {
+      await selectSource(page)
+      await page.locator('[data-online-year]').waitFor()
+      await settled(page)
+      await chooseChannel(page, '58')
+      await chooseCategory(page, '71')
+      await chooseYear(page, '2026')
+      const first = await resultIds(page)
+      assert.equal(first.length, 20)
+      assert.ok(first.every(id => id.startsWith('urban-2026-')))
+      assert.ok((await page.locator('.online-results-heading').textContent()).includes('都市脑洞'))
+      assert.ok((await page.locator('.online-results').textContent()).includes('更新至第2集'))
+      const filtered = await metrics()
+      assert.ok(filtered.origin_calls.some(call => call.kind === 'api' && call.category_id === '71' && call.year === '2026'),
+        'The real source must receive the category and year; a current-page filter is insufficient')
+      await page.getByRole('button', { name: '下一页', exact: true }).click()
+      await page.locator('[data-online-result="urban-2026-24"]').waitFor()
+      await settled(page)
+      assert.equal((await resultIds(page)).length, 4)
+      assert.ok((await page.locator('.online-pagination').first().textContent()).includes('2 / 2'))
+      const last = page.locator('[data-online-result="urban-2026-24"]')
+      await last.scrollIntoViewIfNeeded()
+      await until(() => last.locator('.online-poster > img').evaluateAll(images => images.some(image => image.complete && image.naturalWidth > 0)),
+        'A real source poster must decode on the client')
+      const position = await page.evaluate(() => scrollY)
+      await detailUi(page, 'urban-2026-24')
+      const detail = await page.locator('[data-online-detail]').textContent()
+      for (const value of ['合成演员甲', '合成导演', '大陆', '国语']) assert.ok(detail.includes(value), `Detail exposes available ${value}`)
+      await returned(page)
+      await until(() => page.evaluate(expected => Math.abs(scrollY - expected) < 12, position), 'Detail return restores the filtered-page anchor')
+      assert.equal(await page.locator('[data-online-year]').inputValue(), '2026')
+      assert.ok((await page.locator('.online-pagination').first().textContent()).includes('2 / 2'))
+      await idle()
+      const warmBefore = await metrics()
+      await page.evaluate(() => window.__jzOnlineP2Fixture.navigate('/settings'))
+      await page.waitForFunction(() => window.__jzOnlineP2Fixture.snapshot().path === '/settings')
+      await page.evaluate(() => window.__jzOnlineP2Fixture.navigate('/online'))
+      await page.locator('[data-online-result="urban-2026-24"]').waitFor({ state: 'attached' })
+      await settled(page)
+      await until(() => page.evaluate(expected => Math.abs(scrollY - expected) < 12, position), 'Reentry restores the year, category, page and anchor')
+      assert.equal(await page.locator('[data-online-year]').inputValue(), '2026')
+      assert.ok((await page.locator('.online-pagination').first().textContent()).includes('2 / 2'))
+      const warmAfter = await metrics()
+      assert.equal(warmAfter.origin_calls.filter(call => call.kind === 'api').length,
+        warmBefore.origin_calls.filter(call => call.kind === 'api').length, 'The verified warm snapshot includes the selected year')
+
+      await chooseCategory(page, '58')
+      assert.deepEqual(await resultIds(page), ['short-overview'], 'The native parent query cannot masquerade as all short dramas')
+      assert.equal((await page.locator('.online-page').innerText()).includes('全部短剧'), false)
+      await chooseCategory(page, '71')
+      await chooseYear(page, '1988')
+      assert.deepEqual(await resultIds(page), ['urban-1988-1'])
+      assert.equal(await page.locator('[data-online-year-custom]').inputValue(), '1988')
+      const trigger = page.locator('[data-online-categories-open]:visible').first()
+      const categoryReads = (await metrics()).origin_calls.filter(call => call.kind === 'api').length
+      const dialog = await categoryDialog(page)
+      await dialog.locator('[data-online-category-query]').fill('AI')
+      await dialog.locator('[data-online-category="74"]').waitFor()
+      assert.equal((await metrics()).origin_calls.filter(call => call.kind === 'api').length, categoryReads,
+        'Finding a category in the complete local tree must not query every source category')
+      await page.keyboard.press('Escape')
+      await dialog.waitFor({ state: 'hidden' })
+      assert.equal(await trigger.evaluate(element => document.activeElement === element), true, 'Escape returns keyboard focus to category selection')
+      await chooseYear(page, '1900')
+      await page.getByText('没有找到相关内容', { exact: true }).waitFor()
+      assert.equal((await resultIds(page)).length, 0)
+      await chooseYear(page, '2026')
+      await page.locator('[data-online-result="urban-2026-1"]').waitFor()
+
+      phase.expectedHttp = true
+      await scenario(page, { next_mode: 'status_error' })
+      await page.locator('[data-online-refresh]').click()
+      await page.getByRole('button', { name: '重试', exact: true }).waitFor()
+      assert.equal((await resultIds(page)).length, 20, 'A failed refresh preserves the previous filtered wall')
+      assert.equal(await page.locator('[data-online-year]').inputValue(), '2026')
+      await page.getByRole('button', { name: '重试', exact: true }).click()
+      await settled(page)
+      phase.expectedHttp = false
+      await scenario(page, { delay_ms: 900 })
+      await page.locator('[data-online-refresh]').click()
+      await until(async () => (await metrics()).pending_requests > 0, 'A delayed filtered request actually starts')
+      assert.equal(await page.locator('[data-online-refresh]').isDisabled(), true)
+      await page.evaluate(() => window.__jzOnlineP2Fixture.navigate('/settings'))
+      await idle('Cancelled category work must release its actual worker')
+      await page.evaluate(() => window.__jzOnlineP2Fixture.navigate('/online'))
+      await page.locator('[data-online-result="urban-2026-1"]').waitFor()
+      await settled(page)
+      assert.equal(await page.locator('[data-online-year]').inputValue(), '2026')
+      const geometry = await layout(page, width)
+      await page.screenshot({ path: path.join(output, `categories-${width}.png`), fullPage: true })
+      passed({ case: phase.name, geometry, taxonomyCategories: 49, actualYearForwarded: true,
+        parentQueryRemainsExact: true, customYear: '1988', emptyYear: '1900', pageAndAnchorRestored: true,
+        warmCatalogueReads: 0, escapeRestoresFocus: true, failedRefreshKeepsResults: true, cancelledLateRead: true })
+    } finally {
+      await closeContext(context)
+      await idle()
+      await taxonomyScenario(false)
+    }
+  }
+  await backendChildren('after-categories')
+}
 async function loading() {
   const imageReads = value => value.origin_calls.filter(call => call.kind === 'image').length
   const apiReads = value => value.origin_calls.filter(call => call.kind === 'api').length
@@ -844,6 +998,7 @@ try {
     'frontend/src/components/OnlinePlayerModal.vue',
     'frontend/src/onlinePlayback.js', 'app/online/maccms.py', 'app/online/catalog.py',
     'frontend/src/onlineArtwork.js', 'frontend/src/onlineBrowse.js', 'app/online/artwork.py', 'app/online/artwork_cache.py',
+    'frontend/src/onlineCategories.js',
     'app/online/providers.py', 'app/routers/online_catalog.py']) {
     report.fingerprints[file] = createHash('sha256').update(await readFile(path.join(root, file))).digest('hex')
   }
@@ -865,12 +1020,13 @@ try {
     if (selectedCase === 'all' || selectedCase === 'hosts') await hostRepair()
     if (selectedCase === 'all' || selectedCase === 'discovery') await discovery()
     if (selectedCase === 'all' || selectedCase === 'loading') await loading()
+    if (selectedCase === 'all' || selectedCase === 'categories') await categoryNavigation()
     if (selectedCase === 'all' || selectedCase === 'matrix') await matrix()
     if (selectedCase === 'all' || selectedCase === 'catalogue') await catalogue()
     report.finalMetrics = (await idle()).metrics
     assert.ok(!report.finalMetrics.origin_calls.some(call => call.app_credentials), 'Application credentials never reach the source')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'api'), 'The API uses its own network-purpose client')
-    if (!['discovery', 'loading'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
+    if (!['discovery', 'loading', 'categories'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'image'), 'Posters use their image-purpose client')
     assert.deepEqual(report.errors, [], 'No browser runtime, Vue or unexpected console errors')
     assert.deepEqual(report.unexpectedRequests, [], 'No foreign origin or local playback/cast API request')

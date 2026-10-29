@@ -47,6 +47,24 @@ test('a replacement query cancels its predecessor and ignores its late success',
   assert.deepEqual(await current, { items: ['new'] })
 })
 
+test('year filtering is encoded as an upstream browse condition and never as a search substitute', async () => {
+  const calls = []
+  const client = createOnlineCatalogClient({ request: async path => { calls.push(path); return {} } })
+  await client.browse(SOURCE, 2, '71', '2026')
+  const selected = new URL(calls[0], 'https://jzmedia.invalid')
+  assert.equal(selected.searchParams.get('year'), '2026')
+  assert.equal(selected.searchParams.get('category_id'), '71')
+  assert.equal(selected.searchParams.get('page'), '2')
+  assert.equal(selected.searchParams.has('q'), false)
+  await client.browse(SOURCE)
+  assert.equal(new URL(calls[1], 'https://jzmedia.invalid').searchParams.has('year'), false, 'Empty filters remain compatible with previous servers')
+  for (const year of [2026, null, '0200', '2026\n', '２０２６', '2026&area=x', '10000']) {
+    assert.throws(() => client.browse(SOURCE, 1, '', year), /分类条件无效/)
+  }
+  assert.throws(() => client.browse(SOURCE, 1, '71\n'), /分类条件无效/)
+  assert.equal(calls.length, 2, 'Invalid conditions never initiate a request')
+})
+
 test('leaving the catalogue ignores a late provider failure and forbids new work', async () => {
   const pending = deferred()
   let calls = 0

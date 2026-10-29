@@ -8,6 +8,15 @@ const SOURCE = /^src_[0-9a-f]{32}$/
 const TOKEN = /^[0-9a-f]{64}$/
 const SCOPE = /^[0-9a-f]{64}:(?:normal|private):\d+:\d+$/
 const clone = value => JSON.parse(JSON.stringify(value))
+const identity = value => typeof value === 'string' && /^[A-Za-z0-9_-]{0,128}$/.exec(value)?.[0] === value
+const validYear = value => typeof value === 'string' && (!value || /^[1-9][0-9]{3}$/.exec(value)?.[0] === value)
+
+function validSelections(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  if (![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false
+  const entries = Object.entries(value)
+  return entries.length <= 256 && entries.every(([channel, category]) => channel && category && identity(channel) && identity(category))
+}
 
 export function onlineBrowseScope(token, viewing = {}) {
   if (!TOKEN.test(token || '') || !['normal', 'private'].includes(viewing.mode)) return ''
@@ -27,7 +36,9 @@ export function createOnlineBrowseMemory({ clock = Date.now, maxBytes = MAX_BYTE
     for (const [key, entry] of entries) if (now - entry.savedAt >= navigationTtl) remove(key)
   }
   function valid(scope, source) { return SCOPE.test(scope || '') && SOURCE.test(source?.id || '') && TOKEN.test(source?.configuration_token || '') }
-  function key(scope, source, categoryId, query, page) { return JSON.stringify([scope, source.id, source.configuration_token, categoryId, query, page]) }
+  function key(scope, source, categoryId, query, page, year, channelId) {
+    return JSON.stringify([scope, source.id, source.configuration_token, categoryId, query, page, year, channelId])
+  }
   function read(entry) {
     if (!entry) return null
     const result = clone(entry.value)
@@ -35,30 +46,32 @@ export function createOnlineBrowseMemory({ clock = Date.now, maxBytes = MAX_BYTE
     return result
   }
   return {
-    save({ scope, source, categoryId = '', query = '', inputQuery = query, response, loadedAt = clock(), position = null }) {
-      if (!valid(scope, source) || typeof categoryId !== 'string' || !/^[A-Za-z0-9_-]{0,128}$/.test(categoryId)
+    save({ scope, source, categoryId = '', query = '', inputQuery = query, year = '', channelId = '', channelSelections = {},
+      response, loadedAt = clock(), position = null }) {
+      if (!valid(scope, source) || !identity(categoryId) || !identity(channelId) || !validYear(year) || year && source.capabilities?.year_filter !== true || !validSelections(channelSelections)
         || typeof query !== 'string' || query.length > 100 || typeof inputQuery !== 'string' || inputQuery.length > 100
         || !response || !Number.isInteger(response.page) || response.page < 1 || response.page > 1000
         || !Array.isArray(response.items) || response.items.length > 100 || !Number.isFinite(loadedAt)) return false
       let value, bytes
       try {
-        value = clone({ sourceId: source.id, configuration: source.configuration_token, categoryId, query,
+        value = clone({ sourceId: source.id, configuration: source.configuration_token, categoryId, query, year, channelId, channelSelections,
           inputQuery, page: response.page, response, loadedAt, position })
         bytes = new TextEncoder().encode(JSON.stringify(value)).byteLength
       } catch { return false }
       if (bytes > maxBytes) return false
       prune()
-      const selected = key(scope, source, categoryId, query, response.page)
+      const selected = key(scope, source, categoryId, query, response.page, year, channelId)
       if (entries.has(selected)) remove(selected)
       while (entries.size && (entries.size >= maxPages || totalBytes + bytes > maxBytes)) remove(entries.keys().next().value)
       entries.set(selected, { value, bytes, savedAt: clock(), scope })
       totalBytes += bytes
       return true
     },
-    read(scope, source, { categoryId = '', query = '', page = 1 } = {}) {
-      if (!valid(scope, source)) return null
+    read(scope, source, { categoryId = '', query = '', page = 1, year = '', channelId = '' } = {}) {
+      if (!valid(scope, source) || !identity(categoryId) || !identity(channelId) || !validYear(year)
+        || year && source.capabilities?.year_filter !== true) return null
       prune()
-      const selected = key(scope, source, categoryId, query, page)
+      const selected = key(scope, source, categoryId, query, page, year, channelId)
       const entry = entries.get(selected)
       if (!entry) return null
       entries.delete(selected); entries.set(selected, entry)
@@ -67,11 +80,12 @@ export function createOnlineBrowseMemory({ clock = Date.now, maxBytes = MAX_BYTE
     last(scope, sources, sourceId = '') {
       if (!SCOPE.test(scope || '') || !Array.isArray(sources)) return null
       prune()
-      const available = new Map(sources.filter(source => valid(scope, source)).map(source => [source.id, source.configuration_token]))
+      const available = new Map(sources.filter(source => valid(scope, source)).map(source => [source.id, source]))
       for (const entry of [...entries.values()].reverse()) {
         const value = entry.value
         if (entry.scope === scope && (!sourceId || value.sourceId === sourceId)
-          && available.get(value.sourceId) === value.configuration) return read(entry)
+          && available.get(value.sourceId)?.configuration_token === value.configuration
+          && (!value.year || available.get(value.sourceId)?.capabilities?.year_filter === true)) return read(entry)
       }
       return null
     },
