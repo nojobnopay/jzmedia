@@ -131,6 +131,9 @@ class FixtureOrigin:
         self.media_alias = False
         self.gallery = False
         self.taxonomy = False
+        self.related = False
+        self.related_delay_ms = 0
+        self.related_failure = False
         self.image_delay_ms = 0
         self.image_active = 0
         self.image_peak = 0
@@ -171,6 +174,8 @@ class FixtureOrigin:
                             "category_id": query.get("t", [""])[0] if api else "",
                             "year": query.get("year", [""])[0] if api else "",
                             "page": query.get("pg", [""])[0] if api else "",
+                            "external_id": query.get("ids", [""])[0] if api else "",
+                            "keyword": query.get("wd", [""])[0] if api else "",
                             "range": self.headers.get("Range"),
                             "app_credentials": bool(any(name in self.headers for name in (
                                 "X-Api-Token", "X-Viewing-Session", "X-Receiver-Token"))
@@ -267,6 +272,16 @@ class FixtureOrigin:
                 with origin.lock:
                     delay_ms, mode = origin.next_plan
                     origin.next_plan = (0, "normal")
+                    # Only synthetic recommendation root searches are slow.
+                    # The selected item detail and playback resolver remain free
+                    # to prove that foreground work can preempt a live socket.
+                    root_search = (origin.related and query.get("wd", [""])[0] in
+                                   {"青山书院", "重启之路", "回声"} and "ids" not in query)
+                    if root_search:
+                        delay_ms = max(delay_ms, origin.related_delay_ms)
+                    if origin.related_failure and origin.related and "ids" not in query and (
+                            root_search or query.get("t", [""])[0]):
+                        mode = "status_error"
                     origin.pending_requests += 1
                 try:
                     if delay_ms:
@@ -285,7 +300,7 @@ class FixtureOrigin:
                     if category:
                         rows = [row for row in rows if str(row["type_id"]) == category]
                     with origin.lock:
-                        taxonomy = origin.taxonomy
+                        taxonomy = origin.taxonomy or origin.related
                     year = query.get("year", [""])[0]
                     if taxonomy and year:
                         rows = [row for row in rows if row.get("vod_year") == year]
@@ -330,8 +345,8 @@ class FixtureOrigin:
 
     def records(self, mode="normal"):
         with self.lock:
-            revision, reverse, alias, gallery, taxonomy = (self.revision, self.reverse_lines, self.media_alias,
-                                                          self.gallery, self.taxonomy)
+            revision, reverse, alias, gallery, taxonomy, related = (self.revision, self.reverse_lines, self.media_alias,
+                                                                   self.gallery, self.taxonomy, self.related)
         def media(episode, transport):
             asset = "movie.mp4" if transport == "mp4" else "hls/master.m3u8"
             media_base = f"http://media.fixture.invalid:{self.port}" if alias else self.base_url
@@ -348,6 +363,36 @@ class FixtureOrigin:
             show_url = show_url.replace("第2集$", "第1集$")
         if mode == "mismatched_lines":
             show_from += "$$$错位线路"
+        if related:
+            def recommendation_record(identity, title, category, year, *, actors="合成演员甲,合成演员乙"):
+                parent, category_name = next((parent, name) for selected, parent, name in TAXONOMY_CATEGORIES
+                                             if selected == category)
+                movie = "电影" in category_name or category_name.endswith("片")
+                return {"vod_id": identity, "vod_name": title, "type_id": str(category), "type_id_1": parent,
+                        "type_name": category_name, "vod_year": year,
+                        "vod_pic": f"{self.base_url}/files/poster.png?related={identity}",
+                        "vod_remarks": "正片" if movie else "全2集", "vod_class": "剧情,校园", "vod_area": "大陆", "vod_lang": "国语",
+                        "vod_actor": actors, "vod_director": "合成导演", "vod_total": 1 if movie else 2,
+                        "vod_content": "纯合成系列与同类推荐隔离用例，不对应真实影视作品。",
+                        "vod_play_from": movie_from if movie else show_from,
+                        "vod_play_url": movie_url if movie else show_url}
+
+            # Twenty-four fillers place the selected second season on page 2
+            # for the exact category/year filter; seasons span different years.
+            return [recommendation_record(f"peer-{number}", f"同类合成剧 {number:02d}", 31, "2024")
+                    for number in range(1, 25)] + [
+                recommendation_record("academy-s4", "青山书院第四季", 31, "2026"),
+                recommendation_record("academy-s1", "青山书院第一季", 31, "2023"),
+                recommendation_record("academy-s3", "青山书院第三季", 31, "2025", actors="合成演员丙"),
+                recommendation_record("academy-s2", "青山书院第二季", 31, "2024"),
+                recommendation_record("academy-unseasoned", "青山书院", 31, "2024"),
+                recommendation_record("academy-s2-movie", "青山书院第二季", 22, "2024"),
+                recommendation_record("academy-film", "青山书院外传", 22, "2020"),
+                recommendation_record("restart-s2", "重启之路第二季", 31, "2026"),
+                recommendation_record("echo-s1", "回声第一季", 31, "2025", actors="合成演员戊"),
+                recommendation_record("echo-s2", "回声第二季", 31, "2026", actors="合成演员丁"),
+                recommendation_record("lonely-trailer", "独行预告", 52, "2026"),
+            ]
         if taxonomy:
             def record(identity, title, category, year):
                 parent, category_name = next((parent, name) for selected, parent, name in TAXONOMY_CATEGORIES

@@ -179,6 +179,55 @@ def test_taxonomy_fixture_exposes_real_parent_ids_and_origin_side_year_paginatio
     assert any(call["category_id"] == "71" and call["year"] == "2026" and call["page"] == "2" for call in observed)
 
 
+def test_related_fixture_sorts_explicit_seasons_without_persisting_candidates(client):
+    source = add_source(client)
+    public = client.get("/api/online/catalog/sources").json()
+    assert public["items"][0]["capabilities"]["related"] is False
+    assert client.post("/api/p2/scenario", json={"related": True, "clear_related_cache": True}).status_code == 200
+    assert client.get("/api/online/catalog/sources").json()["items"][0]["capabilities"]["related"] is True
+    detail(client, source, "academy-s2")
+    before = client.get("/api/p2/metrics").json()
+    params = {"source_id": source["id"], "external_id": "academy-s2"}
+    response = client.get("/api/online/catalog/related", params=params)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["status"] == "ready" and result["current_season"] == 2
+    assert [(item["external_id"], item["season"]) for item in result["series"]] == [
+        ("academy-s1", 1), ("academy-s3", 3), ("academy-s4", 4)]
+    assert all(item["reason"] == "inferred_season" for item in result["series"])
+    cards = result["series"] + result["related"] + result["name_related"]
+    assert len(cards) <= 12 and len({item["external_id"] for item in cards}) == len(cards)
+    assert "academy-s2" not in {item["external_id"] for item in cards}
+    assert all(item["poster_path"].startswith("/api/online/catalog/artwork/") for item in cards)
+    assert not any(value in response.text for value in ("fixture.invalid", "fixture_signature", "vod_play_url"))
+    after = client.get("/api/p2/metrics").json()
+    upstream = after["origin_calls"][len(before["origin_calls"]):]
+    calls = [call for call in upstream if call["kind"] == "api"]
+    assert 1 <= len(calls) <= 3, "Recommendations have one bounded detail/search/category budget"
+    assert sum(bool(call["external_id"]) for call in calls) <= 1, "No per-card detail requests"
+    assert after["catalog_rows"] == before["catalog_rows"], "Candidates do not become watched items or episodes"
+    assert after["local_rows"] == {"movies": 0, "tv_episodes": 0, "playback_progress": 0}
+    assert client.get("/api/online/catalog/related", params=params).json() == result
+    assert len(client.get("/api/p2/metrics").json()["origin_calls"]) == len(after["origin_calls"])
+
+
+@pytest.mark.parametrize("external_id,current_season", [
+    ("restart-s2", 2), ("academy-unseasoned", None), ("echo-s2", 2), ("lonely-trailer", None),
+])
+def test_related_fixture_does_not_invent_a_series_or_first_season(client, external_id, current_season):
+    source = add_source(client)
+    assert client.post("/api/p2/scenario", json={"related": True, "clear_related_cache": True}).status_code == 200
+    response = client.get("/api/online/catalog/related", params={"source_id": source["id"], "external_id": external_id})
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["status"] == "ready" and result["current_season"] == current_season
+    assert result["series"] == []
+    assert external_id not in {item["external_id"] for key in ("related", "name_related") for item in result[key]}
+    if external_id == "lonely-trailer":
+        assert result["related"] == [] and result["name_related"] == []
+    assert client.get("/api/p2/metrics").json()["catalog_rows"]["online_items"] == 0
+
+
 def test_real_maccms_search_detail_and_owned_mp4_passthrough(client):
     source = add_source(client)
     public = client.get("/api/online/catalog/sources").json()

@@ -21,11 +21,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|hosts|all]')
+    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|related|hosts|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'related', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-'))
 const output = path.join(root, 'output/playwright/online-p2')
 const dist = path.join(work, 'dist')
@@ -596,6 +596,222 @@ async function categoryNavigation() {
   }
   await backendChildren('after-categories')
 }
+async function relatedRecommendations() {
+  const relatedPath = id => `/api/online/catalog/related?source_id=${primarySource.id}&external_id=${id}`
+  const apiCalls = value => value.origin_calls.filter(call => call.kind === 'api')
+  async function configure(plan) {
+    const response = await fetch(`${base}/api/p2/scenario`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Token': 'online-p2-fixture-only' },
+      body: JSON.stringify({ related: true, taxonomy: false, gallery: false, related_delay_ms: 0,
+        related_failure: false, reverse_lines: false, clear_related_cache: true, ...plan }) })
+    assert.equal(response.status, 200)
+  }
+  async function settled(page) {
+    await until(async () => (await page.locator('[data-online-browser]').getAttribute('aria-busy')) === 'false',
+      'The directory selection must settle before opening its detail')
+  }
+  async function finished(page) {
+    await page.locator('[data-online-detail]').waitFor()
+    await page.locator('[data-online-detail] [data-online-favorite]:enabled').waitFor()
+    await until(async () => (await metrics()).admission.background === 0
+      && await page.locator('[data-online-related-loading]').count() === 0, 'Optional recommendation work must finish')
+  }
+  async function ids(page, group) {
+    return page.locator(`[data-online-related-group="${group}"] [data-online-related-id]`)
+      .evaluateAll(elements => elements.map(element => element.dataset.onlineRelatedId))
+  }
+  async function openSearch(page, keyword, id) {
+    await search(page, keyword)
+    await page.locator(`[data-online-result="${id}"]`).waitFor()
+    await settled(page)
+    await detailUi(page, id)
+  }
+  for (const width of [1440, 390]) {
+    phase = { name: `related-${width}`, expectedHttp: false }
+    await configure({})
+    const { context, page } = await newPage(width)
+    try {
+      await selectSource(page)
+      await page.locator('[data-online-year]').waitFor()
+      await settled(page)
+      await page.locator('[data-online-channel="30"]').click()
+      await settled(page)
+      let category = page.locator('[data-online-category="31"]:visible').first()
+      if (!await category.count()) {
+        await page.locator('[data-online-categories-open]:visible').first().click()
+        category = page.getByRole('dialog').locator('[data-online-category="31"]').first()
+      }
+      await category.click()
+      await settled(page)
+      await page.locator('[data-online-year]').selectOption('2024')
+      await settled(page)
+      await page.getByRole('button', { name: '下一页', exact: true }).click()
+      await page.locator('[data-online-result="academy-s2"]').waitFor()
+      await settled(page)
+      await page.locator('[data-online-result="academy-s2"]').scrollIntoViewIfNeeded()
+      const position = await page.evaluate(() => scrollY)
+      const before = await metrics()
+      await detailUi(page, 'academy-s2')
+      await page.locator('[data-online-related-id="academy-s4"]').waitFor()
+      await finished(page)
+      assert.deepEqual(await ids(page, 'series'), ['academy-s1', 'academy-s3', 'academy-s4'])
+      assert.match(await page.locator('[data-online-current-season]').textContent(), /第 2 季/)
+      const candidates = await page.locator('[data-online-related-id]').evaluateAll(elements => elements.map(element => element.dataset.onlineRelatedId))
+      assert.ok(candidates.length <= 12 && !candidates.includes('academy-s2'))
+      assert.equal(new Set(candidates).size, candidates.length)
+      const after = await metrics()
+      const extraCalls = apiCalls(after).slice(apiCalls(before).length)
+      assert.ok(extraCalls.length <= 4, 'One selected detail plus at most three recommendation metadata calls')
+      assert.ok(extraCalls.filter(call => call.external_id).length <= 2, 'Cards never trigger per-item detail fan-out')
+      assert.equal(after.catalog_rows.online_items, before.catalog_rows.online_items + (width === 1440 ? 1 : 0),
+        'Only explicitly opened targets are persisted, and existing targets retain their identity')
+      assert.equal(await page.locator('video').count(), 0)
+      await page.locator('[data-online-related]').scrollIntoViewIfNeeded()
+      await until(() => page.locator('[data-online-related-group="series"] .online-poster > img')
+        .evaluateAll(images => images.some(image => image.complete && image.naturalWidth > 0)),
+      'At least one real recommendation poster must decode on the client')
+      const geometry = await layout(page, width)
+      await page.screenshot({ path: path.join(output, `related-${width}.png`), fullPage: true })
+      const secondItem = await page.locator('[data-online-favorite]').getAttribute('data-online-favorite')
+      const sessionCount = after.created_sessions.length
+      await page.locator('[data-online-related-id="academy-s3"]').click()
+      await page.locator('[data-online-detail] h2').filter({ hasText: '青山书院第三季' }).waitFor()
+      await finished(page)
+      const thirdItem = await page.locator('[data-online-favorite]').getAttribute('data-online-favorite')
+      assert.notEqual(thirdItem, secondItem, 'Different seasons retain independent item identities')
+      assert.equal(await page.locator('video').count(), 0, 'Recommendation clicks only open details')
+      assert.equal((await metrics()).created_sessions.length, sessionCount, 'Opening another season cannot start playback')
+      const thirdState = await call(page, 'GET', `/api/online/state/items/${thirdItem}`)
+      assert.equal(thirdState.status, 200)
+      assert.equal(thirdState.body.last_progress, null, 'Opening another season never copies the selected season progress')
+      await returned(page)
+      assert.equal(await page.locator('[data-online-year]').inputValue(), '2024')
+      assert.match(await page.locator('.online-pagination').first().textContent(), /2 \/ 2/)
+      assert.match(await page.locator('[data-online-category-current]').textContent(), /国产剧/)
+      await until(() => page.evaluate(expected => Math.abs(scrollY - expected) < 12, position),
+        'Returning after a recommendation preserves the original category/year/page anchor')
+
+      // Optional same-category fallback and an empty category must leave every
+      // playable episode available, including items with no season in the title.
+      await openSearch(page, '重启之路第二季', 'restart-s2')
+      await finished(page)
+      assert.deepEqual(await ids(page, 'series'), [])
+      assert.ok((await ids(page, 'related')).length > 0)
+      assert.equal(await page.locator('[data-online-entry]').first().isEnabled(), true)
+      await openSearch(page, '独行预告', 'lonely-trailer')
+      await finished(page)
+      assert.equal(await page.locator('[data-online-related-id]').count(), 0)
+      assert.equal(await page.locator('[data-online-entry]').first().isEnabled(), true)
+
+      phase.name = `related-cancel-${width}`
+      await configure({ related_delay_ms: 1600 })
+      await openSearch(page, '青山书院第二季', 'academy-s2')
+      await until(async () => (await metrics()).admission.background === 1, 'A real delayed related HTTP search starts')
+      await openSearch(page, '独行预告', 'lonely-trailer')
+      await idle('Changing the selected item cancels the real recommendation worker')
+      await finished(page)
+      assert.equal(await page.locator('[data-online-related-id]').count(), 0, 'Late recommendations cannot repaint a different item')
+      assert.match(await page.locator('[data-online-detail] h2').textContent(), /独行预告/)
+
+      phase = { name: `related-failure-${width}`, expectedHttp: true }
+      await configure({ related_failure: true })
+      await openSearch(page, '青山书院第二季', 'academy-s2')
+      await finished(page)
+      assert.equal(await page.locator('[data-online-entry]').first().isEnabled(), true, 'Failed recommendations cannot disable playback')
+      await configure({})
+      if (await page.locator('[data-online-related-retry]').count()) await page.locator('[data-online-related-retry]').click()
+      else { await returned(page); await detailUi(page, 'academy-s2') }
+      await page.locator('[data-online-related-id="academy-s4"]').waitFor()
+      await finished(page)
+      phase.expectedHttp = false
+
+      phase.name = `related-preempt-play-${width}`
+      await returned(page)
+      await configure({ related_delay_ms: 5000 })
+      await detailUi(page, 'academy-s2')
+      assert.equal(await page.locator('[data-online-line]').filter({ hasText: 'MP4直链' }).getAttribute('aria-pressed'), 'true',
+        'The fixed fixture already selects MP4, so no line change cancels optional work before the play check')
+      await until(async () => (await metrics()).admission.background === 1, 'Recommendation admission is occupied before play')
+      const prior = await metrics()
+      const clickToFrameMs = await playEntry(page, '第1集')
+      await advancing(page, .25)
+      const playing = await snapshot(page)
+      assert.equal(playing.identity.item_id, secondItem)
+      const during = await metrics()
+      assert.equal(during.admission.background, 0, 'Foreground playback cancels optional source work')
+      assert.equal(during.api_calls.slice(prior.api_calls.length).some(call => call.status === 429), false,
+        'An optional recommendation cannot make real playback return 429')
+      const released = await closePlayer(page)
+      assert.equal(released.metrics.admission.active, 0)
+      assert.equal(released.metrics.admission.background, 0)
+      assert.equal(released.metrics.admission.preempt_waiters, 0)
+      const playedState = await call(page, 'GET', `/api/online/state/items/${secondItem}`)
+      const untouchedState = await call(page, 'GET', `/api/online/state/items/${thirdItem}`)
+      assert.equal(playedState.status, 200)
+      assert.equal(untouchedState.body.last_progress, null, 'Actual second-season playback never writes third-season progress')
+
+      // Exercise an HTTP caller that does not cancel through the UI client, so
+      // the server itself must preempt background work for the same owner.
+      await configure({ related_delay_ms: 5000 })
+      await page.evaluate(apiPath => {
+        window.__p2RelatedRequest = fetch(apiPath).then(async response => ({ status: response.status, body: await response.json() }))
+      }, relatedPath('academy-s2'))
+      await until(async () => (await metrics()).admission.background === 1, 'Independent related HTTP request holds the same owner admission')
+      await playEntry(page, '第1集')
+      await advancing(page, .25)
+      const deferred = await page.evaluate(() => window.__p2RelatedRequest)
+      assert.equal(deferred.status, 200)
+      assert.equal(deferred.body.status, 'deferred', 'The server yields the background request without cancelling foreground playback')
+      await closePlayer(page)
+      await configure({})
+      passed({ case: `related-${width}`, geometry, orderedSeries: ['academy-s1', 'academy-s3', 'academy-s4'],
+        currentSeasonExcluded: true, candidatesBound: 12, recommendationMetadataCalls: extraCalls.length - 1,
+        perCardDetailCalls: 0, opensDetailsWithoutPlayback: true, separateSeasonProgress: true,
+        categoryYearPageAnchorRestored: true, sameCategoryFallback: true, emptyRelatedKeepsEpisodes: true,
+        lateResultsDiscarded: true, failureDoesNotBlockPlayback: true, foregroundPlayPreempts: true,
+        serverDeferredStatus: deferred.body.status, clickToFrameMs, actualDecodedFrames: true })
+
+      if (width === 390 && selectedCase === 'related') {
+        phase = { name: 'related-permission-cleanup', expectedHttp: false }
+        const password = 'isolated-p2-protection'
+        assert.equal((await call(page, 'POST', '/api/viewing/password', { new_password: password })).status, 200)
+        await page.reload()
+        await page.waitForFunction(() => window.__jzOnlineP2Fixture?.snapshot().ready)
+        await selectSource(page)
+        const back = page.getByRole('button', { name: '返回搜索结果', exact: true })
+        if (await back.count()) await back.first().click()
+        await settled(page)
+        await idle('Permission setup finishes any restored detail or directory work before clearing the related cache')
+        const protectedViewing = await call(page, 'GET', '/api/viewing/session')
+        assert.equal(protectedViewing.body.enabled, true)
+        assert.equal(protectedViewing.body.mode, 'normal')
+        assert.equal(protectedViewing.body.management_unlocked, false,
+          'Recommendations must remain ordinary viewing content without a management grant')
+        await configure({ related_delay_ms: 1600 })
+        await openSearch(page, '青山书院第二季', 'academy-s2')
+        await until(async () => (await metrics()).admission.background === 1, 'Recommendation work begins before viewing permission changes')
+        await page.getByRole('button', { name: '普通模式', exact: true }).click()
+        await page.getByRole('dialog').getByRole('button', { name: /^儿童模式/ }).click()
+        await page.getByText('儿童模式暂不支持在线内容', { exact: true }).waitFor()
+        await idle('A viewing-mode change clears and cancels recommendations')
+        assert.equal(await page.locator('[data-online-related]').count(), 0)
+        assert.equal(await page.locator('[data-online-detail]').count(), 0)
+        phase.expectedHttp = true
+        assert.equal((await call(page, 'GET', relatedPath('academy-s2'))).status, 403)
+        assert.equal((await call(page, 'POST', '/api/viewing/mode', { mode: 'normal', password })).status, 200)
+        passed({ case: phase.name, pendingWorkerReleased: true, recommendationContentCleared: true, childrenDenied: true })
+      }
+    } finally {
+      await closeContext(context)
+      await idle()
+      const response = await fetch(`${base}/api/p2/scenario`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Token': 'online-p2-fixture-only' },
+        body: JSON.stringify({ related: false, related_delay_ms: 0, related_failure: false, clear_related_cache: true }) })
+      assert.equal(response.status, 200)
+    }
+  }
+  await backendChildren('after-related')
+}
 async function loading() {
   const imageReads = value => value.origin_calls.filter(call => call.kind === 'image').length
   const apiReads = value => value.origin_calls.filter(call => call.kind === 'api').length
@@ -998,7 +1214,7 @@ try {
     'frontend/src/components/OnlinePlayerModal.vue',
     'frontend/src/onlinePlayback.js', 'app/online/maccms.py', 'app/online/catalog.py',
     'frontend/src/onlineArtwork.js', 'frontend/src/onlineBrowse.js', 'app/online/artwork.py', 'app/online/artwork_cache.py',
-    'frontend/src/onlineCategories.js',
+    'frontend/src/onlineCategories.js', 'frontend/src/onlineRelated.js', 'app/online/related.py', 'app/online/related_matching.py',
     'app/online/providers.py', 'app/routers/online_catalog.py']) {
     report.fingerprints[file] = createHash('sha256').update(await readFile(path.join(root, file))).digest('hex')
   }
@@ -1021,6 +1237,7 @@ try {
     if (selectedCase === 'all' || selectedCase === 'discovery') await discovery()
     if (selectedCase === 'all' || selectedCase === 'loading') await loading()
     if (selectedCase === 'all' || selectedCase === 'categories') await categoryNavigation()
+    if (selectedCase === 'all' || selectedCase === 'related') await relatedRecommendations()
     if (selectedCase === 'all' || selectedCase === 'matrix') await matrix()
     if (selectedCase === 'all' || selectedCase === 'catalogue') await catalogue()
     report.finalMetrics = (await idle()).metrics

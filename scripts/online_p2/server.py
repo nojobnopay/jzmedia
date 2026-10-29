@@ -61,6 +61,10 @@ class Scenario(BaseModel):
     media_alias: bool | None = None
     gallery: bool | None = None
     taxonomy: bool | None = None
+    related: bool | None = None
+    related_delay_ms: int | None = Field(default=None, ge=0, le=5000)
+    related_failure: bool | None = None
+    clear_related_cache: bool = False
     image_delay_ms: int | None = Field(default=None, ge=0, le=1500)
     clear_artwork_cache: bool = False
     expire_sessions: bool = False
@@ -115,6 +119,7 @@ class FixtureState:
                 "client_calls": clients, "pending_requests": pending,
                 "created_sessions": list(created), "released_sessions": [sid for sid in created if sid not in active],
                 "images": images,
+                "admission": catalog.admission_stats(),
                 "artwork_cache": artwork.cache.stats(),
                 "local_rows": local, "catalog_rows": catalogue}
 
@@ -133,6 +138,7 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
     health_router = importlib.import_module("app.routers.online_health")
     health_module = importlib.import_module("app.online.health")
     artwork_module = importlib.import_module("app.online.artwork")
+    related_module = importlib.import_module("app.online.related")
     health_module.registry.clear()
     with ExitStack() as stack:
         state_dir = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="state-", dir=root)))
@@ -157,10 +163,20 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
             # The production helper and target policies retain their limits.
             if source.get("api_base_url") == f"{origin.base_url}/provide/vod" and source.get("provider") == "maccms":
                 with origin.lock:
-                    return origin.taxonomy
+                    return origin.taxonomy or origin.related
             return supports_year_filter(source)
 
         stack.enter_context(patch.object(maccms, "supports_year_filter", fixture_supports_year_filter))
+        supports_related = related_module.supports_related
+
+        def fixture_supports_related(source):
+            if source.get("api_base_url") == f"{origin.base_url}/provide/vod" and source.get("provider") == "maccms":
+                with origin.lock:
+                    return origin.related
+            return supports_related(source)
+
+        stack.enter_context(patch.object(related_module, "supports_related", fixture_supports_related))
+        related_module.cache.clear()
         stack.enter_context(patch.object(artwork_module, "create_online_client", state.client))
         stack.enter_context(patch.object(artwork_module, "registry", artwork_module.ArtworkRegistry()))
         stack.enter_context(patch.object(artwork_module, "cache", artwork_module.ArtworkCache()))
@@ -266,12 +282,20 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                     origin.gallery = body.gallery
                 if body.taxonomy is not None:
                     origin.taxonomy = body.taxonomy
+                if body.related is not None:
+                    origin.related = body.related
+                if body.related_delay_ms is not None:
+                    origin.related_delay_ms = body.related_delay_ms
+                if body.related_failure is not None:
+                    origin.related_failure = body.related_failure
                 if body.image_delay_ms is not None:
                     origin.image_delay_ms = body.image_delay_ms
             if body.expire_sessions:
                 state.registry.close_all()
             if body.clear_artwork_cache:
                 artwork_module.cache.clear()
+            if body.clear_related_cache:
+                related_module.cache.clear()
             return {"ok": True}
 
         if static is not None:
