@@ -21,11 +21,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|related|detail|hosts|all]')
+    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|related|detail|detail-recovery|hosts|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'related', 'detail', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'related', 'detail', 'detail-recovery', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-'))
 const output = path.join(root, 'output/playwright/online-p2')
 const dist = path.join(work, 'dist')
@@ -1159,6 +1159,134 @@ async function detailExperience() {
   await backendChildren('after-detail')
 }
 
+async function detailRecovery() {
+  const calls = (value, id = 'movie-1') => value.origin_calls.filter(call => call.kind === 'api' && call.external_id === id)
+  const ready = page => page.locator('[data-online-detail] [data-online-favorite]:enabled').waitFor()
+  async function configure(page, plan = {}) {
+    await scenario(page, { related: false, taxonomy: false, gallery: false, detail_mode: false,
+      media_alias: false, reverse_lines: false,
+      detail_failures_remaining: 0, detail_failure_status: 503, detail_failure_delay_ms: 0,
+      detail_success_delay_ms: 0, ...plan })
+  }
+  async function begin(page) { await page.locator('[data-online-result="movie-1"]').click() }
+  async function settled(page) {
+    await until(async () => (await page.locator('[data-online-browser]').getAttribute('aria-busy')) === 'false',
+      'The recovered directory finishes before another detail intent')
+  }
+  let alternate = null
+  for (const width of [1440, 390]) {
+    phase = { name: `detail-recovery-${width}`, expectedHttp: false }
+    const { context, page } = await newPage(width)
+    let originalRule = null
+    try {
+      // Use an actual short, explicit API profile in this isolated database.
+      // A delayed first header therefore exercises the real ReadTimeout path.
+      await navigate(page, '/settings'); await idle()
+      originalRule = (await call(page, 'GET', `/api/online/sources/${primarySource.id}/network`)).body.policy.api
+      const profile = await call(page, 'POST', '/api/online/network/profiles', {
+        name: `隔离恢复读取 ${width}`, mode: 'direct', connect_timeout_seconds: 1,
+        read_timeout_seconds: 1, max_connections: 1 })
+      assert.equal(profile.status, 201)
+      assert.equal((await call(page, 'PATCH', `/api/online/sources/${primarySource.id}/network`, {
+        api: { mode: 'direct', profile_id: profile.body.id } })).status, 200)
+      if (!alternate) {
+        const bootstrap = (await call(page, 'GET', '/api/p2/bootstrap')).body
+        const created = await call(page, 'POST', '/api/online/sources', { provider: 'maccms', name: '隔离恢复备用来源',
+          api_base_url: bootstrap.api_base_url, allowed_hosts: bootstrap.allowed_hosts, enabled: true })
+        assert.equal(created.status, 201); alternate = created.body
+      }
+      await selectSource(page); await settled(page); await search(page, '合成电影'); await settled(page)
+      await configure(page, { detail_failures_remaining: 1, detail_failure_status: 503 })
+      let before = await metrics()
+      await begin(page); await ready(page)
+      let after = await metrics()
+      assert.equal(calls(after).length - calls(before).length, 2)
+      assert.deepEqual(calls(after).slice(calls(before).length).map(call => call.planned_status), [503, 200])
+      assert.equal(await page.getByText('详情加载失败', { exact: true }).count(), 0)
+      assert.equal(await page.locator('video').count(), 0, 'Automatic metadata recovery never starts playback')
+      const geometry = await layout(page, width)
+      await page.screenshot({ path: path.join(output, `detail-recovery-${width}.png`) })
+      await chooseLine(page, 'MP4直链'); await playEntry(page); await advancing(page); await closePlayer(page)
+      await returned(page); await settled(page); await idle()
+
+      phase = { name: `detail-recovery-exhausted-${width}`, expectedHttp: true }
+      await configure(page, { detail_failures_remaining: 2 })
+      before = await metrics(); await begin(page)
+      const reload = page.getByRole('button', { name: '重新加载', exact: true })
+      await reload.waitFor()
+      assert.equal(calls(await metrics()).length - calls(before).length, 2, 'A failed detail has at most two upstream attempts')
+      await delay(250)
+      assert.equal(calls(await metrics()).length - calls(before).length, 2, 'There is no automatic retry loop')
+      await reload.click(); await ready(page)
+      assert.equal(calls(await metrics()).length - calls(before).length, 3, 'One manual reload is a new foreground operation')
+      assert.equal(await page.locator('video').count(), 0)
+      phase.expectedHttp = false
+      await returned(page); await settled(page); await idle()
+
+      phase.name = `detail-recovery-read-timeout-${width}`
+      await configure(page, { detail_failures_remaining: 1, detail_failure_status: 200, detail_failure_delay_ms: 1300 })
+      before = await metrics(); await begin(page); await ready(page); await idle()
+      assert.equal(calls(await metrics()).length - calls(before).length, 2)
+      assert.equal(await page.getByText('详情加载失败', { exact: true }).count(), 0)
+      await returned(page); await settled(page)
+
+      phase.name = `detail-recovery-cancel-first-${width}`
+      await configure(page, { detail_failures_remaining: 1, detail_failure_delay_ms: 1500 })
+      before = await metrics(); await begin(page)
+      await until(async () => calls(await metrics()).length === calls(before).length + 1,
+        'The first detail attempt reaches the real origin before returning')
+      await returned(page); await settled(page); await idle()
+      assert.equal(calls(await metrics()).length - calls(before).length, 1, 'Returning during the first attempt prevents a second attempt')
+      assert.equal(await page.locator('[data-online-detail]').count(), 0)
+
+      phase.name = `detail-recovery-cancel-second-${width}`
+      await configure(page, { detail_failures_remaining: 1, detail_success_delay_ms: 1500 })
+      before = await metrics(); await begin(page)
+      await until(async () => calls(await metrics()).length === calls(before).length + 2,
+        'The second guarded attempt starts before changing the source')
+      await returned(page); await settled(page); await idle()
+      await configure(page)
+      await selectSource(page, alternate); await settled(page); await search(page, '合成剧集'); await settled(page)
+      await detailUi(page, 'show-1'); await ready(page)
+      assert.equal(calls(await metrics()).length - calls(before).length, 2, 'An abandoned second attempt never starts a third')
+      assert.match(await page.locator('[data-online-detail] .online-eyebrow').textContent(), /隔离恢复备用来源/)
+      assert.match(await page.locator('[data-online-detail] h2').textContent(), /合成剧集/)
+      assert.equal(await page.locator('video').count(), 0)
+      await selectSource(page); await settled(page); await search(page, '合成电影'); await settled(page)
+
+      passed({ case: `detail-recovery-${width}`, geometry, transient503Recovered: true,
+        realReadTimeoutRecovered: true, maximumAttempts: 2, manualRetryRecovers: true,
+        returningCancelsFirstAttempt: true, changingSourceDiscardsSecondAttempt: true,
+        noAutoplay: true, actualMp4DecodeAfterRecovery: true })
+
+      if (width === 390 && selectedCase === 'detail-recovery') {
+        phase = { name: 'detail-recovery-permission-cancellation', expectedHttp: true }
+        const password = 'isolated-detail-recovery-protection'
+        assert.equal((await call(page, 'POST', '/api/viewing/password', { new_password: password })).status, 200)
+        await page.reload(); await page.waitForFunction(() => window.__jzOnlineP2Fixture?.snapshot().ready)
+        await selectSource(page); await settled(page); await search(page, '合成电影'); await settled(page); await idle()
+        await configure(page, { detail_failures_remaining: 1, detail_success_delay_ms: 1500 })
+        before = await metrics(); await begin(page)
+        await until(async () => calls(await metrics()).length === calls(before).length + 2,
+          'The second detail attempt is active before a viewing permission change')
+        await page.getByRole('button', { name: '普通模式', exact: true }).click()
+        await page.getByRole('dialog').getByRole('button', { name: /^儿童模式/ }).click()
+        await page.getByText('儿童模式暂不支持在线内容', { exact: true }).waitFor()
+        await idle()
+        assert.equal(calls(await metrics()).length - calls(before).length, 2)
+        assert.equal(await page.locator('[data-online-detail]').count(), 0)
+        assert.equal(await page.locator('video').count(), 0)
+        assert.equal((await call(page, 'POST', '/api/viewing/mode', { mode: 'normal', password })).status, 200)
+        passed({ case: phase.name, secondAttemptCancelled: true, noLateDetailOrAutoplay: true })
+      }
+    } finally {
+      if (originalRule) assert.equal((await call(page, 'PATCH', `/api/online/sources/${primarySource.id}/network`, { api: originalRule })).status, 200)
+      await configure(page); await closeContext(context); await idle()
+    }
+  }
+  await backendChildren('after-detail-recovery')
+}
+
 async function matrix() {
   for (const width of [1440, 390]) for (const transport of ['mp4', 'hls']) {
     phase = { name: `matrix-${width}-${transport}`, expectedHttp: false }
@@ -1500,6 +1628,7 @@ try {
     if (selectedCase === 'all' || selectedCase === 'categories') await categoryNavigation()
     if (selectedCase === 'all' || selectedCase === 'related') await relatedRecommendations()
     if (selectedCase === 'all' || selectedCase === 'detail') await detailExperience()
+    if (selectedCase === 'all' || selectedCase === 'detail-recovery') await detailRecovery()
     if (selectedCase === 'all' || selectedCase === 'matrix') await matrix()
     if (selectedCase === 'all' || selectedCase === 'catalogue') await catalogue()
     report.finalMetrics = (await idle()).metrics

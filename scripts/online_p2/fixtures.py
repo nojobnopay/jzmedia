@@ -136,6 +136,10 @@ class FixtureOrigin:
         self.related_delay_ms = 0
         self.related_failure = False
         self.related_category_failure = False
+        self.detail_failures_remaining = 0
+        self.detail_failure_status = 503
+        self.detail_failure_delay_ms = 0
+        self.detail_success_delay_ms = 0
         self.image_delay_ms = 0
         self.image_active = 0
         self.image_peak = 0
@@ -185,7 +189,7 @@ class FixtureOrigin:
                     origin.calls.append(call)
                     del origin.calls[:-2000]
                 if api:
-                    self.catalogue(query, head)
+                    self.catalogue(query, head, call)
                     return
                 signed = query.get("fixture_signature", [None])[0]
                 with origin.lock:
@@ -270,10 +274,22 @@ class FixtureOrigin:
                 except OSError:
                     self.close_connection = True
 
-            def catalogue(self, query, head):
+            def catalogue(self, query, head, call):
                 with origin.lock:
                     delay_ms, mode = origin.next_plan
                     origin.next_plan = (0, "normal")
+                    # Recovery scenarios affect only stable-ID detail reads,
+                    # never consume their fault during automatic discovery.
+                    detail_status = None
+                    if "ids" in query:
+                        injected = origin.detail_failures_remaining > 0
+                        if injected:
+                            origin.detail_failures_remaining -= 1
+                            delay_ms = max(delay_ms, origin.detail_failure_delay_ms)
+                            detail_status = origin.detail_failure_status
+                        else:
+                            delay_ms = max(delay_ms, origin.detail_success_delay_ms)
+                        call.update(detail_fault=injected, planned_status=detail_status or 200)
                     # Only synthetic recommendation root searches are slow.
                     # The selected item detail and playback resolver remain free
                     # to prove that foreground work can preempt a live socket.
@@ -289,6 +305,9 @@ class FixtureOrigin:
                 try:
                     if delay_ms:
                         time.sleep(delay_ms / 1000)
+                    if detail_status is not None and detail_status != 200:
+                        self.send_body(detail_status, b"isolated detail transient failure", "text/plain", head)
+                        return
                     if mode == "malformed":
                         self.send_body(200, b'{"code":1,"list":[', "application/json", head)
                         return

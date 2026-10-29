@@ -12,6 +12,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import threading
+from typing import Literal
 from unittest.mock import patch
 
 from fastapi import FastAPI, HTTPException
@@ -66,6 +67,10 @@ class Scenario(BaseModel):
     related_delay_ms: int | None = Field(default=None, ge=0, le=5000)
     related_failure: bool | None = None
     related_category_failure: bool | None = None
+    detail_failures_remaining: int | None = Field(default=None, ge=0, le=2)
+    detail_failure_status: Literal[200, 502, 503, 504] | None = None
+    detail_failure_delay_ms: int | None = Field(default=None, ge=0, le=2000)
+    detail_success_delay_ms: int | None = Field(default=None, ge=0, le=2000)
     clear_related_cache: bool = False
     clear_related_results: bool = False
     image_delay_ms: int | None = Field(default=None, ge=0, le=1500)
@@ -295,6 +300,14 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                     origin.related_failure = body.related_failure
                 if body.related_category_failure is not None:
                     origin.related_category_failure = body.related_category_failure
+                if body.detail_failures_remaining is not None:
+                    origin.detail_failures_remaining = body.detail_failures_remaining
+                if body.detail_failure_status is not None:
+                    origin.detail_failure_status = body.detail_failure_status
+                if body.detail_failure_delay_ms is not None:
+                    origin.detail_failure_delay_ms = body.detail_failure_delay_ms
+                if body.detail_success_delay_ms is not None:
+                    origin.detail_success_delay_ms = body.detail_success_delay_ms
                 if body.image_delay_ms is not None:
                     origin.image_delay_ms = body.image_delay_ms
             if body.expire_sessions:

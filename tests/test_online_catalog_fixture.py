@@ -5,6 +5,7 @@ import base64
 from pathlib import Path
 from threading import Event
 import re
+import time
 
 from fastapi.testclient import TestClient
 import pytest
@@ -62,6 +63,76 @@ def detail(client, source, external_id="movie-1"):
 
 def entry_for(value, transport):
     return next(entry for line in value["lines"] for entry in line["entries"] if entry["transport"] == transport)
+
+
+def detail_calls(client, external_id="movie-1"):
+    return [call for call in client.get("/api/p2/metrics").json()["origin_calls"]
+            if call["kind"] == "api" and call["external_id"] == external_id]
+
+
+@pytest.mark.parametrize("status", [502, 503, 504])
+def test_foreground_detail_recovers_one_transient_status_without_discovery_consuming_it(client, status):
+    source = add_source(client)
+    assert client.post("/api/p2/scenario", json={"detail_failures_remaining": 1,
+        "detail_failure_status": status}).status_code == 200
+    assert client.get("/api/online/catalog/browse", params={"source_id": source["id"]}).status_code == 200
+    result = detail(client, source)
+    assert result["item"]["title"] == "合成电影"
+    calls = detail_calls(client)
+    assert len(calls) == 2
+    assert [(call["detail_fault"], call["planned_status"]) for call in calls] == [(True, status), (False, 200)]
+    metrics = client.get("/api/p2/metrics").json()
+    assert metrics["catalogue_active"] == metrics["catalogue_owners"] == 0
+    assert metrics["created_sessions"] == []
+
+
+def test_foreground_detail_recovers_a_real_read_timeout_with_the_same_short_profile(client):
+    source = add_source(client)
+    profile = client.post("/api/online/network/profiles", json={"name": "隔离短读取", "mode": "direct",
+        "connect_timeout_seconds": 1.0, "read_timeout_seconds": 1.0, "max_connections": 1})
+    assert profile.status_code == 201, profile.text
+    assert client.patch(f"/api/online/sources/{source['id']}/network", json={
+        "api": {"mode": "direct", "profile_id": profile.json()["id"]}}).status_code == 200
+    assert client.post("/api/p2/scenario", json={"detail_failures_remaining": 1,
+        "detail_failure_status": 200, "detail_failure_delay_ms": 1300}).status_code == 200
+    result = detail(client, source)
+    assert result["item"]["title"] == "合成电影" and len(detail_calls(client)) == 2
+    deadline = time.monotonic() + 2
+    while client.get("/api/p2/metrics").json()["pending_requests"]:
+        assert time.monotonic() < deadline
+        time.sleep(.02)
+
+
+def test_two_failed_detail_attempts_stop_and_an_explicit_retry_can_recover(client):
+    source = add_source(client)
+    assert client.post("/api/p2/scenario", json={"detail_failures_remaining": 2,
+        "detail_failure_status": 503}).status_code == 200
+    response = client.get("/api/online/catalog/detail", params={"source_id": source["id"], "external_id": "movie-1"})
+    assert response.status_code == 502 and response.json()["code"] == "provider_upstream_error"
+    assert len(detail_calls(client)) == 2
+    assert client.get("/api/p2/metrics").json()["catalog_rows"]["online_items"] == 0
+    assert detail(client, source)["item"]["title"] == "合成电影"
+    assert len(detail_calls(client)) == 3
+
+
+def test_playback_resolution_does_not_gain_foreground_detail_retries(client):
+    source = add_source(client)
+    identity = entry_for(detail(client, source), "mp4")["identity"]
+    assert client.post("/api/p2/scenario", json={"detail_failures_remaining": 1,
+        "detail_failure_status": 503}).status_code == 200
+    response = client.post("/api/online/sessions", json=identity)
+    assert response.status_code == 502, response.text
+    assert len(detail_calls(client)) == 2  # foreground success, then one resolver failure
+    metrics = client.get("/api/p2/metrics").json()
+    assert metrics["created_sessions"] == [] and metrics["catalogue_active"] == 0
+
+
+@pytest.mark.parametrize("values", [
+    {"detail_failures_remaining": 3}, {"detail_failures_remaining": True},
+    {"detail_failure_status": 401}, {"detail_failure_delay_ms": 2001}, {"detail_success_delay_ms": -1},
+])
+def test_detail_fault_scenarios_are_fixed_and_bounded(client, values):
+    assert client.post("/api/p2/scenario", json=values).status_code == 422
 
 
 def test_health_observes_actual_catalogue_and_media_reads_without_probing(client):
