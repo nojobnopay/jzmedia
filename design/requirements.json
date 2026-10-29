@@ -25790,7 +25790,7 @@
       "category": "control",
       "feature": "通用控件与导航",
       "element": "JzButton",
-      "purpose": "暂不添加",
+      "purpose": "{{ saved ? '关闭' : '暂不添加' }}",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {

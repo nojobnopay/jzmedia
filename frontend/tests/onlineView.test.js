@@ -1145,3 +1145,69 @@ test('continue watching actively offers host confirmation when the original epis
   assert.equal(players.length, 0, 'a blocked resume identity must not silently substitute another episode')
   assert.match(ui.text(), /上次线路或分集已变化/)
 })
+
+test('closing host confirmation restores its detail trigger after authorization focus was lost', async t => {
+  const { ui, viewing } = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/detail?') ? hostBlockedShow() : rows,
+    { session: { enabled: true } })
+  await openShow(ui)
+  await hostButton(ui, '暂不添加').props.onClick(); await flush()
+  const previousDocument = globalThis.document, document = { body: {}, activeElement: null, querySelector: () => null }
+  globalThis.document = document
+  t.after(() => { if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument })
+  const trigger = ui.find(node => node.props['data-online-host-repair'] !== undefined)
+  const detailRoot = ui.find(node => node.props['data-online-detail'] !== undefined)
+  const title = ui.find(node => node.type === 'h2' && nodeText(node) === '合成剧集')
+  const focused = []; let titleFocused = 0
+  trigger.isConnected = true
+  trigger.focus = options => { focused.push(options); document.activeElement = trigger }
+  detailRoot.contains = node => node === trigger
+  title.focus = options => { assert.deepEqual(options, { preventScroll: true }); titleFocused++; document.activeElement = title }
+  document.activeElement = trigger
+  trigger.props.onClick(); await flush()
+  viewing.prompt = { purpose: 'unlock' }; await flush()
+  document.activeElement = { isConnected: false, focus() { throw new Error('Detached authorization control cannot own focus') } }
+  viewing.prompt = null; await flush()
+  await hostButton(ui, '暂不添加').props.onClick(); await flush()
+  assert.equal(document.activeElement, trigger)
+  assert.deepEqual(focused, [{ preventScroll: true }])
+  // Saving may remove the original repair banner. A disconnected origin then
+  // falls back to the current detail heading, without scrolling the page.
+  trigger.props.onClick(); await flush()
+  trigger.isConnected = false
+  document.activeElement = document.body
+  await hostButton(ui, '暂不添加').props.onClick(); await flush()
+  assert.equal(document.activeElement, title)
+  assert.equal(titleFocused, 1)
+})
+
+test('closing host confirmation then immediately changing the item cannot focus the previous detail', async t => {
+  const secondId = 'itm_' + '9'.repeat(32)
+  const { ui } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return sources
+    if (path.includes('/detail?')) {
+      if (new URL(path, 'https://jzmedia.invalid').searchParams.get('external_id') !== 'movie-2') return hostBlockedShow()
+      const value = show()
+      return { ...value, item: { ...value.item, id: secondId, title: '另一节目' }, lines: value.lines.map(line => ({ ...line,
+        entries: line.entries.map(entry => ({ ...entry, identity: { ...entry.identity, item_id: secondId } })) })) }
+    }
+    return { ...rows, items: [...rows.items, { ...rows.items[0], external_id: 'movie-2', title: '另一节目' }] }
+  })
+  await openShow(ui)
+  await hostButton(ui, '暂不添加').props.onClick(); await flush()
+  const previousDocument = globalThis.document, document = { body: {}, activeElement: null, querySelector: () => null }
+  globalThis.document = document
+  t.after(() => { if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument })
+  const trigger = ui.find(node => node.props['data-online-host-repair'] !== undefined)
+  const detailRoot = ui.find(node => node.props['data-online-detail'] !== undefined)
+  const secondPoster = ui.find(node => node.props['data-online-result'] === 'movie-2')
+  let oldFocus = 0
+  trigger.isConnected = true; trigger.focus = () => { oldFocus++ }
+  detailRoot.contains = node => node === trigger
+  document.activeElement = trigger
+  trigger.props.onClick(); await flush()
+  hostButton(ui, '暂不添加').props.onClick()
+  secondPoster.props.onClick()
+  await flush()
+  assert.equal(oldFocus, 0)
+  assert.ok(ui.text().includes('另一节目'))
+})

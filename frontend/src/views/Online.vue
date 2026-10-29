@@ -161,7 +161,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createOnlineCatalogClient, createOnlineHealthClient, onlineHealthLabel, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
 import { createOnlineRelatedClient, onlineRelatedError } from '../onlineRelated.js'
@@ -287,9 +287,30 @@ function hostDialogCurrent() {
     && context.externalId === lastDetailId.value && context.itemId === detail.value?.item.id
     && context.scope === hostViewScope() && !playing.value && !starting.value
 }
+async function restoreHostDialogFocus(context) {
+  if (!context) return
+  try {
+    // The authorization dialog temporarily suspends the host dialog's trap.
+    // Keep the original detail origin through that suspension, and wait until
+    // both the host child and its JzDialog have actually unmounted.
+    await nextTick()
+    await nextTick()
+    if (!current(context.view) || hostDialog.value || !detail.value || playing.value || starting.value
+      || nextLoading.value || categoriesOpen.value || viewing.prompt || context.source !== sourceId.value
+      || context.externalId !== lastDetailId.value || context.itemId !== detail.value.item.id
+      || context.scope !== hostViewScope()
+      || globalThis.document?.querySelector?.('[role="dialog"][aria-modal="true"]')) return
+    const origin = context.focusElement
+    if (origin?.isConnected && !origin.disabled && detailRoot.value?.contains?.(origin) && typeof origin.focus === 'function') {
+      origin.focus({ preventScroll: true })
+    } else detailTitle.value?.focus?.({ preventScroll: true })
+  } finally { context.focusElement = null }
+}
 function closeHostDialog(resume = true) {
+  const context = hostDialog.value
   hostDialog.value = null
-  if (resume) void loadRelated()
+  if (resume) { void restoreHostDialogFocus(context); void loadRelated() }
+  else if (context) context.focusElement = null
 }
 function openHostDialog(automatic = false) {
   if (!needsHostUpdate.value || !safeMode.value || detailLoading.value || itemStateLoading.value
@@ -298,9 +319,10 @@ function openHostDialog(automatic = false) {
   if (automatic && !hostReminders.claim(key)) return
   if (!automatic) hostReminders.remember(key)
   cancelRelated(false, true)
+  const origin = globalThis.document?.activeElement
   hostDialog.value = { key, scope: hostViewScope(), view: generation, source: sourceId.value,
     externalId: lastDetailId.value, itemId: detail.value.item.id, title: detail.value.item.title,
-    sourceName: detail.value.source.name }
+    sourceName: detail.value.source.name, focusElement: origin && typeof origin === 'object' ? markRaw(origin) : null }
 }
 async function refreshHostDetail() {
   if (!hostDialogCurrent()) throw new Error('stale host dialog')

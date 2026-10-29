@@ -1351,6 +1351,49 @@ async function matrix() {
 }
 
 async function hostRepair() {
+  async function dialogFocus(panel) {
+    return panel.evaluate(root => {
+      const selector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), '
+        + 'textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+      const nodes = [...root.querySelectorAll(selector)].filter(node => !node.matches(':disabled')
+        && !node.closest('[inert]') && (node.offsetWidth > 0 || node.offsetHeight > 0))
+      return { contained: root.contains(document.activeElement), containerFocused: document.activeElement === root, count: nodes.length,
+        index: nodes.indexOf(document.activeElement) }
+    })
+  }
+  async function assertDialogFocus(page, panel, label, cycle = false) {
+    await until(async () => (await dialogFocus(panel)).contained,
+      `${label}: opening the dialog must place keyboard focus inside it`)
+    let initial = await dialogFocus(panel)
+    assert.equal(initial.contained, true, `${label}: ${JSON.stringify(initial)}`)
+    if (!cycle) return
+    await until(async () => (await dialogFocus(panel)).count >= 3,
+      `${label}: the loaded review must finish enabling native controls; initial=${JSON.stringify(initial)}`)
+    initial = await dialogFocus(panel)
+    assert.equal(initial.contained, true, `${label}: focus remains inside after controls settle; ${JSON.stringify(initial)}`)
+    if (initial.index < 0) {
+      assert.equal(initial.containerFocused, true,
+        `${label}: only the dialog container may hold focus outside its tab sequence; ${JSON.stringify(initial)}`)
+      await page.keyboard.press('Tab')
+      initial = await dialogFocus(panel)
+    }
+    assert.ok(initial.contained && initial.count >= 3 && initial.index >= 0,
+      `${label}: a real Tab enters the loaded review controls; ${JSON.stringify(initial)}`)
+    for (const direction of [1, -1]) for (let step = 1; step <= initial.count; step++) {
+      await page.keyboard.press(direction > 0 ? 'Tab' : 'Shift+Tab')
+      const focused = await dialogFocus(panel)
+      assert.equal(focused.contained, true, `${label}: keyboard focus remains inside during each tab stop`)
+      assert.equal(focused.index, (initial.index + direction * step + initial.count) % initial.count,
+        `${label}: ${direction > 0 ? 'Tab' : 'Shift+Tab'} wraps through the dialog controls`)
+    }
+  }
+  async function assertDetailFocus(page, manual = false) {
+    await until(() => page.evaluate(explicit => {
+      const active = document.activeElement
+      return explicit ? active?.matches('[data-online-host-repair]')
+        : !!active?.closest('[data-online-detail]')
+    }, manual), `Closing host review restores focus to ${manual ? 'its explicit trigger' : 'the current detail'}`)
+  }
   for (const width of [1440, 390]) {
     phase = { name: `hosts-explicit-approval-${width}`, expectedHttp: false }
     const { context, page } = await newPage(width)
@@ -1360,9 +1403,34 @@ async function hostRepair() {
       assert.equal(source.status, 200, JSON.stringify(source))
       original = source.body
       assert.equal(original.allowed_hosts.includes('media.fixture.invalid'), false)
+      // Keep protection changes inside the dedicated hosts run, so --case all
+      // retains its original unprotected fixture for the following scenarios.
+      const protectedReview = width === 390 && selectedCase === 'hosts'
+      const password = 'isolated-host-review-protection'
+      if (protectedReview) {
+        // Configure the isolated protected state while the old app is fully
+        // unloaded, so its lazy artwork/health reads cannot cross revisions.
+        await page.goto('about:blank')
+        await idle()
+        const configured = await context.request.post(`${base}/api/viewing/password`, {
+          headers: { 'X-Api-Token': 'online-p2-fixture-only' }, data: { new_password: password },
+        })
+        assert.equal(configured.status(), 200)
+        await page.goto(base); await page.waitForFunction(() => window.__jzOnlineP2Fixture?.snapshot().ready)
+      }
       await scenario(page, { media_alias: true })
       await selectSource(page)
       await search(page)
+      await idle()
+      const checkPath = `/api/online/sources/${primarySource.id}/host-check`
+      const allowPath = `/api/online/sources/${primarySource.id}/allow-hosts`
+      const beforePanel = await metrics()
+      const countChecks = value => value.api_calls.filter(call => call.path === checkPath).length
+      const countWrites = value => value.api_calls.filter(call => call.path === allowPath).length
+      const inspectedBefore = countChecks(beforePanel), writesBefore = countWrites(beforePanel)
+      const mediaBefore = beforePanel.origin_calls.filter(call => call.kind === 'media').length
+      let checked = protectedReview ? null : page.waitForResponse(response => new URL(response.url()).pathname === checkPath
+        && response.request().method() === 'POST')
       await detailUi(page, 'show-1')
       const blocked = page.locator('[data-online-entry]')
       assert.equal(await blocked.count(), 2)
@@ -1370,36 +1438,36 @@ async function hostRepair() {
         'the unapproved media alias makes every episode unavailable before explicit approval')
       const repair = page.locator('[data-online-host-repair]')
       await repair.waitFor()
-      const repairTarget = new URL(await repair.getAttribute('href'), base)
-      assert.equal(repairTarget.pathname, '/settings')
-      assert.equal(repairTarget.searchParams.get('source'), primarySource.id)
-      assert.equal(repairTarget.searchParams.get('item'), 'show-1')
-      await page.screenshot({ path: path.join(output, `hosts-blocked-${width}.png`), fullPage: true })
-      const beforePanel = await metrics()
-      const checkPath = `/api/online/sources/${primarySource.id}/host-check`
-      const allowPath = `/api/online/sources/${primarySource.id}/allow-hosts`
-      const inspectedBefore = beforePanel.api_calls.filter(call => call.path === checkPath).length
-      const mediaBefore = beforePanel.origin_calls.filter(call => call.kind === 'media').length
-      await repair.click()
-      await page.waitForFunction(() => window.__jzOnlineP2Fixture.snapshot().path === '/settings')
-      const panel = page.locator('[data-online-host-check]')
+      const panel = page.locator('[data-online-host-dialog]')
       await panel.waitFor()
-      assert.equal(await panel.locator('#online-host-item').inputValue(), 'show-1')
-      await idle()
-      assert.equal((await metrics()).api_calls.filter(call => call.path === checkPath).length, inspectedBefore,
-        'following the deep link opens the panel without automatically inspecting any upstream')
-      const checked = page.waitForResponse(response => new URL(response.url()).pathname === checkPath
-        && response.request().method() === 'POST')
-      await panel.getByRole('button', { name: '检查媒体主机', exact: true }).click()
+      await assertDialogFocus(page, panel, `automatic host review at ${width}px`)
+      assert.equal(await page.evaluate(() => window.__jzOnlineP2Fixture.snapshot().path), '/online',
+        'host review opens in the current detail instead of navigating to settings')
+      if (protectedReview) {
+        await panel.getByRole('button', { name: '验证并检查', exact: true }).waitFor()
+        await idle(); await delay(150)
+        assert.equal(countChecks(await metrics()), inspectedBefore,
+          'a protected viewer is reminded without automatically attempting an administrator request')
+        assert.equal(await page.getByRole('dialog', { name: '验证保护密码', exact: true }).count(), 0,
+          'an automatic reminder never opens the password prompt')
+        checked = page.waitForResponse(response => new URL(response.url()).pathname === checkPath
+          && response.request().method() === 'POST')
+        await panel.getByRole('button', { name: '验证并检查', exact: true }).click()
+        const authorization = page.getByRole('dialog', { name: '验证保护密码', exact: true })
+        await authorization.waitFor()
+        await authorization.getByLabel('保护密码', { exact: true }).fill(password)
+        await authorization.getByRole('button', { name: '确认', exact: true }).click()
+        await authorization.waitFor({ state: 'hidden' })
+      }
       const checkResponse = await checked
       assert.equal(checkResponse.status(), 200)
-      const reportBody = await checkResponse.json()
+      let reportBody = await checkResponse.json()
       assert.deepEqual(reportBody.missing_hosts, ['media.fixture.invalid'])
       assert.equal(JSON.stringify(reportBody).includes('fixture_signature'), false)
       assert.equal(JSON.stringify(reportBody).includes('http://'), false)
       assert.match(reportBody.configuration_fingerprint, /^[a-f0-9]{64}$/)
       const inspected = await metrics()
-      assert.equal(inspected.api_calls.filter(call => call.path === checkPath).length, inspectedBefore + 1)
+      assert.equal(countChecks(inspected), inspectedBefore + 1)
       assert.equal(inspected.origin_calls.filter(call => call.kind === 'media').length, mediaBefore,
         'host inspection reads directory metadata only; it never contacts the proposed media alias')
       assert.deepEqual((await call(page, 'GET', `/api/online/sources/${primarySource.id}`)).body.allowed_hosts,
@@ -1407,10 +1475,73 @@ async function hostRepair() {
       const candidate = panel.getByRole('checkbox', { name: 'media.fixture.invalid', exact: true })
       await candidate.waitFor()
       assert.equal(await candidate.isChecked(), true)
+      await assertDialogFocus(page, panel,
+        `${protectedReview ? 'management authorization returned to' : 'loaded'} host review at ${width}px`, true)
       await page.screenshot({ path: path.join(output, `hosts-review-${width}.png`), fullPage: true })
+
+      // A declined automatic reminder stays dismissed, while the detail still
+      // offers a keyboard-accessible way to review candidates on demand.
+      await page.keyboard.press('Escape')
+      await panel.waitFor({ state: 'hidden' })
+      await assertDetailFocus(page)
+      await idle(); await delay(150)
+      assert.equal(countWrites(await metrics()), writesBefore, 'dismissing review never changes the source')
+      assert.equal(await page.locator('video').count(), 0)
+      assert.equal(await panel.count(), 0, 'a dismissed reminder does not immediately reopen')
+      await returned(page); await idle()
+      await detailUi(page, 'show-1')
+      await page.locator('[data-online-detail] [data-online-favorite]:enabled').waitFor()
+      await idle()
+      assert.equal(await panel.count(), 0, 'returning to the same item in this page does not repeat the reminder')
+      assert.equal(countChecks(await metrics()), inspectedBefore + 1)
+      await chooseLine(page, 'HLS直链')
+      const originalLine = await page.locator('[data-online-line][aria-pressed="true"]').getAttribute('data-online-line')
+      assert.equal(await panel.count(), 0, 'switching playback lines does not repeat the reminder')
+      checked = page.waitForResponse(response => new URL(response.url()).pathname === checkPath
+        && response.request().method() === 'POST')
+      await repair.focus(); await page.keyboard.press('Enter')
+      await panel.waitFor()
+      reportBody = await (await checked).json()
+      await candidate.waitFor()
+      assert.equal(countChecks(await metrics()), inspectedBefore + 2)
+      await assertDialogFocus(page, panel, `manually reopened host review at ${width}px`, true)
+      await page.keyboard.press('Escape')
+      await panel.waitFor({ state: 'hidden' })
+      await assertDetailFocus(page, true)
+      checked = page.waitForResponse(response => new URL(response.url()).pathname === checkPath
+        && response.request().method() === 'POST')
+      await page.keyboard.press('Enter')
+      await panel.waitFor()
+      reportBody = await (await checked).json()
+      await candidate.waitFor()
+      assert.equal(countChecks(await metrics()), inspectedBefore + 3)
+      await candidate.uncheck()
+      assert.equal(await panel.getByRole('button', { name: '确认添加', exact: true }).isEnabled(), false)
+      await candidate.check()
+
+      let configurationConflictRecovered = false
+      if (width === 1440) {
+        phase.expectedHttp = true
+        assert.equal((await call(page, 'PATCH', `/api/online/sources/${primarySource.id}`, {
+          name: original.name + ' · 并发修改',
+        })).status, 200)
+        const conflict = page.waitForResponse(response => new URL(response.url()).pathname === allowPath
+          && response.request().method() === 'POST')
+        await panel.getByRole('button', { name: '确认添加', exact: true }).click()
+        assert.equal((await conflict).status(), 409, 'stale source approval cannot overwrite a concurrent edit')
+        await panel.locator('[data-online-host-error]').waitFor()
+        assert.equal(await candidate.count(), 0, 'a stale fingerprint clears its candidate selection')
+        checked = page.waitForResponse(response => new URL(response.url()).pathname === checkPath
+          && response.request().method() === 'POST')
+        await panel.getByRole('button', { name: '重新检查', exact: true }).click()
+        reportBody = await (await checked).json()
+        await candidate.waitFor()
+        phase.expectedHttp = false
+        configurationConflictRecovered = true
+      }
       const applied = page.waitForResponse(response => new URL(response.url()).pathname === allowPath
         && response.request().method() === 'POST')
-      await panel.getByRole('button', { name: '加入允许列表', exact: true }).click()
+      await panel.getByRole('button', { name: '确认添加', exact: true }).click()
       const applyResponse = await applied
       assert.equal(applyResponse.status(), 200)
       assert.deepEqual(applyResponse.request().postDataJSON(), {
@@ -1419,18 +1550,15 @@ async function hostRepair() {
       const saved = await applyResponse.json()
       assert.deepEqual(saved.allowed_hosts, [...original.allowed_hosts, 'media.fixture.invalid'])
       for (const key of ['id', 'name', 'provider', 'api_base_url', 'provider_options', 'enabled', 'priority']) {
-        assert.deepEqual(saved[key], original[key], `approval must preserve ${key}`)
+        assert.deepEqual(saved[key], key === 'name' && configurationConflictRecovered ? original.name + ' · 并发修改' : original[key],
+          `approval must preserve the most recent ${key}`)
       }
-      await panel.getByText('媒体主机已加入允许列表。返回影片详情后会重新读取播放线路。', { exact: true }).waitFor()
-      const back = panel.locator('[data-online-host-return]')
-      const returnTarget = new URL(await back.getAttribute('href'), base)
-      assert.equal(returnTarget.pathname, '/online')
-      assert.equal(returnTarget.searchParams.get('source'), primarySource.id)
-      assert.equal(returnTarget.searchParams.get('item'), 'show-1')
-      await back.click()
-      await page.waitForFunction(() => window.__jzOnlineP2Fixture.snapshot().path === '/online')
+      await panel.waitFor({ state: 'hidden' })
       await page.locator('[data-online-detail]').waitFor()
-      await chooseLine(page, 'HLS直链')
+      assert.equal(await page.evaluate(() => window.__jzOnlineP2Fixture.snapshot().path), '/online')
+      assert.equal(await page.locator('[data-online-line][aria-pressed="true"]').getAttribute('data-online-line'), originalLine,
+        'refreshing the approved detail preserves the selected playback line')
+      assert.equal(await page.locator('video').count(), 0, 'confirming media hosts never starts playback')
       assert.equal(await page.locator('[data-online-entry]').evaluateAll(elements => elements.every(element => !element.disabled)), true)
       const firstFrameMs = await playEntry(page, '第1集')
       const advanced = await advancing(page)
@@ -1440,7 +1568,10 @@ async function hostRepair() {
       const released = await closePlayer(page)
       const aliasReads = released.metrics.origin_calls.filter(call => call.kind === 'media' && call.host === 'media.fixture.invalid')
       assert.ok(aliasReads.length >= 2, 'HLS manifests and media resources use only the explicitly approved loopback alias')
-      passed({ case: phase.name, initiallyBlockedEpisodes: 2, inspectionOnlyMetadata: true,
+      passed({ case: phase.name, initiallyBlockedEpisodes: 2, automaticDialog: true, inspectionOnlyMetadata: true,
+        protectedReview, explicitPasswordOnly: protectedReview, cancelledWithoutWrite: true,
+        keyboardReopen: true, keyboardFocusContained: true, tabAndShiftTabWrap: true, escapeRestoresFocus: true,
+        sameDetailAndLinePreserved: true, noAutoplayAfterApproval: true, configurationConflictRecovered,
         addedHosts: ['media.fixture.invalid'], firstFrameMs, advanced, geometry,
         aliasMediaRequests: aliasReads.length, releaseMs: released.releaseMs })
     } finally {
@@ -1448,7 +1579,7 @@ async function hostRepair() {
       // configuration unchanged when this scenario runs as part of --case all.
       await scenario(page, { media_alias: false }).catch(() => {})
       if (original) await call(page, 'PATCH', `/api/online/sources/${primarySource.id}`, {
-        allowed_hosts: original.allowed_hosts,
+        allowed_hosts: original.allowed_hosts, name: original.name,
       }).catch(() => {})
       await closeContext(context)
     }

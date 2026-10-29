@@ -17,7 +17,7 @@
       </template>
     </div>
     <template #footer>
-      <JzButton :disabled="saving || authorizing" @click="close">暂不添加</JzButton>
+      <JzButton :disabled="saving || authorizing" @click="close">{{ saved ? '关闭' : '暂不添加' }}</JzButton>
       <JzButton v-if="permissionRequired" variant="primary" :loading="authorizing" :disabled="saving" @click="authorize">验证并检查</JzButton>
       <JzButton v-else-if="saved || report && !report.missing_hosts.length" variant="primary" :loading="saving" @click="reload">重新加载详情</JzButton>
       <JzButton v-else-if="report" variant="primary" :loading="saving" :disabled="!selected.length || checking" @click="apply">确认添加</JzButton>
