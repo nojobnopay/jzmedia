@@ -13,7 +13,7 @@ from fastapi.routing import APIRoute
 from ..network.policy import NetworkPolicyError
 from ..online import catalog, catalog_models, providers, service
 from ..online.models import SourceId
-from ..network.guard import NetworkOperation
+from ..network.guard import NetworkOperation, NetworkOperationError
 from ..store.online import OnlineNotFound
 
 
@@ -91,6 +91,15 @@ async def _read(request, function, *args):
     try:
         await asyncio.wait({task, watcher}, return_when=asyncio.FIRST_COMPLETED)
         if operation.cancelled.is_set():
+            # Deadline expiry also aborts sockets and sets the cancellation
+            # event. Inspect only aborted operations: a successful worker may
+            # already have closed its operation before handing back a result.
+            try:
+                operation.check()
+            except NetworkOperationError as error:
+                raise providers.ProviderError(
+                    "provider_timeout" if str(error) == "operation_timeout" else "provider_cancelled"
+                ) from None
             raise providers.ProviderError("provider_cancelled")
         result = task.result()
         completed = True

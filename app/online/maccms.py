@@ -1,6 +1,7 @@
 """Bounded MacCMS Provide JSON reader; no player scripts or parser services."""
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 import hashlib
 from html.parser import HTMLParser
@@ -24,6 +25,25 @@ CATEGORY_TIMEOUT_SECONDS = 3.0
 _ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 _YEAR = re.compile(r"[1-9][0-9]{3}\Z")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+_detail_retry = ContextVar("online_foreground_detail_retry", default=None)
+MIN_RETRY_SECONDS = 1.0
+
+
+@contextmanager
+def foreground_detail_retry(configuration, check):
+    """Opt in one foreground detail read, never a background or media read.
+
+    The callback revalidates the caller's access and complete configuration;
+    only its opaque digest, not credentials or configuration, is scoped here.
+    """
+    if (not isinstance(configuration, str) or re.fullmatch(r"[0-9a-f]{64}", configuration) is None
+            or not callable(check)):
+        raise ValueError("invalid foreground detail retry")
+    token = _detail_retry.set((configuration, check))
+    try:
+        yield
+    finally:
+        _detail_retry.reset(token)
 
 
 @dataclass(frozen=True)
@@ -173,25 +193,52 @@ def _operation():
 
 def fetch(source, params):
     try:
-        with _operation() as operation, create_online_client(source["id"], "api") as client:
-            try:
-                response = client.request("GET", source["api_base_url"], params=params,
-                                          headers={"Accept": "application/json"})
-            except NetworkRequestError:
-                # Socket aborts may surface as ordinary HTTPX read errors;
-                # retain the server operation's actual cancellation/deadline.
+        with _operation() as operation:
+            context = _detail_retry.get()
+            retry = context is not None and isinstance(params, dict) and set(params) == {"ac", "ids"}
+
+            def current():
                 operation.check()
-                raise
-            operation.check()
-            if response.status_code == 429:
-                raise ProviderError("provider_rate_limited")
-            if response.status_code in {401, 403}:
-                raise ProviderError("provider_auth_failed")
-            if response.status_code == 404:
-                raise ProviderError("provider_not_found")
-            if response.status_code != 200:
-                raise ProviderError("provider_upstream_error")
-            return decode(response.content)
+                if context is not None:
+                    configuration, check = context
+                    check(source, configuration)
+                operation.check()
+
+            for attempt in range(2 if retry else 1):
+                current()
+                # A fresh guarded client retains the same explicit source API
+                # route; it never falls back to environment proxies or media.
+                with create_online_client(source["id"], "api") as client:
+                    current()  # Factory reads may race a configuration change.
+                    try:
+                        response = client.request("GET", source["api_base_url"], params=params,
+                                                  headers={"Accept": "application/json"})
+                    except NetworkRequestError as error:
+                        # Cancellation and expired total deadlines win over an
+                        # apparent transport timeout caused by socket abort.
+                        current()
+                        if error.category != "network_timeout":
+                            raise
+                        failure = error
+                    else:
+                        current()
+                        if response.status_code in {502, 503, 504}:
+                            failure = ProviderError("provider_upstream_error")
+                        else:
+                            if response.status_code == 429:
+                                raise ProviderError("provider_rate_limited")
+                            if response.status_code in {401, 403}:
+                                raise ProviderError("provider_auth_failed")
+                            if response.status_code == 404:
+                                raise ProviderError("provider_not_found")
+                            if response.status_code != 200:
+                                raise ProviderError("provider_upstream_error")
+                            return decode(response.content)
+                # Close the real first reader before retrying, retaining the
+                # caller's admission and original absolute operation deadline.
+                current()
+                if not retry or attempt or operation.remaining() < MIN_RETRY_SECONDS:
+                    raise failure
     except NetworkOperationError as error:
         raise ProviderError("provider_timeout" if str(error) == "operation_timeout" else "provider_cancelled") from None
     except NetworkRequestError as error:

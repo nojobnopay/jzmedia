@@ -148,7 +148,10 @@ def test_search_does_not_assign_item_identity_and_accepts_numeric_page_fields(mo
     assert result["page"] == 2 and result["page_count"] == 3 and result["total"] == 21
     assert result["items"][0]["external_id"] == "movie-1"
     assert "item_id" not in result["items"][0]
-    assert "url" not in json.dumps(result) and "signature" not in json.dumps(result)
+    serialized = json.dumps(result)
+    assert result["items"][0]["_poster_url"] == ""
+    assert "vod_play_url" not in serialized and "signature" not in serialized
+    assert MP4 not in serialized and HLS not in serialized
     assert recorded[0][1] == {"ac": "list", "wd": "合成", "pg": "2"}
 
 

@@ -158,6 +158,28 @@ def assert_source_version(source_id, fingerprint):
         raise CatalogError("online_source_changed", 409)
 
 
+def _detail_configuration(access, source):
+    """Hash the full source/network view without TLS or credential handling."""
+    _after(source, access)
+    state = load_online_network_state(source["id"])
+    current = state.get("source_config")
+    if not state["online_enabled"] or not current or not current["enabled"]:
+        raise CatalogError("online_source_disabled", 503)
+    if current != source:
+        raise CatalogError("online_source_changed", 409)
+    return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _detail_retry_guard(access, source):
+    configuration = _detail_configuration(access, source)
+
+    def check(candidate, expected):
+        if candidate != source or _detail_configuration(access, source) != expected:
+            raise CatalogError("online_source_changed", 409)
+
+    return configuration, check
+
+
 def _adapter(source):
     if source["provider"] == "maccms":
         return maccms
@@ -294,14 +316,23 @@ def detail(access, source_id, selected_id, *, operation=None):
     with _admit(access.owner, operation):
         source = _ready_source(source_id, access)
         target_configuration = related.target_context(access, source)
+        detail_check = None
         with health.observe_catalogue():
-            selected = _adapter(source).detail(source, selected_id)
+            if source["provider"] == "maccms":
+                configuration, detail_check = _detail_retry_guard(access, source)
+                with maccms.foreground_detail_retry(configuration, detail_check):
+                    selected = _adapter(source).detail(source, selected_id)
+                detail_check(source, configuration)
+            else:
+                selected = _adapter(source).detail(source, selected_id)
         _after(source, access)
         saved = _persist(source, selected)
         _after(source, access)
         result = _public_detail(source, selected, saved)
         related.remember_target(access, source, selected, target_configuration)
         _after(source, access)
+        if detail_check is not None:
+            detail_check(source, configuration)
         return result
 
 

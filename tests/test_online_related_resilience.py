@@ -85,10 +85,12 @@ def test_detail_cannot_stamp_old_metadata_with_a_new_configuration(related_envir
         return result
 
     monkeypatch.setattr(maccms, "fetch", changing)
-    warm(state)
+    response = state.client.get("/api/online/catalog/detail", params={
+        "source_id": state.source["id"], "external_id": "s2"})
+    assert response.status_code == 409 and response.json()["code"] == "online_source_changed"
     assert related.cache.stats() == {"entries": 0, "bytes": 0}
     with store._base._conn() as connection:
-        assert connection.execute("SELECT count(*) FROM online_items").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM online_items").fetchone()[0] == 0
     monkeypatch.setattr(maccms, "fetch", original)
     assert read(state).status_code == 200
     assert sum("ids" in call for call in state.calls) == 2
