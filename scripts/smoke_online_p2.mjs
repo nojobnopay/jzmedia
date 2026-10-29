@@ -90,6 +90,7 @@ async function idle(message = 'All formal sessions, workers and reservations mus
     return value.registry.sessions === 0 && value.registry.active_requests === 0
       && value.registry.reserved_bytes === 0 && value.pending_requests === 0
       && value.catalogue_active === 0 && value.catalogue_owners === 0
+      && value.api_pool.active === 0
       && value.artwork_cache.inflight === 0 && value.artwork_cache.pending === 0 ? value : false
   }, message)
   assert.deepEqual(value.local_rows, { movies: 0, tv_episodes: 0, playback_progress: 0 })
@@ -1352,6 +1353,14 @@ async function metadataRecovery() {
         api: { mode: 'direct', profile_id: profile.body.id } })).status, 200)
       await configure(page, { clear_taxonomy_cache: true })
       await selectSource(page); await settled(page); await idle()
+      const warmBefore = await metrics()
+      await page.locator('[data-online-refresh]').click(); await settled(page)
+      const warmAfter = await metrics()
+      assert.equal(mainCalls(warmAfter).length - mainCalls(warmBefore).length, 1,
+        'A warm connection still performs the real main API read')
+      assert.equal(warmAfter.network_dials.api, warmBefore.network_dials.api,
+        'The next foreground query reuses its actual API connection')
+      assert.ok(warmAfter.api_pool.idle >= 1)
       await configure(page, { metadata_failures_remaining: 1 })
       let before = await metrics()
       await page.locator('[data-online-refresh]').click(); await settled(page)
@@ -1424,7 +1433,7 @@ async function metadataRecovery() {
       passed({ case: `metadata-recovery-${width}`, geometry, browse503Recovered: true, search503Recovered: true,
         realReadTimeoutRecovered: true, maximumAttempts: 2, manualRetryAfterExhaustion: true,
         cachedTaxonomySkipsDiscovery: true, uncachedDiscoveryNeverRetries: true,
-        cancellationDuringBothAttempts: true, noAutoplay: true })
+        cancellationDuringBothAttempts: true, warmQueryReusesActualConnection: true, noAutoplay: true })
     } finally {
       phase.name = `metadata-recovery-${width}-restore`
       await navigate(page, '/settings'); await idle(); await page.waitForLoadState('networkidle')
@@ -1884,7 +1893,8 @@ try {
     'frontend/src/onlineArtwork.js', 'frontend/src/onlineBrowse.js', 'app/online/artwork.py', 'app/online/artwork_cache.py',
     'frontend/src/onlineCategories.js', 'frontend/src/onlineRelated.js', 'app/online/related.py', 'app/online/related_matching.py',
     'frontend/src/components/OnlineEpisodes.vue', 'frontend/src/onlineEpisodes.js', 'frontend/src/styles/onlineEpisodes.css',
-    'app/online/taxonomy_cache.py', 'app/network/stages.py', 'app/network/client.py',
+    'app/online/taxonomy_cache.py', 'app/online/api_pool.py', 'app/online/runtime.py',
+    'app/network/stages.py', 'app/network/client.py',
     'app/network/targets.py', 'app/network/transport.py',
     'app/online/providers.py', 'app/routers/online_catalog.py']) {
     report.fingerprints[file] = createHash('sha256').update(await readFile(path.join(root, file))).digest('hex')

@@ -25,6 +25,7 @@ from app import config, library_paths, secrets, store
 from app.network.client import create_client
 from app.network.policy import NetworkPolicyError, resolve_policy_state
 from app.network.targets import TargetPolicy, TargetPolicyError
+from app.network.transport import PinnedBackend
 from app.online import catalog, runtime, service
 from app.routers import online, online_network, online_playback, viewing
 from app.store import _base
@@ -90,6 +91,7 @@ class FixtureState:
         self.registry = FixtureRegistry()
         self.lock = threading.Lock()
         self.api_calls, self.client_calls = [], []
+        self.network_dials = {"api": 0, "media": 0, "image": 0}
 
     def client(self, source_id, purpose, *, header_policy=None):
         if purpose not in {"api", "media", "image"}:
@@ -112,7 +114,7 @@ class FixtureState:
         return client
 
     def metrics(self):
-        from app.online import artwork
+        from app.online import api_pool, artwork
         active = {session.id for session in self.registry.sessions()}
         created = self.registry.recorded_ids()
         with self.origin.lock:
@@ -121,6 +123,7 @@ class FixtureState:
             images = {"active": self.origin.image_active, "peak": self.origin.image_peak}
         with self.lock:
             api_calls, clients = list(self.api_calls), list(self.client_calls)
+            network_dials = dict(self.network_dials)
         with closing(_base._conn()) as connection:
             local = {table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                      for table in ("movies", "tv_episodes", "playback_progress")}
@@ -134,6 +137,7 @@ class FixtureState:
                 "created_sessions": list(created), "released_sessions": [sid for sid in created if sid not in active],
                 "images": images,
                 "admission": catalog.admission_stats(),
+                "api_pool": api_pool.pool.stats(), "network_dials": network_dials,
                 "artwork_cache": artwork.cache.stats(),
                 "local_rows": local, "catalog_rows": catalogue}
 
@@ -154,8 +158,10 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
     artwork_module = importlib.import_module("app.online.artwork")
     related_module = importlib.import_module("app.online.related")
     taxonomy_module = importlib.import_module("app.online.taxonomy_cache")
+    api_pool_module = importlib.import_module("app.online.api_pool")
     health_module.registry.clear()
     taxonomy_module.cache.clear()
+    api_pool_module.clear()
     with ExitStack() as stack:
         state_dir = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="state-", dir=root)))
         stack.enter_context(patch.object(_base, "DB_PATH", str(state_dir / "fixture.db")))
@@ -168,6 +174,15 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
         store.init_db()
         origin = stack.enter_context(FixtureOrigin(root / "media", throttle_bytes_per_second=throttle_bytes_per_second))
         state = FixtureState(origin)
+        connect_tcp = PinnedBackend.connect_tcp
+
+        def counted_connect(backend, *args, **kwargs):
+            with state.lock:
+                purpose = backend._snapshot.purpose
+                state.network_dials[purpose] = min(1000000, state.network_dials[purpose] + 1)
+            return connect_tcp(backend, *args, **kwargs)
+
+        stack.enter_context(patch.object(PinnedBackend, "connect_tcp", counted_connect))
         store.set_setting("jzmedia_token", FIXTURE_TOKEN)
         stack.enter_context(patch.object(service, "registry", state.registry))
         stack.enter_context(patch.object(service, "create_online_client", state.client))
@@ -352,6 +367,7 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
             health_module.registry.clear()
             related_module.cache.clear()
             taxonomy_module.cache.clear()
+            api_pool_module.clear()
             library_paths.invalidate_cache()
 
 
