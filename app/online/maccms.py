@@ -27,6 +27,7 @@ _ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 _YEAR = re.compile(r"[1-9][0-9]{3}\Z")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _detail_retry = ContextVar("online_foreground_detail_retry", default=None)
+_metadata_retry = ContextVar("online_foreground_metadata_retry", default=None)
 MIN_RETRY_SECONDS = 1.0
 
 
@@ -45,6 +46,35 @@ def foreground_detail_retry(configuration, check):
         yield
     finally:
         _detail_retry.reset(token)
+
+
+@dataclass
+class _MetadataRetry:
+    configuration: str
+    check: object = field(repr=False)
+    parameters: dict = field(repr=False)
+    claimed: bool = False
+
+
+@contextmanager
+def foreground_metadata_retry(configuration, check, parameters):
+    """Authorize only the first, exact foreground search or browse request.
+
+    A subsequent optional category lookup can use identical parameters to a
+    custom browse action. Consume the grant on the first fetch even when its
+    parameters do not match, so that lookup cannot inherit a retry.
+    """
+    if (not isinstance(configuration, str) or re.fullmatch(r"[0-9a-f]{64}", configuration) is None
+            or not callable(check) or type(parameters) is not dict
+            or not {"ac", "pg"} <= parameters.keys()
+            or parameters.keys() - {"ac", "pg", "wd", "t", "year"}
+            or any(not isinstance(value, str) or len(value) > 128 for value in parameters.values())):
+        raise ValueError("invalid foreground metadata retry")
+    token = _metadata_retry.set(_MetadataRetry(configuration, check, dict(parameters)))
+    try:
+        yield
+    finally:
+        _metadata_retry.reset(token)
 
 
 @dataclass(frozen=True)
@@ -197,6 +227,11 @@ def fetch(source, params):
         with _operation() as operation:
             context = _detail_retry.get()
             retry = context is not None and isinstance(params, dict) and set(params) == {"ac", "ids"}
+            metadata = _metadata_retry.get()
+            if metadata is not None:
+                context = metadata.configuration, metadata.check
+                retry = not metadata.claimed and isinstance(params, dict) and params == metadata.parameters
+                metadata.claimed = True
 
             def current():
                 operation.check()
@@ -441,6 +476,8 @@ def _discover_categories(source):
 
 
 def browse(source, page, category_id="", year=""):
+    from . import taxonomy_cache
+
     if category_id:
         category_id = external_id(category_id)
     if not valid_year(year):
@@ -454,15 +491,26 @@ def browse(source, page, category_id="", year=""):
     if year:
         params["year"] = year
     payload = fetch(source, params)
-    categories = payload.get("class", [])
-    if not categories:
-        categories = _discover_categories(source)
-    selected = _categories(categories)
+    # A malformed or failed primary page must not populate an optional cache
+    # or cause another taxonomy request before its own validation has passed.
     result = _search_result(payload, page)
+    categories = payload.get("class", [])
+    if categories:
+        selected = _categories(categories)
+        fresh = True
+    else:
+        selected = taxonomy_cache.get(source)
+        fresh = selected is None
+        if fresh:
+            selected = _categories(_discover_categories(source))
     parents = {category["id"]: category["parent_id"] for category in selected}
     for item in result["items"]:
         if not item["parent_category_id"]:
             item["parent_category_id"] = parents.get(item["category_id"], "")
+    if fresh and selected:
+        # A cache hit never renews expiry. Fresh metadata is only staged here;
+        # the foreground catalogue context commits after public preparation.
+        taxonomy_cache.stage(source, selected)
     return {**result, "categories": selected}
 
 

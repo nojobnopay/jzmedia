@@ -237,10 +237,22 @@ def search(access, source_id, query, page=1, *, operation=None):
         source = _ready_source(source_id, access)
         if not query and source["provider"] != "open_catalog":
             raise CatalogError("online_query_required", 422)
+        check = None
         with health.observe_catalogue():
-            result = _adapter(source).search(source, query, page)
+            if source["provider"] == "maccms":
+                configuration, check = _detail_retry_guard(access, source)
+                parameters = {"ac": source.get("provider_options", {}).get("search_action", "list"),
+                              "wd": query, "pg": str(page)}
+                with maccms.foreground_metadata_retry(configuration, check, parameters):
+                    result = _adapter(source).search(source, query, page)
+                check(source, configuration)
+            else:
+                result = _adapter(source).search(source, query, page)
         _after(source, access)
-        return {"source": _public_source(source), **_artwork(source, result)}
+        response = {"source": _public_source(source), **_artwork(source, result)}
+        if check is not None:
+            check(source, configuration)
+        return response
 
 
 def _artwork(source, result):
@@ -265,6 +277,27 @@ def browse(access, source_id, page=1, category_id="", year="", *, operation=None
         source = _ready_source(source_id, access)
         if year and not maccms.supports_year_filter(source):
             raise CatalogError("online_year_filter_unsupported", 422)
+        if source["provider"] == "maccms":
+            from . import taxonomy_cache
+
+            configuration, check = _detail_retry_guard(access, source)
+            parameters = {"ac": source.get("provider_options", {}).get("detail_action", "detail"),
+                          "pg": str(page)}
+            if category_id:
+                parameters["t"] = category_id
+            if year:
+                parameters["year"] = year
+            with taxonomy_cache.foreground(access, source, configuration, lambda: check(source, configuration)):
+                with health.observe_catalogue():
+                    with maccms.foreground_metadata_retry(configuration, check, parameters):
+                        result = _adapter(source).browse(source, page, category_id, year)
+                    check(source, configuration)
+                response = {"source": _public_source(source), **_artwork(source, result)}
+                check(source, configuration)
+            # Optional cache bookkeeping must not swallow a late access or
+            # complete configuration change while preparing the response.
+            check(source, configuration)
+            return response
         with health.observe_catalogue():
             result = (open_catalog.search(source, "", page) if source["provider"] == "open_catalog"
                       else _adapter(source).browse(source, page, category_id, year))
