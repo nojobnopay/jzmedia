@@ -20,6 +20,7 @@ MAX_LINES = 16
 MAX_ENTRIES = 2000
 MAX_LINE_ENTRIES = 500
 MAX_BODY = 2 * 1024**2
+CATEGORY_TIMEOUT_SECONDS = 3.0
 _ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -243,6 +244,45 @@ def search(source, query, page):
     return _search_result(fetch(source, {"ac": action, "wd": query, "pg": str(page)}), page)
 
 
+class _CategoryCancellation:
+    """Expose the child's abort to the parent's socket cancellation registry."""
+
+    def __init__(self, operation):
+        self.operation = operation
+
+    def shutdown(self, _how):
+        self.operation.abort()
+
+
+def _discover_categories(source):
+    parent = current_operation()
+    if parent is not None:
+        parent.check()
+    deadline = time.monotonic() + CATEGORY_TIMEOUT_SECONDS
+    child = NetworkOperation(min(deadline, parent.deadline) if parent is not None else deadline)
+    cancellation = _CategoryCancellation(child)
+    try:
+        if parent is not None:
+            parent.bind_socket(cancellation)
+        # A separate Event makes optional discovery timeouts independent. The
+        # registered link still shuts its actual sockets immediately when the
+        # parent HTTP request is cancelled or exhausts its own deadline.
+        with operation_context(child):
+            result = fetch(source, {"ac": "list", "pg": "1"}).get("class", [])
+            child.check()
+        if parent is not None:
+            parent.check()
+        return result
+    except (ProviderError, NetworkOperationError):
+        if parent is not None:
+            parent.check()
+        return []
+    finally:
+        if parent is not None:
+            parent.release_socket(cancellation)
+        child.close()
+
+
 def browse(source, page, category_id=""):
     if category_id:
         category_id = external_id(category_id)
@@ -253,12 +293,7 @@ def browse(source, page, category_id=""):
     payload = fetch(source, params)
     categories = payload.get("class", [])
     if not categories:
-        try:
-            categories = fetch(source, {"ac": "list", "pg": "1"}).get("class", [])
-        except ProviderError:
-            # Category discovery is optional; a compatible detail endpoint can
-            # still provide a useful latest-updates wall without MacCMS list.
-            categories = []
+        categories = _discover_categories(source)
     if not isinstance(categories, list) or len(categories) > 256:
         raise ProviderError("invalid_provider_response")
     result, seen = [], set()

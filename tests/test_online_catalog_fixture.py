@@ -1,6 +1,7 @@
 """The formal P2 path parses isolated MacCMS HTTP JSON, never provider stubs."""
 
 from contextlib import closing
+import base64
 from pathlib import Path
 from threading import Event
 import re
@@ -31,6 +32,8 @@ def prepared(tmp_path):
         (variants / "low.m3u8").write_text(
             '#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MAP:URI="../init.mp4"\n'
             '#EXTINF:4,\npart-000.m4s\n#EXT-X-ENDLIST\n')
+    (root / "media" / "poster.png").write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQ0AAAAASUVORK5CYII="))
     return root
 
 
@@ -170,6 +173,26 @@ def test_real_maccms_search_detail_and_owned_mp4_passthrough(client):
     assert not any(call["app_credentials"] for call in metrics["origin_calls"])
     assert any(call["action"] == "list" for call in metrics["origin_calls"])
     assert any(call["action"] == "detail" for call in metrics["origin_calls"])
+
+
+def test_real_catalogue_categories_and_png_poster_use_the_owned_loopback_image_reader(client, prepared):
+    source = add_source(client)
+    response = client.get("/api/online/catalog/browse", params={"source_id": source["id"], "category_id": "2"})
+    assert response.status_code == 200
+    result = response.json()
+    assert result["categories"] == [{"id": "1", "name": "电影"}, {"id": "2", "name": "剧集"}]
+    assert [item["external_id"] for item in result["items"]] == ["show-1"]
+    poster = result["items"][0]["poster_path"]
+    assert poster.startswith("/api/online/catalog/artwork/")
+    assert "fixture.invalid" not in response.text
+    image = client.get(poster)
+    assert image.status_code == 200
+    assert image.content == (prepared / "media" / "poster.png").read_bytes()
+    assert image.headers["content-type"] == "image/png"
+    assert image.headers["cache-control"] == "no-store"
+    metrics = client.get("/api/p2/metrics").json()
+    assert {call["purpose"] for call in metrics["client_calls"]} == {"api", "image"}
+    assert not any(call["app_credentials"] for call in metrics["origin_calls"])
 
 
 def test_real_maccms_hls_rewrites_nested_assets(client):

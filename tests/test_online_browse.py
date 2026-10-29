@@ -1,6 +1,15 @@
 """Discovery uses the same bounded provider and access boundary as search."""
 
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import time
+
+import pytest
+
+from app.network.guard import (NetworkOperation, NetworkOperationError,
+                               current_operation, operation_context)
 from app.online import maccms
+from app.online.providers import ProviderError
 from test_online_catalog import environment as environment
 
 
@@ -60,3 +69,96 @@ def test_browse_validates_paging_and_category_before_provider_io(environment):
         response = environment.client.get("/api/online/catalog/browse", params={"source_id": environment.source["id"], **params})
         assert response.status_code == 422
     assert environment.requests == []
+
+
+def test_optional_category_timeout_preserves_fetched_movies_and_parent_operation(environment, monkeypatch):
+    parent = NetworkOperation(time.monotonic() + 30)
+    children = []
+
+    def fetch(_source, params):
+        if params["ac"] == "detail":
+            return {"code": 1, "list": [environment.movie], "page": 1}
+        child = current_operation()
+        children.append(child)
+        assert child is not parent and child.cancelled is not parent.cancelled
+        assert 0 < child.remaining() <= 3
+        child.abort("operation_timeout")
+        raise ProviderError("provider_timeout")
+
+    monkeypatch.setattr(maccms, "fetch", fetch)
+    try:
+        with operation_context(parent):
+            result = maccms.browse(environment.source, 1)
+        assert result["items"][0]["external_id"] == "movie-1"
+        assert result["categories"] == []
+        parent.check()
+        assert parent.cancelled.is_set() is False
+        assert parent._sockets == {}
+        assert children and children[0]._closed
+    finally:
+        parent.close()
+
+
+def test_parent_cancellation_immediately_aborts_category_socket_and_releases_its_link(environment, monkeypatch):
+    parent = NetworkOperation(time.monotonic() + 30)
+    started, interrupted = threading.Event(), threading.Event()
+    children = []
+
+    class Socket:
+        def shutdown(self, _how):
+            interrupted.set()
+
+    def fetch(_source, params):
+        if params["ac"] == "detail":
+            return {"code": 1, "list": [environment.movie], "page": 1}
+        child = current_operation()
+        children.append(child)
+        sock = Socket()
+        child.bind_socket(sock)
+        try:
+            started.set()
+            assert interrupted.wait(1), "parent abort must shut the child's socket, not wait for its timeout"
+            child.check()
+            raise AssertionError("cancelled category fetch may not succeed")
+        except NetworkOperationError:
+            raise ProviderError("provider_cancelled") from None
+        finally:
+            child.release_socket(sock)
+
+    def browse():
+        with operation_context(parent):
+            return maccms.browse(environment.source, 1)
+
+    monkeypatch.setattr(maccms, "fetch", fetch)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(browse)
+            assert started.wait(1)
+            parent.abort()
+            assert interrupted.wait(1)
+            with pytest.raises(NetworkOperationError, match="operation_cancelled"):
+                pending.result(timeout=2)
+        assert parent._sockets == {}
+        assert children and children[0]._closed
+    finally:
+        parent.abort()
+        parent.close()
+
+
+def test_optional_category_failure_cannot_hide_the_parent_deadline(environment, monkeypatch):
+    parent = NetworkOperation(time.monotonic() + 30)
+
+    def fetch(_source, params):
+        if params["ac"] == "detail":
+            return {"code": 1, "list": [environment.movie], "page": 1}
+        parent.deadline = time.monotonic() - 1
+        raise ProviderError("provider_timeout")
+
+    monkeypatch.setattr(maccms, "fetch", fetch)
+    try:
+        with operation_context(parent), pytest.raises(NetworkOperationError, match="operation_timeout"):
+            maccms.browse(environment.source, 1)
+        assert parent.cancelled.is_set()
+        assert parent._sockets == {}
+    finally:
+        parent.close()

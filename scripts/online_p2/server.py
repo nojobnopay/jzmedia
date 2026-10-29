@@ -7,6 +7,7 @@ application lifespan, NAS, public provider, media library or .env is used.
 import argparse
 from contextlib import ExitStack, asynccontextmanager, closing, contextmanager
 import importlib
+import json
 from pathlib import Path
 import shutil
 import tempfile
@@ -28,7 +29,8 @@ from app.store import _base
 from app.store.online_network import load_online_network_state
 from app.viewing_http import _error_response, middleware as viewing_middleware
 from scripts.online_p1.server import FixtureRegistry, FixtureTargetPolicy
-from scripts.online_p2.fixtures import DURATION, MARKER, MODES, FixtureOrigin, fixture_root, prepare_media
+from scripts.online_p2.fixtures import (DURATION, MARKER, MODES, RANGE_MARKER, FixtureOrigin,
+                                       fixture_root, prepare_media, prepare_range_media)
 
 
 FIXTURE_TOKEN = "online-p2-fixture-only"
@@ -51,7 +53,7 @@ class FixtureState:
         self.api_calls, self.client_calls = [], []
 
     def client(self, source_id, purpose, *, header_policy=None):
-        if purpose not in {"api", "media"}:
+        if purpose not in {"api", "media", "image"}:
             raise ValueError("unexpected fixture network purpose")
         state = load_online_network_state(source_id)
         source = state["source_config"]
@@ -74,7 +76,7 @@ class FixtureState:
         active = {session.id for session in self.registry.sessions()}
         created = self.registry.recorded_ids()
         with self.origin.lock:
-            origin_calls = list(self.origin.calls)
+            origin_calls = [dict(call) for call in self.origin.calls]
             pending = self.origin.pending_requests
         with self.lock:
             api_calls, clients = list(self.api_calls), list(self.client_calls)
@@ -93,7 +95,7 @@ class FixtureState:
 
 
 @contextmanager
-def isolated_fixture(value, *, static_dir=None):
+def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
     root = fixture_root(value, require_media=True)
     static = Path(static_dir).resolve() if static_dir is not None else None
     if static is not None and (not static.is_dir() or not static.is_relative_to(root)):
@@ -105,6 +107,7 @@ def isolated_fixture(value, *, static_dir=None):
     state_router = importlib.import_module("app.routers.online_state")
     health_router = importlib.import_module("app.routers.online_health")
     health_module = importlib.import_module("app.online.health")
+    artwork_module = importlib.import_module("app.online.artwork")
     health_module.registry.clear()
     with ExitStack() as stack:
         state_dir = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="state-", dir=root)))
@@ -116,12 +119,14 @@ def isolated_fixture(value, *, static_dir=None):
         stack.enter_context(patch.object(secrets, "_key_cache", None))
         library_paths.invalidate_cache()
         store.init_db()
-        origin = stack.enter_context(FixtureOrigin(root / "media"))
+        origin = stack.enter_context(FixtureOrigin(root / "media", throttle_bytes_per_second=throttle_bytes_per_second))
         state = FixtureState(origin)
         store.set_setting("jzmedia_token", FIXTURE_TOKEN)
         stack.enter_context(patch.object(service, "registry", state.registry))
         stack.enter_context(patch.object(service, "create_online_client", state.client))
         stack.enter_context(patch.object(maccms, "create_online_client", state.client))
+        stack.enter_context(patch.object(artwork_module, "create_online_client", state.client))
+        stack.enter_context(patch.object(artwork_module, "registry", artwork_module.ArtworkRegistry()))
 
         @asynccontextmanager
         async def lifespan(_app):
@@ -197,6 +202,13 @@ def isolated_fixture(value, *, static_dir=None):
             return {"api_token": FIXTURE_TOKEN, "api_base_url": f"{origin.base_url}/provide/vod",
                     "allowed_hosts": ["fixture.invalid"]}
 
+        @app.get("/api/p2/range-info")
+        def range_info():
+            marker = root / RANGE_MARKER
+            if not marker.is_file() or marker.is_symlink():
+                raise HTTPException(404, "long range fixture not generated")
+            return {**json.loads(marker.read_text()), "throttle_bytes_per_second": origin.throttle_bytes_per_second}
+
         @app.get("/api/p2/metrics")
         def metrics():
             return state.metrics()
@@ -232,19 +244,24 @@ def main():
     parser.add_argument("--static-dir", type=Path)
     parser.add_argument("--generate-media", action="store_true",
                         help="generate synthetic video on the development machine, then exit")
+    parser.add_argument("--generate-range-media", action="store_true",
+                        help="generate a 90-second MP4 larger than 8 MiB before serving, then exit")
+    parser.add_argument("--throttle-bytes-per-second", type=int, default=0,
+                        help="isolated origin aggregate throughput limit; 0 leaves existing cases unchanged")
     parser.add_argument("--cleanup", action="store_true", help="remove only the marked temporary fixture root on exit")
     args = parser.parse_args()
     try:
         root = fixture_root(args.root)
-        if args.generate_media:
-            prepare_media(root)
+        if args.generate_media or args.generate_range_media:
+            (prepare_range_media if args.generate_range_media else prepare_media)(root)
             print(f"P2 synthetic media prepared: {root}", flush=True)
             return
         if not 1024 <= args.port <= 65535:
             parser.error("port must be between 1024 and 65535")
         import uvicorn
         try:
-            with isolated_fixture(root, static_dir=args.static_dir) as app:
+            with isolated_fixture(root, static_dir=args.static_dir,
+                                  throttle_bytes_per_second=args.throttle_bytes_per_second) as app:
                 print(f"P2 isolated fixture: http://127.0.0.1:{args.port}; root={root}", flush=True)
                 uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
         finally:

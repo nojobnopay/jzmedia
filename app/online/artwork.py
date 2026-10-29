@@ -243,7 +243,7 @@ def fetch(access, source_id, token, *, operation=None):
     except NetworkOperationError as error:
         raise ArtworkError("online_artwork_timeout" if str(error) == "operation_timeout"
                            else "online_artwork_cancelled", 504 if str(error) == "operation_timeout" else 409) from None
-    except NetworkRequestError as error:
+    except NetworkRequestError:
         try:
             operation.check()
         except NetworkOperationError as stopped:
