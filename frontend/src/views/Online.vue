@@ -1,6 +1,6 @@
 <template>
   <div class="browse-page online-page">
-    <header class="browse-heading online-heading"><div><h1>在线</h1><p>发现想看的电影和剧集</p></div><router-link v-if="!isChildren" class="manage-link" to="/settings?sec=sec-online">管理视频源</router-link></header>
+    <header v-show="browseVisible" class="browse-heading online-heading"><div><h1>在线</h1><p>发现想看的电影和剧集</p></div><router-link v-if="!isChildren" class="manage-link" to="/settings?sec=sec-online">管理视频源</router-link></header>
     <EmptyState v-if="isChildren" state="empty" title="儿童模式暂不支持在线内容" text="切换观看模式后再浏览。" />
     <template v-else-if="safeMode">
       <p v-if="stateNotice" class="online-state-notice" data-online-state-notice role="status">{{ stateNotice }}</p>
@@ -10,6 +10,7 @@
       <EmptyState v-else-if="!enabled" state="empty" title="在线点播尚未启用" text="在设置中启用在线点播并添加视频源；已有记录仍会保留。"><router-link to="/settings?sec=sec-online">打开在线视频源设置</router-link></EmptyState>
       <EmptyState v-else-if="!sources.length" state="empty" title="还没有可用的视频源" text="从来源目录选择视频源，即可浏览和搜索；也支持添加自定义接口。"><router-link to="/settings?sec=sec-online">添加视频源</router-link></EmptyState>
       <template v-else>
+        <div v-show="browseVisible" ref="browseTools" class="online-browse-tools" data-online-browse-tools>
         <form class="online-search" data-online-search role="search" aria-label="搜索在线视频" @submit.prevent="search(1)">
           <JzField id="online-source" label="视频源"><template #default="field"><select :id="field.id" v-model="sourceId" data-online-source :disabled="loadingSources" @change="sourceChanged"><option v-for="source in sources" :key="source.id" :value="source.id">{{ source.name }}</option></select></template></JzField>
           <JzField id="online-query" label="片名"><template #default="field"><input :id="field.id" v-model="query" maxlength="100" autocomplete="off" placeholder="输入电影或剧集名称" /></template></JzField>
@@ -55,25 +56,49 @@
         <details class="online-connection"><summary>连接状态</summary>
           <div class="online-health" data-online-health><span>目录：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.api) : healthError || '尚未使用' }}</span><span>播放：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.media) : healthError || '尚未使用' }}</span><JzButton variant="ghost" :disabled="healthLoading" @click="loadHealth">刷新状态</JzButton><small>来自最近请求的记录。卡顿时可在来源网络设置中尝试代理。</small></div>
         </details>
+        </div>
         <EmptyState v-if="detailLoading" state="loading" title="正在加载详情" text="正在读取所选来源的线路与分集。"><JzButton @click="backToResults">返回搜索结果</JzButton></EmptyState>
         <EmptyState v-else-if="detailError" state="error" title="详情加载失败" :text="detailError" retry @retry="openDetail(lastDetailId)"><JzButton @click="backToResults">返回搜索结果</JzButton></EmptyState>
-        <section v-else-if="detail" class="online-detail" data-online-detail>
+        <section v-else-if="detail" ref="detailRoot" class="online-detail" data-online-detail>
           <JzButton variant="ghost" icon="arrow-left" @click="backToResults">返回搜索结果</JzButton>
-          <header class="online-detail-heading"><OnlineArtwork :path="detail.poster_path" :title="detail.item.title" class="online-artwork" /><div><p class="online-eyebrow">{{ detail.source.name }} · {{ detail.category || (detail.item.kind === 'tv' ? '剧集' : '电影') }}</p><h2>{{ detail.item.title }}</h2><p v-if="detail.year || detail.area || detail.language" class="online-year">{{ [detail.year, detail.area, detail.language].filter(Boolean).join(' · ') }}</p><p v-if="detail.remarks" class="online-detail-status" data-online-detail-status>{{ detail.remarks }}</p><ul v-if="detailGenres.length" class="online-genre-tags" aria-label="题材"><li v-for="genre in detailGenres" :key="genre">{{ genre }}</li></ul></div></header>
-          <div class="online-detail-actions"><JzButton :data-online-favorite="detail.item.id" :icon="itemState?.favorite ? 'heart-filled' : 'heart'" :disabled="!itemState || mutationBusy.has(detail.item.id)" @click="favoriteDetail">{{ itemState?.favorite ? '取消收藏' : '收藏' }}</JzButton><JzButton v-if="resumeEntry" icon="play" data-online-detail-resume :disabled="starting" @click="play(resumeEntry)">继续播放</JzButton><span v-if="starting" role="status">正在读取续播位置…</span></div>
-          <dl v-if="detailMetadata.length" class="online-detail-metadata" data-online-metadata><div v-for="row in detailMetadata" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl>
-          <p v-if="detail.description" class="online-description">{{ detail.description }}</p>
-          <div v-if="detail.attribution?.length" class="online-attribution"><span>内容来源与许可</span><a v-for="credit in detail.attribution" :key="credit.url" :href="safeAttribution(credit.url)" target="_blank" rel="noopener noreferrer">{{ credit.label }}</a></div>
+          <header class="online-detail-heading" data-online-detail-heading>
+            <OnlineArtwork :path="detail.poster_path" :title="detail.item.title" class="online-artwork" />
+            <div class="online-detail-summary">
+              <p class="online-eyebrow">{{ detail.source.name }} · {{ detail.category || (detail.item.kind === 'tv' ? '剧集' : '电影') }}</p>
+              <h2 ref="detailTitle" tabindex="-1">{{ detail.item.title }}</h2>
+              <p v-if="detail.year || detail.area || detail.language" class="online-year">{{ [detail.year, detail.area, detail.language].filter(Boolean).join(' · ') }}</p>
+              <p v-if="detail.remarks" class="online-detail-status" data-online-detail-status>{{ detail.remarks }}</p>
+              <ul v-if="detailGenres.length" class="online-genre-tags" aria-label="题材"><li v-for="genre in detailGenres" :key="genre">{{ genre }}</li></ul>
+            </div>
+          </header>
+          <div class="online-detail-actions">
+            <JzButton variant="primary" icon="play" data-online-primary-play :data-online-detail-resume="primaryIsResume ? '' : undefined" :disabled="!primaryEntry || itemStateLoading || starting || nextLoading" :loading="itemStateLoading || starting" @click="play(primaryEntry)">{{ primaryPlayLabel }}</JzButton>
+            <JzButton :data-online-favorite="detail.item.id" :icon="itemState?.favorite ? 'heart-filled' : 'heart'" :disabled="!itemState || mutationBusy.has(detail.item.id)" @click="favoriteDetail">{{ itemState?.favorite ? '取消收藏' : '收藏' }}</JzButton>
+          </div>
+          <p v-if="lastEntry" class="online-last-watched" data-online-last-watched>
+            <span>{{ itemState.last_progress.completed ? '上次已看完' : '上次观看' }}：{{ lastLine?.label }}<span v-if="detail.item.kind === 'tv'"> · {{ lastEntry.label }}</span><span v-if="!itemState.last_progress.completed"> · {{ fmt(itemState.last_progress.position) }}</span></span>
+            <JzButton v-if="lastEntry.identity.line_id !== lineId" variant="ghost" data-online-detail-locate-last :disabled="starting || itemStateLoading || nextLoading" @click="locateLastEntry">定位上次观看</JzButton>
+          </p>
+          <p v-else-if="itemStateLoading" class="online-scope" data-online-detail-state-loading role="status">正在读取观看记录…</p>
+          <p v-if="!primaryEntry && !itemStateLoading" class="online-scope" data-online-no-playable>当前线路暂无可直接播放的内容，请选择其他线路。</p>
           <div v-if="needsHostUpdate" class="online-host-help" data-online-host-help role="status">
             <p>此来源使用了尚未允许的媒体主机。请在来源设置中检查并确认新增域名，再返回这里重新加载。</p>
             <router-link :to="{ path: '/settings', query: { sec: 'sec-online', source: detail.source.id, item: lastDetailId } }" data-online-host-repair>检查媒体主机</router-link>
           </div>
-          <h3>播放线路</h3>
-          <div class="online-lines" role="group" aria-label="播放线路"><JzButton v-for="line in detail.lines" :key="line.id" :data-online-line="line.id" :aria-pressed="line.id === lineId" @click="selectLine(line.id)">{{ line.label }}</JzButton></div>
-          <label v-if="detail.item.kind === 'tv'" class="online-autoplay"><input v-model="autoplay" type="checkbox" data-online-autoplay @change="autoplayChanged" />自动播放下一集（当前浏览器）</label>
-          <p class="online-scope">{{ selectedLine?.label || '暂无线路' }}<span v-if="selectedLine"> · {{ selectedLine.entries.length }} {{ detail.item.kind === 'tv' ? '集' : '个播放版本' }}</span><span v-if="detail.item.kind === 'tv'">；连续播放仅使用当前来源和线路，不跳过片尾。</span></p>
-          <div v-if="selectedLine" class="online-entries"><div v-for="(entry, index) in selectedLine.entries" :key="entry.identity?.episode_id || entry.label + ':' + index" class="online-entry"><JzButton :data-online-entry="entry.label" :disabled="!entry.supported || !entry.identity || starting" :variant="entry.supported ? 'primary' : 'secondary'" :icon="entry.supported ? 'play' : undefined" @click="play(entry)">{{ entry.label }}</JzButton><span v-if="!entry.supported">{{ unsupportedReason(entry.reason) }}</span><span v-else>{{ entry.transport?.toUpperCase() }} · 由当前设备播放</span></div></div>
-          <EmptyState v-else state="empty" title="此来源暂无可播放线路" text="选择其他来源或稍后重新查询。" />
+          <section class="online-play-selection" aria-label="线路与选集">
+            <h3>播放线路</h3>
+            <div class="online-lines" role="group" aria-label="播放线路"><JzButton v-for="line in detail.lines" :key="line.id" :data-online-line="line.id" :aria-pressed="line.id === lineId" @click="selectLine(line.id)">{{ line.label }}</JzButton></div>
+            <p class="online-scope">{{ selectedLine?.label || '暂无线路' }}<span v-if="selectedLine"> · {{ selectedLine.entries.length }} {{ detail.item.kind === 'tv' ? '集' : '个播放版本' }}</span></p>
+            <OnlineEpisodes v-if="selectedLine" ref="episodePicker" :item-key="detail.item.id" :line-id="lineId" :kind="detail.item.kind" :entries="selectedLine.entries" :busy="starting || itemStateLoading || nextLoading" :current-identity="playing?.identity || null" :last-identity="lastEntry?.identity || null" :reason-label="unsupportedReason" @play="play($event)" />
+            <EmptyState v-else state="empty" title="此来源暂无可播放线路" text="选择其他来源或稍后重新查询。" />
+            <label v-if="detail.item.kind === 'tv'" class="online-autoplay"><input v-model="autoplay" type="checkbox" data-online-autoplay @change="autoplayChanged" />自动播放下一集（当前浏览器）</label>
+            <p v-if="detail.item.kind === 'tv'" class="online-scope online-autoplay-note">只按当前来源和线路的原始顺序连续播放，不跳过片尾，不跨季。</p>
+          </section>
+          <section v-if="detail.description || detailMetadata.length || detail.attribution?.length" class="online-detail-info" aria-label="影片资料" data-online-detail-info>
+            <template v-if="detail.description"><h3>简介</h3><MediaOverview :key="detail.item.id" :text="detail.description" :lines="3" /></template>
+            <details v-if="detailMetadata.length" class="online-more-metadata" data-online-detail-metadata><summary>演员与更多资料</summary><dl class="online-detail-metadata" data-online-metadata><div v-for="row in detailMetadata" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl></details>
+            <div v-if="detail.attribution?.length" class="online-attribution"><span>内容来源与许可</span><a v-for="credit in detail.attribution" :key="credit.url" :href="safeAttribution(credit.url)" target="_blank" rel="noopener noreferrer">{{ credit.label }}</a></div>
+          </section>
           <section v-if="relatedLoading || relatedError || relatedDeferred || relatedGroups.length" class="online-related" aria-label="相关内容" data-online-related>
             <p v-if="relatedLoading" class="online-related-state" data-online-related-loading role="status">正在查找相关内容…</p>
             <div v-else-if="relatedError" class="online-related-state" data-online-related-error role="status"><span>相关内容暂时无法读取，仍可正常选集播放。</span><JzButton data-online-related-retry @click="loadRelated(true)">重试</JzButton></div>
@@ -107,7 +132,7 @@
           </template>
         </div>
       </template>
-      <section class="online-library" aria-label="在线观看记录">
+      <section v-show="browseVisible" ref="libraryRoot" class="online-library" aria-label="在线观看记录">
         <div class="online-library-heading"><div><h2>我的在线记录</h2><p class="online-scope">当前设备 · {{ modeText }}；与本地媒体库记录分开。</p></div><JzButton variant="ghost" icon="refresh" :disabled="libraryLoading" @click="loadLibrary()">刷新记录</JzButton></div>
         <div class="online-library-tabs" role="group" aria-label="在线记录分类">
           <JzButton v-for="tab in libraryTabs" :key="tab.key" :data-online-library-section="tab.key" :aria-pressed="librarySection === tab.key" @click="selectLibrary(tab.key)">{{ tab.label }}</JzButton>
@@ -151,6 +176,8 @@ import JzDialog from '../components/JzDialog.vue'
 import AppIcon from '../components/AppIcon.vue'
 import OnlinePlayerModal from '../components/OnlinePlayerModal.vue'
 import OnlineArtwork from '../components/OnlineArtwork.vue'
+import OnlineEpisodes from '../components/OnlineEpisodes.vue'
+import MediaOverview from '../components/MediaOverview.vue'
 import '../styles/online.css'
 
 const client = createOnlineCatalogClient(), nextClient = createOnlineCatalogClient(), stateClient = createOnlineStateClient()
@@ -171,6 +198,8 @@ const posterGeneration = ref(0)
 const results = ref([]), page = ref(1), pageCount = ref(1), total = ref(0), loadedQuery = ref('')
 const detailLoading = ref(false), detailError = ref(''), detail = ref(null), lineId = ref(''), lastDetailId = ref(''), itemState = ref(null)
 const playing = ref(null), starting = ref(false), nextLoading = ref(false), stateNotice = ref('')
+const itemStateLoading = ref(false), detailRoot = ref(null), detailTitle = ref(null), episodePicker = ref(null)
+const browseTools = ref(null), libraryRoot = ref(null)
 const libraryTabs = [{ key: 'continue', label: '继续观看' }, { key: 'favorites', label: '我的收藏' }, { key: 'history', label: '观看历史' }]
 const librarySection = ref('continue'), libraryRows = ref([]), libraryOffset = ref(0), libraryTotal = ref(0), libraryScope = ref('')
 const libraryLoading = ref(true), libraryError = ref(''), mutationBusy = ref(new Set())
@@ -192,7 +221,21 @@ const canSearch = computed(() => !!sourceId.value && (query.value.trim().length 
 const selectedLine = computed(() => detail.value?.lines.find(line => line.id === lineId.value))
 const needsHostUpdate = computed(() => detail.value?.lines.some(line => line.entries.some(entry => ['host_not_allowed', 'target_host_not_allowed'].includes(entry.reason))))
 const lastQuery = ref({ page: 1, query: '' })
-const resumeEntry = computed(() => !itemState.value?.last_progress?.completed ? findEntry(detail.value, itemState.value?.last_progress?.identity) : null)
+const browseVisible = computed(() => !detail.value && !detailLoading.value && !detailError.value)
+const lastEntry = computed(() => findEntry(detail.value, itemState.value?.last_progress?.identity) || null)
+const lastLine = computed(() => detail.value?.lines.find(line => line.id === lastEntry.value?.identity.line_id))
+const resumeEntry = computed(() => !itemState.value?.last_progress?.completed ? lastEntry.value : null)
+const primaryEntry = computed(() => resumeEntry.value?.identity.line_id === lineId.value ? resumeEntry.value
+  : selectedLine.value?.entries.find(entry => entry.supported && entry.identity) || null)
+const primaryIsResume = computed(() => !!resumeEntry.value && sameIdentity(primaryEntry.value?.identity, resumeEntry.value.identity))
+const primaryPlayLabel = computed(() => {
+  if (itemStateLoading.value) return '正在读取观看记录'
+  if (starting.value) return '正在读取续播位置'
+  if (!primaryEntry.value) return '暂无可播放内容'
+  const watched = itemState.value?.last_progress
+  const action = primaryIsResume.value ? '继续播放' : watched?.completed && sameIdentity(primaryEntry.value.identity, watched.identity) ? '重新播放' : '立即播放'
+  return action + (detail.value?.item.kind === 'tv' ? ' · ' + primaryEntry.value.label : '')
+})
 const detailGenres = computed(() => textValues(detail.value?.genres).slice(0, 8))
 const detailMetadata = computed(() => [
   { label: '导演', value: textValues(detail.value?.directors).join(' / ') },
@@ -208,7 +251,7 @@ const relatedGroups = computed(() => [
   return { ...group, items: group.key === 'series' ? [...items].sort((a, b) => a.season - b.season) : items }
 }).filter(group => group.items.length))
 let disposed = false, generation = 0, libraryGeneration = 0, healthGeneration = 0, playIntent = 0, nextIntent = 0, runId = 0, activeRun = null
-let relatedGeneration = 0
+let relatedGeneration = 0, itemStateGeneration = 0, lineSelectionIntent = 0, detailReturnFocus = null
 let lastSourceId = ''
 let cacheScope = '', loadedAt = 0, browsePosition = null, positionIntent = 0, suspendedWork = null
 function current(turn) { return !disposed && turn === generation && safeMode.value }
@@ -343,6 +386,7 @@ async function loadLibrary(offset = libraryOffset.value) {
 function selectLibrary(section) { librarySection.value = section; void loadLibrary(0) }
 function sourceChanged(discover = true) {
   if (discover && sourceId.value === lastSourceId) return
+  clearDetailReturnFocus()
   cancelRelated(true)
   rememberBrowse(sources.value.find(source => source.id === lastSourceId))
   lastSourceId = sourceId.value
@@ -352,6 +396,7 @@ function sourceChanged(discover = true) {
     void router.replace({ path: '/online', query: target })
   }
   healthGeneration++; healthClient.cancel(); health.value = null; void loadHealth()
+  itemStateGeneration++; itemStateLoading.value = false
   generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
   resetBrowse()
   const restored = discover ? onlineBrowseMemory.last(cacheScope, sources.value, sourceId.value) : null
@@ -405,6 +450,7 @@ async function search(nextPage = 1, text = query.value, options = {}) {
   const turn = ++generation
   positionIntent++
   client.cancel()
+  itemStateGeneration++; itemStateLoading.value = false
   void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
   searching.value = true; searchError.value = ''; lastQuery.value = { page: nextPage, query: text,
     year: requestedYear, channelId: requestedChannel, force: !!options.force, position: options.position || (options.force ? browsePosition : null) }
@@ -438,23 +484,64 @@ function refreshResults() {
   void search(page.value, loadedQuery.value, { force: true })
 }
 async function readItemState(data, turn) {
+  const ticket = ++itemStateGeneration
+  itemStateLoading.value = true
   try {
     const response = await stateClient.item(data.item.id)
-    if (current(turn) && detail.value?.item.id === data.item.id && response) itemState.value = response
-  } catch (error) { if (current(turn)) stateNotice.value = onlineStateError(error) }
+    if (current(turn) && ticket === itemStateGeneration && detail.value?.item.id === data.item.id && response) itemState.value = response
+  } catch (error) { if (current(turn) && ticket === itemStateGeneration) stateNotice.value = onlineStateError(error) }
+  finally { if (current(turn) && ticket === itemStateGeneration && detail.value?.item.id === data.item.id) itemStateLoading.value = false }
+}
+function clearDetailReturnFocus() {
+  if (detailReturnFocus) detailReturnFocus.element = null
+  detailReturnFocus = null
+}
+function rememberDetailReturnFocus(externalId, options) {
+  if (!browseVisible.value) return // Another season retains the original browse target.
+  clearDetailReturnFocus()
+  const active = globalThis.document?.activeElement
+  const attributes = ['data-online-result', 'data-online-library-detail', 'data-online-resume']
+  const attribute = attributes.find(name => active?.hasAttribute?.(name))
+  const fallback = options.itemId ? options.resume ? 'data-online-resume' : 'data-online-library-detail' : 'data-online-result'
+  detailReturnFocus = { element: attribute ? active : null, source: sourceId.value,
+    attribute: attribute || fallback, key: attribute ? active.getAttribute(attribute) : options.itemId || externalId }
+}
+function focusDetailReturn(target) {
+  if (!target || target.source !== sourceId.value) return
+  const available = element => element?.isConnected && !element.disabled && typeof element.focus === 'function'
+  let element = target.element
+  if (!available(element) && /^[A-Za-z0-9_-]{1,128}$/.test(target.key)) {
+    const root = target.attribute === 'data-online-result' ? browseRoot.value : libraryRoot.value
+    element = root?.querySelector?.('[' + target.attribute + '="' + target.key + '"]')
+  }
+  if (!available(element)) element = browseTools.value?.querySelector?.('#online-query')
+  if (available(element)) element.focus({ preventScroll: true })
+}
+async function showDetailTop(turn) {
+  const position = positionIntent
+  await nextTick()
+  if (!current(turn) || position !== positionIntent || !detail.value || playing.value || starting.value) return
+  detailTitle.value?.focus?.({ preventScroll: true })
+  detailRoot.value?.scrollIntoView?.({ block: 'start', behavior: 'instant' })
 }
 async function openDetail(externalId, options = {}) {
+  rememberDetailReturnFocus(externalId, options)
   cancelRelated(true)
   rememberBrowse()
   positionIntent++
   const turn = ++generation, source = sourceId.value
+  lineSelectionIntent = 0; itemStateGeneration++; itemStateLoading.value = false; categoriesOpen.value = false
   void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = true; lastDetailId.value = externalId
   try {
     const response = await client.detail(source, externalId)
     if (!current(turn) || !response) return
-    detail.value = response; lineId.value = response.lines?.find(line => line.entries.some(entry => entry.supported))?.id || response.lines?.[0]?.id || ''
+    detail.value = response; lineId.value = response.lines?.find(line => line.entries.some(entry => entry.supported && entry.identity))?.id || response.lines?.[0]?.id || ''
+    detailLoading.value = false
+    void showDetailTop(turn)
     await readItemState(response, turn)
-    if (!current(turn) || !options.resume) return
+    if (!current(turn)) return
+    if (!lineSelectionIntent && resumeEntry.value) lineId.value = resumeEntry.value.identity.line_id
+    if (!options.resume || lineSelectionIntent) return
     if (options.itemId && options.itemId !== response.item.id) { stateNotice.value = '来源内容已变化，请在详情中重新选择。'; return }
     const entry = findEntry(response, options.identity)
     if (!entry) { stateNotice.value = '上次线路或分集已变化，请在详情中重新选择。'; return }
@@ -473,15 +560,41 @@ function openRelated(externalId) {
   void openDetail(externalId)
   void router.replace({ path: '/online', query: { source, item: externalId } })
 }
-function backToResults() {
+async function backToResults() {
+  const target = detailReturnFocus
   cancelRelated(true)
+  itemStateGeneration++; itemStateLoading.value = false
   generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
   if (route.query.item) void router.replace({ path: '/online', query: { source: sourceId.value } })
-  if (!searched.value && canBrowse.value) void search(1, '')
-  else if (loadedAt && Date.now() - loadedAt >= 60000) void search(page.value, loadedQuery.value, { force: true, position: browsePosition })
-  else void restoreBrowse()
+  let restoring
+  if (!searched.value && canBrowse.value) restoring = search(1, '')
+  else if (loadedAt && Date.now() - loadedAt >= 60000) restoring = search(page.value, loadedQuery.value, { force: true, position: browsePosition })
+  else restoring = restoreBrowse()
+  const turn = generation
+  await restoring
+  const position = positionIntent
+  await nextTick()
+  // A later navigation, modal or focused user control owns focus from here.
+  const active = globalThis.document?.activeElement
+  if (current(turn) && position === positionIntent && browseVisible.value && !categoriesOpen.value
+    && (!active || active === globalThis.document?.body)) focusDetailReturn(target)
+  if (detailReturnFocus === target) clearDetailReturnFocus()
 }
-function selectLine(id) { cancelRelated(false, true); void closePlayer(); lineId.value = id }
+function selectLine(id) {
+  if (!detail.value?.lines.some(line => line.id === id)) return
+  lineSelectionIntent++
+  cancelRelated(false, true); void closePlayer(); lineId.value = id
+}
+async function locateLastEntry() {
+  const entry = lastEntry.value
+  if (!entry || itemStateLoading.value || starting.value || !safeMode.value) return
+  const turn = generation, item = detail.value.item.id, identity = entry.identity
+  selectLine(identity.line_id)
+  const selection = lineSelectionIntent
+  await nextTick()
+  if (current(turn) && detail.value?.item.id === item && lineSelectionIntent === selection
+    && lineId.value === identity.line_id && sameIdentity(lastEntry.value?.identity, identity)) await episodePicker.value?.locateLast?.()
+}
 async function stopRun(run) {
   if (!run) return
   if (run.stopping) return run.stopping
@@ -601,20 +714,24 @@ function clearHistory(row) {
 function safeAttribution(value) { try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url.href : undefined } catch { return undefined } }
 function unsupportedReason(reason) { return ['host_not_allowed', 'target_host_not_allowed'].includes(reason) ? '媒体主机尚未加入此来源允许列表' : '当前线路不支持直接播放，请选择其他线路' }
 const stopCleanup = registerViewingPlaybackCleanup(async () => {
+  clearDetailReturnFocus()
   cancelRelated(true)
   clearOnlineBrowse(); cacheScope = ''; positionIntent++; suspendedWork = null
   generation++; libraryGeneration++; playIntent++; cancelNext(); client.cancel(); stateClient.cancel()
   healthGeneration++; healthClient.cancel(); health.value = null; healthError.value = ''; healthLoading.value = false
   const closing = stopRun(activeRun)
+  itemStateGeneration++; itemStateLoading.value = false
   detail.value = null; itemState.value = null; resetBrowse(); libraryRows.value = []; libraryScope.value = ''; libraryTotal.value = 0
   stateNotice.value = ''; searching.value = detailLoading.value = starting.value = false
   await closing
 })
 watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locallyLocked], () => {
+  clearDetailReturnFocus()
   cancelRelated(true)
   clearOnlineBrowse(); cacheScope = ''; positionIntent++
   generation++; libraryGeneration++; client.cancel(); stateClient.cancel(); cancelNext()
   healthGeneration++; healthClient.cancel(); health.value = null; healthLoading.value = false; healthError.value = ''
+  itemStateGeneration++; itemStateLoading.value = false
   detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false; resetBrowse()
   libraryRows.value = []; libraryScope.value = ''; libraryTotal.value = 0
   void closePlayer()
@@ -637,6 +754,7 @@ watch(() => viewing.suspended, suspended => {
       force: lastQuery.value.force, position: lastQuery.value.position }
     generation++; libraryGeneration++; client.cancel(); stateClient.cancel(); cancelNext()
     healthGeneration++; healthClient.cancel(); healthLoading.value = false
+    itemStateGeneration++; itemStateLoading.value = false
     searching.value = detailLoading.value = starting.value = libraryLoading.value = false
     return
   }
@@ -665,6 +783,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => rememberBrowse())
 onUnmounted(() => {
+  clearDetailReturnFocus()
   cancelRelated(true); relatedClient.close()
   disposed = true; generation++; libraryGeneration++; healthGeneration++; playIntent++; cancelNext(); client.close(); nextClient.close(); stateClient.close(); healthClient.close(); stopCleanup()
   void stopRun(activeRun)

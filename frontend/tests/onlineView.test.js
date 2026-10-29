@@ -11,7 +11,8 @@ import { clearOnlineBrowse, onlineBrowseMemory, onlineBrowseScope } from '../src
 const SOURCE_A = 'src_' + '1'.repeat(32), SOURCE_B = 'src_' + '2'.repeat(32)
 const sources = { enabled: true, items: [{ id: SOURCE_A, name: '来源 A', provider: 'maccms' }, { id: SOURCE_B, name: '来源 B', provider: 'maccms' }] }
 const rows = { items: [{ external_id: 'movie-1', title: '合成电影', kind: 'movie', year: '2026' }], page: 1, page_count: 1, total: 1 }
-const vue = { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {}, vShow: {} }
+const showVisibility = (element, binding) => { element.props['data-test-visible'] = !!binding.value }
+const vue = { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {}, vShow: { beforeMount: showVisibility, updated: showVisibility } }
 const SCOPE = 'a'.repeat(64)
 async function setup(t, request, { stateRequest, relatedRequest, autoplay = false, routeQuery = {}, session = {} } = {}) {
   const cleanups = new Set()
@@ -30,6 +31,9 @@ async function setup(t, request, { stateRequest, relatedRequest, autoplay = fals
       loadOnlineAutoplay: () => autoplay, saveOnlineAutoplay: value => preferences.push(value),
       createOnlineProgressWriter: options => { const writer = { options, snapshots: [], sessions: [], closes: 0, session(value) { this.sessions.push(value) }, update(value) { this.snapshots.push(value) }, async close() { this.closes++ } }; writers.push(writer); return writer } },
     '../viewing.js': { isChildren: Vue.ref(false), viewing: viewingSession, registerViewingPlaybackCleanup: callback => { cleanups.add(callback); return () => cleanups.delete(callback) } },
+    // Overflow measurement belongs to the real-browser check; this host has no layout engine.
+    '../components/MediaOverview.vue': { default: { props: ['text', 'lines'],
+      setup: props => () => Vue.h('p', { 'data-stub-overview': true }, props.text) } },
     '../components/JzDialog.vue': { default: { props: ['title', 'size'], emits: ['close'],
       setup: (_props, { slots }) => () => Vue.h('section', { 'data-stub-category-dialog': true }, slots.default?.()) } },
     '../components/OnlinePlayerModal.vue': { default: { props: ['onlineIdentity', 'initialPosition', 'prepareSession'], setup: props => {
@@ -328,6 +332,161 @@ async function openShow(ui) {
 }
 function selectedEntry(ui, label = '第1集') { return ui.find(node => node.props['data-online-entry'] === label) }
 
+const ALT_LINE = 'ln_' + '7'.repeat(32)
+function multiLineShow() {
+  const data = show()
+  return { ...data, lines: [...data.lines, { id: ALT_LINE, label: '另一线路', entries: data.lines[0].entries.map(entry => ({
+    ...entry, identity: { ...entry.identity, line_id: ALT_LINE },
+  })) }] }
+}
+function primaryPlay(ui) { return ui.find(node => node.props['data-online-primary-play'] !== undefined) }
+function chooseDetailLine(ui, line) { ui.find(node => node.props['data-online-line'] === line).props.onClick() }
+const savedProgress = (entry, extra = {}) => ({ identity: entry, position: 11.5, duration: 24, completed: false, updated_at: 10, writer_revision: 4, ...extra })
+
+test('details show the primary play and episode picker before supplementary information while browse controls keep their state', async t => {
+  const { ui, players } = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/search?') ? rows
+    : { ...show(), description: '合成来源简介', actors: ['合成演员'] })
+  const tools = ui.find(node => node.props['data-online-browse-tools'] !== undefined)
+  const queryField = ui.find(node => node.props.id === 'online-query')
+  await openShow(ui)
+  assert.equal(tools.props['data-test-visible'], false)
+  assert.equal(nodeText(primaryPlay(ui)), '立即播放 · 第1集')
+  const nodes = ui.all()
+  assert.ok(nodes.indexOf(primaryPlay(ui)) < nodes.indexOf(selectedEntry(ui)))
+  assert.ok(nodes.indexOf(selectedEntry(ui)) < nodes.indexOf(ui.find(node => node.props['data-online-detail-info'] !== undefined)))
+  const metadata = ui.find(node => node.props['data-online-detail-metadata'] !== undefined)
+  assert.equal(metadata.type, 'details')
+  assert.equal(metadata.props.open, undefined, 'Supplementary cast metadata is initially collapsed')
+  assert.ok(ui.find(node => node.props['data-stub-overview'] !== undefined))
+  assert.equal(players.length, 0, 'Opening the detail never starts playback')
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回搜索结果').props.onClick(); await flush()
+  assert.equal(ui.find(node => node.props['data-online-browse-tools'] !== undefined), tools)
+  assert.equal(tools.props['data-test-visible'], true)
+  assert.equal(ui.find(node => node.props.id === 'online-query'), queryField)
+})
+
+test('a pending watching-state read leaves the detail visible and fences primary playback until the record is known', async t => {
+  const pending = deferred()
+  const { ui, players } = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/search?') ? rows : show(),
+    { stateRequest: async path => path.includes('/library?') ? { items: [], total: 0, offset: 0, scope_token: SCOPE } : pending.promise })
+  await openShow(ui)
+  assert.ok(ui.find(node => node.props['data-online-detail'] !== undefined))
+  assert.equal(ui.text().includes('正在加载详情'), false)
+  assert.equal(primaryPlay(ui).props.disabled, true)
+  assert.ok(ui.find(node => node.props['data-online-detail-state-loading'] !== undefined))
+  assert.equal(players.length, 0)
+  pending.resolve(itemState()); await flush()
+  assert.equal(primaryPlay(ui).props.disabled, false)
+  assert.equal(nodeText(primaryPlay(ui)), '立即播放 · 第1集')
+})
+
+test('the primary action restores the exact unfinished episode and line without starting until clicked', async t => {
+  const saved = savedProgress({ ...identity(EP2), line_id: ALT_LINE }), reads = []
+  const { ui, players } = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/search?') ? rows : multiLineShow(),
+    { stateRequest: async path => {
+      reads.push(path)
+      return path.includes('/library?') ? { items: [], total: 0, offset: 0, scope_token: SCOPE }
+        : itemState({ last_progress: saved, selected_progress: path.includes('?') ? saved : null })
+    } })
+  await openShow(ui)
+  assert.equal(ui.find(node => node.props['data-online-line'] === ALT_LINE).props['aria-pressed'], true)
+  assert.equal(nodeText(primaryPlay(ui)), '继续播放 · 第2集')
+  assert.ok(ui.find(node => node.props['data-online-detail-resume'] !== undefined))
+  assert.equal(players.length, 0)
+  primaryPlay(ui).props.onClick(); await flush()
+  const selected = new URL(reads.find(path => path.includes('episode_id=')), 'https://jzmedia.invalid').searchParams
+  assert.equal(selected.get('line_id'), ALT_LINE)
+  assert.equal(selected.get('episode_id'), EP2)
+  assert.equal(players[0].props.onlineIdentity.line_id, ALT_LINE)
+  assert.equal(players[0].props.initialPosition, 11.5)
+})
+
+test('manual line intent wins even when a deferred resume record later names another line', async t => {
+  const pending = deferred(), saved = savedProgress({ ...identity(EP2), line_id: ALT_LINE }), reads = []
+  const { ui, players } = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/search?') ? rows : multiLineShow(),
+    { stateRequest: async path => {
+      reads.push(path)
+      return path.includes('/library?') ? { items: [], total: 0, offset: 0, scope_token: SCOPE }
+        : path.includes('?') ? itemState({ last_progress: saved, selected_progress: null }) : pending.promise
+    } })
+  await openShow(ui)
+  chooseDetailLine(ui, ALT_LINE); chooseDetailLine(ui, LINE)
+  pending.resolve(itemState({ last_progress: saved })); await flush()
+  assert.equal(ui.find(node => node.props['data-online-line'] === LINE).props['aria-pressed'], true)
+  assert.equal(nodeText(primaryPlay(ui)), '立即播放 · 第1集')
+  assert.ok(ui.find(node => node.props['data-online-detail-locate-last'] !== undefined))
+  primaryPlay(ui).props.onClick(); await flush()
+  assert.equal(players[0].props.onlineIdentity.line_id, LINE)
+  assert.equal(players[0].props.initialPosition, 0, 'Another line cannot lend its saved position')
+  assert.equal(new URL(reads.find(path => path.includes('episode_id=')), 'https://jzmedia.invalid').searchParams.get('line_id'), LINE)
+})
+
+test('explicitly locating the previous line changes the picker without starting playback', async t => {
+  const saved = savedProgress({ ...identity(EP2), line_id: ALT_LINE })
+  const { ui, players } = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/search?') ? rows : multiLineShow(),
+    { stateRequest: async path => path.includes('/library?') ? { items: [], total: 0, offset: 0, scope_token: SCOPE } : itemState({ last_progress: saved }) })
+  await openShow(ui)
+  chooseDetailLine(ui, LINE); await flush()
+  const locate = ui.find(node => node.props['data-online-detail-locate-last'] !== undefined)
+  assert.ok(locate)
+  locate.props.onClick(); await flush()
+  assert.equal(ui.find(node => node.props['data-online-line'] === ALT_LINE).props['aria-pressed'], true)
+  assert.equal(nodeText(primaryPlay(ui)), '继续播放 · 第2集')
+  assert.equal(players.length, 0)
+})
+
+test('completed playback restarts from zero and unsupported entries never become the primary action', async t => {
+  const saved = savedProgress(identity(EP1), { completed: true, position: 24 })
+  const { ui, players } = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/search?') ? rows : show(),
+    { stateRequest: async path => path.includes('/library?') ? { items: [], total: 0, offset: 0, scope_token: SCOPE }
+      : itemState({ last_progress: saved, selected_progress: saved }) })
+  await openShow(ui)
+  assert.equal(nodeText(primaryPlay(ui)), '重新播放 · 第1集')
+  assert.equal(ui.find(node => node.props['data-online-detail-resume'] !== undefined), undefined)
+  primaryPlay(ui).props.onClick(); await flush()
+  assert.equal(players[0].props.initialPosition, 0)
+  const other = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/search?') ? rows : {
+    ...show(), lines: [{ ...show().lines[0], entries: [{ label: '不可播放', supported: false, identity: null, reason: 'host_not_allowed' }] }],
+  })
+  await openShow(other.ui)
+  assert.equal(primaryPlay(other.ui).props.disabled, true)
+  assert.equal(other.players.length, 0)
+})
+
+test('a failed detail-state read still permits exact-selection playback and reports the record error', async t => {
+  const { ui, players } = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/search?') ? rows : show(),
+    { stateRequest: async path => {
+      if (path.includes('/library?')) return { items: [], total: 0, offset: 0, scope_token: SCOPE }
+      throw new Error('isolated state read failure')
+    } })
+  await openShow(ui)
+  assert.equal(primaryPlay(ui).props.disabled, false)
+  assert.ok(ui.text().includes('暂时无法保存或读取在线记录'))
+  primaryPlay(ui).props.onClick(); await flush()
+  assert.equal(players.length, 1)
+  assert.equal(players[0].props.onlineIdentity.episode_id, EP1)
+})
+
+test('an obsolete detail-state read cannot remove the loading guard of a newer detail', async t => {
+  const first = deferred(), second = deferred(), nextItem = 'itm_' + '8'.repeat(32)
+  let details = 0
+  const other = { ...show(), item: { ...show().item, id: nextItem, title: '另一剧集' }, lines: show().lines.map(line => ({
+    ...line, entries: line.entries.map(entry => ({ ...entry, identity: { ...entry.identity, item_id: nextItem } })),
+  })) }
+  const { ui, players } = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/search?') ? rows : ++details === 1 ? show() : other,
+    { stateRequest: async path => path.includes('/library?') ? { items: [], total: 0, offset: 0, scope_token: SCOPE }
+      : path.includes(nextItem) ? second.promise : first.promise })
+  await openShow(ui)
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回搜索结果').props.onClick(); await flush()
+  await openShow(ui)
+  first.resolve(itemState()); await flush()
+  assert.equal(primaryPlay(ui).props.disabled, true)
+  assert.ok(ui.text().includes('另一剧集'))
+  second.resolve(itemState({ item_id: nextItem })); await flush()
+  assert.equal(primaryPlay(ui).props.disabled, false)
+  assert.equal(players.length, 0)
+})
+
 const relatedSources = () => ({ ...sources, items: sources.items.map(source => ({ ...source, capabilities: { related: true } })) })
 const relatedRows = (externalId = 'movie-1', extra = {}) => ({ source: sources.items[0], external_id: externalId,
   current_season: 2, status: 'ready',
@@ -469,6 +628,50 @@ test('temporary verification clears related posters and restores them without re
   assert.equal(reads, 2, 'An active player cannot start a new background recommendation request')
   assert.equal(ui.find(node => node.props['data-stub-player'] !== undefined), playerNode)
   assert.equal(players.length, 1)
+})
+
+test('returning after another season restores the original browse button without scrolling it again', async t => {
+  const { ui } = await setup(t, detailRequest, { relatedRequest: async () => relatedRows() })
+  const previousDocument = globalThis.document
+  const document = { body: {}, activeElement: null }
+  const focused = []
+  const poster = { isConnected: true, disabled: false,
+    hasAttribute: name => name === 'data-online-result', getAttribute: () => 'movie-1',
+    focus: options => { focused.push(options); document.activeElement = poster } }
+  globalThis.document = document
+  t.after(() => { if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument })
+  document.activeElement = poster
+  await openShow(ui)
+  document.activeElement = { hasAttribute: name => name === 'data-online-related-id', getAttribute: () => 'season-1' }
+  ui.find(node => node.props['data-online-related-id'] === 'season-1').props.onClick(); await flush()
+  document.activeElement = document.body
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回搜索结果').props.onClick(); await flush()
+  assert.equal(document.activeElement, poster, 'Other seasons retain the original browse focus target')
+  assert.deepEqual(focused, [{ preventScroll: true }])
+})
+
+test('returning to refreshed rows finds the replacement button by stable identity', async t => {
+  const { ui } = await setup(t, detailRequest, { relatedRequest: async () => relatedRows() })
+  const previousDocument = globalThis.document, document = { body: {}, activeElement: null }
+  let replacementFocused = 0, selector = ''
+  const original = { isConnected: true, disabled: false,
+    hasAttribute: name => name === 'data-online-result', getAttribute: () => 'movie-1',
+    focus: () => { throw new Error('Detached original button cannot own focus') } }
+  const replacement = { isConnected: true, disabled: false, focus: options => {
+    assert.deepEqual(options, { preventScroll: true }); replacementFocused++; document.activeElement = replacement
+  } }
+  globalThis.document = document
+  t.after(() => { if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument })
+  document.activeElement = original
+  await openShow(ui)
+  original.isConnected = false
+  const browser = ui.find(node => node.props['data-online-browser'] !== undefined)
+  browser.querySelector = value => { selector = value; return replacement }
+  document.activeElement = document.body
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回搜索结果').props.onClick(); await flush()
+  assert.equal(selector, '[data-online-result="movie-1"]')
+  assert.equal(replacementFocused, 1)
+  assert.equal(document.activeElement, replacement)
 })
 
 test('disabled online sources do not hide saved records or their removal actions', async t => {
