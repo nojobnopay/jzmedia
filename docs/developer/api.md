@@ -66,18 +66,21 @@
 
 ## 在线来源配置
 
-这些接口只保存开关与来源配置，不执行外部搜索、连接检查、播放地址解析或媒体取流。总开关和新来源均默认关闭；关闭时仍可管理来源，以便先完成配置。正式网页入口为“在线”，管理入口为“设置 → 在线视频源”；目录与播放分别使用下述独立接口。
+这些接口只读取候选配置或保存开关与来源配置，不执行外部搜索、连接检查、播放地址解析或媒体取流。总开关默认关闭；创建来源的 API 省略 `enabled` 时仍默认关闭，网页新增表单会默认提交 `enabled:true`。关闭时仍可管理来源，以便先完成配置。正式网页入口为“在线”，管理入口为“设置 → 在线视频源”；目录与播放分别使用下述独立接口。
 
 | 请求 | 行为 |
 |---|---|
 | `GET /api/online/settings` | 返回总开关 `{enabled:false}` |
 | `PATCH /api/online/settings` | 必须提供布尔 `enabled`，持久保存总开关 |
+| `GET /api/online/source-templates` | 返回本地配置建议 `{items:[...]}`；不自动添加、启用或探测来源 |
 | `GET /api/online/sources` | 返回 `{items:[...]}`，按优先级、创建时间和 ID 排序 |
 | `POST /api/online/sources` | 创建来源并返回 `201`；返回持久随机 ID |
 | `GET /api/online/sources/{source_id}` | 读取单个来源；不存在返回 `404` |
 | `PATCH /api/online/sources/{source_id}` | 原子更新已提供的字段；可用 `enabled:false` 停用并保留身份 |
 
 创建来源必须提供 `name`、`provider`、`api_base_url`，提供方支持 `maccms` 与固定开放样例 `open_catalog`。可选 `allowed_hosts` 为精确主机名列表，自动包含 API 主机，不支持通配符；`enabled` 默认 `false`，`priority` 为 0–1000 的整数、默认 100，数值越小越优先。地址只接受无内嵌账号密码、查询参数或片段的 HTTP(S) 基础地址；保存时只检查结构和字面地址，不发 DNS 或网络请求。实际读取执行[公网目标与头部策略](playback.md#在线远程读取)，保存成功不代表来源已经可播放。
+
+来源模板包含 `id/name/provider/api_base_url/allowed_hosts/provider_options/description/homepage/network_note/status`。`status` 为 `unverified` 或 `api_observed`；后者仅说明已有有界 API 读取记录，不表示媒体可播放或当前服务器直连可用。此接口沿用其它来源管理 GET 的鉴权和 `no-store`，候选及验证范围见[来源选择](../user-guide/watch-online.md#online-source-add)。管理员选定模板后仍须调用正常创建接口；模板不是自动订阅或允许任意目标的入口。
 
 `provider_options` 为严格对象，`search_action` 可选 `list/detail/videolist`、默认 `list`，`detail_action` 可选 `detail/videolist`、默认 `detail`。更新时提交该对象会整体替换，未提供的子项恢复默认；省略对象则保留原值。MacCMS 据此选择 Provide JSON 的 `ac` 参数；开放样例忽略这两个兼容选项。开放样例使用固定基础地址与媒体主机，见[配置参考](../getting-started/configuration.md#在线视频源)。
 
@@ -108,7 +111,7 @@
 
 有效规则解释不包含代理凭据。直连与代理均返回 `target_dns:"local_pinned"`、`destination_validation:"required_per_request"`，表示内部读取客户端必须在每次请求执行目标策略；该端点不解析 DNS、不连接站点，也不验证来源已经可播放。代理目标使用已批准公网 IP 的 CONNECT 隧道，无法使用该隧道时失败，不切换出口。
 
-`create_online_client(source_id,purpose)` 是提供方与会话网关使用的服务端内部工厂，从同一数据库读快照检查总开关、来源启用状态，并绑定来源允许主机与网络策略。API 查询用 `api`，媒体与 HLS 子资源用 `media`。上游认证授权由服务端独立的 `HeaderGrant` 提供，不接受管理请求中的 jzmedia 令牌、观看 Cookie 或任意上游请求头。GET/HEAD、逐跳重定向与认证隔离的完整约束见[在线远程读取](playback.md#在线远程读取)。公开读取仅使用固定来源的目录或已登记会话和资源，不提供任意 URL 转发接口。
+`create_online_client(source_id,purpose)` 是提供方、海报读取与会话网关使用的服务端内部工厂，从同一数据库读快照检查总开关、来源启用状态，并绑定来源允许主机与网络策略。API 查询用 `api`，媒体与 HLS 子资源用 `media`，海报用 `image`。上游认证授权由服务端独立的 `HeaderGrant` 提供，不接受管理请求中的 jzmedia 令牌、观看 Cookie 或任意上游请求头。GET/HEAD、逐跳重定向与认证隔离的完整约束见[在线远程读取](playback.md#在线远程读取)。公开读取仅使用固定来源的目录或已登记会话和资源，不提供任意 URL 转发接口。
 
 ## 在线目录
 
@@ -118,11 +121,17 @@
 |---|---|
 | `GET /api/online/catalog/sources` | `{enabled,items:[{id,name,provider,priority,capabilities}]}`；总开关关闭时列表为空，不访问上游 |
 | `GET /api/online/catalog/search?source_id=src_...&q=片名&page=1` | 单源搜索；返回来源、元数据条目、`page/page_count/total` |
+| `GET /api/online/catalog/browse?source_id=src_...&page=1&category_id=...` | 浏览来源最近更新或实际分类；返回搜索结果同型结构，并包含 `categories:[{id,name}]` |
 | `GET /api/online/catalog/detail?source_id=src_...&external_id=123` | 返回稳定条目身份、简介、年份、全部线路、分集和可选归因链接 |
+| `GET /api/online/catalog/artwork/{source_id}/{token}` | 读取此前目录或详情登记的海报；不接受上游 URL 参数 |
 
-`q` 最多 100 字符，MacCMS 要求非空；开放样例可空词浏览。`page` 为 1–1000；`external_id` 为 1–128 个 ASCII 字母、数字、下划线或连字符。搜索只给 `external_id` 与文本元数据，不创建本地媒体记录；详情按来源和内容种类保存独立在线身份。
+`q` 最多 100 字符，MacCMS 搜索要求非空；开放样例可空词搜索，通用目录浏览使用 `/browse`。`page` 为 1–1000；`external_id` 为 1–128 个 ASCII 字母、数字、下划线或连字符；`category_id` 可省略或为空，否则同样最多 128 个上述 ASCII 字符。分类来自上游真实分类，浏览不生成个性化推荐或热度。来源管理页的“测试来源”读取 `/browse` 第一页，只验证目录响应。
 
-详情的每条线路为 `{id,label,entries}`，播放项为 `{label,identity,transport,supported,reason}`。支持项携带稳定播放身份；不支持的封装、播放器网页或不在允许主机中的目标返回 `supported:false`、`identity:null`，不泄露上游地址。简介按纯文本显示；当前页面不请求外部封面。只有开放样例归因中的官方项目和许可链接可作为外部超链接返回，不能当作媒体入口。
+搜索与浏览条目提供 `external_id`、文本元数据及可选的服务内 `poster_path`，不创建本地媒体记录；详情按来源和内容种类保存独立在线身份。海报路径是不透明的来源绑定租约，受当前观看权限、来源与网络配置检查约束；停用来源、配置变化或租约失效后需重新读取目录或详情，不能将它作为持久图片地址保存。
+
+详情的每条线路为 `{id,label,entries}`，播放项为 `{label,identity,transport,supported,reason}`。支持项携带稳定播放身份；不支持的封装、播放器网页或不在允许主机中的目标返回 `supported:false`、`identity:null`，不泄露上游地址。简介按纯文本显示；海报只经上述登记路径和图片用途策略读取，缺失时 `poster_path` 为空。只有开放样例归因中的官方项目和许可链接可作为外部超链接返回，不能当作媒体入口。
+
+海报响应只接受 JPEG、PNG、WebP，最多 512 KiB、10 秒，服务进程最多同时读取两张；不在服务器解码或落盘。租约最多保留 30 分钟，读取失败只影响封面展示，不改变目录条目或媒体播放身份。
 
 搜索、详情和播放解析共用有界提供方入口：每进程最多 4 个、每设备最多 1 个活动查询，无等待队列；30 秒总期限覆盖 DNS、连接池等待和上游读取。JSON 最多 2 MiB、每页最多 100 项、每条目最多 16 线路、每线路最多 500 项、总共最多 2000 分集。取消 HTTP 查询或创建会话会中断上游 I/O，并由实际工作退出后释放槽位；取消等待不提前释放仍在工作的配额。
 
