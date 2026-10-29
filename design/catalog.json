@@ -27968,6 +27968,245 @@
       "source_excerpt": "<JzButton :ref=\"button => setEntryButton(row.index, button)\" :data-online-entry=\"row.entry.label\" :data-online-entry-index=\"row.index\" :data-online-entry-current=\"row.index === cur"
     },
     {
+      "id": "frontend/src/components/OnlineHostDialog.vue:input:14",
+      "source": "frontend/src/components/OnlineHostDialog.vue",
+      "line": 14,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input v-model=\"selected\" type=\"checkbox\" :value=\"host\" data-online-host-candidate />"
+    },
+    {
+      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:18",
+      "source": "frontend/src/components/OnlineHostDialog.vue",
+      "line": 20,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "暂不添加",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"saving || authorizing\" @click=\"close\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:19",
+      "source": "frontend/src/components/OnlineHostDialog.vue",
+      "line": 21,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "验证并检查",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"permissionRequired\" variant=\"primary\" :loading=\"authorizing\" :disabled=\"saving\" @click=\"authorize\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:20",
+      "source": "frontend/src/components/OnlineHostDialog.vue",
+      "line": 22,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "重新加载详情",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-else-if=\"saved || report && !report.missing_hosts.length\" variant=\"primary\" :loading=\"saving\" @click=\"reload\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:21",
+      "source": "frontend/src/components/OnlineHostDialog.vue",
+      "line": 23,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "确认添加",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-else-if=\"report\" variant=\"primary\" :loading=\"saving\" :disabled=\"!selected.length || checking\" @click=\"apply\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:22",
+      "source": "frontend/src/components/OnlineHostDialog.vue",
+      "line": 24,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "重新检查",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-else variant=\"primary\" :loading=\"checking\" :disabled=\"saving\" @click=\"check\">"
+    },
+    {
       "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:8",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
       "line": 11,
@@ -51388,39 +51627,43 @@
       "source_excerpt": "<JzButton v-if=\"lastEntry.identity.line_id !== lineId\" variant=\"ghost\" data-online-detail-locate-last :disabled=\"starting || itemStateLoading || nextLoading\" @click=\"locateLastEntr"
     },
     {
-      "id": "frontend/src/views/Online.vue:RouterLink:105",
+      "id": "frontend/src/views/Online.vue:JzButton:105",
       "source": "frontend/src/views/Online.vue",
       "line": 86,
       "platforms": [
         "web",
         "mobile-web"
       ],
-      "category": "link",
+      "category": "control",
       "feature": "通用控件与导航",
-      "element": "RouterLink",
+      "element": "JzButton",
       "purpose": "检查媒体主机",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
         "unit": "CSS px",
-        "profile": "web-link",
-        "specification": "正文链接保留行内文本；导航和按钮式链接按对应class扩展触摸区，不能把所有正文链接声明为44px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
         "measurement_status": "source specification; browser acceptance records actual geometry",
         "source": [
-          "frontend/src/styles/base.css"
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
         ],
         "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+        "value": "min-height:40px desktop / 44px touch"
       },
-      "target": null,
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
       "states": [
         "normal",
         "focus",
         "disabled"
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "semantic link",
-      "source_excerpt": "<router-link :to=\"{ path: '/settings', query: { sec: 'sec-online', source: detail.source.id, item: lastDetailId } }\" data-online-host-repair>"
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton data-online-host-repair @click=\"openHostDialog(false)\">"
     },
     {
       "id": "frontend/src/views/Online.vue:JzButton:109",

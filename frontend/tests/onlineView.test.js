@@ -14,28 +14,33 @@ const rows = { items: [{ external_id: 'movie-1', title: '合成电影', kind: 'm
 const showVisibility = (element, binding) => { element.props['data-test-visible'] = !!binding.value }
 const vue = { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {}, vShow: { beforeMount: showVisibility, updated: showVisibility } }
 const SCOPE = 'a'.repeat(64)
-async function setup(t, request, { stateRequest, relatedRequest, autoplay = false, routeQuery = {}, session = {} } = {}) {
+async function setup(t, request, { stateRequest, relatedRequest, hostRequest, autoplay = false, routeQuery = {}, session = {} } = {}) {
   const cleanups = new Set()
   const viewingSession = Vue.reactive({ mode: 'normal', generation: 1, revision: 0, locallyLocked: false, suspended: false, ...session })
   const players = [], writers = [], preferences = [], navigations = []
   const stateRead = stateRequest || (async path => path.includes('/library?')
     ? { items: [], total: 0, limit: 20, offset: 0, scope_token: SCOPE }
     : { item_id: path.split('/').at(-1).split('?')[0], favorite: false, last_progress: null, selected_progress: null, available: true, scope_token: SCOPE })
+  const dialogStub = { default: { props: ['title', 'size', 'busy', 'focusActive'], emits: ['close'],
+    setup: (_props, { slots, attrs }) => () => Vue.h('section', { ...attrs, 'data-stub-category-dialog': true },
+      [...(slots.default?.() || []), ...(slots.footer?.() || [])]) } }
   const component = await loadSfc(new URL('../src/views/Online.vue', import.meta.url), {
     vue,
     'vue-router': { useRoute: () => ({ query: routeQuery }), useRouter: () => ({ replace: async target => { navigations.push(target) } }) },
+    '../api.js': { api: hostRequest || (async () => { throw { code: 'provider_timeout' } }) },
     '../onlineCatalog.js': { ...catalog, createOnlineCatalogClient: () => catalog.createOnlineCatalogClient({ request }), createOnlineHealthClient: () => ({ read: async () => null, cancel() {}, close() {} }) },
     '../onlineRelated.js': { ...relatedCatalog, createOnlineRelatedClient: () => relatedCatalog.createOnlineRelatedClient({ delay: 0,
       request: relatedRequest || (async path => ({ source: { id: SOURCE_A }, external_id: new URL(path, 'https://jzmedia.invalid').searchParams.get('external_id'), status: 'unsupported' })) }) },
     '../onlineState.js': { ...state, createOnlineStateClient: () => state.createOnlineStateClient({ request: stateRead }),
       loadOnlineAutoplay: () => autoplay, saveOnlineAutoplay: value => preferences.push(value),
       createOnlineProgressWriter: options => { const writer = { options, snapshots: [], sessions: [], closes: 0, session(value) { this.sessions.push(value) }, update(value) { this.snapshots.push(value) }, async close() { this.closes++ } }; writers.push(writer); return writer } },
-    '../viewing.js': { isChildren: Vue.ref(false), viewing: viewingSession, registerViewingPlaybackCleanup: callback => { cleanups.add(callback); return () => cleanups.delete(callback) } },
+    '../viewing.js': { isChildren: Vue.ref(false), viewing: viewingSession, refreshViewing: async () => viewingSession,
+      ensureManagement: async () => { viewingSession.management_unlocked = true; return true }, registerViewingPlaybackCleanup: callback => { cleanups.add(callback); return () => cleanups.delete(callback) } },
     // Overflow measurement belongs to the real-browser check; this host has no layout engine.
     '../components/MediaOverview.vue': { default: { props: ['text', 'lines'],
       setup: props => () => Vue.h('p', { 'data-stub-overview': true }, props.text) } },
-    '../components/JzDialog.vue': { default: { props: ['title', 'size'], emits: ['close'],
-      setup: (_props, { slots }) => () => Vue.h('section', { 'data-stub-category-dialog': true }, slots.default?.()) } },
+    '../components/JzDialog.vue': dialogStub,
+    './JzDialog.vue': dialogStub,
     '../components/OnlinePlayerModal.vue': { default: { props: ['onlineIdentity', 'initialPosition', 'prepareSession'], setup: props => {
       const listeners = Vue.getCurrentInstance().vnode.props
       const player = { props, ended: identity => listeners.onEnded(identity || props.onlineIdentity),
@@ -1047,4 +1052,96 @@ test('temporary verification cancels an unfinished detail and retries it without
   assert.equal(ui.text().includes('失效请求的迟到详情'), false)
   assert.ok(ui.find(node => node.props['data-online-detail'] !== undefined))
   assert.ok(selectedEntry(ui))
+})
+
+function hostBlockedShow() {
+  const value = multiLineShow()
+  value.lines[0].entries[0] = { label: '第1集', supported: false, identity: null, transport: null, reason: 'target_host_not_allowed' }
+  return value
+}
+function hostButton(ui, label) { return ui.find(node => node.type === 'button' && nodeText(node) === label) }
+function hostReport(externalId) { return { source_id: SOURCE_A, external_id: externalId, configuration_fingerprint: 'f'.repeat(64),
+  missing_hosts: ['cdn.example'], allowed_hosts: ['api.example'], rejected_count: 0 } }
+
+test('blocked details remind once; confirmation refreshes configuration without navigation, line loss or autoplay', async t => {
+  let configuration = 'a'.repeat(64), checks = 0, writes = 0
+  const requests = []
+  const { ui, players, navigations } = await setup(t, async path => {
+    requests.push(path)
+    return path.endsWith('/sources') ? cacheableSources(configuration) : path.includes('/detail?') ? hostBlockedShow() : rows
+  }, { hostRequest: async (path, options) => {
+    if (path.endsWith('/host-check')) { checks++; return hostReport(JSON.parse(options.body).external_id) }
+    writes++; configuration = 'c'.repeat(64); return {}
+  } })
+  await openShow(ui)
+  assert.ok(ui.find(node => node.props['data-online-host-dialog'] !== undefined))
+  assert.equal(checks, 1)
+  await hostButton(ui, '暂不添加').props.onClick(); await flush()
+  chooseDetailLine(ui, LINE); await flush()
+  assert.equal(ui.find(node => node.props['data-online-host-dialog'] !== undefined), undefined)
+  chooseDetailLine(ui, ALT_LINE); await flush()
+  await ui.find(node => node.props['data-online-host-repair'] !== undefined).props.onClick(); await flush()
+  assert.equal(checks, 2)
+  await hostButton(ui, '确认添加').props.onClick(); await flush()
+  assert.equal(writes, 1)
+  assert.equal(ui.find(node => node.props['data-online-host-dialog'] !== undefined), undefined)
+  assert.equal(ui.find(node => node.props['data-online-line'] === ALT_LINE).props['aria-pressed'], true)
+  assert.equal(requests.filter(path => path.endsWith('/sources')).length, 2)
+  assert.equal(requests.filter(path => path.includes('/detail?')).length, 2)
+  assert.equal(navigations.length, 0)
+  assert.equal(players.length, 0)
+  // A partial approval can leave some blocked entries. The new configuration
+  // token is still remembered, so returning to this item does not nag again.
+  await hostButton(ui, '返回搜索结果').props.onClick(); await flush()
+  await openShow(ui)
+  assert.equal(ui.find(node => node.props['data-online-host-dialog'] !== undefined), undefined)
+  assert.equal(checks, 2)
+})
+
+test('host confirmation cannot adopt a changed viewing scope while refreshing the saved source', async t => {
+  let saved = false, reads = 0
+  const { ui } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return cacheableSources('b'.repeat(64), saved ? 'e'.repeat(64) : SCOPE)
+    if (path.includes('/detail?')) { reads++; return hostBlockedShow() }
+    return rows
+  }, { hostRequest: async (path, options) => {
+    if (path.endsWith('/host-check')) return hostReport(JSON.parse(options.body).external_id)
+    saved = true; return {}
+  } })
+  await openShow(ui)
+  await hostButton(ui, '确认添加').props.onClick(); await flush()
+  assert.ok(ui.find(node => node.props['data-online-host-saved'] !== undefined))
+  assert.match(ui.text(), /详情刷新失败/)
+  assert.equal(reads, 1, 'a new viewing scope must not read or paint a detail in the old confirmation')
+})
+
+test('returning from a blocked detail aborts inspection and ignores its late response', async t => {
+  const pending = deferred(); let signal
+  const { ui } = await setup(t, async path => path.endsWith('/sources') ? sources : path.includes('/detail?') ? hostBlockedShow() : rows,
+    { hostRequest: async (_path, options) => { signal = options.signal; return pending.promise } })
+  await openShow(ui)
+  assert.ok(signal)
+  await hostButton(ui, '返回搜索结果').props.onClick(); await flush()
+  assert.equal(signal.aborted, true)
+  pending.resolve(hostReport('movie-1')); await flush()
+  assert.equal(ui.find(node => node.props['data-online-host-dialog'] !== undefined), undefined)
+  assert.equal(ui.find(node => node.props['data-online-host-candidate'] !== undefined), undefined)
+})
+
+test('continue watching actively offers host confirmation when the original episode is now blocked', async t => {
+  const watched = savedProgress(identity(EP1))
+  const record = { item: { id: ITEM, source_id: SOURCE_A, external_id: 'show-1', kind: 'tv', title: '待恢复节目' },
+    source: sources.items[0], favorite: false, progress: watched, available: true, reason: '' }
+  let checks = 0
+  const { ui, players } = await setup(t, async path => path.endsWith('/sources') ? sources : hostBlockedShow(), {
+    stateRequest: async path => path.includes('/library?')
+      ? { items: [record], total: 1, offset: 0, scope_token: SCOPE }
+      : itemState({ last_progress: watched }),
+    hostRequest: async (_path, options) => { checks++; return hostReport(JSON.parse(options.body).external_id) },
+  })
+  await ui.find(node => node.props['data-online-resume'] === ITEM).props.onClick(); await flush()
+  assert.ok(ui.find(node => node.props['data-online-host-dialog'] !== undefined))
+  assert.equal(checks, 1)
+  assert.equal(players.length, 0, 'a blocked resume identity must not silently substitute another episode')
+  assert.match(ui.text(), /上次线路或分集已变化/)
 })

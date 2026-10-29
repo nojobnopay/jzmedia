@@ -82,8 +82,8 @@
           <p v-else-if="itemStateLoading" class="online-scope" data-online-detail-state-loading role="status">正在读取观看记录…</p>
           <p v-if="!primaryEntry && !itemStateLoading" class="online-scope" data-online-no-playable>当前线路暂无可直接播放的内容，请选择其他线路。</p>
           <div v-if="needsHostUpdate" class="online-host-help" data-online-host-help role="status">
-            <p>此来源使用了尚未允许的媒体主机。请在来源设置中检查并确认新增域名，再返回这里重新加载。</p>
-            <router-link :to="{ path: '/settings', query: { sec: 'sec-online', source: detail.source.id, item: lastDetailId } }" data-online-host-repair>检查媒体主机</router-link>
+            <p>此来源使用了尚未允许的媒体主机。可在当前页面检查并确认新增域名。</p>
+            <JzButton data-online-host-repair @click="openHostDialog(false)">检查媒体主机</JzButton>
           </div>
           <section class="online-play-selection" aria-label="线路与选集">
             <h3>播放线路</h3>
@@ -155,6 +155,7 @@
         <nav v-if="libraryTotal > 20" class="online-pagination" aria-label="在线记录分页"><JzButton :disabled="libraryOffset === 0 || libraryLoading" @click="loadLibrary(Math.max(0, libraryOffset - 20))">上一页</JzButton><span>第 {{ Math.floor(libraryOffset / 20) + 1 }} 页 · {{ libraryTotal }} 项</span><JzButton :disabled="libraryLoading || libraryOffset + 20 >= libraryTotal || libraryOffset + 20 > 1000" @click="loadLibrary(libraryOffset + 20)">下一页</JzButton></nav>
       </section>
     </template>
+    <OnlineHostDialog v-if="hostDialog && safeMode && !playing" :key="hostDialog.key" :source-id="hostDialog.source" :external-id="hostDialog.externalId" :title="hostDialog.title" :source-name="hostDialog.sourceName" :current="hostDialogCurrent" :refresh="refreshHostDetail" @close="closeHostDialog" />
     <OnlinePlayerModal v-if="playing" :key="playing.key" :online-identity="playing.identity" :title="playing.title" :initial-position="playing.position" :prepare-session="playing.prepareSession" @close="playing.close" @progress="playing.progress" @ended="playing.ended" />
   </div>
 </template>
@@ -179,6 +180,8 @@ import OnlinePlayerModal from '../components/OnlinePlayerModal.vue'
 import OnlineArtwork from '../components/OnlineArtwork.vue'
 import OnlineEpisodes from '../components/OnlineEpisodes.vue'
 import MediaOverview from '../components/MediaOverview.vue'
+import OnlineHostDialog from '../components/OnlineHostDialog.vue'
+import { createOnlineHostReminders } from '../onlineHosts.js'
 import '../styles/online.css'
 
 const client = createOnlineCatalogClient(), nextClient = createOnlineCatalogClient(), stateClient = createOnlineStateClient()
@@ -198,6 +201,7 @@ const recentYears = Array.from({ length: 6 }, (_, index) => String(new Date().ge
 const posterGeneration = ref(0)
 const results = ref([]), page = ref(1), pageCount = ref(1), total = ref(0), loadedQuery = ref('')
 const detailLoading = ref(false), detailError = ref(''), detail = ref(null), lineId = ref(''), lastDetailId = ref(''), itemState = ref(null)
+const hostDialog = ref(null), hostReminders = createOnlineHostReminders()
 const playing = ref(null), starting = ref(false), nextLoading = ref(false), stateNotice = ref('')
 const itemStateLoading = ref(false), detailRoot = ref(null), detailTitle = ref(null), episodePicker = ref(null)
 const browseTools = ref(null), libraryRoot = ref(null)
@@ -263,7 +267,7 @@ function cancelRelated(clear = false, defer = false) {
   else if (defer && interrupted && !related.value) { relatedError.value = null; relatedDeferred.value = true }
 }
 async function loadRelated(immediate = false) {
-  if (!safeMode.value || !detail.value || detailLoading.value || playing.value || starting.value || nextLoading.value || selectedSource.value?.capabilities?.related !== true) return
+  if (!safeMode.value || !detail.value || detailLoading.value || hostDialog.value || playing.value || starting.value || nextLoading.value || selectedSource.value?.capabilities?.related !== true) return
   const turn = ++relatedGeneration, view = generation, source = sourceId.value, externalId = lastDetailId.value
   relatedLoading.value = true; relatedError.value = null; relatedDeferred.value = false
   try {
@@ -274,6 +278,54 @@ async function loadRelated(immediate = false) {
     relatedDeferred.value = value.status === 'deferred'
   } catch (error) { if (current(view) && turn === relatedGeneration) relatedError.value = onlineRelatedError(error) }
   finally { if (turn === relatedGeneration) relatedLoading.value = false }
+}
+function hostViewScope() { return JSON.stringify([cacheScope, viewing.mode, viewing.generation, viewing.revision, !!viewing.locallyLocked]) }
+function hostReminderKey() { return JSON.stringify([hostViewScope(), sourceId.value, lastDetailId.value, selectedSource.value?.configuration_token || '']) }
+function hostDialogCurrent() {
+  const context = hostDialog.value
+  return !!context && current(context.view) && context.source === sourceId.value
+    && context.externalId === lastDetailId.value && context.itemId === detail.value?.item.id
+    && context.scope === hostViewScope() && !playing.value && !starting.value
+}
+function closeHostDialog(resume = true) {
+  hostDialog.value = null
+  if (resume) void loadRelated()
+}
+function openHostDialog(automatic = false) {
+  if (!needsHostUpdate.value || !safeMode.value || detailLoading.value || itemStateLoading.value
+    || playing.value || starting.value || nextLoading.value || hostDialog.value) return
+  const key = hostReminderKey()
+  if (automatic && !hostReminders.claim(key)) return
+  if (!automatic) hostReminders.remember(key)
+  cancelRelated(false, true)
+  hostDialog.value = { key, scope: hostViewScope(), view: generation, source: sourceId.value,
+    externalId: lastDetailId.value, itemId: detail.value.item.id, title: detail.value.item.title,
+    sourceName: detail.value.source.name }
+}
+async function refreshHostDetail() {
+  if (!hostDialogCurrent()) throw new Error('stale host dialog')
+  const context = hostDialog.value, originalLine = lineId.value
+  // Keep navigation conditions and anchors, but never reuse old artwork leases
+  // or catalogue responses after the allowlist changes its configuration token.
+  clearOnlineBrowse()
+  if (searched.value) loadedAt = 1
+  const response = await client.sources()
+  if (!hostDialogCurrent() || hostDialog.value !== context) throw new Error('stale host dialog')
+  const source = response?.items?.find(item => item.id === context.source)
+  if (!response?.enabled || !source) throw new Error('source unavailable')
+  if (cacheScope && onlineBrowseScope(response.scope_token, viewing) !== cacheScope) throw new Error('viewing scope changed')
+  sources.value = response.items
+  cacheScope = onlineBrowseScope(response.scope_token, viewing)
+  context.scope = hostViewScope()
+  hostReminders.remember(hostReminderKey())
+  const refreshed = await client.detail(context.source, context.externalId)
+  if (!hostDialogCurrent() || hostDialog.value !== context || refreshed?.item.id !== context.itemId) throw new Error('stale host detail')
+  detail.value = refreshed
+  lineId.value = refreshed.lines.some(line => line.id === originalLine) ? originalLine
+    : refreshed.lines.find(line => line.entries.some(entry => entry.supported && entry.identity))?.id || refreshed.lines[0]?.id || ''
+  await readItemState(refreshed, context.view)
+  if (!hostDialogCurrent() || hostDialog.value !== context) throw new Error('stale host detail')
+  void loadHealth()
 }
 function sameIdentity(a, b) { try { return onlineIdentityKey(a) === onlineIdentityKey(b) } catch { return false } }
 function findEntry(data, identity) { return data?.lines?.flatMap(line => line.entries).find(entry => entry.supported && entry.identity && sameIdentity(entry.identity, identity)) || null }
@@ -332,6 +384,7 @@ function resetBrowse() {
   loadedAt = 0; browsePosition = null; positionIntent++
 }
 async function loadSources() {
+  closeHostDialog(false)
   cancelRelated(true)
   const turn = ++generation
   const target = onlineRouteTarget(route.query)
@@ -387,6 +440,7 @@ async function loadLibrary(offset = libraryOffset.value) {
 }
 function selectLibrary(section) { librarySection.value = section; void loadLibrary(0) }
 function sourceChanged(discover = true) {
+  closeHostDialog(false)
   if (discover && sourceId.value === lastSourceId) return
   clearDetailReturnFocus()
   cancelRelated(true)
@@ -441,6 +495,7 @@ function applyCustomYear() {
   rememberBrowse(); setYear(customYear.value); query.value = ''; void search(1, '')
 }
 async function search(nextPage = 1, text = query.value, options = {}) {
+  closeHostDialog(false)
   if (!sourceId.value || !safeMode.value || !text.trim() && !canBrowse.value) return
   cancelRelated(true)
   rememberBrowse()
@@ -522,11 +577,12 @@ function focusDetailReturn(target) {
 async function showDetailTop(turn) {
   const position = positionIntent
   await nextTick()
-  if (!current(turn) || position !== positionIntent || !detail.value || playing.value || starting.value) return
+  if (!current(turn) || position !== positionIntent || !detail.value || hostDialog.value || playing.value || starting.value) return
   detailTitle.value?.focus?.({ preventScroll: true })
   detailRoot.value?.scrollIntoView?.({ block: 'start', behavior: 'instant' })
 }
 async function openDetail(externalId, options = {}) {
+  closeHostDialog(false)
   rememberDetailReturnFocus(externalId, options)
   cancelRelated(true)
   rememberBrowse()
@@ -550,7 +606,7 @@ async function openDetail(externalId, options = {}) {
     lineId.value = entry.identity.line_id
     await play(entry)
   } catch (error) { if (current(turn)) detailError.value = onlineCatalogError(error) }
-  finally { if (current(turn)) { detailLoading.value = false; void loadHealth(); if (detail.value && !detailError.value) void loadRelated() } }
+  finally { if (current(turn)) { detailLoading.value = false; void loadHealth(); if (detail.value && !detailError.value) { openHostDialog(true); void loadRelated() } } }
 }
 async function openSaved(row, resume) {
   if (!row.available || !safeMode.value || loadingSources.value || sourcesError.value) return
@@ -563,6 +619,7 @@ function openRelated(externalId) {
   void router.replace({ path: '/online', query: { source, item: externalId } })
 }
 async function backToResults() {
+  closeHostDialog(false)
   const target = detailReturnFocus
   cancelRelated(true)
   itemStateGeneration++; itemStateLoading.value = false
@@ -616,6 +673,7 @@ async function closePlayer() {
 }
 async function play(entry, { automatic = false } = {}) {
   if (!entry?.supported || !entry.identity || !safeMode.value || !detail.value) return
+  closeHostDialog(false)
   cancelRelated(false, true)
   if (!automatic) cancelNext()
   const intent = ++playIntent, view = generation, data = detail.value
@@ -716,6 +774,7 @@ function clearHistory(row) {
 function safeAttribution(value) { try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url.href : undefined } catch { return undefined } }
 function unsupportedReason(reason) { return ['host_not_allowed', 'target_host_not_allowed'].includes(reason) ? '媒体主机尚未加入此来源允许列表' : '当前线路不支持直接播放，请选择其他线路' }
 const stopCleanup = registerViewingPlaybackCleanup(async () => {
+  closeHostDialog(false); hostReminders.clear()
   clearDetailReturnFocus()
   cancelRelated(true)
   clearOnlineBrowse(); cacheScope = ''; positionIntent++; suspendedWork = null
@@ -728,6 +787,7 @@ const stopCleanup = registerViewingPlaybackCleanup(async () => {
   await closing
 })
 watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locallyLocked], () => {
+  closeHostDialog(false); hostReminders.clear()
   clearDetailReturnFocus()
   cancelRelated(true)
   clearOnlineBrowse(); cacheScope = ''; positionIntent++
@@ -744,6 +804,7 @@ watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locally
 watch(() => viewing.suspended, suspended => {
   positionIntent++
   if (suspended) {
+    closeHostDialog(false)
     cancelRelated(true)
     categoriesOpen.value = false; categoryQuery.value = ''
     // Verification temporarily hides content. It does not revoke an otherwise
@@ -785,6 +846,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => rememberBrowse())
 onUnmounted(() => {
+  closeHostDialog(false); hostReminders.clear()
   clearDetailReturnFocus()
   cancelRelated(true); relatedClient.close()
   disposed = true; generation++; libraryGeneration++; healthGeneration++; playIntent++; cancelNext(); client.close(); nextClient.close(); stateClient.close(); healthClient.close(); stopCleanup()
