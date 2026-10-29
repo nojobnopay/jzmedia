@@ -257,7 +257,7 @@ def test_missing_taxonomy_does_not_fail_a_valid_filtered_catalogue(client):
     initial = client.get("/api/online/catalog/browse", params=query)
     assert initial.status_code == 200 and len(initial.json()["categories"]) == 49
 
-    assert client.post("/api/p2/scenario", json={"taxonomy_unavailable": True}).status_code == 200
+    assert client.post("/api/p2/scenario", json={"taxonomy_unavailable": True, "clear_taxonomy_cache": True}).status_code == 200
     partial = client.get("/api/online/catalog/browse", params=query)
     assert partial.status_code == 200, partial.text
     assert [item["external_id"] for item in partial.json()["items"]] == ["action-1"]
@@ -512,7 +512,8 @@ def test_unsupported_web_lines_are_not_playable_identities(client):
 @pytest.mark.parametrize("mode", ["malformed", "xml", "status_error"])
 def test_controlled_upstream_errors_are_sanitized_and_retryable(client, mode):
     source = add_source(client)
-    assert client.post("/api/p2/scenario", json={"next_mode": mode}).status_code == 200
+    plan = {"metadata_failures_remaining": 2} if mode == "status_error" else {"next_mode": mode}
+    assert client.post("/api/p2/scenario", json=plan).status_code == 200
     response = client.get("/api/online/catalog/search", params={"source_id": source["id"], "q": "合成", "page": 1})
     assert response.status_code in {502, 503}, response.text
     assert "fixture.invalid" not in response.text and "upstream failure" not in response.text
@@ -540,3 +541,34 @@ def test_fixture_restores_database_global_and_only_removes_its_state(prepared):
     assert store._base.DB_PATH == original
     assert not list(prepared.glob("state-*"))
     assert (prepared / "media" / "ep-1" / "movie.mp4").exists()
+
+
+@pytest.mark.parametrize("endpoint,query", [("browse", {}), ("search", {"q": "合成电影"})])
+@pytest.mark.parametrize("status", [502, 503, 504])
+def test_foreground_metadata_recovers_once_without_consuming_category_discovery(client, endpoint, query, status):
+    source = add_source(client)
+    assert client.post("/api/p2/scenario", json={"metadata_failures_remaining": 1,
+        "metadata_failure_status": status}).status_code == 200
+    response = client.get("/api/online/catalog/" + endpoint, params={"source_id": source["id"], **query})
+    assert response.status_code == 200, response.text
+    calls = client.get("/api/p2/metrics").json()["origin_calls"]
+    primary = [call for call in calls if "metadata_status" in call]
+    assert [call["metadata_status"] for call in primary] == [status, 200]
+    assert all(call["kind"] == "api" for call in calls)
+
+
+def test_successful_taxonomy_cache_avoids_discovery_but_does_not_cache_primary_errors(client):
+    source = add_source(client)
+    assert client.post("/api/p2/scenario", json={"taxonomy": True, "clear_taxonomy_cache": True}).status_code == 200
+    query = {"source_id": source["id"], "category_id": "21"}
+    assert len(client.get("/api/online/catalog/browse", params=query).json()["categories"]) == 49
+    assert client.post("/api/p2/scenario", json={"taxonomy_unavailable": True}).status_code == 200
+    cached = client.get("/api/online/catalog/browse", params=query)
+    assert cached.status_code == 200 and len(cached.json()["categories"]) == 49
+    calls = client.get("/api/p2/metrics").json()["origin_calls"]
+    assert not any(call.get("category_discovery_failure") for call in calls)
+    assert client.post("/api/p2/scenario", json={"metadata_failures_remaining": 2}).status_code == 200
+    failed = client.get("/api/online/catalog/browse", params=query)
+    assert failed.status_code == 502 and failed.json()["code"] == "provider_upstream_error"
+    assert client.post("/api/p2/scenario", json={"taxonomy_unavailable": False}).status_code == 200
+    assert client.get("/api/online/catalog/browse", params=query).status_code == 200

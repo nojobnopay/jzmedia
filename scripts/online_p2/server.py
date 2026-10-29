@@ -72,6 +72,11 @@ class Scenario(BaseModel):
     detail_failure_status: Literal[200, 502, 503, 504] | None = None
     detail_failure_delay_ms: int | None = Field(default=None, ge=0, le=2000)
     detail_success_delay_ms: int | None = Field(default=None, ge=0, le=2000)
+    metadata_failures_remaining: int | None = Field(default=None, ge=0, le=2)
+    metadata_failure_status: Literal[200, 502, 503, 504] | None = None
+    metadata_failure_delay_ms: int | None = Field(default=None, ge=0, le=2000)
+    metadata_success_delay_ms: int | None = Field(default=None, ge=0, le=2000)
+    clear_taxonomy_cache: bool = False
     clear_related_cache: bool = False
     clear_related_results: bool = False
     image_delay_ms: int | None = Field(default=None, ge=0, le=1500)
@@ -148,7 +153,9 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
     health_module = importlib.import_module("app.online.health")
     artwork_module = importlib.import_module("app.online.artwork")
     related_module = importlib.import_module("app.online.related")
+    taxonomy_module = importlib.import_module("app.online.taxonomy_cache")
     health_module.registry.clear()
+    taxonomy_module.cache.clear()
     with ExitStack() as stack:
         state_dir = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="state-", dir=root)))
         stack.enter_context(patch.object(_base, "DB_PATH", str(state_dir / "fixture.db")))
@@ -311,12 +318,23 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                     origin.detail_failure_delay_ms = body.detail_failure_delay_ms
                 if body.detail_success_delay_ms is not None:
                     origin.detail_success_delay_ms = body.detail_success_delay_ms
+                if body.metadata_failures_remaining is not None:
+                    origin.metadata_failures_remaining = body.metadata_failures_remaining
+                if body.metadata_failure_status is not None:
+                    origin.metadata_failure_status = body.metadata_failure_status
+                if body.metadata_failure_delay_ms is not None:
+                    origin.metadata_failure_delay_ms = body.metadata_failure_delay_ms
+                if body.metadata_success_delay_ms is not None:
+                    origin.metadata_success_delay_ms = body.metadata_success_delay_ms
                 if body.image_delay_ms is not None:
                     origin.image_delay_ms = body.image_delay_ms
             if body.expire_sessions:
                 state.registry.close_all()
             if body.clear_artwork_cache:
                 artwork_module.cache.clear()
+            if body.clear_taxonomy_cache:
+                from app.online.taxonomy_cache import cache
+                cache.clear()
             if body.clear_related_cache:
                 related_module.cache.clear()
             elif body.clear_related_results:
@@ -333,6 +351,7 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
             state.registry.close_all()
             health_module.registry.clear()
             related_module.cache.clear()
+            taxonomy_module.cache.clear()
             library_paths.invalidate_cache()
 
 

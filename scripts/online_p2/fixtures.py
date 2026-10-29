@@ -141,6 +141,10 @@ class FixtureOrigin:
         self.detail_failure_status = 503
         self.detail_failure_delay_ms = 0
         self.detail_success_delay_ms = 0
+        self.metadata_failures_remaining = 0
+        self.metadata_failure_status = 503
+        self.metadata_failure_delay_ms = 0
+        self.metadata_success_delay_ms = 0
         self.image_delay_ms = 0
         self.image_active = 0
         self.image_peak = 0
@@ -298,6 +302,18 @@ class FixtureOrigin:
                         else:
                             delay_ms = max(delay_ms, origin.detail_success_delay_ms)
                         call.update(detail_fault=injected, planned_status=detail_status or 200)
+                    metadata_status = None
+                    primary_metadata = ("ids" not in query and
+                                        (query.get("ac", [""])[0] == "detail" or bool(query.get("wd", [""])[0])))
+                    if primary_metadata:
+                        injected = origin.metadata_failures_remaining > 0
+                        if injected:
+                            origin.metadata_failures_remaining -= 1
+                            delay_ms = max(delay_ms, origin.metadata_failure_delay_ms)
+                            metadata_status = origin.metadata_failure_status
+                        else:
+                            delay_ms = max(delay_ms, origin.metadata_success_delay_ms)
+                        call.update(metadata_fault=injected, metadata_status=metadata_status or 200)
                     # Only synthetic recommendation root searches are slow.
                     # The selected item detail and playback resolver remain free
                     # to prove that foreground work can preempt a live socket.
@@ -315,6 +331,9 @@ class FixtureOrigin:
                         time.sleep(delay_ms / 1000)
                     if detail_status is not None and detail_status != 200:
                         self.send_body(detail_status, b"isolated detail transient failure", "text/plain", head)
+                        return
+                    if metadata_status is not None and metadata_status != 200:
+                        self.send_body(metadata_status, b"isolated metadata transient failure", "text/plain", head)
                         return
                     if mode == "malformed":
                         self.send_body(200, b'{"code":1,"list":[', "application/json", head)

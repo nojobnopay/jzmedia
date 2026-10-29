@@ -21,11 +21,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|related|detail|detail-recovery|hosts|all]')
+    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|related|detail|detail-recovery|metadata-recovery|hosts|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'related', 'detail', 'detail-recovery', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-'))
 const output = path.join(root, 'output/playwright/online-p2')
 const dist = path.join(work, 'dist')
@@ -509,7 +509,7 @@ async function categoryNavigation() {
       // A valid filtered page can omit class while its optional taxonomy
       // discovery fails. Real metadata remains usable and the known source
       // navigation must survive every subsequent response and warm snapshot.
-      await scenario(page, { taxonomy_unavailable: true })
+      await scenario(page, { taxonomy_unavailable: true, clear_taxonomy_cache: true })
       const movieResponse = page.waitForResponse(response => {
         const url = new URL(response.url())
         return url.pathname === '/api/online/catalog/browse' && url.searchParams.get('category_id') === '21'
@@ -598,7 +598,7 @@ async function categoryNavigation() {
       await page.locator('[data-online-result="urban-2026-1"]').waitFor()
 
       phase.expectedHttp = true
-      await scenario(page, { next_mode: 'status_error' })
+      await scenario(page, { metadata_failures_remaining: 2, metadata_failure_status: 503 })
       await page.locator('[data-online-refresh]').click()
       await page.getByRole('button', { name: '重试', exact: true }).waitFor()
       assert.equal((await resultIds(page)).length, 20, 'A failed refresh preserves the previous filtered wall')
@@ -1325,6 +1325,117 @@ async function detailRecovery() {
   await backendChildren('after-detail-recovery')
 }
 
+async function metadataRecovery() {
+  const mainCalls = value => value.origin_calls.filter(call => call.kind === 'api' && call.metadata_status !== undefined)
+  const discoveries = value => value.origin_calls.filter(call => call.kind === 'api' && call.category_discovery_failure)
+  async function settled(page) {
+    await until(async () => (await page.locator('[data-online-browser]').getAttribute('aria-busy')) === 'false',
+      'The foreground metadata request settles before another intent')
+  }
+  async function configure(page, extra = {}) {
+    await scenario(page, { taxonomy: true, taxonomy_unavailable: false, related: false, gallery: false,
+      detail_mode: false, media_alias: false, metadata_failures_remaining: 0,
+      metadata_failure_status: 503, metadata_failure_delay_ms: 0, metadata_success_delay_ms: 0, ...extra })
+  }
+  for (const width of [1440, 390]) {
+    phase = { name: `metadata-recovery-${width}`, expectedHttp: false }
+    const { context, page } = await newPage(width)
+    let originalRule = null
+    try {
+      await navigate(page, '/settings'); await idle(); await page.waitForLoadState('networkidle')
+      originalRule = (await call(page, 'GET', `/api/online/sources/${primarySource.id}/network`)).body.policy.api
+      const profile = await call(page, 'POST', '/api/online/network/profiles', {
+        name: `隔离目录恢复 ${width}`, mode: 'direct', connect_timeout_seconds: 1,
+        read_timeout_seconds: 1, max_connections: 1 })
+      assert.equal(profile.status, 201)
+      assert.equal((await call(page, 'PATCH', `/api/online/sources/${primarySource.id}/network`, {
+        api: { mode: 'direct', profile_id: profile.body.id } })).status, 200)
+      await configure(page, { clear_taxonomy_cache: true })
+      await selectSource(page); await settled(page); await idle()
+      await configure(page, { metadata_failures_remaining: 1 })
+      let before = await metrics()
+      await page.locator('[data-online-refresh]').click(); await settled(page)
+      let after = await metrics()
+      assert.deepEqual(mainCalls(after).slice(mainCalls(before).length).map(call => call.metadata_status), [503, 200])
+      assert.equal(await page.locator('.online-refresh-error').count(), 0)
+      assert.equal(await page.locator('video').count(), 0, 'Recovered metadata never starts playback')
+
+      await configure(page, { metadata_failures_remaining: 1 })
+      before = await metrics(); await search(page, '合成动作片', { results: false }); await settled(page)
+      after = await metrics()
+      assert.deepEqual(mainCalls(after).slice(mainCalls(before).length).map(call => call.metadata_status), [503, 200])
+      assert.deepEqual(await page.locator('[data-online-result]').evaluateAll(nodes => nodes.map(node => node.dataset.onlineResult)), ['action-1'])
+
+      phase.expectedHttp = true
+      await configure(page, { metadata_failures_remaining: 2 })
+      before = await metrics(); await page.locator('[data-online-refresh]').click(); await settled(page)
+      const retry = page.getByRole('button', { name: '重试', exact: true })
+      await retry.waitFor()
+      assert.match(await page.locator('.online-refresh-error').textContent(), /上次结果/)
+      assert.equal(mainCalls(await metrics()).length - mainCalls(before).length, 2)
+      await delay(150)
+      assert.equal(mainCalls(await metrics()).length - mainCalls(before).length, 2, 'Two failed attempts cannot start a loop')
+      await retry.click(); await settled(page)
+      assert.equal(mainCalls(await metrics()).length - mainCalls(before).length, 3)
+      phase.expectedHttp = false
+
+      await configure(page, { metadata_failures_remaining: 1, metadata_failure_status: 200, metadata_failure_delay_ms: 1300 })
+      before = await metrics(); await page.locator('[data-online-refresh]').click(); await settled(page); await idle()
+      assert.equal(mainCalls(await metrics()).length - mainCalls(before).length, 2, 'Real read timeout is recovered once')
+      assert.equal(await page.locator('.online-refresh-error').count(), 0)
+
+      // A successful main response may omit class. A warm source tree avoids
+      // the failing extra read, but cannot substitute for the main response.
+      await configure(page)
+      await search(page, '', { results: false }); await settled(page)
+      await configure(page, { taxonomy_unavailable: true })
+      before = await metrics()
+      let read = page.waitForResponse(response => new URL(response.url()).pathname === '/api/online/catalog/browse')
+      await page.locator('[data-online-refresh]').click(); await settled(page)
+      assert.equal((await (await read).json()).categories.length, 49)
+      after = await metrics()
+      assert.equal(mainCalls(after).length - mainCalls(before).length, 1)
+      assert.equal(discoveries(after).length, discoveries(before).length, 'Cached taxonomy eliminates optional discovery')
+
+      await scenario(page, { clear_taxonomy_cache: true })
+      before = await metrics()
+      read = page.waitForResponse(response => new URL(response.url()).pathname === '/api/online/catalog/browse')
+      await page.locator('[data-online-refresh]').click(); await settled(page)
+      assert.deepEqual((await (await read).json()).categories, [])
+      assert.equal(discoveries(await metrics()).length - discoveries(before).length, 1,
+        'Optional discovery is still one bounded read, without inheriting main retry')
+      assert.equal(await page.locator('[data-online-channel="20"]').isVisible(), true)
+
+      for (const attempt of [1, 2]) {
+        await configure(page, { metadata_failures_remaining: 1,
+          metadata_failure_delay_ms: attempt === 1 ? 1500 : 0,
+          metadata_success_delay_ms: attempt === 2 ? 1500 : 0 })
+        before = await metrics()
+        await page.locator('[data-online-refresh]').click()
+        await until(async () => mainCalls(await metrics()).length === mainCalls(before).length + attempt,
+          `The real metadata attempt ${attempt} starts before cancellation`)
+        await navigate(page, '/settings'); await idle()
+        assert.equal(mainCalls(await metrics()).length - mainCalls(before).length, attempt,
+          'Leaving never starts another request after an abandoned attempt')
+        await configure(page); await selectSource(page); await settled(page)
+      }
+      const geometry = await layout(page, width)
+      await page.screenshot({ path: path.join(output, `metadata-recovery-${width}.png`) })
+      passed({ case: `metadata-recovery-${width}`, geometry, browse503Recovered: true, search503Recovered: true,
+        realReadTimeoutRecovered: true, maximumAttempts: 2, manualRetryAfterExhaustion: true,
+        cachedTaxonomySkipsDiscovery: true, uncachedDiscoveryNeverRetries: true,
+        cancellationDuringBothAttempts: true, noAutoplay: true })
+    } finally {
+      phase.name = `metadata-recovery-${width}-restore`
+      await navigate(page, '/settings'); await idle(); await page.waitForLoadState('networkidle')
+      if (originalRule) assert.equal((await call(page, 'PATCH', `/api/online/sources/${primarySource.id}/network`, { api: originalRule })).status, 200)
+      await configure(page, { taxonomy: false, clear_taxonomy_cache: true })
+      await closeContext(context); await idle()
+    }
+  }
+  await backendChildren('after-metadata-recovery')
+}
+
 async function matrix() {
   for (const width of [1440, 390]) for (const transport of ['mp4', 'hls']) {
     phase = { name: `matrix-${width}-${transport}`, expectedHttp: false }
@@ -1773,6 +1884,8 @@ try {
     'frontend/src/onlineArtwork.js', 'frontend/src/onlineBrowse.js', 'app/online/artwork.py', 'app/online/artwork_cache.py',
     'frontend/src/onlineCategories.js', 'frontend/src/onlineRelated.js', 'app/online/related.py', 'app/online/related_matching.py',
     'frontend/src/components/OnlineEpisodes.vue', 'frontend/src/onlineEpisodes.js', 'frontend/src/styles/onlineEpisodes.css',
+    'app/online/taxonomy_cache.py', 'app/network/stages.py', 'app/network/client.py',
+    'app/network/targets.py', 'app/network/transport.py',
     'app/online/providers.py', 'app/routers/online_catalog.py']) {
     report.fingerprints[file] = createHash('sha256').update(await readFile(path.join(root, file))).digest('hex')
   }
@@ -1798,12 +1911,14 @@ try {
     if (selectedCase === 'all' || selectedCase === 'related') await relatedRecommendations()
     if (selectedCase === 'all' || selectedCase === 'detail') await detailExperience()
     if (selectedCase === 'all' || selectedCase === 'detail-recovery') await detailRecovery()
+    if (selectedCase === 'all' || selectedCase === 'metadata-recovery') await metadataRecovery()
     if (selectedCase === 'all' || selectedCase === 'matrix') await matrix()
     if (selectedCase === 'all' || selectedCase === 'catalogue') await catalogue()
     report.finalMetrics = (await idle()).metrics
     assert.ok(!report.finalMetrics.origin_calls.some(call => call.app_credentials), 'Application credentials never reach the source')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'api'), 'The API uses its own network-purpose client')
-    if (!['discovery', 'loading', 'categories'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
+    if (selectedCase === 'metadata-recovery') assert.ok(!report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Metadata recovery never requests media')
+    else if (!['discovery', 'loading', 'categories'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'image'), 'Posters use their image-purpose client')
     assert.deepEqual(report.errors, [], 'No browser runtime, Vue or unexpected console errors')
     assert.deepEqual(report.unexpectedRequests, [], 'No foreign origin or local playback/cast API request')
