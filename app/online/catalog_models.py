@@ -16,6 +16,7 @@ class CatalogCapabilities(_Public):
     episodes: bool = True
     refresh: bool = True
     browse: bool = True
+    year_filter: bool = False
 
 
 class CatalogSource(_Public):
@@ -36,19 +37,32 @@ class CatalogSources(_Public):
     scope_token: str = ""
 
 
-class CatalogSearchItem(_Public):
+class CatalogMetadata(_Public):
+    category: str = ""
+    category_id: str = ""
+    parent_category_id: str = ""
+    remarks: str = ""
+    genres: list[str] = Field(default_factory=list)
+    actors: list[str] = Field(default_factory=list)
+    directors: list[str] = Field(default_factory=list)
+    area: str = ""
+    language: str = ""
+    subtitle: str = ""
+
+
+class CatalogSearchItem(CatalogMetadata):
     external_id: str
     title: str
     year: str = ""
     kind: Literal["movie", "tv", "unknown"] = "unknown"
     description: str = ""
-    category: str = ""
     poster_path: str = ""
 
 
 class CatalogCategory(_Public):
     id: str
     name: str
+    parent_id: str = ""
 
 
 class CatalogSearch(_Public):
@@ -86,7 +100,7 @@ class CatalogAttribution(_Public):
     url: str
 
 
-class CatalogDetail(_Public):
+class CatalogDetail(CatalogMetadata):
     source: CatalogSource
     item: CatalogItem
     description: str

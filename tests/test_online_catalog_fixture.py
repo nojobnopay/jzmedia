@@ -148,6 +148,37 @@ def test_initial_feature_and_local_media_are_empty(client):
     assert metrics["local_rows"] == {"movies": 0, "tv_episodes": 0, "playback_progress": 0}
 
 
+def test_taxonomy_fixture_exposes_real_parent_ids_and_origin_side_year_pagination(client):
+    source = add_source(client)
+    public = client.get("/api/online/catalog/sources").json()
+    assert public["items"][0]["capabilities"]["year_filter"] is False
+    assert client.post("/api/p2/scenario", json={"taxonomy": True}).status_code == 200
+    public = client.get("/api/online/catalog/sources").json()
+    assert public["items"][0]["capabilities"]["year_filter"] is True
+    query = {"source_id": source["id"], "category_id": "71", "year": "2026"}
+    response = client.get("/api/online/catalog/browse", params=query)
+    assert response.status_code == 200, response.text
+    first = response.json()
+    assert len(first["categories"]) == 49
+    categories = {item["id"]: item for item in first["categories"]}
+    assert categories["71"]["parent_id"] == "58"
+    assert categories["58"]["parent_id"] == ""
+    assert first["total"] == 24 and first["page_count"] == 2 and len(first["items"]) == 20
+    assert {item["year"] for item in first["items"]} == {"2026"}
+    assert all(item["category_id"] == "71" and item["remarks"] == "更新至第2集" for item in first["items"])
+    assert first["items"][0]["actors"] == ["合成演员甲", "合成演员乙"]
+    second = client.get("/api/online/catalog/browse", params={**query, "page": 2}).json()
+    assert second["page"] == 2 and len(second["items"]) == 4
+    assert first["items"][0]["external_id"] not in {item["external_id"] for item in second["items"]}
+    parent = client.get("/api/online/catalog/browse", params={**query, "category_id": "58"}).json()
+    assert [item["external_id"] for item in parent["items"]] == ["short-overview"]
+    custom = client.get("/api/online/catalog/browse", params={**query, "year": "1988"}).json()
+    assert [item["external_id"] for item in custom["items"]] == ["urban-1988-1"]
+    assert client.get("/api/online/catalog/browse", params={**query, "year": "1900"}).json()["items"] == []
+    observed = client.get("/api/p2/metrics").json()["origin_calls"]
+    assert any(call["category_id"] == "71" and call["year"] == "2026" and call["page"] == "2" for call in observed)
+
+
 def test_real_maccms_search_detail_and_owned_mp4_passthrough(client):
     source = add_source(client)
     public = client.get("/api/online/catalog/sources").json()
@@ -181,7 +212,8 @@ def test_real_catalogue_categories_and_png_poster_use_the_owned_loopback_image_r
     response = client.get("/api/online/catalog/browse", params={"source_id": source["id"], "category_id": "2"})
     assert response.status_code == 200
     result = response.json()
-    assert result["categories"] == [{"id": "1", "name": "电影"}, {"id": "2", "name": "剧集"}]
+    assert result["categories"] == [{"id": "1", "name": "电影", "parent_id": ""},
+                                    {"id": "2", "name": "剧集", "parent_id": ""}]
     assert [item["external_id"] for item in result["items"]] == ["show-1"]
     poster = result["items"][0]["poster_path"]
     assert poster.startswith("/api/online/catalog/artwork/")

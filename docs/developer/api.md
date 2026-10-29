@@ -125,13 +125,17 @@
 |---|---|
 | `GET /api/online/catalog/sources` | `{enabled,scope_token,items:[{id,name,provider,priority,capabilities,configuration_token}]}`；总开关关闭时列表为空，不访问上游 |
 | `GET /api/online/catalog/search?source_id=src_...&q=片名&page=1` | 单源搜索；返回来源、元数据条目、`page/page_count/total` |
-| `GET /api/online/catalog/browse?source_id=src_...&page=1&category_id=...` | 浏览来源最近更新或实际分类；返回搜索结果同型结构，并包含 `categories:[{id,name}]` |
+| `GET /api/online/catalog/browse?source_id=src_...&page=1&category_id=...&year=2026` | 浏览来源最近更新或实际分类；返回搜索结果同型结构，并包含 `categories:[{id,name,parent_id}]` |
 | `GET /api/online/catalog/detail?source_id=src_...&external_id=123` | 返回稳定条目身份、简介、年份、全部线路、分集和可选归因链接 |
 | `GET /api/online/catalog/artwork/{source_id}/{token}` | 读取此前目录或详情登记的海报；不接受上游 URL 参数 |
 
 `q` 最多 100 字符，MacCMS 搜索要求非空；开放样例可空词搜索，通用目录浏览使用 `/browse`。`page` 为 1–1000；`external_id` 为 1–128 个 ASCII 字母、数字、下划线或连字符；`category_id` 可省略或为空，否则同样最多 128 个上述 ASCII 字符。分类来自上游真实分类，浏览不生成个性化推荐或热度。来源管理页的“测试来源”读取 `/browse` 第一页，只验证目录响应。
 
+`capabilities.year_filter` 默认 `false`，当前仅已核对的暴风 HTTPS 接口及默认详情动作声明支持。`year` 可省略或为空，否则必须为 1000–9999 的四位 ASCII 年份，并由来源接口实际过滤；未声明支持的来源返回 `422 online_year_filter_unsupported`，不访问上游。关键词搜索不接受年份参数，不将当前页的年份筛选冒充全目录查询。分类 `parent_id` 为空表示根；缺失父类、孤儿、自环及环形父链降为根分类，最多 256 类。查询父分类仍按其 ID 原样请求，不隐式聚合子分类。
+
 搜索与浏览条目提供 `external_id`、文本元数据及可选的服务内 `poster_path`，不创建本地媒体记录；详情按来源和内容种类保存独立在线身份。海报路径是不透明的来源绑定租约，受当前观看权限、来源与网络配置检查约束；停用来源、配置变化或租约失效后需重新读取目录或详情，不能将它作为持久图片地址保存。
+
+列表和详情还提供可选的 `category/category_id/parent_category_id/remarks/genres/actors/directors/area/language/subtitle`。文本去除 HTML；题材最多 16 项、演员 24 项、导演 12 项，缺失或格式不合适的可选资料返回空值。更新备注直接来自来源，不用 `vod_total` 等不可靠字段生成分集。展示类别与现有播放 `kind` 分开，补资料不会重建在线身份、收藏或进度。
 
 来源列表的 `scope_token` 仅用于区分设备观看身份、generation 与保护 revision 下的目录缓存，不是状态 API 的写入意图 token。`configuration_token` 是来源及完整网络配置快照的不透明摘要。客户端复用目录前须重新读取来源列表，两者均匹配且来源仍启用才能恢复；摘要不包含可读配置、上游地址或凭据。
 

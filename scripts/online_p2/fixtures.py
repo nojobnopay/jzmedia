@@ -19,6 +19,21 @@ DURATION = 24.0
 RANGE_DURATION = 90.0
 RANGE_MARKER = ".online-p2-range-fixture.json"
 MODES = {"normal", "malformed", "xml", "status_error", "duplicate_labels", "mismatched_lines"}
+TAXONOMY_CATEGORIES = (
+    (20, 0, "电影片"), (21, 20, "动作片"), (22, 20, "喜剧片"), (23, 20, "恐怖片"),
+    (24, 20, "科幻片"), (25, 20, "爱情片"), (26, 20, "剧情片"), (27, 20, "战争片"),
+    (28, 20, "纪录片"), (29, 20, "理论片"), (30, 0, "连续剧"), (31, 30, "国产剧"),
+    (32, 30, "欧美剧"), (33, 30, "香港剧"), (34, 30, "韩国剧"), (35, 30, "台湾剧"),
+    (36, 30, "日本剧"), (37, 30, "海外剧"), (38, 30, "泰国剧"), (39, 0, "动漫片"),
+    (40, 39, "国产动漫"), (41, 39, "日韩动漫"), (42, 39, "欧美动漫"), (43, 39, "港台动漫"),
+    (44, 39, "海外动漫"), (45, 0, "综艺片"), (46, 45, "大陆综艺"), (47, 45, "港台综艺"),
+    (48, 45, "日韩综艺"), (49, 45, "欧美综艺"), (50, 20, "动画片"), (51, 0, "电影解说"),
+    (52, 0, "预告片"), (53, 0, "体育赛事"), (54, 53, "足球"), (55, 53, "篮球"),
+    (56, 53, "网球"), (57, 53, "斯诺克"), (58, 0, "短剧大全"), (65, 58, "重生民国"),
+    (66, 58, "穿越年代"), (67, 58, "现代言情"), (68, 58, "反转爽文"), (69, 58, "女恋总裁"),
+    (70, 58, "闪婚离婚"), (71, 58, "都市脑洞"), (72, 58, "古装仙侠"), (73, 0, "福利"),
+    (74, 58, "AI漫剧"),
+)
 
 
 def fixture_root(value, *, require_media=False):
@@ -115,6 +130,7 @@ class FixtureOrigin:
         self.reverse_lines = False
         self.media_alias = False
         self.gallery = False
+        self.taxonomy = False
         self.image_delay_ms = 0
         self.image_active = 0
         self.image_peak = 0
@@ -152,6 +168,9 @@ class FixtureOrigin:
                             "host": self.headers.get("Host", "").split(":", 1)[0],
                             "kind": "api" if api else "image" if parsed.path.endswith(".png") else "media",
                             "action": query.get("ac", [""])[0],
+                            "category_id": query.get("t", [""])[0] if api else "",
+                            "year": query.get("year", [""])[0] if api else "",
+                            "page": query.get("pg", [""])[0] if api else "",
                             "range": self.headers.get("Range"),
                             "app_credentials": bool(any(name in self.headers for name in (
                                 "X-Api-Token", "X-Viewing-Session", "X-Receiver-Token"))
@@ -265,6 +284,11 @@ class FixtureOrigin:
                     category = query.get("t", [""])[0]
                     if category:
                         rows = [row for row in rows if str(row["type_id"]) == category]
+                    with origin.lock:
+                        taxonomy = origin.taxonomy
+                    year = query.get("year", [""])[0]
+                    if taxonomy and year:
+                        rows = [row for row in rows if row.get("vod_year") == year]
                     wanted = query.get("ids", [None])[0]
                     if wanted is not None:
                         rows = [row for row in rows if row["vod_id"] == wanted]
@@ -276,12 +300,14 @@ class FixtureOrigin:
                             rows = [row for row in rows if keyword in row["vod_name"].casefold()]
                     page = int(query.get("pg", ["1"])[0])
                     with origin.lock:
-                        paginated = origin.gallery and wanted is None
+                        paginated = (origin.gallery or taxonomy) and wanted is None
                     selected = rows[(page - 1) * 20:page * 20] if paginated else rows if page == 1 else []
                     payload = {"code": 1, "msg": "隔离数据", "page": page,
                                "pagecount": max(1, (len(rows) + 19) // 20) if paginated else 1,
                                "limit": "20", "total": len(rows), "list": selected,
-                               "class": [{"type_id": 1, "type_name": "电影"}, {"type_id": 2, "type_name": "剧集"}]}
+                               "class": ([{"type_id": identity, "type_pid": parent, "type_name": name}
+                                          for identity, parent, name in TAXONOMY_CATEGORIES] if taxonomy else
+                                         [{"type_id": 1, "type_name": "电影"}, {"type_id": 2, "type_name": "剧集"}])}
                     self.send_body(200, json.dumps(payload, ensure_ascii=False).encode(), "application/json; charset=utf-8", head)
                 finally:
                     with origin.lock:
@@ -304,7 +330,8 @@ class FixtureOrigin:
 
     def records(self, mode="normal"):
         with self.lock:
-            revision, reverse, alias, gallery = self.revision, self.reverse_lines, self.media_alias, self.gallery
+            revision, reverse, alias, gallery, taxonomy = (self.revision, self.reverse_lines, self.media_alias,
+                                                          self.gallery, self.taxonomy)
         def media(episode, transport):
             asset = "movie.mp4" if transport == "mp4" else "hls/master.m3u8"
             media_base = f"http://media.fixture.invalid:{self.port}" if alias else self.base_url
@@ -321,6 +348,27 @@ class FixtureOrigin:
             show_url = show_url.replace("第2集$", "第1集$")
         if mode == "mismatched_lines":
             show_from += "$$$错位线路"
+        if taxonomy:
+            def record(identity, title, category, year):
+                parent, category_name = next((parent, name) for selected, parent, name in TAXONOMY_CATEGORIES
+                                             if selected == category)
+                return {"vod_id": identity, "vod_name": title, "type_id": str(category), "type_id_1": parent,
+                        "type_name": category_name, "vod_year": year,
+                        "vod_pic": f"{self.base_url}/files/poster.png?taxonomy={identity}",
+                        "vod_remarks": "更新至第2集", "vod_class": "都市,喜剧", "vod_area": "大陆",
+                        "vod_lang": "国语", "vod_actor": "合成演员甲,合成演员乙", "vod_director": "合成导演",
+                        "vod_sub": "合成分类别名", "vod_total": 2, "vod_isend": 0,
+                        "vod_content": "分类、年份与元资料的隔离用例。",
+                        "vod_play_from": show_from, "vod_play_url": show_url}
+
+            return [record(f"urban-{year}-{number}", f"都市合成剧 {year} · {number:02d}", 71, year)
+                    for year in ("2026", "2025") for number in range(1, 25)] + [
+                record("urban-1988-1", "都市合成剧 1988 · 01", 71, "1988"),
+                record("short-overview", "合成短剧综合条目", 58, "2026"),
+                record("action-1", "合成动作片", 21, "2026"),
+                record("drama-1", "合成国产剧", 31, "2026"),
+                record("ai-1", "合成AI漫剧", 74, "2026"),
+            ]
         if gallery:
             return [{"vod_id": f"gallery-{number}", "vod_name": f"合成海报 {number:02d}",
                      "type_id": "1", "type_name": "电影", "vod_year": "2026",

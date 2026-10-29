@@ -132,7 +132,8 @@ def sources(access):
                                                  separators=(",", ":")).encode()).hexdigest()
         result.append({**_public_source(source), "priority": source["priority"],
                        "configuration_token": configuration,
-                       "capabilities": {"search": True, "episodes": source["provider"] == "maccms", "refresh": True}})
+                       "capabilities": {"search": True, "episodes": source["provider"] == "maccms", "refresh": True,
+                                        "year_filter": maccms.supports_year_filter(source)}})
     service._current_access(access)
     if not online_store.get_online_settings()["enabled"]:
         return {"enabled": False, "items": [], "scope_token": scope}
@@ -163,8 +164,10 @@ def _artwork(source, result):
     return result
 
 
-def browse(access, source_id, page=1, category_id="", *, operation=None):
+def browse(access, source_id, page=1, category_id="", year="", *, operation=None):
     if type(page) is not int or not 1 <= page <= 1000:
+        raise CatalogError("invalid_online_catalog_request", 422)
+    if not maccms.valid_year(year):
         raise CatalogError("invalid_online_catalog_request", 422)
     try:
         if category_id:
@@ -173,9 +176,11 @@ def browse(access, source_id, page=1, category_id="", *, operation=None):
         raise CatalogError("invalid_online_catalog_request", 422) from None
     with _admit(access.owner, operation):
         source = _ready_source(source_id, access)
+        if year and not maccms.supports_year_filter(source):
+            raise CatalogError("online_year_filter_unsupported", 422)
         with health.observe_catalogue():
             result = (open_catalog.search(source, "", page) if source["provider"] == "open_catalog"
-                      else _adapter(source).browse(source, page, category_id))
+                      else _adapter(source).browse(source, page, category_id, year))
         _after(source, access)
         return {"source": _public_source(source), **_artwork(source, result)}
 
@@ -211,7 +216,7 @@ def _public_detail(source, detail, saved):
     return {"source": _public_source(source), "item": {key: item[key] for key in ("id", "source_id", "kind", "title")},
             "description": detail.description, "year": detail.year, "lines": lines,
             "attribution": [{"label": label, "url": url} for label, url in detail.attribution],
-            "poster_path": artwork.register(source, detail.poster_url)}
+            "poster_path": artwork.register(source, detail.poster_url), **detail.metadata}
 
 
 def detail(access, source_id, selected_id, *, operation=None):

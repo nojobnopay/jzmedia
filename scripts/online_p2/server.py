@@ -60,6 +60,7 @@ class Scenario(BaseModel):
     reverse_lines: bool | None = None
     media_alias: bool | None = None
     gallery: bool | None = None
+    taxonomy: bool | None = None
     image_delay_ms: int | None = Field(default=None, ge=0, le=1500)
     clear_artwork_cache: bool = False
     expire_sessions: bool = False
@@ -149,6 +150,17 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
         stack.enter_context(patch.object(service, "registry", state.registry))
         stack.enter_context(patch.object(service, "create_online_client", state.client))
         stack.enter_context(patch.object(maccms, "create_online_client", state.client))
+        supports_year_filter = maccms.supports_year_filter
+
+        def fixture_supports_year_filter(source):
+            # A capability declaration only for this fixed isolated endpoint.
+            # The production helper and target policies retain their limits.
+            if source.get("api_base_url") == f"{origin.base_url}/provide/vod" and source.get("provider") == "maccms":
+                with origin.lock:
+                    return origin.taxonomy
+            return supports_year_filter(source)
+
+        stack.enter_context(patch.object(maccms, "supports_year_filter", fixture_supports_year_filter))
         stack.enter_context(patch.object(artwork_module, "create_online_client", state.client))
         stack.enter_context(patch.object(artwork_module, "registry", artwork_module.ArtworkRegistry()))
         stack.enter_context(patch.object(artwork_module, "cache", artwork_module.ArtworkCache()))
@@ -252,6 +264,8 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                     origin.media_alias = body.media_alias
                 if body.gallery is not None:
                     origin.gallery = body.gallery
+                if body.taxonomy is not None:
+                    origin.taxonomy = body.taxonomy
                 if body.image_delay_ms is not None:
                     origin.image_delay_ms = body.image_delay_ms
             if body.expire_sessions:

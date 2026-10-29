@@ -22,6 +22,7 @@ MAX_LINE_ENTRIES = 500
 MAX_BODY = 2 * 1024**2
 CATEGORY_TIMEOUT_SECONDS = 3.0
 _ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
+_YEAR = re.compile(r"[1-9][0-9]{3}\Z")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
@@ -54,6 +55,7 @@ class Detail:
     attribution: tuple[tuple[str, str], ...] = ()
     duration_seconds: float | None = None
     poster_url: str = field(default="", repr=False)
+    metadata: dict = field(default_factory=dict)
 
 
 def external_id(value):
@@ -220,6 +222,113 @@ def poster_url(row):
     return value if isinstance(value, str) and len(value) <= 4096 and not _CONTROL.search(value) else ""
 
 
+def supports_year_filter(source):
+    """Only the exact provider endpoint verified to implement upstream year."""
+    options = source.get("provider_options", {})
+    value = source.get("api_base_url", "")
+    if (source.get("provider") != "maccms" or not isinstance(options, dict)
+            or options.get("detail_action", "detail") != "detail"
+            or not isinstance(value, str) or _CONTROL.search(value)):
+        return False
+    try:
+        parsed = urlsplit(value)
+        return (parsed.scheme == "https" and parsed.hostname == "bfzyapi.com"
+                and parsed.port in (None, 443) and parsed.username is None and parsed.password is None
+                and parsed.path in {"/api.php/provide/vod", "/api.php/provide/vod/"}
+                and not parsed.query and not parsed.fragment)
+    except (TypeError, ValueError):
+        return False
+
+
+def valid_year(year):
+    return isinstance(year, str) and (not year or _YEAR.fullmatch(year) is not None)
+
+
+def _optional_text(value, limit):
+    # Optional upstream metadata is deliberately tolerant: malformed cast or
+    # tags cannot make otherwise playable entries disappear.
+    if not isinstance(value, str):
+        return ""
+    try:
+        return plain(value, limit)
+    except ProviderError:
+        return ""
+
+
+def _optional_id(value):
+    if value in (None, "", 0, "0") or isinstance(value, bool):
+        return ""
+    try:
+        return external_id(value)
+    except ProviderError:
+        return ""
+
+
+def _metadata_values(value, *, limit=24, text_limit=80, slash=False):
+    if isinstance(value, str):
+        if len(value) > 16384:
+            return []
+        values = re.split(r"[,，、/|]" if slash else r"[,，、]", value)
+    elif isinstance(value, list):
+        values = value[:limit]
+    else:
+        return []
+    result, seen = [], set()
+    for raw in values:
+        selected = _optional_text(raw, text_limit)
+        if selected and selected not in seen:
+            seen.add(selected)
+            result.append(selected)
+            if len(result) >= limit:
+                break
+    return result
+
+
+def metadata(row):
+    identity = _optional_id(row.get("type_id"))
+    parent = _optional_id(row.get("type_id_1"))
+    return {"category": _optional_text(row.get("type_name"), 128),
+            "category_id": identity, "parent_category_id": parent if parent != identity else "",
+            "remarks": _optional_text(row.get("vod_remarks"), 128),
+            "genres": _metadata_values(row.get("vod_class"), limit=16, text_limit=64, slash=True),
+            "actors": _metadata_values(row.get("vod_actor")),
+            "directors": _metadata_values(row.get("vod_director"), limit=12),
+            "area": _optional_text(row.get("vod_area"), 128),
+            "language": _optional_text(row.get("vod_lang"), 128),
+            "subtitle": _optional_text(row.get("vod_sub"), 256)}
+
+
+def _categories(rows):
+    if not isinstance(rows, list) or len(rows) > 256:
+        raise ProviderError("invalid_provider_response")
+    categories = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ProviderError("invalid_provider_response")
+        identity = external_id(row.get("type_id"))
+        if identity not in categories:
+            parent = _optional_id(row.get("type_pid"))
+            categories[identity] = {"id": identity,
+                "name": plain(row.get("type_name"), 128, required=True), "parent_id": parent}
+    for identity, category in categories.items():
+        if category["parent_id"] == identity or category["parent_id"] not in categories:
+            category["parent_id"] = ""
+    # At most 256 nodes: walk each chain and detach every member of a cycle.
+    # Children of those nodes retain valid links to the newly rooted members.
+    for identity in categories:
+        path, indexes = [], {}
+        selected = identity
+        while selected:
+            if selected in indexes:
+                for member in path[indexes[selected]:]:
+                    categories[member]["parent_id"] = ""
+                break
+            indexes[selected] = len(path)
+            path.append(selected)
+            selected = categories[selected]["parent_id"]
+    return list(categories.values())
+
+
 def _search_result(payload, page):
     result, seen = [], set()
     for row in payload["list"]:
@@ -230,7 +339,7 @@ def _search_result(payload, page):
         result.append({"external_id": identity, "title": plain(row.get("vod_name"), required=True),
                        "kind": _kind(row), "year": plain(row.get("vod_year"), 16),
                        "description": plain(row.get("vod_content"), 4000),
-                       "category": plain(row.get("type_name"), 128), "_poster_url": poster_url(row)})
+                       **metadata(row), "_poster_url": poster_url(row)})
     selected_page = _number(payload.get("page"), maximum=1000, default=page)
     count = _number(payload.get("pagecount"), maximum=1000000, default=1 if result else 0)
     total = _number(payload.get("total"), maximum=1000000000, default=len(result))
@@ -283,29 +392,30 @@ def _discover_categories(source):
         child.close()
 
 
-def browse(source, page, category_id=""):
+def browse(source, page, category_id="", year=""):
     if category_id:
         category_id = external_id(category_id)
+    if not valid_year(year):
+        raise ProviderError("invalid_provider_request")
+    if year and not supports_year_filter(source):
+        raise ProviderError("provider_filter_unsupported")
     action = source.get("provider_options", {}).get("detail_action", "detail")
     params = {"ac": action, "pg": str(page)}
     if category_id:
         params["t"] = category_id
+    if year:
+        params["year"] = year
     payload = fetch(source, params)
     categories = payload.get("class", [])
     if not categories:
         categories = _discover_categories(source)
-    if not isinstance(categories, list) or len(categories) > 256:
-        raise ProviderError("invalid_provider_response")
-    result, seen = [], set()
-    for row in categories:
-        if not isinstance(row, dict):
-            raise ProviderError("invalid_provider_response")
-        identity = external_id(row.get("type_id"))
-        if identity in seen:
-            continue
-        seen.add(identity)
-        result.append({"id": identity, "name": plain(row.get("type_name"), 128, required=True)})
-    return {**_search_result(payload, page), "categories": result}
+    selected = _categories(categories)
+    result = _search_result(payload, page)
+    parents = {category["id"]: category["parent_id"] for category in selected}
+    for item in result["items"]:
+        if not item["parent_category_id"]:
+            item["parent_category_id"] = parents.get(item["category_id"], "")
+    return {**result, "categories": selected}
 
 
 def _entry(source, label, url, target=None):
@@ -345,7 +455,8 @@ def parse_detail(source, row):
         raise ProviderError("invalid_provider_response")
     if not names and not groups:
         return Detail(identity, title, _kind(row, lines=()) if _kind(row) != "unknown" else "movie",
-                      plain(row.get("vod_content"), 4000), plain(row.get("vod_year"), 16), (), poster_url=poster_url(row))
+                      plain(row.get("vod_content"), 4000), plain(row.get("vod_year"), 16), (),
+                      poster_url=poster_url(row), metadata=metadata(row))
     split_names, split_groups = names.split("$$$"), groups.split("$$$")
     if len(split_names) != len(split_groups) or len(split_names) > MAX_LINES:
         raise ProviderError("invalid_provider_response")
@@ -389,4 +500,4 @@ def parse_detail(source, row):
                                       for entry in line.entries)) if len(line.entries) > 1 else line
                  for line in lines]
     return Detail(identity, title, kind, plain(row.get("vod_content"), 4000),
-                  plain(row.get("vod_year"), 16), tuple(lines), poster_url=poster_url(row))
+                  plain(row.get("vod_year"), 16), tuple(lines), poster_url=poster_url(row), metadata=metadata(row))

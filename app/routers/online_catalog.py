@@ -127,9 +127,10 @@ async def detail(request: Request, source_id: SourceId,
 @router.get("/browse", response_model=catalog_models.CatalogSearch)
 async def browse(request: Request, source_id: SourceId,
                  page: int = Query(default=1, ge=1, le=1000),
-                 category_id: str = Query(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$")):
-    _query(request, {"source_id", "page", "category_id"})
-    return await _read(request, catalog.browse, source_id, page, category_id)
+                 category_id: str = Query(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$"),
+                 year: str = Query(default="", max_length=4, pattern=r"^(?:[1-9][0-9]{3})?$")):
+    _query(request, {"source_id", "page", "category_id", "year"})
+    return await _read(request, catalog.browse, source_id, page, category_id, year)
 
 
 @router.get("/artwork/{source_id}/{token}")
