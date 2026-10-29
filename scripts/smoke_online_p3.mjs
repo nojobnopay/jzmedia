@@ -354,7 +354,7 @@ async function createSourceUi(page, name) {
   await form.getByLabel('提供方', { exact: true }).selectOption('maccms')
   await form.getByLabel('接口地址', { exact: true }).fill(bootstrap.api_base_url)
   await form.getByLabel('允许访问的主机', { exact: true }).fill('fixture.invalid')
-  await form.getByLabel('启用此来源', { exact: true }).check()
+  assert.equal(await form.getByLabel('启用此来源', { exact: true }).isChecked(), true, 'new sources are enabled by default')
   await form.getByRole('button', { name: '保存来源', exact: true }).click()
   const source = await until(async () => {
     const response = await call(page, 'GET', '/api/online/sources')
@@ -405,7 +405,8 @@ async function setup() {
     primarySource = await createSourceUi(page, '隔离合成MacCMS')
     await page.getByRole('button', { name: '网络 ' + primarySource.name, exact: true }).click()
     const network = page.locator('[data-online-network-form]')
-    for (const label of ['来源默认', 'API 查询', '媒体取流']) await network.getByLabel(label, { exact: true }).selectOption('direct')
+    await network.locator('summary').filter({ hasText: '高级：按用途分别配置' }).click()
+    for (const label of ['来源默认', '搜索与详情', '视频播放']) await network.getByLabel(label, { exact: true }).selectOption('direct')
     await network.getByRole('button', { name: '保存网络规则', exact: true }).click()
     await network.waitFor({ state: 'hidden' })
     const policy = await call(page, 'GET', `/api/online/sources/${primarySource.id}/network`)
@@ -506,6 +507,7 @@ async function stateScenarios() {
 
     phase = { name: 'state-health-observes-without-probing', expectedHttp: false }
     const beforeHealth = (await metrics()).origin_calls.length
+    await page.locator('.online-connection > summary').click()
     await page.getByRole('button', { name: '刷新状态', exact: true }).click()
     await page.locator('[data-online-health]').filter({ hasText: '查询通过 · 直连' }).waitFor()
     await page.locator('[data-online-health]').filter({ hasText: '取流通过 · 直连' }).waitFor()

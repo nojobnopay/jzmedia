@@ -18473,7 +18473,16 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 31,
+            "line": 21,
+            "selector": ".online-poster-button.jz-button",
+            "values": {
+              "width": "100%",
+              "padding": "0"
+            }
+          },
+          {
+            "source": "frontend/src/styles/online.css",
+            "line": 42,
             "selector": ".online-entry .jz-button",
             "values": {
               "min-width": "0"
@@ -18481,7 +18490,15 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 88,
+            "line": 63,
+            "selector": ".online-categories .jz-button, .online-connection summary",
+            "values": {
+              "min-height": "44px"
+            }
+          },
+          {
+            "source": "frontend/src/styles/online.css",
+            "line": 97,
             "selector": ".online-library-actions .jz-button",
             "values": {
               "min-height": "44px"
@@ -18489,14 +18506,14 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 89,
+            "line": 98,
             "selector": ".online-health .jz-button",
             "values": {
               "min-height": "44px"
             }
           }
         ],
-        "value": "gap:8px, min-height:var(--jz-control-current), padding:8px 16px, font-size:var(--jz-font-m) / width:var(--jz-control-current), min-width:var(--jz-control-current), padding:0, aspect-ratio:1 / min-width:var(--jz-touch-target), min-height:var(--jz-touch-target) / min-height:var(--jz-control-current) / min-width:0 / min-height:44px / min-height:44px"
+        "value": "gap:8px, min-height:var(--jz-control-current), padding:8px 16px, font-size:var(--jz-font-m) / width:var(--jz-control-current), min-width:var(--jz-control-current), padding:0, aspect-ratio:1 / min-width:var(--jz-touch-target), min-height:var(--jz-touch-target) / min-height:var(--jz-control-current) / width:100%, padding:0 / min-width:0 / min-height:44px / min-height:44px / min-height:44px"
       },
       "target": {
         "policy_touch_min_css_px": 44,
@@ -25435,6 +25452,76 @@
       "source_excerpt": "<JzButton v-if=\"upCtl\" @click=\"cancelUpload\" type=\"button\">"
     },
     {
+      "id": "frontend/src/components/OnlineArtwork.vue:img:2",
+      "source": "frontend/src/components/OnlineArtwork.vue",
+      "line": 3,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "media-content",
+      "feature": "通用控件与导航",
+      "element": "img",
+      "purpose": "img",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-specialized",
+        "specification": "保留菜单/海报/选择/播放器专用几何；具体CSS规则记录在overrides；触摸目标规范44px需浏览器测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/player.css",
+          "design/contracts.json"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "media payload",
+      "source_excerpt": "<img v-if=\"image && !failed\" :src=\"image\" :alt=\"title\" loading=\"lazy\" decoding=\"async\" referrerpolicy=\"no-referrer\" @error=\"failed = true\" />"
+    },
+    {
+      "id": "frontend/src/components/OnlineArtwork.vue:ArtworkPlaceholder:3",
+      "source": "frontend/src/components/OnlineArtwork.vue",
+      "line": 4,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "ArtworkPlaceholder",
+      "purpose": "图片或海报占位",
+      "assets": [
+        "image"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-placeholder",
+        "specification": "图标32，max-width:40%；容器按媒体布局确定；保留标题/姓名",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/ArtworkPlaceholder.vue"
+        ],
+        "overrides": [],
+        "value": "32px icon constrained by container max-width:40%; label retained"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<ArtworkPlaceholder v-else :label=\"title\" />"
+    },
+    {
       "id": "frontend/src/components/OnlinePlayerModal.vue:JzButton:8",
       "source": "frontend/src/components/OnlinePlayerModal.vue",
       "line": 11,
@@ -26212,7 +26299,47 @@
       "source_excerpt": "<JzButton icon=\"plus\" :disabled=\"saving || networkSaving || dirty\" @click=\"editSource()\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:24",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:25",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 16,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "'测试来源 ' + source.name",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "'测试来源 ' + source.name",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :aria-label=\"'测试来源 ' + source.name\" :loading=\"testingSource === source.id\" :disabled=\"!!testingSource || saving || networkSaving || !settings.enabled || !source.enabled\" "
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:26",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 16,
       "platforms": [
@@ -26254,7 +26381,7 @@
       "source_excerpt": "<JzButton icon=\"edit\" :aria-label=\"'编辑 ' + source.name\" :disabled=\"saving || networkSaving || dirty\" @click=\"editSource(source)\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:25",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:27",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 16,
       "platforms": [
@@ -26296,9 +26423,124 @@
       "source_excerpt": "<JzButton icon=\"link\" :aria-label=\"'网络 ' + source.name\" :disabled=\"saving || networkSaving || dirty\" @click=\"editNetwork(source)\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:31",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:34",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 20,
+      "line": 21,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "select",
+      "purpose": "自定义接口 {{ item.name }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<select :id=\"field.id\" v-model=\"templateId\" :disabled=\"saving\" :aria-describedby=\"field.describedby\" @change=\"applyTemplate\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:39",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 23,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "重试目录",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:36px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton size=\"compact\" :disabled=\"templatesLoading\" @click=\"loadTemplates\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:a:43",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 24,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "link",
+      "feature": "通用控件与导航",
+      "element": "a",
+      "purpose": "来源说明",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-link",
+        "specification": "正文链接保留行内文本；导航和按钮式链接按对应class扩展触摸区，不能把所有正文链接声明为44px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": null,
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "semantic link",
+      "source_excerpt": "<a v-if=\"templateHomepage\" :href=\"templateHomepage\" target=\"_blank\" rel=\"noopener noreferrer\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:47",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 27,
       "platforms": [
         "web",
         "mobile-web"
@@ -26336,9 +26578,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"form.name\" maxlength=\"128\" required :disabled=\"saving\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:34",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:50",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 21,
+      "line": 28,
       "platforms": [
         "web",
         "mobile-web"
@@ -26376,9 +26618,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"form.provider\" :disabled=\"saving || !!editingId\" @change=\"providerChanged\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:39",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:55",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 22,
+      "line": 29,
       "platforms": [
         "web",
         "mobile-web"
@@ -26416,9 +26658,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"form.api_base_url\" type=\"url\" maxlength=\"2048\" required :disabled=\"saving || form.provider === 'open_catalog'\" :aria-describedby=\"field.describedby\" "
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:textarea:42",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:textarea:58",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 23,
+      "line": 30,
       "platforms": [
         "web",
         "mobile-web"
@@ -26456,9 +26698,9 @@
       "source_excerpt": "<textarea :id=\"field.id\" v-model=\"form.hosts\" rows=\"3\" :disabled=\"saving || form.provider === 'open_catalog'\" :aria-describedby=\"field.describedby\" placeholder=\"media.example.com\" "
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:45",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:61",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 24,
+      "line": 31,
       "platforms": [
         "web",
         "mobile-web"
@@ -26496,9 +26738,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model.number=\"form.priority\" type=\"number\" min=\"0\" max=\"1000\" required :disabled=\"saving\" :aria-describedby=\"field.describedby\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:47",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:63",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 25,
+      "line": 32,
       "platforms": [
         "web",
         "mobile-web"
@@ -26536,9 +26778,9 @@
       "source_excerpt": "<input id=\"online-source-enabled\" v-model=\"form.enabled\" type=\"checkbox\" :disabled=\"saving\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:49",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:65",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 27,
+      "line": 34,
       "platforms": [
         "web",
         "mobile-web"
@@ -26575,9 +26817,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:53",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:69",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 27,
+      "line": 34,
       "platforms": [
         "web",
         "mobile-web"
@@ -26615,9 +26857,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"form.search_action\" :disabled=\"saving\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:59",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:75",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 27,
+      "line": 34,
       "platforms": [
         "web",
         "mobile-web"
@@ -26655,9 +26897,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"form.detail_action\" :disabled=\"saving\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:65",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:81",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 30,
+      "line": 37,
       "platforms": [
         "web",
         "mobile-web"
@@ -26695,9 +26937,9 @@
       "source_excerpt": "<JzButton type=\"submit\" variant=\"primary\" :loading=\"saving\" :disabled=\"!form.name.trim() || !form.api_base_url.trim()\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:66",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:82",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 30,
+      "line": 37,
       "platforms": [
         "web",
         "mobile-web"
@@ -26735,9 +26977,9 @@
       "source_excerpt": "<JzButton :disabled=\"saving\" @click=\"cancelEditor\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:77",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:91",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 40,
+      "line": 46,
       "platforms": [
         "web",
         "mobile-web"
@@ -26745,7 +26987,405 @@
       "category": "native-form",
       "feature": "通用控件与导航",
       "element": "select",
-      "purpose": "继承{{ purpose.key === 'default' ? '应用默认' : '来源默认' }} 直连 {{ profile.name }} · {{ profile.mode === 'proxy' ? '代理' : '直连' }}",
+      "purpose": "默认网络暂不可用 直连 HTTP(S) 代理",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<select :id=\"field.id\" :value=\"networkMode\" :disabled=\"networkSaving\" :aria-describedby=\"field.describedby\" @change=\"changeNetworkMode($event.target.value)\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:98",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 48,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "select",
+      "purpose": "填写新的代理 {{ profile.name }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<select :id=\"field.id\" :value=\"proxyChoice\" :disabled=\"networkSaving\" @change=\"selectProxy($event.target.value)\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:104",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 50,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "select",
+      "purpose": "HTTP HTTPS",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<select :id=\"field.id\" v-model=\"proxyForm.protocol\" :disabled=\"networkSaving\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:109",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 51,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.host\" :disabled=\"networkSaving\" autocomplete=\"off\" :spellcheck=\"false\" :aria-describedby=\"field.describedby\" placeholder=\"例如 192.168.1.10\" "
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:112",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 52,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.port\" :disabled=\"networkSaving\" type=\"number\" min=\"1\" max=\"65535\" inputmode=\"numeric\" placeholder=\"7890\" />"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:114",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 53,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "summary",
+      "purpose": "代理认证（可选）",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<summary>"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:118",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 53,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.username\" :disabled=\"networkSaving\" autocomplete=\"off\" />"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:121",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 53,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.password\" :disabled=\"networkSaving\" type=\"password\" autocomplete=\"new-password\" :aria-describedby=\"field.describedby\" />"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:127",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 58,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "全部用途使用此连接",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:36px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton size=\"compact\" :disabled=\"networkSaving\" @click=\"inheritAllPurposes\">"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:129",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 59,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "summary",
+      "purpose": "高级：按用途分别配置",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<summary>"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:134",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 61,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "select",
+      "purpose": "继承{{ purpose.key === 'default' ? '服务默认' : '来源默认' }} 直连 新代理（待保存） {{ profile.name }} · {{ profile.mode === 'proxy' ? '代理' : '直连' }}",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
@@ -26775,9 +27415,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"networkChoices[purpose.key]\" :disabled=\"networkSaving\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:83",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:141",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 42,
+      "line": 64,
       "platforms": [
         "web",
         "mobile-web"
@@ -26815,9 +27455,9 @@
       "source_excerpt": "<JzButton type=\"submit\" variant=\"primary\" :loading=\"networkSaving\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:84",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:142",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
-      "line": 42,
+      "line": 64,
       "platforms": [
         "web",
         "mobile-web"
@@ -46957,8 +47597,25 @@
         "source": [
           "frontend/src/styles/base.css"
         ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+        "overrides": [
+          {
+            "source": "frontend/src/styles/browse.css",
+            "line": 5,
+            "selector": ".browse-page .manage-link",
+            "values": {
+              "font-size": "var(--jz-font-s)"
+            }
+          },
+          {
+            "source": "frontend/src/styles/browse.css",
+            "line": 29,
+            "selector": ".browse-page .manage-link",
+            "values": {
+              "min-height": "var(--jz-touch-target)"
+            }
+          }
+        ],
+        "value": "font-size:var(--jz-font-s) / min-height:var(--jz-touch-target)"
       },
       "target": null,
       "states": [
@@ -46968,338 +47625,12 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "semantic link",
-      "source_excerpt": "<router-link v-if=\"!isChildren\" to=\"/settings?sec=sec-online\">"
+      "source_excerpt": "<router-link v-if=\"!isChildren\" class=\"manage-link\" to=\"/settings?sec=sec-online\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:14",
+      "id": "frontend/src/views/Online.vue:JzButton:12",
       "source": "frontend/src/views/Online.vue",
       "line": 7,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "通用控件与导航",
-      "element": "JzButton",
-      "purpose": "刷新记录",
-      "assets": [
-        "refresh"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" :disabled=\"libraryLoading\" @click=\"loadLibrary()\">"
-    },
-    {
-      "id": "frontend/src/views/Online.vue:JzButton:16",
-      "source": "frontend/src/views/Online.vue",
-      "line": 9,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "通用控件与导航",
-      "element": "JzButton",
-      "purpose": "{{ tab.label }}",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "selected"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton v-for=\"tab in libraryTabs\" :key=\"tab.key\" :data-online-library-section=\"tab.key\" :aria-pressed=\"librarySection === tab.key\" @click=\"selectLibrary(tab.key)\">"
-    },
-    {
-      "id": "frontend/src/views/Online.vue:JzButton:29",
-      "source": "frontend/src/views/Online.vue",
-      "line": 18,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "通用控件与导航",
-      "element": "JzButton",
-      "purpose": "{{ row.progress.completed ? '重新播放' : '继续播放' }}",
-      "assets": [
-        "play"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"row.progress\" icon=\"play\" :data-online-resume=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError || starting\" @click=\"openSaved(row, true)\""
-    },
-    {
-      "id": "frontend/src/views/Online.vue:JzButton:30",
-      "source": "frontend/src/views/Online.vue",
-      "line": 19,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "通用控件与导航",
-      "element": "JzButton",
-      "purpose": "查看详情",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton :data-online-library-detail=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError\" @click=\"openSaved(row, false)\">"
-    },
-    {
-      "id": "frontend/src/views/Online.vue:JzButton:31",
-      "source": "frontend/src/views/Online.vue",
-      "line": 20,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "通用控件与导航",
-      "element": "JzButton",
-      "purpose": "取消收藏",
-      "assets": [
-        "heart-filled"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"row.favorite\" icon=\"heart-filled\" :data-online-favorite=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"favoriteRow(row, false)\">"
-    },
-    {
-      "id": "frontend/src/views/Online.vue:JzButton:32",
-      "source": "frontend/src/views/Online.vue",
-      "line": 21,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "通用控件与导航",
-      "element": "JzButton",
-      "purpose": "清除观看记录",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"row.progress\" :data-online-history-delete=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"clearHistory(row)\">"
-    },
-    {
-      "id": "frontend/src/views/Online.vue:JzButton:34",
-      "source": "frontend/src/views/Online.vue",
-      "line": 25,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "通用控件与导航",
-      "element": "JzButton",
-      "purpose": "上一页",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton :disabled=\"libraryOffset === 0 || libraryLoading\" @click=\"loadLibrary(Math.max(0, libraryOffset - 20))\">"
-    },
-    {
-      "id": "frontend/src/views/Online.vue:JzButton:36",
-      "source": "frontend/src/views/Online.vue",
-      "line": 25,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "通用控件与导航",
-      "element": "JzButton",
-      "purpose": "下一页",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton :disabled=\"libraryLoading || libraryOffset + 20 >= libraryTotal || libraryOffset + 20 > 1000\" @click=\"loadLibrary(libraryOffset + 20)\">"
-    },
-    {
-      "id": "frontend/src/views/Online.vue:JzButton:40",
-      "source": "frontend/src/views/Online.vue",
-      "line": 28,
       "platforms": [
         "web",
         "mobile-web"
@@ -47336,9 +47667,9 @@
       "source_excerpt": "<JzButton @click=\"cancelNext\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:RouterLink:44",
+      "id": "frontend/src/views/Online.vue:RouterLink:16",
       "source": "frontend/src/views/Online.vue",
-      "line": 31,
+      "line": 10,
       "platforms": [
         "web",
         "mobile-web"
@@ -47371,9 +47702,9 @@
       "source_excerpt": "<router-link to=\"/settings?sec=sec-online\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:RouterLink:46",
+      "id": "frontend/src/views/Online.vue:RouterLink:18",
       "source": "frontend/src/views/Online.vue",
-      "line": 32,
+      "line": 11,
       "platforms": [
         "web",
         "mobile-web"
@@ -47406,9 +47737,9 @@
       "source_excerpt": "<router-link to=\"/settings?sec=sec-online\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:select:51",
+      "id": "frontend/src/views/Online.vue:select:23",
       "source": "frontend/src/views/Online.vue",
-      "line": 35,
+      "line": 14,
       "platforms": [
         "web",
         "mobile-web"
@@ -47446,9 +47777,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"sourceId\" data-online-source :disabled=\"loadingSources\" @change=\"sourceChanged\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:input:55",
+      "id": "frontend/src/views/Online.vue:input:27",
       "source": "frontend/src/views/Online.vue",
-      "line": 36,
+      "line": 15,
       "platforms": [
         "web",
         "mobile-web"
@@ -47485,9 +47816,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"query\" maxlength=\"100\" autocomplete=\"off\" placeholder=\"输入电影或剧集名称\" />"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:56",
+      "id": "frontend/src/views/Online.vue:JzButton:28",
       "source": "frontend/src/views/Online.vue",
-      "line": 37,
+      "line": 16,
       "platforms": [
         "web",
         "mobile-web"
@@ -47495,7 +47826,7 @@
       "category": "control",
       "feature": "通用控件与导航",
       "element": "JzButton",
-      "purpose": "{{ selectedSource?.provider === 'open_catalog' && !query.trim() ? '浏览目录' : '搜索' }}",
+      "purpose": "{{ !query.trim() ? '浏览目录' : '搜索' }}",
       "assets": [
         "search"
       ],
@@ -47527,9 +47858,130 @@
       "source_excerpt": "<JzButton type=\"submit\" variant=\"primary\" icon=\"search\" :disabled=\"!canSearch || searching\" :loading=\"searching\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:62",
+      "id": "frontend/src/views/Online.vue:JzButton:30",
       "source": "frontend/src/views/Online.vue",
-      "line": 40,
+      "line": 19,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "全部",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy",
+        "selected"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :aria-pressed=\"!categoryId\" :disabled=\"searching\" @click=\"selectCategory('')\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:31",
+      "source": "frontend/src/views/Online.vue",
+      "line": 20,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "{{ category.name }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy",
+        "selected"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-for=\"category in categories\" :key=\"category.id\" :data-online-category=\"category.id\" :aria-pressed=\"categoryId === category.id\" :disabled=\"searching\" @click=\"selectCateg"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:summary:35",
+      "source": "frontend/src/views/Online.vue",
+      "line": 23,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "通用控件与导航",
+      "element": "summary",
+      "purpose": "连接状态",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<summary>"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:39",
+      "source": "frontend/src/views/Online.vue",
+      "line": 24,
       "platforms": [
         "web",
         "mobile-web"
@@ -47567,9 +48019,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" :disabled=\"healthLoading\" @click=\"loadHealth\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:65",
+      "id": "frontend/src/views/Online.vue:JzButton:42",
       "source": "frontend/src/views/Online.vue",
-      "line": 41,
+      "line": 26,
       "platforms": [
         "web",
         "mobile-web"
@@ -47606,9 +48058,9 @@
       "source_excerpt": "<JzButton @click=\"backToResults\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:67",
+      "id": "frontend/src/views/Online.vue:JzButton:44",
       "source": "frontend/src/views/Online.vue",
-      "line": 42,
+      "line": 27,
       "platforms": [
         "web",
         "mobile-web"
@@ -47645,9 +48097,9 @@
       "source_excerpt": "<JzButton @click=\"backToResults\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:69",
+      "id": "frontend/src/views/Online.vue:JzButton:46",
       "source": "frontend/src/views/Online.vue",
-      "line": 44,
+      "line": 29,
       "platforms": [
         "web",
         "mobile-web"
@@ -47686,47 +48138,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon=\"arrow-left\" @click=\"backToResults\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:AppIcon:72",
+      "id": "frontend/src/views/Online.vue:JzButton:54",
       "source": "frontend/src/views/Online.vue",
-      "line": 45,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "通用控件与导航",
-      "element": "AppIcon",
-      "purpose": "电影 / 剧集",
-      "assets": [
-        "tv",
-        "movie"
-      ],
-      "dynamic_expression": "detail.item.kind === 'tv' ? 'tv' : 'movie'",
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "48"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon :name=\"detail.item.kind === 'tv' ? 'tv' : 'movie'\" :size=\"48\" />"
-    },
-    {
-      "id": "frontend/src/views/Online.vue:JzButton:78",
-      "source": "frontend/src/views/Online.vue",
-      "line": 46,
+      "line": 31,
       "platforms": [
         "web",
         "mobile-web"
@@ -47767,9 +48181,9 @@
       "source_excerpt": "<JzButton :data-online-favorite=\"detail.item.id\" :icon=\"itemState?.favorite ? 'heart-filled' : 'heart'\" :disabled=\"!itemState || mutationBusy.has(detail.item.id)\" @click=\"favoriteD"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:79",
+      "id": "frontend/src/views/Online.vue:JzButton:55",
       "source": "frontend/src/views/Online.vue",
-      "line": 46,
+      "line": 31,
       "platforms": [
         "web",
         "mobile-web"
@@ -47809,9 +48223,9 @@
       "source_excerpt": "<JzButton v-if=\"resumeEntry\" icon=\"play\" data-online-detail-resume :disabled=\"starting\" @click=\"play(resumeEntry)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:a:84",
+      "id": "frontend/src/views/Online.vue:a:60",
       "source": "frontend/src/views/Online.vue",
-      "line": 48,
+      "line": 33,
       "platforms": [
         "web",
         "mobile-web"
@@ -47844,9 +48258,9 @@
       "source_excerpt": "<a v-for=\"credit in detail.attribution\" :key=\"credit.url\" :href=\"safeAttribution(credit.url)\" target=\"_blank\" rel=\"noopener noreferrer\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:87",
+      "id": "frontend/src/views/Online.vue:JzButton:63",
       "source": "frontend/src/views/Online.vue",
-      "line": 50,
+      "line": 35,
       "platforms": [
         "web",
         "mobile-web"
@@ -47884,9 +48298,9 @@
       "source_excerpt": "<JzButton v-for=\"line in detail.lines\" :key=\"line.id\" :data-online-line=\"line.id\" :aria-pressed=\"line.id === lineId\" @click=\"selectLine(line.id)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:input:89",
+      "id": "frontend/src/views/Online.vue:input:65",
       "source": "frontend/src/views/Online.vue",
-      "line": 51,
+      "line": 36,
       "platforms": [
         "web",
         "mobile-web"
@@ -47923,9 +48337,9 @@
       "source_excerpt": "<input v-model=\"autoplay\" type=\"checkbox\" data-online-autoplay @change=\"autoplayChanged\" />"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:95",
+      "id": "frontend/src/views/Online.vue:JzButton:71",
       "source": "frontend/src/views/Online.vue",
-      "line": 53,
+      "line": 38,
       "platforms": [
         "web",
         "mobile-web"
@@ -47965,47 +48379,9 @@
       "source_excerpt": "<JzButton :data-online-entry=\"entry.label\" :disabled=\"!entry.supported || !entry.identity || starting\" :variant=\"entry.supported ? 'primary' : 'secondary'\" :icon=\"entry.supported ?"
     },
     {
-      "id": "frontend/src/views/Online.vue:AppIcon:111",
+      "id": "frontend/src/views/Online.vue:JzButton:86",
       "source": "frontend/src/views/Online.vue",
-      "line": 63,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "通用控件与导航",
-      "element": "AppIcon",
-      "purpose": "电影 / 剧集",
-      "assets": [
-        "tv",
-        "movie"
-      ],
-      "dynamic_expression": "item.kind === 'tv' ? 'tv' : 'movie'",
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "28"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon :name=\"item.kind === 'tv' ? 'tv' : 'movie'\" :size=\"28\" />"
-    },
-    {
-      "id": "frontend/src/views/Online.vue:JzButton:116",
-      "source": "frontend/src/views/Online.vue",
-      "line": 63,
+      "line": 49,
       "platforms": [
         "web",
         "mobile-web"
@@ -48013,10 +48389,8 @@
       "category": "control",
       "feature": "通用控件与导航",
       "element": "JzButton",
-      "purpose": "查看详情",
-      "assets": [
-        "arrow-right"
-      ],
+      "purpose": "'查看详情 ' + item.title",
+      "assets": [],
       "dynamic_expression": null,
       "display_size": {
         "unit": "CSS px",
@@ -48027,7 +48401,17 @@
           "frontend/src/components/JzButton.vue",
           "design/tokens.json"
         ],
-        "overrides": [],
+        "overrides": [
+          {
+            "source": "frontend/src/styles/online.css",
+            "line": 21,
+            "selector": ".online-poster-button.jz-button",
+            "values": {
+              "width": "100%",
+              "padding": "0"
+            }
+          }
+        ],
         "value": "min-height:40px desktop / 44px touch"
       },
       "target": {
@@ -48039,14 +48423,51 @@
         "focus",
         "disabled"
       ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "accessible_name_owner": "'查看详情 ' + item.title",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton :data-online-result=\"item.external_id\" icon=\"forward\" @click=\"openDetail(item.external_id)\">"
+      "source_excerpt": "<JzButton class=\"online-poster-button\" variant=\"ghost\" :data-online-result=\"item.external_id\" :aria-label=\"'查看详情 ' + item.title\" @click=\"openDetail(item.external_id)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:118",
+      "id": "frontend/src/views/Online.vue:AppIcon:89",
       "source": "frontend/src/views/Online.vue",
-      "line": 64,
+      "line": 49,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "AppIcon",
+      "purpose": "播放",
+      "assets": [
+        "play"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "22"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon name=\"play\" :size=\"22\" />"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:94",
+      "source": "frontend/src/views/Online.vue",
+      "line": 52,
       "platforms": [
         "web",
         "mobile-web"
@@ -48086,9 +48507,9 @@
       "source_excerpt": "<JzButton icon=\"arrow-left\" :disabled=\"page <= 1\" @click=\"search(page - 1, loadedQuery)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:120",
+      "id": "frontend/src/views/Online.vue:JzButton:96",
       "source": "frontend/src/views/Online.vue",
-      "line": 64,
+      "line": 52,
       "platforms": [
         "web",
         "mobile-web"
@@ -48126,6 +48547,332 @@
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
       "source_excerpt": "<JzButton icon=\"forward\" :disabled=\"page >= pageCount\" @click=\"search(page + 1, loadedQuery)\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:102",
+      "source": "frontend/src/views/Online.vue",
+      "line": 57,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "刷新记录",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" :disabled=\"libraryLoading\" @click=\"loadLibrary()\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:104",
+      "source": "frontend/src/views/Online.vue",
+      "line": 59,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "{{ tab.label }}",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "selected"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-for=\"tab in libraryTabs\" :key=\"tab.key\" :data-online-library-section=\"tab.key\" :aria-pressed=\"librarySection === tab.key\" @click=\"selectLibrary(tab.key)\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:117",
+      "source": "frontend/src/views/Online.vue",
+      "line": 68,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "{{ row.progress.completed ? '重新播放' : '继续播放' }}",
+      "assets": [
+        "play"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"row.progress\" icon=\"play\" :data-online-resume=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError || starting\" @click=\"openSaved(row, true)\""
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:118",
+      "source": "frontend/src/views/Online.vue",
+      "line": 69,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "查看详情",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :data-online-library-detail=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError\" @click=\"openSaved(row, false)\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:119",
+      "source": "frontend/src/views/Online.vue",
+      "line": 70,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "取消收藏",
+      "assets": [
+        "heart-filled"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"row.favorite\" icon=\"heart-filled\" :data-online-favorite=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"favoriteRow(row, false)\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:120",
+      "source": "frontend/src/views/Online.vue",
+      "line": 71,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "清除观看记录",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"row.progress\" :data-online-history-delete=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"clearHistory(row)\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:122",
+      "source": "frontend/src/views/Online.vue",
+      "line": 75,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "上一页",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"libraryOffset === 0 || libraryLoading\" @click=\"loadLibrary(Math.max(0, libraryOffset - 20))\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:124",
+      "source": "frontend/src/views/Online.vue",
+      "line": 75,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "下一页",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"libraryLoading || libraryOffset + 20 >= libraryTotal || libraryOffset + 20 > 1000\" @click=\"loadLibrary(libraryOffset + 20)\">"
     },
     {
       "id": "frontend/src/views/Person.vue:JzButton:5",

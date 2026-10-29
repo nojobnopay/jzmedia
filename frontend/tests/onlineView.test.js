@@ -42,6 +42,48 @@ function search(ui, query) {
   ui.find(node => node.props['data-online-search'] !== undefined).props.onSubmit({ preventDefault() {} })
 }
 
+test('discovery loads a poster wall on entry and sends the actual source category instead of a keyword', async t => {
+  const calls = []
+  const { ui } = await setup(t, async path => {
+    calls.push(path)
+    if (path.endsWith('/sources')) return { enabled: true, items: [{ ...sources.items[0], capabilities: { browse: true } }] }
+    return { ...rows, categories: [{ id: '7', name: '动作片' }] }
+  })
+  assert.equal(calls.some(path => path.includes('/browse?')), true)
+  assert.equal(ui.text().includes('合成电影'), true)
+  assert.equal(ui.find(node => node.props['data-online-source'] !== undefined).props.disabled, false,
+    'automatic discovery must finish the source-loading state')
+  const before = calls.length
+  ui.find(node => node.props['data-online-source'] !== undefined).props.onChange()
+  await flush()
+  assert.equal(calls.length, before, 'reselecting the same source cannot cancel and duplicate automatic discovery')
+  ui.find(node => node.props['data-online-category'] === '7').props.onClick()
+  await flush()
+  const selected = new URL(calls.at(-1), 'https://jzmedia.invalid')
+  assert.equal(selected.pathname, '/api/online/catalog/browse')
+  assert.equal(selected.searchParams.get('category_id'), '7')
+  assert.equal(selected.searchParams.has('q'), false)
+  search(ui, '合成'); await flush()
+  assert.equal(ui.find(node => node.props['data-online-category'] === '7').props['aria-pressed'], false,
+    'a keyword search cannot claim an unapplied source category filter')
+})
+
+test('changing source cancels an automatic discovery and ignores its late category list', async t => {
+  const old = deferred(), calls = []
+  const { ui } = await setup(t, async (path, options) => {
+    if (path.endsWith('/sources')) return { ...sources, items: sources.items.map(source => ({ ...source, capabilities: { browse: true } })) }
+    calls.push({ path, signal: options.signal })
+    return path.includes(SOURCE_A) ? old.promise : { ...rows, categories: [{ id: 'new', name: '当前来源分类' }] }
+  })
+  const select = ui.find(node => node.props['data-online-source'] !== undefined)
+  select.props['onUpdate:modelValue'](SOURCE_B); select.props.onChange()
+  await flush()
+  old.resolve({ ...rows, categories: [{ id: 'old', name: '旧来源分类' }] }); await flush()
+  assert.equal(calls[0].signal.aborted, true)
+  assert.equal(ui.text().includes('当前来源分类'), true)
+  assert.equal(ui.text().includes('旧来源分类'), false)
+})
+
 test('changing a source cancels an old search without showing its late error on the new source', async t => {
   const pending = deferred(), calls = []
   const { ui } = await setup(t, async (path, options) => {

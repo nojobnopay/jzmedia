@@ -1,8 +1,58 @@
 <template>
   <div class="browse-page online-page">
-    <header class="browse-heading online-heading"><div><h1>在线</h1><p>从已启用的视频源查找内容</p></div><router-link v-if="!isChildren" to="/settings?sec=sec-online">管理视频源</router-link></header>
+    <header class="browse-heading online-heading"><div><h1>在线</h1><p>发现想看的电影和剧集</p></div><router-link v-if="!isChildren" class="manage-link" to="/settings?sec=sec-online">管理视频源</router-link></header>
     <EmptyState v-if="isChildren" state="empty" title="儿童模式暂不支持在线内容" text="切换观看模式后再浏览。" />
     <template v-else-if="safeMode">
+      <p v-if="stateNotice" class="online-state-notice" data-online-state-notice role="status">{{ stateNotice }}</p>
+      <div v-if="nextLoading" class="online-next-state" data-online-next-loading role="status"><span>正在读取下一集…</span><JzButton @click="cancelNext">取消连续播放</JzButton></div>
+      <EmptyState v-if="loadingSources" state="loading" title="正在加载视频源" />
+      <EmptyState v-else-if="sourcesError" state="error" title="视频源加载失败" :text="sourcesError" retry @retry="loadSources" />
+      <EmptyState v-else-if="!enabled" state="empty" title="在线点播尚未启用" text="在设置中启用在线点播并添加视频源；已有记录仍会保留。"><router-link to="/settings?sec=sec-online">打开在线视频源设置</router-link></EmptyState>
+      <EmptyState v-else-if="!sources.length" state="empty" title="还没有可用的视频源" text="从来源目录选择视频源，即可浏览和搜索；也支持添加自定义接口。"><router-link to="/settings?sec=sec-online">添加视频源</router-link></EmptyState>
+      <template v-else>
+        <form class="online-search" data-online-search role="search" aria-label="搜索在线视频" @submit.prevent="search(1)">
+          <JzField id="online-source" label="视频源"><template #default="field"><select :id="field.id" v-model="sourceId" data-online-source :disabled="loadingSources" @change="sourceChanged"><option v-for="source in sources" :key="source.id" :value="source.id">{{ source.name }}</option></select></template></JzField>
+          <JzField id="online-query" label="片名"><template #default="field"><input :id="field.id" v-model="query" maxlength="100" autocomplete="off" placeholder="输入电影或剧集名称" /></template></JzField>
+          <JzButton type="submit" variant="primary" icon="search" :disabled="!canSearch || searching" :loading="searching">{{ !query.trim() ? '浏览目录' : '搜索' }}</JzButton>
+        </form>
+        <div v-if="categories.length" class="online-categories" role="group" aria-label="内容分类">
+          <JzButton :aria-pressed="!categoryId" :disabled="searching" @click="selectCategory('')">全部</JzButton>
+          <JzButton v-for="category in categories" :key="category.id" :data-online-category="category.id" :aria-pressed="categoryId === category.id" :disabled="searching" @click="selectCategory(category.id)">{{ category.name }}</JzButton>
+        </div>
+        <p class="online-discovery-note">{{ loadedQuery ? '搜索当前视频源' : '发现推荐 · 按视频源最近更新浏览' }}<span v-if="selectedSource?.provider === 'open_catalog'"> · Blender 开放影片</span></p>
+        <details class="online-connection"><summary>连接状态</summary>
+          <div class="online-health" data-online-health><span>目录：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.api) : healthError || '尚未使用' }}</span><span>播放：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.media) : healthError || '尚未使用' }}</span><JzButton variant="ghost" :disabled="healthLoading" @click="loadHealth">刷新状态</JzButton><small>来自最近请求的记录。卡顿时可在来源网络设置中尝试代理。</small></div>
+        </details>
+        <EmptyState v-if="detailLoading" state="loading" title="正在加载详情" text="正在读取所选来源的线路与分集。"><JzButton @click="backToResults">返回搜索结果</JzButton></EmptyState>
+        <EmptyState v-else-if="detailError" state="error" title="详情加载失败" :text="detailError" retry @retry="openDetail(lastDetailId)"><JzButton @click="backToResults">返回搜索结果</JzButton></EmptyState>
+        <section v-else-if="detail" class="online-detail" data-online-detail>
+          <JzButton variant="ghost" icon="arrow-left" @click="backToResults">返回搜索结果</JzButton>
+          <header class="online-detail-heading"><OnlineArtwork :path="detail.poster_path" :title="detail.item.title" class="online-artwork" /><div><p class="online-eyebrow">{{ detail.source.name }} · {{ detail.item.kind === 'tv' ? '剧集' : '电影' }}</p><h2>{{ detail.item.title }}</h2><p v-if="detail.year" class="online-year">{{ detail.year }}</p></div></header>
+          <div class="online-detail-actions"><JzButton :data-online-favorite="detail.item.id" :icon="itemState?.favorite ? 'heart-filled' : 'heart'" :disabled="!itemState || mutationBusy.has(detail.item.id)" @click="favoriteDetail">{{ itemState?.favorite ? '取消收藏' : '收藏' }}</JzButton><JzButton v-if="resumeEntry" icon="play" data-online-detail-resume :disabled="starting" @click="play(resumeEntry)">继续播放</JzButton><span v-if="starting" role="status">正在读取续播位置…</span></div>
+          <p v-if="detail.description" class="online-description">{{ detail.description }}</p>
+          <div v-if="detail.attribution?.length" class="online-attribution"><span>内容来源与许可</span><a v-for="credit in detail.attribution" :key="credit.url" :href="safeAttribution(credit.url)" target="_blank" rel="noopener noreferrer">{{ credit.label }}</a></div>
+          <h3>播放线路</h3>
+          <div class="online-lines" role="group" aria-label="播放线路"><JzButton v-for="line in detail.lines" :key="line.id" :data-online-line="line.id" :aria-pressed="line.id === lineId" @click="selectLine(line.id)">{{ line.label }}</JzButton></div>
+          <label v-if="detail.item.kind === 'tv'" class="online-autoplay"><input v-model="autoplay" type="checkbox" data-online-autoplay @change="autoplayChanged" />自动播放下一集（当前浏览器）</label>
+          <p class="online-scope">{{ selectedLine?.label || '暂无线路' }}<span v-if="selectedLine"> · {{ selectedLine.entries.length }} {{ detail.item.kind === 'tv' ? '集' : '个播放版本' }}</span><span v-if="detail.item.kind === 'tv'">；连续播放仅使用当前来源和线路，不跳过片尾。</span></p>
+          <div v-if="selectedLine" class="online-entries"><div v-for="(entry, index) in selectedLine.entries" :key="entry.identity?.episode_id || entry.label + ':' + index" class="online-entry"><JzButton :data-online-entry="entry.label" :disabled="!entry.supported || !entry.identity || starting" :variant="entry.supported ? 'primary' : 'secondary'" :icon="entry.supported ? 'play' : undefined" @click="play(entry)">{{ entry.label }}</JzButton><span v-if="!entry.supported">{{ unsupportedReason(entry.reason) }}</span><span v-else>{{ entry.transport?.toUpperCase() }} · 由当前设备播放</span></div></div>
+          <EmptyState v-else state="empty" title="此来源暂无可播放线路" text="选择其他来源或稍后重新查询。" />
+        </section>
+        <template v-else>
+          <EmptyState v-if="searching" state="loading" title="正在搜索" :text="'正在查询 ' + selectedSource?.name" />
+          <EmptyState v-else-if="searchError" state="error" title="搜索失败" :text="searchError" retry @retry="search(lastQuery.page, lastQuery.query)" />
+          <EmptyState v-else-if="!searched" state="empty" :title="selectedSource?.provider === 'open_catalog' ? '浏览开放样例目录' : '查找想看的内容'" :text="selectedSource?.provider === 'open_catalog' ? '点击“浏览目录”查看开放影片及许可。' : '输入片名，仅向当前选中的来源发起查询。'" />
+          <EmptyState v-else-if="!results.length" state="no-results" title="没有找到相关内容" text="试试其他片名，或选择其他来源。" />
+          <template v-else>
+            <div class="online-results-heading"><h2>{{ loadedQuery ? '搜索结果' : categories.find(category => category.id === categoryId)?.name || '最近更新' }}</h2><span>{{ total }} 项 · {{ selectedSource?.name }}</span></div>
+            <div class="grid online-results"><article v-for="item in results" :key="item.external_id" class="card online-result">
+              <JzButton class="online-poster-button" variant="ghost" :data-online-result="item.external_id" :aria-label="'查看详情 ' + item.title" @click="openDetail(item.external_id)"><OnlineArtwork :path="item.poster_path" :title="item.title" /><span class="online-poster-action"><AppIcon name="play" :size="22" />查看详情</span></JzButton>
+              <div class="t"><h3 class="card-title" :title="item.title">{{ item.title }}</h3><p class="card-meta">{{ [item.year, item.category || (item.kind === 'tv' ? '剧集' : item.kind === 'movie' ? '电影' : '')].filter(Boolean).join(' · ') }}</p></div>
+            </article></div>
+            <nav v-if="pageCount > 1" class="online-pagination" aria-label="在线搜索分页"><JzButton icon="arrow-left" :disabled="page <= 1" @click="search(page - 1, loadedQuery)">上一页</JzButton><span>第 {{ page }} / {{ pageCount }} 页</span><JzButton icon="forward" :disabled="page >= pageCount" @click="search(page + 1, loadedQuery)">下一页</JzButton></nav>
+          </template>
+        </template>
+      </template>
       <section class="online-library" aria-label="在线观看记录">
         <div class="online-library-heading"><div><h2>我的在线记录</h2><p class="online-scope">当前设备 · {{ modeText }}；与本地媒体库记录分开。</p></div><JzButton variant="ghost" icon="refresh" :disabled="libraryLoading" @click="loadLibrary()">刷新记录</JzButton></div>
         <div class="online-library-tabs" role="group" aria-label="在线记录分类">
@@ -24,47 +74,6 @@
         </div>
         <nav v-if="libraryTotal > 20" class="online-pagination" aria-label="在线记录分页"><JzButton :disabled="libraryOffset === 0 || libraryLoading" @click="loadLibrary(Math.max(0, libraryOffset - 20))">上一页</JzButton><span>第 {{ Math.floor(libraryOffset / 20) + 1 }} 页 · {{ libraryTotal }} 项</span><JzButton :disabled="libraryLoading || libraryOffset + 20 >= libraryTotal || libraryOffset + 20 > 1000" @click="loadLibrary(libraryOffset + 20)">下一页</JzButton></nav>
       </section>
-      <p v-if="stateNotice" class="online-state-notice" data-online-state-notice role="status">{{ stateNotice }}</p>
-      <div v-if="nextLoading" class="online-next-state" data-online-next-loading role="status"><span>正在读取下一集…</span><JzButton @click="cancelNext">取消连续播放</JzButton></div>
-      <EmptyState v-if="loadingSources" state="loading" title="正在加载视频源" />
-      <EmptyState v-else-if="sourcesError" state="error" title="视频源加载失败" :text="sourcesError" retry @retry="loadSources" />
-      <EmptyState v-else-if="!enabled" state="empty" title="在线点播尚未启用" text="在设置中启用在线点播并添加视频源；已有记录仍会保留。"><router-link to="/settings?sec=sec-online">打开在线视频源设置</router-link></EmptyState>
-      <EmptyState v-else-if="!sources.length" state="empty" title="还没有可用的视频源" text="可显式启用开放样例目录，或添加自己的 MacCMS JSON 来源。"><router-link to="/settings?sec=sec-online">添加视频源</router-link></EmptyState>
-      <template v-else>
-        <form class="online-search" data-online-search role="search" aria-label="搜索在线视频" @submit.prevent="search(1)">
-          <JzField id="online-source" label="视频源"><template #default="field"><select :id="field.id" v-model="sourceId" data-online-source :disabled="loadingSources" @change="sourceChanged"><option v-for="source in sources" :key="source.id" :value="source.id">{{ source.name }}</option></select></template></JzField>
-          <JzField id="online-query" label="片名"><template #default="field"><input :id="field.id" v-model="query" maxlength="100" autocomplete="off" placeholder="输入电影或剧集名称" /></template></JzField>
-          <JzButton type="submit" variant="primary" icon="search" :disabled="!canSearch || searching" :loading="searching">{{ selectedSource?.provider === 'open_catalog' && !query.trim() ? '浏览目录' : '搜索' }}</JzButton>
-        </form>
-        <p class="online-scope">仅查询所选来源；在线内容独立于 NAS 媒体库。<span v-if="selectedSource?.provider === 'open_catalog'">开放样例用于验证播放能力。</span></p>
-        <div class="online-health" data-online-health><span>API：{{ healthLoading ? '正在读取状态' : health ? onlineHealthLabel(health.purposes?.api) : healthError || '未观察' }}</span><span>媒体：{{ healthLoading ? '正在读取状态' : health ? onlineHealthLabel(health.purposes?.media) : healthError || '未观察' }}</span><JzButton variant="ghost" :disabled="healthLoading" @click="loadHealth">刷新状态</JzButton><small>最近实际请求的进程内记录；重启或配置变化后需重新观察，不代表终端已可播。</small></div>
-        <EmptyState v-if="detailLoading" state="loading" title="正在加载详情" text="正在读取所选来源的线路与分集。"><JzButton @click="backToResults">返回搜索结果</JzButton></EmptyState>
-        <EmptyState v-else-if="detailError" state="error" title="详情加载失败" :text="detailError" retry @retry="openDetail(lastDetailId)"><JzButton @click="backToResults">返回搜索结果</JzButton></EmptyState>
-        <section v-else-if="detail" class="online-detail" data-online-detail>
-          <JzButton variant="ghost" icon="arrow-left" @click="backToResults">返回搜索结果</JzButton>
-          <header class="online-detail-heading"><div class="online-artwork"><AppIcon :name="detail.item.kind === 'tv' ? 'tv' : 'movie'" :size="48" /></div><div><p class="online-eyebrow">{{ detail.source.name }} · {{ detail.item.kind === 'tv' ? '剧集' : '电影' }}</p><h2>{{ detail.item.title }}</h2><p v-if="detail.year" class="online-year">{{ detail.year }}</p></div></header>
-          <div class="online-detail-actions"><JzButton :data-online-favorite="detail.item.id" :icon="itemState?.favorite ? 'heart-filled' : 'heart'" :disabled="!itemState || mutationBusy.has(detail.item.id)" @click="favoriteDetail">{{ itemState?.favorite ? '取消收藏' : '收藏' }}</JzButton><JzButton v-if="resumeEntry" icon="play" data-online-detail-resume :disabled="starting" @click="play(resumeEntry)">继续播放</JzButton><span v-if="starting" role="status">正在读取续播位置…</span></div>
-          <p v-if="detail.description" class="online-description">{{ detail.description }}</p>
-          <div v-if="detail.attribution?.length" class="online-attribution"><span>内容来源与许可</span><a v-for="credit in detail.attribution" :key="credit.url" :href="safeAttribution(credit.url)" target="_blank" rel="noopener noreferrer">{{ credit.label }}</a></div>
-          <h3>播放线路</h3>
-          <div class="online-lines" role="group" aria-label="播放线路"><JzButton v-for="line in detail.lines" :key="line.id" :data-online-line="line.id" :aria-pressed="line.id === lineId" @click="selectLine(line.id)">{{ line.label }}</JzButton></div>
-          <label v-if="detail.item.kind === 'tv'" class="online-autoplay"><input v-model="autoplay" type="checkbox" data-online-autoplay @change="autoplayChanged" />自动播放下一集（当前浏览器）</label>
-          <p class="online-scope">{{ selectedLine?.label || '暂无线路' }}<span v-if="selectedLine"> · {{ selectedLine.entries.length }} {{ detail.item.kind === 'tv' ? '集' : '个播放版本' }}</span><span v-if="detail.item.kind === 'tv'">；连续播放仅使用当前来源和线路，不跳过片尾。</span></p>
-          <div v-if="selectedLine" class="online-entries"><div v-for="(entry, index) in selectedLine.entries" :key="entry.identity?.episode_id || entry.label + ':' + index" class="online-entry"><JzButton :data-online-entry="entry.label" :disabled="!entry.supported || !entry.identity || starting" :variant="entry.supported ? 'primary' : 'secondary'" :icon="entry.supported ? 'play' : undefined" @click="play(entry)">{{ entry.label }}</JzButton><span v-if="!entry.supported">{{ unsupportedReason(entry.reason) }}</span><span v-else>{{ entry.transport?.toUpperCase() }} · 由当前设备播放</span></div></div>
-          <EmptyState v-else state="empty" title="此来源暂无可播放线路" text="选择其他来源或稍后重新查询。" />
-        </section>
-        <template v-else>
-          <EmptyState v-if="searching" state="loading" title="正在搜索" :text="'正在查询 ' + selectedSource?.name" />
-          <EmptyState v-else-if="searchError" state="error" title="搜索失败" :text="searchError" retry @retry="search(lastQuery.page, lastQuery.query)" />
-          <EmptyState v-else-if="!searched" state="empty" :title="selectedSource?.provider === 'open_catalog' ? '浏览开放样例目录' : '查找想看的内容'" :text="selectedSource?.provider === 'open_catalog' ? '点击“浏览目录”查看开放影片及许可。' : '输入片名，仅向当前选中的来源发起查询。'" />
-          <EmptyState v-else-if="!results.length" state="no-results" title="没有找到相关内容" text="试试其他片名，或选择其他来源。" />
-          <template v-else>
-            <div class="online-results-heading"><h2>{{ loadedQuery ? '搜索结果' : '开放目录' }}</h2><span>{{ total }} 项 · {{ selectedSource?.name }}</span></div>
-            <div class="online-results"><article v-for="item in results" :key="item.external_id" class="online-result"><div class="online-result-icon"><AppIcon :name="item.kind === 'tv' ? 'tv' : 'movie'" :size="28" /></div><div class="online-result-text"><h3>{{ item.title }}</h3><p v-if="item.year">{{ item.year }}</p><p v-if="item.description" class="online-result-description">{{ item.description }}</p></div><JzButton :data-online-result="item.external_id" icon="forward" @click="openDetail(item.external_id)">查看详情</JzButton></article></div>
-            <nav v-if="pageCount > 1" class="online-pagination" aria-label="在线搜索分页"><JzButton icon="arrow-left" :disabled="page <= 1" @click="search(page - 1, loadedQuery)">上一页</JzButton><span>第 {{ page }} / {{ pageCount }} 页</span><JzButton icon="forward" :disabled="page >= pageCount" @click="search(page + 1, loadedQuery)">下一页</JzButton></nav>
-          </template>
-        </template>
-      </template>
     </template>
     <OnlinePlayerModal v-if="playing" :key="playing.key" :online-identity="playing.identity" :title="playing.title" :initial-position="playing.position" :prepare-session="playing.prepareSession" @close="playing.close" @progress="playing.progress" @ended="playing.ended" />
   </div>
@@ -82,6 +91,7 @@ import JzButton from '../components/JzButton.vue'
 import JzField from '../components/JzField.vue'
 import AppIcon from '../components/AppIcon.vue'
 import OnlinePlayerModal from '../components/OnlinePlayerModal.vue'
+import OnlineArtwork from '../components/OnlineArtwork.vue'
 import '../styles/online.css'
 
 const client = createOnlineCatalogClient(), nextClient = createOnlineCatalogClient(), stateClient = createOnlineStateClient()
@@ -89,6 +99,7 @@ const healthClient = createOnlineHealthClient(), health = ref(null), healthLoadi
 const progress = createOnlineProgressMemory()
 const sources = ref([]), sourceId = ref(''), enabled = ref(false), query = ref('')
 const loadingSources = ref(true), sourcesError = ref(''), searching = ref(false), searched = ref(false), searchError = ref('')
+const categories = ref([]), categoryId = ref('')
 const results = ref([]), page = ref(1), pageCount = ref(1), total = ref(0), loadedQuery = ref('')
 const detailLoading = ref(false), detailError = ref(''), detail = ref(null), lineId = ref(''), lastDetailId = ref(''), itemState = ref(null)
 const playing = ref(null), starting = ref(false), nextLoading = ref(false), stateNotice = ref('')
@@ -100,11 +111,13 @@ const mode = viewing?.mode === 'private' ? 'private' : 'normal'
 const modeText = mode === 'private' ? '隐私模式' : '普通模式'
 const autoplay = ref(loadOnlineAutoplay(mode))
 const selectedSource = computed(() => sources.value.find(source => source.id === sourceId.value))
-const canSearch = computed(() => !!sourceId.value && (query.value.trim().length > 0 || selectedSource.value?.provider === 'open_catalog'))
+const canBrowse = computed(() => selectedSource.value?.capabilities?.browse || selectedSource.value?.provider === 'open_catalog')
+const canSearch = computed(() => !!sourceId.value && (query.value.trim().length > 0 || canBrowse.value))
 const selectedLine = computed(() => detail.value?.lines.find(line => line.id === lineId.value))
 const lastQuery = ref({ page: 1, query: '' })
 const resumeEntry = computed(() => !itemState.value?.last_progress?.completed ? findEntry(detail.value, itemState.value?.last_progress?.identity) : null)
 let disposed = false, generation = 0, libraryGeneration = 0, healthGeneration = 0, playIntent = 0, nextIntent = 0, runId = 0, activeRun = null
+let lastSourceId = ''
 function current(turn) { return !disposed && turn === generation && safeMode.value }
 function sameIdentity(a, b) { try { return onlineIdentityKey(a) === onlineIdentityKey(b) } catch { return false } }
 function findEntry(data, identity) { return data?.lines?.flatMap(line => line.entries).find(entry => entry.supported && entry.identity && sameIdentity(entry.identity, identity)) || null }
@@ -119,9 +132,15 @@ async function loadSources() {
     if (!current(turn) || !response) return
     enabled.value = response.enabled; sources.value = response.items || []
     if (!sources.value.some(source => source.id === sourceId.value)) sourceId.value = sources.value[0]?.id || ''
+    lastSourceId = sourceId.value
     void loadHealth()
   } catch (error) { if (current(turn)) sourcesError.value = onlineCatalogError(error) }
-  finally { if (current(turn)) loadingSources.value = false }
+  finally {
+    if (current(turn)) {
+      loadingSources.value = false
+      if (!sourcesError.value && enabled.value && selectedSource.value?.capabilities?.browse) void search(1, '')
+    }
+  }
 }
 async function loadHealth() {
   const turn = ++healthGeneration, selected = sourceId.value
@@ -145,20 +164,30 @@ async function loadLibrary(offset = libraryOffset.value) {
   finally { if (!disposed && turn === libraryGeneration) libraryLoading.value = false }
 }
 function selectLibrary(section) { librarySection.value = section; void loadLibrary(0) }
-function sourceChanged() {
+function sourceChanged(discover = true) {
+  if (discover && sourceId.value === lastSourceId) return
+  lastSourceId = sourceId.value
   healthGeneration++; healthClient.cancel(); health.value = null; void loadHealth()
   generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
-  results.value = []; searched.value = false; searchError.value = ''; searching.value = false; page.value = pageCount.value = 1; total.value = 0
+  results.value = []; categories.value = []; categoryId.value = ''; searched.value = false; searchError.value = ''; searching.value = false; page.value = pageCount.value = 1; total.value = 0
+  if (discover && selectedSource.value?.capabilities?.browse) void search(1, '')
+}
+function selectCategory(id) {
+  if (searching.value || id === categoryId.value && !loadedQuery.value && searched.value) return
+  categoryId.value = id; query.value = ''; void search(1, '')
 }
 async function search(nextPage = 1, text = query.value) {
-  if (!sourceId.value || !safeMode.value || !text.trim() && selectedSource.value?.provider !== 'open_catalog') return
+  if (!sourceId.value || !safeMode.value || !text.trim() && !canBrowse.value) return
+  if (text.trim()) categoryId.value = ''
   const turn = ++generation
   void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
   searching.value = true; searchError.value = ''; lastQuery.value = { page: nextPage, query: text }
   try {
-    const response = await client.search(sourceId.value, text, nextPage)
+    const browsing = !text.trim() && selectedSource.value?.capabilities?.browse
+    const response = await (browsing ? client.browse(sourceId.value, nextPage, categoryId.value) : client.search(sourceId.value, text, nextPage))
     if (!current(turn) || !response) return
     results.value = response.items || []; page.value = response.page; pageCount.value = response.page_count
+    if (browsing) categories.value = response.categories || []
     total.value = response.total; loadedQuery.value = text.trim(); searched.value = true
   } catch (error) { if (current(turn)) searchError.value = onlineCatalogError(error) }
   finally { if (current(turn)) { searching.value = false; void loadHealth() } }
@@ -188,7 +217,7 @@ async function openDetail(externalId, options = {}) {
 }
 async function openSaved(row, resume) {
   if (!row.available || !safeMode.value || loadingSources.value || sourcesError.value) return
-  sourceId.value = row.source.id; sourceChanged()
+  sourceId.value = row.source.id; sourceChanged(false)
   await openDetail(row.item.external_id, { resume: resume && !!row.progress, identity: row.progress?.identity, itemId: row.item.id })
 }
 function backToResults() { generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false }
@@ -314,7 +343,7 @@ const stopCleanup = registerViewingPlaybackCleanup(async () => {
   generation++; libraryGeneration++; playIntent++; cancelNext(); client.cancel(); stateClient.cancel()
   healthGeneration++; healthClient.cancel(); health.value = null; healthError.value = ''; healthLoading.value = false
   const closing = stopRun(activeRun)
-  detail.value = null; itemState.value = null; results.value = []; searched.value = false; libraryRows.value = []; libraryScope.value = ''; libraryTotal.value = 0
+  detail.value = null; itemState.value = null; results.value = []; categories.value = []; categoryId.value = ''; searched.value = false; libraryRows.value = []; libraryScope.value = ''; libraryTotal.value = 0
   stateNotice.value = ''; searching.value = detailLoading.value = starting.value = false
   await closing
 })

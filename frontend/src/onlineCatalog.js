@@ -63,6 +63,11 @@ export function createOnlineCatalogClient({ request = api } = {}) {
   function cancel() { generation++; pending?.abort(); pending = null }
   return {
     sources: () => run('/api/online/catalog/sources'),
+    browse(source, page = 1, category = '') {
+      if (!Number.isInteger(page) || page < 1 || page > 1000
+        || category && (typeof category !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(category))) throw new Error('在线分类条件无效')
+      return run('/api/online/catalog/browse?' + new URLSearchParams({ source_id: sourceId(source), page: String(page), category_id: category }))
+    },
     search(source, query, page = 1) {
       const q = String(query || '').trim()
       if (q.length > 100 || !Number.isInteger(page) || page < 1 || page > 1000) throw new Error('在线搜索条件无效')

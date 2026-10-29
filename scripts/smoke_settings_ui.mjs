@@ -2465,6 +2465,12 @@ async function checkSettingsDrafts(browser, base) {
     }
     if (key === '/api/online/network/profiles') return route.fulfill({ json: { items: [] } })
     if (key === '/api/online/network/default') return route.fulfill({ json: { rule: { mode: 'direct' } } })
+    if (key === '/api/online/source-templates') return route.fulfill({ json: { items: [{
+      id: 'blender-open-example', name: '开放样例目录', provider: 'open_catalog',
+      api_base_url: 'https://www.bigbuckbunny.org/', allowed_hosts: ['www.bigbuckbunny.org', 'video.blender.org'],
+      provider_options: {}, description: '用于隔离界面验收的开放样例。', homepage: 'https://peach.blender.org/about/',
+      network_note: '不访问真实上游。', status: 'unverified',
+    }] } })
     if (key === '/api/viewing/password' && method === 'POST') {
       writes.push({ key, body: request.postDataJSON() })
       return route.fulfill({ status: 503, json: { detail: '此场景不应保存保护密码' } })
@@ -2511,8 +2517,9 @@ async function checkSettingsDrafts(browser, base) {
         await page.getByRole('button', { name: '启用在线点播', exact: true }).click()
         await page.getByText('已启用在线点播。', { exact: true }).waitFor()
         await page.getByRole('button', { name: '添加来源', exact: true }).click()
-        await page.getByLabel('提供方', { exact: true }).selectOption('open_catalog')
-        await page.getByLabel('启用此来源', { exact: true }).check()
+        await page.getByLabel('选择视频源', { exact: true }).selectOption('blender-open-example')
+        assert.equal(await page.getByLabel('来源名称', { exact: true }).inputValue(), '开放样例目录')
+        assert.equal(await page.getByLabel('启用此来源', { exact: true }).isChecked(), true, 'a newly selected source is enabled by default')
         await page.getByRole('button', { name: '保存来源', exact: true }).click()
         await page.getByText('来源已保存；尚未验证上游连通性。', { exact: true }).waitFor()
         assert.equal(onlineSettings.enabled, true)

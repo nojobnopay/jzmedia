@@ -21,11 +21,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|all]')
+    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'catalogue', 'discovery', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-'))
 const output = path.join(root, 'output/playwright/online-p2')
 const dist = path.join(work, 'dist')
@@ -346,7 +346,7 @@ async function createSourceUi(page, name) {
   await form.getByLabel('提供方', { exact: true }).selectOption('maccms')
   await form.getByLabel('接口地址', { exact: true }).fill(bootstrap.api_base_url)
   await form.getByLabel('允许访问的主机', { exact: true }).fill('fixture.invalid')
-  await form.getByLabel('启用此来源', { exact: true }).check()
+  assert.equal(await form.getByLabel('启用此来源', { exact: true }).isChecked(), true, 'new sources are enabled by default')
   await form.getByRole('button', { name: '保存来源', exact: true }).click()
   const source = await until(async () => {
     const response = await call(page, 'GET', '/api/online/sources')
@@ -397,12 +397,15 @@ async function setup() {
     primarySource = await createSourceUi(page, '隔离合成MacCMS')
     await page.getByRole('button', { name: '网络 ' + primarySource.name, exact: true }).click()
     const network = page.locator('[data-online-network-form]')
-    for (const label of ['来源默认', 'API 查询', '媒体取流']) await network.getByLabel(label, { exact: true }).selectOption('direct')
+    await network.locator('summary').filter({ hasText: '高级：按用途分别配置' }).click()
+    for (const label of ['来源默认', '搜索与详情', '视频播放']) await network.getByLabel(label, { exact: true }).selectOption('direct')
     await network.getByRole('button', { name: '保存网络规则', exact: true }).click()
     await network.waitFor({ state: 'hidden' })
     const policy = await call(page, 'GET', `/api/online/sources/${primarySource.id}/network`)
     assert.equal(policy.status, 200, JSON.stringify(policy))
     for (const key of ['default', 'api', 'media']) assert.equal(policy.body.policy[key].mode, 'direct')
+    await page.getByRole('button', { name: '测试来源 ' + primarySource.name, exact: true }).click()
+    await page.getByText('目录读取成功；可前往在线页选择影片试播。', { exact: true }).waitFor()
     await page.screenshot({ path: path.join(output, 'source-management-1440.png') })
     const publicSources = await call(page, 'GET', '/api/online/catalog/sources')
     assertPrivateCatalogue(publicSources.body)
@@ -410,6 +413,31 @@ async function setup() {
     passed({ case: phase.name, sourceId: primarySource.id, explicitlyEnabled: true, networkPolicy: policy.body,
       scope: 'Source creation, feature enable and explicit API/media direct rules via the real management UI' })
   } finally { await closeContext(context) }
+}
+async function discovery() {
+  for (const width of [1440, 390, 320]) {
+    phase = { name: `discovery-${width}`, expectedHttp: false }
+    const { context, page } = await newPage(width)
+    try {
+      await selectSource(page)
+      await page.locator('[data-online-result="movie-1"]').waitFor()
+      await page.waitForFunction(() => [...document.querySelectorAll('.online-results img')]
+        .filter(image => image.complete && image.naturalWidth > 0).length >= 2)
+      assert.equal(await page.locator('.online-connection').evaluate(element => element.open), false)
+      const geometry = await layout(page, width)
+      const images = await page.locator('.online-results img').evaluateAll(elements => elements.map(image => ({
+        url: new URL(image.src).pathname, decoded: image.complete && image.naturalWidth > 0,
+      })))
+      assert.ok(images.length >= 2 && images.every(image => image.decoded && image.url.startsWith('/api/online/catalog/artwork/')))
+      await page.screenshot({ path: path.join(output, `discovery-${width}.png`), fullPage: true })
+      await page.locator('[data-online-category="2"]').click()
+      await page.waitForFunction(() => document.querySelectorAll('[data-online-result]').length === 1
+        && document.querySelector('[data-online-result="show-1"]'))
+      assert.equal(await page.locator('[data-online-category="2"]').getAttribute('aria-pressed'), 'true')
+      passed({ case: phase.name, geometry, images, actualSourceCategoryApplied: true })
+    } finally { await closeContext(context) }
+  }
+  await backendChildren('after-discovery')
 }
 async function matrix() {
   for (const width of [1440, 390]) for (const transport of ['mp4', 'hls']) {
@@ -637,12 +665,14 @@ try {
         '--autoplay-policy=no-user-gesture-required'] })
     report.browser = { version: browser.version(), executable: chromium.executablePath() }
     await setup()
+    if (selectedCase === 'all' || selectedCase === 'discovery') await discovery()
     if (selectedCase === 'all' || selectedCase === 'matrix') await matrix()
     if (selectedCase === 'all' || selectedCase === 'catalogue') await catalogue()
     report.finalMetrics = (await idle()).metrics
     assert.ok(!report.finalMetrics.origin_calls.some(call => call.app_credentials), 'Application credentials never reach the source')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'api'), 'The API uses its own network-purpose client')
-    assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
+    if (selectedCase !== 'discovery') assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
+    assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'image'), 'Posters use their image-purpose client')
     assert.deepEqual(report.errors, [], 'No browser runtime, Vue or unexpected console errors')
     assert.deepEqual(report.unexpectedRequests, [], 'No foreign origin or local playback/cast API request')
     assert.deepEqual(report.unexpectedResponses, [], 'Clean scenarios have no unexpected HTTP errors')
