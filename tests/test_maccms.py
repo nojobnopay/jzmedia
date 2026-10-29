@@ -97,9 +97,35 @@ def test_unsupported_or_unauthorized_media_are_disabled_without_copying_url(url,
     {"vod_play_from": "same$$$same"},
     {"vod_play_from": "main", "vod_play_url": f"第1集${MP4}#第1集${HLS}"},
     {"vod_play_from": "main", "vod_play_url": f"{MP4}#{HLS}"},
+    {"vod_play_from": "main", "vod_play_url": f"{HLS}#{HLS}"},
 ])
 def test_ambiguous_labels_are_rejected_instead_of_using_order_identity(changes):
     assert_category(lambda: maccms.parse_detail(SOURCE, movie(**changes)), "provider_ambiguous_identity")
+
+
+def test_exact_duplicate_entries_preserve_the_first_position_and_identity_on_refresh():
+    rows = [f"第3期${HLS}", f"第1期${MP4}", f"第3期${HLS}", f"第2期${HLS}", f"第1期${MP4}"]
+    original = maccms.parse_detail(SOURCE, series(vod_play_from="main", vod_play_url="#".join(rows)))
+    refreshed = maccms.parse_detail(SOURCE, series(vod_play_from="main",
+        vod_play_url="#".join(raw + "&new=1" for raw in rows)))
+    assert [entry.label for entry in original.lines[0].entries] == ["第3期", "第1期", "第2期"]
+    assert [entry.url for entry in original.lines[0].entries] == [HLS, MP4, HLS]
+    assert [entry.url for entry in refreshed.lines[0].entries] == [HLS + "&new=1", MP4 + "&new=1", HLS + "&new=1"]
+    def identities(detail):
+        return [(line.id, maccms.episode_external_id(line.name, entry.label))
+                for line in detail.lines for entry in line.entries]
+    assert identities(original) == identities(refreshed)
+
+
+@pytest.mark.parametrize("first,second", [
+    (f"第1期${HLS}", f"第1期${HLS}&new=1"),
+    (f"第1期${HLS}", f"<b>第1期</b>${HLS}"),
+    ("第1期$https://cdn.example/watch.html?part=1", "第1期$https://cdn.example/watch.html?part=2"),
+    ("第1期$javascript:alert(1)", "第1期$file:///tmp/movie.mp4"),
+])
+def test_same_plain_label_with_different_original_entry_remains_ambiguous(first, second):
+    assert_category(lambda: maccms.parse_detail(SOURCE, series(vod_play_from="main",
+        vod_play_url=first + "#" + second)), "provider_ambiguous_identity")
 
 
 def test_single_unlabelled_film_has_a_stable_default_label():
@@ -117,9 +143,56 @@ def test_malformed_fields_fail_with_fixed_category(changes):
     assert_category(lambda: maccms.parse_detail(SOURCE, movie(**changes)))
 
 
-def test_episode_count_is_bounded_before_persistence():
-    assert_category(lambda: maccms.parse_detail(SOURCE, movie(vod_play_from="many",
-        vod_play_url="#".join(f"e{i}${MP4}" for i in range(501)))), "provider_response_limit")
+@pytest.mark.parametrize("count", [501, 783, 2000])
+def test_long_series_line_uses_the_existing_total_episode_budget(count):
+    result = maccms.parse_detail(SOURCE, series(vod_play_from="main",
+        vod_play_url="#".join(f"第{i}期${HLS}" for i in range(1, count + 1))))
+    assert result.kind == "tv"
+    assert len(result.lines) == 1
+    assert len(result.lines[0].entries) == count
+    assert result.lines[0].entries[0].label == "第1期"
+    last = result.lines[0].entries[-1]
+    assert last.label == f"第{count}期" and last.url == HLS and last.transport == "hls"
+
+
+def test_long_series_collapses_only_exact_duplicates_without_reordering():
+    unique = [f"第{i}期${HLS}" for i in range(1, 601)]
+    rows = unique[:182] + unique[:182] + unique[182:] + unique[:1]
+    assert len(rows) == 783
+    result = maccms.parse_detail(SOURCE, series(vod_play_from="main", vod_play_url="#".join(rows)))
+    assert [entry.label for entry in result.lines[0].entries] == [f"第{i}期" for i in range(1, 601)]
+
+
+@pytest.mark.parametrize("counts", [(2001,), (1000, 1001)])
+def test_episode_count_is_bounded_before_splitting_or_validating_media(monkeypatch, counts):
+    def unexpected_entry(*_args, **_kwargs):
+        pytest.fail("an over-budget detail must not validate any media URL")
+    monkeypatch.setattr(maccms, "_entry", unexpected_entry)
+    row = series(vod_play_from="$$$".join(f"line{i}" for i in range(len(counts))),
+        vod_play_url="$$$".join("#".join(f"e{i}${MP4}" for i in range(count)) for count in counts))
+    assert_category(lambda: maccms.parse_detail(SOURCE, row), "provider_entry_limit")
+
+
+def test_exact_duplicates_cannot_bypass_the_raw_episode_budget(monkeypatch):
+    def unexpected_entry(*_args, **_kwargs):
+        pytest.fail("an over-budget detail must be rejected before deduplication")
+    monkeypatch.setattr(maccms, "_entry", unexpected_entry)
+    assert_category(lambda: maccms.parse_detail(SOURCE, series(vod_play_from="main",
+        vod_play_url="#".join([f"第1期${HLS}"] * 2001))), "provider_entry_limit")
+
+
+def test_long_series_does_not_assign_an_order_identity_to_duplicate_labels():
+    entries = [f"第{i}期${HLS}" for i in range(1, 783)] + [f"第1期${MP4}"]
+    assert_category(lambda: maccms.parse_detail(SOURCE, series(vod_play_from="main",
+        vod_play_url="#".join(entries))), "provider_ambiguous_identity")
+
+
+def test_body_byte_budget_remains_independent_of_episode_count():
+    payload = b'{"code":1,"list":[]}'
+    body = payload + b" " * (maccms.MAX_BODY - len(payload))
+    assert len(body) == 2 * 1024**2
+    assert maccms.decode(body)["list"] == []
+    assert_category(lambda: maccms.decode(body + b" "), "provider_response_limit")
 
 
 @pytest.mark.parametrize("body", [b"<html>private-token</html>", b"[]", b'{"code":true,"list":[]}',

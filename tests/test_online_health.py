@@ -53,6 +53,9 @@ def test_failure_categories_are_fixed_and_cancellation_does_not_mark_a_source_fa
     cache, clock = registry()
     cache.finish(health.Observation("catalogue", 90.0, context(values)), ProviderError("provider_timeout"))
     assert cache.summary(values, "api")["category"] == "provider_timeout"
+    cache.finish(health.Observation("catalogue", 100.0, context(values)), ProviderError("provider_entry_limit"))
+    assert cache.summary(values, "api")["category"] == "provider_entry_limit"
+    cache.finish(health.Observation("catalogue", 100.0, context(values)), ProviderError("provider_timeout"))
     clock[0] += 1
     cache.finish(health.Observation("catalogue", 101.0, context(values)), ProviderError("provider_cancelled"))
     assert cache.summary(values, "api")["category"] == "provider_timeout"

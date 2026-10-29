@@ -148,6 +148,62 @@ def test_episode_and_line_identity_survive_refresh_sort_and_signature_changes(en
             assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
 
 
+def test_long_series_refresh_preserves_identity_and_resolves_the_last_episode(environment):
+    environment.show.update(vod_play_from="main", type_name="综艺",
+        vod_play_url="#".join(f"第{i}期${HLS}&episode={i}" for i in range(1, 784)))
+    response = get_detail(environment, "show-1")
+    assert response.status_code == 200, response.text
+    before = response.json()
+    entries = before["lines"][0]["entries"]
+    assert len(entries) == 783 and all(entry["supported"] for entry in entries)
+    assert entries[-1]["label"] == "第783期"
+    last_identity = entries[-1]["identity"]
+
+    environment.show.update(vod_play_url="#".join(
+        f"第{i}期${HLS}&episode={i}&new=1" for i in range(783, 0, -1)))
+    refreshed = get_detail(environment, "show-1")
+    assert refreshed.status_code == 200, refreshed.text
+    after = refreshed.json()
+    assert before["item"]["id"] == after["item"]["id"]
+    assert {entry["label"]: entry["identity"] for entry in entries} == {
+        entry["label"]: entry["identity"] for entry in after["lines"][0]["entries"]}
+    resolved = providers.resolve(OnlinePlaybackIdentity.model_validate(last_identity))
+    assert resolved.url == HLS + "&episode=783&new=1" and resolved.transport == "hls"
+    assert "cdn.example" not in response.text and "server-only" not in refreshed.text
+
+    with store._base._conn() as connection:
+        assert connection.execute("SELECT count(*) FROM online_items").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM online_episodes").fetchone()[0] == 783
+        for table in ("online_items", "online_episodes"):
+            assert "server-only" not in json.dumps([tuple(row) for row in connection.execute(f"SELECT * FROM {table}")])
+        for table in ("movies", "tv_episodes", "playback_progress"):
+            assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+
+
+def test_duplicate_insertion_and_removal_preserve_episode_identity_and_resolution(environment):
+    environment.show.update(vod_play_from="main",
+        vod_play_url=f"第1期${MP4}#第2期${HLS}")
+    original = get_detail(environment, "show-1")
+    assert original.status_code == 200, original.text
+    original_entries = original.json()["lines"][0]["entries"]
+    second_identity = original_entries[1]["identity"]
+
+    environment.show.update(vod_play_url=f"第1期${MP4}#第1期${MP4}#第2期${HLS}#第1期${MP4}#第2期${HLS}")
+    duplicated = get_detail(environment, "show-1")
+    assert duplicated.status_code == 200, duplicated.text
+    assert duplicated.json()["lines"][0]["entries"] == original_entries
+    resolved = providers.resolve(OnlinePlaybackIdentity.model_validate(second_identity))
+    assert resolved.url == HLS and resolved.transport == "hls"
+
+    environment.show.update(vod_play_url=f"第1期${MP4}&new=1#第2期${HLS}&new=1")
+    deduplicated = get_detail(environment, "show-1")
+    assert deduplicated.status_code == 200, deduplicated.text
+    assert deduplicated.json()["lines"][0]["entries"] == original_entries
+    assert providers.resolve(OnlinePlaybackIdentity.model_validate(second_identity)).url == HLS + "&new=1"
+    with store._base._conn() as connection:
+        assert connection.execute("SELECT count(*) FROM online_episodes").fetchone()[0] == 2
+
+
 def test_fresh_detail_never_silently_substitutes_removed_line_or_episode(environment):
     movie = get_detail(environment).json()
     identity = movie["lines"][1]["entries"][0]["identity"]

@@ -7,6 +7,7 @@ private val SOURCE_ID = Regex("src_[0-9a-f]{32}")
 private val ITEM_ID = Regex("itm_[0-9a-f]{32}")
 private val EPISODE_ID = Regex("ep_[0-9a-f]{32}")
 private val LINE_ID = Regex("ln_[0-9a-f]{32}")
+private const val MAX_CATALOG_ENTRIES = 2000
 internal val ONLINE_OPAQUE = Regex("[A-Za-z0-9_-]{32,128}")
 internal val ONLINE_SCOPE = Regex("[0-9a-f]{64}")
 
@@ -113,7 +114,7 @@ data class OnlineEntry(val label: String, val identity: OnlineIdentity?, val tra
 }
 data class OnlineLine(val id: String, val label: String, val entries: List<OnlineEntry>) {
     companion object { fun fromJson(value: JSONObject) = OnlineLine(value.string("id").also { require(LINE_ID.matches(it)) },
-        value.string("label", 512), value.list("entries", 500).map(OnlineEntry::fromJson)) }
+        value.string("label", 512), value.list("entries", MAX_CATALOG_ENTRIES).map(OnlineEntry::fromJson)) }
 }
 data class OnlineAttribution(val label: String, val url: String) {
     companion object { fun fromJson(value: JSONObject) = OnlineAttribution(value.string("label", 512), value.string("url", 2048)) }
@@ -132,8 +133,10 @@ data class OnlineDetail(val source: OnlineSource, val item: OnlineCatalogItem, v
     companion object { fun fromJson(value: JSONObject): OnlineDetail {
         val source = OnlineSource.fromJson(value.getJSONObject("source"))
         val item = OnlineCatalogItem.fromJson(value.getJSONObject("item"))
-        val lines = value.list("lines", 16).map(OnlineLine::fromJson)
-        require(item.sourceId == source.id && lines.sumOf { it.entries.size } <= 2000)
+        val rawLines = value.list("lines", 16)
+        require(item.sourceId == source.id &&
+            rawLines.sumOf { it.getJSONArray("entries").length().toLong() } <= MAX_CATALOG_ENTRIES.toLong())
+        val lines = rawLines.map(OnlineLine::fromJson)
         require(lines.flatMap { it.entries }.all { it.identity == null || it.identity.sourceId == source.id && it.identity.itemId == item.id })
         require(lines.all { line -> line.entries.all { it.identity == null || it.identity.lineId == line.id } })
         return OnlineDetail(source, item, value.string("description", 8192), value.string("year", 32), lines,
@@ -245,6 +248,8 @@ fun onlineErrorMessage(error: Throwable): String = when ((error as? ApiException
     "online_source_disabled", "online_disabled" -> "视频源或在线功能已停用，已有记录仍会保留。"
     "online_favorite_limit" -> "当前设备和模式的收藏已达上限，请先取消部分收藏。"
     "online_progress_limit" -> "当前设备和模式的进度已达上限，请先清除旧观看记录。"
+    "provider_entry_limit" -> "视频源返回的分集数量超过读取上限，请选择其他内容或来源。"
+    "provider_response_limit" -> "视频源返回的资料过大，暂时无法读取。"
     "provider_not_found", "online_identity_not_found" -> "内容或播放线路已变化，请返回详情重新选择。"
     "invalid_online_response" -> "服务器返回了无法识别的在线数据，请更新服务端后重试。"
     else -> when ((error as? ApiException)?.status) {

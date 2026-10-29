@@ -111,6 +111,17 @@ test('movie lines have distinct stable identities and progress without accepting
   assert.throws(() => validateOnlineDescriptor(descriptor, first, { now: () => 1700000000000 }), error => error.code === 'invalid_online_descriptor')
 })
 
+test('catalogue entry-count limits are distinct from body-size limits and never echo upstream data', () => {
+  const message = 'https://private.invalid/path?token=private-secret'
+  const entries = onlineCatalogError({ code: 'provider_entry_limit', message })
+  const body = onlineCatalogError({ code: 'provider_response_limit', message })
+  assert.match(entries, /分集总数超过 2000 集/)
+  assert.match(body, /资料过大/)
+  assert.notEqual(entries, body)
+  assert.equal(entries.includes(message), false)
+  assert.equal(body.includes(message), false)
+})
+
 test('health reads never cancel a catalogue query and cannot expose an older source status', async () => {
   const { createOnlineHealthClient, onlineHealthLabel } = await import('../src/onlineCatalog.js')
   const search = deferred(), oldHealth = deferred(), newHealth = deferred(), calls = []

@@ -209,6 +209,7 @@ function errorMessage(problem) {
     provider_upstream_error: '视频源暂时无法提供播放地址，请稍后重试',
     provider_catalog_busy: '当前在线查询较多，请稍后重试',
     provider_response_limit: '视频源返回的资料过大，暂时无法读取',
+    provider_entry_limit: '此内容的分集总数超过 2000 集，暂时无法读取',
     provider_ambiguous_identity: '视频源的线路或集名重复，请选择其他来源',
     provider_cancelled: '播放地址查询已取消，请重新加载',
     online_source_changed: '视频源配置已变化，请关闭播放器后重新打开详情',

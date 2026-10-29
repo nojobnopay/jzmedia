@@ -16,6 +16,23 @@ class OnlineModelsTest {
         .put("media_url", "/api/online/sessions/$sid/media").put("transport", "mp4")
         .put("processing", "passthrough").put("seekable", true).put("duration_seconds", 24.0)
         .put("time_offset_seconds", 0.0).put("expires_at", 2_147_483_648L)
+    private fun longDetail(vararg counts: Int): JSONObject {
+        val lines = JSONArray()
+        counts.forEachIndexed { lineIndex, count ->
+            val lineId = "ln_" + lineIndex.toString(16).padStart(32, '0')
+            val entries = JSONArray()
+            repeat(count) { index ->
+                val identity = OnlineIdentity(source, item, "episode",
+                    "ep_" + (lineIndex * 10000 + index).toString(16).padStart(32, '0'), lineId)
+                entries.put(JSONObject().put("label", "第${index + 1}期").put("identity", identity.toJson())
+                    .put("transport", "hls").put("supported", true).put("reason", ""))
+            }
+            lines.put(JSONObject().put("id", lineId).put("label", "线路${lineIndex + 1}").put("entries", entries))
+        }
+        return JSONObject().put("source", JSONObject().put("id", source).put("name", "合成来源").put("provider", "maccms"))
+            .put("item", JSONObject().put("id", item).put("source_id", source).put("kind", "tv").put("title", "合成长综艺"))
+            .put("description", "").put("year", "2026").put("lines", lines).put("attribution", JSONArray())
+    }
 
     @Test fun onlineFeatureRequiresAnExplicitServerFeature() {
         assertFalse(supportsOnlineVod(JSONObject()))
@@ -85,11 +102,37 @@ class OnlineModelsTest {
         assertNull(detail.findEntry(second))
     }
 
+    @Test fun longSingleLineRetainsLateEpisodeIdentitiesWithinTheExistingTotalBudget() {
+        for (count in listOf(501, 783, 2000)) {
+            val detail = OnlineDetail.fromJson(longDetail(count))
+            val entries = detail.lines.single().entries
+            assertEquals(count, entries.size)
+            assertEquals("第${count}期", entries.last().label)
+            val last = entries.last().identity!!
+            assertEquals("ep_" + (count - 1).toString(16).padStart(32, '0'), last.episodeId)
+            assertEquals(entries.last(), detail.findEntry(last))
+            assertEquals(last, detail.nextEpisode(entries[count - 2].identity!!)?.identity)
+            assertNull(detail.nextEpisode(last))
+        }
+    }
+
+    @Test fun entryBudgetRemainsTwoThousandAcrossAllLines() {
+        assertEquals(2000, OnlineDetail.fromJson(longDetail(1000, 1000)).lines.sumOf { it.entries.size })
+        assertThrows(IllegalArgumentException::class.java) { OnlineDetail.fromJson(longDetail(2001)) }
+        assertThrows(IllegalArgumentException::class.java) { OnlineDetail.fromJson(longDetail(1000, 1001)) }
+        val oversizedLine = longDetail(2001).getJSONArray("lines").getJSONObject(0)
+        assertThrows(IllegalArgumentException::class.java) { OnlineLine.fromJson(oversizedLine) }
+    }
+
     @Test fun errorsUseTrustedCodesAndNeverReflectArbitraryServerText() {
         assertTrue(onlineErrorMessage(ApiException(409, "proxy password", "online_progress_writer_conflict")).contains("另一播放页"))
         assertTrue(onlineErrorMessage(ApiException(404, "server path secret")).contains("升级服务端"))
         assertTrue(onlineErrorMessage(ApiException(404, "secret", "online_identity_not_found")).contains("线路"))
         assertFalse(onlineErrorMessage(ApiException(502, "proxy user:password")).contains("password"))
+        assertEquals("视频源返回的分集数量超过读取上限，请选择其他内容或来源。",
+            onlineErrorMessage(ApiException(502, "proxy password", "provider_entry_limit")))
+        assertEquals("视频源返回的资料过大，暂时无法读取。",
+            onlineErrorMessage(ApiException(502, "proxy password", "provider_response_limit")))
         assertFalse(onlineErrorMessage(IllegalArgumentException("secret")).contains("secret"))
     }
 }

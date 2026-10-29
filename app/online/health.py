@@ -28,7 +28,7 @@ _CATEGORIES = {
     "provider_timeout", "network_timeout", "operation_timeout", "target_dns_timeout",
     "provider_network_error", "network_request_failed", "proxy_connection_failed",
     "provider_auth_failed", "provider_rate_limited", "provider_upstream_error", "provider_not_found",
-    "invalid_provider_response", "provider_response_limit", "provider_ambiguous_identity",
+    "invalid_provider_response", "provider_response_limit", "provider_entry_limit", "provider_ambiguous_identity",
     "online_upstream_status", "invalid_manifest_response", "unsupported_upstream_content_type",
     "upstream_length_mismatch", "invalid_upstream_range", "upstream_range_mismatch", "upstream_ignored_range",
     "encoded_response_not_supported", "response_byte_limit", "invalid_upstream_headers",

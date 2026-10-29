@@ -23,7 +23,7 @@ MAX_CACHE_RECORDS = 32
 MAX_CACHE_BYTES = 2 * 1024 * 1024
 _SOFT_ERRORS = {"provider_timeout", "provider_network_error", "provider_upstream_error",
                 "provider_not_found", "provider_rate_limited", "provider_auth_failed",
-                "provider_response_limit", "invalid_provider_response", "provider_ambiguous_identity"}
+                "provider_response_limit", "provider_entry_limit", "invalid_provider_response", "provider_ambiguous_identity"}
 
 
 class RelatedCache:

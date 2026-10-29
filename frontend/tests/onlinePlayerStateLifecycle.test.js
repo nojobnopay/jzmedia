@@ -20,7 +20,7 @@ function eventTarget() {
 
 // Run the real SFC setup/load/teardown and real progress writer with a media
 // element double. Native decoding itself is covered by the browser fixture.
-async function player(t, claimResponse) {
+async function player(t, claimResponse, { sessionProblem = null } = {}) {
   const mounted = [], beforeUnmount = [], unmounted = [], refs = [], requests = [], notices = []
   const page = eventTarget()
   const globals = new Map(['window', 'document'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
@@ -40,6 +40,7 @@ async function player(t, claimResponse) {
     requests.push({ path, options, body })
     if (path === '/api/viewing/session') return {}
     if (path === '/api/online/sessions') {
+      if (sessionProblem) throw sessionProblem
       const sessionId = String(++sessionCount).repeat(43)
       return { identity: IDENTITY, session_id: sessionId, media_url: `/api/online/sessions/${sessionId}/media`,
         transport: 'mp4', processing: 'passthrough', seekable: true, duration_seconds: 24,
@@ -104,12 +105,27 @@ async function player(t, claimResponse) {
     return visit(render({}, []))
   }
   return { video, page, writer, requests, notices, close, snapshot: exposed.snapshot,
+    text() {
+      const text = node => typeof node === 'string' ? node : Array.isArray(node) ? node.map(text).join('')
+        : node && typeof node === 'object' ? text(node.children) : ''
+      return text(render({}, []))
+    },
     playCalls: () => playCalls,
     frame() { frameCallback?.() },
     timeUpdate() { videoNode().props.onTimeupdate({ currentTarget: video }) },
   }
 }
 const grant = (revision = 1) => ({ identity: IDENTITY, writer_id: WRITER, writer_revision: revision, scope_token: SCOPE })
+
+test('the actual player distinguishes entry-count limits without exposing an upstream playback URL', async t => {
+  const privateMessage = 'https://private.invalid/movie.m3u8?token=private-secret'
+  const ui = await player(t, () => grant(), { sessionProblem: Object.assign(new Error(privateMessage), { code: 'provider_entry_limit' }) })
+  assert.match(ui.text(), /分集总数超过 2000 集/)
+  assert.doesNotMatch(ui.text(), /资料过大|private-secret|private\.invalid/)
+  assert.equal(ui.video.src, '')
+  assert.equal(ui.playCalls(), 0)
+  assert.equal(ui.snapshot().firstFrame, false)
+})
 
 test('actual online player waits for its writer before attaching media or observing a first frame', async t => {
   const claim = deferred()

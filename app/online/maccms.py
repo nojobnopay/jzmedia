@@ -19,7 +19,8 @@ from .providers import ProviderError
 MAX_ROWS = 100
 MAX_LINES = 16
 MAX_ENTRIES = 2000
-MAX_LINE_ENTRIES = 500
+# A long-running series may use the entire existing detail budget on one line.
+MAX_LINE_ENTRIES = MAX_ENTRIES
 MAX_BODY = 2 * 1024**2
 CATEGORY_TIMEOUT_SECONDS = 3.0
 _ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
@@ -507,7 +508,16 @@ def parse_detail(source, row):
     split_names, split_groups = names.split("$$$"), groups.split("$$$")
     if len(split_names) != len(split_groups) or len(split_names) > MAX_LINES:
         raise ProviderError("invalid_provider_response")
-    lines, known_lines, total = [], set(), 0
+    # Count before splitting episodes or validating any media URL. A bounded
+    # body can still contain many separators, and one over-budget later line
+    # must not spend the budget parsing all preceding entries first.
+    total = 0
+    for group in split_groups:
+        count = group.count("#") + 1 if group else 0
+        total += count
+        if count > MAX_LINE_ENTRIES or total > MAX_ENTRIES:
+            raise ProviderError("provider_entry_limit")
+    lines, known_lines = [], set()
     target = TargetPolicy(source["id"], source["allowed_hosts"])
     for name, group in zip(split_names, split_groups):
         name = plain(name, 128, required=True)
@@ -515,9 +525,7 @@ def parse_detail(source, row):
             raise ProviderError("provider_ambiguous_identity")
         known_lines.add(name)
         raw_entries = group.split("#") if group else []
-        if len(raw_entries) > MAX_LINE_ENTRIES:
-            raise ProviderError("provider_response_limit")
-        entries, labels = [], set()
+        entries, labels = [], {}
         for raw in raw_entries:
             if not raw:
                 raise ProviderError("invalid_provider_response")
@@ -531,12 +539,14 @@ def parse_detail(source, row):
                     raise ProviderError("provider_ambiguous_identity")
                 label, url = "正片", raw
             if label in labels:
+                # Some providers repeat the exact same labelled entry. Keep
+                # its first position; compare original text before URL policy
+                # normalization can hide a conflicting URL or label spelling.
+                if labels[label] == raw:
+                    continue
                 raise ProviderError("provider_ambiguous_identity")
-            labels.add(label)
+            labels[label] = raw
             entries.append(_entry(source, label, url, target))
-            total += 1
-            if total > MAX_ENTRIES:
-                raise ProviderError("provider_response_limit")
         lines.append(Line(name, tuple(entries)))
     kind = _kind(row, lines=lines)
     if kind == "movie":

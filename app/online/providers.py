@@ -14,7 +14,8 @@ from .models import OnlinePlaybackIdentity
 class ProviderError(RuntimeError):
     def __init__(self, category="provider_not_ready"):
         if category not in {"provider_not_ready", "provider_resolution_failed", "invalid_provider_result",
-                            "invalid_provider_response", "provider_response_limit", "provider_upstream_error",
+                            "invalid_provider_response", "provider_response_limit", "provider_entry_limit",
+                            "provider_upstream_error",
                             "provider_rate_limited", "provider_auth_failed", "provider_not_found",
                             "provider_network_error", "provider_timeout", "provider_cancelled",
                             "provider_ambiguous_identity", "provider_line_required", "provider_line_not_found",

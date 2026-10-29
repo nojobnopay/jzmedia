@@ -53,6 +53,22 @@ test('progress matches every stable identity field and cannot borrow an item or 
   assert.equal(onlineEntryPlayable({ supported: true, identity: {} }, ITEM, LINE), false)
 })
 
+test('long single-line catalogues keep every entry within the existing 50-entry rendering groups', () => {
+  for (const count of [783, 2000]) {
+    const rows = freeze(entries(count))
+    const groups = onlineEpisodeGroups(rows)
+    assert.equal(groups.length, Math.ceil(count / 50))
+    assert.ok(groups.every(group => group.entries.length <= 50))
+    assert.equal(groups.flatMap(group => group.entries).length, count)
+    assert.equal(groups.at(-1).end, count)
+    assert.equal(groups.at(-1).entries.at(-1).entry, rows.at(-1))
+    assert.equal(onlineEntryIndex(rows, identity(count), ITEM, LINE), count - 1)
+    const desc = onlineEpisodeGroups(rows, 'desc')
+    assert.equal(desc[0].entries[0].entry, rows.at(-1))
+    assert.equal(desc.at(-1).entries.at(-1).entry, rows[0])
+  }
+})
+
 async function setup(t, initial = {}, { focusCalls, scrollCalls } = {}) {
   const props = Vue.reactive({ itemKey: ITEM, lineId: LINE, entries: entries(123), busy: false, currentIdentity: null, lastIdentity: null, ...initial })
   const played = []
@@ -88,6 +104,26 @@ test('an asynchronously loaded last identity chooses its range without scrolling
   assert.deepEqual(focusCalls, [])
   assert.deepEqual(scrollCalls, [])
   assert.deepEqual(played, [])
+})
+
+test('783 entries reach the last range and emit its original identity without mounting the whole catalogue', async t => {
+  const rows = entries(783)
+  rows[782].label = '20261029期·下'
+  const { ui, played } = await setup(t, { entries: rows, lastIdentity: identity(783) })
+  assert.equal(attr(ui, 'data-online-entry-group').props.value, '15')
+  assert.equal(visible(ui).length, 33)
+  assert.equal(attr(ui, 'data-online-entry-last').props['data-online-entry-index'], 782)
+  assert.equal(visible(ui).at(-1).props['data-online-entry'], '20261029期·下')
+  assert.deepEqual(played, [])
+  choose(ui, 'data-online-entry-order', 'desc'); await flush()
+  assert.equal(visible(ui).length, 33)
+  assert.equal(visible(ui)[0].props['data-online-entry-index'], 782)
+  visible(ui)[0].props.onClick()
+  assert.equal(played.length, 1)
+  assert.deepEqual(played[0], rows[782])
+  assert.deepEqual(played[0].identity, identity(783))
+  assert.equal(rows[0].label, '第1集')
+  assert.equal(rows[782].label, '20261029期·下')
 })
 
 test('sort and range controls only change visible provider positions and never playback order', async t => {

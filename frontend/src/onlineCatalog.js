@@ -40,6 +40,7 @@ export function onlineCatalogError(problem) {
     provider_network_error: '无法连接视频源，请检查其网络设置后重试。',
     provider_upstream_error: '视频源暂时无法提供资料，请稍后重试。',
     provider_response_limit: '视频源返回的资料过大，暂时无法读取。',
+    provider_entry_limit: '此内容的分集总数超过 2000 集，暂时无法读取。',
     provider_ambiguous_identity: '视频源的线路或集名重复，暂时无法稳定选择，请选择其他来源。',
     provider_cancelled: '视频源查询已取消，请重新查询。',
     online_source_changed: '视频源配置已变化，请重新选择来源并查询。',

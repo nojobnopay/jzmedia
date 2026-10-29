@@ -126,7 +126,7 @@ test('partial is a strict ready-only boolean and cannot label an empty result as
 test('recommendation errors use fixed known codes and never include private upstream messages', () => {
   const privateMessage = 'https://private.invalid/path?token=private-secret'
   for (const [code, expected] of [['provider_timeout', '超时'], ['provider_rate_limited', '限制查询次数'],
-    ['provider_response_limit', '资料过大'], ['provider_network_error', '无法连接'],
+    ['provider_response_limit', '资料过大'], ['provider_entry_limit', '分集总数超过 2000 集'], ['provider_network_error', '无法连接'],
     ['provider_upstream_error', '暂时无法提供'], ['provider_invalid_response', '资料暂不受支持']]) {
     const value = onlineRelatedError({ code, message: privateMessage })
     assert.equal(value.code, code)

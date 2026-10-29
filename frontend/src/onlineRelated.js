@@ -9,6 +9,7 @@ const RELATED_ERRORS = {
   network_timeout: '相关目录读取超时，请稍后重试。',
   provider_rate_limited: '视频源暂时限制查询次数，请稍后重试。',
   provider_response_limit: '相关目录返回的资料过大，暂时无法读取。',
+  provider_entry_limit: '相关内容的分集总数超过 2000 集，暂时无法读取。',
   provider_network_error: '暂时无法连接视频源，请稍后重试。',
   provider_upstream_error: '视频源暂时无法提供相关资料，请稍后重试。',
   provider_resolution_failed: '视频源暂时无法提供相关资料，请稍后重试。',
