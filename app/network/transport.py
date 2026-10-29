@@ -25,6 +25,7 @@ from .guard import (OperationSocket, bind_operation_socket, check_operation,
                     limit_timeout)
 from .policy import NetworkSnapshot
 from .targets import TargetPolicyError, resolve_operator_addresses
+from .stages import measured, stage
 
 
 CONNECT_HEADER_LIMIT = 16 * 1024
@@ -42,6 +43,7 @@ def _remaining(deadline, timeout=None):
     return limit_timeout(remaining)
 
 
+@measured("tls")
 def _direct_tls(stream, ssl_context, hostname, deadline, timeout=None):
     """Register a real TLS socket before its blocking handshake starts."""
     if not isinstance(stream, SyncStream):
@@ -51,9 +53,10 @@ def _direct_tls(stream, ssl_context, hostname, deadline, timeout=None):
     secured = None
     try:
         sock.settimeout(_remaining(deadline, timeout))
-        secured = ssl_context.wrap_socket(sock, server_hostname=hostname, do_handshake_on_connect=False)
-        bind_operation_socket(secured)
-        secured.do_handshake()
+        with stage("tls"):
+            secured = ssl_context.wrap_socket(sock, server_hostname=hostname, do_handshake_on_connect=False)
+            bind_operation_socket(secured)
+            secured.do_handshake()
         _remaining(deadline, timeout)
         return SyncStream(secured)
     except socket.timeout:
@@ -140,6 +143,7 @@ class _ConnectDeadlineStream(httpcore.NetworkStream):
     def close(self):
         self._stream.close()
 
+    @measured("tls")
     def start_tls(self, ssl_context, server_hostname=None, timeout=None):
         # HTTPcore's optional sni_hostname extension cannot replace the
         # authorized logical hostname, even when using this adapter directly.
@@ -153,8 +157,9 @@ class _ConnectDeadlineStream(httpcore.NetworkStream):
                 # socket's idle timeout on every read. Reuse its TLS state
                 # machine with a socket that enforces the absolute deadline.
                 deadline_socket = _DeadlineSocket(OperationSocket(sock), self._deadline)
-                stream = TLSinTLSStream(deadline_socket, ssl_context, self._host,
-                                        _remaining(self._deadline, timeout))
+                with stage("tls"):
+                    stream = TLSinTLSStream(deadline_socket, ssl_context, self._host,
+                                            _remaining(self._deadline, timeout))
             else:
                 stream = _direct_tls(self._stream, ssl_context, self._host, self._deadline, timeout)
             self._stream = stream
@@ -242,10 +247,11 @@ class PinnedBackend(httpcore.NetworkBackend):
         for dial_host in dial_addresses:
             address = dial_host if self._proxy is None else addresses[0]
             try:
-                stream = self._backend.connect_tcp(
-                    host=dial_host, port=dial_port, timeout=_remaining(deadline),
-                    local_address=None, socket_options=socket_options,
-                )
+                with stage("tcp"):
+                    stream = self._backend.connect_tcp(
+                        host=dial_host, port=dial_port, timeout=_remaining(deadline),
+                        local_address=None, socket_options=socket_options,
+                    )
             except httpcore.ConnectTimeout:
                 last_timeout = True
                 _remaining(deadline)
@@ -273,6 +279,7 @@ class PinnedBackend(httpcore.NetworkBackend):
         raise httpcore.ConnectError("network_connect_failed") from None
 
     @staticmethod
+    @measured("peer")
     def _check_peer(stream, address, port):
         peer = stream.get_extra_info("server_addr")
         try:
@@ -284,6 +291,7 @@ class PinnedBackend(httpcore.NetworkBackend):
         if not matches:
             raise httpcore.ConnectError("network_connected_peer_mismatch")
 
+    @measured("proxy_connect")
     def _connect_tunnel(self, stream, address, port, deadline):
         authority = f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
         headers = [f"CONNECT {authority} HTTP/1.1", f"Host: {authority}"]

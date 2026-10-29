@@ -11,6 +11,7 @@ import time
 from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 
 from .guard import limit_timeout, wait_for_event
+from .stages import measured
 
 
 URL_LIMIT = 8192
@@ -150,6 +151,7 @@ _resolver_pool = None
 _resolver_lock = threading.Lock()
 
 
+@measured("dns")
 def _lookup_addresses(resolver, host, port, timeout):
     global _resolver_pool
     with _resolver_lock:

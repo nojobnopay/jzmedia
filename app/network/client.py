@@ -14,6 +14,7 @@ from .guard import NetworkOperation, NetworkOperationError, current_operation, o
 from .headers import HeaderPolicy, HeaderPolicyError
 from .targets import TargetPolicy, TargetPolicyError
 from .transport import PinnedTransport
+from .stages import observe_request, response_status, stage
 
 
 _private_operation = ContextVar("network_private_operation", default=False)
@@ -160,11 +161,12 @@ class NetworkClient:
             if has_body and length is not None and length.isdigit() and int(length) > RESPONSE_BODY_LIMIT:
                 raise NetworkRequestError("response_body_limit")
             chunks, total = [], 0
-            for chunk in response.iter_raw(chunk_size=RESPONSE_CHUNK_BYTES):
-                total += len(chunk)
-                if total > RESPONSE_BODY_LIMIT:
-                    raise NetworkRequestError("response_body_limit")
-                chunks.append(chunk)
+            with stage("body"):
+                for chunk in response.iter_raw(chunk_size=RESPONSE_CHUNK_BYTES):
+                    total += len(chunk)
+                    if total > RESPONSE_BODY_LIMIT:
+                        raise NetworkRequestError("response_body_limit")
+                    chunks.append(chunk)
             return httpx.Response(response.status_code, headers=response.headers,
                                   content=b"".join(chunks), request=response.request,
                                   extensions=response.extensions)
@@ -197,7 +199,7 @@ class NetworkClient:
             raise NetworkRequestError("unsupported_request_method")
         method = method.upper()
         supplied_headers = options.get("headers")
-        with _private_logs():
+        with _private_logs(), observe_request(self.snapshot):
             try:
                 target = self.targets.resolve(url)
                 if options.get("params") is not None:
@@ -228,8 +230,10 @@ class NetworkClient:
                                 pool=operation.remaining(self.snapshot.connect_timeout_seconds),
                             )
                         try:
-                            response = stack.enter_context(self._client.stream(method, target.url, headers=headers,
-                                                                               **stream_options))
+                            with stage("response_headers"):
+                                response = stack.enter_context(self._client.stream(method, target.url, headers=headers,
+                                                                                   **stream_options))
+                            response_status(response.status_code)
                         except (TypeError, ValueError) as error:
                             raise self._failed(error) from None
                         if operation is not None:
