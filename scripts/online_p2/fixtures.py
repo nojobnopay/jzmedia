@@ -131,6 +131,7 @@ class FixtureOrigin:
         self.media_alias = False
         self.gallery = False
         self.taxonomy = False
+        self.taxonomy_unavailable = False
         self.related = False
         self.detail_mode = False
         self.related_delay_ms = 0
@@ -278,6 +279,13 @@ class FixtureOrigin:
                 with origin.lock:
                     delay_ms, mode = origin.next_plan
                     origin.next_plan = (0, "normal")
+                    taxonomy_unavailable = origin.taxonomy_unavailable
+                    discovery = (query.get("ac", [""])[0] == "list" and "ids" not in query
+                                 and not query.get("wd", [""])[0] and not query.get("t", [""])[0]
+                                 and not query.get("year", [""])[0])
+                    if taxonomy_unavailable and discovery:
+                        mode = "status_error"
+                        call["category_discovery_failure"] = True
                     # Recovery scenarios affect only stable-ID detail reads,
                     # never consume their fault during automatic discovery.
                     detail_status = None
@@ -345,6 +353,8 @@ class FixtureOrigin:
                                "class": ([{"type_id": identity, "type_pid": parent, "type_name": name}
                                           for identity, parent, name in TAXONOMY_CATEGORIES] if taxonomy else
                                          [{"type_id": 1, "type_name": "电影"}, {"type_id": 2, "type_name": "剧集"}])}
+                    if taxonomy_unavailable:
+                        payload.pop("class", None)
                     self.send_body(200, json.dumps(payload, ensure_ascii=False).encode(), "application/json; charset=utf-8", head)
                 finally:
                     with origin.lock:

@@ -62,6 +62,7 @@ class Scenario(BaseModel):
     media_alias: bool | None = None
     gallery: bool | None = None
     taxonomy: bool | None = None
+    taxonomy_unavailable: bool | None = None
     related: bool | None = None
     detail_mode: bool | None = None
     related_delay_ms: int | None = Field(default=None, ge=0, le=5000)
@@ -290,6 +291,8 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                     origin.gallery = body.gallery
                 if body.taxonomy is not None:
                     origin.taxonomy = body.taxonomy
+                if body.taxonomy_unavailable is not None:
+                    origin.taxonomy_unavailable = body.taxonomy_unavailable
                 if body.related is not None:
                     origin.related = body.related
                 if body.detail_mode is not None:

@@ -250,6 +250,26 @@ def test_taxonomy_fixture_exposes_real_parent_ids_and_origin_side_year_paginatio
     assert any(call["category_id"] == "71" and call["year"] == "2026" and call["page"] == "2" for call in observed)
 
 
+def test_missing_taxonomy_does_not_fail_a_valid_filtered_catalogue(client):
+    source = add_source(client)
+    assert client.post("/api/p2/scenario", json={"taxonomy": True}).status_code == 200
+    query = {"source_id": source["id"], "category_id": "21", "year": "2026"}
+    initial = client.get("/api/online/catalog/browse", params=query)
+    assert initial.status_code == 200 and len(initial.json()["categories"]) == 49
+
+    assert client.post("/api/p2/scenario", json={"taxonomy_unavailable": True}).status_code == 200
+    partial = client.get("/api/online/catalog/browse", params=query)
+    assert partial.status_code == 200, partial.text
+    assert [item["external_id"] for item in partial.json()["items"]] == ["action-1"]
+    assert partial.json()["categories"] == []
+    calls = client.get("/api/p2/metrics").json()["origin_calls"]
+    assert any(call.get("category_discovery_failure") and call["action"] == "list" for call in calls)
+
+    assert client.post("/api/p2/scenario", json={"taxonomy_unavailable": False}).status_code == 200
+    recovered = client.get("/api/online/catalog/browse", params=query)
+    assert recovered.status_code == 200 and len(recovered.json()["categories"]) == 49
+
+
 def test_related_fixture_sorts_explicit_seasons_without_persisting_candidates(client):
     source = add_source(client)
     public = client.get("/api/online/catalog/sources").json()

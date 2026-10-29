@@ -453,7 +453,7 @@ async function categoryNavigation() {
   async function taxonomyScenario(taxonomy) {
     const response = await fetch(`${base}/api/p2/scenario`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Token': 'online-p2-fixture-only' },
-      body: JSON.stringify({ taxonomy, gallery: false, image_delay_ms: 0 }) })
+      body: JSON.stringify({ taxonomy, taxonomy_unavailable: false, gallery: false, image_delay_ms: 0 }) })
     assert.equal(response.status, 200)
   }
   async function settled(page) {
@@ -506,6 +506,28 @@ async function categoryNavigation() {
       await selectSource(page)
       await page.locator('[data-online-year]').waitFor()
       await settled(page)
+      // A valid filtered page can omit class while its optional taxonomy
+      // discovery fails. Real metadata remains usable and the known source
+      // navigation must survive every subsequent response and warm snapshot.
+      await scenario(page, { taxonomy_unavailable: true })
+      const movieResponse = page.waitForResponse(response => {
+        const url = new URL(response.url())
+        return url.pathname === '/api/online/catalog/browse' && url.searchParams.get('category_id') === '21'
+      })
+      await chooseChannel(page, '20')
+      const movie = await movieResponse
+      assert.equal(movie.status(), 200)
+      assert.deepEqual((await movie.json()).categories, [], 'the real provider parser exposes the failed optional taxonomy as empty')
+      assert.deepEqual(await resultIds(page), ['action-1'])
+      assert.equal(await page.locator('[data-online-channel="20"]').getAttribute('aria-pressed'), 'true')
+      assert.ok((await page.locator('[data-online-category-current]').textContent()).includes('动作片'))
+      assert.equal(await page.locator('[data-online-categories-open]:visible').first().isEnabled(), true)
+      const retainedDialog = await categoryDialog(page)
+      await retainedDialog.locator('[data-online-category="74"]').waitFor()
+      await page.keyboard.press('Escape')
+      await retainedDialog.waitFor({ state: 'hidden' })
+      assert.ok((await metrics()).origin_calls.some(call => call.category_discovery_failure),
+        'the optional discovery request actually failed instead of a browser-only response mock')
       await chooseChannel(page, '58')
       await chooseCategory(page, '71')
       await chooseYear(page, '2026')
@@ -544,6 +566,10 @@ async function categoryNavigation() {
       await until(() => page.evaluate(expected => Math.abs(scrollY - expected) < 12, position), 'Reentry restores the year, category, page and anchor')
       assert.equal(await page.locator('[data-online-year]').inputValue(), '2026')
       assert.ok((await page.locator('.online-pagination').first().textContent()).includes('2 / 2'))
+      assert.equal(await page.locator('[data-online-categories-open]:visible').first().isEnabled(), true,
+        'warm reentry retains the known source taxonomy despite empty classifications on its cached page')
+      assert.equal(await page.locator('[data-online-channel="58"]').getAttribute('aria-pressed'), 'true')
+      assert.ok((await page.locator('[data-online-category-current]').textContent()).includes('都市脑洞'))
       const warmAfter = await metrics()
       assert.equal(warmAfter.origin_calls.filter(call => call.kind === 'api').length,
         warmBefore.origin_calls.filter(call => call.kind === 'api').length, 'The verified warm snapshot includes the selected year')
@@ -593,7 +619,8 @@ async function categoryNavigation() {
       const geometry = await layout(page, width)
       await page.screenshot({ path: path.join(output, `categories-${width}.png`), fullPage: true })
       passed({ case: phase.name, geometry, taxonomyCategories: 49, actualYearForwarded: true,
-        parentQueryRemainsExact: true, customYear: '1988', emptyYear: '1900', pageAndAnchorRestored: true,
+        parentQueryRemainsExact: true, missingTaxonomyKeepsNavigation: true, optionalDiscoveryActuallyFailed: true,
+        customYear: '1988', emptyYear: '1900', pageAndAnchorRestored: true,
         warmCatalogueReads: 0, escapeRestoresFocus: true, failedRefreshKeepsResults: true, cancelledLateRead: true })
     } finally {
       await closeContext(context)
