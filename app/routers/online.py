@@ -5,10 +5,12 @@ import hmac
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
 from .. import config
-from ..online import models
+from ..online import catalog, models, service, source_hosts
+from ..online.providers import ProviderError
 from ..online.source_templates import SourceTemplateList, list_source_templates
 from ..store import online as online_store
 
@@ -49,6 +51,13 @@ class OnlineAdminRoute(APIRoute):
             except RequestValidationError:
                 # FastAPI's normal error JSON includes the rejected input.
                 raise _invalid_config() from None
+            except (catalog.CatalogError, service.PlaybackError) as error:
+                return JSONResponse({"detail": error.category, "code": error.category},
+                                    status_code=error.status, headers={"Cache-Control": "no-store"})
+            except ProviderError as error:
+                return JSONResponse({"detail": error.category, "code": error.category},
+                                    status_code=catalog.provider_error_status(error),
+                                    headers={"Cache-Control": "no-store"})
 
         return validated
 
@@ -109,6 +118,27 @@ def update_source(source_id: str, body: models.OnlineSourcePatch):
         if not value["enabled"] or changed:
             from ..online.service import registry
             registry.revoke_source(source_id)
+        return value
+    except online_store.OnlineNotFound:
+        raise _missing() from None
+    except (ValidationError, ValueError, TypeError):
+        raise _invalid_config() from None
+
+
+@router.post("/sources/{source_id}/host-check", response_model=source_hosts.HostCheckReport)
+async def check_source_hosts(request: Request, source_id: models.SourceId,
+                             body: source_hosts.HostCheckRequest):
+    from .online_catalog import _read
+    return await _read(request, source_hosts.check, source_id, body.external_id)
+
+
+@router.post("/sources/{source_id}/allow-hosts", response_model=models.OnlineSource)
+def allow_source_hosts(request: Request, source_id: models.SourceId,
+                       body: source_hosts.AllowHostsRequest):
+    try:
+        value, changed = source_hosts.allow(service.capture_access(request), source_id, body.model_dump())
+        if changed:
+            service.registry.revoke_source(source_id)
         return value
     except online_store.OnlineNotFound:
         raise _missing() from None
