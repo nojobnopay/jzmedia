@@ -62,6 +62,7 @@ class Scenario(BaseModel):
     gallery: bool | None = None
     taxonomy: bool | None = None
     related: bool | None = None
+    detail_mode: bool | None = None
     related_delay_ms: int | None = Field(default=None, ge=0, le=5000)
     related_failure: bool | None = None
     clear_related_cache: bool = False
@@ -163,7 +164,7 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
             # The production helper and target policies retain their limits.
             if source.get("api_base_url") == f"{origin.base_url}/provide/vod" and source.get("provider") == "maccms":
                 with origin.lock:
-                    return origin.taxonomy or origin.related
+                    return origin.taxonomy or origin.related or origin.detail_mode
             return supports_year_filter(source)
 
         stack.enter_context(patch.object(maccms, "supports_year_filter", fixture_supports_year_filter))
@@ -284,6 +285,8 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                     origin.taxonomy = body.taxonomy
                 if body.related is not None:
                     origin.related = body.related
+                if body.detail_mode is not None:
+                    origin.detail_mode = body.detail_mode
                 if body.related_delay_ms is not None:
                     origin.related_delay_ms = body.related_delay_ms
                 if body.related_failure is not None:

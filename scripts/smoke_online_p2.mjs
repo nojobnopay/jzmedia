@@ -21,11 +21,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|related|hosts|all]')
+    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|related|detail|hosts|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'related', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'related', 'detail', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-'))
 const output = path.join(root, 'output/playwright/online-p2')
 const dist = path.join(work, 'dist')
@@ -362,11 +362,18 @@ let primarySource = null
 async function selectSource(page, source = primarySource) {
   await navigate(page, '/online')
   const select = page.locator('[data-online-source]')
+  if (!await select.isVisible() && await page.getByRole('button', { name: '返回搜索结果', exact: true }).isVisible()) await returned(page)
   await select.waitFor()
   await select.selectOption(source.id)
 }
 async function search(page, keyword = '合成', { results = true } = {}) {
   const form = page.locator('[data-online-search]')
+  if (!await form.isVisible() && await page.getByRole('button', { name: '返回搜索结果', exact: true }).isVisible()) {
+    await returned(page)
+    await until(async () => (await page.locator('[data-online-browser]').getAttribute('aria-busy')) === 'false',
+      'The restored directory settles before a different search')
+  }
+  await form.waitFor()
   await form.locator('input').first().fill(keyword)
   await form.locator('input').first().press('Enter')
   if (results) await page.locator('[data-online-result]').first().waitFor()
@@ -672,12 +679,12 @@ async function relatedRecommendations() {
       'At least one real recommendation poster must decode on the client')
       const geometry = await layout(page, width)
       await page.screenshot({ path: path.join(output, `related-${width}.png`), fullPage: true })
-      const secondItem = await page.locator('[data-online-favorite]').getAttribute('data-online-favorite')
+      const secondItem = await page.locator('[data-online-detail] [data-online-favorite]').getAttribute('data-online-favorite')
       const sessionCount = after.created_sessions.length
       await page.locator('[data-online-related-id="academy-s3"]').click()
       await page.locator('[data-online-detail] h2').filter({ hasText: '青山书院第三季' }).waitFor()
       await finished(page)
-      const thirdItem = await page.locator('[data-online-favorite]').getAttribute('data-online-favorite')
+      const thirdItem = await page.locator('[data-online-detail] [data-online-favorite]').getAttribute('data-online-favorite')
       assert.notEqual(thirdItem, secondItem, 'Different seasons retain independent item identities')
       assert.equal(await page.locator('video').count(), 0, 'Recommendation clicks only open details')
       assert.equal((await metrics()).created_sessions.length, sessionCount, 'Opening another season cannot start playback')
@@ -899,6 +906,210 @@ async function loading() {
   }
   await backendChildren('after-loading')
 }
+async function detailExperience() {
+  async function configure(active) {
+    const response = await fetch(`${base}/api/p2/scenario`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Token': 'online-p2-fixture-only' },
+      body: JSON.stringify({ detail_mode: active, taxonomy: false, gallery: false, related: false,
+        reverse_lines: false, related_delay_ms: 0, related_failure: false, clear_related_cache: true }) })
+    assert.equal(response.status, 200)
+  }
+  async function settled(page) {
+    await until(async () => (await page.locator('[data-online-browser]').getAttribute('aria-busy')) === 'false',
+      'The detail fixture directory must settle before the next action')
+  }
+  async function ready(page) {
+    await page.locator('[data-online-detail]').waitFor()
+    await page.locator('[data-online-detail] [data-online-favorite]:enabled').waitFor()
+  }
+  async function selectItem(page, keyword, id) {
+    await search(page, keyword)
+    await page.locator(`[data-online-result="${id}"]`).waitFor()
+    await settled(page)
+    await detailUi(page, id)
+    await ready(page)
+  }
+  const visibleEntries = page => page.locator('[data-online-entry]')
+  const labels = page => visibleEntries(page).evaluateAll(elements => elements.map(element => element.dataset.onlineEntry))
+  const primary = page => page.locator('[data-online-primary-play]')
+  for (const width of [1440, 390, 320]) {
+    phase = { name: `detail-${width}`, expectedHttp: false }
+    await configure(true)
+    const { context, page } = await newPage(width)
+    try {
+      await selectSource(page)
+      await page.locator('[data-online-year]').waitFor()
+      await settled(page)
+      await page.locator('[data-online-channel="30"]').click()
+      await settled(page)
+      let category = page.locator('[data-online-category="31"]:visible').first()
+      if (!await category.count()) {
+        await page.locator('[data-online-categories-open]:visible').first().click()
+        category = page.getByRole('dialog').locator('[data-online-category="31"]').first()
+      }
+      await category.click(); await settled(page)
+      await page.locator('[data-online-year]').selectOption('2025'); await settled(page)
+      await page.getByRole('button', { name: '下一页', exact: true }).click(); await settled(page)
+      const result = page.locator('[data-online-result="long-show"]')
+      await result.waitFor(); await result.scrollIntoViewIfNeeded()
+      const browsePosition = await page.evaluate(() => scrollY)
+      await detailUi(page, 'long-show'); await ready(page)
+      assert.equal(await page.locator('[data-online-browse-tools]').isVisible(), false)
+      assert.equal(await page.locator('[data-online-source]').isVisible(), false)
+      assert.equal(await page.locator('[data-online-year]').isVisible(), false)
+      assert.equal(await page.locator('video').count(), 0, 'Entering a detail never starts playback')
+      assert.equal(await primary(page).isEnabled(), true)
+      assert.match(await primary(page).textContent(), /第1集/)
+      await until(async () => {
+        const bounds = await primary(page).boundingBox()
+        return bounds && bounds.y >= 0 && bounds.y + bounds.height <= (width > 700 ? 1040 : 844)
+      }, 'The main play action is visible on the first detail screen')
+      await until(() => page.locator('[data-online-detail-heading] .online-artwork > img')
+        .evaluateAll(images => images.some(image => image.complete && image.naturalWidth > 0)),
+      'The detail poster is decoded on the browser before recording the first screen')
+      const geometry = await layout(page, width)
+      await page.screenshot({ path: path.join(output, `detail-${width}-first-screen.png`) })
+      const itemId = await page.locator('[data-online-detail] [data-online-favorite]').getAttribute('data-online-favorite')
+      const detailResponse = await call(page, 'GET', `/api/online/catalog/detail?source_id=${primarySource.id}&external_id=long-show`)
+      assert.equal(detailResponse.status, 200)
+      const detail = detailResponse.body
+      const mp4 = detail.lines.find(line => line.label === 'MP4直链')
+      const hls = detail.lines.find(line => line.label === 'HLS直链')
+      assert.ok(mp4 && hls)
+      assert.equal(await visibleEntries(page).count(), 50, 'A 123-entry line mounts only one 50-entry group')
+      const group = page.locator('[data-online-entry-group]'), order = page.locator('[data-online-entry-order]')
+      assert.equal(await group.locator('option').count(), 3)
+      await group.selectOption('1')
+      assert.equal((await labels(page))[0], '第51集')
+      assert.equal(await page.locator('[data-online-entry="第52集"]').isEnabled(), false)
+      await group.selectOption('2')
+      assert.equal(await visibleEntries(page).count(), 23)
+      assert.equal((await labels(page))[0], '番外·特别篇')
+      assert.equal((await labels(page)).at(-1), '终章（下）')
+      await order.selectOption('desc')
+      assert.equal(await group.inputValue(), '2')
+      assert.equal((await labels(page))[0], '终章（下）')
+      await order.selectOption('asc')
+      assert.equal(await group.inputValue(), '0')
+      assert.equal((await labels(page))[0], '第1集')
+
+      // The main action and actual episode choices precede the long optional
+      // information. Native focus and keyboard activation remain usable.
+      assert.equal(await page.evaluate(() => {
+        const action = document.querySelector('[data-online-primary-play]')
+        const overview = document.querySelector('[data-online-detail] .media-overview')
+        return !!(action.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING)
+      }), true)
+      const overviewToggle = page.locator('[data-online-detail] .overview-toggle')
+      await overviewToggle.scrollIntoViewIfNeeded(); await overviewToggle.focus(); await page.keyboard.press('Enter')
+      assert.equal(await overviewToggle.getAttribute('aria-expanded'), 'true')
+      await page.keyboard.press('Enter')
+      assert.equal(await overviewToggle.getAttribute('aria-expanded'), 'false')
+      const metadata = page.locator('[data-online-detail-metadata]')
+      assert.equal(await metadata.getAttribute('open'), null)
+      await metadata.locator('summary').focus(); await page.keyboard.press('Enter')
+      assert.notEqual(await metadata.getAttribute('open'), null)
+      assert.equal(await page.locator('[data-online-metadata]').isVisible(), true)
+      await metadata.locator('summary').focus(); await page.keyboard.press('Enter')
+      await page.locator('[data-online-detail-heading]').scrollIntoViewIfNeeded()
+      await page.screenshot({ path: path.join(output, `detail-${width}.png`), fullPage: true })
+
+      // Persist a late-group episode through the real player. Seek provides a
+      // distinguishable resume point without turning this into a long-play test.
+      await group.selectOption('2')
+      await page.locator('[data-online-entry="第105集"]').click()
+      await loaded(page)
+      assert.deepEqual((await snapshot(page)).identity, mp4.entries[104].identity)
+      await page.locator('video').evaluate(video => { video.currentTime = 8 })
+      await advancing(page, 8)
+      await pause(page); await closePlayer(page)
+      const saved = await until(async () => {
+        const response = await call(page, 'GET', `/api/online/state/items/${itemId}`)
+        return response.body.last_progress?.identity.episode_id === mp4.entries[104].identity.episode_id
+          && response.body.last_progress?.position > 7 ? response.body.last_progress : false
+      }, 'Actual late-group playback must persist its own identity and resume time')
+      assert.equal(saved.identity.line_id, mp4.id)
+      await page.locator('[data-online-detail] [data-online-favorite]').click()
+      await until(async () => (await page.locator('[data-online-detail] [data-online-favorite]').textContent()).includes('取消收藏'),
+        'Favorite remains available beside the main play action')
+      await page.getByRole('button', { name: '返回搜索结果', exact: true }).focus()
+      await page.keyboard.press('Enter')
+      await page.locator('[data-online-result="long-show"]').waitFor()
+      assert.equal(await page.locator('[data-online-year]').inputValue(), '2025')
+      assert.match(await page.locator('.online-pagination').first().textContent(), /2 \/ 2/)
+      await until(() => page.evaluate(expected => Math.abs(scrollY - expected) < 12, browsePosition),
+        'Detail return preserves category/year/page and the poster anchor')
+      await until(() => page.evaluate(() => document.activeElement?.getAttribute('data-online-result') === 'long-show'),
+        'Keyboard return restores focus to the original poster without losing its anchor')
+      await detailUi(page, 'long-show'); await ready(page)
+      assert.match(await primary(page).textContent(), /继续.*第105集/)
+      assert.equal(await group.inputValue(), '2')
+      assert.equal(await page.locator('[data-online-detail] [data-online-favorite]').textContent().then(text => text.includes('取消收藏')), true)
+      const sessionCount = (await metrics()).created_sessions.length
+      await group.selectOption('0')
+      await page.locator('[data-online-locate-last]').click()
+      await until(() => page.evaluate(() => document.activeElement?.dataset.onlineEntry === '第105集'),
+        'Locate last watched focuses its exact episode without playback')
+      assert.equal(await group.inputValue(), '2')
+      assert.equal((await metrics()).created_sessions.length, sessionCount)
+      await chooseLine(page, 'HLS直链')
+      assert.equal(await group.inputValue(), '0', 'Changing lines resets the displayed group')
+      assert.match(await primary(page).textContent(), /第1集/)
+      assert.equal(await primary(page).getAttribute('data-online-detail-resume'), null)
+      const otherLineState = await call(page, 'GET', `/api/online/state/items/${itemId}?` + new URLSearchParams({
+        episode_id: hls.entries[104].identity.episode_id, line_id: hls.id }))
+      assert.equal(otherLineState.body.selected_progress, null, 'An alternate line cannot inherit the saved progress')
+      await page.locator('[data-online-detail-locate-last]').click()
+      await until(() => page.evaluate(() => document.activeElement?.dataset.onlineEntry === '第105集'),
+        'Explicit last-watch navigation restores its original line and exact group')
+      assert.equal(await page.locator(`[data-online-line="${mp4.id}"]`).getAttribute('aria-pressed'), 'true')
+      assert.equal((await metrics()).created_sessions.length, sessionCount)
+      await primary(page).click(); await loaded(page)
+      assert.deepEqual((await snapshot(page)).identity, saved.identity)
+      assert.ok((await readPlayer(page)).time >= saved.position - .5, 'Primary resume restores the saved playback time')
+      await closePlayer(page)
+
+      let actualForwardAutoplay = false
+      if (width === 1440) {
+        await page.locator('[data-online-autoplay]').check()
+        await order.selectOption('desc')
+        await page.locator('[data-online-entry="第105集"]').click(); await loaded(page)
+        await page.evaluate(() => {
+          window.__p2RealEndedCount = 0
+          document.addEventListener('ended', () => { window.__p2RealEndedCount++ }, { capture: true })
+          const video = document.querySelector('video'); video.currentTime = video.duration - .6
+        })
+        await until(async () => (await snapshot(page))?.identity?.episode_id === mp4.entries[105].identity.episode_id,
+          'Real ended advances to the original next entry, even while the selector is descending')
+        await loaded(page)
+        assert.ok(await page.evaluate(() => window.__p2RealEndedCount >= 1))
+        assert.equal((await snapshot(page)).identity.line_id, mp4.id)
+        await closePlayer(page); await page.locator('[data-online-autoplay]').uncheck()
+        actualForwardAutoplay = true
+      }
+      await selectItem(page, '短篇合成剧', 'short-show')
+      assert.equal(await page.locator('[data-online-entry-group]').count(), 0)
+      assert.deepEqual(await labels(page), ['序章', '正篇', '后记'])
+      assert.equal(await page.locator('[data-online-entry-last="true"]').count(), 0)
+      assert.equal(await page.locator('[data-online-detail-locate-last]').count(), 0)
+      await selectItem(page, '暂不可播放的合成剧', 'unavailable-show')
+      assert.equal(await primary(page).isEnabled(), false)
+      assert.equal(await visibleEntries(page).count(), 2)
+      assert.equal(await visibleEntries(page).evaluateAll(elements => elements.every(element => element.disabled)), true)
+      assert.equal(await page.locator('video').count(), 0)
+      passed({ case: `detail-${width}`, geometry, firstScreenPrimary: true, hiddenBrowseTools: true,
+        sourceEntries: 123, maxMountedEntries: 50, preservesNonstandardLabels: true,
+        keyboardDescriptionAndMetadata: true, realLateGroupPlayback: true, resumePosition: saved.position,
+        lastWatchedFocusWithoutAutoplay: true, crossLineProgressIsolated: true,
+        categoryYearPageAnchorRestored: true, resetForDifferentItem: true,
+        unsupportedPrimaryDisabled: true, actualForwardAutoplay })
+    } finally {
+      await closeContext(context); await idle(); await configure(false)
+    }
+  }
+  await backendChildren('after-detail')
+}
+
 async function matrix() {
   for (const width of [1440, 390]) for (const transport of ['mp4', 'hls']) {
     phase = { name: `matrix-${width}-${transport}`, expectedHttp: false }
@@ -1215,6 +1426,7 @@ try {
     'frontend/src/onlinePlayback.js', 'app/online/maccms.py', 'app/online/catalog.py',
     'frontend/src/onlineArtwork.js', 'frontend/src/onlineBrowse.js', 'app/online/artwork.py', 'app/online/artwork_cache.py',
     'frontend/src/onlineCategories.js', 'frontend/src/onlineRelated.js', 'app/online/related.py', 'app/online/related_matching.py',
+    'frontend/src/components/OnlineEpisodes.vue', 'frontend/src/onlineEpisodes.js', 'frontend/src/styles/onlineEpisodes.css',
     'app/online/providers.py', 'app/routers/online_catalog.py']) {
     report.fingerprints[file] = createHash('sha256').update(await readFile(path.join(root, file))).digest('hex')
   }
@@ -1238,6 +1450,7 @@ try {
     if (selectedCase === 'all' || selectedCase === 'loading') await loading()
     if (selectedCase === 'all' || selectedCase === 'categories') await categoryNavigation()
     if (selectedCase === 'all' || selectedCase === 'related') await relatedRecommendations()
+    if (selectedCase === 'all' || selectedCase === 'detail') await detailExperience()
     if (selectedCase === 'all' || selectedCase === 'matrix') await matrix()
     if (selectedCase === 'all' || selectedCase === 'catalogue') await catalogue()
     report.finalMetrics = (await idle()).metrics

@@ -132,6 +132,7 @@ class FixtureOrigin:
         self.gallery = False
         self.taxonomy = False
         self.related = False
+        self.detail_mode = False
         self.related_delay_ms = 0
         self.related_failure = False
         self.image_delay_ms = 0
@@ -300,7 +301,7 @@ class FixtureOrigin:
                     if category:
                         rows = [row for row in rows if str(row["type_id"]) == category]
                     with origin.lock:
-                        taxonomy = origin.taxonomy or origin.related
+                        taxonomy = origin.taxonomy or origin.related or origin.detail_mode
                     year = query.get("year", [""])[0]
                     if taxonomy and year:
                         rows = [row for row in rows if row.get("vod_year") == year]
@@ -345,8 +346,9 @@ class FixtureOrigin:
 
     def records(self, mode="normal"):
         with self.lock:
-            revision, reverse, alias, gallery, taxonomy, related = (self.revision, self.reverse_lines, self.media_alias,
-                                                                   self.gallery, self.taxonomy, self.related)
+            revision, reverse, alias, gallery, taxonomy, related, detail_mode = (
+                self.revision, self.reverse_lines, self.media_alias, self.gallery,
+                self.taxonomy, self.related, self.detail_mode)
         def media(episode, transport):
             asset = "movie.mp4" if transport == "mp4" else "hls/master.m3u8"
             media_base = f"http://media.fixture.invalid:{self.port}" if alias else self.base_url
@@ -363,6 +365,39 @@ class FixtureOrigin:
             show_url = show_url.replace("第2集$", "第1集$")
         if mode == "mismatched_lines":
             show_from += "$$$错位线路"
+        if detail_mode:
+            def detail_record(identity, title, captions, *, unavailable=False, description="详情交互隔离样本。"):
+                groups = []
+                for name, transport in (("MP4直链", "mp4"), ("HLS直链", "hls")):
+                    entries = []
+                    for index, caption in enumerate(captions, 1):
+                        target = (f"{self.base_url}/watch/{identity}/{index}" if unavailable or index == 52
+                                  else media((index - 1) % 2 + 1, transport))
+                        entries.append(f"{caption}${target}")
+                    groups.append((name, "#".join(entries)))
+                if reverse:
+                    groups.reverse()
+                return {"vod_id": identity, "vod_name": title, "type_id": "31", "type_id_1": 30,
+                        "type_name": "国产剧", "vod_year": "2025", "vod_area": "大陆", "vod_lang": "国语",
+                        "vod_pic": f"{self.base_url}/files/poster.png?detail={identity}",
+                        "vod_remarks": f"全{len(captions)}集", "vod_total": len(captions),
+                        "vod_class": "剧情,冒险", "vod_actor": ",".join(f"合成演员{number:02d}" for number in range(1, 25)),
+                        "vod_director": "合成导演甲,合成导演乙", "vod_sub": "长剧集交互与位置恢复合成作品",
+                        "vod_content": description, "vod_play_from": "$$$".join(group[0] for group in groups),
+                        "vod_play_url": "$$$".join(group[1] for group in groups)}
+
+            captions = [f"第{number}集" for number in range(1, 124)]
+            captions[100], captions[122] = "番外·特别篇", "终章（下）"
+            description = "\n".join(
+                f"第{number}段：这是一部仅用于界面验收的合成长篇作品，角色沿着山海线索展开冒险。"
+                "选集采用来源提供的名称和原始顺序，画面与声音均由开发机提前生成，不对应任何真实影视内容。"
+                for number in range(1, 18))
+            return [detail_record(f"detail-peer-{number}", f"详情合成剧 {number:02d}", ["第1集", "第2集"])
+                    for number in range(1, 25)] + [
+                detail_record("long-show", "山海长歌：穿越四季与群星的远行日记合成长篇", captions, description=description),
+                detail_record("short-show", "短篇合成剧", ["序章", "正篇", "后记"]),
+                detail_record("unavailable-show", "暂不可播放的合成剧", ["预告一", "预告二"], unavailable=True),
+            ]
         if related:
             def recommendation_record(identity, title, category, year, *, actors="合成演员甲,合成演员乙"):
                 parent, category_name = next((parent, name) for selected, parent, name in TAXONOMY_CATEGORIES

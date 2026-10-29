@@ -228,6 +228,54 @@ def test_related_fixture_does_not_invent_a_series_or_first_season(client, extern
     assert client.get("/api/p2/metrics").json()["catalog_rows"]["online_items"] == 0
 
 
+def test_detail_fixture_keeps_long_source_order_and_nonstandard_labels_with_bounded_media(client):
+    source = add_source(client)
+    assert client.post("/api/p2/scenario", json={"detail_mode": True}).status_code == 200
+    capability = client.get("/api/online/catalog/sources").json()["items"][0]["capabilities"]
+    assert capability["year_filter"] is True and capability["related"] is False
+    catalogue = client.get("/api/online/catalog/browse", params={
+        "source_id": source["id"], "category_id": "31", "year": "2025", "page": 2}).json()
+    assert catalogue["total"] == 27 and catalogue["page_count"] == 2
+    assert "long-show" in {item["external_id"] for item in catalogue["items"]}
+    value = detail(client, source, "long-show")
+    assert len(value["description"]) > 1000
+    assert len(value["actors"]) == 24
+    assert len(value["lines"]) == 2
+    for line in value["lines"]:
+        entries = line["entries"]
+        assert len(entries) == 123
+        assert entries[0]["label"] == "第1集" and entries[104]["label"] == "第105集"
+        assert entries[100]["label"] == "番外·特别篇" and entries[122]["label"] == "终章（下）"
+        assert entries[51]["supported"] is False and entries[51]["identity"] is None
+    identity = value["lines"][0]["entries"][104]["identity"]
+    assert identity["line_id"] != value["lines"][1]["entries"][104]["identity"]["line_id"]
+    created = client.post("/api/online/sessions", json=identity)
+    assert created.status_code == 201, created.text
+    session = created.json()
+    response = client.get(session["media_url"], headers={"Range": "bytes=0-31"})
+    assert response.status_code == 206 and response.content == (b"0123456789" * 100)[:32]
+    assert client.delete(f"/api/online/sessions/{session['session_id']}").status_code == 204
+    assert client.post("/api/p2/scenario", json={"revision": 2, "reverse_lines": True}).status_code == 200
+    refreshed = detail(client, source, "long-show")
+    preserved = next(line for line in refreshed["lines"] if line["id"] == identity["line_id"])
+    assert preserved["entries"][104]["identity"] == identity
+    assert client.get("/api/p2/metrics").json()["local_rows"] == {
+        "movies": 0, "tv_episodes": 0, "playback_progress": 0}
+
+
+def test_detail_fixture_exposes_short_and_unavailable_items_without_changing_default_scenarios(client):
+    source = add_source(client)
+    assert client.post("/api/p2/scenario", json={"detail_mode": True}).status_code == 200
+    short = detail(client, source, "short-show")
+    assert [entry["label"] for entry in short["lines"][0]["entries"]] == ["序章", "正篇", "后记"]
+    unavailable = detail(client, source, "unavailable-show")
+    assert all(not entry["supported"] and entry["identity"] is None
+               for line in unavailable["lines"] for entry in line["entries"])
+    assert client.post("/api/p2/scenario", json={"detail_mode": False}).status_code == 200
+    assert client.get("/api/online/catalog/sources").json()["items"][0]["capabilities"]["year_filter"] is False
+    assert len(detail(client, source, "show-1")["lines"][0]["entries"]) == 2
+
+
 def test_real_maccms_search_detail_and_owned_mp4_passthrough(client):
     source = add_source(client)
     public = client.get("/api/online/catalog/sources").json()
