@@ -141,11 +141,13 @@ HLS 首期只接受无加密点播清单的已知标签。媒体清单必须含�
 
 上游 API 使用 `api` 网络用途，取流使用 `media`。每进程最多 4 个、每设备最多 1 个提供方操作，无等待队列；30 秒总期限覆盖有界上游读取。JSON 最多 2 MiB、每页最多 100 条、最多 16 线路、单线路及每条目所有线路合计均最多 2000 个播放项（包含不可播放项），拆集和校验播放地址前预检数量。目录 GET 和创建 POST 断连会取消实际上游 I/O，工作退出后才释放配额。每次查询与会话创建前后检查权限及影响解析的来源配置指纹，避免旧地址跨配置发布；管理 API 对这些配置的变更会撤销旧会话。
 
-前台详情对连接／读取超时和上游 `502/503/504` 显式重试最多一次，共用原名额与 30 秒期限；每次重新建立同来源 API 客户端并复核完整配置，不切换代理或借用媒体出口。其它提供方读取不自动继承重试，相关子请求仍沿用 3 秒／8 秒限制。认证、限流、解析或安全拒绝直接失败。总期限耗尽与用户取消分别保留 `provider_timeout` 和 `provider_cancelled`，不能因共用中止事件而混淆。
+MacCMS 前台浏览、搜索和详情的主请求对连接／读取超时和上游 `502/503/504` 显式重试最多一次，共用原名额与 30 秒期限；每次重新建立同来源 API 客户端并复核完整配置，不切换代理或借用媒体出口。其它提供方读取不自动继承重试，可选分类发现与推荐仍沿用 3 秒／8 秒限制。认证、限流、解析或安全拒绝直接失败。总期限耗尽与用户取消分别保留 `provider_timeout` 和 `provider_cancelled`，不能因共用中止事件而混淆。成功分类树的有界缓存和隔离规则见[在线目录](api.md#在线目录)。
 
 浏览页面只接收文本、支持状态、稳定身份、授权海报路径和固定归因链接，不接收媒体 URL 或上游头部。封面经同源授权图片接口和独立图片用途策略读取；收藏与持久进度使用独立[在线状态接口](api.md#在线收藏与进度)。接口字段与错误见[在线目录](api.md#在线目录)。
 
 ### 在线来源观察
+
+网络层同时记录请求内的 DNS、TCP、对端校验、TLS、代理 CONNECT、响应头和响应体阶段次数、耗时与固定失败类别。`response_headers` 包含建连等待，表示完整响应头可用前的耗时，各阶段可能重叠，不是独立的首字节时间。响应体阶段仅覆盖 `request()` 的有界读取，流式取流的该项为零不表示没有传输。日志仅含网络用途、不透明策略指纹、状态码、固定阶段／结果类别及数值；不记录目标 URL、主机、IP、查询、请求头或凭据。API 成功记录为 INFO，失败为 WARNING；其它用途成功为 DEBUG，避免媒体分片刷屏。观测不增加探测请求，不改变超时、拨号和证书校验策略。
 
 `app/online/health.py` 记录实际请求的有界观察，读取接口为 [来源健康状态](api.md#最近来源观察)。它不发额外探测，不改变目标、网络策略或播放结果：API 在目录被成功解析后记录 `catalogue`，媒体在完整接受一份有界清单或媒体响应后分别记录 `manifest/bytes`。清单成功不表示分片成功，取流成功也不表示终端已解码或整片稳定。
 
@@ -191,7 +193,7 @@ node scripts/smoke_online_p1.mjs --demo
 
 自动检查可分别运行 `node scripts/smoke_online_p1.mjs --case matrix`、`--case lifecycle`、`--case failures`；`--case all` 串行执行全部场景。`matrix` 检查 MP4/HLS 的实际帧、时间、控制与桌面/触摸视口，`lifecycle` 检查身份、晚到响应及页面回收，`failures` 检查有限恢复和错误操作。参数以 `node scripts/smoke_online_p1.mjs --help` 为准，代码入口为 `scripts/smoke_online_p1.mjs`、`scripts/online_p1/` 和 `scripts/fixtures/OnlineP1Preview.vue`；结果写入 `output/playwright/online-p1/`。Chromium 视口模拟与能力缺失模拟不代表 Safari 原生 HLS、真实手机或电视验收，实际支持范围应以对应运行记录为准。
 
-P2 的正式来源管理与在线页面通过真实 MacCMS 解析器连接隔离 API、临时数据库和开发机预先生成的媒体，可运行 `node scripts/smoke_online_p2.mjs --demo` 手工预览，或用 `--case` 分组验证：`matrix` 检查播放，`catalogue` 检查目录流程，`discovery` 检查海报墙，`loading` 检查冷暖加载与恢复，`categories` 检查分类与年份，`related` 检查其他季、推荐及播放抢占，`detail` 检查主要播放、长列表选集与精确续播，`detail-recovery` 检查详情瞬态重试、取消和手动恢复，`hosts` 检查允许主机修复，`all` 运行全部。脚本入口为 `scripts/smoke_online_p2.mjs`、`scripts/online_p2/` 和 `scripts/fixtures/OnlineP2Preview.vue`；退出清理临时实例，不连接生产 NAS 或公网来源。样片生成只发生在开发机准备阶段，服务期间不调用媒体处理程序。
+P2 的正式来源管理与在线页面通过真实 MacCMS 解析器连接隔离 API、临时数据库和开发机预先生成的媒体，可运行 `node scripts/smoke_online_p2.mjs --demo` 手工预览，或用 `--case` 分组验证：`matrix` 检查播放，`catalogue` 检查目录流程，`discovery` 检查海报墙，`loading` 检查冷暖加载与恢复，`categories` 检查分类与年份，`related` 检查其他季、推荐及播放抢占，`detail` 检查主要播放、长列表选集与精确续播，`detail-recovery` 检查详情瞬态重试、取消和手动恢复，`metadata-recovery` 检查目录／搜索重试、分类缓存与取消，`hosts` 检查允许主机修复，`all` 运行全部。脚本入口为 `scripts/smoke_online_p2.mjs`、`scripts/online_p2/` 和 `scripts/fixtures/OnlineP2Preview.vue`；退出清理临时实例，不连接生产 NAS 或公网来源。样片生成只发生在开发机准备阶段，服务期间不调用媒体处理程序。
 
 ## HLS 与 FFmpeg
 
