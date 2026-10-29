@@ -66,17 +66,21 @@
 
 ## 在线来源配置
 
-这些接口只读取候选配置或保存开关与来源配置，不执行外部搜索、连接检查、播放地址解析或媒体取流。总开关默认关闭；创建来源的 API 省略 `enabled` 时仍默认关闭，网页新增表单会默认提交 `enabled:true`。关闭时仍可管理来源，以便先完成配置。正式网页入口为“在线”，管理入口为“设置 → 在线视频源”；目录与播放分别使用下述独立接口。
+读取候选配置和保存开关、来源配置不会访问上游；只有显式的 `host-check` 检查会读取一项上游目录资料，不请求候选媒体主机。总开关默认关闭；创建来源的 API 省略 `enabled` 时仍默认关闭，网页新增表单会默认提交 `enabled:true`。关闭时仍可管理来源，以便先完成配置。正式网页入口为“在线”，管理入口为“设置 → 在线视频源”；目录与播放分别使用下述独立接口。
 
 | 请求 | 行为 |
 |---|---|
 | `GET /api/online/settings` | 返回总开关 `{enabled:false}` |
 | `PATCH /api/online/settings` | 必须提供布尔 `enabled`，持久保存总开关 |
 | `GET /api/online/source-templates` | 返回本地配置建议 `{items:[...]}`；不自动添加、启用或探测来源 |
+| `POST /api/online/sources/{source_id}/host-check` | 管理员提交 `{external_id}`，只读取一项目录；返回缺失主机、原允许列表、拒绝地址数及配置指纹，不返回播放 URL，也不访问候选媒体 |
+| `POST /api/online/sources/{source_id}/allow-hosts` | 提交 `{hosts,expected_fingerprint}`，在同一事务检查完整来源指纹并只追加主机；冲突返回 409，变更后撤销该来源旧会话 |
 | `GET /api/online/sources` | 返回 `{items:[...]}`，按优先级、创建时间和 ID 排序 |
 | `POST /api/online/sources` | 创建来源并返回 `201`；返回持久随机 ID |
 | `GET /api/online/sources/{source_id}` | 读取单个来源；不存在返回 `404` |
 | `PATCH /api/online/sources/{source_id}` | 原子更新已提供的字段；可用 `enabled:false` 停用并保留身份 |
+
+主机检查与追加还需先通过 `/api/viewing/session` 取得设备身份，并遵循管理授权与已配置的写令牌。`host-check` 提交 `{external_id}`，只通过该来源的 API 网络用途读取一项详情，复用目录期限、取消和并发限制；候选不做 DNS 或媒体探测。返回 `source_id`、`external_id`、`missing_hosts`、`allowed_hosts`、`rejected_count` 和 64 位小写十六进制 `configuration_fingerprint`。`allow-hosts` 接收 1–128 个精确主机与该指纹，在同一写事务核对完整来源状态，仅追加用户选择的主机，不覆盖并发编辑；已有主机的无变化追加不撤销会话。指纹过期返回 `409 online_source_changed`，需要重新检查。
 
 创建来源必须提供 `name`、`provider`、`api_base_url`，提供方支持 `maccms` 与固定开放样例 `open_catalog`。可选 `allowed_hosts` 为精确主机名列表，自动包含 API 主机，不支持通配符；`enabled` 默认 `false`，`priority` 为 0–1000 的整数、默认 100，数值越小越优先。地址只接受无内嵌账号密码、查询参数或片段的 HTTP(S) 基础地址；保存时只检查结构和字面地址，不发 DNS 或网络请求。实际读取执行[公网目标与头部策略](playback.md#在线远程读取)，保存成功不代表来源已经可播放。
 
