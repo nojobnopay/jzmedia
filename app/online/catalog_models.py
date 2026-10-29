@@ -70,6 +70,7 @@ class CatalogRelated(_Public):
     external_id: str
     current_season: int | None = Field(default=None, ge=1, le=999)
     status: Literal["ready", "deferred", "unsupported"]
+    partial: bool = False
     series: list[CatalogRelatedItem] = Field(default_factory=list, max_length=12)
     related: list[CatalogRelatedItem] = Field(default_factory=list, max_length=12)
     name_related: list[CatalogRelatedItem] = Field(default_factory=list, max_length=12)

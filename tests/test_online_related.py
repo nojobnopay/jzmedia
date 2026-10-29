@@ -151,11 +151,11 @@ def test_failures_are_not_cached_and_retry_is_an_explicit_new_attempt(related_en
     state.fail = True
     assert read(state).status_code == 502
     assert read(state).status_code == 502
-    assert len(state.calls) == 4
+    assert len(state.calls) == 6
     assert related.cache.stats() == {"entries": 0, "bytes": 0}
     state.fail = False
     assert read(state).status_code == 200
-    assert len(state.calls) == 7
+    assert len(state.calls) == 9
 
 
 def test_source_or_network_change_during_request_rejects_snapshot_and_does_not_cache(related_environment, monkeypatch):

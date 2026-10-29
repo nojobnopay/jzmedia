@@ -285,18 +285,24 @@ def _public_detail(source, detail, saved):
 
 
 def detail(access, source_id, selected_id, *, operation=None):
+    from . import related
+
     try:
         selected_id = maccms.external_id(selected_id)
     except ProviderError:
         raise CatalogError("invalid_online_catalog_request", 422) from None
     with _admit(access.owner, operation):
         source = _ready_source(source_id, access)
+        target_configuration = related.target_context(access, source)
         with health.observe_catalogue():
             selected = _adapter(source).detail(source, selected_id)
         _after(source, access)
         saved = _persist(source, selected)
         _after(source, access)
-        return _public_detail(source, selected, saved)
+        result = _public_detail(source, selected, saved)
+        related.remember_target(access, source, selected, target_configuration)
+        _after(source, access)
+        return result
 
 
 def resolve(identity):
