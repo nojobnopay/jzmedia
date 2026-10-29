@@ -4,16 +4,16 @@
     <EmptyState v-else-if="loadError" state="error" title="在线视频源设置加载失败" :text="loadError" retry @retry="load" />
     <template v-else>
       <section class="card-block">
-        <div class="section-heading"><h3>在线点播</h3><JzButton :variant="settings.enabled ? 'secondary' : 'primary'" :loading="toggling" :disabled="saving || networkSaving" @click="toggleEnabled">{{ settings.enabled ? '关闭在线点播' : '启用在线点播' }}</JzButton></div>
+        <div class="section-heading"><h3>在线点播</h3><JzButton :variant="settings.enabled ? 'secondary' : 'primary'" :loading="toggling" :disabled="saving || networkSaving || hostApplying" @click="toggleEnabled">{{ settings.enabled ? '关闭在线点播' : '启用在线点播' }}</JzButton></div>
         <p class="hint">{{ settings.enabled ? '已启用；仅已启用的来源可被查询或播放。' : '默认关闭；启用后仍需启用至少一个来源。' }} 作用于此服务的所有播放设备。</p>
         <p class="hint">优先选择免费且可直连的来源。视频由播放设备解码；此功能不会自动启动 NAS 转码或生成预览。</p>
         <p v-if="message" class="online-source-feedback" :class="{ 'is-error': messageError }" :role="messageError ? 'alert' : 'status'">{{ message }}</p>
       </section>
       <section class="card-block">
-        <div class="section-heading"><h3>视频源</h3><JzButton icon="plus" :disabled="saving || networkSaving || dirty" @click="editSource()">添加来源</JzButton></div>
+        <div class="section-heading"><h3>视频源</h3><JzButton icon="plus" :disabled="saving || networkSaving || dirty || hostApplying" @click="editSource()">添加来源</JzButton></div>
         <p class="hint">从来源目录选择后即可保存，也可以填写自己的接口。新增来源默认启用；保存后可测试目录，实际播放还取决于媒体线路。</p>
         <EmptyState v-if="!sources.length && !editorOpen" state="empty" title="还没有视频源" text="添加自己的 MacCMS JSON 来源，或选择开放样例目录。" />
-        <div class="online-source-list"><article v-for="source in sources" :key="source.id" class="online-source-row" :data-online-source-row="source.id"><div><h4>{{ source.name }}</h4><p>{{ source.provider === 'open_catalog' ? '开放样例目录' : 'MacCMS JSON' }} · {{ source.enabled ? '已启用' : '已停用' }} · 优先级 {{ source.priority }}</p><p v-if="sourceChecks[source.id]" role="status">{{ sourceChecks[source.id] }}</p></div><div class="online-source-actions"><JzButton :aria-label="'测试来源 ' + source.name" :loading="testingSource === source.id" :disabled="!!testingSource || saving || networkSaving || !settings.enabled || !source.enabled" @click="testSource(source)">测试来源</JzButton><JzButton icon="edit" :aria-label="'编辑 ' + source.name" :disabled="saving || networkSaving || dirty" @click="editSource(source)">编辑</JzButton><JzButton icon="link" :aria-label="'网络 ' + source.name" :disabled="saving || networkSaving || dirty" @click="editNetwork(source)">网络</JzButton></div></article></div>
+        <div class="online-source-list"><article v-for="source in sources" :key="source.id" class="online-source-row" :data-online-source-row="source.id"><div><h4>{{ source.name }}</h4><p>{{ source.provider === 'open_catalog' ? '开放样例目录' : 'MacCMS JSON' }} · {{ source.enabled ? '已启用' : '已停用' }} · 优先级 {{ source.priority }}</p><p v-if="sourceChecks[source.id]" role="status">{{ sourceChecks[source.id] }}</p></div><div class="online-source-actions"><JzButton :aria-label="'测试来源 ' + source.name" :loading="testingSource === source.id" :disabled="!!testingSource || hostChecking || saving || networkSaving || hostApplying || !settings.enabled || !source.enabled" @click="testSource(source)">测试来源</JzButton><JzButton icon="edit" :aria-label="'编辑 ' + source.name" :disabled="saving || networkSaving || dirty || hostApplying" @click="editSource(source)">编辑</JzButton><JzButton icon="link" :aria-label="'网络 ' + source.name" :disabled="saving || networkSaving || dirty || hostApplying" @click="editNetwork(source)">网络</JzButton></div></article></div>
         <p v-if="sources.length && !settings.enabled" class="hint">先启用上方的在线点播，再测试已启用来源。</p>
         <form v-if="editorOpen" class="online-source-editor" data-online-source-form @submit.prevent="saveSource">
           <h4>{{ editingId ? '编辑来源' : '添加来源' }}</h4>
@@ -36,6 +36,28 @@
           <p v-if="formError" class="online-source-feedback is-error" role="alert">{{ formError }}</p>
           <div class="bar"><JzButton type="submit" variant="primary" :loading="saving" :disabled="!form.name.trim() || !form.api_base_url.trim()">保存来源</JzButton><JzButton :disabled="saving" @click="cancelEditor">取消</JzButton></div>
         </form>
+      </section>
+      <section v-if="hostSource" class="card-block online-host-check" data-online-host-check>
+        <div class="section-heading"><h3>{{ hostSource.name }} · 检查媒体主机</h3><JzButton :disabled="hostApplying" @click="cancelHostCheck">关闭检查</JzButton></div>
+        <p class="hint">检查所选内容的目录信息，列出尚未允许的媒体和图片主机。检查不会访问这些新主机，也不会自动修改来源。</p>
+        <form class="online-host-form" data-online-host-form @submit.prevent="checkHosts">
+          <JzField id="online-host-item" label="来源内容编号" hint="从影片详情进入时自动填写。"><template #default="field"><input :id="field.id" v-model="hostExternalId" maxlength="128" autocomplete="off" :disabled="hostChecking || hostApplying" :aria-describedby="field.describedby" /></template></JzField>
+          <JzButton type="submit" :loading="hostChecking" :disabled="hostApplying || !!testingSource || !validHostItem || !settings.enabled || !hostSource.enabled">检查媒体主机</JzButton>
+        </form>
+        <p v-if="!settings.enabled || !hostSource.enabled" class="hint">先启用在线点播和此来源，再检查所选内容。</p>
+        <p v-if="hostError" class="online-source-feedback is-error" role="alert">{{ hostError }}</p>
+        <div v-if="hostReport" class="online-host-report" aria-label="媒体主机检查结果">
+          <template v-if="hostReport.missing_hosts.length">
+            <p>以下主机尚未加入此来源。核对后选择要允许的主机，再保存。</p>
+            <ul class="online-host-list"><li v-for="host in hostReport.missing_hosts" :key="host"><label><input v-model="selectedHosts" type="checkbox" :value="host" :disabled="hostApplying" /><span>{{ host }}</span></label></li></ul>
+            <JzButton variant="primary" :loading="hostApplying" :disabled="!selectedHosts.length" @click="allowCheckedHosts">加入允许列表</JzButton>
+            <p class="hint">仅新增勾选的精确主机，保留原有允许列表和其它配置。保存后会关闭此来源的旧播放会话。</p>
+          </template>
+          <p v-else role="status">未发现需要新增的主机，可返回影片详情重新加载线路。</p>
+          <p v-if="hostReport.rejected_count" class="hint">{{ hostReport.rejected_count }} 个地址格式或主机不符合要求，未列为可添加项。</p>
+        </div>
+        <p v-if="hostApplied" class="online-source-feedback" role="status">媒体主机已加入允许列表。返回影片详情后会重新读取播放线路。</p>
+        <router-link v-if="validHostItem" :to="hostReturnTarget" data-online-host-return>返回影片详情</router-link>
       </section>
       <section class="card-block">
         <h3>来源网络</h3>
@@ -70,9 +92,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { api } from '../api.js'
-import { OPEN_CATALOG_BASE, choiceNetworkRule, networkRuleChoice, onlineCatalogError } from '../onlineCatalog.js'
+import { OPEN_CATALOG_BASE, choiceNetworkRule, networkRuleChoice, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
 import { SOURCE_NETWORK_PURPOSES, emptyOnlineSourceForm, resolveSourceNetworkChoice,
   networkChoiceSummary, proxyProfilePayload } from '../onlineSourceNetwork.js'
 import { useSettingsDraft } from '../settingsDrafts.js'
@@ -89,10 +112,16 @@ const toggling = ref(false), saving = ref(false), networkSaving = ref(false), me
 const editorOpen = ref(false), editingId = ref(''), form = ref(emptyForm()), formError = ref(''), savedForm = ref('')
 const sourceTemplates = ref([]), templateId = ref(''), templatesLoading = ref(false), templatesError = ref(false)
 const testingSource = ref(''), sourceChecks = ref({})
+const route = useRoute()
+const hostSource = ref(null), hostExternalId = ref(''), hostReport = ref(null), selectedHosts = ref([])
+const hostChecking = ref(false), hostApplying = ref(false), hostError = ref(''), hostApplied = ref(false)
+const validHostItem = computed(() => /^[A-Za-z0-9_-]{1,128}$/.exec(hostExternalId.value)?.[0] === hostExternalId.value)
+const hostReturnTarget = computed(() => ({ path: '/online', query: { source: hostSource.value?.id, item: hostExternalId.value } }))
 const networkSource = ref(null), networkChoices = ref({}), savedNetwork = ref(''), networkError = ref('')
 const emptyProxyForm = () => ({ protocol: 'http', host: '', port: '7890', username: '', password: '' })
 const proxyForm = ref(emptyProxyForm())
-let disposed = false, generation = 0, networkGeneration = 0, sourceTestGeneration = 0
+let disposed = false, generation = 0, networkGeneration = 0, sourceTestGeneration = 0, hostGeneration = 0
+let hostController = null, lastHostLink = ''
 const controllers = new Set()
 const selectedTemplate = computed(() => sourceTemplates.value.find(item => item.id === templateId.value))
 const templateHomepage = computed(() => {
@@ -117,12 +146,101 @@ function networkSnapshot() { return JSON.stringify({ choices: networkChoices.val
 const dirty = computed(() => editorOpen.value && savedForm.value !== JSON.stringify(form.value)
   || !!networkSource.value && savedNetwork.value !== networkSnapshot())
 useSettingsDraft({ section: 'sec-online', label: '在线视频源', dirty: () => dirty.value,
-  busy: () => saving.value || toggling.value || networkSaving.value,
-  discard: () => { cancelEditor(); cancelNetwork() } })
+  busy: () => saving.value || toggling.value || networkSaving.value || hostApplying.value,
+  discard: () => { cancelEditor(); cancelNetwork(); cancelHostCheck() } })
 async function request(path, options = {}) {
   const controller = new AbortController(); controllers.add(controller)
   try { return await api(path, { ...options, signal: controller.signal }) }
   finally { controllers.delete(controller) }
+}
+async function hostRequest(path, options = {}) {
+  const controller = new AbortController()
+  hostController = controller; controllers.add(controller)
+  try { return await api(path, { ...options, signal: controller.signal, timeout: 35000 }) }
+  finally { controllers.delete(controller); if (hostController === controller) hostController = null }
+}
+function invalidateHostResult() {
+  hostGeneration++; hostController?.abort(); hostController = null
+  hostReport.value = null; selectedHosts.value = []; hostChecking.value = false
+  hostError.value = ''; hostApplied.value = false
+}
+function cancelHostCheck() {
+  if (hostApplying.value) return
+  invalidateHostResult(); hostSource.value = null; hostExternalId.value = ''
+}
+function openHostCheck(source, externalId) {
+  if (saving.value || networkSaving.value || hostApplying.value || dirty.value) return
+  cancelEditor(); cancelNetwork(); cancelHostCheck()
+  hostSource.value = source; hostExternalId.value = externalId
+  const turn = hostGeneration
+  void nextTick(() => {
+    if (!disposed && turn === hostGeneration && typeof document !== 'undefined') document.getElementById('online-host-item')?.focus()
+  })
+}
+function hostLinkKey() {
+  const target = onlineRouteTarget(route?.query)
+  return route?.query?.sec === 'sec-online' && target?.externalId ? target.sourceId + ':' + target.externalId : ''
+}
+function syncHostLink() {
+  const key = hostLinkKey()
+  if (!key) { lastHostLink = ''; cancelHostCheck(); return }
+  if (key === lastHostLink || loading.value || dirty.value || saving.value || networkSaving.value || hostApplying.value) return
+  const source = sources.value.find(item => item.id === route.query.source)
+  if (!source) return
+  lastHostLink = key; openHostCheck(source, route.query.item)
+}
+function hostFailure(error, applying = false) {
+  if (error?.status === 409 || error?.code === 'online_source_changed') return '来源配置已变化，请重新检查后再添加。'
+  if (error?.code === 'online_allowed_host_limit') return '允许的主机数量已达上限，请保留必要主机后重试。'
+  if (error?.code === 'online_host_check_unsupported') return '此来源暂不支持媒体主机检查，请编辑来源的允许列表。'
+  if ([401, 403].includes(error?.status)) return '请重新验证管理权限后再检查。'
+  return applying ? '未能确认主机是否已保存，请重新检查后核对。' : '媒体主机检查未完成，请核对来源连接后重试。'
+}
+function validHostReport(value, source, externalId) {
+  const hosts = values => Array.isArray(values) && values.length <= 128 && values.every(host =>
+    typeof host === 'string' && host.length > 0 && host.length <= 253 && !/[\s/\\@?#%<>]/.test(host))
+  return value?.source_id === source.id && value.external_id === externalId
+    && /^[0-9a-f]{64}$/.test(value.configuration_fingerprint) && hosts(value.missing_hosts)
+    && hosts(value.allowed_hosts) && Number.isInteger(value.rejected_count) && value.rejected_count >= 0
+}
+async function checkHosts() {
+  if (!hostSource.value || !validHostItem.value || hostChecking.value || hostApplying.value
+    || testingSource.value || !settings.value.enabled || !hostSource.value.enabled) return
+  invalidateHostResult()
+  const source = hostSource.value, externalId = hostExternalId.value, turn = hostGeneration
+  const sourceSnapshot = JSON.stringify(source)
+  hostChecking.value = true
+  try {
+    const report = await hostRequest('/api/online/sources/' + source.id + '/host-check', {
+      method: 'POST', body: JSON.stringify({ external_id: externalId }),
+    })
+    if (disposed || turn !== hostGeneration || hostSource.value?.id !== source.id
+      || sourceSnapshot !== JSON.stringify(sources.value.find(item => item.id === source.id))) return
+    if (!validHostReport(report, source, externalId)) throw new Error('invalid host report')
+    hostReport.value = report; selectedHosts.value = [...new Set(report.missing_hosts)]
+  } catch (error) { if (!disposed && turn === hostGeneration) hostError.value = hostFailure(error) }
+  finally { if (!disposed && turn === hostGeneration) hostChecking.value = false }
+}
+async function allowCheckedHosts() {
+  if (!hostSource.value || !hostReport.value || !selectedHosts.value.length || hostChecking.value || hostApplying.value) return
+  const sourceId = hostSource.value.id, turn = hostGeneration, report = hostReport.value
+  const hosts = selectedHosts.value.filter(host => report.missing_hosts.includes(host))
+  if (!hosts.length) return
+  hostApplying.value = true; hostError.value = ''
+  try {
+    const source = await hostRequest('/api/online/sources/' + sourceId + '/allow-hosts', {
+      method: 'POST', body: JSON.stringify({ hosts, expected_fingerprint: report.configuration_fingerprint }),
+    })
+    if (disposed || turn !== hostGeneration || hostSource.value?.id !== sourceId) return
+    sources.value = sources.value.map(item => item.id === source.id ? source : item)
+    hostSource.value = source; hostReport.value = null; selectedHosts.value = []; hostApplied.value = true
+    delete sourceChecks.value[sourceId]
+  } catch (error) {
+    if (!disposed && turn === hostGeneration) {
+      hostError.value = hostFailure(error, true)
+      hostReport.value = null; selectedHosts.value = []
+    }
+  } finally { if (!disposed && turn === hostGeneration) hostApplying.value = false }
 }
 async function load() {
   const turn = ++generation
@@ -156,7 +274,7 @@ function applyTemplate() {
     search_action: value.provider_options?.search_action || 'list', detail_action: value.provider_options?.detail_action || 'detail' } : emptyForm()
 }
 async function testSource(source) {
-  if (testingSource.value || !settings.value.enabled || !source.enabled) return
+  if (testingSource.value || hostChecking.value || hostApplying.value || !settings.value.enabled || !source.enabled) return
   testingSource.value = source.id
   const turn = ++sourceTestGeneration
   const fingerprint = JSON.stringify(source)
@@ -170,6 +288,8 @@ async function testSource(source) {
   } finally { if (!disposed) testingSource.value = '' }
 }
 async function toggleEnabled() {
+  if (hostApplying.value) return
+  invalidateHostResult()
   sourceTestGeneration++
   toggling.value = true; feedback('')
   try {
@@ -180,7 +300,8 @@ async function toggleEnabled() {
   finally { if (!disposed) toggling.value = false }
 }
 function editSource(source = null) {
-  if (saving.value || networkSaving.value) return
+  if (saving.value || networkSaving.value || hostApplying.value) return
+  cancelHostCheck()
   networkGeneration++; cancelNetwork()
   editingId.value = source?.id || ''; formError.value = ''
   templateId.value = ''
@@ -199,7 +320,8 @@ function providerChanged() {
 }
 function cancelEditor() { editorOpen.value = false; editingId.value = ''; templateId.value = ''; formError.value = ''; form.value = emptyForm(); savedForm.value = '' }
 async function saveSource() {
-  if (saving.value) return
+  if (saving.value || hostApplying.value) return
+  invalidateHostResult()
   sourceTestGeneration++
   saving.value = true; formError.value = ''
   const id = editingId.value
@@ -217,7 +339,8 @@ async function saveSource() {
   finally { if (!disposed) saving.value = false }
 }
 async function editNetwork(source) {
-  if (saving.value || networkSaving.value) return
+  if (saving.value || networkSaving.value || hostApplying.value) return
+  cancelHostCheck()
   cancelEditor(); const turn = ++networkGeneration
   networkSource.value = null; networkError.value = ''
   try {
@@ -244,7 +367,8 @@ function purposeSummary(purpose) {
   return networkChoiceSummary(resolved.choice, profiles.value) + '（' + inherited + '）'
 }
 async function saveNetwork() {
-  if (networkSaving.value || !networkSource.value) return
+  if (networkSaving.value || !networkSource.value || hostApplying.value) return
+  invalidateHostResult()
   sourceTestGeneration++
   networkSaving.value = true; networkError.value = ''
   let createdProfile = false
@@ -271,6 +395,8 @@ async function saveNetwork() {
   }
   finally { if (!disposed) networkSaving.value = false }
 }
+watch(hostExternalId, invalidateHostResult, { flush: 'sync' })
+watch(() => [route?.query?.sec, route?.query?.source, route?.query?.item, loading.value, sources.value, dirty.value, saving.value, networkSaving.value, hostApplying.value], syncHostLink, { immediate: true, flush: 'post' })
 onMounted(load)
-onUnmounted(() => { disposed = true; generation++; networkGeneration++; controllers.forEach(controller => controller.abort()); controllers.clear() })
+onUnmounted(() => { disposed = true; generation++; networkGeneration++; hostGeneration++; controllers.forEach(controller => controller.abort()); controllers.clear() })
 </script>

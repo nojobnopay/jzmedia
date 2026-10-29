@@ -31,6 +31,10 @@
           <div class="online-detail-actions"><JzButton :data-online-favorite="detail.item.id" :icon="itemState?.favorite ? 'heart-filled' : 'heart'" :disabled="!itemState || mutationBusy.has(detail.item.id)" @click="favoriteDetail">{{ itemState?.favorite ? '取消收藏' : '收藏' }}</JzButton><JzButton v-if="resumeEntry" icon="play" data-online-detail-resume :disabled="starting" @click="play(resumeEntry)">继续播放</JzButton><span v-if="starting" role="status">正在读取续播位置…</span></div>
           <p v-if="detail.description" class="online-description">{{ detail.description }}</p>
           <div v-if="detail.attribution?.length" class="online-attribution"><span>内容来源与许可</span><a v-for="credit in detail.attribution" :key="credit.url" :href="safeAttribution(credit.url)" target="_blank" rel="noopener noreferrer">{{ credit.label }}</a></div>
+          <div v-if="needsHostUpdate" class="online-host-help" data-online-host-help role="status">
+            <p>此来源使用了尚未允许的媒体主机。请在来源设置中检查并确认新增域名，再返回这里重新加载。</p>
+            <router-link :to="{ path: '/settings', query: { sec: 'sec-online', source: detail.source.id, item: lastDetailId } }" data-online-host-repair>检查媒体主机</router-link>
+          </div>
           <h3>播放线路</h3>
           <div class="online-lines" role="group" aria-label="播放线路"><JzButton v-for="line in detail.lines" :key="line.id" :data-online-line="line.id" :aria-pressed="line.id === lineId" @click="selectLine(line.id)">{{ line.label }}</JzButton></div>
           <label v-if="detail.item.kind === 'tv'" class="online-autoplay"><input v-model="autoplay" type="checkbox" data-online-autoplay @change="autoplayChanged" />自动播放下一集（当前浏览器）</label>
@@ -81,7 +85,8 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { createOnlineCatalogClient, createOnlineHealthClient, onlineHealthLabel, onlineCatalogError } from '../onlineCatalog.js'
+import { useRoute, useRouter } from 'vue-router'
+import { createOnlineCatalogClient, createOnlineHealthClient, onlineHealthLabel, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
 import { createOnlineProgressMemory, onlineIdentityKey, validateOnlineIdentity } from '../onlinePlayback.js'
 import { createOnlineStateClient, createOnlineProgressWriter, loadOnlineAutoplay, saveOnlineAutoplay, nextOnlineEpisode, onlineStateError } from '../onlineState.js'
 import { isChildren, registerViewingPlaybackCleanup, viewing } from '../viewing.js'
@@ -95,6 +100,7 @@ import OnlineArtwork from '../components/OnlineArtwork.vue'
 import '../styles/online.css'
 
 const client = createOnlineCatalogClient(), nextClient = createOnlineCatalogClient(), stateClient = createOnlineStateClient()
+const route = useRoute(), router = useRouter()
 const healthClient = createOnlineHealthClient(), health = ref(null), healthLoading = ref(false), healthError = ref('')
 const progress = createOnlineProgressMemory()
 const sources = ref([]), sourceId = ref(''), enabled = ref(false), query = ref('')
@@ -114,6 +120,7 @@ const selectedSource = computed(() => sources.value.find(source => source.id ===
 const canBrowse = computed(() => selectedSource.value?.capabilities?.browse || selectedSource.value?.provider === 'open_catalog')
 const canSearch = computed(() => !!sourceId.value && (query.value.trim().length > 0 || canBrowse.value))
 const selectedLine = computed(() => detail.value?.lines.find(line => line.id === lineId.value))
+const needsHostUpdate = computed(() => detail.value?.lines.some(line => line.entries.some(entry => ['host_not_allowed', 'target_host_not_allowed'].includes(entry.reason))))
 const lastQuery = ref({ page: 1, query: '' })
 const resumeEntry = computed(() => !itemState.value?.last_progress?.completed ? findEntry(detail.value, itemState.value?.last_progress?.identity) : null)
 let disposed = false, generation = 0, libraryGeneration = 0, healthGeneration = 0, playIntent = 0, nextIntent = 0, runId = 0, activeRun = null
@@ -126,11 +133,13 @@ function autoplayChanged() { saveOnlineAutoplay(autoplay.value, mode); if (!auto
 function availabilityReason(reason) { return reason === 'online_source_disabled' || reason === 'online_disabled' ? '来源或在线功能已停用，记录仍会保留' : '当前内容暂不可播放，记录仍会保留' }
 async function loadSources() {
   const turn = ++generation
+  const target = onlineRouteTarget(route.query)
   loadingSources.value = true; sourcesError.value = ''
   try {
     const response = await client.sources()
     if (!current(turn) || !response) return
     enabled.value = response.enabled; sources.value = response.items || []
+    if (target && sources.value.some(source => source.id === target.sourceId)) sourceId.value = target.sourceId
     if (!sources.value.some(source => source.id === sourceId.value)) sourceId.value = sources.value[0]?.id || ''
     lastSourceId = sourceId.value
     void loadHealth()
@@ -138,7 +147,11 @@ async function loadSources() {
   finally {
     if (current(turn)) {
       loadingSources.value = false
-      if (!sourcesError.value && enabled.value && selectedSource.value?.capabilities?.browse) void search(1, '')
+      if (!sourcesError.value && enabled.value) {
+        if (target?.externalId && sourceId.value === target.sourceId) void openDetail(target.externalId)
+        else if (target?.externalId) stateNotice.value = '该来源已停用或不存在，请选择其他来源。'
+        else if (selectedSource.value?.capabilities?.browse) void search(1, '')
+      }
     }
   }
 }
@@ -220,7 +233,11 @@ async function openSaved(row, resume) {
   sourceId.value = row.source.id; sourceChanged(false)
   await openDetail(row.item.external_id, { resume: resume && !!row.progress, identity: row.progress?.identity, itemId: row.item.id })
 }
-function backToResults() { generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false }
+function backToResults() {
+  generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
+  if (route.query.item) void router.replace({ path: '/online', query: { source: sourceId.value } })
+  if (!searched.value && canBrowse.value) void search(1, '')
+}
 function selectLine(id) { void closePlayer(); lineId.value = id }
 async function stopRun(run) {
   if (!run) return

@@ -3,6 +3,13 @@ import { api } from './api.js'
 export const OPEN_CATALOG_BASE = 'https://www.bigbuckbunny.org/'
 const SOURCE_ID = /^src_[0-9a-f]{32}$/
 
+export function onlineRouteTarget(query = {}) {
+  try { sourceId(query.source) } catch { return null }
+  const item = query.item === undefined ? '' : query.item
+  if (typeof item !== 'string' || item && /^[A-Za-z0-9_-]{1,128}$/.exec(item)?.[0] !== item) return null
+  return { sourceId: query.source, externalId: item }
+}
+
 function sourceId(value) {
   if (typeof value !== 'string' || SOURCE_ID.exec(value)?.[0] !== value) throw new Error('在线来源身份无效')
   return value

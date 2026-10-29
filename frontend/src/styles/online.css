@@ -36,6 +36,9 @@
 .online-description { max-width: 850px; line-height: 1.8; white-space: pre-line; overflow-wrap: anywhere; }
 .online-attribution { display: flex; flex-wrap: wrap; gap: var(--jz-gap-m); margin-block: var(--jz-gap-l); font-size: var(--jz-font-s); }
 .online-attribution > span { color: var(--jz-text-dim); }
+.online-host-help { margin-block: var(--jz-gap-l); padding: var(--jz-gap-m) var(--jz-gap-l); border-left: 3px solid var(--jz-accent); background: var(--jz-surface); line-height: 1.7; }
+.online-host-help p { margin: 0; }
+.online-host-help a { display: inline-flex; align-items: center; min-height: var(--jz-touch-target); color: var(--jz-link); }
 .online-lines { display: flex; flex-wrap: wrap; gap: var(--jz-gap-s); }
 .online-lines [aria-pressed="true"] { color: var(--jz-text); border-color: var(--jz-accent); background: var(--jz-selected); }
 .online-entries { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--jz-gap-m); margin-top: var(--jz-gap-l); }

@@ -113,6 +113,7 @@ class FixtureOrigin:
         self.pending_requests = 0
         self.revision = 1
         self.reverse_lines = False
+        self.media_alias = False
         origin = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -144,6 +145,7 @@ class FixtureOrigin:
                 cookie = self.headers.get("Cookie", "")
                 with origin.lock:
                     call = {"method": self.command, "path": parsed.path,
+                            "host": self.headers.get("Host", "").split(":", 1)[0],
                             "kind": "api" if api else "image" if parsed.path.endswith(".png") else "media",
                             "action": query.get("ac", [""])[0],
                             "range": self.headers.get("Range"),
@@ -286,10 +288,11 @@ class FixtureOrigin:
 
     def records(self, mode="normal"):
         with self.lock:
-            revision, reverse = self.revision, self.reverse_lines
+            revision, reverse, alias = self.revision, self.reverse_lines, self.media_alias
         def media(episode, transport):
             asset = "movie.mp4" if transport == "mp4" else "hls/master.m3u8"
-            return f"{self.base_url}/files/ep-{episode}/{asset}?fixture_signature=server-only-{revision}"
+            media_base = f"http://media.fixture.invalid:{self.port}" if alias else self.base_url
+            return f"{media_base}/files/ep-{episode}/{asset}?fixture_signature=server-only-{revision}"
         def lines(captions):
             groups = [("MP4直链", "#".join(f"{caption}${media(number, 'mp4')}" for number, caption in enumerate(captions, 1))),
                       ("HLS直链", "#".join(f"{caption}${media(number, 'hls')}" for number, caption in enumerate(captions, 1)))]

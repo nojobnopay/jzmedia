@@ -11,7 +11,7 @@ const sources = { enabled: true, items: [{ id: SOURCE_A, name: '来源 A', provi
 const rows = { items: [{ external_id: 'movie-1', title: '合成电影', kind: 'movie', year: '2026' }], page: 1, page_count: 1, total: 1 }
 const vue = { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {}, vShow: {} }
 const SCOPE = 'a'.repeat(64)
-async function setup(t, request, { stateRequest, autoplay = false } = {}) {
+async function setup(t, request, { stateRequest, autoplay = false, routeQuery = {} } = {}) {
   let cleanup = () => {}
   const players = [], writers = [], preferences = []
   const stateRead = stateRequest || (async path => path.includes('/library?')
@@ -19,6 +19,7 @@ async function setup(t, request, { stateRequest, autoplay = false } = {}) {
     : { item_id: path.split('/').at(-1).split('?')[0], favorite: false, last_progress: null, selected_progress: null, available: true, scope_token: SCOPE })
   const component = await loadSfc(new URL('../src/views/Online.vue', import.meta.url), {
     vue,
+    'vue-router': { useRoute: () => ({ query: routeQuery }), useRouter: () => ({ replace: async () => {} }) },
     '../onlineCatalog.js': { ...catalog, createOnlineCatalogClient: () => catalog.createOnlineCatalogClient({ request }), createOnlineHealthClient: () => ({ read: async () => null, cancel() {}, close() {} }) },
     '../onlineState.js': { ...state, createOnlineStateClient: () => state.createOnlineStateClient({ request: stateRead }),
       loadOnlineAutoplay: () => autoplay, saveOnlineAutoplay: value => preferences.push(value),
@@ -41,6 +42,31 @@ function search(ui, query) {
   ui.find(node => node.props.id === 'online-query').props['onUpdate:modelValue'](query)
   ui.find(node => node.props['data-online-search'] !== undefined).props.onSubmit({ preventDefault() {} })
 }
+
+test('a source repair return link opens the selected item once without auto-discovery or playback', async t => {
+  const calls = []
+  const { ui, players } = await setup(t, async path => {
+    calls.push(path)
+    if (path.endsWith('/sources')) return { ...sources, items: sources.items.map(source => ({ ...source, capabilities: { browse: true } })) }
+    return { source: sources.items[1], item: { id: ITEM, source_id: SOURCE_B, kind: 'tv', title: '待修复剧集' },
+      year: '2026', lines: [{ id: LINE, label: '主线路', entries: [{ label: '第1集', supported: false,
+        identity: null, transport: null, reason: 'target_host_not_allowed' }] }], attribution: [] }
+  }, { routeQuery: { source: SOURCE_B, item: 'show-1' } })
+  assert.equal(calls.length, 2)
+  assert.equal(new URL(calls[1], 'https://jzmedia.invalid').searchParams.get('source_id'), SOURCE_B)
+  assert.equal(new URL(calls[1], 'https://jzmedia.invalid').searchParams.get('external_id'), 'show-1')
+  assert.equal(ui.text().includes('待修复剧集'), true)
+  assert.equal(!!ui.find(node => node.props['data-online-host-repair'] !== undefined), true)
+  assert.equal(players.length, 0)
+})
+
+test('a repair link for a missing source never opens the same item ID on another source', async t => {
+  const calls = []
+  const { ui } = await setup(t, async path => { calls.push(path); return sources },
+    { routeQuery: { source: 'src_' + 'f'.repeat(32), item: 'show-1' } })
+  assert.equal(calls.length, 1)
+  assert.equal(ui.text().includes('该来源已停用或不存在'), true)
+})
 
 test('discovery loads a poster wall on entry and sends the actual source category instead of a keyword', async t => {
   const calls = []

@@ -13,15 +13,29 @@ async function click(ui, name) { assert.ok(button(ui, name), 'Missing button: ' 
 async function field(ui, id, value) { element(ui, id).props['onUpdate:modelValue'](value); await flush() }
 async function submit(ui, attr) { await ui.find(node => node.type === 'form' && attr in node.props).props.onSubmit({ preventDefault() {} }); await flush() }
 
-async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail = false, policyFailures = 0, catalogGate = null } = {}) {
+async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail = false, policyFailures = 0, catalogGate = null,
+  routeQuery = {}, hostCheckGate = null, hostApplyGate = null, hostApplyFailures = 0, hostReport = null, extraSources = [] } = {}) {
   const requests = [], source = { id: SOURCE, name: '演示来源', provider: 'maccms', api_base_url: 'https://api.example/',
     allowed_hosts: ['api.example'], enabled: true, priority: 100, provider_options: {} }
+  const sourceList = [source, ...extraSources.map(item => ({ ...source, ...item }))]
+  const route = Vue.reactive({ query: { sec: 'sec-online', ...routeQuery } })
   let draft
   const api = async (path, options = {}) => {
     const body = options.body && JSON.parse(options.body)
-    requests.push({ path, method: options.method || 'GET', body })
+    requests.push({ path, method: options.method || 'GET', body, signal: options.signal })
     if (path === '/api/online/settings') return { enabled: true }
-    if (path === '/api/online/sources') return options.method === 'POST' ? { ...body, id: SOURCE } : { items: [source] }
+    if (path === '/api/online/sources') return options.method === 'POST' ? { ...body, id: SOURCE } : { items: sourceList }
+    if (path.endsWith('/host-check')) return hostCheckGate ? hostCheckGate.promise : hostReport || {
+      source_id: path.split('/')[4], external_id: body.external_id,
+      missing_hosts: ['cdn.extra.example', 'images.extra.example'], allowed_hosts: ['api.example'],
+      rejected_count: 1, configuration_fingerprint: 'f'.repeat(64),
+    }
+    if (path.endsWith('/allow-hosts')) {
+      if (hostApplyGate) await hostApplyGate.promise
+      if (hostApplyFailures-- > 0) throw Object.assign(new Error('private source details'), { status: 409, code: 'online_source_changed' })
+      source.allowed_hosts = [...new Set([...source.allowed_hosts, ...body.hosts])]
+      return { ...source }
+    }
     if (path === '/api/online/network/profiles') {
       if (options.method === 'POST') return { id: PROFILE, name: body.name, mode: body.mode, proxy_url: body.proxy_url, has_credentials: !!(body.username || body.password) }
       return { items: profiles }
@@ -41,12 +55,13 @@ async function mount(t, { sourcePolicy = policy(), profiles = [], templatesFail 
   }
   const component = await loadSfc(new URL('../src/components/OnlineSourcesPanel.vue', import.meta.url), {
     vue: { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {} },
+    'vue-router': { useRoute: () => route },
     '../api.js': { api }, '../settingsDrafts.js': { useSettingsDraft(entry) { draft = entry } },
   })
   const ui = renderHarness(component)
   t.after(() => ui.app.unmount())
   await flush()
-  return { ui, requests, get draft() { return draft } }
+  return { ui, requests, route, get draft() { return draft } }
 }
 
 test('source directory pre-fills an enabled source; directory failure leaves custom creation available', async t => {
@@ -129,4 +144,75 @@ test('a directory test cannot publish an old route result after saving new netwo
   gate.resolve({ items: [{ title: '旧出口返回的影片' }] })
   await checking; await flush()
   assert.equal(ui.text().includes('目录读取成功'), false)
+})
+
+test('a detail deep link opens an explicit host review and atomically appends only selected hosts', async t => {
+  const { ui, requests } = await mount(t, { routeQuery: { source: SOURCE, item: 'movie-7' } })
+  assert.ok(element(ui, 'online-host-item'))
+  assert.equal(requests.some(call => call.path.endsWith('/host-check')), false, 'a link never silently reads the upstream')
+  await submit(ui, 'data-online-host-form')
+  assert.deepEqual(requests.find(call => call.path.endsWith('/host-check')).body, { external_id: 'movie-7' })
+  assert.equal(ui.text().includes('cdn.extra.example'), true)
+  assert.equal(ui.text().includes('images.extra.example'), true)
+  assert.equal(requests.some(call => call.path.endsWith('/allow-hosts')), false, 'inspection never silently trusts new hosts')
+  const choice = ui.find(node => node.type === 'input' && node.props.value === 'cdn.extra.example')
+  choice.props['onUpdate:modelValue'](['cdn.extra.example']); await flush()
+  await click(ui, '加入允许列表')
+  const saved = requests.find(call => call.path.endsWith('/allow-hosts'))
+  assert.deepEqual(saved.body, { hosts: ['cdn.extra.example'], expected_fingerprint: 'f'.repeat(64) })
+  assert.equal(requests.some(call => call.method === 'PATCH'), false, 'host repair does not replace the source config')
+  assert.equal(ui.text().includes('媒体主机已加入允许列表'), true)
+  assert.equal(ui.text().includes('返回影片详情'), true)
+})
+
+test('a stale source fingerprint clears the old proposal and requires a fresh inspection', async t => {
+  const { ui, requests } = await mount(t, { routeQuery: { source: SOURCE, item: 'movie-7' }, hostApplyFailures: 1 })
+  await submit(ui, 'data-online-host-form')
+  await click(ui, '加入允许列表')
+  assert.equal(ui.text().includes('来源配置已变化，请重新检查后再添加。'), true)
+  assert.equal(ui.text().includes('private source details'), false)
+  assert.equal(button(ui, '加入允许列表'), undefined)
+  await submit(ui, 'data-online-host-form')
+  await click(ui, '加入允许列表')
+  assert.equal(requests.filter(call => call.path.endsWith('/host-check')).length, 2)
+  assert.equal(ui.text().includes('媒体主机已加入允许列表'), true)
+})
+
+test('closing a pending host inspection aborts it and discards a late report', async t => {
+  const gate = deferred()
+  t.after(() => gate.resolve({}))
+  const { ui, requests } = await mount(t, { routeQuery: { source: SOURCE, item: 'movie-7' }, hostCheckGate: gate })
+  const checking = ui.find(node => node.type === 'form' && 'data-online-host-form' in node.props).props.onSubmit({ preventDefault() {} })
+  await flush()
+  await click(ui, '关闭检查')
+  assert.equal(requests.find(call => call.path.endsWith('/host-check')).signal.aborted, true)
+  gate.resolve({ source_id: SOURCE, external_id: 'movie-7', missing_hosts: ['late.example'], allowed_hosts: [],
+    rejected_count: 0, configuration_fingerprint: 'f'.repeat(64) })
+  await checking; await flush()
+  assert.equal(ui.text().includes('late.example'), false)
+  assert.equal(ui.find(node => node.props['data-online-host-check'] !== undefined), undefined)
+})
+
+test('an invalid host response cannot expose a signed provider URL in the review', async t => {
+  const { ui } = await mount(t, { routeQuery: { source: SOURCE, item: 'movie-7' }, hostReport: {
+    source_id: SOURCE, external_id: 'movie-7', missing_hosts: ['https://cdn.example/v.mp4?private-token=secret'],
+    allowed_hosts: [], rejected_count: 0, configuration_fingerprint: 'f'.repeat(64),
+  } })
+  await submit(ui, 'data-online-host-form')
+  assert.equal(ui.text().includes('private-token'), false)
+  assert.equal(ui.text().includes('媒体主机检查未完成'), true)
+  assert.equal(button(ui, '加入允许列表'), undefined)
+})
+
+test('host approval is a busy write that blocks other source editors until it finishes', async t => {
+  const gate = deferred()
+  t.after(() => gate.resolve())
+  const { ui, draft } = await mount(t, { routeQuery: { source: SOURCE, item: 'movie-7' }, hostApplyGate: gate })
+  await submit(ui, 'data-online-host-form')
+  const applying = button(ui, '加入允许列表').props.onClick(); await flush()
+  assert.equal(draft.busy(), true)
+  assert.equal(button(ui, '关闭检查').props.disabled, true)
+  assert.equal(button(ui, '编辑 演示来源').props.disabled, true)
+  gate.resolve(); await applying; await flush()
+  assert.equal(draft.busy(), false)
 })

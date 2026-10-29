@@ -23,17 +23,33 @@ from pydantic import BaseModel, ConfigDict, Field
 from app import config, library_paths, secrets, store
 from app.network.client import create_client
 from app.network.policy import NetworkPolicyError, resolve_policy_state
+from app.network.targets import TargetPolicy, TargetPolicyError
 from app.online import catalog, runtime, service
 from app.routers import online, online_network, online_playback, viewing
 from app.store import _base
 from app.store.online_network import load_online_network_state
 from app.viewing_http import _error_response, middleware as viewing_middleware
-from scripts.online_p1.server import FixtureRegistry, FixtureTargetPolicy
+from scripts.online_p1.server import FixtureRegistry, FixtureTargetPolicy as BaseFixtureTargetPolicy
 from scripts.online_p2.fixtures import (DURATION, MARKER, MODES, RANGE_MARKER, FixtureOrigin,
                                        fixture_root, prepare_media, prepare_range_media)
 
 
 FIXTURE_TOKEN = "online-p2-fixture-only"
+FIXTURE_HOSTS = frozenset({"fixture.invalid", "media.fixture.invalid"})
+
+
+class FixtureTargetPolicy(BaseFixtureTargetPolicy):
+    """P2-only fixed aliases, still constrained by each source's exact hosts."""
+
+    def __init__(self, source_id, port, allowed_hosts=None):
+        def addresses(host, requested_port):
+            if host not in FIXTURE_HOSTS or requested_port != port:
+                raise TargetPolicyError("fixture_target_not_allowed")
+            return ("127.0.0.1",)
+
+        hosts = ["fixture.invalid"] if allowed_hosts is None else allowed_hosts
+        TargetPolicy.__init__(self, source_id, hosts, resolver=addresses)
+        self._fixture_port = port
 
 
 class Scenario(BaseModel):
@@ -42,6 +58,7 @@ class Scenario(BaseModel):
     next_mode: str = "normal"
     revision: int | None = Field(default=None, ge=1, le=1000)
     reverse_lines: bool | None = None
+    media_alias: bool | None = None
     expire_sessions: bool = False
 
 
@@ -66,7 +83,7 @@ class FixtureState:
             self.client_calls.append({"source_id": source_id, "purpose": purpose, "mode": snapshot.mode,
                                       "fingerprint": snapshot.fingerprint})
             del self.client_calls[:-2000]
-        client = create_client(snapshot, targets=FixtureTargetPolicy(source_id, self.origin.port),
+        client = create_client(snapshot, targets=FixtureTargetPolicy(source_id, self.origin.port, source["allowed_hosts"]),
                                header_policy=header_policy)
         from app.online.health import bind_client
         bind_client(client, state)
@@ -223,6 +240,8 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                     origin.revision = body.revision
                 if body.reverse_lines is not None:
                     origin.reverse_lines = body.reverse_lines
+                if body.media_alias is not None:
+                    origin.media_alias = body.media_alias
             if body.expire_sessions:
                 state.registry.close_all()
             return {"ok": True}

@@ -1,12 +1,20 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createOnlineCatalogClient, choiceNetworkRule, networkRuleChoice, onlineCatalogError } from '../src/onlineCatalog.js'
+import { createOnlineCatalogClient, choiceNetworkRule, networkRuleChoice, onlineCatalogError, onlineRouteTarget } from '../src/onlineCatalog.js'
 import { onlineIdentityKey, validateOnlineIdentity, validateOnlineDescriptor, createOnlineProgressMemory } from '../src/onlinePlayback.js'
 
 const SOURCE = 'src_' + '1'.repeat(32)
 const MOVIE = { source_id: SOURCE, item_id: 'itm_' + '2'.repeat(32), kind: 'movie' }
 const LINE_A = 'ln_' + 'a'.repeat(32), LINE_B = 'ln_' + 'b'.repeat(32)
 function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
+
+test('online return links accept only one stable source and provider item identity', () => {
+  assert.deepEqual(onlineRouteTarget({ source: SOURCE, item: 'show_12-A' }), { sourceId: SOURCE, externalId: 'show_12-A' })
+  assert.deepEqual(onlineRouteTarget({ source: SOURCE }), { sourceId: SOURCE, externalId: '' })
+  for (const value of [{}, { source: [SOURCE], item: 'a' }, { source: SOURCE, item: ['a'] },
+    { source: SOURCE + '\n', item: 'a' }, { source: SOURCE, item: 'a\n' },
+    { source: SOURCE, item: 'https://untrusted.invalid/private' }]) assert.equal(onlineRouteTarget(value), null)
+})
 
 test('catalogue requests encode data only, never receive a target URL from the caller', async () => {
   const calls = []

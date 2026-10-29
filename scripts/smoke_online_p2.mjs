@@ -21,11 +21,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|all]')
+    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|hosts|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'discovery', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'catalogue', 'discovery', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-'))
 const output = path.join(root, 'output/playwright/online-p2')
 const dist = path.join(work, 'dist')
@@ -490,6 +490,112 @@ async function matrix() {
   } finally { await closeContext(narrow.context) }
   await backendChildren('after-matrix')
 }
+
+async function hostRepair() {
+  for (const width of [1440, 390]) {
+    phase = { name: `hosts-explicit-approval-${width}`, expectedHttp: false }
+    const { context, page } = await newPage(width)
+    let original = null
+    try {
+      const source = await call(page, 'GET', `/api/online/sources/${primarySource.id}`)
+      assert.equal(source.status, 200, JSON.stringify(source))
+      original = source.body
+      assert.equal(original.allowed_hosts.includes('media.fixture.invalid'), false)
+      await scenario(page, { media_alias: true })
+      await selectSource(page)
+      await search(page)
+      await detailUi(page, 'show-1')
+      const blocked = page.locator('[data-online-entry]')
+      assert.equal(await blocked.count(), 2)
+      assert.equal(await blocked.evaluateAll(elements => elements.every(element => element.disabled)), true,
+        'the unapproved media alias makes every episode unavailable before explicit approval')
+      const repair = page.locator('[data-online-host-repair]')
+      await repair.waitFor()
+      const repairTarget = new URL(await repair.getAttribute('href'), base)
+      assert.equal(repairTarget.pathname, '/settings')
+      assert.equal(repairTarget.searchParams.get('source'), primarySource.id)
+      assert.equal(repairTarget.searchParams.get('item'), 'show-1')
+      await page.screenshot({ path: path.join(output, `hosts-blocked-${width}.png`), fullPage: true })
+      const beforePanel = await metrics()
+      const checkPath = `/api/online/sources/${primarySource.id}/host-check`
+      const allowPath = `/api/online/sources/${primarySource.id}/allow-hosts`
+      const inspectedBefore = beforePanel.api_calls.filter(call => call.path === checkPath).length
+      const mediaBefore = beforePanel.origin_calls.filter(call => call.kind === 'media').length
+      await repair.click()
+      await page.waitForFunction(() => window.__jzOnlineP2Fixture.snapshot().path === '/settings')
+      const panel = page.locator('[data-online-host-check]')
+      await panel.waitFor()
+      assert.equal(await panel.locator('#online-host-item').inputValue(), 'show-1')
+      await idle()
+      assert.equal((await metrics()).api_calls.filter(call => call.path === checkPath).length, inspectedBefore,
+        'following the deep link opens the panel without automatically inspecting any upstream')
+      const checked = page.waitForResponse(response => new URL(response.url()).pathname === checkPath
+        && response.request().method() === 'POST')
+      await panel.getByRole('button', { name: '检查媒体主机', exact: true }).click()
+      const checkResponse = await checked
+      assert.equal(checkResponse.status(), 200)
+      const reportBody = await checkResponse.json()
+      assert.deepEqual(reportBody.missing_hosts, ['media.fixture.invalid'])
+      assert.equal(JSON.stringify(reportBody).includes('fixture_signature'), false)
+      assert.equal(JSON.stringify(reportBody).includes('http://'), false)
+      assert.match(reportBody.configuration_fingerprint, /^[a-f0-9]{64}$/)
+      const inspected = await metrics()
+      assert.equal(inspected.api_calls.filter(call => call.path === checkPath).length, inspectedBefore + 1)
+      assert.equal(inspected.origin_calls.filter(call => call.kind === 'media').length, mediaBefore,
+        'host inspection reads directory metadata only; it never contacts the proposed media alias')
+      assert.deepEqual((await call(page, 'GET', `/api/online/sources/${primarySource.id}`)).body.allowed_hosts,
+        original.allowed_hosts, 'reading candidates must not silently trust them')
+      const candidate = panel.getByRole('checkbox', { name: 'media.fixture.invalid', exact: true })
+      await candidate.waitFor()
+      assert.equal(await candidate.isChecked(), true)
+      await page.screenshot({ path: path.join(output, `hosts-review-${width}.png`), fullPage: true })
+      const applied = page.waitForResponse(response => new URL(response.url()).pathname === allowPath
+        && response.request().method() === 'POST')
+      await panel.getByRole('button', { name: '加入允许列表', exact: true }).click()
+      const applyResponse = await applied
+      assert.equal(applyResponse.status(), 200)
+      assert.deepEqual(applyResponse.request().postDataJSON(), {
+        hosts: ['media.fixture.invalid'], expected_fingerprint: reportBody.configuration_fingerprint,
+      })
+      const saved = await applyResponse.json()
+      assert.deepEqual(saved.allowed_hosts, [...original.allowed_hosts, 'media.fixture.invalid'])
+      for (const key of ['id', 'name', 'provider', 'api_base_url', 'provider_options', 'enabled', 'priority']) {
+        assert.deepEqual(saved[key], original[key], `approval must preserve ${key}`)
+      }
+      await panel.getByText('媒体主机已加入允许列表。返回影片详情后会重新读取播放线路。', { exact: true }).waitFor()
+      const back = panel.locator('[data-online-host-return]')
+      const returnTarget = new URL(await back.getAttribute('href'), base)
+      assert.equal(returnTarget.pathname, '/online')
+      assert.equal(returnTarget.searchParams.get('source'), primarySource.id)
+      assert.equal(returnTarget.searchParams.get('item'), 'show-1')
+      await back.click()
+      await page.waitForFunction(() => window.__jzOnlineP2Fixture.snapshot().path === '/online')
+      await page.locator('[data-online-detail]').waitFor()
+      await chooseLine(page, 'HLS直链')
+      assert.equal(await page.locator('[data-online-entry]').evaluateAll(elements => elements.every(element => !element.disabled)), true)
+      const firstFrameMs = await playEntry(page, '第1集')
+      const advanced = await advancing(page)
+      assert.equal((await snapshot(page)).transport, 'hls')
+      const geometry = await layout(page, width)
+      await page.screenshot({ path: path.join(output, `hosts-player-${width}.png`) })
+      const released = await closePlayer(page)
+      const aliasReads = released.metrics.origin_calls.filter(call => call.kind === 'media' && call.host === 'media.fixture.invalid')
+      assert.ok(aliasReads.length >= 2, 'HLS manifests and media resources use only the explicitly approved loopback alias')
+      passed({ case: phase.name, initiallyBlockedEpisodes: 2, inspectionOnlyMetadata: true,
+        addedHosts: ['media.fixture.invalid'], firstFrameMs, advanced, geometry,
+        aliasMediaRequests: aliasReads.length, releaseMs: released.releaseMs })
+    } finally {
+      // Keep the existing discovery/matrix/catalogue cases' origin and source
+      // configuration unchanged when this scenario runs as part of --case all.
+      await scenario(page, { media_alias: false }).catch(() => {})
+      if (original) await call(page, 'PATCH', `/api/online/sources/${primarySource.id}`, {
+        allowed_hosts: original.allowed_hosts,
+      }).catch(() => {})
+      await closeContext(context)
+    }
+  }
+  await backendChildren('after-host-repair')
+}
 async function catalogue() {
   phase = { name: 'catalogue-stable-lines-and-refresh', expectedHttp: false }
   const { context, page } = await newPage()
@@ -665,6 +771,7 @@ try {
         '--autoplay-policy=no-user-gesture-required'] })
     report.browser = { version: browser.version(), executable: chromium.executablePath() }
     await setup()
+    if (selectedCase === 'all' || selectedCase === 'hosts') await hostRepair()
     if (selectedCase === 'all' || selectedCase === 'discovery') await discovery()
     if (selectedCase === 'all' || selectedCase === 'matrix') await matrix()
     if (selectedCase === 'all' || selectedCase === 'catalogue') await catalogue()
