@@ -5,14 +5,16 @@ import { loadSfc } from './helpers/loadSfc.js'
 import { renderHarness, flush, deferred } from './helpers/renderHarness.js'
 import * as catalog from '../src/onlineCatalog.js'
 import * as state from '../src/onlineState.js'
+import { clearOnlineBrowse, onlineBrowseMemory, onlineBrowseScope } from '../src/onlineBrowse.js'
 
 const SOURCE_A = 'src_' + '1'.repeat(32), SOURCE_B = 'src_' + '2'.repeat(32)
 const sources = { enabled: true, items: [{ id: SOURCE_A, name: '来源 A', provider: 'maccms' }, { id: SOURCE_B, name: '来源 B', provider: 'maccms' }] }
 const rows = { items: [{ external_id: 'movie-1', title: '合成电影', kind: 'movie', year: '2026' }], page: 1, page_count: 1, total: 1 }
 const vue = { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {}, vShow: {} }
 const SCOPE = 'a'.repeat(64)
-async function setup(t, request, { stateRequest, autoplay = false, routeQuery = {} } = {}) {
-  let cleanup = () => {}
+async function setup(t, request, { stateRequest, autoplay = false, routeQuery = {}, session = {} } = {}) {
+  const cleanups = new Set()
+  const viewingSession = Vue.reactive({ mode: 'normal', generation: 1, revision: 0, locallyLocked: false, suspended: false, ...session })
   const players = [], writers = [], preferences = []
   const stateRead = stateRequest || (async path => path.includes('/library?')
     ? { items: [], total: 0, limit: 20, offset: 0, scope_token: SCOPE }
@@ -23,8 +25,8 @@ async function setup(t, request, { stateRequest, autoplay = false, routeQuery = 
     '../onlineCatalog.js': { ...catalog, createOnlineCatalogClient: () => catalog.createOnlineCatalogClient({ request }), createOnlineHealthClient: () => ({ read: async () => null, cancel() {}, close() {} }) },
     '../onlineState.js': { ...state, createOnlineStateClient: () => state.createOnlineStateClient({ request: stateRead }),
       loadOnlineAutoplay: () => autoplay, saveOnlineAutoplay: value => preferences.push(value),
-      createOnlineProgressWriter: options => { const writer = { options, snapshots: [], sessions: [], session(value) { this.sessions.push(value) }, update(value) { this.snapshots.push(value) }, close: async () => {} }; writers.push(writer); return writer } },
-    '../viewing.js': { isChildren: Vue.ref(false), viewing: Vue.reactive({ mode: 'normal', locallyLocked: false, suspended: false }), registerViewingPlaybackCleanup: callback => { cleanup = callback; return () => {} } },
+      createOnlineProgressWriter: options => { const writer = { options, snapshots: [], sessions: [], closes: 0, session(value) { this.sessions.push(value) }, update(value) { this.snapshots.push(value) }, async close() { this.closes++ } }; writers.push(writer); return writer } },
+    '../viewing.js': { isChildren: Vue.ref(false), viewing: viewingSession, registerViewingPlaybackCleanup: callback => { cleanups.add(callback); return () => cleanups.delete(callback) } },
     '../components/OnlinePlayerModal.vue': { default: { props: ['onlineIdentity', 'initialPosition', 'prepareSession'], setup: props => {
       const listeners = Vue.getCurrentInstance().vnode.props
       const player = { props, ended: identity => listeners.onEnded(identity || props.onlineIdentity),
@@ -34,9 +36,13 @@ async function setup(t, request, { stateRequest, autoplay = false, routeQuery = 
     } } },
   })
   const ui = renderHarness(component)
+  const unmount = ui.app.unmount.bind(ui.app)
+  let mounted = true
+  ui.app.unmount = () => { if (mounted) { mounted = false; unmount() } }
   t.after(() => ui.app.unmount())
+  t.after(clearOnlineBrowse)
   await flush()
-  return { ui, cleanup: () => cleanup(), players, writers, preferences }
+  return { ui, cleanup: () => Promise.all([...cleanups].map(cleanup => cleanup())), players, writers, preferences, viewing: viewingSession }
 }
 function search(ui, query) {
   ui.find(node => node.props.id === 'online-query').props['onUpdate:modelValue'](query)
@@ -254,4 +260,215 @@ test('clearing history adopts the new scope epoch for later explicit favorite ac
   ui.find(node => node.props['data-online-favorite'] === ITEM).props.onClick(); await flush()
   assert.equal(writes[0].headers['X-Online-State-Scope'], SCOPE)
   assert.equal(writes[1].headers['X-Online-State-Scope'], newer)
+})
+
+const cacheableSources = (configuration = 'b'.repeat(64), scope = SCOPE) => ({ enabled: true, scope_token: scope,
+  items: [{ ...sources.items[0], configuration_token: configuration, capabilities: { browse: true } }] })
+
+test('warm route reentry verifies sources before restoring the category and page without another provider read', async t => {
+  clearOnlineBrowse()
+  const catalogue = cacheableSources(), calls = []
+  const request = async path => {
+    calls.push(path)
+    if (path.endsWith('/sources')) return catalogue
+    const page = Number(new URL(path, 'https://jzmedia.invalid').searchParams.get('page'))
+    return { ...rows, page, page_count: 2, categories: [{ id: '71', name: '都市脑洞' }] }
+  }
+  const first = await setup(t, request)
+  first.ui.find(node => node.props['data-online-category'] === '71').props.onClick(); await flush()
+  first.ui.find(node => node.type === 'button' && node.children.some(child => child.text === '下一页')).props.onClick(); await flush()
+  first.ui.app.unmount()
+  const verified = deferred(), repeatCalls = []
+  const second = await setup(t, path => { repeatCalls.push(path); return verified.promise })
+  assert.equal(second.ui.text().includes('合成电影'), false, 'no snapshot may render before sources authorization')
+  assert.equal(repeatCalls.length, 1)
+  verified.resolve(catalogue); await flush()
+  assert.equal(second.ui.text().includes('合成电影'), true)
+  assert.equal(second.ui.text().includes('第 2 / 2 页'), true)
+  assert.equal(second.ui.find(node => node.props['data-online-category'] === '71').props['aria-pressed'], true)
+  assert.equal(repeatCalls.length, 1, 'the verified warm page should not download catalogue metadata again')
+})
+
+test('source configuration changes and device scope changes reject previous page snapshots', async t => {
+  clearOnlineBrowse()
+  const first = await setup(t, async path => path.endsWith('/sources') ? cacheableSources() : rows)
+  first.ui.app.unmount()
+  for (const catalogue of [cacheableSources('c'.repeat(64)), cacheableSources('b'.repeat(64), 'd'.repeat(64))]) {
+    const calls = []
+    const next = await setup(t, async path => { calls.push(path); return path.endsWith('/sources') ? catalogue
+      : { ...rows, items: [{ ...rows.items[0], title: '重新核对的目录' }] } })
+    assert.equal(calls.filter(path => path.includes('/browse?')).length, 1)
+    assert.equal(next.ui.text().includes('重新核对的目录'), true)
+    next.ui.app.unmount()
+  }
+})
+
+test('an expired snapshot restores its navigation and fetches current directory data', async t => {
+  clearOnlineBrowse()
+  const catalogue = cacheableSources()
+  onlineBrowseMemory.save({ scope: onlineBrowseScope(SCOPE, { mode: 'normal', generation: 1, revision: 0 }),
+    source: catalogue.items[0], categoryId: '71', query: '', loadedAt: Date.now() - 61000,
+    response: { ...rows, page: 2, page_count: 2, categories: [{ id: '71', name: '都市脑洞' }] } })
+  const calls = []
+  const { ui } = await setup(t, async path => { calls.push(path); return path.endsWith('/sources') ? catalogue
+    : { ...rows, page: 2, page_count: 2, categories: [{ id: '71', name: '都市脑洞' }] } })
+  const request = new URL(calls.find(path => path.includes('/browse?')), 'https://jzmedia.invalid')
+  assert.equal(request.searchParams.get('page'), '2')
+  assert.equal(request.searchParams.get('category_id'), '71')
+  assert.equal(ui.text().includes('第 2 / 2 页'), true)
+})
+
+test('explicit refresh keeps the existing wall visible while replacing directory data and retries the posters', async t => {
+  clearOnlineBrowse()
+  const pending = deferred()
+  let reads = 0
+  const { ui } = await setup(t, async path => path.endsWith('/sources') ? cacheableSources() : ++reads === 1 ? rows : pending.promise)
+  ui.find(node => node.props['data-online-refresh'] !== undefined).props.onClick(); await flush()
+  assert.equal(reads, 2, 'explicit refresh bypasses the warm directory snapshot')
+  assert.equal(ui.text().includes('合成电影'), true)
+  assert.equal(ui.text().includes('正在更新结果'), true)
+  assert.equal(ui.find(node => node.props['data-online-result'] === 'movie-1').props.disabled, true)
+  pending.resolve({ ...rows, items: [{ ...rows.items[0], title: '新目录片名' }] }); await flush()
+  assert.equal(ui.text().includes('新目录片名'), true)
+  assert.equal(ui.text().includes('正在更新结果'), false)
+  assert.equal(ui.find(node => node.props['data-online-result'] === 'movie-1').props.disabled, false)
+})
+
+test('locking clears the warm directory and a cancelled update cannot refill it after leaving', async t => {
+  clearOnlineBrowse()
+  const pending = deferred()
+  let reads = 0
+  const { ui, cleanup } = await setup(t, async path => path.endsWith('/sources') ? cacheableSources() : ++reads === 1 ? rows : pending.promise)
+  ui.find(node => node.props['data-online-refresh'] !== undefined).props.onClick(); await flush()
+  await cleanup(); await flush()
+  pending.resolve({ ...rows, items: [{ ...rows.items[0], title: '撤销后的旧结果' }] }); await flush()
+  ui.app.unmount()
+  assert.equal(ui.text().includes('撤销后的旧结果'), false)
+  assert.deepEqual(onlineBrowseMemory.stats(), { pages: 0, bytes: 0 })
+})
+
+test('new and cached page navigation captures the new render while refresh and detail return preserve position', async t => {
+  clearOnlineBrowse()
+  const catalogue = cacheableSources()
+  let reads = 0
+  const { ui } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return catalogue
+    if (path.includes('/detail?')) return show()
+    reads++
+    const params = new URL(path, 'https://jzmedia.invalid').searchParams
+    const page = Number(params.get('page')), category = params.get('category_id') || 'initial'
+    return { ...rows, page, page_count: 2, items: [{ ...rows.items[0], external_id: category + '-' + page }],
+      categories: [{ id: '71', name: '都市脑洞' }] }
+  })
+  const previousWindow = globalThis.window
+  const moves = []
+  const viewport = { scrollY: 900, scrollTo(value) { this.scrollY = value.top; moves.push(['restore', value.top]) } }
+  globalThis.window = viewport
+  t.after(() => { if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow })
+  const root = ui.find(node => node.props['data-online-browser'] !== undefined)
+  root.querySelectorAll = () => ui.all().filter(node => node.props['data-online-browse-id'] !== undefined).map(node => ({
+    dataset: { onlineBrowseId: node.props['data-online-browse-id'] },
+    getBoundingClientRect: () => ({ top: 1200 - viewport.scrollY, bottom: 1400 - viewport.scrollY }),
+  }))
+  root.scrollIntoView = () => { viewport.scrollY = 1000; moves.push(['top', 1000]) }
+
+  ui.find(node => node.props['data-online-category'] === '71').props.onClick(); await flush()
+  let saved = onlineBrowseMemory.last(onlineBrowseScope(SCOPE, { mode: 'normal', generation: 1, revision: 0 }), catalogue.items)
+  assert.equal(saved.position.anchor.id, '71-1', 'the new category cannot store the preceding render anchor')
+  assert.deepEqual(moves, [['top', 1000]])
+
+  viewport.scrollY = 1300
+  ui.find(node => node.type === 'button' && node.children.some(child => child.text === '下一页')).props.onClick(); await flush()
+  saved = onlineBrowseMemory.last(onlineBrowseScope(SCOPE, { mode: 'normal', generation: 1, revision: 0 }), catalogue.items)
+  assert.equal(saved.position.anchor.id, '71-2')
+  assert.equal(moves.filter(([kind]) => kind === 'top').length, 2)
+
+  const before = reads
+  viewport.scrollY = 1300
+  ui.find(node => node.type === 'button' && node.children.some(child => child.text === '上一页')).props.onClick(); await flush()
+  assert.equal(reads, before, 'returning to the previous page uses its verified warm data')
+  assert.equal(moves.filter(([kind]) => kind === 'top').length, 3, 'cached pagination still starts at the results top')
+
+  viewport.scrollY = 1100
+  ui.find(node => node.props['data-online-refresh'] !== undefined).props.onClick(); await flush()
+  assert.equal(viewport.scrollY, 1100, 'explicit refresh preserves the visible poster position')
+  assert.equal(moves.filter(([kind]) => kind === 'top').length, 3)
+  ui.find(node => node.props['data-online-result'] === '71-1').props.onClick(); await flush()
+  viewport.scrollY = 0
+  ui.find(node => node.type === 'button' && node.children.some(child => child.text === '返回搜索结果')).props.onClick(); await flush()
+  assert.equal(viewport.scrollY, 1100, 'returning from details restores the poster anchor')
+})
+
+test('an empty previous result cannot masquerade as a completed search while the next query loads or fails', async t => {
+  const pending = deferred()
+  const { ui } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return sources
+    return path.includes('q=none') ? { ...rows, items: [], total: 0 } : pending.promise
+  })
+  search(ui, 'none'); await flush()
+  assert.ok(ui.text().includes('没有找到相关内容'))
+  search(ui, 'next'); await flush()
+  assert.ok(ui.text().includes('正在搜索'))
+  assert.equal(ui.text().includes('没有找到相关内容'), false)
+  pending.reject({ code: 'provider_invalid_response' }); await flush()
+  assert.ok(ui.text().includes('搜索失败'))
+  assert.equal(ui.text().includes('没有找到相关内容'), false)
+})
+
+test('a successful private-session revalidation preserves the selected detail and active player', async t => {
+  const calls = [], resumedState = deferred()
+  let delayState = false, resumedSignal = null, libraryReads = 0
+  const { ui, viewing, players, writers } = await setup(t, async path => {
+    calls.push(path)
+    return path.endsWith('/sources') ? sources : path.includes('/search?') ? rows : show()
+  }, { session: { mode: 'private' }, stateRequest: async (path, options) => {
+    if (path.includes('/library?')) { libraryReads++; return { items: [], total: 0, offset: 0, scope_token: SCOPE } }
+    if (delayState) { resumedSignal = options.signal; return resumedState.promise }
+    return itemState()
+  } })
+  await openShow(ui)
+  selectedEntry(ui).props.onClick(); await flush()
+  assert.equal(players.length, 1)
+  const player = ui.find(node => node.props['data-stub-player'] !== undefined)
+  viewing.suspended = true; await flush()
+  assert.equal(ui.find(node => node.props['data-stub-player'] !== undefined), player)
+  assert.equal(writers[0].closes, 0, 'temporary verification cannot close the progress writer or stop playback')
+  const previousLibraryReads = libraryReads
+  delayState = true
+  viewing.suspended = false; await flush()
+  assert.ok(resumedSignal)
+  assert.equal(resumedSignal.aborted, false)
+  assert.equal(libraryReads, previousLibraryReads, 'the selected detail state is refreshed before the secondary shelf')
+  resumedState.resolve(itemState({ favorite: true })); await flush()
+  assert.equal(resumedSignal.aborted, false)
+  assert.equal(libraryReads, previousLibraryReads + 1)
+  assert.equal(ui.find(node => node.props['data-stub-player'] !== undefined), player)
+  assert.equal(players.length, 1)
+  assert.equal(writers[0].closes, 0)
+  assert.ok(ui.find(node => node.props['data-online-detail'] !== undefined))
+  assert.ok(selectedEntry(ui))
+  assert.equal(ui.find(node => node.props['data-online-favorite'] === ITEM).props.disabled, false)
+  assert.equal(ui.text().includes('取消收藏'), true, 'the delayed verified detail state must become usable')
+  assert.equal(calls.filter(path => path.includes('/detail?')).length, 1, 'an unchanged valid session keeps the selected detail')
+})
+
+test('temporary verification cancels an unfinished detail and retries it without accepting its late response', async t => {
+  const pending = deferred(), calls = []
+  let details = 0
+  const { ui, viewing } = await setup(t, async (path, options) => {
+    calls.push({ path, signal: options.signal })
+    if (path.endsWith('/sources')) return sources
+    if (path.includes('/search?')) return rows
+    return ++details === 1 ? pending.promise : show()
+  }, { session: { mode: 'private' } })
+  search(ui, '合成'); await flush()
+  ui.find(node => node.props['data-online-result'] === 'movie-1').props.onClick(); await flush()
+  viewing.suspended = true; await flush()
+  assert.equal(calls.find(call => call.path.includes('/detail?')).signal.aborted, true)
+  pending.resolve({ ...show(), item: { ...show().item, title: '失效请求的迟到详情' } }); await flush()
+  viewing.suspended = false; await flush()
+  assert.equal(details, 2)
+  assert.equal(ui.text().includes('失效请求的迟到详情'), false)
+  assert.ok(ui.find(node => node.props['data-online-detail'] !== undefined))
+  assert.ok(selectedEntry(ui))
 })

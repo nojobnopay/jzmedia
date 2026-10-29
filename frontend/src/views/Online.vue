@@ -42,20 +42,22 @@
           <div v-if="selectedLine" class="online-entries"><div v-for="(entry, index) in selectedLine.entries" :key="entry.identity?.episode_id || entry.label + ':' + index" class="online-entry"><JzButton :data-online-entry="entry.label" :disabled="!entry.supported || !entry.identity || starting" :variant="entry.supported ? 'primary' : 'secondary'" :icon="entry.supported ? 'play' : undefined" @click="play(entry)">{{ entry.label }}</JzButton><span v-if="!entry.supported">{{ unsupportedReason(entry.reason) }}</span><span v-else>{{ entry.transport?.toUpperCase() }} · 由当前设备播放</span></div></div>
           <EmptyState v-else state="empty" title="此来源暂无可播放线路" text="选择其他来源或稍后重新查询。" />
         </section>
-        <template v-else>
-          <EmptyState v-if="searching" state="loading" title="正在搜索" :text="'正在查询 ' + selectedSource?.name" />
-          <EmptyState v-else-if="searchError" state="error" title="搜索失败" :text="searchError" retry @retry="search(lastQuery.page, lastQuery.query)" />
+        <div v-show="!detail && !detailLoading && !detailError" ref="browseRoot" class="online-browser" :aria-busy="searching" data-online-browser>
+          <p v-if="searching && results.length" class="online-refresh-state" data-online-refreshing role="status">正在更新结果…</p>
+          <div v-if="searchError && results.length" class="online-refresh-error" role="status"><span>{{ searchError }} 以下仍为上次结果。</span><JzButton @click="search(lastQuery.page, lastQuery.query, { force: true })">重试</JzButton></div>
+          <EmptyState v-if="searching && !results.length" state="loading" title="正在搜索" :text="'正在查询 ' + selectedSource?.name" />
+          <EmptyState v-else-if="searchError && !results.length" state="error" title="搜索失败" :text="searchError" retry @retry="search(lastQuery.page, lastQuery.query, { force: true })" />
           <EmptyState v-else-if="!searched" state="empty" :title="selectedSource?.provider === 'open_catalog' ? '浏览开放样例目录' : '查找想看的内容'" :text="selectedSource?.provider === 'open_catalog' ? '点击“浏览目录”查看开放影片及许可。' : '输入片名，仅向当前选中的来源发起查询。'" />
           <EmptyState v-else-if="!results.length" state="no-results" title="没有找到相关内容" text="试试其他片名，或选择其他来源。" />
           <template v-else>
-            <div class="online-results-heading"><h2>{{ loadedQuery ? '搜索结果' : categories.find(category => category.id === categoryId)?.name || '最近更新' }}</h2><span>{{ total }} 项 · {{ selectedSource?.name }}</span></div>
-            <div class="grid online-results"><article v-for="item in results" :key="item.external_id" class="card online-result">
-              <JzButton class="online-poster-button" variant="ghost" :data-online-result="item.external_id" :aria-label="'查看详情 ' + item.title" @click="openDetail(item.external_id)"><OnlineArtwork :path="item.poster_path" :title="item.title" /><span class="online-poster-action"><AppIcon name="play" :size="22" />查看详情</span></JzButton>
+            <div class="online-results-heading"><h2>{{ loadedQuery ? '搜索结果' : categories.find(category => category.id === loadedCategoryId)?.name || '最近更新' }}</h2><span>{{ total }} 项 · {{ selectedSource?.name }}</span><JzButton variant="ghost" icon="refresh" data-online-refresh :disabled="searching" @click="refreshResults">刷新</JzButton></div>
+            <div class="grid online-results"><article v-for="item in results" :key="item.external_id" class="card online-result" :data-online-browse-id="item.external_id">
+              <JzButton class="online-poster-button" variant="ghost" :data-online-result="item.external_id" :aria-label="'查看详情 ' + item.title" :disabled="searching" @click="openDetail(item.external_id)"><OnlineArtwork :key="posterGeneration" :path="item.poster_path" :title="item.title" /><span class="online-poster-action"><AppIcon name="play" :size="22" />查看详情</span></JzButton>
               <div class="t"><h3 class="card-title" :title="item.title">{{ item.title }}</h3><p class="card-meta">{{ [item.year, item.category || (item.kind === 'tv' ? '剧集' : item.kind === 'movie' ? '电影' : '')].filter(Boolean).join(' · ') }}</p></div>
             </article></div>
-            <nav v-if="pageCount > 1" class="online-pagination" aria-label="在线搜索分页"><JzButton icon="arrow-left" :disabled="page <= 1" @click="search(page - 1, loadedQuery)">上一页</JzButton><span>第 {{ page }} / {{ pageCount }} 页</span><JzButton icon="forward" :disabled="page >= pageCount" @click="search(page + 1, loadedQuery)">下一页</JzButton></nav>
+            <nav v-if="pageCount > 1" class="online-pagination" aria-label="在线搜索分页"><JzButton icon="arrow-left" :disabled="searching || page <= 1" @click="search(page - 1, loadedQuery)">上一页</JzButton><span>第 {{ page }} / {{ pageCount }} 页</span><JzButton icon="forward" :disabled="searching || page >= pageCount" @click="search(page + 1, loadedQuery)">下一页</JzButton></nav>
           </template>
-        </template>
+        </div>
       </template>
       <section class="online-library" aria-label="在线观看记录">
         <div class="online-library-heading"><div><h2>我的在线记录</h2><p class="online-scope">当前设备 · {{ modeText }}；与本地媒体库记录分开。</p></div><JzButton variant="ghost" icon="refresh" :disabled="libraryLoading" @click="loadLibrary()">刷新记录</JzButton></div>
@@ -84,12 +86,13 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createOnlineCatalogClient, createOnlineHealthClient, onlineHealthLabel, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
 import { createOnlineProgressMemory, onlineIdentityKey, validateOnlineIdentity } from '../onlinePlayback.js'
 import { createOnlineStateClient, createOnlineProgressWriter, loadOnlineAutoplay, saveOnlineAutoplay, nextOnlineEpisode, onlineStateError } from '../onlineState.js'
 import { isChildren, registerViewingPlaybackCleanup, viewing } from '../viewing.js'
+import { onlineBrowseMemory, onlineBrowseScope, clearOnlineBrowse, captureOnlinePosition, restoreOnlinePosition } from '../onlineBrowse.js'
 import { fmtTime as fmt } from '../playerLabels.js'
 import EmptyState from '../components/EmptyState.vue'
 import JzButton from '../components/JzButton.vue'
@@ -106,6 +109,8 @@ const progress = createOnlineProgressMemory()
 const sources = ref([]), sourceId = ref(''), enabled = ref(false), query = ref('')
 const loadingSources = ref(true), sourcesError = ref(''), searching = ref(false), searched = ref(false), searchError = ref('')
 const categories = ref([]), categoryId = ref('')
+const loadedCategoryId = ref(''), browseRoot = ref(null)
+const posterGeneration = ref(0)
 const results = ref([]), page = ref(1), pageCount = ref(1), total = ref(0), loadedQuery = ref('')
 const detailLoading = ref(false), detailError = ref(''), detail = ref(null), lineId = ref(''), lastDetailId = ref(''), itemState = ref(null)
 const playing = ref(null), starting = ref(false), nextLoading = ref(false), stateNotice = ref('')
@@ -125,22 +130,60 @@ const lastQuery = ref({ page: 1, query: '' })
 const resumeEntry = computed(() => !itemState.value?.last_progress?.completed ? findEntry(detail.value, itemState.value?.last_progress?.identity) : null)
 let disposed = false, generation = 0, libraryGeneration = 0, healthGeneration = 0, playIntent = 0, nextIntent = 0, runId = 0, activeRun = null
 let lastSourceId = ''
+let cacheScope = '', loadedAt = 0, browsePosition = null, positionIntent = 0, suspendedWork = null
 function current(turn) { return !disposed && turn === generation && safeMode.value }
 function sameIdentity(a, b) { try { return onlineIdentityKey(a) === onlineIdentityKey(b) } catch { return false } }
 function findEntry(data, identity) { return data?.lines?.flatMap(line => line.entries).find(entry => entry.supported && entry.identity && sameIdentity(entry.identity, identity)) || null }
 function cancelNext() { nextIntent++; nextLoading.value = false; nextClient.cancel() }
 function autoplayChanged() { saveOnlineAutoplay(autoplay.value, mode); if (!autoplay.value) cancelNext() }
 function availabilityReason(reason) { return reason === 'online_source_disabled' || reason === 'online_disabled' ? '来源或在线功能已停用，记录仍会保留' : '当前内容暂不可播放，记录仍会保留' }
+function rememberBrowse(source = selectedSource.value, capture = true) {
+  if (!safeMode.value || !searched.value || !cacheScope || !source || !loadedAt
+    || cacheScope !== onlineBrowseScope(cacheScope.slice(0, 64), viewing)) return
+  if (capture && !detail.value && !detailLoading.value && !detailError.value) browsePosition = captureOnlinePosition(browseRoot.value) || browsePosition
+  onlineBrowseMemory.save({ scope: cacheScope, source, categoryId: loadedCategoryId.value, query: loadedQuery.value,
+    inputQuery: query.value, loadedAt, position: browsePosition,
+    response: { items: results.value, categories: categories.value, page: page.value, page_count: pageCount.value, total: total.value } })
+}
+function applyBrowse(snapshot) {
+  categoryId.value = loadedCategoryId.value = snapshot.categoryId
+  query.value = snapshot.inputQuery; loadedQuery.value = snapshot.query
+  browsePosition = snapshot.position; loadedAt = snapshot.loadedAt
+  if (!snapshot.response) return false
+  results.value = snapshot.response.items || []; categories.value = snapshot.response.categories || []
+  page.value = snapshot.response.page; pageCount.value = snapshot.response.page_count
+  total.value = snapshot.response.total; searched.value = true
+  return true
+}
+async function restoreBrowse(position = browsePosition, { top = false } = {}) {
+  const ticket = ++positionIntent
+  await nextTick()
+  if (!disposed && ticket === positionIntent && safeMode.value && !detail.value && !detailLoading.value && !detailError.value) {
+    if (top) browseRoot.value?.scrollIntoView?.({ block: 'start', behavior: 'instant' })
+    else restoreOnlinePosition(position, browseRoot.value)
+    rememberBrowse()
+  }
+}
+function resetBrowse() {
+  results.value = []; categories.value = []; categoryId.value = loadedCategoryId.value = ''; loadedQuery.value = ''
+  searched.value = false; searchError.value = ''; searching.value = false; page.value = pageCount.value = 1; total.value = 0
+  loadedAt = 0; browsePosition = null; positionIntent++
+}
 async function loadSources() {
   const turn = ++generation
   const target = onlineRouteTarget(route.query)
+  let restored = null
   loadingSources.value = true; sourcesError.value = ''
   try {
     const response = await client.sources()
     if (!current(turn) || !response) return
     enabled.value = response.enabled; sources.value = response.items || []
+    cacheScope = onlineBrowseScope(response.scope_token, viewing)
+    restored = response.enabled ? onlineBrowseMemory.last(cacheScope, sources.value, target?.sourceId || '') : null
     if (target && sources.value.some(source => source.id === target.sourceId)) sourceId.value = target.sourceId
+    else if (!target && restored) sourceId.value = restored.sourceId
     if (!sources.value.some(source => source.id === sourceId.value)) sourceId.value = sources.value[0]?.id || ''
+    if (restored?.sourceId === sourceId.value) applyBrowse(restored)
     lastSourceId = sourceId.value
     void loadHealth()
   } catch (error) { if (current(turn)) sourcesError.value = onlineCatalogError(error) }
@@ -150,6 +193,8 @@ async function loadSources() {
       if (!sourcesError.value && enabled.value) {
         if (target?.externalId && sourceId.value === target.sourceId) void openDetail(target.externalId)
         else if (target?.externalId) stateNotice.value = '该来源已停用或不存在，请选择其他来源。'
+        else if (restored?.response) void restoreBrowse()
+        else if (restored) void search(restored.page, restored.query, { position: restored.position })
         else if (selectedSource.value?.capabilities?.browse) void search(1, '')
       }
     }
@@ -179,31 +224,63 @@ async function loadLibrary(offset = libraryOffset.value) {
 function selectLibrary(section) { librarySection.value = section; void loadLibrary(0) }
 function sourceChanged(discover = true) {
   if (discover && sourceId.value === lastSourceId) return
+  rememberBrowse(sources.value.find(source => source.id === lastSourceId))
   lastSourceId = sourceId.value
+  if (route.query.source || route.query.item) {
+    const target = { ...route.query, source: sourceId.value }
+    delete target.item
+    void router.replace({ path: '/online', query: target })
+  }
   healthGeneration++; healthClient.cancel(); health.value = null; void loadHealth()
   generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
-  results.value = []; categories.value = []; categoryId.value = ''; searched.value = false; searchError.value = ''; searching.value = false; page.value = pageCount.value = 1; total.value = 0
-  if (discover && selectedSource.value?.capabilities?.browse) void search(1, '')
+  resetBrowse()
+  const restored = discover ? onlineBrowseMemory.last(cacheScope, sources.value, sourceId.value) : null
+  if (restored && applyBrowse(restored)) void restoreBrowse()
+  else if (restored) void search(restored.page, restored.query, { position: restored.position })
+  else if (discover && selectedSource.value?.capabilities?.browse) void search(1, '')
 }
 function selectCategory(id) {
   if (searching.value || id === categoryId.value && !loadedQuery.value && searched.value) return
   categoryId.value = id; query.value = ''; void search(1, '')
 }
-async function search(nextPage = 1, text = query.value) {
+async function search(nextPage = 1, text = query.value, options = {}) {
   if (!sourceId.value || !safeMode.value || !text.trim() && !canBrowse.value) return
+  rememberBrowse()
   if (text.trim()) categoryId.value = ''
+  const requestedCategory = categoryId.value
+  const changingView = searched.value && (nextPage !== page.value || requestedCategory !== loadedCategoryId.value || text.trim() !== loadedQuery.value)
   const turn = ++generation
+  positionIntent++
+  client.cancel()
   void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
-  searching.value = true; searchError.value = ''; lastQuery.value = { page: nextPage, query: text }
+  searching.value = true; searchError.value = ''; lastQuery.value = { page: nextPage, query: text,
+    force: !!options.force, position: options.position || (options.force ? browsePosition : null) }
   try {
+    const cached = !options.force && onlineBrowseMemory.read(cacheScope, selectedSource.value,
+      { page: nextPage, categoryId: requestedCategory, query: text.trim() })
+    if (cached?.response) {
+      applyBrowse(cached)
+      browsePosition = options.position || (changingView ? null : cached.position)
+      await restoreBrowse(browsePosition, { top: changingView && !options.position })
+      return
+    }
     const browsing = !text.trim() && selectedSource.value?.capabilities?.browse
-    const response = await (browsing ? client.browse(sourceId.value, nextPage, categoryId.value) : client.search(sourceId.value, text, nextPage))
+    const response = await (browsing ? client.browse(sourceId.value, nextPage, requestedCategory) : client.search(sourceId.value, text, nextPage))
     if (!current(turn) || !response) return
     results.value = response.items || []; page.value = response.page; pageCount.value = response.page_count
     if (browsing) categories.value = response.categories || []
-    total.value = response.total; loadedQuery.value = text.trim(); searched.value = true
+    total.value = response.total; loadedQuery.value = text.trim(); loadedCategoryId.value = requestedCategory; searched.value = true; loadedAt = Date.now()
+    if (options.force) posterGeneration.value++
+    browsePosition = options.position || (options.force ? browsePosition : null)
+    // New metadata must not capture an anchor from the previous Vue render.
+    rememberBrowse(selectedSource.value, false)
+    await restoreBrowse(browsePosition, { top: changingView && !options.position && !options.force })
   } catch (error) { if (current(turn)) searchError.value = onlineCatalogError(error) }
   finally { if (current(turn)) { searching.value = false; void loadHealth() } }
+}
+function refreshResults() {
+  categoryId.value = loadedCategoryId.value
+  void search(page.value, loadedQuery.value, { force: true })
 }
 async function readItemState(data, turn) {
   try {
@@ -212,6 +289,8 @@ async function readItemState(data, turn) {
   } catch (error) { if (current(turn)) stateNotice.value = onlineStateError(error) }
 }
 async function openDetail(externalId, options = {}) {
+  rememberBrowse()
+  positionIntent++
   const turn = ++generation, source = sourceId.value
   void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = true; lastDetailId.value = externalId
   try {
@@ -237,6 +316,8 @@ function backToResults() {
   generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
   if (route.query.item) void router.replace({ path: '/online', query: { source: sourceId.value } })
   if (!searched.value && canBrowse.value) void search(1, '')
+  else if (loadedAt && Date.now() - loadedAt >= 60000) void search(page.value, loadedQuery.value, { force: true, position: browsePosition })
+  else void restoreBrowse()
 }
 function selectLine(id) { void closePlayer(); lineId.value = id }
 async function stopRun(run) {
@@ -357,17 +438,64 @@ function clearHistory(row) {
 function safeAttribution(value) { try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url.href : undefined } catch { return undefined } }
 function unsupportedReason(reason) { return ['host_not_allowed', 'target_host_not_allowed'].includes(reason) ? '媒体主机尚未加入此来源允许列表' : '当前线路不支持直接播放，请选择其他线路' }
 const stopCleanup = registerViewingPlaybackCleanup(async () => {
+  clearOnlineBrowse(); cacheScope = ''; positionIntent++; suspendedWork = null
   generation++; libraryGeneration++; playIntent++; cancelNext(); client.cancel(); stateClient.cancel()
   healthGeneration++; healthClient.cancel(); health.value = null; healthError.value = ''; healthLoading.value = false
   const closing = stopRun(activeRun)
-  detail.value = null; itemState.value = null; results.value = []; categories.value = []; categoryId.value = ''; searched.value = false; libraryRows.value = []; libraryScope.value = ''; libraryTotal.value = 0
+  detail.value = null; itemState.value = null; resetBrowse(); libraryRows.value = []; libraryScope.value = ''; libraryTotal.value = 0
   stateNotice.value = ''; searching.value = detailLoading.value = starting.value = false
   await closing
 })
+watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locallyLocked], () => {
+  clearOnlineBrowse(); cacheScope = ''; positionIntent++
+  generation++; libraryGeneration++; client.cancel(); stateClient.cancel(); cancelNext()
+  healthGeneration++; healthClient.cancel(); health.value = null; healthLoading.value = false; healthError.value = ''
+  detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false; resetBrowse()
+  libraryRows.value = []; libraryScope.value = ''; libraryTotal.value = 0
+  void closePlayer()
+  suspendedWork = { type: 'sources' }
+  const turn = generation
+  if (safeMode.value) void nextTick(() => { if (current(turn)) { suspendedWork = null; void loadSources(); void loadLibrary(0) } })
+}, { flush: 'sync' })
+watch(() => viewing.suspended, suspended => {
+  positionIntent++
+  if (suspended) {
+    // Verification temporarily hides content. It does not revoke an otherwise
+    // unchanged session or discard the selected detail and active player.
+    if (!detail.value && !detailLoading.value && !detailError.value) browsePosition = captureOnlinePosition(browseRoot.value) || browsePosition
+    if (loadingSources.value) suspendedWork = { type: 'sources' }
+    else if (detailLoading.value && !detail.value) suspendedWork = { type: 'detail', id: lastDetailId.value }
+    else if (searching.value) suspendedWork = { type: 'search', page: lastQuery.value.page, query: lastQuery.value.query,
+      category: categoryId.value, force: lastQuery.value.force, position: lastQuery.value.position }
+    generation++; libraryGeneration++; client.cancel(); stateClient.cancel(); cancelNext()
+    healthGeneration++; healthClient.cancel(); healthLoading.value = false
+    searching.value = detailLoading.value = starting.value = libraryLoading.value = false
+    return
+  }
+  if (!safeMode.value) return
+  const work = suspendedWork
+  suspendedWork = null
+  if (work?.type === 'sources') void loadSources()
+  else if (work?.type === 'detail') void openDetail(work.id)
+  else if (work?.type === 'search') { categoryId.value = work.category; void search(work.page, work.query, { force: work.force, position: work.position }) }
+  else {
+    void loadHealth()
+    if (detail.value) {
+      const turn = generation
+      // Refresh the current detail before the secondary history shelf. Both
+      // remain cancellable if another verification or user intent intervenes.
+      void readItemState(detail.value, turn).then(() => { if (current(turn)) void loadLibrary(0) })
+      return
+    }
+    void restoreBrowse()
+  }
+  void loadLibrary(0)
+}, { flush: 'sync' })
 onMounted(() => {
   if (safeMode.value) { void loadSources(); void loadLibrary(0) }
   else loadingSources.value = libraryLoading.value = false
 })
+onBeforeUnmount(() => rememberBrowse())
 onUnmounted(() => {
   disposed = true; generation++; libraryGeneration++; healthGeneration++; playIntent++; cancelNext(); client.close(); nextClient.close(); stateClient.close(); healthClient.close(); stopCleanup()
   void stopRun(activeRun)

@@ -83,6 +83,10 @@ class ArtworkRegistry:
                 self._entries[token] = ArtworkLease(source_id, url, configuration, now)
                 self._keys[key] = token
                 self._url_bytes += cost
+            else:
+                # Fresh authorized catalogue metadata renews its lease. Reads
+                # alone never extend it, and configuration changes use new keys.
+                self._entries[token] = ArtworkLease(source_id, url, configuration, now)
             self._entries.move_to_end(token)
         return f"/api/online/catalog/artwork/{source_id}/{token}"
 

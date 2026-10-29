@@ -21,11 +21,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|hosts|all]')
+    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|hosts|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'discovery', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-'))
 const output = path.join(root, 'output/playwright/online-p2')
 const dist = path.join(work, 'dist')
@@ -89,7 +89,8 @@ async function idle(message = 'All formal sessions, workers and reservations mus
     const value = await metrics()
     return value.registry.sessions === 0 && value.registry.active_requests === 0
       && value.registry.reserved_bytes === 0 && value.pending_requests === 0
-      && value.catalogue_active === 0 && value.catalogue_owners === 0 ? value : false
+      && value.catalogue_active === 0 && value.catalogue_owners === 0
+      && value.artwork_cache.inflight === 0 && value.artwork_cache.pending === 0 ? value : false
   }, message)
   assert.deepEqual(value.local_rows, { movies: 0, tv_episodes: 0, playback_progress: 0 })
   return { releaseMs: Math.round(performance.now() - started), metrics: value }
@@ -423,14 +424,14 @@ async function discovery() {
     try {
       await selectSource(page)
       await page.locator('[data-online-result="movie-1"]').waitFor()
-      await page.waitForFunction(() => [...document.querySelectorAll('.online-results img')]
+      await page.waitForFunction(() => [...document.querySelectorAll('.online-results .online-poster > img')]
         .filter(image => image.complete && image.naturalWidth > 0).length >= 2)
       assert.equal(await page.locator('.online-connection').evaluate(element => element.open), false)
       const geometry = await layout(page, width)
-      const images = await page.locator('.online-results img').evaluateAll(elements => elements.map(image => ({
-        url: new URL(image.src).pathname, decoded: image.complete && image.naturalWidth > 0,
+      const images = await page.locator('.online-results .online-poster > img').evaluateAll(elements => elements.map(image => ({
+        url: image.src, decoded: image.complete && image.naturalWidth > 0,
       })))
-      assert.ok(images.length >= 2 && images.every(image => image.decoded && image.url.startsWith('/api/online/catalog/artwork/')))
+      assert.ok(images.length >= 2 && images.every(image => image.decoded && image.url.startsWith(`blob:${base}/`)))
       await page.screenshot({ path: path.join(output, `discovery-${width}.png`), fullPage: true })
       await page.locator('[data-online-category="2"]').click()
       await page.waitForFunction(() => document.querySelectorAll('[data-online-result]').length === 1
@@ -440,6 +441,93 @@ async function discovery() {
     } finally { await closeContext(context) }
   }
   await backendChildren('after-discovery')
+}
+async function loading() {
+  const imageReads = value => value.origin_calls.filter(call => call.kind === 'image').length
+  const apiReads = value => value.origin_calls.filter(call => call.kind === 'api').length
+  for (const width of [1440, 390]) {
+    phase = { name: `loading-${width}`, expectedHttp: false }
+    const { context, page } = await newPage(width)
+    try {
+      await navigate(page, '/settings')
+      await idle()
+      assert.equal((await call(page, 'POST', '/api/p2/scenario', {
+        gallery: true, image_delay_ms: 1200, clear_artwork_cache: true,
+      })).status, 200)
+      await selectSource(page)
+      await page.locator('[data-online-result]').first().waitFor()
+      // A previous directory may still be valid for sixty seconds. Wait for
+      // its current work, then explicitly request the synthetic gallery.
+      await until(async () => (await page.locator('.online-results [data-online-artwork-state="loading"]').count()) === 0,
+        'Previously visible posters finish before the cold measurement', 25000)
+      await idle()
+      assert.equal((await call(page, 'POST', '/api/p2/scenario', { clear_artwork_cache: true })).status, 200)
+      const before = await metrics(), started = performance.now()
+      const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/online/catalog/browse'
+        && response.status() === 200)
+      await page.locator('[data-online-refresh]').click()
+      await refreshed
+      await until(() => page.locator('[data-online-refresh]').isEnabled(), 'Fresh directory replaces the previous render')
+      await page.locator('[data-online-result="gallery-1"]').waitFor()
+      let firstMs = null
+      async function loadGallery(first, last) {
+        for (let number = first; number <= last; number++) {
+          const poster = page.locator(`[data-online-result="gallery-${number}"]`)
+          await poster.scrollIntoViewIfNeeded()
+          await until(() => poster.locator('.online-poster > img').evaluateAll(images => images.some(image => image.complete && image.naturalWidth > 0)),
+            `Poster ${number} must decode without a queue timeout`, 18000)
+          if (firstMs === null) firstMs = Math.round(performance.now() - started)
+        }
+      }
+      await loadGallery(1, 20)
+      const cold = (await idle()).metrics, coldMs = Math.round(performance.now() - started)
+      assert.equal(imageReads(cold) - imageReads(before), 20, 'Twenty unique leases cause twenty bounded source reads')
+      assert.ok(cold.images.peak <= 2, 'Only two actual source image reads may run at once')
+      assert.ok(cold.artwork_cache.bytes <= 16 * 1024 * 1024)
+      assert.equal(await page.locator('.online-results [data-online-artwork-state="error"]').count(), 0)
+      await page.locator('[data-online-category="1"]').click()
+      await page.getByRole('button', { name: '下一页', exact: true }).click()
+      await page.locator('[data-online-result="gallery-21"]').waitFor()
+      await loadGallery(21, 40)
+      await idle()
+      const position = await page.evaluate(() => scrollY)
+      await detailUi(page, 'gallery-40')
+      await page.getByRole('button', { name: '返回搜索结果', exact: true }).click()
+      await until(() => page.evaluate(expected => Math.abs(scrollY - expected) < 12, position), 'Detail back restores the poster anchor')
+      const warmBefore = await metrics()
+      // Navigate programmatically so clicking a fixed header does not first
+      // change the scroll position that the page is expected to remember.
+      await page.evaluate(() => window.__jzOnlineP2Fixture.navigate('/settings'))
+      await page.waitForFunction(() => window.__jzOnlineP2Fixture.snapshot().path === '/settings')
+      const warmStarted = performance.now()
+      await page.evaluate(() => window.__jzOnlineP2Fixture.navigate('/online'))
+      await page.locator('[data-online-result="gallery-40"]').waitFor({ state: 'attached' })
+      await until(() => page.evaluate(expected => Math.abs(scrollY - expected) < 12, position), 'Route reentry restores the previous anchor')
+      assert.equal(await page.locator('[data-online-category="1"]').getAttribute('aria-pressed'), 'true')
+      assert.ok((await page.locator('.online-pagination').first().textContent()).includes('2 / 2'))
+      const last = page.locator('[data-online-result="gallery-40"]')
+      await until(() => last.locator('.online-poster > img').evaluateAll(images => images.some(image => image.complete && image.naturalWidth > 0)),
+        'Warm route reentry shows decoded artwork')
+      const warmMs = Math.round(performance.now() - warmStarted)
+      const warm = (await idle()).metrics
+      assert.equal(imageReads(warm), imageReads(warmBefore), 'Warm reentry does not download any image from the source')
+      assert.equal(apiReads(warm), apiReads(warmBefore), 'Verified warm reentry does not repeat the provider catalogue request')
+      const geometry = await layout(page, width)
+      await page.screenshot({ path: path.join(output, `loading-${width}.png`), fullPage: true })
+      passed({ case: phase.name, geometry, cold: { firstMs, completeMs: coldMs, upstreamImages: 20 },
+        warm: { visibleMs: warmMs, upstreamImages: 0, upstreamCatalogue: 0 },
+        maxImageReads: cold.images.peak, page: 2, category: '1', positionRestored: true,
+        cache: warm.artwork_cache })
+    } finally {
+      await closeContext(context)
+      await idle()
+      const response = await fetch(`${base}/api/p2/scenario`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Token': 'online-p2-fixture-only' },
+        body: JSON.stringify({ gallery: false, image_delay_ms: 0 }) })
+      assert.equal(response.status, 200)
+    }
+  }
+  await backendChildren('after-loading')
 }
 async function matrix() {
   for (const width of [1440, 390]) for (const transport of ['mp4', 'hls']) {
@@ -653,7 +741,7 @@ async function catalogue() {
 
     phase = { name: 'catalogue-error-retry', expectedHttp: true }
     await scenario(page, { next_mode: 'malformed' })
-    await search(page, '合成', { results: false })
+    await search(page, '合成电影', { results: false })
     await page.getByRole('button', { name: '重新加载', exact: true }).waitFor()
     await page.getByRole('button', { name: '重新加载', exact: true }).click()
     await page.locator('[data-online-result]').first().waitFor()
@@ -661,7 +749,7 @@ async function catalogue() {
 
     phase = { name: 'catalogue-cancel-late-search', expectedHttp: false }
     await scenario(page, { delay_ms: 900 })
-    await search(page, '合成', { results: false })
+    await search(page, '合成剧集', { results: false })
     await until(async () => (await metrics()).pending_requests > 0, 'The delayed origin query must actually start')
     await navigate(page, '/settings')
     await until(async () => (await metrics()).pending_requests === 0, 'The bounded delayed request must finish after cancellation')
@@ -755,6 +843,7 @@ try {
     'frontend/src/components/OnlineSourcesPanel.vue', 'frontend/src/App.vue', 'frontend/src/styles/base.css',
     'frontend/src/components/OnlinePlayerModal.vue',
     'frontend/src/onlinePlayback.js', 'app/online/maccms.py', 'app/online/catalog.py',
+    'frontend/src/onlineArtwork.js', 'frontend/src/onlineBrowse.js', 'app/online/artwork.py', 'app/online/artwork_cache.py',
     'app/online/providers.py', 'app/routers/online_catalog.py']) {
     report.fingerprints[file] = createHash('sha256').update(await readFile(path.join(root, file))).digest('hex')
   }
@@ -775,12 +864,13 @@ try {
     await setup()
     if (selectedCase === 'all' || selectedCase === 'hosts') await hostRepair()
     if (selectedCase === 'all' || selectedCase === 'discovery') await discovery()
+    if (selectedCase === 'all' || selectedCase === 'loading') await loading()
     if (selectedCase === 'all' || selectedCase === 'matrix') await matrix()
     if (selectedCase === 'all' || selectedCase === 'catalogue') await catalogue()
     report.finalMetrics = (await idle()).metrics
     assert.ok(!report.finalMetrics.origin_calls.some(call => call.app_credentials), 'Application credentials never reach the source')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'api'), 'The API uses its own network-purpose client')
-    if (selectedCase !== 'discovery') assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
+    if (!['discovery', 'loading'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'image'), 'Posters use their image-purpose client')
     assert.deepEqual(report.errors, [], 'No browser runtime, Vue or unexpected console errors')
     assert.deepEqual(report.unexpectedRequests, [], 'No foreign origin or local playback/cast API request')

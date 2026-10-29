@@ -1,4 +1,6 @@
 // Bounded, session-only history. Keys include the effective filters, sort and media library.
+import { clearOnlineBrowse } from './onlineBrowse.js'
+
 const snapshots = new Map()
 const returns = new Map()
 const MAX = 12
@@ -20,7 +22,7 @@ export function readBrowse(key) { return snapshots.has(key) ? clone(snapshots.ge
 export function browseReturn(path, mediaId) {
   return returns.get(`${path}:${mediaId ?? ''}`) || { path, query: mediaId == null ? {} : { media: mediaId } }
 }
-export function clearBrowse() { snapshots.clear(); returns.clear() }
+export function clearBrowse() { snapshots.clear(); returns.clear(); clearOnlineBrowse() }
 export function captureAnchor(root = document) {
   const el = [...root.querySelectorAll('[data-browse-id]')].find(el => el.getBoundingClientRect().bottom > 0)
   return el ? { id: el.dataset.browseId, offset: el.getBoundingClientRect().top } : null

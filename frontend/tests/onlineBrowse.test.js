@@ -1,0 +1,96 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { createOnlineBrowseMemory, onlineBrowseScope, captureOnlinePosition, restoreOnlinePosition } from '../src/onlineBrowse.js'
+
+const source = { id: 'src_' + '1'.repeat(32), configuration_token: '2'.repeat(64) }
+const scope = onlineBrowseScope('3'.repeat(64), { mode: 'private', generation: 4, revision: 1 })
+const response = (page = 1, title = '合成剧集') => ({ items: [{ external_id: String(page), title }],
+  categories: [{ id: '71', name: '都市脑洞' }], page, page_count: 3, total: 50 })
+const snapshot = (extra = {}) => ({ scope, source, categoryId: '71', query: '', response: response(), ...extra })
+
+test('catalogue reuse requires the verified device scope and complete source configuration', () => {
+  const memory = createOnlineBrowseMemory()
+  assert.equal(memory.save(snapshot()), true)
+  assert.equal(memory.read(scope, source, { categoryId: '71' }).response.items[0].title, '合成剧集')
+  assert.equal(memory.last(onlineBrowseScope('4'.repeat(64), { mode: 'private', generation: 4, revision: 1 }), [source]), null)
+  assert.equal(memory.last(onlineBrowseScope('3'.repeat(64), { mode: 'normal', generation: 4, revision: 1 }), [source]), null)
+  assert.equal(memory.last(onlineBrowseScope('3'.repeat(64), { mode: 'private', generation: 5, revision: 1 }), [source]), null)
+  assert.equal(memory.last(scope, [{ ...source, configuration_token: '5'.repeat(64) }]), null)
+  assert.equal(memory.last(scope, []), null)
+  assert.equal(memory.last(scope, [source], 'src_' + '6'.repeat(32)), null)
+})
+
+test('old servers without source and scope tokens never enable cross-mount catalogue reuse', () => {
+  const memory = createOnlineBrowseMemory()
+  assert.equal(onlineBrowseScope(undefined, { mode: 'normal' }), '')
+  assert.equal(memory.save(snapshot({ scope: '' })), false)
+  assert.equal(memory.save(snapshot({ source: { id: source.id } })), false)
+  assert.equal(memory.stats().pages, 0)
+})
+
+test('expired directory data retains navigation but never renews its original freshness when saved again', () => {
+  let now = 1000
+  const memory = createOnlineBrowseMemory({ clock: () => now, dataTtl: 100, navigationTtl: 1000 })
+  memory.save(snapshot({ loadedAt: now, position: { scrollTop: 400 } }))
+  now = 1099
+  assert.ok(memory.last(scope, [source]).response)
+  now = 1100
+  const stale = memory.last(scope, [source])
+  assert.equal(stale.response, null)
+  assert.equal(stale.categoryId, '71')
+  assert.equal(stale.position.scrollTop, 400)
+  memory.save(snapshot({ loadedAt: stale.loadedAt }))
+  assert.equal(memory.last(scope, [source]).response, null)
+  now = 2100
+  assert.equal(memory.last(scope, [source]), null)
+  assert.deepEqual(memory.stats(), { pages: 0, bytes: 0 })
+})
+
+test('page caches keep category and search identities distinct and return independent snapshots', () => {
+  const memory = createOnlineBrowseMemory()
+  const data = response()
+  memory.save(snapshot({ response: data, inputQuery: '尚未提交的片名' }))
+  data.items[0].title = '调用方修改'
+  memory.save(snapshot({ query: '另一片名', categoryId: '', response: response(2, '搜索结果') }))
+  const first = memory.read(scope, source, { categoryId: '71' })
+  assert.equal(first.response.items[0].title, '合成剧集')
+  assert.equal(first.inputQuery, '尚未提交的片名')
+  first.response.items[0].title = '读取方修改'
+  assert.equal(memory.read(scope, source, { categoryId: '71' }).response.items[0].title, '合成剧集')
+  assert.equal(memory.read(scope, source, { query: '另一片名', page: 2 }).response.items[0].title, '搜索结果')
+  assert.equal(memory.read(scope, source, { query: '另一片名', categoryId: '71', page: 2 }), null)
+})
+
+test('page LRU and byte ceilings bound all cached directories, including oversized data', () => {
+  const memory = createOnlineBrowseMemory({ maxPages: 2, maxBytes: 2000 })
+  memory.save(snapshot({ response: response(1) }))
+  memory.save(snapshot({ response: response(2) }))
+  memory.read(scope, source, { categoryId: '71', page: 1 })
+  memory.save(snapshot({ response: response(3) }))
+  assert.equal(memory.read(scope, source, { categoryId: '71', page: 2 }), null)
+  assert.equal(memory.stats().pages, 2)
+  assert.ok(memory.stats().bytes <= 2000)
+  assert.equal(memory.save(snapshot({ response: response(2, 'x'.repeat(2000)) })), false)
+  assert.ok(memory.stats().bytes <= 2000)
+  memory.clear()
+  assert.deepEqual(memory.stats(), { pages: 0, bytes: 0 })
+})
+
+test('scroll restoration follows the first visible poster anchor across layout changes', () => {
+  const cards = [
+    { dataset: { onlineBrowseId: 'offscreen' }, getBoundingClientRect: () => ({ top: -200, bottom: -10 }) },
+    { dataset: { onlineBrowseId: 'episode' }, getBoundingClientRect: () => ({ top: -10, bottom: 190 }) },
+  ]
+  const root = { querySelectorAll: () => cards }
+  const restored = []
+  const viewport = { scrollY: 500, scrollTo: value => restored.push(value) }
+  const position = captureOnlinePosition(root, viewport)
+  assert.deepEqual(position, { scrollTop: 500, anchor: { id: 'episode', offset: -10 } })
+  viewport.scrollY = 0
+  cards[1].getBoundingClientRect = () => ({ top: 800, bottom: 1000 })
+  restoreOnlinePosition(position, root, viewport)
+  assert.deepEqual(restored[0], { top: 810, behavior: 'instant' })
+  restoreOnlinePosition(position, { querySelectorAll: () => [] }, viewport)
+  assert.equal(restored[1].top, 500)
+  assert.doesNotThrow(() => restoreOnlinePosition(position, null, undefined))
+})

@@ -34,6 +34,13 @@ test('new catalogue generations invalidate browsing even while management is unl
   assert.equal(viewing.revision, 1)
   assert.equal(readBrowse('ordinary'), null)
 })
+test('a local lock also clears browse snapshots when already in normal mode', () => {
+  reset()
+  applyViewingSession(session())
+  saveBrowse('ordinary', { path: '/', mediaId: 1, query: {}, items: [{ id: 3 }] })
+  lockViewingLocally({ notifyTabs: false })
+  assert.equal(readBrowse('ordinary'), null)
+})
 test('local idle expiry clears private data and stale server responses cannot restore it', () => {
   reset()
   applyViewingSession(session({ mode: 'private', management_unlocked: true }))

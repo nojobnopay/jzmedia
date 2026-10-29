@@ -179,6 +179,21 @@ def test_registry_bounds_count_total_url_bytes_and_age():
     assert len(registry._entries) == 1
 
 
+def test_fresh_metadata_renews_a_lease_but_image_reads_never_extend_it():
+    now = [0]
+    registry = artwork.ArtworkRegistry(ttl=10, clock=lambda: now[0])
+    source_id = "src_" + "a" * 32
+    token = registry.register(source_id, URL, "v1").rsplit("/", 1)[1]
+    now[0] = 9
+    assert registry.lookup(source_id, token).created == 0
+    assert registry.register(source_id, URL, "v1").rsplit("/", 1)[1] == token
+    now[0] = 11
+    assert registry.lookup(source_id, token).created == 9
+    now[0] = 19
+    with pytest.raises(artwork.ArtworkError):
+        registry.lookup(source_id, token)
+
+
 @pytest.mark.parametrize("change", ["disabled_source", "disabled_feature", "source", "network"])
 def test_source_feature_and_network_changes_invalidate_old_tokens_before_io(environment, change):
     token = lease(environment)

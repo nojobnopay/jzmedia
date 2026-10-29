@@ -114,6 +114,10 @@ class FixtureOrigin:
         self.revision = 1
         self.reverse_lines = False
         self.media_alias = False
+        self.gallery = False
+        self.image_delay_ms = 0
+        self.image_active = 0
+        self.image_peak = 0
         origin = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -185,8 +189,14 @@ class FixtureOrigin:
                                  "complete": False, "status": status})
                     if not head:
                         origin.pending_requests += 1
+                        if asset.suffix == ".png":
+                            origin.image_active += 1
+                            origin.image_peak = max(origin.image_peak, origin.image_active)
+                    image_delay_ms = origin.image_delay_ms if asset.suffix == ".png" else 0
                 digest = hashlib.sha256()
                 try:
+                    if image_delay_ms and origin.stop.wait(image_delay_ms / 1000):
+                        return
                     self.send_response(status)
                     self.send_header("Content-Type", types[asset.suffix])
                     self.send_header("Content-Length", str(end - start + 1))
@@ -220,6 +230,8 @@ class FixtureOrigin:
                         call["sha256"] = digest.hexdigest()
                         if not head:
                             origin.pending_requests -= 1
+                            if asset.suffix == ".png":
+                                origin.image_active -= 1
 
             def send_body(self, status, body, mime, head=False):
                 try:
@@ -263,8 +275,12 @@ class FixtureOrigin:
                         elif keyword not in {"", "all", "合成"}:
                             rows = [row for row in rows if keyword in row["vod_name"].casefold()]
                     page = int(query.get("pg", ["1"])[0])
-                    payload = {"code": 1, "msg": "隔离数据", "page": page, "pagecount": 1,
-                               "limit": "20", "total": len(rows), "list": rows if page == 1 else [],
+                    with origin.lock:
+                        paginated = origin.gallery and wanted is None
+                    selected = rows[(page - 1) * 20:page * 20] if paginated else rows if page == 1 else []
+                    payload = {"code": 1, "msg": "隔离数据", "page": page,
+                               "pagecount": max(1, (len(rows) + 19) // 20) if paginated else 1,
+                               "limit": "20", "total": len(rows), "list": selected,
                                "class": [{"type_id": 1, "type_name": "电影"}, {"type_id": 2, "type_name": "剧集"}]}
                     self.send_body(200, json.dumps(payload, ensure_ascii=False).encode(), "application/json; charset=utf-8", head)
                 finally:
@@ -288,7 +304,7 @@ class FixtureOrigin:
 
     def records(self, mode="normal"):
         with self.lock:
-            revision, reverse, alias = self.revision, self.reverse_lines, self.media_alias
+            revision, reverse, alias, gallery = self.revision, self.reverse_lines, self.media_alias, self.gallery
         def media(episode, transport):
             asset = "movie.mp4" if transport == "mp4" else "hls/master.m3u8"
             media_base = f"http://media.fixture.invalid:{self.port}" if alias else self.base_url
@@ -305,6 +321,12 @@ class FixtureOrigin:
             show_url = show_url.replace("第2集$", "第1集$")
         if mode == "mismatched_lines":
             show_from += "$$$错位线路"
+        if gallery:
+            return [{"vod_id": f"gallery-{number}", "vod_name": f"合成海报 {number:02d}",
+                     "type_id": "1", "type_name": "电影", "vod_year": "2026",
+                     "vod_pic": f"{self.base_url}/files/poster.png?gallery={number}",
+                     "vod_content": "有界加载与返回位置隔离用例。",
+                     "vod_play_from": movie_from, "vod_play_url": movie_url} for number in range(1, 41)]
         return [
             {"vod_id": "movie-1", "vod_name": "合成电影", "type_id": "1", "type_name": "电影", "vod_year": "2026",
              "vod_pic": f"{self.base_url}/files/poster.png",

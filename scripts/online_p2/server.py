@@ -59,6 +59,9 @@ class Scenario(BaseModel):
     revision: int | None = Field(default=None, ge=1, le=1000)
     reverse_lines: bool | None = None
     media_alias: bool | None = None
+    gallery: bool | None = None
+    image_delay_ms: int | None = Field(default=None, ge=0, le=1500)
+    clear_artwork_cache: bool = False
     expire_sessions: bool = False
 
 
@@ -90,11 +93,13 @@ class FixtureState:
         return client
 
     def metrics(self):
+        from app.online import artwork
         active = {session.id for session in self.registry.sessions()}
         created = self.registry.recorded_ids()
         with self.origin.lock:
             origin_calls = [dict(call) for call in self.origin.calls]
             pending = self.origin.pending_requests
+            images = {"active": self.origin.image_active, "peak": self.origin.image_peak}
         with self.lock:
             api_calls, clients = list(self.api_calls), list(self.client_calls)
         with closing(_base._conn()) as connection:
@@ -108,6 +113,8 @@ class FixtureState:
                 "catalogue_owners": catalogue_owners, "origin_calls": origin_calls, "api_calls": api_calls,
                 "client_calls": clients, "pending_requests": pending,
                 "created_sessions": list(created), "released_sessions": [sid for sid in created if sid not in active],
+                "images": images,
+                "artwork_cache": artwork.cache.stats(),
                 "local_rows": local, "catalog_rows": catalogue}
 
 
@@ -144,6 +151,7 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
         stack.enter_context(patch.object(maccms, "create_online_client", state.client))
         stack.enter_context(patch.object(artwork_module, "create_online_client", state.client))
         stack.enter_context(patch.object(artwork_module, "registry", artwork_module.ArtworkRegistry()))
+        stack.enter_context(patch.object(artwork_module, "cache", artwork_module.ArtworkCache()))
 
         @asynccontextmanager
         async def lifespan(_app):
@@ -242,8 +250,14 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                     origin.reverse_lines = body.reverse_lines
                 if body.media_alias is not None:
                     origin.media_alias = body.media_alias
+                if body.gallery is not None:
+                    origin.gallery = body.gallery
+                if body.image_delay_ms is not None:
+                    origin.image_delay_ms = body.image_delay_ms
             if body.expire_sessions:
                 state.registry.close_all()
+            if body.clear_artwork_cache:
+                artwork_module.cache.clear()
             return {"ok": True}
 
         if static is not None:

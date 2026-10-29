@@ -14,6 +14,10 @@
 .online-results-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--jz-gap-m); margin-block: var(--jz-gap-l); }
 .online-results-heading h2 { margin: 0; font-size: var(--jz-font-l); }
 .online-results-heading span { color: var(--jz-text-dim); font-size: var(--jz-font-s); }
+.online-results-heading > .jz-button { margin-left: auto; }
+.online-refresh-state, .online-refresh-error { margin-block: var(--jz-gap-m); color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.7; }
+.online-refresh-error { display: flex; align-items: center; flex-wrap: wrap; gap: var(--jz-gap-m); }
+.online-refresh-error > span { color: var(--jz-danger); overflow-wrap: anywhere; }
 .online-results.grid { margin-block: var(--jz-gap-l) var(--jz-gap-2xl); grid-template-columns: repeat(auto-fill, minmax(var(--poster-min, 150px), 1fr)); }
 .online-result { min-width: 0; }
 .online-poster { width: 100%; aspect-ratio: 2 / 3; overflow: hidden; background: var(--jz-surface-2); border-radius: var(--jz-radius-m); }

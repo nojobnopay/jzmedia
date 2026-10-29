@@ -133,6 +133,7 @@ export function isManagementRoute(route) {
 
 export function lockViewingLocally({ notifyTabs = true } = {}) {
   sessionEpoch++
+  clearBrowse()
   viewing.locallyLocked = true
   viewing.suspended = false
   applyViewingSession({ ...viewing, mode: isChildren.value ? 'children' : 'normal', management_unlocked: false })
