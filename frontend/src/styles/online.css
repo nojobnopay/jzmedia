@@ -74,6 +74,17 @@
 .online-entry { min-width: 0; display: grid; gap: var(--jz-gap-s); align-content: start; }
 .online-entry .jz-button { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .online-entry > span { color: var(--jz-text-dim); font-size: var(--jz-font-s); overflow-wrap: anywhere; }
+.online-related { min-width: 0; margin-top: var(--jz-gap-2xl); border-top: 1px solid var(--jz-border); padding-top: var(--jz-gap-l); }
+.online-related-state { display: flex; align-items: center; flex-wrap: wrap; gap: var(--jz-gap-m); margin: 0; color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.7; }
+.online-related-group + .online-related-group { margin-top: var(--jz-gap-xl); }
+.online-related-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--jz-gap-m); }
+.online-related-heading h3 { margin: 0; font-size: var(--jz-font-l); }
+.online-related-current, .online-related-note { color: var(--jz-text-dim); font-size: var(--jz-font-s); line-height: 1.6; }
+.online-related-note { margin: var(--jz-gap-xs) 0 var(--jz-gap-m); }
+.online-related-row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(130px, 160px); justify-content: start; gap: var(--jz-gap-m); overflow-x: auto; overscroll-behavior-x: contain; padding: var(--jz-gap-xs) var(--jz-gap-xs) var(--jz-gap-m); scroll-snap-type: x proximity; }
+.online-related-card { scroll-snap-align: start; }
+.online-related-card h4 { margin: 0; font-size: var(--jz-font-m); }
+.online-related-card .card-meta { overflow-wrap: anywhere; }
 .online-source-list { display: grid; gap: var(--jz-gap-m); margin-block: var(--jz-gap-l); }
 .online-source-row { display: flex; align-items: center; justify-content: space-between; gap: var(--jz-gap-m); padding-block: var(--jz-gap-m); border-bottom: 1px solid var(--jz-border); }
 .online-source-row h4 { margin: 0 0 var(--jz-gap-xs); overflow-wrap: anywhere; }
@@ -105,6 +116,8 @@
   .online-artwork { width: 96px; }
   .online-detail-heading h2 { font-size: var(--jz-font-xl); }
   .online-entries { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .online-related-row { grid-auto-columns: minmax(110px, 34%); gap: var(--jz-gap-s); }
+  .online-related-state .jz-button { min-height: 44px; }
   .online-attribution a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 .online-library { margin-block: var(--jz-gap-2xl); padding-top: var(--jz-gap-xl); border-top: 1px solid var(--jz-border); }

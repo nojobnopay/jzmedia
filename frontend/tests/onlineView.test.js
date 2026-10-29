@@ -4,6 +4,7 @@ import * as Vue from 'vue'
 import { loadSfc } from './helpers/loadSfc.js'
 import { renderHarness, flush, deferred, nodeText } from './helpers/renderHarness.js'
 import * as catalog from '../src/onlineCatalog.js'
+import * as relatedCatalog from '../src/onlineRelated.js'
 import * as state from '../src/onlineState.js'
 import { clearOnlineBrowse, onlineBrowseMemory, onlineBrowseScope } from '../src/onlineBrowse.js'
 
@@ -12,17 +13,19 @@ const sources = { enabled: true, items: [{ id: SOURCE_A, name: '来源 A', provi
 const rows = { items: [{ external_id: 'movie-1', title: '合成电影', kind: 'movie', year: '2026' }], page: 1, page_count: 1, total: 1 }
 const vue = { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {}, vShow: {} }
 const SCOPE = 'a'.repeat(64)
-async function setup(t, request, { stateRequest, autoplay = false, routeQuery = {}, session = {} } = {}) {
+async function setup(t, request, { stateRequest, relatedRequest, autoplay = false, routeQuery = {}, session = {} } = {}) {
   const cleanups = new Set()
   const viewingSession = Vue.reactive({ mode: 'normal', generation: 1, revision: 0, locallyLocked: false, suspended: false, ...session })
-  const players = [], writers = [], preferences = []
+  const players = [], writers = [], preferences = [], navigations = []
   const stateRead = stateRequest || (async path => path.includes('/library?')
     ? { items: [], total: 0, limit: 20, offset: 0, scope_token: SCOPE }
     : { item_id: path.split('/').at(-1).split('?')[0], favorite: false, last_progress: null, selected_progress: null, available: true, scope_token: SCOPE })
   const component = await loadSfc(new URL('../src/views/Online.vue', import.meta.url), {
     vue,
-    'vue-router': { useRoute: () => ({ query: routeQuery }), useRouter: () => ({ replace: async () => {} }) },
+    'vue-router': { useRoute: () => ({ query: routeQuery }), useRouter: () => ({ replace: async target => { navigations.push(target) } }) },
     '../onlineCatalog.js': { ...catalog, createOnlineCatalogClient: () => catalog.createOnlineCatalogClient({ request }), createOnlineHealthClient: () => ({ read: async () => null, cancel() {}, close() {} }) },
+    '../onlineRelated.js': { createOnlineRelatedClient: () => relatedCatalog.createOnlineRelatedClient({ delay: 0,
+      request: relatedRequest || (async path => ({ source: { id: SOURCE_A }, external_id: new URL(path, 'https://jzmedia.invalid').searchParams.get('external_id'), status: 'unsupported' })) }) },
     '../onlineState.js': { ...state, createOnlineStateClient: () => state.createOnlineStateClient({ request: stateRead }),
       loadOnlineAutoplay: () => autoplay, saveOnlineAutoplay: value => preferences.push(value),
       createOnlineProgressWriter: options => { const writer = { options, snapshots: [], sessions: [], closes: 0, session(value) { this.sessions.push(value) }, update(value) { this.snapshots.push(value) }, async close() { this.closes++ } }; writers.push(writer); return writer } },
@@ -44,7 +47,7 @@ async function setup(t, request, { stateRequest, autoplay = false, routeQuery = 
   t.after(() => ui.app.unmount())
   t.after(clearOnlineBrowse)
   await flush()
-  return { ui, cleanup: () => Promise.all([...cleanups].map(cleanup => cleanup())), players, writers, preferences, viewing: viewingSession }
+  return { ui, cleanup: () => Promise.all([...cleanups].map(cleanup => cleanup())), players, writers, preferences, navigations, viewing: viewingSession }
 }
 function search(ui, query) {
   ui.find(node => node.props.id === 'online-query').props['onUpdate:modelValue'](query)
@@ -324,6 +327,149 @@ async function openShow(ui) {
   ui.find(node => node.props['data-online-result'] === 'movie-1').props.onClick(); await flush()
 }
 function selectedEntry(ui, label = '第1集') { return ui.find(node => node.props['data-online-entry'] === label) }
+
+const relatedSources = () => ({ ...sources, items: sources.items.map(source => ({ ...source, capabilities: { related: true } })) })
+const relatedRows = (externalId = 'movie-1', extra = {}) => ({ source: sources.items[0], external_id: externalId,
+  current_season: 2, status: 'ready',
+  series: [{ external_id: 'season-1', title: '合成剧集第一季', kind: 'tv', season: 1, reason: 'inferred_season' },
+    { external_id: 'season-3', title: '合成剧集第三季', kind: 'tv', season: 3, reason: 'inferred_season' }],
+  related: [{ external_id: 'same-type', title: '同类内容', kind: 'tv', season: null, reason: 'same_category' }],
+  name_related: [{ external_id: 'possible', title: '合成剧集特别篇', kind: 'tv', season: null, reason: 'name_related' }], ...extra })
+const detailRequest = async path => path.endsWith('/sources') ? relatedSources() : path.includes('/search?') ? rows : show()
+
+test('related content loads after the detail and renders season, category and uncertain-name rows independently', async t => {
+  const pending = deferred()
+  const { ui } = await setup(t, detailRequest, { relatedRequest: () => pending.promise })
+  await openShow(ui)
+  assert.ok(selectedEntry(ui), 'The selected detail remains usable while recommendations wait')
+  assert.ok(ui.find(node => node.props['data-online-related-loading'] !== undefined))
+  assert.equal(ui.text().includes('正在加载详情'), false)
+  const response = relatedRows(); response.series.reverse()
+  pending.resolve(response); await flush()
+  const groups = ui.all().filter(node => node.props['data-online-related-group'] !== undefined)
+  assert.deepEqual(groups.map(node => node.props['data-online-related-group']), ['series', 'related', 'name_related'])
+  assert.deepEqual(ui.all().filter(node => node.props['data-online-related-id'] !== undefined).map(node => node.props['data-online-related-id']), ['season-1', 'season-3', 'same-type', 'possible'])
+  assert.ok(nodeText(ui.find(node => node.props['data-online-current-season'] !== undefined)).includes('第 2 季'))
+  assert.ok(ui.text().includes('根据片名与季号整理'))
+  assert.ok(ui.text().includes('可能并非同一系列'))
+  assert.equal(ui.text().includes('TMDB'), false)
+})
+
+test('a related card opens its stable same-source detail without autoplay and back keeps the browse results', async t => {
+  const calls = []
+  const { ui, players } = await setup(t, async path => {
+    calls.push(path)
+    if (path.includes('/detail?')) return { ...show(), item: { ...show().item, title: new URL(path, 'https://jzmedia.invalid').searchParams.get('external_id') === 'season-3' ? '第三季详情' : '合成剧集' } }
+    return detailRequest(path)
+  }, { relatedRequest: async path => relatedRows(new URL(path, 'https://jzmedia.invalid').searchParams.get('external_id')) })
+  await openShow(ui)
+  ui.find(node => node.props['data-online-related-id'] === 'season-3').props.onClick(); await flush()
+  const opened = new URL(calls.at(-1), 'https://jzmedia.invalid')
+  assert.equal(opened.pathname, '/api/online/catalog/detail')
+  assert.equal(opened.searchParams.get('source_id'), SOURCE_A)
+  assert.equal(opened.searchParams.get('external_id'), 'season-3')
+  assert.ok(ui.text().includes('第三季详情'))
+  assert.equal(players.length, 0)
+  const searches = calls.filter(path => path.includes('/search?')).length
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回搜索结果').props.onClick(); await flush()
+  assert.ok(ui.text().includes('合成电影'))
+  assert.equal(calls.filter(path => path.includes('/search?')).length, searches)
+})
+
+test('deferred recommendations require one explicit retry and failures leave the detail playable', async t => {
+  let calls = 0
+  const { ui, players } = await setup(t, detailRequest, { relatedRequest: async () => {
+    calls++
+    if (calls === 1) return relatedRows('movie-1', { status: 'deferred' })
+    if (calls === 2) throw new Error('signed upstream details must not be displayed')
+    return relatedRows('movie-1', { current_season: null })
+  } })
+  await openShow(ui)
+  assert.ok(ui.find(node => node.props['data-online-related-deferred'] !== undefined))
+  await flush(); assert.equal(calls, 1)
+  ui.find(node => node.props['data-online-related-retry'] !== undefined).props.onClick(); await flush()
+  assert.ok(ui.find(node => node.props['data-online-related-error'] !== undefined))
+  assert.ok(selectedEntry(ui))
+  assert.equal(ui.text().includes('signed upstream'), false)
+  ui.find(node => node.props['data-online-related-retry'] !== undefined).props.onClick(); await flush()
+  assert.equal(calls, 3)
+  assert.equal(ui.find(node => node.props['data-online-current-season'] !== undefined), undefined, 'An unnumbered title is never labelled first season')
+  selectedEntry(ui).props.onClick(); await flush()
+  assert.equal(players.length, 1)
+})
+
+test('choosing another season replaces a deep-link identity before a later refresh can reopen the old season', async t => {
+  const { ui, navigations, players } = await setup(t, detailRequest, {
+    routeQuery: { source: SOURCE_A, item: 'movie-1' },
+    relatedRequest: async path => relatedRows(new URL(path, 'https://jzmedia.invalid').searchParams.get('external_id')),
+  })
+  assert.ok(selectedEntry(ui))
+  ui.find(node => node.props['data-online-related-id'] === 'season-3').props.onClick(); await flush()
+  assert.deepEqual(navigations.at(-1), { path: '/online', query: { source: SOURCE_A, item: 'season-3' } })
+  assert.equal(players.length, 0)
+})
+
+test('playing an episode aborts pending recommendations before reading selected progress', async t => {
+  const pending = deferred(), signals = []
+  let progressReadAfterAbort = false
+  const { ui, players } = await setup(t, detailRequest, {
+    relatedRequest: (_path, options) => { signals.push(options.signal); return pending.promise },
+    stateRequest: async (path, options) => {
+      if (path.includes('/library?')) return { items: [], total: 0, offset: 0, scope_token: SCOPE }
+      if (options?.signal && path.includes('episode_id=')) progressReadAfterAbort = signals[0]?.aborted === true
+      return itemState()
+    },
+  })
+  await openShow(ui)
+  selectedEntry(ui).props.onClick(); await flush()
+  assert.equal(signals[0].aborted, true)
+  assert.equal(progressReadAfterAbort, true)
+  assert.equal(players.length, 1)
+  pending.resolve(relatedRows()); await flush()
+  assert.equal(ui.find(node => node.props['data-online-related-id'] !== undefined), undefined)
+  assert.ok(ui.find(node => node.props['data-stub-player'] !== undefined))
+})
+
+test('line changes, returning and permission cleanup discard pending related work and late posters', async t => {
+  const work = [], signals = []
+  const { ui, cleanup } = await setup(t, detailRequest, { relatedRequest: (_path, options) => {
+    const pending = deferred(); work.push(pending); signals.push(options.signal); return pending.promise
+  } })
+  await openShow(ui)
+  ui.find(node => node.props['data-online-line'] === LINE).props.onClick(); await flush()
+  assert.equal(signals[0].aborted, true)
+  work[0].resolve(relatedRows()); await flush()
+  assert.equal(ui.find(node => node.props['data-online-related-id'] !== undefined), undefined)
+  ui.find(node => node.props['data-online-related-retry'] !== undefined).props.onClick(); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回搜索结果').props.onClick(); await flush()
+  assert.equal(signals[1].aborted, true)
+  work[1].resolve(relatedRows()); await flush()
+  ui.find(node => node.props['data-online-result'] === 'movie-1').props.onClick(); await flush()
+  await cleanup()
+  assert.equal(signals[2].aborted, true)
+  work[2].resolve(relatedRows()); await flush()
+  assert.equal(ui.find(node => node.props['data-online-related-id'] !== undefined), undefined)
+  assert.equal(ui.find(node => node.props['data-online-detail'] !== undefined), undefined)
+})
+
+test('temporary verification clears related posters and restores them without replacing the selected detail', async t => {
+  let reads = 0
+  const { ui, viewing, players } = await setup(t, detailRequest, { session: { mode: 'private' },
+    relatedRequest: async () => { reads++; return relatedRows() } })
+  await openShow(ui)
+  assert.ok(ui.find(node => node.props['data-online-related-id'] === 'season-1'))
+  viewing.suspended = true; await flush()
+  assert.equal(ui.find(node => node.props['data-online-related-id'] !== undefined), undefined)
+  viewing.suspended = false; await flush()
+  assert.equal(reads, 2)
+  assert.ok(selectedEntry(ui))
+  selectedEntry(ui).props.onClick(); await flush()
+  const playerNode = ui.find(node => node.props['data-stub-player'] !== undefined)
+  viewing.suspended = true; await flush(); viewing.suspended = false; await flush()
+  assert.equal(reads, 2, 'An active player cannot start a new background recommendation request')
+  assert.equal(ui.find(node => node.props['data-stub-player'] !== undefined), playerNode)
+  assert.equal(players.length, 1)
+})
 
 test('disabled online sources do not hide saved records or their removal actions', async t => {
   const record = { item: { id: ITEM, source_id: SOURCE_A, external_id: 'show-1', kind: 'tv', title: '已停用来源的收藏' },

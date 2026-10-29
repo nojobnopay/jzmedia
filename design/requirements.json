@@ -18522,7 +18522,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 95,
+            "line": 106,
             "selector": ".online-channels .jz-button, .online-class-options .jz-button, .online-connection summary",
             "values": {
               "min-height": "44px"
@@ -18530,7 +18530,15 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 133,
+            "line": 119,
+            "selector": ".online-related-state .jz-button",
+            "values": {
+              "min-height": "44px"
+            }
+          },
+          {
+            "source": "frontend/src/styles/online.css",
+            "line": 146,
             "selector": ".online-library-actions .jz-button",
             "values": {
               "min-height": "44px"
@@ -18538,14 +18546,14 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 134,
+            "line": 147,
             "selector": ".online-health .jz-button",
             "values": {
               "min-height": "44px"
             }
           }
         ],
-        "value": "gap:8px, min-height:var(--jz-control-current), padding:8px 16px, font-size:var(--jz-font-m) / width:var(--jz-control-current), min-width:var(--jz-control-current), padding:0, aspect-ratio:1 / min-width:var(--jz-touch-target), min-height:var(--jz-touch-target) / min-height:var(--jz-touch-target) / min-height:var(--jz-control-current) / max-width:100% / font-size:var(--jz-font-s) / max-width:100% / width:100%, padding:0 / min-width:0 / min-height:44px / min-height:44px / min-height:44px"
+        "value": "gap:8px, min-height:var(--jz-control-current), padding:8px 16px, font-size:var(--jz-font-m) / width:var(--jz-control-current), min-width:var(--jz-control-current), padding:0, aspect-ratio:1 / min-width:var(--jz-touch-target), min-height:var(--jz-touch-target) / min-height:var(--jz-touch-target) / min-height:var(--jz-control-current) / max-width:100% / font-size:var(--jz-font-s) / max-width:100% / width:100%, padding:0 / min-width:0 / min-height:44px / min-height:44px / min-height:44px / min-height:44px"
       },
       "target": {
         "policy_touch_min_css_px": 44,
@@ -49127,7 +49135,171 @@
     {
       "id": "frontend/src/views/Online.vue:JzButton:125",
       "source": "frontend/src/views/Online.vue",
+      "line": 79,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "重试",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton data-online-related-retry @click=\"loadRelated(true)\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:128",
+      "source": "frontend/src/views/Online.vue",
       "line": 80,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "查看相关推荐",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton data-online-related-retry @click=\"loadRelated(true)\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:136",
+      "source": "frontend/src/views/Online.vue",
+      "line": 86,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "'查看详情 ' + item.title",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/styles/online.css",
+            "line": 42,
+            "selector": ".online-poster-button.jz-button",
+            "values": {
+              "width": "100%",
+              "padding": "0"
+            }
+          }
+        ],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "'查看详情 ' + item.title",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton class=\"online-poster-button\" variant=\"ghost\" :data-online-related-id=\"item.external_id\" :aria-label=\"'查看详情 ' + item.title\" @click=\"openRelated(item.external_id)\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:AppIcon:140",
+      "source": "frontend/src/views/Online.vue",
+      "line": 86,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "AppIcon",
+      "purpose": "播放",
+      "assets": [
+        "play"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "22"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon name=\"play\" :size=\"22\" />"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:148",
+      "source": "frontend/src/views/Online.vue",
+      "line": 95,
       "platforms": [
         "web",
         "mobile-web"
@@ -49164,9 +49336,9 @@
       "source_excerpt": "<JzButton @click=\"search(lastQuery.page, lastQuery.query, { force: true })\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:135",
+      "id": "frontend/src/views/Online.vue:JzButton:158",
       "source": "frontend/src/views/Online.vue",
-      "line": 86,
+      "line": 101,
       "platforms": [
         "web",
         "mobile-web"
@@ -49206,9 +49378,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" data-online-refresh :disabled=\"searching\" @click=\"refreshResults\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:138",
+      "id": "frontend/src/views/Online.vue:JzButton:161",
       "source": "frontend/src/views/Online.vue",
-      "line": 88,
+      "line": 103,
       "platforms": [
         "web",
         "mobile-web"
@@ -49256,9 +49428,9 @@
       "source_excerpt": "<JzButton class=\"online-poster-button\" variant=\"ghost\" :data-online-result=\"item.external_id\" :aria-label=\"'查看详情 ' + item.title\" :disabled=\"searching\" @click=\"openDetail(item.exter"
     },
     {
-      "id": "frontend/src/views/Online.vue:AppIcon:142",
+      "id": "frontend/src/views/Online.vue:AppIcon:165",
       "source": "frontend/src/views/Online.vue",
-      "line": 88,
+      "line": 103,
       "platforms": [
         "web",
         "mobile-web"
@@ -49293,9 +49465,9 @@
       "source_excerpt": "<AppIcon name=\"play\" :size=\"22\" />"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:147",
+      "id": "frontend/src/views/Online.vue:JzButton:170",
       "source": "frontend/src/views/Online.vue",
-      "line": 91,
+      "line": 106,
       "platforms": [
         "web",
         "mobile-web"
@@ -49335,9 +49507,9 @@
       "source_excerpt": "<JzButton icon=\"arrow-left\" :disabled=\"searching || !!searchError || page <= 1\" @click=\"search(page - 1, loadedQuery)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:149",
+      "id": "frontend/src/views/Online.vue:JzButton:172",
       "source": "frontend/src/views/Online.vue",
-      "line": 91,
+      "line": 106,
       "platforms": [
         "web",
         "mobile-web"
@@ -49377,9 +49549,9 @@
       "source_excerpt": "<JzButton icon=\"forward\" :disabled=\"searching || !!searchError || page >= pageCount\" @click=\"search(page + 1, loadedQuery)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:155",
+      "id": "frontend/src/views/Online.vue:JzButton:178",
       "source": "frontend/src/views/Online.vue",
-      "line": 96,
+      "line": 111,
       "platforms": [
         "web",
         "mobile-web"
@@ -49419,9 +49591,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" :disabled=\"libraryLoading\" @click=\"loadLibrary()\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:157",
+      "id": "frontend/src/views/Online.vue:JzButton:180",
       "source": "frontend/src/views/Online.vue",
-      "line": 98,
+      "line": 113,
       "platforms": [
         "web",
         "mobile-web"
@@ -49459,9 +49631,9 @@
       "source_excerpt": "<JzButton v-for=\"tab in libraryTabs\" :key=\"tab.key\" :data-online-library-section=\"tab.key\" :aria-pressed=\"librarySection === tab.key\" @click=\"selectLibrary(tab.key)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:170",
+      "id": "frontend/src/views/Online.vue:JzButton:193",
       "source": "frontend/src/views/Online.vue",
-      "line": 107,
+      "line": 122,
       "platforms": [
         "web",
         "mobile-web"
@@ -49501,9 +49673,9 @@
       "source_excerpt": "<JzButton v-if=\"row.progress\" icon=\"play\" :data-online-resume=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError || starting\" @click=\"openSaved(row, true)\""
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:171",
+      "id": "frontend/src/views/Online.vue:JzButton:194",
       "source": "frontend/src/views/Online.vue",
-      "line": 108,
+      "line": 123,
       "platforms": [
         "web",
         "mobile-web"
@@ -49541,9 +49713,9 @@
       "source_excerpt": "<JzButton :data-online-library-detail=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError\" @click=\"openSaved(row, false)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:172",
+      "id": "frontend/src/views/Online.vue:JzButton:195",
       "source": "frontend/src/views/Online.vue",
-      "line": 109,
+      "line": 124,
       "platforms": [
         "web",
         "mobile-web"
@@ -49583,9 +49755,9 @@
       "source_excerpt": "<JzButton v-if=\"row.favorite\" icon=\"heart-filled\" :data-online-favorite=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"favoriteRow(row, false)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:173",
+      "id": "frontend/src/views/Online.vue:JzButton:196",
       "source": "frontend/src/views/Online.vue",
-      "line": 110,
+      "line": 125,
       "platforms": [
         "web",
         "mobile-web"
@@ -49623,9 +49795,9 @@
       "source_excerpt": "<JzButton v-if=\"row.progress\" :data-online-history-delete=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"clearHistory(row)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:175",
+      "id": "frontend/src/views/Online.vue:JzButton:198",
       "source": "frontend/src/views/Online.vue",
-      "line": 114,
+      "line": 129,
       "platforms": [
         "web",
         "mobile-web"
@@ -49663,9 +49835,9 @@
       "source_excerpt": "<JzButton :disabled=\"libraryOffset === 0 || libraryLoading\" @click=\"loadLibrary(Math.max(0, libraryOffset - 20))\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:177",
+      "id": "frontend/src/views/Online.vue:JzButton:200",
       "source": "frontend/src/views/Online.vue",
-      "line": 114,
+      "line": 129,
       "platforms": [
         "web",
         "mobile-web"

@@ -74,6 +74,21 @@
           <p class="online-scope">{{ selectedLine?.label || '暂无线路' }}<span v-if="selectedLine"> · {{ selectedLine.entries.length }} {{ detail.item.kind === 'tv' ? '集' : '个播放版本' }}</span><span v-if="detail.item.kind === 'tv'">；连续播放仅使用当前来源和线路，不跳过片尾。</span></p>
           <div v-if="selectedLine" class="online-entries"><div v-for="(entry, index) in selectedLine.entries" :key="entry.identity?.episode_id || entry.label + ':' + index" class="online-entry"><JzButton :data-online-entry="entry.label" :disabled="!entry.supported || !entry.identity || starting" :variant="entry.supported ? 'primary' : 'secondary'" :icon="entry.supported ? 'play' : undefined" @click="play(entry)">{{ entry.label }}</JzButton><span v-if="!entry.supported">{{ unsupportedReason(entry.reason) }}</span><span v-else>{{ entry.transport?.toUpperCase() }} · 由当前设备播放</span></div></div>
           <EmptyState v-else state="empty" title="此来源暂无可播放线路" text="选择其他来源或稍后重新查询。" />
+          <section v-if="relatedLoading || relatedError || relatedDeferred || relatedGroups.length" class="online-related" aria-label="相关内容" data-online-related>
+            <p v-if="relatedLoading" class="online-related-state" data-online-related-loading role="status">正在查找相关内容…</p>
+            <div v-else-if="relatedError" class="online-related-state" data-online-related-error role="status"><span>相关内容暂时无法读取，仍可正常选集播放。</span><JzButton data-online-related-retry @click="loadRelated(true)">重试</JzButton></div>
+            <div v-else-if="relatedDeferred" class="online-related-state" data-online-related-deferred><span>相关内容稍后可继续查看。</span><JzButton data-online-related-retry @click="loadRelated(true)">查看相关推荐</JzButton></div>
+            <section v-for="group in relatedGroups" :key="group.key" class="online-related-group" :data-online-related-group="group.key" :aria-label="group.title">
+              <header class="online-related-heading"><h3>{{ group.title }}</h3><span v-if="group.key === 'series' && related.current_season" class="online-related-current" data-online-current-season>当前：第 {{ related.current_season }} 季</span></header>
+              <p class="online-related-note">{{ group.note }}</p>
+              <div class="online-related-row">
+                <article v-for="item in group.items" :key="item.external_id" class="card online-result online-related-card">
+                  <JzButton class="online-poster-button" variant="ghost" :data-online-related-id="item.external_id" :aria-label="'查看详情 ' + item.title" @click="openRelated(item.external_id)"><OnlineArtwork :path="item.poster_path" :title="item.title" /><span v-if="item.remarks" class="online-poster-remark" :title="item.remarks">{{ item.remarks }}</span><span class="online-poster-action"><AppIcon name="play" :size="22" />查看详情</span></JzButton>
+                  <div class="t"><h4 class="card-title" :title="item.title">{{ item.title }}</h4><p class="card-meta">{{ [group.key === 'series' && item.season ? '第 ' + item.season + ' 季' : '', item.year, item.category].filter(Boolean).join(' · ') }}</p></div>
+                </article>
+              </div>
+            </section>
+          </section>
         </section>
         <div v-show="!detail && !detailLoading && !detailError" ref="browseRoot" class="online-browser" :aria-busy="searching" data-online-browser>
           <p v-if="searching && results.length" class="online-refresh-state" data-online-refreshing role="status">正在更新结果…</p>
@@ -122,6 +137,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createOnlineCatalogClient, createOnlineHealthClient, onlineHealthLabel, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
+import { createOnlineRelatedClient } from '../onlineRelated.js'
 import { createOnlineProgressMemory, onlineIdentityKey, validateOnlineIdentity } from '../onlinePlayback.js'
 import { createOnlineStateClient, createOnlineProgressWriter, loadOnlineAutoplay, saveOnlineAutoplay, nextOnlineEpisode, onlineStateError } from '../onlineState.js'
 import { isChildren, registerViewingPlaybackCleanup, viewing } from '../viewing.js'
@@ -140,6 +156,7 @@ import '../styles/online.css'
 const client = createOnlineCatalogClient(), nextClient = createOnlineCatalogClient(), stateClient = createOnlineStateClient()
 const route = useRoute(), router = useRouter()
 const healthClient = createOnlineHealthClient(), health = ref(null), healthLoading = ref(false), healthError = ref('')
+const relatedClient = createOnlineRelatedClient(), related = ref(null), relatedLoading = ref(false), relatedError = ref(false), relatedDeferred = ref(false)
 const progress = createOnlineProgressMemory()
 const sources = ref([]), sourceId = ref(''), enabled = ref(false), query = ref('')
 const loadingSources = ref(true), sourcesError = ref(''), searching = ref(false), searched = ref(false), searchError = ref('')
@@ -182,10 +199,37 @@ const detailMetadata = computed(() => [
   { label: '演员', value: textValues(detail.value?.actors).join(' / ') },
   { label: '别名', value: typeof detail.value?.subtitle === 'string' ? detail.value.subtitle : '' },
 ].filter(row => row.value))
+const relatedGroups = computed(() => [
+  { key: 'series', title: '同系列其他季', note: '根据片名与季号整理，请以具体内容为准。' },
+  { key: 'related', title: '相关推荐', note: '来自当前视频源的同类内容。' },
+  { key: 'name_related', title: '名称相关', note: '根据名称整理，可能并非同一系列。' },
+].map(group => {
+  const items = related.value?.[group.key] || []
+  return { ...group, items: group.key === 'series' ? [...items].sort((a, b) => a.season - b.season) : items }
+}).filter(group => group.items.length))
 let disposed = false, generation = 0, libraryGeneration = 0, healthGeneration = 0, playIntent = 0, nextIntent = 0, runId = 0, activeRun = null
+let relatedGeneration = 0
 let lastSourceId = ''
 let cacheScope = '', loadedAt = 0, browsePosition = null, positionIntent = 0, suspendedWork = null
 function current(turn) { return !disposed && turn === generation && safeMode.value }
+function cancelRelated(clear = false, defer = false) {
+  const interrupted = relatedLoading.value
+  relatedGeneration++; relatedClient.cancel(); relatedLoading.value = false
+  if (clear) { related.value = null; relatedError.value = false; relatedDeferred.value = false }
+  else if (defer && interrupted && !related.value) { relatedError.value = false; relatedDeferred.value = true }
+}
+async function loadRelated(immediate = false) {
+  if (!safeMode.value || !detail.value || detailLoading.value || playing.value || starting.value || nextLoading.value || selectedSource.value?.capabilities?.related !== true) return
+  const turn = ++relatedGeneration, view = generation, source = sourceId.value, externalId = lastDetailId.value
+  relatedLoading.value = true; relatedError.value = false; relatedDeferred.value = false
+  try {
+    const value = await relatedClient.read(source, externalId, { immediate })
+    if (!current(view) || turn !== relatedGeneration || source !== sourceId.value || externalId !== lastDetailId.value || !value) return
+    related.value = value.status === 'ready' ? value : null
+    relatedDeferred.value = value.status === 'deferred'
+  } catch { if (current(view) && turn === relatedGeneration) relatedError.value = true }
+  finally { if (turn === relatedGeneration) relatedLoading.value = false }
+}
 function sameIdentity(a, b) { try { return onlineIdentityKey(a) === onlineIdentityKey(b) } catch { return false } }
 function findEntry(data, identity) { return data?.lines?.flatMap(line => line.entries).find(entry => entry.supported && entry.identity && sameIdentity(entry.identity, identity)) || null }
 function cancelNext() { nextIntent++; nextLoading.value = false; nextClient.cancel() }
@@ -243,6 +287,7 @@ function resetBrowse() {
   loadedAt = 0; browsePosition = null; positionIntent++
 }
 async function loadSources() {
+  cancelRelated(true)
   const turn = ++generation
   const target = onlineRouteTarget(route.query)
   let restored = null
@@ -298,6 +343,7 @@ async function loadLibrary(offset = libraryOffset.value) {
 function selectLibrary(section) { librarySection.value = section; void loadLibrary(0) }
 function sourceChanged(discover = true) {
   if (discover && sourceId.value === lastSourceId) return
+  cancelRelated(true)
   rememberBrowse(sources.value.find(source => source.id === lastSourceId))
   lastSourceId = sourceId.value
   if (route.query.source || route.query.item) {
@@ -349,6 +395,7 @@ function applyCustomYear() {
 }
 async function search(nextPage = 1, text = query.value, options = {}) {
   if (!sourceId.value || !safeMode.value || !text.trim() && !canBrowse.value) return
+  cancelRelated(true)
   rememberBrowse()
   if (text.trim()) { categoryId.value = ''; channelId.value = ''; setYear('') }
   const requestedCategory = categoryId.value
@@ -397,6 +444,7 @@ async function readItemState(data, turn) {
   } catch (error) { if (current(turn)) stateNotice.value = onlineStateError(error) }
 }
 async function openDetail(externalId, options = {}) {
+  cancelRelated(true)
   rememberBrowse()
   positionIntent++
   const turn = ++generation, source = sourceId.value
@@ -413,21 +461,27 @@ async function openDetail(externalId, options = {}) {
     lineId.value = entry.identity.line_id
     await play(entry)
   } catch (error) { if (current(turn)) detailError.value = onlineCatalogError(error) }
-  finally { if (current(turn)) { detailLoading.value = false; void loadHealth() } }
+  finally { if (current(turn)) { detailLoading.value = false; void loadHealth(); if (detail.value && !detailError.value) void loadRelated() } }
 }
 async function openSaved(row, resume) {
   if (!row.available || !safeMode.value || loadingSources.value || sourcesError.value) return
   sourceId.value = row.source.id; sourceChanged(false)
   await openDetail(row.item.external_id, { resume: resume && !!row.progress, identity: row.progress?.identity, itemId: row.item.id })
 }
+function openRelated(externalId) {
+  const source = sourceId.value
+  void openDetail(externalId)
+  void router.replace({ path: '/online', query: { source, item: externalId } })
+}
 function backToResults() {
+  cancelRelated(true)
   generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
   if (route.query.item) void router.replace({ path: '/online', query: { source: sourceId.value } })
   if (!searched.value && canBrowse.value) void search(1, '')
   else if (loadedAt && Date.now() - loadedAt >= 60000) void search(page.value, loadedQuery.value, { force: true, position: browsePosition })
   else void restoreBrowse()
 }
-function selectLine(id) { void closePlayer(); lineId.value = id }
+function selectLine(id) { cancelRelated(false, true); void closePlayer(); lineId.value = id }
 async function stopRun(run) {
   if (!run) return
   if (run.stopping) return run.stopping
@@ -447,6 +501,7 @@ async function closePlayer() {
 }
 async function play(entry, { automatic = false } = {}) {
   if (!entry?.supported || !entry.identity || !safeMode.value || !detail.value) return
+  cancelRelated(false, true)
   if (!automatic) cancelNext()
   const intent = ++playIntent, view = generation, data = detail.value
   const identity = validateOnlineIdentity(entry.identity)
@@ -546,6 +601,7 @@ function clearHistory(row) {
 function safeAttribution(value) { try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url.href : undefined } catch { return undefined } }
 function unsupportedReason(reason) { return ['host_not_allowed', 'target_host_not_allowed'].includes(reason) ? '媒体主机尚未加入此来源允许列表' : '当前线路不支持直接播放，请选择其他线路' }
 const stopCleanup = registerViewingPlaybackCleanup(async () => {
+  cancelRelated(true)
   clearOnlineBrowse(); cacheScope = ''; positionIntent++; suspendedWork = null
   generation++; libraryGeneration++; playIntent++; cancelNext(); client.cancel(); stateClient.cancel()
   healthGeneration++; healthClient.cancel(); health.value = null; healthError.value = ''; healthLoading.value = false
@@ -555,6 +611,7 @@ const stopCleanup = registerViewingPlaybackCleanup(async () => {
   await closing
 })
 watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locallyLocked], () => {
+  cancelRelated(true)
   clearOnlineBrowse(); cacheScope = ''; positionIntent++
   generation++; libraryGeneration++; client.cancel(); stateClient.cancel(); cancelNext()
   healthGeneration++; healthClient.cancel(); health.value = null; healthLoading.value = false; healthError.value = ''
@@ -568,6 +625,7 @@ watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locally
 watch(() => viewing.suspended, suspended => {
   positionIntent++
   if (suspended) {
+    cancelRelated(true)
     categoriesOpen.value = false; categoryQuery.value = ''
     // Verification temporarily hides content. It does not revoke an otherwise
     // unchanged session or discard the selected detail and active player.
@@ -594,7 +652,7 @@ watch(() => viewing.suspended, suspended => {
       const turn = generation
       // Refresh the current detail before the secondary history shelf. Both
       // remain cancellable if another verification or user intent intervenes.
-      void readItemState(detail.value, turn).then(() => { if (current(turn)) void loadLibrary(0) })
+      void readItemState(detail.value, turn).then(() => { if (current(turn)) { void loadLibrary(0); void loadRelated() } })
       return
     }
     void restoreBrowse()
@@ -607,6 +665,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => rememberBrowse())
 onUnmounted(() => {
+  cancelRelated(true); relatedClient.close()
   disposed = true; generation++; libraryGeneration++; healthGeneration++; playIntent++; cancelNext(); client.close(); nextClient.close(); stateClient.close(); healthClient.close(); stopCleanup()
   void stopRun(activeRun)
 })
