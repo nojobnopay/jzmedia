@@ -14,7 +14,10 @@ from .guard import limit_timeout, wait_for_event
 
 
 URL_LIMIT = 8192
-ADDRESS_LIMIT = 16
+# Large public CDN pools can legitimately return more than sixteen addresses.
+# Every raw answer is still validated before deduplication and this fixed cap;
+# no private tail answer can be hidden by truncating the candidate set.
+ADDRESS_LIMIT = 32
 ORIGIN_LIMIT = 128
 _SOURCE_ID = re.compile(r"src_[0-9a-f]{32}\Z")
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")

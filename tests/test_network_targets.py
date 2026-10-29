@@ -151,9 +151,28 @@ def test_empty_malformed_and_excessive_raw_dns_answers_are_rejected(answers):
 
 def test_address_set_is_deduplicated_but_distinct_addresses_are_capped():
     assert policy(addresses=("8.8.8.8",) * 256).resolve("https://cdn.example/").addresses == ("8.8.8.8",)
-    addresses = tuple(str(ipaddress.ip_address("8.8.8.1") + index) for index in range(17))
+    addresses = tuple(str(ipaddress.ip_address("8.8.8.1") + index) for index in range(targets.ADDRESS_LIMIT + 1))
     with pytest.raises(TargetPolicyError, match="^too_many_target_addresses$"):
         policy(addresses=addresses).resolve("https://cdn.example/")
+
+
+@pytest.mark.parametrize("count", [25, 32])
+def test_large_public_cdn_pools_keep_every_validated_pin(count):
+    addresses = tuple(str(ipaddress.ip_address("8.8.8.1") + index) for index in range(count))
+    selected = policy(addresses=addresses)
+    target = selected.resolve("https://cdn.example/movie.m3u8")
+    assert target.addresses == addresses
+    assert selected.pin_for("cdn.example", 443) == addresses
+
+
+@pytest.mark.parametrize("private", ["10.0.0.1", "127.0.0.1", "169.254.169.254", "::1"])
+def test_private_answer_after_sixteen_public_addresses_still_rejects_entire_pool(private):
+    addresses = tuple(str(ipaddress.ip_address("8.8.8.1") + index) for index in range(24)) + (private,)
+    selected = policy(addresses=addresses)
+    with pytest.raises(TargetPolicyError, match="^non_public_target_address$"):
+        selected.resolve("https://cdn.example/movie.m3u8")
+    with pytest.raises(TargetPolicyError, match="^unregistered_target_connection$"):
+        selected.pin_for("cdn.example", 443)
 
 
 def test_dns_failure_never_echoes_resolver_message_or_signed_url():
