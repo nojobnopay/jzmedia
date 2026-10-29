@@ -313,3 +313,28 @@ class TargetPolicy:
         if value is None:
             raise TargetPolicyError("unregistered_target_connection")
         return value
+
+    def has_only_root_pin(self, url):
+        """Check local registration without exposing approved addresses."""
+        _url, _scheme, host, port, _origin, _authority = self._canonical_url(url)
+        with self._lock:
+            return len(self._pins) == 1 and (host, port) in self._pins
+
+    def matches_fresh_root(self, fresh, url):
+        """Revalidate with a new policy, retaining this client's original pins.
+
+        The caller exclusively leases the old client. A new candidate still
+        validates every DNS answer, even when its connection will not be used.
+        A different public set is a cache miss; unsafe answers remain errors.
+        """
+        if (not isinstance(fresh, TargetPolicy) or self.source_id != fresh.source_id
+                or self.allowed_hosts != fresh.allowed_hosts):
+            return False
+        _url, _scheme, host, port, _origin, _authority = self._canonical_url(url)
+        target = fresh.resolve(url)
+        with self._lock:
+            previous = self._pins.get((host, port)) if len(self._pins) == 1 else None
+        with fresh._lock:
+            single = len(fresh._pins) == 1 and (host, port) in fresh._pins
+        # DNS answer order may rotate without changing the approved peer set.
+        return single and previous is not None and frozenset(previous) == frozenset(target.addresses)
