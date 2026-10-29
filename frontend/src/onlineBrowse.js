@@ -42,6 +42,9 @@ export function createOnlineBrowseMemory({ clock = Date.now, maxBytes = MAX_BYTE
   function read(entry) {
     if (!entry) return null
     const result = clone(entry.value)
+    // Taxonomy belongs to navigation, not to the freshness of the poster rows.
+    // Keep it available when only the catalogue response has expired.
+    result.categories = Array.isArray(result.response.categories) ? result.response.categories : []
     if (clock() - result.loadedAt >= dataTtl) result.response = null
     return result
   }
@@ -56,10 +59,37 @@ export function createOnlineBrowseMemory({ clock = Date.now, maxBytes = MAX_BYTE
       try {
         value = clone({ sourceId: source.id, configuration: source.configuration_token, categoryId, query, year, channelId, channelSelections,
           inputQuery, page: response.page, response, loadedAt, position })
-        bytes = new TextEncoder().encode(JSON.stringify(value)).byteLength
       } catch { return false }
-      if (bytes > maxBytes) return false
       prune()
+      const matches = entry => entry.scope === scope && entry.value.sourceId === source.id
+        && entry.value.configuration === source.configuration_token
+      const hasCategories = rows => Array.isArray(rows) && rows.length > 0
+      const previousTaxonomy = [...entries.values()]
+        .find(entry => matches(entry) && hasCategories(entry.value.response.categories))?.value.response.categories
+      const taxonomy = hasCategories(value.response.categories) ? value.response.categories
+        : previousTaxonomy
+      if (taxonomy) value.response.categories = taxonomy
+      bytes = new TextEncoder().encode(JSON.stringify(value)).byteLength
+      if (bytes > maxBytes) {
+        // A new source tree must still supersede older trees when its poster
+        // page itself is too large to cache. Drop only this exact binding.
+        if (taxonomy && JSON.stringify(taxonomy) !== JSON.stringify(previousTaxonomy)) {
+          for (const [selected, entry] of entries) if (matches(entry)) remove(selected)
+        }
+        return false
+      }
+      if (taxonomy) {
+        const serialized = JSON.stringify(taxonomy)
+        // A later real tree supersedes category metadata on all pages of this
+        // exact source/scope. Do not renew row freshness, navigation TTL or LRU.
+        for (const entry of entries.values()) {
+          if (!matches(entry) || JSON.stringify(entry.value.response.categories) === serialized) continue
+          entry.value.response.categories = taxonomy
+          const updatedBytes = new TextEncoder().encode(JSON.stringify(entry.value)).byteLength
+          totalBytes += updatedBytes - entry.bytes
+          entry.bytes = updatedBytes
+        }
+      }
       const selected = key(scope, source, categoryId, query, response.page, year, channelId)
       if (entries.has(selected)) remove(selected)
       while (entries.size && (entries.size >= maxPages || totalBytes + bytes > maxBytes)) remove(entries.keys().next().value)

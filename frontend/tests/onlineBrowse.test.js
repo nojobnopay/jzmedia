@@ -76,6 +76,79 @@ test('page LRU and byte ceilings bound all cached directories, including oversiz
   assert.deepEqual(memory.stats(), { pages: 0, bytes: 0 })
 })
 
+test('an omitted taxonomy inherits the known source tree while expired poster rows stay expired', () => {
+  let now = 1000
+  const memory = createOnlineBrowseMemory({ clock: () => now, dataTtl: 100, navigationTtl: 1000 })
+  memory.save(snapshot({ loadedAt: now }))
+  now = 1050
+  memory.save(snapshot({ response: { ...response(2), categories: [] }, loadedAt: now }))
+  assert.deepEqual(memory.read(scope, source, { categoryId: '71', page: 2 }).response.categories, response().categories)
+  now = 1150
+  const expired = memory.last(scope, [source])
+  assert.equal(expired.response, null)
+  assert.deepEqual(expired.categories, response().categories)
+  expired.categories[0].name = '读取方修改'
+  assert.equal(memory.last(scope, [source]).categories[0].name, '都市脑洞')
+  now = 2050
+  assert.equal(memory.last(scope, [source]), null)
+})
+
+test('a newer real tree replaces old page metadata without renewing freshness or navigation lifetime', () => {
+  let now = 1000
+  const memory = createOnlineBrowseMemory({ clock: () => now, dataTtl: 100, navigationTtl: 1000 })
+  memory.save(snapshot({ loadedAt: now }))
+  now = 1050
+  const updated = [{ id: '72', name: '古装仙侠' }]
+  memory.save(snapshot({ response: { ...response(2), categories: updated }, loadedAt: now }))
+  assert.deepEqual(memory.read(scope, source, { categoryId: '71', page: 1 }).response.categories, updated)
+  now = 1100
+  const first = memory.read(scope, source, { categoryId: '71', page: 1 })
+  assert.equal(first.loadedAt, 1000)
+  assert.equal(first.response, null)
+  assert.deepEqual(first.categories, updated)
+  now = 2000
+  assert.equal(memory.read(scope, source, { categoryId: '71', page: 1 }), null)
+  assert.deepEqual(memory.read(scope, source, { categoryId: '71', page: 2 }).categories, updated)
+})
+
+test('evicting the newest taxonomy page cannot revive categories removed from an older retained page', () => {
+  const memory = createOnlineBrowseMemory({ maxPages: 2 })
+  memory.save(snapshot())
+  const updated = [{ id: '72', name: '古装仙侠' }]
+  memory.save(snapshot({ response: { ...response(2), categories: updated } }))
+  memory.read(scope, source, { categoryId: '71', page: 1 })
+  const other = { ...source, id: 'src_' + '4'.repeat(32) }
+  memory.save(snapshot({ source: other, response: { ...response(), categories: [] } }))
+  assert.equal(memory.read(scope, source, { categoryId: '71', page: 2 }), null)
+  assert.deepEqual(memory.read(scope, source, { categoryId: '71', page: 1 }).response.categories, updated)
+  assert.deepEqual(memory.last(scope, [other]).categories, [])
+})
+
+test('taxonomy replacement obeys the existing byte cap and oversized new trees invalidate old bindings', () => {
+  const memory = createOnlineBrowseMemory({ maxPages: 3, maxBytes: 1600 })
+  memory.save(snapshot())
+  memory.save(snapshot({ response: response(2) }))
+  const changed = [{ id: '72', name: '新分类'.repeat(60) }]
+  assert.equal(memory.save(snapshot({ response: { ...response(3), categories: changed } })), true)
+  assert.ok(memory.stats().bytes <= 1600)
+  assert.deepEqual(memory.last(scope, [source]).categories, changed)
+  assert.equal(memory.save(snapshot({ response: { ...response(4, 'x'.repeat(1600)), categories: [{ id: '73', name: '再更新' }] } })), false)
+  assert.deepEqual(memory.stats(), { pages: 0, bytes: 0 })
+})
+
+test('taxonomy never crosses source, configuration or viewing-scope bindings', () => {
+  const memory = createOnlineBrowseMemory()
+  memory.save(snapshot())
+  for (const changed of [{ source: { ...source, id: 'src_' + '5'.repeat(32) } },
+    { source: { ...source, configuration_token: '6'.repeat(64) } },
+    { scope: onlineBrowseScope('7'.repeat(64), { mode: 'private', generation: 4, revision: 1 }) }]) {
+    const values = snapshot({ ...changed, response: { ...response(2), categories: [] } })
+    assert.equal(memory.save(values), true)
+    assert.deepEqual(memory.read(values.scope, values.source, { categoryId: '71', page: 2 }).categories, [])
+  }
+  assert.deepEqual(memory.read(scope, source, { categoryId: '71' }).categories, response().categories)
+})
+
 test('year and channel navigation cannot reuse a different filtered catalogue page', () => {
   const memory = createOnlineBrowseMemory()
   const selections = { '58': '71', '20': '21' }

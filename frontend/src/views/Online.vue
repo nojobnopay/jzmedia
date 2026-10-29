@@ -258,7 +258,7 @@ const relatedGroups = computed(() => [
 let disposed = false, generation = 0, libraryGeneration = 0, healthGeneration = 0, playIntent = 0, nextIntent = 0, runId = 0, activeRun = null
 let relatedGeneration = 0, itemStateGeneration = 0, lineSelectionIntent = 0, detailReturnFocus = null
 let lastSourceId = ''
-let cacheScope = '', loadedAt = 0, browsePosition = null, positionIntent = 0, suspendedWork = null
+let cacheScope = '', categoryScope = '', loadedAt = 0, browsePosition = null, positionIntent = 0, suspendedWork = null
 function current(turn) { return !disposed && turn === generation && safeMode.value }
 function cancelRelated(clear = false, defer = false) {
   const interrupted = relatedLoading.value
@@ -338,6 +338,7 @@ async function refreshHostDetail() {
   if (cacheScope && onlineBrowseScope(response.scope_token, viewing) !== cacheScope) throw new Error('viewing scope changed')
   sources.value = response.items
   cacheScope = onlineBrowseScope(response.scope_token, viewing)
+  acceptCategories()
   context.scope = hostViewScope()
   hostReminders.remember(hostReminderKey())
   const refreshed = await client.detail(context.source, context.externalId)
@@ -366,6 +367,14 @@ function syncChannel() {
   if (!categoryId.value) channelId.value = ''
   if (channelId.value && categoryId.value) channelSelections.value = { ...channelSelections.value, [channelId.value]: categoryId.value }
 }
+function acceptCategories(rows) {
+  const scope = JSON.stringify([cacheScope, viewing.mode, viewing.generation, viewing.revision,
+    sourceId.value, selectedSource.value?.configuration_token || ''])
+  if (categoryScope !== scope) { categories.value = []; categoryScope = scope }
+  // A filtered page can succeed while its optional taxonomy lookup times out.
+  // Only a nonempty source tree replaces the last verified tree in this scope.
+  if (Array.isArray(rows) && rows.length) categories.value = rows
+}
 function rememberBrowse(source = selectedSource.value, capture = true) {
   if (!safeMode.value || !searched.value || !cacheScope || !source || !loadedAt
     || cacheScope !== onlineBrowseScope(cacheScope.slice(0, 64), viewing)) return
@@ -382,8 +391,9 @@ function applyBrowse(snapshot) {
   setYear(snapshot.year || ''); loadedYear.value = year.value
   query.value = snapshot.inputQuery; loadedQuery.value = snapshot.query
   browsePosition = snapshot.position; loadedAt = snapshot.loadedAt
+  acceptCategories(snapshot.categories || snapshot.response?.categories)
   if (!snapshot.response) return false
-  results.value = snapshot.response.items || []; categories.value = snapshot.response.categories || []
+  results.value = snapshot.response.items || []
   syncChannel(); loadedChannelId.value = channelId.value
   page.value = snapshot.response.page; pageCount.value = snapshot.response.page_count
   total.value = snapshot.response.total; searched.value = true
@@ -399,6 +409,7 @@ async function restoreBrowse(position = browsePosition, { top = false } = {}) {
   }
 }
 function resetBrowse() {
+  categoryScope = ''
   results.value = []; categories.value = []; categoryId.value = loadedCategoryId.value = ''; loadedQuery.value = ''
   channelId.value = loadedChannelId.value = ''; channelSelections.value = {}; categoriesOpen.value = false; categoryQuery.value = ''
   setYear(''); loadedYear.value = ''
@@ -421,6 +432,7 @@ async function loadSources() {
     if (target && sources.value.some(source => source.id === target.sourceId)) sourceId.value = target.sourceId
     else if (!target && restored) sourceId.value = restored.sourceId
     if (!sources.value.some(source => source.id === sourceId.value)) sourceId.value = sources.value[0]?.id || ''
+    acceptCategories()
     if (!canFilterYear.value) setYear('')
     if (restored?.sourceId === sourceId.value) applyBrowse(restored)
     lastSourceId = sourceId.value
@@ -546,7 +558,7 @@ async function search(nextPage = 1, text = query.value, options = {}) {
     const response = await (browsing ? client.browse(sourceId.value, nextPage, requestedCategory, requestedYear) : client.search(sourceId.value, text, nextPage))
     if (!current(turn) || !response) return
     results.value = response.items || []; page.value = response.page; pageCount.value = response.page_count
-    if (browsing) categories.value = response.categories || []
+    acceptCategories(browsing ? response.categories : undefined)
     total.value = response.total; loadedQuery.value = text.trim(); loadedCategoryId.value = requestedCategory; searched.value = true; loadedAt = Date.now()
     syncChannel(); loadedChannelId.value = channelId.value; loadedYear.value = requestedYear
     if (options.force) posterGeneration.value++

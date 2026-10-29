@@ -115,6 +115,109 @@ test('channels choose a concrete child, remember it and keep native parent queri
   assert.equal(ui.text().includes('全部短剧'), false)
 })
 
+test('movie selection, year changes, pagination and keyword results keep a temporarily omitted taxonomy', async t => {
+  let browsing = 0
+  const calls = []
+  const { ui } = await setup(t, async path => {
+    calls.push(path)
+    if (path.endsWith('/sources')) return taxonomySources()
+    if (path.includes('/search?')) return { ...rows, page_count: 2 }
+    const result = categoryRows(path)
+    return ++browsing === 1 ? result : { ...result, categories: browsing === 2 ? [] : undefined }
+  })
+  ui.find(node => node.props['data-online-channel'] === '20').props.onClick(); await flush()
+  assert.equal(new URL(calls.at(-1), 'https://jzmedia.invalid').searchParams.get('category_id'), '21')
+  assert.equal(ui.find(node => node.props['data-online-category'] === '21').props['aria-pressed'], true)
+  assert.ok(ui.find(node => node.props['data-online-channel'] === '58'))
+  ui.find(node => node.props['data-online-year'] !== undefined).props.onChange({ target: { value: '2025' } }); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '下一页').props.onClick(); await flush()
+  assert.equal(new URL(calls.at(-1), 'https://jzmedia.invalid').searchParams.get('year'), '2025')
+  assert.equal(new URL(calls.at(-1), 'https://jzmedia.invalid').searchParams.get('page'), '2')
+  assert.ok(ui.find(node => node.props['data-online-category'] === '21'))
+  ui.find(node => node.props['data-online-categories-open'] !== undefined).props.onClick(); await flush()
+  assert.ok(ui.find(node => node.props['data-online-categories-dialog'] !== undefined))
+  assert.ok(ui.all().some(node => node.props['data-online-category'] === '72'))
+  // Close the category panel without changing the current category before search.
+  ui.all().filter(node => node.props['data-online-category'] === '21').at(-1).props.onClick(); await flush()
+  search(ui, '合成电影'); await flush()
+  assert.ok(ui.find(node => node.props['data-online-channel'] === '20'))
+  assert.ok(ui.find(node => node.props['data-online-categories-open'] !== undefined))
+})
+
+test('warm route reentry keeps categories captured before an empty filtered response', async t => {
+  const catalogue = { ...taxonomySources(), scope_token: SCOPE }
+  let reads = 0
+  const first = await setup(t, async path => {
+    if (path.endsWith('/sources')) return catalogue
+    const response = categoryRows(path)
+    return ++reads === 1 ? response : { ...response, categories: [] }
+  })
+  first.ui.find(node => node.props['data-online-channel'] === '20').props.onClick(); await flush()
+  first.ui.find(node => node.type === 'button' && nodeText(node) === '下一页').props.onClick(); await flush()
+  first.ui.app.unmount()
+  const calls = []
+  const next = await setup(t, async path => { calls.push(path); return catalogue })
+  assert.equal(calls.length, 1, 'a warm route reentry only verifies sources')
+  assert.ok(next.ui.find(node => node.props['data-online-channel'] === '20'))
+  assert.equal(next.ui.find(node => node.props['data-online-category'] === '21').props['aria-pressed'], true)
+  assert.ok(next.ui.text().includes('第 2 / 2 页'))
+})
+
+test('expired poster rows retain verified navigation taxonomy when the fresh response omits it', async t => {
+  const catalogue = { ...taxonomySources(), scope_token: SCOPE }
+  onlineBrowseMemory.save({ scope: onlineBrowseScope(SCOPE, { mode: 'normal', generation: 1, revision: 0 }),
+    source: catalogue.items[0], categoryId: '21', channelId: '20', channelSelections: { '20': '21' }, year: '2025',
+    response: { ...rows, categories: hierarchy, items: [{ ...rows.items[0], title: '过期海报页' }] }, loadedAt: Date.now() - 61000 })
+  const pending = deferred()
+  const { ui } = await setup(t, async path => path.endsWith('/sources') ? catalogue : pending.promise)
+  assert.ok(ui.find(node => node.props['data-online-channel'] === '20'))
+  assert.ok(ui.find(node => node.props['data-online-category'] === '21'))
+  assert.equal(ui.text().includes('过期海报页'), false)
+  pending.resolve({ ...rows, categories: [], items: [{ ...rows.items[0], title: '本次新海报' }] }); await flush()
+  assert.ok(ui.text().includes('本次新海报'))
+  assert.ok(ui.find(node => node.props['data-online-category'] === '21'))
+  assert.equal(ui.find(node => node.props['data-online-year'] !== undefined).props.value, '2025')
+})
+
+test('a newer nonempty tree removes old category controls even when returning to an older cached page', async t => {
+  const catalogue = { ...taxonomySources(), scope_token: SCOPE }
+  const updated = hierarchy.filter(category => category.id !== '21').concat({ id: '22', parent_id: '20', name: '科幻片' })
+  const { ui } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return catalogue
+    const result = categoryRows(path)
+    return { ...result, categories: result.page === 2 ? updated : hierarchy }
+  })
+  ui.find(node => node.props['data-online-channel'] === '20').props.onClick(); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '下一页').props.onClick(); await flush()
+  assert.equal(ui.find(node => node.props['data-online-category'] === '21'), undefined)
+  assert.ok(ui.find(node => node.props['data-online-category'] === '22'))
+  ui.find(node => node.type === 'button' && nodeText(node) === '上一页').props.onClick(); await flush()
+  assert.equal(ui.find(node => node.props['data-online-category'] === '21'), undefined)
+  assert.ok(ui.find(node => node.props['data-online-category'] === '22'))
+})
+
+test('changing source or protection revision cannot retain the prior source taxonomy', async t => {
+  const first = taxonomySources()
+  const catalogue = { ...first, items: [first.items[0], { ...first.items[0], id: SOURCE_B,
+    name: '另一来源', configuration_token: 'c'.repeat(64) }] }
+  let available = true
+  const { ui, viewing } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return catalogue
+    const result = categoryRows(path)
+    const id = new URL(path, 'https://jzmedia.invalid').searchParams.get('source_id')
+    return available && id === SOURCE_A ? result : { ...result, categories: [] }
+  })
+  assert.ok(ui.find(node => node.props['data-online-channel'] === '20'))
+  const source = ui.find(node => node.props['data-online-source'] !== undefined)
+  source.props['onUpdate:modelValue'](SOURCE_B); source.props.onChange(); await flush()
+  assert.equal(ui.find(node => node.props['data-online-channel'] === '20'), undefined)
+  source.props['onUpdate:modelValue'](SOURCE_A); source.props.onChange(); await flush()
+  assert.ok(ui.find(node => node.props['data-online-channel'] === '20'))
+  available = false; viewing.revision++; await flush()
+  assert.equal(ui.find(node => node.props['data-online-channel'] === '20'), undefined)
+  assert.ok(ui.find(node => node.props['data-online-year'] !== undefined), 'the fresh source still independently supports year filtering')
+})
+
 test('verified year filters reach pagination, validate custom years and clear before keyword search', async t => {
   const calls = []
   const { ui } = await setup(t, async path => { calls.push(path); return path.endsWith('/sources') ? taxonomySources() : categoryRows(path) })
@@ -872,7 +975,8 @@ test('warm route reentry verifies sources before restoring the category and page
 
 test('source configuration changes and device scope changes reject previous page snapshots', async t => {
   clearOnlineBrowse()
-  const first = await setup(t, async path => path.endsWith('/sources') ? cacheableSources() : rows)
+  const first = await setup(t, async path => path.endsWith('/sources') ? cacheableSources() : { ...rows, categories: hierarchy })
+  assert.ok(first.ui.find(node => node.props['data-online-channel'] === '20'))
   first.ui.app.unmount()
   for (const catalogue of [cacheableSources('c'.repeat(64)), cacheableSources('b'.repeat(64), 'd'.repeat(64))]) {
     const calls = []
@@ -880,6 +984,7 @@ test('source configuration changes and device scope changes reject previous page
       : { ...rows, items: [{ ...rows.items[0], title: '重新核对的目录' }] } })
     assert.equal(calls.filter(path => path.includes('/browse?')).length, 1)
     assert.equal(next.ui.text().includes('重新核对的目录'), true)
+    assert.equal(next.ui.find(node => node.props['data-online-channel'] === '20'), undefined, 'a new source configuration or viewing scope cannot reuse the old tree')
     next.ui.app.unmount()
   }
 })
