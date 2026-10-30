@@ -179,6 +179,8 @@ U1–U4 网页体验优化已完成上述范围，后续优先收集真实来源
 
 ## P0 实测与运行
 
+以下阶段编号保留历史实施与验收含义。当前复现命令使用功能名称：公共隔离夹具位于 `scripts/online_fixture/`，原型与固定公网诊断分别位于 `scripts/online_prototype/`、`scripts/online_diagnostics/`；操作入口见[播放链路](../developer/playback.md#在线播放描述)。已有证据目录中的 P0～P4 名称保持原样。
+
 ### 来源与网络结果
 
 2026-10-26 在开发机和现有 NAS 应用容器分别执行有界探测。早期探测时 NAS 为 v0.31.1；用户随后单独完成投屏修复并升级到 v0.31.2，本轮 HLS 续验核实为 v0.31.2、host 网络。探测使用独立进程并禁用环境代理，没有修改正式应用、配置、数据库或片库。本文“直连”指未配置应用层出站代理，未检查宿主机或路由器是否存在透明转发。NAS 对直连可用来源进行了两轮小流量读取，间隔约 8 分钟；这不代表跨高峰时段或长期可用。
@@ -235,40 +237,40 @@ Apple 主清单允许跨域，但实测子清单缺少跨域响应头，浏览�
 
 ### 隔离原型与复现
 
-`scripts/online_p0/` 提供固定模拟 MacCMS、两集 24 秒合成 H.264/AAC 媒体、MP4 Range/HEAD、嵌套 fMP4 HLS 和可撤销会话。`scripts/fixtures/OnlineP0Preview.vue` 复用现有控件、`playbackLifecycle` 和 hls.js，完成搜索、详情、选集、暂停、跳转、续播及关闭清理。它没有修改正式 `PlayerModal`、产品导航或数据库，也不接受任意公网 URL。
+`scripts/online_prototype/` 保留早期固定模拟 MacCMS、MP4 Range/HEAD、嵌套 fMP4 HLS 和可撤销会话原型；两集 24 秒合成 H.264/AAC 媒体由公共 `scripts/online_fixture/media.py` 生成。`scripts/fixtures/OnlinePrototypePreview.vue` 复用现有控件、`playbackLifecycle` 和 hls.js，完成搜索、详情、选集、暂停、跳转、续播及关闭清理。它没有修改正式 `PlayerModal`、产品导航或数据库，也不接受任意公网 URL。
 
 在仓库根启动可交互原型：
 
 ```bash
-node scripts/smoke_online_p0.mjs --demo
+node scripts/smoke_online_prototype.mjs --demo
 ```
 
-此命令在开发机执行：使用现有依赖和已缓存的 FFmpeg，一次性生成 `/tmp/jzmedia-online-p0-*` 合成素材并打印回环访问地址；运行中的取流服务只转发，解码由浏览器完成。按 Ctrl+C 退出并清理临时目录。不要把合成素材生成任务放到 NAS 上作为播放流程。无需真实片库或公网来源。自动验收使用：
+此命令在开发机执行：使用现有依赖和已缓存的 FFmpeg，一次性生成 `/tmp/jzmedia-online-prototype-*` 合成素材并打印回环访问地址；运行中的取流服务只转发，解码由浏览器完成。按 Ctrl+C 退出并清理临时目录。不要把合成素材生成任务放到 NAS 上作为播放流程。无需真实片库或公网来源。自动验收使用：
 
 ```bash
-.venv/bin/python -m pytest -q tests/test_online_p0.py tests/test_online_source_probe.py
-node scripts/smoke_online_p0.mjs
+.venv/bin/python -m pytest -q tests/test_online_prototype.py tests/test_online_source_probe.py
+node scripts/smoke_online_prototype.mjs
 ```
 
 后端当前覆盖固定来源边界、MP4 Range/HEAD、相对 HLS 地址、会话隔离、早断开/慢流取消、API 与媒体独立代理以及故障不回退。网页 1440px/390px × MP4/HLS 四组均通过，验证了真实解码帧、时钟、跳转、分集独立进度和释放；没有外部请求或浏览器错误。未覆盖 Safari 原生 HLS、手机真机、电视和人工声音确认。
 
-MP4 公网长播诊断由两个独立工具负责：`scripts/online_p0/public_relay.py` 只透传启动配置中的固定 Blender 360p MP4；`scripts/soak_online_p0.mjs` 在开发机浏览器实际解码。前者通过 `P0_RELAY_CONFIG` JSON 提供 `sources`、随机 `token`、`port`、`ttl_seconds`、`max_bytes_total`；默认回环绑定，每次 Range 上限 4 MiB、缓冲块 64 KiB、媒体请求最多两路。`max_range_bytes` 可显式设置为 64 KiB 的整数倍，最大 4 MiB，用于有记录的 A/B，不自动切换。它没有通用公网网关的 DNS 固定、安全策略或完整会话能力，不能挂进正式应用。
+MP4 公网长播诊断由两个独立工具负责：`scripts/online_diagnostics/public_relay.py` 只透传启动配置中的固定 Blender 360p MP4；`scripts/soak_online_mp4.mjs` 在开发机浏览器实际解码。前者通过 `ONLINE_MP4_RELAY_CONFIG` JSON 提供 `sources`、随机 `token`、`port`、`ttl_seconds`、`max_bytes_total`；默认回环绑定，每次 Range 上限 4 MiB、缓冲块 64 KiB、媒体请求最多两路。`max_range_bytes` 可显式设置为 64 KiB 的整数倍，最大 4 MiB，用于有记录的 A/B，不自动切换。它没有通用公网网关的 DNS 固定、安全策略或完整会话能力，不能挂进正式应用。
 
 在开发机使用既有依赖执行：
 
 ```bash
-node scripts/soak_online_p0.mjs --help
+node scripts/soak_online_mp4.mjs --help
 .venv/bin/python -m pytest -q tests/test_online_public_relay.py
 ```
 
 启动临时转发进程时使用 `python -B`，避免生成依赖字节码。在 NAS 验证时，脚本可通过标准输入执行，不生成媒体或安装文件；访问限定在现有受控网络，测试后调用令牌路径的 `POST /<token>/shutdown`，TTL 兜底。浏览器脚本默认 1800 秒真实播放，先记录空闲基线，再记录单路及额外 300 秒第二路；分别判定起播、连续帧/时钟、播放后跳转、连接回收和 NAS 指标。两路均起播失败会提前结束，不能把等待时间算成播放时长。输出包含源码指纹和脱敏诊断，位于 `output/playwright/`；本机重负载验证沿用既定 2 GiB、2 核及禁用 swap 的临时资源限制。
 
-真实 HLS 另用 `scripts/online_p0/hls_relay.py` 和 `scripts/probe_hls_player_p0.mjs`。前者只接受固定 Apple 官方样例目录，通过 `P0_HLS_RELAY_CONFIG` 提供 `token`、`port`、`entry_url`、`ttl_seconds`、`max_bytes_total`；清单最多 256 KiB、单段最多 8 MiB、每块 64 KiB、同时取流最多 4 个请求，队列最多 8 个且等待不超过 2 秒，处理线程最多 16 个。没有重试、媒体处理或磁盘缓存。清单中的相对地址与 URI 属性均映射为令牌资源，覆盖分离音轨和 fMP4 初始化段；固定来源诊断仍不能作为通用公网网关上线。
+真实 HLS 另用 `scripts/online_diagnostics/hls_relay.py` 和 `scripts/probe_online_hls.mjs`。前者只接受固定 Apple 官方样例目录，通过 `ONLINE_HLS_RELAY_CONFIG` 提供 `token`、`port`、`entry_url`、`ttl_seconds`、`max_bytes_total`；清单最多 256 KiB、单段最多 8 MiB、每块 64 KiB、同时取流最多 4 个请求，队列最多 8 个且等待不超过 2 秒，处理线程最多 16 个。没有重试、媒体处理或磁盘缓存。清单中的相对地址与 URI 属性均映射为令牌资源，覆盖分离音轨和 fMP4 初始化段；固定来源诊断仍不能作为通用公网网关上线。
 
 HLS 浏览器诊断固定选择上游最低的兼容 AVC/AAC 变体，删除本次不用的其他档位，避免错误恢复隐式切到高码率；有限请求重试不改变来源或网络。每路统计实际播放区间、首帧后的墙钟、解码帧、停顿、非预期跳转和媒体错误，成功播放后再独立测试 seek。实际音视频解码与 TS 转为浏览器媒体片段的处理都在开发机浏览器。NAS 只作字节透传，关闭后检查活动请求、队列、子进程和磁盘写入。共享转发进程的两路指标是整体统计，不能把两份客户端报告中的 NAS 数字相加。
 
 ```bash
-node scripts/probe_hls_player_p0.mjs --help
+node scripts/probe_online_hls.mjs --help
 .venv/bin/python -m pytest -q tests/test_online_hls_relay.py
 ```
 
@@ -278,7 +280,7 @@ node scripts/probe_hls_player_p0.mjs --help
 .venv/bin/python scripts/probe_online_sources.py \
   --candidates /path/to/candidates.json \
   --label development-direct --mode direct \
-  --output output/diagnostics/online-p0/development-direct.json
+  --output output/diagnostics/online-source-probe/development-direct.json
 ```
 
 代理对照改用 `--mode proxy --proxy-env P0_NETWORK_PROXY`，代理地址从该环境变量读取，不能写入命令示例或报告凭据。退出码 0/1/2 分别代表所配置读取检查通过、存在探测失败、工具或配置失败；0 不表示通过播放、许可或稳定性验收。该 CLI 的 DNS 检查没有固定实际连接地址，仅供受控诊断，不作为生产公网网关的安全实现。
@@ -351,7 +353,7 @@ jzmedia 同源 MP4 / HLS 取流网关
 
 ### 提供方与数据模型
 
-P1 第一项建立了 `app/online/models.py`、`app/routers/online.py`、`app/store/online.py` 及 schema 32 身份与配置；P2 的 schema 34 补充 `provider_options`，目录和播放解析才发起上游请求，保存配置仍不访问外网。来源改名或更换同一片库的接口地址保留 ID，分集排序不参与身份；创建/修改经过整体验证后原子保存。配置 GET 同样校验已设置的访问令牌，并叠加现有管理保护。现行说明见[在线数据模型](../developer/data.md#在线来源与稳定身份)、[管理 API](../developer/api.md#在线来源配置)和[播放描述](../developer/playback.md#在线播放描述)；P0 验证代码仍独立位于 `scripts/online_p0/`。
+P1 第一项建立了 `app/online/models.py`、`app/routers/online.py`、`app/store/online.py` 及 schema 32 身份与配置；P2 的 schema 34 补充 `provider_options`，目录和播放解析才发起上游请求，保存配置仍不访问外网。来源改名或更换同一片库的接口地址保留 ID，分集排序不参与身份；创建/修改经过整体验证后原子保存。配置 GET 同样校验已设置的访问令牌，并叠加现有管理保护。现行说明见[在线数据模型](../developer/data.md#在线来源与稳定身份)、[管理 API](../developer/api.md#在线来源配置)和[播放描述](../developer/playback.md#在线播放描述)；早期验证原型独立位于 `scripts/online_prototype/`。
 
 - `online_sources`：已保存提供方类型、显示名称、API 基础地址、启停、优先级与允许主机；仅管理员管理，总开关和新来源均默认关闭。网络规则由独立策略接口管理，代理凭据由网络档案加密保存；P3 增加分用途的实际请求观察，来源上游凭据管理仍待后续接入。
 - `online_items`：已按来源、内容类型和提供方稳定 ID 保存独立身份与标题；P3 收藏引用该稳定身份，TMDB 关联和按需资料缓存由后续模块接入，不全量抓取外部片库。
@@ -517,7 +519,7 @@ P2 使用临时数据库、隔离 MacCMS API 与预先生成样片验证实际�
 
 电视来源和网络配置继续由网页管理，服务端与实际取流沿用来源／用途策略，免费且全链路直连优先。终端不支持时提示换线路或设备，不自动请求 NAS 转码、烧录或预览。在线收藏与进度使用电视自己的观看 token，不承诺账户级网页／电视同步；当前也不增加本地媒体收藏入口。
 
-P4 隔离服务使用 `scripts/online_p4/` 及 `/tmp/jzmedia-online-p2-p3-p4-*` 标记根，启动前在开发机预生成合成 MP4/HLS，服务阶段只读取；真实生产 NAS、源片和媒体库不参与。旧 `android-tv/tools/backend_fixture.py` 会执行本地转码，不能用于证明在线流程无服务端媒体处理。操作入口见[电视在线测试](../../android-tv/docs/testing.md#验证在线点播)，验收边界见[电视当前状态](android-tv.md#在线点播-p4)。
+P4 隔离服务使用 `scripts/online_fixture/tv.py` 及 `/tmp/jzmedia-online-tv-*` 标记根，启动前在开发机预生成合成 MP4/HLS，服务阶段只读取；真实生产 NAS、源片和媒体库不参与。旧 `android-tv/tools/backend_fixture.py` 会执行本地转码，不能用于证明在线流程无服务端媒体处理。操作入口见[电视在线测试](../../android-tv/docs/testing.md#验证在线点播)，验收边界见[电视当前状态](android-tv.md#在线点播-p4)。
 
 ### 首版验收条件
 

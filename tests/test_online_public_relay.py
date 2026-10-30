@@ -1,4 +1,4 @@
-"""The NAS P0 relay is exercised against in-memory upstreams, never public media."""
+"""The fixed MP4 diagnostic relay is exercised against in-memory upstreams, never public media."""
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -13,10 +13,10 @@ import time
 import httpx
 import pytest
 
-from scripts.online_p0.public_relay import RANGE_BYTES, Relay, child_observation, make_server, validate_config
+from scripts.online_diagnostics.public_relay import RANGE_BYTES, Relay, child_observation, make_server, validate_config
 
 
-TOKEN = "isolated_p0_relay_test_token_1234567890"
+TOKEN = "isolated_mp4_relay_test_token_1234567890"
 URL = ("https://video.blender.org/object-storage/web_videos/"
        "8e364d32-8918-403e-a8c0-915634b9f405-360.mp4")
 TOTAL = RANGE_BYTES * 2 + 123
@@ -333,8 +333,8 @@ def test_total_byte_budget_and_authenticated_shutdown():
 
 
 def test_stdin_mode_exits_at_ttl_without_repository_import_or_media_write(tmp_path):
-    script = Path(__file__).resolve().parents[1] / "scripts/online_p0/public_relay.py"
-    env = dict(os.environ, P0_RELAY_CONFIG=json.dumps(config(ttl_seconds=1)), PYTHONDONTWRITEBYTECODE="1")
+    script = Path(__file__).resolve().parents[1] / "scripts/online_diagnostics/public_relay.py"
+    env = dict(os.environ, ONLINE_MP4_RELAY_CONFIG=json.dumps(config(ttl_seconds=1)), PYTHONDONTWRITEBYTECODE="1")
     result = subprocess.run([str(Path(os.sys.executable)), "-u", "-"], input=script.read_text(),
                             text=True, capture_output=True, env=env, cwd=tmp_path, timeout=5)
     assert result.returncode == 0, result.stderr

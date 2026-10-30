@@ -4,15 +4,15 @@
 // Generation finishes before serving; no production DB, Docker, NAS or public source.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { createServer } from 'node:net'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from '../frontend/node_modules/vite/dist/node/index.js'
 import vue from '../frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs'
 import { chromium } from '../docs/node_modules/playwright/index.mjs'
+import { backendChildren, delay, freePort, killOwned as kill, sha256 as sha, stopOwned, stopped,
+  waitForFixtureIdle, waitUntil } from './online_fixture/browser.mjs'
 
 if (process.argv.slice(2).includes('--help')) {
   console.log('Usage: node scripts/smoke_online_range.mjs (isolated 90-second MP4, 150 KiB/s origin; use resource guard)')
@@ -20,7 +20,7 @@ if (process.argv.slice(2).includes('--help')) {
 }
 assert.equal(process.argv.length, 2, 'No runtime target or arbitrary media URL is accepted')
 const root = fileURLToPath(new URL('../', import.meta.url))
-const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-range-'))
+const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-catalog-range-'))
 const output = path.join(root, 'output/playwright/online-range')
 const dist = path.join(work, 'dist')
 const rate = 150 * 1024
@@ -30,13 +30,6 @@ const report = { generatedAt: new Date().toISOString(), synthetic: true,
 let generator = null, backend = null, browser = null, context = null, page = null
 let base = '', backendLog = '', stopping = false, failure = null, phase = 'setup'
 const mediaResponses = []
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
-const stopped = child => !child || child.exitCode !== null || child.signalCode !== null
-const sha = data => createHash('sha256').update(data).digest('hex')
-function kill(child, signal = 'SIGTERM') {
-  if (!child?.pid || stopped(child)) return
-  try { process.kill(-child.pid, signal) } catch { try { child.kill(signal) } catch { /* Already stopped. */ } }
-}
 function interrupt() {
   stopping = true
   kill(generator)
@@ -48,15 +41,8 @@ process.on('SIGINT', interrupt)
 process.on('SIGTERM', interrupt)
 const overall = setTimeout(interrupt, 165000)
 
-async function until(predicate, message, seconds = 20) {
-  const end = Date.now() + seconds * 1000
-  let latest
-  while (Date.now() < end) {
-    checkStop()
-    try { const value = await predicate(); if (value) return value } catch (error) { latest = String(error) }
-    await delay(100)
-  }
-  throw new Error(`${message}${latest ? ': ' + latest : ''}`)
+function until(predicate, message, seconds = 20) {
+  return waitUntil(predicate, message, { timeout: seconds * 1000, interval: 100, checkStop })
 }
 async function get(apiPath) {
   const response = await fetch(base + apiPath, { signal: AbortSignal.timeout(3000) })
@@ -64,19 +50,13 @@ async function get(apiPath) {
   return response.json()
 }
 async function noBackendChildren(label) {
-  const children = new Set()
-  for (const task of await readdir(`/proc/${backend.pid}/task`)) {
-    try {
-      const value = await readFile(`/proc/${backend.pid}/task/${task}/children`, 'utf8')
-      for (const pid of value.trim().split(/\s+/)) if (pid) children.add(Number(pid))
-    } catch (error) { if (!['ENOENT', 'ESRCH'].includes(error.code)) throw error }
-  }
-  report.children.push({ label, children: [...children] })
-  assert.deepEqual([...children], [], 'The serving gateway must never launch FFmpeg/ffprobe or another child')
+  const children = await backendChildren(backend)
+  report.children.push({ label, children })
+  assert.deepEqual(children, [], 'The serving gateway must never launch FFmpeg/ffprobe or another child')
 }
 async function generate() {
   let log = ''
-  generator = spawn(path.join(root, '.venv/bin/python'), ['-m', 'scripts.online_p2.server', '--root', work, '--generate-range-media'],
+  generator = spawn(path.join(root, '.venv/bin/python'), ['-m', 'scripts.online_fixture.catalog', '--root', work, '--generate-range-media'],
     { cwd: root, env: { ...process.env, PYTHONUNBUFFERED: '1' }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   for (const stream of [generator.stdout, generator.stderr]) stream.on('data', data => { log = (log + data).slice(-10000) })
   const code = await new Promise((resolve, reject) => { generator.once('error', reject); generator.once('exit', resolve) })
@@ -97,7 +77,7 @@ createApp({setup(){
   const ready=ref(false),opened=ref(false),identity=ref(null),error=ref('');
   const info=window.__rangeHarness={ready:false,error:'',closed:false};
   onMounted(async()=>{try{
-    const bootstrap=await api('/api/p2/bootstrap');setToken(bootstrap.api_token);await refreshViewing();
+    const bootstrap=await api('/api/fixture/bootstrap');setToken(bootstrap.api_token);await refreshViewing();
     await api('/api/online/settings',{method:'PATCH',body:JSON.stringify({enabled:true})});
     const source=await api('/api/online/sources',{method:'POST',body:JSON.stringify({name:'隔离长MP4',provider:'maccms',enabled:true,api_base_url:bootstrap.api_base_url,allowed_hosts:bootstrap.allowed_hosts})});
     const detail=await api('/api/online/catalog/detail?source_id='+source.id+'&external_id=movie-1');
@@ -126,26 +106,23 @@ createApp({setup(){
     + `</head><body><div id="app"></div><script type="module" src="/${entry}"></script></body></html>`)
 }
 async function serve() {
-  const socket = createServer()
-  await new Promise((resolve, reject) => { socket.once('error', reject); socket.listen(0, '127.0.0.1', resolve) })
-  const port = socket.address().port
-  await new Promise(resolve => socket.close(resolve))
+  const port = await freePort()
   base = `http://127.0.0.1:${port}`
-  backend = spawn(path.join(root, '.venv/bin/python'), ['-m', 'scripts.online_p2.server', '--root', work,
+  backend = spawn(path.join(root, '.venv/bin/python'), ['-m', 'scripts.online_fixture.catalog', '--root', work,
     '--port', String(port), '--static-dir', dist, '--throttle-bytes-per-second', String(rate)],
   { cwd: root, env: { ...process.env, PYTHONUNBUFFERED: '1' }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   for (const stream of [backend.stdout, backend.stderr]) stream.on('data', data => { backendLog = (backendLog + data).slice(-20000) })
-  await until(async () => !stopped(backend) && (await get('/api/p2/health')).ok, 'Paced isolated server must become ready')
+  await until(async () => !stopped(backend) && (await get('/api/fixture/health')).ok, 'Paced isolated server must become ready')
   await noBackendChildren('ready-after-generator-exit')
 }
 async function sample() {
   return page.locator('video').evaluate(video => ({ wall: performance.now(), time: video.currentTime, paused: video.paused,
-    readyState: video.readyState, error: video.error?.code || null, rate: video.playbackRate,
+    readyState: video.readyState, error: video.error?.code || null, rate: video.playbackRate, ended: video.ended,
     frames: video.getVideoPlaybackQuality?.().totalVideoFrames || 0,
     presentedFrames: window.__jzOnlinePlayer?.snapshot().presentedFrames || 0,
     buffered: Array.from({ length: video.buffered.length }, (_, index) => [video.buffered.start(index), video.buffered.end(index)]) }))
 }
-async function observeNatural(target) {
+async function observeNatural(target, first) {
   const deadline = Date.now() + 110000
   while (Date.now() < deadline) {
     checkStop()
@@ -157,11 +134,16 @@ async function observeNatural(target) {
     const disruptive = observation.events.filter(event => event.phase === 'natural' && event.afterPlaying
       && ['waiting', 'stalled', 'error', 'seeking'].includes(event.type) && event.time > 1)
     assert.deepEqual(disruptive, [], 'Natural playback must neither rebuffer/stall nor seek across bounded HTTP ranges')
-    if (value.time >= target) return value
+    // Decoder and real video-frame callback observations have independent
+    // scheduling. Crossing the byte-boundary timestamp must not end the sample
+    // before both existing frame requirements have actually been observed.
+    if (value.time >= target && value.frames > first.frames + 1500
+      && value.presentedFrames > first.presentedFrames + 1500) return value
+    if (value.ended) throw new Error('Natural playback ended before crossing the byte boundary with the required 1500 decoded and presented frame increments')
     if (report.samples.length === 35 || report.samples.length === 65) await noBackendChildren(`natural-${Math.floor(value.time)}s`)
     await delay(1000)
   }
-  throw new Error('Natural 1x playback did not cross the old byte boundary within 110 seconds')
+  throw new Error('Natural 1x playback did not cross the old byte boundary with the required decoded and presented frames within 110 seconds')
 }
 function validateOriginBytes(value, original) {
   const calls = value.origin_calls.filter(call => call.kind === 'media' && call.method === 'GET' && call.path === '/files/ep-1/movie.mp4')
@@ -181,7 +163,9 @@ function validateOriginBytes(value, original) {
 
 try {
   await mkdir(output, { recursive: true })
-  for (const file of ['scripts/smoke_online_range.mjs', 'scripts/online_p2/server.py', 'scripts/online_p2/fixtures.py',
+  for (const file of ['scripts/smoke_online_range.mjs', 'scripts/online_fixture/catalog.py', 'scripts/online_fixture/catalog_origin.py',
+    'scripts/online_fixture/browser.mjs', 'scripts/online_fixture/common.py', 'scripts/online_fixture/media.py',
+    'scripts/online_fixture/player_origin.py',
     'frontend/src/components/OnlinePlayerModal.vue', 'frontend/src/onlinePlayback.js', 'app/online/gateway.py']) {
     report.fingerprints[file] = sha(await readFile(path.join(root, file)))
   }
@@ -191,7 +175,7 @@ try {
   report.mediaSha256Before = sha(original)
   await buildPlayer()
   await serve()
-  const info = report.fixture = await get('/api/p2/range-info')
+  const info = report.fixture = await get('/api/fixture/range-info')
   assert.equal(info.throttle_bytes_per_second, rate)
   assert.ok(info.bytes > 8 * 1024**2 && info.duration_seconds === 90 && info.average_bits_per_second <= 1000000)
   assert.ok(info.natural_target_seconds > info.boundary_video_time_seconds)
@@ -248,10 +232,10 @@ try {
   phase = 'natural'
   const first = report.firstFrame = await sample()
   console.log('Range fixture decoded first frame; checking natural 1x playback through byte 8 MiB')
-  const end = report.naturalEnd = await observeNatural(info.natural_target_seconds)
+  const end = report.naturalEnd = await observeNatural(info.natural_target_seconds, first)
   assert.ok(end.frames > first.frames + 1500, 'Actual decoded frames advance through the long natural phase')
   assert.ok(end.presentedFrames > first.presentedFrames + 1500, 'Real frame callbacks advance through the natural phase')
-  report.naturalMetrics = await get('/api/p2/metrics')
+  report.naturalMetrics = await get('/api/fixture/metrics')
   report.naturalByteContinuity = validateOriginBytes(report.naturalMetrics, original)
   report.observationBeforeSeeks = await page.evaluate(() => window.__rangeObservation)
   report.checks.push('natural playback crosses encoded packet beyond 8 MiB without rebuffer, stall, error or seek')
@@ -273,11 +257,8 @@ try {
   phase = 'close'
   await page.getByRole('button', { name: '关闭播放器', exact: true }).click()
   await page.waitForFunction(() => window.__rangeHarness.closed && !document.querySelector('video'))
-  report.finalMetrics = await until(async () => {
-    const value = await get('/api/p2/metrics')
-    return value.registry.sessions === 0 && value.registry.active_requests === 0 && value.registry.reserved_bytes === 0
-      && value.pending_requests === 0 && value.catalogue_active === 0 && value.catalogue_owners === 0 ? value : false
-  }, 'Close must release sessions, origin reads and all reservations')
+  report.finalMetrics = (await waitForFixtureIdle(() => get('/api/fixture/metrics'), 'catalog', {
+    message: 'Close must release sessions, origin reads and all reservations', checkStop, timeout: 20000 })).metrics
   assert.deepEqual(report.finalMetrics.local_rows, { movies: 0, tv_episodes: 0, playback_progress: 0 })
   assert.ok(!report.finalMetrics.origin_calls.some(call => call.app_credentials))
   await noBackendChildren('after-close')
@@ -291,25 +272,15 @@ try {
   report.failedPhase = phase
   report.lastMedia = await sample().catch(() => null)
   report.observation = page ? await page.evaluate(() => window.__rangeObservation).catch(() => null) : null
-  report.lastMetrics = base ? await get('/api/p2/metrics').catch(() => null) : null
+  report.lastMetrics = base ? await get('/api/fixture/metrics').catch(() => null) : null
   if (page) await page.screenshot({ path: path.join(output, 'failure.png') }).catch(() => {})
 } finally {
   clearTimeout(overall)
   try { await context?.close() } catch { /* Continue cancellation cleanup. */ }
   try { await browser?.close() } catch { /* Continue cancellation cleanup. */ }
   report.cleanup.browserClosed = true
-  for (const child of [generator, backend]) {
-    kill(child)
-    if (child && !stopped(child)) {
-      await Promise.race([new Promise(resolve => child.once('exit', resolve)), delay(2000)])
-      if (!stopped(child)) {
-        kill(child, 'SIGKILL')
-        await Promise.race([new Promise(resolve => child.once('exit', resolve)), delay(1000)])
-      }
-    }
-  }
-  report.cleanup.generatorStopped = stopped(generator)
-  report.cleanup.backendStopped = stopped(backend)
+  report.cleanup.generatorStopped = await stopOwned(generator, { termMs: 2000 })
+  report.cleanup.backendStopped = await stopOwned(backend, { termMs: 2000 })
   await rm(work, { recursive: true, force: true })
   report.cleanup.temporaryRootRemoved = true
   report.backendLog = backendLog

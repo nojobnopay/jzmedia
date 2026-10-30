@@ -44,7 +44,7 @@ npm run lint --prefix frontend
 npm run build --prefix frontend
 ```
 
-后端测试包含 schema 迁移、多库隔离、SMB、扫描、整理、外源、Android 原生能力及多客户端播放会话；前端测试包含纯函数、模板绑定和字幕 composable 初始化。`tests/conftest.py` 在导入应用前设置临时数据/媒体目录；`pytest.ini` 每例超时 120 秒，线程堆栈兜底 240 秒。改动范围小时先运行相关用例，提交前按仓库要求检查全套结果；如果仓库中已有与本次无关的警告/失败，记录基线及差异，不把未通过说成通过。
+后端测试包含 schema 迁移、多库隔离、SMB、扫描、整理、外源、Android 原生能力及多客户端播放会话；前端测试包含纯函数、模板绑定、字幕 composable 初始化，以及根目录 `tests/online_*.test.mjs` 的在线夹具资源释放和诊断策略契约。`npm test --prefix frontend` 串行运行这些 Node 测试，日常 CI 与发布检查共用该入口。`tests/conftest.py` 在导入应用前设置临时数据/媒体目录；`pytest.ini` 每例超时 120 秒，线程堆栈兜底 240 秒。改动范围小时先运行相关用例，提交前按仓库要求检查全套结果；如果仓库中已有与本次无关的警告/失败，记录基线及差异，不把未通过说成通过。
 
 `check_python.py` 包装 pyflakes，只对脚本内固定白名单的导出门面及同名重导出保留例外，其余未使用、未定义等诊断阻断检查。新增文件不自动加入白名单，不能用宽泛忽略隐藏真实错误。
 

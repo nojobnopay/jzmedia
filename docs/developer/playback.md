@@ -189,19 +189,25 @@ session 描述返回后，首帧前的 `prepareSession` 握手先完成 writer c
 
 自动连播偏好只在当前浏览器按普通／隐私模式保存布尔值，默认关闭。只有真实 ended 才重新读详情，在相同来源、条目、线路中定位当前稳定分集并选择紧邻下一集；若下一集不支持则停止并提示手动选集，不能跳过集数。末集、失败、关闭或偏好关闭会停止。手动换线路仍须明确选集，各线路进度独立，跨源不搬运旧位置。
 
-当前在线控件只显示 HLS 或设备真实提供的音轨、字幕能力，不提供本地 NAS 预览生成、720p 等本地转码档位、字幕烧录、字幕文件加载或投屏。原播放器的这些既有流程保留，不能将在线不支持解释为删除本地能力。P1 隔离预览的当前标签页 `sessionStorage` 是旧验证入口，不作为正式页面持久状态来源。
+当前在线控件只显示 HLS 或设备真实提供的音轨、字幕能力，不提供本地 NAS 预览生成、720p 等本地转码档位、字幕烧录、字幕文件加载或投屏。原播放器的这些既有流程保留，不能将在线不支持解释为删除本地能力。播放器专用隔离预览的当前标签页 `sessionStorage` 只用于验证，不作为正式页面持久状态来源。
 
-P1 专用隔离预览只验证播放器，与正式在线导航分开。先在仓库根准备 Python、前端和文档依赖、FFmpeg；自动浏览器检查还需已安装的 Playwright Chromium。运行：
+播放器专用隔离预览与正式在线导航分开。先在仓库根准备 Python、前端和文档依赖、FFmpeg；自动浏览器检查还需已安装的 Playwright Chromium。运行：
 
 ```bash
-node scripts/smoke_online_p1.mjs --demo
+node scripts/smoke_online_player.mjs --demo
 ```
 
 预期打印回环预览地址，提供 24 秒合成 MP4/HLS 电影和分集；按 Ctrl+C 停止并清理临时目录。脚本先在开发机生成素材、构建预览，再启动临时数据库与固定回环来源；服务阶段只读取既有样片，不调用 FFmpeg，不连接 NAS、真实媒体库或公网来源。不要把生成、构建或浏览器验证放入 NAS 播放流程。
 
-自动检查可分别运行 `node scripts/smoke_online_p1.mjs --case matrix`、`--case lifecycle`、`--case failures`；`--case all` 串行执行全部场景。`matrix` 检查 MP4/HLS 的实际帧、时间、控制与桌面/触摸视口，`lifecycle` 检查身份、晚到响应及页面回收，`failures` 检查有限恢复和错误操作。参数以 `node scripts/smoke_online_p1.mjs --help` 为准，代码入口为 `scripts/smoke_online_p1.mjs`、`scripts/online_p1/` 和 `scripts/fixtures/OnlineP1Preview.vue`；结果写入 `output/playwright/online-p1/`。Chromium 视口模拟与能力缺失模拟不代表 Safari 原生 HLS、真实手机或电视验收，实际支持范围应以对应运行记录为准。
+自动检查可分别运行 `node scripts/smoke_online_player.mjs --case matrix`、`--case lifecycle`、`--case failures`；`--case all` 串行执行全部场景。`matrix` 检查 MP4/HLS 的实际帧、时间、控制与桌面/触摸视口，`lifecycle` 检查身份、晚到响应及页面回收，`failures` 检查有限恢复和错误操作。参数以 `node scripts/smoke_online_player.mjs --help` 为准，服务入口为 `scripts/online_fixture/player.py`，预览入口为 `scripts/fixtures/OnlinePlayerPreview.vue`；结果写入 `output/playwright/online-player/`。Chromium 视口模拟与能力缺失模拟不代表 Safari 原生 HLS、真实手机或电视验收，实际支持范围应以对应运行记录为准。
 
-P2 的正式来源管理与在线页面通过真实 MacCMS 解析器连接隔离 API、临时数据库和开发机预先生成的媒体，可运行 `node scripts/smoke_online_p2.mjs --demo` 手工预览，或用 `--case` 分组验证：`matrix` 检查播放，`catalogue` 检查目录流程，`discovery` 检查海报墙，`loading` 检查冷暖加载与恢复，`loading-feedback` 检查分页等待提示、减少动画与取消清理，`image-cache` 检查清空内存并完整重载网页后复用磁盘原图，`categories` 检查分类与年份，`related` 检查其他季、推荐及播放抢占，`detail` 检查主要播放、长列表选集与精确续播，`detail-recovery` 检查详情瞬态重试、取消和手动恢复，`metadata-recovery` 检查目录／搜索重试、分类缓存与取消，`refresh-strategy` 检查 15 分钟刷新、更新提示、成功海报保留与后台抢占，`hosts` 检查允许主机修复，`all` 运行全部。脚本入口为 `scripts/smoke_online_p2.mjs`、`scripts/online_p2/` 和 `scripts/fixtures/OnlineP2Preview.vue`；退出清理临时实例，不连接生产 NAS 或公网来源。样片生成只发生在开发机准备阶段，服务期间不调用媒体处理程序。
+正式来源管理与在线页面通过真实 MacCMS 解析器连接隔离 API、临时数据库和开发机预先生成的媒体，可运行 `node scripts/smoke_online_catalog.mjs --demo` 手工预览，或用 `--case` 分组验证：`matrix` 检查播放，`catalogue` 检查目录流程，`discovery` 检查海报墙，`loading` 检查冷暖加载与恢复，`loading-feedback` 检查分页等待提示、减少动画与取消清理，`image-cache` 检查清空内存并完整重载网页后复用磁盘原图，`categories` 检查分类与年份，`related` 检查其他季、推荐及播放抢占，`detail` 检查主要播放、长列表选集与精确续播，`detail-recovery` 检查详情瞬态重试、取消和手动恢复，`metadata-recovery` 检查目录／搜索重试、分类缓存与取消，`refresh-strategy` 检查 15 分钟刷新、更新提示、成功海报保留与后台抢占，`hosts` 检查允许主机修复，`all` 运行全部。结果写入 `output/playwright/online-catalog/`。
+
+收藏与持久续播使用 `node scripts/smoke_online_state.mjs --case state`，真实媒体结束后的连续播放使用 `--case autoplay`，`--case all` 串行检查两组。它们与目录测试共用 `scripts/online_fixture/catalog.py` 和 `scripts/fixtures/OnlineAppPreview.vue`，结果写入 `output/playwright/online-state/`。长 MP4 连续 Range 读取单独运行 `node scripts/smoke_online_range.mjs`；原生电视预览见电视工程的 `android-tv/docs/testing.md`。
+
+共享媒体生成、模拟来源和临时应用位于 `scripts/online_fixture/`；浏览器轮询、进程清理和资源空闲检查由其中的 `browser.mjs` 统一维护。播放器检查会话、资源登记与活动读取；目录及状态检查还要求查询槽、API／图片连接池和图片任务归零。早期原型独立保留在 `scripts/online_prototype/`，固定公网样例诊断位于 `scripts/online_diagnostics/`。P0～P4 只在路线图与历史验收中表示开发阶段，不用于当前功能入口命名。
+
+以上隔离测试退出时清理临时实例，不连接生产 NAS 或公网来源。样片生成只发生在开发机准备阶段，服务期间不调用媒体处理程序。
 
 ## HLS 与 FFmpeg
 

@@ -7,7 +7,7 @@ import pytest
 
 from app.network.transport import PinnedBackend
 from app.online import api_pool, health
-from scripts.online_p2.server import FIXTURE_TOKEN
+from scripts.online_fixture.catalog import FIXTURE_TOKEN
 from test_online_catalog_fixture import (add_source, client as client,
                                         detail, prepared as prepared)
 
@@ -48,7 +48,7 @@ def search(client, source):
 
 
 def quiet(client):
-    metrics = client.get("/api/p2/metrics").json()
+    metrics = client.get("/api/fixture/metrics").json()
     assert metrics["pending_requests"] == metrics["catalogue_active"] == metrics["catalogue_owners"] == 0
     assert metrics["registry"]["sessions"] == metrics["registry"]["active_requests"] == 0
     assert metrics["registry"]["reserved_bytes"] == 0
@@ -77,7 +77,7 @@ def test_transient_status_closes_the_borrowed_socket_before_the_single_retry(cli
     source = add_source(client)
     browse(client, source)
     assert api_dials == ["api"]
-    assert client.post("/api/p2/scenario", json={"metadata_failures_remaining": 1,
+    assert client.post("/api/fixture/scenario", json={"metadata_failures_remaining": 1,
         "metadata_failure_status": 503}).status_code == 200
 
     search(client, source)
@@ -92,7 +92,7 @@ def test_transient_status_closes_the_borrowed_socket_before_the_single_retry(cli
 def test_malformed_metadata_discards_the_connection_without_an_automatic_retry(client, api_dials):
     source = add_source(client)
     browse(client, source)
-    assert client.post("/api/p2/scenario", json={"next_mode": "malformed"}).status_code == 200
+    assert client.post("/api/fixture/scenario", json={"next_mode": "malformed"}).status_code == 200
     failed = client.get("/api/online/catalog/search", params={"source_id": source["id"], "q": "合成"})
     assert failed.status_code == 502 and failed.json()["code"] == "invalid_provider_response"
     assert len(quiet(client)["origin_calls"]) == 2

@@ -9,8 +9,8 @@ import time
 import httpx
 import pytest
 
-from scripts.online_p0 import hls_relay
-from scripts.online_p0.hls_relay import (
+from scripts.online_diagnostics import hls_relay
+from scripts.online_diagnostics.hls_relay import (
     CHUNK_BYTES, MANIFEST_BYTES, ORIGIN, PREFIX, SEGMENT_BYTES,
     HlsRelay, RelayError, make_server, validate_config,
 )

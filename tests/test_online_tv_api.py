@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.store import _base
-from scripts.online_p3.server import FIXTURE_TOKEN, isolated_fixture
+from scripts.online_fixture.catalog import FIXTURE_TOKEN, isolated_fixture
 from test_online_catalog_fixture import add_source, detail, entry_for
 from test_online_state_fixture import claim, packet, prepared, scoped, state
 
@@ -68,7 +68,7 @@ def test_cookie_less_tv_header_catalogue_favorite_session_range_and_final_progre
             restored = state(reconnected, identity)
             assert restored["favorite"] and restored["selected_progress"]["identity"] == identity
             assert restored["selected_progress"]["position"] == 13.0
-        metrics = service.administrator.get("/api/p2/metrics").json()
+        metrics = service.administrator.get("/api/fixture/metrics").json()
         assert metrics["registry"]["sessions"] == 0
         assert not any(row["app_credentials"] for row in metrics["origin_calls"])
         with closing(_base._conn()) as connection:
@@ -171,12 +171,13 @@ def test_tv_history_clear_prevents_old_writer_resurrection_until_an_explicit_new
         assert tv.delete(f"/api/online/sessions/{session['session_id']}").status_code == 204
 
 
-def test_p4_preview_composes_native_handshake_empty_home_and_pre_enabled_online_source(prepared):
-    from scripts.online_p4.fixtures import ROOT_PREFIX
-    from scripts.online_p4.server import isolated_fixture as tv_fixture
+def test_tv_preview_composes_native_handshake_empty_home_and_pre_enabled_online_source(prepared):
+    from scripts.online_fixture.tv import MARKER, MARKER_TEXT, ROOT_PREFIX
+    from scripts.online_fixture.tv import isolated_fixture as tv_fixture
 
     root = prepared.with_name(ROOT_PREFIX + "test")
     prepared.rename(root)
+    (root / MARKER).write_text(MARKER_TEXT)
     original_db = _base.DB_PATH
     with tv_fixture(root) as app, TestClient(app) as client:
         handshake = client.get("/api/stream/client-info")
@@ -200,16 +201,16 @@ def test_p4_preview_composes_native_handshake_empty_home_and_pre_enabled_online_
             assert tv.get(session["media_url"], headers={"Range": "bytes=0-9"}).content == b"0123456789"
             assert scoped(tv, "POST", "/api/online/state/progress", writer["scope_token"], packet(writer)).status_code == 200
             assert tv.delete(f"/api/online/sessions/{session['session_id']}").status_code == 204
-        metrics = client.get("/api/p2/metrics").json()
+        metrics = client.get("/api/fixture/metrics").json()
         assert metrics["catalog_rows"]["online_sources"] == 1
         assert not any(metrics["local_rows"].values())
     assert _base.DB_PATH == original_db and not list(root.glob("state-*"))
 
 
-def test_p4_preview_refuses_p3_unmarked_outside_and_symlink_roots(prepared, tmp_path):
+def test_tv_preview_refuses_catalog_unmarked_outside_and_symlink_roots(prepared, tmp_path):
     from pathlib import Path
 
-    from scripts.online_p4.fixtures import ROOT_PREFIX, fixture_root
+    from scripts.online_fixture.tv import ROOT_PREFIX, fixture_root
 
     for path in (Path("/data"), prepared, tmp_path / "arbitrary"):
         with pytest.raises(ValueError):

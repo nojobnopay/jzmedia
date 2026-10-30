@@ -1,4 +1,4 @@
-"""P2 source actions migrate atomically without changing existing identities."""
+"""Source configuration actions migrate atomically without changing existing identities."""
 
 from contextlib import closing
 import sqlite3
@@ -15,7 +15,7 @@ from app.store import _base, online
 
 @pytest.fixture(autouse=True)
 def isolated_database(tmp_path, monkeypatch):
-    monkeypatch.setattr(_base, "DB_PATH", str(tmp_path / "p2-config.db"))
+    monkeypatch.setattr(_base, "DB_PATH", str(tmp_path / "source-config.db"))
     monkeypatch.setattr(_base, "ensure_dirs", lambda: None)
     store.init_db()
 

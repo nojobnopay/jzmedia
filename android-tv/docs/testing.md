@@ -107,18 +107,18 @@ adb -s SERIAL reverse --remove tcp:18889
 
 ## 验证在线点播
 
-在线验证使用仓库根 `scripts/online_p4/`，复用正式目录、状态和网关路由以及隔离 MacCMS。上面的 `backend_fixture.py` 会执行本地探测和转码，只用于本地媒体链路，不能作为“在线 NAS 无媒体处理”的证明。
+在线验证使用仓库根 `scripts/online_fixture/tv.py`，复用公共隔离夹具、正式目录、状态和网关路由以及隔离 MacCMS。上面的 `backend_fixture.py` 会执行本地探测和转码，只用于本地媒体链路，不能作为“在线 NAS 无媒体处理”的证明。
 
 ### Step 1：在开发机准备与启动
 
 先按[开发环境](../../docs/developer/development.md)安装根 Python 依赖及支持 H.264/AAC 的 FFmpeg。在仓库根执行：
 
 ```sh
-.venv/bin/python -m scripts.online_p4.server --root /tmp/jzmedia-online-p2-p3-p4-demo --generate-media
-.venv/bin/python -m scripts.online_p4.server --root /tmp/jzmedia-online-p2-p3-p4-demo --port 18194 --cleanup
+.venv/bin/python -m scripts.online_fixture.tv --root /tmp/jzmedia-online-tv-demo --generate-media
+.venv/bin/python -m scripts.online_fixture.tv --root /tmp/jzmedia-online-tv-demo --port 18194 --cleanup
 ```
 
-第一条仅预生成两集 24 秒 MP4/HLS，第二条才服务。目录必须使用 P4 专用前缀与夹具标记，服务拒绝任意路径、未准备素材或生产数据；自动启用一条隔离 MacCMS，API／媒体显式直连。服务只监听开发机回环地址，打印地址和固定夹具令牌 `online-p2-fixture-only`；它不是 NAS 或用户的真实令牌。
+第一条仅预生成两集 24 秒 MP4/HLS，第二条才服务。目录必须使用 `jzmedia-online-tv-` 专用前缀与夹具标记，服务拒绝任意路径、未准备素材或生产数据；自动启用一条隔离 MacCMS，API／媒体显式直连。服务只监听开发机回环地址，打印地址和固定夹具令牌 `online-catalog-fixture-only`；它不是 NAS 或用户的真实令牌。
 
 **预期结果：** 开发机打印 `http://127.0.0.1:18194`。服务阶段仅读取已有媒体，真实数据库与媒体库保持隔离，不应出现 FFmpeg 子进程。
 
@@ -140,7 +140,7 @@ adb -s SERIAL reverse --no-rebind tcp:18194 tcp:18194
 4. 默认不连播；开启后真实播完第 1 集才进入同线第 2 集，末集停止。等待下一集期间返回取消；不支持的下一集不跳过到更后面的集。
 5. Home、待机、切连接、切模式及网络失败后立即无声并释放本机会话；两个设备不能互相关闭或读写在线状态。网页与电视断点不按本地媒体的共享规则混用。
 
-同时检查 `/api/p2/metrics` 的在线会话、活动请求、资源和查询槽归零，本地 `movies/tv_episodes/playback_progress` 为空，样片哈希不变且服务阶段无媒体处理进程。原生 Media3 播放要保留实际设备/API、首帧、状态与 HTTP 轨迹；浏览器解码证据不能替代电视播放器。
+同时检查 `/api/fixture/metrics` 的在线会话、活动请求、资源、查询槽、API／图片连接池和图片任务归零，本地 `movies/tv_episodes/playback_progress` 为空，样片哈希不变且服务阶段无媒体处理进程。原生 Media3 播放要保留实际设备/API、首帧、状态与 HTTP 轨迹；浏览器解码证据不能替代电视播放器。
 
 ### Step 3：停止并清理
 

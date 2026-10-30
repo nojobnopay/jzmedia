@@ -241,7 +241,7 @@ export function createOnlineProgressMemory({ maxEntries = 32 } = {}) {
 }
 
 // A bounded one-time initial gap is a client alignment event, not a reason to
-// start decoding or transcoding on the NAS. Keep the P0 acceptance boundaries.
+// start decoding or transcoding on the NAS; the server only relays bounded bytes.
 export function canRecoverOnlineStartupGap(event) {
   return !!event && event.type === 'mediaError' && event.detail === 'bufferSeekOverHole'
     && event.fatal === false && event.beforeFirstFrame === true

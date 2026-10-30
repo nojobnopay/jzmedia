@@ -238,7 +238,7 @@ node scripts/ui_visual_review.mjs --label goal-after
 
 在线界面的同数据审查使用 `node scripts/smoke_online_ui.mjs`，覆盖 1440、390、375、320px 的浏览、三类记录、详情和等待状态，输出到 `output/playwright/online-ui/after/`。加 `--baseline` 会从当前 Git HEAD 提取前端源码，使用相同模拟 API 与原创演示海报写入 `before/`；开始改版前应固定该提交，不能把已包含改版的 HEAD 当作改前版本。`--width 390` 可单独复查一种宽度。各目录的报告记录源码与素材指纹，静止截图等待可见海报完成解码；记录改前可取旧页内区域，改后取独立视图，并在报告中注明取景差异。
 
-该脚本同时检查真实路由的前进后退、位置和焦点恢复、记录分页与更多菜单、失败后保留旧内容、减少动态效果及手机触摸区域。它使用模拟 API；记录持久化与实际媒体播放仍须运行 `scripts/smoke_online_p2.mjs`、`scripts/smoke_online_p3.mjs` 的受影响场景，以临时数据库和合成媒体验证。
+该脚本同时检查真实路由的前进后退、位置和焦点恢复、记录分页与更多菜单、失败后保留旧内容、减少动态效果及手机触摸区域。它使用模拟 API；记录持久化与实际媒体播放仍须运行 `scripts/smoke_online_catalog.mjs`、`scripts/smoke_online_state.mjs` 的受影响场景，以临时数据库和合成媒体验证。入口与场景见[播放链路](playback.md#在线播放描述)。
 
 ### 交互与验收范围
 

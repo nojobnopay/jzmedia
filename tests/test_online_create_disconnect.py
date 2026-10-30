@@ -158,7 +158,7 @@ def test_late_creation_is_closed_after_request_disappears(environment, monkeypat
                     await task
             assert not any(message.get("status") == 201 for message in messages)
             environment.release.set()
-            # P2 cancels the entire creation network operation. A provider
+            # Disconnect cancels the entire creation network operation. A provider
             # that ignores cancellation cannot register a session afterwards;
             # an already registered result still has to be reclaimed.
             expected_created = 0 if stage == "provider" else 1

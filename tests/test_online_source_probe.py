@@ -117,9 +117,9 @@ def run_probe(tmp_path, probe_network):
         for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
             environment[name] = probe_network["proxy"]
         environment.update(NO_PROXY="", no_proxy="")
-        environment["P0_TEST_PROXY"] = probe_network["proxy"].replace(
+        environment["ONLINE_TEST_PROXY"] = probe_network["proxy"].replace(
             "http://", "http://user:PROXY_SECRET@")
-        environment.pop("P0_TEST_MISSING_PROXY", None)
+        environment.pop("ONLINE_TEST_MISSING_PROXY", None)
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "--candidates", str(candidate_file),
              "--label", "isolated-fixture", "--output", str(report_file),
@@ -161,7 +161,7 @@ def test_direct_ignores_environment_proxy_and_reads_bounded_media(run_probe, ful
 
 
 def test_explicit_proxy_is_used_and_credentials_are_redacted(run_probe, full_candidate, probe_network):
-    result, report = run_probe(full_candidate, "--mode", "proxy", "--proxy-env", "P0_TEST_PROXY")
+    result, report = run_probe(full_candidate, "--mode", "proxy", "--proxy-env", "ONLINE_TEST_PROXY")
     assert result.returncode == 0, (result.stderr, report)
     assert not probe_network["hits"]["origin"]
     assert probe_network["hits"]["proxy"]
@@ -225,6 +225,6 @@ def test_invalid_configuration_has_tool_error_exit_code(run_probe):
 
 
 def test_missing_explicit_proxy_has_tool_error_exit_code(run_probe, full_candidate):
-    result, report = run_probe(full_candidate, "--mode", "proxy", "--proxy-env", "P0_TEST_MISSING_PROXY")
+    result, report = run_probe(full_candidate, "--mode", "proxy", "--proxy-env", "ONLINE_TEST_MISSING_PROXY")
     assert result.returncode == 2
     assert report is None

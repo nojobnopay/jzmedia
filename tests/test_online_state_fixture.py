@@ -1,4 +1,4 @@
-"""P3 fixture composes real state, viewing and media routers without NAS data."""
+"""The shared catalog fixture composes real state, viewing and media routers without NAS data."""
 
 from contextlib import closing
 from pathlib import Path
@@ -7,14 +7,14 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.store import _base
-from scripts.online_p3.fixtures import MARKER, MARKER_TEXT, ROOT_PREFIX, fixture_root
-from scripts.online_p3.server import FIXTURE_TOKEN, isolated_fixture
+from scripts.online_fixture.catalog_origin import MARKER, MARKER_TEXT, ROOT_PREFIX, fixture_root
+from scripts.online_fixture.catalog import FIXTURE_TOKEN, isolated_fixture
 from test_online_catalog_fixture import add_source, detail, entry_for
 
 
 @pytest.fixture
 def prepared(tmp_path):
-    root = tmp_path / (ROOT_PREFIX + "test")
+    root = tmp_path / (ROOT_PREFIX + "state-test")
     root.mkdir()
     (root / MARKER).write_text(MARKER_TEXT)
     for episode in ("ep-1", "ep-2"):
@@ -70,17 +70,16 @@ def packet(writer, *, position=12.0, seq=1):
             "position": position, "duration": 24.0, "paused": True, "completed": False}
 
 
-def test_p3_retains_existing_guard_and_restores_all_globals(prepared, tmp_path):
+def test_catalog_state_retains_root_guard_and_restores_all_globals(prepared, tmp_path):
     original = _base.DB_PATH
     with pytest.raises(ValueError):
         fixture_root(Path("/data"))
-    ordinary_p2 = tmp_path / "jzmedia-online-p2-other"
-    ordinary_p2.mkdir()
-    (ordinary_p2 / MARKER).write_text(MARKER_TEXT)
-    # The broad P2 root guard is reused, then P3 applies its stricter prefix.
+    foreign_player = tmp_path / "jzmedia-online-player-other"
+    foreign_player.mkdir()
+    (foreign_player / MARKER).write_text(MARKER_TEXT)
     with pytest.raises(ValueError):
-        with isolated_fixture(ordinary_p2):
-            pytest.fail("an unprepared non-P3 root must never serve")
+        with isolated_fixture(foreign_player):
+            pytest.fail("a player root must never serve through the catalog entrypoint")
     with isolated_fixture(prepared) as app, TestClient(app) as browser:
         assert Path(_base.DB_PATH).is_relative_to(prepared)
         browser.get("/api/viewing/session")
@@ -117,8 +116,9 @@ def test_actual_formal_session_and_state_survive_cookie_reconnect_without_local_
         assert connection.execute("SELECT COUNT(*) FROM online_progress").fetchone()[0] == 1
         for table in ("movies", "tv_episodes", "playback_progress"):
             assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
-    metrics = client.get("/api/p2/metrics").json()
+    metrics = client.get("/api/fixture/metrics").json()
     assert metrics["registry"]["sessions"] == 0
+    assert metrics["online_state_rows"] == {"online_favorites": 1, "online_progress": 1}
     assert not any(row["app_credentials"] for row in metrics["origin_calls"])
 
 

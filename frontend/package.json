@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite --port 5173",
     "build": "vite build",
-    "test": "node --test tests/*.test.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.js ../tests/online_*.test.mjs",
     "lint": "eslint ."
   },
   "dependencies": {
