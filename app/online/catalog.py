@@ -24,6 +24,7 @@ _owners = set()
 _background = {}
 _preempt_waiters = set()
 MAX_PREEMPT_WAITERS = 4
+BACKGROUND_REFRESH_SECONDS = 8
 
 
 class CatalogError(RuntimeError):
@@ -227,26 +228,28 @@ def sources(access):
     return {"enabled": enabled, "items": result, "scope_token": scope}
 
 
-def search(access, source_id, query, page=1, *, operation=None):
+def search(access, source_id, query, page=1, *, operation=None, background=False):
     if not isinstance(query, str) or len(query) > 100 or any(ord(char) < 32 or ord(char) == 127 for char in query):
         raise CatalogError("invalid_online_catalog_request", 422)
     if type(page) is not int or not 1 <= page <= 1000:
         raise CatalogError("invalid_online_catalog_request", 422)
     query = query.strip()
-    with _admit(access.owner, operation):
+    with _admit(access.owner, operation, background=background):
         source = _ready_source(source_id, access)
         if not query and source["provider"] != "open_catalog":
             raise CatalogError("online_query_required", 422)
         configuration, check = (_detail_retry_guard(access, source)
                                 if source["provider"] == "maccms" else (None, None))
         scope = (api_pool.scope(access, source, configuration, lambda: check(source, configuration))
-                 if check is not None else nullcontext())
+                 if check is not None and not background else nullcontext())
         with scope:
             with health.observe_catalogue():
                 if check is not None:
                     parameters = {"ac": source.get("provider_options", {}).get("search_action", "list"),
                                   "wd": query, "pg": str(page)}
-                    with maccms.foreground_metadata_retry(configuration, check, parameters):
+                    retry_scope = (maccms.foreground_metadata_retry(configuration, check, parameters)
+                                   if not background else nullcontext())
+                    with retry_scope:
                         result = _adapter(source).search(source, query, page)
                     check(source, configuration)
                 else:
@@ -268,7 +271,7 @@ def _artwork(source, result):
     return result
 
 
-def browse(access, source_id, page=1, category_id="", year="", *, operation=None):
+def browse(access, source_id, page=1, category_id="", year="", *, operation=None, background=False):
     if type(page) is not int or not 1 <= page <= 1000:
         raise CatalogError("invalid_online_catalog_request", 422)
     if not maccms.valid_year(year):
@@ -278,7 +281,7 @@ def browse(access, source_id, page=1, category_id="", year="", *, operation=None
             category_id = maccms.external_id(category_id)
     except ProviderError:
         raise CatalogError("invalid_online_catalog_request", 422) from None
-    with _admit(access.owner, operation):
+    with _admit(access.owner, operation, background=background):
         source = _ready_source(source_id, access)
         if year and not maccms.supports_year_filter(source):
             raise CatalogError("online_year_filter_unsupported", 422)
@@ -292,10 +295,14 @@ def browse(access, source_id, page=1, category_id="", year="", *, operation=None
                 parameters["t"] = category_id
             if year:
                 parameters["year"] = year
-            with api_pool.scope(access, source, configuration, lambda: check(source, configuration)), \
+            reuse_scope = (api_pool.scope(access, source, configuration, lambda: check(source, configuration))
+                           if not background else nullcontext())
+            with reuse_scope, \
                     taxonomy_cache.foreground(access, source, configuration, lambda: check(source, configuration)):
                 with health.observe_catalogue():
-                    with maccms.foreground_metadata_retry(configuration, check, parameters):
+                    retry_scope = (maccms.foreground_metadata_retry(configuration, check, parameters)
+                                   if not background else nullcontext())
+                    with retry_scope:
                         result = _adapter(source).browse(source, page, category_id, year)
                     check(source, configuration)
                 response = {"source": _public_source(source), **_artwork(source, result)}
@@ -309,6 +316,65 @@ def browse(access, source_id, page=1, category_id="", year="", *, operation=None
                       else _adapter(source).browse(source, page, category_id, year))
         _after(source, access)
         return {"source": _public_source(source), **_artwork(source, result)}
+
+
+class _RefreshCancellation:
+    """A parent disconnect cancels only its background worker's sockets."""
+
+    def __init__(self, operation):
+        self.operation = operation
+
+    def shutdown(self, _how):
+        self.operation.abort()
+
+
+def _background_refresh(access, source_id, reader, *args, operation=None):
+    parent = operation or NetworkOperation(time.monotonic() + BACKGROUND_REFRESH_SECONDS)
+    parent.deadline = min(parent.deadline, time.monotonic() + BACKGROUND_REFRESH_SECONDS)
+    child = NetworkOperation(parent.deadline)
+    cancellation = _RefreshCancellation(child)
+    try:
+        parent.bind_socket(cancellation)
+        with operation_context(parent):
+            source = _ready_source(source_id, access)
+            configuration = _detail_configuration(access, source)
+
+            def confirm():
+                parent.check()
+                if _detail_configuration(access, source) != configuration:
+                    raise CatalogError("online_source_changed", 409)
+                parent.check()
+
+            confirm()
+            try:
+                result = reader(access, source_id, *args, operation=child, background=True)
+            except BackgroundDeferred:
+                confirm()
+                return {"status": "deferred"}
+            except ProviderError as error:
+                if error.category != "provider_cancelled" or not child.cancelled.is_set():
+                    raise
+                # Foreground preemption aborts the child only. A disconnect or
+                # expired request parent must remain a hard public failure.
+                confirm()
+                return {"status": "deferred"}
+            confirm()
+            return {**result, "status": "ready", "configuration_token": configuration}
+    except NetworkOperationError as error:
+        raise ProviderError("provider_timeout" if str(error) == "operation_timeout"
+                            else "provider_cancelled") from None
+    finally:
+        parent.release_socket(cancellation)
+        child.close()
+        parent.close()
+
+
+def background_search(access, source_id, query, page=1, *, operation=None):
+    return _background_refresh(access, source_id, search, query, page, operation=operation)
+
+
+def background_browse(access, source_id, page=1, category_id="", year="", *, operation=None):
+    return _background_refresh(access, source_id, browse, page, category_id, year, operation=operation)
 
 
 def _persist(source, detail):

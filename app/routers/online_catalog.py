@@ -3,6 +3,7 @@
 import asyncio
 import sqlite3
 import time
+from typing import Literal
 
 from fastapi import APIRouter, Query, Request
 from fastapi.concurrency import run_in_threadpool
@@ -79,9 +80,9 @@ async def _watch(request, operation):
         operation.abort()
 
 
-async def _read(request, function, *args):
+async def _read(request, function, *args, deadline_seconds=30):
     access = await run_in_threadpool(service.capture_access, request)
-    operation = NetworkOperation(time.monotonic() + 30)
+    operation = NetworkOperation(time.monotonic() + deadline_seconds)
     watcher = asyncio.create_task(_watch(request, operation), name="online-catalog-disconnect")
     task = asyncio.create_task(run_in_threadpool(function, access, *args, operation=operation),
                                name="online-catalog-read")
@@ -119,11 +120,14 @@ def sources(request: Request):
     return catalog.sources(service.capture_access(request))
 
 
-@router.get("/search", response_model=catalog_models.CatalogSearch)
+@router.get("/search", response_model=catalog_models.CatalogSearchResponse)
 async def search(request: Request, source_id: SourceId,
-                 q: str = Query(default="", max_length=100), page: int = Query(default=1, ge=1, le=1000)):
-    _query(request, {"source_id", "q", "page"})
-    return await _read(request, catalog.search, source_id, q, page)
+                 q: str = Query(default="", max_length=100), page: int = Query(default=1, ge=1, le=1000),
+                 priority: Literal["background"] | None = Query(default=None)):
+    _query(request, {"source_id", "q", "page", "priority"})
+    reader = catalog.background_search if priority == "background" else catalog.search
+    return await _read(request, reader, source_id, q, page,
+                       deadline_seconds=catalog.BACKGROUND_REFRESH_SECONDS if priority else 30)
 
 
 @router.get("/detail", response_model=catalog_models.CatalogDetail)
@@ -133,13 +137,16 @@ async def detail(request: Request, source_id: SourceId,
     return await _read(request, catalog.detail, source_id, external_id)
 
 
-@router.get("/browse", response_model=catalog_models.CatalogSearch)
+@router.get("/browse", response_model=catalog_models.CatalogSearchResponse)
 async def browse(request: Request, source_id: SourceId,
                  page: int = Query(default=1, ge=1, le=1000),
                  category_id: str = Query(default="", max_length=128, pattern=r"^[A-Za-z0-9_-]*$"),
-                 year: str = Query(default="", max_length=4, pattern=r"^(?:[1-9][0-9]{3})?$")):
-    _query(request, {"source_id", "page", "category_id", "year"})
-    return await _read(request, catalog.browse, source_id, page, category_id, year)
+                 year: str = Query(default="", max_length=4, pattern=r"^(?:[1-9][0-9]{3})?$"),
+                 priority: Literal["background"] | None = Query(default=None)):
+    _query(request, {"source_id", "page", "category_id", "year", "priority"})
+    reader = catalog.background_browse if priority == "background" else catalog.browse
+    return await _read(request, reader, source_id, page, category_id, year,
+                       deadline_seconds=catalog.BACKGROUND_REFRESH_SECONDS if priority else 30)
 
 
 @router.get("/related", response_model=catalog_models.CatalogRelated)

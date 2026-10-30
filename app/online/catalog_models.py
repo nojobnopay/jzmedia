@@ -91,6 +91,18 @@ class CatalogSearch(_Public):
     categories: list[CatalogCategory] = Field(default_factory=list)
 
 
+class CatalogBackgroundReady(CatalogSearch):
+    status: Literal["ready"]
+    configuration_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CatalogBackgroundDeferred(_Public):
+    status: Literal["deferred"]
+
+
+CatalogSearchResponse = CatalogBackgroundReady | CatalogBackgroundDeferred | CatalogSearch
+
+
 class CatalogItem(_Public):
     id: ItemId
     source_id: SourceId
