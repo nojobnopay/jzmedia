@@ -1,6 +1,6 @@
 // Real Vue App and Router, in-memory API and local demo artwork only.
 // Run one check at a time under the repository's bounded validation wrapper.
-// node scripts/smoke_online_ui.mjs [--baseline] [--width 1440|390|375|320]
+// node scripts/smoke_online_ui.mjs [--baseline] [--width 1440|390|375|320] [--capture-docs|--capture-preview]
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -15,13 +15,15 @@ import { chromium } from '../docs/node_modules/playwright/index.mjs'
 import { artworkFingerprint, createFixture, movies, shows } from './fixtures/uiReviewData.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url)), args = process.argv.slice(2)
-let baseline = false, widths = [1440, 390, 375, 320]
+let baseline = false, captureDocs = false, capturePreview = false, widths = [1440, 390, 375, 320]
 for (let index = 0; index < args.length; index++) {
   if (args[index] === '--baseline') baseline = true
+  else if (args[index] === '--capture-docs' || args[index] === '--capture-preview') { captureDocs = true; capturePreview = args[index] === '--capture-preview'; widths = [1440, 390] }
   else if (args[index] === '--width') { const width = Number(args[++index]); assert.ok(widths.includes(width)); widths = [width] }
-  else if (args[index] === '--help') { console.log('node scripts/smoke_online_ui.mjs [--baseline] [--width 1440|390|375|320]'); process.exit(0) }
+  else if (args[index] === '--help') { console.log('node scripts/smoke_online_ui.mjs [--baseline] [--width 1440|390|375|320] [--capture-docs|--capture-preview]'); process.exit(0) }
   else throw new Error('Unknown argument: ' + args[index])
 }
+assert.ok(!(baseline && captureDocs), 'Documentation captures require current source')
 const label = baseline ? 'before' : 'after'
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-ui-'))
 const output = path.join(root, 'output/playwright/online-ui', label), dist = path.join(work, 'dist')
@@ -45,7 +47,7 @@ const metadata = Array.from({ length: 24 }, (_, index) => {
   const poster = index === 7 || index === 20 ? '' : artworkPath(index, source.id)
   if (poster) assets.set(poster, asset)
   return { index, source, item: { id: itemId(index), source_id: source.id, external_id: `fixture-${index + 1}`, kind: tv ? 'tv' : 'movie', title: asset.title },
-    year: String(media.year), poster_path: poster, category: tv ? '国产剧' : '剧情片', remarks: tv ? '更新至第 28 集' : '高清',
+    year: String(media.year), poster_path: poster, category: tv ? '国产剧' : '剧情片', remarks: tv ? (captureDocs ? '更新至第 76 集' : '更新至第 28 集') : '高清',
     description: '最后一班渡轮即将离开海边小城。在旧车站、雨后的街巷与熟悉的放映室之间，人们重新发现被日常掩藏的温柔。这是一段关于相遇、告别与重新出发的故事。',
     genres: tv ? ['剧情', '悬疑'] : ['剧情', '冒险'], actors: ['陈予安', '林知夏', '周远山'], directors: ['程望'], area: '中国大陆', language: '国语' }
 })
@@ -65,6 +67,12 @@ reset()
 function api(url, method, body) {
   const key = url.pathname, query = url.searchParams
   state.requests.push({ path: key, method, query: Object.fromEntries(query), ...(body ? { body } : {}) })
+  if (captureDocs && key === '/api/online/settings') return { enabled: true }
+  if (captureDocs && key === '/api/online/sources') return { items: sources.map(source => ({ ...source, enabled: true })) }
+  if (captureDocs && key === '/api/online/network/profiles') return { items: [] }
+  if (captureDocs && key === '/api/online/network/default') return { rule: { mode: 'direct' } }
+  if (captureDocs && key === '/api/online/source-templates') return { items: [] }
+  if (captureDocs && key.endsWith('/host-check')) return { source_id: sourceB, external_id: 'fixture-2', configuration_fingerprint: 'd'.repeat(64), missing_hosts: ['media.example.com', 'images.example.com'], rejected_count: 0 }
   if (key === '/api/online/catalog/sources') return { enabled: true, items: sources, scope_token: 'a'.repeat(64) }
   if (key === '/api/online/catalog/health') return { purposes: { api: { state: 'success', mode: 'direct' }, media: { state: 'unknown', mode: 'direct' } } }
   if (key === '/api/online/catalog/browse' || key === '/api/online/catalog/search') {
@@ -78,7 +86,7 @@ function api(url, method, body) {
     assert.ok(entry, 'Known isolated detail')
     const count = entry.item.kind === 'tv' ? 76 : 1
     return { ...entry, lines: [{ id: lineId(entry.index), label: '高清线路', entries: Array.from({ length: count }, (_, index) => ({
-      label: count === 1 ? '正片' : `第${index + 1}集`, identity: identity(entry, index + 1), supported: true, transport: 'mp4', reason: '',
+      label: count === 1 ? '正片' : `第${index + 1}集`, identity: identity(entry, index + 1), supported: !(captureDocs && state.hostScene), transport: 'mp4', reason: captureDocs && state.hostScene ? 'host_not_allowed' : '',
     })) }, { id: 'ln_' + hex(200 + entry.index), label: '备用线路', entries: [] }], attribution: [] }
   }
   if (key === '/api/online/catalog/related') return { source: sources.find(source => source.id === query.get('source_id')), external_id: query.get('external_id'), status: 'unsupported' }
@@ -196,7 +204,7 @@ try {
   }
   report.source_sha256 = await fingerprint(path.join(source, 'frontend/src'))
   report.fixture_sha256 = createHash('sha256').update(JSON.stringify(metadata)).update(artworkFingerprint).digest('hex')
-  if (!baseline) {
+  if (!baseline && !captureDocs) {
     const previous = await readFile(path.join(root, 'output/playwright/online-ui/before/report.json'), 'utf8').then(JSON.parse).catch(() => null)
     if (previous) assert.equal(previous.fixture_sha256, report.fixture_sha256, 'Recapture baseline after changing the comparison fixture')
   }
@@ -225,7 +233,7 @@ try {
         res.writeHead(data === undefined ? 501 : 200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data ?? { detail: 'Unmocked isolated API' })); return
       }
       const file = /^\/assets\/[\w.-]+$/.test(key) || /^\/(?:favicon[^/]*|logo\.svg|icon-512\.png|apple-touch-icon\.png)$/.test(key)
-        ? path.join(dist, key) : key === '/online' || key === '/' ? path.join(dist, 'index.html') : null
+        ? path.join(dist, key) : key === '/online' || key === '/settings' || key === '/' ? path.join(dist, 'index.html') : null
       if (!file) { state.unexpected.push(req.method + ' ' + key); res.writeHead(404); res.end('Only isolated routes are served'); return }
       res.writeHead(200, { 'Content-Type': ({ '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png' })[path.extname(file)] || 'application/octet-stream' })
       res.end(await readFile(file))
@@ -248,6 +256,30 @@ try {
     await go(page, base)
     await page.locator('[data-online-result]').first().waitFor()
     await capture(page, 'home', width)
+    if (captureDocs) {
+      if (width === 1440) {
+        await records(page, base, 'favorites')
+        await capture(page, 'docs-records', width)
+        await go(page, base, `/online?source=${sourceB}&item=fixture-2`)
+        await page.locator('[data-online-detail]').waitFor()
+        await page.locator('[data-online-entry-group]').waitFor()
+        await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+        await capture(page, 'docs-detail', width)
+        await page.locator('[data-online-episodes]').evaluate(element => element.scrollIntoView({ block: 'start', behavior: 'instant' }))
+        await capture(page, 'docs-episodes', width)
+        state.hostScene = true
+        await go(page, base)
+        await go(page, base, `/online?source=${sourceB}&item=fixture-2`)
+        await page.locator('[data-online-host-candidate]').first().waitFor()
+        await capture(page, 'docs-hosts', width)
+        state.hostScene = false
+        await page.goto(base + '/settings?sec=sec-online')
+        await page.getByRole('button', { name: '添加来源', exact: true }).waitFor()
+        await capture(page, 'docs-sources', width)
+      }
+      await context.close()
+      continue
+    }
     await touchTargets(page, width)
     if (!baseline) assert.equal(await page.locator('[data-online-continue-row] [data-online-state-item]').count(), 12)
     state.delay = 'browse'
@@ -347,6 +379,49 @@ try {
   assert.deepEqual(report.external, [], 'No requests leave the isolated origin')
   assert.deepEqual(state.unexpected, [], 'Every API and asset is explicitly mocked')
   report.completed = true
+  if (captureDocs && !capturePreview) {
+    let ffmpeg = 'ffmpeg'
+    try { execFileSync(ffmpeg, ['-version'], { stdio: 'ignore' }) } catch {
+      ffmpeg = null
+      for (const python of await readdir(path.join(root, '.venv/lib')).catch(() => [])) {
+        const bins = path.join(root, '.venv/lib', python, 'site-packages/static_ffmpeg/bin')
+        for (const platform of await readdir(bins).catch(() => [])) {
+          const candidate = path.join(bins, platform, 'ffmpeg')
+          try { execFileSync(candidate, ['-version'], { stdio: 'ignore' }); ffmpeg = candidate; break } catch { /* Try another platform. */ }
+        }
+        if (ffmpeg) break
+      }
+      assert.ok(ffmpeg, 'FFmpeg is required for documentation capture')
+    }
+    const samples = [
+      ['online-browse', 'home', 1440, '在线视频源、分类、年份和海报墙'],
+      ['online-mobile', 'home', 390, '手机宽度下的在线视频浏览'],
+      ['online-records', 'docs-records', 1440, '在线收藏及继续观看、历史入口'],
+      ['online-detail', 'docs-detail', 1440, '在线详情的续播、线路与分集'],
+      ['online-episodes', 'docs-episodes', 1440, '长剧集范围、排序与上次观看定位'],
+      ['online-hosts', 'docs-hosts', 1440, '媒体主机检查与确认对话框'],
+      ['online-sources', 'docs-sources', 1440, '在线点播开关与已启用来源列表'],
+    ]
+    const assetsDir = path.join(root, 'docs/assets'), entries = []
+    const appVersion = (await readFile(path.join(root, 'version.properties'), 'utf8')).match(/^versionName=(.+)$/m)[1]
+    for (const [name, scene, width, description] of samples) {
+      const shot = report.screenshots.find(item => item.name === scene && item.width === width)
+      assert.ok(shot, 'Missing documentation screenshot ' + name)
+      const file = `screenshots/${name}.webp`, destination = path.join(assetsDir, file)
+      execFileSync(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-i', path.join(output, shot.file), '-quality', '86', destination])
+      const bytes = await readFile(destination)
+      entries.push({ file, page: 'user-guide/watch-online.md', scene: description, verified_at: new Date().toISOString().slice(0, 10),
+        app_version: appVersion, source_commit: report.commit, source_state: '当前工作区；前端源码及演示数据摘要见下', source_sha256: report.source_sha256,
+        source_digest_scope: ['frontend/src/**/*'], source: '真实 Vue 界面与隔离内存 API；虚构资料及 AI 原创海报，不连接真实来源或媒体库',
+        viewport: { width, height: width > 700 ? 1000 : 844, device_scale_factor: 1 }, recording_script: 'node scripts/smoke_online_ui.mjs --capture-docs',
+        fixtures: 'scripts/smoke_online_ui.mjs + scripts/fixtures/uiReviewData.mjs + design/demo-artwork/', fixture_sha256: createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).update(report.fixture_sha256).digest('hex'),
+        artwork_sha256: artworkFingerprint, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
+    }
+    const manifestFile = path.join(assetsDir, 'manifest.json'), manifest = JSON.parse(await readFile(manifestFile, 'utf8'))
+    const replaced = new Set(entries.map(entry => entry.file))
+    manifest.assets = [...manifest.assets.filter(entry => !replaced.has(entry.file)), ...entries]
+    await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + '\n')
+  }
 } catch (error) {
   report.failure = String(error.stack || error)
   if (currentPage && !currentPage.isClosed()) {

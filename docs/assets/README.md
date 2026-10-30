@@ -24,7 +24,9 @@
 | `smoke_tv_airing.mjs --capture-docs` | 剧集播出、收藏状态与官方分集目录 |
 | `smoke_settings_ui.mjs --capture-docs` | 设置、草稿提醒、文件管理、预览与播放器控件 |
 | `smoke_settings_ui.mjs --player-only --capture-docs` | 播放器设置与文件预览控件截图 |
-| `smoke_casting.mjs --capture-only` | 普通播放的手机暂停布局与投屏工具截图（原始 PNG） |
+| `smoke_online_ui.mjs --capture-docs` | 在线来源、浏览、详情、长剧选集、记录和主机确认截图 |
+| `scripts/online_fixture/tv_docs.py` | 原生电视端在线目录、影片详情及拼音键盘的隔离演示数据 |
+| `smoke_casting.mjs --capture-only` | 普通播放的手机暂停布局、投屏选择与进度缩略图（原始 PNG） |
 | `smoke_ai_ui.mjs --capture-docs` | AI 设置、搜索与匹配 |
 | `capture_docs.py` | 四步向导、首播、字幕、电影整理及连续录屏 |
 | `capture_docs.py --only subtitles` | 已入库演示的轨道快捷面板、字幕调整和本地字幕录屏 |
@@ -40,11 +42,16 @@ node scripts/ui_visual_review.mjs --capture-docs
 node scripts/smoke_tv_airing.mjs --capture-docs
 node scripts/smoke_settings_ui.mjs --capture-docs
 node scripts/smoke_ai_ui.mjs --capture-docs
+node scripts/smoke_online_ui.mjs --capture-docs
 ```
 
 2026-10-24 更新通用 UI 与剧集播出教程图，改用摄影风格的原创演示海报、横幅剧照和虚构人物肖像；逐文件拍摄记录见清单。缺失海报示例继续保留真实的缺图状态，便于说明未匹配影片。
 
-`smoke_casting.mjs --capture-only` 使用真实播放器、隔离 FastAPI、合成视频及回环模拟 DLNA 接收端；不会发现或控制真实局域网设备。原始截图位于 `output/playwright/casting/after/`，选定截图压缩为 WebP 后按实际来源登记到清单。
+`smoke_online_ui.mjs --capture-preview` 可先检查在线截图而不更新正式素材和清单。在线演示复用原创海报，来源、目录及记录均来自模拟 API。
+
+电视在线截图使用原生电视应用与 `scripts/online_fixture/tv_docs.py` 的隔离服务，复用虚构片名及原创海报。先按 `android-tv/docs/testing.md` 的在线验证流程预生成媒体、启动服务并配置 ADB 反向转发，将命令中的模块名改为 `scripts.online_fixture.tv_docs`；在隔离设备或用户中连接该服务。用 ADB 采集实际界面，记录模拟器型号、系统、应用版本和像素尺寸，转换 WebP 后登记清单。完成后退出服务并撤销本次转发；模拟器截图不能替代电视真机验收。
+
+`smoke_casting.mjs --capture-only` 使用真实播放器、隔离 FastAPI、合成视频及回环模拟 DLNA 接收端；不会发现或控制真实局域网设备。原始截图位于 `output/playwright/casting/after/`，选定截图使用 Pillow 以 quality 85 转为 WebP 后按实际来源登记到清单。
 
 Python 拍摄入口连接 `preview_onboarding.py --docs-demo` 的隔离应用，使用临时数据库、本地 NFO 和合成片源，浏览器 API 不模拟。将下面的目录替换为启动器打印的实际目录；需要复拍播放器时选择带 `--only player` 的命令：
 
