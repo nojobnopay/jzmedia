@@ -21,11 +21,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|related|detail|detail-recovery|metadata-recovery|refresh-strategy|hosts|all]')
+    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|image-cache|categories|related|detail|detail-recovery|metadata-recovery|refresh-strategy|hosts|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'refresh-strategy', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'image-cache', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'refresh-strategy', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-'))
 const output = path.join(root, 'output/playwright/online-p2')
 const dist = path.join(work, 'dist')
@@ -91,6 +91,7 @@ async function idle(message = 'All formal sessions, workers and reservations mus
       && value.registry.reserved_bytes === 0 && value.pending_requests === 0
       && value.catalogue_active === 0 && value.catalogue_owners === 0
       && value.api_pool.active === 0
+      && value.image_pool.active === 0
       && value.artwork_cache.inflight === 0 && value.artwork_cache.pending === 0 ? value : false
   }, message)
   assert.deepEqual(value.local_rows, { movies: 0, tv_episodes: 0, playback_progress: 0 })
@@ -984,6 +985,88 @@ async function loading() {
   }
   await backendChildren('after-loading')
 }
+
+async function imageCache() {
+  const imageReads = value => value.origin_calls.filter(call => call.kind === 'image').length
+  const apiReads = value => value.origin_calls.filter(call => call.kind === 'api').length
+  for (const width of [1440, 390]) {
+    phase = { name: `image-cache-${width}`, expectedHttp: false }
+    const { context, page } = await newPage(width)
+    let firstMs = null, started = 0
+    async function decodedGallery() {
+      for (let number = 1; number <= 20; number++) {
+        const poster = page.locator(`[data-online-result="gallery-${number}"]`)
+        await poster.scrollIntoViewIfNeeded()
+        await until(() => poster.locator('.online-poster > img').evaluateAll(images => images.some(image => image.complete && image.naturalWidth > 0)),
+          `Cached poster ${number} must decode through its authorized image lease`, 18000)
+        if (firstMs === null) firstMs = Math.round(performance.now() - started)
+      }
+    }
+    async function reloadGallery() {
+      const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/online/catalog/browse'
+        && response.status() === 200)
+      await page.reload()
+      await page.waitForFunction(() => window.__jzOnlineP2Fixture?.snapshot().ready)
+      await refreshed
+      await page.locator('[data-online-result="gallery-1"]').waitFor()
+      await decodedGallery()
+      return (await idle()).metrics
+    }
+    try {
+      await navigate(page, '/settings'); await idle()
+      await scenario(page, { gallery: true, taxonomy: false, related: false, detail_mode: false,
+        image_delay_ms: 250, clear_artwork_cache: true })
+      await selectSource(page)
+      await page.locator('[data-online-result="gallery-1"]').waitFor()
+      await until(async () => await page.locator('.online-results [data-online-artwork-state="loading"]').count() === 0,
+        'Visible work settles before the measured cold reload', 25000)
+      await idle()
+      await scenario(page, { clear_artwork_cache: true })
+      const before = await metrics()
+      assert.equal(before.artwork_cache.entries, 0)
+      assert.equal(before.artwork_disk_cache.entries, 0, 'Cold setup clears both cache levels')
+      started = performance.now(); firstMs = null
+      const cold = await reloadGallery()
+      const coldTime = { firstMs, completeMs: Math.round(performance.now() - started) }
+      assert.equal(imageReads(cold) - imageReads(before), 20, 'Cold loading reads each unique original exactly once')
+      assert.ok(cold.images.peak <= 2, 'Image optimization does not raise actual upstream concurrency')
+      assert.ok(cold.artwork_disk_cache.entries >= 20)
+      assert.ok(cold.artwork_disk_cache.bytes <= 128 * 1024 * 1024)
+      assert.ok(cold.artwork_disk_cache.entries <= 2048)
+
+      // A complete browser reload discards the session catalogue and all Blob
+      // objects. Clear L1 separately so zero source reads prove the disk level.
+      await scenario(page, { clear_artwork_memory: true })
+      const warmBefore = await metrics()
+      assert.equal(warmBefore.artwork_cache.entries, 0)
+      assert.equal(warmBefore.artwork_disk_cache.entries, cold.artwork_disk_cache.entries)
+      started = performance.now(); firstMs = null
+      const warm = await reloadGallery()
+      const warmTime = { firstMs, completeMs: Math.round(performance.now() - started) }
+      assert.ok(apiReads(warm) > apiReads(warmBefore), 'A full reload still obtains a fresh authorized directory')
+      assert.equal(imageReads(warm) - imageReads(warmBefore), 0, 'Disk hits make no source image request')
+      assert.equal(warm.network_dials.image - warmBefore.network_dials.image, 0, 'Disk hits open no image TCP connection')
+      assert.equal(await page.locator('.online-results [data-online-artwork-state="error"]').count(), 0)
+      assert.equal(warm.image_pool.active, 0)
+      const geometry = await layout(page, width)
+      await page.screenshot({ path: path.join(output, `image-cache-${width}.png`), fullPage: true })
+      passed({ case: phase.name, geometry, originals: 20, maxImageReads: cold.images.peak,
+        cold: { ...coldTime, upstreamImages: 20, imageTcpDials: cold.network_dials.image - before.network_dials.image },
+        diskWarm: { ...warmTime, upstreamImages: 0, imageTcpDials: 0, freshDirectory: true },
+        fullBrowserReload: true, memoryClearedBeforeDiskRead: true,
+        diskCache: warm.artwork_disk_cache, imagePool: warm.image_pool,
+        scope: 'Measured synthetic latency only; full browser reload and L1 reset, not an application process restart or public-source speed promise' })
+    } finally {
+      await closeContext(context); await idle()
+      const response = await fetch(`${base}/api/p2/scenario`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Token': 'online-p2-fixture-only' },
+        body: JSON.stringify({ gallery: false, image_delay_ms: 0, clear_artwork_cache: true }) })
+      assert.equal(response.status, 200)
+    }
+  }
+  await backendChildren('after-image-cache')
+}
+
 async function detailExperience() {
   async function configure(active) {
     const response = await fetch(`${base}/api/p2/scenario`, { method: 'POST',
@@ -2189,6 +2272,7 @@ try {
     'frontend/src/onlinePlayback.js', 'app/online/maccms.py', 'app/online/catalog.py',
     'frontend/src/onlineArtwork.js', 'frontend/src/components/OnlineArtwork.vue', 'frontend/src/onlineCatalog.js',
     'frontend/src/onlineBrowse.js', 'app/online/artwork.py', 'app/online/artwork_cache.py',
+    'app/online/artwork_disk.py', 'app/online/image_pool.py',
     'frontend/src/onlineCategories.js', 'frontend/src/onlineRelated.js', 'app/online/related.py', 'app/online/related_matching.py',
     'frontend/src/components/OnlineEpisodes.vue', 'frontend/src/onlineEpisodes.js', 'frontend/src/styles/onlineEpisodes.css',
     'app/online/taxonomy_cache.py', 'app/online/api_pool.py', 'app/online/runtime.py',
@@ -2216,6 +2300,7 @@ try {
     if (selectedCase === 'all' || selectedCase === 'hosts') await hostRepair()
     if (selectedCase === 'all' || selectedCase === 'discovery') await discovery()
     if (selectedCase === 'all' || selectedCase === 'loading') await loading()
+    if (selectedCase === 'all' || selectedCase === 'image-cache') await imageCache()
     if (selectedCase === 'all' || selectedCase === 'categories') await categoryNavigation()
     if (selectedCase === 'all' || selectedCase === 'related') await relatedRecommendations()
     if (selectedCase === 'all' || selectedCase === 'detail') await detailExperience()
@@ -2228,7 +2313,7 @@ try {
     assert.ok(!report.finalMetrics.origin_calls.some(call => call.app_credentials), 'Application credentials never reach the source')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'api'), 'The API uses its own network-purpose client')
     if (selectedCase === 'metadata-recovery') assert.ok(!report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Metadata recovery never requests media')
-    else if (!['discovery', 'loading', 'categories'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
+    else if (!['discovery', 'loading', 'image-cache', 'categories'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'image'), 'Posters use their image-purpose client')
     assert.deepEqual(report.errors, [], 'No browser runtime, Vue or unexpected console errors')
     assert.deepEqual(report.unexpectedRequests, [], 'No foreign origin or local playback/cast API request')

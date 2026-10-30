@@ -85,6 +85,7 @@ class Scenario(BaseModel):
     poster_failure_id: Literal["urban-2026-1", ""] | None = None
     poster_failures_remaining: int | None = Field(default=None, ge=0, le=2)
     clear_artwork_cache: bool = False
+    clear_artwork_memory: bool = False
     expire_sessions: bool = False
 
 
@@ -117,7 +118,7 @@ class FixtureState:
         return client
 
     def metrics(self):
-        from app.online import api_pool, artwork
+        from app.online import api_pool, artwork, image_pool
         active = {session.id for session in self.registry.sessions()}
         created = self.registry.recorded_ids()
         with self.origin.lock:
@@ -141,7 +142,9 @@ class FixtureState:
                 "images": images,
                 "admission": catalog.admission_stats(),
                 "api_pool": api_pool.pool.stats(), "network_dials": network_dials,
+                "image_pool": image_pool.pool.stats(),
                 "artwork_cache": artwork.cache.stats(),
+                "artwork_disk_cache": artwork.disk_cache.stats(),
                 "local_rows": local, "catalog_rows": catalogue}
 
 
@@ -162,9 +165,11 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
     related_module = importlib.import_module("app.online.related")
     taxonomy_module = importlib.import_module("app.online.taxonomy_cache")
     api_pool_module = importlib.import_module("app.online.api_pool")
+    image_pool_module = importlib.import_module("app.online.image_pool")
     health_module.registry.clear()
     taxonomy_module.cache.clear()
     api_pool_module.clear()
+    image_pool_module.pool.clear()
     with ExitStack() as stack:
         state_dir = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="state-", dir=root)))
         stack.enter_context(patch.object(_base, "DB_PATH", str(state_dir / "fixture.db")))
@@ -214,6 +219,7 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
         stack.enter_context(patch.object(artwork_module, "create_online_client", state.client))
         stack.enter_context(patch.object(artwork_module, "registry", artwork_module.ArtworkRegistry()))
         stack.enter_context(patch.object(artwork_module, "cache", artwork_module.ArtworkCache()))
+        stack.enter_context(patch.object(artwork_module, "disk_cache", type(artwork_module.disk_cache)()))
 
         @asynccontextmanager
         async def lifespan(_app):
@@ -356,6 +362,9 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                 state.registry.close_all()
             if body.clear_artwork_cache:
                 artwork_module.cache.clear()
+                artwork_module.disk_cache.clear()
+            elif body.clear_artwork_memory:
+                artwork_module.cache.clear()
             if body.clear_taxonomy_cache:
                 from app.online.taxonomy_cache import cache
                 cache.clear()
@@ -377,6 +386,7 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
             related_module.cache.clear()
             taxonomy_module.cache.clear()
             api_pool_module.clear()
+            image_pool_module.pool.clear()
             library_paths.invalidate_cache()
 
 
