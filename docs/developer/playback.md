@@ -147,6 +147,8 @@ MacCMS 前台浏览、搜索和详情的主请求对连接／读取超时和上�
 
 浏览页面只接收文本、支持状态、稳定身份、授权海报路径和固定归因链接，不接收媒体 URL 或上游头部。封面经同源授权图片接口和独立图片用途策略读取；收藏与持久进度使用独立[在线状态接口](api.md#在线收藏与进度)。接口字段与错误见[在线目录](api.md#在线目录)。
 
+`image_pool.py` 独立复用图片连接，沿用每次新配置、完整 DNS 与 TLS 信任检查；仅完整且通过类型校验的图片流在响应关闭后可归还。`artwork_disk.py` 保存有界原图文件，作为内存未命中后的二级缓存；来源、配置及当前观看权限在命中前后复核，不绕过租约。原图不解码、不缩放，不交给静态目录；每次读写使用当前请求期限和取消守卫，维护扫描有节流，文件损坏或磁盘不可用不阻断正常网络读取。容量与期限见[在线目录](api.md#在线目录)。
+
 网页目录新鲜期为 15 分钟，会话缓存仍最多 12 页、2 MiB、30 分钟。15～30 分钟的旧行先展示再独立检查；后台新结果计入同一预算，仅提示更新，用户明确应用后替换。超预算只保留更新标志，点击后重新读取；检查尝试不延长旧行期限，无变化的成功检查才续新。后台请求使用可被前台抢占的独立取消控制，不占用主界面的搜索忙碌状态。刷新不重建整面海报组件，同路径成功图片保留，仅失败或缺失图片接受显式重试；权限和配置失效仍清除旧范围内容。
 
 ### 在线来源观察
@@ -199,7 +201,7 @@ node scripts/smoke_online_p1.mjs --demo
 
 自动检查可分别运行 `node scripts/smoke_online_p1.mjs --case matrix`、`--case lifecycle`、`--case failures`；`--case all` 串行执行全部场景。`matrix` 检查 MP4/HLS 的实际帧、时间、控制与桌面/触摸视口，`lifecycle` 检查身份、晚到响应及页面回收，`failures` 检查有限恢复和错误操作。参数以 `node scripts/smoke_online_p1.mjs --help` 为准，代码入口为 `scripts/smoke_online_p1.mjs`、`scripts/online_p1/` 和 `scripts/fixtures/OnlineP1Preview.vue`；结果写入 `output/playwright/online-p1/`。Chromium 视口模拟与能力缺失模拟不代表 Safari 原生 HLS、真实手机或电视验收，实际支持范围应以对应运行记录为准。
 
-P2 的正式来源管理与在线页面通过真实 MacCMS 解析器连接隔离 API、临时数据库和开发机预先生成的媒体，可运行 `node scripts/smoke_online_p2.mjs --demo` 手工预览，或用 `--case` 分组验证：`matrix` 检查播放，`catalogue` 检查目录流程，`discovery` 检查海报墙，`loading` 检查冷暖加载与恢复，`categories` 检查分类与年份，`related` 检查其他季、推荐及播放抢占，`detail` 检查主要播放、长列表选集与精确续播，`detail-recovery` 检查详情瞬态重试、取消和手动恢复，`metadata-recovery` 检查目录／搜索重试、分类缓存与取消，`refresh-strategy` 检查 15 分钟刷新、更新提示、成功海报保留与后台抢占，`hosts` 检查允许主机修复，`all` 运行全部。脚本入口为 `scripts/smoke_online_p2.mjs`、`scripts/online_p2/` 和 `scripts/fixtures/OnlineP2Preview.vue`；退出清理临时实例，不连接生产 NAS 或公网来源。样片生成只发生在开发机准备阶段，服务期间不调用媒体处理程序。
+P2 的正式来源管理与在线页面通过真实 MacCMS 解析器连接隔离 API、临时数据库和开发机预先生成的媒体，可运行 `node scripts/smoke_online_p2.mjs --demo` 手工预览，或用 `--case` 分组验证：`matrix` 检查播放，`catalogue` 检查目录流程，`discovery` 检查海报墙，`loading` 检查冷暖加载与恢复，`image-cache` 检查清空内存并完整重载网页后复用磁盘原图，`categories` 检查分类与年份，`related` 检查其他季、推荐及播放抢占，`detail` 检查主要播放、长列表选集与精确续播，`detail-recovery` 检查详情瞬态重试、取消和手动恢复，`metadata-recovery` 检查目录／搜索重试、分类缓存与取消，`refresh-strategy` 检查 15 分钟刷新、更新提示、成功海报保留与后台抢占，`hosts` 检查允许主机修复，`all` 运行全部。脚本入口为 `scripts/smoke_online_p2.mjs`、`scripts/online_p2/` 和 `scripts/fixtures/OnlineP2Preview.vue`；退出清理临时实例，不连接生产 NAS 或公网来源。样片生成只发生在开发机准备阶段，服务期间不调用媒体处理程序。
 
 ## HLS 与 FFmpeg
 
