@@ -4,7 +4,8 @@
     <EmptyState v-if="isChildren" state="empty" title="儿童模式暂不支持在线内容" text="切换观看模式后再浏览。" />
     <template v-else-if="safeMode">
       <p v-if="stateNotice" class="online-state-notice" data-online-state-notice role="status">{{ stateNotice }}</p>
-      <div v-if="nextLoading" class="online-next-state" data-online-next-loading role="status"><span>正在读取下一集…</span><JzButton @click="cancelNext">取消连续播放</JzButton></div>
+      <div v-if="searching && results.length && browseVisible && !categoriesOpen" class="online-loading-feedback" data-online-loading-feedback role="status" aria-live="polite" aria-atomic="true"><Spinner :size="28" /><span>{{ browseLoadingText }}</span></div>
+      <div v-if="nextLoading" class="online-next-state" data-online-next-loading role="status"><span class="online-loading-label"><Spinner :size="20" />正在读取下一集…</span><JzButton @click="cancelNext">取消连续播放</JzButton></div>
       <EmptyState v-if="loadingSources" state="loading" title="正在加载视频源" />
       <EmptyState v-else-if="sourcesError" state="error" title="视频源加载失败" :text="sourcesError" retry @retry="loadSources" />
       <EmptyState v-else-if="!enabled" state="empty" title="在线点播尚未启用" text="在设置中启用在线点播并添加视频源；已有记录仍会保留。"><router-link to="/settings?sec=sec-online">打开在线视频源设置</router-link></EmptyState>
@@ -54,7 +55,7 @@
         </JzDialog>
         <p class="online-discovery-note">{{ loadedQuery ? '搜索当前视频源' : '发现推荐 · 按视频源最近更新浏览' }}<span v-if="selectedSource?.provider === 'open_catalog'"> · Blender 开放影片</span></p>
         <details class="online-connection"><summary>连接状态</summary>
-          <div class="online-health" data-online-health><span>目录：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.api) : healthError || '尚未使用' }}</span><span>播放：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.media) : healthError || '尚未使用' }}</span><JzButton variant="ghost" :disabled="healthLoading" @click="loadHealth">刷新状态</JzButton><small>来自最近请求的记录。卡顿时可在来源网络设置中尝试代理。</small></div>
+          <div class="online-health" data-online-health><span>目录：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.api) : healthError || '尚未使用' }}</span><span>播放：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.media) : healthError || '尚未使用' }}</span><JzButton variant="ghost" :loading="healthLoading" @click="loadHealth">刷新状态</JzButton><small>来自最近请求的记录。卡顿时可在来源网络设置中尝试代理。</small></div>
         </details>
         </div>
         <EmptyState v-if="detailLoading" state="loading" title="正在加载详情" text="正在读取所选来源的线路与分集。"><JzButton @click="backToResults">返回搜索结果</JzButton></EmptyState>
@@ -79,7 +80,7 @@
             <span>{{ itemState.last_progress.completed ? '上次已看完' : '上次观看' }}：{{ lastLine?.label }}<span v-if="detail.item.kind === 'tv'"> · {{ lastEntry.label }}</span><span v-if="!itemState.last_progress.completed"> · {{ fmt(itemState.last_progress.position) }}</span></span>
             <JzButton v-if="lastEntry.identity.line_id !== lineId" variant="ghost" data-online-detail-locate-last :disabled="starting || itemStateLoading || nextLoading" @click="locateLastEntry">定位上次观看</JzButton>
           </p>
-          <p v-else-if="itemStateLoading" class="online-scope" data-online-detail-state-loading role="status">正在读取观看记录…</p>
+          <p v-else-if="itemStateLoading" class="online-scope online-loading-label" data-online-detail-state-loading role="status"><Spinner :size="16" />正在读取观看记录…</p>
           <p v-if="!primaryEntry && !itemStateLoading" class="online-scope" data-online-no-playable>当前线路暂无可直接播放的内容，请选择其他线路。</p>
           <div v-if="needsHostUpdate" class="online-host-help" data-online-host-help role="status">
             <p>此来源使用了尚未允许的媒体主机。可在当前页面检查并确认新增域名。</p>
@@ -100,7 +101,7 @@
             <div v-if="detail.attribution?.length" class="online-attribution"><span>内容来源与许可</span><a v-for="credit in detail.attribution" :key="credit.url" :href="safeAttribution(credit.url)" target="_blank" rel="noopener noreferrer">{{ credit.label }}</a></div>
           </section>
           <section v-if="relatedLoading || relatedError || relatedDeferred || relatedGroups.length" class="online-related" aria-label="相关内容" data-online-related>
-            <p v-if="relatedLoading" class="online-related-state" data-online-related-loading role="status">正在查找相关内容…</p>
+            <p v-if="relatedLoading" class="online-related-state" data-online-related-loading role="status"><Spinner :size="20" />正在查找相关内容…</p>
             <div v-else-if="relatedError" class="online-related-state" data-online-related-error role="status"><span>{{ relatedError.message }}仍可正常选集播放。</span><JzButton data-online-related-retry @click="loadRelated(true)">重试</JzButton></div>
             <div v-else-if="relatedDeferred" class="online-related-state" data-online-related-deferred><span>相关内容稍后可继续查看。</span><JzButton data-online-related-retry @click="loadRelated(true)">查看相关推荐</JzButton></div>
             <div v-else-if="related?.partial" class="online-related-state" data-online-related-partial role="status"><span>部分相关内容暂时无法读取，已显示可用结果。</span><JzButton data-online-related-retry @click="loadRelated(true)">重试</JzButton></div>
@@ -117,10 +118,9 @@
           </section>
         </section>
         <div v-show="!detail && !detailLoading && !detailError" ref="browseRoot" class="online-browser" :aria-busy="searching" data-online-browser>
-          <p v-if="searching && results.length" class="online-refresh-state" data-online-refreshing role="status">正在更新结果…</p>
           <div v-if="searched" class="online-update-state">
             <span v-if="hasUpdates" class="online-update-notice" data-online-update-notice role="status"><span>内容有更新</span><JzButton data-online-apply-update :disabled="searching || applyingUpdates" :loading="applyingUpdates" @click="applyUpdates">查看更新</JzButton></span>
-            <span v-if="checkingUpdates" data-online-background-refreshing role="status">正在检查更新…</span>
+            <span v-if="checkingUpdates" class="online-loading-label" data-online-background-refreshing role="status"><Spinner :size="16" />正在检查更新…</span>
             <span v-else-if="updateCheckError" data-online-refresh-check-error :title="updateCheckError" role="status">检查更新未完成，仍显示上次结果。</span>
             <span v-if="checkedAt" data-online-checked-at :data-timestamp="checkedAt">上次检查 {{ checkedTime }}</span>
           </div>
@@ -130,17 +130,17 @@
           <EmptyState v-else-if="!searched" state="empty" :title="selectedSource?.provider === 'open_catalog' ? '浏览开放样例目录' : '查找想看的内容'" :text="selectedSource?.provider === 'open_catalog' ? '点击“浏览目录”查看开放影片及许可。' : '输入片名，仅向当前选中的来源发起查询。'" />
           <EmptyState v-else-if="!results.length" state="no-results" title="没有找到相关内容" text="试试其他片名，或选择其他来源。" />
           <template v-else>
-            <div class="online-results-heading"><h2>{{ loadedQuery ? '搜索结果' : loadedCategoryName || '最近更新' }}<span v-if="loadedYear" class="online-results-year"> · {{ loadedYear }} 年</span></h2><span>{{ total }} 项 · {{ selectedSource?.name }}</span><JzButton variant="ghost" icon="refresh" data-online-refresh :disabled="searching" @click="refreshResults">刷新</JzButton></div>
+            <div class="online-results-heading"><h2>{{ loadedQuery ? '搜索结果' : loadedCategoryName || '最近更新' }}<span v-if="loadedYear" class="online-results-year"> · {{ loadedYear }} 年</span></h2><span>{{ total }} 项 · {{ selectedSource?.name }}</span><JzButton variant="ghost" icon="refresh" data-online-refresh :loading="searching" @click="refreshResults">刷新</JzButton></div>
             <div class="grid online-results"><article v-for="item in results" :key="item.external_id" class="card online-result" :data-online-browse-id="item.external_id">
               <JzButton class="online-poster-button" variant="ghost" :data-online-result="item.external_id" :aria-label="'查看详情 ' + item.title" :disabled="searching" @click="openDetail(item.external_id)"><OnlineArtwork :retry-key="posterGeneration" :path="item.poster_path" :title="item.title" /><span v-if="item.remarks" class="online-poster-remark" :title="item.remarks" data-online-item-status>{{ item.remarks }}</span><span class="online-poster-action"><AppIcon name="play" :size="22" />查看详情</span></JzButton>
               <div class="t"><h3 class="card-title" :title="item.title">{{ item.title }}</h3><p class="card-meta">{{ [item.year, item.category || (item.kind === 'tv' ? '剧集' : item.kind === 'movie' ? '电影' : '')].filter(Boolean).join(' · ') }}</p></div>
             </article></div>
-            <nav v-if="pageCount > 1" class="online-pagination" aria-label="在线搜索分页"><JzButton icon="arrow-left" :disabled="searching || !!searchError || page <= 1" @click="search(page - 1, loadedQuery)">上一页</JzButton><span>第 {{ page }} / {{ pageCount }} 页</span><JzButton icon="forward" :disabled="searching || !!searchError || page >= pageCount" @click="search(page + 1, loadedQuery)">下一页</JzButton></nav>
+            <nav v-if="pageCount > 1" class="online-pagination" aria-label="在线搜索分页"><JzButton icon="arrow-left" data-online-page-prev :loading="searching && lastQuery.page < page" :disabled="searching || !!searchError || page <= 1" @click="search(page - 1, loadedQuery)">上一页</JzButton><span>第 {{ page }} / {{ pageCount }} 页</span><JzButton icon="forward" data-online-page-next :loading="searching && lastQuery.page > page" :disabled="searching || !!searchError || page >= pageCount" @click="search(page + 1, loadedQuery)">下一页</JzButton></nav>
           </template>
         </div>
       </template>
       <section v-show="browseVisible" ref="libraryRoot" class="online-library" aria-label="在线观看记录">
-        <div class="online-library-heading"><div><h2>我的在线记录</h2><p class="online-scope">当前设备 · {{ modeText }}；与本地媒体库记录分开。</p></div><JzButton variant="ghost" icon="refresh" :disabled="libraryLoading" @click="loadLibrary()">刷新记录</JzButton></div>
+        <div class="online-library-heading"><div><h2>我的在线记录</h2><p class="online-scope">当前设备 · {{ modeText }}；与本地媒体库记录分开。</p></div><JzButton variant="ghost" icon="refresh" :loading="libraryLoading" @click="loadLibrary()">刷新记录</JzButton></div>
         <div class="online-library-tabs" role="group" aria-label="在线记录分类">
           <JzButton v-for="tab in libraryTabs" :key="tab.key" :data-online-library-section="tab.key" :aria-pressed="librarySection === tab.key" @click="selectLibrary(tab.key)">{{ tab.label }}</JzButton>
         </div>
@@ -178,6 +178,7 @@ import { onlineBrowseMemory, onlineBrowseScope, clearOnlineBrowse, captureOnline
 import { onlineCategoryTree, visibleOnlineChannels, onlineCategoryLabel, onlineChannelCategory, visibleOnlineCategories, filterOnlineChannels, validOnlineYear } from '../onlineCategories.js'
 import { fmtTime as fmt } from '../playerLabels.js'
 import EmptyState from '../components/EmptyState.vue'
+import Spinner from '../components/Spinner.vue'
 import JzButton from '../components/JzButton.vue'
 import JzField from '../components/JzField.vue'
 import JzDialog from '../components/JzDialog.vue'
@@ -235,6 +236,7 @@ const canSearch = computed(() => !!sourceId.value && (query.value.trim().length 
 const selectedLine = computed(() => detail.value?.lines.find(line => line.id === lineId.value))
 const needsHostUpdate = computed(() => detail.value?.lines.some(line => line.entries.some(entry => ['host_not_allowed', 'target_host_not_allowed'].includes(entry.reason))))
 const lastQuery = ref({ page: 1, query: '' })
+const browseLoadingText = computed(() => lastQuery.value.query.trim() ? '正在搜索…' : `正在加载第 ${lastQuery.value.page} 页…`)
 const browseVisible = computed(() => !detail.value && !detailLoading.value && !detailError.value)
 const lastEntry = computed(() => findEntry(detail.value, itemState.value?.last_progress?.identity) || null)
 const lastLine = computed(() => detail.value?.lines.find(line => line.id === lastEntry.value?.identity.line_id))

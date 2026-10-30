@@ -18505,7 +18505,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 45,
+            "line": 47,
             "selector": ".online-poster-button.jz-button",
             "values": {
               "width": "100%",
@@ -18514,7 +18514,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 117,
+            "line": 119,
             "selector": ".online-channels .jz-button, .online-class-options .jz-button, .online-connection summary",
             "values": {
               "min-height": "44px"
@@ -18522,7 +18522,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 127,
+            "line": 129,
             "selector": ".online-detail-actions > .jz-button",
             "values": {
               "min-height": "44px"
@@ -18530,7 +18530,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 131,
+            "line": 133,
             "selector": ".online-related-state .jz-button",
             "values": {
               "min-height": "44px"
@@ -18538,7 +18538,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 158,
+            "line": 160,
             "selector": ".online-library-actions .jz-button",
             "values": {
               "min-height": "44px"
@@ -18546,7 +18546,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 159,
+            "line": 161,
             "selector": ".online-health .jz-button",
             "values": {
               "min-height": "44px"
@@ -25741,7 +25741,44 @@
       "source_excerpt": "<JzButton :ref=\"button => setEntryButton(row.index, button)\" :data-online-entry=\"row.entry.label\" :data-online-entry-index=\"row.index\" :data-online-entry-current=\"row.index === cur"
     },
     {
-      "id": "frontend/src/components/OnlineHostDialog.vue:input:14",
+      "id": "frontend/src/components/OnlineHostDialog.vue:Spinner:6",
+      "source": "frontend/src/components/OnlineHostDialog.vue",
+      "line": 6,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "Spinner",
+      "purpose": "加载",
+      "assets": [
+        "loading"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "16"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<Spinner :size=\"16\" />"
+    },
+    {
+      "id": "frontend/src/components/OnlineHostDialog.vue:input:15",
       "source": "frontend/src/components/OnlineHostDialog.vue",
       "line": 14,
       "platforms": [
@@ -25780,7 +25817,7 @@
       "source_excerpt": "<input v-model=\"selected\" type=\"checkbox\" :value=\"host\" data-online-host-candidate />"
     },
     {
-      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:18",
+      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:19",
       "source": "frontend/src/components/OnlineHostDialog.vue",
       "line": 20,
       "platforms": [
@@ -25820,7 +25857,7 @@
       "source_excerpt": "<JzButton :disabled=\"saving || authorizing\" @click=\"close\">"
     },
     {
-      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:19",
+      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:20",
       "source": "frontend/src/components/OnlineHostDialog.vue",
       "line": 21,
       "platforms": [
@@ -25860,7 +25897,7 @@
       "source_excerpt": "<JzButton v-if=\"permissionRequired\" variant=\"primary\" :loading=\"authorizing\" :disabled=\"saving\" @click=\"authorize\">"
     },
     {
-      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:20",
+      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:21",
       "source": "frontend/src/components/OnlineHostDialog.vue",
       "line": 22,
       "platforms": [
@@ -25900,7 +25937,7 @@
       "source_excerpt": "<JzButton v-else-if=\"saved || report && !report.missing_hosts.length\" variant=\"primary\" :loading=\"saving\" @click=\"reload\">"
     },
     {
-      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:21",
+      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:22",
       "source": "frontend/src/components/OnlineHostDialog.vue",
       "line": 23,
       "platforms": [
@@ -25940,7 +25977,7 @@
       "source_excerpt": "<JzButton v-else-if=\"report\" variant=\"primary\" :loading=\"saving\" :disabled=\"!selected.length || checking\" @click=\"apply\">"
     },
     {
-      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:22",
+      "id": "frontend/src/components/OnlineHostDialog.vue:JzButton:23",
       "source": "frontend/src/components/OnlineHostDialog.vue",
       "line": 24,
       "platforms": [
@@ -26921,7 +26958,44 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"templateId\" :disabled=\"saving\" :aria-describedby=\"field.describedby\" @change=\"applyTemplate\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:39",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:Spinner:38",
+      "source": "frontend/src/components/OnlineSourcesPanel.vue",
+      "line": 22,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "Spinner",
+      "purpose": "加载",
+      "assets": [
+        "loading"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "16"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<Spinner :size=\"16\" />"
+    },
+    {
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:40",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 23,
       "platforms": [
@@ -26961,7 +27035,7 @@
       "source_excerpt": "<JzButton size=\"compact\" :disabled=\"templatesLoading\" @click=\"loadTemplates\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:a:43",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:a:44",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 24,
       "platforms": [
@@ -26996,7 +27070,7 @@
       "source_excerpt": "<a v-if=\"templateHomepage\" :href=\"templateHomepage\" target=\"_blank\" rel=\"noopener noreferrer\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:47",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:48",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 27,
       "platforms": [
@@ -27036,7 +27110,7 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"form.name\" maxlength=\"128\" required :disabled=\"saving\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:50",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:51",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 28,
       "platforms": [
@@ -27076,7 +27150,7 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"form.provider\" :disabled=\"saving || !!editingId\" @change=\"providerChanged\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:55",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:56",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 29,
       "platforms": [
@@ -27116,7 +27190,7 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"form.api_base_url\" type=\"url\" maxlength=\"2048\" required :disabled=\"saving || form.provider === 'open_catalog'\" :aria-describedby=\"field.describedby\" "
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:textarea:58",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:textarea:59",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 30,
       "platforms": [
@@ -27156,7 +27230,7 @@
       "source_excerpt": "<textarea :id=\"field.id\" v-model=\"form.hosts\" rows=\"3\" :disabled=\"saving || form.provider === 'open_catalog'\" :aria-describedby=\"field.describedby\" placeholder=\"media.example.com\" "
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:61",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:62",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 31,
       "platforms": [
@@ -27196,7 +27270,7 @@
       "source_excerpt": "<input :id=\"field.id\" v-model.number=\"form.priority\" type=\"number\" min=\"0\" max=\"1000\" required :disabled=\"saving\" :aria-describedby=\"field.describedby\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:63",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:64",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 32,
       "platforms": [
@@ -27236,7 +27310,7 @@
       "source_excerpt": "<input id=\"online-source-enabled\" v-model=\"form.enabled\" type=\"checkbox\" :disabled=\"saving\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:65",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:66",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 34,
       "platforms": [
@@ -27275,7 +27349,7 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:69",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:70",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 34,
       "platforms": [
@@ -27315,7 +27389,7 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"form.search_action\" :disabled=\"saving\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:75",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:76",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 34,
       "platforms": [
@@ -27355,7 +27429,7 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"form.detail_action\" :disabled=\"saving\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:81",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:82",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 37,
       "platforms": [
@@ -27395,7 +27469,7 @@
       "source_excerpt": "<JzButton type=\"submit\" variant=\"primary\" :loading=\"saving\" :disabled=\"!form.name.trim() || !form.api_base_url.trim()\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:82",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:83",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 37,
       "platforms": [
@@ -27435,7 +27509,7 @@
       "source_excerpt": "<JzButton :disabled=\"saving\" @click=\"cancelEditor\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:86",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:87",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 41,
       "platforms": [
@@ -27475,7 +27549,7 @@
       "source_excerpt": "<JzButton :disabled=\"hostApplying\" @click=\"cancelHostCheck\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:91",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:92",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 44,
       "platforms": [
@@ -27515,7 +27589,7 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"hostExternalId\" maxlength=\"128\" autocomplete=\"off\" :disabled=\"hostChecking || hostApplying\" :aria-describedby=\"field.describedby\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:92",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:93",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 45,
       "platforms": [
@@ -27555,7 +27629,7 @@
       "source_excerpt": "<JzButton type=\"submit\" :loading=\"hostChecking\" :disabled=\"hostApplying || !!testingSource || !validHostItem || !settings.enabled || !hostSource.enabled\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:101",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:102",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 52,
       "platforms": [
@@ -27595,7 +27669,7 @@
       "source_excerpt": "<input v-model=\"selectedHosts\" type=\"checkbox\" :value=\"host\" :disabled=\"hostApplying\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:103",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:104",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 53,
       "platforms": [
@@ -27635,7 +27709,7 @@
       "source_excerpt": "<JzButton variant=\"primary\" :loading=\"hostApplying\" :disabled=\"!selectedHosts.length\" @click=\"allowCheckedHosts\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:RouterLink:108",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:RouterLink:109",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 60,
       "platforms": [
@@ -27670,7 +27744,7 @@
       "source_excerpt": "<router-link v-if=\"validHostItem\" :to=\"hostReturnTarget\" data-online-host-return>"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:117",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:118",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 68,
       "platforms": [
@@ -27710,7 +27784,7 @@
       "source_excerpt": "<select :id=\"field.id\" :value=\"networkMode\" :disabled=\"networkSaving\" :aria-describedby=\"field.describedby\" @change=\"changeNetworkMode($event.target.value)\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:124",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:125",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 70,
       "platforms": [
@@ -27750,7 +27824,7 @@
       "source_excerpt": "<select :id=\"field.id\" :value=\"proxyChoice\" :disabled=\"networkSaving\" @change=\"selectProxy($event.target.value)\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:130",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:131",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 72,
       "platforms": [
@@ -27790,7 +27864,7 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"proxyForm.protocol\" :disabled=\"networkSaving\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:135",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:136",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 73,
       "platforms": [
@@ -27830,7 +27904,7 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.host\" :disabled=\"networkSaving\" autocomplete=\"off\" :spellcheck=\"false\" :aria-describedby=\"field.describedby\" placeholder=\"例如 192.168.1.10\" "
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:138",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:139",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 74,
       "platforms": [
@@ -27870,7 +27944,7 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.port\" :disabled=\"networkSaving\" type=\"number\" min=\"1\" max=\"65535\" inputmode=\"numeric\" placeholder=\"7890\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:140",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:141",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 75,
       "platforms": [
@@ -27909,7 +27983,7 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:144",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:145",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 75,
       "platforms": [
@@ -27949,7 +28023,7 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.username\" :disabled=\"networkSaving\" autocomplete=\"off\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:147",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:input:148",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 75,
       "platforms": [
@@ -27989,7 +28063,7 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"proxyForm.password\" :disabled=\"networkSaving\" type=\"password\" autocomplete=\"new-password\" :aria-describedby=\"field.describedby\" />"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:153",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:154",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 80,
       "platforms": [
@@ -28029,7 +28103,7 @@
       "source_excerpt": "<JzButton size=\"compact\" :disabled=\"networkSaving\" @click=\"inheritAllPurposes\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:155",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:summary:156",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 81,
       "platforms": [
@@ -28068,7 +28142,7 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:160",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:select:161",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 83,
       "platforms": [
@@ -28108,7 +28182,7 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"networkChoices[purpose.key]\" :disabled=\"networkSaving\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:167",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:168",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 86,
       "platforms": [
@@ -28148,7 +28222,7 @@
       "source_excerpt": "<JzButton type=\"submit\" variant=\"primary\" :loading=\"networkSaving\">"
     },
     {
-      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:168",
+      "id": "frontend/src/components/OnlineSourcesPanel.vue:JzButton:169",
       "source": "frontend/src/components/OnlineSourcesPanel.vue",
       "line": 86,
       "platforms": [
@@ -48321,9 +48395,83 @@
       "source_excerpt": "<router-link v-if=\"!isChildren\" class=\"manage-link\" to=\"/settings?sec=sec-online\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:12",
+      "id": "frontend/src/views/Online.vue:Spinner:11",
       "source": "frontend/src/views/Online.vue",
       "line": 7,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "Spinner",
+      "purpose": "加载",
+      "assets": [
+        "loading"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "28"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<Spinner :size=\"28\" />"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:Spinner:15",
+      "source": "frontend/src/views/Online.vue",
+      "line": 8,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "Spinner",
+      "purpose": "加载",
+      "assets": [
+        "loading"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "20"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<Spinner :size=\"20\" />"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:16",
+      "source": "frontend/src/views/Online.vue",
+      "line": 8,
       "platforms": [
         "web",
         "mobile-web"
@@ -48360,9 +48508,9 @@
       "source_excerpt": "<JzButton @click=\"cancelNext\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:RouterLink:16",
+      "id": "frontend/src/views/Online.vue:RouterLink:20",
       "source": "frontend/src/views/Online.vue",
-      "line": 10,
+      "line": 11,
       "platforms": [
         "web",
         "mobile-web"
@@ -48395,9 +48543,9 @@
       "source_excerpt": "<router-link to=\"/settings?sec=sec-online\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:RouterLink:18",
+      "id": "frontend/src/views/Online.vue:RouterLink:22",
       "source": "frontend/src/views/Online.vue",
-      "line": 11,
+      "line": 12,
       "platforms": [
         "web",
         "mobile-web"
@@ -48430,9 +48578,9 @@
       "source_excerpt": "<router-link to=\"/settings?sec=sec-online\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:select:24",
+      "id": "frontend/src/views/Online.vue:select:28",
       "source": "frontend/src/views/Online.vue",
-      "line": 15,
+      "line": 16,
       "platforms": [
         "web",
         "mobile-web"
@@ -48470,9 +48618,9 @@
       "source_excerpt": "<select :id=\"field.id\" v-model=\"sourceId\" data-online-source :disabled=\"loadingSources\" @change=\"sourceChanged\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:input:28",
+      "id": "frontend/src/views/Online.vue:input:32",
       "source": "frontend/src/views/Online.vue",
-      "line": 16,
+      "line": 17,
       "platforms": [
         "web",
         "mobile-web"
@@ -48509,9 +48657,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"query\" maxlength=\"100\" autocomplete=\"off\" placeholder=\"输入电影或剧集名称\" />"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:29",
+      "id": "frontend/src/views/Online.vue:JzButton:33",
       "source": "frontend/src/views/Online.vue",
-      "line": 17,
+      "line": 18,
       "platforms": [
         "web",
         "mobile-web"
@@ -48551,9 +48699,9 @@
       "source_excerpt": "<JzButton type=\"submit\" variant=\"primary\" icon=\"search\" :disabled=\"!canSearch || searching\" :loading=\"searching\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:32",
+      "id": "frontend/src/views/Online.vue:JzButton:36",
       "source": "frontend/src/views/Online.vue",
-      "line": 21,
+      "line": 22,
       "platforms": [
         "web",
         "mobile-web"
@@ -48592,9 +48740,9 @@
       "source_excerpt": "<JzButton :aria-pressed=\"!channelId && !loadedQuery\" :disabled=\"searching\" data-online-channel=\"\" @click=\"selectChannel('')\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:33",
+      "id": "frontend/src/views/Online.vue:JzButton:37",
       "source": "frontend/src/views/Online.vue",
-      "line": 22,
+      "line": 23,
       "platforms": [
         "web",
         "mobile-web"
@@ -48633,9 +48781,9 @@
       "source_excerpt": "<JzButton v-for=\"channel in mainChannels\" :key=\"channel.id\" :data-online-channel=\"channel.id\" :data-online-category=\"!channel.children.length ? channel.id : undefined\" :aria-presse"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:34",
+      "id": "frontend/src/views/Online.vue:JzButton:38",
       "source": "frontend/src/views/Online.vue",
-      "line": 23,
+      "line": 24,
       "platforms": [
         "web",
         "mobile-web"
@@ -48674,9 +48822,9 @@
       "source_excerpt": "<JzButton ref=\"categoriesTrigger\" variant=\"ghost\" icon=\"filter\" data-online-categories-open :aria-expanded=\"categoriesOpen\" @click=\"openCategories\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:38",
+      "id": "frontend/src/views/Online.vue:JzButton:42",
       "source": "frontend/src/views/Online.vue",
-      "line": 26,
+      "line": 27,
       "platforms": [
         "web",
         "mobile-web"
@@ -48715,9 +48863,9 @@
       "source_excerpt": "<JzButton :data-online-category=\"selectedChannel.id\" :aria-pressed=\"categoryId === selectedChannel.id\" :disabled=\"searching\" @click=\"selectCategory(selectedChannel.id)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:39",
+      "id": "frontend/src/views/Online.vue:JzButton:43",
       "source": "frontend/src/views/Online.vue",
-      "line": 27,
+      "line": 28,
       "platforms": [
         "web",
         "mobile-web"
@@ -48756,9 +48904,9 @@
       "source_excerpt": "<JzButton v-for=\"category in quickCategories\" :key=\"category.id\" :data-online-category=\"category.id\" :aria-pressed=\"categoryId === category.id\" :disabled=\"searching\" @click=\"select"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:40",
+      "id": "frontend/src/views/Online.vue:JzButton:44",
       "source": "frontend/src/views/Online.vue",
-      "line": 28,
+      "line": 29,
       "platforms": [
         "web",
         "mobile-web"
@@ -48795,9 +48943,9 @@
       "source_excerpt": "<JzButton v-if=\"selectedChannel.children.length > quickCategories.length\" variant=\"ghost\" @click=\"openCategories\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:select:47",
+      "id": "frontend/src/views/Online.vue:select:51",
       "source": "frontend/src/views/Online.vue",
-      "line": 34,
+      "line": 35,
       "platforms": [
         "web",
         "mobile-web"
@@ -48835,9 +48983,9 @@
       "source_excerpt": "<select :id=\"field.id\" :value=\"yearChoice\" :disabled=\"searching\" data-online-year @change=\"chooseYear($event.target.value)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:input:54",
+      "id": "frontend/src/views/Online.vue:input:58",
       "source": "frontend/src/views/Online.vue",
-      "line": 36,
+      "line": 37,
       "platforms": [
         "web",
         "mobile-web"
@@ -48875,9 +49023,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"customYear\" inputmode=\"numeric\" maxlength=\"4\" autocomplete=\"off\" placeholder=\"如 2018\" :disabled=\"searching\" :aria-invalid=\"field.invalid || undefined"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:55",
+      "id": "frontend/src/views/Online.vue:JzButton:59",
       "source": "frontend/src/views/Online.vue",
-      "line": 37,
+      "line": 38,
       "platforms": [
         "web",
         "mobile-web"
@@ -48915,9 +49063,9 @@
       "source_excerpt": "<JzButton type=\"submit\" :disabled=\"searching\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:input:61",
+      "id": "frontend/src/views/Online.vue:input:65",
       "source": "frontend/src/views/Online.vue",
-      "line": 43,
+      "line": 44,
       "platforms": [
         "web",
         "mobile-web"
@@ -48954,9 +49102,9 @@
       "source_excerpt": "<input :id=\"field.id\" v-model=\"categoryQuery\" maxlength=\"80\" autocomplete=\"off\" placeholder=\"输入分类名称\" data-online-category-query />"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:62",
+      "id": "frontend/src/views/Online.vue:JzButton:66",
       "source": "frontend/src/views/Online.vue",
-      "line": 44,
+      "line": 45,
       "platforms": [
         "web",
         "mobile-web"
@@ -48995,9 +49143,9 @@
       "source_excerpt": "<JzButton :aria-pressed=\"!categoryId\" :disabled=\"searching\" @click=\"selectDialogCategory('')\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:67",
+      "id": "frontend/src/views/Online.vue:JzButton:71",
       "source": "frontend/src/views/Online.vue",
-      "line": 49,
+      "line": 50,
       "platforms": [
         "web",
         "mobile-web"
@@ -49036,9 +49184,9 @@
       "source_excerpt": "<JzButton v-if=\"channel.showRoot\" :data-online-category=\"channel.id\" :aria-pressed=\"categoryId === channel.id\" :disabled=\"searching\" @click=\"selectDialogCategory(channel.id)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:68",
+      "id": "frontend/src/views/Online.vue:JzButton:72",
       "source": "frontend/src/views/Online.vue",
-      "line": 50,
+      "line": 51,
       "platforms": [
         "web",
         "mobile-web"
@@ -49077,9 +49225,9 @@
       "source_excerpt": "<JzButton v-for=\"category in channel.children\" :key=\"category.id\" :data-online-category=\"category.id\" :aria-pressed=\"categoryId === category.id\" :disabled=\"searching\" @click=\"selec"
     },
     {
-      "id": "frontend/src/views/Online.vue:summary:72",
+      "id": "frontend/src/views/Online.vue:summary:76",
       "source": "frontend/src/views/Online.vue",
-      "line": 56,
+      "line": 57,
       "platforms": [
         "web",
         "mobile-web"
@@ -49116,9 +49264,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:76",
+      "id": "frontend/src/views/Online.vue:JzButton:80",
       "source": "frontend/src/views/Online.vue",
-      "line": 57,
+      "line": 58,
       "platforms": [
         "web",
         "mobile-web"
@@ -49153,49 +49301,10 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton variant=\"ghost\" :disabled=\"healthLoading\" @click=\"loadHealth\">"
+      "source_excerpt": "<JzButton variant=\"ghost\" :loading=\"healthLoading\" @click=\"loadHealth\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:79",
-      "source": "frontend/src/views/Online.vue",
-      "line": 60,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "通用控件与导航",
-      "element": "JzButton",
-      "purpose": "返回搜索结果",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"backToResults\">"
-    },
-    {
-      "id": "frontend/src/views/Online.vue:JzButton:81",
+      "id": "frontend/src/views/Online.vue:JzButton:83",
       "source": "frontend/src/views/Online.vue",
       "line": 61,
       "platforms": [
@@ -49234,9 +49343,48 @@
       "source_excerpt": "<JzButton @click=\"backToResults\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:83",
+      "id": "frontend/src/views/Online.vue:JzButton:85",
       "source": "frontend/src/views/Online.vue",
-      "line": 63,
+      "line": 62,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "返回搜索结果",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton @click=\"backToResults\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:87",
+      "source": "frontend/src/views/Online.vue",
+      "line": 64,
       "platforms": [
         "web",
         "mobile-web"
@@ -49275,9 +49423,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon=\"arrow-left\" @click=\"backToResults\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:94",
+      "id": "frontend/src/views/Online.vue:JzButton:98",
       "source": "frontend/src/views/Online.vue",
-      "line": 75,
+      "line": 76,
       "platforms": [
         "web",
         "mobile-web"
@@ -49317,9 +49465,9 @@
       "source_excerpt": "<JzButton variant=\"primary\" icon=\"play\" data-online-primary-play :data-online-detail-resume=\"primaryIsResume ? '' : undefined\" :disabled=\"!primaryEntry || itemStateLoading || start"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:95",
+      "id": "frontend/src/views/Online.vue:JzButton:99",
       "source": "frontend/src/views/Online.vue",
-      "line": 76,
+      "line": 77,
       "platforms": [
         "web",
         "mobile-web"
@@ -49360,9 +49508,9 @@
       "source_excerpt": "<JzButton :data-online-favorite=\"detail.item.id\" :icon=\"itemState?.favorite ? 'heart-filled' : 'heart'\" :disabled=\"!itemState || mutationBusy.has(detail.item.id)\" @click=\"favoriteD"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:100",
+      "id": "frontend/src/views/Online.vue:JzButton:104",
       "source": "frontend/src/views/Online.vue",
-      "line": 80,
+      "line": 81,
       "platforms": [
         "web",
         "mobile-web"
@@ -49400,9 +49548,46 @@
       "source_excerpt": "<JzButton v-if=\"lastEntry.identity.line_id !== lineId\" variant=\"ghost\" data-online-detail-locate-last :disabled=\"starting || itemStateLoading || nextLoading\" @click=\"locateLastEntr"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:105",
+      "id": "frontend/src/views/Online.vue:Spinner:106",
       "source": "frontend/src/views/Online.vue",
-      "line": 86,
+      "line": 83,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "Spinner",
+      "purpose": "加载",
+      "assets": [
+        "loading"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "16"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<Spinner :size=\"16\" />"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:110",
+      "source": "frontend/src/views/Online.vue",
+      "line": 87,
       "platforms": [
         "web",
         "mobile-web"
@@ -49439,9 +49624,9 @@
       "source_excerpt": "<JzButton data-online-host-repair @click=\"openHostDialog(false)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:109",
+      "id": "frontend/src/views/Online.vue:JzButton:114",
       "source": "frontend/src/views/Online.vue",
-      "line": 90,
+      "line": 91,
       "platforms": [
         "web",
         "mobile-web"
@@ -49479,9 +49664,9 @@
       "source_excerpt": "<JzButton v-for=\"line in detail.lines\" :key=\"line.id\" :data-online-line=\"line.id\" :aria-pressed=\"line.id === lineId\" @click=\"selectLine(line.id)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:input:115",
+      "id": "frontend/src/views/Online.vue:input:120",
       "source": "frontend/src/views/Online.vue",
-      "line": 94,
+      "line": 95,
       "platforms": [
         "web",
         "mobile-web"
@@ -49518,9 +49703,9 @@
       "source_excerpt": "<input v-model=\"autoplay\" type=\"checkbox\" data-online-autoplay @change=\"autoplayChanged\" />"
     },
     {
-      "id": "frontend/src/views/Online.vue:summary:122",
+      "id": "frontend/src/views/Online.vue:summary:127",
       "source": "frontend/src/views/Online.vue",
-      "line": 99,
+      "line": 100,
       "platforms": [
         "web",
         "mobile-web"
@@ -49557,9 +49742,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/views/Online.vue:a:129",
+      "id": "frontend/src/views/Online.vue:a:134",
       "source": "frontend/src/views/Online.vue",
-      "line": 100,
+      "line": 101,
       "platforms": [
         "web",
         "mobile-web"
@@ -49592,9 +49777,46 @@
       "source_excerpt": "<a v-for=\"credit in detail.attribution\" :key=\"credit.url\" :href=\"safeAttribution(credit.url)\" target=\"_blank\" rel=\"noopener noreferrer\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:134",
+      "id": "frontend/src/views/Online.vue:Spinner:137",
       "source": "frontend/src/views/Online.vue",
       "line": 104,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "Spinner",
+      "purpose": "加载",
+      "assets": [
+        "loading"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "20"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<Spinner :size=\"20\" />"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:140",
+      "source": "frontend/src/views/Online.vue",
+      "line": 105,
       "platforms": [
         "web",
         "mobile-web"
@@ -49631,9 +49853,9 @@
       "source_excerpt": "<JzButton data-online-related-retry @click=\"loadRelated(true)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:137",
+      "id": "frontend/src/views/Online.vue:JzButton:143",
       "source": "frontend/src/views/Online.vue",
-      "line": 105,
+      "line": 106,
       "platforms": [
         "web",
         "mobile-web"
@@ -49670,9 +49892,9 @@
       "source_excerpt": "<JzButton data-online-related-retry @click=\"loadRelated(true)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:140",
+      "id": "frontend/src/views/Online.vue:JzButton:146",
       "source": "frontend/src/views/Online.vue",
-      "line": 106,
+      "line": 107,
       "platforms": [
         "web",
         "mobile-web"
@@ -49709,9 +49931,9 @@
       "source_excerpt": "<JzButton data-online-related-retry @click=\"loadRelated(true)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:148",
+      "id": "frontend/src/views/Online.vue:JzButton:154",
       "source": "frontend/src/views/Online.vue",
-      "line": 112,
+      "line": 113,
       "platforms": [
         "web",
         "mobile-web"
@@ -49734,7 +49956,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/online.css",
-            "line": 45,
+            "line": 47,
             "selector": ".online-poster-button.jz-button",
             "values": {
               "width": "100%",
@@ -49758,9 +49980,9 @@
       "source_excerpt": "<JzButton class=\"online-poster-button\" variant=\"ghost\" :data-online-related-id=\"item.external_id\" :aria-label=\"'查看详情 ' + item.title\" @click=\"openRelated(item.external_id)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:AppIcon:152",
+      "id": "frontend/src/views/Online.vue:AppIcon:158",
       "source": "frontend/src/views/Online.vue",
-      "line": 112,
+      "line": 113,
       "platforms": [
         "web",
         "mobile-web"
@@ -49795,7 +50017,7 @@
       "source_excerpt": "<AppIcon name=\"play\" :size=\"22\" />"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:161",
+      "id": "frontend/src/views/Online.vue:JzButton:166",
       "source": "frontend/src/views/Online.vue",
       "line": 122,
       "platforms": [
@@ -49835,7 +50057,44 @@
       "source_excerpt": "<JzButton data-online-apply-update :disabled=\"searching || applyingUpdates\" :loading=\"applyingUpdates\" @click=\"applyUpdates\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:167",
+      "id": "frontend/src/views/Online.vue:Spinner:168",
+      "source": "frontend/src/views/Online.vue",
+      "line": 123,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "通用控件与导航",
+      "element": "Spinner",
+      "purpose": "加载",
+      "assets": [
+        "loading"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "16"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<Spinner :size=\"16\" />"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:173",
       "source": "frontend/src/views/Online.vue",
       "line": 127,
       "platforms": [
@@ -49874,7 +50133,7 @@
       "source_excerpt": "<JzButton @click=\"search(lastQuery.page, lastQuery.query, { force: true })\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:177",
+      "id": "frontend/src/views/Online.vue:JzButton:183",
       "source": "frontend/src/views/Online.vue",
       "line": 133,
       "platforms": [
@@ -49913,10 +50172,10 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" data-online-refresh :disabled=\"searching\" @click=\"refreshResults\">"
+      "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" data-online-refresh :loading=\"searching\" @click=\"refreshResults\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:180",
+      "id": "frontend/src/views/Online.vue:JzButton:186",
       "source": "frontend/src/views/Online.vue",
       "line": 135,
       "platforms": [
@@ -49941,7 +50200,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/online.css",
-            "line": 45,
+            "line": 47,
             "selector": ".online-poster-button.jz-button",
             "values": {
               "width": "100%",
@@ -49966,7 +50225,7 @@
       "source_excerpt": "<JzButton class=\"online-poster-button\" variant=\"ghost\" :data-online-result=\"item.external_id\" :aria-label=\"'查看详情 ' + item.title\" :disabled=\"searching\" @click=\"openDetail(item.exter"
     },
     {
-      "id": "frontend/src/views/Online.vue:AppIcon:184",
+      "id": "frontend/src/views/Online.vue:AppIcon:190",
       "source": "frontend/src/views/Online.vue",
       "line": 135,
       "platforms": [
@@ -50003,7 +50262,7 @@
       "source_excerpt": "<AppIcon name=\"play\" :size=\"22\" />"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:189",
+      "id": "frontend/src/views/Online.vue:JzButton:195",
       "source": "frontend/src/views/Online.vue",
       "line": 138,
       "platforms": [
@@ -50042,10 +50301,10 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton icon=\"arrow-left\" :disabled=\"searching || !!searchError || page <= 1\" @click=\"search(page - 1, loadedQuery)\">"
+      "source_excerpt": "<JzButton icon=\"arrow-left\" data-online-page-prev :loading=\"searching && lastQuery.page < page\" :disabled=\"searching || !!searchError || page <= 1\" @click=\"search(page - 1, loadedQ"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:191",
+      "id": "frontend/src/views/Online.vue:JzButton:197",
       "source": "frontend/src/views/Online.vue",
       "line": 138,
       "platforms": [
@@ -50084,10 +50343,10 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton icon=\"forward\" :disabled=\"searching || !!searchError || page >= pageCount\" @click=\"search(page + 1, loadedQuery)\">"
+      "source_excerpt": "<JzButton icon=\"forward\" data-online-page-next :loading=\"searching && lastQuery.page > page\" :disabled=\"searching || !!searchError || page >= pageCount\" @click=\"search(page + 1, lo"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:197",
+      "id": "frontend/src/views/Online.vue:JzButton:203",
       "source": "frontend/src/views/Online.vue",
       "line": 143,
       "platforms": [
@@ -50126,10 +50385,10 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" :disabled=\"libraryLoading\" @click=\"loadLibrary()\">"
+      "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" :loading=\"libraryLoading\" @click=\"loadLibrary()\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:199",
+      "id": "frontend/src/views/Online.vue:JzButton:205",
       "source": "frontend/src/views/Online.vue",
       "line": 145,
       "platforms": [
@@ -50169,7 +50428,7 @@
       "source_excerpt": "<JzButton v-for=\"tab in libraryTabs\" :key=\"tab.key\" :data-online-library-section=\"tab.key\" :aria-pressed=\"librarySection === tab.key\" @click=\"selectLibrary(tab.key)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:212",
+      "id": "frontend/src/views/Online.vue:JzButton:218",
       "source": "frontend/src/views/Online.vue",
       "line": 154,
       "platforms": [
@@ -50211,7 +50470,7 @@
       "source_excerpt": "<JzButton v-if=\"row.progress\" icon=\"play\" :data-online-resume=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError || starting\" @click=\"openSaved(row, true)\""
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:213",
+      "id": "frontend/src/views/Online.vue:JzButton:219",
       "source": "frontend/src/views/Online.vue",
       "line": 155,
       "platforms": [
@@ -50251,7 +50510,7 @@
       "source_excerpt": "<JzButton :data-online-library-detail=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError\" @click=\"openSaved(row, false)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:214",
+      "id": "frontend/src/views/Online.vue:JzButton:220",
       "source": "frontend/src/views/Online.vue",
       "line": 156,
       "platforms": [
@@ -50293,7 +50552,7 @@
       "source_excerpt": "<JzButton v-if=\"row.favorite\" icon=\"heart-filled\" :data-online-favorite=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"favoriteRow(row, false)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:215",
+      "id": "frontend/src/views/Online.vue:JzButton:221",
       "source": "frontend/src/views/Online.vue",
       "line": 157,
       "platforms": [
@@ -50333,7 +50592,7 @@
       "source_excerpt": "<JzButton v-if=\"row.progress\" :data-online-history-delete=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"clearHistory(row)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:217",
+      "id": "frontend/src/views/Online.vue:JzButton:223",
       "source": "frontend/src/views/Online.vue",
       "line": 161,
       "platforms": [
@@ -50373,7 +50632,7 @@
       "source_excerpt": "<JzButton :disabled=\"libraryOffset === 0 || libraryLoading\" @click=\"loadLibrary(Math.max(0, libraryOffset - 20))\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:219",
+      "id": "frontend/src/views/Online.vue:JzButton:225",
       "source": "frontend/src/views/Online.vue",
       "line": 161,
       "platforms": [

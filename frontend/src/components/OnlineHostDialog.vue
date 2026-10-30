@@ -3,7 +3,7 @@
     <div class="online-host-dialog">
       <p>《{{ title }}》的部分分集使用了尚未允许的媒体域名，检查也会列出需要的图片域名。</p>
       <p class="online-scope">确认后对本服务的“{{ sourceName }}”视频源生效，此来源正在播放的会话会关闭。只添加你勾选的域名，不改变网络代理设置。</p>
-      <p v-if="checking" data-online-host-loading role="status">正在检查媒体主机…</p>
+      <p v-if="checking" class="online-loading-label" data-online-host-loading role="status"><Spinner :size="16" />正在检查媒体主机…</p>
       <p v-if="permissionRequired" role="status">需要管理权限才能检查并添加媒体主机。</p>
       <p v-if="saved" data-online-host-saved role="status">媒体主机已加入允许列表。</p>
       <p v-if="error" class="online-host-dialog-error" data-online-host-error role="alert">{{ error }}</p>
@@ -33,6 +33,7 @@ import { ensureManagement, refreshViewing, viewing } from '../viewing.js'
 import { onlineHostError, validOnlineHostReport } from '../onlineHosts.js'
 import JzButton from './JzButton.vue'
 import JzDialog from './JzDialog.vue'
+import Spinner from './Spinner.vue'
 
 const props = defineProps({ sourceId: { type: String, required: true }, externalId: { type: String, required: true },
   title: { type: String, required: true }, sourceName: { type: String, required: true },

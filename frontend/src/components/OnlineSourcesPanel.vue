@@ -19,7 +19,7 @@
           <h4>{{ editingId ? '编辑来源' : '添加来源' }}</h4>
           <template v-if="!editingId">
             <JzField id="online-source-template" label="选择视频源" hint="选择来源会预填配置；不会自动添加其他来源或联系上游。"><template #default="field"><select :id="field.id" v-model="templateId" :disabled="saving" :aria-describedby="field.describedby" @change="applyTemplate"><option value="">自定义接口</option><option v-for="item in sourceTemplates" :key="item.id" :value="item.id">{{ item.name }}</option></select></template></JzField>
-            <p v-if="templatesLoading" class="hint" role="status">正在加载来源目录…</p>
+            <p v-if="templatesLoading" class="hint online-loading-label" role="status"><Spinner :size="16" />正在加载来源目录…</p>
             <p v-if="templatesError" class="online-source-feedback is-error" role="alert">来源目录暂时无法读取，仍可填写自定义接口。<JzButton size="compact" :disabled="templatesLoading" @click="loadTemplates">重试目录</JzButton></p>
             <div v-if="selectedTemplate" class="online-template-description"><p>{{ selectedTemplate.description }}</p><p class="hint">{{ selectedTemplate.status === 'api_observed' ? '已有目录读取记录，播放仍需验证。' : '待验证。' }} {{ selectedTemplate.network_note }}</p><a v-if="templateHomepage" :href="templateHomepage" target="_blank" rel="noopener noreferrer">来源说明</a></div>
           </template>
@@ -102,6 +102,7 @@ import { useSettingsDraft } from '../settingsDrafts.js'
 import EmptyState from './EmptyState.vue'
 import JzButton from './JzButton.vue'
 import JzField from './JzField.vue'
+import Spinner from './Spinner.vue'
 import '../styles/online.css'
 import '../styles/online-source.css'
 
