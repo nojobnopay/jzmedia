@@ -21,11 +21,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|image-cache|categories|related|detail|detail-recovery|metadata-recovery|refresh-strategy|hosts|all]')
+    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|loading-feedback|image-cache|categories|related|detail|detail-recovery|metadata-recovery|refresh-strategy|hosts|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'image-cache', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'refresh-strategy', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'loading-feedback', 'image-cache', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'refresh-strategy', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-'))
 const output = path.join(root, 'output/playwright/online-p2')
 const dist = path.join(work, 'dist')
@@ -984,6 +984,152 @@ async function loading() {
     }
   }
   await backendChildren('after-loading')
+}
+
+async function loadingFeedback() {
+  const mainReads = value => value.origin_calls.filter(call => call.kind === 'api' && call.metadata_status !== undefined).length
+  const ids = page => page.locator('[data-online-result]').evaluateAll(nodes => nodes.map(node => node.dataset.onlineResult))
+  async function settled(page) {
+    await until(async () => (await page.locator('[data-online-browser]').getAttribute('aria-busy')) === 'false',
+      'Foreground loading completes before another explicit intent')
+  }
+  async function configure(page, extra = {}) {
+    await scenario(page, { gallery: true, taxonomy: false, related: false, detail_mode: false,
+      image_delay_ms: 0, metadata_failures_remaining: 0, metadata_failure_status: 503,
+      metadata_failure_delay_ms: 0, metadata_success_delay_ms: 0, ...extra })
+  }
+  async function visibleFeedback(page) {
+    const feedback = page.locator('[data-online-loading-feedback]')
+    await feedback.waitFor()
+    const value = await feedback.evaluate(node => {
+      const rect = node.getBoundingClientRect()
+      return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right,
+        viewportHeight: innerHeight, viewportWidth: innerWidth,
+        pointerEvents: getComputedStyle(node).pointerEvents,
+        focused: node.contains(document.activeElement), text: node.textContent.trim() }
+    })
+    assert.ok(value.top >= 0 && value.bottom <= value.viewportHeight + 1
+      && value.left >= 0 && value.right <= value.viewportWidth + 1,
+    'Foreground wait feedback stays visible in the current viewport')
+    assert.equal(value.pointerEvents, 'none', 'The wait status is not an input-blocking dialog')
+    assert.equal(value.focused, false, 'Wait feedback never takes keyboard focus')
+    assert.match(value.text, /正在/)
+    return { feedback, geometry: value }
+  }
+  for (const width of [1440, 390, 320]) {
+    phase = { name: `loading-feedback-${width}`, expectedHttp: false }
+    const { context, page } = await newPage(width)
+    let secondary = null
+    try {
+      await navigate(page, '/settings'); await idle()
+      await configure(page)
+      const bootstrap = (await call(page, 'GET', '/api/p2/bootstrap')).body
+      const created = await call(page, 'POST', '/api/online/sources', { name: `隔离等待验收 ${width}`,
+        provider: 'maccms', api_base_url: bootstrap.api_base_url, allowed_hosts: ['fixture.invalid'], enabled: true })
+      assert.equal(created.status, 201)
+      secondary = created.body
+      await selectSource(page); await settled(page)
+      // The view may legitimately restore its pre-scenario short-lived rows.
+      // Explicit refresh obtains this scenario's gallery before paging it.
+      await page.locator('[data-online-refresh]').click(); await settled(page); await idle()
+      await page.locator('[data-online-result="gallery-1"]').waitFor()
+      const originalIds = await ids(page)
+      assert.equal(originalIds.length, 20)
+      await configure(page, { metadata_success_delay_ms: 2000 })
+      const next = page.locator('[data-online-page-next]')
+      await next.scrollIntoViewIfNeeded()
+      await next.evaluate(node => { node.focus({ preventScroll: true }); window.__onlineLoadingTrigger = node })
+      const position = await page.evaluate(() => scrollY)
+      const before = await metrics()
+      await next.click()
+      const waiting = await visibleFeedback(page)
+      assert.match(waiting.geometry.text, /第\s*2\s*页/)
+      assert.deepEqual(await ids(page), originalIds, 'The previous poster wall remains until its next page is ready')
+      assert.equal(await next.isDisabled(), true)
+      assert.equal(await page.locator('[data-online-page-prev]').isDisabled(), true)
+      assert.equal(await next.getAttribute('aria-busy'), 'true', 'The active paging action also has busy feedback')
+      assert.ok(await next.locator('.jz-spinner').count() > 0)
+      const normalMotion = await waiting.feedback.locator('.jz-spinner').evaluate(node => ({
+        name: getComputedStyle(node).animationName, duration: parseFloat(getComputedStyle(node).animationDuration),
+      }))
+      assert.notEqual(normalMotion.name, 'none')
+      assert.ok(normalMotion.duration > 0)
+      const focus = await page.evaluate(() => ({ unchanged: document.activeElement === window.__onlineLoadingTrigger,
+        body: document.activeElement === document.body, position: scrollY }))
+      assert.ok(focus.unchanged || focus.body, 'Disabling a trigger may naturally blur it, but loading cannot steal focus')
+      assert.ok(Math.abs(focus.position - position) < 12, 'Waiting cannot scroll a paging user to the top')
+      await until(async () => mainReads(await metrics()) > mainReads(before), 'One real delayed source request starts')
+      await next.evaluate(node => node.click())
+      assert.equal(mainReads(await metrics()) - mainReads(before), 1, 'Disabled paging cannot submit a duplicate request')
+      await page.screenshot({ path: path.join(output, `loading-feedback-${width}.png`) })
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      assert.equal(await waiting.feedback.locator('.jz-spinner').evaluate(node => getComputedStyle(node).animationName), 'none')
+      assert.match(await waiting.feedback.textContent(), /正在/)
+      await page.emulateMedia({ reducedMotion: 'no-preference' })
+      await settled(page); await page.locator('[data-online-result="gallery-21"]').waitFor(); await idle()
+      assert.equal(await page.locator('[data-online-loading-feedback]').count(), 0)
+
+      // Foreground refresh has the same indicator. Failed refreshes keep the
+      // successful wall, expose recovery and remove the busy feedback.
+      await configure(page, { metadata_failures_remaining: 2, metadata_failure_delay_ms: 800 })
+      phase.expectedHttp = true
+      const failuresBefore = report.expectedFailures.responses.length
+      const previousPage = await ids(page)
+      await page.locator('[data-online-refresh]').click()
+      await visibleFeedback(page)
+      await settled(page); await page.locator('.online-refresh-error').waitFor(); await idle()
+      await page.waitForLoadState('networkidle')
+      assert.equal(await page.locator('[data-online-loading-feedback]').count(), 0)
+      assert.deepEqual(await ids(page), previousPage)
+      assert.ok(report.expectedFailures.responses.slice(failuresBefore).every(value => value.status === 502),
+        'This expected failure permits only the source gateway error')
+      phase.expectedHttp = false
+      await configure(page)
+      await page.locator('.online-refresh-error').getByRole('button', { name: '重试', exact: true }).click()
+      await settled(page)
+
+      // A new keyword has no matching navigation snapshot, so this exercises
+      // search feedback rather than a cache restore.
+      await configure(page, { metadata_success_delay_ms: 2000 })
+      await search(page, '合成', { results: false })
+      const searching = await visibleFeedback(page)
+      assert.match(searching.geometry.text, /搜索/)
+      await settled(page); await idle()
+      assert.equal(await page.locator('[data-online-loading-feedback]').count(), 0)
+      assert.equal((await ids(page))[0], 'gallery-1')
+
+      // Cancel a still-unseen second keyword page by actually changing source.
+      // Only the old source request keeps its captured synthetic delay.
+      await page.locator('[data-online-page-next]').click()
+      await visibleFeedback(page)
+      await until(async () => (await metrics()).catalogue_active > 0, 'The old source read is active before switching')
+      await configure(page)
+      await page.locator('[data-online-source]').selectOption(secondary.id)
+      await until(async () => await page.locator('[data-online-loading-feedback]').count() === 0,
+        'Switching source removes the old foreground wait status')
+      await settled(page); await idle()
+      assert.equal(await page.locator('[data-online-source]').inputValue(), secondary.id)
+      assert.equal((await ids(page))[0], 'gallery-1', 'A late old page cannot replace the new source')
+      assert.match(await page.locator('.online-results-heading').textContent(), /最近更新/)
+      assert.equal(await page.locator('[data-online-loading-feedback]').count(), 0)
+      const geometry = await layout(page, width)
+      passed({ case: phase.name, geometry, waitingGeometry: waiting.geometry,
+        visibleFromBottomPagination: true, preservesPreviousWallWhileWaiting: true,
+        activePagingSpinner: true, blocksDuplicatePaging: true, neverStealsFocusOrScroll: true,
+        reducedMotionKeepsText: true, failuresKeepOldWallAndClearWait: true,
+        keywordSearchUsesSameFeedback: true, sourceChangeCancelsOldWait: true })
+    } finally {
+      await page.emulateMedia({ reducedMotion: 'no-preference' })
+      await configure(page)
+      if (secondary) {
+        await selectSource(page); await settled(page); await idle()
+        assert.equal((await call(page, 'PATCH', `/api/online/sources/${secondary.id}`, { enabled: false })).status, 200)
+      }
+      await scenario(page, { gallery: false })
+      await closeContext(context); await idle()
+    }
+  }
+  await backendChildren('after-loading-feedback')
 }
 
 async function imageCache() {
@@ -2268,7 +2414,8 @@ try {
   for (const file of ['scripts/smoke_online_p2.mjs', 'scripts/fixtures/OnlineP2Preview.vue',
     'scripts/online_p2/server.py', 'scripts/online_p2/fixtures.py', 'frontend/src/views/Online.vue',
     'frontend/src/components/OnlineSourcesPanel.vue', 'frontend/src/App.vue', 'frontend/src/styles/base.css',
-    'frontend/src/components/OnlinePlayerModal.vue',
+    'frontend/src/components/OnlinePlayerModal.vue', 'frontend/src/components/OnlineHostDialog.vue',
+    'frontend/src/components/Spinner.vue', 'frontend/src/components/JzButton.vue', 'frontend/src/components/EmptyState.vue',
     'frontend/src/onlinePlayback.js', 'app/online/maccms.py', 'app/online/catalog.py',
     'frontend/src/onlineArtwork.js', 'frontend/src/components/OnlineArtwork.vue', 'frontend/src/onlineCatalog.js',
     'frontend/src/onlineBrowse.js', 'app/online/artwork.py', 'app/online/artwork_cache.py',
@@ -2300,6 +2447,7 @@ try {
     if (selectedCase === 'all' || selectedCase === 'hosts') await hostRepair()
     if (selectedCase === 'all' || selectedCase === 'discovery') await discovery()
     if (selectedCase === 'all' || selectedCase === 'loading') await loading()
+    if (selectedCase === 'all' || selectedCase === 'loading-feedback') await loadingFeedback()
     if (selectedCase === 'all' || selectedCase === 'image-cache') await imageCache()
     if (selectedCase === 'all' || selectedCase === 'categories') await categoryNavigation()
     if (selectedCase === 'all' || selectedCase === 'related') await relatedRecommendations()
@@ -2313,7 +2461,7 @@ try {
     assert.ok(!report.finalMetrics.origin_calls.some(call => call.app_credentials), 'Application credentials never reach the source')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'api'), 'The API uses its own network-purpose client')
     if (selectedCase === 'metadata-recovery') assert.ok(!report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Metadata recovery never requests media')
-    else if (!['discovery', 'loading', 'image-cache', 'categories'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
+    else if (!['discovery', 'loading', 'loading-feedback', 'image-cache', 'categories'].includes(selectedCase)) assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'media'), 'Media uses its separate network-purpose client')
     assert.ok(report.finalMetrics.client_calls.some(call => call.purpose === 'image'), 'Posters use their image-purpose client')
     assert.deepEqual(report.errors, [], 'No browser runtime, Vue or unexpected console errors')
     assert.deepEqual(report.unexpectedRequests, [], 'No foreign origin or local playback/cast API request')
