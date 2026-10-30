@@ -66,6 +66,23 @@ def test_images_larger_than_the_cache_budget_are_not_retained():
     assert cache.stats()["bytes"] == 0
 
 
+def test_promoting_a_disk_hit_cannot_extend_its_remaining_absolute_lifetime():
+    now = [10.0]
+    cache = ArtworkCache(clock=lambda: now[0])
+    _result, flight, producer = cache.acquire("disk-hit")
+    assert producer
+    cache.complete("disk-hit", flight, result=IMAGE, ttl=2)
+    cache.release()
+    now[0] = 11.9
+    assert lookup(cache, "disk-hit") == IMAGE
+    now[0] = 12.0
+    assert lookup(cache, "disk-hit") is None
+    _result, flight, _producer = cache.acquire("expired")
+    cache.complete("expired", flight, result=IMAGE, ttl=0)
+    cache.release()
+    assert lookup(cache, "expired") is None
+
+
 @pytest.mark.parametrize("options", [
     {"capacity": 0}, {"capacity": 513}, {"capacity": True},
     {"byte_budget": 0}, {"byte_budget": 16 * 1024**2 + 1},

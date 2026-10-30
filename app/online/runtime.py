@@ -3,10 +3,11 @@
 import asyncio
 from contextlib import suppress
 import logging
+import time
 
 from fastapi.concurrency import run_in_threadpool
 
-from . import api_pool, gateway, health, image_pool, service
+from . import api_pool, artwork, gateway, health, image_pool, service
 
 
 _task = None
@@ -14,6 +15,7 @@ _logger = logging.getLogger("jzmedia.online")
 
 
 async def _maintain():
+    next_disk_sweep = 0
     while True:
         try:
             await run_in_threadpool(service.sweep)
@@ -31,6 +33,13 @@ async def _maintain():
         except Exception:
             await run_in_threadpool(image_pool.clear)
             _logger.warning("online image connection maintenance failed; idle connections discarded")
+        now = time.monotonic()
+        if now >= next_disk_sweep:
+            next_disk_sweep = now + 60
+            try:
+                await run_in_threadpool(artwork.disk_cache.sweep)
+            except Exception:
+                _logger.warning("online original image cache maintenance unavailable")
         await asyncio.sleep(1)
 
 

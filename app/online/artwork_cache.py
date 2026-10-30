@@ -2,6 +2,7 @@
 
 from collections import OrderedDict
 from dataclasses import dataclass, field
+import math
 import threading
 import time
 
@@ -48,12 +49,12 @@ class ArtworkCache:
         self._lock = threading.Lock()
 
     def _remove(self, key):
-        _created, result = self._entries.pop(key)
+        _expires, result = self._entries.pop(key)
         self._bytes -= len(result[0])
 
     def _prune(self, now):
-        for key, (created, _result) in tuple(self._entries.items()):
-            if now - created >= self._ttl:
+        for key, (expires, _result) in tuple(self._entries.items()):
+            if now >= expires:
                 self._remove(key)
 
     def _lookup(self, key, now):
@@ -64,21 +65,24 @@ class ArtworkCache:
             return cached[1]
         return None
 
-    def _store(self, key, result, now):
+    def _store(self, key, result, now, ttl=None):
         if (not isinstance(result, tuple) or len(result) != 2 or type(result[0]) is not bytes
                 or not 0 < len(result[0]) <= MAX_IMAGE_BYTES
                 or type(result[1]) is not str
                 or result[1] not in {"image/jpeg", "image/png", "image/webp"}):
             raise ValueError("invalid artwork cache body")
+        if ttl is not None and (type(ttl) not in {int, float} or not math.isfinite(ttl) or ttl < 0):
+            raise ValueError("invalid artwork cache lifetime")
         self._prune(now)
-        if len(result[0]) > self._byte_budget:
+        lifetime = self._ttl if ttl is None else min(self._ttl, ttl)
+        if not lifetime or len(result[0]) > self._byte_budget:
             return
         if key in self._entries:
             self._remove(key)
         while self._entries and (len(self._entries) >= self._capacity
                                  or self._bytes + len(result[0]) > self._byte_budget):
             self._remove(next(iter(self._entries)))
-        self._entries[key] = (now, result)
+        self._entries[key] = (now + lifetime, result)
         self._bytes += len(result[0])
 
     def acquire(self, key):
@@ -96,12 +100,12 @@ class ArtworkCache:
                 flight = self._flights[key] = _Flight()
             return None, flight, leader
 
-    def complete(self, key, flight, *, result=None, error=None):
+    def complete(self, key, flight, *, result=None, error=None, ttl=None):
         """Publish only after the producer has closed its upstream reader."""
         with self._lock:
             try:
                 if result is not None:
-                    self._store(key, result, self._clock())
+                    self._store(key, result, self._clock(), ttl)
                 flight.error = error
             finally:
                 if self._flights.get(key) is flight:

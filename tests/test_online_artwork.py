@@ -37,6 +37,9 @@ def environment(tmp_path, monkeypatch):
                             before_factory=None, before_chunk=None, real_access_check=service._current_access)
     monkeypatch.setattr(artwork, "registry", artwork.ArtworkRegistry())
     monkeypatch.setattr(artwork, "cache", artwork.ArtworkCache())
+    # These existing cases isolate L1 expiry/coalescing. A one-byte disk
+    # budget cannot store an original or its metadata, and stays in tmp_path.
+    monkeypatch.setattr(artwork, "disk_cache", artwork.ArtworkDiskCache(tmp_path / "unused-disk", byte_budget=1))
     monkeypatch.setattr(artwork, "_readers", threading.BoundedSemaphore(2))
 
     def access_check(_access):
@@ -88,6 +91,54 @@ def lease(environment, url=URL):
     assert path.startswith("/api/online/catalog/artwork/" + environment.source["id"] + "/")
     assert "signature" not in path and "images.example" not in path
     return path.rsplit("/", 1)[1]
+
+
+@pytest.mark.parametrize("change", ["access", "configuration", "cancel"])
+def test_disk_hit_rechecks_current_authority_after_read_before_promoting_or_delivering(environment, tmp_path, monkeypatch, change):
+    disk = artwork.ArtworkDiskCache(tmp_path / "originals")
+    monkeypatch.setattr(artwork, "disk_cache", disk)
+    token = lease(environment)
+    assert artwork.fetch(object(), environment.source["id"], token) == (JPEG, "image/jpeg")
+    artwork.cache.clear()
+    operation = NetworkOperation(time.monotonic() + 10)
+    read = disk.get
+
+    def changed_after_read(*args, **kwargs):
+        result = read(*args, **kwargs)
+        assert result is not None
+        if change == "access":
+            environment.access_valid = False
+        elif change == "configuration":
+            online.update_online_source(environment.source["id"], {"name": "Changed after disk read"})
+        else:
+            operation.abort()
+        return result
+
+    monkeypatch.setattr(disk, "get", changed_after_read)
+    with pytest.raises((artwork.ArtworkError, service.PlaybackError)):
+        artwork.fetch(object(), environment.source["id"], token, operation=operation)
+    assert len(environment.requests) == 1, "A denied disk hit cannot contact the source"
+    assert artwork.cache.stats()["entries"] == 0
+    assert artwork.cache.stats()["inflight"] == artwork.cache.stats()["pending"] == 0
+
+
+def test_access_revoked_after_disk_publication_removes_new_original_and_does_not_populate_memory(environment, tmp_path, monkeypatch):
+    disk = artwork.ArtworkDiskCache(tmp_path / "originals")
+    monkeypatch.setattr(artwork, "disk_cache", disk)
+    token = lease(environment)
+    publish = disk.put
+
+    def revoked_after_publish(*args, **kwargs):
+        stored = publish(*args, **kwargs)
+        assert stored
+        environment.access_valid = False
+        return stored
+
+    monkeypatch.setattr(disk, "put", revoked_after_publish)
+    with pytest.raises(service.PlaybackError):
+        artwork.fetch(object(), environment.source["id"], token)
+    assert disk.stats()["entries"] == artwork.cache.stats()["entries"] == 0
+    assert artwork.cache.stats()["inflight"] == artwork.cache.stats()["pending"] == 0
 
 
 @pytest.mark.parametrize("url", ["", "file:///tmp/private", "https://other.example/poster.jpg",

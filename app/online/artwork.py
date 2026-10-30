@@ -1,4 +1,4 @@
-"""Small, opaque, source-bound poster leases; never decode or persist images."""
+"""Opaque source-bound poster leases and bounded original bytes; never decode."""
 
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -18,6 +18,7 @@ from ..store.online import OnlineNotFound
 from ..store.online_network import load_online_network_state
 from . import health, image_pool, service
 from .artwork_cache import ArtworkCache, ArtworkCacheBusy
+from .artwork_disk import ArtworkDiskCache
 from .catalog import CatalogError
 
 
@@ -111,6 +112,7 @@ class ArtworkRegistry:
 
 registry = ArtworkRegistry()
 cache = ArtworkCache()
+disk_cache = ArtworkDiskCache()
 
 
 def _state(source_id):
@@ -292,14 +294,30 @@ def fetch(access, source_id, token, *, operation=None):
                     return result
                 try:
                     if producer:
-                        result, error = None, None
+                        result, error, lifetime, stored = None, None, None, False
                         try:
-                            result = _read(access, entry, token, operation)
+                            started = time.monotonic()
+                            # Scanning bounded private metadata checks the
+                            # operation, without a DB query for every file.
+                            # Access/configuration is rechecked around L2 I/O.
+                            hit = disk_cache.get(key, check=operation.check)
+                            _authorized(access, entry, token, operation)
+                            if hit is not None:
+                                result = hit.result
+                                lifetime = max(0, hit.remaining - (time.monotonic() - started))
+                            else:
+                                result = _read(access, entry, token, operation)
+                                _authorized(access, entry, token, operation)
+                                stored = disk_cache.put(key, result, check=operation.check)
+                                _authorized(access, entry, token, operation)
                         except BaseException as problem:
+                            result = None
+                            if stored:
+                                disk_cache.remove(key)
                             error = _shared_error(problem, access, operation)
                             raise
                         finally:
-                            cache.complete(key, flight, result=result, error=error)
+                            cache.complete(key, flight, result=result, error=error, ttl=lifetime)
                         _authorized(access, entry, token, operation)
                         return result
                     while not flight.done.wait(min(0.1, operation.remaining())):
