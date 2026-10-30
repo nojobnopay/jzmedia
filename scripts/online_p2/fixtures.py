@@ -132,6 +132,7 @@ class FixtureOrigin:
         self.gallery = False
         self.taxonomy = False
         self.taxonomy_unavailable = False
+        self.catalogue_version = 0
         self.related = False
         self.detail_mode = False
         self.related_delay_ms = 0
@@ -146,6 +147,8 @@ class FixtureOrigin:
         self.metadata_failure_delay_ms = 0
         self.metadata_success_delay_ms = 0
         self.image_delay_ms = 0
+        self.poster_failure_id = ""
+        self.poster_failures_remaining = 0
         self.image_active = 0
         self.image_peak = 0
         origin = self
@@ -228,9 +231,18 @@ class FixtureOrigin:
                             origin.image_active += 1
                             origin.image_peak = max(origin.image_peak, origin.image_active)
                     image_delay_ms = origin.image_delay_ms if asset.suffix == ".png" else 0
+                    failed_poster = (asset.suffix == ".png" and origin.poster_failure_id
+                                     and query.get("taxonomy", [""])[0] == origin.poster_failure_id
+                                     and origin.poster_failures_remaining > 0)
+                    if failed_poster:
+                        origin.poster_failures_remaining -= 1
+                        call.update(status=503, poster_fault=True)
                 digest = hashlib.sha256()
                 try:
                     if image_delay_ms and origin.stop.wait(image_delay_ms / 1000):
+                        return
+                    if failed_poster:
+                        self.send_body(503, b"isolated poster failure", "text/plain", head)
                         return
                     self.send_response(status)
                     self.send_header("Content-Type", types[asset.suffix])
@@ -396,9 +408,9 @@ class FixtureOrigin:
 
     def records(self, mode="normal"):
         with self.lock:
-            revision, reverse, alias, gallery, taxonomy, related, detail_mode = (
+            revision, reverse, alias, gallery, taxonomy, related, detail_mode, catalogue_version = (
                 self.revision, self.reverse_lines, self.media_alias, self.gallery,
-                self.taxonomy, self.related, self.detail_mode)
+                self.taxonomy, self.related, self.detail_mode, self.catalogue_version)
         def media(episode, transport):
             asset = "movie.mp4" if transport == "mp4" else "hls/master.m3u8"
             media_base = f"http://media.fixture.invalid:{self.port}" if alias else self.base_url
@@ -487,13 +499,13 @@ class FixtureOrigin:
                 return {"vod_id": identity, "vod_name": title, "type_id": str(category), "type_id_1": parent,
                         "type_name": category_name, "vod_year": year,
                         "vod_pic": f"{self.base_url}/files/poster.png?taxonomy={identity}",
-                        "vod_remarks": "更新至第2集", "vod_class": "都市,喜剧", "vod_area": "大陆",
+                        "vod_remarks": f"更新至第{2 + catalogue_version}集", "vod_class": "都市,喜剧", "vod_area": "大陆",
                         "vod_lang": "国语", "vod_actor": "合成演员甲,合成演员乙", "vod_director": "合成导演",
                         "vod_sub": "合成分类别名", "vod_total": 2, "vod_isend": 0,
                         "vod_content": "分类、年份与元资料的隔离用例。",
                         "vod_play_from": show_from, "vod_play_url": show_url}
 
-            return [record(f"urban-{year}-{number}", f"都市合成剧 {year} · {number:02d}", 71, year)
+            rows = [record(f"urban-{year}-{number}", f"都市合成剧 {year} · {number:02d}", 71, year)
                     for year in ("2026", "2025") for number in range(1, 25)] + [
                 record("urban-1988-1", "都市合成剧 1988 · 01", 71, "1988"),
                 record("short-overview", "合成短剧综合条目", 58, "2026"),
@@ -501,6 +513,12 @@ class FixtureOrigin:
                 record("drama-1", "合成国产剧", 31, "2026"),
                 record("ai-1", "合成AI漫剧", 74, "2026"),
             ]
+            if catalogue_version >= 2:
+                rows[:20] = reversed(rows[:20])
+            if catalogue_version >= 3:
+                for row in rows:
+                    row["vod_name"] += " · 已更新"
+            return rows
         if gallery:
             return [{"vod_id": f"gallery-{number}", "vod_name": f"合成海报 {number:02d}",
                      "type_id": "1", "type_name": "电影", "vod_year": "2026",

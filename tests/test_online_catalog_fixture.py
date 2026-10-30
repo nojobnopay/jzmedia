@@ -572,3 +572,37 @@ def test_successful_taxonomy_cache_avoids_discovery_but_does_not_cache_primary_e
     assert failed.status_code == 502 and failed.json()["code"] == "provider_upstream_error"
     assert client.post("/api/p2/scenario", json={"taxonomy_unavailable": False}).status_code == 200
     assert client.get("/api/online/catalog/browse", params=query).status_code == 200
+
+
+def test_display_revisions_change_metadata_without_changing_poster_leases(client):
+    source = add_source(client)
+    query = {"source_id": source["id"]}
+    assert client.post("/api/p2/scenario", json={"taxonomy": True, "catalogue_version": 0}).status_code == 200
+    first = client.get("/api/online/catalog/browse", params=query).json()["items"]
+    original = [row["external_id"] for row in first]
+    posters = {row["external_id"]: row["poster_path"] for row in first}
+    for version in (1, 2, 3):
+        assert client.post("/api/p2/scenario", json={"catalogue_version": version}).status_code == 200
+        response = client.get("/api/online/catalog/browse", params=query)
+        assert response.status_code == 200
+        rows = response.json()["items"]
+        assert [row["external_id"] for row in rows] == (original if version == 1 else original[::-1])
+        assert all(row["remarks"] == f"更新至第{2 + version}集" for row in rows)
+        assert {row["external_id"]: row["poster_path"] for row in rows} == posters
+        assert all(("已更新" in row["title"]) == (version == 3) for row in rows)
+
+
+def test_fixed_poster_failure_exhausts_twice_then_recovers_without_touching_other_images(client):
+    source = add_source(client)
+    assert client.post("/api/p2/scenario", json={"taxonomy": True, "poster_failure_id": "urban-2026-1",
+        "poster_failures_remaining": 2, "clear_artwork_cache": True}).status_code == 200
+    rows = client.get("/api/online/catalog/browse", params={"source_id": source["id"]}).json()["items"]
+    assert client.get(rows[1]["poster_path"]).status_code == 200
+    for _ in range(2):
+        response = client.get(rows[0]["poster_path"])
+        assert response.status_code == 502
+        assert response.json()["code"] == "online_artwork_upstream_error"
+    assert client.get(rows[0]["poster_path"]).status_code == 200
+    calls = client.get("/api/p2/metrics").json()["origin_calls"]
+    assert len([call for call in calls if call.get("poster_fault")]) == 2
+    assert all(call["kind"] != "media" for call in calls)

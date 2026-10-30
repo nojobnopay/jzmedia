@@ -64,6 +64,7 @@ class Scenario(BaseModel):
     gallery: bool | None = None
     taxonomy: bool | None = None
     taxonomy_unavailable: bool | None = None
+    catalogue_version: int | None = Field(default=None, ge=0, le=3)
     related: bool | None = None
     detail_mode: bool | None = None
     related_delay_ms: int | None = Field(default=None, ge=0, le=5000)
@@ -81,6 +82,8 @@ class Scenario(BaseModel):
     clear_related_cache: bool = False
     clear_related_results: bool = False
     image_delay_ms: int | None = Field(default=None, ge=0, le=1500)
+    poster_failure_id: Literal["urban-2026-1", ""] | None = None
+    poster_failures_remaining: int | None = Field(default=None, ge=0, le=2)
     clear_artwork_cache: bool = False
     expire_sessions: bool = False
 
@@ -315,6 +318,8 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                     origin.taxonomy = body.taxonomy
                 if body.taxonomy_unavailable is not None:
                     origin.taxonomy_unavailable = body.taxonomy_unavailable
+                if body.catalogue_version is not None:
+                    origin.catalogue_version = body.catalogue_version
                 if body.related is not None:
                     origin.related = body.related
                 if body.detail_mode is not None:
@@ -343,6 +348,10 @@ def isolated_fixture(value, *, static_dir=None, throttle_bytes_per_second=0):
                     origin.metadata_success_delay_ms = body.metadata_success_delay_ms
                 if body.image_delay_ms is not None:
                     origin.image_delay_ms = body.image_delay_ms
+                if body.poster_failure_id is not None:
+                    origin.poster_failure_id = body.poster_failure_id
+                if body.poster_failures_remaining is not None:
+                    origin.poster_failures_remaining = body.poster_failures_remaining
             if body.expire_sessions:
                 state.registry.close_all()
             if body.clear_artwork_cache:

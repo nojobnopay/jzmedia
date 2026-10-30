@@ -21,11 +21,11 @@ for (let index = 0; index < argv.length; index++) {
   else if (value === '--case') selectedCase = argv[++index]
   else if (value.startsWith('--case=')) selectedCase = value.slice(7)
   else if (value === '--help') {
-    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|related|detail|detail-recovery|metadata-recovery|hosts|all]')
+    console.log('Usage: node scripts/smoke_online_p2.mjs [--demo] [--case matrix|catalogue|discovery|loading|categories|related|detail|detail-recovery|metadata-recovery|refresh-strategy|hosts|all]')
     process.exit(0)
   } else throw new Error(`Unknown argument: ${value}`)
 }
-assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
+assert.ok(['matrix', 'catalogue', 'discovery', 'loading', 'categories', 'related', 'detail', 'detail-recovery', 'metadata-recovery', 'refresh-strategy', 'hosts', 'all'].includes(selectedCase), 'Invalid --case')
 const work = await mkdtemp(path.join(os.tmpdir(), 'jzmedia-online-p2-'))
 const output = path.join(root, 'output/playwright/online-p2')
 const dist = path.join(work, 'dist')
@@ -910,8 +910,8 @@ async function loading() {
       })).status, 200)
       await selectSource(page)
       await page.locator('[data-online-result]').first().waitFor()
-      // A previous directory may still be valid for sixty seconds. Wait for
-      // its current work, then explicitly request the synthetic gallery.
+      // Drain the previous visible work. A full isolated page reload creates
+      // genuinely cold poster components; manual refresh now keeps good art.
       await until(async () => (await page.locator('.online-results [data-online-artwork-state="loading"]').count()) === 0,
         'Previously visible posters finish before the cold measurement', 25000)
       await idle()
@@ -919,7 +919,8 @@ async function loading() {
       const before = await metrics(), started = performance.now()
       const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/online/catalog/browse'
         && response.status() === 200)
-      await page.locator('[data-online-refresh]').click()
+      await page.reload()
+      await page.waitForFunction(() => window.__jzOnlineP2Fixture?.snapshot().ready)
       await refreshed
       await until(() => page.locator('[data-online-refresh]').isEnabled(), 'Fresh directory replaces the previous render')
       await page.locator('[data-online-result="gallery-1"]').waitFor()
@@ -1445,6 +1446,302 @@ async function metadataRecovery() {
   await backendChildren('after-metadata-recovery')
 }
 
+// Advance only wall-clock freshness. Real timers, cancellation, socket budgets,
+// playback and performance measurements keep their ordinary clocks.
+function installRefreshClock() {
+  const now = Date.now.bind(Date)
+  const visibility = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState')?.get
+  const hidden = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden')?.get
+  let offset = 0, forcedVisible = null
+  Date.now = () => now() + offset
+  Object.defineProperty(document, 'visibilityState', { configurable: true,
+    get: () => forcedVisible === null ? visibility?.call(document) || 'visible' : forcedVisible ? 'visible' : 'hidden' })
+  Object.defineProperty(document, 'hidden', { configurable: true,
+    get: () => forcedVisible === null ? !!hidden?.call(document) : !forcedVisible })
+  window.__onlineRefreshClock = {
+    advance(milliseconds) { offset += milliseconds },
+    visible(value) { forcedVisible = value; document.dispatchEvent(new Event('visibilitychange')) },
+  }
+}
+
+async function refreshStrategy() {
+  const PERIOD = 15 * 60 * 1000
+  const primaryReads = value => value.origin_calls.filter(call => call.kind === 'api' && call.metadata_status !== undefined)
+  const imageReads = value => value.origin_calls.filter(call => call.kind === 'image')
+  async function settled(page) {
+    await until(async () => (await page.locator('[data-online-browser]').getAttribute('aria-busy')) === 'false',
+      'A foreground directory request settles')
+  }
+  const ids = page => page.locator('[data-online-result]').evaluateAll(nodes => nodes.map(node => node.dataset.onlineResult))
+  async function advance(page, milliseconds = PERIOD + 100) {
+    await page.evaluate(value => window.__onlineRefreshClock.advance(value), milliseconds)
+  }
+  async function visible(page, value = true) {
+    await page.evaluate(value => window.__onlineRefreshClock.visible(value), value)
+  }
+  async function check(page) {
+    const response = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return ['/api/online/catalog/browse', '/api/online/catalog/search'].includes(url.pathname)
+        && url.searchParams.get('priority') === 'background'
+    })
+    await advance(page); await visible(page)
+    return response
+  }
+  async function manual(page) {
+    await page.locator('[data-online-refresh]').click(); await settled(page); await idle()
+  }
+  async function captureImages(page) {
+    return page.evaluate(() => {
+      window.__refreshPosterNodes = [...document.querySelectorAll('.online-results .online-poster > img')]
+        .filter(node => node.complete && node.naturalWidth > 0)
+        .map(node => ({ node, src: node.src, id: node.closest('[data-online-browse-id]').dataset.onlineBrowseId }))
+      return window.__refreshPosterNodes.length
+    })
+  }
+  async function preservedImages(page) {
+    const values = await page.evaluate(() => (window.__refreshPosterNodes || []).map(({ node, src, id }) => {
+      const card = [...document.querySelectorAll('[data-online-browse-id]')].find(card => card.dataset.onlineBrowseId === id)
+      const current = card?.querySelector('.online-poster > img')
+      return { id, node: current === node, src: current?.src === src }
+    }))
+    assert.ok(values.length > 0)
+    assert.ok(values.every(value => value.node && value.src), 'Successful poster nodes and Blob URLs survive metadata refresh')
+  }
+  async function configure(page, extra = {}) {
+    await scenario(page, { taxonomy: true, taxonomy_unavailable: false, gallery: false, related: false,
+      detail_mode: false, catalogue_version: 0, metadata_failures_remaining: 0,
+      metadata_failure_status: 503, metadata_failure_delay_ms: 0, metadata_success_delay_ms: 0,
+      poster_failure_id: '', poster_failures_remaining: 0, ...extra })
+  }
+  for (const width of [1440, 390]) {
+    phase = { name: `refresh-strategy-${width}`, expectedHttp: true }
+    const { context, page } = await newPage(width, { init: installRefreshClock })
+    const requests = [], posterPaths = new Map()
+    let held = null
+    page.on('request', request => {
+      const url = new URL(request.url())
+      if (url.pathname.startsWith('/api/online/catalog/')) requests.push({ path: url.pathname, priority: url.searchParams.get('priority') })
+    })
+    page.on('response', async response => {
+      const pathname = new URL(response.url()).pathname
+      if (!['/api/online/catalog/browse', '/api/online/catalog/search'].includes(pathname) || response.status() !== 200) return
+      const body = await response.json().catch(() => null)
+      for (const item of body?.items || []) if (item.poster_path) posterPaths.set(item.external_id, item.poster_path)
+    })
+    const backgrounds = () => requests.filter(value => value.priority === 'background').length
+    const countPath = path => requests.filter(value => value.path === path).length
+    const successfulReads = async () => (await page.evaluate(() => window.__refreshPosterNodes.map(value => value.id))).map(id => {
+      const path = posterPaths.get(id)
+      assert.ok(path, 'Every captured successful poster has a known authorized path')
+      return { path, count: countPath(path) }
+    })
+    const preservedReads = reads => assert.ok(reads.every(value => countPath(value.path) === value.count),
+      'Successful posters keep their original request; newly visible missing posters may load')
+    try {
+      await configure(page, { poster_failure_id: 'urban-2026-1', poster_failures_remaining: 2, clear_artwork_cache: true })
+      await selectSource(page); await settled(page)
+      const first = page.locator('[data-online-browse-id="urban-2026-1"]')
+      if (!await first.count()) { await page.locator('[data-online-refresh]').click(); await settled(page) }
+      await first.locator('[data-online-artwork-state="error"]').waitFor()
+      await idle(); await page.waitForLoadState('networkidle')
+      phase.expectedHttp = false
+      assert.ok(await captureImages(page) > 0)
+      const failedPath = posterPaths.get('urban-2026-1')
+      assert.ok(failedPath)
+      const failedBefore = countPath(failedPath)
+      const readyReads = await successfulReads()
+      await manual(page)
+      await first.locator('[data-online-artwork-state="ready"]').waitFor()
+      await page.locator('[data-online-checked-at]').waitFor()
+      await idle(); await preservedImages(page)
+      assert.equal(countPath(failedPath) - failedBefore, 1, 'Manual refresh retries the failed poster once')
+      preservedReads(readyReads)
+
+      // A genuine route change remounts the view. Metadata stays in session
+      // memory, while already cached original posters require no source read.
+      let before = await metrics()
+      await navigate(page, '/settings'); await advance(page, 14 * 60 * 1000)
+      await selectSource(page); await settled(page); await idle()
+      let after = await metrics()
+      assert.equal(primaryReads(after).length, primaryReads(before).length, 'Returning inside fifteen minutes makes no main API read')
+      assert.equal(imageReads(after).length, imageReads(before).length, 'Warm route restoration makes no upstream image read')
+      assert.equal(await page.locator('[data-online-update-notice]').count(), 0)
+
+      // Expired rows remain visible during a real delayed background read.
+      await configure(page, { catalogue_version: 1, metadata_success_delay_ms: 1000 })
+      const originalIds = await ids(page)
+      await navigate(page, '/settings'); await advance(page, 60 * 1000 + 200)
+      await selectSource(page)
+      await page.locator('[data-online-background-refreshing]').waitFor()
+      assert.deepEqual(await ids(page), originalIds)
+      assert.equal(await page.locator('[data-online-result]').first().isDisabled(), false, 'Background work does not disable browsing')
+      assert.match(await first.locator('[data-online-item-status]').textContent(), /第2集/)
+      await first.locator('[data-online-result]').focus()
+      await page.locator('[data-online-update-notice]').waitFor(); await idle()
+      assert.deepEqual(await ids(page), originalIds)
+      assert.match(await first.locator('[data-online-item-status]').textContent(), /第2集/)
+      assert.equal(await first.locator('[data-online-result]').evaluate(node => document.activeElement === node), true)
+      assert.ok(await captureImages(page) > 0)
+      const applyBefore = primaryReads(await metrics()).length
+      const applyPosters = await successfulReads()
+      await page.screenshot({ path: path.join(output, `refresh-update-${width}.png`) })
+      await page.locator('[data-online-apply-update]').evaluate(button => button.click())
+      await until(async () => /第3集/.test(await first.locator('[data-online-item-status]').textContent()), 'Explicit apply updates episode remarks')
+      assert.equal(primaryReads(await metrics()).length, applyBefore, 'A bounded pending result applies without an extra API request')
+      assert.equal(await page.locator('[data-online-update-notice]').count(), 0)
+      await preservedImages(page)
+      preservedReads(applyPosters)
+
+      // Identical results refresh freshness, with neither a notice nor image
+      // remounts. A visibility event cannot immediately start another check.
+      await configure(page, { catalogue_version: 1 })
+      await manual(page); await captureImages(page)
+      const unchangedPosters = await successfulReads()
+      assert.equal((await (await check(page)).json()).status, 'ready')
+      await idle()
+      assert.equal(await page.locator('[data-online-update-notice]').count(), 0)
+      await preservedImages(page); preservedReads(unchangedPosters)
+      const checkedCount = backgrounds()
+      await visible(page); await visible(page); await delay(200)
+      assert.equal(backgrounds(), checkedCount, 'A successful check restarts the fifteen-minute attempt interval')
+
+      // Ordering changes stay pending until an explicit application. The
+      // focused, scrolled card retains its identity, anchor and successful img.
+      await manual(page); await configure(page, { catalogue_version: 2 })
+      const ordered = await ids(page)
+      assert.equal((await (await check(page)).json()).status, 'ready')
+      await page.locator('[data-online-update-notice]').waitFor(); await idle()
+      assert.deepEqual(await ids(page), ordered)
+      const anchor = page.locator(`[data-online-result="${ordered[6]}"]`)
+      await anchor.evaluate(node => { node.scrollIntoView({ block: 'center' }); node.focus({ preventScroll: true }) })
+      await idle(); await captureImages(page)
+      const anchorBefore = await anchor.evaluate(node => node.getBoundingClientRect().top)
+      await page.locator('[data-online-apply-update]').evaluate(button => button.click())
+      await until(async () => JSON.stringify(await ids(page)) === JSON.stringify([...ordered].reverse()), 'Only an explicit apply replaces the ordered page')
+      const anchorAfter = await anchor.evaluate(node => ({ top: node.getBoundingClientRect().top, focused: document.activeElement === node }))
+      assert.ok(Math.abs(anchorAfter.top - anchorBefore) < 12, 'Applying a reordered page retains the scrolled anchor')
+      assert.equal(anchorAfter.focused, true)
+      await preservedImages(page)
+
+      // A single real upstream failure is not retried by background work.
+      await configure(page, { catalogue_version: 2 }); await manual(page)
+      await scenario(page, { metadata_failures_remaining: 1, metadata_failure_status: 503 })
+      before = await metrics(); phase.expectedHttp = true
+      const failedCheck = await check(page)
+      assert.equal(failedCheck.status(), 502)
+      await page.locator('[data-online-refresh-check-error]').waitFor(); await idle(); await page.waitForLoadState('networkidle')
+      phase.expectedHttp = false
+      assert.equal(primaryReads(await metrics()).length - primaryReads(before).length, 1)
+      assert.deepEqual(await ids(page), [...ordered].reverse())
+      const failureCount = backgrounds()
+      await visible(page); await delay(200)
+      assert.equal(backgrounds(), failureCount, 'A failed attempt does not start a retry loop')
+
+      // Occupy the one shared optional slot, then let the visible page's
+      // automatic check receive deferred without a second upstream request.
+      await configure(page, { catalogue_version: 2 }); await manual(page)
+      await scenario(page, { metadata_success_delay_ms: 1800 })
+      before = await metrics()
+      held = call(page, 'GET', `/api/online/catalog/browse?source_id=${primarySource.id}&priority=background`)
+      await until(async () => (await metrics()).admission.background === 1, 'A real optional reader occupies its bounded slot')
+      const deferred = await check(page)
+      assert.deepEqual(await deferred.json(), { status: 'deferred' })
+      assert.equal((await held).status, 200); held = null
+      await idle()
+      assert.equal(primaryReads(await metrics()).length - primaryReads(before).length, 1)
+      assert.equal(await page.locator('[data-online-update-notice]').count(), 0)
+      const deferredCount = backgrounds(); await visible(page); await delay(150)
+      assert.equal(backgrounds(), deferredCount, 'Deferred checks wait for the next period or a manual intent')
+
+      // Opening a real detail preempts a slow background catalogue read and
+      // still reaches actual MP4 decode through its separate media client.
+      await configure(page, { catalogue_version: 2 }); await manual(page)
+      await scenario(page, { catalogue_version: 3, metadata_success_delay_ms: 1800 })
+      await advance(page); await visible(page)
+      await until(async () => (await metrics()).admission.background === 1, 'The delayed automatic background read is active')
+      const selected = (await ids(page))[0]
+      assert.equal(await page.locator(`[data-online-result="${selected}"]`).isDisabled(), false)
+      await detailUi(page, selected)
+      await page.locator('[data-online-primary-play]').waitFor()
+      await chooseLine(page, 'MP4直链'); await playEntry(page, '第1集'); await advancing(page); await closePlayer(page)
+      await returned(page); await settled(page); await idle()
+      assert.equal(await page.locator('[data-online-update-notice]').count(), 0, 'A preempted completion cannot stage a late update')
+
+      // Hidden documents do no automatic catalogue I/O; visible documents
+      // check once on return. This is a visibility-state simulation, not a
+      // claim of a real phone background lifecycle.
+      await configure(page, { catalogue_version: 2 }); await manual(page)
+      await scenario(page, { catalogue_version: 3 })
+      await visible(page, false); const hiddenCount = backgrounds()
+      await advance(page); await delay(200)
+      assert.equal(backgrounds(), hiddenCount)
+      await visible(page)
+      await page.locator('[data-online-update-notice]').waitFor(); await idle()
+      assert.equal(backgrounds() - hiddenCount, 1)
+      await page.locator('[data-online-apply-update]').click(); await settled(page)
+
+      // Beyond the thirty-minute navigation lifetime, a route return must
+      // perform a foreground read rather than revive an over-age snapshot.
+      await manual(page); await navigate(page, '/settings'); await advance(page, 31 * 60 * 1000)
+      const expiredBefore = requests.length
+      await selectSource(page); await settled(page); await idle()
+      assert.equal(requests.slice(expiredBefore).filter(value => value.path === '/api/online/catalog/browse' && value.priority === null).length, 1)
+
+      const geometry = await layout(page, width)
+      await page.screenshot({ path: path.join(output, `refresh-strategy-${width}.png`) })
+      phase = { name: `refresh-strategy-permission-${width}`, expectedHttp: true }
+      const permissionErrors = report.expectedFailures.responses.length
+      const password = 'isolated-refresh-strategy-protection'
+      if (width === 1440) {
+        assert.equal((await call(page, 'POST', '/api/viewing/password', { new_password: password })).status, 200)
+        const protectedBefore = primaryReads(await metrics()).length
+        await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+        await until(async () => primaryReads(await metrics()).length > protectedBefore,
+          'The actual protection revision is revalidated before staging another result')
+        await settled(page); await idle()
+      }
+      await configure(page, { catalogue_version: 2 }); await manual(page)
+      await configure(page, { catalogue_version: 1 })
+      assert.equal((await (await check(page)).json()).status, 'ready')
+      await page.locator('[data-online-update-notice]').waitFor(); await idle()
+      phase.expectedHttp = true
+      const child = await call(page, 'POST', '/api/viewing/mode', { mode: 'children' })
+      assert.equal(child.status, 200)
+      await page.evaluate(generation => window.dispatchEvent(new CustomEvent('jzmedia:viewing-generation', {
+        detail: { generation },
+      })), child.body.generation)
+      await until(async () => await page.locator('[data-online-result]').count() === 0
+        && await page.locator('[data-online-update-notice]').count() === 0,
+      'A real viewing-generation change clears displayed and pending content')
+      const normal = await call(page, 'POST', '/api/viewing/mode', { mode: 'normal', password })
+      assert.equal(normal.status, 200)
+      await page.evaluate(generation => window.dispatchEvent(new CustomEvent('jzmedia:viewing-generation', {
+        detail: { generation },
+      })), normal.body.generation)
+      await selectSource(page); await settled(page); await idle()
+      await page.waitForLoadState('networkidle'); phase.expectedHttp = false
+      assert.ok(report.expectedFailures.responses.slice(permissionErrors).every(value => [401, 403].includes(value.status)),
+        'The permission transition permits only explicit authorization denials')
+      assert.equal(await page.locator('[data-online-update-notice]').count(), 0)
+      passed({ case: `refresh-strategy-${width}`, geometry, fakeFreshnessClockOnly: true,
+        fifteenMinuteWarmReturn: true, staleWallDuringBackground: true, explicitPendingApplication: true,
+        unchangedResultsStayQuiet: true, successfulPosterNodesPreserved: true, onlyFailedPosterRetried: true,
+        reorderedPagePreservesAnchorAndFocus: true, backgroundDoesNotRetry: true,
+        deferredDoesNotLoop: true, detailPreemptsBackground: true, actualMp4Decode: true,
+        hiddenDocumentDoesNotCheck: true, thirtyMinuteExpiryRequiresRead: true,
+        realViewingGenerationClearsPending: true })
+    } finally {
+      if (held) await held.catch(() => {})
+      await visible(page)
+      await navigate(page, '/settings'); await idle(); await page.waitForLoadState('networkidle')
+      await configure(page, { taxonomy: false, catalogue_version: 0 })
+      await closeContext(context); await idle()
+    }
+  }
+  await backendChildren('after-refresh-strategy')
+}
+
 async function matrix() {
   for (const width of [1440, 390]) for (const transport of ['mp4', 'hls']) {
     phase = { name: `matrix-${width}-${transport}`, expectedHttp: false }
@@ -1890,13 +2187,15 @@ try {
     'frontend/src/components/OnlineSourcesPanel.vue', 'frontend/src/App.vue', 'frontend/src/styles/base.css',
     'frontend/src/components/OnlinePlayerModal.vue',
     'frontend/src/onlinePlayback.js', 'app/online/maccms.py', 'app/online/catalog.py',
-    'frontend/src/onlineArtwork.js', 'frontend/src/onlineBrowse.js', 'app/online/artwork.py', 'app/online/artwork_cache.py',
+    'frontend/src/onlineArtwork.js', 'frontend/src/components/OnlineArtwork.vue', 'frontend/src/onlineCatalog.js',
+    'frontend/src/onlineBrowse.js', 'app/online/artwork.py', 'app/online/artwork_cache.py',
     'frontend/src/onlineCategories.js', 'frontend/src/onlineRelated.js', 'app/online/related.py', 'app/online/related_matching.py',
     'frontend/src/components/OnlineEpisodes.vue', 'frontend/src/onlineEpisodes.js', 'frontend/src/styles/onlineEpisodes.css',
     'app/online/taxonomy_cache.py', 'app/online/api_pool.py', 'app/online/runtime.py',
     'app/network/stages.py', 'app/network/client.py',
     'app/network/targets.py', 'app/network/transport.py',
-    'app/online/providers.py', 'app/routers/online_catalog.py']) {
+    'app/online/providers.py', 'app/online/catalog_models.py', 'app/routers/online_catalog.py',
+    'frontend/src/styles/online.css']) {
     report.fingerprints[file] = createHash('sha256').update(await readFile(path.join(root, file))).digest('hex')
   }
   await runGenerator()
@@ -1922,6 +2221,7 @@ try {
     if (selectedCase === 'all' || selectedCase === 'detail') await detailExperience()
     if (selectedCase === 'all' || selectedCase === 'detail-recovery') await detailRecovery()
     if (selectedCase === 'all' || selectedCase === 'metadata-recovery') await metadataRecovery()
+    if (selectedCase === 'all' || selectedCase === 'refresh-strategy') await refreshStrategy()
     if (selectedCase === 'all' || selectedCase === 'matrix') await matrix()
     if (selectedCase === 'all' || selectedCase === 'catalogue') await catalogue()
     report.finalMetrics = (await idle()).metrics
