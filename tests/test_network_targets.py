@@ -156,7 +156,7 @@ def test_address_set_is_deduplicated_but_distinct_addresses_are_capped():
         policy(addresses=addresses).resolve("https://cdn.example/")
 
 
-@pytest.mark.parametrize("count", [25, 32])
+@pytest.mark.parametrize("count", [25, 32, 54, 64])
 def test_large_public_cdn_pools_keep_every_validated_pin(count):
     addresses = tuple(str(ipaddress.ip_address("8.8.8.1") + index) for index in range(count))
     selected = policy(addresses=addresses)
@@ -165,9 +165,28 @@ def test_large_public_cdn_pools_keep_every_validated_pin(count):
     assert selected.pin_for("cdn.example", 443) == addresses
 
 
+def test_large_cdn_pool_deduplicates_all_raw_answers():
+    addresses = tuple(str(ipaddress.ip_address("8.8.8.1") + index) for index in range(54))
+    answers = addresses + addresses + addresses[:21]
+    assert len(answers) == 129
+    selected = policy(addresses=answers)
+    assert selected.resolve("https://cdn.example/movie.m3u8").addresses == addresses
+    assert selected.pin_for("cdn.example", 443) == addresses
+
+
 @pytest.mark.parametrize("private", ["10.0.0.1", "127.0.0.1", "169.254.169.254", "::1"])
 def test_private_answer_after_sixteen_public_addresses_still_rejects_entire_pool(private):
     addresses = tuple(str(ipaddress.ip_address("8.8.8.1") + index) for index in range(24)) + (private,)
+    selected = policy(addresses=addresses)
+    with pytest.raises(TargetPolicyError, match="^non_public_target_address$"):
+        selected.resolve("https://cdn.example/movie.m3u8")
+    with pytest.raises(TargetPolicyError, match="^unregistered_target_connection$"):
+        selected.pin_for("cdn.example", 443)
+
+
+def test_private_answer_after_over_limit_public_addresses_is_not_hidden():
+    addresses = tuple(str(ipaddress.ip_address("8.8.8.1") + index)
+                      for index in range(targets.ADDRESS_LIMIT + 1)) + ("10.0.0.1",)
     selected = policy(addresses=addresses)
     with pytest.raises(TargetPolicyError, match="^non_public_target_address$"):
         selected.resolve("https://cdn.example/movie.m3u8")

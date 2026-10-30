@@ -18,7 +18,8 @@ URL_LIMIT = 8192
 # Large public CDN pools can legitimately return more than sixteen addresses.
 # Every raw answer is still validated before deduplication and this fixed cap;
 # no private tail answer can be hidden by truncating the candidate set.
-ADDRESS_LIMIT = 32
+ADDRESS_LIMIT = 64
+OPERATOR_ADDRESS_LIMIT = 32
 ORIGIN_LIMIT = 128
 _SOURCE_ID = re.compile(r"src_[0-9a-f]{32}\Z")
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
@@ -193,7 +194,7 @@ def resolve_operator_addresses(host, port, timeout):
         addresses = tuple(dict.fromkeys(ipaddress.ip_address(value).compressed for value in answers))
     except ValueError:
         raise TargetPolicyError("invalid_target_dns_answers") from None
-    if len(addresses) > ADDRESS_LIMIT:
+    if len(addresses) > OPERATOR_ADDRESS_LIMIT:
         raise TargetPolicyError("too_many_target_addresses")
     return addresses
 
