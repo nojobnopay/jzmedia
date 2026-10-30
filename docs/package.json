@@ -2,7 +2,7 @@
   "name": "jzmedia-docs",
   "private": true,
   "version": "0.33.0",
-  "license": "BSD-3-Clause",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vitepress dev --host 127.0.0.1",

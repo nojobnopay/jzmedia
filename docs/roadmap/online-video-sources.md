@@ -22,7 +22,7 @@
 
 LibreTV 的[发布页](https://github.com/LibreSpark/LibreTV/releases)在本次查询中可见 2026-10-23 的 v2.21.0；旧搜索缓存中的归档信息不能代表当前版本。当前[数据源文档](https://libretv.is-an.org/wiki/Data-Sources.html)明确不内置点播源，并将推荐元数据、点播 API 和直播源分开。TVBox 配置导入也只接受其中可直接使用的接口，不代表具备完整 Spider 运行环境。
 
-[原 MoonTV 仓库](https://github.com/senshinya/MoonTV)目前指向 LunaTV；LunaTV README 同样说明默认没有视频源。它的 [CC BY-NC-SA 4.0 许可](https://github.com/MoonTechLab/LunaTV/blob/main/LICENSE)带有非商业限制。LibreTV 当前标注 AGPL-3.0，FongMi/TV 标注 GPL-3.0，Stremio SDK 为 MIT；这些是各项目代码的许可，不授予外部影片的使用权。jzmedia 当前为 BSD-3-Clause，建议根据公开协议独立实现适配器，采用第三方代码前单独核对许可；不能把 TV 的许可直接套用到未确认许可的 Spider 文件。
+[原 MoonTV 仓库](https://github.com/senshinya/MoonTV)目前指向 LunaTV；LunaTV README 同样说明默认没有视频源。它的 [CC BY-NC-SA 4.0 许可](https://github.com/MoonTechLab/LunaTV/blob/main/LICENSE)带有非商业限制。LibreTV 当前标注 AGPL-3.0，FongMi/TV 标注 GPL-3.0，Stremio SDK 为 MIT；这些是各项目代码的许可，不授予外部影片的使用权。jzmedia 当前为 Apache-2.0，建议根据公开协议独立实现适配器，采用第三方代码前单独核对许可；不能把 TV 的许可直接套用到未确认许可的 Spider 文件。
 
 [CatVod 开发说明](https://github.com/FongMi/CatVodSpider/blob/main/docs/development.md)区分搜索、详情和播放解析；播放标识可能需要运行脚本才能变成 URL。兼容这类源还需要宿主 API、依赖与隔离执行环境，不适合放进首次点播迭代。
 

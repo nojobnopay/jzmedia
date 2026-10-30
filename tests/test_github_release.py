@@ -196,7 +196,7 @@ def bundle(tmp_path, monkeypatch):
     (directory / "manifest.json").write_text(json.dumps(record))
     (directory / "docker-compose.yml").write_text(f"services:\n  mymedia:\n    image: {IMAGE}\n")
     (directory / "compose.host.yml").write_text((SCRIPTS.parent / "compose.host.yml").read_text())
-    (directory / "LICENSE").write_text("BSD-3-Clause test fixture\n")
+    (directory / "LICENSE").write_text("License test fixture\n")
     write_checksums(directory, record)
     return SimpleNamespace(directory=directory, record=record)
 

@@ -112,4 +112,4 @@ docker run -d --name jzmedia \
 
 ## 许可证
 
-本项目采用 [BSD 3-Clause License](LICENSE)，版权归 joey.zhou 所有。第三方组件和素材保留各自的许可证与来源说明，设计素材见 [design/README.md](design/README.md)。
+项目有权授权的自有内容采用 [Apache License 2.0](LICENSE)，版权归 joey.zhou 所有。第三方组件和素材遵循各自的许可证并保留相关声明；设计素材及来源待确认的历史图标见 [design/README.md](design/README.md)。

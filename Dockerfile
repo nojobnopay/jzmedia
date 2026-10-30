@@ -79,11 +79,12 @@ ARG GIT_SHA="unknown"
 ENV JZMEDIA_BUILD_COMMIT=$GIT_SHA
 LABEL org.opencontainers.image.title="jzmedia" \
       org.opencontainers.image.source="https://github.com/nojobnopay/jzmedia" \
-      org.opencontainers.image.licenses="BSD-3-Clause" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version=$APP_VERSION \
       org.opencontainers.image.revision=$GIT_SHA
 
 COPY app ./app
+COPY LICENSE ./LICENSE
 COPY version.properties ./version.properties
 COPY --from=web /web/dist ./frontend/dist
 COPY --from=help /help/.vitepress/dist ./docs/.vitepress/dist
