@@ -135,6 +135,22 @@ def test_cookie_is_required_even_without_protection(environment):
         anonymous.close()
 
 
+def test_library_presentation_uses_saved_episode_names_and_preserves_scope(environment):
+    env = environment
+    movie_writer, _ = claim(env)
+    save(env, movie_writer)
+    episode_writer, _ = claim(env, item=env.show, episode=env.episodes[1])
+    save(env, episode_writer)
+    rows = env.client.get("/api/online/state/library").json()["items"]
+    by_id = {row["item"]["id"]: row for row in rows}
+    assert by_id[env.show["id"]]["episode_label"] == "Episode 2"
+    assert by_id[env.movie["id"]]["episode_label"] == ""
+    assert all(row["poster_path"] == "" for row in rows)
+    assert env.stranger.get("/api/online/state/library").json()["items"] == []
+    set_mode(env, "private")
+    assert env.client.get("/api/online/state/library").json()["items"] == []
+
+
 def test_favorites_are_device_scoped_idempotent_and_separate_from_local_media(environment):
     env = environment
     favorite(env)

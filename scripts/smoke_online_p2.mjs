@@ -376,8 +376,9 @@ async function search(page, keyword = '合成', { results = true } = {}) {
       'The restored directory settles before a different search')
   }
   await form.waitFor()
-  await form.locator('input').first().fill(keyword)
-  await form.locator('input').first().press('Enter')
+  const input = form.getByRole('textbox', { name: '搜索在线视频', exact: true })
+  await input.fill(keyword)
+  await input.press('Enter')
   if (results) await page.locator('[data-online-result]').first().waitFor()
 }
 async function detailUi(page, externalId = 'movie-1') {
@@ -1011,9 +1012,14 @@ async function loadingFeedback() {
     assert.ok(value.top >= 0 && value.bottom <= value.viewportHeight + 1
       && value.left >= 0 && value.right <= value.viewportWidth + 1,
     'Foreground wait feedback stays visible in the current viewport')
+    assert.ok(value.top > value.viewportHeight * .7 && value.viewportHeight - value.bottom >= 12,
+      'Foreground waiting uses the bottom status area and leaves the viewport safe edge clear')
     assert.equal(value.pointerEvents, 'none', 'The wait status is not an input-blocking dialog')
     assert.equal(value.focused, false, 'Wait feedback never takes keyboard focus')
     assert.match(value.text, /正在/)
+    const spinner = await feedback.locator('.jz-spinner').boundingBox()
+    assert.ok(spinner && Math.abs(spinner.width - 20) < .5 && Math.abs(spinner.height - 20) < .5,
+      'The compact status bar uses the shared 20px loading ring')
     return { feedback, geometry: value }
   }
   for (const width of [1440, 390, 320]) {
@@ -1049,10 +1055,10 @@ async function loadingFeedback() {
       assert.equal(await page.locator('[data-online-page-prev]').isDisabled(), true)
       assert.equal(await next.getAttribute('aria-busy'), 'true', 'The active paging action also has busy feedback')
       assert.ok(await next.locator('.jz-spinner').count() > 0)
-      const normalMotion = await waiting.feedback.locator('.jz-spinner').evaluate(node => ({
+      const normalMotion = await waiting.feedback.locator('.jz-spinner-arc').evaluate(node => ({
         name: getComputedStyle(node).animationName, duration: parseFloat(getComputedStyle(node).animationDuration),
       }))
-      assert.notEqual(normalMotion.name, 'none')
+      assert.match(normalMotion.name, /^jz-spin(?:-|$)/, 'The shared arc rotates, not just its reveal wrapper')
       assert.ok(normalMotion.duration > 0)
       const focus = await page.evaluate(() => ({ unchanged: document.activeElement === window.__onlineLoadingTrigger,
         body: document.activeElement === document.body, position: scrollY }))
@@ -1064,6 +1070,7 @@ async function loadingFeedback() {
       await page.screenshot({ path: path.join(output, `loading-feedback-${width}.png`) })
       await page.emulateMedia({ reducedMotion: 'reduce' })
       assert.equal(await waiting.feedback.locator('.jz-spinner').evaluate(node => getComputedStyle(node).animationName), 'none')
+      assert.equal(await waiting.feedback.locator('.jz-spinner-arc').evaluate(node => getComputedStyle(node).animationName), 'none')
       assert.match(await waiting.feedback.textContent(), /正在/)
       await page.emulateMedia({ reducedMotion: 'no-preference' })
       await settled(page); await page.locator('[data-online-result="gallery-21"]').waitFor(); await idle()
@@ -1094,6 +1101,7 @@ async function loadingFeedback() {
       await search(page, '合成', { results: false })
       const searching = await visibleFeedback(page)
       assert.match(searching.geometry.text, /搜索/)
+      assert.equal(await page.getByRole('button', { name: '搜索在线视频', exact: true }).getAttribute('aria-busy'), 'true')
       await settled(page); await idle()
       assert.equal(await page.locator('[data-online-loading-feedback]').count(), 0)
       assert.equal((await ids(page))[0], 'gallery-1')
@@ -1115,7 +1123,7 @@ async function loadingFeedback() {
       const geometry = await layout(page, width)
       passed({ case: phase.name, geometry, waitingGeometry: waiting.geometry,
         visibleFromBottomPagination: true, preservesPreviousWallWhileWaiting: true,
-        activePagingSpinner: true, blocksDuplicatePaging: true, neverStealsFocusOrScroll: true,
+        bottomStatusWith20pxRing: true, activePagingSpinner: true, blocksDuplicatePaging: true, neverStealsFocusOrScroll: true,
         reducedMotionKeepsText: true, failuresKeepOldWallAndClearWait: true,
         keywordSearchUsesSameFeedback: true, sourceChangeCancelsOldWait: true })
     } finally {
@@ -2416,6 +2424,9 @@ try {
     'frontend/src/components/OnlineSourcesPanel.vue', 'frontend/src/App.vue', 'frontend/src/styles/base.css',
     'frontend/src/components/OnlinePlayerModal.vue', 'frontend/src/components/OnlineHostDialog.vue',
     'frontend/src/components/Spinner.vue', 'frontend/src/components/JzButton.vue', 'frontend/src/components/EmptyState.vue',
+    'frontend/src/components/BrowseToolbar.vue', 'frontend/src/components/OnlineSkeleton.vue',
+    'frontend/src/components/OnlineBrowseResults.vue', 'frontend/src/components/OnlineContinueRow.vue',
+    'frontend/src/components/OnlineRecordsView.vue', 'frontend/src/components/OnlineRecordCard.vue',
     'frontend/src/onlinePlayback.js', 'app/online/maccms.py', 'app/online/catalog.py',
     'frontend/src/onlineArtwork.js', 'frontend/src/components/OnlineArtwork.vue', 'frontend/src/onlineCatalog.js',
     'frontend/src/onlineBrowse.js', 'app/online/artwork.py', 'app/online/artwork_cache.py',

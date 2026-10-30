@@ -18,6 +18,8 @@ async function setup(t, request, { stateRequest, relatedRequest, hostRequest, re
   const cleanups = new Set()
   const viewingSession = Vue.reactive({ mode: 'normal', generation: 1, revision: 0, locallyLocked: false, suspended: false, ...session })
   const players = [], writers = [], preferences = [], navigations = []
+  const routeState = Vue.reactive({ path: '/online', query: { ...routeQuery } })
+  const navigate = async target => { navigations.push(target); routeState.query = { ...target.query }; await Vue.nextTick() }
   const stateRead = stateRequest || (async path => path.includes('/library?')
     ? { items: [], total: 0, limit: 20, offset: 0, scope_token: SCOPE }
     : { item_id: path.split('/').at(-1).split('?')[0], favorite: false, last_progress: null, selected_progress: null, available: true, scope_token: SCOPE })
@@ -26,7 +28,7 @@ async function setup(t, request, { stateRequest, relatedRequest, hostRequest, re
       [...(slots.default?.() || []), ...(slots.footer?.() || [])]) } }
   const component = await loadSfc(new URL('../src/views/Online.vue', import.meta.url), {
     vue,
-    'vue-router': { useRoute: () => ({ path: '/online', query: routeQuery }), useRouter: () => ({ replace: async target => { navigations.push(target) } }) },
+    'vue-router': { useRoute: () => routeState, useRouter: () => ({ replace: navigate, push: navigate }) },
     '../api.js': { api: hostRequest || (async () => { throw { code: 'provider_timeout' } }) },
     '../onlineCatalog.js': { ...catalog, createOnlineCatalogClient: () => catalog.createOnlineCatalogClient({ request }),
       createOnlineRefreshClient: () => catalog.createOnlineRefreshClient({ request: refreshRequest }),
@@ -43,6 +45,7 @@ async function setup(t, request, { stateRequest, relatedRequest, hostRequest, re
       setup: props => () => Vue.h('p', { 'data-stub-overview': true }, props.text) } },
     '../components/JzDialog.vue': dialogStub,
     './JzDialog.vue': dialogStub,
+    './ActionMenu.vue': { default: { setup: (_props, { slots }) => () => Vue.h('div', slots.default?.()) } },
     '../components/OnlinePlayerModal.vue': { default: { props: ['onlineIdentity', 'initialPosition', 'prepareSession'], setup: props => {
       const listeners = Vue.getCurrentInstance().vnode.props
       const player = { props, ended: identity => listeners.onEnded(identity || props.onlineIdentity),
@@ -58,10 +61,10 @@ async function setup(t, request, { stateRequest, relatedRequest, hostRequest, re
   t.after(() => ui.app.unmount())
   t.after(clearOnlineBrowse)
   await flush()
-  return { ui, cleanup: () => Promise.all([...cleanups].map(cleanup => cleanup())), players, writers, preferences, navigations, viewing: viewingSession }
+  return { ui, cleanup: () => Promise.all([...cleanups].map(cleanup => cleanup())), players, writers, preferences, navigations, viewing: viewingSession, route: routeState }
 }
 function search(ui, query) {
-  ui.find(node => node.props.id === 'online-query').props['onUpdate:modelValue'](query)
+  ui.find(node => node.props.id === 'online-query').props.onInput({ target: { value: query } })
   ui.find(node => node.props['data-online-search'] !== undefined).props.onSubmit({ preventDefault() {} })
 }
 
@@ -867,7 +870,7 @@ test('disabled online sources do not hide saved records or their removal actions
   const record = { item: { id: ITEM, source_id: SOURCE_A, external_id: 'show-1', kind: 'tv', title: '已停用来源的收藏' },
     source: { ...sources.items[0], enabled: false }, favorite: true, progress: { identity: identity(EP1), position: 5, duration: 24 }, available: false, reason: 'online_source_disabled' }
   const writes = []
-  const { ui } = await setup(t, async () => ({ enabled: false, items: [] }), { stateRequest: async (path, options) => {
+  const { ui } = await setup(t, async () => ({ enabled: false, items: [] }), { routeQuery: { view: 'records' }, stateRequest: async (path, options) => {
     if (options?.method) { writes.push(options); return { item_id: ITEM, favorite: false, scope_token: SCOPE } }
     return { items: [record], total: 1, offset: 0, scope_token: SCOPE }
   } })
@@ -938,7 +941,7 @@ test('clearing history adopts the new scope epoch for later explicit favorite ac
   const record = { item: { id: ITEM, source_id: SOURCE_A, external_id: 'show-1', kind: 'tv', title: '合成剧集' }, source: sources.items[0], favorite: true,
     progress: { identity: identity(EP1), position: 5, duration: 24 }, available: true }
   let scope = SCOPE
-  const { ui } = await setup(t, async () => sources, { stateRequest: async (_path, options) => {
+  const { ui } = await setup(t, async () => sources, { routeQuery: { view: 'records' }, stateRequest: async (_path, options) => {
     if (options?.method === 'DELETE') { writes.push(options); scope = newer; return { deleted: 1, scope_token: newer } }
     if (options?.method === 'PUT') { writes.push(options); return { favorite: false, scope_token: newer } }
     return { items: [record], total: 1, offset: 0, scope_token: scope }
@@ -1350,7 +1353,7 @@ test('blocked details remind once; confirmation refreshes configuration without 
   assert.equal(ui.find(node => node.props['data-online-line'] === ALT_LINE).props['aria-pressed'], true)
   assert.equal(requests.filter(path => path.endsWith('/sources')).length, 2)
   assert.equal(requests.filter(path => path.includes('/detail?')).length, 2)
-  assert.equal(navigations.length, 0)
+  assert.equal(navigations.length, 1, 'opening details records navigation; host repair does not navigate')
   assert.equal(players.length, 0)
   // A partial approval can leave some blocked entries. The new configuration
   // token is still remembered, so returning to this item does not nag again.
@@ -1472,4 +1475,293 @@ test('closing host confirmation then immediately changing the item cannot focus 
   await flush()
   assert.equal(oldFocus, 0)
   assert.ok(ui.text().includes('另一节目'))
+})
+
+function recordRow(source = sources.items[0], extra = {}) {
+  return { item: { id: ITEM, source_id: source.id, external_id: 'show-1', kind: 'tv', title: '续播夹具' },
+    source, favorite: true, progress: savedProgress({ ...identity(EP1), source_id: source.id }),
+    available: true, episode_label: '第1集', poster_path: '', ...extra }
+}
+function recordsOpen(ui) { return ui.find(node => node.props['data-online-records-open'] !== undefined) }
+function recordsTab(ui, tab) { return ui.find(node => node.props['data-online-library-section'] === tab) }
+
+test('continue shelf and full records own separate requests and a slow shelf cannot cancel favorites', async t => {
+  const pending = deferred(), record = recordRow()
+  let shelfSignal
+  const { ui, route } = await setup(t, async path => path.endsWith('/sources') ? taxonomySources() : categoryRows(path), {
+    stateRequest: async (path, options) => {
+      if (path.includes('section=continue')) { shelfSignal ||= options.signal; return pending.promise }
+      return { items: [record], total: 1, offset: 0, scope_token: SCOPE }
+    },
+  })
+  recordsOpen(ui).props.onClick(); await flush()
+  recordsTab(ui, 'favorites').props.onClick(); await flush()
+  assert.equal(shelfSignal.aborted, false)
+  assert.equal(route.query.view, 'records')
+  assert.equal(route.query.tab, 'favorites')
+  assert.ok(ui.find(node => node.props['data-online-favorite'] === ITEM))
+  pending.resolve({ items: [record], total: 1, offset: 0, scope_token: SCOPE }); await flush()
+  assert.equal(route.query.tab, 'favorites')
+})
+
+test('records detail and browser navigation restore the original browse source and query', async t => {
+  const record = recordRow(sources.items[1]), catalogue = { ...sources, scope_token: SCOPE,
+    items: sources.items.map((source, index) => ({ ...source, capabilities: { browse: true }, configuration_token: String(index + 1).repeat(64) })) }
+  const { ui, route } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return catalogue
+    if (path.includes('/detail?')) return { ...show(), source: sources.items[1], item: { ...show().item, source_id: SOURCE_B } }
+    return rows
+  }, { stateRequest: async path => path.includes('/library?') ? { items: [record], total: 1, offset: 0, scope_token: SCOPE } : itemState() })
+  search(ui, '原来的搜索'); await flush()
+  recordsOpen(ui).props.onClick(); await flush()
+  const recordRoute = { ...route.query }
+  ui.find(node => node.props['data-online-library-detail'] === ITEM).props.onClick(); await flush()
+  assert.equal(route.query.source, SOURCE_B)
+  assert.ok(ui.find(node => node.props['data-online-detail'] !== undefined))
+  // Simulate browser Back, then Forward, then the in-page return.
+  const detailRoute = { ...route.query }
+  route.query = recordRoute; await flush()
+  assert.equal(route.query.view, 'records')
+  route.query = detailRoute; await flush()
+  assert.ok(ui.find(node => node.props['data-online-detail'] !== undefined))
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回我的记录').props.onClick(); await flush()
+  ui.find(node => node.props['data-online-records-back'] !== undefined).props.onClick(); await flush()
+  assert.equal(route.query.source, SOURCE_A)
+  assert.equal(ui.find(node => node.props.id === 'online-query').props.value, '原来的搜索')
+  assert.equal(route.query.view, undefined)
+})
+
+test('server-driven viewing identity changes clear continue content even when the next read fails', async t => {
+  let fail = false
+  const record = recordRow(sources.items[0], { item: { ...recordRow().item, title: '私人观看内容' } })
+  const { ui, viewing } = await setup(t, async path => path.endsWith('/sources') ? taxonomySources() : rows, {
+    session: { mode: 'private' }, stateRequest: async () => {
+      if (fail) throw { code: 'offline' }
+      return { items: [record], total: 1, offset: 0, scope_token: SCOPE }
+    },
+  })
+  assert.ok(ui.text().includes('私人观看内容'))
+  fail = true; viewing.mode = 'normal'; viewing.revision++; await flush()
+  assert.equal(ui.text().includes('私人观看内容'), false)
+})
+
+test('deleting the final record on a page returns to the remaining valid page', async t => {
+  let total = 21
+  const offsets = [], record = recordRow()
+  const { ui } = await setup(t, async () => sources, { routeQuery: { view: 'records', tab: 'history' }, stateRequest: async (path, options) => {
+    if (options?.method === 'DELETE') { total = 20; return { deleted: 1, scope_token: SCOPE } }
+    const offset = Number(new URL(path, 'https://fixture.invalid').searchParams.get('offset') || 0)
+    if (path.includes('section=history')) offsets.push(offset)
+    return { items: offset < total ? [record] : [], total, offset, scope_token: SCOPE }
+  } })
+  ui.find(node => node.type === 'button' && nodeText(node) === '下一页').props.onClick(); await flush()
+  ui.find(node => node.props['data-online-history-delete'] === ITEM).props.onClick(); await flush()
+  assert.deepEqual(offsets.slice(-2), [20, 0])
+  assert.equal(ui.find(node => node.props['aria-label'] === '在线记录分页'), undefined, 'one remaining page needs no pagination')
+})
+
+test('route changes during source loading consume the newest records destination', async t => {
+  const pending = deferred(), reads = [], records = []
+  const { ui, route } = await setup(t, async path => {
+    reads.push(path)
+    if (path.endsWith('/sources')) return pending.promise
+    return show()
+  }, { routeQuery: { source: SOURCE_A, item: 'obsolete-detail' }, stateRequest: async path => {
+    records.push(path)
+    return { items: [], total: 0, offset: 0, scope_token: SCOPE }
+  } })
+  route.query = { view: 'records', tab: 'history' }; await flush()
+  pending.resolve(taxonomySources()); await flush()
+  assert.equal(reads.some(path => path.includes('/detail?')), false)
+  assert.ok(records.some(path => path.includes('section=history')))
+  assert.equal(recordsTab(ui, 'history').props['aria-pressed'], true)
+  assert.equal(ui.find(node => node.props['data-online-records'] !== undefined).parent.props['data-test-visible'], true)
+})
+
+test('opening a continue card cancels a pending catalogue page without leaving controls busy', async t => {
+  const pending = deferred(), record = recordRow()
+  const { ui } = await setup(t, async path => {
+    if (path.endsWith('/sources')) return taxonomySources()
+    if (path.includes('/detail?')) return show()
+    if (path.includes('page=2')) return pending.promise
+    return categoryRows(path)
+  }, { stateRequest: async path => path.includes('/library?') ? { items: [record], total: 1, offset: 0, scope_token: SCOPE } : itemState() })
+  ui.find(node => node.props['data-online-page-next'] !== undefined).props.onClick(); await flush()
+  ui.find(node => node.props['data-online-library-detail'] === ITEM).props.onClick(); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '返回搜索结果').props.onClick(); await flush()
+  assert.equal(ui.find(node => node.props['data-online-page-next'] !== undefined).props.disabled, false)
+  pending.resolve({ ...rows, page: 2, items: [{ ...rows.items[0], title: '过时的第二页' }] }); await flush()
+  assert.equal(ui.text().includes('过时的第二页'), false)
+})
+
+for (const unfinished of [false, true]) {
+  test(`browser Back during verification restores records instead of the ${unfinished ? 'unfinished' : 'loaded'} detail`, async t => {
+    const pending = deferred(), record = recordRow()
+    let detailReads = 0
+    const recordRoute = { source: SOURCE_A, view: 'records', tab: 'history' }
+    const { ui, route, viewing } = await setup(t, async path => {
+      if (path.endsWith('/sources')) return taxonomySources()
+      if (path.includes('/detail?')) {
+        detailReads++
+        return unfinished ? pending.promise : show()
+      }
+      return rows
+    }, { routeQuery: recordRoute, stateRequest: async path => path.includes('/library?')
+      ? { items: [record], total: 1, offset: 0, scope_token: SCOPE } : itemState() })
+    ui.find(node => node.props['data-online-library-detail'] === ITEM).props.onClick(); await flush()
+    assert.equal(route.query.item, 'show-1')
+    viewing.suspended = true; await flush()
+    route.query = { ...recordRoute }; await flush()
+    viewing.suspended = false; await flush()
+    assert.deepEqual({ ...route.query }, recordRoute)
+    assert.equal(detailReads, 1, 'the old detail is not retried over a newer browser destination')
+    assert.equal(ui.find(node => node.props['data-online-detail'] !== undefined), undefined)
+    assert.equal(ui.find(node => node.props['data-online-records'] !== undefined).parent.props['data-test-visible'], true)
+    assert.equal(recordsTab(ui, 'history').props['aria-pressed'], true)
+    if (unfinished) {
+      pending.resolve({ ...show(), item: { ...show().item, title: '验证前的迟到详情' } }); await flush()
+      assert.equal(ui.text().includes('验证前的迟到详情'), false)
+      assert.deepEqual({ ...route.query }, recordRoute)
+    }
+  })
+}
+
+test('verification resumes a cancelled source read at the latest browser destination', async t => {
+  const pending = deferred(), reads = []
+  let sourceReads = 0
+  const { ui, route, viewing } = await setup(t, async path => {
+    reads.push(path)
+    if (path.endsWith('/sources')) return ++sourceReads === 1 ? pending.promise : taxonomySources()
+    return show()
+  }, { routeQuery: { source: SOURCE_A, item: 'obsolete-detail' } })
+  viewing.suspended = true; await flush()
+  route.query = { view: 'records', tab: 'favorites' }; await flush()
+  viewing.suspended = false; await flush()
+  assert.equal(sourceReads, 2, 'the aborted source list needs a fresh read before route restoration')
+  assert.equal(reads.some(path => path.includes('/detail?')), false)
+  assert.equal(recordsTab(ui, 'favorites').props['aria-pressed'], true)
+  assert.equal(ui.find(node => node.props['data-online-records'] !== undefined).parent.props['data-test-visible'], true)
+  pending.resolve(taxonomySources()); await flush()
+  assert.equal(route.query.item, undefined)
+  assert.equal(reads.some(path => path.includes('/detail?')), false)
+})
+
+test('reselecting the same source during initial discovery keeps its pending result and clears busy state', async t => {
+  const pending = deferred(), reads = []
+  const { ui } = await setup(t, async path => {
+    reads.push(path)
+    return path.endsWith('/sources') ? taxonomySources() : pending.promise
+  })
+  const browser = () => ui.find(node => node.props['data-online-browser'] !== undefined)
+  assert.equal(browser().props['aria-busy'], true)
+  const source = ui.find(node => node.props['data-online-source'] !== undefined)
+  source.props.onChange(); await flush()
+  assert.equal(reads.filter(path => path.includes('/browse?')).length, 1,
+    'reselecting the current source neither cancels nor duplicates the pending discovery')
+  pending.resolve(rows); await flush()
+  assert.equal(browser().props['aria-busy'], false,
+    'a no-op selection cannot invalidate the current discovery finalizer')
+  assert.ok(ui.find(node => node.props['data-online-result'] === 'movie-1'))
+})
+
+test('pressing Enter while initial discovery is busy cannot start a competing search', async t => {
+  const pending = deferred(), reads = []
+  const { ui } = await setup(t, async path => {
+    reads.push(path)
+    if (path.endsWith('/sources')) return taxonomySources()
+    return path.includes('/browse?') ? pending.promise : rows
+  })
+  search(ui, '等待中的新搜索'); await flush()
+  assert.equal(reads.some(path => path.includes('/search?')), false,
+    'the form submit follows the same busy state as its search button')
+  pending.resolve(rows); await flush()
+  assert.equal(ui.find(node => node.props['data-online-browser'] !== undefined).props['aria-busy'], false)
+  search(ui, '等待中的新搜索'); await flush()
+  assert.equal(reads.filter(path => path.includes('/search?')).length, 1,
+    'the same keyboard action searches normally after discovery finishes')
+})
+
+function recordViewport(t) {
+  const previousWindow = globalThis.window, previousDocument = globalThis.document
+  const viewport = { scrollY: 0, scrollTo({ top }) { this.scrollY = top } }
+  const document = { body: {}, activeElement: null }
+  globalThis.window = viewport; globalThis.document = document
+  t.after(() => {
+    if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow
+    if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument
+  })
+  const focus = { isConnected: true, disabled: false, count: 0,
+    hasAttribute: name => name === 'data-online-library-detail', getAttribute: () => ITEM,
+    focus() { this.count++; document.activeElement = this } }
+  return { viewport, document, focus }
+}
+
+function pagedRecords(reads) {
+  return async path => {
+    const params = new URL(path, 'https://fixture.invalid').searchParams
+    const section = params.get('section'), offset = Number(params.get('offset') || 0)
+    reads.push({ section, offset })
+    return { items: [recordRow()], total: 60, offset, scope_token: SCOPE }
+  }
+}
+
+test('browser Back from home restores the records page, scroll and focus', async t => {
+  const { viewport, document, focus } = recordViewport(t), reads = []
+  const recordRoute = { source: SOURCE_A, view: 'records', tab: 'history' }
+  const { ui, route } = await setup(t, async path => path.endsWith('/sources') ? taxonomySources() : rows,
+    { routeQuery: recordRoute, stateRequest: pagedRecords(reads) })
+  ui.find(node => node.type === 'button' && nodeText(node) === '下一页').props.onClick(); await flush()
+  viewport.scrollY = 640; document.activeElement = focus
+  ui.find(node => node.props['data-online-records-back'] !== undefined).props.onClick(); await flush()
+  assert.equal(route.query.view, undefined)
+  viewport.scrollY = 0; document.activeElement = document.body
+  route.query = { ...recordRoute }; await flush()
+  assert.equal(reads.filter(read => read.section === 'history').at(-1).offset, 20)
+  assert.equal(viewport.scrollY, 640)
+  assert.equal(document.activeElement, focus)
+  assert.equal(focus.count, 1)
+  assert.match(nodeText(ui.find(node => node.props['aria-label'] === '在线记录分页')), /第 2 页/)
+})
+
+test('records tabs restore their own page and focus through browser and explicit navigation', async t => {
+  const { viewport, document, focus } = recordViewport(t), reads = []
+  const historyRoute = { source: SOURCE_A, view: 'records', tab: 'history' }
+  const { ui, route } = await setup(t, async path => path.endsWith('/sources') ? taxonomySources() : rows,
+    { routeQuery: historyRoute, stateRequest: pagedRecords(reads) })
+  ui.find(node => node.type === 'button' && nodeText(node) === '下一页').props.onClick(); await flush()
+  viewport.scrollY = 720; document.activeElement = focus
+  recordsTab(ui, 'favorites').props.onClick(); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '下一页').props.onClick(); await flush()
+  ui.find(node => node.type === 'button' && nodeText(node) === '下一页').props.onClick(); await flush()
+  viewport.scrollY = 350; document.activeElement = document.body
+  focus.isConnected = false
+  const replacement = { isConnected: true, disabled: false, count: 0,
+    focus() { this.count++; document.activeElement = this } }
+  ui.find(node => node.props['data-online-records'] !== undefined).parent.querySelector = selector =>
+    selector === `[data-online-library-detail="${ITEM}"]` ? replacement : null
+  route.query = { ...historyRoute }; await flush()
+  assert.equal(reads.filter(read => read.section === 'history').at(-1).offset, 20)
+  assert.equal(viewport.scrollY, 720)
+  assert.equal(document.activeElement, replacement, 'a recreated record restores the same item action')
+  recordsTab(ui, 'favorites').props.onClick(); await flush()
+  assert.equal(reads.filter(read => read.section === 'favorites').at(-1).offset, 40)
+  assert.equal(viewport.scrollY, 350)
+  assert.equal(route.query.tab, 'favorites')
+})
+
+test('viewing mode changes discard records page and focus snapshots even when returning to the earlier mode', async t => {
+  const { viewport, document, focus } = recordViewport(t), reads = []
+  const { ui, viewing } = await setup(t, async path => path.endsWith('/sources') ? taxonomySources() : rows,
+    { routeQuery: { source: SOURCE_A, view: 'records', tab: 'history' }, stateRequest: pagedRecords(reads) })
+  ui.find(node => node.type === 'button' && nodeText(node) === '下一页').props.onClick(); await flush()
+  viewport.scrollY = 880; document.activeElement = focus
+  recordsTab(ui, 'favorites').props.onClick(); await flush()
+  document.activeElement = document.body; viewport.scrollY = 0
+  viewing.mode = 'private'; await flush()
+  viewing.mode = 'normal'; await flush()
+  recordsTab(ui, 'history').props.onClick(); await flush()
+  assert.equal(reads.filter(read => read.section === 'history').at(-1).offset, 0)
+  assert.equal(viewport.scrollY, 0)
+  assert.equal(focus.count, 0)
+  assert.notEqual(document.activeElement, focus)
 })

@@ -123,6 +123,8 @@ class LibraryEntry(_Contract):
     progress: Progress | None
     available: bool
     reason: str
+    poster_path: str = ""
+    episode_label: str = ""
 
 
 class Library(_Contract):

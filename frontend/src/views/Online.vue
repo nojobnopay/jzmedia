@@ -1,22 +1,23 @@
 <template>
   <div class="browse-page online-page">
-    <header v-show="browseVisible" class="browse-heading online-heading"><div><h1>在线</h1><p>发现想看的电影和剧集</p></div><router-link v-if="!isChildren" class="manage-link" to="/settings?sec=sec-online">管理视频源</router-link></header>
+    <header v-show="browseVisible" class="browse-heading online-heading"><h1>在线</h1><div class="online-heading-actions"><JzButton v-if="safeMode" variant="ghost" icon="history" data-online-records-open @click="showRecords()">我的记录</JzButton><router-link v-if="!isChildren" class="manage-link" to="/settings?sec=sec-online">管理视频源</router-link></div></header>
     <EmptyState v-if="isChildren" state="empty" title="儿童模式暂不支持在线内容" text="切换观看模式后再浏览。" />
     <template v-else-if="safeMode">
       <p v-if="stateNotice" class="online-state-notice" data-online-state-notice role="status">{{ stateNotice }}</p>
-      <div v-if="searching && results.length && browseVisible && !categoriesOpen" class="online-loading-feedback" data-online-loading-feedback role="status" aria-live="polite" aria-atomic="true"><Spinner :size="28" /><span>{{ browseLoadingText }}</span></div>
+      <div v-if="((searching && results.length && browseVisible) || (libraryLoading && libraryRows.length && recordsVisible)) && !categoriesOpen && !hostDialog && !playing" class="online-loading-feedback" data-online-loading-feedback role="status" aria-live="polite" aria-atomic="true"><Spinner :size="20" /><span>{{ recordsVisible ? '正在更新观看记录…' : browseLoadingText }}</span></div>
       <div v-if="nextLoading" class="online-next-state" data-online-next-loading role="status"><span class="online-loading-label"><Spinner :size="20" />正在读取下一集…</span><JzButton @click="cancelNext">取消连续播放</JzButton></div>
-      <EmptyState v-if="loadingSources" state="loading" title="正在加载视频源" />
+      <template v-if="loadingSources"><OnlineSkeleton v-if="pageView === 'browse'" label="正在加载视频源" /></template>
       <EmptyState v-else-if="sourcesError" state="error" title="视频源加载失败" :text="sourcesError" retry @retry="loadSources" />
       <EmptyState v-else-if="!enabled" state="empty" title="在线点播尚未启用" text="在设置中启用在线点播并添加视频源；已有记录仍会保留。"><router-link to="/settings?sec=sec-online">打开在线视频源设置</router-link></EmptyState>
       <EmptyState v-else-if="!sources.length" state="empty" title="还没有可用的视频源" text="从来源目录选择视频源，即可浏览和搜索；也支持添加自定义接口。"><router-link to="/settings?sec=sec-online">添加视频源</router-link></EmptyState>
       <template v-else>
         <div v-show="browseVisible" ref="browseTools" class="online-browse-tools" data-online-browse-tools>
-        <form class="online-search" data-online-search role="search" aria-label="搜索在线视频" @submit.prevent="search(1)">
+        <form class="online-search" data-online-search aria-label="搜索在线视频" @submit.prevent="!searching && search(1)">
           <JzField id="online-source" label="视频源"><template #default="field"><select :id="field.id" v-model="sourceId" data-online-source :disabled="loadingSources" @change="sourceChanged"><option v-for="source in sources" :key="source.id" :value="source.id">{{ source.name }}</option></select></template></JzField>
-          <JzField id="online-query" label="片名"><template #default="field"><input :id="field.id" v-model="query" maxlength="100" autocomplete="off" placeholder="输入电影或剧集名称" /></template></JzField>
-          <JzButton type="submit" variant="primary" icon="search" :disabled="!canSearch || searching" :loading="searching">{{ !query.trim() ? '浏览目录' : '搜索' }}</JzButton>
+          <BrowseToolbar id="online-search" input-id="online-query" :maxlength="100" embedded v-model="query" label="搜索在线视频" placeholder="搜索电影或剧集" :suggestions-enabled="false" :ai-enabled="false" :disabled="loadingSources || !sourceId" :search-disabled="!canSearch" :loading="searching" @search="search(1)"><template #filters><span /></template></BrowseToolbar>
+          <details class="online-connection"><summary>连接状态</summary><div class="online-health" data-online-health><span>目录：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.api) : healthError || '尚未使用' }}</span><span>播放：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.media) : healthError || '尚未使用' }}</span><JzButton variant="ghost" :loading="healthLoading" @click="loadHealth">刷新状态</JzButton><small>卡顿时可在来源网络设置中尝试代理。</small></div></details>
         </form>
+        <OnlineContinueRow v-if="!loadedQuery" :rows="continueRows" :loading="continueLoading" :error="continueError" :disabled="loadingSources || !!sourcesError" :starting="starting" :reason-label="availabilityReason" @detail="openSaved($event, false)" @resume="openSaved($event, true)" @retry="loadContinue" @all="showRecords('continue')" />
         <section v-if="categories.length" class="online-discovery-filters" aria-label="目录分类与年份">
           <nav class="online-channels" aria-label="内容频道">
             <JzButton :aria-pressed="!channelId && !loadedQuery" :disabled="searching" data-online-channel="" @click="selectChannel('')">发现</JzButton>
@@ -53,15 +54,12 @@
             </section>
           </div>
         </JzDialog>
-        <p class="online-discovery-note">{{ loadedQuery ? '搜索当前视频源' : '发现推荐 · 按视频源最近更新浏览' }}<span v-if="selectedSource?.provider === 'open_catalog'"> · Blender 开放影片</span></p>
-        <details class="online-connection"><summary>连接状态</summary>
-          <div class="online-health" data-online-health><span>目录：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.api) : healthError || '尚未使用' }}</span><span>播放：{{ healthLoading ? '读取中' : health ? onlineHealthLabel(health.purposes?.media) : healthError || '尚未使用' }}</span><JzButton variant="ghost" :loading="healthLoading" @click="loadHealth">刷新状态</JzButton><small>来自最近请求的记录。卡顿时可在来源网络设置中尝试代理。</small></div>
-        </details>
+        <p v-if="selectedSource?.provider === 'open_catalog'" class="online-discovery-note">Blender 开放影片</p>
         </div>
-        <EmptyState v-if="detailLoading" state="loading" title="正在加载详情" text="正在读取所选来源的线路与分集。"><JzButton @click="backToResults">返回搜索结果</JzButton></EmptyState>
-        <EmptyState v-else-if="detailError" state="error" title="详情加载失败" :text="detailError" retry @retry="openDetail(lastDetailId)"><JzButton @click="backToResults">返回搜索结果</JzButton></EmptyState>
+        <div v-if="detailLoading"><JzButton variant="ghost" icon="arrow-left" @click="backToResults">{{ detailReturnLabel }}</JzButton><OnlineSkeleton variant="detail" label="正在加载详情" /></div>
+        <EmptyState v-else-if="detailError" state="error" title="详情加载失败" :text="detailError" retry @retry="openDetail(lastDetailId)"><JzButton @click="backToResults">{{ detailReturnLabel }}</JzButton></EmptyState>
         <section v-else-if="detail" ref="detailRoot" class="online-detail" data-online-detail>
-          <JzButton variant="ghost" icon="arrow-left" @click="backToResults">返回搜索结果</JzButton>
+          <JzButton variant="ghost" icon="arrow-left" @click="backToResults">{{ detailReturnLabel }}</JzButton>
           <header class="online-detail-heading" data-online-detail-heading>
             <OnlineArtwork :path="detail.poster_path" :title="detail.item.title" class="online-artwork" />
             <div class="online-detail-summary">
@@ -71,11 +69,11 @@
               <p v-if="detail.remarks" class="online-detail-status" data-online-detail-status>{{ detail.remarks }}</p>
               <ul v-if="detailGenres.length" class="online-genre-tags" aria-label="题材"><li v-for="genre in detailGenres" :key="genre">{{ genre }}</li></ul>
             </div>
-          </header>
           <div class="online-detail-actions">
             <JzButton variant="primary" icon="play" data-online-primary-play :data-online-detail-resume="primaryIsResume ? '' : undefined" :disabled="!primaryEntry || itemStateLoading || starting || nextLoading" :loading="itemStateLoading || starting" @click="play(primaryEntry)">{{ primaryPlayLabel }}</JzButton>
             <JzButton :data-online-favorite="detail.item.id" :icon="itemState?.favorite ? 'heart-filled' : 'heart'" :disabled="!itemState || mutationBusy.has(detail.item.id)" @click="favoriteDetail">{{ itemState?.favorite ? '取消收藏' : '收藏' }}</JzButton>
           </div>
+          </header>
           <p v-if="lastEntry" class="online-last-watched" data-online-last-watched>
             <span>{{ itemState.last_progress.completed ? '上次已看完' : '上次观看' }}：{{ lastLine?.label }}<span v-if="detail.item.kind === 'tv'"> · {{ lastEntry.label }}</span><span v-if="!itemState.last_progress.completed"> · {{ fmt(itemState.last_progress.position) }}</span></span>
             <JzButton v-if="lastEntry.identity.line_id !== lineId" variant="ghost" data-online-detail-locate-last :disabled="starting || itemStateLoading || nextLoading" @click="locateLastEntry">定位上次观看</JzButton>
@@ -117,49 +115,13 @@
             </section>
           </section>
         </section>
-        <div v-show="!detail && !detailLoading && !detailError" ref="browseRoot" class="online-browser" :aria-busy="searching" data-online-browser>
-          <div v-if="searched" class="online-update-state">
-            <span v-if="hasUpdates" class="online-update-notice" data-online-update-notice role="status"><span>内容有更新</span><JzButton data-online-apply-update :disabled="searching || applyingUpdates" :loading="applyingUpdates" @click="applyUpdates">查看更新</JzButton></span>
-            <span v-if="checkingUpdates" class="online-loading-label" data-online-background-refreshing role="status"><Spinner :size="16" />正在检查更新…</span>
-            <span v-else-if="updateCheckError" data-online-refresh-check-error :title="updateCheckError" role="status">检查更新未完成，仍显示上次结果。</span>
-            <span v-if="checkedAt" data-online-checked-at :data-timestamp="checkedAt">上次检查 {{ checkedTime }}</span>
-          </div>
-          <div v-if="searchError && results.length" class="online-refresh-error" role="status"><span>{{ searchError }} 以下仍为上次结果。</span><JzButton @click="search(lastQuery.page, lastQuery.query, { force: true })">重试</JzButton></div>
-          <EmptyState v-if="searching && !results.length" state="loading" title="正在搜索" :text="'正在查询 ' + selectedSource?.name" />
-          <EmptyState v-else-if="searchError && !results.length" state="error" title="搜索失败" :text="searchError" retry @retry="search(lastQuery.page, lastQuery.query, { force: true })" />
-          <EmptyState v-else-if="!searched" state="empty" :title="selectedSource?.provider === 'open_catalog' ? '浏览开放样例目录' : '查找想看的内容'" :text="selectedSource?.provider === 'open_catalog' ? '点击“浏览目录”查看开放影片及许可。' : '输入片名，仅向当前选中的来源发起查询。'" />
-          <EmptyState v-else-if="!results.length" state="no-results" title="没有找到相关内容" text="试试其他片名，或选择其他来源。" />
-          <template v-else>
-            <div class="online-results-heading"><h2>{{ loadedQuery ? '搜索结果' : loadedCategoryName || '最近更新' }}<span v-if="loadedYear" class="online-results-year"> · {{ loadedYear }} 年</span></h2><span>{{ total }} 项 · {{ selectedSource?.name }}</span><JzButton variant="ghost" icon="refresh" data-online-refresh :loading="searching" @click="refreshResults">刷新</JzButton></div>
-            <div class="grid online-results"><article v-for="item in results" :key="item.external_id" class="card online-result" :data-online-browse-id="item.external_id">
-              <JzButton class="online-poster-button" variant="ghost" :data-online-result="item.external_id" :aria-label="'查看详情 ' + item.title" :disabled="searching" @click="openDetail(item.external_id)"><OnlineArtwork :retry-key="posterGeneration" :path="item.poster_path" :title="item.title" /><span v-if="item.remarks" class="online-poster-remark" :title="item.remarks" data-online-item-status>{{ item.remarks }}</span><span class="online-poster-action"><AppIcon name="play" :size="22" />查看详情</span></JzButton>
-              <div class="t"><h3 class="card-title" :title="item.title">{{ item.title }}</h3><p class="card-meta">{{ [item.year, item.category || (item.kind === 'tv' ? '剧集' : item.kind === 'movie' ? '电影' : '')].filter(Boolean).join(' · ') }}</p></div>
-            </article></div>
-            <nav v-if="pageCount > 1" class="online-pagination" aria-label="在线搜索分页"><JzButton icon="arrow-left" data-online-page-prev :loading="searching && lastQuery.page < page" :disabled="searching || !!searchError || page <= 1" @click="search(page - 1, loadedQuery)">上一页</JzButton><span>第 {{ page }} / {{ pageCount }} 页</span><JzButton icon="forward" data-online-page-next :loading="searching && lastQuery.page > page" :disabled="searching || !!searchError || page >= pageCount" @click="search(page + 1, loadedQuery)">下一页</JzButton></nav>
-          </template>
+        <div v-show="browseVisible" ref="browseRoot" class="online-browser" :aria-busy="searching" data-online-browser>
+          <OnlineBrowseResults :searched="searched" :has-updates="hasUpdates" :searching="searching" :applying-updates="applyingUpdates" :checking-updates="checkingUpdates" :update-check-error="updateCheckError" :checked-at="checkedAt" :checked-time="checkedTime" :search-error="searchError" :results="results" :loaded-query="loadedQuery" :query="query" :selected-source="selectedSource" :loaded-category-name="loadedCategoryName" :loaded-year="loadedYear" :total="total" :poster-generation="posterGeneration" :page-count="pageCount" :last-query="lastQuery" :page="page" @apply-update="applyUpdates" @retry="search(lastQuery.page, lastQuery.query, { force: true })" @refresh="refreshResults" @detail="openDetail($event)" @page="search($event, loadedQuery)" />
         </div>
       </template>
-      <section v-show="browseVisible" ref="libraryRoot" class="online-library" aria-label="在线观看记录">
-        <div class="online-library-heading"><div><h2>我的在线记录</h2><p class="online-scope">当前设备 · {{ modeText }}；与本地媒体库记录分开。</p></div><JzButton variant="ghost" icon="refresh" :loading="libraryLoading" @click="loadLibrary()">刷新记录</JzButton></div>
-        <div class="online-library-tabs" role="group" aria-label="在线记录分类">
-          <JzButton v-for="tab in libraryTabs" :key="tab.key" :data-online-library-section="tab.key" :aria-pressed="librarySection === tab.key" @click="selectLibrary(tab.key)">{{ tab.label }}</JzButton>
-        </div>
-        <EmptyState v-if="libraryLoading" state="loading" title="正在读取在线记录" />
-        <EmptyState v-else-if="libraryError" state="error" title="在线记录加载失败" :text="libraryError" retry @retry="loadLibrary()" />
-        <EmptyState v-else-if="!libraryRows.length" state="empty" :title="librarySection === 'favorites' ? '还没有收藏的在线内容' : librarySection === 'history' ? '还没有在线观看记录' : '暂时没有继续观看的内容'" :text="librarySection === 'favorites' ? '打开内容详情后可收藏到当前设备。' : '实际开始播放后会保存进度，未成功起播不会建立观看记录。'" />
-        <div v-else class="online-library-rows">
-          <article v-for="row in libraryRows" :key="row.item.id" class="online-library-row" :class="{ 'is-unavailable': !row.available }" :data-online-state-item="row.item.id">
-            <div class="online-library-text"><h3>{{ row.item.title }}</h3><p>{{ row.source.name }} · {{ row.item.kind === 'tv' ? '剧集' : '电影' }}</p><p v-if="row.progress">{{ row.progress.completed ? '已播放完毕' : '上次播放到 ' + fmt(row.progress.position) }}<span v-if="row.progress.duration"> / {{ fmt(row.progress.duration) }}</span></p><p v-if="!row.available" class="online-scope">{{ availabilityReason(row.reason) }}</p></div>
-            <div class="online-library-actions">
-              <JzButton v-if="row.progress" icon="play" :data-online-resume="row.item.id" :disabled="!row.available || loadingSources || !!sourcesError || starting" @click="openSaved(row, true)">{{ row.progress.completed ? '重新播放' : '继续播放' }}</JzButton>
-              <JzButton :data-online-library-detail="row.item.id" :disabled="!row.available || loadingSources || !!sourcesError" @click="openSaved(row, false)">查看详情</JzButton>
-              <JzButton v-if="row.favorite" icon="heart-filled" :data-online-favorite="row.item.id" :disabled="mutationBusy.has(row.item.id)" @click="favoriteRow(row, false)">取消收藏</JzButton>
-              <JzButton v-if="row.progress" :data-online-history-delete="row.item.id" :disabled="mutationBusy.has(row.item.id)" @click="clearHistory(row)">清除观看记录</JzButton>
-            </div>
-          </article>
-        </div>
-        <nav v-if="libraryTotal > 20" class="online-pagination" aria-label="在线记录分页"><JzButton :disabled="libraryOffset === 0 || libraryLoading" @click="loadLibrary(Math.max(0, libraryOffset - 20))">上一页</JzButton><span>第 {{ Math.floor(libraryOffset / 20) + 1 }} 页 · {{ libraryTotal }} 项</span><JzButton :disabled="libraryLoading || libraryOffset + 20 >= libraryTotal || libraryOffset + 20 > 1000" @click="loadLibrary(libraryOffset + 20)">下一页</JzButton></nav>
-      </section>
+      <div v-show="recordsVisible" ref="libraryRoot">
+        <OnlineRecordsView :rows="libraryRows" :section="librarySection" :offset="libraryOffset" :total="libraryTotal" :loading="libraryLoading" :error="libraryError" :mode-text="modeText" :disabled="loadingSources || !!sourcesError" :starting="starting" :mutation-busy="mutationBusy" :reason-label="availabilityReason" @section="selectLibrary" @page="loadLibrary" @refresh="loadLibrary()" @back="showBrowse" @detail="openSaved($event, false)" @resume="openSaved($event, true)" @favorite="favoriteRow" @clear="clearHistory" />
+      </div>
     </template>
     <OnlineHostDialog v-if="hostDialog && safeMode && !playing" :key="hostDialog.key" :source-id="hostDialog.source" :external-id="hostDialog.externalId" :title="hostDialog.title" :source-name="hostDialog.sourceName" :current="hostDialogCurrent" :refresh="refreshHostDetail" @close="closeHostDialog" />
     <OnlinePlayerModal v-if="playing" :key="playing.key" :online-identity="playing.identity" :title="playing.title" :initial-position="playing.position" :prepare-session="playing.prepareSession" @close="playing.close" @progress="playing.progress" @ended="playing.ended" />
@@ -178,6 +140,11 @@ import { onlineBrowseMemory, onlineBrowseScope, clearOnlineBrowse, captureOnline
 import { onlineCategoryTree, visibleOnlineChannels, onlineCategoryLabel, onlineChannelCategory, visibleOnlineCategories, filterOnlineChannels, validOnlineYear } from '../onlineCategories.js'
 import { fmtTime as fmt } from '../playerLabels.js'
 import EmptyState from '../components/EmptyState.vue'
+import BrowseToolbar from '../components/BrowseToolbar.vue'
+import OnlineContinueRow from '../components/OnlineContinueRow.vue'
+import OnlineRecordsView from '../components/OnlineRecordsView.vue'
+import OnlineSkeleton from '../components/OnlineSkeleton.vue'
+import OnlineBrowseResults from '../components/OnlineBrowseResults.vue'
 import Spinner from '../components/Spinner.vue'
 import JzButton from '../components/JzButton.vue'
 import JzField from '../components/JzField.vue'
@@ -192,6 +159,7 @@ import { createOnlineHostReminders } from '../onlineHosts.js'
 import '../styles/online.css'
 
 const client = createOnlineCatalogClient(), nextClient = createOnlineCatalogClient(), stateClient = createOnlineStateClient()
+const continueClient = createOnlineStateClient()
 const refreshClient = createOnlineRefreshClient(), refreshSourcesClient = createOnlineCatalogClient()
 const route = useRoute(), router = useRouter()
 const healthClient = createOnlineHealthClient(), health = ref(null), healthLoading = ref(false), healthError = ref('')
@@ -215,12 +183,13 @@ const hostDialog = ref(null), hostReminders = createOnlineHostReminders()
 const playing = ref(null), starting = ref(false), nextLoading = ref(false), stateNotice = ref('')
 const itemStateLoading = ref(false), detailRoot = ref(null), detailTitle = ref(null), episodePicker = ref(null)
 const browseTools = ref(null), libraryRoot = ref(null)
-const libraryTabs = [{ key: 'continue', label: '继续观看' }, { key: 'favorites', label: '我的收藏' }, { key: 'history', label: '观看历史' }]
-const librarySection = ref('continue'), libraryRows = ref([]), libraryOffset = ref(0), libraryTotal = ref(0), libraryScope = ref('')
+const pageView = ref(route.query.view === 'records' ? 'records' : 'browse')
+const continueRows = ref([]), continueLoading = ref(true), continueError = ref('')
+const librarySection = ref(recordTab(route.query.tab)), libraryRows = ref([]), libraryOffset = ref(0), libraryTotal = ref(0), libraryScope = ref('')
 const libraryLoading = ref(true), libraryError = ref(''), mutationBusy = ref(new Set())
 const safeMode = computed(() => !isChildren.value && !viewing?.locallyLocked && !viewing?.suspended)
 const mode = viewing?.mode === 'private' ? 'private' : 'normal'
-const modeText = mode === 'private' ? '隐私模式' : '普通模式'
+const modeText = computed(() => viewing.mode === 'private' ? '隐私模式' : '普通模式')
 const autoplay = ref(loadOnlineAutoplay(mode))
 const selectedSource = computed(() => sources.value.find(source => source.id === sourceId.value))
 const canFilterYear = computed(() => selectedSource.value?.capabilities?.year_filter === true)
@@ -237,7 +206,10 @@ const selectedLine = computed(() => detail.value?.lines.find(line => line.id ===
 const needsHostUpdate = computed(() => detail.value?.lines.some(line => line.entries.some(entry => ['host_not_allowed', 'target_host_not_allowed'].includes(entry.reason))))
 const lastQuery = ref({ page: 1, query: '' })
 const browseLoadingText = computed(() => lastQuery.value.query.trim() ? '正在搜索…' : `正在加载第 ${lastQuery.value.page} 页…`)
-const browseVisible = computed(() => !detail.value && !detailLoading.value && !detailError.value)
+const surfaceVisible = computed(() => !detail.value && !detailLoading.value && !detailError.value)
+const browseVisible = computed(() => pageView.value === 'browse' && surfaceVisible.value)
+const recordsVisible = computed(() => pageView.value === 'records' && surfaceVisible.value)
+const detailReturnLabel = computed(() => pageView.value === 'records' ? '返回我的记录' : '返回搜索结果')
 const lastEntry = computed(() => findEntry(detail.value, itemState.value?.last_progress?.identity) || null)
 const lastLine = computed(() => detail.value?.lines.find(line => line.id === lastEntry.value?.identity.line_id))
 const resumeEntry = computed(() => !itemState.value?.last_progress?.completed ? lastEntry.value : null)
@@ -269,9 +241,149 @@ const relatedGroups = computed(() => [
 let disposed = false, generation = 0, libraryGeneration = 0, healthGeneration = 0, playIntent = 0, nextIntent = 0, runId = 0, activeRun = null
 let relatedGeneration = 0, itemStateGeneration = 0, lineSelectionIntent = 0, detailReturnFocus = null
 let lastSourceId = ''
+let continueGeneration = 0, navigationGeneration = 0, homeReturn = null, detailOrigin = null, handledRoute = routeKey(route.query)
+const recordSurfaces = new Map()
 let cacheScope = '', categoryScope = '', loadedAt = 0, browsePosition = null, positionIntent = 0, suspendedWork = null
 let refreshGeneration = 0, refreshTimer = null
 function current(turn) { return !disposed && turn === generation && safeMode.value }
+function navigationCurrent(ticket) { return !disposed && safeMode.value && ticket === navigationGeneration }
+function recordTab(value) { return ['continue', 'favorites', 'history'].includes(value) ? value : 'continue' }
+function routeKey(value) { return JSON.stringify([value.view || '', value.tab || '', value.source || '', value.item || '']) }
+function writeRoute(value, replace = false) {
+  handledRoute = routeKey(value)
+  const navigate = replace ? router.replace : router.push
+  return navigate.call(router, { path: '/online', query: value })
+}
+function surfaceQuery(view = pageView.value) {
+  return { ...(sourceId.value ? { source: sourceId.value } : {}),
+    ...(view === 'records' ? { view: 'records', tab: librarySection.value } : {}) }
+}
+function captureSurface() {
+  if (browseVisible.value) rememberBrowse()
+  const active = globalThis.document?.activeElement
+  const recordAttribute = ['data-online-library-detail', 'data-online-resume', 'data-online-favorite',
+    'data-online-history-delete', 'data-online-library-section'].find(name => active?.hasAttribute?.(name))
+  const recordItem = active?.closest?.('[data-online-state-item]')?.getAttribute?.('data-online-state-item')
+  return { view: pageView.value, section: librarySection.value, offset: libraryOffset.value,
+    scope: cacheScope, sourceId: sourceId.value, configuration: selectedSource.value?.configuration_token,
+    scrollTop: globalThis.window?.scrollY || 0, focus: active && active !== globalThis.document?.body ? active : null,
+    recordFocus: recordAttribute ? { attribute: recordAttribute, key: active.getAttribute(recordAttribute) }
+      : recordItem ? { attribute: 'data-online-library-detail', key: recordItem } : null,
+    browse: { ...browseSelection(), sourceId: sourceId.value, channelSelections: { ...channelSelections.value },
+      inputQuery: query.value, loadedAt, position: browsePosition,
+      response: searched.value ? { ...browseResponse(), categories: categories.value } : null } }
+}
+function rememberRecordsSurface() {
+  if (recordsVisible.value && safeMode.value && cacheScope) recordSurfaces.set(librarySection.value, captureSurface())
+}
+function rememberDetailOrigin() {
+  if (detailOrigin || !surfaceVisible.value) return
+  detailOrigin = captureSurface()
+}
+async function restoreSurface(origin, ticket) {
+  if (!navigationCurrent(ticket)) return
+  if (origin && origin.scope !== cacheScope) origin = null
+  const position = ++positionIntent
+  let staleBrowse = null
+  pageView.value = origin?.view || pageView.value
+  if (origin) {
+    if (origin.view === 'records') {
+      if (librarySection.value !== origin.section || libraryOffset.value !== origin.offset) {
+        libraryRows.value = []; libraryTotal.value = 0
+      }
+      librarySection.value = origin.section; libraryOffset.value = origin.offset
+    }
+    const source = sources.value.find(item => item.id === origin.sourceId)
+    if (source) {
+      const changedSource = sourceId.value !== source.id
+      sourceId.value = lastSourceId = source.id
+      if (source.configuration_token === origin.configuration && origin.browse.response) {
+        if (Date.now() - origin.browse.loadedAt < ONLINE_BROWSE_NAVIGATION_MS) applyBrowse(origin.browse)
+        else { staleBrowse = origin.browse; applyBrowse({ ...origin.browse, response: null }) }
+      } else resetBrowse()
+      if (changedSource) { healthGeneration++; healthClient.cancel(); health.value = null; void loadHealth() }
+    } else resetBrowse()
+  }
+  if (pageView.value === 'records') await loadLibrary()
+  else if (staleBrowse) await search(staleBrowse.page, staleBrowse.query, { force: true, position: staleBrowse.position, navigationTicket: ticket })
+  else if (!searched.value && canBrowse.value) await search(1, '', { navigationTicket: ticket })
+  await nextTick()
+  if (!navigationCurrent(ticket) || !surfaceVisible.value || hostDialog.value || playing.value) return
+  if (origin) {
+    globalThis.window?.scrollTo?.({ top: origin.scrollTop, behavior: 'instant' })
+    let element = origin.focus
+    if ((!element?.isConnected || element.disabled) && recordsVisible.value
+      && origin.recordFocus && /^[A-Za-z0-9_-]{1,128}$/.test(origin.recordFocus.key)) {
+      element = libraryRoot.value?.querySelector?.('[' + origin.recordFocus.attribute + '="' + origin.recordFocus.key + '"]')
+    }
+    if (element?.isConnected && !element.disabled) element.focus?.({ preventScroll: true })
+    else if (recordsVisible.value) libraryRoot.value?.querySelector?.('h1')?.focus?.({ preventScroll: true })
+  } else if (position === positionIntent && browseVisible.value) await restoreBrowse()
+  scheduleAutomaticRefresh()
+}
+async function showRecords(section = 'continue', navigate = true, navigationTicket = null) {
+  const ticket = navigationTicket ?? ++navigationGeneration
+  if (!navigationCurrent(ticket)) return
+  rememberRecordsSurface()
+  if (browseVisible.value) homeReturn = captureSurface()
+  cancelAutomaticRefresh(); categoriesOpen.value = false
+  if (searching.value) { generation++; client.cancel(); searching.value = false }
+  const selected = recordTab(section), saved = recordSurfaces.get(selected)
+  if (saved?.scope === cacheScope) {
+    const restoring = restoreSurface(saved, ticket)
+    if (navigate) void writeRoute(surfaceQuery('records'))
+    await restoring
+    return
+  }
+  recordSurfaces.delete(selected)
+  pageView.value = 'records'; librarySection.value = selected; libraryOffset.value = 0
+  libraryRows.value = []; libraryTotal.value = 0
+  if (navigate) void writeRoute(surfaceQuery('records'))
+  await loadLibrary(0)
+  await nextTick()
+  if (navigationCurrent(ticket) && recordsVisible.value) {
+    globalThis.window?.scrollTo?.({ top: 0, behavior: 'instant' })
+    libraryRoot.value?.querySelector?.('h1')?.focus?.({ preventScroll: true })
+  }
+}
+async function showBrowse(navigate = true, navigationTicket = null) {
+  const ticket = navigationTicket ?? ++navigationGeneration
+  if (!navigationCurrent(ticket)) return
+  rememberRecordsSurface()
+  pageView.value = 'browse'
+  await restoreSurface(homeReturn, ticket)
+  if (navigate && navigationCurrent(ticket)) void writeRoute(surfaceQuery('browse'))
+}
+async function syncRoute() {
+  const query = { ...route.query }, key = routeKey(query)
+  if (handledRoute === key || !safeMode.value) return
+  const ticket = ++navigationGeneration
+  const records = query.view === 'records', target = onlineRouteTarget(query)
+  if (loadingSources.value) return // The pending source read consumes the latest route, not its initial target.
+  handledRoute = key
+  if (target?.externalId) {
+    if (detail.value && lastDetailId.value === target.externalId && sourceId.value === target.sourceId) {
+      pageView.value = records ? 'records' : 'browse'; librarySection.value = recordTab(query.tab)
+      return
+    }
+    rememberDetailOrigin()
+    pageView.value = records ? 'records' : 'browse'; librarySection.value = recordTab(query.tab)
+    if (sources.value.some(source => source.id === target.sourceId)) {
+      sourceId.value = lastSourceId = target.sourceId
+      await openDetail(target.externalId, { routeSync: true, navigationTicket: ticket })
+    }
+    return
+  }
+  if (!surfaceVisible.value) await backToResults(false, ticket)
+  if (!navigationCurrent(ticket)) return
+  if (records) {
+    if (!recordsVisible.value || librarySection.value !== recordTab(query.tab)) await showRecords(recordTab(query.tab), false, ticket)
+  } else if (!browseVisible.value) await showBrowse(false, ticket)
+  if (!navigationCurrent(ticket)) return
+  if (target?.sourceId && target.sourceId !== sourceId.value && sources.value.some(source => source.id === target.sourceId)) {
+    sourceId.value = target.sourceId; sourceChanged(true, ticket)
+  }
+}
 function browseSelection() {
   return { categoryId: loadedCategoryId.value, channelId: loadedChannelId.value, year: loadedYear.value,
     query: loadedQuery.value, page: page.value }
@@ -520,9 +632,9 @@ function acceptCategories(rows) {
   if (Array.isArray(rows) && rows.length) categories.value = rows
 }
 function rememberBrowse(source = selectedSource.value, capture = true) {
-  if (!safeMode.value || !searched.value || !cacheScope || !source || !loadedAt
+  if (!browseVisible.value || !safeMode.value || !searched.value || !cacheScope || !source || !loadedAt
     || cacheScope !== onlineBrowseScope(cacheScope.slice(0, 64), viewing)) return
-  if (capture && !detail.value && !detailLoading.value && !detailError.value) browsePosition = captureOnlinePosition(browseRoot.value) || browsePosition
+  if (capture && browseVisible.value) browsePosition = captureOnlinePosition(browseRoot.value) || browsePosition
   onlineBrowseMemory.save({ scope: cacheScope, source, categoryId: loadedCategoryId.value, channelId: loadedChannelId.value,
     channelSelections: channelSelections.value, year: loadedYear.value, query: loadedQuery.value,
     inputQuery: query.value, loadedAt, position: browsePosition,
@@ -547,7 +659,7 @@ function applyBrowse(snapshot) {
 async function restoreBrowse(position = browsePosition, { top = false } = {}) {
   const ticket = ++positionIntent
   await nextTick()
-  if (!disposed && ticket === positionIntent && safeMode.value && !detail.value && !detailLoading.value && !detailError.value) {
+  if (!disposed && ticket === positionIntent && safeMode.value && browseVisible.value) {
     if (top) browseRoot.value?.scrollIntoView?.({ block: 'start', behavior: 'instant' })
     else restoreOnlinePosition(position, browseRoot.value)
     rememberBrowse()
@@ -569,18 +681,28 @@ async function loadSources(preferredSourceId = '') {
   cancelRelated(true)
   const turn = ++generation
   const preferred = typeof preferredSourceId === 'string' ? preferredSourceId : ''
-  const target = preferred ? null : onlineRouteTarget(route.query)
-  let restored = null
+  const initialNavigation = navigationGeneration
+  let target = null, restored = null
   loadingSources.value = true; sourcesError.value = ''
   try {
     const response = await client.sources()
     if (!current(turn) || !response) return
+    // A browser back/forward while the source list was pending owns the target.
+    // A source-picker request keeps its explicit source only if no newer
+    // navigation occurred while reading it.
+    const usePreferred = preferred && initialNavigation === navigationGeneration
+    target = usePreferred ? null : onlineRouteTarget(route.query)
+    if (!usePreferred) {
+      pageView.value = route.query.view === 'records' ? 'records' : 'browse'
+      librarySection.value = recordTab(route.query.tab)
+      handledRoute = routeKey(route.query)
+    }
     enabled.value = response.enabled; sources.value = response.items || []
     cacheScope = onlineBrowseScope(response.scope_token, viewing)
     if (!response.enabled || !cacheScope) clearOnlineBrowse()
-    restored = response.enabled ? onlineBrowseMemory.last(cacheScope, sources.value, target?.sourceId || preferred) : null
+    restored = response.enabled ? onlineBrowseMemory.last(cacheScope, sources.value, target?.sourceId || (usePreferred ? preferred : '')) : null
     if (target && sources.value.some(source => source.id === target.sourceId)) sourceId.value = target.sourceId
-    else if (preferred && sources.value.some(source => source.id === preferred)) sourceId.value = preferred
+    else if (usePreferred && sources.value.some(source => source.id === preferred)) sourceId.value = preferred
     else if (!target && restored) sourceId.value = restored.sourceId
     if (!sources.value.some(source => source.id === sourceId.value)) sourceId.value = sources.value[0]?.id || ''
     acceptCategories()
@@ -593,11 +715,12 @@ async function loadSources(preferredSourceId = '') {
     if (current(turn)) {
       loadingSources.value = false
       if (!sourcesError.value && enabled.value) {
-        if (target?.externalId && sourceId.value === target.sourceId) void openDetail(target.externalId)
+        if (target?.externalId && sourceId.value === target.sourceId) void openDetail(target.externalId, { routeSync: true, navigationTicket: navigationGeneration })
         else if (target?.externalId) stateNotice.value = '该来源已停用或不存在，请选择其他来源。'
+        else if (pageView.value === 'records') void loadLibrary()
         else if (restored?.response) void restoreBrowse()
-        else if (restored) void search(restored.page, restored.query, { position: restored.position })
-        else if (selectedSource.value?.capabilities?.browse) void search(1, '')
+        else if (restored) void search(restored.page, restored.query, { position: restored.position, navigationTicket: navigationGeneration })
+        else if (selectedSource.value?.capabilities?.browse) void search(1, '', { navigationTicket: navigationGeneration })
       }
     }
   }
@@ -618,15 +741,34 @@ async function loadLibrary(offset = libraryOffset.value) {
   try {
     const response = await stateClient.library(section, offset)
     if (disposed || turn !== libraryGeneration || !safeMode.value || !response) return
+    if (offset > 0 && offset >= response.total) return await loadLibrary(Math.max(0, Math.ceil(response.total / 20) * 20 - 20))
     libraryRows.value = response.items || []; libraryOffset.value = response.offset; libraryTotal.value = response.total
     libraryScope.value = response.scope_token
   } catch (error) { if (!disposed && turn === libraryGeneration && safeMode.value) libraryError.value = onlineStateError(error) }
   finally { if (!disposed && turn === libraryGeneration) libraryLoading.value = false }
 }
-function selectLibrary(section) { librarySection.value = section; void loadLibrary(0) }
-function sourceChanged(discover = true) {
-  closeHostDialog(false)
+async function loadContinue() {
+  const turn = ++continueGeneration
+  continueLoading.value = true; continueError.value = ''
+  try {
+    const response = await continueClient.library('continue', 0)
+    if (disposed || turn !== continueGeneration || !safeMode.value || !response) return
+    continueRows.value = (response.items || []).slice(0, 12)
+  } catch (error) { if (!disposed && turn === continueGeneration && safeMode.value) continueError.value = onlineStateError(error) }
+  finally { if (!disposed && turn === continueGeneration) continueLoading.value = false }
+}
+function refreshRecords() {
+  void loadContinue()
+  if (pageView.value === 'records') void loadLibrary()
+}
+function selectLibrary(section) {
+  void showRecords(section)
+}
+function sourceChanged(discover = true, navigationTicket = null) {
+  if (!navigationCurrent(navigationTicket ?? navigationGeneration)) return
   if (discover && sourceId.value === lastSourceId) { scheduleAutomaticRefresh(); return }
+  if (navigationTicket === null) navigationGeneration++
+  closeHostDialog(false)
   cancelAutomaticRefresh()
   clearDetailReturnFocus()
   cancelRelated(true)
@@ -635,7 +777,7 @@ function sourceChanged(discover = true) {
   if (route.query.source || route.query.item) {
     const target = { ...route.query, source: sourceId.value }
     delete target.item
-    void router.replace({ path: '/online', query: target })
+    void writeRoute(target, true)
   }
   healthGeneration++; healthClient.cancel(); health.value = null; void loadHealth()
   itemStateGeneration++; itemStateLoading.value = false
@@ -678,6 +820,8 @@ function applyCustomYear() {
   rememberBrowse(); setYear(customYear.value); query.value = ''; void search(1, '')
 }
 async function search(nextPage = 1, text = query.value, options = {}) {
+  const navigation = options.navigationTicket ?? ++navigationGeneration
+  if (!navigationCurrent(navigation)) return
   closeHostDialog(false)
   if (!sourceId.value || !safeMode.value || !text.trim() && !canBrowse.value) return
   cancelAutomaticRefresh()
@@ -706,7 +850,7 @@ async function search(nextPage = 1, text = query.value, options = {}) {
     }
     const browsing = !text.trim() && selectedSource.value?.capabilities?.browse
     const response = await (browsing ? client.browse(sourceId.value, nextPage, requestedCategory, requestedYear) : client.search(sourceId.value, text, nextPage))
-    if (!current(turn) || !response) return
+    if (!current(turn) || !navigationCurrent(navigation) || !response) return
     results.value = response.items || []; page.value = response.page; pageCount.value = response.page_count
     acceptCategories(browsing ? response.categories : undefined)
     total.value = response.total; loadedQuery.value = text.trim(); loadedCategoryId.value = requestedCategory; searched.value = true; loadedAt = Date.now()
@@ -719,8 +863,8 @@ async function search(nextPage = 1, text = query.value, options = {}) {
     onlineBrowseMemory.recordAttempt(cacheScope, selectedSource.value, browseSelection(), loadedAt)
     checkedAt.value = loadedAt; hasUpdates.value = false; updateCheckError.value = ''
     await restoreBrowse(browsePosition, { top: changingView && !options.position && !options.force })
-  } catch (error) { if (current(turn)) searchError.value = onlineCatalogError(error) }
-  finally { if (current(turn)) { searching.value = false; void loadHealth(); scheduleAutomaticRefresh() } }
+  } catch (error) { if (current(turn) && navigationCurrent(navigation)) searchError.value = onlineCatalogError(error) }
+  finally { if (current(turn) && navigationCurrent(navigation)) { searching.value = false; void loadHealth(); scheduleAutomaticRefresh() } }
 }
 function refreshResults() {
   categoryId.value = loadedCategoryId.value
@@ -741,7 +885,7 @@ function clearDetailReturnFocus() {
   detailReturnFocus = null
 }
 function rememberDetailReturnFocus(externalId, options) {
-  if (!browseVisible.value) return // Another season retains the original browse target.
+  if (!surfaceVisible.value) return // Another season retains the original browse target.
   clearDetailReturnFocus()
   const active = globalThis.document?.activeElement
   const attributes = ['data-online-result', 'data-online-library-detail', 'data-online-resume']
@@ -755,7 +899,8 @@ function focusDetailReturn(target) {
   const available = element => element?.isConnected && !element.disabled && typeof element.focus === 'function'
   let element = target.element
   if (!available(element) && /^[A-Za-z0-9_-]{1,128}$/.test(target.key)) {
-    const root = target.attribute === 'data-online-result' ? browseRoot.value : libraryRoot.value
+    const root = target.attribute === 'data-online-result' ? browseRoot.value
+      : pageView.value === 'records' ? libraryRoot.value : browseTools.value
     element = root?.querySelector?.('[' + target.attribute + '="' + target.key + '"]')
   }
   if (!available(element)) element = browseTools.value?.querySelector?.('#online-query')
@@ -769,23 +914,27 @@ async function showDetailTop(turn) {
   detailRoot.value?.scrollIntoView?.({ block: 'start', behavior: 'instant' })
 }
 async function openDetail(externalId, options = {}) {
+  const navigation = options.navigationTicket ?? ++navigationGeneration
+  if (!navigationCurrent(navigation)) return
   cancelAutomaticRefresh()
   closeHostDialog(false)
   rememberDetailReturnFocus(externalId, options)
   cancelRelated(true)
-  rememberBrowse()
+  rememberDetailOrigin()
+  if (!options.routeSync) void writeRoute({ ...surfaceQuery(), item: externalId })
   positionIntent++
   const turn = ++generation, source = sourceId.value
+  searching.value = false
   lineSelectionIntent = 0; itemStateGeneration++; itemStateLoading.value = false; categoriesOpen.value = false
   void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = true; lastDetailId.value = externalId
   try {
     const response = await client.detail(source, externalId)
-    if (!current(turn) || !response) return
+    if (!current(turn) || !navigationCurrent(navigation) || !response) return
     detail.value = response; lineId.value = response.lines?.find(line => line.entries.some(entry => entry.supported && entry.identity))?.id || response.lines?.[0]?.id || ''
     detailLoading.value = false
     void showDetailTop(turn)
     await readItemState(response, turn)
-    if (!current(turn)) return
+    if (!current(turn) || !navigationCurrent(navigation)) return
     if (!lineSelectionIntent && resumeEntry.value) lineId.value = resumeEntry.value.identity.line_id
     if (!options.resume || lineSelectionIntent) return
     if (options.itemId && options.itemId !== response.item.id) { stateNotice.value = '来源内容已变化，请在详情中重新选择。'; return }
@@ -793,29 +942,42 @@ async function openDetail(externalId, options = {}) {
     if (!entry) { stateNotice.value = '上次线路或分集已变化，请在详情中重新选择。'; return }
     lineId.value = entry.identity.line_id
     await play(entry)
-  } catch (error) { if (current(turn)) detailError.value = onlineCatalogError(error) }
-  finally { if (current(turn)) { detailLoading.value = false; void loadHealth(); if (detail.value && !detailError.value) { openHostDialog(true); void loadRelated() } } }
+  } catch (error) { if (current(turn) && navigationCurrent(navigation)) detailError.value = onlineCatalogError(error) }
+  finally { if (current(turn) && navigationCurrent(navigation)) { detailLoading.value = false; void loadHealth(); if (detail.value && !detailError.value) { openHostDialog(true); void loadRelated() } } }
 }
 async function openSaved(row, resume) {
   if (!row.available || !safeMode.value || loadingSources.value || sourcesError.value) return
-  sourceId.value = row.source.id; sourceChanged(false)
-  await openDetail(row.item.external_id, { resume: resume && !!row.progress, identity: row.progress?.identity, itemId: row.item.id })
+  const ticket = ++navigationGeneration
+  rememberDetailOrigin()
+  sourceId.value = lastSourceId = row.source.id
+  await openDetail(row.item.external_id, { resume: resume && !!row.progress, identity: row.progress?.identity, itemId: row.item.id, navigationTicket: ticket })
 }
 function openRelated(externalId) {
-  const source = sourceId.value
   void openDetail(externalId)
-  void router.replace({ path: '/online', query: { source, item: externalId } })
 }
-async function backToResults() {
+async function backToResults(navigate = true, navigationTicket = null) {
+  const ticket = navigationTicket ?? ++navigationGeneration
+  if (!navigationCurrent(ticket)) return
   closeHostDialog(false)
   const target = detailReturnFocus
+  const origin = detailOrigin
+  detailOrigin = null
   cancelRelated(true)
   itemStateGeneration++; itemStateLoading.value = false
-  generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
-  if (route.query.item) void router.replace({ path: '/online', query: { source: sourceId.value } })
+  generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false; searching.value = false
+  if (origin) {
+    await restoreSurface(origin, ticket)
+    if (!navigationCurrent(ticket)) return
+    if (navigate) void writeRoute(surfaceQuery(), true)
+    if (current(generation) && surfaceVisible.value && !origin.focus?.isConnected) focusDetailReturn(target)
+    if (detailReturnFocus === target) clearDetailReturnFocus()
+    return
+  }
+  if (navigate && route.query.item) void writeRoute(surfaceQuery(), true)
+  if (pageView.value === 'records') { await loadLibrary(); return }
   let restoring
-  if (!searched.value && canBrowse.value) restoring = search(1, '')
-  else if (loadedAt && Date.now() - loadedAt >= ONLINE_BROWSE_NAVIGATION_MS) restoring = search(page.value, loadedQuery.value, { force: true, position: browsePosition })
+  if (!searched.value && canBrowse.value) restoring = search(1, '', { navigationTicket: ticket })
+  else if (loadedAt && Date.now() - loadedAt >= ONLINE_BROWSE_NAVIGATION_MS) restoring = search(page.value, loadedQuery.value, { force: true, position: browsePosition, navigationTicket: ticket })
   else restoring = restoreBrowse()
   const turn = generation
   await restoring
@@ -823,7 +985,7 @@ async function backToResults() {
   await nextTick()
   // A later navigation, modal or focused user control owns focus from here.
   const active = globalThis.document?.activeElement
-  if (current(turn) && position === positionIntent && browseVisible.value && !categoriesOpen.value
+  if (current(turn) && navigationCurrent(ticket) && position === positionIntent && browseVisible.value && !categoriesOpen.value
     && (!active || active === globalThis.document?.body)) focusDetailReturn(target)
   if (detailReturnFocus === target) clearDetailReturnFocus()
 }
@@ -857,7 +1019,7 @@ async function closePlayer() {
   playIntent++; cancelNext(); starting.value = false
   const run = activeRun
   await stopRun(run)
-  if (run && !disposed && safeMode.value) { void loadLibrary(); void loadHealth() }
+  if (run && !disposed && safeMode.value) { refreshRecords(); void loadHealth() }
 }
 async function play(entry, { automatic = false } = {}) {
   if (!entry?.supported || !entry.identity || !safeMode.value || !detail.value) return
@@ -908,7 +1070,7 @@ async function onEnded(run, identity) {
   const ticket = ++nextIntent, view = generation
   nextLoading.value = shouldContinue
   await stopRun(run)
-  if (!disposed && safeMode.value) { void loadLibrary(); void loadHealth() }
+  if (!disposed && safeMode.value) { refreshRecords(); void loadHealth() }
   if (!shouldContinue || disposed || ticket !== nextIntent || view !== generation || !safeMode.value || !autoplay.value) return
   try {
     const fresh = await nextClient.detail(run.source, run.externalId)
@@ -932,7 +1094,7 @@ async function mutateItem(id, work) {
   if (mutationBusy.value.has(id) || !safeMode.value) return
   mutationBusy.value = new Set([...mutationBusy.value, id])
   const view = generation, playback = playIntent
-  try { await work(); if (!disposed && view === generation && safeMode.value) { if (playback === playIntent) stateNotice.value = ''; void loadLibrary() } }
+  try { await work(); if (!disposed && view === generation && safeMode.value) { if (playback === playIntent) stateNotice.value = ''; refreshRecords() } }
   catch (error) { if (!disposed && view === generation && playback === playIntent && safeMode.value) stateNotice.value = onlineStateError(error) }
   finally { mutationBusy.value = new Set([...mutationBusy.value].filter(value => value !== id)) }
 }
@@ -963,36 +1125,42 @@ function clearHistory(row) {
 function safeAttribution(value) { try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url.href : undefined } catch { return undefined } }
 function unsupportedReason(reason) { return ['host_not_allowed', 'target_host_not_allowed'].includes(reason) ? '媒体主机尚未加入此来源允许列表' : '当前线路不支持直接播放，请选择其他线路' }
 const stopCleanup = registerViewingPlaybackCleanup(async () => {
+  navigationGeneration++
   closeHostDialog(false); hostReminders.clear()
   clearDetailReturnFocus()
+  recordSurfaces.clear()
   cancelRelated(true)
-  clearOnlineBrowse(); cacheScope = ''; positionIntent++; suspendedWork = null
-  generation++; libraryGeneration++; playIntent++; cancelNext(); client.cancel(); stateClient.cancel()
+  clearOnlineBrowse(); cacheScope = ''; positionIntent++; homeReturn = detailOrigin = null; continueRows.value = []; continueError.value = ''; suspendedWork = null
+  generation++; libraryGeneration++; continueGeneration++; playIntent++; cancelNext(); client.cancel(); stateClient.cancel(); continueClient.cancel()
   healthGeneration++; healthClient.cancel(); health.value = null; healthError.value = ''; healthLoading.value = false
   const closing = stopRun(activeRun)
   itemStateGeneration++; itemStateLoading.value = false
-  detail.value = null; itemState.value = null; resetBrowse(); libraryRows.value = []; libraryScope.value = ''; libraryTotal.value = 0
+  detail.value = null; itemState.value = null; resetBrowse(); libraryRows.value = []; libraryScope.value = ''; libraryTotal.value = 0; libraryOffset.value = 0
   stateNotice.value = ''; searching.value = detailLoading.value = starting.value = false
   await closing
 })
 watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locallyLocked], () => {
+  navigationGeneration++
   closeHostDialog(false); hostReminders.clear()
   clearDetailReturnFocus()
+  recordSurfaces.clear()
   cancelRelated(true)
   clearOnlineBrowse(); cacheScope = ''; positionIntent++
-  generation++; libraryGeneration++; client.cancel(); stateClient.cancel(); cancelNext()
+  homeReturn = detailOrigin = null; continueRows.value = []; continueError.value = ''; continueLoading.value = false
+  generation++; libraryGeneration++; continueGeneration++; client.cancel(); stateClient.cancel(); continueClient.cancel(); cancelNext()
   healthGeneration++; healthClient.cancel(); health.value = null; healthLoading.value = false; healthError.value = ''
   itemStateGeneration++; itemStateLoading.value = false
   detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false; resetBrowse()
-  libraryRows.value = []; libraryScope.value = ''; libraryTotal.value = 0
+  libraryRows.value = []; libraryScope.value = ''; libraryTotal.value = 0; libraryOffset.value = 0
   void closePlayer()
   suspendedWork = { type: 'sources' }
   const turn = generation
-  if (safeMode.value) void nextTick(() => { if (current(turn)) { suspendedWork = null; void loadSources(); void loadLibrary(0) } })
+  if (safeMode.value) void nextTick(() => { if (current(turn)) { suspendedWork = null; void loadSources(); refreshRecords() } })
 }, { flush: 'sync' })
 watch(() => viewing.suspended, suspended => {
   positionIntent++
   if (suspended) {
+    navigationGeneration++
     cancelAutomaticRefresh()
     closeHostDialog(false)
     cancelRelated(true)
@@ -1005,15 +1173,28 @@ watch(() => viewing.suspended, suspended => {
     else if (searching.value) suspendedWork = { type: 'search', page: lastQuery.value.page, query: lastQuery.value.query,
       category: categoryId.value, year: lastQuery.value.year, channelId: lastQuery.value.channelId,
       force: lastQuery.value.force, position: lastQuery.value.position }
-    generation++; libraryGeneration++; client.cancel(); stateClient.cancel(); cancelNext()
+    generation++; libraryGeneration++; continueGeneration++; client.cancel(); stateClient.cancel(); continueClient.cancel(); cancelNext()
     healthGeneration++; healthClient.cancel(); healthLoading.value = false
     itemStateGeneration++; itemStateLoading.value = false
-    searching.value = detailLoading.value = starting.value = libraryLoading.value = false
+    searching.value = detailLoading.value = starting.value = libraryLoading.value = continueLoading.value = false
     return
   }
   if (!safeMode.value) return
   const work = suspendedWork
   suspendedWork = null
+  if (routeKey(route.query) !== handledRoute) {
+    // Back/forward remains available while verification hides the page. That
+    // newer destination wins over the cancelled detail or catalogue request.
+    if (work?.type === 'sources' || loadingSources.value) void loadSources()
+    else {
+      // A cancelled detail is still a navigation surface until syncRoute
+      // restores its origin; it must not capture a new origin from empty UI.
+      if (work?.type === 'detail' && !detail.value) detailLoading.value = true
+      void syncRoute()
+    }
+    refreshRecords()
+    return
+  }
   if (work?.type === 'sources') void loadSources()
   else if (work?.type === 'detail') void openDetail(work.id)
   else if (work?.type === 'search') { categoryId.value = work.category; channelId.value = work.channelId || ''; setYear(work.year || ''); void search(work.page, work.query, { force: work.force, position: work.position }) }
@@ -1023,29 +1204,31 @@ watch(() => viewing.suspended, suspended => {
       const turn = generation
       // Refresh the current detail before the secondary history shelf. Both
       // remain cancellable if another verification or user intent intervenes.
-      void readItemState(detail.value, turn).then(() => { if (current(turn)) { void loadLibrary(0); void loadRelated() } })
+      void readItemState(detail.value, turn).then(() => { if (current(turn)) { refreshRecords(); void loadRelated() } })
       return
     }
     void restoreBrowse()
   }
-  void loadLibrary(0)
+  refreshRecords()
 }, { flush: 'sync' })
 onMounted(() => {
   globalThis.document?.addEventListener?.('visibilitychange', visibilityChanged)
-  if (safeMode.value) { void loadSources(); void loadLibrary(0) }
-  else loadingSources.value = libraryLoading.value = false
+  if (safeMode.value) { void loadSources(); refreshRecords() }
+  else loadingSources.value = libraryLoading.value = continueLoading.value = false
 })
 onBeforeUnmount(() => rememberBrowse())
 onUnmounted(() => {
+  navigationGeneration++
   cancelAutomaticRefresh()
   refreshClient.close(); refreshSourcesClient.close()
   globalThis.document?.removeEventListener?.('visibilitychange', visibilityChanged)
   closeHostDialog(false); hostReminders.clear()
   clearDetailReturnFocus()
   cancelRelated(true); relatedClient.close()
-  disposed = true; generation++; libraryGeneration++; healthGeneration++; playIntent++; cancelNext(); client.close(); nextClient.close(); stateClient.close(); healthClient.close(); stopCleanup()
+  disposed = true; generation++; libraryGeneration++; healthGeneration++; playIntent++; cancelNext(); client.close(); nextClient.close(); stateClient.close(); continueClient.close(); healthClient.close(); stopCleanup()
   void stopRun(activeRun)
 })
+watch(() => route.query, () => { void syncRoute() }, { deep: true })
 watch(() => [browseVisible.value, safeMode.value, loadingSources.value, searching.value,
   starting.value, !!playing.value, nextLoading.value, categoriesOpen.value, !!hostDialog.value], () => {
   if (canCheckUpdates()) scheduleAutomaticRefresh()

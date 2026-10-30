@@ -1,8 +1,11 @@
 <template>
   <div ref="root" class="online-poster" :data-online-artwork-state="phase" :aria-busy="phase === 'loading' || phase === 'retry'" :role="image ? undefined : 'img'" :aria-label="image ? undefined : [title, stateText].filter(Boolean).join('，')">
     <img v-if="image" :src="image" :alt="title" decoding="async" referrerpolicy="no-referrer" @load="loaded" @error="decodeFailed" />
-    <ArtworkPlaceholder v-else :label="title" />
-    <span v-if="!image" class="online-artwork-note" aria-hidden="true">{{ stateText }}</span>
+    <template v-else-if="!path || phase === 'missing' || phase === 'error'">
+      <ArtworkPlaceholder :label="title" />
+      <span class="online-artwork-note" aria-hidden="true">暂无海报</span>
+    </template>
+    <div v-else class="online-artwork-pending" aria-hidden="true" />
   </div>
 </template>
 <script setup>
@@ -90,5 +93,6 @@ onUnmounted(() => { mounted = false; observer?.disconnect(); stopCleanup(); stop
 </script>
 <style scoped>
 .online-poster { position: relative; }
+.online-artwork-pending { width: 100%; height: 100%; background: var(--jz-surface-2); }
 .online-artwork-note { position: absolute; inset: auto 0 0; padding: var(--jz-gap-s); background: var(--jz-surface-2); color: var(--jz-text-faint); font-size: var(--jz-font-s); text-align: center; }
 </style>

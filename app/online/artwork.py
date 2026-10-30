@@ -3,7 +3,6 @@
 from collections import OrderedDict
 from dataclasses import dataclass, field
 import hashlib
-import json
 import re
 import sqlite3
 import threading
@@ -15,7 +14,7 @@ from ..network.guard import NetworkOperation, NetworkOperationError, current_ope
 from ..network.policy import NetworkPolicyError
 from ..network.targets import TargetPolicy, TargetPolicyError
 from ..store.online import OnlineNotFound
-from ..store.online_network import load_online_network_state
+from ..store.online_network import load_online_network_state, online_network_fingerprint
 from . import health, image_pool, service
 from .artwork_cache import ArtworkCache, ArtworkCacheBusy
 from .artwork_disk import ArtworkDiskCache
@@ -85,8 +84,9 @@ class ArtworkRegistry:
                 self._keys[key] = token
                 self._url_bytes += cost
             else:
-                # Fresh authorized catalogue metadata renews its lease. Reads
-                # alone never extend it, and configuration changes use new keys.
+                # Authorized catalogue metadata or a validated saved snapshot
+                # renews the lease. Image reads alone never extend it, and
+                # configuration changes use new keys.
                 self._entries[token] = ArtworkLease(source_id, url, configuration, now)
             self._entries.move_to_end(token)
         return f"/api/online/catalog/artwork/{source_id}/{token}"
@@ -131,15 +131,15 @@ def _state(source_id):
 def _fingerprint(state):
     # This includes the complete source record and referenced network/profile
     # revisions/ciphertext. Nothing in this server-only digest is sent upstream.
-    return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return online_network_fingerprint(state)
 
 
-def register(source, url):
+def register(source, url, *, expected_configuration=None):
     """Authorize URL syntax and fixed host membership without DNS or HTTP I/O."""
-    return register_many(source, [url])[0]
+    return register_many(source, [url], expected_configuration=expected_configuration)[0]
 
 
-def register_many(source, urls):
+def register_many(source, urls, *, expected_configuration=None):
     """Register one catalogue page using only one network/source DB snapshot."""
     if not isinstance(urls, (list, tuple)) or len(urls) > 100:
         raise ValueError("invalid artwork catalogue page")
@@ -160,10 +160,25 @@ def register_many(source, urls):
         if source != state["source_config"]:
             return empty
         fingerprint = _fingerprint(state)
+        if expected_configuration is not None and fingerprint != expected_configuration:
+            return empty
         return [registry.register(source["id"], url, fingerprint) if url else "" for url in canonical]
     except (ArtworkError, TargetPolicyError, KeyError, TypeError, ValueError):
         # Missing artwork must not invalidate an otherwise valid catalogue row.
         return empty
+
+
+def remember_item(access, source, item_id, poster_url, configuration):
+    """Optional presentation data must not turn a valid detail into a failure."""
+    from ..store import online_artwork, online_state
+    try:
+        online_artwork.remember(access, source, item_id, poster_url, configuration)
+    except online_state.OnlineStateError as error:
+        raise service.PlaybackError(error.category, error.status) from None
+    except (sqlite3.Error, OnlineNotFound, ValueError, TypeError):
+        # No URLs or configuration values enter diagnostics. Existing records
+        # remain usable with a placeholder if the optional snapshot cannot save.
+        pass
 
 
 def _current(access, entry):

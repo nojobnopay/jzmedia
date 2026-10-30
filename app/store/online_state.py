@@ -311,11 +311,19 @@ def library(access, section="continue", limit=20, offset=0):
             keys = [key for key, progress in latest.items() if section == "history"
                     or not progress["completed"] and progress["position"] > 0]
         selected, entries = keys[offset:offset + limit], []
+        episode_ids = tuple({latest[key]["identity"]["episode_id"] for key in selected
+                             if latest.get(key) and latest[key]["identity"].get("episode_id")})
+        episode_labels = {row["id"]: (row["item_id"], row["title"]) for row in connection.execute(
+            f"SELECT id,item_id,title FROM online_episodes WHERE id IN ({','.join('?' for _ in episode_ids)})",
+            episode_ids)} if episode_ids else {}
         for item_id in selected:
             item = _item(connection, item_id)
+            progress = latest.get(item_id)
+            episode = episode_labels.get(progress["identity"].get("episode_id")) if progress else None
             entries.append({"item": {key: item[key] for key in ("id", "source_id", "external_id", "kind", "title")},
                 "source": {"id": item["source_id"], "name": item["source_name"], "provider": item["provider"],
                            "enabled": bool(item["source_enabled"])},
-                "favorite": item_id in favorites, "progress": latest.get(item_id),
+                "favorite": item_id in favorites, "progress": progress, "poster_path": "",
+                "episode_label": episode[1] if episode and episode[0] == item_id else "",
                 **_availability(connection, item)})
         return {"items": entries, "total": len(keys), "limit": limit, "offset": offset, **public_scope}

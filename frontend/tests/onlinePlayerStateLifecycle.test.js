@@ -20,7 +20,7 @@ function eventTarget() {
 
 // Run the real SFC setup/load/teardown and real progress writer with a media
 // element double. Native decoding itself is covered by the browser fixture.
-async function player(t, claimResponse, { sessionProblem = null } = {}) {
+async function player(t, claimResponse, { sessionProblem = null, durationSeconds = 24, initialPosition = 0 } = {}) {
   const mounted = [], beforeUnmount = [], unmounted = [], refs = [], requests = [], notices = []
   const page = eventTarget()
   const globals = new Map(['window', 'document'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
@@ -43,7 +43,7 @@ async function player(t, claimResponse, { sessionProblem = null } = {}) {
       if (sessionProblem) throw sessionProblem
       const sessionId = String(++sessionCount).repeat(43)
       return { identity: IDENTITY, session_id: sessionId, media_url: `/api/online/sessions/${sessionId}/media`,
-        transport: 'mp4', processing: 'passthrough', seekable: true, duration_seconds: 24,
+        transport: 'mp4', processing: 'passthrough', seekable: true, duration_seconds: durationSeconds,
         time_offset_seconds: 0, expires_at: Math.floor(Date.now() / 1000) + 7200 }
     }
     if (path === '/api/online/state/progress/claim') return claimResponse(body)
@@ -67,7 +67,7 @@ async function player(t, claimResponse, { sessionProblem = null } = {}) {
   const scope = Vue.effectScope()
   let render, exposed
   scope.run(() => {
-    render = component.setup({ onlineIdentity: IDENTITY, title: '隔离媒体', initialPosition: 0,
+    render = component.setup({ onlineIdentity: IDENTITY, title: '隔离媒体', initialPosition,
       prepareSession: value => writer.session(value) }, {
       expose: value => { exposed = value },
       emit: (name, value) => { if (name === 'progress') writer.update(value) },
@@ -92,10 +92,10 @@ async function player(t, claimResponse, { sessionProblem = null } = {}) {
   })
   for (const callback of mounted) callback()
   await flush()
-  function videoNode() {
+  function findNode(matches) {
     function visit(node) {
       if (!node || typeof node !== 'object') return null
-      if (node.type === 'video') return node
+      if (matches(node)) return node
       for (const child of Array.isArray(node.children) ? node.children : []) {
         const found = visit(child)
         if (found) return found
@@ -104,7 +104,9 @@ async function player(t, claimResponse, { sessionProblem = null } = {}) {
     }
     return visit(render({}, []))
   }
+  const videoNode = () => findNode(node => node.type === 'video')
   return { video, page, writer, requests, notices, close, snapshot: exposed.snapshot,
+    seekbar: () => findNode(node => node.type?.__name === 'PlayerSeekbar')?.props,
     text() {
       const text = node => typeof node === 'string' ? node : Array.isArray(node) ? node.map(text).join('')
         : node && typeof node === 'object' ? text(node.children) : ''
@@ -113,9 +115,107 @@ async function player(t, claimResponse, { sessionProblem = null } = {}) {
     playCalls: () => playCalls,
     frame() { frameCallback?.() },
     timeUpdate() { videoNode().props.onTimeupdate({ currentTarget: video }) },
+    event(name) { videoNode().props['on' + name[0].toUpperCase() + name.slice(1)]({ type: name, currentTarget: video }) },
   }
 }
 const grant = (revision = 1) => ({ identity: IDENTITY, writer_id: WRITER, writer_revision: revision, scope_token: SCOPE })
+
+test('unknown duration keeps the watched position without drawing a completed seek bar', async t => {
+  const ui = await player(t, () => grant(), { durationSeconds: null, initialPosition: 73 })
+  assert.match(ui.text(), /1:13\/—:—/)
+  assert.equal(ui.seekbar().value, 0)
+  assert.equal(ui.seekbar().disabled, true)
+  ui.event('loadedmetadata'); ui.frame(); ui.event('playing')
+  ui.video.currentTime = 78; ui.timeUpdate()
+  assert.match(ui.text(), /1:18\/—:—/)
+  assert.equal(ui.snapshot().position, 78, 'Unknown duration must not discard actual progress')
+  assert.equal(ui.seekbar().value, 0)
+  ui.video.duration = 180; ui.event('durationchange')
+  assert.match(ui.text(), /1:18\/3:00/)
+  assert.equal(ui.seekbar().value, 78)
+  assert.equal(ui.seekbar().disabled, false)
+})
+
+function controlledTimers(t) {
+  const pending = new Map()
+  let serial = 0
+  t.mock.method(globalThis, 'setTimeout', (callback, delay) => {
+    const id = ++serial
+    pending.set(id, { callback, delay })
+    return id
+  })
+  t.mock.method(globalThis, 'clearTimeout', id => pending.delete(id))
+  return {
+    count: delay => [...pending.values()].filter(timer => timer.delay === delay).length,
+    take(delay) {
+      const [id, timer] = [...pending].find(([, timer]) => timer.delay === delay) || []
+      assert.ok(timer, `Expected a pending ${delay}ms timer`)
+      pending.delete(id)
+      return timer.callback
+    },
+  }
+}
+
+test('online buffering waits for an actual post-startup stall and clears when playback can advance', async t => {
+  const timers = controlledTimers(t)
+  const ui = await player(t, () => grant())
+  ui.event('waiting')
+  assert.equal(timers.count(300), 0, 'startup owns its own waiting state')
+  ui.frame(); ui.event('playing'); ui.video.readyState = 4
+  ui.event('stalled')
+  assert.equal(timers.count(300), 0, 'stalled networking with sufficient buffered media is not buffering')
+  ui.video.readyState = 2
+  ui.event('waiting'); ui.event('stalled')
+  assert.equal(timers.count(300), 1, 'repeated events must not postpone the feedback')
+  assert.equal(ui.snapshot().buffering, false)
+  timers.take(300)()
+  assert.equal(ui.snapshot().buffering, true)
+  assert.equal(ui.snapshot().controlsVisible, true)
+  assert.match(ui.text(), /正在缓冲/)
+  ui.video.readyState = 3; ui.event('canplay')
+  assert.equal(ui.snapshot().buffering, false)
+  ui.video.readyState = 2; ui.event('waiting'); timers.take(300)()
+  assert.equal(ui.snapshot().buffering, true)
+  ui.video.currentTime = 2; ui.timeUpdate()
+  assert.equal(ui.snapshot().buffering, false, 'advancing media clears buffering even without another playing event')
+})
+
+test('short waits, pause and media errors cannot leave stale buffering feedback', async t => {
+  const timers = controlledTimers(t)
+  const ui = await player(t, () => grant())
+  ui.frame(); ui.event('playing'); ui.video.readyState = 2
+  ui.event('waiting')
+  const shortWait = timers.take(300)
+  ui.event('canplay'); shortWait()
+  assert.equal(ui.snapshot().buffering, false)
+  ui.event('waiting')
+  const pausedWait = timers.take(300)
+  ui.video.paused = true; ui.event('pause'); pausedWait()
+  assert.equal(ui.snapshot().buffering, false)
+  ui.video.paused = false; ui.event('playing'); ui.event('waiting'); timers.take(300)()
+  assert.equal(ui.snapshot().buffering, true)
+  ui.video.error = { code: 3 }; ui.event('error')
+  assert.equal(ui.snapshot().buffering, false)
+  assert.match(ui.text(), /播放遇到问题/)
+})
+
+test('a buffering callback from a departed session cannot affect a restored player', async t => {
+  const timers = controlledTimers(t)
+  const ui = await player(t, () => grant())
+  ui.frame(); ui.event('playing'); ui.video.readyState = 2; ui.event('waiting')
+  const previousSession = timers.take(300)
+  ui.page.dispatch('pagehide', { persisted: true })
+  ui.page.dispatch('pageshow', { persisted: true })
+  await flush()
+  ui.frame(); ui.event('playing'); ui.event('waiting')
+  previousSession()
+  assert.equal(ui.snapshot().buffering, false)
+  assert.equal(timers.count(300), 1)
+  timers.take(300)()
+  assert.equal(ui.snapshot().buffering, true)
+  ui.close()
+  assert.equal(ui.snapshot().buffering, false)
+})
 
 test('the actual player distinguishes entry-count limits without exposing an upstream playback URL', async t => {
   const privateMessage = 'https://private.invalid/movie.m3u8?token=private-secret'

@@ -5,7 +5,12 @@ import { parse, compileScript } from '@vue/compiler-sfc'
 export async function loadSfc(filename, overrides = {}) {
   const url = filename instanceof URL ? filename : new URL(filename, import.meta.url)
   const { descriptor } = parse(readFileSync(url, 'utf8'), { filename: url.pathname })
-  const compiled = compileScript(descriptor, { id: 'setup-test', inlineTemplate: true, genDefaultAs: 'component' })
+  const compiled = compileScript(descriptor, {
+    id: 'setup-test', inlineTemplate: true, genDefaultAs: 'component',
+    // The custom renderer has no HTML parser / insertStaticContent. Keep static
+    // subtrees as real VNodes so they participate in the same host lifecycle.
+    templateOptions: { compilerOptions: { hoistStatic: false } },
+  })
   const modules = []
   let code = compiled.content
   const declarations = [...code.matchAll(/import\s+(\{[^}]+\}|[\w$]+)\s+from\s+['"]([^'"]+)['"];?/g)]

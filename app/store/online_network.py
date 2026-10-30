@@ -1,6 +1,7 @@
 """Atomic network configuration with encrypted proxy credentials and no I/O."""
 
 from contextlib import closing, contextmanager
+import hashlib
 import json
 import time
 import uuid
@@ -254,16 +255,26 @@ def delete_network_profile(profile_id: str) -> None:
 def load_online_network_state(source_id: str) -> dict:
     """Read one consistent server-only snapshot, including referenced ciphertext."""
     with _connection(snapshot=True) as connection:
-        application = _application(connection)
-        source = _source_policy(connection, source_id)
-        referenced = {rule["profile_id"] for rule in (application["rule"], *source["policy"].values())
-                      if rule["profile_id"] is not None}
-        for rule in (application["rule"], *source["policy"].values()):
-            _validate_rule(connection, rule)
-        profiles = {profile_id: dict(connection.execute(
-            "SELECT * FROM network_profiles WHERE id=?", (profile_id,)).fetchone())
-                    for profile_id in referenced}
-        source_config = _source(connection.execute("SELECT * FROM online_sources WHERE id=?", (source_id,)).fetchone())
-        enabled = connection.execute("SELECT value FROM app_settings WHERE key='online_enabled'").fetchone()
-        return {"application": application, "source": source, "profiles": profiles,
-                "source_config": source_config, "online_enabled": bool(enabled and enabled["value"] == "true")}
+        return online_network_snapshot(connection, source_id)
+
+
+def online_network_snapshot(connection, source_id: str) -> dict:
+    """Use the caller's transaction when a metadata write needs the same snapshot."""
+    application = _application(connection)
+    source = _source_policy(connection, source_id)
+    referenced = {rule["profile_id"] for rule in (application["rule"], *source["policy"].values())
+                  if rule["profile_id"] is not None}
+    for rule in (application["rule"], *source["policy"].values()):
+        _validate_rule(connection, rule)
+    profiles = {profile_id: dict(connection.execute(
+        "SELECT * FROM network_profiles WHERE id=?", (profile_id,)).fetchone())
+                for profile_id in referenced}
+    source_config = _source(connection.execute("SELECT * FROM online_sources WHERE id=?", (source_id,)).fetchone())
+    enabled = connection.execute("SELECT value FROM app_settings WHERE key='online_enabled'").fetchone()
+    return {"application": application, "source": source, "profiles": profiles,
+            "source_config": source_config, "online_enabled": bool(enabled and enabled["value"] == "true")}
+
+
+def online_network_fingerprint(state) -> str:
+    """Digest the complete private configuration without exposing its contents."""
+    return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()

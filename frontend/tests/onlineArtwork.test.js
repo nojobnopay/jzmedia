@@ -37,7 +37,8 @@ test('online posters use only queued opaque leases and distinguish loading, deco
   props.path = path
   await flush()
   assert.equal(calls[0].value, path)
-  assert.equal(ui.text().includes('正在加载海报'), true)
+  assert.equal(ui.text().includes('正在加载海报'), false)
+  assert.match(ui.find(node => node.props['data-online-artwork-state'] === 'loading').props['aria-label'], /正在加载海报/)
   calls[0].pending.resolve({ url: 'blob:fixture-artwork' })
   await flush()
   assert.equal(ui.find(node => node.type === 'img').props.src, 'blob:fixture-artwork')
@@ -46,7 +47,8 @@ test('online posters use only queued opaque leases and distinguish loading, deco
   assert.equal(ui.find(node => node.type === 'img'), undefined)
   assert.equal(calls[0].cancelled, true)
   assert.equal(ui.text().includes('合成海报'), true)
-  assert.equal(ui.text().includes('海报暂时无法加载'), true)
+  assert.equal(ui.text().includes('暂无海报'), true)
+  assert.match(ui.find(node => node.props['data-online-artwork-state'] === 'error').props['aria-label'], /海报暂时无法加载/)
   assert.equal(calls.length, 1)
 })
 
@@ -117,7 +119,7 @@ test('only transient failures retry once after a delay, never terminal or author
   calls[1].pending.reject(Object.assign(new Error('fixed failure'), { retryable: true, status: 503 }))
   await flush()
   assert.equal(timers.length, 1)
-  assert.equal(ui.text().includes('海报暂时无法加载'), true)
+  assert.equal(ui.text().includes('暂无海报'), true)
   props.path = path.replace(/2{32}$/, '3'.repeat(32))
   await flush()
   calls[2].pending.reject(Object.assign(new Error('fixed failure'), { retryable: false, status: 401 }))
@@ -134,7 +136,8 @@ test('eviction clears a poster without a visible reload loop', async t => {
   await flush()
   assert.equal(ui.find(node => node.type === 'img'), undefined)
   assert.equal(calls.length, 1)
-  assert.equal(ui.text().includes('等待加载海报'), true)
+  assert.equal(ui.text().includes('等待加载海报'), false)
+  assert.match(ui.find(node => node.props['data-online-artwork-state'] === 'waiting').props['aria-label'], /等待加载海报/)
 })
 
 test('manual refresh preserves successful image nodes and does not cancel an ongoing download', async t => {
@@ -160,7 +163,7 @@ test('manual refresh retries a failed poster but never clears an authorization p
   const { ui, calls, props } = await setup(t)
   calls[0].pending.reject(Object.assign(new Error('fixed decode failure'), { retryable: false, status: 502 }))
   await flush()
-  assert.equal(ui.text().includes('海报暂时无法加载'), true)
+  assert.equal(ui.text().includes('暂无海报'), true)
   props.retryKey++
   await flush()
   assert.equal(calls.length, 2)
@@ -169,7 +172,7 @@ test('manual refresh retries a failed poster but never clears an authorization p
   props.retryKey++
   await flush()
   assert.equal(calls.length, 2)
-  assert.equal(ui.text().includes('海报暂时无法加载'), true)
+  assert.equal(ui.text().includes('暂无海报'), true)
 })
 
 test('manual refresh leaves waiting offscreen posters untouched until they become visible', async t => {

@@ -392,7 +392,7 @@ def _persist(source, detail):
     return online_store.save_online_catalog(source["id"], detail.external_id, detail.kind, detail.title, episodes)
 
 
-def _public_detail(source, detail, saved):
+def _public_detail(source, detail, saved, configuration=None):
     from . import artwork
     item = saved["item"]
     episodes = {episode["external_id"]: episode for episode in saved["episodes"]}
@@ -412,11 +412,12 @@ def _public_detail(source, detail, saved):
     return {"source": _public_source(source), "item": {key: item[key] for key in ("id", "source_id", "kind", "title")},
             "description": detail.description, "year": detail.year, "lines": lines,
             "attribution": [{"label": label, "url": url} for label, url in detail.attribution],
-            "poster_path": artwork.register(source, detail.poster_url), **detail.metadata}
+            "poster_path": artwork.register(source, detail.poster_url, expected_configuration=configuration),
+            **detail.metadata}
 
 
 def detail(access, source_id, selected_id, *, operation=None):
-    from . import related
+    from . import artwork, related
 
     try:
         selected_id = maccms.external_id(selected_id)
@@ -427,6 +428,7 @@ def detail(access, source_id, selected_id, *, operation=None):
         target_configuration = related.target_context(access, source)
         configuration, detail_check = (_detail_retry_guard(access, source)
                                        if source["provider"] == "maccms" else (None, None))
+        artwork_configuration = configuration or _detail_configuration(access, source)
         scope = (api_pool.scope(access, source, configuration, lambda: detail_check(source, configuration))
                  if detail_check is not None else nullcontext())
         with scope:
@@ -440,11 +442,15 @@ def detail(access, source_id, selected_id, *, operation=None):
             _after(source, access)
             saved = _persist(source, selected)
             _after(source, access)
-            result = _public_detail(source, selected, saved)
+            result = _public_detail(source, selected, saved, artwork_configuration)
             related.remember_target(access, source, selected, target_configuration)
             _after(source, access)
             if detail_check is not None:
                 detail_check(source, configuration)
+        if detail_check is not None:
+            detail_check(source, configuration)
+        artwork.remember_item(access, source, saved["item"]["id"], selected.poster_url, artwork_configuration)
+        _after(source, access)
         if detail_check is not None:
             detail_check(source, configuration)
         return result

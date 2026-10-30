@@ -2,7 +2,7 @@
   "schema_version": 1,
   "profiles": {
     "web-icon": {
-      "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24",
+      "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
       "source": [
         "frontend/src/components/AppIcon.vue",
         "frontend/src/components/PlayerIcon.vue",

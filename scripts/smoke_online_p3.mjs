@@ -371,11 +371,18 @@ async function selectSource(page, source = primarySource) {
   const select = page.locator('[data-online-source]')
   await select.waitFor()
   await select.selectOption(source.id)
+  await until(async () => await page.locator('[data-online-browser]').getAttribute('aria-busy') === 'false',
+    'Initial source discovery finishes before the state scenario submits a keyword')
+  await until(async () => {
+    const value = await metrics()
+    return value.catalogue_active === 0 && value.catalogue_owners === 0
+  }, 'Source discovery releases its catalogue reservation before the next explicit intent')
 }
 async function search(page, keyword = '合成', { results = true } = {}) {
   const form = page.locator('[data-online-search]')
-  await form.locator('input').first().fill(keyword)
-  await form.locator('input').first().press('Enter')
+  const input = form.getByRole('textbox', { name: '搜索在线视频', exact: true })
+  await input.fill(keyword)
+  await input.press('Enter')
   if (results) await page.locator('[data-online-result]').first().waitFor()
 }
 async function detailUi(page, externalId = 'movie-1') {
@@ -393,8 +400,8 @@ async function playEntry(page, label = '正片') {
   return Math.round(performance.now() - started)
 }
 async function returned(page) {
-  await page.getByRole('button', { name: '返回搜索结果', exact: true }).click()
-  await page.locator('[data-online-result]').first().waitFor()
+  await page.getByRole('button', { name: /^返回(?:搜索结果|我的记录)$/ }).click()
+  await page.locator('[data-online-detail]').waitFor({ state: 'hidden' })
 }
 async function setup() {
   phase = { name: 'source-management-ui', expectedHttp: false }
@@ -439,7 +446,40 @@ async function library(page, section = 'history') {
   return response.body
 }
 async function showLibrary(page, section) {
-  await page.locator(`[data-online-library-section="${section}"]`).click()
+  // A detail can return to either records or browsing. Both the home shelf and
+  // the full records view can contain the same item; use the visible surface.
+  const back = page.getByRole('button', { name: /^返回(?:搜索结果|我的记录)$/ })
+  if (await back.isVisible()) await returned(page)
+  const records = page.locator('[data-online-records]')
+  if (!await records.isVisible()) {
+    await page.getByRole('button', { name: '我的记录', exact: true }).click()
+  }
+  await records.waitFor()
+  const tab = records.locator(`[data-online-library-section="${section}"]`)
+  await tab.click()
+  await until(async () => (await tab.getAttribute('aria-pressed')) === 'true'
+    && await records.getByRole('button', { name: '刷新记录', exact: true }).getAttribute('aria-busy') !== 'true',
+  'The selected records tab finishes its own independent read')
+  assert.equal(await records.getByRole('heading', { name: '我的记录', exact: true }).isVisible(), true)
+  assert.equal(await page.locator('[data-online-search]').isVisible(), false,
+    'Full records occupy their own surface rather than staying below the browse wall')
+}
+function recordRow(page, itemId) {
+  return page.locator('[data-online-records]:visible').locator(`[data-online-state-item="${itemId}"]`)
+}
+async function recordAction(page, itemId, selector) {
+  const row = recordRow(page, itemId)
+  await row.locator('.online-record-menu > summary').click()
+  await row.locator(selector).click()
+}
+async function browseFromDetail(page) {
+  await returned(page)
+  const records = page.locator('[data-online-records]')
+  if (await records.isVisible()) await records.getByRole('button', { name: '返回在线浏览', exact: true }).click()
+  await page.locator('[data-online-search]').waitFor()
+  await until(async () => (await page.locator('[data-online-browser]').getAttribute('aria-busy')) === 'false',
+    'Restoring the original browse surface settles before measuring health reads')
+  await idle()
 }
 async function reload(page) {
   await page.reload()
@@ -481,8 +521,14 @@ async function stateScenarios() {
       'A favorite chosen in the real UI must persist')
     await reload(page)
     await showLibrary(page, 'favorites')
-    const favoriteRow = page.locator(`[data-online-state-item="${movie.id}"]`)
+    const favoriteRow = recordRow(page, movie.id)
     await favoriteRow.waitFor()
+    const savedArtwork = (await library(page, 'favorites')).items.find(row => row.item.id === movie.id)
+    assert.match(savedArtwork.poster_path, /^\/api\/online\/catalog\/artwork\//,
+      'A favorite reload receives a newly registered same-origin poster path')
+    await until(() => favoriteRow.locator('.online-record-artwork > img')
+      .evaluateAll(images => images.some(image => image.complete && image.naturalWidth > 0)),
+    'The record card actually decodes its saved poster before opening the detail')
     await favoriteRow.locator(`[data-online-library-detail="${movie.id}"]`).click()
     await page.locator('[data-online-detail]').waitFor()
     await chooseLine(page, 'MP4直链')
@@ -498,7 +544,7 @@ async function stateScenarios() {
     await closePlayer(page)
     await reload(page)
     await showLibrary(page, 'continue')
-    await page.locator(`[data-online-resume="${movie.id}"]`).click()
+    await recordRow(page, movie.id).locator(`[data-online-resume="${movie.id}"]`).click()
     await loaded(page)
     const resumed = await readPlayer(page)
     assert.ok(resumed.time >= mp4Position - .8, 'Refreshing the page restores server-side position rather than only component memory')
@@ -508,6 +554,7 @@ async function stateScenarios() {
     passed({ case: phase.name, itemId: movie.id, mp4Position, resumed, favoriteSurvivesReload: true })
 
     phase = { name: 'state-health-observes-without-probing', expectedHttp: false }
+    await browseFromDetail(page)
     const beforeHealth = (await metrics()).origin_calls.length
     await page.locator('.online-connection > summary').click()
     await page.getByRole('button', { name: '刷新状态', exact: true }).click()
@@ -523,6 +570,7 @@ async function stateScenarios() {
     passed({ case: phase.name, observed: observed.body, extraOriginRequests: 0 })
 
     phase = { name: 'state-line-progress-isolation', expectedHttp: false }
+    await showMovie(page)
     await chooseLine(page, 'HLS直链')
     await playEntry(page)
     await advancing(page)
@@ -537,7 +585,7 @@ async function stateScenarios() {
     assert.ok(hlsState.selected_progress.position < 6)
     await reload(page)
     await showLibrary(page, 'continue')
-    await page.locator(`[data-online-resume="${movie.id}"]`).click()
+    await recordRow(page, movie.id).locator(`[data-online-resume="${movie.id}"]`).click()
     await loaded(page)
     assert.equal((await snapshot(page)).identity.line_id, hlsIdentity.line_id)
     await closePlayer(page)
@@ -606,12 +654,13 @@ async function stateScenarios() {
     const retained = await library(page, 'favorites')
     const row = retained.items.find(row => row.item.id === movie.id)
     assert.ok(row && row.favorite && !row.available)
-    const unavailable = page.locator(`[data-online-state-item="${movie.id}"]`)
+    const unavailable = recordRow(page, movie.id)
     await unavailable.waitFor()
-    await unavailable.locator(`[data-online-favorite="${movie.id}"]`).click()
+    assert.equal(await unavailable.locator(`[data-online-library-detail="${movie.id}"]`).isDisabled(), true)
+    await recordAction(page, movie.id, `[data-online-favorite="${movie.id}"]`)
     await until(async () => (await library(page, 'favorites')).total === 0, 'Disabled-source favorites can still be removed')
     await showLibrary(page, 'history')
-    await page.locator(`[data-online-history-delete="${movie.id}"]`).click()
+    await recordAction(page, movie.id, `[data-online-history-delete="${movie.id}"]`)
     await until(async () => !(await library(page, 'history')).items.some(row => row.item.id === movie.id),
       'Disabled-source history can be removed without fetching the provider')
     assert.equal((await call(page, 'PATCH', `/api/online/sources/${primarySource.id}`, { enabled: true })).status, 200)
@@ -657,8 +706,10 @@ async function stateScenarios() {
       await showMovie(phone.page)
       const item = (await call(phone.page, 'GET', `/api/online/catalog/detail?source_id=${primarySource.id}&external_id=movie-1`)).body.item
       await phone.page.locator('[data-online-detail]').locator(`[data-online-favorite="${item.id}"]`).click()
+      await until(async () => (await library(phone.page, 'favorites')).items.some(row => row.item.id === item.id),
+        'The phone favorite is saved before leaving its detail')
       await showLibrary(phone.page, 'favorites')
-      await phone.page.locator(`[data-online-state-item="${item.id}"]`).waitFor()
+      await recordRow(phone.page, item.id).waitFor()
       const geometry = await layout(phone.page, width)
       await phone.page.screenshot({ path: path.join(output, `favorites-${width}.png`) })
       passed({ case: `state-phone-${width}`, geometry })
@@ -782,9 +833,13 @@ try {
     'scripts/online_p3/server.py', 'scripts/online_p3/fixtures.py',
     'app/online/state.py', 'app/online/state_models.py', 'app/store/online_state.py',
     'app/store/online_state_schema.py', 'app/routers/online_state.py',
+    'app/store/online_artwork.py', 'app/store/online_artwork_schema.py', 'app/online/artwork.py',
     'scripts/online_p2/server.py', 'scripts/online_p2/fixtures.py', 'frontend/src/views/Online.vue',
     'frontend/src/components/OnlineSourcesPanel.vue', 'frontend/src/App.vue', 'frontend/src/styles/base.css',
     'frontend/src/components/OnlinePlayerModal.vue', 'frontend/src/styles/online.css', 'frontend/src/api.js',
+    'frontend/src/components/BrowseToolbar.vue', 'frontend/src/components/OnlineSkeleton.vue',
+    'frontend/src/components/OnlineBrowseResults.vue', 'frontend/src/components/OnlineContinueRow.vue',
+    'frontend/src/components/OnlineRecordsView.vue', 'frontend/src/components/OnlineRecordCard.vue',
     'frontend/src/onlinePlayback.js', 'frontend/src/onlineState.js', 'frontend/src/onlineCatalog.js',
     'app/online/health.py', 'app/online/health_models.py', 'app/routers/online_health.py', 'app/online/gateway.py',
     'app/online/maccms.py', 'app/online/catalog.py',

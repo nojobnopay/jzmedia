@@ -1,15 +1,17 @@
 <template>
-  <div class="browse-toolbar" role="search" :aria-label="label">
+  <div class="browse-toolbar" :class="{ 'browse-toolbar--embedded': embedded }" role="search" :aria-label="label">
     <div class="q-wrap">
-      <input :id="id + '-input'" name="q" :value="modelValue" :aria-label="label" :placeholder="placeholder"
-        role="combobox" aria-autocomplete="list" :aria-expanded="suggestOpen"
-        :aria-controls="id + '-suggestions'" :aria-activedescendant="activeOption" autocomplete="off"
+      <input :id="inputId || id + '-input'" name="q" :value="modelValue" :aria-label="label" :placeholder="placeholder" :maxlength="maxlength"
+        :disabled="disabled" :aria-busy="loading || undefined"
+        :role="suggestionsEnabled ? 'combobox' : undefined" :aria-autocomplete="suggestionsEnabled ? 'list' : undefined"
+        :aria-expanded="suggestionsEnabled ? suggestOpen : undefined"
+        :aria-controls="suggestionsEnabled ? id + '-suggestions' : undefined" :aria-activedescendant="activeOption" autocomplete="off"
         @input="onInput" @compositionstart="$emit('compositionstart', $event)"
-        @compositionend="$emit('compositionend', $event)" @keyup.enter="$emit('enter', $event)"
-        @keydown.down.prevent="$emit('move', 1)" @keydown.up.prevent="$emit('move', -1)"
-        @keydown.esc.stop="$emit('close')" @blur="$emit('blur')" />
-      <JzButton class="search-submit" variant="ghost" icon-only :aria-label="label" @click="$emit('search')"><AppIcon name="search" :size="19" /></JzButton>
-      <ul v-show="suggestOpen" :id="id + '-suggestions'" class="suggest" role="listbox" :aria-label="label + '建议'">
+        @compositionend="$emit('compositionend', $event)" @keyup.enter="onEnter"
+        @keydown.down="moveSuggestion($event, 1)" @keydown.up="moveSuggestion($event, -1)"
+        @keydown.esc="closeSuggestions" @blur="$emit('blur')" />
+      <JzButton class="search-submit" variant="ghost" icon-only :aria-label="label" :disabled="disabled || searchDisabled" :loading="loading" @click="$emit('search')"><AppIcon v-if="!loading" name="search" :size="19" /></JzButton>
+      <ul v-if="suggestionsEnabled" v-show="suggestOpen" :id="id + '-suggestions'" class="suggest" role="listbox" :aria-label="label + '建议'">
         <li v-if="suggestNoMatch" class="s-empty" role="presentation">无匹配</li>
         <li v-if="suggestItems.length" class="s-head" role="presentation">{{ itemHeading }}</li>
         <li v-for="(item, i) in suggestItems" :id="optionId(i)" :key="'item-' + item.id"
@@ -42,11 +44,18 @@ import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
   id: { type: String, required: true },
+  inputId: { type: String, default: '' },
   modelValue: { type: String, default: '' },
   label: { type: String, required: true },
   placeholder: { type: String, default: '' },
+  maxlength: { type: Number, default: undefined },
   itemHeading: { type: String, default: '影片' },
   personHeading: { type: String, default: '演员' },
+  suggestionsEnabled: { type: Boolean, default: true },
+  loading: Boolean,
+  disabled: Boolean,
+  searchDisabled: Boolean,
+  embedded: Boolean,
   suggestOpen: { type: Boolean, default: false },
   suggestNoMatch: { type: Boolean, default: false },
   suggestItems: { type: Array, default: () => [] },
@@ -62,11 +71,24 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'update:filtersOpen', 'update:aiOpen', 'input', 'compositionstart',
   'compositionend', 'enter', 'move', 'close', 'blur', 'pick-item', 'pick-person', 'hover', 'search'])
 function optionId(index) { return props.id + '-option-' + index }
-const activeOption = computed(() => props.suggestOpen && props.suggestIdx >= 0
+const activeOption = computed(() => props.suggestionsEnabled && props.suggestOpen && props.suggestIdx >= 0
   && props.suggestIdx < props.suggestItems.length + props.suggestPersons.length ? optionId(props.suggestIdx) : undefined)
 function onInput(event) {
   emit('update:modelValue', event.target.value)
   emit('input', event)
+}
+function onEnter(event) {
+  if (!props.disabled && !props.searchDisabled && !props.loading && !event.isComposing) emit('enter', event)
+}
+function moveSuggestion(event, direction) {
+  if (!props.suggestionsEnabled) return
+  event.preventDefault()
+  emit('move', direction)
+}
+function closeSuggestions(event) {
+  if (!props.suggestionsEnabled) return
+  event.stopPropagation()
+  emit('close')
 }
 </script>
 <style scoped>
@@ -86,4 +108,5 @@ function onInput(event) {
   .q-wrap { flex: 1 1 100%; max-width: none; }
   .browse-tool { padding-inline: var(--jz-gap-m); }
 }
+.browse-toolbar--embedded { margin: 0; }
 </style>

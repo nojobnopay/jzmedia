@@ -4,10 +4,8 @@
       :aria-label="title || '在线视频播放器'">
       <header class="online-player-heading">
         <div class="online-player-title">
-          <span>在线点播 · 原样播放</span>
-          <h3>{{ title || '在线视频' }}</h3>
+          <h3 :title="title || '在线视频'">{{ title || '在线视频' }}</h3>
         </div>
-        <span v-if="transport" class="online-transport">{{ transport.toUpperCase() }}</span>
         <JzButton variant="ghost" icon-only class="player-icon-btn" aria-label="关闭播放器" title="关闭（Esc）" @click="requestClose">
           <PlayerIcon name="close" />
         </JzButton>
@@ -20,6 +18,7 @@
             disableremoteplayback controlslist="noremoteplayback" x-webkit-airplay="deny"
             @loadedmetadata="metadata" @durationchange="updateDuration" @timeupdate="timeUpdate"
             @playing="playing" @play="playState" @pause="playState" @volumechange="volumeState"
+            @waiting="waitForMedia" @stalled="waitForMedia" @canplay="mediaReady"
             @ratechange="rateState" @seeked="seeked" @ended="ended" @error="mediaError" />
           <div class="online-player-corner" :inert="!controlsVisible" :aria-hidden="!controlsVisible"
             @click.stop @pointerdown.stop @dblclick.stop>
@@ -34,10 +33,9 @@
             <p>{{ error }}</p>
             <JzButton variant="primary" @click="retry">重新加载</JzButton>
           </div>
-          <div v-else-if="booting || seeking" class="online-player-state" role="status" aria-live="polite">
-            <Spinner :size="36" />
-            <strong>{{ seeking ? '正在跳转' : '正在准备播放' }}</strong>
-            <span>正在加载视频，请稍候</span>
+          <div v-else-if="booting || seeking || buffering" class="online-player-state online-player-waiting" role="status" aria-live="polite" aria-atomic="true">
+            <Spinner :size="32" />
+            <span>{{ booting ? '正在准备播放' : seeking ? '正在跳转' : '正在缓冲' }}</span>
           </div>
           <div v-else-if="needGesture || paused" class="online-player-state online-player-paused" @dblclick.stop>
             <JzButton variant="ghost" icon-only class="online-center-play" :aria-label="needGesture ? '开始播放' : '继续播放'"
@@ -48,11 +46,11 @@
         </div>
         <div class="online-player-controls pv-ctl" :inert="isFull && !controlsVisible" :aria-hidden="isFull && !controlsVisible"
           @click.stop @pointerdown.stop @dblclick.stop>
-          <PlayerSeekbar :value="dragging ? seekPreview : position" :duration="duration" :buffered="buffered"
+          <PlayerSeekbar :value="duration > 0 ? (dragging ? seekPreview : position) : 0" :duration="duration" :buffered="buffered"
             :disabled="!canSeek || booting || !!error" :preview-hint-text="''" :preview-container="stageEl"
             @input="seekInput" @commit="seekCommit" @cancel="dragging = false" @active="previewActive = $event" />
           <div class="online-player-control-row">
-            <span class="online-player-time"><span>{{ fmt(dragging ? seekPreview : position) }}</span><span>/</span><span>{{ fmt(duration) }}</span></span>
+            <span class="online-player-time"><span>{{ fmt(dragging ? seekPreview : position) }}</span><span>/</span><span>{{ duration > 0 ? fmt(duration) : '—:—' }}</span></span>
             <div class="online-player-buttons">
               <JzButton variant="ghost" icon-only class="player-icon-btn" :aria-label="paused ? '播放' : '暂停'"
                 :title="paused ? '播放（空格）' : '暂停（空格）'" :disabled="booting || !!error" @click="togglePlay">
@@ -110,19 +108,21 @@ const memory = createOnlineProgressMemory()
 const descriptor = ref(null), transport = ref(''), engine = ref('')
 const videoKey = ref(0), position = ref(0), duration = ref(0), buffered = ref([])
 const paused = ref(true), booting = ref(true), seeking = ref(false), needGesture = ref(false), error = ref('')
+const buffering = ref(false)
 const volume = ref(1), muted = ref(false), rate = ref(1), volumeSupported = ref(true)
 const audios = ref([]), subtitles = ref([]), audioIndex = ref(0), subtitleIndex = ref(-1)
 const activePanel = ref(''), panelHeight = ref(240), isFull = ref(false), hint = ref('')
 const dragging = ref(false), seekPreview = ref(0), previewActive = ref(false), pointerActive = ref(true)
 const firstFrame = ref(false), startupGapRecoveries = ref(0)
 const canSeek = computed(() => !!descriptor.value?.seekable && duration.value > 0)
-const controlsVisible = computed(() => pointerActive.value || paused.value || booting.value || seeking.value
+const controlsVisible = computed(() => pointerActive.value || paused.value || booting.value || seeking.value || buffering.value
   || !!activePanel.value || previewActive.value || needGesture.value || !!error.value)
 let identity = null, hls = null, hlsClass = null, generation = 0, disposed = false, mounted = false
 let bootController = null, pendingStart = 0, pauseWanted = false, endedOnce = false
 let resumeApplied = false
 let frameHandle = null, frameVideo = null, resizeObserver = null
 let hideTimer = null, hintTimer = null, seekTimer = null, startupTimer = null, surfaceTimer = null
+let bufferTimer = null, bufferTicket = 0, lastMediaTime = 0
 let overlayAtPointerDown = true, presentedFrames = 0, networkErrors = 0, renewals = 0, lastRenewal = -Infinity
 let diagnosing = false
 const errors = []
@@ -159,12 +159,34 @@ function save(snapshot = capture(), reason = 'tick') {
   emit('progress', { identity: snapshot.identity, ...data })
 }
 function clearStartup() { clearTimeout(startupTimer); startupTimer = null }
+function clearBuffering() {
+  bufferTicket++
+  clearTimeout(bufferTimer); bufferTimer = null; buffering.value = false
+}
+function needsBuffering(video) {
+  return firstFrame.value && !booting.value && !seeking.value && !needGesture.value && !error.value
+    && !pauseWanted && !video.paused && !video.ended && !video.error && video.readyState < 3
+}
+function waitForMedia(event) {
+  if (!validEvent(event)) return
+  const video = event.currentTarget
+  if (!needsBuffering(video)) { clearBuffering(); return }
+  if (bufferTimer !== null || buffering.value) return
+  const gen = generation, ticket = ++bufferTicket
+  bufferTimer = setTimeout(() => {
+    if (ticket !== bufferTicket || !current(gen, video)) return
+    bufferTimer = null
+    if (needsBuffering(video)) { buffering.value = true; showControls() }
+  }, 300)
+}
+function mediaReady(event) { if (validEvent(event)) clearBuffering() }
 function armStartup(video, gen) {
   clearStartup()
   startupTimer = setTimeout(() => { if (current(gen, video) && !firstFrame.value) fail('online_startup_timeout', '视频加载超时，请检查连接后重试') }, 60000)
 }
 function detachMedia() {
   clearStartup()
+  clearBuffering()
   clearTimeout(seekTimer)
   startupTimer = seekTimer = null
   if (frameHandle !== null && frameVideo?.cancelVideoFrameCallback) frameVideo.cancelVideoFrameCallback(frameHandle)
@@ -230,6 +252,8 @@ function watchFrames(video, gen) {
     if (!current(gen, video)) return
     firstFrame.value = true; presentedFrames++
     clearStartup()
+    if (video.currentTime > lastMediaTime) clearBuffering()
+    lastMediaTime = video.currentTime
     frameHandle = video.requestVideoFrameCallback(frame)
   }
   frameHandle = video.requestVideoFrameCallback(frame)
@@ -320,6 +344,7 @@ async function load({ start = position.value, paused: keepPaused = false, recove
   if (!recovering) { renewals = 0; lastRenewal = -Infinity }
   pendingStart = Math.max(0, Number.isFinite(Number(start)) ? Number(start) : 0)
   position.value = pendingStart; pauseWanted = !!keepPaused; paused.value = !!keepPaused
+  lastMediaTime = pendingStart
   videoKey.value++
   await nextTick()
   const video = videoEl.value
@@ -388,12 +413,15 @@ function metadata(event) {
 function timeUpdate(event) {
   if (!validEvent(event)) return
   const video = event.currentTarget
+  if (video.currentTime > lastMediaTime) clearBuffering()
+  lastMediaTime = video.currentTime
   if (firstFrame.value && Number.isFinite(video.currentTime) && !dragging.value) position.value = Math.max(0, video.currentTime)
   buffered.value = Array.from({ length: video.buffered.length }, (_, i) => [video.buffered.start(i), video.buffered.end(i)])
   if (firstFrame.value) save()
 }
 function playing(event) {
   if (!validEvent(event)) return
+  clearBuffering()
   paused.value = false; booting.value = false; needGesture.value = false; seeking.value = false
   if (!event.currentTarget.requestVideoFrameCallback) { firstFrame.value = true; clearStartup() }
   clearTimeout(seekTimer)
@@ -402,6 +430,7 @@ function playing(event) {
 function playState(event) {
   if (!validEvent(event)) return
   paused.value = event.currentTarget.paused
+  if (paused.value) clearBuffering()
   // Media events report observed state; teardown, buffering and failures must
   // not overwrite the intent set synchronously by controls or a new load.
   if (event.type === 'pause' && !booting.value && !event.currentTarget.error && !event.currentTarget.ended) save(undefined, 'pause')
@@ -426,7 +455,7 @@ function togglePlay() {
   if (endedOnce) { void load({ start: 0, paused: false }); return }
   if (!video || !descriptor.value) return
   if (video.paused) { pauseWanted = false; void attemptPlay() }
-  else { pauseWanted = true; video.pause() }
+  else { pauseWanted = true; clearBuffering(); video.pause() }
   showControls()
 }
 function seekInput(event) { dragging.value = true; seekPreview.value = Number(event.target.value) || 0; showControls() }
@@ -438,6 +467,7 @@ function doSeek(value) {
   if (!canSeek.value || !descriptor.value || error.value) return
   const target = Math.min(Math.max(0, duration.value - .1), Math.max(0, Number(value) || 0))
   try {
+    clearBuffering()
     videoEl.value.currentTime = target; position.value = target; pendingStart = target; seeking.value = true
     clearTimeout(seekTimer)
     const gen = generation
@@ -459,6 +489,7 @@ function ended(event) {
 }
 async function mediaError(event) {
   if (!validEvent(event) || diagnosing) return
+  clearBuffering()
   const video = event.currentTarget, gen = generation, code = Number(video.error?.code)
   if (code === 3) { fail('online_decode_unsupported', '此设备无法解析或解码视频，请选择其他来源或设备'); return }
   if (engine.value === 'hls') return // The HLS error event has the response status and bounded retry context.
@@ -588,7 +619,8 @@ function snapshot() {
   return { identity, transport: transport.value, processing: 'passthrough', engine: engine.value,
     position: position.value, duration: duration.value, paused: paused.value, buffered: buffered.value.map(value => [...value]),
     sessionId: controller.current()?.session_id || null, activeHls: !!hls, errors: [...errors], gen: generation,
-    booting: booting.value, closed: disposed || pageLifecycle.isAway(), firstFrame: firstFrame.value,
+    booting: booting.value, buffering: buffering.value, controlsVisible: controlsVisible.value,
+    closed: disposed || pageLifecycle.isAway(), firstFrame: firstFrame.value,
     startupGapRecoveries: startupGapRecoveries.value, presentedFrames }
 }
 const debug = { snapshot }
