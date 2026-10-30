@@ -3,11 +3,15 @@ package org.jzmedia.tv.ui
 /** Saved focus survives the transient navigation focus emitted while a page leaves. */
 class FocusMemory(initial: String) {
     var key = initial
+    var revision: Long = 0
+        private set
     val restoreKey = initial
     var restored = false
     var leaving = false
 
-    fun focused(target: String) { if (!leaving) key = target }
+    fun focused(target: String) {
+        if (!leaving && key != target) { key = target; revision++ }
+    }
     fun save(): String = key
 
     fun restoreFocus(target: String, request: () -> Boolean): Boolean {

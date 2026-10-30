@@ -12,6 +12,11 @@ class OnlineModelsTest {
     private val episode = "ep_" + "4".repeat(32)
     private val sid = "s".repeat(43)
     private val movie = OnlineIdentity(source, item, "movie", lineId = line)
+    private fun sourceJson() = JSONObject().put("id", source).put("name", "合成来源").put("provider", "maccms")
+    private fun searchItem() = JSONObject().put("external_id", "show-1").put("title", "合成剧集").put("year", "2026")
+        .put("kind", "tv").put("description", "独立测试资料")
+    private fun searchPage() = JSONObject().put("source", sourceJson()).put("items", JSONArray().put(searchItem()))
+        .put("page", 1).put("page_count", 1).put("total", 1)
     private fun descriptor() = JSONObject().put("identity", movie.toJson()).put("session_id", sid)
         .put("media_url", "/api/online/sessions/$sid/media").put("transport", "mp4")
         .put("processing", "passthrough").put("seekable", true).put("duration_seconds", 24.0)
@@ -41,6 +46,110 @@ class OnlineModelsTest {
         assertTrue(supportsOnlineVod(JSONObject().put("features", JSONObject().put("online_vod", true))))
         assertFalse(supportsOnlineVod(JSONObject().put("features", JSONObject().put("online_vod", "true"))))
         assertFalse(supportsOnlineVod(JSONObject().put("features", JSONArray().put("viewing_modes"))))
+    }
+
+    @Test fun oldCatalogueResponsesKeepSearchWithoutInventingBrowseAndYearCapabilities() {
+        val old = OnlineSource.fromJson(sourceJson())
+        assertFalse(old.browseSupported)
+        assertFalse(old.yearFilterSupported)
+        val current = OnlineSource.fromJson(sourceJson().put("capabilities", JSONObject().put("browse", true).put("year_filter", false)))
+        assertTrue(current.browseSupported)
+        assertFalse(current.yearFilterSupported)
+        val filtered = OnlineSource.fromJson(sourceJson().put("capabilities", JSONObject().put("year_filter", true)))
+        assertTrue(filtered.yearFilterSupported)
+        assertFalse(filtered.browseSupported)
+        assertThrows(IllegalArgumentException::class.java) {
+            OnlineSource.fromJson(sourceJson().put("capabilities", JSONObject().put("browse", "true")))
+        }
+        val page = OnlineSearchPage.fromJson(searchPage())
+        assertTrue(page.categories.isEmpty())
+        val entry = page.items.single()
+        assertNull(entry.posterPath)
+        assertEquals("", entry.category)
+        assertEquals("", entry.categoryId)
+        assertEquals("", entry.parentCategoryId)
+        assertEquals("", entry.remarks)
+    }
+
+    @Test fun browseKeepsSourceTaxonomyMetadataAndOnlyTheSourceBoundArtworkLease() {
+        val path = "/api/online/catalog/artwork/$source/" + "a".repeat(32)
+        val row = searchItem().put("poster_path", path).put("category", "国产剧").put("category_id", "13")
+            .put("parent_category_id", "2").put("remarks", "更新至第 2 集")
+        val tree = JSONArray().put(JSONObject().put("id", "2").put("name", "剧集"))
+            .put(JSONObject().put("id", "13").put("name", "国产剧").put("parent_id", "2"))
+        val page = OnlineSearchPage.fromJson(searchPage().put("items", JSONArray().put(row)).put("categories", tree))
+        assertEquals(path, page.items.single().posterPath)
+        assertEquals("国产剧", page.items.single().category)
+        assertEquals("13", page.items.single().categoryId)
+        assertEquals("2", page.items.single().parentCategoryId)
+        assertEquals("更新至第 2 集", page.items.single().remarks)
+        assertEquals(listOf(OnlineCategory("2", "剧集"), OnlineCategory("13", "国产剧", "2")), page.categories)
+        assertNull(OnlineSearchItem.fromJson(searchItem().put("poster_path", "")).posterPath)
+        assertNull(OnlineSearchItem.fromJson(searchItem().put("poster_path", JSONObject.NULL)).posterPath)
+    }
+
+    @Test fun catalogueInvalidationTokensRemainOptionalForOlderServersAndKeepCurrentOpaqueBindings() {
+        val old = OnlineSources.fromJson(JSONObject().put("enabled", true).put("items", JSONArray().put(sourceJson())))
+        assertEquals("", old.scopeToken)
+        assertEquals("", old.items.single().configurationToken)
+        val current = OnlineSources.fromJson(JSONObject().put("enabled", true).put("scope_token", "a".repeat(64))
+            .put("items", JSONArray().put(sourceJson().put("configuration_token", "b".repeat(64)))))
+        assertEquals("a".repeat(64), current.scopeToken)
+        assertEquals("b".repeat(64), current.items.single().configurationToken)
+        val restarted = OnlineSources.fromJson(JSONObject().put("enabled", true).put("scope_token", "c".repeat(64))
+            .put("items", JSONArray().put(sourceJson().put("configuration_token", "d".repeat(64)))))
+        assertNotEquals(current.scopeToken, restarted.scopeToken)
+        assertNotEquals(current.items.single().configurationToken, restarted.items.single().configurationToken)
+        assertEquals("", OnlineSource.fromJson(sourceJson().put("configuration_token", "")).configurationToken)
+    }
+
+    @Test fun catalogueInvalidationTokensRejectMalformedValuesInsteadOfWeakeningTheBinding() {
+        for (invalid in listOf("a".repeat(63), "a".repeat(65), "A".repeat(64), "g".repeat(64), "a".repeat(64) + "\n", 42)) {
+            assertThrows(IllegalArgumentException::class.java) { OnlineSource.fromJson(sourceJson().put("configuration_token", invalid)) }
+            assertThrows(IllegalArgumentException::class.java) {
+                OnlineSources.fromJson(JSONObject().put("enabled", true).put("items", JSONArray()).put("scope_token", invalid))
+            }
+        }
+    }
+
+    @Test fun artworkNeverAllowsExternalUrlsOtherSourceLeasesOrExtraPathComponents() {
+        val path = "/api/online/catalog/artwork/$source/" + "a".repeat(32)
+        val other = "src_" + "2".repeat(32)
+        for (invalid in listOf("https://foreign.example/a.jpg", "//foreign.example/a.jpg", "/api/artwork/a.jpg",
+            path + "?token=secret", path + "#fragment", path + "/../media", path.replace(source, other),
+            path.replace("artwork/", "artwork%2f"), path.dropLast(1), path + "\n", 42)) {
+            assertThrows("must reject artwork $invalid", IllegalArgumentException::class.java) {
+                OnlineSearchPage.fromJson(searchPage().put("items", JSONArray().put(searchItem().put("poster_path", invalid))))
+            }
+        }
+    }
+
+    @Test fun detailPosterUsesOnlyTheDetailSourceLeaseAndOldServersCanOmitIt() {
+        val empty = longDetail(1)
+        assertNull(OnlineDetail.fromJson(empty).posterPath)
+        assertNull(OnlineDetail.fromJson(longDetail(1).put("poster_path", "")).posterPath)
+        val path = "/api/online/catalog/artwork/$source/" + "a".repeat(32)
+        assertEquals(path, OnlineDetail.fromJson(longDetail(1).put("poster_path", path)).posterPath)
+        val other = "src_" + "2".repeat(32)
+        for (invalid in listOf(path.replace(source, other), "https://foreign.example/image.png", path + "?x=1", path + "\n")) {
+            assertThrows(IllegalArgumentException::class.java) { OnlineDetail.fromJson(longDetail(1).put("poster_path", invalid)) }
+        }
+    }
+
+    @Test fun categoryTreesRemainBoundedAndRejectDuplicateOrMalformedIdentities() {
+        val categories = JSONArray()
+        repeat(256) { categories.put(JSONObject().put("id", "category-$it").put("name", "分类 $it")) }
+        assertEquals(256, OnlineSearchPage.fromJson(searchPage().put("categories", categories)).categories.size)
+        categories.put(JSONObject().put("id", "overflow").put("name", "超出上限"))
+        assertThrows(IllegalArgumentException::class.java) { OnlineSearchPage.fromJson(searchPage().put("categories", categories)) }
+        val category = JSONObject().put("id", "13").put("name", "国产剧")
+        assertThrows(IllegalArgumentException::class.java) {
+            OnlineSearchPage.fromJson(searchPage().put("categories", JSONArray().put(category).put(category)))
+        }
+        for ((field, value) in listOf("id" to "../13", "name" to " ", "parent_id" to "13&query=1")) {
+            assertThrows(IllegalArgumentException::class.java) { OnlineCategory.fromJson(JSONObject(category.toString()).put(field, value)) }
+        }
+        assertThrows(IllegalArgumentException::class.java) { OnlineSearchItem.fromJson(searchItem().put("category_id", "13&query=1")) }
     }
 
     @Test fun onlineIdentityCannotBeConfusedWithLocalMediaOrAnotherEpisode() {

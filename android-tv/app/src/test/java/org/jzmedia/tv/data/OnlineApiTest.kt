@@ -75,6 +75,60 @@ class OnlineApiTest {
         }
     }
 
+    @Test fun browseUsesOnlyTheSelectedSourceCategoryAndYearWithTheSameDeviceCredentials() = runBlocking {
+        MockWebServer().use { server ->
+            val online = OnlineApi(api(server))
+            val page = JSONObject().put("source", sourceJson()).put("items", JSONArray()).put("page", 2).put("page_count", 2).put("total", 20)
+                .put("categories", JSONArray().put(JSONObject().put("id", "13").put("name", "国产剧").put("parent_id", "2")))
+            server.enqueue(reply(page))
+            assertEquals(OnlineCategory("13", "国产剧", "2"), online.browse(source, 2, "13", "2026").categories.single())
+            val request = server.takeRequest(1, TimeUnit.SECONDS)!!
+            assertEquals("/prefix/api/online/catalog/browse?source_id=$source&page=2&category_id=13&year=2026", request.path)
+            assertEquals("device-token", request.getHeader("X-Viewing-Session"))
+            assertEquals("tv", request.getHeader("X-Viewing-Client"))
+            assertEquals("write-token", request.getHeader("X-Api-Token"))
+            assertNull(request.getHeader("X-Online-State-Scope"))
+            assertNull(request.requestUrl!!.queryParameter("q"))
+            server.enqueue(reply(page.put("page", 1)))
+            online.browse(source)
+            assertEquals("/prefix/api/online/catalog/browse?source_id=$source&page=1", server.takeRequest(1, TimeUnit.SECONDS)!!.path)
+        }
+    }
+
+    @Test fun browseRejectsInvalidSelectorsBeforeContactingTheServer() = runBlocking {
+        MockWebServer().use { server ->
+            val online = OnlineApi(api(server))
+            for (page in listOf(0, 1001)) {
+                try { online.browse(source, page); fail("Invalid browse page") } catch (_: IllegalArgumentException) { }
+            }
+            for (category in listOf("../13", "13&year=2026", "a".repeat(129), "13\n")) {
+                try { online.browse(source, categoryId = category); fail("Invalid category") } catch (_: IllegalArgumentException) { }
+            }
+            for (year in listOf("26", "0202", "2026&wd=film", "2026\n", "２０２６")) {
+                try { online.browse(source, year = year); fail("Invalid year") } catch (_: IllegalArgumentException) { }
+            }
+            assertEquals(0, server.requestCount)
+        }
+    }
+
+    @Test fun browseRejectsMismatchedSourcePageAndMalformedOptionalMetadata() = runBlocking {
+        MockWebServer().use { server ->
+            val online = OnlineApi(api(server))
+            fun page() = JSONObject().put("source", sourceJson()).put("items", JSONArray()).put("page", 1).put("page_count", 1).put("total", 1)
+            val row = JSONObject().put("external_id", "film-1").put("title", "Film").put("year", "2026").put("kind", "movie")
+                .put("description", "").put("poster_path", "https://foreign.example/poster.jpg")
+            val corruptions = listOf(page().put("source", sourceJson().put("id", "src_" + "f".repeat(32))), page().put("page", 2),
+                page().put("items", JSONArray().put(row)), page().put("categories", "not-a-list"),
+                page().put("source", sourceJson().put("capabilities", JSONObject().put("year_filter", "true"))))
+            for (bad in corruptions) {
+                server.enqueue(reply(bad))
+                try { online.browse(source); fail("Malformed browse response must fail") }
+                catch (error: ApiException) { assertEquals("invalid_online_response", error.code) }
+            }
+            assertEquals(corruptions.size, server.requestCount)
+        }
+    }
+
     @Test fun createsOnlyStableIdentityAndDeletesOnlyThatOwnedSessionPath() = runBlocking {
         MockWebServer().use { server ->
             val online = OnlineApi(api(server))

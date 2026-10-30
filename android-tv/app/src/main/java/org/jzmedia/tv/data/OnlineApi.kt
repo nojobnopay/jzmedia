@@ -21,6 +21,15 @@ class OnlineApi(val api: JzApi) {
         if (actual != expected) throw ApiException(409, "观看身份已变化，请重新打开页面", "online_state_scope_changed")
     }
     suspend fun sources(): OnlineSources = read("GET", "/api/online/catalog/sources", parser = OnlineSources::fromJson)
+    suspend fun browse(sourceId: String, page: Int = 1, categoryId: String = "", year: String = ""): OnlineSearchPage {
+        checkedOnlineSource(sourceId); require(page in 1..1000)
+        if (categoryId.isNotEmpty()) checkedOnlineCatalogExternal(categoryId)
+        require(year.isEmpty() || Regex("[1-9][0-9]{3}").matches(year))
+        return read("GET", queryPath("/api/online/catalog/browse", linkedMapOf("source_id" to sourceId, "page" to page,
+            "category_id" to categoryId.takeIf { it.isNotEmpty() }, "year" to year.takeIf { it.isNotEmpty() }))) {
+            OnlineSearchPage.fromJson(it).also { result -> require(result.source.id == sourceId && result.page == page) }
+        }
+    }
     suspend fun search(sourceId: String, q: String, page: Int = 1): OnlineSearchPage {
         checkedOnlineSource(sourceId); require(q.length <= 100 && page in 1..1000)
         return read("GET", queryPath("/api/online/catalog/search", linkedMapOf("source_id" to sourceId, "q" to q, "page" to page))) {

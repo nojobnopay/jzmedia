@@ -4,6 +4,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FocusMemoryTest {
+    @Test fun focusRevisionDetectsNavigationAwayAndBackToTheSameKey() {
+        val memory = FocusMemory("nav:online")
+        assertEquals(0, memory.revision)
+        memory.focused("nav:online")
+        assertEquals(0, memory.revision)
+        memory.focused("nav:search")
+        memory.focused("nav:online")
+        assertEquals(2, memory.revision)
+        memory.leaving = true
+        memory.focused("nav:home")
+        assertEquals(2, memory.revision)
+        assertEquals("nav:online", memory.key)
+    }
+
     @Test fun returningFromDetailsRestoresTheOriginalListItemDespiteNavigationFocusOnExit() {
         val list = FocusMemory("nav:shows")
         list.focused("show:42")

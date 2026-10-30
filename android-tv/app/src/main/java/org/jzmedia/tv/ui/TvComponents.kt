@@ -238,6 +238,8 @@ internal object Posters {
     }
     private val loads = SharedImageLoads<Pair<JzApi, String>, Bitmap?>()
     private val slots = Semaphore(4)
+    // Online artwork shares the server's two-reader budget; do not burst a full wall at it.
+    private val onlineSlots = Semaphore(2)
 
     suspend fun load(api: JzApi, path: String): Bitmap? {
         val startedGeneration = generation.get()
@@ -245,7 +247,7 @@ internal object Posters {
         val key = "${api.cacheScope}:$url"
         cache.get(key)?.let { return it }
         return loads.get(api to url) {
-            slots.withPermit {
+            (if (path.startsWith("/api/online/catalog/artwork/")) onlineSlots else slots).withPermit {
                 cache.get(key) ?: withContext(Dispatchers.IO) {
                     val bytes = api.getBytes(path)
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

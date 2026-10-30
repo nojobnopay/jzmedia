@@ -7,6 +7,8 @@ private val SOURCE_ID = Regex("src_[0-9a-f]{32}")
 private val ITEM_ID = Regex("itm_[0-9a-f]{32}")
 private val EPISODE_ID = Regex("ep_[0-9a-f]{32}")
 private val LINE_ID = Regex("ln_[0-9a-f]{32}")
+private val CATALOG_ID = Regex("[A-Za-z0-9_-]{1,128}")
+private val ARTWORK_PATH = Regex("/api/online/catalog/artwork/(src_[0-9a-f]{32})/[0-9a-f]{32}")
 private const val MAX_CATALOG_ENTRIES = 2000
 internal val ONLINE_OPAQUE = Regex("[A-Za-z0-9_-]{32,128}")
 internal val ONLINE_SCOPE = Regex("[0-9a-f]{64}")
@@ -40,7 +42,20 @@ internal fun checkedOnlineExternal(value: String): String {
     return value.trim().also { require(it.codePointCount(0, it.length) in 1..512) }
 }
 internal fun checkedOnlineCatalogExternal(value: String): String = value.also {
-    require(Regex("[A-Za-z0-9_-]{1,128}").matches(it))
+    require(CATALOG_ID.matches(it))
+}
+private fun JSONObject.catalogId(name: String): String = if (!has(name)) "" else string(name, 128).also {
+    require(it.isEmpty() || CATALOG_ID.matches(it))
+}
+private fun JSONObject.catalogToken(name: String): String = optionalString(name).orEmpty().also {
+    require(it.isEmpty() || ONLINE_SCOPE.matches(it))
+}
+private fun JSONObject.artwork(sourceId: String?): String? {
+    val path = optionalString("poster_path") ?: return null
+    if (path.isEmpty()) return null
+    val match = ARTWORK_PATH.matchEntire(path) ?: throw IllegalArgumentException("Invalid online artwork")
+    require(sourceId == null || match.groupValues[1] == sourceId)
+    return path
 }
 
 /** Absence is the old-server path; no application-version guess enables it. */
@@ -72,28 +87,51 @@ data class OnlineIdentity(val sourceId: String, val itemId: String, val kind: St
 }
 
 data class OnlineSource(val id: String, val name: String, val provider: String,
-                        val priority: Int = 100, val enabled: Boolean = true) {
+                        val priority: Int = 100, val enabled: Boolean = true,
+                        val browseSupported: Boolean = false, val yearFilterSupported: Boolean = false,
+                        val configurationToken: String = "") {
     companion object {
-        fun fromJson(value: JSONObject) = OnlineSource(checkedOnlineSource(value.string("id")), value.string("name", 128),
+        fun fromJson(value: JSONObject): OnlineSource {
+            val capabilities = value.optionalObject("capabilities")
+            return OnlineSource(checkedOnlineSource(value.string("id")), value.string("name", 128),
             value.string("provider").also { require(it in setOf("maccms", "open_catalog")) },
             if (value.has("priority")) value.integer("priority").also { require(it <= 1000) }.toInt() else 100,
-            if (value.has("enabled")) value.boolean("enabled") else true)
+            if (value.has("enabled")) value.boolean("enabled") else true,
+            if (capabilities?.has("browse") == true) capabilities.boolean("browse") else false,
+            if (capabilities?.has("year_filter") == true) capabilities.boolean("year_filter") else false,
+            value.catalogToken("configuration_token"))
+        }
     }
 }
-data class OnlineSources(val enabled: Boolean, val items: List<OnlineSource>) {
-    companion object { fun fromJson(value: JSONObject) = OnlineSources(value.boolean("enabled"), value.list("items", 1000).map(OnlineSource::fromJson)) }
+data class OnlineSources(val enabled: Boolean, val items: List<OnlineSource>, val scopeToken: String = "") {
+    companion object { fun fromJson(value: JSONObject) = OnlineSources(value.boolean("enabled"), value.list("items", 1000).map(OnlineSource::fromJson),
+        value.catalogToken("scope_token")) }
 }
 data class OnlineSearchItem(val externalId: String, val title: String, val year: String,
-                            val kind: String, val description: String) {
-    companion object { fun fromJson(value: JSONObject) = OnlineSearchItem(checkedOnlineCatalogExternal(value.string("external_id")),
+                            val kind: String, val description: String, val posterPath: String? = null,
+                            val category: String = "", val categoryId: String = "", val parentCategoryId: String = "",
+                            val remarks: String = "") {
+    companion object { fun fromJson(value: JSONObject, sourceId: String? = null) = OnlineSearchItem(checkedOnlineCatalogExternal(value.string("external_id")),
         value.string("title", 512), value.string("year", 32), value.string("kind").also { require(it in setOf("movie", "tv", "unknown")) },
-        value.string("description", 8192)) }
+        value.string("description", 8192), value.artwork(sourceId),
+        if (value.has("category")) value.string("category", 128) else "", value.catalogId("category_id"), value.catalogId("parent_category_id"),
+        if (value.has("remarks")) value.string("remarks", 512) else "") }
+}
+data class OnlineCategory(val id: String, val name: String, val parentId: String = "") {
+    companion object { fun fromJson(value: JSONObject) = OnlineCategory(checkedOnlineCatalogExternal(value.string("id")),
+        value.string("name", 128).also { require(it.isNotBlank()) }, value.catalogId("parent_id")) }
 }
 data class OnlineSearchPage(val source: OnlineSource, val items: List<OnlineSearchItem>,
-                            val page: Int, val pageCount: Int, val total: Int) {
-    companion object { fun fromJson(value: JSONObject) = OnlineSearchPage(OnlineSource.fromJson(value.getJSONObject("source")),
-        value.list("items", 100).map(OnlineSearchItem::fromJson), value.integer("page").also { require(it in 1L..1000L) }.toInt(),
-        value.integer("page_count").also { require(it <= Int.MAX_VALUE) }.toInt(), value.integer("total").also { require(it <= Int.MAX_VALUE) }.toInt()) }
+                            val page: Int, val pageCount: Int, val total: Int,
+                            val categories: List<OnlineCategory> = emptyList()) {
+    companion object { fun fromJson(value: JSONObject): OnlineSearchPage {
+        val source = OnlineSource.fromJson(value.getJSONObject("source"))
+        val categories = if (value.has("categories")) value.list("categories", 256).map(OnlineCategory::fromJson) else emptyList()
+        require(categories.map { it.id }.distinct().size == categories.size)
+        return OnlineSearchPage(source, value.list("items", 100).map { OnlineSearchItem.fromJson(it, source.id) },
+            value.integer("page").also { require(it in 1L..1000L) }.toInt(),
+            value.integer("page_count").also { require(it <= Int.MAX_VALUE) }.toInt(), value.integer("total").also { require(it <= Int.MAX_VALUE) }.toInt(), categories)
+    } }
 }
 data class OnlineCatalogItem(val id: String, val sourceId: String, val kind: String,
                              val title: String, val externalId: String = "") {
@@ -120,7 +158,8 @@ data class OnlineAttribution(val label: String, val url: String) {
     companion object { fun fromJson(value: JSONObject) = OnlineAttribution(value.string("label", 512), value.string("url", 2048)) }
 }
 data class OnlineDetail(val source: OnlineSource, val item: OnlineCatalogItem, val description: String,
-                       val year: String, val lines: List<OnlineLine>, val attribution: List<OnlineAttribution> = emptyList()) {
+                       val year: String, val lines: List<OnlineLine>, val attribution: List<OnlineAttribution> = emptyList(),
+                       val posterPath: String? = null) {
     fun findEntry(identity: OnlineIdentity): OnlineEntry? = lines.firstOrNull { it.id == identity.lineId }
         ?.entries?.firstOrNull { it.supported && it.identity == identity }
     fun nextEpisode(identity: OnlineIdentity): OnlineEntry? {
@@ -140,7 +179,7 @@ data class OnlineDetail(val source: OnlineSource, val item: OnlineCatalogItem, v
         require(lines.flatMap { it.entries }.all { it.identity == null || it.identity.sourceId == source.id && it.identity.itemId == item.id })
         require(lines.all { line -> line.entries.all { it.identity == null || it.identity.lineId == line.id } })
         return OnlineDetail(source, item, value.string("description", 8192), value.string("year", 32), lines,
-            value.list("attribution", 32).map(OnlineAttribution::fromJson))
+            value.list("attribution", 32).map(OnlineAttribution::fromJson), value.artwork(source.id))
     } }
 }
 
