@@ -171,6 +171,21 @@ class _OperationResponseStream(httpx.SyncByteStream):
             self._stream.close()
 
 
+class _ImageResponseStream(httpx.SyncByteStream):
+    """HTTPX's consumed flag starts at iteration; retain actual EOF as well."""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self.complete = False
+
+    def __iter__(self):
+        yield from self._stream
+        self.complete = True
+
+    def close(self):
+        self._stream.close()
+
+
 class NetworkClient:
     """One independent connection pool and fixed route, with no implicit retry.
 
@@ -198,7 +213,9 @@ class NetworkClient:
         self._reuse_eligible = True
         self._reuse_completed = False
         self._reuse_closed = False
-        self._reuse_trust_material = _trust_material(snapshot) if snapshot.purpose == "api" else None
+        self._image_response = None
+        self._image_stream_open = False
+        self._reuse_trust_material = _trust_material(snapshot) if snapshot.purpose in {"api", "image"} else None
         try:
             self._client = httpx.Client(
                 trust_env=False, follow_redirects=False,
@@ -227,8 +244,8 @@ class NetworkClient:
                 self._reuse_eligible = False
 
     def reusable_for(self, base_url):
-        """Only a completed, single-origin API reader may enter an idle pool."""
-        if (self.snapshot.purpose != "api" or self._reuse_trust_material is None
+        """Only an explicitly completed, single-origin bounded reader is reusable."""
+        if (self.snapshot.purpose not in {"api", "image"} or self._reuse_trust_material is None
                 or type(self.header_policy) is not HeaderPolicy
                 or self.header_policy._grants):
             return False
@@ -270,6 +287,24 @@ class NetworkClient:
         check_operation()
         return previous_trust is not None and previous_trust == current_trust
 
+    def accept_image_response(self, response):
+        """Mark a validated image only after its own stream has fully closed.
+
+        The image caller separately enforces its smaller byte/MIME limits and
+        final access check. Generic stream and media users cannot qualify.
+        """
+        check_operation()
+        with self._reuse_lock:
+            owned = self._image_response
+            accepted = (self.snapshot.purpose == "image" and not self._reuse_closed
+                        and owned is not None and owned[0] is response and owned[1].complete
+                        and not self._image_stream_open
+                        and isinstance(response, httpx.Response) and response.status_code == 200
+                        and response.is_closed and response.is_stream_consumed)
+            self._image_response = None
+            self._reuse_completed = accepted
+            return accepted
+
     def _failed(self, error):
         category = _category(error)
         _logger.warning("network request failed: %s policy=%s purpose=%s",
@@ -298,7 +333,7 @@ class NetworkClient:
                                     content=b"".join(chunks), request=response.request,
                                     extensions=response.extensions)
         with self._reuse_lock:
-            self._reuse_completed = result.status_code == 200
+            self._reuse_completed = self.snapshot.purpose == "api" and result.status_code == 200
         return result
 
     @contextmanager
@@ -324,6 +359,10 @@ class NetworkClient:
 
     @contextmanager
     def stream(self, method, url, **kwargs):
+        with self._reuse_lock:
+            self._reuse_completed = False
+            self._image_response = None
+            self._image_stream_open = self.snapshot.purpose == "image"
         options = _request_options(kwargs)
         if not isinstance(method, str) or method.upper() not in {"GET", "HEAD"}:
             raise NetworkRequestError("unsupported_request_method")
@@ -373,6 +412,11 @@ class NetworkClient:
                                 sock = network_stream.get_extra_info("socket")
                                 response.stream = _OperationResponseStream(response.stream, operation, sock)
                         if response.status_code not in {301, 302, 303, 307, 308}:
+                            if self.snapshot.purpose == "image":
+                                image_stream = _ImageResponseStream(response.stream)
+                                response.stream = image_stream
+                                with self._reuse_lock:
+                                    self._image_response = response, image_stream
                             yield response
                             return
                         locations = response.headers.get_list("location")
@@ -390,14 +434,16 @@ class NetworkClient:
             except (httpx.HTTPError, httpx.InvalidURL) as error:
                 raise self._failed(error) from None
             finally:
-                # stream() consumers do not qualify as bounded API reads;
-                # request() marks completion only after this context exits.
+                # API request() and the explicit image completion hook mark
+                # success only after this context and its response have closed.
                 with self._reuse_lock:
                     self._reuse_completed = False
+                    self._image_stream_open = False
 
     def close(self):
         with self._reuse_lock:
             self._reuse_closed = True
+            self._image_response = None
         with _private_logs():
             try:
                 self._client.close()

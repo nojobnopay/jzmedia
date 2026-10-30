@@ -3,6 +3,8 @@
 import asyncio
 import threading
 
+import pytest
+
 from app.online import runtime
 
 
@@ -43,7 +45,8 @@ def test_maintenance_is_singleton_fails_closed_and_has_clean_shutdown(monkeypatc
     assert "sessions revoked" in caplog.text
 
 
-def test_connection_maintenance_failure_discards_idle_clients_without_revoking_sessions(monkeypatch, caplog):
+@pytest.mark.parametrize("pool", [runtime.api_pool, runtime.image_pool])
+def test_connection_maintenance_failure_discards_idle_clients_without_revoking_sessions(monkeypatch, caplog, pool):
     discarded = threading.Event()
     calls = []
 
@@ -59,10 +62,10 @@ def test_connection_maintenance_failure_discards_idle_clients_without_revoking_s
     monkeypatch.setattr(runtime.service.registry, "close_all", lambda: calls.append("revoke"))
     monkeypatch.setattr(runtime.gateway, "start_workers", lambda: None)
     monkeypatch.setattr(runtime.gateway, "shutdown_workers", lambda: None)
-    monkeypatch.setattr(runtime.api_pool, "start", lambda: calls.append("start"))
-    monkeypatch.setattr(runtime.api_pool, "sweep", fail_sweep)
-    monkeypatch.setattr(runtime.api_pool, "clear", clear)
-    monkeypatch.setattr(runtime.api_pool, "shutdown", lambda: calls.append("shutdown"))
+    monkeypatch.setattr(pool, "start", lambda: calls.append("start"))
+    monkeypatch.setattr(pool, "sweep", fail_sweep)
+    monkeypatch.setattr(pool, "clear", clear)
+    monkeypatch.setattr(pool, "shutdown", lambda: calls.append("shutdown"))
 
     async def scenario():
         await runtime.start()

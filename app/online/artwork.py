@@ -16,7 +16,7 @@ from ..network.policy import NetworkPolicyError
 from ..network.targets import TargetPolicy, TargetPolicyError
 from ..store.online import OnlineNotFound
 from ..store.online_network import load_online_network_state
-from . import health, service
+from . import health, image_pool, service
 from .artwork_cache import ArtworkCache, ArtworkCacheBusy
 from .catalog import CatalogError
 
@@ -233,7 +233,9 @@ def _read(access, entry, token, operation):
             acquired = _readers.acquire(timeout=min(0.1, operation.remaining()))
         state = _authorized(access, entry, token, operation)
         expected_network, _mode = health.configuration(state, "image")
-        with create_online_client(entry.source_id, "image") as client:
+        with image_pool.borrow(access, state["source_config"], entry.configuration, entry.url,
+                               lambda: _authorized(access, entry, token, operation), create_online_client) as lease:
+            client = lease.client
             # The factory records its exact immutable DB view. Reject a policy
             # race before its reader can contact an upstream host.
             context = getattr(client, "_online_health_context", None)
@@ -244,6 +246,7 @@ def _read(access, entry, token, operation):
             with client.stream("GET", entry.url, headers={"Accept": "image/jpeg,image/png,image/webp"}) as response:
                 result = _body(response, access, entry, operation)
             _authorized(access, entry, token, operation)
+            lease.accept(response)
             return result
     finally:
         if acquired:
