@@ -6,6 +6,7 @@ import hashlib
 import json
 import threading
 import time
+import uuid
 
 from ..network.guard import NetworkOperation, NetworkOperationError, current_operation, operation_context
 from ..store import online as online_store
@@ -24,6 +25,7 @@ _owners = set()
 _background = {}
 _preempt_waiters = set()
 MAX_PREEMPT_WAITERS = 4
+_process_scope = uuid.uuid4().hex
 BACKGROUND_REFRESH_SECONDS = 8
 
 
@@ -200,7 +202,9 @@ def sources(access):
     enabled = online_store.get_online_settings()["enabled"]
     # Cache partition only: this is deliberately distinct from state API write
     # intent tokens and never exposes the device's owner hash to the browser.
-    scope = hashlib.sha256(json.dumps(["online-catalogue", access.owner, access.generation,
+    # Artwork leases are process-local. A server restart must invalidate old
+    # page snapshots even when the persisted source and viewing identity match.
+    scope = hashlib.sha256(json.dumps(["online-catalogue", _process_scope, access.owner, access.generation,
                                       access.protection_revision], separators=(",", ":")).encode()).hexdigest()
     result = []
     for selected in online_store.list_online_sources() if enabled else []:

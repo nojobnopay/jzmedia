@@ -33,6 +33,15 @@ def direct(state, caller, *, operation=None):
     return reader(access(state), state.source["id"], *args, operation=operation)
 
 
+def test_a_new_server_process_invalidates_cached_poster_leases_without_changing_source_configuration(environment, monkeypatch):
+    before = environment.client.get("/api/online/catalog/sources").json()
+    assert environment.client.get("/api/online/catalog/sources").json()["scope_token"] == before["scope_token"]
+    monkeypatch.setattr(catalog, "_process_scope", "new-isolated-server-process")
+    after = environment.client.get("/api/online/catalog/sources").json()
+    assert after["scope_token"] != before["scope_token"]
+    assert after["items"] == before["items"]
+
+
 @pytest.mark.parametrize("caller", ["browse", "search"])
 def test_background_wire_ready_is_preserved_and_foreground_shape_is_unchanged(environment, caller):
     source = environment.client.get("/api/online/catalog/sources").json()["items"][0]
