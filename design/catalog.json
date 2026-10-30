@@ -20732,7 +20732,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 42,
+            "line": 45,
             "selector": ".online-poster-button.jz-button",
             "values": {
               "width": "100%",
@@ -20741,7 +20741,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 114,
+            "line": 117,
             "selector": ".online-channels .jz-button, .online-class-options .jz-button, .online-connection summary",
             "values": {
               "min-height": "44px"
@@ -20749,7 +20749,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 124,
+            "line": 127,
             "selector": ".online-detail-actions > .jz-button",
             "values": {
               "min-height": "44px"
@@ -20757,7 +20757,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 128,
+            "line": 131,
             "selector": ".online-related-state .jz-button",
             "values": {
               "min-height": "44px"
@@ -20765,7 +20765,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 155,
+            "line": 158,
             "selector": ".online-library-actions .jz-button",
             "values": {
               "min-height": "44px"
@@ -20773,7 +20773,7 @@
           },
           {
             "source": "frontend/src/styles/online.css",
-            "line": 156,
+            "line": 159,
             "selector": ".online-health .jz-button",
             "values": {
               "min-height": "44px"
@@ -51961,7 +51961,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/online.css",
-            "line": 42,
+            "line": 45,
             "selector": ".online-poster-button.jz-button",
             "values": {
               "width": "100%",
@@ -52022,9 +52022,49 @@
       "source_excerpt": "<AppIcon name=\"play\" :size=\"22\" />"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:160",
+      "id": "frontend/src/views/Online.vue:JzButton:161",
       "source": "frontend/src/views/Online.vue",
-      "line": 121,
+      "line": 122,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "通用控件与导航",
+      "element": "JzButton",
+      "purpose": "查看更新",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton data-online-apply-update :disabled=\"searching || applyingUpdates\" :loading=\"applyingUpdates\" @click=\"applyUpdates\">"
+    },
+    {
+      "id": "frontend/src/views/Online.vue:JzButton:167",
+      "source": "frontend/src/views/Online.vue",
+      "line": 127,
       "platforms": [
         "web",
         "mobile-web"
@@ -52061,9 +52101,9 @@
       "source_excerpt": "<JzButton @click=\"search(lastQuery.page, lastQuery.query, { force: true })\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:170",
+      "id": "frontend/src/views/Online.vue:JzButton:177",
       "source": "frontend/src/views/Online.vue",
-      "line": 127,
+      "line": 133,
       "platforms": [
         "web",
         "mobile-web"
@@ -52103,9 +52143,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" data-online-refresh :disabled=\"searching\" @click=\"refreshResults\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:173",
+      "id": "frontend/src/views/Online.vue:JzButton:180",
       "source": "frontend/src/views/Online.vue",
-      "line": 129,
+      "line": 135,
       "platforms": [
         "web",
         "mobile-web"
@@ -52128,7 +52168,7 @@
         "overrides": [
           {
             "source": "frontend/src/styles/online.css",
-            "line": 42,
+            "line": 45,
             "selector": ".online-poster-button.jz-button",
             "values": {
               "width": "100%",
@@ -52153,9 +52193,9 @@
       "source_excerpt": "<JzButton class=\"online-poster-button\" variant=\"ghost\" :data-online-result=\"item.external_id\" :aria-label=\"'查看详情 ' + item.title\" :disabled=\"searching\" @click=\"openDetail(item.exter"
     },
     {
-      "id": "frontend/src/views/Online.vue:AppIcon:177",
+      "id": "frontend/src/views/Online.vue:AppIcon:184",
       "source": "frontend/src/views/Online.vue",
-      "line": 129,
+      "line": 135,
       "platforms": [
         "web",
         "mobile-web"
@@ -52190,9 +52230,9 @@
       "source_excerpt": "<AppIcon name=\"play\" :size=\"22\" />"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:182",
+      "id": "frontend/src/views/Online.vue:JzButton:189",
       "source": "frontend/src/views/Online.vue",
-      "line": 132,
+      "line": 138,
       "platforms": [
         "web",
         "mobile-web"
@@ -52232,9 +52272,9 @@
       "source_excerpt": "<JzButton icon=\"arrow-left\" :disabled=\"searching || !!searchError || page <= 1\" @click=\"search(page - 1, loadedQuery)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:184",
+      "id": "frontend/src/views/Online.vue:JzButton:191",
       "source": "frontend/src/views/Online.vue",
-      "line": 132,
+      "line": 138,
       "platforms": [
         "web",
         "mobile-web"
@@ -52274,9 +52314,9 @@
       "source_excerpt": "<JzButton icon=\"forward\" :disabled=\"searching || !!searchError || page >= pageCount\" @click=\"search(page + 1, loadedQuery)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:190",
+      "id": "frontend/src/views/Online.vue:JzButton:197",
       "source": "frontend/src/views/Online.vue",
-      "line": 137,
+      "line": 143,
       "platforms": [
         "web",
         "mobile-web"
@@ -52316,9 +52356,9 @@
       "source_excerpt": "<JzButton variant=\"ghost\" icon=\"refresh\" :disabled=\"libraryLoading\" @click=\"loadLibrary()\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:192",
+      "id": "frontend/src/views/Online.vue:JzButton:199",
       "source": "frontend/src/views/Online.vue",
-      "line": 139,
+      "line": 145,
       "platforms": [
         "web",
         "mobile-web"
@@ -52356,9 +52396,9 @@
       "source_excerpt": "<JzButton v-for=\"tab in libraryTabs\" :key=\"tab.key\" :data-online-library-section=\"tab.key\" :aria-pressed=\"librarySection === tab.key\" @click=\"selectLibrary(tab.key)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:205",
+      "id": "frontend/src/views/Online.vue:JzButton:212",
       "source": "frontend/src/views/Online.vue",
-      "line": 148,
+      "line": 154,
       "platforms": [
         "web",
         "mobile-web"
@@ -52398,9 +52438,9 @@
       "source_excerpt": "<JzButton v-if=\"row.progress\" icon=\"play\" :data-online-resume=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError || starting\" @click=\"openSaved(row, true)\""
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:206",
+      "id": "frontend/src/views/Online.vue:JzButton:213",
       "source": "frontend/src/views/Online.vue",
-      "line": 149,
+      "line": 155,
       "platforms": [
         "web",
         "mobile-web"
@@ -52438,9 +52478,9 @@
       "source_excerpt": "<JzButton :data-online-library-detail=\"row.item.id\" :disabled=\"!row.available || loadingSources || !!sourcesError\" @click=\"openSaved(row, false)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:207",
+      "id": "frontend/src/views/Online.vue:JzButton:214",
       "source": "frontend/src/views/Online.vue",
-      "line": 150,
+      "line": 156,
       "platforms": [
         "web",
         "mobile-web"
@@ -52480,9 +52520,9 @@
       "source_excerpt": "<JzButton v-if=\"row.favorite\" icon=\"heart-filled\" :data-online-favorite=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"favoriteRow(row, false)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:208",
+      "id": "frontend/src/views/Online.vue:JzButton:215",
       "source": "frontend/src/views/Online.vue",
-      "line": 151,
+      "line": 157,
       "platforms": [
         "web",
         "mobile-web"
@@ -52520,9 +52560,9 @@
       "source_excerpt": "<JzButton v-if=\"row.progress\" :data-online-history-delete=\"row.item.id\" :disabled=\"mutationBusy.has(row.item.id)\" @click=\"clearHistory(row)\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:210",
+      "id": "frontend/src/views/Online.vue:JzButton:217",
       "source": "frontend/src/views/Online.vue",
-      "line": 155,
+      "line": 161,
       "platforms": [
         "web",
         "mobile-web"
@@ -52560,9 +52600,9 @@
       "source_excerpt": "<JzButton :disabled=\"libraryOffset === 0 || libraryLoading\" @click=\"loadLibrary(Math.max(0, libraryOffset - 20))\">"
     },
     {
-      "id": "frontend/src/views/Online.vue:JzButton:212",
+      "id": "frontend/src/views/Online.vue:JzButton:219",
       "source": "frontend/src/views/Online.vue",
-      "line": 155,
+      "line": 161,
       "platforms": [
         "web",
         "mobile-web"

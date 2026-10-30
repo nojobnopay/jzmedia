@@ -234,6 +234,13 @@ export function createOnlineBrowseMemory({ clock = Date.now, maxBytes = MAX_BYTE
       if (!SCOPE.test(scope || '') || !Array.isArray(sources)) return null
       prune()
       const available = new Map(sources.filter(source => valid(scope, source)).map(source => [source.id, source]))
+      // This list has just passed the server's permission/configuration check.
+      // Retire invalid bindings rather than reviving them if a setting reverts.
+      for (const [selected, entry] of entries) {
+        const source = available.get(entry.value.sourceId)
+        if (!source || !matches(entry, scope, source)
+          || entry.value.year && source.capabilities?.year_filter !== true) remove(selected)
+      }
       for (const entry of [...entries.values()].reverse()) {
         const value = entry.value
         if (entry.scope === scope && (!sourceId || value.sourceId === sourceId)

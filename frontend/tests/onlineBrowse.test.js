@@ -28,6 +28,29 @@ test('old servers without source and scope tokens never enable cross-mount catal
   assert.equal(memory.stats().pages, 0)
 })
 
+test('an authoritative source list retires invalid displayed and pending bindings permanently', () => {
+  const other = { ...source, id: 'src_' + '6'.repeat(32) }
+  for (const available of [[{ ...source, configuration_token: '5'.repeat(64) }, other], [other],
+    [{ ...source, capabilities: { year_filter: false } }, other]]) {
+    const memory = createOnlineBrowseMemory()
+    memory.save(snapshot({ year: '2026' }))
+    memory.stage(scope, source, { categoryId: '71', year: '2026' }, response(1, '待应用'))
+    memory.save(snapshot({ source: other }))
+    assert.equal(memory.last(scope, available, source.id), null)
+    assert.equal(memory.stats().pages, 1, 'The unrelated enabled source remains within the same budget')
+    assert.equal(memory.applyPending(scope, source, { categoryId: '71', year: '2026' }), null)
+    assert.equal(memory.last(scope, [source, other], source.id), null, 'Reverting configuration cannot revive the retired entry')
+    assert.equal(memory.last(scope, [source, other], other.id).sourceId, other.id)
+  }
+  const memory = createOnlineBrowseMemory()
+  memory.save(snapshot())
+  memory.stage(scope, source, { categoryId: '71' }, response(1, '待应用'))
+  const changedScope = onlineBrowseScope('4'.repeat(64), { mode: 'private', generation: 4, revision: 1 })
+  assert.equal(memory.last(changedScope, [source]), null)
+  assert.deepEqual(memory.stats(), { pages: 0, bytes: 0 })
+  assert.equal(memory.last(scope, [source]), null)
+})
+
 test('stale directory rows stay visible without renewing their original age when navigation is saved again', () => {
   let now = 1000
   const memory = createOnlineBrowseMemory({ clock: () => now, dataTtl: 100, navigationTtl: 1000 })

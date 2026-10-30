@@ -118,6 +118,12 @@
         </section>
         <div v-show="!detail && !detailLoading && !detailError" ref="browseRoot" class="online-browser" :aria-busy="searching" data-online-browser>
           <p v-if="searching && results.length" class="online-refresh-state" data-online-refreshing role="status">正在更新结果…</p>
+          <div v-if="searched" class="online-update-state">
+            <span v-if="hasUpdates" class="online-update-notice" data-online-update-notice role="status"><span>内容有更新</span><JzButton data-online-apply-update :disabled="searching || applyingUpdates" :loading="applyingUpdates" @click="applyUpdates">查看更新</JzButton></span>
+            <span v-if="checkingUpdates" data-online-background-refreshing role="status">正在检查更新…</span>
+            <span v-else-if="updateCheckError" data-online-refresh-check-error :title="updateCheckError" role="status">检查更新未完成，仍显示上次结果。</span>
+            <span v-if="checkedAt" data-online-checked-at :data-timestamp="checkedAt">上次检查 {{ checkedTime }}</span>
+          </div>
           <div v-if="searchError && results.length" class="online-refresh-error" role="status"><span>{{ searchError }} 以下仍为上次结果。</span><JzButton @click="search(lastQuery.page, lastQuery.query, { force: true })">重试</JzButton></div>
           <EmptyState v-if="searching && !results.length" state="loading" title="正在搜索" :text="'正在查询 ' + selectedSource?.name" />
           <EmptyState v-else-if="searchError && !results.length" state="error" title="搜索失败" :text="searchError" retry @retry="search(lastQuery.page, lastQuery.query, { force: true })" />
@@ -126,7 +132,7 @@
           <template v-else>
             <div class="online-results-heading"><h2>{{ loadedQuery ? '搜索结果' : loadedCategoryName || '最近更新' }}<span v-if="loadedYear" class="online-results-year"> · {{ loadedYear }} 年</span></h2><span>{{ total }} 项 · {{ selectedSource?.name }}</span><JzButton variant="ghost" icon="refresh" data-online-refresh :disabled="searching" @click="refreshResults">刷新</JzButton></div>
             <div class="grid online-results"><article v-for="item in results" :key="item.external_id" class="card online-result" :data-online-browse-id="item.external_id">
-              <JzButton class="online-poster-button" variant="ghost" :data-online-result="item.external_id" :aria-label="'查看详情 ' + item.title" :disabled="searching" @click="openDetail(item.external_id)"><OnlineArtwork :key="posterGeneration" :path="item.poster_path" :title="item.title" /><span v-if="item.remarks" class="online-poster-remark" :title="item.remarks" data-online-item-status>{{ item.remarks }}</span><span class="online-poster-action"><AppIcon name="play" :size="22" />查看详情</span></JzButton>
+              <JzButton class="online-poster-button" variant="ghost" :data-online-result="item.external_id" :aria-label="'查看详情 ' + item.title" :disabled="searching" @click="openDetail(item.external_id)"><OnlineArtwork :retry-key="posterGeneration" :path="item.poster_path" :title="item.title" /><span v-if="item.remarks" class="online-poster-remark" :title="item.remarks" data-online-item-status>{{ item.remarks }}</span><span class="online-poster-action"><AppIcon name="play" :size="22" />查看详情</span></JzButton>
               <div class="t"><h3 class="card-title" :title="item.title">{{ item.title }}</h3><p class="card-meta">{{ [item.year, item.category || (item.kind === 'tv' ? '剧集' : item.kind === 'movie' ? '电影' : '')].filter(Boolean).join(' · ') }}</p></div>
             </article></div>
             <nav v-if="pageCount > 1" class="online-pagination" aria-label="在线搜索分页"><JzButton icon="arrow-left" :disabled="searching || !!searchError || page <= 1" @click="search(page - 1, loadedQuery)">上一页</JzButton><span>第 {{ page }} / {{ pageCount }} 页</span><JzButton icon="forward" :disabled="searching || !!searchError || page >= pageCount" @click="search(page + 1, loadedQuery)">下一页</JzButton></nav>
@@ -163,12 +169,12 @@
 <script setup>
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { createOnlineCatalogClient, createOnlineHealthClient, onlineHealthLabel, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
+import { createOnlineCatalogClient, createOnlineRefreshClient, createOnlineHealthClient, onlineHealthLabel, onlineCatalogError, onlineRouteTarget } from '../onlineCatalog.js'
 import { createOnlineRelatedClient, onlineRelatedError } from '../onlineRelated.js'
 import { createOnlineProgressMemory, onlineIdentityKey, validateOnlineIdentity } from '../onlinePlayback.js'
 import { createOnlineStateClient, createOnlineProgressWriter, loadOnlineAutoplay, saveOnlineAutoplay, nextOnlineEpisode, onlineStateError } from '../onlineState.js'
 import { isChildren, registerViewingPlaybackCleanup, viewing } from '../viewing.js'
-import { onlineBrowseMemory, onlineBrowseScope, clearOnlineBrowse, captureOnlinePosition, restoreOnlinePosition } from '../onlineBrowse.js'
+import { onlineBrowseMemory, onlineBrowseScope, clearOnlineBrowse, captureOnlinePosition, restoreOnlinePosition, ONLINE_BROWSE_FRESH_MS, ONLINE_BROWSE_NAVIGATION_MS, onlineBrowseResponseEqual } from '../onlineBrowse.js'
 import { onlineCategoryTree, visibleOnlineChannels, onlineCategoryLabel, onlineChannelCategory, visibleOnlineCategories, filterOnlineChannels, validOnlineYear } from '../onlineCategories.js'
 import { fmtTime as fmt } from '../playerLabels.js'
 import EmptyState from '../components/EmptyState.vue'
@@ -185,6 +191,7 @@ import { createOnlineHostReminders } from '../onlineHosts.js'
 import '../styles/online.css'
 
 const client = createOnlineCatalogClient(), nextClient = createOnlineCatalogClient(), stateClient = createOnlineStateClient()
+const refreshClient = createOnlineRefreshClient(), refreshSourcesClient = createOnlineCatalogClient()
 const route = useRoute(), router = useRouter()
 const healthClient = createOnlineHealthClient(), health = ref(null), healthLoading = ref(false), healthError = ref('')
 const relatedClient = createOnlineRelatedClient(), related = ref(null), relatedLoading = ref(false), relatedError = ref(null), relatedDeferred = ref(false)
@@ -199,6 +206,8 @@ const categoriesOpen = ref(false), categoriesTrigger = ref(null)
 const categoryQuery = ref('')
 const recentYears = Array.from({ length: 6 }, (_, index) => String(new Date().getFullYear() - index))
 const posterGeneration = ref(0)
+const checkingUpdates = ref(false), hasUpdates = ref(false), applyingUpdates = ref(false), updateCheckError = ref(''), checkedAt = ref(0)
+const checkedTime = computed(() => checkedAt.value ? new Date(checkedAt.value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')
 const results = ref([]), page = ref(1), pageCount = ref(1), total = ref(0), loadedQuery = ref('')
 const detailLoading = ref(false), detailError = ref(''), detail = ref(null), lineId = ref(''), lastDetailId = ref(''), itemState = ref(null)
 const hostDialog = ref(null), hostReminders = createOnlineHostReminders()
@@ -259,7 +268,140 @@ let disposed = false, generation = 0, libraryGeneration = 0, healthGeneration = 
 let relatedGeneration = 0, itemStateGeneration = 0, lineSelectionIntent = 0, detailReturnFocus = null
 let lastSourceId = ''
 let cacheScope = '', categoryScope = '', loadedAt = 0, browsePosition = null, positionIntent = 0, suspendedWork = null
+let refreshGeneration = 0, refreshTimer = null
 function current(turn) { return !disposed && turn === generation && safeMode.value }
+function browseSelection() {
+  return { categoryId: loadedCategoryId.value, channelId: loadedChannelId.value, year: loadedYear.value,
+    query: loadedQuery.value, page: page.value }
+}
+function browseResponse() {
+  return { items: results.value, categories: categories.value, page: page.value, page_count: pageCount.value, total: total.value }
+}
+function refreshBinding() { return JSON.stringify([cacheScope, selectedSource.value?.id, selectedSource.value?.configuration_token, browseSelection()]) }
+function cancelAutomaticRefresh(clear = false) {
+  refreshGeneration++; clearTimeout(refreshTimer); refreshTimer = null
+  refreshClient.cancel(); refreshSourcesClient.cancel(); checkingUpdates.value = false
+  if (clear) { hasUpdates.value = false; updateCheckError.value = ''; checkedAt.value = 0 }
+}
+function canCheckUpdates() {
+  return !disposed && safeMode.value && route.path === '/online' && !globalThis.document?.hidden
+    && enabled.value && !!selectedSource.value && !!cacheScope && !!loadedAt && searched.value
+    && browseVisible.value && !loadingSources.value && !sourcesError.value && !searching.value && !searchError.value
+    && !starting.value && !playing.value && !nextLoading.value && !categoriesOpen.value && !hostDialog.value && !applyingUpdates.value
+}
+function syncRefreshState(snapshot = onlineBrowseMemory.read(cacheScope, selectedSource.value, browseSelection())) {
+  if (snapshot) {
+    checkedAt.value = snapshot.lastAttemptAt || snapshot.loadedAt || 0
+    hasUpdates.value = !!snapshot.hasUpdate
+  } else if (!loadedAt) { checkedAt.value = 0; hasUpdates.value = false }
+}
+function scheduleAutomaticRefresh() {
+  clearTimeout(refreshTimer); refreshTimer = null
+  if (!canCheckUpdates() || checkingUpdates.value) return
+  const snapshot = onlineBrowseMemory.read(cacheScope, selectedSource.value, browseSelection())
+  const previous = Math.max(checkedAt.value, snapshot?.lastAttemptAt || 0, loadedAt)
+  refreshTimer = setTimeout(() => { refreshTimer = null; void checkForUpdates() }, Math.max(0, previous + ONLINE_BROWSE_FRESH_MS - Date.now()))
+}
+function invalidateRefreshBinding() {
+  const preferredSource = sourceId.value
+  cancelAutomaticRefresh(true); clearOnlineBrowse(); cacheScope = ''
+  generation++; client.cancel(); resetBrowse()
+  void loadSources(preferredSource)
+}
+async function validateRefreshBinding(source, scope, valid) {
+  const response = await refreshSourcesClient.sources()
+  if (!valid() || !response) return false
+  const latest = response.items?.find(item => item.id === source.id)
+  if (!response.enabled || onlineBrowseScope(response.scope_token, viewing) !== scope
+      || !latest || latest.configuration_token !== source.configuration_token) {
+    invalidateRefreshBinding()
+    return false
+  }
+  return true
+}
+async function checkForUpdates() {
+  if (!canCheckUpdates() || checkingUpdates.value) return
+  const source = selectedSource.value, scope = cacheScope, selection = browseSelection(), binding = refreshBinding()
+  const turn = ++refreshGeneration, view = generation
+  const valid = () => !disposed && turn === refreshGeneration && view === generation && canCheckUpdates() && refreshBinding() === binding
+  rememberBrowse(source, false)
+  const attemptedAt = Date.now()
+  onlineBrowseMemory.recordAttempt(scope, source, selection, attemptedAt)
+  checkedAt.value = attemptedAt; updateCheckError.value = ''; checkingUpdates.value = true
+  try {
+    if (!await validateRefreshBinding(source, scope, valid)) return
+    const response = await (selection.query ? refreshClient.search(source.id, selection.query, selection.page)
+      : refreshClient.browse(source.id, selection.page, selection.categoryId, selection.year))
+    if (!valid() || !response) return
+    if (response.status === 'deferred') return
+    if (response.configuration_token !== source.configuration_token) { invalidateRefreshBinding(); return }
+    const checked = Date.now()
+    const staged = onlineBrowseMemory.stage(scope, source, selection, response, checked)
+    hasUpdates.value = staged ? staged.changed : !onlineBrowseResponseEqual(browseResponse(), response)
+    checkedAt.value = checked
+    if (!hasUpdates.value) loadedAt = checked
+    // A pending response stays in the bounded cache. The displayed rows and
+    // their successful artwork remain untouched until an explicit apply.
+  } catch (error) {
+    if (!valid()) return
+    if (['online_source_changed', 'online_source_disabled', 'online_access_revoked',
+      'viewing_session_invalid', 'viewing_session_required', 'viewing_locked'].includes(error?.code)) {
+      invalidateRefreshBinding(); return
+    }
+    updateCheckError.value = onlineCatalogError(error)
+  } finally {
+    if (!disposed && turn === refreshGeneration) { checkingUpdates.value = false; scheduleAutomaticRefresh() }
+  }
+}
+async function applyUpdates() {
+  if (!canCheckUpdates() || !hasUpdates.value) return
+  cancelAutomaticRefresh()
+  const turn = refreshGeneration, view = generation, source = selectedSource.value, scope = cacheScope, binding = refreshBinding()
+  const valid = () => !disposed && turn === refreshGeneration && view === generation && safeMode.value && browseVisible.value && refreshBinding() === binding
+  applyingUpdates.value = true
+  let appliedView = view, appliedRefresh = turn
+  try {
+    if (!await validateRefreshBinding(source, scope, valid)) return
+    rememberBrowse()
+    let position = browsePosition
+    const inputQuery = query.value, active = globalThis.document?.activeElement
+    const activeId = active?.getAttribute?.('data-online-result')
+    if (activeId && typeof active.getBoundingClientRect === 'function') {
+      const bounds = active.getBoundingClientRect()
+      if (bounds.bottom > 0 && bounds.top < (globalThis.window?.innerHeight || Infinity)) {
+        position = { scrollTop: globalThis.window?.scrollY || 0, anchor: { id: activeId, offset: bounds.top } }
+      }
+    }
+    const focus = { element: active && active !== globalThis.document?.body && !active.hasAttribute?.('data-online-apply-update') ? active : null,
+      source: source.id, attribute: 'data-online-result', key: activeId || position?.anchor?.id || results.value[0]?.external_id || '' }
+    const snapshot = onlineBrowseMemory.applyPending(scope, source, browseSelection())
+    if (snapshot?.response) {
+      applyBrowse(snapshot); query.value = inputQuery; browsePosition = position
+      rememberBrowse(source, false)
+      await restoreBrowse(position)
+    } else {
+      appliedView = view + 1
+      const work = search(page.value, loadedQuery.value, { force: true, position })
+      appliedRefresh = refreshGeneration
+      await work
+    }
+    const focused = globalThis.document?.activeElement
+    const ownsFocus = !focused || focused === globalThis.document?.body || focused === focus.element
+      || focused.hasAttribute?.('data-online-apply-update')
+    if (!disposed && appliedView === generation && appliedRefresh === refreshGeneration && safeMode.value
+        && browseVisible.value && !searchError.value && !categoriesOpen.value && !hostDialog.value
+        && !playing.value && !starting.value && ownsFocus) focusDetailReturn(focus)
+  } catch (error) {
+    if (valid()) updateCheckError.value = onlineCatalogError(error)
+  } finally {
+    applyingUpdates.value = false
+    if (!disposed) scheduleAutomaticRefresh()
+  }
+}
+function visibilityChanged() {
+  if (globalThis.document?.hidden) cancelAutomaticRefresh()
+  else scheduleAutomaticRefresh()
+}
 function cancelRelated(clear = false, defer = false) {
   const interrupted = relatedLoading.value
   relatedGeneration++; relatedClient.cancel(); relatedLoading.value = false
@@ -397,6 +539,7 @@ function applyBrowse(snapshot) {
   syncChannel(); loadedChannelId.value = channelId.value
   page.value = snapshot.response.page; pageCount.value = snapshot.response.page_count
   total.value = snapshot.response.total; searched.value = true
+  syncRefreshState(snapshot)
   return true
 }
 async function restoreBrowse(position = browsePosition, { top = false } = {}) {
@@ -406,9 +549,11 @@ async function restoreBrowse(position = browsePosition, { top = false } = {}) {
     if (top) browseRoot.value?.scrollIntoView?.({ block: 'start', behavior: 'instant' })
     else restoreOnlinePosition(position, browseRoot.value)
     rememberBrowse()
+    scheduleAutomaticRefresh()
   }
 }
 function resetBrowse() {
+  cancelAutomaticRefresh(true)
   categoryScope = ''
   results.value = []; categories.value = []; categoryId.value = loadedCategoryId.value = ''; loadedQuery.value = ''
   channelId.value = loadedChannelId.value = ''; channelSelections.value = {}; categoriesOpen.value = false; categoryQuery.value = ''
@@ -416,11 +561,13 @@ function resetBrowse() {
   searched.value = false; searchError.value = ''; searching.value = false; page.value = pageCount.value = 1; total.value = 0
   loadedAt = 0; browsePosition = null; positionIntent++
 }
-async function loadSources() {
+async function loadSources(preferredSourceId = '') {
+  cancelAutomaticRefresh()
   closeHostDialog(false)
   cancelRelated(true)
   const turn = ++generation
-  const target = onlineRouteTarget(route.query)
+  const preferred = typeof preferredSourceId === 'string' ? preferredSourceId : ''
+  const target = preferred ? null : onlineRouteTarget(route.query)
   let restored = null
   loadingSources.value = true; sourcesError.value = ''
   try {
@@ -428,8 +575,10 @@ async function loadSources() {
     if (!current(turn) || !response) return
     enabled.value = response.enabled; sources.value = response.items || []
     cacheScope = onlineBrowseScope(response.scope_token, viewing)
-    restored = response.enabled ? onlineBrowseMemory.last(cacheScope, sources.value, target?.sourceId || '') : null
+    if (!response.enabled || !cacheScope) clearOnlineBrowse()
+    restored = response.enabled ? onlineBrowseMemory.last(cacheScope, sources.value, target?.sourceId || preferred) : null
     if (target && sources.value.some(source => source.id === target.sourceId)) sourceId.value = target.sourceId
+    else if (preferred && sources.value.some(source => source.id === preferred)) sourceId.value = preferred
     else if (!target && restored) sourceId.value = restored.sourceId
     if (!sources.value.some(source => source.id === sourceId.value)) sourceId.value = sources.value[0]?.id || ''
     acceptCategories()
@@ -475,7 +624,8 @@ async function loadLibrary(offset = libraryOffset.value) {
 function selectLibrary(section) { librarySection.value = section; void loadLibrary(0) }
 function sourceChanged(discover = true) {
   closeHostDialog(false)
-  if (discover && sourceId.value === lastSourceId) return
+  if (discover && sourceId.value === lastSourceId) { scheduleAutomaticRefresh(); return }
+  cancelAutomaticRefresh()
   clearDetailReturnFocus()
   cancelRelated(true)
   rememberBrowse(sources.value.find(source => source.id === lastSourceId))
@@ -489,10 +639,7 @@ function sourceChanged(discover = true) {
   itemStateGeneration++; itemStateLoading.value = false
   generation++; client.cancel(); void closePlayer(); detail.value = null; itemState.value = null; detailError.value = ''; detailLoading.value = false
   resetBrowse()
-  const restored = discover ? onlineBrowseMemory.last(cacheScope, sources.value, sourceId.value) : null
-  if (restored && applyBrowse(restored)) void restoreBrowse()
-  else if (restored) void search(restored.page, restored.query, { position: restored.position })
-  else if (discover && selectedSource.value?.capabilities?.browse) void search(1, '')
+  if (discover) void loadSources(sourceId.value)
 }
 function selectCategory(id) {
   if (searching.value || id === categoryId.value && !loadedQuery.value && searched.value) return
@@ -531,6 +678,7 @@ function applyCustomYear() {
 async function search(nextPage = 1, text = query.value, options = {}) {
   closeHostDialog(false)
   if (!sourceId.value || !safeMode.value || !text.trim() && !canBrowse.value) return
+  cancelAutomaticRefresh()
   cancelRelated(true)
   rememberBrowse()
   if (text.trim()) { categoryId.value = ''; channelId.value = ''; setYear('') }
@@ -563,11 +711,14 @@ async function search(nextPage = 1, text = query.value, options = {}) {
     syncChannel(); loadedChannelId.value = channelId.value; loadedYear.value = requestedYear
     if (options.force) posterGeneration.value++
     browsePosition = options.position || (options.force ? browsePosition : null)
+    onlineBrowseMemory.clearPending(cacheScope, selectedSource.value, browseSelection())
     // New metadata must not capture an anchor from the previous Vue render.
     rememberBrowse(selectedSource.value, false)
+    onlineBrowseMemory.recordAttempt(cacheScope, selectedSource.value, browseSelection(), loadedAt)
+    checkedAt.value = loadedAt; hasUpdates.value = false; updateCheckError.value = ''
     await restoreBrowse(browsePosition, { top: changingView && !options.position && !options.force })
   } catch (error) { if (current(turn)) searchError.value = onlineCatalogError(error) }
-  finally { if (current(turn)) { searching.value = false; void loadHealth() } }
+  finally { if (current(turn)) { searching.value = false; void loadHealth(); scheduleAutomaticRefresh() } }
 }
 function refreshResults() {
   categoryId.value = loadedCategoryId.value
@@ -616,6 +767,7 @@ async function showDetailTop(turn) {
   detailRoot.value?.scrollIntoView?.({ block: 'start', behavior: 'instant' })
 }
 async function openDetail(externalId, options = {}) {
+  cancelAutomaticRefresh()
   closeHostDialog(false)
   rememberDetailReturnFocus(externalId, options)
   cancelRelated(true)
@@ -661,7 +813,7 @@ async function backToResults() {
   if (route.query.item) void router.replace({ path: '/online', query: { source: sourceId.value } })
   let restoring
   if (!searched.value && canBrowse.value) restoring = search(1, '')
-  else if (loadedAt && Date.now() - loadedAt >= 60000) restoring = search(page.value, loadedQuery.value, { force: true, position: browsePosition })
+  else if (loadedAt && Date.now() - loadedAt >= ONLINE_BROWSE_NAVIGATION_MS) restoring = search(page.value, loadedQuery.value, { force: true, position: browsePosition })
   else restoring = restoreBrowse()
   const turn = generation
   await restoring
@@ -707,6 +859,7 @@ async function closePlayer() {
 }
 async function play(entry, { automatic = false } = {}) {
   if (!entry?.supported || !entry.identity || !safeMode.value || !detail.value) return
+  cancelAutomaticRefresh()
   closeHostDialog(false)
   cancelRelated(false, true)
   if (!automatic) cancelNext()
@@ -838,6 +991,7 @@ watch(() => [viewing.mode, viewing.generation, viewing.revision, viewing.locally
 watch(() => viewing.suspended, suspended => {
   positionIntent++
   if (suspended) {
+    cancelAutomaticRefresh()
     closeHostDialog(false)
     cancelRelated(true)
     categoriesOpen.value = false; categoryQuery.value = ''
@@ -875,15 +1029,24 @@ watch(() => viewing.suspended, suspended => {
   void loadLibrary(0)
 }, { flush: 'sync' })
 onMounted(() => {
+  globalThis.document?.addEventListener?.('visibilitychange', visibilityChanged)
   if (safeMode.value) { void loadSources(); void loadLibrary(0) }
   else loadingSources.value = libraryLoading.value = false
 })
 onBeforeUnmount(() => rememberBrowse())
 onUnmounted(() => {
+  cancelAutomaticRefresh()
+  refreshClient.close(); refreshSourcesClient.close()
+  globalThis.document?.removeEventListener?.('visibilitychange', visibilityChanged)
   closeHostDialog(false); hostReminders.clear()
   clearDetailReturnFocus()
   cancelRelated(true); relatedClient.close()
   disposed = true; generation++; libraryGeneration++; healthGeneration++; playIntent++; cancelNext(); client.close(); nextClient.close(); stateClient.close(); healthClient.close(); stopCleanup()
   void stopRun(activeRun)
 })
+watch(() => [browseVisible.value, safeMode.value, loadingSources.value, searching.value,
+  starting.value, !!playing.value, nextLoading.value, categoriesOpen.value, !!hostDialog.value], () => {
+  if (canCheckUpdates()) scheduleAutomaticRefresh()
+  else if (!applyingUpdates.value) cancelAutomaticRefresh()
+}, { flush: 'post' })
 </script>

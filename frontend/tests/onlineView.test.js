@@ -14,7 +14,7 @@ const rows = { items: [{ external_id: 'movie-1', title: '合成电影', kind: 'm
 const showVisibility = (element, binding) => { element.props['data-test-visible'] = !!binding.value }
 const vue = { ...Vue, vModelText: {}, vModelSelect: {}, vModelCheckbox: {}, vShow: { beforeMount: showVisibility, updated: showVisibility } }
 const SCOPE = 'a'.repeat(64)
-async function setup(t, request, { stateRequest, relatedRequest, hostRequest, autoplay = false, routeQuery = {}, session = {} } = {}) {
+async function setup(t, request, { stateRequest, relatedRequest, hostRequest, refreshRequest = request, autoplay = false, routeQuery = {}, session = {} } = {}) {
   const cleanups = new Set()
   const viewingSession = Vue.reactive({ mode: 'normal', generation: 1, revision: 0, locallyLocked: false, suspended: false, ...session })
   const players = [], writers = [], preferences = [], navigations = []
@@ -26,9 +26,11 @@ async function setup(t, request, { stateRequest, relatedRequest, hostRequest, au
       [...(slots.default?.() || []), ...(slots.footer?.() || [])]) } }
   const component = await loadSfc(new URL('../src/views/Online.vue', import.meta.url), {
     vue,
-    'vue-router': { useRoute: () => ({ query: routeQuery }), useRouter: () => ({ replace: async target => { navigations.push(target) } }) },
+    'vue-router': { useRoute: () => ({ path: '/online', query: routeQuery }), useRouter: () => ({ replace: async target => { navigations.push(target) } }) },
     '../api.js': { api: hostRequest || (async () => { throw { code: 'provider_timeout' } }) },
-    '../onlineCatalog.js': { ...catalog, createOnlineCatalogClient: () => catalog.createOnlineCatalogClient({ request }), createOnlineHealthClient: () => ({ read: async () => null, cancel() {}, close() {} }) },
+    '../onlineCatalog.js': { ...catalog, createOnlineCatalogClient: () => catalog.createOnlineCatalogClient({ request }),
+      createOnlineRefreshClient: () => catalog.createOnlineRefreshClient({ request: refreshRequest }),
+      createOnlineHealthClient: () => ({ read: async () => null, cancel() {}, close() {} }) },
     '../onlineRelated.js': { ...relatedCatalog, createOnlineRelatedClient: () => relatedCatalog.createOnlineRelatedClient({ delay: 0,
       request: relatedRequest || (async path => ({ source: { id: SOURCE_A }, external_id: new URL(path, 'https://jzmedia.invalid').searchParams.get('external_id'), status: 'unsupported' })) }) },
     '../onlineState.js': { ...state, createOnlineStateClient: () => state.createOnlineStateClient({ request: stateRead }),
@@ -167,7 +169,7 @@ test('expired poster rows retain verified navigation taxonomy when the fresh res
   const catalogue = { ...taxonomySources(), scope_token: SCOPE }
   onlineBrowseMemory.save({ scope: onlineBrowseScope(SCOPE, { mode: 'normal', generation: 1, revision: 0 }),
     source: catalogue.items[0], categoryId: '21', channelId: '20', channelSelections: { '20': '21' }, year: '2025',
-    response: { ...rows, categories: hierarchy, items: [{ ...rows.items[0], title: '过期海报页' }] }, loadedAt: Date.now() - 61000 })
+    response: { ...rows, categories: hierarchy, items: [{ ...rows.items[0], title: '过期海报页' }] }, loadedAt: Date.now() - 30 * 60 * 1000 - 1 })
   const pending = deferred()
   const { ui } = await setup(t, async path => path.endsWith('/sources') ? catalogue : pending.promise)
   assert.ok(ui.find(node => node.props['data-online-channel'] === '20'))
@@ -391,7 +393,8 @@ test('changing a source cancels an old search without showing its late error on 
   select.props['onUpdate:modelValue'](SOURCE_B); select.props.onChange()
   pending.reject(new Error('old source failure'))
   await flush()
-  assert.equal(calls.at(-1).options.signal.aborted, true)
+  assert.equal(calls.find(call => call.path.includes('/search?')).options.signal.aborted, true)
+  assert.equal(calls.at(-1).path.endsWith('/sources'), true, 'The newly selected source is revalidated before cache reuse')
   assert.equal(ui.text().includes('搜索失败'), false)
   assert.equal(ui.text().includes('查找想看的内容'), true)
 })
@@ -949,6 +952,135 @@ test('clearing history adopts the new scope epoch for later explicit favorite ac
 const cacheableSources = (configuration = 'b'.repeat(64), scope = SCOPE) => ({ enabled: true, scope_token: scope,
   items: [{ ...sources.items[0], configuration_token: configuration, capabilities: { browse: true } }] })
 
+function staleBrowse(catalogue) {
+  clearOnlineBrowse()
+  onlineBrowseMemory.save({ scope: onlineBrowseScope(SCOPE, { mode: 'normal', generation: 1, revision: 0 }),
+    source: catalogue.items[0], response: rows, loadedAt: Date.now() - 16 * 60 * 1000 })
+}
+async function scheduledRefresh() { await new Promise(resolve => setTimeout(resolve, 5)); await flush() }
+
+test('disabling online access clears displayed and pending session caches before reuse', async t => {
+  const catalogue = cacheableSources()
+  staleBrowse(catalogue)
+  const scope = onlineBrowseScope(SCOPE, { mode: 'normal', generation: 1, revision: 0 })
+  onlineBrowseMemory.stage(scope, catalogue.items[0], {}, { ...rows, items: [{ ...rows.items[0], title: '待应用' }] })
+  assert.equal(onlineBrowseMemory.stats().pages, 1)
+  const { ui } = await setup(t, async path => {
+    assert.ok(path.endsWith('/sources'), 'Disabled access cannot start a catalogue read')
+    return { ...catalogue, enabled: false }
+  })
+  assert.deepEqual(onlineBrowseMemory.stats(), { pages: 0, bytes: 0 })
+  assert.equal(ui.find(node => node.props['data-online-result'] === 'movie-1'), undefined)
+  assert.equal(onlineBrowseMemory.last(scope, catalogue.items), null)
+})
+
+test('selecting the same verified source cannot disable a due automatic check', async t => {
+  const catalogue = cacheableSources()
+  staleBrowse(catalogue)
+  let checks = 0
+  const { ui } = await setup(t, async path => path.endsWith('/sources') ? catalogue : rows,
+    { refreshRequest: async () => { checks++; return { status: 'deferred' } } })
+  ui.find(node => node.props['data-online-source'] !== undefined).props.onChange()
+  await scheduledRefresh()
+  assert.equal(checks, 1)
+})
+
+test('stale rows stay interactive and background changes require an explicit apply', async t => {
+  const catalogue = cacheableSources(), pending = deferred(), calls = []
+  staleBrowse(catalogue)
+  const { ui } = await setup(t, async path => { calls.push(path); return path.endsWith('/sources') ? catalogue : rows },
+    { refreshRequest: (_path, options) => { assert.equal(options.timeout, 10000); return pending.promise } })
+  const poster = ui.find(node => node.props['data-online-result'] === 'movie-1')
+  assert.ok(poster)
+  assert.equal(calls.some(path => path.includes('/browse?')), false)
+  await scheduledRefresh()
+  assert.ok(ui.find(node => node.props['data-online-background-refreshing'] !== undefined))
+  assert.equal(poster.props.disabled, false)
+  pending.resolve({ ...rows, source: sources.items[0], configuration_token: catalogue.items[0].configuration_token,
+    status: 'ready', items: [{ ...rows.items[0], title: '更新后的电影', remarks: '更新至第3集' }] })
+  await flush()
+  assert.ok(ui.find(node => node.props['data-online-update-notice'] !== undefined))
+  assert.equal(ui.text().includes('更新后的电影'), false)
+  assert.equal(ui.find(node => node.props['data-online-result'] === 'movie-1'), poster)
+  await ui.find(node => node.props['data-online-apply-update'] !== undefined).props.onClick()
+  await flush()
+  assert.equal(ui.text().includes('更新后的电影'), true)
+  assert.equal(ui.find(node => node.props['data-online-update-notice'] !== undefined), undefined)
+  assert.equal(ui.find(node => node.props['data-online-result'] === 'movie-1'), poster)
+})
+
+test('unchanged background data renews freshness without replacing the existing card', async t => {
+  const catalogue = cacheableSources()
+  staleBrowse(catalogue)
+  let checks = 0
+  const { ui } = await setup(t, async path => path.endsWith('/sources') ? catalogue : rows,
+    { refreshRequest: async () => { checks++; return { ...rows, source: sources.items[0],
+      configuration_token: catalogue.items[0].configuration_token, status: 'ready' } } })
+  const poster = ui.find(node => node.props['data-online-result'] === 'movie-1')
+  await scheduledRefresh()
+  assert.equal(checks, 1)
+  assert.equal(ui.find(node => node.props['data-online-result'] === 'movie-1'), poster)
+  assert.equal(ui.find(node => node.props['data-online-update-notice'] !== undefined), undefined)
+  const snapshot = onlineBrowseMemory.last(onlineBrowseScope(SCOPE, { mode: 'normal', generation: 1, revision: 0 }), catalogue.items)
+  assert.equal(snapshot.stale, false)
+})
+
+test('an oversized pending update cannot steal a newer focus after its foreground reread', async t => {
+  const catalogue = cacheableSources(), pending = deferred()
+  staleBrowse(catalogue)
+  const previousDocument = globalThis.document, document = { body: {}, activeElement: null }
+  globalThis.document = document
+  t.after(() => { if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument })
+  let rereads = 0, queryFocus = 0
+  const { ui } = await setup(t, async path => path.endsWith('/sources') ? catalogue : (rereads++, pending.promise),
+    { refreshRequest: async () => ({ ...rows, source: sources.items[0], status: 'ready',
+      configuration_token: catalogue.items[0].configuration_token,
+      items: [{ ...rows.items[0], description: 'x'.repeat(2 * 1024 * 1024) }] }) })
+  await scheduledRefresh()
+  assert.ok(ui.find(node => node.props['data-online-apply-update'] !== undefined))
+  const query = ui.find(node => node.props.id === 'online-query')
+  query.isConnected = true; query.focus = () => { queryFocus++; document.activeElement = query }
+  document.activeElement = document.body
+  const work = ui.find(node => node.props['data-online-apply-update'] !== undefined).props.onClick()
+  await flush()
+  assert.equal(rereads, 1)
+  const newerFocus = { isConnected: true, hasAttribute: () => false, focus() {} }
+  document.activeElement = newerFocus
+  pending.resolve(rows)
+  await work; await flush()
+  assert.equal(queryFocus, 0)
+  assert.equal(document.activeElement, newerFocus)
+})
+
+test('opening a detail cancels the background request and ignores its late response', async t => {
+  const catalogue = cacheableSources(), pending = deferred()
+  staleBrowse(catalogue)
+  let signal
+  const { ui } = await setup(t, async path => path.endsWith('/sources') ? catalogue : path.includes('/detail?') ? show() : rows,
+    { refreshRequest: (_path, options) => { signal = options.signal; return pending.promise } })
+  await scheduledRefresh()
+  assert.equal(signal.aborted, false)
+  ui.find(node => node.props['data-online-result'] === 'movie-1').props.onClick(); await flush()
+  assert.equal(signal.aborted, true)
+  pending.resolve({ ...rows, source: sources.items[0], configuration_token: catalogue.items[0].configuration_token,
+    status: 'ready', items: [{ ...rows.items[0], title: '迟到内容' }] })
+  await flush()
+  assert.equal(ui.text().includes('迟到内容'), false)
+  assert.ok(ui.find(node => node.props['data-online-detail'] !== undefined))
+})
+
+for (const outcome of ['failure', 'deferred']) test(`background ${outcome} keeps the wall without starting a retry loop`, async t => {
+  const catalogue = cacheableSources()
+  staleBrowse(catalogue)
+  let checks = 0
+  const { ui } = await setup(t, async path => path.endsWith('/sources') ? catalogue : rows,
+    { refreshRequest: async () => { checks++; if (outcome === 'failure') throw { code: 'provider_timeout' }; return { status: 'deferred' } } })
+  await scheduledRefresh(); await scheduledRefresh()
+  assert.equal(checks, 1)
+  assert.ok(ui.find(node => node.props['data-online-result'] === 'movie-1'))
+  assert.equal(!!ui.find(node => node.props['data-online-refresh-check-error'] !== undefined), outcome === 'failure')
+})
+
 test('warm route reentry verifies sources before restoring the category and page without another provider read', async t => {
   clearOnlineBrowse()
   const catalogue = cacheableSources(), calls = []
@@ -993,7 +1125,7 @@ test('an expired snapshot restores its navigation and fetches current directory 
   clearOnlineBrowse()
   const catalogue = cacheableSources()
   onlineBrowseMemory.save({ scope: onlineBrowseScope(SCOPE, { mode: 'normal', generation: 1, revision: 0 }),
-    source: catalogue.items[0], categoryId: '71', query: '', loadedAt: Date.now() - 61000,
+    source: catalogue.items[0], categoryId: '71', query: '', loadedAt: Date.now() - 30 * 60 * 1000 - 1,
     response: { ...rows, page: 2, page_count: 2, categories: [{ id: '71', name: '都市脑洞' }] } })
   const calls = []
   const { ui } = await setup(t, async path => { calls.push(path); return path.endsWith('/sources') ? catalogue
