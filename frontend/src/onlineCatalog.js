@@ -95,6 +95,27 @@ export function createOnlineCatalogClient({ request = api } = {}) {
   }
 }
 
+// Optional updates own a separate cancellation generation and never replace a
+// foreground detail or search. The server may quietly defer this low-priority
+// read, but cannot turn an unknown response into a successful empty directory.
+export function createOnlineRefreshClient({ request = api } = {}) {
+  const client = createOnlineCatalogClient({ request: async (path, options) => {
+    const [pathname, query] = path.split('?')
+    const params = new URLSearchParams(query)
+    params.set('priority', 'background')
+    const result = await request(pathname + '?' + params, { ...options, timeout: 10000 })
+    if (result?.status === 'deferred' && Object.keys(result).length === 1) return result
+    if (result?.status === 'ready' && result.source?.id === params.get('source_id')
+      && typeof result.configuration_token === 'string' && /^[0-9a-f]{64}$/.test(result.configuration_token)
+      && Array.isArray(result.items) && result.items.length <= 100
+      && Number.isInteger(result.page) && result.page === Number(params.get('page'))
+      && Number.isInteger(result.page_count) && result.page_count >= 0 && result.page_count <= 1000
+      && Number.isInteger(result.total) && result.total >= 0) return result
+    throw Object.assign(new Error('在线更新响应无效'), { code: 'invalid_provider_response' })
+  } })
+  return { browse: client.browse, search: client.search, cancel: client.cancel, close: client.close }
+}
+
 // Status reads are independent of catalogue work and never initiate a probe.
 export function createOnlineHealthClient({ request = api } = {}) {
   let pending = null, generation = 0, closed = false

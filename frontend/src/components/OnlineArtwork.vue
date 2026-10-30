@@ -10,7 +10,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onlineArtworkPath, onlineArtworkQueue } from '../onlineArtwork.js'
 import { refreshViewing, registerViewingPlaybackCleanup, viewing } from '../viewing.js'
 import ArtworkPlaceholder from './ArtworkPlaceholder.vue'
-const props = defineProps({ path: { type: String, default: '' }, title: { type: String, default: '' } })
+const props = defineProps({ path: { type: String, default: '' }, title: { type: String, default: '' },
+  retryKey: { type: [Number, String], default: 0 } })
 const root = ref(null), image = ref(''), phase = ref('waiting')
 const path = computed(() => onlineArtworkPath(props.path))
 const allowed = computed(() => viewing.ready && !viewing.suspended && !viewing.locallyLocked && viewing.mode !== 'children')
@@ -71,6 +72,10 @@ function observe(entries) {
 }
 const stopCleanup = registerViewingPlaybackCleanup(() => { paused = true; stop() })
 watch(() => props.path, () => { stop(); attempts = 0; void load() })
+watch(() => props.retryKey, () => {
+  if (image.value || !['error', 'missing'].includes(phase.value) || paused) return
+  stop(); attempts = 0; void load()
+})
 watch(() => [viewing.ready, viewing.mode, viewing.generation, viewing.revision, viewing.suspended, viewing.locallyLocked], () => {
   paused = false; stop(); attempts = 0; void load()
 }, { flush: 'sync' })

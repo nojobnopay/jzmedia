@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createOnlineBrowseMemory, onlineBrowseScope, captureOnlinePosition, restoreOnlinePosition } from '../src/onlineBrowse.js'
+import { createOnlineBrowseMemory, onlineBrowseScope, captureOnlinePosition, restoreOnlinePosition, onlineBrowseResponseEqual, ONLINE_BROWSE_FRESH_MS, ONLINE_BROWSE_NAVIGATION_MS } from '../src/onlineBrowse.js'
 
 const source = { id: 'src_' + '1'.repeat(32), configuration_token: '2'.repeat(64), capabilities: { year_filter: true } }
 const scope = onlineBrowseScope('3'.repeat(64), { mode: 'private', generation: 4, revision: 1 })
@@ -28,7 +28,7 @@ test('old servers without source and scope tokens never enable cross-mount catal
   assert.equal(memory.stats().pages, 0)
 })
 
-test('expired directory data retains navigation but never renews its original freshness when saved again', () => {
+test('stale directory rows stay visible without renewing their original age when navigation is saved again', () => {
   let now = 1000
   const memory = createOnlineBrowseMemory({ clock: () => now, dataTtl: 100, navigationTtl: 1000 })
   memory.save(snapshot({ loadedAt: now, position: { scrollTop: 400 } }))
@@ -36,10 +36,13 @@ test('expired directory data retains navigation but never renews its original fr
   assert.ok(memory.last(scope, [source]).response)
   now = 1100
   const stale = memory.last(scope, [source])
-  assert.equal(stale.response, null)
+  assert.equal(stale.stale, true)
+  assert.equal(stale.response.items[0].title, '合成剧集')
   assert.equal(stale.categoryId, '71')
   assert.equal(stale.position.scrollTop, 400)
   memory.save(snapshot({ loadedAt: stale.loadedAt }))
+  assert.equal(memory.last(scope, [source]).stale, true)
+  now = 2000
   assert.equal(memory.last(scope, [source]).response, null)
   now = 2100
   assert.equal(memory.last(scope, [source]), null)
@@ -85,7 +88,8 @@ test('an omitted taxonomy inherits the known source tree while expired poster ro
   assert.deepEqual(memory.read(scope, source, { categoryId: '71', page: 2 }).response.categories, response().categories)
   now = 1150
   const expired = memory.last(scope, [source])
-  assert.equal(expired.response, null)
+  assert.equal(expired.stale, true)
+  assert.equal(expired.response.items[0].title, '合成剧集')
   assert.deepEqual(expired.categories, response().categories)
   expired.categories[0].name = '读取方修改'
   assert.equal(memory.last(scope, [source]).categories[0].name, '都市脑洞')
@@ -104,7 +108,8 @@ test('a newer real tree replaces old page metadata without renewing freshness or
   now = 1100
   const first = memory.read(scope, source, { categoryId: '71', page: 1 })
   assert.equal(first.loadedAt, 1000)
-  assert.equal(first.response, null)
+  assert.equal(first.stale, true)
+  assert.equal(first.response.items[0].title, '合成剧集')
   assert.deepEqual(first.categories, updated)
   now = 2000
   assert.equal(memory.read(scope, source, { categoryId: '71', page: 1 }), null)
@@ -207,4 +212,151 @@ test('scroll restoration follows the first visible poster anchor across layout c
   restoreOnlinePosition(position, { querySelectorAll: () => [] }, viewport)
   assert.equal(restored[1].top, 500)
   assert.doesNotThrow(() => restoreOnlinePosition(position, null, undefined))
+})
+
+test('default freshness is fifteen minutes and a thirty-minute-old row is never revived by remembering position', () => {
+  let now = 1000
+  const memory = createOnlineBrowseMemory({ clock: () => now })
+  memory.save(snapshot({ loadedAt: now }))
+  now += ONLINE_BROWSE_FRESH_MS - 1
+  assert.equal(memory.last(scope, [source]).stale, false)
+  now++
+  const stale = memory.last(scope, [source])
+  assert.equal(stale.stale, true)
+  assert.equal(stale.response.items[0].title, '合成剧集')
+  memory.save(snapshot({ loadedAt: stale.loadedAt, position: { scrollTop: 900 } }))
+  now = 1000 + ONLINE_BROWSE_NAVIGATION_MS
+  assert.equal(memory.last(scope, [source]).response, null)
+  assert.equal(memory.last(scope, [source]).position.scrollTop, 900)
+})
+
+test('recording a failed or deferred attempt does not extend row or navigation lifetime', () => {
+  let now = 1000
+  const memory = createOnlineBrowseMemory({ clock: () => now, dataTtl: 100, navigationTtl: 1000 })
+  memory.save(snapshot({ loadedAt: now }))
+  now = 1500
+  assert.equal(memory.recordAttempt(scope, source, { categoryId: '71' }), true)
+  let saved = memory.last(scope, [source])
+  assert.equal(saved.loadedAt, 1000)
+  assert.equal(saved.lastAttemptAt, 1500)
+  assert.equal(saved.stale, true)
+  now = 1999
+  saved = memory.last(scope, [source])
+  assert.equal(saved.lastAttemptAt, 1500)
+  now = 2000
+  assert.equal(memory.last(scope, [source]), null)
+})
+
+test('unchanged successful checks renew data freshness without replacing original rows or shell metadata', () => {
+  let now = 1000
+  const memory = createOnlineBrowseMemory({ clock: () => now, dataTtl: 100, navigationTtl: 1000 })
+  memory.save(snapshot({ loadedAt: now, response: { ...response(), diagnostic: 'keep-original' } }))
+  now = 1200
+  memory.recordAttempt(scope, source, { categoryId: '71' })
+  assert.deepEqual(memory.stage(scope, source, { categoryId: '71' },
+    { ...response(), categories: [], status: 'ready', source: { name: 'shell only' }, diagnostic: 'new-shell' }), { changed: false, cached: false })
+  const saved = memory.last(scope, [source])
+  assert.equal(saved.loadedAt, 1200)
+  assert.equal(saved.lastAttemptAt, 1200)
+  assert.equal(saved.stale, false)
+  assert.equal(saved.hasUpdate, false)
+  assert.equal(saved.pending, null)
+  assert.equal(saved.response.diagnostic, 'keep-original')
+  assert.deepEqual(saved.response.categories, response().categories)
+})
+
+test('an unchanged real read renews navigation retention while an attempt alone cannot', () => {
+  let now = 1000
+  const memory = createOnlineBrowseMemory({ clock: () => now, dataTtl: 100, navigationTtl: 1000 })
+  memory.save(snapshot({ loadedAt: now }))
+  now = 1900
+  memory.recordAttempt(scope, source, { categoryId: '71' })
+  now = 1950
+  assert.deepEqual(memory.stage(scope, source, { categoryId: '71' }, response()), { changed: false, cached: false })
+  now = 2100
+  assert.equal(memory.last(scope, [source]).loadedAt, 1950)
+  assert.ok(memory.last(scope, [source]).response)
+})
+
+test('changed background results remain pending until explicitly applied and survive position-only saves', () => {
+  let now = 1000
+  const memory = createOnlineBrowseMemory({ clock: () => now })
+  const position = { scrollTop: 600, anchor: { id: '1', offset: 20 } }
+  memory.save(snapshot({ loadedAt: now, position }))
+  now = 1100
+  memory.recordAttempt(scope, source, { categoryId: '71' })
+  const changed = { ...response(), items: [{ external_id: '1', title: '合成剧集', remarks: '更新至第2集' }] }
+  assert.deepEqual(memory.stage(scope, source, { categoryId: '71' }, changed), { changed: true, cached: true })
+  let saved = memory.last(scope, [source])
+  assert.equal(saved.response.items[0].remarks, undefined)
+  assert.equal(saved.loadedAt, 1000)
+  assert.equal(saved.pendingLoadedAt, 1100)
+  assert.equal(saved.hasUpdate, true)
+  memory.save(snapshot({ loadedAt: 1000, position: { scrollTop: 800 } }))
+  saved = memory.last(scope, [source])
+  assert.equal(saved.lastAttemptAt, 1100)
+  assert.equal(saved.pending.items[0].remarks, '更新至第2集')
+  saved.pending.items[0].remarks = '读取方修改'
+  const applied = memory.applyPending(scope, source, { categoryId: '71' })
+  assert.equal(applied.response.items[0].remarks, '更新至第2集')
+  assert.equal(applied.loadedAt, 1100)
+  assert.deepEqual(applied.position, { scrollTop: 800 })
+  assert.equal(applied.hasUpdate, false)
+  assert.equal(applied.pending, null)
+  assert.equal(memory.applyPending(scope, source, { categoryId: '71' }), null)
+})
+
+test('pending data shares the existing byte budget and oversized updates retain only the update marker', () => {
+  const probe = createOnlineBrowseMemory()
+  probe.save(snapshot())
+  const perPage = probe.stats().bytes
+  const memory = createOnlineBrowseMemory({ maxBytes: perPage * 2 + 100 })
+  memory.save(snapshot())
+  memory.save(snapshot({ response: response(2) }))
+  assert.deepEqual(memory.stage(scope, source, { categoryId: '71' }, response(1, '新剧集')), { changed: true, cached: true })
+  assert.equal(memory.read(scope, source, { categoryId: '71', page: 2 }), null)
+  assert.ok(memory.stats().bytes <= perPage * 2 + 100)
+  assert.deepEqual(memory.stage(scope, source, { categoryId: '71' }, response(1, 'x'.repeat(perPage * 3))), { changed: true, cached: false })
+  const saved = memory.read(scope, source, { categoryId: '71' })
+  assert.equal(saved.hasUpdate, true)
+  assert.equal(saved.pending, null)
+  assert.equal(saved.response.items[0].title, '合成剧集')
+  assert.equal(memory.applyPending(scope, source, { categoryId: '71' }), null)
+  assert.ok(memory.stats().bytes <= perPage * 2 + 100)
+})
+
+test('pending results cannot cross an identity or configuration boundary or outlive thirty minutes', () => {
+  let now = 1000
+  const memory = createOnlineBrowseMemory({ clock: () => now, dataTtl: 100, navigationTtl: 1000 })
+  memory.save(snapshot({ loadedAt: now }))
+  now = 1100
+  memory.stage(scope, source, { categoryId: '71' }, response(1, '新剧集'))
+  const changedSource = { ...source, configuration_token: 'a'.repeat(64) }
+  assert.equal(memory.applyPending(scope, changedSource, { categoryId: '71' }), null)
+  assert.equal(memory.stage('a'.repeat(64) + ':normal:1:1', source, { categoryId: '71' }, response()), null)
+  assert.equal(memory.recordAttempt(scope, source, { categoryId: '72' }), false)
+  now = 1900
+  memory.save(snapshot({ loadedAt: 1000 }))
+  now = 2100
+  assert.equal(memory.last(scope, [source]).response, null)
+  assert.equal(memory.last(scope, [source]).pending, null)
+  assert.equal(memory.applyPending(scope, source, { categoryId: '71' }), null)
+  assert.equal(memory.last(scope, [source]).hasUpdate, true)
+  memory.clearPending(scope, source, { categoryId: '71' })
+  assert.equal(memory.last(scope, [source]).hasUpdate, false)
+})
+
+test('display equality ignores transport metadata and missing taxonomy but detects new episodes, images and order', () => {
+  const current = { ...response(), source: { name: 'source shell' } }
+  assert.equal(onlineBrowseResponseEqual(current, { ...response(), status: 'ready', categories: [] }), true)
+  assert.equal(onlineBrowseResponseEqual(current, { ...response(), categories: [{ name: '都市脑洞', parent_id: '', id: '71' }] }), true)
+  for (const extra of [{ items: [{ ...response().items[0], remarks: '更新至2集' }] },
+    { items: [{ ...response().items[0], poster_path: '/different-opaque-lease' }] },
+    { page_count: 4 }, { total: 51 }, { categories: [{ id: '72', name: '古装仙侠' }] }]) {
+    assert.equal(onlineBrowseResponseEqual(current, { ...response(), ...extra }), false)
+  }
+  const second = { external_id: '2', title: '另一剧集' }
+  assert.equal(onlineBrowseResponseEqual({ ...response(), items: [...response().items, second] },
+    { ...response(), items: [second, ...response().items] }), false)
+  assert.equal(onlineBrowseResponseEqual(current, { status: 'deferred' }), false)
 })

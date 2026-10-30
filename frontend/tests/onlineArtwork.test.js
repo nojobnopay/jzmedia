@@ -21,7 +21,7 @@ async function setup(t, initialPath = path) {
       } },
     },
   })
-  const props = Vue.reactive({ title: '合成海报', path: initialPath })
+  const props = Vue.reactive({ title: '合成海报', path: initialPath, retryKey: 0 })
   const ui = renderHarness(component, props)
   let mounted = true
   const unmount = () => { if (mounted) { mounted = false; ui.app.unmount() } }
@@ -135,4 +135,57 @@ test('eviction clears a poster without a visible reload loop', async t => {
   assert.equal(ui.find(node => node.type === 'img'), undefined)
   assert.equal(calls.length, 1)
   assert.equal(ui.text().includes('等待加载海报'), true)
+})
+
+test('manual refresh preserves successful image nodes and does not cancel an ongoing download', async t => {
+  const { ui, calls, props } = await setup(t)
+  props.retryKey++
+  await flush()
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].cancelled, false)
+  calls[0].pending.resolve({ url: 'blob:keep-poster' })
+  await flush()
+  const image = ui.find(node => node.type === 'img')
+  image.props.onLoad({ target: { src: 'blob:keep-poster' } })
+  props.title = '已更新至第2集'
+  props.retryKey++
+  await flush()
+  assert.equal(ui.find(node => node.type === 'img'), image)
+  assert.equal(image.props.src, 'blob:keep-poster')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].cancelled, false)
+})
+
+test('manual refresh retries a failed poster but never clears an authorization pause', async t => {
+  const { ui, calls, props } = await setup(t)
+  calls[0].pending.reject(Object.assign(new Error('fixed decode failure'), { retryable: false, status: 502 }))
+  await flush()
+  assert.equal(ui.text().includes('海报暂时无法加载'), true)
+  props.retryKey++
+  await flush()
+  assert.equal(calls.length, 2)
+  calls[1].pending.reject(Object.assign(new Error('fixed unauthorized'), { retryable: false, status: 403 }))
+  await flush()
+  props.retryKey++
+  await flush()
+  assert.equal(calls.length, 2)
+  assert.equal(ui.text().includes('海报暂时无法加载'), true)
+})
+
+test('manual refresh leaves waiting offscreen posters untouched until they become visible', async t => {
+  let observed
+  const original = globalThis.IntersectionObserver
+  globalThis.IntersectionObserver = class {
+    constructor(callback) { observed = callback }
+    observe() {}
+    disconnect() {}
+  }
+  t.after(() => { if (original === undefined) delete globalThis.IntersectionObserver; else globalThis.IntersectionObserver = original })
+  const { calls, props } = await setup(t)
+  props.retryKey++
+  await flush()
+  assert.equal(calls.length, 0)
+  observed([{ isIntersecting: true, boundingClientRect: { top: 20 } }])
+  await flush()
+  assert.equal(calls.length, 1)
 })

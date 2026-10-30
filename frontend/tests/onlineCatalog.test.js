@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createOnlineCatalogClient, choiceNetworkRule, networkRuleChoice, onlineCatalogError, onlineRouteTarget } from '../src/onlineCatalog.js'
+import { createOnlineCatalogClient, createOnlineRefreshClient, choiceNetworkRule, networkRuleChoice, onlineCatalogError, onlineRouteTarget } from '../src/onlineCatalog.js'
 import { onlineIdentityKey, validateOnlineIdentity, validateOnlineDescriptor, createOnlineProgressMemory } from '../src/onlinePlayback.js'
 
 const SOURCE = 'src_' + '1'.repeat(32)
@@ -141,4 +141,64 @@ test('health reads never cancel a catalogue query and cannot expose an older sou
   assert.equal(onlineHealthLabel({ state: 'success', stage: 'bytes', mode: 'proxy' }), '取流通过 · 代理')
   assert.equal(onlineHealthLabel({ state: 'stale', mode: 'direct' }), '观察已过期 · 直连')
   catalogue.close(); health.close()
+})
+
+test('background refresh requests use the existing conditions with explicit low priority and their own deadline', async () => {
+  const calls = []
+  const ready = { status: 'ready', configuration_token: 'b'.repeat(64), source: { id: SOURCE }, items: [], page: 2, page_count: 3, total: 50 }
+  const client = createOnlineRefreshClient({ request: async (path, options) => { calls.push({ path, options }); return ready } })
+  assert.deepEqual(await client.browse(SOURCE, 2, '71', '2026'), ready)
+  const selected = new URL(calls[0].path, 'https://jzmedia.invalid')
+  assert.equal(selected.pathname, '/api/online/catalog/browse')
+  assert.equal(selected.searchParams.get('priority'), 'background')
+  assert.equal(selected.searchParams.get('category_id'), '71')
+  assert.equal(selected.searchParams.get('year'), '2026')
+  assert.equal(selected.searchParams.get('page'), '2')
+  assert.equal(calls[0].options.timeout, 10000)
+  await client.search(SOURCE, '片名 & ids=other', 2)
+  const search = new URL(calls[1].path, 'https://jzmedia.invalid')
+  assert.equal(search.pathname, '/api/online/catalog/search')
+  assert.equal(search.searchParams.get('q'), '片名 & ids=other')
+  assert.equal(search.searchParams.get('priority'), 'background')
+  assert.equal(client.detail, undefined)
+  assert.equal(client.sources, undefined)
+  assert.throws(() => client.browse(SOURCE, 0), /分类条件无效/)
+  assert.throws(() => client.search(SOURCE + '\n', '片名'), /身份无效/)
+  client.close()
+})
+
+test('background cancellation cannot abort foreground work and never exposes a late ready or deferred result', async () => {
+  const main = deferred(), first = deferred(), second = deferred(), calls = []
+  const request = (path, options) => {
+    calls.push({ path, options })
+    return !path.includes('priority=background') ? main.promise
+      : calls.filter(call => call.path.includes('priority=background')).length === 1 ? first.promise : second.promise
+  }
+  const foreground = createOnlineCatalogClient({ request })
+  const background = createOnlineRefreshClient({ request })
+  const mainWork = foreground.detail(SOURCE, 'show-1')
+  const old = background.search(SOURCE, 'old')
+  const current = background.search(SOURCE, 'new')
+  assert.equal(calls[0].options.signal.aborted, false)
+  assert.equal(calls[1].options.signal.aborted, true)
+  first.resolve({ status: 'ready', configuration_token: 'b'.repeat(64), source: { id: SOURCE }, items: [], page: 1, page_count: 0, total: 0 })
+  second.resolve({ status: 'deferred' })
+  main.resolve({ item: { title: '当前详情' } })
+  assert.equal(await old, null)
+  assert.deepEqual(await current, { status: 'deferred' })
+  assert.deepEqual(await mainWork, { item: { title: '当前详情' } })
+  background.close(); foreground.close()
+})
+
+test('background refresh refuses malformed protocol responses instead of inventing an empty success', async () => {
+  for (const body of [{}, { status: 'deferred', items: [] }, { status: 'ready', items: [], page: 1 },
+    { status: 'ready', source: { id: 'src_' + '9'.repeat(32) }, items: [], page: 1, page_count: 0, total: 0 },
+    { status: 'ready', source: { id: SOURCE }, items: [], page: 0, page_count: 0, total: 0 },
+    { status: 'ready', source: { id: SOURCE }, items: [], page: 1, page_count: 0, total: 0 },
+    { status: 'ready', configuration_token: 'invalid', source: { id: SOURCE }, items: [], page: 1, page_count: 0, total: 0 }]) {
+    const client = createOnlineRefreshClient({ request: async () => body })
+    await assert.rejects(client.browse(SOURCE), error => error.code === 'invalid_provider_response'
+      && !error.message.includes('source_id'))
+    client.close()
+  }
 })
