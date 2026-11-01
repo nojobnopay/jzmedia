@@ -273,8 +273,6 @@ def episode_neighbors(episode_id: int) -> tuple[dict | None, dict | None]:
     end = (start[0], max(start[1], int(ep.get("episode_end") or 0)))
     previous, following = None, None
     for row in list_episodes(int(ep["show_id"])):
-        if row.get('missing'):
-            continue
         if episode_version(row.get("file_path")) != ver:
             continue
         row_start = (int(row["season"]), int(row["episode"]))

@@ -558,6 +558,8 @@ POST /api/tv/ingestion-reviews/decision {"preview_id": "…", "ids": [72], "deci
 
 `GET /api/tv/episodes/{id}` 新增 `previous_episode/next_episode`，与 `/next` 使用相同版本与多集区间规则。季详情支持 `version` 筛选和分页，新增 `versions/distinct_count`；`episode_count/watched_count` 仍为全季文件数。
 
+相邻分集只读本地记录。已知缺失的相邻集仍返回 `exists=false`、`missing=1`，供客户端提示并阻止连播，不能当作末集或直接跳到后续集；剧、季详情的续播推荐则排除已知缺失的文件。
+
 ### 片源修订与媒体缓存
 
 `GET /api/stream/{version_id}/media?kind=episode` 在读取探测缓存前复核当前源修订；`refresh=1` 强制重新探测，响应中的 `source_revision` 标识实际被探测的文件。修订是服务端生成的不透明字符串，客户端不应自行拼接。源修订不符、旧缓存没有修订或探测版本过旧时重新 ffprobe；处理前后复核到修订或数据库路径变化返回 409，文件缺失为 410，存储离线为 503。客户端应重新打开媒体，而不是继续使用旧轨道信息。

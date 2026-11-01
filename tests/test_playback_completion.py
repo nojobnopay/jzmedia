@@ -86,8 +86,11 @@ def test_invalid_stored_progress_cannot_poison_completion(completion_library):
     assert movie in [row["id"] for row in store.list_recent_played(library_ids=[completion_library["id"]])]
 
 
-def test_next_payload_reports_known_offline_without_probing_or_skipping(completion_library, monkeypatch):
-    _, first, second = _episodes(completion_library)
+@pytest.mark.parametrize("has_later_episode", [False, True])
+def test_next_payload_reports_known_offline_without_probing_or_skipping(completion_library, monkeypatch, has_later_episode):
+    show, first, second = _episodes(completion_library)
+    if has_later_episode:
+        later = store.upsert_episode(show, completion_library["id"], "Show/S01E03.mkv", 1, 3, "第三集")
 
     def no_probe(*args, **kwargs):
         pytest.fail("next metadata must remain local")
@@ -100,3 +103,5 @@ def test_next_payload_reports_known_offline_without_probing_or_skipping(completi
     next_item = client.get(f"/api/tv/episodes/{first}/next").json()["next"]
     assert next_item["id"] == second
     assert next_item["exists"] is False and next_item["missing"] == 1
+    if has_later_episode:
+        assert store.episode_neighbors(later)[0]["id"] == second
