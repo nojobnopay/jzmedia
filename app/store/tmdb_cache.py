@@ -29,16 +29,24 @@ def _slim_season_detail(sd: dict) -> dict:
 
 def set_tmdb_cache_seasons(tmdb_id: int, season_details: dict,
                            media_type: str = "tv") -> bool:
-    """TV 季详情压缩入库（v27 离线回放：断网重刮仍能补集名/简介/剧照）。"""
+    """Merge successful seasons; an incremental refresh must retain other seasons."""
     try:
         data = {str(k): _slim_season_detail(v)
                 for k, v in (season_details or {}).items()}
-        payload = json.dumps(data, ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError):
         return False
-    if payload in ("{}", ""):
+    if not data:
         return False
     with _lock, _conn() as c:
+        row = c.execute('SELECT seasons_json FROM tmdb_cache WHERE media_type=? AND tmdb_id=?',
+                        (str(media_type or 'tv'), int(tmdb_id))).fetchone()
+        try:
+            previous = json.loads(row['seasons_json'] or '{}') if row else {}
+        except (TypeError, ValueError):
+            previous = {}
+        if not isinstance(previous, dict):
+            previous = {}
+        payload = json.dumps(previous | data, ensure_ascii=False, sort_keys=True)
         cur = c.execute("UPDATE tmdb_cache SET seasons_json=?"
                         " WHERE media_type=? AND tmdb_id=?",
                         (payload, str(media_type or "tv"), int(tmdb_id)))

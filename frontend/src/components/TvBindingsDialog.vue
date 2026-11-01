@@ -79,7 +79,7 @@
           <details v-if="plan.duplicate_count"><summary>查看重复集号（{{ plan.duplicate_count }}）</summary>
             <p v-for="d in plan.duplicates" :key="d.season + ':' + d.episode">{{ episodeLabel(d) }}：{{ d.files.join(' / ') }}</p>
           </details>
-          <p class="hint">确认将更新剧集归属和资料，保留观看记录。文件整理可在剧详情另行预览。</p>
+          <p class="hint">确认将更新剧集归属和资料，保留观看记录。随后统一检查资料与整理，确认预览后才改名或移动文件。</p>
           <JzButton type="button" class="primary" variant="primary" :disabled="!canApply" @click="apply">{{ applying ? '正在保存…' : '确认并保存归属' }}</JzButton>
         </section>
         <details class="binding-history"><summary>归属变更记录（{{ history.length }}）</summary>

@@ -27,17 +27,17 @@ def get_scan_state(file_path: str,
 
 
 def set_scan_state(file_path: str, mtime: int, size: int, status: str,
-                   library_id: int = DEFAULT_LIBRARY_ID) -> None:
+                   library_id: int = DEFAULT_LIBRARY_ID, *, source_revision: str = "") -> None:
     with _lock, _conn() as c:
         try:
             c.execute(
                 "INSERT INTO scan_state(file_path, library_id, mtime, size, status,"
-                " updated_at) VALUES(?, ?, ?, ?, ?, ?)"
+                " updated_at, source_revision) VALUES(?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT(library_id, file_path) DO UPDATE SET mtime=excluded.mtime,"
                 " size=excluded.size, status=excluded.status,"
-                " updated_at=excluded.updated_at",
+                " updated_at=excluded.updated_at, source_revision=excluded.source_revision",
                 (file_path, int(library_id), int(mtime or 0), int(size or 0),
-                 str(status or ""), int(time.time())))
+                 str(status or ""), int(time.time()), str(source_revision or "")))
         except sqlite3.OperationalError as e:
             logger.debug("set scan_state failed path=%s: %s", file_path, e)
 

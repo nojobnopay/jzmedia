@@ -99,16 +99,16 @@ def note_ok(name: str) -> None:
         _save(data)
 
 
-def note_fail(name: str, error: str = "") -> bool:
+def note_fail(name: str, error: str = "", *, retry_at: int = 0) -> bool:
     """记一次失败；达到阈值进入冷却并返回 True（调用方据此打 warning）。"""
     now = int(time.time())
     data = _load()
     ent = data.get(name) or {}
     fails = int(ent.get("fails") or 0) + 1
-    tripped = fails >= FAIL_THRESHOLD
+    tripped = fails >= FAIL_THRESHOLD or int(retry_at or 0) > now
     data[name] = {
         "fails": fails,
-        "cooldown_until": now + COOLDOWN_SEC if tripped else 0,
+        "cooldown_until": max(now + COOLDOWN_SEC, int(retry_at or 0)) if tripped else 0,
         "last_error": safe_error(error),
         "last_fail_at": now,
         "last_ok_at": int(ent.get("last_ok_at") or 0),

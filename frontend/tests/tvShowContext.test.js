@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import * as Vue from 'vue'
 import { loadSfc } from './helpers/loadSfc.js'
 import { renderHarness, flush, deferred, nodeText } from './helpers/renderHarness.js'
+import { createTvIngestFlow, useTvIngestFlow } from '../src/useTvIngestFlow.js'
 
 const bindText = (element, binding) => { element.props.value = binding.value }
 const vue = { ...Vue, vShow: {}, vModelText: { mounted: bindText, updated: bindText }, vModelSelect: {}, vModelCheckbox: {} }
@@ -33,9 +34,7 @@ async function showPage(t, options = {}) {
   }
   const route = Vue.reactive({ path: options.path || '/tv/1', params: { id: '1' }, query: {} })
   const requests = []
-  const component = await loadSfc(new URL('../src/views/TvShow.vue', import.meta.url), {
-    vue, 'vue-router': { useRoute: () => route, useRouter: () => ({ push() {}, replace() {} }) },
-    '../api.js': { posterUrl: path => path, scopedArtworkUrl: path => path, api: (path, opts = {}) => {
+  const requestApi = (path, opts = {}) => {
       const request = { path, opts }
       requests.push(request)
       const override = options.api?.(path, opts, request)
@@ -47,14 +46,20 @@ async function showPage(t, options = {}) {
       const id = path.match(/^\/api\/tv\/shows\/(\d+)(?:\?verify=\d+)?$/)?.[1]
       if (id) return Promise.resolve(item(Number(id), options.metadata))
       if (path.endsWith('/similar')) return Promise.resolve({ items: [] })
-      if (path.endsWith('/organize-hint')) return Promise.resolve({ needs: false })
+      if (path.startsWith('/api/jobs/tv-ingest/')) return Promise.resolve({ state: 'done', summary: { preview_id: 'test', plans: [], metadata_results: [] } })
       throw new Error('Unexpected API request: ' + path)
-    } },
+    }
+  const flow = createTvIngestFlow({ request: requestApi, onChanged() {}, pollDelay: 0, pause: async () => {} })
+  flow.setContext('test', true)
+  const component = await loadSfc(new URL('../src/views/TvShow.vue', import.meta.url), {
+    vue, 'vue-router': { useRoute: () => route, useRouter: () => ({ push() {}, replace() {} }) },
+    '../api.js': { posterUrl: path => path, scopedArtworkUrl: path => path, api: requestApi },
+    '../useTvIngestFlow.js': { canAutomaticallyIngest: () => false, useTvIngestFlow: options => useTvIngestFlow({ ...options, flow }) },
     '../libraries.js': { currentMediaId: () => 7, loadLibs: async () => {}, switchMedia: () => true },
     '../useTvCollection.js': { useTvCollection: () => ({ data: Vue.ref(null), error: Vue.ref(''), notice: Vue.ref(''),
       loading: Vue.ref(false), checking: Vue.ref(false), reload() {}, check() {} }) },
     ...Object.fromEntries(['ContentPolicyButton', 'PlayerModal', 'MediaBackdrop', 'MediaOverview', 'SimilarRow',
-      'CastWall', 'CrewRow', 'TvBindingsDialog', 'TvOrganizeDialog', 'AiMatchSuggestions']
+      'CastWall', 'CrewRow', 'TvBindingsDialog', 'AiMatchSuggestions']
       .map(name => [`../components/${name}.vue`, { default: blank }])),
   })
   const ui = renderHarness(component)
@@ -92,7 +97,7 @@ test('TV details accept a trailing slash and keep normal matching/reopening beha
   writes(ui)[0].resolve({ media: { artwork: { ok: true } } })
   await flush()
   assert.equal(ui.find(node => node.props['aria-label'] === '搜索剧集匹配'), undefined)
-  assert.ok(ui.requests.some(request => request.path === '/api/tv/shows/1/organize-hint'))
+  assert.ok(ui.requests.some(request => request.path === '/api/jobs/tv-ingest'))
 })
 
 test('TV search and matching drafts cannot carry old candidates into a different show', async t => {
@@ -190,7 +195,7 @@ test('TV rename snapshots its target and a late save cannot clear the next show 
 })
 
 test('TV watched, confirmation and refresh writes do not leak late errors or unlock a newer operation', async t => {
-  for (const label of ['标记整剧已看', '匹配正确', '更新剧集资料']) {
+  for (const label of ['标记整剧已看', '匹配正确']) {
     const ui = await showPage(t, { metadata: { tmdb_id: 100, needs_review: true, overview: '已有简介' } })
     const action = button(ui, label).props.onClick
     action(); action()
@@ -216,8 +221,8 @@ test('TV directory discovery cannot request an old organize hint after its detai
   const reloaded = deferred()
   let reads = 0
   const ui = await showPage(t, { api: path => path === '/api/tv/shows/1' && ++reads > 1 ? reloaded.promise : undefined })
-  button(ui, '整理剧集目录').props.onClick()
-  writes(ui)[0].resolve({ added: 1 })
+  button(ui, '检查资料与整理').props.onClick()
+  writes(ui)[0].resolve({ job_id: 'job' })
   await flush()
   ui.navigate(2)
   await flush()
@@ -231,37 +236,27 @@ test('TV directory discovery cannot request an old organize hint after its detai
 
 test('unmounting a TV detail after a submitted write prevents its follow-up reads', async t => {
   const ui = await showPage(t)
-  button(ui, '更新剧集资料').props.onClick()
+  button(ui, '检查资料与整理').props.onClick()
   const write = writes(ui)[0]
   ui.app.unmount()
   const count = ui.requests.length
-  write.resolve({ ok: true })
+  write.resolve({ job_id: 'job' })
   await flush()
   assert.equal(ui.requests.length, count)
 })
 
-test('late artwork polling cannot replace a new show or request its organize hint', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout'] })
-  const pendingArtwork = deferred()
-  let reads = 0
-  const ui = await showPage(t, {
-    metadata: { tmdb_id: 100 },
-    api: path => path === '/api/tv/shows/1' && ++reads === 3 ? pendingArtwork.promise : undefined,
-  })
-  button(ui, '更新剧集资料').props.onClick()
-  writes(ui)[0].resolve({ ok: true })
+test('a late ingestion preview cannot replace a new show or refresh its files', async t => {
+  const pendingStatus = deferred()
+  const ui = await showPage(t, { api: path => path === '/api/jobs/tv-ingest/old' ? pendingStatus.promise : undefined })
+  button(ui, '检查资料与整理').props.onClick()
+  writes(ui)[0].resolve({ job_id: 'old' })
   await flush()
-  t.mock.timers.tick(2000)
-  await flush()
-  assert.equal(reads, 3)
   ui.navigate(2)
   await flush()
   const count = ui.requests.length
-  pendingArtwork.resolve(item(1, { tmdb_id: 100, title: '过期海报资料', overview: '已经补齐' }))
+  pendingStatus.resolve({ state: 'done', summary: { preview_id: 'old-preview', plans: [{ show_id: 1, title: '旧剧', groups: [{ action: 'rename' }] }] } })
   await flush()
-  t.mock.timers.tick(20000)
-  await flush()
-  assert.match(ui.text(), /剧集2/)
-  assert.doesNotMatch(ui.text(), /过期海报资料/)
   assert.equal(ui.requests.length, count)
+  assert.match(ui.text(), /剧集2/)
+  assert.doesNotMatch(ui.text(), /旧剧/)
 })

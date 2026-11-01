@@ -2,9 +2,9 @@
 
 [开发者文档](README.md)
 
-数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。发行版本以根 `version.properties` 为准，数据库 `SCHEMA_VERSION=35`；两种版本号不是一一对应。启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
+数据源在 `app/store/_base.py`，使用 Python 标准库 `sqlite3`，不使用 ORM。发行版本以根 `version.properties` 为准，数据库 `SCHEMA_VERSION=38`；两种版本号不是一一对应。启动 `init_db()` 检查 SQLite JSON1/FTS5、建表、按 `PRAGMA user_version` 执行幂等迁移，再视需要重建索引。连接启用 WAL、`busy_timeout=5000` 和 `synchronous=NORMAL`。
 
-最近迁移为 v28 剧集目录归属及历史、v29 文件实际变更日志 `fs_changes`、v30 媒体探测帧率 `media_info.fps`、v31 独立剧集播出快照与检查队列、v32 在线来源与稳定内容身份、v33 网络档案与来源用途规则、v34 MacCMS 接口兼容选项、v35 设备及观看模式隔离的在线收藏与进度。当前 ffprobe 缓存版本为 `PROBE_VERSION=4`，旧探测结果在播放时重新获取；新增字段不要求用户重新扫描整库。
+最近迁移为 v28 剧集目录归属及历史、v29 文件实际变更日志 `fs_changes`、v30 媒体探测帧率 `media_info.fps`、v31 独立剧集播出快照与检查队列、v32 在线来源与稳定内容身份、v33 网络档案与来源用途规则、v34 MacCMS 接口兼容选项、v35 设备及观看模式隔离的在线收藏与进度、v36 在线海报受控快照、v37 统一剧集入库待办与整理预览、v38 媒体探测与扫描的片源修订。当前 ffprobe 缓存版本为 `PROBE_VERSION=4`，旧探测结果在播放时重新获取；新增字段不要求用户重新扫描整库。
 
 ## 主要实体
 
@@ -36,9 +36,23 @@ erDiagram
 | `tv_shows` / `tv_seasons` / `tv_episodes` | 剧、季、集镜像；分集含本地匹配/观看等字段，另有 `match_source`（归属来源）与 `binding_conflict`（归属冲突标记） |
 | `tv_directory_bindings` | 目录归属规则：主键 `(library_id, path)` → `(show_id, season, override_season)`；扫描与重扫沿用，整理/恢复同步改写路径 |
 | `extras` | 电影/剧集花絮，分别通过 `movie_id`/`show_id` 归属 |
-| `media_info` | 按 `(kind,item_id)` 缓存 ffprobe 结果、帧率 `fps` 与 `probe_ver`，音轨 JSON 保存声道与采样率等信息 |
+| `media_info` | 按 `(kind,item_id)` 缓存 ffprobe 结果、帧率 `fps`、`probe_ver` 与 `source_revision`，音轨 JSON 保存声道与采样率等信息 |
 | `playback_progress` | 按 `(kind,item_id)` 隔离电影、分集、花絮续播 |
 | `persons`、`movie_person`、`collections`、`collection_members` | 演职员关联和媒体库级合集 |
+
+v38 给 `media_info` 与 `scan_state` 增加 `source_revision TEXT NOT NULL DEFAULT ''`。修订由视频库、规范化相对路径、大小和后端完整精度的修改时间生成，不读取或散列整部媒体。`media_info` 的旧空修订行在下次使用时重新探测；探测提交前复核当前片源与数据库路径，变化时不写入过期结果。扫描发现同路径片源变化时使派生探测信息失效，保留媒体身份、匹配、观看状态和断点。缓存与处理规则见[片源替换与派生缓存](playback.md#片源替换与派生缓存)。
+
+### 剧集入库检查与待办
+
+v37 在新库初始化和幂等迁移中建立下列表，读写通过 `app/store/tv_ingest.py`，供 `app/tv_ingest.py` 的统一检查流程使用。
+
+| 表 | 键与持久内容 |
+|---|---|
+| `tv_ingestion_reviews` | 以 `show_id` 关联剧，保存视频库、待检查修订、稳定变更指纹、当前预览、整理与资料摘要及 `pending/deferred/ignored/clean` 状态 |
+| `tv_ingestion_previews` | 随机预览 ID，保存动作、选项、逐剧指纹及已执行的剧 ID，约束重复提交和预览后的文件变化 |
+| `tv_ingestion_metadata_checks` | 主键 `(tmdb_id,season)`，保存缺项集合、检查结果和下一次可重试时间，同季新增缺项可重新检查 |
+
+待办状态属于服务端的剧，不按浏览器分开。“稍后”保留待办，“忽略”隐藏当前指纹，两者均抑制相同变更的自动弹窗。指纹覆盖文件事实、绑定、命名策略和最终动作，排除观看进度及检查时间，普通重载不会产生新建议。新的文件或整理变化生成新指纹。后台任务进度仍使用进程内注册表，重启后根据持久待检查记录和当前文件重新检查；已经成功的资料和审计动作保留。
 
 ### 在线来源与稳定身份
 
@@ -94,7 +108,7 @@ v33 由 `app/store/network_schema.py` 定义网络表，新库和迁移 `_m33` �
 
 | 表 | 作用/关键关联 |
 |---|---|
-| `scan_state` | 文件大小/mtime/扫描状态，用于增量与整理后的路径同步 |
+| `scan_state` | 文件大小/mtime、`source_revision` 和扫描状态，用于增量、同名覆盖检测与整理后的路径同步 |
 | `fs_changes` | 按视频库记录已发生的文件变更；成功完整扫描只清除开始时水位以内的记录，期间新增变更保留 |
 | `tv_binding_history` | 归属变更的预览/执行快照与撤销状态机（`preview` → 已执行/已撤销），预览 token 15 分钟有效 |
 | `organize_moves` | 剧集整理逐步审计：批次、源/目标、文件或目录、撤销时间 |

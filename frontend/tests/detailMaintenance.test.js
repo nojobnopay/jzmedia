@@ -68,7 +68,7 @@ async function detail(t, kind, metadata = {}, responses = {}) {
     ...Object.fromEntries([
       'PlayerModal', 'MediaBackdrop', 'MediaOverview', 'SimilarRow', 'CastWall', 'CrewRow',
       'MovieUploadPanel', 'MovieFileManager', 'MovieCollectionsPanel', 'TvBindingsDialog',
-      'TvOrganizeDialog', 'AiMatchSuggestions',
+      'AiMatchSuggestions',
     ].map(name => [`../components/${name}.vue`, { default: blank }])),
   })
   ui = renderHarness(component)

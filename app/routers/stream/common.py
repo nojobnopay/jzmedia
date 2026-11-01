@@ -17,6 +17,8 @@ from ... import storage
 from ...db import TRANSCODE_DIR
 from ... import media as _media
 from ... import playback as _playback
+from ...library_mutex import library_mutation_lock
+from ...playback.source import source_revision, assert_source_revision
 from ...log import get_logger
 logger = get_logger("stream.common")
 __all__ = ['_reap_orphans', '_write_session_meta', '_clear_session_meta', 'router', '_SEG_RE', '_SESS_FILE_RE', '_TTL', '_min_segs', 'PLAN_VERSION', '_SESS_IDLE', '_UNCLAIMED_TTL', '_CACHE_MIN_AGE', '_sessions', '_sess_lock', '_MEDIA_START_CACHE', '_hits', '_max_transcodes', '_hls_sem', '_log_hit', '_version_source', '_media_cached_or_probe', 'version_cache_dir', '_quality_key', '_session_key', '_plan_marker', '_session_dir', '_media_start_for', '_write_master', '_tree_size', '_cache_cap_bytes', '_transcode_cache_scan', '_evict_transcode_cache', '_purge_old', 'CacheCleanBody', 'clean_stream_cache', '_kill_proc', '_drop_session', 'shutdown_sessions', 'drop_sessions_for_version', '_dead_sessions', '_sweeper', '_sweeper_thread', '_marker_matches', '_variant_playlists', '_has_endlist', '_playlist_endlist', '_write_complete_marker', '_session_complete', '_ffmpeg_ok', '_seg_count', '_video_seg_prefix', '_live_sessions_for', '_find_live_session', '_rm_tmp', '_run_ffmpeg_to_temp', '_get_session', '_playlist_text']
@@ -80,6 +82,7 @@ _SWEEP_INTERVAL = 60.0
 
 
 _MEDIA_START_CACHE: dict = {}
+_PROBE_LOCKS = [threading.RLock() for _ in range(64)]
 
 
 _hits: deque = deque(maxlen=200)
@@ -205,6 +208,7 @@ def _version_source(version_id: int, kind: str = "movie") -> tuple[dict, "storag
     if not m:
         raise HTTPException(404, "version not found")
     try:
+        storage.clear_meta_cache(m.get('library_id') or library_paths.DEFAULT_LIBRARY_ID)
         src = storage.media_source(
             m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, m["file_path"])
     except storage.StorageNotFound:
@@ -216,24 +220,33 @@ def _version_source(version_id: int, kind: str = "movie") -> tuple[dict, "storag
     return m, src
 
 
-def _media_cached_or_probe(m: dict, src) -> dict:
-    """缓存优先；环境错误缓存/探测结构过期（probe_ver 低）→ 自动重探（自愈，免 backfill）。
-    `src` 为 MediaSource（本地/远程统一；str 兼容旧调用 = 本地路径）。"""
+def _media_cached_or_probe(m: dict, src, *, force: bool = False) -> dict:
+    """Reuse only a matching, fresh-stat-verified source revision and probe version."""
     kind = m.get("kind") or "movie"
-    cached = store.get_media_info(int(m["id"]), kind)
-    if cached and int(cached.get("probed_at") or 0) > 0:
-        stale = int(cached.get("probe_ver") or 0) < int(getattr(_media, "PROBE_VERSION", 0))
-        # 脏行自愈：环境错误缓存视为未探测（旧版本落库的，一次即洗掉）
-        if stale or (not cached.get("playable") and _media.is_retryable_error(
-                str(cached.get("probe_error") or ""))):
-            cached = None
-        else:
-            return cached
-    if isinstance(src, str):
-        info = _media.probe(src)
-    else:
-        info = _media.probe(src.input, size=src.size)
-    return store.upsert_media_info(int(m["id"]), info, kind)
+    item_id = int(m['id'])
+    with _PROBE_LOCKS[hash((kind, item_id)) % len(_PROBE_LOCKS)]:
+        revision = source_revision(src, row=m)
+        assert_source_revision(src, revision, row=m)
+        cached = store.get_media_info(item_id, kind)
+        if not force and cached and int(cached.get('probed_at') or 0) > 0:
+            stale = (cached.get('source_revision') != revision
+                     or int(cached.get('probe_ver') or 0) < int(getattr(_media, 'PROBE_VERSION', 0)))
+            if not stale and (cached.get('playable') or not _media.is_retryable_error(
+                    str(cached.get('probe_error') or ''))):
+                return cached
+        info = _media.probe(src) if isinstance(src, str) else _media.probe(src.input, size=src.size)
+        # Only the final verification/commit shares filesystem mutation locking.
+        # A slow ffprobe must never hold SQLite's global lock or block file browsing.
+        lid = m.get('library_id') or getattr(getattr(src, 'backend', None), 'library_id', 0)
+        with library_mutation_lock(lid):
+            assert_source_revision(src, revision, row=m)
+            current = store.get_playable(kind, item_id)
+            if not current and m.get('file_path'):
+                raise HTTPException(409, 'media changed during probing; reopen this media')
+            if (current and m.get('file_path') and (current.get('file_path') != m['file_path']
+                    or current.get('library_id') != m.get('library_id'))):
+                raise HTTPException(409, 'media path changed during probing; reopen this media')
+            return store.upsert_media_info(item_id, info, kind, source_revision=revision)
 
 
 def _quality_key(plan: dict) -> str:

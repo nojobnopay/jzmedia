@@ -2,7 +2,6 @@
 assert 控制流、成员插入日志）。"""
 import pathlib
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app import media, store
@@ -68,7 +67,9 @@ def test_burn_without_ff_index_422(media_root):
         "audio": [], "attachments": [],
         "subs": [{"index": 0, "codec": "dvd_subtitle", "image": 1,
                   "lang": "", "title": "", "default": 0, "forced": 0}],  # 缺 ff_index
-        "probe_ver": media.PROBE_VERSION, "probed_at": 1})
+        "probe_ver": media.PROBE_VERSION, "probed_at": 1},
+        source_revision=store.media_source_revision(store.get_movie(mid)['library_id'], rel,
+                                                    (media_root / rel).stat().st_size, (media_root / rel).stat().st_mtime))
     r = client.post(f"/api/stream/{mid}/sessions", json={"quality": "auto", "sub": 0})
     assert r.status_code == 422
     assert "stream index" in r.text

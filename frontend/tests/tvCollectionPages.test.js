@@ -55,7 +55,7 @@ async function page(t, name, responder = () => undefined) {
       Vue.onUnmounted(() => { instance.active = false })
       return () => Vue.h('div', { class: 'test-player' })
     } } },
-    ...Object.fromEntries(['MediaBackdrop', 'MediaOverview', 'SimilarRow', 'CastWall', 'TvBindingsDialog', 'TvOrganizeDialog', 'AiMatchSuggestions']
+    ...Object.fromEntries(['MediaBackdrop', 'MediaOverview', 'SimilarRow', 'CastWall', 'TvBindingsDialog', 'AiMatchSuggestions']
       .map(value => [`../components/${value}.vue`, { default: blank }])),
   })
   const ui = renderHarness(component)

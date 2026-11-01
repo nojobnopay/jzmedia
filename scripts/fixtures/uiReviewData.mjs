@@ -76,6 +76,7 @@ const bindingInventory={items:bindingDirs,shows:[{...shows[0],seasons:bindingTar
 const tutorialExtras=[{id:701,kind:'behind_the_scenes',label:'幕后花絮',file_path:'群岛之间/Behind The Scenes/群岛拍摄手记.mp4',exists:true},{id:702,kind:'deleted_scene',label:'删减片段',file_path:'群岛之间/Deleted Scenes/渡轮上的告别.mp4',exists:true}]
 export function createFixture() {
   const state={scene:'',mode:'normal',failurePath:'/api/search',step:1,requests:[],unexpected:[],cacheLimits:{data_warning_gb:20,transcode_cache_gb:10,preview_cache_gb:10}}
+  const ingestJobs = new Map()
   const onboarding=()=>({show_welcome:false,status:'active',step:state.step,kind:'movie',library_id:1,tmdb_verified:true,tmdb_skipped:false,import_mode:'scan',upload_allowed:true,can_complete:true,content:{count:13,pending:2,items:movies.slice(0,4)}})
   const dataUsage=()=>{
     const categories={database:100*1024**2,posters:200*1024**2,previews:300*1024**2,transcode:1400*1024**2,other:state.scene==='settings-storage-alert'?19*1024**3+48*1024**2:48*1024**2}
@@ -89,6 +90,22 @@ export function createFixture() {
     if (/^\/api\/tv\/shows\/\d+\/collection$/.test(key)) return tvCollectionFixture(id)
     if (/^\/api\/tv\/shows\/\d+\/seasons\/\d+\/catalog$/.test(key)) return tvCatalogFixture(id, Number(key.match(/\/seasons\/(\d+)/)[1]))
     if (key === '/api/viewing/session') return {mode:'normal',enabled:false,management_unlocked:false,generation:0,expires_at:0}
+    if (key === '/api/jobs/tv-ingest' && method === 'POST') {
+      const job_id = 'demo-tv-ingest-' + ingestJobs.size
+      const params = { ids: [201], actions: ['seasondir', 'rename'], allow_torrent: false, allow_absolute_shows: [], ...body }
+      const manual = body?.source === 'manual' && (!body.ids || body.ids.includes(201))
+      const metadata = { filled: 2, status: 'filled', issues: [] }
+      ingestJobs.set(job_id, { state: 'done', phase: 'preview', summary: { preview_id: job_id,
+        plans: manual ? [{ ...tvPlan, metadata }] : [], params,
+        counts: manual ? tvPlan.counts : {}, total: manual ? 3 : 0,
+        metadata_results: manual ? [{ show_id: 201, ...metadata }] : [], auto_prompt: false } })
+      return { job_id }
+    }
+    if (key.startsWith('/api/jobs/tv-ingest/')) return ingestJobs.get(key.split('/').at(-1))
+    if (key === '/api/tv/ingestion-reviews') return state.scene === 'tv-organize-panel'
+      ? { items: [{ show_id: 201, title: tvTitles[0], library_id: 2, state: 'deferred', plan: tvPlan }], count: 1 }
+      : { items: [], count: 0 }
+    if (key === '/api/tv/ingestion-reviews/decision') return { ok: true }
     if (key === '/api/tv/updates') return { media_library_id: Number(url.searchParams.get('media_library') || 1), items: [], error: '' }
     if (key === '/api/tv/airing/status' || key === '/api/tv/airing/check') return { configured: true, total: 6, checked: 6, pending: 0, failed: 0, running: false, current: 0, last_checked_at: 1790985600, next_check_at: 1791590400, error: '' }
     if(/^\/api\/persons\/\d+$/.test(key))return {...cast[0],biography:'演示人物陈予安：虚构电影演员与导演，作品关注人与地方的联系。此资料仅用于教程。',birthday:'1986-05-14',place_of_birth:'海边小城（虚构）',acting:movies.slice(0,3),directing:movies.slice(3,7),tv_works:[]}

@@ -78,7 +78,7 @@ function status(running = false) {
 function mockApi(url, method, body) {
   const key = url.pathname
   requests.push({ path: key, method, body, query: Object.fromEntries(url.searchParams) })
-  assert.ok(method === 'GET' || method === 'POST' && key === '/api/tv/airing/check', 'This smoke must not start playback or mutate media')
+  assert.ok(method === 'GET' || method === 'POST' && ['/api/tv/airing/check', '/api/jobs/tv-ingest'].includes(key), 'This smoke only uses simulated airing/ingestion checks and must not start playback or organize files')
   if (key === '/api/libraries') return { items: demoLibraries, default_id: 1 }
   if (key === '/api/media-libraries') return { items: [{ id: 1, name: '客厅影库', source: 'local', enabled: true, read_only: true, video_libraries: demoLibraries }], smb_driver: 'direct' }
   if (key === '/api/tv/updates') return { media_library_id: 1, items: [{ ...shows[0], show_id: 201,

@@ -2,6 +2,7 @@
 import hashlib
 import os
 import re
+from functools import wraps
 from urllib.parse import quote
 from typing import Literal
 
@@ -712,7 +713,26 @@ def check_upload_access():
     return {"allowed": True}
 
 
+def _coordinated_tv_upload(operation):
+    @wraps(operation)
+    def run(*args, **kwargs):
+        from inspect import signature
+        from ... import tv_ingest
+        from ...library_mutex import library_mutation_lock
+
+        params = signature(operation).bind(*args, **kwargs).arguments
+        lid = params.get("library_id")
+        lid = library_paths.default_id() if lid is None else int(lid)
+        lib = store.get_library(lid)
+        if not lib or lib.get("kind") != "tv":
+            return operation(*args, **kwargs)
+        with tv_ingest.operation_scope([lid]), library_mutation_lock(lid):
+            return operation(*args, **kwargs)
+    return run
+
+
 @router.post("/uploads")
+@_coordinated_tv_upload
 def library_upload(file: UploadFile = File(...),
                    relpath: str = Query(default=""),
                    target_dir: str = Query(default=""),
@@ -725,8 +745,8 @@ def library_upload(file: UploadFile = File(...),
     """Stream into a validated video library, preserving movie response compatibility.
 
     TV folder uploads keep their structure. Loose files require a show and season;
-    only recognized episodes enter the database. Metadata runs once per uploaded
-    show via the existing tv-scrape job, without renaming any uploaded file.
+    recognized episodes enter the database and persist a pending ingestion check.
+    The upload batch then prepares metadata and an organization preview together.
     """
     from ... import storage
     from ...scanner import is_feature_video as _is_feat, is_sidecar as _is_side
@@ -777,6 +797,7 @@ def library_upload(file: UploadFile = File(...),
               "status": "stored", "media_type": kind, "movie_id": None, "library_id": lid}
     try:
         if kind == "tv":
+            store.record_fs_change(lid, "upload", rel)
             registered = register_tv_upload(backend, rel, root, target_show)
             result.update({k: v for k, v in registered.items() if k != "file"})
             result.setdefault("show_id", target_show)
@@ -831,7 +852,19 @@ def movie_file_delete(movie_id: int, body: dict | None = None):
             "results": [r]}
 
 
+def _coordinated_tv_scan(operation):
+    @wraps(operation)
+    def run(*args, **kwargs):
+        from ... import tv_ingest
+        lids = [lib['id'] for lib in store.list_libraries(only_enabled=True)
+                if lib.get('kind') == 'tv']
+        with tv_ingest.operation_scope(lids):
+            return operation(*args, **kwargs)
+    return run
+
+
 @router.post("/scan")
+@_coordinated_tv_scan
 def run_scan():
     """全量扫描：回包给聚合摘要（评审 B7/R03-B5：万级文件时不再把全部结果塞进响应）。"""
     from ...scanner.scan import _scan_libraries
@@ -841,6 +874,13 @@ def run_scan():
     failed_libraries = {int(r['library_id']) for r in res if r.get('library_id') is not None
                         and (str(r.get('status') or '').startswith('error')
                              or r.get('status') in ('scan_failed', 'library_offline'))}
+    from ... import tv_ingest
+    tv_libraries = [lib['id'] for lib in store.list_libraries(only_enabled=True)
+                    if lib.get('kind') == 'tv' and lib['id'] not in failed_libraries]
+    tv_libraries = sorted(set(tv_libraries) | {int(row['library_id']) for row in res
+        if row.get('status') == 'tv_reconciliation' and row.get('reconciliation', {}).get('incomplete')})
+    ingestion = tv_ingest.prepare(library_ids=tv_libraries, discovered=True, source='scan',
+                                 file_results=tv_ingest.reconciliation_from_scan(res))
     try:
         previews.enqueue_scan_previews(before, failed_libraries)
     except Exception as e:
@@ -853,7 +893,7 @@ def run_scan():
         if st.startswith("error"):
             errors.append({"file": r.get("file", ""), "status": st[:200]})
     return {"total": len(res), "counts": counts, "errors": errors[:100],
-            "results": res[:200]}
+            "results": res[:200], "tv_ingest": ingestion}
 
 
 @router.get("/tmdb/search")

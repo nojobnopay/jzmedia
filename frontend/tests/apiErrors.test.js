@@ -40,3 +40,14 @@ test('viewing authorization is distinct from the existing access token', async t
   await assert.rejects(api('/api/viewing/unlock', { method: 'POST', silentViewing: true }), { code: 'management_required' })
   assert.deepEqual(events, [], 'Password form errors stay in that form without requesting another dialog')
 })
+
+test('background TV checks keep authorization failures silent while retaining status', async t => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window'), events = []
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { dispatchEvent: event => events.push(event.type) } })
+  t.after(() => descriptor ? Object.defineProperty(globalThis, 'window', descriptor) : delete globalThis.window)
+  for (const body of [{ detail: '需要访问令牌' }, { detail: '需要管理权限', code: 'management_required' }]) {
+    t.mock.method(globalThis, 'fetch', async () => ({ ok: false, status: 401, text: async () => JSON.stringify(body) }))
+    await assert.rejects(api('/api/jobs/tv-ingest', { method: 'POST', body: '{}', silentViewing: true, silentAuth: true }), { status: 401 })
+  }
+  assert.deepEqual(events, [])
+})

@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from collections import defaultdict
+from functools import wraps
 
 from . import library_paths, storage, store, tmdb
 from .library_mutex import library_mutation_lock
@@ -363,6 +364,17 @@ def preview(library_id, tmdb_id, directories, target_show_id=None,
     return public
 
 
+def _coordinated_binding_operation(operation):
+    @wraps(operation)
+    def run(token, *args, **kwargs):
+        from . import tv_ingest
+        record = store.get_tv_binding_plan(token)
+        with tv_ingest.operation_scope([int(record['payload']['library_id'])]):
+            return operation(token, *args, **kwargs)
+    return run
+
+
+@_coordinated_binding_operation
 def apply(token):
     record = store.get_tv_binding_plan(token)
     if record['state'] == 'applied':
@@ -435,6 +447,7 @@ def _cache_art(show_id, payload):
                 logger.warning('binding artwork cache failed show=%s key=%s: %s', show_id, key, e)
 
 
+@_coordinated_binding_operation
 def undo(token, dry_run=True):
     before = []
     if not dry_run:

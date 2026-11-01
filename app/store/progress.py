@@ -143,6 +143,7 @@ def list_recent_played_tv(limit: int = 20, library_ids=None,
         params.extend(libs)
     if not include_finished:
         conds.append("COALESCE(e.watched, 0)=0")
+        conds.append("COALESCE(e.missing, 0)=0")
         conds.append("NOT playback_complete(p.position, p.duration)")
     where = " AND ".join(conds)
     with _lock, _conn() as c:

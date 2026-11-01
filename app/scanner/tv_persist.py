@@ -134,44 +134,11 @@ def backfill_cached_episodes(show_id: int) -> int:
         tmdb_id = int((show or {}).get("tmdb_id") or 0)
     except (TypeError, ValueError):
         tmdb_id = 0
-    if not tmdb_id:
+    if not tmdb_id or show.get('needs_review'):
         return 0
-    from ..tv_binding_rules import binding_for
-    rules = store.list_tv_bindings(show_id=show_id)
-    season_index, _ = _episode_index(store.get_tmdb_cache_seasons(tmdb_id))
-    if not season_index:
-        return 0
-    filled = 0
-    for episode in store.list_episodes(int(show_id)):
-        if (episode.get("tmdb_episode_id") or episode.get("local_only")
-                or episode.get("binding_conflict") or episode.get("match_source") == "manual"):
-            continue
-        try:
-            key = (int(episode.get("season") or 0),
-                   int(episode.get("episode") or 0))
-        except (TypeError, ValueError):
-            continue
-        match = season_index.get(key)
-        if not isinstance(match, dict):
-            continue
-        if binding_for(episode['file_path'], rules) and any(
-                (key[0], n) not in season_index for n in range(key[1],
-                max(key[1], episode.get('episode_end') or 0) + 1)):
-            continue
-        try:
-            runtime = int(match.get("runtime") or 0)
-        except (TypeError, ValueError):
-            runtime = 0
-        store.update_episode_meta(
-            int(episode["id"]), tmdb_episode_id=match.get("id"),
-            title=(match.get("name") or "").strip() or episode.get("title") or "",
-            overview=match.get("overview") or "",
-            still_path=match.get("still_path") or "",
-            air_date=str(match.get("air_date") or "")[:10], runtime=runtime,
-            tmdb_rating=match.get("vote_average"), needs_review=0,
-        )
-        filled += 1
-    return filled
+    # Keep scanner, upload and detail backfills on the same conservative rules.
+    from ..tv_ingest import _apply_candidates
+    return _apply_candidates(show, store.get_tmdb_cache_seasons(tmdb_id))
 
 
 def _season_counts(detail: dict) -> list[tuple[int, int]]:

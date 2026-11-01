@@ -9,6 +9,7 @@ import os
 import re
 import threading
 import time
+from functools import wraps
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
@@ -28,6 +29,29 @@ router = APIRouter(prefix="/api/tv")
 _SNAP_TTL = 600.0
 _SNAP: dict[tuple, tuple] = {}
 _SNAP_LOCK = threading.Lock()
+
+
+def _coordinated_show_operation(operation):
+    """Legacy maintenance shares the ingestion queue without holding a DB lock."""
+    @wraps(operation)
+    def run(*args, **kwargs):
+        from inspect import signature
+        from .. import tv_ingest
+
+        params = signature(operation).bind(*args, **kwargs).arguments
+        show = store.get_show_meta(int(params["show_id"])) if "show_id" in params else None
+        if show is None and "episode_id" in params:
+            episode = store.get_episode(int(params["episode_id"]))
+            show = store.get_show_meta(episode["show_id"]) if episode else None
+        with tv_ingest.operation_scope([int(show["library_id"])] if show else []):
+            return operation(*args, **kwargs)
+    return run
+
+
+def _write_tv_media_scoped(show_id, library_id):
+    from .. import tv_ingest
+    with tv_ingest.operation_scope([int(library_id)]):
+        return tv_persist.write_media_files(show_id, library_id)
 
 
 def _lib_ids(library, media_library) -> list | None:
@@ -723,6 +747,7 @@ def _apply_tv_cached_offline(show_id: int, tmdb_id: int, cached: dict) -> dict:
 
 
 @router.post("/shows/{show_id}/match")
+@_coordinated_show_operation
 def match_show(show_id: int, body: MatchBody):
     """手动换绑 TMDB 剧集：拉详情+季详情并落库（source=manual，清待确认）。
 
@@ -788,7 +813,7 @@ def match_show(show_id: int, body: MatchBody):
                      "artwork": {"ok": False, "reason": "error"}}
     else:
         # 大剧（千集级）同步写会让浏览器请求超时：放后台，前端轮询补齐
-        threading.Thread(target=tv_persist.write_media_files,
+        threading.Thread(target=_write_tv_media_scoped,
                          args=(show_id, show.get("library_id")), daemon=True).start()
         media = {"nfo": False, "nfo_wrote": 0, "nfo_skipped": 0,
                  "artwork": {"ok": False, "reason": "queued"}, "queued": True}
@@ -798,6 +823,7 @@ def match_show(show_id: int, body: MatchBody):
 
 
 @router.post("/shows/{show_id}/bind-external")
+@_coordinated_show_operation
 def bind_external_show(show_id: int, body: dict):
     """外部元数据候选（wikidata/tvmaze/bgm/nfo）显式绑定（P2.4）。
 
@@ -831,6 +857,7 @@ def _is_tv_lib_read_only(library_id) -> bool:
 
 
 @router.post("/shows/{show_id}/discover")
+@_coordinated_show_operation
 def discover_show_files(show_id: int):
     """发现当前剧目录中的新增视频，再由详情页生成整理预览。
 
@@ -940,6 +967,7 @@ def show_organize_hint(show_id: int, actions: str | None = None,
 
 
 @router.post("/shows/{show_id}/refresh")
+@_coordinated_show_operation
 def refresh_show(show_id: int, force: bool = True):
     """重刮单剧（默认 force：即使已刮过也重写；force=false 走缓存短路）。"""
     show = store.get_show_meta(show_id)
@@ -960,6 +988,7 @@ class TvPatchBody(BaseModel):
 
 
 @router.patch("/shows/{show_id}")
+@_coordinated_show_operation
 def patch_show(show_id: int, body: TvPatchBody):
     """本地字段修改（allowlist，与电影 PATCH 同语义）：手工标题受保护（title_auto=0），
     此后刷新/重刮不覆盖；tags 归一去重（服务端 regions.normalize_tags）。"""
@@ -997,6 +1026,7 @@ def patch_show(show_id: int, body: TvPatchBody):
 
 
 @router.post("/shows/{show_id}/confirm-match")
+@_coordinated_show_operation
 def confirm_match(show_id: int):
     """确认匹配（仅清待确认，不重刮不触网；与电影 confirm-match 同语义）。"""
     if not store.get_show_meta(show_id):
@@ -1101,6 +1131,7 @@ class EpisodeMatchBody(BaseModel):
 
 
 @router.post("/episodes/{episode_id}/match-episode")
+@_coordinated_show_operation
 def match_episode(episode_id: int, body: EpisodeMatchBody):
     """手动指定 TMDB 集（本地季集号不变，只取元数据）：用于 TMDB 集号口径不一致。"""
     e = store.get_episode(episode_id)
@@ -1166,6 +1197,7 @@ class EpisodeLocalBody(BaseModel):
 
 
 @router.post("/episodes/{episode_id}/confirm-local")
+@_coordinated_show_operation
 def confirm_local(episode_id: int, body: EpisodeLocalBody | None = None):
     """确认「TMDB 无对应集」：清 needs_review 并标 local_only（重刮不覆盖、不再标待确认）。
 

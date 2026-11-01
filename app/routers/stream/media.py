@@ -48,6 +48,7 @@ def stream_client_check():
 def _source_or_none(vm: dict):
     """库内相对路径 → MediaSource；缺失/离线等存储错误返回 None（版本列表置灰用）。"""
     try:
+        storage.clear_meta_cache(vm.get('library_id') or library_paths.DEFAULT_LIBRARY_ID)
         return storage.media_source(
             vm.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, vm["file_path"])
     except storage.StorageError:
@@ -60,11 +61,7 @@ def stream_media(version_id: int, refresh: int = 0, kind: str = "movie"):
     并附客户端实测候选码串（vcaps + 每音轨 caps）。kind=movie|episode（F）。"""
     m, src = _version_source(version_id, kind)
     k = m.get("kind") or "movie"
-    if refresh:
-        info = store.upsert_media_info(int(m["id"]),
-                                       _media.probe(src.input, size=src.size), k)
-    else:
-        info = _media_cached_or_probe(m, src)
+    info = _media_cached_or_probe(m, src, force=True) if refresh else _media_cached_or_probe(m, src)
     return {"version_id": int(m["id"]), "kind": k, "file_path": m["file_path"],
             "title": m.get("title", ""), **_media_payload(m, info),
             "duration_text": _media.fmt_duration(info.get("duration") or 0)}
@@ -330,7 +327,7 @@ def probe_missing(body: ProbeMissingBody | None = None):
             mi = mi_by_id.get(int(r["id"]))
             if not mi:
                 kept.append(r)
-            elif int(mi.get("probe_ver") or 0) < pv_now:
+            elif not mi.get('source_revision') or int(mi.get("probe_ver") or 0) < pv_now:
                 kept.append(r)
             elif not mi.get("playable") and _media.is_retryable_error(
                     str(mi.get("probe_error") or "")):
@@ -345,8 +342,7 @@ def probe_missing(body: ProbeMissingBody | None = None):
             failed.append({"id": vid, "error": "file missing"})
             continue
         try:
-            info = store.upsert_media_info(
-                vid, _media.probe(src.input, size=src.size))
+            info = _media_cached_or_probe(r, src, force=True)
         except Exception as e:
             failed.append({"id": vid, "error": str(e)[:200]})
             continue

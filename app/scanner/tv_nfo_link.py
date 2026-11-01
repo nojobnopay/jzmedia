@@ -146,7 +146,7 @@ def sync_tv_nfos_for(show_id: int, backend=None, dry_run: bool = False,
         if not show:
             return result
         detail = store.get_show(show_id)
-        episodes = (detail or {}).get("episodes") or []
+        episodes = [e for e in (detail or {}).get("episodes") or [] if not e.get('missing')]
         if not episodes:
             return result
         seasons = (detail or {}).get("seasons") or []

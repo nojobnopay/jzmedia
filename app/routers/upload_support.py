@@ -56,6 +56,14 @@ def tv_destination(lid, rel, mode, show_id=None, show_title="", season=None):
 
 
 def register_tv_upload(backend, rel, root, show_id=None):
+    from .. import tv_ingest
+
     if os.path.splitext(rel)[1].lower() not in scanner.VIDEO_EXTS:
+        show_id = show_id or store.find_show_by_dir_prefix(root, backend.library_id)
+        if show_id:
+            tv_ingest.mark_dirty(int(show_id))
         return {"status": "stored", "show_id": show_id, "episode_id": None}
-    return scanner.scan_tv_file(backend, rel, show_root=root, target_show_id=show_id)
+    result = scanner.scan_tv_file(backend, rel, show_root=root, target_show_id=show_id)
+    if result.get("show_id"):
+        tv_ingest.mark_dirty(int(result["show_id"]))
+    return result

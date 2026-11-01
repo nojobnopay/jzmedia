@@ -1,5 +1,5 @@
 <template>
-  <JzDialog v-if="!tvPlan" class="upload-dialog" mask-class="upload-mask" :busy="uploading || upOrgBusy || tvBusy" close-label="关闭上传窗口"
+  <JzDialog v-if="!tvReviewing" class="upload-dialog" mask-class="upload-mask" :busy="uploading || upOrgBusy || tvBusy" close-label="关闭上传窗口"
     :title="upStep === 'organize' ? '归档整理（第 2 步）' : upStep === 'done' ? '完成' : (kind === 'tv' ? '上传剧集' : '上传影片（第 1 步）')" @close="closeDlg">
       <template v-if="upStep === 'upload'">
       <div class="bar upload-target">
@@ -58,8 +58,7 @@
           <router-link :to="'/tv/' + show.id">核对匹配</router-link>
           <JzButton icon="eye" :disabled="tvBusy || uploading" @click="previewTv(show.id)">预览目录整理</JzButton>
         </div>
-        <JzButton icon="refresh" v-if="!tvBusy && !uploading" @click="scrapeUploadedShows">补全剧集资料</JzButton>
-        <JzButton v-if="tvBusy" @click="cancelTvMetadata">取消资料补全</JzButton>
+        <JzButton icon="refresh" v-if="!tvBusy && !uploading" @click="checkUploadedShows(false)">检查资料与整理</JzButton>
       </section>
 
       </template>
@@ -96,8 +95,6 @@
       <JzButton v-else @click="closeDlg">关闭</JzButton>
     </template>
   </JzDialog>
-  <TvOrganizeDialog v-if="tvPlan" :key="tvPlan.show_id" :initial-plan="tvPlan" :title="tvPlan.title || ''"
-    @close="tvPlan = null" @finished="emit('done')" @settings="openTvTools" />
 </template>
 
 <script setup>
@@ -108,7 +105,6 @@ import { requestProtection } from '../viewing.js'
 import { currentMediaId, currentMediaVideoLibs, listLibs, uploadTargets, onLibChange } from '../libraries.js'
 import { fmtBytes, midEllipsis } from '../format.js'
 import { useTvUpload } from '../useTvUpload.js'
-import TvOrganizeDialog from './TvOrganizeDialog.vue'
 import JzButton from './JzButton.vue'
 import JzDialog from './JzDialog.vue'
 
@@ -136,7 +132,7 @@ const upDir = ref(null)
 const upFolderHead = ref('')
 const upQueue = ref([])
 const { targetShow, targetTitle, targetSeason, availableShows, showsError, tvBusy, tvMessage,
-  tvPlan, uploadedShows, scrapeUploadedShows, cancelTvMetadata, previewTv } = useTvUpload({
+  tvReviewing, uploadedShows, checkUploadedShows, previewTv } = useTvUpload({
   kind: props.kind, libraryId: upLibId, queue: upQueue, done: () => emit('done'),
 })
 const uploading = ref(false)
@@ -388,7 +384,7 @@ async function startUpload() {
   if (upCancelled) parts.push('已取消；已送达服务器的文件可能仍在入库，可扫描确认')
   upSummary.value = parts.join(' · ')
   emit('done')
-  if (props.kind === 'tv' && !upCancelled && uploadedShows.value.length) await scrapeUploadedShows()
+  if (props.kind === 'tv' && uploadedShows.value.length) await checkUploadedShows()
   window.dispatchEvent(new CustomEvent('jzmedia:content-changed'))
   emit('result', {
     library_id: upLibId.value, kind: props.kind, uploaded: uploadCounts.value.done,
@@ -460,7 +456,6 @@ async function doUpOrganize() {
   }
 }
 
-function openTvTools() { router.push({ path: '/settings', query: { sec: 'sec-tvorganize', library: upLibId.value } }) }
 watch(() => uploading.value || tvBusy.value || upOrgBusy.value, value => emit('busy', value), { flush: 'sync' })
 function beforeUnload(event) {
   if (uploading.value || tvBusy.value || upOrgBusy.value) { event.preventDefault(); event.returnValue = '' }

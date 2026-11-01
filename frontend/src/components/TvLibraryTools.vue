@@ -23,7 +23,7 @@
         <span class="step-state" :class="{ run: scanRunning }">{{ scanStateText }}</span>
       </button>
       <div v-show="openStep === 'scan'" class="pipe-body">
-        <p class="hint">读取新剧集，自动匹配资料和海报，并移除文件已不存在的记录。</p>
+        <p class="hint">读取新剧集，自动补全资料并检查目录命名；有待办时统一显示整理预览。</p>
         <div class="bar">
           <JzButton class="primary tool-action" @click="startScan" :disabled="!!busy || scanBlocked || !tab.enabled" type="button" variant="primary" icon="scan">
             {{ scanRunning ? '扫描中…' : '扫描新文件' }}
@@ -72,7 +72,7 @@
 
     <div class="pipe-step">
       <button type="button" class="pipe-head pipe-toggle" :aria-expanded="openStep === 'organize'" @click="toggleStep('organize')">
-        <span class="step-title"><span class="step-no">③</span> 目录整理</span>
+        <span class="step-title"><span class="step-no">③</span> 检查与整理</span>
         <span class="fhint">{{ openStep === 'organize' ? '收起' : '展开' }}</span>
         <span class="step-state">{{ orgState }}</span>
       </button>
@@ -97,6 +97,7 @@ import JzButton from './JzButton.vue'
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { api } from '../api.js'
 import { useLibraryScan } from '../useLibraryScan.js'
+import { useTvIngestFlow } from '../useTvIngestFlow.js'
 import { toolViewForSection } from '../settingsNavigation.js'
 import { pickOpenStep, stepForSection } from '../libraryToolsTabs.js'
 import TvOrganizePanel from './TvOrganizePanel.vue'
@@ -131,6 +132,8 @@ const busy = ref(null)
 const stats = ref({ shows: 0, episodes: 0 })
 const statsReady = ref(false)
 const orgState = ref('')
+const bindingIngest = useTvIngestFlow({ isCurrent: () => props.active, scopeKey: () => `${props.tab.id}|${props.active}`,
+  onCompleted: async () => { await Promise.all([loadStats(), loadPending(true)]); emit('changed') } })
 
 
 function toggleStep(key) {
@@ -138,9 +141,10 @@ function toggleStep(key) {
   openStep.value = openStep.value === key ? '' : key
 }
 
-async function onBindingsChanged() {
+async function onBindingsChanged(result) {
   await Promise.all([loadStats(), loadPending()])
   emit('changed')
+  if (result?.show_id) await bindingIngest.start({ ids: [Number(result.show_id)] })
 }
 
 async function loadStats() {
@@ -214,7 +218,7 @@ async function confirmAll() {
   }
 }
 
-const { running: scanRunning, blocked: scanBlocked, message: scanMsg, stateText: scanStateText, start: startScan, cancel: cancelScan } = useLibraryScan(() => props.tab, async () => { emit('changed'); await Promise.all([loadStats(), loadPending(true)]) })
+const { running: scanRunning, blocked: scanBlocked, message: scanMsg, stateText: scanStateText, start: startScan, cancel: cancelScan } = useLibraryScan(() => props.tab, async () => { emit('changed'); await Promise.all([loadStats(), loadPending(true)]) }, { isCurrent: () => props.active })
 
 // ③ 目录整理：预览/执行后刷新待处理与状态
 function onOrgStatus(s) {

@@ -383,7 +383,7 @@ def _plan_show(show: dict, actions, cache: _DirCache, allow_torrent: bool,
                profile: str = "kodi", claimed: dict | None = None,
                allow_absolute: bool = False) -> dict | None:
     show_id = int(show["id"])
-    episodes = store.list_episodes(show_id)
+    episodes = [episode for episode in store.list_episodes(show_id) if not episode.get('missing')]
     if not episodes:
         return None
     direct = {os.path.dirname(str(e["file_path"])) for e in episodes}

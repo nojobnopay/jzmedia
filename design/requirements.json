@@ -9914,9 +9914,9 @@
       "source_excerpt": "<router-link :to=\"navTarget('/')\">"
     },
     {
-      "id": "frontend/src/App.vue:input:44",
+      "id": "frontend/src/App.vue:input:45",
       "source": "frontend/src/App.vue",
-      "line": 61,
+      "line": 62,
       "platforms": [
         "web",
         "mobile-web"
@@ -9953,9 +9953,9 @@
       "source_excerpt": "<input id=\"access-token\" v-model=\"authInput\" name=\"access-token\" type=\"password\" placeholder=\"粘贴访问令牌…\" autocomplete=\"off\" :spellcheck=\"false\" @keyup.enter=\"saveAuth\" />"
     },
     {
-      "id": "frontend/src/App.vue:JzButton:47",
+      "id": "frontend/src/App.vue:JzButton:48",
       "source": "frontend/src/App.vue",
-      "line": 65,
+      "line": 66,
       "platforms": [
         "web",
         "mobile-web"
@@ -9992,9 +9992,9 @@
       "source_excerpt": "<JzButton @click=\"authAsk = false\">"
     },
     {
-      "id": "frontend/src/App.vue:JzButton:48",
+      "id": "frontend/src/App.vue:JzButton:49",
       "source": "frontend/src/App.vue",
-      "line": 66,
+      "line": 67,
       "platforms": [
         "web",
         "mobile-web"
@@ -14083,7 +14083,7 @@
           "frontend/src/components/PreviewMaintenance.vue",
           "frontend/src/components/StorageUsagePanel.vue",
           "frontend/src/components/FsBrowser.vue",
-          "frontend/src/components/TvOrganizeDialog.vue"
+          "frontend/src/components/TvIngestReviewDialog.vue"
         ],
         "overrides": [
           {
@@ -19177,7 +19177,7 @@
           "frontend/src/components/PreviewMaintenance.vue",
           "frontend/src/components/StorageUsagePanel.vue",
           "frontend/src/components/FsBrowser.vue",
-          "frontend/src/components/TvOrganizeDialog.vue"
+          "frontend/src/components/TvIngestReviewDialog.vue"
         ],
         "overrides": [
           {
@@ -19315,7 +19315,7 @@
           "frontend/src/components/PreviewMaintenance.vue",
           "frontend/src/components/StorageUsagePanel.vue",
           "frontend/src/components/FsBrowser.vue",
-          "frontend/src/components/TvOrganizeDialog.vue"
+          "frontend/src/components/TvIngestReviewDialog.vue"
         ],
         "overrides": [
           {
@@ -35968,7 +35968,7 @@
           "frontend/src/components/PreviewMaintenance.vue",
           "frontend/src/components/StorageUsagePanel.vue",
           "frontend/src/components/FsBrowser.vue",
-          "frontend/src/components/TvOrganizeDialog.vue"
+          "frontend/src/components/TvIngestReviewDialog.vue"
         ],
         "overrides": [
           {
@@ -39640,6 +39640,811 @@
       "source_excerpt": "<JzButton size=\"compact\" variant=\"ghost\" @click=\"$emit('retry')\">"
     },
     {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:Spinner:4",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 4,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "浏览与资料",
+      "element": "Spinner",
+      "purpose": "加载",
+      "assets": [
+        "loading"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "28"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<Spinner :size=\"28\" />"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:progress:7",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 5,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-status",
+      "feature": "浏览与资料",
+      "element": "progress",
+      "purpose": "剧集整理进度",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-progress",
+        "specification": "原生只读进度状态，宽度随容器、条高按组件CSS；不设置触摸命中区或键盘焦点。",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "design/contracts.json",
+          "frontend/src/components/PreviewMaintenance.vue",
+          "frontend/src/components/StorageUsagePanel.vue",
+          "frontend/src/components/FsBrowser.vue",
+          "frontend/src/components/TvIngestReviewDialog.vue"
+        ],
+        "overrides": [
+          {
+            "source": "frontend/src/components/TvIngestReviewDialog.vue",
+            "line": 91,
+            "selector": ".ingest-task progress",
+            "values": {
+              "width": "min(420px, 100%)"
+            }
+          }
+        ],
+        "value": "width:min(420px, 100%)"
+      },
+      "target": null,
+      "states": [
+        "determinate",
+        "indeterminate"
+      ],
+      "accessible_name_owner": "剧集整理进度",
+      "classification": "原生progress为只读进度状态，保留确定/不确定进度语义及aria可访问名称；条高随组件样式，不设置44px触摸命中区或键盘焦点。",
+      "source_excerpt": "<progress :value=\"total ? done : undefined\" :max=\"total || 1\" aria-label=\"剧集整理进度\">"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:AppIcon:12",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 9,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "浏览与资料",
+      "element": "AppIcon",
+      "purpose": "确认 / 警告",
+      "assets": [
+        "warning",
+        "check"
+      ],
+      "dynamic_expression": "result.failed ? 'warning' : 'check'",
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "28"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon :name=\"result.failed ? 'warning' : 'check'\" :size=\"28\" />"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:input:26",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 17,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input type=\"checkbox\" v-model=\"selected\" :value=\"Number(plan.show_id)\" :disabled=\"busy || !plan.groups?.length || plan.blocked || plan.reason === 'read_only'\" />"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:summary:35",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 21,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "summary",
+      "purpose": "查看目录、文件名与风险",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<summary>"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:AppIcon:44",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 24,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "asset",
+      "feature": "浏览与资料",
+      "element": "AppIcon",
+      "purpose": "前进",
+      "assets": [
+        "arrow-right"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-icon",
+        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/AppIcon.vue",
+          "frontend/src/components/PlayerIcon.vue",
+          "frontend/src/components/Spinner.vue"
+        ],
+        "overrides": [],
+        "value": "16"
+      },
+      "target": null,
+      "states": [
+        "normal"
+      ],
+      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
+      "classification": "shared design component",
+      "source_excerpt": "<AppIcon name=\"arrow-right\" :size=\"16\" />"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:input:48",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 26,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input type=\"checkbox\" v-model=\"allowAbsolute\" :value=\"Number(plan.show_id)\" :disabled=\"busy\" />"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:summary:51",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 28,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "summary",
+      "purpose": "调整整理范围",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<summary>"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:input:54",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 28,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input type=\"checkbox\" v-model=\"actions\" :value=\"action\" :disabled=\"busy\" />"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:input:59",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 29,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "native-form",
+      "feature": "浏览与资料",
+      "element": "input",
+      "purpose": "input",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
+        ],
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "associated label / native form semantics",
+      "classification": "native control",
+      "source_excerpt": "<input type=\"checkbox\" v-model=\"allowTorrent\" :disabled=\"busy\" />"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:65",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 33,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "整理历史",
+      "assets": [
+        "history"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton class=\"ingest-history\" variant=\"ghost\" :disabled=\"busy\" icon=\"history\" @click=\"history\">"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:67",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 34,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "重新检查",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"result.failed\" :disabled=\"busy\" icon=\"refresh\" @click=\"refresh()\">"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:68",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 34,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "完成",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton variant=\"primary\" @click=\"close\">"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:70",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 35,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "正在整理…",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton variant=\"primary\" disabled>"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:72",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 36,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "关闭，保留待办",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"decisionFailed\" :disabled=\"busy\" @click=\"closePending\">"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:73",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 36,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "重新预览",
+      "assets": [
+        "eye"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"error || phase === 'failed'\" :disabled=\"busy\" icon=\"eye\" @click=\"refresh()\">"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:74",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 36,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "重试资料补全",
+      "assets": [
+        "refresh"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton v-if=\"hasMetadataIssues\" :disabled=\"busy\" icon=\"refresh\" @click=\"refresh(true)\">"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:75",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 37,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "忽略本次",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"busy\" @click=\"decide('ignored')\">"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:76",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 37,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "稍后处理",
+      "assets": [],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton :disabled=\"busy\" @click=\"decide('deferred')\">"
+    },
+    {
+      "id": "frontend/src/components/TvIngestReviewDialog.vue:JzButton:77",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
+      "line": 37,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "浏览与资料",
+      "element": "JzButton",
+      "purpose": "确认并整理",
+      "assets": [
+        "organize"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton variant=\"primary\" :loading=\"loading\" :disabled=\"!canConfirm\" icon=\"organize\" @click=\"confirm\">"
+    },
+    {
       "id": "frontend/src/components/TvLibraryTools.vue:button:4",
       "source": "frontend/src/components/TvLibraryTools.vue",
       "line": 4,
@@ -39866,7 +40671,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/TvLibraryTools.vue",
-            "line": 289,
+            "line": 293,
             "selector": ".pipe-head",
             "values": {
               "gap": "8px"
@@ -39874,7 +40679,7 @@
           },
           {
             "source": "frontend/src/components/TvLibraryTools.vue",
-            "line": 290,
+            "line": 294,
             "selector": ".pipe-head h4",
             "values": {
               "font-size": "0.9375rem"
@@ -39882,7 +40687,7 @@
           },
           {
             "source": "frontend/src/components/TvLibraryTools.vue",
-            "line": 310,
+            "line": 314,
             "selector": ".more-tools .pipe-head h4",
             "values": {
               "font-size": "0.875rem"
@@ -40079,7 +40884,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/TvLibraryTools.vue",
-            "line": 289,
+            "line": 293,
             "selector": ".pipe-head",
             "values": {
               "gap": "8px"
@@ -40087,7 +40892,7 @@
           },
           {
             "source": "frontend/src/components/TvLibraryTools.vue",
-            "line": 290,
+            "line": 294,
             "selector": ".pipe-head h4",
             "values": {
               "font-size": "0.9375rem"
@@ -40095,7 +40900,7 @@
           },
           {
             "source": "frontend/src/components/TvLibraryTools.vue",
-            "line": 310,
+            "line": 314,
             "selector": ".more-tools .pipe-head h4",
             "values": {
               "font-size": "0.875rem"
@@ -40382,7 +41187,7 @@
       "category": "control",
       "feature": "媒体管理",
       "element": "button",
-      "purpose": "③ 目录整理 {{ openStep === 'organize' ? '收起' : '展开' }} {{ orgState }}",
+      "purpose": "③ 检查与整理 {{ openStep === 'organize' ? '收起' : '展开' }} {{ orgState }}",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
@@ -40398,7 +41203,7 @@
         "overrides": [
           {
             "source": "frontend/src/components/TvLibraryTools.vue",
-            "line": 289,
+            "line": 293,
             "selector": ".pipe-head",
             "values": {
               "gap": "8px"
@@ -40406,7 +41211,7 @@
           },
           {
             "source": "frontend/src/components/TvLibraryTools.vue",
-            "line": 290,
+            "line": 294,
             "selector": ".pipe-head h4",
             "values": {
               "font-size": "0.9375rem"
@@ -40414,7 +41219,7 @@
           },
           {
             "source": "frontend/src/components/TvLibraryTools.vue",
-            "line": 310,
+            "line": 314,
             "selector": ".more-tools .pipe-head h4",
             "values": {
               "font-size": "0.875rem"
@@ -40766,77 +41571,114 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:AppIcon:6",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
+      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:4",
+      "source": "frontend/src/components/TvOrganizePanel.vue",
+      "line": 5,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "媒体管理",
+      "element": "JzButton",
+      "purpose": "检查资料与整理",
+      "assets": [
+        "organize"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton class=\"tool-action\" variant=\"primary\" icon=\"organize\" :loading=\"ingestBusy\" :disabled=\"!!busy2 || !library.enabled\" @click=\"check\">"
+    },
+    {
+      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:5",
+      "source": "frontend/src/components/TvOrganizePanel.vue",
+      "line": 6,
+      "platforms": [
+        "web",
+        "mobile-web"
+      ],
+      "category": "control",
+      "feature": "媒体管理",
+      "element": "JzButton",
+      "purpose": "查看待办 （{{ pendingCount }}）",
+      "assets": [
+        "history"
+      ],
+      "dynamic_expression": null,
+      "display_size": {
+        "unit": "CSS px",
+        "profile": "web-button",
+        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "measurement_status": "source specification; browser acceptance records actual geometry",
+        "source": [
+          "frontend/src/components/JzButton.vue",
+          "design/tokens.json"
+        ],
+        "overrides": [],
+        "value": "min-height:40px desktop / 44px touch"
+      },
+      "target": {
+        "policy_touch_min_css_px": 44,
+        "measurement_status": "not inferred from source"
+      },
+      "states": [
+        "normal",
+        "focus",
+        "disabled",
+        "busy"
+      ],
+      "accessible_name_owner": "visible text, title or enclosing media caption",
+      "classification": "shared design component",
+      "source_excerpt": "<JzButton icon=\"history\" :disabled=\"ingestBusy || !!busy2\" @click=\"openPending\">"
+    },
+    {
+      "id": "frontend/src/components/TvOrganizePanel.vue:input:8",
+      "source": "frontend/src/components/TvOrganizePanel.vue",
       "line": 7,
       "platforms": [
         "web",
         "mobile-web"
       ],
-      "category": "asset",
+      "category": "native-form",
       "feature": "媒体管理",
-      "element": "AppIcon",
-      "purpose": "文件夹",
-      "assets": [
-        "folder"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "24"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon name=\"folder\" :size=\"24\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:JzButton:12",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 13,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "关闭整理对话框",
+      "element": "input",
+      "purpose": "input",
       "assets": [],
       "dynamic_expression": null,
       "display_size": {
         "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
+        "profile": "web-native",
+        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
         "measurement_status": "source specification; browser acceptance records actual geometry",
         "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
+          "frontend/src/styles/base.css",
+          "frontend/src/styles/tokens.css"
         ],
-        "overrides": [
-          {
-            "source": "frontend/src/components/TvOrganizeDialog.vue",
-            "line": 190,
-            "selector": ".close-button",
-            "values": {
-              "width": "var(--jz-control-current)",
-              "padding": "8px"
-            }
-          }
-        ],
-        "value": "min-height:40px desktop / 44px touch"
+        "overrides": [],
+        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
       },
       "target": {
         "policy_touch_min_css_px": 44,
@@ -40848,1485 +41690,14 @@
         "disabled",
         "busy"
       ],
-      "accessible_name_owner": "关闭整理对话框",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton class=\"close-button\" variant=\"ghost\" aria-label=\"关闭整理对话框\" :disabled=\"running\" @click=\"close\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:AppIcon:13",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 13,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "媒体管理",
-      "element": "AppIcon",
-      "purpose": "关闭",
-      "assets": [
-        "close"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "20"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon name=\"close\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:Spinner:17",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 19,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "媒体管理",
-      "element": "Spinner",
-      "purpose": "加载",
-      "assets": [
-        "loading"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "28"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<Spinner :size=\"28\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:progress:20",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 22,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-status",
-      "feature": "媒体管理",
-      "element": "progress",
-      "purpose": "整理进度",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-progress",
-        "specification": "原生只读进度状态，宽度随容器、条高按组件CSS；不设置触摸命中区或键盘焦点。",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "design/contracts.json",
-          "frontend/src/components/PreviewMaintenance.vue",
-          "frontend/src/components/StorageUsagePanel.vue",
-          "frontend/src/components/FsBrowser.vue",
-          "frontend/src/components/TvOrganizeDialog.vue"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/components/TvOrganizeDialog.vue",
-            "line": 247,
-            "selector": ".task-state progress",
-            "values": {
-              "width": "min(360px, 100%)",
-              "height": "8px"
-            }
-          }
-        ],
-        "value": "width:min(360px, 100%), height:8px"
-      },
-      "target": null,
-      "states": [
-        "determinate",
-        "indeterminate"
-      ],
-      "accessible_name_owner": "整理进度",
-      "classification": "原生progress为只读进度状态，保留确定/不确定进度语义及aria可访问名称；条高随组件样式，不设置44px触摸命中区或键盘焦点。",
-      "source_excerpt": "<progress :value=\"total ? done : undefined\" :max=\"total || 1\" aria-label=\"整理进度\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:AppIcon:26",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 29,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "媒体管理",
-      "element": "AppIcon",
-      "purpose": "确认 / 警告",
-      "assets": [
-        "warning",
-        "check"
-      ],
-      "dynamic_expression": "result.failed ? 'warning' : 'check'",
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "24"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon :name=\"result.failed ? 'warning' : 'check'\" :size=\"24\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:AppIcon:39",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 40,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "媒体管理",
-      "element": "AppIcon",
-      "purpose": "警告",
-      "assets": [
-        "warning"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "24"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon name=\"warning\" :size=\"24\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:JzButton:58",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 60,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "重试预览",
-      "assets": [
-        "eye"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton icon=\"eye\" @click=\"refresh\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:summary:77",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 71,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "媒体管理",
-      "element": "summary",
-      "purpose": "查看文件示例 g.samples.length\">（{{ g.samples.length }} / {{ g.count }}）",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
       "accessible_name_owner": "associated label / native form semantics",
       "classification": "native control",
-      "source_excerpt": "<summary tabindex=\"0\">"
+      "source_excerpt": "<input type=\"checkbox\" v-model=\"includeIgnored\" :disabled=\"ingestBusy\" />"
     },
     {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:AppIcon:81",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 73,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "媒体管理",
-      "element": "AppIcon",
-      "purpose": "前进",
-      "assets": [
-        "arrow-right"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "16"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon class=\"sample-arrow\" name=\"arrow-right\" :size=\"16\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:AppIcon:91",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 85,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "媒体管理",
-      "element": "AppIcon",
-      "purpose": "警告",
-      "assets": [
-        "warning"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "18"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon name=\"warning\" :size=\"18\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:input:94",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 87,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "媒体管理",
-      "element": "input",
-      "purpose": "input",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<input type=\"checkbox\" v-model=\"allowAbsolute\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:summary:97",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 90,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "媒体管理",
-      "element": "summary",
-      "purpose": "调整整理范围 {{ selected.length === actionKeys.length ? '全部项目' : `已选 ${selected.length} / ${actionKeys.length}` }}",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<summary tabindex=\"0\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:input:102",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 93,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "媒体管理",
-      "element": "input",
-      "purpose": "input",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<input type=\"checkbox\" v-model=\"selected\" :value=\"key\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:summary:108",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 100,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "媒体管理",
-      "element": "summary",
-      "purpose": "不会改动的项目 {{ notesCount }} 项",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<summary tabindex=\"0\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:JzButton:119",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 115,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "整理历史与批量操作",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/components/TvOrganizeDialog.vue",
-            "line": 253,
-            "selector": ".settings-link",
-            "values": {
-              "padding": "6px 0",
-              "font-size": "var(--jz-font-s)"
-            }
-          }
-        ],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton class=\"settings-link\" variant=\"ghost\" :disabled=\"running\" @click=\"emit('settings')\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:AppIcon:120",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 115,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "媒体管理",
-      "element": "AppIcon",
-      "purpose": "外部打开",
-      "assets": [
-        "external"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "16"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon name=\"external-link\" :size=\"16\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:JzButton:123",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 118,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "重新预览",
-      "assets": [
-        "eye"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton icon=\"eye\" v-if=\"result.failed\" @click=\"refresh\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:JzButton:124",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 118,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "完成",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/styles/mediaPages.css",
-            "line": 20,
-            "selector": ".media-detail .play-main, .media-detail .acts > .primary",
-            "values": {
-              "min-width": "138px"
-            }
-          },
-          {
-            "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
-            "selector": ".media-detail .play-main, .media-detail .acts > .primary",
-            "values": {
-              "min-width": "112px"
-            }
-          }
-        ],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton class=\"primary\" variant=\"primary\" @click=\"close\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:JzButton:126",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 120,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "关闭",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"close\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:JzButton:127",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 120,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "重新预览",
-      "assets": [
-        "eye"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/styles/mediaPages.css",
-            "line": 20,
-            "selector": ".media-detail .play-main, .media-detail .acts > .primary",
-            "values": {
-              "min-width": "138px"
-            }
-          },
-          {
-            "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
-            "selector": ".media-detail .play-main, .media-detail .acts > .primary",
-            "values": {
-              "min-width": "112px"
-            }
-          }
-        ],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton icon=\"eye\" class=\"primary\" variant=\"primary\" @click=\"refresh\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:JzButton:129",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 121,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "正在整理…",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/styles/mediaPages.css",
-            "line": 20,
-            "selector": ".media-detail .play-main, .media-detail .acts > .primary",
-            "values": {
-              "min-width": "138px"
-            }
-          },
-          {
-            "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
-            "selector": ".media-detail .play-main, .media-detail .acts > .primary",
-            "values": {
-              "min-width": "112px"
-            }
-          }
-        ],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton class=\"primary\" variant=\"primary\" disabled>"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:JzButton:131",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 123,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "返回预览",
-      "assets": [
-        "eye"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton icon=\"eye\" v-if=\"phase === 'confirm'\" @click=\"phase = 'preview'\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:JzButton:132",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 124,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "取消",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton v-else @click=\"close\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizeDialog.vue:JzButton:133",
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
-      "line": 125,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "{{ loading ? '更新预览中…' : phase === 'confirm' ? '确认并开始' : '下一步：确认整理' }}",
-      "assets": [
-        "refresh"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/styles/mediaPages.css",
-            "line": 20,
-            "selector": ".media-detail .play-main, .media-detail .acts > .primary",
-            "values": {
-              "min-width": "138px"
-            }
-          },
-          {
-            "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
-            "selector": ".media-detail .play-main, .media-detail .acts > .primary",
-            "values": {
-              "min-width": "112px"
-            }
-          }
-        ],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton icon=\"refresh\" class=\"primary\" variant=\"primary\" :disabled=\"!canProceed\" @click=\"proceed\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:summary:4",
+      "id": "frontend/src/components/TvOrganizePanel.vue:summary:12",
       "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 9,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "媒体管理",
-      "element": "summary",
-      "purpose": "整理项目 默认全部 · 已选 {{ enabled.length }}/{{ ACTION_KEYS.length }}",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<summary>"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:input:8",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 15,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "媒体管理",
-      "element": "input",
-      "purpose": "input",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<input type=\"checkbox\" v-model=\"acts[k]\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:input:16",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 28,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "媒体管理",
-      "element": "input",
-      "purpose": "input",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<input type=\"checkbox\" v-model=\"absConfirm\" @change=\"onAbsToggle\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:18",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 34,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "{{ busy === 'plan' ? '预览中…' : '预览整理计划' }}",
-      "assets": [
-        "organize"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [
-          {
-            "source": "frontend/src/styles/mediaPages.css",
-            "line": 20,
-            "selector": ".media-detail .play-main, .media-detail .acts > .primary",
-            "values": {
-              "min-width": "138px"
-            }
-          },
-          {
-            "source": "frontend/src/styles/mediaPages.css",
-            "line": 85,
-            "selector": ".media-detail .play-main, .media-detail .acts > .primary",
-            "values": {
-              "min-width": "112px"
-            }
-          }
-        ],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton class=\"primary\" @click=\"run(true)\" :disabled=\"!!busy || !enabled.length\" type=\"button\" variant=\"primary\" icon=\"organize\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:19",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 37,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "{{ busy === 'exec' ? `整理中 ${done}/${total}…` : (armRun ? `确认执行选中 (${checked.length})` : `执行选中 (${checked.length})`) }}",
-      "assets": [
-        "organize"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy",
-        "selected"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton @click=\"run(false)\" :disabled=\"!!busy || !enabled.length || !checked.length || blockedByAbs\" :class=\"{ danger: armRun }\" :variant=\"armRun ? 'danger' : 'secondary'\" type=\""
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:20",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 42,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "取消",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"busy\" @click=\"cancel\" type=\"button\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:37",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 65,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "{{ allChecked ? '全不选' : '全选' }}",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:36px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton class=\"mini\" @click=\"checkAll\" type=\"button\" size=\"compact\">"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:input:40",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 69,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "媒体管理",
-      "element": "input",
-      "purpose": "input",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<input type=\"checkbox\" :value=\"p.show_id\" v-model=\"checked\" @click.stop />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:AppIcon:42",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 70,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "媒体管理",
-      "element": "AppIcon",
-      "purpose": "展开 / 下一级",
-      "assets": [
-        "chevron-down",
-        "chevron-right"
-      ],
-      "dynamic_expression": "expanded[p.show_id] ? 'chevron-down' : 'chevron-right'",
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "16"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon :name=\"expanded[p.show_id] ? 'chevron-down' : 'chevron-right'\" :size=\"16\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:AppIcon:51",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 80,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "媒体管理",
-      "element": "AppIcon",
-      "purpose": "前进",
-      "assets": [
-        "arrow-right"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "16"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon class=\"arrow\" name=\"arrow-right\" :size=\"16\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:summary:57",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 96,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "native-form",
-      "feature": "媒体管理",
-      "element": "summary",
-      "purpose": "仅提示 · 不会执行（{{ notePlans.length }} 部）",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-native",
-        "specification": "HTML原生表单/summary，表单高度与--jz-control-current、base.css及局部几何联动；须按实际呈现测量",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/styles/base.css",
-          "frontend/src/styles/tokens.css"
-        ],
-        "overrides": [],
-        "value": "intrinsic text/form size; enclosing layout and profile determine geometry"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "associated label / native form semantics",
-      "classification": "native control",
-      "source_excerpt": "<summary>"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:AppIcon:61",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 99,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "asset",
-      "feature": "媒体管理",
-      "element": "AppIcon",
-      "purpose": "展开 / 下一级",
-      "assets": [
-        "chevron-down",
-        "chevron-right"
-      ],
-      "dynamic_expression": "expanded['n' + p.show_id] ? 'chevron-down' : 'chevron-right'",
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-icon",
-        "specification": "AppIcon默认20 / PlayerIcon默认22 / Spinner默认16；调用:size优先；SVG viewBox保持24×24；Spinner沿同一r9/1.7描边用CSS淡轨道承托圆弧，200ms后显现；减少动态效果时静态；在线局部反馈16/20、播放器等待32 CSS px",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/AppIcon.vue",
-          "frontend/src/components/PlayerIcon.vue",
-          "frontend/src/components/Spinner.vue"
-        ],
-        "overrides": [],
-        "value": "16"
-      },
-      "target": null,
-      "states": [
-        "normal"
-      ],
-      "accessible_name_owner": "decorative; surrounding control/text owns accessible name",
-      "classification": "shared design component",
-      "source_excerpt": "<AppIcon :name=\"expanded['n' + p.show_id] ? 'chevron-down' : 'chevron-right'\" :size=\"16\" />"
-    },
-    {
-      "id": "frontend/src/components/TvOrganizePanel.vue:summary:67",
-      "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 110,
+      "line": 12,
       "platforms": [
         "web",
         "mobile-web"
@@ -42363,9 +41734,9 @@
       "source_excerpt": "<summary>"
     },
     {
-      "id": "frontend/src/components/TvOrganizePanel.vue:select:70",
+      "id": "frontend/src/components/TvOrganizePanel.vue:select:15",
       "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 116,
+      "line": 18,
       "platforms": [
         "web",
         "mobile-web"
@@ -42402,9 +41773,9 @@
       "source_excerpt": "<select v-model=\"batchId\">"
     },
     {
-      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:74",
+      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:19",
       "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 124,
+      "line": 26,
       "platforms": [
         "web",
         "mobile-web"
@@ -42425,15 +41796,6 @@
           "design/tokens.json"
         ],
         "overrides": [
-          {
-            "source": "frontend/src/components/TvOrganizePanel.vue",
-            "line": 426,
-            "selector": ".chip:not(button)",
-            "values": {
-              "font-size": "0.75rem",
-              "padding": "1px 10px"
-            }
-          },
           {
             "source": "frontend/src/styles/browse.css",
             "line": 8,
@@ -42470,9 +41832,9 @@
       "source_excerpt": "<JzButton v-for=\"k in KIND_OPTS\" :key=\"k.value\" type=\"button\" class=\"chip toggle\" :class=\"{ on: kinds[k.value] }\" :aria-pressed=\"!!kinds[k.value]\" @click=\"kinds[k.value] = !kinds[k"
     },
     {
-      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:75",
+      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:20",
       "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 126,
+      "line": 28,
       "platforms": [
         "web",
         "mobile-web"
@@ -42509,9 +41871,9 @@
       "source_excerpt": "<JzButton type=\"button\" class=\"mini\" @click=\"toggleAllKinds\" size=\"compact\">"
     },
     {
-      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:77",
+      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:22",
       "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 129,
+      "line": 31,
       "platforms": [
         "web",
         "mobile-web"
@@ -42551,9 +41913,9 @@
       "source_excerpt": "<JzButton @click=\"restore(true)\" :disabled=\"!!busy2 || !selectedKinds.length\" type=\"button\" icon=\"eye\">"
     },
     {
-      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:78",
+      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:23",
       "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 132,
+      "line": 34,
       "platforms": [
         "web",
         "mobile-web"
@@ -42594,9 +41956,9 @@
       "source_excerpt": "<JzButton icon=\"undo\" @click=\"restore(false)\" :disabled=\"!!busy2 || !selectedKinds.length\" :class=\"{ danger: armUndo }\" :variant=\"armUndo ? 'danger' : 'secondary'\" type=\"button\">"
     },
     {
-      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:79",
+      "id": "frontend/src/components/TvOrganizePanel.vue:JzButton:24",
       "source": "frontend/src/components/TvOrganizePanel.vue",
-      "line": 136,
+      "line": 38,
       "platforms": [
         "web",
         "mobile-web"
@@ -43634,7 +42996,7 @@
       "category": "control",
       "feature": "媒体管理",
       "element": "JzButton",
-      "purpose": "补全剧集资料",
+      "purpose": "检查资料与整理",
       "assets": [
         "refresh"
       ],
@@ -43662,51 +43024,12 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton icon=\"refresh\" v-if=\"!tvBusy && !uploading\" @click=\"scrapeUploadedShows\">"
+      "source_excerpt": "<JzButton icon=\"refresh\" v-if=\"!tvBusy && !uploading\" @click=\"checkUploadedShows(false)\">"
     },
     {
-      "id": "frontend/src/components/UploadDialog.vue:JzButton:65",
+      "id": "frontend/src/components/UploadDialog.vue:JzButton:79",
       "source": "frontend/src/components/UploadDialog.vue",
-      "line": 62,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "媒体管理",
-      "element": "JzButton",
-      "purpose": "取消资料补全",
-      "assets": [],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton v-if=\"tvBusy\" @click=\"cancelTvMetadata\">"
-    },
-    {
-      "id": "frontend/src/components/UploadDialog.vue:JzButton:80",
-      "source": "frontend/src/components/UploadDialog.vue",
-      "line": 74,
+      "line": 73,
       "platforms": [
         "web",
         "mobile-web"
@@ -43743,9 +43066,9 @@
       "source_excerpt": "<JzButton @click=\"router.push('/m/' + c.id)\">"
     },
     {
-      "id": "frontend/src/components/UploadDialog.vue:JzButton:86",
+      "id": "frontend/src/components/UploadDialog.vue:JzButton:85",
       "source": "frontend/src/components/UploadDialog.vue",
-      "line": 84,
+      "line": 83,
       "platforms": [
         "web",
         "mobile-web"
@@ -43783,9 +43106,9 @@
       "source_excerpt": "<JzButton v-if=\"!uploading && !upFinished\" variant=\"primary\" @click=\"startUpload\" :disabled=\"!canStartUpload\">"
     },
     {
-      "id": "frontend/src/components/UploadDialog.vue:JzButton:87",
+      "id": "frontend/src/components/UploadDialog.vue:JzButton:86",
       "source": "frontend/src/components/UploadDialog.vue",
-      "line": 85,
+      "line": 84,
       "platforms": [
         "web",
         "mobile-web"
@@ -43822,9 +43145,9 @@
       "source_excerpt": "<JzButton v-if=\"uploading\" @click=\"cancelUpload\">"
     },
     {
-      "id": "frontend/src/components/UploadDialog.vue:JzButton:88",
+      "id": "frontend/src/components/UploadDialog.vue:JzButton:87",
       "source": "frontend/src/components/UploadDialog.vue",
-      "line": 86,
+      "line": 85,
       "platforms": [
         "web",
         "mobile-web"
@@ -43862,9 +43185,9 @@
       "source_excerpt": "<JzButton v-if=\"!uploading && uploadCounts.error\" :disabled=\"tvBusy\" @click=\"retryFailed\">"
     },
     {
-      "id": "frontend/src/components/UploadDialog.vue:JzButton:89",
+      "id": "frontend/src/components/UploadDialog.vue:JzButton:88",
       "source": "frontend/src/components/UploadDialog.vue",
-      "line": 87,
+      "line": 86,
       "platforms": [
         "web",
         "mobile-web"
@@ -43901,9 +43224,9 @@
       "source_excerpt": "<JzButton v-if=\"kind === 'movie' && upFinished && upOrganizable\" variant=\"primary\" @click=\"goUpOrganize\">"
     },
     {
-      "id": "frontend/src/components/UploadDialog.vue:JzButton:90",
+      "id": "frontend/src/components/UploadDialog.vue:JzButton:89",
       "source": "frontend/src/components/UploadDialog.vue",
-      "line": 88,
+      "line": 87,
       "platforms": [
         "web",
         "mobile-web"
@@ -43941,9 +43264,9 @@
       "source_excerpt": "<JzButton v-if=\"!uploading\" :disabled=\"tvBusy\" @click=\"closeDlg\">"
     },
     {
-      "id": "frontend/src/components/UploadDialog.vue:JzButton:93",
+      "id": "frontend/src/components/UploadDialog.vue:JzButton:92",
       "source": "frontend/src/components/UploadDialog.vue",
-      "line": 92,
+      "line": 91,
       "platforms": [
         "web",
         "mobile-web"
@@ -43981,9 +43304,9 @@
       "source_excerpt": "<JzButton v-if=\"!upOrgDone\" variant=\"primary\" :loading=\"upOrgBusy\" @click=\"doUpOrganize\" :disabled=\"upOrgBusy || !upOrgPlans.length\">"
     },
     {
-      "id": "frontend/src/components/UploadDialog.vue:JzButton:94",
+      "id": "frontend/src/components/UploadDialog.vue:JzButton:93",
       "source": "frontend/src/components/UploadDialog.vue",
-      "line": 93,
+      "line": 92,
       "platforms": [
         "web",
         "mobile-web"
@@ -44021,9 +43344,9 @@
       "source_excerpt": "<JzButton @click=\"closeDlg\" :disabled=\"upOrgBusy\">"
     },
     {
-      "id": "frontend/src/components/UploadDialog.vue:JzButton:96",
+      "id": "frontend/src/components/UploadDialog.vue:JzButton:95",
       "source": "frontend/src/components/UploadDialog.vue",
-      "line": 96,
+      "line": 95,
       "platforms": [
         "web",
         "mobile-web"
@@ -57555,9 +56878,9 @@
       "category": "control",
       "feature": "浏览与资料",
       "element": "JzButton",
-      "purpose": "更新剧集资料",
+      "purpose": "检查资料与整理",
       "assets": [
-        "refresh"
+        "organize"
       ],
       "dynamic_expression": null,
       "display_size": {
@@ -57584,7 +56907,7 @@
       ],
       "accessible_name_owner": "visible text, title or enclosing media caption",
       "classification": "shared design component",
-      "source_excerpt": "<JzButton :disabled=\"busy\" @click=\"refreshMeta\" type=\"button\" variant=\"ghost\" icon=\"refresh\">"
+      "source_excerpt": "<JzButton :disabled=\"busy || ingestBusy\" @click=\"openOrganize\" type=\"button\" variant=\"ghost\" icon=\"organize\">"
     },
     {
       "id": "frontend/src/views/TvShow.vue:JzButton:31",
@@ -57681,48 +57004,6 @@
       "category": "control",
       "feature": "浏览与资料",
       "element": "JzButton",
-      "purpose": "{{ organizing ? '正在发现新增分集…' : '整理剧集目录' }}",
-      "assets": [
-        "organize"
-      ],
-      "dynamic_expression": null,
-      "display_size": {
-        "unit": "CSS px",
-        "profile": "web-button",
-        "specification": "标准min-height40；compact36；手机/粗指针min-width/min-height44；纯图标按钮等宽；图标20",
-        "measurement_status": "source specification; browser acceptance records actual geometry",
-        "source": [
-          "frontend/src/components/JzButton.vue",
-          "design/tokens.json"
-        ],
-        "overrides": [],
-        "value": "min-height:40px desktop / 44px touch"
-      },
-      "target": {
-        "policy_touch_min_css_px": 44,
-        "measurement_status": "not inferred from source"
-      },
-      "states": [
-        "normal",
-        "focus",
-        "disabled",
-        "busy"
-      ],
-      "accessible_name_owner": "visible text, title or enclosing media caption",
-      "classification": "shared design component",
-      "source_excerpt": "<JzButton :disabled=\"busy\" @click=\"openOrganize\" type=\"button\" variant=\"ghost\" icon=\"organize\">"
-    },
-    {
-      "id": "frontend/src/views/TvShow.vue:JzButton:34",
-      "source": "frontend/src/views/TvShow.vue",
-      "line": 38,
-      "platforms": [
-        "web",
-        "mobile-web"
-      ],
-      "category": "control",
-      "feature": "浏览与资料",
-      "element": "JzButton",
       "purpose": "{{ verifying ? '检查中…' : '检查文件是否可用' }}",
       "assets": [
         "eye"
@@ -57755,9 +57036,9 @@
       "source_excerpt": "<JzButton :disabled=\"verifying\" @click=\"verifyExists\" type=\"button\" variant=\"ghost\" icon=\"eye\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:43",
+      "id": "frontend/src/views/TvShow.vue:JzButton:42",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 51,
+      "line": 50,
       "platforms": [
         "web",
         "mobile-web"
@@ -57797,9 +57078,9 @@
       "source_excerpt": "<JzButton v-if=\"show.tmdb_id || show.match_source\" :disabled=\"busy\" @click=\"confirmMatch\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:44",
+      "id": "frontend/src/views/TvShow.vue:JzButton:43",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 52,
+      "line": 51,
       "platforms": [
         "web",
         "mobile-web"
@@ -57839,9 +57120,9 @@
       "source_excerpt": "<JzButton :disabled=\"busy\" :aria-expanded=\"matchOpen\" @click=\"matchOpen = !matchOpen\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:input:47",
+      "id": "frontend/src/views/TvShow.vue:input:46",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 55,
+      "line": 54,
       "platforms": [
         "web",
         "mobile-web"
@@ -57879,9 +57160,9 @@
       "source_excerpt": "<input v-model=\"nameDraft\" :disabled=\"busy\" required aria-label=\"剧名\" />"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:48",
+      "id": "frontend/src/views/TvShow.vue:JzButton:47",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 56,
+      "line": 55,
       "platforms": [
         "web",
         "mobile-web"
@@ -57919,9 +57200,9 @@
       "source_excerpt": "<JzButton :disabled=\"busy || !nameDraft.trim()\" type=\"submit\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:49",
+      "id": "frontend/src/views/TvShow.vue:JzButton:48",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 57,
+      "line": 56,
       "platforms": [
         "web",
         "mobile-web"
@@ -57958,9 +57239,9 @@
       "source_excerpt": "<JzButton type=\"button\" @click=\"renameOpen = false\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:52",
+      "id": "frontend/src/views/TvShow.vue:JzButton:51",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 60,
+      "line": 59,
       "platforms": [
         "web",
         "mobile-web"
@@ -57999,9 +57280,9 @@
       "source_excerpt": "<JzButton @click=\"bindingsOpen = true\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:input:54",
+      "id": "frontend/src/views/TvShow.vue:input:53",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 62,
+      "line": 61,
       "platforms": [
         "web",
         "mobile-web"
@@ -58039,9 +57320,9 @@
       "source_excerpt": "<input v-model=\"mq\" :disabled=\"busy\" placeholder=\"输入剧名\" aria-label=\"搜索剧集匹配\" @keyup.enter=\"doSearch\" />"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:55",
+      "id": "frontend/src/views/TvShow.vue:JzButton:54",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 63,
+      "line": 62,
       "platforms": [
         "web",
         "mobile-web"
@@ -58081,9 +57362,9 @@
       "source_excerpt": "<JzButton :disabled=\"searching || busy\" @click=\"doSearch\" type=\"button\" icon=\"search\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:61",
+      "id": "frontend/src/views/TvShow.vue:JzButton:60",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 69,
+      "line": 68,
       "platforms": [
         "web",
         "mobile-web"
@@ -58123,9 +57404,9 @@
       "source_excerpt": "<JzButton v-if=\"r.tmdb_id\" :disabled=\"busy\" @click=\"doMatch(r.tmdb_id)\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:62",
+      "id": "frontend/src/views/TvShow.vue:JzButton:61",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 70,
+      "line": 69,
       "platforms": [
         "web",
         "mobile-web"
@@ -58165,9 +57446,9 @@
       "source_excerpt": "<JzButton v-else-if=\"isExternal(r)\" :disabled=\"busy\" @click=\"doMatchExternal(r)\" type=\"button\" icon=\"match\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:RouterLink:72",
+      "id": "frontend/src/views/TvShow.vue:RouterLink:71",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 84,
+      "line": 83,
       "platforms": [
         "web",
         "mobile-web"
@@ -58189,7 +57470,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/TvShow.vue",
-            "line": 686,
+            "line": 627,
             "selector": ".season-card-main",
             "values": {
               "padding-bottom": "var(--jz-gap-s)"
@@ -58209,9 +57490,9 @@
       "source_excerpt": "<router-link :to=\"`/tv/${show.id}/s/${s.season}`\" class=\"season-card-main\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:img:74",
+      "id": "frontend/src/views/TvShow.vue:img:73",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 86,
+      "line": 85,
       "platforms": [
         "web",
         "mobile-web"
@@ -58245,9 +57526,9 @@
       "source_excerpt": "<img v-if=\"seasonPoster(s) && !failedSeasonPosters.has(s.season)\" :src=\"seasonPoster(s)\" loading=\"lazy\" :class=\"{ 'season-uncollected-image': s.collection_state === 'uncollected' }"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:ArtworkPlaceholder:75",
+      "id": "frontend/src/views/TvShow.vue:ArtworkPlaceholder:74",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 89,
+      "line": 88,
       "platforms": [
         "web",
         "mobile-web"
@@ -58271,7 +57552,7 @@
         "overrides": [
           {
             "source": "frontend/src/views/TvShow.vue",
-            "line": 696,
+            "line": 637,
             "selector": ".season-no-poster",
             "values": {
               "width": "100%",
@@ -58291,9 +57572,9 @@
       "source_excerpt": "<ArtworkPlaceholder v-else class=\"season-no-poster\" kind=\"poster\" :label=\"seasonLabel(s.season)\" />"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:AppIcon:78",
+      "id": "frontend/src/views/TvShow.vue:AppIcon:77",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 91,
+      "line": 90,
       "platforms": [
         "web",
         "mobile-web"
@@ -58328,9 +57609,9 @@
       "source_excerpt": "<AppIcon name=\"check\" :size=\"14\" />"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:RouterLink:87",
+      "id": "frontend/src/views/TvShow.vue:RouterLink:86",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 100,
+      "line": 99,
       "platforms": [
         "web",
         "mobile-web"
@@ -58363,9 +57644,9 @@
       "source_excerpt": "<router-link v-for=\"source in otherSources(s)\" :key=\"sourceSeasonPath(source)\" :to=\"sourceSeasonPath(source)\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:98",
+      "id": "frontend/src/views/TvShow.vue:JzButton:97",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 115,
+      "line": 114,
       "platforms": [
         "web",
         "mobile-web"
@@ -58404,9 +57685,9 @@
       "source_excerpt": "<JzButton v-if=\"x.exists\" class=\"mini\" @click=\"playExtra(x)\" type=\"button\" size=\"compact\" icon=\"play\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:JzButton:107",
+      "id": "frontend/src/views/TvShow.vue:JzButton:106",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 126,
+      "line": 125,
       "platforms": [
         "web",
         "mobile-web"
@@ -58445,9 +57726,9 @@
       "source_excerpt": "<JzButton v-if=\"x.exists\" class=\"mini\" @click=\"playExtra(x)\" type=\"button\" size=\"compact\" icon=\"play\">"
     },
     {
-      "id": "frontend/src/views/TvShow.vue:RouterLink:110",
+      "id": "frontend/src/views/TvShow.vue:RouterLink:109",
       "source": "frontend/src/views/TvShow.vue",
-      "line": 134,
+      "line": 133,
       "platforms": [
         "web",
         "mobile-web"

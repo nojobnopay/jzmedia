@@ -52,6 +52,7 @@
     </template>
   </div>
   <BackToTop />
+  <TvIngestReviewHost :context-key="ingestContextKey" :allowed="ingestAllowed" :library-ids="ingestLibraryIds" />
   <JzDialog v-if="viewing.suspended" title="正在验证保护会话" layer="auth" size="small" busy mask-class="viewing-verification-mask">
     <p>验证完成后恢复隐私内容，请稍候…</p>
   </JzDialog>
@@ -71,6 +72,8 @@
 import HelpLink from './components/HelpLink.vue'
 import SetupWelcome from './components/SetupWelcome.vue'
 import BackToTop from './components/BackToTop.vue'
+import TvIngestReviewHost from './components/TvIngestReviewHost.vue'
+import { canAutomaticallyIngest } from './useTvIngestFlow.js'
 import JzDialog from './components/JzDialog.vue'
 import JzButton from './components/JzButton.vue'
 import AppIcon from './components/AppIcon.vue'
@@ -88,6 +91,10 @@ const authAsk = ref(false)
 const authInput = ref('')
 const libs = ref([])          // 媒体库列表
 const currentId = ref(null)   // 当前媒体库 id
+const ingestContextKey = computed(() => `${route.path}|${route.query.library || ''}|${route.query.media || ''}|${currentId.value || ''}|${viewing.revision}|${viewing.generation}`)
+const ingestAllowed = computed(() => canAutomaticallyIngest() && currentId.value != null && !authAsk.value && !viewing.prompt)
+const ingestLibraryIds = computed(() => (libs.value.find(library => Number(library.id) === Number(currentId.value))?.video_libraries || [])
+  .filter(library => library.kind === 'tv').map(library => Number(library.id)))
 const dataUsage = ref(null)
 const router = useRouter()
 const route = useRoute()

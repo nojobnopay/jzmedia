@@ -568,7 +568,7 @@
         "frontend/src/components/PreviewMaintenance.vue",
         "frontend/src/components/FsBrowser.vue",
         "frontend/src/components/CastDialog.vue",
-        "frontend/src/components/TvOrganizeDialog.vue"
+        "frontend/src/components/TvIngestReviewDialog.vue"
       ],
       "reason": "原生progress为只读进度状态，保留确定/不确定进度语义及aria可访问名称；条高随组件样式，不设置44px触摸命中区或键盘焦点。"
     },
@@ -629,7 +629,7 @@
       "reason": "路径/步骤/映射关系文本；播放器title中箭头仅表示实际键盘快捷键，不替代按钮图标"
     },
     {
-      "source": "frontend/src/components/TvOrganizeDialog.vue",
+      "source": "frontend/src/components/TvIngestReviewDialog.vue",
       "symbols": "←→",
       "contexts": [
         "sample-arrow"

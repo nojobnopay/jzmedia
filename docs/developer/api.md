@@ -473,15 +473,67 @@ App 控制仍用统一 sessions/status/control，操作最多等待 8 秒 ACK；
 
 返回 `media_type/library_id/show_id/episode_id/status`，无法识别的文件返回 `skipped_tv_unknown`，写入成功但登记异常为 `stored_scan_warn`，不要当作已成功入库。
 
-TV 资料补全另用 `tv-scrape {library_id, ids, force:true}`，整理仍调用预览/确认接口。远程上传使用 `open_write(overwrite=False)` 原子提交，目标并发出现同样返回 409。
+TV 上传登记待检查状态；整批结束后通过下方统一入库接口处理成功落盘的剧，取消上传也检查已成功部分。远程上传使用 `open_write(overwrite=False)` 原子提交，目标并发出现同样返回 409。
+
+### 统一剧集入库检查
+
+`POST /api/jobs/tv-ingest` 的 `ids`、`library_id`、`media_library_id` 必须三选一，分别表示指定剧、一个视频库、一个媒体库中的启用剧集视频库。`source` 为 `manual/detail/upload/scan`；`retry_metadata` 默认 false，显式重试可绕过同一缺项的本地重查间隔，仍遵守资料源冷却与限流。整理选项为 `actions`、`allow_torrent`、`allow_absolute_shows`，默认采用全部整理动作和保护规则。
+
+```http
+POST /api/jobs/tv-ingest {"ids": [72], "source": "manual", "retry_metadata": true}
+→ {"job_id": "…", "resumed": false, ...}
+
+GET /api/jobs/tv-ingest/{job_id}
+→ {"state": "running", "phase": "metadata", "done": 0, "total": 1, ...}
+→ {"state": "done", "summary": {"preview_id": "…", "plans": [...], "metadata_results": [...], "auto_prompt": true, ...}}
+
+POST /api/jobs/tv-ingest/{job_id}/cancel   # 协作式取消，成功补齐的资料保留
+
+POST /api/jobs/tv-organize {"preview_id": "…", "ids": [72], "dry_run": false}
+→ {"job_id": "…", ...}
+```
+
+检查依次执行文件发现、资料补全和整理预览；扫描后的接续复用本次发现结果。可靠资料先保存到应用，NFO/海报按视频库策略和外部修改保护更新，移动与重命名只由确认后的整理任务执行。分集按精确季集号补缺；已有 ID 时按 ID 补字段，保护手工绑定、本地集、目录编号及归属冲突。同一批次的同剧同季资料请求复用，成功季合并缓存，失败季保留旧资料。
+
+单剧发现的对账摘要为 `reconciliation={replaced,removed,changed,review,issues,incomplete}`，统一入库结果在每剧 `metadata.files` 中携带同一摘要，`summary.metadata_results` 也保留该字段；文件核对问题同时进入 `metadata.issues`。`replaced` 表示承接原身份的改名替换，`changed` 表示同路径片源变化，`removed` 为清理的失效旧记录，`review` 为需核对项。库扫描使用 `replaced_episode/changed_episode/tv_reconcile_review` 状态与 `count` 汇总，失效清理沿用 `removed_episode`；`tv_reconciliation` 结果还提供完整摘要及按剧归并的 `by_show`。
+
+对账只在当前受管范围完整枚举且前后结果一致时进行；离线、取消、应用内复制尚未实际退出、临时文件或读取不完整时保留原记录。已取得的未完成对账摘要以 `incomplete` 及问题项说明原因，也不继续补资料或生成物理整理项；首次枚举即失败或任务取消时沿用对应错误或任务状态。扫描任务 API 在本库已有复制任务时直接返回 409；直接单剧检查则返回未完成对账摘要。外部工具的传输进度需用户先确认完成。
+
+改名替换须在同库同剧内，采用明确季集号而非绝对集号映射，完整集号区间一致；分段若存在则须为一致的标准 `-partN` 标记。没有归属冲突或区间重叠，且只有一个旧缺失文件与一个新候选、没有其他现存版本时，才承接原分集 ID、观看和手工资料。原文件仍在按新增版本处理；歧义或编号不确定时保留旧记录并标记 `missing`，不跨剧或未知剧根猜测对应关系。
+
+状态可为 `queued/running/done/cancelled/failed`，处理阶段 `phase` 包括 `discover/metadata/media/preview`。完成摘要的 `plans` 沿用整理分组、冲突、需手工处理项及最终季分布，每剧追加稳定的 `fingerprint` 和 `metadata={filled,status,issues}`；`metadata_results` 还包含 `show_id`，用于区分请求失败、官方资料暂缺和匹配待确认。`auto_prompt` 与 `auto_prompt_ids` 标明可自动展示的剧，客户端按逐剧版本去重；手动入口仍可查看当前全部计划。单纯补资料成功或只有待核对项时，不应把空的整理预览显示为自动确认弹窗。
+
+待办与提醒决定通过以下接口持久化：
+
+```http
+GET /api/tv/ingestion-reviews?library_id=3
+→ {"items": [...], "count": 2}
+
+POST /api/tv/ingestion-reviews/decision {"preview_id": "…", "ids": [72], "decision": "deferred"}
+POST /api/tv/ingestion-reviews/decision {"preview_id": "…", "ids": [72], "decision": "ignored"}
+```
+
+待办查询支持 `library_id`、`media_library_id` 或 `show_id` 过滤；`include_ignored=true` 可读取忽略项。`deferred` 保留待办，`ignored` 隐藏当前建议版本，两者都不再自动展示相同变更；新增/替换文件或整理计划变化形成新版本。决定必须对应当前预览，不能用迟到请求忽略新的建议。
+
+携带 `preview_id` 的整理执行绑定该次展示的动作和选项；执行前核对文件、绑定和命名策略，预览变化返回 409，客户端保留选择并重新预览。指纹排除资料检查时间与观看进度。兼容接口继续可用，新网页入口统一使用此流程；全量 `tv-scrape` 与 NFO 重建仍为独立维护任务，不自动触发整理弹窗。
+
+入库检查、待办及执行均为管理操作。自动详情检查已有授权时才启动，401/403 静默留待手动操作，不能因为浏览详情主动要求认证。同范围任务复用，重叠范围排队；取消是协作式停止，已成功补资料和文件动作保留，后台实际退出后才释放重叠任务。
 
 ### 扫描状态复用
 
-`GET /api/jobs/scan` 返回正在运行或最近的扫描任务，墙上与设置工具共用状态。扫描和 TV 资料任务仅复用相同作用域/选项；不同范围返回 409，不能把另一库的任务当成本次完成。
+`GET /api/jobs/scan` 返回正在运行或最近的扫描任务，墙上与设置工具共用状态。扫描只复用相同作用域/选项，不同范围返回 409；剧集入库检查则协调重叠范围并排队，不能把另一库的任务当成本次完成。扫描完成摘要的 `tv_ingest` 提供统一入库预览结果，客户端直接接续展示，无需重新发现文件。
 
 ### 相邻分集与版本
 
 `GET /api/tv/episodes/{id}` 新增 `previous_episode/next_episode`，与 `/next` 使用相同版本与多集区间规则。季详情支持 `version` 筛选和分页，新增 `versions/distinct_count`；`episode_count/watched_count` 仍为全季文件数。
+
+### 片源修订与媒体缓存
+
+`GET /api/stream/{version_id}/media?kind=episode` 在读取探测缓存前复核当前源修订；`refresh=1` 强制重新探测，响应中的 `source_revision` 标识实际被探测的文件。修订是服务端生成的不透明字符串，客户端不应自行拼接。源修订不符、旧缓存没有修订或探测版本过旧时重新 ffprobe；处理前后复核到修订或数据库路径变化返回 409，文件缺失为 410，存储离线为 503。客户端应重新打开媒体，而不是继续使用旧轨道信息。
+
+`GET /api/stream/{version_id}/fonts?kind=episode` 的附件字体 URL 增加 `revision=<32位小写十六进制>`。读取 `/fonts/{name}` 时该参数可省略以兼容旧客户端；显式旧修订与当前片源不符返回 409，需重取字体清单。内置字体 URL 保持独立。内嵌字幕和字体按视频源修订缓存，外挂字幕转换按字幕自身修订缓存，旧文件的生成物不会因修改时间回退被当成新文件内容。
+
+这些检查不更改既有观看进度，也不将已经打开的会话自动迁移到新片源。FileStation 等外部替换完成后，通过详情检查或库扫描对账，再关闭旧播放器并重新播放；路径、大小及修改时间都未变的字节替换无法可靠识别，不做整部文件哈希或实时 NAS 监控。
 
 ### 概览待办
 

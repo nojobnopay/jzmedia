@@ -31,21 +31,20 @@
             <ActionMenu v-if="!isChildren">
               <ContentPolicyButton kind="show" :ids="[show.id]" @saved="load" />
               <JzButton :disabled="busy" @click="nameDraft = show.title; renameOpen = !renameOpen" type="button" variant="ghost" icon="edit">修改剧名</JzButton>
-              <JzButton :disabled="busy" @click="refreshMeta" type="button" variant="ghost" icon="refresh">更新剧集资料</JzButton>
+              <JzButton :disabled="busy || ingestBusy" @click="openOrganize" type="button" variant="ghost" icon="organize">检查资料与整理</JzButton>
               <JzButton :disabled="busy" @click="bindingsOpen = true" type="button" variant="ghost" icon="match">归属与季号</JzButton>
               <JzButton :disabled="busy" @click="matchOpen = !matchOpen" type="button" variant="ghost" icon="match">{{ matchOpen ? '收起匹配' : '重新匹配剧集' }}</JzButton>
-              <JzButton :disabled="busy" @click="openOrganize" type="button" variant="ghost" icon="organize">{{ organizing ? '正在发现新增分集…' : '整理剧集目录' }}</JzButton>
               <JzButton :disabled="verifying" @click="verifyExists" type="button" variant="ghost" icon="eye">{{ verifying ? '检查中…' : '检查文件是否可用' }}</JzButton>
             </ActionMenu>
             <span class="dim">{{ show.watched_count }}/{{ show.episode_count }} 已看</span>
-            <span v-if="busy" class="dim">{{ organizing ? '正在检查本剧目录…' : '处理中…' }}</span>
+            <span v-if="busy" class="dim">处理中…</span>
           </div>
           <TvCollectionStatus v-if="show.tmdb_id" :snapshot="collection" :matched="!!show.tmdb_id && !show.needs_review"
             :loading="collectionLoading" :checking="collectionChecking" :error="collectionError" :notice="collectionNotice"
             :scope-label="show.media_name" @check="checkCollection" @retry="reloadCollection" />
           <MediaOverview :text="show.overview || ''" />
           <EmptyState v-if="loadError" state="error" title="剧集刷新失败" :text="loadError" retry @retry="load()" />
-          <p v-if="msg" class="page-feedback" role="status">{{ msg }}</p>
+          <p v-if="msg || ingestMessage" class="page-feedback" role="status">{{ msg || ingestMessage }}</p>
           <div v-if="!isChildren && ((!show.tmdb_id && !show.match_source) || show.needs_review)" class="review-notice">
             <span>{{ !show.tmdb_id && !show.match_source ? '剧集资料尚未匹配' : '请确认剧集是否匹配正确' }}</span>
             <JzButton v-if="show.tmdb_id || show.match_source" :disabled="busy" @click="confirmMatch" type="button" icon="match">匹配正确</JzButton>
@@ -135,9 +134,6 @@
   </EmptyState>
   <TvBindingsDialog v-if="bindingsOpen && show" :library-id="Number(show.library_id)" :show-id="Number(show.id)"
     @close="bindingsOpen = false" @changed="onBindingChanged" />
-  <TvOrganizeDialog v-if="orgHint" :key="orgHint.show_id" :initial-plan="orgHint"
-    :title="show?.title || orgHint.title" :year="show?.year || ''"
-    @close="orgHint = null" @settings="goOrgSettings" @finished="onOrganized" />
   <PlayerModal v-if="playing" :key="playing.kind + ':' + playing.id"
     :version-id="playing.id" :title="playing.label" :kind="playing.kind"
     @close="playing = null" @watched="onWatched" @ended="onEnded" @version-change="playing = $event" />
@@ -145,7 +141,8 @@
 
 <script setup>
 import ContentPolicyButton from '../components/ContentPolicyButton.vue'
-import { isChildren } from '../viewing.js'
+import { isChildren, viewing } from '../viewing.js'
+import { canAutomaticallyIngest, useTvIngestFlow } from '../useTvIngestFlow.js'
 import ArtworkPlaceholder from '../components/ArtworkPlaceholder.vue'
 
 import AppIcon from '../components/AppIcon.vue'
@@ -168,9 +165,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, posterUrl, scopedArtworkUrl } from '../api.js'
 import { episodeVersion, seasonStats } from '../episodeVersions.js'
-import TvOrganizeDialog from '../components/TvOrganizeDialog.vue'
 import TvBindingsDialog from '../components/TvBindingsDialog.vue'
-import { hintNeeds, hintReasonText } from '../tvOrganizePlans.js'
 import PlayerModal from '../components/PlayerModal.vue'
 import CastWall from '../components/CastWall.vue'
 import HeroRatings from '../components/HeroRatings.vue'
@@ -227,7 +222,6 @@ function pauseForMedia() {
 const msg = ref('')
 const playing = ref(null)
 const busy = ref(false)
-const organizing = ref(false)
 const matchOpen = ref(false)
 const renameOpen = ref(false)
 const nameDraft = ref('')
@@ -239,9 +233,14 @@ const similar = ref([])
 const verifying = ref(false)
 // 海报版本（换绑/重刮后原地覆盖同 URL，带版本破浏览器缓存；对标电影 posterVer）
 const posterVer = ref(0)
-// 预览与两次确认由独立对话框管理；此处负责入口与整理后的页面刷新。
-const orgHint = ref(null)
 const bindingsOpen = ref(false)
+const { busy: ingestBusy, message: ingestMessage, start: startIngest, flow: ingestFlow } = useTvIngestFlow({
+  isCurrent: () => actionableShow(showContext()),
+  scopeKey: () => `${route.params.id}|${showGeneration}`,
+  blocked: () => busy.value || matchOpen.value || renameOpen.value,
+  onCompleted: async () => { posterVer.value++; await load('0', showContext()) },
+})
+let autoChecked = ''
 
 const movies = computed(() => (show.value?.extras || []).filter(x => x.kind === 'movie'))
 const features = computed(() => (show.value?.extras || []).filter(x => x.kind !== 'movie'))
@@ -436,22 +435,6 @@ async function confirmMatch () {
   } catch (e) { if (currentShow(context)) msg.value = '操作失败：' + e.message }
   finally { if (currentShow(context)) busy.value = false }
 }
-async function refreshMeta () {
-  const context = showContext()
-  if (!actionableShow(context) || busy.value) return
-  busy.value = true
-  try {
-    await api(`/api/tv/shows/${context.id}/refresh`, { method: 'POST' })
-    if (!currentShow(context)) return
-    posterVer.value++
-    await load('0', context)
-    if (!currentShow(context)) return
-    await waitForMedia(context)
-    if (!currentShow(context)) return
-    posterVer.value++
-  } catch (e) { if (currentShow(context)) msg.value = '刷新失败：' + e.message }
-  finally { if (currentShow(context)) busy.value = false }
-}
 // 匹配响应自带落盘状态：失败原因必须可见，不静默（与后端 media.artwork.reason 对齐）
 function mediaNote (res) {
   if (!res) return ''
@@ -519,7 +502,7 @@ async function doMatch (tmdbId) {
     posterVer.value++
     const note = mediaNote(res)
     if (note) msg.value = '已匹配成功' + note
-    await checkOrgHint(context)
+    await startIngest({ ids: [Number(context.id)] })
   } catch (e) { if (currentShow(context)) msg.value = '匹配失败：' + e.message }
   finally { if (currentShow(context)) busy.value = false }
 }
@@ -547,6 +530,7 @@ async function doMatchExternal (r) {
     posterVer.value++
     msg.value = '已绑定外源元数据（无 TMDB ID，后续可手动匹配 TMDB 升级）'
     if (res && res.episodes_filled) msg.value += `，回填 ${res.episodes_filled} 集`
+    await startIngest({ ids: [Number(context.id)] })
   } catch (e) { if (currentShow(context)) msg.value = '绑定失败：' + e.message }
   finally { if (currentShow(context)) busy.value = false }
 }
@@ -554,50 +538,10 @@ function selectAiMatch(candidate) {
   if (candidate.tmdb_id) return doMatch(candidate.tmdb_id)
   if (isAiExternalCandidate(candidate)) return doMatchExternal(candidate)
 }
-// 匹配成功后查单剧整理预览：有可执行计划或风险/手动项即弹窗（对标电影归档引导）
-async function checkOrgHint (context = showContext()) {
-  if (!actionableShow(context)) return
-  orgHint.value = null
-  if (!show.value || !show.value.tmdb_id) return
-  try {
-    const h = await api(`/api/tv/shows/${context.id}/organize-hint`)
-    if (!currentShow(context)) return
-    if (hintNeeds(h)) {
-      orgHint.value = h
-    }
-  } catch (e) { /* 预览失败不挡详情页 */ }
-}
-// 详情页手动入口：先发现当前剧根的新文件，再基于最新分集清单生成整理预览。
 async function openOrganize () {
   const context = showContext()
   if (!actionableShow(context) || busy.value) return
-  busy.value = true
-  organizing.value = true
-  msg.value = '正在检查本剧目录中的新增分集…'
-  try {
-    const id = context.id
-    const discovery = await api(`/api/tv/shows/${id}/discover`, { method: 'POST' })
-    if (!currentShow(context)) return
-    if (discovery.added) await load('0', context)
-    if (!currentShow(context)) return
-    const h = await api(`/api/tv/shows/${id}/organize-hint`)
-    if (!currentShow(context)) return
-    h.discovery = discovery
-    if (hintNeeds(h) || (h.kept || []).length) {
-      orgHint.value = h
-      msg.value = ''
-    } else {
-      const notes = []
-      if (discovery.added) notes.push(`已发现并加入 ${discovery.added} 个新分集`)
-      if (discovery.unknown) notes.push(`另有 ${discovery.unknown} 个视频无法识别集号`)
-      notes.push(hintReasonText(h) || '目录已规范，无需整理')
-      msg.value = notes.join('；')
-    }
-  } catch (e) {
-    if (currentShow(context)) msg.value = '检查剧集目录失败：' + e.message
-  } finally {
-    if (currentShow(context)) { organizing.value = false; busy.value = false }
-  }
+  await startIngest({ ids: [Number(context.id)] })
 }
 async function onBindingChanged(result) {
   bindingsOpen.value = false
@@ -605,21 +549,8 @@ async function onBindingChanged(result) {
     await router.replace('/tv/' + result.show_id)
   } else {
     await load()
+    await startIngest({ ids: [Number(route.params.id)] })
   }
-}
-
-async function onOrganized () {
-  const context = showContext()
-  if (!actionableShow(context)) return
-  posterVer.value++
-  await load('0', context)
-  if (!currentShow(context)) return
-  await verifyExists()
-}
-function goOrgSettings () {
-  const q = { sec: 'sec-tvorganize' }
-  if (show.value?.library_id != null) q.library = String(show.value.library_id)
-  router.push({ path: '/settings', query: q })
 }
 
 async function onWatched () {
@@ -641,27 +572,37 @@ async function onEnded () {
   } catch (e) { if (currentShow(context)) msg.value = '自动连播失败：' + e.message }
 }
 
-onMounted(() => load())
-onUnmounted(() => { disposed = true; loadSeq++; invalidateSearch(); stopMediaWaits() })
+function refreshIngestedShow() {
+  if (actionableShow(showContext()) && !ingestBusy.value && !busy.value) { posterVer.value++; load() }
+}
+onMounted(() => { load(); window.addEventListener('jzmedia:content-changed', refreshIngestedShow) })
+onUnmounted(() => { disposed = true; loadSeq++; invalidateSearch(); stopMediaWaits(); window.removeEventListener('jzmedia:content-changed', refreshIngestedShow) })
 watch(mq, () => invalidateSearch(), { flush: 'sync' })
 watch(matchOpen, open => { if (!open) invalidateSearch(false) }, { flush: 'sync' })
 watch(() => route.params.id, () => {
   showGeneration++
   invalidateSearch()
   stopMediaWaits()
-  orgHint.value = null
   bindingsOpen.value = false
   matchOpen.value = false
   renameOpen.value = false
   nameDraft.value = ''
   mq.value = ''
   busy.value = false
-  organizing.value = false
   verifying.value = false
   posterVer.value = 0
   load()
 }, { flush: 'sync' })
 watch(() => show.value?.tmdb_id, () => { failedSeasonPosters.value = new Set() })
+watch([() => show.value?.id, () => route.params.id, () => viewing.ready,
+  () => viewing.management_unlocked, () => viewing.revision, ingestFlow.allowed], () => {
+  const context = showContext()
+  if (!ingestFlow.allowed.value || !canAutomaticallyIngest() || !actionableShow(context)) return
+  const key = `${context.id}|${context.generation}|${viewing.revision}`
+  if (autoChecked === key) return
+  autoChecked = key
+  startIngest({ ids: [Number(context.id)] }, { automatic: true })
+}, { flush: 'post' })
 </script>
 
 <style scoped>

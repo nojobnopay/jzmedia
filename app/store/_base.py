@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS scan_state (
   mtime INTEGER DEFAULT 0,
   size INTEGER DEFAULT 0,
   status TEXT DEFAULT '',
+  source_revision TEXT NOT NULL DEFAULT '',
   updated_at INTEGER DEFAULT 0,
   PRIMARY KEY (library_id, file_path)
 );
@@ -207,6 +208,7 @@ CREATE TABLE IF NOT EXISTS media_info (
   playable INTEGER DEFAULT 0,
   probe_error TEXT DEFAULT '',
   probed_at INTEGER DEFAULT 0,
+  source_revision TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (kind, item_id)
 );
 """
@@ -216,7 +218,7 @@ _MEDIA_INFO_COLUMNS = ["kind", "item_id", "container", "duration", "width", "hei
                        "sub_json", "dv_profile", "probe_ver", "video_profile",
                        "video_level", "bit_depth", "pix_fmt", "color_transfer",
                        "color_primaries", "hdr", "dv_bl_compat", "hdr10plus",
-                       "attachments_json", "playable", "probe_error", "probed_at"]
+                       "attachments_json", "playable", "probe_error", "probed_at", "source_revision"]
 
 _PROGRESS_DDL = """
 CREATE TABLE IF NOT EXISTS playback_progress (
@@ -575,7 +577,7 @@ APP_SETTING_KEYS = {"tmdb_read_token", "tmdb_api_key", "tmdb_proxy",
                     "online_network_default"}
 
 
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 38
 
 
 def _columns(c, table: str) -> set:
@@ -818,7 +820,7 @@ def _m12(c) -> None:
         c.execute(ddl)
     if not _has_column(c, "scan_state", "library_id"):
         _rebuild_table(c, "scan_state", _SCAN_STATE_DDL,
-                       ["file_path", "library_id", "mtime", "size", "status", "updated_at"],
+                       ["file_path", "library_id", "mtime", "size", "status", "updated_at", "source_revision"],
                        copy_extra="library_id",
                        extra_values=str(DEFAULT_LIBRARY_ID))
     _ensure_columns(c, "collections", [
@@ -1402,13 +1404,59 @@ def _m36(c) -> None:
         c.execute(statement)
 
 
+def _m37(c) -> None:
+    """Restart-safe TV ingestion suggestions and confirmation snapshots."""
+    c.executescript("""
+CREATE TABLE IF NOT EXISTS tv_ingestion_reviews (
+  show_id INTEGER PRIMARY KEY,
+  library_id INTEGER NOT NULL,
+  dirty INTEGER NOT NULL DEFAULT 1,
+  dirty_revision INTEGER NOT NULL DEFAULT 0,
+  fingerprint TEXT NOT NULL DEFAULT '',
+  preview_id TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'pending',
+  plan TEXT NOT NULL DEFAULT '{}',
+  metadata TEXT NOT NULL DEFAULT '{}',
+  params TEXT NOT NULL DEFAULT '{}',
+  checked_at INTEGER NOT NULL DEFAULT 0,
+  retry_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tv_ingestion_library ON tv_ingestion_reviews(library_id,state);
+CREATE TABLE IF NOT EXISTS tv_ingestion_previews (
+  id TEXT PRIMARY KEY,
+  payload TEXT NOT NULL,
+  consumed TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tv_ingestion_metadata_checks (
+  tmdb_id INTEGER NOT NULL,
+  season INTEGER NOT NULL,
+  missing_key TEXT NOT NULL,
+  status TEXT NOT NULL,
+  retry_at INTEGER NOT NULL,
+  PRIMARY KEY(tmdb_id,season)
+);
+""")
+
+
+def _m38(c) -> None:
+    """Probe results belong to one exact source revision, including legacy rows."""
+    _ensure_columns(c, 'media_info', [
+        ('source_revision', "ALTER TABLE media_info ADD COLUMN source_revision TEXT NOT NULL DEFAULT ''"),
+    ])
+    _ensure_columns(c, 'scan_state', [
+        ('source_revision', "ALTER TABLE scan_state ADD COLUMN source_revision TEXT NOT NULL DEFAULT ''"),
+    ])
+
+
 _MIGRATION_STEPS = [(1, _m1), (2, _m2), (3, _m3), (4, _m4), (5, _m5), (6, _m6),
                     (7, _m7), (8, _m8), (9, _m9), (10, _m10), (11, _m11),
                     (12, _m12), (13, _m13), (14, _m14), (15, _m15), (16, _m16),
                     (17, _m17), (18, _m18), (19, _m19), (20, _m20), (21, _m21),
                     (22, _m22), (23, _m23),                      (24, _m24), (25, _m25),
                     (26, _m26), (27, _m27), (28, _m28), (29, _m29), (30, _m30),
-                    (31, _m31), (32, _m32), (33, _m33), (34, _m34), (35, _m35), (36, _m36)]
+                    (31, _m31), (32, _m32), (33, _m33), (34, _m34), (35, _m35), (36, _m36),
+                    (37, _m37), (38, _m38)]
 
 
 def init_db() -> None:

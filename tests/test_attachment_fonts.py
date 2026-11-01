@@ -9,6 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import media as _media
+from app import storage
+from app.playback.source import source_cache_key
 from app.main import app
 from app.routers.stream import subtitles as subs
 
@@ -17,12 +19,21 @@ ATT_NAME = "方正测试[0]_CHECK_0.ttf"
 PAYLOAD = b"FAKE-FONT-BYTES-1234567890"
 
 
+def _fixture_source(tmp_path):
+    path = tmp_path / 'fixture.mkv'
+    path.write_bytes(b'isolated-font-source')
+    backend = storage.LocalStorageBackend({'id': 7, 'path': str(tmp_path)})
+    stat = backend.stat(path.name)
+    return storage.MediaSource(backend, path.name, str(path), str(path), stat.size, stat.mtime)
+
+
 def test_font_list_deduplicates_attachment_urls_without_hiding_builtin(tmp_path, monkeypatch):
     builtin = tmp_path / "fonts"
     builtin.mkdir()
     (builtin / ATT_NAME).write_bytes(PAYLOAD)
     monkeypatch.setattr(subs.settings, "data_dir", str(tmp_path))
-    monkeypatch.setattr(subs, "_version_source", lambda *_: ({"id": 7}, None))
+    src = _fixture_source(tmp_path)
+    monkeypatch.setattr(subs, "_version_source", lambda *_: ({"id": 7}, src))
     monkeypatch.setattr(subs, "_media_cached_or_probe", lambda *_: {
         "attachments": [{"index": 3, "name": ATT_NAME}, {"index": 4, "name": ATT_NAME},
                         {"index": 5, "name": "other.ttf"}]})
@@ -37,16 +48,18 @@ def test_font_list_deduplicates_attachment_urls_without_hiding_builtin(tmp_path,
 def test_font_list_attachment_urls_preserve_media_kind(tmp_path, monkeypatch, kind):
     """相同整数 ID 的三种媒体字体请求必须回到原媒体，内置字体独立复用。"""
     calls = []
+    src = _fixture_source(tmp_path)
+    revision = source_cache_key(src)
 
     def source(version_id, requested_kind):
         calls.append((version_id, requested_kind))
-        return {"id": version_id}, None
+        return {"id": version_id}, src
 
     def cache_dir(requested_kind, version_id):
         return str(tmp_path / "cache" / requested_kind / str(version_id))
 
     for media_kind in ("movie", "episode", "extra"):
-        directory = tmp_path / "cache" / media_kind / "7" / "fonts"
+        directory = tmp_path / 'cache' / media_kind / '7' / 'fonts' / revision
         directory.mkdir(parents=True)
         (directory / ATT_NAME).write_bytes(media_kind.encode())
     builtin = tmp_path / "fonts"
@@ -63,7 +76,7 @@ def test_font_list_attachment_urls_preserve_media_kind(tmp_path, monkeypatch, ki
     assert response.status_code == 200
     fonts = response.json()["fonts"]
     attachment = next(font for font in fonts if font["source"] == "attachment")
-    assert parse_qs(urlsplit(attachment["url"]).query) == {"kind": [kind]}
+    assert parse_qs(urlsplit(attachment["url"]).query) == {'kind': [kind], 'revision': [revision]}
     fetched = client.get(attachment["url"])
     assert fetched.status_code == 200
     assert fetched.content == kind.encode()

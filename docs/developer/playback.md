@@ -34,7 +34,7 @@ ConnectionManager 提供的格式列表可提前排除不支持的 MIME，不能
 
 ## 从能力到播放计划
 
-`app/media.py` 用 ffprobe 得到容器、编码、帧率、音字幕轨、HDR/DV 等，结果在 `media_info` 按 `(kind,item_id)` 缓存；当前 `PROBE_VERSION=4`，探测版本落后时在播放前重新探测。前端 `caps.js` 检测浏览器格式能力，`POST /api/stream/{id}/decide` 上传 caps；不带 caps 的 GET 兼容口使用保守默认。`app/caps.py` 规范/哈希能力，`app/playback/plan.py` 决定：
+`app/media.py` 用 ffprobe 得到容器、编码、帧率、音字幕轨、HDR/DV 等，结果在 `media_info` 按 `(kind,item_id)` 缓存，并绑定 `source_revision`；当前 `PROBE_VERSION=4`，探测版本落后、源修订不符或旧行没有源修订时，在播放前重新探测。前端 `caps.js` 检测浏览器格式能力，`POST /api/stream/{id}/decide` 上传 caps；不带 caps 的 GET 兼容口使用保守默认。`app/caps.py` 规范/哈希能力，`app/playback/plan.py` 决定：
 
 | 方式 | 视频 | 音频 | 典型原因 |
 |---|---|---|---|
@@ -57,6 +57,14 @@ flowchart TD
 ```
 
 数值例子：某片从 125.5 秒续播，目标前最近关键帧在 124.0 秒。copy 会话返回 `media_start=124.0`、`initial_time=1.5`：播放器片内 0 对应原片 124.0 秒，起播落在片内 1.5 秒处。字幕 cue 存的是原片时间，逐帧用 `media_start + 片内时间` 判定是否显示，再叠加用户设置的延迟。
+
+### 片源替换与派生缓存
+
+`app/playback/source.py` 统一片源修订检查。修订由视频库、规范化相对路径、大小和后端完整精度的 `mtime` 组成，不包含临时读取 URL，不散列媒体字节。读取探测缓存前重新 stat，绕过存储元数据短缓存；同一媒体的并发探测合并。ffprobe 前后均检查源修订，写入时另核对数据库路径；处理中复核到修订或数据库路径改变返回 409，不把旧文件的探测结果写给新文件。源文件缺失、存储离线分别沿用 410、503。
+
+扫描识别同名覆盖或安全承接改名替换后，使对应探测信息失效，下一次播放按新片源取得时长、编码和轨道。HLS/MP4 产物键原本包含路径、大小和完整精度修改时间，新源使用新产物；内嵌字幕与附件字体也按视频源修订分目录，外挂字幕转换按字幕自身修订分目录，避免修改时间回退时误用旧内容。旧派生产物由既有缓存回收规则处理。
+
+源修订变化影响后续新会话，不会自动关闭或迁移已经打开的播放会话。外部替换完成并检查后，用户应关闭再打开播放器，按新轨道清单重新选择音轨和字幕。视频库、路径、大小和修改时间全部相同时，字节内容变化不能可靠识别；本机制不提供实时 NAS 文件监控。用户操作与边界见[在 FileStation 中替换分集](../user-guide/files.md#在-filestation-中替换分集)。
 
 ### 浏览器检测与兼容回退
 
@@ -294,6 +302,8 @@ Android TV 对 P5 按实际片源规格检测原生 Dolby Vision 硬件解码器
 ### 字幕渲染
 
 `useSubtitles.js` 用自绘 DOM 层显示 SRT/VTT，失败回退原生 track；JASSUB 渲染 ASS/SSA 并尽量保留样式，libpgs 渲染 PGS，失败可降级烧录；VobSub 走烧录。自绘文本层在画中画中不可见；ASS 缺 CJK 字体可补 `DATA_DIR/fonts/` 内有权使用的字体，或降级 VTT（丢失原样式）。内嵌字体在首次请求时从片源解出：逐附件流显式输出后改名（ffmpeg≥7 拒绝中文/括号内嵌文件名做落盘名，整批按内嵌名解出零文件），同目录并发只跑一次；JASSUB 字体预检不通过或初始化失败/超时，自动降级同轨 VTT 并提示（本地临时 ASS 无服务端 VTT 变体，只提示不降级）。
+
+字幕抽取和外挂转换分别保存到 `(kind,id)/subs/<源修订哈希>/`；附件字体保存到 `(kind,id)/fonts/<视频源修订哈希>/`。字体清单中的附件 URL 带当前 `revision`，显式请求旧修订时返回 409，客户端应重新读取清单；不带修订的旧客户端仍可读取当前源字体。内置字体路径保持独立。抽取期间源变化时丢弃未能通过复核的生成物，避免将旧字幕或字体发布为新源缓存。
 
 网页 ASS 的专用入口 `jassubWorker.js` 在注册原 JASSUB RPC worker 前，通过 `assCanvasContext.js` 将该 worker 的 WebGL/Canvas2D 上下文 `desynchronized` 设为 `false`，让透明字幕画布参与常规合成；保留透明度、WebGL 加速和 ASS 样式，不修改依赖包或页面中的其他画布。此设置针对手机全屏时字幕可见、底下视频黑屏的合成兼容路径，不改变播放计划。`scripts/smoke_settings_ui.mjs --player-only` 用合成视频、ASS 和字体检查真实 worker 的上下文属性、手机布局下窗口/竖屏与横屏全屏的画面及字幕像素、兼容模式往返和关闭清理；浏览器模拟通过仍需受影响手机验收。
 

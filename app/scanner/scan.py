@@ -512,6 +512,37 @@ def scan_tv_file(*args, **kwargs):
         return _scan_tv_file(*args, **kwargs)
 
 
+def _known_tv_owner(root, library_id):
+    from ..store._base import _like_esc
+    if not root:
+        return None
+    with store._lock, store._conn() as c:
+        owners = {int(r['show_id']) for r in c.execute(
+            "SELECT DISTINCT show_id FROM tv_episodes WHERE library_id=? AND file_path LIKE ? ESCAPE '\\'",
+            (int(library_id), _like_esc(root.rstrip('/')) + '/%'))}
+    return next(iter(owners)) if len(owners) == 1 else None
+
+
+def _tv_snapshot_identity(backend, entry, *, show_root=None, episode_hint=None, target_show_id=None):
+    """Use the normal parser/ownership rules, without creating new show rows."""
+    if os.path.splitext(entry.name)[1].lower() not in VIDEO_EXTS or is_sample(entry.name):
+        return None
+    if is_sidecar(entry.rel, backend=backend, tv=True):
+        return None
+    from ..tv_binding_rules import bound_numbers
+    rule = store.tv_binding_for(backend.library_id, entry.rel)
+    root = rule['path'] if rule else (show_root if show_root is not None else _tv_show_root(entry.rel))
+    owner = rule['show_id'] if rule else (target_show_id or _known_tv_owner(root, backend.library_id))
+    if not owner:
+        return None
+    numbers = bound_numbers(resolve_tv_numbers(entry.name, os.path.basename(os.path.dirname(entry.rel)),
+                                               root, episode_hint), rule)
+    return {'show_id': int(owner), 'ok': numbers['ok'] and not numbers.get('binding_conflict'),
+            'season': numbers['season'], 'episode': numbers['episode'],
+            'episode_end': numbers['episode_end'], 'absolute_number': numbers['absolute'],
+            'binding_conflict': numbers.get('binding_conflict')}
+
+
 def _scan_tv_file(backend, rel: str, entry=None, show_root=None,
                  episode_hint=None, force: bool = False,
                  target_show_id: int | None = None) -> dict:
@@ -532,22 +563,35 @@ def _scan_tv_file(backend, rel: str, entry=None, show_root=None,
     if old_episode and target_show_id is None:
         target_show_id = int(old_episode['show_id'])
     if entry is not None:
-        mtime, size = int(entry.mtime), int(entry.size)
+        precise_mtime, size = float(entry.mtime), int(entry.size)
     else:
-        try:
-            st = backend.stat(rel)
-            mtime, size = int(st.mtime), int(st.size)
-        except storage.StorageError:
-            mtime, size = 0, 0
+        stat = backend.stat(rel)
+        precise_mtime, size = float(stat.mtime), int(stat.size)
+    mtime = int(precise_mtime)
+    revision = store.media_source_revision(lib_id, rel, size, precise_mtime)
+    previous = store.get_scan_state(rel, lib_id)
+    same_source = bool(previous and ((previous.get('source_revision') == revision)
+        if previous.get('source_revision') else
+        (int(previous.get('mtime') or 0) == mtime and int(previous.get('size') or 0) == size)))
+    changed_source = bool(old_episode and previous and not same_source)
+    if changed_source:
+        store.invalidate_media_info(old_episode['id'], kind='episode')
+
+    def record(status):
+        store.set_scan_state(rel, mtime, size, status, library_id=lib_id, source_revision=revision)
+
+    from .tv_reconcile import incomplete_filename
+    if incomplete_filename(rel) or size <= 0 or precise_mtime <= 0:
+        return {'file': rel, 'status': 'skipped_tv_incomplete'}
     if is_sample(base):
-        store.set_scan_state(rel, mtime, size, "skipped_sample", library_id=lib_id)
+        record('skipped_sample')
         return {"file": rel, "status": "skipped_sample"}
     if is_sidecar(rel, backend=backend, tv=True):
         # 花絮/剧场版登记（T4）：样片只跳过；花絮与剧库内电影挂到剧上可见可播。
         if show_root is None:
             show_root = _tv_show_root(rel)
         if not show_root:
-            store.set_scan_state(rel, mtime, size, "skipped_sidecar", library_id=lib_id)
+            record('skipped_sidecar')
             return {"file": rel, "status": "skipped_sidecar"}
         kind = "movie" if _tv_in_movie_dir(rel) else extra_kind(rel)
         # 归属优先按「剧根已有正片」解析：TMDB 改名后（Breaking Bad → 绝命毒师）
@@ -561,14 +605,15 @@ def _scan_tv_file(backend, rel: str, entry=None, show_root=None,
                                         sort_title=normalize_title(title),
                                         hints=sd.get("hints"))
         store.upsert_tv_extra(rel, show_id, kind=kind, library_id=lib_id)
-        store.set_scan_state(rel, mtime, size, "extra_tv", library_id=lib_id)
+        record('extra_tv')
         return {"file": rel, "status": ST_EXTRA_ATTACHED, "show_id": show_id,
                 "extra_kind": kind}
     if not force:
-        st = store.get_scan_state(rel, lib_id)
-        if (st and st.get("status") == "tv_ok"
-                and int(st.get("mtime") or 0) == mtime
-                and int(st.get("size") or 0) == size):
+        if old_episode and previous and previous.get('status') == 'tv_ok' and same_source:
+            if old_episode.get('missing'):
+                store.update_episode_meta(old_episode['id'], missing=0)
+            if not previous.get('source_revision'):
+                record('tv_ok')
             return {"file": rel, "status": "skipped_unchanged"}
     if show_root is None:
         show_root = _tv_show_root(rel)
@@ -576,15 +621,16 @@ def _scan_tv_file(backend, rel: str, entry=None, show_root=None,
                              show_root, episode_hint)
     num = bound_numbers(num, rule)
     if not num["ok"]:
-        store.set_scan_state(rel, mtime, size, "tv_unknown", library_id=lib_id)
+        record('tv_unknown')
         return {"file": rel, "status": "skipped_tv_unknown", "parsed": num["parsed"]}
     sd = (tv_parse.parse_show_dir(os.path.basename(show_root)) if show_root
           else {"title": "", "year": None, "hints": {}})
     title = sd["title"] or (num["parsed"].get("title")
                             or os.path.splitext(base)[0]).strip()
     if not title:
-        store.set_scan_state(rel, mtime, size, "tv_unknown", library_id=lib_id)
+        record('tv_unknown')
         return {"file": rel, "status": "skipped_tv_unknown"}
+    target_show_id = target_show_id or _known_tv_owner(show_root, lib_id)
     show_id = (int(target_show_id) if target_show_id is not None else
                store.upsert_show(lib_id, title, sd.get("year"),
                                  sort_title=normalize_title(title), hints=sd.get("hints")))
@@ -604,14 +650,14 @@ def _scan_tv_file(backend, rel: str, entry=None, show_root=None,
             store.update_episode_meta(ep_id, needs_review=1)
         elif not old_episode:
             store.update_episode_meta(ep_id, needs_review=1)
-    store.set_scan_state(rel, mtime, size, "tv_ok", library_id=lib_id)
+    record('tv_ok')
     return {"file": rel, "status": "tv_ok", "show_id": show_id, "episode_id": ep_id,
             "show": title, "season": num["season"], "episode": num["episode"],
-            "episode_end": num["episode_end"]}
+            "episode_end": num["episode_end"], "source_changed": changed_source}
 
 
-def scan_tv_show(show_id: int, force: bool = False) -> dict:
-    """只发现一个已入库剧根下的新视频，不扫描整座视频库，也不做失效 GC。
+def scan_tv_show(show_id: int, force: bool = False, should_stop=None) -> dict:
+    """Discover and reconcile only this show's completely enumerated roots.
 
     详情页在生成整理计划前调用本函数。已存在的集走 scan_state 增量短路；新文件
     显式绑定到当前 show_id，避免剧名被手工修改或 TMDB 本地化后另建重复剧目。
@@ -632,9 +678,12 @@ def scan_tv_show(show_id: int, force: bool = False) -> dict:
     show_dir = _resolve_show_dir(episodes, show_id=sid, library_id=lib_id) if episodes else ''
     raw_roots = (set(show_dirs_for(sid, episodes)) | {r['path'] for r in rules}) if rules else {show_dir}
     roots = [p for p in sorted(raw_roots) if not any(p.startswith(other + '/') for other in raw_roots if other != p)]
-    if not roots:
+    if not roots or any(not root for root in roots):
         return {"show_id": sid, "library_id": lib_id, "show_dir": "",
-                "scanned": 0, "added": 0, "unknown": 0, "results": []}
+                "scanned": 0, "added": 0, "unknown": 0, "results": [],
+                'reconciliation': {'replaced': 0, 'removed': 0, 'changed': 0, 'review': 1,
+                    'incomplete': True, 'issues': [{'code': 'show_root_unknown',
+                        'message': '无法确定本剧独占目录，已保留原记录，请扫描所属视频库并核对归属'}]}}
     backend = storage.backend_for(lib_id)
     storage.clear_meta_cache(lib_id)
     entries = []
@@ -644,22 +693,37 @@ def scan_tv_show(show_id: int, force: bool = False) -> dict:
     hints = _tv_special_hints(vids)
     known = {str(e.get("file_path") or "") for e in episodes}
     results: list[dict] = []
-    for entry in vids:
-        result = scan_tv_file(
-            backend, entry.rel, entry=entry, show_root=show_dir,
-            episode_hint=hints.get(entry.rel), force=force,
-            target_show_id=sid,
-        )
-        result["library_id"] = lib_id
-        results.append(result)
+    from .tv_reconcile import reconcile_snapshot
+    with library_mutation_lock(lib_id):
+        reconciliation = reconcile_snapshot(backend, episodes, entries,
+            lambda entry: _tv_snapshot_identity(backend, entry, show_root=show_dir,
+                episode_hint=hints.get(entry.rel), target_show_id=sid),
+            roots=roots, skip_dirs=scan_skip_dirs(), should_stop=should_stop)
+        if not reconciliation['incomplete']:
+            for entry in vids:
+                if should_stop and should_stop():
+                    break
+                result = scan_tv_file(
+                    backend, entry.rel, entry=entry, show_root=show_dir,
+                    episode_hint=hints.get(entry.rel), force=force,
+                    target_show_id=sid,
+                )
+                result["library_id"] = lib_id
+                results.append(result)
+    replacement_paths = {pair['new'] for pair in reconciliation.pop('replacements')}
+    reconciliation.pop('retained_paths')
+    reconciliation.pop('by_show')
     added = sum(1 for r in results
-                if r.get("status") == "tv_ok" and r.get("file") not in known)
+                if r.get("status") == "tv_ok" and r.get("file") not in known
+                and r.get('file') not in replacement_paths)
+    reconciliation['changed'] = sum(bool(r.get('source_changed')) for r in results if r.get('file') in known)
     unknown = sum(1 for r in results if r.get("status") == "skipped_tv_unknown")
     from .tv_persist import backfill_cached_episodes
-    filled = backfill_cached_episodes(sid) if rules else 0
+    filled = backfill_cached_episodes(sid) if rules and not reconciliation['incomplete'] \
+        and not (should_stop and should_stop()) else 0
     return {"show_id": sid, "library_id": lib_id, "show_dir": show_dir, "directories": roots, "metadata_filled": filled,
             "scanned": len(vids), "added": added, "unknown": unknown,
-            "results": results[:100]}
+            "results": results[:100], 'reconciliation': reconciliation}
 
 
 def _scan_libraries(library_id, media_library_id=None) -> list[dict]:
@@ -707,6 +771,9 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
                         else f"error: library unavailable: {e}"})
             continue
         change_revision = store.fs_change_summary(lib_id)["revision"]
+        with store._lock, store._conn() as connection:
+            before_episodes = [dict(row) for row in connection.execute(
+                'SELECT * FROM tv_episodes WHERE library_id=?', (lib_id,))]
         storage.clear_meta_cache(lib_id)   # 扫描必须看到磁盘当前状态（不吃 TTL 缓存）
         try:
             backend.stat("")
@@ -726,7 +793,7 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
         # TV：子剧目录（七龙珠.Z）+ 无编号特典顺序号，一次遍历内预计算
         ctx = (tv_plan(entries, vids)
                if str(lib.get("kind") or "movie") == "tv" else None)
-        plans.append((lib, backend, vids, tree_files, ctx, change_revision))
+        plans.append((lib, backend, vids, tree_files, ctx, change_revision, entries, before_episodes))
         grand += len(vids)
     if progress_cb:
         try:
@@ -745,10 +812,44 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
         logger.debug("list extras failed: %s", e)
         all_extras = []
     done = 0
-    for lib, backend, vids, tree_files, ctx, change_revision in plans:
+    for lib, backend, vids, tree_files, ctx, change_revision, entries, before_episodes in plans:
         lib_id = _lib_id(lib.get("id"))
         is_tv = str(lib.get("kind") or "movie") == "tv"
+        reconciliation = None
+        retained_paths = []
+        if is_tv:
+            from .tv_reconcile import reconcile_snapshot
+
+            def identity(entry):
+                planned = (ctx or {}).get(entry.rel, {})
+                return _tv_snapshot_identity(backend, entry, show_root=planned.get('show_root'),
+                                             episode_hint=planned.get('episode_hint'))
+
+            with library_mutation_lock(lib_id):
+                if store.fs_change_summary(lib_id)['revision'] != change_revision:
+                    out.append({'file': '', 'library_id': lib_id,
+                                'status': 'error: files changed during scan; scan again'})
+                    continue
+                reconciliation = reconcile_snapshot(backend, before_episodes, entries, identity,
+                    roots=[''], skip_dirs=skip_dirs, should_stop=should_stop)
+            retained_paths = reconciliation.pop('retained_paths')
+            reconciliation.pop('replacements')
+            for field, status in [('replaced', 'replaced_episode'), ('removed', 'removed_episode'),
+                                  ('review', 'tv_reconcile_review')]:
+                if reconciliation[field]:
+                    out.append({'file': '', 'library_id': lib_id, 'status': status,
+                                'count': reconciliation[field]})
+            if reconciliation['incomplete']:
+                out.append({'file': '', 'library_id': lib_id, 'status': 'tv_reconciliation',
+                            'reconciliation': reconciliation})
+                out.append({'file': '', 'library_id': lib_id,
+                            'status': 'error: TV files changing or unavailable; check again'})
+                done += len(vids)
+                if progress_cb:
+                    progress_cb(done, grand)
+                continue
         seen_extras: set[str] = set()
+        before_paths = {old['file_path'] for old in before_episodes}
         for e in vids:
             if should_stop and should_stop():
                 logger.info("scan cancelled: processed=%s/%s", done, grand)
@@ -765,6 +866,11 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
                                   local_index=local_index, entry=e)
                 r["library_id"] = lib_id
                 out.append(r)
+                if is_tv and r.get('source_changed') and e.rel in before_paths:
+                    reconciliation['changed'] += 1
+                    files = reconciliation['by_show'].setdefault(int(r['show_id']), {
+                        'replaced': 0, 'removed': 0, 'changed': 0, 'review': 0, 'issues': [], 'incomplete': False})
+                    files['changed'] += 1
                 if r.get("status") in (ST_EXTRA_ATTACHED, ST_EXTRA_ORPHAN):
                     seen_extras.add(r["file"])
             except Exception as ex:
@@ -797,7 +903,13 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
                 # TV 失效 GC（仅在一次完整遍历后执行）：删掉磁盘上已不存在的集行/空剧，
                 # 级联清理播放断点与探测缓存（库离线在 iter_tree 已整库跳过，绝不误删）。
                 try:
-                    removed = store.delete_episodes_not_in(tree_files, lib_id)
+                    removed = store.delete_episodes_not_in(tree_files | set(retained_paths), lib_id)
+                    if reconciliation['changed']:
+                        out.append({'file': '', 'library_id': lib_id, 'status': 'changed_episode',
+                                    'count': reconciliation['changed']})
+                    if any(reconciliation[key] for key in ('replaced', 'removed', 'changed', 'review')):
+                        out.append({'file': '', 'library_id': lib_id, 'status': 'tv_reconciliation',
+                                    'reconciliation': reconciliation})
                     extra_removed = 0   # 剧集花絮/剧场版行 GC
                     for row in all_extras:
                         if int(row.get("library_id") or DEFAULT_LIBRARY_ID) != lib_id:

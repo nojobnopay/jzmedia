@@ -62,9 +62,11 @@ def test_rates_survive_store_and_api_payload(monkeypatch):
     assert payload["audio"][0]["sample_rate"] == 48000
 
 
-def test_previous_probe_version_reprobes_and_restores_rates(monkeypatch):
+def test_previous_probe_version_reprobes_and_restores_rates(tmp_path, monkeypatch):
     info = fake_probe(monkeypatch, {"avg_frame_rate": "60/1"}, {"sample_rate": "96000"})
     mid = store.upsert_movie_by_path("native-rates/stale.mkv")
+    source = tmp_path / 'isolated-stale.mkv'
+    source.write_bytes(b'fixture')
     store.upsert_media_info(mid, {**info, "probe_ver": 3, "fps": 0})
     calls = []
 
@@ -73,11 +75,11 @@ def test_previous_probe_version_reprobes_and_restores_rates(monkeypatch):
         return info
 
     monkeypatch.setattr(media, "probe", fresh)
-    result = _media_cached_or_probe({"id": mid}, "isolated-stale.mkv")
-    assert calls == ["isolated-stale.mkv"]
+    result = _media_cached_or_probe({"id": mid}, str(source))
+    assert calls == [str(source)]
     assert result["fps"] == 60
     assert result["probe_ver"] == media.PROBE_VERSION
-    _media_cached_or_probe({"id": mid}, "isolated-stale.mkv")
+    _media_cached_or_probe({"id": mid}, str(source))
     assert len(calls) == 1
 
 

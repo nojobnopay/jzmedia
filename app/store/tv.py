@@ -35,7 +35,7 @@ __all__ = ['upsert_show', 'upsert_episode', 'upsert_season', 'list_shows', 'get_
            'mark_season_watched', 'similar_shows', 'episode_cast',
            'count_season_episodes', 'count_season_watched', 'count_show_episodes',
            'count_show_watched', 'count_show_review', 'show_season_stats',
-           'TV_META_FIELDS', 'EPISODE_META_FIELDS']
+           'TV_META_FIELDS', 'EPISODE_META_FIELDS', 'reconcile_tv_paths']
 
 import json as _json
 
@@ -273,6 +273,8 @@ def episode_neighbors(episode_id: int) -> tuple[dict | None, dict | None]:
     end = (start[0], max(start[1], int(ep.get("episode_end") or 0)))
     previous, following = None, None
     for row in list_episodes(int(ep["show_id"])):
+        if row.get('missing'):
+            continue
         if episode_version(row.get("file_path")) != ver:
             continue
         row_start = (int(row["season"]), int(row["episode"]))
@@ -289,6 +291,7 @@ def episode_after(episode_id: int) -> dict | None:
 
 
 def _next_unwatched(rows: list[dict]) -> dict | None:
+    rows = [row for row in rows if not row.get('missing')]
     def finished(e):
         return bool(e.get("watched")) or is_playback_complete(e.get("_pos"), e.get("_dur"))
 
@@ -1687,6 +1690,37 @@ def delete_episode_by_path(file_path: str, library_id=None) -> bool:
             return False
         _cascade_episode_ids(c, [int(row["id"])])
         return True
+
+
+def reconcile_tv_paths(library_id, replacements, removed, retained):
+    """Reconcile a verified external snapshot without moving any physical file."""
+    lid = int(library_id)
+    identity = ('show_id', 'file_path', 'season', 'episode', 'episode_end',
+                'absolute_number', 'tmdb_episode_id', 'match_source', 'local_only', 'binding_conflict')
+    with _lock, _conn() as c:
+        c.execute('BEGIN IMMEDIATE')
+        for old in [p['old'] for p in replacements] + list(removed) + list(retained):
+            row = c.execute('SELECT * FROM tv_episodes WHERE id=? AND library_id=?',
+                            (int(old['id']), lid)).fetchone()
+            if row is None or any(row[key] != old.get(key) for key in identity):
+                raise ValueError('剧集归属或编号已变化，请重新检查文件')
+        for pair in replacements:
+            old, new = pair['old'], pair['new']
+            if c.execute('SELECT 1 FROM tv_episodes WHERE library_id=? AND file_path=?',
+                         (lid, new)).fetchone():
+                raise ValueError('新路径已登记，请重新核对替换版本')
+            c.execute('UPDATE tv_episodes SET file_path=?,missing=0,updated_at=? WHERE id=?',
+                      (new, int(time.time()), int(old['id'])))
+            _move_scan_state(c, lid, old['file_path'], new)
+            c.execute("DELETE FROM media_info WHERE kind='episode' AND item_id=?", (int(old['id']),))
+        if removed:
+            _cascade_episode_ids(c, [int(row['id']) for row in removed])
+            for row in removed:
+                c.execute('DELETE FROM scan_state WHERE library_id=? AND file_path=?',
+                          (lid, row['file_path']))
+        for row in retained:
+            c.execute('UPDATE tv_episodes SET missing=1 WHERE id=?', (int(row['id']),))
+    return {'replaced': len(replacements), 'removed': len(removed)}
 
 
 def _cascade_episode_ids(c, ids: list[int]) -> None:

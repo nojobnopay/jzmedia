@@ -124,10 +124,8 @@ def test_scan_tv_lib_ids_only_tv(tmp_path):
         _teardown(tv_lib)
 
 
-def test_chained_tv_scrape_merges_summary(tmp_path, monkeypatch):
-    """扫描 worker 在 TV 作用域下链式刮削并合并 summary；已有任务在跑则跳过。"""
-    import threading
-
+def test_scan_prepares_tv_ingestion_without_enumerating_twice(tmp_path, monkeypatch):
+    """Scanning completes through the same metadata/preview pipeline as uploads."""
     lib, root = _lib(tmp_path, kind="tv")
     try:
         d = root / "Some Show (2020)" / "Season 01"
@@ -135,14 +133,14 @@ def test_chained_tv_scrape_merges_summary(tmp_path, monkeypatch):
         (d / "Some.Show.S01E01.mkv").write_bytes(b"x")
         calls = []
 
-        def _fake_scrape(library_ids=None, force=False, should_stop=None,
-                         progress_cb=None):
+        def _fake_prepare(*, library_ids=None, discovered=False, source=None,
+                          should_stop=None, file_results=None):
             calls.append(list(library_ids or []))
-            assert force is False
-            return [{"show_id": 1, "status": "ok", "library_id": lib["id"]}]
+            assert discovered is True and source == "scan"
+            return {"preview_id": "scan-preview", "plans": [], "auto_prompt": False,
+                    "metadata_results": [{"show_id": 1, "status": "filled"}]}
 
-        monkeypatch.setattr("app.scanner.tv_persist.scrape_pending", _fake_scrape)
-        monkeypatch.setattr(jobs_router._TV_JOBS, "running", lambda: None)
+        monkeypatch.setattr("app.tv_ingest.prepare", _fake_prepare)
         monkeypatch.setattr(jobs_router._SCAN_JOBS, "get",
                             lambda jid: {"state": "running"})
         seen = {}
@@ -154,15 +152,16 @@ def test_chained_tv_scrape_merges_summary(tmp_path, monkeypatch):
         jobs_router._scan_worker("jid-test", library_id=lib["id"])
         assert calls and calls[0] == [lib["id"]]
         assert seen.get("state") == "done"
-        assert seen["summary"]["tv_scrape"]["counts"] == {"ok": 1}
+        assert seen["summary"]["tv_ingest"]["preview_id"] == "scan-preview"
+        assert seen["summary"]["tv_ingest"]["metadata_results"][0]["status"] == "filled"
 
-        # 已有 tv-scrape 在跑 → 跳过且不触网
+        # The old global "another scrape is running" shortcut must not omit work.
         calls.clear()
         monkeypatch.setattr(jobs_router._TV_JOBS, "running",
                             lambda: {"job_id": "tv-running"})
         seen.clear()
         jobs_router._scan_worker("jid-test2", library_id=lib["id"])
-        assert calls == []
-        assert seen["summary"]["tv_scrape"] == {"skipped": "running"}
+        assert calls == [[lib["id"]]]
+        assert seen["summary"]["tv_ingest"]["preview_id"] == "scan-preview"
     finally:
         _teardown(lib)

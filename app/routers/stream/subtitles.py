@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import threading
 from urllib.parse import quote, unquote
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from ...config import settings
 from ... import library_paths
@@ -14,6 +14,7 @@ from ... import storage
 from ...scanner import (sidecar_subtitles_fs, _SIDECAR_LANG_HINTS,
                         _guess_sidecar_lang)
 from ... import media as _media
+from ...playback.source import source_revision, source_cache_key, assert_source_revision
 from ...log import get_logger
 logger = get_logger("stream.subtitles")
 from .common import (_ffmpeg_ok, _media_cached_or_probe, _run_ffmpeg_to_temp,
@@ -36,12 +37,14 @@ def hls_subtitle(version_id: int, idx: int, kind: str = "movie"):
                                 int(m["id"]), "vtt", kind)
     else:
         dest = _extract_embedded(src, int(m["id"]), track, si, "vtt", kind)
-    return FileResponse(dest, media_type="text/vtt", filename=f"sub{si}.vtt")
+    return FileResponse(dest, media_type="text/vtt", filename=f"sub{si}.vtt",
+                        headers={'Cache-Control': 'private, no-cache'})
 
 
 def _sidecar_src(m: dict, rel: str):
     """外挂字幕 MediaSource（本地/远程统一；rel 来自服务端枚举，不接受客户端路径）。"""
     try:
+        storage.clear_meta_cache(m.get('library_id') or library_paths.DEFAULT_LIBRARY_ID)
         return storage.media_source(
             m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, rel)
     except storage.StorageNotFound:
@@ -54,38 +57,37 @@ def _sidecar_src(m: dict, rel: str):
 
 def _convert_sidecar(src, vid: int, dest_ext: str,
                      kind: str = "movie") -> str:
-    """外挂字幕转换到缓存（srt→vtt/ass、ass/ssa→vtt）。按源 mtime 失效。"""
+    """Sidecar conversions are isolated by the sidecar's own exact source revision."""
     codec = "webvtt" if dest_ext == "vtt" else "ass"
+    revision = source_revision(src)
+    assert_source_revision(src, revision)
     key = hashlib.blake2b((src.rel + "|" + dest_ext).encode("utf-8"),
                           digest_size=6).hexdigest()   # 评审 B6/R11-B6：不用 SHA-1
-    sdir = os.path.join(version_cache_dir(kind, vid), "subs")
+    sdir = os.path.join(version_cache_dir(kind, vid), 'subs', source_cache_key(src))
     os.makedirs(sdir, exist_ok=True)
     dest = os.path.join(sdir, f"side_{key}.{dest_ext}")
-    try:
-        fresh = os.path.isfile(dest) and os.path.getmtime(dest) > float(src.mtime or 0)
-    except OSError:
-        fresh = False
+    fresh = os.path.isfile(dest)
     if not fresh:
         _run_ffmpeg_to_temp(
             dest,
             lambda tmp: [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
                          "-i", src.input, "-c:s", codec, tmp],
             timeout=120, err_msg="subtitle convert failed")
+        _verify_generated(src, revision, dest)
     return dest
 
 
 def _extract_embedded(src, vid: int, track: dict, si: int, dest_ext: str,
                       kind: str = "movie") -> str:
-    """内嵌字幕抽取到缓存（vtt→webvtt 转换；ass→ASS；sup→PGS 流拷贝）。按源 mtime 失效。
+    """内嵌字幕抽取到按视频源修订隔离的缓存（mtime 回退也不会命中旧产物）。
     `src` 为 MediaSource：输入可为本地路径或内网 URL（远程直读），mtime 来自后端 stat。"""
     codec = {"vtt": "webvtt", "ass": "ass"}.get(dest_ext, "copy")
-    sdir = os.path.join(version_cache_dir(kind, vid), "subs")
+    revision = source_revision(src)
+    assert_source_revision(src, revision)
+    sdir = os.path.join(version_cache_dir(kind, vid), 'subs', source_cache_key(src))
     os.makedirs(sdir, exist_ok=True)
     dest = os.path.join(sdir, f"{si}.{dest_ext}")
-    try:
-        fresh = os.path.isfile(dest) and os.path.getmtime(dest) > float(src.mtime or 0)
-    except OSError:
-        fresh = False
+    fresh = os.path.isfile(dest)
     if not fresh:
         ff_idx = track.get("ff_index", si)
         _run_ffmpeg_to_temp(
@@ -93,7 +95,19 @@ def _extract_embedded(src, vid: int, track: dict, si: int, dest_ext: str,
             lambda tmp: [_media.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
                          "-i", src.input, "-map", f"0:{ff_idx}", "-c:s", codec, tmp],
             timeout=180 if dest_ext == "sup" else 120, err_msg="subtitle extract failed")
+        _verify_generated(src, revision, dest)
     return dest
+
+
+def _verify_generated(src, revision, dest):
+    try:
+        assert_source_revision(src, revision)
+    except HTTPException:
+        try:
+            os.remove(dest)
+        except OSError:
+            pass
+        raise
 
 
 _FONT_RE = re.compile(r"^[^/\\]{1,120}\.(?:ttf|otf|ttc|woff2?)$", re.IGNORECASE)
@@ -176,13 +190,16 @@ def hls_subtitle_ass(version_id: int, idx: int, request: Request, kind: str = "m
         side = _sidecar_src(m, str(track.get("sidecar") or ""))
         if codec in _media.ASS_SUBS:
             from ..blob import media_response
-            return media_response(request, side.backend, side.rel,
-                                  media_type="text/x-ssa",
-                                  filename=os.path.basename(side.rel))
+            response = media_response(request, side.backend, side.rel,
+                                      media_type="text/x-ssa", filename=os.path.basename(side.rel))
+            response.headers['Cache-Control'] = 'private, no-cache'
+            return response
         dest = _convert_sidecar(side, int(m["id"]), "ass", kind)
-        return FileResponse(dest, media_type="text/x-ssa", filename=f"sub{si}.ass")
+        return FileResponse(dest, media_type="text/x-ssa", filename=f"sub{si}.ass",
+                            headers={'Cache-Control': 'private, no-cache'})
     dest = _extract_embedded(src, int(m["id"]), track, si, "ass", kind)
-    return FileResponse(dest, media_type="text/x-ssa", filename=f"sub{si}.ass")
+    return FileResponse(dest, media_type="text/x-ssa", filename=f"sub{si}.ass",
+                        headers={'Cache-Control': 'private, no-cache'})
 
 
 @router.get("/{version_id}/sub/{idx}.sup")
@@ -198,14 +215,16 @@ def hls_subtitle_sup(version_id: int, idx: int, request: Request, kind: str = "m
     if track.get("source") == "sidecar":
         side = _sidecar_src(m, str(track.get("sidecar") or ""))
         from ..blob import media_response
-        return media_response(request, side.backend, side.rel,
-                              media_type="application/x-pgs",
-                              filename=os.path.basename(side.rel))
+        response = media_response(request, side.backend, side.rel,
+                                  media_type="application/x-pgs", filename=os.path.basename(side.rel))
+        response.headers['Cache-Control'] = 'private, no-cache'
+        return response
     if not _ffmpeg_ok():
         raise HTTPException(501, "ffmpeg not installed in server image")
     si = int(idx)
     dest = _extract_embedded(src, int(m["id"]), track, si, "sup", kind)
-    return FileResponse(dest, media_type="application/x-pgs", filename=f"sub{si}.sup")
+    return FileResponse(dest, media_type="application/x-pgs", filename=f"sub{si}.sup",
+                        headers={'Cache-Control': 'private, no-cache'})
 
 
 _dump_locks: dict[str, threading.Lock] = {}
@@ -322,6 +341,7 @@ def stream_fonts(version_id: int, kind: str = "movie"):
     附件字体在首次请求字体文件时懒抽取（见 /{id}/fonts/{name}）。"""
     m, src = _version_source(version_id, kind)
     info = _media_cached_or_probe(m, src)
+    revision = source_cache_key(src)
     out = []
     seen = set()
     for a in (info.get("attachments") or []):
@@ -329,7 +349,7 @@ def stream_fonts(version_id: int, kind: str = "movie"):
         if _FONT_RE.match(name) and name not in seen:
             seen.add(name)
             out.append({"name": name, "source": "attachment",
-                        "url": f"/api/stream/{int(m['id'])}/fonts/{quote(name)}?kind={quote(kind)}"})
+                        "url": f"/api/stream/{int(m['id'])}/fonts/{quote(name)}?kind={quote(kind)}&revision={revision}"})
     bdir = os.path.join(settings.data_dir, "fonts")
     if os.path.isdir(bdir):
         for name in sorted(os.listdir(bdir)):
@@ -361,22 +381,34 @@ def stream_builtin_font(name: str):
 
 
 @router.get("/{version_id}/fonts/{name}")
-def stream_attachment_font(version_id: int, name: str, kind: str = "movie"):
+def stream_attachment_font(version_id: int, name: str, kind: str = "movie",
+                           revision: str | None = Query(default=None, pattern=r'^[0-9a-f]{32}$')):
     """MKV 内嵌字体（attachment）：首次请求时从片源 dump 到缓存 fonts/。"""
     m, src = _version_source(version_id, kind)
     info = _media_cached_or_probe(m, src)
+    current_revision = source_revision(src)
+    assert_source_revision(src, current_revision)
+    key = source_cache_key(src)
+    if revision is not None and revision != key:
+        raise HTTPException(409, 'font source changed; reload subtitles')
     wanted = os.path.basename(unquote(name or ""))
     if not _FONT_RE.match(wanted):
         raise HTTPException(422, "bad font name")
     att = {os.path.basename(str(a.get("name") or "")) for a in (info.get("attachments") or [])}
     if wanted not in att:
         raise HTTPException(404, "font not found in this file")
-    fdir = os.path.join(version_cache_dir(kind, int(m["id"])), "fonts")
+    fdir = os.path.join(version_cache_dir(kind, int(m['id'])), 'fonts', key)
     os.makedirs(fdir, exist_ok=True)
     dest = os.path.join(fdir, wanted)
     if not os.path.isfile(dest):
         _dump_attachments(src.input, fdir, info.get("attachments"))
+        try:
+            assert_source_revision(src, current_revision)
+        except HTTPException:
+            shutil.rmtree(fdir, ignore_errors=True)
+            raise
     if not os.path.isfile(dest):
         raise HTTPException(404, "font extract failed")
-    return FileResponse(dest, media_type=_font_mime(wanted), filename=wanted)
+    return FileResponse(dest, media_type=_font_mime(wanted), filename=wanted,
+                        headers={'Cache-Control': 'private, no-cache'})
 

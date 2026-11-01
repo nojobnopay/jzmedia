@@ -110,7 +110,7 @@
         "frontend/src/components/PreviewMaintenance.vue",
         "frontend/src/components/StorageUsagePanel.vue",
         "frontend/src/components/FsBrowser.vue",
-        "frontend/src/components/TvOrganizeDialog.vue"
+        "frontend/src/components/TvIngestReviewDialog.vue"
       ]
     }
   }

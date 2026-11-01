@@ -1,12 +1,15 @@
 // 弹窗焦点陷阱（评审 R14-B6）：Tab/Shift+Tab 在弹窗内循环，打开聚焦、关闭还原。
 // 用法：const box = ref(null); useFocusTrap(openRef, box)
-import { nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, readonly, ref, watch } from 'vue'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), ' +
   'select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
 
 // A child dialog owns the keyboard until it closes; the underlying dialog stays mounted.
 const traps = []
+const trapCount = ref(0)
+// Background ingestion waits for the existing dialogs and players to release focus.
+export const activeFocusTraps = readonly(trapCount)
 let scrollBody = null
 let previousOverflow = ''
 
@@ -56,6 +59,7 @@ export function useFocusTrap(active, containerRef) {
       scrollBody.style.overflow = 'hidden'
     }
     traps.push(trap)
+    trapCount.value = traps.length
     document.addEventListener('keydown', onKeydown, true)
     nextTick(() => {
       if (!active.value || traps.at(-1) !== trap) return
@@ -74,6 +78,7 @@ export function useFocusTrap(active, containerRef) {
     if (index === -1) return
     const wasTop = traps.at(-1) === trap
     traps.splice(index, 1)
+    trapCount.value = traps.length
     if (!traps.length && scrollBody) {
       scrollBody.style.overflow = previousOverflow
       scrollBody = null

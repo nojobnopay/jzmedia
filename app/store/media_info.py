@@ -4,9 +4,28 @@
 """
 import json
 import math
+import posixpath
 import time
 from ._base import _conn, _dump_list, _lock, logger
-__all__ = ['get_media_info', 'list_media_info_brief', 'upsert_media_info']
+__all__ = ['get_media_info', 'list_media_info_brief', 'upsert_media_info',
+           'media_source_revision', 'invalidate_media_info']
+
+
+def media_source_revision(library_id, relpath, size, mtime) -> str:
+    """Canonical stat identity, preserving the backend's full float mtime precision."""
+    stamp = float(mtime)
+    if not math.isfinite(stamp):
+        raise ValueError('invalid source mtime')
+    path = posixpath.normpath(str(relpath).replace('\\', '/'))
+    return json.dumps([1, int(library_id or 0), path, int(size), stamp.hex()],
+                      ensure_ascii=False, separators=(',', ':'))
+
+
+def invalidate_media_info(item_id: int, kind: str = 'movie') -> bool:
+    """Invalidate only derived probe data; identity, progress and live leases remain."""
+    with _lock, _conn() as c:
+        return bool(c.execute('DELETE FROM media_info WHERE kind=? AND item_id=?',
+                              (str(kind or 'movie'), int(item_id))).rowcount)
 
 def get_media_info(item_id: int, kind: str = "movie") -> dict | None:
     """读版本媒体信息缓存（含 audio_json/sub_json 已 parse 为 list）。无行返回 None。"""
@@ -36,12 +55,12 @@ def list_media_info_brief() -> list[dict]:
     with _lock, _conn() as c:
         try:
             return [dict(r) for r in c.execute(
-                "SELECT kind, item_id, playable, probe_ver, probe_error FROM media_info")]
+                "SELECT kind, item_id, playable, probe_ver, probe_error,source_revision FROM media_info")]
         except Exception:
             return []
 
 
-def upsert_media_info(item_id: int, info: dict, kind: str = "movie") -> dict:
+def upsert_media_info(item_id: int, info: dict, kind: str = "movie", *, source_revision: str | None = None) -> dict:
     """写版本媒体信息缓存（ffprobe 本地派生）。info 含 container/duration/width/height/
     vcodec/acodec/音频与字幕列表（含 disposition）/HDR/DV/位深/附件等（见 media.probe）。
     环境错误（ffprobe 缺失/超时/不可读）不落库：返回旧行或内存透传（probed_at=0），
@@ -54,7 +73,8 @@ def upsert_media_info(item_id: int, info: dict, kind: str = "movie") -> dict:
     kind = str(kind or "movie")
     if not info.get("playable") and _retryable(str(info.get("probe_error") or "")):
         old = get_media_info(int(item_id), kind)
-        if old and old.get("playable"):
+        if (old and old.get("playable") and (source_revision is None
+                                              or old.get('source_revision') == source_revision)):
             return old
         logger.debug("probe transient error kind=%s item=%s err=%s (not persisted)",
                      kind, item_id, info.get("probe_error"))
@@ -66,6 +86,7 @@ def upsert_media_info(item_id: int, info: dict, kind: str = "movie") -> dict:
         transient["probed_at"] = 0
         transient.setdefault("dv_profile", 0)
         transient.setdefault("probe_ver", 0)
+        transient['source_revision'] = source_revision or ''
         return transient
     now = int(time.time())
     audio_s = _dump_list(info.get("audio"))
@@ -91,8 +112,8 @@ def upsert_media_info(item_id: int, info: dict, kind: str = "movie") -> dict:
             " vcodec, acodec, vbitrate, abitrate, audio_json, sub_json, dv_profile,"
             " probe_ver, video_profile, video_level, bit_depth, pix_fmt, color_transfer,"
             " color_primaries, hdr, dv_bl_compat, hdr10plus, attachments_json,"
-            " playable, probe_error, probed_at)"
-            " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " playable, probe_error, probed_at,source_revision)"
+            " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(kind, item_id) DO UPDATE SET container=excluded.container,"
             " duration=excluded.duration, width=excluded.width, height=excluded.height, fps=excluded.fps,"
             " vcodec=excluded.vcodec, acodec=excluded.acodec,"
@@ -106,7 +127,7 @@ def upsert_media_info(item_id: int, info: dict, kind: str = "movie") -> dict:
             " dv_bl_compat=excluded.dv_bl_compat, hdr10plus=excluded.hdr10plus,"
             " attachments_json=excluded.attachments_json,"
             " playable=excluded.playable, probe_error=excluded.probe_error,"
-            " probed_at=excluded.probed_at",
+            " probed_at=excluded.probed_at,source_revision=excluded.source_revision",
             (kind, int(item_id), str(info.get("container") or "")[:16],
              float(info.get("duration") or 0),
              int(info.get("width") or 0), int(info.get("height") or 0), fps,
@@ -119,6 +140,6 @@ def upsert_media_info(item_id: int, info: dict, kind: str = "movie") -> dict:
              str(info.get("color_primaries") or "")[:24], str(info.get("hdr") or "")[:16],
              _iv("dv_bl_compat"), _iv("hdr10plus"), attach_s,
              1 if info.get("playable") else 0,
-             str(info.get("probe_error") or "")[:300], now))
+             str(info.get("probe_error") or "")[:300], now, source_revision or ''))
     out = get_media_info(int(item_id), kind)
     return out if out is not None else info   # 评审 B7/R02-B5：不用 assert 当控制流

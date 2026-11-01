@@ -178,6 +178,8 @@ def test_vobsub_vtt_returns_415(media_root):
         "audio": [], "attachments": [],
         "subs": [{"index": 0, "ff_index": 3, "codec": "dvd_subtitle",
                   "image": 1, "lang": "", "title": "", "default": 0, "forced": 0}],
-        "probe_ver": media.PROBE_VERSION, "probed_at": 1})
+        "probe_ver": media.PROBE_VERSION, "probed_at": 1},
+        source_revision=store.media_source_revision(store.get_movie(mid)['library_id'], rel,
+                                                    (media_root / rel).stat().st_size, (media_root / rel).stat().st_mtime))
     r = client.get(f"/api/stream/{mid}/sub/0.vtt")
     assert r.status_code == 415

@@ -179,6 +179,7 @@ function mock(url, method, body) {
   if (key === '/api/data-usage') return { ok: true, total_bytes: 2 * 1024 ** 3, warning_bytes: cacheLimits.data_warning_gb * 1024 ** 3,
     over_limit: cacheLimits.data_warning_gb <= 2, categories: cacheUsageCategories, error: '' }
   if (key === '/api/tv/stats') return { shows: 3, seasons: 5, episodes: 60, pending: 0, episode_review: 0, by_library: [] }
+  if (key === '/api/tv/ingestion-reviews') return { items: [], count: 0 }
   if (key === '/api/tv/airing/status' && method === 'GET') return { configured: false, running: false,
     current: null, error: '', retry_at: 0, total: 0, checked: 0, pending: 0, failed: 0 }
   if (key === '/api/cast/current' && method === 'GET') return { session: null }

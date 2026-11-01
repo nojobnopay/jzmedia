@@ -19,7 +19,7 @@ from .routers import (ai, ai_settings, cast, collections, extras, files, fs, hea
                       media_libraries, metadata, movies, onboarding, online, online_catalog, online_health,
                       online_network, online_playback, online_state,
                       persons, stream, tv,
-                      tv_airing as tv_airing_router, tv_bindings, tv_client, tv_cast)
+                      tv_airing as tv_airing_router, tv_bindings, tv_client, tv_cast, tv_ingest)
 
 setup_logging()
 _logger = get_logger("main")
@@ -160,6 +160,7 @@ app.include_router(jobs.router)
 app.include_router(persons.router)
 app.include_router(stream.router)
 app.include_router(tv.router)
+app.include_router(tv_ingest.router)
 app.include_router(tv_airing_router.router)
 app.include_router(tv_bindings.router)
 app.include_router(tv_client.router)

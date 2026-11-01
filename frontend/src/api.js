@@ -40,12 +40,12 @@ function _viewingError(code) {
   try { window.dispatchEvent(new CustomEvent('jzmedia:viewing-error', { detail: { code } })) } catch { /* 无浏览器环境 */ }
 }
 
-function _httpError(status, body, silentViewing = false) {
+function _httpError(status, body, silentViewing = false, silentAuth = false) {
   let code = ''
   try { code = JSON.parse(body)?.code || '' } catch { /* 非 JSON 错误 */ }
   if (code && !silentViewing) {
     _viewingError(code)
-  } else if (status === 401 && !code) {
+  } else if (status === 401 && !code && !silentAuth) {
     try { window.dispatchEvent(new CustomEvent('jzmedia:unauthorized')) } catch { /* 无浏览器环境 */ }
   }
   const error = new Error(`${status} ${_brief(body)}`)
@@ -57,7 +57,7 @@ function _httpError(status, body, silentViewing = false) {
 // opts.signal：调用方取消（关窗/切档）与内部超时合并；外部取消抛「已取消」而非超时文案。
 export async function api(path, opts = {}) {
   const { timeout: configuredTimeout, signal: outer, headers: extraHeaders,
-    mayContinue = false, silentViewing = false, ...fetchOpts } = opts
+    mayContinue = false, silentViewing = false, silentAuth = false, ...fetchOpts } = opts
   const method = String(fetchOpts.method || 'GET').toUpperCase()
   const timeout = configuredTimeout ?? (method === 'GET' ? 30000 : 120000)
   const ctrl = new AbortController()
@@ -79,7 +79,7 @@ export async function api(path, opts = {}) {
       try { window.dispatchEvent(new CustomEvent('jzmedia:viewing-generation', { detail: { generation: Number(generation) } })) } catch { /* 无浏览器环境 */ }
     }
     if (!r.ok) {
-      throw _httpError(r.status, await r.text(), silentViewing)
+      throw _httpError(r.status, await r.text(), silentViewing, silentAuth)
     }
     return r.json()
   } catch (e) {
