@@ -49,6 +49,9 @@ def fingerprint(row: dict, source, info: dict, index: int) -> str:
               "library_id": int(row.get("library_id") or 1), "path": row["file_path"],
               "size": int(source.size), "mtime": float(source.mtime), "audio": index,
               "vcodec": info.get("vcodec"), "duration": float(info.get("duration") or 0)}
+    policy = getattr(getattr(source, 'backend', None), 'read_cache_revision', 0)
+    if policy:
+        values['read_revision'] = policy
     return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 

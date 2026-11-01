@@ -318,10 +318,12 @@ def _artifact_key(plan: dict, audio: int, marker: str) -> str:
 
 def _source_plan(plan: dict, row: dict, src) -> dict:
     """Invalidate an artifact when the source is replaced, without keying transient URLs."""
-    return {**plan, "source": {"library": row.get("library_id"),
-                              "path": row.get("file_path"),
-                              "size": getattr(src, "size", None),
-                              "mtime": getattr(src, "mtime", None)}}
+    source = {"library": row.get("library_id"), "path": row.get("file_path"),
+              "size": getattr(src, "size", None), "mtime": getattr(src, "mtime", None)}
+    policy = getattr(getattr(src, 'backend', None), 'read_cache_revision', 0)
+    if policy:
+        source['read_revision'] = policy
+    return {**plan, "source": source}
 
 
 def _session_dir(version_id: int, key: str, start: float, kind: str = "movie") -> str:

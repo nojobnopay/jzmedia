@@ -148,7 +148,9 @@ def _spawn_session(version_id: int, quality: str, audio: int,
         if track.get("source") == "sidecar":
             side = str(track.get("sidecar") or "")
             d["plan"]["sub_sidecar"] = side
-            d["plan"]["sub_sidecar_input"] = src.backend.get_read_url(side)
+            from ... import storage
+            d["plan"]["sub_sidecar_input"] = storage.media_source(
+                src.backend.library_id, side, backend=src.backend).input
         else:
             ff = track.get("ff_index")
             if ff is None:

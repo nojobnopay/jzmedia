@@ -4,6 +4,7 @@ import os
 import re
 
 from .. import storage, store
+from .classify import VIDEO_EXTS
 
 
 def incomplete_filename(path):
@@ -49,9 +50,9 @@ def reconcile_snapshot(backend, before, entries, resolve, *, roots, skip_dirs, s
         from ..routers.fs.copy import active_copy_jobs
         return bool(active_copy_jobs(backend.library_id))
 
-    def defer(message):
+    def defer(message, *, code='files_changing'):
         result.update(incomplete=True, review=1, replaced=0, removed=0, by_show={}, issues=[])
-        issue = {'code': 'files_changing', 'message': message}
+        issue = {'code': code, 'message': message}
         result['issues'].append(issue)
         for sid in {row['show_id'] for row in before}:
             note(sid, 'review', issue=issue)
@@ -66,7 +67,10 @@ def reconcile_snapshot(backend, before, entries, resolve, *, roots, skip_dirs, s
         return defer('检查已取消，保留原文件记录，稍后重新检查')
     if copying():
         return defer('该视频库仍在复制文件，保留原记录，请在复制任务结束后重试')
-    if any(float(e.mtime) <= 0 or (not e.is_dir and int(e.size) <= 0) for e in entries):
+    # Empty subtitles and marker files are valid directory contents. Failed
+    # attribute reads still have an invalid mtime and cannot prove completeness.
+    if any(float(e.mtime) <= 0 or (not e.is_dir and int(e.size) <= 0
+           and os.path.splitext(e.name)[1].lower() in VIDEO_EXTS) for e in entries):
         return defer('部分文件尚未写完或无法读取属性，保留原记录，请在复制完成后重试')
     if any(not e.is_dir and incomplete_filename(e.rel) for e in entries):
         return defer('目录中存在临时下载或复制文件，保留原记录，请在文件落盘完成后重试')
@@ -78,6 +82,8 @@ def reconcile_snapshot(backend, before, entries, resolve, *, roots, skip_dirs, s
             current.extend(backend.iter_tree(root, skip_dirs=skip_dirs))
         if stopped() or signature(entries) != signature(current):
             return defer('目录内容在检查期间发生变化，保留原记录，请在复制完成后重试')
+    except storage.StorageOffline:
+        return defer('视频库暂不可用，保留原记录，连接恢复后重新检查', code='library_offline')
     except storage.StorageError:
         return defer('目录暂不可用，保留原记录，连接恢复后重新检查')
     paths = {e.rel for e in entries if not e.is_dir}
@@ -162,6 +168,8 @@ def reconcile_snapshot(backend, before, entries, resolve, *, roots, skip_dirs, s
         if copying():
             return defer('该视频库仍在复制文件，保留原记录，请在复制任务结束后重试')
         applied = store.reconcile_tv_paths(backend.library_id, replacements, removed, retained)
+    except storage.StorageOffline:
+        return defer('视频库暂不可用，保留原记录，连接恢复后重新检查', code='library_offline')
     except (storage.StorageError, ValueError):
         return defer('文件或剧集归属发生变化，保留原记录，请重新检查')
     result.update(applied, replacements=replacements,

@@ -54,6 +54,9 @@ _active_job = None
 # Retain every issued sprite set for this process lifetime; after restart the
 # persisted access timestamp still provides a protection window.
 _preview_issued = set()
+# Cleanup reserves keys only until they have been detached from the public tree.
+# Readers skip them and workers wait; deleting quarantined files needs no lock.
+_cache_removing = set()
 _stop = threading.Event()
 _auto_wake = threading.Event()
 _auto_thread = None
@@ -116,6 +119,9 @@ def _cache_key(row, src, interval: int, *, quality_revision: int | None = None,
     extraction = EXTRACTION_REVISION if extraction_revision is None else extraction_revision
     if revision >= 3 and extraction != 1:
         identity.extend(["extraction", extraction])
+    read_revision = getattr(src.backend, "read_cache_revision", 0)
+    if read_revision:
+        identity.extend(["source_read", read_revision])
     return hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()[:32]
 
 
@@ -937,6 +943,8 @@ def _auto_loop() -> None:
 
 def start_auto_previews() -> None:
     global _auto_thread, _auto_queue, _auto_job_id, _queued_finished
+    from .preview_cleanup import start_recovery
+    start_recovery(__import__(__name__, fromlist=['']))
     with _lock:
         if _auto_thread and _auto_thread.is_alive():
             return
@@ -962,6 +970,8 @@ def _start(items, library_id=None, auto=False, *, queue_item=None):
     global _worker_thread, _active_job
     previous = None
     with _lock:
+        if _cache_removing:
+            raise HTTPException(409, "缩略图缓存正在清理，请稍后重试")
         if _worker_thread and _worker_thread.is_alive():
             job = _jobs.get(_active_job)
             if job and job["state"] == "running" and job.get("items") == items:
@@ -974,6 +984,8 @@ def _start(items, library_id=None, auto=False, *, queue_item=None):
     if previous:
         previous.join(timeout=3)
     with _lock:
+        if _cache_removing:
+            raise HTTPException(409, "缩略图缓存正在清理，请稍后重试")
         if _worker_thread and _worker_thread.is_alive():
             raise HTTPException(409, "已有预览任务在运行，请稍后重试")
         _stop.clear()
@@ -1502,6 +1514,8 @@ class PreviewTailRevokeBody(BaseModel):
 
 
 def _tail_request_source(kind, version_id, library_id, key):
+    if key in _cache_removing:
+        raise HTTPException(409, "缩略图缓存正在清理，请稍后刷新")
     row = store.get_playable(kind, version_id)
     if not store.get_library(library_id) or not row or (row.get("library_id") or 1) != library_id:
         raise HTTPException(404, "该影片不属于当前视频库")
@@ -1730,16 +1744,17 @@ def preview_queue_remove(kind: Literal["movie", "episode", "extra"], version_id:
 
 @router.get("/{version_id}/previews")
 def preview_manifest(version_id: int, kind: Literal["movie", "episode", "extra"] = "movie"):
-    with _lock:
-        return _preview_manifest_locked(version_id, kind)
-
-
-def _preview_manifest_locked(version_id, kind):
+    # Remote stat and URL resolution must not block unrelated queue operations.
     row, src = _version_source(version_id, kind)
     interval = _interval(row)
+    with _lock:
+        return _preview_manifest_locked(version_id, kind, row, src, interval)
+
+
+def _preview_manifest_locked(version_id, kind, row, src, interval):
     key = _cache_key(row, src, interval)
     directory = _root() / key
-    data = _read_manifest(directory)
+    data = _read_manifest(directory) if key not in _cache_removing else None
     if data and data.get("completion") == _TAIL_COMPLETION and (
             (data.get("item_kind"), data.get("item_id")) != (kind, version_id)
             or data["tail_decision"]["library_id"] != (row.get("library_id") or 1)):
@@ -1751,6 +1766,8 @@ def _preview_manifest_locked(version_id, kind):
                              for candidate in _quality_keys(row, src, interval, revision)
                              if candidate != key]
         for revision, legacy_key in legacy_candidates:
+            if legacy_key in _cache_removing:
+                continue
             legacy_directory = _root() / legacy_key
             legacy_data = _read_manifest(legacy_directory)
             if _completed_manifest(legacy_data, interval, revision):
@@ -1780,7 +1797,7 @@ def _preview_manifest_locked(version_id, kind):
                 result["frame_total"] = job.get("frame_total", 0)
             else:
                 result["queued"] = True
-    if directory.is_dir():
+    if key not in _cache_removing and directory.is_dir():
         try:
             os.utime(directory, None)
         except OSError as e:
@@ -2048,6 +2065,8 @@ def preview_cache_clean_obsolete(body: PreviewCacheCleanBody):
 def preview_cache_clean(body: PreviewCacheCleanBody):
     """Two-step user cleanup, excluding queue metadata and any active generator."""
     with _lock:
+        if _cache_removing:
+            raise HTTPException(409, "缩略图缓存正在清理，请稍后重试")
         if _worker_thread and _worker_thread.is_alive():
             raise HTTPException(409, "进度缩略图正在生成，请完成后再清理")
         directories = [d for d in _root().glob("*") if d.is_dir() and _KEY_RE.fullmatch(d.name)]
@@ -2080,7 +2099,7 @@ def preview_image(key: str, name: str):
 
 
 def _preview_image_locked(key, name):
-    if not _KEY_RE.fullmatch(key) or not _IMAGE_RE.fullmatch(name):
+    if key in _cache_removing or not _KEY_RE.fullmatch(key) or not _IMAGE_RE.fullmatch(name):
         raise HTTPException(404, "预览图片不存在")
     dest = _root() / key / name
     if not dest.is_file():

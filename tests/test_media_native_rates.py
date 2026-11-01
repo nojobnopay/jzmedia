@@ -38,7 +38,7 @@ def test_probe_parses_rational_frame_rate_without_nonfinite_values(monkeypatch, 
     result = fake_probe(monkeypatch, {"avg_frame_rate": average, "r_frame_rate": nominal})
     assert result["playable"] is True
     assert result["fps"] == pytest.approx(expected)
-    assert result["probe_ver"] == 4
+    assert result["probe_ver"] == media.PROBE_VERSION
     json.dumps(result, allow_nan=False)
 
 

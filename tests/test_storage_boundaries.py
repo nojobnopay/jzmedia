@@ -106,6 +106,16 @@ def test_mount_loss_after_snapshot_does_not_run_gc(mount_library):
     assert any(row["status"] == "library_offline" for row in result)
     assert store.get_progress(item_id, kind=kind)
     assert store.get_scan_state(rel, lib["id"])
+    assert not any(row["status"].startswith("removed_") for row in result)
+    if kind == "episode":
+        reconciliation = next(row['reconciliation'] for row in result
+                              if row['status'] == 'tv_reconciliation')
+        assert reconciliation['incomplete']
+        assert reconciliation['replaced'] == reconciliation['removed'] == 0
+        assert reconciliation['issues'][0]['code'] == 'library_offline'
+        show_id = store.get_episode(item_id)['show_id']
+        assert reconciliation['by_show'][show_id]['incomplete']
+        assert reconciliation['by_show'][show_id]['issues'][0]['code'] == 'library_offline'
 
 
 @pytest.mark.parametrize("mount_library", [("nfs", "movie"), ("smb", "movie")], indirect=True)

@@ -25,7 +25,7 @@ from ..log import get_logger
 from . import httpproxy
 from .base import (
     StorageBackend, StorageDenied, StorageError, StorageExists, StorageNotFound,
-    StorageOffline, StorageStat, StorageUnsupported,
+    StorageOffline, StorageStat, StorageUnsupported, StorageSourceChanged,
 )
 from .cache import TTLCache
 
@@ -76,68 +76,92 @@ def _handle_ttl() -> float:
 
 
 class _HandlePool:
-    """按路径复用 SMB 读句柄：Range 请求/流式播放不再每次 Create+Close。
-
-    - 句柄以 `share_access="rwd"` 打开，绝不阻塞我们/他人的写删；
-    - 写/改名/删除会 `evict` 受影响路径（防读到旧内容）；
-    - 出错句柄直接丢弃；空闲超 `ttl` 或超出池容量（淘汰最旧）即关闭。
-    """
+    """Revision-bound idle handles; invalidated borrowed handles never return."""
 
     def __init__(self, max_idle: int = 8, ttl: float = 30.0):
         self.max_idle = max(0, int(max_idle))
         self.ttl = max(0.0, float(ttl))
         self._lock = threading.Lock()
-        self._idle: dict[str, tuple[float, object]] = {}
+        self._idle: dict[tuple[str, str], tuple[float, object]] = {}
+        self._paths: dict[str, tuple[str, int]] = {}
+        self._generation = 0
 
     @property
     def enabled(self) -> bool:
         return self.max_idle > 0 and self.ttl > 0
 
-    def acquire(self, key: str, opener):
+    def acquire(self, key, opener):
         if not self.enabled:
-            return opener()
-        fh = None
-        now = time.monotonic()
+            return opener(), None
+        path, revision = key
+        stale = []
         with self._lock:
+            current = self._paths.get(path)
+            if current is None or current[0] != revision:
+                self._generation += 1
+                current = self._paths[path] = (revision, self._generation)
+                stale = [self._idle.pop(k)[1] for k in list(self._idle) if k[0] == path]
+                # Retire forgotten tickets too; active readers with a retired ticket
+                # finish normally and close on return rather than growing this map.
+                if len(self._paths) > max(32, self.max_idle * 2):
+                    retired = next(iter(self._paths))
+                    del self._paths[retired]
+                    stale.extend(self._idle.pop(k)[1] for k in list(self._idle) if k[0] == retired)
             hit = self._idle.pop(key, None)
+        for fh in stale:
+            self._close(fh)
+        fh = None
         if hit is not None:
             exp, fh = hit
-            if exp <= now:
+            if exp <= time.monotonic():
                 self._close(fh)
                 fh = None
         if fh is not None:
             try:
-                fh.seek(0)   # 归位；调用方随后会 seek 到目标偏移
-                return fh
+                fh.seek(0)
             except Exception:
                 self._close(fh)
-        return opener()
+                fh = None
+        return (fh if fh is not None else opener()), current[1]
 
-    def release(self, key: str, fh) -> None:
+    def release(self, key, fh, generation) -> None:
         if not self.enabled:
             self._close(fh)
             return
+        discarded = []
         with self._lock:
-            if key in self._idle:   # 同 key 已有空闲句柄：只留一个
-                self._close(fh)
-                return
-            if len(self._idle) >= self.max_idle:   # 超容量淘汰最旧
-                oldest = min(self._idle, key=lambda k: self._idle[k][0])
-                _exp, old = self._idle.pop(oldest)
-                self._close(old)
-            self._idle[key] = (time.monotonic() + self.ttl, fh)
+            if self._paths.get(key[0]) != (key[1], generation) or key in self._idle:
+                discarded.append(fh)
+            else:
+                if len(self._idle) >= self.max_idle:
+                    oldest = min(self._idle, key=lambda k: self._idle[k][0])
+                    discarded.append(self._idle.pop(oldest)[1])
+                self._idle[key] = (time.monotonic() + self.ttl, fh)
+        for old in discarded:
+            self._close(old)
 
     def discard(self, fh) -> None:
         self._close(fh)
 
+    def current(self, key, generation) -> bool:
+        if not self.enabled:
+            return True
+        with self._lock:
+            return self._paths.get(key[0]) == (key[1], generation)
+
     def evict(self, path_prefix: str = "") -> None:
         prefix = (path_prefix or "") + "/"
+
+        def matches(path):
+            return not path_prefix or path == path_prefix or path.startswith(prefix)
+
         with self._lock:
-            keys = [k for k in self._idle
-                    if not path_prefix or k == path_prefix or k.startswith(prefix)]
-            handles = [self._idle.pop(k)[1] for k in keys]
-        for h in handles:
-            self._close(h)
+            handles = [self._idle.pop(k)[1] for k in list(self._idle) if matches(k[0])]
+            for path in list(self._paths):
+                if matches(path):
+                    del self._paths[path]
+        for fh in handles:
+            self._close(fh)
 
     def clear(self) -> None:
         self.evict("")
@@ -226,6 +250,7 @@ def _smb_shutil():
 
 class SmbStorageBackend(StorageBackend):
     driver = "smb"
+    read_cache_revision = 1
 
     def __init__(self, library: dict):
         super().__init__(library, driver="smb")
@@ -386,29 +411,46 @@ class SmbStorageBackend(StorageBackend):
 
     def _open_fh(self, rel: str, what: str):
         # share_access="rwd"：允许他人在我们持句柄期间读/写/删，绝不阻塞整理删除；
-        # 流式读的内容是媒体文件，不担心读到替换后的新内容（写路径另有 evict）。
+        # 每次领取均按完整源修订校验，外部同名替换不会复用旧文件句柄。
         try:
             return smbclient.open_file(self._unc(rel), mode="rb", share_access="rwd")
         except Exception as e:
             raise map_smb_error(e, what) from e
 
     @contextmanager
-    def open_read(self, path: str) -> Iterator[BinaryIO]:
+    def open_read(self, path: str, *, revision: str | None = None) -> Iterator[BinaryIO]:
         rel = self.norm(path)
-        fh = self._handles.acquire(rel, lambda: self._open_fh(rel, path))
+        before = self.stat_uncached(rel)
+        expected = revision or self.read_revision(rel, before)
+        if before.is_dir or self.read_revision(rel, before) != expected:
+            raise StorageSourceChanged('source changed before reading')
+        key = (rel, expected)
+        fh, generation = self._handles.acquire(key, lambda: self._open_fh(rel, path))
         ok = False
         try:
+            after = self.stat_uncached(rel)
+            if (after.is_dir or self.read_revision(rel, after) != expected
+                    or not self._handles.current(key, generation)):
+                raise StorageSourceChanged('source changed while opening')
             yield fh
             ok = True
         finally:
-            # 正常读完才回池；中途异常/客户端断连（含 GeneratorExit）丢弃句柄
             if ok:
-                self._handles.release(rel, fh)
+                self._handles.release(key, fh, generation)
             else:
                 self._handles.discard(fh)
 
+    @contextmanager
+    def open_media_read(self, path: str, revision: str | None = None) -> Iterator[BinaryIO]:
+        with self.open_read(path, revision=revision) as fh:
+            yield fh
+
+    def get_media_read_url(self, path: str, info: StorageStat) -> str:
+        rel = self.norm(path)
+        return httpproxy.url_for(self.library_id, rel, revision=self.read_revision(rel, info))
+
     def get_read_url(self, path: str) -> str:
-        return httpproxy.url_for(self.library_id, self.norm(path))
+        return self.get_media_read_url(path, self.stat_uncached(path))
 
     # ---------------- 写 ----------------
 

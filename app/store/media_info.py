@@ -66,7 +66,7 @@ def upsert_media_info(item_id: int, info: dict, kind: str = "movie", *, source_r
     环境错误（ffprobe 缺失/超时/不可读）不落库：返回旧行或内存透传（probed_at=0），
     下次打开自动重试——避免宿主/容器换环境后把“无效”误刻进库。返回落库后行。"""
     try:
-        from ..media import is_retryable_error as _retryable
+        from ..media import PROBE_VERSION as _probe_version, is_retryable_error as _retryable
     except Exception:
         def _retryable(_m: str) -> bool:
             return False
@@ -74,7 +74,8 @@ def upsert_media_info(item_id: int, info: dict, kind: str = "movie", *, source_r
     if not info.get("playable") and _retryable(str(info.get("probe_error") or "")):
         old = get_media_info(int(item_id), kind)
         if (old and old.get("playable") and (source_revision is None
-                                              or old.get('source_revision') == source_revision)):
+                or old.get('source_revision') == source_revision
+                and int(old.get('probe_ver') or 0) >= _probe_version)):
             return old
         logger.debug("probe transient error kind=%s item=%s err=%s (not persisted)",
                      kind, item_id, info.get("probe_error"))

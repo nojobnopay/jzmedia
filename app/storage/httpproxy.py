@@ -10,15 +10,17 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets as _secrets
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from ..log import get_logger
 from .base import (
     StorageDenied, StorageError, StorageInvalidPath, StorageNotFound, StorageOffline,
+    StorageSourceChanged,
 )
 
 logger = get_logger("storage.httpproxy")
@@ -49,10 +51,11 @@ def ensure_server() -> str:
         return f"http://{_host}:{_server.server_address[1]}"
 
 
-def url_for(library_id, rel: str) -> str:
+def url_for(library_id, rel: str, *, revision: str | None = None) -> str:
     """库内相对路径 → 代理 URL（供 ffprobe/ffmpeg 输入）。"""
     base = ensure_server()
-    return f"{base}{_PREFIX}{int(library_id)}/{quote(str(rel or '').strip('/'), safe='/')}"
+    suffix = f'?revision={revision}' if revision is not None else ''
+    return f"{base}{_PREFIX}{int(library_id)}/{quote(str(rel or '').strip('/'), safe='/')}{suffix}"
 
 
 def url_for_backend(backend, rel: str) -> str:
@@ -148,10 +151,19 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             kind, key, rel = _parse_path(self.path)
             backend = _backend_for(kind, key)
-            st = backend.stat(rel)
+            query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+            revisions = query.get('revision', [])
+            if revisions and (len(revisions) != 1 or not re.fullmatch(r'[0-9a-f]{64}', revisions[0])):
+                raise StorageInvalidPath('invalid source revision')
+            revision = revisions[0] if revisions else None
+            fresh_stat = getattr(backend, 'stat_uncached', backend.stat)
+            st = fresh_stat(rel)
             if st.is_dir:
                 self._error(404, "is a directory")
                 return
+            expected = revision or backend.read_revision(rel, st)
+            if backend.read_revision(rel, st) != expected:
+                raise StorageSourceChanged('source changed before reading')
             start, end, status = _parse_range(self.headers.get("Range"), st.size)
             if status == 416:
                 self.send_response(416)
@@ -160,17 +172,19 @@ class _Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             length = max(0, end - start + 1)
-            self.send_response(status)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Accept-Ranges", "bytes")
-            self.send_header("Content-Length", str(length))
-            if status == 206:
-                self.send_header("Content-Range", f"bytes {start}-{end}/{st.size}")
-            self.end_headers()
-            if head or length <= 0:
-                return
-            with backend.open_read(rel) as fh:
+            # A reader must match the stat used for Content-Length/Content-Range.
+            # In particular a pooled SMB handle may still refer to a renamed inode.
+            with backend.open_media_read(rel, expected) as fh:
                 fh.seek(start)
+                self.send_response(status)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Content-Length", str(length))
+                if status == 206:
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{st.size}")
+                self.end_headers()
+                if head or length <= 0:
+                    return
                 left = length
                 while left > 0:
                     data = fh.read(min(left, CHUNK))
@@ -178,6 +192,8 @@ class _Handler(BaseHTTPRequestHandler):
                         break
                     self.wfile.write(data)
                     left -= len(data)
+        except StorageSourceChanged:
+            self._error(409, "source changed; reopen this media")
         except StorageNotFound:
             self._error(404, "not found")
         except StorageInvalidPath:

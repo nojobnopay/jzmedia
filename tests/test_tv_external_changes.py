@@ -73,6 +73,23 @@ def assert_identity(fixture, eid, before, rel):
     return current
 
 
+@pytest.mark.parametrize('sidecar', ['empty.srt', 'download.marker', 'README'])
+def test_empty_nonvideo_sidecar_does_not_block_a_complete_library_scan(external_tv, sidecar):
+    fixture = external_tv
+    eid, _, before = seed(fixture)
+    empty = write(fixture, 'Synthetic (2020)/Season 01/' + sidecar, b'')
+    new = 'Synthetic (2020)/Season 01/new.S01E05.mkv'
+    write(fixture, new)
+
+    results = scanner.scan_all(library_id=fixture['lib']['id'])
+
+    assert not any(row['status'].startswith('error') for row in results)
+    assert not any(row.get('reconciliation', {}).get('incomplete') for row in results)
+    assert store.get_episode_by_path(new, fixture['lib']['id']) is not None
+    assert_identity(fixture, eid, before, before['file_path'])
+    assert empty.is_file() and empty.stat().st_size == 0
+
+
 @pytest.mark.parametrize('cancelled', [False, True])
 def test_known_copy_waits_for_actual_worker_exit_before_reconciling(external_tv, monkeypatch, cancelled):
     from app.jobkit import JobRegistry
@@ -286,7 +303,8 @@ def test_orphan_scan_state_does_not_hide_a_file_that_needs_registration(external
     assert len(store.list_episodes(fixture['sid'])) == 2
 
 
-@pytest.mark.parametrize('failure', ['offline_before', 'partial_walk', 'offline_after_snapshot'])
+@pytest.mark.parametrize('failure', ['offline_before', 'partial_walk', 'offline_after_snapshot',
+                                     'offline_during_commit'])
 def test_failed_or_partial_enumeration_never_removes_or_replaces_records(external_tv, monkeypatch, failure):
     fixture = external_tv
     eid, path, before = seed(fixture)
@@ -307,6 +325,10 @@ def test_failed_or_partial_enumeration_never_removes_or_replaces_records(externa
                 raise storage.StorageOffline('isolated interrupted traversal')
 
     monkeypatch.setattr(fixture['backend'], 'iter_tree', fail_walk)
+    if failure == 'offline_during_commit':
+        def offline_exists(_path):
+            raise storage.StorageOffline('isolated disconnection during final validation')
+        monkeypatch.setattr(fixture['backend'], 'exists', offline_exists)
     try:
         result = scanner.scan_tv_show(fixture['sid'])
     except storage.StorageError:
@@ -316,6 +338,7 @@ def test_failed_or_partial_enumeration_never_removes_or_replaces_records(externa
     if result is not None:
         assert result['reconciliation']['incomplete'] is True
         assert result['reconciliation']['replaced'] == result['reconciliation']['removed'] == 0
+        assert result['reconciliation']['issues'][0]['code'] == 'library_offline'
 
 
 @pytest.mark.parametrize('bad_attributes', ['zero_size', 'zero_mtime', 'temporary_name'])

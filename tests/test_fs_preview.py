@@ -203,7 +203,7 @@ def test_open_errors_after_successful_stat(preview_library, monkeypatch, error_t
     backend.stat('file.txt')  # cached metadata must not hide unreadable content
 
     @contextmanager
-    def fail_open(path):
+    def fail_open(path, *, revision=None):
         raise error_type('synthetic open error')
         yield  # pragma: no cover
 
@@ -242,7 +242,7 @@ def test_remote_seek_failure_discards_handle(preview_library, monkeypatch):
             raise storage.StorageOffline('disconnected handle')
 
     @contextmanager
-    def open_read(path):
+    def open_read(path, *, revision=None):
         try:
             yield BrokenHandle()
         except storage.StorageOffline:

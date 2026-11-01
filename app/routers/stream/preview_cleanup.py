@@ -4,7 +4,9 @@ import json
 import os
 import shutil
 import stat
+import threading
 import time
+import uuid
 
 from fastapi import HTTPException
 
@@ -14,6 +16,8 @@ from .preview_source import raw_preview_source, source_snapshot
 
 # Cache URLs are immutable and clients may keep a manifest while playing.
 PROTECTION_SECONDS = 24 * 60 * 60
+_TRASH = '.cleanup-trash'
+_cleaning = threading.Lock()
 
 
 def _flags(directory=False):
@@ -77,35 +81,142 @@ def _complete(pv, entry, row, src, key, interval):
         return False
 
 
+def _catalogue(pv):
+    """Read a consistent catalogue without retaining any lock during storage I/O."""
+    libraries = store.list_libraries()
+    with ExitStack() as stack:
+        stack.enter_context(store.preview_scan_guard())
+        for lib in sorted(libraries, key=lambda item: int(item['id'])):
+            stack.enter_context(library_mutation_lock(lib['id']))
+        stack.enter_context(store._lock)
+        if store.list_libraries() != libraries:
+            raise HTTPException(409, '视频库配置已变化，请重新盘点')
+        snapshots = {int(lib['id']): store.preview_catalogue_snapshot(lib['id']) for lib in libraries}
+        healthy = {int(lib['id']): (lib.get('effective_enabled', True)
+                   and store.preview_scan_health(lib['id']) == 'healthy'
+                   and not store.fs_change_summary(lib['id'])['pending']) for lib in libraries}
+        rows = {(row.get('kind', 'movie'), row['id']): row for lib in libraries
+                for row in store.get_library_preview_playables(lib['id'])}
+        intervals = {int(lib['id']): pv._interval({'library_id': lib['id']}, library=lib)
+                     for lib in libraries}
+    return libraries, snapshots, healthy, rows, intervals
+
+
+def _active(pv):
+    """Caller holds the preview lock; no source metadata is resolved here."""
+    with pv._sess_lock:
+        playing = {(s.get('kind', 'movie'), s.get('vid')) for s in pv._sessions.values()}
+    return playing | {(item['kind'], item['id']) for item in pv._pending_queue()}
+
+
+def _open_root(root):
+    if root.resolve() != root:
+        raise OSError('symlink in cache root path')
+    return os.open(root, _flags(True))
+
+
+def _erase(pv, parent_fd, name, entry, result):
+    try:
+        shutil.rmtree(name, dir_fd=parent_fd)
+        result['removed'] += 1
+        result['freed'] += entry['size']
+    except OSError as error:
+        result['failed'] += 1
+        pv.logger.warning('obsolete preview deletion failed key=%s: %s', name, error)
+        try:
+            remaining = _inspect(parent_fd, name)['entries']
+            result['freed'] += sum(info[3] for filename, info in entry['entries'].items()
+                                   if filename not in remaining)
+        except FileNotFoundError:
+            result['freed'] += entry['size']
+        except OSError:
+            pass
+
+
+def _recover(pv, root):
+    """Only detached, private cleanup batches are eligible for crash recovery."""
+    result = dict(removed=0, freed=0, failed=0)
+    try:
+        with ExitStack() as stack:
+            root_fd = _open_root(root)
+            stack.callback(os.close, root_fd)
+            trash_fd = os.open(_TRASH, _flags(True), dir_fd=root_fd)
+            stack.callback(os.close, trash_fd)
+            for batch in os.listdir(trash_fd):
+                if not pv._KEY_RE.fullmatch(batch):
+                    continue
+                try:
+                    batch_fd = os.open(batch, _flags(True), dir_fd=trash_fd)
+                    try:
+                        for name in os.listdir(batch_fd):
+                            entry = _inspect(batch_fd, name)
+                            _erase(pv, batch_fd, name, entry, result)
+                    finally:
+                        os.close(batch_fd)
+                    os.rmdir(batch, dir_fd=trash_fd)
+                except OSError as error:
+                    pv.logger.warning('recover preview cleanup batch failed batch=%s: %s', batch, error)
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        pv.logger.warning('recover preview cleanup failed: %s', error)
+    if result['removed'] or result['freed']:
+        data_usage.invalidate()
+    return result
+
+
+def start_recovery(pv):
+    """Restart recovery never enumerates libraries or blocks the startup thread."""
+    root = pv._root().absolute()
+
+    def run():
+        if not _cleaning.acquire(blocking=False):
+            return
+        try:
+            _recover(pv, root)
+        finally:
+            _cleaning.release()
+
+    threading.Thread(target=run, name='preview-cleanup-recovery', daemon=True).start()
+
+
 def clean(pv, dry_run):
+    if not _cleaning.acquire(blocking=False):
+        raise HTTPException(409, '缩略图缓存正在盘点或清理，请稍后重试')
+    try:
+        return _clean(pv, dry_run)
+    finally:
+        _cleaning.release()
+
+
+def _clean(pv, dry_run):
     reasons = dict.fromkeys(('deleted', 'replaced', 'superseded', 'invalid'), 0)
     skipped = dict.fromkeys(('in_use', 'offline', 'protected', 'unknown'), 0)
     result = dict(dry_run=dry_run, candidates=0, candidate_bytes=0, reasons=reasons,
                   skipped=skipped, removed=0, freed=0, failed=0)
-    libraries = store.list_libraries()
-    with ExitStack() as stack:
-        stack.enter_context(store.preview_scan_guard())
-        # Match catalogue mutation ordering. Holding these locks also prevents a scan
-        # from committing a changed catalogue while a candidate is removed.
-        for lib in sorted(libraries, key=lambda item: int(item['id'])):
-            stack.enter_context(library_mutation_lock(lib['id']))
-        stack.enter_context(pv._lock)
+    with pv._lock:
         if pv._worker_thread and pv._worker_thread.is_alive():
             raise HTTPException(409, '进度缩略图正在生成，请完成后再清理')
+        issued, active = set(pv._preview_issued), _active(pv)
+    libraries, snapshots, healthy, rows, intervals = _catalogue(pv)
+    with ExitStack() as stack:
         try:
             root = pv._root().absolute()
-            if root.resolve() != root:
-                raise OSError('symlink in cache root path')
-            root_fd = os.open(pv._root(), _flags(True))
+            root_fd = _open_root(root)
         except FileNotFoundError:
             return result
         except OSError:
             raise HTTPException(409, '无法安全读取缩略图目录，请检查目录权限和符号链接') from None
         stack.callback(os.close, root_fd)
+        if not dry_run:
+            recovery = _recover(pv, root)
+            result.update(recovered=recovery['removed'], recovered_bytes=recovery['freed'])
         try:
             with os.scandir(root_fd) as iterator:
                 names = []
                 for entry in iterator:
+                    if entry.name == _TRASH:
+                        continue
                     if entry.is_symlink():
                         skipped['unknown'] += 1
                     elif entry.is_dir(follow_symlinks=False):
@@ -118,22 +229,18 @@ def clean(pv, dry_run):
                 entries[name] = _inspect(root_fd, name)
             except OSError:
                 skipped['unknown'] += 1
-        healthy, rows, sources = {}, {}, {}
-        snapshots = {int(lib['id']): store.preview_catalogue_snapshot(lib['id']) for lib in libraries}
+        sources, backends = {}, {}
         for lib in libraries:
             lid = int(lib['id'])
             try:
-                healthy[lid] = (lib.get('effective_enabled', True)
-                                and store.preview_scan_health(lid) == 'healthy'
-                                and not store.fs_change_summary(lid)['pending'])
                 if healthy[lid]:
-                    backend = storage.backend_for(lid)
-                    stat = getattr(backend, 'stat_uncached', backend.stat)
-                    if not stat('').is_dir:
+                    backend = backends[lid] = storage.backend_for(lid)
+                    fresh_stat = getattr(backend, 'stat_uncached', backend.stat)
+                    if not fresh_stat('').is_dir:
                         healthy[lid] = False
-                    for row in store.get_library_preview_playables(lid):
-                        identity = (row.get('kind', 'movie'), row['id'])
-                        rows[identity] = row
+                    for identity, row in rows.items():
+                        if (row.get('library_id') or 1) != lid:
+                            continue
                         try:
                             sources[identity] = raw_preview_source(row, backend, bypass_cache=True)
                         except storage.StorageOffline:
@@ -141,30 +248,25 @@ def clean(pv, dry_run):
                             sources[identity] = None
                         except (storage.StorageError, OSError, ValueError):
                             sources[identity] = None
-                else:
-                    for row in store.get_library_preview_playables(lid):
-                        rows[(row.get('kind', 'movie'), row['id'])] = row
             except (storage.StorageError, OSError, ValueError):
                 healthy[lid] = False
         all_healthy = bool(libraries) and all(healthy.values())
         all_sources = all_healthy and all(value is not None for value in sources.values())
-        key_index = {}
+        key_index, owner_keys = {}, {}
         for identity, src in sources.items():
             if src is None:
                 continue
             row = rows[identity]
-            interval = pv._interval(row)
+            interval = intervals[int(row.get('library_id') or 1)]
             keys = [key for rev in range(pv.QUALITY_REVISION, 0, -1)
                     for key in pv._quality_keys(row, src, interval, rev)]
+            owner_keys[identity] = keys
             for key in keys:
                 key_index[key] = (identity, keys)
-        with pv._sess_lock:
-            playing = {(s.get('kind', 'movie'), s.get('vid')) for s in pv._sessions.values()}
-        queued = {(item['kind'], item['id']) for item in pv._pending_queue()}
-        active = playing | queued
         now = time.time()
+        candidates = []
         for name, entry in entries.items():
-            if name in pv._preview_issued:
+            if name in issued:
                 skipped['in_use'] += 1
                 continue
             info, files, data = entry['signature'], entry['entries'], entry['data']
@@ -200,9 +302,8 @@ def clean(pv, dry_run):
             reason = None
             if row:
                 src = sources[owner]
-                interval = pv._interval(row)
-                keys = [key for rev in range(pv.QUALITY_REVISION, 0, -1)
-                        for key in pv._quality_keys(row, src, interval, rev)]
+                interval = intervals[int(row.get('library_id') or 1)]
+                keys = owner_keys[owner]
                 if name in keys:
                     # A partial current key can resume. Old rules are removed only
                     # when a strictly preferred full set exists.
@@ -222,62 +323,117 @@ def clean(pv, dry_run):
             result['candidates'] += 1
             result['candidate_bytes'] += entry['size']
             reasons[reason] += 1
-            if dry_run:
-                continue
+            candidates.append((name, entry, owner, row))
+        if dry_run or not candidates:
+            return result
+
+        # Recheck remote roots and sources once, entirely outside global locks.
+        # Catalogue snapshots are then compared once for the whole commit, rather
+        # than querying every library for every obsolete cache directory.
+        root_health = {}
+        for lid, backend in backends.items():
             try:
-                # Hold the database lock through final identity verification and
-                # deletion, including records removed during the inventory.
-                with store._lock:
-                    if (store.list_libraries() != libraries or any(
-                            store.preview_catalogue_snapshot(lid) != snapshot
-                            for lid, snapshot in snapshots.items())):
-                        skipped['unknown'] += 1
-                        continue
-                    # Detect use, replacement, or writes since inventory before unlink.
-                    if _inspect(root_fd, name) != entry:
-                        skipped['in_use'] += 1
-                        continue
-                    try:
-                        check_libraries = [row.get('library_id') or 1] if row else [lib['id'] for lib in libraries]
-                        for lid in check_libraries:
-                            backend = storage.backend_for(lid)
-                            fresh_stat = getattr(backend, 'stat_uncached', backend.stat)
-                            if not fresh_stat('').is_dir:
-                                raise storage.StorageOffline('library root is unavailable')
-                    except (storage.StorageError, OSError, ValueError):
-                        skipped['offline'] += 1
-                        continue
-                    if row:
-                        try:
-                            fresh = raw_preview_source(row, bypass_cache=True)
-                        except storage.StorageError:
-                            skipped['unknown'] += 1
-                            continue
-                        if source_snapshot(fresh, row) != source_snapshot(sources[owner], row):
-                            skipped['unknown'] += 1
-                            continue
-                        preferred = keys[:keys.index(name)] if name in keys else keys
-                        if not any(_complete(pv, _inspect(root_fd, key), row, fresh, key, interval)
-                                   for key in preferred if key in entries):
-                            skipped['unknown'] += 1
-                            continue
-                    shutil.rmtree(name, dir_fd=root_fd)
-                    result['removed'] += 1
-                    result['freed'] += entry['size']
-                    pv._inventory_changed(pv._root() / name)
-            except (OSError, storage.StorageError, ValueError) as error:
-                result['failed'] += 1
-                pv.logger.warning('obsolete preview cleanup failed key=%s: %s', name, error)
-                # A failed rmtree may have removed some regular files already.
-                # Count only files whose absence can be independently confirmed.
+                fresh_stat = getattr(backend, 'stat_uncached', backend.stat)
+                root_health[lid] = fresh_stat('').is_dir
+            except (storage.StorageError, OSError, ValueError):
+                root_health[lid] = False
+        valid = []
+        refreshed = {}
+        for name, entry, owner, row in candidates:
+            lids = [int(row.get('library_id') or 1)] if row else list(healthy)
+            if not all(root_health.get(lid, False) for lid in lids):
+                skipped['offline'] += 1
+                continue
+            if row:
                 try:
-                    remaining = _inspect(root_fd, name)['entries']
-                    result['freed'] += sum(info[3] for filename, info in entry['entries'].items()
-                                           if filename not in remaining)
-                except FileNotFoundError:
-                    result['freed'] += entry['size']
-                except OSError:
+                    if owner not in refreshed:
+                        refreshed[owner] = raw_preview_source(row, backends[lids[0]], bypass_cache=True)
+                    fresh = refreshed[owner]
+                    if source_snapshot(fresh, row) != source_snapshot(sources[owner], row):
+                        raise ValueError('source changed')
+                    interval = intervals[lids[0]]
+                    keys = owner_keys[owner]
+                    preferred = keys[:keys.index(name)] if name in keys else keys
+                    if not any(_complete(pv, _inspect(root_fd, key), row, fresh, key, interval)
+                               for key in preferred if key in entries):
+                        raise ValueError('replacement is no longer complete')
+                except (storage.StorageError, OSError, ValueError):
+                    skipped['unknown'] += 1
+                    continue
+            valid.append((name, entry, owner))
+        if not valid:
+            return result
+
+        with ExitStack() as commit:
+            commit.enter_context(store.preview_scan_guard())
+            for lib in sorted(libraries, key=lambda item: int(item['id'])):
+                commit.enter_context(library_mutation_lock(lib['id']))
+            commit.enter_context(pv._lock)
+            commit.enter_context(store._lock)
+            if (store.list_libraries() != libraries or any(
+                    store.preview_catalogue_snapshot(lid) != snapshot for lid, snapshot in snapshots.items())
+                    or any(healthy[lid] and (store.preview_scan_health(lid) != 'healthy'
+                           or store.fs_change_summary(lid)['pending']) for lid in healthy)):
+                skipped['unknown'] += len(valid)
+                return result
+            active = _active(pv)
+            reserved = []
+            for name, entry, owner in valid:
+                if (name in pv._preview_issued or owner in active or pv._cache_removing
+                        or pv._worker_thread and pv._worker_thread.is_alive()):
+                    skipped['in_use'] += 1
+                    continue
+                reserved.append((name, entry))
+            pv._cache_removing.update(name for name, _ in reserved)
+
+        # Reservations are the logical removal point. All serving/mutating preview
+        # entry points honor them until rename has detached the old directory.
+        try:
+            if reserved:
+                try:
+                    os.mkdir(_TRASH, mode=0o700, dir_fd=root_fd)
+                except FileExistsError:
                     pass
+                trash_fd = os.open(_TRASH, _flags(True), dir_fd=root_fd)
+                stack.callback(os.close, trash_fd)
+                batch = uuid.uuid4().hex
+                os.mkdir(batch, mode=0o700, dir_fd=trash_fd)
+                batch_fd = os.open(batch, _flags(True), dir_fd=trash_fd)
+                stack.callback(os.close, batch_fd)
+                detached = []
+                for name, entry in reserved:
+                    moved = False
+                    try:
+                        if _inspect(root_fd, name) != entry:
+                            skipped['in_use'] += 1
+                            continue
+                        os.rename(name, name, src_dir_fd=root_fd, dst_dir_fd=batch_fd)
+                        moved = True
+                    except OSError as error:
+                        result['failed'] += 1
+                        pv.logger.warning('quarantine preview cache failed key=%s: %s', name, error)
+                    finally:
+                        with pv._lock:
+                            pv._cache_removing.discard(name)
+                    if moved:
+                        pv._inventory_changed(root / name)
+                        detached.append((name, entry))
+                # Detach all keys before the first potentially slow rmtree so
+                # workers may resume while quarantined files are being erased.
+                pv._auto_wake.set()
+                for name, entry in detached:
+                    _erase(pv, batch_fd, name, entry, result)
+                try:
+                    os.rmdir(batch, dir_fd=trash_fd)
+                except OSError:
+                    pass  # A partial delete stays quarantined for restart/retry.
+        except OSError as error:
+            result['failed'] += len(reserved)
+            pv.logger.warning('prepare preview quarantine failed: %s', error)
+        finally:
+            with pv._lock:
+                pv._cache_removing.difference_update(name for name, _ in reserved)
+            pv._auto_wake.set()
         if not dry_run and (result['removed'] or result['failed']):
             data_usage.invalidate()
     return result

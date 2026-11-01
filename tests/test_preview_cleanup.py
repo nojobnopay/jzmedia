@@ -1,6 +1,8 @@
 import json
 import os
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
@@ -20,6 +22,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(pv, '_auto_queue', [])
     monkeypatch.setattr(pv, '_active_job', None)
     monkeypatch.setattr(pv, '_preview_issued', set())
+    monkeypatch.setattr(pv, '_cache_removing', set())
     monkeypatch.setattr(pv, '_sessions', {})
     monkeypatch.setattr(pv, '_inventory_changed', lambda *_args: None)
     monkeypatch.setattr(cleanup.data_usage, 'invalidate', lambda: None)
@@ -36,7 +39,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(cleanup.storage, 'clear_meta_cache', lambda *_: None)
     monkeypatch.setattr(cleanup, 'raw_preview_source', lambda *_args, **_kwargs: src)
     monkeypatch.setattr(cleanup, 'source_snapshot', lambda s, _: (s.rel, s.size, s.mtime))
-    monkeypatch.setattr(pv, '_interval', lambda *_: 10)
+    monkeypatch.setattr(pv, '_interval', lambda *_args, **_kwargs: 10)
     return root, row, src
 
 
@@ -178,7 +181,11 @@ def test_partial_delete_failure_counts_bytes_and_continues(env, monkeypatch):
     result = run(False)
     assert result['failed'] == 1 and result['removed'] == 1
     assert result['freed'] == second_size + 5
-    assert first.exists() and not second.exists()
+    quarantined = list((root / cleanup._TRASH).glob('*/' + first.name))
+    assert len(quarantined) == 1 and not first.exists() and not second.exists()
+    monkeypatch.setattr(cleanup.shutil, 'rmtree', original)
+    recovered = cleanup._recover(pv, root)
+    assert recovered['removed'] == 1 and not quarantined[0].exists()
 
 
 def test_confirmation_rechecks_queue_and_issued_player_cache(env, monkeypatch):
@@ -220,3 +227,201 @@ def test_library_going_offline_during_cleanup_skips_orphan(env, monkeypatch):
     result = run(False)
     assert result['skipped']['offline'] == 1 and result['removed'] == 0
     assert orphan.exists()
+
+
+@pytest.mark.parametrize('stage', ['inventory', 'final_stat', 'source', 'rename', 'erase'])
+def test_slow_cleanup_io_leaves_database_and_queue_available(env, monkeypatch, stage):
+    root, row, src = env
+    if stage == 'source':
+        make(root, pv._cache_key(row, src, 10))
+        make(root, 'a' * 32)
+    else:
+        make(root, 'a' * 32, owner=9)
+        make(root, 'b' * 32, owner=10)
+    entered, release = threading.Event(), threading.Event()
+    monkeypatch.setattr(pv, '_schedule_ready_queue_reconcile', lambda: None)
+
+    def wait():
+        entered.set()
+        assert release.wait(5), 'test must release blocked storage'
+
+    original_stat = src.backend.stat
+    calls = []
+    def stat(path):
+        calls.append(path)
+        if (stage == 'inventory' and len(calls) == 1
+                or stage == 'final_stat' and len(calls) == 2):
+            wait()
+        return original_stat(path)
+    monkeypatch.setattr(src.backend, 'stat', stat)
+    original_source = cleanup.raw_preview_source
+    source_calls = []
+    def source(*args, **kwargs):
+        source_calls.append(1)
+        if stage == 'source' and len(source_calls) == 2:
+            wait()
+        return original_source(*args, **kwargs)
+    monkeypatch.setattr(cleanup, 'raw_preview_source', source)
+    original_rename, original_erase = cleanup.os.rename, cleanup.shutil.rmtree
+    def rename(*args, **kwargs):
+        if stage == 'rename':
+            wait()
+        return original_rename(*args, **kwargs)
+    def erase(*args, **kwargs):
+        if stage == 'erase':
+            assert not pv._cache_removing, 'all keys must detach before recursive deletion'
+            wait()
+        return original_erase(*args, **kwargs)
+    monkeypatch.setattr(cleanup.os, 'rename', rename)
+    monkeypatch.setattr(cleanup.shutil, 'rmtree', erase)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        work = pool.submit(run, False)
+        try:
+            assert entered.wait(3)
+            assert pool.submit(cleanup.store.get_movie, 999999).result(timeout=2) is None
+            assert pool.submit(pv.preview_queue, None, 0, 50).result(timeout=2)['total'] == 0
+        finally:
+            release.set()
+        assert work.result(timeout=3)['failed'] == 0
+
+
+def test_manifest_source_resolution_does_not_lock_queue(env, monkeypatch):
+    _, row, src = env
+    entered, release = threading.Event(), threading.Event()
+    monkeypatch.setattr(pv, '_schedule_ready_queue_reconcile', lambda: None)
+    def source(*_args):
+        entered.set()
+        assert release.wait(5)
+        return row, src
+    monkeypatch.setattr(pv, '_version_source', source)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        manifest = pool.submit(pv.preview_manifest, 7)
+        try:
+            assert entered.wait(3)
+            assert pool.submit(pv.preview_queue, None, 0, 50).result(timeout=2)['total'] == 0
+        finally:
+            release.set()
+        assert manifest.result(timeout=3)['state'] == 'missing'
+
+
+def test_issued_manifest_wins_over_cleanup_commit(env, monkeypatch):
+    root, row, src = env
+    key = pv._cache_key(row, src, 10, quality_revision=2)
+    old = make(root, key, revision=2)
+    make(root, pv._cache_key(row, src, 10))
+    # A generation/filter change can select an older usable set after inventory.
+    entered, release = threading.Event(), threading.Event()
+    original_stat = src.backend.stat
+    calls = []
+    def stat(path):
+        calls.append(1)
+        if len(calls) == 2:
+            entered.set()
+            assert release.wait(5)
+        return original_stat(path)
+    monkeypatch.setattr(src.backend, 'stat', stat)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        work = pool.submit(run, False)
+        try:
+            assert entered.wait(3)
+            # Exercise the actual image issuance path, which shares the manifest guard.
+            assert pool.submit(pv.preview_image, key, 'page_0000.jpg').result(timeout=2)
+        finally:
+            release.set()
+        assert work.result(timeout=3)['removed'] == 0
+    assert old.exists() and key in pv._preview_issued
+
+
+def test_cleanup_reservation_wins_over_issuance(env, monkeypatch):
+    root, row, src = env
+    key = pv._cache_key(row, src, 10, quality_revision=2)
+    make(root, key, revision=2)
+    current_key = pv._cache_key(row, src, 10)
+    make(root, current_key)
+    monkeypatch.setattr(pv, '_version_source', lambda *_args: (row, src))
+    original = cleanup.os.rename
+    entered, release = threading.Event(), threading.Event()
+    def rename(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(cleanup.os, 'rename', rename)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        work = pool.submit(run, False)
+        try:
+            assert entered.wait(3)
+            assert key in pv._cache_removing
+            with pytest.raises(HTTPException) as error:
+                pv.preview_image(key, 'page_0000.jpg')
+            assert error.value.status_code == 404
+            assert pool.submit(pv.preview_manifest, 7).result(timeout=2)['key'] == current_key
+            with pytest.raises(HTTPException) as error:
+                pv._start([('movie', 7)])
+            assert error.value.status_code == 409
+        finally:
+            release.set()
+        assert work.result(timeout=3)['removed'] == 1
+    assert not pv._cache_removing
+
+
+@pytest.mark.parametrize('mutation', ['source', 'health', 'queue', 'worker'])
+def test_inventory_changes_before_reservation_preserve_cache(env, monkeypatch, mutation):
+    root, row, src = env
+    make(root, pv._cache_key(row, src, 10))
+    old = make(root, 'a' * 32)
+    original = cleanup.raw_preview_source
+    calls = []
+    def source(*args, **kwargs):
+        calls.append(1)
+        value = original(*args, **kwargs)
+        if len(calls) == 2:
+            if mutation == 'source':
+                return SimpleNamespace(**{**src.__dict__, 'mtime': 99})
+            if mutation == 'health':
+                monkeypatch.setattr(cleanup.store, 'preview_scan_health', lambda _: 'unknown')
+            elif mutation == 'queue':
+                pv._auto_queue.append({'kind': 'movie', 'id': 7, 'library_id': 1})
+            elif mutation == 'worker':
+                monkeypatch.setattr(pv, '_worker_thread', SimpleNamespace(is_alive=lambda: True))
+        return value
+    monkeypatch.setattr(cleanup, 'raw_preview_source', source)
+    assert run(False)['removed'] == 0
+    assert old.exists() and not pv._cache_removing
+
+
+def test_failed_quarantine_releases_reservations_and_preserves_directory(env, monkeypatch):
+    root, _, _ = env
+    old = make(root, 'a' * 32, owner=9)
+    def fail(*_args, **_kwargs):
+        raise PermissionError('simulated rename failure')
+    monkeypatch.setattr(cleanup.os, 'rename', fail)
+    result = run(False)
+    assert result['failed'] == 1 and result['removed'] == 0
+    assert old.exists() and not pv._cache_removing
+
+
+def test_dry_run_does_not_recover_and_restart_recovery_needs_no_catalogue(env, monkeypatch):
+    root, _, _ = env
+    trash_batch = root / cleanup._TRASH / ('f' * 32)
+    trash_batch.mkdir(parents=True)
+    old = make(trash_batch, 'a' * 32, owner=9)
+    assert run()['candidates'] == 0 and old.exists()
+    monkeypatch.setattr(cleanup.store, 'list_libraries', lambda: pytest.fail('recovery must not scan libraries'))
+    assert cleanup._recover(pv, root)['removed'] == 1
+    assert not old.exists() and not trash_batch.exists()
+
+
+@pytest.mark.parametrize('revision', [1, 2, 3])
+def test_source_read_policy_change_does_not_reuse_older_smb_bytes(env, monkeypatch, revision):
+    root, row, src = env
+    old_key = pv._cache_key(row, src, 10, quality_revision=revision)
+    make(root, old_key, revision=revision)
+    monkeypatch.setattr(src.backend, 'read_cache_revision', 1, raising=False)
+    monkeypatch.setattr(pv, '_version_source', lambda *_args: (row, src))
+    key = pv._cache_key(row, src, 10, quality_revision=revision)
+    assert key != old_key
+    assert pv.preview_manifest(7)['state'] == 'missing'
+    assert pv._current_ready(row, src, 10) == (None, None)
+    make(root, pv._cache_key(row, src, 10))
+    assert pv.preview_manifest(7)['state'] == 'ready'

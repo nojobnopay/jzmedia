@@ -45,4 +45,8 @@ def assert_source_revision(src, revision, *, row=None):
 
 
 def source_cache_key(src, *, row=None):
-    return hashlib.sha256(source_revision(src, row=row).encode()).hexdigest()[:32]
+    revision = source_revision(src, row=row)
+    policy = getattr(getattr(src, 'backend', None), 'read_cache_revision', 0)
+    if policy:
+        revision += f'|read:{policy}'
+    return hashlib.sha256(revision.encode()).hexdigest()[:32]

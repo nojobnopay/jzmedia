@@ -9,9 +9,11 @@ from __future__ import annotations
 import codecs
 import mimetypes
 import os
+import sys
 from contextlib import ExitStack
 from urllib.parse import quote
 
+import anyio
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
@@ -24,6 +26,60 @@ __all__ = ['media_response', 'text_response', 'guess_media_type']
 _CHUNK = 1 << 20
 
 
+class _MediaReader:
+    """Acquire only when consumed; one owner closes even an unstarted iterator."""
+    def __init__(self, backend, rel, revision, start):
+        self.backend, self.rel, self.revision, self.start = backend, rel, revision, start
+        self.opened = ExitStack()
+        self.fh = None
+        self.closed = False
+
+    def open(self):
+        if self.closed:
+            raise RuntimeError('media reader is closed')
+        if self.fh is None:
+            try:
+                with ExitStack() as preparing:
+                    fh = preparing.enter_context(self.backend.open_media_read(self.rel, self.revision))
+                    fh.seek(self.start)
+                    self.opened = preparing.pop_all()
+                    self.fh = fh
+            except storage.StorageError as error:
+                raise _read_error(error) from error
+        return self.fh
+
+    def close(self, error=(None, None, None)):
+        if not self.closed:
+            self.closed = True
+            self.opened.__exit__(*error)
+
+
+class _MediaStreamingResponse(StreamingResponse):
+    def __init__(self, content, reader, *, head=False, **kwargs):
+        super().__init__(content, background=BackgroundTask(reader.close), **kwargs)
+        self.reader, self.head = reader, head
+
+    async def stream_response(self, send):
+        if self.head:
+            await send({'type': 'http.response.start', 'status': self.status_code, 'headers': self.raw_headers})
+            await send({'type': 'http.response.body', 'body': b'', 'more_body': False})
+        else:
+            await super().stream_response(send)
+
+    async def __call__(self, scope, receive, send):
+        try:
+            # Fail before StreamingResponse enters its response/task machinery,
+            # so normal exception middleware can render a changed/open-failed source.
+            await anyio.to_thread.run_sync(self.reader.open)
+            await super().__call__(scope, receive, send)
+        finally:
+            error = sys.exc_info()
+            # StreamingResponse's background task is skipped on send errors and
+            # cancellation, including cancellation before the first body read.
+            with anyio.CancelScope(shield=True):
+                await anyio.to_thread.run_sync(self.reader.close, error)
+
+
 def _read_error(error: storage.StorageError) -> HTTPException:
     if isinstance(error, storage.StorageInvalidPath):
         return HTTPException(422, "invalid file path")
@@ -33,12 +89,14 @@ def _read_error(error: storage.StorageError) -> HTTPException:
         return HTTPException(503, "source offline")
     if isinstance(error, storage.StorageDenied):
         return HTTPException(403, "file access denied")
+    if isinstance(error, storage.StorageSourceChanged):
+        return HTTPException(409, "source changed; reopen this media")
     return HTTPException(500, "file read failed")
 
 
 def _stat_or_http(backend, rel: str):
     try:
-        st = backend.stat(rel)
+        st = getattr(backend, 'stat_uncached', backend.stat)(rel)
     except storage.StorageError as e:
         raise _read_error(e) from e
     if st.is_dir:
@@ -91,18 +149,11 @@ def media_response(request: Request, backend, rel: str, *, filename: str = "",
     if status == 206:
         headers["Content-Range"] = f"bytes {start}-{end}/{st.size}"
 
-    # Open before sending HTTP headers: a cached stat may still succeed after
-    # the NAS disconnects or read permission is revoked.
-    try:
-        with ExitStack() as preparing:
-            fh = preparing.enter_context(backend.open_read(rel))
-            fh.seek(start)
-            opened = preparing.pop_all()
-    except storage.StorageError as e:
-        raise _read_error(e) from e
+    reader = _MediaReader(backend, rel, backend.read_revision(rel, st), start)
 
     def _iter():
-        with opened:
+        try:
+            fh = reader.open()
             left = length
             while left > 0:
                 if access is not None and not check_lease(access.session_hash, access.generation,
@@ -113,10 +164,14 @@ def media_response(request: Request, backend, rel: str, *, filename: str = "",
                     break
                 left -= len(data)
                 yield data
+        except BaseException:
+            reader.close(sys.exc_info())
+            raise
+        else:
+            reader.close()
 
-    return StreamingResponse(_iter(), status_code=status, headers=headers,
-                             media_type=media_type or "application/octet-stream",
-                             background=BackgroundTask(opened.close))
+    return _MediaStreamingResponse(_iter(), reader, head=request.scope.get('method') == 'HEAD',
+        status_code=status, headers=headers, media_type=media_type or "application/octet-stream")
 
 
 def text_response(backend, rel: str, limit: int = 64 * 1024):

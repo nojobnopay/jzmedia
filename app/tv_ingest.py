@@ -456,6 +456,26 @@ def _external_fill(show, retry_metadata=False):
     return result
 
 
+def _local_nfo_metadata(show, retry_metadata=False):
+    """Replay a local series identity, using the usual protected episode fill."""
+    from .metadata import chain, external
+    candidate = tv_persist._nfo_show_candidate(show)
+    if candidate is None:
+        return None
+    detail = chain.detail_for(candidate, fetch=False)
+    with library_mutation_lock(show['library_id']):
+        current = store.get_show_meta(show['id'])
+        if (not current or current.get('tmdb_id') or current.get('needs_review')
+                or current.get('match_source') != show.get('match_source')):
+            return None
+        external.apply_external_show(show['id'], detail, source='nfo',
+            source_id=candidate.source_id, library_id=show['library_id'],
+            write_nfo=False, fill_episodes=False)
+    result = _external_fill(store.get_show_meta(show['id']), retry_metadata)
+    result['series_filled'] = 1
+    return result
+
+
 def _metadata(show, retry_metadata, fetched, should_stop):
     sid = int(show['id'])
     result = {'show_id': sid, 'filled': 0, 'status': 'complete', 'issues': [], 'retry_at': 0}
@@ -467,7 +487,10 @@ def _metadata(show, retry_metadata, fetched, should_stop):
     if not show.get('tmdb_id'):
         # Existing matching gates remain the authority for identifying a new show.
         try:
+            hints = ({'tvdb': show.get('tvdb_id'), 'imdb': show.get('imdb_id')}
+                     if show.get('match_source') == 'hint' else {})
             resolved = tv_match.resolve_show(show.get('title') or '', show.get('year'),
+                                            hints=hints,
                                             library_id=show['library_id'])
             if resolved.get('candidate') is not None and not resolved.get('tmdb_id'):
                 from .metadata import chain, external
@@ -484,6 +507,9 @@ def _metadata(show, retry_metadata, fetched, should_stop):
                 return result
             tid = int(resolved.get('tmdb_id') or 0)
             if not tid:
+                nfo = _local_nfo_metadata(show, retry_metadata)
+                if nfo is not None:
+                    return nfo
                 result.update(status='unmatched', issues=[_issue('unmatched', '尚未找到可靠的剧集资料，请核对匹配')])
                 return result
             detail = resolved.get('detail') or _cached_detail(tid)
@@ -500,6 +526,9 @@ def _metadata(show, retry_metadata, fetched, should_stop):
                 result.update(status='match_review', issues=[_issue('match_review', '剧集匹配需要核对')])
                 return result
         except Exception as exc:
+            nfo = _local_nfo_metadata(show, retry_metadata)
+            if nfo is not None:
+                return nfo
             result.update(status='source_unavailable', issues=[_issue('source_unavailable', provider_state.safe_error(exc))],
                           retry_at=int(time.time()) + 600)
             return result

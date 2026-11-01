@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import abc
+import hashlib
 import os
 import stat as _stat
 import time
@@ -20,7 +21,7 @@ from typing import BinaryIO, Iterator, NamedTuple
 __all__ = [
     'StorageBackend', 'StorageStat', 'StorageEntry', 'WalkEntry', 'MediaSource',
     'StorageExists', 'StorageError', 'StorageInvalidPath', 'StorageNotFound', 'StorageDenied',
-    'StorageReadOnly', 'StorageOffline', 'StorageUnsupported',
+    'StorageReadOnly', 'StorageOffline', 'StorageUnsupported', 'StorageSourceChanged',
 ]
 
 
@@ -57,6 +58,10 @@ class StorageUnsupported(StorageError):
     code = "UNSUPPORTED"
 
 
+class StorageSourceChanged(StorageError):
+    code = "SOURCE_CHANGED"
+
+
 class StorageStat(NamedTuple):
     size: int
     mtime: float
@@ -83,6 +88,7 @@ class StorageBackend(abc.ABC):
     """库级存储后端：路径 = 库内相对路径，后端负责边界与只读拦截。"""
 
     driver = "base"
+    read_cache_revision = 0
 
     def __init__(self, library: dict, driver: str = ""):
         self.library = dict(library or {})
@@ -182,6 +188,29 @@ class StorageBackend(abc.ABC):
     @abc.abstractmethod
     def get_read_url(self, path: str) -> str:
         """可供 ffprobe/ffmpeg 读取的地址：本地=绝对路径，远程=内网 HTTP URL。"""
+
+    def read_revision(self, path: str, info: StorageStat) -> str:
+        """Opaque identity shared by input URLs and revision-bound readers."""
+        from ..store.media_info import media_source_revision
+        value = media_source_revision(self.library_id, self.norm(path), info.size, info.mtime)
+        return hashlib.sha256(value.encode()).hexdigest()
+
+    def get_media_read_url(self, path: str, info: StorageStat) -> str:
+        return self.get_read_url(path)
+
+    @contextmanager
+    def open_media_read(self, path: str, revision: str | None = None) -> Iterator[BinaryIO]:
+        """Open before publishing HTTP headers and reject an intervening replacement."""
+        fresh_stat = getattr(self, 'stat_uncached', self.stat)
+        before = fresh_stat(path)
+        expected = revision or self.read_revision(path, before)
+        if before.is_dir or self.read_revision(path, before) != expected:
+            raise StorageSourceChanged('source changed before reading')
+        with self.open_read(path) as fh:
+            after = fresh_stat(path)
+            if after.is_dir or self.read_revision(path, after) != expected:
+                raise StorageSourceChanged('source changed while opening')
+            yield fh
 
     # ---------------- 写 ----------------
 

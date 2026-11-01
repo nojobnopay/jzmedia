@@ -140,6 +140,37 @@ def test_changed_source_and_audio_do_not_reuse_completed_output(outputs):
     manager.release(newer)
 
 
+def test_changed_read_policy_does_not_reuse_completed_audio_output(outputs):
+    manager, source = outputs.manager, outputs.source
+    legacy_key = audio.fingerprint(ROW, source, INFO, 1)
+    source.backend = SimpleNamespace(read_cache_revision=0)
+    assert audio.fingerprint(ROW, source, INFO, 1) == legacy_key
+    old_lease = manager.prepare(ROW, source, INFO, 1, lambda: True)
+    wait_for(lambda: len(outputs.processes) == 1)
+    outputs.processes[0].finish.set()
+    wait_for(lambda: manager.snapshot(old_lease)['state'] == 'ready')
+    old_path = manager.snapshot(old_lease)['path']
+    manager.release(old_lease)
+    wait_for(lambda: not manager.jobs)
+
+    # Only the read policy changes; canonical source stat and probe metadata stay identical.
+    source.backend.read_cache_revision = 1
+    assert audio.fingerprint(ROW, source, INFO, 1) != legacy_key
+    new_lease = manager.prepare(ROW, source, INFO, 1, lambda: True)
+    wait_for(lambda: len(outputs.processes) == 2)
+    assert manager.snapshot(new_lease)['path'] is None
+    outputs.processes[1].finish.set()
+    wait_for(lambda: manager.snapshot(new_lease)['state'] == 'ready')
+    new_path = manager.snapshot(new_lease)['path']
+    assert new_path != old_path and Path(old_path).exists()
+    manager.release(new_lease)
+    wait_for(lambda: not manager.jobs)
+    reused = manager.prepare(ROW, source, INFO, 1, lambda: True)
+    assert manager.snapshot(reused)['state'] == 'ready'
+    assert manager.snapshot(reused)['path'] == new_path and len(outputs.processes) == 2
+    manager.release(reused)
+
+
 @pytest.mark.parametrize("corruption", [[], {"duration": 0}])
 def test_invalid_completion_marker_is_rebuilt_instead_of_published(outputs, corruption):
     manager = outputs.manager

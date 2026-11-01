@@ -3,6 +3,9 @@ import { TV_INGEST_ACTIONS, tvIngestFlow } from './useTvIngestFlow.js'
 
 export function useTvIngestReview(initialSummary, { flow = tvIngestFlow, pollDelay = 1200 } = {}) {
   const summary = ref(initialSummary), plans = computed(() => summary.value.plans || [])
+  // The host has already applied library and automatic-prompt filters. Displayed
+  // plans may disappear when options change, but that must not shrink this scope.
+  const reviewIds = Object.freeze([...new Set(plans.value.map(plan => Number(plan.show_id)))])
   const selected = ref(plans.value.filter(plan => plan.groups?.length && !plan.blocked && plan.reason !== 'read_only').map(plan => Number(plan.show_id)))
   const actions = ref([...(initialSummary.params?.actions || TV_INGEST_ACTIONS)])
   const allowTorrent = ref(Boolean(initialSummary.params?.allow_torrent))
@@ -13,6 +16,7 @@ export function useTvIngestReview(initialSummary, { flow = tvIngestFlow, pollDel
   const running = computed(() => phase.value === 'running')
   const busy = computed(() => running.value || loading.value || deciding.value)
   const selectedPlans = computed(() => plans.value.filter(plan => selected.value.includes(Number(plan.show_id))))
+  const noWork = computed(() => phase.value === 'preview' && ready.value && !plans.value.length)
   const canConfirm = computed(() => phase.value === 'preview' && ready.value && !busy.value && actions.value.length
     && selectedPlans.value.some(plan => plan.groups?.length && !plan.blocked && plan.reason !== 'read_only'))
   async function refresh(retryMetadata = false) {
@@ -24,12 +28,11 @@ export function useTvIngestReview(initialSummary, { flow = tvIngestFlow, pollDel
     error.value = ''
     phase.value = 'preview'
     try {
-      const next = await flow.prepare({ ids: plans.value.map(plan => Number(plan.show_id)), source: 'manual',
+      const next = await flow.prepare({ ids: [...reviewIds], scope_preview_id: summary.value.preview_id, source: 'manual',
         retry_metadata: retryMetadata, actions: [...actions.value], allow_torrent: allowTorrent.value,
         allow_absolute_shows: [...allowAbsolute.value] }, { valid: () => !disposed && seq === generation })
       if (disposed || seq !== generation || !next) return
       summary.value = next
-      selected.value = selected.value.filter(id => next.plans.some(plan => Number(plan.show_id) === id))
       // Keep the shared host on the current preview without replacing this dialog instance.
       if (flow.review.value) flow.replaceReview(next)
       ready.value = true
@@ -93,6 +96,7 @@ export function useTvIngestReview(initialSummary, { flow = tvIngestFlow, pollDel
   }
   async function decide(decision) {
     if (busy.value) return
+    if (noWork.value) { flow.close(); return }
     deciding.value = true
     decisionFailed.value = false
     error.value = ''
@@ -102,7 +106,7 @@ export function useTvIngestReview(initialSummary, { flow = tvIngestFlow, pollDel
   }
   function close() {
     if (busy.value) return
-    if (phase.value === 'done' || decisionFailed.value) flow.close()
+    if (phase.value === 'done' || decisionFailed.value || noWork.value) flow.close()
     else decide('deferred')
   }
   function closePending() { if (!busy.value && decisionFailed.value) flow.close() }
@@ -115,6 +119,6 @@ export function useTvIngestReview(initialSummary, { flow = tvIngestFlow, pollDel
     suppress = false
   }
   onScopeDispose(() => { disposed = true; generation++; clearTimeout(timer); clearTimeout(previewTimer) })
-  return { summary, plans, selected, actions, allowTorrent, allowAbsolute, phase, loading, ready, busy, running,
+  return { summary, plans, reviewIds, selected, actions, allowTorrent, allowAbsolute, phase, loading, ready, busy, running, noWork,
     error, pollError, done, total, result, decisionFailed, selectedPlans, canConfirm, refresh, confirm, decide, close, closePending, setSelected, resetOptions }
 }

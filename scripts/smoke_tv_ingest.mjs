@@ -38,22 +38,34 @@ async function fixtureFingerprint() {
 const sourceSha256 = await sourceFingerprint(), fixtureSha256 = await fixtureFingerprint()
 let browser, server
 let preview = 1, decision = '', prepared = false, executed = false, uploadCount = 0, preparedIds = [201]
+let preparedActions = ['seasondir', 'rename']
+const previewScopes = new Map()
 let conflictOnce = false
 const plan = (id = 201) => ({ show_id: id, title: shows[id - 201]?.title || '合成剧集', library_id: 2,
   needs: true, fingerprint: 'synthetic-files-version1', counts: { rename: 8 }, blocked: false, absolute_risk: false,
-  groups: [{ action: 'rename', episodes: 8, files: 8, count: 16, to: '群岛之间 (2023)/Season 05',
-    samples: [{ from: '群岛之间/Season 05/发布组.长文件名.'.repeat(5) + 'S05E01.mkv', to: '群岛之间 (2023)/Season 05/群岛之间-S05E01-潮汐带来的消息.mkv' }] }],
+  groups: preparedActions.includes('rename') ? [{ action: 'rename', episodes: 8, files: 8, count: 16, to: '群岛之间 (2023)/Season 05',
+    samples: [{ from: '群岛之间/Season 05/发布组.长文件名.'.repeat(5) + 'S05E01.mkv', to: '群岛之间 (2023)/Season 05/群岛之间-S05E01-潮汐带来的消息.mkv' }] }] : [],
   dir_totals: [{ dir: '群岛之间 (2023)/Season 05', count: 8 }], manual: [], conflicts: [], warnings: [],
   metadata: { filled: 8, status: 'ok', issues: [] },
 })
 function summary() { return { preview_id: 'preview-' + preview, plans: executed ? [] : preparedIds.map(id => plan(id)),
-  params: { ids: preparedIds, actions: ['seasondir', 'rename'], allow_torrent: false, allow_absolute_shows: [] },
+  params: { ids: preparedIds, actions: preparedActions, allow_torrent: false, allow_absolute_shows: [] },
   counts: { rename: preparedIds.length * 8 }, total: executed ? 0 : preparedIds.length * 8, metadata_results: preparedIds.map(show_id => ({ show_id, filled: 8 })), auto_prompt: !decision,
   auto_prompt_ids: decision ? [] : preparedIds } }
 function api(url, method, body) {
   const key = url.pathname
   requests.push({ key, method, body })
-  if (key === '/api/jobs/tv-ingest' && method === 'POST') { prepared = true; executed = false; preparedIds = body.ids || [201, 202]; preview++; return { job_id: 'ingest' } }
+  if (key === '/api/jobs/tv-ingest' && method === 'POST') {
+    if (body.scope_preview_id && (!body.ids?.length || !body.ids.every(id => previewScopes.get(body.scope_preview_id)?.includes(id)))) {
+      return { __status: 409, detail: '所选剧不属于原预览范围' }
+    }
+    const pendingIds = prepared && !executed && (decision !== 'ignored' || body.include_ignored) ? [...preparedIds] : []
+    prepared = true; executed = false
+    preparedIds = body.pending_only ? pendingIds : body.ids || [201, 202]
+    preparedActions = body.actions || ['seasondir', 'rename']
+    preview++; previewScopes.set('preview-' + preview, [...preparedIds])
+    return { job_id: 'ingest' }
+  }
   if (key === '/api/jobs/tv-ingest/ingest') return { state: 'done', phase: 'preview', summary: summary() }
   if (key === '/api/tv/ingestion-reviews') return { items: prepared && !executed && (decision !== 'ignored' || url.searchParams.get('include_ignored') === 'true')
     ? preparedIds.map(show_id => ({ show_id, library_id: 2, preview_id: 'preview-' + preview, state: decision || 'pending', plan: plan(show_id), metadata: plan(show_id).metadata })) : [], count: 0 }
@@ -122,6 +134,24 @@ try {
         await page.keyboard.press(count % 2 ? 'Shift+Tab' : 'Tab')
         assert.equal(await dialog.evaluate(element => element.contains(document.activeElement)), true, 'Tab stays in the review')
       }
+      // A filtered-empty display must retain the reviewed show and its selection.
+      await dialog.locator('.ingest-options > summary').click()
+      const renameOption = dialog.getByRole('checkbox', { name: /正片统一命名/ })
+      await renameOption.uncheck()
+      await dialog.getByText('当前范围无需整理，可调整整理范围或完成。', { exact: true }).waitFor()
+      assert.equal(await dialog.locator('.ingest-show').count(), 0)
+      await renameOption.check()
+      await dialog.locator('.ingest-show').waitFor()
+      assert.equal(await dialog.locator('.ingest-show-heading input').isChecked(), true, 'restored action restores the selected show')
+      const refreshed = requests.filter(request => request.key === '/api/jobs/tv-ingest' && request.method === 'POST' && request.body.scope_preview_id)
+      assert.ok(refreshed.length >= 2)
+      assert.ok(refreshed.slice(-2).every(request => request.body.ids.length === 1 && request.body.ids[0] === 201))
+      const decisionsBeforeEmpty = requests.filter(request => request.key === '/api/tv/ingestion-reviews/decision').length
+      await renameOption.uncheck()
+      await dialog.getByRole('button', { name: '完成', exact: true }).click()
+      await dialog.waitFor({ state: 'hidden' })
+      assert.equal(requests.filter(request => request.key === '/api/tv/ingestion-reviews/decision').length, decisionsBeforeEmpty, 'empty completion sends no decision')
+      await openManual()
       await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden' })
       assert.equal(decision, 'deferred')
       await openManual(); await dialog.getByRole('button', { name: '忽略本次', exact: true }).click()
@@ -180,6 +210,10 @@ try {
       await dialog.getByRole('button', { name: '稍后处理', exact: true }).click(); await dialog.waitFor({ state: 'hidden' })
       await page.getByLabel('显示已忽略', { exact: true }).check()
       await page.getByRole('button', { name: /查看待办/ }).click(); await dialog.waitFor()
+      const pendingRequest = requests.filter(request => request.key === '/api/jobs/tv-ingest' && request.method === 'POST').at(-1)
+      assert.equal(pendingRequest.body.pending_only, true)
+      assert.equal(pendingRequest.body.include_ignored, true)
+      assert.equal(pendingRequest.body.ids, undefined)
       await dialog.getByRole('button', { name: '稍后处理', exact: true }).click(); await dialog.waitFor({ state: 'hidden' })
       // The upload keeps both successful files in one follow-up request.
       decision = ''; const beforeUploads = requests.length

@@ -2,6 +2,7 @@
 import json
 import os
 import sqlite3
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -92,6 +93,54 @@ def test_same_path_replacement_detected_by_media_api_without_scanning(source_fil
     assert len(calls) == 2
     assert store.get_movie(mid)['file_path'] == path.name
     assert store.get_media_info(mid)['source_revision'] == source_revision(current(source_file)[1])
+
+
+def test_probe_consumes_new_source_bytes_after_atomic_replacement(source_file, monkeypatch):
+    _, path, mid, _ = source_file
+    observed = []
+
+    def probe(input_path, size=None):
+        if input_path.startswith('http:'):
+            with urllib.request.urlopen(input_path, timeout=5) as response:
+                content = response.read()
+        else:
+            content = Path(input_path).read_bytes()
+        observed.append(content)
+        return info(duration=len(content))
+
+    monkeypatch.setattr(media, 'probe', probe)
+    assert client.get(f'/api/stream/{mid}/media').json()['duration'] == 8
+    replacement = path.with_name('new.mkv')
+    replacement.write_bytes(b'new-source-is-longer')
+    os.utime(replacement, (1600000000.25, 1600000000.25))
+    os.replace(replacement, path)
+    result = client.get(f'/api/stream/{mid}/media')
+    assert result.status_code == 200
+    assert result.json()['duration'] == path.stat().st_size
+    assert observed == [b'original', b'new-source-is-longer']
+    assert client.get(f'/api/stream/{mid}/media').json()['duration'] == path.stat().st_size
+    assert len(observed) == 2
+
+
+def test_previous_read_policy_probe_cache_is_revalidated_on_demand(source_file):
+    _, _, mid, calls = source_file
+    row, src = current(source_file)
+    store.upsert_media_info(mid, info(duration=999, probe_ver=4), source_revision=source_revision(src))
+    assert common._media_cached_or_probe(row, src)['duration'] != 999
+    assert len(calls) == 1
+    assert store.get_media_info(mid)['probe_ver'] == media.PROBE_VERSION
+
+
+def test_failed_policy_upgrade_never_falls_back_to_an_obsolete_probe(source_file, monkeypatch):
+    _, _, mid, _ = source_file
+    row, src = current(source_file)
+    revision = source_revision(src)
+    store.upsert_media_info(mid, info(duration=999, probe_ver=4), source_revision=revision)
+    monkeypatch.setattr(media, 'probe', lambda *_a, **_k:
+                        {'playable': False, 'probe_error': 'ffprobe timeout'})
+    result = common._media_cached_or_probe(row, src)
+    assert result['playable'] is False and result['probed_at'] == 0
+    assert store.get_media_info(mid)['duration'] == 999  # Retry later; never persist a transient error.
 
 
 def test_same_size_and_same_second_but_precise_mtime_change_reprobes(source_file):

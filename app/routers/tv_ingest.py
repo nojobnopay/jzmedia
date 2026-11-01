@@ -14,9 +14,12 @@ _START_LOCK = threading.Lock()
 
 
 class IngestBody(BaseModel):
-    ids: list[int] | None = Field(default=None, min_length=1, max_length=500)
+    ids: list[int] | None = Field(default=None, min_length=1)
     library_id: int | None = Field(default=None, ge=1)
     media_library_id: int | None = Field(default=None, ge=1)
+    scope_preview_id: str | None = Field(default=None, min_length=1)
+    pending_only: bool = False
+    include_ignored: bool = False
     source: Literal['manual', 'detail', 'upload', 'scan'] = 'manual'
     retry_metadata: bool = False
     actions: list[str] | None = None
@@ -29,7 +32,43 @@ class IngestBody(BaseModel):
             raise ValueError('ids、library_id、media_library_id 必须且只能指定一个')
         if self.ids and any(sid <= 0 for sid in self.ids):
             raise ValueError('剧集 ID 必须为正整数')
+        if self.scope_preview_id is not None and self.ids is None:
+            raise ValueError('引用预览范围时必须明确指定剧集 ID')
+        if self.ids and len(self.ids) > 500 and self.scope_preview_id is None:
+            raise ValueError('一次最多指定 500 部剧；更大范围请引用已有预览')
+        if self.pending_only and self.ids is not None:
+            raise ValueError('待办范围必须指定视频库或媒体库')
+        if self.include_ignored and not self.pending_only:
+            raise ValueError('仅待办检查可以包含已忽略项目')
         return self
+
+
+def _request_scope(body):
+    if body.scope_preview_id is not None:
+        try:
+            payload = store.tv_ingest.get_preview(body.scope_preview_id)['payload']
+            saved = {int(plan['show_id']): int(plan['library_id'])
+                     for plan in payload['summary']['plans']}
+            if not set(body.ids) <= saved.keys():
+                raise ValueError('所选剧不属于原预览范围')
+            shows, lids = tv_ingest.resolve_scope(ids=body.ids)
+            if any(int(show['library_id']) != saved[int(show['id'])] for show in shows):
+                raise ValueError('剧集所属视频库已变化，请重新检查')
+            return shows, lids
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+    try:
+        shows, lids = tv_ingest.resolve_scope(ids=body.ids, library_id=body.library_id,
+                                            media_library_id=body.media_library_id)
+        if body.pending_only:
+            # Freeze the existing pending set once, before queuing. Never turn an
+            # empty set into a library-wide scan or re-query it in the worker.
+            pending = {int(row['show_id']) for row in store.tv_ingest.list_reviews(
+                lids, include_ignored=body.include_ignored)}
+            shows = [show for show in shows if int(show['id']) in pending]
+        return shows, lids
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 def _worker(jid, ids, lids, body):
@@ -46,10 +85,15 @@ def _worker(jid, ids, lids, body):
             if stopped():
                 raise tv_ingest.IngestionCancelled()
             _JOBS.update(jid, state='running', phase='discover')
-            result = tv_ingest.prepare(ids=ids if ids else None, library_ids=lids, source=body.source,
-                retry_metadata=body.retry_metadata, actions=body.actions,
-                allow_torrent=body.allow_torrent, allow_absolute_shows=body.allow_absolute_shows,
-                should_stop=stopped, progress_cb=progress)
+            if ids:
+                result = tv_ingest.prepare(ids=ids, source=body.source,
+                    retry_metadata=body.retry_metadata, actions=body.actions,
+                    allow_torrent=body.allow_torrent, allow_absolute_shows=body.allow_absolute_shows,
+                    should_stop=stopped, progress_cb=progress)
+            else:
+                result = {'preview_id': '', 'plans': [], 'metadata_results': [],
+                          'auto_prompt': False, 'auto_prompt_ids': [], 'total': 0,
+                          'params': {'ids': []}}
             if not stopped():
                 _JOBS.update(jid, state='done', phase='done', summary=result,
                              done=len(ids), total=len(ids))
@@ -64,11 +108,7 @@ def _worker(jid, ids, lids, body):
 
 @router.post('/jobs/tv-ingest')
 def start(body: IngestBody):
-    try:
-        shows, lids = tv_ingest.resolve_scope(ids=body.ids, library_id=body.library_id,
-                                            media_library_id=body.media_library_id)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
+    shows, lids = _request_scope(body)
     from ..scanner.tv_organize import TV_ORGANIZE_ACTIONS
     if body.actions == [] or (body.actions is not None and any(a not in TV_ORGANIZE_ACTIONS for a in body.actions)):
         raise HTTPException(422, '不支持的整理项目')

@@ -99,8 +99,8 @@ export function createTvIngestFlow({ request = api, pollDelay = 1200, onChanged 
     const original = review.value
     if (!original) return
     const visibleIds = original.plans.map(plan => Number(plan.show_id))
-    const chosenIds = ids?.length ? ids.map(Number).filter(id => visibleIds.includes(id)) : visibleIds
-    if (!chosenIds.length) return
+    const chosenIds = ids == null ? visibleIds : ids.map(Number).filter(id => visibleIds.includes(id))
+    if (!chosenIds.length) { if (review.value === original) review.value = null; return }
     await request('/api/tv/ingestion-reviews/decision', { method: 'POST', body: JSON.stringify({
       preview_id: original.preview_id, ids: chosenIds, decision,
     }) })
@@ -140,6 +140,7 @@ export function useTvIngestFlow({ isCurrent = () => true, scopeKey = () => '', b
       const files = fileReconciliationText(results)
       message.value = metadataNote + (files ? files + '；' : '')
         + (summary.plans.some(ingestHasNotice) ? '有待核对的资料或整理项目。' : '目录与文件名无需整理。')
+      if (options.pending_only && !summary.params.ids?.length) message.value = '没有待处理的剧集。'
       await onCompleted(summary)
       if (!current(seq)) return null
       handoff()
@@ -153,18 +154,7 @@ export function useTvIngestFlow({ isCurrent = () => true, scopeKey = () => '', b
     } finally { if (current(seq)) busy.value = false }
   }
   async function pending(scope, { includeIgnored = false, handoff } = {}) {
-    if (busy.value) return
-    const seq = ++generation
-    busy.value = true
-    message.value = '正在读取整理待办…'
-    let items
-    try {
-      items = await flow.reviews(scope, includeIgnored)
-      if (!current(seq)) return
-      if (!items.length) { message.value = '没有待处理的剧集。'; return }
-    } catch (error) { if (current(seq)) message.value = '待办读取失败，可重试：' + error.message; return }
-    finally { if (current(seq)) busy.value = false }
-    if (current(seq)) return start({ ids: [...new Set(items.map(item => Number(item.show_id)))] }, { handoff })
+    return start(scope, { pending_only: true, include_ignored: includeIgnored, handoff })
   }
   return { busy, message, waiting, start, pending, flow, blocked: computed(blocked) }
 }

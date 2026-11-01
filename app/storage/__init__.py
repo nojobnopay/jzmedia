@@ -9,7 +9,7 @@
 from .base import (
     MediaSource, StorageBackend, StorageDenied, StorageError, StorageExists, StorageInvalidPath,
     StorageNotFound, StorageOffline, StorageReadOnly, StorageStat,
-    StorageUnsupported, WalkEntry,
+    StorageUnsupported, StorageSourceChanged, WalkEntry,
 )
 from .factory import (backend_for, backend_for_library, backend_for_media,
                       smb_driver_mode)
@@ -18,7 +18,7 @@ from .local import LocalStorageBackend
 __all__ = [
     'StorageBackend', 'StorageStat', 'MediaSource', 'WalkEntry', 'LocalStorageBackend',
     'StorageExists', 'StorageError', 'StorageInvalidPath', 'StorageNotFound', 'StorageDenied',
-    'StorageReadOnly', 'StorageOffline', 'StorageUnsupported',
+    'StorageReadOnly', 'StorageOffline', 'StorageUnsupported', 'StorageSourceChanged',
     'backend_for', 'backend_for_library', 'backend_for_media', 'smb_driver_mode',
     'media_source', 'media_write_path', 'clear_meta_cache',
 ]
@@ -45,7 +45,7 @@ def media_source(library_id, rel: str, *, backend: StorageBackend | None = None)
     st = backend.stat(norm)
     if st.is_dir:
         raise StorageError(f"不是文件: {rel}")
-    return MediaSource(backend=backend, rel=norm, input=backend.get_read_url(norm),
+    return MediaSource(backend=backend, rel=norm, input=backend.get_media_read_url(norm, st),
                        local_path=backend.abs_path(norm),
                        size=st.size, mtime=st.mtime)
 

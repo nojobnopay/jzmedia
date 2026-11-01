@@ -20,7 +20,8 @@ logger = get_logger("media")
 # 探测结构版本：老行 probe_ver < 本值 → 视为过期自动重探（新字段上线时 +1 即可）
 # v3：图片字幕 codec 归一为 pgs/vobsub（原 hdmv_pgs_subtitle 等）
 # v4：源帧率 + 各音轨采样率，供原生播放器逐片能力验证。
-PROBE_VERSION = 4
+# v5：按需淘汰可能经旧 SMB 读取句柄取得的探测结果。
+PROBE_VERSION = 5
 
 # 二进制解析见下方 ffprobe_bin()/ffmpeg_bin()（系统版优先，静态版兜底）
 

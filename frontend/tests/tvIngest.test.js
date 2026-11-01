@@ -119,16 +119,29 @@ test('file replacement and cleanup feedback remains visible when there are no ph
 test('pending entries including unprepared and ignored versions are rechecked together', async t => {
   const calls = [], flow = flowFor(async (url, opts) => {
     calls.push({ url, opts })
-    if (url.includes('/ingestion-reviews?')) return { items: [{ show_id: 7, needs_check: true }, { show_id: 8, state: 'ignored' }] }
     if (opts?.method === 'POST') return { job_id: 'job' }
     return { state: 'done', summary: summary() }
   })
   const scope = effectScope(), state = scope.run(() => useTvIngestFlow({ flow }))
   t.after(() => scope.stop())
   await state.pending({ library_id: 2 }, { includeIgnored: true })
-  assert.match(calls[0].url, /library_id=2&include_ignored=true/)
-  assert.deepEqual(JSON.parse(calls[1].opts.body).ids, [7, 8])
+  assert.equal(calls[0].url, '/api/jobs/tv-ingest')
+  assert.deepEqual(JSON.parse(calls[0].opts.body), { library_id: 2, source: 'manual', retry_metadata: false,
+    pending_only: true, include_ignored: true })
   assert.equal(flow.queue.value.length, 1)
+})
+test('an empty server-frozen pending scope reports no work without checking the entire library', async t => {
+  const calls = [], flow = flowFor(async (url, opts) => {
+    calls.push({ url, opts })
+    return opts?.method === 'POST' ? { job_id: 'empty' }
+      : { state: 'done', summary: { plans: [], params: { ids: [] }, metadata_results: [] } }
+  })
+  const scope = effectScope(), state = scope.run(() => useTvIngestFlow({ flow }))
+  t.after(() => scope.stop())
+  await state.pending({ library_id: 2 })
+  assert.equal(calls.length, 2)
+  assert.match(state.message.value, /没有待处理/)
+  assert.equal(flow.queue.value.length, 0)
 })
 test('scope changes release local busy state and old failures do not replace a new request', async t => {
   const old = deferred(), key = ref('first')
@@ -158,6 +171,65 @@ test('changing actions or absolute risk invalidates execution until the new prev
   const updating = state.refresh(); next.resolve(summary({ preview_id: 'updated', params: { actions: ['rename'], allow_absolute_shows: [7] } })); await updating
   assert.equal(Boolean(state.canConfirm.value), true)
   assert.equal(state.summary.value.preview_id, 'updated')
+})
+test('review scope and selection survive plans disappearing while actions change', async t => {
+  const calls = [], flow = flowFor(), { state } = setup(t, flow)
+  state.selected.value = [7]
+  flow.prepare = async body => {
+    calls.push(body)
+    return normalizeIngestSummary(summary({ preview_id: calls.length === 1 ? 'filtered' : 'restored',
+      plans: calls.length === 1 ? [plan(8)] : [plan(7), plan(8)] }))
+  }
+  state.actions.value = ['root']; await state.refresh()
+  assert.deepEqual(state.plans.value.map(row => row.show_id), [8])
+  assert.deepEqual(state.selected.value, [7])
+  assert.equal(state.selectedPlans.value.length, 0)
+  state.actions.value = ['root', 'rename']; await state.refresh()
+  assert.deepEqual(calls.map(body => body.ids), [[7, 8], [7, 8]])
+  assert.deepEqual(calls.map(body => body.scope_preview_id), ['preview', 'filtered'])
+  assert.deepEqual(state.selectedPlans.value.map(row => row.show_id), [7])
+  assert.ok(state.canConfirm.value)
+})
+test('an empty refreshed preview can restore its original scope or close without an empty decision', async t => {
+  for (const close of ['close', 'decide']) {
+    const writes = [], flow = flowFor(async (url, opts) => { writes.push({ url, opts }); return {} })
+    const { state } = setup(t, flow, summary({ plans: [plan(7)] }))
+    const calls = []
+    flow.prepare = async body => {
+      calls.push(body)
+      return normalizeIngestSummary(summary({ preview_id: 'empty', plans: [plan(7, { groups: [] })] }))
+    }
+    state.actions.value = ['root']; await state.refresh()
+    assert.equal(state.noWork.value, true)
+    assert.deepEqual(state.selected.value, [7])
+    assert.equal(state.plans.value.length, 0)
+    assert.ok(flow.review.value)
+    flow.prepare = async body => { calls.push(body); return summary({ preview_id: 'restored', plans: [plan(7)] }) }
+    state.actions.value = ['root', 'rename']; await state.refresh()
+    assert.deepEqual(calls[1].ids, [7])
+    assert.equal(calls[1].scope_preview_id, 'empty')
+    assert.equal(state.noWork.value, false)
+    flow.prepare = async () => normalizeIngestSummary(summary({ preview_id: 'empty-again', plans: [] }))
+    await state.refresh()
+    if (close === 'close') state.close()
+    else await state.decide('ignored')
+    assert.equal(flow.review.value, null)
+    assert.deepEqual(writes, [])
+  }
+})
+test('refresh freezes the host-filtered scope and uses a snapshot for more than 500 shows', async t => {
+  const plans = Array.from({ length: 501 }, (_, i) => plan(i + 1))
+  const flow = flowFor()
+  flow.enqueue(summary({ plans: [...plans, plan(900, { library_id: 9 })], auto_prompt_ids: plans.map(row => row.show_id) }), { automatic: true })
+  flow.takeNext()
+  const scope = effectScope(), state = scope.run(() => useTvIngestReview(flow.review.value, { flow }))
+  t.after(() => scope.stop())
+  let body
+  flow.prepare = async value => { body = value; return summary({ plans }) }
+  await state.refresh()
+  assert.equal(body.ids.length, 501)
+  assert.ok(!body.ids.includes(900))
+  assert.equal(body.scope_preview_id, 'preview')
 })
 test('409 keeps show selection but requires a fresh preview before retry', async t => {
   const flow = flowFor(async () => { throw Object.assign(new Error('stale'), { status: 409 }) })

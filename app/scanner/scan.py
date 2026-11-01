@@ -866,8 +866,11 @@ def _scan_all(progress_cb=None, should_stop=None, library_id=None,
             if reconciliation['incomplete']:
                 out.append({'file': '', 'library_id': lib_id, 'status': 'tv_reconciliation',
                             'reconciliation': reconciliation})
+                offline = any(issue.get('code') == 'library_offline'
+                              for issue in reconciliation['issues'])
                 out.append({'file': '', 'library_id': lib_id,
-                            'status': 'error: TV files changing or unavailable; check again'})
+                            'status': ST_LIBRARY_OFFLINE if offline
+                            else 'error: TV files changing or unavailable; check again'})
                 done += len(vids)
                 if progress_cb:
                     progress_cb(done, grand)

@@ -305,6 +305,8 @@ claim 不接收任意播放身份，而是核对 `session_id` 的设备归属。
 
 `POST /api/stream/previews/cache/clean-obsolete {"dry_run":true|false}` 检查或清理确认废弃的缩略图目录。响应中的 `candidates`、`candidate_bytes` 和 `reasons` 描述检查结果，`skipped` 按保护原因计数；执行时重新检查，`removed`、`freed` 和 `failed` 报告实际结果。运行中的生成任务返回 409。旧清单缺少归属信息时，需要所有相关库的扫描和片源状态均可确认才会清理；没有完整扫描证据、离线或待处理变更的库会保守跳过。该接口不修改自动队列或失败记录。
 
+实际清理先将确认的目录移入 `previews/.cleanup-trash/<batch>/<key>`，再删除其中的文件；被保留的中断残余由服务启动时的后台恢复或下次实际清理继续回收。实际清理响应可附 `recovered`、`recovered_bytes`，分别表示本次回收的先前残余目录数和字节数，与当前候选的 `removed`、`freed` 分开统计。`dry_run:true` 只盘点，不移动目录或执行残余恢复。[清理的并发与提交边界](playback.md#倍速缩略图与预缓存)见播放设计。
+
 单片 `GET /api/stream/{version_id}/previews` 返回该片预览清单；运行中的任务另含 `frames`、`frame_total`（当前片已抽帧数与总数），尚未轮到该片时返回 `queued`。客户端以清单 `state=ready` 判断是否完成，不能只凭已有图片页数判断。
 
 ## 客户端例子
@@ -487,6 +489,10 @@ TV 上传登记待检查状态；整批结束后通过下方统一入库接口�
 
 `POST /api/jobs/tv-ingest` 的 `ids`、`library_id`、`media_library_id` 必须三选一，分别表示指定剧、一个视频库、一个媒体库中的启用剧集视频库。`source` 为 `manual/detail/upload/scan`；`retry_metadata` 默认 false，显式重试可绕过同一缺项的本地重查间隔，仍遵守资料源冷却与限流。整理选项为 `actions`、`allow_torrent`、`allow_absolute_shows`，默认采用全部整理动作和保护规则。
 
+普通 `ids` 必须非空，最多 500 项。重新检查已有预览时，可同时提交 `scope_preview_id` 与明确的非空 `ids`；所有 ID 必须属于该快照，且当前视频库归属保持一致。只有携带快照的请求可超过 500 项。快照不存在、所选 ID 越界或剧集归属变化返回 409；参数组合不合法返回 422。该参数只固定重新检查的对象范围，新的整理执行仍须使用重新检查返回的 `preview_id`。
+
+视频库或媒体库请求可传 `pending_only:true`，只处理接收请求时服务端待办列表中的剧；`include_ignored:true` 只能与 `pending_only:true` 一起使用，额外纳入已忽略项目。服务端先解析并冻结确切 ID 集合，再将任务排队，worker 不重新扩展库范围；待办或整个库为空时，任务正常结束，摘要中 `preview_id` 为空、`plans` 为空、`total=0`，不回落到全库扫描。
+
 ```http
 POST /api/jobs/tv-ingest {"ids": [72], "source": "manual", "retry_metadata": true}
 → {"job_id": "…", "resumed": false, ...}
@@ -503,9 +509,11 @@ POST /api/jobs/tv-organize {"preview_id": "…", "ids": [72], "dry_run": false}
 
 检查依次执行文件发现、资料补全和整理预览；扫描后的接续复用本次发现结果。可靠资料先保存到应用，NFO/海报按视频库策略和外部修改保护更新，移动与重命名只由确认后的整理任务执行。分集按精确季集号补缺；已有 ID 时按 ID 补字段，保护手工绑定、本地集、目录编号及归属冲突。同一批次的同剧同季资料请求复用，成功季合并缓存，失败季保留旧资料。
 
+新剧匹配保留目录中的显式 TVDB／IMDb 提示；只有来源标为目录提示的标识才参与该优先查找，不复用先前匹配遗留的 ID。远程无匹配或来源暂不可用时，可回放本地 `tvshow.nfo` 并按上述保护规则补分集 NFO；无有效 NFO 时保留原有未匹配或来源失败状态。
+
 单剧发现的对账摘要为 `reconciliation={replaced,removed,changed,review,issues,incomplete}`，统一入库结果在每剧 `metadata.files` 中携带同一摘要，`summary.metadata_results` 也保留该字段；文件核对问题同时进入 `metadata.issues`。`replaced` 表示承接原身份的改名替换，`changed` 表示同路径片源变化，`removed` 为清理的失效旧记录，`review` 为需核对项。库扫描使用 `replaced_episode/changed_episode/tv_reconcile_review` 状态与 `count` 汇总，失效清理沿用 `removed_episode`；`tv_reconciliation` 结果还提供完整摘要及按剧归并的 `by_show`。
 
-对账只在当前受管范围完整枚举且前后结果一致时进行；离线、取消、应用内复制尚未实际退出、临时文件或读取不完整时保留原记录。已取得的未完成对账摘要以 `incomplete` 及问题项说明原因，也不继续补资料或生成物理整理项；首次枚举即失败或任务取消时沿用对应错误或任务状态。扫描任务 API 在本库已有复制任务时直接返回 409；直接单剧检查则返回未完成对账摘要。外部工具的传输进度需用户先确认完成。
+对账只在当前受管范围完整枚举且前后结果一致时进行；离线、取消、应用内复制尚未实际退出、临时文件或读取不完整时保留原记录。零字节视频仍视为未完成，正常的空字幕或标记文件不阻断扫描。已取得的未完成对账摘要以 `incomplete` 及问题项说明原因，也不继续补资料或生成物理整理项；枚举后的复核遇存储离线时，库扫描保留该摘要及 `library_offline` 问题码，同时返回 `library_offline` 状态，不执行失效记录清理。首次枚举即失败或任务取消时沿用对应错误或任务状态。扫描任务 API 在本库已有复制任务时直接返回 409；直接单剧检查则返回未完成对账摘要。外部工具的传输进度需用户先确认完成。
 
 改名替换须在同库同剧内，采用明确季集号而非绝对集号映射，完整集号区间一致；分段若存在则须为一致的标准 `-partN` 标记。没有归属冲突或区间重叠，且只有一个旧缺失文件与一个新候选、没有其他现存版本时，才承接原分集 ID、观看和手工资料。原文件仍在按新增版本处理；歧义或编号不确定时保留旧记录并标记 `missing`，不跨剧或未知剧根猜测对应关系。
 
