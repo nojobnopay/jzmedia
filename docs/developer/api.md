@@ -267,7 +267,13 @@ claim 不接收任意播放身份，而是核对 `session_id` 的设备归属。
 
 队列项与当前项的 `source` 区分 `auto`（闲时生成）、`retry`（手动重试）和 `batch`（立即生成），保留原有当前项的 `auto` 布尔字段；批次成员另含 `batch_id`。响应中的 `batches:[{batch_id,pending,running,remaining}]` 按当前库的全部队列项汇总，不受分页影响；`remaining` 为本批等待与处理中数量之和，批次无剩余项后不再返回。客户端用队列数量、当前片的 `frames/frame_total` 与批次剩余量表示进度，不能用单片 job 的 `done/total` 表示整队进度。立即请求不抢占当前任务；调度可跳过暂不符合运行条件的闲时项，但不改变这些项的显示顺序或闲时规则。
 
-`POST /api/stream/previews/jobs {"library_id":<id>}` 将当前库尚未完成新版预览的可播放项作为一个立即批次持久入队，返回 `{state:"queued",batch_id,total,added,promoted,ready,already_queued,unavailable}`。`added` 为新增影片数，`promoted` 为从闲时任务提升为本批立即任务的数量；已运行、已单独重试或属于其他立即批次的影片计入 `already_queued`，保留原归属。已有新版成品计入 `ready`，源文件不可用计入 `unavailable`；没有新增或提升项时 `batch_id` 为 `null`。立即批次和手动重试不受自动生成开关与闲时时段限制，仍遵守播放转码让行规则；普通闲时项继续遵守原有时段、播放与预算条件。
+`POST /api/stream/previews/jobs {"library_id":<id>}` 以 HTTP 202 返回 `{state:"accepted",submission}`，全库盘点和入队在后台执行，请求内不逐项访问片源或生成图片。同库仍在盘点时重复提交返回同一任务，不启动第二轮盘点。通过轻量接口 `GET /api/stream/previews/submissions/latest?library_id=<id>` 的 `{submission}` 获取该库最近任务；无任务时为 `null`。该接口不等待队列对账或磁盘占用统计；`GET /api/stream/previews/auto?library_id=<id>` 也可返回该状态，其它全服务字段的范围保持不变。
+
+`submission` 包含 `id/library_id/state/phase/total/checked/added/promoted/ready/already_queued/unavailable/batch_id/error`。`state` 为 `running/done/error/cancelled`；运行阶段 `phase` 依次为 `listing`（读取全库条目）、`checking`（校验片源和成品）、`queueing`（复核候选并保存队列），完成后为 `done`。`total` 在列举完成前为 `null`，之后表示全库条目数；`checked` 是已盘点数量，与处理队列的等待数量分开。最近任务状态保存在 `DATA_DIR/.previews-submissions.json`；刷新网页可以恢复进度，服务重启后的未完成盘点标记为中断并允许重新提交，已经持久入队的影片继续保留。
+
+立即批量和已有影片加入闲时队列使用同一套源修订及目录快照校验。盘点期间发生改名、目录移动、源文件替换、删除或扫描增删记录时，本次结果不会提交到队列；立即任务为 `state:error` 并给出重试说明，闲时入队返回 409。最终复核时源文件缺失或存储离线仍可返回 410／503。已有队列保留，文件变更日志只由扫描确认，不由预览盘点清账。
+
+盘点成功后的 `added` 为新增影片数，`promoted` 为从闲时任务提升为本批立即任务的数量；已运行、已单独重试或属于其他立即批次的影片计入 `already_queued`，保留原归属。已有新版成品计入 `ready`，源文件不可用计入 `unavailable`；没有新增或提升项时 `batch_id` 为 `null`。立即批次和手动重试不受自动生成开关与闲时时段限制，仍遵守播放转码让行规则；普通闲时项继续遵守原有时段、播放与预算条件。客户端提交响应丢失时应先查询最近任务，查询失败时保留待核实状态，避免重新触发盘点。
 
 ### 已生成与失败清单
 
@@ -296,6 +302,8 @@ claim 不接收任意播放身份，而是核对 `session_id` 的设备归属。
 ### 清理与单片状态
 
 `POST /api/stream/previews/cache/clean {"dry_run":true|false}` 先预览再清理全部进度缩略图，不删除持久队列，生成任务运行时返回 409。原有 `POST /api/stream/cache/clean` 只清理可回收播放缓存。扫描摘要的 `preview_auto.queued` 表示新排队项数。
+
+`POST /api/stream/previews/cache/clean-obsolete {"dry_run":true|false}` 检查或清理确认废弃的缩略图目录。响应中的 `candidates`、`candidate_bytes` 和 `reasons` 描述检查结果，`skipped` 按保护原因计数；执行时重新检查，`removed`、`freed` 和 `failed` 报告实际结果。运行中的生成任务返回 409。旧清单缺少归属信息时，需要所有相关库的扫描和片源状态均可确认才会清理；没有完整扫描证据、离线或待处理变更的库会保守跳过。该接口不修改自动队列或失败记录。
 
 单片 `GET /api/stream/{version_id}/previews` 返回该片预览清单；运行中的任务另含 `frames`、`frame_total`（当前片已抽帧数与总数），尚未轮到该片时返回 `queued`。客户端以清单 `state=ready` 判断是否完成，不能只凭已有图片页数判断。
 

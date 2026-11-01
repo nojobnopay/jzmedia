@@ -35,9 +35,12 @@ def clear_meta_cache(library_id=None) -> None:
         pass
 
 
-def media_source(library_id, rel: str) -> MediaSource:
+def media_source(library_id, rel: str, *, backend: StorageBackend | None = None) -> MediaSource:
     """库内相对路径 → MediaSource（播放/探测统一入口；错误由调用方映射 HTTP）。"""
-    backend = backend_for(library_id)
+    if backend is None:
+        backend = backend_for(library_id)
+    elif library_id is None or backend.library_id != int(library_id):
+        raise StorageInvalidPath("media source backend belongs to another library")
     norm = backend.norm(rel)
     st = backend.stat(norm)
     if st.is_dir:

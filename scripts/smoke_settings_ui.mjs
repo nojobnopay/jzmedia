@@ -98,6 +98,7 @@ let previewQueue = Array.from({ length: 52 }, (_, index) => ({
 let previewRunning = { kind: 'movie', id: 91, library_id: 1, title: '处理样本', file_name: 'running.mkv',
   job_id: 'preview-auto', source: 'auto', auto: true, waiting: false, frames: 4, frame_total: 10, done: 0, total: 1 }
 let previewBatchSequence = 0
+let previewSubmission = null, previewDeferredInventory = false
 function previewBatchSummaries(libraryId) {
   const batches = new Map()
   for (const item of [...previewQueue, ...(previewRunning ? [previewRunning] : [])]) {
@@ -233,12 +234,19 @@ function mock(url, method, body) {
   if (key === '/api/stream/progress') return method === 'GET' ? { position: 25, duration: 1200, position_text: '00:25' } : { ok: true }
   if (key === '/api/stream/previews/jobs/latest') return { state: 'idle' }
   if (key === '/api/stream/previews/jobs' && method === 'POST') {
+    if (previewDeferredInventory) {
+      previewSubmission ||= { id: 'preview-inventory-fixture', library_id: body.library_id, state: 'running', phase: 'listing',
+        total: null, checked: 0, added: 0, promoted: 0, ready: 0, already_queued: 0, unavailable: 0 }
+      return { state: 'accepted', submission: structuredClone(previewSubmission) }
+    }
     const batchId = `preview-fixture-batch-${++previewBatchSequence}`
     const batch = Array.from({ length: 3 }, (_, index) => ({ kind: 'movie', id: 1100 + previewBatchSequence * 10 + index,
       library_id: body.library_id, title: `批次 ${previewBatchSequence} 样本 ${index + 1}`, file_name: `batch-${previewBatchSequence}-${index + 1}.mkv`,
       source: 'batch', batch_id: batchId, auto: false }))
     previewQueue.push(...batch)
-    return { state: 'queued', batch_id: batchId, total: 3, added: 3, ready: 0, already_queued: 0, unavailable: 0 }
+    previewSubmission = { id: `inventory-${batchId}`, library_id: body.library_id, state: 'done', phase: 'done',
+      batch_id: batchId, total: 3, checked: 3, added: 3, promoted: 0, ready: 0, already_queued: 0, unavailable: 0 }
+    return { state: 'accepted', submission: structuredClone(previewSubmission) }
   }
   if (/^\/api\/stream\/previews\/batches\/[^/]+\/cancel$/.test(key) && method === 'POST') {
     const batchId = key.split('/').at(-2)
@@ -248,7 +256,10 @@ function mock(url, method, body) {
     if (cancelled) previewRunning = null
     return { removed: before - previewQueue.length, cancelled }
   }
-  if (key === '/api/stream/previews/auto') return { mode: 'all', queued: previewQueue.length + Number(!!previewRunning), running: !!previewRunning, start_hour: 3, end_hour: 6, pause_reason: 'scheduled' }
+  if (key === '/api/stream/previews/auto') return { mode: 'all', queued: previewQueue.length + Number(!!previewRunning),
+    running: !!previewRunning, start_hour: 3, end_hour: 6, pause_reason: 'scheduled' }
+  if (key === '/api/stream/previews/submissions/latest') return {
+    submission: previewSubmission?.library_id === Number(url.searchParams.get('library_id')) ? structuredClone(previewSubmission) : null }
   if (key === '/api/stream/previews/completed') {
     const libraryId = Number(url.searchParams.get('library_id'))
     const items = previewCompleted.filter(item => !libraryId || item.library_id === libraryId)
@@ -842,13 +853,16 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
     return { promise, release, requested, seen }
   }
   let completedGate = null, queueGate = null, failedGate = null, retryGate = null, batchCancelGate = null, tailGate = null
-  let failCompleted = false, failQueue = false, failFailed = false, failRetry = false
+  let failCompleted = false, failQueue = false, failFailed = false, failRetry = false, failAuto = false
   let failCurrentCancel = false, failBatchCancel = false
   let failTail = false
   const tailSources = new Map()
   await context.route('**/*', async route => {
     const url = new URL(route.request().url())
     if (url.origin !== base) return route.abort()
+    if (url.pathname === '/api/stream/previews/submissions/latest' && failAuto) {
+      return route.fulfill({ status: 503, json: { detail: '模拟批量任务状态读取失败' } })
+    }
     if (route.request().method() === 'GET' && ['/api/stream/previews/completed', '/api/stream/previews/queue', '/api/stream/previews/failed'].includes(url.pathname)) {
       const completed = url.pathname.endsWith('/completed'), failureList = url.pathname.endsWith('/failed')
       const delayed = completed ? completedGate : failureList ? failedGate : queueGate
@@ -1444,6 +1458,48 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
       await captureViewports('queue-batches-cancelled')
       checks.push('persistent batch acknowledgements append while running; frame percentage and remaining summaries; current cancellation failure/retry removes one item; two distinct batches cancel independently via captured IDs with confirmation, Escape/focus, API retry and busy duplicate guard; auto/retry work survives')
 
+      const beforeInventory = structuredClone({ queue: previewQueue, running: previewRunning })
+      previewQueue = []; previewRunning = null
+      previewSubmission = null; previewDeferredInventory = true
+      await openLibrary()
+      const inventoryRequests = () => requests.filter(request => request.key === '/api/stream/previews/jobs' && request.method === 'POST')
+      const beforeSubmitCount = inventoryRequests().length
+      await preview.getByRole('button', { name: '立即批量生成', exact: true }).click()
+      const inventoryStart = preview.getByRole('button', { name: '正在统计全库…', exact: true })
+      await inventoryStart.waitFor()
+      assert.equal(await inventoryStart.isDisabled(), true)
+      await inventoryStart.evaluate(button => button.click())
+      assert.equal(inventoryRequests().length, beforeSubmitCount + 1, 'running inventory cannot submit a duplicate')
+      assert.doesNotMatch(await preview.innerText(), /已检查 0 \/ 0/)
+      queueGate = gate()
+      await queueGate.requested
+      previewSubmission = { ...previewSubmission, phase: 'checking', total: 5000, checked: 2500, ready: 2491, already_queued: 9 }
+      await preview.getByText(/已检查 2500 \/ 5000 项/).waitFor()
+      const inventoryProgress = preview.getByRole('progressbar', { name: '全库预览检查进度', exact: true })
+      assert.equal(await inventoryProgress.getAttribute('value'), '2500')
+      assert.equal(await inventoryProgress.getAttribute('max'), '5000')
+      await captureViewports('batch-inventory-checking')
+      failAuto = true
+      await preview.getByRole('alert').filter({ hasText: '模拟批量任务状态读取失败' }).waitFor()
+      assert.equal(await preview.getByRole('button', { name: '正在检查预览…', exact: true }).isDisabled(), true)
+      failAuto = false
+      await preview.getByRole('button', { name: '重新查询批量任务状态', exact: true }).click()
+      await preview.getByRole('alert').filter({ hasText: '模拟批量任务状态读取失败' }).waitFor({ state: 'hidden' })
+      queueGate.release(); queueGate = null
+      await openLibrary()
+      await preview.getByText(/已检查 2500 \/ 5000 项/).waitFor()
+      assert.equal(await preview.getByRole('button', { name: '正在检查预览…', exact: true }).isDisabled(), true)
+      previewSubmission = { ...previewSubmission, phase: 'queueing', checked: 5000, ready: 4991 }
+      await preview.getByRole('button', { name: '正在加入队列…', exact: true }).waitFor()
+      previewSubmission = { ...previewSubmission, state: 'done', phase: 'done', promoted: 9 }
+      await preview.getByText(/全库检查 5000 项，已加入 0 项立即批量任务，转为立即处理 9 项/).waitFor()
+      assert.equal(await preview.getByRole('button', { name: '立即批量生成', exact: true }).isEnabled(), true)
+      assert.equal(previewQueue.length, 0, 'inventory totals are distinct from extraction queue totals')
+      checks.push('asynchronous full-library inventory phases and 5000-item progress, duplicate guard, independent status during stalled queue, transient status retry, page-reload recovery and final promoted/ready counts on desktop and phones')
+      previewQueue = beforeInventory.queue; previewRunning = beforeInventory.running
+      previewSubmission = null; previewDeferredInventory = false
+      await openLibrary()
+
       if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
       await completed.getByText('成品样本 1', { exact: true }).waitFor()
       if (await failedToggle.getAttribute('aria-expanded') !== 'true') await failedToggle.click()
@@ -1494,6 +1550,7 @@ async function checkPreviewMaintenance(browser, base, { baseline = false } = {})
   } finally {
     for (const release of releases) release()
     previewQueue = original.queue; previewRunning = original.running; previewCompleted = original.completed; previewFailed = original.failed
+    previewSubmission = null; previewDeferredInventory = false
     await context.close()
   }
 }
@@ -1662,6 +1719,13 @@ async function checkCacheSettings(browser, base) {
       if (pending) { pending.started(); await pending.promise }
       if (failUsage) return route.fulfill({ status: 503, json: { detail: '模拟完整占用统计失败' } })
       return route.fulfill({ json: usage() })
+    }
+    if (url.pathname === '/api/stream/previews/cache/clean-obsolete') {
+      const body = request.postDataJSON()
+      cleanCalls.push({ cache: 'obsolete', dry_run: body.dry_run })
+      return route.fulfill({ json: { candidates: 2, candidate_bytes: gib, reasons: { replaced: 2 },
+        skipped: { in_use: 1, offline: 2, protected: 3, unknown: 4 },
+        removed: body.dry_run ? 0 : 1, freed: body.dry_run ? 0 : gib, failed: body.dry_run ? 0 : 1 } })
     }
     const cache = url.pathname === '/api/stream/cache/clean' ? 'transcode'
       : url.pathname === '/api/stream/previews/cache/clean' ? 'previews' : null
@@ -2353,6 +2417,24 @@ async function checkCacheSettings(browser, base) {
     await save.click()
     await panel.getByText('容量设置已保存并生效', { exact: true }).waitFor()
 
+    const obsolete = panel.locator('.obsolete-cleanup')
+    const checkObsolete = obsolete.getByRole('button', { name: '清理废弃缩略图', exact: true })
+    await checkObsolete.click()
+    await obsolete.getByText(/旧片源 2/).waitFor()
+    await obsolete.getByText(/离线或扫描未完成 2/).waitFor()
+    assert.deepEqual(cleanCalls.filter(call => call.cache === 'obsolete').map(call => call.dry_run), [true])
+    await obsolete.getByRole('button', { name: '取消', exact: true }).click()
+    assert.equal(await checkObsolete.evaluate(button => button === document.activeElement), true)
+    await checkObsolete.click()
+    const obsoleteReads = usageReads
+    await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === '/api/data-usage'),
+      obsolete.getByRole('button', { name: '确认清理废弃缩略图', exact: true }).click(),
+    ])
+    await obsolete.getByText(/已清理 1 个目录.*失败 1 个/).waitFor()
+    assert.ok(usageReads > obsoleteReads, 'obsolete cleanup refreshes actual usage')
+    assert.deepEqual(cleanCalls.filter(call => call.cache === 'obsolete').map(call => call.dry_run), [true, true, false])
+
     for (const [cache, confirmation, remaining] of [['transcode', '确认清理缓存', '23.00G'], ['previews', '确认清理缩略图', '20.00G']]) {
       const row = panel.locator(`.cache-budget-row[data-cache="${cache}"]`)
       const check = row.getByRole('button', { name: '检查可清理空间', exact: true })
@@ -2376,6 +2458,8 @@ async function checkCacheSettings(browser, base) {
     await storage.locator('.storage-total').getByText('25.00G', { exact: false }).waitFor()
     for (const width of [1440, 390, 320]) {
       await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 })
+      await checkObsolete.click()
+      await obsolete.getByRole('button', { name: '确认清理废弃缩略图', exact: true }).waitFor()
       await panel.scrollIntoViewIfNeeded()
       await warning.focus()
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'long library names and capacity controls fit the viewport')
@@ -2388,6 +2472,7 @@ async function checkCacheSettings(browser, base) {
       // otherwise appear inside the extended capture despite being outside the viewport.
       await page.evaluate(() => window.scrollTo(0, 0))
       await page.screenshot({ path: path.join(directory, `capacity-${width}.png`), animations: 'disabled', fullPage: true })
+      await obsolete.getByRole('button', { name: '取消', exact: true }).click()
     }
     await page.setViewportSize({ width: 1440, height: 1000 })
     await warning.fill('200')

@@ -56,6 +56,8 @@
           <div class="base-heading"><h4>{{ field.part === 'transcode' ? '播放缓存' : '进度缩略图' }}</h4>
             <p class="cache-actual">实际占用 <strong>{{ usage?.ok ? fmtBytes(usage.categories[field.part]) : '暂不可用' }}</strong></p></div>
           <p class="hint">{{ field.hint }}</p>
+          <ObsoletePreviewCleanup v-if="field.part === 'previews'" :disabled="saving" />
+          <p v-if="field.part === 'previews'" class="hint">清理全部缩略图会删除当前有效的缓存，之后需要重新生成。</p>
           <CacheCleanupControls :kind="field.part" :disabled="saving" />
         </div>
       </section>
@@ -76,6 +78,7 @@ import { useSettingsDraft } from '../settingsDrafts.js'
 import BudgetAllocationBar from './BudgetAllocationBar.vue'
 import BudgetQuotaEditor from './BudgetQuotaEditor.vue'
 import CacheCleanupControls from './CacheCleanupControls.vue'
+import ObsoletePreviewCleanup from './ObsoletePreviewCleanup.vue'
 import AppIcon from './AppIcon.vue'
 import JzButton from './JzButton.vue'
 import JzField from './JzField.vue'

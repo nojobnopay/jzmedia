@@ -120,6 +120,7 @@ def test_unknown_private_ids_and_resources_hidden(protected, tmp_path, monkeypat
         assert protected.get(path).status_code == 404, path
     assert protected.get("/api/fs/blob?path=private.mkv").status_code == 403
     assert protected.get("/api/stream/previews/jobs/latest").status_code == 403
+    assert protected.get("/api/stream/previews/submissions/latest?library_id=1").status_code == 403
     assert "path" not in protected.get("/api/health").json()
 
 

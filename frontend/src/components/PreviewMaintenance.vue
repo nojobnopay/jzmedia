@@ -8,10 +8,19 @@
     <p v-else-if="auto?.queued && auto.pause_reason === 'preview_limit'" class="hint" role="status">进度缩略图缓存接近上限，闲时生成暂时暂停。可在“系统维护”调整容量或清理旧缩略图。</p>
     <p v-else-if="auto?.queued && auto.pause_reason === 'usage_unavailable'" class="hint" role="status">暂时无法统计应用数据占用，自动生成已暂停。可到“系统维护”重试统计。</p>
     <div class="bar">
-      <JzButton class="tool-action" @click="start" :disabled="starting || !!mutating" :loading="starting" type="button" icon="image">{{ starting ? '正在加入…' : '立即批量生成' }}</JzButton>
-      <JzButton v-if="canQueueExisting" @click="queueExisting" :disabled="starting || !!mutating" type="button">{{ mutating === 'add' ? '正在加入…' : '将已有影片加入闲时队列' }}</JzButton>
+      <JzButton class="tool-action" @click="start" :disabled="!submissionKnown || batchBusy || !!mutating" :loading="starting || submissionRunning" type="button" icon="image">{{ startLabel }}</JzButton>
+      <JzButton v-if="canQueueExisting" @click="queueExisting" :disabled="batchBusy || !!mutating" type="button">{{ mutating === 'add' ? '正在加入…' : '将已有影片加入闲时队列' }}</JzButton>
       <span v-if="error" class="hint error" role="alert">{{ error }}</span>
     </div>
+    <div v-if="submissionRunning" class="submission-status" role="status">
+      <p class="hint">{{ submissionPhase }}<template v-if="submission.total !== null"> · 已检查 {{ submission.checked }} / {{ submission.total }} 项</template>。可离开页面，稍后返回查看。</p>
+      <progress v-if="submission.phase === 'checking' && submission.total > 0" :max="submission.total" :value="submission.checked" aria-label="全库预览检查进度" />
+      <p class="hint">正在检查当前视频库的全部影片；处理队列只显示需要生成的影片。</p>
+    </div>
+    <p v-if="submissionUncertain" class="hint" role="status">正在查询后台批量任务是否已开始，请等待查询结果。</p>
+    <p v-if="submissionError" class="hint error" role="alert">批量任务状态暂时无法更新：{{ submissionError }}
+      <JzButton type="button" :loading="statusLoading" @click="loadStatus" aria-label="重新查询批量任务状态">重新查询</JzButton>
+    </p>
     <p v-if="feedback" class="hint" role="status">{{ feedback }}</p>
 
     <div class="completed-heading">
@@ -256,6 +265,16 @@ const queueError = ref('')
 const error = ref('')
 const feedback = ref('')
 const starting = ref(false)
+const submission = ref(null)
+const submissionKnown = ref(false)
+const submissionUncertain = ref(false)
+const submissionError = ref('')
+const statusLoading = ref(false)
+const submissionRunning = computed(() => submission.value?.state === 'running')
+const batchBusy = computed(() => starting.value || submissionRunning.value || submissionUncertain.value)
+const submissionPhase = computed(() => ({ listing: '正在统计全库', checking: '正在检查预览', queueing: '正在加入队列' }[submission.value?.phase] || '正在统计全库'))
+const startLabel = computed(() => starting.value ? '正在提交…' : submissionRunning.value ? `${submissionPhase.value}…`
+  : submissionUncertain.value ? '正在核对…' : !submissionKnown.value ? '正在查询…' : '立即批量生成')
 const mutating = ref('')
 const tailBusy = computed(() => mutating.value.startsWith('tail:'))
 const allMode = ref(false)
@@ -325,6 +344,12 @@ function toggleItem(item) {
 let timer = null
 let requestSeq = 0
 let loadCtrl = null
+let statusTimer = null
+let statusSeq = 0
+let statusCtrl = null
+let autoCtrl = null
+let autoSeq = 0
+let autoCheckedAt = 0
 let completedSeq = 0
 let completedCtrl = null
 let failedSeq = 0
@@ -474,6 +499,69 @@ function beginAction() {
   return ctrl.signal
 }
 const isCurrent = signal => !disposed && !signal.aborted
+function receiveSubmission(value) {
+  const next = value?.library_id === props.libraryId ? value : null
+  const previous = submission.value
+  if (submissionUncertain.value && next) error.value = ''
+  submission.value = next
+  submissionKnown.value = true
+  submissionUncertain.value = false
+  submissionError.value = ''
+  if (!next || previous?.id === next.id && previous.state === next.state) return
+  if (next.state === 'done') feedback.value = batchSummary(next)
+  else if (next.state === 'error') error.value = next.error || '批量盘点失败，请重新提交。'
+  else if (next.state === 'cancelled') feedback.value = '批量盘点已中断，可重新提交。'
+}
+function batchSummary(result) {
+  return `全库检查 ${result.total} 项，已加入 ${result.added} 项立即批量任务${result.promoted ? `，转为立即处理 ${result.promoted} 项` : ''}；已有新版预览 ${result.ready} 项，已在处理队列 ${result.already_queued} 项，源文件不可用 ${result.unavailable} 项。`
+}
+function invalidateStatus() {
+  clearTimeout(statusTimer)
+  statusSeq++
+  statusCtrl?.abort()
+  statusCtrl = null
+  statusLoading.value = false
+}
+async function loadStatus() {
+  if (!props.active || disposed || starting.value || statusCtrl) return
+  invalidateStatus()
+  const seq = statusSeq
+  const libraryId = props.libraryId
+  const requestCtrl = new AbortController()
+  statusCtrl = requestCtrl
+  statusLoading.value = true
+  try {
+    const result = await api(`/api/stream/previews/submissions/latest?library_id=${libraryId}`, { signal: requestCtrl.signal })
+    if (disposed || seq !== statusSeq || requestCtrl.signal.aborted) return
+    receiveSubmission(result.submission)
+  } catch (e) {
+    if (!disposed && seq === statusSeq && e.name !== 'AbortError') submissionError.value = e.message
+  } finally {
+    if (!disposed && seq === statusSeq) {
+      statusCtrl = null
+      statusLoading.value = false
+      if (props.active) statusTimer = setTimeout(loadStatus, batchBusy.value || !submissionKnown.value || submissionError.value ? 2500 : 30000)
+    }
+  }
+}
+function invalidateAuto() {
+  autoSeq++
+  autoCtrl?.abort()
+  autoCtrl = null
+  autoCheckedAt = 0
+}
+async function loadAuto() {
+  if (autoCtrl || autoCheckedAt && Date.now() - autoCheckedAt < 30000) return
+  const seq = autoSeq
+  const requestCtrl = new AbortController()
+  autoCtrl = requestCtrl
+  autoCheckedAt = Date.now()
+  try {
+    const result = await api('/api/stream/previews/auto', { signal: requestCtrl.signal })
+    if (!disposed && seq === autoSeq && !requestCtrl.signal.aborted) auto.value = result
+  } catch { /* Configuration status retries without delaying the inventory or queue. */ }
+  finally { if (seq === autoSeq) autoCtrl = null }
+}
 async function finishAction(signal, refreshFailures = true) {
   if (!isCurrent(signal)) return
   starting.value = false
@@ -488,18 +576,17 @@ async function load({ refreshFailures = true } = {}) {
   const requestCtrl = new AbortController()
   loadCtrl = requestCtrl
   loading.value = true
+  // Task status has its own request and clock so a slow queue cannot hide progress.
+  loadStatus()
+  loadAuto()
   // Failure history refreshes independently, even when queue status is unavailable.
   if (refreshFailures && failedOpen.value && !failedLoading.value) loadFailed()
   try {
-    const [autoStatus, queueResult] = await Promise.all([
-      api('/api/stream/previews/auto', { signal: requestCtrl.signal }),
-      api(`/api/stream/previews/queue?library_id=${libraryId}&offset=${offset.value}&limit=${pageSize}`, { signal: requestCtrl.signal }),
-    ])
+    const queueResult = await api(`/api/stream/previews/queue?library_id=${libraryId}&offset=${offset.value}&limit=${pageSize}`, { signal: requestCtrl.signal })
     if (disposed || seq !== requestSeq) return
     const previousRunning = running.value
     const currentRunning = queueResult.running?.library_id === libraryId ? queueResult.running : null
     const currentChanged = previousRunning && (!currentRunning || itemKey(previousRunning) !== itemKey(currentRunning))
-    auto.value = autoStatus
     if (queue.value && queueResult.revision !== queue.value.revision && selectionCount.value) {
       clearSelection()
       feedback.value = '待处理队列已变化，请重新选择。'
@@ -518,14 +605,15 @@ async function load({ refreshFailures = true } = {}) {
     if (!disposed && seq === requestSeq) {
       loadCtrl = null
       loading.value = false
-      if (props.active) timer = setTimeout(load, running.value || queue.value?.total ? 2500 : 30000)
+      if (props.active) timer = setTimeout(load, batchBusy.value || !submissionKnown.value || submissionError.value || running.value || queue.value?.total ? 2500 : 30000)
     }
   }
 }
 async function start() {
-  if (starting.value || mutating.value) return
+  if (!submissionKnown.value || batchBusy.value || mutating.value) return
   const libraryId = props.libraryId
   const signal = beginAction()
+  invalidateStatus()
   starting.value = true
   try {
     const result = await api('/api/stream/previews/jobs', {
@@ -533,13 +621,20 @@ async function start() {
     })
     if (!isCurrent(signal)) return
     clearSelection()
-    feedback.value = `已加入 ${result.added} 项立即批量任务${result.promoted ? `，转为立即处理 ${result.promoted} 项` : ''}；已有新版预览 ${result.ready} 项，已在处理队列 ${result.already_queued} 项，源文件不可用 ${result.unavailable} 项。`
+    if (result.submission) receiveSubmission(result.submission)
+    else feedback.value = batchSummary(result)
     offset.value = 0
-  } catch (e) { if (isCurrent(signal)) error.value = e.message }
+  } catch (e) {
+    if (isCurrent(signal)) {
+      error.value = e.message
+      // A lost HTTP response does not tell us whether the server accepted work.
+      submissionUncertain.value = !e.status || e.status >= 500
+    }
+  }
   finally { await finishAction(signal) }
 }
 async function queueExisting() {
-  if (starting.value || mutating.value) return
+  if (batchBusy.value || mutating.value) return
   const libraryId = props.libraryId
   const signal = beginAction()
   mutating.value = 'add'
@@ -770,6 +865,8 @@ async function submitTailDialog() {
 function changePage(delta) { offset.value = Math.max(0, offset.value + delta * pageSize); load() }
 watch(() => [props.active, props.libraryId], ([active]) => {
   invalidateLoad()
+  invalidateStatus()
+  invalidateAuto()
   invalidateCompleted()
   invalidateFailed()
   ctrl.abort()
@@ -793,6 +890,10 @@ watch(() => [props.active, props.libraryId], ([active]) => {
   failedFeedback.value = ''
   failedActionError.value = ''
   starting.value = false
+  submission.value = null
+  submissionKnown.value = false
+  submissionUncertain.value = false
+  submissionError.value = ''
   mutating.value = ''
   offset.value = 0
   clearSelection()
@@ -804,7 +905,7 @@ watch(() => [props.active, props.libraryId], ([active]) => {
     if (completedOpen.value) loadCompleted()
   }
 }, { immediate: true, flush: 'sync' })
-onBeforeUnmount(() => { disposed = true; ctrl.abort(); invalidateLoad(); invalidateCompleted(); invalidateFailed() })
+onBeforeUnmount(() => { disposed = true; ctrl.abort(); invalidateLoad(); invalidateStatus(); invalidateAuto(); invalidateCompleted(); invalidateFailed() })
 </script>
 
 <style scoped>
@@ -814,6 +915,9 @@ h5 { margin: 0; font-size: var(--jz-font-xl); font-weight: 700; line-height: 1.4
 .hint { color: var(--jz-text-dim); font-size: 0.8125rem; }
 .error { color: var(--jz-danger); }
 .bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.submission-status { margin-top: var(--jz-gap-m); }
+.submission-status p { margin-block: var(--jz-gap-s); }
+.submission-status progress { display: block; width: min(100%, 420px); height: 6px; accent-color: var(--jz-accent); }
 .completed-heading { margin-top: var(--jz-gap-xl); }
 .completed-toggle { width: 100%; justify-content: flex-start; padding-inline: var(--jz-gap-m); border: 1px solid var(--jz-border); border-radius: var(--jz-radius-s); }
 .completed-toggle > span { flex: 1; min-width: 0; text-align: left; }

@@ -10,7 +10,8 @@ from .extras import get_extra
 from .movies import get_movie
 from .tv import get_episode, get_show
 
-__all__ = ['get_playable', 'get_preview_playables', 'normalize_kind', 'EXTRA_LABELS', 'preview_items']
+__all__ = ['get_playable', 'get_preview_playables', 'get_library_preview_playables',
+           'preview_catalogue_snapshot', 'normalize_kind', 'EXTRA_LABELS', 'preview_items']
 
 # 花絮子类型 → 中文标签（前端也可用 /api/tv/shows 返回的 kind）
 EXTRA_LABELS = {"movie": "剧场版", "trailer": "预告", "behindthescenes": "幕后",
@@ -72,6 +73,18 @@ def _preview_playable(kind, row, show_title=""):
     return out
 
 
+def _preview_rows(connection, kind, table, where, params):
+    query = f"SELECT item.* FROM {table} AS item"
+    if kind != "movie":
+        query = ("SELECT item.*, CASE WHEN series.id IS NULL THEN '' ELSE series.title END "
+                 "AS preview_show_title "
+                 f"FROM {table} AS item LEFT JOIN tv_shows AS series ON series.id=item.show_id")
+    for raw in connection.execute(query + " WHERE " + where + " ORDER BY item.id", params):
+        row = dict(raw)
+        show_title = row.pop("preview_show_title", "")
+        yield _preview_playable(kind, row, show_title)
+
+
 def get_preview_playables(refs, library_id=None) -> list[dict]:
     """批量读取缩略图候选行及展示名；不加载演职员、版本或整剧分集详情。"""
     grouped = {kind: set() for kind in ("movie", "episode", "extra")}
@@ -90,21 +103,43 @@ def get_preview_playables(refs, library_id=None) -> list[dict]:
             ids = sorted(grouped[kind])
             for start in range(0, len(ids), 400):
                 chunk = ids[start:start + 400]
-                query = f"SELECT item.* FROM {table} AS item"
-                if kind != "movie":
-                    query = ("SELECT item.*, CASE WHEN series.id IS NULL THEN '' ELSE series.title END "
-                             "AS preview_show_title "
-                             f"FROM {table} AS item LEFT JOIN tv_shows AS series ON series.id=item.show_id")
-                query += " WHERE item.id IN (" + ",".join("?" for _ in chunk) + ")"
+                where = "item.id IN (" + ",".join("?" for _ in chunk) + ")"
                 params = chunk
                 if library_id is not None:
-                    query += " AND item.library_id=?"
+                    where += " AND item.library_id=?"
                     params = [*chunk, int(library_id)]
-                for raw in c.execute(query, params):
-                    row = dict(raw)
-                    show_title = row.pop("preview_show_title", "")
-                    out.append(_preview_playable(kind, row, show_title))
+                out.extend(_preview_rows(c, kind, table, where, params))
     return out
+
+
+def get_library_preview_playables(library_id: int) -> list[dict]:
+    """全库预览盘点：三次查询取得各版本、分集和花絮，不逐集加载整剧。"""
+    out = []
+    with _lock, _conn() as c:
+        for kind, table in (("movie", "movies"), ("episode", "tv_episodes"), ("extra", "extras")):
+            out.extend(_preview_rows(c, kind, table, "item.library_id=?", (int(library_id),)))
+    return out
+
+
+def preview_catalogue_snapshot(library_id: int) -> tuple[tuple, ...]:
+    """Comparable source identities, without metadata or scan bookkeeping.
+
+    Each tuple is (kind, id, library_id, file_path, source_revision, mtime, size).
+    Missing scan_state values stay None; learning a previously unknown source
+    conservatively invalidates the old snapshot. Status and update timestamps
+    are excluded so an unchanged scan or metadata refresh preserves identity.
+    """
+    out = []
+    with _lock, _conn() as c:
+        for kind, table in (("movie", "movies"), ("episode", "tv_episodes"), ("extra", "extras")):
+            rows = c.execute(
+                f"SELECT '{kind}', item.id, item.library_id, item.file_path,"
+                " state.source_revision, state.mtime, state.size"
+                f" FROM {table} AS item LEFT JOIN scan_state AS state"
+                " ON state.library_id=item.library_id AND state.file_path=item.file_path"
+                " WHERE item.library_id=? ORDER BY item.id", (int(library_id),))
+            out.extend(tuple(row) for row in rows)
+    return tuple(out)
 
 
 def preview_items(library_id: int) -> list[tuple[str, int]]:

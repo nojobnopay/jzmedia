@@ -34,6 +34,10 @@ from .items import *
 from .fs_changes import (record_fs_change as record_fs_change,
                          fs_change_summary as fs_change_summary,
                          clear_fs_changes as clear_fs_changes)
+from .preview_scan_health import (begin_preview_scan as begin_preview_scan,
+                                  finish_preview_scan as finish_preview_scan,
+                                  preview_scan_guard as preview_scan_guard,
+                                  preview_scan_health as preview_scan_health)
 from ..db import DB_PATH  # 兼容历史导入（tests 等使用 store.DB_PATH）
 
 __all__ = ['DB_PATH', 'tv_bindings', 'tv_ingest', 'list_tv_bindings', 'tv_binding_for',

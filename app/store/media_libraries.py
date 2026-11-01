@@ -423,6 +423,8 @@ def update_media_library(media_library_id: int, **fields) -> dict | None:
         try:
             c.execute(f"UPDATE media_libraries SET {cols} WHERE id=?",
                       (*data.values(), int(media_library_id)))
+            from .preview_scan_health import invalidate_preview_scan_evidence
+            invalidate_preview_scan_evidence(c, media_library_id=media_library_id)
         except sqlite3.IntegrityError as e:
             raise ValueError(f"媒体库名已存在: {data.get('name')}") from e
         if "path" in data:

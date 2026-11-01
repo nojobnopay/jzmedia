@@ -1,13 +1,17 @@
 """Queue changes must affect the real preview worker, not only its persisted list."""
 
 import json
+from pathlib import Path
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from app.jobkit import JobRegistry
+from app.main import app
 from app.routers.stream import previews as pv
 
 
@@ -23,6 +27,8 @@ def isolate_preview_queue(monkeypatch, tmp_path):
     monkeypatch.setattr(pv, '_queued_finished', None)
     monkeypatch.setattr(pv, '_queue_retry_at', 0.0)
     monkeypatch.setattr(pv, '_ready_queue_check', (None, 0.0))
+    monkeypatch.setattr(pv, '_reconcile_thread', None)
+    monkeypatch.setattr(pv, '_submission_store', None)
     monkeypatch.setattr(pv, '_sessions', {})
     monkeypatch.setattr(pv, '_root', lambda: tmp_path / 'previews')
     monkeypatch.delenv('PREVIEW_INTERVAL', raising=False)
@@ -48,7 +54,22 @@ class ControlledGeneration:
             'id': lid, 'source': 'local', 'effective_enabled': True,
         } if lid in (1, 2) else None)
         monkeypatch.setattr(pv.store, 'get_playable', self.playable)
+        monkeypatch.setattr(pv.storage, 'backend_for_library', lambda library: SimpleNamespace(
+            library_id=library['id']))
+        monkeypatch.setattr(pv.store, 'get_preview_playables', lambda refs, library_id=None: [
+            self.playable(kind, vid) for kind, vid in refs
+            if library_id is None or self.playable(kind, vid)['library_id'] == library_id])
+        monkeypatch.setattr(pv.store, 'get_library_preview_playables', lambda lid: [
+            self.playable(kind, vid) for kind, vid in sorted(self.libraries.keys() | self.sources.keys())
+            if self.playable(kind, vid)['library_id'] == lid])
+        monkeypatch.setattr(pv.store, 'preview_catalogue_snapshot', lambda lid: tuple(
+            (row['kind'], row['id'], row['library_id'], row['file_path'], None, None, None)
+            for row in pv.store.get_library_preview_playables(lid)))
         monkeypatch.setattr(pv, '_version_source', self.version_source)
+        monkeypatch.setattr(pv, 'preview_source', lambda row, **_kwargs:
+                            pv._version_source(row['id'], row['kind'])[1], raising=False)
+        monkeypatch.setattr(pv, 'verify_sources', lambda _sources, stopped=None:
+                            not (stopped and stopped()), raising=False)
         monkeypatch.setattr(pv, '_media_cached_or_probe', lambda *_args: {
             'playable': True, 'duration': 30,
         })
@@ -114,6 +135,7 @@ def generation(monkeypatch):
 
 
 def queue(library_id=1, offset=0, limit=50):
+    pv._reconcile_ready_queue()
     return pv.preview_queue(library_id=library_id, offset=offset, limit=limit)
 
 
@@ -387,6 +409,7 @@ def test_malformed_manifest_ownership_does_not_break_queue_or_auto_status(
     if endpoint == 'queue':
         assert queue_ids(queue()) == [9]
     else:
+        pv._reconcile_ready_queue()
         assert pv.preview_auto_status()['queued'] == 1
     assert [item['id'] for item in pv._auto_queue] == saved_ids() == [9]
 
@@ -396,9 +419,40 @@ def batch_item(vid, batch_id, library_id=1):
             'source': 'batch', 'immediate': True, 'batch_id': batch_id}
 
 
-def immediate_batch(monkeypatch, ids, library_id=1):
-    monkeypatch.setattr(pv.store, 'preview_items', lambda lid: [('movie', vid) for vid in ids] if lid == library_id else [])
+def configure_batch(monkeypatch, ids, library_id=1):
+    ids = list(ids)
+    monkeypatch.setattr(pv.store, 'get_library_preview_playables', lambda lid: [
+        {**pv.store.get_playable('movie', vid), 'library_id': library_id}
+        for vid in ids] if lid == library_id else [])
+    monkeypatch.setattr(pv.storage, 'backend_for_library', lambda library: SimpleNamespace(
+        library_id=library['id']))
+    monkeypatch.setattr(pv.storage, 'clear_meta_cache', lambda _lid: None)
+    monkeypatch.setattr(pv.store, 'preview_catalogue_snapshot', lambda lid: tuple(
+        (row['kind'], row['id'], row['library_id'], row['file_path'], None, None, None)
+        for row in pv.store.get_library_preview_playables(lid)))
+    monkeypatch.setattr(pv, 'preview_source', lambda row, **_kwargs:
+                        pv._version_source(row['id'], row['kind'])[1], raising=False)
+
+
+def submit_batch(monkeypatch, ids, library_id=1):
+    configure_batch(monkeypatch, ids, library_id)
     return pv.preview_batch(pv.PreviewBatchBody(library_id=library_id))
+
+
+def wait_submission(library_id=1):
+    task = pv._submissions().tasks[library_id]
+    task.thread.join(timeout=2)
+    assert not task.thread.is_alive(), 'inventory did not finish after storage was released'
+    return task.snapshot()
+
+
+def immediate_batch(monkeypatch, ids, library_id=1):
+    submitted = submit_batch(monkeypatch, ids, library_id)
+    assert submitted['state'] == 'accepted'
+    final = wait_submission(library_id)
+    return {'state': 'queued' if final['state'] == 'done' else final['state'],
+            **{name: final[name] for name in ('batch_id', 'total', 'added', 'promoted',
+                                            'ready', 'already_queued', 'unavailable')}}
 
 
 def test_batch_enqueues_only_missing_current_quality_and_promotes_idle_without_stealing_other_work(monkeypatch, generation):
@@ -442,9 +496,9 @@ def test_batch_enqueue_save_failure_restores_idle_policy_and_does_not_leave_a_ba
     before = [dict(item) for item in pv._auto_queue]
     with monkeypatch.context() as patch:
         patch.setattr(pv, '_save_auto_queue', lambda: (_ for _ in ()).throw(OSError('disk full')))
-        with pytest.raises(HTTPException) as error:
-            immediate_batch(monkeypatch, [1, 2])
-        assert error.value.status_code == 503
+        result = immediate_batch(monkeypatch, [1, 2])
+        assert result['state'] == 'error'
+        assert '失败' in pv._submissions().latest(1)['error']
     assert pv._auto_queue == before
     assert saved_ids() == [1]
     assert queue()['batches'] == []
@@ -467,7 +521,7 @@ def test_incomplete_ready_cache_is_queued_and_not_retired_by_status(
     pv._write_manifest(directory, manifest)
     monkeypatch.setattr(pv.store, 'preview_items', lambda _lid: [('movie', 1)])
     if entrypoint == 'immediate':
-        result = pv.preview_batch(pv.PreviewBatchBody(library_id=1))
+        result = immediate_batch(monkeypatch, [1])
     else:
         result = pv.preview_queue_existing(pv.PreviewQueueBody(library_id=1))
     assert result['ready'] == 0 and result['added'] == 1
@@ -491,7 +545,7 @@ def test_batch_rechecks_complete_cache_before_claiming_batch_membership(
         return check(row, src, interval)
     monkeypatch.setattr(pv, '_current_ready', ready_during_request)
     result = immediate_batch(monkeypatch, [1])
-    assert calls == [1, 1]
+    assert calls == ([1, 1] if complete else [1, 1, 1])
     assert result['ready'] == int(complete)
     assert result['added'] == int(not complete)
     assert [item['id'] for item in pv._auto_queue] == ([] if complete else [1])
@@ -656,3 +710,270 @@ def test_direct_player_single_item_can_still_be_cancelled_from_current_row(gener
     assert pv.preview_queue_remove('movie', 1, library_id=1) == {'removed': True, 'cancelled': True}
     assert pv._jobs.get(result['job_id'])['state'] == 'cancelled'
     generation.finish()
+
+
+def test_batch_http_returns_before_slow_source_and_duplicate_recovers_same_progress(monkeypatch, generation):
+    configure_batch(monkeypatch, [1, 2, 3])
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+    original = generation.version_source
+
+    def slow_source(vid, kind):
+        calls.append(vid)
+        if vid == 2:
+            entered.set()
+            assert release.wait(3), 'test did not release the simulated remote stat'
+        return original(vid, kind)
+
+    monkeypatch.setattr(pv, '_version_source', slow_source)
+    monkeypatch.setattr(pv, '_auto_pause_reason', lambda: '')
+    client = TestClient(app)
+    started = time.monotonic()
+    try:
+        response = client.post('/api/stream/previews/jobs', json={'library_id': 1})
+        assert response.status_code == 202
+        assert time.monotonic() - started < 1
+        first = response.json()
+        assert first['state'] == 'accepted'
+        assert entered.wait(1)
+        status = client.get('/api/stream/previews/submissions/latest', params={'library_id': 1})
+        assert status.status_code == 200
+        progress = status.json()['submission']
+        assert progress['id'] == first['submission']['id']
+        assert (progress['state'], progress['phase'], progress['checked'], progress['total']) == (
+            'running', 'checking', 1, 3)
+        duplicate = client.post('/api/stream/previews/jobs', json={'library_id': 1}).json()
+        assert duplicate['submission']['id'] == progress['id']
+        assert duplicate['submission']['checked'] == 1
+        assert calls == [1, 2]
+        assert pv._auto_queue == []
+    finally:
+        release.set()
+    final = wait_submission()
+    assert final['state'] == 'done' and final['added'] == 3
+    recovered = client.get('/api/stream/previews/submissions/latest', params={'library_id': 1}).json()['submission']
+    assert recovered['id'] == final['id'] and recovered['state'] == 'done'
+    assert recovered['checked'] == recovered['total'] == 3
+    compatible = client.get('/api/stream/previews/auto', params={'library_id': 1}).json()['submission']
+    assert compatible['id'] == final['id'] and compatible['state'] == 'done'
+    assert saved_ids() == [1, 2, 3]
+
+
+def test_batch_ready_recheck_reports_queueing_without_holding_global_queue_lock(monkeypatch, generation):
+    configure_batch(monkeypatch, [1])
+    rechecking, release = threading.Event(), threading.Event()
+    calls = []
+
+    def check(row, _src, _interval):
+        calls.append(row['id'])
+        if len(calls) == 2:
+            rechecking.set()
+            assert release.wait(3), 'test did not release the completed-cache check'
+        return None, None
+
+    monkeypatch.setattr(pv, '_current_ready', check)
+    try:
+        pv.preview_batch(pv.PreviewBatchBody(library_id=1))
+        assert rechecking.wait(1)
+        assert pv._lock.acquire(timeout=0.5), 'cache I/O held the global queue lock'
+        pv._lock.release()
+        progress = pv._submissions().latest(1)
+        assert progress['phase'] == 'queueing'
+        assert progress['checked'] == progress['total'] == 1
+        assert pv.preview_queue(library_id=1, offset=0, limit=50)['total'] == 0
+    finally:
+        release.set()
+    assert wait_submission()['added'] == 1
+
+
+def test_batch_large_inventory_reads_library_configuration_and_backend_once_per_phase(monkeypatch, generation):
+    configure_batch(monkeypatch, range(1, 1201))
+    library_reads, backends, cleared = [], [], []
+    original = pv.store.get_library
+
+    def library(library_id):
+        library_reads.append(library_id)
+        return original(library_id)
+
+    def backend(row):
+        backends.append(row['id'])
+        return SimpleNamespace(library_id=row['id'])
+
+    monkeypatch.setattr(pv.store, 'get_library', library)
+    monkeypatch.setattr(pv.storage, 'backend_for_library', backend)
+    monkeypatch.setattr(pv.storage, 'clear_meta_cache', cleared.append)
+    monkeypatch.setattr(pv, '_current_ready', lambda *_args: (None, None))
+    pv.preview_batch(pv.PreviewBatchBody(library_id=1))
+    final = wait_submission()
+    assert final['state'] == 'done' and final['added'] == 1200
+    # Request validation, collection, pre-verification, and atomic commit; this
+    # stays constant even for 1200 items rather than reading once per item.
+    assert library_reads == [1, 1, 1, 1]
+    assert backends == cleared == [1]
+
+
+def test_batch_initial_submission_save_failure_returns_503_without_starting_inventory(monkeypatch, generation):
+    registry = pv._submissions()
+
+    def disk_full():
+        raise OSError('isolated disk is full')
+
+    def unexpected(_library_id):
+        pytest.fail('inventory must not run before its initial state is durable')
+
+    monkeypatch.setattr(registry, 'save', disk_full)
+    monkeypatch.setattr(pv.store, 'get_library_preview_playables', unexpected)
+    with pytest.raises(HTTPException) as error:
+        pv.preview_batch(pv.PreviewBatchBody(library_id=1))
+    assert error.value.status_code == 503
+    assert registry.latest(1) is None
+    assert pv._auto_queue == []
+
+
+def test_restarted_inventory_reports_interruption_and_preserves_saved_extraction_queue(monkeypatch, generation):
+    generation.enqueue([9])
+    interrupted = dict(id='d' * 32, library_id=1, state='running', phase='checking',
+                       total=5000, checked=700, added=0, promoted=0, ready=699,
+                       already_queued=0, unavailable=1, batch_id=None, error='')
+    (pv._root().parent / f'.{pv._root().name}-submissions.json').write_text(json.dumps([interrupted]))
+    monkeypatch.setattr(pv, '_schedule_ready_queue_reconcile', lambda: None)
+    monkeypatch.setattr(pv, '_auto_pause_reason', lambda: '')
+    status = pv.preview_auto_status(library_id=1)['submission']
+    assert status['id'] == interrupted['id'] and status['state'] == 'error'
+    assert status['checked'] == 700 and status['total'] == 5000
+    assert '重启' in status['error'] and '中断' in status['error']
+    assert saved_ids() == [9]
+    assert pv._submissions().tasks[1].thread is None
+
+
+def test_shutdown_cannot_late_enqueue_after_a_blocked_source_returns(monkeypatch, generation):
+    configure_batch(monkeypatch, [1])
+    entered, release = threading.Event(), threading.Event()
+    original = generation.version_source
+
+    def slow_source(vid, kind):
+        entered.set()
+        assert release.wait(3), 'test did not release the simulated remote stat'
+        return original(vid, kind)
+
+    monkeypatch.setattr(pv, '_version_source', slow_source)
+    pv.preview_batch(pv.PreviewBatchBody(library_id=1))
+    registry = pv._submissions()
+    assert entered.wait(1)
+    task = registry.tasks[1]
+    stopper = threading.Thread(target=registry.shutdown)
+    stopper.start()
+    try:
+        assert task.stop.wait(1)
+        assert registry.latest(1)['state'] == 'cancelled'
+    finally:
+        release.set()
+        stopper.join(timeout=2)
+    assert not stopper.is_alive()
+    assert wait_submission()['state'] == 'cancelled'
+    assert pv._auto_queue == []
+
+
+def test_batch_does_not_commit_when_library_is_removed_during_inventory(monkeypatch, generation):
+    configure_batch(monkeypatch, [1])
+    entered, release = threading.Event(), threading.Event()
+    original = generation.version_source
+    exists = [True]
+    library = pv.store.get_library
+    monkeypatch.setattr(pv.store, 'get_library', lambda lid: library(lid) if exists[0] else None)
+
+    def slow_source(vid, kind):
+        entered.set()
+        assert release.wait(3), 'test did not release the simulated remote stat'
+        return original(vid, kind)
+
+    monkeypatch.setattr(pv, '_version_source', slow_source)
+    pv.preview_batch(pv.PreviewBatchBody(library_id=1))
+    try:
+        assert entered.wait(1)
+        exists[0] = False
+    finally:
+        release.set()
+    assert wait_submission()['state'] == 'error'
+    assert pv._auto_queue == []
+
+
+def test_ready_reconciliation_checks_only_queued_items_without_enumerating_all_manifests(monkeypatch, generation):
+    ready_manifest(9, owned=True)
+    ready_manifest(700, owned=True)
+    generation.enqueue([9, 10])
+    calls = []
+    original = generation.version_source
+
+    def source(vid, kind):
+        calls.append((kind, vid))
+        return original(vid, kind)
+
+    def unexpected_glob(*_args, **_kwargs):
+        pytest.fail('queue reconciliation must not enumerate the whole completed cache')
+
+    monkeypatch.setattr(pv, '_version_source', source)
+    monkeypatch.setattr(Path, 'glob', unexpected_glob)
+    pv._reconcile_ready_queue()
+    assert calls == [('movie', 9), ('movie', 10)]
+    assert saved_ids() == [10]
+
+
+def test_submission_progress_remains_fast_under_queue_lock_and_skips_usage_and_reconciliation(monkeypatch, generation):
+    submit_batch(monkeypatch, [1])
+    final = wait_submission()
+    held, release = threading.Event(), threading.Event()
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail('lightweight submission progress must not reconcile or calculate usage')
+
+    def hold_queue_lock():
+        with pv._lock:
+            held.set()
+            release.wait(3)
+
+    monkeypatch.setattr(pv.data_usage, 'usage', unexpected)
+    monkeypatch.setattr(pv, '_schedule_ready_queue_reconcile', unexpected)
+    holder = threading.Thread(target=hold_queue_lock)
+    holder.start()
+    try:
+        assert held.wait(1)
+        started = time.monotonic()
+        response = TestClient(app).get('/api/stream/previews/submissions/latest', params={'library_id': 1})
+        assert time.monotonic() - started < 1
+        assert response.status_code == 200
+        progress = response.json()['submission']
+        assert progress['id'] == final['id'] and progress['state'] == 'done'
+        assert progress['checked'] == progress['total'] == 1
+        assert not release.is_set()
+    finally:
+        release.set()
+        holder.join(timeout=1)
+    assert not holder.is_alive()
+
+
+@pytest.mark.parametrize('changed_field', ['smb_host', 'smb_connect_host'])
+def test_batch_does_not_commit_after_remote_library_connection_changes(monkeypatch, generation, changed_field):
+    configure_batch(monkeypatch, [1])
+    entered, release = threading.Event(), threading.Event()
+    original_source = generation.version_source
+    original_library = pv.store.get_library
+    connection = {'source': 'smb', 'smb_host': '192.0.2.1', 'smb_connect_host': '192.0.2.2'}
+    monkeypatch.setattr(pv.store, 'get_library', lambda lid: {**original_library(lid), **connection})
+
+    def slow_source(vid, kind):
+        entered.set()
+        assert release.wait(3), 'test did not release the simulated remote stat'
+        return original_source(vid, kind)
+
+    monkeypatch.setattr(pv, '_version_source', slow_source)
+    pv.preview_batch(pv.PreviewBatchBody(library_id=1))
+    try:
+        assert entered.wait(1)
+        connection[changed_field] = '192.0.2.3'
+    finally:
+        release.set()
+    result = wait_submission()
+    assert result['state'] == 'error'
+    assert result['batch_id'] is None
+    assert pv._auto_queue == []

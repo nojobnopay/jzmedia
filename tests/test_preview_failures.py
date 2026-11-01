@@ -89,9 +89,13 @@ def previews(tmp_path, monkeypatch):
 
     def source(vid, kind):
         row = store.get_playable(kind, vid)
-        return row, SimpleNamespace(rel=row["file_path"])
+        return row, SimpleNamespace(rel=row["file_path"], size=1, mtime=1,
+                                    backend=SimpleNamespace(library_id=row["library_id"], root="/isolated"))
 
     monkeypatch.setattr(pv, "_version_source", source)
+    # Ledger/dispatch tests use synthetic extraction sources; source-change
+    # verification is covered separately with actual metadata backends.
+    monkeypatch.setattr(pv, "verify_sources", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(pv, "_media_cached_or_probe", lambda *_a: {"playable": True})
     client = TestClient(app)
     yield SimpleNamespace(client=client, libraries=libraries, cache=cache, item=item,

@@ -28,6 +28,7 @@ async function mount(t) {
   let failedGate = null, failedFailure = false, retryGate = null, retryResult = 'queued'
   let startGate = null, startFailure = false, cancelGate = null, singleCancelFailure = false, batchSequence = 1
   let tailGate = null, tailFailure = null
+  let autoFailure = false, autoGate = null, autoConfigGate = null, queueGate = null, startSubmission = null
   const listeners = new Set(), previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
   const document = { activeElement: null, body: {},
     addEventListener(type, handler) { if (type === 'keydown') listeners.add(handler) },
@@ -56,6 +57,7 @@ async function mount(t) {
     job: { state: 'running', job_id: 'manual-job', done: 0, total: 53 },
     completed: Array.from({ length: 53 }, (_, index) => completedItem(index + 1)),
     failed: Array.from({ length: 53 }, (_, index) => failedItem(index + 1)),
+    submission: null,
   }
   t.mock.method(globalThis, 'setTimeout', (fn, delay) => { const id = ++timerId; timers.set(id, { fn, delay }); return id })
   t.mock.method(globalThis, 'clearTimeout', id => timers.delete(id))
@@ -64,10 +66,22 @@ async function mount(t) {
     const request = { path: url.pathname, query: Object.fromEntries(url.searchParams), options, body }
     requests.push(request)
     const library = Number(url.searchParams.get('library_id')), offset = Number(url.searchParams.get('offset') || 0)
-    if (url.pathname.endsWith('/auto')) return { mode: 'local', start_hour: 3, end_hour: 6, queued: state.pending.length }
+    if (url.pathname.endsWith('/auto')) {
+      if (autoConfigGate) { const gate = autoConfigGate; autoConfigGate = null; return gate.promise }
+      return { mode: 'local', start_hour: 3, end_hour: 6, queued: state.pending.length }
+    }
+    if (url.pathname.endsWith('/submissions/latest')) {
+      if (autoGate) { const gate = autoGate; autoGate = null; return gate.promise }
+      if (autoFailure) { autoFailure = false; throw new Error('批量任务状态暂时不可用') }
+      return { submission: state.submission?.library_id === library ? structuredClone(state.submission) : null }
+    }
     if (url.pathname.endsWith('/jobs') && options.method === 'POST') {
       if (startGate) { const gate = startGate; startGate = null; return gate.promise }
       if (startFailure) { startFailure = false; throw new Error('批量加入暂时不可用') }
+      if (startSubmission) {
+        state.submission = startSubmission; startSubmission = null
+        return { state: 'accepted', submission: structuredClone(state.submission) }
+      }
       const batch_id = `batch-${++batchSequence}`
       state.pending.push(...[201, 202].map(id => ({ kind: 'movie', id, library_id: body.library_id,
         title: `新批次样本 ${id}`, file_name: `batch-${id}.mkv`, source: 'batch', batch_id })))
@@ -116,6 +130,7 @@ async function mount(t) {
       return { state: accept ? 'ready' : 'partial' }
     }
     if (url.pathname.endsWith('/queue') && !options.method) {
+      if (queueGate) { const gate = queueGate; queueGate = null; return gate.promise }
       if (queueFailure) { queueFailure = false; throw new Error('队列暂时不可用') }
       const items = state.pending.filter(item => item.library_id === library)
       const batches = new Map()
@@ -167,11 +182,21 @@ async function mount(t) {
   await flush()
   wireFocus()
   return { ui, props, state, requests,
-    async poll() { const timer = [...timers.values()].find(item => item.delay === 2500 || item.delay === 30000); assert.ok(timer); timer.fn(); await flush(); wireFocus() },
+    async poll() {
+      const pending = [...timers.entries()].filter(([, item]) => item.delay === 2500 || item.delay === 30000)
+      assert.ok(pending.length)
+      for (const [id, timer] of pending) { timers.delete(id); timer.fn() }
+      await flush(); wireFocus()
+    },
     holdCompleted() { completedGate = deferred(); return completedGate },
     holdFailed() { failedGate = deferred(); return failedGate },
     holdRetry() { retryGate = deferred(); return retryGate },
     holdStart() { startGate = deferred(); return startGate }, failStart() { startFailure = true },
+    setStartSubmission(value) { startSubmission = value },
+    holdAuto() { autoGate = deferred(); return autoGate }, failAuto() { autoFailure = true },
+    holdAutoConfig() { autoConfigGate = deferred(); return autoConfigGate },
+    holdQueue() { queueGate = deferred(); return queueGate },
+    pollDelay: () => [...timers.values()].at(-1)?.delay,
     holdBatchCancel() { cancelGate = deferred(); return cancelGate },
     holdTail() { tailGate = deferred(); return tailGate }, failTail(status = 409) { tailFailure = Object.assign(new Error('预览快照已变化，请刷新后重试'), { status }) },
     failSingleCancel() { singleCancelFailure = true },
@@ -647,8 +672,8 @@ test('immediate batches can append during existing work, prevent duplicate submi
   assert.equal(rows(ui, 'is-running').length, 1)
   const gate = setup.holdStart()
   await click(ui, '立即批量生成')
-  assert.equal(button(ui, '正在加入…').props['aria-busy'], true)
-  await click(ui, '正在加入…')
+  assert.equal(button(ui, '正在提交…').props['aria-busy'], true)
+  await click(ui, '正在提交…')
   assert.equal(requests.filter(request => request.path.endsWith('/jobs')).length, 2)
   gate.resolve({ state: 'queued', batch_id: null, total: 55, added: 0, promoted: 2, ready: 0, already_queued: 53, unavailable: 0 })
   await flush()
@@ -659,6 +684,140 @@ test('immediate batches can append during existing work, prevent duplicate submi
   assert.equal(state.pending.at(-1).batch_id, 'batch-2')
   assert.match(ui.text(), /共 55 项 · 处理中 1 · 等待 54/)
   assert.equal(requests.some(request => request.path.includes('/jobs/')), false)
+})
+
+const batchSubmission = (changes = {}) => ({ id: 'inventory-1', library_id: 1, state: 'running', phase: 'listing',
+  total: null, checked: 0, added: 0, promoted: 0, ready: 0, already_queued: 0, unavailable: 0, ...changes })
+
+test('batch inventory reports full-library phases, keeps polling without queued extraction and prevents duplicate starts', async t => {
+  const setup = await mount(t), { ui, state, requests } = setup
+  state.running = null
+  state.pending = []
+  setup.setStartSubmission(batchSubmission())
+  await click(ui, '立即批量生成')
+  assert.equal(button(ui, '正在统计全库…').props.disabled, true)
+  assert.doesNotMatch(ui.text(), /已检查 0 \/ 0/)
+  assert.match(ui.text(), /可离开页面，稍后返回查看/)
+  assert.equal(setup.pollDelay(), 2500)
+  await click(ui, '正在统计全库…')
+  assert.equal(requests.filter(request => request.path.endsWith('/jobs')).length, 1)
+  state.submission = batchSubmission({ phase: 'checking', total: 5000, checked: 2500, ready: 2491, already_queued: 9 })
+  await setup.poll()
+  assert.match(ui.text(), /已检查 2500 \/ 5000 项/)
+  assert.match(ui.text(), /处理队列只显示需要生成的影片/)
+  const progress = ui.find(node => node.type === 'progress' && node.props['aria-label'] === '全库预览检查进度')
+  assert.equal(progress.props.max, 5000)
+  assert.equal(progress.props.value, 2500)
+  state.submission.phase = 'queueing'
+  state.submission.checked = 5000
+  await setup.poll()
+  assert.equal(button(ui, '正在加入队列…').props.disabled, true)
+  state.submission = { ...state.submission, state: 'done', phase: 'done', ready: 4991, added: 0, promoted: 9 }
+  await setup.poll()
+  assert.match(ui.text(), /全库检查 5000 项，已加入 0 项立即批量任务，转为立即处理 9 项/)
+  assert.equal(button(ui, '立即批量生成').props.disabled, false)
+  assert.equal(setup.pollDelay(), 30000)
+  assert.ok(requests.filter(request => request.path.endsWith('/submissions/latest')).every(request => request.query.library_id === '1'))
+})
+
+test('returning to a library recovers its running inventory and ignores stale status from another library', async t => {
+  const setup = await mount(t), { ui, props, state } = setup
+  state.submission = batchSubmission({ phase: 'checking', total: 5000, checked: 200 })
+  props.active = false
+  await flush()
+  props.active = true
+  await flush()
+  assert.equal(button(ui, '正在检查预览…').props.disabled, true)
+  const old = setup.holdAuto()
+  await setup.poll()
+  props.libraryId = 2
+  await flush()
+  assert.equal(button(ui, '立即批量生成').props.disabled, false)
+  old.resolve({ mode: 'local', queued: 0, submission: batchSubmission({ checked: 4900, total: 5000 }) })
+  await flush()
+  assert.doesNotMatch(ui.text(), /4900/)
+  assert.equal(button(ui, '立即批量生成').props.disabled, false)
+})
+
+test('inventory status failures retain running state and refresh independently of queue failures', async t => {
+  const setup = await mount(t), { ui, state } = setup
+  state.submission = batchSubmission({ phase: 'checking', total: 100, checked: 10 })
+  await setup.poll()
+  setup.failAuto()
+  await setup.poll()
+  assert.equal(button(ui, '正在检查预览…').props.disabled, true)
+  assert.match(ui.text(), /批量任务状态暂时不可用/)
+  assert.ok(button(ui, '重新查询批量任务状态'))
+  state.submission = { ...state.submission, state: 'done', checked: 100, ready: 100 }
+  setup.failQueue()
+  await setup.poll()
+  assert.match(ui.text(), /全库检查 100 项/)
+  assert.equal(button(ui, '立即批量生成').props.disabled, false)
+  assert.match(ui.text(), /队列暂时不可用/)
+})
+
+test('inventory status keeps advancing while queue and automatic-generation status remain stalled', async t => {
+  const setup = await mount(t), { ui, state, props } = setup
+  state.submission = batchSubmission({ phase: 'checking', total: 5000, checked: 100 })
+  props.active = false
+  await flush()
+  const pending = setup.holdQueue()
+  const config = setup.holdAutoConfig()
+  props.active = true
+  await flush()
+  assert.match(ui.text(), /已检查 100 \/ 5000 项/)
+  state.submission.checked = 2500
+  await setup.poll()
+  assert.match(ui.text(), /已检查 2500 \/ 5000 项/)
+  pending.resolve({ items: [], total: 0, revision: '2', running: null })
+  config.resolve({ mode: 'off', queued: 0 })
+  await flush()
+})
+
+test('an unrelated pending retry cannot pause batch inventory status updates', async t => {
+  const setup = await mount(t), { ui, state } = setup
+  state.submission = batchSubmission({ phase: 'checking', total: 5000, checked: 100 })
+  await setup.poll()
+  await click(ui, '生成失败')
+  const pending = setup.holdRetry()
+  await click(ui, '重新生成 生成失败样本 1')
+  state.submission.checked = 2500
+  await setup.poll()
+  assert.match(ui.text(), /已检查 2500 \/ 5000 项/)
+  pending.resolve({ state: 'queued' })
+  await flush()
+})
+
+test('a lost submission response blocks resubmission until the server status can be recovered', async t => {
+  const setup = await mount(t), { ui, state, requests } = setup
+  setup.failStart()
+  setup.failAuto()
+  await click(ui, '立即批量生成')
+  assert.equal(button(ui, '正在核对…').props.disabled, true)
+  assert.match(ui.text(), /正在查询后台批量任务是否已开始/)
+  await click(ui, '正在核对…')
+  assert.equal(requests.filter(request => request.path.endsWith('/jobs')).length, 1)
+  state.submission = batchSubmission({ phase: 'checking', total: 5000, checked: 9 })
+  await click(ui, '重新查询批量任务状态')
+  assert.equal(button(ui, '正在检查预览…').props.disabled, true)
+  assert.match(ui.text(), /已检查 9 \/ 5000 项/)
+  assert.doesNotMatch(ui.text(), /批量加入暂时不可用/)
+  state.submission = { ...state.submission, state: 'error', error: '盘点任务无法读取数据库，请重试。' }
+  await setup.poll()
+  assert.match(ui.text(), /盘点任务无法读取数据库/)
+  assert.equal(button(ui, '立即批量生成').props.disabled, false)
+})
+
+test('a library whose first task status lookup fails cannot submit before a successful retry', async t => {
+  const setup = await mount(t), { ui, props, requests } = setup
+  setup.failAuto()
+  props.libraryId = 2
+  await flush()
+  assert.equal(button(ui, '正在查询…').props.disabled, true)
+  await click(ui, '正在查询…')
+  assert.equal(requests.filter(request => request.path.endsWith('/jobs')).length, 0)
+  await click(ui, '重新查询批量任务状态')
+  assert.equal(button(ui, '立即批量生成').props.disabled, false)
 })
 
 for (const source of ['batch', 'retry', 'auto', 'direct']) {

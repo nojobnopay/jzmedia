@@ -16,6 +16,7 @@ from app.routers.stream import previews as pv
 @pytest.fixture
 def tail(tmp_path, monkeypatch):
     import app.store._base as base
+    pv.shutdown_previews()
     monkeypatch.setattr(base, "DB_PATH", str(tmp_path / "tail.db"))
     store.init_db()
     library_paths.invalidate_cache()
@@ -64,6 +65,7 @@ def tail(tmp_path, monkeypatch):
                           directory=directory, data=data, body=body, record=record,
                           accept=prefix+"/accept-tail",
                           undo=f"/api/stream/previews/completed/movie/{vid}/tail-acceptance")
+    pv.shutdown_previews()
     client.close()
     library_paths.invalidate_cache()
 
@@ -300,8 +302,14 @@ def test_accepted_tail_is_skipped_by_batch_and_source_replacement_invalidates_it
     assert inv.client.post(inv.accept, json=inv.body).status_code == 200
     monkeypatch.setattr(pv, "_version_source", lambda *_a: (inv.row, inv.src))
     response = inv.client.post("/api/stream/previews/jobs", json={"library_id": inv.lib["id"]})
-    assert response.status_code == 200 and response.json()["ready"] == 1
-    assert response.json()["added"] == 0 and pv._auto_queue == []
+    assert response.status_code == 202
+    task = pv._submissions().tasks[inv.lib["id"]]
+    task.thread.join(timeout=2)
+    assert not task.thread.is_alive()
+    result = inv.client.get("/api/stream/previews/submissions/latest",
+                            params={"library_id": inv.lib["id"]}).json()["submission"]
+    assert result["state"] == "done" and result["ready"] == 1
+    assert result["added"] == 0 and pv._auto_queue == []
     inv.source.write_bytes(b"isolated-replacement-source")
     assert inv.client.get("/api/stream/previews/completed").json()["total"] == 0
     assert inv.client.post(inv.accept, json=inv.body).status_code == 409

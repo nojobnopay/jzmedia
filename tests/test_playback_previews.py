@@ -32,6 +32,22 @@ def isolate(monkeypatch, tmp_path):
     monkeypatch.delenv('PREVIEW_THREADS', raising=False)
     monkeypatch.setattr(pv, 'resolve_timeline', lambda _src, info, **_kw: {
         'duration': info['duration'], 'video_stream_index': None, 'source': 'test'})
+    monkeypatch.setattr(pv, 'preview_source', lambda row, **_kw:
+                        pv._version_source(row['id'], row.get('kind', 'movie'))[1], raising=False)
+    monkeypatch.setattr(pv, 'verify_sources', lambda _sources, stopped=None:
+                        not (stopped and stopped()), raising=False)
+
+    def preview_rows(refs, library_id=None):
+        return [{**(pv.store.get_playable(kind, vid) or {}), 'kind': kind, 'id': vid,
+                 'library_id': library_id or 1, 'file_path': f'{vid}.mkv'}
+                for kind, vid in refs]
+
+    monkeypatch.setattr(pv.store, 'get_preview_playables', preview_rows)
+    monkeypatch.setattr(pv.store, 'get_library_preview_playables', lambda lid:
+                        preview_rows(pv.store.preview_items(lid), lid))
+    monkeypatch.setattr(pv.store, 'preview_catalogue_snapshot', lambda lid: tuple(
+        (row['kind'], row['id'], row['library_id'], row['file_path'], None, None, None)
+        for row in pv.store.get_library_preview_playables(lid)))
     pv._stop.clear()
     pv._auto_wake.clear()
     yield
@@ -259,6 +275,8 @@ def test_legacy_ready_joins_quality_upgrade_queue_and_is_retired_only_after_curr
     monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {
         'id': 1, 'source': 'local', 'effective_enabled': True})
     monkeypatch.setattr(pv.store, 'preview_items', lambda _lid: [('movie', 7)])
+    monkeypatch.setattr(pv.storage, 'backend_for_library', lambda library: SimpleNamespace(
+        library_id=library['id']))
     monkeypatch.setattr(pv, '_version_source', lambda *_args: (row(), source()))
     monkeypatch.setattr(pv, '_ready_queue_check', (None, 0.0))
     cached_preview()
@@ -696,6 +714,8 @@ def test_existing_local_videos_join_queue_once_and_skip_ready(monkeypatch):
     monkeypatch.setenv('PREVIEW_AUTO_MODE', 'all')
     monkeypatch.setattr(pv.store, 'get_library', lambda _lid: {'id': 1, 'source': 'local', 'effective_enabled': True})
     monkeypatch.setattr(pv.store, 'preview_items', lambda _lid: [('movie', 1), ('movie', 2), ('episode', 3)])
+    monkeypatch.setattr(pv.storage, 'backend_for_library', lambda library: SimpleNamespace(
+        library_id=library['id']))
     monkeypatch.setattr(pv, '_version_source', lambda vid, kind: ({'id': vid, 'kind': kind}, source()))
     monkeypatch.setattr(pv, '_current_ready', lambda movie, *_args: (
         ('2', {'state': 'ready'}) if movie['id'] == 2 else (None, None)))

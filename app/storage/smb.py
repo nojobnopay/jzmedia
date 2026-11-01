@@ -364,6 +364,16 @@ class SmbStorageBackend(StorageBackend):
         self._meta.put(key, out)
         return out
 
+    def stat_uncached(self, path: str = "") -> StorageStat:
+        """Fresh attributes without reading or mutating the shared metadata cache."""
+        rel = self.norm(path)
+        try:
+            st = smbclient.stat(self._unc(rel))
+        except Exception as e:
+            raise map_smb_error(e, path or "/") from e
+        return StorageStat(size=int(st.st_size), mtime=float(st.st_mtime),
+                           is_dir=_st.S_ISDIR(int(st.st_mode)))
+
     def read(self, path: str, offset: int = 0, length: int = -1) -> bytes:
         try:
             with smbclient.open_file(self._unc(path), mode="rb",

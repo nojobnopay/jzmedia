@@ -369,6 +369,8 @@ def update_library(library_id: int, **fields) -> dict | None:
         try:
             c.execute(f"UPDATE libraries SET {cols} WHERE id=?",
                       (*data.values(), int(library_id)))
+            from .preview_scan_health import invalidate_preview_scan_evidence
+            invalidate_preview_scan_evidence(c, library_id=library_id)
         except sqlite3.IntegrityError as e:
             raise ValueError(f"库名已存在: {data.get('name')}") from e
     _invalidate_paths()
@@ -415,6 +417,8 @@ def _delete_video_rows(c, lid: int, name: str = "") -> dict:
     c.execute("DELETE FROM tv_directory_bindings WHERE library_id=?", (lid,))
     c.execute("DELETE FROM tv_binding_history WHERE library_id=?", (lid,))
     c.execute("DELETE FROM fs_changes WHERE library_id=?", (lid,))
+    from .preview_scan_health import invalidate_preview_scan_evidence
+    invalidate_preview_scan_evidence(c, library_id=lid)
     c.execute("DELETE FROM tv_seasons WHERE library_id=?", (lid,))
     stats["tv_shows"] = int(c.execute(
         "DELETE FROM tv_shows WHERE library_id=?", (lid,)).rowcount or 0)

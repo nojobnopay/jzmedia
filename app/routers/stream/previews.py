@@ -12,12 +12,12 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
+import stat
 import subprocess
 import tempfile
 import threading
 import time
 from typing import Literal
-import uuid
 
 from fastapi import HTTPException, Query
 from fastapi.responses import FileResponse
@@ -26,11 +26,15 @@ from pydantic import BaseModel, Field, StrictBool
 from ... import data_usage, storage, store
 from ...config import settings
 from ...jobkit import JobRegistry
+from ...library_mutex import library_mutation_lock
 from ...log import get_logger
 from .common import _media_cached_or_probe, _version_source, _sessions, _sess_lock, router
 from .preview_extract import Extractor, _threads
 from .preview_failures import FailureStore, failure_reason
 from .preview_inventory import PreviewInventory
+from .preview_submission import SubmissionRegistry
+from .preview_catalogue import PreviewCatalogue, assert_item_current
+from .preview_source import InventoryChanged, preview_source, raw_preview_source, source_snapshot, verify_sources
 from .preview_log import ExtractionError, error_kind, read_frame_log
 from .preview_timeline import resolve_timeline
 from .preview_color import color_plan, smoke_command
@@ -46,6 +50,10 @@ _jobs = JobRegistry(max_finished=12, prefix="preview")
 _lock = threading.RLock()
 _worker_thread = None
 _active_job = None
+# Direct-play clients do not necessarily have a server-side playback session.
+# Retain every issued sprite set for this process lifetime; after restart the
+# persisted access timestamp still provides a protection window.
+_preview_issued = set()
 _stop = threading.Event()
 _auto_wake = threading.Event()
 _auto_thread = None
@@ -55,6 +63,11 @@ _queued_finished = None
 _queue_retry_at = 0.0
 _failure_store = None
 _ready_queue_check = (None, 0.0)
+_ready_revision = 0
+_reconcile_thread = None
+_reconcile_epoch = 0
+_submission_store = None
+_submission_lock = threading.RLock()
 _dv_runtime_ready = set()
 _tail_reconcile_check = (None, 0.0)
 _tail_reconcile_pending = set()
@@ -118,7 +131,8 @@ def _quality_keys(row, src, interval, revision):
 def _current_ready(row, src, interval):
     for key in _quality_keys(row, src, interval, QUALITY_REVISION):
         data = _read_completed_manifest(_root() / key)
-        if (data and _completed_manifest(data, interval, QUALITY_REVISION)
+        if (data and _manifest_owned_by(data, row)
+                and _completed_manifest(data, interval, QUALITY_REVISION)
                 and (data.get("completion") != _TAIL_COMPLETION or
                      (data.get("item_kind"), data.get("item_id"), data["tail_decision"]["library_id"])
                      == (row.get("kind", "movie"), row["id"], row.get("library_id") or 1))):
@@ -126,8 +140,15 @@ def _current_ready(row, src, interval):
     return None, None
 
 
-def _interval(row) -> int:
-    lib = store.get_library(row.get("library_id") or 1) or {}
+def _manifest_owned_by(data, row):
+    if "item_kind" not in data and "item_id" not in data:
+        return True  # Early manifests have no ownership; their source-bound key remains authoritative.
+    return (type(data.get("item_id")) is int and data["item_id"] == row["id"]
+            and data.get("item_kind") == row.get("kind", "movie"))
+
+
+def _interval(row, *, library=None) -> int:
+    lib = library if library is not None else (store.get_library(row.get("library_id") or 1) or {})
     default = 10 if lib.get("source", "local") == "local" else 20
     try:
         return max(5, min(60, int(os.getenv("PREVIEW_INTERVAL", default))))
@@ -162,10 +183,14 @@ def _read_manifest(directory: Path):
 
 
 def _write_manifest(directory: Path, data: dict):
+    global _ready_revision
     dest = directory / "manifest.json"
     tmp = directory / "manifest.tmp"
     tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     tmp.replace(dest)
+    if data.get("state") == "ready":
+        with _lock:
+            _ready_revision += 1
     _inventory_changed(directory, data)
 
 
@@ -475,14 +500,34 @@ def _worker(jid, items, batch):
                 if index >= len(live):
                     break
                 kind, vid = live[index]
+                identity = _job_queue_item(job, kind, vid)
+                owned_entry = next((entry for entry in _auto_queue
+                                    if (entry["kind"], entry["id"]) == (kind, vid)), None)
+                if owned_entry is not None:
+                    _jobs.update(jid, _queue_owner=owned_entry)
                 _jobs.update(jid, waiting=False, current_kind=kind, current_id=vid,
                              frames=0, frame_total=0)
             # 库级任务在有在线转码时等待；单片由用户显式请求，可边播边低优先级生成。
             if batch:
                 _wait_for_transcodes(jid)
             completed = False
+            expected_source = None
+            captured = False
             try:
+                with library_mutation_lock(identity["library_id"]), store._lock:
+                    source_library = store.get_library(identity["library_id"])
+                    source_rows = store.get_preview_playables([(kind, vid)], library_id=identity["library_id"])
+                    source_row = source_rows[0] if source_rows else None
+                    captured = True
+                row, src = source_row, None
+                if source_row is not None:
+                    try:
+                        src = preview_source(source_row, fresh=True)
+                        expected_source = source_snapshot(src, source_row)
+                    except (HTTPException, OSError):
+                        pass  # Resolve again below; an unavailable source may recover.
                 row, src = _version_source(vid, kind)
+                expected_source = source_snapshot(src, row)
                 _jobs.update(jid, current=Path(src.rel).name)
                 info = _media_cached_or_probe(row, src)
                 if not info.get("playable"):
@@ -498,16 +543,36 @@ def _worker(jid, items, batch):
                 failure = {"kind": kind, "id": vid, "library_id": identity["library_id"],
                            "failed_at": int(time.time()), "error_code": code, "error": message}
                 failures.append(failure)
-            with _lock:
+            if not captured:
+                raise _Cancelled()  # A database read failure cannot certify a media failure.
+            if expected_source is not None:
+                try:
+                    if not verify_sources([(row, src, expected_source)], stopped=lambda: _cancelled(jid)):
+                        raise _Cancelled()
+                except (HTTPException, InventoryChanged, OSError):
+                    raise _Cancelled() from None
+            elif source_row is not None:
+                try:
+                    preview_source(source_row, fresh=True)
+                except (HTTPException, OSError):
+                    pass  # A consistently unavailable source retains normal failure handling.
+                else:
+                    raise _Cancelled()  # It recovered after the failed read; retry the current source.
+            with library_mutation_lock(identity["library_id"]), _lock, store._lock:
                 job = _jobs.get(jid)
                 if _stop.is_set() or not job or job["state"] != "running":
                     raise _Cancelled()
+                try:
+                    assert_item_current(source_row, source_library,
+                                        identity=(kind, vid, identity["library_id"]))
+                except InventoryChanged:
+                    raise _Cancelled() from None
                 ledger = _failure_ledger()
                 ledger.update(kind, vid, None if completed else failure)
                 saved = _flush_failures_locked()
                 if completed:
                     try:
-                        if saved:
+                        if saved and owned_entry is not None and any(entry is owned_entry for entry in _auto_queue):
                             _retire_auto_items_locked({(kind, vid)})
                     except OSError:
                         _queue_retry_at = time.monotonic() + 30
@@ -621,50 +686,68 @@ def _reconcile_ready_queue():
         if not _auto_queue or (_ready_queue_check[0] == root and now - _ready_queue_check[1] < 30):
             return
         _ready_queue_check = (root, now)
+        epoch = _reconcile_epoch
         snapshot = list(_auto_queue)
-    owned = {}
-    legacy = set()
-    for path in root.glob("*/manifest.json"):
-        if not _KEY_RE.fullmatch(path.parent.name):
-            continue
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(data, dict) or data.get("state") != "ready" or data.get("version") != VERSION:
-            continue
-        item_id = data.get("item_id")
-        kind = data.get("item_kind", "movie")
-        if type(item_id) is int and item_id > 0 and kind in ("movie", "episode", "extra"):
-            key = (kind, item_id)
-            owned.setdefault(key, set()).add(path.parent.name)
-        elif item_id is None:
-            legacy.add(path.parent.name)
-    completed = set()
+    by_library = {}
     for item in snapshot:
-        identity = (item["kind"], item["id"])
-        candidates = owned.get(identity, set()) | legacy
-        if not candidates:
-            continue
+        by_library.setdefault(item["library_id"], []).append(item)
+    for library_id, items in by_library.items():
+        stopped = lambda: epoch != _reconcile_epoch or root != _root()
+        if stopped():
+            return
         try:
-            row, src = _version_source(item["id"], item["kind"])
-            for key in _quality_keys(row, src, _interval(row), QUALITY_REVISION):
-                manifest = _read_completed_manifest(root / key) if key in candidates else None
-                if manifest and _completed_manifest(manifest, _interval(row), QUALITY_REVISION):
-                    completed.add(identity)
-                    break
-        except (HTTPException, OSError):
-            continue
-    if completed:
-        with _lock:
-            for kind, vid in completed:
-                _failure_ledger().update(kind, vid, None)
-            if not _flush_failures_locked():
-                return
-            try:
-                _retire_auto_items_locked(completed)
-            except OSError as e:
-                logger.warning("reconcile completed preview queue failed: %s", e)
+            catalogue = PreviewCatalogue(library_id, refs=[(item["kind"], item["id"]) for item in items])
+            rows = {(row["kind"], row["id"]): row for row in catalogue.rows}
+            interval = _interval({"library_id": library_id}, library=catalogue.library)
+            storage.clear_meta_cache(library_id)
+            backend = storage.backend_for_library(catalogue.library)
+            completed, sources = [], []
+            for item in items:
+                if stopped():
+                    return
+                row = rows.get((item["kind"], item["id"]))
+                if not row:
+                    continue
+                try:
+                    src = preview_source(row, backend=backend)
+                    if _current_ready(row, src, interval)[1]:
+                        completed.append(item)
+                        sources.append((row, src, source_snapshot(src, row)))
+                except (HTTPException, OSError):
+                    continue
+            if not completed or not verify_sources(sources, stopped=stopped):
+                continue
+            with library_mutation_lock(library_id), _lock, store._lock:
+                if stopped():
+                    return
+                catalogue.assert_current()
+                # An entry removed and re-added while validating is a new request,
+                # even if its serialized fields happen to be identical.
+                current_entries = {id(item) for item in _auto_queue}
+                keys = {(item["kind"], item["id"]) for item in completed if id(item) in current_entries}
+                if not keys:
+                    continue
+                for kind, vid in keys:
+                    _failure_ledger().update(kind, vid, None)
+                if _flush_failures_locked():
+                    _retire_auto_items_locked(keys)
+        except InventoryChanged:
+            continue  # Keep the current queue; a later pass can inspect the new sources.
+        except (HTTPException, storage.StorageError, OSError) as error:
+            logger.debug("reconcile preview queue deferred library=%s: %s", library_id, type(error).__name__)
+
+
+def _schedule_ready_queue_reconcile():
+    """Remote stat and cache validation must never hold up status/progress requests."""
+    global _reconcile_thread
+    with _lock:
+        if (not _auto_queue or _stop.is_set()
+                or (_reconcile_thread and _reconcile_thread.is_alive())
+                or (_ready_queue_check[0] == _root() and time.monotonic() - _ready_queue_check[1] < 30)):
+            return
+        _reconcile_thread = threading.Thread(target=_reconcile_ready_queue,
+                                              name="preview-reconcile", daemon=True)
+        _reconcile_thread.start()
 
 
 def _enqueue_auto_items(items: list[dict]) -> int:
@@ -745,6 +828,7 @@ def _auto_head_matches(job) -> bool:
     item = _queued_job_item(job)
     policy = ("manual_retry", "immediate", "source", "batch_id")
     return any(_queued_item_matches(item, queued)
+               and (job.get("_queue_owner") is None or queued is job["_queue_owner"])
                and all(item.get(name) == queued.get(name) for name in policy)
                for queued in _auto_queue)
 
@@ -904,12 +988,22 @@ def _start(items, library_id=None, auto=False, *, queue_item=None):
 
 
 def _public_job(job):
-    return {k: v for k, v in job.items() if k not in ("items", "queue_item")}
+    return {k: v for k, v in job.items() if k not in ("items", "queue_item", "_queue_owner")}
 
 
 def shutdown_previews():
+    global _submission_store, _reconcile_epoch
     _stop.set()
     _auto_wake.set()
+    with _lock:
+        _reconcile_epoch += 1
+    with _submission_lock:
+        submission_store = _submission_store
+        _submission_store = None
+    if submission_store:
+        submission_store.shutdown()
+    if _reconcile_thread:
+        _reconcile_thread.join(timeout=5)
     if _worker_thread:
         _worker_thread.join(timeout=5)
     if _auto_thread:
@@ -917,15 +1011,19 @@ def shutdown_previews():
 
 
 @router.get("/previews/auto")
-def preview_auto_status():
-    _reconcile_ready_queue()
+def preview_auto_status(library_id: int | None = None):
+    if library_id is not None and (library_id <= 0 or not store.get_library(library_id)):
+        raise HTTPException(404, "视频库不存在")
+    submission = _submissions().latest(library_id) if library_id is not None else None
+    _schedule_ready_queue_reconcile()
     with _lock:
         job = _jobs.get(_auto_job_id)
         queued = len(_pending_queue()) + int(_running_queue_item(_jobs.get(_active_job)) is not None)
         running = bool(job and job.get("auto") and job["state"] == "running")
     start, end = _auto_hours()
     return {"mode": _auto_mode(), "queued": queued, "running": running,
-            "start_hour": start, "end_hour": end, "pause_reason": _auto_pause_reason()}
+            "start_hour": start, "end_hour": end, "pause_reason": _auto_pause_reason(),
+            "submission": submission}
 
 
 def _queue_item_public(item: dict) -> dict:
@@ -1030,7 +1128,7 @@ def preview_queue(library_id: int | None = Query(default=None, gt=0),
                   limit: int = Query(default=50, ge=1, le=100)):
     if library_id is not None and not store.get_library(library_id):
         raise HTTPException(404, "视频库不存在")
-    _reconcile_ready_queue()
+    _schedule_ready_queue_reconcile()
     with _lock:
         pending = _pending_queue()
         job = _jobs.get(_active_job)
@@ -1105,12 +1203,7 @@ def _valid_tail_ready(data, interval):
 
 def _tail_source(row):
     """File attributes only; never create a read URL or run a media probe."""
-    backend = storage.backend_for(row.get("library_id") or 1)
-    rel = backend.norm(row["file_path"])
-    stat = backend.stat(rel)
-    if stat.is_dir:
-        raise storage.StorageNotFound("source is a directory")
-    return storage.MediaSource(backend, rel, "", None, stat.size, stat.mtime)
+    return raw_preview_source(row)
 
 
 def _tail_work_pending(kind, vid):
@@ -1251,10 +1344,10 @@ def _read_completed_manifest(directory):
             return None
         if data.get("completion") == _TAIL_COMPLETION and data["tail_decision"]["key"] != directory.name:
             return None
-        if any((directory / name).is_symlink() or not (directory / name).is_file()
-               or (directory / name).stat().st_size == 0
-               for name in data["pages"]):
-            return None
+        for name in data["pages"]:
+            info = (directory / name).lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_size <= 0:
+                return None
     except (OSError, ValueError, TypeError):
         return None
     return data
@@ -1313,13 +1406,8 @@ def preview_completed(library_id: int | None = Query(default=None, gt=0),
             if current_library not in backends:
                 backends[current_library] = storage.backend_for(current_library)
             backend = backends[current_library]
-            rel = backend.norm(row["file_path"])
-            stat = backend.stat(rel)
-            if stat.is_dir:
-                continue
-            # No read URL is needed: resolving one can start the remote HTTP proxy.
-            src = storage.MediaSource(backend, rel, "", None, stat.size, stat.mtime)
-        except storage.StorageError:
+            src = preview_source(row, backend=backend)
+        except (HTTPException, storage.StorageError):
             continue
         if current_library not in intervals:
             intervals[current_library] = _interval(row)
@@ -1332,7 +1420,7 @@ def preview_completed(library_id: int | None = Query(default=None, gt=0),
             if not matched:
                 continue
             key, data = matched
-            if (data.get("item_kind", kind), data.get("item_id", vid)) != (kind, vid):
+            if not _manifest_owned_by(data, row):
                 _inventory_changed(root / key)
                 continue
             if (data.get("completion") == _TAIL_COMPLETION
@@ -1555,38 +1643,14 @@ class PreviewQueueBody(BaseModel):
 
 @router.post("/previews/queue")
 def preview_queue_existing(body: PreviewQueueBody):
-    """Add unfinished videos from an existing local library to the idle queue."""
-    lib = store.get_library(body.library_id)
-    if not lib:
-        raise HTTPException(404, "视频库不存在")
-    if lib.get("source") != "local":
-        raise HTTPException(400, "当前仅支持将已有的本地视频加入闲时队列")
-    if not _auto_library(lib):
-        raise HTTPException(409, "该视频库未启用自动预览生成")
-    items = store.preview_items(body.library_id)
-    with _lock:
-        queued = {(entry["kind"], entry["id"]) for entry in _auto_queue}
-    candidates = []
-    ready = unavailable = already_queued = 0
-    for kind, vid in items:
-        if (kind, vid) in queued:
-            already_queued += 1
-            continue
-        try:
-            row, src = _version_source(vid, kind)
-        except HTTPException:
-            unavailable += 1
-            continue
-        if _current_ready(row, src, _interval(row))[1]:
-            ready += 1
-            continue
-        candidates.append({"kind": kind, "id": vid, "library_id": body.library_id})
+    """Idle and immediate admission share the same source/catalogue safeguards."""
     try:
-        added = _enqueue_auto_items(candidates)
+        plan = _collect_preview_inventory(body.library_id, idle=True)
+        return _admit_preview_inventory(plan, immediate=False)
+    except InventoryChanged as error:
+        raise HTTPException(409, str(error)) from None
     except OSError:
         raise HTTPException(503, "保存预览队列失败，请稍后重试") from None
-    return {"total": len(items), "added": added, "ready": ready,
-            "unavailable": unavailable, "already_queued": already_queued + len(candidates) - added}
 
 
 class PreviewQueueItemRef(BaseModel):
@@ -1666,6 +1730,11 @@ def preview_queue_remove(kind: Literal["movie", "episode", "extra"], version_id:
 
 @router.get("/{version_id}/previews")
 def preview_manifest(version_id: int, kind: Literal["movie", "episode", "extra"] = "movie"):
+    with _lock:
+        return _preview_manifest_locked(version_id, kind)
+
+
+def _preview_manifest_locked(version_id, kind):
     row, src = _version_source(version_id, kind)
     interval = _interval(row)
     key = _cache_key(row, src, interval)
@@ -1691,6 +1760,13 @@ def preview_manifest(version_id: int, kind: Literal["movie", "episode", "extra"]
         # Upgrade old cache ownership only after resolving the authorized source.
         data.update(item_kind=kind, item_id=version_id)
         _write_manifest(directory, data)
+    if data:
+        _preview_issued.add(key)
+        # Protect URLs handed to a player even before it requests its first page.
+        try:
+            os.utime(directory, None, follow_symlinks=False)
+        except OSError:
+            pass
     result = _public_manifest(key, data)
     result["state"] = "ready" if data and data.get("state") == "ready" else "missing"
     job = _jobs.get(_active_job)
@@ -1734,61 +1810,170 @@ class PreviewBatchBody(BaseModel):
     library_id: int = Field(gt=0)
 
 
-@router.post("/previews/jobs")
+def _submissions():
+    global _submission_store
+    with _submission_lock:
+        if _submission_store is None or _submission_store.root != _root():
+            try:
+                _submission_store = SubmissionRegistry(_root())
+            except (OSError, ValueError, TypeError):
+                raise HTTPException(503, "读取批量盘点状态失败，请检查服务日志后重试") from None
+        return _submission_store
+
+
+@router.get("/previews/submissions/latest")
+def preview_submission_latest(library_id: int):
+    """Progress is independent of queue reconciliation and disk usage statistics."""
+    if library_id <= 0 or not store.get_library(library_id):
+        raise HTTPException(404, "视频库不存在")
+    return {"submission": _submissions().latest(library_id)}
+
+
+def _collect_preview_inventory(library_id, *, idle=False, task=None):
+    catalogue = PreviewCatalogue(library_id)
+    library, rows = catalogue.library, catalogue.rows
+    if idle:
+        if library.get("source") != "local":
+            raise HTTPException(400, "当前仅支持将已有的本地视频加入闲时队列")
+        if not _auto_library(library):
+            raise HTTPException(409, "该视频库未启用自动预览生成")
+    interval = _interval({"library_id": library_id}, library=library)
+    plan = dict(catalogue=catalogue, sources=[], candidates=[], interval=interval,
+                total=len(rows), ready=0, unavailable=0, already_queued=0)
+    if task:
+        task.update(phase="checking", total=len(rows))
+    with _lock:
+        queued = {(entry["kind"], entry["id"]) for entry in _auto_queue} if idle else set()
+    backend = None
+    if rows:
+        try:
+            storage.clear_meta_cache(library_id)
+            backend = storage.backend_for_library(library)
+        except storage.StorageError:
+            pass
+    for checked, row in enumerate(rows, 1):
+        if task and task.stop.is_set():
+            return None
+        identity = (row["kind"], row["id"])
+        if identity in queued:
+            plan["already_queued"] += 1
+        elif backend is not None:
+            try:
+                src = preview_source(row, backend=backend)
+                if task and task.stop.is_set():
+                    return None
+                plan["sources"].append((row, src, source_snapshot(src, row)))
+                if _current_ready(row, src, interval)[1]:
+                    plan["ready"] += 1
+                else:
+                    plan["candidates"].append((row, src))
+            except (HTTPException, OSError):
+                plan["unavailable"] += 1
+        else:
+            plan["unavailable"] += 1
+        if task:
+            task.update(checked=checked, ready=plan["ready"], unavailable=plan["unavailable"],
+                        already_queued=plan["already_queued"])
+    return plan
+
+
+def _admit_preview_inventory(plan, *, immediate, task=None):
+    catalogue = plan["catalogue"]
+    library_id = catalogue.library_id
+    stopped = task.stop.is_set if task else lambda: False
+    if task:
+        task.update(phase="queueing", checked=plan["total"])
+    # Fail early on scanned/managed changes, then stat every resolved source,
+    # including items initially marked ready. No network I/O holds either lock.
+    with library_mutation_lock(library_id):
+        catalogue.assert_current()
+    candidates = plan["candidates"]
+    ready = plan["ready"]
+    batch_id = task.data["id"] if immediate else None
+    while not stopped():
+        with _lock:
+            revision = _ready_revision
+        pending = []
+        for row, src in candidates:
+            if stopped():
+                return None
+            if _current_ready(row, src, plan["interval"])[1]:
+                ready += 1
+            else:
+                pending.append((row, src))
+        candidates = pending
+        if not verify_sources(plan["sources"], stopped=stopped):
+            return None
+        # The same short mutation boundary is used by scan reconciliation and
+        # FileStation writes. The global queue lock is never taken before it.
+        with library_mutation_lock(library_id), _lock, store._lock:
+            if stopped():
+                return None
+            catalogue.assert_current()
+            if revision != _ready_revision:
+                continue
+            if not immediate and not _auto_library(store.get_library(library_id)):
+                raise HTTPException(409, "该视频库未启用自动预览生成")
+            added = promoted = 0
+            already_queued = plan["already_queued"]
+            job = _jobs.get(_active_job)
+            active = set()
+            if job and job["state"] == "running":
+                active.update(tuple(item) for item in job.get("items", [])[int(job.get("done") or 0):])
+            before = list(_auto_queue)
+            positions = {(entry["kind"], entry["id"]): i for i, entry in enumerate(_auto_queue)}
+            for row, _src in candidates:
+                identity = (row["kind"], row["id"])
+                index = positions.get(identity)
+                if (identity in active or index is not None
+                        and (not immediate or _queue_immediate(_auto_queue[index]))):
+                    already_queued += 1
+                    continue
+                entry = {"kind": row["kind"], "id": row["id"], "library_id": library_id}
+                if immediate:
+                    entry.update(immediate=True, source="batch", batch_id=batch_id)
+                if index is None:
+                    positions[identity] = len(_auto_queue)
+                    _auto_queue.append(entry)
+                    added += 1
+                else:
+                    _auto_queue[index] = entry
+                    promoted += 1
+            try:
+                if _auto_queue != before:
+                    _save_auto_queue()
+            except OSError:
+                _auto_queue[:] = before
+                raise
+            break
+    else:
+        return None
+    _auto_wake.set()
+    result = dict(total=plan["total"], added=added, ready=ready,
+                  already_queued=already_queued, unavailable=plan["unavailable"])
+    if immediate:
+        result.update(state="done", phase="done", promoted=promoted,
+                      batch_id=batch_id if added + promoted else None)
+    return result
+
+
+def _inventory_batch(task):
+    plan = _collect_preview_inventory(task.data["library_id"], task=task)
+    if plan is not None and not task.stop.is_set():
+        result = _admit_preview_inventory(plan, immediate=True, task=task)
+        if result is not None:
+            task.update(**result)
+
+
+@router.post("/previews/jobs", status_code=202)
 def preview_batch(body: PreviewBatchBody):
     if not store.get_library(body.library_id):
         raise HTTPException(404, "视频库不存在")
-    items = store.preview_items(body.library_id)
-    candidates = []
-    ready = unavailable = 0
-    for kind, vid in items:
-        try:
-            row, src = _version_source(vid, kind)
-        except HTTPException:
-            unavailable += 1
-            continue
-        interval = _interval(row)
-        if _current_ready(row, src, interval)[1]:
-            ready += 1
-        else:
-            candidates.append((kind, vid, row, src, interval))
-    batch_id = uuid.uuid4().hex
-    added = promoted = already_queued = 0
-    with _lock:
-        job = _jobs.get(_active_job)
-        active = set()
-        if job and job["state"] == "running":
-            active.update(tuple(item) for item in job.get("items", [])[int(job.get("done") or 0):])
-        before = list(_auto_queue)
-        for kind, vid, row, src, interval in candidates:
-            identity = (kind, vid)
-            entry_index = next((i for i, entry in enumerate(_auto_queue)
-                                if (entry["kind"], entry["id"]) == identity), None)
-            if identity in active or (entry_index is not None and _queue_immediate(_auto_queue[entry_index])):
-                already_queued += 1
-                continue
-            # Generation can complete while this request gathers the library list.
-            if _current_ready(row, src, interval)[1]:
-                ready += 1
-                continue
-            entry = {"kind": kind, "id": vid, "library_id": body.library_id,
-                     "immediate": True, "source": "batch", "batch_id": batch_id}
-            if entry_index is None:
-                _auto_queue.append(entry)
-                added += 1
-            else:
-                _auto_queue[entry_index] = entry
-                promoted += 1
-        try:
-            if _auto_queue != before:
-                _save_auto_queue()
-        except OSError:
-            _auto_queue[:] = before
-            raise HTTPException(503, "保存预览队列失败，请稍后重试") from None
-    _auto_wake.set()
-    return {"state": "queued", "batch_id": batch_id if added + promoted else None,
-            "total": len(items), "added": added, "promoted": promoted, "ready": ready,
-            "already_queued": already_queued, "unavailable": unavailable}
+    try:
+        submission = _submissions().submit(body.library_id, _inventory_batch)
+    except (OSError, RuntimeError):
+        raise HTTPException(503, "启动批量盘点失败，请检查服务日志后重试") from None
+    return {"state": "accepted", "submission": submission}
 
 
 @router.post("/previews/batches/{batch_id}/cancel")
@@ -1853,6 +2038,12 @@ class PreviewCacheCleanBody(BaseModel):
     dry_run: bool = True
 
 
+@router.post("/previews/cache/clean-obsolete")
+def preview_cache_clean_obsolete(body: PreviewCacheCleanBody):
+    from .preview_cleanup import clean
+    return clean(__import__(__name__, fromlist=['']), body.dry_run)
+
+
 @router.post("/previews/cache/clean")
 def preview_cache_clean(body: PreviewCacheCleanBody):
     """Two-step user cleanup, excluding queue metadata and any active generator."""
@@ -1884,6 +2075,11 @@ def preview_cache_clean(body: PreviewCacheCleanBody):
 
 @router.get("/previews/cache/{key}/{name}")
 def preview_image(key: str, name: str):
+    with _lock:
+        return _preview_image_locked(key, name)
+
+
+def _preview_image_locked(key, name):
     if not _KEY_RE.fullmatch(key) or not _IMAGE_RE.fullmatch(name):
         raise HTTPException(404, "预览图片不存在")
     dest = _root() / key / name
@@ -1895,6 +2091,7 @@ def preview_image(key: str, name: str):
         if not manifest.get("item_id"):
             raise HTTPException(404, "请先重新打开影片预览")
         visible_item(manifest.get("item_kind", "movie"), int(manifest["item_id"]))
+    _preview_issued.add(key)
     try:
         os.utime(dest.parent, None)
     except OSError as e:

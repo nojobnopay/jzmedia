@@ -1,8 +1,18 @@
 """扫描自动同步（Plex 式删除识别）：电影 GC + 取消保护 + 汇总计数 + TV 链式。"""
 import shutil
 
+import pytest
+
 from app import library_paths, scanner, store
+from app.metadata import chain
 from app.routers import jobs as jobs_router
+
+
+@pytest.fixture(autouse=True)
+def offline_metadata(monkeypatch):
+    # These tests exercise catalogue synchronization, not live provider search.
+    # The modern fallback chain must stay isolated just like the legacy TMDB stub.
+    monkeypatch.setattr(chain, "search", lambda *_args, **_kwargs: [])
 
 
 def _touch(root, rel, data=b"x"):

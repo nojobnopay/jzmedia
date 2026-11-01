@@ -435,7 +435,7 @@ def management_path(path, method):
     if method in {"GET", "HEAD"}:
         if path in {"/api/health", "/api/libraries", "/api/media-libraries"}:
             return False
-        if path.startswith(("/api/stream/previews/jobs", "/api/stream/previews/queue",
+        if path.startswith(("/api/stream/previews/jobs", "/api/stream/previews/submissions", "/api/stream/previews/queue",
                             "/api/stream/previews/auto", "/api/stream/previews/completed", "/api/stream/previews/failed", "/api/stream/prewarm/",
                             "/api/collections/suggest/backfill")):
             return True

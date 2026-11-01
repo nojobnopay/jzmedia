@@ -743,6 +743,30 @@ def _scan_libraries(library_id, media_library_id=None) -> list[dict]:
 
 def scan_all(progress_cb=None, should_stop=None, library_id=None,
              force: bool = False, media_library_id=None) -> list[dict]:
+    """Record completion evidence around every full scan entry point."""
+    ensure_dirs()
+    libs = _scan_libraries(library_id, media_library_id)
+    tokens = {int(lib['id']): store.begin_preview_scan(lib['id']) for lib in libs}
+    results = None
+    try:
+        results = _scan_all(progress_cb, should_stop, library_id, force, media_library_id, libs=libs)
+        return results
+    finally:
+        try:
+            stopped = bool(should_stop and should_stop())
+        except Exception:
+            stopped = True  # A broken cancellation check cannot prove completion.
+        for lid, token in tokens.items():
+            failed = results is None or stopped or any(
+                int(r.get('library_id') or 0) == lid and
+                (str(r.get('status') or '').startswith('error') or
+                 r.get('status') in (ST_SCAN_FAILED, ST_LIBRARY_OFFLINE, 'skipped_tv_incomplete') or
+                 r.get('reconciliation', {}).get('incomplete')) for r in (results or []))
+            store.finish_preview_scan(lid, token, not failed)
+
+
+def _scan_all(progress_cb=None, should_stop=None, library_id=None,
+              force: bool = False, media_library_id=None, *, libs=None) -> list[dict]:
     """扫描。`library_id=None` 遍历全部启用视频库；`media_library_id` 只扫该媒体库下的
     全部启用视频库；否则只扫指定视频库。
     遍历/stat 走 StorageBackend：直读远程库不依赖 POSIX 挂载（指导 Phase1）。
@@ -754,7 +778,7 @@ def scan_all(progress_cb=None, should_stop=None, library_id=None,
     返回结果条目带 `library_id`（跨库任务可区分）；GC 以聚合条目
    （`removed_movie/removed_episode/removed_show` + `count`）回传。"""
     ensure_dirs()
-    libs = _scan_libraries(library_id, media_library_id)
+    libs = _scan_libraries(library_id, media_library_id) if libs is None else libs
     if not libs:
         return []
     skip_dirs = scan_skip_dirs()

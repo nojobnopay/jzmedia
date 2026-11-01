@@ -207,17 +207,29 @@ def _version_source(version_id: int, kind: str = "movie") -> tuple[dict, "storag
     m = store.get_playable(kind, vid)
     if not m:
         raise HTTPException(404, "version not found")
+    return m, _playable_source(m)
+
+
+def _playable_source(row: dict, *, refresh_meta: bool = True,
+                     backend: storage.StorageBackend | None = None) -> "storage.MediaSource":
+    """Resolve an already loaded playable; inventories may reuse one library backend.
+
+    Playback keeps fresh metadata by default. A batch clears the metadata cache
+    once before its inventory, then reuses the backend without another row lookup.
+    """
+    library_id = row.get('library_id') or library_paths.DEFAULT_LIBRARY_ID
     try:
-        storage.clear_meta_cache(m.get('library_id') or library_paths.DEFAULT_LIBRARY_ID)
-        src = storage.media_source(
-            m.get("library_id") or library_paths.DEFAULT_LIBRARY_ID, m["file_path"])
+        if refresh_meta:
+            storage.clear_meta_cache(library_id)
+        if backend is None:
+            return storage.media_source(library_id, row["file_path"])
+        return storage.media_source(library_id, row["file_path"], backend=backend)
     except storage.StorageNotFound:
         raise HTTPException(410, "file missing")
     except storage.StorageOffline as e:
         raise HTTPException(503, f"source offline: {e}")
     except storage.StorageError as e:
         raise HTTPException(500, f"storage error: {e}")
-    return m, src
 
 
 def _media_cached_or_probe(m: dict, src, *, force: bool = False) -> dict:
