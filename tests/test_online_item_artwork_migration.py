@@ -28,7 +28,7 @@ def test_upgrade_from_35_preserves_identities_and_records_and_repeats(tmp_path, 
     store.init_db()
     store.init_db()
     with closing(_base._conn()) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 36
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == _base.SCHEMA_VERSION
         assert {table: [tuple(row) for row in connection.execute(f"SELECT * FROM {table}")] for table in tables} == before
         assert connection.execute("SELECT COUNT(*) FROM online_item_artwork").fetchone()[0] == 0
 
